@@ -16,6 +16,7 @@
 #include "TransportManager.h"
 
 #include "AbstractServerList.h"
+#include "FailSession.h"
 #include "ServerTracker.h"
 
 namespace RAMCloud {
@@ -26,13 +27,15 @@ namespace RAMCloud {
  * \param context
  *      Overall information about the RAMCloud server
  */
-AbstractServerList::AbstractServerList(Context& context)
+AbstractServerList::AbstractServerList(Context* context)
     : context(context)
     , isBeingDestroyed(false)
     , version(0)
     , trackers()
     , mutex()
+    , skipServerIdCheck(false)
 {
+    context->serverList = this;
 }
 
 /**
@@ -66,14 +69,12 @@ const char*
 AbstractServerList::getLocator(ServerId id)
 {
     Lock _(mutex);
-
-    if (icontains(id))
-        return iget(id.indexNumber())->serviceLocator.c_str();
+    ServerDetails* details = iget(id);
+    if (details != NULL)
+        return details->serviceLocator.c_str();
 
     throw ServerListException(HERE,
-            format("Invalid ServerID (%lu)", id.getId()));
-
-
+            format("Invalid ServerId (%s)", id.toString().c_str()));
 }
 
 /**
@@ -89,24 +90,90 @@ AbstractServerList::getLocator(ServerId id)
 bool
 AbstractServerList::isUp(ServerId id) {
     Lock _(mutex);
-
-    return icontains(id) && iget(id.indexNumber())->status == ServerStatus::UP;
+    ServerDetails* details = iget(id);
+    return (details != NULL) && (details->status == ServerStatus::UP);
 }
 
 /**
- * Open a session to the given ServerId. This method simply calls through to
- * TransportManager::getSession. See the documentation there for exceptions
- * that may be thrown.
+ * Return a session to the given ServerId; a FailSession is returned if the
+ * given server doesn't exist or a session cannot be opened.
  *
- * \throw ServerListException
- *      A ServerListException is thrown if the given ServerId is not in this
- *      list.
+ * \param id
+ *      Identifier for a particular server.
  */
 Transport::SessionRef
 AbstractServerList::getSession(ServerId id)
 {
-    // getLocator(id) locks list for access
-    return context.transportManager->getSession(getLocator(id), id);
+    // This method is a bit tricky because we don't want to hold the
+    // lock while opening a new session. This means it's possible that
+    // two different threads might each discover that there is no cached
+    // session and open new sessions in parallel.  In addition, it's
+    // possible that a server could be deleted while a session is being
+    // opened for it.
+    const char* locator;
+    {
+        Lock _(mutex);
+        ServerDetails* details = iget(id);
+        if (details == NULL)
+            return FailSession::get();
+        if (details->session != NULL)
+            return details->session;
+        locator = details->serviceLocator.c_str();
+    }
+
+    // No cached session. Open a new session and send a brief request to
+    // the server to verify that it has the expected identifier.
+    Transport::SessionRef session =
+            context->transportManager->openSession(locator);
+    if (!skipServerIdCheck) {
+        try {
+            ServerId actualId = MembershipClient::getServerId(context,
+                    session);
+            if (id != actualId) {
+                RAMCLOUD_LOG(DEBUG, "Expected ServerId %s for \"%s\", "
+                        "but actual server id was %s",
+                        id.toString().c_str(), locator,
+                        actualId.toString().c_str());
+                return FailSession::get();
+            }
+        }
+        catch (const TransportException& e) {
+            RAMCLOUD_LOG(DEBUG, "Failed to obtain ServerId from \"%s\": %s",
+                    locator, e.what());
+            return FailSession::get();
+        }
+    }
+
+    // We've successfully opened a session. Add it back back into the server
+    // list, assuming this ServerId is still valid and no one else has put a
+    // session there first.
+    {
+        Lock _(mutex);
+        ServerDetails* details = iget(id);
+        if (details == NULL)
+            return FailSession::get();
+        if (details->session == NULL)
+            details->session = session;
+        return details->session;
+    }
+}
+
+/**
+ * If there is a session cached for the given server id, flush it so that
+ * future attempts to communicate with the server will create a new session.
+ *
+ * \param id
+ *      Identifier for a particular server.
+ */
+void
+AbstractServerList::flushSession(ServerId id)
+{
+    Lock _(mutex);
+    ServerDetails* details = iget(id);
+    if (details != NULL) {
+        details->session = NULL;
+        RAMCLOUD_TEST_LOG("flushed session for id %s", id.toString().c_str());
+    }
 }
 
 /**
@@ -115,10 +182,10 @@ AbstractServerList::getSession(ServerId id)
  * rather than having to try and catch around the index operator.
  */
 bool
-AbstractServerList::contains(ServerId id) const {
+AbstractServerList::contains(ServerId id) {
     Lock _(mutex);
 
-    return icontains(id);
+    return iget(id) != NULL;
 }
 
 /**
@@ -156,7 +223,7 @@ AbstractServerList::registerTracker(ServerTrackerInterface& tracker)
     // during enlistment that the registering tracker queue will have the
     // crash event for the replaced server before the add event of the
     // server which replaced it.
-    for (size_t n = 0; n < isize(); n++)  {
+    for (uint32_t n = 0; n < isize(); n++)  {
         const ServerDetails* server = iget(n);
         if (!server || server->status != ServerStatus::CRASHED)
             continue;
@@ -168,7 +235,7 @@ AbstractServerList::registerTracker(ServerTrackerInterface& tracker)
     }
 
     // Push all known servers that are up
-    for (size_t n = 0; n < isize(); n++)  {
+    for (uint32_t n = 0; n < isize(); n++)  {
         ServerDetails* server = iget(n);
         if (!server || server->status != ServerStatus::UP)
             continue;
@@ -240,8 +307,8 @@ AbstractServerList::toString(ServerId id)
     } catch (const ServerListException& e) {
         locator = "(locator unavailable)";
     }
-    return format("server %lu at %s",
-                  id.getId(),
+    return format("server %s at %s",
+                  id.toString().c_str(),
                   locator.c_str());
 }
 
@@ -279,14 +346,14 @@ AbstractServerList::toString()
     Lock lock(mutex);
 
     string result;
-    for (size_t n = 0; n < isize(); n++) {
+    for (uint32_t n = 0; n < isize(); n++) {
         ServerDetails* server = iget(n);
         if (!server)
             continue;
 
         result.append(
-            format("server %lu at %s with %s is %s\n",
-                   server->serverId.getId(),
+            format("server %s at %s with %s is %s\n",
+                   server->serverId.toString().c_str(),
                    server->serviceLocator.c_str(),
                    server->services.toString().c_str(),
                    toString(server->status).c_str()));

@@ -47,12 +47,12 @@ namespace RAMCloud {
  */
 class MembershipClient {
   public:
-    static ServerId getServerId(Context& context,
+    static ServerId getServerId(Context* context,
             Transport::SessionRef session);
-    static void setServerList(Context& context, ServerId serverId,
-            ProtoBuf::ServerList& list);
-    static bool updateServerList(Context& context, ServerId serverId,
-            ProtoBuf::ServerList& changes);
+    static void setServerList(Context* context, ServerId serverId,
+            ProtoBuf::ServerList* list);
+    static bool updateServerList(Context* context, ServerId serverId,
+            ProtoBuf::ServerList* changes);
 
   private:
     MembershipClient();
@@ -64,12 +64,12 @@ class MembershipClient {
  */
 class GetServerIdRpc : public RpcWrapper {
   public:
-    GetServerIdRpc(Context& context, Transport::SessionRef session);
+    GetServerIdRpc(Context* context, Transport::SessionRef session);
     ~GetServerIdRpc() {}
     ServerId wait();
 
   PRIVATE:
-    Context& context;
+    Context* context;
     DISALLOW_COPY_AND_ASSIGN(GetServerIdRpc);
 };
 
@@ -79,8 +79,8 @@ class GetServerIdRpc : public RpcWrapper {
  */
 class SetServerListRpc : public ServerIdRpcWrapper {
   public:
-    SetServerListRpc(Context& context, ServerId serverId,
-            ProtoBuf::ServerList& list);
+    SetServerListRpc(Context* context, ServerId serverId,
+            ProtoBuf::ServerList* list);
     ~SetServerListRpc() {}
     /// \copydoc ServerIdRpcWrapper::waitAndCheckErrors
     void wait() {waitAndCheckErrors();}
@@ -95,8 +95,8 @@ class SetServerListRpc : public ServerIdRpcWrapper {
  */
 class UpdateServerListRpc : public ServerIdRpcWrapper {
   public:
-    UpdateServerListRpc(Context& context, ServerId serverId,
-            ProtoBuf::ServerList& update);
+    UpdateServerListRpc(Context* context, ServerId serverId,
+            ProtoBuf::ServerList* update);
     ~UpdateServerListRpc() {}
     bool wait();
 

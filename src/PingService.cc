@@ -31,7 +31,7 @@ namespace RAMCloud {
  *      to have associated a serverList with this context; if not, this service
  *      will not return a valid ServerList version in response to pings.
  */
-PingService::PingService(Context& context)
+PingService::PingService(Context* context)
     : context(context)
     , ignoreKill(false)
 {
@@ -68,12 +68,12 @@ PingService::ping(const WireFormat::Ping::Request& reqHdr,
         LOG(DEBUG, "Received ping request from unknown endpoint "
             "(perhaps the coordinator or a client)");
     } else {
-        LOG(DEBUG, "Received ping request from server %lu",
-            reqHdr.callerId);
+        LOG(DEBUG, "Received ping request from server %s",
+            ServerId(reqHdr.callerId).toString().c_str());
     }
     respHdr.serverListVersion = 0;
-    if (context.serverList != NULL)
-        respHdr.serverListVersion = context.serverList->getVersion();
+    if (context->serverList != NULL)
+        respHdr.serverListVersion = context->serverList->getVersion();
 }
 
 /**

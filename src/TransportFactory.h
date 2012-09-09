@@ -81,7 +81,7 @@ class TransportFactory {
      *      client.
      */
     virtual Transport*
-    createTransport(Context& context,
+    createTransport(Context* context,
             const ServiceLocator* localServiceLocator = NULL) = 0;
 
     /**

@@ -16,9 +16,12 @@
 #ifndef RAMCLOUD_LOGCABINHELPER_H
 #define RAMCLOUD_LOGCABINHELPER_H
 
+#include <google/protobuf/message.h>
 #include <Client/Client.h>
+#include <algorithm>
 
 #include "Common.h"
+#include "EntryType.pb.h"
 
 namespace RAMCloud {
 
@@ -36,27 +39,16 @@ class LogCabinHelper {
     explicit LogCabinHelper(LogCabin::Client::Log& logCabinLog)
         : logCabinLog(logCabinLog) {}
 
-    template<typename M>
-    EntryId
-    appendProtoBuf(M& message,
-                   const vector<EntryId>& invalidates = vector<EntryId>()) {
-        string data;
-        message.SerializeToString(&data);
+    EntryId appendProtoBuf(const google::protobuf::Message& message,
+            const vector<EntryId>& invalidates = vector<EntryId>(),
+            EntryId expectedId = NO_ID);
 
-        Entry stateEntry(data.c_str(),
-                         uint32_t(data.length() + 1),
-                         invalidates);
-        EntryId entryId = logCabinLog.append(stateEntry);
+    string getEntryType(Entry& entryRead);
 
-        return entryId;
-    };
+    void parseProtoBufFromEntry(Entry& entryRead,
+                                google::protobuf::Message& message);
 
-    template<typename M>
-    void getProtoBufFromEntryId(EntryId entryId, M& message) {
-        vector<Entry> entriesRead = logCabinLog.read(entryId);
-        message.ParseFromArray(entriesRead[0].getData(),
-                               entriesRead[0].getLength());
-    };
+    vector<Entry> readValidEntries();
 
   PRIVATE:
     /**

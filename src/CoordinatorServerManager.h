@@ -21,8 +21,8 @@
 #include "Common.h"
 #include "CoordinatorServerList.h"
 #include "ServerInformation.pb.h"
-#include "StateEnlistServer.pb.h"
-#include "StateHintServerDown.pb.h"
+#include "ServerUpdate.pb.h"
+#include "StateServerDown.pb.h"
 
 namespace RAMCloud {
 
@@ -43,31 +43,26 @@ class CoordinatorServerManager {
     explicit CoordinatorServerManager(CoordinatorService& coordinatorService);
     ~CoordinatorServerManager();
 
-    /**
-     * The ping timeout used when the Coordinator verifies an incoming
-     * hint server down message. Until we resolve the scheduler issues that we
-     * have been seeing this timeout should be at least 250ms.
-     */
-    static const int TIMEOUT_USECS = 250 * 1000;
-
     bool assignReplicationGroup(uint64_t replicationId,
                                 const vector<ServerId>& replicationGroupIds);
     void createReplicationGroup();
     ServerId enlistServer(ServerId replacesId,
-                               ServiceMask serviceMask,
-                               const uint32_t readSpeed,
-                               const uint32_t writeSpeed,
-                               const char* serviceLocator);
-
+                          ServiceMask serviceMask,
+                          const uint32_t readSpeed, const uint32_t writeSpeed,
+                          const char* serviceLocator);
+    void enlistServerRecover(ProtoBuf::ServerInformation* state,
+                             EntryId entryId);
+    void enlistedServerRecover(ProtoBuf::ServerInformation* state,
+                               EntryId entryId);
     ProtoBuf::ServerList getServerList(ServiceMask serviceMask);
     bool hintServerDown(ServerId serverId);
-    void hintServerDownRecover(ProtoBuf::StateHintServerDown* state,
-                               EntryId entryId);
     void removeReplicationGroup(uint64_t groupId);
     void sendServerList(ServerId serverId);
     void serverDown(ServerId serverId);
+    void serverDownRecover(ProtoBuf::StateServerDown* state,
+                           EntryId entryId);
     void setMinOpenSegmentId(ServerId serverId, uint64_t segmentId);
-    void setMinOpenSegmentIdRecover(ProtoBuf::ServerInformation* state,
+    void setMinOpenSegmentIdRecover(ProtoBuf::ServerUpdate* state,
                                     EntryId entryId);
     bool verifyServerFailure(ServerId serverId);
 
@@ -75,15 +70,64 @@ class CoordinatorServerManager {
   PRIVATE:
 
     /**
-     * Defines methods and stores data to hintServerDown.
+     * Defines methods and stores data to enlist a server.
      */
-    class HintServerDown {
+    class EnlistServer {
+      public:
+          EnlistServer(CoordinatorServerManager &manager,
+                       ServerId newServerId,
+                       ServiceMask serviceMask,
+                       const uint32_t readSpeed,
+                       const uint32_t writeSpeed,
+                       const char* serviceLocator)
+              : manager(manager),
+                newServerId(newServerId),
+                serviceMask(serviceMask),
+                readSpeed(readSpeed), writeSpeed(writeSpeed),
+                serviceLocator(serviceLocator) {}
+          ServerId execute();
+          ServerId complete(EntryId entryId);
+
+      private:
+          /**
+           * Reference to the instance of coordinator server manager
+           * initializing this class.
+           * Used to get access to CoordinatorService& service.
+           */
+          CoordinatorServerManager &manager;
+          /**
+           * The id assigned to the enlisting server.
+           */
+          ServerId newServerId;
+    	  /**
+    	   * Services supported by the enlisting server.
+    	   */
+          ServiceMask serviceMask;
+          /**
+    	   * Read speed of the enlisting server.
+    	   */
+          const uint32_t readSpeed;
+    	  /**
+    	   * Write speed of the enlisting server.
+    	   */
+          const uint32_t writeSpeed;
+    	  /**
+    	   * Service Locator of the enlisting server.
+    	   */
+          const char* serviceLocator;
+          DISALLOW_COPY_AND_ASSIGN(EnlistServer);
+    };
+
+    /**
+     * Defines methods and stores data to force a server out of the cluster.
+     */
+    class ServerDown {
         public:
-            HintServerDown(CoordinatorServerManager &manager,
-                           ServerId serverId)
+            ServerDown(CoordinatorServerManager &manager,
+                       ServerId serverId)
                 : manager(manager), serverId(serverId) {}
-            bool execute();
-            bool complete(EntryId entryId);
+            void execute();
+            void complete(EntryId entryId);
         private:
             /**
              * Reference to the instance of coordinator server manager
@@ -95,7 +139,7 @@ class CoordinatorServerManager {
              * ServerId of the server that is suspected to be down.
              */
             ServerId serverId;
-            DISALLOW_COPY_AND_ASSIGN(HintServerDown);
+            DISALLOW_COPY_AND_ASSIGN(ServerDown);
     };
 
     /**

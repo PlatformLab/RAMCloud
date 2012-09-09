@@ -137,9 +137,11 @@ TEST_F(TabletMapTest, removeTabletsForTable) {
 }
 
 TEST_F(TabletMapTest, serialize) {
-    CoordinatorServerList serverList(context);
-    auto id1 = serverList.add("mock:host=one", {WireFormat::MASTER_SERVICE}, 1);
-    auto id2 = serverList.add("mock:host=two", {WireFormat::MASTER_SERVICE}, 2);
+    CoordinatorServerList serverList(&context);
+    ServerId id1 = serverList.generateUniqueId();
+    serverList.add(id1, "mock:host=one", {WireFormat::MASTER_SERVICE}, 1);
+    ServerId id2 = serverList.generateUniqueId();
+    serverList.add(id2, "mock:host=two", {WireFormat::MASTER_SERVICE}, 2);
     map.addTablet({0, 1, 6, id1, Tablet::NORMAL, {0, 5}});
     map.addTablet({1, 2, 7, id2, Tablet::NORMAL, {1, 6}});
     ProtoBuf::Tablets tablets;
@@ -189,29 +191,29 @@ TEST_F(TabletMapTest, splitTablet) {
     map.splitTablet(0, 0, ~0lu, ~0lu / 2);
     EXPECT_EQ("Tablet { tableId: 0 startKeyHash: 0 "
               "endKeyHash: 9223372036854775806 "
-              "serverId: 1 status: NORMAL "
+              "serverId: 1.0 status: NORMAL "
               "ctime: 2, 3 } "
               "Tablet { tableId: 0 "
               "startKeyHash: 9223372036854775807 "
               "endKeyHash: 18446744073709551615 "
-              "serverId: 1 status: NORMAL "
+              "serverId: 1.0 status: NORMAL "
               "ctime: 2, 3 }",
               map.debugString());
 
     map.splitTablet(0, 0, 9223372036854775806, 4611686018427387903);
     EXPECT_EQ("Tablet { tableId: 0 startKeyHash: 0 "
               "endKeyHash: 4611686018427387902 "
-              "serverId: 1 status: NORMAL "
+              "serverId: 1.0 status: NORMAL "
               "ctime: 2, 3 } "
               "Tablet { tableId: 0 "
               "startKeyHash: 9223372036854775807 "
               "endKeyHash: 18446744073709551615 "
-              "serverId: 1 status: NORMAL "
+              "serverId: 1.0 status: NORMAL "
               "ctime: 2, 3 } "
               "Tablet { tableId: 0 "
               "startKeyHash: 4611686018427387903 "
               "endKeyHash: 9223372036854775806 "
-              "serverId: 1 status: NORMAL "
+              "serverId: 1.0 status: NORMAL "
               "ctime: 2, 3 }",
               map.debugString());
 

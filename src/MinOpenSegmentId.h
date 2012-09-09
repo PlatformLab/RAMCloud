@@ -52,7 +52,7 @@ class MinOpenSegmentId : public Task {
      *      The ServerId of the master whose minOpenSegmentId is to be updated
      *      on the coordinator.
      */
-    MinOpenSegmentId(Context& context,
+    MinOpenSegmentId(Context* context,
                      TaskQueue* taskQueue,
                      const ServerId* serverId)
         : Task(*taskQueue)
@@ -92,8 +92,8 @@ class MinOpenSegmentId : public Task {
      *      method then try to update the value stored on
      */
     void updateToAtLeast(uint64_t segmentId) {
-        RAMCLOUD_TEST_LOG("request update to minOpenSegmentId for %lu to %lu",
-                          serverId->getId(), segmentId);
+        RAMCLOUD_TEST_LOG("request update to minOpenSegmentId for %s to %lu",
+                          serverId->toString().c_str(), segmentId);
         if (requested > segmentId)
             return;
         requested = segmentId;
@@ -111,7 +111,7 @@ class MinOpenSegmentId : public Task {
 #ifdef TESTING
         // When running tests, if there does not seem to be a coordinator
         // present, then just skip the call.
-        if (context.coordinatorSession->getLocation().empty()) {
+        if (context->coordinatorSession->getLocation().empty()) {
             current = requested;
             return;
         }
@@ -125,8 +125,9 @@ class MinOpenSegmentId : public Task {
             if (rpc->isReady()) {
                 rpc->wait();
                 current = sent;
-                RAMCLOUD_LOG(DEBUG, "coordinator minOpenSegmentId for %lu "
-                             "updated to %lu", serverId->getId(), current);
+                RAMCLOUD_LOG(DEBUG, "coordinator minOpenSegmentId for %s "
+                             "updated to %lu", serverId->toString().c_str(),
+                             current);
                 rpc.destroy();
             }
         }
@@ -138,7 +139,7 @@ class MinOpenSegmentId : public Task {
     /**
      * Shared RAMCloud information.
      */
-    Context& context;
+    Context* context;
 
     /**
      * Complete unholy garbage.  This has to be a pointer because the reference

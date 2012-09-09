@@ -34,7 +34,7 @@ class RamCloudTest : public ::testing::Test {
   public:
     RamCloudTest()
         : context()
-        , cluster(context)
+        , cluster(&context)
         , ramcloud()
         , tableId1(-1)
         , tableId2(-2)
@@ -56,7 +56,7 @@ class RamCloudTest : public ::testing::Test {
         config.localLocator = "mock:host=ping1";
         cluster.addServer(config);
 
-        ramcloud.construct(context, "mock:host=coordinator");
+        ramcloud.construct(&context, "mock:host=coordinator");
         tableId1 = ramcloud->createTable("table1");
         tableId2 = ramcloud->createTable("table2");
         tableId3 = ramcloud->createTable("table3", 4);
@@ -303,7 +303,7 @@ TEST_F(RamCloudTest, testingKill) {
     cluster.servers[0]->ping->ignoreKill = true;
     // Create the RPC object directly rather than calling testingKill
     // (testingKill would hang in objectFinder.waitForTabletDown).
-    KillRpc rpc(*ramcloud, tableId1, "0", 1);
+    KillRpc rpc(ramcloud.get(), tableId1, "0", 1);
     EXPECT_EQ("kill: Server remotely told to kill itself.", TestLog::get());
 }
 

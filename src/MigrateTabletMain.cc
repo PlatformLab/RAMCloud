@@ -74,7 +74,7 @@ try
     printf("client: Connecting to coordinator %s\n",
         coordinatorLocator.c_str());
 
-    RamCloud client(context, coordinatorLocator.c_str());
+    RamCloud client(&context, coordinatorLocator.c_str());
 
 #if 1
     // The following crud shouldn't be part of this utility

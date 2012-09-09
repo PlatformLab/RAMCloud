@@ -36,7 +36,4 @@ message ServerInformation {
 
 	/// Service Locator of the server.
     required string service_locator = 6;
-
-    /// The minimum open segment id of this server.
-    optional uint64 min_open_segment_id = 7;
 }

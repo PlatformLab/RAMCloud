@@ -1,4 +1,5 @@
 SERVER_SRCFILES := \
+		   src/BackupReplica.cc \
 		   src/BackupService.cc \
 		   src/BackupStorage.cc \
 		   src/Server.cc \

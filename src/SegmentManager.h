@@ -70,7 +70,7 @@ class SegmentManager {
     // Defined after this class.
     class Allocator;
 
-    SegmentManager(Context& context,
+    SegmentManager(Context* context,
                    const ServerConfig& config,
                    ServerId& logId,
                    SegletAllocator& allocator,
@@ -177,8 +177,8 @@ class SegmentManager {
     void free(LogSegment* s);
     void freeUnreferencedSegments();
 
-    /// The pervasive RAMCloud context.
-    Context& context;
+    /// The pervasive RAMCloud context->
+    Context* context;
 
     /// Size of each full segment in bytes.
     const uint32_t segmentSize;

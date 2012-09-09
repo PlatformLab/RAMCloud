@@ -103,6 +103,7 @@ SHARED_SRCFILES := \
 		   src/Transport.cc \
 		   src/TransportManager.cc \
 		   src/UdpDriver.cc \
+		   src/Util.cc \
 		   src/WallTime.cc \
 		   src/WireFormat.cc \
 		   $(INFINIBAND_SRCFILES) \

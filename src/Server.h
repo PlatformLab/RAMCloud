@@ -42,7 +42,7 @@ class BindTransport;
  */
 class Server {
   PUBLIC:
-    explicit Server(Context& context, const ServerConfig& config);
+    explicit Server(Context* context, const ServerConfig& config);
     ~Server();
 
     void startForTesting(BindTransport& bindTransport);
@@ -55,7 +55,7 @@ class Server {
     /**
      * Shared RAMCloud information.
      */
-    Context& context;
+    Context* context;
 
     /**
      * Configuration that controls which services are started as part of

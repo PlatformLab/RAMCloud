@@ -120,7 +120,6 @@ class ServerId {
     uint32_t
     indexNumber() const
     {
-        assert(isValid());
         return serverId & 0xffffffffUL;
     }
 
@@ -130,8 +129,7 @@ class ServerId {
     uint32_t
     generationNumber() const
     {
-        assert(isValid());
-        return _generationNumber();
+        return downCast<uint32_t>(serverId >> 32);
     }
 
     /**
@@ -141,7 +139,17 @@ class ServerId {
     bool
     isValid() const
     {
-        return (_generationNumber() != INVALID_SERVERID_GENERATION_NUMBER);
+        return (generationNumber() != INVALID_SERVERID_GENERATION_NUMBER);
+    }
+
+    /**
+     * Return a human-readable representation of a ServerId.
+     */
+    string toString() const
+    {
+        if (isValid())
+            return format("%u.%u", indexNumber(), generationNumber());
+        return "invalid";
     }
 
     /**
@@ -150,10 +158,11 @@ class ServerId {
     bool
     operator==(const ServerId& other) const
     {
-        // Invalid is invalid, regardless of the index number.
-        if (!isValid() && !other.isValid())
-            return true;
-        return serverId == other.serverId;
+        // Invalid equals invalid, regardless of the index number.
+        return ((serverId == other.serverId) ||
+                ((generationNumber() == INVALID_SERVERID_GENERATION_NUMBER)
+                && (other.generationNumber()
+                == INVALID_SERVERID_GENERATION_NUMBER)));
     }
 
     /**
@@ -182,14 +191,6 @@ class ServerId {
     enum { INVALID_SERVERID_GENERATION_NUMBER = (uint32_t)-1 };   // NOLINT
 
   PRIVATE:
-    // Used only to avoid cyclical dependency between #isValid and
-    // #generationNumber() when asserting #isValid in #generationNumber.
-    uint32_t
-    _generationNumber() const
-    {
-        return downCast<uint32_t>(serverId >> 32);
-    }
-
     /// The uint64_t representation of this ServerId.
     uint64_t serverId;
 };

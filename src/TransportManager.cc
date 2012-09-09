@@ -36,7 +36,7 @@ namespace RAMCloud {
 static struct TcpTransportFactory : public TransportFactory {
     TcpTransportFactory()
         : TransportFactory("kernelTcp", "tcp") {}
-    Transport* createTransport(Context& context,
+    Transport* createTransport(Context* context,
             const ServiceLocator* localServiceLocator) {
         return new TcpTransport(context, localServiceLocator);
     }
@@ -45,7 +45,7 @@ static struct TcpTransportFactory : public TransportFactory {
 static struct FastUdpTransportFactory : public TransportFactory {
     FastUdpTransportFactory()
         : TransportFactory("fast+kernelUdp", "fast+udp") {}
-    Transport* createTransport(Context& context,
+    Transport* createTransport(Context* context,
             const ServiceLocator* localServiceLocator) {
         return new FastTransport(context,
                 new UdpDriver(context, localServiceLocator));
@@ -56,7 +56,7 @@ static struct FastUdpTransportFactory : public TransportFactory {
 static struct FastInfUdTransportFactory : public TransportFactory {
     FastInfUdTransportFactory()
         : TransportFactory("fast+infinibandud", "fast+infud") {}
-    Transport* createTransport(Context& context,
+    Transport* createTransport(Context* context,
             const ServiceLocator* localServiceLocator) {
         return new FastTransport(context,
                 new InfUdDriver<>(context, localServiceLocator, false));
@@ -66,7 +66,7 @@ static struct FastInfUdTransportFactory : public TransportFactory {
 static struct FastInfEthTransportFactory : public TransportFactory {
     FastInfEthTransportFactory()
         : TransportFactory("fast+infinibandethernet", "fast+infeth") {}
-    Transport* createTransport(Context& context,
+    Transport* createTransport(Context* context,
             const ServiceLocator* localServiceLocator) {
         return new FastTransport(context,
                 new InfUdDriver<>(context, localServiceLocator, true));
@@ -76,14 +76,14 @@ static struct FastInfEthTransportFactory : public TransportFactory {
 static struct InfRcTransportFactory : public TransportFactory {
     InfRcTransportFactory()
         : TransportFactory("infinibandrc", "infrc") {}
-    Transport* createTransport(Context& context,
+    Transport* createTransport(Context* context,
             const ServiceLocator* localServiceLocator) {
         return new InfRcTransport<>(context, localServiceLocator);
     }
 } infRcTransportFactory;
 #endif
 
-TransportManager::TransportManager(Context& context)
+TransportManager::TransportManager(Context* context)
     : context(context)
     , isServer(false)
     , transportFactories()
@@ -94,7 +94,7 @@ TransportManager::TransportManager(Context& context)
     , registeredSizes()
     , mutex()
     , timeoutMs(0)
-    , skipServerIdCheck(false)
+    , mockRegistrations(0)
 {
     transportFactories.push_back(&tcpTransportFactory);
     transportFactories.push_back(&fastUdpTransportFactory);
@@ -111,6 +111,12 @@ TransportManager::~TransportManager()
     // Must clear the cache and destroy sessionRefs before the
     // transports are destroyed.
     sessionCache.clear();
+
+    // Delete any mockRegistrations
+#if TESTING
+    while (mockRegistrations > 0)
+        unregisterMock();
+#endif
     foreach (auto transport, transports)
         delete transport;
 }
@@ -129,7 +135,7 @@ void
 TransportManager::initialize(const char* localServiceLocator)
 {
     isServer = true;
-    Dispatch::Lock lock(context.dispatch);
+    Dispatch::Lock lock(context->dispatch);
     std::vector<ServiceLocator> locators =
             ServiceLocator::parseServiceLocators(localServiceLocator);
 
@@ -242,64 +248,8 @@ TransportManager::getSession(const char* serviceLocator)
 
     // Session was not found in the cache, so create a new one and add
     // it to the cache.
-    Transport::SessionRef session(openSession(serviceLocator));
+    Transport::SessionRef session(openSessionInternal(serviceLocator));
     sessionCache.insert({serviceLocator, session});
-    return session;
-}
-
-/**
- * Open a session based on a ServiceLocator string, but ensure that the
- * remote end is the expected ServerId. This will guarantee that the
- * session returned is to the precise server requested. Using locator
- * strings does not guarantee this, as they may be reused across different
- * process instantiations.
- *
- * \param serviceLocator
- *      Desired service.
- * \param needServerId
- *      The ServerId expected for the server being connected to.
- *
- * \return
- *      The return value is a session that may be used to issue RPCs to the
- *      specified server. If there was a transport error opening the session,
- *      or if the server id did not match, then a FailSession is returned.
- *
- * \throw NoSuchKeyException
- *      A transport supporting one of the protocols claims a service locator
- *      option is missing.
- * \throw BadValueException
- *      A transport supporting one of the protocols claims a service locator
- *      option is malformed.
- */
-Transport::SessionRef
-TransportManager::getSession(const char* serviceLocator, ServerId needServerId)
-{
-    Transport::SessionRef session = getSession(serviceLocator);
-    ServerId actualId;
-skipServerIdCheck = true;      // shit's breaking like crazy with ServerIdWrapper...
-    if (skipServerIdCheck)
-        return session;
-    try {
-        actualId = MembershipClient::getServerId(context, session);
-    } catch (TransportException& e) {
-        LOG(DEBUG, "Failed to obtain ServerId from \"%s\": %s",
-            serviceLocator, e.what());
-        flushSession(serviceLocator);
-        // Fall through to error handling below (since actualId remains
-        // invalid).
-    }
-
-    if (actualId != needServerId) {
-        // Looks like a locator was reused before this ServerId was
-        // removed. This is possible, but should be very rare.
-        string errorStr = format("Expected ServerId %lu at \"%s\", but actual "
-            "server id was %lu!",
-            *needServerId, serviceLocator, *actualId);
-        flushSession(serviceLocator);
-        LOG(DEBUG, "%s", errorStr.c_str());
-        return FailSession::get();
-    }
-
     return session;
 }
 
@@ -327,10 +277,34 @@ TransportManager::getListeningLocatorsString()
  *
  * \return
  *      A reference to the new session. If a session could not be opened,
- *      an error message is logged and the FailSession is returned.
+ *      an error message is logged and a FailSession is returned.
  */
 Transport::SessionRef
 TransportManager::openSession(const char* serviceLocator)
+{
+    // If we're running on a server (i.e., multithreaded) must exclude
+    // other threads.
+    Tub<std::lock_guard<SpinLock>> lock;
+    if (isServer) {
+        lock.construct(mutex);
+    }
+    return openSessionInternal(serviceLocator);
+}
+
+/**
+ * This method does all the real work of openSession; it is separate so
+ * that it can be used by other methods such as getSession. The caller must
+ * have acquired the TransportManager lock.
+ *
+ * \param serviceLocator
+ *      Desired service.
+ *
+ * \return
+ *      A reference to the new session. If a session could not be opened,
+ *      an error message is logged and a FailSession is returned.
+ */
+Transport::SessionRef
+TransportManager::openSessionInternal(const char* serviceLocator)
 {
     // Collects error messages from all the transports that tried to
     // open a session from this locator.
@@ -353,7 +327,7 @@ TransportManager::openSession(const char* serviceLocator)
                 // transport may depend on physical devices that don't
                 // exist on this machine).
                 try {
-                    Dispatch::Lock lock(context.dispatch);
+                    Dispatch::Lock lock(context->dispatch);
                     transports[i] = factory->createTransport(context, NULL);
                     for (uint32_t j = 0; j < registeredBases.size(); j++) {
                         transports[i]->registerMemory(registeredBases[j],
@@ -405,7 +379,7 @@ TransportManager::openSession(const char* serviceLocator)
 void
 TransportManager::registerMemory(void* base, size_t bytes)
 {
-    Dispatch::Lock lock(context.dispatch);
+    Dispatch::Lock lock(context->dispatch);
     foreach (auto transport, transports) {
         if (transport != NULL)
             transport->registerMemory(base, bytes);
@@ -431,7 +405,7 @@ void TransportManager::setTimeout(uint32_t timeoutMs)
 void
 TransportManager::dumpStats()
 {
-    Dispatch::Lock lock(context.dispatch);
+    Dispatch::Lock lock(context->dispatch);
     foreach (auto transport, transports) {
         if (transport != NULL)
             transport->dumpStats();
@@ -444,7 +418,7 @@ TransportManager::dumpStats()
 void
 TransportManager::dumpTransportFactories()
 {
-    Dispatch::Lock lock(context.dispatch);
+    Dispatch::Lock lock(context->dispatch);
     LOG(NOTICE, "The following transport factories are known:");
     uint32_t i = 0;
     foreach (auto factory, transportFactories) {

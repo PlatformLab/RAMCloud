@@ -66,11 +66,11 @@ class ObjectFinderTest : public ::testing::Test {
 
     ObjectFinderTest()
         : context()
-        , cluster(context)
+        , cluster(&context)
         , objectFinder()
         , refresher()
     {
-        objectFinder.construct(context);
+        objectFinder.construct(&context);
 
         ServerConfig config = ServerConfig::forTesting();
         config.services = {WireFormat::MASTER_SERVICE};

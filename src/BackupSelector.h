@@ -64,7 +64,7 @@ class BaseBackupSelector {
 class BackupSelector : public BaseBackupSelector {
   PUBLIC:
 
-    explicit BackupSelector(BackupTracker& tracker);
+    explicit BackupSelector(Context* context);
     ServerId selectPrimary(uint32_t numBackups, const ServerId backupIds[]);
     ServerId selectSecondary(uint32_t numBackups, const ServerId backupIds[]);
 
@@ -76,14 +76,13 @@ class BackupSelector : public BaseBackupSelector {
                          uint32_t numBackups,
                          const ServerId backupIds[]) const;
 
-
     /**
      * A ServerTracker used to find backups and track replica distribution
      * stats.  Each entry in the tracker contains a pointer to a BackupStats
      * struct which stores the number of primary replicas stored on that
      * server.
      */
-    BackupTracker& tracker;
+    BackupTracker tracker;
 
     DISALLOW_COPY_AND_ASSIGN(BackupSelector);
 };

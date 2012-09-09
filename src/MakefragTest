@@ -15,6 +15,7 @@ TESTS_SRCFILES := \
       src/AbstractServerListTest.cc \
 		  src/AtomicTest.cc \
 		  src/BackupFailureMonitorTest.cc \
+		  src/BackupReplicaTest.cc \
 		  src/BackupSelectorTest.cc \
 		  src/BackupServiceTest.cc \
 		  src/BackupStorageTest.cc \
@@ -28,6 +29,7 @@ TESTS_SRCFILES := \
 		  src/CoordinatorRpcWrapperTest.cc \
 		  src/CoordinatorServerListTest.cc \
 		  src/CoordinatorServerManagerTest.cc \
+		  src/CoordinatorServiceRecoveryTest.cc \
 		  src/CoordinatorServiceTest.cc \
 		  src/CoordinatorSessionTest.cc \
 		  src/Crc32CTest.cc \
@@ -40,6 +42,7 @@ TESTS_SRCFILES := \
 		  src/InitializeTest.cc \
 		  src/IpAddressTest.cc \
 		  src/KeyTest.cc \
+		  src/LogCabinHelperTest.cc \
 		  src/LogCleanerTest.cc \
 		  src/LogDigestTest.cc \
 		  src/LoggerTest.cc \
@@ -76,7 +79,7 @@ TESTS_SRCFILES := \
 		  src/ServerIdRpcWrapperTest.cc \
 		  src/ServerIdTest.cc \
 		  src/ServerListTest.cc \
-                  src/ServerListUpdaterTest.cc \
+          src/ServerListUpdaterTest.cc \
 		  src/ServerMetricsTest.cc \
 		  src/ServerRpcPoolTest.cc \
 		  src/ServerTest.cc \
@@ -100,6 +103,7 @@ TESTS_SRCFILES := \
 		  src/TransportManagerTest.cc \
 		  src/TubTest.cc \
 		  src/UdpDriverTest.cc \
+		  src/UtilTest.cc \
 		  src/VarLenArrayTest.cc \
 		  src/WallTimeTest.cc \
 		  src/WindowTest.cc \
@@ -146,8 +150,7 @@ test: $(OBJDIR)/test \
       $(OBJDIR)/HashTableBenchmark \
       $(OBJDIR)/LogCleanerBenchmark \
       $(OBJDIR)/Perf \
-      $(OBJDIR)/RecoverSegmentBenchmark \
-      $(OBJDIR)/Telnet
+      $(OBJDIR)/RecoverSegmentBenchmark
 	$(OBJDIR)/test
 
 all: $(OBJDIR)/Perf $(OBJDIR)/ClusterPerf
@@ -160,10 +163,6 @@ $(OBJDIR)/HashTableBenchmark: $(OBJDIR)/HashTableBenchmark.o $(SHARED_OBJFILES) 
 	$(CXX) -o $@ $^ $(LIBS)
 
 $(OBJDIR)/Echo: $(OBJDIR)/Echo.o $(SHARED_OBJFILES) $(SERVER_OBJFILES)
-	@mkdir -p $(@D)
-	$(CXX) -o $@ $^ $(LIBS)
-
-$(OBJDIR)/Telnet: $(OBJDIR)/Telnet.o $(SHARED_OBJFILES) $(SERVER_OBJFILES)
 	@mkdir -p $(@D)
 	$(CXX) -o $@ $^ $(LIBS)
 

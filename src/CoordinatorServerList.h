@@ -98,16 +98,23 @@ class CoordinatorServerList : public AbstractServerList{
 
         /**
          * Entry id corresponding to entry in LogCabin log that has
-         * deatils for this server.
+         * intial information for this server.
          */
-         LogCabin::Client::EntryId logCabinEntryId;
+         LogCabin::Client::EntryId serverInfoLogId;
+
+        /**
+         * Entry id corresponding to entry in LogCabin log that has
+         * updates for this server.
+         */
+         LogCabin::Client::EntryId serverUpdateLogId;
     };
 
-    explicit CoordinatorServerList(Context& context);
+    explicit CoordinatorServerList(Context* context);
     ~CoordinatorServerList();
-    ServerId add(string serviceLocator, ServiceMask serviceMask,
-                 uint32_t readSpeed);
+    void add(ServerId serverId, string serviceLocator,
+             ServiceMask serviceMask, uint32_t readSpeed);
     void crashed(ServerId serverId);
+    ServerId generateUniqueId();
     void remove(ServerId serverId);
 
     void setMinOpenSegmentId(ServerId serverId, uint64_t segmentId);
@@ -117,7 +124,6 @@ class CoordinatorServerList : public AbstractServerList{
     Tub<Entry> operator[](size_t index) const;
     Entry at(const ServerId& serverId) const;
     Tub<Entry> at(size_t index) const;
-    bool contains(ServerId serverId) const;
     uint32_t masterCount() const;
     uint32_t backupCount() const;
     uint32_t nextMasterIndex(uint32_t startIndex) const;
@@ -129,14 +135,17 @@ class CoordinatorServerList : public AbstractServerList{
     void sendServerList(ServerId& serverId);
     void sync();
 
-    void addLogCabinEntryId(ServerId serverId,
+    void addServerInfoLogId(ServerId serverId,
                             LogCabin::Client::EntryId entryId);
-    LogCabin::Client::EntryId getLogCabinEntryId(ServerId serverId);
+    void addServerUpdateLogId(ServerId serverId,
+                              LogCabin::Client::EntryId entryId);
+    LogCabin::Client::EntryId getServerInfoLogId(ServerId serverId);
+    LogCabin::Client::EntryId getServerUpdateLogId(ServerId serverId);
 
   PROTECTED:
     /// Internal Use Only - Does not grab locks
-    ServerDetails* iget(size_t index);
-    bool icontains(ServerId id) const;
+    ServerDetails* iget(ServerId id);
+    ServerDetails* iget(uint32_t index);
     size_t isize() const;
 
   PRIVATE:
@@ -161,8 +170,8 @@ class CoordinatorServerList : public AbstractServerList{
         Tub<Entry> entry;
     };
 
-    ServerId add(Lock& lock, string serviceLocator,
-                 ServiceMask serviceMask, uint32_t readSpeed);
+    void add(Lock& lock, ServerId serverId, string serviceLocator,
+             ServiceMask serviceMask, uint32_t readSpeed);
     void crashed(const Lock& lock, ServerId serverId);
     void remove(Lock& lock, ServerId serverId);
     void sendMembershipUpdate(ServerId excludeServerId);

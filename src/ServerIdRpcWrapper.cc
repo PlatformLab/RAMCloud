@@ -42,7 +42,7 @@ bool ServerIdRpcWrapper::convertExceptionsToDoesntExist = false;
  *      Optional client-supplied buffer to use for the RPC's response;
  *      if NULL then we use a built-in buffer.
  */
-ServerIdRpcWrapper::ServerIdRpcWrapper(Context& context, ServerId id,
+ServerIdRpcWrapper::ServerIdRpcWrapper(Context* context, ServerId id,
         uint32_t responseHeaderLength, Buffer* response)
     : RpcWrapper(responseHeaderLength, response)
     , context(context)
@@ -69,21 +69,8 @@ ServerIdRpcWrapper::handleTransportError()
         // would occur during testing otherwise).
         return true;
     }
-
-    bool up;
-    try {
-        up = context.serverList->isUp(id);
-    }
-    catch (Exception& e) {
-        // This exception happens if the server can't be found in the
-        // server list.  This means the server is down.
-        up = false;
-    }
-    if (session) {
-        context.transportManager->flushSession(
-                session->getServiceLocator().c_str());
-    }
-    if (!up) {
+    context->serverList->flushSession(id);
+    if (!context->serverList->isUp(id)) {
         serverDown = true;
         return true;
     }
@@ -95,17 +82,8 @@ ServerIdRpcWrapper::handleTransportError()
 void
 ServerIdRpcWrapper::send()
 {
-    assert(context.serverList != NULL);
-    try {
-        session = context.transportManager->getSession(
-                context.serverList->getLocator(id), id);
-    }
-    catch (Exception& e) {
-        LOG(DEBUG, "ServerIdRpcWrapper couldn't get session: %s",
-                e.message.c_str());
-        state = FAILED;
-        return;
-    }
+    assert(context->serverList != NULL);
+    session = context->serverList->getSession(id);
     state = IN_PROGRESS;
     session->sendRequest(&request, response, this);
 }
@@ -113,7 +91,7 @@ ServerIdRpcWrapper::send()
 /**
  * Wait for the RPC to complete, and throw exceptions for any errors.
  *
- * \throw ServerDoesntExistException
+ * \throw ServerNotUpException
  *      The intended server for this RPC is not part of the cluster;
  *      if it ever existed, it has since crashed.
  */
@@ -123,9 +101,9 @@ ServerIdRpcWrapper::waitAndCheckErrors()
     // Note: this method is a generic shared version for RPCs that don't
     // return results and don't need to do any processing of the response
     // packet except checking for errors.
-    waitInternal(*context.dispatch);
+    waitInternal(context->dispatch);
     if (serverDown) {
-        throw ServerDoesntExistException(HERE);
+        throw ServerNotUpException(HERE);
     }
     if (responseHeader->status != STATUS_OK)
         ClientException::throwException(HERE, responseHeader->status);

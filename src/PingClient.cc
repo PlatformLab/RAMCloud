@@ -39,12 +39,12 @@ namespace RAMCloud {
  *      If \a serverId had a server list, then its version number is returned;
  *      otherwise zero is returned.
  *
- * \throw ServerDoesntExistException
+ * \throw ServerNotUpException
  *      The intended server for this RPC is not part of the cluster;
  *      if it ever existed, it has since crashed.
  */ 
 uint64_t
-PingClient::ping(Context& context, ServerId targetId, ServerId callerId)
+PingClient::ping(Context* context, ServerId targetId, ServerId callerId)
 {
     PingRpc rpc(context, targetId, callerId);
     return rpc.wait();
@@ -64,13 +64,13 @@ PingClient::ping(Context& context, ServerId targetId, ServerId callerId)
  *      Used on the pingee side for debug logging.
  *      Clients and coordinators should use an invalid ServerId (ServerID()).
  */
-PingRpc::PingRpc(Context& context, ServerId targetId, ServerId callerId)
+PingRpc::PingRpc(Context* context, ServerId targetId, ServerId callerId)
     : ServerIdRpcWrapper(context, targetId,
             sizeof(WireFormat::Ping::Response))
 {
-    WireFormat::Ping::Request& reqHdr(
+    WireFormat::Ping::Request* reqHdr(
             allocHeader<WireFormat::Ping>());
-    reqHdr.callerId = callerId.getId();
+    reqHdr->callerId = callerId.getId();
     send();
 }
 
@@ -81,7 +81,7 @@ PingRpc::PingRpc(Context& context, ServerId targetId, ServerId callerId)
  *      If the target server had a server list, then its version number
  *      is returned; otherwise zero is returned.
  *
- * \throw ServerDoesntExistException
+ * \throw ServerNotUpException
  *      The target server for this RPC is not part of the cluster;
  *      if it ever existed, it has since crashed.
  */
@@ -89,9 +89,9 @@ uint64_t
 PingRpc::wait()
 {
     waitAndCheckErrors();
-    const WireFormat::Ping::Response& respHdr(
+    const WireFormat::Ping::Response* respHdr(
             getResponseHeader<WireFormat::Ping>());
-    return respHdr.serverListVersion;
+    return respHdr->serverListVersion;
 }
 
 /**
@@ -106,7 +106,7 @@ PingRpc::wait()
  *      If no response was received within \c timeoutNanoseconds, or if
  *      we reach a point where the target server is no longer part of the
  *      cluster, then all ones is returned (note: this method will not
- *      throw ServerDoesntExistsException). If the target server responds
+ *      throw ServerNotUpException). If the target server responds
  *      and it has a server list, then the version number for its server
  *      list is returned. If the server responded but has no server list,
  *      then zero is returned.
@@ -116,7 +116,7 @@ PingRpc::wait(uint64_t timeoutNanoseconds)
 {
     uint64_t abortTime = Cycles::rdtsc() +
             Cycles::fromNanoseconds(timeoutNanoseconds);
-    if (!waitInternal(*context.dispatch, abortTime)) {
+    if (!waitInternal(context->dispatch, abortTime)) {
         TEST_LOG("timeout");
         return ~0UL;
     }
@@ -126,9 +126,9 @@ PingRpc::wait(uint64_t timeoutNanoseconds)
     }
     if (responseHeader->status != STATUS_OK)
         ClientException::throwException(HERE, responseHeader->status);
-    const WireFormat::Ping::Response& respHdr(
+    const WireFormat::Ping::Response* respHdr(
             getResponseHeader<WireFormat::Ping>());
-    return respHdr.serverListVersion;
+    return respHdr->serverListVersion;
 }
 
 /**
@@ -151,12 +151,12 @@ PingRpc::wait(uint64_t timeoutNanoseconds)
  *      request from \a proxyId.  If no response was received within
  *      \a timeoutNanoseconds, then all ones is returned.
  *
- * \throw ServerDoesntExistException
+ * \throw ServerNotUpException
  *      Generated if \a proxyId is not part of the cluster; if it ever
  *      existed, it has since crashed.
  */ 
 uint64_t
-PingClient::proxyPing(Context& context, ServerId proxyId, ServerId targetId,
+PingClient::proxyPing(Context* context, ServerId proxyId, ServerId targetId,
         uint64_t timeoutNanoseconds)
 {
     ProxyPingRpc rpc(context, proxyId, targetId, timeoutNanoseconds);
@@ -179,15 +179,15 @@ PingClient::proxyPing(Context& context, ServerId proxyId, ServerId targetId,
  *      The maximum amount of time (in nanoseconds) that \a proxyId
  *      will wait for \a targetId to respond.
  */
-ProxyPingRpc::ProxyPingRpc(Context& context, ServerId proxyId,
+ProxyPingRpc::ProxyPingRpc(Context* context, ServerId proxyId,
         ServerId targetId, uint64_t timeoutNanoseconds)
     : ServerIdRpcWrapper(context, proxyId,
             sizeof(WireFormat::ProxyPing::Response))
 {
-    WireFormat::ProxyPing::Request& reqHdr(
+    WireFormat::ProxyPing::Request* reqHdr(
             allocHeader<WireFormat::ProxyPing>());
-    reqHdr.serverId = targetId.getId();
-    reqHdr.timeoutNanoseconds = timeoutNanoseconds;
+    reqHdr->serverId = targetId.getId();
+    reqHdr->timeoutNanoseconds = timeoutNanoseconds;
     send();
 }
 
@@ -199,7 +199,7 @@ ProxyPingRpc::ProxyPingRpc(Context& context, ServerId proxyId,
  *      request.  If the proxy didn't receive a response within the timeout
  *      period, then all ones is returned.
  *
- * \throw ServerDoesntExistException
+ * \throw ServerNotUpException
  *      The target server for this RPC is not part of the cluster;
  *      if it ever existed, it has since crashed.
  */
@@ -207,9 +207,9 @@ uint64_t
 ProxyPingRpc::wait()
 {
     waitAndCheckErrors();
-    const WireFormat::ProxyPing::Response& respHdr(
+    const WireFormat::ProxyPing::Response* respHdr(
             getResponseHeader<WireFormat::ProxyPing>());
-    return respHdr.replyNanoseconds;
+    return respHdr->replyNanoseconds;
 }
 
 }  // namespace RAMCloud

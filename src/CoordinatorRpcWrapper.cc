@@ -34,7 +34,7 @@ namespace RAMCloud {
  *      Optional client-supplied buffer to use for the RPC's response;
  *      if NULL then we use a built-in buffer.
  */
-CoordinatorRpcWrapper::CoordinatorRpcWrapper(Context& context,
+CoordinatorRpcWrapper::CoordinatorRpcWrapper(Context* context,
         uint32_t responseHeaderLength, Buffer* response)
     : RpcWrapper(responseHeaderLength, response)
     , context(context)
@@ -47,7 +47,7 @@ CoordinatorRpcWrapper::handleTransportError()
 {
     // There was a transport-level failure. The transport should already
     // have logged this. All we have to do is retry.
-    context.coordinatorSession->flush();
+    context->coordinatorSession->flush();
     send();
     return false;
 }
@@ -56,7 +56,7 @@ CoordinatorRpcWrapper::handleTransportError()
 void
 CoordinatorRpcWrapper::send()
 {
-    session = context.coordinatorSession->getSession();
+    session = context->coordinatorSession->getSession();
     state = IN_PROGRESS;
     session->sendRequest(&request, response, this);
 }

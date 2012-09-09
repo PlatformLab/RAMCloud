@@ -38,14 +38,14 @@ class MockTransportFactory : public TransportFactory {
      * \param protocol
      *      Protocol supported by #transport.
      */
-    MockTransportFactory(Context& context, Transport* transport,
+    MockTransportFactory(Context* context, Transport* transport,
                          const char* protocol = "mock")
         : TransportFactory(protocol)
         , context(context)
         , transport(transport)
         , protocol(protocol)
     {}
-    Transport* createTransport(Context& context,
+    Transport* createTransport(Context* context,
                                const ServiceLocator* local) {
         if (strcmp(protocol, "error") == 0) {
             RAMCLOUD_TEST_LOG("exception thrown");
@@ -56,7 +56,7 @@ class MockTransportFactory : public TransportFactory {
         }
         return transport;
     }
-    Context& context;
+    Context* context;
     Transport* transport;
     const char* protocol;
     DISALLOW_COPY_AND_ASSIGN(MockTransportFactory);

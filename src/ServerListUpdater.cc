@@ -39,7 +39,7 @@ namespace RAMCloud {
  * \param parent
  *      The CoordinatorServerList instance that spawned this updater.
  */
-ServerListUpdater::ServerListUpdater(Context& context,
+ServerListUpdater::ServerListUpdater(Context* context,
         CoordinatorServerList& parent)
     : parent(parent)
     , context(context)
@@ -246,8 +246,9 @@ ServerListUpdater::handleRequest(Message& msg) {
     foreach (ServerId id, msg.recipients) {
         // Ensure server is still up before sending updates
         if (!parent.isUp(id)) {
-            LOG(NOTICE, "Async sendUpdate to %lu occured after it was "
-                    "removed/downed in the CoordinatorServerList.", id.getId());
+            LOG(NOTICE, "Async sendUpdate to %s occured after it was "
+                    "removed/downed in the CoordinatorServerList.",
+                    id.toString().c_str());
             continue;
         }
 
@@ -257,19 +258,20 @@ ServerListUpdater::handleRequest(Message& msg) {
                     sendMembershipUpdate(id, msg.update, serializedServerList);
                     break;
                 case FULL_LIST:
-                    LOG(DEBUG, "Sending server list to server id %lu as "
-                            "requested", *id);
-                    MembershipClient::setServerList(context, id, msg.update);
+                    LOG(DEBUG, "Sending server list to server id %s as "
+                            "requested", id.toString().c_str());
+                    MembershipClient::setServerList(context, id, &msg.update);
                     break;
                 default:
                     LOG(NOTICE, "A malformed opcode was found in the "
                             "msgQueue: %d", msg.opcode);
                 continue;
             }
-        } catch (const ServerDoesntExistException& e) {
+        } catch (const ServerNotUpException& e) {
             // Log but fail quietly otherwise since there's nothing we can do.
-            LOG(NOTICE, "Async sendUpdate to %lu occured after it was "
-                    "removed/downed in the CoordinatorServerList.", id.getId());
+            LOG(NOTICE, "Async sendUpdate to %s occured after it was "
+                    "removed/downed in the CoordinatorServerList.",
+                    id.toString().c_str());
         }
     }
 }
@@ -289,7 +291,7 @@ ServerListUpdater::handleRequest(Message& msg) {
  * the tub is empty, it will be generated/serialized else its contents will be
  * reused.
  *
- * \throw ServerDoesntExistException
+ * \throw ServerNotUpException
  *      The intended serverId for this update is no longer a part of the cluster
  */
 void
@@ -298,7 +300,7 @@ ServerListUpdater::sendMembershipUpdate(
         ProtoBuf::ServerList& update,
         Tub<ProtoBuf::ServerList>& serializedServerList)
 {
-    UpdateServerListRpc rpc(context, id, update);
+    UpdateServerListRpc rpc(context, id, &update);
 
     bool succeeded = false;
     uint64_t start = Cycles::rdtsc();
@@ -309,28 +311,29 @@ ServerListUpdater::sendMembershipUpdate(
     if (stalled < timeoutNs) {
         try {
             succeeded = rpc.wait();
-        } catch (const TransportException& e) {}
+        } catch (const ServerNotUpException& e) {}
     } else {
         rpc.cancel();
-        LOG(NOTICE, "Failed to send cluster membership update to %lu",
-            id.getId());
+        LOG(NOTICE, "Failed to send cluster membership update to %s",
+            id.toString().c_str());
     }
 
     if (succeeded) {
-         LOG(DEBUG, "Server list update sent to server %lu", id.getId());
+         LOG(DEBUG, "Server list update sent to server %s",
+             id.toString().c_str());
          return;
     }
 
     // If this server had missed a previous update it will return
     // failure and expect us to push the whole list again.
-    LOG(NOTICE, "Server %lu had lost an update. Sending whole list.",
-        id.getId());
+    LOG(NOTICE, "Server %s had lost an update. Sending whole list.",
+        id.toString().c_str());
     if (!serializedServerList) {
         serializedServerList.construct();
         parent.serialize(*serializedServerList);
     }
     SetServerListRpc rpc2(context, id,
-                         *serializedServerList);
+                         serializedServerList.get());
     start = Cycles::rdtsc();
     stalled = 0;
     while (!rpc2.isReady() && stalled < timeoutNs)
@@ -338,12 +341,12 @@ ServerListUpdater::sendMembershipUpdate(
     if (stalled < timeoutNs) {
         try {
             rpc2.wait();
-        } catch (const TransportException& e) {}
+        } catch (const ServerNotUpException& e) {}
     } else {
         rpc2.cancel();
-        LOG(NOTICE, "Failed to send full cluster server list to %lu "
+        LOG(NOTICE, "Failed to send full cluster server list to %s "
             "after it failed to accept the update",
-            id.getId());
+            id.toString().c_str());
     }
 }
 } // namespace RAMCloud

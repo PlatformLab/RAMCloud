@@ -46,7 +46,7 @@ namespace RAMCloud {
  *      the in-memory cleaner should do on its own before trying to free up
  *      tombstone space by cleaning disk segments.
  */
-LogCleaner::LogCleaner(Context& context,
+LogCleaner::LogCleaner(Context* context,
                        const ServerConfig& config,
                        SegmentManager& segmentManager,
                        ReplicaManager& replicaManager,
@@ -89,7 +89,7 @@ void
 LogCleaner::start()
 {
     if (!thread)
-        thread.construct(cleanerThreadEntry, this, &context);
+        thread.construct(cleanerThreadEntry, this, context);
 }
 
 /**

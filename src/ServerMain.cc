@@ -179,7 +179,7 @@ main(int argc, char *argv[])
             config.setLogAndHashTableSize(masterTotalMemory, hashTableMemory);
         }
 
-        Server server(context, config);
+        Server server(&context, config);
         server.run(); // Never returns except for exceptions.
 
         return 0;

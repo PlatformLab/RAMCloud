@@ -203,9 +203,9 @@ class ReplicatedSegment : public Task {
 
         ~Replica() {
             if (writeRpc)
-                writeRpc->cancel();
+                writeRpc->cancel(false);
             if (freeRpc)
-                freeRpc->cancel();
+                freeRpc->cancel(false);
         }
 
         /**
@@ -317,7 +317,7 @@ class ReplicatedSegment : public Task {
     void close();
     bool handleBackupFailure(ServerId failedId)
         __attribute__((warn_unused_result));
-    void sync(uint32_t offset);
+    void sync(uint32_t offset = ~0u);
 
   PRIVATE:
     friend class ReplicaManager;
@@ -328,9 +328,8 @@ class ReplicatedSegment : public Task {
      */
     enum { MAX_WRITE_RPCS_IN_FLIGHT = 4 };
 
-    ReplicatedSegment(Context& context,
+    ReplicatedSegment(Context* context,
                       TaskQueue& taskQueue,
-                      BackupTracker& tracker,
                       BaseBackupSelector& backupSelector,
                       Deleter& deleter,
                       uint32_t& writeRpcsInFlight,
@@ -378,15 +377,7 @@ class ReplicatedSegment : public Task {
 
 // - member variables -
     /// Shared RAMCloud information.
-    Context& context;
-
-    /**
-     * A ServerTracker used to find backups and track replica distribution
-     * stats.  Each entry in the tracker contains a pointer to a BackupStats
-     * struct which stores the number of primary replicas stored on that
-     * server.
-     */
-    BackupTracker& tracker;
+    Context* context;
 
     /// Used to choose where to store replicas. Shared among ReplicatedSegments.
     BaseBackupSelector& backupSelector;
@@ -409,12 +400,23 @@ class ReplicatedSegment : public Task {
     MinOpenSegmentId& minOpenSegmentId;
 
     /**
-     * Protects all state for this segment and others the ReplicaManager is
-     * tracking; see ReplicaManager.  A lock for this mutex must be held to
-     * read or modify any state associated with this segment or any other.
+     * See ReplicaManager::dataMutex; there are many subtleties to the locking
+     * in this module.
      */
     std::mutex& dataMutex;
     typedef std::lock_guard<std::mutex> Lock;
+
+    /**
+     * Used to select a "winner" thread that is allowed to sync. Once some
+     * thread acquires this lock it holds it until its sync() call returns.
+     * Threads take turns driving replication in sync(), though work is batched
+     * (that is, some thread may sync data that another thread is waiting on).
+     * A lock on #dataMutex is still needed to access or modify fields in this
+     * or any other segment.
+     * See ReplicaManager::dataMutex; there are many subtleties to the locking
+     * in this module.
+     */
+    std::mutex syncMutex;
 
     /**
      * Segment to be replicated. It is expected that the segment already

@@ -28,7 +28,7 @@ class CoordinatorRpcWrapperTest : public ::testing::Test {
 
     CoordinatorRpcWrapperTest()
         : context()
-        , transport(context)
+        , transport(&context)
     {
         context.transportManager->registerMock(&transport);
         context.coordinatorSession->setLocation("mock:");
@@ -36,7 +36,6 @@ class CoordinatorRpcWrapperTest : public ::testing::Test {
 
     ~CoordinatorRpcWrapperTest()
     {
-        context.transportManager->unregisterMock();
     }
 
     DISALLOW_COPY_AND_ASSIGN(CoordinatorRpcWrapperTest);
@@ -44,7 +43,7 @@ class CoordinatorRpcWrapperTest : public ::testing::Test {
 
 TEST_F(CoordinatorRpcWrapperTest, handleTransportError) {
     TestLog::Enable _;
-    CoordinatorRpcWrapper wrapper(context, 4);
+    CoordinatorRpcWrapper wrapper(&context, 4);
     wrapper.request.fillFromString("100");
     wrapper.send();
     wrapper.state = RpcWrapper::RpcState::FAILED;
@@ -54,7 +53,7 @@ TEST_F(CoordinatorRpcWrapperTest, handleTransportError) {
 }
 
 TEST_F(CoordinatorRpcWrapperTest, send) {
-    CoordinatorRpcWrapper wrapper(context, 4);
+    CoordinatorRpcWrapper wrapper(&context, 4);
     wrapper.request.fillFromString("100");
     wrapper.send();
     EXPECT_STREQ("IN_PROGRESS", wrapper.stateString());

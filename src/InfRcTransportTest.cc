@@ -30,8 +30,8 @@ class InfRcTransportTest : public ::testing::Test {
     InfRcTransportTest()
         : context()
         , locator("infrc: host=localhost, port=11000")
-        , server(context, &locator)
-        , client(context)
+        , server(&context, &locator)
+        , client(&context)
     {
     }
 
@@ -57,7 +57,7 @@ TEST_F(InfRcTransportTest, sanityCheck) {
     EXPECT_STREQ("completed: 0, failed: 0", rpc.getState());
     serverRpc->replyPayload.fillFromString("klmn");
     serverRpc->sendReply();
-    EXPECT_TRUE(TestUtil::waitForRpc(context, rpc));
+    EXPECT_TRUE(TestUtil::waitForRpc(&context, rpc));
     EXPECT_STREQ("completed: 1, failed: 0", rpc.getState());
     EXPECT_EQ("klmn/0", TestUtil::toString(&rpc.response));
 
@@ -70,7 +70,7 @@ TEST_F(InfRcTransportTest, sanityCheck) {
             TestUtil::checkLargeBuffer(&serverRpc->requestPayload, 100000));
     TestUtil::fillLargeBuffer(&serverRpc->replyPayload, 50000);
     serverRpc->sendReply();
-    EXPECT_TRUE(TestUtil::waitForRpc(context, rpc));
+    EXPECT_TRUE(TestUtil::waitForRpc(&context, rpc));
     EXPECT_EQ("ok", TestUtil::checkLargeBuffer(&rpc.response, 50000));
 }
 
@@ -90,7 +90,7 @@ TEST_F(InfRcTransportTest, InfRcSession_abort_onClientSendQueue) {
     session->sendRequest(&rpc2.request, &rpc2.response, &rpc2);
     EXPECT_EQ(2U, client.clientSendQueue.size());
 
-    session->abort("aborted by test");
+    session->abort();
     EXPECT_EQ(0U, client.clientSendQueue.size());
     EXPECT_EQ(0, rawSession->alarm.outstandingRpcs);
     EXPECT_STREQ("completed: 0, failed: 1", rpc1.getState());
@@ -108,7 +108,7 @@ TEST_F(InfRcTransportTest, InfRcSession_abort_onOutstandingRpcs) {
     session->sendRequest(&rpc2.request, &rpc2.response, &rpc2);
     EXPECT_EQ(2U, client.outstandingRpcs.size());
 
-    session->abort("aborted by test");
+    session->abort();
     EXPECT_EQ(0U, client.outstandingRpcs.size());
     EXPECT_STREQ("completed: 0, failed: 1", rpc1.getState());
     EXPECT_STREQ("completed: 0, failed: 1", rpc2.getState());
@@ -178,14 +178,14 @@ TEST_F(InfRcTransportTest, InfRcSession_cancelRequest_rpcSent) {
     EXPECT_EQ("xyzzy/0", TestUtil::toString(&serverRpc->requestPayload));
     serverRpc->replyPayload.fillFromString("response2");
     serverRpc->sendReply();
-    EXPECT_TRUE(TestUtil::waitForRpc(context, rpc));
+    EXPECT_TRUE(TestUtil::waitForRpc(&context, rpc));
     EXPECT_EQ("response2/0", TestUtil::toString(&rpc.response));
 }
 
 TEST_F(InfRcTransportTest, ClientRpc_sendRequest_sessionAborted) {
     Transport::SessionRef session = client.getSession(locator);
     MockWrapper rpc;
-    session->abort("test abort");
+    session->abort();
     session->sendRequest(&rpc.request, &rpc.response, &rpc);
     EXPECT_STREQ("completed: 0, failed: 1", rpc.getState());
 }
@@ -201,7 +201,7 @@ TEST_F(InfRcTransportTest, ServerRpc_getClientServiceLocator) {
         "infrc:host=127\\.0\\.0\\.1,port=[0-9][0-9]*",
         serverRpc->getClientServiceLocator()));
     serverRpc->sendReply();
-    EXPECT_TRUE(TestUtil::waitForRpc(context, rpc));
+    EXPECT_TRUE(TestUtil::waitForRpc(&context, rpc));
 }
 
 }  // namespace RAMCloud

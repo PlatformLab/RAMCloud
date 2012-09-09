@@ -117,7 +117,7 @@ namespace RAMCloud {
  *      the transport will be configured for client use only.
  */
 template<typename Infiniband>
-InfRcTransport<Infiniband>::InfRcTransport(Context& context,
+InfRcTransport<Infiniband>::InfRcTransport(Context* context,
                                            const ServiceLocator *sl)
     : context(context)
     , realInfiniband()
@@ -313,15 +313,17 @@ InfRcTransport<Infiniband>::setNonBlocking(int fd)
  *      If there is an active RPC and we can't get any signs of life out
  *      of the server within this many milliseconds then the session will
  *      be aborted.  0 means we get to pick a reasonable default.
+ *
+ * \throw TransportException
+ *      There was a problem that prevented us from creating the session.
  */
 template<typename Infiniband>
 InfRcTransport<Infiniband>::InfRcSession::InfRcSession(
     InfRcTransport *transport, const ServiceLocator& sl, uint32_t timeoutMs)
     : transport(transport)
     , qp(NULL)
-    , alarm(*transport->context.sessionAlarmTimer, *this,
+    , alarm(*transport->context->sessionAlarmTimer, *this,
             (timeoutMs != 0) ? timeoutMs : DEFAULT_TIMEOUT_MS)
-    , abortMessage()
 {
     setServiceLocator(sl.getOriginalString());
     IpAddress address(sl);
@@ -338,16 +340,15 @@ template<typename Infiniband>
 void
 InfRcTransport<Infiniband>::InfRcSession::release()
 {
-    abort("session closed");
+    abort();
     delete this;
 }
 
 // See documentation for Transport::Session::abort.
 template<typename Infiniband>
 void
-InfRcTransport<Infiniband>::InfRcSession::abort(const string& message)
+InfRcTransport<Infiniband>::InfRcSession::abort()
 {
-    abortMessage = message;
     for (typename ClientRpcList::iterator
             it(transport->clientSendQueue.begin());
             it != transport->clientSendQueue.end(); ) {
@@ -531,7 +532,7 @@ InfRcTransport<Infiniband>::clientTryExchangeQueuePairs(struct sockaddr_in *sin,
         // We need to call the dispatcher in order to let other event handlers
         // run (this is particularly important if the server we are trying to
         // connect to is us).
-        Dispatch& dispatch = *context.dispatch;
+        Dispatch& dispatch = *context->dispatch;
         if (dispatch.isDispatchThread()) {
             dispatch.poll();
         }
@@ -543,6 +544,9 @@ InfRcTransport<Infiniband>::clientTryExchangeQueuePairs(struct sockaddr_in *sin,
  * allocates a QueuePair and sends the necessary tuple to the
  * server to begin the handshake. The server then replies with its
  * QueuePair tuple information. This is all done over IP/UDP.
+ *
+ * \throw TransportException
+ *      There was a problem that prevented us from creating the session.
  */
 template<typename Infiniband>
 typename Infiniband::QueuePair*
@@ -618,8 +622,8 @@ InfRcTransport<Infiniband>::ServerConnectHandler::handleFileEvent(int events)
     if (len <= -1) {
         if (errno == EAGAIN)
             return;
-        LOG(ERROR, "recvfrom failed");
-        throw TransportException(HERE, "recvfrom failed");
+        LOG(ERROR, "recvfrom failed: %s", strerror(errno));
+        return;
     } else if (len != sizeof(incomingQpt)) {
         LOG(WARNING, "recvfrom got a strange incoming size: %Zd", len);
         return;
@@ -795,7 +799,7 @@ template<typename Infiniband>
 uint32_t
 InfRcTransport<Infiniband>::getMaxRpcSize() const
 {
-    return MAX_RPC_SIZE;
+    return MAX_RPC_LEN;
 }
 
 
@@ -1128,7 +1132,7 @@ InfRcTransport<Infiniband>::Poller::poll()
                     bd->buffer + sizeof32(header),
                     len, t, t->serverSrq, bd);
             }
-            t->context.serviceManager->handleRpc(r);
+            t->context->serviceManager->handleRpc(r);
             ++metrics->transport.receive.messageCount;
             ++metrics->transport.receive.packetCount;
             metrics->transport.receive.iovecCount +=

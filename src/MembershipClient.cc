@@ -42,7 +42,7 @@ namespace RAMCloud {
  *       the target server.
  */
 ServerId
-MembershipClient::getServerId(Context& context, Transport::SessionRef session)
+MembershipClient::getServerId(Context* context, Transport::SessionRef session)
 {
     GetServerIdRpc rpc(context, session);
     return rpc.wait();
@@ -58,7 +58,7 @@ MembershipClient::getServerId(Context& context, Transport::SessionRef session)
  * \param session
  *      Connection to a RAMCloud server.
  */
-GetServerIdRpc::GetServerIdRpc(Context& context,
+GetServerIdRpc::GetServerIdRpc(Context* context,
         Transport::SessionRef session)
     : RpcWrapper(sizeof(WireFormat::GetServerId::Response))
     , context(context)
@@ -83,15 +83,15 @@ GetServerIdRpc::GetServerIdRpc(Context& context,
 ServerId
 GetServerIdRpc::wait()
 {
-    waitInternal(*context.dispatch);
+    waitInternal(context->dispatch);
     if (getState() != RpcState::FINISHED) {
         throw TransportException(HERE);
     }
-    const WireFormat::GetServerId::Response& respHdr(
+    const WireFormat::GetServerId::Response* respHdr(
             getResponseHeader<WireFormat::GetServerId>());
-    if (respHdr.common.status != STATUS_OK)
-        ClientException::throwException(HERE, respHdr.common.status);
-    return ServerId(respHdr.serverId);
+    if (respHdr->common.status != STATUS_OK)
+        ClientException::throwException(HERE, respHdr->common.status);
+    return ServerId(respHdr->serverId);
 }
 
 /**
@@ -105,13 +105,13 @@ GetServerIdRpc::wait()
  * \param list
  *      The complete server list representing all cluster membership.
  *
- * \throw ServerDoesntExistException
+ * \throw ServerNotUpException
  *      The intended server for this RPC is not part of the cluster;
  *      if it ever existed, it has since crashed.
  */ 
 void
-MembershipClient::setServerList(Context& context, ServerId serverId,
-        ProtoBuf::ServerList& list)
+MembershipClient::setServerList(Context* context, ServerId serverId,
+        ProtoBuf::ServerList* list)
 {
     SetServerListRpc rpc(context, serverId, list);
     return rpc.wait();
@@ -129,14 +129,14 @@ MembershipClient::setServerList(Context& context, ServerId serverId,
  * \param list
  *      The complete server list representing all cluster membership.
  */
-SetServerListRpc::SetServerListRpc(Context& context, ServerId serverId,
-        ProtoBuf::ServerList& list)
+SetServerListRpc::SetServerListRpc(Context* context, ServerId serverId,
+        ProtoBuf::ServerList* list)
     : ServerIdRpcWrapper(context, serverId,
             sizeof(WireFormat::SetServerList::Response))
 {
-    WireFormat::SetServerList::Request& reqHdr(
+    WireFormat::SetServerList::Request* reqHdr(
             allocHeader<WireFormat::SetServerList>());
-    reqHdr.serverListLength = serializeToRequest(request, list);
+    reqHdr->serverListLength = serializeToRequest(&request, list);
     send();
 }
 
@@ -156,13 +156,13 @@ SetServerListRpc::SetServerListRpc(Context& context, ServerId serverId,
  *      the update not matching what was expected (i.e. the server lost an
  *      update at some point).
  *
- * \throw ServerDoesntExistException
+ * \throw ServerNotUpException
  *      The intended server for this RPC is not part of the cluster;
  *      if it ever existed, it has since crashed.
  */ 
 bool
-MembershipClient::updateServerList(Context& context, ServerId serverId,
-        ProtoBuf::ServerList& changes)
+MembershipClient::updateServerList(Context* context, ServerId serverId,
+        ProtoBuf::ServerList* changes)
 {
     UpdateServerListRpc rpc(context, serverId, changes);
     return rpc.wait();
@@ -180,14 +180,14 @@ MembershipClient::updateServerList(Context& context, ServerId serverId,
  * \param changes
  *      Information about changes to the list of servers in the cluster.
  */
-UpdateServerListRpc::UpdateServerListRpc(Context& context, ServerId serverId,
-        ProtoBuf::ServerList& changes)
+UpdateServerListRpc::UpdateServerListRpc(Context* context, ServerId serverId,
+        ProtoBuf::ServerList* changes)
     : ServerIdRpcWrapper(context, serverId,
             sizeof(WireFormat::UpdateServerList::Response))
 {
-    WireFormat::UpdateServerList::Request& reqHdr(
+    WireFormat::UpdateServerList::Request* reqHdr(
             allocHeader<WireFormat::UpdateServerList>());
-    reqHdr.serverListLength = serializeToRequest(request, changes);
+    reqHdr->serverListLength = serializeToRequest(&request, changes);
     send();
 }
 
@@ -201,7 +201,7 @@ UpdateServerListRpc::UpdateServerListRpc(Context& context, ServerId serverId,
  *      the update not matching what was expected (i.e. the server lost an
  *      update at some point).
  *
- * \throw ServerDoesntExistException
+ * \throw ServerNotUpException
  *      The target server for this RPC is not part of the cluster;
  *      if it ever existed, it has since crashed.
  */
@@ -209,9 +209,9 @@ bool
 UpdateServerListRpc::wait()
 {
     waitAndCheckErrors();
-    const WireFormat::UpdateServerList::Response& respHdr(
+    const WireFormat::UpdateServerList::Response* respHdr(
             getResponseHeader<WireFormat::UpdateServerList>());
-    return respHdr.lostUpdates == 0;
+    return respHdr->lostUpdates == 0;
 }
 
 }  // namespace RAMCloud

@@ -67,9 +67,9 @@ class MaybeStartRecoveryTask : public Task {
                 alreadyActive.push_back(recovery);
                 mgr.waitingRecoveries.pop();
                 LOG(NOTICE,
-                    "Delaying start of recovery of server %lu; "
+                    "Delaying start of recovery of server %s; "
                     "another recovery is active for the same ServerId",
-                    recovery->crashedServerId.getId());
+                    recovery->crashedServerId.toString().c_str());
             } else {
                 if (mgr.runtimeOptions)
                     recovery->testingFailRecoveryMasters =
@@ -77,8 +77,9 @@ class MaybeStartRecoveryTask : public Task {
                 recovery->schedule();
                 mgr.activeRecoveries[recovery->getRecoveryId()] = recovery;
                 mgr.waitingRecoveries.pop();
-                LOG(NOTICE, "Starting recovery of server %lu (now %lu active "
-                    "recoveries)", recovery->crashedServerId.getId(),
+                LOG(NOTICE, "Starting recovery of server %s (now %lu active "
+                    "recoveries)",
+                    recovery->crashedServerId.toString().c_str(),
                     mgr.activeRecoveries.size());
             }
         }
@@ -233,9 +234,10 @@ class RecoveryMasterFinishedTask : public Task {
                         "we need to handle this sensibly");
                 }
             }
-            LOG(DEBUG, "Coordinator tabletMap after recovery master %lu "
+            LOG(DEBUG, "Coordinator tabletMap after recovery master %s "
                 "finished: %s",
-                recoveryMasterId.getId(), mgr.tabletMap.debugString().c_str());
+                recoveryMasterId.toString().c_str(),
+                mgr.tabletMap.debugString().c_str());
         } else {
             LOG(WARNING, "A recovery master failed to recover its partition");
         }
@@ -267,7 +269,7 @@ using namespace MasterRecoveryManagerInternal; // NOLINT
  *      Configuration options which are stored by the coordinator.
  *      May be NULL for testing.
  */
-MasterRecoveryManager::MasterRecoveryManager(Context& context,
+MasterRecoveryManager::MasterRecoveryManager(Context* context,
                                              TabletMap& tabletMap,
                                              RuntimeOptions* runtimeOptions)
     : context(context)
@@ -333,19 +335,20 @@ MasterRecoveryManager::startMasterRecovery(ServerId crashedServerId)
     auto tablets =
         tabletMap.setStatusForServer(crashedServerId, Tablet::RECOVERING);
     if (tablets.empty()) {
-        LOG(NOTICE, "Server %lu crashed, but it had no tablets",
-            crashedServerId.getId());
+        LOG(NOTICE, "Server %s crashed, but it had no tablets",
+            crashedServerId.toString().c_str());
         return;
     }
 
     try {
         CoordinatorServerList::Entry server =
-            context.coordinatorServerList->at(crashedServerId);
-        LOG(NOTICE, "Scheduling recovery of master %lu",
-            crashedServerId.getId());
+            context->coordinatorServerList->at(crashedServerId);
+        LOG(NOTICE, "Scheduling recovery of master %s",
+            crashedServerId.toString().c_str());
 
         if (doNotStartRecoveries) {
-            TEST_LOG("Recovery crashedServerId: %lu", crashedServerId.getId());
+            TEST_LOG("Recovery crashedServerId: %s",
+                     crashedServerId.toString().c_str());
             return;
         }
 
@@ -360,10 +363,10 @@ MasterRecoveryManager::startMasterRecovery(ServerId crashedServerId)
         tablets =
             tabletMap.setStatusForServer(crashedServerId, Tablet::RECOVERING);
         if (!tablets.empty()) {
-            LOG(ERROR, "Tried to start recovery for crashed server %lu which "
+            LOG(ERROR, "Tried to start recovery for crashed server %s which "
                 "has tablets in the tablet map but is no longer in the "
                 "coordinator server list. Cannot recover. Kiss your data "
-                "goodbye.", crashedServerId.getId());
+                "goodbye.", crashedServerId.toString().c_str());
         }
     }
 }
@@ -392,9 +395,10 @@ class ApplyTrackerChangesTask : public Task {
                 Recovery* recovery = mgr.tracker[server.serverId];
                 if (!recovery)
                     break;
-                LOG(NOTICE, "Recovery master %lu crashed while recovering "
-                    "a partition of server %lu", server.serverId.getId(),
-                    recovery->crashedServerId.getId());
+                LOG(NOTICE, "Recovery master %s crashed while recovering "
+                    "a partition of server %s",
+                    server.serverId.toString().c_str(),
+                    recovery->crashedServerId.toString().c_str());
                 // Like it or not, recovery is done on this recovery master
                 // but unsuccessfully.
                 recovery->recoveryMasterFinished(server.serverId, false);
@@ -439,8 +443,9 @@ MasterRecoveryManager::destroyAndFreeRecovery(Recovery* recovery)
     // to recoveryFinished().
     activeRecoveries.erase(recovery->getRecoveryId());
     LOG(NOTICE,
-        "Recovery of server %lu done (now %lu active recoveries)",
-        recovery->crashedServerId.getId(), activeRecoveries.size());
+        "Recovery of server %s done (now %lu active recoveries)",
+        recovery->crashedServerId.toString().c_str(),
+        activeRecoveries.size());
     delete recovery;
 }
 
@@ -468,8 +473,9 @@ MasterRecoveryManager::recoveryFinished(Recovery* recovery)
     // means another recovery won't start until after the end of
     // recovery broadcast. To change that just move the erase
     // from destroyAndFreeRecovery() to recoveryFinished().
-    LOG(NOTICE, "Recovery %lu completed for master %lu",
-        recovery->getRecoveryId(), recovery->crashedServerId.getId());
+    LOG(NOTICE, "Recovery %lu completed for master %s",
+        recovery->getRecoveryId(),
+        recovery->crashedServerId.toString().c_str());
     if (recovery->wasCompletelySuccessful()) {
         // Remove recovered server from the server list and broadcast
         // the change to the cluster.
@@ -477,7 +483,7 @@ MasterRecoveryManager::recoveryFinished(Recovery* recovery)
         // to take care of this for us automatically. So we can just
         // do the remove.
         try {
-            context.coordinatorServerList->remove(recovery->crashedServerId);
+            context->coordinatorServerList->remove(recovery->crashedServerId);
         } catch (const Exception& e) {
             // Server may have already been removed from the list
             // because of an earlier recovery.
@@ -485,9 +491,9 @@ MasterRecoveryManager::recoveryFinished(Recovery* recovery)
         (new MaybeStartRecoveryTask(*this))->schedule();
     } else {
         LOG(NOTICE,
-            "Recovery of server %lu failed to recover some "
+            "Recovery of server %s failed to recover some "
             "tablets, rescheduling another recovery",
-            recovery->crashedServerId.getId());
+            recovery->crashedServerId.toString().c_str());
         // Enqueue will schedule a MaybeStartRecoveryTask.
         (new EnqueueMasterRecoveryTask(*this,
                                        recovery->crashedServerId,
@@ -527,8 +533,8 @@ MasterRecoveryManager::recoveryMasterFinished(
     const ProtoBuf::Tablets& recoveredTablets,
     bool successful)
 {
-    LOG(NOTICE, "called by masterId %lu with %u tablets",
-        recoveryMasterId.getId(), recoveredTablets.tablet_size());
+    LOG(NOTICE, "called by masterId %s with %u tablets",
+        recoveryMasterId.toString().c_str(), recoveredTablets.tablet_size());
 
     TEST_LOG("Recovered tablets");
     TEST_LOG("%s", recoveredTablets.ShortDebugString().c_str());

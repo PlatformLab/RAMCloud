@@ -54,8 +54,9 @@ class Transport {
   public:
     class RpcNotifier;
 
-      /// Transports should cut off longer RPCs to prevent runaways.
-      static const uint32_t MAX_RPC_LEN = (1 << 24);
+      /// Maximum allowable size for an RPC request or response message: must
+      /// be large enough to hold an 8MB segment plus header information.
+      static const uint32_t MAX_RPC_LEN = ((1 << 23) + 200);
 
     /**
      * An RPC request that has been received and is either being serviced or
@@ -212,11 +213,10 @@ class Transport {
 
         /**
          * Shut down this session: abort any RPCs in progress and reject
-         * any future calls to \c sendRequest.
-         * \param message
-         *      Provides information about why the Session is being aborted.
+         * any future calls to \c sendRequest. The caller is responsible
+         * for logging the reason for the abort.
          */
-        virtual void abort(const string& message) = 0;
+        virtual void abort() = 0;
 
         /// Used by boost::intrusive_ptr. Do not call explicitly.
         friend void intrusive_ptr_add_ref(Session* session) {

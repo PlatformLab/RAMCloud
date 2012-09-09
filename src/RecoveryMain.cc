@@ -210,7 +210,7 @@ try
     LOG(NOTICE, "client: Connecting to %s",
         optionParser.options.getCoordinatorLocator().c_str());
 
-    RamCloud client(context,
+    RamCloud client(&context,
                     optionParser.options.getCoordinatorLocator().c_str());
 
     if (removeCount > count)
@@ -283,7 +283,7 @@ try
                     memcpy(new(&writeVal, APPEND) char[objectDataSize],
                             chunk, objectDataSize);
                 }
-                writeRpc.construct(client,
+                writeRpc.construct(&client,
                                    static_cast<uint32_t>(tables[t]),
                                    key.c_str(),
                                    keyLength,
@@ -422,6 +422,7 @@ try
         LOG(ERROR, "Metrics mismatches: %lu",
                 metricsAfter.size() - diff.size());
     }
+    Logger::get().disableCollapsing();
     for (ClusterMetrics::iterator serverIt = diff.begin();
             serverIt != diff.end(); serverIt++) {
         LOG(NOTICE, "Metrics: begin server %s", serverIt->first.c_str());
@@ -432,6 +433,7 @@ try
                     metricIt->second);
         }
     }
+    Logger::get().enableCollapsing();
 
     return 0;
 } catch (RAMCloud::ClientException& e) {

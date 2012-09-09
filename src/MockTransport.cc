@@ -27,7 +27,7 @@ uint32_t RAMCloud::MockTransport::sessionDeleteCount = 0;
 /**
  * Construct a MockTransport.
  */
-MockTransport::MockTransport(Context& context,
+MockTransport::MockTransport(Context* context,
                              const ServiceLocator *serviceLocator)
             : context(context)
             , outputLog()
@@ -93,9 +93,9 @@ MockTransport::MockSession::~MockSession()
  * log message.
  */
 void
-MockTransport::MockSession::abort(const string& message)
+MockTransport::MockSession::abort()
 {
-    transport->appendToOutput(ABORT, message);
+    transport->appendToOutput(ABORT, "");
 }
 
 // See Transport::Session::cancelRequest for documentation.

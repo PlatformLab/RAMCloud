@@ -39,7 +39,7 @@ class BackupFailureMonitor
     : public ServerTracker<void>::Callback
 {
   PUBLIC:
-    BackupFailureMonitor(Context& context,
+    BackupFailureMonitor(Context* context,
                          ReplicaManager* replicaManager);
     ~BackupFailureMonitor();
 

@@ -40,7 +40,7 @@ namespace RAMCloud {
  *      The ServerId of this server, as returned by enlistment with the
  *      coordinator. Used only to avoid pinging ourself.
  */
-FailureDetector::FailureDetector(Context& context,
+FailureDetector::FailureDetector(Context* context,
                                  const ServerId ourServerId)
     : context(context),
       ourServerId(ourServerId),
@@ -68,7 +68,7 @@ FailureDetector::~FailureDetector()
 void
 FailureDetector::start()
 {
-    thread.construct(detectorThreadEntry, this, &context);
+    thread.construct(detectorThreadEntry, this, context);
 }
 
 /**
@@ -147,30 +147,30 @@ FailureDetector::pingRandomServer()
 
     string locator;
     try {
-        locator = context.serverList->getLocator(pingee);
+        locator = context->serverList->getLocator(pingee);
         uint64_t serverListVersion;
-        LOG(DEBUG, "Sending ping to server %lu (%s)", pingee.getId(),
+        LOG(DEBUG, "Sending ping to server %s (%s)", pingee.toString().c_str(),
             locator.c_str());
         uint64_t start = Cycles::rdtsc();
         PingRpc rpc(context, pingee, ourServerId);
         serverListVersion = rpc.wait(TIMEOUT_USECS *1000);
         if (serverListVersion == ~0LU) {
             // Server appears to have crashed; notify the coordinator.
-            LOG(WARNING, "Ping timeout to server id %lu (locator \"%s\")",
-                pingee.getId(), locator.c_str());
+            LOG(WARNING, "Ping timeout to server id %s (locator \"%s\")",
+                pingee.toString().c_str(), locator.c_str());
             CoordinatorClient::hintServerDown(context, pingee);
             return;
         }
-        LOG(DEBUG, "Ping succeeded to server %lu (%s) in %.1f us",
-            pingee.getId(), locator.c_str(),
+        LOG(DEBUG, "Ping succeeded to server %s (%s) in %.1f us",
+            pingee.toString().c_str(), locator.c_str(),
             1e06*Cycles::toSeconds(Cycles::rdtsc() - start));
         checkServerListVersion(serverListVersion);
     } catch (const ServerListException &sle) {
         // This isn't an error. It's just a race between this thread and
         // the membership service. It should be quite uncommon, so just
         // bail on this round and ping again next time.
-        LOG(NOTICE, "Tried to ping locator \"%s\", but id %lu was stale",
-            locator.c_str(), *pingee);
+        LOG(NOTICE, "Tried to ping locator \"%s\", but id %s was stale",
+            locator.c_str(), pingee.toString().c_str());
     }
 }
 
@@ -196,7 +196,7 @@ FailureDetector::checkServerListVersion(uint64_t observedVersion)
     if (staleServerListSuspected)
         return;
 
-    uint64_t currentVersion = context.serverList->getVersion();
+    uint64_t currentVersion = context->serverList->getVersion();
     if (observedVersion <= currentVersion)
         return;
 
@@ -223,7 +223,7 @@ FailureDetector::checkForStaleServerList()
         return;
     }
 
-    uint64_t currentVersion = context.serverList->getVersion();
+    uint64_t currentVersion = context->serverList->getVersion();
     if (currentVersion > staleServerListVersion) {
         staleServerListSuspected = false;
         TEST_LOG("Version advanced. Suspicion suspended.");
@@ -236,12 +236,8 @@ FailureDetector::checkForStaleServerList()
             "Requesting new list push! Timeout after %lu us.",
             currentVersion, staleServerListVersion,
             Cycles::toNanoseconds(deltaTicks) / 1000);
-        try {
-            CoordinatorClient::sendServerList(context, ourServerId);
-            staleServerListSuspected = false;
-        } catch (TransportException &te) {
-            LOG(WARNING, "Request to coordinator failed: %s", te.what());
-        }
+        CoordinatorClient::sendServerList(context, ourServerId);
+        staleServerListSuspected = false;
     }
 }
 

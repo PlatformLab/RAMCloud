@@ -39,7 +39,7 @@ namespace RAMCloud {
 class TcpTransport : public Transport {
   public:
 
-    explicit TcpTransport(Context& context,
+    explicit TcpTransport(Context* context,
             const ServiceLocator* serviceLocator = NULL);
     ~TcpTransport();
     SessionRef getSession(const ServiceLocator& serviceLocator,
@@ -85,6 +85,7 @@ class TcpTransport : public Transport {
         friend class TcpServerRpc;
       public:
         IncomingMessage(Buffer* buffer, TcpSession* session);
+        void cancel();
         bool readMessage(int fd);
       PRIVATE:
         Header header;
@@ -105,8 +106,9 @@ class TcpTransport : public Transport {
         uint32_t messageLength;
 
         /// Buffer in which incoming message will be stored (not including
-        /// transport-specific header).  NULL means the message will be
-        /// discarded.
+        /// transport-specific header); NULL means we haven't yet started
+        /// reading the response, or else the RPC was canceled after we
+        /// started reading the response.
         Buffer* buffer;
 
         /// Session that will find the buffer to use for this message once
@@ -194,15 +196,6 @@ class TcpTransport : public Transport {
             int bytesToSend);
 
     /**
-     * An exception that is thrown when a socket has been closed by the peer.
-     */
-    class TcpTransportEof : public TransportException {
-      public:
-        explicit TcpTransportEof(const CodeLocation& where)
-            : TransportException(where) {}
-    };
-
-    /**
      * An event handler that will accept connections on a socket.
      */
     class AcceptHandler : public Dispatch::File {
@@ -257,7 +250,7 @@ class TcpTransport : public Transport {
                 const ServiceLocator& serviceLocator,
                 uint32_t timeoutMs = 0);
         ~TcpSession();
-        virtual void abort(const string& message);
+        virtual void abort();
         virtual void cancelRequest(RpcNotifier* notifier);
         Buffer* findRpc(Header& header);
         void release() {
@@ -271,8 +264,8 @@ class TcpTransport : public Transport {
             address(), fd(-1), serial(1),
             rpcsWaitingToSend(), bytesLeftToSend(0),
             rpcsWaitingForResponse(), current(NULL),
-            message(), clientIoHandler(), errorInfo(),
-            alarm(*transport.context.sessionAlarmTimer, *this, 0) { }
+            message(), clientIoHandler(),
+            alarm(*transport.context->sessionAlarmTimer, *this, 0) { }
 #endif
         void close();
         static void tryReadReply(int fd, int16_t event, void *arg);
@@ -281,7 +274,8 @@ class TcpTransport : public Transport {
         IpAddress address;        /// Server to which requests will be sent.
         int fd;                   /// File descriptor for the socket that
                                   /// connects to address  -1 means no socket
-                                  /// open.
+                                  /// open (the socket was aborted because of
+                                  /// an error).
         uint64_t serial;          /// Used to generate nonces for RPCs: starts
                                   /// at 1 and increments for each RPC.
 
@@ -307,8 +301,6 @@ class TcpTransport : public Transport {
         Tub<ClientSocketHandler> clientIoHandler;
                                   /// Used to get notified when response data
                                   /// arrives.
-        string errorInfo;         /// If the session is no longer usable,
-                                  /// this variable indicates why.
         SessionAlarm alarm;       /// Used to detect server timeouts.
         DISALLOW_COPY_AND_ASSIGN(TcpSession);
     };
@@ -316,7 +308,7 @@ class TcpTransport : public Transport {
     static Syscall* sys;
 
     /// Shared RAMCloud information.
-    Context& context;
+    Context* context;
 
     /// Service locator used to open server socket (empty string if this
     /// isn't a server). May differ from what was passed to the constructor

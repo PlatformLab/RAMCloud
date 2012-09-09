@@ -81,7 +81,7 @@ class FastTransport : public Transport {
     class ServerSession;
     class ClientSession;
   public:
-    explicit FastTransport(Context& context, Driver* driver);
+    explicit FastTransport(Context* context, Driver* driver);
     ~FastTransport();
 
     void dumpStats() {
@@ -664,7 +664,7 @@ class FastTransport : public Transport {
          */
         explicit Session(FastTransport* transport, uint32_t id)
             : id(id)
-            , lastActivityTime(transport->context.dispatch->currentTime)
+            , lastActivityTime(transport->context->dispatch->currentTime)
             , transport(transport)
             , timeoutCycles(0)
             , token(INVALID_TOKEN)
@@ -775,7 +775,7 @@ class FastTransport : public Transport {
         ServerSession(FastTransport* transport, uint32_t sessionId);
         ~ServerSession();
         void beginSending(uint8_t channelId);
-        virtual void abort(const string& message);
+        virtual void abort();
         virtual void cancelRequest(RpcNotifier* notifier);
         virtual bool expire(NonIdleAction nonIdleAction = IGNORE_NON_IDLE);
         virtual void fillHeader(Header* const header, uint8_t channelId) const;
@@ -914,7 +914,7 @@ class FastTransport : public Transport {
         ClientSession(FastTransport* transport, uint32_t sessionId);
         ~ClientSession();
 
-        virtual void abort(const string& message);
+        virtual void abort();
         virtual void cancelRequest(RpcNotifier* notifier);
         void connect();
         bool expire(NonIdleAction nonIdleAction = IGNORE_NON_IDLE);
@@ -1196,7 +1196,7 @@ class FastTransport : public Transport {
         void expire()
         {
             const uint32_t sessionsToCheck = 5;
-            uint64_t now = transport->context.dispatch->currentTime;
+            uint64_t now = transport->context->dispatch->currentTime;
             for (uint32_t i = 0; i < sessionsToCheck; i++) {
                 lastCleanedIndex++;
                 if (lastCleanedIndex >= sessions.size()) {
@@ -1252,7 +1252,7 @@ class FastTransport : public Transport {
                     Header* header, Buffer::Iterator* payload);
 
     /// Shared RAMCloud information.
-    Context &context;
+    Context* context;
 
     /// The Driver used to send/recv packets for this FastTransport.
     Driver* const driver;

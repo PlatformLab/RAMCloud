@@ -50,14 +50,14 @@ class LogTest : public ::testing::Test {
     LogTest()
         : context(),
           serverId(ServerId(57, 0)),
-          serverList(context),
-          replicaManager(context, serverId, 0),
+          serverList(&context),
+          replicaManager(&context, serverId, 0),
           allocator((6 + 2 + LogCleaner::SURVIVOR_SEGMENTS_TO_RESERVE) * 8192,
                     8192),
-          segmentManager(context, 8192, serverId,
+          segmentManager(&context, 8192, serverId,
                          allocator, replicaManager, 1.0),
           entryHandlers(),
-          l(context, entryHandlers, segmentManager, replicaManager)
+          l(&context, entryHandlers, segmentManager, replicaManager)
     {
         l.sync();
     }
@@ -71,7 +71,7 @@ TEST_F(LogTest, constructor) {
         (6 + 2 + LogCleaner::SURVIVOR_SEGMENTS_TO_RESERVE) * 8192, 8192);
     SegmentManager segmentManager2(context, 8192, serverId,
                                    allocator2, replicaManager, 1.0);
-    Log l2(context, entryHandlers, segmentManager2, replicaManager);
+    Log l2(&context, entryHandlers, segmentManager2, replicaManager);
     EXPECT_EQ(static_cast<LogSegment*>(NULL), l2.head);
 }
 
@@ -179,9 +179,9 @@ TEST_F(LogTest, getHeadPosition) {
         // unsynced should return <0, 0>...
         SegletAllocator allocator2(
             (6 + 2 + LogCleaner::SURVIVOR_SEGMENTS_TO_RESERVE) * 8192, 8192);
-        SegmentManager segmentManager2(context, 8192, serverId,
+        SegmentManager segmentManager2(&context, 8192, serverId,
                                        allocator2, replicaManager, 1.0);
-        Log l2(context, entryHandlers, segmentManager2, replicaManager);
+        Log l2(&context, entryHandlers, segmentManager2, replicaManager);
         EXPECT_EQ(Log::Position(0, 0), l2.getHeadPosition());
     }
 

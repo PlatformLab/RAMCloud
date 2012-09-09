@@ -56,7 +56,7 @@ RpcWrapper::RpcWrapper(uint32_t responseHeaderLength, Buffer* response)
   * canceled.
   */
 RpcWrapper::~RpcWrapper() {
-    cancel();
+    cancel(false);
 }
 
 /**
@@ -66,7 +66,7 @@ RpcWrapper::~RpcWrapper() {
  * RpcCanceledException if it is invoked.
  */
 void
-RpcWrapper::cancel()
+RpcWrapper::cancel(bool XXXreport)
 {
     // This code is potentially tricky, because complete or failed
     // could get invoked concurrently. Fortunately, we know that
@@ -76,13 +76,15 @@ RpcWrapper::cancel()
         session->cancelRequest(this);
     }
     state = CANCELED;
+if (XXXreport)
+  LOG(NOTICE, "!!!!!@@@!!!! RPC CANCELLED!\n");
 }
 
 /**
  * This method is invoked by isReady when an RPC returns with an error
  * status that isn't known to isReady. Subclasses can override the
  * default implementation to handle some status values (such as
- * STATUS_UNKNOWN_TABLE) by retrying the request.
+ * STATUS_UNKNOWN_TABLET) by retrying the request.
  *
  * \return
  *      The return value from this method will be the return value
@@ -259,15 +261,13 @@ RpcWrapper::send()
     //   approaches (such as using service locators): they must set the
     //   session member before invoking this method.
 
-    // TODO(syang0) Temp fix for RAM-442
-    response->reset();
     state = IN_PROGRESS;
     if (session)
         session->sendRequest(&request, response, this);
 }
 
 /**
- * This method is provides a simple implementation of \c wait that
+ * This method provides a simple implementation of \c wait that
  * doesn't do any processing of the result; it just waits for completion
  * and checks for errors.  It is invoked by various other wrapper
  * classes as their implementation of \c wait.
@@ -276,7 +276,7 @@ RpcWrapper::send()
  *      Dispatch to use for polling while waiting.
  */
 void
-RpcWrapper::simpleWait(Dispatch& dispatch)
+RpcWrapper::simpleWait(Dispatch* dispatch)
 {
     waitInternal(dispatch);
     if (responseHeader->status != STATUS_OK)
@@ -309,21 +309,6 @@ RpcWrapper::stateString() {
 }
 
 /**
- * This method is intended for use in testing transports: it sends the
- * request message to session, and updates the wrapper state accordingly.
- *
- * \param session
- *      Session on which to send the request.
- */
-void
-RpcWrapper::testSend(Transport::SessionRef session)
-{
-    this->session = session;
-    state = IN_PROGRESS;
-    session->sendRequest(&request, response, this);
-}
-
-/**
  * This method is typically invoked by wrapper subclasses. It waits for the
  * RPC to complete (either with a response, an unrecoverable failure, or a
  * timeout) and may attempt to retry the RPC after certain failures.
@@ -343,17 +328,17 @@ RpcWrapper::testSend(Transport::SessionRef session)
  *      to wait for it.
  */
 bool
-RpcWrapper::waitInternal(Dispatch& dispatch, uint64_t abortTime)
+RpcWrapper::waitInternal(Dispatch* dispatch, uint64_t abortTime)
 {
     // When invoked in RAMCloud servers there is a separate dispatch thread,
     // so we just busy-wait here. When invoked on RAMCloud clients we're in
     // the dispatch thread so we have to invoke the dispatcher while waiting.
-    bool isDispatchThread = dispatch.isDispatchThread();
+    bool isDispatchThread = dispatch->isDispatchThread();
 
     while (!isReady()) {
         if (isDispatchThread)
-            dispatch.poll();
-        if (dispatch.currentTime > abortTime)
+            dispatch->poll();
+        if (dispatch->currentTime > abortTime)
             return false;
     }
     if (getState() == CANCELED)

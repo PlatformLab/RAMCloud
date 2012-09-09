@@ -15,6 +15,7 @@
 
 #include <thread>
 
+#include "BackupReplica.h"
 #include "BackupService.h"
 #include "BackupStorage.h"
 #include "Buffer.h"
@@ -33,803 +34,13 @@
 namespace RAMCloud {
 
 namespace {
+
 /**
  * The TSC reading at the start of the last recovery.
  * Used to update #RawMetrics.backup.readingDataTicks.
  */
 uint64_t recoveryStart;
 } // anonymous namespace
-
-// --- BackupService::SegmentInfo ---
-
-/**
- * Construct a SegmentInfo to manage a segment.
- *
- * \param storage
- *      The storage which this segment will be backed by when closed.
- * \param pool
- *      The pool from which this segment should draw and return memory
- *      when it is moved in and out of memory.
- * \param ioScheduler
- *      The IoScheduler through which IO requests are made.
- * \param masterId
- *      The master id of the segment being managed.
- * \param segmentId
- *      The segment id of the segment being managed.
- * \param segmentSize
- *      The number of bytes contained in this segment.
- * \param primary
- *      True if this is the primary copy of this segment for the master
- *      who stored it.  Determines whether recovery segments are built
- *      at recovery start or on demand.
- */
-BackupService::SegmentInfo::SegmentInfo(BackupStorage& storage,
-                                        ThreadSafePool& pool,
-                                        IoScheduler& ioScheduler,
-                                        ServerId masterId,
-                                        uint64_t segmentId,
-                                        uint32_t segmentSize,
-                                        bool primary)
-    : masterId(masterId)
-    , primary(primary)
-    , segmentId(segmentId)
-    , createdByCurrentProcess(true)
-    , mutex()
-    , condition()
-    , ioScheduler(ioScheduler)
-    , recoveryException()
-    , recoveryPartitions()
-    , recoverySegments(NULL)
-    , recoverySegmentsLength()
-    , footerOffset(0)
-    , footerEntry()
-    , rightmostWrittenOffset(0)
-    , segment()
-    , segmentSize(segmentSize)
-    , state(UNINIT)
-    , replicateAtomically(false)
-    , storageHandle()
-    , pool(pool)
-    , storage(storage)
-    , storageOpCount(0)
-{
-}
-
-/**
- * Construct a SegmentInfo to manage a replica which already has an
- * existing representation on storage.
- *
- * \param storage
- *      The storage which this segment will be backed by when closed.
- * \param pool
- *      The pool from which this segment should draw and return memory
- *      when it is moved in and out of memory.
- * \param ioScheduler
- *      The IoScheduler through which IO requests are made.
- * \param masterId
- *      The master id of the segment being managed.
- * \param segmentId
- *      The segment id of the segment being managed.
- * \param segmentSize
- *      The number of bytes contained in this segment.
- * \param segmentFrame
- *      The segment frame number this replica's representation is in.  This
- *      reassociates it with that representation so operations to this
- *      instance affect that segment frame.
- * \param isClosed
- *      Whether the on-storage replica indicates a closed or open status.
- *      This instance will reflect that status.  If this is true the
- *      segment is retreived from storage to simplify some legacy code
- *      that assumes open replicas reside in memory.
- */
-BackupService::SegmentInfo::SegmentInfo(BackupStorage& storage,
-                                        ThreadSafePool& pool,
-                                        IoScheduler& ioScheduler,
-                                        ServerId masterId,
-                                        uint64_t segmentId,
-                                        uint32_t segmentSize,
-                                        uint32_t segmentFrame,
-                                        bool isClosed)
-    : masterId(masterId)
-    , primary(false)
-    , segmentId(segmentId)
-    , createdByCurrentProcess(false)
-    , mutex()
-    , condition()
-    , ioScheduler(ioScheduler)
-    , recoveryException()
-    , recoveryPartitions()
-    , recoverySegments(NULL)
-    , recoverySegmentsLength()
-    , footerOffset(0)
-    , footerEntry()
-    , rightmostWrittenOffset(0)
-    , segment()
-    , segmentSize(segmentSize)
-    , state(isClosed ? CLOSED : OPEN)
-    , replicateAtomically(false)
-    , storageHandle()
-    , pool(pool)
-    , storage(storage)
-    , storageOpCount(0)
-{
-    storageHandle = storage.associate(segmentFrame);
-    if (state == OPEN) {
-        // There is some disagreement between the masters and backups about
-        // the meaning of "open".  In a few places the backup code assumes
-        // open replicas must be in memory.  For now its easiest just to
-        // make sure that is the case, so on cold start we have to reload
-        // open replicas into ram.
-        try {
-            // Get memory for staging the segment writes
-            segment = static_cast<char*>(pool.malloc());
-            storage.getSegment(storageHandle, segment);
-        } catch (...) {
-            pool.free(segment);
-            delete storageHandle;
-            throw;
-        }
-    }
-
-    // TODO(stutsman): Claim this replica is the longest if it was closed
-    // and the shortest if it was open.  This field should go away soon, but
-    // this should make it so that replicas from backups that haven't crashed
-    // are preferred over this one.
-    if (state == CLOSED)
-        rightmostWrittenOffset = BYTES_WRITTEN_CLOSED;
-}
-
-/**
- * Store any open segments to storage and then release all resources
- * associate with them except permanent storage.
- */
-BackupService::SegmentInfo::~SegmentInfo()
-{
-    Lock lock(mutex);
-    waitForOngoingOps(lock);
-
-    if (state == OPEN) {
-        if (replicateAtomically && state != CLOSED) {
-            LOG(NOTICE, "Backup shutting down with open segment <%lu,%lu>, "
-                "which was open for atomic replication; discarding since the "
-                "replica was incomplete", *masterId, segmentId);
-        } else {
-            LOG(NOTICE, "Backup shutting down with open segment <%lu,%lu>, "
-                "closing out to storage", *masterId, segmentId);
-            state = CLOSED;
-            CycleCounter<RawMetric> _(&metrics->backup.storageWriteTicks);
-            ++metrics->backup.storageWriteCount;
-            metrics->backup.storageWriteBytes += segmentSize;
-            storage.putSegment(storageHandle, segment);
-        }
-    }
-    if (isRecovered()) {
-        delete[] recoverySegments;
-        recoverySegments = NULL;
-        recoverySegmentsLength = 0;
-    }
-    if (inStorage()) {
-        delete storageHandle;
-        storageHandle = NULL;
-    }
-    if (inMemory()) {
-        pool.free(segment);
-        segment = NULL;
-    }
-    // recoveryException cleaned up by unique_ptr
-}
-
-/**
- * Append a recovery segment to a Buffer.  This segment must have its
- * recovery segments constructed first; see buildRecoverySegments().
- *
- * \param partitionId
- *      The partition id corresponding to the tablet ranges of the recovery
- *      segment to append to #buffer.
- * \param[out] buffer
- *      A buffer which onto which the requested recovery segment will be
- *      appended.
- * \return
- *      Status code: STATUS_OK if the recovery segment was appended,
- *      STATUS_RETRY if the caller should try again later.
- * \throw BadSegmentIdException
- *      If the segment to which this recovery segment belongs is not yet
- *      recovered or there is no such recovery segment for that
- *      #partitionId.
- * \throw SegmentRecoveryFailedException
- *      If the segment to which this recovery segment belongs failed to
- *      recover.
- */
-Status
-BackupService::SegmentInfo::appendRecoverySegment(uint64_t partitionId,
-                                                  Buffer& buffer)
-{
-    Lock lock(mutex, std::try_to_lock_t());
-    if (!lock.owns_lock()) {
-        LOG(DEBUG, "Deferring because couldn't acquire lock immediately");
-        return STATUS_RETRY;
-    }
-
-    if (state != RECOVERING) {
-        LOG(WARNING, "Asked for segment <%lu,%lu> which isn't recovering",
-            *masterId, segmentId);
-        throw BackupBadSegmentIdException(HERE);
-    }
-
-    if (!primary) {
-        if (!isRecovered() && !recoveryException) {
-            LOG(DEBUG, "Requested segment <%lu,%lu> is secondary, "
-                "starting build of recovery segments now",
-                *masterId, segmentId);
-            waitForOngoingOps(lock);
-            ioScheduler.load(*this);
-            ++storageOpCount;
-            lock.unlock();
-            buildRecoverySegments(*recoveryPartitions);
-            lock.lock();
-        }
-    }
-
-    if (!isRecovered() && !recoveryException) {
-        LOG(DEBUG, "Deferring because <%lu,%lu> not yet filtered",
-            *masterId, segmentId);
-        return STATUS_RETRY;
-    }
-    assert(state == RECOVERING);
-
-    if (primary)
-        ++metrics->backup.primaryLoadCount;
-    else
-        ++metrics->backup.secondaryLoadCount;
-
-    if (recoveryException) {
-        auto e = SegmentRecoveryFailedException(*recoveryException);
-        recoveryException.reset();
-        throw e;
-    }
-
-    if (partitionId >= recoverySegmentsLength) {
-        LOG(WARNING, "Asked for recovery segment %lu from segment <%lu,%lu> "
-                     "but there are only %u partitions",
-            partitionId, *masterId, segmentId, recoverySegmentsLength);
-        throw BackupBadSegmentIdException(HERE);
-    }
-
-    recoverySegments[partitionId].appendToBuffer(buffer);
-
-    LOG(DEBUG, "appendRecoverySegment <%lu,%lu>", *masterId, segmentId);
-    return STATUS_OK;
-}
-
-/**
- * Returns true if the entry is alive and should be recovered, otherwise
- * false if it should be ignored.
- *
- * This decision is necessary in order to avoid zombies. For example, when
- * migrating a tablet away and then back again, its possible for old objects
- * to be in the log from the first instance of the tablet that are no longer
- * alive. If the server fails, we need to filter them out (lest they come
- * back to feast on our delicious brains).
- *
- * To combat this, the coordinator keeps the minimum log offset at which
- * valid objects in each tablet may exist. Any objects that come before this
- * point could not have been part of the current tablet.
- *
- * The situation is slightly complicated by the cleaner, since it may create
- * segments with identifiers ahead of the log head despite containing data
- * from only segments before the head at the time of cleaning. To address
- * this, each segment generated by the cleaner includes the head's segment
- * id at the time it was generated. This allows us to logically order cleaner
- * segments and segments written by the log (i.e. that were previously heads).
- *
- * When a tablet is created, the current log head is recorded. Any cleaner-
- * generated segments marked with that head id or lower cannot contain live
- * data for the new tablet. Only cleaner-generated segments with higher IDs
- * could contain valid data. Segments written by the log (i.e. the head or
- * previous heads) will contain valid data for the new tablet only at positions
- * greater than or equal to the recorded log head at tablet instantation time.
- * Importantly, this requires that the hash table be purged of all objects that
- * were previously in a tablet before a tablet is reassigned, since the cleaner
- * uses the presence of a tablet and hash table entries to gauge liveness.
- *
- * \param position
- *      Log::Position indicating where this entry occurred in the log. Used to
- *      determine if it was written before a tablet it could belong to was
- *      created.
- * \param type
- *      Type of the log entry.
- * \param buffer
- *      Buffer containing the log entry.
- * \param tablet
- *      Tablet to which this entry would belong if were current. It's up to
- *      the caller to ensure that the given entry falls within this tablet
- *      range.
- * \param header
- *      The SegmentHeader of the segment that contains this entry. Used to
- *      determine if the segment was generated by the cleaner or not, and
- *      if so, when it was created. This information precludes objects that
- *      pre-existed the current tablet, but were copied ahead in the log by
- *      the cleaner.
- * \return
- *      true if this object belongs to the given tablet, false if it is from
- *      a previous instance of the tablet and should be dropped.
- */
-bool
-isEntryAlive(Log::Position& position,
-             LogEntryType type,
-             Buffer& buffer,
-             const ProtoBuf::Tablets::Tablet& tablet,
-             const SegmentHeader& header)
-{
-    if (header.generatedByCleaner()) {
-        uint64_t headId = header.headSegmentIdDuringCleaning;
-        if (headId <= tablet.ctime_log_head_id())
-            return false;
-    } else {
-        if (position.getSegmentId() < tablet.ctime_log_head_id())
-            return false;
-        if (position.getSegmentId() == tablet.ctime_log_head_id() &&
-          position.getSegmentOffset() < tablet.ctime_log_head_offset()) {
-            return false;
-        }
-    }
-    return true;
-}
-
-/**
- * Find which of a set of partitions this object or tombstone is in.
- *
- * \param position
- *      Log::Position indicating where this entry occurred in the log. Used to
- *      determine if it was written before a tablet it could belong to was
- *      created.
- * \param type
- *      Type of the log entry.
- * \param buffer
- *      Buffer containing the log entry.
- * \param partitions
- *      The set of object ranges into which the object should be placed.
- * \param header
- *      The SegmentHeader of the segment that contains this entry. Used to
- *      determine if the segment was generated by the cleaner or not, and
- *      if so, when it was created. This information precludes objects that
- *      pre-existed the current tablet, but were copied ahead in the log by
- *      the cleaner.
- * \return
- *      The id of the partition which this object or tombstone belongs in.
- * \throw BackupMalformedSegmentException
- *      If the object or tombstone doesn't belong to any of the partitions.
- */
-Tub<uint64_t>
-whichPartition(Log::Position& position,
-               LogEntryType type,
-               Buffer& buffer,
-               const ProtoBuf::Tablets& partitions,
-               const SegmentHeader& header)
-{
-    uint64_t tableId = -1;
-    HashType keyHash = -1;
-
-    if (type == LOG_ENTRY_TYPE_OBJ) {
-        Object object(buffer);
-        tableId = object.getTableId();
-        keyHash = Key::getHash(tableId, object.getKey(), object.getKeyLength());
-    } else { // LOG_ENTRY_TYPE_OBJTOMB:
-        ObjectTombstone tomb(buffer);
-        tableId = tomb.getTableId();
-        keyHash = Key::getHash(tableId, tomb.getKey(), tomb.getKeyLength());
-    }
-
-    Tub<uint64_t> ret;
-    // TODO(stutsman): need to check how slow this is, can do better with a tree
-    for (int i = 0; i < partitions.tablet_size(); i++) {
-        const ProtoBuf::Tablets::Tablet& tablet(partitions.tablet(i));
-        if (tablet.table_id() == tableId &&
-            (tablet.start_key_hash() <= keyHash &&
-            tablet.end_key_hash() >= keyHash)) {
-
-            if (!isEntryAlive(position, type, buffer, tablet, header)) {
-                LOG(NOTICE, "Skipping object with <tableId, keyHash> of "
-                    "<%lu,%lu> because it appears to have existed prior "
-                    "to this tablet's creation.", tableId, keyHash);
-                return ret;
-            }
-
-            ret.construct(tablet.user_data());
-            return ret;
-        }
-    }
-    LOG(WARNING, "Couldn't place object with <tableId, keyHash> of <%lu,%lu> "
-                 "into any of the given "
-                 "tablets for recovery; hopefully it belonged to a deleted "
-                 "tablet or lives in another log now", tableId, keyHash);
-    return ret;
-}
-
-/**
- * Construct recovery segments for this segment data splitting data among
- * them according to #partitions.  After completion and setting
- * #recoverySegments #condition is notified to wake up threads waiting
- * for recovery segments for this segment.
- *
- * \param partitions
- *      A set of tablets grouped into partitions which are used to divide
- *      the stored segment data into recovery segments.
- */
-void
-BackupService::SegmentInfo::buildRecoverySegments(
-    const ProtoBuf::Tablets& partitions)
-{
-    Lock lock(mutex);
-    assert(state == RECOVERING);
-
-    if (recoverySegments) {
-        LOG(NOTICE, "Recovery segments already built for <%lu,%lu>",
-            masterId.getId(), segmentId);
-        // Skip if the recovery segments were generated earlier.
-        condition.notify_all();
-        return;
-    }
-
-    waitForOngoingOps(lock);
-
-    assert(inMemory());
-
-    uint64_t start = Cycles::rdtsc();
-
-    recoveryException.reset();
-
-    uint32_t partitionCount = 0;
-    for (int i = 0; i < partitions.tablet_size(); ++i) {
-        partitionCount = std::max(partitionCount,
-                  downCast<uint32_t>(partitions.tablet(i).user_data() + 1));
-    }
-    LOG(NOTICE, "Building %u recovery segments for %lu",
-        partitionCount, segmentId);
-    CycleCounter<RawMetric> _(&metrics->backup.filterTicks);
-
-    recoverySegments = new Segment[partitionCount];
-    recoverySegmentsLength = partitionCount;
-
-    try {
-        const SegmentHeader* header = NULL;
-        for (SegmentIterator it(segment, segmentSize);
-             !it.isDone();
-             it.next())
-        {
-            LogEntryType type = it.getType();
-
-            if (type == LOG_ENTRY_TYPE_SEGHEADER) {
-                Buffer buffer;
-                it.appendToBuffer(buffer);
-                header = buffer.getStart<SegmentHeader>();
-                continue;
-            }
-
-            if (type != LOG_ENTRY_TYPE_OBJ && type != LOG_ENTRY_TYPE_OBJTOMB)
-                continue;
-
-            if (header == NULL) {
-                LOG(WARNING, "Object or tombstone came before header");
-                throw Exception(HERE, "catch this and bail");
-            }
-
-            Buffer buffer;
-            it.appendToBuffer(buffer);
-
-            Log::Position position(segmentId, it.getOffset());
-
-            // find out which partition this entry belongs in
-            Tub<uint64_t> partitionId = whichPartition(position,
-                                                       type,
-                                                       buffer,
-                                                       partitions,
-                                                       *header);
-            if (!partitionId)
-                continue;
-
-            bool success = recoverySegments[*partitionId].append(type, buffer);
-            if (!success) {
-                LOG(WARNING, "Failed to append data to recovery segment");
-                throw Exception(HERE, "catch this and bail");
-            }
-        }
-#if TESTING
-        for (uint64_t i = 0; i < recoverySegmentsLength; ++i) {
-            LOG(DEBUG, "Recovery segment for <%lu,%lu> partition %lu is %u B",
-                *masterId, segmentId, i,
-                 recoverySegments[i].getAppendedLength());
-        }
-#endif
-    } catch (const SegmentIteratorException& e) {
-        LOG(WARNING, "Exception occurred building recovery segments: %s",
-            e.what());
-        delete[] recoverySegments;
-        recoverySegments = NULL;
-        recoverySegmentsLength = 0;
-        recoveryException.reset(new SegmentRecoveryFailedException(e.where));
-        // leave state as RECOVERING, we'll want to garbage collect this
-        // segment at the end of the recovery even if we couldn't parse
-        // this segment
-    } catch (...) {
-        LOG(WARNING, "Unknown exception occurred building recovery segments");
-        delete[] recoverySegments;
-        recoverySegments = NULL;
-        recoverySegmentsLength = 0;
-        recoveryException.reset(new SegmentRecoveryFailedException(HERE));
-        // leave state as RECOVERING, see note in above block
-    }
-    LOG(DEBUG, "<%lu,%lu> recovery segments took %lu ms to construct, "
-               "notifying other threads",
-        *masterId, segmentId,
-        Cycles::toNanoseconds(Cycles::rdtsc() - start) / 1000 / 1000);
-    condition.notify_all();
-}
-
-/**
- * Close this segment to permanent storage and free up in memory
- * resources.
- *
- * After this writeSegment() cannot be called for this segment id any
- * more.  The segment will be restored on recovery unless the client later
- * calls freeSegment() on it and will appear to be closed to the recoverer.
- *
- * \throw BackupBadSegmentIdException
- *      If this segment is not open.
- */
-void
-BackupService::SegmentInfo::close()
-{
-    Lock lock(mutex);
-
-    if (state == CLOSED)
-        return;
-    else if (state != OPEN)
-        throw BackupBadSegmentIdException(HERE);
-
-    applyFooterEntry();
-
-    state = CLOSED;
-    rightmostWrittenOffset = BYTES_WRITTEN_CLOSED;
-
-    assert(storageHandle);
-    ioScheduler.store(*this);
-    ++storageOpCount;
-}
-
-/**
- * Release all resources related to this segment including storage.
- * This will block for all outstanding storage operations before
- * freeing the storage resources.
- */
-void
-BackupService::SegmentInfo::free()
-{
-    Lock lock(mutex);
-    waitForOngoingOps(lock);
-
-    // Don't wait for secondary segment recovery segments
-    // they aren't running in a separate thread.
-    while (state == RECOVERING &&
-           primary &&
-           !isRecovered() &&
-           !recoveryException)
-        condition.wait(lock);
-
-    if (inMemory())
-        pool.free(segment);
-    segment = NULL;
-    storage.free(storageHandle);
-    storageHandle = NULL;
-    state = FREED;
-}
-
-/**
- * Open the segment.  After this the segment is in memory and mutable
- * with reserved storage.  Any controlled shutdown of the server will
- * ensure the segment reaches stable storage unless the segment is
- * freed in the meantime.
- *
- * The backing memory is zeroed out, though the storage may still have
- * its old contents.
- */
-void
-BackupService::SegmentInfo::open()
-{
-    Lock lock(mutex);
-    assert(state == UNINIT);
-    // Get memory for staging the segment writes
-    char* segment = static_cast<char*>(pool.malloc());
-    BackupStorage::Handle* handle;
-    try {
-        // Reserve the space for this on disk
-        handle = storage.allocate();
-    } catch (...) {
-        // Release the staging memory if storage.allocate throws
-        pool.free(segment);
-        throw;
-    }
-
-    this->segment = segment;
-    this->storageHandle = handle;
-    state = OPEN;
-}
-
-/**
- * Set the state to #RECOVERING from #OPEN or #CLOSED.  This can only be called
- * on a primary segment.  Returns true if the segment was already #RECOVERING.
- */
-bool
-BackupService::SegmentInfo::setRecovering()
-{
-    Lock lock(mutex);
-    assert(primary);
-    applyFooterEntry();
-    bool wasRecovering = state == RECOVERING;
-    state = RECOVERING;
-    return wasRecovering;
-}
-
-/**
- * Set the state to #RECOVERING from #OPEN or #CLOSED and store a copy of the
- * supplied tablet information in case construction of recovery segments is
- * needed later for this secondary segment. Returns true if the segment was
- * already #RECOVERING.
- */
-bool
-BackupService::SegmentInfo::setRecovering(const ProtoBuf::Tablets& partitions)
-{
-    Lock lock(mutex);
-    assert(!primary);
-    applyFooterEntry();
-    bool wasRecovering = state == RECOVERING;
-    state = RECOVERING;
-    // Make a copy of the partition list for deferred filtering.
-    recoveryPartitions.construct(partitions);
-    return wasRecovering;
-}
-
-
-/**
- * Begin reading of segment from disk to memory. Marks the segment
- * CLOSED (immutable) as well.  Once the segment is in memory
- * #segment will be set and waiting threads will be notified via
- * #condition.
- */
-void
-BackupService::SegmentInfo::startLoading()
-{
-    Lock lock(mutex);
-    waitForOngoingOps(lock);
-
-    ioScheduler.load(*this);
-    ++storageOpCount;
-}
-
-/**
- * Store data from a buffer into the backup segment.
- * Tracks, for this segment, which is the rightmost written byte which
- * is used as a proxy for "segment length" for the return of
- * startReadingData calls.
- *
- * \param src
- *      The Buffer from which data is to be stored.
- * \param srcOffset
- *      Offset in bytes at which to start copying.
- * \param length
- *      The number of bytes to be copied.
- * \param destOffset
- *      Offset into the backup segment in bytes of where the data is to
- *      be copied.
- * \param footerEntry
- *      New footer which should be written at #destOffset + #length and
- *      at the end of the segment frame if the replica is closed or used
- *      for recovery. NULL if the master provided no footer for this write.
- *      Note this means this write isn't committed on the backup until the
- *      next footered write. See #footerEntry.
- * \param atomic
- *      If true then this replica is considered invalid until a closing
- *      write (or subsequent call to write with \a atomic set to false).
- *      This means that the data will never be written to disk and will
- *      not be reported to or used in recoveries unless the replica is
- *      closed.  This allows masters to create replicas of segments
- *      without the threat that they'll be detected as the head of the
- *      log.  Each value of \a atomic for each write call overrides the
- *      last, so in order to atomically write an entire segment all
- *      writes must have \a atomic set to true (though, it is
- *      irrelvant for the last, closing write).  A call with atomic
- *      set to false will make that replica available for normal
- *      treatment as an open segment.
- */
-void
-BackupService::SegmentInfo::write(Buffer& src,
-                                  uint32_t srcOffset,
-                                  uint32_t length,
-                                  uint32_t destOffset,
-                                  const Segment::OpaqueFooterEntry* footerEntry,
-                                  bool atomic)
-{
-    Lock lock(mutex);
-    assert(state == OPEN && inMemory());
-    src.copy(srcOffset, length, &segment[destOffset]);
-    replicateAtomically = atomic;
-    rightmostWrittenOffset = std::max(rightmostWrittenOffset,
-                                      destOffset + length);
-    if (footerEntry) {
-        const uint32_t targetFooterOffset = destOffset + length;
-        if (targetFooterOffset < footerOffset) {
-            LOG(ERROR, "Write to <%lu,%lu> included a footer which was "
-                "requested to be written at offset %u but a prior write "
-                "placed a footer later in the segment at %u",
-                masterId.getId(), segmentId, targetFooterOffset, footerOffset);
-            throw BackupSegmentOverflowException(HERE);
-        }
-        if (targetFooterOffset + 2 * sizeof(*footerEntry) > segmentSize) {
-            // Need room for two copies of the footer. One at the end of the
-            // data and the other aligned to the end of the segment which
-            // can be found during restart without reading the whole segment.
-            LOG(ERROR, "Write to <%lu,%lu> included a footer which was "
-                "requested to be written at offset %u but there isn't "
-                "enough room in the segment for the footer", masterId.getId(),
-                segmentId, targetFooterOffset);
-            throw BackupSegmentOverflowException(HERE);
-        }
-        this->footerEntry = *footerEntry;
-        footerOffset = targetFooterOffset;
-    }
-}
-
-/**
- * Scan the current Segment for a LogDigest. If it exists, append it to the
- * given buffer.
- *
- * \param[out] digestBuffer
- *      Buffer to append the digest to, if found. May be NULL if the data is
- *      not desired and only the presence is needed.
- * \return
- *      True if the digest was found and appended to the given buffer, otherwise
- *      false.
- */
-bool
-BackupService::SegmentInfo::getLogDigest(Buffer* digestBuffer)
-{
-    Lock lock(mutex);
-    // If the Segment is malformed somehow, just ignore it. The
-    // coordinator will have to deal.
-    try {
-        SegmentIterator it(segment, segmentSize);
-        while (!it.isDone()) {
-            if (it.getType() == LOG_ENTRY_TYPE_LOGDIGEST) {
-                if (digestBuffer != NULL)
-                    it.appendToBuffer(*digestBuffer);
-                return true;
-            }
-            it.next();
-        }
-    } catch (SegmentIteratorException& e) {
-        LOG(WARNING, "SegmentIterator constructor failed: %s", e.str().c_str());
-    }
-    return false;
-}
-
-// - private -
-
-/**
- * Flatten #footerEntry into two locations in the in-memory buffer (#segment).
- * The first goes where the master asked (#footerOffset), the second goes at
- * the end of the footer, which makes it efficient to find on restart.
- * This has the effect of truncating any non-footered writes since the last
- * footered-write. See #footerEntry for details.
- */
-void
-BackupService::SegmentInfo::applyFooterEntry()
-{
-    if (state != OPEN)
-        return;
-    memcpy(segment + footerOffset, &footerEntry, sizeof(footerEntry));
-    memcpy(segment + segmentSize - sizeof(footerEntry),
-           &footerEntry, sizeof(footerEntry));
-}
 
 // --- BackupService::IoScheduler ---
 
@@ -857,7 +68,7 @@ void
 BackupService::IoScheduler::operator()()
 try {
     while (true) {
-        SegmentInfo* info = NULL;
+        BackupReplica* replica = NULL;
         bool isLoad = false;
         {
             Lock lock(queueMutex);
@@ -868,22 +79,22 @@ try {
             }
             isLoad = !loadQueue.empty();
             if (isLoad) {
-                info = loadQueue.front();
+                replica = loadQueue.front();
                 loadQueue.pop();
             } else {
-                info = storeQueue.front();
+                replica = storeQueue.front();
                 storeQueue.pop();
             }
         }
 
         if (isLoad) {
-            LOG(DEBUG, "Dispatching load of <%lu,%lu>",
-                *info->masterId, info->segmentId);
-            doLoad(*info);
+            LOG(DEBUG, "Dispatching load of <%s,%lu>",
+                replica->masterId.toString().c_str(), replica->segmentId);
+            doLoad(*replica);
         } else {
-            LOG(DEBUG, "Dispatching store of <%lu,%lu>",
-                *info->masterId, info->segmentId);
-            doStore(*info);
+            LOG(DEBUG, "Dispatching store of <%s,%lu>",
+                replica->masterId.toString().c_str(), replica->segmentId);
+            doStore(*replica);
         }
     }
 } catch (const std::exception& e) {
@@ -897,20 +108,20 @@ try {
 /**
  * Queue a segment load operation to be done on a separate thread.
  *
- * \param info
- *      The SegmentInfo whose data will be loaded from storage.
+ * \param replica
+ *      The BackupReplica whose data will be loaded from storage.
  */
 void
-BackupService::IoScheduler::load(SegmentInfo& info)
+BackupService::IoScheduler::load(BackupReplica& replica)
 {
 #ifdef SINGLE_THREADED_BACKUP
-    doLoad(info);
+    doLoad(replica);
 #else
     Lock lock(queueMutex);
-    loadQueue.push(&info);
+    loadQueue.push(&replica);
     uint32_t count = downCast<uint32_t>(loadQueue.size() + storeQueue.size());
-    LOG(DEBUG, "Queued load of <%lu,%lu> (%u segments waiting for IO)",
-        *info.masterId, info.segmentId, count);
+    LOG(DEBUG, "Queued load of <%s,%lu> (%u segments waiting for IO)",
+        replica.masterId.toString().c_str(), replica.segmentId, count);
     queueCond.notify_all();
 #endif
 }
@@ -930,21 +141,21 @@ BackupService::IoScheduler::quiesce()
 /**
  * Queue a segment store operation to be done on a separate thread.
  *
- * \param info
- *      The SegmentInfo whose data will be stored.
+ * \param replica
+ *      The BackupReplica whose data will be stored.
  */
 void
-BackupService::IoScheduler::store(SegmentInfo& info)
+BackupService::IoScheduler::store(BackupReplica& replica)
 {
 #ifdef SINGLE_THREADED_BACKUP
-    doStore(info);
+    doStore(replica);
 #else
     ++outstandingStores;
     Lock lock(queueMutex);
-    storeQueue.push(&info);
+    storeQueue.push(&replica);
     uint32_t count = downCast<uint32_t>(loadQueue.size() + storeQueue.size());
-    LOG(DEBUG, "Queued store of <%lu,%lu> (%u segments waiting for IO)",
-        *info.masterId, info.segmentId, count);
+    LOG(DEBUG, "Queued store of <%s,%lu> (%u segments waiting for IO)",
+        replica.masterId.toString().c_str(), replica.segmentId, count);
     queueCond.notify_all();
 #endif
 }
@@ -980,95 +191,97 @@ BackupService::IoScheduler::shutdown(std::thread& ioThread)
 
 /**
  * Load a segment from disk into a valid buffer in memory.  Locks
- * the #SegmentInfo::mutex to ensure other operations aren't performed
+ * the #BackupReplica::mutex to ensure other operations aren't performed
  * on the segment in the meantime.
  *
- * \param info
- *      The SegmentInfo whose data will be loaded from storage.
+ * \param replica
+ *      The BackupReplica whose data will be loaded from storage.
  */
 void
-BackupService::IoScheduler::doLoad(SegmentInfo& info) const
+BackupService::IoScheduler::doLoad(BackupReplica& replica) const
 {
 #ifndef SINGLE_THREADED_BACKUP
-    SegmentInfo::Lock lock(info.mutex);
+    BackupReplica::Lock lock(replica.mutex);
 #endif
-    ReferenceDecrementer<int> _(info.storageOpCount);
+    ReferenceDecrementer<int> _(replica.storageOpCount);
 
-    LOG(DEBUG, "Loading segment <%lu,%lu>", *info.masterId, info.segmentId);
-    if (info.inMemory()) {
-        LOG(DEBUG, "Already in memory, skipping load on <%lu,%lu>",
-            *info.masterId, info.segmentId);
-        info.condition.notify_all();
+    LOG(DEBUG, "Loading segment <%s,%lu>",
+        replica.masterId.toString().c_str(), replica.segmentId);
+    if (replica.inMemory()) {
+        LOG(DEBUG, "Already in memory, skipping load on <%s,%lu>",
+            replica.masterId.toString().c_str(), replica.segmentId);
+        replica.condition.notify_all();
         return;
     }
 
-    char* segment = static_cast<char*>(info.pool.malloc());
+    char* segment = static_cast<char*>(replica.pool.malloc());
     try {
         CycleCounter<RawMetric> _(&metrics->backup.storageReadTicks);
         ++metrics->backup.storageReadCount;
-        metrics->backup.storageReadBytes += info.segmentSize;
+        metrics->backup.storageReadBytes += replica.segmentSize;
         uint64_t startTime = Cycles::rdtsc();
-        info.storage.getSegment(info.storageHandle, segment);
+        replica.storage.getSegment(replica.storageHandle, segment);
         uint64_t transferTime = Cycles::toNanoseconds(Cycles::rdtsc() -
             startTime);
-        LOG(DEBUG, "Load of <%lu,%lu> took %lu us (%f MB/s)",
-            *info.masterId, info.segmentId,
+        LOG(DEBUG, "Load of <%s,%lu> took %lu us (%f MB/s)",
+            replica.masterId.toString().c_str(), replica.segmentId,
             transferTime / 1000,
-            (info.segmentSize / (1 << 20)) /
+            (replica.segmentSize / (1 << 20)) /
             (static_cast<double>(transferTime) / 1000000000lu));
     } catch (...) {
-        info.pool.free(segment);
+        replica.pool.free(segment);
         segment = NULL;
-        info.condition.notify_all();
+        replica.condition.notify_all();
         throw;
     }
-    info.segment = segment;
-    info.condition.notify_all();
+    replica.segment = segment;
+    replica.condition.notify_all();
     metrics->backup.readingDataTicks = Cycles::rdtsc() - recoveryStart;
 }
 
 /**
  * Store a segment to disk from a valid buffer in memory.  Locks
- * the #SegmentInfo::mutex to ensure other operations aren't performed
+ * the #BackupReplica::mutex to ensure other operations aren't performed
  * on the segment in the meantime.
  *
- * \param info
- *      The SegmentInfo whose data will be stored.
+ * \param replica
+ *      The BackupReplica whose data will be stored.
  */
 void
-BackupService::IoScheduler::doStore(SegmentInfo& info) const
+BackupService::IoScheduler::doStore(BackupReplica& replica) const
 {
 #ifndef SINGLE_THREADED_BACKUP
-    SegmentInfo::Lock lock(info.mutex);
+    BackupReplica::Lock lock(replica.mutex);
 #endif
-    ReferenceDecrementer<int> _(info.storageOpCount);
+    ReferenceDecrementer<int> _(replica.storageOpCount);
 
-    LOG(DEBUG, "Storing segment <%lu,%lu>", *info.masterId, info.segmentId);
+    LOG(DEBUG, "Storing segment <%s,%lu>",
+        replica.masterId.toString().c_str(), replica.segmentId);
     try {
         CycleCounter<RawMetric> _(&metrics->backup.storageWriteTicks);
         ++metrics->backup.storageWriteCount;
-        metrics->backup.storageWriteBytes += info.segmentSize;
+        metrics->backup.storageWriteBytes += replica.segmentSize;
         uint64_t startTime = Cycles::rdtsc();
-        info.storage.putSegment(info.storageHandle, info.segment);
+        replica.storage.putSegment(replica.storageHandle, replica.segment);
         uint64_t transferTime = Cycles::toNanoseconds(Cycles::rdtsc() -
             startTime);
-        LOG(DEBUG, "Store of <%lu,%lu> took %lu us (%f MB/s)",
-            *info.masterId, info.segmentId,
+        LOG(DEBUG, "Store of <%s,%lu> took %lu us (%f MB/s)",
+            replica.masterId.toString().c_str(), replica.segmentId,
             transferTime / 1000,
-            (info.segmentSize / (1 << 20)) /
+            (replica.segmentSize / (1 << 20)) /
             (static_cast<double>(transferTime) / 1000000000lu));
     } catch (...) {
-        LOG(WARNING, "Problem storing segment <%lu,%lu>",
-            *info.masterId, info.segmentId);
-        info.condition.notify_all();
+        LOG(WARNING, "Problem storing segment <%s,%lu>",
+            replica.masterId.toString().c_str(), replica.segmentId);
+        replica.condition.notify_all();
         throw;
     }
-    info.pool.free(info.segment);
-    info.segment = NULL;
+    replica.pool.free(replica.segment);
+    replica.segment = NULL;
     --outstandingStores;
-    LOG(DEBUG, "Done storing segment <%lu,%lu>",
-        *info.masterId, info.segmentId);
-    info.condition.notify_all();
+    LOG(DEBUG, "Done storing segment <%s,%lu>",
+        replica.masterId.toString().c_str(), replica.segmentId);
+    replica.condition.notify_all();
 }
 
 
@@ -1083,12 +296,12 @@ BackupService::IoScheduler::doStore(SegmentInfo& info) const
  * \param context
  *      The context in which the new thread will run (same as that of the
  *      parent thread).
- * \param infos
- *      Pointers to SegmentInfo which will be loaded from storage
+ * \param replicas
+ *      Pointers to BackupReplica which will be loaded from storage
  *      and split into recovery segments.  Notice, the copy here is
- *      only of the pointer vector and not of the SegmentInfo objects.
- *      Sharing of the SegmentInfo objects is controlled as described
- *      in RecoverySegmentBuilder::infos.
+ *      only of the pointer vector and not of the BackupReplica objects.
+ *      Sharing of the BackupReplica objects is controlled as described
+ *      in RecoverySegmentBuilder::replicas.
  * \param partitions
  *      The partitions among which the segment should be split for recovery.
  * \param recoveryThreadCount
@@ -1097,13 +310,13 @@ BackupService::IoScheduler::doStore(SegmentInfo& info) const
  *      The size of segments stored on masters and in the backup's storage.
  */
 BackupService::RecoverySegmentBuilder::RecoverySegmentBuilder(
-        Context& context,
-        const vector<SegmentInfo*>& infos,
+        Context* context,
+        const vector<BackupReplica*>& replicas,
         const ProtoBuf::Tablets& partitions,
         Atomic<int>& recoveryThreadCount,
         uint32_t segmentSize)
     : context(context)
-    , infos(infos)
+    , replicas(replicas)
     , partitions(partitions)
     , recoveryThreadCount(recoveryThreadCount)
     , segmentSize(segmentSize)
@@ -1115,9 +328,9 @@ BackupService::RecoverySegmentBuilder::RecoverySegmentBuilder(
  * the recovery segments for the previously loaded segment.
  *
  * Notice this runs in a separate thread and maintains exclusive access to the
- * SegmentInfo objects using #SegmentInfo::mutex.  As
- * the recovery segments for each SegmentInfo are constructed ownership of the
- * SegmentInfo is released and #SegmentInfo::condition is notified to wake
+ * BackupReplica objects using #BackupReplica::mutex.  As
+ * the recovery segments for each BackupReplica are constructed ownership of the
+ * BackupReplica is released and #BackupReplica::condition is notified to wake
  * up any threads waiting for the recovery segments.
  */
 void
@@ -1127,11 +340,11 @@ try {
     ReferenceDecrementer<Atomic<int>> _(recoveryThreadCount);
     LOG(DEBUG, "Building recovery segments on new thread");
 
-    if (infos.empty())
+    if (replicas.empty())
         return;
 
-    SegmentInfo* loadingInfo = infos[0];
-    SegmentInfo* buildingInfo = NULL;
+    BackupReplica* loadingInfo = replicas[0];
+    BackupReplica* buildingInfo = NULL;
 
     // Bring the first segment into memory
     loadingInfo->startLoading();
@@ -1139,17 +352,18 @@ try {
     for (uint32_t i = 1;; i++) {
         assert(buildingInfo != loadingInfo);
         buildingInfo = loadingInfo;
-        if (i < infos.size()) {
-            loadingInfo = infos[i];
-            LOG(DEBUG, "Starting load of %uth segment (<%lu,%lu>)", i,
-                loadingInfo->masterId.getId(), loadingInfo->segmentId);
+        if (i < replicas.size()) {
+            loadingInfo = replicas[i];
+            LOG(DEBUG, "Starting load of %uth segment (<%s,%lu>)", i,
+                loadingInfo->masterId.toString().c_str(),
+                loadingInfo->segmentId);
             loadingInfo->startLoading();
         }
         buildingInfo->buildRecoverySegments(partitions);
         LOG(DEBUG, "Done building recovery segments for %uth segment "
-            "(<%lu,%lu>)", i - 1,
-            buildingInfo->masterId.getId(), buildingInfo->segmentId);
-        if (i == infos.size())
+            "(<%s,%lu>)", i - 1,
+            buildingInfo->masterId.toString().c_str(), buildingInfo->segmentId);
+        if (i == replicas.size())
             break;
     }
     LOG(DEBUG, "Done building recovery segments, thread exiting");
@@ -1157,8 +371,8 @@ try {
     LOG(DEBUG, "RecoverySegmentBuilder took %lu ms to filter %lu segments "
                "(%f MB/s)",
         totalTime / 1000 / 1000,
-        infos.size(),
-        static_cast<double>(segmentSize * infos.size() / (1 << 20)) /
+        replicas.size(),
+        static_cast<double>(segmentSize * replicas.size() / (1 << 20)) /
         static_cast<double>(totalTime) / 1e9);
 } catch (const std::exception& e) {
     LOG(ERROR, "Fatal error in BackupService::RecoverySegmentBuilder: %s",
@@ -1253,24 +467,25 @@ BackupService::GarbageCollectReplicasFoundOnStorageTask::
 {
     {
         BackupService::Lock _(service.mutex);
-        auto* replica = service.findSegmentInfo(masterId, segmentId);
+        auto* replica = service.findBackupReplica(masterId, segmentId);
         if (!replica)
             return true;
     }
 
     // Due to RAM-447 it is a bit tricky to decipher when a server is in
     // crashed status. It is done here outside the context of the
-    // ServerDoesntExistException because of that bug.
-    if (service.context.serverList->contains(masterId) &&
-        !service.context.serverList->isUp(masterId))
+    // ServerNotUpException because of that bug.
+    if (service.context->serverList->contains(masterId) &&
+        !service.context->serverList->isUp(masterId))
     {
         // In the server list but not up implies crashed.
         // Since server has crashed just let
         // GarbageCollectDownServerTask free it. It will get
         // scheduled when master recovery finishes for masterId.
-        LOG(DEBUG, "Server %lu marked crashed; waiting for cluster "
-            "to recover from its failure before freeing <%lu,%lu>",
-            masterId.getId(), masterId.getId(), segmentId);
+        LOG(DEBUG, "Server %s marked crashed; waiting for cluster "
+            "to recover from its failure before freeing <%s,%lu>",
+            masterId.toString().c_str(), masterId.toString().c_str(),
+            segmentId);
         return true;
     }
 
@@ -1279,23 +494,23 @@ BackupService::GarbageCollectReplicasFoundOnStorageTask::
             bool needed = true;
             try {
                 needed = rpc->wait();
-            } catch (const ServerDoesntExistException& e) {
+            } catch (const ServerNotUpException& e) {
                 needed = false;
-                LOG(DEBUG, "Server %lu marked down; cluster has recovered "
-                    "from its failure", masterId.getId());
+                LOG(DEBUG, "Server %s marked down; cluster has recovered "
+                    "from its failure", masterId.toString().c_str());
             }
             rpc.destroy();
             if (!needed) {
                 LOG(DEBUG, "Server has recovered from lost replica; "
-                    "freeing replica for <%lu,%lu>",
-                    masterId.getId(), segmentId);
+                    "freeing replica for <%s,%lu>",
+                    masterId.toString().c_str(), segmentId);
                 deleteReplica(segmentId);
                 return true;
             } else {
                 LOG(DEBUG, "Server has not recovered from lost "
-                    "replica; retaining replica for <%lu,%lu>; will "
+                    "replica; retaining replica for <%s,%lu>; will "
                     "probe replica status again later",
-                    masterId.getId(), segmentId);
+                    masterId.toString().c_str(), segmentId);
             }
         }
     } else {
@@ -1312,10 +527,10 @@ void
 BackupService::GarbageCollectReplicasFoundOnStorageTask::
     deleteReplica(uint64_t segmentId)
 {
-    SegmentInfo* replica = NULL;
+    BackupReplica* replica = NULL;
     {
         BackupService::Lock _(service.mutex);
-        replica = service.findSegmentInfo(masterId, segmentId);
+        replica = service.findBackupReplica(masterId, segmentId);
         if (!replica)
             return;
         service.segments.erase({masterId, segmentId});
@@ -1361,9 +576,10 @@ BackupService::GarbageCollectDownServerTask::performTask()
     auto key = MasterSegmentIdPair(masterId, 0lu);
     auto it = service.segments.upper_bound(key);
     if (it != service.segments.end() && it->second->masterId == masterId) {
-        LOG(DEBUG, "Server %lu marked down; cluster has recovered "
-                "from its failure; freeing replica <%lu,%lu>",
-            masterId.getId(), masterId.getId(), it->first.segmentId);
+        LOG(DEBUG, "Server %s marked down; cluster has recovered "
+                "from its failure; freeing replica <%s,%lu>",
+            masterId.toString().c_str(), masterId.toString().c_str(),
+            it->first.segmentId);
         it->second->free();
         service.segments.erase(it->first);
         delete it->second;
@@ -1384,7 +600,7 @@ BackupService::GarbageCollectDownServerTask::performTask()
  *      Settings for this instance. The caller guarantees that config will
  *      exist for the duration of this BackupService's lifetime.
  */
-BackupService::BackupService(Context& context,
+BackupService::BackupService(Context* context,
                              const ServerConfig& config)
     : context(context)
     , mutex()
@@ -1453,8 +669,8 @@ BackupService::BackupService(Context& context,
                 superblock.getClusterName());
             formerServerId = superblock.getServerId();
             LOG(NOTICE, "Will enlist as a replacement for formerly crashed "
-                "server %lu which left replicas behind on disk",
-                formerServerId.getId());
+                "server %s which left replicas behind on disk",
+                formerServerId.toString().c_str());
             restartFromStorage();
         } else {
             LOG(NOTICE, "Replicas stored on disk have a different clusterName "
@@ -1490,13 +706,13 @@ BackupService::~BackupService()
 
     ioScheduler.shutdown(ioThread);
 
-    // Clean up any extra SegmentInfos laying around
+    // Clean up any extra BackupReplicas laying around
     // but don't free them; perhaps we want to load them up
-    // on a cold start.  The infos destructor will ensure the
+    // on a cold start.  The replicas destructor will ensure the
     // segment is properly stored before termination.
     foreach (const SegmentsMap::value_type& value, segments) {
-        SegmentInfo* info = value.second;
-        delete info;
+        BackupReplica* replica = value.second;
+        delete replica;
     }
     segments.clear();
 }
@@ -1640,15 +856,15 @@ BackupService::freeSegment(const WireFormat::BackupFree::Request& reqHdr,
                            WireFormat::BackupFree::Response& respHdr,
                            Rpc& rpc)
 {
-    LOG(DEBUG, "Freeing replica for master %lu segment %lu",
-        reqHdr.masterId, reqHdr.segmentId);
+    ServerId masterId(reqHdr.masterId);
+    LOG(DEBUG, "Freeing replica for master %s segment %lu",
+        masterId.toString().c_str(), reqHdr.segmentId);
 
     SegmentsMap::iterator it =
-        segments.find(MasterSegmentIdPair(ServerId(reqHdr.masterId),
-                                                   reqHdr.segmentId));
+        segments.find(MasterSegmentIdPair(masterId, reqHdr.segmentId));
     if (it == segments.end()) {
-        LOG(WARNING, "Master tried to free non-existent segment: <%lu,%lu>",
-            reqHdr.masterId, reqHdr.segmentId);
+        LOG(WARNING, "Master tried to free non-existent segment: <%s,%lu>",
+            masterId.toString().c_str(), reqHdr.segmentId);
         return;
     }
 
@@ -1658,18 +874,18 @@ BackupService::freeSegment(const WireFormat::BackupFree::Request& reqHdr,
 }
 
 /**
- * Find SegmentInfo for a segment or NULL if we don't know about it.
+ * Find BackupReplica for a segment or NULL if we don't know about it.
  *
  * \param masterId
  *      The master id of the master of the segment whose info is being sought.
  * \param segmentId
  *      The segment id of the segment whose info is being sought.
  * \return
- *      A pointer to the SegmentInfo for the specified segment or NULL if
+ *      A pointer to the BackupReplica for the specified segment or NULL if
  *      none exists.
  */
-BackupService::SegmentInfo*
-BackupService::findSegmentInfo(ServerId masterId, uint64_t segmentId)
+BackupReplica*
+BackupService::findBackupReplica(ServerId masterId, uint64_t segmentId)
 {
     SegmentsMap::iterator it =
         segments.find(MasterSegmentIdPair(masterId, segmentId));
@@ -1703,18 +919,19 @@ BackupService::getRecoveryData(
     WireFormat::BackupGetRecoveryData::Response& respHdr,
     Rpc& rpc)
 {
-    LOG(DEBUG, "getRecoveryData masterId %lu, segmentId %lu, partitionId %lu",
-        reqHdr.masterId, reqHdr.segmentId, reqHdr.partitionId);
+    ServerId masterId(reqHdr.masterId);
+    LOG(DEBUG, "getRecoveryData masterId %s, segmentId %lu, partitionId %lu",
+        masterId.toString().c_str(),
+        reqHdr.segmentId, reqHdr.partitionId);
 
-    SegmentInfo* info = findSegmentInfo(ServerId(reqHdr.masterId),
-                                                 reqHdr.segmentId);
-    if (!info) {
-        LOG(WARNING, "Asked for bad segment <%lu,%lu>",
-            reqHdr.masterId, reqHdr.segmentId);
+    BackupReplica* replica = findBackupReplica(masterId, reqHdr.segmentId);
+    if (!replica) {
+        LOG(WARNING, "Asked for bad segment <%s,%lu>",
+            masterId.toString().c_str(), reqHdr.segmentId);
         throw BackupBadSegmentIdException(HERE);
     }
 
-    Status status = info->appendRecoverySegment(reqHdr.partitionId,
+    Status status = replica->appendRecoverySegment(reqHdr.partitionId,
                                                 rpc.replyPayload);
     if (status != STATUS_OK) {
         respHdr.common.status = status;
@@ -1735,14 +952,14 @@ BackupService::init(ServerId id)
     assert(!initCalled);
 
     serverId = id;
-    LOG(NOTICE, "My server ID is %lu", *id);
+    LOG(NOTICE, "My server ID is %s", id.toString().c_str());
     if (metrics->serverId == 0) {
         metrics->serverId = *serverId;
     }
 
     storage->resetSuperblock(serverId, config.clusterName);
-    LOG(NOTICE, "Backup %lu will store replicas under cluster name '%s'",
-        serverId.getId(), config.clusterName.c_str());
+    LOG(NOTICE, "Backup %s will store replicas under cluster name '%s'",
+        serverId.toString().c_str(), config.clusterName.c_str());
     initCalled = true;
 }
 
@@ -1803,25 +1020,10 @@ BackupService::recoveryComplete(
         WireFormat::BackupRecoveryComplete::Response& respHdr,
         Rpc& rpc)
 {
-    LOG(DEBUG, "masterID: %lu", reqHdr.masterId);
+    LOG(DEBUG, "masterID: %s",
+        ServerId(reqHdr.masterId).toString().c_str());
     rpc.sendReply();
     recoveryTicks.destroy();
-}
-
-/**
- * Returns true if left points to a SegmentInfo with a lesser
- * segmentId than that pointed to by right.
- *
- * \param left
- *      A pointer to a SegmentInfo to be compared to #right.
- * \param right
- *      A pointer to a SegmentInfo to be compared to #left.
- */
-bool
-BackupService::segmentInfoLessThan(SegmentInfo* left,
-                                   SegmentInfo* right)
-{
-    return *left < *right;
 }
 
 /**
@@ -1908,17 +1110,18 @@ BackupService::restartFromStorage()
             wasClosedOnStorage = true;
         }
         // TODO(stutsman): Eventually will need open segment checksums.
-        LOG(DEBUG, "Found stored replica <%lu,%lu> on backup storage in "
+        LOG(DEBUG, "Found stored replica <%s,%lu> on backup storage in "
                    "frame %u which was %s",
-            entry.header.logId, entry.header.segmentId, frame,
+            ServerId(entry.header.logId).toString().c_str(),
+            entry.header.segmentId, frame,
             wasClosedOnStorage ? "closed" : "open");
 
         // Add this replica to metadata.
         const ServerId masterId(logId);
-        auto* info = new SegmentInfo(*storage, pool, ioScheduler,
+        auto* replica = new BackupReplica(*storage, pool, ioScheduler,
                                masterId, segmentId, segmentSize,
                                frame, wasClosedOnStorage);
-        segments[MasterSegmentIdPair(masterId, segmentId)] = info;
+        segments[MasterSegmentIdPair(masterId, segmentId)] = replica;
         if (gcTasks.find(masterId) == gcTasks.end()) {
             gcTasks[masterId] =
                 new GarbageCollectReplicasFoundOnStorageTask(*this, masterId);
@@ -1961,36 +1164,38 @@ BackupService::startReadingData(
     metrics->backup.storageType = static_cast<uint64_t>(storage->storageType);
 
     ProtoBuf::Tablets partitions;
-    ProtoBuf::parseFromResponse(rpc.requestPayload, sizeof(reqHdr),
-                                reqHdr.partitionsLength, partitions);
-    LOG(DEBUG, "Backup preparing for recovery of crashed server %lu; "
+    ProtoBuf::parseFromResponse(&rpc.requestPayload, sizeof(reqHdr),
+                                reqHdr.partitionsLength, &partitions);
+    LOG(DEBUG, "Backup preparing for recovery of crashed server %s; "
         "loading replicas and filtering them according to the following "
         "partitions:\n%s",
-        reqHdr.masterId, partitions.DebugString().c_str());
+        ServerId(reqHdr.masterId).toString().c_str(),
+        partitions.DebugString().c_str());
 
     uint64_t logDigestLastId = ~0UL;
     uint32_t logDigestLastLen = 0;
     Buffer logDigest;
 
-    vector<SegmentInfo*> primarySegments;
-    vector<SegmentInfo*> secondarySegments;
+    vector<BackupReplica*> primarySegments;
+    vector<BackupReplica*> secondarySegments;
 
     for (SegmentsMap::iterator it = segments.begin();
          it != segments.end(); it++)
     {
         ServerId masterId = it->first.masterId;
-        SegmentInfo* info = it->second;
+        BackupReplica* replica = it->second;
 
         if (*masterId == reqHdr.masterId) {
-            if (!info->satisfiesAtomicReplicationGuarantees()) {
-                LOG(WARNING, "Asked for replica <%lu,%lu> which was being "
+            if (!replica->satisfiesAtomicReplicationGuarantees()) {
+                LOG(WARNING, "Asked for replica <%s,%lu> which was being "
                     "replicated atomically but which has yet to be closed; "
-                    "ignoring the replica", masterId.getId(), info->segmentId);
+                    "ignoring the replica",
+                    masterId.toString().c_str(), replica->segmentId);
                 continue;
             }
-            (info->primary ?
+            (replica->primary ?
                 primarySegments :
-                secondarySegments).push_back(info);
+                secondarySegments).push_back(replica);
         }
     }
 
@@ -2005,23 +1210,23 @@ BackupService::startReadingData(
     typedef WireFormat::BackupStartReadingData::Replica Replica;
 
     bool allRecovered = true;
-    foreach (auto info, primarySegments) {
+    foreach (auto replica, primarySegments) {
         new(&rpc.replyPayload, APPEND) Replica
-            {info->segmentId, info->getRightmostWrittenOffset()};
-        LOG(DEBUG, "Crashed master %lu had segment %lu (primary) with len %u",
-            *info->masterId, info->segmentId,
-            info->getRightmostWrittenOffset());
-        bool wasRecovering = info->setRecovering();
+            {replica->segmentId, replica->getRightmostWrittenOffset()};
+        LOG(DEBUG, "Crashed master %s had segment %lu (primary) with len %u",
+            replica->masterId.toString().c_str(), replica->segmentId,
+            replica->getRightmostWrittenOffset());
+        bool wasRecovering = replica->setRecovering();
         allRecovered &= wasRecovering;
     }
-    foreach (auto info, secondarySegments) {
+    foreach (auto replica, secondarySegments) {
         new(&rpc.replyPayload, APPEND) Replica
-            {info->segmentId, info->getRightmostWrittenOffset()};
-        LOG(DEBUG, "Crashed master %lu had segment %lu (secondary) with len %u"
+            {replica->segmentId, replica->getRightmostWrittenOffset()};
+        LOG(DEBUG, "Crashed master %s had segment %lu (secondary) with len %u"
             ", stored partitions for deferred recovery segment construction",
-            *info->masterId, info->segmentId,
-            info->getRightmostWrittenOffset());
-        bool wasRecovering = info->setRecovering(partitions);
+            replica->masterId.toString().c_str(), replica->segmentId,
+            replica->getRightmostWrittenOffset());
+        bool wasRecovering = replica->setRecovering(partitions);
         allRecovered &= wasRecovering;
     }
     respHdr.segmentIdCount = downCast<uint32_t>(primarySegments.size() +
@@ -2030,19 +1235,20 @@ BackupService::startReadingData(
     LOG(DEBUG, "Sending %u segment ids for this master (%u primary)",
         respHdr.segmentIdCount, respHdr.primarySegmentCount);
 
-    vector<SegmentInfo*> allSegments[2] = {primarySegments, secondarySegments};
+    vector<BackupReplica*> allSegments[2] = {primarySegments,
+                                             secondarySegments};
     foreach (auto segments, allSegments) {
-        foreach (auto info, segments) {
+        foreach (auto replica, segments) {
             // Obtain the LogDigest from the lowest Segment Id of any
             // open replica.
-            if (info->isOpen() && info->segmentId <= logDigestLastId) {
-                if (info->getLogDigest(NULL)) {
+            if (replica->isOpen() && replica->segmentId <= logDigestLastId) {
+                if (replica->getLogDigest(NULL)) {
                     logDigest.reset();
-                    info->getLogDigest(&logDigest);
-                    logDigestLastId = info->segmentId;
-                    logDigestLastLen = info->getRightmostWrittenOffset();
+                    replica->getLogDigest(&logDigest);
+                    logDigestLastId = replica->segmentId;
+                    logDigestLastLen = replica->getRightmostWrittenOffset();
                     LOG(DEBUG, "Segment %lu's LogDigest queued for response",
-                        info->segmentId);
+                        replica->segmentId);
                 }
             }
         }
@@ -2123,22 +1329,24 @@ BackupService::writeSegment(const WireFormat::BackupWrite::Request& reqHdr,
     // The default value for numReplicas is 0.
     respHdr.numReplicas = 0;
 
-    SegmentInfo* info = findSegmentInfo(masterId, segmentId);
-    if (info && !info->createdByCurrentProcess) {
+    BackupReplica* replica = findBackupReplica(masterId, segmentId);
+    if (replica && !replica->createdByCurrentProcess) {
         if ((reqHdr.flags & WireFormat::BackupWrite::OPEN)) {
             // This can happen if a backup crashes, restarts, reloads a
             // replica from disk, and then the master detects the crash and
             // tries to re-replicate the segment which lost a replica on
             // the restarted backup.
-            LOG(NOTICE, "Master tried to open replica for <%lu,%lu> but "
+            LOG(NOTICE, "Master tried to open replica for <%s,%lu> but "
                 "another replica was recovered from storage with the same id; "
-                "rejecting open request", masterId.getId(), segmentId);
+                "rejecting open request", masterId.toString().c_str(),
+                segmentId);
             throw BackupOpenRejectedException(HERE);
         } else {
             // This should never happen.
-            LOG(ERROR, "Master tried to write replica for <%lu,%lu> but "
+            LOG(ERROR, "Master tried to write replica for <%s,%lu> but "
                 "another replica was recovered from storage with the same id; "
-                "rejecting write request", masterId.getId(), segmentId);
+                "rejecting write request", masterId.toString().c_str(),
+                segmentId);
             // This exception will crash the calling master.
             throw BackupBadSegmentIdException(HERE);
         }
@@ -2166,41 +1374,43 @@ BackupService::writeSegment(const WireFormat::BackupWrite::Request& reqHdr,
                 }
             }
         }
-        if (!info) {
-            LOG(DEBUG, "Opening <%lu,%lu>", *masterId, segmentId);
+        if (!replica) {
+            LOG(DEBUG, "Opening <%s,%lu>", masterId.toString().c_str(),
+                segmentId);
             try {
-                info = new SegmentInfo(*storage,
+                replica = new BackupReplica(*storage,
                                        pool,
                                        ioScheduler,
                                        masterId,
                                        segmentId,
                                        segmentSize,
                                        primary);
-                segments[MasterSegmentIdPair(masterId, segmentId)] = info;
-                info->open();
+                segments[MasterSegmentIdPair(masterId, segmentId)] = replica;
+                replica->open();
             } catch (const BackupStorageException& e) {
                 segments.erase(MasterSegmentIdPair(masterId, segmentId));
-                delete info;
-                LOG(NOTICE, "Master tried to open replica for <%lu,%lu> but "
+                delete replica;
+                LOG(NOTICE, "Master tried to open replica for <%s,%lu> but "
                     "there was a problem allocating storage space; "
-                    "rejecting open request: %s", masterId.getId(), segmentId,
-                    e.what());
+                    "rejecting open request: %s", masterId.toString().c_str(),
+                    segmentId, e.what());
                 throw BackupOpenRejectedException(HERE);
             } catch (...) {
                 segments.erase(MasterSegmentIdPair(masterId, segmentId));
-                delete info;
+                delete replica;
                 throw;
             }
         }
     }
 
     // Perform write.
-    if (!info) {
-        LOG(WARNING, "Tried write to a replica of segment <%lu,%lu> but "
-            "no such replica was open on this backup (server id %lu)",
-            masterId.getId(), segmentId, serverId.getId());
+    if (!replica) {
+        LOG(WARNING, "Tried write to a replica of segment <%s,%lu> but "
+            "no such replica was open on this backup (server id %s)",
+            masterId.toString().c_str(), segmentId,
+            serverId.toString().c_str());
         throw BackupBadSegmentIdException(HERE);
-    } else if (info->isOpen()) {
+    } else if (replica->isOpen()) {
         // Need to check all three conditions because overflow is possible
         // on the addition
         if (reqHdr.length > segmentSize ||
@@ -2212,7 +1422,7 @@ BackupService::writeSegment(const WireFormat::BackupWrite::Request& reqHdr,
             CycleCounter<RawMetric> __(&metrics->backup.writeCopyTicks);
             auto* footerEntry = reqHdr.footerIncluded ?
                                                 &reqHdr.footerEntry : NULL;
-            info->write(rpc.requestPayload, sizeof(reqHdr),
+            replica->write(rpc.requestPayload, sizeof(reqHdr),
                         reqHdr.length, reqHdr.offset,
                         footerEntry, reqHdr.atomic);
         }
@@ -2220,9 +1430,10 @@ BackupService::writeSegment(const WireFormat::BackupWrite::Request& reqHdr,
         bytesWritten += reqHdr.length;
     } else {
         if (!(reqHdr.flags & WireFormat::BackupWrite::CLOSE)) {
-            LOG(WARNING, "Tried write to a replica of segment <%lu,%lu> but "
-                "the replica was already closed on this backup (server id %lu)",
-                masterId.getId(), segmentId, serverId.getId());
+            LOG(WARNING, "Tried write to a replica of segment <%s,%lu> but "
+                "the replica was already closed on this backup (server id %s)",
+                masterId.toString().c_str(), segmentId,
+                serverId.toString().c_str());
             throw BackupBadSegmentIdException(HERE);
         }
         LOG(WARNING, "Closing segment write after close, may have been "
@@ -2231,7 +1442,7 @@ BackupService::writeSegment(const WireFormat::BackupWrite::Request& reqHdr,
 
     // Perform close, if any.
     if (reqHdr.flags & WireFormat::BackupWrite::CLOSE)
-        info->close();
+        replica->close();
 }
 
 /**

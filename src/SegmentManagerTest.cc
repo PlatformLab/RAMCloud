@@ -37,10 +37,10 @@ class SegmentManagerTest : public ::testing::Test {
     SegmentManagerTest()
         : context(),
           serverId(ServerId(57, 0)),
-          serverList(context),
-          replicaManager(context, serverId, 0),
+          serverList(&context),
+          replicaManager(&context, serverId, 0),
           allocator(6 * 8192, 8192),        // 2 will go in the emergency pool
-          segmentManager(context, 8192, serverId, allocator, replicaManager, 1)
+          segmentManager(&context, 8192, serverId, allocator, replicaManager, 1)
     {
     }
 
@@ -50,7 +50,7 @@ class SegmentManagerTest : public ::testing::Test {
 
 TEST_F(SegmentManagerTest, constructor)
 {
-    EXPECT_THROW(SegmentManager(context,
+    EXPECT_THROW(SegmentManager(&context,
                                 8192,
                                 serverId,
                                 allocator,
@@ -67,7 +67,7 @@ TEST_F(SegmentManagerTest, constructor)
 TEST_F(SegmentManagerTest, destructor) {
     SegletAllocator allocator2(6 * 8192, 8192);
     Tub<SegmentManager> mgr;
-    mgr.construct(context, 8192, serverId, allocator2, replicaManager, 1);
+    mgr.construct(&context, 8192, serverId, allocator2, replicaManager, 1);
     EXPECT_EQ(2U, allocator2.getFreeCount(SegletAllocator::EMERGENCY_HEAD));
     EXPECT_EQ(0U, allocator2.getFreeCount(SegletAllocator::CLEANER));
     EXPECT_EQ(4U, allocator2.getFreeCount(SegletAllocator::DEFAULT));

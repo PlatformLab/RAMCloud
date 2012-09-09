@@ -46,7 +46,7 @@ namespace RAMCloud {
  *      A ServerId guaranteed never to have been used before.
  */
 ServerId
-CoordinatorClient::enlistServer(Context& context, ServerId replacesId,
+CoordinatorClient::enlistServer(Context* context, ServerId replacesId,
         ServiceMask serviceMask, string localServiceLocator,
         uint32_t readSpeed, uint32_t writeSpeed)
 {
@@ -81,23 +81,23 @@ CoordinatorClient::enlistServer(Context& context, ServerId replacesId,
  * \return
  *      A ServerId guaranteed never to have been used before.
  */
-EnlistServerRpc::EnlistServerRpc(Context& context,
+EnlistServerRpc::EnlistServerRpc(Context* context,
         ServerId replacesId, ServiceMask serviceMask,
         string localServiceLocator, uint32_t readSpeed, uint32_t writeSpeed)
     : CoordinatorRpcWrapper(context,
             sizeof(WireFormat::EnlistServer::Response))
 {
-    WireFormat::EnlistServer::Request& reqHdr(
+    WireFormat::EnlistServer::Request* reqHdr(
             allocHeader<WireFormat::EnlistServer>());
-    reqHdr.replacesId = replacesId.getId();
-    reqHdr.serviceMask = serviceMask.serialize();
-    reqHdr.readSpeed = readSpeed;
-    reqHdr.writeSpeed = writeSpeed;
-    reqHdr.serviceLocatorLength =
+    reqHdr->replacesId = replacesId.getId();
+    reqHdr->serviceMask = serviceMask.serialize();
+    reqHdr->readSpeed = readSpeed;
+    reqHdr->writeSpeed = writeSpeed;
+    reqHdr->serviceLocatorLength =
         downCast<uint32_t>(localServiceLocator.length() + 1);
-    strncpy(new(&request, APPEND) char[reqHdr.serviceLocatorLength],
+    strncpy(new(&request, APPEND) char[reqHdr->serviceLocatorLength],
             localServiceLocator.c_str(),
-            reqHdr.serviceLocatorLength);
+            reqHdr->serviceLocatorLength);
     send();
 }
 
@@ -108,12 +108,12 @@ EnlistServerRpc::EnlistServerRpc(Context& context,
 ServerId
 EnlistServerRpc::wait()
 {
-    waitInternal(*context.dispatch);
-    const WireFormat::EnlistServer::Response& respHdr(
+    waitInternal(context->dispatch);
+    const WireFormat::EnlistServer::Response* respHdr(
             getResponseHeader<WireFormat::EnlistServer>());
-    if (respHdr.common.status != STATUS_OK)
-        ClientException::throwException(HERE, respHdr.common.status);
-    return ServerId(respHdr.serverId);
+    if (respHdr->common.status != STATUS_OK)
+        ClientException::throwException(HERE, respHdr->common.status);
+    return ServerId(respHdr->serverId);
 }
 
 /**
@@ -125,8 +125,8 @@ EnlistServerRpc::wait()
  *      Will be filled in with information about all backup servers.
  */
 void
-CoordinatorClient::getBackupList(Context& context,
-        ProtoBuf::ServerList& serverList)
+CoordinatorClient::getBackupList(Context* context,
+        ProtoBuf::ServerList* serverList)
 {
     GetServerListRpc rpc(context, {WireFormat::BACKUP_SERVICE});
     rpc.wait(serverList);
@@ -141,8 +141,8 @@ CoordinatorClient::getBackupList(Context& context,
  *      Will be filled in with information about all masters.
  */
 void
-CoordinatorClient::getMasterList(Context& context,
-        ProtoBuf::ServerList& serverList)
+CoordinatorClient::getMasterList(Context* context,
+        ProtoBuf::ServerList* serverList)
 {
     GetServerListRpc rpc(context, {WireFormat::MASTER_SERVICE});
     rpc.wait(serverList);
@@ -157,8 +157,8 @@ CoordinatorClient::getMasterList(Context& context,
  *      Will be filled in with information about all active servers.
  */
 void
-CoordinatorClient::getServerList(Context& context,
-        ProtoBuf::ServerList& serverList)
+CoordinatorClient::getServerList(Context* context,
+        ProtoBuf::ServerList* serverList)
 {
     GetServerListRpc rpc(context, {WireFormat::MASTER_SERVICE,
             WireFormat::BACKUP_SERVICE});
@@ -177,14 +177,14 @@ CoordinatorClient::getServerList(Context& context,
  *      BACKUP_SERVICE): the results will contain only servers that offer
  *      at least one of the specified services.
  */
-GetServerListRpc::GetServerListRpc(Context& context,
+GetServerListRpc::GetServerListRpc(Context* context,
             ServiceMask services)
     : CoordinatorRpcWrapper(context,
             sizeof(WireFormat::GetServerList::Response))
 {
-    WireFormat::GetServerList::Request& reqHdr(
+    WireFormat::GetServerList::Request* reqHdr(
             allocHeader<WireFormat::GetServerList>());
-    reqHdr.serviceMask = services.serialize();
+    reqHdr->serviceMask = services.serialize();
     send();
 }
 
@@ -197,15 +197,15 @@ GetServerListRpc::GetServerListRpc(Context& context,
  *      coordinator.
  */
 void
-GetServerListRpc::wait(ProtoBuf::ServerList& serverList)
+GetServerListRpc::wait(ProtoBuf::ServerList* serverList)
 {
-    waitInternal(*context.dispatch);
-    const WireFormat::GetServerList::Response& respHdr(
+    waitInternal(context->dispatch);
+    const WireFormat::GetServerList::Response* respHdr(
             getResponseHeader<WireFormat::GetServerList>());
-    if (respHdr.common.status != STATUS_OK)
-        ClientException::throwException(HERE, respHdr.common.status);
-    ProtoBuf::parseFromResponse(*response, sizeof(respHdr),
-                                respHdr.serverListLength, serverList);
+    if (respHdr->common.status != STATUS_OK)
+        ClientException::throwException(HERE, respHdr->common.status);
+    ProtoBuf::parseFromResponse(response, sizeof(*respHdr),
+                                respHdr->serverListLength, serverList);
 }
 
 /**
@@ -220,8 +220,8 @@ GetServerListRpc::wait(ProtoBuf::ServerList& serverList)
  *      exist.
  */
 void
-CoordinatorClient::getTabletMap(Context& context,
-        ProtoBuf::Tablets& tabletMap)
+CoordinatorClient::getTabletMap(Context* context,
+        ProtoBuf::Tablets* tabletMap)
 {
     GetTabletMapRpc rpc(context);
     rpc.wait(tabletMap);
@@ -235,7 +235,7 @@ CoordinatorClient::getTabletMap(Context& context,
  * \param context
  *      Overall information about this RAMCloud server or client.
  */
-GetTabletMapRpc::GetTabletMapRpc(Context& context)
+GetTabletMapRpc::GetTabletMapRpc(Context* context)
     : CoordinatorRpcWrapper(context,
             sizeof(WireFormat::GetTabletMap::Response))
 {
@@ -252,15 +252,15 @@ GetTabletMapRpc::GetTabletMapRpc(Context& context)
  *      exist.
  */
 void
-GetTabletMapRpc::wait(ProtoBuf::Tablets& tabletMap)
+GetTabletMapRpc::wait(ProtoBuf::Tablets* tabletMap)
 {
-    waitInternal(*context.dispatch);
-    const WireFormat::GetTabletMap::Response& respHdr(
+    waitInternal(context->dispatch);
+    const WireFormat::GetTabletMap::Response* respHdr(
             getResponseHeader<WireFormat::GetTabletMap>());
-    if (respHdr.common.status != STATUS_OK)
-        ClientException::throwException(HERE, respHdr.common.status);
-    ProtoBuf::parseFromResponse(*response, sizeof(respHdr),
-                                respHdr.tabletMapLength, tabletMap);
+    if (respHdr->common.status != STATUS_OK)
+        ClientException::throwException(HERE, respHdr->common.status);
+    ProtoBuf::parseFromResponse(response, sizeof(*respHdr),
+                                respHdr->tabletMapLength, tabletMap);
 }
 
 /**
@@ -275,7 +275,7 @@ GetTabletMapRpc::wait(ProtoBuf::Tablets& tabletMap)
  *      Identifies a server that appears to have crashed.
  */
 void
-CoordinatorClient::hintServerDown(Context& context, ServerId serverId)
+CoordinatorClient::hintServerDown(Context* context, ServerId serverId)
 {
     HintServerDownRpc rpc(context, serverId);
     rpc.wait();
@@ -291,14 +291,14 @@ CoordinatorClient::hintServerDown(Context& context, ServerId serverId)
  * \param serverId
  *      Identifies a server that appears to have crashed.
  */
-HintServerDownRpc::HintServerDownRpc(Context& context,
+HintServerDownRpc::HintServerDownRpc(Context* context,
         ServerId serverId)
     : CoordinatorRpcWrapper(context,
             sizeof(WireFormat::HintServerDown::Response))
 {
-    WireFormat::HintServerDown::Request& reqHdr(
+    WireFormat::HintServerDown::Request* reqHdr(
             allocHeader<WireFormat::HintServerDown>());
-    reqHdr.serverId = serverId.getId();
+    reqHdr->serverId = serverId.getId();
     send();
 }
 
@@ -321,7 +321,7 @@ HintServerDownRpc::HintServerDownRpc(Context& context,
  *      to be transferred to.
  */
 void
-CoordinatorClient::reassignTabletOwnership(Context& context, uint64_t tableId,
+CoordinatorClient::reassignTabletOwnership(Context* context, uint64_t tableId,
         uint64_t firstKeyHash, uint64_t lastKeyHash, ServerId newOwnerId)
 {
     ReassignTabletOwnershipRpc rpc(context, tableId, firstKeyHash,
@@ -346,18 +346,18 @@ CoordinatorClient::reassignTabletOwnership(Context& context, uint64_t tableId,
  *      ServerId of the master that we want ownership of the tablet
  *      to be transferred to.
  */
-ReassignTabletOwnershipRpc::ReassignTabletOwnershipRpc(Context& context,
+ReassignTabletOwnershipRpc::ReassignTabletOwnershipRpc(Context* context,
         uint64_t tableId, uint64_t firstKeyHash, uint64_t lastKeyHash,
         ServerId newOwnerId)
     : CoordinatorRpcWrapper(context,
             sizeof(WireFormat::ReassignTabletOwnership::Response))
 {
-    WireFormat::ReassignTabletOwnership::Request& reqHdr(
+    WireFormat::ReassignTabletOwnership::Request* reqHdr(
             allocHeader<WireFormat::ReassignTabletOwnership>());
-    reqHdr.tableId = tableId;
-    reqHdr.firstKeyHash = firstKeyHash;
-    reqHdr.lastKeyHash = lastKeyHash;
-    reqHdr.newOwnerId = newOwnerId.getId();
+    reqHdr->tableId = tableId;
+    reqHdr->firstKeyHash = firstKeyHash;
+    reqHdr->lastKeyHash = lastKeyHash;
+    reqHdr->newOwnerId = newOwnerId.getId();
     send();
 }
 
@@ -383,8 +383,8 @@ ReassignTabletOwnershipRpc::ReassignTabletOwnershipRpc(Context& context,
  *      can clean up any state resulting attempting recovery.
  */
 void
-CoordinatorClient::recoveryMasterFinished(Context& context, uint64_t recoveryId,
-        ServerId recoveryMasterId, const ProtoBuf::Tablets& tablets,
+CoordinatorClient::recoveryMasterFinished(Context* context, uint64_t recoveryId,
+        ServerId recoveryMasterId, const ProtoBuf::Tablets* tablets,
         bool successful)
 {
     RecoveryMasterFinishedRpc rpc(context, recoveryId, recoveryMasterId,
@@ -413,18 +413,18 @@ CoordinatorClient::recoveryMasterFinished(Context& context, uint64_t recoveryId,
  *      coordinator will not assign ownership to this master and this master
  *      can clean up any state resulting attempting recovery.
  */
-RecoveryMasterFinishedRpc::RecoveryMasterFinishedRpc(Context& context,
+RecoveryMasterFinishedRpc::RecoveryMasterFinishedRpc(Context* context,
         uint64_t recoveryId, ServerId recoveryMasterId,
-        const ProtoBuf::Tablets& tablets, bool successful)
+        const ProtoBuf::Tablets* tablets, bool successful)
     : CoordinatorRpcWrapper(context,
             sizeof(WireFormat::RecoveryMasterFinished::Response))
 {
-    WireFormat::RecoveryMasterFinished::Request& reqHdr(
+    WireFormat::RecoveryMasterFinished::Request* reqHdr(
             allocHeader<WireFormat::RecoveryMasterFinished>());
-    reqHdr.recoveryId = recoveryId;
-    reqHdr.recoveryMasterId = recoveryMasterId.getId();
-    reqHdr.tabletsLength = serializeToRequest(request, tablets);
-    reqHdr.successful = successful;
+    reqHdr->recoveryId = recoveryId;
+    reqHdr->recoveryMasterId = recoveryMasterId.getId();
+    reqHdr->tabletsLength = serializeToRequest(&request, tablets);
+    reqHdr->successful = successful;
     send();
 }
 
@@ -437,7 +437,7 @@ RecoveryMasterFinishedRpc::RecoveryMasterFinishedRpc(Context& context,
  *      ServerId of the server the coordinator should send the list to.
  */
 void
-CoordinatorClient::sendServerList(Context& context, ServerId destination)
+CoordinatorClient::sendServerList(Context* context, ServerId destination)
 {
     SendServerListRpc rpc(context, destination);
     rpc.wait();
@@ -453,14 +453,14 @@ CoordinatorClient::sendServerList(Context& context, ServerId destination)
  * \param destination
  *      ServerId of the server the coordinator should send the list to.
  */
-SendServerListRpc::SendServerListRpc(Context& context,
+SendServerListRpc::SendServerListRpc(Context* context,
         ServerId destination)
     : CoordinatorRpcWrapper(context,
             sizeof(WireFormat::SendServerList::Response))
 {
-    WireFormat::SendServerList::Request& reqHdr(
+    WireFormat::SendServerList::Request* reqHdr(
             allocHeader<WireFormat::SendServerList>());
-    reqHdr.serverId = destination.getId();
+    reqHdr->serverId = destination.getId();
     send();
 }
 
@@ -480,7 +480,7 @@ SendServerListRpc::SendServerListRpc(Context& context,
  *      considered invalid and thus ignored.
  */
 void
-CoordinatorClient::setMinOpenSegmentId(Context& context, ServerId serverId,
+CoordinatorClient::setMinOpenSegmentId(Context* context, ServerId serverId,
         uint64_t segmentId)
 {
     SetMinOpenSegmentIdRpc rpc(context, serverId, segmentId);
@@ -500,15 +500,15 @@ CoordinatorClient::setMinOpenSegmentId(Context& context, ServerId serverId,
  *      Open segments for \a serverId with ids less than this should be
  *      considered invalid and thus ignored.
  */
-SetMinOpenSegmentIdRpc::SetMinOpenSegmentIdRpc(Context& context,
+SetMinOpenSegmentIdRpc::SetMinOpenSegmentIdRpc(Context* context,
         ServerId serverId, uint64_t segmentId)
     : CoordinatorRpcWrapper(context,
             sizeof(WireFormat::SetMinOpenSegmentId::Response))
 {
-    WireFormat::SetMinOpenSegmentId::Request& reqHdr(
+    WireFormat::SetMinOpenSegmentId::Request* reqHdr(
             allocHeader<WireFormat::SetMinOpenSegmentId>());
-    reqHdr.serverId = serverId.getId();
-    reqHdr.segmentId = segmentId;
+    reqHdr->serverId = serverId.getId();
+    reqHdr->segmentId = segmentId;
     send();
 }
 

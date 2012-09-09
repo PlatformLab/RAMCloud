@@ -62,7 +62,7 @@ namespace RAMCloud {
  */
 class MockCluster {
   public:
-     explicit MockCluster(Context& context,
+     explicit MockCluster(Context* context,
          string coordinatorLocator = "mock:host=coordinator");
     ~MockCluster();
     Server* addServer(ServerConfig config);
@@ -70,7 +70,7 @@ class MockCluster {
 
     /// Caller-supplied context that we manage to provide access to
     /// the cluster (see documentation for constructor parameter).
-    Context& linkedContext;
+    Context* linkedContext;
 
     /// Context that will be used for the cluster coordinator.
     Context coordinatorContext;
@@ -101,6 +101,8 @@ class MockCluster {
 
     /// If linkedContext didn't already have a server list, we use this for it.
     Tub<ServerList> linkedContextServerList;
+
+    DISALLOW_COPY_AND_ASSIGN(MockCluster);
 };
 
 } // namespace RAMCloud

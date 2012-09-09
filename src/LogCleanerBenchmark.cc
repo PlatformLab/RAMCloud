@@ -52,6 +52,7 @@ class Options {
           utilization(0),
           pipelinedRpcs(0),
           writeCostConvergence(0),
+          abortTimeout(0),
           distributionName(),
           tableName(),
           outputFilesPrefix()
@@ -65,6 +66,7 @@ class Options {
     int utilization;
     int pipelinedRpcs;
     int writeCostConvergence;
+    unsigned abortTimeout;
     string distributionName;
     string tableName;
     string outputFilesPrefix;
@@ -443,7 +445,7 @@ class Benchmark {
      * This method may only be called once on each instance of this class.
      */
     void
-    run()
+    run(unsigned timeoutSeconds)
     {
         if (start != 0)
             return;
@@ -451,7 +453,7 @@ class Benchmark {
         // Pre-fill up to the desired utilization before measuring.
         fprintf(stderr, "Prefilling...\n");
         prefillStart = Cycles::rdtsc();
-        writeNextObjects(pipelineMax);
+        writeNextObjects(pipelineMax, timeoutSeconds);
         prefillStop = Cycles::rdtsc();
 
         updateOutput(true);
@@ -460,7 +462,7 @@ class Benchmark {
         // Now issue writes until we're done.
         fprintf(stderr, "Prefill complete. Running benchmark...\n");
         start = Cycles::rdtsc();
-        writeNextObjects(pipelineMax);
+        writeNextObjects(pipelineMax, timeoutSeconds);
         stop = Cycles::rdtsc();
 
         updateOutput(true);
@@ -501,7 +503,7 @@ class Benchmark {
                          const void* key, uint16_t keyLength,
                          const void* object, uint32_t objectLength)
             : ticks(),
-              rpc(ramcloud, tableId, key, keyLength, object, objectLength),
+              rpc(&ramcloud, tableId, key, keyLength, object, objectLength),
               key(key),
               keyLength(keyLength),
               object(object),
@@ -531,7 +533,7 @@ class Benchmark {
      *      are received.
      */
     void
-    writeNextObjects(const int pipelined)
+    writeNextObjects(const int pipelined, const unsigned timeoutSeconds)
     {
         Tub<OutstandingWrite> rpcs[pipelined];
         uint8_t* keys[pipelined];
@@ -570,13 +572,17 @@ class Benchmark {
             // completed.
             bool anyRpcsDone = false;
             int numRpcsLeft = -1;
+            uint64_t start = Cycles::rdtsc();
             while (!anyRpcsDone && numRpcsLeft != 0) {
+                if (Cycles::toSeconds(Cycles::rdtsc() - start) >= timeoutSeconds)
+                    throw Exception(HERE, "Benchmark::run() hasn't made progress");
+
                 numRpcsLeft = 0;
 
                 // As a client we need to let the dispatcher run. Calling
                 // isReady() on an RPC doesn't do it (perhaps it should?),
                 // so do so here.
-                ramcloud.clientContext.dispatch->poll();
+                ramcloud.clientContext->dispatch->poll();
 
                 for (int i = 0; i < pipelined; i++) {
                     if (!rpcs[i])
@@ -810,6 +816,8 @@ Output::dumpParameters(FILE* fp,
     fprintf(fp, "  WC Convergence:         %d decimal places\n", options.writeCostConvergence);
 
     fprintf(fp, "  Pipelined RPCs:         %d\n", options.pipelinedRpcs);
+
+    fprintf(fp, "  Abort Timeout:          %u sec\n", options.abortTimeout);
 
     fprintf(fp, "===> SERVER PARAMETERS\n");
 
@@ -1123,6 +1131,14 @@ Output::updateLiveLine(RamCloud& ramcloud, string& masterLocator, uint64_t objec
 
 using namespace RAMCloud;
 
+void
+timedOut(int dummy)
+{
+    fprintf(stderr, "TIMED OUT SETTING UP BENCHMARK!\n");
+    fprintf(stderr, "  Is the server or coordinator not up?\n");
+    exit(1);
+}
+
 bool
 fileExists(string& file)
 {
@@ -1140,6 +1156,11 @@ try
 
     OptionsDescription benchOptions("Bench");
     benchOptions.add_options()
+        ("abortTimeout,a",
+         ProgramOptions::value<unsigned>(&options.abortTimeout)->
+            default_value(60),
+         "If the benchmark makes no progress after this many seconds, assume "
+         "that something is wedged and abort.")
         ("table,t",
          ProgramOptions::value<string>(&options.tableName)->
             default_value("cleanerBench"),
@@ -1218,6 +1239,10 @@ try
         rawFile = fopen(rawFilename.c_str(), "w");
     }
 
+    // Set an alarm to abort this in case we can't connect.
+    signal(SIGALRM, timedOut);
+    alarm(options.abortTimeout);
+
     string coordinatorLocator = optionParser.options.getCoordinatorLocator();
     fprintf(stderr, "Connecting to %s\n", coordinatorLocator.c_str());
     RamCloud ramcloud(coordinatorLocator.c_str());
@@ -1257,7 +1282,12 @@ try
         output.addFile(metricsFile);
     output.dumpBeginning();
     output.dumpParameters(options, serverConfig, logMetrics);
-    benchmark.run();
+
+    // Reset the alarm. Benchmark::run() will throw an exception if it can't
+    // make progress.
+    alarm(0);
+
+    benchmark.run(options.abortTimeout);
     output.dump();
     output.dumpEnd();
 

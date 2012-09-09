@@ -23,7 +23,7 @@ namespace RAMCloud {
 // message describing the problem.
 static const char* messages[] = {
     "operation succeeded",                       // OK
-    "unknown table (may exist elsewhere)",       // UNKNOWN_TABLE
+    "unknown table (may exist elsewhere)",       // UNKNOWN_TABLET
     "table doesn't exist",                       // TABLE_DOESNT_EXIST
     "object doesn't exist",                      // OBJECT_DOESNT_EXIST
     "object already exists",                     // OBJECT_EXISTS
@@ -42,7 +42,7 @@ static const char* messages[] = {
     "retry",                                     // RETRY
     "service not available",                     // SERVICE_NOT_AVAILABLE
     "operation took too long",                   // STATUS_TIMEOUT
-    "server doesn't exist",                      // SERVER_DOESNT_EXIST
+    "server doesn't exist",                      // SERVER_NOT_UP
     "internal RAMCloud error",                   // STATUS_INTERNAL_ERROR
     "object is invalid for the chosen operation",// STATUS_INVALID_OBJECT
     "tablet doesn't exist",                      // STATUS_TABLET_DOESNT_EXIST
@@ -52,7 +52,7 @@ static const char* messages[] = {
 // for the Status.
 static const char* symbols[] = {
     "STATUS_OK",
-    "STATUS_UNKNOWN_TABLE",
+    "STATUS_UNKNOWN_TABLET",
     "STATUS_TABLE_DOESNT_EXIST",
     "STATUS_OBJECT_DOESNT_EXIST",
     "STATUS_OBJECT_EXISTS",
@@ -71,7 +71,7 @@ static const char* symbols[] = {
     "STATUS_RETRY",
     "STATUS_SERVICE_NOT_AVAILABLE",
     "STATUS_TIMEOUT",
-    "STATUS_SERVER_DOESNT_EXIST",
+    "STATUS_SERVER_NOT_UP",
     "STATUS_INTERNAL_ERROR",
     "STATUS_INVALID_OBJECT",
     "STATUS_TABLET_DOESNT_EXIST",

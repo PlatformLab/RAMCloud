@@ -26,9 +26,12 @@
 
 namespace RAMCloud {
 
-CoordinatorService::CoordinatorService(Context& context, string LogCabinLocator)
+CoordinatorService::CoordinatorService(Context* context,
+                                       uint32_t deadServerTimeout,
+                                       string LogCabinLocator)
     : context(context)
-    , serverList(*context.coordinatorServerList)
+    , serverList(*context->coordinatorServerList)
+    , deadServerTimeout(deadServerTimeout)
     , tabletMap()
     , tables()
     , nextTableId(0)
@@ -36,6 +39,7 @@ CoordinatorService::CoordinatorService(Context& context, string LogCabinLocator)
     , runtimeOptions()
     , recoveryManager(context, tabletMap, &runtimeOptions)
     , serverManager(*this)
+    , coordinatorRecovery(*this)
     , logCabinCluster()
     , logCabinLog()
     , logCabinHelper()
@@ -182,8 +186,9 @@ CoordinatorService::createTable(const WireFormat::CreateTable::Request& reqHdr,
         MasterClient::takeTabletOwnership(context, master.serverId, tableId,
                                           firstKeyHash, lastKeyHash);
 
-        LOG(DEBUG, "Created table '%s' with id %lu and a span %u on master %lu",
-                    name, tableId, serverSpan, master.serverId.getId());
+        LOG(DEBUG, "Created table '%s' with id %lu and a span %u on master %s",
+                    name, tableId, serverSpan,
+                    master.serverId.toString().c_str());
     }
 
     LOG(NOTICE, "Created table '%s' with id %lu",
@@ -326,7 +331,7 @@ CoordinatorService::getServerList(
         serverManager.getServerList(serviceMask);
 
     respHdr.serverListLength =
-        serializeToResponse(rpc.replyPayload, serialServerList);
+        serializeToResponse(&rpc.replyPayload, &serialServerList);
 }
 
 /**
@@ -341,8 +346,8 @@ CoordinatorService::getTabletMap(
 {
     ProtoBuf::Tablets tablets;
     tabletMap.serialize(serverList, tablets);
-    respHdr.tabletMapLength = serializeToResponse(rpc.replyPayload,
-                                                  tablets);
+    respHdr.tabletMapLength = serializeToResponse(&rpc.replyPayload,
+                                                  &tablets);
 }
 
 /**
@@ -373,9 +378,9 @@ CoordinatorService::recoveryMasterFinished(
     Rpc& rpc)
 {
     ProtoBuf::Tablets recoveredTablets;
-    ProtoBuf::parseFromResponse(rpc.requestPayload,
-                                sizeof32(reqHdr),
-                                reqHdr.tabletsLength, recoveredTablets);
+    ProtoBuf::parseFromRequest(&rpc.requestPayload,
+                               sizeof32(reqHdr),
+                               reqHdr.tabletsLength, &recoveredTablets);
 
     ServerId serverId = ServerId(reqHdr.recoveryMasterId);
     recoveryManager.recoveryMasterFinished(reqHdr.recoveryId,
@@ -418,11 +423,12 @@ CoordinatorService::reassignTabletOwnership(
     Rpc& rpc)
 {
     ServerId newOwner(reqHdr.newOwnerId);
-    if (!serverList.contains(newOwner)) {
-        LOG(WARNING, "Server id %lu does not exist! Cannot reassign "
-            "ownership of tablet %lu, range [%lu, %lu]!", *newOwner,
-            reqHdr.tableId, reqHdr.firstKeyHash, reqHdr.lastKeyHash);
-        respHdr.common.status = STATUS_SERVER_DOESNT_EXIST;
+    if (!serverList.isUp(newOwner)) {
+        LOG(WARNING, "Server id %s is not up! Cannot reassign "
+            "ownership of tablet %lu, range [%lu, %lu]!",
+            newOwner.toString().c_str(), reqHdr.tableId,
+            reqHdr.firstKeyHash, reqHdr.lastKeyHash);
+        respHdr.common.status = STATUS_SERVER_NOT_UP;
         return;
     }
 
@@ -434,8 +440,9 @@ CoordinatorService::reassignTabletOwnership(
                                            reqHdr.firstKeyHash,
                                            reqHdr.lastKeyHash);
         LOG(NOTICE, "Reassigning tablet %lu, range [%lu, %lu] from server "
-            "id %lu to server id %lu.", reqHdr.tableId, reqHdr.firstKeyHash,
-            reqHdr.lastKeyHash, tablet.serverId.getId(), newOwner.getId());
+            "id %s to server id %s.", reqHdr.tableId, reqHdr.firstKeyHash,
+            reqHdr.lastKeyHash, tablet.serverId.toString().c_str(),
+            newOwner.toString().c_str());
     } catch (const TabletMap::NoSuchTablet& e) {
         LOG(WARNING, "Could not reassign tablet %lu, range [%lu, %lu]: "
             "not found!", reqHdr.tableId, reqHdr.firstKeyHash,
@@ -543,15 +550,15 @@ CoordinatorService::setMinOpenSegmentId(
     ServerId serverId(reqHdr.serverId);
     uint64_t segmentId = reqHdr.segmentId;
 
-    LOG(DEBUG, "setMinOpenSegmentId for server %lu to %lu",
-        serverId.getId(), segmentId);
+    LOG(DEBUG, "setMinOpenSegmentId for server %s to %lu",
+        serverId.toString().c_str(), segmentId);
 
     try {
         serverManager.setMinOpenSegmentId(serverId, segmentId);
     } catch (const ServerListException& e) {
-        LOG(WARNING, "setMinOpenSegmentId server doesn't exist: %lu",
-            serverId.getId());
-        respHdr.common.status = STATUS_SERVER_DOESNT_EXIST;
+        LOG(WARNING, "setMinOpenSegmentId server doesn't exist: %s",
+            serverId.toString().c_str());
+        respHdr.common.status = STATUS_SERVER_NOT_UP;
         return;
     }
 }

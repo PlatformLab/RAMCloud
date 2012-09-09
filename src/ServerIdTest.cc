@@ -29,7 +29,7 @@ class ServerIdTest : public ::testing::Test {
 TEST_F(ServerIdTest, invalidServerId) {
     EXPECT_EQ(static_cast<uint32_t>(-1),
         ServerId::INVALID_SERVERID_GENERATION_NUMBER);
-    EXPECT_EQ(ServerId()._generationNumber(),
+    EXPECT_EQ(ServerId().generationNumber(),
         ServerId::INVALID_SERVERID_GENERATION_NUMBER);
 }
 
@@ -66,6 +66,11 @@ TEST_F(ServerIdTest, isValid) {
     EXPECT_TRUE(ServerId(0, -2).isValid());
     EXPECT_FALSE(ServerId(0, -1).isValid());
     EXPECT_FALSE(ServerId(2347, -1).isValid());
+}
+
+TEST_F(ServerIdTest, toString) {
+    EXPECT_EQ("1.2", ServerId(1, 2).toString());
+    EXPECT_EQ("invalid", ServerId(77, -1).toString());
 }
 
 TEST_F(ServerIdTest, operatorEquals) {

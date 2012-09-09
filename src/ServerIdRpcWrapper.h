@@ -31,7 +31,7 @@ class RamCloud;
  */
 class ServerIdRpcWrapper : public RpcWrapper {
   public:
-    explicit ServerIdRpcWrapper(Context& context, ServerId id,
+    explicit ServerIdRpcWrapper(Context* context, ServerId id,
             uint32_t responseHeaderLength, Buffer* response = NULL);
 
     /**
@@ -45,7 +45,7 @@ class ServerIdRpcWrapper : public RpcWrapper {
     void waitAndCheckErrors();
 
     /// Shared RAMCloud information.
-    Context& context;
+    Context* context;
 
     /// Target server.
     ServerId id;
@@ -60,15 +60,15 @@ class ServerIdRpcWrapper : public RpcWrapper {
     /// When set instead of retrying the rpc on a TransportException all
     /// instances of this wrapper will internally flag the server as down
     /// instead. This causes waiting on the rpc throw a
-    /// ServerDoesntExistException. Useful with MockTransport to convert
+    /// ServerNotUpException. Useful with MockTransport to convert
     /// responses set with transport.setInput(NULL) to
-    /// ServerDoesntExistExceptions.
+    /// ServerNotUpExceptions.
     static bool convertExceptionsToDoesntExist;
 
     /**
      * Sets and restores #convertExcpetionsToDoesntExist safely in unit tests.
      * Instantating this class converts all TransportExceptions into deferred
-     * ServerDoesntExistExceptions for the lifetime of the instance.
+     * ServerNotUpExceptions for the lifetime of the instance.
      */
     struct ConvertExceptionsToDoesntExist {
         ConvertExceptionsToDoesntExist()

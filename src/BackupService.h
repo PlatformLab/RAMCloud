@@ -51,18 +51,7 @@
 
 namespace RAMCloud {
 
-#if TESTING
-bool isEntryAlive(Log::Position& position,
-                  const SegmentIterator& it,
-                  Buffer& buffer,
-                  const ProtoBuf::Tablets::Tablet& tablet,
-                  SegmentHeader& header);
-Tub<uint64_t> whichPartition(Log::Position& position,
-                             const SegmentIterator& it,
-                             Buffer& buffer,
-                             const ProtoBuf::Tablets& partitions,
-                             SegmentHeader& header);
-#endif
+class BackupReplica;
 
 /**
  * Handles Rpc requests from Masters and the Coordinator to persistently store
@@ -70,8 +59,6 @@ Tub<uint64_t> whichPartition(Log::Position& position,
  */
 class BackupService : public Service
                     , ServerTracker<void>::Callback {
-  PRIVATE:
-
     /**
      * Decrement the value referred to on the constructor on
      * destruction.
@@ -108,6 +95,9 @@ class BackupService : public Service
         T& value;
     };
 
+    // TODO(stutsman): Make this stuff private once the IoScheduler moves
+    // into the BackupStorage layer.
+  public:
     /**
      * Mediates access to a memory chunk pool to maintain thread safety.
      * Detailed documentation for each of the methods can be found
@@ -183,287 +173,20 @@ class BackupService : public Service
     class RecoverySegmentBuilder;
 
     /**
-     * Tracks all state associated with a single segment and manages
-     * resources and storage associated with it.  Public calls are
-     * protected by #mutex to provide thread safety.
-     */
-    class SegmentInfo {
-      public:
-        /// The type of locks used to lock #mutex.
-        typedef std::unique_lock<std::mutex> Lock;
-
-        /**
-         * Tracks current state of the segment which is sufficient to
-         * determine which operations are legal.
-         */
-        enum State {
-            UNINIT,     ///< open() and delete are the only valid ops.
-            /**
-             * Storage is reserved but segment is mutable.
-             * This segment will be closed if this is deleted.
-             */
-            OPEN,
-            CLOSED,     ///< Immutable and has moved to stable store.
-            RECOVERING, ///< Rec segs building, all other ops must wait.
-            FREED,      ///< delete is the only valid op.
-        };
-
-        SegmentInfo(BackupStorage& storage, ThreadSafePool& pool,
-                    IoScheduler& ioScheduler,
-                    ServerId masterId, uint64_t segmentId,
-                    uint32_t segmentSize, bool primary);
-        SegmentInfo(BackupStorage& storage, ThreadSafePool& pool,
-                    IoScheduler& ioScheduler,
-                    ServerId masterId, uint64_t segmentId,
-                    uint32_t segmentSize, uint32_t segmentFrame, bool isClosed);
-        ~SegmentInfo();
-        Status appendRecoverySegment(uint64_t partitionId, Buffer& buffer)
-            __attribute__((warn_unused_result));
-        void buildRecoverySegments(const ProtoBuf::Tablets& partitions);
-        void close();
-        void free();
-
-        /// See #rightmostWrittenOffset.
-        uint32_t
-        getRightmostWrittenOffset()
-        {
-            Lock lock(mutex);
-            return rightmostWrittenOffset;
-        }
-
-        /**
-         * Return true if this replica can be used for recovery.  Some
-         * replicas are open for atomic replication.  Those segments
-         * may be open and have data written to them, but they cannot
-         * be used for recovery because they aren't considered to be
-         * valid replicas until the closing write is processed.
-         */
-        bool
-        satisfiesAtomicReplicationGuarantees()
-        {
-            Lock lock(mutex);
-            return !replicateAtomically || state == CLOSED;
-        }
-
-        /**
-         * Return true if this replica is open. Notice, this isn't the same
-         * as state == OPEN. A replica may be considered open even if its
-         * state is RECOVERING, for example.  This nastiness is a good
-         * indicator that SegmentInfo needs a complete rewrite (as well
-         * as a rename, and relocation to a new file).
-         */
-        bool
-        isOpen()
-        {
-            Lock lock(mutex);
-            return rightmostWrittenOffset != BYTES_WRITTEN_CLOSED;
-        }
-
-        void open();
-        bool setRecovering();
-        bool setRecovering(const ProtoBuf::Tablets& partitions);
-        void startLoading();
-        void write(Buffer& src, uint32_t srcOffset,
-                   uint32_t length, uint32_t destOffset,
-                   const Segment::OpaqueFooterEntry* footerEntry,
-                   bool atomic);
-        bool getLogDigest(Buffer* digestBuffer);
-
-        /**
-         * Return true if #this should be loaded from disk before
-         * #info.  Locks both objects during comparision.
-         *
-         * \param info
-         *      Another SegmentInfo to order against.
-         */
-        bool operator<(SegmentInfo& info)
-        {
-            if (&info == this)
-                return false;
-            return segmentId < info.segmentId;
-        }
-
-        /// The id of the master from which this segment came.
-        const ServerId masterId;
-
-        /**
-         * True if this is the primary copy of this segment for the master
-         * who stored it.  Determines whether recovery segments are built
-         * at recovery start or on demand.
-         */
-        const bool primary;
-
-        /// The segment id given to this segment by the master who sent it.
-        const uint64_t segmentId;
-
-#if TESTING
-        bool createdByCurrentProcess;
-#else
-        const bool createdByCurrentProcess;
-#endif
-
-      PRIVATE:
-        void applyFooterEntry();
-
-        /// Return true if this segment is fully in memory.
-        bool inMemory() { return segment; }
-
-        /// Return true if this segment has storage allocated.
-        bool inStorage() const { return storageHandle; }
-
-        /// Return true if this segment's recovery segments have been built.
-        bool isRecovered() const { return recoverySegments; }
-
-        /**
-         * Wait for any LoadOps or StoreOps to complete.
-         * The caller must be holding a lock on #mutex.
-         */
-        void
-        waitForOngoingOps(Lock& lock)
-        {
-#ifndef SINGLE_THREADED_BACKUP
-            int lastThreadCount = 0;
-            while (storageOpCount > 0) {
-                if (storageOpCount != lastThreadCount) {
-                    RAMCLOUD_LOG(DEBUG,
-                                 "Waiting for storage threads to terminate "
-                                 "for a segment, %d threads still running",
-                                 static_cast<int>(storageOpCount));
-                    lastThreadCount = storageOpCount;
-                }
-                condition.wait(lock);
-            }
-#endif
-        }
-
-        /**
-         * Provides mutal exclusion between all public method calls and
-         * storage operations that can be performed on SegmentInfos.
-         */
-        std::mutex mutex;
-
-        /**
-         * Notified when a store or load for this segment completes, or
-         * when this segment's recovery segments are constructed and valid.
-         * Used in conjunction with #mutex.
-         */
-        std::condition_variable condition;
-
-        /// Gatekeeper through which async IOs are scheduled.
-        IoScheduler& ioScheduler;
-
-        /// An array of recovery segments when non-null.
-        /// The exception if one occurred while recovering a segment.
-        std::unique_ptr<SegmentRecoveryFailedException> recoveryException;
-
-        /**
-         * Only used if this segment is recovering but the filtering is
-         * deferred (i.e. this isn't the primary segment backup copy).
-         */
-        Tub<ProtoBuf::Tablets> recoveryPartitions;
-
-        /// An array of recovery segments when non-null.
-        Segment* recoverySegments;
-
-        /// The number of Segments in #recoverySegments.
-        uint32_t recoverySegmentsLength;
-
-        /**
-         * Where in #segment the most-recently-queued footer should be
-         * plunked down when the segment is closed or recovered (see
-         * #footerEntry).
-         */
-        uint32_t footerOffset;
-
-        /**
-         * Footer log entry provided on write by the master which is creating
-         * the replica. The footer must be stamped on the end of the replicas
-         * before the replica is sent to storage or used for recovery.  During
-         * recovery this footer is used to detect corruption and so must be in
-         * place for updates to replicas to be considered durable. If replica
-         * manager cannot send all the data ready to be replicated in one rpc
-         * it will not send a footer with the write. When this happens the
-         * backup ensures the most recently transmitted footer is used if the
-         * replica is closed or recovered in a way such that all non-footered
-         * writes sent since the last footered write will be atomically undone.
-         * This footer is stored in two locations in each replica: once at the
-         * end of the data (which is the authoritative footer, and again
-         * aligned at the end of the replica. The second copy is an
-         * optimization which allows the backup to find the footer quickly from
-         * disk in a single IO. applyFooterEntry() is a helper function that
-         * will plunk the most-recently-queued footers into place.
-         */
-        Segment::OpaqueFooterEntry footerEntry;
-
-        /**
-         * Indicate to callers of startReadingData() that particular
-         * segment's #rightmostWrittenOffset is not needed because it was
-         * successfully closed.
-         */
-        enum { BYTES_WRITTEN_CLOSED = ~(0u) };
-
-        /**
-         * An approximation for written segment "length" for startReadingData
-         * if this segment is still open, otherwise BYTES_WRITTEN_CLOSED.
-         */
-        uint32_t rightmostWrittenOffset;
-
-        /**
-         * The staging location for this segment in memory.
-         *
-         * Only valid when inMemory() (happens while OPEN or CLOSED).
-         */
-        char* segment;
-
-        /// The size in bytes that make up this segment.
-        const uint32_t segmentSize;
-
-        /// The state of this segment.  See State.
-        State state;
-
-        /**
-         * If this is true the data buffered for this segment is invalid until
-         * a closing write has been processed.  It will not be written to disk
-         * in any way and it will not be used or reported during recovery.
-         */
-        bool replicateAtomically;
-
-        /**
-         * Handle to provide to the storage layer to access this segment.
-         *
-         * Allocated while OPEN, CLOSED.
-         */
-        BackupStorage::Handle* storageHandle;
-
-        /// To allocate memory for segments to be staged/recovered in.
-        ThreadSafePool& pool;
-
-        /// For allocating, loading, storing segments to.
-        BackupStorage& storage;
-
-        /// Count of loads/stores pending for this segment.
-        int storageOpCount;
-
-        friend class IoScheduler;
-        friend class RecoverySegmentBuilder;
-        DISALLOW_COPY_AND_ASSIGN(SegmentInfo);
-    };
-
-    /**
      * Queues, prioritizes, and dispatches storage load/store operations.
      */
     class IoScheduler {
       public:
         IoScheduler();
         void operator()();
-        void load(SegmentInfo& info);
+        void load(BackupReplica& info);
         void quiesce();
-        void store(SegmentInfo& info);
+        void store(BackupReplica& info);
         void shutdown(std::thread& ioThread);
 
       private:
-        void doLoad(SegmentInfo& info) const;
-        void doStore(SegmentInfo& info) const;
+        void doLoad(BackupReplica& info) const;
+        void doStore(BackupReplica& info) const;
 
         typedef std::unique_lock<std::mutex> Lock;
 
@@ -473,11 +196,11 @@ class BackupService : public Service
         /// Notified when new requests are added to either queue.
         std::condition_variable queueCond;
 
-        /// Queue of SegmentInfos to be loaded from storage.
-        std::queue<SegmentInfo*> loadQueue;
+        /// Queue of BackupReplicas to be loaded from storage.
+        std::queue<BackupReplica*> loadQueue;
 
-        /// Queue of SegmentInfos to be written to storage.
-        std::queue<SegmentInfo*> storeQueue;
+        /// Queue of BackupReplicas to be written to storage.
+        std::queue<BackupReplica*> storeQueue;
 
         /// When false scheduler will exit when no outstanding requests remain.
         bool running;
@@ -495,44 +218,62 @@ class BackupService : public Service
     /**
      * Asynchronously loads and splits stored segments into recovery segments,
      * trying to acheive efficiency by overlapping work where possible using
-     * threading.  See #infos for important details on sharing constraints
-     * for SegmentInfo structures while these threads are processing.
+     * threading.  See #replicas for important details on sharing constraints
+     * for BackupReplica structures while these threads are processing.
      */
     class RecoverySegmentBuilder
     {
       public:
-        RecoverySegmentBuilder(Context& context,
-                               const vector<SegmentInfo*>& infos,
+        RecoverySegmentBuilder(Context* context,
+                               const vector<BackupReplica*>& replicas,
                                const ProtoBuf::Tablets& partitions,
                                Atomic<int>& recoveryThreadCount,
                                uint32_t segmentSize);
+        RecoverySegmentBuilder(const RecoverySegmentBuilder& src)
+            : context(src.context)
+            , replicas(src.replicas)
+            , partitions(src.partitions)
+            , recoveryThreadCount(src.recoveryThreadCount)
+            , segmentSize(src.segmentSize)
+        {}
+        RecoverySegmentBuilder& operator=(const RecoverySegmentBuilder& src)
+        {
+            if (this != &src) {
+                context = src.context;
+                replicas = src.replicas;
+                partitions = src.partitions;
+                recoveryThreadCount = src.recoveryThreadCount;
+                segmentSize = src.segmentSize;
+            }
+            return *this;
+        }
         void operator()();
 
       private:
         /// The context in which the thread will execute.
-        Context& context;
+        Context* context;
 
         /**
-         * The SegmentInfos that will be loaded from disk (asynchronously)
+         * The BackupReplicas that will be loaded from disk (asynchronously)
          * and (asynchronously) split into recovery segments.  These
-         * SegmentInfos are owned by this RecoverySegmentBuilder instance
+         * BackupReplicas are owned by this RecoverySegmentBuilder instance
          * which will run in a separate thread by locking #mutex.
-         * All public methods of SegmentInfo obey this mutex ensuring
+         * All public methods of BackupReplica obey this mutex ensuring
          * thread safety.
          */
-        const vector<SegmentInfo*> infos;
+        vector<BackupReplica*> replicas;
 
-        /// Copy of the partitions use to split out the recovery segments.
-        const ProtoBuf::Tablets partitions;
+        /// Copy of the partitions used to split out the recovery segments.
+        ProtoBuf::Tablets partitions;
 
         Atomic<int>& recoveryThreadCount;
 
         /// The uniform size of each segment this backup deals with.
-        const uint32_t segmentSize;
+        uint32_t segmentSize;
     };
 
   public:
-    BackupService(Context& context, const ServerConfig& config);
+    BackupService(Context* context, const ServerConfig& config);
     virtual ~BackupService();
     void benchmark(uint32_t& readSpeed, uint32_t& writeSpeed);
     void dispatch(WireFormat::Opcode opcode, Rpc& rpc);
@@ -547,7 +288,7 @@ class BackupService : public Service
     void freeSegment(const WireFormat::BackupFree::Request& reqHdr,
                      WireFormat::BackupFree::Response& respHdr,
                      Rpc& rpc);
-    SegmentInfo* findSegmentInfo(ServerId masterId, uint64_t segmentId);
+    BackupReplica* findBackupReplica(ServerId masterId, uint64_t segmentId);
     void getRecoveryData(
         const WireFormat::BackupGetRecoveryData::Request& reqHdr,
         WireFormat::BackupGetRecoveryData::Response& respHdr,
@@ -561,8 +302,6 @@ class BackupService : public Service
         WireFormat::BackupRecoveryComplete::Response& respHdr,
         Rpc& rpc);
     void restartFromStorage();
-    static bool segmentInfoLessThan(SegmentInfo* left,
-                                    SegmentInfo* right);
     void startReadingData(
         const WireFormat::BackupStartReadingData::Request& reqHdr,
         WireFormat::BackupStartReadingData::Response& respHdr,
@@ -576,7 +315,7 @@ class BackupService : public Service
     /**
      * Shared RAMCloud information.
      */
-    Context& context;
+    Context* context;
 
     /**
      * Provides mutual exclusion between handling RPCs and garbage collector.
@@ -639,9 +378,9 @@ class BackupService : public Service
         uint64_t segmentId;
     };
     /// Type of the segments map.
-    typedef std::map<MasterSegmentIdPair, SegmentInfo*> SegmentsMap;
+    typedef std::map<MasterSegmentIdPair, BackupReplica*> SegmentsMap;
     /**
-     * Mapping from (MasterId, SegmentId) to a SegmentInfo for segments
+     * Mapping from (MasterId, SegmentId) to a BackupReplica for segments
      * that are currently open or in storage.
      */
     SegmentsMap segments;

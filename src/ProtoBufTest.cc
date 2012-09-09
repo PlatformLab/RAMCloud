@@ -33,24 +33,24 @@ TEST_F(ProtoBufTest, serializeAndParse) {
     Buffer buf;
     TestMessage in;
     in.set_foo("bar");
-    uint32_t length = serializeToRequest(buf, in);
+    uint32_t length = serializeToRequest(&buf, &in);
     EXPECT_TRUE(0 < length && length < 1024);
     EXPECT_EQ(length, buf.getTotalLength());
     TestMessage out;
-    parseFromRequest(buf, 0, length, out);
+    parseFromRequest(&buf, 0, length, &out);
     EXPECT_EQ(in.foo(), out.foo());
 }
 
 TEST_F(ProtoBufTest, serializeToBuffer) {
     Buffer buf;
     TestMessage msg;
-    EXPECT_THROW(serializeToRequest(buf, msg), RequestFormatError);
+    EXPECT_THROW(serializeToRequest(&buf, &msg), RequestFormatError);
 }
 
 TEST_F(ProtoBufTest, parseFromBuffer) {
     Buffer buf;
     TestMessage msg;
-    EXPECT_THROW(parseFromRequest(buf, 0, 0, msg), RequestFormatError);
+    EXPECT_THROW(parseFromRequest(&buf, 0, 0, &msg), RequestFormatError);
 }
 
 }  // namespace RAMCloud

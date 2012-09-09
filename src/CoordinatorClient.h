@@ -36,26 +36,26 @@ namespace RAMCloud {
  */
 class CoordinatorClient {
   public:
-    static ServerId enlistServer(Context& context, ServerId replacesId,
+    static ServerId enlistServer(Context* context, ServerId replacesId,
             ServiceMask serviceMask, string localServiceLocator,
             uint32_t readSpeed = 0, uint32_t writeSpeed = 0);
-    static void getBackupList(Context& context,
-            ProtoBuf::ServerList& serverList);
-    static void getMasterList(Context& context,
-            ProtoBuf::ServerList& serverList);
-    static void getServerList(Context& context,
-            ProtoBuf::ServerList& serverList);
-    static void getTabletMap(Context& context, ProtoBuf::Tablets& tabletMap);
-    static void hintServerDown(Context& context, ServerId serverId);
-    static void reassignTabletOwnership(Context& context, uint64_t tableId,
+    static void getBackupList(Context* context,
+            ProtoBuf::ServerList* serverList);
+    static void getMasterList(Context* context,
+            ProtoBuf::ServerList* serverList);
+    static void getServerList(Context* context,
+            ProtoBuf::ServerList* serverList);
+    static void getTabletMap(Context* context, ProtoBuf::Tablets* tabletMap);
+    static void hintServerDown(Context* context, ServerId serverId);
+    static void reassignTabletOwnership(Context* context, uint64_t tableId,
             uint64_t firstKey, uint64_t lastKey, ServerId newOwnerId);
-    static void recoveryMasterFinished(Context& context, uint64_t recoveryId,
-            ServerId recoveryMasterId, const ProtoBuf::Tablets& tablets,
+    static void recoveryMasterFinished(Context* context, uint64_t recoveryId,
+            ServerId recoveryMasterId, const ProtoBuf::Tablets* tablets,
             bool successful);
-    static void sendServerList(Context& context, ServerId destination);
-    static void setMinOpenSegmentId(Context& context, ServerId serverId,
+    static void sendServerList(Context* context, ServerId destination);
+    static void setMinOpenSegmentId(Context* context, ServerId serverId,
             uint64_t segmentId);
-    static void setRuntimeOption(Context& context, const char* option,
+    static void setRuntimeOption(Context* context, const char* option,
             const char* value);
 
   private:
@@ -68,7 +68,7 @@ class CoordinatorClient {
  */
 class EnlistServerRpc : public CoordinatorRpcWrapper {
     public:
-    EnlistServerRpc(Context& context, ServerId replacesId,
+    EnlistServerRpc(Context* context, ServerId replacesId,
             ServiceMask serviceMask, string localServiceLocator,
             uint32_t readSpeed = 0, uint32_t writeSpeed = 0);
     ~EnlistServerRpc() {}
@@ -84,9 +84,9 @@ class EnlistServerRpc : public CoordinatorRpcWrapper {
  */
 class GetServerListRpc : public CoordinatorRpcWrapper {
     public:
-    GetServerListRpc(Context& context, ServiceMask services);
+    GetServerListRpc(Context* context, ServiceMask services);
     ~GetServerListRpc() {}
-    void wait(ProtoBuf::ServerList& serverList);
+    void wait(ProtoBuf::ServerList* serverList);
 
     PRIVATE:
     DISALLOW_COPY_AND_ASSIGN(GetServerListRpc);
@@ -98,9 +98,9 @@ class GetServerListRpc : public CoordinatorRpcWrapper {
  */
 class GetTabletMapRpc : public CoordinatorRpcWrapper {
     public:
-    explicit GetTabletMapRpc(Context& context);
+    explicit GetTabletMapRpc(Context* context);
     ~GetTabletMapRpc() {}
-    void wait(ProtoBuf::Tablets& tabletMap);
+    void wait(ProtoBuf::Tablets* tabletMap);
 
     PRIVATE:
     DISALLOW_COPY_AND_ASSIGN(GetTabletMapRpc);
@@ -112,10 +112,10 @@ class GetTabletMapRpc : public CoordinatorRpcWrapper {
  */
 class HintServerDownRpc : public CoordinatorRpcWrapper {
     public:
-    HintServerDownRpc(Context& context, ServerId serverId);
+    HintServerDownRpc(Context* context, ServerId serverId);
     ~HintServerDownRpc() {}
     /// \copydoc RpcWrapper::docForWait
-    void wait() {simpleWait(*context.dispatch);}
+    void wait() {simpleWait(context->dispatch);}
 
     PRIVATE:
     DISALLOW_COPY_AND_ASSIGN(HintServerDownRpc);
@@ -127,11 +127,11 @@ class HintServerDownRpc : public CoordinatorRpcWrapper {
  */
 class ReassignTabletOwnershipRpc : public CoordinatorRpcWrapper {
     public:
-    ReassignTabletOwnershipRpc(Context& context, uint64_t tableId,
+    ReassignTabletOwnershipRpc(Context* context, uint64_t tableId,
             uint64_t firstKey, uint64_t lastKey, ServerId newOwnerMasterId);
     ~ReassignTabletOwnershipRpc() {}
     /// \copydoc RpcWrapper::docForWait
-    void wait() {simpleWait(*context.dispatch);}
+    void wait() {simpleWait(context->dispatch);}
 
     PRIVATE:
     DISALLOW_COPY_AND_ASSIGN(ReassignTabletOwnershipRpc);
@@ -143,12 +143,12 @@ class ReassignTabletOwnershipRpc : public CoordinatorRpcWrapper {
  */
 class RecoveryMasterFinishedRpc : public CoordinatorRpcWrapper {
     public:
-    RecoveryMasterFinishedRpc(Context& context, uint64_t recoveryId,
-            ServerId recoveryMasterId, const ProtoBuf::Tablets& tablets,
+    RecoveryMasterFinishedRpc(Context* context, uint64_t recoveryId,
+            ServerId recoveryMasterId, const ProtoBuf::Tablets* tablets,
             bool successful);
     ~RecoveryMasterFinishedRpc() {}
     /// \copydoc RpcWrapper::docForWait
-    void wait() {simpleWait(*context.dispatch);}
+    void wait() {simpleWait(context->dispatch);}
 
     PRIVATE:
     DISALLOW_COPY_AND_ASSIGN(RecoveryMasterFinishedRpc);
@@ -160,10 +160,10 @@ class RecoveryMasterFinishedRpc : public CoordinatorRpcWrapper {
  */
 class SendServerListRpc : public CoordinatorRpcWrapper {
     public:
-    SendServerListRpc(Context& context, ServerId destination);
+    SendServerListRpc(Context* context, ServerId destination);
     ~SendServerListRpc() {}
     /// \copydoc RpcWrapper::docForWait
-    void wait() {simpleWait(*context.dispatch);}
+    void wait() {simpleWait(context->dispatch);}
 
     PRIVATE:
     DISALLOW_COPY_AND_ASSIGN(SendServerListRpc);
@@ -175,11 +175,11 @@ class SendServerListRpc : public CoordinatorRpcWrapper {
  */
 class SetMinOpenSegmentIdRpc : public CoordinatorRpcWrapper {
     public:
-    SetMinOpenSegmentIdRpc(Context& context, ServerId serverId,
+    SetMinOpenSegmentIdRpc(Context* context, ServerId serverId,
             uint64_t segmentId);
     ~SetMinOpenSegmentIdRpc() {}
     /// \copydoc RpcWrapper::docForWait
-    void wait() {simpleWait(*context.dispatch);}
+    void wait() {simpleWait(context->dispatch);}
 
     PRIVATE:
     DISALLOW_COPY_AND_ASSIGN(SetMinOpenSegmentIdRpc);

@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2011 Stanford University
+/* Copyright (c) 2010-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -38,25 +38,25 @@ namespace RAMCloud {
  */
 class MasterClient {
   public:
-    static void dropTabletOwnership(Context& context, ServerId serverId,
+    static void dropTabletOwnership(Context* context, ServerId serverId,
             uint64_t tableId, uint64_t firstKeyHash, uint64_t lastKeyHash);
-    static Log::Position getHeadOfLog(Context& context, ServerId serverId);
-    static bool isReplicaNeeded(Context& context, ServerId serverId,
+    static Log::Position getHeadOfLog(Context* context, ServerId serverId);
+    static bool isReplicaNeeded(Context* context, ServerId serverId,
             ServerId backupServerId, uint64_t segmentId);
-    static void prepForMigration(Context& context, ServerId serverId,
+    static void prepForMigration(Context* context, ServerId serverId,
             uint64_t tableId, uint64_t firstKeyHash, uint64_t lastKeyHash,
             uint64_t expectedObjects, uint64_t expectedBytes);
-    static void recover(Context& context, ServerId serverId,
+    static void recover(Context* context, ServerId serverId,
             uint64_t recoveryId, ServerId crashedServerId,
-            uint64_t partitionId, const ProtoBuf::Tablets& tablets,
+            uint64_t partitionId, const ProtoBuf::Tablets* tablets,
             const WireFormat::Recover::Replica* replicas,
             uint32_t numReplicas);
-    static void receiveMigrationData(Context& context, ServerId serverId,
-            uint64_t tableId, uint64_t firstKeyHash, Segment& segment);
-    static void splitMasterTablet(Context& context, ServerId serverId,
+    static void receiveMigrationData(Context* context, ServerId serverId,
+            uint64_t tableId, uint64_t firstKeyHash, Segment* segment);
+    static void splitMasterTablet(Context* context, ServerId serverId,
             uint64_t tableId, uint64_t firstKeyHash, uint64_t lastKeyHash,
             uint64_t splitKeyHash);
-    static void takeTabletOwnership(Context& context, ServerId id,
+    static void takeTabletOwnership(Context* context, ServerId id,
             uint64_t tableId, uint64_t firstKeyHash, uint64_t lastKeyHash);
 
   private:
@@ -69,7 +69,7 @@ class MasterClient {
  */
 class DropTabletOwnershipRpc : public ServerIdRpcWrapper {
   public:
-    DropTabletOwnershipRpc(Context& context, ServerId serverId,
+    DropTabletOwnershipRpc(Context* context, ServerId serverId,
             uint64_t tableId, uint64_t firstKey, uint64_t lastKey);
     ~DropTabletOwnershipRpc() {}
     /// \copydoc ServerIdRpcWrapper::waitAndCheckErrors
@@ -85,7 +85,7 @@ class DropTabletOwnershipRpc : public ServerIdRpcWrapper {
  */
 class GetHeadOfLogRpc : public ServerIdRpcWrapper {
   public:
-    GetHeadOfLogRpc(Context& context, ServerId serverId);
+    GetHeadOfLogRpc(Context* context, ServerId serverId);
     ~GetHeadOfLogRpc() {}
     Log::Position wait();
 
@@ -99,7 +99,7 @@ class GetHeadOfLogRpc : public ServerIdRpcWrapper {
  */
 class IsReplicaNeededRpc : public ServerIdRpcWrapper {
   public:
-    IsReplicaNeededRpc(Context& context, ServerId serverId,
+    IsReplicaNeededRpc(Context* context, ServerId serverId,
             ServerId backupServerId, uint64_t segmentId);
     ~IsReplicaNeededRpc() {}
     bool wait();
@@ -114,7 +114,7 @@ class IsReplicaNeededRpc : public ServerIdRpcWrapper {
  */
 class PrepForMigrationRpc : public ServerIdRpcWrapper {
   public:
-    PrepForMigrationRpc(Context& context, ServerId serverId,
+    PrepForMigrationRpc(Context* context, ServerId serverId,
             uint64_t tableId, uint64_t firstKeyHash, uint64_t lastKeyHash,
             uint64_t expectedObjects, uint64_t expectedBytes);
     ~PrepForMigrationRpc() {}
@@ -131,8 +131,8 @@ class PrepForMigrationRpc : public ServerIdRpcWrapper {
  */
 class ReceiveMigrationDataRpc : public ServerIdRpcWrapper {
   public:
-    ReceiveMigrationDataRpc(Context& context, ServerId serverId,
-            uint64_t tableId, uint64_t firstKey, Segment& segment);
+    ReceiveMigrationDataRpc(Context* context, ServerId serverId,
+            uint64_t tableId, uint64_t firstKey, Segment* segment);
     ~ReceiveMigrationDataRpc() {}
     /// \copydoc ServerIdRpcWrapper::waitAndCheckErrors
     void wait() {waitAndCheckErrors();}
@@ -147,9 +147,9 @@ class ReceiveMigrationDataRpc : public ServerIdRpcWrapper {
  */
 class RecoverRpc : public ServerIdRpcWrapper {
   public:
-    RecoverRpc(Context& context, ServerId serverId, uint64_t recoveryId,
+    RecoverRpc(Context* context, ServerId serverId, uint64_t recoveryId,
             ServerId crashedServerId, uint64_t partitionId,
-            const ProtoBuf::Tablets& tablets,
+            const ProtoBuf::Tablets* tablets,
             const WireFormat::Recover::Replica* replicas,
             uint32_t numReplicas);
     ~RecoverRpc() {}
@@ -166,7 +166,7 @@ class RecoverRpc : public ServerIdRpcWrapper {
  */
 class SplitMasterTabletRpc : public ServerIdRpcWrapper {
   public:
-    SplitMasterTabletRpc(Context& context, ServerId serverId,
+    SplitMasterTabletRpc(Context* context, ServerId serverId,
             uint64_t tableId, uint64_t firstKeyHash, uint64_t lastKeyHash,
             uint64_t splitKeyHash);
     ~SplitMasterTabletRpc() {}
@@ -183,7 +183,7 @@ class SplitMasterTabletRpc : public ServerIdRpcWrapper {
  */
 class TakeTabletOwnershipRpc : public ServerIdRpcWrapper {
   public:
-    TakeTabletOwnershipRpc(Context& context, ServerId id,
+    TakeTabletOwnershipRpc(Context* context, ServerId id,
             uint64_t tableId, uint64_t firstKeyHash, uint64_t lastKeyHash);
     ~TakeTabletOwnershipRpc() {}
     /// \copydoc ServerIdRpcWrapper::waitAndCheckErrors

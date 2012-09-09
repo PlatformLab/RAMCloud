@@ -61,7 +61,7 @@ class TestUtil {
     static string toString(const void* buf, uint32_t length);
     static string toString(Buffer* buffer, uint32_t offset, uint32_t length);
     static string toString(Buffer* buffer);
-    static bool waitForRpc(Context& context, MockWrapper& rpc,
+    static bool waitForRpc(Context* context, MockWrapper& rpc,
             int ms = 1000);
 };
 

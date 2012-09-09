@@ -81,18 +81,11 @@ try
     int actualMasters = -1;
     int actualBackups = -1;
     int actualServers = -1;
-    RamCloud ramcloud(context,
+    RamCloud ramcloud(&context,
                       optionParser.options.getCoordinatorLocator().c_str());
     do {
         ProtoBuf::ServerList serverList;
-        try {
-            CoordinatorClient::getServerList(context, serverList);
-        } catch (const TransportException& e) {
-            LOG(ERROR, "couldn't query cluster membership: %s\n",
-                e.str().c_str());
-            usleep(10000);
-            continue;
-        }
+        CoordinatorClient::getServerList(&context, &serverList);
         actualServers = serverList.server_size();
         countServices(serverList, actualMasters, actualBackups);
         LOG(DEBUG, "found %d masters, %d backups (in %d servers)",

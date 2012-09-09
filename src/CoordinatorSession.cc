@@ -21,7 +21,7 @@ namespace RAMCloud {
 /**
  * Constructor for CoordinatorSession.
  */
-CoordinatorSession::CoordinatorSession(Context& context)
+CoordinatorSession::CoordinatorSession(Context* context)
     : mutex()
     , context(context)
     , coordinatorLocator()
@@ -77,7 +77,7 @@ CoordinatorSession::getSession()
         throw FatalError(HERE,
                 "CoordinatorSession::setLocation never invoked");
     }
-    session = context.transportManager->openSession(
+    session = context->transportManager->openSession(
         coordinatorLocator.c_str());
     return session;
 }

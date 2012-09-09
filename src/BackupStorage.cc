@@ -498,7 +498,8 @@ SingleFileStorage::loadSuperblock()
     LOG(DEBUG,
         "Reloading backup superblock (version %lu, superblockFrame %u) "
         "from previous run", superblock.version, lastSuperblockFrame);
-    LOG(DEBUG, "Prior backup had ServerId %lu", superblock.serverId);
+    LOG(DEBUG, "Prior backup had ServerId %s",
+        ServerId(superblock.serverId).toString().c_str());
     LOG(DEBUG, "Prior backup had cluster name '%s'", superblock.clusterName);
 
     return superblock;

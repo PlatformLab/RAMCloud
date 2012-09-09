@@ -137,7 +137,7 @@ class FastTransportTest : public ::testing::Test {
         , port(1234)
     {
         driver = new MockDriver(FastTransport::Header::headerToString);
-        transport = new FastTransport(context, driver);
+        transport = new FastTransport(&context, driver);
     }
 
     ~FastTransportTest()
@@ -156,10 +156,10 @@ TEST_F(FastTransportTest, sanityCheck) {
     // Then try a second request with bigger chunks of data.
 
     ServiceLocator serverLocator("fast+udp: host=localhost, port=11101");
-    UdpDriver* serverDriver = new UdpDriver(context, &serverLocator);
-    FastTransport server(context, serverDriver);
-    UdpDriver* clientDriver = new UdpDriver(context);
-    FastTransport client(context, clientDriver);
+    UdpDriver* serverDriver = new UdpDriver(&context, &serverLocator);
+    FastTransport server(&context, serverDriver);
+    UdpDriver* clientDriver = new UdpDriver(&context);
+    FastTransport client(&context, clientDriver);
     Transport::SessionRef session = client.getSession(serverLocator);
 
     MockWrapper rpc1("abcdefg");
@@ -171,7 +171,7 @@ TEST_F(FastTransportTest, sanityCheck) {
     EXPECT_STREQ("completed: 0, failed: 0", rpc1.getState());
     serverRpc->replyPayload.fillFromString("klmn");
     serverRpc->sendReply();
-    EXPECT_TRUE(TestUtil::waitForRpc(context, rpc1));
+    EXPECT_TRUE(TestUtil::waitForRpc(&context, rpc1));
     EXPECT_STREQ("completed: 1, failed: 0", rpc1.getState());
     EXPECT_EQ("klmn/0", TestUtil::toString(&rpc1.response));
 
@@ -184,7 +184,7 @@ TEST_F(FastTransportTest, sanityCheck) {
           TestUtil::checkLargeBuffer(&serverRpc->requestPayload, 100000));
     TestUtil::fillLargeBuffer(&serverRpc->replyPayload, 50000);
     serverRpc->sendReply();
-    EXPECT_TRUE(TestUtil::waitForRpc(context, rpc2));
+    EXPECT_TRUE(TestUtil::waitForRpc(&context, rpc2));
     EXPECT_EQ("ok", TestUtil::checkLargeBuffer(&rpc2.response, 50000));
 #endif
 }
@@ -401,10 +401,10 @@ TEST_F(FastTransportTest, handleIncomingPacket_s2cBadHint) {
 TEST_F(FastTransportTest, ServerRpc_getClientServiceLocator) {
     TestLog::Enable _;
     ServiceLocator serverLocator("fast+udp: host=localhost, port=11101");
-    UdpDriver* serverDriver = new UdpDriver(context, &serverLocator);
-    FastTransport server(context, serverDriver);
-    UdpDriver* clientDriver = new UdpDriver(context);
-    FastTransport client(context, clientDriver);
+    UdpDriver* serverDriver = new UdpDriver(&context, &serverLocator);
+    FastTransport server(&context, serverDriver);
+    UdpDriver* clientDriver = new UdpDriver(&context);
+    FastTransport client(&context, clientDriver);
     Transport::SessionRef session = client.getSession(serverLocator);
 
     MockWrapper rpc("acdefg");
@@ -416,7 +416,7 @@ TEST_F(FastTransportTest, ServerRpc_getClientServiceLocator) {
         "fast+udp:127\\.0\\.0\\.1:[0-9][0-9]*",
         serverRpc->getClientServiceLocator()));
     serverRpc->sendReply();
-    EXPECT_TRUE(TestUtil::waitForRpc(context, rpc));
+    EXPECT_TRUE(TestUtil::waitForRpc(&context, rpc));
 }
 
 // --- InboundMessageTest ---
@@ -447,7 +447,7 @@ class InboundMessageTest : public ::testing::Test {
     setUp(uint16_t totalFrags, bool useTimer = false)
     {
         driver = new MockDriver();
-        transport = new FastTransport(context, driver);
+        transport = new FastTransport(&context, driver);
         buffer = new Buffer();
 
         uint32_t channelId = 5;
@@ -817,7 +817,7 @@ class OutboundMessageTest: public ::testing::Test {
         assert(!(messageLen % 10));
 
         driver = new MockDriver(FastTransport::Header::headerToString);
-        transport = new FastTransport(context, driver);
+        transport = new FastTransport(&context, driver);
         buffer = new Buffer();
 
         const char* testMsg = "abcdefghij";
@@ -1187,7 +1187,7 @@ class ServerSessionTest: public ::testing::Test {
     {
         context.dispatch->currentTime = 1000;
         driver = new MockDriver(FastTransport::Header::headerToString);
-        transport = new FastTransport(context, driver);
+        transport = new FastTransport(&context, driver);
         session = new FastTransport::ServerSession(transport, sessionId);
         ServiceLocator sl("mock: host=1.2.3.4, port=12345");
         driverAddress = driver->newAddress(sl);
@@ -1515,7 +1515,7 @@ class ClientSessionTest: public ::testing::Test {
 
         wrapper = new MockWrapper("request");
         driver = new MockDriver(FastTransport::Header::headerToString);
-        transport = new FastTransport(context, driver);
+        transport = new FastTransport(&context, driver);
         session = new FastTransport::ClientSession(transport, sessionId);
         session->setServiceLocator("dummyService");
     }
@@ -1545,7 +1545,7 @@ TEST_F(ClientSessionTest, abort) {
     session->sendRequest(&rpc3.request, &rpc3.response, &rpc3);
     session->sendRequest(&rpc4.request, &rpc4.response, &rpc4);
     EXPECT_EQ(2U, session->channelQueue.size());
-    session->abort("test abort");
+    session->abort();
     EXPECT_STREQ("completed: 0, failed: 1", rpc1.getState());
     EXPECT_STREQ("completed: 0, failed: 1", rpc2.getState());
     EXPECT_STREQ("completed: 0, failed: 1", rpc3.getState());
@@ -2162,7 +2162,7 @@ TEST_F(SessionTableTest, put) {
 TEST_F(SessionTableTest, expire) {
     Context context;
     MockDriver* driver= new MockDriver(FastTransport::Header::headerToString);
-    FastTransport transport(context, driver);
+    FastTransport transport(&context, driver);
     context.dispatch->currentTime =
         FastTransport::sessionExpireCycles();
     FastTransport::SessionTable<MockSession> st(&transport);

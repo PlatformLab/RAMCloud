@@ -23,6 +23,8 @@
 
 #include "Common.h"
 #include "ClientException.h"
+#include "CoordinatorServerManager.h"
+#include "CoordinatorServiceRecovery.h"
 #include "LogCabinHelper.h"
 #include "MasterRecoveryManager.h"
 #include "RawMetrics.h"
@@ -31,7 +33,6 @@
 #include "Service.h"
 #include "TabletMap.h"
 #include "TransportManager.h"
-#include "CoordinatorServerManager.h"
 
 namespace RAMCloud {
 
@@ -40,7 +41,8 @@ namespace RAMCloud {
  */
 class CoordinatorService : public Service {
   public:
-    explicit CoordinatorService(Context& context,
+    explicit CoordinatorService(Context* context,
+                                uint32_t deadServerTimeout,
                                 string LogCabinLocator = "testing");
     ~CoordinatorService();
     void dispatch(WireFormat::Opcode opcode,
@@ -97,7 +99,7 @@ class CoordinatorService : public Service {
     /**
      * Shared RAMCloud information.
      */
-    Context& context;
+    Context* context;
 
   public:
     /**
@@ -106,6 +108,13 @@ class CoordinatorService : public Service {
      * for individual servers (e.g. ServiceLocator strings, Wills, etc).
      */
     CoordinatorServerList& serverList;
+
+    /**
+     * The ping timeout, in milliseconds, used when the Coordinator verifies an
+     * incoming hint server down message. Until we resolve the scheduler issues
+     * that we have been seeing this timeout should be at least 250ms.
+     */
+    const uint32_t deadServerTimeout;
 
   PRIVATE:
     /**
@@ -151,6 +160,11 @@ class CoordinatorService : public Service {
     CoordinatorServerManager serverManager;
 
     /**
+     * Handles recovery of a coordinator.
+     */
+    CoordinatorServiceRecovery coordinatorRecovery;
+
+    /**
      * Handle to the cluster of LogCabin which provides reliable, consistent
      * storage.
      */
@@ -168,6 +182,8 @@ class CoordinatorService : public Service {
     Tub<LogCabinHelper> logCabinHelper;
 
     friend class CoordinatorServerManager;
+    friend class CoordinatorServiceRecovery;
+
     DISALLOW_COPY_AND_ASSIGN(CoordinatorService);
 };
 

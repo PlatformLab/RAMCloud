@@ -28,7 +28,7 @@ class RamCloud;
  */
 class CoordinatorRpcWrapper : public RpcWrapper {
   public:
-    explicit CoordinatorRpcWrapper(Context& context,
+    explicit CoordinatorRpcWrapper(Context* context,
             uint32_t responseHeaderLength,
             Buffer* response = NULL);
 
@@ -42,7 +42,7 @@ class CoordinatorRpcWrapper : public RpcWrapper {
     virtual void send();
 
     /// Shared RAMCloud information.
-    Context& context;
+    Context* context;
 
     DISALLOW_COPY_AND_ASSIGN(CoordinatorRpcWrapper);
 };

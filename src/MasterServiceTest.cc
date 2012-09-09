@@ -83,8 +83,8 @@ class MasterServiceTest : public ::testing::Test {
     // to provide a fixture with a different value.
     explicit MasterServiceTest(uint32_t segmentSize = 256 * 1024)
         : context()
-        , serverList(context)
-        , cluster(context)
+        , serverList(&context)
+        , cluster(&context)
         , ramcloud()
         , backup1Config(ServerConfig::forTesting())
         , backup1Id()
@@ -112,7 +112,7 @@ class MasterServiceTest : public ::testing::Test {
         service = masterServer->master.get();
         service->log->sync();
 
-        ramcloud.construct(context, "mock:host=coordinator");
+        ramcloud.construct(&context, "mock:host=coordinator");
         ramcloud->objectFinder.tabletMapFetcher.reset(
                 new MasterServiceRefresher);
 
@@ -181,7 +181,7 @@ class MasterServiceTest : public ::testing::Test {
     // Write a segment containing nothing but a header to a backup. This is used
     // to test fetching of recovery segments in various tests.
     static void
-    writeRecoverableSegment(Context& context,
+    writeRecoverableSegment(Context* context,
                             ReplicaManager& mgr,
                             ServerId serverId,
                             uint64_t logId,
@@ -250,7 +250,7 @@ TEST_F(MasterServiceTest, enumeration_basics) {
     ramcloud->write(0, "1", 1, "ghijkl", 6, NULL, &version1, false);
     Buffer iter, nextIter, finalIter, objects;
     uint64_t nextTabletStartHash;
-    EnumerateTableRpc rpc(*ramcloud, 0, 0, iter, objects);
+    EnumerateTableRpc rpc(ramcloud.get(), 0, 0, iter, objects);
     nextTabletStartHash = rpc.wait(nextIter);
     EXPECT_EQ(0U, nextTabletStartHash);
     EXPECT_EQ(74U, objects.getTotalLength());
@@ -283,7 +283,7 @@ TEST_F(MasterServiceTest, enumeration_basics) {
 
     // We don't actually care about the contents of the iterator as
     // long as we get back 0 objects on the second call.
-    EnumerateTableRpc rpc2(*ramcloud, 0, nextTabletStartHash, nextIter,
+    EnumerateTableRpc rpc2(ramcloud.get(), 0, nextTabletStartHash, nextIter,
                             objects);
     nextTabletStartHash = rpc2.wait(finalIter);
     EXPECT_EQ(0U, nextTabletStartHash);
@@ -293,7 +293,7 @@ TEST_F(MasterServiceTest, enumeration_basics) {
 TEST_F(MasterServiceTest, enumeration_tabletNotOnServer) {
     TestLog::Enable _;
     Buffer iter, nextIter, objects;
-    EnumerateTableRpc rpc(*ramcloud, 99, 0, iter, objects);
+    EnumerateTableRpc rpc(ramcloud.get(), 99, 0, iter, objects);
     EXPECT_THROW(rpc.wait(nextIter), TableDoesntExistException);
     EXPECT_EQ("checkStatus: Server mock:host=master "
               "doesn't store <99, 0x0>; refreshing object map | "
@@ -324,7 +324,7 @@ TEST_F(MasterServiceTest, enumeration_mergeTablet) {
         service->objectMap->getNumBuckets()*3/5, 0U);
     initialIter.push(preMergeConfiguration);
     initialIter.serialize(iter);
-    EnumerateTableRpc rpc(*ramcloud, 0, 0, iter, objects);
+    EnumerateTableRpc rpc(ramcloud.get(), 0, 0, iter, objects);
     nextTabletStartHash = rpc.wait(nextIter);
     EXPECT_EQ(0U, nextTabletStartHash);
     EXPECT_EQ(42U, objects.getTotalLength());
@@ -348,7 +348,7 @@ TEST_F(MasterServiceTest, enumeration_mergeTablet) {
 
     // We don't actually care about the contents of the iterator as
     // long as we get back 0 objects on the second call.
-    EnumerateTableRpc rpc2(*ramcloud, 0, 0, nextIter, objects);
+    EnumerateTableRpc rpc2(ramcloud.get(), 0, 0, nextIter, objects);
     rpc2.wait(finalIter);
     EXPECT_EQ(0U, nextTabletStartHash);
     EXPECT_EQ(0U, objects.getTotalLength());
@@ -425,7 +425,7 @@ TEST_F(MasterServiceTest, multiRead_bufferSizeExceeded) {
     MultiReadObject object1(tableId1, "0", 1, &value1);
     MultiReadObject object2(tableId1, "1", 1, &value2);
     MultiReadObject* requests[] = {&object1, &object2};
-    MultiRead request(*ramcloud, requests, 2);
+    MultiRead request(ramcloud.get(), requests, 2);
 
     // The first try will return only the first object.
     EXPECT_FALSE(request.isReady());
@@ -449,11 +449,11 @@ TEST_F(MasterServiceTest, multiRead_unknownTable) {
     Tub<Buffer> value;
     MultiReadObject request(99, "bogus", 5, &value);
     MultiReadObject* requests[] = {&request};
-    MultiRead op(*ramcloud, requests, 1);
+    MultiRead op(ramcloud.get(), requests, 1);
 
     // Check the status in the response message.
     Transport::SessionRef session =
-            ramcloud->clientContext.transportManager->getSession(
+            ramcloud->clientContext->transportManager->getSession(
             "mock:host=master");
     BindTransport::BindSession* rawSession =
             static_cast<BindTransport::BindSession*>(session.get());
@@ -462,7 +462,7 @@ TEST_F(MasterServiceTest, multiRead_unknownTable) {
             sizeof(WireFormat::MultiRead::Response));
     EXPECT_TRUE(status != NULL);
     if (status != NULL) {
-        EXPECT_STREQ("STATUS_UNKNOWN_TABLE", statusToSymbol(*status));
+        EXPECT_STREQ("STATUS_UNKNOWN_TABLET", statusToSymbol(*status));
     }
 }
 
@@ -502,10 +502,10 @@ TEST_F(MasterServiceTest, detectSegmentRecoveryFailure_failure) {
 
 TEST_F(MasterServiceTest, getHeadOfLog) {
     EXPECT_EQ(Log::Position(0, 48),
-              MasterClient::getHeadOfLog(context, masterServer->serverId));
+              MasterClient::getHeadOfLog(&context, masterServer->serverId));
     ramcloud->write(0, "0", 1, "abcdef", 6);
     EXPECT_EQ(Log::Position(0, 83),
-              MasterClient::getHeadOfLog(context, masterServer->serverId));
+              MasterClient::getHeadOfLog(&context, masterServer->serverId));
 }
 
 TEST_F(MasterServiceTest, recover_basics) {
@@ -515,12 +515,13 @@ TEST_F(MasterServiceTest, recover_basics) {
                        server->config.services, 100);
     }
 
-    ReplicaManager mgr(context, serverId, 1);
-    writeRecoverableSegment(context, mgr, serverId, 123, 87);
+    ReplicaManager mgr(&context, serverId, 1);
+    writeRecoverableSegment(&context, mgr, serverId, 123, 87);
 
     ProtoBuf::Tablets tablets;
     createTabletList(tablets);
-    BackupClient::startReadingData(context, backup1Id, ServerId(123), tablets);
+    BackupClient::startReadingData(&context, backup1Id, ServerId(123),
+                                   &tablets);
 
     ProtoBuf::ServerList backups;
     WireFormat::Recover::Replica replicas[] = {
@@ -528,36 +529,36 @@ TEST_F(MasterServiceTest, recover_basics) {
     };
 
     TestLog::Enable __(&recoverSegmentFilter);
-    MasterClient::recover(context, masterServer->serverId, 10lu,
-                          ServerId(123), 0, tablets, replicas,
+    MasterClient::recover(&context, masterServer->serverId, 10lu,
+                          ServerId(123), 0, &tablets, replicas,
                           arrayLength(replicas));
 
     EXPECT_TRUE(TestUtil::matchesPosixRegex(
-        "recover: Recovering master 123, partition 0, 1 replicas available | "
-        "recover: Starting getRecoveryData from server 1 at "
+        "recover: Recovering master 123.0, partition 0, 1 replicas available | "
+        "recover: Starting getRecoveryData from server 1.0 at "
         "mock:host=backup1 for "
         "segment 87 on channel 0 (initial round of RPCs) | "
         "recover: Waiting on recovery data for segment 87 from "
-        "server 1 at mock:host=backup1 | ",
+        "server 1.0 at mock:host=backup1 | ",
         TestLog::get()));
     EXPECT_TRUE(TestUtil::matchesPosixRegex(
         "recover: Recovering segment 87 with size 7 | "
         "recoverSegment: recoverSegment 87, ... | ",
         TestLog::get()));
     EXPECT_TRUE(TestUtil::matchesPosixRegex(
-        "recover: Checking server 1 at mock:host=backup1 "
+        "recover: Checking server 1.0 at mock:host=backup1 "
         "off the list for 87 | "
-        "recover: Checking server 1 at mock:host=backup1 "
+        "recover: Checking server 1.0 at mock:host=backup1 "
         "off the list for 87 | ",
         TestLog::get()));
     EXPECT_TRUE(TestUtil::matchesPosixRegex(
-        "recover: set tablet 123 0 9 to locator mock:host=master, id 2 | "
-        "recover: set tablet 123 10 19 to locator mock:host=master, id 2 | "
-        "recover: set tablet 123 20 29 to locator mock:host=master, id 2 | "
+        "recover: set tablet 123 0 9 to locator mock:host=master, id 2.0 | "
+        "recover: set tablet 123 10 19 to locator mock:host=master, id 2.0 | "
+        "recover: set tablet 123 20 29 to locator mock:host=master, id 2.0 | "
         "recover: set tablet 124 20 100 to locator mock:host=master, "
-        "id 2 | "
+        "id 2.0 | "
         "recover: Reporting completion of recovery 10 | "
-        "recoveryMasterFinished: called by masterId 2 with 4 tablets",
+        "recoveryMasterFinished: called by masterId 2.0 with 4 tablets",
         TestLog::get()));
 }
 
@@ -596,7 +597,7 @@ TEST_F(MasterServiceTest, removeIfFromUnknownTablet) {
   *    if the earlier RPC fails.
   * 4) Ensures that if an RPC succeeds for one copy of a segment other
   *    RPCs for that segment don't occur.
-  * 5) ServerDoesntExistExceptions are deferred until the RPC is waited on.
+  * 5) ServerNotUpExceptions are deferred until the RPC is waited on.
   */
 TEST_F(MasterServiceTest, recover) {
     ServerId serverId(123, 0);
@@ -605,8 +606,8 @@ TEST_F(MasterServiceTest, recover) {
                        server->config.services, 100);
     }
 
-    ReplicaManager mgr(context, serverId, 1);
-    writeRecoverableSegment(context, mgr, serverId, 123, 88);
+    ReplicaManager mgr(&context, serverId, 1);
+    writeRecoverableSegment(&context, mgr, serverId, 123, 88);
 
     ServerConfig backup2Config = backup1Config;
     backup2Config.localLocator = "mock:host=backup2";
@@ -614,7 +615,8 @@ TEST_F(MasterServiceTest, recover) {
 
     ProtoBuf::Tablets tablets;
     createTabletList(tablets);
-    BackupClient::startReadingData(context, backup1Id, ServerId(123), tablets);
+    BackupClient::startReadingData(&context, backup1Id, ServerId(123),
+                                   &tablets);
 
     vector<MasterService::Replica> replicas {
         // Started in initial round of RPCs - eventually fails
@@ -643,7 +645,8 @@ TEST_F(MasterServiceTest, recover) {
                  SegmentRecoveryFailedException);
     // 1,2,3) 87 was requested from the first server list entry.
     EXPECT_TRUE(TestUtil::matchesPosixRegex(
-        "recover: Starting getRecoveryData from server . at mock:host=backup1 "
+        "recover: Starting getRecoveryData from server .\\.0 "
+        "at mock:host=backup1 "
         "for segment 87 on channel . (initial round of RPCs)",
         TestLog::get()));
     typedef MasterService::Replica::State State;
@@ -651,24 +654,28 @@ TEST_F(MasterServiceTest, recover) {
     // 2,3) 87 was *not* requested a second time in the initial RPC round
     // but was requested later once the first failed.
     EXPECT_TRUE(TestUtil::matchesPosixRegex(
-        "recover: Starting getRecoveryData from server . at mock:host=backup2 "
+        "recover: Starting getRecoveryData from server .\\.0 "
+        "at mock:host=backup2 "
         "for segment 87 .* (after RPC completion)",
         TestLog::get()));
     // 1,4) 88 was requested from the third server list entry and
     //      succeeded, which knocks the third and forth entries into
     //      OK status, preventing the launch of the forth entry
     EXPECT_TRUE(TestUtil::matchesPosixRegex(
-        "recover: Starting getRecoveryData from server . at mock:host=backup1 "
+        "recover: Starting getRecoveryData from server .\\.0 "
+        "at mock:host=backup1 "
         "for segment 88 on channel . (initial round of RPCs)",
         TestLog::get()));
     EXPECT_TRUE(TestUtil::matchesPosixRegex(
-        "recover: Checking server . at mock:host=backup1 off the list for 88"
-        " | "
-        "recover: Checking server . at mock:host=backup2 off the list for 88",
+        "recover: Checking server .\\.0 at mock:host=backup1 off "
+        "the list for 88 | "
+        "recover: Checking server .\\.0 at mock:host=backup2 off "
+        "the list for 88",
         TestLog::get()));
     // 1,4) 88 was requested NOT from the forth server list entry.
     EXPECT_TRUE(TestUtil::doesNotMatchPosixRegex(
-        "recover: Starting getRecoveryData from server . at mock:host=backup2 "
+        "recover: Starting getRecoveryData from server .\\.0 "
+        "at mock:host=backup2 "
         "for segment 88 .* (after RPC completion)",
         TestLog::get()));
     EXPECT_EQ(State::OK, replicas.at(2).state);
@@ -677,37 +684,40 @@ TEST_F(MasterServiceTest, recover) {
     //    and that 91 got issued in place, first-found due to 90's
     //    bad locator
     EXPECT_TRUE(TestUtil::matchesPosixRegex(
-        "recover: Starting getRecoveryData from server . at mock:host=backup1 "
+        "recover: Starting getRecoveryData from server .\\.0 "
+        "at mock:host=backup1 "
         "for segment 89 on channel . (initial round of RPCs)",
         TestLog::get()));
     EXPECT_EQ(State::FAILED, replicas.at(4).state);
     EXPECT_TRUE(TestUtil::matchesPosixRegex(
-        "recover: Starting getRecoveryData from server 1003 at "
+        "recover: Starting getRecoveryData from server 1003.0 at "
         "(locator unavailable) "
         "for segment 90 on channel . (initial round of RPCs)",
         TestLog::get()));
     // 5) Checks bad locators for initial RPCs are handled
     EXPECT_TRUE(TestUtil::matchesPosixRegex(
-        "recover: No record of backup 1003, trying next backup",
+        "recover: No record of backup 1003.0, trying next backup",
         TestLog::get()));
     EXPECT_EQ(State::FAILED, replicas.at(5).state);
     EXPECT_TRUE(TestUtil::matchesPosixRegex(
-        "recover: Starting getRecoveryData from server . at mock:host=backup1 "
+        "recover: Starting getRecoveryData from server .\\.0 "
+        "at mock:host=backup1 "
         "for segment 91 on channel . (after RPC completion)",
         TestLog::get()));
     EXPECT_EQ(State::FAILED, replicas.at(6).state);
     EXPECT_TRUE(TestUtil::matchesPosixRegex(
-        "recover: Starting getRecoveryData from server 1004 at "
+        "recover: Starting getRecoveryData from server 1004.0 at "
         "(locator unavailable) "
         "for segment 92 on channel . (after RPC completion)",
         TestLog::get()));
     // 5) Checks bad locators for non-initial RPCs are handled
     EXPECT_TRUE(TestUtil::matchesPosixRegex(
-        "recover: No record of backup 1004, trying next backup",
+        "recover: No record of backup 1004.0, trying next backup",
         TestLog::get()));
     EXPECT_EQ(State::FAILED, replicas.at(7).state);
     EXPECT_TRUE(TestUtil::matchesPosixRegex(
-        "recover: Starting getRecoveryData from server . at mock:host=backup1 "
+        "recover: Starting getRecoveryData from server .\\.0 "
+        "at mock:host=backup1 "
         "for segment 93 on channel . (after RPC completion)",
         TestLog::get()));
     EXPECT_EQ(State::FAILED, replicas.at(8).state);
@@ -725,11 +735,11 @@ TEST_F(MasterServiceTest, recover_ctimeUpdateIssued) {
     ProtoBuf::Tablets tablets;
     createTabletList(tablets);
     WireFormat::Recover::Replica replicas[] = {};
-    MasterClient::recover(context, masterServer->serverId, 10lu,
-                          ServerId(123), 0, tablets, replicas, 0);
+    MasterClient::recover(&context, masterServer->serverId, 10lu,
+                          ServerId(123), 0, &tablets, replicas, 0);
 
     EXPECT_TRUE(StringUtil::startsWith(TestLog::get(),
-        "recoveryMasterFinished: called by masterId 2 with 4 tablets | "
+        "recoveryMasterFinished: called by masterId 2.0 with 4 tablets | "
         "recoveryMasterFinished: Recovered tablets | "
         "recoveryMasterFinished: tablet { "
         "table_id: 123 start_key_hash: 0 end_key_hash: 9 state: RECOVERING "
@@ -757,8 +767,8 @@ TEST_F(MasterServiceTest, recover_unsuccessful) {
         // Bad ServerId, should cause recovery to fail.
         {1004, 92},
     };
-    MasterClient::recover(context, masterServer->serverId, 10lu, {123, 0},
-                          0, tablets, replicas, 1);
+    MasterClient::recover(&context, masterServer->serverId, 10lu, {123, 0},
+                          0, &tablets, replicas, 1);
 
     string log = TestLog::get();
     log = log.substr(log.rfind("recover:"));
@@ -1072,7 +1082,7 @@ TEST_F(MasterServiceTest, GetServerStatistics) {
               "end_key_hash: 18446744073709551615 number_read_and_writes: 4 }",
               serverStats.ShortDebugString());
 
-    MasterClient::splitMasterTablet(context, masterServer->serverId, 0,
+    MasterClient::splitMasterTablet(&context, masterServer->serverId, 0,
                                     0, ~0UL, (~0UL/2));
     ramcloud->getServerStatistics("mock:host=master", serverStats);
     EXPECT_EQ("tabletentry { table_id: 0 "
@@ -1086,7 +1096,7 @@ TEST_F(MasterServiceTest, GetServerStatistics) {
 
 TEST_F(MasterServiceTest, splitMasterTablet) {
 
-    MasterClient::splitMasterTablet(context, masterServer->serverId, 0,
+    MasterClient::splitMasterTablet(&context, masterServer->serverId, 0,
                                     0, ~0UL, (~0UL/2));
     EXPECT_TRUE(TestUtil::matchesPosixRegex("tablet { table_id: 0 "
               "start_key_hash: 0 "
@@ -1105,16 +1115,16 @@ dropTabletOwnership_filter(string s)
 TEST_F(MasterServiceTest, dropTabletOwnership) {
     TestLog::Enable _(dropTabletOwnership_filter);
 
-    EXPECT_THROW(MasterClient::dropTabletOwnership(context,
+    EXPECT_THROW(MasterClient::dropTabletOwnership(&context,
         masterServer-> serverId, 1, 1, 1), ClientException);
     EXPECT_EQ("dropTabletOwnership: Could not drop ownership on unknown "
         "tablet (1, range [1,1])!", TestLog::get());
 
     TestLog::reset();
 
-    MasterClient::takeTabletOwnership(context, masterServer->serverId,
+    MasterClient::takeTabletOwnership(&context, masterServer->serverId,
         1, 1, 1);
-    MasterClient::dropTabletOwnership(context, masterServer-> serverId,
+    MasterClient::dropTabletOwnership(&context, masterServer-> serverId,
         1, 1, 1);
     EXPECT_EQ("dropTabletOwnership: Dropping ownership of tablet "
         "(1, range [1,1])", TestLog::get());
@@ -1163,11 +1173,11 @@ TEST_F(MasterServiceTest, takeTabletOwnership_newTablet) {
     }
 
     { // set t2, t2b, and t3 through client
-        MasterClient::takeTabletOwnership(context, masterServer->serverId,
+        MasterClient::takeTabletOwnership(&context, masterServer->serverId,
             2, 2, 3);
-        MasterClient::takeTabletOwnership(context, masterServer->serverId,
+        MasterClient::takeTabletOwnership(&context, masterServer->serverId,
             2, 4, 5);
-        MasterClient::takeTabletOwnership(context, masterServer->serverId,
+        MasterClient::takeTabletOwnership(&context, masterServer->serverId,
             3, 0, 1);
 
         EXPECT_EQ(format(
@@ -1200,7 +1210,7 @@ TEST_F(MasterServiceTest, takeTabletOwnership_newTablet) {
 
     // Test assigning ownership of an already-owned tablet.
     {
-        MasterClient::takeTabletOwnership(context, masterServer->serverId,
+        MasterClient::takeTabletOwnership(&context, masterServer->serverId,
             2, 2, 3);
         EXPECT_EQ("takeTabletOwnership: Taking ownership of existing tablet "
             "(2, range [2,3]) in state 0 | takeTabletOwnership: Taking "
@@ -1213,7 +1223,7 @@ TEST_F(MasterServiceTest, takeTabletOwnership_newTablet) {
     // Test partially overlapping sanity check. The coordinator should
     // know better, but I'd rather be safe sorry...
     {
-        EXPECT_THROW(MasterClient::takeTabletOwnership(context,
+        EXPECT_THROW(MasterClient::takeTabletOwnership(&context,
             masterServer->serverId, 2, 2, 2), ClientException);
         EXPECT_EQ("takeTabletOwnership: Tablet being assigned (2, range [2,2]) "
             "partially overlaps an existing tablet!", TestLog::get());
@@ -1231,7 +1241,8 @@ TEST_F(MasterServiceTest, takeTabletOwnership_migratingTablet) {
     tab.set_state(ProtoBuf::Tablets_Tablet_State_RECOVERING);
     tab.set_user_data(reinterpret_cast<uint64_t>(new Table(1 , 0 , 5)));
 
-    MasterClient::takeTabletOwnership(context, masterServer->serverId, 1, 0, 5);
+    MasterClient::takeTabletOwnership(&context, masterServer->serverId,
+                                      1, 0, 5);
 
     EXPECT_EQ(
         "takeTabletOwnership: Taking ownership of existing tablet "
@@ -1254,23 +1265,23 @@ TEST_F(MasterServiceTest, prepForMigration) {
     TestLog::Enable _(prepForMigrationFilter);
 
     // Overlap
-    EXPECT_THROW(MasterClient::prepForMigration(context,
+    EXPECT_THROW(MasterClient::prepForMigration(&context,
                                                 masterServer->serverId,
                                                 5, 27, 873, 0, 0),
         ObjectExistsException);
     EXPECT_EQ("prepForMigration: already have tablet in range "
         "[27, 873] for tableId 5", TestLog::get());
-    EXPECT_THROW(MasterClient::prepForMigration(context,
+    EXPECT_THROW(MasterClient::prepForMigration(&context,
                                                 masterServer->serverId,
                                                 5, 0, 27, 0, 0),
         ObjectExistsException);
-    EXPECT_THROW(MasterClient::prepForMigration(context,
+    EXPECT_THROW(MasterClient::prepForMigration(&context,
                                                 masterServer->serverId,
                                                 5, 873, 82743, 0, 0),
         ObjectExistsException);
 
     TestLog::reset();
-    MasterClient::prepForMigration(context, masterServer->serverId,
+    MasterClient::prepForMigration(&context, masterServer->serverId,
                                    5, 1000, 2000, 0, 0);
     int i = service->tablets.tablet_size() - 1;
     EXPECT_EQ(5U, service->tablets.tablet(i).table_id());
@@ -1366,7 +1377,7 @@ TEST_F(MasterServiceTest, migrateTablet_movingData) {
 
     ramcloud->migrateTablet(tbl, 0, -1, master2->serverId);
     EXPECT_EQ("migrateTablet: Migrating tablet (id 0, first 0, last "
-        "18446744073709551615) to ServerId 3 (\"mock:host=master2\") "
+        "18446744073709551615) to ServerId 3.0 (\"mock:host=master2\") "
         "| migrateTablet: Sending last migration segment | "
         "migrateTablet: Tablet migration succeeded. Sent 1 objects "
         "and 0 tombstones. 35 bytes in total.", TestLog::get());
@@ -1381,26 +1392,26 @@ receiveMigrationDataFilter(string s)
 TEST_F(MasterServiceTest, receiveMigrationData) {
     Segment s;
 
-    MasterClient::prepForMigration(context, masterServer->serverId,
+    MasterClient::prepForMigration(&context, masterServer->serverId,
                                    5, 1000, 2000, 0, 0);
 
     TestLog::Enable _(receiveMigrationDataFilter);
 
-    EXPECT_THROW(MasterClient::receiveMigrationData(context,
+    EXPECT_THROW(MasterClient::receiveMigrationData(&context,
                                                     masterServer->serverId,
-                                                    6, 0, s),
-        UnknownTableException);
+                                                    6, 0, &s),
+        UnknownTabletException);
     EXPECT_EQ("receiveMigrationData: migration data received for "
         "unknown tablet 6, firstKeyHash 0", TestLog::get());
-    EXPECT_THROW(MasterClient::receiveMigrationData(context,
+    EXPECT_THROW(MasterClient::receiveMigrationData(&context,
                                                     masterServer->serverId,
-                                                    5, 0, s),
-        UnknownTableException);
+                                                    5, 0, &s),
+        UnknownTabletException);
 
     TestLog::reset();
-    EXPECT_THROW(MasterClient::receiveMigrationData(context,
+    EXPECT_THROW(MasterClient::receiveMigrationData(&context,
                                                     masterServer->serverId,
-                                                    0, 0, s),
+                                                    0, 0, &s),
         InternalError);
     EXPECT_EQ("receiveMigrationData: migration data received for tablet "
         "not in the RECOVERING state (state = NORMAL)!", TestLog::get());
@@ -1414,8 +1425,8 @@ TEST_F(MasterServiceTest, receiveMigrationData) {
     s.append(LOG_ENTRY_TYPE_OBJ, buffer);
     s.close();
 
-    MasterClient::receiveMigrationData(context, masterServer->serverId,
-                                       5, 1000, s);
+    MasterClient::receiveMigrationData(&context, masterServer->serverId,
+                                       5, 1000, &s);
 
     LogEntryType logType;
     Buffer logBuffer;
@@ -1924,7 +1935,7 @@ class MasterRecoverTest : public ::testing::Test {
     public:
     MasterRecoverTest()
         : context()
-        , cluster(context)
+        , cluster(&context)
         , segmentSize(1 << 16) // Smaller than usual to make tests faster.
         , segmentFrames(3)     // Master's log uses one when constructed.
         , backup1Id()
@@ -1998,28 +2009,27 @@ TEST_F(MasterRecoverTest, recover) {
     // Create a separate fake "server" (private context and serverList) and
     // use it to replicate 2 segments worth of data on a single backup.
     Context context2;
-    ServerList serverList2(context2);
+    ServerList serverList2(&context2);
     context2.transportManager->registerMock(&cluster.transport);
     serverList2.add(backup1Id, "mock:host=backup1",
                    {WireFormat::BACKUP_SERVICE,
                     WireFormat::MEMBERSHIP_SERVICE},
                    100);
     ServerId serverId(99, 0);
-    ReplicaManager mgr(context2, serverId, 1);
-    MasterServiceTest::writeRecoverableSegment(context, mgr, serverId, 99, 87);
-    MasterServiceTest::writeRecoverableSegment(context, mgr, serverId, 99, 88);
-    context2.transportManager->unregisterMock();
+    ReplicaManager mgr(&context2, serverId, 1);
+    MasterServiceTest::writeRecoverableSegment(&context, mgr, serverId, 99, 87);
+    MasterServiceTest::writeRecoverableSegment(&context, mgr, serverId, 99, 88);
 
     // Now run recovery, as if the fake server failed.
     ProtoBuf::Tablets tablets;
     createTabletList(tablets);
     {
-        BackupClient::startReadingData(context, backup1Id, ServerId(99),
-                                       tablets);
+        BackupClient::startReadingData(&context, backup1Id, ServerId(99),
+                                       &tablets);
     }
     {
-        BackupClient::startReadingData(context, backup2Id, ServerId(99),
-                                       tablets);
+        BackupClient::startReadingData(&context, backup2Id, ServerId(99),
+                                       &tablets);
     }
 
     vector<MasterService::Replica> replicas {
@@ -2032,7 +2042,7 @@ TEST_F(MasterRecoverTest, recover) {
     TestLog::Enable _(&recoverSegmentFilter);
     master->recover(ServerId(99, 0), 0, replicas);
     EXPECT_EQ(0U, TestLog::get().find(
-        "recover: Recovering master 99, partition 0, 3 replicas "
+        "recover: Recovering master 99.0, partition 0, 3 replicas "
         "available"));
     EXPECT_NE(string::npos, TestLog::get().find(
         "recoverSegment: Segment 88 replay complete"));
@@ -2056,15 +2066,18 @@ TEST_F(MasterRecoverTest, failedToRecoverAll) {
                  SegmentRecoveryFailedException);
     string log = TestLog::get();
     EXPECT_TRUE(TestUtil::matchesPosixRegex(
-        "recover: Recovering master 99, partition 0, 2 replicas available | "
-        "recover: Starting getRecoveryData from server . at mock:host=backup1 "
-        "for segment 87 on channel 0 (initial round of RPCs) | "
-        "recover: Starting getRecoveryData from server . at mock:host=backup1 "
-        "for segment 88 on channel 1 (initial round of RPCs) | "
+        "recover: Recovering master 99.0, partition 0, 2 replicas available | "
+        "recover: Starting getRecoveryData from server .\\.0 at "
+        "mock:host=backup1 for segment 87 on channel 0 "
+        "(initial round of RPCs) | "
+        "recover: Starting getRecoveryData from server .\\.0 at "
+        "mock:host=backup1 for segment 88 on channel 1 "
+        "(initial round of RPCs) | "
         "recover: Waiting on recovery data for segment 87 from "
-        "server . at mock:host=backup1 | "
-        "recover: getRecoveryData failed on server . at mock:host=backup1, "
-        "trying next backup; failure was: bad segment id",
+        "server .\\.0 at mock:host=backup1 | "
+        "recover: getRecoveryData failed on server .\\.0 at "
+        "mock:host=backup1, trying next backup; failure was: "
+        "bad segment id",
         log.substr(0, log.find(" thrown at"))));
 }
 

@@ -64,7 +64,7 @@ class InfRcTransport : public Transport {
     typedef typename Infiniband::RegisteredBuffers RegisteredBuffers;
 
   public:
-    explicit InfRcTransport(Context& context, const ServiceLocator* sl = NULL);
+    explicit InfRcTransport(Context* context, const ServiceLocator* sl = NULL);
     ~InfRcTransport();
     SessionRef getSession(const ServiceLocator& sl, uint32_t timeoutMs = 0) {
         return new InfRcSession(this, sl, timeoutMs);
@@ -152,10 +152,7 @@ class InfRcTransport : public Transport {
         uint64_t nonce;
     };
 
-    // maximum RPC size we'll permit. we'll use the segment size plus a
-    // little extra for header overhead, etc.
-    static const uint32_t MAX_RPC_SIZE = Segment::DEFAULT_SEGMENT_SIZE + 4096;
-    static const uint32_t MAX_SHARED_RX_QUEUE_DEPTH = 32;
+    static const uint32_t MAX_SHARED_RX_QUEUE_DEPTH = 48;
     static const uint32_t MAX_SHARED_RX_SGE_COUNT = 8;
     static const uint32_t MAX_TX_QUEUE_DEPTH = 16;
     static const uint32_t MAX_TX_SGE_COUNT = 8;
@@ -168,7 +165,7 @@ class InfRcTransport : public Transport {
       public:
         explicit InfRcSession(InfRcTransport *transport,
             const ServiceLocator& sl, uint32_t timeoutMs);
-        virtual void abort(const string& message);
+        virtual void abort();
         virtual void cancelRequest(RpcNotifier* notifier);
         void release();
         virtual void sendRequest(Buffer* request, Buffer* response,
@@ -183,9 +180,6 @@ class InfRcTransport : public Transport {
 
         // Used to detect server timeouts.
         SessionAlarm alarm;
-
-        // Message explaining why the socket was aborted.
-        string abortMessage;
 
         friend class ClientRpc;
         friend class Poller;
@@ -253,7 +247,7 @@ class InfRcTransport : public Transport {
                                            uint32_t usTimeout);
 
     /// Shared RAMCloud information.
-    Context &context;
+    Context* context;
 
     /// See #infiniband.
     Tub<Infiniband> realInfiniband;
@@ -325,7 +319,7 @@ class InfRcTransport : public Transport {
     class Poller : public Dispatch::Poller {
       public:
         explicit Poller(InfRcTransport* transport)
-            : Dispatch::Poller(*transport->context.dispatch)
+            : Dispatch::Poller(*transport->context->dispatch)
             , transport(transport) {}
         virtual void poll();
 
@@ -343,7 +337,7 @@ class InfRcTransport : public Transport {
     class ServerConnectHandler : public Dispatch::File {
       public:
         ServerConnectHandler(int fd, InfRcTransport* transport)
-            : Dispatch::File(*transport->context.dispatch, fd,
+            : Dispatch::File(*transport->context->dispatch, fd,
                              Dispatch::FileEvent::READABLE)
             , fd(fd)
             , transport(transport) { }

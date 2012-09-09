@@ -123,7 +123,7 @@ class ServerTracker : public ServerTrackerInterface {
      *      If the context has no serverList (for testing only) then
      *      no updating will occur.
      */
-    explicit ServerTracker(Context& context)
+    explicit ServerTracker(Context* context)
         : ServerTrackerInterface()
         , context(context)
         , parent(NULL)
@@ -134,8 +134,8 @@ class ServerTracker : public ServerTrackerInterface {
         , numberOfServers(0)
         , testing_avoidGetChangeAssertion(false)
     {
-        if (context.serverList != NULL)
-            context.serverList->registerTracker(*this);
+        if (context->serverList != NULL)
+            context->serverList->registerTracker(*this);
     }
 
     /**
@@ -152,7 +152,7 @@ class ServerTracker : public ServerTrackerInterface {
      *      hold up delivery of the same or future events to other
      *      ServerTrackers.
      */
-    explicit ServerTracker(Context& context,
+    explicit ServerTracker(Context* context,
                            Callback* eventCallback)
         : ServerTrackerInterface()
         , context(context)
@@ -164,7 +164,7 @@ class ServerTracker : public ServerTrackerInterface {
         , numberOfServers(0)
         , testing_avoidGetChangeAssertion(false)
     {
-        context.serverList->registerTracker(*this);
+        context->serverList->registerTracker(*this);
     }
 
     /**
@@ -283,9 +283,10 @@ class ServerTracker : public ServerTrackerInterface {
                 // exists solely to ensure that you aren't leaking anything.
                 RAMCLOUD_LOG(WARNING,
                     "User of this ServerTracker did not NULL out "
-                    "previous pointer for index %u (ServerId %lu)!",
+                    "previous pointer for index %u (ServerId %s)!",
                     lastRemovedIndex,
-                    serverList[lastRemovedIndex].server.serverId.getId());
+                    serverList[lastRemovedIndex].server.serverId.
+                    toString().c_str());
                 assert(testing_avoidGetChangeAssertion);
             }
 
@@ -431,41 +432,11 @@ class ServerTracker : public ServerTrackerInterface {
         if (index >= serverList.size() ||
             serverList[index].server.serverId != id) {
             throw Exception(HERE,
-                            format("ServerId %lu is not in this tracker.",
-                                   id.getId()));
+                            format("ServerId %s is not in this tracker.",
+                                   id.toString().c_str()));
         }
 
         return &serverList[index].server;
-    }
-
-    /**
-     * Open a session to the given ServerId. This method simply calls through to
-     * TransportManager::getSession. See the documentation there for exceptions
-     * that may be thrown.
-     *
-     * \param id
-     *      The ServerId to get a Session to.
-     * \throw ServerListException
-     *      A ServerListException is thrown if the given ServerId is not in this
-     *      list.
-     */
-    Transport::SessionRef
-    getSession(ServerId id)
-    {
-        uint32_t index = id.indexNumber();
-        if (index >= serverList.size() ||
-            serverList[index].server.serverId != id) {
-            throw TransportException(HERE,
-                            format("ServerId %lu is not in this tracker.",
-                                   id.getId()));
-        }
-        if (serverList[index].server.status != ServerStatus::UP) {
-            throw TransportException(HERE,
-                            format("ServerId %lu is not up.",
-                                   id.getId()));
-        }
-        return context.transportManager->getSession(
-                getLocator(id).c_str(), id);
     }
 
     /**
@@ -517,8 +488,8 @@ class ServerTracker : public ServerTrackerInterface {
             if (!server.server.serverId.isValid())
                 continue;
             result.append(
-                format("server %lu at %s with %s is %s\n",
-                       server.server.serverId.getId(),
+                format("server %s at %s with %s is %s\n",
+                       server.server.serverId.toString().c_str(),
                        server.server.serviceLocator.c_str(),
                        server.server.services.toString().c_str(),
                        ServerList::toString(server.server.status).c_str()));
@@ -668,11 +639,11 @@ class ServerTracker : public ServerTrackerInterface {
     };
 
     /// Shared RAMCloud information.
-    Context& context;
+    Context* context;
 
     /// CoordinatorServerList/ServerList from which this tracker is registered
     /// gets all the updates, NULL if unregistered.  We use this variable
-    /// internally instead of context.serverList, because this variable will be
+    /// internally instead of context->serverList, because this variable will be
     /// NULLified if the parent server list goes away, and that's important for
     /// us to know.
     AbstractServerList* parent;

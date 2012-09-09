@@ -33,7 +33,7 @@ namespace RAMCloud {
  *      ReplicaManager::handleBackupFailures()). Can be NULL for testing,
  *      in which case no action will be taken on backup failures.
  */
-BackupFailureMonitor::BackupFailureMonitor(Context& context,
+BackupFailureMonitor::BackupFailureMonitor(Context* context,
                                            ReplicaManager* replicaManager)
     : replicaManager(replicaManager)
     , log(NULL)
@@ -58,8 +58,16 @@ BackupFailureMonitor::~BackupFailureMonitor()
 /**
  * Main loop of the BackupFailureMonitor; waits for notifications from the
  * Server's main ServerList and kicks-off actions in response to backup
- * failures.  This method shouldn't be called directly; use start() to start a
+ * failures. This method shouldn't be called directly; use start() to start a
  * handler and halt() to terminate one cleanly.
+ * There are several synchronization issues with this method that are
+ * subtle. See ReplicaManager::dataMutex for a synopsis. The trickiness
+ * comes from two issues. First, handling backup failures requires
+ * ReplicaManager::dataMutex which ReplicatedSegment::sync() must take care
+ * not to hold indefinitely. Second, this method also must call into log which
+ * also calls into ReplicaManager/ReplicatedSegment.
+ * Generally, ReplicaManager/ReplicatedSegment cannot to this itself, because
+ * it cannot do so while ReplicaManager::dataMutex is locked.
  */
 void
 BackupFailureMonitor::main()
@@ -93,8 +101,8 @@ try {
             if (event != SERVER_CRASHED)
                 continue;
             LOG(DEBUG,
-                "Notifying log of failure of serverId %lu",
-                id.getId());
+                "Notifying log of failure of serverId %s",
+                id.toString().c_str());
             if (replicaManager) {
                 Tub<uint64_t> failedOpenSegment =
                     replicaManager->handleBackupFailure(id);

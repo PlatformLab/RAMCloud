@@ -48,7 +48,7 @@ class RecoveryTask;
  */
 class MasterService : public Service, LogEntryHandlers {
   public:
-    MasterService(Context& context,
+    MasterService(Context* context,
                   const ServerConfig& config);
     virtual ~MasterService();
     void init(ServerId id);
@@ -105,9 +105,9 @@ class MasterService : public Service, LogEntryHandlers {
         State state;
     };
 
-    void enumeration(const WireFormat::Enumerate::Request& reqHdr,
-                     WireFormat::Enumerate::Response& respHdr,
-                     Rpc& rpc);
+    void enumerate(const WireFormat::Enumerate::Request& reqHdr,
+                   WireFormat::Enumerate::Response& respHdr,
+                   Rpc& rpc);
     void getLogMetrics(const WireFormat::GetLogMetrics::Request& reqHdr,
                        WireFormat::GetLogMetrics::Response& respHdr,
                        Rpc& rpc);
@@ -173,7 +173,7 @@ class MasterService : public Service, LogEntryHandlers {
 
   public:
     /// Shared RAMCloud information.
-    Context& context;
+    Context* context;
 
     const ServerConfig& config;
 

@@ -48,8 +48,11 @@ Syscall* TcpTransport::sys = &defaultSyscall;
  *      RPC requests as well as make outgoing requests; this parameter
  *      specifies the (local) address on which to listen for connections.
  *      If NULL this transport will be used only for outgoing requests.
+ *
+ * \throw TransportException
+ *      There was a problem that prevented us from creating the transport.
  */
-TcpTransport::TcpTransport(Context& context,
+TcpTransport::TcpTransport(Context* context,
         const ServiceLocator* serviceLocator)
     : context(context)
     , locatorString()
@@ -176,7 +179,7 @@ TcpTransport::Socket::~Socket() {
  *      The TcpTransport that manages this socket.
  */
 TcpTransport::AcceptHandler::AcceptHandler(int fd, TcpTransport& transport)
-    : Dispatch::File(*transport.context.dispatch, fd,
+    : Dispatch::File(*transport.context->dispatch, fd,
             Dispatch::FileEvent::READABLE)
     , transport(transport)
 {
@@ -257,7 +260,7 @@ TcpTransport::AcceptHandler::handleFileEvent(int events)
 TcpTransport::ServerSocketHandler::ServerSocketHandler(int fd,
                                                        TcpTransport& transport,
                                                        Socket* socket)
-    : Dispatch::File(*transport.context.dispatch, fd,
+    : Dispatch::File(*transport.context->dispatch, fd,
                      Dispatch::FileEvent::READABLE)
     , fd(fd)
     , transport(transport)
@@ -292,7 +295,7 @@ TcpTransport::ServerSocketHandler::handleFileEvent(int events)
                 // The incoming request is complete; pass it off for servicing.
                 TcpServerRpc *rpc = socket->rpc;
                 socket->rpc = NULL;
-                transport.context.serviceManager->handleRpc(rpc);
+                transport.context->serviceManager->handleRpc(rpc);
             }
         }
         if (events & Dispatch::FileEvent::WRITABLE) {
@@ -315,10 +318,6 @@ TcpTransport::ServerSocketHandler::handleFileEvent(int events)
                 socket->bytesLeftToSend = -1;
             }
         }
-    } catch (TcpTransportEof& e) {
-        // Close the socket in order to prevent an infinite loop of
-        // calls to this method.
-        transport.closeSocket(fd);
     } catch (TransportException& e) {
         LOG(ERROR, "TcpTransport::ServerSocketHandler closing client "
                 "connection: %s", e.message.c_str());
@@ -434,8 +433,6 @@ TcpTransport::sendMessage(int fd, uint64_t nonce, Buffer* payload,
  *
  * \throw TransportException
  *      An I/O error occurred.
- * \throw TcpTransportEof
- *      The other side closed the connection.
  */
 
 ssize_t
@@ -445,7 +442,7 @@ TcpTransport::recvCarefully(int fd, void* buffer, size_t length) {
         return actual;
     }
     if (actual == 0) {
-        throw TcpTransportEof(HERE);
+        throw TransportException(HERE, "session closed by other end");
     }
     if ((errno == EAGAIN) || (errno == EWOULDBLOCK)) {
         return 0;
@@ -474,6 +471,18 @@ TcpTransport::IncomingMessage::IncomingMessage(Buffer* buffer,
 }
 
 /**
+ * This method is invoked to cancel the receipt of a message in progress.
+ * Once this method returns, we will still finish reading the message
+ * (don't want to leave unread bytes in the socket), but the contents
+ * will be discarded.
+ */
+void
+TcpTransport::IncomingMessage::cancel() {
+    buffer = NULL;
+    messageLength = 0;
+}
+
+/**
  * Attempt to read part or all of a message from an open socket.
  *
  * \param fd
@@ -485,8 +494,6 @@ TcpTransport::IncomingMessage::IncomingMessage(Buffer* buffer,
  *
  * \throw TransportException
  *      An I/O error occurred.
- * \throw TcpTransportEof
- *      The other side closed the connection.
  */
 
 bool
@@ -560,6 +567,9 @@ TcpTransport::IncomingMessage::readMessage(int fd) {
  *      If there is an active RPC and we can't get any signs of life out
  *      of the server within this many milliseconds then the session will
  *      be aborted.  0 means we get to pick a reasonable default.
+ *
+ * \throw TransportException
+ *      There was a problem that prevented us from creating the session.
  */
 TcpTransport::TcpSession::TcpSession(TcpTransport& transport,
         const ServiceLocator& serviceLocator,
@@ -573,8 +583,7 @@ TcpTransport::TcpSession::TcpSession(TcpTransport& transport,
     , current(NULL)
     , message()
     , clientIoHandler()
-    , errorInfo()
-    , alarm(*transport.context.sessionAlarmTimer, *this,
+    , alarm(*transport.context->sessionAlarmTimer, *this,
             (timeoutMs != 0) ? timeoutMs : DEFAULT_TIMEOUT_MS)
 {
     setServiceLocator(serviceLocator.getOriginalString());
@@ -598,7 +607,7 @@ TcpTransport::TcpSession::TcpSession(TcpTransport& transport,
     }
 
     /// Arrange for notification whenever the server sends us data.
-    Dispatch::Lock lock(transport.context.dispatch);
+    Dispatch::Lock lock(transport.context->dispatch);
     clientIoHandler.construct(fd, *this);
     message.construct(static_cast<Buffer*>(NULL), this);
 }
@@ -608,15 +617,13 @@ TcpTransport::TcpSession::TcpSession(TcpTransport& transport,
  */
 TcpTransport::TcpSession::~TcpSession()
 {
-    errorInfo = "session closed";
     close();
 }
 
 // See documentation for Transport::Session::abort.
 void
-TcpTransport::TcpSession::abort(const string& message)
+TcpTransport::TcpSession::abort()
 {
-    errorInfo = message;
     close();
 }
 
@@ -632,6 +639,13 @@ TcpTransport::TcpSession::cancelRequest(RpcNotifier* notifier)
                     rpcsWaitingForResponse.iterator_to(rpc));
             transport.clientRpcPool.destroy(&rpc);
             alarm.rpcFinished();
+
+            // If we have started reading the response message,
+            // cancel that also.
+            if (&rpc == current) {
+                message->cancel();
+                current = NULL;
+            }
             return;
         }
     }
@@ -669,7 +683,7 @@ TcpTransport::TcpSession::close()
         transport.clientRpcPool.destroy(&rpc);
     }
     if (clientIoHandler) {
-        Dispatch::Lock lock(transport.context.dispatch);
+        Dispatch::Lock lock(transport.context->dispatch);
         clientIoHandler.destroy();
     }
 }
@@ -746,7 +760,7 @@ TcpTransport::TcpSession::sendRequest(Buffer* request, Buffer* response,
  */
 TcpTransport::ClientSocketHandler::ClientSocketHandler(int fd,
         TcpSession& session)
-    : Dispatch::File(*session.transport.context.dispatch, fd,
+    : Dispatch::File(*session.transport.context->dispatch, fd,
                      Dispatch::FileEvent::READABLE)
     , fd(fd)
     , session(session)
@@ -800,14 +814,10 @@ TcpTransport::ClientSocketHandler::handleFileEvent(int events)
             }
             setEvents(Dispatch::FileEvent::READABLE);
         }
-    } catch (TcpTransportEof& e) {
-        // Close the session's socket in order to prevent an infinite loop of
-        // calls to this method.
-        session.abort("socket closed by server");
     } catch (TransportException& e) {
-        LOG(ERROR, "TcpTransport::ClientSocketHandler closing session "
-                "socket: %s", e.message.c_str());
-        session.abort(e.message.c_str());
+        LOG(ERROR, "TcpTransport::ClientSocketHandler aborting session: %s",
+                e.message.c_str());
+        session.abort();
     }
 }
 

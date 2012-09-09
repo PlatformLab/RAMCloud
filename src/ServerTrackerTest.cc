@@ -34,9 +34,9 @@ class ServerTrackerTest : public ::testing::Test {
     ServerTrackerTest()
         : context()
         , callback()
-        , sl(context)
-        , tr(context)
-        , trcb(context, &callback)
+        , sl(&context)
+        , tr(&context)
+        , trcb(&context, &callback)
     {
     }
 
@@ -64,7 +64,7 @@ TEST_F(ServerTrackerTest, constructors) {
 
 TEST_F(ServerTrackerTest, destructor) {
     EXPECT_EQ(2U, sl.trackers.size());
-    ServerTracker<int>* tr2 = new ServerTracker<int>(context);
+    ServerTracker<int>* tr2 = new ServerTracker<int>(&context);
     EXPECT_EQ(3U, sl.trackers.size());
     delete tr2;
     EXPECT_EQ(2U, sl.trackers.size());
@@ -141,9 +141,9 @@ TEST_F(ServerTrackerTest, fireCallback) {
     // Ensure that all trackers have changes enqueued
     // before any of the trackers receives notification.
     EnsureBothHaveChangesCallback orderCheckCb;
-    ServerTracker<int> tr1(context, &orderCheckCb);
+    ServerTracker<int> tr1(&context, &orderCheckCb);
     CountCallback countCb;
-    ServerTracker<int> tr2(context, &countCb);
+    ServerTracker<int> tr2(&context, &countCb);
     orderCheckCb.tr1 = &tr1;
     orderCheckCb.tr2 = &tr2;
     while (tr1.getChange(details, event)); // clear out both queues
@@ -221,7 +221,7 @@ TEST_F(ServerTrackerTest, getChange) {
     tr.testing_avoidGetChangeAssertion = true;
     EXPECT_FALSE(tr.getChange(server, event));
     EXPECT_EQ("getChange: User of this ServerTracker did not NULL out previous "
-        "pointer for index 2 (ServerId 2)!", TestLog::get());
+        "pointer for index 2 (ServerId 2.0)!", TestLog::get());
     EXPECT_FALSE(tr.serverList[2].server.serverId.isValid());
     EXPECT_EQ("", tr.serverList[2].server.serviceLocator);
     EXPECT_EQ(0u, tr.serverList[2].server.services.serialize());
@@ -358,23 +358,6 @@ TEST_F(ServerTrackerTest, getServerDetails) {
               tr.getServerDetails(ServerId(1, 1))->status);
 }
 
-TEST_F(ServerTrackerTest, getSession) {
-    TestLog::Enable _;
-    EXPECT_THROW(tr.getSession(ServerId(1, 0)), TransportException);
-
-    ServerDetails details(ServerId(1, 1), "mock:",
-                          {WireFormat::MASTER_SERVICE},
-                          100, ServerStatus::UP);
-    tr.enqueueChange(details, ServerChangeEvent::SERVER_ADDED);
-    ServerDetails server;
-    ServerChangeEvent event;
-    EXPECT_TRUE(tr.getChange(server, event));
-
-    details.status = ServerStatus::CRASHED;
-    tr.enqueueChange(details, ServerChangeEvent::SERVER_CRASHED);
-    EXPECT_EQ(FailSession::get(), tr.getSession(ServerId(1, 1)));
-}
-
 TEST_F(ServerTrackerTest, indexOperator) {
     TestLog::Enable _; // suck up getChange WARNING
     ServerDetails server;
@@ -430,7 +413,7 @@ TEST_F(ServerTrackerTest, toString) {
     EXPECT_EQ("", tr.toString());
     EXPECT_TRUE(tr.getChange(server, event));
     EXPECT_EQ(
-        "server 1 at mock: with MASTER_SERVICE is UP\n",
+        "server 1.0 at mock: with MASTER_SERVICE is UP\n",
         tr.toString());
 }
 

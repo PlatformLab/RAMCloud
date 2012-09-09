@@ -31,11 +31,10 @@ namespace RAMCloud {
  *      will modify context so that its serverList member refers to this
  *      object.
  */
-ServerList::ServerList(Context& context)
+ServerList::ServerList(Context* context)
     : AbstractServerList(context)
     , serverList()
 {
-    context.serverList = this;
 }
 
 /**
@@ -46,22 +45,24 @@ ServerList::~ServerList()
 }
 
 //////////////////////////////////////////////////////////////////////
-// ServerList - Protected Methods (inherited AbstractServerList)
+// ServerList - Protected Methods (inherited from AbstractServerList)
 //////////////////////////////////////////////////////////////////////
 ServerDetails*
-ServerList::iget(size_t index)
-{
-    return (serverList[index]) ? serverList[index].get() : NULL;
-}
-
-bool
-ServerList::icontains(ServerId id) const
+ServerList::iget(ServerId id)
 {
     uint32_t index = id.indexNumber();
+    if ((index < serverList.size()) && serverList[index]) {
+        ServerDetails* details = serverList[index].get();
+        if (details->serverId == id)
+            return details;
+    }
+    return NULL;
+}
 
-    return  index < serverList.size() &&
-            serverList[index] &&
-            serverList[index]->serverId == id;
+ServerDetails*
+ServerList::iget(uint32_t index)
+{
+    return (serverList[index]) ? serverList[index].get() : NULL;
 }
 
 /**
@@ -119,7 +120,8 @@ ServerList::applyFullList(const ProtoBuf::ServerList& list)
             LOG(WARNING, "Coordinator provided server list contains servers "
                 "which are down. Ignoring, but this is likely due to a "
                 "serious bug and is likely to cause worse bugs: offending "
-                "server id %lu", server.server_id());
+                "server id %s",
+                ServerId(server.server_id()).toString().c_str());
         } else {
             assert(!RAMCloud::contains(listIds, server.server_id()));
             listIds.insert(server.server_id());
@@ -205,32 +207,35 @@ ServerList::applyUpdate(const ProtoBuf::ServerList& update)
             ServiceMask::deserialize(server.services());
         uint32_t readMBytesPerSec = server.expected_read_mbytes_per_sec();
         if (status == ServerStatus::UP) {
-            LOG(NOTICE, "  Adding server id %lu (locator \"%s\") "
+            LOG(NOTICE, "  Adding server id %s (locator \"%s\") "
                          "with services %s and %u MB/s storage",
-                *id, locator.c_str(), services.toString().c_str(),
-                readMBytesPerSec);
+                id.toString().c_str(), locator.c_str(),
+                services.toString().c_str(), readMBytesPerSec);
             add(id, locator, services, readMBytesPerSec);
         } else if (status == ServerStatus::CRASHED) {
-            if (!icontains(id)) {
-                LOG(ERROR, "  Cannot mark server id %lu as crashed: The server "
+            if (iget(id) == NULL) {
+                LOG(ERROR, "  Cannot mark server id %s as crashed: The server "
                     "is not in our list, despite list version numbers matching "
                     "(%lu). Something is screwed up! Requesting the entire "
-                    "list again.", *id, update.version_number());
+                    "list again.", id.toString().c_str(),
+                    update.version_number());
                 return true;
             }
 
-            LOG(NOTICE, "  Marking server id %lu as crashed", id.getId());
+            LOG(NOTICE, "  Marking server id %s as crashed",
+                id.toString().c_str());
             crashed(id, locator, services, readMBytesPerSec);
         } else if (status == ServerStatus::DOWN) {
-            if (!icontains(id)) {
-                LOG(ERROR, "  Cannot remove server id %lu: The server is "
+            if (iget(id) == NULL) {
+                LOG(ERROR, "  Cannot remove server id %s: The server is "
                     "not in our list, despite list version numbers matching "
                     "(%lu). Something is screwed up! Requesting the entire "
-                    "list again.", *id, update.version_number());
+                    "list again.", id.toString().c_str(),
+                    update.version_number());
                 return true;
             }
 
-            LOG(NOTICE, "  Removing server id %lu", id.getId());
+            LOG(NOTICE, "  Removing server id %s", id.toString().c_str());
             remove(id);
         }
     }
@@ -290,26 +295,27 @@ ServerList::add(ServerId id, const string& locator,
         if (id.generationNumber() < entry->serverId.generationNumber()) {
             // Add of older ServerId; drop it.
             LOG(WARNING, "Dropping addition of ServerId older than the current "
-                "entry (%lu < %lu)!", id.getId(),
-                entry->serverId.getId());
+                "entry (%s < %s)!", id.toString().c_str(),
+                entry->serverId.toString().c_str());
             return false;
         } else if (id.generationNumber() > entry->serverId.generationNumber()) {
             // Add of newer ServerId; need to play notifications to remove
             // current entry.
-            LOG(WARNING, "Addition of %lu seen before removal of %lu! Issuing "
+            LOG(WARNING, "Addition of %s seen before removal of %s! Issuing "
                 "removal before addition.",
-                id.getId(), entry->serverId.getId());
+                id.toString().c_str(), entry->serverId.toString().c_str());
             remove(entry->serverId);
             // Fall through to do addition.
         } else { // Generations are equal
             if (entry->status == ServerStatus::UP) {
                 // Nothing to do; already in the right status.
-                LOG(WARNING, "Duplicate add of ServerId %lu!", id.getId());
+                LOG(WARNING, "Duplicate add of ServerId %s!",
+                    id.toString().c_str());
             } else {
                 // Something's not right; shouldn't see an add for a crashed
                 // server.
-                LOG(WARNING, "Add of ServerId %lu after it had already been "
-                    "marked crashed; ignoring", id.getId());
+                LOG(WARNING, "Add of ServerId %s after it had already been "
+                    "marked crashed; ignoring", id.toString().c_str());
             }
             return false;
         }
@@ -376,15 +382,15 @@ ServerList::crashed(ServerId id, const string& locator,
         if (id.generationNumber() < entry->serverId.generationNumber()) {
             // Crash of older ServerId; drop it.
             LOG(WARNING, "Dropping crash of ServerId older than the current "
-                "entry (%lu < %lu)!", id.getId(),
-                entry->serverId.getId());
+                "entry (%s < %s)!", id.toString().c_str(),
+                entry->serverId.toString().c_str());
             return false;
         } else if (id.generationNumber() > entry->serverId.generationNumber()) {
             // Crash of newer ServerId; need to play notifications to remove
             // current entry and add id before marking it as crashed.
-            LOG(WARNING, "Crash of %lu seen before crash of %lu! Issuing "
+            LOG(WARNING, "Crash of %s seen before crash of %s! Issuing "
                 "crash/removal before addition.",
-                id.getId(), entry->serverId.getId());
+                id.toString().c_str(), entry->serverId.toString().c_str());
             remove(entry->serverId);
             // We have a crash event for a server that was never added just
             // make up some unusable details about the server.  No one should
@@ -394,7 +400,8 @@ ServerList::crashed(ServerId id, const string& locator,
         } else { // Generations are equal.
             if (entry->status == ServerStatus::CRASHED) {
                 // Nothing to do; already in the right status.
-                LOG(WARNING, "Duplicate crash of ServerId %lu!", id.getId());
+                LOG(WARNING, "Duplicate crash of ServerId %s!",
+                    id.toString().c_str());
                 return false;
             }
             // Fall through to do crash of id.
@@ -453,7 +460,8 @@ ServerList::remove(ServerId id)
         !serverList[index] ||
         (id.generationNumber() <
              serverList[index]->serverId.generationNumber())) {
-        LOG(WARNING, "Ignoring removal of unknown ServerId %lu", id.getId());
+        LOG(WARNING, "Ignoring removal of unknown ServerId %s",
+            id.toString().c_str());
         return false;
     }
 
@@ -463,9 +471,9 @@ ServerList::remove(ServerId id)
     // the next addition, and then see the removal for something newer than
     // what's stored. Unlikely, but let's log it just in case.
     if (id.generationNumber() > entry.serverId.generationNumber()) {
-        LOG(WARNING, "Removing ServerId %lu because removal for a newer "
-            "generation number was received (%lu)",
-            entry.serverId.getId(), id.getId());
+        LOG(WARNING, "Removing ServerId %s because removal for a newer "
+            "generation number was received (%s)",
+            entry.serverId.toString().c_str(), id.toString().c_str());
     }
 
     // Be sure to use the stored id, not the advertised one, just in case

@@ -39,7 +39,7 @@ enum Status {
     /// for) a given table, but that it may exist elsewhere in the system.
     /// When it's possible that the table exists on another server, this status
     /// should be returned (in preference to the definitive TABLE_DOESNT_EXIST).
-    STATUS_UNKNOWN_TABLE                = 1,
+    STATUS_UNKNOWN_TABLET               = 1,
 
     /// Indicates that a table does not exist anywhere in the system. At present
     /// only the coordinator can say with certainly that a table does not exist.
@@ -73,7 +73,13 @@ enum Status {
     STATUS_RETRY                        = 17,
     STATUS_SERVICE_NOT_AVAILABLE        = 18,
     STATUS_TIMEOUT                      = 19,
-    STATUS_SERVER_DOESNT_EXIST          = 20,
+
+    // Indicates that a particular server either never existed, has come
+    // and gone, or is currently in crashed state. The server is not in a
+    // position to respond to RPCs and probably never will be again (unless
+    // the id hasn't yet existed; once a server crashes its id will never
+    // be reused).
+    STATUS_SERVER_NOT_UP                = 20,
     STATUS_INTERNAL_ERROR               = 21,
 
     /// Indicates that the object chosen for an operation does not match the

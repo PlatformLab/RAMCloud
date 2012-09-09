@@ -32,7 +32,7 @@ struct BackupSelectorTest : public ::testing::Test {
 
     BackupSelectorTest()
         : context()
-        , cluster(context)
+        , cluster(&context)
         , selector()
     {
         Logger::get().setLogLevels(SILENT_LOG_LEVEL);
@@ -92,7 +92,7 @@ struct BackgroundEnlistBackup {
         std::this_thread::yield();
         usleep(1 * 1000);
         // See if enlisting a server unblocks the call.
-        CoordinatorClient::enlistServer(*context, {},
+        CoordinatorClient::enlistServer(context, {},
                                         {WireFormat::BACKUP_SERVICE},
                                         "mock:host=backup10", 10);
     }
@@ -105,8 +105,8 @@ struct BackgroundEnlistBackup {
 TEST_F(BackupSelectorTest, selectPrimaryNoHosts) {
     // Check to make sure the server waits on server list updates from the
     // coordinator.
-    BackgroundEnlistBackup enlist{&context};
-    std::thread enlistThread{std::ref(enlist)};
+    BackgroundEnlistBackup enlist(&context);
+    std::thread enlistThread(std::ref(enlist));
     ServerId id = selector->selectPrimary(0, NULL);
     EXPECT_EQ(ServerId(2, 0), id);
     enlistThread.join();
@@ -117,8 +117,8 @@ TEST_F(BackupSelectorTest, selectPrimaryAllConflict) {
     std::vector<ServerId> ids;
     addEqualHosts(ids);
 
-    BackgroundEnlistBackup enlist{&context};
-    std::thread enlistThread{std::ref(enlist)};
+    BackgroundEnlistBackup enlist(&context);
+    std::thread enlistThread(std::ref(enlist));
 
     ServerId id = selector->selectPrimary(9, &ids[0]);
     EXPECT_EQ(ServerId(11, 0), id);

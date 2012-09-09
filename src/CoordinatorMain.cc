@@ -32,11 +32,22 @@ main(int argc, char *argv[])
 {
     using namespace RAMCloud;
     string localLocator("???");
+    uint32_t deadServerTimeout;
     Context context(true);
-    CoordinatorServerList serverList(context);
+    CoordinatorServerList serverList(&context);
     try {
-        OptionParser optionParser(OptionsDescription("Coordinator"),
-                                  argc, argv);
+        OptionsDescription coordinatorOptions("Coordinator");
+        coordinatorOptions.add_options()
+            ("deadServerTimeout,d",
+             ProgramOptions::value<uint32_t>(&deadServerTimeout)->
+                default_value(250),
+            "Number of milliseconds to wait for a potentially dead server to "
+            "show signs of life before declaring it as crashed. The longer the "
+            "timeout, the slower real crashes are responded to. The shorter "
+            "the timeout, the greater the chance is of falsely deciding a "
+            "machine is down when it's not.");
+
+        OptionParser optionParser(coordinatorOptions, argc, argv);
 
         // Log all the command-line arguments.
         string args;
@@ -55,10 +66,10 @@ main(int argc, char *argv[])
         localLocator = context.transportManager->
                                 getListeningLocatorsString();
         LOG(NOTICE, "coordinator: Listening on %s", localLocator.c_str());
-        CoordinatorService coordinatorService(context);
+        CoordinatorService coordinatorService(&context, deadServerTimeout);
         context.serviceManager->addService(coordinatorService,
                                            WireFormat::COORDINATOR_SERVICE);
-        PingService pingService(context);
+        PingService pingService(&context);
         context.serviceManager->addService(pingService,
                                            WireFormat::PING_SERVICE);
         Dispatch& dispatch = *context.dispatch;

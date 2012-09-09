@@ -55,7 +55,8 @@ struct MockBackupSelector : public BaseBackupSelector {
     ServerId selectSecondary(uint32_t numBackups, const ServerId backupIds[]) {
         assert(backups.size());
         for (uint32_t i = 0; i < numBackups; ++i)
-            TEST_LOG("conflicting backupId: %lu", *backupIds[i]);
+            TEST_LOG("conflicting backupId: %s",
+                     backupIds[i].toString().c_str());
         ServerId backup = backups[nextIndex++];
         nextIndex %= backups.size();
         return backup;
@@ -99,9 +100,8 @@ struct ReplicatedSegmentTest : public ::testing::Test {
                 operator new(ReplicatedSegment::sizeOf(numReplicas));
             logSegment.head = test->openLen; // open queued
             segment.reset(
-                new(segMem) ReplicatedSegment(test->context,
+                new(segMem) ReplicatedSegment(&test->context,
                                               test->taskQueue,
-                                              test->tracker,
                                               test->backupSelector,
                                               test->deleter,
                                               test->writeRpcsInFlight,
@@ -131,7 +131,6 @@ struct ReplicatedSegmentTest : public ::testing::Test {
     Context context;
     TaskQueue taskQueue;
     ServerList serverList;
-    BackupTracker tracker;
     CountingDeleter deleter;
     uint32_t writeRpcsInFlight;
     std::mutex dataMutex;
@@ -153,21 +152,20 @@ struct ReplicatedSegmentTest : public ::testing::Test {
     ReplicatedSegmentTest()
         : context()
         , taskQueue()
-        , serverList(context)
-        , tracker(context, NULL)
+        , serverList(&context)
         , deleter()
         , writeRpcsInFlight(0)
         , dataMutex()
         , masterId(999, 0)
         , segmentId(888)
-        , minOpenSegmentId(context, &taskQueue, &masterId)
+        , minOpenSegmentId(&context, &taskQueue, &masterId)
         , data()
         , logSegment()
         , openLen(10)
         , numReplicas(2)
         , backupSelector(numReplicas)
-        , transport(context)
-        , mockRegistrar(context, transport)
+        , transport(&context)
+        , mockRegistrar(&context, transport)
         , createSegment(NULL)
         , segment(NULL)
         , backupId1(0, 0)
@@ -179,10 +177,6 @@ struct ReplicatedSegmentTest : public ::testing::Test {
                        {WireFormat::BACKUP_SERVICE}, 100);
         serverList.add(backupId2, "mock:host=backup2",
                        {WireFormat::BACKUP_SERVICE}, 100);
-        ServerDetails server;
-        ServerChangeEvent event;
-        tracker.getChange(server, event);
-        tracker.getChange(server, event);
 
         const char* msg = "abcdefghijklmnopqrstuvwxyz";
         size_t msgLen = strlen(msg);
@@ -282,6 +276,27 @@ TEST_F(ReplicatedSegmentTest, close) {
     ASSERT_FALSE(taskQueue.isIdle());
     EXPECT_EQ(segment, taskQueue.tasks.front());
     EXPECT_TRUE(segment->queued.close);
+    reset();
+}
+
+TEST_F(ReplicatedSegmentTest, closeNewFooterButNoLengthChange) {
+    transport.setInput("0 0"); // first replica open/write
+    transport.setInput("0 0"); // first replica open/write
+    segment->sync(openLen);
+    Segment::OpaqueFooterEntry footerBeforeClose;
+    footerBeforeClose = segment->queuedFooterEntry;
+    EXPECT_FALSE(segment->queuedFooterEntry.footer.closed);
+    EXPECT_FALSE(segment->isScheduled());
+
+    createSegment->logSegment.closed = false;
+    createSegment->logSegment.close();
+    segment->close();
+    EXPECT_TRUE(segment->isScheduled());
+    ASSERT_FALSE(taskQueue.isIdle());
+    EXPECT_EQ(segment, taskQueue.tasks.front());
+    EXPECT_TRUE(segment->queuedFooterEntry.footer.closed);
+    EXPECT_NE(0, memcmp(&segment->queuedFooterEntry,
+                        &footerBeforeClose, sizeof(footerBeforeClose)));
     reset();
 }
 
@@ -388,6 +403,22 @@ TEST_F(ReplicatedSegmentTest, sync) {
                  999, 888, 10, 10, Wr::NONE, false, true, footerEntry},
                 "klmnopqrst ", 10));
     EXPECT_EQ(openLen + 10, segment->getCommitted().bytes);
+}
+
+TEST_F(ReplicatedSegmentTest, syncNoArgs) {
+    transport.setInput("0 0"); // opening write
+    transport.setInput("0 0"); // opening write
+    segment->sync(openLen);
+    EXPECT_EQ(openLen, segment->getCommitted().bytes);
+    EXPECT_FALSE(segment->getCommitted().close);
+    EXPECT_TRUE(segment->isSynced());
+    transport.setInput("0 0"); // closing write
+    transport.setInput("0 0"); // closing write
+    segment->close();
+    segment->sync();
+    EXPECT_EQ(openLen, segment->getCommitted().bytes);
+    EXPECT_TRUE(segment->getCommitted().close);
+    EXPECT_TRUE(segment->isSynced());
 }
 
 TEST_F(ReplicatedSegmentTest, syncDoubleCheckCrossSegmentOrderingConstraints) {
@@ -519,17 +550,17 @@ TEST_F(ReplicatedSegmentTest, syncRecoveringFromLostOpenReplicas) {
     // Fragile test log check, but left here because the output is pretty
     // reassuring to a human reader that the test does what one expects.
     EXPECT_EQ("sync: syncing | "
-              "selectSecondary: conflicting backupId: 999 | "
-              "selectSecondary: conflicting backupId: 1 | "
+              "selectSecondary: conflicting backupId: 999.0 | "
+              "selectSecondary: conflicting backupId: 1.0 | "
               "performWrite: Starting replication of segment 888 replica "
-                  "slot 0 on backup 0 | "
-              "performWrite: Sending open to backup 0 | "
-              "performWrite: Sending write to backup 1 | "
-              "performWrite: Sending write to backup 0 | "
+                  "slot 0 on backup 0.0 | "
+              "performWrite: Sending open to backup 0.0 | "
+              "performWrite: Sending write to backup 1.0 | "
+              "performWrite: Sending write to backup 0.0 | "
               "performTask: Updating minOpenSegmentId on coordinator to "
                   "ensure lost replicas of segment 888 will not be reused | "
               "updateToAtLeast: request update to minOpenSegmentId for "
-                  "999 to 889 | "
+                  "999.0 to 889 | "
               "performTask: minOpenSegmentId ok, lost open replica recovery "
               "complete on segment 888",
               TestLog::get());
@@ -716,10 +747,11 @@ TEST_F(ReplicatedSegmentTest, performTaskRecoveringFromLostOpenReplicas) {
 
     TestLog::Enable _(filter);
     taskQueue.performTask(); // reap closes, update min open segment id
-    EXPECT_EQ("performTask: Updating minOpenSegmentId on coordinator to ensure "
-                  "lost replicas of segment 888 will not be reused | "
-              "updateToAtLeast: request update to minOpenSegmentId for 999 to "
-              "889",
+    EXPECT_EQ("performTask: Updating minOpenSegmentId on coordinator "
+                  "to ensure lost replicas of segment 888 will not be "
+                  "reused | "
+              "updateToAtLeast: request update to minOpenSegmentId "
+                  "for 999.0 to 889",
               TestLog::get());
     EXPECT_TRUE(transport.output.empty());
 }
@@ -739,7 +771,7 @@ TEST_F(ReplicatedSegmentTest, performFreeRpcIsReady) {
 
     segment->freeQueued = true;
     segment->replicas[0].start(backupId1);
-    segment->replicas[0].freeRpc.construct(context, backupId1,
+    segment->replicas[0].freeRpc.construct(&context, backupId1,
                                            masterId, segmentId);
     EXPECT_STREQ("sendRequest: 0x1001c 999 0 888 0",
                  transport.outputLog.c_str());
@@ -754,11 +786,11 @@ TEST_F(ReplicatedSegmentTest, performFreeRpcFailed) {
 
     segment->freeQueued = true;
     segment->replicas[0].start({99, 99});
-    segment->replicas[0].freeRpc.construct(context, ServerId(99, 99),
+    segment->replicas[0].freeRpc.construct(&context, ServerId(99, 99),
                                            masterId, segmentId);
     TestLog::Enable _;
     segment->performFree(segment->replicas[0]);
-    EXPECT_EQ("performFree: ServerDoesntExistException thrown", TestLog::get());
+    EXPECT_EQ("performFree: ServerNotUpException thrown", TestLog::get());
     EXPECT_TRUE(segment->freeQueued);
     EXPECT_FALSE(segment->isScheduled());
     ASSERT_FALSE(segment->replicas[0].isActive);
@@ -880,15 +912,15 @@ TEST_F(ReplicatedSegmentTest, performWriteOpen) {
     {
         TestLog::Enable _(filter);
         taskQueue.performTask();
-        EXPECT_EQ("selectSecondary: conflicting backupId: 999 | "
+        EXPECT_EQ("selectSecondary: conflicting backupId: 999.0 | "
                   "performWrite: Starting replication of segment 888 replica "
-                      "slot 0 on backup 0 | "
-                  "performWrite: Sending open to backup 0 | "
-                  "selectSecondary: conflicting backupId: 999 | "
-                  "selectSecondary: conflicting backupId: 0 | "
+                      "slot 0 on backup 0.0 | "
+                  "performWrite: Sending open to backup 0.0 | "
+                  "selectSecondary: conflicting backupId: 999.0 | "
+                  "selectSecondary: conflicting backupId: 0.0 | "
                   "performWrite: Starting replication of segment 888 replica "
-                      "slot 1 on backup 1 | "
-                  "performWrite: Sending open to backup 1",
+                      "slot 1 on backup 1.0 | "
+                  "performWrite: Sending open to backup 1.0",
                   TestLog::get());
     }
 
@@ -1017,7 +1049,7 @@ TEST_F(ReplicatedSegmentTest, performWriteRpcFailed) {
         TestLog::Enable _;
         taskQueue.performTask();  // reap rpcs, second replica got error
         EXPECT_TRUE(TestUtil::matchesPosixRegex(
-            "performWrite: Couldn't write to backup 1; server is down",
+            "performWrite: Couldn't write to backup 1.0; server is down",
             TestLog::get()));
     }
     EXPECT_TRUE(segment->isScheduled());
@@ -1055,7 +1087,7 @@ TEST_F(ReplicatedSegmentTest, performWriteRpcFailed) {
         TestLog::Enable _;
         taskQueue.performTask();  // reap rpcs, first replica got error
         EXPECT_TRUE(TestUtil::matchesPosixRegex(
-            "performWrite: Couldn't write to backup 0; server is down",
+            "performWrite: Couldn't write to backup 0.0; server is down",
             TestLog::get()));
     }
     EXPECT_TRUE(segment->isScheduled());
@@ -1339,7 +1371,7 @@ TEST_F(ReplicatedSegmentTest, performWriteBackupRejectedOpen) {
     TestLog::Enable _(filter);
     taskQueue.performTask(); // reap - second replica gets rejected
     EXPECT_EQ(
-        "performWrite: Couldn't open replica on backup 1; server may be "
+        "performWrite: Couldn't open replica on backup 1.0; server may be "
         "overloaded or may already have a replica for this segment which "
         "was found on disk after a crash; will choose another backup",
         TestLog::get());
@@ -1390,11 +1422,11 @@ TEST_F(ReplicatedSegmentTest, performWriteEnsureDurableOpensOrdered) {
     taskQueue.performTask(); // new head cannot open until first is acked
     EXPECT_EQ(
         "performWrite: Starting replication of segment 889 replica slot 0 "
-            "on backup 0 | "
+            "on backup 0.0 | "
         "performWrite: Cannot open segment 889 until preceding segment "
             "is durably open | "
         "performWrite: Starting replication of segment 889 replica slot 1 "
-            "on backup 1 | "
+            "on backup 1.0 | "
         "performWrite: Cannot open segment 889 until preceding segment "
             "is durably open",
         TestLog::get());
@@ -1423,8 +1455,8 @@ TEST_F(ReplicatedSegmentTest, performWriteEnsureDurableOpensOrdered) {
     transport.setInput("0 0"); // write - newHead open
     taskQueue.performTask(); // send segment open for second semgent
     EXPECT_EQ(
-        "performWrite: Sending open to backup 0 | "
-        "performWrite: Sending open to backup 1",
+        "performWrite: Sending open to backup 0.0 | "
+        "performWrite: Sending open to backup 1.0",
         TestLog::get());
     EXPECT_TRUE(newHead->isScheduled());
     EXPECT_TRUE(newHead->precedingSegmentOpenCommitted);

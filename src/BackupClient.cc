@@ -41,7 +41,7 @@ namespace RAMCloud {
  *      The ServerId's of all the backups in the replication group.
  */
 void
-BackupClient::assignGroup(Context& context, ServerId backupId,
+BackupClient::assignGroup(Context* context, ServerId backupId,
         uint64_t replicationId, uint32_t numReplicas,
         const ServerId* replicationGroupIds)
 {
@@ -69,16 +69,16 @@ BackupClient::assignGroup(Context& context, ServerId backupId,
  * \param replicationGroupIds
  *      The ServerId's of all the backups in the replication group.
  */
-AssignGroupRpc::AssignGroupRpc(Context& context, ServerId backupId,
+AssignGroupRpc::AssignGroupRpc(Context* context, ServerId backupId,
         uint64_t replicationId, uint32_t numReplicas,
         const ServerId* replicationGroupIds)
     : ServerIdRpcWrapper(context, backupId,
             sizeof(WireFormat::BackupAssignGroup::Response))
 {
-    WireFormat::BackupAssignGroup::Request& reqHdr(
+    WireFormat::BackupAssignGroup::Request* reqHdr(
             allocHeader<WireFormat::BackupAssignGroup>());
-    reqHdr.replicationId = replicationId;
-    reqHdr.numReplicas = numReplicas;
+    reqHdr->replicationId = replicationId;
+    reqHdr->numReplicas = numReplicas;
     uint64_t* dest = new(&request, APPEND) uint64_t[numReplicas];
     for (uint32_t i = 0; i < numReplicas; i++) {
         dest[i] = replicationGroupIds[i].getId();
@@ -99,7 +99,7 @@ AssignGroupRpc::AssignGroupRpc(Context& context, ServerId backupId,
  *      The id of the segment to be freed.
  */
 void
-BackupClient::freeSegment(Context& context, ServerId backupId,
+BackupClient::freeSegment(Context* context, ServerId backupId,
         ServerId masterId, uint64_t segmentId)
 {
     FreeSegmentRpc rpc(context, backupId, masterId, segmentId);
@@ -120,15 +120,15 @@ BackupClient::freeSegment(Context& context, ServerId backupId,
  * \param segmentId
  *      The id of the segment to be freed.
  */
-FreeSegmentRpc::FreeSegmentRpc(Context& context, ServerId backupId,
+FreeSegmentRpc::FreeSegmentRpc(Context* context, ServerId backupId,
         ServerId masterId, uint64_t segmentId)
     : ServerIdRpcWrapper(context, backupId,
             sizeof(WireFormat::BackupFree::Response))
 {
-    WireFormat::BackupFree::Request& reqHdr(
+    WireFormat::BackupFree::Request* reqHdr(
             allocHeader<WireFormat::BackupFree>());
-    reqHdr.masterId = masterId.getId();
-    reqHdr.segmentId = segmentId;
+    reqHdr->masterId = masterId.getId();
+    reqHdr->segmentId = segmentId;
     send();
 }
 
@@ -154,9 +154,9 @@ FreeSegmentRpc::FreeSegmentRpc(Context& context, ServerId backupId,
  *      buffer, organized as a Segment.
  */
 void
-BackupClient::getRecoveryData(Context& context, ServerId backupId,
+BackupClient::getRecoveryData(Context* context, ServerId backupId,
         ServerId masterId, uint64_t segmentId, uint64_t partitionId,
-        Buffer& response)
+        Buffer* response)
 {
     GetRecoveryDataRpc rpc(context, backupId, masterId, segmentId,
             partitionId, response);
@@ -184,17 +184,17 @@ BackupClient::getRecoveryData(Context& context, ServerId backupId,
  *      The objects matching the above parameters will be returned in this
  *      buffer, organized as a Segment.
  */
-GetRecoveryDataRpc::GetRecoveryDataRpc(Context& context, ServerId backupId,
+GetRecoveryDataRpc::GetRecoveryDataRpc(Context* context, ServerId backupId,
         ServerId masterId, uint64_t segmentId, uint64_t partitionId,
-        Buffer& response)
+        Buffer* response)
     : ServerIdRpcWrapper(context, backupId,
-            sizeof(WireFormat::BackupGetRecoveryData::Response), &response)
+            sizeof(WireFormat::BackupGetRecoveryData::Response), response)
 {
-    WireFormat::BackupGetRecoveryData::Request& reqHdr(
+    WireFormat::BackupGetRecoveryData::Request* reqHdr(
             allocHeader<WireFormat::BackupGetRecoveryData>());
-    reqHdr.masterId = masterId.getId();
-    reqHdr.segmentId = segmentId;
-    reqHdr.partitionId = partitionId;
+    reqHdr->masterId = masterId.getId();
+    reqHdr->segmentId = segmentId;
+    reqHdr->partitionId = partitionId;
     send();
 }
 
@@ -202,7 +202,7 @@ GetRecoveryDataRpc::GetRecoveryDataRpc(Context& context, ServerId backupId,
  * Wait for a getRecoveryData RPC to complete, and throw exceptions for
  * any errors.
  *
- * \throw ServerDoesntExistException
+ * \throw ServerNotUpException
  *      The intended server for this RPC is not part of the cluster;
  *      if it ever existed, it has since crashed.
  */
@@ -225,7 +225,7 @@ GetRecoveryDataRpc::wait()
  *      Backup whose data should be flushed.
  */
 void
-BackupClient::quiesce(Context& context, ServerId backupId)
+BackupClient::quiesce(Context* context, ServerId backupId)
 {
     BackupQuiesceRpc rpc(context, backupId);
     rpc.wait();
@@ -241,7 +241,7 @@ BackupClient::quiesce(Context& context, ServerId backupId)
  * \param backupId
  *      Backup whose data should be flushed.
  */
-BackupQuiesceRpc::BackupQuiesceRpc(Context& context, ServerId backupId)
+BackupQuiesceRpc::BackupQuiesceRpc(Context* context, ServerId backupId)
     : ServerIdRpcWrapper(context, backupId,
             sizeof(WireFormat::BackupQuiesce::Response))
 {
@@ -262,7 +262,7 @@ BackupQuiesceRpc::BackupQuiesceRpc(Context& context, ServerId backupId)
  *      The id of a crashed master whose recovery is now complete.
  */
 void
-BackupClient::recoveryComplete(Context& context, ServerId backupId,
+BackupClient::recoveryComplete(Context* context, ServerId backupId,
         ServerId masterId)
 {
     RecoveryCompleteRpc rpc(context, backupId, masterId);
@@ -281,14 +281,14 @@ BackupClient::recoveryComplete(Context& context, ServerId backupId,
  * \param masterId
  *      The id of a crashed master whose recovery is now complete.
  */
-RecoveryCompleteRpc::RecoveryCompleteRpc(Context& context, ServerId backupId,
+RecoveryCompleteRpc::RecoveryCompleteRpc(Context* context, ServerId backupId,
         ServerId masterId)
     : ServerIdRpcWrapper(context, backupId,
             sizeof(WireFormat::BackupRecoveryComplete::Response))
 {
-    WireFormat::BackupRecoveryComplete::Request& reqHdr(
+    WireFormat::BackupRecoveryComplete::Request* reqHdr(
             allocHeader<WireFormat::BackupRecoveryComplete>());
-    reqHdr.masterId = masterId.getId();
+    reqHdr->masterId = masterId.getId();
     send();
 }
 
@@ -313,8 +313,8 @@ RecoveryCompleteRpc::RecoveryCompleteRpc(Context& context, ServerId backupId,
  *      replicas stored on \a backupId for \a masterId.
  */
 StartReadingDataRpc::Result
-BackupClient::startReadingData(Context& context, ServerId backupId,
-        ServerId masterId, const ProtoBuf::Tablets& partitions)
+BackupClient::startReadingData(Context* context, ServerId backupId,
+        ServerId masterId, const ProtoBuf::Tablets* partitions)
 {
     StartReadingDataRpc rpc(context, backupId, masterId, partitions);
     return rpc.wait();
@@ -335,15 +335,15 @@ BackupClient::startReadingData(Context& context, ServerId backupId,
  *      Describes how the objects belonging to \a masterId are to be divided
  *      into groups for recovery.
  */
-StartReadingDataRpc::StartReadingDataRpc(Context& context, ServerId backupId,
-        ServerId masterId, const ProtoBuf::Tablets& partitions)
+StartReadingDataRpc::StartReadingDataRpc(Context* context, ServerId backupId,
+        ServerId masterId, const ProtoBuf::Tablets* partitions)
     : ServerIdRpcWrapper(context, backupId,
             sizeof(WireFormat::BackupStartReadingData::Response))
 {
-    WireFormat::BackupStartReadingData::Request& reqHdr(
+    WireFormat::BackupStartReadingData::Request* reqHdr(
             allocHeader<WireFormat::BackupStartReadingData>());
-    reqHdr.masterId = masterId.getId();
-    reqHdr.partitionsLength = ProtoBuf::serializeToResponse(request,
+    reqHdr->masterId = masterId.getId();
+    reqHdr->partitionsLength = ProtoBuf::serializeToRequest(&request,
             partitions);
     send();
 }
@@ -355,7 +355,7 @@ StartReadingDataRpc::StartReadingDataRpc(Context& context, ServerId backupId,
  *      The return value is an object that describes all of the segment
  *      replicas stored on \a backupId for \a masterId.
  *
- * \throw ServerDoesntExistException
+ * \throw ServerNotUpException
  *      The intended server for this RPC is not part of the cluster;
  *      if it ever existed, it has since crashed.
  */
@@ -363,17 +363,17 @@ StartReadingDataRpc::Result
 StartReadingDataRpc::wait()
 {
     waitAndCheckErrors();
-    const WireFormat::BackupStartReadingData::Response& respHdr(
+    const WireFormat::BackupStartReadingData::Response* respHdr(
             getResponseHeader<WireFormat::BackupStartReadingData>());
 
     Result result;
 
-    uint32_t segmentIdCount = respHdr.segmentIdCount;
-    uint32_t primarySegmentCount = respHdr.primarySegmentCount;
-    uint32_t digestBytes = respHdr.digestBytes;
-    uint64_t digestSegmentId = respHdr.digestSegmentId;
-    uint32_t digestSegmentLen = respHdr.digestSegmentLen;
-    response->truncateFront(sizeof(respHdr));
+    uint32_t segmentIdCount = respHdr->segmentIdCount;
+    uint32_t primarySegmentCount = respHdr->primarySegmentCount;
+    uint32_t digestBytes = respHdr->digestBytes;
+    uint64_t digestSegmentId = respHdr->digestSegmentId;
+    uint32_t digestSegmentLen = respHdr->digestSegmentLen;
+    response->truncateFront(sizeof(*respHdr));
 
     // segmentIdAndLength
     typedef WireFormat::BackupStartReadingData::Replica Replica;
@@ -489,7 +489,7 @@ StartReadingDataRpc::Result::operator=(Result&& other)
  *      the backup that handled this RPC.
  */
 vector<ServerId>
-BackupClient::writeSegment(Context& context,
+BackupClient::writeSegment(Context* context,
                            ServerId backupId,
                            ServerId masterId,
                            uint64_t segmentId,
@@ -556,7 +556,7 @@ BackupClient::writeSegment(Context& context,
  *      set to false will make that replica available for normal
  *      treatment as an open segment.
  */
-WriteSegmentRpc::WriteSegmentRpc(Context& context,
+WriteSegmentRpc::WriteSegmentRpc(Context* context,
                                  ServerId backupId,
                                  ServerId masterId,
                                  uint64_t segmentId,
@@ -569,19 +569,19 @@ WriteSegmentRpc::WriteSegmentRpc(Context& context,
     : ServerIdRpcWrapper(context, backupId,
                          sizeof(WireFormat::BackupWrite::Response))
 {
-    WireFormat::BackupWrite::Request& reqHdr(
+    WireFormat::BackupWrite::Request* reqHdr(
             allocHeader<WireFormat::BackupWrite>());
-    reqHdr.masterId = masterId.getId();
-    reqHdr.segmentId = segmentId;
-    reqHdr.offset = offset;
-    reqHdr.length = length;
-    reqHdr.footerIncluded = (footerEntry != NULL);
-    if (reqHdr.footerIncluded)
-        reqHdr.footerEntry = *footerEntry;
+    reqHdr->masterId = masterId.getId();
+    reqHdr->segmentId = segmentId;
+    reqHdr->offset = offset;
+    reqHdr->length = length;
+    reqHdr->footerIncluded = (footerEntry != NULL);
+    if (reqHdr->footerIncluded)
+        reqHdr->footerEntry = *footerEntry;
     else
-        reqHdr.footerEntry = Segment::OpaqueFooterEntry();
-    reqHdr.flags = flags;
-    reqHdr.atomic = atomic;
+        reqHdr->footerEntry = Segment::OpaqueFooterEntry();
+    reqHdr->flags = flags;
+    reqHdr->atomic = atomic;
     segment->appendToBuffer(request, offset, length);
     send();
 }
@@ -595,7 +595,7 @@ WriteSegmentRpc::WriteSegmentRpc(Context& context,
  *      replicated to this group of backups).  The list includes
  *      the backup that handled this RPC.
  *
- * \throw ServerDoesntExistException
+ * \throw ServerNotUpException
  *      The intended server for this RPC is not part of the cluster;
  *      if it ever existed, it has since crashed.
  */
@@ -603,11 +603,11 @@ vector<ServerId>
 WriteSegmentRpc::wait()
 {
     waitAndCheckErrors();
-    const WireFormat::BackupWrite::Response& respHdr(
+    const WireFormat::BackupWrite::Response* respHdr(
             getResponseHeader<WireFormat::BackupWrite>());
     vector<ServerId> group;
-    uint32_t respOffset = sizeof32(respHdr);
-    for (uint32_t i = 0; i < respHdr.numReplicas; i++) {
+    uint32_t respOffset = sizeof32(*respHdr);
+    for (uint32_t i = 0; i < respHdr->numReplicas; i++) {
         const uint64_t *backupId =
             response->getOffset<uint64_t>(respOffset);
         group.push_back(ServerId(*backupId));

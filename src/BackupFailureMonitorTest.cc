@@ -32,8 +32,8 @@ struct BackupFailureMonitorTest : public ::testing::Test {
 
     BackupFailureMonitorTest()
         : context()
-        , serverList(context)
-        , monitor(context, NULL)
+        , serverList(&context)
+        , monitor(&context, NULL)
     {
         Logger::get().setLogLevels(RAMCloud::SILENT_LOG_LEVEL);
     }

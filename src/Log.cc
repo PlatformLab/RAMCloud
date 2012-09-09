@@ -48,7 +48,7 @@ namespace RAMCloud {
  *      The ReplicaManager that will be used to make each of this Log's
  *      Segments durable.
  */
-Log::Log(Context& context,
+Log::Log(Context* context,
          const ServerConfig& config,
          LogEntryHandlers& entryHandlers,
          SegmentManager& segmentManager,

@@ -58,7 +58,7 @@ class ServerConfig;
  */
 class LogCleaner {
   public:
-    LogCleaner(Context& context,
+    LogCleaner(Context* context,
                const ServerConfig& config,
                SegmentManager& segmentManager,
                ReplicaManager& replicaManager,
@@ -182,7 +182,7 @@ void dumpStats(); //XXX
     }
 
     /// Shared RAMCloud information.
-    Context& context;
+    Context* context;
 
     /// The SegmentManager instance that we use to allocate survivor segments,
     /// report cleaned segments to, etc. This class owns all of the segments
@@ -241,6 +241,8 @@ void dumpStats(); //XXX
     /// The cleaner spins this new thread to do all of its work in. The tub
     /// simply indicates whether or not it's running.
     Tub<std::thread> thread;
+
+    DISALLOW_COPY_AND_ASSIGN(LogCleaner);
 };
 
 } // namespace

@@ -42,7 +42,7 @@ namespace RAMCloud {
  */
 class FailureDetector {
   public:
-    FailureDetector(Context& context,
+    FailureDetector(Context* context,
                     ServerId ourServerId);
     ~FailureDetector();
     void start();
@@ -76,7 +76,7 @@ class FailureDetector {
                   "Timeout us should be less than probe interval.");
 
     /// Shared RAMCloud information.
-    Context& context;
+    Context* context;
 
     /// Our ServerId (used to avoid pinging oneself).
     const ServerId       ourServerId;

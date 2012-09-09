@@ -36,7 +36,7 @@ namespace RAMCloud {
  *      send/receive fragments on. The transport takes ownership of this
  *      driver and will delete it in the destructor.
  */
-FastTransport::FastTransport(Context& context, Driver* driver)
+FastTransport::FastTransport(Context* context, Driver* driver)
     : context(context)
     , driver(driver)
     , clientSessions(this)
@@ -80,7 +80,7 @@ Transport::SessionRef
 FastTransport::getSession(const ServiceLocator& serviceLocator,
         uint32_t timeoutMs)
 {
-    Dispatch::Lock lock(context.dispatch);
+    Dispatch::Lock lock(context->dispatch);
     clientSessions.expire();
     ClientSession* session = clientSessions.get();
     session->init(serviceLocator, timeoutMs);
@@ -450,7 +450,7 @@ FastTransport::InboundMessage::init(uint16_t totalFrags,
     this->totalFrags = totalFrags;
     this->dataBuffer = dataBuffer;
     if (useTimer) {
-        timer->start(transport->context.dispatch->currentTime +
+        timer->start(transport->context->dispatch->currentTime +
                 session->timeoutCycles);
     }
 }
@@ -563,7 +563,7 @@ FastTransport::InboundMessage::processReceivedData(Driver::Received* received)
  *      when the timer trips.
  */
 FastTransport::InboundMessage::Timer::Timer(InboundMessage* const inboundMsg)
-    : Dispatch::Timer(*inboundMsg->transport->context.dispatch)
+    : Dispatch::Timer(*inboundMsg->transport->context->dispatch)
     , inboundMsg(inboundMsg)
 {
 }
@@ -582,13 +582,13 @@ FastTransport::InboundMessage::Timer::handleTimerEvent()
     if (inboundMsg->silentIntervals > MAX_SILENT_INTERVALS) {
         LOG(WARNING, "timeout waiting for response from server at %s",
                 inboundMsg->session->getServiceLocator().c_str());
-        inboundMsg->session->abort("");
+        inboundMsg->session->abort();
     } else {
         // Note: silentIntervals == 1 isn't cause for concern, since we could
         // have received the latest packet just before this timer fired.
         if (inboundMsg->silentIntervals > 1)
             inboundMsg->sendAck();
-        start(inboundMsg->transport->context.dispatch->currentTime +
+        start(inboundMsg->transport->context->dispatch->currentTime +
               inboundMsg->session->timeoutCycles);
     }
 }
@@ -873,7 +873,7 @@ FastTransport::OutboundMessage::sendOneData(uint32_t fragNumber,
  *      when the timer trips.
  */
 FastTransport::OutboundMessage::Timer::Timer(OutboundMessage* const outboundMsg)
-    : Dispatch::Timer(*outboundMsg->transport->context.dispatch)
+    : Dispatch::Timer(*outboundMsg->transport->context->dispatch)
     , outboundMsg(outboundMsg)
 {
 }
@@ -890,7 +890,7 @@ FastTransport::OutboundMessage::Timer::handleTimerEvent()
     if (outboundMsg->silentIntervals > MAX_SILENT_INTERVALS) {
         LOG(WARNING, "timeout waiting for acknowledgment from server at %s",
                 outboundMsg->session->getServiceLocator().c_str());
-        outboundMsg->session->abort("");
+        outboundMsg->session->abort();
     } else {
         outboundMsg->send();
     }
@@ -932,9 +932,9 @@ FastTransport::ServerSession::~ServerSession()
 
 /// This shouldn't ever be called.
 void
-FastTransport::ServerSession::abort(const string& message)
+FastTransport::ServerSession::abort()
 {
-    LOG(WARNING, "invoked unexpectedly: %s", message.c_str());
+    LOG(WARNING, "invoked unexpectedly");
 }
 
 /**
@@ -955,7 +955,7 @@ FastTransport::ServerSession::beginSending(uint8_t channelId)
     channel->state = ServerChannel::SENDING_WAITING;
     Buffer* response = &channel->currentRpc->replyPayload;
     channel->outboundMsg.beginSending(response);
-    lastActivityTime = transport->context.dispatch->currentTime;
+    lastActivityTime = transport->context->dispatch->currentTime;
 }
 
 /// This shouldn't ever be called.
@@ -1028,7 +1028,7 @@ FastTransport::ServerSession::getAddress()
 void
 FastTransport::ServerSession::processInboundPacket(Driver::Received* received)
 {
-    lastActivityTime = transport->context.dispatch->currentTime;
+    lastActivityTime = transport->context->dispatch->currentTime;
     Header* header = received->getOffset<Header>(0);
     if (header->channelId >= NUM_CHANNELS_PER_SESSION) {
         LOG(WARNING, "invalid channel id %d", header->channelId);
@@ -1129,7 +1129,7 @@ FastTransport::ServerSession::startSession(
     sessionOpen->numChannels = NUM_CHANNELS_PER_SESSION;
     Buffer::Iterator payloadIter(payload);
     transport->sendPacket(this->clientAddress.get(), &header, &payloadIter);
-    lastActivityTime = transport->context.dispatch->currentTime;
+    lastActivityTime = transport->context->dispatch->currentTime;
 }
 
 // - private -
@@ -1180,7 +1180,7 @@ FastTransport::ServerSession::processReceivedData(ServerChannel* channel,
     case ServerChannel::RECEIVING:
         if (channel->inboundMsg.processReceivedData(received)) {
             channel->state = ServerChannel::PROCESSING;
-            transport->context.serviceManager->handleRpc(channel->currentRpc);
+            transport->context->serviceManager->handleRpc(channel->currentRpc);
         }
         break;
     case ServerChannel::PROCESSING:
@@ -1240,12 +1240,12 @@ FastTransport::ClientSession::ClientSession(FastTransport* transport,
 
 FastTransport::ClientSession::~ClientSession()
 {
-    abort("");
+    abort();
 }
 
 // See Transport::ClientSession::abort().
 void
-FastTransport::ClientSession::abort(const string& message)
+FastTransport::ClientSession::abort()
 {
     for (uint32_t i = 0; i < numChannels; i++) {
         ClientRpc* rpc = channels[i].currentRpc;
@@ -1332,7 +1332,7 @@ FastTransport::ClientSession::expire(NonIdleAction nonIdleAction)
             }
         return false;
     }
-    abort("");
+    abort();
     return true;
 }
 
@@ -1403,7 +1403,7 @@ FastTransport::ClientSession::isConnected()
 void
 FastTransport::ClientSession::processInboundPacket(Driver::Received* received)
 {
-    lastActivityTime = transport->context.dispatch->currentTime;
+    lastActivityTime = transport->context->dispatch->currentTime;
     Header* header = received->getOffset<Header>(0);
     if (header->channelId >= numChannels) {
         if (header->getPayloadType() == Header::SESSION_OPEN)
@@ -1467,7 +1467,7 @@ FastTransport::ClientSession::sendRequest(Buffer* request, Buffer* response,
 
     // rpc will be performed immediately on the first available channel or
     // queued until a channel is idle if none are currently available.
-    lastActivityTime = transport->context.dispatch->currentTime;
+    lastActivityTime = transport->context->dispatch->currentTime;
     if (!isConnected()) {
         connect();
         LOG(DEBUG, "queueing RPC");
@@ -1684,7 +1684,7 @@ FastTransport::ClientSession::processSessionOpenResponse(
 
 // --- ClientSession::Timer ---
 FastTransport::ClientSession::Timer::Timer(ClientSession* session)
-    : Dispatch::Timer(*session->transport->context.dispatch)
+    : Dispatch::Timer(*session->transport->context->dispatch)
     , session(session)
 {
 }
@@ -1696,7 +1696,7 @@ FastTransport::ClientSession::Timer::handleTimerEvent()
         session->sessionOpenAttempts = 0;
         LOG(WARNING, "timeout while opening session with %s",
                 session->getServiceLocator().c_str());
-        session->abort("");
+        session->abort();
     } else {
         LOG(NOTICE, "retrying session open with %s",
             session->getServiceLocator().c_str());

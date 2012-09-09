@@ -29,7 +29,7 @@ namespace RAMCloud {
  *      will modify \c context so that its \c serverList and
  *      \c coordinatorServerList members refer to this object.
  */
-CoordinatorServerList::CoordinatorServerList(Context& context)
+CoordinatorServerList::CoordinatorServerList(Context* context)
     : AbstractServerList(context)
     , updater(context, *this)
     , serverList()
@@ -37,7 +37,7 @@ CoordinatorServerList::CoordinatorServerList(Context& context)
     , numberOfBackups(0)
     , updates()
 {
-    context.serverList = context.coordinatorServerList = this;
+    context->coordinatorServerList = this;
     updater.start();
 }
 
@@ -53,18 +53,21 @@ CoordinatorServerList::~CoordinatorServerList()
 // CoordinatorServerList Protected Methods From AbstractServerList
 //////////////////////////////////////////////////////////////////////
 ServerDetails*
-CoordinatorServerList::iget(size_t index)
-{
-    return (serverList[index].entry) ? serverList[index].entry.get() : NULL;
-}
-
-bool
-CoordinatorServerList::icontains(ServerId id) const
+CoordinatorServerList::iget(ServerId id)
 {
     uint32_t index = id.indexNumber();
-    return index < serverList.size() &&
-            serverList[index].entry &&
-            serverList[index].entry->serverId == id;
+    if ((index < serverList.size()) && serverList[index].entry) {
+        ServerDetails* details = serverList[index].entry.get();
+        if (details->serverId == id)
+            return details;
+    }
+    return NULL;
+}
+
+ServerDetails*
+CoordinatorServerList::iget(uint32_t index)
+{
+    return (serverList[index].entry) ? serverList[index].entry.get() : NULL;
 }
 
 /**
@@ -81,8 +84,7 @@ CoordinatorServerList::isize() const
 // CoordinatorServerList Public Methods
 //////////////////////////////////////////////////////////////////////
 /**
- * Add a new server to the CoordinatorServerList and generate a new, unique
- * ServerId for it.
+ * Add a new server to the CoordinatorServerList with a given ServerId.
  *
  * The result of this operation will be added in the class's update Protobuffer
  * intended for the cluster. To send out the update, call sendMembershipUpdate()
@@ -93,25 +95,25 @@ CoordinatorServerList::isize() const
  * The addition will be pushed to all registered trackers and those with
  * callbacks will be notified.
  *
+ * \param serverId
+ *      The serverId to be assigned to the new server.
  * \param serviceLocator
  *      The ServiceLocator string of the server to add.
  * \param serviceMask
  *      Which services this server supports.
  * \param readSpeed
  *      Speed of the storage on the enlisting server if it includes a backup
- *      service.  Argument is ignored otherwise.
- * \return
- *      The unique ServerId assigned to this server.
+ *      service. Argument is ignored otherwise.
  */
-ServerId
-CoordinatorServerList::add(string serviceLocator,
+void
+CoordinatorServerList::add(ServerId serverId,
+                           string serviceLocator,
                            ServiceMask serviceMask,
                            uint32_t readSpeed)
 {
     Lock lock(mutex);
-    ServerId newServerId = add(lock, serviceLocator, serviceMask, readSpeed);
-    sendMembershipUpdate(newServerId);
-    return newServerId;
+    add(lock, serverId, serviceLocator, serviceMask, readSpeed);
+    sendMembershipUpdate(serverId);
 }
 
 /**
@@ -141,6 +143,26 @@ CoordinatorServerList::crashed(ServerId serverId)
     Lock lock(mutex);
     crashed(lock, serverId);
     sendMembershipUpdate({});
+}
+
+/**
+ * Generate a new, unique ServerId that may later be assigned to a server
+ * using add().
+ *
+ * \return
+ *      The unique ServerId generated.
+ */
+ServerId
+CoordinatorServerList::generateUniqueId()
+{
+    uint32_t index = firstFreeIndex();
+
+    auto& pair = serverList[index];
+    ServerId id(index, pair.nextGenerationNumber);
+    pair.nextGenerationNumber++;
+    pair.entry.construct(id, "", ServiceMask());
+
+    return id;
 }
 
 /**
@@ -281,18 +303,6 @@ CoordinatorServerList::at(size_t index) const
     return serverList[index].entry;
 }
 
-/**
- * Return true if the given serverId is in this list regardless of
- * whether it is crashed or not.  This can be used to check membership,
- * rather than having to try and catch around the index operator.
- */
-bool
-CoordinatorServerList::contains(ServerId serverId) const
-{
-    Lock _(mutex);
-    return serverId.isValid() && icontains(serverId);
-}
-
 
 /**
  * Get the number of masters in the list; does not include servers in
@@ -407,20 +417,22 @@ void
 CoordinatorServerList::sendServerList(ServerId& serverId) {
     Lock lock(mutex);
 
-     if (!serverId.isValid() || !icontains(serverId)) {
-        LOG(WARNING, "Could not send list to unknown server %lu", *serverId);
+    if (iget(serverId) == NULL) {
+        LOG(WARNING, "Could not send list to unknown server %s",
+            serverId.toString().c_str());
         return;
     }
 
     const Entry& entry = getReferenceFromServerId(serverId);
     if (entry.status != ServerStatus::UP) {
-        LOG(WARNING, "Could not send list to crashed server %lu", *serverId);
+        LOG(WARNING, "Could not send list to crashed server %s",
+            serverId.toString().c_str());
         return;
     }
 
     if (!entry.services.has(WireFormat::MEMBERSHIP_SERVICE)) {
         LOG(WARNING, "Could not send list to server without membership "
-            "service: %lu", *serverId);
+            "service: %s", serverId.toString().c_str());
         return;
     }
 
@@ -429,28 +441,77 @@ CoordinatorServerList::sendServerList(ServerId& serverId) {
             WireFormat::BACKUP_SERVICE});
     updater.sendFullList(serverId, serializedServerList);
 }
+
 /**
- * Add a LogCabin entry id corresponding to a state change for
- * a particular server.
+ * Add a LogCabin entry id corresponding to the intial information for a server.
+ *
+ * \param serverId
+ *      ServerId of the server for which the LogCabin entry id is being stored.
+ *
+ * \param entryId
+ *      LogCabin entry id corresponding to the intial information for server.
  */
 void
-CoordinatorServerList::addLogCabinEntryId(ServerId serverId,
+CoordinatorServerList::addServerInfoLogId(ServerId serverId,
                                           LogCabin::Client::EntryId entryId)
 {
     Lock _(mutex);
     Entry& entry = const_cast<Entry&>(getReferenceFromServerId(serverId));
-    entry.logCabinEntryId = entryId;
+    entry.serverInfoLogId = entryId;
 }
 
 /**
  * Return the entry id corresponding to entry in LogCabin log
- * that has details for the server with id serverId.
+ * that has the intial information for the server.
+ *
+ * \param serverId
+ *      ServerId of the server for whose initial information the
+ *      LogCabin entry id is being requested.
+ *
+ * \return
+ *      LogCabin entry id corresponding to the intial information for server.
  */
 LogCabin::Client::EntryId
-CoordinatorServerList::getLogCabinEntryId(ServerId serverId)
+CoordinatorServerList::getServerInfoLogId(ServerId serverId)
 {
     Entry& entry = const_cast<Entry&>(getReferenceFromServerId(serverId));
-    return entry.logCabinEntryId;
+    return entry.serverInfoLogId;
+}
+
+/**
+ * Add a LogCabin entry id corresponding to the updates for a server.
+ *
+ * \param serverId
+ *      ServerId of the server for which the LogCabin entry id is being stored.
+ *
+ * \param entryId
+ *      LogCabin entry id corresponding to the updates for server.
+ */
+void
+CoordinatorServerList::addServerUpdateLogId(ServerId serverId,
+                                            LogCabin::Client::EntryId entryId)
+{
+    Lock _(mutex);
+    Entry& entry = const_cast<Entry&>(getReferenceFromServerId(serverId));
+    entry.serverUpdateLogId = entryId;
+}
+
+/**
+ * Return the entry id corresponding to entry in LogCabin log
+ * that has the updates for the server.
+ *
+ * \param serverId
+ *      ServerId of the server for whose updates the
+ *      LogCabin entry id is being requested.
+ *
+ * \return
+ *      LogCabin entry id corresponding to the updates for server.
+ */
+LogCabin::Client::EntryId
+CoordinatorServerList::getServerUpdateLogId(ServerId serverId)
+{
+    Entry& entry = const_cast<Entry&>(getReferenceFromServerId(serverId));
+    return entry.serverUpdateLogId;
 }
 
 //////////////////////////////////////////////////////////////////////
@@ -460,18 +521,27 @@ CoordinatorServerList::getLogCabinEntryId(ServerId serverId)
 // See docs on public version.
 // This version doesn't acquire locks and does not send out updates
 // since it is used internally.
-ServerId
+void
 CoordinatorServerList::add(Lock& lock,
+                           ServerId serverId,
                            string serviceLocator,
                            ServiceMask serviceMask,
                            uint32_t readSpeed)
 {
-    uint32_t index = firstFreeIndex();
+    uint32_t index = serverId.indexNumber();
+
+    // When add is not preceded by generateUniqueId(),
+    // for example, during coordinator recovery while adding a server that
+    // had already enlisted before the previous coordinator leader crashed,
+    // the serverList might not have space allocated for this index number.
+    // So we need to resize it explicitly.
+    if (index >= serverList.size())
+        serverList.resize(index + 1);
 
     auto& pair = serverList[index];
-    ServerId id(index, pair.nextGenerationNumber);
+    pair.nextGenerationNumber = serverId.generationNumber();
     pair.nextGenerationNumber++;
-    pair.entry.construct(id, serviceLocator, serviceMask);
+    pair.entry.construct(serverId, serviceLocator, serviceMask);
 
     if (serviceMask.has(WireFormat::MASTER_SERVICE)) {
         numberOfMasters++;
@@ -489,8 +559,6 @@ CoordinatorServerList::add(Lock& lock,
         tracker->enqueueChange(*pair.entry, ServerChangeEvent::SERVER_ADDED);
     foreach (ServerTrackerInterface* tracker, trackers)
         tracker->fireCallback();
-
-    return id;
 }
 
 // See docs on public version.
@@ -504,7 +572,7 @@ CoordinatorServerList::crashed(const Lock& lock,
     if (index >= serverList.size() || !serverList[index].entry ||
         serverList[index].entry->serverId != serverId) {
         throw ServerListException(HERE,
-            format("Invalid ServerId (%lu)", serverId.getId()));
+            format("Invalid ServerId (%s)", serverId.toString().c_str()));
     }
 
     auto& entry = serverList[index].entry;
@@ -539,7 +607,7 @@ CoordinatorServerList::remove(Lock& lock,
     if (index >= serverList.size() || !serverList[index].entry ||
         serverList[index].entry->serverId != serverId) {
         throw ServerListException(HERE,
-            format("Invalid ServerId (%lu)", serverId.getId()));
+            format("Invalid ServerId (%s)", serverId.toString().c_str()));
     }
 
     crashed(lock, serverId);
@@ -645,7 +713,7 @@ CoordinatorServerList::getReferenceFromServerId(const ServerId& serverId) const
         return *serverList[index].entry;
 
     throw ServerListException(HERE,
-        format("Invalid ServerId (%lu)", serverId.getId()));
+        format("Invalid ServerId (%s)", serverId.toString().c_str()));
 }
 
 /**
@@ -728,7 +796,8 @@ CoordinatorServerList::Entry::Entry()
     : ServerDetails()
     , minOpenSegmentId()
     , replicationId()
-    , logCabinEntryId()
+    , serverInfoLogId()
+    , serverUpdateLogId()
 {
 }
 
@@ -757,7 +826,8 @@ CoordinatorServerList::Entry::Entry(ServerId serverId,
                     ServerStatus::UP)
     , minOpenSegmentId(0)
     , replicationId(0)
-    , logCabinEntryId(LogCabin::Client::EntryId())
+    , serverInfoLogId(LogCabin::Client::EntryId())
+    , serverUpdateLogId(LogCabin::Client::EntryId())
 {
 }
 

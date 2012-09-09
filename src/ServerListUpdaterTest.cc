@@ -46,21 +46,23 @@ class ServerListUpdaterTest : public ::testing::Test {
 
     ServerListUpdaterTest()
         : context()
-        , csl(context)
-        , updater(context, csl)
+        , csl(&context)
+        , updater(&context, csl)
         , id1()
         , id2()
         , psl1()
         , psl2()
         , msg(ServerListUpdater::Opcode::STOP)
-        , transport(context)
-        , registrar(context, transport)
+        , transport(&context)
+        , registrar(&context, transport)
     {
         csl.updater.halt();
         psl1.set_version_number(4);
         psl2.set_version_number(99);
-        id1 = csl.add("mock:host=server1", {WireFormat::MEMBERSHIP_SERVICE}, 0);
-        id2 = csl.add("mock:host=server2", {WireFormat::MEMBERSHIP_SERVICE}, 0);
+        id1 = csl.generateUniqueId();
+        csl.add(id1, "mock:host=server1", {WireFormat::MEMBERSHIP_SERVICE}, 0);
+        id2 = csl.generateUniqueId();
+        csl.add(id2, "mock:host=server2", {WireFormat::MEMBERSHIP_SERVICE}, 0);
 
         // Prevents cross contamination of MembershipUpdates and transport logs
         deleteMessageQueue(csl.updater);
@@ -280,7 +282,7 @@ TEST_F(ServerListUpdaterTest, handleRequest) {
     TestLog::Enable _;
     updater.handleRequest(msg2);
     EXPECT_EQ("", transport.outputLog);
-    EXPECT_EQ("handleRequest: Async sendUpdate to 2 occured after it was "
+    EXPECT_EQ("handleRequest: Async sendUpdate to 2.0 occured after it was "
             "removed/downed in the CoordinatorServerList.", TestLog::get());
 }
 

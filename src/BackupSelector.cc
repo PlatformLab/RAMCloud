@@ -42,12 +42,12 @@ BackupStats::getExpectedReadMs() {
 
 /**
  * Constructor.
- * \param tracker
- *      The tracker used to find backups and track replica distribution
- *      stats.
+ * \param context
+ *      Overall information about this RAMCloud server; used to register
+ *      #tracker with this server's ServerList.
  */
-BackupSelector::BackupSelector(BackupTracker& tracker)
-    : tracker(tracker)
+BackupSelector::BackupSelector(Context* context)
+    : tracker(context)
 {
 }
 
@@ -75,9 +75,9 @@ BackupSelector::selectPrimary(uint32_t numBackups,
         }
     }
     BackupStats* stats = tracker[primary];
-    LOG(DEBUG, "Chose server %lu with %u primary replicas and %u MB/s disk "
+    LOG(DEBUG, "Chose server %s with %u primary replicas and %u MB/s disk "
                "bandwidth (expected time to read on recovery is %u ms)",
-               primary.getId(), stats->primaryReplicaCount,
+               primary.toString().c_str(), stats->primaryReplicaCount,
                stats->expectedReadMBytesPerSec, stats->getExpectedReadMs());
     ++stats->primaryReplicaCount;
 
@@ -107,8 +107,8 @@ BackupSelector::selectSecondary(uint32_t numBackups,
             !conflictWithAny(id, numBackups, backupIds)) {
             return id;
         }
-        auto waited = Cycles::toNanoseconds(Cycles::rdtsc() - startTicks);
-        if (waited > 1000000000lu) {
+        double waited = Cycles::toSeconds(Cycles::rdtsc() - startTicks);
+        if (waited > 1) {
             LOG(WARNING, "BackupSelector could not find a suitable server in "
                 "the last 1s; seems to be stuck; waiting for the coordinator "
                 "to notify this master of newly enlisted backups");
@@ -133,13 +133,13 @@ BackupSelector::applyTrackerChanges()
     ServerChangeEvent event;
     while (tracker.getChange(server, event)) {
         if (event == SERVER_ADDED) {
-           tracker[server.serverId] = new BackupStats;
-           tracker[server.serverId]->expectedReadMBytesPerSec =
-               server.expectedReadMBytesPerSec;
+            tracker[server.serverId] = new BackupStats;
+            tracker[server.serverId]->expectedReadMBytesPerSec =
+                server.expectedReadMBytesPerSec;
         } else if (event == SERVER_REMOVED) {
-           BackupStats* stats = tracker[server.serverId];
-           delete stats;
-           tracker[server.serverId] = NULL;
+            BackupStats* stats = tracker[server.serverId];
+            delete stats;
+            tracker[server.serverId] = NULL;
         }
     }
 }

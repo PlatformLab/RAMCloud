@@ -53,8 +53,8 @@ int ServiceManager::pollMicros = 10000;
 /**
  * Construct a ServiceManager.
  */
-ServiceManager::ServiceManager(Context &context)
-    : Dispatch::Poller(*context.dispatch)
+ServiceManager::ServiceManager(Context* context)
+    : Dispatch::Poller(*context->dispatch)
     , context(context)
     , services()
     , busyThreads()
@@ -70,7 +70,7 @@ ServiceManager::ServiceManager(Context &context)
  */
 ServiceManager::~ServiceManager()
 {
-    Dispatch& dispatch = *context.dispatch;
+    Dispatch& dispatch = *context->dispatch;
     assert(dispatch.isDispatchThread());
     while (!busyThreads.empty()) {
         dispatch.poll();
@@ -282,7 +282,7 @@ ServiceManager::waitForRpc(double timeoutSeconds) {
         if (Cycles::toSeconds(Cycles::rdtsc() - start) > timeoutSeconds) {
             return NULL;
         }
-        context.dispatch->poll();
+        context->dispatch->poll();
     }
 }
 
@@ -298,7 +298,7 @@ ServiceManager::waitForRpc(double timeoutSeconds) {
 void
 ServiceManager::workerMain(Worker* worker)
 {
-    Dispatch& dispatch = *worker->context.dispatch;
+    Dispatch& dispatch = *worker->context->dispatch;
     try {
         uint64_t pollCycles = Cycles::fromNanoseconds(1000*pollMicros);
         while (true) {
@@ -361,7 +361,7 @@ ServiceManager::workerMain(Worker* worker)
 void
 Worker::exit()
 {
-    Dispatch& dispatch = *context.dispatch;
+    Dispatch& dispatch = *context->dispatch;
     assert(dispatch.isDispatchThread());
     if (exited) {
         // Worker already exited; nothing to do.  This should only happen
@@ -436,7 +436,7 @@ Worker::sendReply()
  *      Another Session object, to which #sendRequest calls will be
  *      forwarded.
  */
-ServiceManager::WorkerSession::WorkerSession(Context& context,
+ServiceManager::WorkerSession::WorkerSession(Context* context,
         Transport::SessionRef wrapped)
     : context(context)
     , wrapped(wrapped)
@@ -446,12 +446,12 @@ ServiceManager::WorkerSession::WorkerSession(Context& context,
 
 // See Transport::Session::abort for documentation.
 void
-ServiceManager::WorkerSession::abort(const string& message)
+ServiceManager::WorkerSession::abort()
 {
     // Must make sure that the dispatch thread isn't running when we
     // invoked the real abort.
-    Dispatch::Lock lock(context.dispatch);
-    return wrapped->abort(message);
+    Dispatch::Lock lock(context->dispatch);
+    return wrapped->abort();
 }
 
 // See Transport::Session::cancelRequest for documentation.
@@ -461,7 +461,7 @@ ServiceManager::WorkerSession::cancelRequest(
 {
     // Must make sure that the dispatch thread isn't running when we
     // invoked the real cancelRequest.
-    Dispatch::Lock lock(context.dispatch);
+    Dispatch::Lock lock(context->dispatch);
     return wrapped->cancelRequest(notifier);
 }
 
@@ -472,7 +472,7 @@ ServiceManager::WorkerSession::sendRequest(Buffer* request,
 {
     // Must make sure that the dispatch thread isn't running when we
     // invoke the real sendRequest.
-    Dispatch::Lock lock(context.dispatch);
+    Dispatch::Lock lock(context->dispatch);
     wrapped->sendRequest(request, response, notifier);
 }
 

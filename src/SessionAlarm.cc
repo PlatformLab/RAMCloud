@@ -127,7 +127,7 @@ SessionAlarm::rpcFinished()
  * \param session
  *      Send the ping on this session.
  */
-SessionAlarmTimer::PingRpc::PingRpc(Context& context,
+SessionAlarmTimer::PingRpc::PingRpc(Context* context,
         Transport::SessionRef session)
     : RpcWrapper(sizeof(WireFormat::Ping::Response))
     , context(context)
@@ -150,8 +150,8 @@ SessionAlarmTimer::PingRpc::succeeded()
 /**
  * Constructor for SessionAlarmTimer objects.
  */
-SessionAlarmTimer::SessionAlarmTimer(Context& context)
-    : Dispatch::Timer(*context.dispatch)
+SessionAlarmTimer::SessionAlarmTimer(Context* context)
+    : Dispatch::Timer(*context->dispatch)
     , context(context)
     , activeAlarms()
     , timerIntervalTicks(Cycles::fromNanoseconds(TIMER_INTERVAL_MS * 1000000))
@@ -187,10 +187,10 @@ SessionAlarmTimer::handleTimerEvent()
             continue;
         if (alarm->waitingForResponseMs > alarm->abortMs) {
             RAMCLOUD_LOG(WARNING,
-                    "Server at %s is not responding, aborting session",
-                    alarm->session.getServiceLocator().c_str());
-            alarm->session.abort(format("server at %s is not responding",
-                    alarm->session.getServiceLocator().c_str()));
+                "Server at %s is not responding, aborting session after %d ms",
+                alarm->session.getServiceLocator().c_str(),
+                alarm->waitingForResponseMs);
+            alarm->session.abort();
             continue;
         }
         if (pings.find(alarm) != pings.end()) {
@@ -202,8 +202,7 @@ SessionAlarmTimer::handleTimerEvent()
         // It's time to initiate a ping RPC to make sure the server is still
         // alive.
         pings[alarm] = new PingRpc(context, &alarm->session);
-        RAMCLOUD_LOG(NOTICE, "initiated ping request to %s",
-                alarm->session.getServiceLocator().c_str());
+        RAMCLOUD_TEST_LOG("sent ping");
     }
 
     // Clean up ping RPCs that completed successfully.
@@ -213,7 +212,8 @@ SessionAlarmTimer::handleTimerEvent()
         it++;
         if (rpc->isReady()) {
             if (rpc->succeeded()) {
-                RAMCLOUD_LOG(NOTICE, "received ping response from %s",
+                RAMCLOUD_LOG(NOTICE,
+                        "Waiting for RPC from server at %s (ping succeeded)",
                         current->first->session.getServiceLocator().c_str());
             }
             delete rpc;

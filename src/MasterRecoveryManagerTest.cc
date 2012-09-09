@@ -32,9 +32,9 @@ struct MasterRecoveryManagerTest : public ::testing::Test {
 
     MasterRecoveryManagerTest()
         : context()
-        , serverList(context)
+        , serverList(&context)
         , tabletMap()
-        , mgr(context, tabletMap, NULL)
+        , mgr(&context, tabletMap, NULL)
     {
         Logger::get().setLogLevels(RAMCloud::SILENT_LOG_LEVEL);
     }
@@ -50,8 +50,9 @@ struct MasterRecoveryManagerTest : public ::testing::Test {
      *      ServerId of the entry added to #serverList.
      */
     ServerId addMaster() {
-        ServerId serverId =
-             serverList.add("fake-locator", {WireFormat::MASTER_SERVICE}, 0);
+        ServerId serverId = serverList.generateUniqueId();
+        serverList.add(serverId, "fake-locator",
+            {WireFormat::MASTER_SERVICE}, 0);
         serverList.updates.Clear(); // prevents cross contamination
         while (!mgr.taskQueue.isIdle())
             mgr.taskQueue.performTask();
@@ -93,7 +94,7 @@ TEST_F(MasterRecoveryManagerTest, startMasterRecoveryNoTablets) {
     auto crashedServerId = addMaster();
     TestLog::Enable _;
     mgr.startMasterRecovery(crashedServerId);
-    EXPECT_EQ("startMasterRecovery: Server 1 crashed, "
+    EXPECT_EQ("startMasterRecovery: Server 1.0 crashed, "
               "but it had no tablets", TestLog::get());
 }
 
@@ -103,7 +104,7 @@ TEST_F(MasterRecoveryManagerTest, startMasterRecovery) {
     tabletMap.addTablet({0, 0, ~0lu, crashedServerId, Tablet::NORMAL, {2, 3}});
     TestLog::Enable _;
     mgr.startMasterRecovery(crashedServerId);
-    EXPECT_EQ("startMasterRecovery: Scheduling recovery of master 1 | "
+    EXPECT_EQ("startMasterRecovery: Scheduling recovery of master 1.0 | "
                 "schedule: scheduled",
               TestLog::get());
     auto tablet = tabletMap.getTablet(0, 0, ~0lu);
@@ -121,7 +122,7 @@ TEST_F(MasterRecoveryManagerTest, startMasterRecovery) {
 
 TEST_F(MasterRecoveryManagerTest, destroyAndFreeRecovery) {
     std::unique_ptr<Recovery> recovery{
-        new Recovery(context, mgr.taskQueue, &tabletMap, &mgr.tracker, &mgr,
+        new Recovery(&context, mgr.taskQueue, &tabletMap, &mgr.tracker, &mgr,
                      {1, 0}, 0lu)};
     mgr.activeRecoveries[recovery->recoveryId] = recovery.get();
     mgr.destroyAndFreeRecovery(recovery.get());
@@ -136,7 +137,7 @@ TEST_F(MasterRecoveryManagerTest, trackerChangesEnqueued) {
     // Create a recovery which has serverId as a recovery master, make
     // sure it gets informed if serverId crashes.
     std::unique_ptr<Recovery> recovery{
-        new Recovery(context, mgr.taskQueue, &tabletMap, &mgr.tracker, &mgr,
+        new Recovery(&context, mgr.taskQueue, &tabletMap, &mgr.tracker, &mgr,
                      {1, 0},  0lu)};
     recovery->numPartitions = 2;
     mgr.tracker[ServerId(1, 0)] = recovery.get();
@@ -151,7 +152,7 @@ TEST_F(MasterRecoveryManagerTest, recoveryFinished) {
     EXPECT_EQ(0lu, serverList.version);
     addMaster();
     EXPECT_EQ(1lu, serverList.version);
-    Recovery recovery(context, mgr.taskQueue, &tabletMap, &mgr.tracker,
+    Recovery recovery(&context, mgr.taskQueue, &tabletMap, &mgr.tracker,
                       NULL, {1, 0}, 0lu);
     recovery.status = Recovery::BROADCAST_RECOVERY_COMPLETE;
     ASSERT_EQ(0lu, mgr.taskQueue.outstandingTasks());
@@ -168,7 +169,7 @@ TEST_F(MasterRecoveryManagerTest, recoveryFinishedUnsuccessful) {
     EXPECT_EQ(0lu, serverList.version);
     addMaster();
     EXPECT_EQ(1lu, serverList.version);
-    Recovery recovery(context, mgr.taskQueue, &tabletMap, &mgr.tracker,
+    Recovery recovery(&context, mgr.taskQueue, &tabletMap, &mgr.tracker,
                       NULL, {1, 0},  0lu);
     ASSERT_EQ(0lu, mgr.taskQueue.outstandingTasks());
     EXPECT_EQ(1lu, serverList.version);
@@ -201,7 +202,7 @@ TEST_F(MasterRecoveryManagerTest, recoveryMasterFinished) {
     EXPECT_EQ(3lu, serverList.version);
 
     std::unique_ptr<Recovery> recovery{
-        new Recovery(context, mgr.taskQueue, &tabletMap, &mgr.tracker, &mgr,
+        new Recovery(&context, mgr.taskQueue, &tabletMap, &mgr.tracker, &mgr,
                      crashedServerId,  0lu)};
     recovery->numPartitions = 1;
     mgr.activeRecoveries[recovery->recoveryId] = recovery.get();
@@ -220,13 +221,14 @@ TEST_F(MasterRecoveryManagerTest, recoveryMasterFinished) {
     TestLog::Enable _;
     mgr.taskQueue.performTask(); // Do RecoveryMasterFinishedTask.
     EXPECT_EQ(
-        "performTask: Coordinator tabletMap after recovery master 2 finished: "
+        "performTask: Coordinator tabletMap after recovery master 2.0 "
+            "finished: "
         "Tablet { tableId: 0 startKeyHash: 0 endKeyHash: 18446744073709551615 "
-            "serverId: 2 status: NORMAL ctime: 0, 0 } "
+            "serverId: 2.0 status: NORMAL ctime: 0, 0 } "
         "Tablet { tableId: 0 startKeyHash: 0 endKeyHash: 18446744073709551615 "
-            "serverId: 1 status: RECOVERING ctime: 2, 3 } | "
+            "serverId: 1.0 status: RECOVERING ctime: 2, 3 } | "
         "schedule: scheduled | "
-        "recoveryFinished: Recovery 1 completed for master 1 | "
+        "recoveryFinished: Recovery 1 completed for master 1.0 | "
         "schedule: scheduled | schedule: scheduled",
               TestLog::get());
 
@@ -249,7 +251,7 @@ TEST_F(MasterRecoveryManagerTest,
     addMaster(); // Recovery master.
 
     std::unique_ptr<Recovery> recovery{
-        new Recovery(context, mgr.taskQueue, &tabletMap, &mgr.tracker, &mgr,
+        new Recovery(&context, mgr.taskQueue, &tabletMap, &mgr.tracker, &mgr,
                      crashedServerId, 0lu)};
     recovery->numPartitions = 1;
     mgr.activeRecoveries[recovery->recoveryId] = recovery.get();
@@ -267,15 +269,15 @@ TEST_F(MasterRecoveryManagerTest,
     mgr.taskQueue.performTask();
     EXPECT_EQ(
         "performTask: A recovery master failed to recover its partition | "
-        "recoveryMasterFinished: Recovery master 2 failed to recover its "
-            "partition of the will for crashed server 1 | "
+        "recoveryMasterFinished: Recovery master 2.0 failed to recover its "
+            "partition of the will for crashed server 1.0 | "
         "recoveryMasterFinished: Recovery wasn't completely successful; will "
-            "not broadcast the end of recovery 1 for server 1 to backups | "
-        "recoveryFinished: Recovery 1 completed for master 1 | "
-        "recoveryFinished: Recovery of server 1 failed to recover some "
+            "not broadcast the end of recovery 1 for server 1.0 to backups | "
+        "recoveryFinished: Recovery 1 completed for master 1.0 | "
+        "recoveryFinished: Recovery of server 1.0 failed to recover some "
             "tablets, rescheduling another recovery | "
         "schedule: scheduled | "
-        "destroyAndFreeRecovery: Recovery of server 1 done (now 0 active "
+        "destroyAndFreeRecovery: Recovery of server 1.0 done (now 0 active "
             "recoveries)"
         , TestLog::get());
     recovery.release();
@@ -287,7 +289,7 @@ TEST_F(MasterRecoveryManagerTest,
     TestLog::reset();
     mgr.taskQueue.performTask();  // MaybeStartMasterRecoveryTask.
     EXPECT_EQ("schedule: scheduled | performTask: Starting recovery of server "
-                  "1 (now 1 active recoveries)", TestLog::get());
+                  "1.0 (now 1 active recoveries)", TestLog::get());
 }
 
 TEST_F(MasterRecoveryManagerTest,
@@ -319,10 +321,10 @@ TEST_F(MasterRecoveryManagerTest,
     TestLog::Enable _;
     mgr.taskQueue.performTask();
     EXPECT_EQ("schedule: scheduled | "
-              "performTask: Starting recovery of server 1 "
+              "performTask: Starting recovery of server 1.0 "
                   "(now 1 active recoveries) | "
               "schedule: scheduled | "
-              "performTask: Starting recovery of server 2 "
+              "performTask: Starting recovery of server 2.0 "
                   "(now 2 active recoveries) | "
               "performTask: 1 recoveries blocked waiting for other recoveries",
               TestLog::get());
@@ -355,9 +357,9 @@ TEST_F(MasterRecoveryManagerTest,
     TestLog::Enable _;
     mgr.taskQueue.performTask();
     EXPECT_EQ("schedule: scheduled | "
-              "performTask: Starting recovery of server 1 "
+              "performTask: Starting recovery of server 1.0 "
                   "(now 1 active recoveries) | "
-              "performTask: Delaying start of recovery of server 1; "
+              "performTask: Delaying start of recovery of server 1.0; "
                   "another recovery is active for the same ServerId | "
               "performTask: 1 recoveries blocked waiting for other recoveries",
               TestLog::get());

@@ -64,7 +64,7 @@ try
     const string& coordinatorLocator =
         optionParser.options.getCoordinatorLocator();
     LOG(NOTICE, "client: Connecting to %s", coordinatorLocator.c_str());
-    RamCloud client(context, coordinatorLocator.c_str());
+    RamCloud client(&context, coordinatorLocator.c_str());
 
     client.createTable("mainTable");
     uint64_t table = client.getTableId("mainTable");
@@ -110,7 +110,7 @@ try
     LOG(NOTICE, "Killing %s", session->getServiceLocator().c_str());
 
     CycleCounter<> backupRecoveryCycles;
-    KillRpc killOp(client, lastBackupTable, "0", 1);
+    KillRpc killOp(&client, lastBackupTable, "0", 1);
 
     // Ensure recovery of the master portion completed.
     client.objectFinder.waitForTabletDown();

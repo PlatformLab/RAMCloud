@@ -44,13 +44,11 @@ class TransportFactory;
  */
 class TransportManager {
   public:
-    explicit TransportManager(Context& context);
+    explicit TransportManager(Context* context);
     ~TransportManager();
     void initialize(const char* serviceLocator);
     void flushSession(const char* serviceLocator);
     Transport::SessionRef getSession(const char* serviceLocator);
-    Transport::SessionRef getSession(const char* serviceLocator,
-                                     ServerId serverId);
     string getListeningLocatorsString();
     Transport::SessionRef openSession(const char* serviceLocator);
     void registerMemory(void* base, size_t bytes);
@@ -71,10 +69,15 @@ class TransportManager {
      *      is requested.
      */
     void registerMock(Transport* transport, const char* protocol = "mock") {
+        mockRegistrations++;
         transportFactories.push_back(
                 new MockTransportFactory(context, transport, protocol));
         transports.push_back(NULL);
-        skipServerIdCheck = true;
+
+        // Skip RPCs to verify server ids: this makes tests much simpler,
+        // and individual tests can restore normal behavior if they need it.
+        if (context->serverList != NULL)
+            context->serverList->skipServerIdCheck = true;
     }
 
     /**
@@ -82,6 +85,7 @@ class TransportManager {
      * Must be paired with a call to #registerMock().
      */
     void unregisterMock() {
+        mockRegistrations--;
         delete transportFactories.back();
         transportFactories.pop_back();
         transports.pop_back();
@@ -89,23 +93,26 @@ class TransportManager {
     }
 
     struct MockRegistrar {
-        Context& context;
-        explicit MockRegistrar(Context& context, Transport& transport)
+        Context* context;
+        explicit MockRegistrar(Context* context, Transport& transport)
             : context(context)
         {
-            context.transportManager->registerMock(&transport);
+            context->transportManager->registerMock(&transport);
         }
         ~MockRegistrar() {
-            context.transportManager->unregisterMock();
+            context->transportManager->unregisterMock();
         }
+        DISALLOW_COPY_AND_ASSIGN(MockRegistrar);
     };
 #endif
 
   PRIVATE:
+    Transport::SessionRef openSessionInternal(const char* serviceLocator);
+
     /**
      * Shared RAMCloud information.
      */
-    Context &context;
+    Context* context;
 
     /**
      * True means this is a server application, false means this is a client only.
@@ -165,11 +172,10 @@ class TransportManager {
     uint32_t timeoutMs;
 
     /**
-     * During tests this variable can be set to true to disable the
-     * getServerId call in getSession (that call makes it painful to
-     * set up test configurations).
+     * Counts the number of calls to registerMock (minus the number of calls
+     * to unregisterMock), so we can clean up automatically in the destructor.
      */
-    bool skipServerIdCheck;
+    uint32_t mockRegistrations;
 
     DISALLOW_COPY_AND_ASSIGN(TransportManager);
 };

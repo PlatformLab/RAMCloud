@@ -15,28 +15,10 @@
 
 package RAMCloud.ProtoBuf;
 
-// The information appended to LogCabin by the Coordinator
-// to store its state during the enlistServer operation.
-message StateEnlistServer {
+// Used to extract the common entry_type field from data appended to LogCabin
+// using any ProtoBuf format defined.
+message EntryType {
 
     /// Entry type for this LogCabin entry.
     required string entry_type = 1;
-
-	/// Server id of the server that the enlisting server is replacing.
-    required fixed64 replaces_id = 2;
-
-	/// The id assigned to the enlisting server.
-    required fixed64 new_server_id = 3;
-
-	/// Services supported by the enlisting server.
-    required uint32 service_mask = 4;
-
-    /// Read speed of the enlisting server.
-    required uint32 read_speed = 5;
-
-	/// Write speed of the enlisting server.
-    required uint32 write_speed = 6;
-
-	/// Service Locator of the enlisting server.
-    required string service_locator = 7;
 }

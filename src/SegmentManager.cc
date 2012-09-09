@@ -42,7 +42,7 @@ namespace RAMCloud {
  *      The replica manager that will handle replication of segments this class
  *      allocates.
  */
-SegmentManager::SegmentManager(Context& context,
+SegmentManager::SegmentManager(Context* context,
                                const ServerConfig& config,
                                ServerId& logId,
                                SegletAllocator& allocator,
@@ -90,7 +90,7 @@ SegmentManager::SegmentManager(Context& context,
         freeSlots.push_back(i);
 
     // TODO(anyone): Get this hack out of here.
-    context.transportManager->registerMemory(
+    context->transportManager->registerMemory(
         const_cast<void*>(allocator.getBaseAddress()),
         allocator.getTotalBytes());
 }
@@ -199,8 +199,6 @@ SegmentManager::allocHead(bool mustNotFail)
     if (prevHead != NULL) {
         prevHead->close();
         prevHead->replicatedSegment->close();
-        // TODO(ryan): Should close be sync?
-        prevHead->replicatedSegment->sync(prevHead->getAppendedLength());
 
         if (prevHead->isEmergencyHead)
             free(prevHead);
@@ -331,7 +329,7 @@ SegmentManager::cleaningComplete(LogSegmentVector& clean)
         changeState(*s, FREEABLE_PENDING_DIGEST_AND_REFERENCES);
     }
 
-    LOG(NOTICE, "Cleaning used %u seglets to free %u seglets",
+    LOG(DEBUG, "Cleaning used %u seglets to free %u seglets",
         segletsUsed, segletsFreed);
     assert(segletsUsed <= segletsFreed);
 }
@@ -777,6 +775,12 @@ SegmentManager::free(LogSegment* s)
     // unconditionally remove it.
     if (idToSlotMap[id] == slot)
         idToSlotMap.erase(id);
+
+    // Free any backup replicas. Segments cleaned in memory will have had their
+    // replicatedSegment stolen and the pointer set to NULL on the old cleaned
+    // version of segment.
+    if (s->replicatedSegment != NULL)
+        s->replicatedSegment->free();
 
     removeFromLists(*s);
     states[slot].destroy();

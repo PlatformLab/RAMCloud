@@ -1,4 +1,4 @@
-/* Copyright (c) 2010 Stanford University
+/* Copyright (c) 2010-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -46,7 +46,7 @@ RejectRules defaultRejectRules;
  *      to the tablet.
  */
 void
-MasterClient::dropTabletOwnership(Context& context, ServerId serverId,
+MasterClient::dropTabletOwnership(Context* context, ServerId serverId,
         uint64_t tableId, uint64_t firstKeyHash, uint64_t lastKeyHash)
 {
     DropTabletOwnershipRpc rpc(context, serverId, tableId, firstKeyHash,
@@ -72,17 +72,17 @@ MasterClient::dropTabletOwnership(Context& context, ServerId serverId,
  *      Largest value in the 64-bit key hash space for this table that belongs
  *      to the tablet.
  */
-DropTabletOwnershipRpc::DropTabletOwnershipRpc(Context& context,
+DropTabletOwnershipRpc::DropTabletOwnershipRpc(Context* context,
         ServerId serverId, uint64_t tableId, uint64_t firstKeyHash,
         uint64_t lastKeyHash)
     : ServerIdRpcWrapper(context, serverId,
             sizeof(WireFormat::DropTabletOwnership::Response))
 {
-    WireFormat::DropTabletOwnership::Request& reqHdr(
+    WireFormat::DropTabletOwnership::Request* reqHdr(
             allocHeader<WireFormat::DropTabletOwnership>());
-    reqHdr.tableId = tableId;
-    reqHdr.firstKeyHash = firstKeyHash;
-    reqHdr.lastKeyHash = lastKeyHash;
+    reqHdr->tableId = tableId;
+    reqHdr->firstKeyHash = firstKeyHash;
+    reqHdr->lastKeyHash = lastKeyHash;
     send();
 }
 
@@ -99,12 +99,12 @@ DropTabletOwnershipRpc::DropTabletOwnershipRpc(Context& context,
  *      that does not yet contain data (i.e., any future data accepted by
  *      \a serverId will have a log position at least this high).
  *
- * \throw ServerDoesntExistException
+ * \throw ServerNotUpException
  *      The intended server for this RPC is not part of the cluster;
  *      if it ever existed, it has since crashed.
  */
 Log::Position
-MasterClient::getHeadOfLog(Context& context, ServerId serverId)
+MasterClient::getHeadOfLog(Context* context, ServerId serverId)
 {
     GetHeadOfLogRpc rpc(context, serverId);
     return rpc.wait();
@@ -120,7 +120,7 @@ MasterClient::getHeadOfLog(Context& context, ServerId serverId)
  * \param serverId
  *      Identifier for the target server.
  */
-GetHeadOfLogRpc::GetHeadOfLogRpc(Context& context, ServerId serverId)
+GetHeadOfLogRpc::GetHeadOfLogRpc(Context* context, ServerId serverId)
     : ServerIdRpcWrapper(context, serverId,
             sizeof(WireFormat::GetHeadOfLog::Response))
 {
@@ -136,7 +136,7 @@ GetHeadOfLogRpc::GetHeadOfLogRpc(Context& context, ServerId serverId)
  *      log that does not yet contain data (i.e., any future data accepted by
  *      the respondent will have a log position at least this high).
  *
- * \throw ServerDoesntExistException
+ * \throw ServerNotUpException
  *      The intended server for this RPC is not part of the cluster;
  *      if it ever existed, it has since crashed.
  */
@@ -144,9 +144,9 @@ Log::Position
 GetHeadOfLogRpc::wait()
 {
     waitAndCheckErrors();
-    const WireFormat::GetHeadOfLog::Response& respHdr(
+    const WireFormat::GetHeadOfLog::Response* respHdr(
             getResponseHeader<WireFormat::GetHeadOfLog>());
-    return { respHdr.headSegmentId, respHdr.headSegmentOffset };
+    return { respHdr->headSegmentId, respHdr->headSegmentOffset };
 }
 
 /**
@@ -181,7 +181,7 @@ GetHeadOfLogRpc::wait()
  *      the replica is no longer needed, so the backup can reclaim its space.
  */
 bool
-MasterClient::isReplicaNeeded(Context& context, ServerId serverId,
+MasterClient::isReplicaNeeded(Context* context, ServerId serverId,
         ServerId backupServerId, uint64_t segmentId)
 {
     IsReplicaNeededRpc rpc(context, serverId, backupServerId, segmentId);
@@ -207,15 +207,15 @@ MasterClient::isReplicaNeeded(Context& context, ServerId serverId,
  *      The segmentId of the replica which a backup server is considering
  *      freeing.
  */
-IsReplicaNeededRpc::IsReplicaNeededRpc(Context& context, ServerId serverId,
+IsReplicaNeededRpc::IsReplicaNeededRpc(Context* context, ServerId serverId,
         ServerId backupServerId, uint64_t segmentId)
     : ServerIdRpcWrapper(context, serverId,
             sizeof(WireFormat::IsReplicaNeeded::Response))
 {
-    WireFormat::IsReplicaNeeded::Request& reqHdr(
+    WireFormat::IsReplicaNeeded::Request* reqHdr(
             allocHeader<WireFormat::IsReplicaNeeded>());
-    reqHdr.backupServerId = backupServerId.getId();
-    reqHdr.segmentId = segmentId;
+    reqHdr->backupServerId = backupServerId.getId();
+    reqHdr->segmentId = segmentId;
     send();
 }
 
@@ -227,7 +227,7 @@ IsReplicaNeededRpc::IsReplicaNeededRpc(Context& context, ServerId serverId,
  *      replica (it could be needed for crash recovery in the future). False means
  *      the replica is no longer needed, so the backup can reclaim its space.
  *
- * \throw ServerDoesntExistException
+ * \throw ServerNotUpException
  *      The target server for this RPC is not part of the cluster;
  *      if it ever existed, it has since crashed.
  */
@@ -235,9 +235,9 @@ bool
 IsReplicaNeededRpc::wait()
 {
     waitAndCheckErrors();
-    const WireFormat::IsReplicaNeeded::Response& respHdr(
+    const WireFormat::IsReplicaNeeded::Response* respHdr(
             getResponseHeader<WireFormat::IsReplicaNeeded>());
-    return respHdr.needed;
+    return respHdr->needed;
 }
 
 /**
@@ -262,7 +262,7 @@ IsReplicaNeededRpc::wait()
  *      Estimate of the total number of bytes that will be migrated.
  */
 void
-MasterClient::prepForMigration(Context& context, ServerId serverId,
+MasterClient::prepForMigration(Context* context, ServerId serverId,
         uint64_t tableId, uint64_t firstKeyHash, uint64_t lastKeyHash,
         uint64_t expectedObjects, uint64_t expectedBytes)
 {
@@ -292,19 +292,19 @@ MasterClient::prepForMigration(Context& context, ServerId serverId,
  * \param expectedBytes
  *      Estimate of the total number of bytes that will be migrated.
  */
-PrepForMigrationRpc::PrepForMigrationRpc(Context& context, ServerId serverId,
+PrepForMigrationRpc::PrepForMigrationRpc(Context* context, ServerId serverId,
         uint64_t tableId, uint64_t firstKeyHash, uint64_t lastKeyHash,
         uint64_t expectedObjects, uint64_t expectedBytes)
     : ServerIdRpcWrapper(context, serverId,
             sizeof(WireFormat::PrepForMigration::Response))
 {
-    WireFormat::PrepForMigration::Request& reqHdr(
+    WireFormat::PrepForMigration::Request* reqHdr(
             allocHeader<WireFormat::PrepForMigration>());
-    reqHdr.tableId = tableId;
-    reqHdr.firstKeyHash = firstKeyHash;
-    reqHdr.lastKeyHash = lastKeyHash;
-    reqHdr.expectedObjects = expectedObjects;
-    reqHdr.expectedBytes = expectedBytes;
+    reqHdr->tableId = tableId;
+    reqHdr->firstKeyHash = firstKeyHash;
+    reqHdr->lastKeyHash = lastKeyHash;
+    reqHdr->expectedObjects = expectedObjects;
+    reqHdr->expectedBytes = expectedBytes;
     send();
 }
 
@@ -327,8 +327,8 @@ PrepForMigrationRpc::PrepForMigrationRpc(Context& context, ServerId serverId,
  *      in its entirety.
  */
 void
-MasterClient::receiveMigrationData(Context& context, ServerId serverId,
-        uint64_t tableId, uint64_t firstKeyHash, Segment& segment)
+MasterClient::receiveMigrationData(Context* context, ServerId serverId,
+        uint64_t tableId, uint64_t firstKeyHash, Segment* segment)
 {
     ReceiveMigrationDataRpc rpc(context, serverId, tableId, firstKeyHash,
             segment);
@@ -353,17 +353,17 @@ MasterClient::receiveMigrationData(Context& context, ServerId serverId,
  *      Segment containing the data being migrated. This will be sent
  *      in its entirety.
  */
-ReceiveMigrationDataRpc::ReceiveMigrationDataRpc(Context& context,
+ReceiveMigrationDataRpc::ReceiveMigrationDataRpc(Context* context,
         ServerId serverId, uint64_t tableId, uint64_t firstKeyHash,
-        Segment& segment)
+        Segment* segment)
     : ServerIdRpcWrapper(context, serverId,
             sizeof(WireFormat::ReceiveMigrationData::Response))
 {
-    WireFormat::ReceiveMigrationData::Request& reqHdr(
+    WireFormat::ReceiveMigrationData::Request* reqHdr(
             allocHeader<WireFormat::ReceiveMigrationData>());
-    reqHdr.tableId = tableId;
-    reqHdr.firstKeyHash = firstKeyHash;
-    reqHdr.segmentBytes = segment.appendToBuffer(request);
+    reqHdr->tableId = tableId;
+    reqHdr->firstKeyHash = firstKeyHash;
+    reqHdr->segmentBytes = segment->appendToBuffer(request);
     send();
 }
 
@@ -393,9 +393,9 @@ ReceiveMigrationDataRpc::ReceiveMigrationDataRpc(Context& context,
  *      The number of replicas in the 'replicas' list.
  */
 void
-MasterClient::recover(Context& context, ServerId serverId,
+MasterClient::recover(Context* context, ServerId serverId,
         uint64_t recoveryId, ServerId crashedServerId,
-        uint64_t partitionId, const ProtoBuf::Tablets& tablets,
+        uint64_t partitionId, const ProtoBuf::Tablets* tablets,
         const WireFormat::Recover::Replica* replicas, uint32_t numReplicas)
 {
     RecoverRpc rpc(context, serverId, recoveryId, crashedServerId,
@@ -427,21 +427,21 @@ MasterClient::recover(Context& context, ServerId serverId,
  * \param numReplicas
  *      The number of replicas in the 'replicas' list.
  */
-RecoverRpc::RecoverRpc(Context& context, ServerId serverId,
+RecoverRpc::RecoverRpc(Context* context, ServerId serverId,
         uint64_t recoveryId, ServerId crashedServerId, uint64_t partitionId,
-        const ProtoBuf::Tablets& tablets,
+        const ProtoBuf::Tablets* tablets,
         const WireFormat::Recover::Replica* replicas,
         uint32_t numReplicas)
     : ServerIdRpcWrapper(context, serverId,
             sizeof(WireFormat::Recover::Response))
 {
-    WireFormat::Recover::Request& reqHdr(
+    WireFormat::Recover::Request* reqHdr(
             allocHeader<WireFormat::Recover>());
-    reqHdr.recoveryId = recoveryId;
-    reqHdr.crashedServerId = crashedServerId.getId();
-    reqHdr.partitionId = partitionId;
-    reqHdr.tabletsLength = serializeToRequest(request, tablets);
-    reqHdr.numReplicas = numReplicas;
+    reqHdr->recoveryId = recoveryId;
+    reqHdr->crashedServerId = crashedServerId.getId();
+    reqHdr->partitionId = partitionId;
+    reqHdr->tabletsLength = serializeToRequest(&request, tablets);
+    reqHdr->numReplicas = numReplicas;
     Buffer::Chunk::appendToBuffer(&request, replicas,
             downCast<uint32_t>(sizeof(replicas[0])) * numReplicas);
     send();
@@ -466,7 +466,7 @@ RecoverRpc::RecoverRpc(Context& context, ServerId serverId,
  *      lowest key hash of the second tablet after the split.
  */
 void
-MasterClient::splitMasterTablet(Context& context, ServerId serverId,
+MasterClient::splitMasterTablet(Context* context, ServerId serverId,
         uint64_t tableId, uint64_t firstKeyHash,
         uint64_t lastKeyHash, uint64_t splitKeyHash)
 {
@@ -494,18 +494,18 @@ MasterClient::splitMasterTablet(Context& context, ServerId serverId,
  *      The key hash where the split occurs. This will become the
  *      lowest key hash of the second tablet after the split.
  */
-SplitMasterTabletRpc::SplitMasterTabletRpc(Context& context,
+SplitMasterTabletRpc::SplitMasterTabletRpc(Context* context,
         ServerId serverId, uint64_t tableId, uint64_t firstKeyHash,
         uint64_t lastKeyHash, uint64_t splitKeyHash)
     : ServerIdRpcWrapper(context, serverId,
             sizeof(WireFormat::SplitMasterTablet::Response))
 {
-    WireFormat::SplitMasterTablet::Request& reqHdr(
+    WireFormat::SplitMasterTablet::Request* reqHdr(
             allocHeader<WireFormat::SplitMasterTablet>());
-    reqHdr.tableId = tableId;
-    reqHdr.firstKeyHash = firstKeyHash;
-    reqHdr.lastKeyHash = lastKeyHash;
-    reqHdr.splitKeyHash = splitKeyHash;
+    reqHdr->tableId = tableId;
+    reqHdr->firstKeyHash = firstKeyHash;
+    reqHdr->lastKeyHash = lastKeyHash;
+    reqHdr->splitKeyHash = splitKeyHash;
     send();
 }
 
@@ -530,7 +530,7 @@ SplitMasterTabletRpc::SplitMasterTabletRpc(Context& context,
  *      to the tablet.
  */
 void
-MasterClient::takeTabletOwnership(Context& context, ServerId serverId,
+MasterClient::takeTabletOwnership(Context* context, ServerId serverId,
         uint64_t tableId, uint64_t firstKeyHash, uint64_t lastKeyHash)
 {
     TakeTabletOwnershipRpc rpc(context, serverId, tableId, firstKeyHash,
@@ -557,16 +557,16 @@ MasterClient::takeTabletOwnership(Context& context, ServerId serverId,
  *      to the tablet.
  */
 TakeTabletOwnershipRpc::TakeTabletOwnershipRpc(
-        Context& context, ServerId serverId, uint64_t tableId,
+        Context* context, ServerId serverId, uint64_t tableId,
         uint64_t firstKeyHash, uint64_t lastKeyHash)
     : ServerIdRpcWrapper(context, serverId,
             sizeof(WireFormat::TakeTabletOwnership::Response))
 {
-    WireFormat::TakeTabletOwnership::Request& reqHdr(
+    WireFormat::TakeTabletOwnership::Request* reqHdr(
             allocHeader<WireFormat::TakeTabletOwnership>());
-    reqHdr.tableId = tableId;
-    reqHdr.firstKeyHash = firstKeyHash;
-    reqHdr.lastKeyHash = lastKeyHash;
+    reqHdr->tableId = tableId;
+    reqHdr->firstKeyHash = firstKeyHash;
+    reqHdr->lastKeyHash = lastKeyHash;
     send();
 }
 

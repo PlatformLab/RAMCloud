@@ -27,7 +27,7 @@ namespace RAMCloud {
 
 namespace {
 struct MockServerTracker : public ServerTracker<int> {
-    explicit MockServerTracker(Context& context)
+    explicit MockServerTracker(Context* context)
             : ServerTracker<int>(context)
             , changes() {}
     void enqueueChange(const ServerDetails& server, ServerChangeEvent event)
@@ -48,8 +48,8 @@ class CoordinatorServerListTest : public ::testing::Test {
 
     CoordinatorServerListTest()
         : context()
-        , sl(context)
-        , tr(context)
+        , sl(&context)
+        , tr(&context)
         , mutex()
     {
     }
@@ -108,6 +108,16 @@ TEST_F(CoordinatorServerListTest, constructor) {
     EXPECT_FALSE(sl.updater.stop);
 }
 
+TEST_F(CoordinatorServerListTest, iget_serverId) {
+    sl.serverList.resize(6);
+    sl.add(ServerId(5, 2), "mock:id=5", {WireFormat::MASTER_SERVICE}, 100);
+    EXPECT_TRUE(sl.iget({20, 0}) == NULL);
+    EXPECT_TRUE(sl.iget({2, 0}) == NULL);
+    EXPECT_TRUE(sl.iget({5, 1}) == NULL);
+    EXPECT_TRUE(sl.iget({5, 2}) != NULL);
+    EXPECT_EQ("mock:id=5", sl.iget({5, 2})->serviceLocator);
+}
+
 TEST_F(CoordinatorServerListTest, add) {
 
     sl.updater.halt(); // Stop Updater to see enqueued protobufs
@@ -117,8 +127,8 @@ TEST_F(CoordinatorServerListTest, add) {
 
     {
         EXPECT_EQ(0U, sl.version);
-        EXPECT_EQ(ServerId(1, 0), sl.add("mock:host=server1",
-                                         {WireFormat::MASTER_SERVICE}, 100));
+        sl.add(ServerId(1, 0), "mock:host=server1",
+            {WireFormat::MASTER_SERVICE}, 100);
         EXPECT_EQ(1U, sl.version);
         EXPECT_TRUE(sl.serverList[1].entry);
         EXPECT_FALSE(sl.serverList[0].entry);
@@ -140,8 +150,7 @@ TEST_F(CoordinatorServerListTest, add) {
 
     {
         EXPECT_EQ(1U, sl.version);
-        EXPECT_EQ(ServerId(2, 0), sl.add("hi again",
-                                         {WireFormat::BACKUP_SERVICE}, 100));
+        sl.add(ServerId(2, 0), "hi again", {WireFormat::BACKUP_SERVICE}, 100);
         EXPECT_EQ(2U, sl.version);
         EXPECT_TRUE(sl.serverList[2].entry);
         EXPECT_EQ(ServerId(2, 0), sl.serverList[2].entry->serverId);
@@ -162,7 +171,8 @@ TEST_F(CoordinatorServerListTest, add) {
 
 TEST_F(CoordinatorServerListTest, add_trackerUpdated) {
     TestLog::Enable _;
-    sl.add("hi!", {WireFormat::MASTER_SERVICE}, 100);
+    ServerId serverId = sl.generateUniqueId();
+    sl.add(serverId, "hi!", {WireFormat::MASTER_SERVICE}, 100);
     EXPECT_EQ("fireCallback: called", TestLog::get());
     ASSERT_FALSE(tr.changes.empty());
     auto& server = tr.changes.front().server;
@@ -183,7 +193,8 @@ TEST_F(CoordinatorServerListTest, crashed) {
     // Ensure nothing was sent
     EXPECT_EQ(0U, sl.updater.msgQueue.size());
 
-    sl.add("hi!", {WireFormat::MASTER_SERVICE}, 100);
+    ServerId serverId = sl.generateUniqueId();
+    sl.add(serverId, "hi!", {WireFormat::MASTER_SERVICE}, 100);
     getAndPopUpdateFrom(sl);
 
     CoordinatorServerList::Entry entryCopy = sl[ServerId(1, 0)];
@@ -203,7 +214,8 @@ TEST_F(CoordinatorServerListTest, crashed) {
 
 TEST_F(CoordinatorServerListTest, crashed_trackerUpdated) {
     TestLog::Enable _;
-    ServerId serverId = sl.add("hi!", {WireFormat::MASTER_SERVICE}, 100);
+    ServerId serverId = sl.generateUniqueId();
+    sl.add(serverId, "hi!", {WireFormat::MASTER_SERVICE}, 100);
     sl.crashed(serverId);
     EXPECT_EQ("fireCallback: called | fireCallback: called", TestLog::get());
     ASSERT_FALSE(tr.changes.empty());
@@ -219,6 +231,14 @@ TEST_F(CoordinatorServerListTest, crashed_trackerUpdated) {
     EXPECT_EQ(SERVER_CRASHED, tr.changes.front().event);
 }
 
+TEST_F(CoordinatorServerListTest, generateUniqueId) {
+    EXPECT_EQ(ServerId(1, 0), sl.generateUniqueId());
+    EXPECT_EQ(ServerId(2, 0), sl.generateUniqueId());
+
+    sl.remove(ServerId(1, 0));
+    EXPECT_EQ(ServerId(1, 1), sl.generateUniqueId());
+}
+
 TEST_F(CoordinatorServerListTest, remove) {
     ProtoBuf::ServerList update;
     sl.updater.halt();
@@ -226,7 +246,8 @@ TEST_F(CoordinatorServerListTest, remove) {
     EXPECT_THROW(sl.remove(ServerId(0, 0)), Exception);
     EXPECT_TRUE(sl.updater.msgQueue.empty());
 
-    sl.add("hi!", {WireFormat::MASTER_SERVICE}, 100);
+    ServerId serverId1 = sl.generateUniqueId();
+    sl.add(serverId1, "hi!", {WireFormat::MASTER_SERVICE}, 100);
     CoordinatorServerList::Entry entryCopy = sl[ServerId(1, 0)];
     update = getAndPopUpdateFrom(sl);
     EXPECT_EQ(1 , update.server_size());
@@ -244,7 +265,8 @@ TEST_F(CoordinatorServerListTest, remove) {
     EXPECT_EQ(0U, sl.numberOfMasters);
     EXPECT_EQ(0U, sl.numberOfBackups);
 
-    sl.add("hi, again", {WireFormat::BACKUP_SERVICE}, 100);
+    ServerId serverId2 = sl.generateUniqueId();
+    sl.add(serverId2, "hi, again", {WireFormat::BACKUP_SERVICE}, 100);
     sl.crashed(ServerId(1, 1));
     EXPECT_TRUE(sl.serverList[1].entry);
     getAndPopUpdateFrom(sl); // remove add Protobuf
@@ -259,7 +281,8 @@ TEST_F(CoordinatorServerListTest, remove) {
 
 TEST_F(CoordinatorServerListTest, remove_trackerUpdated) {
     TestLog::Enable _;
-    ServerId serverId = sl.add("hi!", {WireFormat::MASTER_SERVICE}, 100);
+    ServerId serverId = sl.generateUniqueId();
+    sl.add(serverId, "hi!", {WireFormat::MASTER_SERVICE}, 100);
     sl.remove(serverId);
     EXPECT_EQ("fireCallback: called | fireCallback: called | "
               "fireCallback: called", TestLog::get());
@@ -280,7 +303,8 @@ TEST_F(CoordinatorServerListTest, remove_trackerUpdated) {
 
 TEST_F(CoordinatorServerListTest, indexOperator) {
     EXPECT_THROW(sl[ServerId(0, 0)], Exception);
-    sl.add("yo!", {WireFormat::MASTER_SERVICE}, 100);
+    ServerId serverId = sl.generateUniqueId();
+    sl.add(serverId, "yo!", {WireFormat::MASTER_SERVICE}, 100);
     EXPECT_EQ(ServerId(1, 0), sl[ServerId(1, 0)].serverId);
     EXPECT_EQ("yo!", sl[ServerId(1, 0)].serviceLocator);
     sl.crashed(ServerId(1, 0));
@@ -290,12 +314,18 @@ TEST_F(CoordinatorServerListTest, indexOperator) {
 
 TEST_F(CoordinatorServerListTest, nextMasterIndex) {
     EXPECT_EQ(-1U, sl.nextMasterIndex(0));
-    sl.add("", {WireFormat::BACKUP_SERVICE}, 100);
-    sl.add("", {WireFormat::MASTER_SERVICE}, 100);
-    sl.add("", {WireFormat::BACKUP_SERVICE}, 100);
-    sl.add("", {WireFormat::BACKUP_SERVICE}, 100);
-    sl.add("", {WireFormat::MASTER_SERVICE}, 100);
-    sl.add("", {WireFormat::BACKUP_SERVICE}, 100);
+    ServerId serverId1 = sl.generateUniqueId();
+    sl.add(serverId1, "", {WireFormat::BACKUP_SERVICE}, 100);
+    ServerId serverId2 = sl.generateUniqueId();
+    sl.add(serverId2, "", {WireFormat::MASTER_SERVICE}, 100);
+    ServerId serverId3 = sl.generateUniqueId();
+    sl.add(serverId3, "", {WireFormat::BACKUP_SERVICE}, 100);
+    ServerId serverId4 = sl.generateUniqueId();
+    sl.add(serverId4, "", {WireFormat::BACKUP_SERVICE}, 100);
+    ServerId serverId5 = sl.generateUniqueId();
+    sl.add(serverId5, "", {WireFormat::MASTER_SERVICE}, 100);
+    ServerId serverId6 = sl.generateUniqueId();
+    sl.add(serverId6, "", {WireFormat::BACKUP_SERVICE}, 100);
 
     EXPECT_EQ(2U, sl.nextMasterIndex(0));
     EXPECT_EQ(2U, sl.nextMasterIndex(2));
@@ -305,9 +335,12 @@ TEST_F(CoordinatorServerListTest, nextMasterIndex) {
 
 TEST_F(CoordinatorServerListTest, nextBackupIndex) {
     EXPECT_EQ(-1U, sl.nextMasterIndex(0));
-    sl.add("", {WireFormat::MASTER_SERVICE}, 100);
-    sl.add("", {WireFormat::BACKUP_SERVICE}, 100);
-    sl.add("", {WireFormat::MASTER_SERVICE}, 100);
+    ServerId serverId1 = sl.generateUniqueId();
+    sl.add(serverId1, "", {WireFormat::MASTER_SERVICE}, 100);
+    ServerId serverId2 = sl.generateUniqueId();
+    sl.add(serverId2, "", {WireFormat::BACKUP_SERVICE}, 100);
+    ServerId serverId3 = sl.generateUniqueId();
+    sl.add(serverId3, "", {WireFormat::MASTER_SERVICE}, 100);
 
     EXPECT_EQ(2U, sl.nextBackupIndex(0));
     EXPECT_EQ(2U, sl.nextBackupIndex(2));
@@ -324,11 +357,16 @@ TEST_F(CoordinatorServerListTest, serialize) {
         EXPECT_EQ(0, serverList.server_size());
     }
 
-    ServerId first = sl.add("", {WireFormat::MASTER_SERVICE}, 100);
-    sl.add("", {WireFormat::MASTER_SERVICE}, 100);
-    sl.add("", {WireFormat::MASTER_SERVICE}, 100);
-    sl.add("", {WireFormat::BACKUP_SERVICE}, 100);
-    ServerId last = sl.add("", {WireFormat::MASTER_SERVICE,
+    ServerId first = sl.generateUniqueId();
+    sl.add(first, "", {WireFormat::MASTER_SERVICE}, 100);
+    ServerId second = sl.generateUniqueId();
+    sl.add(second, "", {WireFormat::MASTER_SERVICE}, 100);
+    ServerId third = sl.generateUniqueId();
+    sl.add(third, "", {WireFormat::MASTER_SERVICE}, 100);
+    ServerId fourth = sl.generateUniqueId();
+    sl.add(fourth, "", {WireFormat::BACKUP_SERVICE}, 100);
+    ServerId last = sl.generateUniqueId();
+    sl.add(last, "", {WireFormat::MASTER_SERVICE,
         WireFormat::BACKUP_SERVICE}, 100);
     sl.remove(first);       // ensure removed entries are skipped
     sl.crashed(last);       // ensure crashed entries are included
@@ -381,8 +419,8 @@ bool statusFilter(string s) {
 }
 
 TEST_F(CoordinatorServerListTest, sendMembershipUpdate) {
-    MockTransport transport(context);
-    TransportManager::MockRegistrar _(context, transport);
+    MockTransport transport(&context);
+    TransportManager::MockRegistrar _(&context, transport);
     ProtoBuf::ServerList& update = sl.updates;
 
     // Used for internal calls that don't call sendMembersShipUpdates
@@ -390,19 +428,23 @@ TEST_F(CoordinatorServerListTest, sendMembershipUpdate) {
 
     // Test unoccupied server slot. Remove must wait until after last add to
     // ensure slot isn't recycled.
-    ServerId serverId1 =
-        sl.add(lock, "mock:host=server1", {WireFormat::MEMBERSHIP_SERVICE}, 0);
+    ServerId serverId1 = sl.generateUniqueId();
+    sl.add(lock, serverId1, "mock:host=server1",
+            {WireFormat::MEMBERSHIP_SERVICE}, 0);
 
     // Test crashed server gets skipped as a recipient.
-    ServerId serverId2 = sl.add(lock, "mock:host=server2", {}, 0);
+    ServerId serverId2 = sl.generateUniqueId();
+    sl.add(lock, serverId2, "mock:host=server2", {}, 0);
     sl.crashed(lock, serverId2);
 
     // Test server with no membership service.
-    ServerId serverId3 = sl.add(lock, "mock:host=server3", {}, 0);
+    ServerId serverId3 = sl.generateUniqueId();
+    sl.add(lock, serverId3, "mock:host=server3", {}, 0);
 
     // Test exclude list.
-    ServerId serverId4 =
-        sl.add(lock, "mock:host=server4", {WireFormat::MEMBERSHIP_SERVICE}, 0);
+    ServerId serverId4 = sl.generateUniqueId();
+    sl.add(lock, serverId4, "mock:host=server4",
+            {WireFormat::MEMBERSHIP_SERVICE}, 0);
     sl.remove(lock, serverId1);
 
     update.Clear();
@@ -415,8 +457,9 @@ TEST_F(CoordinatorServerListTest, sendMembershipUpdate) {
     EXPECT_EQ("", transport.outputLog);
     EXPECT_EQ("", TestLog::get());
 
-    ServerId serverId5 =
-        sl.add(lock, "mock:host=server5", {WireFormat::MEMBERSHIP_SERVICE}, 0);
+    ServerId serverId5 = sl.generateUniqueId();
+    sl.add(lock, serverId5, "mock:host=server5",
+            {WireFormat::MEMBERSHIP_SERVICE}, 0);
 
     update.Clear();
 
@@ -429,8 +472,8 @@ TEST_F(CoordinatorServerListTest, sendMembershipUpdate) {
     transport.setInput("0 0"); // Server 4 gets the update just fine.
 
     // Call without add to generate update
-    ServerId serverId6 =
-        sl.add("mock:host=server6", {WireFormat::MEMBERSHIP_SERVICE}, 0);
+    ServerId serverId6 = sl.generateUniqueId();
+    sl.add(serverId6, "mock:host=server6", {WireFormat::MEMBERSHIP_SERVICE}, 0);
 
     sl.sync(); // Need to wait for updates to propagate
 
@@ -441,9 +484,9 @@ TEST_F(CoordinatorServerListTest, sendMembershipUpdate) {
             "ck:host=server6-/0 0x35000000 0 273 0 /0",   // Update to server 4
             transport.outputLog);
 
-    EXPECT_EQ("fireCallback: called | sendMembershipUpdate: Server 4294967297 "
+    EXPECT_EQ("fireCallback: called | sendMembershipUpdate: Server 1.1 "
               "had lost an update. Sending whole list. | "
-              "sendMembershipUpdate: Server list update sent to server 4",
+              "sendMembershipUpdate: Server list update sent to server 4.0",
               TestLog::get());
 }
 
@@ -451,9 +494,11 @@ TEST_F(CoordinatorServerListTest, firstFreeIndex) {
     EXPECT_EQ(0U, sl.serverList.size());
     EXPECT_EQ(1U, sl.firstFreeIndex());
     EXPECT_EQ(2U, sl.serverList.size());
-    sl.add("hi", {WireFormat::MASTER_SERVICE}, 100);
+    ServerId serverId1 = sl.generateUniqueId();
+    sl.add(serverId1, "hi", {WireFormat::MASTER_SERVICE}, 100);
     EXPECT_EQ(2U, sl.firstFreeIndex());
-    sl.add("hi again", {WireFormat::MASTER_SERVICE}, 100);
+    ServerId serverId2 = sl.generateUniqueId();
+    sl.add(serverId2, "hi again", {WireFormat::MASTER_SERVICE}, 100);
     EXPECT_EQ(3U, sl.firstFreeIndex());
     sl.remove(ServerId(2, 0));
     EXPECT_EQ(2U, sl.firstFreeIndex());
@@ -464,7 +509,8 @@ TEST_F(CoordinatorServerListTest, firstFreeIndex) {
 TEST_F(CoordinatorServerListTest, getReferenceFromServerId) {
     EXPECT_THROW(sl.getReferenceFromServerId(ServerId(0, 0)), Exception);
     EXPECT_THROW(sl.getReferenceFromServerId(ServerId(1, 0)), Exception);
-    sl.add("", {WireFormat::MASTER_SERVICE}, 100);
+    ServerId serverId = sl.generateUniqueId();
+    sl.add(serverId, "", {WireFormat::MASTER_SERVICE}, 100);
     EXPECT_THROW(sl.getReferenceFromServerId(ServerId(0, 0)), Exception);
     EXPECT_NO_THROW(sl.getReferenceFromServerId(ServerId(1, 0)));
     EXPECT_THROW(sl.getReferenceFromServerId(ServerId(1, 1)), Exception);
@@ -514,22 +560,45 @@ TEST_F(CoordinatorServerListTest, Entry_serialize) {
     EXPECT_EQ(ServerStatus::UP, ServerStatus(serialEntry2.status()));
 }
 
-TEST_F(CoordinatorServerListTest, addLogCabinEntryId) {
-    ServerId serverId = sl.add("", {WireFormat::MASTER_SERVICE}, 100);
-    sl.addLogCabinEntryId(serverId, 10);
+TEST_F(CoordinatorServerListTest, addServerInfoLogId) {
+    ServerId serverId = sl.generateUniqueId();
+    sl.add(serverId, "", {WireFormat::MASTER_SERVICE}, 100);
+    sl.addServerInfoLogId(serverId, 10);
 
     CoordinatorServerList::Entry entry(sl.getReferenceFromServerId(serverId));
-    EXPECT_EQ(10U, entry.logCabinEntryId);
+    EXPECT_EQ(10U, entry.serverInfoLogId);
 }
 
-TEST_F(CoordinatorServerListTest, getLogCabinEntryIds) {
-    ServerId serverId = sl.add("", {WireFormat::MASTER_SERVICE}, 100);
+TEST_F(CoordinatorServerListTest, getServerInfoLogId) {
+    ServerId serverId = sl.generateUniqueId();
+    sl.add(serverId, "", {WireFormat::MASTER_SERVICE}, 100);
     CoordinatorServerList::Entry& entry =
         const_cast<CoordinatorServerList::Entry&>(
             sl.getReferenceFromServerId(serverId));
-    entry.logCabinEntryId = 10U;
+    entry.serverInfoLogId = 10U;
 
-    LogCabin::Client::EntryId entryId = sl.getLogCabinEntryId(serverId);
+    LogCabin::Client::EntryId entryId = sl.getServerInfoLogId(serverId);
+    EXPECT_EQ(10U, entryId);
+}
+
+TEST_F(CoordinatorServerListTest, addServerUpdateLogId) {
+    ServerId serverId = sl.generateUniqueId();
+    sl.add(serverId, "", {WireFormat::MASTER_SERVICE}, 100);
+    sl.addServerUpdateLogId(serverId, 10);
+
+    CoordinatorServerList::Entry entry(sl.getReferenceFromServerId(serverId));
+    EXPECT_EQ(10U, entry.serverUpdateLogId);
+}
+
+TEST_F(CoordinatorServerListTest, getServerUpdateLogId) {
+    ServerId serverId = sl.generateUniqueId();
+    sl.add(serverId, "", {WireFormat::MASTER_SERVICE}, 100);
+    CoordinatorServerList::Entry& entry =
+        const_cast<CoordinatorServerList::Entry&>(
+            sl.getReferenceFromServerId(serverId));
+    entry.serverUpdateLogId = 10U;
+
+    LogCabin::Client::EntryId entryId = sl.getServerUpdateLogId(serverId);
     EXPECT_EQ(10U, entryId);
 }
 

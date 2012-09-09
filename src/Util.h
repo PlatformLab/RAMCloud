@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2011 Stanford University
+/* Copyright (c) 2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -13,15 +13,27 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-package RAMCloud.ProtoBuf;
+#ifndef RAMCLOUD_UTIL_H
+#define RAMCLOUD_UTIL_H
 
-// The information appended to LogCabin by the Coordinator
-// to store the state of hintServerDown operation.
-message StateHintServerDown {
+#include <time.h>
+#include "Common.h"
 
-    /// Entry type for this LogCabin entry.
-    required string entry_type = 1;
+namespace RAMCloud {
 
-    /// ServerId of the server that is suspected to be down.
-    required uint64 server_id = 2;
-}
+/**
+ * Miscellaneous methods that seem like they might be useful in several
+ * different places.
+ */
+namespace Util {
+
+bool timespecLess(const struct timespec& t1, const struct timespec& t2);
+bool timespecLessEqual(const struct timespec& t1, const struct timespec& t2);
+struct timespec timespecAdd(const struct timespec& t1,
+        const struct timespec& t2);
+
+} // end Util
+
+} // end RAMCloud
+
+#endif  // RAMCLOUD_UTIL_H
