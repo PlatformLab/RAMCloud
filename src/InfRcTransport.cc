@@ -58,7 +58,7 @@
  *  - Servers receive client tuples, create an associated queue pair, and
  *    reply via UDP with their QP's tuple. Think of this as TCP's SYN/ACK.
  *  - Clients receive the server's tuple reply and complete their queue pair
- *    setup. Communication over infiniband is ready to go. 
+ *    setup. Communication over infiniband is ready to go.
  *
  * Of course, using UDP means these things can get lost. We should have a
  * mechanism for cleaning up halfway-completed QPs that occur when clients
@@ -792,7 +792,7 @@ InfRcTransport<Infiniband>::reapTxBuffers()
 /**
  * Obtain the maximum rpc size. This is limited by the infiniband
  * specification to 2GB(!), though we artificially limit it to a
- * little more than a segment size to avoid allocating too much 
+ * little more than a segment size to avoid allocating too much
  * space in RX buffers.
  */
 template<typename Infiniband>
@@ -1086,9 +1086,17 @@ InfRcTransport<Infiniband>::Poller::poll()
                     t->clientRpcsActiveTime.destroy();
                 goto next;
             }
-            LOG(WARNING, "incoming data doesn't match active RPC "
+
+            // nonce doesn't match any outgoingRpcs, which means that
+            // numUsedClientsrqBuffers was not previously incremented by
+            // the start of an rpc. Thus, it is incremented here (since
+            // we're "using" it right now) right before posting it back.
+            t->numUsedClientSrqBuffers++;
+            t->postSrqReceiveAndKickTransmit(t->clientSrq, bd);
+            LOG(NOTICE, "incoming data doesn't match active RPC "
                 "(nonce 0x%016lx); perhaps RPC was cancelled?",
                 header.nonce);
+
       next: { /* pass */ }
         }
     }
@@ -1166,7 +1174,7 @@ InfRcTransport<Infiniband>::Poller::poll()
  *      The transport that owns the provided BufferDescriptor 'bd'.
  * \param srq
  *      The shared receive queue which bd will be returned to.
- * \param bd 
+ * \param bd
  *      The BufferDescriptor to return to the HCA on Buffer destruction.
  */
 template<typename Infiniband>
@@ -1237,7 +1245,7 @@ InfRcTransport<Infiniband>::PayloadChunk::~PayloadChunk()
  *      The transport that owns the provided BufferDescriptor 'bd'.
  * \param srq
  *      The shared receive queue which bd will be returned to.
- * \param bd 
+ * \param bd
  *      The BufferDescriptor to return to the HCA on Buffer destruction.
  */
 template<typename Infiniband>
