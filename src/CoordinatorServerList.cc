@@ -37,8 +37,8 @@ CoordinatorServerList::CoordinatorServerList(Context* context)
     , serverList()
     , numberOfMasters(0)
     , numberOfBackups(0)
-    , concurrentRPCs(5)
-    , rpcTimeoutNs(10000UL * 1000)
+    , concurrentRPCs(5) //TODO(syang0) John wants a soft numbers for these
+    , rpcTimeoutNs(10UL * 1000 * 1000)  // 10ms
     , stopUpdater(true)
     , lastScan()
     , update()
