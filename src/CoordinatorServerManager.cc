@@ -409,7 +409,7 @@ CoordinatorServerManager::ServerDown::complete(EntryId entryId)
     EntryId serverInfoLogId =
         manager.service.serverList.getServerInfoLogId(serverId);
     EntryId serverUpdateLogId =
-        manager.service.serverList.getServerInfoLogId(serverId);
+        manager.service.serverList.getServerUpdateLogId(serverId);
 
     // If this machine has a backup and master on the same server it is best
     // to remove the dead backup before initiating recovery. Otherwise, other
