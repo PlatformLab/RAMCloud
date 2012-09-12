@@ -104,9 +104,11 @@ class CoordinatorServerList : public AbstractServerList{
         uint64_t serverListVersion;
 
         /**
-         * Marks whether the entry is being sent server list update rpcs or not.
+         * Marks whether the entry is being sent an update rpc or not.
+         * 0 means it's not updating and any other value is what it's being
+         * updated to.
          */
-        bool isBeingUpdated;
+        uint64_t isBeingUpdated;
 
         /**
          * Entry id corresponding to entry in LogCabin log that has
@@ -270,10 +272,11 @@ class CoordinatorServerList : public AbstractServerList{
     /// Number of backups in the server list.
     uint32_t numberOfBackups;
 
-    /// max number of concurrent update Rpcs that can be issued
+    /// max number of concurrent update Rpcs that can be issued (soft limit)
     uint32_t concurrentRPCs;
 
     /// Timeout for the rpcs in nanoseconds before they are cancel()ed
+    /// Value of 0 = infinite time
     uint64_t rpcTimeoutNs;
 
     /**

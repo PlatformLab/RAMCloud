@@ -23,6 +23,7 @@
 #include "ServerTracker.h"
 #include "ShortMacros.h"
 #include "TransportManager.h"
+#include "../obj.master/ServerList.pb.h"
 
 namespace RAMCloud {
 
@@ -550,9 +551,9 @@ TEST_F(CoordinatorServerListTest, isClusterUpToDate) {
                 (sl.getReferenceFromServerId(id5));
     entry.serverListVersion = sl.version;
     EXPECT_TRUE(sl.isClusterUpToDate(lock));
-    entry.isBeingUpdated = true;
+    entry.isBeingUpdated = sl.version;
     EXPECT_FALSE(sl.isClusterUpToDate(lock));
-    entry.isBeingUpdated = false;
+    entry.isBeingUpdated = 0;
     EXPECT_TRUE(sl.isClusterUpToDate(lock));
 }
 
@@ -666,7 +667,7 @@ TEST_F(CoordinatorServerListTest, hasUpdates) {
     sl.updateEntryVersion(id1, 0);
     EXPECT_TRUE(sl.hasUpdates(lock));
 
-    sl.serverList[id1.indexNumber()].entry->isBeingUpdated = true;
+    sl.serverList[id1.indexNumber()].entry->isBeingUpdated = sl.version;
     EXPECT_FALSE(sl.hasUpdates(lock));
 
     sl.updateEntryVersion(id1, sl.version);
@@ -699,9 +700,9 @@ TEST_F(CoordinatorServerListTest, hasUpdates_partialPrune) {
     EXPECT_TRUE(sl.hasUpdates(lock));
 
     // Make sure no prunes occur while updating
-    sl.serverList[id1.indexNumber()].entry->isBeingUpdated = true;
-    sl.serverList[id2.indexNumber()].entry->isBeingUpdated = true;
-    sl.serverList[id3.indexNumber()].entry->isBeingUpdated = true;
+    sl.serverList[id1.indexNumber()].entry->isBeingUpdated = sl.version;
+    sl.serverList[id2.indexNumber()].entry->isBeingUpdated = sl.version;
+    sl.serverList[id3.indexNumber()].entry->isBeingUpdated = sl.version;
     EXPECT_EQ(3UL, sl.updates.size());
     sl.lastScan.noUpdatesFound = false; // tricks full rescan
     EXPECT_FALSE(sl.hasUpdates(lock)); // False because all are updating
@@ -709,10 +710,43 @@ TEST_F(CoordinatorServerListTest, hasUpdates_partialPrune) {
     // Update first one and expect prune to version 3
     sl.updateEntryVersion(id1, 2);
     EXPECT_TRUE(sl.hasUpdates(lock));
-    sl.serverList[id1.indexNumber()].entry->isBeingUpdated = true;
+    sl.serverList[id1.indexNumber()].entry->isBeingUpdated = sl.version;
 
     EXPECT_EQ(1UL, sl.updates.size());
     EXPECT_EQ(3UL, sl.updates.front().version_number());
+}
+
+TEST_F(CoordinatorServerListTest, hasUpdates_specialCase) {
+    // This case was discovered in a bug whereby the prune was pruning too much
+    // when it assumes an entry with version 0 will always update to the
+    // latest version. The case this would not be true is in this timeline:
+    // Server1 -> initiate update from 0 -> 2
+    // Server2 added
+    // Server2 -> initiate and finish update 0 -> 3
+    // Prune Occurs (pruning up to 3)
+    // Server1 -> finish update to 2, asks for pruned 3.
+
+    Lock lock(mutex); // tricks private calls
+    sl.haltUpdater();
+
+    ServerId id1 = sl.generateUniqueId();
+    sl.add(id1, "mock:host=server1", {WireFormat::MEMBERSHIP_SERVICE}, 100);
+    EXPECT_TRUE(sl.hasUpdates(lock));
+    EXPECT_FALSE(sl.updates.empty());
+    (const_cast<CoordinatorServerList::Entry&>
+            (sl.getReferenceFromServerId(id1))).isBeingUpdated = sl.version;
+    EXPECT_FALSE(sl.hasUpdates(lock));
+
+    // Start and finish update of server 2
+    ServerId id2 = sl.generateUniqueId();
+    sl.add(id2, "mock:host=server1", {WireFormat::MEMBERSHIP_SERVICE}, 100);
+    EXPECT_TRUE(sl.hasUpdates(lock));
+    sl.updateEntryVersion(id2, sl.version);
+    EXPECT_FALSE(sl.hasUpdates(lock));
+    EXPECT_FALSE(sl.updates.empty());
+
+    // make sure the update 1->2 has not been pruned
+    EXPECT_EQ(sl.version, sl.updates.front().version_number());
 }
 
 TEST_F(CoordinatorServerListTest, updateEntryVersion) {
@@ -723,7 +757,7 @@ TEST_F(CoordinatorServerListTest, updateEntryVersion) {
 
     sl.updateEntryVersion(id1, 2358);
     EXPECT_EQ(2358UL, sl.getReferenceFromServerId(id1).serverListVersion);
-    EXPECT_FALSE(sl.getReferenceFromServerId(id1).isBeingUpdated);
+    EXPECT_EQ(0UL, sl.getReferenceFromServerId(id1).isBeingUpdated);
 }
 
 TEST_F(CoordinatorServerListTest, updateEntryVersion_booleanToggles) {
@@ -733,12 +767,12 @@ TEST_F(CoordinatorServerListTest, updateEntryVersion_booleanToggles) {
     sl.add(id1, "mock:host=server1", {WireFormat::MASTER_SERVICE}, 100);
 
     sl.version = 10;
-    sl.serverList[id1.indexNumber()].entry->isBeingUpdated = true;
+    sl.serverList[id1.indexNumber()].entry->isBeingUpdated = 100;
     sl.lastScan.noUpdatesFound = true;
 
     sl.updateEntryVersion(id1, 10);
     EXPECT_TRUE(sl.lastScan.noUpdatesFound);
-    EXPECT_FALSE(sl.getReferenceFromServerId(id1).isBeingUpdated);
+    EXPECT_EQ(0UL, sl.getReferenceFromServerId(id1).isBeingUpdated);
 
     // Lower update version should trigger noUpdatesFound
     sl.updateEntryVersion(id1, 2);
@@ -877,8 +911,105 @@ TEST_F(CoordinatorServerListTest, updateLoop_multiStriped) {
                     TestLog::get());
 }
 
+namespace {
+bool updateLoopFilter(string s) {
+    return s == "updateLoop";
+}
+}
+
+TEST_F(CoordinatorServerListTest, updateLoop_expansion) {
+    MockTransport transport(&context);
+    TransportManager::MockRegistrar _(&context, transport);
+    sl.haltUpdater();
+
+    // Start with 0 and grow to 5; since mockTransport RPCs finish
+    // instantaneously, we have to add all (5*4)/2 entries at once
+    // But there will be 1 contraction in the final round,
+    // causing the total to be 4
+    sl.concurrentRPCs = 1;
+
+    for (int i = 0; i < 10; i++) {
+        ServerId id = sl.generateUniqueId();
+        sl.add(id, "mock:host=server", {WireFormat::MEMBERSHIP_SERVICE}, 100);
+        transport.setInput("0");
+    }
+
+    sl.sync();
+    EXPECT_EQ(4UL, sl.concurrentRPCs);
+
+    // Test that syncs w/o updates don't lower the slot count
+    sl.sync();
+    sl.sync();
+    EXPECT_EQ(4UL, sl.concurrentRPCs);
+}
+TEST_F(CoordinatorServerListTest, updateLoop_contraction) {
+    Lock lock(mutex); // Used to trick internal calls
+    MockTransport transport(&context);
+    TransportManager::MockRegistrar _(&context, transport);
+    sl.haltUpdater();
+    sl.concurrentRPCs = 5;
+
+    // Single contraction since 2 < 5
+    ServerId id = sl.generateUniqueId();
+    sl.add(id, "mock:host=server", {WireFormat::MEMBERSHIP_SERVICE}, 100);
+    id = sl.generateUniqueId();
+    sl.add(id, "mock:host=server", {WireFormat::MEMBERSHIP_SERVICE}, 100);
+    transport.setInput("0");
+    transport.setInput("0");
+    sl.sync();
+    EXPECT_EQ(4UL, sl.concurrentRPCs);
+
+    // 3 < 4 contraction
+    id = sl.generateUniqueId();
+    sl.add(id, "mock:host=server", {WireFormat::MEMBERSHIP_SERVICE}, 100);
+    transport.setInput("0");
+    transport.setInput("0");
+    transport.setInput("0");
+    sl.sync();
+    EXPECT_EQ(3UL, sl.concurrentRPCs);
+
+    // 4 updates, no change (1 expand + 1 contract)
+    id = sl.generateUniqueId();
+    sl.add(id, "mock:host=server", {WireFormat::MEMBERSHIP_SERVICE}, 100);
+    transport.setInput("0");
+    transport.setInput("0");
+    transport.setInput("0");
+    transport.setInput("0");
+    sl.sync();
+    EXPECT_EQ(3UL, sl.concurrentRPCs);
+
+    // 5 + 7 = 13 updates ( 2 expand + 1 contract)
+    id = sl.generateUniqueId();
+    sl.add(id, "mock:host=server", {WireFormat::MEMBERSHIP_SERVICE}, 100);
+    id = sl.generateUniqueId();
+    sl.add(id, "mock:host=server", {WireFormat::MEMBERSHIP_SERVICE}, 100);
+    for (int i = 0; i < 12; i++)
+        transport.setInput("0");
+    sl.sync();
+    EXPECT_EQ(4UL, sl.concurrentRPCs);
+}
+
+TEST_F(CoordinatorServerListTest, sync) {
+    // Test that sync wakes up thread and flushes all updates
+    MockTransport transport(&context);
+    TransportManager::MockRegistrar _(&context, transport);
+    sl.haltUpdater();
+
+    ServerId id = sl.generateUniqueId();
+    sl.add(id, "mock:host=server", {WireFormat::MEMBERSHIP_SERVICE}, 100);
+    transport.setInput("0");
+
+    sl.sync();
+    EXPECT_EQ("sendRequest: 0x40023 11 273 0 /0 /x18/0", transport.outputLog);
+
+    // Test that syncs on up-to-date list don't clog
+    sl.sync();
+    sl.sync();
+}
+
 TEST_F(CoordinatorServerListTest, handleRpc) {
     sl.haltUpdater();
+    sl.rpcTimeoutNs = 1000;
     MockTransport transport(&context);
     TransportManager::MockRegistrar _(&context, transport);
     CoordinatorServerList::UpdateSlot slot;
@@ -960,9 +1091,57 @@ TEST_F(CoordinatorServerListTest, handleRpc_nonExistantServer) {
 }
 
 TEST_F(CoordinatorServerListTest, loadNextUpdate) {
+    sl.haltUpdater();
+    Lock lock(mutex);   // Used to fake lock for internal call
+    CoordinatorServerList::UpdateSlot slot;
 
+    // Empty list
+    EXPECT_FALSE(sl.loadNextUpdate(slot));
 
+    // Load 2 updatable servers and 1 not updatable
+    ServerId id1 = sl.generateUniqueId();
+    sl.add(id1, "mock:host=server1", {WireFormat::MASTER_SERVICE,
+            WireFormat::MEMBERSHIP_SERVICE}, 100);
+    ServerId id2 = sl.generateUniqueId();
+    sl.add(id2, "mock:host=server2", {WireFormat::MASTER_SERVICE}, 100);
+    ServerId id3 = sl.generateUniqueId();
+    sl.add(id3, "mock:host=server3", {WireFormat::MEMBERSHIP_SERVICE}, 100);
 
+    EXPECT_TRUE(sl.loadNextUpdate(slot));       // id1 update
+    EXPECT_EQ(id1, slot.serverId);
+    EXPECT_EQ(sl.version, slot.protobuf.version_number());
+    EXPECT_EQ(ProtoBuf::ServerList_Type_FULL_LIST, slot.protobuf.type());
+
+    EXPECT_TRUE(sl.loadNextUpdate(slot));       // id3 update
+    EXPECT_EQ(id3, slot.serverId);
+    EXPECT_EQ(ProtoBuf::ServerList_Type_FULL_LIST, slot.protobuf.type());
+    EXPECT_EQ(sl.version, slot.protobuf.version_number());
+
+    EXPECT_FALSE(sl.loadNextUpdate(slot));      // no more id2 doesn't qualify
+
+    // generate more version updates via non-updatable server additions
+    ServerId id4 = sl.generateUniqueId();
+    sl.add(id4, "mock:host=server3", {WireFormat::MASTER_SERVICE}, 100);
+    ServerId id5 = sl.generateUniqueId();
+    sl.add(id4, "mock:host=server3", {WireFormat::MASTER_SERVICE}, 100);
+    EXPECT_FALSE(sl.loadNextUpdate(slot));
+
+    sl.remove(id1);
+    sl.updateEntryVersion(id3, 4);
+
+    EXPECT_FALSE(sl.lastScan.noUpdatesFound);
+    EXPECT_TRUE(sl.loadNextUpdate(slot));
+    EXPECT_EQ(id3, slot.serverId);
+    EXPECT_EQ(ProtoBuf::ServerList_Type_UPDATE, slot.protobuf.type());
+    EXPECT_EQ(5UL, slot.protobuf.version_number());
+    EXPECT_FALSE(sl.loadNextUpdate(slot));
+
+    // expect prune updates to work
+    EXPECT_EQ(5UL, sl.updates.front().version_number());
+
+    // Crash our remaining server with membership updates
+    sl.crashed(id3);
+    EXPECT_FALSE(sl.loadNextUpdate(slot));
 }
 
 }  // namespace RAMCloud

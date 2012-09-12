@@ -13,6 +13,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include <list>
+
 #include "Common.h"
 #include "ClientException.h"
 #include "CoordinatorServerList.h"
@@ -37,8 +39,8 @@ CoordinatorServerList::CoordinatorServerList(Context* context)
     , serverList()
     , numberOfMasters(0)
     , numberOfBackups(0)
-    , concurrentRPCs(5) //TODO(syang0) John wants a soft numbers for these
-    , rpcTimeoutNs(10UL * 1000 * 1000)  // 10ms
+    , concurrentRPCs(5)
+    , rpcTimeoutNs(0)  // 0 = infinite timeout
     , stopUpdater(true)
     , lastScan()
     , update()
@@ -742,7 +744,7 @@ CoordinatorServerList::isClusterUpToDate(const Lock& lock) {
         if (entry.services.has(WireFormat::MEMBERSHIP_SERVICE) &&
                 entry.status == ServerStatus::UP &&
                 (entry.serverListVersion != version ||
-                entry.isBeingUpdated == true) ) {
+                entry.isBeingUpdated > 0) ) {
             return false;
         }
     }
@@ -847,29 +849,69 @@ CoordinatorServerList::haltUpdater()
 void
 CoordinatorServerList::updateLoop()
 {
+    /**
+     * updateSlots stores all the slots we've ever allocated. It can grow
+     * as necessary. inUse stores the indeces of slots in updateSlotes
+     * that are eligible for update rpcs. The free list are the left over
+     * rpcs that are allocated but ineligible for updates.
+     *
+     * The motivation behind this is that we want just enough slots such
+     * that by the time we loop all the way through the list, the rpcs we
+     * sent out in the previous iteration would be done. We don't want too many
+     * slots such that done rpcs wait for a long period of time before we
+     * get back to them and constantly allocating/deallocating update slots
+     * is expensive. Thus, the solution was to keep track of how many slots
+     * are "inUse" and we'd have to iterate over. This list grows and shrinks
+     * as necessary to achieve our goal outlined in the first sentence.
+     */
     try {
         std::deque<UpdateSlot> updateSlots;
+        std::list<uint64_t>::iterator it;
+        std::list<uint64_t> inUse;
+        std::list<uint64_t> free;
 
         // Prefill RPC slots
         for (uint64_t i = 0; i < concurrentRPCs; i++) {
             updateSlots.emplace_back();
+            inUse.push_back(i);
         }
 
         while (!stopUpdater) {
-            bool noActiveRpcs = true;
+            std::list<uint64_t>::iterator lastFree = inUse.end();
+            uint32_t liveRpcs = 0;
 
-            // Handle update/RPC logic
-            for (size_t i = 0; i < concurrentRPCs && !stopUpdater; i++) {
-                if (dispatchRpc(updateSlots[i]))
-                    noActiveRpcs = false;
+            // Handle Rpc logic
+            for (it = inUse.begin(); it != inUse.end(); it++) {
+                if (dispatchRpc(updateSlots.at(*it)))
+                    liveRpcs++;
+                else
+                    lastFree = it;
             }
 
-            // If there are no updates and no active rpcs, wait for more.
-            if (noActiveRpcs) {
+            // Expand/Contract slots as necessary
+            if (inUse.size() == liveRpcs && lastFree == inUse.end()) {
+                // All slots are in use and there are no new free slots, Expand
+                if (free.empty()) {
+                    updateSlots.emplace_back();
+                    free.push_back(updateSlots.size() - 1);
+                }
+
+                concurrentRPCs++;
+                inUse.push_back(free.front());
+                free.pop_front();
+            } else if (inUse.size() < liveRpcs - 1) {
+                // Contract
+                concurrentRPCs--;
+                free.push_back(*lastFree);
+                inUse.erase(lastFree);
+            }
+
+            // If there are no live rpcs, wait for more updates
+            if ( liveRpcs == 0 ) {
                 Lock lock(mutex);
 
                 while (!hasUpdates(lock) && !stopUpdater) {
-                    assert(isClusterUpToDate(lock));// can be deleted
+                    assert(isClusterUpToDate(lock)); //O(n) check can be deleted
                     listUpToDate.notify_all();
                     hasUpdatesOrStop.wait(lock);
                 }
@@ -877,7 +919,8 @@ CoordinatorServerList::updateLoop()
         }
 
         // if (stopUpdater) Stop all Rpcs
-        foreach (UpdateSlot& update, updateSlots) {
+        for (it = inUse.begin(); it != inUse.end(); it++) {
+            UpdateSlot& update = updateSlots[*it];
             if (update.rpc) {
                 update.rpc->cancel();
                 updateEntryVersion(update.serverId, update.originalVersion);
@@ -890,7 +933,6 @@ CoordinatorServerList::updateLoop()
         LOG(ERROR, "Unknown fatal error in CoordinatorServerList.");
         throw;
     }
-
 }
 
 /**
@@ -923,8 +965,9 @@ CoordinatorServerList::dispatchRpc(UpdateSlot& update) {
             updateEntryVersion(update.serverId, newVersion);
 
             // Check timeout event
-        } else if (Cycles::toNanoseconds(Cycles::rdtsc() - update.startCycle)
-                    > rpcTimeoutNs) {
+        } else if (rpcTimeoutNs != 0 &&
+                   (Cycles::toNanoseconds(Cycles::rdtsc() - update.startCycle)
+                    > rpcTimeoutNs)) {
             update.rpc.destroy();
             updateEntryVersion(update.serverId, update.originalVersion);
         }
@@ -979,9 +1022,12 @@ CoordinatorServerList::hasUpdates(const Lock& lock)
                     entry.status == ServerStatus::UP )
             {
                  // Check for new minVersion
-                if (lastScan.minVersion == 0 || (entry.serverListVersion > 0 &&
-                        entry.serverListVersion < lastScan.minVersion)) {
-                    lastScan.minVersion = entry.serverListVersion;
+                uint64_t entryMinVersion = (entry.serverListVersion) ?
+                    entry.serverListVersion : entry.isBeingUpdated;
+
+                if (lastScan.minVersion == 0 || (entryMinVersion > 0 &&
+                        entryMinVersion < lastScan.minVersion)) {
+                    lastScan.minVersion = entryMinVersion;
                 }
 
                 // Check for Update eligibility
@@ -1029,7 +1075,6 @@ CoordinatorServerList::loadNextUpdate(UpdateSlot& updateSlot)
     // note: lastScan.searchIndex was set by hasUpdates(lock)
     Entry& entry = *serverList[lastScan.searchIndex].entry;
     lastScan.searchIndex = (lastScan.searchIndex + 1)%serverList.size();
-    entry.isBeingUpdated = true;
 
     // Package info and return
     updateSlot.originalVersion = entry.serverListVersion;
@@ -1039,13 +1084,16 @@ CoordinatorServerList::loadNextUpdate(UpdateSlot& updateSlot)
         updateSlot.protobuf.Clear();
         serialize(lock, updateSlot.protobuf,
                 {WireFormat::MASTER_SERVICE, WireFormat::BACKUP_SERVICE});
+        entry.isBeingUpdated = version;
     } else {
         assert(!updates.empty());
+        assert(updates.front().version_number() <= version);
+        assert(updates.back().version_number()  >= version);
+
         uint64_t head = updates.front().version_number();
-        uint64_t version = entry.serverListVersion + 1;
-        assert(head <= version);
-        assert(updates.back().version_number() >= version);
-        updateSlot.protobuf = updates.at(version - head);
+        uint64_t targetVersion = entry.serverListVersion + 1;
+        updateSlot.protobuf = updates.at(targetVersion - head);
+        entry.isBeingUpdated = targetVersion;
     }
 
     return true;
@@ -1071,7 +1119,7 @@ CoordinatorServerList::updateEntryVersion(ServerId serverId, uint64_t version)
                 entry.serverListVersion, version);
 
         entry.serverListVersion = version;
-        entry.isBeingUpdated = false;
+        entry.isBeingUpdated = 0;
 
         if (version < this->version)
             lastScan.noUpdatesFound = false;
@@ -1093,7 +1141,7 @@ CoordinatorServerList::Entry::Entry()
     , minOpenSegmentId()
     , replicationId()
     , serverListVersion(0)
-    , isBeingUpdated(false)
+    , isBeingUpdated(0)
     , serverInfoLogId()
     , serverUpdateLogId()
 {
@@ -1125,7 +1173,7 @@ CoordinatorServerList::Entry::Entry(ServerId serverId,
     , minOpenSegmentId(0)
     , replicationId(0)
     , serverListVersion(0)
-    , isBeingUpdated(false)
+    , isBeingUpdated(0)
     , serverInfoLogId(LogCabin::Client::EntryId())
     , serverUpdateLogId(LogCabin::Client::EntryId())
 {
