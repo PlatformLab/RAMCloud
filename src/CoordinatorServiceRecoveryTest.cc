@@ -79,22 +79,10 @@ TEST_F(CoordinatorServiceRecoveryTest, replay_basic) {
 
     TestLog::Enable _(replayFilter);
     coordRecovery->replay(true);
-    EXPECT_EQ("replay: 0 - ServerEnlisting\n | "
-              "replay: 1 - ServerEnlisted\n | "
-              "replay: 2 - ServerUpdate\n | "
-              "replay: 3 - StateServerDown\n",
-              TestLog::get());
-}
-
-TEST_F(CoordinatorServiceRecoveryTest, replay_error) {
-    ProtoBuf::EntryType dummyEntry;
-    dummyEntry.set_entry_type("UnrecognizedEntryType");
-    logCabinHelper->appendProtoBuf(dummyEntry);
-
-    TestLog::Enable _(replayFilter);
-    EXPECT_THROW(coordRecovery->replay(),
-                 CoordinatorServiceRecovery::UnexpectedEntryTypeException);
-    EXPECT_EQ("replay: 0 - UnrecognizedEntryType\n",
+    EXPECT_EQ("replay: Entry Id: 0, Entry Type: ServerEnlisting\n | "
+              "replay: Entry Id: 1, Entry Type: ServerEnlisted\n | "
+              "replay: Entry Id: 2, Entry Type: ServerUpdate\n | "
+              "replay: Entry Id: 3, Entry Type: StateServerDown\n",
               TestLog::get());
 }
 

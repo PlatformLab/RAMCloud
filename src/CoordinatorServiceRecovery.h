@@ -42,12 +42,6 @@ using LogCabin::Client::NO_ID;
 class CoordinatorServiceRecovery {
 
   PUBLIC:
-    struct UnexpectedEntryTypeException : public Exception {
-        explicit UnexpectedEntryTypeException(
-                const CodeLocation& where, string msg)
-            : Exception(where, msg) {}
-    };
-
     explicit CoordinatorServiceRecovery(CoordinatorService& coordinatorService);
     ~CoordinatorServiceRecovery();
 
