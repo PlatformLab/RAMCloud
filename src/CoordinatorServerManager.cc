@@ -83,7 +83,7 @@ CoordinatorServerManager::assignReplicationGroup(
  * are not assigned a replication group and are up.
  * If there are not enough available candidates for a new group, the function
  * returns without sending out any Rpcs. If there are enough group members
- * to form a new group, but one of the servers is down, hintServerƒown will
+ * to form a new group, but one of the servers is down, hintServerDown will
  * reset the replication group of that server.
  */
 void
@@ -256,6 +256,7 @@ CoordinatorServerManager::enlistServerRecover(
     ProtoBuf::ServerInformation* state, EntryId entryId)
 {
     Lock _(mutex);
+    LOG(DEBUG, "CoordinatorServerManager::enlistServerRecover()");
     EnlistServer(*this,
                  ServerId(state->server_id()),
                  ServiceMask::deserialize(state->service_mask()),
@@ -279,6 +280,7 @@ CoordinatorServerManager::enlistedServerRecover(
 {
     Lock _(mutex);
 
+    LOG(DEBUG, "CoordinatorServerManager::enlistedServerRecover()");
     // TODO(ankitak): This will automatically queue a serverlist update
     // to be sent to the cluster. We don't want to do that for efficiency.
     service.serverList.add(
@@ -461,6 +463,7 @@ CoordinatorServerManager::serverDownRecover(
     ProtoBuf::StateServerDown* state, EntryId entryId)
 {
     Lock _(mutex);
+    LOG(DEBUG, "CoordinatorServerManager::serverDownRecover()");
     ServerDown(*this, ServerId(state->server_id())).complete(entryId);
 }
 
@@ -557,6 +560,7 @@ CoordinatorServerManager::setMinOpenSegmentIdRecover(
     ProtoBuf::ServerUpdate* serverUpdate, EntryId entryId)
 {
     Lock _(mutex);
+    LOG(DEBUG, "CoordinatorServerManager::setMinOpenSegmentIdRecover()");
     SetMinOpenSegmentId(*this,
                         ServerId(serverUpdate->server_id()),
                         serverUpdate->min_open_segment_id()).complete(entryId);
