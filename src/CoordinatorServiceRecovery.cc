@@ -50,39 +50,47 @@ CoordinatorServiceRecovery::replay(bool testing)
 
         EntryId entryId = it->getId();
         string entryType = service.logCabinHelper->getEntryType(*it);
-        RAMCLOUD_LOG(DEBUG, "%lu - %s\n", it->getId(), entryType.c_str());
+        RAMCLOUD_LOG(DEBUG, "Entry Id: %lu, Entry Type: %s\n",
+                             it->getId(), entryType.c_str());
 
         if (testing) continue;
 
         // Dispatch
         if (!entryType.compare("ServerEnlisting")) {
 
+            RAMCLOUD_LOG(DEBUG, "ServiceRecovery: ServerEnlisting");
             ProtoBuf::ServerInformation state;
             service.logCabinHelper->parseProtoBufFromEntry(*it, state);
             service.serverManager.enlistServerRecover(&state, entryId);
 
         } else if (!entryType.compare("ServerEnlisted")) {
 
+            RAMCLOUD_LOG(DEBUG, "ServiceRecovery: ServerEnlisted");
             ProtoBuf::ServerInformation state;
             service.logCabinHelper->parseProtoBufFromEntry(*it, state);
             service.serverManager.enlistedServerRecover(&state, entryId);
 
         } else if (!entryType.compare("ServerUpdate")) {
 
+            RAMCLOUD_LOG(DEBUG, "ServiceRecovery: ServerUpdate");
             ProtoBuf::ServerUpdate state;
             service.logCabinHelper->parseProtoBufFromEntry(*it, state);
             service.serverManager.setMinOpenSegmentIdRecover(&state, entryId);
 
         } else if (!entryType.compare("StateServerDown")) {
 
+            RAMCLOUD_LOG(DEBUG, "ServiceRecovery: StateServerDown");
             ProtoBuf::StateServerDown state;
             service.logCabinHelper->parseProtoBufFromEntry(*it, state);
             service.serverManager.serverDownRecover(&state, entryId);
 
         } else {
-            throw UnexpectedEntryTypeException(
-                    HERE, format("Unexpected LogCabin entry type %s",
-                                 entryType.c_str()));
+
+            // Ignore, and continue.
+            // There could be entries appended by processes other than the
+            // Coordinator that we want to ignore.
+
+            RAMCLOUD_LOG(DEBUG, "ServiceRecovery: Unknown type");
         }
     }
 }
