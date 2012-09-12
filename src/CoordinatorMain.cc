@@ -32,11 +32,17 @@ main(int argc, char *argv[])
 {
     using namespace RAMCloud;
     string localLocator("???");
+    string logCabinLocator("testing");
     Context context(true);
     CoordinatorServerList serverList(&context);
     try {
-        OptionParser optionParser(OptionsDescription("Coordinator"),
-                                  argc, argv);
+        OptionsDescription coordinatorOptions("Coordinator");
+        coordinatorOptions.add_options()
+            ("logCabinLocator,z",
+             ProgramOptions::value<string>(&logCabinLocator),
+             "Locator where the LogCabin cluster can be contacted");
+
+        OptionParser optionParser(coordinatorOptions, argc, argv);
 
         // Log all the command-line arguments.
         string args;
@@ -55,12 +61,14 @@ main(int argc, char *argv[])
         localLocator = context.transportManager->
                                 getListeningLocatorsString();
         LOG(NOTICE, "coordinator: Listening on %s", localLocator.c_str());
-        CoordinatorService coordinatorService(&context);
+
+        CoordinatorService coordinatorService(&context, logCabinLocator);
         context.serviceManager->addService(coordinatorService,
                                            WireFormat::COORDINATOR_SERVICE);
         PingService pingService(&context);
         context.serviceManager->addService(pingService,
                                            WireFormat::PING_SERVICE);
+
         Dispatch& dispatch = *context.dispatch;
         while (true) {
             dispatch.poll();
