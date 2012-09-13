@@ -104,25 +104,15 @@ LogCabinHelper::parseProtoBufFromEntry(
 vector<Entry>
 LogCabinHelper::readValidEntries()
 {
-    // Assumption: The position of an entry in "entries" is the same as
-    // its entryId. This is true currently since LogCabin doesn't do
-    // any cleaning. Once it starts doing cleaning, this function will
-    // not be needed anyway.
     vector<Entry> entries = logCabinLog.read(0);
     vector<EntryId> allInvalidatedEntries;
 
-    // Store all the entry ids to the erased in allInvalidatedEntries.
-    // We can't erase it directly here since if we do, then the position
-    // of an entry in "entries" may not correspond to its entry id
-    // anymore.
-    for (vector<Entry>::iterator it = entries.begin();
-            it < entries.end(); it++) {
+    for (auto it = entries.begin(); it < entries.end(); it++) {
         vector<EntryId> invalidates = it->getInvalidates();
         foreach (EntryId entryId, invalidates) {
-            RAMCLOUD_LOG(DEBUG, "Want to erase entry with id %lu", entryId);
             allInvalidatedEntries.push_back(entryId);
         }
-    }
+     }
 
     // Sort "allInvalidatedEntries" such that the entry ids are arranged
     // in descending order. Then when we actually erase entries from
@@ -132,13 +122,19 @@ LogCabinHelper::readValidEntries()
     sort(allInvalidatedEntries.begin(), allInvalidatedEntries.end(),
          std::greater<EntryId>());
 
+    // The position of an entry in "entries" is *not* the same as its entryId.
+    // So for every entry to be invalidated, I have to search through the entire
+    // vector to find an entry with that id.
     foreach (EntryId entryId, allInvalidatedEntries) {
-        RAMCLOUD_LOG(DEBUG, "Erasing entry with id %lu", entryId);
-        entries.erase(entries.begin() + entryId);
+        for (auto it = entries.end(); it >= entries.begin(); it--) {
+            if (it->getId() == entryId) {
+                RAMCLOUD_LOG(DEBUG, "Erasing entry with id %lu", entryId);
+                entries.erase(it);
+            }
+        }
     }
 
     return entries;
 }
 
 } // namespace RAMCloud
-
