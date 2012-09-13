@@ -115,6 +115,9 @@ ServerList::applyServerList(const ProtoBuf::ServerList& list)
         return;
     }
 
+    LOG(NOTICE, "Server List from coordinator:\n%s",
+                list.DebugString().c_str());
+
     /*
      * This is a demultiplexer for ProtoBuf::Serverlists; Since ServerList
      * membership updates and full list updates have very similar structures

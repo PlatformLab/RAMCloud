@@ -79,7 +79,7 @@ TEST_F(ServerListTest, applyServerList) {
     wholeList.set_type(ProtoBuf::ServerList_Type_FULL_LIST);
     sl.applyFullList(wholeList);
     EXPECT_EQ("applyFullList: Got complete list of servers containing 0 "
-            "entries (version number 1)", TestLog::get());
+              "entries (version number 1)", TestLog::get());
 
     // Apply an update
     TestLog::reset();
@@ -87,8 +87,10 @@ TEST_F(ServerListTest, applyServerList) {
     updateList.set_version_number(2);
     updateList.set_type(ProtoBuf::ServerList_Type_UPDATE);
     sl.applyServerList(updateList);
-    EXPECT_EQ("applyUpdate: Got server list update (version number 2)",
-            TestLog::get());
+    EXPECT_EQ("applyServerList: Server List from coordinator:\n"
+              "version_number: 2\ntype: UPDATE\n | "
+              "applyUpdate: Got server list update (version number 2)",
+              TestLog::get());
 }
 
 TEST_F(ServerListTest, applyServerList_oldVersion) {
