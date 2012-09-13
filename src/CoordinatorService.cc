@@ -54,6 +54,9 @@ CoordinatorService::CoordinatorService(Context* context, string LogCabinLocator)
     LOG(NOTICE, "Connected to LogCabin cluster.");
 
     recoveryManager.start();
+
+    // Replay the entire log (if any) before we start servicing the RPCs.
+    coordinatorRecovery.replay();
 }
 
 CoordinatorService::~CoordinatorService()
