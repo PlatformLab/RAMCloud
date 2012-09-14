@@ -417,7 +417,11 @@ BackupReplica::buildRecoverySegments(const ProtoBuf::Tablets& partitions)
                 foreach (uint64_t partition, partitionSet) {
                     bool success =
                             recoverySegments[partition].append(type, buffer);
-                    if (!success) {
+                    if (success) {
+                        LOG(NOTICE,  "Copying SAFEVERSION to partition"
+                            " %lu (%u B)", partition,
+                            buffer.getTotalLength());
+                    } else {
                         LOG(WARNING, "Failed to append safeVersion"
                             "to masterId,segment,partition=<%s,%lu,%lu>",
                             masterId.toString().c_str(),

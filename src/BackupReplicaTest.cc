@@ -47,6 +47,18 @@ class BackupReplicaTest : public ::testing::Test {
         segment.append(LOG_ENTRY_TYPE_OBJ, buffer);
     }
 
+    /**
+     * Helper that simply creates and appends a safeVersion to segment.
+     */
+    void
+    appendSafeVerNoReplication(Segment& segment, uint64_t version)
+    {
+        ObjectSafeVersion objSafeVer(version);
+        Buffer buffer;
+        objSafeVer.serializeToBuffer(buffer);
+        segment.append(LOG_ENTRY_TYPE_SAFEVERSION, buffer);
+    }
+
     uint32_t segmentSize;
     InMemoryStorage storage;
     BackupReplica info;
@@ -306,6 +318,7 @@ TEST_F(BackupReplicaTest, buildRecoverySegment) {
     SegmentHeader header = { 99, 88, segmentSize, Segment::INVALID_SEGMENT_ID };
     segment.append(LOG_ENTRY_TYPE_SEGHEADER, &header, sizeof(header));
 
+    appendSafeVerNoReplication(segment, 234UL);
     appendObjectNoReplication(segment, NULL, 0, 123, "XX", 2);
 
     segment.close();
@@ -321,10 +334,15 @@ TEST_F(BackupReplicaTest, buildRecoverySegment) {
     ProtoBuf::Tablets partitions;
     createTabletList(partitions);
 
+    TestLog::Enable _;
     info.buildRecoverySegments(partitions);
+    EXPECT_TRUE(TestUtil::matchesPosixRegex(
+        "buildRecoverySegments: Copying SAFEVERSION to partition 0 (12 B) | "
+        "buildRecoverySegments: Copying SAFEVERSION to partition 1 (12 B) |",
+        TestLog::get()));
 
     // Make sure subsequent calls have no effect.
-    TestLog::Enable _;
+    TestLog::reset();
     info.buildRecoverySegments(partitions);
     EXPECT_EQ("buildRecoverySegments: Recovery segments already built for "
               "<99.0,88>", TestLog::get());
@@ -332,8 +350,8 @@ TEST_F(BackupReplicaTest, buildRecoverySegment) {
     EXPECT_FALSE(info.recoveryException);
     EXPECT_EQ(2u, info.recoverySegmentsLength);
     ASSERT_TRUE(info.recoverySegments);
-    EXPECT_EQ(0U, info.recoverySegments[0].getAppendedLength(certificate));
-    EXPECT_EQ(0u, info.recoverySegments[1].getAppendedLength(certificate));
+    EXPECT_EQ(14U, info.recoverySegments[0].getAppendedLength(certificate));
+    EXPECT_EQ(14u, info.recoverySegments[1].getAppendedLength(certificate));
 }
 
 TEST_F(BackupReplicaTest, buildRecoverySegmentMalformedSegment) {
