@@ -1052,7 +1052,7 @@ TEST_F(MasterServiceTest, recoverSegment) {
 
     ObjectSafeVersion safeVer(10UL);
     len = buildRecoverySegment(seg, segLen, safeVer, &certificate);
-    EXPECT_EQ(14U, len); // 14 = EntryHeader(1B) + ? (1B) 
+    EXPECT_EQ(14U, len); // 14 = EntryHeader(1B) + ? (1B)
     //                    + safeVersion (8B) + checksum (4B)
     TestLog::Enable _(recoverSegmentFilter);
     service->recoverSegment(0, seg, len, certificate);
