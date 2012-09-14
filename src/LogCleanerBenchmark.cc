@@ -431,8 +431,9 @@ class Benchmark {
           serverConfig(),
           pipelineMax(pipelinedRpcs),
           writeCostConvergence(writeCostConvergence),
+          lastWriteCostCheck(0),
           lastDiskWriteCost(0),
-          lastMemoryWriteCost(0),
+          lastWriteCostDiskCleanerTicks(0),
           lastWriteCostStart(0)
     {
     }
@@ -636,8 +637,10 @@ class Benchmark {
             return false;
 
         // Only check every handful of seconds to reduce overhead.
-        if (Cycles::toSeconds(Cycles::rdtsc() - lastWriteCostStart) < 5)
+        if (Cycles::toSeconds(Cycles::rdtsc() - lastWriteCostCheck) < 3)
             return false;
+
+        lastWriteCostCheck = Cycles::rdtsc();
 
         ProtoBuf::LogMetrics logMetrics;
         ramcloud.getLogMetrics(serverLocator.c_str(), logMetrics);
@@ -647,17 +650,11 @@ class Benchmark {
 
         uint64_t diskFreed = onDiskMetrics.total_disk_bytes_freed();
         uint64_t diskWrote = onDiskMetrics.total_bytes_appended_to_survivors();
+        uint64_t diskCleanerTicks = onDiskMetrics.total_ticks();
         
         // Nothing counts until we've cleaned on disk at least once.
         if (diskFreed == 0 && diskWrote == 0)
             return false;
-
-        const ProtoBuf::LogMetrics_CleanerMetrics_InMemoryMetrics& inMemoryMetrics =
-            logMetrics.cleaner_metrics().in_memory_metrics();
-
-        bool notCompacting = serverConfig.master().disable_in_memory_cleaning();
-        uint64_t memFreed = inMemoryMetrics.total_bytes_freed();
-        uint64_t memWrote = inMemoryMetrics.total_bytes_appended_to_survivors();
 
         // Compute the write costs. Shift digits over and convert to integer for
         // the needed comparison.
@@ -668,26 +665,19 @@ class Benchmark {
         uint64_t intLastDiskWriteCost = static_cast<uint64_t>(lastDiskWriteCost *
                                                 pow(10, writeCostConvergence));
 
-        double memWriteCost = static_cast<double>(memFreed + memWrote) /
-                              static_cast<double>(memFreed);
-        uint64_t intMemWriteCost = static_cast<uint64_t>(memWriteCost *
-                                                pow(10, writeCostConvergence));
-        uint64_t intLastMemWriteCost = static_cast<uint64_t>(lastMemoryWriteCost *
-                                                pow(10, writeCostConvergence));
-
-        bool areEqual = (intDiskWriteCost == intLastDiskWriteCost) &&
-            (notCompacting || (intMemWriteCost == intLastMemWriteCost));
+        bool areEqual = (intDiskWriteCost == intLastDiskWriteCost);
 
         if (lastWriteCostStart == 0 || !areEqual) {
             lastDiskWriteCost = diskWriteCost;
-            lastMemoryWriteCost = memWriteCost;
+            lastWriteCostDiskCleanerTicks = diskCleanerTicks;
             lastWriteCostStart = Cycles::rdtsc();
             return false;
         }
 
-        double sec = Cycles::toSeconds(Cycles::rdtsc() - lastWriteCostStart);
-    
-        return (areEqual && sec >= 60);
+        double diskCleanerSec = Cycles::toSeconds(diskCleanerTicks -
+             lastWriteCostDiskCleanerTicks, logMetrics.ticks_per_second());
+
+        return (diskCleanerSec >= 30);
     }
 
     /// RamCloud object used to access the storage being benchmarked.
@@ -755,14 +745,21 @@ class Benchmark {
     /// unchanged in a 60-second window before the benchmark ends.
     const int writeCostConvergence;
 
+    /// Local ticks at which we last checked the server's disk write cost. Used
+    /// to avoid querying the server too frequently.
+    uint64_t lastWriteCostCheck;
+
     /// The last disk write cost computed. Used to determine when the benchmark
     /// should end (see writeCostConvergence).
     double lastDiskWriteCost;
 
-    /// The memory write cost computed. Used to determine when the benchmark
-    /// should end in conjunction with the disk write cost if compaction is
-    /// enabled.
-    double lastMemoryWriteCost;
+    /// Number of ticks the server's disk cleaner has spent in cleaning as of
+    /// #lastWriteCostStart. This is used to track how long the cleaner has been
+    /// running at a particular stable write cost. Since it doesn't run all the
+    /// time, using a strict wallclock value could be problematic (what if it
+    /// doesn't run at all in the desired interval?) and is slightly easier to
+    /// reason about than some other value like the amount of data cleaned.
+    uint64_t lastWriteCostDiskCleanerTicks;
 
     /// Cycle counter when lastWriteCost was updated.
     uint64_t lastWriteCostStart;
@@ -956,6 +953,9 @@ Output::dumpDiskMetrics(FILE* fp, ProtoBuf::LogMetrics& metrics)
     fprintf(fp, "  Memory Space Freeing Rate:     %.3f MB/s (%.3f MB/s active)\n",
         d(memFreed) / elapsed / 1024 / 1024, d(memFreed) / cleanerTime / 1024 / 1024);
 
+    fprintf(fp, "  Survivor Bytes Written:        %lu (%.3f MB/s active)\n",
+        wrote, d(wrote) / cleanerTime / 1024 / 1024);
+
     fprintf(fp, "  Total Time:                    %.3f sec (%.2f%% active)\n",
         cleanerTime, 100.0 * cleanerTime / elapsed);
 
@@ -992,7 +992,7 @@ Output::dumpDiskMetrics(FILE* fp, ProtoBuf::LogMetrics& metrics)
         appendTime, 100.0 * appendTime / elapsed, 100.0 * appendTime / cleanerTime, 1.0e6 * appendTime / d(onDiskMetrics.total_relocation_appends()));
 
     double completeTime = Cycles::toSeconds(onDiskMetrics.cleaning_complete_ticks(), serverHz);
-    fprintf(fp, "    Relocate Entries:            %.3f sec (%.2f%%, %.2f%% active)\n",
+    fprintf(fp, "    Cleaning Complete:           %.3f sec (%.2f%%, %.2f%% active)\n",
         completeTime, 100.0 * completeTime / elapsed, 100.0 * completeTime / cleanerTime);
 }
 
@@ -1023,6 +1023,9 @@ Output::dumpMemoryMetrics(FILE* fp, ProtoBuf::LogMetrics& metrics)
 
     fprintf(fp, "  Memory Space Freeing Rate:     %.3f MB/s (%.3f MB/s active)\n",
         d(freed) / elapsed / 1024 / 1024, d(freed) / cleanerTime / 1024 / 1024);
+
+    fprintf(fp, "  Survivor Bytes Written:        %lu (%.3f MB/s active)\n",
+        wrote, d(wrote) / cleanerTime / 1024 / 1024);
 
     fprintf(fp, "  Total Time:                    %.3f sec (%.2f%% active)\n",
         cleanerTime, 100.0 * cleanerTime / elapsed);
@@ -1193,9 +1196,10 @@ try
         ("writeCostConvergence,w",
          ProgramOptions::value<int>(&options.writeCostConvergence)->default_value(2),
          "Stop the benchmark after the disk write cost converges to a value "
-         "that is stable (unchanging) to this many decimal places for 60 "
-         "seconds. Higher values will significantly increase run time, but "
-         "lead to somewhat more accurate results.");
+         "that is stable (unchanging) to this many decimal places for 30 "
+         "seconds' worth of disk cleaner run time. Higher values will "
+         "significantly increase benchmark time, but lead to somewhat "
+         "more accurate results.");
 
     OptionParser optionParser(benchOptions, argc, argv);
 
