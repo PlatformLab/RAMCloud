@@ -110,7 +110,7 @@ AbstractServerList::getSession(ServerId id)
     // session and open new sessions in parallel.  In addition, it's
     // possible that a server could be deleted while a session is being
     // opened for it.
-    const char* locator;
+    string locator;
     {
         Lock _(mutex);
         ServerDetails* details = iget(id);
@@ -124,7 +124,7 @@ AbstractServerList::getSession(ServerId id)
     // No cached session. Open a new session and send a brief request to
     // the server to verify that it has the expected identifier.
     Transport::SessionRef session =
-            context->transportManager->openSession(locator);
+            context->transportManager->openSession(locator.c_str());
     if (!skipServerIdCheck) {
         try {
             ServerId actualId = MembershipClient::getServerId(context,
@@ -132,14 +132,14 @@ AbstractServerList::getSession(ServerId id)
             if (id != actualId) {
                 RAMCLOUD_LOG(DEBUG, "Expected ServerId %s for \"%s\", "
                         "but actual server id was %s",
-                        id.toString().c_str(), locator,
+                        id.toString().c_str(), locator.c_str(),
                         actualId.toString().c_str());
                 return FailSession::get();
             }
         }
         catch (const TransportException& e) {
             RAMCLOUD_LOG(DEBUG, "Failed to obtain ServerId from \"%s\": %s",
-                    locator, e.what());
+                    locator.c_str(), e.what());
             return FailSession::get();
         }
     }
