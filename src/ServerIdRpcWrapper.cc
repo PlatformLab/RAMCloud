@@ -23,6 +23,13 @@
 
 namespace RAMCloud {
 
+/// For testing; prefer using ConvertExceptionsToDoesntExist where possible.
+/// When set instead of retrying the rpc on a TransportException all
+/// instances of this wrapper will internally flag the server as down
+/// instead. This causes waiting on the rpc throw a
+/// ServerNotUpException. Useful with MockTransport to convert
+/// responses set with transport.setInput(NULL) to
+/// ServerNotUpExceptions.
 bool ServerIdRpcWrapper::convertExceptionsToDoesntExist = false;
 
 /**
