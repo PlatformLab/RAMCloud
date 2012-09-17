@@ -99,7 +99,11 @@ main(int argc, char *argv[])
              "any cluster name (even itself), so it guarantees all stored "
              "replicas are discarded on start and that all replicas created "
              "by this process are discarded by future backups. "
-             "This is convenient for testing.");
+             "This is convenient for testing.")
+            ("sync",
+             ProgramOptions::bool_switch(&config.backup.sync),
+             "Make all updates completely synchronous all the way down to "
+             "stable storage.");
 
         OptionParser optionParser(serverOptions, argc, argv);
 
