@@ -218,6 +218,10 @@ TEST_F(ReplicatedSegmentTest, constructor) {
 }
 
 TEST_F(ReplicatedSegmentTest, free) {
+    transport.setInput("0 0"); // write+open first replica
+    transport.setInput("0 0"); // write+open second replica
+    transport.setInput("0 0"); // write+close first replica
+    transport.setInput("0 0"); // write+close second replica
     segment->close();
     segment->free();
     EXPECT_TRUE(segment->freeQueued);
@@ -228,8 +232,10 @@ TEST_F(ReplicatedSegmentTest, free) {
 }
 
 TEST_F(ReplicatedSegmentTest, freeWriteRpcInProgress) {
-    transport.setInput("0 0"); // write
-    transport.setInput("0 0"); // write
+    transport.setInput("0 0"); // write+open first replica
+    transport.setInput("0 0"); // write+open second replica
+    transport.setInput("0 0"); // write+close first replica
+    transport.setInput("0 0"); // write+close second replica
     segment->close();
     taskQueue.performTask(); // writeRpc created
     segment->free();
@@ -681,15 +687,28 @@ TEST_F(ReplicatedSegmentTest, scheduleWithZeroReplicas) {
 }
 
 TEST_F(ReplicatedSegmentTest, performTaskFreeNothingToDo) {
+    transport.setInput("0 0"); // write+open first replica
+    transport.setInput("0 0"); // write+open second replica
+    transport.setInput("0 0"); // write+close first replica
+    transport.setInput("0 0"); // write+close second replica
     createSegment->logSegment.tail = openLen + 10; // write queued
     segment->close();
     segment->free();
-    taskQueue.performTask();
+    EXPECT_TRUE(segment->isScheduled());
+    EXPECT_EQ(0u, deleter.count);
+    transport.setInput("0 0"); // free rpc first replica
+    transport.setInput("0 0"); // free rpc second replica
+    taskQueue.performTask(); // send free rpc
+    taskQueue.performTask(); // reap free rpc
     EXPECT_FALSE(segment->isScheduled());
     EXPECT_EQ(1u, deleter.count);
 }
 
 TEST_F(ReplicatedSegmentTest, performTaskFreeOneReplicaToFree) {
+    transport.setInput("0 0"); // write+open first replica
+    transport.setInput("0 0"); // write+open second replica
+    transport.setInput("0 0"); // write+close first replica
+    transport.setInput("0 0"); // write+close second replica
     segment->close();
     segment->free();
 
@@ -805,48 +824,6 @@ TEST_F(ReplicatedSegmentTest, performFreeRpcFailed) {
 
     EXPECT_EQ(0u, deleter.count);
     reset();
-}
-
-TEST_F(ReplicatedSegmentTest, performFreeWriteRpcInProgress) {
-    // It should be impossible to get into this situation now that free()
-    // synchronously finishes outstanding write rpcs before starting the
-    // free, but its worth keeping the code since it is more robust if
-    // the code knows how to deal with queued frees while there are
-    // outstanding writes in progress.
-    transport.setInput("0 0"); // write
-    transport.setInput("0 0"); // write
-    transport.setInput("0 0"); // free
-    transport.setInput("0 0"); // free
-
-    segment->close();
-    taskQueue.performTask(); // writeRpc created
-    segment->freeQueued = true;
-    segment->schedule();
-
-    // make sure the backup "free" opcode was not sent
-    EXPECT_TRUE(TestUtil::doesNotMatchPosixRegex("0x1001c",
-                                                 transport.outputLog));
-    ASSERT_TRUE(segment->replicas[0].isActive);
-    EXPECT_TRUE(segment->replicas[0].writeRpc);
-    EXPECT_FALSE(segment->replicas[0].freeRpc);
-    EXPECT_TRUE(segment->isScheduled());
-
-    taskQueue.performTask(); // performFree reaps the write, remains scheduled
-    ASSERT_TRUE(segment->replicas[0].isActive);
-    EXPECT_FALSE(segment->replicas[0].writeRpc);
-    EXPECT_FALSE(segment->replicas[0].freeRpc);
-    EXPECT_TRUE(segment->isScheduled());
-
-    taskQueue.performTask(); // now it schedules the free
-    ASSERT_TRUE(segment->replicas[0].isActive);
-    EXPECT_FALSE(segment->replicas[0].writeRpc);
-    EXPECT_TRUE(segment->replicas[0].freeRpc);
-    EXPECT_TRUE(segment->isScheduled());
-
-    taskQueue.performTask(); // free is reaped and the replica is destroyed
-    EXPECT_FALSE(segment->replicas[0].isActive);
-    EXPECT_FALSE(segment->isScheduled());
-    EXPECT_EQ(1u, deleter.count);
 }
 
 TEST_F(ReplicatedSegmentTest, performWriteTooManyInFlight) {

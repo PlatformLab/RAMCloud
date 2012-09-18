@@ -113,7 +113,8 @@ ReplicatedSegment::~ReplicatedSegment()
 
 /**
  * Request the eventual freeing all known replicas of a segment from its
- * backups. The caller's ReplicatedSegment pointer is invalidated upon the
+ * backups; segment must have already has close() called on it.
+ * The caller's ReplicatedSegment pointer is invalidated upon the
  * return of this function. After the return of this call all outstanding
  * write rpcs for this segment are guaranteed to have completed so the log
  * memory associated with this segment is free for reuse. This implies that
@@ -131,32 +132,36 @@ ReplicatedSegment::free()
 {
     TEST_LOG("%s, %lu", masterId.toString().c_str(), segmentId);
 
-    // The order is important and rather subtle here:
-    // First, mark the segment as queued for freeing.
-    // Then make sure not to return to the caller before any outstanding
-    // write request has finished.
-    // If the segment isn't marked free first then new write requests for
-    // other replicas may get started as we wait to reap the outstanding
-    // writeRpc.  This can cause the length of time the lock is held to
-    // stretch out.
+    // Finish any outstanding work for this segment. This makes sure that if
+    // other segments are waiting on things to happen with this segment it is
+    // all taken care before we get rid of the replica. Because locking is
+    // tricky for syncing a segment while tolerating failure notifications it
+    // is best to leave the heavy lifting to sync().
+    sync();
 
-    Tub<Lock> lock;
-    lock.construct(dataMutex);
+    Lock _(dataMutex);
     assert(queued.close);
+    assert(!followingSegment);
+    assert(getCommitted().close);
 
-    freeQueued = true;
-
-    checkAgain:
+    // Since there is a gap in the lock above write rpcs could have started in
+    // response to failures for this replica. It's safe just to cancel them
+    // and queue the free. Marking the segment as free will prevent the start
+    // of any more write rpcs. Canceling rpcs is NOT safe on all transports
+    // for log data since on some (infrc) it is zero-copied. It's possible
+    // the nic is in the middle of transmitting a write to the backup using
+    // this portion of the log. However, even if this piece of memory is reused
+    // the checksum stored in the replica metadata keeps this safe; if garbage
+    // is sent it will not be used during recovery.
     foreach (auto& replica, replicas) {
         if (!replica.isActive || !replica.writeRpc)
             continue;
-        taskQueue.performTask();
-        // Release and reacquire the lock; this gives other operations
-        // a chance to slip in while this thread waits for all write
-        // rpcs to finish up.
-        lock.construct(dataMutex);
-        goto checkAgain;
+        replica.writeRpc->cancel();
     }
+
+    // Segment should free itself ASAP. It must not start new write rpcs after
+    // this.
+    freeQueued = true;
 
     schedule();
 }
@@ -409,42 +414,41 @@ ReplicatedSegment::performTask()
             performFree(replica);
         if (!isScheduled()) // Everything is freed, destroy ourself.
             deleter.destroyAndFreeReplicatedSegment(this);
-    } else {
+    } else if (!freeQueued) {
         foreach (auto& replica, replicas)
             performWrite(replica);
-        // Have to be a bit careful: these steps must be completed even if a
-        // free has been enqueued, otherwise lost open replicas could still
-        // be detected as the head of the log during a recovery.  Hence the
-        // extra condition above.
-        if (recoveringFromLostOpenReplicas) {
-            if (getCommitted().close) {
-                if (minOpenSegmentId.isGreaterThan(segmentId)) {
-                    // Ok, this segment is now recovered.
-                    LOG(DEBUG,
-                        "minOpenSegmentId ok, lost open replica recovery "
-                        "complete on segment %lu", segmentId);
-                    recoveringFromLostOpenReplicas = false;
-                    // All done, don't reschedule.
-                } else  {
-                    // Now that the old head segment has been re-replicated
-                    // and durably closed its time to make sure it can never
-                    // appear as an open segment in the log again (even if
-                    // some lost replica comes back from the grave).
-                    LOG(DEBUG, "Updating minOpenSegmentId on coordinator to "
-                             "ensure lost replicas of segment %lu will not be "
-                             "reused", segmentId);
-                    minOpenSegmentId.updateToAtLeast(segmentId + 1);
-                    schedule();
-                }
-            } else {
-                // This shouldn't be needed, but if the code handling the roll
-                // over to the new log head doesn't close this segment before
-                // the next call to proceed it's possible no work will be
-                // possible or performWrite() won't schedule it, but it also
-                // isn't isSycned() since it is recovering which will trip the
-                // useful assertion below.
+    }
+    // Have to be a bit careful: these steps must be completed even if a
+    // free has been enqueued, otherwise lost open replicas could still
+    // be detected as the head of the log during a recovery.  Hence the
+    // extra condition above.
+    if (recoveringFromLostOpenReplicas) {
+        if (getCommitted().close) {
+            if (minOpenSegmentId.isGreaterThan(segmentId)) {
+                // Ok, this segment is now recovered.
+                LOG(DEBUG,
+                    "minOpenSegmentId ok, lost open replica recovery "
+                    "complete on segment %lu", segmentId);
+                recoveringFromLostOpenReplicas = false;
+                // All done, don't reschedule.
+            } else  {
+                // Now that the old head segment has been re-replicated
+                // and durably closed its time to make sure it can never
+                // appear as an open segment in the log again (even if
+                // some lost replica comes back from the grave).
+                LOG(DEBUG, "Updating minOpenSegmentId on coordinator to "
+                         "ensure lost replicas of segment %lu will not be "
+                         "reused", segmentId);
+                minOpenSegmentId.updateToAtLeast(segmentId + 1);
                 schedule();
             }
+        } else {
+            // This shouldn't be needed, but if the code handling the roll
+            // over to the new log head doesn't close this segment before
+            // the next call to proceed it's possible no work will be
+            // possible or performWrite() won't schedule it, but it also
+            // isn't synced since it is recovering.
+            schedule();
         }
     }
 }
@@ -497,11 +501,8 @@ ReplicatedSegment::performFree(Replica& replica)
     } else {
         // No free rpc is outstanding.
         if (replica.writeRpc) {
-            // Cannot issue free, a write is outstanding. Make progress on it.
-            performWrite(replica);
-            // Stay scheduled even if synced since we have to do free still.
-            schedule();
-            return;
+            // Impossible by construction. See free().
+            assert(false);
         } else {
             // Issue a free rpc for this replica, reschedule to wait on it.
             replica.freeRpc.construct(context, replica.backupId,
