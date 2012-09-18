@@ -303,8 +303,10 @@ SingleFileStorage::Frame::close()
     isOpen = false;
     isClosed = true;
 
-    if (isSynced())
+    if (isSynced()) {
         buffer.reset();
+        --storage->nonVolatileBuffersInUse;
+    }
 }
 
 /**
@@ -348,6 +350,9 @@ SingleFileStorage::Frame::free()
     isOpen = false;
     isClosed = false;
 
+    buffer.reset();
+    --storage->nonVolatileBuffersInUse;
+
     storage->freeMap[frameIndex] = 1;
 }
 
@@ -372,10 +377,13 @@ SingleFileStorage::Frame::free()
 void
 SingleFileStorage::Frame::open(bool sync)
 {
+    // Be careful, if this method throws an exception the storage layer
+    // above will leak the count of a non-volatile buffer.
     Lock _(storage->mutex);
     if (isOpen || isClosed)
         return;
     buffer = allocateBuffer();
+    // nonVolatileBuffersInUse already incremented in caller.
     isOpen = true;
     isClosed = false;
     this->sync = sync;
@@ -480,6 +488,8 @@ SingleFileStorage::Frame::performRead(Lock& lock)
 {
     assert(loadRequested);
     Memory::unique_ptr_free buffer = allocateBuffer();
+    // Don't increment nonVolatileBuffersInUse, this will eventually be from
+    // a normal, DRAM buffer. No need to read read-only data into NVRAM.
     const size_t frameStart = storage->offsetOfFrame(frameIndex);
 
     if (testingSkipRealIo) {
@@ -553,8 +563,10 @@ SingleFileStorage::Frame::performWrite(Lock& lock)
     committedMetadataVersion = appendedMetadataVersion;
 
     // Release the in-memory copy if it won't be used again.
-    if (isClosed && isSynced() && !loadRequested)
+    if (isClosed && isSynced() && !loadRequested) {
         buffer.reset();
+        --storage->nonVolatileBuffersInUse;
+    }
 
     if (loadRequested) {
         schedule(NORMAL);
@@ -592,6 +604,14 @@ SingleFileStorage::Frame::allocateBuffer()
  *      The size in bytes of the segments this storage will deal with.
  * \param frameCount
  *      The number of segments this storage can store simultaneously.
+ * \param maxNonVolatileBuffers
+ *      Limit on the number of non-volatile buffers storage will fill with
+ *      replica data queued for store before rejecting new open requests
+ *      from masters. Setting this too low can severely impact recovery
+ *      performance in small clusters. This is because replica loads are
+ *      prioritized over stores during recovery so for recovery to proceed
+ *      quickly the cluster must be able to buffer all the replicas generated
+ *      during recovery.
  * \param filePath
  *      A filesystem path to the device or file where segments will be stored.
  *      If NULL then a temporary file in the system temp directory is created
@@ -602,6 +622,7 @@ SingleFileStorage::Frame::allocateBuffer()
  */
 SingleFileStorage::SingleFileStorage(size_t segmentSize,
                                      size_t frameCount,
+                                     size_t maxNonVolatileBuffers,
                                      const char* filePath,
                                      int openFlags)
     : BackupStorage(segmentSize, Type::DISK)
@@ -616,6 +637,8 @@ SingleFileStorage::SingleFileStorage(size_t segmentSize,
     , openFlags(openFlags)
     , fd(-1)
     , tempFilePath()
+    , nonVolatileBuffersInUse()
+    , maxNonVolatileBuffers(maxNonVolatileBuffers)
 {
     freeMap.set();
 
@@ -697,12 +720,22 @@ SingleFileStorage::FrameRef
 SingleFileStorage::open(bool sync)
 {
     Lock lock(mutex);
+    if (nonVolatileBuffersInUse == maxNonVolatileBuffers) {
+        // Force the master to find some place else and/or backoff.
+        LOG(NOTICE, "Master tried to open a storage frame but too many "
+            "frames already buffered to accept it; rejecting");
+        throw BackupOpenRejectedException(HERE);
+    }
     FreeMap::size_type next = freeMap.find_next(lastAllocatedFrame);
     if (next == FreeMap::npos) {
         next = freeMap.find_first();
-        if (next == FreeMap::npos)
-            throw BackupStorageException(HERE, "Out of free segment frames.");
+        if (next == FreeMap::npos) {
+            LOG(NOTICE, "Master tried to open a storage frame but there "
+                "are no frames free; rejecting");
+            throw BackupOpenRejectedException(HERE);
+        }
     }
+    ++nonVolatileBuffersInUse;
     lastAllocatedFrame = next;
     size_t frameIndex = next;
     assert(freeMap[frameIndex] == 1);

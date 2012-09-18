@@ -46,7 +46,7 @@ class SingleFileStorageTest : public ::testing::Test {
     {
         Logger::get().setLogLevels(SILENT_LOG_LEVEL);
         testSource.appendTo(test, testLength + 1);
-        storage.construct(segmentSize, segmentFrames,
+        storage.construct(segmentSize, segmentFrames, segmentFrames,
                           static_cast<const char*>(NULL), O_DIRECT | O_SYNC);
         Frame::testingSkipRealIo = true;
     }
@@ -278,17 +278,6 @@ TEST_F(SingleFileStorageTest, Frame_free) {
     frame->free();
 
     EXPECT_EQ(1, storage->freeMap[0]);
-
-    /*
-    Memory::unique_ptr_free buffer(
-        Memory::xmemalign(HERE, getpagesize(),
-                          BLOCK_SIZE),
-        std::free);
-    ASSERT_EQ(BLOCK_SIZE,
-              pread(storage->fd, buffer.get(), BLOCK_SIZE,
-                    storage->offsetOfMetadataFrame(0)));
-    ASSERT_EQ(0, memcmp("\0DIE", buffer.get(), 4));
-    */
 }
 
 TEST_F(SingleFileStorageTest, Frame_open) {
@@ -465,8 +454,9 @@ TEST_F(SingleFileStorageTest, constructor) {
 TEST_F(SingleFileStorageTest, openFails) {
     TestLog::Enable _;
     EXPECT_THROW(SingleFileStorage(segmentSize,
-                                            segmentFrames,
-                                            "/dev/null/cantcreate", 0),
+                                   segmentFrames,
+                                   segmentFrames,
+                                   "/dev/null/cantcreate", 0),
                             BackupStorageException);
     EXPECT_EQ("SingleFileStorage: Failed to open backup storage file "
               "/dev/null/cantcreate: Not a directory", TestLog::get());
@@ -501,7 +491,13 @@ TEST_F(SingleFileStorageTest, open_noFreeFrames) {
     for (uint32_t f = 0; f < segmentFrames; ++f)
         frames.push_back(storage->open(false));
     EXPECT_THROW(storage->open(false),
-                 BackupStorageException);
+                 BackupOpenRejectedException);
+}
+
+TEST_F(SingleFileStorageTest, open_tooManyBuffersInUse) {
+    storage->nonVolatileBuffersInUse = storage->maxNonVolatileBuffers;
+    EXPECT_THROW(storage->open(false),
+                 BackupOpenRejectedException);
 }
 
 TEST_F(SingleFileStorageTest, loadAllMetadata) {

@@ -61,8 +61,16 @@ BackupService::BackupService(Context* context,
         storage.reset(new InMemoryStorage(config.segmentSize,
                                           config.backup.numSegmentFrames));
     } else {
+        // This is basically set to unlimited right now because limiting it
+        // can severely impact recovery performance or even cause it to
+        // deadlock on small clusters.
+        // (All recovery reads are prioritized over writes so backups
+        // collectively need enough non-volatile buffer to absorb the entire
+        // recovery).
+        size_t maxNonVolatileBuffers = config.backup.numSegmentFrames;
         storage.reset(new SingleFileStorage(config.segmentSize,
                                             config.backup.numSegmentFrames,
+                                            maxNonVolatileBuffers,
                                             config.backup.file.c_str(),
                                             O_DIRECT | O_SYNC));
     }

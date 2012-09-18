@@ -181,6 +181,7 @@ class SingleFileStorage : public BackupStorage {
 
     SingleFileStorage(size_t segmentSize,
                       size_t frameCount,
+                      size_t maxNonVolatileBuffers,
                       const char* filePath,
                       int openFlags = 0);
     ~SingleFileStorage();
@@ -270,6 +271,27 @@ class SingleFileStorage : public BackupStorage {
      * instance is destroyed. Useful for testing.
      */
     char* tempFilePath;
+
+    /**
+     * Tracks number of non-volatile buffers that would be needed to house
+     * data coming in from backups while it waits to drain to storage.
+     * Incremented on open(), decremented in Frame::close(),
+     * Frame::performWrite(), and Frame::free() depending on whether the data
+     * was already synced to storage or not at the time of the close. Used to
+     * pace the use of non-volatile buffers to the speed of the storage device.
+     */
+    size_t nonVolatileBuffersInUse;
+
+    /**
+     * Limit on the number of non-volatile buffers storage will fill with
+     * replica data queued for store before rejecting new open requests
+     * from masters. Set in BackupService. Setting this too low can severely
+     * impact recovery performance in small clusters. This is because replica
+     * loads are prioritized over stores during recovery so for recovery to
+     * proceed quickly the cluster must be able to buffer all the replicas
+     * generated during recovery.
+     */
+    size_t maxNonVolatileBuffers;
 
     DISALLOW_COPY_AND_ASSIGN(SingleFileStorage);
 };
