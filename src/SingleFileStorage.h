@@ -53,6 +53,9 @@ class SingleFileStorage : public BackupStorage {
         Frame(SingleFileStorage* storage, size_t frameIndex);
         ~Frame();
 
+        void schedule(Priority priority);
+        void schedule(Lock& lock, Priority priority);
+
         bool wasAppendedToByCurrentProcess();
 
         void loadMetadata();
@@ -167,6 +170,21 @@ class SingleFileStorage : public BackupStorage {
 
         /// True if a read or write is ongoing (which is done without a lock).
         bool performingIo;
+
+        /**
+         * Logical timestamp used to track which lifecycle of the frame io was
+         * scheduled during. If a task is scheduled and then freed this can be
+         * used to detect that invocations of the task after the free shouldn't
+         * actually perform io.
+         */
+        uint64_t epoch;
+
+        /**
+         * Timestamp indicating the last time schedule() was called. If the
+         * epoch has changed when the task is finally invoked then the frame
+         * has been freed for reuse and the io is skipped.
+         */
+        uint64_t scheduledInEpoch;
 
         /// Used for testing.
         bool testingHadToWaitForBufferOnLoad;

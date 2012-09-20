@@ -66,6 +66,8 @@ SingleFileStorage::Frame::Frame(SingleFileStorage* storage, size_t frameIndex)
     , committedMetadataVersion()
     , loadRequested()
     , performingIo()
+    , epoch(1)
+    , scheduledInEpoch(0)
     , testingHadToWaitForBufferOnLoad()
     , testingHadToWaitForSyncOnLoad()
 {
@@ -78,14 +80,44 @@ SingleFileStorage::Frame::~Frame()
 }
 
 /**
+ * Do NOT call this method. It is here to prevent calls to the base class
+ * implementation. Use the method below.
+ */
+void
+SingleFileStorage::Frame::schedule(Priority priority)
+{
+    DIE("Unsafe use of base class schedule, use schedule(Lock&, Priority)");
+}
+
+/**
+ * Schedule this task to perform io. Internally marks down the frame
+ * epoch this io was scheduled in. If the frame is freed before the
+ * task is invoked the invocation will return immediately without
+ * doing anything.
+ *
+ * \param lock
+ *      Lock on the storage mutex which must be held before calling.
+ *      Not actually used; just here to sanity check locking.
+ * \param priority
+ *      Priority of this task versus others. Reads are performed with
+ *      NORMAL priority; writes are performed with LOW priority.
+ */
+void
+SingleFileStorage::Frame::schedule(Lock& lock, Priority priority)
+{
+    scheduledInEpoch = epoch;
+    PriorityTask::schedule(priority);
+}
+
+/**
  * Returns true if append has been called on this frame during the life of this
  * process; returns false otherwise. This includes across free()/open() cycles.
  * This is used by the backup replica garbage collector to determine whether it
  * might have missed a BackupFree rpc from a master, in which case it has to
  * query the master for the replica status. This is "appended to" rather than
- * "opened by" because of benchmark(); benchmark "opens" replicas and loads them
- * but doesn't do any. Masters open and append data in a single rpc, so this
- * is a fine proxy.
+ * "opened by" because of benchmark(); benchmark "opens" replicas and loads
+ * them but doesn't do any appends. Masters open and append data in a single
+ * rpc, so this is a fine proxy.
  */
 bool
 SingleFileStorage::Frame::wasAppendedToByCurrentProcess()
@@ -147,13 +179,13 @@ SingleFileStorage::Frame::getMetadata()
 void
 SingleFileStorage::Frame::startLoading()
 {
-    Lock _(storage->mutex);
+    Lock lock(storage->mutex);
     if (loadRequested)
         return;
     loadRequested = true;
     if (buffer)
         return;
-    schedule(NORMAL);
+    schedule(lock, NORMAL);
 }
 
 /**
@@ -276,7 +308,7 @@ SingleFileStorage::Frame::append(Buffer& source,
         if (sync) {
             performWrite(lock);
         } else {
-            schedule(LOW);
+            schedule(lock, LOW);
         }
     }
 }
@@ -317,6 +349,8 @@ void
 SingleFileStorage::Frame::performTask()
 {
     Lock lock(storage->mutex);
+    if (epoch != scheduledInEpoch)
+        return;
     performingIo = true;
     if (!isSynced()) {
         performWrite(lock);
@@ -341,12 +375,7 @@ void
 SingleFileStorage::Frame::free()
 {
     Lock lock(storage->mutex);
-    deschedule(); // Cancel IO, but running performTask() may schedule more.
-    while (performingIo) {
-        lock.unlock();
-        lock.lock();
-    }
-    deschedule(); // Make sure it is really all done.
+    ++epoch;
     isOpen = false;
     isClosed = false;
 
@@ -569,9 +598,9 @@ SingleFileStorage::Frame::performWrite(Lock& lock)
     }
 
     if (loadRequested) {
-        schedule(NORMAL);
+        schedule(lock, NORMAL);
     } else if (!isSynced()) {
-        schedule(LOW);
+        schedule(lock, LOW);
     }
 }
 

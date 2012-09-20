@@ -203,7 +203,6 @@ TEST_F(SingleFileStorageTest, Frame_appendIdempotence) {
     while (!frame->isSynced());
     EXPECT_FALSE(frame->isScheduled());
     frame->append(testSource, 0, 5, 0, test, testLength + 1);
-    EXPECT_TRUE(frame->isScheduled());
     EXPECT_EQ(5lu, frame->appendedLength);
     EXPECT_EQ(2lu, frame->appendedMetadataVersion);
     frame->append(testSource, 0, 5, 0, test, testLength + 1);
