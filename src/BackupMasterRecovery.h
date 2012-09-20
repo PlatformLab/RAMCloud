@@ -249,10 +249,13 @@ class BackupMasterRecovery : public Task {
     uint64_t logDigestSegmentId;
 
     /**
-     * Caches the replica length stored in the metadata for the replica from
+     * Caches the replica epoch stored in the metadata for the replica from
      * which the log digest was extracted for this crashed master, if any.
+     * Used by the coordinator to detect if the replica from which this
+     * digest was extracted could have been inconsistent. If it might have
+     * been, then the coordinator will discard the returned digest.
      */
-    uint32_t logDigestSegmentLength;
+    uint64_t logDigestSegmentEpoch;
 
     /**
      * Indicates whether start() should scan all the replicas to extract
@@ -317,14 +320,14 @@ class BackupReplicaMetadata {
                           uint64_t logId,
                           uint64_t segmentId,
                           uint32_t segmentCapacity,
-                          uint32_t segmentLength,
+                          uint64_t segmentEpoch,
                           bool closed,
                           bool primary)
         : certificate(certificate)
         , logId(logId)
         , segmentId(segmentId)
         , segmentCapacity(segmentCapacity)
-        , segmentLength(segmentLength)
+        , segmentEpoch(segmentEpoch)
         , closed(closed)
         , primary(primary)
         , checksum()
@@ -380,12 +383,16 @@ class BackupReplicaMetadata {
     uint32_t segmentCapacity;
 
     /**
-     * Bytes of the allocated replica storage contain actual replica
-     * data written by the master. Reported to the coordinator and used
-     * to determine which of a set of replicas for a segment is the
-     * most up-to-date.
+     * Which epoch of the segment the replica was most recently written
+     * during. Used during recovery by the coordinator to filter out
+     * replicas which may have become inconsistent. When a master loses
+     * contact with a backup to which it was replicating an open segment
+     * the master increments this epoch, ensures that it has a sufficient
+     * number of replicas tagged with the new epoch number, and then tells
+     * the coordinator of the new epoch so the coordinator can filter out
+     * the stale replicas from earlier epochs.
      */
-    uint32_t segmentLength;
+    uint64_t segmentEpoch;
 
     /**
      * Whether the replica was closed by the master which
@@ -413,7 +420,7 @@ class BackupReplicaMetadata {
     Crc32C::ResultType checksum;
 } __attribute__((packed));
 // Substitute for std::is_trivially_copyable until we have real C++11.
-static_assert(sizeof(BackupReplicaMetadata) == 38,
+static_assert(sizeof(BackupReplicaMetadata) == 42,
               "Unexpected padding in BackupReplicaMetadata");
 
 } // namespace RAMCloud

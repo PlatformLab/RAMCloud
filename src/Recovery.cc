@@ -50,11 +50,12 @@ namespace RAMCloud {
  *      NULL for testing if the test takes care of deallocation of the Recovery.
  * \param crashedServerId
  *      The crashed master this Recovery will rebuild.
- * \param minOpenSegmentId
+ * \param recoveryInfo
  *      Used to filter out replicas of segments which may have become
- *      inconsistent. A replica with a segment id less than this is
- *      not eligible to be used for recovery (both for log digest and
- *      object data purposes).
+ *      inconsistent. A replica with a segment id less than this or
+ *      an equal segmentId with a lesser epoch is not eligible to be used
+ *      for recovery (both for log digest and object data purposes).
+ *      Stored in and provided by the coordinator server list.
  */
 Recovery::Recovery(Context* context,
                    TaskQueue& taskQueue,
@@ -62,11 +63,11 @@ Recovery::Recovery(Context* context,
                    RecoveryTracker* tracker,
                    Owner* owner,
                    ServerId crashedServerId,
-                   uint64_t minOpenSegmentId)
+                   const ProtoBuf::MasterRecoveryInfo& recoveryInfo)
     : Task(taskQueue)
     , context(context)
     , crashedServerId(crashedServerId)
-    , minOpenSegmentId(minOpenSegmentId)
+    , masterRecoveryInfo(recoveryInfo)
     , tabletsToRecover()
     , tabletMap(tabletMap)
     , tracker(tracker)
@@ -198,13 +199,13 @@ BackupStartTask::BackupStartTask(
             ServerId backupId,
             ServerId crashedMasterId,
             const ProtoBuf::Tablets& partitions,
-            uint64_t minOpenSegmentId)
+            const ProtoBuf::MasterRecoveryInfo& recoveryInfo)
     : backupId(backupId)
     , result()
     , recovery(recovery)
     , crashedMasterId(crashedMasterId)
     , partitions(partitions)
-    , minOpenSegmentId(minOpenSegmentId)
+    , masterRecoveryInfo(recoveryInfo)
     , rpc()
     , done()
     , testingCallback(recovery ?
@@ -228,54 +229,73 @@ BackupStartTask::send()
 }
 
 /**
- * Removes replicas and log digests from results that may be
- * inconsistent with the most recent state of the log being recovered.
+ * Removes replicas and log digests from results that may be inconsistent with
+ * the most recent state of the log being recovered.
  *
- * This involves checking "open" replicas and log digests against the
- * recorded minOpenSegmentId for the master being recovered and discarding
- * any entries or digests that have come from replicas for segments with an
- * id less than it.
+ * When masters lose contact with backups they were replicating an open segment
+ * to that replica may become inconsistent. To remedy this masters store a bit
+ * of recovery metadata in the server list on the coordinator called
+ * "MasterRecoveryInfo".
+ *
+ * This method uses that metadata which provides a segment id and an "epoch"
+ * for that segment. Any *open* replica found on backups with either a)
+ * a segment id that is less that that stored in the recovery info or b)
+ * a segment id that is equal to that stored in the recovery info AND an
+ * epoch less than that stored in the recovery info will be filtered out of
+ * the results coming back from the backup since the replica could have become
+ * inconsistent. This includes filtering out any log digests that could have
+ * come from inconsistent replicas as well.
  */
 void
 BackupStartTask::filterOutInvalidReplicas()
 {
+    uint64_t minOpenSegmentId = masterRecoveryInfo.min_open_segment_id();
+    uint64_t minOpenSegmentEpoch = masterRecoveryInfo.min_open_segment_epoch();
+
     // Remove any replicas from the results that are invalid because they
-    // were found open and their segmentId is less than the minOpenSegmentId
-    // for this master.
-    enum { BYTES_WRITTEN_CLOSED = ~(0u) };
-    vector<pair<uint64_t, uint32_t>> newIdAndLength;
-    newIdAndLength.reserve(result.segmentIdAndLength.size());
-    uint32_t newPrimarySegmentCount = 0;
-    for (size_t i = 0; i < result.segmentIdAndLength.size(); ++i) {
-        auto& idAndLength = result.segmentIdAndLength[i];
-        if (idAndLength.second != BYTES_WRITTEN_CLOSED &&
-            idAndLength.first < minOpenSegmentId) {
-            LOG(DEBUG, "Removing replica for segmentId %lu from replica list "
-                "for backup %s because it was open and had an id less than "
-                "the minOpenSegmentId (%lu) for the recovering master",
-               idAndLength.first, backupId.toString().c_str(),
-               minOpenSegmentId);
-            continue;
+    // were found open and they are from a segment that was later closed or
+    // was re-replicated with the later epoch number.
+    vector<StartReadingDataRpc::Replica> newReplicas;
+    newReplicas.reserve(result.replicas.size());
+    uint32_t newPrimaryReplicaCount = 0;
+    for (size_t i = 0; i < result.replicas.size(); ++i) {
+        auto& replica = result.replicas[i];
+        if (!replica.closed) {
+            if (replica.segmentId < minOpenSegmentId ||
+                (replica.segmentId == minOpenSegmentId &&
+                 replica.segmentEpoch < minOpenSegmentEpoch))
+            {
+                LOG(DEBUG, "Removing replica for segmentId %lu from replica "
+                    "list for backup %s because it was open and had "
+                    "<id, epoch> <%lu ,%lu> which is less than the required "
+                    "<id, epoch> <%lu ,%lu> for the recovering master",
+                    replica.segmentId, backupId.toString().c_str(),
+                    replica.segmentId, replica.segmentEpoch,
+                    minOpenSegmentId, minOpenSegmentEpoch);
+                continue;
+            }
         }
-        if (i < result.primarySegmentCount)
-            ++newPrimarySegmentCount;
-        newIdAndLength.emplace_back(idAndLength);
+        if (i < result.primaryReplicaCount)
+            ++newPrimaryReplicaCount;
+        newReplicas.emplace_back(replica);
     }
-    std::swap(result.segmentIdAndLength, newIdAndLength);
-    std::swap(result.primarySegmentCount, newPrimarySegmentCount);
-    // We cannot use a log digest if it comes from a segment with a segmentId
-    // less than minOpenSegmentId (the fact that minOpenSegmentId is higher
-    // than this replicas segmentId demonstrates that a more recent log digest
-    // was durably written to a later segment).
-    if (result.logDigestSegmentId < minOpenSegmentId) {
-        LOG(DEBUG, "Backup %s returned a log digest for segmentId %lu but "
-            "minOpenSegmentId for this master is %lu so discarding it",
-            backupId.toString().c_str(), result.logDigestSegmentId,
-            minOpenSegmentId);
+    std::swap(result.replicas, newReplicas);
+    std::swap(result.primaryReplicaCount, newPrimaryReplicaCount);
+    // We cannot use a log digest if it comes from a segment which was filtered
+    // out as invalid.
+    if (result.logDigestSegmentId < minOpenSegmentId ||
+        (result.logDigestSegmentId == minOpenSegmentId &&
+         result.logDigestSegmentEpoch < minOpenSegmentEpoch))
+    {
+        LOG(DEBUG, "Backup %s returned a log digest for segment id/epoch "
+            "<%lu, %lu> but the minimum <id, epoch> for this master is "
+            "<%lu, %lu> so discarding it", backupId.toString().c_str(),
+            result.logDigestSegmentId, result.logDigestSegmentEpoch,
+            minOpenSegmentId, minOpenSegmentEpoch);
         result.logDigestBytes = 0;
         result.logDigestBuffer.reset();
         result.logDigestSegmentId = -1;
-        result.logDigestSegmentLen = -1;
+        result.logDigestSegmentEpoch = -1;
     }
 }
 
@@ -300,7 +320,7 @@ BackupStartTask::wait()
 
     done = true;
     LOG(DEBUG, "Backup %s has %lu segment replicas",
-        backupId.toString().c_str(), result.segmentIdAndLength.size());
+        backupId.toString().c_str(), result.replicas.size());
 }
 
 /**
@@ -329,8 +349,8 @@ verifyLogComplete(Tub<BackupStartTask> tasks[],
 {
     std::unordered_set<uint64_t> replicaSet;
     for (size_t i = 0; i < taskCount; ++i) {
-        foreach (auto replica, tasks[i]->result.segmentIdAndLength)
-            replicaSet.insert(replica.first);
+        foreach (auto replica, tasks[i]->result.replicas)
+            replicaSet.insert(replica.segmentId);
     }
 
     uint32_t missing = 0;
@@ -355,12 +375,12 @@ verifyLogComplete(Tub<BackupStartTask> tasks[],
 /**
  * Extract log digest from all the startReadingData results.
  * If multiple log digests are found the one from the replica with the
- * lowest segment id is used. If multiple digests are found taken from
- * replicas with the same segment id the shortest of the replicas is
- * returned. The rationale is that the objects in it are most
- * widely replicated. Keep in mind inconsistent open replicas (ones which
+ * lowest segment id is used. When there are multiple replicas for an open
+ * segment the first one that is encountered is returned; it make no
+ * difference whatsoever: all of the replicas must have identical log
+ * digests by construction. Keep in mind inconsistent open replicas (ones which
  * are missing writes that were acknowledged to applications) won't
- * be considered due to minOpenSegmentId, see
+ * be considered due to min open segment id/epoch filtering, see
  * BackupStartTask::filterOutInvalidReplicas()).
  *
  * \param tasks
@@ -369,15 +389,13 @@ verifyLogComplete(Tub<BackupStartTask> tasks[],
  * \param taskCount
  *      Number of elements in #tasks.
  * \return
- *      Tuple of segment id of the replica from which the log digest was
- *      taken, the length of the replica from which the log digest was
- *      taken, and the log digest itself. Empty if no log digest is found.
+ *      Pair of segment id of the replica from which the log digest was
+ *      taken and the log digest itself. Empty if no log digest is found.
  */
-Tub<std::tuple<uint64_t, uint32_t, LogDigest>>
+Tub<std::pair<uint64_t, LogDigest>>
 findLogDigest(Tub<BackupStartTask> tasks[], size_t taskCount)
 {
     uint64_t headId = ~0ul;
-    uint32_t headLength = 0;
     void* headBuffer = NULL;
     uint32_t headBufferLength = 0;
 
@@ -385,27 +403,16 @@ findLogDigest(Tub<BackupStartTask> tasks[], size_t taskCount)
         const auto& result = tasks[i]->result;
         if (!result.logDigestBuffer)
             continue;
-        const uint64_t id = result.logDigestSegmentId;
-        const uint32_t length = result.logDigestSegmentLen;
-        if (length == ~0u) {
-            LOG(ERROR, "Backup returned a log digest for segment %lu but "
-                "listed the replica length as %u (which indicates it was "
-                "closed); this is a bug and should never happen; "
-                "ignoring this digest", id, length);
-            continue;
-        }
-        if (id < headId || (id == headId && length < headLength)) {
+        if (result.logDigestSegmentId < headId) {
             headBuffer = result.logDigestBuffer.get();
             headBufferLength = result.logDigestBytes;
-            headId = id;
-            headLength = length;
+            headId = result.logDigestSegmentId;
         }
     }
 
     if (headId == ~(0lu))
         return {};
-    return {std::make_tuple(headId, headLength,
-                            LogDigest(headBuffer, headBufferLength))};
+    return {std::make_pair(headId, LogDigest(headBuffer, headBufferLength))};
 }
 
 /// Used in buildReplicaMap().
@@ -434,9 +441,6 @@ struct ReplicaAndLoadTime {
  *      Only replicas from segments less or equal than this are included in the
  *      script.
  *      Determined by findLogDigest().
- *  \param headLength
- *      Replicas of the head segment are only included in the script if their
- *      length matches this. Determined by findLogDigest().
  *  \return
  *      Script which indicates to recovery masters which replicas are on which
  *      backups and (approximately) what order segments should be replayed in.
@@ -446,8 +450,7 @@ vector<WireFormat::Recover::Replica>
 buildReplicaMap(Tub<BackupStartTask> tasks[],
                 size_t taskCount,
                 RecoveryTracker* tracker,
-                uint64_t headId,
-                uint32_t headLength)
+                uint64_t headId)
 {
     vector<ReplicaAndLoadTime> replicasToSort;
     for (uint32_t taskIndex = 0; taskIndex < taskCount; taskIndex++) {
@@ -458,12 +461,12 @@ buildReplicaMap(Tub<BackupStartTask> tasks[],
 
         LOG(DEBUG, "Adding %lu segment replicas from %s "
                    "with bench speed of %lu",
-            task->result.segmentIdAndLength.size(),
+            task->result.replicas.size(),
             backupId.toString().c_str(), speed);
 
-        for (size_t i = 0; i < task->result.segmentIdAndLength.size(); ++i) {
+        for (size_t i = 0; i < task->result.replicas.size(); ++i) {
             uint64_t expectedLoadTimeMs;
-            if (i < task->result.primarySegmentCount) {
+            if (i < task->result.primaryReplicaCount) {
                 // for primaries just estimate when they'll load
                 expectedLoadTimeMs = (i + 1) * 8 * 1000 / (speed ?: 1);
             } else {
@@ -471,31 +474,23 @@ buildReplicaMap(Tub<BackupStartTask> tasks[],
                 // but add a huge bias so secondaries don't overlap
                 // with primaries but are still interleaved
                 expectedLoadTimeMs =
-                    ((i + 1) - task->result.primarySegmentCount) *
+                    ((i + 1) - task->result.primaryReplicaCount) *
                                      8 * 1000/ (speed ?: 1);
                 expectedLoadTimeMs += 1000000;
             }
-            uint64_t segmentId = task->result.segmentIdAndLength[i].first;
-            uint32_t segmentLen = task->result.segmentIdAndLength[i].second;
-            if (segmentId < headId ||
-                (segmentId == headId && segmentLen == headLength)) {
-                ReplicaAndLoadTime r {{ backupId.getId(), segmentId },
+            const auto& replica = task->result.replicas[i];
+            if (replica.segmentId <= headId) {
+                ReplicaAndLoadTime r{{ backupId.getId(), replica.segmentId },
                                       expectedLoadTimeMs};
                 replicasToSort.push_back(r);
             } else {
-                const char* why;
-                if (segmentId == headId && segmentLen < headLength) {
-                    why = "shorter than";
-                } else if (segmentId == headId && segmentLen > headLength) {
-                    why = "longer than";
-                } else {
-                    why = "past";
-                }
-                LOG(DEBUG, "Ignoring replica for "
-                    "segment ID %lu, len %u from backup %s "
-                    "because it's %s the head segment (%lu, %u)",
-                    segmentId, segmentLen, backupId.toString().c_str(),
-                    why, headId, headLength);
+                // TODO(stutsman): This logic shouldn't be needed if we've got
+                // the guts for it. Any replicas with higher ids will either
+                // be empty or only contain data written async which is ok
+                // to lose.
+                LOG(DEBUG, "Ignoring replica for segment id %lu from backup %s "
+                    "because it's past the head segment (%lu)",
+                    replica.segmentId, backupId.toString().c_str(), headId);
             }
         }
     }
@@ -552,7 +547,7 @@ Recovery::startBackups()
         backupStartTasks[i++].construct(this,
                                         backup,
                                         crashedServerId, tabletsToRecover,
-                                        minOpenSegmentId);
+                                        masterRecoveryInfo);
     }
     parallelRun(backupStartTasks.get(), backups.size(), maxActiveBackupHosts);
 
@@ -566,12 +561,10 @@ Recovery::startBackups()
         }
         return;
     }
-    uint64_t headId = std::get<0>(*digestInfo);
-    uint32_t headLength = std::get<1>(*digestInfo);
-    LogDigest digest = std::get<2>(*digestInfo);
+    uint64_t headId = digestInfo->first;
+    LogDigest digest = digestInfo->second;
 
-    LOG(NOTICE, "Segment %lu of length %u bytes is the head of the log",
-        headId, headLength);
+    LOG(NOTICE, "Segment %lu is the head of the log", headId);
 
     bool logIsComplete = verifyLogComplete(backupStartTasks.get(),
                                            backups.size(), digest);
@@ -586,7 +579,7 @@ Recovery::startBackups()
     }
 
     replicaMap = buildReplicaMap(backupStartTasks.get(), backups.size(),
-                                 tracker, headId, headLength);
+                                 tracker, headId);
 
     status = START_RECOVERY_MASTERS;
     schedule();

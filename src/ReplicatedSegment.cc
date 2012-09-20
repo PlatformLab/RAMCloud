@@ -36,9 +36,9 @@ namespace RAMCloud {
  * \param writeRpcsInFlight
  *      Number of outstanding write rpcs to backups across all
  *      ReplicatedSegments.  Used to throttle write rpcs.
- * \param minOpenSegmentId
- *      The ReplicaManager's MinOpenSegmentId Task which is shared among
- *      ReplicatedSegments to track and update the minOpenSegmentId value
+ * \param replicationEpoch
+ *      The ReplicaManager's UpdateReplicationEpochTask which is shared among
+ *      ReplicatedSegments to track and update the replicationEpoch value
  *      stored on the coordinator.
  * \param dataMutex
  *      Mutex which protects all ReplicaManager state; shared with the
@@ -68,7 +68,8 @@ ReplicatedSegment::ReplicatedSegment(Context* context,
                                      BaseBackupSelector& backupSelector,
                                      Deleter& deleter,
                                      uint32_t& writeRpcsInFlight,
-                                     MinOpenSegmentId& minOpenSegmentId,
+                                     UpdateReplicationEpochTask&
+                                                            replicationEpoch,
                                      std::mutex& dataMutex,
                                      uint64_t segmentId,
                                      const Segment* segment,
@@ -81,7 +82,7 @@ ReplicatedSegment::ReplicatedSegment(Context* context,
     , backupSelector(backupSelector)
     , deleter(deleter)
     , writeRpcsInFlight(writeRpcsInFlight)
-    , minOpenSegmentId(minOpenSegmentId)
+    , replicationEpoch(replicationEpoch)
     , dataMutex(dataMutex)
     , syncMutex()
     , segment(segment)
@@ -89,7 +90,7 @@ ReplicatedSegment::ReplicatedSegment(Context* context,
     , masterId(masterId)
     , segmentId(segmentId)
     , maxBytesPerWriteRpc(maxBytesPerWriteRpc)
-    , queued(true, 0, false)
+    , queued(true, 0, 0, false)
     , queuedCertificate()
     , openLen(0)
     , openingWriteCertificate()
@@ -214,52 +215,27 @@ ReplicatedSegment::close()
 
 /**
  * Respond to a change in cluster configuration by scheduling any work that is
- * needed to restore durability guarantees; please read the documentation
- * for the return value carefully as it requires action on the part of the
- * caller to ensure correctness of the log.
+ * needed to restore durability guarantees. Keep in mind a context needs to be
+ * provided to actually drive the re-replication (for example,
+ * BackupFailureMonitor).
  *
  * \param failedId
  *      ServerId of the backup which has failed.
- * \return
- *      True indicates that this segment was not a cleaner generated segment,
- *      that it lost replicas, and that it will take corrective actions on
- *      future iterations of the ReplicaManager loop.  These corrective actions
- *      rely on closing the segment if it was still open.  Therefore, the
- *      caller must take appropriate action to ensure that if the only current
- *      and recoverable copy of the digest was stored in this segment that it
- *      creates a new, current, and recoverable digest.  Checking to see if
- *      this segment is the current head from the Log's perspective, and, if
- *      so, rolling over to a new log head solves both constraints; it closes
- *      this segment and ensures a current log digest exists in another
- *      segment.  Not rolling over to a new log head may result in an infinite
- *      loop not just during normal operation, but even during the destruction
- *      of the MasterService.  This is because the server makes every effort to
- *      ensure that all writes are durable/recoverable but it cannot make that
- *      guarantee for pending writes unless failures are handled.
- *      False indicates this segment cannot be the home of the current log
- *      digest, in which case no action needs to be taken by the caller aside
- *      from driving the ReplicaManager proceed loop to drive re-replication.
  */
-bool
+void
 ReplicatedSegment::handleBackupFailure(ServerId failedId)
 {
-    auto alreadyRecoveringFromLostOpenReplicas = recoveringFromLostOpenReplicas;
+    bool someOpenReplicaLost = false;
     foreach (auto& replica, replicas) {
-        if (!replica.isActive || replica.backupId != failedId)
+        if (!replica.isActive)
+            continue;
+        if (replica.backupId != failedId)
             continue;
         LOG(DEBUG, "Segment %lu recovering from lost replica which was on "
             "backup %s", segmentId, failedId.toString().c_str());
-        ++metrics->master.replicaRecoveries;
 
-        // If the segment contains a digest, isn't durably acked, and
-        // could appear open during recovery (that is, it isn't being
-        // replicated with the atomic replication protocol) then we have
-        // a problem we have to patch up.
-        if (normalLogSegment &&
-            !getCommitted().close &&
-            !replica.replicateAtomically &&
-            !recoveringFromLostOpenReplicas) {
-            recoveringFromLostOpenReplicas = true;
+        if (!replica.committed.close && !replica.replicateAtomically) {
+            someOpenReplicaLost = true;
             LOG(DEBUG, "Lost replica(s) for segment %lu while open due to "
                 "crash of backup %s", segmentId, failedId.toString().c_str());
             ++metrics->master.openReplicaRecoveries;
@@ -267,13 +243,12 @@ ReplicatedSegment::handleBackupFailure(ServerId failedId)
 
         replica.failed();
         schedule();
+        ++metrics->master.replicaRecoveries;
     }
-
-    // Only need higher-level code to roll over to a new log head once.
-    // If more replicas fail for the same segment while recovering
-    // from lost open replicas don't rollover again.
-    return !alreadyRecoveringFromLostOpenReplicas &&
-           recoveringFromLostOpenReplicas;
+    if (someOpenReplicaLost) {
+        ++queued.epoch;
+        recoveringFromLostOpenReplicas = true;
+    }
 }
 
 /**
@@ -331,7 +306,7 @@ ReplicatedSegment::sync(uint32_t offset)
     // and is recovering from a lost replica.  In that case the data
     // the data isn't durable until it has been replicated *along with*
     // a durable close on the replicas as well *and* any lost, open
-    // replicas have been shot down by setting the minOpenSegmentId.
+    // replicas have been shot down by setting the replicationEpoch.
     // Once this flag is cleared those conditions have been met and
     // it is safe to use the usual definition.
     if (!recoveringFromLostOpenReplicas) {
@@ -420,26 +395,31 @@ ReplicatedSegment::performTask()
     }
     // Have to be a bit careful: these steps must be completed even if a
     // free has been enqueued, otherwise lost open replicas could still
-    // be detected as the head of the log during a recovery.  Hence the
+    // be detected as the head of the log during a recovery. Hence the
     // extra condition above.
     if (recoveringFromLostOpenReplicas) {
-        if (getCommitted().close) {
-            if (minOpenSegmentId.isGreaterThan(segmentId)) {
+        if (getCommitted() == queued) {
+            // Take care to update to the queued.epoch, not the committed epoch.
+            // If enough replicas are closed on backups regardless of the
+            // committed epoch we ok to shoot down stale replicas. In that case,
+            // though, committed epoch might still include stale replicas.
+            if (replicationEpoch.isAtLeast(segmentId, queued.epoch)) {
                 // Ok, this segment is now recovered.
                 LOG(DEBUG,
-                    "minOpenSegmentId ok, lost open replica recovery "
+                    "replicationEpoch ok, lost open replica recovery "
                     "complete on segment %lu", segmentId);
                 recoveringFromLostOpenReplicas = false;
                 // All done, don't reschedule.
             } else  {
-                // Now that the old head segment has been re-replicated
-                // and durably closed its time to make sure it can never
-                // appear as an open segment in the log again (even if
-                // some lost replica comes back from the grave).
-                LOG(DEBUG, "Updating minOpenSegmentId on coordinator to "
-                         "ensure lost replicas of segment %lu will not be "
-                         "reused", segmentId);
-                minOpenSegmentId.updateToAtLeast(segmentId + 1);
+                // Now that the old head segment has been re-replicated and all
+                // replicas have the new epoch its time to make sure replicas
+                // with old epochs can never appear as an open segment in the
+                // log again (even if some lost replica comes back from the
+                // grave).
+                LOG(DEBUG, "Updating replicationEpoch to %lu,%lu on "
+                    "coordinator to ensure lost replicas will not be reused",
+                    segmentId, queued.epoch);
+                replicationEpoch.updateToAtLeast(segmentId, queued.epoch);
                 schedule();
             }
         } else {
@@ -606,7 +586,7 @@ ReplicatedSegment::performWrite(Replica& replica)
             }
             replica.writeRpc.destroy();
             --writeRpcsInFlight;
-            if (replica.committed != queued)
+            if (replica.committed != queued || recoveringFromLostOpenReplicas)
                 schedule();
             return;
         } else {
@@ -638,12 +618,13 @@ ReplicatedSegment::performWrite(Replica& replica)
             TEST_LOG("Sending open to backup %s",
                      replica.backupId.toString().c_str());
             replica.writeRpc.construct(context, replica.backupId,
-                                       masterId, segmentId, segment, 0,
-                                       openLen, certificateToSend,
+                                       masterId, segmentId, queued.epoch,
+                                       segment, 0, openLen, certificateToSend,
                                        true, false, replicaIsPrimary(replica));
             ++writeRpcsInFlight;
             replica.sent.open = true;
             replica.sent.bytes = openLen;
+            replica.sent.epoch = queued.epoch;
             schedule();
             return;
         }
@@ -702,12 +683,14 @@ ReplicatedSegment::performWrite(Replica& replica)
             TEST_LOG("Sending write to backup %s",
                      replica.backupId.toString().c_str());
             replica.writeRpc.construct(context, replica.backupId, masterId,
-                                       segmentId, segment, offset, length,
+                                       segmentId, queued.epoch,
+                                       segment, offset, length,
                                        certficateToSend,
                                        false, sendClose,
                                        replicaIsPrimary(replica));
             ++writeRpcsInFlight;
             replica.sent.bytes += length;
+            replica.sent.epoch = queued.epoch;
             replica.sent.close = sendClose;
             schedule();
             return;

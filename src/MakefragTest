@@ -53,7 +53,6 @@ TESTS_SRCFILES := \
 		  src/MasterRecoveryManagerTest.cc \
 		  src/MasterServiceTest.cc \
 		  src/MembershipServiceTest.cc \
-		  src/MinOpenSegmentIdTest.cc \
 		  src/MockCluster.cc \
 		  src/MockClusterTest.cc \
 		  src/MockDriver.cc \
@@ -106,6 +105,7 @@ TESTS_SRCFILES := \
 		  src/TransportManagerTest.cc \
 		  src/TubTest.cc \
 		  src/UdpDriverTest.cc \
+		  src/UpdateReplicationEpochTaskTest.cc \
 		  src/UtilTest.cc \
 		  src/VarLenArrayTest.cc \
 		  src/WallTimeTest.cc \

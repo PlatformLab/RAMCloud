@@ -620,27 +620,18 @@ BackupService::writeSegment(const WireFormat::BackupWrite::Request& reqHdr,
             serverId.toString().c_str());
         throw BackupBadSegmentIdException(HERE);
     } else {
-        // Need to check all three conditions because overflow is possible
-        // on the addition
-        if (reqHdr.length > segmentSize ||
-            reqHdr.offset > segmentSize ||
-            reqHdr.length + reqHdr.offset > segmentSize)
-            throw BackupSegmentOverflowException(HERE);
-
-        {
-            CycleCounter<RawMetric> __(&metrics->backup.writeCopyTicks);
-            Tub<BackupReplicaMetadata> metadata;
-            if (reqHdr.certificateIncluded) {
-                metadata.construct(reqHdr.certificate,
-                                   masterId.getId(), segmentId,
-                                   segmentSize,
-                                   reqHdr.offset + reqHdr.length,
-                                   reqHdr.close, reqHdr.primary);
-            }
-            frame->append(rpc.requestPayload, sizeof(reqHdr),
-                          reqHdr.length, reqHdr.offset,
-                          metadata.get(), sizeof(*metadata));
+        CycleCounter<RawMetric> __(&metrics->backup.writeCopyTicks);
+        Tub<BackupReplicaMetadata> metadata;
+        if (reqHdr.certificateIncluded) {
+            metadata.construct(reqHdr.certificate,
+                               masterId.getId(), segmentId,
+                               segmentSize,
+                               reqHdr.segmentEpoch,
+                               reqHdr.close, reqHdr.primary);
         }
+        frame->append(rpc.requestPayload, sizeof(reqHdr),
+                      reqHdr.length, reqHdr.offset,
+                      metadata.get(), sizeof(*metadata));
         metrics->backup.writeCopyBytes += reqHdr.length;
         bytesWritten += reqHdr.length;
     }

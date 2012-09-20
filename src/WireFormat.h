@@ -81,7 +81,7 @@ enum Opcode {
     HINT_SERVER_DOWN        = 20,
     RECOVERY_MASTER_FINISHED = 21,
     ENUMERATE             = 22,
-    SET_MIN_OPEN_SEGMENT_ID = 23,
+    SET_MASTER_RECOVERY_INFO = 23,
     FILL_WITH_TEST_DATA     = 24,
     MULTI_READ              = 25,
     GET_METRICS             = 26,
@@ -245,17 +245,21 @@ struct BackupStartReadingData {
     } __attribute__((packed));
     struct Response {
         ResponseCommon common;
-        uint32_t segmentIdCount;       ///< Number of (segmentId, length) pairs
-                                       ///< in the replica list following this
-                                       ///< header.
-        uint32_t primarySegmentCount;  ///< Count of segment replicas that are
+        uint32_t replicaCount;         ///< Number of entries in the replica
+                                       ///< list following this header.
+        uint32_t primaryReplicaCount;  ///< Count of segment replicas that are
                                        ///< primary. These appear at the start
                                        ///< of the replica list.
         uint32_t digestBytes;          ///< Number of bytes for optional
                                        ///< LogDigest.
         uint64_t digestSegmentId;      ///< SegmentId the LogDigest came from.
-        uint32_t digestSegmentLen;     ///< Byte length of the LogDigest
-                                       ///< segment replica.
+        uint64_t digestSegmentEpoch;   ///< Segment epoch of the replica from
+                                       ///< which the digest was taken. Used
+                                       ///< by the coordinator to determine if
+                                       ///< the replica might have been
+                                       ///< inconsistent. If it might've been
+                                       ///< this digest will be discarded
+                                       ///< by the coordinator for safety.
         // An array of segmentIdCount replicas follows.
         // Each entry is a Replica (see below).
         //
@@ -265,9 +269,19 @@ struct BackupStartReadingData {
     /// Used in the Response to report which replicas the backup has.
     struct Replica {
         uint64_t segmentId;        ///< The segment ID.
-        uint32_t segmentLength;    ///< The number of bytes written to the
-                                   ///< segment if it is open, or ~0U for
-                                   ///< closed segments.
+        uint64_t segmentEpoch;     ///< Epoch for the segment that the replica
+                                   ///< was most recently updated in. Used by
+                                   ///< the coordinator to filter out stale
+                                   ///< replicas from the log.
+        bool closed;               ///< Whether the replica was marked as
+                                   ///< closed on the backup. If it was it
+                                   ///< is inherently consistent and can be
+                                   ///< used without scrutiny during recovery.
+        friend bool operator==(const Replica& left, const Replica& right) {
+            return left.segmentId == right.segmentId &&
+                   left.segmentEpoch == right.segmentEpoch &&
+                   left.closed == right.closed;
+        }
     } __attribute__((packed));
 };
 
@@ -279,6 +293,7 @@ struct BackupWrite {
             : common()
             , masterId()
             , segmentId()
+            , segmentEpoch()
             , offset()
             , length()
             , open()
@@ -290,6 +305,7 @@ struct BackupWrite {
         Request(const RequestCommon& common,
                 uint64_t masterId,
                 uint64_t segmentId,
+                uint64_t segmentEpoch,
                 uint32_t offset,
                 uint32_t length,
                 bool open,
@@ -300,6 +316,7 @@ struct BackupWrite {
             : common(common)
             , masterId(masterId)
             , segmentId(segmentId)
+            , segmentEpoch(segmentEpoch)
             , offset(offset)
             , length(length)
             , open(open)
@@ -311,6 +328,10 @@ struct BackupWrite {
         RequestCommon common;
         uint64_t masterId;        ///< Server from whom the request is coming.
         uint64_t segmentId;       ///< Target segment to update.
+        uint64_t segmentEpoch;    ///< Epoch for the segment that the replica
+                                  ///< is being updated in. Used by
+                                  ///< the coordinator to filter out stale
+                                  ///< replicas from the log.
         uint32_t offset;          ///< Offset into this segment to write at.
         uint32_t length;          ///< Number of bytes to write.
         bool open;                ///< If open request.
@@ -866,15 +887,16 @@ struct Remove {
     } __attribute__((packed));
 };
 
-struct SetMinOpenSegmentId {
-    static const Opcode opcode = SET_MIN_OPEN_SEGMENT_ID;
+struct SetMasterRecoveryInfo {
+    static const Opcode opcode = SET_MASTER_RECOVERY_INFO;
     static const ServiceType service = COORDINATOR_SERVICE;
     struct Request {
         RequestCommon common;
         uint64_t serverId;         // ServerId the coordinator update the
                                    // minimum segment id for.
-        uint64_t segmentId;        // Minimum segment id for replicas of open
-                                   // segments during subsequent recoveries.
+        uint32_t infoLength;       // Bytes in the protobuf which follows
+                                   // this header. Stored by the coordinator
+                                   // for this server.
     } __attribute__((packed));
     struct Response {
         ResponseCommon common;

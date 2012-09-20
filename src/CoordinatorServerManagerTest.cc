@@ -451,30 +451,44 @@ TEST_F(CoordinatorServerManagerTest, serverDownRecover) {
               serverList->at(master->serverId).status);
 }
 
-TEST_F(CoordinatorServerManagerTest, setMinOpenSegmentId) {
-    serverManager->setMinOpenSegmentId(masterServerId, 10);
-    EXPECT_EQ(10u, serverList->at(masterServerId).minOpenSegmentId);
-    serverManager->setMinOpenSegmentId(masterServerId, 9);
-    EXPECT_EQ(10u, serverList->at(masterServerId).minOpenSegmentId);
-    serverManager->setMinOpenSegmentId(masterServerId, 11);
-    EXPECT_EQ(11u, serverList->at(masterServerId).minOpenSegmentId);
+TEST_F(CoordinatorServerManagerTest, setMasterRecoveryInfo) {
+    ProtoBuf::MasterRecoveryInfo info;
+    info.set_min_open_segment_id(10);
+    info.set_min_open_segment_epoch(1);
+    serverManager->setMasterRecoveryInfo(masterServerId, info);
+    auto other = serverList->at(masterServerId).masterRecoveryInfo;
+    EXPECT_EQ(10lu, other.min_open_segment_id());
+    EXPECT_EQ(1lu, other.min_open_segment_epoch());
+    info.set_min_open_segment_id(9);
+    info.set_min_open_segment_epoch(0);
+    serverManager->setMasterRecoveryInfo(masterServerId, info);
+    other = serverList->at(masterServerId).masterRecoveryInfo;
+    EXPECT_EQ(9lu, other.min_open_segment_id());
+    EXPECT_EQ(0lu, other.min_open_segment_epoch());
 }
 
-TEST_F(CoordinatorServerManagerTest, setMinOpenSegmentIdRecover) {
+TEST_F(CoordinatorServerManagerTest, setMasterRecoveryInfoRecover) {
     ProtoBuf::ServerUpdate serverUpdate;
     serverUpdate.set_entry_type("ServerUpdate");
     serverUpdate.set_server_id(masterServerId.getId());
-    serverUpdate.set_min_open_segment_id(10);
+    serverUpdate.mutable_master_recovery_info()->set_min_open_segment_id(10);
+    serverUpdate.mutable_master_recovery_info()->set_min_open_segment_epoch(1);
     EntryId entryId = logCabinHelper->appendProtoBuf(serverUpdate);
 
-    serverManager->setMinOpenSegmentIdRecover(&serverUpdate, entryId);
+    serverManager->setMasterRecoveryInfoRecover(&serverUpdate, entryId);
 
-    EXPECT_EQ(10u, serverList->at(masterServerId).minOpenSegmentId);
+    EXPECT_EQ(10lu, serverList->at(masterServerId).
+                        masterRecoveryInfo.min_open_segment_id());
+    EXPECT_EQ(1lu, serverList->at(masterServerId).
+                        masterRecoveryInfo.min_open_segment_epoch());
 }
 
-TEST_F(CoordinatorServerManagerTest, setMinOpenSegmentId_execute) {
+TEST_F(CoordinatorServerManagerTest, setMasterRecoveryInfo_execute) {
     TestLog::Enable _;
-    serverManager->setMinOpenSegmentId(masterServerId, 10);
+    ProtoBuf::MasterRecoveryInfo info;
+    info.set_min_open_segment_id(10);
+    info.set_min_open_segment_epoch(1);
+    serverManager->setMasterRecoveryInfo(masterServerId, info);
 
     vector<Entry> entriesRead = logCabinLog->read(0);
 
@@ -482,12 +496,17 @@ TEST_F(CoordinatorServerManagerTest, setMinOpenSegmentId_execute) {
     ProtoBuf::ServerUpdate readUpdate;
     logCabinHelper->parseProtoBufFromEntry(entriesRead[entryId], readUpdate);
 
-    EXPECT_EQ(10u, readUpdate.min_open_segment_id());
+    EXPECT_EQ(10u, readUpdate.master_recovery_info().min_open_segment_id());
+    EXPECT_EQ(1u, readUpdate.master_recovery_info().min_open_segment_epoch());
 }
 
-TEST_F(CoordinatorServerManagerTest, setMinOpenSegmentId_complete_noSuchServer)
+TEST_F(CoordinatorServerManagerTest,
+       setMasterRecoveryInfo_complete_noSuchServer)
 {
-    EXPECT_THROW(serverManager->setMinOpenSegmentId(ServerId(2, 2), 100),
+    ProtoBuf::MasterRecoveryInfo info;
+    info.set_min_open_segment_id(10);
+    info.set_min_open_segment_epoch(1);
+    EXPECT_THROW(serverManager->setMasterRecoveryInfo({2, 2}, info),
                  ServerListException);
 }
 

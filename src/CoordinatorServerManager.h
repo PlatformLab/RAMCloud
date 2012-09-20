@@ -67,9 +67,10 @@ class CoordinatorServerManager {
     void serverDown(ServerId serverId);
     void serverDownRecover(ProtoBuf::StateServerDown* state,
                            EntryId entryId);
-    void setMinOpenSegmentId(ServerId serverId, uint64_t segmentId);
-    void setMinOpenSegmentIdRecover(ProtoBuf::ServerUpdate* state,
-                                    EntryId entryId);
+    void setMasterRecoveryInfo(
+        ServerId serverId, const ProtoBuf::MasterRecoveryInfo& recoveryInfo);
+    void setMasterRecoveryInfoRecover(ProtoBuf::ServerUpdate* state,
+                                      EntryId entryId);
     bool verifyServerFailure(ServerId serverId);
 
 
@@ -144,15 +145,19 @@ class CoordinatorServerManager {
     };
 
     /**
-     * Defines methods and stores data to set minOpenSegmentId of server
+     * Defines methods and stores data to set recovery info of server
      * with id serverId to segmentId.
      */
-    class SetMinOpenSegmentId {
+    class SetMasterRecoveryInfo {
         public:
-            SetMinOpenSegmentId(CoordinatorServerManager &manager,
-                                ServerId serverId,
-                                uint64_t segmentId)
-                : manager(manager), serverId(serverId), segmentId(segmentId) {}
+            SetMasterRecoveryInfo(
+                    CoordinatorServerManager &manager,
+                    ServerId serverId,
+                    const ProtoBuf::MasterRecoveryInfo& recoveryInfo)
+                : manager(manager)
+                , serverId(serverId)
+                , recoveryInfo(recoveryInfo)
+            {}
             void execute();
             void complete(EntryId entryId);
         private:
@@ -161,16 +166,16 @@ class CoordinatorServerManager {
              * initializing this class.
              * Used to get access to CoordinatorService& service.
              */
-            CoordinatorServerManager &manager;
+            CoordinatorServerManager& manager;
             /**
-             * ServerId of the server whose minOpenSegmentId will be set.
+             * ServerId of the server whose recovery info will be set.
              */
             ServerId serverId;
             /**
-             * The minOpenSegmentId to be set.
+             * The new master recovery info to be set.
              */
-            uint64_t segmentId;
-            DISALLOW_COPY_AND_ASSIGN(SetMinOpenSegmentId);
+            ProtoBuf::MasterRecoveryInfo recoveryInfo;
+            DISALLOW_COPY_AND_ASSIGN(SetMasterRecoveryInfo);
     };
 
     /**

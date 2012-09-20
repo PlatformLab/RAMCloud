@@ -239,7 +239,7 @@ MasterService::init(ServerId id)
     keyComparer = new LogKeyComparer(*log);
     objectMap = new HashTable(config.master.hashTableBytes /
         HashTable::bytesPerCacheLine(), *keyComparer);
-    replicaManager.startFailureMonitor(log);
+    replicaManager.startFailureMonitor();
 
     initCalled = true;
 }

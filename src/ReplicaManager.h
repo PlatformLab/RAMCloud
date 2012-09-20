@@ -24,7 +24,7 @@
 #include "BoostIntrusive.h"
 #include "BackupSelector.h"
 #include "CoordinatorClient.h"
-#include "MinOpenSegmentId.h"
+#include "UpdateReplicationEpochTask.h"
 #include "ReplicatedSegment.h"
 #include "ServerTracker.h"
 #include "TaskQueue.h"
@@ -77,7 +77,7 @@ class ReplicaManager
     ReplicatedSegment* allocateNonHead(uint64_t segmentId,
                                        const Segment* segment);
         __attribute__((warn_unused_result));
-    void startFailureMonitor(Log* log);
+    void startFailureMonitor();
     void haltFailureMonitor();
     void proceed();
 
@@ -161,11 +161,11 @@ class ReplicaManager
     uint32_t writeRpcsInFlight;
 
     /**
-     * Provides access to the latest minOpenSegmentId acknowledged by the
+     * Provides access to the latest replicationEpoch acknowledged by the
      * coordinator for this server and allows easy, asynchronous updates
      * to the value stored on the coordinator.
      */
-    Tub<MinOpenSegmentId> minOpenSegmentId;
+    Tub<UpdateReplicationEpochTask> replicationEpoch;
 
     /**
      * Waits for backup failure notifications from the Server's main ServerList
@@ -178,7 +178,7 @@ class ReplicaManager
 
   PUBLIC:
     // Only used by BackupFailureMonitor.
-    Tub<uint64_t> handleBackupFailure(ServerId failedId);
+    void handleBackupFailure(ServerId failedId);
 
     // Only used by ReplicatedSegment.
     void destroyAndFreeReplicatedSegment(ReplicatedSegment* replicatedSegment);

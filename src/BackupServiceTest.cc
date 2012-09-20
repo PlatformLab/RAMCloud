@@ -49,7 +49,7 @@ class BackupServiceTest : public ::testing::Test {
         , serverList(&context)
         , backupId(5, 0)
     {
-        Logger::get().setLogLevels(RAMCloud::SILENT_LOG_LEVEL);
+        Logger::get().setLogLevels(SILENT_LOG_LEVEL);
 
         cluster.construct(&context);
         config.services = {WireFormat::BACKUP_SERVICE};
@@ -71,7 +71,7 @@ class BackupServiceTest : public ::testing::Test {
         Segment segment;
         Segment::Certificate certificate;
         uint32_t length = segment.getAppendedLength(certificate);
-        BackupClient::writeSegment(&context, backupId, masterId, segmentId,
+        BackupClient::writeSegment(&context, backupId, masterId, segmentId, 0,
                                    &segment, 0, length, &certificate,
                                    false, true, false);
     }
@@ -83,7 +83,7 @@ class BackupServiceTest : public ::testing::Test {
         Segment::Certificate certificate;
         uint32_t length = segment.getAppendedLength(certificate);
         return BackupClient::writeSegment(&context, backupId, masterId,
-                                          segmentId, &segment, 0, length,
+                                          segmentId, 0, &segment, 0, length,
                                           &certificate,
                                           true, false, primary);
     }
@@ -95,14 +95,17 @@ class BackupServiceTest : public ::testing::Test {
      */
     void
     writeRawString(ServerId masterId, uint64_t segmentId,
-                   uint32_t offset, const string& s, bool close = false)
+                   uint32_t offset, const string& s,
+                   bool close = false, uint64_t epoch = 0)
     {
         Segment segment;
         segment.copyIn(offset, s.c_str(), downCast<uint32_t>(s.length()));
-        BackupClient::writeSegment(&context, backupId, masterId, segmentId,
+        Segment::Certificate certificate;
+        BackupClient::writeSegment(&context, backupId, masterId,
+                                   segmentId, epoch,
                                    &segment,
                                    offset,
-                                   uint32_t(s.length() + 1), {},
+                                   uint32_t(s.length() + 1), &certificate,
                                    false, false, close);
     }
 
@@ -273,7 +276,7 @@ TEST_F(BackupServiceTest, getRecoveryData) {
         (1, 0, ~0lu, TabletsBuilder::RECOVERING, 0);
     auto results = BackupClient::startReadingData(&context, backupId,
                                                   456lu, {99, 0}, &tablets);
-    EXPECT_EQ(1lu, results.segmentIdAndLength.size());
+    EXPECT_EQ(1lu, results.replicas.size());
     EXPECT_EQ(1lu, backup->recoveries.size());
 
     Buffer recoverySegment;
@@ -391,18 +394,18 @@ TEST_F(BackupServiceTest, startReadingData) {
     ProtoBuf::Tablets tablets;
     auto results = BackupClient::startReadingData(&context, backupId,
                                                   456lu, {99, 0}, &tablets);
-    EXPECT_EQ(2lu, results.segmentIdAndLength.size());
+    EXPECT_EQ(2lu, results.replicas.size());
     EXPECT_EQ(1lu, backup->recoveries.size());
 
     results = BackupClient::startReadingData(&context, backupId,
                                              456lu, {99, 0}, &tablets);
-    EXPECT_EQ(2lu, results.segmentIdAndLength.size());
+    EXPECT_EQ(2lu, results.replicas.size());
     EXPECT_EQ(1lu, backup->recoveries.size());
 
     TestLog::Enable _;
     results = BackupClient::startReadingData(&context, backupId,
                                              457lu, {99, 0}, &tablets);
-    EXPECT_EQ(2lu, results.segmentIdAndLength.size());
+    EXPECT_EQ(2lu, results.replicas.size());
     EXPECT_EQ(1lu, backup->recoveries.size());
     EXPECT_EQ(
         "startReadingData: Got startReadingData for recovery 457 for crashed "
@@ -417,10 +420,10 @@ TEST_F(BackupServiceTest, startReadingData) {
             "partitions:\n | "
         "schedule: scheduled | "
         "start: Kicked off building recovery segments | "
-        "populateStartResponse: Crashed master 99.0 had segment 88 "
-            "(secondary) with len 0 | "
-        "populateStartResponse: Crashed master 99.0 had segment 89 "
-            "(secondary) with len 0 | "
+        "populateStartResponse: Crashed master 99.0 had closed secondary "
+            "replica for segment 88 | "
+        "populateStartResponse: Crashed master 99.0 had closed secondary "
+            "replica for segment 89 | "
         "populateStartResponse: Sending 2 segment ids for this master "
             "(0 primary)", TestLog::get());
 }
@@ -429,11 +432,24 @@ TEST_F(BackupServiceTest, writeSegment) {
     openSegment({99, 0}, 88);
     // test for idempotence
     for (int i = 0; i < 2; ++i)
-        writeRawString({99, 0}, 88, 10, "test");
+        writeRawString({99, 0}, 88, 10, "test", false);
     auto frameIt = backup->frames.find({{99, 0}, 88});
     EXPECT_STREQ("test",
                  static_cast<char*>(frameIt->second->load()) + 10);
 }
+
+TEST_F(BackupServiceTest, writeSegment_epochStored) {
+    openSegment({99, 0}, 88);
+    auto frameIt = backup->frames.find({{99, 0}, 88});
+    auto metadata = toMetadata(frameIt->second->getMetadata());
+    writeRawString({99, 0}, 88, 10, "test", false, 0);
+    EXPECT_EQ(0lu, metadata->segmentEpoch);
+    writeRawString({99, 0}, 88, 10, "test", false, 1);
+    EXPECT_EQ(1lu, metadata->segmentEpoch);
+    EXPECT_STREQ("test",
+                 static_cast<char*>(frameIt->second->load()) + 10);
+}
+
 
 TEST_F(BackupServiceTest, writeSegment_response) {
     uint64_t groupId = 100;
@@ -497,7 +513,7 @@ TEST_F(BackupServiceTest, writeSegment_badLength) {
     Segment segment;
     EXPECT_THROW(
         BackupClient::writeSegment(&context, backupId, ServerId(99, 0),
-                                   88, &segment, 0, length, {},
+                                   88, 0, &segment, 0, length, {},
                                    false, false, false),
         BackupSegmentOverflowException);
 }
@@ -509,7 +525,7 @@ TEST_F(BackupServiceTest, writeSegment_badOffsetPlusLength) {
     Segment segment;
     EXPECT_THROW(
         BackupClient::writeSegment(&context, backupId, ServerId(99, 0),
-                                   88, &segment, 1, length, {},
+                                   88, 0, &segment, 1, length, {},
                                    false, false, false),
         BackupSegmentOverflowException);
 }

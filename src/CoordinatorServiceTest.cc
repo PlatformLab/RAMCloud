@@ -394,17 +394,22 @@ TEST_F(CoordinatorServiceTest, setRuntimeOption) {
                  ObjectDoesntExistException);
 }
 
-TEST_F(CoordinatorServiceTest, setMinOpenSegmentId) {
-    CoordinatorClient::setMinOpenSegmentId(&context, masterServerId, 10);
+TEST_F(CoordinatorServiceTest, setMasterRecoveryInfo) {
+    ProtoBuf::MasterRecoveryInfo info;
+    info.set_min_open_segment_id(10);
+    info.set_min_open_segment_epoch(1);
+    CoordinatorClient::setMasterRecoveryInfo(&context, masterServerId, info);
     EXPECT_EQ(10u, service->context->coordinatorServerList->at(
-            masterServerId).minOpenSegmentId);
+            masterServerId).masterRecoveryInfo.min_open_segment_id());
 }
 
-TEST_F(CoordinatorServiceTest, setMinOpenSegmentId_noSuchServer) {
+TEST_F(CoordinatorServiceTest, setMasterRecoveryInfo_noSuchServer) {
     string message = "no exception";
     try {
-        CoordinatorClient::setMinOpenSegmentId(&context, ServerId{999, 999},
-                                               10);
+        ProtoBuf::MasterRecoveryInfo info;
+        info.set_min_open_segment_id(10);
+        info.set_min_open_segment_epoch(1);
+        CoordinatorClient::setMasterRecoveryInfo(&context, {999, 999}, info);
     }
     catch (const ServerNotUpException& e) {
         message = e.toSymbol();

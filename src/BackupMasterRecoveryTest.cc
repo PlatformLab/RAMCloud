@@ -63,9 +63,9 @@ struct BackupMasterRecoveryTest : public ::testing::Test {
     {
         frames.emplace_back(storage.open(true));
         Segment::Certificate certificate;
-        uint32_t length = downCast<uint32_t>(segmentId) + 100;
+        uint32_t epoch = downCast<uint32_t>(segmentId) + 100;
         BackupReplicaMetadata metadata(certificate, crashedMasterId.getId(),
-                                       segmentId, 1024, length,
+                                       segmentId, 1024, epoch,
                                        closed, primary);
         if (screwItUp)
             metadata.checksum = 0;
@@ -112,37 +112,37 @@ TEST_F(BackupMasterRecoveryTest, start) {
     auto response =
         new(&buffer, APPEND) BackupMasterRecovery::StartResponse;
     recovery->start(frames, &buffer, response);
-    ASSERT_EQ(5u, response->segmentIdCount);
-    EXPECT_EQ(2u, response->primarySegmentCount);
+    ASSERT_EQ(5u, response->replicaCount);
+    EXPECT_EQ(2u, response->primaryReplicaCount);
     // Make sure we got the "lowest" log digest.
     EXPECT_EQ(7u, response->digestBytes);
     EXPECT_EQ(92lu, response->digestSegmentId);
-    EXPECT_EQ(192u, response->digestSegmentLen);
+    EXPECT_EQ(192u, response->digestSegmentEpoch);
 
     buffer.truncateFront(sizeof32(BackupMasterRecovery::StartResponse));
     // Verify returned segment ids and lengths.
     typedef WireFormat::BackupStartReadingData::Replica WireReplica;
     const WireReplica* replica = buffer.getStart<WireReplica>();
     EXPECT_TRUE(88lu == replica->segmentId || 91lu == replica->segmentId);
-    EXPECT_TRUE(188lu == replica->segmentLength ||
-                191lu == replica->segmentLength);
+    EXPECT_TRUE(188lu == replica->segmentEpoch ||
+                191lu == replica->segmentEpoch);
     buffer.truncateFront(sizeof32(WireReplica));
     replica = buffer.getStart<WireReplica>();
     EXPECT_TRUE(88lu == replica->segmentId || 91lu == replica->segmentId);
-    EXPECT_TRUE(188lu == replica->segmentLength ||
-                191lu == replica->segmentLength);
+    EXPECT_TRUE(188lu == replica->segmentEpoch ||
+                191lu == replica->segmentEpoch);
     buffer.truncateFront(sizeof32(WireReplica));
     replica = buffer.getStart<WireReplica>();
     EXPECT_EQ(89lu, replica->segmentId);
-    EXPECT_EQ(189lu, replica->segmentLength);
+    EXPECT_EQ(189lu, replica->segmentEpoch);
     buffer.truncateFront(sizeof32(WireReplica));
     replica = buffer.getStart<WireReplica>();
     EXPECT_EQ(93lu, replica->segmentId);
-    EXPECT_EQ(193lu, replica->segmentLength);
+    EXPECT_EQ(193lu, replica->segmentEpoch);
     buffer.truncateFront(sizeof32(WireReplica));
     replica = buffer.getStart<WireReplica>();
     EXPECT_EQ(92lu, replica->segmentId);
-    EXPECT_EQ(192lu, replica->segmentLength);
+    EXPECT_EQ(192lu, replica->segmentEpoch);
     buffer.truncateFront(sizeof32(WireReplica));
     EXPECT_STREQ("digest", buffer.getStart<char>());
 
@@ -177,11 +177,11 @@ TEST_F(BackupMasterRecoveryTest, start) {
     response =
         new(&buffer, APPEND) BackupMasterRecovery::StartResponse;
     recovery->start(frames, &buffer, response);
-    EXPECT_EQ(5u, response->segmentIdCount);
-    EXPECT_EQ(2u, response->primarySegmentCount);
+    EXPECT_EQ(5u, response->replicaCount);
+    EXPECT_EQ(2u, response->primaryReplicaCount);
     EXPECT_EQ(7u, response->digestBytes);
     EXPECT_EQ(92lu, response->digestSegmentId);
-    EXPECT_EQ(192u, response->digestSegmentLen);
+    EXPECT_EQ(192u, response->digestSegmentEpoch);
     EXPECT_STREQ("digest",
                  buffer.getOffset<char>(buffer.getTotalLength() - 7));
 }

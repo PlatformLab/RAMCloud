@@ -14,7 +14,6 @@
  */
 
 #include "BackupFailureMonitor.h"
-#include "Log.h"
 #include "ReplicaManager.h"
 #include "ShortMacros.h"
 
@@ -22,7 +21,7 @@ namespace RAMCloud {
 
 /**
  * Create an instance that will listen for changes to #serverList and
- * inform #log of backup failures.  After construction failures
+ * inform #replicaManager of backup failures.  After construction failures
  * won't be dispatched until after start() is called, which starts a
  * thread to monitor for failures.  The thread is cleaned up on destruction.
  *
@@ -36,7 +35,6 @@ namespace RAMCloud {
 BackupFailureMonitor::BackupFailureMonitor(Context* context,
                                            ReplicaManager* replicaManager)
     : replicaManager(replicaManager)
-    , log(NULL)
     , running(false)
     , changesOrExit()
     , mutex()
@@ -59,15 +57,11 @@ BackupFailureMonitor::~BackupFailureMonitor()
  * Main loop of the BackupFailureMonitor; waits for notifications from the
  * Server's main ServerList and kicks-off actions in response to backup
  * failures. This method shouldn't be called directly; use start() to start a
- * handler and halt() to terminate one cleanly.
- * There are several synchronization issues with this method that are
- * subtle. See ReplicaManager::dataMutex for a synopsis. The trickiness
- * comes from two issues. First, handling backup failures requires
- * ReplicaManager::dataMutex which ReplicatedSegment::sync() must take care
- * not to hold indefinitely. Second, this method also must call into log which
- * also calls into ReplicaManager/ReplicatedSegment.
- * Generally, ReplicaManager/ReplicatedSegment cannot to this itself, because
- * it cannot do so while ReplicaManager::dataMutex is locked.
+ * handler and halt() to terminate one cleanly.  There are several
+ * synchronization issues with this method that are subtle. See
+ * ReplicaManager::dataMutex for a synopsis; handling backup failures requires
+ * ReplicaManager::dataMutex which ReplicatedSegment::sync() must take care not
+ * to hold indefinitely.
  */
 void
 BackupFailureMonitor::main()
@@ -103,14 +97,8 @@ try {
             LOG(DEBUG,
                 "Notifying log of failure of serverId %s",
                 id.toString().c_str());
-            if (replicaManager) {
-                Tub<uint64_t> failedOpenSegment =
-                    replicaManager->handleBackupFailure(id);
-                if (log && failedOpenSegment) {
-                    LOG(DEBUG, "Allocating a new log head");
-                    log->allocateHeadIfStillOn(*failedOpenSegment);
-                }
-            }
+            if (replicaManager)
+                replicaManager->handleBackupFailure(id);
         }
         if (replicaManager)
             replicaManager->proceed();
@@ -125,25 +113,14 @@ try {
 
 /**
  * Start monitoring for failures.  Calling start() on an instance that is
- * already started has no effect, unless \a log is different between the
- * calls, in which case the behavior is undefined.
- *
- * \param log
- *      Which Log is associated with #replicaManager.  Used to roll over
- *      the log head in the case that a replica of the head is lost.  Can
- *      be NULL for testing, but take care because operations on
- *      #replicaManager may fail to sync (instead spinning forever) since
- *      rolling over to a new log head is required for queued writes to
- *      make progress.
+ * already started has no effect.
  */
 void
-BackupFailureMonitor::start(Log* log)
+BackupFailureMonitor::start()
 {
     Lock lock(mutex);
-    assert(!this->log || this->log == log);
     if (running)
         return;
-    this->log = log;
     running = true;
     thread.construct(&BackupFailureMonitor::main, this);
 }
@@ -158,7 +135,6 @@ BackupFailureMonitor::halt()
     Lock lock(mutex);
     if (!running)
         return;
-    log = NULL;
     running = false;
     changesOrExit.notify_one();
     lock.unlock();

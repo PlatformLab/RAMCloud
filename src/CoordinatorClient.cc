@@ -424,48 +424,54 @@ RecoveryMasterFinishedRpc::RecoveryMasterFinishedRpc(Context* context,
 /**
  * Masters invoke this RPC as a way of invalidating obsolete (and potentially
  * inconsistent) segment replicas that were open on backups when they (appear
- * to have) crashed. Once this call returns, open segment replicas for
- * \a serverId will be ignored during crash recovery unless they are for
- * segments with ids at least as high as \a segmentId.
+ * to have) crashed.
  *
  * \param context
  *      Overall information about this RAMCloud server or client.
  * \param serverId
  *      Identifies a particular server.
- * \param segmentId
- *      Open segments for \a serverId with ids less than this should be
- *      considered invalid and thus ignored.
+ * \param recoveryInfo
+ *      Information the coordinator will need to safely recover the master
+ *      at \a serverId. The information is opaque to the coordinator other
+ *      than its master recovery routines, but, basically, this is used to
+ *      prevent inconsistent open replicas from being used during recovery.
  */
 void
-CoordinatorClient::setMinOpenSegmentId(Context* context, ServerId serverId,
-        uint64_t segmentId)
+CoordinatorClient::setMasterRecoveryInfo(
+    Context* context,
+    ServerId serverId,
+    const ProtoBuf::MasterRecoveryInfo& recoveryInfo)
 {
-    SetMinOpenSegmentIdRpc rpc(context, serverId, segmentId);
+    SetMasterRecoveryInfoRpc rpc(context, serverId, recoveryInfo);
     rpc.wait();
 }
 
 /**
- * Constructor for SetMinOpenSegmentIdRpc: initiates an RPC in the same way as
- * #CoordinatorClient::setMinOpenSegmentId, but returns once the RPC has been
+ * Constructor for SetMasterRecoveryInfoRpc: initiates an RPC in the same way as
+ * #CoordinatorClient::setMasterRecoveryInfo, but returns once the RPC has been
  * initiated, without waiting for it to complete.
  *
  * \param context
  *      Overall information about this RAMCloud server or client.
  * \param serverId
  *      Identifies a particular server.
- * \param segmentId
- *      Open segments for \a serverId with ids less than this should be
- *      considered invalid and thus ignored.
+ * \param recoveryInfo
+ *      Information the coordinator will need to safely recover the master
+ *      at \a serverId. The information is opaque to the coordinator other
+ *      than its master recovery routines, but, basically, this is used to
+ *      prevent inconsistent open replicas from being used during recovery.
  */
-SetMinOpenSegmentIdRpc::SetMinOpenSegmentIdRpc(Context* context,
-        ServerId serverId, uint64_t segmentId)
+SetMasterRecoveryInfoRpc::SetMasterRecoveryInfoRpc(
+    Context* context,
+    ServerId serverId,
+    const ProtoBuf::MasterRecoveryInfo& recoveryInfo)
     : CoordinatorRpcWrapper(context,
-            sizeof(WireFormat::SetMinOpenSegmentId::Response))
+            sizeof(WireFormat::SetMasterRecoveryInfo::Response))
 {
-    WireFormat::SetMinOpenSegmentId::Request* reqHdr(
-            allocHeader<WireFormat::SetMinOpenSegmentId>());
+    WireFormat::SetMasterRecoveryInfo::Request* reqHdr(
+            allocHeader<WireFormat::SetMasterRecoveryInfo>());
     reqHdr->serverId = serverId.getId();
-    reqHdr->segmentId = segmentId;
+    reqHdr->infoLength = serializeToRequest(&request, &recoveryInfo);
     send();
 }
 

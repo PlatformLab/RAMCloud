@@ -212,21 +212,21 @@ CoordinatorServerList::generateUniqueId()
  *
  * \param serverId
  *      Server whose min open segment id is being changed.
- * \param segmentId
- *      New min open segment id for the server \a serverId.
- *      If the current min open segment id is at least as high as
- *      \a segmentId then the current value is not changed.
+ * \param recoveryInfo
+ *      Information the coordinator will need to safely recover the master
+ *      at \a serverId. The information is opaque to the coordinator other
+ *      than its master recovery routines, but, basically, this is used to
+ *      prevent inconsistent open replicas from being used during recovery.
  * \throw
  *      Exception is thrown if the given ServerId is not in this list.
  */
 void
-CoordinatorServerList::setMinOpenSegmentId(ServerId serverId,
-                                           uint64_t segmentId)
+CoordinatorServerList::setMasterRecoveryInfo(
+        ServerId serverId, const ProtoBuf::MasterRecoveryInfo& recoveryInfo)
 {
     Lock _(mutex);
     Entry& entry = const_cast<Entry&>(getReferenceFromServerId(serverId));
-    if (entry.minOpenSegmentId < segmentId)
-        entry.minOpenSegmentId = segmentId;
+    entry.masterRecoveryInfo = recoveryInfo;
 }
 
 /**
@@ -1138,7 +1138,7 @@ CoordinatorServerList::updateEntryVersion(ServerId serverId, uint64_t version)
  */
 CoordinatorServerList::Entry::Entry()
     : ServerDetails()
-    , minOpenSegmentId()
+    , masterRecoveryInfo()
     , replicationId()
     , serverListVersion(0)
     , isBeingUpdated(0)
@@ -1170,7 +1170,7 @@ CoordinatorServerList::Entry::Entry(ServerId serverId,
                     services,
                     0,
                     ServerStatus::UP)
-    , minOpenSegmentId(0)
+    , masterRecoveryInfo()
     , replicationId(0)
     , serverListVersion(0)
     , isBeingUpdated(0)

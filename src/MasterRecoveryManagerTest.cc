@@ -123,7 +123,7 @@ TEST_F(MasterRecoveryManagerTest, startMasterRecovery) {
 TEST_F(MasterRecoveryManagerTest, destroyAndFreeRecovery) {
     std::unique_ptr<Recovery> recovery{
         new Recovery(&context, mgr.taskQueue, &tabletMap, &mgr.tracker, &mgr,
-                     {1, 0}, 0lu)};
+                     {1, 0}, {})};
     mgr.activeRecoveries[recovery->recoveryId] = recovery.get();
     mgr.destroyAndFreeRecovery(recovery.get());
     recovery.release();
@@ -138,7 +138,7 @@ TEST_F(MasterRecoveryManagerTest, trackerChangesEnqueued) {
     // sure it gets informed if serverId crashes.
     std::unique_ptr<Recovery> recovery{
         new Recovery(&context, mgr.taskQueue, &tabletMap, &mgr.tracker, &mgr,
-                     {1, 0},  0lu)};
+                     {1, 0},  {})};
     recovery->numPartitions = 2;
     mgr.tracker[ServerId(1, 0)] = recovery.get();
 
@@ -153,7 +153,7 @@ TEST_F(MasterRecoveryManagerTest, recoveryFinished) {
     addMaster();
     EXPECT_EQ(1lu, serverList.version);
     Recovery recovery(&context, mgr.taskQueue, &tabletMap, &mgr.tracker,
-                      NULL, {1, 0}, 0lu);
+                      NULL, {1, 0}, {});
     recovery.status = Recovery::BROADCAST_RECOVERY_COMPLETE;
     ASSERT_EQ(0lu, mgr.taskQueue.outstandingTasks());
     EXPECT_EQ(1lu, serverList.version);
@@ -170,7 +170,7 @@ TEST_F(MasterRecoveryManagerTest, recoveryFinishedUnsuccessful) {
     addMaster();
     EXPECT_EQ(1lu, serverList.version);
     Recovery recovery(&context, mgr.taskQueue, &tabletMap, &mgr.tracker,
-                      NULL, {1, 0},  0lu);
+                      NULL, {1, 0},  {});
     ASSERT_EQ(0lu, mgr.taskQueue.outstandingTasks());
     EXPECT_EQ(1lu, serverList.version);
     mgr.recoveryFinished(&recovery);
@@ -203,7 +203,7 @@ TEST_F(MasterRecoveryManagerTest, recoveryMasterFinished) {
 
     std::unique_ptr<Recovery> recovery{
         new Recovery(&context, mgr.taskQueue, &tabletMap, &mgr.tracker, &mgr,
-                     crashedServerId,  0lu)};
+                     crashedServerId, {})};
     recovery->numPartitions = 1;
     mgr.activeRecoveries[recovery->recoveryId] = recovery.get();
     // Register {2, 0} as a recovery master for this recovery.
@@ -254,7 +254,7 @@ TEST_F(MasterRecoveryManagerTest,
 
     std::unique_ptr<Recovery> recovery{
         new Recovery(&context, mgr.taskQueue, &tabletMap, &mgr.tracker, &mgr,
-                     crashedServerId, 0lu)};
+                     crashedServerId, {})};
     recovery->numPartitions = 1;
     mgr.activeRecoveries[recovery->recoveryId] = recovery.get();
     // Register {2, 0} as a recovery master for this recovery.

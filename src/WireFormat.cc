@@ -77,7 +77,7 @@ opcodeSymbol(uint32_t opcode)
         case BACKUP_QUIESCE:             return "BACKUP_QUIESCE";
         case UPDATE_SERVER_LIST:            return "SET_SERVER_LIST";
         case GET_SERVER_ID:              return "GET_SERVER_ID";
-        case SET_MIN_OPEN_SEGMENT_ID:    return "SET_MIN_OPEN_SEGMENT_ID";
+        case SET_MASTER_RECOVERY_INFO:   return "SET_MASTER_RECOVERY_INFO";
         case DROP_TABLET_OWNERSHIP:      return "DROP_TABLET_OWNERSHIP";
         case TAKE_TABLET_OWNERSHIP:      return "TAKE_TABLET_OWNERSHIP";
         case BACKUP_ASSIGN_GROUP:        return "BACKUP_ASSIGN_GROUP";

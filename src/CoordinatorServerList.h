@@ -20,6 +20,7 @@
 #include <Client/Client.h>
 #include <deque>
 
+#include "MasterRecoveryInfo.pb.h"
 #include "ServerList.pb.h"
 
 #include "AbstractServerList.h"
@@ -83,12 +84,14 @@ class CoordinatorServerList : public AbstractServerList{
         // and are not transmitted to members' ServerLists.
 
         /**
-         * Any open replicas found during recovery are considered invalid
-         * if they have a segmentId less than this.  This is used by masters
-         * to invalidate replicas they have lost contact with while actively
-         * writing to them.
+         * Stores information about the server for use during recovery.
+         * This information is completely opaque to the coordinator during
+         * normal operation and is only used in master recovery. Basically,
+         * it is used in cases when masters need to ensure that replicas
+         * from backups which they lost contact with cannot be used during
+         * recovery.
          */
-        uint64_t minOpenSegmentId;
+        ProtoBuf::MasterRecoveryInfo masterRecoveryInfo;
 
         /**
          * Each segment's replicas are replicated on a set of backups, called
@@ -131,7 +134,8 @@ class CoordinatorServerList : public AbstractServerList{
     void remove(ServerId serverId);
     ServerId generateUniqueId();
 
-    void setMinOpenSegmentId(ServerId serverId, uint64_t segmentId);
+    void setMasterRecoveryInfo(
+        ServerId serverId, const ProtoBuf::MasterRecoveryInfo& recoveryInfo);
     void setReplicationId(ServerId serverId, uint64_t segmentId);
 
     Entry operator[](const ServerId& serverId) const;

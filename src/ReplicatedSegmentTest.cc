@@ -105,7 +105,7 @@ struct ReplicatedSegmentTest : public ::testing::Test {
                                               test->backupSelector,
                                               test->deleter,
                                               test->writeRpcsInFlight,
-                                              test->minOpenSegmentId,
+                                              test->replicationEpoch,
                                               test->dataMutex,
                                               segmentId,
                                               &logSegment,
@@ -136,7 +136,7 @@ struct ReplicatedSegmentTest : public ::testing::Test {
     std::mutex dataMutex;
     const ServerId masterId;
     const uint64_t segmentId;
-    MinOpenSegmentId minOpenSegmentId;
+    UpdateReplicationEpochTask replicationEpoch;
     char data[DATA_LEN];
     Segment logSegment;
     const uint32_t openLen;
@@ -158,7 +158,7 @@ struct ReplicatedSegmentTest : public ::testing::Test {
         , dataMutex()
         , masterId(999, 0)
         , segmentId(888)
-        , minOpenSegmentId(&context, &taskQueue, &masterId)
+        , replicationEpoch(&context, &taskQueue, &masterId)
         , data()
         , logSegment()
         , openLen(10)
@@ -265,7 +265,7 @@ TEST_F(ReplicatedSegmentTest, isSynced) {
         segment->replicas[0].committed =
         segment->replicas[1].sent =
         segment->replicas[1].acked =
-        segment->replicas[1].committed = {true, 10, false};
+        segment->replicas[1].committed = {true, 10, 0, false};
     EXPECT_TRUE(segment->isSynced());
     segment->recoveringFromLostOpenReplicas = true;
     EXPECT_FALSE(segment->isSynced());
@@ -286,7 +286,7 @@ TEST_F(ReplicatedSegmentTest, close) {
 }
 
 TEST_F(ReplicatedSegmentTest, handleBackupFailureWhileOpen) {
-    EXPECT_FALSE(segment->handleBackupFailure({0, 0}));
+    segment->handleBackupFailure({0, 0});
     foreach (auto& replica, segment->replicas)
         EXPECT_FALSE(replica.replicateAtomically);
 
@@ -294,26 +294,96 @@ TEST_F(ReplicatedSegmentTest, handleBackupFailureWhileOpen) {
     transport.setInput("0 0"); // write
     createSegment->logSegment.tail = openLen; // write queued
     // Not active still, next performTask chooses backups and sends opens.
-    EXPECT_FALSE(segment->handleBackupFailure({0, 0}));
+    segment->handleBackupFailure({0, 0});
     foreach (auto& replica, segment->replicas)
         EXPECT_FALSE(replica.replicateAtomically);
 
     taskQueue.performTask();
     // Replicas are now active with an outstanding open rpc.
-    EXPECT_FALSE(segment->handleBackupFailure({88888, 0}));
+    segment->handleBackupFailure({88888, 0});
     foreach (auto& replica, segment->replicas)
         EXPECT_FALSE(replica.replicateAtomically);
 
-    EXPECT_TRUE(segment->handleBackupFailure({0, 0}));
+    segment->handleBackupFailure({0, 0});
     // The failed replica must restart replication in atomic mode.
     EXPECT_TRUE(segment->replicas[0].replicateAtomically);
     // The other open replica is in normal (non-atomic) mode still.
     EXPECT_FALSE(segment->replicas[1].replicateAtomically);
+    EXPECT_EQ(1lu, segment->queued.epoch);
 
     // Failure of the second replica.
-    EXPECT_FALSE(segment->handleBackupFailure({1, 0}));
+    segment->handleBackupFailure({1, 0});
     EXPECT_TRUE(segment->replicas[0].replicateAtomically);
     EXPECT_TRUE(segment->replicas[1].replicateAtomically);
+    EXPECT_EQ(2lu, segment->queued.epoch);
+
+    reset();
+}
+
+namespace {
+bool handleBackupFailureFilter(string s) {
+    return s == "handleBackupFailure" ||
+           s == "performTask" ||
+           s == "performWrite" ||
+           s == "updateToAtLeast";
+}
+}
+
+TEST_F(ReplicatedSegmentTest, handleBackupFailureWhileOpenDoesntSendForClosed) {
+    transport.setInput("0 0"); // open
+    transport.setInput("0 0"); // open
+    createSegment->logSegment.tail = openLen; // write queued
+    segment->close();
+    taskQueue.performTask(); // send opens
+    taskQueue.performTask(); // reap opens
+
+    // Cause replica 1 to start over just to get the replication out of sync.
+    segment->replicas[1].sent.open =
+        segment->replicas[1].acked.open =
+        segment->replicas[1].committed.open = false;
+    segment->replicas[1].sent.bytes =
+        segment->replicas[1].acked.bytes =
+        segment->replicas[1].committed.bytes = 0;
+    transport.setInput("0 0"); // close
+    transport.setInput("0 0"); // open
+    taskQueue.performTask(); // send close on slot 0, open on slot 1
+    // Replica 0 has a close rpc for epoch 0 outstanding.
+    // Replica 0 will NOT send an extra rpc to update the epoch after
+    // the failure below. This is because once it reaps the close rpc its
+    // epoch no longer matters, so it doesn't resend.
+    // Replica 1 has resent its opening rpc.
+
+    // Handle failure on the open replica.
+    TestLog::Enable _(handleBackupFailureFilter);
+    segment->handleBackupFailure({1, 0});
+    EXPECT_FALSE(segment->replicas[0].replicateAtomically);
+    EXPECT_TRUE(segment->replicas[1].replicateAtomically);
+    EXPECT_EQ(1lu, segment->queued.epoch);
+
+    transport.setInput("0 0"); // open
+    taskQueue.performTask(); // send open
+    taskQueue.performTask(); // reap open
+    transport.setInput("0 0"); // close
+    taskQueue.performTask(); // send write
+    taskQueue.performTask(); // reap write, request epoch update on coordinator
+    EXPECT_EQ(
+        "handleBackupFailure: Segment 888 recovering from lost replica which "
+            "was on backup 1.0 | "
+        "handleBackupFailure: Lost replica(s) for segment 888 while open due "
+            "to crash of backup 1.0 | "
+        // Don't get weirded out by the fact that replica 0 and 1 are both
+        // on the same backup. It's an artifact of the MockBackupSelector.
+        // Shouldn't happen with the real BackupSelector.
+        "performWrite: Starting replication of segment 888 replica slot 1 on "
+            "backup 0.0 | "
+        "performWrite: Sending open to backup 0.0 | "
+        "performWrite: Sending write to backup 0.0 | "
+        "performTask: Updating replicationEpoch to 888,1 on coordinator to "
+            "ensure lost replicas will not be reused | "
+        "updateToAtLeast: request update to master recovery info for 999.0 "
+            "to 888,1", TestLog::get());
+    // Importantly, there is no mention of replica 0 above; it shouldn't need
+    // to do anything since it was already closed when the failure happened.
 
     reset();
 }
@@ -331,17 +401,19 @@ TEST_F(ReplicatedSegmentTest, handleBackupFailureWhileHandlingFailure) {
     taskQueue.performTask(); // send closes
     taskQueue.performTask(); // reap closes
 
-    // Handle failure while closed.  This should technically
+    // Handle failure while closed. This should technically
     // "reopen" the segment, though only in atomic replication mode.
-    EXPECT_FALSE(segment->handleBackupFailure({0, 0}));
+    segment->handleBackupFailure({0, 0});
     EXPECT_TRUE(segment->replicas[0].replicateAtomically);
     EXPECT_FALSE(segment->replicas[1].replicateAtomically);
+    EXPECT_EQ(0lu, segment->queued.epoch);
 
     // Check to make sure that atomic replications aren't counted as
-    // failures while open.  They can't threaten the integrity of the log.
-    EXPECT_FALSE(segment->handleBackupFailure({0, 0}));
+    // failures while open. They can't threaten the integrity of the log.
+    segment->handleBackupFailure({0, 0});
     EXPECT_TRUE(segment->replicas[0].replicateAtomically);
     EXPECT_FALSE(segment->replicas[1].replicateAtomically);
+    EXPECT_EQ(0lu, segment->queued.epoch);
 
     reset();
 }
@@ -358,11 +430,11 @@ TEST_F(ReplicatedSegmentTest, sync) {
     createSegment->logSegment.getAppendedLength(certificate);
     EXPECT_TRUE(transport.outputMatches(0, MockTransport::SEND_REQUEST,
         WrReq{{BACKUP_WRITE, BACKUP_SERVICE},
-                 999, 888, 0, 10, true, false, true, true, certificate},
+                 999, 888, 0, 0, 10, true, false, true, true, certificate},
                 "abcdefghij", 10));
     EXPECT_TRUE(transport.outputMatches(1, MockTransport::SEND_REQUEST,
         WrReq{{BACKUP_WRITE, BACKUP_SERVICE},
-                 999, 888, 0, 10, true, false, false, true, certificate},
+                 999, 888, 0, 0, 10, true, false, false, true, certificate},
                 "abcdefghij", 10));
     transport.clearOutput();
     EXPECT_TRUE(segment->getCommitted().open);
@@ -381,11 +453,11 @@ TEST_F(ReplicatedSegmentTest, sync) {
     createSegment->logSegment.getAppendedLength(certificate);
     EXPECT_TRUE(transport.outputMatches(0, MockTransport::SEND_REQUEST,
         WrReq{{BACKUP_WRITE, BACKUP_SERVICE},
-                 999, 888, 10, 10, false, false, true, true, certificate},
+                 999, 888, 0, 10, 10, false, false, true, true, certificate},
                 "klmnopqrst", 10));
     EXPECT_TRUE(transport.outputMatches(1, MockTransport::SEND_REQUEST,
         WrReq{{BACKUP_WRITE, BACKUP_SERVICE},
-                 999, 888, 10, 10,
+                 999, 888, 0, 10, 10,
                  false, false, false, true, certificate},
                 "klmnopqrst ", 10));
     EXPECT_EQ(openLen + 10, segment->getCommitted().bytes);
@@ -465,40 +537,40 @@ TEST_F(ReplicatedSegmentTest, syncDoubleCheckCrossSegmentOrderingConstraints) {
 
     EXPECT_TRUE(transport.outputMatches(0, MockTransport::SEND_REQUEST,
         WrReq{{BACKUP_WRITE, BACKUP_SERVICE},
-                 999, 888, 0, 10, true, false, true, true,
+                 999, 888, 0, 0, 10, true, false, true, true,
                  segmentOpeningCertificate},
                 "abcdefghij", 10));
     EXPECT_TRUE(transport.outputMatches(1, MockTransport::SEND_REQUEST,
         WrReq{{BACKUP_WRITE, BACKUP_SERVICE},
-                 999, 888, 0, 10, true, false, false, true,
+                 999, 888, 0, 0, 10, true, false, false, true,
                  segmentOpeningCertificate},
                 "abcdefghij", 10));
     EXPECT_TRUE(transport.outputMatches(2, MockTransport::SEND_REQUEST,
         WrReq{{BACKUP_WRITE, BACKUP_SERVICE},
-                 999, 889, 0, 10, true, false, true, true,
+                 999, 889, 0, 0, 10, true, false, true, true,
                  newHeadOpeningCertificate},
                 "abcdefghij", 10));
     EXPECT_TRUE(transport.outputMatches(3, MockTransport::SEND_REQUEST,
         WrReq{{BACKUP_WRITE, BACKUP_SERVICE},
-                 999, 889, 0, 10, true, false, false, true,
+                 999, 889, 0, 0, 10, true, false, false, true,
                  newHeadOpeningCertificate},
                 "abcdefghij", 10));
     EXPECT_TRUE(transport.outputMatches(4, MockTransport::SEND_REQUEST,
         WrReq{{BACKUP_WRITE, BACKUP_SERVICE},
-                 999, 888, 10, 0, false, true, true, true,
+                 999, 888, 0, 10, 0, false, true, true, true,
                  segmentFinalCertificate}));
     EXPECT_TRUE(transport.outputMatches(5, MockTransport::SEND_REQUEST,
         WrReq{{BACKUP_WRITE, BACKUP_SERVICE},
-                 999, 888, 10, 0, false, true, false, true,
+                 999, 888, 0, 10, 0, false, true, false, true,
                  segmentFinalCertificate}));
     EXPECT_TRUE(transport.outputMatches(6, MockTransport::SEND_REQUEST,
         WrReq{{BACKUP_WRITE, BACKUP_SERVICE},
-                 999, 889, 10, 10, false, false, true, true,
+                 999, 889, 0, 10, 10, false, false, true, true,
                  newHeadFinalCertificate},
                 "klmnopqrst", 10));
     EXPECT_TRUE(transport.outputMatches(7, MockTransport::SEND_REQUEST,
         WrReq{{BACKUP_WRITE, BACKUP_SERVICE},
-                 999, 889, 10, 10, false, false, false, true,
+                 999, 889, 0, 10, 10, false, false, false, true,
                  newHeadFinalCertificate},
                 "klmnopqrst", 10));
 }
@@ -511,7 +583,7 @@ bool filter(string s) {
 
 TEST_F(ReplicatedSegmentTest, syncRecoveringFromLostOpenReplicas) {
     // Generates a segment, syncs some data to it, and then simulates
-    // a crash while that segment is still open.  Checks to make sure
+    // a crash while that segment is still open. Checks to make sure
     // that the originally synced data appears unsynced while the
     // recovery is going on and that after recovery has happened the
     // data appears synced again.
@@ -519,7 +591,7 @@ TEST_F(ReplicatedSegmentTest, syncRecoveringFromLostOpenReplicas) {
     transport.setInput("0 0"); // write
     transport.setInput("0 0"); // open
     transport.setInput("0 0"); // write/close
-    transport.setInput("0 0"); // setOpenMinSegmentId
+    transport.setInput("0 0"); // set replication epoch on coordinator
 
     createSegment->logSegment.tail = openLen;
     segment->sync(openLen); // first sync sends the opens
@@ -533,28 +605,41 @@ TEST_F(ReplicatedSegmentTest, syncRecoveringFromLostOpenReplicas) {
     EXPECT_FALSE(segment->getCommitted().close);
 
     // Now the open segment encounters a failure.
-    IGNORE_RESULT(segment->handleBackupFailure({0, 0}));
+    segment->handleBackupFailure({0, 0});
+    EXPECT_EQ(1lu, segment->queued.epoch);
     EXPECT_TRUE(segment->recoveringFromLostOpenReplicas);
     EXPECT_FALSE(segment->replicas[0].isActive);
     EXPECT_TRUE(segment->replicas[0].replicateAtomically);
+    EXPECT_EQ(0lu, segment->replicas[0].sent.epoch);
+    EXPECT_EQ(0lu, segment->replicas[0].acked.epoch);
+    EXPECT_EQ(0lu, segment->replicas[0].committed.epoch);
     EXPECT_TRUE(segment->replicas[1].isActive);
     EXPECT_FALSE(segment->replicas[1].replicateAtomically);
+    EXPECT_EQ(0lu, segment->replicas[1].sent.epoch);
+    EXPECT_EQ(0lu, segment->replicas[1].acked.epoch);
+    EXPECT_EQ(0lu, segment->replicas[1].committed.epoch);
     EXPECT_EQ(backupId2, segment->replicas[1].backupId);
-    // Failure handling code needs to roll over to a new log head.
-    // Usually the close would need to wait on the open of the next
-    // log segment, but skip that here, pretend it already happened.
-    segment->close();
 
-    EXPECT_EQ(0lu, minOpenSegmentId.current);
-    // Will drive recovery (open a replica elsewhere, set minOpenSegmentId).
+    EXPECT_FALSE(segment->getCommitted().open);
+    EXPECT_EQ(0lu, segment->getCommitted().bytes);
+    EXPECT_EQ(0lu, segment->getCommitted().epoch);
     EXPECT_FALSE(segment->getCommitted().close);
+
+    EXPECT_EQ(0lu, replicationEpoch.current.first);
+    EXPECT_EQ(0lu, replicationEpoch.current.second);
     // Notice: weird and special case that only happens during testing:
     // The replica gets recreated right back on the backup with id 0
     // because it isn't removed from the ServerList that the
     // BackupSelector is working of off.
     TestLog::Enable _(filter);
     segment->sync(openLen);
-    EXPECT_TRUE(segment->getCommitted().close);
+    EXPECT_TRUE(segment->getCommitted().open);
+    EXPECT_EQ(openLen, segment->getCommitted().bytes);
+    EXPECT_EQ(1lu, segment->getCommitted().epoch);
+    EXPECT_FALSE(segment->getCommitted().close);
+    // Just double check it all to make extra sure.
+    EXPECT_EQ(1lu, segment->replicas[0].committed.epoch);
+    EXPECT_EQ(1lu, segment->replicas[1].committed.epoch);
     // Fragile test log check, but left here because the output is pretty
     // reassuring to a human reader that the test does what one expects.
     EXPECT_EQ("sync: syncing | "
@@ -564,12 +649,18 @@ TEST_F(ReplicatedSegmentTest, syncRecoveringFromLostOpenReplicas) {
                   "slot 0 on backup 0.0 | "
               "performWrite: Sending open to backup 0.0 | "
               "performWrite: Sending write to backup 1.0 | "
-              "performWrite: Sending write to backup 0.0 | "
-              "performTask: Updating minOpenSegmentId on coordinator to "
-                  "ensure lost replicas of segment 888 will not be reused | "
-              "updateToAtLeast: request update to minOpenSegmentId for "
-                  "999.0 to 889 | "
-              "performTask: minOpenSegmentId ok, lost open replica recovery "
+              // After both replicas have received a write they should try to
+              // update the replication epoch on the coordinator to invalidate
+              // stale replicas.
+              "performTask: Updating replicationEpoch to 888,1 on coordinator "
+                  "to ensure lost replicas will not be reused | "
+              "updateToAtLeast: request update to master recovery info for "
+                  "999.0 to 888,1 | "
+              "performTask: Updating replicationEpoch to 888,1 on coordinator "
+                  "to ensure lost replicas will not be reused | "
+              "updateToAtLeast: request update to master recovery info for "
+                  "999.0 to 888,1 | "
+              "performTask: replicationEpoch ok, lost open replica recovery "
               "complete on segment 888",
               TestLog::get());
     // Three rpcs are sent out to rereplicate the lost replica.
@@ -579,22 +670,23 @@ TEST_F(ReplicatedSegmentTest, syncRecoveringFromLostOpenReplicas) {
     // needed to iterate over the replica until the master is ready to
     // commit the whole thing.
     Segment::Certificate certificate;
-    // Opening primary write, no certificate
+    // Opening primary write, no certificate, new epoch.
     EXPECT_TRUE(transport.outputMatches(0, MockTransport::SEND_REQUEST,
         WrReq{{BACKUP_WRITE, BACKUP_SERVICE},
-                 999, 888, 0, 10, true, false, true, false, certificate},
+                 999, 888, 1, 0, 10, true, false, true, false, certificate},
                 "abcdefghij", 10));
     createSegment->logSegment.getAppendedLength(certificate);
-    // Closing write to non-crashed replica, includes certificate.
+    // Write to non-crashed replica includes certificate and new epoch.
+    // No actual data is sent or change to the closed flag. Just need to update
+    // the epoch is all.
     EXPECT_TRUE(transport.outputMatches(1, MockTransport::SEND_REQUEST,
         WrReq{{BACKUP_WRITE, BACKUP_SERVICE},
-                 999, 888, 10, 0, false, true, false, true, certificate}));
-    // Closing write, includes certificate.
-    EXPECT_TRUE(transport.outputMatches(2, MockTransport::SEND_REQUEST,
-        WrReq{{BACKUP_WRITE, BACKUP_SERVICE},
-                 999, 888, 10, 0, false, true, true, true, certificate}));
-    EXPECT_TRUE(segment->getCommitted().close);
-    EXPECT_EQ(889lu, minOpenSegmentId.current);
+                 999, 888, 1, 10, 0, false, false, false, true, certificate}));
+    EXPECT_TRUE(segment->getCommitted().open);
+    EXPECT_EQ(openLen, segment->getCommitted().bytes);
+    EXPECT_EQ(1lu, segment->getCommitted().epoch);
+    EXPECT_EQ(888lu, replicationEpoch.current.first);
+    EXPECT_EQ(1lu, replicationEpoch.current.second);
     transport.clearOutput();
 
     segment->sync(openLen); // doesn't send anything
@@ -627,12 +719,12 @@ TEST_F(ReplicatedSegmentTest, syncWaitsForCommittedEvenWhenAcked) {
 
     EXPECT_TRUE(transport.outputMatches(0, MockTransport::SEND_REQUEST,
         WrReq{{BACKUP_WRITE, BACKUP_SERVICE},
-                 999, 888, 0, 10, true, false, true, true,
+                 999, 888, 0, 0, 10, true, false, true, true,
                  openingCertificate},
                 "abcdefghij", 10));
     EXPECT_TRUE(transport.outputMatches(1, MockTransport::SEND_REQUEST,
         WrReq{{BACKUP_WRITE, BACKUP_SERVICE},
-                 999, 888, 0, 10, true, false, false, true,
+                 999, 888, 0, 0, 10, true, false, false, true,
                  openingCertificate},
                 "abcdefghij", 10));
 
@@ -648,19 +740,19 @@ TEST_F(ReplicatedSegmentTest, syncWaitsForCommittedEvenWhenAcked) {
     Segment::Certificate empty;
     EXPECT_TRUE(transport.outputMatches(0, MockTransport::SEND_REQUEST,
         WrReq{{BACKUP_WRITE, BACKUP_SERVICE},
-                 999, 888, 10, 21, false, false, true, false, empty},
+                 999, 888, 0, 10, 21, false, false, true, false, empty},
                 "klmnopqrstuvwxyzabcde", 21));
     EXPECT_TRUE(transport.outputMatches(1, MockTransport::SEND_REQUEST,
         WrReq{{BACKUP_WRITE, BACKUP_SERVICE},
-                 999, 888, 10, 21, false, false, false, false, empty},
+                 999, 888, 0, 10, 21, false, false, false, false, empty},
                 "klmnopqrstuvwxyzabcde", 21));
     EXPECT_TRUE(transport.outputMatches(2, MockTransport::SEND_REQUEST,
         WrReq{{BACKUP_WRITE, BACKUP_SERVICE},
-                 999, 888, 31, 1, false, true, true, true, certificate},
+                 999, 888, 0, 31, 1, false, true, true, true, certificate},
                 "f", 1));
     EXPECT_TRUE(transport.outputMatches(3, MockTransport::SEND_REQUEST,
         WrReq{{BACKUP_WRITE, BACKUP_SERVICE},
-                 999, 888, 31, 1, false, true, false, true, certificate},
+                 999, 888, 0, 31, 1, false, true, false, true, certificate},
                 "f", 1));
 
     EXPECT_EQ(0u, deleter.count);
@@ -733,52 +825,67 @@ TEST_F(ReplicatedSegmentTest, performTaskWrite) {
 TEST_F(ReplicatedSegmentTest, performTaskRecoveringFromLostOpenReplicas) {
     transport.setInput("0 0"); // open/write
     transport.setInput("0 0"); // open/write
-    transport.setInput("0 0"); // open/write for replication
-    transport.setInput("0 0"); // close/write
-    transport.setInput("0 0"); // close/write
-    transport.setInput("0 0"); // setMinOpenSegmentId
     taskQueue.performTask(); // send open/writes
-    EXPECT_TRUE(segment->handleBackupFailure({0, 0}));
+    segment->handleBackupFailure({0, 0});
     EXPECT_TRUE(segment->recoveringFromLostOpenReplicas);
+    EXPECT_EQ(1lu, segment->queued.epoch);
+    EXPECT_EQ(0lu, segment->replicas[0].committed.epoch);
+    EXPECT_EQ(0lu, segment->replicas[1].committed.epoch);
+    EXPECT_FALSE(segment->replicas[0].committed.close);
+    EXPECT_FALSE(segment->replicas[1].committed.close);
     transport.clearOutput();
 
     // Reap the remaining outstanding write, send the new atomic open on the
     // originally failed replica (original outstanding rpc should be canceled).
     // It is atomic by virtue that it doesn't include the certificate needed
     // to read the replica data back later.
-    taskQueue.performTask();
+    transport.setInput("0 0"); // open/write for replication
+    transport.setInput("0 0"); // write for second replica to send new epoch
+    taskQueue.performTask(); // restart of replica 0, reap rpc from replica 1
+    // Because replica 1 already had an rpc in flight it won't be able to update
+    // the epoch on the backup until the next call to performTask().
+    taskQueue.performTask(); // reap replica 0, update epoch of replica 1
+    TestLog::Enable _(filter);
+    taskQueue.performTask(); // reap replica 1, update epoch on coordinator
+    EXPECT_EQ(
+        "performTask: Updating replicationEpoch to 888,1 on coordinator to "
+            "ensure lost replicas will not be reused | "
+        "updateToAtLeast: request update to master recovery info for 999.0 "
+            "to 888,1", TestLog::get());
+
     Segment::Certificate certificate;
+    // Atomic re-replication open.
     EXPECT_TRUE(transport.outputMatches(0, MockTransport::SEND_REQUEST,
         WrReq{{BACKUP_WRITE, BACKUP_SERVICE},
-                 999, 888, 0, 10, true, false, true, false, certificate},
+                 999, 888, 1, 0, 10, true, false, true, false, certificate},
                 "abcdefghij", 10));
+    // Surviving replica gets epoch refreshed.
+    createSegment->logSegment.getAppendedLength(certificate);
+    EXPECT_TRUE(transport.outputMatches(1, MockTransport::SEND_REQUEST,
+        WrReq{{BACKUP_WRITE, BACKUP_SERVICE},
+                 999, 888, 1, 10, 0, false, false, false, true, certificate}));
     transport.clearOutput();
 
-    taskQueue.performTask(); // should be a no-op, stuck waiting for close
+    transport.setInput("0 0"); // epoch update on coordinator
+    taskQueue.performTask(); // send epoch update to coordinator
+    taskQueue.performTask(); // reap epoch update to coordinator
     EXPECT_TRUE(transport.output.empty());
 
     segment->close();
 
-    createSegment->logSegment.getAppendedLength(certificate);
+    transport.setInput("0 0"); // close/write
+    transport.setInput("0 0"); // close/write
     taskQueue.performTask(); // send closes
     // Atomic close.
     EXPECT_TRUE(transport.outputMatches(0, MockTransport::SEND_REQUEST,
         WrReq{{BACKUP_WRITE, BACKUP_SERVICE},
-                 999, 888, 10, 0, false, true, true, true, certificate}));
+                 999, 888, 1, 10, 0, false, true, true, true, certificate}));
     // Normal close.
     EXPECT_TRUE(transport.outputMatches(1, MockTransport::SEND_REQUEST,
         WrReq{{BACKUP_WRITE, BACKUP_SERVICE},
-                 999, 888, 10, 0, false, true, false, true, certificate}));
+                 999, 888, 1, 10, 0, false, true, false, true, certificate}));
     transport.clearOutput();
-
-    TestLog::Enable _(filter);
-    taskQueue.performTask(); // reap closes, update min open segment id
-    EXPECT_EQ("performTask: Updating minOpenSegmentId on coordinator "
-                  "to ensure lost replicas of segment 888 will not be "
-                  "reused | "
-              "updateToAtLeast: request update to minOpenSegmentId "
-                  "for 999.0 to 889",
-              TestLog::get());
+    taskQueue.performTask(); // reap closes
     EXPECT_TRUE(transport.output.empty());
 }
 
@@ -858,7 +965,7 @@ TEST_F(ReplicatedSegmentTest, performWriteTooManyInFlight) {
     taskQueue.performTask(); // retry writes since a slot freed up
     EXPECT_TRUE(transport.outputMatches(0, MockTransport::SEND_REQUEST,
         WrReq{{BACKUP_WRITE, BACKUP_SERVICE},
-                 999, 888, 10, 10, false, false, true, true,
+                 999, 888, 0, 10, 10, false, false, true, true,
                  openingCertificate},
                 "klmnopqrst", 10));
     transport.clearOutput();
@@ -873,7 +980,7 @@ TEST_F(ReplicatedSegmentTest, performWriteTooManyInFlight) {
     taskQueue.performTask(); // reap write and send the second replica's rpc
     EXPECT_TRUE(transport.outputMatches(0, MockTransport::SEND_REQUEST,
         WrReq{{BACKUP_WRITE, BACKUP_SERVICE},
-                 999, 888, 10, 10, false, false, false,
+                 999, 888, 0, 10, 10, false, false, false,
                  true, openingCertificate},
                 "klmnopqrst", 10));
     EXPECT_EQ(ReplicatedSegment::MAX_WRITE_RPCS_IN_FLIGHT, writeRpcsInFlight);
@@ -915,11 +1022,11 @@ TEST_F(ReplicatedSegmentTest, performWriteOpen) {
     createSegment->logSegment.getAppendedLength(certificate);
     EXPECT_TRUE(transport.outputMatches(0, MockTransport::SEND_REQUEST,
         WrReq{{BACKUP_WRITE, BACKUP_SERVICE},
-                 999, 888, 0, 10, true, false, true, true, certificate},
+                 999, 888, 0, 0, 10, true, false, true, true, certificate},
                 "abcdefghij", 10));
     EXPECT_TRUE(transport.outputMatches(1, MockTransport::SEND_REQUEST,
         WrReq{{BACKUP_WRITE, BACKUP_SERVICE},
-                 999, 888, 0, 10, true, false, false, true, certificate},
+                 999, 888, 0, 0, 10, true, false, false, true, certificate},
                 "abcdefghij", 10));
 
     EXPECT_TRUE(segment->replicas[0].isActive);
@@ -948,7 +1055,7 @@ TEST_F(ReplicatedSegmentTest, performWriteOpenTooManyInFlight) {
     createSegment->logSegment.getAppendedLength(certificate);
     EXPECT_TRUE(transport.outputMatches(0, MockTransport::SEND_REQUEST,
         WrReq{{BACKUP_WRITE, BACKUP_SERVICE},
-                 999, 888, 0, 10, true, false, true, true, certificate},
+                 999, 888, 0, 0, 10, true, false, true, true, certificate},
                 "abcdefghij", 10));
     EXPECT_EQ(ReplicatedSegment::MAX_WRITE_RPCS_IN_FLIGHT, writeRpcsInFlight);
     ASSERT_TRUE(segment->replicas[0].isActive);
@@ -962,7 +1069,7 @@ TEST_F(ReplicatedSegmentTest, performWriteOpenTooManyInFlight) {
     taskQueue.performTask(); // reap write and send the second replica's rpc
     EXPECT_TRUE(transport.outputMatches(1, MockTransport::SEND_REQUEST,
         WrReq{{BACKUP_WRITE, BACKUP_SERVICE},
-                 999, 888, 0, 10, true, false, false, true, certificate},
+                 999, 888, 0, 0, 10, true, false, false, true, certificate},
                 "abcdefghij", 10));
     EXPECT_EQ(ReplicatedSegment::MAX_WRITE_RPCS_IN_FLIGHT, writeRpcsInFlight);
     ASSERT_TRUE(segment->replicas[1].isActive);
@@ -1025,11 +1132,11 @@ TEST_F(ReplicatedSegmentTest, performWriteRpcFailed) {
     createSegment->logSegment.getAppendedLength(certificate);
     EXPECT_TRUE(transport.outputMatches(0, MockTransport::SEND_REQUEST,
         WrReq{{BACKUP_WRITE, BACKUP_SERVICE},
-                 999, 888, 0, 10, true, false, true, true, certificate},
+                 999, 888, 0, 0, 10, true, false, true, true, certificate},
                 "abcdefghij", 10));
     EXPECT_TRUE(transport.outputMatches(1, MockTransport::SEND_REQUEST,
         WrReq{{BACKUP_WRITE, BACKUP_SERVICE},
-                 999, 888, 0, 10, true, false, false, true, certificate},
+                 999, 888, 0, 0, 10, true, false, false, true, certificate},
                 "abcdefghij", 10));
     transport.clearOutput();
     {
@@ -1053,7 +1160,7 @@ TEST_F(ReplicatedSegmentTest, performWriteRpcFailed) {
     taskQueue.performTask();  // resend second open request
     EXPECT_TRUE(transport.outputMatches(0, MockTransport::SEND_REQUEST,
         WrReq{{BACKUP_WRITE, BACKUP_SERVICE},
-                 999, 888, 0, 10, true, false, false, true, certificate},
+                 999, 888, 0, 0, 10, true, false, false, true, certificate},
                 "abcdefghij", 10));
     transport.clearOutput();
     taskQueue.performTask();  // reap second open request
@@ -1064,11 +1171,11 @@ TEST_F(ReplicatedSegmentTest, performWriteRpcFailed) {
     taskQueue.performTask();  // send close requests
     EXPECT_TRUE(transport.outputMatches(0, MockTransport::SEND_REQUEST,
         WrReq{{BACKUP_WRITE, BACKUP_SERVICE},
-                 999, 888, 10, 10, false, true, true, true, certificate},
+                 999, 888, 0, 10, 10, false, true, true, true, certificate},
                 "klmnopqrst", 10));
     EXPECT_TRUE(transport.outputMatches(1, MockTransport::SEND_REQUEST,
         WrReq{{BACKUP_WRITE, BACKUP_SERVICE},
-                 999, 888, 10, 10, false, true, false, true, certificate},
+                 999, 888, 0, 10, 10, false, true, false, true, certificate},
                 "klmnopqrst", 10));
     transport.clearOutput();
     {
@@ -1093,7 +1200,7 @@ TEST_F(ReplicatedSegmentTest, performWriteRpcFailed) {
     taskQueue.performTask();  // resend first close request
     EXPECT_TRUE(transport.outputMatches(0, MockTransport::SEND_REQUEST,
         WrReq{{BACKUP_WRITE, BACKUP_SERVICE},
-                 999, 888, 10, 10, false, true, true, true, certificate},
+                 999, 888, 0, 10, 10, false, true, true, true, certificate},
                 "klmnopqrst", 10));
     transport.clearOutput();
     EXPECT_TRUE(segment->isScheduled());
@@ -1127,12 +1234,12 @@ TEST_F(ReplicatedSegmentTest, performWriteMoreToSend) {
 
     EXPECT_TRUE(transport.outputMatches(0, MockTransport::SEND_REQUEST,
         WrReq{{BACKUP_WRITE, BACKUP_SERVICE},
-                 999, 888, 10, 20, false, true, true, true,
+                 999, 888, 0, 10, 20, false, true, true, true,
                  closingCertificate},
                 "klmnopqrstuvwxyzabcd", 20));
     EXPECT_TRUE(transport.outputMatches(1, MockTransport::SEND_REQUEST,
         WrReq{{BACKUP_WRITE, BACKUP_SERVICE},
-                 999, 888, 10, 20, false, true, false, true,
+                 999, 888, 0, 10, 20, false, true, false, true,
                  closingCertificate},
                 "klmnopqrstuvwxyzabcd", 20));
     EXPECT_TRUE(segment->isScheduled());
@@ -1165,11 +1272,12 @@ TEST_F(ReplicatedSegmentTest, performWriteClosedButLongerThanMaxTxLimit) {
 
     EXPECT_TRUE(transport.outputMatches(0, MockTransport::SEND_REQUEST,
         WrReq{{BACKUP_WRITE, BACKUP_SERVICE},
-                 999, 888, 10, 21, false, false, true, false, emptyCertificate},
+                 999, 888, 0, 10, 21, false, false, true, false,
+                 emptyCertificate},
                 "klmnopqrstuvwxyzabcde", 21));
     EXPECT_TRUE(transport.outputMatches(1, MockTransport::SEND_REQUEST,
         WrReq{{BACKUP_WRITE, BACKUP_SERVICE},
-                 999, 888, 10, 21, false, false, false, false,
+                 999, 888, 0, 10, 21, false, false, false, false,
                  emptyCertificate},
                 "klmnopqrstuvwxyzabcde", 21));
     EXPECT_TRUE(segment->isScheduled());
@@ -1183,11 +1291,11 @@ TEST_F(ReplicatedSegmentTest, performWriteClosedButLongerThanMaxTxLimit) {
 
     EXPECT_TRUE(transport.outputMatches(0, MockTransport::SEND_REQUEST,
         WrReq{{BACKUP_WRITE, BACKUP_SERVICE},
-                 999, 888, 31, 1, false, true, true, true, certificate},
+                 999, 888, 0, 31, 1, false, true, true, true, certificate},
                 "f", 1));
     EXPECT_TRUE(transport.outputMatches(1, MockTransport::SEND_REQUEST,
         WrReq{{BACKUP_WRITE, BACKUP_SERVICE},
-                 999, 888, 31, 1, false, true, false, true, certificate},
+                 999, 888, 0, 31, 1, false, true, false, true, certificate},
                 "f", 1));
     EXPECT_TRUE(segment->isScheduled());
     EXPECT_TRUE(segment->replicas[0].writeRpc);

@@ -65,6 +65,7 @@ CLIENT_SRCFILES := \
 		   src/Util.cc \
 		   src/WireFormat.cc \
 		   $(INFINIBAND_SRCFILES) \
+		   $(OBJDIR)/MasterRecoveryInfo.pb.cc \
 		   $(OBJDIR)/MetricList.pb.cc \
 		   $(OBJDIR)/ServerList.pb.cc \
 		   $(OBJDIR)/ServerStatistics.pb.cc \

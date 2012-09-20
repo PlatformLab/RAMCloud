@@ -69,7 +69,6 @@ TEST_F(CoordinatorServiceRecoveryTest, replay_basic) {
     ProtoBuf::ServerUpdate serverUpdate;
     serverUpdate.set_entry_type("ServerUpdate");
     serverUpdate.set_server_id(ServerId(1, 0).getId());
-    serverUpdate.set_min_open_segment_id(10);
     logCabinHelper->appendProtoBuf(serverUpdate);
 
     ProtoBuf::StateServerDown stateServerDown;

@@ -1,0 +1,55 @@
+/* Copyright (c) 2012 Stanford University
+ *
+ * Permission to use, copy, modify, and distribute this software for any
+ * purpose with or without fee is hereby granted, provided that the above
+ * copyright notice and this permission notice appear in all copies.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR(S) DISCLAIM ALL WARRANTIES
+ * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+ * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL AUTHORS BE LIABLE FOR
+ * ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+ * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+ * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+ */
+
+package RAMCloud.ProtoBuf;
+
+/**
+ * Log metadata for a master which is stored on the coordinator for use during
+ * its recovery. This is expected to be small and updated extremely rarely.
+ * Currently, masters use this to invalidate replicas which may have become
+ * inconsistent due to backup crashes. Even in an extremely large cluster this
+ * is expected to happen a few times per hour.
+ *
+ * When a backup crashes that a master was replicating an open segment to the
+ * ReplicaManager increments an "epoch" number for that segment. Replicas for
+ * that segment are tagged with the new epoch number (until enough of them are
+ * created to meet the replication factor). To prevent old replicas that were
+ * created with the old epoch number from being used it stores that epoch
+ * number here. Only the epoch for the most recent segment to experience a
+ * failure while open is stored. That is because, by construction, no earlier
+ * segment should be considered open/the head anyway during recovery (they must
+ * be closed).
+ *
+ * Therefore, any replica found on backups with a segment id less than what is
+ * included in this struct is invalid. Likewise, any replica found with a
+ * matching segment id but a lesser epoch is also invalid. Invalid replicas
+ * must not be used by recovery in any way: that includes for replay AND
+ * log digest.
+ */
+message MasterRecoveryInfo {
+    /**
+     * Minimum segment id which a replica must have to be a valid replica of
+     * the log *IF* the replica is open (subject to the constraint of the
+     * #min_open_segment_epoch below). Closed replicas are always valid.
+     */
+    required uint64 min_open_segment_id = 1;
+
+    /**
+     * Minimum epoch a replica must have *IF* the replica is open *AND* the
+     * segment id is exactly the same as above.
+     */
+    required uint64 min_open_segment_epoch = 2;
+}
+

@@ -43,7 +43,7 @@ static bool mainFilter(string s) { return s == "main"; }
 
 TEST_F(BackupFailureMonitorTest, main) {
     TestLog::Enable _(&mainFilter);
-    monitor.start(NULL);
+    monitor.start();
     serverList.add(ServerId(2, 0), "mock:host=backup1",
                    {WireFormat::BACKUP_SERVICE}, 100);
     serverList.remove(ServerId(2, 0));
@@ -63,13 +63,13 @@ TEST_F(BackupFailureMonitorTest, main) {
 }
 
 TEST_F(BackupFailureMonitorTest, startAndHalt) {
-    monitor.start(NULL); // check start
+    monitor.start(); // check start
     {
         BackupFailureMonitor::Lock lock(monitor.mutex);
         EXPECT_TRUE(monitor.running);
         EXPECT_TRUE(monitor.thread);
     }
-    monitor.start(NULL); // check dup start call
+    monitor.start(); // check dup start call
     {
         BackupFailureMonitor::Lock lock(monitor.mutex);
         EXPECT_TRUE(monitor.running);
@@ -87,7 +87,7 @@ TEST_F(BackupFailureMonitorTest, startAndHalt) {
         EXPECT_FALSE(monitor.running);
         EXPECT_FALSE(monitor.thread);
     }
-    monitor.start(NULL); // check restart after halt
+    monitor.start(); // check restart after halt
     {
         BackupFailureMonitor::Lock lock(monitor.mutex);
         EXPECT_TRUE(monitor.running);

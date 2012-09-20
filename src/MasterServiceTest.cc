@@ -571,8 +571,8 @@ TEST_F(MasterServiceTest, recover_basics) {
     auto result = BackupClient::startReadingData(&context, backup1Id,
                                                  10lu, ServerId(123),
                                                  &tablets);
-    ASSERT_EQ(1lu, result.segmentIdAndLength.size());
-    ASSERT_EQ(87lu, result.segmentIdAndLength.at(0).first);
+    ASSERT_EQ(1lu, result.replicas.size());
+    ASSERT_EQ(87lu, result.replicas.at(0).segmentId);
 
     ProtoBuf::ServerList backups;
     WireFormat::Recover::Replica replicas[] = {

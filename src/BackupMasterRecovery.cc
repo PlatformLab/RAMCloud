@@ -73,7 +73,7 @@ BackupMasterRecovery::BackupMasterRecovery(TaskQueue& taskQueue,
     , segmentIdToReplica()
     , logDigest()
     , logDigestSegmentId(~0lu)
-    , logDigestSegmentLength()
+    , logDigestSegmentEpoch()
     , startCompleted()
     , freeQueued()
     , recoveryTicks()
@@ -172,12 +172,20 @@ BackupMasterRecovery::start(const std::vector<BackupStorage::FrameRef>& frames,
     }
     nextToBuild = replicas.begin();
 
-    // Obtain the LogDigest from the lowest Segment Id of any open replica.
+    // Obtain the LogDigest from the lowest segment id of any open replica
+    // that has the highest epoch number. The epoch part shouldn't matter
+    // since backups don't accept multiple replicas for the same segment, but
+    // better to put this in in case things change in the future.
     foreach (auto& replica, replicas) {
         if (replica.metadata->closed)
             continue;
-        if (replica.metadata->segmentId > logDigestSegmentId)
+        if (logDigestSegmentId < replica.metadata->segmentId)
             continue;
+        if (logDigestSegmentId == replica.metadata->segmentId &&
+            logDigestSegmentEpoch > replica.metadata->segmentEpoch)
+        {
+            continue;
+        }
         // This shouldn't block since the backup keeps all open segments
         // in memory (it even reloads them into memory upon restarts).
         void* replicaData = replica.frame->load();
@@ -194,7 +202,7 @@ BackupMasterRecovery::start(const std::vector<BackupStorage::FrameRef>& frames,
         }
         if (foundDigest) {
             logDigestSegmentId = replica.metadata->segmentId;
-            logDigestSegmentLength = replica.metadata->segmentLength;
+            logDigestSegmentEpoch = replica.metadata->segmentEpoch;
         }
     }
     if (logDigestSegmentId != ~0lu) {
@@ -404,26 +412,29 @@ BackupMasterRecovery::populateStartResponse(Buffer* responseBuffer,
     if (responseBuffer == NULL)
         return;
 
-    response->segmentIdCount = 0;
-    response->primarySegmentCount = 0;
+    response->replicaCount = 0;
+    response->primaryReplicaCount = 0;
     foreach (const auto& replica, replicas) {
         new(responseBuffer, APPEND)
             WireFormat::BackupStartReadingData::Replica
-                {replica.metadata->segmentId, replica.metadata->segmentLength};
-        ++response->segmentIdCount;
+                {replica.metadata->segmentId,
+                 replica.metadata->segmentEpoch,
+                 replica.metadata->closed};
+        ++response->replicaCount;
         if (replica.metadata->primary)
-            ++response->primarySegmentCount;
-        LOG(DEBUG, "Crashed master %s had segment %lu (%s) with len %u",
-            crashedMasterId.toString().c_str(), replica.metadata->segmentId,
+            ++response->primaryReplicaCount;
+        LOG(DEBUG, "Crashed master %s had %s %s replica for segment %lu",
+            crashedMasterId.toString().c_str(),
+            replica.metadata->closed ? "closed" : "open",
             replica.metadata->primary ? "primary" : "secondary",
-            replica.metadata->segmentLength);
+            replica.metadata->segmentId);
     }
 
     LOG(DEBUG, "Sending %u segment ids for this master (%u primary)",
-        response->segmentIdCount, response->primarySegmentCount);
+        response->replicaCount, response->primaryReplicaCount);
 
     response->digestSegmentId = logDigestSegmentId;
-    response->digestSegmentLen = logDigestSegmentLength;
+    response->digestSegmentEpoch = logDigestSegmentEpoch;
     response->digestBytes = logDigest.getTotalLength();
     if (response->digestBytes > 0) {
         void* out = new(responseBuffer, APPEND) char[response->digestBytes];

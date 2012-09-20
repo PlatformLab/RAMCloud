@@ -48,7 +48,7 @@ class BackupStartTask {
                     ServerId backupId,
                     ServerId crashedMasterId,
                     const ProtoBuf::Tablets& partitions,
-                    uint64_t minOpenSegmentId);
+                    const ProtoBuf::MasterRecoveryInfo& recoveryInfo);
     bool isDone() const { return done; }
     bool isReady() { return testingCallback || (rpc && rpc->isReady()); }
     void send();
@@ -61,7 +61,7 @@ class BackupStartTask {
     Recovery* recovery;
     const ServerId crashedMasterId;
     const ProtoBuf::Tablets& partitions;
-    const uint64_t minOpenSegmentId;
+    const ProtoBuf::MasterRecoveryInfo& masterRecoveryInfo;
     Tub<StartReadingDataRpc> rpc;
     bool done;
 
@@ -78,11 +78,11 @@ class BackupStartTask {
 bool verifyLogComplete(Tub<BackupStartTask> tasks[],
                        size_t taskCount,
                        const LogDigest& digest);
-Tub<std::tuple<uint64_t, uint32_t, LogDigest>>
+Tub<std::pair<uint64_t, LogDigest>>
 findLogDigest(Tub<BackupStartTask> tasks[], size_t taskCount);
 vector<WireFormat::Recover::Replica> buildReplicaMap(
     Tub<BackupStartTask> tasks[], size_t taskCount,
-    RecoveryTracker* tracker, uint64_t headId, uint32_t headLength);
+    RecoveryTracker* tracker, uint64_t headId);
 
 struct MasterStartTask;
 struct MasterStartTaskTestingCallback {
@@ -125,7 +125,7 @@ class Recovery : public Task {
              RecoveryTracker* tracker,
              Owner* owner,
              ServerId crashedServerId,
-             uint64_t minOpenSegmentId);
+             const ProtoBuf::MasterRecoveryInfo& recoveryInfo);
     ~Recovery();
 
     virtual void performTask();
@@ -143,11 +143,15 @@ class Recovery : public Task {
 
     /**
      * Used to filter out replicas of segments which may have become
-     * inconsistent. A replica with a segment id less than this is
-     * not eligible to be used for recovery (both for log digest and
-     * object data purposes).
+     * inconsistent. A replica with a segment id less than this or
+     * an equal segment id but a lower epoch is not eligible to be used
+     * for recovery (both for log digest and object data purposes).
+     * This information comes from the coordinator server list at the
+     * start of recovery and is originally provided by masters when
+     * they lose contact with masters to which they are replicating
+     * an open log segment.
      */
-    const uint64_t minOpenSegmentId;
+    const ProtoBuf::MasterRecoveryInfo masterRecoveryInfo;
 
   PRIVATE:
     void partitionTablets();

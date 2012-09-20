@@ -413,72 +413,64 @@ StartReadingDataRpc::Result
 StartReadingDataRpc::wait()
 {
     waitAndCheckErrors();
-    const WireFormat::BackupStartReadingData::Response* respHdr(
-            getResponseHeader<WireFormat::BackupStartReadingData>());
-
     Result result;
 
-    uint32_t segmentIdCount = respHdr->segmentIdCount;
-    uint32_t primarySegmentCount = respHdr->primarySegmentCount;
-    uint32_t digestBytes = respHdr->digestBytes;
-    uint64_t digestSegmentId = respHdr->digestSegmentId;
-    uint32_t digestSegmentLen = respHdr->digestSegmentLen;
-    response->truncateFront(sizeof(*respHdr));
-
-    // segmentIdAndLength
-    typedef WireFormat::BackupStartReadingData::Replica Replica;
-    const Replica* replicaArray = response->getStart<Replica>();
-    for (uint64_t i = 0; i < segmentIdCount; ++i) {
-        const Replica& replica = replicaArray[i];
-        result.segmentIdAndLength.push_back({replica.segmentId,
-                                             replica.segmentLength});
+    uint32_t replicaCount = 0;
+    {
+        const auto* respHdr(
+            getResponseHeader<WireFormat::BackupStartReadingData>());
+        replicaCount = respHdr->replicaCount;
+        result.primaryReplicaCount = respHdr->primaryReplicaCount;
+        result.logDigestBytes = respHdr->digestBytes;
+        result.logDigestSegmentId = respHdr->digestSegmentId;
+        result.logDigestSegmentEpoch = respHdr->digestSegmentEpoch;
+        response->truncateFront(sizeof(*respHdr));
+        // Remove header. Pointer now invalid.
     }
-    response->truncateFront(segmentIdCount * sizeof32(Replica));
 
-    // primarySegmentCount
-    result.primarySegmentCount = primarySegmentCount;
+    // Build #replicas.
+    const Replica* replicaArray = response->getStart<Replica>();
+    for (uint64_t i = 0; i < replicaCount; ++i)
+        result.replicas.push_back(replicaArray[i]);
+    response->truncateFront(replicaCount * sizeof32(Replica));
 
-    // logDigest fields
-    if (digestBytes > 0) {
-        result.logDigestBuffer.reset(new char[digestBytes]);
-        response->copy(0, digestBytes,
-                            result.logDigestBuffer.get());
-        result.logDigestBytes = digestBytes;
-        result.logDigestSegmentId = digestSegmentId;
-        result.logDigestSegmentLen = digestSegmentLen;
+    // Copy out log digest.
+    if (result.logDigestBytes > 0) {
+        result.logDigestBuffer.reset(new char[result.logDigestBytes]);
+        response->copy(0, result.logDigestBytes, result.logDigestBuffer.get());
     }
     return result;
 }
 
 StartReadingDataRpc::Result::Result()
-    : segmentIdAndLength()
-    , primarySegmentCount(0)
+    : replicas()
+    , primaryReplicaCount(0)
     , logDigestBuffer()
     , logDigestBytes(0)
     , logDigestSegmentId(-1)
-    , logDigestSegmentLen(-1)
+    , logDigestSegmentEpoch(-1)
 {
 }
 
 StartReadingDataRpc::Result::Result(Result&& other)
-    : segmentIdAndLength(std::move(other.segmentIdAndLength))
-    , primarySegmentCount(other.primarySegmentCount)
+    : replicas(std::move(other.replicas))
+    , primaryReplicaCount(other.primaryReplicaCount)
     , logDigestBuffer(std::move(other.logDigestBuffer))
     , logDigestBytes(other.logDigestBytes)
     , logDigestSegmentId(other.logDigestSegmentId)
-    , logDigestSegmentLen(other.logDigestSegmentLen)
+    , logDigestSegmentEpoch(other.logDigestSegmentEpoch)
 {
 }
 
 StartReadingDataRpc::Result&
 StartReadingDataRpc::Result::operator=(Result&& other)
 {
-    segmentIdAndLength = std::move(other.segmentIdAndLength);
-    primarySegmentCount = other.primarySegmentCount;
+    replicas = std::move(other.replicas);
+    primaryReplicaCount = other.primaryReplicaCount;
     logDigestBuffer = std::move(other.logDigestBuffer);
     logDigestBytes = other.logDigestBytes;
     logDigestSegmentId = other.logDigestSegmentId;
-    logDigestSegmentLen = other.logDigestSegmentLen;
+    logDigestSegmentEpoch = other.logDigestSegmentEpoch;
     return *this;
 }
 
@@ -496,6 +488,16 @@ StartReadingDataRpc::Result::operator=(Result&& other)
  *      The id of the master to which the data belongs.
  * \param segmentId
  *       Log-unique, 64-bit identifier for the segment being replicated.
+ * \param segmentEpoch
+ *      The epoch of the segment being replicated. Used during recovery by the
+ *      coordinator to filter out replicas which may have become inconsistent.
+ *      When a master loses contact with a backup to which it was replicating
+ *      an open segment the master increments this epoch, ensures that it has a
+ *      sufficient number of replicas tagged with the new epoch number, and
+ *      then tells the coordinator of the new epoch so the coordinator can
+ *      filter out the stale replicas from earlier epochs.
+ *      Backups blindly and durably store this as part of the replica metadata
+ *      on each update.
  * \param segment
  *      Segment whose data is to be replicated.
  * \param offset
@@ -540,6 +542,7 @@ BackupClient::writeSegment(Context* context,
                            ServerId backupId,
                            ServerId masterId,
                            uint64_t segmentId,
+                           uint64_t segmentEpoch,
                            const Segment* segment,
                            uint32_t offset,
                            uint32_t length,
@@ -548,8 +551,9 @@ BackupClient::writeSegment(Context* context,
                            bool close,
                            bool primary)
 {
-    WriteSegmentRpc rpc(context, backupId, masterId, segmentId, segment, offset,
-                        length, certificate, open, close, primary);
+    WriteSegmentRpc rpc(context, backupId, masterId, segmentId, segmentEpoch,
+                        segment, offset, length, certificate,
+                        open, close, primary);
     return rpc.wait();
 }
 
@@ -566,6 +570,16 @@ BackupClient::writeSegment(Context* context,
  *      The id of the master to which the data belongs.
  * \param segmentId
  *      Log-unique, 64-bit identifier for the segment being replicated.
+ * \param segmentEpoch
+ *      The epoch of the segment being replicated. Used during recovery by the
+ *      coordinator to filter out replicas which may have become inconsistent.
+ *      When a master loses contact with a backup to which it was replicating
+ *      an open segment the master increments this epoch, ensures that it has a
+ *      sufficient number of replicas tagged with the new epoch number, and
+ *      then tells the coordinator of the new epoch so the coordinator can
+ *      filter out the stale replicas from earlier epochs.
+ *      Backups blindly and durably store this as part of the replica metadata
+ *      on each update.
  * \param segment
  *      Segment whose data is to be replicated.
  * \param offset
@@ -606,6 +620,7 @@ WriteSegmentRpc::WriteSegmentRpc(Context* context,
                                  ServerId backupId,
                                  ServerId masterId,
                                  uint64_t segmentId,
+                                 uint64_t segmentEpoch,
                                  const Segment* segment,
                                  uint32_t offset,
                                  uint32_t length,
@@ -620,6 +635,7 @@ WriteSegmentRpc::WriteSegmentRpc(Context* context,
             allocHeader<WireFormat::BackupWrite>());
     reqHdr->masterId = masterId.getId();
     reqHdr->segmentId = segmentId;
+    reqHdr->segmentEpoch = segmentEpoch;
     reqHdr->offset = offset;
     reqHdr->length = length;
     reqHdr->certificateIncluded = (certificate != NULL);

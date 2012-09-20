@@ -75,7 +75,7 @@ CoordinatorServiceRecovery::replay(bool testing)
             RAMCLOUD_LOG(DEBUG, "ServiceRecovery: ServerUpdate");
             ProtoBuf::ServerUpdate state;
             service.logCabinHelper->parseProtoBufFromEntry(*it, state);
-            service.serverManager.setMinOpenSegmentIdRecover(&state, entryId);
+            service.serverManager.setMasterRecoveryInfoRecover(&state, entryId);
 
         } else if (!entryType.compare("StateServerDown")) {
 

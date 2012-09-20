@@ -468,12 +468,12 @@ CoordinatorServerManager::serverDownRecover(
 }
 
 /**
- * Do everything needed to execute the SetMinOpenSegmentId operation.
+ * Do everything needed to execute the SetMasterRecoveryInfo operation.
  * Do any processing required before logging the state
  * in LogCabin, log the state in LogCabin, then call #complete().
  */
 void
-CoordinatorServerManager::SetMinOpenSegmentId::execute()
+CoordinatorServerManager::SetMasterRecoveryInfo::execute()
 {
     EntryId oldEntryId =
         manager.service.serverList.getServerUpdateLogId(serverId);
@@ -494,7 +494,7 @@ CoordinatorServerManager::SetMinOpenSegmentId::execute()
         serverUpdate.set_server_id(serverId.getId());
     }
 
-    serverUpdate.set_min_open_segment_id(segmentId);
+    (*serverUpdate.mutable_master_recovery_info()) = recoveryInfo;
 
     EntryId newEntryId =
         manager.service.logCabinHelper->appendProtoBuf(
@@ -504,25 +504,26 @@ CoordinatorServerManager::SetMinOpenSegmentId::execute()
 }
 
 /**
- * Complete the SetMinOpenSegmentId operation after its state has been
+ * Complete the SetMasterRecoveryInfo operation after its state has been
  * logged in LogCabin.
  * This is called internally by #execute() in case of normal operation
- * (which is in turn called by #setMinOpenSegmentId()), and
- * directly for coordinator recovery (by #setMinOpenSegmentIdRecover()).
+ * (which is in turn called by #setMasterRecoveryInfo()), and
+ * directly for coordinator recovery (by #setMasterRecoveryInfoRecover()).
  *
  * \param entryId
  *      The entry id of the LogCabin entry corresponding to the state
  *      of the operation to be completed.
  */
 void
-CoordinatorServerManager::SetMinOpenSegmentId::complete(EntryId entryId)
+CoordinatorServerManager::SetMasterRecoveryInfo::complete(EntryId entryId)
 {
     try {
         // Update local state.
         manager.service.serverList.addServerUpdateLogId(serverId, entryId);
-        manager.service.serverList.setMinOpenSegmentId(serverId, segmentId);
+        manager.service.serverList.setMasterRecoveryInfo(serverId,
+                                                         recoveryInfo);
     } catch (const ServerListException& e) {
-        LOG(WARNING, "setMinOpenSegmentId server doesn't exist: %s",
+        LOG(WARNING, "setMasterRecoveryInfo server doesn't exist: %s",
             serverId.toString().c_str());
         manager.service.logCabinLog->invalidate(vector<EntryId>(entryId));
         throw ServerListException(e);
@@ -530,40 +531,45 @@ CoordinatorServerManager::SetMinOpenSegmentId::complete(EntryId entryId)
 }
 
 /**
- * Set the minOpenSegmentId of the specified server to the specified segmentId.
+ * Reset extra metadata for \a serverId that will be needed to safely recover
+ * the master's log.
  *
  * \param serverId
- *      ServerId of the server whose minOpenSegmentId will be set.
- * \param segmentId
- *      The minOpenSegmentId to be set.
+ *      ServerId of the server whose master recovery info will be set.
+ * \param recoveryInfo
+ *      Information the coordinator will need to safely recover the master
+ *      at \a serverId. The information is opaque to the coordinator other
+ *      than its master recovery routines, but, basically, this is used to
+ *      prevent inconsistent open replicas from being used during recovery.
  */
 void
-CoordinatorServerManager::setMinOpenSegmentId(
-    ServerId serverId, uint64_t segmentId)
+CoordinatorServerManager::setMasterRecoveryInfo(
+    ServerId serverId, const ProtoBuf::MasterRecoveryInfo& recoveryInfo)
 {
     Lock _(mutex);
-    SetMinOpenSegmentId(*this, serverId, segmentId).execute();
+    SetMasterRecoveryInfo(*this, serverId, recoveryInfo).execute();
 }
 
 /**
- * Set the minOpenSegmentId of the server specified in the serverInfo Protobuf
- * to the segmentId specified in the Protobuf.
+ * Reset the extra metadata for master recovery of the server specified in
+ * the serverInfo Protobuf.
  *
  * \param serverUpdate
  *      The ProtoBuf that has the update about the server whose
- *      minOpenSegmentId is to be set.
+ *      masterRecoveryInfo is to be set.
  * \param entryId
  *      The entry id of the LogCabin entry corresponding to serverUpdate.
  */
 void
-CoordinatorServerManager::setMinOpenSegmentIdRecover(
+CoordinatorServerManager::setMasterRecoveryInfoRecover(
     ProtoBuf::ServerUpdate* serverUpdate, EntryId entryId)
 {
     Lock _(mutex);
-    LOG(DEBUG, "CoordinatorServerManager::setMinOpenSegmentIdRecover()");
-    SetMinOpenSegmentId(*this,
-                        ServerId(serverUpdate->server_id()),
-                        serverUpdate->min_open_segment_id()).complete(entryId);
+    LOG(DEBUG, "CoordinatorServerManager::setMasterRecoveryInfoRecover()");
+    SetMasterRecoveryInfo(*this,
+                          ServerId(serverUpdate->server_id()),
+                          serverUpdate->master_recovery_info()).
+                                                        complete(entryId);
 }
 
 /**
