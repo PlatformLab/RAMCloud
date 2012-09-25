@@ -362,9 +362,9 @@ ServerList::add(ServerId id, const string& locator,
             // Fall through to do addition.
         } else { // Generations are equal
             if (entry->status == ServerStatus::UP) {
-                // Nothing to do; already in the right status.
-                LOG(WARNING, "Duplicate add of ServerId %s!",
-                    id.toString().c_str());
+                // TODO(cidon): This used to throw a warning, but now
+                // it's possible for multiple UPs to be received. RAM-453 will
+                // fix this issue.
             } else {
                 // Something's not right; shouldn't see an add for a crashed
                 // server.

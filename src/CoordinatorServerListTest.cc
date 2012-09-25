@@ -838,12 +838,13 @@ TEST_F(CoordinatorServerListTest, updateLoop) {
     sl.sync();
     EXPECT_EQ("updateEntryVersion: server 1.1 updated (0->2) | "
         "updateEntryVersion: server 4.0 updated (1->2)", TestLog::get());
+
     EXPECT_EQ("sendRequest: 0x40023 11 529 0 /0 /x18/0 | "
-        "sendRequest: 0x40023 146 0x100d2b0a 0x11000000 1 1 0x6f6d111a "
-        "ck:host=server5-/0 0x35000000 0 0x100d2b0a 0x11000000 5 0 0x6f6d111a "
-        "ck:host=server6-/0 0x35000000 0 0x100d2b0a 0x11000000 5 0 0x6f6d111a "
-        "ck:host=server6-/0 0x35000000 1 529 0 /0 /x18/x01",
-        transport.outputLog);
+            "sendRequest: 0x40023 173 0x100d340a 0x11000000 1 1 0x6f6d111a "
+            "ck:host=server5-/0 0x35000000 0 57 0 0xd340a00 16 1297 0 0x6d111a00 "
+            "ock:host=server6-/0 0x35000000 0 57 0 0xd340a00 16 1297 0 0x6d111a00 "
+            "ock:host=server6-/0 0x35000000 1 57 0 0x21100 0 0x1180000",
+            transport.outputLog);
 }
 
 TEST_F(CoordinatorServerListTest, updateLoop_multiAllAtOnce) {

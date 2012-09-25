@@ -56,24 +56,6 @@ CoordinatorServerManager::assignReplicationGroup(
             return false;
         }
         service.serverList.setReplicationId(backupId, replicationId);
-        // Try to send an assignReplicationId Rpc to a backup. If the RPC
-        // fails because the server is no longer in the cluster, the function
-        // aborts. Even if we didn't abort in case of a failed RPC, masters
-        // would still not use the failed replication group, since it would
-        // not accept their RPCs.
-        try {
-            // This code is not currently safe; see RAM-429.  Fortunately,
-            // replication groups aren't actually used right now, so we can
-            // just do nothing.
-#if 0
-            BackupClient::assignGroup(service.context, backupId,
-                replicationId,
-                static_cast<uint32_t>(replicationGroupIds.size()),
-                &replicationGroupIds[0]);
-#endif
-        } catch (const ServerNotUpException& e) {
-            return false;
-        }
     }
     return true;
 }

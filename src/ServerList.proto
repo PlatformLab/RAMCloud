@@ -39,6 +39,9 @@ message ServerList {
     /// The current status of this server in terms of cluster membership.
     /// See above for ServerStatus in ServerList.h for legal enum values.
     required fixed32 status = 6;
+
+    /// The replicationId of the server.
+    required fixed64 replication_id = 7;
   }
 
   /// List of servers.

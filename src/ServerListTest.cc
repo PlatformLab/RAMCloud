@@ -331,9 +331,6 @@ TEST_F(ServerListTest, add) {
     EXPECT_EQ(ServerChangeEvent::SERVER_ADDED, changes.front().event);
     changes.pop();
 
-    // Duplicate ADD
-    sl.add(ServerId(57, 1), "mock:", {}, 100);
-    EXPECT_EQ("add: Duplicate add of ServerId 57.1!", TestLog::get());
     TestLog::reset();
     EXPECT_EQ(0U, changes.size());
 
@@ -368,7 +365,6 @@ TEST_F(ServerListTest, addIdsMatchCurrentlyUp) {
     ASSERT_EQ(1u, changes.size());
     changes.pop();
     sl.add({1, 0}, "mock:", {}, 100);
-    EXPECT_EQ("add: Duplicate add of ServerId 1.0!", TestLog::get());
     EXPECT_EQ(0U, changes.size());
 }
 

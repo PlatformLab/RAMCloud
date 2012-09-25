@@ -140,8 +140,14 @@ BackupSelector::applyTrackerChanges()
     ServerDetails server;
     ServerChangeEvent event;
     while (tracker.getChange(server, event)) {
+        // If we receive SERVER_ADDED and the server already exists on the
+        // tracker, it means the coordinator is assigning it a new replication
+        // group. In this case we don't need to create a new instance of
+        // BackupStats.
         if (event == SERVER_ADDED) {
-            tracker[server.serverId] = new BackupStats;
+            if (!tracker[server.serverId]) {
+                tracker[server.serverId] = new BackupStats;
+            }
             tracker[server.serverId]->expectedReadMBytesPerSec =
                 server.expectedReadMBytesPerSec;
         } else if (event == SERVER_REMOVED) {

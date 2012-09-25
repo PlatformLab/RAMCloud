@@ -243,9 +243,12 @@ void
 CoordinatorServerList::setReplicationId(ServerId serverId,
                                         uint64_t replicationId)
 {
-    Lock _(mutex);
+    Lock lock(mutex);
     Entry& entry = const_cast<Entry&>(getReferenceFromServerId(serverId));
     entry.replicationId = replicationId;
+    ProtoBuf::ServerList_Entry& protoBufEntry(*update.add_server());
+    entry.serialize(protoBufEntry);
+    commitUpdate(lock);
 }
 
 /**
@@ -1139,7 +1142,6 @@ CoordinatorServerList::updateEntryVersion(ServerId serverId, uint64_t version)
 CoordinatorServerList::Entry::Entry()
     : ServerDetails()
     , masterRecoveryInfo()
-    , replicationId()
     , serverListVersion(0)
     , isBeingUpdated(0)
     , serverInfoLogId()
@@ -1171,7 +1173,6 @@ CoordinatorServerList::Entry::Entry(ServerId serverId,
                     0,
                     ServerStatus::UP)
     , masterRecoveryInfo()
-    , replicationId(0)
     , serverListVersion(0)
     , isBeingUpdated(0)
     , serverInfoLogId(LogCabin::Client::EntryId())
@@ -1193,5 +1194,6 @@ CoordinatorServerList::Entry::serialize(ProtoBuf::ServerList_Entry& dest) const
         dest.set_expected_read_mbytes_per_sec(expectedReadMBytesPerSec);
     else
         dest.set_expected_read_mbytes_per_sec(0); // Tests expect the field.
+    dest.set_replication_id(replicationId);
 }
 } // namespace RAMCloud

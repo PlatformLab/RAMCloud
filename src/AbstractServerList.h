@@ -60,6 +60,7 @@ class ServerDetails {
         , services()
         , expectedReadMBytesPerSec()
         , status(ServerStatus::DOWN)
+        , replicationId(0)
     {}
 
     /**
@@ -73,6 +74,7 @@ class ServerDetails {
         , services()
         , expectedReadMBytesPerSec()
         , status(status)
+        , replicationId(0)
     {}
 
     /**
@@ -89,6 +91,7 @@ class ServerDetails {
         , services(services)
         , expectedReadMBytesPerSec(expectedReadMBytesPerSec)
         , status(status)
+        , replicationId(0)
     {}
 
     /*
@@ -104,6 +107,7 @@ class ServerDetails {
         , services(other.services)
         , expectedReadMBytesPerSec(other.expectedReadMBytesPerSec)
         , status(other.status)
+        , replicationId(other.replicationId)
     {
     }
 
@@ -115,6 +119,7 @@ class ServerDetails {
         services = other.services;
         expectedReadMBytesPerSec = other.expectedReadMBytesPerSec;
         status = other.status;
+        replicationId = other.replicationId;
         return *this;
     }
 
@@ -125,6 +130,7 @@ class ServerDetails {
         , services(other.services)
         , expectedReadMBytesPerSec(other.expectedReadMBytesPerSec)
         , status(other.status)
+        , replicationId(other.replicationId)
     {
     }
 
@@ -136,6 +142,7 @@ class ServerDetails {
         services = other.services;
         expectedReadMBytesPerSec = other.expectedReadMBytesPerSec;
         status = other.status;
+        replicationId = other.replicationId;
         return *this;
     }
 
@@ -167,6 +174,12 @@ class ServerDetails {
      * completely removed from the cluster.
      */
     ServerStatus status;
+
+    /**
+     * Each segment's replicas are replicated on a set of backups, called
+     * a replication group. Each group has a unique Id. The default Id is 0.
+     */
+    uint64_t replicationId;
 };
 
 /**
