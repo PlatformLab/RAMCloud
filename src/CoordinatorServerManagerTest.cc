@@ -124,12 +124,6 @@ TEST_F(CoordinatorServerManagerTest, assignReplicationGroup) {
     EXPECT_EQ(10U, serverList->at(serverIds[1]).replicationId);
     EXPECT_EQ(10U, serverList->at(serverIds[2]).replicationId);
 
-    // Crash one of the backups. assignReplicationGroup should fail.
-    // This test disabled because of RAM-429.
-#if 0
-    serverManager->hintServerDown(serverIds[2]);
-    EXPECT_FALSE(serverManager->assignReplicationGroup(1000U, serverIds));
-#endif
     serverManager->forceServerDownForTesting = false;
 }
 
@@ -172,7 +166,8 @@ TEST_F(CoordinatorServerManagerTest, enlistServer) {
     EXPECT_TRUE(TestUtil::matchesPosixRegex(
                 "server { services: 25 server_id: 1 "
                 "service_locator: \"mock:host=master\" "
-                "expected_read_mbytes_per_sec: [0-9]\\+ status: 0 } "
+                "expected_read_mbytes_per_sec: [0-9]\\+ status: 0 "
+                "replication_id: 0 } "
                 "version_number: 2",
                 masterList.ShortDebugString()));
 
@@ -180,7 +175,8 @@ TEST_F(CoordinatorServerManagerTest, enlistServer) {
     serverList->serialize(backupList, {WireFormat::BACKUP_SERVICE});
     EXPECT_EQ("server { services: 2 server_id: 2 "
               "service_locator: \"mock:host=backup\" "
-              "expected_read_mbytes_per_sec: 0 status: 0 } "
+              "expected_read_mbytes_per_sec: 0 status: 0 "
+              "replication_id: 0 } "
               "version_number: 2 type: FULL_LIST",
               backupList.ShortDebugString());
 }
@@ -304,7 +300,8 @@ TEST_F(CoordinatorServerManagerTest, enlistServerRecover) {
     EXPECT_TRUE(TestUtil::matchesPosixRegex(
                 "server { services: 25 server_id: 1 "
                 "service_locator: \"mock:host=master\" "
-                "expected_read_mbytes_per_sec: [0-9]\\+ status: 0 } "
+                "expected_read_mbytes_per_sec: [0-9]\\+ status: 0 "
+                "replication_id: 0 } "
                 "version_number: 2",
                 masterList.ShortDebugString()));
 
@@ -312,7 +309,8 @@ TEST_F(CoordinatorServerManagerTest, enlistServerRecover) {
     serverList->serialize(backupList, {WireFormat::BACKUP_SERVICE});
     EXPECT_EQ("server { services: 2 server_id: 2 "
               "service_locator: \"mock:host=backup\" "
-              "expected_read_mbytes_per_sec: 0 status: 0 } "
+              "expected_read_mbytes_per_sec: 0 status: 0 "
+              "replication_id: 0 } "
               "version_number: 2 type: FULL_LIST",
               backupList.ShortDebugString());
 }
@@ -341,7 +339,8 @@ TEST_F(CoordinatorServerManagerTest, enlistedServerRecover) {
     EXPECT_TRUE(TestUtil::matchesPosixRegex(
                 "server { services: 25 server_id: 1 "
                 "service_locator: \"mock:host=master\" "
-                "expected_read_mbytes_per_sec: [0-9]\\+ status: 0 } "
+                "expected_read_mbytes_per_sec: [0-9]\\+ status: 0 "
+                "replication_id: 0 } "
                 "version_number: 2",
                 masterList.ShortDebugString()));
 
@@ -349,7 +348,8 @@ TEST_F(CoordinatorServerManagerTest, enlistedServerRecover) {
     serverList->serialize(backupList, {WireFormat::BACKUP_SERVICE});
     EXPECT_EQ("server { services: 2 server_id: 2 "
               "service_locator: \"mock:host=backup\" "
-              "expected_read_mbytes_per_sec: 0 status: 0 } "
+              "expected_read_mbytes_per_sec: 0 status: 0 "
+              "replication_id: 0 } "
               "version_number: 2 type: FULL_LIST",
               backupList.ShortDebugString());
 }

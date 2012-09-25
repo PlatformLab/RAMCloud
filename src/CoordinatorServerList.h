@@ -94,12 +94,6 @@ class CoordinatorServerList : public AbstractServerList{
         ProtoBuf::MasterRecoveryInfo masterRecoveryInfo;
 
         /**
-         * Each segment's replicas are replicated on a set of backups, called
-         * a replication group. Each group has a unique Id.
-         */
-        uint64_t replicationId;
-
-        /**
          * The last version of the ServerList that was successfully received
          * by this server. A value of 0 indicates that a server list was
          * never sent.
