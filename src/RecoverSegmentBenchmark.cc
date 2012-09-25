@@ -43,7 +43,7 @@ class RecoverSegmentBenchmark {
         config.services = {WireFormat::MASTER_SERVICE};
         config.master.numReplicas = 0;
         service = new MasterService(&context, config);
-        service->serverId = ServerId(1, 0);
+        service->init({1, 0});
     }
 
     ~RecoverSegmentBenchmark()
