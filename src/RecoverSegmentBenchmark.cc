@@ -15,6 +15,7 @@
 
 #include "ClientException.h"
 #include "Cycles.h"
+#include "Logger.h"
 #include "MasterService.h"
 #include "Memory.h"
 #include "SegmentIterator.h"
@@ -37,6 +38,7 @@ class RecoverSegmentBenchmark {
         , serverList(&context)
         , service(NULL)
     {
+        Logger::get().setLogLevels(SILENT_LOG_LEVEL);
         config.localLocator = "bogus";
         config.coordinatorLocator = "bogus";
         config.setLogAndHashTableSize(logSize, hashTableSize);
@@ -66,7 +68,8 @@ class RecoverSegmentBenchmark {
             while (1) {
                 Key key(0, &nextKeyVal, sizeof(nextKeyVal));
 
-                Object object(key, NULL, 0, 0, 0);
+                char objectData[dataBytes];
+                Object object(key, objectData, dataBytes, 0, 0);
                 Buffer buffer;
                 object.serializeToBuffer(buffer);
                 if (!segments[i]->append(LOG_ENTRY_TYPE_OBJ, buffer))
