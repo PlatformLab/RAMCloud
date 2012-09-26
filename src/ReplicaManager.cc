@@ -41,7 +41,7 @@ ReplicaManager::ReplicaManager(Context* context,
                                uint32_t numReplicas)
     : context(context)
     , numReplicas(numReplicas)
-    , backupSelector(context)
+    , backupSelector(context, masterId)
     , dataMutex()
     , masterId(masterId)
     , replicatedSegmentPool(ReplicatedSegment::sizeOf(numReplicas))

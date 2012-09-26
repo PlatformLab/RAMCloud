@@ -46,8 +46,9 @@ BackupStats::getExpectedReadMs() {
  *      Overall information about this RAMCloud server; used to register
  *      #tracker with this server's ServerList.
  */
-BackupSelector::BackupSelector(Context* context)
+BackupSelector::BackupSelector(Context* context, const ServerId serverId)
     : tracker(context)
+    , serverId(serverId)
 {
 }
 
@@ -187,7 +188,11 @@ BackupSelector::conflictWithAny(const ServerId backupId,
         if (conflict(backupId, backupIds[i]))
             return true;
     }
-    return false;
+    if (!backupId.isValid()) {
+        return false;
+    }
+    // Finally, check if backup conflicts with the server's own Id.
+    return conflict(backupId, serverId);
 }
 
 } // namespace RAMCloud

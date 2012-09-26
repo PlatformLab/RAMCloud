@@ -643,7 +643,6 @@ TEST_F(ReplicatedSegmentTest, syncRecoveringFromLostOpenReplicas) {
     // Fragile test log check, but left here because the output is pretty
     // reassuring to a human reader that the test does what one expects.
     EXPECT_EQ("sync: syncing | "
-              "selectSecondary: conflicting backupId: 999.0 | "
               "selectSecondary: conflicting backupId: 1.0 | "
               "performWrite: Starting replication of segment 888 replica "
                   "slot 0 on backup 0.0 | "
@@ -1006,11 +1005,9 @@ TEST_F(ReplicatedSegmentTest, performWriteOpen) {
     {
         TestLog::Enable _(filter);
         taskQueue.performTask();
-        EXPECT_EQ("selectSecondary: conflicting backupId: 999.0 | "
-                  "performWrite: Starting replication of segment 888 replica "
+        EXPECT_EQ("performWrite: Starting replication of segment 888 replica "
                       "slot 0 on backup 0.0 | "
                   "performWrite: Sending open to backup 0.0 | "
-                  "selectSecondary: conflicting backupId: 999.0 | "
                   "selectSecondary: conflicting backupId: 0.0 | "
                   "performWrite: Starting replication of segment 888 replica "
                       "slot 1 on backup 1.0 | "
