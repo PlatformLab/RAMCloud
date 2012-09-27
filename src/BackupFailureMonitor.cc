@@ -95,7 +95,7 @@ try {
             if (event != SERVER_CRASHED)
                 continue;
             LOG(DEBUG,
-                "Notifying log of failure of serverId %s",
+                "Notifying replica manager of failure of serverId %s",
                 id.toString().c_str());
             if (replicaManager)
                 replicaManager->handleBackupFailure(id);

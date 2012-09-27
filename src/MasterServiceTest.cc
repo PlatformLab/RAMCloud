@@ -559,8 +559,8 @@ TEST_F(MasterServiceTest, getHeadOfLog) {
 TEST_F(MasterServiceTest, recover_basics) {
     ServerId serverId(123, 0);
     foreach (auto* server, cluster.servers) {
-        serverList.add(server->serverId, server->config.localLocator,
-                       server->config.services, 100);
+        serverList.testingAdd({server->serverId, server->config.localLocator,
+                              server->config.services, 100, ServerStatus::UP});
     }
 
     ReplicaManager mgr(&context, serverId, 1);
@@ -652,8 +652,8 @@ TEST_F(MasterServiceTest, removeIfFromUnknownTablet) {
 TEST_F(MasterServiceTest, recover) {
     ServerId serverId(123, 0);
     foreach (auto* server, cluster.servers) {
-        serverList.add(server->serverId, server->config.localLocator,
-                       server->config.services, 100);
+        serverList.testingAdd({server->serverId, server->config.localLocator,
+                              server->config.services, 100, ServerStatus::UP});
     }
 
     ReplicaManager mgr(&context, serverId, 1);
@@ -2153,10 +2153,10 @@ TEST_F(MasterRecoverTest, recover) {
     Context context2;
     ServerList serverList2(&context2);
     context2.transportManager->registerMock(&cluster.transport);
-    serverList2.add(backup1Id, "mock:host=backup1",
-                   {WireFormat::BACKUP_SERVICE,
-                    WireFormat::MEMBERSHIP_SERVICE},
-                   100);
+    serverList2.testingAdd({backup1Id, "mock:host=backup1",
+                            {WireFormat::BACKUP_SERVICE,
+                             WireFormat::MEMBERSHIP_SERVICE},
+                            100, ServerStatus::UP});
     ServerId serverId(99, 0);
     ReplicaManager mgr(&context2, serverId, 1);
     MasterServiceTest::writeRecoverableSegment(&context, mgr, serverId, 99, 87);

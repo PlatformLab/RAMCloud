@@ -173,10 +173,12 @@ struct ReplicatedSegmentTest : public ::testing::Test {
     {
         Logger::get().setLogLevels(SILENT_LOG_LEVEL);
 
-        serverList.add(backupId1, "mock:host=backup1",
-                       {WireFormat::BACKUP_SERVICE}, 100);
-        serverList.add(backupId2, "mock:host=backup2",
-                       {WireFormat::BACKUP_SERVICE}, 100);
+        serverList.testingAdd({backupId1, "mock:host=backup1",
+                               {WireFormat::BACKUP_SERVICE}, 100,
+                               ServerStatus::UP});
+        serverList.testingAdd({backupId2, "mock:host=backup2",
+                               {WireFormat::BACKUP_SERVICE}, 100,
+                               ServerStatus::UP});
 
         const char* msg = "abcdefghijklmnopqrstuvwxyz";
         size_t msgLen = strlen(msg);

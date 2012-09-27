@@ -55,18 +55,13 @@ class ServerList : public AbstractServerList {
     ServerDetails* iget(uint32_t index);
     size_t isize() const;
 
-  PRIVATE:
-    bool applyUpdate(const ProtoBuf::ServerList& update);
-    void applyFullList(const ProtoBuf::ServerList& list);
-
-    bool add(ServerId id, const string& locator,
-             ServiceMask services, uint32_t expectedReadMBytesPerSec);
-    bool crashed(ServerId id, const string& locator,
-                 ServiceMask services, uint32_t expectedReadMBytesPerSec);
-    bool remove(ServerId id);
-
     /// Slots in the server list.
     std::vector<Tub<ServerDetails>> serverList;
+
+  PRIVATE:
+  void testingAdd(const ServerDetails server);
+  void testingCrashed(ServerId serverId);
+  void testingRemove(ServerId serverId);
 
     DISALLOW_COPY_AND_ASSIGN(ServerList);
 };

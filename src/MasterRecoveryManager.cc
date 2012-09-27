@@ -407,6 +407,7 @@ class ApplyTrackerChangesTask : public Task {
                 // Like it or not, recovery is done on this recovery master
                 // but unsuccessfully.
                 recovery->recoveryMasterFinished(server.serverId, false);
+                mgr.tracker[server.serverId] = NULL;
             }
         }
         delete this;

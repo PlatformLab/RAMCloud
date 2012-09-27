@@ -50,7 +50,7 @@ class CoordinatorServerManagerTest : public ::testing::Test {
         , logCabinHelper()
         , logCabinLog()
     {
-        Logger::get().setLogLevels(RAMCloud::SILENT_LOG_LEVEL);
+        Logger::get().setLogLevels(SILENT_LOG_LEVEL);
 
         serverManager = &cluster.coordinator.get()->serverManager;
 
@@ -190,6 +190,11 @@ bool startMasterRecoveryFilter(string s) {
 TEST_F(CoordinatorServerManagerTest, enlistServer_ReplaceAMaster) {
     TaskQueue mgr;
     serverManager->service.recoveryManager.doNotStartRecoveries = true;
+    // I can't figure out how the auto-register server list crap works.
+    // It's horrible and dumb, so here's my fix.
+    context.serverList = &serverManager->service.serverList;
+    ServerTracker<void> tracker(&context);
+    ASSERT_EQ(serverList, tracker.parent);
 
     ramcloud->createTable("foo");
     TestLog::Enable _(startMasterRecoveryFilter);
@@ -203,6 +208,20 @@ TEST_F(CoordinatorServerManagerTest, enlistServer_ReplaceAMaster) {
     EXPECT_TRUE(serverList->contains(masterServerId));
     EXPECT_EQ(ServerStatus::CRASHED,
               serverList->at(masterServerId).status);
+
+    ServerDetails details;
+    ServerChangeEvent event;
+    ASSERT_TRUE(tracker.getChange(details, event));
+    EXPECT_EQ(ServerId(1, 0), details.serverId);
+    EXPECT_EQ(SERVER_ADDED, event);
+
+    ASSERT_TRUE(tracker.getChange(details, event));
+    EXPECT_EQ(ServerId(1, 0), details.serverId);
+    EXPECT_EQ(SERVER_CRASHED, event);
+
+    ASSERT_TRUE(tracker.getChange(details, event));
+    EXPECT_EQ(ServerId(2, 0), details.serverId);
+    EXPECT_EQ(SERVER_ADDED, event);
 }
 
 TEST_F(CoordinatorServerManagerTest, enlistServer_ReplaceANonMaster) {

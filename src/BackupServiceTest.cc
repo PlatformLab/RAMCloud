@@ -23,12 +23,15 @@
 #include "SegmentIterator.h"
 #include "Server.h"
 #include "Key.h"
+#include "ServerListBuilder.h"
 #include "SingleFileStorage.h"
 #include "ShortMacros.h"
 #include "StringUtil.h"
 #include "TabletsBuilder.h"
 
 namespace RAMCloud {
+
+using namespace WireFormat; // NOLINT
 
 class BackupServiceTest : public ::testing::Test {
   public:
@@ -52,13 +55,13 @@ class BackupServiceTest : public ::testing::Test {
         Logger::get().setLogLevels(SILENT_LOG_LEVEL);
 
         cluster.construct(&context);
-        config.services = {WireFormat::BACKUP_SERVICE};
+        config.services = {BACKUP_SERVICE};
         config.backup.numSegmentFrames = 5;
         server = cluster->addServer(config);
         backup = server->backup.get();
 
-        serverList.add(backupId, server->config.localLocator,
-                                {WireFormat::BACKUP_SERVICE}, 100);
+        serverList.testingAdd({backupId, server->config.localLocator,
+                              {BACKUP_SERVICE}, 100, ServerStatus::UP});
     }
 
     ~BackupServiceTest()
@@ -296,7 +299,7 @@ TEST_F(BackupServiceTest, restartFromStorage)
     config.segmentSize = 4096;
     config.backup.numSegmentFrames = 6;
     config.backup.file = ""; // use auto-generated testing name.
-    config.services = {WireFormat::BACKUP_SERVICE};
+    config.services = {BACKUP_SERVICE};
     config.clusterName = "testing";
 
     server = cluster->addServer(config);
@@ -625,16 +628,16 @@ TEST_F(BackupServiceTest, GarbageCollectDownServerTask) {
 
 namespace {
 class GcMockMasterService : public Service {
-    void dispatch(WireFormat::Opcode opcode, Rpc& rpc) {
-        const WireFormat::RequestCommon* hdr =
-            rpc.requestPayload.getStart<WireFormat::RequestCommon>();
+    void dispatch(Opcode opcode, Rpc& rpc) {
+        const RequestCommon* hdr =
+            rpc.requestPayload.getStart<RequestCommon>();
         switch (hdr->service) {
-        case WireFormat::MEMBERSHIP_SERVICE:
+        case MEMBERSHIP_SERVICE:
             switch (opcode) {
-            case WireFormat::Opcode::GET_SERVER_ID:
+            case Opcode::GET_SERVER_ID:
             {
                 auto* resp = new(&rpc.replyPayload, APPEND)
-                    WireFormat::GetServerId::Response();
+                    GetServerId::Response();
                 resp->serverId = ServerId(13, 0).getId();
                 resp->common.status = STATUS_OK;
                 break;
@@ -644,16 +647,16 @@ class GcMockMasterService : public Service {
                 break;
             }
             break;
-        case WireFormat::MASTER_SERVICE:
+        case MASTER_SERVICE:
             switch (hdr->opcode) {
-            case WireFormat::Opcode::IS_REPLICA_NEEDED:
+            case Opcode::IS_REPLICA_NEEDED:
             {
-                const WireFormat::IsReplicaNeeded::Request* req =
+                const IsReplicaNeeded::Request* req =
                     rpc.requestPayload.getStart<
-                    WireFormat::IsReplicaNeeded::Request>();
+                    IsReplicaNeeded::Request>();
                 auto* resp =
                     new(&rpc.replyPayload, APPEND)
-                        WireFormat::IsReplicaNeeded::Response();
+                        IsReplicaNeeded::Response();
                 resp->needed = req->segmentId % 2;
                 resp->common.status = STATUS_OK;
                 break;
@@ -673,14 +676,12 @@ class GcMockMasterService : public Service {
 
 TEST_F(BackupServiceTest, GarbageCollectReplicaFoundOnStorageTask) {
     GcMockMasterService master;
-    cluster->transport.addService(master, "mock:host=m",
-                                  WireFormat::MEMBERSHIP_SERVICE);
-    cluster->transport.addService(master, "mock:host=m",
-                                  WireFormat::MASTER_SERVICE);
+    cluster->transport.addService(master, "mock:host=m", MEMBERSHIP_SERVICE);
+    cluster->transport.addService(master, "mock:host=m", MASTER_SERVICE);
     ServerList* backupServerList = static_cast<ServerList*>(
         backup->context->serverList);
-    backupServerList->add({13, 0}, "mock:host=m", {}, 100);
-    serverList.add({13, 0}, "mock:host=m", {}, 100);
+    backupServerList->testingAdd({{13, 0}, "mock:host=m", {}, 100,
+                                  ServerStatus::UP});
 
     openSegment({13, 0}, 10);
     closeSegment({13, 0}, 10);
@@ -724,7 +725,7 @@ TEST_F(BackupServiceTest, GarbageCollectReplicaFoundOnStorageTask) {
         "will probe replica status again later"));
     EXPECT_EQ(1lu, backup->taskQueue.outstandingTasks());
 
-    backupServerList->crashed({13, 0}, "mock:host=m", {}, 100);
+    backupServerList->testingCrashed({13, 0});
 
     TestLog::reset();
     EXPECT_FALSE(task->rpc);
@@ -735,7 +736,7 @@ TEST_F(BackupServiceTest, GarbageCollectReplicaFoundOnStorageTask) {
         "before freeing <13.0,11>"));
     EXPECT_EQ(1lu, backup->taskQueue.outstandingTasks());
 
-    backupServerList->remove({13, 0});
+    backupServerList->testingRemove({13, 0});
 
     TestLog::reset();
     EXPECT_FALSE(task->rpc);

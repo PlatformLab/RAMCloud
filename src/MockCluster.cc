@@ -151,7 +151,8 @@ MockCluster::addServer(ServerConfig config) {
     server->startForTesting(transport);
 
     ServerList* sl = static_cast<ServerList*>(linkedContext->serverList);
-    sl->add(server->serverId, config.localLocator, config.services, 100);
+    sl->testingAdd({server->serverId, config.localLocator,
+                    config.services, 100, ServerStatus::UP});
     syncCoordinatorServerList();
     return server;
 }

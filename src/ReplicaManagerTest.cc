@@ -63,10 +63,11 @@ struct ReplicaManagerTest : public ::testing::Test {
 
     ServerId addToServerList(Server* server)
     {
-        serverList.add(server->serverId,
-                       server->config.localLocator,
-                       server->config.services,
-                       server->config.backup.mockSpeed);
+        serverList.testingAdd({server->serverId,
+                               server->config.localLocator,
+                               server->config.services,
+                               server->config.backup.mockSpeed,
+                               ServerStatus::UP});
         return server->serverId;
     }
 };
@@ -83,15 +84,15 @@ TEST_F(ReplicaManagerTest, isReplicaNeeded) {
 
     // Is not needed if we know about the backup (and hence the crashes of any
     // of its predecessors and we have no record of this segment.
-    serverList.add({2, 0}, "mock:host=backup1",
-                   {WireFormat::BACKUP_SERVICE}, 100);
+    serverList.testingAdd({{2, 0}, "mock:host=backup1",
+                           {WireFormat::BACKUP_SERVICE}, 100,
+                           ServerStatus::UP});
     while (mgr->failureMonitor.tracker.getChange(server, event));
     EXPECT_FALSE(mgr->isReplicaNeeded({2, 0}, 99));
 
     // Is needed if we know the calling backup has crashed; the successor
     // backup will take care of garbage collection.
-    serverList.crashed({2, 0}, "mock:host=backup1",
-                                {WireFormat::BACKUP_SERVICE}, 100);
+    serverList.testingCrashed({2, 0});
     while (mgr->failureMonitor.tracker.getChange(server, event));
     EXPECT_TRUE(mgr->isReplicaNeeded({2, 0}, 99));
 }
@@ -332,7 +333,8 @@ TEST_F(ReplicaManagerTest, endToEndBackupRecovery) {
     TestLog::Enable _(filter);
     BackupFailureMonitor failureMonitor(&context, mgr.get());
     failureMonitor.start();
-    serverList.remove(backup1Id);
+    serverList.testingCrashed(backup1Id);
+    serverList.testingRemove(backup1Id);
 
     // Wait for backup recovery to finish.
     while (!mgr->isIdle());
@@ -349,7 +351,7 @@ TEST_F(ReplicaManagerTest, endToEndBackupRecovery) {
         // the completion of the test is also checking to make sure that
         // BackupFailureMonitor is driving the ReplicaManager proceed()
         // loop until recovery has completed.
-        "main: Notifying log of failure of serverId 1.0 | "
+        "main: Notifying replica manager of failure of serverId 1.0 | "
         // Next few, ensure open/closed segments get tagged appropriately
         // since recovery is different for each.
         "handleBackupFailure: Handling backup failure of serverId 1.0 | "

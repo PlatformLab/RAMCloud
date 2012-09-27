@@ -46,8 +46,9 @@ class PingServiceTest : public ::testing::Test {
     {
         transport.addService(pingService, "mock:host=ping",
                              WireFormat::PING_SERVICE);
-        serverList.add(serverId, "mock:host=ping",
-                       {WireFormat::PING_SERVICE}, 100);
+        serverList.testingAdd({serverId, "mock:host=ping",
+                               {WireFormat::PING_SERVICE}, 100,
+                               ServerStatus::UP});
     }
 
     DISALLOW_COPY_AND_ASSIGN(PingServiceTest);
@@ -72,7 +73,8 @@ TEST_F(PingServiceTest, ping_wait_timeout) {
     ServerId serverId2(2, 3);
     MockTransport mockTransport(&context);
     context.transportManager->registerMock(&mockTransport, "mock2");
-    serverList.add(serverId2, "mock2:", {WireFormat::PING_SERVICE}, 100);
+    serverList.testingAdd({serverId2, "mock2:", {WireFormat::PING_SERVICE}, 100,
+                           ServerStatus::UP});
     PingRpc rpc(&context, serverId2, ServerId());
     uint64_t start = Cycles::rdtsc();
     EXPECT_EQ(~0LU, rpc.wait(1000000));
@@ -92,8 +94,8 @@ TEST_F(PingServiceTest, ping_wait_serverGoesAway) {
     ServerId serverId2(2, 3);
     MockTransport mockTransport(&context);
     context.transportManager->registerMock(&mockTransport, "mock2");
-    serverList.add(serverId2, "mock2:", {WireFormat::PING_SERVICE}, 100);
-
+    serverList.testingAdd({serverId2, "mock2:", {WireFormat::PING_SERVICE}, 100,
+                           ServerStatus::UP});
     uint64_t result = 0;
     PingRpc rpc(&context, serverId2, ServerId());
     std::thread thread(pingThread, &rpc, &result);
@@ -102,7 +104,7 @@ TEST_F(PingServiceTest, ping_wait_serverGoesAway) {
 
     // Delete the server, then fail the ping RPC so that there is a retry
     // that discovers that targetId is gone.
-    serverList.remove(serverId2);
+    serverList.testingRemove(serverId2);
     mockTransport.lastNotifier->failed();
 
     // Give the other thread a chance to finish.
@@ -125,7 +127,8 @@ TEST_F(PingServiceTest, proxyPing_timeout) {
     ServerId targetId(2, 3);
     MockTransport mockTransport(&context);
     context.transportManager->registerMock(&mockTransport, "mock2");
-    serverList.add(targetId, "mock2:", {WireFormat::PING_SERVICE}, 100);
+    serverList.testingAdd({targetId, "mock2:", {WireFormat::PING_SERVICE}, 100,
+                           ServerStatus::UP});
     uint64_t start = Cycles::rdtsc();
     EXPECT_EQ(0xffffffffffffffffU,
               PingClient::proxyPing(&context, serverId, targetId, 1000000));

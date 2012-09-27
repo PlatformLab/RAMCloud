@@ -46,8 +46,9 @@ class MembershipServiceTest : public ::testing::Test {
     {
         transport.addService(service, "mock:host=member",
                              WireFormat::MEMBERSHIP_SERVICE);
-        serverList.add(serverId, "mock:host=member",
-                       {WireFormat::PING_SERVICE}, 100);
+        serverList.testingAdd({serverId, "mock:host=member",
+                               {WireFormat::PING_SERVICE}, 100,
+                              ServerStatus::UP});
     }
 
     DISALLOW_COPY_AND_ASSIGN(MembershipServiceTest);
@@ -80,7 +81,6 @@ TEST_F(MembershipServiceTest, updateServerList) {
     EXPECT_STREQ("mock:host=55", serverList.getLocator(id1));
     EXPECT_STREQ("mock:host=56", serverList.getLocator(id2));
     EXPECT_STREQ("mock:host=57", serverList.getLocator(id3));
-    EXPECT_FALSE(serverList.contains(serverId));
 }
 
 }  // namespace RAMCloud

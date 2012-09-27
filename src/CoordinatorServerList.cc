@@ -245,6 +245,10 @@ CoordinatorServerList::setReplicationId(ServerId serverId,
 {
     Lock lock(mutex);
     Entry& entry = const_cast<Entry&>(getReferenceFromServerId(serverId));
+    if (entry.status != ServerStatus::UP)
+        throw ServerListException(HERE,
+            format("Cannot set replication id: %s is not up",
+                    serverId.toString().c_str()));
     entry.replicationId = replicationId;
     ProtoBuf::ServerList_Entry& protoBufEntry(*update.add_server());
     entry.serialize(protoBufEntry);
@@ -673,6 +677,10 @@ CoordinatorServerList::serialize(const Lock& lock,
  * enough to be useful for disseminating cluster membership information
  * to other servers. Only used internally in CoordinatorServerList; requires
  * a lock on #mutex is held for duration of call.
+ *
+ * All entries are serialize to the protocol buffer in the order they appear
+ * in the server list. The order has some important implications. See
+ * ServerList::applyServerList() for details.
  *
  * \param lock
  *      Unused, but required to statically check that the caller is aware that

@@ -72,7 +72,8 @@ class FailureDetectorTest : public ::testing::Test {
     {
         ServerDetails dummy1;
         ServerChangeEvent dummy2;
-        serverList.add(id, locator, {WireFormat::PING_SERVICE}, 100);
+        serverList.testingAdd({id, locator, {WireFormat::PING_SERVICE},
+                               100, ServerStatus::UP});
         fd->serverTracker.getChange(dummy1, dummy2);
     }
 

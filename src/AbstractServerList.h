@@ -21,6 +21,7 @@
 #include "Common.h"
 #include "ServiceMask.h"
 #include "ServerId.h"
+#include "ServerList.pb.h"
 #include "Transport.h"
 #include "Tub.h"
 
@@ -92,6 +93,20 @@ class ServerDetails {
         , expectedReadMBytesPerSec(expectedReadMBytesPerSec)
         , status(status)
         , replicationId(0)
+    {}
+
+    /**
+     * Create an instance populated from a ProtoBuf::ServerList::Entry which
+     * is used for shipping these structures around.
+     */
+    explicit ServerDetails(const ProtoBuf::ServerList::Entry& entry)
+        : serverId(entry.server_id())
+        , serviceLocator(entry.service_locator())
+        , session()
+        , services(ServiceMask::deserialize(entry.services()))
+        , expectedReadMBytesPerSec(entry.expected_read_mbytes_per_sec())
+        , status(ServerStatus(entry.status()))
+        , replicationId(entry.replication_id())
     {}
 
     /*

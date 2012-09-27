@@ -44,12 +44,14 @@ static bool mainFilter(string s) { return s == "main"; }
 TEST_F(BackupFailureMonitorTest, main) {
     TestLog::Enable _(&mainFilter);
     monitor.start();
-    serverList.add(ServerId(2, 0), "mock:host=backup1",
-                   {WireFormat::BACKUP_SERVICE}, 100);
-    serverList.remove(ServerId(2, 0));
-    serverList.add(ServerId(3, 0), "mock:host=master",
-                   {WireFormat::MASTER_SERVICE}, 100);
-    serverList.remove(ServerId(3, 0));
+    serverList.testingAdd({{2, 0}, "mock:host=backup1",
+                          {WireFormat::BACKUP_SERVICE}, 100,
+                          ServerStatus::UP});
+    serverList.testingCrashed({2, 0});
+    serverList.testingAdd({{3, 0}, "mock:host=master",
+                           {WireFormat::MASTER_SERVICE}, 100,
+                           ServerStatus::UP});
+    serverList.testingRemove({3, 0});
     monitor.trackerChangesEnqueued();
     while (true) {
         // Until getChanges has drained the queue.
@@ -59,7 +61,7 @@ TEST_F(BackupFailureMonitorTest, main) {
     }
     while (TestLog::get() == "");
     EXPECT_TRUE(StringUtil::contains(TestLog::get(),
-        "main: Notifying log of failure of serverId 2"));
+        "main: Notifying replica manager of failure of serverId 2"));
 }
 
 TEST_F(BackupFailureMonitorTest, startAndHalt) {
@@ -101,8 +103,9 @@ TEST_F(BackupFailureMonitorTest, serverIsUp) {
 
     EXPECT_FALSE(monitor.serverIsUp({2, 0}));
 
-    serverList.add({2, 0}, "mock:host=backup1",
-        {WireFormat::BACKUP_SERVICE}, 100);
+    serverList.testingAdd({{2, 0}, "mock:host=backup1",
+                           {WireFormat::BACKUP_SERVICE}, 100,
+                           ServerStatus::UP});
     while (monitor.tracker.getChange(server, event));
     EXPECT_TRUE(monitor.serverIsUp({2, 0}));
 
@@ -112,8 +115,7 @@ TEST_F(BackupFailureMonitorTest, serverIsUp) {
         EXPECT_FALSE(monitor.serverIsUp({2, 0}));
     }
 
-    serverList.crashed({2, 0}, "mock:host=backup1",
-        {WireFormat::BACKUP_SERVICE}, 100);
+    serverList.testingCrashed({2, 0});
     while (monitor.tracker.getChange(server, event));
     EXPECT_FALSE(monitor.serverIsUp({2, 0}));
 }
