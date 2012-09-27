@@ -201,6 +201,11 @@ BackupService::dispatch(WireFormat::Opcode opcode, Rpc& rpc)
             callHandler<WireFormat::BackupStartReadingData, BackupService,
                         &BackupService::startReadingData>(rpc);
             break;
+        case WireFormat::BackupStartPartitioningReplicas::opcode:
+            callHandler<WireFormat::BackupStartPartitioningReplicas,
+                        BackupService,
+                        &BackupService::startPartitioningReplicas>(rpc);
+            break;
         case WireFormat::BackupWrite::opcode:
             callHandler<WireFormat::BackupWrite, BackupService,
                         &BackupService::writeSegment>(rpc);
@@ -445,9 +450,11 @@ BackupService::restartFromStorage()
 }
 
 /**
- * Begin reading disk data for a Master and bucketing the objects in the
- * Segments according to a requested TabletMap, returning a list of backed
+ * Begin reading disk data for a Master, returning a list of backed
  * up Segments this backup has for the Master.
+ *
+ * A startPartitioningReplicas call should occur after this to properly
+ * partition the segments before starting a recovery master.
  *
  * \param reqHdr
  *      Header of the Rpc request which contains the Rpc arguments.
@@ -465,9 +472,6 @@ BackupService::startReadingData(
         Rpc& rpc)
 {
     ServerId crashedMasterId(reqHdr.masterId);
-    ProtoBuf::Tablets partitions;
-    ProtoBuf::parseFromResponse(&rpc.requestPayload, sizeof(reqHdr),
-                                reqHdr.partitionsLength, &partitions);
 
     bool mustCreateRecovery = false;
     auto recoveryIt = recoveries.find(crashedMasterId);
@@ -491,7 +495,7 @@ BackupService::startReadingData(
         recovery = new BackupMasterRecovery(taskQueue,
                                             reqHdr.recoveryId,
                                             crashedMasterId,
-                                            partitions, segmentSize);
+                                            segmentSize);
         recoveries[crashedMasterId] = recovery;
     }
     recovery = recoveries[crashedMasterId];
@@ -506,6 +510,40 @@ BackupService::startReadingData(
     }
     recovery->start(framesForRecovery, &rpc.replyPayload, &respHdr);
     metrics->backup.storageType = uint64_t(storage->storageType);
+}
+
+/**
+ * Begin bucketing the objects in the Segments according to a requested
+ * TabletMap for a specific recovery. This follows after startReadingData.
+ *
+ * \param reqHdr
+ *      Header of the Rpc request which contains the partitioning metadata.
+ * \param respHdr
+ *      Header for the Rpc response.
+ * \param rpc
+ *      The Rpc being serviced; used to access the actual Tablet ProtoBuf.
+ */
+void
+BackupService::startPartitioningReplicas(
+        const WireFormat::BackupStartPartitioningReplicas::Request& reqHdr,
+        WireFormat::BackupStartPartitioningReplicas::Response& respHdr,
+        Rpc& rpc)
+{
+    ServerId crashedMasterId(reqHdr.masterId);
+    BackupMasterRecovery* recovery = recoveries[crashedMasterId];
+
+    if (recovery == NULL || recovery->getRecoveryId() != reqHdr.recoveryId) {
+        LOG(ERROR, "Cannot partition segments from master %s since they have "
+                "not been read yet (no preceeding startReadingDataRpc call)",
+                crashedMasterId.toString().c_str());
+
+        throw PartitionBeforeReadException(HERE);
+    }
+
+    ProtoBuf::Tablets partitions;
+    ProtoBuf::parseFromResponse(&rpc.requestPayload, sizeof(reqHdr),
+                                reqHdr.partitionsLength, &partitions);
+    recovery->setPartitionsAndSchedule(partitions);
 }
 
 /**

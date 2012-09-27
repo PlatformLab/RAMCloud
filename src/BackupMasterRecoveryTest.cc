@@ -22,6 +22,7 @@
 #include "StringUtil.h"
 #include "TabletsBuilder.h"
 #include "TaskQueue.h"
+#include "Tablets.pb.h"
 
 namespace RAMCloud {
 
@@ -52,8 +53,7 @@ struct BackupMasterRecoveryTest : public ::testing::Test {
             (2, 0lu, ~0lu, TabletsBuilder::NORMAL, 0lu)  // partition 0
             (3, 0lu, ~0lu, TabletsBuilder::NORMAL, 0lu); // partition 0
         source.appendTo("test", 5);
-        recovery.construct(taskQueue, 456lu, ServerId{99, 0},
-                           partitions, segmentSize);
+        recovery.construct(taskQueue, 456lu, ServerId{99, 0}, segmentSize);
     }
 
     void
@@ -74,15 +74,6 @@ struct BackupMasterRecoveryTest : public ::testing::Test {
 
     DISALLOW_COPY_AND_ASSIGN(BackupMasterRecoveryTest);
 };
-
-TEST_F(BackupMasterRecoveryTest, constructor) {
-    TestLog::Enable _;
-    recovery.construct(taskQueue, 456lu, ServerId{99, 0},
-                       partitions, segmentSize);
-    EXPECT_EQ("BackupMasterRecovery: Recovery 456 building 2 recovery "
-              "segments for each replica for crashed master 99.0",
-              TestLog::get());
-}
 
 namespace {
 bool mockExtractDigest(uint64_t segmentId, Buffer* digestBuffer) {
@@ -112,6 +103,7 @@ TEST_F(BackupMasterRecoveryTest, start) {
     auto response =
         new(&buffer, APPEND) BackupMasterRecovery::StartResponse;
     recovery->start(frames, &buffer, response);
+    recovery->setPartitionsAndSchedule(partitions);
     ASSERT_EQ(5u, response->replicaCount);
     EXPECT_EQ(2u, response->primaryReplicaCount);
     // Make sure we got the "lowest" log digest.
@@ -181,9 +173,70 @@ TEST_F(BackupMasterRecoveryTest, start) {
     EXPECT_EQ(2u, response->primaryReplicaCount);
     EXPECT_EQ(7u, response->digestBytes);
     EXPECT_EQ(92lu, response->digestSegmentId);
+    uint32_t tabletMetricsLen = response->tabletMetricsLen == (uint32_t)-1 ? 0 :
+        response->tabletMetricsLen;
     EXPECT_EQ(192u, response->digestSegmentEpoch);
     EXPECT_STREQ("digest",
-                 buffer.getOffset<char>(buffer.getTotalLength() - 7));
+                 buffer.getOffset<char>(buffer.getTotalLength()
+                                        - tabletMetricsLen - 7));
+}
+
+TEST_F(BackupMasterRecoveryTest, setPartitionsAndSchedule) {
+    TestLog::Enable _;
+    recovery.construct(taskQueue, 456lu, ServerId{99, 0}, segmentSize);
+    recovery->startCompleted = true;
+    recovery->testingSkipBuild = true;
+
+    recovery->setPartitionsAndSchedule(partitions);
+    EXPECT_EQ("setPartitionsAndSchedule: Recovery 456 building 2 recovery "
+            "segments for each replica for crashed master 99.0 and filtering "
+            "them according to the following partitions:\n"
+            "tablet {\n"
+            "  table_id: 1\n"
+            "  start_key_hash: 0\n"
+            "  end_key_hash: 10\n"
+            "  state: NORMAL\n"
+            "  server_id: 0\n"
+            "  user_data: 0\n"
+            "  ctime_log_head_id: 0\n"
+            "  ctime_log_head_offset: 0\n"
+            "}\n"
+            "tablet {\n"
+            "  table_id: 1\n"
+            "  start_key_hash: 11\n"
+            "  end_key_hash: 18446744073709551615\n"
+            "  state: NORMAL\n"
+            "  server_id: 0\n"
+            "  user_data: 1\n"
+            "  ctime_log_head_id: 0\n"
+            "  ctime_log_head_offset: 0\n"
+            "}\n"
+            "tablet {\n"
+            "  table_id: 2\n"
+            "  start_key_hash: 0\n"
+            "  end_key_hash: 18446744073709551615\n"
+            "  state: NORMAL\n"
+            "  server_id: 0\n"
+            "  user_data: 0\n"
+            "  ctime_log_head_id: 0\n"
+            "  ctime_log_head_offset: 0\n"
+            "}\n"
+            "tablet {\n"
+            "  table_id: 3\n"
+            "  start_key_hash: 0\n"
+            "  end_key_hash: 18446744073709551615\n"
+            "  state: NORMAL\n  server_id: 0\n"
+            "  user_data: 0\n  ctime_log_head_id: 0\n"
+            "  ctime_log_head_offset: 0\n"
+            "}\n"
+            " | "
+            "setPartitionsAndSchedule: Kicked off building recovery segments | "
+            "schedule: scheduled",
+              TestLog::get());
+
+    EXPECT_EQ(2UL, recovery->numPartitions);
+    EXPECT_EQ(&recovery->replicas.front(), &*recovery->nextToBuild);
+    EXPECT_TRUE(recovery->isScheduled());
 }
 
 TEST_F(BackupMasterRecoveryTest, getRecoverySegment) {
@@ -192,6 +245,7 @@ TEST_F(BackupMasterRecoveryTest, getRecoverySegment) {
     recovery->testingExtractDigest = &mockExtractDigest;
     recovery->testingSkipBuild = true;
     recovery->start(frames, NULL, NULL);
+    recovery->setPartitionsAndSchedule(partitions);
 
     Status status = recovery->getRecoverySegment(456, 89, 0, NULL, NULL);
     EXPECT_EQ(STATUS_RETRY, status);
@@ -200,13 +254,11 @@ TEST_F(BackupMasterRecoveryTest, getRecoverySegment) {
 
     status = recovery->getRecoverySegment(456, 88, 0, NULL, NULL);
     EXPECT_EQ(STATUS_OK, status);
-
     Buffer buffer;
     buffer.appendTo("important", 10);
     uint32_t outOffset;
     ASSERT_TRUE(recovery->replicas[1].recoverySegments[0].append(
         LOG_ENTRY_TYPE_OBJ, buffer, 0, 10, outOffset));
-
     buffer.reset();
     Segment::Certificate certificate;
     memset(&certificate, 0xff, sizeof(certificate));
@@ -220,6 +272,7 @@ TEST_F(BackupMasterRecoveryTest, getRecoverySegment) {
 TEST_F(BackupMasterRecoveryTest, getRecoverySegment_exceptionDuringBuild) {
     mockMetadata(88);
     recovery->start(frames, NULL, NULL);
+    recovery->setPartitionsAndSchedule(partitions);
     EXPECT_THROW(recovery->getRecoverySegment(456, 88, 0, NULL, NULL),
                  SegmentRecoveryFailedException);
 }
@@ -229,6 +282,7 @@ TEST_F(BackupMasterRecoveryTest, getRecoverySegment_badArgs) {
     recovery->testingExtractDigest = &mockExtractDigest;
     recovery->testingSkipBuild = true;
     recovery->start(frames, NULL, NULL);
+    recovery->setPartitionsAndSchedule(partitions);
     EXPECT_THROW(recovery->getRecoverySegment(455, 88, 0, NULL, NULL),
                  BackupBadSegmentIdException);
     recovery->getRecoverySegment(456, 88, 0, NULL, NULL);
@@ -241,7 +295,7 @@ TEST_F(BackupMasterRecoveryTest, getRecoverySegment_badArgs) {
 TEST_F(BackupMasterRecoveryTest, free) {
     std::unique_ptr<BackupMasterRecovery> recovery(
         new BackupMasterRecovery(taskQueue, 456lu, ServerId{99, 0},
-                                 partitions, segmentSize));
+                                 segmentSize));
     TestLog::Enable _;
     recovery->free();
     taskQueue.performTask();
@@ -257,6 +311,7 @@ TEST_F(BackupMasterRecoveryTest, performTask) {
     mockMetadata(88);
     recovery->testingSkipBuild = true;
     recovery->start(frames, NULL, NULL);
+    recovery->setPartitionsAndSchedule(partitions);
     TestLog::Enable _;
     taskQueue.performTask();
     EXPECT_EQ(
@@ -298,6 +353,7 @@ TEST_F(BackupMasterRecoveryTest, buildRecoverySegments) {
 TEST_F(BackupMasterRecoveryTest, buildRecoverySegments_buildThrows) {
     mockMetadata(88, true, true);
     recovery->start(frames, NULL, NULL);
+    recovery->setPartitionsAndSchedule(partitions);
     TestLog::Enable _(buildRecoverySegmentsFilter);
     taskQueue.performTask();
     EXPECT_TRUE(StringUtil::startsWith(TestLog::get(),

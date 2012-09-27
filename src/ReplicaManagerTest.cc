@@ -163,7 +163,6 @@ TEST_F(ReplicaManagerTest, writeSegment) {
     rs->sync(s.tail);
 
     EXPECT_EQ(1U, mgr->replicatedSegmentList.size());
-
     ProtoBuf::Tablets will;
     ProtoBuf::Tablets::Tablet& tablet(*will.add_tablet());
     tablet.set_table_id(123);
@@ -181,7 +180,9 @@ TEST_F(ReplicaManagerTest, writeSegment) {
             ASSERT_TRUE(replica.isActive);
             Buffer resp;
             BackupClient::startReadingData(&context, replica.backupId, 456lu,
-                                           serverId, &will);
+                                           serverId);
+            BackupClient::StartPartitioningReplicas(&context, replica.backupId,
+                    456lu, serverId, &will);
             Segment::Certificate certificate =
                 BackupClient::getRecoveryData(&context, replica.backupId, 456lu,
                                               serverId, 88, 0, &resp);

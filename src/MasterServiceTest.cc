@@ -569,6 +569,8 @@ TEST_F(MasterServiceTest, recover_basics) {
     ProtoBuf::Tablets tablets;
     createTabletList(tablets);
     auto result = BackupClient::startReadingData(&context, backup1Id,
+                                                 10lu, ServerId(123));
+    BackupClient::StartPartitioningReplicas(&context, backup1Id,
                                                  10lu, ServerId(123),
                                                  &tablets);
     ASSERT_EQ(1lu, result.replicas.size());
@@ -665,8 +667,10 @@ TEST_F(MasterServiceTest, recover) {
 
     ProtoBuf::Tablets tablets;
     createTabletList(tablets);
-    BackupClient::startReadingData(&context, backup1Id, 456lu, ServerId(123),
-                                   &tablets);
+    BackupClient::startReadingData(&context, backup1Id, 456lu, ServerId(123));
+
+    BackupClient::StartPartitioningReplicas(&context, backup1Id, 456lu,
+                                   ServerId(123), &tablets);
 
     vector<MasterService::Replica> replicas {
         // Started in initial round of RPCs - eventually fails
@@ -2166,12 +2170,16 @@ TEST_F(MasterRecoverTest, recover) {
     ProtoBuf::Tablets tablets;
     createTabletList(tablets);
     {
-        BackupClient::startReadingData(&context, backup1Id, 456lu, ServerId(99),
-                                       &tablets);
+        BackupClient::startReadingData(&context, backup1Id, 456lu,
+                                       ServerId(99));
+        BackupClient::StartPartitioningReplicas(&context, backup1Id, 456lu,
+                                       ServerId(99), &tablets);
     }
     {
-        BackupClient::startReadingData(&context, backup2Id, 456lu, ServerId(99),
-                                       &tablets);
+        BackupClient::startReadingData(&context, backup2Id, 456lu,
+                                       ServerId(99));
+        BackupClient::StartPartitioningReplicas(&context, backup2Id, 456lu,
+                                       ServerId(99), &tablets);
     }
 
     vector<MasterService::Replica> replicas {

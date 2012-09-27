@@ -47,12 +47,6 @@ enum { DISABLE_BACKGROUND_BUILDING = false };
  * \param crashedMasterId
  *      Server id of the master which has crashed whose replicas should be
  *      processed and made available to recovery masters.
- * \param partitions
- *      Describes how the coordinator would like the backup to split up the
- *      contents of the replicas for delivery to different recovery masters.
- *      The partition ids inside each entry act as an index describing which
- *      recovery segment for a particular replica each object should be placed
- *      in.
  * \param segmentSize
  *      Size of the replicas on storage. Needed for bounds-checking on the
  *      SegmentIterators which walk the stored replicas.
@@ -60,12 +54,11 @@ enum { DISABLE_BACKGROUND_BUILDING = false };
 BackupMasterRecovery::BackupMasterRecovery(TaskQueue& taskQueue,
                                            uint64_t recoveryId,
                                            ServerId crashedMasterId,
-                                           const ProtoBuf::Tablets& partitions,
                                            uint32_t segmentSize)
     : Task(taskQueue)
     , recoveryId(recoveryId)
     , crashedMasterId(crashedMasterId)
-    , partitions(partitions)
+    , partitions()
     , segmentSize(segmentSize)
     , numPartitions()
     , replicas()
@@ -81,20 +74,13 @@ BackupMasterRecovery::BackupMasterRecovery(TaskQueue& taskQueue,
     , testingExtractDigest()
     , testingSkipBuild()
 {
-    for (int i = 0; i < partitions.tablet_size(); ++i) {
-        numPartitions = std::max(numPartitions,
-                                 partitions.tablet(i).user_data() + 1);
-    }
-    LOG(NOTICE, "Recovery %lu building %lu recovery segments for each "
-        "replica for crashed master %s",
-        recoveryId, numPartitions, crashedMasterId.toString().c_str());
 }
 
 /**
  * Extract the details of all the replicas stored for the crashed master,
  * returning them for the coordinator to perform an inventory of the log,
  * and asynchronously start loading primary replicas in the background in
- * perparation of replica data requests from recovery masters. Idempotent
+ * preparation of replica data requests from recovery masters. Idempotent
  * but not thread-safe. It is expected that only a single BackupService
  * Worker thread calls this at a time.
  *
@@ -127,11 +113,9 @@ BackupMasterRecovery::start(const std::vector<BackupStorage::FrameRef>& frames,
     recoveryTicks.construct(&metrics->backup.recoveryTicks);
     metrics->backup.recoveryCount++;
 
-    LOG(DEBUG, "Backup preparing for recovery of crashed server %s; "
-        "loading replicas and filtering them according to the following "
-        "partitions:\n%s",
-        ServerId(crashedMasterId).toString().c_str(),
-        partitions.DebugString().c_str());
+    LOG(DEBUG, "Backup preparing for recovery %lu of crashed server %s; "
+               "loading replicas", recoveryId,
+               ServerId(crashedMasterId).toString().c_str());
 
     vector<BackupStorage::FrameRef> primaries;
     vector<BackupStorage::FrameRef> secondaries;
@@ -170,7 +154,6 @@ BackupMasterRecovery::start(const std::vector<BackupStorage::FrameRef>& frames,
         auto& replica = replicas.back();
         segmentIdToReplica[replica.metadata->segmentId] = &replica;
     }
-    nextToBuild = replicas.begin();
 
     // Obtain the LogDigest from the lowest segment id of any open replica
     // that has the highest epoch number. The epoch part shouldn't matter
@@ -211,10 +194,45 @@ BackupMasterRecovery::start(const std::vector<BackupStorage::FrameRef>& frames,
     }
 
     startCompleted = true;
+    populateStartResponse(buffer, response);
+}
+
+/**
+ * To be invoked after start() via a startPartitioningReplicasRpc. This
+ * starts the partitioning of the replica segments read during start.
+ * This call is idempotent.
+ *
+ * \param partitions
+ *       The partitioning scheme by which the replicas should be split
+ */
+void
+BackupMasterRecovery::setPartitionsAndSchedule(ProtoBuf::Tablets partitions)
+{
+    assert(startCompleted);
+
+    // idempotency
+    if (this->partitions) {
+        schedule();
+        return;
+    }
+
+    this->partitions.construct(partitions);
+
+    for (int i = 0; i < partitions.tablet_size(); ++i) {
+        numPartitions = std::max(numPartitions,
+                                 partitions.tablet(i).user_data() + 1);
+    }
+
+    LOG(NOTICE, "Recovery %lu building %lu recovery segments for each "
+            "replica for crashed master %s and filtering them according to "
+            "the following " "partitions:\n%s",
+            recoveryId, numPartitions, crashedMasterId.toString().c_str(),
+            partitions.DebugString().c_str());
+
+    LOG(DEBUG, "Kicked off building recovery segments");
+    nextToBuild = replicas.begin();
     buildingStartTicks = Cycles::rdtsc();
     schedule();
-    LOG(DEBUG, "Kicked off building recovery segments");
-    populateStartResponse(buffer, response);
 }
 
 /**
@@ -445,6 +463,14 @@ BackupMasterRecovery::populateStartResponse(Buffer* responseBuffer,
             response->digestBytes);
     }
 
+    //TODO(syang0) Tablet Profiling information goes here
+    char tabletMetrics[] = "";
+    response->tabletMetricsLen = sizeof(tabletMetrics);
+    if (response->tabletMetricsLen > 0) {
+        void* out = new(responseBuffer, APPEND)
+                char[response->tabletMetricsLen];
+        memcpy(out, tabletMetrics, response->tabletMetricsLen);
+    }
 }
 
 /**
@@ -498,9 +524,10 @@ BackupMasterRecovery::buildRecoverySegments(Replica& replica)
     CycleCounter<RawMetric> _(&metrics->backup.filterTicks);
     try {
         if (!testingSkipBuild) {
+            assert(partitions);
             RecoverySegmentBuilder::build(replicaData, segmentSize,
                                           replica.metadata->certificate,
-                                          partitions,
+                                          *partitions,
                                           recoverySegments.get());
         }
     } catch (const Exception& e) {

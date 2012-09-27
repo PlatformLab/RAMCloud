@@ -72,6 +72,10 @@ class BackupService : public Service
         const WireFormat::BackupStartReadingData::Request& reqHdr,
         WireFormat::BackupStartReadingData::Response& respHdr,
         Rpc& rpc);
+    void startPartitioningReplicas(
+        const WireFormat::BackupStartPartitioningReplicas::Request& reqHdr,
+        WireFormat::BackupStartPartitioningReplicas::Response& respHdr,
+        Rpc& rpc);
     void writeSegment(const WireFormat::BackupWrite::Request& req,
                       WireFormat::BackupWrite::Response& resp,
                       Rpc& rpc);

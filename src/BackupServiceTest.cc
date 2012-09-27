@@ -264,8 +264,7 @@ TEST_F(BackupServiceTest, freeSegment_underRecovery) {
         (125, 0, ~0lu, TabletsBuilder::RECOVERING, 1);
 
     backup->taskQueue.halt();
-    BackupClient::startReadingData(&context, backupId,
-                                   456lu, {99, 0}, &tablets);
+    BackupClient::startReadingData(&context, backupId, 456lu, {99, 0});
     BackupClient::freeSegment(&context, backupId, {99, 0}, 88);
     EXPECT_EQ(totalFrames - 1, storage->freeMap.count());
 }
@@ -278,6 +277,8 @@ TEST_F(BackupServiceTest, getRecoveryData) {
     TabletsBuilder{tablets}
         (1, 0, ~0lu, TabletsBuilder::RECOVERING, 0);
     auto results = BackupClient::startReadingData(&context, backupId,
+                                                  456lu, {99, 0});
+    BackupClient::StartPartitioningReplicas(&context, backupId,
                                                   456lu, {99, 0}, &tablets);
     EXPECT_EQ(1lu, results.replicas.size());
     EXPECT_EQ(1lu, backup->recoveries.size());
@@ -396,17 +397,19 @@ TEST_F(BackupServiceTest, startReadingData) {
 
     ProtoBuf::Tablets tablets;
     auto results = BackupClient::startReadingData(&context, backupId,
-                                                  456lu, {99, 0}, &tablets);
+                                                  456lu, {99, 0});
     EXPECT_EQ(2lu, results.replicas.size());
     EXPECT_EQ(1lu, backup->recoveries.size());
 
     results = BackupClient::startReadingData(&context, backupId,
-                                             456lu, {99, 0}, &tablets);
+                                             456lu, {99, 0});
     EXPECT_EQ(2lu, results.replicas.size());
     EXPECT_EQ(1lu, backup->recoveries.size());
 
     TestLog::Enable _;
     results = BackupClient::startReadingData(&context, backupId,
+                                             457lu, {99, 0});
+    BackupClient::StartPartitioningReplicas(&context, backupId,
                                              457lu, {99, 0}, &tablets);
     EXPECT_EQ(2lu, results.replicas.size());
     EXPECT_EQ(1lu, backup->recoveries.size());
@@ -416,19 +419,21 @@ TEST_F(BackupServiceTest, startReadingData) {
             "starting anew. | "
         "free: Recovery 456 for crashed master 99.0 is no longer needed; "
             "will clean up as next possible chance. | "
-        "BackupMasterRecovery: Recovery 457 building 0 recovery segments for "
-            "each replica for crashed master 99.0 | "
-        "start: Backup preparing for recovery of crashed server 99.0; "
-            "loading replicas and filtering them according to the following "
-            "partitions:\n | "
         "schedule: scheduled | "
-        "start: Kicked off building recovery segments | "
+        "start: Backup preparing for recovery 457 of crashed server 99.0; "
+            "loading replicas | "
         "populateStartResponse: Crashed master 99.0 had closed secondary "
             "replica for segment 88 | "
         "populateStartResponse: Crashed master 99.0 had closed secondary "
             "replica for segment 89 | "
         "populateStartResponse: Sending 2 segment ids for this master "
-            "(0 primary)", TestLog::get());
+            "(0 primary) | "
+        "setPartitionsAndSchedule: Recovery 457 building 0 recovery segments "
+            "for each replica for crashed master 99.0 and filtering them "
+            "according to the following partitions:\n | "
+        "setPartitionsAndSchedule: Kicked off building recovery segments | "
+        "schedule: scheduled"
+            , TestLog::get());
 }
 
 TEST_F(BackupServiceTest, writeSegment) {
@@ -591,9 +596,8 @@ TEST_F(BackupServiceTest, GarbageCollectDownServerTask) {
     EXPECT_NE(backup->frames.end(), backup->frames.find({{99, 0}, 89}));
     EXPECT_NE(backup->frames.end(), backup->frames.find({{99, 1}, 88}));
 
-    ProtoBuf::Tablets tablets;
     backup->recoveries[ServerId{99, 0}] =
-        new BackupMasterRecovery(backup->taskQueue, 456, {99, 0}, tablets, 0);
+        new BackupMasterRecovery(backup->taskQueue, 456, {99, 0}, 0);
     EXPECT_NE(backup->recoveries.end(), backup->recoveries.find({99, 0}));
 
     typedef BackupService::GarbageCollectDownServerTask Task;

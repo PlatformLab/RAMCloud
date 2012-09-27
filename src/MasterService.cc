@@ -2439,7 +2439,7 @@ MasterService::getTombstoneTimestamp(Buffer& buffer)
  * and adding or replacing an entry in the hash table.
  *
  * \param key
- *      Key that will refer to the object being stored. 
+ *      Key that will refer to the object being stored.
  * \param rejectRules
  *      Specifies conditions under which the write should be aborted with an
  *      error.

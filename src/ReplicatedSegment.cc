@@ -526,9 +526,11 @@ ReplicatedSegment::performWrite(Replica& replica)
         }
         ServerId backupId;
         if (replicaIsPrimary(replica)) {
-            backupId = backupSelector.selectPrimary(numConstraints, constraints);
+            backupId = backupSelector.selectPrimary(numConstraints,
+                                                    constraints);
         } else {
-            backupId = backupSelector.selectSecondary(numConstraints, constraints);
+            backupId = backupSelector.selectSecondary(numConstraints,
+                                                      constraints);
         }
 
         if (!backupId.isValid()) {

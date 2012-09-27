@@ -125,7 +125,7 @@ SegmentManager::allocHead()
     writeHeader(newHead, Segment::INVALID_SEGMENT_ID);
     writeDigest(newHead);
     writeSafeVersion(newHead);
-    //writeWill(newHead);
+    //TODO(syang0) writeWill(newHead);
 
     ReplicatedSegment* prevReplicatedSegment = NULL;
     if (prevHead != NULL)
@@ -410,10 +410,10 @@ SegmentManager::getSegmentSize()
 }
 
 /**
- * Return safeVersion for newly allocated object and increment safeVersion for 
+ * Return safeVersion for newly allocated object and increment safeVersion for
  * next assignment. \see #safeVersion
  * semantics of version number and the purpose of the safeVersion.
- * 
+ *
  * In a case, a object is repeatedly removed, recreated, removed, recreated.
  * safeVersion needs to be incremented in allocateVersion().
  *
@@ -450,7 +450,7 @@ SegmentManager::raiseSafeVersion(uint64_t minimum) {
  * log. This method is only really useful in allocHead() and allocSurvivor().
  *
  * \param segment
- *      Pointer to the segment the header should be written to. 
+ *      Pointer to the segment the header should be written to.
  * \param headSegmentIdDuringCleaning
  *      If the segment is a cleaner-generated survivor segment, this value is
  *      the identifier of the head segment when cleaning started. Stamping the
@@ -664,7 +664,7 @@ SegmentManager::alloc(bool forCleaner)
  * determines that its safe to destroy a segment and reuse the memory. This
  * means that the segment must no longer part of the log and no references to
  * it may still exist.
- * 
+ *
  * \param s
  *      The segment to be freed. The segment should almost certainly be in the
  *      FREEABLE_PENDING_REFERENCES state at the time this is called.

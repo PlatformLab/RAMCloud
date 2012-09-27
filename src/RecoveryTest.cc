@@ -106,20 +106,24 @@ TEST_F(RecoveryTest, partitionTablets) {
     Recovery::Owner* own = static_cast<Recovery::Owner*>(NULL);
     recovery.construct(&context, taskQueue, &tabletMap, &tracker, own,
                        ServerId(99), recoveryInfo);
-    recovery->partitionTablets();
+    auto tablets = tabletMap.setStatusForServer(ServerId(99),
+                                                 Tablet::RECOVERING);
+    recovery->partitionTablets(tablets);
     EXPECT_EQ(0lu, recovery->numPartitions);
 
     tabletMap.addTablet({123,  0,  9, {99, 0}, Tablet::RECOVERING, {}});
     tabletMap.addTablet({123, 20, 29, {99, 0}, Tablet::RECOVERING, {}});
     recovery.construct(&context, taskQueue, &tabletMap, &tracker, own,
                        ServerId(99), recoveryInfo);
-    recovery->partitionTablets();
+    tablets = tabletMap.setStatusForServer(ServerId(99), Tablet::RECOVERING);
+    recovery->partitionTablets(tablets);
     EXPECT_EQ(2lu, recovery->numPartitions);
 
     tabletMap.addTablet({123, 10, 19, {99, 0}, Tablet::RECOVERING, {}});
     recovery.construct(&context, taskQueue, &tabletMap, &tracker, own,
                        ServerId(99), recoveryInfo);
-    recovery->partitionTablets();
+    tablets = tabletMap.setStatusForServer(ServerId(99), Tablet::RECOVERING);
+    recovery->partitionTablets(tablets);
     EXPECT_EQ(3lu, recovery->numPartitions);
 }
 
@@ -157,7 +161,6 @@ TEST_F(RecoveryTest, startBackups) {
     Recovery recovery(&context, taskQueue, &tabletMap, &tracker, NULL,
                       ServerId(99), recoveryInfo);
     recovery.testingBackupStartTaskSendCallback = &callback;
-    recovery.partitionTablets();
     recovery.startBackups();
     EXPECT_EQ((vector<WireFormat::Recover::Replica>{
                     { 1, 88 },
@@ -170,8 +173,7 @@ TEST_F(RecoveryTest, startBackups) {
 TEST_F(RecoveryTest, startBackups_failureContactingSomeBackup) {
     Recovery recovery(&context, taskQueue, &tabletMap, &tracker, NULL,
                       ServerId(99), recoveryInfo);
-    ProtoBuf::Tablets partitions;
-    BackupStartTask task(&recovery, {2, 0}, {1, 0}, partitions, recoveryInfo);
+    BackupStartTask task(&recovery, {2, 0});
     EXPECT_NO_THROW(task.send());
 }
 
@@ -204,7 +206,6 @@ TEST_F(RecoveryTest, startBackups_secondariesEarlyInSomeList) {
     Recovery recovery(&context, taskQueue, &tabletMap, &tracker, NULL,
                       ServerId(99), recoveryInfo);
     recovery.testingBackupStartTaskSendCallback = &callback;
-    recovery.partitionTablets();
     recovery.startBackups();
     ASSERT_EQ(6U, recovery.replicaMap.size());
     // The secondary of segment 91 must be last in the list.
@@ -224,7 +225,6 @@ TEST_F(RecoveryTest, startBackups_noLogDigestFound) {
     Recovery recovery(&context, taskQueue, &tabletMap, &tracker, NULL,
                       ServerId(99), recoveryInfo);
     recovery.testingBackupStartTaskSendCallback = &callback;
-    recovery.partitionTablets();
     TestLog::Enable _(startBackupsFilter);
     recovery.startBackups();
     EXPECT_EQ(
@@ -247,7 +247,6 @@ TEST_F(RecoveryTest, startBackups_someReplicasMissing) {
     Recovery recovery(&context, taskQueue, &tabletMap, &tracker, NULL,
                       ServerId(99), recoveryInfo);
     recovery.testingBackupStartTaskSendCallback = &callback;
-    recovery.partitionTablets();
     TestLog::Enable _(startBackupsFilter);
     recovery.startBackups();
     EXPECT_EQ(
@@ -259,10 +258,11 @@ TEST_F(RecoveryTest, startBackups_someReplicasMissing) {
 }
 
 TEST_F(RecoveryTest, BackupStartTask_filterOutInvalidReplicas) {
-    ProtoBuf::Tablets tablets;
     recoveryInfo.set_min_open_segment_id(10);
     recoveryInfo.set_min_open_segment_epoch(1);
-    BackupStartTask task(NULL, {2, 0}, {1, 0}, tablets, recoveryInfo);
+    Recovery recovery(&context, taskQueue, &tabletMap, &tracker, NULL,
+                      {1, 0}, recoveryInfo);
+    BackupStartTask task(&recovery, {2, 0});
     auto& segments = task.result.replicas;
     segments = {
         {2, 1, true},
@@ -303,11 +303,11 @@ TEST_F(RecoveryTest, verifyLogComplete) {
     digest.addSegmentId(11);
     digest.addSegmentId(12);
 
+
     Tub<BackupStartTask> tasks[1];
-    ProtoBuf::Tablets tablets;
-    Recovery* null = NULL;
-    tasks[0].construct(null, ServerId(2, 0), ServerId(1, 0),
-                       tablets, recoveryInfo);
+    Recovery recovery(&context, taskQueue, &tabletMap, &tracker, NULL,
+            {1, 0}, recoveryInfo);
+    tasks[0].construct(&recovery, ServerId(2, 0));
     auto& segments = tasks[0]->result.replicas;
 
     TestLog::Enable _;
@@ -326,12 +326,10 @@ TEST_F(RecoveryTest, findLogDigest) {
     recoveryInfo.set_min_open_segment_id(10);
     recoveryInfo.set_min_open_segment_epoch(1);
     Tub<BackupStartTask> tasks[2];
-    ProtoBuf::Tablets tablets;
-    Recovery* null = NULL;
-    tasks[0].construct(null, ServerId(2, 0), ServerId(1, 0),
-                       tablets, recoveryInfo);
-    tasks[1].construct(null, ServerId(3, 0), ServerId(1, 0),
-                       tablets, recoveryInfo);
+    Recovery recovery(&context, taskQueue, &tabletMap, &tracker, NULL,
+            {1, 0}, recoveryInfo);
+    tasks[0].construct(&recovery, ServerId(2, 0));
+    tasks[1].construct(&recovery, ServerId(3, 0));
 
     // No log digest found.
     auto digest = findLogDigest(tasks, 2);
@@ -377,18 +375,16 @@ TEST_F(RecoveryTest, findLogDigest) {
 
 TEST_F(RecoveryTest, buildReplicaMap) {
     Tub<BackupStartTask> tasks[2];
-    ProtoBuf::Tablets tablets;
-    Recovery* null = NULL;
-    tasks[0].construct(null, ServerId(2, 0), ServerId(1, 0),
-                       tablets, recoveryInfo);
+    Recovery recovery(&context, taskQueue, &tabletMap, &tracker, NULL,
+                      {1, 0}, recoveryInfo);
+    tasks[0].construct(&recovery, ServerId(2, 0));
     auto* result = &tasks[0]->result;
     result->replicas.push_back(Replica{88lu, 100u, false});
     result->replicas.push_back(Replica{89lu, 100u, false});
     result->replicas.push_back(Replica{90lu, 100u, false});
     result->primaryReplicaCount = 3;
 
-    tasks[1].construct(null, ServerId(3, 0), ServerId(1, 0),
-                       tablets, recoveryInfo);
+    tasks[1].construct(&recovery, ServerId(3, 0));
     result = &tasks[1]->result;
     result->replicas.push_back(Replica{88lu, 100u, false});
     result->replicas.push_back(Replica{91lu, 100u, false});
@@ -421,10 +417,9 @@ TEST_F(RecoveryTest, buildReplicaMap) {
 
 TEST_F(RecoveryTest, buildReplicaMap_badReplicas) {
     Tub<BackupStartTask> tasks[1];
-    ProtoBuf::Tablets tablets;
-    Recovery* null = NULL;
-    tasks[0].construct(null, ServerId(2, 0), ServerId(1, 0),
-                       tablets, recoveryInfo);
+    Recovery recovery(&context, taskQueue, &tabletMap, &tracker, NULL,
+                      {1, 0}, recoveryInfo);
+    tasks[0].construct(&recovery, ServerId(2, 0));
     auto* result = &tasks[0]->result;
     result->replicas.push_back(Replica{92lu, 100u, true}); // beyond head
     result->primaryReplicaCount = 1;
@@ -484,7 +479,8 @@ TEST_F(RecoveryTest, startRecoveryMasters) {
     tabletMap.addTablet({123, 10, 19, {99, 0}, Tablet::RECOVERING, {}});
     Recovery recovery(&context, taskQueue, &tabletMap, &tracker, NULL,
                       {99, 0}, recoveryInfo);
-    recovery.partitionTablets();
+    recovery.partitionTablets(
+                tabletMap.setStatusForServer({99, 0}, Tablet::RECOVERING));
     // Hack 'tablets' to get the first two tablets on the same server.
     recovery.tabletsToRecover.mutable_tablet(1)->set_user_data(0);
     recovery.tabletsToRecover.mutable_tablet(2)->set_user_data(1);
@@ -532,7 +528,8 @@ TEST_F(RecoveryTest, startRecoveryMasters_tooFewIdleMasters) {
     tabletMap.addTablet({123, 10, 19, {99, 0}, Tablet::RECOVERING, {}});
     Recovery recovery(&context, taskQueue, &tabletMap, &tracker, NULL,
                       {99, 0}, recoveryInfo);
-    recovery.partitionTablets();
+    recovery.partitionTablets(
+                tabletMap.setStatusForServer({99, 0}, Tablet::RECOVERING));
     // Hack 'tablets' to get the first two tablets on the same server.
     recovery.tabletsToRecover.mutable_tablet(1)->set_user_data(0);
     recovery.tabletsToRecover.mutable_tablet(2)->set_user_data(1);
@@ -574,7 +571,8 @@ TEST_F(RecoveryTest, startRecoveryMasters_noIdleMasters) {
     tabletMap.addTablet({123, 10, 19, {99, 0}, Tablet::RECOVERING, {}});
     Recovery recovery(&context, taskQueue, &tabletMap, &tracker, &owner,
                       {99, 0}, recoveryInfo);
-    recovery.partitionTablets();
+    recovery.partitionTablets(
+                tabletMap.setStatusForServer({99, 0}, Tablet::RECOVERING));
 
     TestLog::Enable _;
     recovery.startRecoveryMasters();
@@ -605,7 +603,8 @@ TEST_F(RecoveryTest, startRecoveryMasters_allFailDuringRecoverRpc) {
     tabletMap.addTablet({123, 10, 19, {99, 0}, Tablet::RECOVERING, {}});
     Recovery recovery(&context, taskQueue, &tabletMap, &tracker, NULL,
                       {99, 0}, recoveryInfo);
-    recovery.partitionTablets();
+    recovery.partitionTablets(
+                tabletMap.setStatusForServer({99, 0}, Tablet::RECOVERING));
     recovery.startRecoveryMasters();
 
     EXPECT_EQ(3u, recovery.numPartitions);

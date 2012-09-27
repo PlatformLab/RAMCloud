@@ -88,10 +88,11 @@ enum Opcode {
     BACKUP_FREE             = 28,
     BACKUP_GETRECOVERYDATA  = 29,
     BACKUP_STARTREADINGDATA = 31,
+    BACKUP_STARTPARTITION   = 36, // TODO(syang0) someone fix numbering
     BACKUP_WRITE            = 32,
     BACKUP_RECOVERYCOMPLETE = 33,
     BACKUP_QUIESCE          = 34,
-    UPDATE_SERVER_LIST         = 35,
+    UPDATE_SERVER_LIST      = 35,
     GET_SERVER_ID           = 38,
     DROP_TABLET_OWNERSHIP   = 39,
     TAKE_TABLET_OWNERSHIP   = 40,
@@ -260,11 +261,16 @@ struct BackupStartReadingData {
                                        ///< inconsistent. If it might've been
                                        ///< this digest will be discarded
                                        ///< by the coordinator for safety.
+        uint32_t tabletMetricsLen;     ///< Byte length of TabletMetrics that
+                                       ///< go after the LogDigest
         // An array of segmentIdCount replicas follows.
         // Each entry is a Replica (see below).
         //
         // If logDigestBytes != 0, then a serialised LogDigest follows
         // immediately after the replica list.
+
+        // TODO(syang0) TabletMetrics follows. The exact
+        // format has not been determined yet.
     } __attribute__((packed));
     /// Used in the Response to report which replicas the backup has.
     struct Replica {
@@ -282,6 +288,26 @@ struct BackupStartReadingData {
                    left.segmentEpoch == right.segmentEpoch &&
                    left.closed == right.closed;
         }
+    } __attribute__((packed));
+};
+
+struct BackupStartPartitioningReplicas {
+    static const Opcode opcode = BACKUP_STARTPARTITION;
+    static const ServiceType service = BACKUP_SERVICE;
+    struct Request {
+        RequestCommon common;
+        uint64_t recoveryId;       ///< Identifies the recovery for which
+                                   ///< information should be returned and
+                                   ///< recovery segments should be built.
+        uint64_t masterId;         ///< Server Id from whom the request is
+                                   ///< coming.
+        uint32_t partitionsLength; ///< Number of bytes in the partition map.
+                                   ///< The bytes of the partition map follow
+                                   ///< immediately after this header. See
+                                   ///< ProtoBuf::Tablets.
+    } __attribute__((packed));
+    struct Response {
+        ResponseCommon common;
     } __attribute__((packed));
 };
 

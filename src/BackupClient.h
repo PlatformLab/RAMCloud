@@ -152,6 +152,14 @@ class StartReadingDataRpc : public ServerIdRpcWrapper {
         std::unique_ptr<char[]> logDigestBuffer;
 
         /**
+         * A buffer containing the tabletMetrics gathered from the
+         * newest open segment replica found on this master, if one exists.
+         * These metrics may not be completely up-to-date as the metrics
+         * are updated only when a new log head is created.
+         */
+        std::unique_ptr<char[]> tabletMetricsBuffer;
+
+        /**
           * The number of bytes that make up logDigestBuffer.
          */
         uint32_t logDigestBytes;
@@ -170,17 +178,40 @@ class StartReadingDataRpc : public ServerIdRpcWrapper {
          * This will be -1 if there is no log digest.
          */
         uint64_t logDigestSegmentEpoch;
+
+        /**
+         * The number of bytes making up the TabletMetrics.
+         * This will be -1 if no metrics were found.
+         */
+        uint32_t tabletMetricsLen;
+
         DISALLOW_COPY_AND_ASSIGN(Result);
     };
 
     StartReadingDataRpc(Context* context, ServerId backupId,
-                        uint64_t recoveryId, ServerId masterId,
-                        const ProtoBuf::Tablets* partitions);
+                        uint64_t recoveryId, ServerId masterId);
     ~StartReadingDataRpc() {}
     Result wait();
 
   PRIVATE:
     DISALLOW_COPY_AND_ASSIGN(StartReadingDataRpc);
+};
+
+/**
+ * Encapsulates the state of a BackupClient::startPartitioning operation,
+ * allowing it to execute asynchronously.
+ */
+class StartPartitioningRpc : public ServerIdRpcWrapper {
+  public:
+    StartPartitioningRpc(Context* context, ServerId backupId,
+                        uint64_t recoveryId, ServerId masterId,
+                        const ProtoBuf::Tablets* partitions);
+    ~StartPartitioningRpc() {}
+    /// \copydoc ServerIdRpcWrapper::waitAndCheckErrors
+    void wait() {waitAndCheckErrors();}
+
+  PRIVATE:
+    DISALLOW_COPY_AND_ASSIGN(StartPartitioningRpc);
 };
 
 /**
@@ -225,7 +256,9 @@ class BackupClient {
     static void recoveryComplete(Context* context, ServerId backupId,
             ServerId masterId);
     static StartReadingDataRpc::Result startReadingData(Context* context,
-            ServerId backupId, uint64_t recoveryId, ServerId masterId,
+            ServerId backupId, uint64_t recoveryId, ServerId masterId);
+    static void StartPartitioningReplicas(Context* context, ServerId backupId,
+            uint64_t recoveryId, ServerId masterId,
             const ProtoBuf::Tablets* partitions);
     static vector<ServerId> writeSegment(Context* context, ServerId backupId,
             ServerId masterId, uint64_t segmentId, uint64_t segmentEpoch,

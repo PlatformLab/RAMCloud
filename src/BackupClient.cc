@@ -324,11 +324,12 @@ RecoveryCompleteRpc::RecoveryCompleteRpc(Context* context, ServerId backupId,
     send();
 }
 
-
 /**
  * This RPC is invoked at the beginning of recovering from a crashed master;
  * it asks a particular backup to begin reading from disk the segment replicas
- * from the crashed master.
+ * from the crashed master. This RPC should be followed by a
+ * #BackupClient::StartPartitioningReplicas call to finish rebuilding and
+ * partitioning the replicas.
  *
  * \param context
  *      Overall information about this RAMCloud server.
@@ -341,9 +342,6 @@ RecoveryCompleteRpc::RecoveryCompleteRpc(Context* context, ServerId backupId,
  *      use of mispartitioned segments.
  * \param masterId
  *      The id of the master whose data is to be recovered.
- * \param partitions
- *      Describes how the objects belonging to \a masterId are to be divided
- *      into groups for recovery.
  *
  * \return
  *      The return value is an object that describes all of the segment
@@ -353,11 +351,9 @@ StartReadingDataRpc::Result
 BackupClient::startReadingData(Context* context,
                                ServerId backupId,
                                uint64_t recoveryId,
-                               ServerId masterId,
-                               const ProtoBuf::Tablets* partitions)
+                               ServerId masterId)
 {
-    StartReadingDataRpc rpc(context, backupId, recoveryId,
-                            masterId, partitions);
+    StartReadingDataRpc rpc(context, backupId, recoveryId, masterId);
     return rpc.wait();
 }
 
@@ -377,15 +373,11 @@ BackupClient::startReadingData(Context* context,
  *      use of mispartitioned segments.
  * \param masterId
  *      The id of the master whose data is to be recovered.
- * \param partitions
- *      Describes how the objects belonging to \a masterId are to be divided
- *      into groups for recovery.
  */
 StartReadingDataRpc::StartReadingDataRpc(Context* context,
                                          ServerId backupId,
                                          uint64_t recoveryId,
-                                         ServerId masterId,
-                                         const ProtoBuf::Tablets* partitions)
+                                         ServerId masterId)
     : ServerIdRpcWrapper(context, backupId,
             sizeof(WireFormat::BackupStartReadingData::Response))
 {
@@ -393,8 +385,6 @@ StartReadingDataRpc::StartReadingDataRpc(Context* context,
             allocHeader<WireFormat::BackupStartReadingData>());
     reqHdr->recoveryId = recoveryId;
     reqHdr->masterId = masterId.getId();
-    reqHdr->partitionsLength = ProtoBuf::serializeToRequest(&request,
-            partitions);
     send();
 }
 
@@ -424,6 +414,7 @@ StartReadingDataRpc::wait()
         result.logDigestBytes = respHdr->digestBytes;
         result.logDigestSegmentId = respHdr->digestSegmentId;
         result.logDigestSegmentEpoch = respHdr->digestSegmentEpoch;
+        result.tabletMetricsLen = respHdr->tabletMetricsLen;
         response->truncateFront(sizeof(*respHdr));
         // Remove header. Pointer now invalid.
     }
@@ -439,16 +430,102 @@ StartReadingDataRpc::wait()
         result.logDigestBuffer.reset(new char[result.logDigestBytes]);
         response->copy(0, result.logDigestBytes, result.logDigestBuffer.get());
     }
+    response->truncateFront(result.logDigestBytes);
+
+    // Copy out tabletMetrics fields
+    if (result.tabletMetricsLen > 0) {
+        result.tabletMetricsBuffer.reset(new char[result.tabletMetricsLen]);
+        response->copy(0, result.tabletMetricsLen,
+                        result.tabletMetricsBuffer.get());
+    }
+
     return result;
+}
+
+/**
+ * This RPC should be invoked after StartReadingDataRpc; it asks a
+ * particular backup to begin rebuilding and partitioning the replicas
+ * read from StartReadingDataRpc.
+ *
+ * \param context
+ *      Overall information about this RAMCloud server.
+ * \param backupId
+ *      Backup that will receive this RPC.
+ * \param recoveryId
+ *      which recovery the coordinator is starting.
+ *      recovery segments may be partitioned differently for different
+ *      recoveries even for the same master. this prevents accidental
+ *      use of mispartitioned segments.
+ * \param masterId
+ *      The id of the master whose data is to be recovered.
+ * \param partitions
+ *      Describes how the coordinator would like the backup to split up the
+ *      contents of the replicas for delivery to different recovery masters.
+ *      The partition ids inside each entry act as an index describing which
+ *      recovery segment for a particular replica each object should be placed
+ *      in.
+ */
+void
+BackupClient::StartPartitioningReplicas(Context* context,
+                               ServerId backupId,
+                               uint64_t recoveryId,
+                               ServerId masterId,
+                               const ProtoBuf::Tablets* partitions)
+{
+    StartPartitioningRpc rpc(context, backupId, recoveryId,
+                            masterId, partitions);
+    rpc.wait();
+}
+
+/**
+ * Constructor for StartPartitioningRpc: initiates an RPC in the same way as
+ * #BackupClient::StartPartioningReplicas, but returns once the RPC has been
+ * initiated, without waiting for it to complete.
+ *
+ * \param context
+ *      Overall information about this RAMCloud server.
+ * \param backupId
+ *      Backup that will receive this RPC.
+ * \param recoveryId
+ *      which recovery the coordinator is starting.
+ *      recovery segments may be partitioned differently for different
+ *      recoveries even for the same master. this prevents accidental
+ *      use of mispartitioned segments.
+ * \param masterId
+ *      The id of the master whose data is to be recovered.
+ * \param partitions
+ *      Describes how the coordinator would like the backup to split up the
+ *      contents of the replicas for delivery to different recovery masters.
+ *      The partition ids inside each entry act as an index describing which
+ *      recovery segment for a particular replica each object should be placed
+ *      in.
+ */
+StartPartitioningRpc::StartPartitioningRpc(Context* context,
+                                         ServerId backupId,
+                                         uint64_t recoveryId,
+                                         ServerId masterId,
+                                         const ProtoBuf::Tablets* partitions)
+    : ServerIdRpcWrapper(context, backupId,
+            sizeof(WireFormat::BackupStartPartitioningReplicas::Response))
+{
+    WireFormat::BackupStartPartitioningReplicas::Request* reqHdr(
+            allocHeader<WireFormat::BackupStartPartitioningReplicas>());
+    reqHdr->recoveryId = recoveryId;
+    reqHdr->masterId = masterId.getId();
+    reqHdr->partitionsLength = ProtoBuf::serializeToRequest(&request,
+            partitions);
+    send();
 }
 
 StartReadingDataRpc::Result::Result()
     : replicas()
     , primaryReplicaCount(0)
     , logDigestBuffer()
+    , tabletMetricsBuffer()
     , logDigestBytes(0)
     , logDigestSegmentId(-1)
     , logDigestSegmentEpoch(-1)
+    , tabletMetricsLen(-1)
 {
 }
 
@@ -456,9 +533,11 @@ StartReadingDataRpc::Result::Result(Result&& other)
     : replicas(std::move(other.replicas))
     , primaryReplicaCount(other.primaryReplicaCount)
     , logDigestBuffer(std::move(other.logDigestBuffer))
+    , tabletMetricsBuffer(std::move(other.tabletMetricsBuffer))
     , logDigestBytes(other.logDigestBytes)
     , logDigestSegmentId(other.logDigestSegmentId)
     , logDigestSegmentEpoch(other.logDigestSegmentEpoch)
+    , tabletMetricsLen(other.tabletMetricsLen)
 {
 }
 
@@ -468,8 +547,10 @@ StartReadingDataRpc::Result::operator=(Result&& other)
     replicas = std::move(other.replicas);
     primaryReplicaCount = other.primaryReplicaCount;
     logDigestBuffer = std::move(other.logDigestBuffer);
+    tabletMetricsBuffer = std::move(other.tabletMetricsBuffer);
     logDigestBytes = other.logDigestBytes;
     logDigestSegmentId = other.logDigestSegmentId;
+    tabletMetricsLen = other.tabletMetricsLen;
     logDigestSegmentEpoch = other.logDigestSegmentEpoch;
     return *this;
 }

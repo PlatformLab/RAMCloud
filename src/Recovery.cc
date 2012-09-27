@@ -101,10 +101,11 @@ Recovery::~Recovery()
  * expected recovery time.
  */
 void
-Recovery::partitionTablets()
+Recovery::partitionTablets(vector<Tablet> tablets)
 {
-    auto tablets = tabletMap->setStatusForServer(crashedServerId,
-                                                 Tablet::RECOVERING);
+    //TODO(syang0) A new partitioning scheme should be inserted here
+
+
     // Figure out the number of partitions to be recovered and bucket tablets
     // together for recovery on a single recovery master. Right now the
     // bucketing is each tablet from the crashed master is recovered on a
@@ -132,7 +133,6 @@ Recovery::performTask()
     case START_RECOVERY_ON_BACKUPS:
         LOG(NOTICE, "Starting recovery %lu for crashed server %s",
             recoveryId, crashedServerId.toString().c_str());
-        partitionTablets();
         startBackups();
         break;
     case START_RECOVERY_MASTERS:
@@ -194,18 +194,11 @@ Recovery::getRecoveryId() const
 // - private -
 
 namespace RecoveryInternal {
-BackupStartTask::BackupStartTask(
-            Recovery* recovery,
-            ServerId backupId,
-            ServerId crashedMasterId,
-            const ProtoBuf::Tablets& partitions,
-            const ProtoBuf::MasterRecoveryInfo& recoveryInfo)
+BackupStartTask::BackupStartTask(Recovery* recovery,
+                                 ServerId backupId)
     : backupId(backupId)
     , result()
     , recovery(recovery)
-    , crashedMasterId(crashedMasterId)
-    , partitions(partitions)
-    , masterRecoveryInfo(recoveryInfo)
     , rpc()
     , done()
     , testingCallback(recovery ?
@@ -222,7 +215,7 @@ BackupStartTask::send()
         backupId.toString().c_str());
     if (!testingCallback) {
         rpc.construct(recovery->context, backupId, recovery->recoveryId,
-                      crashedMasterId, &partitions);
+                      recovery->crashedServerId);
     } else {
         testingCallback->backupStartTaskSend(result);
     }
@@ -249,8 +242,10 @@ BackupStartTask::send()
 void
 BackupStartTask::filterOutInvalidReplicas()
 {
-    uint64_t minOpenSegmentId = masterRecoveryInfo.min_open_segment_id();
-    uint64_t minOpenSegmentEpoch = masterRecoveryInfo.min_open_segment_epoch();
+    uint64_t minOpenSegmentId =
+            recovery->masterRecoveryInfo.min_open_segment_id();
+    uint64_t minOpenSegmentEpoch =
+            recovery->masterRecoveryInfo.min_open_segment_epoch();
 
     // Remove any replicas from the results that are invalid because they
     // were found open and they are from a segment that was later closed or
@@ -321,6 +316,44 @@ BackupStartTask::wait()
     done = true;
     LOG(DEBUG, "Backup %s has %lu segment replicas",
         backupId.toString().c_str(), result.replicas.size());
+}
+
+BackupStartPartitionTask::BackupStartPartitionTask(Recovery* recovery,
+                                                   ServerId backupServerId)
+        : done()
+        , rpc()
+        , backupServerId(backupServerId)
+        , recovery(recovery)
+{
+}
+
+/// Asynchronously send the startPartitioningReplicas RPC to #backupHost.
+void
+BackupStartPartitionTask::send()
+{
+    rpc.construct(recovery->context, backupServerId, recovery->recoveryId,
+                recovery->crashedServerId, &(recovery->tabletsToRecover));
+}
+
+void
+BackupStartPartitionTask::wait()
+{
+    try {
+        rpc->wait();
+        LOG(DEBUG, "Backup %s started partitioning replicas",
+                        backupServerId.toString().c_str());
+    } catch (const ServerNotUpException& e) {
+        LOG(WARNING, "Couldn't contact %s; server no longer in server list",
+            backupServerId.toString().c_str());
+        // Leave empty result as if the backup has no replicas.
+    } catch (const ClientException& e) {
+        LOG(WARNING, "startPartition failed on %s, failure was: %s",
+            backupServerId.toString().c_str(), e.str().c_str());
+        // Leave empty result as if the backup has no replicas.
+    }
+    rpc.destroy();
+
+    done = true;
 }
 
 /**
@@ -522,7 +555,10 @@ Recovery::startBackups()
     CycleCounter<RawMetric>
         _(&metrics->coordinator.recoveryBuildReplicaMapTicks);
 
-    if (numPartitions == 0) {
+    auto tablets = tabletMap->setStatusForServer(crashedServerId,
+                                                 Tablet::RECOVERING);
+
+    if (tablets.size() == 0) {
         LOG(NOTICE, "Server %s crashed, but it had no tablets",
             crashedServerId.toString().c_str());
         status = DONE;
@@ -542,13 +578,17 @@ Recovery::startBackups()
     /// List of asynchronous startReadingData tasks and their replies
     auto backupStartTasks = std::unique_ptr<Tub<BackupStartTask>[]>(
             new Tub<BackupStartTask>[backups.size()]);
+    auto backupPartitionTasks =
+        std::unique_ptr<Tub<BackupStartPartitionTask>[]>(
+            new Tub<BackupStartPartitionTask>[backups.size()]);
     uint32_t i = 0;
     foreach (ServerId backup, backups) {
-        backupStartTasks[i++].construct(this,
-                                        backup,
-                                        crashedServerId, tabletsToRecover,
-                                        masterRecoveryInfo);
+        backupStartTasks[i].construct(this, backup);
+        backupPartitionTasks[i].construct(this, backup);
+        i++;
     }
+
+    /* Broadcast 1: start reading replicas from disk and verify log integrity */
     parallelRun(backupStartTasks.get(), backups.size(), maxActiveBackupHosts);
 
     auto digestInfo = findLogDigest(backupStartTasks.get(), backups.size());
@@ -577,6 +617,12 @@ Recovery::startBackups()
         }
         return;
     }
+
+    /* Broadcast 2: partition replicas into tablets for recovery masters */
+    partitionTablets(tablets);
+
+    parallelRun(backupPartitionTasks.get(), backups.size(),
+            maxActiveBackupHosts);
 
     replicaMap = buildReplicaMap(backupStartTasks.get(), backups.size(),
                                  tracker, headId);

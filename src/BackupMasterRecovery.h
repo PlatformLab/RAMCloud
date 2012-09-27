@@ -76,11 +76,11 @@ class BackupMasterRecovery : public Task {
     BackupMasterRecovery(TaskQueue& taskQueue,
                          uint64_t recoveryId,
                          ServerId crashedMasterId,
-                         const ProtoBuf::Tablets& partitions,
                          uint32_t segmentSize);
     void start(const std::vector<BackupStorage::FrameRef>& frames,
                Buffer* buffer,
                StartResponse* response);
+    void setPartitionsAndSchedule(ProtoBuf::Tablets partitions);
     Status getRecoverySegment(uint64_t recoveryId,
                               uint64_t segmentId,
                               uint64_t partitionId,
@@ -121,7 +121,7 @@ class BackupMasterRecovery : public Task {
      * recovery segment for a particular replica each object should be placed
      * in.
      */
-    ProtoBuf::Tablets partitions;
+    Tub<ProtoBuf::Tablets> partitions;
 
     /**
      * Size of the replicas on storage. Needed for bounds-checking on the
