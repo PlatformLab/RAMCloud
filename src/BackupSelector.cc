@@ -45,6 +45,9 @@ BackupStats::getExpectedReadMs() {
  * \param context
  *      Overall information about this RAMCloud server; used to register
  *      #tracker with this server's ServerList.
+ * \param serverId
+ *      The ServerId of the backup. Used for selecting appropriate primary
+ *      and secondary replicas.
  */
 BackupSelector::BackupSelector(Context* context, const ServerId serverId)
     : tracker(context)
