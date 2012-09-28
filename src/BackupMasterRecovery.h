@@ -275,10 +275,14 @@ class BackupMasterRecovery : public Task {
     bool freeQueued;
 
     /**
-     * Times each recovery. This is an Tub that is reset on every
-     * recovery, since CycleCounters can't presently be restarted.
+     * Times each recovery.
      */
     Tub<CycleCounter<RawMetric>> recoveryTicks;
+
+    /**
+     * Times duration that replicas are being read from disk.
+     */
+    Tub<CycleCounter<RawMetric>> readingDataTicks;
 
     /**
      * Tracks when this task was scheduled to start background filtering

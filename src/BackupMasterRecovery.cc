@@ -70,6 +70,7 @@ BackupMasterRecovery::BackupMasterRecovery(TaskQueue& taskQueue,
     , startCompleted()
     , freeQueued()
     , recoveryTicks()
+    , readingDataTicks()
     , buildingStartTicks()
     , testingExtractDigest()
     , testingSkipBuild()
@@ -143,6 +144,7 @@ BackupMasterRecovery::start(const std::vector<BackupStorage::FrameRef>& frames,
                         randomNumberGenerator);
 
     // Build the deque and the mapping from segment ids to replicas.
+    readingDataTicks.construct(&metrics->backup.readingDataTicks);
     foreach (auto& frame, primaries) {
         replicas.emplace_back(frame);
         frame->startLoading();
@@ -393,6 +395,7 @@ BackupMasterRecovery::performTask()
         return;
 
     if (nextToBuild == replicas.end()) {
+        readingDataTicks.destroy();
         uint64_t ns =
             Cycles::toNanoseconds(Cycles::rdtsc() - buildingStartTicks);
         LOG(DEBUG, "Took %lu ms to filter %lu segments",
@@ -521,7 +524,6 @@ BackupMasterRecovery::buildRecoverySegments(Replica& replica)
     void* replicaData = replica.frame->load();
     std::unique_ptr<Segment[]> recoverySegments(new Segment[numPartitions]);
     uint64_t start = Cycles::rdtsc();
-    CycleCounter<RawMetric> _(&metrics->backup.filterTicks);
     try {
         if (!testingSkipBuild) {
             assert(partitions);
