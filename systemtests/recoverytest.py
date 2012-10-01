@@ -259,8 +259,7 @@ class RecoveryTestCase(ContextManagerTestCase):
         #self.last_unused_port += 1
 
     @timeout(180)
-    def _test_08_restart(self):
-        # No longer working reliably after the backup rewrite (RAM-472).
+    def test_08_restart(self):
         # We'll want two flavors of this test, I think.
         # In this one backups re-enlist. Another test where they do not would
         # be interesting, as it should be stable as well as long as crashes

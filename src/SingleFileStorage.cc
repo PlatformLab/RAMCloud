@@ -336,8 +336,10 @@ SingleFileStorage::Frame::close()
     isClosed = true;
 
     if (isSynced()) {
-        buffer.reset();
-        --storage->nonVolatileBuffersInUse;
+        if (buffer) {
+            buffer.reset();
+            --storage->nonVolatileBuffersInUse;
+        }
     }
 }
 
@@ -378,9 +380,14 @@ SingleFileStorage::Frame::free()
     ++epoch;
     isOpen = false;
     isClosed = false;
+    // Must reset this before open(), because on startup after benchmark, the
+    // frame may be loaded without open.
+    loadRequested = false;
 
-    buffer.reset();
-    --storage->nonVolatileBuffersInUse;
+    if (buffer) {
+        buffer.reset();
+        --storage->nonVolatileBuffersInUse;
+    }
 
     storage->freeMap[frameIndex] = 1;
 }
@@ -592,7 +599,7 @@ SingleFileStorage::Frame::performWrite(Lock& lock)
     committedMetadataVersion = appendedMetadataVersion;
 
     // Release the in-memory copy if it won't be used again.
-    if (isClosed && isSynced() && !loadRequested) {
+    if (isClosed && isSynced() && !loadRequested && buffer) {
         buffer.reset();
         --storage->nonVolatileBuffersInUse;
     }
