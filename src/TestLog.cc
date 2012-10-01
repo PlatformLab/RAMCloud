@@ -125,8 +125,9 @@ namespace TestLog {
 
         if (*nextPos == string::npos) {
             return "Log::getMatched(): Pattern '"
-                    + searchPattern +
-                    "' not found";
+                    + searchPattern
+                    + "' not found in "
+                    + message.substr(fromPos);
         };
         return message.substr(fromPos, *nextPos - fromPos);
     }
