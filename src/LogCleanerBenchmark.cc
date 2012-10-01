@@ -434,7 +434,9 @@ class Benchmark {
           lastWriteCostCheck(0),
           lastDiskWriteCost(0),
           lastWriteCostDiskCleanerTicks(0),
-          lastWriteCostStart(0)
+          lastWriteCostStart(0),
+          prefillLogMetrics(),
+          finalLogMetrics()
     {
     }
 
@@ -460,6 +462,8 @@ class Benchmark {
         updateOutput(true);
         fprintf(stderr, "\n");
 
+        ramcloud.getLogMetrics(serverLocator.c_str(), prefillLogMetrics);
+
         // Now issue writes until we're done.
         fprintf(stderr, "Prefill complete. Running benchmark...\n");
         start = Cycles::rdtsc();
@@ -468,6 +472,20 @@ class Benchmark {
 
         updateOutput(true);
         fprintf(stderr, "\n");
+
+        ramcloud.getLogMetrics(serverLocator.c_str(), finalLogMetrics);
+    }
+
+    void
+    getPrefillLogMetrics(ProtoBuf::LogMetrics& out)
+    {
+        out = prefillLogMetrics;
+    }
+
+    void
+    getFinalLogMetrics(ProtoBuf::LogMetrics& out)
+    {
+        out = finalLogMetrics;
     }
 
   PRIVATE:
@@ -763,6 +781,14 @@ class Benchmark {
 
     /// Cycle counter when lastWriteCost was updated.
     uint64_t lastWriteCostStart;
+
+    /// Log metrics from the benchmarked server immediately after pre-filling
+    /// before the benchmark proper begins.
+    ProtoBuf::LogMetrics prefillLogMetrics;
+
+    /// Log metrics from the benchmarked server immediately after the benchmark
+    /// has completed.
+    ProtoBuf::LogMetrics finalLogMetrics;
 
     /// Let the output class poke around inside to extract what it needs.
     friend class Output;
@@ -1187,8 +1213,8 @@ try
          "File prefix used to generate filenames metrics, write latency "
          "distributions, and raw protocol buffer data will be dumped to "
          "after the benchmark completes. This program will append \"-m.txt\" "
-         ", \"-l.txt\", and \"-r.txt\" prefixes for metrics, latency, and raw "
-         "files.")
+         ", \"-l.txt\", and \"-rp.txt/-rb.txt\" prefixes for metrics, latency, "
+         "and raw prefill/benchmark files.")
         ("pipelinedRpcs,p",
          ProgramOptions::value<int>(&options.pipelinedRpcs)->default_value(10),
          "Number of write RPCs that will be sent to the server without first "
@@ -1225,22 +1251,25 @@ try
 
     FILE* metricsFile = NULL;
     FILE* latencyFile = NULL;
-    FILE* rawFile = NULL;
+    FILE* rawPrefillFile = NULL;
+    FILE* rawBenchFile = NULL;
 
     if (options.outputFilesPrefix != "") {
         string metricsFilename = options.outputFilesPrefix + "-m.txt";
         string latencyFilename = options.outputFilesPrefix + "-l.txt";
-        string rawFilename = options.outputFilesPrefix + "-r.txt";
+        string rawPrefillFilename = options.outputFilesPrefix + "-rp.txt";
+        string rawBenchFilename = options.outputFilesPrefix + "-rb.txt";
 
-        if (fileExists(metricsFilename) || fileExists(latencyFilename) || fileExists(rawFilename)) {
-            fprintf(stderr, "One or more output files (%s, %s, or %s) already exist!\n",
-                metricsFilename.c_str(), latencyFilename.c_str(), rawFilename.c_str());
+        if (fileExists(metricsFilename) || fileExists(latencyFilename) || fileExists(rawPrefillFilename) || fileExists(rawBenchFilename)) {
+            fprintf(stderr, "One or more output files (%s, %s, %s, or %s) already exist!\n",
+                metricsFilename.c_str(), latencyFilename.c_str(), rawPrefillFilename.c_str(), rawBenchFilename.c_str());
             exit(1);
         }
 
         metricsFile = fopen(metricsFilename.c_str(), "w");
         latencyFile = fopen(latencyFilename.c_str(), "w");
-        rawFile = fopen(rawFilename.c_str(), "w");
+        rawPrefillFile = fopen(rawPrefillFilename.c_str(), "w");
+        rawBenchFile = fopen(rawBenchFilename.c_str(), "w");
     }
 
     // Set an alarm to abort this in case we can't connect.
@@ -1302,11 +1331,32 @@ try
         fprintf(latencyFile, "%s\n", benchmark.latencyHistogram.toString().c_str());
     }
 
-    if (rawFile != NULL) {
-        fprintf(rawFile, "%s", serverConfig.DebugString().c_str());
-        ramcloud.getLogMetrics(locator.c_str(), logMetrics);
-        fprintf(rawFile, "%s", logMetrics.DebugString().c_str());
+    if (rawPrefillFile != NULL) {
+        fprintf(rawPrefillFile, "%s", serverConfig.DebugString().c_str());
+        benchmark.getPrefillLogMetrics(logMetrics);
+        fprintf(rawPrefillFile, "%s", logMetrics.DebugString().c_str());
     }
+
+    if (rawBenchFile != NULL) {
+        fprintf(rawBenchFile, "%s", serverConfig.DebugString().c_str());
+        benchmark.getFinalLogMetrics(logMetrics);
+        fprintf(rawBenchFile, "%s", logMetrics.DebugString().c_str());
+    }
+
+// XXX- add something that reads all objects and verifies we stored what we expected
+uint64_t key = 0;
+uint64_t totalBytes = 0;
+while (1) {
+    Buffer buffer;
+    try {
+        ramcloud.read(0, &key, sizeof(key), &buffer); 
+    } catch (...) {
+        break;
+    }
+    totalBytes += buffer.getTotalLength();
+    key++;
+}
+fprintf(stderr, "%lu keys with %lu object bytes\n", key, totalBytes);
 
     return 0;
 } catch (ClientException& e) {

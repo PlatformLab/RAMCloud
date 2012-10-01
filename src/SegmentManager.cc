@@ -68,7 +68,9 @@ SegmentManager::SegmentManager(Context* context,
       allSegments(),
       segmentsByState(),
       lock(),
-      logIteratorCount(0)
+      logIteratorCount(0),
+      segmentsOnDisk(0),
+      segmentsOnDiskHistogram(maxSegments, 1)
 {
     if ((segmentSize % allocator.getSegletSize()) != 0)
         throw SegmentManagerException(HERE, "segmentSize % segletSize != 0");
@@ -119,6 +121,8 @@ SegmentManager::~SegmentManager()
 void
 SegmentManager::getMetrics(ProtoBuf::LogMetrics_SegmentMetrics& m)
 {
+    segmentsOnDiskHistogram.serialize(
+                *m.mutable_segments_on_disk_histogram());
 }
 
 /**
@@ -192,6 +196,7 @@ SegmentManager::allocHead(bool mustNotFail)
     // number of replicas before returning.
     newHead->replicatedSegment = replicaManager.allocateHead(
         newHead->id, newHead, prevReplicatedSegment);
+    segmentsOnDiskHistogram.storeSample(segmentsOnDisk++);
 
     // Close the old head after we've opened up the new head. This ensures that
     // we always have an open segment on backups, unless of course there was a
@@ -233,7 +238,7 @@ SegmentManager::allocSurvivor(uint64_t headSegmentIdDuringCleaning)
         if (s != NULL)
             break;
 
-        usleep(10);
+        usleep(100);
     }
 
     Lock guard(lock);
@@ -243,6 +248,7 @@ SegmentManager::allocSurvivor(uint64_t headSegmentIdDuringCleaning)
     writeHeader(s, headSegmentIdDuringCleaning);
 
     s->replicatedSegment = replicaManager.allocateNonHead(s->id, s);
+    segmentsOnDiskHistogram.storeSample(segmentsOnDisk++);
     s->headSegmentIdDuringCleaning = headSegmentIdDuringCleaning;
 
     return s;
@@ -270,7 +276,7 @@ SegmentManager::allocSurvivor(LogSegment* replacing)
         if (s != NULL)
             break;
              
-        usleep(10);
+        usleep(100);
     }
 
     Lock guard(lock);
@@ -779,8 +785,10 @@ SegmentManager::free(LogSegment* s)
     // Free any backup replicas. Segments cleaned in memory will have had their
     // replicatedSegment stolen and the pointer set to NULL on the old cleaned
     // version of segment.
-    if (s->replicatedSegment != NULL)
+    if (s->replicatedSegment != NULL) {
         s->replicatedSegment->free();
+        segmentsOnDiskHistogram.storeSample(--segmentsOnDisk);
+    }
 
     removeFromLists(*s);
     states[slot].destroy();

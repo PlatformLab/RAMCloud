@@ -126,7 +126,8 @@ message LogMetrics {
     /// Log metrics related to allocated segments, both in memory and on disk.
     /// Filled in by the SegmentManager class.
     message SegmentMetrics {
-        
+        /// Histogram tracking the number of segments replicated on backups.
+        required Histogram segments_on_disk_histogram = 1;
     }
     required SegmentMetrics segment_metrics = 9;
 }

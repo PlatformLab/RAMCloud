@@ -23,6 +23,7 @@
 #include "BoostIntrusive.h"
 #include "LargeBlockOfMemory.h"
 #include "LogSegment.h"
+#include "Histogram.h"
 #include "ReplicaManager.h"
 #include "ServerId.h"
 #include "SpinLock.h"
@@ -259,6 +260,19 @@ class SegmentManager {
     /// survivor segments must not be added to the log and cleaned segments
     /// must not be freed.
     int logIteratorCount;
+
+    /// Number of segments currently on backup disks. This is exactly the number
+    /// of ReplicatedSegments that exist.
+    //
+    // TODO(rumble): It would probably be cleaner to have a way to query
+    // ReplicaManager for this value. It already maintains a list of existing
+    // ReplicatedSegments.
+    uint32_t segmentsOnDisk;
+
+    /// Histogram used to track the number of segments present on disk so that
+    /// disk utilization of masters can be monitored. This is updated every
+    /// time a segment is allocated or freed.
+    Histogram segmentsOnDiskHistogram;
 
     DISALLOW_COPY_AND_ASSIGN(SegmentManager);
 };
