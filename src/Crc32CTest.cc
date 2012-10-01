@@ -115,7 +115,7 @@ TEST_P(Crc32CTest, updateFromBuffer) {
     Crc32C b;
     a.update(buf, sizeof(buf));
     Buffer buffer;
-    buffer.appendTo(buf, sizeof(buf));
+    buffer.append(buf, sizeof(buf));
     b.update(buffer);
     EXPECT_EQ(a.result, b.result);
 

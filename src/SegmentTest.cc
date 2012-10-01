@@ -451,7 +451,7 @@ TEST_P(SegmentTest, copyInFromBuffer) {
 
     char buf[1024];
     Buffer buffer;
-    buffer.appendTo(buf, sizeof(buf));
+    buffer.append(buf, sizeof(buf));
 
     EXPECT_EQ(0U, s.copyInFromBuffer(segmentSize, buffer, 0, sizeof(buf)));
     EXPECT_EQ(5U, s.copyInFromBuffer(segmentSize - 5, buffer, 0, sizeof(buf)));

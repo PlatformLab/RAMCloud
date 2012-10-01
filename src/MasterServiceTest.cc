@@ -258,7 +258,7 @@ TEST_F(MasterServiceTest, enumeration_basics) {
     // First object.
     EXPECT_EQ(33U, *objects.getOffset<uint32_t>(0));            // size
     Buffer buffer1;
-    buffer1.appendTo(objects.getRange(4, objects.getTotalLength() - 4),
+    buffer1.append(objects.getRange(4, objects.getTotalLength() - 4),
                      objects.getTotalLength() - 4);
     Object object1(buffer1);
     EXPECT_EQ(0U, object1.getTableId());                        // table ID
@@ -271,7 +271,7 @@ TEST_F(MasterServiceTest, enumeration_basics) {
     // Second object.
     EXPECT_EQ(33U, *objects.getOffset<uint32_t>(37));           // size
     Buffer buffer2;
-    buffer2.appendTo(objects.getRange(41, objects.getTotalLength() - 41),
+    buffer2.append(objects.getRange(41, objects.getTotalLength() - 41),
                      objects.getTotalLength() - 41);
     Object object2(buffer2);
     EXPECT_EQ(0U, object2.getTableId());                        // table ID
@@ -332,7 +332,7 @@ TEST_F(MasterServiceTest, enumeration_mergeTablet) {
     // First object.
     EXPECT_EQ(38U, *objects.getOffset<uint32_t>(0));            // size
     Buffer buffer1;
-    buffer1.appendTo(objects.getRange(4, objects.getTotalLength() - 4),
+    buffer1.append(objects.getRange(4, objects.getTotalLength() - 4),
                      objects.getTotalLength() - 4);
     Object object1(buffer1);
     EXPECT_EQ(0U, object1.getTableId());                        // table ID

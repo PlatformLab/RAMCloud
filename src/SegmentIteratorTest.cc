@@ -156,7 +156,7 @@ TEST_F(SegmentIteratorTest, setBufferTo) {
     s.append(LOG_ENTRY_TYPE_OBJ, "this is the content", 20);
     SegmentIterator it(s);
     Buffer buffer;
-    buffer.appendTo("junk first", 11);
+    buffer.append("junk first", 11);
     it.setBufferTo(buffer);
     EXPECT_EQ(20U, buffer.getTotalLength());
     EXPECT_EQ(0, memcmp("this is the content", buffer.getRange(0, 20), 20));

@@ -191,7 +191,7 @@ Segment::append(LogEntryType type,
                 uint32_t& outOffset)
 {
     Buffer buffer;
-    buffer.appendTo(data, length);
+    buffer.append(data, length);
     return append(type, buffer, 0, length, outOffset);
 }
 
@@ -274,7 +274,7 @@ Segment::appendToBuffer(Buffer& buffer, uint32_t offset, uint32_t length) const
         if (contigBytes == 0)
             break;
 
-        buffer.appendTo(contigPointer, contigBytes);
+        buffer.append(contigPointer, contigBytes);
 
         offset += contigBytes;
         length -= contigBytes;

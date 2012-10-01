@@ -243,7 +243,7 @@ bool
 Log::append(LogEntryType type, const void* data, uint32_t length, bool sync)
 {
     Buffer buffer;
-    buffer.appendTo(data, length);
+    buffer.append(data, length);
     HashTable::Reference dummy;
     return append(type, buffer, true, dummy);
 }

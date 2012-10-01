@@ -150,7 +150,7 @@ TEST_F(LogTest, free) {
 TEST_F(LogTest, getEntry) {
     uint64_t data = 0x123456789ABCDEF0UL;
     Buffer sourceBuffer;
-    sourceBuffer.appendTo(&data, sizeof(data));
+    sourceBuffer.append(&data, sizeof(data));
     HashTable::Reference reference;
     EXPECT_TRUE(l.append(LOG_ENTRY_TYPE_OBJ, sourceBuffer, false, reference));
 
@@ -201,7 +201,7 @@ TEST_F(LogTest, getHeadPosition) {
 TEST_F(LogTest, getSegmentId) {
     Buffer buffer;
     char data[1000];
-    buffer.appendTo(data, sizeof(data));
+    buffer.append(data, sizeof(data));
     HashTable::Reference reference;
 
     int zero = 0, one = 0, other = 0;

@@ -186,7 +186,7 @@ class Object {
     void
     serializeToBuffer(Buffer& buffer)
     {
-        buffer.appendTo(&serializedForm, sizeof32(serializedForm));
+        buffer.append(&serializedForm, sizeof32(serializedForm));
         appendKeyToBuffer(buffer);
         appendDataToBuffer(buffer);
     }
@@ -202,7 +202,7 @@ class Object {
     appendKeyToBuffer(Buffer& buffer)
     {
         if (key) {
-            buffer.appendTo(getKey(), getKeyLength());
+            buffer.append(getKey(), getKeyLength());
             return;
         }
 
@@ -210,7 +210,7 @@ class Object {
                             sizeof32(serializedForm),
                             getKeyLength());
         while (!it.isDone()) {
-            buffer.appendTo(it.getData(), it.getLength());
+            buffer.append(it.getData(), it.getLength());
             it.next();
         }
     }
@@ -225,7 +225,7 @@ class Object {
     appendDataToBuffer(Buffer& buffer)
     {
         if (data) {
-            buffer.appendTo(*data, dataLength);
+            buffer.append(*data, dataLength);
             return;
         }
 
@@ -241,7 +241,7 @@ class Object {
 
         Buffer::Iterator it(*sourceBuffer, offset, dataLength);
         while (!it.isDone()) {
-            buffer.appendTo(it.getData(), it.getLength());
+            buffer.append(it.getData(), it.getLength());
             it.next();
         }
     }
@@ -551,7 +551,7 @@ class ObjectTombstone {
     void
     serializeToBuffer(Buffer& buffer)
     {
-        buffer.appendTo(&serializedForm, sizeof32(serializedForm));
+        buffer.append(&serializedForm, sizeof32(serializedForm));
         appendKeyToBuffer(buffer);
     }
 
@@ -567,7 +567,7 @@ class ObjectTombstone {
     appendKeyToBuffer(Buffer& buffer)
     {
         if (key) {
-            buffer.appendTo(getKey(), getKeyLength());
+            buffer.append(getKey(), getKeyLength());
             return;
         }
 
@@ -575,7 +575,7 @@ class ObjectTombstone {
                             sizeof32(serializedForm),
                             getKeyLength());
         while (!it.isDone()) {
-            buffer.appendTo(it.getData(), it.getLength());
+            buffer.append(it.getData(), it.getLength());
             it.next();
         }
     }
