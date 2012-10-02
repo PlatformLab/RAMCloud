@@ -19,6 +19,7 @@
 #include "StringUtil.h"
 #include "Log.h"
 #include "LogEntryTypes.h"
+#include "ServerConfig.h"
 
 namespace RAMCloud {
 
@@ -33,11 +34,16 @@ class SegmentAndAllocator {
     SegmentAndAllocator(SegmentAndSegletSize* segmentAndSegletSize)
         : segmentSize(segmentAndSegletSize->segmentSize),
           segletSize(segmentAndSegletSize->segletSize),
-          allocator(segmentSize, segletSize),
+          allocator(),
           segment()
     {
+        ServerConfig serverConfig(ServerConfig::forTesting());
+        serverConfig.segmentSize = segmentSize;
+        serverConfig.segletSize = segletSize;
+        allocator.construct(serverConfig);
+
         vector<Seglet*> seglets;
-        EXPECT_TRUE(allocator.alloc(SegletAllocator::DEFAULT,
+        EXPECT_TRUE(allocator->alloc(SegletAllocator::DEFAULT,
                     segmentSize / segletSize,
                     seglets));
         segment.construct(seglets, segletSize);
@@ -45,7 +51,7 @@ class SegmentAndAllocator {
 
     const uint32_t segmentSize;
     const uint32_t segletSize;
-    SegletAllocator allocator;
+    Tub<SegletAllocator> allocator;
     Tub<Segment> segment;
 
     DISALLOW_COPY_AND_ASSIGN(SegmentAndAllocator);
@@ -87,18 +93,6 @@ TEST_P(SegmentTest, constructor) {
 
     EXPECT_FALSE(s.closed);
     EXPECT_EQ(0U, s.head);
-
-    // Footer should always exist.
-    Buffer buffer;
-    s.appendToBuffer(buffer);
-    const Segment::EntryHeader* entryHeader = reinterpret_cast<
-        const Segment::EntryHeader*>(buffer.getStart<Segment::EntryHeader>());
-    EXPECT_EQ(LOG_ENTRY_TYPE_SEGFOOTER, entryHeader->getType());
-    const Segment::Footer* footer = reinterpret_cast<const Segment::Footer*>(
-        buffer.getRange(2, sizeof(*footer)));
-    EXPECT_FALSE(footer->closed);
-    EXPECT_EQ(0x722308dcU, footer->checksum);
-    EXPECT_FALSE(s.mustFreeBlocks);
 }
 
 TEST_F(SegmentTest, constructor_priorSegmentBuffer) {
@@ -141,9 +135,7 @@ TEST_P(SegmentTest, append_outOfSpace) {
     // How many N-length writes can we make to this segment?
     char buf[107];
     uint32_t bytesPerAppend = s.bytesNeeded(sizeof(buf));
-    uint32_t expectedAppends =
-        (GetParam()->segmentSize - s.bytesNeeded(sizeof32(Segment::Footer)))
-            / bytesPerAppend;
+    uint32_t expectedAppends = GetParam()->segmentSize / bytesPerAppend;
 
     uint32_t actualAppends = 0;
     while (s.append(LOG_ENTRY_TYPE_OBJ, buf, sizeof(buf)))
@@ -151,8 +143,6 @@ TEST_P(SegmentTest, append_outOfSpace) {
 
     EXPECT_EQ(expectedAppends, actualAppends);
     EXPECT_EQ(GetParam()->getSegletsPerSegment(), s.getSegletsAllocated());
-    EXPECT_GE(GetParam()->segmentSize - s.getAppendedLength(),
-        s.bytesNeeded(sizeof(Segment::Footer)));
 }
 
 TEST_P(SegmentTest, append_whiteBox) {
@@ -163,20 +153,14 @@ TEST_P(SegmentTest, append_whiteBox) {
     s.append(LOG_ENTRY_TYPE_OBJ, "hi", 2, offset);
 
     EXPECT_EQ(0U, offset);
-    EXPECT_EQ(4U, s.getAppendedLength());
+    Segment::Certificate certificate;
+    EXPECT_EQ(4U, s.getAppendedLength(certificate));
+    EXPECT_EQ(4u, certificate.segmentLength);
+    EXPECT_EQ(0x87a632e2u, certificate.checksum);
 
     Buffer buffer;
     s.appendToBuffer(buffer);
     EXPECT_EQ(0, memcmp("hi", buffer.getRange(2, 2), 2));
-
-    const Segment::EntryHeader* entryHeader = reinterpret_cast<
-        const Segment::EntryHeader*>(buffer.getRange(4, sizeof(*entryHeader)));
-    EXPECT_EQ(LOG_ENTRY_TYPE_SEGFOOTER, entryHeader->getType());
-    EXPECT_EQ(1U, entryHeader->getLengthBytes());
-    const Segment::Footer* footer = reinterpret_cast<const Segment::Footer*>(
-        buffer.getRange(6, sizeof(*footer)));
-    EXPECT_FALSE(footer->closed);
-    EXPECT_EQ(0xa0614ee6, footer->checksum);
 }
 
 TEST_P(SegmentTest, append_differentLengthBytes) {
@@ -224,14 +208,6 @@ TEST_P(SegmentTest, close) {
     EXPECT_FALSE(s.closed);
     s.close();
     EXPECT_TRUE(s.closed);
-
-    Buffer buffer;
-    s.appendToBuffer(buffer);
-    const Segment::Footer* footer = reinterpret_cast<const Segment::Footer*>(
-        buffer.getRange(buffer.getTotalLength() - sizeof32(Segment::Footer),
-                        sizeof32(Segment::Footer)));
-    EXPECT_TRUE(footer->closed);
-    EXPECT_EQ(0x80488bdfU, footer->checksum);
 }
 
 TEST_P(SegmentTest, appendToBuffer_partial) {
@@ -248,17 +224,17 @@ TEST_P(SegmentTest, appendToBuffer_partial) {
 }
 
 TEST_P(SegmentTest, appendToBuffer_all) {
-    // Should always include the footer, even if nothing has been appended.
     SegmentAndAllocator segAndAlloc(GetParam());
     Segment& s = *segAndAlloc.segment;
+
     Buffer buffer;
     s.appendToBuffer(buffer);
-    EXPECT_EQ(7U, buffer.getTotalLength());
+    EXPECT_EQ(0U, buffer.getTotalLength());
 
     buffer.reset();
     s.append(LOG_ENTRY_TYPE_OBJ, "yo!", 3);
     s.appendToBuffer(buffer);
-    EXPECT_EQ(7U + 5U, buffer.getTotalLength());
+    EXPECT_EQ(5U, buffer.getTotalLength());
 }
 
 TEST_P(SegmentTest, getEntry) {
@@ -277,28 +253,39 @@ TEST_P(SegmentTest, getEntry) {
 TEST_P(SegmentTest, getAppendedLength) {
     SegmentAndAllocator segAndAlloc(GetParam());
     Segment& s = *segAndAlloc.segment;
-    // TODO(steve): write me.
-    (void)s;
+
+    Segment::Certificate certificate;
+    EXPECT_EQ(0lu, s.getAppendedLength(certificate));
+    EXPECT_EQ(0lu, certificate.segmentLength);
+    EXPECT_EQ(0x48674bc7lu, certificate.checksum);
+    s.append(LOG_ENTRY_TYPE_OBJ, "yo!", 3);
+    EXPECT_EQ(5lu, s.getAppendedLength(certificate));
+    EXPECT_EQ(5lu, certificate.segmentLength);
+    EXPECT_EQ(0x62f2f7f6u, certificate.checksum);
 }
 
 TEST_P(SegmentTest, getSegletsAllocated) {
     SegmentAndAllocator segAndAlloc(GetParam());
     Segment& s = *segAndAlloc.segment;
-    EXPECT_EQ(GetParam()->getSegletsPerSegment(), s.getSegletsAllocated());
+    EXPECT_EQ(segAndAlloc.segmentSize / segAndAlloc.segletSize,
+              s.getSegletsAllocated());
 }
 
-TEST_P(SegmentTest, appendFooter) {
+TEST_P(SegmentTest, getSegletsInUse) {
     SegmentAndAllocator segAndAlloc(GetParam());
     Segment& s = *segAndAlloc.segment;
+    EXPECT_EQ(0U, s.getSegletsInUse());
 
-    // Appending the footer shouldn't alter the head or the checksum
-    // we've accumulated thus far.
-    s.append(LOG_ENTRY_TYPE_OBJ, "blah", 4);
-    uint32_t head = s.getAppendedLength();
-    Crc32C checksum = s.checksum;
-    s.appendFooter();
-    EXPECT_EQ(head, s.getAppendedLength());
-    EXPECT_EQ(checksum.getResult(), s.checksum.getResult());
+    char buf[segAndAlloc.segletSize];
+    bool ok = s.append(LOG_ENTRY_TYPE_OBJ, buf, segAndAlloc.segletSize);
+    if ((segAndAlloc.segmentSize / segAndAlloc.segmentSize) > 1) {
+        EXPECT_TRUE(ok);
+        EXPECT_GE(s.getSegletsInUse(), 2U);
+        EXPECT_LE(s.getSegletsInUse(), 3U);
+    } else {
+        EXPECT_FALSE(ok);
+        EXPECT_EQ(0U, s.getSegletsInUse());
+    }
 }
 
 TEST_P(SegmentTest, getEntryInfo) {
@@ -309,8 +296,7 @@ TEST_P(SegmentTest, getEntryInfo) {
     {
         SegmentAndAllocator segAndAlloc(GetParam());
         Segment& s = *segAndAlloc.segment;
-        s.getEntryInfo(0, type, dataOffset, dataLength);
-        EXPECT_EQ(2U, dataOffset);
+
         char buf[200];
         s.append(LOG_ENTRY_TYPE_OBJ, buf, 200);
 
@@ -323,8 +309,7 @@ TEST_P(SegmentTest, getEntryInfo) {
     {
         SegmentAndAllocator segAndAlloc(GetParam());
         Segment& s = *segAndAlloc.segment;
-        s.getEntryInfo(0, type, dataOffset, dataLength);
-        EXPECT_EQ(2U, dataOffset);
+
         char buf[2000];
         s.append(LOG_ENTRY_TYPE_OBJ, buf, 2000);
         s.getEntryInfo(0, type, dataOffset, dataLength);
@@ -400,7 +385,7 @@ TEST_P(SegmentTest, bytesLeft) {
     Segment& s = *segAndAlloc.segment;
     EXPECT_EQ(GetParam()->segmentSize, s.bytesLeft() + 7);
     s.append(LOG_ENTRY_TYPE_OBJ, "blah", 5);
-    EXPECT_EQ(GetParam()->segmentSize - 14, s.bytesLeft());
+    EXPECT_EQ(GetParam()->segmentSize - 7, s.bytesLeft());
     s.close();
     EXPECT_EQ(0U, s.bytesLeft());
 }
@@ -477,46 +462,52 @@ TEST_P(SegmentTest, checkMetadataIntegrity_simple) {
     TestLog::Enable _;
     SegmentAndAllocator segAndAlloc(GetParam());
     Segment& s = *segAndAlloc.segment;
-    EXPECT_TRUE(s.checkMetadataIntegrity());
+
+    Segment::Certificate certificate;
+    s.getAppendedLength(certificate);
+    EXPECT_TRUE(s.checkMetadataIntegrity(certificate));
     s.append(LOG_ENTRY_TYPE_OBJ, "asdfhasdf", 10);
-    EXPECT_TRUE(s.checkMetadataIntegrity());
+    s.getAppendedLength(certificate);
+    EXPECT_TRUE(s.checkMetadataIntegrity(certificate));
 
     // scribbling on an entry's data won't harm anything
     s.copyIn(2, "ASDFHASDF", 10);
-    EXPECT_TRUE(s.checkMetadataIntegrity());
+    EXPECT_TRUE(s.checkMetadataIntegrity(certificate));
 
     // scribbling on metadata should result in a checksum error
     Segment::EntryHeader newHeader(LOG_ENTRY_TYPE_OBJTOMB, 10);
     s.copyIn(0, &newHeader, sizeof(newHeader));
-    EXPECT_FALSE(s.checkMetadataIntegrity());
+    EXPECT_FALSE(s.checkMetadataIntegrity(certificate));
     EXPECT_TRUE(StringUtil::startsWith(TestLog::get(),
         "checkMetadataIntegrity: segment corrupt: bad checksum"));
-}
-
-TEST_P(SegmentTest, checkMetadataIntegrity_noFooter) {
-    TestLog::Enable _;
-    SegmentAndAllocator segAndAlloc(GetParam());
-    Segment& s = *segAndAlloc.segment;
-    uint32_t segmentSize = GetParam()->segmentSize;
-    char buf[segmentSize];
-    memset(buf, 0, segmentSize);
-    s.copyIn(0, buf, segmentSize);
-    EXPECT_FALSE(s.checkMetadataIntegrity());
-    EXPECT_TRUE(StringUtil::startsWith(TestLog::get(),
-        "checkMetadataIntegrity: segment corrupt: no footer by offset "));
 }
 
 TEST_P(SegmentTest, checkMetadataIntegrity_badLength) {
     TestLog::Enable _;
     SegmentAndAllocator segAndAlloc(GetParam());
     Segment& s = *segAndAlloc.segment;
-    uint32_t segmentSize = GetParam()->segmentSize;
+    Segment::Certificate certificate;
+    uint32_t segmentSize = GetParam()->segmentSize - 100;
+
     Segment::EntryHeader header(LOG_ENTRY_TYPE_OBJ, 1024*1024*1024);
     s.copyIn(0, &header, sizeof(header));
     s.copyIn(sizeof(header), &segmentSize, sizeof(segmentSize));
-    EXPECT_FALSE(s.checkMetadataIntegrity());
+    s.head = 1;
+    s.getAppendedLength(certificate);
+    EXPECT_FALSE(s.checkMetadataIntegrity(certificate));
     EXPECT_TRUE(StringUtil::startsWith(TestLog::get(),
-        "checkMetadataIntegrity: segment corrupt: no footer by offset "));
+        "checkMetadataIntegrity: segment corrupt: entries run off past "
+        "expected length"));
+
+    TestLog::reset();
+    segmentSize = segAndAlloc.segmentSize;
+    s.copyIn(0, &header, sizeof(header));
+    s.copyIn(sizeof(header), &segmentSize, sizeof(segmentSize));
+    s.getAppendedLength(certificate);
+    EXPECT_FALSE(s.checkMetadataIntegrity(certificate));
+    EXPECT_TRUE(StringUtil::startsWith(TestLog::get(),
+        "checkMetadataIntegrity: segment corrupt: entries run off past "
+        "allocated segment size"));
 }
 
 } // namespace RAMCloud

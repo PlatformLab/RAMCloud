@@ -27,6 +27,7 @@ namespace RAMCloud {
  */
 namespace Util {
 
+string hexDump(const void *buffer, uint64_t bytes);
 bool timespecLess(const struct timespec& t1, const struct timespec& t2);
 bool timespecLessEqual(const struct timespec& t1, const struct timespec& t2);
 struct timespec timespecAdd(const struct timespec& t1,

@@ -177,9 +177,6 @@ string demangle(const char* name);
 
 namespace RAMCloud {
 
-void debug_dump64(const void *buf, uint64_t bytes);
-class Buffer;
-void debug_dump64(Buffer& buffer);
 bool pinToCpu(uint32_t cpu);
 uint64_t getTotalSystemMemory();
 
@@ -230,8 +227,10 @@ get(const Map& map, const typename Map::key_type& key)
         - 100)
 
 /**
- * Convenience to avoid having downcasts everywhere we take sizeof, which
- * returns size_t, but want a uint32_t instead.
+ * Return the size of the given type as a uint32_t. This convenience macro
+ * tavoids having downcasts everywhere we take sizeof, which returns size_t,
+ * but want a uint32_t instead. Stay tuned for a fancier templated version
+ * by syang0 and ongaro...
  */
 #define sizeof32(type) downCast<uint32_t>(sizeof(type))
 

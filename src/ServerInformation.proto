@@ -28,11 +28,8 @@ message ServerInformation {
 	/// Services supported by the server.
     required uint32 service_mask = 3;
 
-    /// Read speed of the server.
+    /// Read speed of the server in MB/s.
     required uint32 read_speed = 4;
-
-	/// Write speed of the server.
-    required uint32 write_speed = 5;
 
 	/// Service Locator of the server.
     required string service_locator = 6;

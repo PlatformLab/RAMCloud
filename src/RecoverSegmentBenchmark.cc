@@ -15,8 +15,10 @@
 
 #include "ClientException.h"
 #include "Cycles.h"
+#include "Logger.h"
 #include "MasterService.h"
 #include "Memory.h"
+#include "SegmentIterator.h"
 #include "Tablets.pb.h"
 
 namespace RAMCloud {
@@ -36,13 +38,14 @@ class RecoverSegmentBenchmark {
         , serverList(&context)
         , service(NULL)
     {
+        Logger::get().setLogLevels(SILENT_LOG_LEVEL);
         config.localLocator = "bogus";
         config.coordinatorLocator = "bogus";
         config.setLogAndHashTableSize(logSize, hashTableSize);
         config.services = {WireFormat::MASTER_SERVICE};
         config.master.numReplicas = 0;
         service = new MasterService(&context, config);
-        service->serverId = ServerId(1, 0);
+        service->init({1, 0});
     }
 
     ~RecoverSegmentBenchmark()
@@ -65,7 +68,8 @@ class RecoverSegmentBenchmark {
             while (1) {
                 Key key(0, &nextKeyVal, sizeof(nextKeyVal));
 
-                Object object(key, NULL, 0, 0, 0);
+                char objectData[dataBytes];
+                Object object(key, objectData, dataBytes, 0, 0);
                 Buffer buffer;
                 object.serializeToBuffer(buffer);
                 if (!segments[i]->append(LOG_ENTRY_TYPE_OBJ, buffer))
@@ -93,8 +97,11 @@ class RecoverSegmentBenchmark {
             Segment* s = segments[i];
             Buffer buffer;
             s->appendToBuffer(buffer);
+            Segment::Certificate certificate;
+            s->getAppendedLength(certificate);
             const void* contigSeg = buffer.getRange(0, buffer.getTotalLength());
-            service->recoverSegment(i, contigSeg, buffer.getTotalLength());
+            SegmentIterator it(contigSeg, buffer.getTotalLength(), certificate);
+            service->recoverSegment(it);
         }
         uint64_t ticks = Cycles::rdtsc() - before;
 

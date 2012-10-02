@@ -56,24 +56,6 @@ CoordinatorServerManager::assignReplicationGroup(
             return false;
         }
         service.serverList.setReplicationId(backupId, replicationId);
-        // Try to send an assignReplicationId Rpc to a backup. If the RPC
-        // fails because the server is no longer in the cluster, the function
-        // aborts. Even if we didn't abort in case of a failed RPC, masters
-        // would still not use the failed replication group, since it would
-        // not accept their RPCs.
-        try {
-            // This code is not currently safe; see RAM-429.  Fortunately,
-            // replication groups aren't actually used right now, so we can
-            // just do nothing.
-#if 0
-            BackupClient::assignGroup(service.context, backupId,
-                replicationId,
-                static_cast<uint32_t>(replicationGroupIds.size()),
-                &replicationGroupIds[0]);
-#endif
-        } catch (const ServerNotUpException& e) {
-            return false;
-        }
     }
     return true;
 }
@@ -83,7 +65,7 @@ CoordinatorServerManager::assignReplicationGroup(
  * are not assigned a replication group and are up.
  * If there are not enough available candidates for a new group, the function
  * returns without sending out any Rpcs. If there are enough group members
- * to form a new group, but one of the servers is down, hintServerƒown will
+ * to form a new group, but one of the servers is down, hintServerDown will
  * reset the replication group of that server.
  */
 void
@@ -137,7 +119,6 @@ CoordinatorServerManager::EnlistServer::execute()
     state.set_server_id(newServerId.getId());
     state.set_service_mask(serviceMask.serialize());
     state.set_read_speed(readSpeed);
-    state.set_write_speed(writeSpeed);
     state.set_service_locator(string(serviceLocator));
 
     EntryId entryId =
@@ -172,12 +153,9 @@ CoordinatorServerManager::EnlistServer::complete(EntryId entryId)
         "services: %s", serviceLocator, newServerId.toString().c_str(),
         entry.services.toString().c_str());
 
-    if (entry.services.has(WireFormat::MEMBERSHIP_SERVICE))
-        manager.sendServerList(newServerId);
-
     if (entry.isBackup()) {
-        LOG(DEBUG, "Backup at id %s has %u MB/s read %u MB/s write",
-            newServerId.toString().c_str(), readSpeed, writeSpeed);
+        LOG(DEBUG, "Backup at id %s has %u MB/s read",
+            newServerId.toString().c_str(), readSpeed);
         manager.createReplicationGroup();
     }
 
@@ -186,7 +164,6 @@ CoordinatorServerManager::EnlistServer::complete(EntryId entryId)
     state.set_server_id(newServerId.getId());
     state.set_service_mask(serviceMask.serialize());
     state.set_read_speed(readSpeed);
-    state.set_write_speed(writeSpeed);
     state.set_service_locator(string(serviceLocator));
 
     EntryId newEntryId = manager.service.logCabinHelper->appendProtoBuf(
@@ -207,8 +184,6 @@ CoordinatorServerManager::EnlistServer::complete(EntryId entryId)
  *      Services supported by the enlisting server.
  * \param readSpeed
  *      Read speed of the enlisting server.
- * \param writeSpeed
- *      Write speed of the enlisting server.
  * \param serviceLocator
  *      Service Locator of the enlisting server.
  *
@@ -218,7 +193,7 @@ CoordinatorServerManager::EnlistServer::complete(EntryId entryId)
 ServerId
 CoordinatorServerManager::enlistServer(
     ServerId replacesId, ServiceMask serviceMask, const uint32_t readSpeed,
-    const uint32_t writeSpeed,  const char* serviceLocator)
+    const char* serviceLocator)
 {
     Lock _(mutex);
 
@@ -238,7 +213,7 @@ CoordinatorServerManager::enlistServer(
 
     ServerId newServerId =
         EnlistServer(*this, ServerId(), serviceMask,
-                     readSpeed, writeSpeed, serviceLocator).execute();
+                     readSpeed, serviceLocator).execute();
 
     if (replacesId.isValid()) {
         LOG(NOTICE, "Newly enlisted server %s replaces server %s",
@@ -263,11 +238,11 @@ CoordinatorServerManager::enlistServerRecover(
     ProtoBuf::ServerInformation* state, EntryId entryId)
 {
     Lock _(mutex);
+    LOG(DEBUG, "CoordinatorServerManager::enlistServerRecover()");
     EnlistServer(*this,
                  ServerId(state->server_id()),
                  ServiceMask::deserialize(state->service_mask()),
                  state->read_speed(),
-                 state->write_speed(),
                  state->service_locator().c_str()).complete(entryId);
 }
 
@@ -287,6 +262,7 @@ CoordinatorServerManager::enlistedServerRecover(
 {
     Lock _(mutex);
 
+    LOG(DEBUG, "CoordinatorServerManager::enlistedServerRecover()");
     // TODO(ankitak): This will automatically queue a serverlist update
     // to be sent to the cluster. We don't want to do that for efficiency.
     service.serverList.add(
@@ -379,20 +355,6 @@ CoordinatorServerManager::removeReplicationGroup(uint64_t groupId)
 }
 
 /**
- * Push the entire server list to the specified server. This is used to both
- * push the initial list when a server enlists, as well as to push the list
- * again if a server misses any updates and has gone out of sync.
- *
- * \param serverId
- *      ServerId of the server to send the list to.
- */
-void
-CoordinatorServerManager::sendServerList(ServerId serverId)
-{
-    service.serverList.sendServerList(serverId);
-}
-
-/**
  * Do everything needed to execute the ServerDown operation.
  * Do any processing required before logging the state
  * in LogCabin, log the state in LogCabin, then call #complete().
@@ -429,7 +391,7 @@ CoordinatorServerManager::ServerDown::complete(EntryId entryId)
     EntryId serverInfoLogId =
         manager.service.serverList.getServerInfoLogId(serverId);
     EntryId serverUpdateLogId =
-        manager.service.serverList.getServerInfoLogId(serverId);
+        manager.service.serverList.getServerUpdateLogId(serverId);
 
     // If this machine has a backup and master on the same server it is best
     // to remove the dead backup before initiating recovery. Otherwise, other
@@ -483,16 +445,17 @@ CoordinatorServerManager::serverDownRecover(
     ProtoBuf::StateServerDown* state, EntryId entryId)
 {
     Lock _(mutex);
+    LOG(DEBUG, "CoordinatorServerManager::serverDownRecover()");
     ServerDown(*this, ServerId(state->server_id())).complete(entryId);
 }
 
 /**
- * Do everything needed to execute the SetMinOpenSegmentId operation.
+ * Do everything needed to execute the SetMasterRecoveryInfo operation.
  * Do any processing required before logging the state
  * in LogCabin, log the state in LogCabin, then call #complete().
  */
 void
-CoordinatorServerManager::SetMinOpenSegmentId::execute()
+CoordinatorServerManager::SetMasterRecoveryInfo::execute()
 {
     EntryId oldEntryId =
         manager.service.serverList.getServerUpdateLogId(serverId);
@@ -513,7 +476,7 @@ CoordinatorServerManager::SetMinOpenSegmentId::execute()
         serverUpdate.set_server_id(serverId.getId());
     }
 
-    serverUpdate.set_min_open_segment_id(segmentId);
+    (*serverUpdate.mutable_master_recovery_info()) = recoveryInfo;
 
     EntryId newEntryId =
         manager.service.logCabinHelper->appendProtoBuf(
@@ -523,25 +486,26 @@ CoordinatorServerManager::SetMinOpenSegmentId::execute()
 }
 
 /**
- * Complete the SetMinOpenSegmentId operation after its state has been
+ * Complete the SetMasterRecoveryInfo operation after its state has been
  * logged in LogCabin.
  * This is called internally by #execute() in case of normal operation
- * (which is in turn called by #setMinOpenSegmentId()), and
- * directly for coordinator recovery (by #setMinOpenSegmentIdRecover()).
+ * (which is in turn called by #setMasterRecoveryInfo()), and
+ * directly for coordinator recovery (by #setMasterRecoveryInfoRecover()).
  *
  * \param entryId
  *      The entry id of the LogCabin entry corresponding to the state
  *      of the operation to be completed.
  */
 void
-CoordinatorServerManager::SetMinOpenSegmentId::complete(EntryId entryId)
+CoordinatorServerManager::SetMasterRecoveryInfo::complete(EntryId entryId)
 {
     try {
         // Update local state.
         manager.service.serverList.addServerUpdateLogId(serverId, entryId);
-        manager.service.serverList.setMinOpenSegmentId(serverId, segmentId);
+        manager.service.serverList.setMasterRecoveryInfo(serverId,
+                                                         recoveryInfo);
     } catch (const ServerListException& e) {
-        LOG(WARNING, "setMinOpenSegmentId server doesn't exist: %s",
+        LOG(WARNING, "setMasterRecoveryInfo server doesn't exist: %s",
             serverId.toString().c_str());
         manager.service.logCabinLog->invalidate(vector<EntryId>(entryId));
         throw ServerListException(e);
@@ -549,39 +513,45 @@ CoordinatorServerManager::SetMinOpenSegmentId::complete(EntryId entryId)
 }
 
 /**
- * Set the minOpenSegmentId of the specified server to the specified segmentId.
+ * Reset extra metadata for \a serverId that will be needed to safely recover
+ * the master's log.
  *
  * \param serverId
- *      ServerId of the server whose minOpenSegmentId will be set.
- * \param segmentId
- *      The minOpenSegmentId to be set.
+ *      ServerId of the server whose master recovery info will be set.
+ * \param recoveryInfo
+ *      Information the coordinator will need to safely recover the master
+ *      at \a serverId. The information is opaque to the coordinator other
+ *      than its master recovery routines, but, basically, this is used to
+ *      prevent inconsistent open replicas from being used during recovery.
  */
 void
-CoordinatorServerManager::setMinOpenSegmentId(
-    ServerId serverId, uint64_t segmentId)
+CoordinatorServerManager::setMasterRecoveryInfo(
+    ServerId serverId, const ProtoBuf::MasterRecoveryInfo& recoveryInfo)
 {
     Lock _(mutex);
-    SetMinOpenSegmentId(*this, serverId, segmentId).execute();
+    SetMasterRecoveryInfo(*this, serverId, recoveryInfo).execute();
 }
 
 /**
- * Set the minOpenSegmentId of the server specified in the serverInfo Protobuf
- * to the segmentId specified in the Protobuf.
+ * Reset the extra metadata for master recovery of the server specified in
+ * the serverInfo Protobuf.
  *
  * \param serverUpdate
  *      The ProtoBuf that has the update about the server whose
- *      minOpenSegmentId is to be set.
+ *      masterRecoveryInfo is to be set.
  * \param entryId
  *      The entry id of the LogCabin entry corresponding to serverUpdate.
  */
 void
-CoordinatorServerManager::setMinOpenSegmentIdRecover(
+CoordinatorServerManager::setMasterRecoveryInfoRecover(
     ProtoBuf::ServerUpdate* serverUpdate, EntryId entryId)
 {
     Lock _(mutex);
-    SetMinOpenSegmentId(*this,
-                        ServerId(serverUpdate->server_id()),
-                        serverUpdate->min_open_segment_id()).complete(entryId);
+    LOG(DEBUG, "CoordinatorServerManager::setMasterRecoveryInfoRecover()");
+    SetMasterRecoveryInfo(*this,
+                          ServerId(serverUpdate->server_id()),
+                          serverUpdate->master_recovery_info()).
+                                                        complete(entryId);
 }
 
 /**

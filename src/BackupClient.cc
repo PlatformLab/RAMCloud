@@ -142,6 +142,11 @@ FreeSegmentRpc::FreeSegmentRpc(Context* context, ServerId backupId,
  * \param backupId
  *      Identifies a particular backup, which is believed to hold a
  *      replica of the desired segment.
+ * \param recoveryId
+ *      Which recovery this master is requesting a recovery segment for.
+ *      Recovery segments may be partitioned differently for different
+ *      recoveries even for the same master. This prevents accidental
+ *      use of mispartitioned segments.
  * \param masterId
  *      The id of the master that created the desired segment.
  * \param segmentId
@@ -153,14 +158,19 @@ FreeSegmentRpc::FreeSegmentRpc(Context* context, ServerId backupId,
  *      The objects matching the above parameters will be returned in this
  *      buffer, organized as a Segment.
  */
-void
-BackupClient::getRecoveryData(Context* context, ServerId backupId,
-        ServerId masterId, uint64_t segmentId, uint64_t partitionId,
-        Buffer* response)
+Segment::Certificate
+BackupClient::getRecoveryData(Context* context,
+                              ServerId backupId,
+                              uint64_t recoveryId,
+                              ServerId masterId,
+                              uint64_t segmentId,
+                              uint64_t partitionId,
+                              Buffer* response)
 {
-    GetRecoveryDataRpc rpc(context, backupId, masterId, segmentId,
-            partitionId, response);
-    rpc.wait();
+    GetRecoveryDataRpc rpc(context, backupId, recoveryId,
+                           masterId, segmentId,
+                           partitionId, response);
+    return rpc.wait();
 }
 
 /**
@@ -173,6 +183,11 @@ BackupClient::getRecoveryData(Context* context, ServerId backupId,
  * \param backupId
  *      Identifies a particular backup, which is believed to hold a
  *      replica of the desired segment.
+ * \param recoveryId
+ *      Which recovery this master is requesting a recovery segment for.
+ *      Recovery segments may be partitioned differently for different
+ *      recoveries even for the same master. This prevents accidental
+ *      use of mispartitioned segments.
  * \param masterId
  *      The id of the master that created the desired segment.
  * \param segmentId
@@ -184,14 +199,19 @@ BackupClient::getRecoveryData(Context* context, ServerId backupId,
  *      The objects matching the above parameters will be returned in this
  *      buffer, organized as a Segment.
  */
-GetRecoveryDataRpc::GetRecoveryDataRpc(Context* context, ServerId backupId,
-        ServerId masterId, uint64_t segmentId, uint64_t partitionId,
-        Buffer* response)
+GetRecoveryDataRpc::GetRecoveryDataRpc(Context* context,
+                                       ServerId backupId,
+                                       uint64_t recoveryId,
+                                       ServerId masterId,
+                                       uint64_t segmentId,
+                                       uint64_t partitionId,
+                                       Buffer* response)
     : ServerIdRpcWrapper(context, backupId,
             sizeof(WireFormat::BackupGetRecoveryData::Response), response)
 {
     WireFormat::BackupGetRecoveryData::Request* reqHdr(
             allocHeader<WireFormat::BackupGetRecoveryData>());
+    reqHdr->recoveryId = recoveryId;
     reqHdr->masterId = masterId.getId();
     reqHdr->segmentId = segmentId;
     reqHdr->partitionId = partitionId;
@@ -202,16 +222,28 @@ GetRecoveryDataRpc::GetRecoveryDataRpc(Context* context, ServerId backupId,
  * Wait for a getRecoveryData RPC to complete, and throw exceptions for
  * any errors.
  *
+ * \return
+ *      Certificate for the recovery segment which was populated
+ *      into the response Buffer given at the start of this rpc call.
+ *      Passed to SegmentIterator to verify the metadata integrity of the
+ *      recovery segment and iterate its contents.
  * \throw ServerNotUpException
  *      The intended server for this RPC is not part of the cluster;
  *      if it ever existed, it has since crashed.
  */
-void
+Segment::Certificate
 GetRecoveryDataRpc::wait()
 {
     waitAndCheckErrors();
+    const WireFormat::BackupGetRecoveryData::Response* respHdr(
+            getResponseHeader<WireFormat::BackupGetRecoveryData>());
+    Segment::Certificate certificate = respHdr->certificate;
+
+    // respHdr off limits.
     response->truncateFront(sizeof(
             WireFormat::BackupGetRecoveryData::Response));
+
+    return certificate;
 }
 
 /**
@@ -292,31 +324,36 @@ RecoveryCompleteRpc::RecoveryCompleteRpc(Context* context, ServerId backupId,
     send();
 }
 
-
 /**
  * This RPC is invoked at the beginning of recovering from a crashed master;
  * it asks a particular backup to begin reading from disk the segment replicas
- * from the crashed master.
+ * from the crashed master. This RPC should be followed by a
+ * #BackupClient::StartPartitioningReplicas call to finish rebuilding and
+ * partitioning the replicas.
  *
  * \param context
  *      Overall information about this RAMCloud server.
  * \param backupId
  *      Backup that will receive this RPC.
+ * \param recoveryId
+ *      which recovery the coordinator is starting.
+ *      recovery segments may be partitioned differently for different
+ *      recoveries even for the same master. this prevents accidental
+ *      use of mispartitioned segments.
  * \param masterId
  *      The id of the master whose data is to be recovered.
- * \param partitions
- *      Describes how the objects belonging to \a masterId are to be divided
- *      into groups for recovery.
  *
  * \return
  *      The return value is an object that describes all of the segment
  *      replicas stored on \a backupId for \a masterId.
  */
 StartReadingDataRpc::Result
-BackupClient::startReadingData(Context* context, ServerId backupId,
-        ServerId masterId, const ProtoBuf::Tablets* partitions)
+BackupClient::startReadingData(Context* context,
+                               ServerId backupId,
+                               uint64_t recoveryId,
+                               ServerId masterId)
 {
-    StartReadingDataRpc rpc(context, backupId, masterId, partitions);
+    StartReadingDataRpc rpc(context, backupId, recoveryId, masterId);
     return rpc.wait();
 }
 
@@ -329,22 +366,25 @@ BackupClient::startReadingData(Context* context, ServerId backupId,
  *      Overall information about this RAMCloud server.
  * \param backupId
  *      Backup that will receive this RPC.
+ * \param recoveryId
+ *      which recovery the coordinator is starting.
+ *      recovery segments may be partitioned differently for different
+ *      recoveries even for the same master. this prevents accidental
+ *      use of mispartitioned segments.
  * \param masterId
  *      The id of the master whose data is to be recovered.
- * \param partitions
- *      Describes how the objects belonging to \a masterId are to be divided
- *      into groups for recovery.
  */
-StartReadingDataRpc::StartReadingDataRpc(Context* context, ServerId backupId,
-        ServerId masterId, const ProtoBuf::Tablets* partitions)
+StartReadingDataRpc::StartReadingDataRpc(Context* context,
+                                         ServerId backupId,
+                                         uint64_t recoveryId,
+                                         ServerId masterId)
     : ServerIdRpcWrapper(context, backupId,
             sizeof(WireFormat::BackupStartReadingData::Response))
 {
     WireFormat::BackupStartReadingData::Request* reqHdr(
             allocHeader<WireFormat::BackupStartReadingData>());
+    reqHdr->recoveryId = recoveryId;
     reqHdr->masterId = masterId.getId();
-    reqHdr->partitionsLength = ProtoBuf::serializeToRequest(&request,
-            partitions);
     send();
 }
 
@@ -363,72 +403,155 @@ StartReadingDataRpc::Result
 StartReadingDataRpc::wait()
 {
     waitAndCheckErrors();
-    const WireFormat::BackupStartReadingData::Response* respHdr(
-            getResponseHeader<WireFormat::BackupStartReadingData>());
-
     Result result;
 
-    uint32_t segmentIdCount = respHdr->segmentIdCount;
-    uint32_t primarySegmentCount = respHdr->primarySegmentCount;
-    uint32_t digestBytes = respHdr->digestBytes;
-    uint64_t digestSegmentId = respHdr->digestSegmentId;
-    uint32_t digestSegmentLen = respHdr->digestSegmentLen;
-    response->truncateFront(sizeof(*respHdr));
+    uint32_t replicaCount = 0;
+    {
+        const auto* respHdr(
+            getResponseHeader<WireFormat::BackupStartReadingData>());
+        replicaCount = respHdr->replicaCount;
+        result.primaryReplicaCount = respHdr->primaryReplicaCount;
+        result.logDigestBytes = respHdr->digestBytes;
+        result.logDigestSegmentId = respHdr->digestSegmentId;
+        result.logDigestSegmentEpoch = respHdr->digestSegmentEpoch;
+        result.tabletMetricsLen = respHdr->tabletMetricsLen;
+        response->truncateFront(sizeof(*respHdr));
+        // Remove header. Pointer now invalid.
+    }
 
-    // segmentIdAndLength
-    typedef WireFormat::BackupStartReadingData::Replica Replica;
+    // Build #replicas.
     const Replica* replicaArray = response->getStart<Replica>();
-    for (uint64_t i = 0; i < segmentIdCount; ++i) {
-        const Replica& replica = replicaArray[i];
-        result.segmentIdAndLength.push_back({replica.segmentId,
-                                             replica.segmentLength});
-    }
-    response->truncateFront(segmentIdCount * sizeof32(Replica));
+    for (uint64_t i = 0; i < replicaCount; ++i)
+        result.replicas.push_back(replicaArray[i]);
+    response->truncateFront(replicaCount * sizeof32(Replica));
 
-    // primarySegmentCount
-    result.primarySegmentCount = primarySegmentCount;
-
-    // logDigest fields
-    if (digestBytes > 0) {
-        result.logDigestBuffer.reset(new char[digestBytes]);
-        response->copy(0, digestBytes,
-                            result.logDigestBuffer.get());
-        result.logDigestBytes = digestBytes;
-        result.logDigestSegmentId = digestSegmentId;
-        result.logDigestSegmentLen = digestSegmentLen;
+    // Copy out log digest.
+    if (result.logDigestBytes > 0) {
+        result.logDigestBuffer.reset(new char[result.logDigestBytes]);
+        response->copy(0, result.logDigestBytes, result.logDigestBuffer.get());
     }
+    response->truncateFront(result.logDigestBytes);
+
+    // Copy out tabletMetrics fields
+    if (result.tabletMetricsLen > 0) {
+        result.tabletMetricsBuffer.reset(new char[result.tabletMetricsLen]);
+        response->copy(0, result.tabletMetricsLen,
+                        result.tabletMetricsBuffer.get());
+    }
+
     return result;
 }
 
+/**
+ * This RPC should be invoked after StartReadingDataRpc; it asks a
+ * particular backup to begin rebuilding and partitioning the replicas
+ * read from StartReadingDataRpc.
+ *
+ * \param context
+ *      Overall information about this RAMCloud server.
+ * \param backupId
+ *      Backup that will receive this RPC.
+ * \param recoveryId
+ *      which recovery the coordinator is starting.
+ *      recovery segments may be partitioned differently for different
+ *      recoveries even for the same master. this prevents accidental
+ *      use of mispartitioned segments.
+ * \param masterId
+ *      The id of the master whose data is to be recovered.
+ * \param partitions
+ *      Describes how the coordinator would like the backup to split up the
+ *      contents of the replicas for delivery to different recovery masters.
+ *      The partition ids inside each entry act as an index describing which
+ *      recovery segment for a particular replica each object should be placed
+ *      in.
+ */
+void
+BackupClient::StartPartitioningReplicas(Context* context,
+                               ServerId backupId,
+                               uint64_t recoveryId,
+                               ServerId masterId,
+                               const ProtoBuf::Tablets* partitions)
+{
+    StartPartitioningRpc rpc(context, backupId, recoveryId,
+                            masterId, partitions);
+    rpc.wait();
+}
+
+/**
+ * Constructor for StartPartitioningRpc: initiates an RPC in the same way as
+ * #BackupClient::StartPartioningReplicas, but returns once the RPC has been
+ * initiated, without waiting for it to complete.
+ *
+ * \param context
+ *      Overall information about this RAMCloud server.
+ * \param backupId
+ *      Backup that will receive this RPC.
+ * \param recoveryId
+ *      which recovery the coordinator is starting.
+ *      recovery segments may be partitioned differently for different
+ *      recoveries even for the same master. this prevents accidental
+ *      use of mispartitioned segments.
+ * \param masterId
+ *      The id of the master whose data is to be recovered.
+ * \param partitions
+ *      Describes how the coordinator would like the backup to split up the
+ *      contents of the replicas for delivery to different recovery masters.
+ *      The partition ids inside each entry act as an index describing which
+ *      recovery segment for a particular replica each object should be placed
+ *      in.
+ */
+StartPartitioningRpc::StartPartitioningRpc(Context* context,
+                                         ServerId backupId,
+                                         uint64_t recoveryId,
+                                         ServerId masterId,
+                                         const ProtoBuf::Tablets* partitions)
+    : ServerIdRpcWrapper(context, backupId,
+            sizeof(WireFormat::BackupStartPartitioningReplicas::Response))
+{
+    WireFormat::BackupStartPartitioningReplicas::Request* reqHdr(
+            allocHeader<WireFormat::BackupStartPartitioningReplicas>());
+    reqHdr->recoveryId = recoveryId;
+    reqHdr->masterId = masterId.getId();
+    reqHdr->partitionsLength = ProtoBuf::serializeToRequest(&request,
+            partitions);
+    send();
+}
+
 StartReadingDataRpc::Result::Result()
-    : segmentIdAndLength()
-    , primarySegmentCount(0)
+    : replicas()
+    , primaryReplicaCount(0)
     , logDigestBuffer()
+    , tabletMetricsBuffer()
     , logDigestBytes(0)
     , logDigestSegmentId(-1)
-    , logDigestSegmentLen(-1)
+    , logDigestSegmentEpoch(-1)
+    , tabletMetricsLen(-1)
 {
 }
 
 StartReadingDataRpc::Result::Result(Result&& other)
-    : segmentIdAndLength(std::move(other.segmentIdAndLength))
-    , primarySegmentCount(other.primarySegmentCount)
+    : replicas(std::move(other.replicas))
+    , primaryReplicaCount(other.primaryReplicaCount)
     , logDigestBuffer(std::move(other.logDigestBuffer))
+    , tabletMetricsBuffer(std::move(other.tabletMetricsBuffer))
     , logDigestBytes(other.logDigestBytes)
     , logDigestSegmentId(other.logDigestSegmentId)
-    , logDigestSegmentLen(other.logDigestSegmentLen)
+    , logDigestSegmentEpoch(other.logDigestSegmentEpoch)
+    , tabletMetricsLen(other.tabletMetricsLen)
 {
 }
 
 StartReadingDataRpc::Result&
 StartReadingDataRpc::Result::operator=(Result&& other)
 {
-    segmentIdAndLength = std::move(other.segmentIdAndLength);
-    primarySegmentCount = other.primarySegmentCount;
+    replicas = std::move(other.replicas);
+    primaryReplicaCount = other.primaryReplicaCount;
     logDigestBuffer = std::move(other.logDigestBuffer);
+    tabletMetricsBuffer = std::move(other.tabletMetricsBuffer);
     logDigestBytes = other.logDigestBytes;
     logDigestSegmentId = other.logDigestSegmentId;
-    logDigestSegmentLen = other.logDigestSegmentLen;
+    tabletMetricsLen = other.tabletMetricsLen;
+    logDigestSegmentEpoch = other.logDigestSegmentEpoch;
     return *this;
 }
 
@@ -446,42 +569,49 @@ StartReadingDataRpc::Result::operator=(Result&& other)
  *      The id of the master to which the data belongs.
  * \param segmentId
  *       Log-unique, 64-bit identifier for the segment being replicated.
+ * \param segmentEpoch
+ *      The epoch of the segment being replicated. Used during recovery by the
+ *      coordinator to filter out replicas which may have become inconsistent.
+ *      When a master loses contact with a backup to which it was replicating
+ *      an open segment the master increments this epoch, ensures that it has a
+ *      sufficient number of replicas tagged with the new epoch number, and
+ *      then tells the coordinator of the new epoch so the coordinator can
+ *      filter out the stale replicas from earlier epochs.
+ *      Backups blindly and durably store this as part of the replica metadata
+ *      on each update.
  * \param segment
  *      Segment whose data is to be replicated.
  * \param offset
  *      The position in the segment where this data will be placed.
  * \param length
  *      The length in bytes of the data to write.
- * \param flags
- *      Whether the write should open or close the segment or both or
- *      neither.  Defaults to neither.
- * \param footerEntry
- *      Footer which should follow the data included in this write. Should
- *      contain a valid footer for the segment as written up through this
- *      write. Backups write this footer following the data and at the end
- *      of the segment. This may be NULL which has two ramifications. First,
- *      the data included in this write will not be recovered (or, is not
- *      durable) until the after the next write which includes a footer.
- *      Second, the most recently transmitted footer will be written
- *      to storage if the segment is closed or recovered precisely where
- *      it would have been regardless of subsequent footerless writes. That
- *      is, the backup will plop a footer right on top of any footerless
- *      writes which hadn't yet been followed by a footered write,
- *      which effectively strikes them from storage during recovery.
- * \param atomic
- *      If true then this replica is considered invalid until a closing
- *      write (or subsequent call to write with \a atomic set to false).
- *      This means that the data will never be written to disk and will
- *      not be reported to or used in recoveries unless the replica is
- *      closed.  This allows masters to create replicas of segments
- *      without the threat that they'll be detected as the head of the
- *      log.  Each value of \a atomic for each write call overrides the
- *      last, so in order to atomically write an entire segment all
- *      writes must have \a atomic set to true (though, it is
- *      irrelvant for the last, closing write).  A call with atomic
- *      set to false will make that replica available for normal
- *      treatment as an open segment.
- *
+ * \param certificate
+ *      Backups write this as part of their metadata for the segment.  Used
+ *      during recovery to determine how much of the segment contains valid
+ *      data and to verify the integrity of the segment metadata. This may
+ *      be NULL which has two ramifications. First, the data included in
+ *      this write will not be recovered (or, is not durable) until the
+ *      after the next write which includes a certificate.  Second, the
+ *      most recently transmitted certificate will be used during recovery,
+ *      which means only data covered by that certificate will be recovered
+ *      regardless of how much has been transmitted to the backup.
+ * \param open
+ *      Whether this write is an opening write to the replica. If so, causes
+ *      the backup to allocate storage space if it hasn't for this replica yet.
+ *      Backups may reject write requests with this flag set.
+ * \param close
+ *      Whether this write is a closing write to the replica. Must be to an
+ *      already opened replica (or one that was opened along with this write).
+ *      Writes to already closed replicas result in a client exception. If this
+ *      client exception is due to a retry request then masters won't ever
+ *      response with the client exception (if the first request was received
+ *      by the backup the master will receive the non-exceptional response and
+ *      drop the exceptional one; if the first request was not received by the
+ *      backup then it will never generate an exception to begin with).
+ * \param primary
+ *      Whether this particular replica should be loaded and filtered at the
+ *      start of master recovery (as opposed to having it loaded and filtered
+ *      on demand. May be reset on each subsequent write.
  * \return
  *      A vector describing the replication group for the backup
  *      that handled the RPC (secondary replicas will then be
@@ -493,15 +623,18 @@ BackupClient::writeSegment(Context* context,
                            ServerId backupId,
                            ServerId masterId,
                            uint64_t segmentId,
+                           uint64_t segmentEpoch,
                            const Segment* segment,
                            uint32_t offset,
                            uint32_t length,
-                           const Segment::OpaqueFooterEntry* footerEntry,
-                           WireFormat::BackupWrite::Flags flags,
-                           bool atomic)
+                           const Segment::Certificate* certificate,
+                           bool open,
+                           bool close,
+                           bool primary)
 {
-    WriteSegmentRpc rpc(context, backupId, masterId, segmentId, segment, offset,
-                        length, footerEntry, flags, atomic);
+    WriteSegmentRpc rpc(context, backupId, masterId, segmentId, segmentEpoch,
+                        segment, offset, length, certificate,
+                        open, close, primary);
     return rpc.wait();
 }
 
@@ -518,6 +651,16 @@ BackupClient::writeSegment(Context* context,
  *      The id of the master to which the data belongs.
  * \param segmentId
  *      Log-unique, 64-bit identifier for the segment being replicated.
+ * \param segmentEpoch
+ *      The epoch of the segment being replicated. Used during recovery by the
+ *      coordinator to filter out replicas which may have become inconsistent.
+ *      When a master loses contact with a backup to which it was replicating
+ *      an open segment the master increments this epoch, ensures that it has a
+ *      sufficient number of replicas tagged with the new epoch number, and
+ *      then tells the coordinator of the new epoch so the coordinator can
+ *      filter out the stale replicas from earlier epochs.
+ *      Backups blindly and durably store this as part of the replica metadata
+ *      on each update.
  * \param segment
  *      Segment whose data is to be replicated.
  * \param offset
@@ -526,46 +669,46 @@ BackupClient::writeSegment(Context* context,
  *      replicated starts.
  * \param length
  *      The length in bytes of the data to write.
- * \param flags
- *      Whether the write should open or close the segment or both or
- *      neither.  Defaults to neither.
- * \param footerEntry
- *      Footer which should follow the data included in this write. Should
- *      contain a valid footer for the segment as written up through this
- *      write. Backups write this footer following the data and at the end
- *      of the segment. This may be NULL which has two ramifications. First,
- *      the data included in this write will not be recovered (or, is not
- *      durable) until the after the next write which includes a footer.
- *      Second, the most recently transmitted footer will be written
- *      to storage if the segment is closed or recovered precisely where
- *      it would have been regardless of subsequent footerless writes. That
- *      is, the backup will plop a footer right on top of any footerless
- *      writes which hadn't yet been followed by a footered write,
- *      which effectively strikes them from storage during recovery.
- * \param atomic
- *      If true then this replica is considered invalid until a closing
- *      write (or subsequent call to write with \a atomic set to false).
- *      This means that the data will never be written to disk and will
- *      not be reported to or used in recoveries unless the replica is
- *      closed.  This allows masters to create replicas of segments
- *      without the threat that they'll be detected as the head of the
- *      log.  Each value of \a atomic for each write call overrides the
- *      last, so in order to atomically write an entire segment all
- *      writes must have \a atomic set to true (though, it is
- *      irrelvant for the last, closing write).  A call with atomic
- *      set to false will make that replica available for normal
- *      treatment as an open segment.
+ * \param certificate
+ *      Backups write this as part of their metadata for the segment.  Used
+ *      during recovery to determine how much of the segment contains valid
+ *      data and to verify the integrity of the segment metadata. This may
+ *      be NULL which has two ramifications. First, the data included in
+ *      this write will not be recovered (or, is not durable) until the
+ *      after the next write which includes a certificate.  Second, the
+ *      most recently transmitted certificate will be used during recovery,
+ *      which means only data covered by that certificate will be recovered
+ *      regardless of how much has been transmitted to the backup.
+ * \param open
+ *      Whether this write is an opening write to the replica. If so, causes
+ *      the backup to allocate storage space if it hasn't for this replica yet.
+ *      Backups may reject write requests with this flag set.
+ * \param close
+ *      Whether this write is a closing write to the replica. Must be to an
+ *      already opened replica (or one that was opened along with this write).
+ *      Writes to already closed replicas result in a client exception. If this
+ *      client exception is due to a retry request then masters won't ever
+ *      response with the client exception (if the first request was received
+ *      by the backup the master will receive the non-exceptional response and
+ *      drop the exceptional one; if the first request was not received by the
+ *      backup then it will never generate an exception to begin with).
+ * \param primary
+ *      Whether this particular replica should be loaded and filtered at the
+ *      start of master recovery (as opposed to having it loaded and filtered
+ *      on demand. May be reset on each subsequent write.
  */
 WriteSegmentRpc::WriteSegmentRpc(Context* context,
                                  ServerId backupId,
                                  ServerId masterId,
                                  uint64_t segmentId,
+                                 uint64_t segmentEpoch,
                                  const Segment* segment,
                                  uint32_t offset,
                                  uint32_t length,
-                                 const Segment::OpaqueFooterEntry* footerEntry,
-                                 WireFormat::BackupWrite::Flags flags,
-                                 bool atomic)
+                                 const Segment::Certificate* certificate,
+                                 bool open,
+                                 bool close,
+                                 bool primary)
     : ServerIdRpcWrapper(context, backupId,
                          sizeof(WireFormat::BackupWrite::Response))
 {
@@ -573,16 +716,19 @@ WriteSegmentRpc::WriteSegmentRpc(Context* context,
             allocHeader<WireFormat::BackupWrite>());
     reqHdr->masterId = masterId.getId();
     reqHdr->segmentId = segmentId;
+    reqHdr->segmentEpoch = segmentEpoch;
     reqHdr->offset = offset;
     reqHdr->length = length;
-    reqHdr->footerIncluded = (footerEntry != NULL);
-    if (reqHdr->footerIncluded)
-        reqHdr->footerEntry = *footerEntry;
+    reqHdr->certificateIncluded = (certificate != NULL);
+    if (reqHdr->certificateIncluded)
+        reqHdr->certificate = *certificate;
     else
-        reqHdr->footerEntry = Segment::OpaqueFooterEntry();
-    reqHdr->flags = flags;
-    reqHdr->atomic = atomic;
-    segment->appendToBuffer(request, offset, length);
+        reqHdr->certificate = Segment::Certificate();
+    reqHdr->open = open;
+    reqHdr->close = close;
+    reqHdr->primary = primary;
+    if (segment)
+        segment->appendToBuffer(request, offset, length);
     send();
 }
 

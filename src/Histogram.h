@@ -142,7 +142,7 @@ class Histogram {
      *      empty buckets, or buckets with few samples.
      */
     string
-    toString(uint64_t minIncludedCount = 1)
+    toString(uint64_t minIncludedCount = 1) const
     {
         string s;
         uint64_t totalSamples = getTotalSamples();
@@ -177,7 +177,7 @@ class Histogram {
      *      one.
      */
     uint64_t
-    getOutliers(uint64_t* outHighestOutlier = NULL)
+    getOutliers(uint64_t* outHighestOutlier = NULL) const
     {
         if (outliers > 0 && outHighestOutlier != NULL)
             *outHighestOutlier = max;
@@ -189,7 +189,7 @@ class Histogram {
      * outliers.
      */
     uint64_t
-    getTotalSamples()
+    getTotalSamples() const
     {
         uint64_t totalSamples = outliers;
         foreach (uint64_t count, buckets)
@@ -202,7 +202,7 @@ class Histogram {
      * If no samples were stored, the value returned will be 0.
      */
     uint64_t
-    getMax()
+    getMax() const
     {
         return max;
     }
@@ -212,7 +212,7 @@ class Histogram {
      * If no samples were stored, the value returned will be -1UL.
      */
     uint64_t
-    getMin()
+    getMin() const
     {
         return min;
     }
@@ -222,7 +222,7 @@ class Histogram {
      * included in the result.
      */
     double
-    getAverage()
+    getAverage() const
     {
         return static_cast<double>(sampleSum / getTotalSamples());
     }

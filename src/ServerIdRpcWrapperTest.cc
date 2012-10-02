@@ -38,7 +38,8 @@ class ServerIdRpcWrapperTest : public ::testing::Test {
         , coordId()
     {
         context.transportManager->registerMock(&transport);
-        serverList.add(ServerId(1, 0), "mock:", {}, 100);
+        serverList.testingAdd({{1, 0}, "mock:", {}, 100,
+                               ServerStatus::UP});
     }
 
     ~ServerIdRpcWrapperTest()
@@ -79,7 +80,7 @@ TEST_F(ServerIdRpcWrapperTest, handleTransportError_serverCrashed) {
     wrapper.request.fillFromString("100");
     wrapper.send();
     wrapper.state = RpcWrapper::RpcState::FAILED;
-    serverList.crashed(id, "mock:", {}, 100);
+    serverList.testingCrashed(id);
     EXPECT_TRUE(wrapper.isReady());
     EXPECT_STREQ("FAILED", wrapper.stateString());
     EXPECT_EQ("flushSession: flushed session for id 1.0",

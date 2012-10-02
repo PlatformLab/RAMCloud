@@ -52,6 +52,7 @@ struct ServerListBuilder {
                uint64_t id,
                const char* locator,
                uint32_t backupReadMBytesPerSec = 0,
+               uint64_t replicationId = 0,
                ServerStatus status = ServerStatus::UP)
     {
         ProtoBuf::ServerList_Entry& server(*servers.add_server());
@@ -60,6 +61,7 @@ struct ServerListBuilder {
         server.set_server_id(id);
         server.set_service_locator(locator);
         server.set_expected_read_mbytes_per_sec(backupReadMBytesPerSec);
+        server.set_replication_id(replicationId);
         server.set_status(uint32_t(status));
         return *this;
     }

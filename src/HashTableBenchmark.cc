@@ -160,12 +160,12 @@ hashTableBenchmark(uint64_t nkeys, uint64_t nlines)
     printf("    minikey false positives: %lu\n", pc.lookupEntryHashCollisions);
 
     printf("    min ticks: %lu, %lu nsec\n",
-           pc.lookupEntryDist.min,
-           Cycles::toNanoseconds(pc.lookupEntryDist.min));
+           pc.lookupEntryDist.getMin(),
+           Cycles::toNanoseconds(pc.lookupEntryDist.getMin()));
 
     printf("    max ticks: %lu, %lu nsec\n",
-           pc.lookupEntryDist.max,
-           Cycles::toNanoseconds(pc.lookupEntryDist.max));
+           pc.lookupEntryDist.getMax(),
+           Cycles::toNanoseconds(pc.lookupEntryDist.getMax()));
 
     uint64_t *histogram = static_cast<uint64_t *>(
         Memory::xmalloc(HERE, nlines * sizeof(histogram[0])));
@@ -199,41 +199,8 @@ hashTableBenchmark(uint64_t nkeys, uint64_t nlines)
     free(histogram);
     histogram = NULL;
 
-    const HashTable::PerfDistribution & lcd = pc.lookupEntryDist;
-
     printf("lookup cycle histogram:\n");
-    for (i = 0; i < lcd.NBINS; i++) {
-        if (lcd.bins[i] == 0)
-           continue;
-        double percent = static_cast<double>(lcd.bins[i]) * 100.0 /
-                         static_cast<double>(nkeys);
-        if (percent < 0.5)
-            continue;
-        printf("%5lu to %5lu ticks / %5lu to %5lu nsec: (%6.2f%%) ",
-               i * lcd.BIN_WIDTH, (i + 1) * lcd.BIN_WIDTH - 1,
-               Cycles::toNanoseconds(i * lcd.BIN_WIDTH),
-               Cycles::toNanoseconds((i + 1) * lcd.BIN_WIDTH - 1),
-               percent);
-        int j;
-        for (j = 0; j < static_cast<int>(round(percent)); j++)
-            printf("*");
-        printf("\n");
-    }
-
-    printf("lookup cycle CDF:\n");
-    double total = 0;
-    for (i = 0; i < lcd.NBINS; i++) {
-        if (lcd.bins[i] == 0)
-            continue;
-        double percent = static_cast<double>(lcd.bins[i]) * 100.0 /
-                         static_cast<double>(nkeys);
-        total += percent;
-        printf(" <= %5lu ticks (%lu nsec): %6.2f%%\n",
-               (i + 1) * lcd.BIN_WIDTH - 1,
-               Cycles::toNanoseconds((i + 1) * lcd.BIN_WIDTH - 1), total);
-        if (total >= 99.99)
-            break;
-    }
+    printf("%s\n", pc.lookupEntryDist.toString().c_str());
 }
 
 } // namespace RAMCloud

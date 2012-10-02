@@ -51,11 +51,6 @@ namespace RAMCloud {
  * buckets). In this case, the last hash table entry in each of the
  * non-terminal cache lines has a pointer to the next cache line instead of a
  * log reference.
- *
- * TODO(anyone): Now that this is no longer templated, bust it out into a
- *               .cc file again so we're not inlining everything and making
- *               the header preposterously large. Also, claim lots of lines
- *               committed the Ousterhout way.
  */
 class HashTable {
   public:

@@ -60,10 +60,6 @@ MembershipService::dispatch(WireFormat::Opcode opcode, Rpc& rpc)
         callHandler<WireFormat::GetServerId, MembershipService,
             &MembershipService::getServerId>(rpc);
         break;
-    case WireFormat::SetServerList::opcode:
-        callHandler<WireFormat::SetServerList, MembershipService,
-            &MembershipService::setServerList>(rpc);
-        break;
     case WireFormat::UpdateServerList::opcode:
         callHandler<WireFormat::UpdateServerList, MembershipService,
             &MembershipService::updateServerList>(rpc);
@@ -123,37 +119,16 @@ MembershipService::getServerId(const WireFormat::GetServerId::Request& reqHdr,
  * \copydetails Service::ping
  */
 void
-MembershipService::setServerList(
-    const WireFormat::SetServerList::Request& reqHdr,
-    WireFormat::SetServerList::Response& respHdr,
+MembershipService::updateServerList(
+    const WireFormat::UpdateServerList::Request& reqHdr,
+    WireFormat::UpdateServerList::Response& respHdr,
     Rpc& rpc)
 {
     ProtoBuf::ServerList list;
     ProtoBuf::parseFromRequest(&rpc.requestPayload, sizeof(reqHdr),
                                reqHdr.serverListLength, &list);
 
-    serverList.applyFullList(list);
-}
-
-/**
- * Top-level service method to handle the UPDATE_SERVER_LIST request.
- *
- * \copydetails Service::ping
- */
-void
-MembershipService::updateServerList(
-        const WireFormat::UpdateServerList::Request& reqHdr,
-        WireFormat::UpdateServerList::Response& respHdr,
-        Rpc& rpc)
-{
-    ProtoBuf::ServerList update;
-    ProtoBuf::parseFromRequest(&rpc.requestPayload, sizeof(reqHdr),
-                               reqHdr.serverListLength, &update);
-
-    LOG(NOTICE, "Got server list update (version number %lu)",
-        update.version_number());
-
-    respHdr.lostUpdates = serverList.applyUpdate(update);
+    serverList.applyServerList(list);
 }
 
 } // namespace RAMCloud

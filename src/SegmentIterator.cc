@@ -13,12 +13,6 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <assert.h>
-#include <stdint.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-
 #include "SegmentIterator.h"
 #include "LogEntryTypes.h"
 
@@ -30,7 +24,10 @@ namespace RAMCloud {
  */
 SegmentIterator::SegmentIterator()
     : wrapperSegment(),
+      buffer(NULL),
+      length(0),
       segment(NULL),
+      certificate(),
       currentOffset(0),
       currentType(),
       currentLength()
@@ -44,6 +41,10 @@ SegmentIterator::SegmentIterator()
  * Note that behaviour is undefined if the segment is modified after the
  * iterator has been constructed.
  *
+ * Operations are only safe and valid if the segment it iterates over
+ * is well-formed. If unsure, use checkMetadataIntegrity() ensure the
+ * segment data is safe for iteration before use.
+ *
  * \param segment
  *      The Segment object to be iterated over.
  *
@@ -52,15 +53,15 @@ SegmentIterator::SegmentIterator()
  */
 SegmentIterator::SegmentIterator(Segment& segment)
     : wrapperSegment(),
+      buffer(NULL),
+      length(0),
       segment(&segment),
+      certificate(),
       currentOffset(0),
       currentType(),
       currentLength()
 {
-#if 0
-    if (!segment.checkMetadataIntegrity())
-        throw SegmentIteratorException(HERE, "cannot iterate: corrupt segment");
-#endif
+    segment.getAppendedLength(certificate);
 }
 
 /**
@@ -70,16 +71,29 @@ SegmentIterator::SegmentIterator(Segment& segment)
  *
  * Note that behaviour is undefined if the segment is modified after the
  * iterator has been constructed.
+ *
+ * Operations are only safe and valid if the segment it iterates over
+ * is well-formed. If unsure, use checkMetadataIntegrity() ensure the
+ * segment data is safe for iteration before use.
  * 
  * \param buffer
  *      A pointer to the first byte of the segment.
  *
  * \param length
  *      The total length of the buffer.
+ *
+ * \param certificate
+ *      A Certificate which is used to find the length of this segment and
+ *      to check the integrity of its metadata. Certificates are generated
+ *      by getAppendedLength().
  */
-SegmentIterator::SegmentIterator(const void *buffer, uint32_t length)
+SegmentIterator::SegmentIterator(const void *buffer, uint32_t length,
+                                 const Segment::Certificate& certificate)
     : wrapperSegment(),
+      buffer(buffer),
+      length(length),
       segment(NULL),
+      certificate(certificate),
       currentOffset(0),
       currentType(),
       currentLength()
@@ -87,9 +101,41 @@ SegmentIterator::SegmentIterator(const void *buffer, uint32_t length)
 throw SegmentIteratorException(HERE, "Segments are a little botched. Need to merge with HEAD to get Ryan's certificate fixes. Don't use this constructor!");
     wrapperSegment.construct(buffer, length);
     segment = &*wrapperSegment;
+}
 
-    if (!segment->checkMetadataIntegrity())
-        throw SegmentIteratorException(HERE, "cannot iterate: corrupt segment");
+SegmentIterator::SegmentIterator(const SegmentIterator& other)
+    : wrapperSegment(),
+      buffer(other.buffer),
+      length(other.length),
+      segment(other.segment),
+      certificate(other.certificate),
+      currentOffset(other.currentOffset),
+      currentType(other.currentType),
+      currentLength(other.currentLength)
+{
+    if (other.wrapperSegment) {
+        wrapperSegment.construct(buffer, length);
+        segment = wrapperSegment.get();
+    }
+}
+
+SegmentIterator&
+SegmentIterator::operator=(const SegmentIterator& other)
+{
+    if (this == &other)
+        return *this;
+    buffer = other.buffer;
+    length = other.length;
+    segment = other.segment;
+    certificate = other.certificate;
+    currentOffset = other.currentOffset;
+    currentType = other.currentType;
+    currentLength = other.currentLength;
+    if (other.wrapperSegment) {
+        wrapperSegment.construct(buffer, length);
+        segment = wrapperSegment.get();
+    }
+    return *this;
 }
 
 /**
@@ -110,21 +156,19 @@ SegmentIterator::~SegmentIterator()
 bool
 SegmentIterator::isDone()
 {
-return currentOffset >= segment->head;
-    return getType() == LOG_ENTRY_TYPE_SEGFOOTER;
+    return getOffset() >= certificate.segmentLength;
 }
 
 /**
  * Progress the iterator to the next entry in the segment, if there is one.
  * If there is another entry, then after this method returns any future calls
  * to getType, getLength, appendToBuffer, etc. will use the next in the log.
- * If there are no more entries, the iterator will stay at the last one (the
- * footer).
+ * Calling next() after the iterator isDone() has no effect.
  */
 void
 SegmentIterator::next()
 {
-    if (getType() == LOG_ENTRY_TYPE_SEGFOOTER)
+    if (isDone())
         return;
 
     const Segment::EntryHeader* header = segment->getEntryHeader(currentOffset);
@@ -153,8 +197,6 @@ SegmentIterator::getType()
 uint32_t
 SegmentIterator::getLength()
 {
-    // We may be iterating a segment that has been appended to again,
-    // so evict the cache if we last saw a footer.
     if (!currentLength) {
         const Segment::EntryHeader* header =
             segment->getEntryHeader(currentOffset);
@@ -197,6 +239,32 @@ SegmentIterator::setBufferTo(Buffer& buffer)
 {
     buffer.reset();
     return appendToBuffer(buffer);
+}
+
+/**
+ * Check the integrity of the segment's metadata by iterating over all entries
+ * and ensuring that:
+ *
+ *  1) All entry lengths are within bounds.
+ *  2) The computed length and checksum match those stored in the provided
+ *     certificate.
+ *
+ * If the check passes, this segment may be safely iterated over in the most
+ * trivial way. Further, with high probability the metadata is correct and the
+ * appropriate data will be observed.
+ *
+ * Segments are not responsible for the integrity of the data they store, so
+ * appended data that anyone cares about should include their own checksums.
+ *
+ * \throw SegmentIteratorException
+ *      If the segment metadata is corrupt. Advancing the iterator after
+ *      this exception is unsafe.
+ */
+void
+SegmentIterator::checkMetadataIntegrity()
+{
+    if (!segment->checkMetadataIntegrity(certificate))
+        throw SegmentIteratorException(HERE, "cannot iterate: corrupt segment");
 }
 
 /******************************************************************************

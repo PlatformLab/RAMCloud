@@ -184,6 +184,24 @@ class ServerId {
         return *this;
     }
 
+    /**
+     * Return true if this server id has a lesser index than another. If
+     * the indexes match then generation numbers are compared. An invalid
+     * server id is never less than another server id. Mostly useful to
+     * allow server ids as map keys.
+     */
+    bool
+    operator<(const RAMCloud::ServerId& other) const
+    {
+        if (!isValid())
+            return false;
+        if (generationNumber() < other.generationNumber())
+            return true;
+        if (indexNumber() < other.indexNumber())
+            return true;
+        return false;
+    }
+
     /// Integer representing an invalid generation number. Any ServerId with
     /// this generation number (despite the index number value) is invalid.
     /// This value must never be allocated as any legitimate ServerId's

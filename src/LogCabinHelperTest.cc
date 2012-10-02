@@ -83,17 +83,27 @@ TEST_F(LogCabinHelperTest, getEntryType) {
 }
 
 TEST_F(LogCabinHelperTest, readValidEntries) {
-    ProtoBuf::EntryType entry0;
+    ProtoBuf::EntryType entry0, entry1, entry2, entry3, entry4, entry5;
+
     entry0.set_entry_type("DummyEntry0");
     EntryId entryId0 = logCabinHelper->appendProtoBuf(entry0);
 
-    ProtoBuf::EntryType entry1;
     entry1.set_entry_type("DummyEntry1");
     logCabinHelper->appendProtoBuf(entry1);
 
-    ProtoBuf::EntryType entry2;
     entry2.set_entry_type("DummyEntry2");
-    logCabinHelper->appendProtoBuf(entry2, vector<EntryId>({entryId0}));
+    vector<EntryId> invalidates2 = {entryId0};
+    EntryId entryId2 = logCabinHelper->appendProtoBuf(entry2, invalidates2);
+
+    entry3.set_entry_type("DummyEntry3");
+    logCabinHelper->appendProtoBuf(entry3);
+
+    entry4.set_entry_type("DummyEntry4");
+    EntryId entryId4 = logCabinHelper->appendProtoBuf(entry4);
+
+    entry5.set_entry_type("DummyEntry5");
+    vector<EntryId> invalidates5 {entryId2, entryId4};
+    logCabinHelper->appendProtoBuf(entry5, invalidates5);
 
     vector<Entry> validEntries = logCabinHelper->readValidEntries();
 
@@ -104,7 +114,10 @@ TEST_F(LogCabinHelperTest, readValidEntries) {
         check = format("%sEntryType: %s | ", check.c_str(), entryType.c_str());
     }
 
-    EXPECT_EQ("EntryType: DummyEntry1 | EntryType: DummyEntry2 | ", check);
+    EXPECT_EQ("EntryType: DummyEntry1 | "
+              "EntryType: DummyEntry3 | "
+              "EntryType: DummyEntry5 | ",
+              check);
 }
 
 }  // namespace RAMCloud

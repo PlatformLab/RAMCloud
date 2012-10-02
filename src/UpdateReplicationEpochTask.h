@@ -13,8 +13,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#ifndef RAMCLOUD_MINOPENSEGMENTID_H
-#define RAMCLOUD_MINOPENSEGMENTID_H
+#ifndef RAMCLOUD_UPDATEREPLICATIONEPOCHTASK_H
+#define RAMCLOUD_UPDATEREPLICATIONEPOCHTASK_H
 
 #include "Common.h"
 #include "CoordinatorClient.h"
@@ -27,76 +27,74 @@ namespace RAMCloud {
 
 /**
  * A Task (see TaskQueue) which provides access to the latest
- * minOpenSegmentId acknowledged by the coordinator for a particular
+ * ReplicationEpoch acknowledged by the coordinator for a particular
  * ServerId, and allows easy, asynchronous updates to the value stored
  * on the coordinator.
  *
- * Logically part of ReplicaManager.  Used as part of backup recovery
+ * Logically part of ReplicaManager. Used as part of backup recovery
  * to prevent replicas which the master lost contact with from being
  * detected as the head of the log during a recovery.
  */
-class MinOpenSegmentId : public Task {
+class UpdateReplicationEpochTask : public Task {
   PUBLIC:
 
     /**
-     * Construct an instance to track and update the minOpenSegmentId
+     * Construct an instance to track and update the replication epoch
      * stored on the coordinator.
      *
      * \param context
      *      Overall information about this RAMCloud server.
      * \param taskQueue
      *      The TaskQueue which this Task will schedule itself with in
-     *      the case the minOpenSegmentId stored on the coordinator
+     *      the case the replication epoch stored on the coordinator
      *      needs to be updated.
      * \param serverId
-     *      The ServerId of the master whose minOpenSegmentId is to be updated
+     *      The ServerId of the master whose replication epoch is to be updated
      *      on the coordinator.
      */
-    MinOpenSegmentId(Context* context,
-                     TaskQueue* taskQueue,
-                     const ServerId* serverId)
+    UpdateReplicationEpochTask(Context* context,
+                               TaskQueue* taskQueue,
+                               const ServerId* serverId)
         : Task(*taskQueue)
         , context(context)
         , serverId(serverId)
-        , current(0)
-        , sent(0)
-        , requested(0)
+        , current()
+        , sent()
+        , requested()
         , rpc()
     {}
 
     /**
-     * Returns true if \a segmentId is greater than the current value for
-     * minOpenSegmentId durably stored on the coordinator, false otherwise.
-     * To increase this value see updateToAtLeast().  Callers will generally
-     * want to use this to see if the durable minOpenSegmentId is sufficient
-     * to proceed safely, or they'll call updateToAtLeast() and then begin
-     * polling isGreaterThan(segmentId) to wait for the update (or a following,
-     * higher update) to be acknowledged as applied by the coordinator.
+     * Returns true if the \a segmentId, \a epoch pair is at least as "great"
+     * as the replication epoch pair durably stored on the coordinator, false
+     * otherwise. That is, when any replica with a lower segment id or the
+     * same segment id but a lower epoch will not be used in any future
+     * recovery of this server. Callers should use updateToAtLeast() to
+     * attempt to set this value and then use this method to poll that it
+     * has been set on the coordinator.
      */
-    bool isGreaterThan(uint64_t segmentId) {
-        return current > segmentId;
+    bool isAtLeast(uint64_t segmentId, uint64_t epoch) {
+        return current >= ReplicationEpoch{segmentId, epoch};
     }
 
     /**
-     * Try to update the minOpenSegmentId stored on the coordinator to at least
-     * \a segmentId.  If the coordinator can be contacted then it is guaranteed
-     * that isGreaterThan(segmentId) will return false at some point in the
-     * future once the coordinator has durably stored a minOpenSegmentId of
-     * either \a segmentId or perhaps a higher value from subsequent calls to
-     * this method.  If the coordinator becomes unavailable then
-     * isGreaterThan(segmentId) may return true indefinitely until the
+     * Try to update the replication epoch stored on the coordinator to at
+     * least \a segmentId, \a epoch. If the coordinator can be contacted then
+     * it is guaranteed that isAtLeast(segmentId, epoch) will return true at
+     * some point in the future once the coordinator has durably stored the new
+     * replication epoch or perhaps a higher value from subsequent calls to
+     * this method. If the coordinator becomes unavailable then
+     * isAtLeast(segmentId, epoch) may return true indefinitely until the
      * coordinator becomes available again.
-     *
-     * \param segmentId
-     *      If this value is higher than the highest value ever passed to this
-     *      method then try to update the value stored on
      */
-    void updateToAtLeast(uint64_t segmentId) {
-        RAMCLOUD_TEST_LOG("request update to minOpenSegmentId for %s to %lu",
-                          serverId->toString().c_str(), segmentId);
-        if (requested > segmentId)
+    void updateToAtLeast(uint64_t segmentId, uint64_t epoch) {
+        RAMCLOUD_TEST_LOG("request update to master recovery info for %s to "
+                          "%lu,%lu",
+                          serverId->toString().c_str(), segmentId, epoch);
+        ReplicationEpoch newEpoch{segmentId, epoch};
+        if (requested > newEpoch)
             return;
-        requested = segmentId;
+        requested = newEpoch;
         schedule();
     }
 
@@ -118,16 +116,19 @@ class MinOpenSegmentId : public Task {
 #endif
         if (!rpc) {
             if (current != requested) {
-                rpc.construct(context, *serverId, requested);
+                ProtoBuf::MasterRecoveryInfo recoveryInfo;
+                recoveryInfo.set_min_open_segment_id(requested.first);
+                recoveryInfo.set_min_open_segment_epoch(requested.second);
+                rpc.construct(context, *serverId, recoveryInfo);
                 sent = requested;
             }
         } else {
             if (rpc->isReady()) {
                 rpc->wait();
                 current = sent;
-                RAMCLOUD_LOG(DEBUG, "coordinator minOpenSegmentId for %s "
-                             "updated to %lu", serverId->toString().c_str(),
-                             current);
+                RAMCLOUD_LOG(DEBUG, "coordinator replication epoch for %s "
+                             "updated to %lu,%lu", serverId->toString().c_str(),
+                             current.first, current.second);
                 rpc.destroy();
             }
         }
@@ -142,42 +143,44 @@ class MinOpenSegmentId : public Task {
     Context* context;
 
     /**
-     * Complete unholy garbage.  This has to be a pointer because the reference
+     * Complete unholy garbage. This has to be a pointer because the reference
      * to the serverId is provided before the server actually receives the value
-     * for its ServerId.  This can be NULL if coordinator is NULL.
+     * for its ServerId. This can be NULL if coordinator is NULL.
      */
     const ServerId* serverId;
 
-    /**
-     * The highest value known to have been acknowledged on the coordinator as
-     * the minOpenSegmentId for this #serverId.  If this differs from
-     * #requested (set via updateToAtLeast()) then an rpcs will be sent to
-     * update the value on the coordinator until success.
-     */
-    uint64_t current;
+    typedef std::pair<uint64_t, uint64_t> ReplicationEpoch;
 
     /**
-     * The last value sent to the coordinator for minOpenSegmentId so far.
+     * The highest value known to have been acknowledged on the coordinator as
+     * the replication epoch for this #serverId. If this differs from
+     * #requested (set via updateToAtLeast()) then an rpc will be sent to
+     * update the value on the coordinator until success.
+     */
+    ReplicationEpoch current;
+
+    /**
+     * The last value sent to the coordinator for replication epoch so far.
      * Used so that if #requested is updated while an rpc is outstanding we
      * still know what value the coordinator acknowledged when it was
      * reaped and can update #current accordingly.
      */
-    uint64_t sent;
+    ReplicationEpoch sent;
 
     /**
-     * The highest caller requested value for minOpenSegmentId seen so far.
+     * The highest caller requested value for replication epoch seen so far.
      * If this differs from #current then it will be sent to the coordinator
      * the next time there is no outstanding rpc in progress.
      */
-    uint64_t requested;
+    ReplicationEpoch requested;
 
     /**
-     * Holds an ongoing rpc to the coordinator to update the minOpenSegmentId
+     * Holds an ongoing rpc to the coordinator to update the replication epoch
      * for this #serverId, if any rpc is outstanding.
      */
-    Tub<SetMinOpenSegmentIdRpc> rpc;
+    Tub<SetMasterRecoveryInfoRpc> rpc;
 
-    DISALLOW_COPY_AND_ASSIGN(MinOpenSegmentId);
+    DISALLOW_COPY_AND_ASSIGN(UpdateReplicationEpochTask);
 };
 
 } // namespace RAMCloud

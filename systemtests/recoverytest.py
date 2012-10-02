@@ -30,6 +30,19 @@ def extractLocatorFromCommand(command):
     locator = tokens[dashL + 1]
     return locator
 
+def sync():
+    """Decorator which can be applied to functions which adds a field 'sync'
+    to them. Recovery tests use this to determine if the servers should be
+    started with the --sync mode flag for backups.
+    """
+    def decorate(f):
+        def new_f(*args, **kwargs):
+            return f(*args, **kwargs)
+        new_f.func_name = f.func_name
+        new_f.sync = True
+        return new_f
+    return decorate
+
 class RecoveryTestCase(ContextManagerTestCase):
     def __enter__(self):
         self.last_unused_port = 12247
@@ -51,10 +64,14 @@ class RecoveryTestCase(ContextManagerTestCase):
             #self.cluster.coordinator_host = hosts[0]
             #self.cluster.coordinator_locator = cluster.coord_locator(self.cluster.transport,
             #                                                         self.cluster.coordinator_host)
+            syncArgs = ''
+            if hasattr(getattr(self, self._testMethodName), 'sync'):
+                syncArgs = '--sync'
             for host in hosts[:self.num_hosts]:
                 self.servers.append(
                     self.cluster.start_server(
-                        host, args='--clusterName=%s' % self.clusterName))
+                        host, args='--clusterName=%s %s' % (self.clusterName,
+                                                            syncArgs)))
                 # Hack below can be used to use different ports for all servers
                 #self.servers.append(
                 #    self.cluster.start_server(host,
@@ -162,7 +179,7 @@ class RecoveryTestCase(ContextManagerTestCase):
         value = self.rc.read(self.table, 'testKey')
         self.assertEqual(('testValue', 1), value)
         value = self.rc.read(table2, 'testKey')
-        self.assertEqual(('testValue2', 1), value)
+        self.assertEqual(('testValue2', 2), value)
 
         self.rc.testing_set_runtime_option('failRecoveryMasters', '2')
         self.rc.testing_kill(0, '0')
@@ -171,7 +188,7 @@ class RecoveryTestCase(ContextManagerTestCase):
         value = self.rc.read(self.table, 'testKey')
         self.assertEqual(('testValue', 1), value)
         value = self.rc.read(table2, 'testKey')
-        self.assertEqual(('testValue2', 1), value)
+        self.assertEqual(('testValue2', 2), value)
 
     @timeout()
     def test_06_one_backup_fails_during_recovery(self):
@@ -307,7 +324,13 @@ class RecoveryTestCase(ContextManagerTestCase):
         print('Waiting for GC to catch up')
         time.sleep(20)
 
-    def _test_10_cold_start(self):
+    @sync()
+    @timeout(120)
+    def test_10_cold_start(self):
+        # We're only cold-start-safe if data is synchronously written,
+        # otherwise open replicas for the head won't be found on backup
+        # restart.
+        self.createTestValue()
         self.rc.testing_fill(self.table, '0', 592415, 1024)
         print('Killing all servers')
         for server in self.servers:

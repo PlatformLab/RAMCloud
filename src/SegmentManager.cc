@@ -14,6 +14,7 @@
  */
 
 #include "Common.h"
+#include "Object.h"
 #include "LogDigest.h"
 #include "LogMetadata.h"
 #include "ShortMacros.h"
@@ -70,7 +71,9 @@ SegmentManager::SegmentManager(Context* context,
       lock(),
       logIteratorCount(0),
       segmentsOnDisk(0),
-      segmentsOnDiskHistogram(maxSegments, 1)
+      segmentsOnDiskHistogram(maxSegments, 1),
+      safeVersion(1),
+      testing_allocSurvivorMustNotBlock(false)
 {
     if ((segmentSize % allocator.getSegletSize()) != 0)
         throw SegmentManagerException(HERE, "segmentSize % segletSize != 0");
@@ -178,8 +181,8 @@ SegmentManager::allocHead(bool mustNotFail)
         writeDigest(newHead, prevHead);
     else
         writeDigest(newHead, NULL);
-    //writeMaximumVersionNumber(newHead);
-    //writeWill(newHead);
+    writeSafeVersion(newHead);
+    //TODO(syang0) writeWill(newHead);
 
     // Make the head immutable if it's an emergency head. This will prevent the
     // log from adding anything to it and let us reclaim it without cleaning
@@ -238,6 +241,9 @@ SegmentManager::allocSurvivor(uint64_t headSegmentIdDuringCleaning)
         if (s != NULL)
             break;
 
+        if (testing_allocSurvivorMustNotBlock)
+            return NULL;
+
         usleep(100);
     }
 
@@ -275,6 +281,9 @@ SegmentManager::allocSurvivor(LogSegment* replacing)
         s = alloc(SegletAllocator::CLEANER, replacing->id);
         if (s != NULL)
             break;
+
+        if (testing_allocSurvivorMustNotBlock)
+            return NULL;
              
         usleep(100);
     }
@@ -551,6 +560,38 @@ SegmentManager::getSegmentUtilization()
         maxUsableSegments);
 }
 
+/**
+ * Return safeVersion for newly allocated object and increment safeVersion for
+ * next assignment. \see #safeVersion
+ * semantics of version number and the purpose of the safeVersion.
+ *
+ * In a case, a object is repeatedly removed, recreated, removed, recreated.
+ * safeVersion needs to be incremented in allocateVersion().
+ *
+ * \return
+ *      The next version available from the master vector clock.
+ */
+uint64_t
+SegmentManager::allocateVersion() {
+    return safeVersion++;
+}
+
+/**
+ * Ensure the safeVersion is larger than given number.
+ * Return true if safeVersion is revised.
+ * \param minimum
+ *      The version number to be compared against safeVersion.
+ * \see #safeVersion
+ */
+bool
+SegmentManager::raiseSafeVersion(uint64_t minimum) {
+    if (minimum > safeVersion) {
+        safeVersion = minimum;
+        return true;
+    }
+    return false;
+}
+
 /******************************************************************************
  * PRIVATE METHODS
  ******************************************************************************/
@@ -560,7 +601,7 @@ SegmentManager::getSegmentUtilization()
  * log. This method is only really useful in allocHead() and allocSurvivor().
  *
  * \param segment
- *      Pointer to the segment the header should be written to. 
+ *      Pointer to the segment the header should be written to.
  * \param headSegmentIdDuringCleaning
  *      If the segment is a cleaner-generated survivor segment, this value is
  *      the identifier of the head segment when cleaning started. Stamping the
@@ -641,6 +682,31 @@ SegmentManager::writeDigest(LogSegment* newHead, LogSegment* prevHead)
     if (!success) {
         throw FatalError(HERE, format("Could not append log digest of %u bytes "
             "to segment", buffer.getTotalLength()));
+    }
+}
+
+/**
+ * Write the ObjectSafeVersion to the new head of the log.
+ * This method should only be called by allocHead(), since it will
+ * modify segment states in a way that is not idempotent.
+ *
+ * \param head
+ *      Pointer to the segment the ObjectSafeVersion should be written into.
+ *      Generally this is the new head segment.
+ */
+void
+SegmentManager::writeSafeVersion(LogSegment* head)
+{
+    // Create Object with segmentManager::safeVersion.
+    ObjectSafeVersion objSafeVer(safeVersion);
+
+    Buffer buffer;
+    buffer.append(&objSafeVer, sizeof(objSafeVer));
+    bool success = head->append(LOG_ENTRY_TYPE_SAFEVERSION, buffer);
+    if (!success) {
+        throw FatalError(HERE,
+                 format("Could not append safeVersion of %u bytes "
+                        "to head segment", buffer.getTotalLength()));
     }
 }
 
@@ -763,7 +829,7 @@ SegmentManager::freeSlot(uint32_t slot, bool wasEmergencyHead)
  * determines that its safe to destroy a segment and reuse the memory. This
  * means that the segment must no longer part of the log and no references to
  * it may still exist.
- * 
+ *
  * \param s
  *      The segment to be freed. The segment should either have been an
  *      emergency head segment, or have been in the FREEABLE_PENDING_REFERENCES

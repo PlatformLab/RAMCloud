@@ -64,12 +64,9 @@ class MembershipService : public Service {
     void getServerId(const WireFormat::GetServerId::Request& reqHdr,
                      WireFormat::GetServerId::Response& respHdr,
                      Rpc& rpc);
-    void setServerList(const WireFormat::SetServerList::Request& reqHdr,
-                       WireFormat::SetServerList::Response& respHdr,
-                       Rpc& rpc);
     void updateServerList(const WireFormat::UpdateServerList::Request& reqHdr,
-                          WireFormat::UpdateServerList::Response& respHdr,
-                          Rpc& rpc);
+                       WireFormat::UpdateServerList::Response& respHdr,
+                       Rpc& rpc);
 
     /// ServerId of this server.
     ServerId& serverId;

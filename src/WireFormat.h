@@ -81,19 +81,18 @@ enum Opcode {
     HINT_SERVER_DOWN        = 20,
     RECOVERY_MASTER_FINISHED = 21,
     ENUMERATE             = 22,
-    SET_MIN_OPEN_SEGMENT_ID = 23,
+    SET_MASTER_RECOVERY_INFO = 23,
     FILL_WITH_TEST_DATA     = 24,
     MULTI_READ              = 25,
     GET_METRICS             = 26,
     BACKUP_FREE             = 28,
     BACKUP_GETRECOVERYDATA  = 29,
     BACKUP_STARTREADINGDATA = 31,
+    BACKUP_STARTPARTITION   = 36, // TODO(syang0) someone fix numbering
     BACKUP_WRITE            = 32,
     BACKUP_RECOVERYCOMPLETE = 33,
     BACKUP_QUIESCE          = 34,
-    SET_SERVER_LIST         = 35,
-    UPDATE_SERVER_LIST      = 36,
-    SEND_SERVER_LIST        = 37,
+    UPDATE_SERVER_LIST      = 35,
     GET_SERVER_ID           = 38,
     DROP_TABLET_OWNERSHIP   = 39,
     TAKE_TABLET_OWNERSHIP   = 40,
@@ -183,12 +182,28 @@ struct BackupGetRecoveryData {
     static const ServiceType service = BACKUP_SERVICE;
     struct Request {
         RequestCommon common;
+        uint64_t recoveryId;    ///< Identifies the recovery for which the
+                                ///< recovery segment is requested.
         uint64_t masterId;      ///< Server Id from whom the request is coming.
         uint64_t segmentId;     ///< Target segment to get data from.
         uint64_t partitionId;   ///< Partition id of :ecovery segment to fetch.
     } __attribute__((packed));
     struct Response {
+        Response()
+            : common()
+            , certificate()
+        {}
+        Response(const ResponseCommon& common,
+                 const Segment::Certificate& certificate)
+            : common(common)
+            , certificate(certificate)
+        {}
         ResponseCommon common;
+        Segment::Certificate certificate; ///< Certificate for the segment
+                                          ///< which follows this fields in
+                                          ///< the response field. Used by
+                                          ///< master to iterate over the
+                                          ///< segment.
     } __attribute__((packed));
 };
 
@@ -221,6 +236,9 @@ struct BackupStartReadingData {
     static const ServiceType service = BACKUP_SERVICE;
     struct Request {
         RequestCommon common;
+        uint64_t recoveryId;       ///< Identifies the recovery for which
+                                   ///< information should be returned and
+                                   ///< recovery segments should be built.
         uint64_t masterId;         ///< Server Id from whom the request is
                                    ///< coming.
         uint32_t partitionsLength; ///< Number of bytes in the partition map.
@@ -230,90 +248,133 @@ struct BackupStartReadingData {
     } __attribute__((packed));
     struct Response {
         ResponseCommon common;
-        uint32_t segmentIdCount;       ///< Number of (segmentId, length) pairs
-                                       ///< in the replica list following this
-                                       ///< header.
-        uint32_t primarySegmentCount;  ///< Count of segment replicas that are
+        uint32_t replicaCount;         ///< Number of entries in the replica
+                                       ///< list following this header.
+        uint32_t primaryReplicaCount;  ///< Count of segment replicas that are
                                        ///< primary. These appear at the start
                                        ///< of the replica list.
         uint32_t digestBytes;          ///< Number of bytes for optional
                                        ///< LogDigest.
         uint64_t digestSegmentId;      ///< SegmentId the LogDigest came from.
-        uint32_t digestSegmentLen;     ///< Byte length of the LogDigest
-                                       ///< segment replica.
+        uint64_t digestSegmentEpoch;   ///< Segment epoch of the replica from
+                                       ///< which the digest was taken. Used
+                                       ///< by the coordinator to determine if
+                                       ///< the replica might have been
+                                       ///< inconsistent. If it might've been
+                                       ///< this digest will be discarded
+                                       ///< by the coordinator for safety.
+        uint32_t tabletMetricsLen;     ///< Byte length of TabletMetrics that
+                                       ///< go after the LogDigest
         // An array of segmentIdCount replicas follows.
         // Each entry is a Replica (see below).
         //
         // If logDigestBytes != 0, then a serialised LogDigest follows
         // immediately after the replica list.
+
+        // TODO(syang0) TabletMetrics follows. The exact
+        // format has not been determined yet.
     } __attribute__((packed));
     /// Used in the Response to report which replicas the backup has.
     struct Replica {
         uint64_t segmentId;        ///< The segment ID.
-        uint32_t segmentLength;    ///< The number of bytes written to the
-                                   ///< segment if it is open, or ~0U for
-                                   ///< closed segments.
+        uint64_t segmentEpoch;     ///< Epoch for the segment that the replica
+                                   ///< was most recently updated in. Used by
+                                   ///< the coordinator to filter out stale
+                                   ///< replicas from the log.
+        bool closed;               ///< Whether the replica was marked as
+                                   ///< closed on the backup. If it was it
+                                   ///< is inherently consistent and can be
+                                   ///< used without scrutiny during recovery.
+        friend bool operator==(const Replica& left, const Replica& right) {
+            return left.segmentId == right.segmentId &&
+                   left.segmentEpoch == right.segmentEpoch &&
+                   left.closed == right.closed;
+        }
+    } __attribute__((packed));
+};
+
+struct BackupStartPartitioningReplicas {
+    static const Opcode opcode = BACKUP_STARTPARTITION;
+    static const ServiceType service = BACKUP_SERVICE;
+    struct Request {
+        RequestCommon common;
+        uint64_t recoveryId;       ///< Identifies the recovery for which
+                                   ///< information should be returned and
+                                   ///< recovery segments should be built.
+        uint64_t masterId;         ///< Server Id from whom the request is
+                                   ///< coming.
+        uint32_t partitionsLength; ///< Number of bytes in the partition map.
+                                   ///< The bytes of the partition map follow
+                                   ///< immediately after this header. See
+                                   ///< ProtoBuf::Tablets.
+    } __attribute__((packed));
+    struct Response {
+        ResponseCommon common;
     } __attribute__((packed));
 };
 
 struct BackupWrite {
     static const Opcode opcode = BACKUP_WRITE;
     static const ServiceType service = BACKUP_SERVICE;
-    enum Flags {
-        NONE = 0,
-        OPEN = 1,
-        CLOSE = 2,
-        OPENCLOSE = OPEN | CLOSE,
-        PRIMARY = 4,
-        OPENPRIMARY = OPEN | PRIMARY,
-        OPENCLOSEPRIMARY = OPEN | CLOSE | PRIMARY,
-    };
     struct Request {
         Request()
             : common()
             , masterId()
             , segmentId()
+            , segmentEpoch()
             , offset()
             , length()
-            , flags()
-            , atomic()
-            , footerIncluded()
-            , footerEntry()
+            , open()
+            , close()
+            , primary()
+            , certificateIncluded()
+            , certificate()
         {}
-        Request(RequestCommon common,
+        Request(const RequestCommon& common,
                 uint64_t masterId,
                 uint64_t segmentId,
+                uint64_t segmentEpoch,
                 uint32_t offset,
                 uint32_t length,
-                uint8_t flags,
-                bool atomic,
-                bool footerIncluded,
-                Segment::OpaqueFooterEntry footerEntry)
+                bool open,
+                bool close,
+                bool primary,
+                bool certificateIncluded,
+                const Segment::Certificate& certificate)
             : common(common)
             , masterId(masterId)
             , segmentId(segmentId)
+            , segmentEpoch(segmentEpoch)
             , offset(offset)
             , length(length)
-            , flags(flags)
-            , atomic(atomic)
-            , footerIncluded(footerIncluded)
-            , footerEntry(footerEntry)
+            , open(open)
+            , close(close)
+            , primary(primary)
+            , certificateIncluded(certificateIncluded)
+            , certificate(certificate)
         {}
         RequestCommon common;
         uint64_t masterId;        ///< Server from whom the request is coming.
         uint64_t segmentId;       ///< Target segment to update.
+        uint64_t segmentEpoch;    ///< Epoch for the segment that the replica
+                                  ///< is being updated in. Used by
+                                  ///< the coordinator to filter out stale
+                                  ///< replicas from the log.
         uint32_t offset;          ///< Offset into this segment to write at.
         uint32_t length;          ///< Number of bytes to write.
-        uint8_t flags;            ///< If open or close request.
-        bool atomic;              ///< If true replica isn't valid until close.
-        bool footerIncluded;      ///< If false #footer is undefined, if true
-                                  ///< then it includes a valid footer that
-                                  ///< should be placed in the segment after
-                                  ///< the data from this write.
-        Segment::OpaqueFooterEntry footerEntry; ///< Footer which should be
-                                                ///< written to storage
-                                                ///< following the data included
-                                                ///< in this rpc.
+        bool open;                ///< If open request.
+        bool close;               ///< If close request.
+        bool primary;             ///< If this replica should be considered
+                                  ///< a primary and loaded immediately on
+                                  ///< the start of recovery.
+        bool certificateIncluded; ///< If false #certificate is undefined, if
+                                  ///< true then it includes a valid certificate
+                                  ///< that should be placed in the segment
+                                  ///< after the data from this write.
+        Segment::Certificate certificate; ///< Certificate which should be
+                                          ///< written to storage
+                                          ///< following the data included
+                                          ///< in this rpc.
         // Opaque byte string follows with data to write.
     } __attribute__((packed));
     struct Response {
@@ -385,7 +446,6 @@ struct EnlistServer {
         SerializedServiceMask serviceMask; ///< Which services are available
                                            ///< on the enlisting server.
         uint32_t readSpeed;                /// MB/s read speed if a BACKUP
-        uint32_t writeSpeed;               /// MB/s write speed if a BACKUP
         /// Number of bytes in the serviceLocator, including terminating NULL
         /// character.  The bytes of the service locator follow immediately
         /// after this header.
@@ -787,11 +847,23 @@ struct ReceiveMigrationData {
     static const Opcode opcode = RECEIVE_MIGRATION_DATA;
     static const ServiceType service = MASTER_SERVICE;
     struct Request {
+        Request()
+            : common()
+            , tableId()
+            , firstKeyHash()
+            , segmentBytes()
+            , certificate()
+        {}
         RequestCommon common;
         uint64_t tableId;           // Id of the table this data belongs to.
         uint64_t firstKeyHash;      // Start of the tablet range for the data.
         uint32_t segmentBytes;      // Length of the Segment containing migrated
                                     // data immediately following this header.
+        Segment::Certificate certificate; // Certificate for the segment
+                                          // which follows this fields in
+                                          // the response field. Used by
+                                          // master to iterate over the
+                                          // segment.
     } __attribute__((packed));
     struct Response {
         ResponseCommon common;
@@ -871,28 +943,16 @@ struct Remove {
     } __attribute__((packed));
 };
 
-struct SendServerList {
-    static const Opcode opcode = SEND_SERVER_LIST;
-    static const ServiceType service = COORDINATOR_SERVICE;
-    struct Request {
-        RequestCommon common;
-        uint64_t serverId;         // ServerId the coordinator should send
-                                   // the list to.
-    } __attribute__((packed));
-    struct Response {
-        ResponseCommon common;
-    } __attribute__((packed));
-};
-
-struct SetMinOpenSegmentId {
-    static const Opcode opcode = SET_MIN_OPEN_SEGMENT_ID;
+struct SetMasterRecoveryInfo {
+    static const Opcode opcode = SET_MASTER_RECOVERY_INFO;
     static const ServiceType service = COORDINATOR_SERVICE;
     struct Request {
         RequestCommon common;
         uint64_t serverId;         // ServerId the coordinator update the
                                    // minimum segment id for.
-        uint64_t segmentId;        // Minimum segment id for replicas of open
-                                   // segments during subsequent recoveries.
+        uint32_t infoLength;       // Bytes in the protobuf which follows
+                                   // this header. Stored by the coordinator
+                                   // for this server.
     } __attribute__((packed));
     struct Response {
         ResponseCommon common;
@@ -919,8 +979,9 @@ struct SetRuntimeOption {
     } __attribute__((packed));
 };
 
-struct SetServerList {
-    static const Opcode opcode = SET_SERVER_LIST;
+
+struct UpdateServerList {
+    static const Opcode opcode = UPDATE_SERVER_LIST;
     static const ServiceType service = MEMBERSHIP_SERVICE;
     struct Request {
         RequestCommon common;
@@ -987,25 +1048,6 @@ struct TakeTabletOwnership {
     } __attribute__((packed));
     struct Response {
         ResponseCommon common;
-    } __attribute__((packed));
-};
-
-struct UpdateServerList {
-    static const Opcode opcode = UPDATE_SERVER_LIST;
-    static const ServiceType service = MEMBERSHIP_SERVICE;
-    struct Request {
-        RequestCommon common;
-        uint32_t serverListLength; // Number of bytes in the server list.
-                                   // The bytes of the server list follow
-                                   // immediately after this header. See
-                                   // ProtoBuf::ServerList.
-    } __attribute__((packed));
-    struct Response {
-        ResponseCommon common;
-        uint8_t lostUpdates;       // If non-zero, the server was missing
-                                   // one or more previous updates and
-                                   // would like the entire list to be
-                                   // sent again.
     } __attribute__((packed));
 };
 

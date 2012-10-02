@@ -22,6 +22,7 @@
 #include "CoordinatorServerList.h"
 #include "CycleCounter.h"
 #include "LogDigest.h"
+#include "ParallelRun.h"
 #include "RawMetrics.h"
 #include "ServerTracker.h"
 #include "TabletMap.h"
@@ -37,18 +38,16 @@ class Tablet;
 namespace RecoveryInternal {
 /**
  * AsynchronousTaskConcept which contacts a backup, informs it
- * that it should load/partition replicas for segments belonging to the
+ * that it should load replicas for segments belonging to the
  * crashed master, and gathers any log digest and list of replicas the
- * backup had for the crashed master.
+ * backup had for the crashed master. This should be followed by a
+ * BackupStartPartitionTask to finish a recovery.
  * Only used in Recovery::buildReplicaMap().
  */
 class BackupStartTask {
   PUBLIC:
     BackupStartTask(Recovery* recovery,
-                    ServerId backupId,
-                    ServerId crashedMasterId,
-                    const ProtoBuf::Tablets& partitions,
-                    uint64_t minOpenSegmentId);
+                    ServerId backupId);
     bool isDone() const { return done; }
     bool isReady() { return testingCallback || (rpc && rpc->isReady()); }
     void send();
@@ -59,9 +58,6 @@ class BackupStartTask {
 
   PRIVATE:
     Recovery* recovery;
-    const ServerId crashedMasterId;
-    const ProtoBuf::Tablets& partitions;
-    const uint64_t minOpenSegmentId;
     Tub<StartReadingDataRpc> rpc;
     bool done;
 
@@ -75,14 +71,38 @@ class BackupStartTask {
     DISALLOW_COPY_AND_ASSIGN(BackupStartTask);
 };
 
+/**
+ * AsynchronousTaskConcept which contacts a backup, informs it
+ * that it should partition replicas for segments belonging to the
+ * crashed master that have been read since from BackupStartTask.
+ * Only used in Recovery::buildReplicaMap().
+ */
+class BackupStartPartitionTask {
+  PUBLIC:
+    BackupStartPartitionTask(Recovery* recovery, ServerId backupServerId);
+    bool isReady() const { return done; }
+    bool isDone() { return rpc && rpc->isReady(); }
+    void send();
+    void wait();
+
+
+  PRIVATE:
+    bool done;
+    Tub<StartPartitioningRpc> rpc;
+    const ServerId backupServerId;
+    const Recovery* recovery;
+
+    DISALLOW_COPY_AND_ASSIGN(BackupStartPartitionTask);
+};
+
 bool verifyLogComplete(Tub<BackupStartTask> tasks[],
                        size_t taskCount,
                        const LogDigest& digest);
-Tub<std::tuple<uint64_t, uint32_t, LogDigest>>
+Tub<std::pair<uint64_t, LogDigest>>
 findLogDigest(Tub<BackupStartTask> tasks[], size_t taskCount);
 vector<WireFormat::Recover::Replica> buildReplicaMap(
     Tub<BackupStartTask> tasks[], size_t taskCount,
-    RecoveryTracker* tracker, uint64_t headId, uint32_t headLength);
+    RecoveryTracker* tracker, uint64_t headId);
 
 struct MasterStartTask;
 struct MasterStartTaskTestingCallback {
@@ -125,7 +145,7 @@ class Recovery : public Task {
              RecoveryTracker* tracker,
              Owner* owner,
              ServerId crashedServerId,
-             uint64_t minOpenSegmentId);
+             const ProtoBuf::MasterRecoveryInfo& recoveryInfo);
     ~Recovery();
 
     virtual void performTask();
@@ -143,14 +163,18 @@ class Recovery : public Task {
 
     /**
      * Used to filter out replicas of segments which may have become
-     * inconsistent. A replica with a segment id less than this is
-     * not eligible to be used for recovery (both for log digest and
-     * object data purposes).
+     * inconsistent. A replica with a segment id less than this or
+     * an equal segment id but a lower epoch is not eligible to be used
+     * for recovery (both for log digest and object data purposes).
+     * This information comes from the coordinator server list at the
+     * start of recovery and is originally provided by masters when
+     * they lose contact with masters to which they are replicating
+     * an open log segment.
      */
-    const uint64_t minOpenSegmentId;
+    const ProtoBuf::MasterRecoveryInfo masterRecoveryInfo;
 
   PRIVATE:
-    void partitionTablets();
+    void partitionTablets(vector<Tablet> tablets);
     void startBackups();
     void startRecoveryMasters();
     void broadcastRecoveryComplete();
@@ -277,6 +301,7 @@ class Recovery : public Task {
     uint32_t testingFailRecoveryMasters;
 
     friend class RecoveryInternal::BackupStartTask;
+    friend class RecoveryInternal::BackupStartPartitionTask;
     friend class RecoveryInternal::MasterStartTask;
     friend class RecoveryInternal::BackupEndTask;
     DISALLOW_COPY_AND_ASSIGN(Recovery);

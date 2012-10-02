@@ -48,7 +48,7 @@ class CoordinatorServerManager {
     void createReplicationGroup();
     ServerId enlistServer(ServerId replacesId,
                           ServiceMask serviceMask,
-                          const uint32_t readSpeed, const uint32_t writeSpeed,
+                          const uint32_t readSpeed,
                           const char* serviceLocator);
     void enlistServerRecover(ProtoBuf::ServerInformation* state,
                              EntryId entryId);
@@ -57,13 +57,13 @@ class CoordinatorServerManager {
     ProtoBuf::ServerList getServerList(ServiceMask serviceMask);
     bool hintServerDown(ServerId serverId);
     void removeReplicationGroup(uint64_t groupId);
-    void sendServerList(ServerId serverId);
     void serverDown(ServerId serverId);
     void serverDownRecover(ProtoBuf::StateServerDown* state,
                            EntryId entryId);
-    void setMinOpenSegmentId(ServerId serverId, uint64_t segmentId);
-    void setMinOpenSegmentIdRecover(ProtoBuf::ServerUpdate* state,
-                                    EntryId entryId);
+    void setMasterRecoveryInfo(
+        ServerId serverId, const ProtoBuf::MasterRecoveryInfo& recoveryInfo);
+    void setMasterRecoveryInfoRecover(ProtoBuf::ServerUpdate* state,
+                                      EntryId entryId);
     bool verifyServerFailure(ServerId serverId);
 
 
@@ -77,13 +77,12 @@ class CoordinatorServerManager {
           EnlistServer(CoordinatorServerManager &manager,
                        ServerId newServerId,
                        ServiceMask serviceMask,
-                       const uint32_t readSpeed,
-                       const uint32_t writeSpeed,
+                       uint32_t readSpeed,
                        const char* serviceLocator)
               : manager(manager),
                 newServerId(newServerId),
                 serviceMask(serviceMask),
-                readSpeed(readSpeed), writeSpeed(writeSpeed),
+                readSpeed(readSpeed),
                 serviceLocator(serviceLocator) {}
           ServerId execute();
           ServerId complete(EntryId entryId);
@@ -104,13 +103,9 @@ class CoordinatorServerManager {
     	   */
           ServiceMask serviceMask;
           /**
-    	   * Read speed of the enlisting server.
+           * Read speed of the enlisting server in MB/s.
     	   */
           const uint32_t readSpeed;
-    	  /**
-    	   * Write speed of the enlisting server.
-    	   */
-          const uint32_t writeSpeed;
     	  /**
     	   * Service Locator of the enlisting server.
     	   */
@@ -143,15 +138,19 @@ class CoordinatorServerManager {
     };
 
     /**
-     * Defines methods and stores data to set minOpenSegmentId of server
+     * Defines methods and stores data to set recovery info of server
      * with id serverId to segmentId.
      */
-    class SetMinOpenSegmentId {
+    class SetMasterRecoveryInfo {
         public:
-            SetMinOpenSegmentId(CoordinatorServerManager &manager,
-                                ServerId serverId,
-                                uint64_t segmentId)
-                : manager(manager), serverId(serverId), segmentId(segmentId) {}
+            SetMasterRecoveryInfo(
+                    CoordinatorServerManager &manager,
+                    ServerId serverId,
+                    const ProtoBuf::MasterRecoveryInfo& recoveryInfo)
+                : manager(manager)
+                , serverId(serverId)
+                , recoveryInfo(recoveryInfo)
+            {}
             void execute();
             void complete(EntryId entryId);
         private:
@@ -160,16 +159,16 @@ class CoordinatorServerManager {
              * initializing this class.
              * Used to get access to CoordinatorService& service.
              */
-            CoordinatorServerManager &manager;
+            CoordinatorServerManager& manager;
             /**
-             * ServerId of the server whose minOpenSegmentId will be set.
+             * ServerId of the server whose recovery info will be set.
              */
             ServerId serverId;
             /**
-             * The minOpenSegmentId to be set.
+             * The new master recovery info to be set.
              */
-            uint64_t segmentId;
-            DISALLOW_COPY_AND_ASSIGN(SetMinOpenSegmentId);
+            ProtoBuf::MasterRecoveryInfo recoveryInfo;
+            DISALLOW_COPY_AND_ASSIGN(SetMasterRecoveryInfo);
     };
 
     /**

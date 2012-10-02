@@ -88,7 +88,10 @@ enum Status {
     /// Indicates that a tablet does not exist. This status is of relevance
     /// when doing split or merge operations on tablets are executed.
     STATUS_TABLET_DOESNT_EXIST          = 23,
-    STATUS_MAX_VALUE                    = 23,
+    /// Indicates that the logic to partition tablets was invoked without a
+    /// preceeding invocation to start reading replicas off of disk.
+    STATUS_PARTITION_BEFORE_READ        = 24,
+    STATUS_MAX_VALUE                    = 24,
     // Note: if you add a new status value you must make the following
     // additional updates:
     // * Modify STATUS_MAX_VALUE to have a value equal to the largest

@@ -69,7 +69,7 @@ class FailureDetector {
      * update within this timeout period. This ensures that our list does not
      * stay out of date if we happen to miss an update (and no further updates
      * are issued in the meantime that would have otherwise alerted us).
-     */    
+     */
     static const int STALE_SERVER_LIST_USECS = 500 * 1000;
 
     static_assert(TIMEOUT_USECS <= PROBE_INTERVAL_USECS,
@@ -91,23 +91,9 @@ class FailureDetector {
     /// Set by halt() to ask the failure detector thread to exit.
     bool threadShouldExit;
 
-    /// If true, we suspect that our ServerList is out of date and are waiting
-    /// for STALE_SERVER_LIST_USECS to expire to request a new list.
-    bool                 staleServerListSuspected;
-
-    /// If staleServerListSuspected is true, this is the version of the list
-    /// at the time we began suspecting that it was stale.
-    uint64_t             staleServerListVersion;
-
-    /// If staleServerListSuspected is true, this is the CPU timestamp counter
-    /// at the point when we began suspecting the list was stale.
-    uint64_t             staleServerListTimestamp;
-
     static void detectorThreadEntry(FailureDetector* detector, Context* ctx);
     void pingRandomServer();
     void alertCoordinator(ServerId serverId, string locator);
-    void checkServerListVersion(uint64_t observedVersion);
-    void checkForStaleServerList();
 
     DISALLOW_COPY_AND_ASSIGN(FailureDetector);
 };

@@ -32,6 +32,7 @@ class MembershipServiceTest : public ::testing::Test {
     Context context;
     ServerId serverId;
     ServerList serverList;
+    ServerConfig serverConfig;
     MembershipService service;
     BindTransport transport;
     TransportManager::MockRegistrar mockRegistrar;
@@ -40,14 +41,16 @@ class MembershipServiceTest : public ::testing::Test {
         : context()
         , serverId(99, 2)
         , serverList(&context)
-        , service(serverId, serverList)
+        , serverConfig(ServerConfig::forTesting())
+        , service(serverId, serverList, serverConfig)
         , transport(&context)
         , mockRegistrar(&context, transport)
     {
         transport.addService(service, "mock:host=member",
                              WireFormat::MEMBERSHIP_SERVICE);
-        serverList.add(serverId, "mock:host=member",
-                       {WireFormat::PING_SERVICE}, 100);
+        serverList.testingAdd({serverId, "mock:host=member",
+                               {WireFormat::PING_SERVICE}, 100,
+                              ServerStatus::UP});
     }
 
     DISALLOW_COPY_AND_ASSIGN(MembershipServiceTest);
@@ -59,7 +62,7 @@ TEST_F(MembershipServiceTest, getServerId) {
         context.transportManager->getSession("mock:host=member")));
 }
 
-TEST_F(MembershipServiceTest, setServerList) {
+TEST_F(MembershipServiceTest, updateServerList) {
     // Create a temporary coordinator server list (with its own context)
     // to use as a source for update information.
     Context context2;
@@ -76,36 +79,10 @@ TEST_F(MembershipServiceTest, setServerList) {
     ProtoBuf::ServerList fullList;
     source.serialize(fullList);
 
-    MembershipClient::setServerList(&context, serverId, &fullList);
+    MembershipClient::UpdateServerList(&context, serverId, &fullList);
     EXPECT_STREQ("mock:host=55", serverList.getLocator(id1));
     EXPECT_STREQ("mock:host=56", serverList.getLocator(id2));
     EXPECT_STREQ("mock:host=57", serverList.getLocator(id3));
-    EXPECT_FALSE(serverList.contains(serverId));
-}
-
-TEST_F(MembershipServiceTest, updateServerList) {
-    // lock used to access internal CoordinatorServerList add() to prevent
-    // cross-contaminating updateServerList() calls to be called internally.
-    std::mutex mutex;
-    std::lock_guard<std::mutex> lock(mutex);
-
-    // Create a temporary coordinator server list (with its own context)
-    // to use as a source for update information.
-    Context context2;
-    CoordinatorServerList source(&context2);
-    ProtoBuf::ServerList& updates = source.updates;
-    ServerId id1 = source.generateUniqueId();
-    source.add(lock, id1, "mock:host=55",
-            {WireFormat::MASTER_SERVICE, WireFormat::PING_SERVICE}, 100);
-    ServerId id2 = source.generateUniqueId();
-    source.add(lock, id2, "mock:host=56",
-            {WireFormat::MASTER_SERVICE, WireFormat::PING_SERVICE}, 100);
-    updates.set_version_number(1);
-
-    MembershipClient::updateServerList(&context, serverId, &updates);
-    EXPECT_STREQ("mock:host=55", serverList.getLocator(id1));
-    EXPECT_STREQ("mock:host=56", serverList.getLocator(id2));
-    EXPECT_TRUE(serverList.contains(serverId));
 }
 
 }  // namespace RAMCloud

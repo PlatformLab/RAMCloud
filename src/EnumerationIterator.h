@@ -19,6 +19,7 @@
 #include "EnumerationIterator.pb.h"
 
 #include "Common.h"
+#include "Buffer.h"
 
 namespace RAMCloud {
 

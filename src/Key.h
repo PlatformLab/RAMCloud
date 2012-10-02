@@ -17,6 +17,7 @@
 #define RAMCLOUD_KEY_H
 
 #include "Common.h"
+#include "Buffer.h"
 #include "LogEntryTypes.h"
 #include "MurmurHash3.h"
 #include "Tub.h"

@@ -39,6 +39,9 @@ message ServerList {
     /// The current status of this server in terms of cluster membership.
     /// See above for ServerStatus in ServerList.h for legal enum values.
     required fixed32 status = 6;
+
+    /// The replicationId of the server.
+    required fixed64 replication_id = 7;
   }
 
   /// List of servers.
@@ -48,4 +51,14 @@ message ServerList {
   /// is sent. Used to determine if the current list is out of date. See
   /// CoordinatorServerList::version and ServerList::version for more details.
   optional fixed64 version_number = 2;
+
+  enum Type {
+     /// Specifies that this is a full server list
+     FULL_LIST = 0;
+
+     /// Specifies that this is a delta update
+     UPDATE    = 1;
+  }
+
+  required Type type = 3;
 }

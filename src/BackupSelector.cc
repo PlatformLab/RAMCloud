@@ -45,16 +45,21 @@ BackupStats::getExpectedReadMs() {
  * \param context
  *      Overall information about this RAMCloud server; used to register
  *      #tracker with this server's ServerList.
+ * \param serverId
+ *      The ServerId of the backup. Used for selecting appropriate primary
+ *      and secondary replicas.
  */
-BackupSelector::BackupSelector(Context* context)
+BackupSelector::BackupSelector(Context* context, const ServerId serverId)
     : tracker(context)
+    , serverId(serverId)
 {
 }
 
 /**
  * From a set of 5 backups that does not conflict with an existing set of
  * backups choose the one that will minimize expected time to read replicas
- * from disk in the case that this master should crash.
+ * from disk in the case that this master should crash. The ServerId returned
+ * is !isValid() if there are no machines to selectSecondary() from.
  * \param numBackups
  *      The number of entries in the \a backupIds array.
  * \param backupIds
@@ -67,8 +72,14 @@ BackupSelector::selectPrimary(uint32_t numBackups,
                               const ServerId backupIds[])
 {
     ServerId primary = selectSecondary(numBackups, backupIds);
+    if (!primary.isValid())
+        return primary;
+
     for (uint32_t i = 0; i < 5 - 1; ++i) {
         ServerId candidate = selectSecondary(numBackups, backupIds);
+        if (!candidate.isValid())
+            break;
+
         if (tracker[primary]->getExpectedReadMs() >
             tracker[candidate]->getExpectedReadMs()) {
             primary = candidate;
@@ -86,7 +97,8 @@ BackupSelector::selectPrimary(uint32_t numBackups,
 
 /**
  * Choose a random backup that does not conflict with an existing set of
- * backups.
+ * backups. The ServerId will be invalid if there are no more machines to
+ * choose from.
  * \param numBackups
  *      The number of entries in the \a backupIds array.
  * \param backupIds
@@ -108,11 +120,11 @@ BackupSelector::selectSecondary(uint32_t numBackups,
             return id;
         }
         double waited = Cycles::toSeconds(Cycles::rdtsc() - startTicks);
-        if (waited > 1) {
+        if (waited > 0.02) {
             LOG(WARNING, "BackupSelector could not find a suitable server in "
-                "the last 1s; seems to be stuck; waiting for the coordinator "
+                "the last 20ms; seems to be stuck; waiting for the coordinator "
                 "to notify this master of newly enlisted backups");
-            startTicks = Cycles::rdtsc();
+            return ServerId(/* Invalid */);
         }
     }
 }
@@ -132,8 +144,14 @@ BackupSelector::applyTrackerChanges()
     ServerDetails server;
     ServerChangeEvent event;
     while (tracker.getChange(server, event)) {
+        // If we receive SERVER_ADDED and the server already exists on the
+        // tracker, it means the coordinator is assigning it a new replication
+        // group. In this case we don't need to create a new instance of
+        // BackupStats.
         if (event == SERVER_ADDED) {
-            tracker[server.serverId] = new BackupStats;
+            if (!tracker[server.serverId]) {
+                tracker[server.serverId] = new BackupStats;
+            }
             tracker[server.serverId]->expectedReadMBytesPerSec =
                 server.expectedReadMBytesPerSec;
         } else if (event == SERVER_REMOVED) {
@@ -173,7 +191,11 @@ BackupSelector::conflictWithAny(const ServerId backupId,
         if (conflict(backupId, backupIds[i]))
             return true;
     }
-    return false;
+    if (!backupId.isValid()) {
+        return false;
+    }
+    // Finally, check if backup conflicts with the server's own Id.
+    return conflict(backupId, serverId);
 }
 
 } // namespace RAMCloud

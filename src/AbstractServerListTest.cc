@@ -341,20 +341,15 @@ TEST_F(AbstractServerListTest, registerTracker_pushAdds) {
     sl.remove(id2);
     sl.registerTracker(tr);
 
-    // Should be serverId4 up/crashed first, then in order,
-    // but missing serverId2
-    EXPECT_EQ(4U, changes.size());
-    EXPECT_EQ(id4, changes.front().server.serverId);
-    EXPECT_EQ(ServerChangeEvent::SERVER_ADDED, changes.front().event);
-    changes.pop();
-    EXPECT_EQ(id4, changes.front().server.serverId);
-    EXPECT_EQ(ServerChangeEvent::SERVER_CRASHED, changes.front().event);
-    changes.pop();
+    ASSERT_EQ(3U, changes.size());
     EXPECT_EQ(id1, changes.front().server.serverId);
     EXPECT_EQ(ServerChangeEvent::SERVER_ADDED, changes.front().event);
     changes.pop();
     EXPECT_EQ(id3, changes.front().server.serverId);
     EXPECT_EQ(ServerChangeEvent::SERVER_ADDED, changes.front().event);
+    changes.pop();
+    EXPECT_EQ(id4, changes.front().server.serverId);
+    EXPECT_EQ(ServerChangeEvent::SERVER_CRASHED, changes.front().event);
     changes.pop();
 }
 
@@ -427,7 +422,6 @@ TEST_F(AbstractServerListTest, toString_all) {
         "server 1.0 at locatez twoz with BACKUP_SERVICE is UP\n",
         sl.toString());
 }
-
 
 } /// namespace __AbstractServerListTest__
 } /// namespace RAMCloud

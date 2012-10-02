@@ -117,6 +117,8 @@ ClientException::throwException(const CodeLocation& where, Status status)
             throw TabletDoesntExistException(where);
         case STATUS_INTERNAL_ERROR:
             throw InternalError(where, status);
+        case STATUS_PARTITION_BEFORE_READ:
+            throw PartitionBeforeReadException(where);
         default:
             throw InternalError(where, status);
     }

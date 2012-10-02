@@ -13,6 +13,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+import "MasterRecoveryInfo.proto";
+
 package RAMCloud.ProtoBuf;
 
 // The information appended to LogCabin by the Coordinator
@@ -25,6 +27,7 @@ message ServerUpdate {
 	/// The server id of the server.
     required fixed64 server_id = 2;
 
-    /// The minimum open segment id of this server.
-    required uint64 min_open_segment_id = 7;
+    /// Information stored in the server list which is used during master
+    /// recovery to prevent stale/lost replicas from being used.
+    required MasterRecoveryInfo master_recovery_info = 3;
 }

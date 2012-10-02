@@ -16,6 +16,7 @@
 #ifndef RAMCLOUD_COORDINATORCLIENT_H
 #define RAMCLOUD_COORDINATORCLIENT_H
 
+#include "MasterRecoveryInfo.pb.h"
 #include "ServerList.pb.h"
 #include "Tablets.pb.h"
 
@@ -38,7 +39,7 @@ class CoordinatorClient {
   public:
     static ServerId enlistServer(Context* context, ServerId replacesId,
             ServiceMask serviceMask, string localServiceLocator,
-            uint32_t readSpeed = 0, uint32_t writeSpeed = 0);
+            uint32_t readSpeed);
     static void getBackupList(Context* context,
             ProtoBuf::ServerList* serverList);
     static void getMasterList(Context* context,
@@ -53,8 +54,8 @@ class CoordinatorClient {
             ServerId recoveryMasterId, const ProtoBuf::Tablets* tablets,
             bool successful);
     static void sendServerList(Context* context, ServerId destination);
-    static void setMinOpenSegmentId(Context* context, ServerId serverId,
-            uint64_t segmentId);
+    static void setMasterRecoveryInfo(Context* context, ServerId serverId,
+            const ProtoBuf::MasterRecoveryInfo& recoveryInfo);
     static void setRuntimeOption(Context* context, const char* option,
             const char* value);
 
@@ -70,7 +71,7 @@ class EnlistServerRpc : public CoordinatorRpcWrapper {
     public:
     EnlistServerRpc(Context* context, ServerId replacesId,
             ServiceMask serviceMask, string localServiceLocator,
-            uint32_t readSpeed = 0, uint32_t writeSpeed = 0);
+            uint32_t readSpeed);
     ~EnlistServerRpc() {}
     ServerId wait();
 
@@ -170,19 +171,19 @@ class SendServerListRpc : public CoordinatorRpcWrapper {
 };
 
 /**
- * Encapsulates the state of a CoordinatorClient::setMinOpenSegmentId
+ * Encapsulates the state of a CoordinatorClient::setMasterRecoveryInfo
  * request, allowing it to execute asynchronously.
  */
-class SetMinOpenSegmentIdRpc : public CoordinatorRpcWrapper {
+class SetMasterRecoveryInfoRpc : public CoordinatorRpcWrapper {
     public:
-    SetMinOpenSegmentIdRpc(Context* context, ServerId serverId,
-            uint64_t segmentId);
-    ~SetMinOpenSegmentIdRpc() {}
+    SetMasterRecoveryInfoRpc(Context* context, ServerId serverId,
+                             const ProtoBuf::MasterRecoveryInfo& recoveryInfo);
+    ~SetMasterRecoveryInfoRpc() {}
     /// \copydoc RpcWrapper::docForWait
     void wait() {simpleWait(context->dispatch);}
 
     PRIVATE:
-    DISALLOW_COPY_AND_ASSIGN(SetMinOpenSegmentIdRpc);
+    DISALLOW_COPY_AND_ASSIGN(SetMasterRecoveryInfoRpc);
 };
 
 } // end RAMCloud

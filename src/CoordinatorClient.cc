@@ -23,7 +23,7 @@ namespace RAMCloud {
 /**
  * Servers call this when they come online. This request tells the coordinator
  * that the server is available and can be assigned work.
- * 
+ *
  * \param context
  *      Overall information about the RAMCloud server or client.
  * \param replacesId
@@ -39,19 +39,16 @@ namespace RAMCloud {
  * \param readSpeed
  *      Read speed of the backup in MB/s if serviceMask includes BACKUP,
  *      otherwise ignored.
- * \param writeSpeed
- *      Write speed of the backup in MB/s if serviceMask includes BACKUP,
- *      otherwise ignored.
  * \return
  *      A ServerId guaranteed never to have been used before.
  */
 ServerId
 CoordinatorClient::enlistServer(Context* context, ServerId replacesId,
         ServiceMask serviceMask, string localServiceLocator,
-        uint32_t readSpeed, uint32_t writeSpeed)
+        uint32_t readSpeed)
 {
     EnlistServerRpc rpc(context, replacesId, serviceMask, localServiceLocator,
-            readSpeed, writeSpeed);
+            readSpeed);
     return rpc.wait();
 }
 
@@ -75,15 +72,12 @@ CoordinatorClient::enlistServer(Context* context, ServerId replacesId,
  * \param readSpeed
  *      Read speed of the backup in MB/s if serviceMask includes BACKUP,
  *      otherwise ignored.
- * \param writeSpeed
- *      Write speed of the backup in MB/s if serviceMask includes BACKUP,
- *      otherwise ignored.
  * \return
  *      A ServerId guaranteed never to have been used before.
  */
 EnlistServerRpc::EnlistServerRpc(Context* context,
         ServerId replacesId, ServiceMask serviceMask,
-        string localServiceLocator, uint32_t readSpeed, uint32_t writeSpeed)
+        string localServiceLocator, uint32_t readSpeed)
     : CoordinatorRpcWrapper(context,
             sizeof(WireFormat::EnlistServer::Response))
 {
@@ -92,7 +86,6 @@ EnlistServerRpc::EnlistServerRpc(Context* context,
     reqHdr->replacesId = replacesId.getId();
     reqHdr->serviceMask = serviceMask.serialize();
     reqHdr->readSpeed = readSpeed;
-    reqHdr->writeSpeed = writeSpeed;
     reqHdr->serviceLocatorLength =
         downCast<uint32_t>(localServiceLocator.length() + 1);
     strncpy(new(&request, APPEND) char[reqHdr->serviceLocatorLength],
@@ -429,86 +422,56 @@ RecoveryMasterFinishedRpc::RecoveryMasterFinishedRpc(Context* context,
 }
 
 /**
- * Asks the coordinator to send a complete server list to the given server.
- *
- * \param context
- *      Overall information about this RAMCloud server.
- * \param destination
- *      ServerId of the server the coordinator should send the list to.
- */
-void
-CoordinatorClient::sendServerList(Context* context, ServerId destination)
-{
-    SendServerListRpc rpc(context, destination);
-    rpc.wait();
-}
-
-/**
- * Constructor for SendServerListRpc: initiates an RPC in the same
- * way as #CoordinatorClient::sendServerList, but returns once the
- * RPC has been initiated, without waiting for it to complete.
- *
- * \param context
- *      Overall information about this RAMCloud server or client.
- * \param destination
- *      ServerId of the server the coordinator should send the list to.
- */
-SendServerListRpc::SendServerListRpc(Context* context,
-        ServerId destination)
-    : CoordinatorRpcWrapper(context,
-            sizeof(WireFormat::SendServerList::Response))
-{
-    WireFormat::SendServerList::Request* reqHdr(
-            allocHeader<WireFormat::SendServerList>());
-    reqHdr->serverId = destination.getId();
-    send();
-}
-
-/**
  * Masters invoke this RPC as a way of invalidating obsolete (and potentially
  * inconsistent) segment replicas that were open on backups when they (appear
- * to have) crashed. Once this call returns, open segment replicas for
- * \a serverId will be ignored during crash recovery unless they are for
- * segments with ids at least as high as \a segmentId.
+ * to have) crashed.
  *
  * \param context
  *      Overall information about this RAMCloud server or client.
  * \param serverId
  *      Identifies a particular server.
- * \param segmentId
- *      Open segments for \a serverId with ids less than this should be
- *      considered invalid and thus ignored.
+ * \param recoveryInfo
+ *      Information the coordinator will need to safely recover the master
+ *      at \a serverId. The information is opaque to the coordinator other
+ *      than its master recovery routines, but, basically, this is used to
+ *      prevent inconsistent open replicas from being used during recovery.
  */
 void
-CoordinatorClient::setMinOpenSegmentId(Context* context, ServerId serverId,
-        uint64_t segmentId)
+CoordinatorClient::setMasterRecoveryInfo(
+    Context* context,
+    ServerId serverId,
+    const ProtoBuf::MasterRecoveryInfo& recoveryInfo)
 {
-    SetMinOpenSegmentIdRpc rpc(context, serverId, segmentId);
+    SetMasterRecoveryInfoRpc rpc(context, serverId, recoveryInfo);
     rpc.wait();
 }
 
 /**
- * Constructor for SetMinOpenSegmentIdRpc: initiates an RPC in the same way as
- * #CoordinatorClient::setMinOpenSegmentId, but returns once the RPC has been
+ * Constructor for SetMasterRecoveryInfoRpc: initiates an RPC in the same way as
+ * #CoordinatorClient::setMasterRecoveryInfo, but returns once the RPC has been
  * initiated, without waiting for it to complete.
  *
  * \param context
  *      Overall information about this RAMCloud server or client.
  * \param serverId
  *      Identifies a particular server.
- * \param segmentId
- *      Open segments for \a serverId with ids less than this should be
- *      considered invalid and thus ignored.
+ * \param recoveryInfo
+ *      Information the coordinator will need to safely recover the master
+ *      at \a serverId. The information is opaque to the coordinator other
+ *      than its master recovery routines, but, basically, this is used to
+ *      prevent inconsistent open replicas from being used during recovery.
  */
-SetMinOpenSegmentIdRpc::SetMinOpenSegmentIdRpc(Context* context,
-        ServerId serverId, uint64_t segmentId)
+SetMasterRecoveryInfoRpc::SetMasterRecoveryInfoRpc(
+    Context* context,
+    ServerId serverId,
+    const ProtoBuf::MasterRecoveryInfo& recoveryInfo)
     : CoordinatorRpcWrapper(context,
-            sizeof(WireFormat::SetMinOpenSegmentId::Response))
+            sizeof(WireFormat::SetMasterRecoveryInfo::Response))
 {
-    WireFormat::SetMinOpenSegmentId::Request* reqHdr(
-            allocHeader<WireFormat::SetMinOpenSegmentId>());
+    WireFormat::SetMasterRecoveryInfo::Request* reqHdr(
+            allocHeader<WireFormat::SetMasterRecoveryInfo>());
     reqHdr->serverId = serverId.getId();
-    reqHdr->segmentId = segmentId;
+    reqHdr->infoLength = serializeToRequest(&request, &recoveryInfo);
     send();
 }
 

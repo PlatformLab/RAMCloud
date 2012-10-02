@@ -34,7 +34,6 @@ Server::Server(Context* context, const ServerConfig& config)
     : context(context)
     , config(config)
     , backupReadSpeed()
-    , backupWriteSpeed()
     , serverId()
     , serverList(NULL)
     , failureDetector()
@@ -150,11 +149,7 @@ Server::createAndRegisterServices(BindTransport* bindTransport)
     if (config.services.has(WireFormat::BACKUP_SERVICE)) {
         backup.construct(context, config);
         formerServerId = backup->getFormerServerId();
-        if (config.backup.mockSpeed == 0) {
-            backup->benchmark(backupReadSpeed, backupWriteSpeed);
-        } else {
-            backupReadSpeed = backupWriteSpeed = config.backup.mockSpeed;
-        }
+        backupReadSpeed = backup->getReadSpeed();
         if (bindTransport) {
             bindTransport->addService(*backup,
                                       config.localLocator,
@@ -215,8 +210,7 @@ Server::enlist(ServerId replacingId)
     // service rpcs after enlisting with the coordinator (which can
     // lead to session open timeouts).
     serverId = CoordinatorClient::enlistServer(context, replacingId,
-            config.services, config.localLocator, backupReadSpeed,
-            backupWriteSpeed);
+            config.services, config.localLocator, backupReadSpeed);
 
     if (master)
         master->init(serverId);

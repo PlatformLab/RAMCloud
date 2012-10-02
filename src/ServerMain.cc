@@ -122,7 +122,11 @@ main(int argc, char *argv[])
              "this value. Lower values cause the disk cleaner to run more "
              "frequently. Higher values do more in-memory cleaning and "
              "reduce the amount of backup disk bandwidth used during disk "
-             "cleaning.");
+             "cleaning.")
+            ("sync",
+             ProgramOptions::bool_switch(&config.backup.sync),
+             "Make all updates completely synchronous all the way down to "
+             "stable storage.");
 
         OptionParser optionParser(serverOptions, argc, argv);
 

@@ -764,6 +764,155 @@ class ObjectTombstone {
     DISALLOW_COPY_AND_ASSIGN(ObjectTombstone);
 };
 
+/**
+ *  A log entry to record safeVersion number for recovery.
+ *  See \see #safeVersion in Log.h .
+ *   
+ *  When objects move from one server to another
+ *  (for example, during recovery) the receiving server must update
+ *  its safeVersion to be at least as great as the safeVersion on the
+ *  server from which the objects came. This is necessary so that
+ *  if an object from the old server is re-created on the new server,
+ *  it won't reuse an old version number.
+ *
+ *  It's possible that ownership of a range of objects may
+ *  move to a new server without any actual objects moving
+ *  (if there were none in that range). However, the version number
+ *  must still be updated to handle reincarnation of objects that 
+ *  once existed within that range.
+ *
+ *  When a new segment is created, this log entry is inserted to 
+ *  the segment and backed up.
+ *  
+ *  ObjectSafeVersion contains a header with uint64 number.
+ *  It does not have an extension part.
+ **/
+class ObjectSafeVersion {
+  public:
+    explicit ObjectSafeVersion(const uint64_t safeVer)
+       :  serializedForm(safeVer)
+    {
+        serializedForm.checksum = computeChecksum();
+    }
+
+    /**
+     * Construct a safeVersion object by deserializing an existing 
+     * safeVersion.
+     * Use this constructor when reading existing safeVersion from
+     * the log or from individual log segments.
+     *
+     * \param buffer
+     *      Buffer pointing to a complete serialized safeVersion. It is the
+     *      caller's responsibility to make sure that the buffer passed in
+     *      actually contains a full safeVersion. If it does not, then behavior
+     *      is undefined.
+     */
+    explicit ObjectSafeVersion(Buffer& buffer)
+        : serializedForm(*buffer.getStart<SerializedForm>())
+    {
+    }
+
+    /**
+     * Append the serialized safeVersion to the provided buffer.
+     * Note that safeVersion is header only.
+     *
+     * \param buffer
+     *      The buffer to append a serialized version of this safeVersion to.
+     */
+    void
+    serializeToBuffer(Buffer& buffer)
+    {
+        buffer.append(&serializedForm, sizeof32(serializedForm));
+    }
+
+    /**
+     * Compute a checksum on the object and determine whether or not it matches
+     * what is stored in the object. Returns true if the checksum looks ok,
+     * otherwise returns false.
+     */
+    bool
+    checkIntegrity()
+    {
+        return computeChecksum() == serializedForm.checksum;
+    }
+
+    /**
+     * Given the length of a prospective 
+     * the exact byte byte length of such a serialized safeVersion.
+     */
+    static uint32_t
+    getSerializedLength()
+    {
+        return sizeof32(SerializedForm);
+    }
+
+    /** 
+     * Get safeVersion value
+     */
+
+    uint64_t getSafeVersion() const
+    {
+        return serializedForm.safeVersion;
+    }
+
+  PRIVATE:
+    /**
+     * This data structure defines the format of an object's safeVersion stored
+     * in a master server's log. When writing a safeVersion, the fields below are
+     * only written.
+     */
+    class SerializedForm {
+      public:
+        /**
+         * Construct a serialized object safeVersion, which is a header
+         * only object.
+         *
+         * \param safeVersion
+         *      The 64-bit identifier for the table the dead object was in.
+         */
+        explicit SerializedForm(uint64_t safeVersion)
+                : safeVersion(safeVersion),
+                  checksum(0)
+        {
+        }
+
+        // Saved safeVersion to recover the safe version number for
+        // new object creation considering reincarnation.
+        // See the descrition of this class.
+        uint64_t safeVersion;
+
+        /// CRC32C checksum covering everything but this field, including the
+        /// key.
+        uint32_t checksum;
+    } __attribute__((__packed__));
+    static_assert(sizeof(SerializedForm) == 12,
+        "Unexpected serialized ObjectSafeVersion size");
+
+    /**
+     * Compute the safeVersion's checksum and return it.
+     */
+    uint32_t
+    computeChecksum()
+    {
+        assert(OFFSET_OF(SerializedForm, checksum) ==
+            (sizeof(serializedForm) - sizeof(serializedForm.checksum)));
+
+        Crc32C crc;
+        crc.update(&serializedForm,
+                   downCast<uint32_t>(OFFSET_OF(SerializedForm, checksum)));
+        return crc.getResult();
+    }
+
+    /// Copy of the safeVersion header that is in,
+    /// or will be written to, the log.
+    SerializedForm serializedForm;
+
+    /// No pointer to safeVersion body since no body exist.
+    // Tub<Buffer*> safeVersionBuffer;
+
+    DISALLOW_COPY_AND_ASSIGN(ObjectSafeVersion);
+};
+
 } // namespace RAMCloud
 
 #endif

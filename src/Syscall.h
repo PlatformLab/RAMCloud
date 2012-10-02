@@ -26,6 +26,7 @@
 #include "Common.h"
 
 namespace RAMCloud {
+
 /**
  * This class provides a mechanism for invoking system calls that makes
  * it easy to intercept the calls with a mock class (e.g. MockSyscall)
@@ -93,6 +94,14 @@ class Syscall {
         return ::pipe(fds);
     }
     VIRTUAL_FOR_TESTING
+    ssize_t pread(int fd, void* buf, size_t count, off_t offset) {
+        return ::pread(fd, buf, count, offset);
+    }
+    VIRTUAL_FOR_TESTING
+    ssize_t pwrite(int fd, const void* buf, size_t count, off_t offset) {
+        return ::pwrite(fd, buf, count, offset);
+    }
+    VIRTUAL_FOR_TESTING
     ssize_t recv(int sockfd, void *buf, size_t len, int flags) {
         return ::recv(sockfd, buf, len, flags);
     }
@@ -133,6 +142,24 @@ class Syscall {
 
     private:
     DISALLOW_COPY_AND_ASSIGN(Syscall);
+};
+
+/**
+ * Used to set/restore static Syscall* class members for testing.
+ */
+struct SyscallGuard {
+    SyscallGuard(Syscall** sys, Syscall* newSys)
+        : sys(sys)
+        , old(*sys)
+    {
+        *sys = newSys;
+    }
+    ~SyscallGuard() {
+        *sys = old;
+    }
+    Syscall** sys;
+    Syscall* old;
+    DISALLOW_COPY_AND_ASSIGN(SyscallGuard);
 };
 
 }  // namespace RAMCloud

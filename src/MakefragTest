@@ -12,10 +12,10 @@ INFINIBAND_SRCFILES :=
 endif
 
 TESTS_SRCFILES := \
-      src/AbstractServerListTest.cc \
+		  src/AbstractServerListTest.cc \
 		  src/AtomicTest.cc \
 		  src/BackupFailureMonitorTest.cc \
-		  src/BackupReplicaTest.cc \
+		  src/BackupMasterRecoveryTest.cc \
 		  src/BackupSelectorTest.cc \
 		  src/BackupServiceTest.cc \
 		  src/BackupStorageTest.cc \
@@ -40,6 +40,7 @@ TESTS_SRCFILES := \
 		  src/FastTransportTest.cc \
 		  src/HashTableTest.cc \
 		  src/InitializeTest.cc \
+		  src/InMemoryStorageTest.cc \
 		  src/IpAddressTest.cc \
 		  src/KeyTest.cc \
 		  src/LogCabinHelperTest.cc \
@@ -52,7 +53,6 @@ TESTS_SRCFILES := \
 		  src/MasterRecoveryManagerTest.cc \
 		  src/MasterServiceTest.cc \
 		  src/MembershipServiceTest.cc \
-		  src/MinOpenSegmentIdTest.cc \
 		  src/MockCluster.cc \
 		  src/MockClusterTest.cc \
 		  src/MockDriver.cc \
@@ -64,9 +64,11 @@ TESTS_SRCFILES := \
 		  src/ObjectTest.cc \
 		  src/ObjectRpcWrapperTest.cc \
 		  src/PingServiceTest.cc \
+		  src/PriorityTaskQueueTest.cc \
 		  src/ProtoBufTest.cc \
 		  src/RawMetricsTest.cc \
 		  src/Recovery.cc \
+		  src/RecoverySegmentBuilderTest.cc \
 		  src/RecoveryTest.cc \
 		  src/ReplicaManagerTest.cc \
 		  src/ReplicatedSegmentTest.cc \
@@ -79,7 +81,6 @@ TESTS_SRCFILES := \
 		  src/ServerIdRpcWrapperTest.cc \
 		  src/ServerIdTest.cc \
 		  src/ServerListTest.cc \
-          src/ServerListUpdaterTest.cc \
 		  src/ServerMetricsTest.cc \
 		  src/ServerRpcPoolTest.cc \
 		  src/ServerTest.cc \
@@ -89,6 +90,7 @@ TESTS_SRCFILES := \
 		  src/ServiceMaskTest.cc \
 		  src/ServiceTest.cc \
 		  src/SessionAlarmTest.cc \
+		  src/SingleFileStorageTest.cc \
 		  src/SpinLockTest.cc \
 		  src/StatusTest.cc \
 		  src/StringUtilTest.cc \
@@ -103,6 +105,7 @@ TESTS_SRCFILES := \
 		  src/TransportManagerTest.cc \
 		  src/TubTest.cc \
 		  src/UdpDriverTest.cc \
+		  src/UpdateReplicationEpochTaskTest.cc \
 		  src/UtilTest.cc \
 		  src/VarLenArrayTest.cc \
 		  src/WallTimeTest.cc \

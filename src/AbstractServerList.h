@@ -21,6 +21,7 @@
 #include "Common.h"
 #include "ServiceMask.h"
 #include "ServerId.h"
+#include "ServerList.pb.h"
 #include "Transport.h"
 #include "Tub.h"
 
@@ -60,6 +61,7 @@ class ServerDetails {
         , services()
         , expectedReadMBytesPerSec()
         , status(ServerStatus::DOWN)
+        , replicationId(0)
     {}
 
     /**
@@ -73,6 +75,7 @@ class ServerDetails {
         , services()
         , expectedReadMBytesPerSec()
         , status(status)
+        , replicationId(0)
     {}
 
     /**
@@ -89,6 +92,21 @@ class ServerDetails {
         , services(services)
         , expectedReadMBytesPerSec(expectedReadMBytesPerSec)
         , status(status)
+        , replicationId(0)
+    {}
+
+    /**
+     * Create an instance populated from a ProtoBuf::ServerList::Entry which
+     * is used for shipping these structures around.
+     */
+    explicit ServerDetails(const ProtoBuf::ServerList::Entry& entry)
+        : serverId(entry.server_id())
+        , serviceLocator(entry.service_locator())
+        , session()
+        , services(ServiceMask::deserialize(entry.services()))
+        , expectedReadMBytesPerSec(entry.expected_read_mbytes_per_sec())
+        , status(ServerStatus(entry.status()))
+        , replicationId(entry.replication_id())
     {}
 
     /*
@@ -104,6 +122,7 @@ class ServerDetails {
         , services(other.services)
         , expectedReadMBytesPerSec(other.expectedReadMBytesPerSec)
         , status(other.status)
+        , replicationId(other.replicationId)
     {
     }
 
@@ -115,6 +134,7 @@ class ServerDetails {
         services = other.services;
         expectedReadMBytesPerSec = other.expectedReadMBytesPerSec;
         status = other.status;
+        replicationId = other.replicationId;
         return *this;
     }
 
@@ -125,6 +145,7 @@ class ServerDetails {
         , services(other.services)
         , expectedReadMBytesPerSec(other.expectedReadMBytesPerSec)
         , status(other.status)
+        , replicationId(other.replicationId)
     {
     }
 
@@ -136,6 +157,7 @@ class ServerDetails {
         services = other.services;
         expectedReadMBytesPerSec = other.expectedReadMBytesPerSec;
         status = other.status;
+        replicationId = other.replicationId;
         return *this;
     }
 
@@ -167,6 +189,12 @@ class ServerDetails {
      * completely removed from the cluster.
      */
     ServerStatus status;
+
+    /**
+     * Each segment's replicas are replicated on a set of backups, called
+     * a replication group. Each group has a unique Id. The default Id is 0.
+     */
+    uint64_t replicationId;
 };
 
 /**
@@ -273,7 +301,7 @@ class AbstractServerList {
 
     friend class TransportManager;       // (so it can set skipServerIdCheck)
 
-    typedef std::lock_guard<std::mutex> Lock;
+    typedef std::unique_lock<std::mutex> Lock;
     DISALLOW_COPY_AND_ASSIGN(AbstractServerList);
 };
 

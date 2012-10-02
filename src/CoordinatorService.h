@@ -85,15 +85,12 @@ class CoordinatorService : public Service {
             const WireFormat::ReassignTabletOwnership::Request& reqHdr,
             WireFormat::ReassignTabletOwnership::Response& respHdr,
             Rpc& rpc);
-    void sendServerList(const WireFormat::SendServerList::Request& reqHdr,
-                        WireFormat::SendServerList::Response& respHdr,
-                        Rpc& rpc);
     void setRuntimeOption(const WireFormat::SetRuntimeOption::Request& reqHdr,
                           WireFormat::SetRuntimeOption::Response& respHdr,
                           Rpc& rpc);
-    void setMinOpenSegmentId(
-        const WireFormat::SetMinOpenSegmentId::Request& reqHdr,
-        WireFormat::SetMinOpenSegmentId::Response& respHdr,
+    void setMasterRecoveryInfo(
+        const WireFormat::SetMasterRecoveryInfo::Request& reqHdr,
+        WireFormat::SetMasterRecoveryInfo::Response& respHdr,
         Rpc& rpc);
 
     /**

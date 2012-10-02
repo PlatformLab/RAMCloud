@@ -190,14 +190,16 @@ class Tub {
      */
     ElementType*
     get() {
-        assert(occupied);
+        if (!occupied)
+            return NULL;
         return object;
     }
 
     /// See #get().
     const ElementType*
     get() const {
-        assert(occupied);
+        if (!occupied)
+            return NULL;
         return object;
     }
 

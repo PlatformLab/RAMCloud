@@ -2938,7 +2938,6 @@ def ProcessFileData(filename, file_extension, lines, error):
 
   CheckForNewlineAtEOF(filename, lines, error)
 
-  CheckForUndeclaredTestMethods(filename, lines, error)
   CheckForThrowNew(filename, lines, error)
   CheckForCatchByNonRef(filename, lines, error)
 

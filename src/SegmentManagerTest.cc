@@ -18,6 +18,7 @@
 #include "SegmentManager.h"
 #include "SegmentIterator.h"
 #include "LogMetadata.h"
+#include "ServerConfig.h"
 #include "ServerRpcPool.h"
 
 namespace RAMCloud {
@@ -30,6 +31,7 @@ class SegmentManagerTest : public ::testing::Test {
     Context context;
     ServerId serverId;
     ServerList serverList;
+    ServerConfig serverConfig;
     ReplicaManager replicaManager;
     SegletAllocator allocator;
     SegmentManager segmentManager;
@@ -38,9 +40,11 @@ class SegmentManagerTest : public ::testing::Test {
         : context(),
           serverId(ServerId(57, 0)),
           serverList(&context),
+          serverConfig(ServerConfig::forTesting()),
           replicaManager(&context, serverId, 0),
-          allocator(6 * 8192, 8192),        // 2 will go in the emergency pool
-          segmentManager(&context, 8192, serverId, allocator, replicaManager, 1)
+          allocator(serverConfig),
+          segmentManager(&context, serverConfig, serverId,
+                         allocator, replicaManager)
     {
     }
 
@@ -50,12 +54,13 @@ class SegmentManagerTest : public ::testing::Test {
 
 TEST_F(SegmentManagerTest, constructor)
 {
+    serverConfig.master.diskExpansionFactor = 0.99;
     EXPECT_THROW(SegmentManager(&context,
-                                8192,
+                                serverConfig,
                                 serverId,
                                 allocator,
-                                replicaManager,
-                                0.99), SegmentManagerException);
+                                replicaManager),
+                 SegmentManagerException);
 
     EXPECT_EQ(0U, segmentManager.nextSegmentId);
     EXPECT_EQ(0, segmentManager.logIteratorCount);
@@ -65,9 +70,9 @@ TEST_F(SegmentManagerTest, constructor)
 }
 
 TEST_F(SegmentManagerTest, destructor) {
-    SegletAllocator allocator2(6 * 8192, 8192);
+    SegletAllocator allocator2(serverConfig);
     Tub<SegmentManager> mgr;
-    mgr.construct(&context, 8192, serverId, allocator2, replicaManager, 1);
+    mgr.construct(&context, serverConfig, serverId, allocator2, replicaManager);
     EXPECT_EQ(2U, allocator2.getFreeCount(SegletAllocator::EMERGENCY_HEAD));
     EXPECT_EQ(0U, allocator2.getFreeCount(SegletAllocator::CLEANER));
     EXPECT_EQ(4U, allocator2.getFreeCount(SegletAllocator::DEFAULT));
@@ -107,6 +112,10 @@ TEST_F(SegmentManagerTest, allocHead) {
     EXPECT_EQ(LOG_ENTRY_TYPE_LOGDIGEST, it.getType());
 
     it.next();
+    EXPECT_FALSE(it.isDone());
+    EXPECT_EQ(LOG_ENTRY_TYPE_SAFEVERSION, it.getType());
+
+    it.next();
     EXPECT_TRUE(it.isDone());
 
     LogSegment* oldHead = head;
@@ -141,6 +150,7 @@ TEST_F(SegmentManagerTest, allocSurvivor) {
     EXPECT_EQ(5U,
         buffer.getStart<SegmentHeader>()->headSegmentIdDuringCleaning);
 
+    segmentManager.testing_allocSurvivorMustNotBlock = true;
     EXPECT_EQ(static_cast<LogSegment*>(NULL), segmentManager.allocSurvivor(12));
 }
 
@@ -265,9 +275,10 @@ TEST_F(SegmentManagerTest, getActiveSegments) {
 
 TEST_F(SegmentManagerTest, initializeSurvivorSegmentReserve) {
     LogSegment* nullSeg = NULL;
-    EXPECT_EQ(nullSeg, segmentManager.allocSurvivor(0));
+    segmentManager.testing_allocSurvivorMustNotBlock = true;
+    EXPECT_EQ(nullSeg, segmentManager.allocSurvivor(42));
     EXPECT_TRUE(segmentManager.initializeSurvivorReserve(1));
-    LogSegment* s = segmentManager.allocSurvivor(0);
+    LogSegment* s = segmentManager.allocSurvivor(42);
     EXPECT_NE(nullSeg, s);
 }
 
@@ -296,19 +307,11 @@ TEST_F(SegmentManagerTest, doesIdExist) {
 
 }
 
-TEST_F(SegmentManagerTest, getAllocatedSegmentCount) {
-    EXPECT_EQ(0U, segmentManager.getAllocatedSegmentCount());
-    segmentManager.allocHead(false);
-    EXPECT_EQ(1U, segmentManager.getAllocatedSegmentCount());
-    segmentManager.allocHead(false);
-    EXPECT_EQ(2U, segmentManager.getAllocatedSegmentCount());
-}
-
 // getFreeSegmentCount, getMaximumSegmentCount, getSegletSize, & getSegmentSize
 // aren't paricularly interesting
 
 TEST_F(SegmentManagerTest, writeHeader) {
-    LogSegment* s = segmentManager.alloc(SegletAllocator::DEFAULT);
+    LogSegment* s = segmentManager.alloc(SegletAllocator::DEFAULT, 42);
     SegmentIterator sanity(*s);
     EXPECT_TRUE(sanity.isDone());
 

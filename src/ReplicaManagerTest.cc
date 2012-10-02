@@ -58,15 +58,16 @@ struct ReplicaManagerTest : public ::testing::Test {
 
         mgr.construct(&context, serverId, 2);
         serverId = CoordinatorClient::enlistServer(&context, {},
-            {WireFormat::MASTER_SERVICE}, "", 0 , 0);
+            {WireFormat::MASTER_SERVICE}, "", 0);
     }
 
     ServerId addToServerList(Server* server)
     {
-        serverList.add(server->serverId,
-                       server->config.localLocator,
-                       server->config.services,
-                       server->config.backup.mockSpeed);
+        serverList.testingAdd({server->serverId,
+                               server->config.localLocator,
+                               server->config.services,
+                               server->config.backup.mockSpeed,
+                               ServerStatus::UP});
         return server->serverId;
     }
 };
@@ -83,15 +84,15 @@ TEST_F(ReplicaManagerTest, isReplicaNeeded) {
 
     // Is not needed if we know about the backup (and hence the crashes of any
     // of its predecessors and we have no record of this segment.
-    serverList.add({2, 0}, "mock:host=backup1",
-                   {WireFormat::BACKUP_SERVICE}, 100);
+    serverList.testingAdd({{2, 0}, "mock:host=backup1",
+                           {WireFormat::BACKUP_SERVICE}, 100,
+                           ServerStatus::UP});
     while (mgr->failureMonitor.tracker.getChange(server, event));
     EXPECT_FALSE(mgr->isReplicaNeeded({2, 0}, 99));
 
     // Is needed if we know the calling backup has crashed; the successor
     // backup will take care of garbage collection.
-    serverList.crashed({2, 0}, "mock:host=backup1",
-                                {WireFormat::BACKUP_SERVICE}, 100);
+    serverList.testingCrashed({2, 0});
     while (mgr->failureMonitor.tracker.getChange(server, event));
     EXPECT_TRUE(mgr->isReplicaNeeded({2, 0}, 99));
 }
@@ -162,7 +163,6 @@ TEST_F(ReplicaManagerTest, writeSegment) {
     rs->sync(s.head);
 
     EXPECT_EQ(1U, mgr->replicatedSegmentList.size());
-
     ProtoBuf::Tablets will;
     ProtoBuf::Tablets::Tablet& tablet(*will.add_tablet());
     tablet.set_table_id(123);
@@ -179,14 +179,17 @@ TEST_F(ReplicaManagerTest, writeSegment) {
         foreach (auto& replica, segment.replicas) {
             ASSERT_TRUE(replica.isActive);
             Buffer resp;
-            BackupClient::startReadingData(&context, replica.backupId,
-                                           serverId, &will);
-            BackupClient::getRecoveryData(&context, replica.backupId,
-                                          serverId, 88, 0, &resp);
+            BackupClient::startReadingData(&context, replica.backupId, 456lu,
+                                           serverId);
+            BackupClient::StartPartitioningReplicas(&context, replica.backupId,
+                    456lu, serverId, &will);
+            Segment::Certificate certificate =
+                BackupClient::getRecoveryData(&context, replica.backupId, 456lu,
+                                              serverId, 88, 0, &resp);
             ASSERT_NE(0U, resp.totalLength);
 
             SegmentIterator it(resp.getRange(0, resp.getTotalLength()),
-                               resp.getTotalLength());
+                               resp.getTotalLength(), certificate);
             EXPECT_FALSE(it.isDone());
             EXPECT_EQ(LOG_ENTRY_TYPE_OBJ, it.getType());
             EXPECT_EQ(Object::getSerializedLength(2, 0), it.getLength());
@@ -211,26 +214,37 @@ TEST_F(ReplicaManagerTest, proceed) {
     EXPECT_TRUE(segment.replicas[0].writeRpc);
 }
 
+namespace {
+bool handleBackupFailureFilter(string s) {
+    return s == "handleBackupFailure";
+}
+}
+
 TEST_F(ReplicaManagerTest, handleBackupFailure) {
     Segment seg1;
     Segment seg2;
     Segment seg3;
     auto s1 = mgr->allocateHead(89, &seg1, NULL);
     auto s2 = mgr->allocateHead(90, &seg2, s1);
-    auto s3 = mgr->allocateHead(91, &seg3, s2);
-    mgr->proceed();
-    mgr->proceed();
-    mgr->proceed();
-    Tub<uint64_t> segmentId = mgr->handleBackupFailure(backup1Id);
-    ASSERT_TRUE(segmentId);
-    EXPECT_EQ(91u, *segmentId);
-    Segment seg4;
-    IGNORE_RESULT(mgr->allocateHead(92, &seg4, s3));
-    // If we don't meet the dependencies the backup will refuse
-    // to tear-down as it tries to make sure there is no data loss.
     s1->close();
+    auto s3 = mgr->allocateHead(91, &seg3, s2);
     s2->close();
-    s3->close();
+    while (!s2->getCommitted().close || !s3->getCommitted().open) {
+        mgr->proceed();
+    }
+    TestLog::Enable _(handleBackupFailureFilter);
+    mgr->handleBackupFailure(backup1Id);
+    EXPECT_EQ(
+        "handleBackupFailure: Handling backup failure of serverId 1.0 | "
+        "handleBackupFailure: Segment 89 recovering from lost replica which "
+            "was on backup 1.0 | "
+        "handleBackupFailure: Segment 90 recovering from lost replica which "
+            "was on backup 1.0 | "
+        "handleBackupFailure: Segment 91 recovering from lost replica which "
+            "was on backup 1.0 | "
+        "handleBackupFailure: Lost replica(s) for segment 91 while open due "
+            "to crash of backup 1.0",
+        TestLog::get());
 }
 
 TEST_F(ReplicaManagerTest, destroyAndFreeReplicatedSegment) {
@@ -258,7 +272,6 @@ bool filter(string s) {
                        , "writeSegment"
                        , "performTask"
                        , "updateToAtLeast"
-                       , "setMinOpenSegmentId"
                        };
     foreach (auto* oks, ok) {
         if (s == oks)
@@ -271,9 +284,8 @@ bool filter(string s) {
 class DoNothingHandlers : public LogEntryHandlers {
   public:
     uint32_t getTimestamp(LogEntryType type, Buffer& buffer) { return 0; }
-    bool checkLiveness(LogEntryType type, Buffer& buffer) { return true; }
-    bool relocate(LogEntryType type, Buffer& oldBuffer,
-                  HashTable::Reference newReference) { return true; }
+    void relocate(LogEntryType type, Buffer& oldBuffer,
+                  LogEntryRelocator& relocator) { }
 };
 
 /**
@@ -286,22 +298,18 @@ class DoNothingHandlers : public LogEntryHandlers {
 TEST_F(ReplicaManagerTest, endToEndBackupRecovery) {
     MockRandom __(1);
 
-    const uint64_t logSegs = 4 + 2 + LogCleaner::SURVIVOR_SEGMENTS_TO_RESERVE;
-    SegletAllocator allocator(logSegs * 8192, 8192);
-    SegmentManager segmentManager(&context, 8192, serverId, allocator, *mgr, 1);
+    ServerConfig serverConfig(ServerConfig::forTesting());
+    SegletAllocator allocator(serverConfig);
+    SegmentManager segmentManager(&context, serverConfig, serverId, allocator, *mgr);
     DoNothingHandlers entryHandlers;
-    Log log(&context, entryHandlers, segmentManager, *mgr);
+    Log log(&context, serverConfig, entryHandlers, segmentManager, *mgr);
     log.sync();
 
     // Set up the scenario:
     // Two log segments in the log, one durably closed and the other open
-    // with a single pending write. The first log head is already open and
-    // will be closed during recovery. The second log head, will be open
-    // during recovery.
+    // with a single pending write.
     log.allocateHeadIfStillOn({});
     static char buf[64];
-    // Sync append to new head ensures that the first log segment must be
-    // durably closed.
     log.append(LOG_ENTRY_TYPE_OBJ, buf, sizeof(buf), true);
     // Non-synced append ensures mgr isn't idle, otherwise this unit test would
     // be racy: it waits for mgr->isIdle() to ensure recovery is complete, but
@@ -324,118 +332,82 @@ TEST_F(ReplicaManagerTest, endToEndBackupRecovery) {
 
     TestLog::Enable _(filter);
     BackupFailureMonitor failureMonitor(&context, mgr.get());
-    failureMonitor.start(&log);
-    serverList.remove(backup1Id);
+    failureMonitor.start();
+    serverList.testingCrashed(backup1Id);
+    serverList.testingRemove(backup1Id);
 
     // Wait for backup recovery to finish.
     while (!mgr->isIdle());
 
     // Though extremely fragile this gives a great sanity check on the order
     // of things during backup recovery which is exceptionally helpful since
-    // the ordering doesn't follow the code flow at all.  Comments are added
+    // the ordering doesn't follow the code flow at all. Comments are added
     // below to point out some of the important properties this is checking.
     // Notice the log segments involved here are Segment 0 which is closed,
-    // Segment 1 which is currently the head, and Segment 2 which will be
-    // the successor for Segment 1 which is created as part of the recovery
-    // protocol.
+    // Segment 1 which is currently the head.
+
     EXPECT_EQ(
         // The failure is discovered through the tracker, notice that
         // the completion of the test is also checking to make sure that
         // BackupFailureMonitor is driving the ReplicaManager proceed()
         // loop until recovery has completed.
-        "main: Notifying log of failure of serverId 1.0 | "
+        "main: Notifying replica manager of failure of serverId 1.0 | "
         // Next few, ensure open/closed segments get tagged appropriately
         // since recovery is different for each.
         "handleBackupFailure: Handling backup failure of serverId 1.0 | "
-        "handleBackupFailure: Segment 0 recovering from lost replica "
-            "which was on backup 1.0 | "
-        "handleBackupFailure: Segment 1 recovering from lost replica "
-            "which was on backup 1.0 | "
-        "handleBackupFailure: Lost replica(s) for segment 1 "
-            "while open due to crash of backup 1.0 | "
-        "handleBackupFailure: Highest affected segmentId 1 | "
-        // Ensure a new log head is allocated.
-        "main: Allocating a new log head | "
-        // Which provides the required new log digest via open.
-        "allocateSegment: Allocating new replicated segment for <3.0,2> | "
-        "close: 3.0, 1, 2 | "
-        // And which also provides the needed close on the log segment
-        // with the lost open replica.
-        "close: Segment 1 closed (length 188) | "
-        // Notice the actual close to the backup is delayed because it
-        // must wait on a durable open to the new log head.
-        "performWrite: Cannot close segment 1 until following segment is "
-            "durably open | "
-        // Re-replication of Segment 1's lost replica.
-        "performWrite: Starting replication of segment 1 replica slot 1 "
-            "on backup 4.0 | "
+        "handleBackupFailure: Segment 0 recovering from lost replica which "
+            "was on backup 1.0 | "
+        "handleBackupFailure: Segment 1 recovering from lost replica which "
+            "was on backup 1.0 | "
+        "handleBackupFailure: Lost replica(s) for segment 1 while open due "
+            "to crash of backup 1.0 | "
+        // Segment 1 goes first; since it stayed open it was always scheduled.
+        // Replica slot 0 just needs an updated epoch, so that is sent out.
+        "performWrite: Sending write to backup 2.0 | "
+        // Replica slot 1 was the replica that was lost. Start re-replication.
+        "performWrite: Starting replication of segment 1 replica slot 1 on "
+            "backup 4.0 | "
         "performWrite: Sending open to backup 4.0 | "
         "writeSegment: Opening <3.0,1> | "
-        // Re-replication of Segment 0's lost replica.
+        // Segment 0 goes second because it was happily durable and descheduled
+        // until the failure woke it up.
         "selectPrimary: Chose server 4.0 with 0 primary replicas and 100 MB/s "
             "disk bandwidth (expected time to read on recovery is 80 ms) | "
-        "performWrite: Starting replication of segment 0 replica slot 0 "
-            "on backup 4.0 | "
+        "performWrite: Starting replication of segment 0 replica slot 0 on "
+            "backup 4.0 | "
         "performWrite: Sending open to backup 4.0 | "
         "writeSegment: Opening <3.0,0> | "
-        // Starting replication of new log head Segment 2.
-        "selectPrimary: Chose server 2.0 with 1 primary replicas and 100 MB/s "
-            "disk bandwidth (expected time to read on recovery is 160 ms) | "
-        "performWrite: Starting replication of segment 2 replica slot 0 "
-            "on backup 2.0 | "
-        // But replication cannot start right away because preceding segments
-        // haven't been durably opened.
-        "performWrite: Cannot open segment 2 until preceding segment is "
-            "durably open | "
-        "performWrite: Starting replication of segment 2 replica slot 1 "
-            "on backup 4.0 | "
-        "performWrite: Cannot open segment 2 until preceding segment is "
-            "durably open | "
-        "performWrite: Cannot close segment 1 until following segment is "
-            "durably open | "
-        "performWrite: Sending open to backup 2.0 | "
-        "writeSegment: Opening <3.0,2> | "
-        "performWrite: Sending open to backup 4.0 | "
-        "writeSegment: Opening <3.0,2> | "
-        // Segment 1 is still waiting for the RPC for the open for Segment 2
-        // to be reaped to ensure that it is durably open. Repeats twice
-        // because segment 2 was delayed in sending its open due to the open
-        // from its preceding segment.
-        "performWrite: Cannot close segment 1 until following segment is "
-            "durably open | "
-        "performWrite: Cannot close segment 1 until following segment is "
-            "durably open | "
-        // This part is a bit ambiguous:
-        // Segment 2 is durably open now and its rpcs get reaped, so
-        // That frees Segment 1 to finally send it's closing write which
-        // accounts for 2 rpcs, one to each of its replicas.  The other
-        // write is to finish the replication of segment 0.
+        // Write to re-replicate segment 1 replica slot 1.
         "performWrite: Sending write to backup 4.0 | "
-        "performWrite: Sending write to backup 2.0 | "
+        // Write to re-replicate segment 0 replica slot 0 and close it.
         "performWrite: Sending write to backup 4.0 | "
-        // Update minOpenSegmentId on the coordinator to complete the lost
-        // open segment recovery protocol.
-        // Happens a few times because the code just polls to keep updating
-        // until it reads the right value has been acknowledged.  Only one
-        // RPC is sent, though.
-        "performTask: Updating minOpenSegmentId on coordinator to ensure lost "
-            "replicas of segment 1 will not be reused | "
-        "updateToAtLeast: request update to minOpenSegmentId for 3.0 to 2 | "
-        "setMinOpenSegmentId: setMinOpenSegmentId for server 3.0 to 2 | "
-        "performTask: Updating minOpenSegmentId on coordinator to ensure lost "
-            "replicas of segment 1 will not be reused | "
-        "updateToAtLeast: request update to minOpenSegmentId for 3.0 to 2 | "
-        "performTask: coordinator minOpenSegmentId for 3.0 updated to 2 | "
-        "performTask: minOpenSegmentId ok, lost open replica recovery "
+        "writeSegment: Closing <3.0,0> | "
+        // All re-replication has been taken care of; bump the epoch number
+        // on the coordinator.
+        "performTask: Updating replicationEpoch to 1,1 on coordinator to "
+            "ensure lost replicas will not be reused | "
+        "updateToAtLeast: request update to master recovery info for 3.0 "
+            "to 1,1 | "
+        "performTask: Updating replicationEpoch to 1,1 on coordinator to "
+            "ensure lost replicas will not be reused | "
+        "updateToAtLeast: request update to master recovery info for 3.0 "
+            "to 1,1 | "
+        "performTask: Updating replicationEpoch to 1,1 on coordinator to "
+            "ensure lost replicas will not be reused | "
+        "updateToAtLeast: request update to master recovery info for 3.0 "
+            "to 1,1 | "
+        "performTask: coordinator replication epoch for 3.0 updated to 1,1 | "
+        "performTask: replicationEpoch ok, lost open replica recovery "
             "complete on segment 1"
         , TestLog::get());
 
-    // Make sure it rolled over to a new log head.
-    EXPECT_EQ(2u, log.head->id);
-    // Make sure the minOpenSegmentId was updated.
-    EXPECT_EQ(2u,
+    // Make sure the replication epoch on the coordinator was updated.
+    EXPECT_EQ(1u,
         cluster.coordinator->context->coordinatorServerList->at(
-        serverId).minOpenSegmentId);
+        serverId).masterRecoveryInfo.min_open_segment_id());
+    EXPECT_EQ(1u,
+        cluster.coordinator->context->coordinatorServerList->at(
+        serverId).masterRecoveryInfo.min_open_segment_epoch());
 }
 
 } // namespace RAMCloud

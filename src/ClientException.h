@@ -161,6 +161,9 @@ DEFINE_EXCEPTION(InvalidObjectException,
 DEFINE_EXCEPTION(TabletDoesntExistException,
                  STATUS_TABLET_DOESNT_EXIST,
                  ClientException)
+DEFINE_EXCEPTION(PartitionBeforeReadException,
+                 STATUS_PARTITION_BEFORE_READ,
+                 ClientException)
 
 } // namespace RAMCloud
 

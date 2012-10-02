@@ -83,7 +83,6 @@ SHARED_SRCFILES := \
 		   src/SegmentManager.cc \
 		   src/ServerIdRpcWrapper.cc \
 		   src/ServerList.cc \
-           src/ServerListUpdater.cc \
 		   src/ServerMetrics.cc \
 		   src/ServerRpcPool.cc \
 		   src/Service.cc \
@@ -110,6 +109,7 @@ SHARED_SRCFILES := \
 		   $(OBJDIR)/EnumerationIterator.pb.cc \
            $(OBJDIR)/Histogram.pb.cc \
 		   $(OBJDIR)/LogMetrics.pb.cc \
+		   $(OBJDIR)/MasterRecoveryInfo.pb.cc \
 		   $(OBJDIR)/MetricList.pb.cc \
 		   $(OBJDIR)/ServerConfig.pb.cc \
 		   $(OBJDIR)/ServerList.pb.cc \

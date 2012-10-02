@@ -109,24 +109,24 @@ class EnqueueMasterRecoveryTask : public Task {
      *      MasterRecoveryManager which should enqueue a new recovery.
      * \param crashedServerId
      *      The crashed server which is to be recovered.
-     * \param minOpenSegmentId
+     * \param recoveryInfo
      *      Used to filter out replicas of segments which may have become
-     *      inconsistent. A replica with a segment id less than this is
-     *      not eligible to be used for recovery (both for log digest and
-     *      object data purposes). Stored in and provided by the coordinator
-     *      server list.
+     *      inconsistent. A replica with a segment id less than this or
+     *      an equal segmentId with a lesser epoch is not eligible to be used
+     *      for recovery (both for log digest and object data purposes).
+     *      Stored in and provided by the coordinator server list.
      */
     EnqueueMasterRecoveryTask(MasterRecoveryManager& recoveryManager,
                               ServerId crashedServerId,
-                              uint64_t minOpenSegmentId)
+                              const ProtoBuf::MasterRecoveryInfo& recoveryInfo)
         : Task(recoveryManager.taskQueue)
         , mgr(recoveryManager)
         , recovery()
-        , minOpenSegmentId(minOpenSegmentId)
+        , masterRecoveryInfo(recoveryInfo)
     {
         recovery = new Recovery(recoveryManager.context, mgr.taskQueue,
                                 &mgr.tabletMap, &mgr.tracker,
-                                &mgr, crashedServerId, minOpenSegmentId);
+                                &mgr, crashedServerId, masterRecoveryInfo);
     }
 
     /**
@@ -144,7 +144,7 @@ class EnqueueMasterRecoveryTask : public Task {
   PRIVATE:
     MasterRecoveryManager& mgr;
     Recovery* recovery;
-    uint64_t minOpenSegmentId;
+    ProtoBuf::MasterRecoveryInfo masterRecoveryInfo;
     DISALLOW_COPY_AND_ASSIGN(EnqueueMasterRecoveryTask);
 };
 
@@ -221,6 +221,11 @@ class RecoveryMasterFinishedTask : public Task {
                 // creation of this new tablet assignment. The value is the
                 // position of the head at the very start of recovery.
                 try {
+                    LOG(DEBUG, "Modifying tablet map to set recovery master %s "
+                        "as master for %lu, %lu, %lu",
+                        ServerId(tablet.server_id()).toString().c_str(),
+                        tablet.table_id(), tablet.start_key_hash(),
+                        tablet.end_key_hash());
                     mgr.tabletMap.modifyTablet(tablet.table_id(),
                                                tablet.start_key_hash(),
                                                tablet.end_key_hash(),
@@ -353,7 +358,7 @@ MasterRecoveryManager::startMasterRecovery(ServerId crashedServerId)
         }
 
         (new EnqueueMasterRecoveryTask(*this, crashedServerId,
-                                       server.minOpenSegmentId))->schedule();
+                                       server.masterRecoveryInfo))->schedule();
     } catch (const Exception& e) {
         // Check one last time just to sanity check the correctness of the
         // recovery mananger: make sure that if the server isn't in the
@@ -402,6 +407,7 @@ class ApplyTrackerChangesTask : public Task {
                 // Like it or not, recovery is done on this recovery master
                 // but unsuccessfully.
                 recovery->recoveryMasterFinished(server.serverId, false);
+                mgr.tracker[server.serverId] = NULL;
             }
         }
         delete this;
@@ -497,7 +503,7 @@ MasterRecoveryManager::recoveryFinished(Recovery* recovery)
         // Enqueue will schedule a MaybeStartRecoveryTask.
         (new EnqueueMasterRecoveryTask(*this,
                                        recovery->crashedServerId,
-                                       recovery->minOpenSegmentId))->
+                                       recovery->masterRecoveryInfo))->
                                                             schedule();
     }
 }

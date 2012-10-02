@@ -50,7 +50,7 @@ class CoordinatorServerManagerTest : public ::testing::Test {
         , logCabinHelper()
         , logCabinLog()
     {
-        Logger::get().setLogLevels(RAMCloud::SILENT_LOG_LEVEL);
+        Logger::get().setLogLevels(SILENT_LOG_LEVEL);
 
         serverManager = &cluster.coordinator.get()->serverManager;
 
@@ -124,12 +124,6 @@ TEST_F(CoordinatorServerManagerTest, assignReplicationGroup) {
     EXPECT_EQ(10U, serverList->at(serverIds[1]).replicationId);
     EXPECT_EQ(10U, serverList->at(serverIds[2]).replicationId);
 
-    // Crash one of the backups. assignReplicationGroup should fail.
-    // This test disabled because of RAM-429.
-#if 0
-    serverManager->hintServerDown(serverIds[2]);
-    EXPECT_FALSE(serverManager->assignReplicationGroup(1000U, serverIds));
-#endif
     serverManager->forceServerDownForTesting = false;
 }
 
@@ -165,14 +159,15 @@ TEST_F(CoordinatorServerManagerTest, enlistServer) {
     EXPECT_EQ(1U, master->serverId.getId());
     EXPECT_EQ(ServerId(2, 0),
         serverManager->enlistServer({}, {WireFormat::BACKUP_SERVICE},
-                                    0, 0, "mock:host=backup"));
+                                    0, "mock:host=backup"));
 
     ProtoBuf::ServerList masterList;
     serverList->serialize(masterList, {WireFormat::MASTER_SERVICE});
     EXPECT_TRUE(TestUtil::matchesPosixRegex(
                 "server { services: 25 server_id: 1 "
                 "service_locator: \"mock:host=master\" "
-                "expected_read_mbytes_per_sec: [0-9]\\+ status: 0 } "
+                "expected_read_mbytes_per_sec: [0-9]\\+ status: 0 "
+                "replication_id: 0 } "
                 "version_number: 2",
                 masterList.ShortDebugString()));
 
@@ -180,8 +175,9 @@ TEST_F(CoordinatorServerManagerTest, enlistServer) {
     serverList->serialize(backupList, {WireFormat::BACKUP_SERVICE});
     EXPECT_EQ("server { services: 2 server_id: 2 "
               "service_locator: \"mock:host=backup\" "
-              "expected_read_mbytes_per_sec: 0 status: 0 } "
-              "version_number: 2",
+              "expected_read_mbytes_per_sec: 0 status: 0 "
+              "replication_id: 0 } "
+              "version_number: 2 type: FULL_LIST",
               backupList.ShortDebugString());
 }
 
@@ -194,19 +190,38 @@ bool startMasterRecoveryFilter(string s) {
 TEST_F(CoordinatorServerManagerTest, enlistServer_ReplaceAMaster) {
     TaskQueue mgr;
     serverManager->service.recoveryManager.doNotStartRecoveries = true;
+    // I can't figure out how the auto-register server list crap works.
+    // It's horrible and dumb, so here's my fix.
+    context.serverList = &serverManager->service.serverList;
+    ServerTracker<void> tracker(&context);
+    ASSERT_EQ(serverList, tracker.parent);
 
     ramcloud->createTable("foo");
     TestLog::Enable _(startMasterRecoveryFilter);
     EXPECT_EQ(ServerId(2, 0),
         serverManager->enlistServer(masterServerId,
                                     {WireFormat::BACKUP_SERVICE},
-                                    0, 0, "mock:host=backup"));
+                                    0, "mock:host=backup"));
     EXPECT_EQ("startMasterRecovery: Scheduling recovery of master 1.0 | "
               "startMasterRecovery: Recovery crashedServerId: 1.0",
               TestLog::get());
     EXPECT_TRUE(serverList->contains(masterServerId));
     EXPECT_EQ(ServerStatus::CRASHED,
               serverList->at(masterServerId).status);
+
+    ServerDetails details;
+    ServerChangeEvent event;
+    ASSERT_TRUE(tracker.getChange(details, event));
+    EXPECT_EQ(ServerId(1, 0), details.serverId);
+    EXPECT_EQ(SERVER_ADDED, event);
+
+    ASSERT_TRUE(tracker.getChange(details, event));
+    EXPECT_EQ(ServerId(1, 0), details.serverId);
+    EXPECT_EQ(SERVER_CRASHED, event);
+
+    ASSERT_TRUE(tracker.getChange(details, event));
+    EXPECT_EQ(ServerId(2, 0), details.serverId);
+    EXPECT_EQ(SERVER_ADDED, event);
 }
 
 TEST_F(CoordinatorServerManagerTest, enlistServer_ReplaceANonMaster) {
@@ -221,7 +236,7 @@ TEST_F(CoordinatorServerManagerTest, enlistServer_ReplaceANonMaster) {
     TestLog::Enable _(startMasterRecoveryFilter);
     EXPECT_EQ(ServerId(2, 1),
         serverManager->enlistServer(replacesId, {WireFormat::BACKUP_SERVICE},
-                                    0, 0, "mock:host=backup2"));
+                                    0, "mock:host=backup2"));
     EXPECT_EQ("startMasterRecovery: Server 2.0 crashed, but it had no tablets",
               TestLog::get());
     EXPECT_FALSE(serverList->contains(replacesId));
@@ -237,7 +252,7 @@ TEST_F(CoordinatorServerManagerTest, enlistServer_LogCabin) {
     EXPECT_EQ(ServerId(2, 0),
         serverManager->enlistServer(masterServerId,
                                     {WireFormat::BACKUP_SERVICE},
-                                    0, 0, "mock:host=backup"));
+                                    0, "mock:host=backup"));
 
     vector<Entry> entriesRead = logCabinLog->read(0);
     string searchString;
@@ -249,7 +264,7 @@ TEST_F(CoordinatorServerManagerTest, enlistServer_LogCabin) {
             entriesRead[findEntryId(searchString)], readState);
     EXPECT_EQ("entry_type: \"ServerEnlisting\"\n"
               "server_id: 2\nservice_mask: 2\n"
-              "read_speed: 0\nwrite_speed: 0\n"
+              "read_speed: 0\n"
               "service_locator: \"mock:host=backup\"\n",
               readState.DebugString());
 
@@ -260,7 +275,7 @@ TEST_F(CoordinatorServerManagerTest, enlistServer_LogCabin) {
             entriesRead[findEntryId(searchString)], readInfo);
     EXPECT_EQ("entry_type: \"ServerEnlisted\"\n"
               "server_id: 2\nservice_mask: 2\n"
-              "read_speed: 0\nwrite_speed: 0\n"
+              "read_speed: 0\n"
               "service_locator: \"mock:host=backup\"\n",
               readInfo.DebugString());
 }
@@ -280,7 +295,6 @@ TEST_F(CoordinatorServerManagerTest, enlistServerRecover) {
     state.set_service_mask(
         ServiceMask({WireFormat::BACKUP_SERVICE}).serialize());
     state.set_read_speed(0);
-    state.set_write_speed(0);
     state.set_service_locator("mock:host=backup");
 
     EntryId entryId = logCabinHelper->appendProtoBuf(state);
@@ -295,7 +309,7 @@ TEST_F(CoordinatorServerManagerTest, enlistServerRecover) {
     EXPECT_EQ(
         format("complete: Enlisting new server at mock:host=backup "
                "(server id 2.0) supporting services: BACKUP_SERVICE | "
-               "complete: Backup at id 2.0 has 0 MB/s read 0 MB/s write | "
+               "complete: Backup at id 2.0 has 0 MB/s read | "
                "complete: LogCabin: ServerEnlisted entryId: %lu",
                findEntryId(searchString)),
         TestLog::get());
@@ -305,7 +319,8 @@ TEST_F(CoordinatorServerManagerTest, enlistServerRecover) {
     EXPECT_TRUE(TestUtil::matchesPosixRegex(
                 "server { services: 25 server_id: 1 "
                 "service_locator: \"mock:host=master\" "
-                "expected_read_mbytes_per_sec: [0-9]\\+ status: 0 } "
+                "expected_read_mbytes_per_sec: [0-9]\\+ status: 0 "
+                "replication_id: 0 } "
                 "version_number: 2",
                 masterList.ShortDebugString()));
 
@@ -313,8 +328,9 @@ TEST_F(CoordinatorServerManagerTest, enlistServerRecover) {
     serverList->serialize(backupList, {WireFormat::BACKUP_SERVICE});
     EXPECT_EQ("server { services: 2 server_id: 2 "
               "service_locator: \"mock:host=backup\" "
-              "expected_read_mbytes_per_sec: 0 status: 0 } "
-              "version_number: 2",
+              "expected_read_mbytes_per_sec: 0 status: 0 "
+              "replication_id: 0 } "
+              "version_number: 2 type: FULL_LIST",
               backupList.ShortDebugString());
 }
 
@@ -327,7 +343,6 @@ TEST_F(CoordinatorServerManagerTest, enlistedServerRecover) {
     state.set_service_mask(
         ServiceMask({WireFormat::BACKUP_SERVICE}).serialize());
     state.set_read_speed(0);
-    state.set_write_speed(0);
     state.set_service_locator("mock:host=backup");
 
     EntryId entryId = logCabinHelper->appendProtoBuf(state);
@@ -343,7 +358,8 @@ TEST_F(CoordinatorServerManagerTest, enlistedServerRecover) {
     EXPECT_TRUE(TestUtil::matchesPosixRegex(
                 "server { services: 25 server_id: 1 "
                 "service_locator: \"mock:host=master\" "
-                "expected_read_mbytes_per_sec: [0-9]\\+ status: 0 } "
+                "expected_read_mbytes_per_sec: [0-9]\\+ status: 0 "
+                "replication_id: 0 } "
                 "version_number: 2",
                 masterList.ShortDebugString()));
 
@@ -351,8 +367,9 @@ TEST_F(CoordinatorServerManagerTest, enlistedServerRecover) {
     serverList->serialize(backupList, {WireFormat::BACKUP_SERVICE});
     EXPECT_EQ("server { services: 2 server_id: 2 "
               "service_locator: \"mock:host=backup\" "
-              "expected_read_mbytes_per_sec: 0 status: 0 } "
-              "version_number: 2",
+              "expected_read_mbytes_per_sec: 0 status: 0 "
+              "replication_id: 0 } "
+              "version_number: 2 type: FULL_LIST",
               backupList.ShortDebugString());
 }
 
@@ -377,62 +394,10 @@ bool statusFilter(string s) {
 }
 }
 
-TEST_F(CoordinatorServerManagerTest, sendServerList_checkLogs) {
-    TestLog::Enable _(statusFilter);
-
-    serverManager->sendServerList(ServerId(52, 0));
-    EXPECT_EQ(0U, TestLog::get().find(
-        "sendServerList: Could not send list to unknown server 52"));
-
-    ServerConfig config = ServerConfig::forTesting();
-    config.services = {WireFormat::MASTER_SERVICE, WireFormat::PING_SERVICE};
-    ServerId id = cluster.addServer(config)->serverId;
-
-    TestLog::reset();
-    serverManager->sendServerList(id);
-    cluster.syncCoordinatorServerList();
-    EXPECT_EQ(0U, TestLog::get().find(
-        "sendServerList: Could not send list to server without "
-        "membership service: 2"));
-
-    config = ServerConfig::forTesting();
-    config.services = {WireFormat::MEMBERSHIP_SERVICE};
-    id = cluster.addServer(config)->serverId;
-
-    TestLog::reset();
-    serverManager->sendServerList(id);
-    cluster.syncCoordinatorServerList();
-    EXPECT_EQ(0U, TestLog::get().find(
-        "handleRequest: Sending server list to server id"));
-    EXPECT_NE(string::npos, TestLog::get().find(
-        "applyFullList: Got complete list of servers"));
-
-    serverList->crashed(id);
-    cluster.syncCoordinatorServerList();    // clear crashed() messages
-    TestLog::reset();
-    serverManager->sendServerList(id);
-    cluster.syncCoordinatorServerList();
-    EXPECT_NE(std::string::npos, TestLog::get().find(
-            "sendServerList: Could not send list to crashed server 3"));
-}
-
-TEST_F(CoordinatorServerManagerTest, sendServerList_main) {
-    ServerConfig config = ServerConfig::forTesting();
-    config.services = {WireFormat::MEMBERSHIP_SERVICE};
-    ServerId id = cluster.addServer(config)->serverId;
-
-    TestLog::Enable _;
-    serverManager->sendServerList(id);
-    cluster.syncCoordinatorServerList();
-    EXPECT_NE(string::npos, TestLog::get().find(
-        "applyFullList: Got complete list of servers containing 1 "
-        "entries (version number 2)"));
-}
-
 TEST_F(CoordinatorServerManagerTest, serverDown_backup) {
     ServerId id =
         serverManager->enlistServer({}, {WireFormat::BACKUP_SERVICE},
-                                    0, 0, "mock:host=backup");
+                                    0, "mock:host=backup");
     EXPECT_EQ(1U, serverManager->service.serverList.backupCount());
     serverManager->forceServerDownForTesting = true;
     serverManager->serverDown(id);
@@ -505,30 +470,44 @@ TEST_F(CoordinatorServerManagerTest, serverDownRecover) {
               serverList->at(master->serverId).status);
 }
 
-TEST_F(CoordinatorServerManagerTest, setMinOpenSegmentId) {
-    serverManager->setMinOpenSegmentId(masterServerId, 10);
-    EXPECT_EQ(10u, serverList->at(masterServerId).minOpenSegmentId);
-    serverManager->setMinOpenSegmentId(masterServerId, 9);
-    EXPECT_EQ(10u, serverList->at(masterServerId).minOpenSegmentId);
-    serverManager->setMinOpenSegmentId(masterServerId, 11);
-    EXPECT_EQ(11u, serverList->at(masterServerId).minOpenSegmentId);
+TEST_F(CoordinatorServerManagerTest, setMasterRecoveryInfo) {
+    ProtoBuf::MasterRecoveryInfo info;
+    info.set_min_open_segment_id(10);
+    info.set_min_open_segment_epoch(1);
+    serverManager->setMasterRecoveryInfo(masterServerId, info);
+    auto other = serverList->at(masterServerId).masterRecoveryInfo;
+    EXPECT_EQ(10lu, other.min_open_segment_id());
+    EXPECT_EQ(1lu, other.min_open_segment_epoch());
+    info.set_min_open_segment_id(9);
+    info.set_min_open_segment_epoch(0);
+    serverManager->setMasterRecoveryInfo(masterServerId, info);
+    other = serverList->at(masterServerId).masterRecoveryInfo;
+    EXPECT_EQ(9lu, other.min_open_segment_id());
+    EXPECT_EQ(0lu, other.min_open_segment_epoch());
 }
 
-TEST_F(CoordinatorServerManagerTest, setMinOpenSegmentIdRecover) {
+TEST_F(CoordinatorServerManagerTest, setMasterRecoveryInfoRecover) {
     ProtoBuf::ServerUpdate serverUpdate;
     serverUpdate.set_entry_type("ServerUpdate");
     serverUpdate.set_server_id(masterServerId.getId());
-    serverUpdate.set_min_open_segment_id(10);
+    serverUpdate.mutable_master_recovery_info()->set_min_open_segment_id(10);
+    serverUpdate.mutable_master_recovery_info()->set_min_open_segment_epoch(1);
     EntryId entryId = logCabinHelper->appendProtoBuf(serverUpdate);
 
-    serverManager->setMinOpenSegmentIdRecover(&serverUpdate, entryId);
+    serverManager->setMasterRecoveryInfoRecover(&serverUpdate, entryId);
 
-    EXPECT_EQ(10u, serverList->at(masterServerId).minOpenSegmentId);
+    EXPECT_EQ(10lu, serverList->at(masterServerId).
+                        masterRecoveryInfo.min_open_segment_id());
+    EXPECT_EQ(1lu, serverList->at(masterServerId).
+                        masterRecoveryInfo.min_open_segment_epoch());
 }
 
-TEST_F(CoordinatorServerManagerTest, setMinOpenSegmentId_execute) {
+TEST_F(CoordinatorServerManagerTest, setMasterRecoveryInfo_execute) {
     TestLog::Enable _;
-    serverManager->setMinOpenSegmentId(masterServerId, 10);
+    ProtoBuf::MasterRecoveryInfo info;
+    info.set_min_open_segment_id(10);
+    info.set_min_open_segment_epoch(1);
+    serverManager->setMasterRecoveryInfo(masterServerId, info);
 
     vector<Entry> entriesRead = logCabinLog->read(0);
 
@@ -536,12 +515,17 @@ TEST_F(CoordinatorServerManagerTest, setMinOpenSegmentId_execute) {
     ProtoBuf::ServerUpdate readUpdate;
     logCabinHelper->parseProtoBufFromEntry(entriesRead[entryId], readUpdate);
 
-    EXPECT_EQ(10u, readUpdate.min_open_segment_id());
+    EXPECT_EQ(10u, readUpdate.master_recovery_info().min_open_segment_id());
+    EXPECT_EQ(1u, readUpdate.master_recovery_info().min_open_segment_epoch());
 }
 
-TEST_F(CoordinatorServerManagerTest, setMinOpenSegmentId_complete_noSuchServer)
+TEST_F(CoordinatorServerManagerTest,
+       setMasterRecoveryInfo_complete_noSuchServer)
 {
-    EXPECT_THROW(serverManager->setMinOpenSegmentId(ServerId(2, 2), 100),
+    ProtoBuf::MasterRecoveryInfo info;
+    info.set_min_open_segment_id(10);
+    info.set_min_open_segment_epoch(1);
+    EXPECT_THROW(serverManager->setMasterRecoveryInfo({2, 2}, info),
                  ServerListException);
 }
 

@@ -22,7 +22,7 @@
 #include "BackupClient.h"
 #include "BackupSelector.h"
 #include "BoostIntrusive.h"
-#include "MinOpenSegmentId.h"
+#include "UpdateReplicationEpochTask.h"
 #include "RawMetrics.h"
 #include "Transport.h"
 #include "TaskQueue.h"
@@ -98,12 +98,23 @@ class ReplicatedSegment : public Task {
         /// Bytes that have been queued/sent/acknowledged.
         uint32_t bytes;
 
+        /**
+         * A logical clock that ticks on backup failures. Replicas are modified
+         * during some epoch. If a replica becomes lost replicas can be
+         * recreated with in a new epoch and then the coordinator can be told
+         * that any replica with an older epoch should not be used in recovery.
+         * When a backup for some replica of an open segment fails this is
+         * incremented in 'queued' which causes all replicas to transmit this
+         * new epoch number to backups before being considered committed again.
+         */
+        uint64_t epoch;
+
         /// Whether a close has been queued/sent/acknowledged.
         bool close;
 
         /// Create an instance representing no progress.
         Progress()
-            : open(false), bytes(0), close(false) {}
+            : open(false), bytes(0), epoch(0), close(false) {}
 
         /**
          * Create an instance representing a specific amount of progress.
@@ -112,11 +123,14 @@ class ReplicatedSegment : public Task {
          *      Whether the open operation has been queued/sent/acknowledged.
          * \param bytes
          *      Bytes that have been queued/sent/acknowledged.
+         * \param epoch
+         *      Which epoch the data described by \a bytes is part of. See
+         *      #epoch.
          * \param close
          *      Whether the close operation has been queued/sent/acknowledged.
          */
-        Progress(bool open, uint32_t bytes, bool close)
-            : open(open), bytes(bytes), close(close) {}
+        Progress(bool open, uint32_t bytes, uint64_t epoch, bool close)
+            : open(open), bytes(bytes), epoch(epoch), close(close) {}
 
         /**
          * Update in place with the minimum progress on each of field
@@ -130,6 +144,11 @@ class ReplicatedSegment : public Task {
             open &= other.open;
             if (bytes > other.bytes)
                 bytes = other.bytes;
+            // A bit subtle: if the other is closed then its epoch doesn't
+            // matter. A closed replica can always be used during recovery.
+            // Having "close" set is like having an infinite epoch.
+            if (!other.close)
+                epoch = std::min(epoch, other.epoch);
             close &= other.close;
         }
 
@@ -140,9 +159,13 @@ class ReplicatedSegment : public Task {
          *      Another Progress to compare against.
          */
         bool operator==(const Progress& other) const {
+            // A bit subtle: if two Progresses have replicated the same
+            // bytes and are both closed then their epoch is irrelevant.
+            // Having "close" set is like having an infinite epoch.
             return (open == other.open &&
                     bytes == other.bytes &&
-                    close == other.close);
+                    ((close && other.close) ||
+                     (!close && !other.close && epoch == other.epoch)));
         }
 
         /**
@@ -162,25 +185,21 @@ class ReplicatedSegment : public Task {
          *      Another Progress to compare against.
          */
         bool operator<(const Progress& other) const {
+            // Extremely subtle: Order matters here. epoch must be tested
+            // after close. If the close bits are the same (be it set or
+            // cleared) ONLY THEN should the epochs be compared. This is
+            // because a closed replica is like having a replica with an
+            // infinite epoch. It can never be invalidated.
             if (open < other.open)
                 return true;
             else if (bytes < other.bytes)
                 return true;
             else if (close < other.close)
                 return true;
+            else if (epoch < other.epoch)
+                return true;
             else
                 return false;
-        }
-
-        /**
-         * Return true if this Progress is greater or equal to another.
-         *
-         * \param other
-         *      Another Progress to compare against.
-         */
-        bool operator>=(const Progress& other) const
-        {
-            return !(*this < other);
         }
     };
 
@@ -260,15 +279,15 @@ class ReplicatedSegment : public Task {
         ServerId backupId;
 
         /**
-         * Tracks how much of a replica is durably stored on a backup and
-         * will be available during master recovery if the backup is
-         * available at the time of recovery. Not all data acked as
-         * received by a backup is committed. Some backup rpcs may
-         * be sent without a footer (if the data is too large to send in a
-         * single rpc). In such a case the data in that rpc will not be
-         * part of a recovery even if it is acknowledged by the backup.
-         * It only becomes committed when some subsequent provides a
-         * new footer for the segment.
+         * Tracks how much of a replica is durably stored on a backup and will
+         * be available during master recovery if the backup is available at
+         * the time of recovery. Not all data acked as received by a backup is
+         * committed. Some backup rpcs may be sent without a certificate (if
+         * the data is too large to send in a single rpc or if the replica is
+         * being created atomically). In such a case the data in that rpc will
+         * not be part of a recovery even if it is acknowledged by the backup.
+         * It only becomes committed when some subsequent provides a new
+         * certificate for the segment.
          */
         Progress committed;
 
@@ -315,8 +334,7 @@ class ReplicatedSegment : public Task {
     void free();
     bool isSynced() const;
     void close();
-    bool handleBackupFailure(ServerId failedId)
-        __attribute__((warn_unused_result));
+    void handleBackupFailure(ServerId failedId);
     void sync(uint32_t offset = ~0u);
 
   PRIVATE:
@@ -333,7 +351,7 @@ class ReplicatedSegment : public Task {
                       BaseBackupSelector& backupSelector,
                       Deleter& deleter,
                       uint32_t& writeRpcsInFlight,
-                      MinOpenSegmentId& minOpenSegmentId,
+                      UpdateReplicationEpochTask& replicationEpoch,
                       std::mutex& dataMutex,
                       uint64_t segmentId,
                       const Segment* segment,
@@ -392,12 +410,12 @@ class ReplicatedSegment : public Task {
     uint32_t& writeRpcsInFlight;
 
     /**
-     * Provides access to the latest minOpenSegmentId acknowledged by the
+     * Provides access to the latest replicationEpoch acknowledged by the
      * coordinator for this server and allows easy, asynchronous updates
      * to the value stored on the coordinator.
      * Used when a replica is lost while this segment was not durably closed.
      */
-    MinOpenSegmentId& minOpenSegmentId;
+    UpdateReplicationEpochTask& replicationEpoch;
 
     /**
      * See ReplicaManager::dataMutex; there are many subtleties to the locking
@@ -454,19 +472,19 @@ class ReplicatedSegment : public Task {
     Progress queued;
 
     /**
-     * Footer log entry provided by the #segment which is being replicated that
-     * must be stamped on the end (at #queued.bytes) of the replicas in
-     * storage. During recovery this footer is used to detect corruption and so
-     * must be in place for updates to replicas to be considered durable. If
-     * replica manager cannot send all the data ready to be replicated in the
-     * next rpc (that is, when #queued.bytes - #acked.bytes >
-     * maxBytesPerWriteRpc) it will not send a footer with the write. When
-     * this happens the backup ensures the most recently transmitted footer is
-     * used if the replica is closed or recovered in a way such that all
-     * non-footered writes sent since the last footered write will be
-     * atomically undone.
+     * Provided by the #segment which is being replicated that must be stored
+     * along with the replica in storage. During recovery this certificate is
+     * used to determine how much of the replica is valid and to detect
+     * corruption. Therefore, it must be in place for updates to replicas to be
+     * considered durable. If replica manager cannot send all the data ready to
+     * be replicated in the next rpc (that is, when #queued.bytes -
+     * #acked.bytes > maxBytesPerWriteRpc) it will not send a certificate with
+     * the write. When this happens the backup ensures the most recently
+     * transmitted certificate is used if the replica is closed or recovered in
+     * a way such that all writes not covered by the certificate (since the
+     * last write containing a certificate) will be atomically undone.
      */
-    Segment::OpaqueFooterEntry queuedFooterEntry;
+    Segment::Certificate queuedCertificate;
 
     /**
      * Bytes to send atomically to backups with the opening backup write rpc.
@@ -475,14 +493,14 @@ class ReplicatedSegment : public Task {
     uint32_t openLen;
 
     /**
-     * Similar to #queuedFooterEntry, except it is the footer just for the
+     * Similar to #queuedCertificate, except it is the certificate just for the
      * data sent to the backup with the opening write. Must be kept separately
-     * because new data with new footers can be queued for replication before
-     * the opening write has been sent but the opening write must be sent
-     * without any object data (due to the no-write-before-preceding-close
+     * because new data with new certificate can be queued for replication
+     * before the opening write has been sent but the opening write must be
+     * sent without any object data (due to the no-write-before-preceding-close
      * rule).
      */
-    Segment::OpaqueFooterEntry openingWriteFooterEntry;
+    Segment::Certificate openingWriteCertificate;
 
     /// True if all known replicas of this segment should be freed on backups.
     bool freeQueued;
@@ -533,7 +551,7 @@ class ReplicatedSegment : public Task {
      * finished recovering from it yet, once recovery has completed
      * (that is, this segment has been durably closed, a successor with the
      * digest is durably open and, this segment's lost open replicas are
-     * invalidated using #minOpenSegmentId) the flag is cleared.
+     * invalidated using #replicationEpoch) the flag is cleared.
      */
     bool recoveringFromLostOpenReplicas;
 

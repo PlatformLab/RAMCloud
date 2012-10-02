@@ -30,9 +30,6 @@ enum LogEntryType {
     /// See LogMetadata.h::SegmentHeader
     LOG_ENTRY_TYPE_SEGHEADER,
 
-    /// See Segment.h::Footer
-    LOG_ENTRY_TYPE_SEGFOOTER,
-
     /// See Object.h::Object
     LOG_ENTRY_TYPE_OBJ,
 
@@ -41,6 +38,9 @@ enum LogEntryType {
 
     /// See LogMetadata.h::LogDigest
     LOG_ENTRY_TYPE_LOGDIGEST,
+
+    /// See Object.h::ObjectSafeVersion
+    LOG_ENTRY_TYPE_SAFEVERSION,
 
     /// Not a type, but rather the total number of types we have defined.
     /// This is currently restricted by the lower 6 bits in a uint8_t field

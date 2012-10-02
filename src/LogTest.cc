@@ -20,6 +20,7 @@
 #include "Log.h"
 #include "LogEntryTypes.h"
 #include "Memory.h"
+#include "ServerConfig.h"
 #include "StringUtil.h"
 #include "Transport.h"
 
@@ -28,9 +29,8 @@ namespace RAMCloud {
 class DoNothingHandlers : public LogEntryHandlers {
   public:
     uint32_t getTimestamp(LogEntryType type, Buffer& buffer) { return 0; }
-    bool checkLiveness(LogEntryType type, Buffer& buffer) { return true; }
-    bool relocate(LogEntryType type, Buffer& oldBuffer,
-                  HashTable::Reference newReference) { return true; }
+    void relocate(LogEntryType type, Buffer& oldBuffer,
+                  LogEntryRelocator& relocator) { }
 };
 
 /**
@@ -41,6 +41,7 @@ class LogTest : public ::testing::Test {
     Context context;
     ServerId serverId;
     ServerList serverList;
+    ServerConfig serverConfig;
     ReplicaManager replicaManager;
     SegletAllocator allocator;
     SegmentManager segmentManager;
@@ -51,13 +52,14 @@ class LogTest : public ::testing::Test {
         : context(),
           serverId(ServerId(57, 0)),
           serverList(&context),
+          serverConfig(ServerConfig::forTesting()),
           replicaManager(&context, serverId, 0),
-          allocator((6 + 2 + LogCleaner::SURVIVOR_SEGMENTS_TO_RESERVE) * 8192,
-                    8192),
-          segmentManager(&context, 8192, serverId,
-                         allocator, replicaManager, 1.0),
+          allocator(serverConfig),
+          segmentManager(&context, serverConfig, serverId,
+                         allocator, replicaManager),
           entryHandlers(),
-          l(&context, entryHandlers, segmentManager, replicaManager)
+          l(&context, serverConfig, entryHandlers,
+            segmentManager, replicaManager)
     {
         l.sync();
     }
@@ -67,11 +69,11 @@ class LogTest : public ::testing::Test {
 };
 
 TEST_F(LogTest, constructor) {
-    SegletAllocator allocator2(
-        (6 + 2 + LogCleaner::SURVIVOR_SEGMENTS_TO_RESERVE) * 8192, 8192);
-    SegmentManager segmentManager2(context, 8192, serverId,
-                                   allocator2, replicaManager, 1.0);
-    Log l2(&context, entryHandlers, segmentManager2, replicaManager);
+    SegletAllocator allocator2(serverConfig);
+    SegmentManager segmentManager2(&context, serverConfig, serverId,
+                                   allocator2, replicaManager);
+    Log l2(&context, serverConfig, entryHandlers,
+           segmentManager2, replicaManager);
     EXPECT_EQ(static_cast<LogSegment*>(NULL), l2.head);
 }
 
@@ -139,7 +141,7 @@ TEST_F(LogTest, append_tooBigToEverFit) {
     EXPECT_THROW(l.append(LOG_ENTRY_TYPE_OBJ, data, sizeof(data), true),
         FatalError);
     EXPECT_NE(oldHead, l.head);
-    EXPECT_EQ("append: Entry too big to append to log: 8193 bytes of type 3",
+    EXPECT_EQ("append: Entry too big to append to log: 8193 bytes of type 2",
         TestLog::get());
 }
 
@@ -177,25 +179,25 @@ TEST_F(LogTest, sync) {
 TEST_F(LogTest, getHeadPosition) {
     {
         // unsynced should return <0, 0>...
-        SegletAllocator allocator2(
-            (6 + 2 + LogCleaner::SURVIVOR_SEGMENTS_TO_RESERVE) * 8192, 8192);
-        SegmentManager segmentManager2(&context, 8192, serverId,
-                                       allocator2, replicaManager, 1.0);
-        Log l2(&context, entryHandlers, segmentManager2, replicaManager);
+        SegletAllocator allocator2(serverConfig);
+        SegmentManager segmentManager2(&context, serverConfig, serverId,
+                                       allocator2, replicaManager);
+        Log l2(&context, serverConfig, entryHandlers,
+               segmentManager2, replicaManager);
         EXPECT_EQ(Log::Position(0, 0), l2.getHeadPosition());
     }
 
     // synced returns something else...
-    EXPECT_EQ(Log::Position(0, 48), l.getHeadPosition());
+    EXPECT_EQ(Log::Position(0, 62), l.getHeadPosition());
 
     char data[1000];
     l.append(LOG_ENTRY_TYPE_OBJ, data, sizeof(data), true);
-    EXPECT_EQ(Log::Position(0, 1051), l.getHeadPosition());
+    EXPECT_EQ(Log::Position(0, 1065), l.getHeadPosition());
 
     while (l.getHeadPosition().getSegmentId() == 0)
         l.append(LOG_ENTRY_TYPE_OBJ, data, sizeof(data), true);
 
-    EXPECT_EQ(Log::Position(1, 1059), l.getHeadPosition());
+    EXPECT_EQ(Log::Position(1, 1065), l.getHeadPosition());
 }
 
 TEST_F(LogTest, getSegmentId) {

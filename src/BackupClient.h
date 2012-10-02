@@ -68,11 +68,15 @@ class FreeSegmentRpc : public ServerIdRpcWrapper {
  */
 class GetRecoveryDataRpc : public ServerIdRpcWrapper {
   public:
-    GetRecoveryDataRpc(Context* context, ServerId backupId,
-            ServerId masterId, uint64_t segmentId, uint64_t partitionId,
-            Buffer* responseBuffer);
+    GetRecoveryDataRpc(Context* context,
+                       ServerId backupId,
+                       uint64_t recoveryId,
+                       ServerId masterId,
+                       uint64_t segmentId,
+                       uint64_t partitionId,
+                       Buffer* responseBuffer);
     ~GetRecoveryDataRpc() {}
-    void wait();
+    Segment::Certificate wait();
 
   PRIVATE:
     DISALLOW_COPY_AND_ASSIGN(GetRecoveryDataRpc);
@@ -117,6 +121,8 @@ class RecoveryCompleteRpc : public ServerIdRpcWrapper {
  */
 class StartReadingDataRpc : public ServerIdRpcWrapper {
   public:
+    typedef WireFormat::BackupStartReadingData::Replica Replica;
+
     /**
      * The result of a startReadingData RPC, as returned by the backup.
      */
@@ -124,24 +130,34 @@ class StartReadingDataRpc : public ServerIdRpcWrapper {
         Result();
         Result(Result&& other);
         Result& operator=(Result&& other);
+
         /**
-         * A list of the segment IDs for which this backup has a replica,
-         * and the length in bytes for those replicas.
-         * For closed segments, this length is currently returned as ~OU.
+         * Information about each of the replicas found on the backup.
+         * Includes any details needed to determine whether the replica is
+         * consistent and safe to use during recovery. See
+         * WireFormat::BackupStartReadingData::Replica for exact fields.
          */
-        vector<pair<uint64_t, uint32_t>> segmentIdAndLength;
+        vector<Replica> replicas;
 
         /**
          * The number of primary replicas this backup has returned at the
-         * start of segmentIdAndLength.
+         * start of #replicaDetails.
          */
-        uint32_t primarySegmentCount;
+        uint32_t primaryReplicaCount;
 
         /**
          * A buffer containing the LogDigest of the newest open segment
          * replica found on this backup from this master, if one exists.
          */
         std::unique_ptr<char[]> logDigestBuffer;
+
+        /**
+         * A buffer containing the tabletMetrics gathered from the
+         * newest open segment replica found on this master, if one exists.
+         * These metrics may not be completely up-to-date as the metrics
+         * are updated only when a new log head is created.
+         */
+        std::unique_ptr<char[]> tabletMetricsBuffer;
 
         /**
           * The number of bytes that make up logDigestBuffer.
@@ -155,21 +171,47 @@ class StartReadingDataRpc : public ServerIdRpcWrapper {
         uint64_t logDigestSegmentId;
 
         /**
-         * The number of bytes making up the replica that contains the
-         * returned log digest.
+         * Epoch of the replica from which the log digest was taken.
+         * Used by the coordinator to detect if the replica the
+         * digest was extracted may be inconsistent. If it might be
+         * then the coordinator will discard the returned log digest.
          * This will be -1 if there is no log digest.
          */
-        uint32_t logDigestSegmentLen;
+        uint64_t logDigestSegmentEpoch;
+
+        /**
+         * The number of bytes making up the TabletMetrics.
+         * This will be -1 if no metrics were found.
+         */
+        uint32_t tabletMetricsLen;
+
         DISALLOW_COPY_AND_ASSIGN(Result);
     };
 
     StartReadingDataRpc(Context* context, ServerId backupId,
-            ServerId masterId, const ProtoBuf::Tablets* partitions);
+                        uint64_t recoveryId, ServerId masterId);
     ~StartReadingDataRpc() {}
     Result wait();
 
   PRIVATE:
     DISALLOW_COPY_AND_ASSIGN(StartReadingDataRpc);
+};
+
+/**
+ * Encapsulates the state of a BackupClient::startPartitioning operation,
+ * allowing it to execute asynchronously.
+ */
+class StartPartitioningRpc : public ServerIdRpcWrapper {
+  public:
+    StartPartitioningRpc(Context* context, ServerId backupId,
+                        uint64_t recoveryId, ServerId masterId,
+                        const ProtoBuf::Tablets* partitions);
+    ~StartPartitioningRpc() {}
+    /// \copydoc ServerIdRpcWrapper::waitAndCheckErrors
+    void wait() {waitAndCheckErrors();}
+
+  PRIVATE:
+    DISALLOW_COPY_AND_ASSIGN(StartPartitioningRpc);
 };
 
 /**
@@ -179,10 +221,11 @@ class StartReadingDataRpc : public ServerIdRpcWrapper {
 class WriteSegmentRpc : public ServerIdRpcWrapper {
   public:
     WriteSegmentRpc(Context* context, ServerId backupId,
-                    ServerId masterId, uint64_t segmentId,
+                    ServerId masterId,
+                    uint64_t segmentId, uint64_t segmentEpoch,
                     const Segment* segment, uint32_t offset, uint32_t length,
-                    const Segment::OpaqueFooterEntry* footerEntry,
-                    WireFormat::BackupWrite::Flags flags, bool atomic);
+                    const Segment::Certificate* certificate,
+                    bool open, bool close, bool primary);
     ~WriteSegmentRpc() {}
     vector<ServerId> wait();
 
@@ -202,22 +245,26 @@ class BackupClient {
             const ServerId* replicationGroupIds);
     static void freeSegment(Context* context, ServerId backupId,
             ServerId masterId, uint64_t segmentId);
-    static void getRecoveryData(Context* context, ServerId backupId,
-            ServerId masterId, uint64_t segmentId, uint64_t partitionId,
-            Buffer* response);
+    static Segment::Certificate getRecoveryData(Context* context,
+                                                ServerId backupId,
+                                                uint64_t recoveryId,
+                                                ServerId masterId,
+                                                uint64_t segmentId,
+                                                uint64_t partitionId,
+                                                Buffer* response);
     static void quiesce(Context* context, ServerId backupId);
     static void recoveryComplete(Context* context, ServerId backupId,
             ServerId masterId);
     static StartReadingDataRpc::Result startReadingData(Context* context,
-            ServerId backupId, ServerId masterId,
+            ServerId backupId, uint64_t recoveryId, ServerId masterId);
+    static void StartPartitioningReplicas(Context* context, ServerId backupId,
+            uint64_t recoveryId, ServerId masterId,
             const ProtoBuf::Tablets* partitions);
     static vector<ServerId> writeSegment(Context* context, ServerId backupId,
-            ServerId masterId, uint64_t segmentId, const Segment* segment,
-            uint32_t offset, uint32_t length,
-            const Segment::OpaqueFooterEntry* footerEntry,
-            WireFormat::BackupWrite::Flags flags =
-                                        WireFormat::BackupWrite::NONE,
-            bool atomic = false);
+            ServerId masterId, uint64_t segmentId, uint64_t segmentEpoch,
+            const Segment* segment, uint32_t offset, uint32_t length,
+            const Segment::Certificate* certificate,
+            bool open, bool close, bool primary);
 
   private:
     BackupClient();

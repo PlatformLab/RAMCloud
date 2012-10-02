@@ -32,6 +32,7 @@ class MockClusterTest : public ::testing::Test {
         , cluster()
         , config(ServerConfig::forTesting())
     {
+        Logger::get().setLogLevels(RAMCloud::SILENT_LOG_LEVEL);
         cluster.construct(&context);
     }
 
@@ -69,8 +70,7 @@ TEST_F(MockClusterTest, addServer) {
     EXPECT_EQ(1u, cluster->servers.size());
     Segment segment;
     BackupClient::writeSegment(&context, server->serverId, {99, 0},
-                               100, &segment, 0, 0, {},
-                               WireFormat::BackupWrite::OPEN);
+                               100, 0, &segment, 0, 0, {}, true, false, false);
     server = cluster->addServer(config);
     EXPECT_EQ(server->config.localLocator, "mock:host=server1");
 }

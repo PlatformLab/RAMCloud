@@ -243,7 +243,7 @@ MasterService::init(ServerId id)
     keyComparer = new LogKeyComparer(*log);
     objectMap = new HashTable(config.master.hashTableBytes /
         HashTable::bytesPerCacheLine(), *keyComparer);
-    replicaManager.startFailureMonitor(log);
+    replicaManager.startFailureMonitor();
 
     if (!config.master.disableLogCleaner)
         log->enableCleaner();
@@ -370,7 +370,7 @@ MasterService::fillWithTestData(
         int t = objects % numTablets;
 
         // safe? doubtful. simple? you bet.
-        char data[reqHdr.objectSize];
+        uint8_t data[reqHdr.objectSize];
         memset(data, 0xcc, reqHdr.objectSize);
         Buffer::Chunk::appendToBuffer(&buffer, data, reqHdr.objectSize);
 
@@ -1016,6 +1016,7 @@ MasterService::receiveMigrationData(
     LOG(NOTICE, "RECEIVED MIGRATION DATA (tbl %lu, fk %lu, bytes %u)!\n",
         tableId, firstKeyHash, segmentBytes);
 
+    Segment::Certificate certificate = reqHdr.certificate;
     rpc.requestPayload.truncateFront(sizeof(reqHdr));
     if (rpc.requestPayload.getTotalLength() != segmentBytes) {
         LOG(ERROR, "RPC size (%u) does not match advertised length (%u)",
@@ -1025,7 +1026,9 @@ MasterService::receiveMigrationData(
         return;
     }
     const void* segmentMemory = rpc.requestPayload.getStart<const void*>();
-    recoverSegment(-1, segmentMemory, segmentBytes);
+    SegmentIterator it(segmentMemory, segmentBytes, certificate);
+    it.checkMetadataIntegrity();
+    recoverSegment(it);
 
     // TODO(rumble/slaughter) what about tablet version numbers?
     //          - need to be made per-server now, no? then take max of two?
@@ -1145,10 +1148,12 @@ namespace MasterServiceInternal {
 class RecoveryTask {
   PUBLIC:
     RecoveryTask(Context* context,
+                 uint64_t recoveryId,
                  ServerId masterId,
                  uint64_t partitionId,
                  MasterService::Replica& replica)
         : context(context)
+        , recoveryId(recoveryId)
         , masterId(masterId)
         , partitionId(partitionId)
         , replica(replica)
@@ -1156,7 +1161,8 @@ class RecoveryTask {
         , startTime(Cycles::rdtsc())
         , rpc()
     {
-        rpc.construct(context, replica.backupId, masterId, replica.segmentId,
+        rpc.construct(context, replica.backupId,
+                      recoveryId, masterId, replica.segmentId,
                       partitionId, &response);
     }
     ~RecoveryTask()
@@ -1170,10 +1176,12 @@ class RecoveryTask {
     void resend() {
         LOG(DEBUG, "Resend %lu", replica.segmentId);
         response.reset();
-        rpc.construct(context, replica.backupId, masterId, replica.segmentId,
+        rpc.construct(context, replica.backupId,
+                      recoveryId, masterId, replica.segmentId,
                       partitionId, &response);
     }
     Context* context;
+    uint64_t recoveryId;
     ServerId masterId;
     uint64_t partitionId;
     MasterService::Replica& replica;
@@ -1253,6 +1261,8 @@ MasterService::detectSegmentRecoveryFailure(
  * formerly belonging to a crashed master which is being recovered and pass
  * them to the recovery master to have them replayed.
  *
+ * \param recoveryId
+ *      Id of the recovery this recovery master was performing.
  * \param masterId
  *      The id of the crashed master for which recoveryMaster will be taking
  *      over ownership of tablets.
@@ -1268,7 +1278,8 @@ MasterService::detectSegmentRecoveryFailure(
  *      a valid replacement for the crashed master.
  */
 void
-MasterService::recover(ServerId masterId,
+MasterService::recover(uint64_t recoveryId,
+                       ServerId masterId,
                        uint64_t partitionId,
                        vector<Replica>& replicas)
 {
@@ -1345,7 +1356,7 @@ MasterService::recover(ServerId masterId,
                 context->serverList->toString(replica.backupId).c_str(),
                 replica.segmentId,
                 &task - &tasks[0]);
-            task.construct(context, masterId, partitionId,
+            task.construct(context, recoveryId, masterId, partitionId,
                            replica);
             replica.state = Replica::State::WAITING;
             runningSet.insert(replica.segmentId);
@@ -1383,7 +1394,7 @@ MasterService::recover(ServerId masterId,
                 task->replica.segmentId,
                 context->serverList->toString(task->replica.backupId).c_str());
             try {
-                task->rpc->wait();
+                Segment::Certificate certificate = task->rpc->wait();
                 uint64_t grdTime = Cycles::rdtsc() - task->startTime;
                 metrics->master.segmentReadTicks += grdTime;
 
@@ -1404,9 +1415,12 @@ MasterService::recover(ServerId masterId,
                 LOG(DEBUG, "Recovering segment %lu with size %u",
                     task->replica.segmentId, responseLen);
                 uint64_t startUseful = Cycles::rdtsc();
-                recoverSegment(task->replica.segmentId,
-                               task->response.getRange(0, responseLen),
-                               responseLen);
+                SegmentIterator it(task->response.getRange(0, responseLen),
+                                   responseLen, certificate);
+                it.checkMetadataIntegrity();
+                recoverSegment(it);
+                LOG(DEBUG, "Segment %lu replay complete",
+                    task->replica.segmentId);
                 usefulTime += Cycles::rdtsc() - startUseful;
 
                 runningSet.erase(task->replica.segmentId);
@@ -1425,6 +1439,12 @@ MasterService::recover(ServerId masterId,
                         otherReplica.segmentId);
                     otherReplica.state = Replica::State::OK;
                 }
+            } catch (const SegmentIteratorException& e) {
+                LOG(WARNING, "Recovery segment for segment %lu corrupted; "
+                    "trying next backup: %s", task->replica.segmentId,
+                    e.what());
+                task->replica.state = Replica::State::FAILED;
+                runningSet.erase(task->replica.segmentId);
             } catch (const ServerNotUpException& e) {
                 LOG(WARNING, "No record of backup %s, trying next backup",
                     task->replica.backupId.toString().c_str());
@@ -1464,7 +1484,8 @@ MasterService::recover(ServerId masterId,
                     context->serverList->toString(replica.backupId).c_str(),
                     replica.segmentId,
                     &task - &tasks[0]);
-                task.construct(context, masterId, partitionId, replica);
+                task.construct(context, recoveryId,
+                               masterId, partitionId, replica);
                 replica.state = Replica::State::WAITING;
                 runningSet.insert(replica.segmentId);
                 ++metrics->master.segmentReadCount;
@@ -1560,7 +1581,8 @@ MasterService::recover(const WireFormat::Recover::Request& reqHdr,
     ServerId crashedServerId(reqHdr.crashedServerId);
     uint64_t partitionId = reqHdr.partitionId;
     if (partitionId == ~0u)
-        DIE("Recovery master got super secret partition id; killing self.");
+        DIE("Recovery master %s got super secret partition id; killing self.",
+            serverId.toString().c_str());
     ProtoBuf::Tablets recoveryTablets;
     ProtoBuf::parseFromResponse(&rpc.requestPayload, sizeof(reqHdr),
                                 reqHdr.tabletsLength, &recoveryTablets);
@@ -1606,7 +1628,7 @@ MasterService::recover(const WireFormat::Recover::Request& reqHdr,
     // Recover Segments, firing MasterService::recoverSegment for each one.
     bool successful = false;
     try {
-        recover(crashedServerId, partitionId, replicas);
+        recover(recoveryId, crashedServerId, partitionId, replicas);
         successful = true;
     } catch (const SegmentRecoveryFailedException& e) {
         // Recovery wasn't successful.
@@ -1702,29 +1724,20 @@ MasterService::recoverSegmentPrefetcher(SegmentIterator& it)
 }
 
 /**
- * Replay a filtered segment from a crashed Master that this Master is taking
+ * Replay a recovery segment from a crashed Master that this Master is taking
  * over for.
  *
- * \param segmentId
- *      The segmentId of the segment as it was in the log of the crashed Master.
- * \param buffer
- *      A pointer to a valid segment which has been pre-filtered of all
- *      objects except those that pertain to the tablet ranges this Master
- *      will be responsible for after the recovery completes.
- * \param bufferLength
- *      Length of the buffer in bytes.
+ * \param it
+ *       SegmentIterator which is pointing to the start of the recovery segment
+ *       to be replayed into the log.
  */
 void
-MasterService::recoverSegment(uint64_t segmentId, const void *buffer,
-                              uint32_t bufferLength)
+MasterService::recoverSegment(SegmentIterator& it)
 {
     uint64_t startReplicationTicks = metrics->master.replicaManagerTicks;
-    LOG(DEBUG, "recoverSegment %lu, ...", segmentId);
     CycleCounter<RawMetric> _(&metrics->master.recoverSegmentTicks);
 
-    SegmentIterator it(buffer, bufferLength);
-    SegmentIterator prefetch(buffer, bufferLength);
-
+    SegmentIterator prefetch = it;
     uint64_t bytesIterated = 0;
     while (!it.isDone()) {
         LogEntryType type = it.getType();
@@ -1857,12 +1870,47 @@ MasterService::recoverSegment(uint64_t segmentId, const void *buffer,
             } else {
                 ++metrics->master.tombstoneDiscardCount;
             }
+        } else if (type == LOG_ENTRY_TYPE_SAFEVERSION) {
+            // LOG_ENTRY_TYPE_SAFEVERSION is duplicated to all the
+            // partitions in BackupService::buildRecoverySegments()
+            Buffer buffer;
+            it.appendToBuffer(buffer);
+
+            ObjectSafeVersion recoverSafeVer(buffer);
+            uint64_t safeVersion = recoverSafeVer.getSafeVersion();
+
+            bool checksumIsValid = ({
+                CycleCounter<RawMetric> c(&metrics->master.verifyChecksumTicks);
+                recoverSafeVer.checkIntegrity();
+            });
+            if (!checksumIsValid) {
+                LOG(WARNING, "bad objectSafeVer checksum! version: %lu",
+                    safeVersion);
+                // TODO(Stutsman): Should throw and try another segment replica?
+            }
+
+            HashTable::Reference safeVerReference; // store the append output.
+            // not used.
+
+            // Copy SafeVerObject to the recovery segment.
+            // Sync can be delayed, because recovery can be replayed
+            // with the same backup data when the recovery crashes on the way.
+            log->append(LOG_ENTRY_TYPE_SAFEVERSION, buffer,
+                        false, safeVerReference);
+
+            // recover segmentManager.safeVersion (Master safeVersion)
+            if (segmentManager.raiseSafeVersion(safeVersion)) {
+                // true if log.safeVersion is revised.
+                ++metrics->master.safeVersionRecoveryCount;
+                LOG(NOTICE, "SAFEVERSION %lu recovered", safeVersion);
+            } else {
+                ++metrics->master.safeVersionNonRecoveryCount;
+                LOG(NOTICE, "SAFEVERSION %lu discarded", safeVersion);
+            }
         }
 
         it.next();
     }
-
-    LOG(DEBUG, "Segment %lu replay complete", segmentId);
     metrics->master.backupInRecoverTicks +=
         metrics->master.replicaManagerTicks - startReplicationTicks;
 }
@@ -1925,7 +1973,7 @@ MasterService::remove(const WireFormat::Remove::Request& reqHdr,
         return;
     }
 
-    table->RaiseVersion(object.getVersion() + 1);
+    segmentManager.raiseSafeVersion(object.getVersion() + 1);
     log->free(reference);
     objectMap->remove(key);
 }
@@ -2350,7 +2398,7 @@ MasterService::getTombstoneTimestamp(Buffer& buffer)
  * and adding or replacing an entry in the hash table.
  *
  * \param key
- *      Key that will refer to the object being stored. 
+ *      Key that will refer to the object being stored.
  * \param rejectRules
  *      Specifies conditions under which the write should be aborted with an
  *      error.
@@ -2433,7 +2481,7 @@ MasterService::storeObject(Key& key,
     // Existing objects get a bump in version, new objects start from
     // the next version allocated in the table.
     uint64_t newObjectVersion = (currentVersion == VERSION_NONEXISTENT) ?
-        table->AllocateVersion() : currentVersion + 1;
+            segmentManager.allocateVersion(): currentVersion + 1;
 
     Object newObject(key, data, newObjectVersion, WallTime::secondsTimestamp());
 

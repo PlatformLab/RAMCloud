@@ -13,273 +13,40 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-/**
- * \file
- * Declarations for the backup service, currently all backup RPC
- * requests are handled by this module including all the heavy lifting
- * to complete the work requested by the RPCs.
- */
-
 #ifndef RAMCLOUD_BACKUPSERVICE_H
 #define RAMCLOUD_BACKUPSERVICE_H
 
-#if __GNUC__ >= 4 && __GNUC_MINOR__ >= 5
-#include <atomic>
-#else
-#include <cstdatomic>
-#endif
 #include <thread>
-#include <memory>
-#include <boost/pool/pool.hpp>
 #include <map>
-#include <queue>
 
 #include "Common.h"
-#include "Atomic.h"
 #include "BackupClient.h"
+#include "BackupMasterRecovery.h"
 #include "BackupStorage.h"
 #include "CoordinatorClient.h"
-#include "CycleCounter.h"
-#include "Fence.h"
-#include "LogEntryTypes.h"
 #include "MasterClient.h"
-#include "RawMetrics.h"
 #include "Service.h"
 #include "ServerConfig.h"
-#include "SegmentIterator.h"
 #include "TaskQueue.h"
 
 namespace RAMCloud {
 
-class BackupReplica;
-
 /**
- * Handles Rpc requests from Masters and the Coordinator to persistently store
- * Segments and to facilitate the recovery of object data when Masters crash.
+ * Handles rpc requests from Masters and the Coordinator to persistently store
+ * replicas of segments and to facilitate the recovery of object data when
+ * masters crash.
  */
 class BackupService : public Service
                     , ServerTracker<void>::Callback {
-    /**
-     * Decrement the value referred to on the constructor on
-     * destruction.
-     *
-     * \tparam T
-     *      Type of the value that will be decremented when an
-     *      instance of a class that is a an instance of this
-     *      template gets destructed.
-     */
-    template <typename T>
-    class ReferenceDecrementer {
-      public:
-        /**
-         * \param value
-         *      Reference to a value that should be decremented when
-         *      #this is destroyed.
-         */
-        explicit ReferenceDecrementer(T& value)
-            : value(value)
-        {
-        }
-
-        /// Decrement the value referred to by #value.
-        ~ReferenceDecrementer()
-        {
-            // The following statement is really only needed when value
-            // is an Atomic.
-            Fence::leave();
-            --value;
-        }
-
-      private:
-        /// Reference to the value to be decremented on destruction of this.
-        T& value;
-    };
-
-    // TODO(stutsman): Make this stuff private once the IoScheduler moves
-    // into the BackupStorage layer.
-  public:
-    /**
-     * Mediates access to a memory chunk pool to maintain thread safety.
-     * Detailed documentation for each of the methods can be found
-     * as part of boost::pool<>.
-     */
-    class ThreadSafePool {
-      public:
-        /// The type of the in-memory segment size chunk pool.
-        typedef boost::pool<SegmentAllocator> Pool;
-
-        /// The type of lock used to make access to #pool thread safe.
-        typedef std::unique_lock<std::mutex> Lock;
-
-        explicit ThreadSafePool(uint32_t chunkSize)
-            : allocatedChunks()
-            , mutex()
-            , pool(chunkSize)
-        {
-        }
-
-        // See boost::pool<>.
-        ~ThreadSafePool()
-        {
-            Lock _(mutex);
-            if (allocatedChunks)
-                RAMCLOUD_LOG(WARNING,
-                             "Backup segment pool destroyed with "
-                             "%u chunks still allocated",
-                             allocatedChunks);
-        }
-
-        // See boost::pool<>.
-        void
-        free(void* chunk)
-        {
-            Lock _(mutex);
-            pool.free(chunk);
-            allocatedChunks--;
-        }
-
-#if TESTING
-        // See boost::pool<>.
-        bool
-        is_from(void* chunk)
-        {
-            Lock _(mutex);
-            return pool.is_from(chunk);
-        }
-#endif
-
-        // See boost::pool<>.
-        void*
-        malloc()
-        {
-            Lock _(mutex);
-            void* r = pool.malloc();
-            allocatedChunks++;
-            return r;
-        }
-
-      private:
-        /// Track the number of allocated chunks for stat keeping.
-        uint32_t allocatedChunks;
-
-        /// Used to serialize access to #pool and #allocatedChunks.
-        std::mutex mutex;
-
-        /// The backing pool that manages memory chunks.
-        Pool pool;
-    };
-
-    class IoScheduler;
-    class RecoverySegmentBuilder;
-
-    /**
-     * Queues, prioritizes, and dispatches storage load/store operations.
-     */
-    class IoScheduler {
-      public:
-        IoScheduler();
-        void operator()();
-        void load(BackupReplica& info);
-        void quiesce();
-        void store(BackupReplica& info);
-        void shutdown(std::thread& ioThread);
-
-      private:
-        void doLoad(BackupReplica& info) const;
-        void doStore(BackupReplica& info) const;
-
-        typedef std::unique_lock<std::mutex> Lock;
-
-        /// Protects #loadQueue, #storeQueue, and #running.
-        std::mutex queueMutex;
-
-        /// Notified when new requests are added to either queue.
-        std::condition_variable queueCond;
-
-        /// Queue of BackupReplicas to be loaded from storage.
-        std::queue<BackupReplica*> loadQueue;
-
-        /// Queue of BackupReplicas to be written to storage.
-        std::queue<BackupReplica*> storeQueue;
-
-        /// When false scheduler will exit when no outstanding requests remain.
-        bool running;
-
-        /**
-         * The number of store ops issued that have not yet completed.
-         * More precisely, this is the size of #storeQueue plus the number of
-         * threads currently executing #doStore. It is necessary for #quiesce.
-         */
-        mutable std::atomic<uint64_t> outstandingStores;
-
-        DISALLOW_COPY_AND_ASSIGN(IoScheduler);
-    };
-
-    /**
-     * Asynchronously loads and splits stored segments into recovery segments,
-     * trying to acheive efficiency by overlapping work where possible using
-     * threading.  See #replicas for important details on sharing constraints
-     * for BackupReplica structures while these threads are processing.
-     */
-    class RecoverySegmentBuilder
-    {
-      public:
-        RecoverySegmentBuilder(Context* context,
-                               const vector<BackupReplica*>& replicas,
-                               const ProtoBuf::Tablets& partitions,
-                               Atomic<int>& recoveryThreadCount,
-                               uint32_t segmentSize);
-        RecoverySegmentBuilder(const RecoverySegmentBuilder& src)
-            : context(src.context)
-            , replicas(src.replicas)
-            , partitions(src.partitions)
-            , recoveryThreadCount(src.recoveryThreadCount)
-            , segmentSize(src.segmentSize)
-        {}
-        RecoverySegmentBuilder& operator=(const RecoverySegmentBuilder& src)
-        {
-            if (this != &src) {
-                context = src.context;
-                replicas = src.replicas;
-                partitions = src.partitions;
-                recoveryThreadCount = src.recoveryThreadCount;
-                segmentSize = src.segmentSize;
-            }
-            return *this;
-        }
-        void operator()();
-
-      private:
-        /// The context in which the thread will execute.
-        Context* context;
-
-        /**
-         * The BackupReplicas that will be loaded from disk (asynchronously)
-         * and (asynchronously) split into recovery segments.  These
-         * BackupReplicas are owned by this RecoverySegmentBuilder instance
-         * which will run in a separate thread by locking #mutex.
-         * All public methods of BackupReplica obey this mutex ensuring
-         * thread safety.
-         */
-        vector<BackupReplica*> replicas;
-
-        /// Copy of the partitions used to split out the recovery segments.
-        ProtoBuf::Tablets partitions;
-
-        Atomic<int>& recoveryThreadCount;
-
-        /// The uniform size of each segment this backup deals with.
-        uint32_t segmentSize;
-    };
-
-  public:
+  PUBLIC:
     BackupService(Context* context, const ServerConfig& config);
     virtual ~BackupService();
-    void benchmark(uint32_t& readSpeed, uint32_t& writeSpeed);
+    void benchmark();
     void dispatch(WireFormat::Opcode opcode, Rpc& rpc);
     ServerId getFormerServerId() const;
     ServerId getServerId() const;
     void init(ServerId id);
+    uint32_t getReadSpeed() { return readSpeed; }
 
   PRIVATE:
     void assignGroup(const WireFormat::BackupAssignGroup::Request& reqHdr,
@@ -288,7 +55,6 @@ class BackupService : public Service
     void freeSegment(const WireFormat::BackupFree::Request& reqHdr,
                      WireFormat::BackupFree::Response& respHdr,
                      Rpc& rpc);
-    BackupReplica* findBackupReplica(ServerId masterId, uint64_t segmentId);
     void getRecoveryData(
         const WireFormat::BackupGetRecoveryData::Request& reqHdr,
         WireFormat::BackupGetRecoveryData::Response& respHdr,
@@ -305,6 +71,10 @@ class BackupService : public Service
     void startReadingData(
         const WireFormat::BackupStartReadingData::Request& reqHdr,
         WireFormat::BackupStartReadingData::Response& respHdr,
+        Rpc& rpc);
+    void startPartitioningReplicas(
+        const WireFormat::BackupStartPartitioningReplicas::Request& reqHdr,
+        WireFormat::BackupStartPartitioningReplicas::Response& respHdr,
         Rpc& rpc);
     void writeSegment(const WireFormat::BackupWrite::Request& req,
                       WireFormat::BackupWrite::Response& resp,
@@ -344,21 +114,14 @@ class BackupService : public Service
     ServerId serverId;
 
     /**
-     * Times each recovery. This is an Tub that is reset on every
-     * recovery, since CycleCounters can't presently be restarted.
+     * The storage backend where closed segments are to be placed.
+     * Must come before #frames so that if the reference count of some frames
+     * drops to zero when the map is destroyed won't have been destroyed yet
+     * in the storage instance.
      */
-    Tub<CycleCounter<RawMetric>> recoveryTicks;
+    std::unique_ptr<BackupStorage> storage;
 
-    /**
-     * A pool of aligned segments (supporting O_DIRECT) to avoid
-     * the memory allocator.
-     */
-    ThreadSafePool pool;
-
-    /// Count of threads performing recoveries.
-    Atomic<int> recoveryThreadCount;
-
-    /// Type of the key for the segments map.
+    /// Type of the key for the frame map.
     struct MasterSegmentIdPair {
         MasterSegmentIdPair(ServerId masterId, uint64_t segmentId)
             : masterId(masterId)
@@ -377,30 +140,30 @@ class BackupService : public Service
         ServerId masterId;
         uint64_t segmentId;
     };
-    /// Type of the segments map.
-    typedef std::map<MasterSegmentIdPair, BackupReplica*> SegmentsMap;
+    /// Type of the frame map.
+    typedef std::map<MasterSegmentIdPair, BackupStorage::FrameRef> FrameMap;
     /**
-     * Mapping from (MasterId, SegmentId) to a BackupReplica for segments
-     * that are currently open or in storage.
+     * Mapping from (MasterId, SegmentId) to a BackupStorage::FrameRef for
+     * replicas that are currently open or in storage.
      */
-    SegmentsMap segments;
+    FrameMap frames;
+
+    /**
+     * Master recoveries this backup is participating in; maps a crashed master
+     * id to the most recent recovery that was started for it. Entries
+     * added in startReadingData and removed by garbage collection tasks when
+     * the crashed master is marked as down in the server list.
+     */
+    std::map<ServerId, BackupMasterRecovery*> recoveries;
 
     /// The uniform size of each segment this backup deals with.
     const uint32_t segmentSize;
 
-    /// The storage backend where closed segments are to be placed.
-    std::unique_ptr<BackupStorage> storage;
-
-    /// The results of storage.benchmark().
-    pair<uint32_t, uint32_t> storageBenchmarkResults;
+    /// The results of storage.benchmark() in MB/s.
+    uint32_t readSpeed;
 
     /// For unit testing.
     uint64_t bytesWritten;
-
-    /// Gatekeeper through which async IOs are scheduled.
-    IoScheduler ioScheduler;
-    /// The thread driving #ioScheduler.
-    std::thread ioThread;
 
     /// Used to ensure that init() is invoked before the dispatcher runs.
     bool initCalled;
@@ -425,10 +188,10 @@ class BackupService : public Service
     bool testingDoNotStartGcThread;
 
     /**
-     * Enqueues requests to garbage collect replicas and tries to make
-     * progress on each of them.
+     * Executes enqueued tasks for replica garbage collection and master
+     * recovery.
      */
-    TaskQueue gcTaskQueue;
+    TaskQueue taskQueue;
 
     /**
      * Try to garbage collect replicas from a particular master found on disk
@@ -470,9 +233,10 @@ class BackupService : public Service
     friend class GarbageCollectReplicaFoundOnStorageTask;
 
     /**
-     * Try to garbage collect all replicas stored by a master which is now
-     * known to have been completely recovered and removed from the cluster.
-     * Usually replicas are freed explicitly by masters, but this
+     * Garbage collect all state for a now down master. This includes any
+     * replicas created by it as well as any outstanding recovery state for it.
+     * Downed servers are known to be fully recovered and out of the cluster, so
+     * this is safe. Usually replicas are freed explicitly by masters, but this
      * doesn't work for cases where the replica was created by a master which
      * has crashed.
      */

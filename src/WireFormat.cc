@@ -72,14 +72,13 @@ opcodeSymbol(uint32_t opcode)
         case BACKUP_FREE:                return "BACKUP_FREE";
         case BACKUP_GETRECOVERYDATA:     return "BACKUP_GETRECOVERYDATA";
         case BACKUP_STARTREADINGDATA:    return "BACKUP_STARTREADINGDATA";
+        case BACKUP_STARTPARTITION:   return "BACKUP_STARTPARTITIONING";
         case BACKUP_WRITE:               return "BACKUP_WRITE";
         case BACKUP_RECOVERYCOMPLETE:    return "BACKUP_RECOVERYCOMPLETE";
         case BACKUP_QUIESCE:             return "BACKUP_QUIESCE";
-        case SET_SERVER_LIST:            return "SET_SERVER_LIST";
-        case UPDATE_SERVER_LIST:         return "UPDATE_SERVER_LIST";
-        case SEND_SERVER_LIST:           return "SEND_SERVER_LIST";
+        case UPDATE_SERVER_LIST:         return "SET_SERVER_LIST";
         case GET_SERVER_ID:              return "GET_SERVER_ID";
-        case SET_MIN_OPEN_SEGMENT_ID:    return "SET_MIN_OPEN_SEGMENT_ID";
+        case SET_MASTER_RECOVERY_INFO:   return "SET_MASTER_RECOVERY_INFO";
         case DROP_TABLET_OWNERSHIP:      return "DROP_TABLET_OWNERSHIP";
         case TAKE_TABLET_OWNERSHIP:      return "TAKE_TABLET_OWNERSHIP";
         case BACKUP_ASSIGN_GROUP:        return "BACKUP_ASSIGN_GROUP";

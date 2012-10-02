@@ -20,6 +20,7 @@
 #include "ReplicaManager.h"
 #include "Segment.h"
 #include "SegmentManager.h"
+#include "ServerConfig.h"
 #include "ServerList.h"
 
 namespace RAMCloud {
@@ -27,9 +28,8 @@ namespace RAMCloud {
 class DoNothingHandlers : public LogEntryHandlers {
   public:
     uint32_t getTimestamp(LogEntryType type, Buffer& buffer) { return 0; }
-    bool checkLiveness(LogEntryType type, Buffer& buffer) { return true; }
-    bool relocate(LogEntryType type, Buffer& oldBuffer,
-                  HashTable::Reference newReference) { return true; }
+    void relocate(LogEntryType type, Buffer& oldBuffer,
+                  LogEntryRelocator& relocator) { }
 };
 
 /**
@@ -40,6 +40,7 @@ class LogIteratorTest : public ::testing::Test {
     Context context;
     ServerId serverId;
     ServerList serverList;
+    ServerConfig serverConfig;
     ReplicaManager replicaManager;
     SegletAllocator allocator;
     SegmentManager segmentManager;
@@ -51,13 +52,14 @@ class LogIteratorTest : public ::testing::Test {
         : context(),
           serverId(ServerId(57, 0)),
           serverList(&context),
+          serverConfig(ServerConfig::forTesting()),
           replicaManager(&context, serverId, 0),
-          allocator((10 + 2 + LogCleaner::SURVIVOR_SEGMENTS_TO_RESERVE) * 8192,
-                    8192),
-          segmentManager(&context, 8192, serverId,
-                         allocator, replicaManager, 1.0),
+          allocator(serverConfig),
+          segmentManager(&context, serverConfig, serverId,
+                         allocator, replicaManager),
           entryHandlers(),
-          l(&context, entryHandlers, segmentManager, replicaManager),
+          l(&context, serverConfig, entryHandlers,
+            segmentManager, replicaManager),
           data()
     {
     }
@@ -135,6 +137,10 @@ TEST_F(LogIteratorTest, isDone_simple) {
         EXPECT_EQ(LOG_ENTRY_TYPE_LOGDIGEST, i.getType());
         i.next();
 
+        EXPECT_FALSE(i.isDone());
+        EXPECT_EQ(LOG_ENTRY_TYPE_SAFEVERSION, i.getType());
+        i.next();
+
         EXPECT_TRUE(i.isDone());
     }
 
@@ -145,7 +151,7 @@ TEST_F(LogIteratorTest, isDone_simple) {
     int count;
     for (count = 0; !i.isDone(); count++)
         i.next();
-    EXPECT_EQ(3, count);
+    EXPECT_EQ(4, count);
 }
 
 #if 0
@@ -202,6 +208,10 @@ TEST_F(LogIteratorTest, next) {
 
         i.next();
         EXPECT_EQ(LOG_ENTRY_TYPE_LOGDIGEST, i.getType());
+        EXPECT_EQ(lastSegment, i.currentIterator->segment);
+
+        i.next();
+        EXPECT_EQ(LOG_ENTRY_TYPE_SAFEVERSION, i.getType());
         EXPECT_EQ(lastSegment, i.currentIterator->segment);
 
         i.next();

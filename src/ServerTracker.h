@@ -177,20 +177,14 @@ class ServerTracker : public ServerTrackerInterface {
     }
 
     /**
-     * Method used by the parent ServerList to inject ordered server
-     * updates. This enqueues the updates and does not process them
-     * until the client invokes ServerTracker::getChange() to get the
-     * oldest change in the list state.
-     *
-     * Note that the ServerList takes care to ensure that many "weird"
-     * events don't happen here. For example, an ADD event for a ServerId
-     * whose index is already occupied will never be seen (this takes care
-     * of duplicate ADDs, ADDs of ServerIds that are older, and ADDs of
-     * newer ServerIds before the REMOVAL of the currently stored one).
+     * Method used by the parent ServerList to inject ordered server updates.
+     * This enqueues the updates and does not process them until the client
+     * invokes getChange() to get the oldest change in the list state. See
+     * getChange() for some details about the sequences of events users
+     * of trackers can expect to see.
      */
     void
-    enqueueChange(const ServerDetails& server,
-                  ServerChangeEvent event)
+    enqueueChange(const ServerDetails& server, ServerChangeEvent event)
     {
         // Make sure the server status is consistent with the event being
         // enqueued.
@@ -230,14 +224,13 @@ class ServerTracker : public ServerTrackerInterface {
     }
 
     /**
-     * Returns the next enqueued change to the ServerList, if there
-     * is one. If the event indicates removal, then the caller must
-     * NULL out any pointer they were storing with the associated
-     * ServerId before the next invocation of getChange(). This
-     * helps to ensure that the caller is properly handling objects
-     * that were referenced by this tracker. After the subsequent
-     * call to getChange(), the old ServerId cannot be used to index
-     * into the tracker anymore.
+     * Returns the next enqueued change to the ServerList, if there is one. If
+     * the event indicates removal, then the caller must NULL out any pointer
+     * they were storing with the associated ServerId before the next
+     * invocation of getChange(). This helps to ensure that the caller is
+     * properly handling objects that were referenced by this tracker. After
+     * the subsequent call to getChange(), the old ServerId cannot be used to
+     * index into the tracker anymore.
      *
      * To be clear, this means that something like the following idiom
      * must always be used:
@@ -245,31 +238,49 @@ class ServerTracker : public ServerTrackerInterface {
      *   ServerChangeEvent event;
      *   if (!getChange(server, event)) return;
      *   if (event == SERVER_ADDED) {
-     *      ...
-     *      tracker[server.serverId] = new T(...);
-     *      ...
+     *       if (!tracker[server.serverId]) // This check is very necessary.
+     *           tracker[server.serverId] = new T(...);
      *   } else if (event == SERVER_REMOVED) {
-     *      ...
-     *      T* p = tracker[server.serverId];
-     *      // 'delete p;' or stash the pointer elsewhere, perhaps
-     *      ...
+     *       auto* p = tracker[server.serverId];
+     *       // 'delete p;' or stash the pointer elsewhere, perhaps
      *
-     *      // THE FOLLOWING MUST BE DONE BEFORE getChange() IS CALLED
-     *      // AGAIN (tracker[server.serverId] will return a valid ref
-     *      // until then):
-     *      tracker[server.serverId] = NULL;
-     *      ...
+     *       // THE FOLLOWING MUST BE DONE BEFORE getChange() IS CALLED
+     *       // AGAIN (tracker[server.serverId] will return a valid ref
+     *       // until then):
+     *       tracker[server.serverId] = NULL;
      *   }
      *
-     * \param[out] server
-     *      Details about the server that was added to or removed from
-     *      the system.  All fields of \a server are valid if after
-     *      return event == SERVER_ADDED; otherwise, if
-     *      event == SERVER_REMOVED only the serverId field is valid.
+     * To use this method safely here are a few properties and warnings:
+     * 1) SERVER_ADDED can happen more than once for a single server; it
+     *    is used to notify callers that some properties of the server has
+     *    changed (for example, the replicationId has changed). This means
+     *    that it is *important* that the pointer stored in the tracker
+     *    is changed before allocating space and storing the pointer in it.
+     *    Otherwise, if a server's details are modified, space leaks or
+     *    worse may occur.
+     * 2) SERVER_CRASHED will *always* happen, exactly once, preceding a
+     *    SERVER_REMOVED. This means, for example, the pointer in the tracker
+     *    can be reliably freed on either event. It also means it is safe to
+     *    just listen to one or the other event if only one is of interest.
+     * 3) There is one extremely subtle scenario which only impacts new
+     *    server enlistment and server which "replace" others in the cluster.
+     *    The are some complicated ordering constraints that must be enforced
+     *    on events to ensure that backups don't accidentally discard replicas
+     *    prematurely. See ServerList::applyServerList() for that sadness.
      *
+     * Word of warning: these properties are actually *not* enforced by the
+     * tracker code or the server list code. These properties should hold as
+     * a result of careful construction of the coordinator and coordinator
+     * server list code. So, yeah... Hopefully by the time you read this the
+     * things I wrote will still be true.
+     *
+     * \param[out] server
+     *      Details about the server that was added, changed, crashed, removed
+     *      from in the cluster. All fields of \a server are valid if after
+     *      return event == SERVER_ADDED; otherwise, if event == SERVER_REMOVED
+     *      only the serverId field is valid.
      * \param[out] event
      *      Type of event (SERVER_ADDED or SERVER_REMOVED).
-     *
      * \return
      *      True if there was a change returned, else false.
      */
@@ -308,16 +319,8 @@ class ServerTracker : public ServerTrackerInterface {
         if (index >= serverList.size())
             serverList.resize(index + 1);
 
-        // Ensure that the ServerList guarantees hold.
-        assert((change.event == SERVER_ADDED &&
-                !serverList[index].server.serverId.isValid()) ||
-               ((change.event == SERVER_CRASHED ||
-                 change.event == SERVER_REMOVED) &&
-                serverList[index].server.serverId == change.server.serverId));
-
         if (change.event == SERVER_ADDED) {
             serverList[index].server = change.server;
-            assert(serverList[index].pointer == NULL);
             numberOfServers++;
         } else if (change.event == SERVER_CRASHED) {
             serverList[index].server = change.server;
@@ -367,6 +370,7 @@ class ServerTracker : public ServerTrackerInterface {
         if (serverList.size() > 0) {
             for (size_t j = 0; j < serverList.size() * 10; ++j) {
                 size_t i = generateRandom() % serverList.size();
+
                 if (i != lastRemovedIndex &&
                     serverList[i].server.serverId.isValid() &&
                     serverList[i].server.status == ServerStatus::UP &&

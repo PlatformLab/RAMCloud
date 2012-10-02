@@ -156,9 +156,9 @@ class MasterService : public Service, LogEntryHandlers {
                  WireFormat::Recover::Response& respHdr,
                  Rpc& rpc);
     void recoverSegmentPrefetcher(SegmentIterator& i);
-    void recoverSegment(uint64_t segmentId, const void *buffer,
-                        uint32_t bufferLength);
-    void recover(ServerId masterId,
+    void recoverSegment(SegmentIterator& it);
+    void recover(uint64_t recoveryId,
+                 ServerId masterId,
                  uint64_t partitionId,
                  vector<Replica>& replicas);
     void remove(const WireFormat::Remove::Request& reqHdr,

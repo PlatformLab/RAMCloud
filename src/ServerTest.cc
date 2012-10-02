@@ -100,7 +100,7 @@ TEST_F(ServerTest, enlist) {
         "complete: Enlisting new server at mock:host=server0 "
         "(server id 1.0) supporting services: MASTER_SERVICE, "
         "BACKUP_SERVICE, PING_SERVICE, MEMBERSHIP_SERVICE | "
-        "complete: Backup at id 1.0 has 100 MB/s read 100 MB/s write | "
+        "complete: Backup at id 1.0 has 100 MB/s read | "
         "complete: LogCabin: ServerEnlisted entryId: 1 | "
         "enlistServer: Newly enlisted server 1.0 replaces server 128.0",
          TestLog::get());

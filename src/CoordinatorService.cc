@@ -57,6 +57,9 @@ CoordinatorService::CoordinatorService(Context* context,
     LOG(NOTICE, "Connected to LogCabin cluster.");
 
     recoveryManager.start();
+
+    // Replay the entire log (if any) before we start servicing the RPCs.
+    coordinatorRecovery.replay();
 }
 
 CoordinatorService::~CoordinatorService()
@@ -105,10 +108,6 @@ CoordinatorService::dispatch(WireFormat::Opcode opcode,
             callHandler<WireFormat::BackupQuiesce, CoordinatorService,
                         &CoordinatorService::quiesce>(rpc);
             break;
-        case WireFormat::SendServerList::opcode:
-            callHandler<WireFormat::SendServerList, CoordinatorService,
-                        &CoordinatorService::sendServerList>(rpc);
-            break;
         case WireFormat::SetRuntimeOption::opcode:
             callHandler<WireFormat::SetRuntimeOption, CoordinatorService,
                         &CoordinatorService::setRuntimeOption>(rpc);
@@ -117,9 +116,9 @@ CoordinatorService::dispatch(WireFormat::Opcode opcode,
             callHandler<WireFormat::ReassignTabletOwnership, CoordinatorService,
                         &CoordinatorService::reassignTabletOwnership>(rpc);
             break;
-        case WireFormat::SetMinOpenSegmentId::opcode:
-            callHandler<WireFormat::SetMinOpenSegmentId, CoordinatorService,
-                        &CoordinatorService::setMinOpenSegmentId>(rpc);
+        case WireFormat::SetMasterRecoveryInfo::opcode:
+            callHandler<WireFormat::SetMasterRecoveryInfo, CoordinatorService,
+                        &CoordinatorService::setMasterRecoveryInfo>(rpc);
             break;
         case WireFormat::SplitTablet::opcode:
             callHandler<WireFormat::SplitTablet, CoordinatorService,
@@ -303,12 +302,11 @@ CoordinatorService::enlistServer(
     ServerId replacesId = ServerId(reqHdr.replacesId);
     ServiceMask serviceMask = ServiceMask::deserialize(reqHdr.serviceMask);
     const uint32_t readSpeed = reqHdr.readSpeed;
-    const uint32_t writeSpeed = reqHdr.writeSpeed;
     const char* serviceLocator = getString(rpc.requestPayload, sizeof(reqHdr),
                                            reqHdr.serviceLocatorLength);
 
     ServerId newServerId = serverManager.enlistServer(
-        replacesId, serviceMask, readSpeed, writeSpeed,
+        replacesId, serviceMask, readSpeed,
         serviceLocator);
 
     respHdr.serverId = newServerId.getId();
@@ -483,27 +481,6 @@ CoordinatorService::reassignTabletOwnership(
 }
 
 /**
- * Handle the SEND_SERVER_LIST RPC.
- *
- * The Coordinator always pushes server lists and their updates. If a server's
- * FailureDetector determines that the list is out of date, it issues an RPC
- * here to request that we re-send the list.
- *
- * \copydetails Service::ping
- */
-void
-CoordinatorService::sendServerList(
-    const WireFormat::SendServerList::Request& reqHdr,
-    WireFormat::SendServerList::Response& respHdr,
-    Rpc& rpc)
-{
-    ServerId id(reqHdr.serverId);
-    rpc.sendReply();
-
-    serverManager.sendServerList(id);
-}
-
-/**
  * Sets a runtime option field on the coordinator to the indicated value.
  * See CoordinatorClient::setRuntimeOption() for details.
  *
@@ -528,35 +505,34 @@ CoordinatorService::setRuntimeOption(
 }
 
 /**
- * Handle the SET_MIN_OPEN_SEGMENT_ID.
- *
- * Updates the minimum open segment id for a particular server.  If the
- * requested update is less than the current value maintained by the
- * coordinator then the old value is retained (that is, the coordinator
- * ignores updates that decrease the value).
- * Any open replicas found during recovery are considered invalid
- * if they have a segmentId less than the minimum open segment id maintained
- * by the coordinator.  This is used by masters to invalidate replicas they
- * have lost contact with while actively writing to them.
+ * Updates the master recovery info for a particular server. This metadata
+ * is stored in the server list until a master crashes at which point it is
+ * used in the recovery of the master. Currently, masters store log metadata
+ * there needed to invalidate replicas which might have become stale due to
+ * backup crashes. Only the master recovery portion of the coordinator needs
+ * to understand the contents.
  *
  * \copydetails Service::ping
  */
 void
-CoordinatorService::setMinOpenSegmentId(
-    const WireFormat::SetMinOpenSegmentId::Request& reqHdr,
-    WireFormat::SetMinOpenSegmentId::Response& respHdr,
+CoordinatorService::setMasterRecoveryInfo(
+    const WireFormat::SetMasterRecoveryInfo::Request& reqHdr,
+    WireFormat::SetMasterRecoveryInfo::Response& respHdr,
     Rpc& rpc)
 {
     ServerId serverId(reqHdr.serverId);
-    uint64_t segmentId = reqHdr.segmentId;
+    ProtoBuf::MasterRecoveryInfo recoveryInfo;
+    ProtoBuf::parseFromRequest(&rpc.requestPayload,
+                               sizeof32(reqHdr),
+                               reqHdr.infoLength, &recoveryInfo);
 
-    LOG(DEBUG, "setMinOpenSegmentId for server %s to %lu",
-        serverId.toString().c_str(), segmentId);
+    LOG(DEBUG, "setMasterRecoveryInfo for server %s to %s",
+        serverId.toString().c_str(), recoveryInfo.ShortDebugString().c_str());
 
     try {
-        serverManager.setMinOpenSegmentId(serverId, segmentId);
+        serverManager.setMasterRecoveryInfo(serverId, recoveryInfo);
     } catch (const ServerListException& e) {
-        LOG(WARNING, "setMinOpenSegmentId server doesn't exist: %s",
+        LOG(WARNING, "setMasterRecoveryInfo server doesn't exist: %s",
             serverId.toString().c_str());
         respHdr.common.status = STATUS_SERVER_NOT_UP;
         return;

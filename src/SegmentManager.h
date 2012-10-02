@@ -79,7 +79,7 @@ class SegmentManager {
     ~SegmentManager();
     void getMetrics(ProtoBuf::LogMetrics_SegmentMetrics& m);
     SegletAllocator& getAllocator() const;
-    LogSegment* allocHead(bool mustNotFail);
+    LogSegment* allocHead(bool mustNotFail = false);
     LogSegment* allocSurvivor(uint64_t headSegmentIdDuringCleaning);
     LogSegment* allocSurvivor(LogSegment* replacing);
     void cleaningComplete(LogSegmentVector& clean);
@@ -93,6 +93,8 @@ class SegmentManager {
     bool doesIdExist(uint64_t id);
     size_t getFreeSurvivorCount();
     int getSegmentUtilization();
+    uint64_t allocateVersion();
+    bool raiseSafeVersion(uint64_t minimum);
 
   PRIVATE:
     /**
@@ -168,6 +170,7 @@ class SegmentManager {
 
     void writeHeader(LogSegment* segment, uint64_t headSegmentIdDuringCleaning);
     void writeDigest(LogSegment* newHead, LogSegment* prevHead);
+    void writeSafeVersion(LogSegment* head);
     LogSegment* getHeadSegment();
     void changeState(LogSegment& s, State newState);
     LogSegment* alloc(SegletAllocator::AllocationType type, uint64_t segmentId);
@@ -273,6 +276,54 @@ class SegmentManager {
     /// disk utilization of masters can be monitored. This is updated every
     /// time a segment is allocated or freed.
     Histogram segmentsOnDiskHistogram;
+
+    /**
+     * Safe version number for a new object in the log.
+     * Single safeVersion is maintained in each master through recovery.
+     *
+     * \li We guarantee that every value assigned to a particular key
+     * will have a distinct version number, even if the object is removed
+     * and recreated.
+     *
+     * \li We guarantee that version numbers for a particular key
+     * monotonically increases over time, so that comparing two version numbers
+     * tells which one is more recent.
+     *
+     * \li We guarantee that the version number of an object increases by
+     * exactly one when it is updated, so that clients can accurately predict
+     * the version numbers that they will write before the write completes.
+     *
+     * These guarantees are implemented as follows:
+     *
+     * \li #safeVersion, the safe version number, contains the next available
+     * version number for any new object on the master. It is initialized to
+     * a small integer when the log is created and is recoverable after crashes.
+     *
+     * \li When an object is created, its new version number is set to 
+     * the safeVersion, and the safeVersion
+     * is incremented. See #AllocateVersion.
+     *
+     * \li When an object is updated, its version number is incremented.
+     * Note that its incremented version number does not affect the safeVersion. 
+     *
+     * \li SafeVersion might be behind the version number 
+     * of any particular object.
+     * As far as the object is not removed, its 
+     * version number has no influence of the safeVersion, because the safeVersion
+     * is used to keep the monotonicitiy of the version number of any recreated
+     * object.
+     *
+     * \li When an object is removed, set the safeVersion
+     * to the higher than any version number of the removed
+     * object's version number. See #RaiseSafeVersion.
+     *
+     **/
+    uint64_t safeVersion;
+
+    /// Used for testing only. If true, allocSurvivor() will not block until
+    /// memory is free, but instead returns immediately with a NULL pointer if
+    /// nothing could be allocated.
+    bool testing_allocSurvivorMustNotBlock;
 
     DISALLOW_COPY_AND_ASSIGN(SegmentManager);
 };
