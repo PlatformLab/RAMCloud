@@ -90,15 +90,11 @@ CoordinatorServerManager::createReplicationGroup()
     vector<ServerId> group;
     while (freeBackups.size() >= numReplicas) {
         group.clear();
-        // Update the replicationId on serverList.
         for (uint32_t i = 0; i < numReplicas; i++) {
             const ServerId& backupId = freeBackups.back();
             group.push_back(backupId);
-            service.serverList.setReplicationId(backupId, nextReplicationId);
             freeBackups.pop_back();
         }
-        // Assign a new replication group. AssignReplicationGroup handles
-        // Rpc failures.
         assignReplicationGroup(nextReplicationId, group);
         nextReplicationId++;
     }
@@ -333,23 +329,15 @@ CoordinatorServerManager::removeReplicationGroup(uint64_t groupId)
     if (groupId == 0) {
         return;
     }
+    vector<ServerId> group;
     for (size_t i = 0; i < service.serverList.size(); i++) {
         if (service.serverList[i] &&
+            service.serverList[i]->isBackup() &&
             service.serverList[i]->replicationId == groupId) {
-            vector<ServerId> group;
             group.push_back(service.serverList[i]->serverId);
-            service.serverList.setReplicationId(
-                    service.serverList[i]->serverId, 0);
-            // We check whether the server is up, in order to prevent
-            // recursively calling removeReplicationGroup by hintServerDown.
-            // If the backup is still up, we tell it to reset its
-            // replicationId, so it will stop accepting Rpcs. This is an
-            // optimization; even if we didn't reset its replicationId, Rpcs
-            // sent to the server's group members would fail, because at least
-            // one of the servers in the group is down.
-            if (service.serverList[i]->isBackup()) {
-                assignReplicationGroup(0, group);
-            }
+        }
+        if (group.size() != 0) {
+            assignReplicationGroup(0, group);
         }
     }
 }
