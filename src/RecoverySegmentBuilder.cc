@@ -74,7 +74,8 @@ RecoverySegmentBuilder::build(const void* buffer, uint32_t length,
             header = headerBuffer.getStart<SegmentHeader>();
             continue;
         }
-        if (type != LOG_ENTRY_TYPE_OBJ && type != LOG_ENTRY_TYPE_OBJTOMB)
+        if (type != LOG_ENTRY_TYPE_OBJ && type != LOG_ENTRY_TYPE_OBJTOMB
+            && type != LOG_ENTRY_TYPE_SAFEVERSION)
             continue;
 
         if (header == NULL) {
@@ -86,17 +87,50 @@ RecoverySegmentBuilder::build(const void* buffer, uint32_t length,
         it.appendToBuffer(entryBuffer);
 
         uint64_t tableId = -1;
+        if (type == LOG_ENTRY_TYPE_SAFEVERSION) {
+            // Copy SAFEVERSION to all the partitions for
+            // safeVersion recovery on all recovery masters
+            Log::Position position(header->segmentId, it.getOffset());
+            LOG(NOTICE, "Copying SAFEVERSION ");
+            for (int i = 0; i < partitions.tablet_size(); i++) {
+                const ProtoBuf::Tablets::Tablet* partition =
+                        &partitions.tablet(i);
+
+                if (!isEntryAlive(position, partition, header)) {
+                    LOG(NOTICE, "Skipping SAFEVERSION for partition "
+                        "%u because it appears to have existed prior.",
+                        i);
+                    continue;
+                }
+
+                uint64_t partitionId = partition->user_data();
+                if (!recoverySegments[partitionId].append(type,
+                                                          entryBuffer)) {
+                    LOG(WARNING, "Failure appending to a recovery segment "
+                        "for a replica of <%s,%lu>",
+                        ServerId(header->logId).toString().c_str(),
+                        header->segmentId);
+                    throw SegmentRecoveryFailedException(HERE);
+                }
+                LOG(NOTICE, "To partition=%u", i);
+            }
+            continue;
+        }
+
         HashType keyHash = -1;
         if (type == LOG_ENTRY_TYPE_OBJ) {
             Object object(entryBuffer);
             tableId = object.getTableId();
             keyHash = Key::getHash(tableId,
                                    object.getKey(), object.getKeyLength());
-        } else { // LOG_ENTRY_TYPE_OBJTOMB:
+        } else if (type == LOG_ENTRY_TYPE_OBJTOMB) {
             ObjectTombstone tomb(entryBuffer);
             tableId = tomb.getTableId();
             keyHash = Key::getHash(tableId,
                                    tomb.getKey(), tomb.getKeyLength());
+        } else {
+            LOG(WARNING, "Unknown LogEntry (id=%u)", type);
+            throw SegmentRecoveryFailedException(HERE);
         }
 
         const auto* partition = whichPartition(tableId, keyHash, partitions);
