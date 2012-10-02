@@ -98,7 +98,6 @@ SegmentIterator::SegmentIterator(const void *buffer, uint32_t length,
       currentType(),
       currentLength()
 {
-throw SegmentIteratorException(HERE, "Segments are a little botched. Need to merge with HEAD to get Ryan's certificate fixes. Don't use this constructor!");
     wrapperSegment.construct(buffer, length);
     segment = &*wrapperSegment;
 }

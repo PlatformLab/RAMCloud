@@ -102,28 +102,24 @@ TEST_F(LogTest, enableCleaner_and_disableCleaner) {
 }
 
 TEST_F(LogTest, append_basic) {
-    char data[7000];
+    uint32_t dataLen = serverConfig.segmentSize / 2 + 1;
+    char* data = new char[dataLen];
     LogSegment* oldHead = l.head;
 
-    EXPECT_TRUE(l.append(LOG_ENTRY_TYPE_OBJ, data, sizeof(data), true));
-    EXPECT_EQ(oldHead, l.head);
-
-    EXPECT_TRUE(l.append(LOG_ENTRY_TYPE_OBJ, data, sizeof(data), true));
-    EXPECT_NE(oldHead, l.head);
-    oldHead = l.head;
-
-    EXPECT_TRUE(l.append(LOG_ENTRY_TYPE_OBJ, data, sizeof(data), true));
-    EXPECT_NE(oldHead, l.head);
-    oldHead = l.head;
-
-    EXPECT_TRUE(l.append(LOG_ENTRY_TYPE_OBJ, data, sizeof(data), true));
-    EXPECT_NE(oldHead, l.head);
-    oldHead = l.head;
-
-    EXPECT_FALSE(l.append(LOG_ENTRY_TYPE_OBJ, data, sizeof(data), true));
-    EXPECT_EQ(oldHead, l.head);
+    int appends = 0;
+    while (l.append(LOG_ENTRY_TYPE_OBJ, data, dataLen, true)) {
+        if (appends++ == 0)
+            EXPECT_EQ(oldHead, l.head);
+        else
+            EXPECT_NE(oldHead, l.head);
+        oldHead = l.head;
+    }
+    // This depends on ServerConfig's number of bytes allocated to the log.
+    EXPECT_EQ(239, appends);    
 
     // getEntry()'s test ensures actual data gets there.
+
+    delete[] data;
 }
 
 static bool
@@ -135,14 +131,18 @@ appendFilter(string s)
 TEST_F(LogTest, append_tooBigToEverFit) {
     TestLog::Enable _(appendFilter);
 
-    char data[8193];
+    char* data = new char[serverConfig.segmentSize + 1];
     LogSegment* oldHead = l.head;
 
-    EXPECT_THROW(l.append(LOG_ENTRY_TYPE_OBJ, data, sizeof(data), true),
+    EXPECT_THROW(l.append(LOG_ENTRY_TYPE_OBJ,
+                          data,
+                          serverConfig.segmentSize + 1,
+                          true),
         FatalError);
     EXPECT_NE(oldHead, l.head);
-    EXPECT_EQ("append: Entry too big to append to log: 8193 bytes of type 2",
+    EXPECT_EQ("append: Entry too big to append to log: 131073 bytes of type 2",
         TestLog::get());
+    delete[] data;
 }
 
 TEST_F(LogTest, free) {
@@ -197,7 +197,7 @@ TEST_F(LogTest, getHeadPosition) {
     while (l.getHeadPosition().getSegmentId() == 0)
         l.append(LOG_ENTRY_TYPE_OBJ, data, sizeof(data), true);
 
-    EXPECT_EQ(Log::Position(1, 1065), l.getHeadPosition());
+    EXPECT_EQ(Log::Position(1, 1073), l.getHeadPosition());
 }
 
 TEST_F(LogTest, getSegmentId) {
@@ -216,7 +216,7 @@ TEST_F(LogTest, getSegmentId) {
         }
     }
 
-    EXPECT_EQ(8, zero);
+    EXPECT_EQ(130, zero);
     EXPECT_EQ(1, one);
     EXPECT_EQ(0, other);
 }

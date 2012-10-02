@@ -116,7 +116,7 @@ TEST_F(RecoverySegmentBuilderTest, build) {
 
     Segment::Certificate certificate;
     uint32_t length = segment->getAppendedLength(certificate);
-    char buf[allocator.getTotalBytes()];
+    char buf[serverConfig.segmentSize];
     ASSERT_TRUE(segment->copyOut(0, buf, length));
 
     std::unique_ptr<Segment[]> recoverySegments(new Segment[2]);
@@ -138,7 +138,7 @@ TEST_F(RecoverySegmentBuilderTest, extractDigest) {
     LogSegment* segment = segmentManager.allocHead();
     Segment::Certificate certificate;
     uint32_t length = segment->getAppendedLength(certificate);
-    char buffer[allocator.getTotalBytes()];
+    char buffer[serverConfig.segmentSize];
     ASSERT_TRUE(segment->copyOut(0, buffer, length));
     Buffer digestBuffer;
     EXPECT_TRUE(extractDigest(buffer, sizeof32(buffer),

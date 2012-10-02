@@ -77,15 +77,15 @@ SegmentAndSegletSize boringDefault = {
     Seglet::DEFAULT_SEGLET_SIZE
 };
 
-SegmentAndSegletSize horriblyFragmented = {
-    98304,
-    16
+SegmentAndSegletSize extraFragmented = {
+    66560,
+    256
 };
 
 INSTANTIATE_TEST_CASE_P(SegmentTestAllocations,
                         SegmentTest,
                         ::testing::Values(&boringDefault,
-                                          &horriblyFragmented));
+                                          &extraFragmented));
 
 TEST_P(SegmentTest, constructor) {
     SegmentAndAllocator segAndAlloc(GetParam());
@@ -278,7 +278,7 @@ TEST_P(SegmentTest, getSegletsInUse) {
 
     char buf[segAndAlloc.segletSize];
     bool ok = s.append(LOG_ENTRY_TYPE_OBJ, buf, segAndAlloc.segletSize);
-    if ((segAndAlloc.segmentSize / segAndAlloc.segmentSize) > 1) {
+    if ((segAndAlloc.segmentSize / segAndAlloc.segletSize) > 1) {
         EXPECT_TRUE(ok);
         EXPECT_GE(s.getSegletsInUse(), 2U);
         EXPECT_LE(s.getSegletsInUse(), 3U);
@@ -383,7 +383,7 @@ TEST_P(SegmentTest, peek) {
 TEST_P(SegmentTest, bytesLeft) {
     SegmentAndAllocator segAndAlloc(GetParam());
     Segment& s = *segAndAlloc.segment;
-    EXPECT_EQ(GetParam()->segmentSize, s.bytesLeft() + 7);
+    EXPECT_EQ(GetParam()->segmentSize, s.bytesLeft());
     s.append(LOG_ENTRY_TYPE_OBJ, "blah", 5);
     EXPECT_EQ(GetParam()->segmentSize - 7, s.bytesLeft());
     s.close();

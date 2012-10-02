@@ -109,6 +109,7 @@ class MasterServiceTest : public ::testing::Test {
         masterConfig.localLocator = "mock:host=master";
         masterConfig.services = {WireFormat::MASTER_SERVICE,
                                  WireFormat::MEMBERSHIP_SERVICE};
+        masterConfig.master.logBytes = segmentSize * 30;
         masterConfig.master.numReplicas = 1;
         masterServer = cluster.addServer(masterConfig);
         service = masterServer->master.get();
@@ -1811,10 +1812,12 @@ TEST_F(MasterServiceTest, objectRelocationCallback_objectAlive) {
     service->lookup(key, newType2, newBuffer2, newReference2);
     EXPECT_TRUE(relocator.didAppend);
     EXPECT_EQ(newType, newType2);
-    EXPECT_EQ(newReference, newReference2);
+    EXPECT_EQ(newReference.get() + 37, newReference2.get());
     EXPECT_NE(oldReference, newReference);
-    EXPECT_NE(newBuffer.getStart<uint8_t>(), oldBuffer.getStart<uint8_t>());
-    EXPECT_EQ(newBuffer.getStart<uint8_t>(), newBuffer2.getStart<uint8_t>());
+    EXPECT_NE(newBuffer.getStart<uint8_t>(),
+              oldBuffer.getStart<uint8_t>());
+    EXPECT_EQ(newBuffer.getStart<uint8_t>() + 37,
+              newBuffer2.getStart<uint8_t>());
 }
 
 TEST_F(MasterServiceTest, objectRelocationCallback_objectDeleted) {

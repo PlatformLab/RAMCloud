@@ -346,7 +346,9 @@ Segment::getAppendedLength(Certificate& certificate) const
 uint32_t
 Segment::getSegletsAllocated()
 {
-    return downCast<uint32_t>(seglets.size());
+    // We use 'segletBlocks', rather than 'seglets', because not all segments
+    // are constructed using Seglet objects. Some just wrap unmanaged buffers.
+    return downCast<uint32_t>(segletBlocks.size());
 }
 
 /**
@@ -428,7 +430,7 @@ Segment::checkMetadataIntegrity(const Certificate& certificate)
         currentChecksum.update(&length, header->getLengthBytes());
 
         offset += (sizeof32(*header) + header->getLengthBytes() + length);
-        size_t segmentSize = seglets.size() * segletSize;
+        size_t segmentSize = segletBlocks.size() * segletSize;
         if (offset > segmentSize) {
             LOG(WARNING, "segment corrupt: entries run off past "
                 "allocated segment size (segment size %lu, next entry would "

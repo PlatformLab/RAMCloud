@@ -647,13 +647,13 @@ ReplicatedSegment::performWrite(Replica& replica)
 
             uint32_t offset = replica.sent.bytes;
             uint32_t length = queued.bytes - offset;
-            Segment::Certificate* certficateToSend = &queuedCertificate;
+            Segment::Certificate* certificateToSend = &queuedCertificate;
 
             // Breaks atomicity of log entries, but it could happen anyway
             // if a segment gets partially written to disk.
             if (length > maxBytesPerWriteRpc) {
                 length = maxBytesPerWriteRpc;
-                certficateToSend = NULL;
+                certificateToSend = NULL;
             }
 
             bool sendClose = queued.close && (offset + length) == queued.bytes;
@@ -684,7 +684,7 @@ ReplicatedSegment::performWrite(Replica& replica)
             replica.writeRpc.construct(context, replica.backupId, masterId,
                                        segmentId, queued.epoch,
                                        segment, offset, length,
-                                       certficateToSend,
+                                       certificateToSend,
                                        false, sendClose,
                                        replicaIsPrimary(replica));
             ++writeRpcsInFlight;
