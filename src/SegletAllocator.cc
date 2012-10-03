@@ -210,9 +210,9 @@ SegletAllocator::free(Seglet* seglet)
     // returned.
     //
     // The reason is a little subtle. The problem with always preferring to put
-    // seglets into this pool if it's non-empty is that under heavy memory
-    // we could fail to re-fill the cleaner's pool, preventing it from having
-    // enough space to work with.
+    // seglets into this pool if it's non-empty is that under high memory
+    // utilization we could fail to re-fill the cleaner's pool, preventing it
+    // from having enough space to work with and deadlocking the system.
     if (seglet->getSourcePool() == &emergencyHeadPool) {
         emergencyHeadPool.push_back(seglet);
         return;
