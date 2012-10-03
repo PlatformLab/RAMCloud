@@ -57,6 +57,16 @@ class LogSegment : public Segment {
         {
         }
 
+        /**
+         * Increment the count of live bytes in this segment after a new entry
+         * has been appended.
+         *
+         * \param newLiveBytes
+         *      The number of bytes added by the entry. This should include all
+         *      metadata to get a complete accounting of space used.
+         * \param timestamp
+         *      WallTime creation timestamp for this entry.
+         */
         void
         increment(uint32_t newLiveBytes, uint32_t timestamp)
         {
@@ -65,6 +75,18 @@ class LogSegment : public Segment {
             spaceTimeSum += static_cast<uint64_t>(newLiveBytes) * timestamp;
         }
 
+        /**
+         * Decrement the count of live bytes in this segment after an entry is 
+         * no longer alive. This is the opposite of #increment, and all of the
+         * parameters given for a particular entry should be identical to what
+         * was provided to #increment.
+         *
+         * \param freedBytes
+         *      The number of bytes used by the dead entry. This should include
+         *      all metadata to get a complete accounting of space used.
+         * \param timestamp
+         *      The WallTime creation timestamp for the dead entry.
+         */
         void
         decrement(uint32_t freedBytes, uint32_t timestamp)
         {
@@ -73,6 +95,10 @@ class LogSegment : public Segment {
             spaceTimeSum -= static_cast<uint64_t>(freedBytes) * timestamp;
         }
 
+        /**
+         * Get a consistent view of the live byte count and space-time sum for
+         * this segment.
+         */
         void
         get(uint32_t& outLiveBytes, uint64_t& outSpaceTimeSum)
         {
@@ -81,7 +107,7 @@ class LogSegment : public Segment {
             outSpaceTimeSum = spaceTimeSum;
         }
 
-      private:
+      PRIVATE:
         /// The current number of live bytes in a segment.
         uint32_t liveBytes;
 
@@ -97,6 +123,23 @@ class LogSegment : public Segment {
     };
 
   public:
+    /**
+     * Construct a new LogSegment.
+     *
+     * \param seglets
+     *      The seglets backing this segment in memory.
+     * \param segletSize
+     *      Size of each seglet in bytes.
+     * \param segmentSize
+     *      Size of the full segment in bytes.
+     * \param id
+     *      64-bit identifier of the segment in the log.
+     * \param slot
+     *      Slot from which this segment was allocated in the SegmentManager.
+     * \param isEmergencyHead
+     *      If true, this is a special segment that is being used to roll over
+     *      to a new head and write a new digest when otherwise out of memory.
+     */
     LogSegment(vector<Seglet*>& seglets,
                uint32_t segletSize,
                uint32_t segmentSize,
@@ -120,15 +163,29 @@ class LogSegment : public Segment {
     {
     }
 
+    /**
+     * Compute the average timestamp of each byte of live data in the segment.
+     * This is used by the cost-benefit segment selection algorithm in the
+     * cleaner.
+     */
     uint32_t
     getAverageTimestamp()
     {
         uint32_t liveBytes;
         uint64_t spaceTimeSum;
         statistics.get(liveBytes, spaceTimeSum);
+        if (liveBytes == 0) {
+            assert(spaceTimeSum == 0);
+            return 0;
+        }
         return downCast<uint32_t>(spaceTimeSum / liveBytes);
     }
 
+    /**
+     * Get the in-memory utilization of the segment. This is the percentage of
+     * allocated memory bytes that belong to live data. The value returned is
+     * in the range [0, 100].
+     */
     int
     getMemoryUtilization()
     {
@@ -136,20 +193,34 @@ class LogSegment : public Segment {
         uint64_t unused;
         statistics.get(liveBytes, unused);
         uint32_t bytesAllocated = getSegletsAllocated() * segletSize;
+        if (bytesAllocated == 0) {
+            assert(liveBytes == 0);
+            return 0;
+        }
         return static_cast<int>(
             (static_cast<uint64_t>(liveBytes) * 100) / bytesAllocated);
     }
 
+    /**
+     * Get the on-disk utilization of the segment. This is the percentage of
+     * the full segment that is being used by live data. The full segment on
+     * disk may be larger than the one in memory due to memory compaction (the
+     * in-memory cleaner). The value returned is in the range [0, 100].
+     */
     int
     getDiskUtilization()
     {
         uint32_t liveBytes;
         uint64_t unused;
         statistics.get(liveBytes, unused);
+        assert(segmentSizeOnBackups != 0);
         return static_cast<int>(
             (static_cast<uint64_t>(liveBytes) * 100) / segmentSizeOnBackups);
     }
 
+    /**
+     * Get the number of live bytes in the segment.
+     */
     uint32_t
     getLiveBytes()
     {

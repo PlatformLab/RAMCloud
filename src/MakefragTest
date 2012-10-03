@@ -49,6 +49,7 @@ TESTS_SRCFILES := \
 		  src/LogDigestTest.cc \
 		  src/LoggerTest.cc \
 		  src/LogIteratorTest.cc \
+		  src/LogSegmentTest.cc \
 		  src/LogTest.cc \
 		  src/MacAddressTest.cc \
 		  src/MasterRecoveryManagerTest.cc \

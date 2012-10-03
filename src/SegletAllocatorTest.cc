@@ -118,7 +118,7 @@ TEST_F(SegletAllocatorTest, initializeCleanerReserve) {
 
 TEST_F(SegletAllocatorTest, free) {
     vector<Seglet*> seglets;
-    
+
     EXPECT_TRUE(allocator.alloc(SegletAllocator::DEFAULT, 2, seglets));
     seglets[0]->setSourcePool(&allocator.emergencyHeadPool);
     EXPECT_EQ(0U, allocator.emergencyHeadPool.size());
