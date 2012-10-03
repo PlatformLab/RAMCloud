@@ -44,8 +44,7 @@ TEST_F(ServerMetricsTest, load) {
     string s;
     data.serialize(s);
     Buffer buffer;
-    Buffer::Chunk::appendToBuffer(&buffer, s.c_str(),
-            downCast<uint32_t>(s.length()));
+    buffer.append(s.c_str(), downCast<uint32_t>(s.length()));
     ServerMetrics metrics;
     metrics.load(buffer);
     EXPECT_EQ(99U, metrics["master.recoveryTicks"]);
@@ -55,8 +54,7 @@ TEST_F(ServerMetricsTest, load) {
 TEST_F(ServerMetricsTest, load_bogusInput) {
     string s("This string contains bogus data");
     Buffer buffer;
-    Buffer::Chunk::appendToBuffer(&buffer, s.c_str(),
-            downCast<uint32_t>(s.length()));
+    buffer.append(s.c_str(), downCast<uint32_t>(s.length()));
     ServerMetrics metrics;
     EXPECT_THROW(metrics.load(buffer), ServerMetrics::FormatError);
 }

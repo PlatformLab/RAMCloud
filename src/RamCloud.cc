@@ -249,8 +249,7 @@ EnumerateTableRpc::EnumerateTableRpc(RamCloud* ramcloud, uint64_t tableId,
     reqHdr->tabletFirstHash = tabletFirstHash;
     reqHdr->iteratorBytes = state.getTotalLength();
     for (Buffer::Iterator it(state); !it.isDone(); it.next())
-        Buffer::Chunk::appendToBuffer(&request, it.getData(),
-                it.getLength());
+        request.append(it.getData(), it.getLength());
     send();
 }
 
@@ -822,7 +821,7 @@ IncrementRpc::IncrementRpc(RamCloud* ramcloud, uint64_t tableId,
     reqHdr->keyLength = keyLength;
     reqHdr->incrementValue = incrementValue;
     reqHdr->rejectRules = rejectRules ? *rejectRules : defaultRejectRules;
-    Buffer::Chunk::appendToBuffer(&request, key, keyLength);
+    request.append(key, keyLength);
     send();
 }
 
@@ -1023,7 +1022,7 @@ ReadRpc::ReadRpc(RamCloud* ramcloud, uint64_t tableId,
     reqHdr->tableId = tableId;
     reqHdr->keyLength = keyLength;
     reqHdr->rejectRules = rejectRules ? *rejectRules : defaultRejectRules;
-    Buffer::Chunk::appendToBuffer(&request, key, keyLength);
+    request.append(key, keyLength);
     send();
 }
 
@@ -1112,7 +1111,7 @@ RemoveRpc::RemoveRpc(RamCloud* ramcloud, uint64_t tableId,
     reqHdr->tableId = tableId;
     reqHdr->keyLength = keyLength;
     reqHdr->rejectRules = rejectRules ? *rejectRules : defaultRejectRules;
-    Buffer::Chunk::appendToBuffer(&request, key, keyLength);
+    request.append(key, keyLength);
     send();
 }
 
@@ -1400,8 +1399,8 @@ SetRuntimeOptionRpc::SetRuntimeOptionRpc(RamCloud* ramcloud,
             allocHeader<WireFormat::SetRuntimeOption>());
     reqHdr->optionLength = downCast<uint32_t>(strlen(option) + 1);
     reqHdr->valueLength = downCast<uint32_t>(strlen(value) + 1);
-    Buffer::Chunk::appendToBuffer(&request, option, reqHdr->optionLength);
-    Buffer::Chunk::appendToBuffer(&request, value, reqHdr->valueLength);
+    request.append(option, reqHdr->optionLength);
+    request.append(value, reqHdr->valueLength);
     send();
 }
 
@@ -1542,8 +1541,8 @@ WriteRpc::WriteRpc(RamCloud* ramcloud, uint64_t tableId,
     reqHdr->length = length;
     reqHdr->rejectRules = rejectRules ? *rejectRules : defaultRejectRules;
     reqHdr->async = async;
-    Buffer::Chunk::appendToBuffer(&request, key, keyLength);
-    Buffer::Chunk::appendToBuffer(&request, buf, length);
+    request.append(key, keyLength);
+    request.append(buf, length);
     send();
 }
 

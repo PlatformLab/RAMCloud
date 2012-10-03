@@ -133,7 +133,7 @@ TEST_F(BufferChunkTest, Chunk) {
     Buffer buf;
     char data;
     Buffer::Chunk* c;
-    c = Buffer::Chunk::prependToBuffer(&buf, &data, sizeof(data));
+    c = buf.prepend(&data, sizeof(data));
     EXPECT_EQ(&data, c->data);
     EXPECT_EQ(sizeof(data), c->length);
     EXPECT_TRUE(NULL == c->next);
@@ -180,9 +180,9 @@ class BufferTest : public ::testing::Test {
         // This uses prepend, so the tests for prepend
         // probably shouldn't use this.
         buf = new Buffer();
-        Buffer::Chunk::prependToBuffer(buf, testStr3, 10);
-        Buffer::Chunk::prependToBuffer(buf, testStr2, 10);
-        Buffer::Chunk::prependToBuffer(buf, testStr1, 10);
+        buf->prepend(testStr3, 10);
+        buf->prepend(testStr2, 10);
+        buf->prepend(testStr1, 10);
     }
 
     ~BufferTest()
@@ -319,11 +319,11 @@ TEST_F(BufferTest, allocateAppend) {
 
 TEST_F(BufferTest, prepend) {
     Buffer b;
-    Buffer::Chunk::prependToBuffer(&b, NULL, 0);
+    b.prepend(NULL, 0);
     EXPECT_TRUE(NULL == b.chunksTail->data);
-    Buffer::Chunk::prependToBuffer(&b, testStr3, 10);
-    Buffer::Chunk::prependToBuffer(&b, testStr2, 10);
-    Buffer::Chunk::prependToBuffer(&b, testStr1, 10);
+    b.prepend(testStr3, 10);
+    b.prepend(testStr2, 10);
+    b.prepend(testStr1, 10);
     EXPECT_TRUE(NULL == b.chunksTail->data);
     EXPECT_EQ("ABCDEFGHIJ | abcdefghij | klmnopqrs/0",
             TestUtil::bufferToDebugString(&b));
@@ -331,11 +331,11 @@ TEST_F(BufferTest, prepend) {
 
 TEST_F(BufferTest, append) {
     Buffer b;
-    Buffer::Chunk::appendToBuffer(&b, NULL, 0);
+    b.append(NULL, 0);
     EXPECT_TRUE(NULL == b.chunksTail->data);
-    Buffer::Chunk::appendToBuffer(&b, testStr1, 10);
-    Buffer::Chunk::appendToBuffer(&b, testStr2, 10);
-    Buffer::Chunk::appendToBuffer(&b, testStr3, 10);
+    b.append(testStr1, 10);
+    b.append(testStr2, 10);
+    b.append(testStr3, 10);
     EXPECT_EQ(testStr3, b.chunksTail->data);
     EXPECT_EQ("ABCDEFGHIJ | abcdefghij | klmnopqrs/0",
             TestUtil::bufferToDebugString(&b));
@@ -456,9 +456,9 @@ TEST_F(BufferTest, truncateFront) {
     Buffer b;
     b.truncateFront(0);
     b.truncateFront(10);
-    Buffer::Chunk::appendToBuffer(&b, "abc", 3);
-    Buffer::Chunk::appendToBuffer(&b, "def", 3);
-    Buffer::Chunk::appendToBuffer(&b, "ghi", 3);
+    b.append("abc", 3);
+    b.append("def", 3);
+    b.append("ghi", 3);
     b.truncateFront(0);
     EXPECT_EQ("abc | def | ghi", TestUtil::bufferToDebugString(&b));
     EXPECT_EQ(9U, b.getTotalLength());
@@ -477,9 +477,9 @@ TEST_F(BufferTest, truncateEnd) {
     Buffer b;
     b.truncateEnd(0);
     b.truncateEnd(10);
-    Buffer::Chunk::appendToBuffer(&b, "abc", 3);
-    Buffer::Chunk::appendToBuffer(&b, "def", 3);
-    Buffer::Chunk::appendToBuffer(&b, "ghi", 3);
+    b.append("abc", 3);
+    b.append("def", 3);
+    b.append("ghi", 3);
     b.truncateEnd(0);
     EXPECT_EQ("abc | def | ghi", TestUtil::bufferToDebugString(&b));
     EXPECT_EQ(9U, b.getTotalLength());
@@ -501,19 +501,19 @@ TEST_F(BufferTest, eq) {
     Buffer d;
     EXPECT_TRUE(a == b);
     EXPECT_TRUE(b == a);
-    Buffer::Chunk::appendToBuffer(&a, "abc", 3);
-    Buffer::Chunk::appendToBuffer(&a, "def", 3);
+    a.append("abc", 3);
+    a.append("def", 3);
     EXPECT_TRUE(a != b);
     EXPECT_TRUE(b != a);
-    Buffer::Chunk::appendToBuffer(&b, "a", 1);
-    Buffer::Chunk::appendToBuffer(&b, "bcd", 3);
-    Buffer::Chunk::appendToBuffer(&b, "", 0);
-    Buffer::Chunk::appendToBuffer(&b, "ef", 2);
-    Buffer::Chunk::appendToBuffer(&c, "x", 1);
-    Buffer::Chunk::appendToBuffer(&c, "", 0);
-    Buffer::Chunk::appendToBuffer(&c, "bcdef", 5);
-    Buffer::Chunk::appendToBuffer(&d, "yz", 2);
-    Buffer::Chunk::appendToBuffer(&d, "bcde", 4);
+    b.append("a", 1);
+    b.append("bcd", 3);
+    b.append("", 0);
+    b.append("ef", 2);
+    c.append("x", 1);
+    c.append("", 0);
+    c.append("bcdef", 5);
+    d.append("yz", 2);
+    d.append("bcde", 4);
     EXPECT_TRUE(a == a);
     EXPECT_TRUE(b == b);
     EXPECT_TRUE(a == b);
@@ -543,10 +543,10 @@ class BufferIteratorTest : public ::testing::Test {
         oneChunk = new Buffer();
         twoChunks = new Buffer();
 
-        Buffer::Chunk::appendToBuffer(oneChunk, &x[0], 10);
+        oneChunk->append(&x[0], 10);
 
-        Buffer::Chunk::appendToBuffer(twoChunks, &x[0], 10);
-        Buffer::Chunk::appendToBuffer(twoChunks, &x[10], 20);
+        twoChunks->append(&x[0], 10);
+        twoChunks->append(&x[10], 20);
 
         oneIter = new Buffer::Iterator(*oneChunk);
         twoIter = new Buffer::Iterator(*twoChunks);

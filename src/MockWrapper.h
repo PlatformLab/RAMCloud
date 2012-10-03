@@ -42,8 +42,8 @@ class MockWrapper : public Transport::RpcNotifier {
         , failedCount(0)
     {
         if (requestInfo != NULL) {
-            Buffer::Chunk::appendToBuffer(&request, requestInfo,
-                    downCast<uint32_t>(strlen(requestInfo)));
+            request.append(requestInfo,
+                           downCast<uint32_t>(strlen(requestInfo)));
         }
     }
 

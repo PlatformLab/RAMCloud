@@ -372,7 +372,7 @@ MasterService::fillWithTestData(
         // safe? doubtful. simple? you bet.
         uint8_t data[reqHdr.objectSize];
         memset(data, 0xcc, reqHdr.objectSize);
-        Buffer::Chunk::appendToBuffer(&buffer, data, reqHdr.objectSize);
+        buffer.append(data, reqHdr.objectSize);
 
         string keyString = format("%d", objects / numTablets);
         Key key(tables[t]->getId(),
@@ -2022,9 +2022,7 @@ MasterService::increment(const WireFormat::Increment::Request& reqHdr,
 
     // Write the new value back
     Buffer newValueBuffer;
-    Buffer::Chunk::appendToBuffer(&newValueBuffer,
-                                  &newValue,
-                                  sizeof(int64_t));
+    newValueBuffer.append(&newValue, sizeof(int64_t));
 
     status = storeObject(key,
                          &reqHdr.rejectRules,
@@ -2072,7 +2070,7 @@ MasterService::write(const WireFormat::Write::Request& reqHdr,
     Buffer buffer;
     const void* objectData = rpc.requestPayload.getRange(
         sizeof32(reqHdr) + reqHdr.keyLength, reqHdr.length);
-    Buffer::Chunk::appendToBuffer(&buffer, objectData, reqHdr.length);
+    buffer.append(objectData, reqHdr.length);
 
     Key key(reqHdr.tableId,
             rpc.requestPayload,
