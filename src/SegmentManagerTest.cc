@@ -17,6 +17,7 @@
 
 #include "SegmentManager.h"
 #include "SegmentIterator.h"
+#include "LogDigest.h"
 #include "LogMetadata.h"
 #include "ServerConfig.h"
 #include "ServerRpcPool.h"
@@ -331,8 +332,35 @@ TEST_F(SegmentManagerTest, writeHeader) {
     EXPECT_EQ(28U, header->headSegmentIdDuringCleaning);
 }
 
-TEST_F(SegmentManagerTest, writeDigest) {
-    // TODO(steve): write me.
+TEST_F(SegmentManagerTest, writeDigest_basics) {
+    // Implicit check via calls via alloc().
+    LogSegment* prevHead = segmentManager.alloc(SegletAllocator::DEFAULT, 0);
+    LogSegment* newHead = segmentManager.alloc(SegletAllocator::DEFAULT, 1);
+
+    for (SegmentIterator it(*prevHead); !it.isDone(); it.next()) {
+        if (it.getType() != LOG_ENTRY_TYPE_LOGDIGEST)
+            continue;
+
+        Buffer buffer;
+        it.appendToBuffer(buffer);
+        LogDigest digest(buffer.getRange(0, buffer.getTotalLength()),
+                         buffer.getTotalLength());
+        EXPECT_EQ(1U, digest.size());
+        EXPECT_EQ(0UL, digest[0]);
+    }
+
+    for (SegmentIterator it(*newHead); !it.isDone(); it.next()) {
+        if (it.getType() != LOG_ENTRY_TYPE_LOGDIGEST)
+            continue;
+
+        Buffer buffer;
+        it.appendToBuffer(buffer);
+        LogDigest digest(buffer.getRange(0, buffer.getTotalLength()),
+                         buffer.getTotalLength());
+        EXPECT_EQ(2U, digest.size());
+        EXPECT_EQ(0UL, digest[0]);
+        EXPECT_EQ(1UL, digest[1]);
+    }
 }
 
 TEST_F(SegmentManagerTest, getHeadSegment) {
@@ -356,8 +384,95 @@ TEST_F(SegmentManagerTest, changeState) {
         SegmentManager::CLEANABLE].size());
 }
 
-TEST_F(SegmentManagerTest, alloc) {
-    // TODO(steve): write me.
+TEST_F(SegmentManagerTest, alloc_noSlots) {
+    segmentManager.freeSlots.clear();
+    EXPECT_EQ(static_cast<LogSegment*>(NULL),
+        segmentManager.alloc(SegletAllocator::DEFAULT, 0));
+}
+
+TEST_F(SegmentManagerTest, alloc_noSeglets) {
+    vector<Seglet*> seglets;
+    allocator.alloc(SegletAllocator::DEFAULT,
+                    downCast<uint32_t>(
+                        allocator.getFreeCount(SegletAllocator::DEFAULT)),
+                    seglets);
+    EXPECT_EQ(static_cast<LogSegment*>(NULL),
+        segmentManager.alloc(SegletAllocator::DEFAULT, 0));
+
+    foreach (Seglet* s, seglets)
+        s->free();
+}
+
+TEST_F(SegmentManagerTest, alloc_normal) {
+    LogSegment* s = segmentManager.alloc(SegletAllocator::DEFAULT, 79);
+    EXPECT_NE(static_cast<LogSegment*>(NULL), s);
+    EXPECT_EQ(79LU, s->id);
+    EXPECT_FALSE(s->isEmergencyHead);
+    EXPECT_EQ(SegmentManager::HEAD, *segmentManager.states[s->slot]);
+    EXPECT_EQ(s->slot, segmentManager.idToSlotMap[s->id]);
+    EXPECT_EQ(1U, segmentManager.allSegments.size());
+    EXPECT_EQ(1U, segmentManager.segmentsByState[SegmentManager::HEAD].size());
+}
+
+TEST_F(SegmentManagerTest, alloc_emergencyHead) {
+    LogSegment* s = segmentManager.alloc(SegletAllocator::EMERGENCY_HEAD, 88);
+    EXPECT_NE(static_cast<LogSegment*>(NULL), s);
+    EXPECT_TRUE(s->isEmergencyHead);
+    EXPECT_EQ(SegmentManager::HEAD, *segmentManager.states[s->slot]);
+}
+
+TEST_F(SegmentManagerTest, alloc_survivor) {
+    segmentManager.initializeSurvivorReserve(1);
+    LogSegment* s = segmentManager.alloc(SegletAllocator::CLEANER, 88);
+    EXPECT_NE(static_cast<LogSegment*>(NULL), s);
+    EXPECT_FALSE(s->isEmergencyHead);
+    EXPECT_EQ(SegmentManager::CLEANING_INTO, *segmentManager.states[s->slot]);
+}
+
+TEST_F(SegmentManagerTest, allocSlot) {
+    // default pool
+    segmentManager.freeSlots.clear();
+    EXPECT_EQ(-1U, segmentManager.allocSlot(SegletAllocator::DEFAULT));
+    segmentManager.freeSlots.push_back(57);
+    EXPECT_EQ(57U, segmentManager.allocSlot(SegletAllocator::DEFAULT));
+    EXPECT_EQ(-1U, segmentManager.allocSlot(SegletAllocator::DEFAULT));
+
+    // survivor pool
+    EXPECT_EQ(-1U, segmentManager.allocSlot(SegletAllocator::CLEANER));
+    segmentManager.freeSurvivorSlots.push_back(86);
+    EXPECT_EQ(86U, segmentManager.allocSlot(SegletAllocator::CLEANER));
+    EXPECT_EQ(-1U, segmentManager.allocSlot(SegletAllocator::CLEANER));
+
+    // emergency head pool
+    segmentManager.freeEmergencyHeadSlots.clear();
+    EXPECT_EQ(-1U, segmentManager.allocSlot(SegletAllocator::EMERGENCY_HEAD));
+    segmentManager.freeEmergencyHeadSlots.push_back(13);
+    EXPECT_EQ(13U, segmentManager.allocSlot(SegletAllocator::EMERGENCY_HEAD));
+    EXPECT_EQ(-1U, segmentManager.allocSlot(SegletAllocator::EMERGENCY_HEAD));
+}
+
+TEST_F(SegmentManagerTest, freeSlot) {
+    // default pool
+    segmentManager.freeSlots.clear();
+    EXPECT_EQ(0U, segmentManager.freeSlots.size());
+    segmentManager.freeSlot(52, false);
+    EXPECT_EQ(1U, segmentManager.freeSlots.size());
+    EXPECT_EQ(52U, segmentManager.freeSlots[0]);
+
+    // survivor pool
+    EXPECT_TRUE(segmentManager.initializeSurvivorReserve(1));
+    segmentManager.freeSurvivorSlots.clear();
+    EXPECT_EQ(0U, segmentManager.freeSurvivorSlots.size());
+    segmentManager.freeSlot(98, false);
+    EXPECT_EQ(1U, segmentManager.freeSurvivorSlots.size());
+    EXPECT_EQ(98U, segmentManager.freeSurvivorSlots[0]);
+
+    // emergency head pool
+    segmentManager.freeEmergencyHeadSlots.clear();
+    EXPECT_EQ(0U, segmentManager.freeEmergencyHeadSlots.size());
+    segmentManager.freeSlot(62, true);
+    EXPECT_EQ(1U, segmentManager.freeEmergencyHeadSlots.size());
+    EXPECT_EQ(62U, segmentManager.freeEmergencyHeadSlots[0]);
 }
 
 #if 0   // XXXXXX- another RS::free() issue

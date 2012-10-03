@@ -76,7 +76,7 @@ try
     if (numMasters == -1 && numBackups == -1) {
         fprintf(stderr, "Error: Specify one or both of options -m and -b\n");
         exit(1);
-    } 
+    }
 
     LOG(NOTICE, "client: Connecting to %s",
         optionParser.options.getCoordinatorLocator().c_str());
@@ -99,7 +99,7 @@ try
         bool mastersReady = false;
         if (numMasters == actualMasters || numMasters == -1)
             mastersReady = true;
-            
+
         bool backupsReady = false;
         if (numBackups == actualBackups || numBackups == -1)
             backupsReady = true;

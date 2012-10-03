@@ -50,7 +50,7 @@ class Seglet {
     void setSourcePool(const vector<Seglet*>* newSourcePool);
     const vector<Seglet*>* getSourcePool();
 
-  private:
+  PRIVATE:
     /// SegletAllocator to return this memory to when free() is called.
     SegletAllocator& segletAllocator;
 

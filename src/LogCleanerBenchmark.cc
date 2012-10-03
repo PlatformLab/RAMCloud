@@ -122,7 +122,7 @@ class Distribution {
     {
         uint32_t metaDataLength = 0;
 
-        // XXX- Seriously? How lazy is this?
+        // TODO(rumble): Seriously? How lazy is this?
         if (dataLength < 256)
             metaDataLength = 26 + 1 + 1;
         else if (dataLength < 65536)
@@ -178,7 +178,7 @@ class UniformDistribution : public Distribution {
         return (objectCount >= maxObjectId);
     }
 
-    void 
+    void
     advance()
     {
         if (isPrefillDone())
@@ -188,7 +188,7 @@ class UniformDistribution : public Distribution {
         objectCount++;
     }
 
-    void 
+    void
     getKey(void* outKey)
     {
         *reinterpret_cast<uint64_t*>(outKey) = key;
@@ -291,7 +291,7 @@ class HotAndColdDistribution : public Distribution {
         objectCount++;
     }
 
-    void 
+    void
     getKey(void* outKey)
     {
         *reinterpret_cast<uint64_t*>(outKey) = key;
@@ -363,7 +363,11 @@ class Output {
                         ProtoBuf::LogMetrics& logMetrics);
     void dump();
 
-    static void updateLiveLine(RamCloud& ramcloud, string& masterLocator, uint64_t objects, uint64_t bytes, uint64_t ticks);
+    static void updateLiveLine(RamCloud& ramcloud,
+                               string& masterLocator,
+                               uint64_t objects,
+                               uint64_t bytes,
+                               uint64_t ticks);
 
   PRIVATE:
     template<typename T>
@@ -492,7 +496,8 @@ class Benchmark {
     void
     updateOutput(bool force = false)
     {
-        if (force || Cycles::toSeconds(Cycles::rdtsc() - lastOutputUpdateTsc) >= 2) {
+        double delta = Cycles::toSeconds(Cycles::rdtsc() - lastOutputUpdateTsc);
+        if (force || delta >= 2) {
             if (start == 0) {
                 Output::updateLiveLine(ramcloud,
                                        serverLocator,
@@ -517,7 +522,7 @@ class Benchmark {
      * were transmitted.
      */
     class OutstandingWrite {
-      public:         
+      public:
         OutstandingWrite(RamCloud& ramcloud, uint64_t tableId,
                          const void* key, uint16_t keyLength,
                          const void* object, uint32_t objectLength)
@@ -568,7 +573,7 @@ class Benchmark {
         while (!isDone) {
             // While any RPCs can still be sent, send them.
             bool allRpcsSent = false;
-            for (int i = 0; i < pipelined; i++) { 
+            for (int i = 0; i < pipelined; i++) {
                 allRpcsSent = prefilling ? distribution.isPrefillDone() : false;
                 if (allRpcsSent)
                     break;
@@ -593,8 +598,9 @@ class Benchmark {
             int numRpcsLeft = -1;
             uint64_t start = Cycles::rdtsc();
             while (!anyRpcsDone && numRpcsLeft != 0) {
-                if (Cycles::toSeconds(Cycles::rdtsc() - start) >= timeoutSeconds)
-                    throw Exception(HERE, "Benchmark::run() hasn't made progress");
+                double delta = Cycles::toSeconds(Cycles::rdtsc() - start);
+                if (delta >= timeoutSeconds)
+                    throw Exception(HERE, "benchmark hasn't made progress");
 
                 numRpcsLeft = 0;
 
@@ -669,7 +675,7 @@ class Benchmark {
         uint64_t diskFreed = onDiskMetrics.total_disk_bytes_freed();
         uint64_t diskWrote = onDiskMetrics.total_bytes_appended_to_survivors();
         uint64_t diskCleanerTicks = onDiskMetrics.total_ticks();
-        
+
         // Nothing counts until we've cleaned on disk at least once.
         if (diskFreed == 0 && diskWrote == 0)
             return false;
@@ -678,10 +684,10 @@ class Benchmark {
         // the needed comparison.
         double diskWriteCost = static_cast<double>(diskFreed + diskWrote) /
                                static_cast<double>(diskFreed);
-        uint64_t intDiskWriteCost = static_cast<uint64_t>(diskWriteCost *
-                                                pow(10, writeCostConvergence));
-        uint64_t intLastDiskWriteCost = static_cast<uint64_t>(lastDiskWriteCost *
-                                                pow(10, writeCostConvergence));
+        uint64_t intDiskWriteCost = static_cast<uint64_t>(
+                            diskWriteCost * pow(10, writeCostConvergence));
+        uint64_t intLastDiskWriteCost = static_cast<uint64_t>(
+                            lastDiskWriteCost * pow(10, writeCostConvergence));
 
         bool areEqual = (intDiskWriteCost == intLastDiskWriteCost);
 
@@ -828,58 +834,80 @@ Output::dumpParameters(FILE* fp,
 {
     fprintf(fp, "===> EXPERIMENT PARAMETERS\n");
 
-    fprintf(fp, "  Commandline Args:       %s\n", options.commandLineArgs.c_str());
+    fprintf(fp, "  Commandline Args:       %s\n",
+        options.commandLineArgs.c_str());
 
-    fprintf(fp, "  Object Size:            %d\n", options.objectSize);
+    fprintf(fp, "  Object Size:            %d\n",
+        options.objectSize);
 
-    fprintf(fp, "  Distribution:           %s\n", options.distributionName.c_str());
-    
-    fprintf(fp, "  Utilization:            %d\n", options.utilization);
+    fprintf(fp, "  Distribution:           %s\n",
+        options.distributionName.c_str());
 
-    fprintf(fp, "  WC Convergence:         %d decimal places\n", options.writeCostConvergence);
+    fprintf(fp, "  Utilization:            %d\n",
+        options.utilization);
 
-    fprintf(fp, "  Pipelined RPCs:         %d\n", options.pipelinedRpcs);
+    fprintf(fp, "  WC Convergence:         %d decimal places\n",
+        options.writeCostConvergence);
 
-    fprintf(fp, "  Abort Timeout:          %u sec\n", options.abortTimeout);
+    fprintf(fp, "  Pipelined RPCs:         %d\n",
+        options.pipelinedRpcs);
+
+    fprintf(fp, "  Abort Timeout:          %u sec\n",
+        options.abortTimeout);
 
     fprintf(fp, "===> SERVER PARAMETERS\n");
 
-    fprintf(fp, "  Locator:                %s\n", serverConfig.local_locator().c_str());
+    fprintf(fp, "  Locator:                %s\n",
+        serverConfig.local_locator().c_str());
 
     uint64_t logSize = logMetrics.seglet_metrics().total_usable_seglets() *
                        serverConfig.seglet_size();
     fprintf(fp, "  Usable Log Size:        %lu MB\n", logSize / 1024 / 1024);
-    
-    fprintf(fp, "    Total Allocated:      %lu MB\n", serverConfig.master().log_bytes() / 1024 / 1024);
 
-    fprintf(fp, "  Hash Table Size:        %lu MB\n", serverConfig.master().hash_table_bytes() / 1024 / 1024);
+    fprintf(fp, "    Total Allocated:      %lu MB\n",
+        serverConfig.master().log_bytes() / 1024 / 1024);
+
+    fprintf(fp, "  Hash Table Size:        %lu MB\n",
+        serverConfig.master().hash_table_bytes() / 1024 / 1024);
 
     fprintf(fp, "  Segment Size:           %d\n", serverConfig.segment_size());
 
     fprintf(fp, "  Seglet Size:            %d\n", serverConfig.seglet_size());
 
-    fprintf(fp, "  WC Threshold:           %d\n", serverConfig.master().cleaner_write_cost_threshold());
+    fprintf(fp, "  WC Threshold:           %d\n",
+        serverConfig.master().cleaner_write_cost_threshold());
 
-    fprintf(fp, "  Replication Factor:     %d\n", serverConfig.master().num_replicas());
+    fprintf(fp, "  Replication Factor:     %d\n",
+        serverConfig.master().num_replicas());
 
-    fprintf(fp, "  Disk Expansion Factor:  %.3f\n", serverConfig.master().backup_disk_expansion_factor());
+    fprintf(fp, "  Disk Expansion Factor:  %.3f\n",
+        serverConfig.master().backup_disk_expansion_factor());
 
-    fprintf(fp, "  Log Cleaner:            %s\n", (serverConfig.master().disable_log_cleaner()) ? "disabled" : "enabled");
+    fprintf(fp, "  Log Cleaner:            %s\n",
+        (serverConfig.master().disable_log_cleaner()) ? "disabled" : "enabled");
 
-    fprintf(fp, "  In-memory Cleaner:      %s\n", (serverConfig.master().disable_in_memory_cleaning()) ? "disabled" : "enabled");
+    fprintf(fp, "  In-memory Cleaner:      %s\n",
+        (serverConfig.master().disable_in_memory_cleaning()) ?
+            "disabled" : "enabled");
 
     fprintf(fp, "===> LOG CONSTANTS:\n");
 
-    fprintf(fp, "  Poll Interval:          %d us\n", logMetrics.cleaner_metrics().poll_usec());
+    fprintf(fp, "  Poll Interval:          %d us\n",
+        logMetrics.cleaner_metrics().poll_usec());
 
-    fprintf(fp, "  Max Utilization:        %d\n", logMetrics.cleaner_metrics().max_cleanable_memory_utilization());
-    fprintf(fp, "  Live Segments per Pass: %d\n", logMetrics.cleaner_metrics().live_segments_per_disk_pass());
+    fprintf(fp, "  Max Utilization:        %d\n",
+        logMetrics.cleaner_metrics().max_cleanable_memory_utilization());
+    fprintf(fp, "  Live Segments per Pass: %d\n",
+        logMetrics.cleaner_metrics().live_segments_per_disk_pass());
 
-    fprintf(fp, "  Reserved Survivor Segs: %d\n", logMetrics.cleaner_metrics().survivor_segments_to_reserve());
+    fprintf(fp, "  Reserved Survivor Segs: %d\n",
+        logMetrics.cleaner_metrics().survivor_segments_to_reserve());
 
-    fprintf(fp, "  Min Memory Utilization: %d\n", logMetrics.cleaner_metrics().min_memory_utilization());
+    fprintf(fp, "  Min Memory Utilization: %d\n",
+        logMetrics.cleaner_metrics().min_memory_utilization());
 
-    fprintf(fp, "  Min Disk Utilization:   %d\n", logMetrics.cleaner_metrics().min_disk_utilization());
+    fprintf(fp, "  Min Disk Utilization:   %d\n",
+        logMetrics.cleaner_metrics().min_disk_utilization());
 }
 
 void
@@ -912,7 +940,7 @@ Output::dumpPrefillMetrics(FILE* fp)
     fprintf(fp, "===> PREFILL SUMMARY\n");
 
     fprintf(fp, "  Prefill Elapsed Time:   %.2f sec\n", elapsed);
-    
+
     fprintf(fp, "  Objects Written:        %lu  (%.2f objs/sec)\n",
         benchmark.totalPrefillObjectsWritten,
         d(benchmark.totalPrefillObjectsWritten) / elapsed);
@@ -952,7 +980,8 @@ Output::dumpDiskMetrics(FILE* fp, ProtoBuf::LogMetrics& metrics)
         metrics.cleaner_metrics().on_disk_metrics();
 
     double serverHz = metrics.ticks_per_second();
-    double cleanerTime = Cycles::toSeconds(onDiskMetrics.total_ticks(), serverHz);
+    double cleanerTime = Cycles::toSeconds(onDiskMetrics.total_ticks(),
+                                           serverHz);
 
     uint64_t diskFreed = onDiskMetrics.total_disk_bytes_freed();
     uint64_t memFreed = onDiskMetrics.total_memory_bytes_freed();
@@ -961,23 +990,31 @@ Output::dumpDiskMetrics(FILE* fp, ProtoBuf::LogMetrics& metrics)
     fprintf(fp, "  Duty Cycle:                    %.2f%% (%.2f sec)\n",
         100.0 * cleanerTime / elapsed, cleanerTime);
 
-    fprintf(fp, "  Disk Write Cost:               %.3f\n", d(diskFreed + wrote) / d(diskFreed));
+    fprintf(fp, "  Disk Write Cost:               %.3f\n",
+        d(diskFreed + wrote) / d(diskFreed));
 
-    fprintf(fp, "  Memory Write Cost:             %.3f\n", d(memFreed + wrote) / d(memFreed));
+    fprintf(fp, "  Memory Write Cost:             %.3f\n",
+        d(memFreed + wrote) / d(memFreed));
 
-    uint64_t diskBytesInCleanedSegments = onDiskMetrics.total_disk_bytes_in_cleaned_segments();
+    uint64_t diskBytesInCleanedSegments =
+        onDiskMetrics.total_disk_bytes_in_cleaned_segments();
     fprintf(fp, "  Avg Cleaned Seg Disk Util:     %.2f%%\n",
         100.0 * d(wrote) / d(diskBytesInCleanedSegments));
 
-    uint64_t memoryBytesInCleanedSegments = onDiskMetrics.total_memory_bytes_in_cleaned_segments();
+    uint64_t memoryBytesInCleanedSegments =
+        onDiskMetrics.total_memory_bytes_in_cleaned_segments();
     fprintf(fp, "  Avg Cleaned Seg Memory Util:   %.2f%%\n",
         100.0 * d(wrote) / d(memoryBytesInCleanedSegments));
 
-    fprintf(fp, "  Disk Space Freeing Rate:       %.3f MB/s (%.3f MB/s active)\n",
-        d(diskFreed) / elapsed / 1024 / 1024, d(diskFreed) / cleanerTime / 1024 / 1024);
-        
-    fprintf(fp, "  Memory Space Freeing Rate:     %.3f MB/s (%.3f MB/s active)\n",
-        d(memFreed) / elapsed / 1024 / 1024, d(memFreed) / cleanerTime / 1024 / 1024);
+    fprintf(fp, "  Disk Space Freeing Rate:       %.3f MB/s "
+        "(%.3f MB/s active)\n",
+        d(diskFreed) / elapsed / 1024 / 1024,
+        d(diskFreed) / cleanerTime / 1024 / 1024);
+
+    fprintf(fp, "  Memory Space Freeing Rate:     %.3f MB/s "
+        "(%.3f MB/s active)\n",
+        d(memFreed) / elapsed / 1024 / 1024,
+        d(memFreed) / cleanerTime / 1024 / 1024);
 
     fprintf(fp, "  Survivor Bytes Written:        %lu (%.3f MB/s active)\n",
         wrote, d(wrote) / cleanerTime / 1024 / 1024);
@@ -985,41 +1022,79 @@ Output::dumpDiskMetrics(FILE* fp, ProtoBuf::LogMetrics& metrics)
     fprintf(fp, "  Total Time:                    %.3f sec (%.2f%% active)\n",
         cleanerTime, 100.0 * cleanerTime / elapsed);
 
-    double chooseTime = Cycles::toSeconds(onDiskMetrics.get_segments_to_clean_ticks(), serverHz);
-    fprintf(fp, "    Choose Segments:             %.3f sec (%.2f%%, %.2f%% active)\n",
-        chooseTime, 100.0 * chooseTime / elapsed, 100.0 * chooseTime / cleanerTime);
+    double chooseTime = Cycles::toSeconds(
+        onDiskMetrics.get_segments_to_clean_ticks(), serverHz);
+    fprintf(fp, "    Choose Segments:             %.3f sec "
+        "(%.2f%%, %.2f%% active)\n",
+        chooseTime,
+        100.0 * chooseTime / elapsed,
+        100.0 * chooseTime / cleanerTime);
 
-    double sortSegmentTime = Cycles::toSeconds(onDiskMetrics.cost_benefit_sort_ticks(), serverHz);
-    fprintf(fp, "      Sort Segments:             %.3f sec (%.2f%%, %.2f%% active)\n",
-        sortSegmentTime, 100.0 * sortSegmentTime / elapsed, 100.0 * sortSegmentTime / cleanerTime);
+    double sortSegmentTime = Cycles::toSeconds(
+        onDiskMetrics.cost_benefit_sort_ticks(), serverHz);
+    fprintf(fp, "      Sort Segments:             %.3f sec "
+        "(%.2f%%, %.2f%% active)\n",
+        sortSegmentTime,
+        100.0 * sortSegmentTime / elapsed,
+        100.0 * sortSegmentTime / cleanerTime);
 
-    double extractEntriesTime = Cycles::toSeconds(onDiskMetrics.get_sorted_entries_ticks(), serverHz);
-    fprintf(fp, "    Extract Entries:             %.3f sec (%.2f%%, %.2f%% active)\n",
-        extractEntriesTime, 100.0 * extractEntriesTime / elapsed, 100.0 * extractEntriesTime / cleanerTime);
+    double extractEntriesTime = Cycles::toSeconds(
+        onDiskMetrics.get_sorted_entries_ticks(), serverHz);
+    fprintf(fp, "    Extract Entries:             %.3f sec "
+        "(%.2f%%, %.2f%% active)\n",
+        extractEntriesTime,
+        100.0 * extractEntriesTime / elapsed,
+        100.0 * extractEntriesTime / cleanerTime);
 
-    double timestampSortTime = Cycles::toSeconds(onDiskMetrics.timestamp_sort_ticks(), serverHz);
-    fprintf(fp, "      Sort Entries:              %.3f sec (%.2f%%, %.2f%% active)\n",
-        timestampSortTime, 100.0 * timestampSortTime / elapsed, 100.0 * timestampSortTime / cleanerTime);
+    double timestampSortTime = Cycles::toSeconds(
+        onDiskMetrics.timestamp_sort_ticks(), serverHz);
+    fprintf(fp, "      Sort Entries:              %.3f sec "
+        "(%.2f%%, %.2f%% active)\n",
+        timestampSortTime,
+        100.0 * timestampSortTime / elapsed,
+        100.0 * timestampSortTime / cleanerTime);
 
-    double relocateTime = Cycles::toSeconds(onDiskMetrics.relocate_live_entries_ticks(), serverHz);
-    fprintf(fp, "    Relocate Entries:            %.3f sec (%.2f%%, %.2f%% active)\n",
-        relocateTime, 100.0 * relocateTime / elapsed, 100.0 * relocateTime / cleanerTime);
+    double relocateTime = Cycles::toSeconds(
+        onDiskMetrics.relocate_live_entries_ticks(), serverHz);
+    fprintf(fp, "    Relocate Entries:            %.3f sec "
+        "(%.2f%%, %.2f%% active)\n",
+        relocateTime,
+        100.0 * relocateTime / elapsed,
+        100.0 * relocateTime / cleanerTime);
 
-    double waitTime = Cycles::toSeconds(onDiskMetrics.wait_for_free_survivors_ticks(), serverHz);
-    fprintf(fp, "      Wait for Free Survivors:   %.3f sec (%.2f%%, %.2f%% active)\n",
-        waitTime, 100.0 * waitTime / elapsed, 100.0 * waitTime / cleanerTime);
+    double waitTime = Cycles::toSeconds(
+        onDiskMetrics.wait_for_free_survivors_ticks(), serverHz);
+    fprintf(fp, "      Wait for Free Survivors:   %.3f sec "
+        "(%.2f%%, %.2f%% active)\n",
+        waitTime,
+        100.0 * waitTime / elapsed,
+        100.0 * waitTime / cleanerTime);
 
-    double callbackTime = Cycles::toSeconds(onDiskMetrics.relocation_callback_ticks(), serverHz);
-    fprintf(fp, "      Callbacks:                 %.3f sec (%.2f%%, %.2f%% active, %.2f us avg)\n",
-        callbackTime, 100.0 * callbackTime / elapsed, 100.0 * callbackTime / cleanerTime, 1.0e6 * callbackTime / d(onDiskMetrics.total_relocation_callbacks()));
+    double callbackTime = Cycles::toSeconds(
+        onDiskMetrics.relocation_callback_ticks(), serverHz);
+    fprintf(fp, "      Callbacks:                 %.3f sec "
+        "(%.2f%%, %.2f%% active, %.2f us avg)\n",
+        callbackTime,
+        100.0 * callbackTime / elapsed,
+        100.0 * callbackTime / cleanerTime,
+        1.0e6 * callbackTime / d(onDiskMetrics.total_relocation_callbacks()));
 
-    double appendTime = Cycles::toSeconds(onDiskMetrics.relocation_append_ticks(), serverHz);
-    fprintf(fp, "        Segment Appends:         %.3f sec (%.2f%%, %.2f%% active, %.2f us avg)\n",
-        appendTime, 100.0 * appendTime / elapsed, 100.0 * appendTime / cleanerTime, 1.0e6 * appendTime / d(onDiskMetrics.total_relocation_appends()));
+    double appendTime = Cycles::toSeconds(
+        onDiskMetrics.relocation_append_ticks(), serverHz);
+    fprintf(fp, "        Segment Appends:         %.3f sec "
+        "(%.2f%%, %.2f%% active, %.2f us avg)\n",
+        appendTime,
+        100.0 * appendTime / elapsed,
+        100.0 * appendTime / cleanerTime,
+        1.0e6 * appendTime / d(onDiskMetrics.total_relocation_appends()));
 
-    double completeTime = Cycles::toSeconds(onDiskMetrics.cleaning_complete_ticks(), serverHz);
-    fprintf(fp, "    Cleaning Complete:           %.3f sec (%.2f%%, %.2f%% active)\n",
-        completeTime, 100.0 * completeTime / elapsed, 100.0 * completeTime / cleanerTime);
+    double completeTime = Cycles::toSeconds(
+        onDiskMetrics.cleaning_complete_ticks(), serverHz);
+    fprintf(fp, "    Cleaning Complete:           %.3f sec "
+        "(%.2f%%, %.2f%% active)\n",
+        completeTime,
+        100.0 * completeTime / elapsed,
+        100.0 * completeTime / cleanerTime);
 }
 
 void
@@ -1033,7 +1108,8 @@ Output::dumpMemoryMetrics(FILE* fp, ProtoBuf::LogMetrics& metrics)
         metrics.cleaner_metrics().in_memory_metrics();
 
     double serverHz = metrics.ticks_per_second();
-    double cleanerTime = Cycles::toSeconds(inMemoryMetrics.total_ticks(), serverHz);
+    double cleanerTime = Cycles::toSeconds(inMemoryMetrics.total_ticks(),
+                                           serverHz);
 
     uint64_t freed = inMemoryMetrics.total_bytes_freed();
     uint64_t wrote = inMemoryMetrics.total_bytes_appended_to_survivors();
@@ -1041,43 +1117,69 @@ Output::dumpMemoryMetrics(FILE* fp, ProtoBuf::LogMetrics& metrics)
     fprintf(fp, "  Duty Cycle:                    %.2f%% (%.2f sec)\n",
         100.0 * cleanerTime / elapsed, cleanerTime);
 
-    fprintf(fp, "  Memory Write Cost:             %.3f\n", d(freed + wrote) / d(freed));
+    fprintf(fp, "  Memory Write Cost:             %.3f\n",
+        d(freed + wrote) / d(freed));
 
-    uint64_t bytesInCompactedSegments = inMemoryMetrics.total_bytes_in_compacted_segments();
+    uint64_t bytesInCompactedSegments =
+        inMemoryMetrics.total_bytes_in_compacted_segments();
     fprintf(fp, "  Avg Compacted Seg Util:        %.2f%%\n",
         100.0 * d(wrote) / d(bytesInCompactedSegments));
 
-    fprintf(fp, "  Memory Space Freeing Rate:     %.3f MB/s (%.3f MB/s active)\n",
-        d(freed) / elapsed / 1024 / 1024, d(freed) / cleanerTime / 1024 / 1024);
+    fprintf(fp, "  Memory Space Freeing Rate:     %.3f MB/s "
+        "(%.3f MB/s active)\n",
+        d(freed) / elapsed / 1024 / 1024,
+        d(freed) / cleanerTime / 1024 / 1024);
 
-    fprintf(fp, "  Survivor Bytes Written:        %lu (%.3f MB/s active)\n",
-        wrote, d(wrote) / cleanerTime / 1024 / 1024);
+    fprintf(fp, "  Survivor Bytes Written:        %lu "
+        "(%.3f MB/s active)\n",
+        wrote,
+        d(wrote) / cleanerTime / 1024 / 1024);
 
-    fprintf(fp, "  Total Time:                    %.3f sec (%.2f%% active)\n",
-        cleanerTime, 100.0 * cleanerTime / elapsed);
+    fprintf(fp, "  Total Time:                    %.3f sec "
+        "(%.2f%% active)\n",
+        cleanerTime,
+        100.0 * cleanerTime / elapsed);
 
-    double chooseTime = Cycles::toSeconds(inMemoryMetrics.get_segment_to_compact_ticks(), serverHz);
-    fprintf(fp, "    Choose Segments:             %.3f sec (%.2f%%, %.2f%% active)\n",
-        chooseTime, 100.0 * chooseTime / elapsed, 100.0 * chooseTime / cleanerTime);
+    double chooseTime = Cycles::toSeconds(
+        inMemoryMetrics.get_segment_to_compact_ticks(), serverHz);
+    fprintf(fp, "    Choose Segments:             %.3f sec "
+        "(%.2f%%, %.2f%% active)\n",
+        chooseTime,
+        100.0 * chooseTime / elapsed,
+        100.0 * chooseTime / cleanerTime);
 
-    double waitTime = Cycles::toSeconds(inMemoryMetrics.wait_for_free_survivor_ticks(), serverHz);
-    fprintf(fp, "    Wait for Free Survivor:      %.3f sec (%.2f%%, %.2f%% active)\n",
-        waitTime, 100.0 * waitTime / elapsed, 100.0 * waitTime / cleanerTime);
+    double waitTime = Cycles::toSeconds(
+        inMemoryMetrics.wait_for_free_survivor_ticks(), serverHz);
+    fprintf(fp, "    Wait for Free Survivor:      %.3f sec "
+        "(%.2f%%, %.2f%% active)\n",
+        waitTime,
+        100.0 * waitTime / elapsed,
+        100.0 * waitTime / cleanerTime);
 
-    double callbackTime = Cycles::toSeconds(inMemoryMetrics.relocation_callback_ticks(), serverHz);
-    fprintf(fp, "    Callbacks:                   %.3f sec (%.2f%%, %.2f%% active, %.2f us avg)\n",
-        callbackTime, 100.0 * callbackTime / elapsed, 100.0 * callbackTime / cleanerTime, 1.0e6 * callbackTime / d(inMemoryMetrics.total_relocation_callbacks()));
+    double callbackTime = Cycles::toSeconds(
+        inMemoryMetrics.relocation_callback_ticks(), serverHz);
+    fprintf(fp, "    Callbacks:                   %.3f sec "
+        "(%.2f%%, %.2f%% active, %.2f us avg)\n",
+        callbackTime,
+        100.0 * callbackTime / elapsed,
+        100.0 * callbackTime / cleanerTime,
+        1.0e6 * callbackTime / d(inMemoryMetrics.total_relocation_callbacks()));
 
-    double appendTime = Cycles::toSeconds(inMemoryMetrics.relocation_append_ticks(), serverHz);
-    fprintf(fp, "      Segment Appends:           %.3f sec (%.2f%%, %.2f%% active, %.2f us avg)\n",
-        appendTime, 100.0 * appendTime / elapsed, 100.0 * appendTime / cleanerTime, 1.0e6 * appendTime / d(inMemoryMetrics.total_relocation_appends()));
+    double appendTime = Cycles::toSeconds(
+        inMemoryMetrics.relocation_append_ticks(), serverHz);
+    fprintf(fp, "      Segment Appends:           %.3f sec "
+        "(%.2f%%, %.2f%% active, %.2f us avg)\n",
+        appendTime,
+        100.0 * appendTime / elapsed,
+        100.0 * appendTime / cleanerTime,
+        1.0e6 * appendTime / d(inMemoryMetrics.total_relocation_appends()));
 }
 
 void
 Output::dumpLogMetrics(FILE* fp, ProtoBuf::LogMetrics& metrics)
 {
     double elapsed = Cycles::toSeconds(benchmark.stop - benchmark.start +
-                                       benchmark.prefillStop - benchmark.prefillStart);
+                            benchmark.prefillStop - benchmark.prefillStart);
 
     fprintf(fp, "===> LOG METRICS\n");
 
@@ -1089,15 +1191,18 @@ Output::dumpLogMetrics(FILE* fp, ProtoBuf::LogMetrics& metrics)
     fprintf(fp, "  Total Metadata Appends:        %.2f MB\n",
         d(metrics.total_metadata_bytes_appended()) / 1024 / 1024);
 
-    double appendTime = Cycles::toSeconds(metrics.total_append_ticks(), serverHz);
+    double appendTime = Cycles::toSeconds(metrics.total_append_ticks(),
+                                          serverHz);
     fprintf(fp, "  Total Time Appending:          %.3f sec (%.2f%%)\n",
-        appendTime, 100.0 * appendTime / elapsed);
-        
+        appendTime,
+        100.0 * appendTime / elapsed);
+
     double syncTime = Cycles::toSeconds(metrics.total_sync_ticks(), serverHz);
     fprintf(fp, "    Time Syncing:                %.3f sec (%.2f%%)\n",
         syncTime, 100.0 * syncTime / elapsed);
 
-    double noMemTime = Cycles::toSeconds(metrics.total_no_space_ticks(), serverHz);
+    double noMemTime = Cycles::toSeconds(metrics.total_no_space_ticks(),
+                                         serverHz);
     fprintf(fp, "  Time Out of Memory:            %.3f sec (%.2f%%)\n",
         noMemTime, 100.0 * noMemTime / elapsed);
 }
@@ -1135,7 +1240,11 @@ Output::dumpEnd()
 }
 
 void
-Output::updateLiveLine(RamCloud& ramcloud, string& masterLocator, uint64_t objects, uint64_t bytes, uint64_t ticks)
+Output::updateLiveLine(RamCloud& ramcloud,
+                       string& masterLocator,
+                       uint64_t objects,
+                       uint64_t bytes,
+                       uint64_t ticks)
 {
     ProtoBuf::LogMetrics logMetrics;
     ramcloud.getLogMetrics(masterLocator.c_str(), logMetrics);
@@ -1220,7 +1329,8 @@ try
          "Number of write RPCs that will be sent to the server without first "
          "getting any acknowledgement.")
         ("writeCostConvergence,w",
-         ProgramOptions::value<int>(&options.writeCostConvergence)->default_value(2),
+         ProgramOptions::value<int>(&options.writeCostConvergence)->
+            default_value(2),
          "Stop the benchmark after the disk write cost converges to a value "
          "that is stable (unchanging) to this many decimal places for 30 "
          "seconds' worth of disk cleaner run time. Higher values will "
@@ -1234,7 +1344,8 @@ try
             "inclusive\n");
         exit(1);
     }
-    if (options.distributionName != "uniform" && options.distributionName != "hotAndCold") {
+    if (options.distributionName != "uniform" &&
+      options.distributionName != "hotAndCold") {
         fprintf(stderr, "ERROR: Distribution must be one of \"uniform\" or "
             "\"hotAndCold\"\n");
         exit(1);
@@ -1260,9 +1371,14 @@ try
         string rawPrefillFilename = options.outputFilesPrefix + "-rp.txt";
         string rawBenchFilename = options.outputFilesPrefix + "-rb.txt";
 
-        if (fileExists(metricsFilename) || fileExists(latencyFilename) || fileExists(rawPrefillFilename) || fileExists(rawBenchFilename)) {
-            fprintf(stderr, "One or more output files (%s, %s, %s, or %s) already exist!\n",
-                metricsFilename.c_str(), latencyFilename.c_str(), rawPrefillFilename.c_str(), rawBenchFilename.c_str());
+        if (fileExists(metricsFilename) || fileExists(latencyFilename) ||
+          fileExists(rawPrefillFilename) || fileExists(rawBenchFilename)) {
+            fprintf(stderr, "One or more output files (%s, %s, %s, or %s) "
+                "already exist!\n",
+                metricsFilename.c_str(),
+                latencyFilename.c_str(),
+                rawPrefillFilename.c_str(),
+                rawBenchFilename.c_str());
             exit(1);
         }
 
@@ -1281,7 +1397,8 @@ try
     RamCloud ramcloud(coordinatorLocator.c_str());
 
     // Get server parameters...
-    // Perhaps this (and creating the distribution?) should be pushed into Benchmark.
+    // Perhaps this (and creating the distribution?) should be pushed into
+    // Benchmark.
     ramcloud.createTable(options.tableName.c_str());
     uint64_t tableId = ramcloud.getTableId(options.tableName.c_str());
 
@@ -1308,7 +1425,12 @@ try
                                                   90, 10);
     }
 
-    Benchmark benchmark(ramcloud, tableId, locator, *distribution, options.pipelinedRpcs, options.writeCostConvergence);
+    Benchmark benchmark(ramcloud,
+                        tableId,
+                        locator,
+                        *distribution,
+                        options.pipelinedRpcs,
+                        options.writeCostConvergence);
     Output output(ramcloud, locator, benchmark);
     output.addFile(stdout);
     if (metricsFile != NULL)
@@ -1326,9 +1448,11 @@ try
 
     if (latencyFile != NULL) {
         fprintf(latencyFile, "=== PREFILL LATENCIES ===\n");
-        fprintf(latencyFile, "%s\n", benchmark.prefillLatencyHistogram.toString().c_str());
+        fprintf(latencyFile, "%s\n",
+            benchmark.prefillLatencyHistogram.toString().c_str());
         fprintf(latencyFile, "=== BENCHMARK LATENCIES ===\n");
-        fprintf(latencyFile, "%s\n", benchmark.latencyHistogram.toString().c_str());
+        fprintf(latencyFile, "%s\n",
+            benchmark.latencyHistogram.toString().c_str());
     }
 
     if (rawPrefillFile != NULL) {
@@ -1343,20 +1467,21 @@ try
         fprintf(rawBenchFile, "%s", logMetrics.DebugString().c_str());
     }
 
-// XXX- add something that reads all objects and verifies we stored what we expected
-uint64_t key = 0;
-uint64_t totalBytes = 0;
-while (1) {
-    Buffer buffer;
-    try {
-        ramcloud.read(0, &key, sizeof(key), &buffer); 
-    } catch (...) {
-        break;
+    // TODO(rumble): add something that reads all objects and verifies that we
+    // we stored what we expected
+    uint64_t key = 0;
+    uint64_t totalBytes = 0;
+    while (1) {
+        Buffer buffer;
+        try {
+            ramcloud.read(0, &key, sizeof(key), &buffer);
+        } catch (...) {
+            break;
+        }
+        totalBytes += buffer.getTotalLength();
+        key++;
     }
-    totalBytes += buffer.getTotalLength();
-    key++;
-}
-fprintf(stderr, "%lu keys with %lu object bytes\n", key, totalBytes);
+    fprintf(stderr, "%lu keys with %lu object bytes\n", key, totalBytes);
 
     return 0;
 } catch (ClientException& e) {

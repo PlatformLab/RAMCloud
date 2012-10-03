@@ -87,8 +87,8 @@ MembershipService::getServerConfig(
 {
     ProtoBuf::ServerConfig serverConfigBuf;
     serverConfig.serialize(serverConfigBuf);
-    respHdr.serverConfigLength = ProtoBuf::serializeToResponse(&rpc.replyPayload,
-                                                               &serverConfigBuf);
+    respHdr.serverConfigLength = ProtoBuf::serializeToResponse(
+        &rpc.replyPayload, &serverConfigBuf);
 }
 
 /**

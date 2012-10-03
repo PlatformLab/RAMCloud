@@ -284,7 +284,7 @@ SegmentManager::allocSurvivor(LogSegment* replacing)
 
         if (testing_allocSurvivorMustNotBlock)
             return NULL;
-             
+
         usleep(100);
     }
 
@@ -792,6 +792,16 @@ SegmentManager::alloc(SegletAllocator::AllocationType type,
     return &s;
 }
 
+/**
+ * Allocate an unused segment slot. Returns -1 if there is no
+ * slot available.
+ *
+ * \param type
+ *      The type of segment we're allocating a slot for. Some slots
+ *      are reserved for special purposes like cleaning and emergency
+ *      head segments and can only be allocated if the appropriate
+ *      type is provided.
+ */
 uint32_t
 SegmentManager::allocSlot(SegletAllocator::AllocationType type)
 {
@@ -812,9 +822,23 @@ SegmentManager::allocSlot(SegletAllocator::AllocationType type)
     return slot;
 }
 
+/**
+ * Return a slot number from a previously-allocated segment to the
+ * appropriate free list.
+ *
+ * \param slot
+ *      The slot number that's now free.
+ * \param wasEmergencyHead
+ *      If the segment slot being freed belonged to an emergency head
+ *      segment, this must be set to true so that the slot is kept in
+ *      reserve for a future emergency head segment.
+ */
 void
 SegmentManager::freeSlot(uint32_t slot, bool wasEmergencyHead)
 {
+    // TODO(Steve): Have the slot # imply whether or not it was an emergency
+    //              head (for example, define the first N slots to always be
+    //              emergency heads)?
     if (wasEmergencyHead)
         freeEmergencyHeadSlots.push_back(slot);
     else if (freeSurvivorSlots.size() < survivorSlotsReserved)

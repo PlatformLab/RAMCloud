@@ -115,7 +115,7 @@ TEST_F(LogTest, append_basic) {
         oldHead = l.head;
     }
     // This depends on ServerConfig's number of bytes allocated to the log.
-    EXPECT_EQ(239, appends);    
+    EXPECT_EQ(239, appends);
 
     // getEntry()'s test ensures actual data gets there.
 

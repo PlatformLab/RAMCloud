@@ -75,7 +75,7 @@ class Histogram {
      * \param histogram
      *      Protocol buffer serialization of another histogram.
      */
-    Histogram(ProtoBuf::Histogram& histogram)
+    explicit Histogram(ProtoBuf::Histogram& histogram)
         : numBuckets(histogram.num_buckets()),
           bucketWidth(histogram.bucket_width()),
           buckets(),
@@ -107,7 +107,7 @@ class Histogram {
     storeSample(uint64_t sample)
     {
         // round to the nearest bucket
-        uint64_t bucket = (sample + (bucketWidth - 1)) / bucketWidth;
+        uint64_t bucket = (sample + (bucketWidth / 2)) / bucketWidth;
 
         if (bucket < numBuckets)
             buckets[bucket]++;
@@ -130,7 +130,8 @@ class Histogram {
     reset()
     {
         memset(&buckets[0], 0, sizeof(buckets[0]) * numBuckets);
-        sampleSum = outliers = max = min = 0;
+        sampleSum = outliers = max = 0;
+        min = -1UL;
     }
 
     /**
@@ -155,6 +156,7 @@ class Histogram {
         uint64_t sum = 0;
         for (uint32_t i = 0; i < numBuckets; i++) {
             uint64_t count = buckets[i];
+            sum += count;
             if (count >= minIncludedCount) {
                 s += format("%9u  %12lu  (%.3f%%,  %.3f%%)\n", i, count,
                     static_cast<double>(count) /
@@ -162,7 +164,6 @@ class Histogram {
                     static_cast<double>(sum) /
                       static_cast<double>(totalSamples) * 100);
             }
-            sum += count;
         }
 
         return s;
@@ -191,6 +192,9 @@ class Histogram {
     uint64_t
     getTotalSamples() const
     {
+        // We could easily keep a counter, but I've optimized for the minimum
+        // amount of data that needs to be serialized. Getting this count ultra
+        // quickly isn't very important.
         uint64_t totalSamples = outliers;
         foreach (uint64_t count, buckets)
             totalSamples += count;
@@ -221,10 +225,13 @@ class Histogram {
      * Get the average sample stored in the histogram. Any outliers will be
      * included in the result.
      */
-    double
+    uint64_t
     getAverage() const
     {
-        return static_cast<double>(sampleSum / getTotalSamples());
+        uint64_t totalSamples = getTotalSamples();
+        if (totalSamples == 0)
+            return 0;
+        return downCast<uint64_t>(sampleSum / getTotalSamples());
     }
 
     /**
@@ -270,7 +277,7 @@ class Histogram {
     /// The number of samples added to the histogram that exceeded the maximum
     /// bucket index.
     uint64_t outliers;
-    
+
     /// The highest-valued sample. May be an outlier.
     uint64_t max;
 

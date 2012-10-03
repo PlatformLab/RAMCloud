@@ -39,6 +39,7 @@ TESTS_SRCFILES := \
 		  src/FailureDetectorTest.cc \
 		  src/FastTransportTest.cc \
 		  src/HashTableTest.cc \
+		  src/HistogramTest.cc \
 		  src/InitializeTest.cc \
 		  src/InMemoryStorageTest.cc \
 		  src/IpAddressTest.cc \
@@ -74,6 +75,8 @@ TESTS_SRCFILES := \
 		  src/ReplicatedSegmentTest.cc \
 		  src/RpcWrapperTest.cc \
 		  src/RuntimeOptionsTest.cc \
+		  src/SegletTest.cc \
+		  src/SegletAllocatorTest.cc \
 		  src/SegmentTest.cc \
 		  src/SegmentIteratorTest.cc \
 		  src/SegmentManagerTest.cc \

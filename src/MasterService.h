@@ -295,7 +295,7 @@ class MasterService : public Service, LogEntryHandlers {
     uint32_t getObjectTimestamp(Buffer& buffer);
     bool checkTombstoneLiveness(Buffer& buffer);
     void relocateTombstone(Buffer& oldBuffer,
-                           LogEntryRelocator& relocator); 
+                           LogEntryRelocator& relocator);
     uint32_t getTombstoneTimestamp(Buffer& buffer);
     Status storeObject(Key& key,
                        const RejectRules* rejectRules,

@@ -202,10 +202,8 @@ LogCleaner::doMemoryCleaning()
 
     uint32_t freeableSeglets;
     LogSegment* segment = getSegmentToCompact(freeableSeglets);
-    if (segment == NULL) {
-LOG(NOTICE, "Can't find segment to compact");
+    if (segment == NULL)
         return std::numeric_limits<double>::max();
-    }
 
     // Only proceed once we have a survivor segment to work with.
     waitForAvailableSurvivors(1, inMemoryMetrics.waitForFreeSurvivorTicks);
@@ -214,7 +212,7 @@ LOG(NOTICE, "Can't find segment to compact");
         segment->getSegletsAllocated() * segletSize;
 
     LogSegment* survivor = segmentManager.allocSurvivor(segment);
-assert(survivor != NULL);
+
     for (SegmentIterator it(*segment); !it.isDone(); it.next()) {
         LogEntryType type = it.getType();
         Buffer buffer;
@@ -239,7 +237,8 @@ assert(0);
         (segletsToFree * segletSize);
 
     inMemoryMetrics.totalBytesFreed += freeableSeglets * segletSize;
-    inMemoryMetrics.totalBytesAppendedToSurvivors += survivor->getAppendedLength();
+    inMemoryMetrics.totalBytesAppendedToSurvivors +=
+        survivor->getAppendedLength();
 
     segmentManager.memoryCleaningComplete(segment);
 
@@ -264,10 +263,8 @@ LogCleaner::doDiskCleaning()
     LogSegmentVector segmentsToClean;
     getSegmentsToClean(segmentsToClean, segletsBefore);
 
-    if (segmentsToClean.size() == 0) {
-LOG(NOTICE, "Can't find segments to clean");
+    if (segmentsToClean.size() == 0)
         return;
-    }
 
     // Extract the currently live entries of the segments we're cleaning and
     // sort them by age.
@@ -372,7 +369,7 @@ class CostBenefitComparer {
             // This generally shouldn't happen, but is possible due to:
             //  1) Unsynchronized TSCs across cores (WallTime uses rdtsc).
             //  2) Unsynchronized clocks and "newer" recovered data in the
-            //     log. 
+            //     log.
             //  3) Getting an inconsistent view of the spaceTimeSum and
             //     liveBytes segment counters due to buggy code.
             if (timestamp > now) {
@@ -459,7 +456,8 @@ LogCleaner::getSegmentsToClean(LogSegmentVector& outSegmentsToClean,
     for (size_t i = 0; i < candidates.size(); i++) {
         LogSegment* candidate = candidates[i];
 
-        if (candidate->getMemoryUtilization() > MAX_CLEANABLE_MEMORY_UTILIZATION)
+        int utilization = candidate->getMemoryUtilization();
+        if (utilization > MAX_CLEANABLE_MEMORY_UTILIZATION)
             continue;
 
         uint64_t liveBytes = candidate->getLiveBytes();

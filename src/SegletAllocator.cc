@@ -60,7 +60,7 @@ SegletAllocator::~SegletAllocator()
     size_t expectedFree = block.length / segletSize;
 
     if (totalFree != expectedFree)
-        throw FatalError(HERE, "Destructor called before all seglets freed!");
+        LOG(WARNING, "Destructor called before all seglets freed!");
 
     foreach (Seglet* s, emergencyHeadPool)
         delete s;
@@ -140,7 +140,7 @@ SegletAllocator::initializeEmergencyHeadReserve(uint32_t numSeglets)
 
     if (emergencyHeadPoolReserve != 0)
         return false;
-    
+
     if (!allocFromPool(defaultPool, numSeglets, emergencyHeadPool))
         return false;
 
@@ -178,7 +178,7 @@ SegletAllocator::initializeCleanerReserve(uint32_t numSeglets)
 
     if (cleanerPoolReserve != 0)
         return false;
-    
+
     if (!allocFromPool(defaultPool, numSeglets, cleanerPool))
         return false;
 
@@ -201,7 +201,7 @@ void
 SegletAllocator::free(Seglet* seglet)
 {
     if (DEBUG_BUILD)
-        memset(seglet->get(), '!', segletSize);
+        memset(seglet->get(), '!', seglet->getLength());
 
     std::lock_guard<SpinLock> guard(lock);
 

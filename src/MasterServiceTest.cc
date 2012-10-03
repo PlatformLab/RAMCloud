@@ -1801,7 +1801,7 @@ TEST_F(MasterServiceTest, objectRelocationCallback_objectAlive) {
 
     uint64_t initialTotalTrackedBytes = table->objectBytes;
 
-    LogEntryRelocator relocator(service->segmentManager.getHeadSegment(), 100000);
+    LogEntryRelocator relocator(service->segmentManager.getHeadSegment(), 1000);
     service->relocate(LOG_ENTRY_TYPE_OBJ, oldBuffer, relocator);
     EXPECT_TRUE(relocator.didAppend);
     EXPECT_EQ(initialTotalTrackedBytes, table->objectBytes);
@@ -1844,7 +1844,7 @@ TEST_F(MasterServiceTest, objectRelocationCallback_objectDeleted) {
 
     uint64_t initialTotalTrackedBytes = table->objectBytes;
 
-    LogEntryRelocator relocator(service->segmentManager.getHeadSegment(), 100000);
+    LogEntryRelocator relocator(service->segmentManager.getHeadSegment(), 1000);
     service->relocate(LOG_ENTRY_TYPE_OBJ, buffer, relocator);
     EXPECT_FALSE(relocator.didAppend);
     EXPECT_EQ(initialTotalTrackedBytes - buffer.getTotalLength(),
@@ -1876,7 +1876,7 @@ TEST_F(MasterServiceTest, objectRelocationCallback_objectModified) {
     HashTable::Reference dummyReference;
     uint64_t initialTotalTrackedBytes = table->objectBytes;
 
-    LogEntryRelocator relocator(service->segmentManager.getHeadSegment(), 100000);
+    LogEntryRelocator relocator(service->segmentManager.getHeadSegment(), 1000);
     service->relocate(LOG_ENTRY_TYPE_OBJ, buffer, relocator);
     EXPECT_FALSE(relocator.didAppend);
     EXPECT_EQ(initialTotalTrackedBytes - buffer.getTotalLength(),
@@ -1929,7 +1929,7 @@ TEST_F(MasterServiceTest, tombstoneRelocationCallback_basics) {
     oldTypeInLog = service->log->getEntry(oldTombstoneReference,
                                           oldBufferInLog);
 
-    LogEntryRelocator relocator(service->segmentManager.getHeadSegment(), 100000);
+    LogEntryRelocator relocator(service->segmentManager.getHeadSegment(), 1000);
     service->relocate(LOG_ENTRY_TYPE_OBJTOMB, oldBufferInLog, relocator);
     EXPECT_TRUE(relocator.didAppend);
 

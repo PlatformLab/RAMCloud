@@ -91,7 +91,7 @@ class InMemory {
 
     /// Total number of cpu cycles spent in doMemoryCleaning().
     uint64_t totalTicks;
-    
+
     /// Total number of cpu cycles spent choosing a segment to compact.
     uint64_t getSegmentToCompactTicks;
 
@@ -158,7 +158,7 @@ class OnDisk {
         m.set_total_relocation_callbacks(totalRelocationCallbacks);
         m.set_total_relocation_appends(totalRelocationAppends);
         m.set_total_ticks(totalTicks);
-        m.set_get_segments_to_clean_ticks(getSegmentsToCleanTicks); 
+        m.set_get_segments_to_clean_ticks(getSegmentsToCleanTicks);
         m.set_cost_benefit_sort_ticks(costBenefitSortTicks);
         m.set_get_sorted_entries_ticks(getSortedEntriesTicks);
         m.set_timestamp_sort_ticks(timestampSortTicks);

@@ -31,7 +31,7 @@ struct SegmentAndSegletSize {
 
 class SegmentAndAllocator {
   public:
-    SegmentAndAllocator(SegmentAndSegletSize* segmentAndSegletSize)
+    explicit SegmentAndAllocator(SegmentAndSegletSize* segmentAndSegletSize)
         : segmentSize(segmentAndSegletSize->segmentSize),
           segletSize(segmentAndSegletSize->segletSize),
           allocator(),

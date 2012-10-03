@@ -72,7 +72,7 @@ class LogEntryRelocator {
             outOfSpace = true;
             return false;
         }
-        
+
         uint32_t bytesUsed = segment->getAppendedLength() - priorLength;
         segment->statistics.increment(bytesUsed, timestamp);
 

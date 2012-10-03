@@ -443,7 +443,7 @@ RecoverRpc::RecoverRpc(Context* context, ServerId serverId,
     reqHdr->partitionId = partitionId;
     reqHdr->tabletsLength = serializeToRequest(&request, tablets);
     reqHdr->numReplicas = numReplicas;
-    Buffer::Chunk::appendToBuffer(&request, replicas,
+    request.append(replicas,
             downCast<uint32_t>(sizeof(replicas[0])) * numReplicas);
     send();
 }

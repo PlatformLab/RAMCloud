@@ -140,7 +140,7 @@ class LogCleaner {
             return a.timestamp < b.timestamp;
         }
     };
-void dumpStats(); //XXX
+
     static void cleanerThreadEntry(LogCleaner* logCleaner, Context* context);
     void doWork();
     double doMemoryCleaning();

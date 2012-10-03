@@ -2298,7 +2298,8 @@ MasterService::relocateObject(Buffer& oldBuffer,
         if (keepNewObject) {
             // Try to relocate it. If it fails, just return. The cleaner will
             // allocate more memory and retry.
-            if (!relocator.append(LOG_ENTRY_TYPE_OBJ, oldBuffer, getObjectTimestamp(oldBuffer)))
+            uint32_t timestamp = getObjectTimestamp(oldBuffer);
+            if (!relocator.append(LOG_ENTRY_TYPE_OBJ, oldBuffer, timestamp))
                 return;
             objectMap->replace(key, relocator.getNewReference());
         }
@@ -2360,10 +2361,11 @@ MasterService::relocateTombstone(Buffer& oldBuffer,
     bool keepNewTomb = log->containsSegment(tomb.getSegmentId());
 
     if (keepNewTomb) {
-       // Try to relocate it. If it fails, just return. The cleaner will
-       // allocate more memory and retry.
-       if (!relocator.append(LOG_ENTRY_TYPE_OBJTOMB, oldBuffer, getTombstoneTimestamp(oldBuffer)))
-           return;
+        // Try to relocate it. If it fails, just return. The cleaner will
+        // allocate more memory and retry.
+        uint32_t timestamp = getTombstoneTimestamp(oldBuffer);
+        if (!relocator.append(LOG_ENTRY_TYPE_OBJTOMB, oldBuffer, timestamp))
+            return;
     } else {
         Key key(LOG_ENTRY_TYPE_OBJTOMB, oldBuffer);
         Table* table = getTable(key);

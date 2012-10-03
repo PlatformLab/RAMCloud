@@ -69,7 +69,7 @@ class SegletAllocator {
         DEFAULT
     };
 
-    SegletAllocator(const ServerConfig& config);
+    explicit SegletAllocator(const ServerConfig& config);
     ~SegletAllocator();
     void getMetrics(ProtoBuf::LogMetrics_SegletMetrics& m);
     bool alloc(AllocationType type,
@@ -85,7 +85,7 @@ class SegletAllocator {
     uint64_t getTotalBytes();
     int getMemoryUtilization();
 
-  private:
+  PRIVATE:
     bool allocFromPool(vector<Seglet*>& pool,
                        uint32_t count,
                        vector<Seglet*>& outSeglets);
@@ -103,7 +103,7 @@ class SegletAllocator {
     //
     /// There are two situations in which we must be able to allocate a new
     /// head, even if we're out of memory:
-    /// 
+    ///
     /// 1) ReplicaManager detected a head replica failure and needs to close the
     ///    previous head immediately.
     /// 2) There are cleaned segments that could be freed up once we write a new
