@@ -47,6 +47,7 @@ TESTS_SRCFILES := \
 		  src/LogCabinHelperTest.cc \
 		  src/LogCleanerTest.cc \
 		  src/LogDigestTest.cc \
+		  src/LogEntryRelocatorTest.cc \
 		  src/LoggerTest.cc \
 		  src/LogIteratorTest.cc \
 		  src/LogSegmentTest.cc \

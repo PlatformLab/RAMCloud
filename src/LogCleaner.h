@@ -80,7 +80,7 @@ class LogCleaner {
 
     /// The maximum amount of live data we'll process in any single disk
     /// cleaning pass. The units are full segments. The cleaner will multiply
-    /// this value by the number of bytes in a full segment and extra live
+    /// this value by the number of bytes in a full segment and extract live
     /// entries from candidate segments until it exceeds that product.
     enum { MAX_LIVE_SEGMENTS_PER_DISK_PASS = 10 };
 
@@ -104,11 +104,13 @@ class LogCleaner {
     /// need to be made freeable by cleaning on disk).
     enum { MIN_DISK_UTILIZATION = 95 };
 
-    /// Tuple containing a reference to a live entry being cleaned, as well as a
-    /// cache of its timestamp. The purpose of this is to make sorting entries
-    /// by age much faster by caching the timestamp when we first examine the
-    /// entry in getSortedEntries(), rather than extracting it on each sort
-    /// comparison.
+    /**
+     * Tuple containing a reference to a live entry being cleaned, as well as a
+     * cache of its timestamp. The purpose of this is to make sorting entries
+     * by age much faster by caching the timestamp when we first examine the
+     * entry in getSortedEntries(), rather than extracting it on each sort
+     * comparison.
+     */
     class LiveEntry {
       public:
         LiveEntry(LogSegment* segment, uint32_t offset, uint32_t timestamp)
@@ -120,8 +122,13 @@ class LogCleaner {
                 "LiveEntry isn't the expected size!");
         }
 
+        /// Pointer to the segment this entry is in.
         LogSegment* segment;
+
+        /// Offset of the entry within the segment.
         uint32_t offset;
+
+        /// Timestamp of the entry (see WallTime).
         uint32_t timestamp;
     } __attribute__((packed));
     typedef std::vector<LiveEntry> LiveEntryVector;
@@ -141,6 +148,27 @@ class LogCleaner {
         }
     };
 
+    /**
+     * Comparison functor used when sorting segments by best cost-benefit ratio.
+     * This is used when choosing disk segments to clean. All candidates are
+     * sorted by cost-benefit and then the list is walked in order.
+     */
+    class CostBenefitComparer {
+      public:
+        CostBenefitComparer();
+        uint64_t costBenefit(LogSegment* s);
+        bool operator()(LogSegment* a, LogSegment* b);
+
+      PRIVATE:
+        /// WallTime timestamp when this object was constructed.
+        uint64_t now;
+
+        /// Unique identifier for this comparer instance. The cost-benefit for a
+        /// particular LogSegment must not change within a comparer's lifetime,
+        /// otherwise weird things can happen, for example A < B, B < C, C < A).
+        uint64_t version;
+    };
+
     static void cleanerThreadEntry(LogCleaner* logCleaner, Context* context);
     void doWork();
     double doMemoryCleaning();
@@ -158,6 +186,37 @@ class LogCleaner {
     void closeSurvivor(LogSegment* survivor);
     void waitForAvailableSurvivors(size_t count, uint64_t& outTicks);
 
+    /**
+     * Helper method that relocates a log entry and updates various metrics
+     * to track relocation performance. It is templated so that it may be
+     * used to track both relocations due to disk cleaning and in-memory
+     * cleaning (compaction). 
+     *
+     * During cleaning, this is invoked on every entry in the segments being
+     * cleaned. It is up to the caller to decide whether or not they want the
+     * entry anymore and to use the LogEntryRelocator this method provides them
+     * to perpetuate the entry if they need it.
+     *
+     * \param type
+     *      The type of entry that may need relocation.
+     * \param buffer
+     *      Buffer containing the segment entry that may need relocation.
+     * \param survivor
+     *      Survivor segment into which this entry may be relocated. This may
+     *      be NULL, in which case the method will return false if relocation
+     *      is attempted, or true if the entry was no longer needed and no
+     *      relocation was tried.
+     * \param metrics
+     *      The appropriate metrics to update with relocation performance
+     *      statistics. This is an instance of LogCleanerMetrics::InMemory or
+     *      LogCleanerMetrics::OnDisk.
+     * \return
+     *      Returns true if the operation succeeded (the entry was successfully
+     *      relocated or was not needed and no relocation was performed).
+     *      Returns false if relocation was needed, but failed because the
+     *      survivor segment was either NULL or had insufficient space. In this
+     *      case, the caller will simply allocate a new survivor and retry.
+     */
     template<typename T>
     bool
     relocateEntry(LogEntryType type,

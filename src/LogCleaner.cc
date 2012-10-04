@@ -153,10 +153,10 @@ LogCleaner::cleanerThreadEntry(LogCleaner* logCleaner, Context* context)
 }
 
 /**
- * Main cleaning loop, invoked periodically via cleanerThreadEntry(). If there
- * is cleaning to be done, do it now and return true. If no work is to be done,
- * return false so that the caller may sleep for a bit, rather than banging on
- * the CPU.
+ * Main cleaning loop, constantly invoked via cleanerThreadEntry(). If there
+ * is cleaning to be done, do it now return. If no work is to be done, sleep for
+ * a bit before returning (and getting called again), rather than banging on the
+ * CPU.
  */
 void
 LogCleaner::doWork()
@@ -219,10 +219,7 @@ LogCleaner::doMemoryCleaning()
         it.appendToBuffer(buffer);
 
         if (!relocateEntry(type, buffer, survivor, inMemoryMetrics))
-{
-assert(0);
             throw FatalError(HERE, "Entry didn't fit into survivor!");
-}
     }
 
     uint32_t segletsToFree = survivor->getSegletsAllocated() -
@@ -342,80 +339,6 @@ LogCleaner::getSegmentToCompact(uint32_t& outFreeableSeglets)
     return best;
 }
 
-/**
- * Comparison functor used when sorting segments by best cost-benefit ratio.
- */
-class CostBenefitComparer {
-  public:
-    CostBenefitComparer()
-        : now(WallTime::secondsTimestamp()),
-          version(Cycles::rdtsc())
-    {
-    }
-
-    /**
-     * Calculate the cost-benefit ratio (benefit/cost) for the given segment.
-     */
-    uint64_t
-    costBenefit(LogSegment* s)
-    {
-        // If utilization is 0, cost-benefit is infinity.
-        uint64_t costBenefit = -1UL;
-
-        int utilization = s->getDiskUtilization();
-        if (utilization != 0) {
-            uint64_t timestamp = s->getAverageTimestamp();
-
-            // This generally shouldn't happen, but is possible due to:
-            //  1) Unsynchronized TSCs across cores (WallTime uses rdtsc).
-            //  2) Unsynchronized clocks and "newer" recovered data in the
-            //     log.
-            //  3) Getting an inconsistent view of the spaceTimeSum and
-            //     liveBytes segment counters due to buggy code.
-            if (timestamp > now) {
-                LOG(WARNING, "timestamp > now");
-                timestamp = now;
-            }
-
-            uint64_t age = now - timestamp;
-            costBenefit = ((100 - utilization) * age) / utilization;
-        }
-
-        return costBenefit;
-    }
-
-    /**
-     * Compare two segment's cost-benefit ratios. Higher values (better cleaning
-     * candidates) are better, so the less than comparison is inverted.
-     */
-    bool
-    operator()(LogSegment* a, LogSegment* b)
-    {
-        // We must ensure that we maintain the weak strictly ordered constraint,
-        // otherwise surprising things may happen in the stl algorithms when
-        // segment statistics change and alter the computed cost-benefit of a
-        // segment from one comparison to the next.
-        if (a->costBenefitVersion != version) {
-            a->costBenefit = costBenefit(a);
-            a->costBenefitVersion = version;
-        }
-        if (b->costBenefitVersion != version) {
-            b->costBenefit = costBenefit(b);
-            b->costBenefitVersion = version;
-        }
-        return a->costBenefit > b->costBenefit;
-    }
-
-  private:
-    /// WallTime timestamp when this object was constructed.
-    uint64_t now;
-
-    /// Unique identifier for this comparer instance. The cost-benefit for a
-    /// particular LogSegment must not change within a comparer's lifetime,
-    /// otherwise weird things can happen, for example A < B, B < C, C < A).
-    uint64_t version;
-};
-
 void
 LogCleaner::sortSegmentsByCostBenefit(LogSegmentVector& segments)
 {
@@ -481,6 +404,18 @@ LogCleaner::getSegmentsToClean(LogSegmentVector& outSegmentsToClean,
     outTotalSeglets = totalSeglets;
 }
 
+/**
+ * Sort the given segment entries by their timestamp. Used to sort the survivor
+ * data that is written out to multiple segments during disk cleaning. This
+ * helps to segregate data we expect to live longer from those likely to be
+ * shorter lived, which in turn can reduce future cleaning costs.
+ *
+ * This happens to sort younger objects first, but the opposite should work just as
+ * well.
+ *
+ * \param entries
+ *      Vector containing the entries to sort.
+ */
 void
 LogCleaner::sortEntriesByTimestamp(LiveEntryVector& entries)
 {
@@ -634,5 +569,73 @@ LogCleaner::waitForAvailableSurvivors(size_t count, uint64_t& outTicks)
     while (segmentManager.getFreeSurvivorCount() < count)
         usleep(100);
 }
+
+/******************************************************************************
+ * LogCleaner::CostBenefitComparer inner class
+ ******************************************************************************/
+
+/**
+ * Construct a new comparison functor that compares segments by cost-benefit.
+ * Used when selecting among candidate segments by first sorting them.
+ */
+LogCleaner::CostBenefitComparer::CostBenefitComparer()
+    : now(WallTime::secondsTimestamp()),
+      version(Cycles::rdtsc())
+{
+}
+
+/**
+ * Calculate the cost-benefit ratio (benefit/cost) for the given segment.
+ */
+uint64_t
+LogCleaner::CostBenefitComparer::costBenefit(LogSegment* s)
+{
+    // If utilization is 0, cost-benefit is infinity.
+    uint64_t costBenefit = -1UL;
+
+    int utilization = s->getDiskUtilization();
+    if (utilization != 0) {
+        uint64_t timestamp = s->getAverageTimestamp();
+
+        // This generally shouldn't happen, but is possible due to:
+        //  1) Unsynchronized TSCs across cores (WallTime uses rdtsc).
+        //  2) Unsynchronized clocks and "newer" recovered data in the
+        //     log.
+        //  3) Getting an inconsistent view of the spaceTimeSum and
+        //     liveBytes segment counters due to buggy code.
+        if (timestamp > now) {
+            LOG(WARNING, "timestamp > now");
+            timestamp = now;
+        }
+
+        uint64_t age = now - timestamp;
+        costBenefit = ((100 - utilization) * age) / utilization;
+    }
+
+    return costBenefit;
+}
+
+/**
+ * Compare two segment's cost-benefit ratios. Higher values (better cleaning
+ * candidates) are better, so the less than comparison is inverted.
+ */
+bool
+LogCleaner::CostBenefitComparer::operator()(LogSegment* a, LogSegment* b)
+{
+    // We must ensure that we maintain the weak strictly ordered constraint,
+    // otherwise surprising things may happen in the stl algorithms when
+    // segment statistics change and alter the computed cost-benefit of a
+    // segment from one comparison to the next during the same sort operation.
+    if (a->costBenefitVersion != version) {
+        a->costBenefit = costBenefit(a);
+        a->costBenefitVersion = version;
+    }
+    if (b->costBenefitVersion != version) {
+        b->costBenefit = costBenefit(b);
+        b->costBenefitVersion = version;
+    }
+    return a->costBenefit > b->costBenefit;
+}
+
 
 } // namespace

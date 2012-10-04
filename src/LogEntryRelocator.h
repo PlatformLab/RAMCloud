@@ -26,10 +26,11 @@ namespace RAMCloud {
 
 /**
  * This class is used by the LogCleaner to relocate entries that are potentially
- * still alive. The cleaner constructs one of these objects and passes it to the
- * relocation handler registered with the log (this is typically a method in
- * MasterService). If the callee wishes to keep the entry being cleaned, it must
- * write a new copy using the given relocator and update any of its references.
+ * still alive. The cleaner constructs one of these objects for each log entry
+ * that it encounters and passes it to the relocation handler registered with
+ * the log (this is typically a method in MasterService). If the callee wishes
+ * to keep the entry being cleaned, it must write a new copy using the given
+ * relocator and update any of its references.
  *
  * Using this special relocation object, rather than just passing a segment, has
  * several benefits. First, it enforces the constraint that the callee must not
@@ -38,67 +39,21 @@ namespace RAMCloud {
  * there was not enough space in the survivor segment. Third, it encapsulates
  * updating segment statistics when an append is done, as well as performance
  * metrics.
+ *
+ * The callee whose entry is being cleaned needs to only decide if it wants to
+ * keep the entry. If not, it does nothing. If so, it calls #append to relocate
+ * the entry. If the append succeeds, it calls #getNewReference to get the
+ * reference to the relocated entry. If the append fails, the callee should just
+ * return. The cleaner will notice the failure, allocate a new survivor segment,
+ * and call back again.
  */
 class LogEntryRelocator {
   public:
-    LogEntryRelocator(LogSegment* segment, uint32_t maximumLength)
-        : segment(segment),
-          maximumLength(maximumLength),
-          offset(-1),
-          outOfSpace(false),
-          didAppend(false),
-          appendTicks(0)
-    {
-    }
-
-    bool
-    append(LogEntryType type, Buffer& buffer, uint32_t timestamp)
-    {
-        CycleCounter<uint64_t> _(&appendTicks);
-
-        if (buffer.getTotalLength() > maximumLength)
-            throw FatalError(HERE, "Relocator cannot append larger entry!");
-
-        if (didAppend)
-            throw FatalError(HERE, "Relocator may only append once!");
-
-        if (segment == NULL) {
-            outOfSpace = true;
-            return false;
-        }
-
-        uint32_t priorLength = segment->getAppendedLength();
-        if (!segment->append(type, buffer, offset)) {
-            outOfSpace = true;
-            return false;
-        }
-
-        uint32_t bytesUsed = segment->getAppendedLength() - priorLength;
-        segment->statistics.increment(bytesUsed, timestamp);
-
-        didAppend = true;
-        return true;
-    }
-
-    HashTable::Reference
-    getNewReference()
-    {
-        if (!didAppend)
-            throw FatalError(HERE, "No append operation succeeded.");
-        return HashTable::Reference((static_cast<uint64_t>(segment->slot) << 24) | offset);
-    }
-
-    uint64_t
-    getAppendTicks()
-    {
-        return appendTicks;
-    }
-
-    bool
-    failed()
-    {
-        return outOfSpace;
-    }
+    LogEntryRelocator(LogSegment* segment, uint32_t maximumLength);
+    bool append(LogEntryType type, Buffer& buffer, uint32_t timestamp);
+    HashTable::Reference getNewReference();
+    uint64_t getAppendTicks();
+    bool failed();
 
   PRIVATE:
     /// The segment we will attempt to append to.
