@@ -14,6 +14,7 @@
  */
 
 #include "Common.h"
+#include "BitOps.h"
 #include "Crc32C.h"
 #include "Segment.h"
 #include "ShortMacros.h"
@@ -28,6 +29,7 @@ namespace RAMCloud {
  */
 Segment::Segment()
     : segletSize(DEFAULT_SEGMENT_SIZE),
+      segletSizeShift(0),
       seglets(),
       segletBlocks(),
       immutable(false),
@@ -44,6 +46,7 @@ Segment::Segment()
  */
 Segment::Segment(vector<Seglet*>& seglets, uint32_t segletSize)
     : segletSize(segletSize),
+      segletSizeShift(BitOps::findFirstSet(segletSize)),
       seglets(seglets),
       segletBlocks(),
       immutable(false),
@@ -52,6 +55,7 @@ Segment::Segment(vector<Seglet*>& seglets, uint32_t segletSize)
       head(0),
       checksum()
 {
+    assert(BitOps::isPowerOfTwo(segletSize));
     foreach (Seglet* seglet, seglets) {
         segletBlocks.push_back(seglet->get());
         assert(seglet->getLength() == segletSize);
@@ -73,6 +77,7 @@ Segment::Segment(vector<Seglet*>& seglets, uint32_t segletSize)
  */
 Segment::Segment(const void* buffer, uint32_t length)
     : segletSize(length),
+      segletSizeShift(0),
       seglets(),
       segletBlocks(),
       immutable(false),
@@ -532,18 +537,25 @@ Segment::getEntryInfo(uint32_t offset,
 uint32_t
 Segment::peek(uint32_t offset, const void** outAddress) const
 {
-    if (offset >= (segletSize * segletBlocks.size()))
+    if (__builtin_expect(offset >= (segletSize * segletBlocks.size()), false))
         return 0;
 
-    uint32_t segletOffset = offset % segletSize;
-    uint32_t contiguousBytes = segletSize - segletOffset;
+    uint32_t segletOffset = offset;
+    uint32_t segletIndex = 0;
 
-    uint32_t segletIndex = offset / segletSize;
+    // If we have more than one seglet, then they must all be the same size and
+    // a power of two, so use bit ops rather than division and modulo to save
+    // time. This method can be hot enough that this makes a big difference.
+    if (__builtin_expect(segletSizeShift != 0, true)) {
+        segletOffset = offset & (segletSize - 1);
+        segletIndex = offset >> segletSizeShift;
+    }
+
     uint8_t* segletPtr = reinterpret_cast<uint8_t*>(segletBlocks[segletIndex]);
     assert(segletPtr != NULL);
     *outAddress = static_cast<void*>(segletPtr + segletOffset);
 
-    return contiguousBytes;
+    return segletSize - segletOffset;
 }
 
 /**

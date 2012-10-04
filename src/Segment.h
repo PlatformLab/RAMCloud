@@ -220,7 +220,7 @@ class Segment {
                       LogEntryType& outType,
                       uint32_t &outDataOffset,
                       uint32_t &outDataLength);
-    uint32_t peek(uint32_t offset, const void** outAddress) const;
+    inline uint32_t peek(uint32_t offset, const void** outAddress) const;
     uint32_t bytesLeft();
     uint32_t bytesNeeded(uint32_t length);
     uint32_t copyOut(uint32_t offset, void* buffer, uint32_t length) const;
@@ -232,6 +232,13 @@ class Segment {
 
     /// Size of each seglet in bytes.
     uint32_t segletSize;
+
+    /// If the segment consists of multiple seglets, then this is simply equal
+    /// to log2(segletSize). Otherwise, it is 0.
+    ///
+    /// This allows us to very quickly calculate the seglet index and offset
+    /// in #peek() using bit ops, rather than division and modulo.
+    int segletSizeShift;
 
     /// Seglets that have been loaned to this segment to store data in. These
     /// will be freed to their owning allocator upon destruction or calls to
