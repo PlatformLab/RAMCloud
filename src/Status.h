@@ -22,7 +22,9 @@
 #ifndef RAMCLOUD_STATUS_H
 #define RAMCLOUD_STATUS_H
 
+#ifdef __cplusplus
 namespace RAMCloud {
+#endif
 
 /**
  * This enum provides symbolic names for the status values returned
@@ -31,7 +33,7 @@ namespace RAMCloud {
  * 0 means success; anything else means that an error occurred.
  * Not all status values can be returned by all operations.
  */
-enum Status {
+typedef enum Status {
     /// Default return value when an operation was successful.
     STATUS_OK                           = 0,
 
@@ -101,11 +103,13 @@ enum Status {
     // * Add a new exception class to ClientException.h
     // * Add a new "case" to ClientException::throwException to map from
     //   the status value to a status-specific ClientException subclass.
-};
+} Status;
 
 extern const char* statusToString(Status status);
 extern const char* statusToSymbol(Status status);
 
+#ifdef __cplusplus
 } // namespace RAMCloud
+#endif
 
 #endif // RAMCLOUD_STATUS_H

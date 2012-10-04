@@ -16,7 +16,9 @@
 #ifndef RAMCLOUD_REJECTRULES_H
 #define RAMCLOUD_REJECTRULES_H
 
+#ifdef __cplusplus
 namespace RAMCloud {
+#endif
 
 /**
  * Used in conditional operations to specify conditions under
@@ -42,7 +44,9 @@ struct RejectRules {
     uint8_t   versionNeGiven;
 };
 
+#ifdef __cplusplus
 } // namespace RAMCloud
+#endif
 
 #endif // RAMCLOUD_REJECTRULES_H
 
