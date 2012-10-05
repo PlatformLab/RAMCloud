@@ -19,6 +19,7 @@
 #include "MasterService.h"
 #include "Memory.h"
 #include "SegmentIterator.h"
+#include "Seglet.h"
 #include "Tablets.pb.h"
 
 namespace RAMCloud {
@@ -44,6 +45,8 @@ class RecoverSegmentBenchmark {
         config.setLogAndHashTableSize(logSize, hashTableSize);
         config.services = {WireFormat::MASTER_SERVICE};
         config.master.numReplicas = 0;
+        config.segmentSize = Segment::DEFAULT_SEGMENT_SIZE;
+        config.segletSize = Seglet::DEFAULT_SEGLET_SIZE;
         service = new MasterService(&context, config);
         service->init({1, 0});
     }
