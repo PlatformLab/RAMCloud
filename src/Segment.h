@@ -215,12 +215,52 @@ class Segment {
     bool checkMetadataIntegrity(const Certificate& certificate);
 
   PRIVATE:
+    /**
+     * 'Peek' into the segment by specifying a logical byte offset and getting
+     * back a pointer to some contiguous space underlying the start and the
+     * number of contiguous bytes at that location. In other words, resolve the
+     * offset to a pointer and learn how far from the end of the seglet that
+     * offset is.
+     *
+     * \param offset
+     *      Logical segment offset to being peeking into.
+     * \param[out] outAddress
+     *      Pointer to contiguous memory corresponding to the given offset.
+     * \return
+     *      The number of contiguous bytes accessible from the returned pointer
+     *      (outAddress). 
+     */
+    uint32_t
+    peek(uint32_t offset, const void** outAddress) const
+    {
+        if (__builtin_expect(offset >= (segletSize * segletBlocks.size()), 0))
+            return 0;
+
+        uint32_t segletOffset = offset;
+        uint32_t segletIndex = 0;
+
+        // If we have more than one seglet, then they must all be the same size
+        // and a power of two, so use bit ops rather than division and modulo to
+        // save time. This method can be hot enough that this makes a big
+        // difference.
+        if (__builtin_expect(segletSizeShift != 0, 1)) {
+            segletOffset = offset & (segletSize - 1);
+            segletIndex = offset >> segletSizeShift;
+        }
+
+        uint8_t* segletPtr;
+        segletPtr = reinterpret_cast<uint8_t*>(segletBlocks[segletIndex]);
+        assert(segletPtr != NULL);
+        *outAddress = static_cast<void*>(segletPtr + segletOffset);
+
+        return segletSize - segletOffset;
+    }
+
     const EntryHeader* getEntryHeader(uint32_t offset);
     void getEntryInfo(uint32_t offset,
                       LogEntryType& outType,
                       uint32_t &outDataOffset,
                       uint32_t &outDataLength);
-    inline uint32_t peek(uint32_t offset, const void** outAddress) const;
     uint32_t bytesLeft();
     uint32_t bytesNeeded(uint32_t length);
     uint32_t copyOut(uint32_t offset, void* buffer, uint32_t length) const;

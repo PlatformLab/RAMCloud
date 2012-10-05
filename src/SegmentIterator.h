@@ -92,12 +92,11 @@ class SegmentIterator {
     /// will use in the getType, getLength, appendToBuffer, etc. calls.
     uint32_t currentOffset;
 
-    /// Cache of the type of the entry at currentOffset. Set the first time
-    /// getType() is called and destroyed when next() is called.
-    Tub<LogEntryType> currentType;
+    /// Pointer to the current log entry's header (the one at currentOffset).
+    const Segment::EntryHeader* currentHeader;
 
     /// Cache of the length of the entry at currentOffset. Set the first time
-    /// getType() is called and destroyed when next() is called.
+    /// getLength() is called and destroyed when next() is called.
     Tub<uint32_t> currentLength;
 };
 

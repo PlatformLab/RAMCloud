@@ -130,26 +130,36 @@ TEST_F(SegmentIteratorTest, isDone) {
 TEST_F(SegmentIteratorTest, next) {
     SegmentIterator it(s);
     EXPECT_EQ(0U, it.currentOffset);
+    EXPECT_EQ(s.getEntryHeader(0), it.currentHeader);
+    it.getLength();
+    EXPECT_TRUE(it.currentLength);
     it.next();
+    EXPECT_TRUE(it.currentLength);  // isDone() is true, so noop
     EXPECT_EQ(0U, it.currentOffset);
+    EXPECT_EQ(s.getEntryHeader(0), it.currentHeader);
 
     s.append(LOG_ENTRY_TYPE_OBJ, "blam", 5);
     // first iterator is no longer valid
 
     SegmentIterator it2(s);
+    it2.getLength();
+    EXPECT_TRUE(it2.currentLength);
     it2.next();
+    EXPECT_FALSE(it2.currentLength);
     EXPECT_EQ(7U, it2.currentOffset);
+    EXPECT_EQ(s.getEntryHeader(7), it2.currentHeader);
 
     it2.next();
     EXPECT_EQ(7U, it2.currentOffset);
+    EXPECT_EQ(s.getEntryHeader(7), it2.currentHeader);
     it2.next();
     EXPECT_EQ(7U, it2.currentOffset);
+    EXPECT_EQ(s.getEntryHeader(7), it2.currentHeader);
 }
 
 TEST_F(SegmentIteratorTest, getType) {
     s.append(LOG_ENTRY_TYPE_OBJ, "hi", 3);
     s.append(LOG_ENTRY_TYPE_OBJTOMB, "hi", 3);
-    // first iterator is no longer valid
 
     SegmentIterator it(s);
     EXPECT_EQ(LOG_ENTRY_TYPE_OBJ, it.getType());
@@ -161,7 +171,6 @@ TEST_F(SegmentIteratorTest, getType) {
 TEST_F(SegmentIteratorTest, getLength) {
     s.append(LOG_ENTRY_TYPE_OBJ, "hi", 3);
     s.append(LOG_ENTRY_TYPE_OBJTOMB, "hihi", 5);
-    // first iterator is no longer valid
 
     SegmentIterator it(s);
     EXPECT_EQ(3U, it.getLength());

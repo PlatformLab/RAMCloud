@@ -46,7 +46,7 @@ Segment::Segment()
  */
 Segment::Segment(vector<Seglet*>& seglets, uint32_t segletSize)
     : segletSize(segletSize),
-      segletSizeShift(BitOps::findFirstSet(segletSize)),
+      segletSizeShift(BitOps::findFirstSet(segletSize) - 1),
       seglets(seglets),
       segletBlocks(),
       immutable(false),
@@ -518,44 +518,6 @@ Segment::getEntryInfo(uint32_t offset,
     outDataLength = 0;
     copyOut(offset + sizeof32(*header), &outDataLength,
         header->getLengthBytes());
-}
-
-/**
- * 'Peek' into the segment by specifying a logical byte offset and getting
- * back a pointer to some contiguous space underlying the start and the number
- * of contiguous bytes at that location. In other words, resolve the offset
- * to a pointer and learn how far from the end of the seglet that offset is.
- *
- * \param offset
- *      Logical segment offset to being peeking into.
- * \param[out] outAddress
- *      Pointer to contiguous memory corresponding to the given offset.
- * \return
- *      The number of contiguous bytes accessible from the returned pointer
- *      (outAddress). 
- */
-uint32_t
-Segment::peek(uint32_t offset, const void** outAddress) const
-{
-    if (__builtin_expect(offset >= (segletSize * segletBlocks.size()), false))
-        return 0;
-
-    uint32_t segletOffset = offset;
-    uint32_t segletIndex = 0;
-
-    // If we have more than one seglet, then they must all be the same size and
-    // a power of two, so use bit ops rather than division and modulo to save
-    // time. This method can be hot enough that this makes a big difference.
-    if (__builtin_expect(segletSizeShift != 0, true)) {
-        segletOffset = offset & (segletSize - 1);
-        segletIndex = offset >> segletSizeShift;
-    }
-
-    uint8_t* segletPtr = reinterpret_cast<uint8_t*>(segletBlocks[segletIndex]);
-    assert(segletPtr != NULL);
-    *outAddress = static_cast<void*>(segletPtr + segletOffset);
-
-    return segletSize - segletOffset;
 }
 
 /**
