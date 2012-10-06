@@ -107,7 +107,7 @@ TEST_F(LogTest, append_basic) {
     LogSegment* oldHead = l.head;
 
     int appends = 0;
-    while (l.append(LOG_ENTRY_TYPE_OBJ, data, dataLen, true)) {
+    while (l.append(LOG_ENTRY_TYPE_OBJ, 0, data, dataLen, true)) {
         if (appends++ == 0)
             EXPECT_EQ(oldHead, l.head);
         else
@@ -135,6 +135,7 @@ TEST_F(LogTest, append_tooBigToEverFit) {
     LogSegment* oldHead = l.head;
 
     EXPECT_THROW(l.append(LOG_ENTRY_TYPE_OBJ,
+                          0,
                           data,
                           serverConfig.segmentSize + 1,
                           true),
@@ -154,7 +155,7 @@ TEST_F(LogTest, getEntry) {
     Buffer sourceBuffer;
     sourceBuffer.append(&data, sizeof(data));
     HashTable::Reference reference;
-    EXPECT_TRUE(l.append(LOG_ENTRY_TYPE_OBJ, sourceBuffer, false, reference));
+    EXPECT_TRUE(l.append(LOG_ENTRY_TYPE_OBJ, 0, sourceBuffer, false, &reference));
 
     LogEntryType type;
     Buffer buffer;
@@ -191,11 +192,11 @@ TEST_F(LogTest, getHeadPosition) {
     EXPECT_EQ(Log::Position(0, 62), l.getHeadPosition());
 
     char data[1000];
-    l.append(LOG_ENTRY_TYPE_OBJ, data, sizeof(data), true);
+    l.append(LOG_ENTRY_TYPE_OBJ, 0, data, sizeof(data), true);
     EXPECT_EQ(Log::Position(0, 1065), l.getHeadPosition());
 
     while (l.getHeadPosition().getSegmentId() == 0)
-        l.append(LOG_ENTRY_TYPE_OBJ, data, sizeof(data), true);
+        l.append(LOG_ENTRY_TYPE_OBJ, 0, data, sizeof(data), true);
 
     EXPECT_EQ(Log::Position(1, 1073), l.getHeadPosition());
 }
@@ -208,7 +209,7 @@ TEST_F(LogTest, getSegmentId) {
 
     int zero = 0, one = 0, other = 0;
     while (l.getHeadPosition().getSegmentId() == 0) {
-        EXPECT_TRUE(l.append(LOG_ENTRY_TYPE_OBJ, buffer, false, reference));
+        EXPECT_TRUE(l.append(LOG_ENTRY_TYPE_OBJ, 0, buffer, false, &reference));
         switch (l.getSegmentId(reference)) {
             case 0: zero++; break;
             case 1: one++; break;
@@ -241,7 +242,7 @@ TEST_F(LogTest, containsSegment) {
 
     char data[1000];
     while (l.getHeadPosition().getSegmentId() == 0)
-        l.append(LOG_ENTRY_TYPE_OBJ, data, sizeof(data), true);
+        l.append(LOG_ENTRY_TYPE_OBJ, 0, data, sizeof(data), true);
 
     EXPECT_TRUE(l.containsSegment(0));
     EXPECT_TRUE(l.containsSegment(1));

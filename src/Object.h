@@ -344,7 +344,7 @@ class Object {
         return sizeof32(SerializedForm) + keyLength + dataLength;
     }
 
-  PRIVATE:
+//  PRIVATE:
     /**
      * This data structure defines the format of an object stored in a master
      * server's log. When writing an object, the fields below are written
@@ -432,6 +432,17 @@ class Object {
                 sizeof32(serializedForm) + getKeyLength(), getDataLength());
         }
 
+        return crc.getResult();
+    }
+
+    static uint32_t
+    computeChecksum(const Object::SerializedForm* object, uint32_t totalLength)
+    {
+        Crc32C crc;
+        crc.update(object,
+            downCast<uint32_t>(OFFSET_OF(SerializedForm, checksum)));
+        uint32_t dataLen = totalLength - object->keyLength - sizeof32(SerializedForm);
+        crc.update(&object->keyAndData[0], object->keyLength + dataLen);
         return crc.getResult();
     }
 

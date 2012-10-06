@@ -188,17 +188,12 @@ class Segment {
     Segment(const void* buffer, uint32_t length);
     virtual ~Segment();
     bool append(LogEntryType type,
-                Buffer& buffer,
-                uint32_t offset,
-                uint32_t length,
-                uint32_t& outOffset);
-    bool append(LogEntryType type, Buffer& buffer, uint32_t& outOffset);
-    bool append(LogEntryType type, Buffer& buffer);
-    bool append(LogEntryType type,
                 const void* data,
                 uint32_t length,
-                uint32_t& outOffset);
-    bool append(LogEntryType type, const void* data, uint32_t length);
+                uint32_t* outOffset = NULL);
+    bool append(LogEntryType type,
+                Buffer& buffer,
+                uint32_t* outOffset = NULL);
     void close();
     void disableAppends();
     bool enableAppends();
@@ -213,8 +208,8 @@ class Segment {
     uint32_t getSegletsInUse();
     bool freeUnusedSeglets(uint32_t count);
     bool checkMetadataIntegrity(const Certificate& certificate);
+    uint32_t copyOut(uint32_t offset, void* buffer, uint32_t length) const;
 
-  PRIVATE:
     /**
      * 'Peek' into the segment by specifying a logical byte offset and getting
      * back a pointer to some contiguous space underlying the start and the
@@ -256,6 +251,7 @@ class Segment {
         return segletSize - segletOffset;
     }
 
+  PRIVATE:
     const EntryHeader* getEntryHeader(uint32_t offset);
     void getEntryInfo(uint32_t offset,
                       LogEntryType& outType,
@@ -263,7 +259,6 @@ class Segment {
                       uint32_t &outDataLength);
     uint32_t bytesLeft();
     uint32_t bytesNeeded(uint32_t length);
-    uint32_t copyOut(uint32_t offset, void* buffer, uint32_t length) const;
     uint32_t copyIn(uint32_t offset, const void* buffer, uint32_t length);
     uint32_t copyInFromBuffer(uint32_t segmentOffset,
                               Buffer& buffer,

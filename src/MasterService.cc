@@ -1696,34 +1696,6 @@ MasterService::recover(const WireFormat::Recover::Request& reqHdr,
 }
 
 /**
- * Given a RecoverySegmentIterator for the Segment we're currently
- * recovering, advance it and issue prefetches on the hash tables.
- * This is used exclusively by recoverSegment().
- *
- * \param[in] it
- *      A RecoverySegmentIterator to use for prefetching. Note that this
- *      method modifies the iterator, so the caller should not use
- *      it for its own iteration.
- */
-void
-MasterService::recoverSegmentPrefetcher(SegmentIterator& it)
-{
-    it.next();
-
-    if (it.isDone())
-        return;
-
-    LogEntryType type = it.getType();
-    if (type != LOG_ENTRY_TYPE_OBJ && type != LOG_ENTRY_TYPE_OBJTOMB)
-        return;
-
-    Buffer buffer;
-    it.appendToBuffer(buffer);
-    Key key(type, buffer);
-    objectMap->prefetchBucket(key);
-}
-
-/**
  * Replay a recovery segment from a crashed Master that this Master is taking
  * over for.
  *
@@ -1737,7 +1709,6 @@ MasterService::recoverSegment(SegmentIterator& it)
     uint64_t startReplicationTicks = metrics->master.replicaManagerTicks;
     CycleCounter<RawMetric> _(&metrics->master.recoverSegmentTicks);
 
-    SegmentIterator prefetch = it;
     uint64_t bytesIterated = 0;
     while (!it.isDone()) {
         LogEntryType type = it.getType();
@@ -1748,24 +1719,25 @@ MasterService::recoverSegment(SegmentIterator& it)
         }
         bytesIterated += it.getLength();
 
-        recoverSegmentPrefetcher(prefetch);
-
         metrics->master.recoverySegmentEntryCount++;
         metrics->master.recoverySegmentEntryBytes += it.getLength();
 
         if (type == LOG_ENTRY_TYPE_OBJ) {
-            Buffer buffer;
-            it.appendToBuffer(buffer);
-            Key key(type, buffer);
+            // The recovery segment is guaranteed to be contiguous, so we need
+            // not provide a copyout buffer.
+            const Object::SerializedForm* recoveryObj =
+                it.getContiguous<Object::SerializedForm>(NULL, 0);
+            Key key(recoveryObj->tableId,
+                    recoveryObj->keyAndData,
+                    recoveryObj->keyLength);
 
-            Object recoverObj(buffer);
             bool checksumIsValid = ({
                 CycleCounter<RawMetric> c(&metrics->master.verifyChecksumTicks);
-                recoverObj.checkIntegrity();
+                Object::computeChecksum(recoveryObj, it.getLength()) == recoveryObj->checksum;
             });
             if (!checksumIsValid) {
                 LOG(WARNING, "bad object checksum! key: %s, version: %lu",
-                    key.toString().c_str(), recoverObj.getVersion());
+                    key.toString().c_str(), recoveryObj->version);
                 // TODO(Stutsman): Should throw and try another segment replica?
             }
 
@@ -1790,17 +1762,22 @@ MasterService::recoverSegment(SegmentIterator& it)
                 minSuccessor = currentVersion + 1;
             }
 
-            if (recoverObj.getVersion() >= minSuccessor) {
+            if (recoveryObj->version >= minSuccessor) {
                 // write to log (with lazy backup flush) & update hash table
                 HashTable::Reference newObjReference;
-                log->append(LOG_ENTRY_TYPE_OBJ, buffer, false, newObjReference);
+                log->append(LOG_ENTRY_TYPE_OBJ,
+                            recoveryObj->timestamp,
+                            recoveryObj,
+                            it.getLength(),
+                            false,
+                            &newObjReference);
 
                 // TODO(steve/ryan): what happens if the log is full? won't an
                 //      exception here just cause the master to try another
                 //      backup?
 
                 ++metrics->master.objectAppendCount;
-                metrics->master.liveObjectBytes += buffer.getTotalLength();
+                metrics->master.liveObjectBytes += it.getLength();
 
                 objectMap->replace(key, newObjReference);
 
@@ -1853,8 +1830,11 @@ MasterService::recoverSegment(SegmentIterator& it)
             if (recoverTomb.getObjectVersion() >= minSuccessor) {
                 ++metrics->master.tombstoneAppendCount;
                 HashTable::Reference newTombReference;
-                log->append(LOG_ENTRY_TYPE_OBJTOMB, buffer,
-                            false, newTombReference);
+                log->append(LOG_ENTRY_TYPE_OBJTOMB,
+                            recoverTomb.getTimestamp(),
+                            buffer,
+                            false,
+                            &newTombReference);
 
                 // TODO(steve/ryan): append could fail here!
 
@@ -1889,14 +1869,10 @@ MasterService::recoverSegment(SegmentIterator& it)
                 // TODO(Stutsman): Should throw and try another segment replica?
             }
 
-            HashTable::Reference safeVerReference; // store the append output.
-            // not used.
-
             // Copy SafeVerObject to the recovery segment.
             // Sync can be delayed, because recovery can be replayed
             // with the same backup data when the recovery crashes on the way.
-            log->append(LOG_ENTRY_TYPE_SAFEVERSION, buffer,
-                        false, safeVerReference);
+            log->append(LOG_ENTRY_TYPE_SAFEVERSION, 0, buffer, false);
 
             // recover segmentManager.safeVersion (Master safeVersion)
             if (segmentManager.raiseSafeVersion(safeVersion)) {
@@ -1964,8 +1940,10 @@ MasterService::remove(const WireFormat::Remove::Request& reqHdr,
 
     // Write the tombstone into the Log, increment the tablet version
     // number, and remove from the hash table.
-    HashTable::Reference dummy;
-    if (!log->append(LOG_ENTRY_TYPE_OBJTOMB, tombstoneBuffer, false, dummy)) {
+    if (!log->append(LOG_ENTRY_TYPE_OBJTOMB,
+                     tombstone.getTimestamp(),
+                     tombstoneBuffer,
+                     false)) {
         // The log is out of space. Tell the client to retry and hope
         // that either the cleaner makes space soon or we shift load
         // off of this server.
@@ -2499,9 +2477,12 @@ MasterService::storeObject(Key& key,
         Buffer tombstoneBuffer;
         tombstone.serializeToBuffer(tombstoneBuffer);
 
-        HashTable::Reference dummy;
-        if (!log->append(LOG_ENTRY_TYPE_OBJTOMB, tombstoneBuffer, sync, dummy))
+        if (!log->append(LOG_ENTRY_TYPE_OBJTOMB,
+                         tombstone.getTimestamp(),
+                         tombstoneBuffer,
+                         false)) {
             return STATUS_RETRY;
+        }
 
         // TODO(anyone): The above isn't safe. If we crash before writing the
         //               new entry (because of timing, or we run out of space),
@@ -2519,7 +2500,11 @@ MasterService::storeObject(Key& key,
     newObject.serializeToBuffer(buffer);
 
     HashTable::Reference newObjectReference;
-    if (!log->append(LOG_ENTRY_TYPE_OBJ, buffer, sync, newObjectReference)) {
+    if (!log->append(LOG_ENTRY_TYPE_OBJ,
+                     newObject.getTimestamp(),
+                     buffer,
+                     sync,
+                     &newObjectReference)) {
         // The log is out of space. Tell the client to retry and hope
         // that either the cleaner makes space soon or we shift load
         // off of this server.

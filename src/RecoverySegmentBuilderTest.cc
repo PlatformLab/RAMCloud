@@ -61,57 +61,41 @@ TEST_F(RecoverySegmentBuilderTest, build) {
     auto build = RecoverySegmentBuilder::build;
     LogSegment* segment = segmentManager.allocHead();
 
-    uint32_t outOffset = 0;
     { // Object and tombstone should go in partition 1.
         Key key(1, "1", 1);
         Object object(key, "hello", 6, 0, 0);
         Buffer buffer;
         object.serializeToBuffer(buffer);
-        ASSERT_TRUE(segment->append(LOG_ENTRY_TYPE_OBJ,
-                                    buffer, 0,
-                                    buffer.getTotalLength(),
-                                    outOffset));
+        ASSERT_TRUE(segment->append(LOG_ENTRY_TYPE_OBJ, buffer));
         ObjectTombstone tombstone(object, 0, 0);
         buffer.reset();
         tombstone.serializeToBuffer(buffer);
-        ASSERT_TRUE(segment->append(LOG_ENTRY_TYPE_OBJTOMB,
-                                    buffer, 0,
-                                    buffer.getTotalLength(),
-                                    outOffset));
+        ASSERT_TRUE(segment->append(LOG_ENTRY_TYPE_OBJTOMB, buffer));
+
     }{ // Object and tombstone should go in partition 0.
         Key key(1, "2", 1);
         Object object(key, "abcde", 6, 0, 0);
         Buffer buffer;
         object.serializeToBuffer(buffer);
-        ASSERT_TRUE(segment->append(LOG_ENTRY_TYPE_OBJ,
-                                    buffer, 0,
-                                    buffer.getTotalLength(),
-                                    outOffset));
+        ASSERT_TRUE(segment->append(LOG_ENTRY_TYPE_OBJ, buffer));
         ObjectTombstone tombstone(object, 0, 0);
         buffer.reset();
         tombstone.serializeToBuffer(buffer);
-        ASSERT_TRUE(segment->append(LOG_ENTRY_TYPE_OBJTOMB,
-                                    buffer, 0,
-                                    buffer.getTotalLength(),
-                                    outOffset));
+        ASSERT_TRUE(segment->append(LOG_ENTRY_TYPE_OBJTOMB, buffer));
+
     }{ // Object not in any partition.
         Key key(10, "1", 1);
         Object object(key, "abcde", 6, 0, 0);
         Buffer buffer;
         object.serializeToBuffer(buffer);
-        ASSERT_TRUE(segment->append(LOG_ENTRY_TYPE_OBJ,
-                                    buffer, 0,
-                                    buffer.getTotalLength(),
-                                    outOffset));
+        ASSERT_TRUE(segment->append(LOG_ENTRY_TYPE_OBJ, buffer));
+
     }{ // Object not written before the tablet existed.
         Key key(2, "1", 1);
         Object object(key, "abcde", 6, 0, 0);
         Buffer buffer;
         object.serializeToBuffer(buffer);
-        ASSERT_TRUE(segment->append(LOG_ENTRY_TYPE_OBJ,
-                                    buffer, 0,
-                                    buffer.getTotalLength(),
-                                    outOffset));
+        ASSERT_TRUE(segment->append(LOG_ENTRY_TYPE_OBJ, buffer));
     }
 
     Segment::Certificate certificate;

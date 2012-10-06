@@ -127,19 +127,16 @@ class Log {
     void disableCleaner();
     void getMetrics(ProtoBuf::LogMetrics& m);
     bool append(LogEntryType type,
-                Buffer& buffer,
-                uint32_t offset,
-                uint32_t length,
-                bool sync,
-                HashTable::Reference& outReference);
-    bool append(LogEntryType type,
-                Buffer& buffer,
-                bool sync,
-                HashTable::Reference& outReference);
-    bool append(LogEntryType type,
+                uint32_t timestamp,
                 const void* data,
                 uint32_t length,
-                bool sync);
+                bool sync,
+                HashTable::Reference* outReference = NULL);
+    bool append(LogEntryType type,
+                uint32_t timestamp,
+                Buffer& buffer,
+                bool sync,
+                HashTable::Reference* outReference = NULL);
     void free(HashTable::Reference reference);
     LogEntryType getEntry(HashTable::Reference reference,
                           Buffer& outBuffer);

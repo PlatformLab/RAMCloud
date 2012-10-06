@@ -256,9 +256,8 @@ TEST_F(BackupMasterRecoveryTest, getRecoverySegment) {
     EXPECT_EQ(STATUS_OK, status);
     Buffer buffer;
     buffer.append("important", 10);
-    uint32_t outOffset;
     ASSERT_TRUE(recovery->replicas[1].recoverySegments[0].append(
-        LOG_ENTRY_TYPE_OBJ, buffer, 0, 10, outOffset));
+        LOG_ENTRY_TYPE_OBJ, buffer));
     buffer.reset();
     Segment::Certificate certificate;
     memset(&certificate, 0xff, sizeof(certificate));

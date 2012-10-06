@@ -117,12 +117,13 @@ Log::getMetrics(ProtoBuf::LogMetrics& m)
  *
  * \param type
  *      Type of the entry. See LogEntryTypes.h.
+ * \param timestamp
+ *      Creation time of the entry, as provided by WallTime. This is used by the
+ *      log cleaner to choose more optimal segments to garbage collect from.
  * \param buffer
- *      Buffer object describing the entry to be appended.
- * \param offset
- *      Byte offset within the buffer object to begin appending from.
+ *      Pointer to buffer containing the entry to be appended.
  * \param length
- *      Number of bytes to append starting from the given offset in the buffer.
+ *      Number of bytes to append from the provided buffer.
  * \param sync
  *      If true, do not return until the append has been replicated to backups.
  *      If false, may return before any replication has been done.
@@ -137,11 +138,11 @@ Log::getMetrics(ProtoBuf::LogMetrics& m)
  */
 bool
 Log::append(LogEntryType type,
-            Buffer& buffer,
-            uint32_t offset,
+            uint32_t timestamp,
+            const void* buffer,
             uint32_t length,
             bool sync,
-            HashTable::Reference& outReference)
+            HashTable::Reference* outReference)
 {
     Lock lock(appendLock);
     CycleCounter<uint64_t> _(&metrics.totalAppendTicks);
@@ -156,7 +157,7 @@ Log::append(LogEntryType type,
     // Try to append. If we can't, try to allocate a new head to get more space.
     uint32_t segmentOffset;
     uint32_t bytesUsedBefore = head->getAppendedLength();
-    bool success = head->append(type, buffer, offset, length, segmentOffset);
+    bool success = head->append(type, buffer, length, &segmentOffset);
     if (!success) {
         LogSegment* newHead = segmentManager.allocHead(false);
         if (newHead != NULL)
@@ -173,7 +174,7 @@ Log::append(LogEntryType type,
         }
 
         bytesUsedBefore = head->getAppendedLength();
-        if (!head->append(type, buffer, offset, length, segmentOffset)) {
+        if (!head->append(type, buffer, length, &segmentOffset)) {
             // TODO(Steve): We should probably just permit up to 1/N'th of the
             // size of a segment in any single append. Say, 1/2th or 1/4th as
             // a ceiling. Then we could ensure that after opening a new head
@@ -190,14 +191,9 @@ Log::append(LogEntryType type,
     if (sync)
         Log::sync();
 
-    outReference = buildReference(head->slot, segmentOffset);
+    if (outReference != NULL)
+        *outReference = buildReference(head->slot, segmentOffset);
 
-    // TODO(Steve): Should this just be passed in? It's a bummer that we build
-    // a new buffer just to query the callback. Yet we still need the callback
-    // for the cleaner to query the timestamp.
-    Buffer inLogBuffer;
-    head->getEntry(segmentOffset, inLogBuffer);
-    uint32_t timestamp = entryHandlers.getTimestamp(type, inLogBuffer);
     head->statistics.increment(head->getAppendedLength() - bytesUsedBefore,
                                timestamp);
 
@@ -209,43 +205,41 @@ Log::append(LogEntryType type,
 }
 
 /**
- * Abbreviated append method for convenience. See the above append method for
- * documentation.
- */
-bool
-Log::append(LogEntryType type,
-            Buffer& buffer,
-            bool sync,
-            HashTable::Reference& outReference)
-{
-    return append(type, buffer, 0, buffer.getTotalLength(), sync, outReference);
-}
-
-/**
- * Abbreviated append method primarily for convenience in tests.
+ * Append a typed entry to the log by coping in the data. Entries are binary
+ * blobs described by a simple <type, length> tuple.
  *
  * \param type
  *      Type of the entry. See LogEntryTypes.h.
- * \param data
- *      Pointer to data to be appended.
- * \param length
- *      Number of bytes to append from the given pointer.
+ * \param timestamp
+ *      Creation time of the entry, as provided by WallTime. This is used by the
+ *      log cleaner to choose more optimal segments to garbage collect from.
+ * \param buffer
+ *      Buffer object describing the entry to be appended.
  * \param sync
  *      If true, do not return until the append has been replicated to backups.
  *      If false, may return before any replication has been done.
+ * \param[out] outReference
+ *      If the append succeeds, a reference to the created entry is returned
+ *      here. This reference may be used to access the appended entry via the
+ *      lookup method. It may also be inserted into a HashTable.
  * \return
  *      True if the append succeeded, false if there was either insufficient
  *      space to complete the operation or the requested append was larger
  *      than the system supports.
- *  
  */
 bool
-Log::append(LogEntryType type, const void* data, uint32_t length, bool sync)
+Log::append(LogEntryType type,
+            uint32_t timestamp,
+            Buffer& buffer,
+            bool sync,
+            HashTable::Reference* outReference)
 {
-    Buffer buffer;
-    buffer.append(data, length);
-    HashTable::Reference dummy;
-    return append(type, buffer, true, dummy);
+    return append(type,
+                  timestamp,
+                  buffer.getRange(0, buffer.getTotalLength()),
+                  buffer.getTotalLength(),
+                  sync,
+                  outReference);
 }
 
 /**

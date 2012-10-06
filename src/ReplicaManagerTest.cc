@@ -311,12 +311,12 @@ TEST_F(ReplicaManagerTest, endToEndBackupRecovery) {
     // with a single pending write.
     log.allocateHeadIfStillOn({});
     static char buf[64];
-    log.append(LOG_ENTRY_TYPE_OBJ, buf, sizeof(buf), true);
+    log.append(LOG_ENTRY_TYPE_OBJ, 0, buf, sizeof(buf), true);
     // Non-synced append ensures mgr isn't idle, otherwise this unit test would
     // be racy: it waits for mgr->isIdle() to ensure recovery is complete, but
     // if the wait occurs before the failure notification gets processed this
     // will be trivially true.
-    log.append(LOG_ENTRY_TYPE_OBJ, buf, sizeof(buf), false);
+    log.append(LOG_ENTRY_TYPE_OBJ, 0, buf, sizeof(buf), false);
     log.head->replicatedSegment->schedule();
     ASSERT_FALSE(mgr->isIdle());
     ASSERT_EQ(1u, log.head->id);

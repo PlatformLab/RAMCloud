@@ -79,7 +79,7 @@ LogEntryRelocator::append(LogEntryType type, Buffer& buffer, uint32_t timestamp)
     }
 
     uint32_t priorLength = segment->getAppendedLength();
-    if (!segment->append(type, buffer, offset)) {
+    if (!segment->append(type, buffer, &offset)) {
         outOfSpace = true;
         return false;
     }

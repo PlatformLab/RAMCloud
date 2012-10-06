@@ -81,7 +81,7 @@ TEST_F(LogIteratorTest, constructor_emptyLog) {
 
 TEST_F(LogIteratorTest, constructor_singleSegmentLog) {
     l.sync();
-    l.append(LOG_ENTRY_TYPE_OBJ, data, sizeof(data), true);
+    l.append(LOG_ENTRY_TYPE_OBJ, 0, data, sizeof(data), true);
 
     EXPECT_EQ(0, segmentManager.logIteratorCount);
     LogIterator i(l);
@@ -96,7 +96,7 @@ TEST_F(LogIteratorTest, constructor_singleSegmentLog) {
 TEST_F(LogIteratorTest, constructor_multiSegmentLog) {
     l.sync();
     while (l.getHeadPosition().getSegmentId() == 0)
-        l.append(LOG_ENTRY_TYPE_OBJ, data, sizeof(data), true);
+        l.append(LOG_ENTRY_TYPE_OBJ, 0, data, sizeof(data), true);
 
     EXPECT_EQ(0, segmentManager.logIteratorCount);
     LogIterator i(l);
@@ -144,7 +144,7 @@ TEST_F(LogIteratorTest, isDone_simple) {
         EXPECT_TRUE(i.isDone());
     }
 
-    l.append(LOG_ENTRY_TYPE_OBJ, data, sizeof(data), true);
+    l.append(LOG_ENTRY_TYPE_OBJ, 0, data, sizeof(data), true);
     LogIterator i(l);
     EXPECT_FALSE(i.isDone());
 
@@ -159,10 +159,10 @@ TEST_F(LogIteratorTest, isDone_multiSegment) {
     int origObjCnt = 0;
 
     while (l.getHeadPosition().getSegmentId() == 0) {
-        l.append(LOG_ENTRY_TYPE_OBJ, data, sizeof(data), true);
+        l.append(LOG_ENTRY_TYPE_OBJ, 0, data, sizeof(data), true);
         origObjCnt++;
     }
-    l.append(LOG_ENTRY_TYPE_OBJTOMB, data, sizeof(data), true);
+    l.append(LOG_ENTRY_TYPE_OBJTOMB, 0, data, sizeof(data), true);
 
     LogEntryType lastType = LOG_ENTRY_TYPE_INVALID;
     int objCnt = 0, tombCnt = 0, otherCnt = 0;
@@ -192,7 +192,7 @@ TEST_F(LogIteratorTest, next) {
     }
 
     l.sync();
-    l.append(LOG_ENTRY_TYPE_OBJ, data, sizeof(data), true);
+    l.append(LOG_ENTRY_TYPE_OBJ, 0, data, sizeof(data), true);
 
     {
         LogIterator i(l);
@@ -224,7 +224,7 @@ TEST_F(LogIteratorTest, next) {
     }
 
     while (l.getHeadPosition().getSegmentId() == 0)
-        l.append(LOG_ENTRY_TYPE_OBJ, data, sizeof(data), true);
+        l.append(LOG_ENTRY_TYPE_OBJ, 0, data, sizeof(data), true);
 
     {
         LogIterator i(l);
@@ -331,7 +331,7 @@ TEST_F(LogIteratorTest, populateSegmentList) {
 #if 0
 TEST_F(LogIteratorTest, cleanerInteraction) {
     while (l.getHeadPosition().getSegmentId() == 0)
-        l.append(LOG_ENTRY_TYPE_OBJ, &serverId, sizeof(serverId), true);
+        l.append(LOG_ENTRY_TYPE_OBJ, 0, &serverId, sizeof(serverId), true);
 
     Tub<LogIterator> i;
     i.construct(l);
@@ -362,8 +362,8 @@ TEST_F(LogIteratorTest, cleanerInteraction) {
 
     // Nor must seg 2 join the log when a new head appears.
     while (l.getHeadPosition().getSegmentId() == 1)
-        l.append(LOG_ENTRY_TYPE_OBJ, &serverId, sizeof(serverId), true);
-    l.append(LOG_ENTRY_TYPE_OBJ, &serverId, sizeof(serverId), true);
+        l.append(LOG_ENTRY_TYPE_OBJ, 0, &serverId, sizeof(serverId), true);
+    l.append(LOG_ENTRY_TYPE_OBJ, 0, &serverId, sizeof(serverId), true);
     while (!i->isDone()) {
         foreach (Segment* s, i->segmentList)
             EXPECT_NE(2U, s->getId());

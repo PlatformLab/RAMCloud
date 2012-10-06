@@ -113,24 +113,21 @@ Segment::~Segment()
  * \param type
  *      Type of the entry. See LogEntryTypes.h.
  * \param buffer
- *      Buffer object describing the entry to be appended.
- * \param offset
- *      Byte offset within the buffer object to begin appending from.
+ *      Pointer to the buffer containing the entry to be appended.
  * \param length
- *      Number of bytes to append starting from the given offset in the buffer.
+ *      Number of bytes to append from the provided buffer.
  * \param[out] outOffset
- *      If appending was successful, the segment offset of the new entry is
- *      returned here. This is used to address the entry.
+ *      If the append was successful, the segment offset of the new entry is
+ *      returned here. This is used to address the entry within the segment.
  * \return
  *      True if the append succeeded, false if there was insufficient space to
  *      complete the operation.
  */
 bool
 Segment::append(LogEntryType type,
-                Buffer& buffer,
-                uint32_t offset,
+                const void* buffer,
                 uint32_t length,
-                uint32_t& outOffset)
+                uint32_t* outOffset)
 {
     EntryHeader entryHeader(type, length);
 
@@ -148,59 +145,37 @@ Segment::append(LogEntryType type,
     checksum.update(&length, entryHeader.getLengthBytes());
     head += entryHeader.getLengthBytes();
 
-    copyInFromBuffer(head, buffer, offset, length);
+    copyIn(head, buffer, length);
     head += length;
 
-    outOffset = startOffset;
+    if (outOffset != NULL)
+        *outOffset = startOffset;
 
     return true;
 }
 
 /**
- * Abbreviated append method provided for convenience. Please see the first
- * append method's documentation.
- */
-bool
-Segment::append(LogEntryType type, Buffer& buffer, uint32_t& outOffset)
-{
-    return append(type, buffer, 0, buffer.getTotalLength(), outOffset);
-}
-
-/**
- * Abbreviated append method provided for convenience. Please see the first
- * append method's documentation.
- */
-bool
-Segment::append(LogEntryType type, Buffer& buffer)
-{
-    uint32_t outOffset;
-    return append(type, buffer, outOffset);
-}
-
-/**
- * Append from a void pointer, rather than a buffer. Provided for convenience.
- * Please see the first append method for documentation.
+ * Append a typed entry to this segment. Entries are binary blobs described by
+ * a simple <type, length> tuple.
+ *
+ * \param type
+ *      Type of the entry. See LogEntryTypes.h.
+ * \param buffer
+ *      Buffer object describing the entry to be appended.
+ * \param[out] outOffset
+ *      If the append was successful, the segment offset of the new entry is
+ *      returned here. This is used to address the entry within the segment.
+ * \return
+ *      True if the append succeeded, false if there was insufficient space to
+ *      complete the operation.
  */
 bool
 Segment::append(LogEntryType type,
-                const void* data,
-                uint32_t length,
-                uint32_t& outOffset)
+                Buffer& buffer,
+                uint32_t* outOffset)
 {
-    Buffer buffer;
-    buffer.append(data, length);
-    return append(type, buffer, 0, length, outOffset);
-}
-
-/**
- * Abbreviated append method provided for convenience. Please see the previous
- * append method's documentation.
- */
-bool
-Segment::append(LogEntryType type, const void* data, uint32_t length)
-{
-    uint32_t dummy;
-    return append(type, data, length, dummy);
+    uint32_t length = buffer.getTotalLength();
+    return append(type, buffer.getRange(0, length), length, outOffset);
 }
 
 /**
@@ -578,22 +553,16 @@ Segment::copyOut(uint32_t offset, void* buffer, uint32_t length) const
         if (contigBytes == 0)
             break;
 
-        // Yes, this ugliness actually provides a small improvement...
+        // Yes, this ugliness actually provides a small improvement when
+        // pulling out the header length field.
         switch (contigBytes) {
         case sizeof(uint8_t):
-            *bufferBytes = *reinterpret_cast<const uint8_t*>(contigPointer);
+            *reinterpret_cast<uint8_t*>(bufferBytes) =
+                *reinterpret_cast<const uint8_t*>(contigPointer);
             break;
         case sizeof(uint16_t):
             *reinterpret_cast<uint16_t*>(bufferBytes) =
                 *reinterpret_cast<const uint16_t*>(contigPointer);
-            break;
-        case sizeof(uint32_t):
-            *reinterpret_cast<uint32_t*>(bufferBytes) =
-                 *reinterpret_cast<const uint32_t*>(contigPointer);
-            break;
-        case sizeof(uint64_t):
-            *reinterpret_cast<uint64_t*>(bufferBytes) =
-                 *reinterpret_cast<const uint64_t*>(contigPointer);
             break;
         default:
             memcpy(bufferBytes, contigPointer, contigBytes);

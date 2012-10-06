@@ -119,7 +119,7 @@ TEST_P(SegmentTest, append_blackBox) {
     char buf[1000];
     for (uint32_t i = 0; i < 1000; i += 100) {
         uint32_t offset;
-        EXPECT_TRUE(s.append(LOG_ENTRY_TYPE_OBJ, buf, i, offset));
+        EXPECT_TRUE(s.append(LOG_ENTRY_TYPE_OBJ, buf, i, &offset));
 
         Buffer buffer;
         s.getEntry(offset, buffer);
@@ -150,7 +150,7 @@ TEST_P(SegmentTest, append_whiteBox) {
     Segment& s = *segAndAlloc.segment;
 
     uint32_t offset;
-    s.append(LOG_ENTRY_TYPE_OBJ, "hi", 2, offset);
+    s.append(LOG_ENTRY_TYPE_OBJ, "hi", 2, &offset);
 
     EXPECT_EQ(0U, offset);
     Segment::Certificate certificate;
@@ -213,8 +213,7 @@ TEST_P(SegmentTest, close) {
 TEST_P(SegmentTest, appendToBuffer_partial) {
     SegmentAndAllocator segAndAlloc(GetParam());
     Segment& s = *segAndAlloc.segment;
-    uint32_t offset;
-    s.append(LOG_ENTRY_TYPE_OBJ, "this is only a test!", 21, offset);
+    s.append(LOG_ENTRY_TYPE_OBJ, "this is only a test!", 21);
 
     Buffer buffer;
     s.appendToBuffer(buffer, 2, 21);
@@ -241,7 +240,7 @@ TEST_P(SegmentTest, getEntry) {
     SegmentAndAllocator segAndAlloc(GetParam());
     Segment& s = *segAndAlloc.segment;
     uint32_t offset;
-    s.append(LOG_ENTRY_TYPE_OBJ, "this is only a test!", 21, offset);
+    s.append(LOG_ENTRY_TYPE_OBJ, "this is only a test!", 21, &offset);
 
     Buffer buffer;
     EXPECT_EQ(LOG_ENTRY_TYPE_OBJ, s.getEntry(offset, buffer));
