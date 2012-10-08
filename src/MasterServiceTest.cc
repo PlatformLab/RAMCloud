@@ -217,6 +217,35 @@ class MasterServiceTest : public ::testing::Test {
         rs->sync(seg.getAppendedLength());
     }
 
+    // Write a segment containing a header and a safeVersion to a backup.
+    // This is used to test fetching of recovery segments and
+    // safeVersion Recovery
+    static void
+    writeRecoverableSegment(Context* context,
+                            ReplicaManager& mgr,
+                            ServerId serverId,
+                            uint64_t logId,
+                            uint64_t segmentId,
+                            uint64_t safeVer)
+    {
+        Segment seg;
+        SegmentHeader header(logId, segmentId, 1000,
+                             Segment::INVALID_SEGMENT_ID);
+        Segment::Certificate certificate;
+        seg.append(LOG_ENTRY_TYPE_SEGHEADER, &header, sizeof(header));
+        seg.getAppendedLength(certificate);
+
+        ObjectSafeVersion objSafeVer(safeVer);
+        seg.append(LOG_ENTRY_TYPE_SAFEVERSION,
+                   &objSafeVer, sizeof(objSafeVer));
+        seg.getAppendedLength(certificate);
+
+        ReplicatedSegment* rs = mgr.allocateHead(segmentId, &seg, NULL);
+        seg.getAppendedLength(certificate);
+
+        rs->sync(seg.getAppendedLength(certificate));
+    }
+
     void
     verifyRecoveryObject(Key& key, string contents)
     {
@@ -564,7 +593,9 @@ TEST_F(MasterServiceTest, recover_basics) {
     }
 
     ReplicaManager mgr(&context, serverId, 1);
-    writeRecoverableSegment(&context, mgr, serverId, 123, 87);
+
+    // Create a segment with objectSafeVersion 23
+    writeRecoverableSegment(&context, mgr, serverId, 123, 87, 23U);
 
     ProtoBuf::Tablets tablets;
     createTabletList(tablets);
@@ -576,6 +607,9 @@ TEST_F(MasterServiceTest, recover_basics) {
     ASSERT_EQ(1lu, result.replicas.size());
     ASSERT_EQ(87lu, result.replicas.at(0).segmentId);
 
+    service->segmentManager.safeVersion = 1U; // reset safeVersion
+    EXPECT_EQ(1U, service->segmentManager.safeVersion); // check safeVersion
+
     ProtoBuf::ServerList backups;
     WireFormat::Recover::Replica replicas[] = {
         {backup1Id.getId(), 87},
@@ -585,33 +619,63 @@ TEST_F(MasterServiceTest, recover_basics) {
     MasterClient::recover(&context, masterServer->serverId, 10lu,
                           ServerId(123), 0, &tablets, replicas,
                           arrayLength(replicas));
+    // safeVersion Recovered
+    EXPECT_EQ(23U, service->segmentManager.safeVersion);
 
-    EXPECT_TRUE(TestUtil::matchesPosixRegex(
+    size_t curPos = 0; // Current Pos: given to getUntil()
+    TestLog::getUntil("recover: Recovering master 123.0"
+                      , curPos, &curPos); // Proceed read pointer
+
+    EXPECT_EQ(
         "recover: Recovering master 123.0, partition 0, 1 replicas available | "
         "recover: Starting getRecoveryData from server 1.0 at "
         "mock:host=backup1 for "
         "segment 87 on channel 0 (initial round of RPCs) | "
         "recover: Waiting on recovery data for segment 87 from "
-        "server 1.0 at mock:host=backup1 | ",
-        TestLog::get()));
-    EXPECT_TRUE(TestUtil::matchesPosixRegex(
-        "recover: Recovering segment 87 with size 0",
-        TestLog::get()));
-    EXPECT_TRUE(TestUtil::matchesPosixRegex(
+        "server 1.0 at mock:host=backup1 | "
+        , TestLog::getUntil(
+            "recover: Got getRecoveryData response "
+            , curPos, &curPos));
+
+    TestLog::getUntil("recover: Recovering segment 87 "
+                      , curPos, &curPos); // Proceed read pointer
+
+    EXPECT_EQ(
+        "recover: Recovering segment 87 with size 56 | "
+        "recoverSegment: SAFEVERSION 23 recovered | "
+        "recoverSegment: SAFEVERSION 23 discarded | "
+        "recoverSegment: SAFEVERSION 23 discarded | "
+        "recoverSegment: SAFEVERSION 23 discarded | "
+        "recover: Segment 87 replay complete | "
+        , TestLog::getUntil(
+            "recover: Checking server 1.0 at mock:host=backup1 "
+            ,  curPos, &curPos));
+
+    EXPECT_EQ(
         "recover: Checking server 1.0 at mock:host=backup1 "
         "off the list for 87 | "
         "recover: Checking server 1.0 at mock:host=backup1 "
-        "off the list for 87 | ",
-        TestLog::get()));
-    EXPECT_TRUE(TestUtil::matchesPosixRegex(
+        "off the list for 87 | "
+        , TestLog::getUntil(
+            "recover: Syncing the log | "
+            ,  curPos, &curPos));
+
+    TestLog::getUntil(
+            "recover: set tablet 123 0 9 to "
+            , curPos, &curPos); // Proceed read pointer
+
+                //    EXPECT_TRUE(TestUtil::matchesPosixRegex(
+    EXPECT_EQ(
         "recover: set tablet 123 0 9 to locator mock:host=master, id 2.0 | "
         "recover: set tablet 123 10 19 to locator mock:host=master, id 2.0 | "
         "recover: set tablet 123 20 29 to locator mock:host=master, id 2.0 | "
         "recover: set tablet 124 20 100 to locator mock:host=master, "
         "id 2.0 | "
         "recover: Reporting completion of recovery 10 | "
-        "recoveryMasterFinished: called by masterId 2.0 with 4 tablets",
-        TestLog::get()));
+        "recoveryMasterFinished: called by masterId 2.0 with 4 tablets | "
+        , TestLog::getUntil(
+            "recoveryMasterFinished: Recovered tablets | "
+            ,  curPos, &curPos));
 }
 
 TEST_F(MasterServiceTest, removeIfFromUnknownTablet) {

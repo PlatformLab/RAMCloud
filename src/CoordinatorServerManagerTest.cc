@@ -51,6 +51,7 @@ class CoordinatorServerManagerTest : public ::testing::Test {
         , logCabinLog()
     {
         Logger::get().setLogLevels(SILENT_LOG_LEVEL);
+        //Logger::get().setLogLevels(DEBUG);
 
         serverManager = &cluster.coordinator.get()->serverManager;
 
@@ -128,7 +129,7 @@ TEST_F(CoordinatorServerManagerTest, assignReplicationGroup) {
 }
 
 TEST_F(CoordinatorServerManagerTest, createReplicationGroup) {
-    ServerId serverIds[9];
+    ServerId serverIds[10];
     ServerConfig config = ServerConfig::forTesting();
     config.services = {WireFormat::BACKUP_SERVICE,
         WireFormat::MEMBERSHIP_SERVICE, WireFormat::PING_SERVICE};
@@ -153,6 +154,10 @@ TEST_F(CoordinatorServerManagerTest, createReplicationGroup) {
     serverIds[8] = cluster.addServer(config)->serverId;
     EXPECT_EQ(0U, serverList->at(serverIds[6]).replicationId);
     EXPECT_EQ(0U, serverList->at(serverIds[8]).replicationId);
+    config.localLocator = format("mock:host=backup%u", 10);
+    serverIds[9] = cluster.addServer(config)->serverId;
+    EXPECT_EQ(3U, serverList->at(serverIds[6]).replicationId);
+    EXPECT_EQ(3U, serverList->at(serverIds[9]).replicationId);
 }
 
 TEST_F(CoordinatorServerManagerTest, enlistServer) {
@@ -374,7 +379,7 @@ TEST_F(CoordinatorServerManagerTest, enlistedServerRecover) {
 }
 
 TEST_F(CoordinatorServerManagerTest, removeReplicationGroup) {
-    ServerId serverIds[3];
+    ServerId serverIds[4];
     ServerConfig config = ServerConfig::forTesting();
     config.services = {WireFormat::BACKUP_SERVICE,
             WireFormat::MEMBERSHIP_SERVICE, WireFormat::PING_SERVICE};
@@ -382,10 +387,19 @@ TEST_F(CoordinatorServerManagerTest, removeReplicationGroup) {
         config.localLocator = format("mock:host=backup%u", i);
         serverIds[i] = cluster.addServer(config)->serverId;
     }
-    serverManager->removeReplicationGroup(1);
+    EXPECT_EQ(1U, serverList->at(serverIds[1]).replicationId);
+    serverManager->forceServerDownForTesting = true;
+    serverManager->hintServerDown(serverIds[1]);
+    serverManager->forceServerDownForTesting = false;
     EXPECT_EQ(0U, serverList->at(serverIds[0]).replicationId);
-    EXPECT_EQ(0U, serverList->at(serverIds[1]).replicationId);
     EXPECT_EQ(0U, serverList->at(serverIds[2]).replicationId);
+    config.localLocator = format("mock:host=backup%u", 3);
+    serverIds[3] = cluster.addServer(config)->serverId;
+    EXPECT_EQ(2U, serverList->at(serverIds[2]).replicationId);
+    serverManager->removeReplicationGroup(2);
+    EXPECT_EQ(0U, serverList->at(serverIds[0]).replicationId);
+    EXPECT_EQ(0U, serverList->at(serverIds[2]).replicationId);
+    EXPECT_EQ(0U, serverList->at(serverIds[3]).replicationId);
 }
 
 namespace {

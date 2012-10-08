@@ -1,4 +1,4 @@
-/* Copyright (c) 2010 Stanford University
+/* Copyright (c) 2010-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -21,59 +21,63 @@
 #ifndef RAMCLOUD_CRAMCLOUD_H
 #define RAMCLOUD_CRAMCLOUD_H
 
-#include "Common.h"
 #include "RejectRules.h"
 #include "Status.h"
 
 #ifdef __cplusplus
 extern "C" {
+using namespace RAMCloud;
+#else
+/// Forward Declarations
+struct RamCloud;
+struct rc_client;
 #endif
 
-RAMCloud::Status    rc_connect(const char* serverLocator,
+Status    rc_connect(const char* serverLocator,
                             struct rc_client** newClient);
-RAMCloud::Status    rc_connectWithClient(
-                            struct RAMCloud::RamCloud* existingClient,
+Status    rc_connectWithClient(
+                            struct RamCloud* existingClient,
                             struct rc_client** newClient);
-void                rc_disconnect(struct rc_client* client);
+void      rc_disconnect(struct rc_client* client);
 
-RAMCloud::Status    rc_createTable(struct rc_client* client, const char* name);
-RAMCloud::Status    rc_dropTable(struct rc_client* client, const char* name);
-RAMCloud::Status    rc_getStatus(struct rc_client* client);
-RAMCloud::Status    rc_getTableId(struct rc_client* client, const char* name,
+Status    rc_createTable(struct rc_client* client, const char* name);
+Status    rc_dropTable(struct rc_client* client, const char* name);
+Status    rc_getStatus(struct rc_client* client);
+Status    rc_getTableId(struct rc_client* client, const char* name,
                             uint64_t* tableId);
 
-RAMCloud::Status    rc_read(struct rc_client* client, uint64_t tableId,
+Status    rc_read(struct rc_client* client, uint64_t tableId,
                             const void* key, uint16_t keyLength,
-                            const struct RAMCloud::RejectRules* rejectRules,
+                            const struct RejectRules* rejectRules,
                             uint64_t* version, void* buf, uint32_t maxLength,
                             uint32_t* actualLength);
-RAMCloud::Status    rc_remove(struct rc_client* client, uint64_t tableId,
+Status    rc_remove(struct rc_client* client, uint64_t tableId,
                               const void* key, uint16_t keyLength,
-                              const struct RAMCloud::RejectRules* rejectRules,
+                              const struct RejectRules* rejectRules,
                               uint64_t* version);
-RAMCloud::Status    rc_write(struct rc_client* client, uint64_t tableId,
+Status    rc_write(struct rc_client* client, uint64_t tableId,
                              const void* key, uint16_t keyLength,
                              const void* buf, uint32_t length,
-                             const struct RAMCloud::RejectRules* rejectRules,
+                             const struct RejectRules* rejectRules,
                              uint64_t* version);
 
-RAMCloud::Status    rc_testing_kill(struct rc_client* client, uint64_t tableId,
+Status    rc_testing_kill(struct rc_client* client, uint64_t tableId,
                                     const void* key, uint16_t keyLength);
-RAMCloud::Status    rc_testing_get_server_id(struct rc_client* client,
+Status    rc_testing_get_server_id(struct rc_client* client,
                                              uint64_t tableId,
                                              const void* key,
                                              uint16_t keyLength,
                                              uint64_t* serverId);
-RAMCloud::Status    rc_testing_get_service_locator(struct rc_client* client,
+Status    rc_testing_get_service_locator(struct rc_client* client,
                                                    uint64_t tableId,
                                                    const void* key,
                                                    uint16_t keyLength,
                                                    char* locatorBuffer,
                                                    size_t bufferLength);
-RAMCloud::Status    rc_testing_fill(struct rc_client* client, uint64_t tableId,
+Status    rc_testing_fill(struct rc_client* client, uint64_t tableId,
                                     const void* key, uint16_t keyLength,
                                     uint32_t objectCount, uint32_t objectSize);
-RAMCloud::Status    rc_testing_set_runtime_option(struct rc_client* client,
+Status    rc_testing_set_runtime_option(struct rc_client* client,
                                                   const char* option,
                                                   const char* value);
 void rc_testing_wait_for_all_tablets_normal(struct rc_client* client,
