@@ -85,6 +85,12 @@ class SegletAllocator {
     uint64_t getTotalBytes();
     int getMemoryUtilization();
 
+#if TESTING
+    /// Allow the reported memory utilization (from getMemoryUtilization) to be
+    /// easily mocked by setting this to the desired non-0 value.
+    static int mockMemoryUtilization;
+#endif
+
   PRIVATE:
     bool allocFromPool(vector<Seglet*>& pool,
                        uint32_t count,

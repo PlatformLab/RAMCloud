@@ -198,6 +198,7 @@ LogCleaner::doWork()
 double
 LogCleaner::doMemoryCleaning()
 {
+    TEST_LOG("called");
     CycleCounter<uint64_t> _(&inMemoryMetrics.totalTicks);
 
     uint32_t freeableSeglets;
@@ -250,6 +251,7 @@ LogCleaner::doMemoryCleaning()
 void
 LogCleaner::doDiskCleaning()
 {
+    TEST_LOG("called");
     CycleCounter<uint64_t> _(&onDiskMetrics.totalTicks);
 
     uint32_t segletsBefore, segletsAfter;
@@ -349,7 +351,6 @@ LogCleaner::sortSegmentsByCostBenefit(LogSegmentVector& segments)
     // easy to say how many top candidates we'd want to track in the heap since
     // they could each have significantly different numbers of seglets.
     std::sort(segments.begin(), segments.end(), CostBenefitComparer());
-
 }
 
 /**
@@ -402,6 +403,9 @@ LogCleaner::getSegmentsToClean(LogSegmentVector& outSegmentsToClean,
     }
 
     outTotalSeglets = totalSeglets;
+
+    TEST_LOG("%lu segments selected with %u allocated segments",
+        chosenIndices.size(), totalSeglets);
 }
 
 /**
@@ -464,6 +468,9 @@ LogCleaner::getSortedEntries(LogSegmentVector& segmentsToClean,
         onDiskMetrics.cleanedSegmentDiskHistogram.storeSample(
             segment->getDiskUtilization());
     }
+
+    TEST_LOG("%lu entries extracted from %lu segments",
+        outLiveEntries.size(), segmentsToClean.size());
 }
 
 /**
@@ -524,6 +531,9 @@ LogCleaner::relocateLiveEntries(LiveEntryVector& liveEntries,
 
     outNewSeglets = survivorSegletsUsed;
     outNewSegments = downCast<uint32_t>(survivors.size());
+
+    TEST_LOG("used %u seglets and %u segments",
+        outNewSeglets, outNewSegments);
 }
 
 /**

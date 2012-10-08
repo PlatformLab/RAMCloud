@@ -289,6 +289,11 @@ SegletAllocator::getTotalBytes()
     return block.length;
 }
 
+#ifdef TESTING
+/// Set to non-0 to return a mock memory utilization value.
+int SegletAllocator::mockMemoryUtilization = 0;
+#endif
+
 /**
  * Return the percentage of unreserved seglets currently allocated. In other
  * words, the amount of space allocated in the log, not including seglets set
@@ -299,6 +304,11 @@ int
 SegletAllocator::getMemoryUtilization()
 {
     std::lock_guard<SpinLock> guard(lock);
+
+#ifdef TESTING
+    if (mockMemoryUtilization)
+        return mockMemoryUtilization;
+#endif
 
     size_t maxDefaultPoolSize = getTotalCount() -
                                 emergencyHeadPoolReserve -

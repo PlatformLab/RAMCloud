@@ -96,6 +96,12 @@ class SegmentManager {
     uint64_t allocateVersion();
     bool raiseSafeVersion(uint64_t minimum);
 
+#ifdef TESTING
+    /// Used to mock the return value of getSegmentUtilization() when set to
+    /// anything other than 0.
+    static int mockSegmentUtilization;
+#endif
+
   PRIVATE:
     /**
      * The various possible states that an in-memory segment can be in. Every

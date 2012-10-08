@@ -257,6 +257,8 @@ SegmentManager::allocSurvivor(uint64_t headSegmentIdDuringCleaning)
     segmentsOnDiskHistogram.storeSample(segmentsOnDisk++);
     s->headSegmentIdDuringCleaning = headSegmentIdDuringCleaning;
 
+    TEST_LOG("id = %lu", s->id);
+
     return s;
 }
 
@@ -296,6 +298,8 @@ SegmentManager::allocSurvivor(LogSegment* replacing)
 
     // This survivor will inherit the replicatedSegment of the one it replaces
     // when memoryCleaningComplete() is invoked.
+
+    TEST_LOG("id = %lu", s->id);
 
     return s;
 }
@@ -367,6 +371,9 @@ SegmentManager::memoryCleaningComplete(LogSegment* cleaned)
     survivor.replicatedSegment = cleaned->replicatedSegment;
     cleaned->replicatedSegment = NULL;
     //survivor.replicatedSegment->brainTransplant(survivor);
+
+    LOG(DEBUG, "Compaction used %u seglets to free %u seglets",
+        survivor.getSegletsAllocated(), cleaned->getSegletsAllocated());
 }
 
 /**
@@ -541,6 +548,11 @@ SegmentManager::getFreeSurvivorCount()
            (segmentSize / allocator.getSegletSize());
 }
 
+#ifdef TESTING
+/// Set to non-0 to mock the reported utilization of backup segments.
+int SegmentManager::mockSegmentUtilization = 0;
+#endif
+
 /**
  * Return the percentage of segments in use. The value returned is in the range
  * [0, 100].
@@ -553,6 +565,12 @@ int
 SegmentManager::getSegmentUtilization()
 {
     Lock guard(lock);
+
+#ifdef TESTING
+    if (mockSegmentUtilization)
+        return mockSegmentUtilization;
+#endif
+
     uint32_t maxUsableSegments = maxSegments -
                                  emergencyHeadSlotsReserved -
                                  survivorSlotsReserved;
