@@ -154,12 +154,12 @@ TEST_F(LogTest, getEntry) {
     uint64_t data = 0x123456789ABCDEF0UL;
     Buffer sourceBuffer;
     sourceBuffer.append(&data, sizeof(data));
-    HashTable::Reference reference;
-    EXPECT_TRUE(l.append(LOG_ENTRY_TYPE_OBJ, 0, sourceBuffer, false, &reference));
+    HashTable::Reference ref;
+    EXPECT_TRUE(l.append(LOG_ENTRY_TYPE_OBJ, 0, sourceBuffer, false, &ref));
 
     LogEntryType type;
     Buffer buffer;
-    type = l.getEntry(reference, buffer);
+    type = l.getEntry(ref, buffer);
     EXPECT_EQ(LOG_ENTRY_TYPE_OBJ, type);
     EXPECT_EQ(sizeof(data), buffer.getTotalLength());
     EXPECT_EQ(data, *buffer.getStart<uint64_t>());

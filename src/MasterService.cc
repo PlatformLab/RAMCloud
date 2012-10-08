@@ -1733,7 +1733,8 @@ MasterService::recoverSegment(SegmentIterator& it)
 
             bool checksumIsValid = ({
                 CycleCounter<RawMetric> c(&metrics->master.verifyChecksumTicks);
-                Object::computeChecksum(recoveryObj, it.getLength()) == recoveryObj->checksum;
+                Object::computeChecksum(recoveryObj, it.getLength()) ==
+                    recoveryObj->checksum;
             });
             if (!checksumIsValid) {
                 LOG(WARNING, "bad object checksum! key: %s, version: %lu",
@@ -2195,24 +2196,22 @@ MasterService::getTimestamp(LogEntryType type, Buffer& buffer)
 }
 
 /**
- * Report that a log entry has been copied to a new location and query whether
- * it is still needed. This serves two functions. First, to allow this service
- * to update any references so that they point to the object's new location.
- * Second, to allow this service to back out if the object is no longer needed,
- * since it may have been erased between this call and a previous call to
- * checkLiveness().
- *
- * XXX update this.
+ * Relocate and update metadata for an object or tombstone that is being
+ * cleaned. The cleaner invokes this method for every entry it comes across
+ * when processing a segment. If the entry is no longer needed, nothing needs
+ * to be done. If it is needed, the provided relocator should be used to copy
+ * it to a new location and any metadata pointing to the old entry must be
+ * updated before returning.
  *
  * \param type
- *      Type of the object being queried.
+ *      Type of the entry being cleaned.
  * \param oldBuffer
- *      Buffer pointing to the object in the log being queried. This is the
+ *      Buffer pointing to the entry in the log being cleaned. This is the
  *      location that will soon be invalid due to garbage collection.
- * \return
- *      True if the object is still alive and newReference will be used. False
- *      if the object is dead and the space pointed to by newReference may be
- *      garbage collected along with the old copy.
+ * \param relocator
+ *      The relocator is used to copy a live entry to a new location in the
+ *      log and get a reference to that new location. If the entry is not
+ *      needed, the relocator should not be used.
  */
 void
 MasterService::relocate(LogEntryType type,
@@ -2226,27 +2225,24 @@ MasterService::relocate(LogEntryType type,
 }
 
 /**
- * Callback used by the LogCleaner when it's cleaning a Segment and moves
- * an Object to a new Segment.
+ * Callback used by the LogCleaner when it's cleaning a Segment and comes
+ * across an Object.
  *
- * The cleaner will have already invoked the liveness callback to see whether
- * or not the Object was recently live. Since it could no longer be live (it
- * may have been deleted or overwritten since the check), this callback must
- * decide if it is still live, atomically update any structures if needed, and
- * return whether or not any action has been taken so the caller will know
- * whether or not the new copy should be retained.
+ * This callback will decide if the object is still alive. If it is, it must
+ * use the relocator to move it to a new location and atomically update the
+ * hash table.
  *
  * \param oldBuffer
  *      Buffer pointing to the object's current location, which will soon be
  *      invalidated.
- * \param newReference
- *      Log reference pointing to a new copy of the object that may be kept
- *      if the object is still alive.
- * \return
- *      True if newReference is needed, that is, the object is still alive and
- *      the new location must not be garbage collected. False indicates that
- *      newReference wasn't needed and both the old object and the new copy
- *      may be immediately deleted.
+ * \param relocator
+ *      The relocator may be used to store the object in a new location if it
+ *      is still alive. It also provides a reference to the new location and
+ *      keeps track of whether this call wanted the object anymore or not.
+ *
+ *      It is possible that relocation may fail (because more memory needs to
+ *      be allocated). In this case, the callback should just return. The
+ *      cleaner will note the failure, allocate more memory, and try again.
  */
 void
 MasterService::relocateObject(Buffer& oldBuffer,
@@ -2309,25 +2305,24 @@ MasterService::getObjectTimestamp(Buffer& buffer)
 }
 
 /**
- * Callback used by the LogCleaner when it's cleaning a Segment and moves
- * a Tombstone to a new Segment.
+ * Callback used by the LogCleaner when it's cleaning a Segment and comes
+ * across a Tombstone.
  *
- * The cleaner will have already invoked the liveness callback to see whether
- * or not the Tombstone was recently live. Since it could no longer be live (it
- * may have been deleted or overwritten since the check), this callback must
- * decide if it is still live, atomically update any structures if needed, and
- * return whether or not any action has been taken so the caller will know
- * whether or not the new copy should be retained.
+ * This callback will decide if the tombstone is still alive. If it is, it must
+ * use the relocator to move it to a new location and atomically update the
+ * hash table.
  *
  * \param oldBuffer
- *      Buffer pointing to the tombstone that will soon be invalidated.
- * \param newReference
- *      Log reference to the Tombstones's new location that already exists
- *      as a possible replacement, if needed.
- * \return
- *      True if newReference is needed. That is, it should remain allocated.
- *      False indicates that newReference wasn't needed (because the pointed-to
- *      object doesn't exist on backups anymore) and can be immediately deleted.
+ *      Buffer pointing to the tombstone's current location, which will soon be
+ *      invalidated.
+ * \param relocator
+ *      The relocator may be used to store the tombstone in a new location if it
+ *      is still alive. It also provides a reference to the new location and
+ *      keeps track of whether this call wanted the tombstone anymore or not.
+ *
+ *      It is possible that relocation may fail (because more memory needs to
+ *      be allocated). In this case, the callback should just return. The
+ *      cleaner will note the failure, allocate more memory, and try again.
  */
 void
 MasterService::relocateTombstone(Buffer& oldBuffer,

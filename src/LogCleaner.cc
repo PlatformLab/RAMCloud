@@ -34,17 +34,18 @@ namespace RAMCloud {
  *
  * \param context
  *      Overall information about the RAMCloud server.
+ * \param config
+ *      Server configuration from which the cleaner will extract any runtime
+ *      parameters that affect its operation.
  * \param segmentManager
  *      The SegmentManager to query for newly cleanable segments, allocate
  *      survivor segments from, and report cleaned segments to.
  * \param replicaManager
  *      The ReplicaManager to use in backing up segments written out by the
  *      cleaner.
- * \param writeCostThreshold
- *      Threshold after which disk cleaning will be forced, even if disk space
- *      usage is not high. The treshold represents the maximum amount of work
- *      the in-memory cleaner should do on its own before trying to free up
- *      tombstone space by cleaning disk segments.
+ * \param entryHandlers
+ *     Class responsible for entries stored in the log. The cleaner will invoke
+ *     it when they are being relocated during cleaning, for example.
  */
 LogCleaner::LogCleaner(Context* context,
                        const ServerConfig& config,
@@ -360,6 +361,9 @@ LogCleaner::sortSegmentsByCostBenefit(LogSegmentVector& segments)
  *
  * \param[out] outSegmentsToClean
  *      Vector in which segments chosen for cleaning are returned.
+ * \param[out] outTotalSeglets
+ *      The total number of seglets allocated to the chosen segments is
+ *      returned here.
  * \return
  *      Returns the total number of seglets allocated in the segments chosen for
  *      cleaning.
@@ -481,6 +485,12 @@ LogCleaner::getSortedEntries(LogSegmentVector& segmentsToClean,
  * \param liveEntries
  *      Vector the entries from segments being cleaned that may need to be
  *      relocated.
+ * \param outNewSeglets
+ *      The total number of seglets used to store survivor data is returned
+ *      here.
+ * \param outNewSegments
+ *      The total number of new segments allocated for survivor data is returned
+ *      here.
  * \return
  *      The number of seglets consumed in survivor segments while writing out
  *      the survivor data.

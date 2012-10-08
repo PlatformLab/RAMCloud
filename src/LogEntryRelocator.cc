@@ -100,7 +100,9 @@ LogEntryRelocator::getNewReference()
 {
     if (!didAppend)
         throw FatalError(HERE, "No append operation succeeded.");
-    return HashTable::Reference((static_cast<uint64_t>(segment->slot) << 24) | offset);
+    // TODO(steve): This does not belong here!
+    return HashTable::Reference((static_cast<uint64_t>(segment->slot) << 24) |
+                                offset);
 }
 
 /**

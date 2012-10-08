@@ -293,7 +293,7 @@ TEST_F(SegmentManagerTest, indexOperator) {
         &segmentManager[head->slot]);
 }
 
-#if 0 // XXXX reenable me once Ryan fixes the RS::free() bug!
+#if 0 // TODO(steve): reenable me once Ryan fixes the RS::free() bug!
 TEST_F(SegmentManagerTest, doesIdExist) {
     EXPECT_FALSE(segmentManager.doesIdExist(0));
 
@@ -475,7 +475,7 @@ TEST_F(SegmentManagerTest, freeSlot) {
     EXPECT_EQ(62U, segmentManager.freeEmergencyHeadSlots[0]);
 }
 
-#if 0   // XXXXXX- another RS::free() issue
+#if 0   // TODO(steve): another RS::free() issue
 TEST_F(SegmentManagerTest, free) {
     LogSegment* s = segmentManager.allocHead(false);
 

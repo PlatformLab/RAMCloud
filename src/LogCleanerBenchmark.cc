@@ -555,6 +555,10 @@ class Benchmark {
      *      The number of pipelined write RPCs to use. At most this many
      *      asynchronous RPCs will be initiated before any acknowledgements
      *      are received.
+     * \param timeoutSeconds
+     *      If no progress is made within the given number of seconds, throw
+     *      an Exception to terminate the benchmark. This avoids wedging the
+     *      test if a server has stopped responding due to crash, deadlock, etc.
      */
     void
     writeNextObjects(const int pipelined, const unsigned timeoutSeconds)

@@ -435,13 +435,24 @@ class Object {
         return crc.getResult();
     }
 
+    /**
+     * Given a pointer to a contiguous Object in memory, compute and return
+     * its checksum.
+     *
+     * \param object
+     *      Pointer to the beginning of the object.
+     * \param totalLength
+     *      Total length of the object in bytes, including the header, string
+     *      key, and data.
+     */
     static uint32_t
     computeChecksum(const Object::SerializedForm* object, uint32_t totalLength)
     {
         Crc32C crc;
         crc.update(object,
             downCast<uint32_t>(OFFSET_OF(SerializedForm, checksum)));
-        uint32_t dataLen = totalLength - object->keyLength - sizeof32(SerializedForm);
+        uint32_t dataLen = totalLength - object->keyLength -
+                           sizeof32(SerializedForm);
         crc.update(&object->keyAndData[0], object->keyLength + dataLen);
         return crc.getResult();
     }

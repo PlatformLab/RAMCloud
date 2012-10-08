@@ -60,7 +60,7 @@ class TestEntryHandlers : public LogEntryHandlers {
     }
 
     uint32_t timestamp;
-    bool attemptToRelocate; 
+    bool attemptToRelocate;
 };
 
 class MyServerConfig {
@@ -169,7 +169,7 @@ TEST_F(LogCleanerTest, doWork) {
     SegletAllocator::mockMemoryUtilization = 1;
     SegmentManager::mockSegmentUtilization = 1;
     cleaner.doWork();
-    EXPECT_EQ("", TestLog::get()); 
+    EXPECT_EQ("", TestLog::get());
     TestLog::reset();
 
     // Low on disk segments, but lots of free memory.
@@ -179,7 +179,7 @@ TEST_F(LogCleanerTest, doWork) {
     EXPECT_EQ(
         "doDiskCleaning: called | "
         "getSegmentsToClean: 0 segments selected with 0 allocated segments",
-        TestLog::get()); 
+        TestLog::get());
     TestLog::reset();
 
     // Lots of free disk segments, but low on memory.
@@ -190,10 +190,10 @@ TEST_F(LogCleanerTest, doWork) {
         "doMemoryCleaning: called | "
         "doDiskCleaning: called | "
         "getSegmentsToClean: 0 segments selected with 0 allocated segments",
-        TestLog::get()); 
+        TestLog::get());
     TestLog::reset();
 
-    // Low on both disk and memory. 
+    // Low on both disk and memory.
     SegletAllocator::mockMemoryUtilization = 99;
     SegmentManager::mockSegmentUtilization = 99;
     cleaner.doWork();
@@ -201,7 +201,7 @@ TEST_F(LogCleanerTest, doWork) {
         "doMemoryCleaning: called | "
         "doDiskCleaning: called | "
         "getSegmentsToClean: 0 segments selected with 0 allocated segments",
-        TestLog::get()); 
+        TestLog::get());
 
     SegletAllocator::mockMemoryUtilization = 0;
     SegmentManager::mockSegmentUtilization = 0;
@@ -211,7 +211,7 @@ TEST_F(LogCleanerTest, doMemoryCleaning) {
     segmentManager.allocHead(false)->statistics.liveBytes = 0;
     segmentManager.allocHead(false); // roll over
     segmentManager.cleanableSegments(cleaner.candidates);
-  
+
     TestLog::Enable _;
     EXPECT_NEAR(1, cleaner.doMemoryCleaning(), 0.01);
     EXPECT_EQ(
@@ -222,10 +222,10 @@ TEST_F(LogCleanerTest, doMemoryCleaning) {
       "relocate: type 4, size 12 | "
       "relocate: type 5, size 12 | "
       "memoryCleaningComplete: Compaction used 1 seglets to free 128 seglets",
-        TestLog::get());  
+        TestLog::get());
 }
 
-TEST_F(LogCleanerTest, doMemoryCleaning_noWork) { 
+TEST_F(LogCleanerTest, doMemoryCleaning_noWork) {
     TestLog::Enable _;
     EXPECT_EQ(std::numeric_limits<double>::max(), cleaner.doMemoryCleaning());
     EXPECT_EQ("doMemoryCleaning: called", TestLog::get());
@@ -235,7 +235,7 @@ TEST_F(LogCleanerTest, doDiskCleaning) {
     // Not entirely sure what to check here. doDiskCleaning() mostly just
     // invokes a standard sequence of meatier methods and updates metrics.
     // Right now we'll just ensure that it calls all of the expected functions.
-    
+
     segmentManager.allocHead(false)->statistics.liveBytes = 0;
     segmentManager.allocHead(false); // roll over
     segmentManager.cleanableSegments(cleaner.candidates);
@@ -339,13 +339,13 @@ TEST_F(LogCleanerTest, getSegmentsToClean) {
     // learn about the new candidates
     segmentManager.cleanableSegments(cleaner.candidates);
     EXPECT_EQ(4U, cleaner.candidates.size());
- 
+
     uint32_t totalSeglets;
     LogSegmentVector segments;
     cleaner.getSegmentsToClean(segments, totalSeglets);
 
     uint32_t segletsPerSegment = cleaner.segmentSize / cleaner.segletSize;
-    
+
     EXPECT_EQ(3U * segletsPerSegment, totalSeglets);
     EXPECT_EQ(small, segments[0]);
     EXPECT_EQ(medium, segments[1]);

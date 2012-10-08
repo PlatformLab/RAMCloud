@@ -366,8 +366,8 @@ SegmentManager::memoryCleaningComplete(LogSegment* cleaned)
     cleaned->cleanedEpoch = epoch;
     changeState(*cleaned, FREEABLE_PENDING_REFERENCES);
 
-    // XXX- set the survivor's replicatedSegment* to cleaned's and inform the
-    //      replicatedSegment that its backing segment has changed.
+    // TODO(steve): set the survivor's replicatedSegment* to cleaned's and
+    // inform the replicatedSegment that its backing segment has changed.
     survivor.replicatedSegment = cleaned->replicatedSegment;
     cleaned->replicatedSegment = NULL;
     //survivor.replicatedSegment->brainTransplant(survivor);
@@ -762,9 +762,12 @@ SegmentManager::changeState(LogSegment& s, State newState)
 /**
  * Allocate a new segment, if possible, and set its initial state appropriately.
  *
- * \param forCleaner
- *      If true, allocate a segment for the cleaner. If false, the allocation is
- *      for a new head segment.
+ * \param type 
+ *      Type of segment being allocated. Either it is for an emergency head,
+ *      the cleaner, or a new regular head segment.
+ * \param segmentId
+ *      Identifier given to the segment. This is the log-unique value that will
+ *      be placed in the log digest.
  * \return
  *      NULL if the allocation failed, otherwise a pointer to the newly
  *      allocated segment.

@@ -37,6 +37,10 @@ namespace RAMCloud {
  *
  * \param context
  *      Overall information about the RAMCloud server.
+ * \param config
+ *      The ServerConfig containing configuration options that affect this
+ *      log instance. Rather than passing in various separate bits, the log
+ *      will extract any parameters it needs from the global server config.
  * \param entryHandlers
  *      Class to query for various bits of per-object information. For instance,
  *      the log may want to know whether an object is still needed or if it can
@@ -93,7 +97,7 @@ Log::disableCleaner()
 /**
  * Populate the given protocol buffer with various log metrics.
  *
- * \param[out] metrics
+ * \param[out] m
  *      The protocol buffer to fill with metrics.
  */
 void
