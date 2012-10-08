@@ -167,8 +167,8 @@ ServerList::applyServerList(const ProtoBuf::ServerList& list)
         return;
     }
 
-    LOG(NOTICE, "Server List from coordinator:\n%s",
-                list.DebugString().c_str());
+    LOG(DEBUG, "Server List from coordinator:\n%s",
+               list.DebugString().c_str());
 
     foreach (const auto& server, list.server()) {
         ServerStatus status = static_cast<ServerStatus>(server.status());
