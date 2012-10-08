@@ -927,7 +927,7 @@ Output::dumpSummary(FILE* fp)
         benchmark.totalBytesWritten,
         d(benchmark.totalBytesWritten) / elapsed / 1024 / 1024);
 
-    fprintf(fp, "  Average Latency:        %.1f us\n",
+    fprintf(fp, "  Average Latency:        %lu us\n",
         benchmark.latencyHistogram.getAverage() / 1000);
 }
 
@@ -949,7 +949,7 @@ Output::dumpPrefillMetrics(FILE* fp)
         benchmark.totalPrefillBytesWritten,
         d(benchmark.totalPrefillBytesWritten) / elapsed / 1024 / 1024);
 
-    fprintf(fp, "  Average Latency:        %.1f us\n",
+    fprintf(fp, "  Average Latency:        %lu us\n",
         benchmark.prefillLatencyHistogram.getAverage() / 1000);
 }
 
