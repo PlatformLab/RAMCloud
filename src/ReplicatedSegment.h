@@ -336,6 +336,7 @@ class ReplicatedSegment : public Task {
     void close();
     void handleBackupFailure(ServerId failedId);
     void sync(uint32_t offset = ~0u);
+    const Segment* swapSegment(const Segment* newSegment);
 
   PRIVATE:
     friend class ReplicaManager;
@@ -520,9 +521,9 @@ class ReplicatedSegment : public Task {
 
     /**
      * No write rpcs (beyond the opening write rpc) for this segment are
-     * allowed until precedingSegmentCloseCommitted becomes true.  This constraint
-     * is only enforced for segments which have a followingSegment (see
-     * close(), other segments created as part of the log cleaner and unit
+     * allowed until precedingSegmentCloseCommitted becomes true.  This
+     * constraint is only enforced for segments which have a followingSegment
+     * (see close(), other segments created as part of the log cleaner and unit
      * tests skip this check).  This segment must wait to send write rpcs until
      * the preceding segment in the log sets it to true (the preceding segment
      * is the one which has this segment as its followingSegment).  This

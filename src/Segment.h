@@ -168,6 +168,27 @@ class Segment {
             : segmentLength()
             , checksum()
         {}
+
+        /**
+         * Compare this Certificate with another. Returns true if they're equal,
+         * else false.
+         */
+        bool
+        operator==(const Certificate& other) const
+        {
+            return segmentLength == other.segmentLength &&
+                   checksum == other.checksum;
+        }
+
+        /**
+         * Return a string representation of the certificate.
+         */
+        string
+        toString() const
+        {
+            return format("<%u, 0x%08x>", segmentLength, checksum);
+        }
+
       PRIVATE:
         /// Bytes in the associated segment that #checksum covers. Determines
         /// how much of the segment should be checked for integrity and how

@@ -366,11 +366,11 @@ SegmentManager::memoryCleaningComplete(LogSegment* cleaned)
     cleaned->cleanedEpoch = epoch;
     changeState(*cleaned, FREEABLE_PENDING_REFERENCES);
 
-    // TODO(steve): set the survivor's replicatedSegment* to cleaned's and
-    // inform the replicatedSegment that its backing segment has changed.
+    // Update the previous version's ReplicatedSegment to use the new, compacted
+    // segment in the event of a backup failure.
     survivor.replicatedSegment = cleaned->replicatedSegment;
     cleaned->replicatedSegment = NULL;
-    //survivor.replicatedSegment->brainTransplant(survivor);
+    survivor.replicatedSegment->swapSegment(&survivor);
 
     LOG(DEBUG, "Compaction used %u seglets to free %u seglets",
         survivor.getSegletsAllocated(), cleaned->getSegletsAllocated());

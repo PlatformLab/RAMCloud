@@ -348,6 +348,70 @@ ReplicatedSegment::sync(uint32_t offset)
     }
 }
 
+/**
+ * Replace the current in-memory segment this object is providing durability for
+ * with a different, but logically identical one, and return the old segment.
+ *
+ * This is used during memory compaction when segment A has dead entries dropped
+ * and an equivalent segment A' is produced. In order to free the memory used by
+ * A, the replicated segment for A must be told to use the new version (A') and
+ * drop any references to the previous one.
+ *
+ * An alternative would be to create an entirely new replicated segment for A',
+ * but that would cause A' to be written to backups unnecessarily (A' only ever
+ * needs to be written to backups if a replica for A fails).
+ *
+ * After this method returns, the previous segment that was replaced will never
+ * again be accessed by the replication system.
+ *
+ * This method may block until the current segment has been fully replicated
+ * before proceeding.
+ *
+ * This method may only be called on segments that have already been closed.
+ *
+ * \param newSegment
+ *      A new segment this replicated segment will provide replication for. It
+ *      must be logically identical to the current segment. That is, it must
+ *      have the same segment id and same live data contents.
+ * \return
+ *      The previous segment that was just replaced is returned.
+ */
+const Segment*
+ReplicatedSegment::swapSegment(const Segment* newSegment)
+{
+    // Wait until we're at a quiescent point for this segment.
+    // There should be no outstanding RPCs.
+    Tub<Lock> lock;
+    while (true) {
+        lock.construct(dataMutex);
+        if (isSynced())
+            break;
+    }
+    assert(getCommitted() == queued);
+
+    // Only closed segments are permitted.
+    assert(getCommitted().close);
+
+    const Segment* oldSegment = segment;
+    segment = newSegment;
+
+    queued.bytes = segment->getAppendedLength(queuedCertificate);
+    foreach (auto& replica, replicas)
+        replica.committed = replica.acked = replica.sent = queued;
+
+    // TODO(stutsman): Does openingWriteCertificate need to be updated?
+    //                 Will, for example, replicateAtomically ever affect this?
+    //
+    //                 Should anything be done about openLen?
+    //
+    //                 Also, why do we send openLen bytes in the open RPC when
+    //                 rereplicating closed segments in performWrite? If no
+    //                 certificate is sent, shouldn't it not matter? Why not
+    //                 send maxBytesPerWriteRpc?
+
+    return oldSegment;
+}
+
 // - private -
 
 /**
