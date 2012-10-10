@@ -202,10 +202,10 @@ ReplicatedSegment::close()
     // It is necessary to update queued.bytes here because the segment believes
     // it has fully replicated all data when queued.close and
     // getCommitted().bytes == queued.bytes.
-    Segment::Certificate certficate;
-    uint32_t appendedBytes = segment->getAppendedLength(certficate);
+    Segment::Certificate certificate;
+    uint32_t appendedBytes = segment->getAppendedLength(certificate);
     queued.bytes = appendedBytes;
-    queuedCertificate = certficate;
+    queuedCertificate = certificate;
     schedule();
 
     LOG(DEBUG, "Segment %lu closed (length %d)", segmentId, queued.bytes);
@@ -318,11 +318,11 @@ ReplicatedSegment::sync(uint32_t offset)
         }
     }
 
-    Segment::Certificate certficate;
-    uint32_t appendedBytes = segment->getAppendedLength(certficate);
+    Segment::Certificate certificate;
+    uint32_t appendedBytes = segment->getAppendedLength(certificate);
     if (appendedBytes > queued.bytes) {
         queued.bytes = appendedBytes;
-        queuedCertificate = certficate;
+        queuedCertificate = certificate;
         schedule();
     }
 
