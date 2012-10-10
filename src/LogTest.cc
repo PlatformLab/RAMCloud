@@ -107,7 +107,7 @@ TEST_F(LogTest, append_basic) {
     LogSegment* oldHead = l.head;
 
     int appends = 0;
-    while (l.append(LOG_ENTRY_TYPE_OBJ, 0, data, dataLen, true)) {
+    while (l.append(LOG_ENTRY_TYPE_OBJ, 0, data, dataLen)) {
         if (appends++ == 0)
             EXPECT_EQ(oldHead, l.head);
         else
@@ -137,8 +137,7 @@ TEST_F(LogTest, append_tooBigToEverFit) {
     EXPECT_THROW(l.append(LOG_ENTRY_TYPE_OBJ,
                           0,
                           data,
-                          serverConfig.segmentSize + 1,
-                          true),
+                          serverConfig.segmentSize + 1),
         FatalError);
     EXPECT_NE(oldHead, l.head);
     EXPECT_EQ("append: Entry too big to append to log: 131073 bytes of type 2",
@@ -155,7 +154,7 @@ TEST_F(LogTest, getEntry) {
     Buffer sourceBuffer;
     sourceBuffer.append(&data, sizeof(data));
     HashTable::Reference ref;
-    EXPECT_TRUE(l.append(LOG_ENTRY_TYPE_OBJ, 0, sourceBuffer, false, &ref));
+    EXPECT_TRUE(l.append(LOG_ENTRY_TYPE_OBJ, 0, sourceBuffer, &ref));
 
     LogEntryType type;
     Buffer buffer;
@@ -185,7 +184,7 @@ TEST_F(LogTest, getSegmentId) {
 
     int zero = 0, one = 0, other = 0;
     while (l.head == NULL || l.head->id == 0) {
-        EXPECT_TRUE(l.append(LOG_ENTRY_TYPE_OBJ, 0, buffer, false, &reference));
+        EXPECT_TRUE(l.append(LOG_ENTRY_TYPE_OBJ, 0, buffer, &reference));
         switch (l.getSegmentId(reference)) {
             case 0: zero++; break;
             case 1: one++; break;
@@ -216,7 +215,8 @@ TEST_F(LogTest, containsSegment) {
 
     char data[1000];
     while (l.head == NULL || l.head->id == 0)
-        l.append(LOG_ENTRY_TYPE_OBJ, 0, data, sizeof(data), true);
+        l.append(LOG_ENTRY_TYPE_OBJ, 0, data, sizeof(data));
+    l.sync();
 
     EXPECT_TRUE(l.containsSegment(0));
     EXPECT_TRUE(l.containsSegment(1));

@@ -1773,7 +1773,6 @@ MasterService::recoverSegment(SegmentIterator& it)
                             recoveryObj->timestamp,
                             recoveryObj,
                             it.getLength(),
-                            false,
                             &newObjReference);
 
                 // TODO(steve/ryan): what happens if the log is full? won't an
@@ -1837,7 +1836,6 @@ MasterService::recoverSegment(SegmentIterator& it)
                 log->append(LOG_ENTRY_TYPE_OBJTOMB,
                             recoverTomb.getTimestamp(),
                             buffer,
-                            false,
                             &newTombReference);
 
                 // TODO(steve/ryan): append could fail here!
@@ -1876,7 +1874,7 @@ MasterService::recoverSegment(SegmentIterator& it)
             // Copy SafeVerObject to the recovery segment.
             // Sync can be delayed, because recovery can be replayed
             // with the same backup data when the recovery crashes on the way.
-            log->append(LOG_ENTRY_TYPE_SAFEVERSION, 0, buffer, false);
+            log->append(LOG_ENTRY_TYPE_SAFEVERSION, 0, buffer);
 
             // recover segmentManager.safeVersion (Master safeVersion)
             if (segmentManager.raiseSafeVersion(safeVersion)) {
@@ -1946,14 +1944,14 @@ MasterService::remove(const WireFormat::Remove::Request& reqHdr,
     // number, and remove from the hash table.
     if (!log->append(LOG_ENTRY_TYPE_OBJTOMB,
                      tombstone.getTimestamp(),
-                     tombstoneBuffer,
-                     false)) {
+                     tombstoneBuffer)) {
         // The log is out of space. Tell the client to retry and hope
         // that either the cleaner makes space soon or we shift load
         // off of this server.
         respHdr.common.status = STATUS_RETRY;
         return;
     }
+    log->sync();
 
     segmentManager.raiseSafeVersion(object.getVersion() + 1);
     log->free(reference);
@@ -2477,8 +2475,7 @@ MasterService::storeObject(Key& key,
 
         if (!log->append(LOG_ENTRY_TYPE_OBJTOMB,
                          tombstone.getTimestamp(),
-                         tombstoneBuffer,
-                         false)) {
+                         tombstoneBuffer)) {
             return STATUS_RETRY;
         }
 
@@ -2501,13 +2498,14 @@ MasterService::storeObject(Key& key,
     if (!log->append(LOG_ENTRY_TYPE_OBJ,
                      newObject.getTimestamp(),
                      buffer,
-                     sync,
                      &newObjectReference)) {
         // The log is out of space. Tell the client to retry and hope
         // that either the cleaner makes space soon or we shift load
         // off of this server.
         return STATUS_RETRY;
     }
+    if (sync)
+        log->sync();
 
     objectMap->replace(key, newObjectReference);
     if (freeCurrentReference)

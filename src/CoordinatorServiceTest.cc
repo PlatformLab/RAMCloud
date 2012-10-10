@@ -87,7 +87,8 @@ TEST_F(CoordinatorServiceTest, createTable) {
 
     // Advance the log head slightly so creation time offset is non-zero.
     Buffer empty;
-    master->log->append(LOG_ENTRY_TYPE_INVALID, 0, empty, true);
+    master->log->append(LOG_ENTRY_TYPE_INVALID, 0, empty);
+    master->log->sync();
 
     // master is already enlisted
     EXPECT_EQ(0U, ramcloud->createTable("foo"));
@@ -337,7 +338,8 @@ TEST_F(CoordinatorServiceTest, reassignTabletOwnership) {
     // Advance the log head slightly so creation time offset is non-zero
     // on host being migrated to.
     Buffer empty;
-    master2->master->log->append(LOG_ENTRY_TYPE_INVALID, 0, empty, true);
+    master2->master->log->append(LOG_ENTRY_TYPE_INVALID, 0, empty);
+    master2->master->log->sync();
 
     // master is already enlisted
     ramcloud->createTable("foo");

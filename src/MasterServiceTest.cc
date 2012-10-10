@@ -964,7 +964,8 @@ TEST_F(MasterServiceTest, recoverSegment) {
     ObjectTombstone t1(o1, 0, 0);
     buffer.reset();
     t1.serializeToBuffer(buffer);
-    service->log->append(LOG_ENTRY_TYPE_OBJTOMB, 0, buffer, true, &logTomb1Ref);
+    service->log->append(LOG_ENTRY_TYPE_OBJTOMB, 0, buffer, &logTomb1Ref);
+    service->log->sync();
     ret = service->objectMap->replace(key2, logTomb1Ref);
     EXPECT_FALSE(ret);
     len = buildRecoverySegment(seg, segLen, key2, 1, "equal guy", &certificate);
@@ -985,8 +986,8 @@ TEST_F(MasterServiceTest, recoverSegment) {
     ObjectTombstone t2(o2, 0, 0);
     buffer.reset();
     t2.serializeToBuffer(buffer);
-    ret = service->log->append(LOG_ENTRY_TYPE_OBJTOMB, 0, buffer,
-                               true, &logTomb2Ref);
+    ret = service->log->append(LOG_ENTRY_TYPE_OBJTOMB, 0, buffer, &logTomb2Ref);
+    service->log->sync();
     EXPECT_TRUE(ret);
     ret = service->objectMap->replace(key3, logTomb2Ref);
     EXPECT_FALSE(ret);
@@ -1862,8 +1863,8 @@ TEST_F(MasterServiceTest, objectRelocationCallback_objectAlive) {
     success = service->log->append(LOG_ENTRY_TYPE_OBJ,
                                   0,
                                   oldBuffer,
-                                  true,
                                   &newReference);
+    service->log->sync();
     EXPECT_TRUE(success);
 
     LogEntryType newType;
@@ -1995,12 +1996,14 @@ TEST_F(MasterServiceTest, tombstoneRelocationCallback_basics) {
 
     HashTable::Reference oldTombstoneReference;
     success = service->log->append(LOG_ENTRY_TYPE_OBJTOMB, 0, tombstoneBuffer,
-                                  true, &oldTombstoneReference);
+                                  &oldTombstoneReference);
+    service->log->sync();
     EXPECT_TRUE(success);
 
     HashTable::Reference newTombstoneReference;
     success = service->log->append(LOG_ENTRY_TYPE_OBJTOMB, 0, tombstoneBuffer,
-                                  true, &newTombstoneReference);
+                                   &newTombstoneReference);
+    service->log->sync();
     EXPECT_TRUE(success);
 
     LogEntryType oldTypeInLog;

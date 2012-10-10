@@ -131,12 +131,10 @@ class Log {
                 uint32_t timestamp,
                 const void* data,
                 uint32_t length,
-                bool sync,
                 HashTable::Reference* outReference = NULL);
     bool append(LogEntryType type,
                 uint32_t timestamp,
                 Buffer& buffer,
-                bool sync,
                 HashTable::Reference* outReference = NULL);
     void free(HashTable::Reference reference);
     LogEntryType getEntry(HashTable::Reference reference,

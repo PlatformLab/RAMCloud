@@ -24,8 +24,8 @@ namespace RAMCloud {
 /**
  * Constructor for Log. No segments are allocated in the constructor, so if
  * replicas are being used no backups will have been contacted yet and there
- * will be no durable evidence of this log having existed. Call sync() or make
- * a synchronous append() to allocate and force the head segment to backups.
+ * will be no durable evidence of this log having existed. Call sync() to
+ * allocate and force the head segment (and others, perhaps) to backups.
  *
  * The reason for this behaviour is complicated. We want to ensure that the
  * log is made durable before assigning any tablets to the master, since we
@@ -119,6 +119,10 @@ Log::getMetrics(ProtoBuf::LogMetrics& m)
  * Append a typed entry to the log by coping in the data. Entries are binary
  * blobs described by a simple <type, length> tuple.
  *
+ * Note that the append operation is not synchronous. To ensure that the data
+ * appended has been safely written to backups, the sync() method must be
+ * invoked after appending.
+ *
  * \param type
  *      Type of the entry. See LogEntryTypes.h.
  * \param timestamp
@@ -128,9 +132,6 @@ Log::getMetrics(ProtoBuf::LogMetrics& m)
  *      Pointer to buffer containing the entry to be appended.
  * \param length
  *      Number of bytes to append from the provided buffer.
- * \param sync
- *      If true, do not return until the append has been replicated to backups.
- *      If false, may return before any replication has been done.
  * \param[out] outReference
  *      If the append succeeds, a reference to the created entry is returned
  *      here. This reference may be used to access the appended entry via the
@@ -145,7 +146,6 @@ Log::append(LogEntryType type,
             uint32_t timestamp,
             const void* buffer,
             uint32_t length,
-            bool sync,
             HashTable::Reference* outReference)
 {
     Lock lock(appendLock);
@@ -192,9 +192,6 @@ Log::append(LogEntryType type,
     if (metrics.noSpaceTimer)
         metrics.noSpaceTimer.destroy();
 
-    if (sync)
-        Log::sync();
-
     if (outReference != NULL)
         *outReference = buildReference(head->slot, segmentOffset);
 
@@ -212,6 +209,10 @@ Log::append(LogEntryType type,
  * Append a typed entry to the log by coping in the data. Entries are binary
  * blobs described by a simple <type, length> tuple.
  *
+ * Note that the append operation is not synchronous. To ensure that the data
+ * appended has been safely written to backups, the sync() method must be
+ * invoked after appending.
+ *
  * \param type
  *      Type of the entry. See LogEntryTypes.h.
  * \param timestamp
@@ -219,9 +220,6 @@ Log::append(LogEntryType type,
  *      log cleaner to choose more optimal segments to garbage collect from.
  * \param buffer
  *      Buffer object describing the entry to be appended.
- * \param sync
- *      If true, do not return until the append has been replicated to backups.
- *      If false, may return before any replication has been done.
  * \param[out] outReference
  *      If the append succeeds, a reference to the created entry is returned
  *      here. This reference may be used to access the appended entry via the
@@ -235,14 +233,12 @@ bool
 Log::append(LogEntryType type,
             uint32_t timestamp,
             Buffer& buffer,
-            bool sync,
             HashTable::Reference* outReference)
 {
     return append(type,
                   timestamp,
                   buffer.getRange(0, buffer.getTotalLength()),
                   buffer.getTotalLength(),
-                  sync,
                   outReference);
 }
 
@@ -289,8 +285,7 @@ Log::getEntry(HashTable::Reference reference, Buffer& outBuffer)
 
 /**
  * Wait for all segments to be fully replicated. If there has never been a head
- * segment, allocate one and sync it to backups. This method must be invoked
- * before any appends to the log are permitted.
+ * segment, allocate one and sync it to backups. 
  */
 void
 Log::sync()
