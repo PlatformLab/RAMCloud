@@ -72,8 +72,9 @@ class Log {
     /**
      * Position is a (Segment Id, Segment Offset) tuple that represents a
      * position in the log. For example, it can be considered the logical time
-     * at which something was appended to the Log. It can be used for things like
-     * computing table partitions and obtaining a master's current log position.
+     * at which something was appended to the Log. It can be used for things
+     * like computing table partitions and obtaining a master's current log
+     * position.
      */
     class Position {
       public:
@@ -141,9 +142,8 @@ class Log {
     LogEntryType getEntry(HashTable::Reference reference,
                           Buffer& outBuffer);
     void sync();
-    Position getHeadPosition();
     uint64_t getSegmentId(HashTable::Reference reference);
-    void allocateHeadIfStillOn(Tub<uint64_t> segmentId);
+    Log::Position rollHeadOver();
     bool containsSegment(uint64_t segmentId);
 
   PRIVATE:

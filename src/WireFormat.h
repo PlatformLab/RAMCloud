@@ -837,6 +837,11 @@ struct ReassignTabletOwnership {
         uint64_t firstKeyHash;      // First key hash of the migrated tablet.
         uint64_t lastKeyHash;       // Last key hash of the migrated tablet.
         uint64_t newOwnerId;        // ServerId of the new master.
+        uint64_t ctimeSegmentId;    // Segment id of log head before migration.
+        uint64_t ctimeSegmentOffset;// Offset in log head before migration.
+                                    // Used with above to set the migrated
+                                    // tablet's log ``creation time'' on the
+                                    // coordinator.
     } __attribute__((packed));
     struct Response {
         ResponseCommon common;

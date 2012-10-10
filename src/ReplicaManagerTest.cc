@@ -146,8 +146,7 @@ TEST_F(ReplicaManagerTest, writeSegment) {
     Buffer buffer;
     Segment s;
 
-    SegmentHeader header = { *serverId, 88, segmentSize,
-        Segment::INVALID_SEGMENT_ID };
+    SegmentHeader header = { *serverId, 88, segmentSize };
     buffer.append(&header, sizeof(header));
     s.append(LOG_ENTRY_TYPE_SEGHEADER, buffer);
 
@@ -309,7 +308,7 @@ TEST_F(ReplicaManagerTest, endToEndBackupRecovery) {
     // Set up the scenario:
     // Two log segments in the log, one durably closed and the other open
     // with a single pending write.
-    log.allocateHeadIfStillOn({});
+    log.rollHeadOver();
     static char buf[64];
     log.append(LOG_ENTRY_TYPE_OBJ, 0, buf, sizeof(buf), true);
     // Non-synced append ensures mgr isn't idle, otherwise this unit test would

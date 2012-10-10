@@ -407,7 +407,7 @@ MasterService::getHeadOfLog(const WireFormat::GetHeadOfLog::Request& reqHdr,
                             WireFormat::GetHeadOfLog::Response& respHdr,
                             Rpc& rpc)
 {
-    Log::Position head = log->getHeadPosition();
+    Log::Position head = log->rollHeadOver();
     respHdr.headSegmentId = head.getSegmentId();
     respHdr.headSegmentOffset = head.getSegmentOffset();
 }
@@ -853,6 +853,8 @@ MasterService::migrateTablet(const WireFormat::MigrateTablet::Request& reqHdr,
     // boundary. Otherwise we can't tell where bytes are in the chosen range.
     MasterClient::prepForMigration(context, newOwnerMasterId, tableId,
                                    firstKeyHash, lastKeyHash, 0, 0);
+    Log::Position newOwnerLogHead = MasterClient::getHeadOfLog(context,
+                                                              newOwnerMasterId);
 
     LOG(NOTICE, "Migrating tablet (id %lu, first %lu, last %lu) to "
         "ServerId %s (\"%s\")", tableId, firstKeyHash, lastKeyHash,
@@ -957,7 +959,8 @@ MasterService::migrateTablet(const WireFormat::MigrateTablet::Request& reqHdr,
     // data is all on the other machine and the coordinator knows to use it
     // for any recoveries.
     CoordinatorClient::reassignTabletOwnership(context,
-        tableId, firstKeyHash, lastKeyHash, newOwnerMasterId);
+        tableId, firstKeyHash, lastKeyHash, newOwnerMasterId,
+        newOwnerLogHead.getSegmentId(), newOwnerLogHead.getSegmentOffset());
 
     LOG(NOTICE, "Tablet migration succeeded. Sent %lu objects and %lu "
         "tombstones. %lu bytes in total.", totalObjects, totalTombstones,
@@ -1623,7 +1626,7 @@ MasterService::recover(const WireFormat::Recover::Request& reqHdr,
     }
 
     // Record the log position before recovery started.
-    Log::Position headOfLog = log->getHeadPosition();
+    Log::Position headOfLog = log->rollHeadOver();
 
     // Recover Segments, firing MasterService::recoverSegment for each one.
     bool successful = false;

@@ -177,30 +177,6 @@ TEST_F(LogTest, sync) {
     EXPECT_TRUE(StringUtil::endsWith(TestLog::get(), "sync: log synced"));
 }
 
-TEST_F(LogTest, getHeadPosition) {
-    {
-        // unsynced should return <0, 0>...
-        SegletAllocator allocator2(serverConfig);
-        SegmentManager segmentManager2(&context, serverConfig, serverId,
-                                       allocator2, replicaManager);
-        Log l2(&context, serverConfig, entryHandlers,
-               segmentManager2, replicaManager);
-        EXPECT_EQ(Log::Position(0, 0), l2.getHeadPosition());
-    }
-
-    // synced returns something else...
-    EXPECT_EQ(Log::Position(0, 62), l.getHeadPosition());
-
-    char data[1000];
-    l.append(LOG_ENTRY_TYPE_OBJ, 0, data, sizeof(data), true);
-    EXPECT_EQ(Log::Position(0, 1065), l.getHeadPosition());
-
-    while (l.getHeadPosition().getSegmentId() == 0)
-        l.append(LOG_ENTRY_TYPE_OBJ, 0, data, sizeof(data), true);
-
-    EXPECT_EQ(Log::Position(1, 1073), l.getHeadPosition());
-}
-
 TEST_F(LogTest, getSegmentId) {
     Buffer buffer;
     char data[1000];
@@ -208,7 +184,7 @@ TEST_F(LogTest, getSegmentId) {
     HashTable::Reference reference;
 
     int zero = 0, one = 0, other = 0;
-    while (l.getHeadPosition().getSegmentId() == 0) {
+    while (l.head == NULL || l.head->id == 0) {
         EXPECT_TRUE(l.append(LOG_ENTRY_TYPE_OBJ, 0, buffer, false, &reference));
         switch (l.getSegmentId(reference)) {
             case 0: zero++; break;
@@ -222,18 +198,16 @@ TEST_F(LogTest, getSegmentId) {
     EXPECT_EQ(0, other);
 }
 
-TEST_F(LogTest, allocateHeadIfStillOn) {
+TEST_F(LogTest, rollHeadOver) {
+    Log::Position oldPos = Log::Position(0, 0);
     LogSegment* oldHead = l.head;
-    l.allocateHeadIfStillOn({0UL});
+    EXPECT_LT(oldPos, l.rollHeadOver());
     EXPECT_NE(oldHead, l.head);
 
+    oldPos = Log::Position(l.head->id, l.head->getAppendedLength());
     oldHead = l.head;
-    l.allocateHeadIfStillOn({});
+    EXPECT_LT(oldPos, l.rollHeadOver());
     EXPECT_NE(oldHead, l.head);
-
-    oldHead = l.head;
-    l.allocateHeadIfStillOn({0UL});
-    EXPECT_EQ(oldHead, l.head);
 }
 
 TEST_F(LogTest, containsSegment) {
@@ -241,7 +215,7 @@ TEST_F(LogTest, containsSegment) {
     EXPECT_FALSE(l.containsSegment(1));
 
     char data[1000];
-    while (l.getHeadPosition().getSegmentId() == 0)
+    while (l.head == NULL || l.head->id == 0)
         l.append(LOG_ENTRY_TYPE_OBJ, 0, data, sizeof(data), true);
 
     EXPECT_TRUE(l.containsSegment(0));

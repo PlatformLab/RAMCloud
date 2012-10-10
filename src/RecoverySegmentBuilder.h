@@ -50,8 +50,7 @@ class RecoverySegmentBuilder {
                               Buffer* digestBuffer);
   PRIVATE:
     static bool isEntryAlive(const Log::Position& position,
-                             const ProtoBuf::Tablets::Tablet* tablet,
-                             const SegmentHeader* header);
+                             const ProtoBuf::Tablets::Tablet* tablet);
     static const ProtoBuf::Tablets::Tablet*
     whichPartition(uint64_t tableId, HashType keyHash,
                    const ProtoBuf::Tablets& partitions);

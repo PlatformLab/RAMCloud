@@ -517,7 +517,7 @@ LogCleaner::relocateLiveEntries(LiveEntryVector& liveEntries,
             if (survivor != NULL)
                 closeSurvivor(survivor);
 
-            survivor = segmentManager.allocSurvivor(1 /* XXX */);
+            survivor = segmentManager.allocSurvivor();
             survivors.push_back(survivor);
 
             if (!relocateEntry(type, buffer, survivor, onDiskMetrics))

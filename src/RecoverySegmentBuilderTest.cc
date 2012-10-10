@@ -158,31 +158,20 @@ TEST_F(RecoverySegmentBuilderTest, isEntryAlive) {
     tablet->set_ctime_log_head_offset(57273);
     Tub<SegmentHeader> header;
 
-    // Is a cleaner segment...
-    header.construct(123, 88, 0, 12742);
-    EXPECT_TRUE(isEntryAlive({}, tablet, header.get()));
+    header.construct(123, 88, 0);
+    EXPECT_TRUE(isEntryAlive({12741, 57273}, tablet));
 
-    header.construct(123, 88, 0, 12740);
-    EXPECT_FALSE(isEntryAlive({}, tablet, header.get()));
+    header.construct(123, 88, 0);
+    EXPECT_TRUE(isEntryAlive({12741, 57274}, tablet));
 
-    header.construct(123, 88, 0, 12741);
-    EXPECT_FALSE(isEntryAlive({}, tablet, header.get()));
+    header.construct(123, 88, 0);
+    EXPECT_TRUE(isEntryAlive({12742, 57274}, tablet));
 
-    // Is not a cleaner segment...
-    header.construct(123, 88, 0, uint64_t(Segment::INVALID_SEGMENT_ID));
-    EXPECT_TRUE(isEntryAlive({12741, 57273}, tablet, header.get()));
+    header.construct(123, 88, 0);
+    EXPECT_FALSE(isEntryAlive({12740, 57273}, tablet));
 
-    header.construct(123, 88, 0, uint64_t(Segment::INVALID_SEGMENT_ID));
-    EXPECT_TRUE(isEntryAlive({12741, 57274}, tablet, header.get()));
-
-    header.construct(123, 88, 0, uint64_t(Segment::INVALID_SEGMENT_ID));
-    EXPECT_TRUE(isEntryAlive({12742, 57274}, tablet, header.get()));
-
-    header.construct(123, 88, 0, uint64_t(Segment::INVALID_SEGMENT_ID));
-    EXPECT_FALSE(isEntryAlive({12740, 57273}, tablet, header.get()));
-
-    header.construct(123, 88, 0, uint64_t(Segment::INVALID_SEGMENT_ID));
-    EXPECT_FALSE(isEntryAlive({12741, 57272}, tablet, header.get()));
+    header.construct(123, 88, 0);
+    EXPECT_FALSE(isEntryAlive({12741, 57272}, tablet));
 }
 
 TEST_F(RecoverySegmentBuilderTest, whichPartition) {

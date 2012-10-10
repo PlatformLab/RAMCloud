@@ -451,12 +451,13 @@ CoordinatorService::reassignTabletOwnership(
 
     // Get current head of log to preclude all previous data in the log
     // from being considered part of this tablet.
-    Log::Position headOfLog = MasterClient::getHeadOfLog(context, newOwner);
+    Log::Position headOfLogAtCreation(reqHdr.ctimeSegmentId,
+                                      reqHdr.ctimeSegmentOffset);
 
     try {
         tabletMap.modifyTablet(reqHdr.tableId, reqHdr.firstKeyHash,
                                reqHdr.lastKeyHash, newOwner, Tablet::NORMAL,
-                               headOfLog);
+                               headOfLogAtCreation);
     } catch (const TabletMap::NoSuchTablet& e) {
         LOG(WARNING, "Could not reassign tablet %lu, range [%lu, %lu]: "
             "not found!", reqHdr.tableId, reqHdr.firstKeyHash,

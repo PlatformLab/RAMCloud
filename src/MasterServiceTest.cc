@@ -100,7 +100,7 @@ class MasterServiceTest : public ::testing::Test {
         backup1Config.services = {WireFormat::BACKUP_SERVICE,
                                   WireFormat::MEMBERSHIP_SERVICE};
         backup1Config.segmentSize = segmentSize;
-        backup1Config.backup.numSegmentFrames = 2;
+        backup1Config.backup.numSegmentFrames = 3;
         backup1Id = cluster.addServer(backup1Config)->serverId;
 
         masterConfig = ServerConfig::forTesting();
@@ -210,8 +210,7 @@ class MasterServiceTest : public ::testing::Test {
                             uint64_t segmentId)
     {
         Segment seg;
-        SegmentHeader header(logId, segmentId, 1000,
-                             Segment::INVALID_SEGMENT_ID);
+        SegmentHeader header(logId, segmentId, 1000);
         seg.append(LOG_ENTRY_TYPE_SEGHEADER, &header, sizeof(header));
         ReplicatedSegment* rs = mgr.allocateHead(segmentId, &seg, NULL);
         rs->sync(seg.getAppendedLength());
@@ -229,8 +228,7 @@ class MasterServiceTest : public ::testing::Test {
                             uint64_t safeVer)
     {
         Segment seg;
-        SegmentHeader header(logId, segmentId, 1000,
-                             Segment::INVALID_SEGMENT_ID);
+        SegmentHeader header(logId, segmentId, 1000);
         Segment::Certificate certificate;
         seg.append(LOG_ENTRY_TYPE_SEGHEADER, &header, sizeof(header));
         seg.getAppendedLength(certificate);
@@ -578,10 +576,10 @@ TEST_F(MasterServiceTest, detectSegmentRecoveryFailure_failure) {
 }
 
 TEST_F(MasterServiceTest, getHeadOfLog) {
-    EXPECT_EQ(Log::Position(0, 62),
+    EXPECT_EQ(Log::Position(1, 62),
               MasterClient::getHeadOfLog(&context, masterServer->serverId));
     ramcloud->write(0, "0", 1, "abcdef", 6);
-    EXPECT_EQ(Log::Position(0, 97),
+    EXPECT_EQ(Log::Position(2, 70),
               MasterClient::getHeadOfLog(&context, masterServer->serverId));
 }
 
@@ -865,13 +863,13 @@ TEST_F(MasterServiceTest, recover_ctimeUpdateIssued) {
         "server_id: 2 service_locator: \"mock:host=master\" user_data: 0 "
         , TestLog::getUntil("ctime_log_head_id:", curPos, &curPos));
     EXPECT_EQ(
-        "ctime_log_head_id: 0 "
-        "ctime_log_head_offset: 97 } tablet { table_id: "
+        "ctime_log_head_id: 1 "
+        "ctime_log_head_offset: 62 } tablet { table_id: "
         "123 start_key_hash: 10 end_key_hash: 19 state: RECOVERING server_id: "
         "2 service_locator: \"mock:host=master\" user_data: 0 "
         , TestLog::getUntil("ctime_log_head_id", curPos, &curPos));
     EXPECT_EQ(
-        "ctime_log_head_id: 0 ctime_log_head_offset: 97 } tablet { table_id: "
+        "ctime_log_head_id: 1 ctime_log_head_offset: 62 } tablet { table_id: "
         "123 start_key_hash: 20 end_key_hash: 29 state: RECOVERING server_id: "
         "2 service_locator: \"mock:host=master\" user_data: 0 "
         , TestLog::getUntil("ctime_log_head_id", curPos, &curPos));
@@ -1538,6 +1536,10 @@ TEST_F(MasterServiceTest, migrateTablet_movingData) {
     Server* master2 = cluster.addServer(master2Config);
     master2->master->log->sync();
 
+    Log::Position master2HeadPositionBefore = Log::Position(
+        master2->master->log->head->id,
+        master2->master->log->head->getAppendedLength());
+
     // TODO(syang0) RAM-441 without the syncCoordinatorServerList() call  in
     // cluster.addServer(..) above, this crashes since the CoordinatorServerList
     // update is asynchronous and the client calls a migrate before the CSL has
@@ -1551,6 +1553,18 @@ TEST_F(MasterServiceTest, migrateTablet_movingData) {
         "| migrateTablet: Sending last migration segment | "
         "migrateTablet: Tablet migration succeeded. Sent 1 objects "
         "and 0 tombstones. 35 bytes in total.", TestLog::get());
+
+    // Ensure that the tablet ``creation'' time on the new master is
+    // appropriate. It should be greater than the log position before
+    // migration, but less than the current log position (since we added
+    // data).
+    Log::Position master2HeadPositionAfter = Log::Position(
+        master2->master->log->head->id,
+        master2->master->log->head->getAppendedLength());
+    Log::Position ctimeCoord =
+        cluster.coordinator->tabletMap.getTablet(tbl, 0, -1).ctime;
+    EXPECT_GT(ctimeCoord, master2HeadPositionBefore);
+    EXPECT_LT(ctimeCoord, master2HeadPositionAfter);
 }
 
 static bool

@@ -80,8 +80,7 @@ class SegmentManager {
     void getMetrics(ProtoBuf::LogMetrics_SegmentMetrics& m);
     SegletAllocator& getAllocator() const;
     LogSegment* allocHead(bool mustNotFail = false);
-    LogSegment* allocSurvivor(uint64_t headSegmentIdDuringCleaning);
-    LogSegment* allocSurvivor(LogSegment* replacing);
+    LogSegment* allocSurvivor(LogSegment* replacing = NULL);
     void cleaningComplete(LogSegmentVector& clean);
     void memoryCleaningComplete(LogSegment* cleaned);
     void cleanableSegments(LogSegmentVector& out);
@@ -174,7 +173,7 @@ class SegmentManager {
     INTRUSIVE_LIST_TYPEDEF(LogSegment, allListEntries) AllSegmentList;
     typedef std::lock_guard<SpinLock> Lock;
 
-    void writeHeader(LogSegment* segment, uint64_t headSegmentIdDuringCleaning);
+    void writeHeader(LogSegment* segment);
     void writeDigest(LogSegment* newHead, LogSegment* prevHead);
     void writeSafeVersion(LogSegment* head);
     LogSegment* getHeadSegment();
@@ -315,9 +314,9 @@ class SegmentManager {
      * \li SafeVersion might be behind the version number 
      * of any particular object.
      * As far as the object is not removed, its 
-     * version number has no influence of the safeVersion, because the safeVersion
-     * is used to keep the monotonicitiy of the version number of any recreated
-     * object.
+     * version number has no influence of the safeVersion, because the
+     * safeVersion is used to keep the monotonicitiy of the version number of
+     * any recreated object.
      *
      * \li When an object is removed, set the safeVersion
      * to the higher than any version number of the removed

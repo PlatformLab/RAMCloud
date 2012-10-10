@@ -312,13 +312,22 @@ HintServerDownRpc::HintServerDownRpc(Context* context,
  * \param[in] newOwnerId
  *      ServerId of the master that we want ownership of the tablet
  *      to be transferred to.
+ * \param[in] ctimeSegmentId 
+ *      Id of the new owner's head segment immediately before migration begins
+ *      and after prepForMigration has completed. This is used to record the
+ *      creation time of the migration tablet on the coordinator, which in turn
+ *      allows RAMCloud to skip over obsolete data from prior instances of the
+ *      tablet during recovery.
+ * \param[in] ctimeSegmentOffset
+ *      Offset within the head segment prior to migration. See ctimeSegmentId.
  */
 void
 CoordinatorClient::reassignTabletOwnership(Context* context, uint64_t tableId,
-        uint64_t firstKeyHash, uint64_t lastKeyHash, ServerId newOwnerId)
+        uint64_t firstKeyHash, uint64_t lastKeyHash, ServerId newOwnerId,
+        uint64_t ctimeSegmentId, uint32_t ctimeSegmentOffset)
 {
     ReassignTabletOwnershipRpc rpc(context, tableId, firstKeyHash,
-            lastKeyHash, newOwnerId);
+            lastKeyHash, newOwnerId, ctimeSegmentId, ctimeSegmentOffset);
     rpc.wait();
 }
 
@@ -338,10 +347,19 @@ CoordinatorClient::reassignTabletOwnership(Context* context, uint64_t tableId,
  * \param[in] newOwnerId
  *      ServerId of the master that we want ownership of the tablet
  *      to be transferred to.
+ * \param[in] ctimeSegmentId 
+ *      Id of the new owner's head segment immediately before migration begins
+ *      and after prepForMigration has completed. This is used to record the
+ *      creation time of the migration tablet on the coordinator, which in turn
+ *      allows RAMCloud to skip over obsolete data from prior instances of the
+ *      tablet during recovery.
+ * \param[in] ctimeSegmentOffset
+ *      Offset within the head segment prior to migration. See ctimeSegmentId.
  */
 ReassignTabletOwnershipRpc::ReassignTabletOwnershipRpc(Context* context,
         uint64_t tableId, uint64_t firstKeyHash, uint64_t lastKeyHash,
-        ServerId newOwnerId)
+        ServerId newOwnerId, uint64_t ctimeSegmentId,
+        uint32_t ctimeSegmentOffset)
     : CoordinatorRpcWrapper(context,
             sizeof(WireFormat::ReassignTabletOwnership::Response))
 {
@@ -351,6 +369,8 @@ ReassignTabletOwnershipRpc::ReassignTabletOwnershipRpc(Context* context,
     reqHdr->firstKeyHash = firstKeyHash;
     reqHdr->lastKeyHash = lastKeyHash;
     reqHdr->newOwnerId = newOwnerId.getId();
+    reqHdr->ctimeSegmentId = ctimeSegmentId;
+    reqHdr->ctimeSegmentOffset = ctimeSegmentOffset;
     send();
 }
 

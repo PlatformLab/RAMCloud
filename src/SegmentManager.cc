@@ -176,7 +176,7 @@ SegmentManager::allocHead(bool mustNotFail)
 
     nextSegmentId++;
 
-    writeHeader(newHead, Segment::INVALID_SEGMENT_ID);
+    writeHeader(newHead);
     if (prevHead != NULL && !prevHead->isEmergencyHead)
         writeDigest(newHead, prevHead);
     else
@@ -218,86 +218,56 @@ SegmentManager::allocHead(bool mustNotFail)
 }
 
 /**
- * Allocate a new segment for the cleaner to write survivor data into from a
- * disk cleaning pass.
+ * Allocate a replacement segment for the cleaner to write survivor data into.
+ *
+ * This method is used both for allocating segments during disk cleaning, and
+ * for allocating a segment during memory compaction.
+ *
+ * If ``replacing'' is NULL, a survivor for disk cleaning is allocated with a 
+ * fresh segment id. If it is non-NULL, the survivor segment assumes the
+ * identity of the given segment (a compacted segment is logically the same
+ * segment, just with less dead data).
  *
  * This method will never return NULL. It will, however, block forever if the
  * cleaner fails to keep its promise of not using more than it frees.
  *
- * \param headSegmentIdDuringCleaning
- *      Identifier of the head segment when the current cleaning pass began. Any
- *      data written into this survivor segment must have pre-existed this head
- *      segment.
- */
-LogSegment*
-SegmentManager::allocSurvivor(uint64_t headSegmentIdDuringCleaning)
-{
-    LogSegment* s = NULL;
-
-    while (1) {
-        Lock guard(lock);
-
-        s = alloc(SegletAllocator::CLEANER, nextSegmentId);
-        if (s != NULL)
-            break;
-
-        if (testing_allocSurvivorMustNotBlock)
-            return NULL;
-
-        usleep(100);
-    }
-
-    Lock guard(lock);
-
-    nextSegmentId++;
-
-    writeHeader(s, headSegmentIdDuringCleaning);
-
-    s->replicatedSegment = replicaManager.allocateNonHead(s->id, s);
-    segmentsOnDiskHistogram.storeSample(segmentsOnDisk++);
-    s->headSegmentIdDuringCleaning = headSegmentIdDuringCleaning;
-
-    TEST_LOG("id = %lu", s->id);
-
-    return s;
-}
-
-/**
- * Allocate a replacement segment for the cleaner to write survivor data into
- * from a single segment being compacted in memory. The survivor will have the
- * same identifier as the original and will replace it in the log. This means
- * that the in-memory copy will differ from those on backup disks and, if a
- * backup failure occurs, some disk backups may have differing copies.
- *
- * This method will never return NULL. It will, however, block forever if the
- * cleaner fails to keep its promise of not using more than it frees.
+ * \param replacing
+ *      If memory compaction is being performed, this must point to the current
+ *      segment that is being compacted. If a survivor is being allocated for
+ *      disk cleaning instead, this must be NULL (the default).
  */
 LogSegment*
 SegmentManager::allocSurvivor(LogSegment* replacing)
 {
+    Tub<Lock> guard;
     LogSegment* s = NULL;
 
     while (1) {
-        Lock guard(lock);
+        guard.construct(lock);
 
-        s = alloc(SegletAllocator::CLEANER, replacing->id);
+        uint64_t id = (replacing != NULL) ? replacing->id : nextSegmentId;
+        s = alloc(SegletAllocator::CLEANER, id);
         if (s != NULL)
             break;
 
         if (testing_allocSurvivorMustNotBlock)
             return NULL;
 
+        guard.destroy();
         usleep(100);
     }
+    assert(guard);
 
-    Lock guard(lock);
+    writeHeader(s);
 
-    writeHeader(s, replacing->headSegmentIdDuringCleaning);
-
-    s->headSegmentIdDuringCleaning = replacing->headSegmentIdDuringCleaning;
-
-    // This survivor will inherit the replicatedSegment of the one it replaces
-    // when memoryCleaningComplete() is invoked.
+    if (replacing != NULL) {
+        // This survivor will inherit the replicatedSegment of the one it
+        // replaces when memoryCleaningComplete() is invoked.
+    } else {
+        s->replicatedSegment = replicaManager.allocateNonHead(s->id, s);
+        segmentsOnDiskHistogram.storeSample(segmentsOnDisk++);
+        nextSegmentId++;
+    }
 
     TEST_LOG("id = %lu", s->id);
 
@@ -620,21 +590,11 @@ SegmentManager::raiseSafeVersion(uint64_t minimum) {
  *
  * \param segment
  *      Pointer to the segment the header should be written to.
- * \param headSegmentIdDuringCleaning
- *      If the segment is a cleaner-generated survivor segment, this value is
- *      the identifier of the head segment when cleaning started. Stamping the
- *      segment with this value lets us logically order cleaner segments and
- *      previous head segments.  If the segment is a head segment, however, this
- *      value should be Segment::INVALID_SEGMENT_ID.
  */
 void
-SegmentManager::writeHeader(LogSegment* segment,
-                            uint64_t headSegmentIdDuringCleaning)
+SegmentManager::writeHeader(LogSegment* segment)
 {
-    SegmentHeader header(*logId,
-                         segment->id,
-                         segmentSize,
-                         headSegmentIdDuringCleaning);
+    SegmentHeader header(*logId, segment->id, segmentSize);
     bool success = segment->append(LOG_ENTRY_TYPE_SEGHEADER,
                                    &header, sizeof(header));
     if (!success)

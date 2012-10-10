@@ -95,7 +95,7 @@ TEST_F(LogIteratorTest, constructor_singleSegmentLog) {
 
 TEST_F(LogIteratorTest, constructor_multiSegmentLog) {
     l.sync();
-    while (l.getHeadPosition().getSegmentId() == 0)
+    while (l.head == NULL || l.head->id == 0)
         l.append(LOG_ENTRY_TYPE_OBJ, 0, data, sizeof(data), true);
 
     EXPECT_EQ(0, segmentManager.logIteratorCount);
@@ -158,7 +158,7 @@ TEST_F(LogIteratorTest, isDone_simple) {
 TEST_F(LogIteratorTest, isDone_multiSegment) {
     int origObjCnt = 0;
 
-    while (l.getHeadPosition().getSegmentId() == 0) {
+    while (l.head == NULL || l.head->id == 0) {
         l.append(LOG_ENTRY_TYPE_OBJ, 0, data, sizeof(data), true);
         origObjCnt++;
     }
@@ -223,7 +223,7 @@ TEST_F(LogIteratorTest, next) {
         EXPECT_TRUE(i.isDone());
     }
 
-    while (l.getHeadPosition().getSegmentId() == 0)
+    while (l.head == NULL || l.head->id == 0)
         l.append(LOG_ENTRY_TYPE_OBJ, 0, data, sizeof(data), true);
 
     {
@@ -261,7 +261,7 @@ TEST_F(LogIteratorTest, next) {
     {
         // Inject a "cleaner" segment into the log
         segmentManager.initializeSurvivorReserve(1);
-        LogSegment* cleanerSeg = segmentManager.allocSurvivor(5);
+        LogSegment* cleanerSeg = segmentManager.allocSurvivor();
         EXPECT_EQ(2U, cleanerSeg->id);
         segmentManager.changeState(*cleanerSeg,
                                    SegmentManager::NEWLY_CLEANABLE);
@@ -330,7 +330,7 @@ TEST_F(LogIteratorTest, populateSegmentList) {
 // test belongs there more.
 #if 0
 TEST_F(LogIteratorTest, cleanerInteraction) {
-    while (l.getHeadPosition().getSegmentId() == 0)
+    while (l.head == NULL || l.head->id == 0)
         l.append(LOG_ENTRY_TYPE_OBJ, 0, &serverId, sizeof(serverId), true);
 
     Tub<LogIterator> i;
@@ -361,7 +361,7 @@ TEST_F(LogIteratorTest, cleanerInteraction) {
     i.construct(l);
 
     // Nor must seg 2 join the log when a new head appears.
-    while (l.getHeadPosition().getSegmentId() == 1)
+    while (l.head->id == 1)
         l.append(LOG_ENTRY_TYPE_OBJ, 0, &serverId, sizeof(serverId), true);
     l.append(LOG_ENTRY_TYPE_OBJ, 0, &serverId, sizeof(serverId), true);
     while (!i->isDone()) {

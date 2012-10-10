@@ -218,7 +218,7 @@ TEST_F(LogCleanerTest, doMemoryCleaning) {
       "doMemoryCleaning: called | "
       "alloc: for cleaner | "
       "allocSurvivor: id = 0 | "
-      "relocate: type 1, size 32 | "
+      "relocate: type 1, size 24 | "
       "relocate: type 4, size 12 | "
       "relocate: type 5, size 12 | "
       "memoryCleaningComplete: Compaction used 1 seglets to free 128 seglets",
@@ -246,7 +246,7 @@ TEST_F(LogCleanerTest, doDiskCleaning) {
         "doDiskCleaning: called | "
         "getSegmentsToClean: 1 segments selected with 128 allocated segments | "
         "getSortedEntries: 3 entries extracted from 1 segments | "
-        "relocate: type 1, size 32 | "
+        "relocate: type 1, size 24 | "
         "relocate: type 4, size 12 | "
         "relocate: type 5, size 12 | "
         "relocateLiveEntries: used 0 seglets and 0 segments | "
@@ -434,17 +434,17 @@ TEST_F(LogCleanerTest, relocateLiveEntries) {
     TestLog::Enable _;
     cleaner.relocateLiveEntries(entries, newSeglets, newSegments);
     EXPECT_EQ(
-        "relocate: type 1, size 32 | "
+        "relocate: type 1, size 24 | "
         "alloc: for cleaner | "
         "allocateSegment: Allocating new replicated segment for <57.0,1> | "
         "schedule: zero replicas: nothing to schedule | "
         "allocSurvivor: id = 1 | "
-        "relocate: type 1, size 32 | "
+        "relocate: type 1, size 24 | "
         "relocate: type 4, size 12 | "
         "relocate: type 5, size 12 | "
         "close: 57.0, 1, 0 | "
         "schedule: zero replicas: nothing to schedule | "
-        "close: Segment 1 closed (length 96) | "
+        "close: Segment 1 closed (length 80) | "
         "sync: syncing | "
         "relocateLiveEntries: used 1 seglets and 1 segments",
             TestLog::get());
