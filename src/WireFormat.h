@@ -65,50 +65,50 @@ static_assert(INVALID_SERVICE < (sizeof(SerializedServiceMask) * 8),
  * - WireFormatTest.cc's out-of-range test, if ILLEGAL_RPC_TYPE was changed.
  */
 enum Opcode {
-    PING                    = 7,
-    PROXY_PING              = 8,
-    KILL                    = 9,
-    CREATE_TABLE            = 10,
-    GET_TABLE_ID            = 11,
-    DROP_TABLE              = 12,
-    READ                    = 13,
-    WRITE                   = 14,
-    REMOVE                  = 15,
-    ENLIST_SERVER           = 16,
-    GET_SERVER_LIST         = 17,
-    GET_TABLET_MAP          = 18,
-    RECOVER                 = 19,
-    HINT_SERVER_DOWN        = 20,
-    RECOVERY_MASTER_FINISHED = 21,
-    ENUMERATE             = 22,
-    SET_MASTER_RECOVERY_INFO = 23,
-    FILL_WITH_TEST_DATA     = 24,
-    MULTI_READ              = 25,
-    GET_METRICS             = 26,
-    BACKUP_FREE             = 28,
-    BACKUP_GETRECOVERYDATA  = 29,
-    BACKUP_STARTREADINGDATA = 31,
-    BACKUP_STARTPARTITION   = 36, // TODO(syang0) someone fix numbering
-    BACKUP_WRITE            = 32,
-    BACKUP_RECOVERYCOMPLETE = 33,
-    BACKUP_QUIESCE          = 34,
-    UPDATE_SERVER_LIST      = 35,
-    DROP_TABLET_OWNERSHIP   = 39,
-    TAKE_TABLET_OWNERSHIP   = 40,
-    BACKUP_ASSIGN_GROUP     = 41,
-    GET_HEAD_OF_LOG         = 42,
-    INCREMENT               = 43,
-    PREP_FOR_MIGRATION      = 44,
-    RECEIVE_MIGRATION_DATA  = 45,
-    REASSIGN_TABLET_OWNERSHIP = 46,
-    MIGRATE_TABLET          = 47,
-    IS_REPLICA_NEEDED       = 48,
-    SPLIT_TABLET            = 49,
-    GET_SERVER_STATISTICS   = 50,
-    SET_RUNTIME_OPTION      = 51,
-    GET_SERVER_CONFIG       = 52,
-    GET_LOG_METRICS         = 53,
-    ILLEGAL_RPC_TYPE        = 54,  // 1 + the highest legitimate Opcode
+    PING                      = 7,
+    PROXY_PING                = 8,
+    KILL                      = 9,
+    CREATE_TABLE              = 10,
+    GET_TABLE_ID              = 11,
+    DROP_TABLE                = 12,
+    READ                      = 13,
+    WRITE                     = 14,
+    REMOVE                    = 15,
+    ENLIST_SERVER             = 16,
+    GET_SERVER_LIST           = 17,
+    GET_TABLET_MAP            = 18,
+    RECOVER                   = 19,
+    HINT_SERVER_DOWN          = 20,
+    RECOVERY_MASTER_FINISHED  = 21,
+    ENUMERATE                 = 22,
+    SET_MASTER_RECOVERY_INFO  = 23,
+    FILL_WITH_TEST_DATA       = 24,
+    MULTI_READ                = 25,
+    GET_METRICS               = 26,
+    BACKUP_FREE               = 28,
+    BACKUP_GETRECOVERYDATA    = 29,
+    BACKUP_STARTREADINGDATA   = 31,
+    BACKUP_WRITE              = 32,
+    BACKUP_RECOVERYCOMPLETE   = 33,
+    BACKUP_QUIESCE            = 34,
+    UPDATE_SERVER_LIST        = 35,
+    BACKUP_STARTPARTITION     = 36,
+    DROP_TABLET_OWNERSHIP     = 39,
+    TAKE_TABLET_OWNERSHIP     = 40,
+    BACKUP_ASSIGN_GROUP       = 41,
+    GET_HEAD_OF_LOG           = 42,
+    INCREMENT                 = 43,
+    PREP_FOR_MIGRATION        = 44,
+    RECEIVE_MIGRATION_DATA    = 45,
+    REASSIGN_TABLET_OWNERSHIP   = 46,
+    MIGRATE_TABLET            = 47,
+    IS_REPLICA_NEEDED         = 48,
+    SPLIT_TABLET              = 49,
+    GET_SERVER_STATISTICS     = 50,
+    SET_RUNTIME_OPTION        = 51,
+    GET_SERVER_CONFIG         = 52,
+    GET_LOG_METRICS           = 53,
+    ILLEGAL_RPC_TYPE          = 54,  // 1 + the highest legitimate Opcode
 };
 
 /**
@@ -980,22 +980,6 @@ struct SetRuntimeOption {
     } __attribute__((packed));
 };
 
-
-struct UpdateServerList {
-    static const Opcode opcode = UPDATE_SERVER_LIST;
-    static const ServiceType service = MEMBERSHIP_SERVICE;
-    struct Request {
-        RequestCommonWithId common;
-        uint32_t serverListLength; // Number of bytes in the server list.
-                                   // The bytes of the server list follow
-                                   // immediately after this header. See
-                                   // ProtoBuf::ServerList.
-    } __attribute__((packed));
-    struct Response {
-        ResponseCommon common;
-    } __attribute__((packed));
-};
-
 struct SplitMasterTablet {
     static const Opcode opcode = SPLIT_TABLET;
     static const ServiceType service = MASTER_SERVICE;
@@ -1046,6 +1030,21 @@ struct TakeTabletOwnership {
         uint64_t tableId;
         uint64_t firstKeyHash;
         uint64_t lastKeyHash;
+    } __attribute__((packed));
+    struct Response {
+        ResponseCommon common;
+    } __attribute__((packed));
+};
+
+struct UpdateServerList {
+    static const Opcode opcode = UPDATE_SERVER_LIST;
+    static const ServiceType service = MEMBERSHIP_SERVICE;
+    struct Request {
+        RequestCommonWithId common;
+        uint32_t serverListLength; // Number of bytes in the server list.
+                                   // The bytes of the server list follow
+                                   // immediately after this header. See
+                                   // ProtoBuf::ServerList.
     } __attribute__((packed));
     struct Response {
         ResponseCommon common;
