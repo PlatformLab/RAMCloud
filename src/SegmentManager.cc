@@ -147,8 +147,8 @@ SegmentManager::getAllocator() const
  *
  * \param mustNotFail
  *      If true, the allocation of a new head must not fail. By specifying this,
- *      the caller may be returned an immutable head segment if memory has been
- *      exhausted.
+ *      the caller may be returned an immutable (closed) head segment if memory
+ *      has been exhausted.
  *
  * \return
  *      NULL if out of memory, otherwise the new head segment. If NULL is
@@ -186,9 +186,11 @@ SegmentManager::allocHead(bool mustNotFail)
 
     // Make the head immutable if it's an emergency head. This will prevent the
     // log from adding anything to it and let us reclaim it without cleaning
-    // when the next head is allocated.
+    // when the next head is allocated. Note that closure in the Segment class
+    // is soft-state only and not propagated to backups. Backups close segments
+    // when the ReplicatedSegment is closed.
     if (newHead->isEmergencyHead)
-        newHead->disableAppends();
+        newHead->close();
 
     ReplicatedSegment* prevReplicatedSegment = NULL;
     if (prevHead != NULL)

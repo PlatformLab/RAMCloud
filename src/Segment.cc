@@ -32,7 +32,6 @@ Segment::Segment()
       segletSizeShift(0),
       seglets(),
       segletBlocks(),
-      immutable(false),
       closed(false),
       mustFreeBlocks(true),
       head(0),
@@ -49,7 +48,6 @@ Segment::Segment(vector<Seglet*>& seglets, uint32_t segletSize)
       segletSizeShift(BitOps::findFirstSet(segletSize) - 1),
       seglets(seglets),
       segletBlocks(),
-      immutable(false),
       closed(false),
       mustFreeBlocks(false),
       head(0),
@@ -80,7 +78,6 @@ Segment::Segment(const void* buffer, uint32_t length)
       segletSizeShift(0),
       seglets(),
       segletBlocks(),
-      immutable(false),
       closed(true),
       mustFreeBlocks(false),
       head(length),
@@ -104,6 +101,39 @@ Segment::~Segment()
 
     foreach (Seglet* seglet, seglets)
         seglet->free();
+}
+
+/**
+ * Check whether or not the segment has sufficient space to append one or more
+ * entries.
+ *
+ * \param entryLengths
+ *      An array containing lengths of entries.
+ * \param numEntries
+ *      The number of lengths in the entryLengths array.
+ * \return
+ *      True if the segment has enough space to fit all of the entries,
+ *      otherwise false.
+ */
+bool
+Segment::hasSpaceFor(uint32_t* entryLengths, uint32_t numEntries)
+{
+    uint32_t totalBytesNeeded = 0;
+
+    for (uint32_t i = 0; i < numEntries; i++) {
+        EntryHeader header(LOG_ENTRY_TYPE_INVALID, entryLengths[i]);
+        totalBytesNeeded += sizeof32(EntryHeader) +
+                            header.getLengthBytes() +
+                            entryLengths[i];
+    }
+
+    uint32_t bytesLeft = 0;
+    if (!closed) {
+        uint32_t capacity = getSegletsAllocated() * segletSize;
+        bytesLeft = capacity - head;
+    }
+
+    return totalBytesNeeded <= bytesLeft;
 }
 
 /**
@@ -131,8 +161,7 @@ Segment::append(LogEntryType type,
 {
     EntryHeader entryHeader(type, length);
 
-    // Check if sufficient space to store this.
-    if (bytesLeft() < bytesNeeded(length))
+    if (!hasSpaceFor(&length, 1))
         return false;
 
     uint32_t startOffset = head;
@@ -179,46 +208,17 @@ Segment::append(LogEntryType type,
 }
 
 /**
- * Close the segment, making permanently immutable. Closing it will cause all
+ * Close the segment, making it permanently immutable. Closing it will cause all
  * future append operations to fail.
+ *
+ * Note that this is only soft state. Neither the contents of the segment, nor
+ * the certificate indicate closure. Backups have their own notion of closed
+ * segments, which is propagated by the ReplicatedSegment class.
  */
 void
 Segment::close()
 {
-    if (!closed) {
-        immutable = true;
-        closed = true;
-    }
-}
-
-/**
- * Mark the segment as immutable, disabling any future appends until it is made
- * mutable again by calling enableAppends(). This is used to ensure that open
- * emergency head segments are not appended to by the log. See SegmentManager
- * for more details.
- *
- * Note that segments are mutable by default after construction. 
- */
-void
-Segment::disableAppends()
-{
-    immutable = true;
-}
-
-/**
- * Mark the segment as mutable again after a call to disableAppends(). If the
- * segment is closed, it can never be made mutable again and this call will
- * fail and return false. Otherwise returns true if the segment is mutable.
- *
- * Segments are already mutable after construction.
- */
-bool
-Segment::enableAppends()
-{
-    if (closed)
-        return false;
-    immutable = false;
-    return true;
+    closed = true;
 }
 
 /**
@@ -278,11 +278,17 @@ Segment::appendToBuffer(Buffer& buffer)
 LogEntryType
 Segment::getEntry(uint32_t offset, Buffer& buffer)
 {
-    LogEntryType type;
-    uint32_t entryDataOffset, entryDataLength;
-    getEntryInfo(offset, type, entryDataOffset, entryDataLength);
+    const EntryHeader* header = getEntryHeader(offset);
+    uint32_t entryDataOffset = offset +
+                               sizeof32(*header) +
+                               header->getLengthBytes();
+
+    uint32_t entryDataLength = 0;
+    copyOut(offset + sizeof32(*header), &entryDataLength,
+        header->getLengthBytes());
+
     appendToBuffer(buffer, entryDataOffset, entryDataLength);
-    return type;
+    return header->getType();
 }
 
 /**
@@ -333,7 +339,8 @@ Segment::getSegletsAllocated()
 
 /**
  * Return the number of seglets this segment is currently using due to prior
- * append operations.
+ * append operations. Only full seglets at the end of the segment that have
+ * never been appended to can be considered not in use.
  */
 uint32_t
 Segment::getSegletsInUse()
@@ -438,96 +445,6 @@ Segment::checkMetadataIntegrity(const Certificate& certificate)
     return true;
 }
 
-/******************************************************************************
- * PRIVATE METHODS
- ******************************************************************************/
-
-/**
- * Return a pointer to an EntryHeader structure within the segment at the given
- * offset. Since that structure is only one byte long, we need not worry about
- * it being spread across discontiguous seglets.
- *
- * \param offset
- *      Offset of the desired entry header. This is typically a value that was
- *      returned via an append call.
- * \return
- *      Pointer to the desired entry header, or NULL if the offset was invalid.
- */
-const Segment::EntryHeader*
-Segment::getEntryHeader(uint32_t offset)
-{
-    static_assert(sizeof(EntryHeader) == 1,
-                  "Contiguity in segments not guaranteed!");
-    const EntryHeader* header;
-    peek(offset, reinterpret_cast<const void**>(&header));
-    return header;
-}
-
-/**
- * Given the offset of an entry in the segment, return the length of that
- * entry's data blob.
- *
- * \param offset
- *      Offset of the entry in the segment. This should point to the entry
- *      header structure. Normally this value is obtained as the result of
- *      an append call.
- * \param outType
- *      The type of the queried entry is returned in this out parameter.
- * \param outDataOffset
- *      The segment byte offset at which the queried entry's data begins is
- *      returned in this out parameter.
- * \param outDataLength
- *      The length of the queried entry (not including metadata), is returned
- *      in this out parameter.
- */
-void
-Segment::getEntryInfo(uint32_t offset,
-                      LogEntryType& outType,
-                      uint32_t& outDataOffset,
-                      uint32_t& outDataLength)
-{
-    const EntryHeader* header = getEntryHeader(offset);
-    outType = header->getType();
-    outDataOffset = offset + sizeof32(*header) + header->getLengthBytes();
-
-    outDataLength = 0;
-    copyOut(offset + sizeof32(*header), &outDataLength,
-        header->getLengthBytes());
-}
-
-/**
- * Return the number of bytes left in the segment for appends. This method
- * returns the total raw number of bytes left and does not subtract any
- * space that should be reserved for other metadata.
- */
-uint32_t
-Segment::bytesLeft()
-{
-    if (immutable || closed)
-        return 0;
-
-    uint32_t capacity = getSegletsAllocated() * segletSize;
-    return capacity - head;
-}
-
-/**
- * Return the number of segment bytes needed to append an entry with a blob of
- * the given length. This method takes into account the metadata needed to
- * store the entry.
- *
- * \param length
- *      Length of the proposed entry's data blob.
- * \return
- *      The actual number of bytes needed to store an entry of the specified
- *      length. 
- */
-uint32_t
-Segment::bytesNeeded(uint32_t length)
-{
-    EntryHeader header(LOG_ENTRY_TYPE_INVALID, length);
-    return sizeof32(EntryHeader) + header.getLengthBytes() + length;
-}
-
 /**
  * Copy data out of the segment and into a contiguous output buffer.
  *
@@ -574,6 +491,31 @@ Segment::copyOut(uint32_t offset, void* buffer, uint32_t length) const
     }
 
     return initialLength - length;
+}
+
+/******************************************************************************
+ * PRIVATE METHODS
+ ******************************************************************************/
+
+/**
+ * Return a pointer to an EntryHeader structure within the segment at the given
+ * offset. Since that structure is only one byte long, we need not worry about
+ * it being spread across discontiguous seglets.
+ *
+ * \param offset
+ *      Offset of the desired entry header. This is typically a value that was
+ *      returned via an append call.
+ * \return
+ *      Pointer to the desired entry header, or NULL if the offset was invalid.
+ */
+const Segment::EntryHeader*
+Segment::getEntryHeader(uint32_t offset)
+{
+    static_assert(sizeof(EntryHeader) == 1,
+                  "Contiguity in segments not guaranteed!");
+    const EntryHeader* header;
+    peek(offset, reinterpret_cast<const void**>(&header));
+    return header;
 }
 
 /**

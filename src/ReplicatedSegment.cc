@@ -290,9 +290,19 @@ ReplicatedSegment::handleBackupFailure(ServerId failedId)
  *      call will return. If offset is not provided then the call will only
  *      return when all enqueued data has been synced including the
  *      closed flag.
+ *
+ * \param certificate
+ *      If non-NULL, this points to the certificate associated with the provided
+ *      offset and will be sent to backups if the segment has not been synced
+ *      to this point yet.
+ *
+ *      Specifying this parameter avoids querying the segment for the latest
+ *      length and certificate. This is sometimes necessary when one thread is
+ *      syncing a segment, but does not want to block other threads from
+ *      appending to it.
  */
 void
-ReplicatedSegment::sync(uint32_t offset)
+ReplicatedSegment::sync(uint32_t offset, Segment::Certificate* certificate)
 {
     CycleCounter<RawMetric> _(&metrics->master.replicaManagerTicks);
     TEST_LOG("syncing");
@@ -318,11 +328,18 @@ ReplicatedSegment::sync(uint32_t offset)
         }
     }
 
-    Segment::Certificate certificate;
-    uint32_t appendedBytes = segment->getAppendedLength(certificate);
+    // If the caller did not provide the desired certificate, obtain the
+    // latest one and use that.
+    uint32_t appendedBytes = offset;
+    Segment::Certificate localCertificate;
+    if (certificate == NULL) {
+        appendedBytes = segment->getAppendedLength(localCertificate);
+        certificate = &localCertificate;
+    }
+
     if (appendedBytes > queued.bytes) {
         queued.bytes = appendedBytes;
-        queuedCertificate = certificate;
+        queuedCertificate = *certificate;
         schedule();
     }
 

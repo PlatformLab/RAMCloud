@@ -158,7 +158,8 @@ class LogSegment : public Segment {
           costBenefitVersion(0),
           replicatedSegment(NULL),
           listEntries(),
-          allListEntries()
+          allListEntries(),
+          syncedLength(0)
     {
     }
 
@@ -280,6 +281,12 @@ class LogSegment : public Segment {
     /// Hook used for linking this LogSegment into a global instrusive list
     /// of all LogSegments in SegmentManager.
     IntrusiveListHook allListEntries;
+
+    /// Number of bytes in this segment that have been synced in Log::sync. This
+    /// is used in Log::sync to avoid issuing a sync() call to ReplicatedSegment
+    /// when the desired data has already been synced (perhaps by another thread
+    /// that bundled our replication traffic with theirs).
+    uint32_t syncedLength;
 
     DISALLOW_COPY_AND_ASSIGN(LogSegment);
 };

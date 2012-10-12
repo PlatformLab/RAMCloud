@@ -117,6 +117,41 @@ class Log {
         std::pair<uint64_t, uint32_t> pos;
     };
 
+    /**
+     * Structure used when appending multiple entries atomically. It is used to
+     * both describe the entry, as well as return the log reference once it has
+     * been appended. Callers will typically allocate an array of these on the
+     * stack, set up each individual entry, and pass its pointer to the append
+     * method.
+     */
+    class AppendVector {
+      public:
+        /**
+         * This default constructor simply initializes to invalid values.
+         */
+        AppendVector()
+            : type(LOG_ENTRY_TYPE_INVALID),
+              timestamp(0),
+              buffer(),
+              reference(0)
+        {
+        }
+
+        /// Type of the entry to append (see LogEntryTypes.h).
+        LogEntryType type;
+
+        /// Creation timestamp of the entry (see WallTime.h).
+        uint32_t timestamp;
+
+        /// Buffer describing the contents of the entry to append.
+        Buffer buffer;
+
+        /// A log reference to the entry once appended is returned here.
+        HashTable::Reference reference;
+    };
+
+    typedef std::lock_guard<SpinLock> Lock;
+
     Log(Context* context,
         const ServerConfig& config,
         LogEntryHandlers& entryHandlers,
@@ -127,15 +162,7 @@ class Log {
     void enableCleaner();
     void disableCleaner();
     void getMetrics(ProtoBuf::LogMetrics& m);
-    bool append(LogEntryType type,
-                uint32_t timestamp,
-                const void* data,
-                uint32_t length,
-                HashTable::Reference* outReference = NULL);
-    bool append(LogEntryType type,
-                uint32_t timestamp,
-                Buffer& buffer,
-                HashTable::Reference* outReference = NULL);
+    bool append(AppendVector* appends, uint32_t numAppends);
     void free(HashTable::Reference reference);
     LogEntryType getEntry(HashTable::Reference reference,
                           Buffer& outBuffer);
@@ -144,10 +171,64 @@ class Log {
     Log::Position rollHeadOver();
     bool containsSegment(uint64_t segmentId);
 
+    /*
+     * The following overloaded append() methods are for convenience. Fast path
+     * code (like the heart of segment replay during recovery) use a single
+     * contiguous const void* buffer when appending. Other paths tend to use
+     * Buffers for convenience and to avoid extra copies.
+     *
+     * These methods all call a common private append() core that is optimized
+     * for the single const void* case. They also acquire append locks, since
+     * the core function is lockless (to support atomic appends of multiple
+     * entries).
+     */
+
+    /**
+     * \overload
+     */
+    bool
+    append(LogEntryType type,
+           uint32_t timestamp,
+           const void* buffer,
+           uint32_t length,
+           HashTable::Reference* outReference = NULL)
+    {
+        Lock lock(appendLock);
+        return append(lock, type, timestamp, buffer, length, outReference);
+    }
+
+    /**
+     * \overload
+     */
+    bool
+    append(LogEntryType type,
+           uint32_t timestamp,
+           Buffer& buffer,
+           HashTable::Reference* outReference = NULL)
+    {
+        Lock lock(appendLock);
+        return append(lock,
+                      type,
+                      timestamp,
+                      buffer.getRange(0, buffer.getTotalLength()),
+                      buffer.getTotalLength(),
+                      outReference);
+    }
+
   PRIVATE:
     INTRUSIVE_LIST_TYPEDEF(LogSegment, listEntries) SegmentList;
-    typedef std::lock_guard<SpinLock> Lock;
 
+    bool append(Lock& lock,
+                LogEntryType type,
+                uint32_t timestamp,
+                const void* data,
+                uint32_t length,
+                HashTable::Reference* outReference = NULL);
+    bool append(Lock& lock,
+                LogEntryType type,
+                uint32_t timestamp,
+                Buffer& buffer,
+                HashTable::Reference* outReference = NULL);
     HashTable::Reference buildReference(uint32_t slot, uint32_t offset);
     uint32_t referenceToSlot(HashTable::Reference reference);
     uint32_t referenceToOffset(HashTable::Reference reference);
@@ -183,9 +264,17 @@ class Log {
     /// This pointer should never be NULL.
     LogSegment* head;
 
-    /// Lock taken around log append operations. This is currently only used
-    /// to delay appends to the log head while migration is underway.
+    /// Lock taken around log append operations. This ensures that parallel
+    /// writers do not modify the head segment concurrently. The sync()
+    /// method also uses this lock to get a consistent view of the head
+    /// segment in the presence of multiple appending threads.
     SpinLock appendLock;
+
+    /// Lock used to serialize calls to ReplicatedSegment::sync(). This both
+    /// protects the ReplicatedSegment from concurrent access and queues up
+    /// syncs in the log so that multiple appends can be flushed to backups
+    /// in the same RPC.
+    SpinLock syncLock;
 
     /// Various event counters and performance measurements taken during log
     /// operation.

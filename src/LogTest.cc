@@ -173,7 +173,20 @@ syncFilter(string s)
 TEST_F(LogTest, sync) {
     TestLog::Enable _(syncFilter);
     l.sync();
-    EXPECT_TRUE(StringUtil::endsWith(TestLog::get(), "sync: log synced"));
+    EXPECT_EQ("sync: sync not needed: already fully replicated",
+        TestLog::get());
+
+    TestLog::reset();
+    l.append(LOG_ENTRY_TYPE_OBJ, 0, "hi", 3);
+    EXPECT_NE(l.head->syncedLength, l.head->getAppendedLength());
+    l.sync();
+    EXPECT_EQ("sync: syncing | sync: log synced", TestLog::get());
+    EXPECT_EQ(l.head->syncedLength, l.head->getAppendedLength());
+
+    TestLog::reset();
+    l.sync();
+    EXPECT_EQ("sync: sync not needed: already fully replicated",
+        TestLog::get());
 }
 
 TEST_F(LogTest, getSegmentId) {

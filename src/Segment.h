@@ -38,10 +38,11 @@ struct SegmentException : public Exception {
 };
 
 /**
- * Segments are simple, append-only containers for typed data blobs. Data can
- * be added to the end of a segment and later retrieved, but not mutated.
- * Segments are easily iterated and they contain internal consistency checks to
- * help ensure metadata integrity.
+ * Segments are basically miniature logs that immutable data can be appended
+ * to. Each piece of data appended is considered an "entry". Each entry has
+ * internal segment metadata that identify the type of data and its length.
+ * This allows segments to be easily iterated. To ensure consistency, all
+ * metadata is checksummed and integrity can be checked using a "certificate". 
  *
  * Although similar, Segments differ from buffers in several ways. First, any
  * append data is always copied. Second, they understand some of the data that
@@ -208,6 +209,7 @@ class Segment {
     Segment(vector<Seglet*>& seglets, uint32_t segletSize);
     Segment(const void* buffer, uint32_t length);
     virtual ~Segment();
+    bool hasSpaceFor(uint32_t* entryLengths, uint32_t numEntries);
     bool append(LogEntryType type,
                 const void* data,
                 uint32_t length,
@@ -278,7 +280,6 @@ class Segment {
                       LogEntryType& outType,
                       uint32_t &outDataOffset,
                       uint32_t &outDataLength);
-    uint32_t bytesLeft();
     uint32_t bytesNeeded(uint32_t length);
     uint32_t copyIn(uint32_t offset, const void* buffer, uint32_t length);
     uint32_t copyInFromBuffer(uint32_t segmentOffset,
@@ -299,27 +300,27 @@ class Segment {
     /// Seglets that have been loaned to this segment to store data in. These
     /// will be freed to their owning allocator upon destruction or calls to
     /// freeUnusedSeglets().
+    ///
+    /// This vector only exists to track seglet memory that must be freed in a
+    /// special way. All seglet contents are accessed through pointers in the
+    /// #segletBlocks vector.
     vector<Seglet*> seglets;
 
     /// Pointers to memory blocks this segment will append data to. Typically
     /// this is just a cache of the pointers contained in the seglets loaned to
     /// this object (avoiding another layer of indirection when looking up an
-    /// address). However, if this class allocated its own space in the default
-    /// constructor, or if it was given a static buffer, a block entry will
-    /// exist here that is not associated with any seglet instance.
+    /// address). However, if an instance of this class allocated its own space
+    /// in the default constructor, or if it was given a static buffer, a block
+    /// entry will exist here that is not associated with any seglet.
     //
     /// The order in the array represents the order in which blocks logically
     /// appear in the segment. That is, segletBlocks[0] will cover byte offset 0
     /// through segletSize - 1.
     vector<void*> segletBlocks;
 
-    /// Indicates whether or not this segment can presently be appended to. This
-    /// mutability may be flipped on and off so long as the segment is not
-    /// closed.
-    bool immutable;
-
-    /// Indicates whether or not this segment is ever allowed to allocate any
-    /// more space. Closing a segment is a permanent operation.
+    /// Indicates whether or not this segment may ever be appended to again.
+    /// Closing a segment is a permanent operation. Once closed, all future
+    /// appends will fail.
     bool closed;
 
     /// In the case that the default constructor was used and this class

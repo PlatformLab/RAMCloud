@@ -2056,6 +2056,7 @@ MasterService::write(const WireFormat::Write::Request& reqHdr,
             rpc.requestPayload,
             sizeof32(reqHdr),
             reqHdr.keyLength);
+
     Status status = storeObject(key,
                                 &reqHdr.rejectRules,
                                 buffer,
@@ -2455,50 +2456,41 @@ MasterService::storeObject(Key& key,
     // Existing objects get a bump in version, new objects start from
     // the next version allocated in the table.
     uint64_t newObjectVersion = (currentVersion == VERSION_NONEXISTENT) ?
-            segmentManager.allocateVersion(): currentVersion + 1;
+            segmentManager.allocateVersion() : currentVersion + 1;
 
     Object newObject(key, data, newObjectVersion, WallTime::secondsTimestamp());
 
     assert(currentVersion == VERSION_NONEXISTENT ||
            newObject.getVersion() > currentVersion);
 
-    bool freeCurrentReference = false;
+    Tub<ObjectTombstone> tombstone;
     if (currentVersion != VERSION_NONEXISTENT &&
       currentType == LOG_ENTRY_TYPE_OBJ) {
         Object object(currentBuffer);
-        ObjectTombstone tombstone(object,
-                                  log->getSegmentId(currentReference),
-                                  WallTime::secondsTimestamp());
-
-        Buffer tombstoneBuffer;
-        tombstone.serializeToBuffer(tombstoneBuffer);
-
-        if (!log->append(LOG_ENTRY_TYPE_OBJTOMB,
-                         tombstone.getTimestamp(),
-                         tombstoneBuffer)) {
-            return STATUS_RETRY;
-        }
-
-        // TODO(anyone): The above isn't safe. If we crash before writing the
-        //               new entry (because of timing, or we run out of space),
-        //               we'll have lost the old object. One solution is to
-        //               introduce the combined Object+Tombstone type.
-
-        // We can't free here. Not only because of the aforementioned issue,
-        // but also because if we do so and the new object append fails, the
-        // cleaner's statistics won't match what's in the objectMap and it
-        // will not operate correctly.
-        freeCurrentReference = true;
+        tombstone.construct(object,
+                           log->getSegmentId(currentReference),
+                           WallTime::secondsTimestamp());
     }
 
-    Buffer buffer;
-    newObject.serializeToBuffer(buffer);
+    // Create a vector of appends in case we need to write a tombstone and
+    // an object. This is necessary to ensure that both tombstone and object
+    // are written atomically. The log makes no atomicity guarantees across
+    // multiple append calls and we don't want a tombstone going to backups
+    // before the new object, or the new object going out without a tombstone
+    // for the old deleted version. Both cases lead to consistency problems.
+    Log::AppendVector appends[2];
 
-    HashTable::Reference newObjectReference;
-    if (!log->append(LOG_ENTRY_TYPE_OBJ,
-                     newObject.getTimestamp(),
-                     buffer,
-                     &newObjectReference)) {
+    newObject.serializeToBuffer(appends[0].buffer);
+    appends[0].type = LOG_ENTRY_TYPE_OBJ;
+    appends[0].timestamp = newObject.getTimestamp();
+
+    if (tombstone) {
+        tombstone->serializeToBuffer(appends[1].buffer);
+        appends[1].type = LOG_ENTRY_TYPE_OBJTOMB;
+        appends[1].timestamp = tombstone->getTimestamp();
+    }
+
+    if (!log->append(appends, tombstone ? 2 : 1)) {
         // The log is out of space. Tell the client to retry and hope
         // that either the cleaner makes space soon or we shift load
         // off of this server.
@@ -2507,8 +2499,8 @@ MasterService::storeObject(Key& key,
     if (sync)
         log->sync();
 
-    objectMap->replace(key, newObjectReference);
-    if (freeCurrentReference)
+    objectMap->replace(key, appends[0].reference);
+    if (tombstone)
         log->free(currentReference);
     *newVersion = newObject.getVersion();
     bytesWritten += key.getStringKeyLength() + data.getTotalLength();

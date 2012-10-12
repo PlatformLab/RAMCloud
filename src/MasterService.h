@@ -54,6 +54,7 @@ class MasterService : public Service, LogEntryHandlers {
     void init(ServerId id);
     void dispatch(WireFormat::Opcode opcode,
                   Rpc& rpc);
+    int maxThreads() { return 1; }
 
     uint32_t getTimestamp(LogEntryType type, Buffer& buffer);
     void relocate(LogEntryType type,
