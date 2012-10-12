@@ -47,28 +47,11 @@ namespace RAMCloud {
  */
 class MembershipClient {
   public:
-    static ServerId getServerId(Context* context,
-            Transport::SessionRef session);
     static void UpdateServerList(Context* context, ServerId serverId,
             ProtoBuf::ServerList* list);
 
   private:
     MembershipClient();
-};
-
-/**
- * Encapsulates the state of a MembershipClient::getServerId
- * request, allowing it to execute asynchronously.
- */
-class GetServerIdRpc : public RpcWrapper {
-  public:
-    GetServerIdRpc(Context* context, Transport::SessionRef session);
-    ~GetServerIdRpc() {}
-    ServerId wait();
-
-  PRIVATE:
-    Context* context;
-    DISALLOW_COPY_AND_ASSIGN(GetServerIdRpc);
 };
 
 /**

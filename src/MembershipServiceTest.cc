@@ -56,12 +56,6 @@ class MembershipServiceTest : public ::testing::Test {
     DISALLOW_COPY_AND_ASSIGN(MembershipServiceTest);
 };
 
-TEST_F(MembershipServiceTest, getServerId) {
-    serverId = ServerId(523, 234);
-    EXPECT_EQ(ServerId(523, 234), MembershipClient::getServerId(&context,
-        context.transportManager->getSession("mock:host=member")));
-}
-
 TEST_F(MembershipServiceTest, updateServerList) {
     // Create a temporary coordinator server list (with its own context)
     // to use as a source for update information.

@@ -110,9 +110,6 @@ class BackupService : public Service
      */
     ServerId formerServerId;
 
-    /// Coordinator-assigned ID for this backup service
-    ServerId serverId;
-
     /**
      * The storage backend where closed segments are to be placed.
      * Must come before #frames so that if the reference count of some frames

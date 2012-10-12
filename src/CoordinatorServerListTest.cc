@@ -815,7 +815,7 @@ TEST_F(CoordinatorServerListTest, updateLoop) {
     sl.commitUpdate(lock);
     sl.sync();
     EXPECT_EQ("updateEntryVersion: server 4.0 updated (0->1)", TestLog::get());
-    EXPECT_EQ("sendRequest: 0x40023 11 273 0 /0 /x18/0",
+    EXPECT_EQ("sendRequest: 0x40023 4 0 11 273 0 /0 /x18/0",
         transport.outputLog);
 
     TestLog::reset();
@@ -841,8 +841,8 @@ TEST_F(CoordinatorServerListTest, updateLoop) {
         "updateEntryVersion: server 4.0 updated (1->2)", TestLog::get());
 
     EXPECT_EQ(
-        "sendRequest: 0x40023 11 529 0 /0 /x18/0 | "
-        "sendRequest: 0x40023 173 0x100d340a 0x11000000 1 1 0x6f6d111a "
+        "sendRequest: 0x40023 1 1 11 529 0 /0 /x18/0 | "
+        "sendRequest: 0x40023 4 0 173 0x100d340a 0x11000000 1 1 0x6f6d111a "
         "ck:host=server5-/0 0x35000000 0 57 0 0xd340a00 16 1297 0 0x6d111a00 "
         "ock:host=server6-/0 0x35000000 0 57 0 0xd340a00 16 1297 0 0x6d111a00 "
         "ock:host=server6-/0 0x35000000 1 57 0 0x21100 0 0x1180000",
@@ -1003,7 +1003,8 @@ TEST_F(CoordinatorServerListTest, sync) {
     transport.setInput("0");
 
     sl.sync();
-    EXPECT_EQ("sendRequest: 0x40023 11 273 0 /0 /x18/0", transport.outputLog);
+    EXPECT_EQ("sendRequest: 0x40023 1 0 11 273 0 /0 /x18/0",
+              transport.outputLog);
 
     // Test that syncs on up-to-date list don't clog
     sl.sync();

@@ -21,6 +21,7 @@
 #include "Common.h"
 #include "ClientException.h"
 #include "Buffer.h"
+#include "ServerId.h"
 #include "WireFormat.h"
 
 namespace RAMCloud {
@@ -79,7 +80,7 @@ class Service {
         DISALLOW_COPY_AND_ASSIGN(Rpc);
     };
 
-    Service() {}
+    Service();
     virtual ~Service() {}
     virtual void dispatch(WireFormat::Opcode opcode,
                           Rpc& rpc);
@@ -125,6 +126,7 @@ class Service {
             rpc.requestPayload.getStart<typename Op::Request>();
         if (reqHdr == NULL)
             throw MessageTooShortError(HERE);
+        checkServerId(&reqHdr->common);
         typename Op::Response* respHdr =
             new(&rpc.replyPayload, APPEND) typename Op::Response;
         /* Clear the response header, so that unused fields are zero;
@@ -135,6 +137,46 @@ class Service {
         memset(respHdr, 0, sizeof(*respHdr));
         (static_cast<S*>(this)->*handler)(*reqHdr, *respHdr, rpc);
     }
+  
+    /**
+     * Verifies that this server is the one intended to receive an RPC.
+     * 
+     * \param common
+     *      The common header area from an incoming RPC.
+     * 
+     * \throw WrongServerException
+     *      We are not the intended server for this RPC.
+     */
+    void
+    checkServerId(const WireFormat::RequestCommonWithId* common)
+    {
+        // To simplify testing, we ignore mismatches if either id is invalid.
+        if ((common->targetId != serverId.getId())
+                && ServerId(common->targetId).isValid()
+                && (serverId.isValid()))
+            throw WrongServerException(HERE);
+    }
+  
+    /**
+     * Dummy method that "verifies" the server id for RPCs that don't
+     * actually require verification: this method is a no-op.
+     * 
+     * \param common
+     *      The common header area from an incoming RPC.
+     */
+    void
+    checkServerId(const WireFormat::RequestCommon* common)
+    {
+        // This method does nothing; it exists so that the callHandler
+        // template doesn't need to worry about which type of common
+        // block is used in a given RPC.
+    }
+  
+  public:
+    /// The identifier assigned to this server by the coordinator.  If the
+    /// server has not yet enlisted, or if the serverId isn't relevant for
+    /// this service, then the value is 0.
+    ServerId serverId;
 
   private:
     friend class BindTransport;

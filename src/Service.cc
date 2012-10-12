@@ -23,6 +23,14 @@
 namespace RAMCloud {
 
 /**
+ * Constructor for Service objects.
+ */
+Service::Service()
+    : serverId()
+{
+}
+
+/**
  * Find and validate a string in a buffer.  This method is invoked
  * by RPC handlers expecting a null-terminated string to be present
  * in an incoming request. It makes sure that the buffer contains

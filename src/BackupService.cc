@@ -42,7 +42,6 @@ BackupService::BackupService(Context* context,
     , mutex()
     , config(config)
     , formerServerId()
-    , serverId(0)
     , storage()
     , frames()
     , recoveries()

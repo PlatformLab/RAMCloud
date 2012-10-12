@@ -60,6 +60,29 @@ ServerIdRpcWrapper::ServerIdRpcWrapper(Context* context, ServerId id,
 
 // See RpcWrapper for documentation.
 bool
+ServerIdRpcWrapper::checkStatus()
+{
+    if (responseHeader->status == STATUS_WRONG_SERVER) {
+        // Somehow the session we used doesn't actually connect to the
+        // correct server (most likely problem: we're trying to talk to
+        // a server that has crashed and restarted under the same locator,
+        // and we ended up talking to the new server, not the old one).
+        LOG(NOTICE, "STATUS_WRONG_SERVER in %s RPC to %s",
+                WireFormat::opcodeSymbol(request),
+                context->serverList->toString(id).c_str());
+        context->serverList->flushSession(id);
+        if (!context->serverList->isUp(id)) {
+            serverDown = true;
+            return true;
+        }
+        send();
+        return false;
+    }
+    return true;
+}
+
+// See RpcWrapper for documentation.
+bool
 ServerIdRpcWrapper::handleTransportError()
 {
     if (convertExceptionsToDoesntExist) {

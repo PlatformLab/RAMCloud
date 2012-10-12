@@ -79,7 +79,7 @@ DropTabletOwnershipRpc::DropTabletOwnershipRpc(Context* context,
             sizeof(WireFormat::DropTabletOwnership::Response))
 {
     WireFormat::DropTabletOwnership::Request* reqHdr(
-            allocHeader<WireFormat::DropTabletOwnership>());
+            allocHeader<WireFormat::DropTabletOwnership>(serverId));
     reqHdr->tableId = tableId;
     reqHdr->firstKeyHash = firstKeyHash;
     reqHdr->lastKeyHash = lastKeyHash;
@@ -124,7 +124,7 @@ GetHeadOfLogRpc::GetHeadOfLogRpc(Context* context, ServerId serverId)
     : ServerIdRpcWrapper(context, serverId,
             sizeof(WireFormat::GetHeadOfLog::Response))
 {
-    allocHeader<WireFormat::GetHeadOfLog>();
+    allocHeader<WireFormat::GetHeadOfLog>(serverId);
     send();
 }
 
@@ -213,7 +213,7 @@ IsReplicaNeededRpc::IsReplicaNeededRpc(Context* context, ServerId serverId,
             sizeof(WireFormat::IsReplicaNeeded::Response))
 {
     WireFormat::IsReplicaNeeded::Request* reqHdr(
-            allocHeader<WireFormat::IsReplicaNeeded>());
+            allocHeader<WireFormat::IsReplicaNeeded>(serverId));
     reqHdr->backupServerId = backupServerId.getId();
     reqHdr->segmentId = segmentId;
     send();
@@ -299,7 +299,7 @@ PrepForMigrationRpc::PrepForMigrationRpc(Context* context, ServerId serverId,
             sizeof(WireFormat::PrepForMigration::Response))
 {
     WireFormat::PrepForMigration::Request* reqHdr(
-            allocHeader<WireFormat::PrepForMigration>());
+            allocHeader<WireFormat::PrepForMigration>(serverId));
     reqHdr->tableId = tableId;
     reqHdr->firstKeyHash = firstKeyHash;
     reqHdr->lastKeyHash = lastKeyHash;
@@ -360,7 +360,7 @@ ReceiveMigrationDataRpc::ReceiveMigrationDataRpc(Context* context,
             sizeof(WireFormat::ReceiveMigrationData::Response))
 {
     WireFormat::ReceiveMigrationData::Request* reqHdr(
-            allocHeader<WireFormat::ReceiveMigrationData>());
+            allocHeader<WireFormat::ReceiveMigrationData>(serverId));
     reqHdr->tableId = tableId;
     reqHdr->firstKeyHash = firstKeyHash;
     segment->getAppendedLength(reqHdr->certificate);
@@ -437,7 +437,7 @@ RecoverRpc::RecoverRpc(Context* context, ServerId serverId,
             sizeof(WireFormat::Recover::Response))
 {
     WireFormat::Recover::Request* reqHdr(
-            allocHeader<WireFormat::Recover>());
+            allocHeader<WireFormat::Recover>(serverId));
     reqHdr->recoveryId = recoveryId;
     reqHdr->crashedServerId = crashedServerId.getId();
     reqHdr->partitionId = partitionId;
@@ -502,7 +502,7 @@ SplitMasterTabletRpc::SplitMasterTabletRpc(Context* context,
             sizeof(WireFormat::SplitMasterTablet::Response))
 {
     WireFormat::SplitMasterTablet::Request* reqHdr(
-            allocHeader<WireFormat::SplitMasterTablet>());
+            allocHeader<WireFormat::SplitMasterTablet>(serverId));
     reqHdr->tableId = tableId;
     reqHdr->firstKeyHash = firstKeyHash;
     reqHdr->lastKeyHash = lastKeyHash;
@@ -564,7 +564,7 @@ TakeTabletOwnershipRpc::TakeTabletOwnershipRpc(
             sizeof(WireFormat::TakeTabletOwnership::Response))
 {
     WireFormat::TakeTabletOwnership::Request* reqHdr(
-            allocHeader<WireFormat::TakeTabletOwnership>());
+            allocHeader<WireFormat::TakeTabletOwnership>(serverId));
     reqHdr->tableId = tableId;
     reqHdr->firstKeyHash = firstKeyHash;
     reqHdr->lastKeyHash = lastKeyHash;

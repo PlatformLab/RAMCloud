@@ -18,6 +18,7 @@
 
 #include "Dispatch.h"
 #include "Fence.h"
+#include "ServerId.h"
 #include "Transport.h"
 #include "WireFormat.h"
 
@@ -98,9 +99,46 @@ class RpcWrapper : public Transport::RpcNotifier {
         assert(request.getTotalLength() == 0);
         typename RpcType::Request* reqHdr =
                 new(&request, APPEND) typename RpcType::Request;
+        // Don't allow this method to be used for RPCs that use
+        // RequestCommonWithId as the header; use the other form
+        // with targetId instead.
+        static_assert(sizeof(reqHdr->common) ==
+                sizeof(WireFormat::RequestCommon),
+                "must pass targetId to allocHeader");
         memset(reqHdr, 0, sizeof(reqHdr));
         reqHdr->common.opcode = RpcType::opcode;
         reqHdr->common.service = RpcType::service;
+        return reqHdr;
+    }
+
+    /**
+     * Given an RPC type (from WireFormat) that uses RequestCommonWithId
+     * (i.e. the request header contains a target server id), allocates a
+     * request header in the request buffer, initializes its opcode,
+     * service, and targetId fields, and zeroes everything else.
+     *
+     * \tparam RpcType
+     *      A type from WireFormat, such as WireFormat::Read; determines
+     *      the type of the return value and the size of the header.
+     * 
+     * \param targetId
+     *      ServerId indicating which server is intended to process this
+     *      request.
+     *
+     * \return
+     *      An RPC-specific request header.
+     */
+    template <typename RpcType>
+    typename RpcType::Request*
+    allocHeader(ServerId targetId)
+    {
+        assert(request.getTotalLength() == 0);
+        typename RpcType::Request* reqHdr =
+                new(&request, APPEND) typename RpcType::Request;
+        memset(reqHdr, 0, sizeof(reqHdr));
+        reqHdr->common.opcode = RpcType::opcode;
+        reqHdr->common.service = RpcType::service;
+        reqHdr->common.targetId = targetId.getId();
         return reqHdr;
     }
 

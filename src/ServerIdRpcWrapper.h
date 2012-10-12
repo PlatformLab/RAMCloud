@@ -40,6 +40,7 @@ class ServerIdRpcWrapper : public RpcWrapper {
     virtual ~ServerIdRpcWrapper() {}
 
   PROTECTED:
+    virtual bool checkStatus();
     virtual bool handleTransportError();
     virtual void send();
     void waitAndCheckErrors();
