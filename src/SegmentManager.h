@@ -186,7 +186,7 @@ class SegmentManager {
     void free(LogSegment* s);
     void freeUnreferencedSegments();
 
-    /// The pervasive RAMCloud context->
+    /// The pervasive RAMCloud context.
     Context* context;
 
     /// Size of each full segment in bytes.

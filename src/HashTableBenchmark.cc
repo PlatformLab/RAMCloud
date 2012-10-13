@@ -48,12 +48,11 @@ class TestObject {
 class TestObjectKeyComparer : public HashTable::KeyComparer {
   public:
     bool
-    doesMatch(Key& key, HashTable::Reference candidate)
+    doesMatch(Key& key, uint64_t candidate)
     {
         // A pointer to a TestObject has been squished into each
-        // HashTable::Reference.
-        TestObject* candidateObject =
-            reinterpret_cast<TestObject*>(candidate.get());
+        // uint64_t.
+        TestObject* candidateObject = reinterpret_cast<TestObject*>(candidate);
         Key candidateKey(0, &candidateObject->key,
             sizeof(candidateObject->key));
         return (key == candidateKey);
@@ -81,13 +80,13 @@ hashTableBenchmark(uint64_t nkeys, uint64_t nlines)
     for (i = 0; i < nkeys; i++) {
         Key key(0, &i, sizeof(i));
         values[i] = new TestObject(i);
-        HashTable::Reference reference(reinterpret_cast<uint64_t>(values[i]));
+        uint64_t reference(reinterpret_cast<uint64_t>(values[i]));
         ht.replace(key, reference);
 
         // Here just in case.
         //   NB: This alters our PerfDistribution bin counts,
         //       so be sure to reset them below!
-        HashTable::Reference outReference;
+        uint64_t outReference = 0;
         assert(ht.lookup(key, outReference));
         assert(outReference == reference);
     }
@@ -104,7 +103,7 @@ hashTableBenchmark(uint64_t nkeys, uint64_t nlines)
     uint64_t replaceCycles = Cycles::rdtsc();
     for (i = 0; i < nkeys; i++) {
         Key key(0, &i, sizeof(i));
-        HashTable::Reference reference(reinterpret_cast<uint64_t>(values[i]));
+        uint64_t reference(reinterpret_cast<uint64_t>(values[i]));
         ht.replace(key, reference);
     }
     i = Cycles::rdtsc() - replaceCycles;
@@ -137,10 +136,10 @@ hashTableBenchmark(uint64_t nkeys, uint64_t nlines)
     uint64_t lookupCycles = Cycles::rdtsc();
     for (i = 0; i < nkeys; i++) {
         Key key(0, &i, sizeof(i));
-        HashTable::Reference reference;
+        uint64_t reference = 0;
         bool success = ht.lookup(key, reference);
         assert(success);
-        assert(reinterpret_cast<TestObject*>(reference.get())->key == i);
+        assert(reinterpret_cast<TestObject*>(reference)->key == i);
     }
     i = Cycles::rdtsc() - lookupCycles;
     printf("done!\n");

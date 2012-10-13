@@ -28,9 +28,11 @@
 namespace RAMCloud {
 
 /**
- * A map from Key objects to HashTable::References. References are 48-bit
+ * A map from Key objects to 47-bit "references". These references are just
  * opaque values that could be anything from direct pointers, to indexes into
- * some other structure, or even tiny bits of data themselves.
+ * some other structure, or even tiny bits of data themselves. The only
+ * requirements are that 1) they fit within the lower 47 bits of a uint64_t,
+ * and 2) the value 0 is never used.
  *
  * This class is used, for instance, in resolving most object-level %RAMCloud
  * requests. I.e., to read and write a %RAMCloud object, this lets you find the
@@ -55,59 +57,6 @@ namespace RAMCloud {
 class HashTable {
   public:
     /**
-     * References are 48-bit values stored in the hash table. This simple
-     * wrapper uses a uint64_t and ensures that the upper 16 bits are all
-     * zero.
-     */
-    class Reference {
-      public:
-        Reference()
-            : value(0xfffffffffffful)
-        {
-        }
-
-        explicit Reference(uint64_t value)
-            : value(value)
-        {
-            if (value & 0xffff000000000000lu)
-                throw FatalError(HERE, "References must be 48-bit");
-        }
-
-        /**
-         * Obtain the 64-bit integer value of the reference. The upper 16 bits
-         * are guaranteed to be zero.
-         */
-        uint64_t
-        get() const
-        {
-            return value;
-        }
-
-        /**
-         * Compare references for equality (their 48-bit values are identical).
-         * Returns true if equal, else false.
-         */
-        bool
-        operator==(const Reference& other) const
-        {
-            return value == other.value;
-        }
-
-        /**
-         * Returns the exact opposite of operator==.
-         */
-        bool
-        operator!=(const Reference& other) const
-        {
-            return !operator==(other);
-        }
-
-      PRIVATE:
-        /// The 48-bit value of the reference.
-        uint64_t value;
-    };
-
-    /**
      * Functor used to compare a Key given in a lookup, remove, etc.
      * operation and a candidate match found in the hash table. The
      * functor is responsible for extracting a Key from the reference
@@ -126,7 +75,7 @@ class HashTable {
          * Returns true if the given Key refers to the given reference.
          * Otherwise, returns false.
          */
-        virtual bool doesMatch(Key& key, Reference reference) = 0;
+        virtual bool doesMatch(Key& key, uint64_t reference) = 0;
     };
 
     /**
@@ -254,7 +203,7 @@ class HashTable {
      *      True if found, else false.
      */
     bool
-    lookup(Key& key, Reference& reference)
+    lookup(Key& key, uint64_t& reference)
     {
         // Find the bucket using 64 bit hash of the key. Any collisions
         // arising out of this hashing will be detected / resolved during
@@ -310,7 +259,7 @@ class HashTable {
      *      been created to reflect the new element.
      */
     bool
-    replace(Key& key, Reference reference)
+    replace(Key& key, uint64_t reference)
     {
         CycleCounter<> cycles(&perfCounters.replaceCycles);
         unsigned int i;
@@ -368,7 +317,7 @@ class HashTable {
      *      in the HashTable).
      */
     uint64_t
-    forEachInBucket(void (*callback)(Reference, void *),
+    forEachInBucket(void (*callback)(uint64_t, void *),
                     void *cookie,
                     uint64_t bucket)
     {
@@ -403,7 +352,7 @@ class HashTable {
      *      in the HashTable).
      */
     uint64_t
-    forEach(void (*callback)(Reference, void *), void *cookie)
+    forEach(void (*callback)(uint64_t, void *), void *cookie)
     {
         uint64_t numCalls = 0;
 
@@ -433,7 +382,7 @@ class HashTable {
     }
 
     /**
-     * Return the number of elements (References) each cacheline
+     * Return the number of elements (references) each cacheline
      * holds.
      */
     static uint32_t
@@ -619,10 +568,10 @@ class HashTable {
          *      The Reference to insert. It must be valid.
          */
         void
-        setReference(uint64_t hash, Reference reference)
+        setReference(uint64_t hash, uint64_t reference)
         {
-            assert(reference.get() != 0);
-            pack(hash, false, reference.get());
+            assert(reference != 0);
+            pack(hash, false, reference);
         }
 
         /**
@@ -654,14 +603,15 @@ class HashTable {
          * The caller must first verify that the hash table entry indeed stores
          * a reference with #hashMatches().
          * \return
-         *      Reference referring to the entry being stored in this Entry.
+         *      47-bit reference referring to the entry being stored in this
+         *      Entry.
          */
-        Reference
+        uint64_t
         getReference() const
         {
             UnpackedEntry ue = unpack();
             assert(!ue.chain && ue.ptr != 0);
-            return Reference(ue.ptr);
+            return ue.ptr;
         }
 
         /**
@@ -731,7 +681,7 @@ class HashTable {
             if (ptr == 0)
                 assert(hash == 0 && !chain);
 
-            if ((ptr  & ~0x00007fffffffffffUL) != 0) {
+            if ((ptr >> 47) != 0) {
                 throw Exception(HERE, format(
                     "The given pointer (0x%016lx) can't fit "
                     "in a hash table entry.",
@@ -739,8 +689,8 @@ class HashTable {
             }
 
             uint64_t c = chain ? 1 : 0;
-            assert((hash & ~(0x000000000000ffffUL)) == 0);
-            this->value = ((hash << 48)  | (c << 47) | ptr);
+            assert((hash >> 16) == 0);
+            this->value = ((hash << 48) | (c << 47) | ptr);
         }
 
         /**
@@ -777,7 +727,7 @@ class HashTable {
 
     /**
      * The number of hash table Entry objects in a CacheLine. This directly
-     * corresponds to the number of elements (References) each cacheline
+     * corresponds to the number of elements (references) each cacheline
      * may contain.
      */
     static const uint32_t ENTRIES_PER_CACHE_LINE = (BYTES_PER_CACHE_LINE /

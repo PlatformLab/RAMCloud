@@ -218,8 +218,6 @@ class Segment {
                 Buffer& buffer,
                 uint32_t* outOffset = NULL);
     void close();
-    void disableAppends();
-    bool enableAppends();
     uint32_t appendToBuffer(Buffer& buffer,
                             uint32_t offset,
                             uint32_t length) const;
@@ -276,11 +274,6 @@ class Segment {
 
   PRIVATE:
     const EntryHeader* getEntryHeader(uint32_t offset);
-    void getEntryInfo(uint32_t offset,
-                      LogEntryType& outType,
-                      uint32_t &outDataOffset,
-                      uint32_t &outDataLength);
-    uint32_t bytesNeeded(uint32_t length);
     uint32_t copyIn(uint32_t offset, const void* buffer, uint32_t length);
     uint32_t copyInFromBuffer(uint32_t segmentOffset,
                               Buffer& buffer,

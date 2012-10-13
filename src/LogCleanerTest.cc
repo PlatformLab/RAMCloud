@@ -323,15 +323,15 @@ TEST_F(LogCleanerTest, sortSegmentsByCostBenefit) {
 TEST_F(LogCleanerTest, getSegmentsToClean) {
     // add segment with util > MAX_CLEANABLE_MEMORY_UTILIZATION
     LogSegment* s = segmentManager.allocHead(false);
-    s->statistics.liveBytes = s->segmentSizeOnBackups;
+    s->statistics.liveBytes = s->segmentSize;
 
     // add a few with lower utilizations
     LogSegment *small = segmentManager.allocHead(false);
     LogSegment* medium = segmentManager.allocHead(false);
     LogSegment* large = segmentManager.allocHead(false);
-    small->statistics.liveBytes = s->segmentSizeOnBackups / 8;
-    medium->statistics.liveBytes = s->segmentSizeOnBackups / 4;
-    large->statistics.liveBytes = s->segmentSizeOnBackups / 2;
+    small->statistics.liveBytes = s->segmentSize / 8;
+    medium->statistics.liveBytes = s->segmentSize / 4;
+    large->statistics.liveBytes = s->segmentSize / 2;
 
     // roll over head
     segmentManager.allocHead(false);
@@ -360,7 +360,7 @@ TEST_F(LogCleanerTest, getSegmentsToClean_maxBytes) {
     for (int i = 0; i < LogCleaner::MAX_LIVE_SEGMENTS_PER_DISK_PASS * 2; i++) {
         LogSegment* s = segmentManager.allocHead(false);
         EXPECT_TRUE(s != NULL);
-        s->statistics.liveBytes = (s->segmentSizeOnBackups * 2) / 3;
+        s->statistics.liveBytes = (s->segmentSize * 2) / 3;
     }
 
     // roll over head

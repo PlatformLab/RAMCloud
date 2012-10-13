@@ -21,6 +21,7 @@
 #include "HashTable.h"
 #include "LogEntryTypes.h"
 #include "LogSegment.h"
+#include "Log.h"
 
 namespace RAMCloud {
 
@@ -51,7 +52,7 @@ class LogEntryRelocator {
   public:
     LogEntryRelocator(LogSegment* segment, uint32_t maximumLength);
     bool append(LogEntryType type, Buffer& buffer, uint32_t timestamp);
-    HashTable::Reference getNewReference();
+    Log::Reference getNewReference();
     uint64_t getAppendTicks();
     bool failed();
 

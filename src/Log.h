@@ -21,7 +21,6 @@
 #include <vector>
 
 #include "BoostIntrusive.h"
-#include "LogCleaner.h"
 #include "LogEntryTypes.h"
 #include "LogEntryHandlers.h"
 #include "Segment.h"
@@ -34,6 +33,9 @@
 #include "LogMetrics.pb.h"
 
 namespace RAMCloud {
+
+// Forward declare our way around header dependency fun.
+class LogCleaner;
 
 class ServerConfig;
 
@@ -118,6 +120,90 @@ class Log {
     };
 
     /**
+     * Data appended to the log is referenced by instances of this class.
+     * We simply pack the entry's segment slot and byte offset within the
+     * segment into a uint64_t that can go in the hash table. The slot is
+     * maintained by SegmentManager and is an index into an array of active
+     * segments in the system.
+     *
+     * Direct pointers are not used because log entries are not necessarily
+     * contiguous in memory. This indirection also makes it easy to find the
+     * segment metadata associated with a specific entry so that we can update
+     * state (for example, the free space counts in a Log::free() call). In
+     * the past we aligned segments in memory and ANDed off bits from the
+     * entry pointer to address the segment itself, but this was messy and
+     * convoluted.
+     */
+    class Reference {
+      public:
+        Reference()
+            : value(0)
+        {
+        }
+
+        Reference(uint32_t slot, uint32_t offset, uint32_t segmentSize)
+            : value(0)
+        {
+            assert(offset < segmentSize);
+            assert(BitOps::isPowerOfTwo(segmentSize));
+            int shift = BitOps::findFirstSet(segmentSize) - 1;
+            value = (static_cast<uint64_t>(slot) << shift) | offset;
+        }
+
+        explicit Reference(uint64_t value)
+            : value(value)
+        {
+        }
+
+        /**
+         * Obtain the 64-bit integer value of the reference. The upper 16 bits
+         * are guaranteed to be zero.
+         */
+        uint64_t
+        toInteger() const
+        {
+            return value;
+        }
+
+        /**
+         * Compare references for equality. Returns true if equal, else false.
+         */
+        bool
+        operator==(const Reference& other) const
+        {
+            return value == other.value;
+        }
+
+        /**
+         * Returns the exact opposite of operator==.
+         */
+        bool
+        operator!=(const Reference& other) const
+        {
+            return !operator==(other);
+        }
+
+        uint32_t
+        getSlot(uint32_t segmentSize) const
+        {
+            assert(BitOps::isPowerOfTwo(segmentSize));
+            int shift = BitOps::findFirstSet(segmentSize) - 1;
+            return downCast<uint32_t>(value >> shift);
+        }
+
+        uint32_t
+        getOffset(uint32_t segmentSize) const
+        {
+            assert(BitOps::isPowerOfTwo(segmentSize));
+            return downCast<uint32_t>(value & (segmentSize - 1));
+        }
+
+      PRIVATE:
+        /// The integer value of the reference.
+        uint64_t value;
+    };
+
+    /**
      * Structure used when appending multiple entries atomically. It is used to
      * both describe the entry, as well as return the log reference once it has
      * been appended. Callers will typically allocate an array of these on the
@@ -147,7 +233,7 @@ class Log {
         Buffer buffer;
 
         /// A log reference to the entry once appended is returned here.
-        HashTable::Reference reference;
+        Reference reference;
     };
 
     typedef std::lock_guard<SpinLock> Lock;
@@ -163,11 +249,11 @@ class Log {
     void disableCleaner();
     void getMetrics(ProtoBuf::LogMetrics& m);
     bool append(AppendVector* appends, uint32_t numAppends);
-    void free(HashTable::Reference reference);
-    LogEntryType getEntry(HashTable::Reference reference,
+    void free(Reference reference);
+    LogEntryType getEntry(Reference reference,
                           Buffer& outBuffer);
     void sync();
-    uint64_t getSegmentId(HashTable::Reference reference);
+    uint64_t getSegmentId(Reference reference);
     Log::Position rollHeadOver();
     bool containsSegment(uint64_t segmentId);
 
@@ -191,7 +277,7 @@ class Log {
            uint32_t timestamp,
            const void* buffer,
            uint32_t length,
-           HashTable::Reference* outReference = NULL)
+           Reference* outReference = NULL)
     {
         Lock lock(appendLock);
         return append(lock, type, timestamp, buffer, length, outReference);
@@ -204,7 +290,7 @@ class Log {
     append(LogEntryType type,
            uint32_t timestamp,
            Buffer& buffer,
-           HashTable::Reference* outReference = NULL)
+           Reference* outReference = NULL)
     {
         Lock lock(appendLock);
         return append(lock,
@@ -223,15 +309,12 @@ class Log {
                 uint32_t timestamp,
                 const void* data,
                 uint32_t length,
-                HashTable::Reference* outReference = NULL);
+                Reference* outReference = NULL);
     bool append(Lock& lock,
                 LogEntryType type,
                 uint32_t timestamp,
                 Buffer& buffer,
-                HashTable::Reference* outReference = NULL);
-    HashTable::Reference buildReference(uint32_t slot, uint32_t offset);
-    uint32_t referenceToSlot(HashTable::Reference reference);
-    uint32_t referenceToOffset(HashTable::Reference reference);
+                Reference* outReference = NULL);
 
     /// Shared RAMCloud information.
     Context* context;
@@ -257,12 +340,17 @@ class Log {
     /// stopped state. A call to enableCleaner() will be needed to kick it
     /// into action and it may later be disabled via the disableCleaner()
     /// method.
-    LogCleaner cleaner;
+    LogCleaner* cleaner;
 
     /// Current head of the log. Whatever this points to is owned by
     /// SegmentManager, which is responsible for its eventual deallocation.
     /// This pointer should never be NULL.
     LogSegment* head;
+
+    /// The size of each full segment in bytes. This is the exact amount of
+    /// space allocated for segments on backups and the maximum amount of
+    /// space each memory segment may contain.
+    uint32_t segmentSize;
 
     /// Lock taken around log append operations. This ensures that parallel
     /// writers do not modify the head segment concurrently. The sync()

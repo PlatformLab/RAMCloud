@@ -295,9 +295,9 @@ double getThreadId()
 // avoid caching.
 class PerfKeyComparer : public HashTable::KeyComparer {
   public:
-    bool doesMatch(Key& key, HashTable::Reference candidate)
+    bool doesMatch(Key& key, uint64_t candidate)
     {
-        uint64_t* object = reinterpret_cast<uint64_t*>(candidate.get());
+        uint64_t* object = reinterpret_cast<uint64_t*>(candidate);
         Key candidateKey(0, object, downCast<uint16_t>(sizeof(*object)));
         return (key == candidateKey);
     }
@@ -314,7 +314,7 @@ double hashTableLookup()
     // fill with some objects to look up (enough to blow caches)
     for (int i = 0; i < numLookups; i++) {
         uint64_t* object = new uint64_t(i);
-        HashTable::Reference reference(reinterpret_cast<uint64_t>(object));
+        uint64_t reference = reinterpret_cast<uint64_t>(object);
         Key key(0, object, downCast<uint16_t>(sizeof(*object)));
         hashTable.replace(key, reference);
     }
@@ -333,7 +333,7 @@ double hashTableLookup()
         }
 
         Key key(0, &i, downCast<uint16_t>(sizeof(i)));
-        HashTable::Reference outReference;
+        uint64_t outReference = 0;
         hashTable.lookup(key, outReference);
     }
     uint64_t stop = Cycles::rdtsc();
@@ -342,9 +342,9 @@ double hashTableLookup()
     for (int i = 0; i < numLookups; i++) {
         uint64_t object = i;
         Key key(0, &object, downCast<uint16_t>(sizeof(object)));
-        HashTable::Reference outReference;
+        uint64_t outReference = 0;
         hashTable.lookup(key, outReference);
-        delete reinterpret_cast<uint64_t*>(outReference.get());
+        delete reinterpret_cast<uint64_t*>(outReference);
     }
 
     return Cycles::toSeconds((stop - start) / numLookups);

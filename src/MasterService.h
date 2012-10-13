@@ -69,7 +69,7 @@ class MasterService : public Service, LogEntryHandlers {
     class LogKeyComparer : public HashTable::KeyComparer {
       public:
         explicit LogKeyComparer(Log& log);
-        bool doesMatch(Key& key, HashTable::Reference reference);
+        bool doesMatch(Key& key, uint64_t reference);
 
       private:
         Log& log;
@@ -278,8 +278,8 @@ class MasterService : public Service, LogEntryHandlers {
                         const uint64_t partitionId,
                         const vector<MasterService::Replica>& replicas);
 
-    friend void recoveryCleanup(HashTable::Reference maybeTomb, void *cookie);
-    friend void removeObjectIfFromUnknownTablet(HashTable::Reference reference,
+    friend void recoveryCleanup(uint64_t maybeTomb, void *cookie);
+    friend void removeObjectIfFromUnknownTablet(uint64_t reference,
                                                 void *cookie);
 
     Table* getTable(Key& key) __attribute__((warn_unused_result));
@@ -307,7 +307,7 @@ class MasterService : public Service, LogEntryHandlers {
     bool lookup(Key& key,
                 LogEntryType& type,
                 Buffer& buffer,
-                HashTable::Reference& reference);
+                Log::Reference& reference);
 
     friend class RecoverSegmentBenchmark;
     friend class MasterServiceInternal::RecoveryTask;

@@ -680,7 +680,7 @@ TEST_F(MasterServiceTest, removeIfFromUnknownTablet) {
     ramcloud->createTable("table");
     uint64_t tableId = ramcloud->getTableId("table");
     Key key(tableId, "1", 1);
-    HashTable::Reference reference;
+    uint64_t reference;
 
     ramcloud->write(tableId, "1", 1, "");
 
@@ -913,9 +913,9 @@ TEST_F(MasterServiceTest, recoverSegment) {
     uint32_t len; // number of bytes in a recovery segment
     Buffer value;
     Buffer buffer;
-    HashTable::Reference reference;
-    HashTable::Reference logTomb1Ref;
-    HashTable::Reference logTomb2Ref;
+    uint64_t reference;
+    Log::Reference logTomb1Ref;
+    Log::Reference logTomb2Ref;
     LogEntryType type;
     bool ret;
 
@@ -966,7 +966,7 @@ TEST_F(MasterServiceTest, recoverSegment) {
     t1.serializeToBuffer(buffer);
     service->log->append(LOG_ENTRY_TYPE_OBJTOMB, 0, buffer, &logTomb1Ref);
     service->log->sync();
-    ret = service->objectMap->replace(key2, logTomb1Ref);
+    ret = service->objectMap->replace(key2, logTomb1Ref.toInteger());
     EXPECT_FALSE(ret);
     len = buildRecoverySegment(seg, segLen, key2, 1, "equal guy", &certificate);
     it.construct(&seg[0], len, certificate);
@@ -975,7 +975,7 @@ TEST_F(MasterServiceTest, recoverSegment) {
     it.construct(&seg[0], len, certificate);
     service->recoverSegment(*it);
     EXPECT_TRUE(service->objectMap->lookup(key2, reference));
-    EXPECT_EQ(reference, logTomb1Ref);
+    EXPECT_EQ(reference, logTomb1Ref.toInteger());
     service->removeTombstones();
     EXPECT_THROW(ramcloud->read(0, "key2", 4, &value),
                  ObjectDoesntExistException);
@@ -989,7 +989,7 @@ TEST_F(MasterServiceTest, recoverSegment) {
     ret = service->log->append(LOG_ENTRY_TYPE_OBJTOMB, 0, buffer, &logTomb2Ref);
     service->log->sync();
     EXPECT_TRUE(ret);
-    ret = service->objectMap->replace(key3, logTomb2Ref);
+    ret = service->objectMap->replace(key3, logTomb2Ref.toInteger());
     EXPECT_FALSE(ret);
     len = buildRecoverySegment(seg, segLen, key3, 11, "newer guy",
                                &certificate);
@@ -997,8 +997,8 @@ TEST_F(MasterServiceTest, recoverSegment) {
     service->recoverSegment(*it);
     verifyRecoveryObject(key3, "newer guy");
     EXPECT_TRUE(service->objectMap->lookup(key3, reference));
-    EXPECT_NE(reference, logTomb1Ref);
-    EXPECT_NE(reference, logTomb2Ref);
+    EXPECT_NE(reference, logTomb1Ref.toInteger());
+    EXPECT_NE(reference, logTomb2Ref.toInteger());
     service->removeTombstones();
 
     // Case 3: No tombstone, no object. Recovered object always added.
@@ -1859,7 +1859,7 @@ TEST_F(MasterServiceTest, objectRelocationCallback_objectAlive) {
     table->objectCount++;
     table->objectBytes += oldBuffer.getTotalLength();
 
-    HashTable::Reference newReference;
+    Log::Reference newReference;
     success = service->log->append(LOG_ENTRY_TYPE_OBJ,
                                   0,
                                   oldBuffer,
@@ -1873,7 +1873,7 @@ TEST_F(MasterServiceTest, objectRelocationCallback_objectAlive) {
 
     LogEntryType oldType2;
     Buffer oldBuffer2;
-    HashTable::Reference oldReference;
+    Log::Reference oldReference;
     success = service->lookup(key, oldType2, oldBuffer2, oldReference);
     EXPECT_TRUE(success);
     EXPECT_EQ(oldType, oldType2);
@@ -1888,11 +1888,11 @@ TEST_F(MasterServiceTest, objectRelocationCallback_objectAlive) {
 
     LogEntryType newType2;
     Buffer newBuffer2;
-    HashTable::Reference newReference2;
+    Log::Reference newReference2;
     service->lookup(key, newType2, newBuffer2, newReference2);
     EXPECT_TRUE(relocator.didAppend);
     EXPECT_EQ(newType, newType2);
-    EXPECT_EQ(newReference.get() + 37, newReference2.get());
+    EXPECT_EQ(newReference.toInteger() + 37, newReference2.toInteger());
     EXPECT_NE(oldReference, newReference);
     EXPECT_NE(newBuffer.getStart<uint8_t>(),
               oldBuffer.getStart<uint8_t>());
@@ -1953,7 +1953,7 @@ TEST_F(MasterServiceTest, objectRelocationCallback_objectModified) {
                     key.getStringKeyLength(),
                     "item0-v2", 8, NULL, &version);
 
-    HashTable::Reference dummyReference;
+    Log::Reference dummyReference;
     uint64_t initialTotalTrackedBytes = table->objectBytes;
 
     LogEntryRelocator relocator(service->segmentManager.getHeadSegment(), 1000);
@@ -1981,7 +1981,7 @@ TEST_F(MasterServiceTest, tombstoneRelocationCallback_basics) {
 
     LogEntryType type;
     Buffer buffer;
-    HashTable::Reference reference;
+    Log::Reference reference;
     bool success = service->lookup(key, type, buffer, reference);
     EXPECT_TRUE(success);
     EXPECT_EQ(LOG_ENTRY_TYPE_OBJ, type);
@@ -1994,13 +1994,13 @@ TEST_F(MasterServiceTest, tombstoneRelocationCallback_basics) {
     Buffer tombstoneBuffer;
     tombstone.serializeToBuffer(tombstoneBuffer);
 
-    HashTable::Reference oldTombstoneReference;
+    Log::Reference oldTombstoneReference;
     success = service->log->append(LOG_ENTRY_TYPE_OBJTOMB, 0, tombstoneBuffer,
                                   &oldTombstoneReference);
     service->log->sync();
     EXPECT_TRUE(success);
 
-    HashTable::Reference newTombstoneReference;
+    Log::Reference newTombstoneReference;
     success = service->log->append(LOG_ENTRY_TYPE_OBJTOMB, 0, tombstoneBuffer,
                                    &newTombstoneReference);
     service->log->sync();

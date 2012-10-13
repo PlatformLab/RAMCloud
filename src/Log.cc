@@ -17,6 +17,8 @@
 #include <stdint.h>
 
 #include "Log.h"
+#include "LogCleaner.h"
+#include "ServerConfig.h"
 #include "ShortMacros.h"
 
 namespace RAMCloud {
@@ -61,12 +63,18 @@ Log::Log(Context* context,
       entryHandlers(entryHandlers),
       segmentManager(segmentManager),
       replicaManager(replicaManager),
-      cleaner(context, config, segmentManager, replicaManager, entryHandlers),
+      cleaner(NULL),
       head(NULL),
+      segmentSize(config.segmentSize),
       appendLock(),
       syncLock(),
       metrics()
 {
+    cleaner = new LogCleaner(context,
+                             config,
+                             segmentManager,
+                             replicaManager,
+                             entryHandlers);
 }
 
 /**
@@ -74,6 +82,7 @@ Log::Log(Context* context,
  */
 Log::~Log()
 {
+    delete cleaner;
 }
 
 /**
@@ -82,7 +91,7 @@ Log::~Log()
 void
 Log::enableCleaner()
 {
-    cleaner.start();
+    cleaner->start();
 }
 
 /**
@@ -92,7 +101,7 @@ Log::enableCleaner()
 void
 Log::disableCleaner()
 {
-    cleaner.stop();
+    cleaner->stop();
 }
 
 /**
@@ -111,7 +120,7 @@ Log::getMetrics(ProtoBuf::LogMetrics& m)
     m.set_total_bytes_appended(metrics.totalBytesAppended);
     m.set_total_metadata_bytes_appended(metrics.totalMetadataBytesAppended);
 
-    cleaner.getMetrics(*m.mutable_cleaner_metrics());
+    cleaner->getMetrics(*m.mutable_cleaner_metrics());
     segmentManager.getMetrics(*m.mutable_segment_metrics());
     segmentManager.getAllocator().getMetrics(*m.mutable_seglet_metrics());
 }
@@ -169,10 +178,10 @@ Log::append(AppendVector* appends, uint32_t numAppends)
  * collect it.
  */
 void
-Log::free(HashTable::Reference reference)
+Log::free(Reference reference)
 {
-    uint32_t slot = referenceToSlot(reference);
-    uint32_t offset = referenceToOffset(reference);
+    uint32_t slot = reference.getSlot(segmentSize);
+    uint32_t offset = reference.getOffset(segmentSize);
     LogSegment& segment = segmentManager[slot];
     Buffer buffer;
     LogEntryType type = segment.getEntry(offset, buffer);
@@ -197,10 +206,10 @@ Log::free(HashTable::Reference reference)
  *      The type of the entry being looked up is returned here.
  */
 LogEntryType
-Log::getEntry(HashTable::Reference reference, Buffer& outBuffer)
+Log::getEntry(Reference reference, Buffer& outBuffer)
 {
-    uint32_t slot = referenceToSlot(reference);
-    uint32_t offset = referenceToOffset(reference);
+    uint32_t slot = reference.getSlot(segmentSize);
+    uint32_t offset = reference.getOffset(segmentSize);
     return segmentManager[slot].getEntry(offset, outBuffer);
 }
 
@@ -292,9 +301,9 @@ Log::sync()
  * segment leaves the system, the tombstone may be garbage collected.
  */
 uint64_t
-Log::getSegmentId(HashTable::Reference reference)
+Log::getSegmentId(Reference reference)
 {
-    uint32_t slot = referenceToSlot(reference);
+    uint32_t slot = reference.getSlot(segmentSize);
     return segmentManager[slot].id;
 }
 
@@ -379,7 +388,7 @@ Log::append(Lock& appendLock,
             uint32_t timestamp,
             const void* buffer,
             uint32_t length,
-            HashTable::Reference* outReference)
+            Reference* outReference)
 {
     CycleCounter<uint64_t> _(&metrics.totalAppendTicks);
 
@@ -425,7 +434,7 @@ Log::append(Lock& appendLock,
         metrics.noSpaceTimer.destroy();
 
     if (outReference != NULL)
-        *outReference = buildReference(head->slot, segmentOffset);
+        *outReference = Reference(head->slot, segmentOffset, segmentSize);
 
     head->statistics.increment(head->getAppendedLength() - bytesUsedBefore,
                                timestamp);
@@ -470,7 +479,7 @@ Log::append(Lock& appendLock,
             LogEntryType type,
             uint32_t timestamp,
             Buffer& buffer,
-            HashTable::Reference* outReference)
+            Reference* outReference)
 {
     return append(appendLock,
                   type,
@@ -478,44 +487,6 @@ Log::append(Lock& appendLock,
                   buffer.getRange(0, buffer.getTotalLength()),
                   buffer.getTotalLength(),
                   outReference);
-}
-
-
-/**
- * Build a HashTable::Reference pointing to an entry in the log.
- *
- * \param slot
- *      Slot of the segment containing the entry. This it the temporary,
- *      reusable identifier that SegmentManager allocates.
- * \param offset
- *      Byte offset of the entry in the segment referred to by 'slot'.
- */
-HashTable::Reference
-Log::buildReference(uint32_t slot, uint32_t offset)
-{
-    // TODO(Steve): Just calculate how many bits we need for the offset, rather
-    // than statically allocate.
-    return HashTable::Reference((static_cast<uint64_t>(slot) << 24) | offset);
-}
-
-/**
- * Given a HashTable::Reference pointing to a log entry, extract the segment
- * slot number.
- */
-uint32_t
-Log::referenceToSlot(HashTable::Reference reference)
-{
-    return downCast<uint32_t>(reference.get() >> 24);
-}
-
-/**
- * Given a HashTable::Reference pointing to a log entry, extract the entry's
- * segment byte offset.
- */
-uint32_t
-Log::referenceToOffset(HashTable::Reference reference)
-{
-    return downCast<uint32_t>(reference.get() & 0xffffff);
 }
 
 } // namespace

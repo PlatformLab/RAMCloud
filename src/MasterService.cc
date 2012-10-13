@@ -62,11 +62,11 @@ MasterService::LogKeyComparer::LogKeyComparer(Log& log)
  */
 bool
 MasterService::LogKeyComparer::doesMatch(Key& key,
-                                         HashTable::Reference reference)
+                                         uint64_t reference)
 {
     LogEntryType type;
     Buffer buffer;
-    type = log.getEntry(reference, buffer);
+    type = log.getEntry(Log::Reference(reference), buffer);
     Key candidateKey(type, buffer);
     return key == candidateKey;
 }
@@ -1048,13 +1048,13 @@ MasterService::receiveMigrationData(
  * HashTable::forEach.
  */
 void
-recoveryCleanup(HashTable::Reference maybeTomb, void *cookie)
+recoveryCleanup(uint64_t maybeTomb, void *cookie)
 {
     MasterService *server = reinterpret_cast<MasterService*>(cookie);
     LogEntryType type;
     Buffer buffer;
 
-    type = server->log->getEntry(maybeTomb, buffer);
+    type = server->log->getEntry(Log::Reference(maybeTomb), buffer);
     if (type == LOG_ENTRY_TYPE_OBJTOMB) {
         Key key(type, buffer);
 
@@ -1538,13 +1538,13 @@ MasterService::recover(uint64_t recoveryId,
  *      stored.
  */
 void
-removeObjectIfFromUnknownTablet(HashTable::Reference reference, void *cookie)
+removeObjectIfFromUnknownTablet(uint64_t reference, void *cookie)
 {
     MasterService* master = reinterpret_cast<MasterService*>(cookie);
     LogEntryType type;
     Buffer buffer;
 
-    type = master->log->getEntry(reference, buffer);
+    type = master->log->getEntry(Log::Reference(reference), buffer);
     if (type != LOG_ENTRY_TYPE_OBJ)
         return;
 
@@ -1552,7 +1552,7 @@ removeObjectIfFromUnknownTablet(HashTable::Reference reference, void *cookie)
     if (!master->getTable(key)) {
         bool r = master->objectMap->remove(key);
         assert(r);
-        master->log->free(reference);
+        master->log->free(Log::Reference(reference));
     }
 }
 
@@ -1750,7 +1750,7 @@ MasterService::recoverSegment(SegmentIterator& it)
 
             LogEntryType currentType;
             Buffer currentBuffer;
-            HashTable::Reference currentReference;
+            Log::Reference currentReference;
             if (lookup(key, currentType, currentBuffer, currentReference)) {
                 uint64_t currentVersion;
 
@@ -1768,7 +1768,7 @@ MasterService::recoverSegment(SegmentIterator& it)
 
             if (recoveryObj->version >= minSuccessor) {
                 // write to log (with lazy backup flush) & update hash table
-                HashTable::Reference newObjReference;
+                Log::Reference newObjReference;
                 log->append(LOG_ENTRY_TYPE_OBJ,
                             recoveryObj->timestamp,
                             recoveryObj,
@@ -1782,7 +1782,7 @@ MasterService::recoverSegment(SegmentIterator& it)
                 ++metrics->master.objectAppendCount;
                 metrics->master.liveObjectBytes += it.getLength();
 
-                objectMap->replace(key, newObjReference);
+                objectMap->replace(key, newObjReference.toInteger());
 
                 // nuke the old object, if it existed
                 // TODO(steve): put tombstones in the HT and have this free them
@@ -1818,7 +1818,7 @@ MasterService::recoverSegment(SegmentIterator& it)
 
             LogEntryType currentType;
             Buffer currentBuffer;
-            HashTable::Reference currentReference;
+            Log::Reference currentReference;
             if (lookup(key, currentType, currentBuffer, currentReference)) {
                 if (currentType == LOG_ENTRY_TYPE_OBJTOMB) {
                     ObjectTombstone currentTombstone(currentBuffer);
@@ -1832,7 +1832,7 @@ MasterService::recoverSegment(SegmentIterator& it)
 
             if (recoverTomb.getObjectVersion() >= minSuccessor) {
                 ++metrics->master.tombstoneAppendCount;
-                HashTable::Reference newTombReference;
+                Log::Reference newTombReference;
                 log->append(LOG_ENTRY_TYPE_OBJTOMB,
                             recoverTomb.getTimestamp(),
                             buffer,
@@ -1840,7 +1840,7 @@ MasterService::recoverSegment(SegmentIterator& it)
 
                 // TODO(steve/ryan): append could fail here!
 
-                objectMap->replace(key, newTombReference);
+                objectMap->replace(key, newTombReference.toInteger());
 
                 // nuke the object, if it existed
                 if (freeCurrentEntry) {
@@ -1915,7 +1915,7 @@ MasterService::remove(const WireFormat::Remove::Request& reqHdr,
 
     LogEntryType type;
     Buffer buffer;
-    HashTable::Reference reference;
+    Log::Reference reference;
     if (!lookup(key, type, buffer, reference) || type != LOG_ENTRY_TYPE_OBJ) {
         Status status = rejectOperation(reqHdr.rejectRules,
                                         VERSION_NONEXISTENT);
@@ -2277,7 +2277,7 @@ MasterService::relocateObject(Buffer& oldBuffer,
             uint32_t timestamp = getObjectTimestamp(oldBuffer);
             if (!relocator.append(LOG_ENTRY_TYPE_OBJ, oldBuffer, timestamp))
                 return;
-            objectMap->replace(key, relocator.getNewReference());
+            objectMap->replace(key, relocator.getNewReference().toInteger());
         }
     }
 
@@ -2435,12 +2435,12 @@ MasterService::storeObject(Key& key,
 
     LogEntryType currentType;
     Buffer currentBuffer;
-    HashTable::Reference currentReference;
+    Log::Reference currentReference;
     uint64_t currentVersion = VERSION_NONEXISTENT;
 
     if (lookup(key, currentType, currentBuffer, currentReference)) {
         if (currentType == LOG_ENTRY_TYPE_OBJTOMB) {
-            recoveryCleanup(currentReference, this);
+            recoveryCleanup(currentReference.toInteger(), this);
         } else {
             Object currentObject(currentBuffer);
             currentVersion = currentObject.getVersion();
@@ -2499,7 +2499,7 @@ MasterService::storeObject(Key& key,
     if (sync)
         log->sync();
 
-    objectMap->replace(key, appends[0].reference);
+    objectMap->replace(key, appends[0].reference.toInteger());
     if (tombstone)
         log->free(currentReference);
     *newVersion = newObject.getVersion();
@@ -2510,7 +2510,7 @@ MasterService::storeObject(Key& key,
 bool
 MasterService::lookup(Key& key, LogEntryType& type, Buffer& buffer)
 {
-    HashTable::Reference reference;
+    Log::Reference reference;
     return lookup(key, type, buffer, reference);
 }
 
@@ -2518,11 +2518,13 @@ bool
 MasterService::lookup(Key& key,
                       LogEntryType& type,
                       Buffer& buffer,
-                      HashTable::Reference& reference)
+                      Log::Reference& reference)
 {
-    bool success = objectMap->lookup(key, reference);
+    uint64_t integerReference;
+    bool success = objectMap->lookup(key, integerReference);
     if (!success)
         return false;
+    reference = Log::Reference(integerReference);
     type = log->getEntry(reference, buffer);
     return true;
 }

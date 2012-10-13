@@ -95,14 +95,12 @@ LogEntryRelocator::append(LogEntryType type, Buffer& buffer, uint32_t timestamp)
  * If an append operation succeeded, return the log reference to the new entry's
  * location.
  */
-HashTable::Reference
+Log::Reference
 LogEntryRelocator::getNewReference()
 {
     if (!didAppend)
         throw FatalError(HERE, "No append operation succeeded.");
-    // TODO(steve): This does not belong here!
-    return HashTable::Reference((static_cast<uint64_t>(segment->slot) << 24) |
-                                offset);
+    return Log::Reference(segment->slot, offset, segment->segmentSize);
 }
 
 /**

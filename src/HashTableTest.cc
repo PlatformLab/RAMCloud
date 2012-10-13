@@ -67,37 +67,15 @@ class TestObject {
     DISALLOW_COPY_AND_ASSIGN(TestObject);   // NOLINT
 } __attribute__((aligned(64)));
 
-/**
- * Unit tests for HashTable::Reference.
- */
-class HashTableReferenceTest : public ::testing::Test {
-  public:
-    HashTableReferenceTest() {}
-
-    DISALLOW_COPY_AND_ASSIGN(HashTableReferenceTest);
-};
-
-TEST_F(HashTableReferenceTest, everything) {
-    EXPECT_THROW(HashTable::Reference(0x0001000000000000lu), FatalError);
-    EXPECT_THROW(HashTable::Reference(0x8000000000000000lu), FatalError);
-    EXPECT_NO_THROW(HashTable::Reference(0x0000800000000000lu));
-    EXPECT_EQ(12UL, HashTable::Reference(12).get());
-    EXPECT_TRUE(HashTable::Reference(12) == HashTable::Reference(12));
-    EXPECT_FALSE(HashTable::Reference(12) == HashTable::Reference(13));
-    EXPECT_FALSE(HashTable::Reference(12) != HashTable::Reference(12));
-    EXPECT_TRUE(HashTable::Reference(12) != HashTable::Reference(13));
-}
-
 class TestObjectKeyComparer : public HashTable::KeyComparer {
   public:
     bool
-    doesMatch(Key& key, HashTable::Reference candidate)
+    doesMatch(Key& key, uint64_t candidate)
     {
         // For these unit tests, we'll squeeze a 48-bit object pointer
         // into each reference. This lets us use the HashTable as though
         // it's just a regular map.
-        TestObject* candidateObject =
-            reinterpret_cast<TestObject*>(candidate.get());
+        TestObject* candidateObject = reinterpret_cast<TestObject*>(candidate);
         Key candidateKey(candidateObject->tableId,
                          candidateObject->stringKeyPtr,
                          candidateObject->stringKeyLength);
@@ -189,8 +167,7 @@ TEST_F(HashTableEntryTest, trivial_clear) {
 TEST_F(HashTableEntryTest, setReference) {
     HashTable::Entry e;
     e.value = 0xdeadbeefdeadbeefUL;
-    e.setReference(0xaaaaUL, HashTable::Reference(
-        0x7fffffffffffUL));
+    e.setReference(0xaaaaUL, 0x7fffffffffffUL);
     HashTable::Entry::UnpackedEntry out;
     out = e.unpack();
     EXPECT_EQ(0xaaaaUL, out.hash);
@@ -221,7 +198,7 @@ TEST_F(HashTableEntryTest, isAvailable) {
     e.setChainPointer(reinterpret_cast<HashTable::CacheLine*>(
         0x1UL));
     EXPECT_FALSE(e.isAvailable());
-    e.setReference(0UL, HashTable::Reference(0x1UL));
+    e.setReference(0UL, 0x1UL);
     EXPECT_FALSE(e.isAvailable());
     e.clear();
     EXPECT_TRUE(e.isAvailable());
@@ -230,10 +207,10 @@ TEST_F(HashTableEntryTest, isAvailable) {
 TEST_F(HashTableEntryTest, getReference) {
     HashTable::Entry e;
     TestObject o;
-    HashTable::Reference oRef(o.u64Address());
+    uint64_t oRef = o.u64Address();
     e.setReference(0xaaaaUL, oRef);
     EXPECT_EQ(oRef, e.getReference());
-    EXPECT_EQ(&o, reinterpret_cast<TestObject*>(e.getReference().get()));
+    EXPECT_EQ(&o, reinterpret_cast<TestObject*>(e.getReference()));
 }
 
 TEST_F(HashTableEntryTest, getChainPointer) {
@@ -244,7 +221,7 @@ TEST_F(HashTableEntryTest, getChainPointer) {
     EXPECT_EQ(cl, e.getChainPointer());
     e.clear();
     EXPECT_TRUE(NULL == e.getChainPointer());
-    e.setReference(0UL, HashTable::Reference(0x1UL));
+    e.setReference(0UL, 0x1UL);
     EXPECT_TRUE(NULL == e.getChainPointer());
 }
 
@@ -255,10 +232,10 @@ TEST_F(HashTableEntryTest, hashMatches) {
     e.setChainPointer(reinterpret_cast<HashTable::CacheLine*>(
         0x1UL));
     EXPECT_TRUE(!e.hashMatches(0UL));
-    e.setReference(0UL, HashTable::Reference(0x1UL));
+    e.setReference(0UL, 0x1UL);
     EXPECT_TRUE(e.hashMatches(0UL));
     EXPECT_TRUE(!e.hashMatches(0xbeefUL));
-    e.setReference(0xbeefUL, HashTable::Reference(0x1UL));
+    e.setReference(0xbeefUL, 0x1UL);
     EXPECT_TRUE(!e.hashMatches(0UL));
     EXPECT_TRUE(e.hashMatches(0xbeefUL));
     EXPECT_TRUE(!e.hashMatches(0xfeedUL));
@@ -367,7 +344,7 @@ class HashTableTest : public ::testing::Test {
                 entry = &cacheLines->get()[i / seven - 1].entries[seven];
             else
                 entry = &cacheLines->get()[i / seven].entries[i % seven];
-            HashTable::Reference reference(values[i]->u64Address());
+            uint64_t reference = values[i]->u64Address();
             entry->setReference(littleHash, reference);
         }
 
@@ -418,7 +395,7 @@ class HashTableTest : public ::testing::Test {
 
         HashTable::Entry& entry = entryAt(ht, x, y);
         EXPECT_TRUE(entry.hashMatches(littleHash));
-        EXPECT_EQ(ptr->u64Address(), entry.getReference().get());
+        EXPECT_EQ(ptr->u64Address(), entry.getReference());
     }
 
     HashTable::Entry *findBucketAndLookupEntry(HashTable *ht,
@@ -468,9 +445,9 @@ TEST_F(HashTableTest, simple) {
     Key aKey(a.tableId, a.stringKeyPtr, a.stringKeyLength);
     Key bKey(b.tableId, b.stringKeyPtr, b.stringKeyLength);
 
-    HashTable::Reference aRef(a.u64Address());
-    HashTable::Reference bRef(b.u64Address());
-    HashTable::Reference outRef;
+    uint64_t aRef = a.u64Address();
+    uint64_t bRef = b.u64Address();
+    uint64_t outRef;
 
     EXPECT_FALSE(ht.lookup(aKey, outRef));
     ht.replace(aKey, aRef);
@@ -494,15 +471,15 @@ TEST_F(HashTableTest, multiTable) {
     Key bKey(b.tableId, b.stringKeyPtr, b.stringKeyLength);
     Key cKey(c.tableId, c.stringKeyPtr, c.stringKeyLength);
 
-    HashTable::Reference outRef;
+    uint64_t outRef;
 
     EXPECT_FALSE(ht.lookup(aKey, outRef));
     EXPECT_FALSE(ht.lookup(bKey, outRef));
     EXPECT_FALSE(ht.lookup(cKey, outRef));
 
-    HashTable::Reference aRef(a.u64Address());
-    HashTable::Reference bRef(b.u64Address());
-    HashTable::Reference cRef(c.u64Address());
+    uint64_t aRef = a.u64Address() ;
+    uint64_t bRef = b.u64Address();
+    uint64_t cRef = c.u64Address();
 
     ht.replace(aKey, aRef);
     ht.replace(bKey, bRef);
@@ -622,10 +599,10 @@ TEST_F(HashTableTest, lookup) {
     TestObject *v = new TestObject(0, "0");
     Key vKey(v->tableId, v->stringKeyPtr, v->stringKeyLength);
 
-    HashTable::Reference outRef;
+    uint64_t outRef;
     EXPECT_FALSE(ht.lookup(vKey, outRef));
 
-    HashTable::Reference vRef(v->u64Address());
+    uint64_t vRef = v->u64Address();
     ht.replace(vKey, vRef);
     EXPECT_TRUE(ht.lookup(vKey, outRef));
     EXPECT_EQ(outRef, vRef);
@@ -640,12 +617,12 @@ TEST_F(HashTableTest, remove) {
     EXPECT_FALSE(ht.remove(key));
 
     TestObject *v = new TestObject(0, "0");
-    HashTable::Reference vRef(v->u64Address());
+    uint64_t vRef = v->u64Address();
 
     ht.replace(key, vRef);
     EXPECT_TRUE(ht.remove(key));
 
-    HashTable::Reference outRef;
+    uint64_t outRef = 0;
     EXPECT_FALSE(ht.lookup(key, outRef));
     EXPECT_FALSE(ht.remove(key));
 
@@ -658,8 +635,8 @@ TEST_F(HashTableTest, replace_normal) {
     TestObject *v = new TestObject(0, "0");
     TestObject *w = new TestObject(0, "0");
 
-    HashTable::Reference vRef(v->u64Address());
-    HashTable::Reference wRef(w->u64Address());
+    uint64_t vRef = v->u64Address();
+    uint64_t wRef = w->u64Address();
 
     // key is identical for both
     Key key(v->tableId, v->stringKeyPtr, v->stringKeyLength);
@@ -668,7 +645,7 @@ TEST_F(HashTableTest, replace_normal) {
     EXPECT_EQ(1UL, ht.getPerfCounters().replaceCalls);
     EXPECT_LT(0U, ht.getPerfCounters().replaceCycles);
 
-    HashTable::Reference outRef;
+    uint64_t outRef;
 
     EXPECT_TRUE(ht.lookup(key, outRef));
     EXPECT_EQ(vRef, outRef);
@@ -693,7 +670,7 @@ TEST_F(HashTableTest, replace_cacheLine0Entry0) {
     setup(0, 0);
     TestObject v(0, "newKey");
     Key vKey(v.tableId, v.stringKeyPtr, v.stringKeyLength);
-    HashTable::Reference vRef(v.u64Address());
+    uint64_t vRef = v.u64Address();
     ht.replace(vKey, vRef);
     assertEntryIs(&ht, 0, 0, &v);
 }
@@ -706,7 +683,7 @@ TEST_F(HashTableTest, replace_cacheLine0Entry7) {
     setup(0, HashTable::ENTRIES_PER_CACHE_LINE - 1);
     TestObject v(0, "newKey");
     Key vKey(v.tableId, v.stringKeyPtr, v.stringKeyLength);
-    HashTable::Reference vRef(v.u64Address());
+    uint64_t vRef = v.u64Address();
     ht.replace(vKey, vRef);
     assertEntryIs(&ht, 0, seven, &v);
 }
@@ -722,7 +699,7 @@ TEST_F(HashTableTest, replace_cacheLine2Entry0) {
     ht.buckets.get()[2].entries[1].clear();
     TestObject v(0, "newKey");
     Key vKey(v.tableId, v.stringKeyPtr, v.stringKeyLength);
-    HashTable::Reference vRef(v.u64Address());
+    uint64_t vRef = v.u64Address();
     ht.replace(vKey, vRef);
     assertEntryIs(&ht, 2, 0, &v);
     EXPECT_EQ(2UL, ht.getPerfCounters().insertChainsFollowed);
@@ -737,7 +714,7 @@ TEST_F(HashTableTest, replace_cacheLineFull) {
     setup(0, HashTable::ENTRIES_PER_CACHE_LINE);
     TestObject v(0,  "newKey");
     Key vKey(v.tableId, v.stringKeyPtr, v.stringKeyLength);
-    HashTable::Reference vRef(v.u64Address());
+    uint64_t vRef = v.u64Address();
     ht.replace(vKey, vRef);
     EXPECT_TRUE(entryAt(&ht, 0, seven).getChainPointer() != NULL);
     EXPECT_TRUE(entryAt(&ht, 0, seven).getChainPointer() !=
@@ -750,10 +727,10 @@ TEST_F(HashTableTest, replace_cacheLineFull) {
  * Callback used by test_forEach().
  */ 
 static void
-test_forEach_callback(HashTable::Reference ref, void *cookie)
+test_forEach_callback(uint64_t ref, void *cookie)
 {
     EXPECT_EQ(cookie, reinterpret_cast<void *>(57));
-    reinterpret_cast<TestObject*>(ref.get())->count++;
+    reinterpret_cast<TestObject*>(ref)->count++;
 }
 
 /**
@@ -771,7 +748,7 @@ TEST_F(HashTableTest, forEach) {
         Key key(checkoff[i].tableId,
                 checkoff[i].stringKeyPtr,
                 checkoff[i].stringKeyLength);
-        HashTable::Reference ref(checkoff[i].u64Address());
+        uint64_t ref = checkoff[i].u64Address();
         ht.replace(key, ref);
     }
 

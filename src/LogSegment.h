@@ -150,7 +150,7 @@ class LogSegment : public Segment {
           id(id),
           slot(slot),
           segletSize(segletSize),
-          segmentSizeOnBackups(segmentSize),
+          segmentSize(segmentSize),
           isEmergencyHead(isEmergencyHead),
           statistics(),
           cleanedEpoch(0),
@@ -213,9 +213,9 @@ class LogSegment : public Segment {
         uint32_t liveBytes;
         uint64_t unused;
         statistics.get(liveBytes, unused);
-        assert(segmentSizeOnBackups != 0);
+        assert(segmentSize != 0);
         return static_cast<int>(
-            (static_cast<uint64_t>(liveBytes) * 100) / segmentSizeOnBackups);
+            (static_cast<uint64_t>(liveBytes) * 100) / segmentSize);
     }
 
     /**
@@ -239,9 +239,10 @@ class LogSegment : public Segment {
     /// Size of seglets used in this segment.
     const uint32_t segletSize;
 
-    /// Number of bytes each segment on a backup consumes. This may differ from
-    /// the size of a segment in memory when in-memory cleaning is enabled.
-    const uint32_t segmentSizeOnBackups;
+    /// Number of bytes each full segment consumes. All segments on backups use
+    /// this much space. This may be greater than the actual size of any given
+    /// segment in memory when in-memory cleaning is enabled.
+    const uint32_t segmentSize;
 
     /// If true, this segment is one of two special emergency heads the system
     /// reserves so that it can always open a new log head even if out of
