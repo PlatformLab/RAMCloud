@@ -1751,7 +1751,7 @@ MasterService::recoverSegment(SegmentIterator& it)
             LogEntryType currentType;
             Buffer currentBuffer;
             Log::Reference currentReference;
-            if (lookup(key, currentType, currentBuffer, currentReference)) {
+            if (lookup(key, currentType, currentBuffer, &currentReference)) {
                 uint64_t currentVersion;
 
                 if (currentType == LOG_ENTRY_TYPE_OBJTOMB) {
@@ -1819,7 +1819,7 @@ MasterService::recoverSegment(SegmentIterator& it)
             LogEntryType currentType;
             Buffer currentBuffer;
             Log::Reference currentReference;
-            if (lookup(key, currentType, currentBuffer, currentReference)) {
+            if (lookup(key, currentType, currentBuffer, &currentReference)) {
                 if (currentType == LOG_ENTRY_TYPE_OBJTOMB) {
                     ObjectTombstone currentTombstone(currentBuffer);
                     minSuccessor = currentTombstone.getObjectVersion() + 1;
@@ -1916,7 +1916,7 @@ MasterService::remove(const WireFormat::Remove::Request& reqHdr,
     LogEntryType type;
     Buffer buffer;
     Log::Reference reference;
-    if (!lookup(key, type, buffer, reference) || type != LOG_ENTRY_TYPE_OBJ) {
+    if (!lookup(key, type, buffer, &reference) || type != LOG_ENTRY_TYPE_OBJ) {
         Status status = rejectOperation(reqHdr.rejectRules,
                                         VERSION_NONEXISTENT);
         if (status != STATUS_OK)
@@ -2433,12 +2433,12 @@ MasterService::storeObject(Key& key,
         }
     }
 
-    LogEntryType currentType;
+    LogEntryType currentType = LOG_ENTRY_TYPE_INVALID;
     Buffer currentBuffer;
     Log::Reference currentReference;
     uint64_t currentVersion = VERSION_NONEXISTENT;
 
-    if (lookup(key, currentType, currentBuffer, currentReference)) {
+    if (lookup(key, currentType, currentBuffer, &currentReference)) {
         if (currentType == LOG_ENTRY_TYPE_OBJTOMB) {
             recoveryCleanup(currentReference.toInteger(), this);
         } else {
@@ -2505,28 +2505,6 @@ MasterService::storeObject(Key& key,
     *newVersion = newObject.getVersion();
     bytesWritten += key.getStringKeyLength() + data.getTotalLength();
     return STATUS_OK;
-}
-
-bool
-MasterService::lookup(Key& key, LogEntryType& type, Buffer& buffer)
-{
-    Log::Reference reference;
-    return lookup(key, type, buffer, reference);
-}
-
-bool
-MasterService::lookup(Key& key,
-                      LogEntryType& type,
-                      Buffer& buffer,
-                      Log::Reference& reference)
-{
-    uint64_t integerReference;
-    bool success = objectMap->lookup(key, integerReference);
-    if (!success)
-        return false;
-    reference = Log::Reference(integerReference);
-    type = log->getEntry(reference, buffer);
-    return true;
 }
 
 } // namespace RAMCloud

@@ -270,8 +270,41 @@ class MasterService : public Service, LogEntryHandlers {
     void removeTombstones();
 
   PRIVATE:
-    void incrementReadAndWriteStatistics(Table* table);
+    /**
+     * Look up an object in the hash table, then extract the entry from the
+     * log. Since tombstones are stored in the hash table during recovery,
+     * this method may return either an object or a tombstone.
+     *
+     * \param key
+     *      Key of the object being looked up.
+     * \param[out] outType
+     *      The type of the log entry is returned here.
+     * \param buffer
+     *      The entry, if found, is appended to this buffer.
+     * \param outReference
+     *      The log reference to the entry, if found, is stored in this optional
+     *      parameter.
+     * \return
+     *      True if an entry is found matching the given key, otherwise false.
+     */
+    bool
+    lookup(Key& key,
+           LogEntryType& outType,
+           Buffer& buffer,
+           Log::Reference* outReference = NULL) const
+    {
+        uint64_t integerReference;
+        bool success = objectMap->lookup(key, integerReference);
+        if (!success)
+            return false;
+        if (outReference != NULL)
+            *outReference = Log::Reference(integerReference);
+        outType = log->getEntry(Log::Reference(integerReference), buffer);
+        return true;
+    }
 
+
+    void incrementReadAndWriteStatistics(Table* table);
     static void
     detectSegmentRecoveryFailure(
                         const ServerId masterId,
@@ -303,11 +336,6 @@ class MasterService : public Service, LogEntryHandlers {
                        Buffer& data,
                        uint64_t* newVersion,
                        bool sync) __attribute__((warn_unused_result));
-    bool lookup(Key& key, LogEntryType& type, Buffer& buffer);
-    bool lookup(Key& key,
-                LogEntryType& type,
-                Buffer& buffer,
-                Log::Reference& reference);
 
     friend class RecoverSegmentBenchmark;
     friend class MasterServiceInternal::RecoveryTask;

@@ -1874,7 +1874,7 @@ TEST_F(MasterServiceTest, objectRelocationCallback_objectAlive) {
     LogEntryType oldType2;
     Buffer oldBuffer2;
     Log::Reference oldReference;
-    success = service->lookup(key, oldType2, oldBuffer2, oldReference);
+    success = service->lookup(key, oldType2, oldBuffer2, &oldReference);
     EXPECT_TRUE(success);
     EXPECT_EQ(oldType, oldType2);
     EXPECT_EQ(oldBuffer.getStart<uint8_t>(), oldBuffer2.getStart<uint8_t>());
@@ -1889,7 +1889,7 @@ TEST_F(MasterServiceTest, objectRelocationCallback_objectAlive) {
     LogEntryType newType2;
     Buffer newBuffer2;
     Log::Reference newReference2;
-    service->lookup(key, newType2, newBuffer2, newReference2);
+    service->lookup(key, newType2, newBuffer2, &newReference2);
     EXPECT_TRUE(relocator.didAppend);
     EXPECT_EQ(newType, newType2);
     EXPECT_EQ(newReference.toInteger() + 37, newReference2.toInteger());
@@ -1982,7 +1982,7 @@ TEST_F(MasterServiceTest, tombstoneRelocationCallback_basics) {
     LogEntryType type;
     Buffer buffer;
     Log::Reference reference;
-    bool success = service->lookup(key, type, buffer, reference);
+    bool success = service->lookup(key, type, buffer, &reference);
     EXPECT_TRUE(success);
     EXPECT_EQ(LOG_ENTRY_TYPE_OBJ, type);
 
