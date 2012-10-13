@@ -37,12 +37,12 @@ namespace RAMCloud {
 MembershipService::MembershipService(ServerId& ourServerId,
                                      ServerList& serverList,
                                      const ServerConfig& serverConfig)
-    : serverId(ourServerId),
-      serverList(serverList),
+    : serverList(serverList),
       serverConfig(serverConfig)
 {
     // The coordinator will push the server list to us once we've
     // enlisted.
+    serverId = ourServerId;
 }
 
 /**
@@ -55,10 +55,6 @@ MembershipService::dispatch(WireFormat::Opcode opcode, Rpc& rpc)
     case WireFormat::GetServerConfig::opcode:
         callHandler<WireFormat::GetServerConfig, MembershipService,
             &MembershipService::getServerConfig>(rpc);
-        break;
-    case WireFormat::GetServerId::opcode:
-        callHandler<WireFormat::GetServerId, MembershipService,
-            &MembershipService::getServerId>(rpc);
         break;
     case WireFormat::UpdateServerList::opcode:
         callHandler<WireFormat::UpdateServerList, MembershipService,
@@ -93,28 +89,6 @@ MembershipService::getServerConfig(
 
 /**
  * Top-level service method to handle the GET_SERVER_ID request.
- *
- * \copydetails Service::ping
- */
-void
-MembershipService::getServerId(const WireFormat::GetServerId::Request& reqHdr,
-                              WireFormat::GetServerId::Response& respHdr,
-                              Rpc& rpc)
-{
-    // serverId may not be set by enlisting before RPCs are dispatched to
-    // this handler. The coordinator may try to open a session to send a
-    // server list to this server before the enlistment response has been
-    // received and processed.
-    if (!serverId.isValid()) {
-        respHdr.common.status = STATUS_RETRY;
-        return;
-    }
-
-    respHdr.serverId = *serverId;
-}
-
-/**
- * Top-level service method to handle the REPLACE_SERVER_LIST request.
  *
  * \copydetails Service::ping
  */

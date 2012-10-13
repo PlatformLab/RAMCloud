@@ -39,7 +39,7 @@ class RecoverSegmentBenchmark {
         , serverList(&context)
         , service(NULL)
     {
-        Logger::get().setLogLevels(SILENT_LOG_LEVEL);
+        Logger::get().setLogLevels(WARNING);
         config.localLocator = "bogus";
         config.coordinatorLocator = "bogus";
         config.setLogAndHashTableSize(logSize, hashTableSize);
@@ -92,6 +92,28 @@ class RecoverSegmentBenchmark {
         tablet.set_server_id(service->serverId.getId());
         *service->tablets.add_tablet() = tablet;
 
+        metrics->temp.ticks0 =
+        metrics->temp.ticks1 =
+        metrics->temp.ticks2 =
+        metrics->temp.ticks3 =
+        metrics->temp.ticks4 =
+        metrics->temp.ticks5 =
+        metrics->temp.ticks6 =
+        metrics->temp.ticks7 =
+        metrics->temp.ticks8 =
+        metrics->temp.ticks9 = 0;
+
+        metrics->temp.count0 =
+        metrics->temp.count1 =
+        metrics->temp.count2 =
+        metrics->temp.count3 =
+        metrics->temp.count4 =
+        metrics->temp.count5 =
+        metrics->temp.count6 =
+        metrics->temp.count7 =
+        metrics->temp.count8 =
+        metrics->temp.count9 = 0;
+
         /*
          * Now run a fake recovery.
          */
@@ -112,13 +134,56 @@ class RecoverSegmentBenchmark {
         uint64_t totalSegmentBytes = numSegments *
                                      Segment::DEFAULT_SEGMENT_SIZE;
         printf("Recovery of %d %dKB Segments with %d byte Objects took %lu "
-            "milliseconds\n", numSegments, Segment::DEFAULT_SEGMENT_SIZE / 1024,
+            "ms\n", numSegments, Segment::DEFAULT_SEGMENT_SIZE / 1024,
             dataBytes, RAMCloud::Cycles::toNanoseconds(ticks) / 1000 / 1000);
         printf("Actual total object count: %lu (%lu bytes in Objects, %.2f%% "
             "overhead)\n", numObjects, totalObjectBytes,
             100.0 *
             static_cast<double>(totalSegmentBytes - totalObjectBytes) /
             static_cast<double>(totalSegmentBytes));
+
+        printf("\n");
+        printf("Verify object checksums: %.2f ms\n",
+               Cycles::toSeconds(metrics->master.verifyChecksumTicks.load()) *
+               1000.);
+        metrics->master.verifyChecksumTicks = 0;
+
+#define DUMP_TEMP_TICKS(i)  \
+if (metrics->temp.ticks##i.load()) { \
+    printf("temp.ticks%d: %.2f ms\n", i, \
+           Cycles::toSeconds(metrics->temp.ticks##i.load()) * \
+           1000.); \
+    metrics->temp.ticks##i = 0; \
+}
+
+#define DUMP_TEMP_COUNT(i)  \
+if (metrics->temp.count##i.load()) { \
+    printf("temp.count%d: %lu\n", i, \
+           metrics->temp.count##i.load()); \
+    metrics->temp.count##i = 0; \
+}
+
+        DUMP_TEMP_TICKS(0);
+        DUMP_TEMP_TICKS(1);
+        DUMP_TEMP_TICKS(2);
+        DUMP_TEMP_TICKS(3);
+        DUMP_TEMP_TICKS(4);
+        DUMP_TEMP_TICKS(5);
+        DUMP_TEMP_TICKS(6);
+        DUMP_TEMP_TICKS(7);
+        DUMP_TEMP_TICKS(8);
+        DUMP_TEMP_TICKS(9);
+
+        DUMP_TEMP_COUNT(0);
+        DUMP_TEMP_COUNT(1);
+        DUMP_TEMP_COUNT(2);
+        DUMP_TEMP_COUNT(3);
+        DUMP_TEMP_COUNT(4);
+        DUMP_TEMP_COUNT(5);
+        DUMP_TEMP_COUNT(6);
+        DUMP_TEMP_COUNT(7);
+        DUMP_TEMP_COUNT(8);
+        DUMP_TEMP_COUNT(9);
 
         // clean up
         for (int i = 0; i < numSegments; i++) {

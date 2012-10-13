@@ -134,7 +134,9 @@ TEST_F(SessionAlarmTest, basics) {
     double desired = .035;
     for (int i = 0; i < 10; i++) {
         AlarmSession::log.clear();
-        GetServerIdRpc rpc(&context, sessionRef);
+        RpcWrapper rpc(4);
+        rpc.session = sessionRef;
+        rpc.send();
         uint64_t start = Cycles::rdtsc();
         while (!rpc.isReady()) {
             elapsed = Cycles::toSeconds(Cycles::rdtsc() - start);
@@ -144,7 +146,7 @@ TEST_F(SessionAlarmTest, basics) {
             context.dispatch->poll();
         }
         if (elapsed < desired) {
-            EXPECT_EQ("sendRequest: opcode GET_SERVER_ID, sendRequest: "
+            EXPECT_EQ("sendRequest: opcode null, sendRequest: "
                     "opcode PING, abort", AlarmSession::log);
             EXPECT_STREQ("FAILED", rpc.stateString());
             break;

@@ -73,11 +73,6 @@ class TransportManager {
         transportFactories.push_back(
                 new MockTransportFactory(context, transport, protocol));
         transports.push_back(NULL);
-
-        // Skip RPCs to verify server ids: this makes tests much simpler,
-        // and individual tests can restore normal behavior if they need it.
-        if (context->serverList != NULL)
-            context->serverList->skipServerIdCheck = true;
     }
 
     /**

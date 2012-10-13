@@ -331,6 +331,8 @@ BackupStartPartitionTask::BackupStartPartitionTask(Recovery* recovery,
 void
 BackupStartPartitionTask::send()
 {
+    LOG(DEBUG, "Sending StartPartitioning: %s",
+        backupServerId.toString().c_str());
     rpc.construct(recovery->context, backupServerId, recovery->recoveryId,
                 recovery->crashedServerId, &(recovery->tabletsToRecover));
 }
@@ -345,11 +347,9 @@ BackupStartPartitionTask::wait()
     } catch (const ServerNotUpException& e) {
         LOG(WARNING, "Couldn't contact %s; server no longer in server list",
             backupServerId.toString().c_str());
-        // Leave empty result as if the backup has no replicas.
     } catch (const ClientException& e) {
         LOG(WARNING, "startPartition failed on %s, failure was: %s",
             backupServerId.toString().c_str(), e.str().c_str());
-        // Leave empty result as if the backup has no replicas.
     }
     rpc.destroy();
 

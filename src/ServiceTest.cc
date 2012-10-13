@@ -150,6 +150,79 @@ TEST_F(ServiceTest, callHandler_normal) {
     EXPECT_TRUE(TestUtil::matchesPosixRegex("ping", TestLog::get()));
 }
 
+// Fake RPC class for testing checkServerId.
+class DummyService : public Service {
+  public:
+    struct Rpc1 {
+        static const WireFormat::Opcode opcode = WireFormat::Opcode(4);
+        static const WireFormat::ServiceType service =
+                WireFormat::MASTER_SERVICE;
+        struct Request {
+            WireFormat::RequestCommonWithId common;
+        } __attribute__((packed));
+        struct Response {
+            WireFormat::ResponseCommon common;
+        } __attribute__((packed));
+    };
+    void serviceMethod1(const Rpc1::Request& reqHdr, Rpc1::Response& respHdr,
+                Rpc& rpc)
+    {
+        // No-op.
+    }
+};
+
+TEST_F(ServiceTest, checkServerId) {
+    request.fillFromString("9 1 2");
+    DummyService service;
+
+    // First try: service's id is invalid, so mismatch should be ignored.
+    string message("no exception");
+    try {
+        service.callHandler<DummyService::Rpc1, DummyService,
+                &DummyService::serviceMethod1>(rpc);
+    } catch (WrongServerException& e) {
+        message = e.toSymbol();
+    }
+    EXPECT_EQ("no exception", message);
+
+    // Second try: should generate an exception.
+    service.serverId = ServerId(1, 3);
+    response.reset();
+    message = "no exception";
+    try {
+        service.callHandler<DummyService::Rpc1, DummyService,
+                &DummyService::serviceMethod1>(rpc);
+    } catch (WrongServerException& e) {
+        message = e.toSymbol();
+    }
+    EXPECT_EQ("STATUS_WRONG_SERVER", message);
+
+    // Third try: ids match.
+    service.serverId = ServerId(1, 2);
+    response.reset();
+    message = "no exception";
+    try {
+        service.callHandler<DummyService::Rpc1, DummyService,
+                &DummyService::serviceMethod1>(rpc);
+    } catch (WrongServerException& e) {
+        message = e.toSymbol();
+    }
+    EXPECT_EQ("no exception", message);
+
+    // Fourth try: serverId in RPC is invalid, so mismatch should be ignored.
+    response.reset();
+    request.reset();
+    request.fillFromString("9 0 -1");
+    message = "no exception";
+    try {
+        service.callHandler<DummyService::Rpc1, DummyService,
+                &DummyService::serviceMethod1>(rpc);
+    } catch (WrongServerException& e) {
+        message = e.toSymbol();
+    }
+    EXPECT_EQ("no exception", message);
+}
+
 TEST_F(ServiceTest, sendReply) {
     MockService service;
     service.gate = -1;

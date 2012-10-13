@@ -948,7 +948,7 @@ QuiesceRpc::QuiesceRpc(RamCloud* ramcloud)
             sizeof(WireFormat::BackupQuiesce::Response))
 {
     WireFormat::BackupQuiesce::Request* reqHdr(
-            allocHeader<WireFormat::BackupQuiesce>());
+            allocHeader<WireFormat::BackupQuiesce>(ServerId(0)));
     // By default this RPC is sent to the backup service; retarget it
     // for the coordinator service (which will forward it on to all
     // backups).

@@ -33,7 +33,6 @@ AbstractServerList::AbstractServerList(Context* context)
     , version(0)
     , trackers()
     , mutex()
-    , skipServerIdCheck(false)
 {
     context->serverList = this;
 }
@@ -121,28 +120,9 @@ AbstractServerList::getSession(ServerId id)
         locator = details->serviceLocator.c_str();
     }
 
-    // No cached session. Open a new session and send a brief request to
-    // the server to verify that it has the expected identifier.
+    // No cached session. Open a new session.
     Transport::SessionRef session =
             context->transportManager->openSession(locator.c_str());
-    if (!skipServerIdCheck) {
-        try {
-            ServerId actualId = MembershipClient::getServerId(context,
-                    session);
-            if (id != actualId) {
-                RAMCLOUD_LOG(DEBUG, "Expected ServerId %s for \"%s\", "
-                        "but actual server id was %s",
-                        id.toString().c_str(), locator.c_str(),
-                        actualId.toString().c_str());
-                return FailSession::get();
-            }
-        }
-        catch (const TransportException& e) {
-            RAMCLOUD_LOG(DEBUG, "Failed to obtain ServerId from \"%s\": %s",
-                    locator.c_str(), e.what());
-            return FailSession::get();
-        }
-    }
 
     // We've successfully opened a session. Add it back back into the server
     // list, assuming this ServerId is still valid and no one else has put a

@@ -178,10 +178,6 @@ class MasterService : public Service, LogEntryHandlers {
 
     const ServerConfig& config;
 
-    /// The identifier assigned to this service by the coordinator.  Initial
-    /// state (before enlistment) is ???.
-    ServerId serverId;
-
   PRIVATE:
 
     /// Track total bytes of object data written (not including log overhead).

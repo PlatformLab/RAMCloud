@@ -65,51 +65,50 @@ static_assert(INVALID_SERVICE < (sizeof(SerializedServiceMask) * 8),
  * - WireFormatTest.cc's out-of-range test, if ILLEGAL_RPC_TYPE was changed.
  */
 enum Opcode {
-    PING                    = 7,
-    PROXY_PING              = 8,
-    KILL                    = 9,
-    CREATE_TABLE            = 10,
-    GET_TABLE_ID            = 11,
-    DROP_TABLE              = 12,
-    READ                    = 13,
-    WRITE                   = 14,
-    REMOVE                  = 15,
-    ENLIST_SERVER           = 16,
-    GET_SERVER_LIST         = 17,
-    GET_TABLET_MAP          = 18,
-    RECOVER                 = 19,
-    HINT_SERVER_DOWN        = 20,
-    RECOVERY_MASTER_FINISHED = 21,
-    ENUMERATE             = 22,
-    SET_MASTER_RECOVERY_INFO = 23,
-    FILL_WITH_TEST_DATA     = 24,
-    MULTI_READ              = 25,
-    GET_METRICS             = 26,
-    BACKUP_FREE             = 28,
-    BACKUP_GETRECOVERYDATA  = 29,
-    BACKUP_STARTREADINGDATA = 31,
-    BACKUP_STARTPARTITION   = 36, // TODO(syang0) someone fix numbering
-    BACKUP_WRITE            = 32,
-    BACKUP_RECOVERYCOMPLETE = 33,
-    BACKUP_QUIESCE          = 34,
-    UPDATE_SERVER_LIST      = 35,
-    GET_SERVER_ID           = 38,
-    DROP_TABLET_OWNERSHIP   = 39,
-    TAKE_TABLET_OWNERSHIP   = 40,
-    BACKUP_ASSIGN_GROUP     = 41,
-    GET_HEAD_OF_LOG         = 42,
-    INCREMENT               = 43,
-    PREP_FOR_MIGRATION      = 44,
-    RECEIVE_MIGRATION_DATA  = 45,
-    REASSIGN_TABLET_OWNERSHIP = 46,
-    MIGRATE_TABLET          = 47,
-    IS_REPLICA_NEEDED       = 48,
-    SPLIT_TABLET            = 49,
-    GET_SERVER_STATISTICS   = 50,
-    SET_RUNTIME_OPTION      = 51,
-    GET_SERVER_CONFIG       = 52,
-    GET_LOG_METRICS         = 53,
-    ILLEGAL_RPC_TYPE        = 54,  // 1 + the highest legitimate Opcode
+    PING                      = 7,
+    PROXY_PING                = 8,
+    KILL                      = 9,
+    CREATE_TABLE              = 10,
+    GET_TABLE_ID              = 11,
+    DROP_TABLE                = 12,
+    READ                      = 13,
+    WRITE                     = 14,
+    REMOVE                    = 15,
+    ENLIST_SERVER             = 16,
+    GET_SERVER_LIST           = 17,
+    GET_TABLET_MAP            = 18,
+    RECOVER                   = 19,
+    HINT_SERVER_DOWN          = 20,
+    RECOVERY_MASTER_FINISHED  = 21,
+    ENUMERATE                 = 22,
+    SET_MASTER_RECOVERY_INFO  = 23,
+    FILL_WITH_TEST_DATA       = 24,
+    MULTI_READ                = 25,
+    GET_METRICS               = 26,
+    BACKUP_FREE               = 28,
+    BACKUP_GETRECOVERYDATA    = 29,
+    BACKUP_STARTREADINGDATA   = 31,
+    BACKUP_WRITE              = 32,
+    BACKUP_RECOVERYCOMPLETE   = 33,
+    BACKUP_QUIESCE            = 34,
+    UPDATE_SERVER_LIST        = 35,
+    BACKUP_STARTPARTITION     = 36,
+    DROP_TABLET_OWNERSHIP     = 39,
+    TAKE_TABLET_OWNERSHIP     = 40,
+    BACKUP_ASSIGN_GROUP       = 41,
+    GET_HEAD_OF_LOG           = 42,
+    INCREMENT                 = 43,
+    PREP_FOR_MIGRATION        = 44,
+    RECEIVE_MIGRATION_DATA    = 45,
+    REASSIGN_TABLET_OWNERSHIP   = 46,
+    MIGRATE_TABLET            = 47,
+    IS_REPLICA_NEEDED         = 48,
+    SPLIT_TABLET              = 49,
+    GET_SERVER_STATISTICS     = 50,
+    SET_RUNTIME_OPTION        = 51,
+    GET_SERVER_CONFIG         = 52,
+    GET_LOG_METRICS           = 53,
+    ILLEGAL_RPC_TYPE          = 54,  // 1 + the highest legitimate Opcode
 };
 
 /**
@@ -118,6 +117,20 @@ enum Opcode {
 struct RequestCommon {
     uint16_t opcode;              /// Opcode of operation to be performed.
     uint16_t service;             /// ServiceType to invoke for this rpc.
+} __attribute__((packed));
+
+/**
+ * Some RPCs include an explicit server id in the header, to detect
+ * situations where a new server starts up with the same locator as an old
+ * dead server; RPCs intended for the old server must be rejected by
+ * the new server.
+ */
+struct RequestCommonWithId {
+    uint16_t opcode;              /// Opcode of operation to be performed.
+    uint16_t service;             /// ServiceType to invoke for this rpc.
+    uint64_t targetId;            /// ServerId for which this RPC is
+                                  /// intended. 0 means "ignore this field":
+                                  /// for convenience during testing.
 } __attribute__((packed));
 
 /**
@@ -152,7 +165,7 @@ struct BackupAssignGroup {
     static const Opcode opcode = BACKUP_ASSIGN_GROUP;
     static const ServiceType service = BACKUP_SERVICE;
     struct Request {
-        RequestCommon common;
+        RequestCommonWithId common;
         uint64_t replicationId; ///< The new replication group Id assigned to
                                 ///< the backup.
         uint32_t numReplicas;   ///< Following this field, we append a list of
@@ -168,7 +181,7 @@ struct BackupFree {
     static const Opcode opcode = BACKUP_FREE;
     static const ServiceType service = BACKUP_SERVICE;
     struct Request {
-        RequestCommon common;
+        RequestCommonWithId common;
         uint64_t masterId;      ///< Server Id from whom the request is coming.
         uint64_t segmentId;     ///< Target segment to discard from backup.
     } __attribute__((packed));
@@ -181,7 +194,7 @@ struct BackupGetRecoveryData {
     static const Opcode opcode = BACKUP_GETRECOVERYDATA;
     static const ServiceType service = BACKUP_SERVICE;
     struct Request {
-        RequestCommon common;
+        RequestCommonWithId common;
         uint64_t recoveryId;    ///< Identifies the recovery for which the
                                 ///< recovery segment is requested.
         uint64_t masterId;      ///< Server Id from whom the request is coming.
@@ -212,7 +225,7 @@ struct BackupQuiesce {
     static const Opcode opcode = BACKUP_QUIESCE;
     static const ServiceType service = BACKUP_SERVICE;
     struct Request {
-        RequestCommon common;
+        RequestCommonWithId common;
     } __attribute__((packed));
     struct Response {
         ResponseCommon common;
@@ -223,7 +236,7 @@ struct BackupRecoveryComplete {
     static const Opcode opcode = BACKUP_RECOVERYCOMPLETE;
     static const ServiceType service = BACKUP_SERVICE;
     struct Request {
-        RequestCommon common;
+        RequestCommonWithId common;
         uint64_t masterId;      ///< Server Id which was recovered.
     } __attribute__((packed));
     struct Response {
@@ -235,7 +248,7 @@ struct BackupStartReadingData {
     static const Opcode opcode = BACKUP_STARTREADINGDATA;
     static const ServiceType service = BACKUP_SERVICE;
     struct Request {
-        RequestCommon common;
+        RequestCommonWithId common;
         uint64_t recoveryId;       ///< Identifies the recovery for which
                                    ///< information should be returned and
                                    ///< recovery segments should be built.
@@ -297,7 +310,7 @@ struct BackupStartPartitioningReplicas {
     static const Opcode opcode = BACKUP_STARTPARTITION;
     static const ServiceType service = BACKUP_SERVICE;
     struct Request {
-        RequestCommon common;
+        RequestCommonWithId common;
         uint64_t recoveryId;       ///< Identifies the recovery for which
                                    ///< information should be returned and
                                    ///< recovery segments should be built.
@@ -330,7 +343,7 @@ struct BackupWrite {
             , certificateIncluded()
             , certificate()
         {}
-        Request(const RequestCommon& common,
+        Request(const RequestCommonWithId& common,
                 uint64_t masterId,
                 uint64_t segmentId,
                 uint64_t segmentEpoch,
@@ -353,7 +366,7 @@ struct BackupWrite {
             , certificateIncluded(certificateIncluded)
             , certificate(certificate)
         {}
-        RequestCommon common;
+        RequestCommonWithId common;
         uint64_t masterId;        ///< Server from whom the request is coming.
         uint64_t segmentId;       ///< Target segment to update.
         uint64_t segmentEpoch;    ///< Epoch for the segment that the replica
@@ -424,7 +437,7 @@ struct DropTabletOwnership {
     static const Opcode opcode = DROP_TABLET_OWNERSHIP;
     static const ServiceType service = MASTER_SERVICE;
     struct Request {
-        RequestCommon common;
+        RequestCommonWithId common;
         uint64_t tableId;
         uint64_t firstKeyHash;
         uint64_t lastKeyHash;
@@ -504,7 +517,7 @@ struct GetHeadOfLog {
     static const Opcode opcode = GET_HEAD_OF_LOG;
     static const ServiceType service = MASTER_SERVICE;
     struct Request {
-        RequestCommon common;
+        RequestCommonWithId common;
     } __attribute__((packed));
     struct Response {
         ResponseCommon common;
@@ -555,18 +568,6 @@ struct GetServerConfig {
         uint32_t serverConfigLength;   // Number of bytes in the server config
                                        // protocol buffer immediately follow-
                                        // ing this header.
-    } __attribute__((packed));
-};
-
-struct GetServerId {
-    static const Opcode opcode = GET_SERVER_ID;
-    static const ServiceType service = MEMBERSHIP_SERVICE;
-    struct Request {
-        RequestCommon common;
-    } __attribute__((packed));
-    struct Response {
-        ResponseCommon common;
-        uint64_t serverId;            // ServerId of the server.
     } __attribute__((packed));
 };
 
@@ -675,7 +676,7 @@ struct IsReplicaNeeded {
     static const Opcode opcode = IS_REPLICA_NEEDED;
     static const ServiceType service = MASTER_SERVICE;
     struct Request {
-        RequestCommon common;
+        RequestCommonWithId common;
         uint64_t backupServerId;
         uint64_t segmentId;
     } __attribute__((packed));
@@ -778,7 +779,7 @@ struct PrepForMigration {
     static const Opcode opcode = PREP_FOR_MIGRATION;
     static const ServiceType service = MASTER_SERVICE;
     struct Request {
-        RequestCommon common;
+        RequestCommonWithId common;
         uint64_t tableId;           // TableId of the tablet we'll move.
         uint64_t firstKeyHash;      // First key in the tablet range.
         uint64_t lastKeyHash;       // Last key in the tablet range.
@@ -859,7 +860,7 @@ struct ReceiveMigrationData {
             , segmentBytes()
             , certificate()
         {}
-        RequestCommon common;
+        RequestCommonWithId common;
         uint64_t tableId;           // Id of the table this data belongs to.
         uint64_t firstKeyHash;      // Start of the tablet range for the data.
         uint32_t segmentBytes;      // Length of the Segment containing migrated
@@ -879,7 +880,7 @@ struct Recover {
     static const Opcode opcode = RECOVER;
     static const ServiceType service = MASTER_SERVICE;
     struct Request {
-        RequestCommon common;
+        RequestCommonWithId common;
         uint64_t recoveryId;
         uint64_t crashedServerId;
         uint64_t partitionId;
@@ -984,27 +985,11 @@ struct SetRuntimeOption {
     } __attribute__((packed));
 };
 
-
-struct UpdateServerList {
-    static const Opcode opcode = UPDATE_SERVER_LIST;
-    static const ServiceType service = MEMBERSHIP_SERVICE;
-    struct Request {
-        RequestCommon common;
-        uint32_t serverListLength; // Number of bytes in the server list.
-                                   // The bytes of the server list follow
-                                   // immediately after this header. See
-                                   // ProtoBuf::ServerList.
-    } __attribute__((packed));
-    struct Response {
-        ResponseCommon common;
-    } __attribute__((packed));
-};
-
 struct SplitMasterTablet {
     static const Opcode opcode = SPLIT_TABLET;
     static const ServiceType service = MASTER_SERVICE;
     struct Request {
-        RequestCommon common;
+        RequestCommonWithId common;
         uint64_t tableId;             // Id of the table that contains the to
                                       // be split tablet.
         uint64_t firstKeyHash;        // Identify the to be split tablet by
@@ -1046,10 +1031,25 @@ struct TakeTabletOwnership {
     static const Opcode opcode = TAKE_TABLET_OWNERSHIP;
     static const ServiceType service = MASTER_SERVICE;
     struct Request {
-        RequestCommon common;
+        RequestCommonWithId common;
         uint64_t tableId;
         uint64_t firstKeyHash;
         uint64_t lastKeyHash;
+    } __attribute__((packed));
+    struct Response {
+        ResponseCommon common;
+    } __attribute__((packed));
+};
+
+struct UpdateServerList {
+    static const Opcode opcode = UPDATE_SERVER_LIST;
+    static const ServiceType service = MEMBERSHIP_SERVICE;
+    struct Request {
+        RequestCommonWithId common;
+        uint32_t serverListLength; // Number of bytes in the server list.
+                                   // The bytes of the server list follow
+                                   // immediately after this header. See
+                                   // ProtoBuf::ServerList.
     } __attribute__((packed));
     struct Response {
         ResponseCommon common;

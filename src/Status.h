@@ -31,7 +31,7 @@ namespace RAMCloud {
  * to applications by RAMCloud operations.
  *
  * 0 means success; anything else means that an error occurred.
- * Not all status values can be returned by all operations.
+ * Not all status values can be returned by all operations. 
  */
 typedef enum Status {
     /// Default return value when an operation was successful.
@@ -93,7 +93,10 @@ typedef enum Status {
     /// Indicates that the logic to partition tablets was invoked without a
     /// preceeding invocation to start reading replicas off of disk.
     STATUS_PARTITION_BEFORE_READ        = 24,
-    STATUS_MAX_VALUE                    = 24,
+    /// Indicates that an RPC was intended for a particular server id, but
+    /// was actually sent to a different server id.
+    STATUS_WRONG_SERVER                 = 25,
+    STATUS_MAX_VALUE                    = 25,
     // Note: if you add a new status value you must make the following
     // additional updates:
     // * Modify STATUS_MAX_VALUE to have a value equal to the largest

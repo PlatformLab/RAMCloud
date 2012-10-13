@@ -106,7 +106,6 @@ MasterService::MasterService(Context* context,
                              const ServerConfig& config)
     : context(context)
     , config(config)
-    , serverId()
     , bytesWritten(0)
     , replicaManager(context, serverId, config.master.numReplicas)
     , allocator(config)
