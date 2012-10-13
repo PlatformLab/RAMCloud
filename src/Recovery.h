@@ -80,8 +80,8 @@ class BackupStartTask {
 class BackupStartPartitionTask {
   PUBLIC:
     BackupStartPartitionTask(Recovery* recovery, ServerId backupServerId);
-    bool isReady() const { return done; }
-    bool isDone() { return rpc && rpc->isReady(); }
+    bool isReady() { return rpc && rpc->isReady(); }
+    bool isDone() const { return done; }
     void send();
     void wait();
 

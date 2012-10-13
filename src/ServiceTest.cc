@@ -174,7 +174,7 @@ class DummyService : public Service {
 TEST_F(ServiceTest, checkServerId) {
     request.fillFromString("9 1 2");
     DummyService service;
-    
+
     // First try: service's id is invalid, so mismatch should be ignored.
     string message("no exception");
     try {

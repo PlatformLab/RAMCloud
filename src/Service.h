@@ -137,7 +137,7 @@ class Service {
         memset(respHdr, 0, sizeof(*respHdr));
         (static_cast<S*>(this)->*handler)(*reqHdr, *respHdr, rpc);
     }
-  
+
     /**
      * Verifies that this server is the one intended to receive an RPC.
      * 
@@ -156,7 +156,7 @@ class Service {
                 && (serverId.isValid()))
             throw WrongServerException(HERE);
     }
-  
+
     /**
      * Dummy method that "verifies" the server id for RPCs that don't
      * actually require verification: this method is a no-op.
@@ -171,7 +171,7 @@ class Service {
         // template doesn't need to worry about which type of common
         // block is used in a given RPC.
     }
-  
+
   public:
     /// The identifier assigned to this server by the coordinator.  If the
     /// server has not yet enlisted, or if the serverId isn't relevant for
