@@ -112,6 +112,7 @@ struct ReplicatedSegmentTest : public ::testing::Test {
                                               true,
                                               test->masterId,
                                               numReplicas,
+                                              NULL,
                                               MAX_BYTES_PER_WRITE));
             // Set up ordering constraints between this new segment and the
             // prior one in the log.

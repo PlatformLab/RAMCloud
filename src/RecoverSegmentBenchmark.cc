@@ -199,7 +199,7 @@ if (metrics->temp.count##i.load()) { \
 int
 main()
 {
-    int numSegments = 80;
+    int numSegments = 600 / 8; // = 72.
     int dataBytes[] = { 64, 128, 256, 512, 1024, 2048, 8192, 0 };
 
     for (int i = 0; dataBytes[i] != 0; i++) {

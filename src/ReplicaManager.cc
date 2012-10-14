@@ -50,6 +50,7 @@ ReplicaManager::ReplicaManager(Context* context,
     , writeRpcsInFlight(0)
     , replicationEpoch()
     , failureMonitor(context, this)
+    , replicationCounter()
 {
     replicationEpoch.construct(context, &taskQueue, &masterId);
 }
@@ -398,7 +399,8 @@ ReplicaManager::allocateSegment(const Lock& lock,
         new(p) ReplicatedSegment(context, taskQueue, backupSelector, *this,
                                  writeRpcsInFlight, *replicationEpoch,
                                  dataMutex, segmentId, segment,
-                                 isLogHead, masterId, numReplicas);
+                                 isLogHead, masterId, numReplicas,
+                                 &replicationCounter);
     replicatedSegmentList.push_back(*replicatedSegment);
 
     // ReplicatedSegment's constructor has scheduled the open.

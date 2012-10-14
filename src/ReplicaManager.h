@@ -176,6 +176,12 @@ class ReplicaManager
      */
     BackupFailureMonitor failureMonitor;
 
+    /**
+     * Used to measure time when backup write rpcs are active. Passed in to and
+     * shared among ReplicatedSegments.
+     */
+    Tub<CycleCounter<RawMetric>> replicationCounter;
+
   PUBLIC:
     // Only used by BackupFailureMonitor.
     void handleBackupFailure(ServerId failedId);

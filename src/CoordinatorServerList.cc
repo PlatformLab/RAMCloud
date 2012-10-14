@@ -975,11 +975,17 @@ CoordinatorServerList::dispatchRpc(UpdateSlot& update) {
             updateEntryVersion(update.serverId, newVersion);
 
             // Check timeout event
-        } else if (rpcTimeoutNs != 0 &&
-                   (Cycles::toNanoseconds(Cycles::rdtsc() - update.startCycle)
-                    > rpcTimeoutNs)) {
-            update.rpc.destroy();
-            updateEntryVersion(update.serverId, update.originalVersion);
+        } else {
+            uint64_t ns = Cycles::toNanoseconds(Cycles::rdtsc() -
+                                                update.startCycle);
+            if (rpcTimeoutNs != 0 && ns > rpcTimeoutNs) {
+                LOG(NOTICE, "ServerList update to %s timed out after %lu ms; "
+                    "trying again later",
+                    update.serverId.toString().c_str(),
+                    ns / 1000 / 1000);
+                update.rpc.destroy();
+                updateEntryVersion(update.serverId, update.originalVersion);
+            }
         }
     }
 

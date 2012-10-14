@@ -174,8 +174,6 @@ master.metric('replicaManagerTicks', 'time spent in ReplicaManager')
 master.metric('segmentAppendTicks', 'time spent in Segment::append')
 master.metric('segmentAppendCopyTicks',
     'time spent copying in Segment::append')
-master.metric('segmentAppendChecksumTicks',
-    'time spent checksumming in Segment::append')
 master.metric('segmentReadCount',
     'number of BackupClient::getRecoveryData calls issued')
 master.metric('segmentReadTicks',

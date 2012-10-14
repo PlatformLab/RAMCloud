@@ -14,7 +14,6 @@
  */
 
 #include "BitOps.h"
-#include "CycleCounter.h"
 #include "ReplicatedSegment.h"
 #include "Segment.h"
 #include "ShortMacros.h"
@@ -59,6 +58,9 @@ namespace RAMCloud {
  *      The server id of the master whose log this segment belongs to.
  * \param numReplicas
  *      Number of replicas of this segment that must be maintained.
+ * \param replicationCounter
+ *      Used to measure time when backup write rpcs are active.
+ *      Shared among ReplicatedSegments.
  * \param maxBytesPerWriteRpc
  *      Maximum bytes to send in a single write rpc; can help latency of
  *      GetRecoveryDataRequests by unclogging backups a bit.
@@ -76,6 +78,8 @@ ReplicatedSegment::ReplicatedSegment(Context* context,
                                      bool normalLogSegment,
                                      ServerId masterId,
                                      uint32_t numReplicas,
+                                     Tub<CycleCounter<RawMetric>>*
+                                                             replicationCounter,
                                      uint32_t maxBytesPerWriteRpc)
     : Task(taskQueue)
     , context(context)
@@ -100,6 +104,7 @@ ReplicatedSegment::ReplicatedSegment(Context* context,
     , precedingSegmentOpenCommitted(true)
     , recoveringFromLostOpenReplicas(false)
     , listEntries()
+    , replicationCounter(replicationCounter)
     , replicas(numReplicas)
 {
     openLen = segment->getAppendedLength(openingWriteCertificate);
@@ -428,6 +433,15 @@ ReplicatedSegment::performTask()
             // possible or performWrite() won't schedule it, but it also
             // isn't synced since it is recovering.
             schedule();
+        }
+    }
+    if (replicationCounter) {
+        if (writeRpcsInFlight > 0) {
+            if (!*replicationCounter)
+                replicationCounter->
+                    construct(&metrics->master.replicationTicks);
+        } else {
+                replicationCounter->destroy();
         }
     }
 }
