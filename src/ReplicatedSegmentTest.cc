@@ -829,11 +829,11 @@ TEST_F(ReplicatedSegmentTest, swapSegmentThenBackupFailure) {
     newSegment.getAppendedLength(certificate);
 
     EXPECT_TRUE(transport.outputMatches(0, MockTransport::SEND_REQUEST,
-        WrReq{{BACKUP_WRITE, BACKUP_SERVICE},
+        WrReq{{BACKUP_WRITE, BACKUP_SERVICE, 0},
                  999, 888, 0, 0, 10, true, false, false, false, empty},
                 "new conten", 10));
     EXPECT_TRUE(transport.outputMatches(1, MockTransport::SEND_REQUEST,
-        WrReq{{BACKUP_WRITE, BACKUP_SERVICE},
+        WrReq{{BACKUP_WRITE, BACKUP_SERVICE, 0},
                  999, 888, 0, 10, 3, false, true, false, true, certificate},
                 "t!", 3));
 }
