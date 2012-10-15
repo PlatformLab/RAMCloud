@@ -165,7 +165,7 @@ TEST_F(ReplicaManagerTest, writeSegment) {
     ProtoBuf::Tablets will;
     ProtoBuf::Tablets::Tablet& tablet(*will.add_tablet());
     tablet.set_table_id(123);
-    HashType keyHash = Key::getHash(123, "10", 2);
+    KeyHash keyHash = Key::getHash(123, "10", 2);
     tablet.set_start_key_hash(keyHash);
     tablet.set_end_key_hash(keyHash);
 

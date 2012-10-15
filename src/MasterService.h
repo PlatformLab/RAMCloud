@@ -312,10 +312,10 @@ class MasterService : public Service, LogEntryHandlers {
                                                 void *cookie);
 
     Table* getTable(Key& key) __attribute__((warn_unused_result));
-    Table* getTableForHash(uint64_t tableId, HashType keyHash)
+    Table* getTableForHash(uint64_t tableId, KeyHash keyHash)
         __attribute__((warn_unused_result));
     ProtoBuf::Tablets::Tablet const* getTabletForHash(uint64_t tableId,
-                                                      HashType keyHash)
+                                                      KeyHash keyHash)
         __attribute__((warn_unused_result));
     Status rejectOperation(const RejectRules& rejectRules, uint64_t version)
         __attribute__((warn_unused_result));

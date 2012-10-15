@@ -101,5 +101,33 @@ regsub(const string& subject, const string& pattern, const string& replacement)
     return result;
 }
 
+/**
+ * Take the binary string given and convert it into a printable string.
+ * Any printable ASCII characters (including space, but not other
+ * whitespace) will be unchanged. Any non-printable characters will
+ * be represented in escaped hexadecimal form, for example "\xf8\x07".
+ *
+ * \param input
+ *      Pointer to some memory that may or may not contain ascii
+ *      characters.
+ * \param length
+ *      Length of the input in bytes.
+ */
+string
+binaryToString(const void* input, uint32_t length)
+{
+    string s = "";
+    const unsigned char* c = reinterpret_cast<const unsigned char*>(input);
+
+    for (uint16_t i = 0; i < length; i++) {
+        if (isprint(c[i]))
+            s += c[i];
+        else
+            s += format("\\x%02x", static_cast<uint32_t>(c[i]));
+    }
+
+    return s;
+}
+
 } // namespace StringUtil
 } // namespace RAMCloud

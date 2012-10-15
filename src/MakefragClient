@@ -28,6 +28,7 @@ CLIENT_SRCFILES := \
 		   src/FailSession.cc \
 		   src/FastTransport.cc \
 		   src/IpAddress.cc \
+           src/Key.cc \
 		   src/Logger.cc \
 		   src/MacAddress.cc \
 		   src/LargeBlockOfMemory.cc \

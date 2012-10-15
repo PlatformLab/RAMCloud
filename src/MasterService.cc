@@ -2106,7 +2106,7 @@ MasterService::getTable(Key& key)
  *      or NULL if this master does not own the tablet.
  */
 Table*
-MasterService::getTableForHash(uint64_t tableId, HashType keyHash)
+MasterService::getTableForHash(uint64_t tableId, KeyHash keyHash)
 {
     ProtoBuf::Tablets::Tablet const* tablet = getTabletForHash(tableId,
                                                                keyHash);
@@ -2132,7 +2132,7 @@ MasterService::getTableForHash(uint64_t tableId, HashType keyHash)
  *      or NULL if this master does not own the tablet.
  */
 ProtoBuf::Tablets::Tablet const*
-MasterService::getTabletForHash(uint64_t tableId, HashType keyHash)
+MasterService::getTabletForHash(uint64_t tableId, KeyHash keyHash)
 {
     foreach (const ProtoBuf::Tablets::Tablet& tablet, tablets.tablet()) {
         if (tablet.table_id() == tableId &&

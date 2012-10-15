@@ -103,7 +103,7 @@ TEST_F(ObjectFinderTest, lookup_key) {
 }
 
 TEST_F(ObjectFinderTest, lookup_hash) {
-    HashType keyHash = Key::getHash(1, "testKey", 7);
+    KeyHash keyHash = Key::getHash(1, "testKey", 7);
     Transport::SessionRef session(objectFinder->lookup(1, keyHash));
     // first tablet map is empty, throws TableDoesntExistException
     // get a new tablet map

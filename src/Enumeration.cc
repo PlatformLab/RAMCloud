@@ -69,7 +69,7 @@ enumerateBucket(uint64_t reference, void* cookie)
 
     // Filter objects by table and tablet hash range.
     Key key(type, buffer);
-    HashType keyHash = key.getHash();
+    KeyHash keyHash = key.getHash();
     if (key.getTableId() != args.tableId ||
         keyHash < args.requestedTabletStartHash ||
         args.iter->top().tabletEndHash < keyHash) {
@@ -178,13 +178,13 @@ class ObjectHashComparator {
         Buffer firstBuffer;
         firstType = log.getEntry(firstRef, firstBuffer);
         Key firstKey(firstType, firstBuffer);
-        HashType firstHash = firstKey.getHash();
+        KeyHash firstHash = firstKey.getHash();
 
         LogEntryType secondType;
         Buffer secondBuffer;
         secondType = log.getEntry(secondRef, secondBuffer);
         Key secondKey(secondType, secondBuffer);
-        HashType secondHash = secondKey.getHash();
+        KeyHash secondHash = secondKey.getHash();
 
         return firstHash < secondHash;
     }
@@ -307,7 +307,7 @@ Enumeration::complete()
                 Buffer buffer;
                 type = log.getEntry(objectRefs[overflow], buffer);
                 Key key(type, buffer);
-                HashType nextHash = key.getHash();
+                KeyHash nextHash = key.getHash();
                 iter.top().bucketNextHash = nextHash;
             }
         }

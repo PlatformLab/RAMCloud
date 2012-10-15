@@ -56,7 +56,7 @@ TEST_F(KeyTest, constructor_fromLog)
     EXPECT_FALSE(key2.hash);
     EXPECT_FALSE(key3.hash);
 
-    EXPECT_THROW(Key(LOG_ENTRY_TYPE_SEGHEADER, buffer), KeyException);
+    EXPECT_THROW(Key(LOG_ENTRY_TYPE_SEGHEADER, buffer), FatalError);
 }
 
 TEST_F(KeyTest, constructor_fromBuffer)
@@ -153,14 +153,6 @@ TEST_F(KeyTest, toString) {
     EXPECT_EQ("<tableId: 814, stringKey: \"binary key\\xaa\\x0a\", "
               "stringKeyLength: 12, hash: 0xcd0488aea78d5f31>",
               Key(814, "binary key\xaa\x0a", 12).toString());
-}
-
-TEST_F(KeyTest, printableBinaryString) {
-    EXPECT_EQ("\\x00\\x01\\xfe\\xff",
-        Key::printableBinaryString("\x00\x01\xfe\xff", 4));
-
-    EXPECT_EQ("there's binary\\x13\\x09crap in here",
-        Key::printableBinaryString("there's binary\x13\tcrap in here", 28));
 }
 
 } // namespace RAMCloud

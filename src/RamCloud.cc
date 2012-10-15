@@ -1283,7 +1283,7 @@ uint64_t
 RamCloud::testingGetServerId(uint64_t tableId,
                              const void* key, uint16_t keyLength)
 {
-    HashType keyHash = Key::getHash(tableId, key, keyLength);
+    KeyHash keyHash = Key::getHash(tableId, key, keyLength);
     return objectFinder.lookupTablet(tableId, keyHash).server_id();
 }
 
@@ -1299,7 +1299,7 @@ string
 RamCloud::testingGetServiceLocator(uint64_t tableId,
                                    const void* key, uint16_t keyLength)
 {
-    HashType keyHash = Key::getHash(tableId, key, keyLength);
+    KeyHash keyHash = Key::getHash(tableId, key, keyLength);
     return objectFinder.lookupTablet(tableId, keyHash).service_locator();
 }
 

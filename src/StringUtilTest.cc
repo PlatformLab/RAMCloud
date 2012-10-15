@@ -53,5 +53,12 @@ TEST(StringUtilTest, regsub) {
             regsub("no match here", "xyzzy", "0"));
 }
 
+TEST(StringUtilTest, binaryToString) {
+    EXPECT_EQ("\\x00\\x01\\xfe\\xff",
+        binaryToString("\x00\x01\xfe\xff", 4));
+
+    EXPECT_EQ("there's binary\\x13\\x09crap in here",
+        binaryToString("there's binary\x13\tcrap in here", 28));
+}
 
 }  // namespace RAMCloud

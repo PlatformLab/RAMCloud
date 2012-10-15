@@ -72,7 +72,7 @@ ObjectFinder::ObjectFinder(Context* context)
  */
 Transport::SessionRef
 ObjectFinder::lookup(uint64_t table, const void* key, uint16_t keyLength) {
-    HashType keyHash = Key::getHash(table, key, keyLength);
+    KeyHash keyHash = Key::getHash(table, key, keyLength);
 
     return lookup(table, keyHash);
 }
@@ -92,7 +92,7 @@ ObjectFinder::lookup(uint64_t table, const void* key, uint16_t keyLength) {
  *      The coordinator has no record of the table.
  */
 Transport::SessionRef
-ObjectFinder::lookup(uint64_t table, HashType keyHash)
+ObjectFinder::lookup(uint64_t table, KeyHash keyHash)
 {
     return context->transportManager->getSession(
                 lookupTablet(table, keyHash).service_locator().c_str());
@@ -117,7 +117,7 @@ ObjectFinder::lookup(uint64_t table, HashType keyHash)
  *      The coordinator has no record of the table.
  */
 const ProtoBuf::Tablets::Tablet&
-ObjectFinder::lookupTablet(uint64_t table, HashType keyHash)
+ObjectFinder::lookupTablet(uint64_t table, KeyHash keyHash)
 {
     /*
     * The control flow in here is a bit tricky:

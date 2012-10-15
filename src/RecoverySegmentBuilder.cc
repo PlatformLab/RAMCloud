@@ -118,7 +118,7 @@ RecoverySegmentBuilder::build(const void* buffer, uint32_t length,
             continue;
         }
 
-        HashType keyHash = -1;
+        KeyHash keyHash = -1;
         if (type == LOG_ENTRY_TYPE_OBJ) {
             Object object(entryBuffer);
             tableId = object.getTableId();
@@ -268,7 +268,7 @@ RecoverySegmentBuilder::isEntryAlive(const Log::Position& position,
  *      by \a partitions NULL is returned.
  */
 const ProtoBuf::Tablets::Tablet*
-RecoverySegmentBuilder::whichPartition(uint64_t tableId, HashType keyHash,
+RecoverySegmentBuilder::whichPartition(uint64_t tableId, KeyHash keyHash,
                                        const ProtoBuf::Tablets& partitions)
 {
     for (int i = 0; i < partitions.tablet_size(); i++) {
