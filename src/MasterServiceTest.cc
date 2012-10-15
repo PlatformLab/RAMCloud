@@ -1964,13 +1964,13 @@ TEST_F(MasterServiceTest, objectRelocationCallback_objectModified) {
 }
 
 static bool
-containsSegment(string s)
+segmentExists(string s)
 {
-    return s == "containsSegment";
+    return s == "segmentExists";
 }
 
 TEST_F(MasterServiceTest, tombstoneRelocationCallback_basics) {
-    TestLog::Enable _(&containsSegment);
+    TestLog::Enable _(&segmentExists);
     Key key(0, "key0", 4);
     uint64_t version;
 
@@ -2016,8 +2016,8 @@ TEST_F(MasterServiceTest, tombstoneRelocationCallback_basics) {
     EXPECT_TRUE(relocator.didAppend);
 
     // Check that tombstoneRelocationCallback() is checking the liveness
-    // of the right segment (in log->containsSegment() function call).
-    string comparisonString = "containsSegment: " +
+    // of the right segment (in log->segmentExists() function call).
+    string comparisonString = "segmentExists: " +
             format("%lu", service->log->getSegmentId(oldTombstoneReference));
     EXPECT_EQ(comparisonString, TestLog::get());
 }

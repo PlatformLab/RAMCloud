@@ -159,12 +159,12 @@ Log::append(AppendVector* appends, uint32_t numAppends)
 
     LogSegment* headBefore = head;
     for (uint32_t i = 0; i < numAppends; i++) {
-        bool success = append(lock,
-                              appends[i].type,
-                              appends[i].timestamp,
-                              appends[i].buffer,
-                              &appends[i].reference);
-        if (!success)
+        bool enoughSpace = append(lock,
+                                  appends[i].type,
+                                  appends[i].timestamp,
+                                  appends[i].buffer,
+                                  &appends[i].reference);
+        if (!enoughSpace)
             throw FatalError(HERE, "Guaranteed append managed to fail");
     }
     assert(head == headBefore);
@@ -173,14 +173,21 @@ Log::append(AppendVector* appends, uint32_t numAppends)
 }
 
 /**
- * Mark bytes in log as freed. When a previously-appended entry is no longer
- * needed, this method may be used to notify the log that it may garbage
- * collect it.
+ * This method is invoked when a log entry is no longer needed (for example, an
+ * object that has been deleted). This method does not change anything in the
+ * log itself, but it is used to keep track of free space in segments to help
+ * the cleaner identify good candidates for cleaning.
+ *
+ * Free should be called only once for each entry. Behaviour is undefined if
+ * it is called more than once on the same reference.
+ *
+ * \param reference
+ *      Reference to the entry being freed.
  */
 void
 Log::free(Reference reference)
 {
-    uint32_t slot = reference.getSlot(segmentSize);
+    SegmentManager::Slot slot = reference.getSlot(segmentSize);
     uint32_t offset = reference.getOffset(segmentSize);
     LogSegment& segment = segmentManager[slot];
     Buffer buffer;
@@ -208,25 +215,26 @@ Log::free(Reference reference)
 LogEntryType
 Log::getEntry(Reference reference, Buffer& outBuffer)
 {
-    uint32_t slot = reference.getSlot(segmentSize);
+    SegmentManager::Slot slot = reference.getSlot(segmentSize);
     uint32_t offset = reference.getOffset(segmentSize);
     return segmentManager[slot].getEntry(offset, outBuffer);
 }
 
 /**
- * Wait for all segment contents at the time this method is invoked to be fully
- * replicated to backups. If there has never been a head segment, allocate one
- * and sync it.
+ * Wait for all log appends made at the time this method is invoked to be fully
+ * replicated to backups. If no appends have ever been done, this method will
+ * allocate the first log head and sync it to backups.
  *
  * This method is thread-safe. If no sync operation is currently underway, the
  * caller will fully sync the log and return. Doing so will propagate any
  * appends done since the last sync, including those performed by other threads.
  *
- * If a sync operation is underway, this method will block until it completes.
- * Afterwards it will either return immediately if a previous call did the work
- * for us, or if more replication is needed, it will sync the full log contents
- * at that time, including any appends made since this method started waiting.
- * This lets us batch backup writes and improve throughput for small entries.
+ * If a sync operation is already underway, this method will block until it
+ * completes. Afterwards it will either return immediately if a previous call
+ * did the work for us, or, if more replication is needed, it will sync the full
+ * log contents at that time, including any appends made since this method
+ * started waiting. This lets us batch backup writes and improve throughput for
+ * small entries.
  *
  * An alternative to batching writes would have been to pipeline replication
  * RPCs to backups. That would probably also work just fine, but results in
@@ -303,7 +311,7 @@ Log::sync()
 uint64_t
 Log::getSegmentId(Reference reference)
 {
-    uint32_t slot = reference.getSlot(segmentSize);
+    SegmentManager::Slot slot = reference.getSlot(segmentSize);
     return segmentManager[slot].id;
 }
 
@@ -343,7 +351,7 @@ Log::rollHeadOver()
  *      True if the given segment is present in the log, otherwise false.
  */
 bool
-Log::containsSegment(uint64_t segmentId)
+Log::segmentExists(uint64_t segmentId)
 {
     TEST_LOG("%lu", segmentId);
     return segmentManager.doesIdExist(segmentId);
@@ -354,7 +362,7 @@ Log::containsSegment(uint64_t segmentId)
  ******************************************************************************/
 
 /**
- * Append a typed entry to the log by coping in the data. Entries are binary
+ * Append a typed entry to the log by copying in the data. Entries are binary
  * blobs described by a simple <type, length> tuple.
  *
  * Note that the append operation is not synchronous. To ensure that the data
@@ -373,14 +381,14 @@ Log::containsSegment(uint64_t segmentId)
  * \param buffer
  *      Pointer to buffer containing the entry to be appended.
  * \param length
- *      Number of bytes to append from the provided buffer.
+ *      Size of the entry pointed to by #buffer in bytes.
  * \param[out] outReference
  *      If the append succeeds, a reference to the created entry is returned
  *      here. This reference may be used to access the appended entry via the
  *      lookup method. It may also be inserted into a HashTable.
  * \return
- *      True if the append succeeded, false if there was either insufficient
- *      space to complete the operation.
+ *      True if the append succeeded, false if there was insufficient space
+ *      to complete the operation.
  */
 bool
 Log::append(Lock& appendLock,
@@ -402,8 +410,8 @@ Log::append(Lock& appendLock,
     // Try to append. If we can't, try to allocate a new head to get more space.
     uint32_t segmentOffset;
     uint32_t bytesUsedBefore = head->getAppendedLength();
-    bool success = head->append(type, buffer, length, &segmentOffset);
-    if (!success) {
+    bool enoughSpace = head->append(type, buffer, length, &segmentOffset);
+    if (!enoughSpace) {
         LogSegment* newHead = segmentManager.allocHead(false);
         if (newHead != NULL)
             head = newHead;
@@ -464,15 +472,14 @@ Log::append(Lock& appendLock,
  *      Creation time of the entry, as provided by WallTime. This is used by the
  *      log cleaner to choose more optimal segments to garbage collect from.
  * \param buffer
- *      Buffer object describing the entry to be appended.
+ *      Buffer object containing the entry to be appended.
  * \param[out] outReference
  *      If the append succeeds, a reference to the created entry is returned
  *      here. This reference may be used to access the appended entry via the
  *      lookup method. It may also be inserted into a HashTable.
  * \return
- *      True if the append succeeded, false if there was either insufficient
- *      space to complete the operation or the requested append was larger
- *      than the system supports.
+ *      True if the append succeeded, false if there was insufficient space to
+ *      complete the operation.
  */
 bool
 Log::append(Lock& appendLock,

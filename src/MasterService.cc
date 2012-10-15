@@ -2332,7 +2332,7 @@ MasterService::relocateTombstone(Buffer& oldBuffer,
     ObjectTombstone tomb(oldBuffer);
 
     // See if the object this tombstone refers to is still in the log.
-    bool keepNewTomb = log->containsSegment(tomb.getSegmentId());
+    bool keepNewTomb = log->segmentExists(tomb.getSegmentId());
 
     if (keepNewTomb) {
         // Try to relocate it. If it fails, just return. The cleaner will

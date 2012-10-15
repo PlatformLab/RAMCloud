@@ -251,18 +251,18 @@ TEST_F(LogTest, rollHeadOver) {
     EXPECT_NE(oldHead, l.head);
 }
 
-TEST_F(LogTest, containsSegment) {
-    EXPECT_TRUE(l.containsSegment(0));
-    EXPECT_FALSE(l.containsSegment(1));
+TEST_F(LogTest, segmentExists) {
+    EXPECT_TRUE(l.segmentExists(0));
+    EXPECT_FALSE(l.segmentExists(1));
 
     char data[1000];
     while (l.head == NULL || l.head->id == 0)
         l.append(LOG_ENTRY_TYPE_OBJ, 0, data, sizeof(data));
     l.sync();
 
-    EXPECT_TRUE(l.containsSegment(0));
-    EXPECT_TRUE(l.containsSegment(1));
-    EXPECT_FALSE(l.containsSegment(2));
+    EXPECT_TRUE(l.segmentExists(0));
+    EXPECT_TRUE(l.segmentExists(1));
+    EXPECT_FALSE(l.segmentExists(2));
 }
 
 TEST_F(LogTest, reference_constructors) {

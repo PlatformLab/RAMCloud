@@ -141,7 +141,9 @@ class Log {
         {
         }
 
-        Reference(uint32_t slot, uint32_t offset, uint32_t segmentSize)
+        Reference(SegmentManager::Slot slot,
+                  uint32_t offset,
+                  uint32_t segmentSize)
             : value(0)
         {
             assert(offset < segmentSize);
@@ -255,7 +257,7 @@ class Log {
     void sync();
     uint64_t getSegmentId(Reference reference);
     Log::Position rollHeadOver();
-    bool containsSegment(uint64_t segmentId);
+    bool segmentExists(uint64_t segmentId);
 
     /*
      * The following overloaded append() methods are for convenience. Fast path

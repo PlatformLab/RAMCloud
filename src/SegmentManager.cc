@@ -35,7 +35,8 @@ namespace RAMCloud {
  *      and the disk expansion factor.
  * \param logId
  *      Identifier of the log this object will manage. Used to stamp segments
- *      so they can be later identified on backups.
+ *      so they can be later identified on backups. Since there is one log per
+ *      master server, the log id is always equal to the server id.
  * \param allocator
  *      SegletAllocator to use to allocate memory from when constructing new log
  *      segments.
