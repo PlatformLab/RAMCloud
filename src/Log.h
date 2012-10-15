@@ -36,17 +36,7 @@ namespace RAMCloud {
 
 // Forward declare our way around header dependency fun.
 class LogCleaner;
-
 class ServerConfig;
-
-/**
- * An exception that is thrown when the Log class is provided invalid
- * method arguments.
- */
-struct LogException : public Exception {
-    LogException(const CodeLocation& where, std::string msg)
-        : Exception(where, msg) {}
-};
 
 /**
  * The log provides a replicated store for immutable and relocatable data in
@@ -59,15 +49,22 @@ struct LogException : public Exception {
  * The cleaner requires that entries be relocatable to deal with fragmentation.
  * That is, it may decide to copy an entry to another location in memory and
  * tell the module that appended it to update any references and stop using the
- * old location. A set of callbacks are invoked by the cleaner to test if
- * entries are still alive to and notify the user of the log when an entry has
- * been moved to another log location. See the LogEntryHandlers interface for
- * more details.
+ * old location. Callbacks are invoked by the cleaner to move entries and update
+ * references.  See the LogEntryHandlers interface for more details.
  *
  * This particular class provides a simple, thin interface for users of logs.
  * Much of the internals, most of which have to deal with replication and
  * cleaning, are handled by a suite of related classes such as Segment,
  * SegmentManager, LogCleaner, ReplicaManager, and BackupFailureMonitor.
+ *
+ * Note that appending an entry does not guarantee that it has been durably
+ * replicated. If the data must be made durable before continuing, code must
+ * explicitly invoke the sync() method to flush all previous appends to backups.
+ *
+ * This class is thread-safe. Multiple threads may invoke append() in parallel,
+ * but all appends are serialized by a single SpinLock. The sync() method will
+ * batch multiple append operations to backups to improve throughput, especially
+ * when individual entries are small.
  */
 class Log {
   public:

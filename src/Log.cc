@@ -130,6 +130,11 @@ Log::getMetrics(ProtoBuf::LogMetrics& m)
  * everything is written, or none of it is. Furthermore, recovery is
  * guaranteed to see either none or all of the entries.
  *
+ * Note that the append operation is not synchronous with respect to backups.
+ * To ensure that the data appended has been safely written to backups, the
+ * sync() method must be invoked after appending. Until sync() is called, the
+ * data may or may not have been made durable.
+ *
  * \param appends
  *      Array containing the entries to append. References to the entries
  *      are also returned here.
@@ -155,7 +160,7 @@ Log::append(AppendVector* appends, uint32_t numAppends)
         return false;
 
     if (!head->hasSpaceFor(lengths, numAppends))
-        throw LogException(HERE, "too much data to append to one segment");
+        throw FatalError(HERE, "too much data to append to one segment");
 
     LogSegment* headBefore = head;
     for (uint32_t i = 0; i < numAppends; i++) {
@@ -365,9 +370,10 @@ Log::segmentExists(uint64_t segmentId)
  * Append a typed entry to the log by copying in the data. Entries are binary
  * blobs described by a simple <type, length> tuple.
  *
- * Note that the append operation is not synchronous. To ensure that the data
- * appended has been safely written to backups, the sync() method must be
- * invoked after appending.
+ * Note that the append operation is not synchronous with respect to backups.
+ * To ensure that the data appended has been safely written to backups, the
+ * sync() method must be invoked after appending. Until sync() is called, the
+ * data may or may not have been made durable.
  *
  * \param appendLock
  *      The append lock must have already been acquired before entering this
@@ -458,9 +464,10 @@ Log::append(Lock& appendLock,
  * Append a typed entry to the log by coping in the data. Entries are binary
  * blobs described by a simple <type, length> tuple.
  *
- * Note that the append operation is not synchronous. To ensure that the data
- * appended has been safely written to backups, the sync() method must be
- * invoked after appending.
+ * Note that the append operation is not synchronous with respect to backups.
+ * To ensure that the data appended has been safely written to backups, the
+ * sync() method must be invoked after appending. Until sync() is called, the
+ * data may or may not have been made durable.
  *
  * \param appendLock
  *      The append lock must have already been acquired before entering this
