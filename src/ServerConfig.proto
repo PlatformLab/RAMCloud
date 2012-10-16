@@ -1,0 +1,104 @@
+/* Copyright (c) 2012 Stanford University
+ *
+ * Permission to use, copy, modify, and distribute this software for any
+ * purpose with or without fee is hereby granted, provided that the above
+ * copyright notice and this permission notice appear in all copies.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR(S) DISCLAIM ALL WARRANTIES
+ * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+ * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL AUTHORS BE LIABLE FOR
+ * ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+ * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+ * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+ */
+
+package RAMCloud.ProtoBuf;
+
+/// Configuration details for a server. This is a serialized form of all fields
+/// in the ServerConfig class.
+message ServerConfig {
+    /// A locator the server can use to contact the cluster coordinator.
+    required string coordinator_locator = 1;
+
+    /// The locator the server should listen for incoming messages on.
+    required string local_locator = 2;
+
+    /// Tag given to replicas stored on this backup. See the ServerConfig class
+    /// documentation for more details. 
+    required string cluster_name = 3;
+
+    /// Which services this server is running.
+    required string services = 4;
+
+    /// Whether the failure detection thread should be started.
+    required bool detect_failures = 5;
+
+    /// All memory in the process is pinned.
+    required bool pin_memory = 6;
+
+    /// Size of each segment in bytes.
+    required fixed32 segment_size = 7;
+
+    /// Size of each seglet in bytes.
+    required fixed32 seglet_size = 8;
+
+    /// Largest allowable RAMCloud object, in bytes. 
+    required fixed32 max_object_data_size = 9;
+
+    /// Largest allowable key for a RAMCloud object, in bytes.
+    required fixed32 max_object_key_size = 10;
+
+    /// Configuration details specific to the MasterService on a server.
+    message Master {
+        /// Total number bytes to use for the in-memory Log.
+        required fixed64 log_bytes = 1;
+
+        /// Total number of bytes to use for the HashTable.
+        required fixed64 hash_table_bytes = 2;
+
+        /// If true, disable the log cleaner entirely.
+        required bool disable_log_cleaner = 3;
+
+        /// If true, disable in-memory cleaning and always do disk cleaning.
+        required bool disable_in_memory_cleaning = 4;
+
+        /// Determines how much space may be used on backup disks, as a multiple
+        /// of the in-memory log size.
+        required double backup_disk_expansion_factor = 5;
+
+        /// If in-memory cleaning is enabled, this specifies the balance between
+        /// in-memory and disk cleaning.
+        required fixed32 cleaner_write_cost_threshold = 6;
+
+        /// Number of replicas to keep per segment stored on backups.
+        required fixed32 num_replicas = 7;
+    }
+    
+    /// The server's MasterService configuration, if it is running one.
+    optional Master master = 11;
+
+    message Backup {
+        /// Whether the backup garbage collector is enabled or not.
+        required bool gc = 1;
+
+        /// Whether the BackupService should store replicas in RAM or on disk.
+        required bool in_memory = 2;
+
+        /// Number of replica-sized storage chunks to allocate on the backup's
+        /// backing store.
+        required fixed32 num_segment_frames = 3;
+
+        /// Path to a file to use for the backing store if inMemory is false.
+        optional string file = 4;
+
+        /// BackupStrategy to use for balancing replicas across backups.
+        required int32 strategy = 5;
+
+        /// If non-0, the fake backup disk speed this server is advertising.
+        required fixed32 mock_speed = 6;
+    }
+
+    /// The server's BackupService configuration, if it is running one.
+    optional Backup backup = 12;
+}

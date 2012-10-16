@@ -52,7 +52,7 @@ struct BackupMasterRecoveryTest : public ::testing::Test {
             (1, 11lu, ~0lu, TabletsBuilder::NORMAL, 1lu)  // partition 1
             (2, 0lu, ~0lu, TabletsBuilder::NORMAL, 0lu)  // partition 0
             (3, 0lu, ~0lu, TabletsBuilder::NORMAL, 0lu); // partition 0
-        source.appendTo("test", 5);
+        source.append("test", 5);
         recovery.construct(taskQueue, 456lu, ServerId{99, 0}, segmentSize);
     }
 
@@ -79,12 +79,12 @@ namespace {
 bool mockExtractDigest(uint64_t segmentId, Buffer* digestBuffer) {
     if (segmentId == 92lu) {
         digestBuffer->reset();
-        digestBuffer->appendTo("digest", 7);
+        digestBuffer->append("digest", 7);
         return true;
     }
     if (segmentId == 93lu) {
         digestBuffer->reset();
-        digestBuffer->appendTo("not digest", 11);
+        digestBuffer->append("not digest", 11);
         return true;
     }
     return false;
@@ -255,10 +255,9 @@ TEST_F(BackupMasterRecoveryTest, getRecoverySegment) {
     status = recovery->getRecoverySegment(456, 88, 0, NULL, NULL);
     EXPECT_EQ(STATUS_OK, status);
     Buffer buffer;
-    buffer.appendTo("important", 10);
-    uint32_t outOffset;
+    buffer.append("important", 10);
     ASSERT_TRUE(recovery->replicas[1].recoverySegments[0].append(
-        LOG_ENTRY_TYPE_OBJ, buffer, 0, 10, outOffset));
+        LOG_ENTRY_TYPE_OBJ, buffer));
     buffer.reset();
     Segment::Certificate certificate;
     memset(&certificate, 0xff, sizeof(certificate));
@@ -308,7 +307,8 @@ TEST_F(BackupMasterRecoveryTest, free) {
 }
 
 TEST_F(BackupMasterRecoveryTest, performTask) {
-    mockMetadata(88);
+    mockMetadata(88, true, true);
+    mockMetadata(89, true, false);
     recovery->testingSkipBuild = true;
     recovery->start(frames, NULL, NULL);
     recovery->setPartitionsAndSchedule(partitions);
@@ -316,7 +316,7 @@ TEST_F(BackupMasterRecoveryTest, performTask) {
     taskQueue.performTask();
     EXPECT_EQ(
         "schedule: scheduled | "
-        "performTask: Loaded 88, building | "
+        "performTask: Starting to build recovery segments for (<99.0,88>) | "
         "buildRecoverySegments: <99.0,88> recovery segments took 0 ms to "
             "construct, notifying other threads | "
         "performTask: Done building recovery segments for (<99.0,88>)",

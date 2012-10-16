@@ -62,7 +62,7 @@ TEST_F(KeyTest, constructor_fromLog)
 TEST_F(KeyTest, constructor_fromBuffer)
 {
     Buffer buffer;
-    buffer.appendTo("woops", 6);
+    buffer.append("woops", 6);
 
     Key key(48, buffer, 0, 6);
     EXPECT_EQ(48U, key.getTableId());

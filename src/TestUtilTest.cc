@@ -65,11 +65,9 @@ TEST_F(TestUtilTest, toString_stringNotTerminated) {
 
 TEST_F(TestUtilTest, bufferToDebugString) {
     Buffer b;
-    Buffer::Chunk::appendToBuffer(&b, "abc\nxyz", 7);
-    Buffer::Chunk::appendToBuffer(&b,
-        "0123456789012345678901234567890abcdefg",
-        37);
-    Buffer::Chunk::appendToBuffer(&b, "xyz", 3);
+    b.append("abc\nxyz", 7);
+    b.append("0123456789012345678901234567890abcdefg", 37);
+    b.append("xyz", 3);
     EXPECT_EQ("abc/nxyz | 01234567890123456789(+17 chars) " "| xyz",
               TestUtil::bufferToDebugString(&b));
 }

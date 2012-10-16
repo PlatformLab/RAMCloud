@@ -20,17 +20,17 @@
 #include "Log.h"
 #include "LogEntryTypes.h"
 #include "Memory.h"
+#include "ServerConfig.h"
 #include "StringUtil.h"
 #include "Transport.h"
 
 namespace RAMCloud {
 
-class DoNothingHandlers : public Log::EntryHandlers {
+class DoNothingHandlers : public LogEntryHandlers {
   public:
     uint32_t getTimestamp(LogEntryType type, Buffer& buffer) { return 0; }
-    bool checkLiveness(LogEntryType type, Buffer& buffer) { return true; }
-    bool relocate(LogEntryType type, Buffer& oldBuffer,
-                  HashTable::Reference newReference) { return true; }
+    void relocate(LogEntryType type, Buffer& oldBuffer,
+                  LogEntryRelocator& relocator) { }
 };
 
 /**
@@ -41,8 +41,9 @@ class LogTest : public ::testing::Test {
     Context context;
     ServerId serverId;
     ServerList serverList;
+    ServerConfig serverConfig;
     ReplicaManager replicaManager;
-    SegmentManager::Allocator allocator;
+    SegletAllocator allocator;
     SegmentManager segmentManager;
     DoNothingHandlers entryHandlers;
     Log l;
@@ -51,11 +52,14 @@ class LogTest : public ::testing::Test {
         : context(),
           serverId(ServerId(57, 0)),
           serverList(&context),
+          serverConfig(ServerConfig::forTesting()),
           replicaManager(&context, serverId, 0),
-          allocator(4 * 8192, 8192, 8192),
-          segmentManager(&context, serverId, allocator, replicaManager, 1.0),
+          allocator(serverConfig),
+          segmentManager(&context, serverConfig, serverId,
+                         allocator, replicaManager),
           entryHandlers(),
-          l(&context, entryHandlers, segmentManager, replicaManager, true)
+          l(&context, serverConfig, entryHandlers,
+            segmentManager, replicaManager)
     {
         l.sync();
     }
@@ -64,43 +68,58 @@ class LogTest : public ::testing::Test {
     DISALLOW_COPY_AND_ASSIGN(LogTest);
 };
 
-TEST_F(LogTest, constructor_cleaner)
-{
-    Log l2(&context, entryHandlers, segmentManager, replicaManager, false);
+TEST_F(LogTest, constructor) {
+    SegletAllocator allocator2(serverConfig);
+    SegmentManager segmentManager2(&context, serverConfig, serverId,
+                                   allocator2, replicaManager);
+    Log l2(&context, serverConfig, entryHandlers,
+           segmentManager2, replicaManager);
     EXPECT_EQ(static_cast<LogSegment*>(NULL), l2.head);
-    EXPECT_TRUE(l2.cleaner);
 }
 
-TEST_F(LogTest, constructor_noCleaner)
-{
-    Log l2(&context, entryHandlers, segmentManager, replicaManager, true);
-    EXPECT_EQ(static_cast<LogSegment*>(NULL), l2.head);
-    EXPECT_FALSE(l2.cleaner);
+TEST_F(LogTest, enableCleaner_and_disableCleaner) {
+    {
+        TestLog::Enable _;
+        l.enableCleaner();
+        usleep(100);
+        EXPECT_EQ("cleanerThreadEntry: LogCleaner thread started",
+            TestLog::get());
+    }
+
+    {
+        TestLog::Enable _;
+        l.disableCleaner();
+        usleep(100);
+        EXPECT_EQ("cleanerThreadEntry: LogCleaner thread stopping",
+            TestLog::get());
+    }
+
+    TestLog::Enable _;
+    l.disableCleaner();
+    l.disableCleaner();
+    usleep(100);
+    EXPECT_EQ("", TestLog::get());
 }
 
 TEST_F(LogTest, append_basic) {
-    char data[7000];
+    uint32_t dataLen = serverConfig.segmentSize / 2 + 1;
+    char* data = new char[dataLen];
     LogSegment* oldHead = l.head;
 
-    EXPECT_TRUE(l.append(LOG_ENTRY_TYPE_OBJ, data, sizeof(data), true));
-    EXPECT_EQ(oldHead, l.head);
-
-    EXPECT_TRUE(l.append(LOG_ENTRY_TYPE_OBJ, data, sizeof(data), true));
-    EXPECT_NE(oldHead, l.head);
-    oldHead = l.head;
-
-    EXPECT_TRUE(l.append(LOG_ENTRY_TYPE_OBJ, data, sizeof(data), true));
-    EXPECT_NE(oldHead, l.head);
-    oldHead = l.head;
-
-    EXPECT_TRUE(l.append(LOG_ENTRY_TYPE_OBJ, data, sizeof(data), true));
-    EXPECT_NE(oldHead, l.head);
-    oldHead = l.head;
-
-    EXPECT_FALSE(l.append(LOG_ENTRY_TYPE_OBJ, data, sizeof(data), true));
-    EXPECT_EQ(oldHead, l.head);
+    int appends = 0;
+    while (l.append(LOG_ENTRY_TYPE_OBJ, 0, data, dataLen, true)) {
+        if (appends++ == 0)
+            EXPECT_EQ(oldHead, l.head);
+        else
+            EXPECT_NE(oldHead, l.head);
+        oldHead = l.head;
+    }
+    // This depends on ServerConfig's number of bytes allocated to the log.
+    EXPECT_EQ(239, appends);
 
     // getEntry()'s test ensures actual data gets there.
+
+    delete[] data;
 }
 
 static bool
@@ -112,14 +131,19 @@ appendFilter(string s)
 TEST_F(LogTest, append_tooBigToEverFit) {
     TestLog::Enable _(appendFilter);
 
-    char data[8193];
+    char* data = new char[serverConfig.segmentSize + 1];
     LogSegment* oldHead = l.head;
 
-    EXPECT_THROW(l.append(LOG_ENTRY_TYPE_OBJ, data, sizeof(data), true),
+    EXPECT_THROW(l.append(LOG_ENTRY_TYPE_OBJ,
+                          0,
+                          data,
+                          serverConfig.segmentSize + 1,
+                          true),
         FatalError);
     EXPECT_NE(oldHead, l.head);
-    EXPECT_EQ("append: Entry too big to append to log: 8193 bytes of type 2",
+    EXPECT_EQ("append: Entry too big to append to log: 131073 bytes of type 2",
         TestLog::get());
+    delete[] data;
 }
 
 TEST_F(LogTest, free) {
@@ -129,13 +153,13 @@ TEST_F(LogTest, free) {
 TEST_F(LogTest, getEntry) {
     uint64_t data = 0x123456789ABCDEF0UL;
     Buffer sourceBuffer;
-    sourceBuffer.appendTo(&data, sizeof(data));
-    HashTable::Reference reference;
-    EXPECT_TRUE(l.append(LOG_ENTRY_TYPE_OBJ, sourceBuffer, false, reference));
+    sourceBuffer.append(&data, sizeof(data));
+    HashTable::Reference ref;
+    EXPECT_TRUE(l.append(LOG_ENTRY_TYPE_OBJ, 0, sourceBuffer, false, &ref));
 
     LogEntryType type;
     Buffer buffer;
-    type = l.getEntry(reference, buffer);
+    type = l.getEntry(ref, buffer);
     EXPECT_EQ(LOG_ENTRY_TYPE_OBJ, type);
     EXPECT_EQ(sizeof(data), buffer.getTotalLength());
     EXPECT_EQ(data, *buffer.getStart<uint64_t>());
@@ -154,32 +178,38 @@ TEST_F(LogTest, sync) {
 }
 
 TEST_F(LogTest, getHeadPosition) {
-    // unsynced should return <0, 0>...
-    Log l2(&context, entryHandlers, segmentManager, replicaManager, true);
-    EXPECT_EQ(Log::Position(0, 0), l2.getHeadPosition());
+    {
+        // unsynced should return <0, 0>...
+        SegletAllocator allocator2(serverConfig);
+        SegmentManager segmentManager2(&context, serverConfig, serverId,
+                                       allocator2, replicaManager);
+        Log l2(&context, serverConfig, entryHandlers,
+               segmentManager2, replicaManager);
+        EXPECT_EQ(Log::Position(0, 0), l2.getHeadPosition());
+    }
 
     // synced returns something else...
     EXPECT_EQ(Log::Position(0, 62), l.getHeadPosition());
 
     char data[1000];
-    l.append(LOG_ENTRY_TYPE_OBJ, data, sizeof(data), true);
+    l.append(LOG_ENTRY_TYPE_OBJ, 0, data, sizeof(data), true);
     EXPECT_EQ(Log::Position(0, 1065), l.getHeadPosition());
 
     while (l.getHeadPosition().getSegmentId() == 0)
-        l.append(LOG_ENTRY_TYPE_OBJ, data, sizeof(data), true);
+        l.append(LOG_ENTRY_TYPE_OBJ, 0, data, sizeof(data), true);
 
-    EXPECT_EQ(Log::Position(1, 1065), l.getHeadPosition());
+    EXPECT_EQ(Log::Position(1, 1073), l.getHeadPosition());
 }
 
 TEST_F(LogTest, getSegmentId) {
     Buffer buffer;
     char data[1000];
-    buffer.appendTo(data, sizeof(data));
+    buffer.append(data, sizeof(data));
     HashTable::Reference reference;
 
     int zero = 0, one = 0, other = 0;
     while (l.getHeadPosition().getSegmentId() == 0) {
-        EXPECT_TRUE(l.append(LOG_ENTRY_TYPE_OBJ, buffer, false, reference));
+        EXPECT_TRUE(l.append(LOG_ENTRY_TYPE_OBJ, 0, buffer, false, &reference));
         switch (l.getSegmentId(reference)) {
             case 0: zero++; break;
             case 1: one++; break;
@@ -187,7 +217,7 @@ TEST_F(LogTest, getSegmentId) {
         }
     }
 
-    EXPECT_EQ(8, zero);
+    EXPECT_EQ(130, zero);
     EXPECT_EQ(1, one);
     EXPECT_EQ(0, other);
 }
@@ -212,7 +242,7 @@ TEST_F(LogTest, containsSegment) {
 
     char data[1000];
     while (l.getHeadPosition().getSegmentId() == 0)
-        l.append(LOG_ENTRY_TYPE_OBJ, data, sizeof(data), true);
+        l.append(LOG_ENTRY_TYPE_OBJ, 0, data, sizeof(data), true);
 
     EXPECT_TRUE(l.containsSegment(0));
     EXPECT_TRUE(l.containsSegment(1));

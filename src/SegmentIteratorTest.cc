@@ -49,7 +49,7 @@ TEST_F(SegmentIteratorTest, constructor_fromSegment_empty) {
 }
 
 TEST_F(SegmentIteratorTest, constructor_fromSegment_nonEmpty) {
-    s.append(LOG_ENTRY_TYPE_OBJ, "hi", 2);
+    EXPECT_TRUE(s.append(LOG_ENTRY_TYPE_OBJ, "hi", 2));
 
     SegmentIterator it(s);
     EXPECT_FALSE(it.isDone());
@@ -78,11 +78,15 @@ TEST_F(SegmentIteratorTest, constructor_fromBuffer) {
     s.appendToBuffer(buffer);
     buffer.copy(0, buffer.getTotalLength(), buf);
 
+    // The original certificate (prior to the above append) should still
+    // work.
     {
         SegmentIterator it(buf, buffer.getTotalLength(), certificate);
         EXPECT_NO_THROW(it.checkMetadataIntegrity());
         EXPECT_TRUE(it.isDone());
     }
+
+    // The new certificate (including the above append) should also work.
     {
         s.getAppendedLength(certificate);
         SegmentIterator it(buf, buffer.getTotalLength(), certificate);
@@ -93,6 +97,9 @@ TEST_F(SegmentIteratorTest, constructor_fromBuffer) {
         it.next();
         EXPECT_TRUE(it.isDone());
     }
+
+    // The certificate should also work if the segment length given is larger
+    // than the actual contents.
     {
         s.getAppendedLength(certificate);
         SegmentIterator it(buf, sizeof(buf), certificate);
@@ -123,26 +130,36 @@ TEST_F(SegmentIteratorTest, isDone) {
 TEST_F(SegmentIteratorTest, next) {
     SegmentIterator it(s);
     EXPECT_EQ(0U, it.currentOffset);
+    EXPECT_EQ(s.getEntryHeader(0), it.currentHeader);
+    it.getLength();
+    EXPECT_TRUE(it.currentLength);
     it.next();
+    EXPECT_TRUE(it.currentLength);  // isDone() is true, so noop
     EXPECT_EQ(0U, it.currentOffset);
+    EXPECT_EQ(s.getEntryHeader(0), it.currentHeader);
 
     s.append(LOG_ENTRY_TYPE_OBJ, "blam", 5);
     // first iterator is no longer valid
 
     SegmentIterator it2(s);
+    it2.getLength();
+    EXPECT_TRUE(it2.currentLength);
     it2.next();
+    EXPECT_FALSE(it2.currentLength);
     EXPECT_EQ(7U, it2.currentOffset);
+    EXPECT_EQ(s.getEntryHeader(7), it2.currentHeader);
 
     it2.next();
     EXPECT_EQ(7U, it2.currentOffset);
+    EXPECT_EQ(s.getEntryHeader(7), it2.currentHeader);
     it2.next();
     EXPECT_EQ(7U, it2.currentOffset);
+    EXPECT_EQ(s.getEntryHeader(7), it2.currentHeader);
 }
 
 TEST_F(SegmentIteratorTest, getType) {
     s.append(LOG_ENTRY_TYPE_OBJ, "hi", 3);
     s.append(LOG_ENTRY_TYPE_OBJTOMB, "hi", 3);
-    // first iterator is no longer valid
 
     SegmentIterator it(s);
     EXPECT_EQ(LOG_ENTRY_TYPE_OBJ, it.getType());
@@ -154,7 +171,6 @@ TEST_F(SegmentIteratorTest, getType) {
 TEST_F(SegmentIteratorTest, getLength) {
     s.append(LOG_ENTRY_TYPE_OBJ, "hi", 3);
     s.append(LOG_ENTRY_TYPE_OBJTOMB, "hihi", 5);
-    // first iterator is no longer valid
 
     SegmentIterator it(s);
     EXPECT_EQ(3U, it.getLength());
@@ -175,7 +191,7 @@ TEST_F(SegmentIteratorTest, setBufferTo) {
     s.append(LOG_ENTRY_TYPE_OBJ, "this is the content", 20);
     SegmentIterator it(s);
     Buffer buffer;
-    buffer.appendTo("junk first", 11);
+    buffer.append("junk first", 11);
     it.setBufferTo(buffer);
     EXPECT_EQ(20U, buffer.getTotalLength());
     EXPECT_EQ(0, memcmp("this is the content", buffer.getRange(0, 20), 20));

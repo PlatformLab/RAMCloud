@@ -249,8 +249,7 @@ EnumerateTableRpc::EnumerateTableRpc(RamCloud* ramcloud, uint64_t tableId,
     reqHdr->tabletFirstHash = tabletFirstHash;
     reqHdr->iteratorBytes = state.getTotalLength();
     for (Buffer::Iterator it(state); !it.isDone(); it.next())
-        Buffer::Chunk::appendToBuffer(&request, it.getData(),
-                it.getLength());
+        request.append(it.getData(), it.getLength());
     send();
 }
 
@@ -298,6 +297,79 @@ EnumerateTableRpc::wait(Buffer& state)
     response->truncateEnd(respHdr->iteratorBytes);
 
     return result;
+}
+
+/**
+ * Retrieve various metrics from a master server's log module.
+ *
+ * \param serviceLocator
+ *      Selects the server, whose log metrics should be retrieved.
+ * \param[out] logMetrics
+ *      This protocol buffer is filled in with the server's log metrics.
+ *
+ * \throw TransportException
+ *       Thrown if an unrecoverable error occurred while communicating with
+ *       the target server.
+ */
+void
+RamCloud::getLogMetrics(const char* serviceLocator,
+                        ProtoBuf::LogMetrics& logMetrics)
+{
+    GetLogMetricsRpc rpc(this, serviceLocator);
+    rpc.wait(logMetrics);
+}
+
+/**
+ * Constructor for GetLogMetricsRpc: initiates an RPC in the same way as
+ * #RamCloud::getLogMetrics, but returns once the RPC has been initiated,
+ * without waiting for it to complete.
+ *
+ * \param ramcloud
+ *      The RAMCloud object that governs this RPC.
+ * \param serviceLocator
+ *      Selects the server, whose configuration should be retrieved.
+ */
+GetLogMetricsRpc::GetLogMetricsRpc(RamCloud* ramcloud,
+                                   const char* serviceLocator)
+    : RpcWrapper(sizeof(WireFormat::GetLogMetrics::Response))
+    , ramcloud(ramcloud)
+{
+    try {
+        session = ramcloud->clientContext->transportManager->getSession(
+                serviceLocator);
+    } catch (const TransportException& e) {
+        session = FailSession::get();
+    }
+    allocHeader<WireFormat::GetLogMetrics>();
+    send();
+}
+
+/**
+ * Wait for a getLogMetrics RPC to complete, and return the same results as
+ * #RamCloud::getLogMetrics.
+ *
+ * \param[out] logMetrics
+ *      This protocol buffer is filled in with the server's log metrics.
+ *
+ * \throw TransportException
+ *       Thrown if an unrecoverable error occurred while communicating with
+ *       the target server.
+ */
+void
+GetLogMetricsRpc::wait(ProtoBuf::LogMetrics& logMetrics)
+{
+    waitInternal(ramcloud->clientContext->dispatch);
+    if (getState() != RpcState::FINISHED) {
+        throw TransportException(HERE);
+    }
+    const WireFormat::GetLogMetrics::Response* respHdr(
+            getResponseHeader<WireFormat::GetLogMetrics>());
+
+    if (respHdr->common.status != STATUS_OK)
+        ClientException::throwException(HERE, respHdr->common.status);
+
+    ProtoBuf::parseFromResponse(response, sizeof(*respHdr),
+        respHdr->logMetricsLength, &logMetrics);
 }
 
 /**
@@ -450,6 +522,79 @@ GetMetricsLocatorRpc::wait()
     ServerMetrics metrics;
     metrics.load(*response);
     return metrics;
+}
+
+/**
+ * Retrieve a server's runtime configuration.
+ *
+ * \param serviceLocator
+ *      Selects the server, whose configuration should be retrieved.
+ * \param[out] serverConfig
+ *      This protocol buffer is filled in with the server's configuration.
+ *
+ * \throw TransportException
+ *       Thrown if an unrecoverable error occurred while communicating with
+ *       the target server.
+ */
+void
+RamCloud::getServerConfig(const char* serviceLocator,
+                          ProtoBuf::ServerConfig& serverConfig)
+{
+    GetServerConfigRpc rpc(this, serviceLocator);
+    rpc.wait(serverConfig);
+}
+
+/**
+ * Constructor for GetServerConfigRpc: initiates an RPC in the same way as
+ * #RamCloud::getServerConfig, but returns once the RPC has been initiated,
+ * without waiting for it to complete.
+ *
+ * \param ramcloud
+ *      The RAMCloud object that governs this RPC.
+ * \param serviceLocator
+ *      Selects the server, whose configuration should be retrieved.
+ */
+GetServerConfigRpc::GetServerConfigRpc(RamCloud* ramcloud,
+                                       const char* serviceLocator)
+    : RpcWrapper(sizeof(WireFormat::GetServerConfig::Response))
+    , ramcloud(ramcloud)
+{
+    try {
+        session = ramcloud->clientContext->transportManager->getSession(
+                serviceLocator);
+    } catch (const TransportException& e) {
+        session = FailSession::get();
+    }
+    allocHeader<WireFormat::GetServerConfig>();
+    send();
+}
+
+/**
+ * Wait for a getServerConfig RPC to complete, and return the same results as
+ * #RamCloud::getServerConfig.
+ *
+ * \param[out] serverConfig
+ *      This protocol buffer is filled in with the server's configuration.
+ *
+ * \throw TransportException
+ *       Thrown if an unrecoverable error occurred while communicating with
+ *       the target server.
+ */
+void
+GetServerConfigRpc::wait(ProtoBuf::ServerConfig& serverConfig)
+{
+    waitInternal(ramcloud->clientContext->dispatch);
+    if (getState() != RpcState::FINISHED) {
+        throw TransportException(HERE);
+    }
+    const WireFormat::GetServerConfig::Response* respHdr(
+            getResponseHeader<WireFormat::GetServerConfig>());
+
+    if (respHdr->common.status != STATUS_OK)
+        ClientException::throwException(HERE, respHdr->common.status);
+
+    ProtoBuf::parseFromResponse(response, sizeof(*respHdr),
+        respHdr->serverConfigLength, &serverConfig);
 }
 
 /**
@@ -676,7 +821,7 @@ IncrementRpc::IncrementRpc(RamCloud* ramcloud, uint64_t tableId,
     reqHdr->keyLength = keyLength;
     reqHdr->incrementValue = incrementValue;
     reqHdr->rejectRules = rejectRules ? *rejectRules : defaultRejectRules;
-    Buffer::Chunk::appendToBuffer(&request, key, keyLength);
+    request.append(key, keyLength);
     send();
 }
 
@@ -803,7 +948,7 @@ QuiesceRpc::QuiesceRpc(RamCloud* ramcloud)
             sizeof(WireFormat::BackupQuiesce::Response))
 {
     WireFormat::BackupQuiesce::Request* reqHdr(
-            allocHeader<WireFormat::BackupQuiesce>());
+            allocHeader<WireFormat::BackupQuiesce>(ServerId(0)));
     // By default this RPC is sent to the backup service; retarget it
     // for the coordinator service (which will forward it on to all
     // backups).
@@ -877,7 +1022,7 @@ ReadRpc::ReadRpc(RamCloud* ramcloud, uint64_t tableId,
     reqHdr->tableId = tableId;
     reqHdr->keyLength = keyLength;
     reqHdr->rejectRules = rejectRules ? *rejectRules : defaultRejectRules;
-    Buffer::Chunk::appendToBuffer(&request, key, keyLength);
+    request.append(key, keyLength);
     send();
 }
 
@@ -966,7 +1111,7 @@ RemoveRpc::RemoveRpc(RamCloud* ramcloud, uint64_t tableId,
     reqHdr->tableId = tableId;
     reqHdr->keyLength = keyLength;
     reqHdr->rejectRules = rejectRules ? *rejectRules : defaultRejectRules;
-    Buffer::Chunk::appendToBuffer(&request, key, keyLength);
+    request.append(key, keyLength);
     send();
 }
 
@@ -1254,8 +1399,8 @@ SetRuntimeOptionRpc::SetRuntimeOptionRpc(RamCloud* ramcloud,
             allocHeader<WireFormat::SetRuntimeOption>());
     reqHdr->optionLength = downCast<uint32_t>(strlen(option) + 1);
     reqHdr->valueLength = downCast<uint32_t>(strlen(value) + 1);
-    Buffer::Chunk::appendToBuffer(&request, option, reqHdr->optionLength);
-    Buffer::Chunk::appendToBuffer(&request, value, reqHdr->valueLength);
+    request.append(option, reqHdr->optionLength);
+    request.append(value, reqHdr->valueLength);
     send();
 }
 
@@ -1396,8 +1541,8 @@ WriteRpc::WriteRpc(RamCloud* ramcloud, uint64_t tableId,
     reqHdr->length = length;
     reqHdr->rejectRules = rejectRules ? *rejectRules : defaultRejectRules;
     reqHdr->async = async;
-    Buffer::Chunk::appendToBuffer(&request, key, keyLength);
-    Buffer::Chunk::appendToBuffer(&request, buf, length);
+    request.append(key, keyLength);
+    request.append(buf, length);
     send();
 }
 

@@ -19,6 +19,7 @@
 #include "Common.h"
 #include "BitOps.h"
 #include "CycleCounter.h"
+#include "Histogram.h"
 #include "LargeBlockOfMemory.h"
 #include "Memory.h"
 #include "MurmurHash3.h"
@@ -50,11 +51,6 @@ namespace RAMCloud {
  * buckets). In this case, the last hash table entry in each of the
  * non-terminal cache lines has a pointer to the next cache line instead of a
  * log reference.
- *
- * TODO(anyone): Now that this is no longer templated, bust it out into a
- *               .cc file again so we're not inlining everything and making
- *               the header preposterously large. Also, claim lots of lines
- *               committed the Ousterhout way.
  */
 class HashTable {
   public:
@@ -134,108 +130,6 @@ class HashTable {
     };
 
     /**
-     * Keeps track of statistics for a density distribution of frequencies.
-     * See #HashTable::PerfCounters::lookupEntryDist for an example, where it
-     * is used to keep track of the distribution of the number of cycles a
-     * method takes.
-     *
-     * See HashTableBenchmark.cc for code to generate a histogram from this.
-     *
-     * TODO(ongaro): Generalize and move to a utils file.
-     */
-    struct PerfDistribution {
-        /**
-         * The number of bins in which to categorize samples.
-         * See #bins
-         */
-        static const uint64_t NBINS = 5000;
-
-        /**
-         * The number of distinct integer values that are recorded in each bin.
-         * See #bins.
-         */
-        static const uint64_t BIN_WIDTH = 10;
-
-        /**
-         * The frequencies of samples that fall into each bin.
-         * The first bin will have the number of samples between 0 (inclusive)
-         * and BIN_WIDTH (exclusive), the second between BIN_WIDTH and
-         * BIN_WIDTH * 2, etc.
-         * Bins is allocated on the heap because it ends up being several tens
-         * of kilobytes in size. This in turn makes HashTable too big, which
-         * makes Table too big, which makes Master too big, which causes a
-         * segfault before the start of main.
-         */
-        uint64_t *bins;
-
-        /**
-         * The frequency of samples that exceeded the highest bin.
-         * This is equivalent to the sum of the values in all bins beyond the
-         * end of the \a bins array.
-         */
-        uint64_t binOverflows;
-
-        /**
-         * The minimum sample encountered.
-         * This will be <tt>~OUL</tt> if no samples were stored.
-         */
-        uint64_t min;
-
-        /**
-         * The maximum sample.
-         * This will be <tt>OUL</tt> if no samples were stored.
-         */
-        uint64_t max;
-
-        /**
-         * Constructor for HashTable::PerfDistribution.
-         */
-        PerfDistribution()
-            : bins(NULL), binOverflows(0), min(~0UL), max(0UL)
-        {
-            bins = new uint64_t[NBINS];
-            memset(bins, 0, sizeof(uint64_t) * NBINS);
-        }
-
-        ~PerfDistribution()
-        {
-            delete[] bins;
-            bins = NULL;
-        }
-
-        /**
-         * Record a sampled value by updating the distribution statistics.
-         * \param[in] value
-         *      The value sampled.
-         */
-        void
-        storeSample(uint64_t value)
-        {
-            if (value / BIN_WIDTH < NBINS)
-                bins[value / BIN_WIDTH]++;
-            else
-                binOverflows++;
-
-            if (value < min)
-                min = value;
-            if (value > max)
-                max = value;
-        }
-
-        void
-        reset()
-        {
-            memset(bins, 0, sizeof(uint64_t) * NBINS);
-            binOverflows = 0;
-            min = ~0UL;
-            max = 0;
-        }
-
-      PRIVATE:
-        DISALLOW_COPY_AND_ASSIGN(PerfDistribution);
-    };
-
-    /**
      * Performance counters for the HashTable.
      */
     struct PerfCounters {
@@ -285,7 +179,7 @@ class HashTable {
         /**
          * The distribution of CPU cycles spent for #lookupEntry() operations.
          */
-        PerfDistribution lookupEntryDist;
+        Histogram lookupEntryDist;
 
         /**
          * Constructor for HashTable::PerfCounters.
@@ -294,7 +188,7 @@ class HashTable {
             : replaceCalls(0), lookupEntryCalls(0), replaceCycles(0),
             lookupEntryCycles(0), insertChainsFollowed(0),
             lookupEntryChainsFollowed(0), lookupEntryHashCollisions(0),
-            lookupEntryDist()
+            lookupEntryDist(5000, 10)
         {
         }
 

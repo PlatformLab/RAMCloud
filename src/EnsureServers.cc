@@ -56,8 +56,8 @@ try
     Context context(true);
 
     OptionsDescription clientOptions("EnsureServers");
-    int numMasters = 0;
-    int numBackups = 0;
+    int numMasters = -1;
+    int numBackups = -1;
     int timeout = 20;
     clientOptions.add_options()
         ("masters,m",
@@ -72,6 +72,11 @@ try
              "seconds.");
 
     OptionParser optionParser(clientOptions, argc, argv);
+
+    if (numMasters == -1 && numBackups == -1) {
+        fprintf(stderr, "Error: Specify one or both of options -m and -b\n");
+        exit(1);
+    }
 
     LOG(NOTICE, "client: Connecting to %s",
         optionParser.options.getCoordinatorLocator().c_str());
@@ -90,7 +95,16 @@ try
         countServices(serverList, actualMasters, actualBackups);
         LOG(DEBUG, "found %d masters, %d backups (in %d servers)",
             actualMasters, actualBackups, actualServers);
-        if (numMasters == actualMasters && numBackups == actualBackups)
+
+        bool mastersReady = false;
+        if (numMasters == actualMasters || numMasters == -1)
+            mastersReady = true;
+
+        bool backupsReady = false;
+        if (numBackups == actualBackups || numBackups == -1)
+            backupsReady = true;
+
+        if (mastersReady && backupsReady)
             return 0;
         usleep(10000);
     } while (Cycles::rdtsc() < quitTime);

@@ -37,6 +37,10 @@ namespace RAMCloud {
  *
  * \param context
  *      Overall information about the RAMCloud server.
+ * \param config
+ *      The ServerConfig containing configuration options that affect this
+ *      log instance. Rather than passing in various separate bits, the log
+ *      will extract any parameters it needs from the global server config.
  * \param entryHandlers
  *      Class to query for various bits of per-object information. For instance,
  *      the log may want to know whether an object is still needed or if it can
@@ -47,25 +51,21 @@ namespace RAMCloud {
  * \param replicaManager
  *      The ReplicaManager that will be used to make each of this Log's
  *      Segments durable.
- * \param disableCleaner
- *      If true, do not do any cleaning. This will keep the log from garbage
- *      collecting freed space. It will eventually run out of memory forever.
  */
 Log::Log(Context* context,
-         EntryHandlers& entryHandlers,
+         const ServerConfig& config,
+         LogEntryHandlers& entryHandlers,
          SegmentManager& segmentManager,
-         ReplicaManager& replicaManager,
-         bool disableCleaner)
+         ReplicaManager& replicaManager)
     : context(context),
       entryHandlers(entryHandlers),
       segmentManager(segmentManager),
       replicaManager(replicaManager),
-      cleaner(),
+      cleaner(context, config, segmentManager, replicaManager, entryHandlers),
       head(NULL),
-      appendLock()
+      appendLock(),
+      metrics()
 {
-    if (!disableCleaner)
-        cleaner.construct(context, segmentManager, replicaManager, 4);
 }
 
 /**
@@ -76,17 +76,58 @@ Log::~Log()
 }
 
 /**
+ * Enable the cleaner if it isn't already running.
+ */
+void
+Log::enableCleaner()
+{
+    cleaner.start();
+}
+
+/**
+ * Disable the cleaner if it's running. Blocks until the cleaner thread has
+ * quiesced.
+ */
+void
+Log::disableCleaner()
+{
+    cleaner.stop();
+}
+
+/**
+ * Populate the given protocol buffer with various log metrics.
+ *
+ * \param[out] m
+ *      The protocol buffer to fill with metrics.
+ */
+void
+Log::getMetrics(ProtoBuf::LogMetrics& m)
+{
+    m.set_ticks_per_second(Cycles::perSecond());
+    m.set_total_append_ticks(metrics.totalAppendTicks);
+    m.set_total_sync_ticks(metrics.totalSyncTicks);
+    m.set_total_no_space_ticks(metrics.totalNoSpaceTicks);
+    m.set_total_bytes_appended(metrics.totalBytesAppended);
+    m.set_total_metadata_bytes_appended(metrics.totalMetadataBytesAppended);
+
+    cleaner.getMetrics(*m.mutable_cleaner_metrics());
+    segmentManager.getMetrics(*m.mutable_segment_metrics());
+    segmentManager.getAllocator().getMetrics(*m.mutable_seglet_metrics());
+}
+
+/**
  * Append a typed entry to the log by coping in the data. Entries are binary
  * blobs described by a simple <type, length> tuple.
  *
  * \param type
  *      Type of the entry. See LogEntryTypes.h.
+ * \param timestamp
+ *      Creation time of the entry, as provided by WallTime. This is used by the
+ *      log cleaner to choose more optimal segments to garbage collect from.
  * \param buffer
- *      Buffer object describing the entry to be appended.
- * \param offset
- *      Byte offset within the buffer object to begin appending from.
+ *      Pointer to buffer containing the entry to be appended.
  * \param length
- *      Number of bytes to append starting from the given offset in the buffer.
+ *      Number of bytes to append from the provided buffer.
  * \param sync
  *      If true, do not return until the append has been replicated to backups.
  *      If false, may return before any replication has been done.
@@ -101,32 +142,43 @@ Log::~Log()
  */
 bool
 Log::append(LogEntryType type,
-            Buffer& buffer,
-            uint32_t offset,
+            uint32_t timestamp,
+            const void* buffer,
             uint32_t length,
             bool sync,
-            HashTable::Reference& outReference)
+            HashTable::Reference* outReference)
 {
     Lock lock(appendLock);
+    CycleCounter<uint64_t> _(&metrics.totalAppendTicks);
 
     // This is only possible once after construction.
     if (head == NULL) {
-        head = segmentManager.allocHead();
+        head = segmentManager.allocHead(false);
         if (head == NULL)
             throw FatalError(HERE, "Could not allocate initial head segment");
     }
 
     // Try to append. If we can't, try to allocate a new head to get more space.
     uint32_t segmentOffset;
-    bool success = head->append(type, buffer, offset, length, segmentOffset);
+    uint32_t bytesUsedBefore = head->getAppendedLength();
+    bool success = head->append(type, buffer, length, &segmentOffset);
     if (!success) {
-        LogSegment* newHead = segmentManager.allocHead();
-        if (newHead == NULL)
+        LogSegment* newHead = segmentManager.allocHead(false);
+        if (newHead != NULL)
+            head = newHead;
+
+        // If we're entirely out of memory or were allocated an emergency head
+        // segment due to memory pressure, we can't service the append. Return
+        // failure and let the client retry. Hopefully the cleaner will free up
+        // more memory soon.
+        if (newHead == NULL || head->isEmergencyHead) {
+            if (!metrics.noSpaceTimer)
+                metrics.noSpaceTimer.construct(&metrics.totalNoSpaceTicks);
             return false;
+        }
 
-        head = newHead;
-
-        if (!head->append(type, buffer, offset, length, segmentOffset)) {
+        bytesUsedBefore = head->getAppendedLength();
+        if (!head->append(type, buffer, length, &segmentOffset)) {
             // TODO(Steve): We should probably just permit up to 1/N'th of the
             // size of a segment in any single append. Say, 1/2th or 1/4th as
             // a ceiling. Then we could ensure that after opening a new head
@@ -137,51 +189,61 @@ Log::append(LogEntryType type,
         }
     }
 
+    if (metrics.noSpaceTimer)
+        metrics.noSpaceTimer.destroy();
+
     if (sync)
         Log::sync();
 
-    outReference = buildReference(head->slot, segmentOffset);
+    if (outReference != NULL)
+        *outReference = buildReference(head->slot, segmentOffset);
+
+    head->statistics.increment(head->getAppendedLength() - bytesUsedBefore,
+                               timestamp);
+
+    metrics.totalBytesAppended += length;
+    metrics.totalMetadataBytesAppended +=
+        (head->getAppendedLength() - bytesUsedBefore) - length;
+
     return true;
 }
 
 /**
- * Abbreviated append method for convenience. See the above append method for
- * documentation.
- */
-bool
-Log::append(LogEntryType type,
-            Buffer& buffer,
-            bool sync,
-            HashTable::Reference& outReference)
-{
-    return append(type, buffer, 0, buffer.getTotalLength(), sync, outReference);
-}
-
-/**
- * Abbreviated append method primarily for convenience in tests.
+ * Append a typed entry to the log by coping in the data. Entries are binary
+ * blobs described by a simple <type, length> tuple.
  *
  * \param type
  *      Type of the entry. See LogEntryTypes.h.
- * \param data
- *      Pointer to data to be appended.
- * \param length
- *      Number of bytes to append from the given pointer.
+ * \param timestamp
+ *      Creation time of the entry, as provided by WallTime. This is used by the
+ *      log cleaner to choose more optimal segments to garbage collect from.
+ * \param buffer
+ *      Buffer object describing the entry to be appended.
  * \param sync
  *      If true, do not return until the append has been replicated to backups.
  *      If false, may return before any replication has been done.
+ * \param[out] outReference
+ *      If the append succeeds, a reference to the created entry is returned
+ *      here. This reference may be used to access the appended entry via the
+ *      lookup method. It may also be inserted into a HashTable.
  * \return
  *      True if the append succeeded, false if there was either insufficient
  *      space to complete the operation or the requested append was larger
  *      than the system supports.
- *  
  */
 bool
-Log::append(LogEntryType type, const void* data, uint32_t length, bool sync)
+Log::append(LogEntryType type,
+            uint32_t timestamp,
+            Buffer& buffer,
+            bool sync,
+            HashTable::Reference* outReference)
 {
-    Buffer buffer;
-    buffer.appendTo(data, length);
-    HashTable::Reference dummy;
-    return append(type, buffer, true, dummy);
+    return append(type,
+                  timestamp,
+                  buffer.getRange(0, buffer.getTotalLength()),
+                  buffer.getTotalLength(),
+                  sync,
+                  outReference);
 }
 
 /**
@@ -194,7 +256,11 @@ Log::free(HashTable::Reference reference)
 {
     uint32_t slot = referenceToSlot(reference);
     uint32_t offset = referenceToOffset(reference);
-    segmentManager[slot].free(offset);
+    LogSegment& segment = segmentManager[slot];
+    Buffer buffer;
+    LogEntryType type = segment.getEntry(offset, buffer);
+    uint32_t timestamp = entryHandlers.getTimestamp(type, buffer);
+    segment.statistics.decrement(buffer.getTotalLength(), timestamp);
 }
 
 /**
@@ -206,7 +272,7 @@ Log::free(HashTable::Reference reference)
  * \param reference
  *      Reference to the entry requested. This value is returned in the append
  *      method. If this reference is invalid behaviour is undefined. The log
- *      will indicate when references become invalid via the EntryHandlers
+ *      will indicate when references become invalid via the LogEntryHandlers
  *      class.
  * \param outBuffer
  *      Buffer to append the entry being looked up to.
@@ -229,17 +295,18 @@ Log::getEntry(HashTable::Reference reference, Buffer& outBuffer)
 void
 Log::sync()
 {
+    CycleCounter<uint64_t> __(&metrics.totalSyncTicks);
+
     // The only time 'head' should be NULL is after construction and before the
     // initial call to this method. Even if we run out of memory in the future,
     // head will remain valid.
     if (head == NULL) {
-        head = segmentManager.allocHead();
+        head = segmentManager.allocHead(true);
         if (head == NULL)
             throw FatalError(HERE, "Could not allocate initial head segment");
     }
 
-    Segment::Certificate unused;
-    head->replicatedSegment->sync(head->getAppendedLength(unused));
+    head->replicatedSegment->sync(head->getAppendedLength());
     TEST_LOG("log synced");
 }
 
@@ -264,8 +331,7 @@ Log::getHeadPosition()
         return { 0, 0 };
     }
 
-    Segment::Certificate unused;
-    return { head->id, head->getAppendedLength(unused) };
+    return { head->id, head->getAppendedLength() };
 }
 
 /**
@@ -303,12 +369,7 @@ Log::allocateHeadIfStillOn(Tub<uint64_t> segmentId)
     Lock lock(appendLock);
 
     if (!segmentId || (head != NULL && head->id == *segmentId))
-        head = segmentManager.allocHead();
-
-    // TODO(steve/ryan): What if we're out of space? The above could return
-    //     NULL, in which case we haven't actually closed it. Could we return
-    //     false to replica manager and rely on it retrying? The previous code
-    //     could have thrown an exception, but we never caught it...
+        head = segmentManager.allocHead(true);
 }
 
 /**

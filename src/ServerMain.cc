@@ -57,6 +57,20 @@ main(int argc, char *argv[])
              ProgramOptions::bool_switch(&config.master.disableLogCleaner),
              "Disable the log cleaner entirely. You will eventually run out "
              "of memory, but at least you can do so faster this way.")
+            ("disableInMemoryCleaning,D",
+             ProgramOptions::bool_switch(
+                &config.master.disableInMemoryCleaning),
+             "Disable the in-memory cleaning portion of the log cleaner. When "
+             "turned off, the cleaner will always clean both in memory and on "
+             "backup disks at the same time.")
+            ("diskExpansionFactor,E",
+             ProgramOptions::value<double>(&config.master.diskExpansionFactor)->
+                default_value(2.0),
+             "Factor (>= 1.0) controlling how much backup disk space this "
+             "master will use beyond its in-memory log size. For example, if "
+             "the master has memory for 100 full segments and the expansion "
+             "factor is 2.0, it will place up to 200 segments (each replicated "
+             "R times) on backups.")
             ("file,f",
              ProgramOptions::value<string>(&config.backup.file)->
                 default_value("/var/tmp/backup.log"),
@@ -100,6 +114,15 @@ main(int argc, char *argv[])
              "replicas are discarded on start and that all replicas created "
              "by this process are discarded by future backups. "
              "This is convenient for testing.")
+            ("writeCostThreshold,w",
+             ProgramOptions::value<uint32_t>(
+                &config.master.cleanerWriteCostThreshold)->default_value(8),
+             "If in-memory cleaning is enabled, do disk cleaning when the "
+             "write cost of memory freed by the in-memory cleaner exceeds "
+             "this value. Lower values cause the disk cleaner to run more "
+             "frequently. Higher values do more in-memory cleaning and "
+             "reduce the amount of backup disk bandwidth used during disk "
+             "cleaning.")
             ("sync",
              ProgramOptions::bool_switch(&config.backup.sync),
              "Make all updates completely synchronous all the way down to "

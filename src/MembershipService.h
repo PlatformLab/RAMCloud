@@ -21,6 +21,7 @@
 #ifndef RAMCLOUD_MEMBERSHIPSERVICE_H
 #define RAMCLOUD_MEMBERSHIPSERVICE_H
 
+#include "ServerConfig.h"
 #include "ServerList.h"
 #include "Service.h"
 
@@ -35,7 +36,7 @@ namespace RAMCloud {
  *
  * Lost updates are noticed in one of two ways. First, if the coordinator
  * pushes an update newer than the next expected one, we reply will a request
- * for the full list. Second, to avoid staying out of sync when not updates
+ * for the full list. Second, to avoid staying out of sync when no updates
  * are being issued, the FailureDetector and PingService propagate the latest
  * server list versions. If we ping a machine that has seen an update we have
  * not, then the FailureDetector will wait a short interval and request that
@@ -43,29 +44,32 @@ namespace RAMCloud {
  * received.
  *
  * Additional functionality includes retrieving the ServerId of the machine
- * running this service. See #ServerId for more information.
+ * running this service (see #ServerId for more information) and advertising
+ * the server's configuration.
  */
 class MembershipService : public Service {
   public:
-    explicit MembershipService(ServerId& ourServerId, ServerList& serverList);
+    explicit MembershipService(ServerId& ourServerId,
+                               ServerList& serverList,
+                               const ServerConfig& serverConfig);
     void dispatch(WireFormat::Opcode opcode, Rpc& rpc);
     virtual int maxThreads() {
         return 1;
     }
 
   PRIVATE:
-    void getServerId(const WireFormat::GetServerId::Request& reqHdr,
-                     WireFormat::GetServerId::Response& respHdr,
-                     Rpc& rpc);
+    void getServerConfig(const WireFormat::GetServerConfig::Request& reqHdr,
+                         WireFormat::GetServerConfig::Response& respHdr,
+                         Rpc& rpc);
     void updateServerList(const WireFormat::UpdateServerList::Request& reqHdr,
                        WireFormat::UpdateServerList::Response& respHdr,
                        Rpc& rpc);
 
-    /// ServerId of this server.
-    ServerId& serverId;
-
     /// ServerList to update in response to Coordinator's RPCs.
     ServerList& serverList;
+
+    /// This server's ServerConfig, which we export to curious parties.
+    const ServerConfig& serverConfig;
 
     DISALLOW_COPY_AND_ASSIGN(MembershipService);
 };

@@ -120,8 +120,8 @@ BackupSelector::selectSecondary(uint32_t numBackups,
             !conflictWithAny(id, numBackups, backupIds)) {
             return id;
         }
-        auto waited = Cycles::toNanoseconds(Cycles::rdtsc() - startTicks);
-        if (waited > 20000000lu) {
+        double waited = Cycles::toSeconds(Cycles::rdtsc() - startTicks);
+        if (waited > 0.02) {
             LOG(WARNING, "BackupSelector could not find a suitable server in "
                 "the last 20ms; seems to be stuck; waiting for the coordinator "
                 "to notify this master of newly enlisted backups");

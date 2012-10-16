@@ -186,7 +186,7 @@ class Object {
     void
     serializeToBuffer(Buffer& buffer)
     {
-        buffer.appendTo(&serializedForm, sizeof32(serializedForm));
+        buffer.append(&serializedForm, sizeof32(serializedForm));
         appendKeyToBuffer(buffer);
         appendDataToBuffer(buffer);
     }
@@ -202,7 +202,7 @@ class Object {
     appendKeyToBuffer(Buffer& buffer)
     {
         if (key) {
-            buffer.appendTo(getKey(), getKeyLength());
+            buffer.append(getKey(), getKeyLength());
             return;
         }
 
@@ -210,7 +210,7 @@ class Object {
                             sizeof32(serializedForm),
                             getKeyLength());
         while (!it.isDone()) {
-            buffer.appendTo(it.getData(), it.getLength());
+            buffer.append(it.getData(), it.getLength());
             it.next();
         }
     }
@@ -225,7 +225,7 @@ class Object {
     appendDataToBuffer(Buffer& buffer)
     {
         if (data) {
-            buffer.appendTo(*data, dataLength);
+            buffer.append(*data, dataLength);
             return;
         }
 
@@ -241,7 +241,7 @@ class Object {
 
         Buffer::Iterator it(*sourceBuffer, offset, dataLength);
         while (!it.isDone()) {
-            buffer.appendTo(it.getData(), it.getLength());
+            buffer.append(it.getData(), it.getLength());
             it.next();
         }
     }
@@ -344,7 +344,7 @@ class Object {
         return sizeof32(SerializedForm) + keyLength + dataLength;
     }
 
-  PRIVATE:
+//  PRIVATE:
     /**
      * This data structure defines the format of an object stored in a master
      * server's log. When writing an object, the fields below are written
@@ -432,6 +432,28 @@ class Object {
                 sizeof32(serializedForm) + getKeyLength(), getDataLength());
         }
 
+        return crc.getResult();
+    }
+
+    /**
+     * Given a pointer to a contiguous Object in memory, compute and return
+     * its checksum.
+     *
+     * \param object
+     *      Pointer to the beginning of the object.
+     * \param totalLength
+     *      Total length of the object in bytes, including the header, string
+     *      key, and data.
+     */
+    static uint32_t
+    computeChecksum(const Object::SerializedForm* object, uint32_t totalLength)
+    {
+        Crc32C crc;
+        crc.update(object,
+            downCast<uint32_t>(OFFSET_OF(SerializedForm, checksum)));
+        uint32_t dataLen = totalLength - object->keyLength -
+                           sizeof32(SerializedForm);
+        crc.update(&object->keyAndData[0], object->keyLength + dataLen);
         return crc.getResult();
     }
 
@@ -551,7 +573,7 @@ class ObjectTombstone {
     void
     serializeToBuffer(Buffer& buffer)
     {
-        buffer.appendTo(&serializedForm, sizeof32(serializedForm));
+        buffer.append(&serializedForm, sizeof32(serializedForm));
         appendKeyToBuffer(buffer);
     }
 
@@ -567,7 +589,7 @@ class ObjectTombstone {
     appendKeyToBuffer(Buffer& buffer)
     {
         if (key) {
-            buffer.appendTo(getKey(), getKeyLength());
+            buffer.append(getKey(), getKeyLength());
             return;
         }
 
@@ -575,7 +597,7 @@ class ObjectTombstone {
                             sizeof32(serializedForm),
                             getKeyLength());
         while (!it.isDone()) {
-            buffer.appendTo(it.getData(), it.getLength());
+            buffer.append(it.getData(), it.getLength());
             it.next();
         }
     }
@@ -822,7 +844,7 @@ class ObjectSafeVersion {
     void
     serializeToBuffer(Buffer& buffer)
     {
-        buffer.appendTo(&serializedForm, sizeof32(serializedForm));
+        buffer.append(&serializedForm, sizeof32(serializedForm));
     }
 
     /**

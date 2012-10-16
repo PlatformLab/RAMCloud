@@ -23,10 +23,13 @@
 #include "BoostIntrusive.h"
 #include "LargeBlockOfMemory.h"
 #include "LogSegment.h"
+#include "Histogram.h"
 #include "ReplicaManager.h"
 #include "ServerId.h"
 #include "SpinLock.h"
 #include "Tub.h"
+
+#include "LogMetrics.pb.h"
 
 namespace RAMCloud {
 
@@ -69,28 +72,35 @@ class SegmentManager {
     class Allocator;
 
     SegmentManager(Context* context,
+                   const ServerConfig& config,
                    ServerId& logId,
-                   Allocator& allocator,
-                   ReplicaManager& replicaManager,
-                   double diskExpansionFactor);
+                   SegletAllocator& allocator,
+                   ReplicaManager& replicaManager);
     ~SegmentManager();
-    LogSegment* allocHead();
+    void getMetrics(ProtoBuf::LogMetrics_SegmentMetrics& m);
+    SegletAllocator& getAllocator() const;
+    LogSegment* allocHead(bool mustNotFail = false);
     LogSegment* allocSurvivor(uint64_t headSegmentIdDuringCleaning);
+    LogSegment* allocSurvivor(LogSegment* replacing);
     void cleaningComplete(LogSegmentVector& clean);
+    void memoryCleaningComplete(LogSegment* cleaned);
     void cleanableSegments(LogSegmentVector& out);
     void logIteratorCreated();
     void logIteratorDestroyed();
     void getActiveSegments(uint64_t nextSegmentId, LogSegmentVector& list);
-    void setSurvivorSegmentReserve(uint32_t numSegments);
+    bool initializeSurvivorReserve(uint32_t numSegments);
     LogSegment& operator[](uint32_t slot);
     bool doesIdExist(uint64_t id);
-    uint32_t getAllocatedSegmentCount();
-    uint32_t getFreeSegmentCount();
-    uint32_t getMaximumSegmentCount();
-    uint32_t getSegletSize();
-    uint32_t getSegmentSize();
+    size_t getFreeSurvivorCount();
+    int getSegmentUtilization();
     uint64_t allocateVersion();
     bool raiseSafeVersion(uint64_t minimum);
+
+#ifdef TESTING
+    /// Used to mock the return value of getSegmentUtilization() when set to
+    /// anything other than 0.
+    static int mockSegmentUtilization;
+#endif
 
   PRIVATE:
     /**
@@ -165,47 +175,43 @@ class SegmentManager {
     typedef std::lock_guard<SpinLock> Lock;
 
     void writeHeader(LogSegment* segment, uint64_t headSegmentIdDuringCleaning);
-    void writeDigest(LogSegment* head);
+    void writeDigest(LogSegment* newHead, LogSegment* prevHead);
     void writeSafeVersion(LogSegment* head);
     LogSegment* getHeadSegment();
     void changeState(LogSegment& s, State newState);
-    bool mayAlloc(bool forCleaner);
-    LogSegment* alloc(bool forCleaner);
+    LogSegment* alloc(SegletAllocator::AllocationType type, uint64_t segmentId);
     void addToLists(LogSegment& s);
     void removeFromLists(LogSegment& s);
+    uint32_t allocSlot(SegletAllocator::AllocationType type);
+    void freeSlot(uint32_t slot, bool wasEmergencyHead);
     void free(LogSegment* s);
     void freeUnreferencedSegments();
 
     /// The pervasive RAMCloud context->
     Context* context;
 
+    /// Size of each full segment in bytes.
+    const uint32_t segmentSize;
+
     /// ServerId this log will be tagged with (for example, in SegmentHeader
     /// structures).
     const ServerId& logId;
 
-    /// Allocator to allocate segment memory from. See the class documentation
-    /// for SegmentManager::Allocator.
-    Allocator& allocator;
+    /// Allocator to allocate segment memory (seglets) from.
+    SegletAllocator& allocator;
 
     /// The ReplicaManager class instance that handles replication of our
     /// segments.
     ReplicaManager& replicaManager;
+
+    /// The number of seglets in a full segment.
+    const uint32_t segletsPerSegment;
 
     /// Maximum number of segments we will allocate. This dictates the maximum
     /// amount of disk space that may be used on backups, which may differ from
     /// the amount of RAM in the master server if disk expansion factors larger
     /// than 1 are used.
     const uint32_t maxSegments;
-
-    /// The number of survivor segments that are being reserved for the log
-    /// cleaner. This is used to maintain a cache of segments that will never
-    /// be allocated for the head of the log to ensure that we don't deadlock
-    /// because cleaning can't take place.
-    size_t numSurvivorSegments;
-
-    /// The number of reserved survivor segments that have been allocated to the
-    /// cleaner.
-    size_t numSurvivorSegmentsAlloced;
 
     /// Array of all segments in the system. This is array is allocated in the
     /// constructor based on the 'maxSegments' field.
@@ -217,9 +223,24 @@ class SegmentManager {
     /// private to this class. A pair<> would also suffice, but seems uglier.
     Tub<State>* states;
 
+    /// List of indices in 'segments' that are reserved for new emergency head
+    /// segments.
+    vector<uint32_t> freeEmergencyHeadSlots;
+
+    /// List of indices in 'segments' that are reserved for new survivor
+    /// segments allocated by the cleaner.
+    vector<uint32_t> freeSurvivorSlots;
+
     /// List of indices in 'segments' that are free. This exists simply to allow
     /// for fast allocation of LogSegments.
-    std::vector<uint32_t> freeSlots;
+    vector<uint32_t> freeSlots;
+
+    /// Number of segments we need to reserve for emergency heads (to allow us
+    /// to roll over to a new log digest when otherwise out of memory).
+    const uint32_t emergencyHeadSlotsReserved;
+
+    /// Number of segments the cleaner requested to keep reserved for it.
+    uint32_t survivorSlotsReserved;
 
     /// Monotonically increasing identifier to be given to the next segment
     /// allocated by this module.
@@ -249,10 +270,23 @@ class SegmentManager {
     /// must not be freed.
     int logIteratorCount;
 
-    ///
-    /// Safe version number for a new object in the log.
-    /// Single safeVersion is maintained in each master through recovery.
+    /// Number of segments currently on backup disks. This is exactly the number
+    /// of ReplicatedSegments that exist.
+    //
+    // TODO(rumble): It would probably be cleaner to have a way to query
+    // ReplicaManager for this value. It already maintains a list of existing
+    // ReplicatedSegments.
+    uint32_t segmentsOnDisk;
+
+    /// Histogram used to track the number of segments present on disk so that
+    /// disk utilization of masters can be monitored. This is updated every
+    /// time a segment is allocated or freed.
+    Histogram segmentsOnDiskHistogram;
+
     /**
+     * Safe version number for a new object in the log.
+     * Single safeVersion is maintained in each master through recovery.
+     *
      * \li We guarantee that every value assigned to a particular key
      * will have a distinct version number, even if the object is removed
      * and recreated.
@@ -292,166 +326,12 @@ class SegmentManager {
      **/
     uint64_t safeVersion;
 
+    /// Used for testing only. If true, allocSurvivor() will not block until
+    /// memory is free, but instead returns immediately with a NULL pointer if
+    /// nothing could be allocated.
+    bool testing_allocSurvivorMustNotBlock;
+
     DISALLOW_COPY_AND_ASSIGN(SegmentManager);
-};
-
-/**
- * This class manages the log's memory. It it used to keep track of, allocate,
- * and free the individual seglets that comprise segments. It also specifies
- * how many seglets are in each full segment and how large each seglet is.
- *
- * To enable the simple zero-copy transport hack, we assume (and ensure) that
- * all memory is allocated from once large contiguous block.
- */
-class SegmentManager::Allocator : public Segment::Allocator {
-  public:
-    /**
-     * Construct a new allocator from which the SegmentManager may get backing
-     * memory for log segments.
-     *
-     * \param totalBytes
-     *      Total number of bytes to allocate for the log.
-     * \param segmentSize
-     *      The size of each segment in bytes.
-     * \param segletSize
-     *      The size of each seglet in bytes. This should evenly divide into the
-     *      value of segmentSize.
-     */
-    Allocator(size_t totalBytes, uint32_t segmentSize, uint32_t segletSize)
-        : segmentSize(segmentSize),
-          segletSize(segletSize),
-          freeList(),
-          block(totalBytes)
-    {
-        construct();
-    }
-
-    /**
-     * Construct a new allocator from which the SegmentManager may get backing
-     * memory for log segments. Use the statically-defined defaults for the
-     * sizes of segments and seglets.
-     *
-     * \param totalBytes
-     *      Total number of bytes to allocate for the log.
-     */
-    explicit Allocator(size_t totalBytes)
-        : segmentSize(Segment::DEFAULT_SEGMENT_SIZE),
-          segletSize(Segment::DEFAULT_SEGLET_SIZE),
-          freeList(),
-          block(totalBytes)
-    {
-        construct();
-    }
-
-    /**
-     * Return the number of seglets in each segment.
-     */
-    uint32_t
-    getSegletsPerSegment()
-    {
-        return segmentSize / segletSize;
-    }
-
-    /**
-     * Return a pointer to the first byte of the contiguous buffer that all log
-     * memory is allocated from. This is used by the transports to register
-     * memory areas for zero-copy transmits.
-     */
-    const void*
-    getBaseAddress()
-    {
-        return block.get();
-    }
-
-    /**
-     * Return the total number of bytes this allocator has for the log.
-     */
-    uint64_t
-    getTotalBytes()
-    {
-        return block.length;
-    }
-
-    /**
-     * Return the number of full segment's worth of memory the allocator has
-     * free. 
-     */
-    uint32_t
-    getFreeSegmentCount()
-    {
-        return downCast<uint32_t>((freeList.size() * segletSize) / segmentSize);
-    }
-
-    /**
-     * Return the size of each seglet.
-     */
-    uint32_t
-    getSegletSize()
-    {
-        return segletSize;
-    }
-
-    /**
-     * Allocate a seglet's worth of memory.
-     */
-    void*
-    alloc()
-    {
-        if (getFreeSegmentCount() == 0)
-            throw SegmentManagerException(HERE, "out of seglets");
-
-        void* p = freeList.back();
-        freeList.pop_back();
-        return p;
-    }
-
-    /**
-     * Free a previously-allocated seglet.
-     */
-    void
-    free(void* seglet)
-    {
-        freeList.push_back(seglet);
-    }
-
-  PRIVATE:
-    /**
-     * Common constructor. Sanity checks the given parameters and sets up the
-     * free list of seglets.
-     */
-    void
-    construct()
-    {
-        if (block.length < segmentSize) {
-            throw SegmentManagerException(HERE,
-                "not enough space for even one segment");
-        }
-
-        if (segmentSize % segletSize != 0) {
-            throw SegmentManagerException(HERE,
-                "segments must be an integer multiple of seglet size");
-        }
-
-        uint8_t* seglet = block.get();
-        for (size_t i = 0; i < (block.length / segletSize); i++) {
-            freeList.push_back(seglet);
-            seglet += segletSize;
-        }
-    }
-
-    /// Size of each segment in bytes.
-    const uint32_t segmentSize;
-
-    /// Size of each seglet in bytes.
-    const uint32_t segletSize;
-
-    /// List of free seglets.
-    vector<void*> freeList;
-
-    /// Contiguous block of memory backing our allocations.
-    LargeBlockOfMemory<uint8_t> block;
-
-    DISALLOW_COPY_AND_ASSIGN(Allocator);
 };
 
 } // namespace

@@ -14,7 +14,6 @@
  */
 
 #include "BitOps.h"
-#include "CycleCounter.h"
 #include "ReplicatedSegment.h"
 #include "Segment.h"
 #include "ShortMacros.h"
@@ -59,6 +58,9 @@ namespace RAMCloud {
  *      The server id of the master whose log this segment belongs to.
  * \param numReplicas
  *      Number of replicas of this segment that must be maintained.
+ * \param replicationCounter
+ *      Used to measure time when backup write rpcs are active.
+ *      Shared among ReplicatedSegments.
  * \param maxBytesPerWriteRpc
  *      Maximum bytes to send in a single write rpc; can help latency of
  *      GetRecoveryDataRequests by unclogging backups a bit.
@@ -76,6 +78,8 @@ ReplicatedSegment::ReplicatedSegment(Context* context,
                                      bool normalLogSegment,
                                      ServerId masterId,
                                      uint32_t numReplicas,
+                                     Tub<CycleCounter<RawMetric>>*
+                                                             replicationCounter,
                                      uint32_t maxBytesPerWriteRpc)
     : Task(taskQueue)
     , context(context)
@@ -100,6 +104,7 @@ ReplicatedSegment::ReplicatedSegment(Context* context,
     , precedingSegmentOpenCommitted(true)
     , recoveringFromLostOpenReplicas(false)
     , listEntries()
+    , replicationCounter(replicationCounter)
     , replicas(numReplicas)
 {
     openLen = segment->getAppendedLength(openingWriteCertificate);
@@ -122,8 +127,6 @@ ReplicatedSegment::~ReplicatedSegment()
  * this call can spin waiting for write rpcs, though, it tries to be
  * friendly to concurrent operations by releasing and reacquiring the
  * internal ReplicaManager lock each time it checks rpcs for completion.
- * Eventually canceling any outstanding write rpc would be better, but
- * doing so is unsafe in this case (RAM-359).
  *
  * Currently, there is no public interface to ensure enqueued free
  * operations have completed.
@@ -132,6 +135,7 @@ void
 ReplicatedSegment::free()
 {
     TEST_LOG("%s, %lu", masterId.toString().c_str(), segmentId);
+    assert(queued.close); // Unlocked access, but... whatever.
 
     // Finish any outstanding work for this segment. This makes sure that if
     // other segments are waiting on things to happen with this segment it is
@@ -141,7 +145,6 @@ ReplicatedSegment::free()
     sync();
 
     Lock _(dataMutex);
-    assert(queued.close);
     assert(!followingSegment);
     assert(getCommitted().close);
 
@@ -158,6 +161,8 @@ ReplicatedSegment::free()
         if (!replica.isActive || !replica.writeRpc)
             continue;
         replica.writeRpc->cancel();
+        replica.writeRpc.destroy();
+        --writeRpcsInFlight;
     }
 
     // Segment should free itself ASAP. It must not start new write rpcs after
@@ -175,8 +180,7 @@ ReplicatedSegment::free()
 bool
 ReplicatedSegment::isSynced() const
 {
-    Segment::Certificate unused;
-    uint32_t appendedBytes = segment->getAppendedLength(unused);
+    uint32_t appendedBytes = segment->getAppendedLength();
     if (queued.bytes != appendedBytes)
         return false;
     return !recoveringFromLostOpenReplicas && (getCommitted() == queued);
@@ -207,6 +211,16 @@ ReplicatedSegment::close()
     uint32_t appendedBytes = segment->getAppendedLength(certficate);
     queued.bytes = appendedBytes;
     queuedCertificate = certficate;
+    // Dealing with followingSegment here helps unit tests when
+    // numReplicas == 0. Otherwise, performWrite never gets called so there is
+    // no chance to clear it, which breaks calls to free().
+    if (getCommitted().open && followingSegment)
+        followingSegment->precedingSegmentOpenCommitted = true;
+    if (getCommitted().close && followingSegment) {
+        followingSegment->precedingSegmentCloseCommitted = true;
+        // Don't poke at potentially non-existent segments later.
+        followingSegment = NULL;
+    }
     schedule();
 
     LOG(DEBUG, "Segment %lu closed (length %d)", segmentId, queued.bytes);
@@ -339,8 +353,8 @@ ReplicatedSegment::sync(uint32_t offset)
                     return;
             }
         }
-        auto waited = Cycles::toNanoseconds(Cycles::rdtsc() - syncStartTicks);
-        if (waited > 1000000000lu) {
+        double waited = Cycles::toSeconds(Cycles::rdtsc() - syncStartTicks);
+        if (waited > 1) {
             LOG(WARNING, "Log write sync has taken over 1s; seems to be stuck");
             dumpProgress();
             syncStartTicks = Cycles::rdtsc();
@@ -429,6 +443,15 @@ ReplicatedSegment::performTask()
             // possible or performWrite() won't schedule it, but it also
             // isn't synced since it is recovering.
             schedule();
+        }
+    }
+    if (replicationCounter) {
+        if (writeRpcsInFlight > 0) {
+            if (!*replicationCounter)
+                replicationCounter->
+                    construct(&metrics->master.replicationTicks);
+        } else {
+                replicationCounter->destroy();
         }
     }
 }

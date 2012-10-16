@@ -23,6 +23,9 @@
 #include "ObjectRpcWrapper.h"
 #include "ServerMetrics.h"
 
+#include "LogMetrics.pb.h"
+#include "ServerConfig.pb.h"
+
 namespace RAMCloud {
 class MultiReadObject;
 
@@ -42,9 +45,13 @@ class RamCloud {
     void dropTable(const char* name);
     uint64_t enumerateTable(uint64_t tableId, uint64_t tabletFirstHash,
          Buffer& state, Buffer& objects);
+    void getLogMetrics(const char* serviceLocator,
+                       ProtoBuf::LogMetrics& logMetrics);
     ServerMetrics getMetrics(uint64_t tableId, const void* key,
             uint16_t keyLength);
     ServerMetrics getMetrics(const char* serviceLocator);
+    void getServerConfig(const char* serviceLocator,
+            ProtoBuf::ServerConfig& serverConfig);
     void getServerStatistics(const char* serviceLocator,
             ProtoBuf::ServerStatistics& serverStats);
     string* getServiceLocator();
@@ -242,6 +249,21 @@ class FillWithTestDataRpc : public ObjectRpcWrapper {
 };
 
 /**
+ * Encapsulates the state of a RamCloud::getLogMetrics operation,
+ * allowing it to execute asynchronously.
+ */
+class GetLogMetricsRpc: public RpcWrapper {
+  public:
+    GetLogMetricsRpc(RamCloud* ramcloud, const char* serviceLocator);
+    ~GetLogMetricsRpc() {}
+    void wait(ProtoBuf::LogMetrics& logMetrics);
+
+  PRIVATE:
+    RamCloud* ramcloud;
+    DISALLOW_COPY_AND_ASSIGN(GetLogMetricsRpc);
+};
+
+/**
  * Encapsulates the state of a RamCloud::getMetrics operation,
  * allowing it to execute asynchronously.
  */
@@ -269,6 +291,21 @@ class GetMetricsLocatorRpc : public RpcWrapper {
   PRIVATE:
     RamCloud* ramcloud;
     DISALLOW_COPY_AND_ASSIGN(GetMetricsLocatorRpc);
+};
+
+/**
+ * Encapsulates the state of a RamCloud::getServerConfig operation,
+ * allowing it to execute asynchronously.
+ */
+class GetServerConfigRpc : public RpcWrapper {
+  public:
+    GetServerConfigRpc(RamCloud* ramcloud, const char* serviceLocator);
+    ~GetServerConfigRpc() {}
+    void wait(ProtoBuf::ServerConfig& serverConfig);
+
+  PRIVATE:
+    RamCloud* ramcloud;
+    DISALLOW_COPY_AND_ASSIGN(GetServerConfigRpc);
 };
 
 /**

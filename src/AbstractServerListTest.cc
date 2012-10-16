@@ -161,7 +161,6 @@ TEST_F(AbstractServerListTest, isUp) {
 }
 
 TEST_F(AbstractServerListTest, getSession_basics) {
-    sl.skipServerIdCheck = true;
     MockTransport transport(&context);
     context.transportManager->registerMock(&transport);
 
@@ -176,113 +175,6 @@ TEST_F(AbstractServerListTest, getSession_basics) {
 }
 TEST_F(AbstractServerListTest, getSession_bogusId) {
     EXPECT_EQ("fail:", sl.getSession({9999, 22})->getServiceLocator());
-}
-TEST_F(AbstractServerListTest, getSession_serverIdDoesntMatch) {
-    TestLog::Enable _;
-    MockTransport transport(&context);
-    context.transportManager->registerMock(&transport);
-    sl.skipServerIdCheck = false;
-    transport.setInput("0 6 7");
-    ServerId& id1 = sl.add("mock:id=1", ServerStatus::UP);
-    EXPECT_EQ("fail:", sl.getSession(id1)->getServiceLocator());
-    EXPECT_EQ("getSession: Expected ServerId 0.0 for \"mock:id=1\", but "
-            "actual server id was 6.7", TestLog::get());
-}
-TEST_F(AbstractServerListTest, getSession_transportErrorCheckingId) {
-    TestLog::Enable _;
-    MockTransport transport(&context);
-    context.transportManager->registerMock(&transport);
-    sl.skipServerIdCheck = false;
-    transport.setInput(NULL);
-    ServerId& id1 = sl.add("mock:id=1", ServerStatus::UP);
-    EXPECT_EQ("fail:", sl.getSession(id1)->getServiceLocator());
-    EXPECT_EQ("getSession: Failed to obtain ServerId from \"mock:id=1\": "
-            "RAMCloud::TransportException:  thrown at GetServerIdRpc::wait "
-            "at src/MembershipClient.cc:88", TestLog::get());
-}
-TEST_F(AbstractServerListTest, getSession_successfulServerIdCheck) {
-    TestLog::Enable _;
-    MockTransport transport(&context);
-    context.transportManager->registerMock(&transport);
-    sl.skipServerIdCheck = false;
-    transport.setInput("0 0 0");
-    ServerId& id1 = sl.add("mock:id=1", ServerStatus::UP);
-    EXPECT_EQ("mock:id=1", sl.getSession(id1)->getServiceLocator());
-}
-
-// Helper function for the following tests; invokes getSession in a
-// separate thread and returns the result.
-static void testGetSessionThread(AbstractServerListSubClass* sl,
-        ServerId id, Transport::SessionRef* result) {
-    *result = sl->getSession(id);
-}
-
-TEST_F(AbstractServerListTest, getSession_serverDisappearsDuringCheck) {
-    TestLog::Enable _;
-    MockTransport transport(&context);
-    context.transportManager->registerMock(&transport);
-    sl.skipServerIdCheck = false;
-    ServerId& id1 = sl.add("mock:id=1", ServerStatus::UP);
-    Transport::SessionRef session(NULL);
-    std::thread thread(testGetSessionThread, &sl, id1, &session);
-
-    // Wait for the RPC to get underway.
-    for (int i = 0; i < 1000; i++) {
-        if (transport.lastNotifier != NULL)
-            break;
-        usleep(100);
-    }
-    EXPECT_TRUE(transport.lastNotifier != NULL);
-
-    // Delete the server for which a session is being generated, then
-    // allow the RPC to complete.
-    sl.remove(id1);
-    RpcWrapper* wrapper = static_cast<RpcWrapper*>(transport.lastNotifier);
-    wrapper->response->fillFromString("0 0 0");
-    transport.lastNotifier->completed();
-
-    // Wait for completion.
-    for (int i = 0; i < 1000; i++) {
-        if (session != NULL)
-            break;
-        usleep(100);
-    }
-    EXPECT_EQ("fail:", session->getServiceLocator());
-    thread.join();
-}
-TEST_F(AbstractServerListTest, getSession_sessionSetDuringCheck) {
-    TestLog::Enable _;
-    MockTransport transport(&context);
-    context.transportManager->registerMock(&transport);
-    sl.skipServerIdCheck = false;
-    ServerId& id1 = sl.add("mock:id=1", ServerStatus::UP);
-    Transport::SessionRef session = transport.getSession();
-    Transport::SessionRef result(NULL);
-    std::thread thread(testGetSessionThread, &sl, id1, &result);
-
-    // Wait for the RPC to get underway.
-    for (int i = 0; i < 1000; i++) {
-        if (transport.lastNotifier != NULL)
-            break;
-        usleep(100);
-    }
-    EXPECT_TRUE(transport.lastNotifier != NULL);
-
-    // Fill in the session for the given server, then allow the RPC to complete.
-    sl.iget(id1.indexNumber())->session = session;
-    RpcWrapper* wrapper = static_cast<RpcWrapper*>(transport.lastNotifier);
-    wrapper->response->fillFromString("0 0 0");
-    transport.lastNotifier->completed();
-
-    // Wait for completion.
-    for (int i = 0; i < 1000; i++) {
-        if (result != NULL)
-            break;
-        usleep(100);
-    }
-    EXPECT_TRUE(result != NULL);
-    EXPECT_EQ("test:", result->getServiceLocator());
-    thread.join();
 }
 
 TEST_F(AbstractServerListTest, flushSession) {

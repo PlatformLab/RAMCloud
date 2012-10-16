@@ -64,6 +64,7 @@ using std::vector;
 }
 
 #define foreach BOOST_FOREACH
+#define reverse_foreach BOOST_REVERSE_FOREACH
 
 // A macro to disallow the copy constructor and operator= functions
 #ifndef DISALLOW_COPY_AND_ASSIGN
@@ -226,8 +227,10 @@ get(const Map& map, const typename Map::key_type& key)
         - 100)
 
 /**
- * Convenience to avoid having downcasts everywhere we take sizeof, which
- * returns size_t, but want a uint32_t instead.
+ * Return the size of the given type as a uint32_t. This convenience macro
+ * tavoids having downcasts everywhere we take sizeof, which returns size_t,
+ * but want a uint32_t instead. Stay tuned for a fancier templated version
+ * by syang0 and ongaro...
  */
 #define sizeof32(type) downCast<uint32_t>(sizeof(type))
 
@@ -273,6 +276,17 @@ prefetch(const T* object)
 }
 
 void pinAllMemory();
+
+/*
+ * A macro that's always defined that indicates whether or not this is a debug
+ * build. Allows use of conditionals and lets the compiler remove dead code,
+ * rather than sprinkling gross #ifndefs around.
+ */
+#ifdef NDEBUG
+#define DEBUG_BUILD false
+#else
+#define DEBUG_BUILD true
+#endif
 
 } // end RAMCloud
 #endif // RAMCLOUD_COMMON_H

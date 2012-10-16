@@ -1072,6 +1072,10 @@ InfRcTransport<Infiniband>::Poller::poll()
                                                  bd->buffer + sizeof(header),
                                                  len, t, t->clientSrq, bd);
                 }
+                LOG(DEBUG, "Received %s response from %s with %u bytes",
+                        WireFormat::opcodeSymbol(*rpc.request),
+                        rpc.session->getServiceLocator().c_str(),
+                        rpc.response->getTotalLength());
                 rpc.state = ClientRpc::RESPONSE_RECEIVED;
                 ++metrics->transport.receive.messageCount;
                 ++metrics->transport.receive.packetCount;

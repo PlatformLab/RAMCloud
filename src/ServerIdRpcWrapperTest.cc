@@ -49,6 +49,55 @@ class ServerIdRpcWrapperTest : public ::testing::Test {
     DISALLOW_COPY_AND_ASSIGN(ServerIdRpcWrapperTest);
 };
 
+TEST_F(ServerIdRpcWrapperTest, checkStatus_serverUp) {
+    TestLog::Enable _;
+    ServerIdRpcWrapper wrapper(&context, id,
+                sizeof(WireFormat::BackupFree::Response));
+    wrapper.allocHeader<WireFormat::BackupFree>(id);
+    wrapper.send();
+    WireFormat::ResponseCommon* responseCommon = new(wrapper.response, APPEND)
+                WireFormat::ResponseCommon;
+    responseCommon->status = STATUS_WRONG_SERVER;
+    wrapper.completed();
+    EXPECT_FALSE(wrapper.isReady());
+    EXPECT_EQ("checkStatus: STATUS_WRONG_SERVER in BACKUP_FREE RPC "
+            "to server 1.0 at mock: | "
+            "flushSession: flushed session for id 1.0", TestLog::get());
+    EXPECT_STREQ("IN_PROGRESS", wrapper.stateString());
+}
+
+TEST_F(ServerIdRpcWrapperTest, checkStatus_serverCrashed) {
+    TestLog::Enable _;
+    ServerIdRpcWrapper wrapper(&context, id,
+                sizeof(WireFormat::BackupFree::Response));
+    wrapper.allocHeader<WireFormat::BackupFree>(id);
+    wrapper.send();
+    WireFormat::ResponseCommon* responseCommon = new(wrapper.response, APPEND)
+                WireFormat::ResponseCommon;
+    responseCommon->status = STATUS_WRONG_SERVER;
+    wrapper.completed();
+    serverList.testingCrashed(id);
+    EXPECT_TRUE(wrapper.isReady());
+    EXPECT_EQ("checkStatus: STATUS_WRONG_SERVER in BACKUP_FREE RPC "
+            "to server 1.0 at mock: | "
+            "flushSession: flushed session for id 1.0", TestLog::get());
+    EXPECT_STREQ("FINISHED", wrapper.stateString());
+}
+
+TEST_F(ServerIdRpcWrapperTest, checkStatus_unknownError) {
+    TestLog::Enable _;
+    ServerIdRpcWrapper wrapper(&context, id,
+                sizeof(WireFormat::BackupFree::Response));
+    wrapper.allocHeader<WireFormat::BackupFree>(id);
+    wrapper.send();
+    WireFormat::ResponseCommon* responseCommon = new(wrapper.response, APPEND)
+                WireFormat::ResponseCommon;
+    responseCommon->status = STATUS_UNIMPLEMENTED_REQUEST;
+    wrapper.completed();
+    EXPECT_TRUE(wrapper.isReady());
+    EXPECT_EQ("", TestLog::get());
+}
+
 TEST_F(ServerIdRpcWrapperTest, handleTransportError_serverAlreadyDown) {
     TestLog::Enable _;
     ServerIdRpcWrapper wrapper(&context, id, 4);

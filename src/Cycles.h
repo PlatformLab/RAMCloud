@@ -47,10 +47,10 @@ class Cycles {
     }
 
     static double perSecond();
-    static double toSeconds(uint64_t cycles);
-    static uint64_t fromSeconds(double seconds);
-    static uint64_t toNanoseconds(uint64_t cycles);
-    static uint64_t fromNanoseconds(uint64_t ns);
+    static double toSeconds(uint64_t cycles, double cyclesPerSec = 0);
+    static uint64_t fromSeconds(double seconds, double cyclesPerSec = 0);
+    static uint64_t toNanoseconds(uint64_t cycles, double cyclesPerSec = 0);
+    static uint64_t fromNanoseconds(uint64_t ns, double cyclesPerSec = 0);
 
   PRIVATE:
     Cycles();

@@ -20,6 +20,7 @@
 #include "CoordinatorClient.h"
 #include "Log.h"
 #include "LogCleaner.h"
+#include "LogEntryHandlers.h"
 #include "HashTable.h"
 #include "Object.h"
 #include "SegmentIterator.h"
@@ -45,7 +46,7 @@ class RecoveryTask;
  * respond to client RPC requests to manipulate objects stored on the
  * server.
  */
-class MasterService : public Service, Log::EntryHandlers {
+class MasterService : public Service, LogEntryHandlers {
   public:
     MasterService(Context* context,
                   const ServerConfig& config);
@@ -55,10 +56,9 @@ class MasterService : public Service, Log::EntryHandlers {
                   Rpc& rpc);
 
     uint32_t getTimestamp(LogEntryType type, Buffer& buffer);
-    bool checkLiveness(LogEntryType type, Buffer& buffer);
-    bool relocate(LogEntryType type,
+    void relocate(LogEntryType type,
                   Buffer& oldBuffer,
-                  HashTable::Reference newReference);
+                  LogEntryRelocator& relocator);
 
   PRIVATE:
     /**
@@ -108,6 +108,9 @@ class MasterService : public Service, Log::EntryHandlers {
     void enumerate(const WireFormat::Enumerate::Request& reqHdr,
                    WireFormat::Enumerate::Response& respHdr,
                    Rpc& rpc);
+    void getLogMetrics(const WireFormat::GetLogMetrics::Request& reqHdr,
+                       WireFormat::GetLogMetrics::Response& respHdr,
+                       Rpc& rpc);
     void fillWithTestData(const WireFormat::FillWithTestData::Request& reqHdr,
                           WireFormat::FillWithTestData::Response& respHdr,
                           Rpc& rpc);
@@ -174,10 +177,6 @@ class MasterService : public Service, Log::EntryHandlers {
 
     const ServerConfig& config;
 
-    /// The identifier assigned to this service by the coordinator.  Initial
-    /// state (before enlistment) is ???.
-    ServerId serverId;
-
   PRIVATE:
 
     /// Track total bytes of object data written (not including log overhead).
@@ -191,9 +190,10 @@ class MasterService : public Service, Log::EntryHandlers {
     ReplicaManager replicaManager;
 
     /**
-     * Allocator used by the SegmentManager to obtain main memory for the log.
+     * Allocator used by the SegmentManager to obtain main memory for log
+     * segments.
      */
-    SegmentManager::Allocator allocator;
+    SegletAllocator allocator;
 
     /**
      * The SegmentManager manages all segments in the log and interfaces
@@ -286,12 +286,12 @@ class MasterService : public Service, Log::EntryHandlers {
     Status rejectOperation(const RejectRules& rejectRules, uint64_t version)
         __attribute__((warn_unused_result));
     bool checkObjectLiveness(Buffer& buffer);
-    bool relocateObject(Buffer& oldBuffer,
-                        HashTable::Reference newReference);
+    void relocateObject(Buffer& oldBuffer,
+                        LogEntryRelocator& relocator);
     uint32_t getObjectTimestamp(Buffer& buffer);
     bool checkTombstoneLiveness(Buffer& buffer);
-    bool relocateTombstone(Buffer& oldBuffer,
-                           HashTable::Reference newReference);
+    void relocateTombstone(Buffer& oldBuffer,
+                           LogEntryRelocator& relocator);
     uint32_t getTombstoneTimestamp(Buffer& buffer);
     Status storeObject(Key& key,
                        const RejectRules* rejectRules,

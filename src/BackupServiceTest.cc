@@ -40,7 +40,6 @@ class BackupServiceTest : public ::testing::Test {
     Tub<MockCluster> cluster;
     Server* server;
     BackupService* backup;
-    ServerList serverList;
     ServerId backupId;
 
     BackupServiceTest()
@@ -49,8 +48,7 @@ class BackupServiceTest : public ::testing::Test {
         , cluster()
         , server()
         , backup()
-        , serverList(&context)
-        , backupId(5, 0)
+        , backupId()
     {
         Logger::get().setLogLevels(SILENT_LOG_LEVEL);
 
@@ -59,9 +57,7 @@ class BackupServiceTest : public ::testing::Test {
         config.backup.numSegmentFrames = 5;
         server = cluster->addServer(config);
         backup = server->backup.get();
-
-        serverList.testingAdd({backupId, server->config.localLocator,
-                              {BACKUP_SERVICE}, 100, ServerStatus::UP});
+        backupId = server->serverId;
     }
 
     ~BackupServiceTest()
@@ -638,14 +634,6 @@ class GcMockMasterService : public Service {
         switch (hdr->service) {
         case MEMBERSHIP_SERVICE:
             switch (opcode) {
-            case Opcode::GET_SERVER_ID:
-            {
-                auto* resp = new(&rpc.replyPayload, APPEND)
-                    GetServerId::Response();
-                resp->serverId = ServerId(13, 0).getId();
-                resp->common.status = STATUS_OK;
-                break;
-            }
             default:
                 FAIL();
                 break;

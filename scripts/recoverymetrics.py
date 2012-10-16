@@ -549,8 +549,6 @@ def makeReport(data):
                  'master.segmentAppendTicks')
     master_ticks('Segment append copy',
                  'master.segmentAppendCopyTicks')
-    master_ticks('Segment append checksum',
-                 'master.segmentAppendChecksumTicks')
     masterSection.ms('Other recoverSegment',
                      on_masters(lambda m: (m.master.recoverSegmentTicks -
                                            m.master.backupInRecoverTicks -
@@ -694,12 +692,12 @@ def makeReport(data):
              for b in backups])),
         unit='ms avg')
 
-    efficiencySection.line('Filtering a segment',
-        sum([b.backup.filterTicks / b.clockFrequency * 1000
-             for b in backups]) /
-        sum([b.backup.storageReadCount
-             for b in backups]),
-        unit='ms avg')
+    #efficiencySection.line('Filtering a segment',
+    #    sum([b.backup.filterTicks / b.clockFrequency * 1000
+    #         for b in backups]) /
+    #    sum([b.backup.storageReadCount
+    #         for b in backups]),
+    #    unit='ms avg')
 
     efficiencySection.line('Memory bandwidth (backup copies)',
         on_backups(lambda b: (

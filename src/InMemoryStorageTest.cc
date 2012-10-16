@@ -39,7 +39,7 @@ class InMemoryStorageTest : public ::testing::Test {
         , segmentSize(4 * 1024)
         , storage()
     {
-        testSource.appendTo(test, testLength + 1);
+        testSource.append(test, testLength + 1);
         storage.construct(segmentSize, segmentFrames);
     }
 

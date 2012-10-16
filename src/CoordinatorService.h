@@ -42,6 +42,7 @@ namespace RAMCloud {
 class CoordinatorService : public Service {
   public:
     explicit CoordinatorService(Context* context,
+                                uint32_t deadServerTimeout,
                                 string LogCabinLocator = "testing");
     ~CoordinatorService();
     void dispatch(WireFormat::Opcode opcode,
@@ -104,6 +105,13 @@ class CoordinatorService : public Service {
      * for individual servers (e.g. ServiceLocator strings, Wills, etc).
      */
     CoordinatorServerList& serverList;
+
+    /**
+     * The ping timeout, in milliseconds, used when the Coordinator verifies an
+     * incoming hint server down message. Until we resolve the scheduler issues
+     * that we have been seeing this timeout should be at least 250ms.
+     */
+    const uint32_t deadServerTimeout;
 
   PRIVATE:
     /**

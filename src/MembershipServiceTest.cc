@@ -32,6 +32,7 @@ class MembershipServiceTest : public ::testing::Test {
     Context context;
     ServerId serverId;
     ServerList serverList;
+    ServerConfig serverConfig;
     MembershipService service;
     BindTransport transport;
     TransportManager::MockRegistrar mockRegistrar;
@@ -40,7 +41,8 @@ class MembershipServiceTest : public ::testing::Test {
         : context()
         , serverId(99, 2)
         , serverList(&context)
-        , service(serverId, serverList)
+        , serverConfig(ServerConfig::forTesting())
+        , service(serverId, serverList, serverConfig)
         , transport(&context)
         , mockRegistrar(&context, transport)
     {
@@ -53,12 +55,6 @@ class MembershipServiceTest : public ::testing::Test {
 
     DISALLOW_COPY_AND_ASSIGN(MembershipServiceTest);
 };
-
-TEST_F(MembershipServiceTest, getServerId) {
-    serverId = ServerId(523, 234);
-    EXPECT_EQ(ServerId(523, 234), MembershipClient::getServerId(&context,
-        context.transportManager->getSession("mock:host=member")));
-}
 
 TEST_F(MembershipServiceTest, updateServerList) {
     // Create a temporary coordinator server list (with its own context)

@@ -60,6 +60,7 @@ RecoverySegmentBuilder::build(const void* buffer, uint32_t length,
                               const ProtoBuf::Tablets& partitions,
                               Segment* recoverySegments)
 {
+    CycleCounter<RawMetric> _(&metrics->backup.filterTicks);
     SegmentIterator it(buffer, length, certificate);
     it.checkMetadataIntegrity();
 
@@ -112,7 +113,7 @@ RecoverySegmentBuilder::build(const void* buffer, uint32_t length,
                         header->segmentId);
                     throw SegmentRecoveryFailedException(HERE);
                 }
-                LOG(NOTICE, "To partition=%u", i);
+                LOG(DEBUG, "To partition=%u", i);
             }
             continue;
         }

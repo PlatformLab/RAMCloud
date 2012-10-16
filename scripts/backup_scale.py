@@ -35,7 +35,7 @@ for numBackups in range(3, len(config.hosts)):
     args['backups_per_server'] = 1
     args['num_partitions'] = 1
     args['object_size'] = 1024
-    args['num_objects'] = 592415 # 600MB
+    args['num_objects'] = 592950 # 600MB
     args['master_ram'] = 8000
     args['replicas'] = 3
     r = recovery.insist(**args)

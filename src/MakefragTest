@@ -39,6 +39,7 @@ TESTS_SRCFILES := \
 		  src/FailureDetectorTest.cc \
 		  src/FastTransportTest.cc \
 		  src/HashTableTest.cc \
+		  src/HistogramTest.cc \
 		  src/InitializeTest.cc \
 		  src/InMemoryStorageTest.cc \
 		  src/IpAddressTest.cc \
@@ -46,8 +47,10 @@ TESTS_SRCFILES := \
 		  src/LogCabinHelperTest.cc \
 		  src/LogCleanerTest.cc \
 		  src/LogDigestTest.cc \
+		  src/LogEntryRelocatorTest.cc \
 		  src/LoggerTest.cc \
 		  src/LogIteratorTest.cc \
+		  src/LogSegmentTest.cc \
 		  src/LogTest.cc \
 		  src/MacAddressTest.cc \
 		  src/MasterRecoveryManagerTest.cc \
@@ -74,6 +77,8 @@ TESTS_SRCFILES := \
 		  src/ReplicatedSegmentTest.cc \
 		  src/RpcWrapperTest.cc \
 		  src/RuntimeOptionsTest.cc \
+		  src/SegletTest.cc \
+		  src/SegletAllocatorTest.cc \
 		  src/SegmentTest.cc \
 		  src/SegmentIteratorTest.cc \
 		  src/SegmentManagerTest.cc \
@@ -185,7 +190,7 @@ $(OBJDIR)/TransportBench: $(OBJDIR)/TransportBench.o $(OBJDIR)/RawMetrics.o $(OB
 	@mkdir -p $(@D)
 	$(CXX) -o $@ $^ $(TESTS_LIB)
 
-$(OBJDIR)/LogCleanerBenchmark: $(OBJDIR)/LogCleanerBenchmark.o $(OBJDIR)/OptionParser.o $(OBJDIR)/libramcloud.a
+$(OBJDIR)/LogCleanerBenchmark: $(OBJDIR)/LogCleanerBenchmark.o $(OBJDIR)/Histogram.pb.o $(OBJDIR)/OptionParser.o $(OBJDIR)/LogMetrics.pb.o $(OBJDIR)/ServerConfig.pb.o $(OBJDIR)/libramcloud.a
 	@mkdir -p $(@D)
 	$(CXX) -o $@ $^ $(TESTS_LIB)
 

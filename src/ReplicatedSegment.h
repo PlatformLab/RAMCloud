@@ -22,6 +22,7 @@
 #include "BackupClient.h"
 #include "BackupSelector.h"
 #include "BoostIntrusive.h"
+#include "CycleCounter.h"
 #include "UpdateReplicationEpochTask.h"
 #include "RawMetrics.h"
 #include "Transport.h"
@@ -222,9 +223,9 @@ class ReplicatedSegment : public Task {
 
         ~Replica() {
             if (writeRpc)
-                writeRpc->cancel();
+                writeRpc->cancel(false);
             if (freeRpc)
-                freeRpc->cancel();
+                freeRpc->cancel(false);
         }
 
         /**
@@ -358,6 +359,7 @@ class ReplicatedSegment : public Task {
                       bool normalLogSegment,
                       ServerId masterId,
                       uint32_t numReplicas,
+                      Tub<CycleCounter<RawMetric>>* replicationCounter = NULL,
                       uint32_t maxBytesPerWriteRpc = 1024 * 1024);
     ~ReplicatedSegment();
 
@@ -557,6 +559,12 @@ class ReplicatedSegment : public Task {
 
     /// Intrusive list entries for #ReplicaManager::replicatedSegmentList.
     IntrusiveListHook listEntries;
+
+    /**
+     * Used to measure time when backup write rpcs are active.
+     * Shared among ReplicatedSegments.
+     */
+    Tub<CycleCounter<RawMetric>>* replicationCounter;
 
     /**
      * An array of #ReplicaManager::replica backups on which the segment is

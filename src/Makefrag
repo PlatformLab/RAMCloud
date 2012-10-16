@@ -54,6 +54,7 @@ SHARED_SRCFILES := \
 		   src/Log.cc \
 		   src/LogCleaner.cc \
 		   src/LogDigest.cc \
+		   src/LogEntryRelocator.cc \
 		   src/Logger.cc \
 		   src/LogIterator.cc \
 		   src/MacAddress.cc \
@@ -76,6 +77,8 @@ SHARED_SRCFILES := \
 		   src/ReplicaManager.cc \
 		   src/ReplicatedSegment.cc \
 		   src/RpcWrapper.cc \
+		   src/Seglet.cc \
+		   src/SegletAllocator.cc \
 		   src/Segment.cc \
 		   src/SegmentIterator.cc \
 		   src/SegmentManager.cc \
@@ -105,8 +108,11 @@ SHARED_SRCFILES := \
 		   src/WireFormat.cc \
 		   $(INFINIBAND_SRCFILES) \
 		   $(OBJDIR)/EnumerationIterator.pb.cc \
-		   $(OBJDIR)/MetricList.pb.cc \
+           $(OBJDIR)/Histogram.pb.cc \
+		   $(OBJDIR)/LogMetrics.pb.cc \
 		   $(OBJDIR)/MasterRecoveryInfo.pb.cc \
+		   $(OBJDIR)/MetricList.pb.cc \
+		   $(OBJDIR)/ServerConfig.pb.cc \
 		   $(OBJDIR)/ServerList.pb.cc \
 		   $(OBJDIR)/ServerStatistics.pb.cc \
 		   $(OBJDIR)/Tablets.pb.cc \

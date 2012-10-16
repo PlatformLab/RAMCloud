@@ -76,7 +76,7 @@ AssignGroupRpc::AssignGroupRpc(Context* context, ServerId backupId,
             sizeof(WireFormat::BackupAssignGroup::Response))
 {
     WireFormat::BackupAssignGroup::Request* reqHdr(
-            allocHeader<WireFormat::BackupAssignGroup>());
+            allocHeader<WireFormat::BackupAssignGroup>(backupId));
     reqHdr->replicationId = replicationId;
     reqHdr->numReplicas = numReplicas;
     uint64_t* dest = new(&request, APPEND) uint64_t[numReplicas];
@@ -126,7 +126,7 @@ FreeSegmentRpc::FreeSegmentRpc(Context* context, ServerId backupId,
             sizeof(WireFormat::BackupFree::Response))
 {
     WireFormat::BackupFree::Request* reqHdr(
-            allocHeader<WireFormat::BackupFree>());
+            allocHeader<WireFormat::BackupFree>(backupId));
     reqHdr->masterId = masterId.getId();
     reqHdr->segmentId = segmentId;
     send();
@@ -210,7 +210,7 @@ GetRecoveryDataRpc::GetRecoveryDataRpc(Context* context,
             sizeof(WireFormat::BackupGetRecoveryData::Response), response)
 {
     WireFormat::BackupGetRecoveryData::Request* reqHdr(
-            allocHeader<WireFormat::BackupGetRecoveryData>());
+            allocHeader<WireFormat::BackupGetRecoveryData>(backupId));
     reqHdr->recoveryId = recoveryId;
     reqHdr->masterId = masterId.getId();
     reqHdr->segmentId = segmentId;
@@ -277,7 +277,7 @@ BackupQuiesceRpc::BackupQuiesceRpc(Context* context, ServerId backupId)
     : ServerIdRpcWrapper(context, backupId,
             sizeof(WireFormat::BackupQuiesce::Response))
 {
-    allocHeader<WireFormat::BackupQuiesce>();
+    allocHeader<WireFormat::BackupQuiesce>(backupId);
     send();
 }
 
@@ -319,7 +319,7 @@ RecoveryCompleteRpc::RecoveryCompleteRpc(Context* context, ServerId backupId,
             sizeof(WireFormat::BackupRecoveryComplete::Response))
 {
     WireFormat::BackupRecoveryComplete::Request* reqHdr(
-            allocHeader<WireFormat::BackupRecoveryComplete>());
+            allocHeader<WireFormat::BackupRecoveryComplete>(backupId));
     reqHdr->masterId = masterId.getId();
     send();
 }
@@ -382,7 +382,7 @@ StartReadingDataRpc::StartReadingDataRpc(Context* context,
             sizeof(WireFormat::BackupStartReadingData::Response))
 {
     WireFormat::BackupStartReadingData::Request* reqHdr(
-            allocHeader<WireFormat::BackupStartReadingData>());
+            allocHeader<WireFormat::BackupStartReadingData>(backupId));
     reqHdr->recoveryId = recoveryId;
     reqHdr->masterId = masterId.getId();
     send();
@@ -509,7 +509,7 @@ StartPartitioningRpc::StartPartitioningRpc(Context* context,
             sizeof(WireFormat::BackupStartPartitioningReplicas::Response))
 {
     WireFormat::BackupStartPartitioningReplicas::Request* reqHdr(
-            allocHeader<WireFormat::BackupStartPartitioningReplicas>());
+            allocHeader<WireFormat::BackupStartPartitioningReplicas>(backupId));
     reqHdr->recoveryId = recoveryId;
     reqHdr->masterId = masterId.getId();
     reqHdr->partitionsLength = ProtoBuf::serializeToRequest(&request,
@@ -713,7 +713,7 @@ WriteSegmentRpc::WriteSegmentRpc(Context* context,
                          sizeof(WireFormat::BackupWrite::Response))
 {
     WireFormat::BackupWrite::Request* reqHdr(
-            allocHeader<WireFormat::BackupWrite>());
+            allocHeader<WireFormat::BackupWrite>(backupId));
     reqHdr->masterId = masterId.getId();
     reqHdr->segmentId = segmentId;
     reqHdr->segmentEpoch = segmentEpoch;

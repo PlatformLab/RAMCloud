@@ -164,6 +164,9 @@ DEFINE_EXCEPTION(TabletDoesntExistException,
 DEFINE_EXCEPTION(PartitionBeforeReadException,
                  STATUS_PARTITION_BEFORE_READ,
                  ClientException)
+DEFINE_EXCEPTION(WrongServerException,
+                 STATUS_WRONG_SERVER,
+                 ClientException)
 
 } // namespace RAMCloud
 

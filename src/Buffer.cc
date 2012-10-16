@@ -912,7 +912,7 @@ operator new(size_t numBytes, RAMCloud::Buffer* buffer,
         firstChunk->length += numBytes32;
         buffer->totalLength += numBytes32;
     } else {
-        Buffer::Chunk::prependToBuffer(buffer, data, numBytes32);
+        buffer->prepend(data, numBytes32);
     }
     return data;
 }
@@ -949,7 +949,7 @@ operator new(size_t numBytes, RAMCloud::Buffer* buffer,
         lastChunk->length += numBytes32;
         buffer->totalLength += numBytes32;
     } else {
-        Buffer::Chunk::appendToBuffer(buffer, data, numBytes32);
+        buffer->append(data, numBytes32);
     }
     return data;
 }

@@ -77,7 +77,6 @@ opcodeSymbol(uint32_t opcode)
         case BACKUP_RECOVERYCOMPLETE:    return "BACKUP_RECOVERYCOMPLETE";
         case BACKUP_QUIESCE:             return "BACKUP_QUIESCE";
         case UPDATE_SERVER_LIST:         return "SET_SERVER_LIST";
-        case GET_SERVER_ID:              return "GET_SERVER_ID";
         case SET_MASTER_RECOVERY_INFO:   return "SET_MASTER_RECOVERY_INFO";
         case DROP_TABLET_OWNERSHIP:      return "DROP_TABLET_OWNERSHIP";
         case TAKE_TABLET_OWNERSHIP:      return "TAKE_TABLET_OWNERSHIP";
@@ -92,6 +91,8 @@ opcodeSymbol(uint32_t opcode)
         case SPLIT_TABLET:               return "SPLIT_TABLET";
         case GET_SERVER_STATISTICS:      return "GET_SERVER_STATISTICS";
         case SET_RUNTIME_OPTION:         return "SET_RUNTIME_OPTION";
+        case GET_SERVER_CONFIG:          return "GET_SERVER_CONFIG";
+        case GET_LOG_METRICS:            return "GET_LOG_METRICS";
         case ILLEGAL_RPC_TYPE:           return "ILLEGAL_RPC_TYPE";
     }
 

@@ -29,7 +29,7 @@ SegmentIterator::SegmentIterator()
       segment(NULL),
       certificate(),
       currentOffset(0),
-      currentType(),
+      currentHeader(NULL),
       currentLength()
 {
 }
@@ -58,7 +58,7 @@ SegmentIterator::SegmentIterator(Segment& segment)
       segment(&segment),
       certificate(),
       currentOffset(0),
-      currentType(),
+      currentHeader(segment.getEntryHeader(0)),
       currentLength()
 {
     segment.getAppendedLength(certificate);
@@ -95,11 +95,12 @@ SegmentIterator::SegmentIterator(const void *buffer, uint32_t length,
       segment(NULL),
       certificate(certificate),
       currentOffset(0),
-      currentType(),
+      currentHeader(NULL),
       currentLength()
 {
     wrapperSegment.construct(buffer, length);
     segment = &*wrapperSegment;
+    currentHeader = segment->getEntryHeader(0);
 }
 
 SegmentIterator::SegmentIterator(const SegmentIterator& other)
@@ -109,7 +110,7 @@ SegmentIterator::SegmentIterator(const SegmentIterator& other)
       segment(other.segment),
       certificate(other.certificate),
       currentOffset(other.currentOffset),
-      currentType(other.currentType),
+      currentHeader(other.currentHeader),
       currentLength(other.currentLength)
 {
     if (other.wrapperSegment) {
@@ -128,7 +129,7 @@ SegmentIterator::operator=(const SegmentIterator& other)
     segment = other.segment;
     certificate = other.certificate;
     currentOffset = other.currentOffset;
-    currentType = other.currentType;
+    currentHeader = other.currentHeader;
     currentLength = other.currentLength;
     if (other.wrapperSegment) {
         wrapperSegment.construct(buffer, length);
@@ -170,39 +171,40 @@ SegmentIterator::next()
     if (isDone())
         return;
 
-    const Segment::EntryHeader* header = segment->getEntryHeader(currentOffset);
-    currentOffset += sizeof32(*header) + header->getLengthBytes() + getLength();
-
-    currentType.destroy();
+    currentOffset += sizeof32(*currentHeader) +
+                     currentHeader->getLengthBytes() +
+                     getLength();
+    currentHeader = segment->getEntryHeader(currentOffset);
     currentLength.destroy();
 }
 
 /**
  * Return the type of the entry currently pointed to by the iterator.
+ * If no entry is currently pointed to, returns LOG_ENTRY_TYPE_INVALID.
  */
 LogEntryType
 SegmentIterator::getType()
 {
-    if (!currentType) {
-        currentType.construct(
-            segment->getEntryHeader(currentOffset)->getType());
-    }
-    return *currentType;
+    if (currentHeader == NULL)
+        return LOG_ENTRY_TYPE_INVALID;
+    return currentHeader->getType();
 }
 
 /**
  * Return the length of the entry currently pointed to by the iterator.
+ * If no entry is currently pointed to, returns 0.
  */
 uint32_t
 SegmentIterator::getLength()
 {
+    if (currentHeader == NULL)
+        return 0;
+
     if (!currentLength) {
-        const Segment::EntryHeader* header =
-            segment->getEntryHeader(currentOffset);
         uint32_t length = 0;
-        segment->copyOut(currentOffset + sizeof32(*header),
+        segment->copyOut(currentOffset + sizeof32(*currentHeader),
                          &length,
-                         header->getLengthBytes());
+                         currentHeader->getLengthBytes());
         currentLength.construct(length);
     }
     return *currentLength;
@@ -225,8 +227,10 @@ SegmentIterator::getOffset()
 uint32_t
 SegmentIterator::appendToBuffer(Buffer& buffer)
 {
-    segment->getEntry(currentOffset, buffer);
-    return buffer.getTotalLength();
+    uint32_t entryOffset = currentOffset +
+                           sizeof32(*currentHeader) +
+                           currentHeader->getLengthBytes();
+    return segment->appendToBuffer(buffer, entryOffset, getLength());
 }
 
 /**

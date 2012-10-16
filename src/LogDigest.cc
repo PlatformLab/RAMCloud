@@ -108,8 +108,8 @@ LogDigest::operator[](size_t index) const
 void
 LogDigest::appendToBuffer(Buffer& buffer) const
 {
-    buffer.appendTo(&header, sizeof(header));
-    buffer.appendTo(&segmentIds.front(),
+    buffer.append(&header, sizeof(header));
+    buffer.append(&segmentIds.front(),
         downCast<uint32_t>(sizeof(segmentIds.front()) * segmentIds.size()));
 }
 

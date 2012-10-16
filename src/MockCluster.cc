@@ -57,7 +57,7 @@ MockCluster::MockCluster(Context* context, string coordinatorLocator)
     coordinatorContext.coordinatorSession->setLocation(
             coordinatorLocator.c_str());
 
-    coordinator.construct(&coordinatorContext, "testing");
+    coordinator.construct(&coordinatorContext, 1000, "testing");
     transport.addService(*coordinator, coordinatorLocator,
                          WireFormat::COORDINATOR_SERVICE);
 }

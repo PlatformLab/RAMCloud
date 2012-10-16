@@ -18,6 +18,7 @@
 #include "RecoverySegmentBuilder.h"
 #include "SegmentIterator.h"
 #include "SegmentManager.h"
+#include "ServerConfig.h"
 #include "StringUtil.h"
 #include "TabletsBuilder.h"
 
@@ -28,8 +29,9 @@ struct RecoverySegmentBuilderTest : public ::testing::Test {
     ProtoBuf::Tablets partitions;
     ServerId serverId;
     ServerList serverList;
+    ServerConfig serverConfig;
     ReplicaManager replicaManager;
-    SegmentManager::Allocator allocator;
+    SegletAllocator allocator;
     SegmentManager segmentManager;
 
     RecoverySegmentBuilderTest()
@@ -37,9 +39,11 @@ struct RecoverySegmentBuilderTest : public ::testing::Test {
         , partitions()
         , serverId(99, 0)
         , serverList(&context)
+        , serverConfig(ServerConfig::forTesting())
         , replicaManager(&context, serverId, 0)
-        , allocator(4 * 8192, 8192, 8192)
-        , segmentManager(&context, serverId, allocator, replicaManager, 1.0)
+        , allocator(serverConfig)
+        , segmentManager(&context, serverConfig, serverId,
+                         allocator, replicaManager)
     {
         Logger::get().setLogLevels(RAMCloud::SILENT_LOG_LEVEL);
         auto oneOneHash = Key::getHash(1, "1", 1);
@@ -57,62 +61,46 @@ TEST_F(RecoverySegmentBuilderTest, build) {
     auto build = RecoverySegmentBuilder::build;
     LogSegment* segment = segmentManager.allocHead();
 
-    uint32_t outOffset = 0;
     { // Object and tombstone should go in partition 1.
         Key key(1, "1", 1);
         Object object(key, "hello", 6, 0, 0);
         Buffer buffer;
         object.serializeToBuffer(buffer);
-        ASSERT_TRUE(segment->append(LOG_ENTRY_TYPE_OBJ,
-                                    buffer, 0,
-                                    buffer.getTotalLength(),
-                                    outOffset));
+        ASSERT_TRUE(segment->append(LOG_ENTRY_TYPE_OBJ, buffer));
         ObjectTombstone tombstone(object, 0, 0);
         buffer.reset();
         tombstone.serializeToBuffer(buffer);
-        ASSERT_TRUE(segment->append(LOG_ENTRY_TYPE_OBJTOMB,
-                                    buffer, 0,
-                                    buffer.getTotalLength(),
-                                    outOffset));
+        ASSERT_TRUE(segment->append(LOG_ENTRY_TYPE_OBJTOMB, buffer));
+
     }{ // Object and tombstone should go in partition 0.
         Key key(1, "2", 1);
         Object object(key, "abcde", 6, 0, 0);
         Buffer buffer;
         object.serializeToBuffer(buffer);
-        ASSERT_TRUE(segment->append(LOG_ENTRY_TYPE_OBJ,
-                                    buffer, 0,
-                                    buffer.getTotalLength(),
-                                    outOffset));
+        ASSERT_TRUE(segment->append(LOG_ENTRY_TYPE_OBJ, buffer));
         ObjectTombstone tombstone(object, 0, 0);
         buffer.reset();
         tombstone.serializeToBuffer(buffer);
-        ASSERT_TRUE(segment->append(LOG_ENTRY_TYPE_OBJTOMB,
-                                    buffer, 0,
-                                    buffer.getTotalLength(),
-                                    outOffset));
+        ASSERT_TRUE(segment->append(LOG_ENTRY_TYPE_OBJTOMB, buffer));
+
     }{ // Object not in any partition.
         Key key(10, "1", 1);
         Object object(key, "abcde", 6, 0, 0);
         Buffer buffer;
         object.serializeToBuffer(buffer);
-        ASSERT_TRUE(segment->append(LOG_ENTRY_TYPE_OBJ,
-                                    buffer, 0,
-                                    buffer.getTotalLength(),
-                                    outOffset));
+        ASSERT_TRUE(segment->append(LOG_ENTRY_TYPE_OBJ, buffer));
+
     }{ // Object not written before the tablet existed.
         Key key(2, "1", 1);
         Object object(key, "abcde", 6, 0, 0);
         Buffer buffer;
         object.serializeToBuffer(buffer);
-        ASSERT_TRUE(segment->append(LOG_ENTRY_TYPE_OBJ,
-                                    buffer, 0,
-                                    buffer.getTotalLength(),
-                                    outOffset));
+        ASSERT_TRUE(segment->append(LOG_ENTRY_TYPE_OBJ, buffer));
     }
 
     Segment::Certificate certificate;
     uint32_t length = segment->getAppendedLength(certificate);
-    char buf[allocator.getTotalBytes()];
+    char buf[serverConfig.segmentSize];
     ASSERT_TRUE(segment->copyOut(0, buf, length));
 
     std::unique_ptr<Segment[]> recoverySegments(new Segment[2]);
@@ -134,7 +122,7 @@ TEST_F(RecoverySegmentBuilderTest, extractDigest) {
     LogSegment* segment = segmentManager.allocHead();
     Segment::Certificate certificate;
     uint32_t length = segment->getAppendedLength(certificate);
-    char buffer[allocator.getTotalBytes()];
+    char buffer[serverConfig.segmentSize];
     ASSERT_TRUE(segment->copyOut(0, buffer, length));
     Buffer digestBuffer;
     EXPECT_TRUE(extractDigest(buffer, sizeof32(buffer),

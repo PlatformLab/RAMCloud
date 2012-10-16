@@ -148,7 +148,7 @@ TEST_F(ReplicaManagerTest, writeSegment) {
 
     SegmentHeader header = { *serverId, 88, segmentSize,
         Segment::INVALID_SEGMENT_ID };
-    buffer.appendTo(&header, sizeof(header));
+    buffer.append(&header, sizeof(header));
     s.append(LOG_ENTRY_TYPE_SEGHEADER, buffer);
 
     Key key(123, "10", 2);
@@ -160,7 +160,7 @@ TEST_F(ReplicaManagerTest, writeSegment) {
 
     ReplicatedSegment* rs = mgr->allocateHead(88, &s, NULL);
     rs->close();
-    rs->sync(s.tail);
+    rs->sync(s.head);
 
     EXPECT_EQ(1U, mgr->replicatedSegmentList.size());
     ProtoBuf::Tablets will;
@@ -281,12 +281,11 @@ bool filter(string s) {
 }
 }
 
-class DoNothingHandlers : public Log::EntryHandlers {
+class DoNothingHandlers : public LogEntryHandlers {
   public:
     uint32_t getTimestamp(LogEntryType type, Buffer& buffer) { return 0; }
-    bool checkLiveness(LogEntryType type, Buffer& buffer) { return true; }
-    bool relocate(LogEntryType type, Buffer& oldBuffer,
-                  HashTable::Reference newReference) { return true; }
+    void relocate(LogEntryType type, Buffer& oldBuffer,
+                  LogEntryRelocator& relocator) { }
 };
 
 /**
@@ -299,11 +298,12 @@ class DoNothingHandlers : public Log::EntryHandlers {
 TEST_F(ReplicaManagerTest, endToEndBackupRecovery) {
     MockRandom __(1);
 
-    const uint64_t logSegs = 4;
-    SegmentManager::Allocator allocator(logSegs * 8192, 8192, 8192);
-    SegmentManager segmentManager(&context, serverId, allocator, *mgr, 1.0);
+    ServerConfig serverConfig(ServerConfig::forTesting());
+    SegletAllocator allocator(serverConfig);
+    SegmentManager segmentManager(&context, serverConfig,
+                                  serverId, allocator, *mgr);
     DoNothingHandlers entryHandlers;
-    Log log(&context, entryHandlers, segmentManager, *mgr, true);
+    Log log(&context, serverConfig, entryHandlers, segmentManager, *mgr);
     log.sync();
 
     // Set up the scenario:
@@ -311,12 +311,12 @@ TEST_F(ReplicaManagerTest, endToEndBackupRecovery) {
     // with a single pending write.
     log.allocateHeadIfStillOn({});
     static char buf[64];
-    log.append(LOG_ENTRY_TYPE_OBJ, buf, sizeof(buf), true);
+    log.append(LOG_ENTRY_TYPE_OBJ, 0, buf, sizeof(buf), true);
     // Non-synced append ensures mgr isn't idle, otherwise this unit test would
     // be racy: it waits for mgr->isIdle() to ensure recovery is complete, but
     // if the wait occurs before the failure notification gets processed this
     // will be trivially true.
-    log.append(LOG_ENTRY_TYPE_OBJ, buf, sizeof(buf), false);
+    log.append(LOG_ENTRY_TYPE_OBJ, 0, buf, sizeof(buf), false);
     log.head->replicatedSegment->schedule();
     ASSERT_FALSE(mgr->isIdle());
     ASSERT_EQ(1u, log.head->id);

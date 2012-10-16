@@ -24,6 +24,7 @@
 #include "MembershipService.h"
 #include "ProtoBuf.h"
 #include "ServerId.h"
+#include "ServerConfig.pb.h"
 #include "ServerList.pb.h"
 #include "ShortMacros.h"
 
@@ -34,12 +35,14 @@ namespace RAMCloud {
  * per server.
  */
 MembershipService::MembershipService(ServerId& ourServerId,
-                                     ServerList& serverList)
-    : serverId(ourServerId),
-      serverList(serverList)
+                                     ServerList& serverList,
+                                     const ServerConfig& serverConfig)
+    : serverList(serverList),
+      serverConfig(serverConfig)
 {
     // The coordinator will push the server list to us once we've
     // enlisted.
+    serverId = ourServerId;
 }
 
 /**
@@ -49,9 +52,9 @@ void
 MembershipService::dispatch(WireFormat::Opcode opcode, Rpc& rpc)
 {
     switch (opcode) {
-    case WireFormat::GetServerId::opcode:
-        callHandler<WireFormat::GetServerId, MembershipService,
-            &MembershipService::getServerId>(rpc);
+    case WireFormat::GetServerConfig::opcode:
+        callHandler<WireFormat::GetServerConfig, MembershipService,
+            &MembershipService::getServerConfig>(rpc);
         break;
     case WireFormat::UpdateServerList::opcode:
         callHandler<WireFormat::UpdateServerList, MembershipService,
@@ -63,29 +66,29 @@ MembershipService::dispatch(WireFormat::Opcode opcode, Rpc& rpc)
 }
 
 /**
- * Top-level service method to handle the REPLACE_SERVER_LIST request.
+ * Top-level service method to handle the GET_SERVER_CONFIG request.
+ *
+ * Yes, this is out of place in the membership service, but it needs to be
+ * handled by a service that will always be present and it seems silly to
+ * introduce one for a single RPC. If there are others, perhaps we will
+ * want a generic server information service.
  *
  * \copydetails Service::ping
  */
 void
-MembershipService::getServerId(const WireFormat::GetServerId::Request& reqHdr,
-                              WireFormat::GetServerId::Response& respHdr,
-                              Rpc& rpc)
+MembershipService::getServerConfig(
+    const WireFormat::GetServerConfig::Request& reqHdr,
+    WireFormat::GetServerConfig::Response& respHdr,
+    Rpc& rpc)
 {
-    // serverId may not be set by enlisting before RPCs are dispatched to
-    // this handler. The coordinator may try to open a session to send a
-    // server list to this server before the enlistment response has been
-    // received and processed.
-    if (!serverId.isValid()) {
-        respHdr.common.status = STATUS_RETRY;
-        return;
-    }
-
-    respHdr.serverId = *serverId;
+    ProtoBuf::ServerConfig serverConfigBuf;
+    serverConfig.serialize(serverConfigBuf);
+    respHdr.serverConfigLength = ProtoBuf::serializeToResponse(
+        &rpc.replyPayload, &serverConfigBuf);
 }
 
 /**
- * Top-level service method to handle the REPLACE_SERVER_LIST request.
+ * Top-level service method to handle the GET_SERVER_ID request.
  *
  * \copydetails Service::ping
  */

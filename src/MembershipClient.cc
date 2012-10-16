@@ -27,74 +27,6 @@
 namespace RAMCloud {
 
 /**
- * Given a Session, obtain the ServerId for the server behind that session.
- *
- * \param context
- *      Overall information about this RAMCloud server or client.
- * \param session
- *      Connection to a RAMCloud server.
- *
- * \return
- *       The RAMCloud identifier for the server  associated with #session.
- *
- * \throw TransportException
- *       Thrown if an unrecoverable error occurred while communicating with
- *       the target server.
- */
-ServerId
-MembershipClient::getServerId(Context* context, Transport::SessionRef session)
-{
-    GetServerIdRpc rpc(context, session);
-    return rpc.wait();
-}
-
-/**
- * Constructor for GetServerIdRpc: initiates an RPC in the same way as
- * #MembershipClient::getServerId, but returns once the RPC has been initiated,
- * without waiting for it to complete.
- *
- * \param context
- *      Overall information about this RAMCloud server or client.
- * \param session
- *      Connection to a RAMCloud server.
- */
-GetServerIdRpc::GetServerIdRpc(Context* context,
-        Transport::SessionRef session)
-    : RpcWrapper(sizeof(WireFormat::GetServerId::Response))
-    , context(context)
-{
-    this->session = session;
-    allocHeader<WireFormat::GetServerId>();
-    send();
-}
-
-/**
- * Wait for a getServerId RPC to complete, and return the same
- * results as #MembershipClient::getServerId.
- *
- * \return
- *       The RAMCloud identifier for the server associated with the
- *       session specified in the constructor.
- *
- * \throw TransportException
- *       Thrown if an unrecoverable error occurred while communicating with
- *       the target server.
- */
-ServerId
-GetServerIdRpc::wait()
-{
-    waitInternal(context->dispatch);
-    if (getState() != RpcState::FINISHED) {
-        throw TransportException(HERE);
-    }
-    const WireFormat::GetServerId::Response* respHdr(
-            getResponseHeader<WireFormat::GetServerId>());
-    if (respHdr->common.status != STATUS_OK)
-        ClientException::throwException(HERE, respHdr->common.status);
-    return ServerId(respHdr->serverId);
-}
-
-/**
  * Instruct the cluster membership service for the specified server to replace
  * its idea of cluster membership with the complete list given.
  *
@@ -135,7 +67,7 @@ UpdateServerListRpc::UpdateServerListRpc(Context* context, ServerId serverId,
             sizeof(WireFormat::UpdateServerList::Response))
 {
     WireFormat::UpdateServerList::Request* reqHdr(
-            allocHeader<WireFormat::UpdateServerList>());
+            allocHeader<WireFormat::UpdateServerList>(serverId));
     reqHdr->serverListLength = serializeToRequest(&request, list);
     send();
 }

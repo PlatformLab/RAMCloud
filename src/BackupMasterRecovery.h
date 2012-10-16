@@ -229,6 +229,13 @@ class BackupMasterRecovery : public Task {
     std::deque<Replica>::iterator nextToBuild;
 
     /**
+     * Points to the first secondary replica in #replicas. Lets background
+     * filtering know where it should stop when pre-loading/filtering replicas.
+     * Set in start() when replicas is constructed.
+     */
+    std::deque<Replica>::iterator firstSecondaryReplica;
+
+    /**
      * Maps segment ids to the corresponding replica in #replicas.
      * Populated in start() along with #replicas. Used by getRecoverySegment()
      * to find the Replica for which a recovery segment is being requested
@@ -275,10 +282,14 @@ class BackupMasterRecovery : public Task {
     bool freeQueued;
 
     /**
-     * Times each recovery. This is an Tub that is reset on every
-     * recovery, since CycleCounters can't presently be restarted.
+     * Times each recovery.
      */
     Tub<CycleCounter<RawMetric>> recoveryTicks;
+
+    /**
+     * Times duration that replicas are being read from disk.
+     */
+    Tub<CycleCounter<RawMetric>> readingDataTicks;
 
     /**
      * Tracks when this task was scheduled to start background filtering

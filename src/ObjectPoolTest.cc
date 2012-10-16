@@ -76,19 +76,15 @@ TEST(ObjectPoolTest, destructor) {
     }
 }
 
-TEST(ObjectPoolTest, destructor_throw) {
+TEST(ObjectPoolTest, destructor_objectsStillAllocated) {
     // should throw
     ObjectPool<TestObject>* pool = new ObjectPool<TestObject>();
     TestObject* a = pool->construct();
     (void)a;
 
-    bool threw = false;
-    try {
-        delete pool;
-    } catch (ObjectPoolException& e) {
-        threw = true;
-    }
-    EXPECT_TRUE(threw);
+    TestLog::Enable _;
+    delete pool;
+    EXPECT_EQ("~ObjectPool: Pool destroyed before objects!", TestLog::get());
 }
 
 TEST(ObjectPoolTest, construct) {

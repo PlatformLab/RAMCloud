@@ -295,13 +295,6 @@ class AbstractServerList {
     /// modify any state in the server list.
     mutable std::mutex mutex;
 
-    /// During tests this variable can be set to true to disable the
-    /// getServerId call in getSession (that call makes it painful to
-    /// set up test configurations).
-    bool skipServerIdCheck;
-
-    friend class TransportManager;       // (so it can set skipServerIdCheck)
-
     typedef std::unique_lock<std::mutex> Lock;
     DISALLOW_COPY_AND_ASSIGN(AbstractServerList);
 };

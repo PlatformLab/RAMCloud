@@ -82,8 +82,7 @@ class UdpDriverTest : public ::testing::Test {
     void sendMessage(UdpDriver *driver, IpAddress *address,
             const char *header, const char *payload) {
         Buffer message;
-        Buffer::Chunk::appendToBuffer(&message, payload,
-                                      downCast<uint32_t>(strlen(payload)));
+        message.append(payload, downCast<uint32_t>(strlen(payload)));
         Buffer::Iterator iterator(message);
         driver->sendPacket(address, header, downCast<uint32_t>(strlen(header)),
                            &iterator);
@@ -115,8 +114,7 @@ TEST_F(UdpDriverTest, basics) {
     // driver.
     Buffer message;
     const char *testString = "This is a sample message";
-    Buffer::Chunk::appendToBuffer(&message, testString,
-            downCast<uint32_t>(strlen(testString)));
+    message.append(testString, downCast<uint32_t>(strlen(testString)));
     Buffer::Iterator iterator(message);
     client->sendPacket(serverAddress, "header:", 7, &iterator);
     EXPECT_STREQ("header:This is a sample message",
@@ -124,7 +122,7 @@ TEST_F(UdpDriverTest, basics) {
 
     // Send a response back in the other direction.
     message.reset();
-    Buffer::Chunk::appendToBuffer(&message, "response", 8);
+    message.append("response", 8);
     Buffer::Iterator iterator2(message);
     server->sendPacket(serverTransport->sender, "h:", 2, &iterator2);
     EXPECT_STREQ("h:response", receivePacket(clientTransport));
@@ -168,7 +166,7 @@ TEST_F(UdpDriverTest, destructor_closeSocket) {
 
 TEST_F(UdpDriverTest, sendPacket_headerEmpty) {
     Buffer message;
-    Buffer::Chunk::appendToBuffer(&message, "xyzzy", 5);
+    message.append("xyzzy", 5);
     Buffer::Iterator iterator(message);
     client->sendPacket(serverAddress, "", 0, &iterator);
     EXPECT_STREQ("xyzzy", receivePacket(serverTransport));
@@ -176,7 +174,7 @@ TEST_F(UdpDriverTest, sendPacket_headerEmpty) {
 
 TEST_F(UdpDriverTest, sendPacket_payloadEmpty) {
     Buffer message;
-    Buffer::Chunk::appendToBuffer(&message, "xyzzy", 5);
+    message.append("xyzzy", 5);
     Buffer::Iterator iterator(message);
     client->sendPacket(serverAddress, "header:", 7, &iterator);
     EXPECT_STREQ("header:xyzzy", receivePacket(serverTransport));
@@ -184,9 +182,9 @@ TEST_F(UdpDriverTest, sendPacket_payloadEmpty) {
 
 TEST_F(UdpDriverTest, sendPacket_multipleChunks) {
     Buffer message;
-    Buffer::Chunk::appendToBuffer(&message, "xyzzy", 5);
-    Buffer::Chunk::appendToBuffer(&message, "0123456789", 10);
-    Buffer::Chunk::appendToBuffer(&message, "abc", 3);
+    message.append("xyzzy", 5);
+    message.append("0123456789", 10);
+    message.append("abc", 3);
     Buffer::Iterator iterator(message, 1, 23);
     client->sendPacket(serverAddress, "header:", 7, &iterator);
     EXPECT_STREQ("header:yzzy0123456789abc",
@@ -196,7 +194,7 @@ TEST_F(UdpDriverTest, sendPacket_multipleChunks) {
 TEST_F(UdpDriverTest, sendPacket_errorInSend) {
     sys->sendmsgErrno = EPERM;
     Buffer message;
-    Buffer::Chunk::appendToBuffer(&message, "xyzzy", 5);
+    message.append("xyzzy", 5);
     Buffer::Iterator iterator(message);
     try {
         client->sendPacket(serverAddress, "header:", 7, &iterator);

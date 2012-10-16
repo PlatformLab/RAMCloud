@@ -419,7 +419,7 @@ class Buffer {
      * on this Buffer object.
      */
     Chunk*
-    appendTo(const void* data, uint32_t length)
+    append(const void* data, uint32_t length)
     {
         return Buffer::Chunk::appendToBuffer(this, data, length);
     }
@@ -429,7 +429,7 @@ class Buffer {
      * on this Buffer object.
      */
     Chunk*
-    prependTo(const void* data, uint32_t length)
+    prepend(const void* data, uint32_t length)
     {
         return Buffer::Chunk::prependToBuffer(this, data, length);
     }

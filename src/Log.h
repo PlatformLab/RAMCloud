@@ -23,6 +23,7 @@
 #include "BoostIntrusive.h"
 #include "LogCleaner.h"
 #include "LogEntryTypes.h"
+#include "LogEntryHandlers.h"
 #include "Segment.h"
 #include "SegmentManager.h"
 #include "LogSegment.h"
@@ -30,7 +31,11 @@
 #include "ReplicaManager.h"
 #include "HashTable.h"
 
+#include "LogMetrics.pb.h"
+
 namespace RAMCloud {
+
+class ServerConfig;
 
 /**
  * An exception that is thrown when the Log class is provided invalid
@@ -54,7 +59,7 @@ struct LogException : public Exception {
  * tell the module that appended it to update any references and stop using the
  * old location. A set of callbacks are invoked by the cleaner to test if
  * entries are still alive to and notify the user of the log when an entry has
- * been moved to another log location. See the Log::EntryHandlers interface for
+ * been moved to another log location. See the LogEntryHandlers interface for
  * more details.
  *
  * This particular class provides a simple, thin interface for users of logs.
@@ -64,45 +69,6 @@ struct LogException : public Exception {
  */
 class Log {
   public:
-    /**
-     * This class specifies an interface that must be implemented for handling
-     * various callbacks on entries appended to the log. An instance of a class
-     * implementing this interface is provided to the log constructor.
-     */
-    class EntryHandlers {
-      public:
-        virtual ~EntryHandlers() { }
-
-        /**
-         * This method extracts a uint32_t timestamp from the given entry.
-         * If the entry does not support a timestamp, 0 should be returned.
-         */
-        virtual uint32_t getTimestamp(LogEntryType type, Buffer& buffer) = 0;
-
-        /**
-         * This method returns true if the given entry is still being used,
-         * in which case the cleaner will eventually relocate it and invoke
-         * another callback to indicate the new location. If the entry is
-         * no longer being used and may be garbage collected, this method
-         * should return false.
-         *
-         * After returning false, the entry may disappear at any future time.
-         */
-        virtual bool checkLiveness(LogEntryType type, Buffer& buffer) = 0;
-
-        /**
-         * This method is called after an entry has been copied to a new
-         * location. If the caller wants to retain the data, it should make
-         * note of the new location (via the newReference). If it does not
-         * need the data anymore, it should return false.
-         *
-         * After returning false, the entry may disappear at any future time.
-         */
-        virtual bool relocate(LogEntryType type,
-                              Buffer& oldBuffer,
-                              HashTable::Reference newReference) = 0;
-    };
-
     /**
      * Position is a (Segment Id, Segment Offset) tuple that represents a
      * position in the log. For example, it can be considered the logical time
@@ -151,26 +117,26 @@ class Log {
     };
 
     Log(Context* context,
-        EntryHandlers& entryHandlers,
+        const ServerConfig& config,
+        LogEntryHandlers& entryHandlers,
         SegmentManager& segmentManager,
-        ReplicaManager& replicaManager,
-        bool disableCleaner = false);
+        ReplicaManager& replicaManager);
     ~Log();
 
+    void enableCleaner();
+    void disableCleaner();
+    void getMetrics(ProtoBuf::LogMetrics& m);
     bool append(LogEntryType type,
-                Buffer& buffer,
-                uint32_t offset,
-                uint32_t length,
-                bool sync,
-                HashTable::Reference& outReference);
-    bool append(LogEntryType type,
-                Buffer& buffer,
-                bool sync,
-                HashTable::Reference& outReference);
-    bool append(LogEntryType type,
+                uint32_t timestamp,
                 const void* data,
                 uint32_t length,
-                bool sync);
+                bool sync,
+                HashTable::Reference* outReference = NULL);
+    bool append(LogEntryType type,
+                uint32_t timestamp,
+                Buffer& buffer,
+                bool sync,
+                HashTable::Reference* outReference = NULL);
     void free(HashTable::Reference reference);
     LogEntryType getEntry(HashTable::Reference reference,
                           Buffer& outBuffer);
@@ -194,7 +160,7 @@ class Log {
     /// Various handlers for entries appended to this log. Used to obtain
     /// timestamps, check liveness, and notify of entry relocation during
     /// cleaning.
-    EntryHandlers& entryHandlers;
+    LogEntryHandlers& entryHandlers;
 
     /// The SegmentManager allocates and keeps track of our segments. It
     /// also mediates mutation of the log between this class and the
@@ -207,9 +173,12 @@ class Log {
     /// consistently nonetheless.
     ReplicaManager& replicaManager;
 
-    /// If cleaning is enabled, this contains an instance of the garbage
-    /// collector that will remove dead entries from the log.
-    Tub<LogCleaner> cleaner;
+    /// The garbage collector that will remove dead entries from the log in
+    /// parallel with normal operation. Upon construction it will be in a
+    /// stopped state. A call to enableCleaner() will be needed to kick it
+    /// into action and it may later be disabled via the disableCleaner()
+    /// method.
+    LogCleaner cleaner;
 
     /// Current head of the log. Whatever this points to is owned by
     /// SegmentManager, which is responsible for its eventual deallocation.
@@ -219,6 +188,47 @@ class Log {
     /// Lock taken around log append operations. This is currently only used
     /// to delay appends to the log head while migration is underway.
     SpinLock appendLock;
+
+    /// Various event counters and performance measurements taken during log
+    /// operation.
+    class Metrics {
+      public:
+        Metrics() :
+            totalAppendTicks(0),
+            totalSyncTicks(0),
+            totalNoSpaceTicks(0),
+            noSpaceTimer(),
+            totalBytesAppended(0),
+            totalMetadataBytesAppended(0)
+        {
+        }
+
+        /// Total number of cpu cycles spent appending data. Includes any
+        /// synchronous replication time, but does not include waiting for
+        /// the log lock.
+        uint64_t totalAppendTicks;
+
+        /// Total number of cpu cycles spent syncing appended log entries.
+        uint64_t totalSyncTicks;
+
+        /// Total number of ticks spent out of memory and unable to service
+        /// append operations.
+        uint64_t totalNoSpaceTicks;
+
+        /// Timer used to measure how long the log has spent unable to allocate
+        /// memory. Constructed when we transition from being able to append to
+        /// not, and destructed when we can append again.
+        Tub<CycleCounter<uint64_t>> noSpaceTimer;
+
+        /// Total number of useful user bytes appended to the log. This does not
+        /// include any segment metadata.
+        uint64_t totalBytesAppended;
+
+        /// Total number of metadata bytes appended to the log. This, plus the
+        /// #totalBytesAppended value is equal to the grand total of bytes
+        /// appended to the log.
+        uint64_t totalMetadataBytesAppended;
+    } metrics;
 
     friend class LogIterator;
 

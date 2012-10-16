@@ -106,57 +106,6 @@ class TestObjectKeyComparer : public HashTable::KeyComparer {
 };
 
 /**
- * Unit tests for HashTable::PerfDistribution.
- */
-class HashTablePerfDistributionTest : public ::testing::Test {
-  public:
-    HashTablePerfDistributionTest() {}
-
-    DISALLOW_COPY_AND_ASSIGN(HashTablePerfDistributionTest);
-};
-
-TEST_F(HashTablePerfDistributionTest, constructor) {
-    RAMCloud::HashTable::PerfDistribution d;
-    EXPECT_EQ(~0UL, d.min);
-    EXPECT_EQ(0UL, d.max);
-    EXPECT_EQ(0UL, d.binOverflows);
-    EXPECT_EQ(0UL, d.bins[0]);
-    EXPECT_EQ(0UL, d.bins[1]);
-    EXPECT_EQ(0UL, d.bins[2]);
-}
-
-TEST_F(HashTablePerfDistributionTest, storeSample) {
-    HashTable::PerfDistribution d;
-
-    // You can't use EXPECT_TRUE here because it tries to take a
-    // reference to BIN_WIDTH. See 10.4.6.2 Member Constants of The C++
-    // Programming Language by Bjarne Stroustrup for more about static
-    // constant integers.
-    EXPECT_TRUE(10 == HashTable::PerfDistribution::BIN_WIDTH);  // NOLINT
-
-    d.storeSample(3);
-    EXPECT_EQ(3UL, d.min);
-    EXPECT_EQ(3UL, d.max);
-    EXPECT_EQ(0UL, d.binOverflows);
-    EXPECT_EQ(1UL, d.bins[0]);
-    EXPECT_EQ(0UL, d.bins[1]);
-    EXPECT_EQ(0UL, d.bins[2]);
-
-    d.storeSample(3);
-    d.storeSample(d.NBINS * d.BIN_WIDTH + 40);
-    d.storeSample(12);
-    d.storeSample(78);
-
-    EXPECT_EQ(3UL, d.min);
-    EXPECT_EQ(d.NBINS * d.BIN_WIDTH + 40, d.max);
-    EXPECT_EQ(1UL, d.binOverflows);
-    EXPECT_EQ(2UL, d.bins[0]);
-    EXPECT_EQ(1UL, d.bins[1]);
-    EXPECT_EQ(0UL, d.bins[2]);
-}
-
-
-/**
  * Unit tests for HashTable::Entry.
  */
 class HashTableEntryTest : public ::testing::Test {

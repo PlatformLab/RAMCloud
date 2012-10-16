@@ -62,6 +62,64 @@ class SegmentIterator {
     VIRTUAL_FOR_TESTING uint32_t setBufferTo(Buffer& buffer);
     VIRTUAL_FOR_TESTING void checkMetadataIntegrity();
 
+    /**
+     * Return a pointer to the current entry being iterated over. This will
+     * point to contiguous memory and may be accessed directly, without
+     * needing to construct and go through a Buffer.
+     *
+     * Since the entry in the segment may not be contiguous, a buffer large
+     * enough to hold however much of it will be accessed should be passed in.
+     * This buffer will only be used to copy the (partial) entry into a
+     * contiguous chunk of memory in the event that it isn't already contiguous.
+     *
+     * This method exists for very hot paths that cannot afford to wrap entries
+     * in Buffer objects. It assumes you know what you're doing and won't access
+     * past the amount of contiguous memory guaranteed by the buffer you pass
+     * in.
+     *
+     * \param buffer
+     *      Buffer used to copy part of all of the entry into if the desired
+     *      length is not already contiguous in memory.
+     * \param length
+     *      Length of the buffer. Or, in other words, the maximum number of
+     *      contiguous bytes desired. If the whole entry needs to be accessed,
+     *      this must be large enough to hold all of it. One simple way to
+     *      ensure this is to allocate a single buffer the size of the segment
+     *      being iterated over that can be passed into this method.
+     *
+     *      If only the front of the entry will be accessed (for example, just
+     *      the object header and key), a smaller length can be specified so
+     *      that large objects are not copied in their entirety when not being
+     *      accessed in full.
+     * \return
+     *      NULL if the iterator is out of objects, otherwise a pointer to the
+     *      contiguous entry (either in the segment, or copied into the caller-
+     *      provided buffer). The number of contiguous bytes is guaranteed to be
+     *      at most #length.
+     */
+    template<typename T>
+    const T*
+    getContiguous(void* buffer, uint32_t length)
+    {
+        if (isDone())
+            return NULL;
+
+        uint32_t entryOffset = currentOffset +
+                               sizeof32(*currentHeader) +
+                               currentHeader->getLengthBytes();
+        const void* pointer;
+        uint32_t contigBytes = segment->peek(entryOffset, &pointer);
+        if (contigBytes < getLength() && contigBytes < length) {
+            assert(getLength() <= length);
+            segment->copyOut(entryOffset,
+                             buffer,
+                             getLength());
+            pointer = buffer;
+        }
+
+        return reinterpret_cast<const T*>(pointer);
+    }
+
   PRIVATE:
     /// If the constructor was called on a void pointer, we'll create a wrapper
     /// segment to access the data in a common way using segment object calls.
@@ -92,12 +150,11 @@ class SegmentIterator {
     /// will use in the getType, getLength, appendToBuffer, etc. calls.
     uint32_t currentOffset;
 
-    /// Cache of the type of the entry at currentOffset. Set the first time
-    /// getType() is called and destroyed when next() is called.
-    Tub<LogEntryType> currentType;
+    /// Pointer to the current log entry's header (the one at currentOffset).
+    const Segment::EntryHeader* currentHeader;
 
     /// Cache of the length of the entry at currentOffset. Set the first time
-    /// getType() is called and destroyed when next() is called.
+    /// getLength() is called and destroyed when next() is called.
     Tub<uint32_t> currentLength;
 };
 

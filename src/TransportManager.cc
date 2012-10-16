@@ -306,6 +306,7 @@ TransportManager::openSession(const char* serviceLocator)
 Transport::SessionRef
 TransportManager::openSessionInternal(const char* serviceLocator)
 {
+    CycleCounter<RawMetric> _(&metrics->transport.sessionOpenTicks);
     // Collects error messages from all the transports that tried to
     // open a session from this locator.
     string messages;

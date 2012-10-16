@@ -214,6 +214,10 @@ struct LargeBlockOfMemory {
 
         void* block = reinterpret_cast<void*>(tryBase);
 
+        // Do not pin and fault in pages if we're testing, since that just
+        // slows things down considerably (we usually don't touch anywhere near
+        // all of the memory we allocate).
+#if !TESTING
 #ifdef MLOCK_PAGES
         // Pin the pages. Don't do this with the mmap() MAP_LOCKED flag since
         // that slows down probing considerably (Linux might be locking down
@@ -232,6 +236,7 @@ struct LargeBlockOfMemory {
         uint64_t pageSize = sysconf(_SC_PAGESIZE);
         for (uint64_t i = 0; i < length; i += pageSize)
             reinterpret_cast<uint8_t*>(block)[i] = 0;
+#endif // !TESTING
 
         // Cache last mapped address to avoid re-probing same addresses later.
         LargeBlockOfMemoryInternal::nextProbeBase =

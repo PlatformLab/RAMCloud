@@ -45,7 +45,7 @@ class SingleFileStorageTest : public ::testing::Test {
         , oldUmask(umask(0))
     {
         Logger::get().setLogLevels(SILENT_LOG_LEVEL);
-        testSource.appendTo(test, testLength + 1);
+        testSource.append(test, testLength + 1);
         storage.construct(segmentSize, segmentFrames, segmentFrames,
                           static_cast<const char*>(NULL), O_DIRECT | O_SYNC);
         Frame::testingSkipRealIo = true;
@@ -364,7 +364,7 @@ TEST_F(SingleFileStorageTest, Frame_performWriteLoadWaiting) {
 TEST_F(SingleFileStorageTest, Frame_performWriteSmokeTestOffsets) {
     testSource.reset();
     char garbage[1024];
-    testSource.appendTo(garbage, sizeof(garbage));
+    testSource.append(garbage, sizeof(garbage));
 
     storage->ioQueue.halt();
     BackupStorage::FrameRef frameRef = storage->open(false);

@@ -162,7 +162,8 @@ Server::createAndRegisterServices(BindTransport* bindTransport)
 
     if (config.services.has(WireFormat::MEMBERSHIP_SERVICE)) {
         membership.construct(serverId,
-            *static_cast<ServerList*>(context->serverList));
+            *static_cast<ServerList*>(context->serverList),
+            config);
         if (bindTransport) {
             bindTransport->addService(*membership,
                                       config.localLocator,

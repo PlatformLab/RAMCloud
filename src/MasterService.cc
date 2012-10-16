@@ -106,11 +106,11 @@ MasterService::MasterService(Context* context,
                              const ServerConfig& config)
     : context(context)
     , config(config)
-    , serverId()
     , bytesWritten(0)
     , replicaManager(context, serverId, config.master.numReplicas)
-    , allocator(config.master.logBytes, config.segmentSize, config.segletSize)
-    , segmentManager(context, serverId, allocator, replicaManager, 2.0)
+    , allocator(config)
+    , segmentManager(context, config, serverId,
+                     allocator, replicaManager)
     , log(NULL)
     , keyComparer(NULL)
     , objectMap(NULL)
@@ -158,6 +158,10 @@ MasterService::dispatch(WireFormat::Opcode opcode, Rpc& rpc)
         case WireFormat::FillWithTestData::opcode:
             callHandler<WireFormat::FillWithTestData, MasterService,
                         &MasterService::fillWithTestData>(rpc);
+            break;
+        case WireFormat::GetLogMetrics::opcode:
+            callHandler<WireFormat::GetLogMetrics, MasterService,
+                        &MasterService::getLogMetrics>(rpc);
             break;
         case WireFormat::Increment::opcode:
             callHandler<WireFormat::Increment, MasterService,
@@ -234,12 +238,14 @@ MasterService::init(ServerId id)
     LOG(NOTICE, "My server ID is %s", serverId.toString().c_str());
     metrics->serverId = serverId.getId();
 
-    log = new Log(context, *this, segmentManager,
-                  replicaManager, config.master.disableLogCleaner);
+    log = new Log(context, config, *this, segmentManager, replicaManager);
     keyComparer = new LogKeyComparer(*log);
     objectMap = new HashTable(config.master.hashTableBytes /
         HashTable::bytesPerCacheLine(), *keyComparer);
     replicaManager.startFailureMonitor();
+
+    if (!config.master.disableLogCleaner)
+        log->enableCleaner();
 
     initCalled = true;
 }
@@ -299,6 +305,24 @@ MasterService::enumerate(const WireFormat::Enumerate::Request& reqHdr,
 }
 
 /**
+ * Obtain various metrics from the log and return to the caller. Used to
+ * remotely monitor the log's utilization and performance.
+ *
+ * \copydetails Service::ping
+ */
+void
+MasterService::getLogMetrics(
+    const WireFormat::GetLogMetrics::Request& reqHdr,
+    WireFormat::GetLogMetrics::Response& respHdr,
+    Rpc& rpc)
+{
+    ProtoBuf::LogMetrics logMetrics;
+    log->getMetrics(logMetrics);
+    respHdr.logMetricsLength = ProtoBuf::serializeToResponse(&rpc.replyPayload,
+                                                             &logMetrics);
+}
+
+/**
  * Fill a master server with the given number of objects, each of the
  * same given size. Objects are added to all tables in the master in
  * a round-robin fashion. This method exists simply to quickly fill a
@@ -347,7 +371,7 @@ MasterService::fillWithTestData(
         // safe? doubtful. simple? you bet.
         uint8_t data[reqHdr.objectSize];
         memset(data, 0xcc, reqHdr.objectSize);
-        Buffer::Chunk::appendToBuffer(&buffer, data, reqHdr.objectSize);
+        buffer.append(data, reqHdr.objectSize);
 
         string keyString = format("%d", objects / numTablets);
         Key key(tables[t]->getId(),
@@ -1671,34 +1695,6 @@ MasterService::recover(const WireFormat::Recover::Request& reqHdr,
 }
 
 /**
- * Given a RecoverySegmentIterator for the Segment we're currently
- * recovering, advance it and issue prefetches on the hash tables.
- * This is used exclusively by recoverSegment().
- *
- * \param[in] it
- *      A RecoverySegmentIterator to use for prefetching. Note that this
- *      method modifies the iterator, so the caller should not use
- *      it for its own iteration.
- */
-void
-MasterService::recoverSegmentPrefetcher(SegmentIterator& it)
-{
-    it.next();
-
-    if (it.isDone())
-        return;
-
-    LogEntryType type = it.getType();
-    if (type != LOG_ENTRY_TYPE_OBJ && type != LOG_ENTRY_TYPE_OBJTOMB)
-        return;
-
-    Buffer buffer;
-    it.appendToBuffer(buffer);
-    Key key(type, buffer);
-    objectMap->prefetchBucket(key);
-}
-
-/**
  * Replay a recovery segment from a crashed Master that this Master is taking
  * over for.
  *
@@ -1712,7 +1708,6 @@ MasterService::recoverSegment(SegmentIterator& it)
     uint64_t startReplicationTicks = metrics->master.replicaManagerTicks;
     CycleCounter<RawMetric> _(&metrics->master.recoverSegmentTicks);
 
-    SegmentIterator prefetch = it;
     uint64_t bytesIterated = 0;
     while (!it.isDone()) {
         LogEntryType type = it.getType();
@@ -1723,24 +1718,26 @@ MasterService::recoverSegment(SegmentIterator& it)
         }
         bytesIterated += it.getLength();
 
-        recoverSegmentPrefetcher(prefetch);
-
         metrics->master.recoverySegmentEntryCount++;
         metrics->master.recoverySegmentEntryBytes += it.getLength();
 
         if (type == LOG_ENTRY_TYPE_OBJ) {
-            Buffer buffer;
-            it.appendToBuffer(buffer);
-            Key key(type, buffer);
+            // The recovery segment is guaranteed to be contiguous, so we need
+            // not provide a copyout buffer.
+            const Object::SerializedForm* recoveryObj =
+                it.getContiguous<Object::SerializedForm>(NULL, 0);
+            Key key(recoveryObj->tableId,
+                    recoveryObj->keyAndData,
+                    recoveryObj->keyLength);
 
-            Object recoverObj(buffer);
             bool checksumIsValid = ({
                 CycleCounter<RawMetric> c(&metrics->master.verifyChecksumTicks);
-                recoverObj.checkIntegrity();
+                Object::computeChecksum(recoveryObj, it.getLength()) ==
+                    recoveryObj->checksum;
             });
             if (!checksumIsValid) {
                 LOG(WARNING, "bad object checksum! key: %s, version: %lu",
-                    key.toString().c_str(), recoverObj.getVersion());
+                    key.toString().c_str(), recoveryObj->version);
                 // TODO(Stutsman): Should throw and try another segment replica?
             }
 
@@ -1765,17 +1762,26 @@ MasterService::recoverSegment(SegmentIterator& it)
                 minSuccessor = currentVersion + 1;
             }
 
-            if (recoverObj.getVersion() >= minSuccessor) {
+            if (recoveryObj->version >= minSuccessor) {
                 // write to log (with lazy backup flush) & update hash table
                 HashTable::Reference newObjReference;
-                log->append(LOG_ENTRY_TYPE_OBJ, buffer, false, newObjReference);
+                {
+                    CycleCounter<RawMetric>
+                        _(&metrics->master.segmentAppendTicks);
+                    log->append(LOG_ENTRY_TYPE_OBJ,
+                                recoveryObj->timestamp,
+                                recoveryObj,
+                                it.getLength(),
+                                false,
+                                &newObjReference);
+                }
 
                 // TODO(steve/ryan): what happens if the log is full? won't an
                 //      exception here just cause the master to try another
                 //      backup?
 
                 ++metrics->master.objectAppendCount;
-                metrics->master.liveObjectBytes += buffer.getTotalLength();
+                metrics->master.liveObjectBytes += it.getLength();
 
                 objectMap->replace(key, newObjReference);
 
@@ -1828,8 +1834,15 @@ MasterService::recoverSegment(SegmentIterator& it)
             if (recoverTomb.getObjectVersion() >= minSuccessor) {
                 ++metrics->master.tombstoneAppendCount;
                 HashTable::Reference newTombReference;
-                log->append(LOG_ENTRY_TYPE_OBJTOMB, buffer,
-                            false, newTombReference);
+                {
+                    CycleCounter<RawMetric>
+                        _(&metrics->master.segmentAppendTicks);
+                    log->append(LOG_ENTRY_TYPE_OBJTOMB,
+                                recoverTomb.getTimestamp(),
+                                buffer,
+                                false,
+                                &newTombReference);
+                }
 
                 // TODO(steve/ryan): append could fail here!
 
@@ -1855,7 +1868,7 @@ MasterService::recoverSegment(SegmentIterator& it)
             uint64_t safeVersion = recoverSafeVer.getSafeVersion();
 
             bool checksumIsValid = ({
-                CycleCounter<RawMetric> c(&metrics->master.verifyChecksumTicks);
+                CycleCounter<RawMetric> _(&metrics->master.verifyChecksumTicks);
                 recoverSafeVer.checkIntegrity();
             });
             if (!checksumIsValid) {
@@ -1864,14 +1877,13 @@ MasterService::recoverSegment(SegmentIterator& it)
                 // TODO(Stutsman): Should throw and try another segment replica?
             }
 
-            HashTable::Reference safeVerReference; // store the append output.
-            // not used.
-
             // Copy SafeVerObject to the recovery segment.
             // Sync can be delayed, because recovery can be replayed
             // with the same backup data when the recovery crashes on the way.
-            log->append(LOG_ENTRY_TYPE_SAFEVERSION, buffer,
-                        false, safeVerReference);
+            {
+                CycleCounter<RawMetric> _(&metrics->master.segmentAppendTicks);
+                log->append(LOG_ENTRY_TYPE_SAFEVERSION, 0, buffer, false);
+            }
 
             // recover segmentManager.safeVersion (Master safeVersion)
             if (segmentManager.raiseSafeVersion(safeVersion)) {
@@ -1939,8 +1951,10 @@ MasterService::remove(const WireFormat::Remove::Request& reqHdr,
 
     // Write the tombstone into the Log, increment the tablet version
     // number, and remove from the hash table.
-    HashTable::Reference dummy;
-    if (!log->append(LOG_ENTRY_TYPE_OBJTOMB, tombstoneBuffer, false, dummy)) {
+    if (!log->append(LOG_ENTRY_TYPE_OBJTOMB,
+                     tombstone.getTimestamp(),
+                     tombstoneBuffer,
+                     false)) {
         // The log is out of space. Tell the client to retry and hope
         // that either the cleaner makes space soon or we shift load
         // off of this server.
@@ -1997,9 +2011,7 @@ MasterService::increment(const WireFormat::Increment::Request& reqHdr,
 
     // Write the new value back
     Buffer newValueBuffer;
-    Buffer::Chunk::appendToBuffer(&newValueBuffer,
-                                  &newValue,
-                                  sizeof(int64_t));
+    newValueBuffer.append(&newValue, sizeof(int64_t));
 
     status = storeObject(key,
                          &reqHdr.rejectRules,
@@ -2047,7 +2059,7 @@ MasterService::write(const WireFormat::Write::Request& reqHdr,
     Buffer buffer;
     const void* objectData = rpc.requestPayload.getRange(
         sizeof32(reqHdr) + reqHdr.keyLength, reqHdr.length);
-    Buffer::Chunk::appendToBuffer(&buffer, objectData, reqHdr.length);
+    buffer.append(objectData, reqHdr.length);
 
     Key key(reqHdr.tableId,
             rpc.requestPayload,
@@ -2194,117 +2206,57 @@ MasterService::getTimestamp(LogEntryType type, Buffer& buffer)
 }
 
 /**
- * Check if an entry in the log is still alive. If not, it will be garbage
- * collected. If so, the cleaner will copy it to a new location and alert
- * us that it has been relocated (see the relocate() method).
+ * Relocate and update metadata for an object or tombstone that is being
+ * cleaned. The cleaner invokes this method for every entry it comes across
+ * when processing a segment. If the entry is no longer needed, nothing needs
+ * to be done. If it is needed, the provided relocator should be used to copy
+ * it to a new location and any metadata pointing to the old entry must be
+ * updated before returning.
  *
  * \param type
- *      Type of the object being queried.
- * \param buffer
- *      Buffer pointing to the object in the log being queried.
- */
-bool
-MasterService::checkLiveness(LogEntryType type, Buffer& buffer)
-{
-    if (type == LOG_ENTRY_TYPE_OBJ)
-        return checkObjectLiveness(buffer);
-    else if (type == LOG_ENTRY_TYPE_OBJTOMB)
-        return checkTombstoneLiveness(buffer);
-    else
-        return false;
-}
-
-/**
- * Report that a log entry has been copied to a new location and query whether
- * it is still needed. This serves two functions. First, to allow this service
- * to update any references so that they point to the object's new location.
- * Second, to allow this service to back out if the object is no longer needed,
- * since it may have been erased between this call and a previous call to
- * checkLiveness().
- *
- * \param type
- *      Type of the object being queried.
+ *      Type of the entry being cleaned.
  * \param oldBuffer
- *      Buffer pointing to the object in the log being queried. This is the
+ *      Buffer pointing to the entry in the log being cleaned. This is the
  *      location that will soon be invalid due to garbage collection.
- * \param newReference
- *      Reference to the new location of the object in the log. If the object
- *      is still alive, this reference must replace the previous one.
- * \return
- *      True if the object is still alive and newReference will be used. False
- *      if the object is dead and the space pointed to by newReference may be
- *      garbage collected along with the old copy.
+ * \param relocator
+ *      The relocator is used to copy a live entry to a new location in the
+ *      log and get a reference to that new location. If the entry is not
+ *      needed, the relocator should not be used.
  */
-bool
+void
 MasterService::relocate(LogEntryType type,
                         Buffer& oldBuffer,
-                        HashTable::Reference newReference)
+                        LogEntryRelocator& relocator)
 {
     if (type == LOG_ENTRY_TYPE_OBJ)
-        return relocateObject(oldBuffer, newReference);
+        relocateObject(oldBuffer, relocator);
     else if (type == LOG_ENTRY_TYPE_OBJTOMB)
-        return relocateTombstone(oldBuffer, newReference);
-    else
-        return false;
+        relocateTombstone(oldBuffer, relocator);
 }
 
 /**
- * Determine whether or not an object is still alive (i.e. is referenced
- * by the hash table). If so, the cleaner must perpetuate it. If not, it
- * can be safely discarded.
+ * Callback used by the LogCleaner when it's cleaning a Segment and comes
+ * across an Object.
  *
- * \param objectBuffer
- *      Buffer pointing to the object being checked for liveness.
- * \return
- *      True if the object is still alive, else false.
- */
-bool
-MasterService::checkObjectLiveness(Buffer& objectBuffer)
-{
-    Key key(LOG_ENTRY_TYPE_OBJ, objectBuffer);
-
-    std::lock_guard<SpinLock> lock(objectUpdateLock);
-
-    Table* t = getTable(key);
-    if (t == NULL)
-        return false;
-
-    LogEntryType currentType;
-    Buffer currentBuffer;
-    if (!lookup(key, currentType, currentBuffer))
-        return false;
-
-    assert(currentType == LOG_ENTRY_TYPE_OBJ);
-    return (currentBuffer.getStart<uint8_t>() ==
-            objectBuffer.getStart<uint8_t>());
-}
-
-/**
- * Callback used by the LogCleaner when it's cleaning a Segment and moves
- * an Object to a new Segment.
- *
- * The cleaner will have already invoked the liveness callback to see whether
- * or not the Object was recently live. Since it could no longer be live (it
- * may have been deleted or overwritten since the check), this callback must
- * decide if it is still live, atomically update any structures if needed, and
- * return whether or not any action has been taken so the caller will know
- * whether or not the new copy should be retained.
+ * This callback will decide if the object is still alive. If it is, it must
+ * use the relocator to move it to a new location and atomically update the
+ * hash table.
  *
  * \param oldBuffer
  *      Buffer pointing to the object's current location, which will soon be
  *      invalidated.
- * \param newReference
- *      Log reference pointing to a new copy of the object that may be kept
- *      if the object is still alive.
- * \return
- *      True if newReference is needed, that is, the object is still alive and
- *      the new location must not be garbage collected. False indicates that
- *      newReference wasn't needed and both the old object and the new copy
- *      may be immediately deleted.
+ * \param relocator
+ *      The relocator may be used to store the object in a new location if it
+ *      is still alive. It also provides a reference to the new location and
+ *      keeps track of whether this call wanted the object anymore or not.
+ *
+ *      It is possible that relocation may fail (because more memory needs to
+ *      be allocated). In this case, the callback should just return. The
+ *      cleaner will note the failure, allocate more memory, and try again.
  */
-bool
+void
 MasterService::relocateObject(Buffer& oldBuffer,
-                              HashTable::Reference newReference)
+                              LogEntryRelocator& relocator)
 {
     Key key(LOG_ENTRY_TYPE_OBJ, oldBuffer);
 
@@ -2315,7 +2267,7 @@ MasterService::relocateObject(Buffer& oldBuffer,
         // That tablet doesn't exist on this server anymore.
         // Just remove the hash table entry, if it exists.
         objectMap->remove(key);
-        return false;
+        return;
     }
 
     bool keepNewObject = false;
@@ -2327,8 +2279,14 @@ MasterService::relocateObject(Buffer& oldBuffer,
 
         keepNewObject = (currentBuffer.getStart<uint8_t>() ==
                          oldBuffer.getStart<uint8_t>());
-        if (keepNewObject)
-            objectMap->replace(key, newReference);
+        if (keepNewObject) {
+            // Try to relocate it. If it fails, just return. The cleaner will
+            // allocate more memory and retry.
+            uint32_t timestamp = getObjectTimestamp(oldBuffer);
+            if (!relocator.append(LOG_ENTRY_TYPE_OBJ, oldBuffer, timestamp))
+                return;
+            objectMap->replace(key, relocator.getNewReference());
+        }
     }
 
     // Update table statistics.
@@ -2336,8 +2294,6 @@ MasterService::relocateObject(Buffer& oldBuffer,
         table->objectCount--;
         table->objectBytes -= oldBuffer.getTotalLength();
     }
-
-    return keepNewObject;
 }
 
 /**
@@ -2359,53 +2315,41 @@ MasterService::getObjectTimestamp(Buffer& buffer)
 }
 
 /**
- * Determine whether or not a tombstone is still alive (i.e. it references
- * a segment that still exists). If so, the cleaner must perpetuate it. If
- * not, it can be safely discarded.
+ * Callback used by the LogCleaner when it's cleaning a Segment and comes
+ * across a Tombstone.
  *
- * \param buffer
- *      LogEntryHandle to the object whose liveness is being queried.
- * \return
- *      True if the object is still alive, else false.
- */
-bool
-MasterService::checkTombstoneLiveness(Buffer& buffer)
-{
-    ObjectTombstone tomb(buffer);
-    return log->containsSegment(tomb.getSegmentId());
-}
-
-/**
- * Callback used by the LogCleaner when it's cleaning a Segment and moves
- * a Tombstone to a new Segment.
- *
- * The cleaner will have already invoked the liveness callback to see whether
- * or not the Tombstone was recently live. Since it could no longer be live (it
- * may have been deleted or overwritten since the check), this callback must
- * decide if it is still live, atomically update any structures if needed, and
- * return whether or not any action has been taken so the caller will know
- * whether or not the new copy should be retained.
+ * This callback will decide if the tombstone is still alive. If it is, it must
+ * use the relocator to move it to a new location and atomically update the
+ * hash table.
  *
  * \param oldBuffer
- *      Buffer pointing to the tombstone that will soon be invalidated.
- * \param newReference
- *      Log reference to the Tombstones's new location that already exists
- *      as a possible replacement, if needed.
- * \return
- *      True if newReference is needed. That is, it should remain allocated.
- *      False indicates that newReference wasn't needed (because the pointed-to
- *      object doesn't exist on backups anymore) and can be immediately deleted.
+ *      Buffer pointing to the tombstone's current location, which will soon be
+ *      invalidated.
+ * \param relocator
+ *      The relocator may be used to store the tombstone in a new location if it
+ *      is still alive. It also provides a reference to the new location and
+ *      keeps track of whether this call wanted the tombstone anymore or not.
+ *
+ *      It is possible that relocation may fail (because more memory needs to
+ *      be allocated). In this case, the callback should just return. The
+ *      cleaner will note the failure, allocate more memory, and try again.
  */
-bool
+void
 MasterService::relocateTombstone(Buffer& oldBuffer,
-                                 HashTable::Reference newReference)
+                                 LogEntryRelocator& relocator)
 {
     ObjectTombstone tomb(oldBuffer);
 
-    // See if the object this tombstone refers to is still in the log->
+    // See if the object this tombstone refers to is still in the log.
     bool keepNewTomb = log->containsSegment(tomb.getSegmentId());
 
-    if (!keepNewTomb) {
+    if (keepNewTomb) {
+        // Try to relocate it. If it fails, just return. The cleaner will
+        // allocate more memory and retry.
+        uint32_t timestamp = getTombstoneTimestamp(oldBuffer);
+        if (!relocator.append(LOG_ENTRY_TYPE_OBJTOMB, oldBuffer, timestamp))
+            return;
+    } else {
         Key key(LOG_ENTRY_TYPE_OBJTOMB, oldBuffer);
         Table* table = getTable(key);
         if (table != NULL) {
@@ -2413,8 +2357,6 @@ MasterService::relocateTombstone(Buffer& oldBuffer,
             table->tombstoneBytes -= oldBuffer.getTotalLength();
         }
     }
-
-    return keepNewTomb;
 }
 
 /**
@@ -2529,6 +2471,7 @@ MasterService::storeObject(Key& key,
     assert(currentVersion == VERSION_NONEXISTENT ||
            newObject.getVersion() > currentVersion);
 
+    bool freeCurrentReference = false;
     if (currentVersion != VERSION_NONEXISTENT &&
       currentType == LOG_ENTRY_TYPE_OBJ) {
         Object object(currentBuffer);
@@ -2539,23 +2482,34 @@ MasterService::storeObject(Key& key,
         Buffer tombstoneBuffer;
         tombstone.serializeToBuffer(tombstoneBuffer);
 
-        HashTable::Reference dummy;
-        if (!log->append(LOG_ENTRY_TYPE_OBJTOMB, tombstoneBuffer, sync, dummy))
+        if (!log->append(LOG_ENTRY_TYPE_OBJTOMB,
+                         tombstone.getTimestamp(),
+                         tombstoneBuffer,
+                         false)) {
             return STATUS_RETRY;
+        }
 
         // TODO(anyone): The above isn't safe. If we crash before writing the
         //               new entry (because of timing, or we run out of space),
         //               we'll have lost the old object. One solution is to
         //               introduce the combined Object+Tombstone type.
 
-        log->free(currentReference);
+        // We can't free here. Not only because of the aforementioned issue,
+        // but also because if we do so and the new object append fails, the
+        // cleaner's statistics won't match what's in the objectMap and it
+        // will not operate correctly.
+        freeCurrentReference = true;
     }
 
     Buffer buffer;
     newObject.serializeToBuffer(buffer);
 
     HashTable::Reference newObjectReference;
-    if (!log->append(LOG_ENTRY_TYPE_OBJ, buffer, sync, newObjectReference)) {
+    if (!log->append(LOG_ENTRY_TYPE_OBJ,
+                     newObject.getTimestamp(),
+                     buffer,
+                     sync,
+                     &newObjectReference)) {
         // The log is out of space. Tell the client to retry and hope
         // that either the cleaner makes space soon or we shift load
         // off of this server.
@@ -2563,6 +2517,8 @@ MasterService::storeObject(Key& key,
     }
 
     objectMap->replace(key, newObjectReference);
+    if (freeCurrentReference)
+        log->free(currentReference);
     *newVersion = newObject.getVersion();
     bytesWritten += key.getStringKeyLength() + data.getTotalLength();
     return STATUS_OK;

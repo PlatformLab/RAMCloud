@@ -109,6 +109,7 @@ class MasterServiceTest : public ::testing::Test {
         masterConfig.localLocator = "mock:host=master";
         masterConfig.services = {WireFormat::MASTER_SERVICE,
                                  WireFormat::MEMBERSHIP_SERVICE};
+        masterConfig.master.logBytes = segmentSize * 30;
         masterConfig.master.numReplicas = 1;
         masterServer = cluster.addServer(masterConfig);
         service = masterServer->master.get();
@@ -213,8 +214,7 @@ class MasterServiceTest : public ::testing::Test {
                              Segment::INVALID_SEGMENT_ID);
         seg.append(LOG_ENTRY_TYPE_SEGHEADER, &header, sizeof(header));
         ReplicatedSegment* rs = mgr.allocateHead(segmentId, &seg, NULL);
-        Segment::Certificate unused;
-        rs->sync(seg.getAppendedLength(unused));
+        rs->sync(seg.getAppendedLength());
     }
 
     // Write a segment containing a header and a safeVersion to a backup.
@@ -335,7 +335,7 @@ TEST_F(MasterServiceTest, enumeration_basics) {
     // First object.
     EXPECT_EQ(33U, *objects.getOffset<uint32_t>(0));            // size
     Buffer buffer1;
-    buffer1.appendTo(objects.getRange(4, objects.getTotalLength() - 4),
+    buffer1.append(objects.getRange(4, objects.getTotalLength() - 4),
                      objects.getTotalLength() - 4);
     Object object1(buffer1);
     EXPECT_EQ(0U, object1.getTableId());                        // table ID
@@ -348,7 +348,7 @@ TEST_F(MasterServiceTest, enumeration_basics) {
     // Second object.
     EXPECT_EQ(33U, *objects.getOffset<uint32_t>(37));           // size
     Buffer buffer2;
-    buffer2.appendTo(objects.getRange(41, objects.getTotalLength() - 41),
+    buffer2.append(objects.getRange(41, objects.getTotalLength() - 41),
                      objects.getTotalLength() - 41);
     Object object2(buffer2);
     EXPECT_EQ(0U, object2.getTableId());                        // table ID
@@ -409,7 +409,7 @@ TEST_F(MasterServiceTest, enumeration_mergeTablet) {
     // First object.
     EXPECT_EQ(38U, *objects.getOffset<uint32_t>(0));            // size
     Buffer buffer1;
-    buffer1.appendTo(objects.getRange(4, objects.getTotalLength() - 4),
+    buffer1.append(objects.getRange(4, objects.getTotalLength() - 4),
                      objects.getTotalLength() - 4);
     Object object1(buffer1);
     EXPECT_EQ(0U, object1.getTableId());                        // table ID
@@ -966,7 +966,7 @@ TEST_F(MasterServiceTest, recoverSegment) {
     ObjectTombstone t1(o1, 0, 0);
     buffer.reset();
     t1.serializeToBuffer(buffer);
-    service->log->append(LOG_ENTRY_TYPE_OBJTOMB, buffer, true, logTomb1Ref);
+    service->log->append(LOG_ENTRY_TYPE_OBJTOMB, 0, buffer, true, &logTomb1Ref);
     ret = service->objectMap->replace(key2, logTomb1Ref);
     EXPECT_FALSE(ret);
     len = buildRecoverySegment(seg, segLen, key2, 1, "equal guy", &certificate);
@@ -987,8 +987,8 @@ TEST_F(MasterServiceTest, recoverSegment) {
     ObjectTombstone t2(o2, 0, 0);
     buffer.reset();
     t2.serializeToBuffer(buffer);
-    ret = service->log->append(LOG_ENTRY_TYPE_OBJTOMB, buffer,
-                               true, logTomb2Ref);
+    ret = service->log->append(LOG_ENTRY_TYPE_OBJTOMB, 0, buffer,
+                               true, &logTomb2Ref);
     EXPECT_TRUE(ret);
     ret = service->objectMap->replace(key3, logTomb2Ref);
     EXPECT_FALSE(ret);
@@ -1826,108 +1826,6 @@ TEST_F(MasterServiceTest, rejectOperation) {
               STATUS_WRONG_VERSION);
 }
 
-TEST_F(MasterServiceTest, objectLivenessCallback_objectAlive) {
-    Key key(0, "key0", 4);
-    uint64_t version;
-
-    ramcloud->write(key.getTableId(),
-                    key.getStringKey(),
-                    key.getStringKeyLength(),
-                    "item0", 5, NULL, &version);
-
-    LogEntryType type;
-    Buffer buffer;
-    bool success = service->lookup(key, type, buffer);
-    EXPECT_TRUE(success);
-
-    // Object exists
-    EXPECT_EQ(LOG_ENTRY_TYPE_OBJ, type);
-    EXPECT_TRUE(service->checkLiveness(type, buffer));
-}
-
-TEST_F(MasterServiceTest, objectLivenessCallback_objectDeleted) {
-    Key key(0, "key0", 4);
-    uint64_t version;
-
-    ramcloud->write(key.getTableId(),
-                    key.getStringKey(),
-                    key.getStringKeyLength(),
-                    "item0", 5, NULL, &version);
-
-    LogEntryType type;
-    Buffer buffer;
-    bool success = service->lookup(key, type, buffer);
-    EXPECT_TRUE(success);
-
-    ramcloud->remove(key.getTableId(),
-                     key.getStringKey(),
-                     key.getStringKeyLength());
-
-    // Object does not exist
-    EXPECT_EQ(LOG_ENTRY_TYPE_OBJ, type);
-    EXPECT_FALSE(service->checkLiveness(type, buffer));
-}
-
-TEST_F(MasterServiceTest, objectLivenessCallback_objectModified) {
-    Key key(0, "key0", 4);
-    uint64_t version;
-
-    ramcloud->write(key.getTableId(),
-                    key.getStringKey(),
-                    key.getStringKeyLength(),
-                    "item0", 5, NULL, &version);
-
-    LogEntryType type;
-    Buffer buffer;
-    bool success = service->lookup(key, type, buffer);
-    EXPECT_TRUE(success);
-
-    // Object referenced by logObj1 exists
-    EXPECT_EQ(LOG_ENTRY_TYPE_OBJ, type);
-    EXPECT_TRUE(service->checkLiveness(type, buffer));
-
-    ramcloud->write(key.getTableId(),
-                    key.getStringKey(),
-                    key.getStringKeyLength(),
-                    "item0-v2", 5, NULL, &version);
-    LogEntryType type2;
-    Buffer buffer2;
-    success = service->lookup(key, type2, buffer2);
-
-    // Object referenced by logObj1 does not exist anymore
-    EXPECT_FALSE(service->checkLiveness(type, buffer));
-
-    // Object referenced by logObj2 exists
-    EXPECT_EQ(LOG_ENTRY_TYPE_OBJ, type2);
-    EXPECT_TRUE(service->checkLiveness(type2, buffer2));
-}
-
-TEST_F(MasterServiceTest, objectLivenessCallback_tableDoesntExist) {
-    ramcloud->createTable("table1");
-    uint64_t tableId = ramcloud->getTableId("table1");
-    Key key(tableId, "key0", 4);
-    uint64_t version;
-
-    ramcloud->write(key.getTableId(),
-                    key.getStringKey(),
-                    key.getStringKeyLength(),
-                    "item0", 5, NULL, &version);
-
-    LogEntryType type;
-    Buffer buffer;
-    bool success = service->lookup(key, type, buffer);
-    EXPECT_TRUE(success);
-    EXPECT_EQ(LOG_ENTRY_TYPE_OBJ, type);
-
-    // Object exists
-    EXPECT_TRUE(service->checkLiveness(type, buffer));
-
-    ramcloud->dropTable("table1");
-
-    // Object is not live since table does not exist anymore
-    EXPECT_FALSE(service->checkLiveness(type, buffer));
-}
-
 TEST_F(MasterServiceTest, objectRelocationCallback_objectAlive) {
     Key key(0, "key0", 4);
     uint64_t version;
@@ -1948,9 +1846,10 @@ TEST_F(MasterServiceTest, objectRelocationCallback_objectAlive) {
 
     HashTable::Reference newReference;
     success = service->log->append(LOG_ENTRY_TYPE_OBJ,
+                                  0,
                                   oldBuffer,
                                   true,
-                                  newReference);
+                                  &newReference);
     EXPECT_TRUE(success);
 
     LogEntryType newType;
@@ -1967,19 +1866,23 @@ TEST_F(MasterServiceTest, objectRelocationCallback_objectAlive) {
 
     uint64_t initialTotalTrackedBytes = table->objectBytes;
 
-    EXPECT_TRUE(service->relocate(LOG_ENTRY_TYPE_OBJ, oldBuffer, newReference));
+    LogEntryRelocator relocator(service->segmentManager.getHeadSegment(), 1000);
+    service->relocate(LOG_ENTRY_TYPE_OBJ, oldBuffer, relocator);
+    EXPECT_TRUE(relocator.didAppend);
     EXPECT_EQ(initialTotalTrackedBytes, table->objectBytes);
 
     LogEntryType newType2;
     Buffer newBuffer2;
     HashTable::Reference newReference2;
-    success = service->lookup(key, newType2, newBuffer2, newReference2);
-    EXPECT_TRUE(success);
+    service->lookup(key, newType2, newBuffer2, newReference2);
+    EXPECT_TRUE(relocator.didAppend);
     EXPECT_EQ(newType, newType2);
-    EXPECT_EQ(newReference, newReference2);
+    EXPECT_EQ(newReference.get() + 37, newReference2.get());
     EXPECT_NE(oldReference, newReference);
-    EXPECT_NE(newBuffer.getStart<uint8_t>(), oldBuffer.getStart<uint8_t>());
-    EXPECT_EQ(newBuffer.getStart<uint8_t>(), newBuffer2.getStart<uint8_t>());
+    EXPECT_NE(newBuffer.getStart<uint8_t>(),
+              oldBuffer.getStart<uint8_t>());
+    EXPECT_EQ(newBuffer.getStart<uint8_t>() + 37,
+              newBuffer2.getStart<uint8_t>());
 }
 
 TEST_F(MasterServiceTest, objectRelocationCallback_objectDeleted) {
@@ -2004,11 +1907,11 @@ TEST_F(MasterServiceTest, objectRelocationCallback_objectDeleted) {
                      key.getStringKey(),
                      key.getStringKeyLength());
 
-    HashTable::Reference dummyReference;
     uint64_t initialTotalTrackedBytes = table->objectBytes;
 
-    success = service->relocate(LOG_ENTRY_TYPE_OBJ, buffer, dummyReference);
-    EXPECT_FALSE(success);
+    LogEntryRelocator relocator(service->segmentManager.getHeadSegment(), 1000);
+    service->relocate(LOG_ENTRY_TYPE_OBJ, buffer, relocator);
+    EXPECT_FALSE(relocator.didAppend);
     EXPECT_EQ(initialTotalTrackedBytes - buffer.getTotalLength(),
               table->objectBytes);
 }
@@ -2024,7 +1927,7 @@ TEST_F(MasterServiceTest, objectRelocationCallback_objectModified) {
 
     LogEntryType type;
     Buffer buffer;
-    bool success = service->lookup(key, type, buffer);
+    service->lookup(key, type, buffer);
 
     Table* table = service->getTable(key);
     table->objectCount++;
@@ -2038,8 +1941,9 @@ TEST_F(MasterServiceTest, objectRelocationCallback_objectModified) {
     HashTable::Reference dummyReference;
     uint64_t initialTotalTrackedBytes = table->objectBytes;
 
-    success = service->relocate(LOG_ENTRY_TYPE_OBJ, buffer, dummyReference);
-    EXPECT_FALSE(success);
+    LogEntryRelocator relocator(service->segmentManager.getHeadSegment(), 1000);
+    service->relocate(LOG_ENTRY_TYPE_OBJ, buffer, relocator);
+    EXPECT_FALSE(relocator.didAppend);
     EXPECT_EQ(initialTotalTrackedBytes - buffer.getTotalLength(),
               table->objectBytes);
 }
@@ -2076,13 +1980,13 @@ TEST_F(MasterServiceTest, tombstoneRelocationCallback_basics) {
     tombstone.serializeToBuffer(tombstoneBuffer);
 
     HashTable::Reference oldTombstoneReference;
-    success = service->log->append(LOG_ENTRY_TYPE_OBJTOMB, tombstoneBuffer,
-                                  true, oldTombstoneReference);
+    success = service->log->append(LOG_ENTRY_TYPE_OBJTOMB, 0, tombstoneBuffer,
+                                  true, &oldTombstoneReference);
     EXPECT_TRUE(success);
 
     HashTable::Reference newTombstoneReference;
-    success = service->log->append(LOG_ENTRY_TYPE_OBJTOMB, tombstoneBuffer,
-                                  true, newTombstoneReference);
+    success = service->log->append(LOG_ENTRY_TYPE_OBJTOMB, 0, tombstoneBuffer,
+                                  true, &newTombstoneReference);
     EXPECT_TRUE(success);
 
     LogEntryType oldTypeInLog;
@@ -2090,10 +1994,9 @@ TEST_F(MasterServiceTest, tombstoneRelocationCallback_basics) {
     oldTypeInLog = service->log->getEntry(oldTombstoneReference,
                                           oldBufferInLog);
 
-    success = service->relocate(LOG_ENTRY_TYPE_OBJTOMB,
-                                  oldBufferInLog,
-                                  newTombstoneReference);
-    EXPECT_TRUE(success);
+    LogEntryRelocator relocator(service->segmentManager.getHeadSegment(), 1000);
+    service->relocate(LOG_ENTRY_TYPE_OBJTOMB, oldBufferInLog, relocator);
+    EXPECT_TRUE(relocator.didAppend);
 
     // Check that tombstoneRelocationCallback() is checking the liveness
     // of the right segment (in log->containsSegment() function call).

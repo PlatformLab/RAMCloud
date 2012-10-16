@@ -156,8 +156,7 @@ MultiRead::startRpcs()
                     new(&rpc->request, APPEND)
                             WireFormat::MultiRead::Request::Part(
                             request.tableId, request.keyLength);
-                    Buffer::Chunk::appendToBuffer(&rpc->request, request.key,
-                            request.keyLength);
+                    rpc->request.append(request.key, request.keyLength);
                     rpc->requests[rpc->reqHdr->count] = &request;
                     rpc->reqHdr->count++;
                     request.status = UNDERWAY;

@@ -43,8 +43,8 @@ class ObjectTest : public ::testing::Test {
         objectFromVoidPointer.construct(key, dataBlob,
                                         sizeof32(dataBlob), 75, 723);
 
-        _buffer.appendTo(&dataBlob[0], 2);
-        _buffer.appendTo(&dataBlob[2], 2);
+        _buffer.append(&dataBlob[0], 2);
+        _buffer.append(&dataBlob[2], 2);
         objectDataFromBuffer.construct(key, _buffer, 75, 723);
 
         objectFromVoidPointer->serializeToBuffer(_buffer2);

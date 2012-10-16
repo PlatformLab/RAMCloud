@@ -26,9 +26,12 @@
 
 namespace RAMCloud {
 
-CoordinatorService::CoordinatorService(Context* context, string LogCabinLocator)
+CoordinatorService::CoordinatorService(Context* context,
+                                       uint32_t deadServerTimeout,
+                                       string LogCabinLocator)
     : context(context)
     , serverList(*context->coordinatorServerList)
+    , deadServerTimeout(deadServerTimeout)
     , tabletMap()
     , tables()
     , nextTableId(0)

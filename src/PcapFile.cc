@@ -58,7 +58,7 @@ void
 PcapFile::append(const char* const rawPacket, const uint32_t length)
 {
     Buffer buffer;
-    Buffer::Chunk::appendToBuffer(&buffer, rawPacket, length);
+    buffer.append(rawPacket, length);
     append(buffer);
 }
 

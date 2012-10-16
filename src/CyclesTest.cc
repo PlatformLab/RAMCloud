@@ -64,9 +64,19 @@ TEST_F(CyclesTest, toSeconds) {
     EXPECT_GT(.50001, seconds);
 }
 
+TEST_F(CyclesTest, toSeconds_givenCyclesPerSec) {
+    double seconds = Cycles::toSeconds(500, 1000);
+    EXPECT_LT(.49999, seconds);
+    EXPECT_GT(.50001, seconds);
+}
+
 TEST_F(CyclesTest, fromSeconds) {
     Cycles::cyclesPerSec = 1000;
     EXPECT_EQ(20UL, Cycles::fromSeconds(.01999));
+}
+
+TEST_F(CyclesTest, fromSeconds_givenCyclesPerSec) {
+    EXPECT_EQ(20UL, Cycles::fromSeconds(.01999, 1000));
 }
 
 TEST_F(CyclesTest, toNanoseconds) {
@@ -75,9 +85,18 @@ TEST_F(CyclesTest, toNanoseconds) {
     EXPECT_EQ(4UL, Cycles::toNanoseconds(11));
 }
 
+TEST_F(CyclesTest, toNanoseconds_givenCyclesPerSec) {
+    EXPECT_EQ(3UL, Cycles::toNanoseconds(10, 3e09));
+    EXPECT_EQ(4UL, Cycles::toNanoseconds(11, 3e09));
+}
+
 TEST_F(CyclesTest, fromNanoseconds) {
     Cycles::cyclesPerSec = 2e09;
     EXPECT_EQ(160UL, Cycles::fromNanoseconds(80));
+}
+
+TEST_F(CyclesTest, fromNanoseconds_givenCyclesPerSec) {
+    EXPECT_EQ(160UL, Cycles::fromNanoseconds(80, 2e09));
 }
 
 }  // namespace RAMCloud
