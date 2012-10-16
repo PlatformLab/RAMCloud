@@ -241,7 +241,11 @@ TEST_F(ReplicatedSegmentTest, freeWriteRpcInProgress) {
     transport.setInput("0 0"); // write+close second replica
     segment->close();
     taskQueue.performTask(); // writeRpc created
+    EXPECT_EQ(2lu, segment->writeRpcsInFlight);
+    EXPECT_TRUE(segment->replicas[0].writeRpc);
     segment->free();
+    EXPECT_EQ(0lu, segment->writeRpcsInFlight);
+    EXPECT_FALSE(segment->replicas[0].writeRpc);
 
     // make sure the backup "free" opcode was not sent
     EXPECT_TRUE(TestUtil::doesNotMatchPosixRegex("0x1001c",

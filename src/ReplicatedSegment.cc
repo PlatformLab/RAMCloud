@@ -127,8 +127,6 @@ ReplicatedSegment::~ReplicatedSegment()
  * this call can spin waiting for write rpcs, though, it tries to be
  * friendly to concurrent operations by releasing and reacquiring the
  * internal ReplicaManager lock each time it checks rpcs for completion.
- * Eventually canceling any outstanding write rpc would be better, but
- * doing so is unsafe in this case (RAM-359).
  *
  * Currently, there is no public interface to ensure enqueued free
  * operations have completed.
@@ -137,6 +135,7 @@ void
 ReplicatedSegment::free()
 {
     TEST_LOG("%s, %lu", masterId.toString().c_str(), segmentId);
+    assert(queued.close); // Unlocked access, but... whatever.
 
     // Finish any outstanding work for this segment. This makes sure that if
     // other segments are waiting on things to happen with this segment it is
@@ -146,7 +145,6 @@ ReplicatedSegment::free()
     sync();
 
     Lock _(dataMutex);
-    assert(queued.close);
     assert(!followingSegment);
     assert(getCommitted().close);
 
@@ -163,6 +161,8 @@ ReplicatedSegment::free()
         if (!replica.isActive || !replica.writeRpc)
             continue;
         replica.writeRpc->cancel();
+        replica.writeRpc.destroy();
+        --writeRpcsInFlight;
     }
 
     // Segment should free itself ASAP. It must not start new write rpcs after
@@ -211,6 +211,16 @@ ReplicatedSegment::close()
     uint32_t appendedBytes = segment->getAppendedLength(certficate);
     queued.bytes = appendedBytes;
     queuedCertificate = certficate;
+    // Dealing with followingSegment here helps unit tests when
+    // numReplicas == 0. Otherwise, performWrite never gets called so there is
+    // no chance to clear it, which breaks calls to free().
+    if (getCommitted().open && followingSegment)
+        followingSegment->precedingSegmentOpenCommitted = true;
+    if (getCommitted().close && followingSegment) {
+        followingSegment->precedingSegmentCloseCommitted = true;
+        // Don't poke at potentially non-existent segments later.
+        followingSegment = NULL;
+    }
     schedule();
 
     LOG(DEBUG, "Segment %lu closed (length %d)", segmentId, queued.bytes);
