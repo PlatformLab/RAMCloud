@@ -482,7 +482,7 @@ SegmentManager::initializeSurvivorReserve(uint32_t numSegments)
  *      Index into the array of segments specifying which segment to return.
  */
 LogSegment&
-SegmentManager::operator[](uint32_t slot)
+SegmentManager::operator[](SegmentSlot slot)
 {
     // There's no need to lock here. The 'segments' array is static and
     // we assume that callers are well-behaved and won't use an old
@@ -747,8 +747,8 @@ SegmentManager::alloc(SegletAllocator::AllocationType type,
     // cleaned but were previously waiting for readers to finish.
     freeUnreferencedSegments();
 
-    uint32_t slot = allocSlot(type);
-    if (slot == static_cast<uint32_t>(-1))
+    SegmentSlot slot = allocSlot(type);
+    if (slot == INVALID_SEGMENT_SLOT)
         return NULL;
 
     uint32_t segletSize = allocator.getSegletSize();
@@ -786,7 +786,7 @@ SegmentManager::alloc(SegletAllocator::AllocationType type,
  *      head segments and can only be allocated if the appropriate
  *      type is provided.
  */
-uint32_t
+SegmentSlot
 SegmentManager::allocSlot(SegletAllocator::AllocationType type)
 {
     vector<uint32_t>* source = NULL;
@@ -801,7 +801,7 @@ SegmentManager::allocSlot(SegletAllocator::AllocationType type)
     if (source->empty())
         return -1;
 
-    uint32_t slot = source->back();
+    SegmentSlot slot = source->back();
     source->pop_back();
     return slot;
 }
@@ -818,7 +818,7 @@ SegmentManager::allocSlot(SegletAllocator::AllocationType type)
  *      reserve for a future emergency head segment.
  */
 void
-SegmentManager::freeSlot(uint32_t slot, bool wasEmergencyHead)
+SegmentManager::freeSlot(SegmentSlot slot, bool wasEmergencyHead)
 {
     // TODO(Steve): Have the slot # imply whether or not it was an emergency
     //              head (for example, define the first N slots to always be
@@ -846,7 +846,7 @@ SegmentManager::freeSlot(uint32_t slot, bool wasEmergencyHead)
 void
 SegmentManager::free(LogSegment* s)
 {
-    uint32_t slot = s->slot;
+    SegmentSlot slot = s->slot;
     uint64_t id = segments[slot]->id;
 
     freeSlot(slot, s->isEmergencyHead);

@@ -138,7 +138,7 @@ class Log {
         {
         }
 
-        Reference(SegmentManager::Slot slot,
+        Reference(SegmentSlot slot,
                   uint32_t offset,
                   uint32_t segmentSize)
             : value(0)

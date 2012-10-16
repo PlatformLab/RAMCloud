@@ -192,7 +192,7 @@ Log::append(AppendVector* appends, uint32_t numAppends)
 void
 Log::free(Reference reference)
 {
-    SegmentManager::Slot slot = reference.getSlot(segmentSize);
+    SegmentSlot slot = reference.getSlot(segmentSize);
     uint32_t offset = reference.getOffset(segmentSize);
     LogSegment& segment = segmentManager[slot];
     Buffer buffer;
@@ -220,7 +220,7 @@ Log::free(Reference reference)
 LogEntryType
 Log::getEntry(Reference reference, Buffer& outBuffer)
 {
-    SegmentManager::Slot slot = reference.getSlot(segmentSize);
+    SegmentSlot slot = reference.getSlot(segmentSize);
     uint32_t offset = reference.getOffset(segmentSize);
     return segmentManager[slot].getEntry(offset, outBuffer);
 }
@@ -316,7 +316,7 @@ Log::sync()
 uint64_t
 Log::getSegmentId(Reference reference)
 {
-    SegmentManager::Slot slot = reference.getSlot(segmentSize);
+    SegmentSlot slot = reference.getSlot(segmentSize);
     return segmentManager[slot].id;
 }
 

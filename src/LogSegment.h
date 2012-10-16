@@ -22,6 +22,11 @@
 
 namespace RAMCloud {
 
+/// Redeclare the typedef defined in SegmentManager.h to avoid a cyclical
+/// dependency. See SegmentManager.h's typedef comments for documentation on
+/// this type.
+typedef uint32_t SegmentSlot;
+
 /**
  * LogSegment is a simple subclass of Segment. It exists to associate data the
  * Log and LogCleaner care about with a particular Segment (which shouldn't
@@ -144,7 +149,7 @@ class LogSegment : public Segment {
                uint32_t segletSize,
                uint32_t segmentSize,
                uint64_t id,
-               uint32_t slot,
+               SegmentSlot slot,
                bool isEmergencyHead)
         : Segment(seglets, segletSize),
           id(id),
@@ -233,8 +238,9 @@ class LogSegment : public Segment {
     /// Log-unique 64-bit identifier for this segment.
     const uint64_t id;
 
-    /// SegmentManager slot associated with this segment.
-    const uint32_t slot;
+    /// Index of the entry for this segment in SegmentManager's "segments"
+    /// table.
+    const SegmentSlot slot;
 
     /// Size of seglets used in this segment.
     const uint32_t segletSize;
@@ -261,7 +267,10 @@ class LogSegment : public Segment {
     /// deciding which segments to clean.
     Statistics statistics;
 
-    /// Epoch during which this segment was cleaned.
+    /// The epoch value when cleaning was completed on this segment. Once no
+    /// more RPCs in the system exist with epochs less than or equal to this,
+    /// there can be no more outstanding references into the segment and its
+    /// memory may be safely freed and reused.
     uint64_t cleanedEpoch;
 
     /// Cached value of this segment's cost-benefit analysis as computed by the
@@ -279,8 +288,8 @@ class LogSegment : public Segment {
     /// to this object's state in SegmentManager.
     IntrusiveListHook listEntries;
 
-    /// Hook used for linking this LogSegment into a global instrusive list
-    /// of all LogSegments in SegmentManager.
+    /// Hook used for linking this LogSegment into the single "allSegments"
+    /// instrusive list in SegmentManager.
     IntrusiveListHook allListEntries;
 
     /// Number of bytes in this segment that have been synced in Log::sync. This

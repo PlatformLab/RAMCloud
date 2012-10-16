@@ -478,7 +478,7 @@ TEST_F(SegmentManagerTest, free) {
     EXPECT_TRUE(segmentManager.segments[s->slot]);
 
     uint64_t id = s->id;
-    uint32_t slot = s->slot;
+    SegmentManager::Slot slot = s->slot;
 
     segmentManager.free(s);
     EXPECT_EQ(6U, segmentManager.freeSlots.size());

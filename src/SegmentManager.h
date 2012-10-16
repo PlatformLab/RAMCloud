@@ -41,6 +41,19 @@ struct SegmentManagerException : public Exception {
             : Exception(where, msg) {}
 };
 
+/// Slots are indexes in the "segments" table of SegmentManager. That table
+/// contains all LogSegment objects corresponding to segments being managed
+/// by this class. The SegmentSlot serves as a short reference to a particular
+/// segment. Users of the log are returned references to their entries
+/// containing the slot and an offset within the segment. This makes it easy
+/// to both address the entry within the segment, and figure out which
+/// LogSegment structure corresponds to it.
+typedef uint32_t SegmentSlot;
+
+/// Invalid slot number. May be used as a return value to indicate
+/// error.
+enum : uint32_t { INVALID_SEGMENT_SLOT = -1U };
+
 /**
  * The SegmentManager is essentially the core of the master server's in-memory
  * log. It handles allocation of segments and manages them throughout their
@@ -64,10 +77,6 @@ struct SegmentManagerException : public Exception {
  */
 class SegmentManager {
   public:
-    /// Invalid slot number. #alloc returns this if there is not enough free
-    /// memory.
-    enum { INVALID_SLOT = -1 };
-
     // Defined after this class.
     class Allocator;
 
@@ -88,7 +97,7 @@ class SegmentManager {
     void logIteratorDestroyed();
     void getActiveSegments(uint64_t nextSegmentId, LogSegmentVector& list);
     bool initializeSurvivorReserve(uint32_t numSegments);
-    LogSegment& operator[](uint32_t slot);
+    LogSegment& operator[](SegmentSlot slot);
     bool doesIdExist(uint64_t id);
     size_t getFreeSurvivorCount();
     int getSegmentUtilization();
@@ -181,8 +190,8 @@ class SegmentManager {
     LogSegment* alloc(SegletAllocator::AllocationType type, uint64_t segmentId);
     void addToLists(LogSegment& s);
     void removeFromLists(LogSegment& s);
-    uint32_t allocSlot(SegletAllocator::AllocationType type);
-    void freeSlot(uint32_t slot, bool wasEmergencyHead);
+    SegmentSlot allocSlot(SegletAllocator::AllocationType type);
+    void freeSlot(SegmentSlot slot, bool wasEmergencyHead);
     void free(LogSegment* s);
     void freeUnreferencedSegments();
 
@@ -224,15 +233,15 @@ class SegmentManager {
 
     /// List of indices in 'segments' that are reserved for new emergency head
     /// segments.
-    vector<uint32_t> freeEmergencyHeadSlots;
+    vector<SegmentSlot> freeEmergencyHeadSlots;
 
     /// List of indices in 'segments' that are reserved for new survivor
     /// segments allocated by the cleaner.
-    vector<uint32_t> freeSurvivorSlots;
+    vector<SegmentSlot> freeSurvivorSlots;
 
     /// List of indices in 'segments' that are free. This exists simply to allow
     /// for fast allocation of LogSegments.
-    vector<uint32_t> freeSlots;
+    vector<SegmentSlot> freeSlots;
 
     /// Number of segments we need to reserve for emergency heads (to allow us
     /// to roll over to a new log digest when otherwise out of memory).
@@ -248,7 +257,7 @@ class SegmentManager {
     /// Lookup table from segment identifier to the corresponding index in
     /// 'segments' and 'states'. Currently used only to check for existence
     /// of a particular segment.
-    std::unordered_map<uint64_t, uint32_t> idToSlotMap;
+    std::unordered_map<uint64_t, SegmentSlot> idToSlotMap;
 
     /// Linked list of all LogSegments managed by this module.
     AllSegmentList allSegments;
