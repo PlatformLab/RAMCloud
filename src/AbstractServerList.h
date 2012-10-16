@@ -68,14 +68,14 @@ class ServerDetails {
      * Create an instance where only #serverId is valid. Used to represent
      * the details of a SERVER_CRASHED or SERVER_REMOVED event.
      */
-    ServerDetails(ServerId id, ServerStatus status)
+    ServerDetails(ServerId id, ServerStatus status, uint64_t replicationId = 0)
         : serverId(id)
         , serviceLocator()
         , session()
         , services()
         , expectedReadMBytesPerSec()
         , status(status)
-        , replicationId(0)
+        , replicationId(replicationId)
     {}
 
     /**
@@ -85,14 +85,15 @@ class ServerDetails {
                   const string& locator,
                   ServiceMask services,
                   uint32_t expectedReadMBytesPerSec,
-                  ServerStatus status)
+                  ServerStatus status,
+                  uint64_t replicationId = 0)
         : serverId(id)
         , serviceLocator(locator)
         , session()
         , services(services)
         , expectedReadMBytesPerSec(expectedReadMBytesPerSec)
         , status(status)
-        , replicationId(0)
+        , replicationId(replicationId)
     {}
 
     /**
