@@ -307,7 +307,8 @@ TEST_F(BackupMasterRecoveryTest, free) {
 }
 
 TEST_F(BackupMasterRecoveryTest, performTask) {
-    mockMetadata(88);
+    mockMetadata(88, true, true);
+    mockMetadata(89, true, false);
     recovery->testingSkipBuild = true;
     recovery->start(frames, NULL, NULL);
     recovery->setPartitionsAndSchedule(partitions);
@@ -315,7 +316,7 @@ TEST_F(BackupMasterRecoveryTest, performTask) {
     taskQueue.performTask();
     EXPECT_EQ(
         "schedule: scheduled | "
-        "performTask: Loaded 88, building | "
+        "performTask: Starting to build recovery segments for (<99.0,88>) | "
         "buildRecoverySegments: <99.0,88> recovery segments took 0 ms to "
             "construct, notifying other threads | "
         "performTask: Done building recovery segments for (<99.0,88>)",

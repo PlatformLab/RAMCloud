@@ -1768,11 +1768,15 @@ MasterService::recoverSegment(SegmentIterator& it)
             if (recoveryObj->version >= minSuccessor) {
                 // write to log (with lazy backup flush) & update hash table
                 Log::Reference newObjReference;
-                log->append(LOG_ENTRY_TYPE_OBJ,
-                            recoveryObj->timestamp,
-                            recoveryObj,
-                            it.getLength(),
-                            &newObjReference);
+                {
+                    CycleCounter<RawMetric>
+                        _(&metrics->master.segmentAppendTicks);
+                    log->append(LOG_ENTRY_TYPE_OBJ,
+                                recoveryObj->timestamp,
+                                recoveryObj,
+                                it.getLength(),
+                                &newObjReference);
+                }
 
                 // TODO(steve/ryan): what happens if the log is full? won't an
                 //      exception here just cause the master to try another
@@ -1832,10 +1836,14 @@ MasterService::recoverSegment(SegmentIterator& it)
             if (recoverTomb.getObjectVersion() >= minSuccessor) {
                 ++metrics->master.tombstoneAppendCount;
                 Log::Reference newTombReference;
-                log->append(LOG_ENTRY_TYPE_OBJTOMB,
-                            recoverTomb.getTimestamp(),
-                            buffer,
-                            &newTombReference);
+                {
+                    CycleCounter<RawMetric>
+                        _(&metrics->master.segmentAppendTicks);
+                    log->append(LOG_ENTRY_TYPE_OBJTOMB,
+                                recoverTomb.getTimestamp(),
+                                buffer,
+                                &newTombReference);
+                }
 
                 // TODO(steve/ryan): append could fail here!
 
@@ -1861,7 +1869,7 @@ MasterService::recoverSegment(SegmentIterator& it)
             uint64_t safeVersion = recoverSafeVer.getSafeVersion();
 
             bool checksumIsValid = ({
-                CycleCounter<RawMetric> c(&metrics->master.verifyChecksumTicks);
+                CycleCounter<RawMetric> _(&metrics->master.verifyChecksumTicks);
                 recoverSafeVer.checkIntegrity();
             });
             if (!checksumIsValid) {
@@ -1873,7 +1881,10 @@ MasterService::recoverSegment(SegmentIterator& it)
             // Copy SafeVerObject to the recovery segment.
             // Sync can be delayed, because recovery can be replayed
             // with the same backup data when the recovery crashes on the way.
-            log->append(LOG_ENTRY_TYPE_SAFEVERSION, 0, buffer);
+            {
+                CycleCounter<RawMetric> _(&metrics->master.segmentAppendTicks);
+                log->append(LOG_ENTRY_TYPE_SAFEVERSION, 0, buffer);
+            }
 
             // recover segmentManager.safeVersion (Master safeVersion)
             if (segmentManager.raiseSafeVersion(safeVersion)) {

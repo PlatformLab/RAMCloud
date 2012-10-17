@@ -84,8 +84,9 @@ class ObjectPool
 
         // Catching this isn't intended, but could be done if the caller really
         // wants to, so make sure we free the pooled memory first.
-        if (outstandingObjects > 0)
-            throw ObjectPoolException(HERE, "Pool destroyed before objects!");
+        if (outstandingObjects > 0) {
+            RAMCLOUD_LOG(ERROR, "Pool destroyed before objects!");
+        }
     }
 
     /**

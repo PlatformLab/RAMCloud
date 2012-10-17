@@ -52,6 +52,7 @@ BackupStats::getExpectedReadMs() {
 BackupSelector::BackupSelector(Context* context, const ServerId serverId)
     : tracker(context)
     , serverId(serverId)
+    , replicationIdMap()
 {
 }
 
@@ -151,11 +152,18 @@ BackupSelector::applyTrackerChanges()
         if (event == SERVER_ADDED) {
             if (!tracker[server.serverId]) {
                 tracker[server.serverId] = new BackupStats;
+            } else {
+                eraseReplicationId(tracker[server.serverId]->replicationId,
+                                    server.serverId);
             }
             tracker[server.serverId]->expectedReadMBytesPerSec =
                 server.expectedReadMBytesPerSec;
+            tracker[server.serverId]->replicationId = server.replicationId;
+            replicationIdMap.insert(std::make_pair<uint64_t, ServerId>(
+                server.replicationId, server.serverId));
         } else if (event == SERVER_REMOVED) {
             BackupStats* stats = tracker[server.serverId];
+            eraseReplicationId(stats->replicationId, server.serverId);
             delete stats;
             tracker[server.serverId] = NULL;
         }
@@ -196,6 +204,27 @@ BackupSelector::conflictWithAny(const ServerId backupId,
     }
     // Finally, check if backup conflicts with the server's own Id.
     return conflict(backupId, serverId);
+}
+
+/**
+ * Remove an entry from the \a replicationIdMap.
+ * \param replicationId
+ *     The replication group Id of the entry in the map.
+ * \param backupId
+ *     The ServerId of the entry in the map.
+ */
+void
+BackupSelector::eraseReplicationId(uint64_t replicationId,
+                                   const ServerId backupId)
+{
+    auto range = replicationIdMap.equal_range(replicationId);
+    replicationIter it;
+    for (it = range.first; it != range.second; ++it) {
+        if (it->second == backupId) {
+            replicationIdMap.erase(it);
+            return;
+        }
+    }
 }
 
 } // namespace RAMCloud

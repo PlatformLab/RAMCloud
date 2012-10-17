@@ -285,23 +285,26 @@ TEST_F(SegmentManagerTest, indexOperator) {
         &segmentManager[head->slot]);
 }
 
-#if 0 // TODO(steve): reenable me once Ryan fixes the RS::free() bug!
 TEST_F(SegmentManagerTest, doesIdExist) {
     EXPECT_FALSE(segmentManager.doesIdExist(0));
 
     LogSegment* oldHead = segmentManager.allocHead(false);
-    EXPECT_TRUE(segmentManager.doesIdExist(0));
-    EXPECT_FALSE(segmentManager.doesIdExist(1));
+    EXPECT_FALSE(segmentManager.doesIdExist(0));
+    EXPECT_TRUE(segmentManager.doesIdExist(1));
+    EXPECT_FALSE(segmentManager.doesIdExist(2));
 
     segmentManager.allocHead(false);
-    EXPECT_TRUE(segmentManager.doesIdExist(0));
+    EXPECT_FALSE(segmentManager.doesIdExist(0));
     EXPECT_TRUE(segmentManager.doesIdExist(1));
+    EXPECT_TRUE(segmentManager.doesIdExist(2));
+    EXPECT_FALSE(segmentManager.doesIdExist(3));
 
     segmentManager.free(oldHead);
     EXPECT_FALSE(segmentManager.doesIdExist(0));
-    EXPECT_TRUE(segmentManager.doesIdExist(1));
+    EXPECT_FALSE(segmentManager.doesIdExist(1));
+    EXPECT_TRUE(segmentManager.doesIdExist(2));
+    EXPECT_FALSE(segmentManager.doesIdExist(3));
 }
-#endif
 
 // getFreeSegmentCount, getMaximumSegmentCount, getSegletSize, & getSegmentSize
 // aren't paricularly interesting
@@ -466,8 +469,10 @@ TEST_F(SegmentManagerTest, freeSlot) {
     EXPECT_EQ(62U, segmentManager.freeEmergencyHeadSlots[0]);
 }
 
-#if 0   // TODO(steve): another RS::free() issue
-TEST_F(SegmentManagerTest, free) {
+TEST_F(SegmentManagerTest, DISABLED_free) {
+    // TODO(stutsman): This test doesn't work because free() cannot be called
+    // on an open segment. Adding an extra allocHead should solve the problem,
+    // but I'm not sure how to adjust the remaining asserts to correct the test.
     LogSegment* s = segmentManager.allocHead(false);
 
     EXPECT_EQ(5U, segmentManager.freeSlots.size());
@@ -478,7 +483,7 @@ TEST_F(SegmentManagerTest, free) {
     EXPECT_TRUE(segmentManager.segments[s->slot]);
 
     uint64_t id = s->id;
-    SegmentManager::Slot slot = s->slot;
+    SegmentSlot slot = s->slot;
 
     segmentManager.free(s);
     EXPECT_EQ(6U, segmentManager.freeSlots.size());
@@ -488,7 +493,6 @@ TEST_F(SegmentManagerTest, free) {
     EXPECT_FALSE(segmentManager.states[slot]);
     EXPECT_FALSE(segmentManager.segments[slot]);
 }
-#endif
 
 TEST_F(SegmentManagerTest, addToLists) {
     EXPECT_EQ(0U, segmentManager.segmentsByState[SegmentManager::HEAD].size());
@@ -518,7 +522,6 @@ class TestServerRpc : public Transport::ServerRpc {
     string getClientServiceLocator() { return ""; }
 };
 
-#if 0 /// XXX more RS bullshit
 TEST_F(SegmentManagerTest, freeUnreferencedSegments) {
     LogSegment* freeable = segmentManager.allocHead(false);
     segmentManager.allocHead(false);
@@ -547,6 +550,5 @@ TEST_F(SegmentManagerTest, freeUnreferencedSegments) {
 
     pool.destroy(rpc);
 }
-#endif
 
 } // namespace RAMCloud

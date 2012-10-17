@@ -123,7 +123,7 @@ class RecoveryTestCase(ContextManagerTestCase):
         """
         self.createTestValue()
         self.assertEqual(0, self.table)
-        self.rc.testing_fill(self.table, '0', 592415, 1024)
+        self.rc.testing_fill(self.table, '0', 592950, 1024)
         expectedValue = (chr(0xcc) * 1024, 2)
         value = self.rc.read(self.table, '0')
         self.assertEqual(expectedValue, value)
@@ -266,7 +266,7 @@ class RecoveryTestCase(ContextManagerTestCase):
         # come slowly enough.
         print()
         self.createTestValue()
-        self.rc.testing_fill(self.table, '0', 592415, 1024)
+        self.rc.testing_fill(self.table, '0', 592950, 1024)
         print('Restarting ', end='')
         for x in range(20):
             server = self.servers[0]
@@ -287,7 +287,7 @@ class RecoveryTestCase(ContextManagerTestCase):
         # One table already created.
         # Stroke the round-robin table creation until we get back to the
         # server we care about.
-        numObjectsPerTable = 592415
+        numObjectsPerTable = 592950
         objectSize = 1024
         timeToWaitForRecovery = 5
         numCrashes = 1
@@ -331,7 +331,7 @@ class RecoveryTestCase(ContextManagerTestCase):
         # otherwise open replicas for the head won't be found on backup
         # restart.
         self.createTestValue()
-        self.rc.testing_fill(self.table, '0', 592415, 1024)
+        self.rc.testing_fill(self.table, '0', 592950, 1024)
         print('Killing all servers')
         for server in self.servers:
             self.cluster.sandbox.kill(server)

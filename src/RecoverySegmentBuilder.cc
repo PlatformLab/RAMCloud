@@ -113,7 +113,7 @@ RecoverySegmentBuilder::build(const void* buffer, uint32_t length,
                         header->segmentId);
                     throw SegmentRecoveryFailedException(HERE);
                 }
-                LOG(NOTICE, "To partition=%u", i);
+                LOG(DEBUG, "To partition=%u", i);
             }
             continue;
         }

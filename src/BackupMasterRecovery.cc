@@ -63,6 +63,7 @@ BackupMasterRecovery::BackupMasterRecovery(TaskQueue& taskQueue,
     , numPartitions()
     , replicas()
     , nextToBuild()
+    , firstSecondaryReplica()
     , segmentIdToReplica()
     , logDigest()
     , logDigestSegmentId(~0lu)
@@ -151,6 +152,7 @@ BackupMasterRecovery::start(const std::vector<BackupStorage::FrameRef>& frames,
         auto& replica = replicas.back();
         segmentIdToReplica[replica.metadata->segmentId] = &replica;
     }
+    firstSecondaryReplica = replicas.end();
     foreach (auto& frame, secondaries) {
         replicas.emplace_back(frame);
         auto& replica = replicas.back();
@@ -394,12 +396,12 @@ BackupMasterRecovery::performTask()
     if (DISABLE_BACKGROUND_BUILDING)
         return;
 
-    if (nextToBuild == replicas.end()) {
+    if (nextToBuild == firstSecondaryReplica) {
         readingDataTicks.destroy();
         uint64_t ns =
             Cycles::toNanoseconds(Cycles::rdtsc() - buildingStartTicks);
-        LOG(DEBUG, "Took %lu ms to filter %lu segments",
-            ns / 1000 / 1000, replicas.size());
+        LOG(NOTICE, "Took %lu ms to filter %lu segments",
+            ns / 1000 / 1000, firstSecondaryReplica - replicas.begin());
         return;
     }
 
@@ -409,7 +411,8 @@ BackupMasterRecovery::performTask()
         // Can't afford to log here at any level; generates tons of logging.
         return;
     }
-    LOG(NOTICE, "Loaded %lu, building", nextToBuild->metadata->segmentId);
+    LOG(DEBUG, "Starting to build recovery segments for (<%s,%lu>)",
+        crashedMasterId.toString().c_str(), nextToBuild->metadata->segmentId);
     buildRecoverySegments(*nextToBuild);
     LOG(DEBUG, "Done building recovery segments for (<%s,%lu>)",
         crashedMasterId.toString().c_str(), nextToBuild->metadata->segmentId);

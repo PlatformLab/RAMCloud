@@ -16,6 +16,7 @@
 #ifndef RAMCLOUD_BACKUPSELECTOR_H
 #define RAMCLOUD_BACKUPSELECTOR_H
 
+#include <unordered_map>
 #include "Common.h"
 #include "ServerTracker.h"
 
@@ -23,13 +24,15 @@ namespace RAMCloud {
 
 /**
  * Tracks speed of backups and count of replicas stored on each which is
- * used to balance placement of replicas across the cluster; stored for
- * backup in a BackupTracker.
+ * used to balance placement of replicas across the cluster. Also keeps track
+ * of the replication group Ids of the backups. Stored for backup
+ * in a BackupTracker.
  */
 struct BackupStats {
     BackupStats()
         : primaryReplicaCount(0)
         , expectedReadMBytesPerSec(0)
+        , replicationId(0)
     {}
 
     uint32_t getExpectedReadMs();
@@ -39,6 +42,9 @@ struct BackupStats {
 
     /// Disk bandwidth of the host in MB/s
     uint32_t expectedReadMBytesPerSec;
+
+    /// Replication group Id of the backup.
+    uint64_t replicationId;
 };
 
 /// Tracks BackupStats; a ReplicaManager processes ServerListChanges.
@@ -75,6 +81,8 @@ class BackupSelector : public BaseBackupSelector {
     bool conflictWithAny(const ServerId backupId,
                          uint32_t numBackups,
                          const ServerId backupIds[]) const;
+    void eraseReplicationId(uint64_t replicationId,
+                            const ServerId backupId);
 
     /**
      * A ServerTracker used to find backups and track replica distribution
@@ -88,6 +96,15 @@ class BackupSelector : public BaseBackupSelector {
      * Id of the backup.
      */
     ServerId serverId;
+
+    /**
+     * Maps replication groups to servers. Used for selecting secondary
+     * replicas with MinCopysets.
+     */
+    typedef std::unordered_multimap<uint64_t, ServerId> ReplicationIdMap;
+    typedef ReplicationIdMap::const_iterator replicationIter;
+    ReplicationIdMap replicationIdMap;
+
     DISALLOW_COPY_AND_ASSIGN(BackupSelector);
 };
 

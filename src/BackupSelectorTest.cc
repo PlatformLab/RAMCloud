@@ -237,6 +237,29 @@ TEST_F(BackupSelectorTest, selectSecondaryConflictsWithAll) {
 }
 #endif
 
+TEST_F(BackupSelectorTest, applyTrackerChanges) {
+    ServerList* sl = static_cast<ServerList*>(selector->tracker.parent);
+    sl->testingAdd({{1, 0}, "mock:host=backup1", {WireFormat::BACKUP_SERVICE},
+                   100, ServerStatus::UP});
+    sl->testingAdd({{2, 0}, "mock:host=backup2", {WireFormat::BACKUP_SERVICE},
+                   100, ServerStatus::UP});
+    selector->applyTrackerChanges();
+    EXPECT_EQ(3u, selector->tracker.size());
+    EXPECT_EQ(2u, selector->replicationIdMap.size());
+    EXPECT_EQ(2u, selector->replicationIdMap.count(0u));
+    sl->testingAdd({{2, 0}, "mock:host=backup2", {WireFormat::BACKUP_SERVICE},
+                   100, ServerStatus::UP, 1});
+    selector->applyTrackerChanges();
+    EXPECT_EQ(2u, selector->replicationIdMap.size());
+    EXPECT_EQ(1u, selector->replicationIdMap.count(0u));
+    EXPECT_EQ(1u, selector->replicationIdMap.count(1u));
+    sl->testingRemove({1, 0});
+    selector->applyTrackerChanges();
+    EXPECT_EQ(1u, selector->replicationIdMap.size());
+    EXPECT_EQ(0u, selector->replicationIdMap.count(0u));
+    EXPECT_EQ(1u, selector->replicationIdMap.count(1u));
+}
+
 TEST_F(BackupSelectorTest, conflict) {
     ServerId backup(1, 0);
     const ServerId conflictingId(backup);

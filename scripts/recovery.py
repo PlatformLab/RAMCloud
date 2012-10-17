@@ -238,7 +238,7 @@ if __name__ == '__main__':
     parser.add_option('-s', '--size', type=int, default=1024,
             help='Object size in bytes')
     parser.add_option('-n', '--numObjects', type=int,
-            metavar='N', dest='num_objects', default=592415,
+            metavar='N', dest='num_objects', default=592950,
             help='Number of objects per partition')
     parser.add_option('-t', '--timeout', type=int, default=100,
             metavar='SECS',

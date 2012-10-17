@@ -56,7 +56,7 @@ for trial in range(5):
         args['num_partitions'] = numPartitions
         args['object_size'] = 1024
         args['replicas'] = 3
-        args['num_objects'] = 592415
+        args['num_objects'] = 592950
         args['timeout'] = 300
         r = recovery.insist(**args)
         print('->', r['ns'] / 1e6, 'ms', '(run %s)' % r['run'])

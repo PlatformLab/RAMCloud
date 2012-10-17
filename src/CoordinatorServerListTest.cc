@@ -1042,7 +1042,9 @@ TEST_F(CoordinatorServerListTest, handleRpc) {
     Cycles::mockTscValue = slot.startCycle +
             Cycles::fromNanoseconds(sl.rpcTimeoutNs)+ 100;
     sl.dispatchRpc(slot);
-    EXPECT_EQ("updateEntryVersion: server 1.0 updated (0->0)", TestLog::get());
+    EXPECT_EQ("dispatchRpc: ServerList update to 1.0 timed out after 0 ms; "
+                "trying again later | "
+            "updateEntryVersion: server 1.0 updated (0->0)", TestLog::get());
     EXPECT_TRUE(slot.rpc);
     EXPECT_EQ(id2, slot.serverId);
 
@@ -1051,7 +1053,9 @@ TEST_F(CoordinatorServerListTest, handleRpc) {
     Cycles::mockTscValue = slot.startCycle +
         Cycles::fromNanoseconds(sl.rpcTimeoutNs)+ 100;
     sl.dispatchRpc(slot);
-    EXPECT_EQ("updateEntryVersion: server 2.0 updated (0->0)", TestLog::get());
+    EXPECT_EQ("dispatchRpc: ServerList update to 2.0 timed out after 0 ms; "
+                "trying again later | "
+              "updateEntryVersion: server 2.0 updated (0->0)", TestLog::get());
     EXPECT_TRUE(slot.rpc);
     EXPECT_EQ(id1, slot.serverId);
 
@@ -1064,7 +1068,9 @@ TEST_F(CoordinatorServerListTest, handleRpc) {
     sl.dispatchRpc(slot);     // fails due to time roll back to 0 (underflow)
     sl.dispatchRpc(slot);     // Updates 2
     sl.dispatchRpc(slot);     // Updates 1
-    EXPECT_EQ("updateEntryVersion: server 1.0 updated (0->0) | "
+    EXPECT_EQ("dispatchRpc: ServerList update to 1.0 timed out after 0 ms; "
+                "trying again later | "
+            "updateEntryVersion: server 1.0 updated (0->0) | "
             "updateEntryVersion: server 2.0 updated (0->2) | "
             "updateEntryVersion: server 1.0 updated (0->2)", TestLog::get());
     EXPECT_FALSE(slot.rpc);
