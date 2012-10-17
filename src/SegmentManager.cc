@@ -38,8 +38,7 @@ namespace RAMCloud {
  *      so they can be later identified on backups. Since there is one log per
  *      master server, the log id is always equal to the server id.
  * \param allocator
- *      SegletAllocator to use to allocate memory from when constructing new log
- *      segments.
+ *      SegletAllocator that will supply memory for new log segments.
  * \param replicaManager
  *      The replica manager that will handle replication of segments this class
  *      allocates.
@@ -65,7 +64,7 @@ SegmentManager::SegmentManager(Context* context,
       freeSlots(),
       emergencyHeadSlotsReserved(2),
       survivorSlotsReserved(0),
-      nextSegmentId(0),
+      nextSegmentId(1),
       idToSlotMap(),
       allSegments(),
       segmentsByState(),
@@ -278,10 +277,10 @@ SegmentManager::allocSurvivor(LogSegment* replacing)
 }
 
 /**
- * Notify the segment manager when cleaning has completed. A list of cleaned
- * segments is pass in and the segment manager assumes that all survivor
- * segments allocated since the last call to this method will be added to the
- * log.
+ * This method is invoked by the log cleaner when it has finished a cleaning
+ * pass. A list of cleaned segments is passed in. This class assumes that all
+ * survivor segments allocated since the last call to this method were used
+ * and will add them to the log.
  *
  * \param clean
  *      List of segments that were cleaned and whose live objects, if any, have
@@ -422,7 +421,8 @@ SegmentManager::getActiveSegments(uint64_t minSegmentId,
     State activeSegmentStates[] = {
         NEWLY_CLEANABLE,
         CLEANABLE,
-        FREEABLE_PENDING_DIGEST_AND_REFERENCES
+        FREEABLE_PENDING_DIGEST_AND_REFERENCES,
+        HEAD
     };
 
     for (size_t i = 0; i < arrayLength(activeSegmentStates); i++) {
@@ -431,9 +431,6 @@ SegmentManager::getActiveSegments(uint64_t minSegmentId,
                 outList.push_back(&s);
         }
     }
-
-    if (getHeadSegment() != NULL && getHeadSegment()->id >= minSegmentId)
-        outList.push_back(getHeadSegment());
 }
 
 /**
@@ -473,10 +470,10 @@ SegmentManager::initializeSurvivorReserve(uint32_t numSegments)
 }
 
 /**
- * Given a slot number (an index into the segment manager's table of segments),
- * return a reference to the associated segment. This is used by clients of the
- * log to gain access to data that was previously appended. See Log::getEntry,
- * which is the primary user of this method.
+ * Given a slot number (see the SegmentSlot documentation), return a reference
+ * to the associated segment. This is used by clients of the log to gain access
+ * to data that was previously appended. For instance, Log::getEntry is the
+ * primary user of this method.
  *
  * \param slot
  *      Index into the array of segments specifying which segment to return.
@@ -838,6 +835,9 @@ SegmentManager::freeSlot(SegmentSlot slot, bool wasEmergencyHead)
  * means that the segment must no longer part of the log and no references to
  * it may still exist.
  *
+ * This method is invoked by us (SegmentManager) once cleaned/unneeded segments
+ * are no longer being accessed by any part of the system.
+ *
  * \param s
  *      The segment to be freed. The segment should either have been an
  *      emergency head segment, or have been in the FREEABLE_PENDING_REFERENCES
@@ -904,6 +904,8 @@ SegmentManager::removeFromLists(LogSegment& s)
  * Scan potentially freeable segments and check whether any RPCs could still
  * refer to them. Any segments with no outstanding possible references are
  * immediately freed.
+ *
+ * This method is lazily invoked when new segments are allocated.
  */
 void
 SegmentManager::freeUnreferencedSegments()

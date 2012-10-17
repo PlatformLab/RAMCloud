@@ -102,7 +102,7 @@ ReplicatedSegment::ReplicatedSegment(Context* context,
     , listEntries()
     , replicas(numReplicas)
 {
-    openLen = segment->getAppendedLength(openingWriteCertificate);
+    openLen = segment->getAppendedLength(&openingWriteCertificate);
     queued.bytes = openLen;
     queuedCertificate = openingWriteCertificate;
     schedule(); // schedule to replicate the opening data
@@ -203,7 +203,7 @@ ReplicatedSegment::close()
     // it has fully replicated all data when queued.close and
     // getCommitted().bytes == queued.bytes.
     Segment::Certificate certificate;
-    uint32_t appendedBytes = segment->getAppendedLength(certificate);
+    uint32_t appendedBytes = segment->getAppendedLength(&certificate);
     queued.bytes = appendedBytes;
     queuedCertificate = certificate;
     schedule();
@@ -333,7 +333,7 @@ ReplicatedSegment::sync(uint32_t offset, Segment::Certificate* certificate)
     uint32_t appendedBytes = offset;
     Segment::Certificate localCertificate;
     if (certificate == NULL) {
-        appendedBytes = segment->getAppendedLength(localCertificate);
+        appendedBytes = segment->getAppendedLength(&localCertificate);
         certificate = &localCertificate;
     }
 
@@ -412,7 +412,7 @@ ReplicatedSegment::swapSegment(const Segment* newSegment)
     const Segment* oldSegment = segment;
     segment = newSegment;
 
-    queued.bytes = segment->getAppendedLength(queuedCertificate);
+    queued.bytes = segment->getAppendedLength(&queuedCertificate);
     foreach (auto& replica, replicas)
         replica.committed = replica.acked = replica.sent = queued;
 

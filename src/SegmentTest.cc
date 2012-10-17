@@ -154,7 +154,7 @@ TEST_P(SegmentTest, append_whiteBox) {
 
     EXPECT_EQ(0U, offset);
     Segment::Certificate certificate;
-    EXPECT_EQ(4U, s.getAppendedLength(certificate));
+    EXPECT_EQ(4U, s.getAppendedLength(&certificate));
     EXPECT_EQ(4u, certificate.segmentLength);
     EXPECT_EQ(0x87a632e2u, certificate.checksum);
 
@@ -254,11 +254,11 @@ TEST_P(SegmentTest, getAppendedLength) {
     Segment& s = *segAndAlloc.segment;
 
     Segment::Certificate certificate;
-    EXPECT_EQ(0lu, s.getAppendedLength(certificate));
+    EXPECT_EQ(0lu, s.getAppendedLength(&certificate));
     EXPECT_EQ(0lu, certificate.segmentLength);
     EXPECT_EQ(0x48674bc7lu, certificate.checksum);
     s.append(LOG_ENTRY_TYPE_OBJ, "yo!", 3);
-    EXPECT_EQ(5lu, s.getAppendedLength(certificate));
+    EXPECT_EQ(5lu, s.getAppendedLength(&certificate));
     EXPECT_EQ(5lu, certificate.segmentLength);
     EXPECT_EQ(0x62f2f7f6u, certificate.checksum);
 }
@@ -412,10 +412,10 @@ TEST_P(SegmentTest, checkMetadataIntegrity_simple) {
     Segment& s = *segAndAlloc.segment;
 
     Segment::Certificate certificate;
-    s.getAppendedLength(certificate);
+    s.getAppendedLength(&certificate);
     EXPECT_TRUE(s.checkMetadataIntegrity(certificate));
     s.append(LOG_ENTRY_TYPE_OBJ, "asdfhasdf", 10);
-    s.getAppendedLength(certificate);
+    s.getAppendedLength(&certificate);
     EXPECT_TRUE(s.checkMetadataIntegrity(certificate));
 
     // scribbling on an entry's data won't harm anything
@@ -441,7 +441,7 @@ TEST_P(SegmentTest, checkMetadataIntegrity_badLength) {
     s.copyIn(0, &header, sizeof(header));
     s.copyIn(sizeof(header), &segmentSize, sizeof(segmentSize));
     s.head = 1;
-    s.getAppendedLength(certificate);
+    s.getAppendedLength(&certificate);
     EXPECT_FALSE(s.checkMetadataIntegrity(certificate));
     EXPECT_TRUE(StringUtil::startsWith(TestLog::get(),
         "checkMetadataIntegrity: segment corrupt: entries run off past "
@@ -451,7 +451,7 @@ TEST_P(SegmentTest, checkMetadataIntegrity_badLength) {
     segmentSize = segAndAlloc.segmentSize;
     s.copyIn(0, &header, sizeof(header));
     s.copyIn(sizeof(header), &segmentSize, sizeof(segmentSize));
-    s.getAppendedLength(certificate);
+    s.getAppendedLength(&certificate);
     EXPECT_FALSE(s.checkMetadataIntegrity(certificate));
     EXPECT_TRUE(StringUtil::startsWith(TestLog::get(),
         "checkMetadataIntegrity: segment corrupt: entries run off past "

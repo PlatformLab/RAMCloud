@@ -19,24 +19,9 @@
 namespace RAMCloud {
 
 /**
- * This default constructor creates an unusable iterator. This only exists
- * so that mock subclasses can be written.
- */
-SegmentIterator::SegmentIterator()
-    : wrapperSegment(),
-      buffer(NULL),
-      length(0),
-      segment(NULL),
-      certificate(),
-      currentOffset(0),
-      currentHeader(NULL),
-      currentLength()
-{
-}
-
-/**
  * Construct a new SegmentIterator for the given Segment object. This
  * is typically used to iterate a segment still in master server memory.
+ * The iterator starts off pointing to the first entry (if there is one).
  *
  * Note that behaviour is undefined if the segment is modified after the
  * iterator has been constructed.
@@ -61,13 +46,14 @@ SegmentIterator::SegmentIterator(Segment& segment)
       currentHeader(segment.getEntryHeader(0)),
       currentLength()
 {
-    segment.getAppendedLength(certificate);
+    segment.getAppendedLength(&certificate);
 }
 
 /**
  * Construct a new SegmentIterator given a contiguous piece of memory that
- * contains the serialized contents of a segment. This is typically used
- * to iterate a segment after it was written to a backup.
+ * contains the contents of a segment. This is typically used to iterate a
+ * segment after it was written to a backup. The iterator starts off pointing
+ * to the first entry (if there is one).
  *
  * Note that behaviour is undefined if the segment is modified after the
  * iterator has been constructed.
@@ -95,7 +81,7 @@ SegmentIterator::SegmentIterator(const void *buffer, uint32_t length,
       segment(NULL),
       certificate(certificate),
       currentOffset(0),
-      currentHeader(NULL),
+      currentHeader(),
       currentLength()
 {
     wrapperSegment.construct(buffer, length);
@@ -146,20 +132,6 @@ SegmentIterator::~SegmentIterator()
 }
 
 /**
- * Test if the SegmentIterator has exhausted all entries. More concretely, if
- * the current entry is valid, this will return false. After next() has been
- * called on the last valid entry, this will return true.
- *
- * \return
- *      true if there are no more entries left to iterate, else false.
- */
-bool
-SegmentIterator::isDone()
-{
-    return getOffset() >= certificate.segmentLength;
-}
-
-/**
  * Progress the iterator to the next entry in the segment, if there is one.
  * If there is another entry, then after this method returns any future calls
  * to getType, getLength, appendToBuffer, etc. will use the next in the log.
@@ -171,10 +143,17 @@ SegmentIterator::next()
     if (isDone())
         return;
 
-    currentOffset += sizeof32(*currentHeader) +
-                     currentHeader->getLengthBytes() +
+    currentOffset += sizeof32(currentHeader) +
+                     currentHeader.getLengthBytes() +
                      getLength();
-    currentHeader = segment->getEntryHeader(currentOffset);
+
+    // Check again, since we may have just moved on from the last entry in the
+    // segment.
+    if (__builtin_expect(isDone(), 0))
+        currentHeader = Segment::EntryHeader();
+    else
+        currentHeader = segment->getEntryHeader(currentOffset);
+
     currentLength.destroy();
 }
 
@@ -185,9 +164,7 @@ SegmentIterator::next()
 LogEntryType
 SegmentIterator::getType()
 {
-    if (currentHeader == NULL)
-        return LOG_ENTRY_TYPE_INVALID;
-    return currentHeader->getType();
+    return currentHeader.getType();
 }
 
 /**
@@ -197,14 +174,14 @@ SegmentIterator::getType()
 uint32_t
 SegmentIterator::getLength()
 {
-    if (currentHeader == NULL)
+    if (currentHeader.getType() == LOG_ENTRY_TYPE_INVALID)
         return 0;
 
     if (!currentLength) {
         uint32_t length = 0;
-        segment->copyOut(currentOffset + sizeof32(*currentHeader),
+        segment->copyOut(currentOffset + sizeof32(currentHeader),
                          &length,
-                         currentHeader->getLengthBytes());
+                         currentHeader.getLengthBytes());
         currentLength.construct(length);
     }
     return *currentLength;
@@ -223,14 +200,18 @@ SegmentIterator::getOffset()
 
 /**
  * Append the current entry to the provided buffer.
+ *
+ * \return
+ *      The number of bytes appended to the buffer.
  */
 uint32_t
 SegmentIterator::appendToBuffer(Buffer& buffer)
 {
     uint32_t entryOffset = currentOffset +
-                           sizeof32(*currentHeader) +
-                           currentHeader->getLengthBytes();
-    return segment->appendToBuffer(buffer, entryOffset, getLength());
+                           sizeof32(currentHeader) +
+                           currentHeader.getLengthBytes();
+    segment->appendToBuffer(buffer, entryOffset, getLength());
+    return buffer.getTotalLength();
 }
 
 /**
@@ -269,9 +250,5 @@ SegmentIterator::checkMetadataIntegrity()
     if (!segment->checkMetadataIntegrity(certificate))
         throw SegmentIteratorException(HERE, "cannot iterate: corrupt segment");
 }
-
-/******************************************************************************
- * PRIVATE METHODS
- ******************************************************************************/
 
 } // namespace

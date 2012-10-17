@@ -293,7 +293,7 @@ Log::sync()
         // Get the latest segment length and certificate. This allows us to
         // batch up other appends that came in while we were waiting.
         Segment::Certificate certificate;
-        appendedLength = originalHead->getAppendedLength(certificate);
+        appendedLength = originalHead->getAppendedLength(&certificate);
 
         // Drop the append lock. We don't want to block other appending threads
         // while we sync.

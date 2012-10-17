@@ -69,7 +69,7 @@ class BackupServiceTest : public ::testing::Test {
     closeSegment(ServerId masterId, uint64_t segmentId) {
         Segment segment;
         Segment::Certificate certificate;
-        uint32_t length = segment.getAppendedLength(certificate);
+        uint32_t length = segment.getAppendedLength(&certificate);
         BackupClient::writeSegment(&context, backupId, masterId, segmentId, 0,
                                    &segment, 0, length, &certificate,
                                    false, true, false);
@@ -80,7 +80,7 @@ class BackupServiceTest : public ::testing::Test {
     {
         Segment segment;
         Segment::Certificate certificate;
-        uint32_t length = segment.getAppendedLength(certificate);
+        uint32_t length = segment.getAppendedLength(&certificate);
         return BackupClient::writeSegment(&context, backupId, masterId,
                                           segmentId, 0, &segment, 0, length,
                                           &certificate,

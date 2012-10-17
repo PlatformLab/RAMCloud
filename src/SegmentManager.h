@@ -34,7 +34,7 @@
 namespace RAMCloud {
 
 /**
- * Special exception for when the log runs out of memory entirely.
+ * Exception thrown when invalid arguments are passed to the constructor.
  */
 struct SegmentManagerException : public Exception {
     SegmentManagerException(const CodeLocation& where, std::string msg)
@@ -50,9 +50,8 @@ struct SegmentManagerException : public Exception {
 /// LogSegment structure corresponds to it.
 typedef uint32_t SegmentSlot;
 
-/// Invalid slot number. May be used as a return value to indicate
-/// error.
-enum : uint32_t { INVALID_SEGMENT_SLOT = -1U };
+/// Invalid SegmentSlot number. May be used as a return value to indicate error.
+enum : SegmentSlot { INVALID_SEGMENT_SLOT = -1U };
 
 /**
  * The SegmentManager is essentially the core of the master server's in-memory
@@ -74,6 +73,9 @@ enum : uint32_t { INVALID_SEGMENT_SLOT = -1U };
  * segments as needed. It also tracks the state of each segment and determines
  * when it is safe to reuse memory from cleaned segments (since RPCs could
  * still reference a segment after the cleaner has finished with it).
+ *
+ * This class is necessarily thread-safe, since the log and the log cleaner
+ * run in parallel.
  */
 class SegmentManager {
   public:
@@ -134,7 +136,7 @@ class SegmentManager {
      * For segments created during cleaning to hold survivor data, the sequence
      * is: 
      *
-     *     CLEANING_INTO --> CLEANABLE_PENDING_DIGEST -->
+     *     CLEANING_INTO --> CLEANABLE_PENDING_DIGEST --> CLEANABLE -->
      *        FREEABLE_PENDING_DIGEST_AND_REFERENCES -->
      *        FREEABLE_PENDING_REFERENCES --> FREE*
      *
@@ -251,7 +253,8 @@ class SegmentManager {
     uint32_t survivorSlotsReserved;
 
     /// Monotonically increasing identifier to be given to the next segment
-    /// allocated by this module.
+    /// allocated by this module. The first segment allocated is given id 1.
+    /// 0 and -1 are reserved values.
     uint64_t nextSegmentId;
 
     /// Lookup table from segment identifier to the corresponding index in
@@ -259,11 +262,11 @@ class SegmentManager {
     /// of a particular segment.
     std::unordered_map<uint64_t, SegmentSlot> idToSlotMap;
 
-    /// Linked list of all LogSegments managed by this module.
+    /// Unordered linked list of all LogSegments managed by this module.
     AllSegmentList allSegments;
 
-    /// Linked lists of LogSegments based on their current state. The contents
-    /// of all lists together is equivalent to the 'allSegments' list.
+    /// Unordered linked lists of LogSegments based on their current state. Each
+    /// segment is present in exactly one of these lists at any given time.
     SegmentList segmentsByState[TOTAL_STATES];
 
     /// Monitor lock protecting the SegmentManager from multiple calling

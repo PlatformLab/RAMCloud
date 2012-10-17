@@ -50,7 +50,7 @@ struct RecoverySegmentBuilderTest : public ::testing::Test {
         TabletsBuilder{partitions}
             (1, 0lu, oneOneHash - 1, TabletsBuilder::NORMAL, 0lu)    // part 0
             (1, oneOneHash, ~0lu, TabletsBuilder::NORMAL, 1lu)       // part 1
-            (2, 0lu, ~0lu, TabletsBuilder::NORMAL, 0lu, {}, {1, 0})  // part 0
+            (2, 0lu, ~0lu, TabletsBuilder::NORMAL, 0lu, {}, {2, 0})  // part 0
             (3, 0lu, 1lu, TabletsBuilder::NORMAL, 0lu, {});          // part 0
     }
 
@@ -99,7 +99,7 @@ TEST_F(RecoverySegmentBuilderTest, build) {
     }
 
     Segment::Certificate certificate;
-    uint32_t length = segment->getAppendedLength(certificate);
+    uint32_t length = segment->getAppendedLength(&certificate);
     char buf[serverConfig.segmentSize];
     ASSERT_TRUE(segment->copyOut(0, buf, length));
 
@@ -121,7 +121,7 @@ TEST_F(RecoverySegmentBuilderTest, extractDigest) {
     auto extractDigest = RecoverySegmentBuilder::extractDigest;
     LogSegment* segment = segmentManager.allocHead();
     Segment::Certificate certificate;
-    uint32_t length = segment->getAppendedLength(certificate);
+    uint32_t length = segment->getAppendedLength(&certificate);
     char buffer[serverConfig.segmentSize];
     ASSERT_TRUE(segment->copyOut(0, buffer, length));
     Buffer digestBuffer;
@@ -137,7 +137,7 @@ TEST_F(RecoverySegmentBuilderTest, extractDigest) {
     EXPECT_NE(0u, digestBuffer.getTotalLength());
 
     Segment emptySegment;
-    length = emptySegment.getAppendedLength(certificate);
+    length = emptySegment.getAppendedLength(&certificate);
 
     // No digest.
     EXPECT_FALSE(extractDigest(buffer, sizeof32(buffer),

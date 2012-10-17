@@ -203,10 +203,8 @@ class MasterService : public Service, LogEntryHandlers {
     SegmentManager segmentManager;
 
     /**
-     * The log stores all of our objects and tombstones. It is used to append
-     * new data is notified of dead data. Garbage collection ("cleaning") takes
-     * place concurrently with server execution and may cause live data to be
-     * reshuffled to new locations in memory.
+     * The log stores all of our objects and tombstones both in memory and on
+     * backups.
      *
      * The log is not constructed until init() is called, since we don't know
      * our own ServerId until then and the log's constructor will ensure that

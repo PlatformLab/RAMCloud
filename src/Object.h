@@ -25,10 +25,12 @@ namespace RAMCloud {
 
 /**
  * This class describes the format of an object stored in the log and provides
- * various methods to construct and serialize a new object, as well as to take
- * a buffer referring to a serialized object and deserialize it. In other words,
- * this code centralizes the format and parsing of objects. Different
- * constructors serve these two purposes.
+ * methods to easily construct new ones to be appended and interpret ones that
+ * have already been written. 
+ *
+ * In other words, this code centralizes the format and parsing of objects
+ * (essentially serialization and deserialization). Different constructors serve
+ * these two purposes. 
  *
  * Objects are basically a key, some additional metadata, and an associated
  * binary blob of data. When serialized in the log, objects simply consist of
@@ -44,7 +46,7 @@ namespace RAMCloud {
  * When creating objects, one will typically gather and compute the necessary
  * fields (tableId, binary string key, version, data associated with the object,
  * etc), and create an instance of this class describing that object. This may
- * then we serialized to a buffer and written to the log.
+ * then be serialized to a buffer and written to the log.
  *
  * When reading objects from the log (or from a segment of the log), one will
  * typically get a buffer referring to an object from a segment or log iterator.
@@ -72,8 +74,9 @@ class Object {
      *      Version number of this object, which is used to disambiguate
      *      different incarnations of objects with the same key.
      * \param timestamp
-     *      The object's timestamp is usually the modification time of an
-     *      object. That is, when a particular object was written to the log.
+     *      The creation time of this object, as returned by the WallTime
+     *      module. Used primarily by the cleaner to order live objects and
+     *      improve future cleaning performance.
      */
     Object(Key& key,
            const void* data,
@@ -109,8 +112,9 @@ class Object {
      *      Version number of this object, which is used to disambiguate
      *      different incarnations of objects with the same key.
      * \param timestamp
-     *      The object's timestamp is usually its modification time. That is,
-     *      when a particular object was written to the log.
+     *      The creation time of this object, as returned by the WallTime
+     *      module. Used primarily by the cleaner to order live objects and
+     *      improve future cleaning performance.
      */
     Object(Key& key,
            Buffer& dataBuffer,
@@ -363,8 +367,9 @@ class Object {
          * \param version
          *      64-bit version number associated with this object.
          * \param timestamp
-         *      Timestamp of this object's creation or modification. Used
-         *      primarily by the log in making cleaning decisions.
+         *      The creation time of this object, as returned by the WallTime
+         *      module. Used primarily by the cleaner to order live objects and
+         *      improve future cleaning performance.
          */
         SerializedForm(uint64_t tableId,
                        uint16_t keyLength,
@@ -484,19 +489,23 @@ class Object {
 };
 
 /**
- * This class describes the format of an object tombstone as it is stored in
- * the log. Tombstones serve as records indicating that specific versions of
- * objects have been removed from the system (explicitly due to deletions, or
- * implicitly due to overwrites). They are necessary to avoid resurrecting
- * previously-deleted objects that are still in the log during failure
- * recovery. This class provides various methods to construct and serialize new
- * tombstones, as well as to take a buffer referring to a serialized tombstone
- * and deserialize it. Different constructors serve these two purposes.
+ * This class describes the format of a tombstone stored in the log and provides
+ * methods to easily construct new ones to be appended and interpret ones that
+ * have already been written. 
  *
- * Tombstones are basically a binary string key and some additional metadata.
- * When serialized in the log, tombstones simply consist of a common header,
- * followed immediately by the binary string key. The header is of fixed size,
- * while the latter string is of variable length. For example:
+ * In other words, this code centralizes the format and parsing of tombstones
+ * (essentially serialization and deserialization). Different constructors serve
+ * these two purposes. 
+ *
+ * Tombstones serve as records indicating that specific versions of objects have
+ * been removed from the system (explicitly due to deletions, or implicitly due
+ * to overwrites). They are necessary to avoid resurrecting previously-deleted
+ * objects that are still in the log during failure recovery.
+ *
+ * Internally, tombstones are basically a binary string key and some additional
+ * metadata. When serialized in the log, tombstones simply consist of a common
+ * header, followed immediately by the binary string key. The header is of fixed
+ * size, while the latter string is of variable length. For example:
  *
  *             +--------------------------+---------------------+
  *             |     Tombstone Header     |    String Key . . . |
@@ -506,10 +515,10 @@ class Object {
  * When creating tombstones, one will typically gather the necessary fields by
  * creating an object first (often to deserialize from what's stored in the log)
  * and then create an instance of this class describing that dead object. The
- * resulting tombstone may then we serialized to a buffer and written to the
+ * resulting tombstone may then be serialized to a buffer and written to the
  * log.
  *
- * When tombstones objects from the log (or from a segment of the log), one will
+ * When reading tombstones from the log (or from a segment of the log), one will
  * typically get a buffer referring to a tombstone from a segment or log
  * iterator. Constructing an instance of this class with that buffer will allow
  * the user to deserialize it and access all of its fields and contents.
@@ -530,8 +539,9 @@ class ObjectTombstone {
      *      tombstone refers to exists. Once this segment is no longer in
      *      the system, this tombstone may be garbage collected.
      * \param timestamp
-     *      The tombstone's timestamp is usually its modification time. That is,
-     *      when a particular tombstone was written to the log.
+     *      The creation time of this tombstone, as returned by the WallTime
+     *      module. Used primarily by the cleaner to order live objects and
+     *      improve future cleaning performance.
      */
     ObjectTombstone(Object& object, uint64_t segmentId, uint32_t timestamp)
         : serializedForm(object.getTableId(),
@@ -701,8 +711,9 @@ class ObjectTombstone {
          * \param objectVersion
          *      64-bit version number associated with the dead object.
          * \param timestamp
-         *      Timestamp of this tombstone's creation. Used primarily by the
-         *      log in making cleaning decisions.
+         *      The creation time of this tombstone, as returned by the WallTime
+         *      module. Used primarily by the cleaner to order live objects and
+         *      improve future cleaning performance.
          */
         SerializedForm(uint64_t tableId,
                        uint16_t keyLength,

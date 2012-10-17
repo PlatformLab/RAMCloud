@@ -63,7 +63,7 @@ TEST_F(SegmentManagerTest, constructor)
                                 replicaManager),
                  SegmentManagerException);
 
-    EXPECT_EQ(0U, segmentManager.nextSegmentId);
+    EXPECT_EQ(1U, segmentManager.nextSegmentId);
     EXPECT_EQ(0, segmentManager.logIteratorCount);
     EXPECT_EQ(256U, segmentManager.maxSegments);
     EXPECT_EQ(segmentManager.maxSegments - 2,
@@ -232,10 +232,10 @@ TEST_F(SegmentManagerTest, logIteratorCreated_and_logIteratorDestroyed) {
 TEST_F(SegmentManagerTest, getActiveSegments) {
     LogSegmentVector active;
 
-    EXPECT_THROW(segmentManager.getActiveSegments(0, active),
+    EXPECT_THROW(segmentManager.getActiveSegments(1, active),
         SegmentManagerException);
     segmentManager.logIteratorCreated();
-    EXPECT_NO_THROW(segmentManager.getActiveSegments(0, active));
+    EXPECT_NO_THROW(segmentManager.getActiveSegments(1, active));
     EXPECT_EQ(0U, active.size());
 
     LogSegment* newlyCleanable = segmentManager.allocHead(false);
@@ -248,7 +248,7 @@ TEST_F(SegmentManagerTest, getActiveSegments) {
     segmentManager.changeState(*freeablePendingJunk,
         SegmentManager::FREEABLE_PENDING_DIGEST_AND_REFERENCES);
 
-    segmentManager.getActiveSegments(0, active);
+    segmentManager.getActiveSegments(1, active);
     EXPECT_EQ(4U, active.size());
     EXPECT_EQ(newlyCleanable, active[0]);
     EXPECT_EQ(cleanable, active[1]);
@@ -256,7 +256,7 @@ TEST_F(SegmentManagerTest, getActiveSegments) {
     EXPECT_EQ(head, active[3]);
 
     active.clear();
-    segmentManager.getActiveSegments(2, active);
+    segmentManager.getActiveSegments(3, active);
     EXPECT_EQ(2U, active.size());
     EXPECT_EQ(freeablePendingJunk, active[0]);
     EXPECT_EQ(head, active[1]);

@@ -147,7 +147,7 @@ class MasterServiceTest : public ::testing::Test {
         s.appendToBuffer(buffer);
         EXPECT_GE(segmentCapacity, buffer.getTotalLength());
         buffer.copy(0, buffer.getTotalLength(), segmentBuf);
-        s.getAppendedLength(*outCertificate);
+        s.getAppendedLength(outCertificate);
 
         return buffer.getTotalLength();
     }
@@ -170,7 +170,7 @@ class MasterServiceTest : public ::testing::Test {
         s.appendToBuffer(buffer);
         EXPECT_GE(segmentCapacity, buffer.getTotalLength());
         buffer.copy(0, buffer.getTotalLength(), segmentBuf);
-        s.getAppendedLength(*outCertificate);
+        s.getAppendedLength(outCertificate);
 
         return buffer.getTotalLength();
     }
@@ -195,7 +195,7 @@ class MasterServiceTest : public ::testing::Test {
         s.appendToBuffer(buffer);
         EXPECT_GE(segmentCapacity, buffer.getTotalLength());
         buffer.copy(0, buffer.getTotalLength(), segmentBuf);
-        s.getAppendedLength(*outCertificate);
+        s.getAppendedLength(outCertificate);
 
         return buffer.getTotalLength();
     }
@@ -231,17 +231,17 @@ class MasterServiceTest : public ::testing::Test {
         SegmentHeader header(logId, segmentId, 1000);
         Segment::Certificate certificate;
         seg.append(LOG_ENTRY_TYPE_SEGHEADER, &header, sizeof(header));
-        seg.getAppendedLength(certificate);
+        seg.getAppendedLength(&certificate);
 
         ObjectSafeVersion objSafeVer(safeVer);
         seg.append(LOG_ENTRY_TYPE_SAFEVERSION,
                    &objSafeVer, sizeof(objSafeVer));
-        seg.getAppendedLength(certificate);
+        seg.getAppendedLength(&certificate);
 
         ReplicatedSegment* rs = mgr.allocateHead(segmentId, &seg, NULL);
-        seg.getAppendedLength(certificate);
+        seg.getAppendedLength(&certificate);
 
-        rs->sync(seg.getAppendedLength(certificate));
+        rs->sync(seg.getAppendedLength(&certificate));
     }
 
     void
@@ -576,10 +576,10 @@ TEST_F(MasterServiceTest, detectSegmentRecoveryFailure_failure) {
 }
 
 TEST_F(MasterServiceTest, getHeadOfLog) {
-    EXPECT_EQ(Log::Position(1, 62),
+    EXPECT_EQ(Log::Position(2, 62),
               MasterClient::getHeadOfLog(&context, masterServer->serverId));
     ramcloud->write(0, "0", 1, "abcdef", 6);
-    EXPECT_EQ(Log::Position(2, 70),
+    EXPECT_EQ(Log::Position(3, 70),
               MasterClient::getHeadOfLog(&context, masterServer->serverId));
 }
 
@@ -863,13 +863,13 @@ TEST_F(MasterServiceTest, recover_ctimeUpdateIssued) {
         "server_id: 2 service_locator: \"mock:host=master\" user_data: 0 "
         , TestLog::getUntil("ctime_log_head_id:", curPos, &curPos));
     EXPECT_EQ(
-        "ctime_log_head_id: 1 "
+        "ctime_log_head_id: 2 "
         "ctime_log_head_offset: 62 } tablet { table_id: "
         "123 start_key_hash: 10 end_key_hash: 19 state: RECOVERING server_id: "
         "2 service_locator: \"mock:host=master\" user_data: 0 "
         , TestLog::getUntil("ctime_log_head_id", curPos, &curPos));
     EXPECT_EQ(
-        "ctime_log_head_id: 1 ctime_log_head_offset: 62 } tablet { table_id: "
+        "ctime_log_head_id: 2 ctime_log_head_offset: 62 } tablet { table_id: "
         "123 start_key_hash: 20 end_key_hash: 29 state: RECOVERING server_id: "
         "2 service_locator: \"mock:host=master\" user_data: 0 "
         , TestLog::getUntil("ctime_log_head_id", curPos, &curPos));

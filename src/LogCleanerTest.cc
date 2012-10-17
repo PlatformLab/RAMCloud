@@ -217,7 +217,7 @@ TEST_F(LogCleanerTest, doMemoryCleaning) {
     EXPECT_EQ(
       "doMemoryCleaning: called | "
       "alloc: for cleaner | "
-      "allocSurvivor: id = 0 | "
+      "allocSurvivor: id = 1 | "
       "relocate: type 1, size 24 | "
       "relocate: type 4, size 12 | "
       "relocate: type 5, size 12 | "
@@ -436,15 +436,15 @@ TEST_F(LogCleanerTest, relocateLiveEntries) {
     EXPECT_EQ(
         "relocate: type 1, size 24 | "
         "alloc: for cleaner | "
-        "allocateSegment: Allocating new replicated segment for <57.0,1> | "
+        "allocateSegment: Allocating new replicated segment for <57.0,2> | "
         "schedule: zero replicas: nothing to schedule | "
-        "allocSurvivor: id = 1 | "
+        "allocSurvivor: id = 2 | "
         "relocate: type 1, size 24 | "
         "relocate: type 4, size 12 | "
         "relocate: type 5, size 12 | "
-        "close: 57.0, 1, 0 | "
+        "close: 57.0, 2, 0 | "
         "schedule: zero replicas: nothing to schedule | "
-        "close: Segment 1 closed (length 80) | "
+        "close: Segment 2 closed (length 80) | "
         "sync: syncing | "
         "relocateLiveEntries: used 1 seglets and 1 segments",
             TestLog::get());
@@ -457,7 +457,7 @@ TEST_F(LogCleanerTest, closeSurvivor) {
     TestLog::Enable _;
     cleaner.closeSurvivor(a);
     EXPECT_TRUE(a->closed);
-    EXPECT_TRUE(StringUtil::startsWith(TestLog::get(), "close: 57.0, 0, 0"));
+    EXPECT_TRUE(StringUtil::startsWith(TestLog::get(), "close: 57.0, 1, 0"));
 }
 
 TEST_F(LogCleanerTest, waitForAvailableSurvivors) {

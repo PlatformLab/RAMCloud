@@ -2044,8 +2044,6 @@ MasterService::write(const WireFormat::Write::Request& reqHdr,
                      WireFormat::Write::Response& respHdr,
                      Rpc& rpc)
 {
-    // TODO(anyone): Make Buffers do virtual copying so we don't need to copy
-    //               into contiguous space in getRange().
     Buffer buffer;
     const void* objectData = rpc.requestPayload.getRange(
         sizeof32(reqHdr) + reqHdr.keyLength, reqHdr.length);
@@ -2366,7 +2364,7 @@ MasterService::getTombstoneTimestamp(Buffer& buffer)
 }
 
 /**
- * This method will does everything needed to store an object associated with
+ * This method will do everything needed to store an object associated with
  * a particular key. This includes allocating or incrementing version numbers,
  * writing a tombstone if a previous version exists, storing to the log,
  * and adding or replacing an entry in the hash table.

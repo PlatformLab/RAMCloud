@@ -123,7 +123,7 @@ class RecoverSegmentBenchmark {
             Buffer buffer;
             s->appendToBuffer(buffer);
             Segment::Certificate certificate;
-            s->getAppendedLength(certificate);
+            s->getAppendedLength(&certificate);
             const void* contigSeg = buffer.getRange(0, buffer.getTotalLength());
             SegmentIterator it(contigSeg, buffer.getTotalLength(), certificate);
             service->recoverSegment(it);

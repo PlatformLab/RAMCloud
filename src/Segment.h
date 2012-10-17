@@ -38,38 +38,46 @@ struct SegmentException : public Exception {
 };
 
 /**
- * Segments are basically miniature logs that immutable data can be appended
- * to. Each piece of data appended is considered an "entry". Each entry has
- * internal segment metadata that identify the type of data and its length.
- * This allows segments to be easily iterated. To ensure consistency, all
- * metadata is checksummed and integrity can be checked using a "certificate". 
+ * Segments are basically miniature logs that immutable data such as objects and
+ * tombstones are appended to. Each piece of data appended is called an "entry"
+ * and has a type and length metadata associated with it that this class
+ * maintains. This information allows segments to be easily iterated and their
+ * contents properly interpreted during, for example, failure recovery. To
+ * ensure the integrity of segments, all metadata is checksummed. Verify a
+ * segment requires checking the metadata contents against a "certificate",
+ * which includes the checksum and the length of the segment. Entry contents
+ * are not checksummed. If integrity checks are needed, the owner of the data
+ * should implement and store their own entry-specific checksums.
  *
- * Although similar, Segments differ from buffers in several ways. First, any
+ * The log ties many segments together to form a larger logical log. By using
+ * many smaller segments it can achieve more efficient garbage collection and
+ * high backup bandwidth. This class defines both in in-memory and on-disk
+ * layouts of the log. That is, this same class is used in both places.
+ *
+ * Each segment is composed of a collection of fixed-size chunks of memory
+ * called "seglets". Seglets make it possible to support variable-sized segments
+ * efficiently, which is important for log cleaning. The presence of seglets is
+ * mostly hidden inside the segment class, except that it means that segment
+ * users cannot assume that any particular entry in the segment is contiguous in
+ * memory.
+ *
+ * Segments are also a useful way of transferring RAMCloud objects over the
+ * network. Simply add objects to a segment, then append the segment's
+ * contents to an outgoing RPC buffer. The receiver can construct an iterator
+ * to extract the individual objects.
+ *
+ * Although similar, segments differ from buffers in several ways. First, any
  * append data is always copied. Second, they understand some of the data that
  * is stored within them. For example, they maintain internal metadata that
  * differentiates entries and allows for iteration. Third, they protect metadata
  * integrity with checksums. Finally, although segments may consist of many
  * discontiguous pieces of memory called "seglets", each seglet in a given
  * segment is always the same size.
- *
- * Seglets only exist to make log cleaning more efficient and are almost
- * entirely hidden by the segment API. The exception is that custom allocators
- * may be used when constructing segments in order to control the size of
- * seglets and segments.
- *
- * The log ties many segments together to form a larger logical log. By using
- * many smaller segments it can achieve more efficient garbage collection and
- * high backup bandwidth.
- *
- * Segments are also a useful way of transferring RAMCloud objects over the
- * network. Simply add objects to a segment, then append the segment's
- * contents to an outgoing RPC buffer. The receiver can construct an iterator
- * to extract the individual objects.
  */
 class Segment {
   public:
     // TODO(Steve): This doesn't belong here, but rather in SegmentManager.
-    enum { INVALID_SEGMENT_ID = ~(0ull) };
+    enum : uint64_t { INVALID_SEGMENT_ID = -1UL };
 
 #ifdef VALGRIND
     // can't use more than 1M, see http://bugs.kde.org/show_bug.cgi?id=203877
@@ -80,25 +88,52 @@ class Segment {
 
   PRIVATE:
     /**
-     * Every piece of data appended to a segment is described by one of these
-     * structures. All this does is identify the type of data that follows an
-     * instance of this header and how many bytes are needed to store the length
-     * of the entry (not including the header itself).
+     * Immediately before the contents of every segment entry are this header
+     * and a varibly-lengthed field containing the length of the entry. These
+     * serve only to record the type of the entry stored and its length. For
+     * example:
+     *
+     *                                  Segment
+     *   ______________________________________________________________________
+     *  | EntryHeader | length (1-4 bytes) | entry contents | EntryHeader | ...
+     *   ----------------------------------------------------------------------
+     *   ^-- First entry start            First entry end --^
+     *
+     * The length field is variably-sized to save memory when entries are small.
+     * The EntryHeader itself is only one byte. The upper two bits dictate how
+     * long the subsequent length field is, while the lower six bits record the
+     * entry's type.
      *
      * The Segment code allocates an entry by writing this single byte header,
-     * and then appends the entry's length using between 1 and 4 bytes. The
-     * actual entry content begins immediately after. This class does not
-     * store or load the length. It only encapsulates the first byte header.
-     * The rest is up to the Segment class.
+     * and then appends the entry's length using between 1 and 4 bytes. This
+     * class does not store or load the length. It only encapsulates the first
+     * byte header. The rest is up to the Segment class.
      */
     struct EntryHeader {
         /**
-         * Construct a new header, initializing it with the given log entry type
-         * and length of the data this entry will contain.
+         * Default constructor creating an EntryHeader for an invalid log entry
+         * type with a single-byte length field. This is only used when creating
+         * an uninitialized EntryHeader in memory before copying out from the
+         * segment.
+         */
+        EntryHeader()
+            : lengthBytesAndType(downCast<uint8_t>(LOG_ENTRY_TYPE_INVALID))
+        {
+        }
+
+        /**
+         * Construct a new header, initializing it with the given parameters.
+         *
+         * \param type
+         *      Type of the log entry. See LogEntryTypes.h.
+         * \param length
+         *      Length of the entry this header describes in bytes.
          */
         EntryHeader(LogEntryType type, uint32_t length)
             : lengthBytesAndType(downCast<uint8_t>(type))
         {
+            // The upper two bits encode the number of bytes needed to store
+            // the length. Ensure that the type does not interfere.
             assert((type & ~0x3f) == 0);
 
             if (length < 0x00000100)
@@ -138,6 +173,16 @@ class Segment {
         getLengthBytes() const
         {
             return downCast<uint8_t>((lengthBytesAndType >> 6) + 1);
+        }
+
+        /**
+         * Returns true if other EntryHeader structures are equal, else false.
+         * Exists primarily for unit tests.
+         */
+        bool
+        operator==(const EntryHeader& other) const
+        {
+            return other.lengthBytesAndType == lengthBytesAndType;
         }
     } __attribute__((__packed__));
     static_assert(sizeof(EntryHeader) == 1,
@@ -196,9 +241,11 @@ class Segment {
         /// much of a segment should be iterated over for SegmentIterator.
         uint32_t segmentLength;
 
-        /// Checksum covering all metadata in the segment, including fields
+        /// Checksum covering all metadata in the segment: EntryHeaders and
+        /// their corresponding variably-sized length fields, as well as fields
         /// above in this struct.
         Crc32C::ResultType checksum;
+
         friend class Segment;
         friend class SegmentIterator;
     } __attribute__((__packed__));
@@ -218,13 +265,12 @@ class Segment {
                 Buffer& buffer,
                 uint32_t* outOffset = NULL);
     void close();
-    uint32_t appendToBuffer(Buffer& buffer,
-                            uint32_t offset,
-                            uint32_t length) const;
+    void appendToBuffer(Buffer& buffer,
+                        uint32_t offset,
+                        uint32_t length) const;
     uint32_t appendToBuffer(Buffer& buffer);
     LogEntryType getEntry(uint32_t offset, Buffer& buffer);
-    uint32_t getAppendedLength() const;
-    uint32_t getAppendedLength(Certificate& certificate) const;
+    uint32_t getAppendedLength(Certificate* certificate = NULL) const;
     uint32_t getSegletsAllocated();
     uint32_t getSegletsInUse();
     bool freeUnusedSeglets(uint32_t count);
@@ -273,7 +319,7 @@ class Segment {
     }
 
   PRIVATE:
-    const EntryHeader* getEntryHeader(uint32_t offset);
+    EntryHeader getEntryHeader(uint32_t offset);
     uint32_t copyIn(uint32_t offset, const void* buffer, uint32_t length);
     uint32_t copyInFromBuffer(uint32_t segmentOffset,
                               Buffer& buffer,

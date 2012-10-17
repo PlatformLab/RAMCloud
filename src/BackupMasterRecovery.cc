@@ -336,7 +336,7 @@ BackupMasterRecovery::getRecoverySegment(uint64_t recoveryId,
     if (buffer)
         replica->recoverySegments[partitionId].appendToBuffer(*buffer);
     if (certificate)
-        replica->recoverySegments[partitionId].getAppendedLength(*certificate);
+        replica->recoverySegments[partitionId].getAppendedLength(certificate);
 
     return STATUS_OK;
 }

@@ -224,18 +224,20 @@ TEST_F(LogTest, getSegmentId) {
     buffer.append(data, sizeof(data));
     Log::Reference reference;
 
-    int zero = 0, one = 0, other = 0;
-    while (l.head == NULL || l.head->id == 0) {
+    int zero = 0, one = 0, two = 0, other = 0;
+    while (l.head == NULL || l.head->id == 1) {
         EXPECT_TRUE(l.append(LOG_ENTRY_TYPE_OBJ, 0, buffer, &reference));
         switch (l.getSegmentId(reference)) {
             case 0: zero++; break;
             case 1: one++; break;
+            case 2: two++; break;
             default: other++; break;
         }
     }
 
-    EXPECT_EQ(130, zero);
-    EXPECT_EQ(1, one);
+    EXPECT_EQ(0, zero);
+    EXPECT_EQ(130, one);
+    EXPECT_EQ(1, two);
     EXPECT_EQ(0, other);
 }
 
@@ -252,17 +254,21 @@ TEST_F(LogTest, rollHeadOver) {
 }
 
 TEST_F(LogTest, segmentExists) {
-    EXPECT_TRUE(l.segmentExists(0));
-    EXPECT_FALSE(l.segmentExists(1));
+    EXPECT_FALSE(l.segmentExists(0));
+    EXPECT_TRUE(l.segmentExists(1));
+    EXPECT_FALSE(l.segmentExists(2));
+    EXPECT_FALSE(l.segmentExists(3));
 
     char data[1000];
-    while (l.head == NULL || l.head->id == 0)
+    while (l.head == NULL || l.head->id == 1)
         l.append(LOG_ENTRY_TYPE_OBJ, 0, data, sizeof(data));
     l.sync();
 
-    EXPECT_TRUE(l.segmentExists(0));
+
+    EXPECT_FALSE(l.segmentExists(0));
     EXPECT_TRUE(l.segmentExists(1));
-    EXPECT_FALSE(l.segmentExists(2));
+    EXPECT_TRUE(l.segmentExists(2));
+    EXPECT_FALSE(l.segmentExists(3));
 }
 
 TEST_F(LogTest, reference_constructors) {

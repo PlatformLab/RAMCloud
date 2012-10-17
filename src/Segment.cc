@@ -137,8 +137,8 @@ Segment::hasSpaceFor(uint32_t* entryLengths, uint32_t numEntries)
 }
 
 /**
- * Append a typed entry to this segment. Entries are binary blobs described by
- * a simple <type, length> tuple.
+ * Append a typed entry to this segment. Entries are binary blobs. The segment
+ * records metadata identifying their type and length.
  *
  * \param type
  *      Type of the entry. See LogEntryTypes.h.
@@ -170,6 +170,9 @@ Segment::append(LogEntryType type,
     checksum.update(&entryHeader, sizeof(entryHeader));
     head += sizeof32(entryHeader);
 
+    // Note that this assumes a little-endian byte order. I think this is
+    // justified considering how widely we have assume byte order (if not
+    // x86 in particular).
     copyIn(head, &length, entryHeader.getLengthBytes());
     checksum.update(&length, entryHeader.getLengthBytes());
     head += entryHeader.getLengthBytes();
@@ -184,8 +187,8 @@ Segment::append(LogEntryType type,
 }
 
 /**
- * Append a typed entry to this segment. Entries are binary blobs described by
- * a simple <type, length> tuple.
+ * Append a typed entry to this segment. Entries are binary blobs. The segment
+ * records metadata identifying their type and length.
  *
  * \param type
  *      Type of the entry. See LogEntryTypes.h.
@@ -229,16 +232,15 @@ Segment::close()
  * \param offset
  *      Offset in the segment to begin appending from.
  * \param length
- *      Number of bytes in the segmet to append, starting from the offset.
- * \return
- *      The number of actual bytes appended to the buffer. If this was less
- *      than expected, the offset or length parameter was invalid.
+ *      Number of bytes in the segment to append, starting from the offset.
+ *      This value must not exceed the current end of the segment.
+ * \throw FatalError
+ *      A FatalError is thrown if #length bytes cannot be appended from #offset,
+ *      due to either or both of the parameters being invalid.
  */
-uint32_t
+void
 Segment::appendToBuffer(Buffer& buffer, uint32_t offset, uint32_t length) const
 {
-    uint32_t initialLength = length;
-
     while (length > 0) {
         const void* contigPointer = NULL;
         uint32_t contigBytes = std::min(length, peek(offset, &contigPointer));
@@ -251,25 +253,36 @@ Segment::appendToBuffer(Buffer& buffer, uint32_t offset, uint32_t length) const
         length -= contigBytes;
     }
 
-    return initialLength - length;
+    if (length != 0)
+        throw FatalError(HERE, "invalid length and/or offset parameter(s)");
 }
 
 /**
  * Append the entire contents of the segment to the provided buffer. This is
  * typically used when transferring a segment over the network.
+ *
+ * \param buffer
+ *      The buffer to append the entire segment's contents to.
+ * \return
+ *      The number of bytes appended to the buffer are returned (in other words,
+ *      the total length of the segment).
  */
 uint32_t
 Segment::appendToBuffer(Buffer& buffer)
 {
-    return appendToBuffer(buffer, 0, head);
+    appendToBuffer(buffer, 0, head);
+    return head;
 }
 
 /**
  * Get access to an entry stored in this segment after it has been appended.
+ * This the main method used to access entries that have been appended to a
+ * segment.
  *
  * \param offset
- *      Offset of the entry in the segment. This value is typically the result
- *      of an append call on this segment.
+ *      Offset of the entry in the segment. This value must be the result of a
+ *      previous append call on this segment. Behaviour is undefined when using
+ *      any other values.
  * \param buffer
  *      Buffer to append the entry to.
  * \return
@@ -278,37 +291,33 @@ Segment::appendToBuffer(Buffer& buffer)
 LogEntryType
 Segment::getEntry(uint32_t offset, Buffer& buffer)
 {
-    const EntryHeader* header = getEntryHeader(offset);
+    EntryHeader header = getEntryHeader(offset);
     uint32_t entryDataOffset = offset +
-                               sizeof32(*header) +
-                               header->getLengthBytes();
+                               sizeof32(header) +
+                               header.getLengthBytes();
 
     uint32_t entryDataLength = 0;
-    copyOut(offset + sizeof32(*header), &entryDataLength,
-        header->getLengthBytes());
+    copyOut(offset + sizeof32(header), &entryDataLength,
+        header.getLengthBytes());
 
     appendToBuffer(buffer, entryDataOffset, entryDataLength);
-    return header->getType();
+    return header.getType();
 }
 
 /**
- * Return the total number of bytes appended to the segment, but not including
- * the footer. Calling this method before and after an append will indicate
- * exactly how many bytes were consumed in storing the appended entry, including
- * metadata.
- */
-uint32_t
-Segment::getAppendedLength() const
-{
-    return head;
-}
-
-/**
- * Return the total number of bytes appended to the segment.
+ * Return the total number of bytes appended to the segment. Calling this method
+ * before and after an append will indicate exactly how many bytes were consumed
+ * in storing the appended entry, including metadata.
+ * 
  * A Certificate which can be used to validate the integrity of the segment's
- * metadata is passed back by value in the 'certificate' parameter. A separate
- * copy must be returned since the certificate will change on the next append
+ * metadata is optionally passed back by value in the 'certificate' parameter.
+ * A copy must be done since the certificate will change on the next append
  * operation.
+ *
+ * This method is mostly used by ReplicatedSegment to find our how much data
+ * needs to be replicated and to provide backups with a means of verifying the
+ * metadata integrity of segments and step their replicated version from one
+ * consistent snapshot of the segment to another as more entries are appended.
  *
  * \param[out] certificate
  *      The certificate entry will be copied out here.
@@ -316,13 +325,15 @@ Segment::getAppendedLength() const
  *      The total number of bytes appended to the segment.
  */
 uint32_t
-Segment::getAppendedLength(Certificate& certificate) const
+Segment::getAppendedLength(Certificate* certificate) const
 {
-    certificate.segmentLength = head;
-    Crc32C certificateChecksum = checksum;
-    certificateChecksum.update(
-        &certificate, sizeof(certificate) - sizeof(certificate.checksum));
-    certificate.checksum = certificateChecksum.getResult();
+    if (certificate != NULL) {
+        certificate->segmentLength = head;
+        Crc32C certificateChecksum = checksum;
+        certificateChecksum.update(
+            certificate, sizeof(*certificate) - sizeof(certificate->checksum));
+        certificate->checksum = certificateChecksum.getResult();
+    }
     return head;
 }
 
@@ -389,10 +400,11 @@ Segment::freeUnusedSeglets(uint32_t count)
  *
  * If the check passes, this segment may be safely iterated over in the most
  * trivial way. Further, with high probability the metadata is correct and the
- * appropriate data will be observed.
+ * proper entrys will be observed.
  *
- * Segments are not responsible for the integrity of the data they store, so
- * appended data that anyone cares about should include their own checksums.
+ * Segments are not responsible for the integrity of the contents of the entries
+ * they store. Entries should include their own internal checksums if this is a
+ * concern.
  *
  * \param certificate
  *      A Certificate which is used to check the integrity of the metadata
@@ -406,17 +418,16 @@ Segment::checkMetadataIntegrity(const Certificate& certificate)
     uint32_t offset = 0;
     Crc32C currentChecksum;
 
-    const EntryHeader* header = NULL;
     const void* unused = NULL;
     while (offset < certificate.segmentLength && peek(offset, &unused) > 0) {
-        header = getEntryHeader(offset);
-        currentChecksum.update(header, sizeof(*header));
+        EntryHeader header = getEntryHeader(offset);
+        currentChecksum.update(&header, sizeof(header));
 
         uint32_t length = 0;
-        copyOut(offset + sizeof32(*header), &length, header->getLengthBytes());
-        currentChecksum.update(&length, header->getLengthBytes());
+        copyOut(offset + sizeof32(header), &length, header.getLengthBytes());
+        currentChecksum.update(&length, header.getLengthBytes());
 
-        offset += (sizeof32(*header) + header->getLengthBytes() + length);
+        offset += (sizeof32(header) + header.getLengthBytes() + length);
         size_t segmentSize = segletBlocks.size() * segletSize;
         if (offset > segmentSize) {
             LOG(WARNING, "segment corrupt: entries run off past "
@@ -451,7 +462,7 @@ Segment::checkMetadataIntegrity(const Certificate& certificate)
  * \param offset
  *      Offset within the segment to begin copying from.
  * \param buffer
- *      Pointer to the buffer to copy data to.
+ *      Pointer to the buffer to copy the data to.
  * \param length
  *      Number of bytes to copy out of the segment.
  * \return
@@ -498,24 +509,25 @@ Segment::copyOut(uint32_t offset, void* buffer, uint32_t length) const
  ******************************************************************************/
 
 /**
- * Return a pointer to an EntryHeader structure within the segment at the given
+ * Return a copy of the EntryHeader structure within the segment at the given
  * offset. Since that structure is only one byte long, we need not worry about
  * it being spread across discontiguous seglets.
  *
  * \param offset
- *      Offset of the desired entry header. This is typically a value that was
- *      returned via an append call.
+ *      Offset of the desired entry header. This must be a value that was
+ *      returned via an append call. Behaviour is undefined when invalid offsets
+ *      are provided.
  * \return
- *      Pointer to the desired entry header, or NULL if the offset was invalid.
+ *      Copy of the desired entry header.
  */
-const Segment::EntryHeader*
+Segment::EntryHeader
 Segment::getEntryHeader(uint32_t offset)
 {
     static_assert(sizeof(EntryHeader) == 1,
                   "Contiguity in segments not guaranteed!");
     const EntryHeader* header;
     peek(offset, reinterpret_cast<const void**>(&header));
-    return header;
+    return *header;
 }
 
 /**
