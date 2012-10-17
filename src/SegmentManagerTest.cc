@@ -469,24 +469,26 @@ TEST_F(SegmentManagerTest, freeSlot) {
     EXPECT_EQ(62U, segmentManager.freeEmergencyHeadSlots[0]);
 }
 
-TEST_F(SegmentManagerTest, DISABLED_free) {
-    // TODO(stutsman): This test doesn't work because free() cannot be called
-    // on an open segment. Adding an extra allocHead should solve the problem,
-    // but I'm not sure how to adjust the remaining asserts to correct the test.
+TEST_F(SegmentManagerTest, free) {
     LogSegment* s = segmentManager.allocHead(false);
 
-    EXPECT_EQ(5U, segmentManager.freeSlots.size());
+    EXPECT_EQ(253U, segmentManager.freeSlots.size());
     EXPECT_TRUE(contains(segmentManager.idToSlotMap, s->id));
     EXPECT_EQ(1U, segmentManager.segmentsByState[SegmentManager::HEAD].size());
     EXPECT_EQ(1U, segmentManager.allSegments.size());
     EXPECT_TRUE(segmentManager.states[s->slot]);
     EXPECT_TRUE(segmentManager.segments[s->slot]);
 
+    // NULL out the ReplicatedSegment since RS::free() may not be called on
+    // an open segment. ReplicaManager tracks all RSes, so dropping our
+    // pointer is perfectly safe.
+    s->replicatedSegment = NULL;
+
     uint64_t id = s->id;
     SegmentSlot slot = s->slot;
 
     segmentManager.free(s);
-    EXPECT_EQ(6U, segmentManager.freeSlots.size());
+    EXPECT_EQ(254U, segmentManager.freeSlots.size());
     EXPECT_FALSE(contains(segmentManager.idToSlotMap, id));
     EXPECT_EQ(0U, segmentManager.segmentsByState[SegmentManager::HEAD].size());
     EXPECT_EQ(0U, segmentManager.allSegments.size());
