@@ -393,11 +393,6 @@ struct BackupWrite {
     } __attribute__((packed));
     struct Response {
         ResponseCommon common;
-        uint32_t numReplicas;     ///< Following this field, we append a list
-                                  ///< of uint64_t ServerId's, which represent
-                                  ///< the servers in the replication group.
-                                  ///< The list is only sent for an open
-                                  ///< segment.
     } __attribute__((packed));
 };
 

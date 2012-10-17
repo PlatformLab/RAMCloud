@@ -23,70 +23,6 @@
 namespace RAMCloud {
 
 /**
- * Assign a backup a replicationId and notify it of its replication group
- * members.
- *
- * \param context
- *      Overall information about this RAMCloud server.
- * \param backupId
- *      The id of a backup server.
- * \param replicationId
- *      A unique Id that specifies the replication group that the backup
- *      belongs to. All of the replicas of a given segment are replicated to
- *      the same replication group.
- * \param numReplicas
- *      The number of replicas for each segment. This is also the number of
- *      replicas in a given replication group.
- * \param replicationGroupIds
- *      The ServerId's of all the backups in the replication group.
- */
-void
-BackupClient::assignGroup(Context* context, ServerId backupId,
-        uint64_t replicationId, uint32_t numReplicas,
-        const ServerId* replicationGroupIds)
-{
-    AssignGroupRpc rpc(context, backupId, replicationId, numReplicas,
-            replicationGroupIds);
-    rpc.wait();
-}
-
-/**
- * Constructor for AssignGroupRpc: initiates an RPC in the same way as
- * #BackupClient::assignGroup, but returns once the RPC has been initiated,
- * without waiting for it to complete.
- *
- * \param context
- *      Overall information about this RAMCloud server.
- * \param backupId
- *      The id of a backup server.
- * \param replicationId
- *      A unique Id that specifies the replication group that the backup
- *      belongs to. All of the replicas of a given segment are replicated to
- *      the same replication group.
- * \param numReplicas
- *      The number of replicas for each segment. This is also the number of
- *      replicas in a given replication group.
- * \param replicationGroupIds
- *      The ServerId's of all the backups in the replication group.
- */
-AssignGroupRpc::AssignGroupRpc(Context* context, ServerId backupId,
-        uint64_t replicationId, uint32_t numReplicas,
-        const ServerId* replicationGroupIds)
-    : ServerIdRpcWrapper(context, backupId,
-            sizeof(WireFormat::BackupAssignGroup::Response))
-{
-    WireFormat::BackupAssignGroup::Request* reqHdr(
-            allocHeader<WireFormat::BackupAssignGroup>(backupId));
-    reqHdr->replicationId = replicationId;
-    reqHdr->numReplicas = numReplicas;
-    uint64_t* dest = new(&request, APPEND) uint64_t[numReplicas];
-    for (uint32_t i = 0; i < numReplicas; i++) {
-        dest[i] = replicationGroupIds[i].getId();
-    }
-    send();
-}
-
-/**
  * Notify a backup that it can reclaim the storage for a given segment.
  *
  * \param context
@@ -618,7 +554,7 @@ StartReadingDataRpc::Result::operator=(Result&& other)
  *      replicated to this group of backups).  The list includes
  *      the backup that handled this RPC.
  */
-vector<ServerId>
+void
 BackupClient::writeSegment(Context* context,
                            ServerId backupId,
                            ServerId masterId,
@@ -635,7 +571,7 @@ BackupClient::writeSegment(Context* context,
     WriteSegmentRpc rpc(context, backupId, masterId, segmentId, segmentEpoch,
                         segment, offset, length, certificate,
                         open, close, primary);
-    return rpc.wait();
+    rpc.wait();
 }
 
 /**
@@ -711,6 +647,7 @@ WriteSegmentRpc::WriteSegmentRpc(Context* context,
                                  bool primary)
     : ServerIdRpcWrapper(context, backupId,
                          sizeof(WireFormat::BackupWrite::Response))
+    , satUnreaped()
 {
     WireFormat::BackupWrite::Request* reqHdr(
             allocHeader<WireFormat::BackupWrite>(backupId));
@@ -735,31 +672,16 @@ WriteSegmentRpc::WriteSegmentRpc(Context* context,
 /**
  * Wait for a writeSegment RPC to complete.
  *
- * \return
- *      A vector describing the replication group for the backup
- *      that handled the RPC (secondary replicas will then be
- *      replicated to this group of backups).  The list includes
- *      the backup that handled this RPC.
- *
  * \throw ServerNotUpException
  *      The intended server for this RPC is not part of the cluster;
  *      if it ever existed, it has since crashed.
  */
-vector<ServerId>
+void
 WriteSegmentRpc::wait()
 {
+    // XXX
+    satUnreaped.destroy();
     waitAndCheckErrors();
-    const WireFormat::BackupWrite::Response* respHdr(
-            getResponseHeader<WireFormat::BackupWrite>());
-    vector<ServerId> group;
-    uint32_t respOffset = sizeof32(*respHdr);
-    for (uint32_t i = 0; i < respHdr->numReplicas; i++) {
-        const uint64_t *backupId =
-            response->getOffset<uint64_t>(respOffset);
-        group.push_back(ServerId(*backupId));
-        respOffset += sizeof32(*backupId);
-    }
-    return group;
 }
 
 } // namespace RAMCloud

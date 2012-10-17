@@ -49,8 +49,6 @@ BackupService::BackupService(Context* context,
     , readSpeed()
     , bytesWritten(0)
     , initCalled(false)
-    , replicationId(0)
-    , replicationGroup()
     , gcTracker(context, this)
     , gcThread()
     , testingDoNotStartGcThread(false)
@@ -176,10 +174,6 @@ BackupService::dispatch(WireFormat::Opcode opcode, Rpc& rpc)
     CycleCounter<RawMetric> serviceTicks(&metrics->backup.serviceTicks);
 
     switch (opcode) {
-        case WireFormat::BackupAssignGroup::opcode:
-            callHandler<WireFormat::BackupAssignGroup, BackupService,
-                        &BackupService::assignGroup>(rpc);
-            break;
         case WireFormat::BackupFree::opcode:
             callHandler<WireFormat::BackupFree, BackupService,
                         &BackupService::freeSegment>(rpc);
@@ -211,37 +205,6 @@ BackupService::dispatch(WireFormat::Opcode opcode, Rpc& rpc)
             break;
         default:
             throw UnimplementedRequestError(HERE);
-    }
-}
-
-/**
- * Assign a replication group to a backup, and notifies it of its peer group
- * members. The replication group serves as a set of backups that store all
- * the replicas of a segment.
- *
- * \param reqHdr
- *      Header of the Rpc request containing the replication group Ids.
- *
- * \param respHdr
- *      Header for the Rpc response.
- *
- * \param rpc
- *      The Rpc being serviced.
- */
-void
-BackupService::assignGroup(
-        const WireFormat::BackupAssignGroup::Request& reqHdr,
-        WireFormat::BackupAssignGroup::Response& respHdr,
-        Rpc& rpc)
-{
-    replicationId = reqHdr.replicationId;
-    uint32_t reqOffset = sizeof32(reqHdr);
-    replicationGroup.clear();
-    for (uint32_t i = 0; i < reqHdr.numReplicas; i++) {
-        const uint64_t *backupId =
-            rpc.requestPayload.getOffset<uint64_t>(reqOffset);
-        replicationGroup.push_back(ServerId(*backupId));
-        reqOffset += sizeof32(*backupId);
     }
 }
 
@@ -586,9 +549,6 @@ BackupService::writeSegment(const WireFormat::BackupWrite::Request& reqHdr,
     ServerId masterId(reqHdr.masterId);
     uint64_t segmentId = reqHdr.segmentId;
 
-    // The default value for numReplicas is 0.
-    respHdr.numReplicas = 0;
-
     auto frameIt = frames.find({masterId, segmentId});
     BackupStorage::FrameRef frame;
     if (frameIt != frames.end())
@@ -617,36 +577,19 @@ BackupService::writeSegment(const WireFormat::BackupWrite::Request& reqHdr,
     }
 
     // Perform open, if any.
-    if (reqHdr.open) {
-        if (reqHdr.primary) {
-            uint32_t numReplicas = downCast<uint32_t>(
-                replicationGroup.size());
-            // Respond with the replication group members.
-            respHdr.numReplicas = numReplicas;
-            if (numReplicas > 0) {
-                uint64_t* dest =
-                    new(&rpc.replyPayload, APPEND) uint64_t[numReplicas];
-                int i = 0;
-                foreach(ServerId id, replicationGroup) {
-                    dest[i] = id.getId();
-                    i++;
-                }
-            }
+    if (reqHdr.open && !frame) {
+        LOG(DEBUG, "Opening <%s,%lu>", masterId.toString().c_str(),
+            segmentId);
+        try {
+            frame = storage->open(config.backup.sync);
+        } catch (const BackupStorageException& e) {
+            LOG(NOTICE, "Master tried to open replica for <%s,%lu> but "
+                "there was a problem allocating storage space; "
+                "rejecting open request: %s", masterId.toString().c_str(),
+                segmentId, e.what());
+            throw BackupOpenRejectedException(HERE);
         }
-        if (!frame) {
-            LOG(DEBUG, "Opening <%s,%lu>", masterId.toString().c_str(),
-                segmentId);
-            try {
-                frame = storage->open(config.backup.sync);
-            } catch (const BackupStorageException& e) {
-                LOG(NOTICE, "Master tried to open replica for <%s,%lu> but "
-                    "there was a problem allocating storage space; "
-                    "rejecting open request: %s", masterId.toString().c_str(),
-                    segmentId, e.what());
-                throw BackupOpenRejectedException(HERE);
-            }
-            frames[MasterSegmentIdPair(masterId, segmentId)] = frame;
-        }
+        frames[MasterSegmentIdPair(masterId, segmentId)] = frame;
     }
 
     // Perform write.
