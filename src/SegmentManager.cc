@@ -87,7 +87,7 @@ SegmentManager::SegmentManager(Context* context,
     assert(maxSegments >= (allocator.getTotalCount() / segletsPerSegment));
 
     segments = new Tub<LogSegment>[maxSegments];
-    states = new Tub<State>[maxSegments];
+    states = new State[maxSegments];
 
     for (uint32_t i = 0; i < emergencyHeadSlotsReserved; i++)
         freeEmergencyHeadSlots.push_back(i);
@@ -278,16 +278,20 @@ SegmentManager::allocSurvivor(LogSegment* replacing)
 
 /**
  * This method is invoked by the log cleaner when it has finished a cleaning
- * pass. A list of cleaned segments is passed in. This class assumes that all
- * survivor segments allocated since the last call to this method were used
- * and will add them to the log.
+ * pass. A list of cleaned segments is passed in, as well as a list of new
+ * survivor segments that contain the cleaned segments' live entries. These
+ * new segments will be added to the log and the cleaned ones freed.
  *
  * \param clean
  *      List of segments that were cleaned and whose live objects, if any, have
  *      already been relocated to survivor segments.
+ * \param survivors
+ *      List of new survivor segments containing the live entries from the
+ *      cleaned segments.
  */
 void
-SegmentManager::cleaningComplete(LogSegmentVector& clean)
+SegmentManager::cleaningComplete(LogSegmentVector& clean,
+                                 LogSegmentVector& survivors)
 {
     Lock guard(lock);
 
@@ -297,11 +301,10 @@ SegmentManager::cleaningComplete(LogSegmentVector& clean)
     // New Segments we've added during cleaning need to wait
     // until the next head is written before they become part
     // of the Log.
-    SegmentList& cleaningInto = segmentsByState[CLEANING_INTO];
-    while (!cleaningInto.empty()) {
-        LogSegment& s = cleaningInto.front();
-        segletsUsed += s.getSegletsAllocated();
-        changeState(s, CLEANABLE_PENDING_DIGEST);
+    foreach (LogSegment* s, survivors) {
+        assert(states[s->slot] == CLEANING_INTO);
+        segletsUsed += s->getSegletsAllocated();
+        changeState(*s, CLEANABLE_PENDING_DIGEST);
     }
 
     // Increment the current epoch and save the last epoch any
@@ -325,27 +328,40 @@ SegmentManager::cleaningComplete(LogSegmentVector& clean)
     assert(segletsUsed <= segletsFreed);
 }
 
+/**
+ * This method is invoked by the log cleaner when it has finished compacting
+ * a single segment in memory. The old segment will be freed and the new
+ * version will take its place. The on-disk contents remain unchanged until a
+ * backup failure occurs that forces a copy of the new compacted segment to be
+ * replicated.
+ *
+ * \param oldSegment 
+ *      The segment that was compacted and will be superceded by newSegment.
+ * \param newSegment 
+ *      The compacted version of oldSegment. It contains all of the same live
+ *      data, but less dead data.
+ */
 void
-SegmentManager::memoryCleaningComplete(LogSegment* cleaned)
+SegmentManager::compactionComplete(LogSegment* oldSegment,
+                                   LogSegment* newSegment)
 {
     Lock guard(lock);
 
-    assert(segmentsByState[CLEANING_INTO].size() == 1);
-    LogSegment& survivor = segmentsByState[CLEANING_INTO].front();
-    changeState(survivor, NEWLY_CLEANABLE);
+    assert(states[newSegment->slot] == CLEANING_INTO);
+    changeState(*newSegment, NEWLY_CLEANABLE);
 
     uint64_t epoch = ServerRpcPool<>::incrementCurrentEpoch() - 1;
-    cleaned->cleanedEpoch = epoch;
-    changeState(*cleaned, FREEABLE_PENDING_REFERENCES);
+    oldSegment->cleanedEpoch = epoch;
+    changeState(*oldSegment, FREEABLE_PENDING_REFERENCES);
 
     // Update the previous version's ReplicatedSegment to use the new, compacted
     // segment in the event of a backup failure.
-    survivor.replicatedSegment = cleaned->replicatedSegment;
-    cleaned->replicatedSegment = NULL;
-    survivor.replicatedSegment->swapSegment(&survivor);
+    newSegment->replicatedSegment = oldSegment->replicatedSegment;
+    oldSegment->replicatedSegment = NULL;
+    newSegment->replicatedSegment->swapSegment(newSegment);
 
     LOG(DEBUG, "Compaction used %u seglets to free %u seglets",
-        survivor.getSegletsAllocated(), cleaned->getSegletsAllocated());
+        newSegment->getSegletsAllocated(), oldSegment->getSegletsAllocated());
 }
 
 /**
@@ -715,7 +731,7 @@ void
 SegmentManager::changeState(LogSegment& s, State newState)
 {
     removeFromLists(s);
-    *states[s.slot] = newState;
+    states[s.slot] = newState;
     addToLists(s);
 }
 
@@ -764,7 +780,7 @@ SegmentManager::alloc(SegletAllocator::AllocationType type,
                              segmentId,
                              slot,
                              (type == SegletAllocator::EMERGENCY_HEAD));
-    states[slot].construct(state);
+    states[slot] = state;
     idToSlotMap[segmentId] = slot;
 
     LogSegment& s = *segments[slot];
@@ -865,7 +881,7 @@ SegmentManager::free(LogSegment* s)
     }
 
     removeFromLists(*s);
-    states[slot].destroy();
+    states[slot] = INVALID_STATE;
     segments[slot].destroy();
 }
 
@@ -882,7 +898,7 @@ void
 SegmentManager::addToLists(LogSegment& s)
 {
     allSegments.push_back(s);
-    segmentsByState[*states[s.slot]].push_back(s);
+    segmentsByState[states[s.slot]].push_back(s);
 }
 
 /**
@@ -894,7 +910,7 @@ SegmentManager::addToLists(LogSegment& s)
 void
 SegmentManager::removeFromLists(LogSegment& s)
 {
-    State state = *states[s.slot];
+    State state = states[s.slot];
     segmentsByState[state].erase(
         segmentsByState[state].iterator_to(s));
     allSegments.erase(allSegments.iterator_to(s));

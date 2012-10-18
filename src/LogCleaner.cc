@@ -59,22 +59,31 @@ LogCleaner::LogCleaner(Context* context,
       writeCostThreshold(config.master.cleanerWriteCostThreshold),
       disableInMemoryCleaning(config.master.disableInMemoryCleaning),
       candidates(),
+      candidatesLock(),
       segletSize(config.segletSize),
       segmentSize(config.segmentSize),
       doWorkTicks(0),
       doWorkSleepTicks(0),
       inMemoryMetrics(),
       onDiskMetrics(),
-      threadShouldExit(false),
-      thread()
+      threadsShouldExit(false),
+      numThreads(1),
+      threads()
 {
-    if (!segmentManager.initializeSurvivorReserve(SURVIVOR_SEGMENTS_TO_RESERVE))
+    if (!segmentManager.initializeSurvivorReserve(numThreads *
+                                                  SURVIVOR_SEGMENTS_TO_RESERVE))
         throw FatalError(HERE, "Could not reserve survivor segments");
 
     if (writeCostThreshold == 0)
         disableInMemoryCleaning = true;
+
+    for (int i = 0; i < numThreads; i++)
+        threads.push_back(NULL);
 }
 
+/**
+ * Destroy the cleaner. Any running threads are stopped first.
+ */
 LogCleaner::~LogCleaner()
 {
     stop();
@@ -85,28 +94,41 @@ LogCleaner::~LogCleaner()
  * continually cleans if there's work to do until stop() is called.
  *
  * The cleaner will not do any work until explicitly enabled via this method.
+ *
+ * This method may be called any number of times, but it is not thread-safe.
+ * That is, do not call start() and stop() in parallel.
  */
 void
 LogCleaner::start()
 {
-    if (!thread)
-        thread.construct(cleanerThreadEntry, this, context);
+    for (int i = 0; i < numThreads; i++) {
+        if (threads[i] == NULL)
+            threads[i] = new std::thread(cleanerThreadEntry, this, context);
+    }
 }
 
 /**
  * Halt the cleaner thread (if it is running). Once halted, it will do no more
  * work until start() is called again.
+ *
+ * This method may be called any number of times, but it is not thread-safe.
+ * That is, do not call start() and stop() in parallel.
  */
 void
 LogCleaner::stop()
 {
-    if (thread) {
-        threadShouldExit = true;
-        Fence::sfence();
-        thread->join();
-        threadShouldExit = false;
-        thread.destroy();
+    threadsShouldExit = true;
+    Fence::sfence();
+
+    for (int i = 0; i < numThreads; i++) {
+        if (threads[i] != NULL) {
+            threads[i]->join();
+            delete threads[i];
+            threads[i] = NULL;
+        }
     }
+
+    threadsShouldExit = false;
 }
 
 /**
@@ -144,7 +166,7 @@ LogCleaner::cleanerThreadEntry(LogCleaner* logCleaner, Context* context)
 
     while (1) {
         Fence::lfence();
-        if (logCleaner->threadShouldExit)
+        if (logCleaner->threadsShouldExit)
             break;
 
         logCleaner->doWork();
@@ -165,7 +187,9 @@ LogCleaner::doWork()
     CycleCounter<uint64_t> _(&doWorkTicks);
 
     // Update our list of candidates.
+    candidatesLock.lock();
     segmentManager.cleanableSegments(candidates);
+    candidatesLock.unlock();
 
     // Perform memory and disk cleaning, if needed.
     bool mustCleanOnDisk = false;
@@ -239,7 +263,7 @@ LogCleaner::doMemoryCleaning()
     inMemoryMetrics.totalBytesAppendedToSurvivors +=
         survivor->getAppendedLength();
 
-    segmentManager.memoryCleaningComplete(segment);
+    segmentManager.compactionComplete(segment, survivor);
 
     return writeCost;
 }
@@ -255,13 +279,10 @@ LogCleaner::doDiskCleaning()
     TEST_LOG("called");
     CycleCounter<uint64_t> _(&onDiskMetrics.totalTicks);
 
-    uint32_t segletsBefore, segletsAfter;
-    uint32_t segmentsBefore, segmentsAfter;
-
     // Obtain the segments we'll clean in this pass. We're guaranteed to have
     // the resources to clean what's returned.
     LogSegmentVector segmentsToClean;
-    getSegmentsToClean(segmentsToClean, segletsBefore);
+    getSegmentsToClean(segmentsToClean);
 
     if (segmentsToClean.size() == 0)
         return;
@@ -272,12 +293,23 @@ LogCleaner::doDiskCleaning()
     getSortedEntries(segmentsToClean, liveEntries);
 
     uint32_t maxLiveBytes = 0;
-    foreach (LogSegment* segment, segmentsToClean)
+    uint32_t segletsBefore = 0;
+    foreach (LogSegment* segment, segmentsToClean) {
         maxLiveBytes += segment->getLiveBytes();
+        segletsBefore += segment->getSegletsAllocated();
+    }
     uint64_t bytesBefore = onDiskMetrics.totalBytesAppendedToSurvivors;
 
     // Relocate the live entries to survivor segments.
-    relocateLiveEntries(liveEntries, segletsAfter, segmentsAfter);
+    LogSegmentVector survivors;
+    relocateLiveEntries(liveEntries, survivors);
+
+    uint32_t segmentsAfter = downCast<uint32_t>(survivors.size());
+    uint32_t segletsAfter = 0;
+    foreach (LogSegment* segment, survivors)
+        segletsAfter += segment->getSegletsAllocated();
+
+    TEST_LOG("used %u seglets and %u segments", segletsAfter, segmentsAfter);
 
     // If this doesn't hold, then our statistics are wrong. Perhaps
     // MasterService is probably issuing a log->free(), but is
@@ -285,7 +317,7 @@ LogCleaner::doDiskCleaning()
     assert((onDiskMetrics.totalBytesAppendedToSurvivors - bytesBefore)
         <= maxLiveBytes);
 
-    segmentsBefore = downCast<uint32_t>(segmentsToClean.size());
+    uint32_t segmentsBefore = downCast<uint32_t>(segmentsToClean.size());
     assert(segletsBefore >= segletsAfter);
     assert(segmentsBefore >= segmentsAfter);
 
@@ -295,7 +327,7 @@ LogCleaner::doDiskCleaning()
         (segmentsBefore - segmentsAfter) * segmentSize;
 
     CycleCounter<uint64_t> __(&onDiskMetrics.cleaningCompleteTicks);
-    segmentManager.cleaningComplete(segmentsToClean);
+    segmentManager.cleaningComplete(segmentsToClean, survivors);
 }
 
 /**
@@ -315,6 +347,7 @@ LogSegment*
 LogCleaner::getSegmentToCompact(uint32_t& outFreeableSeglets)
 {
     CycleCounter<uint64_t> _(&inMemoryMetrics.getSegmentToCompactTicks);
+    Lock guard(candidatesLock);
 
     size_t bestIndex = -1;
     uint32_t bestDelta = 0;
@@ -361,18 +394,15 @@ LogCleaner::sortSegmentsByCostBenefit(LogSegmentVector& segments)
  *
  * \param[out] outSegmentsToClean
  *      Vector in which segments chosen for cleaning are returned.
- * \param[out] outTotalSeglets
- *      The total number of seglets allocated to the chosen segments is
- *      returned here.
  * \return
  *      Returns the total number of seglets allocated in the segments chosen for
  *      cleaning.
  */
 void
-LogCleaner::getSegmentsToClean(LogSegmentVector& outSegmentsToClean,
-                               uint32_t& outTotalSeglets)
+LogCleaner::getSegmentsToClean(LogSegmentVector& outSegmentsToClean)
 {
     CycleCounter<uint64_t> _(&onDiskMetrics.getSegmentsToCleanTicks);
+    Lock guard(candidatesLock);
 
     sortSegmentsByCostBenefit(candidates);
 
@@ -405,8 +435,6 @@ LogCleaner::getSegmentsToClean(LogSegmentVector& outSegmentsToClean,
         candidates[i] = candidates.back();
         candidates.pop_back();
     }
-
-    outTotalSeglets = totalSeglets;
 
     TEST_LOG("%lu segments selected with %u allocated segments",
         chosenIndices.size(), totalSeglets);
@@ -485,20 +513,13 @@ LogCleaner::getSortedEntries(LogSegmentVector& segmentsToClean,
  * \param liveEntries
  *      Vector the entries from segments being cleaned that may need to be
  *      relocated.
- * \param outNewSeglets
- *      The total number of seglets used to store survivor data is returned
- *      here.
- * \param outNewSegments
- *      The total number of new segments allocated for survivor data is returned
- *      here.
- * \return
- *      The number of seglets consumed in survivor segments while writing out
- *      the survivor data.
+ * \param outSurvivors
+ *      The new survivor segments created to hold the relocated live data are
+ *      returned here.
  */
 void
 LogCleaner::relocateLiveEntries(LiveEntryVector& liveEntries,
-                                uint32_t& outNewSeglets,
-                                uint32_t& outNewSegments)
+                                LogSegmentVector& outSurvivors)
 {
     CycleCounter<uint64_t> _(&onDiskMetrics.relocateLiveEntriesTicks);
 
@@ -506,7 +527,6 @@ LogCleaner::relocateLiveEntries(LiveEntryVector& liveEntries,
     waitForAvailableSurvivors(SURVIVOR_SEGMENTS_TO_RESERVE,
                               onDiskMetrics.waitForFreeSurvivorsTicks);
 
-    LogSegmentVector survivors;
     LogSegment* survivor = NULL;
 
     foreach (LiveEntry& entry, liveEntries) {
@@ -518,7 +538,7 @@ LogCleaner::relocateLiveEntries(LiveEntryVector& liveEntries,
                 closeSurvivor(survivor);
 
             survivor = segmentManager.allocSurvivor();
-            survivors.push_back(survivor);
+            outSurvivors.push_back(survivor);
 
             if (!relocateEntry(type, buffer, survivor, onDiskMetrics))
                 throw FatalError(HERE, "Entry didn't fit into empty survivor!");
@@ -528,22 +548,14 @@ LogCleaner::relocateLiveEntries(LiveEntryVector& liveEntries,
     if (survivor != NULL)
         closeSurvivor(survivor);
 
-    uint32_t survivorSegletsUsed = 0;
-    foreach (survivor, survivors) {
+    foreach (survivor, outSurvivors) {
         bool r = survivor->freeUnusedSeglets(survivor->getSegletsAllocated() -
                                              survivor->getSegletsInUse());
         assert(r);
-        survivorSegletsUsed += survivor->getSegletsAllocated();
 
         // Ensure the survivor has been synced to backups before proceeding.
         survivor->replicatedSegment->sync(survivor->getAppendedLength());
     }
-
-    outNewSeglets = survivorSegletsUsed;
-    outNewSegments = downCast<uint32_t>(survivors.size());
-
-    TEST_LOG("used %u seglets and %u segments",
-        outNewSeglets, outNewSegments);
 }
 
 /**

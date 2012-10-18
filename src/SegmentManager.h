@@ -92,8 +92,8 @@ class SegmentManager {
     SegletAllocator& getAllocator() const;
     LogSegment* allocHead(bool mustNotFail = false);
     LogSegment* allocSurvivor(LogSegment* replacing = NULL);
-    void cleaningComplete(LogSegmentVector& clean);
-    void memoryCleaningComplete(LogSegment* cleaned);
+    void cleaningComplete(LogSegmentVector& clean, LogSegmentVector& survivors);
+    void compactionComplete(LogSegment* oldSegment, LogSegment* newSegment);
     void cleanableSegments(LogSegmentVector& out);
     void logIteratorCreated();
     void logIteratorDestroyed();
@@ -177,7 +177,10 @@ class SegmentManager {
         FREEABLE_PENDING_REFERENCES,
 
         /// Not a state, but rather a count of the number of states.
-        TOTAL_STATES
+        TOTAL_STATES,
+
+        /// Also not a state. Indicates that a State variable is uninitialized.
+        INVALID_STATE = -1
     };
 
     INTRUSIVE_LIST_TYPEDEF(LogSegment, listEntries) SegmentList;
@@ -231,7 +234,9 @@ class SegmentManager {
     /// 'segments', there is a corresponding state in this array at the same
     /// index. The state is not kept within the LogSegment class because its
     /// private to this class. A pair<> would also suffice, but seems uglier.
-    Tub<State>* states;
+    /// For any index in segments that not containing a constructed LogSegment
+    /// the corresponding index in this array will have the value INVALID_STATE.
+    State* states;
 
     /// List of indices in 'segments' that are reserved for new emergency head
     /// segments.
