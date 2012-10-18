@@ -16,6 +16,10 @@
 #ifndef RAMCLOUD_CONTEXT_H
 #define RAMCLOUD_CONTEXT_H
 
+// TODO(ankitak): Figure out a way to include logcabin classes without
+// including here, using only forward declarations.
+#include <Client/Client.h>
+
 #include "Common.h"
 
 namespace RAMCloud {
@@ -25,7 +29,9 @@ class AbstractServerList;
 class CoordinatorServerList;
 class CoordinatorSession;
 class Dispatch;
+class LogCabinHelper;
 class Logger;
+class MasterRecoveryManager;
 class MockContextMember;
 class ServiceManager;
 class SessionAlarmTimer;
@@ -88,6 +94,33 @@ class Context {
     // manage cluster membership.  NULL except on coordinators.  Owned
     // elsewhere; not freed by this class.
     CoordinatorServerList* coordinatorServerList;
+
+    // Handles all master recovery details on behalf of the coordinator.
+    // NULL except on coordinators. Owned elsewhere;
+    // not freed by this class.
+    MasterRecoveryManager* recoveryManager;
+
+    // Handle to the log interface provided by LogCabin.
+    // NULL except on coordinators. Owned elsewhere;
+    // not freed by this class.
+    LogCabin::Client::Log* logCabinLog;
+
+    // Handle to a helper class that provides higher level abstractions
+    // to interact with LogCabin.
+    // NULL except on coordinators. Owned elsewhere;
+    // not freed by this class.
+    LogCabinHelper* logCabinHelper;
+
+    // EntryId of the last entry appended to log by an instance of
+    // coordinator. This is used for safe appends, i.e., appends that are
+    // conditional on last entry being appended by this entry, that helps
+    // ensure leadership.
+    // NULL except on coordinators. Owned elsewhere;
+    // not freed by this class.
+    // TODO(ankitak): This should not be here. I will have one per
+    // instance of coordinator, while if it is here, then it will
+    // be shared by all instances.
+    LogCabin::Client::EntryId* expectedEntryId;
 
   PRIVATE:
     void destroy();
