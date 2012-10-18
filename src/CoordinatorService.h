@@ -178,6 +178,14 @@ class CoordinatorService : public Service {
      */
     Tub<LogCabinHelper> logCabinHelper;
 
+    /**
+     * EntryId of the last entry appended to log by this instance of
+     * coordinator. This is used for safe appends, i.e., appends that are
+     * conditional on last entry being appended by this entry, that helps
+     * ensure leadership.
+     */
+    LogCabin::Client::EntryId expectedEntryId;
+
     friend class CoordinatorServerManager;
     friend class CoordinatorServiceRecovery;
 

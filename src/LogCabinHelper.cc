@@ -22,14 +22,13 @@ namespace RAMCloud {
  * The "message" is serialized to get data for this entry, and it atomically
  * removes the entries indicated in "invalidates".
  *
+ * \param expectedEntryId
+ *      Makes the operation conditional on this being the ID assigned to
+ *      this log entry.
  * \param message
  *      The ProtoBuf message to be serialized and appended to log.
  * \param invalidates
  *      A list of previous entries to be removed as part of this operation.
- * \param expectedId
- *      Makes the operation conditional on this being the ID assigned to
- *      this log entry. For example, 0 would indicate the log must be empty
- *      for the operation to succeed. Use NO_ID to unconditionally append.
  * \return
  *      The created entry ID, or NO_ID if the condition given by expectedId
  *      failed.
@@ -38,16 +37,53 @@ namespace RAMCloud {
  */
 EntryId
 LogCabinHelper::appendProtoBuf(
+    EntryId& expectedEntryId,
     const google::protobuf::Message& message,
-    const vector<EntryId>& invalidates, EntryId expectedId)
+    const vector<EntryId>& invalidates)
 {
     string data;
     message.SerializeToString(&data);
-
     Entry stateEntry(data.c_str(),
                      uint32_t(data.length() + 1),
                      invalidates);
-    EntryId entryId = logCabinLog.append(stateEntry, expectedId);
+
+    EntryId entryId = logCabinLog.append(stateEntry, expectedEntryId);
+
+    // If the write succeeded, then increment the expectedEntryId.
+    if (entryId != NO_ID)
+        expectedEntryId++;
+
+    return entryId;
+}
+
+/**
+ * Invalidate entries in the log.
+ * This is just a convenient short-cut to appending an Entry, for appends
+ * with no data.
+ * \param expectedEntryId
+ *      Makes the operation conditional on this being the ID assigned to
+ *      this log entry. For example, 0 would indicate the log must be empty
+ *      for the operation to succeed. Use NO_ID to unconditionally append.
+ * \param invalidates
+ *      A list of previous entries to be removed as part of this operation.
+ * \return
+ *      The created entry ID, or NO_ID if the condition given by expectedId
+ *      failed. There's no need to invalidate this returned ID. It is the
+ *      new head of the log, so one plus this should be passed in future
+ *      conditions as the expectedId argument.
+ * \throw LogDisappearedException
+ *      If this log no longer exists because someone deleted it.
+ */
+EntryId
+LogCabinHelper::invalidate(
+    EntryId& expectedEntryId,
+    const vector<EntryId>& invalidates)
+{
+    EntryId entryId = logCabinLog.invalidate(invalidates, expectedEntryId);
+
+    // If the write succeeded, then increment the expectedEntryId.
+    if (entryId != NO_ID)
+        expectedEntryId++;
 
     return entryId;
 }

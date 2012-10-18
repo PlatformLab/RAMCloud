@@ -302,7 +302,8 @@ TEST_F(CoordinatorServerManagerTest, enlistServerRecover) {
     state.set_read_speed(0);
     state.set_service_locator("mock:host=backup");
 
-    EntryId entryId = logCabinHelper->appendProtoBuf(state);
+    EntryId entryId = logCabinHelper->appendProtoBuf(
+                serverManager->service.expectedEntryId, state);
 
     TestLog::Enable _(enlistServerFilter);
 
@@ -350,7 +351,8 @@ TEST_F(CoordinatorServerManagerTest, enlistedServerRecover) {
     state.set_read_speed(0);
     state.set_service_locator("mock:host=backup");
 
-    EntryId entryId = logCabinHelper->appendProtoBuf(state);
+    EntryId entryId = logCabinHelper->appendProtoBuf(
+            serverManager->service.expectedEntryId, state);
 
     TestLog::Enable _(enlistServerFilter);
 
@@ -473,7 +475,8 @@ TEST_F(CoordinatorServerManagerTest, serverDownRecover) {
     state.set_entry_type("StateServerDown");
     state.set_server_id(masterServerId.getId());
 
-    EntryId entryId = logCabinHelper->appendProtoBuf(state);
+    EntryId entryId = logCabinHelper->appendProtoBuf(
+            serverManager->service.expectedEntryId, state);
 
     serverManager->serverDownRecover(&state, entryId);
 
@@ -506,7 +509,8 @@ TEST_F(CoordinatorServerManagerTest, setMasterRecoveryInfoRecover) {
     serverUpdate.set_server_id(masterServerId.getId());
     serverUpdate.mutable_master_recovery_info()->set_min_open_segment_id(10);
     serverUpdate.mutable_master_recovery_info()->set_min_open_segment_epoch(1);
-    EntryId entryId = logCabinHelper->appendProtoBuf(serverUpdate);
+    EntryId entryId = logCabinHelper->appendProtoBuf(
+                serverManager->service.expectedEntryId, serverUpdate);
 
     serverManager->setMasterRecoveryInfoRecover(&serverUpdate, entryId);
 
