@@ -13,14 +13,19 @@
  * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "MultiRead.h"
+#include "MultiWrite.h"
+#include "RejectRules.h"
 #include "ShortMacros.h"
 
 namespace RAMCloud {
 
+// Default RejectRules to use if none are provided by the caller: rejects
+// nothing.
+static RejectRules defaultRejectRules;
+
 /**
- * Constructor for MultiRead objects: initiates one or more RPCs for a
- * multiRead operation, but returns once the RPCs have been initiated,
+ * Constructor for MultiWrite objects: initiates one or more RPCs for a
+ * multiWrite operation, but returns once the RPCs have been initiated,
  * without waiting for any of them to complete.
  *
  * \param ramcloud
@@ -31,18 +36,18 @@ namespace RAMCloud {
  * \param numRequests
  *      Number of elements in \c requests.
  */
-MultiRead::MultiRead(RamCloud* ramcloud, MultiReadObject* requests[],
-        uint32_t numRequests)
+MultiWrite::MultiWrite(RamCloud* ramcloud,
+                       MultiWriteObject* requests[],
+                       uint32_t numRequests)
     : ramcloud(ramcloud)
     , requests(requests)
     , numRequests(numRequests)
     , rpcs()
     , canceled(false)
 {
+    for (uint32_t i = 0; i < numRequests; i++)
+        requests[i]->status = STATUS_RETRY;
     startRpcs();
-    for (uint32_t i = 0; i < numRequests; i++) {
-        requests[i]->value->destroy();
-    }
 }
 
 /**
@@ -50,16 +55,13 @@ MultiRead::MultiRead(RamCloud* ramcloud, MultiReadObject* requests[],
  * method returns wait will throw RpcCanceledException if it is invoked.
  */
 void
-MultiRead::cancel()
+MultiWrite::cancel()
 {
-    for (uint32_t i = 0; i < MAX_RPCS; i++) {
-        rpcs[i].destroy();
-    }
     canceled = true;
 }
 
 /**
- * Check to see whether the multi-Read operation is complete.  If not,
+ * Check to see whether the multiWrite operation is complete.  If not,
  * start more RPCs if needed.
  *
  * \return
@@ -67,7 +69,7 @@ MultiRead::cancel()
  *      will not block.  False means that one or more RPCs are still underway.
  */
 bool
-MultiRead::isReady() {
+MultiWrite::isReady() {
     // See if any outstanding RPCs have completed (and if so, process their
     // results).
     uint32_t finished = 0;
@@ -103,28 +105,28 @@ MultiRead::isReady() {
  * from a previous call).
  *
  * \return
- *      True means there is no more work to do: the multiRead
+ *      True means there is no more work to do: the multiWrite
  *      is done.  False means there are RPCs outstanding.
  */
 bool
-MultiRead::startRpcs()
+MultiWrite::startRpcs()
 {
     // Each iteration through the following loop examines one of the
-    // objects we are supposed to read.  If we haven't already read it,
-    // add it to an outgoing RPC if possible.  We won't necessarily
-    // be able to read all of the objects in one shot, due to limitations
-    // on the number of objects we can read in one RPC and the number
-    // of outstanding RPCs we can have.
+    // objects we are supposed to write.  If we haven't already written it,
+    // add it to an outgoing RPC if possible.  We won't necessarily be able
+    // to write all of the objects in one shot, due to limitations on the
+    // number of objects we can fit in one RPC and the number of outstanding
+    // RPCs we can have.
     for (uint32_t i = 0; i < numRequests; i++) {
-        MultiReadObject& request = *requests[i];
-        if (*request.value) {
-            // This object has already been read successfully.
+        MultiWriteObject& request = *requests[i];
+        if (request.status == STATUS_OK) {
+            // This object has already been written successfully.
             continue;
         }
-        if (request.status != STATUS_OK) {
-            // We tried to read this object and failed (or the object is
-            // being requested in an active RPC (status UNDERWAY)). No
-            // need to try again.
+        if (request.status != STATUS_RETRY) {
+            // Either the object is being written in an active RPC or some
+            // serious error occurred such that we cannot retry (for example,
+            // the table doesn't exist).
             continue;
         }
         Transport::SessionRef session;
@@ -148,17 +150,32 @@ MultiRead::startRpcs()
                 rpc.construct(ramcloud, session);
             }
             if (rpc->session == session) {
+                // Ensure we don't pack more writes into a single request
+                // than the RPC system can properly service.
+                uint32_t lengthBefore = rpc->request.getTotalLength();
+
                 if ((rpc->reqHdr->count < PartRpc::MAX_OBJECTS_PER_RPC)
                         && (rpc->state == RpcWrapper::RpcState::NOT_STARTED)) {
                     // Add the current object to the list of those being
-                    // fetched by this RPC.
+                    // written by this RPC.
                     new(&rpc->request, APPEND)
-                            WireFormat::MultiRead::Request::Part(
-                            request.tableId, request.keyLength);
+                        WireFormat::MultiWrite::Request::Part(
+                            request.tableId, request.keyLength,
+                            request.valueLength,
+                            request.rejectRules ? *request.rejectRules :
+                                                  defaultRejectRules);
                     rpc->request.append(request.key, request.keyLength);
-                    rpc->requests[rpc->reqHdr->count] = &request;
-                    rpc->reqHdr->count++;
-                    request.status = UNDERWAY;
+                    rpc->request.append(request.value, request.valueLength);
+
+                    uint32_t lengthAfter = rpc->request.getTotalLength();
+                    if (lengthAfter <= maxRequestSize) {
+                        rpc->requests[rpc->reqHdr->count] = &request;
+                        rpc->reqHdr->count++;
+                        request.status = UNDERWAY;
+                    } else {
+                        // It didn't fit, so just back it out.
+                        rpc->request.truncateEnd(lengthAfter - lengthBefore);
+                    }
                 }
                 break;
             }
@@ -181,10 +198,10 @@ MultiRead::startRpcs()
 }
 
 /**
- * Wait for the multiRead operation to complete.
+ * Wait for the multiWrite operation to complete.
  */
 void
-MultiRead::wait()
+MultiWrite::wait()
 {
     // When invoked in RAMCloud servers there is a separate dispatch thread,
     // so we just busy-wait here. When invoked on RAMCloud clients we're in
@@ -210,26 +227,26 @@ MultiRead::wait()
  * \param session
  *      Session on which this RPC will eventually be sent.
  */
-MultiRead::PartRpc::PartRpc(RamCloud* ramcloud,
+MultiWrite::PartRpc::PartRpc(RamCloud* ramcloud,
         Transport::SessionRef session)
-    : RpcWrapper(sizeof(WireFormat::MultiRead::Response))
+    : RpcWrapper(sizeof(WireFormat::MultiWrite::Response))
     , ramcloud(ramcloud)
     , session(session)
     , requests()
-    , reqHdr(allocHeader<WireFormat::MultiRead>())
+    , reqHdr(allocHeader<WireFormat::MultiWrite>())
 {
     reqHdr->count = 0;
 }
 
 /**
  * This method is invoked when an RPC finishes; it copies result
- * information back to where the multiRead caller expects it, and
+ * information back to where the multiWrite caller expects it, and
  * handles certain error conditions.
  */
 void
-MultiRead::PartRpc::finish()
+MultiWrite::PartRpc::finish()
 {
-    bool messageLogged = false;
+    bool unknownTabletMessageLogged = false;
     assert(getState() != IN_PROGRESS);
 
     uint32_t i;
@@ -237,83 +254,71 @@ MultiRead::PartRpc::finish()
         // Transport error or canceled; just reset state so that all of
         // the objects will be retried.
         for (i = 0; i < reqHdr->count; i++) {
-            requests[i]->status = STATUS_OK;
+            requests[i]->status = STATUS_RETRY;
         }
     }
 
     // The following variable acts as a cursor in the response as
     // we scan through the results for each request.
-    uint32_t respOffset = sizeof32(WireFormat::MultiRead::Response);
+    uint32_t respOffset = sizeof32(WireFormat::MultiWrite::Response);
 
-    // Each iteration extracts one object from the response.  Be careful
-    // to handle situations where the response is too short.  This can
-    // happen legitimately if the server ran out of room in the response
-    // buffer.
+    // Each iteration extracts one object write's status from the response.
+    // Be careful to handle situations where the response is too short.
+    // This should not normally happen, since the server's response will be
+    // shorter than the request that initiated it.
     for (i = 0; i < reqHdr->count; i++) {
-        MultiReadObject& request = *requests[i];
-        const Status* status = response->getOffset<Status>(respOffset);
-        if (status == NULL) {
-            TEST_LOG("missing status");
+        MultiWriteObject& request = *requests[i];
+
+        const WireFormat::MultiWrite::Response::Part* part =
+            response->getOffset<
+                WireFormat::MultiWrite::Response::Part>(respOffset);
+        if (part == NULL) {
+            TEST_LOG("missing Response::Part");
             break;
         }
+        respOffset += sizeof32(*part);
 
-        request.status = *status;
-        respOffset += sizeof32(Status);
+        request.status = part->status;
+        request.version = part->version;
 
-        if (*status == STATUS_OK) {
-            const WireFormat::MultiRead::Response::Part* part =
-                response->getOffset<
-                    WireFormat::MultiRead::Response::Part>(respOffset);
-            if (part == NULL) {
-                TEST_LOG("missing Response::Part");
-                break;
+        if (part->status == STATUS_UNKNOWN_TABLET) {
+            // The object doesn't belong where we thought it would. Refresh
+            // our configuration cache and arrange for this object to be
+            // written again.
+            if (!unknownTabletMessageLogged) {
+                // (Only log one message per call to this method).
+                LOG(NOTICE, "Server %s doesn't store <%lu, %*s>; "
+                        "refreshing object map",
+                        session->getServiceLocator().c_str(),
+                        request.tableId, (request.keyLength > 100) ? 100 :
+                                request.keyLength,
+                        reinterpret_cast<const char*>(request.key));
+                unknownTabletMessageLogged = true;
             }
-            respOffset += sizeof32(*part);
-
-            if (response->getTotalLength() < respOffset + part->length) {
-                TEST_LOG("missing object data");
-                break;
-            }
-
-            request.value->construct();
-            void* data = new(request.value->get(), APPEND) char[part->length];
-            response->copy(respOffset, part->length, data);
-            request.version = part->version;
-            respOffset += part->length;
-        } else {
-            if (*status == STATUS_UNKNOWN_TABLET) {
-                // The object isn't where we thought it should be. Refresh our
-                // configuration cache and arrange for this object to be
-                // fetched again.
-                if (!messageLogged) {
-                    // (Only log one message per call to this method).
-                    LOG(NOTICE, "Server %s doesn't store <%lu, %*s>; "
-                            "refreshing object map",
-                            session->getServiceLocator().c_str(),
-                            request.tableId, (request.keyLength > 100) ? 100 :
-                                    request.keyLength,
-                            reinterpret_cast<const char*>(request.key));
-                    messageLogged = true;
-                }
-                ramcloud->objectFinder.flush();
-                request.status = STATUS_OK;
-            }
+            ramcloud->objectFinder.flush();
+            request.status = STATUS_RETRY;
+        }
+        if (part->status == STATUS_RETRY) {
+            // The server wants us to retry the operation (perhaps because it
+            // is low on memory for the moment and needs to clean the log).
+            TEST_LOG("server requested retry of write %d", i);
+            request.status = STATUS_RETRY;
         }
     }
 
     // When we get here, it's possible that we aborted part way through
     // because we hit the end of the buffer. For all objects we haven't
     // currently processed, reset their statuses to indicate that these
-    // objects need to be fetched again.
+    // objects need to be written again.
 
     for ( ; i < reqHdr->count; i++) {
-        requests[i]->status = STATUS_OK;
+        requests[i]->status = STATUS_RETRY;
     }
 }
 
 // See RpcWrapper for documentation.
 bool
-MultiRead::PartRpc::handleTransportError()
+MultiWrite::PartRpc::handleTransportError()
 {
     // There was a transport-level failure. Flush cached state related
     // to this session, and related to the object mappings.  The objects
@@ -329,7 +334,7 @@ MultiRead::PartRpc::handleTransportError()
 
 // See RpcWrapper for documentation
 void
-MultiRead::PartRpc::send()
+MultiWrite::PartRpc::send()
 {
     state = IN_PROGRESS;
     session->sendRequest(&request, response, this);

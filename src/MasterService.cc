@@ -187,6 +187,10 @@ MasterService::dispatch(WireFormat::Opcode opcode, Rpc& rpc)
             callHandler<WireFormat::MultiRead, MasterService,
                         &MasterService::multiRead>(rpc);
             break;
+        case WireFormat::MultiWrite::opcode:
+            callHandler<WireFormat::MultiWrite, MasterService,
+                        &MasterService::multiWrite>(rpc);
+            break;
         case WireFormat::PrepForMigration::opcode:
             callHandler<WireFormat::PrepForMigration, MasterService,
                         &MasterService::prepForMigration>(rpc);
@@ -432,7 +436,7 @@ MasterService::getServerStatistics(
 }
 
 /**
- * Top-level server method to handle the MULTIREAD request.
+ * Top-level server method to handle the MULTI_READ request.
  *
  * \param reqHdr
  *      Header from the incoming RPC request; contains the parameters
@@ -486,12 +490,10 @@ MasterService::multiRead(const WireFormat::MultiRead::Request& reqHdr,
         const WireFormat::MultiRead::Request::Part *currentReq =
             rpc.requestPayload.getOffset<WireFormat::MultiRead::Request::Part>(
             reqOffset);
-        reqOffset += downCast<uint32_t>(
-            sizeof(WireFormat::MultiRead::Request::Part));
-        const void* stringKey =
-            static_cast<const void*>(rpc.requestPayload.getRange(
-            reqOffset, currentReq->keyLength));
-        reqOffset += downCast<uint32_t>(currentReq->keyLength);
+        reqOffset += sizeof32(WireFormat::MultiRead::Request::Part);
+        const void* stringKey = rpc.requestPayload.getRange(
+            reqOffset, currentReq->keyLength);
+        reqOffset += currentReq->keyLength;
         Key key(currentReq->tableId, stringKey, currentReq->keyLength);
 
         Status* status = new(&rpc.replyPayload, APPEND) Status(STATUS_OK);
@@ -521,6 +523,81 @@ MasterService::multiRead(const WireFormat::MultiRead::Request& reqHdr,
         currentResp->length = object.getDataLength();
         object.appendDataToBuffer(rpc.replyPayload);
     }
+}
+
+/**
+ * Top-level server method to handle the MULTI_WRITE request.
+ *
+ * \param reqHdr
+ *      Header from the incoming RPC request. Lists the number of writes
+ *      contained in this request.
+ * \param[out] respHdr
+ *      Header for the response that will be returned to the client.
+ *      The caller has pre-allocated the right amount of space in the
+ *      response buffer for this type of request, and has zeroed out
+ *      its contents (so, for example, status is already zero).
+ * \param[out] rpc
+ *      Complete information about the remote procedure call.
+ *      It contains the the key and value for each object, as well as
+ *      RejectRules to support conditional writes.
+ */
+void
+MasterService::multiWrite(const WireFormat::MultiWrite::Request& reqHdr,
+                          WireFormat::MultiWrite::Response& respHdr,
+                          Rpc& rpc)
+{
+    uint32_t numRequests = reqHdr.count;
+    uint32_t reqOffset = sizeof32(reqHdr);
+
+    respHdr.count = numRequests;
+
+    // Each iteration extracts one request from the rpc, writes the object
+    // if possible, and appends a status and version to the response buffer.
+    for (uint32_t i = 0; i < numRequests; i++) {
+        const WireFormat::MultiWrite::Request::Part *currentReq =
+            rpc.requestPayload.getOffset<WireFormat::MultiWrite::Request::Part>(
+            reqOffset);
+
+        if (currentReq == NULL) {
+            respHdr.common.status = STATUS_REQUEST_FORMAT_ERROR;
+            break;
+        }
+
+        reqOffset += sizeof32(WireFormat::MultiWrite::Request::Part);
+        const void* stringKey = rpc.requestPayload.getRange(
+            reqOffset, currentReq->keyLength);
+        reqOffset += currentReq->keyLength;
+        const void* value = rpc.requestPayload.getRange(
+            reqOffset, currentReq->valueLength);
+        reqOffset += currentReq->valueLength;
+
+        if (stringKey == NULL || value == NULL) {
+            respHdr.common.status = STATUS_REQUEST_FORMAT_ERROR;
+            break;
+        }
+
+        Key key(currentReq->tableId, stringKey, currentReq->keyLength);
+        Buffer buffer;
+        buffer.append(value, currentReq->valueLength);
+
+        WireFormat::MultiWrite::Response::Part* currentResp =
+            new(&rpc.replyPayload, APPEND)
+                WireFormat::MultiWrite::Response::Part();
+
+        currentResp->status = storeObject(key,
+                                          &currentReq->rejectRules,
+                                          buffer,
+                                          &currentResp->version,
+                                          false);
+    }
+
+    // By design, our response will be shorter than the request. This ensures
+    // that the response can go back in a single RPC.
+    assert(rpc.replyPayload.getTotalLength() <= Transport::MAX_RPC_LEN);
+
+    // All of the individual writes were done asynchronously. Sync the objects
+    // now to propagate them in bulk to backups.
+    log->sync();
 }
 
 /**

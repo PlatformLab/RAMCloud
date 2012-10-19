@@ -127,6 +127,9 @@ class MasterService : public Service, LogEntryHandlers {
     void multiRead(const WireFormat::MultiRead::Request& reqHdr,
                    WireFormat::MultiRead::Response& respHdr,
                    Rpc& rpc);
+    void multiWrite(const WireFormat::MultiWrite::Request& reqHdr,
+                   WireFormat::MultiWrite::Response& respHdr,
+                   Rpc& rpc);
     void read(const WireFormat::Read::Request& reqHdr,
               WireFormat::Read::Response& respHdr,
               Rpc& rpc);

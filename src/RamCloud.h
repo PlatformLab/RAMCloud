@@ -28,6 +28,7 @@
 
 namespace RAMCloud {
 class MultiReadObject;
+class MultiWriteObject;
 
 /**
  * The RamCloud class provides the primary interface used by applications to
@@ -62,6 +63,7 @@ class RamCloud {
     void migrateTablet(uint64_t tableId, uint64_t firstKeyHash,
             uint64_t lastKeyHash, ServerId newOwnerMasterId);
     void multiRead(MultiReadObject* requests[], uint32_t numRequests);
+    void multiWrite(MultiWriteObject* requests[], uint32_t numRequests);
     void quiesce();
     void read(uint64_t tableId, const void* key, uint16_t keyLength,
             Buffer* value, const RejectRules* rejectRules = NULL,
@@ -155,7 +157,7 @@ struct MultiReadObject {
     Tub<Buffer>* value;
 
     /**
-     * The version number of the object is returned here
+     * The version number of the object is returned here.
      */
     uint64_t version;
 
@@ -181,6 +183,84 @@ struct MultiReadObject {
         , key()
         , keyLength()
         , value()
+        , version()
+        , status()
+    {
+    }
+};
+
+/**
+ * Objects of this class are used to pass parameters into \c multiWrite
+ * and for multiWrite to return status values for conditional operations
+ * (if used).
+ */
+struct MultiWriteObject {
+    /**
+     * The table to write the object to (return value from a previous call
+     * to getTableId).
+     */
+    uint64_t tableId;
+
+    /**
+     * Variable length key that will uniquely identify the new object within
+     * the table. It does not necessarily have to be null terminated like a
+     * string. The caller is responsible for ensuring that this key remains
+     * valid until the call is reaped/canceled.
+     */
+    const void* key;
+
+    /**
+     * Length of key, in bytes.
+     */
+    uint16_t keyLength;
+
+    /**
+     * Pointer to the contents of the new object.
+     */
+    const void* value;
+
+    /**
+     * Length of value in bytes.
+     */
+    uint32_t valueLength;
+
+    /**
+     * The RejectRules specify when conditional writes should be aborted.
+     */
+    const RejectRules* rejectRules;
+
+    /**
+     * The version number of the newly written object is returned here.
+     */
+    uint64_t version;
+
+    /**
+     * The status of write (either that the write succeeded, or the
+     * error in case it didn't) is returned here.
+     */
+    Status status;
+
+    MultiWriteObject(uint64_t tableId, const void* key, uint16_t keyLength,
+                     const void* value, uint32_t valueLength,
+                     const RejectRules* rejectRules = NULL)
+        : tableId(tableId)
+        , key(key)
+        , keyLength(keyLength)
+        , value(value)
+        , valueLength(valueLength)
+        , rejectRules(rejectRules)
+        , version()
+        , status()
+    {
+    }
+
+    MultiWriteObject()
+        : tableId()
+        , key()
+        , keyLength()
+        , value()
+        , valueLength()
+        , rejectRules()
         , version()
         , status()
     {

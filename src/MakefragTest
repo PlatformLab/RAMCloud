@@ -61,6 +61,7 @@ TESTS_SRCFILES := \
 		  src/MockDriver.cc \
 		  src/MockTransport.cc \
 		  src/MultiReadTest.cc \
+          src/MultiWriteTest.cc \
 		  src/ObjectFinderTest.cc \
 		  src/OptionParserTest.cc \
 		  src/ObjectPoolTest.cc \

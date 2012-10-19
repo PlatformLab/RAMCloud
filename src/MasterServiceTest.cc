@@ -24,6 +24,7 @@
 #include "MasterClient.h"
 #include "MasterService.h"
 #include "MultiRead.h"
+#include "MultiWrite.h"
 #include "RamCloud.h"
 #include "ReplicaManager.h"
 #include "SegmentManager.h"
@@ -550,6 +551,109 @@ TEST_F(MasterServiceTest, multiRead_noSuchObject) {
 
     EXPECT_STREQ("STATUS_OBJECT_DOESNT_EXIST",
                  statusToSymbol(request.status));
+}
+
+TEST_F(MasterServiceTest, multiWrite_basics) {
+    uint64_t tableId1 = ramcloud->createTable("table1");
+    ramcloud->write(tableId1, "1", 1, "originalVal", 12);
+    MultiWriteObject request1(tableId1, "0", 1, "firstVal", 8);
+    MultiWriteObject request2(tableId1, "1", 1, "secondVal", 9);
+    MultiWriteObject* requests[] = {&request1, &request2};
+    ramcloud->multiWrite(requests, 2);
+
+    EXPECT_STREQ("STATUS_OK", statusToSymbol(request1.status));
+    EXPECT_EQ(2U, request1.version);
+    EXPECT_STREQ("STATUS_OK", statusToSymbol(request2.status));
+    EXPECT_EQ(2U, request2.version);
+
+    Buffer value;
+    uint64_t version;
+
+    ramcloud->read(tableId1, "0", 1, &value, NULL, &version);
+    EXPECT_EQ("firstVal", TestUtil::toString(&value));
+    EXPECT_EQ(2U, request1.version);
+    ramcloud->read(tableId1, "1", 1, &value, NULL, &version);
+    EXPECT_EQ("secondVal", TestUtil::toString(&value));
+    EXPECT_EQ(2U, request2.version);
+}
+
+TEST_F(MasterServiceTest, multiWrite_rejectRules) {
+    RejectRules rules;
+    memset(&rules, 0, sizeof(rules));
+    rules.doesntExist = true;
+    MultiWriteObject request(0, "key0", 4, "item0", 5, &rules);
+    MultiWriteObject* requests[] = {&request};
+    ramcloud->multiWrite(requests, 1);
+    EXPECT_EQ(STATUS_OBJECT_DOESNT_EXIST, request.status);
+    EXPECT_EQ(VERSION_NONEXISTENT, request.version);
+}
+
+TEST_F(MasterServiceTest, multiWrite_unknownTable) {
+    // Table 99 will be directed to the server, but the server
+    // doesn't know about it.
+    MultiWriteObject request(99, "bogus", 5, "hi", 2);
+    MultiWriteObject* requests[] = {&request};
+    MultiWrite op(ramcloud.get(), requests, 1);
+
+    // Check the status in the response message.
+    Transport::SessionRef session =
+            ramcloud->clientContext->transportManager->getSession(
+            "mock:host=master");
+    BindTransport::BindSession* rawSession =
+            static_cast<BindTransport::BindSession*>(session.get());
+    const WireFormat::MultiWrite::Response::Part* part =
+            rawSession->lastResponse->getOffset<
+            WireFormat::MultiWrite::Response::Part>(
+            sizeof(WireFormat::MultiWrite::Response));
+    EXPECT_TRUE(part != NULL);
+    if (part != NULL) {
+        EXPECT_STREQ("STATUS_UNKNOWN_TABLET", statusToSymbol(part->status));
+    }
+}
+
+TEST_F(MasterServiceTest, multiWrite_malformedRequests) {
+    // Fabricate a valid-looking RPC, but make the key and value length
+    // fields not match what's in the buffer.
+    WireFormat::MultiWrite::Request reqHdr;
+    WireFormat::MultiWrite::Response respHdr;
+    WireFormat::MultiWrite::Request::Part part(0, 10, 10, RejectRules());
+
+    reqHdr.common.opcode = downCast<uint16_t>(WireFormat::MULTI_WRITE);
+    reqHdr.common.service = downCast<uint16_t>(WireFormat::MASTER_SERVICE);
+    reqHdr.count = 1;
+
+    Buffer requestPayload;
+    Buffer replyPayload;
+    requestPayload.append(&reqHdr, sizeof(reqHdr));
+    replyPayload.append(&respHdr, sizeof(respHdr));
+
+    Service::Rpc rpc(NULL, requestPayload, replyPayload);
+
+    // part field is bogus
+    requestPayload.append(&part, sizeof(part) - 1);
+    respHdr.common.status = STATUS_OK;
+    service->multiWrite(reqHdr, respHdr, rpc);
+    EXPECT_EQ(STATUS_REQUEST_FORMAT_ERROR, respHdr.common.status);
+
+    requestPayload.truncateEnd(sizeof(part) - 1);
+    requestPayload.append(&part, sizeof(part));
+
+    // both key and value length fields are bogus.
+    respHdr.common.status = STATUS_OK;
+    service->multiWrite(reqHdr, respHdr, rpc);
+    EXPECT_EQ(STATUS_REQUEST_FORMAT_ERROR, respHdr.common.status);
+
+    // only the value length field is bogus.
+    requestPayload.append("tenchars!!", 10);
+    respHdr.common.status = STATUS_OK;
+    service->multiWrite(reqHdr, respHdr, rpc);
+    EXPECT_EQ(STATUS_REQUEST_FORMAT_ERROR, respHdr.common.status);
+
+    // sanity check: should work with 10 bytes of key and 10 of value
+    requestPayload.append("tenmorechars", 10);
+    respHdr.common.status = STATUS_OK;
+    service->multiWrite(reqHdr, respHdr, rpc);
+    EXPECT_EQ(STATUS_OK, respHdr.common.status);
 }
 
 TEST_F(MasterServiceTest, detectSegmentRecoveryFailure_success) {

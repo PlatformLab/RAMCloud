@@ -18,6 +18,7 @@
 #include "FailSession.h"
 #include "MasterClient.h"
 #include "MultiRead.h"
+#include "MultiWrite.h"
 #include "ProtoBuf.h"
 #include "ShortMacros.h"
 
@@ -919,6 +920,27 @@ void
 RamCloud::multiRead(MultiReadObject* requests[], uint32_t numRequests)
 {
     MultiRead request(this, requests, numRequests);
+    request.wait();
+}
+
+/**
+ * Write multiple objects. This method has two performance advantages over
+ * calling RamCloud::write separately for each object:
+ * - If multiple objects belong on a single server, this method
+ *   issues a single RPC to write all of them at once.
+ * - If different objects belong to different servers, this method
+ *   issues multiple RPCs concurrently.
+ *
+ * \param requests
+ *      Each element in this array describes one object to write. The write
+ *      operation's status and the object version are also returned here.
+ * \param numRequests
+ *      Number of valid entries in \c requests.
+ */
+void
+RamCloud::multiWrite(MultiWriteObject* requests[], uint32_t numRequests)
+{
+    MultiWrite request(this, requests, numRequests);
     request.wait();
 }
 
