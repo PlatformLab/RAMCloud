@@ -58,7 +58,7 @@ class RpcWrapper : public Transport::RpcNotifier {
             Buffer* response = NULL);
     virtual ~RpcWrapper();
 
-    void cancel(bool XXXreport = true);
+    void cancel();
     virtual void completed();
     virtual void failed();
     bool isReady();

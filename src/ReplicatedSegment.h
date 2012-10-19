@@ -223,9 +223,9 @@ class ReplicatedSegment : public Task {
 
         ~Replica() {
             if (writeRpc)
-                writeRpc->cancel(false);
+                writeRpc->cancel();
             if (freeRpc)
-                freeRpc->cancel(false);
+                freeRpc->cancel();
         }
 
         /**

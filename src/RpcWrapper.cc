@@ -56,7 +56,7 @@ RpcWrapper::RpcWrapper(uint32_t responseHeaderLength, Buffer* response)
   * canceled.
   */
 RpcWrapper::~RpcWrapper() {
-    cancel(false);
+    cancel();
 }
 
 /**
@@ -66,7 +66,7 @@ RpcWrapper::~RpcWrapper() {
  * RpcCanceledException if it is invoked.
  */
 void
-RpcWrapper::cancel(bool XXXreport)
+RpcWrapper::cancel()
 {
     // This code is potentially tricky, because complete or failed
     // could get invoked concurrently. Fortunately, we know that
@@ -76,8 +76,6 @@ RpcWrapper::cancel(bool XXXreport)
         session->cancelRequest(this);
     }
     state = CANCELED;
-if (XXXreport)
-  LOG(NOTICE, "!!!!!@@@!!!! RPC CANCELLED!\n");
 }
 
 /**
