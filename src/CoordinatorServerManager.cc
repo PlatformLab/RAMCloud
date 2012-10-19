@@ -118,7 +118,8 @@ CoordinatorServerManager::EnlistServer::execute()
     state.set_service_locator(string(serviceLocator));
 
     EntryId entryId =
-        manager.service.logCabinHelper->appendProtoBuf(state);
+        manager.service.logCabinHelper->appendProtoBuf(
+                manager.service.expectedEntryId, state);
     manager.service.serverList.addServerInfoLogId(newServerId, entryId);
     LOG(DEBUG, "LogCabin: ServerEnlisting entryId: %lu", entryId);
 
@@ -163,7 +164,7 @@ CoordinatorServerManager::EnlistServer::complete(EntryId entryId)
     state.set_service_locator(string(serviceLocator));
 
     EntryId newEntryId = manager.service.logCabinHelper->appendProtoBuf(
-        state, vector<EntryId>({entryId}));
+        manager.service.expectedEntryId, state, vector<EntryId>({entryId}));
     manager.service.serverList.addServerInfoLogId(newServerId, newEntryId);
     LOG(DEBUG, "LogCabin: ServerEnlisted entryId: %lu", newEntryId);
 
@@ -354,7 +355,9 @@ CoordinatorServerManager::ServerDown::execute()
     state.set_entry_type("StateServerDown");
     state.set_server_id(this->serverId.getId());
 
-    EntryId entryId = manager.service.logCabinHelper->appendProtoBuf(state);
+    EntryId entryId =
+        manager.service.logCabinHelper->appendProtoBuf(
+            manager.service.expectedEntryId, state);
     LOG(DEBUG, "LogCabin: StateServerDown entryId: %lu", entryId);
 
     complete(entryId);
@@ -403,7 +406,8 @@ CoordinatorServerManager::ServerDown::complete(EntryId entryId)
     if (serverUpdateLogId)
         invalidates.push_back(serverUpdateLogId);
 
-    manager.service.logCabinLog->invalidate(invalidates);
+    manager.service.logCabinHelper->invalidate(
+        manager.service.expectedEntryId, invalidates);
 }
 
 /**
@@ -451,7 +455,7 @@ CoordinatorServerManager::SetMasterRecoveryInfo::execute()
     ProtoBuf::ServerUpdate serverUpdate;
     vector<EntryId> invalidates;
 
-    if (oldEntryId) {
+    if (oldEntryId != 0) {
         // TODO(ankitak): After ongaro has added curser API to LogCabin,
         // use that to read in only one entry here.
         vector<Entry> entriesRead =
@@ -468,7 +472,7 @@ CoordinatorServerManager::SetMasterRecoveryInfo::execute()
 
     EntryId newEntryId =
         manager.service.logCabinHelper->appendProtoBuf(
-            serverUpdate, invalidates);
+            manager.service.expectedEntryId, serverUpdate, invalidates);
 
     complete(newEntryId);
 }

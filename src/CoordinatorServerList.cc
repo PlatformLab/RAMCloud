@@ -497,6 +497,9 @@ CoordinatorServerList::getServerUpdateLogId(ServerId serverId)
     return entry.serverUpdateLogId;
 }
 
+// TODO(ankitak): I'm not catching the errors that can be thrown
+// in the above 4 operations.
+
 // See docs on public version.
 // This version doesn't acquire locks and does not send out updates
 // since it is used internally.
@@ -1157,8 +1160,8 @@ CoordinatorServerList::Entry::Entry()
     , masterRecoveryInfo()
     , serverListVersion(0)
     , isBeingUpdated(0)
-    , serverInfoLogId()
-    , serverUpdateLogId()
+    , serverInfoLogId(0)
+    , serverUpdateLogId(0)
 {
 }
 
@@ -1188,8 +1191,8 @@ CoordinatorServerList::Entry::Entry(ServerId serverId,
     , masterRecoveryInfo()
     , serverListVersion(0)
     , isBeingUpdated(0)
-    , serverInfoLogId(LogCabin::Client::EntryId())
-    , serverUpdateLogId(LogCabin::Client::EntryId())
+    , serverInfoLogId(LogCabin::Client::EntryId(0))
+    , serverUpdateLogId(LogCabin::Client::EntryId(0))
 {
 }
 
