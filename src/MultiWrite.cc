@@ -57,6 +57,9 @@ MultiWrite::MultiWrite(RamCloud* ramcloud,
 void
 MultiWrite::cancel()
 {
+    for (uint32_t i = 0; i < MAX_RPCS; i++) {
+        rpcs[i].destroy();
+    }
     canceled = true;
 }
 
