@@ -1480,27 +1480,70 @@ MasterService::recover(uint64_t recoveryId,
                 if (!gotFirstGRD) {
                     metrics->master.replicationBytes =
                         0 - metrics->transport.transmit.byteCount;
+                    metrics->master.replicationTransmitCopyTicks =
+                        0 - metrics->transport.transmit.copyTicks;
+                    metrics->master.replicationTransmitActiveTicks =
+                        0 - metrics->transport.infiniband.transmitActiveTicks;
+                    metrics->master.replicationPostingWriteRpcTicks = 0;
+                    metrics->master.replayMemoryReadBytes = 0 -
+                        // tx
+                        (metrics->master.replicationBytes +
+                        // tx copy
+                         metrics->master.replicationBytes +
+                        // backup write copy
+                         metrics->backup.writeCopyBytes +
+                        // read from filtering objects
+                         metrics->backup.storageReadBytes +
+                        // log append copy
+                         metrics->master.liveObjectBytes);
+                    metrics->master.replayMemoryWrittenBytes = 0 -
+                        // tx copy
+                        (metrics->master.replicationBytes +
+                        // backup write copy
+                         metrics->backup.writeCopyBytes +
+                        // disk read into memory
+                         metrics->backup.storageReadBytes +
+                        // copy from filtering objects
+                         metrics->backup.storageReadBytes +
+                        // rx into memory
+                         metrics->transport.receive.byteCount +
+                        // log append copy
+                         metrics->master.liveObjectBytes);
                     gotFirstGRD = true;
                 }
-                LOG(DEBUG, "Got getRecoveryData response from %s, took %.1f us "
-                    "on channel %ld",
-                    context->serverList->toString(
-                        task->replica.backupId).c_str(),
-                    Cycles::toSeconds(grdTime)*1e06,
-                    &task - &tasks[0]);
+                if (LOG_RECOVERY_REPLICATION_RPC_TIMING) {
+                    LOG(DEBUG, "@%7lu: Got getRecoveryData response from %s, "
+                        "took %.1f us on channel %ld",
+                        Cycles::toMicroseconds(Cycles::rdtsc() -
+                            ReplicatedSegment::recoveryStart),
+                        context->serverList->toString(
+                            task->replica.backupId).c_str(),
+                        Cycles::toSeconds(grdTime)*1e06,
+                        &task - &tasks[0]);
+                }
 
                 uint32_t responseLen = task->response.getTotalLength();
                 metrics->master.segmentReadByteCount += responseLen;
-                LOG(DEBUG, "Recovering segment %lu with size %u",
-                    task->replica.segmentId, responseLen);
                 uint64_t startUseful = Cycles::rdtsc();
                 SegmentIterator it(task->response.getRange(0, responseLen),
                                    responseLen, certificate);
                 it.checkMetadataIntegrity();
+                if (LOG_RECOVERY_REPLICATION_RPC_TIMING) {
+                    LOG(DEBUG, "@%7lu: Replaying segment %lu with length %u",
+                        Cycles::toMicroseconds(Cycles::rdtsc() -
+                            ReplicatedSegment::recoveryStart),
+                        task->replica.segmentId, responseLen);
+                }
                 recoverSegment(it);
-                LOG(DEBUG, "Segment %lu replay complete",
-                    task->replica.segmentId);
                 usefulTime += Cycles::rdtsc() - startUseful;
+                TEST_LOG("Segment %lu replay complete",
+                         task->replica.segmentId);
+                if (LOG_RECOVERY_REPLICATION_RPC_TIMING) {
+                    LOG(DEBUG, "@%7lu: Replaying segment %lu done",
+                        Cycles::toMicroseconds(Cycles::rdtsc() -
+                            ReplicatedSegment::recoveryStart),
+                        task->replica.segmentId);
+                }
 
                 runningSet.erase(task->replica.segmentId);
                 // Mark this and any other entries for this segment as OK.
@@ -1583,12 +1626,43 @@ MasterService::recover(uint64_t recoveryId,
         LOG(NOTICE, "Syncing the log");
         metrics->master.logSyncBytes =
             0 - metrics->transport.transmit.byteCount;
+        metrics->master.logSyncTransmitCopyTicks =
+            0 - metrics->transport.transmit.copyTicks;
+        metrics->master.logSyncTransmitActiveTicks =
+            0 - metrics->transport.infiniband.transmitActiveTicks;
+        metrics->master.logSyncPostingWriteRpcTicks =
+            0 - metrics->master.replicationPostingWriteRpcTicks;
         log->sync();
         metrics->master.logSyncBytes += metrics->transport.transmit.byteCount;
+        metrics->master.logSyncTransmitCopyTicks +=
+            metrics->transport.transmit.copyTicks;
+        metrics->master.logSyncTransmitActiveTicks +=
+            metrics->transport.infiniband.transmitActiveTicks;
+        metrics->master.logSyncPostingWriteRpcTicks +=
+            metrics->master.replicationPostingWriteRpcTicks;
         LOG(NOTICE, "Syncing the log done");
     }
 
     metrics->master.replicationBytes += metrics->transport.transmit.byteCount;
+    metrics->master.replicationTransmitCopyTicks +=
+        metrics->transport.transmit.copyTicks;
+    // See the lines with "0 -" above to get the purpose of each of these
+    // fields in this metric.
+    metrics->master.replayMemoryReadBytes +=
+        (metrics->master.replicationBytes +
+         metrics->master.replicationBytes +
+         metrics->backup.writeCopyBytes +
+         metrics->backup.storageReadBytes +
+         metrics->master.liveObjectBytes);
+    metrics->master.replayMemoryWrittenBytes +=
+        (metrics->master.replicationBytes +
+         metrics->backup.writeCopyBytes +
+         metrics->backup.storageReadBytes +
+         metrics->transport.receive.byteCount +
+         metrics->backup.storageReadBytes +
+         metrics->master.liveObjectBytes);
+    metrics->master.replicationTransmitActiveTicks +=
+        metrics->transport.infiniband.transmitActiveTicks;
 
     double totalSecs = Cycles::toSeconds(Cycles::rdtsc() - start);
     double usefulSecs = Cycles::toSeconds(usefulTime);
@@ -1652,6 +1726,7 @@ MasterService::recover(const WireFormat::Recover::Request& reqHdr,
                        WireFormat::Recover::Response& respHdr,
                        Rpc& rpc)
 {
+    ReplicatedSegment::recoveryStart = Cycles::rdtsc();
     CycleCounter<RawMetric> recoveryTicks(&metrics->master.recoveryTicks);
     metrics->master.recoveryCount++;
     metrics->master.replicas = replicaManager.numReplicas;
@@ -1786,6 +1861,8 @@ void
 MasterService::recoverSegment(SegmentIterator& it)
 {
     uint64_t startReplicationTicks = metrics->master.replicaManagerTicks;
+    uint64_t startReplicationPostingWriteRpcTicks =
+        metrics->master.replicationPostingWriteRpcTicks;
     CycleCounter<RawMetric> _(&metrics->master.recoverSegmentTicks);
 
     uint64_t bytesIterated = 0;
@@ -1978,6 +2055,9 @@ MasterService::recoverSegment(SegmentIterator& it)
     }
     metrics->master.backupInRecoverTicks +=
         metrics->master.replicaManagerTicks - startReplicationTicks;
+    metrics->master.recoverSegmentPostingWriteRpcTicks +=
+        metrics->master.replicationPostingWriteRpcTicks -
+        startReplicationPostingWriteRpcTicks;
 }
 
 /**

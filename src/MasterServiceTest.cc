@@ -736,14 +736,10 @@ TEST_F(MasterServiceTest, recover_basics) {
         "recover: Waiting on recovery data for segment 87 from "
         "server 1.0 at mock:host=backup1 | "
         , TestLog::getUntil(
-            "recover: Got getRecoveryData response "
+            "recoverSegment: SAFEVERSION 23 recovered"
             , curPos, &curPos));
 
-    TestLog::getUntil("recover: Recovering segment 87 "
-                      , curPos, &curPos); // Proceed read pointer
-
     EXPECT_EQ(
-        "recover: Recovering segment 87 with size 56 | "
         "recoverSegment: SAFEVERSION 23 recovered | "
         "recoverSegment: SAFEVERSION 23 discarded | "
         "recoverSegment: SAFEVERSION 23 discarded | "

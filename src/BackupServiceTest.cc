@@ -75,16 +75,16 @@ class BackupServiceTest : public ::testing::Test {
                                    false, true, false);
     }
 
-    vector<ServerId>
+    void
     openSegment(ServerId masterId, uint64_t segmentId, bool primary = true)
     {
         Segment segment;
         Segment::Certificate certificate;
         uint32_t length = segment.getAppendedLength(&certificate);
-        return BackupClient::writeSegment(&context, backupId, masterId,
-                                          segmentId, 0, &segment, 0, length,
-                                          &certificate,
-                                          true, false, primary);
+        BackupClient::writeSegment(&context, backupId, masterId,
+                                   segmentId, 0, &segment, 0, length,
+                                   &certificate,
+                                   true, false, primary);
     }
 
     /**

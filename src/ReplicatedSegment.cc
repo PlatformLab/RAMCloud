@@ -20,6 +20,17 @@
 
 namespace RAMCloud {
 
+uint64_t ReplicatedSegment::recoveryStart = 0;
+
+/**
+ * Toggles ordering constraints on log replication operations. This must be
+ * enabled to ensure that replicas are be consistent in future recoveries and
+ * to ensure that recovery won't report data loss if none has occurred.
+ * Removing these contraints can be helpful for (replication performance)
+ * testing.
+ */
+enum { OBEY_SAFETY_CONSTRAINTS = true };
+
 // --- ReplicatedSegment ---
 
 /**
@@ -108,6 +119,11 @@ ReplicatedSegment::ReplicatedSegment(Context* context,
     , replicas(numReplicas)
 {
     openLen = segment->getAppendedLength(&openingWriteCertificate);
+    if (LOG_RECOVERY_REPLICATION_RPC_TIMING && recoveryStart) {
+        LOG(DEBUG, "@%7lu: Segment <%s,%lu> open queued",
+            Cycles::toMicroseconds(Cycles::rdtsc() - recoveryStart),
+            masterId.toString().c_str(), segmentId);
+    }
     queued.bytes = openLen;
     queuedCertificate = openingWriteCertificate;
     schedule(); // schedule to replicate the opening data
@@ -200,6 +216,11 @@ ReplicatedSegment::close()
     Lock _(dataMutex);
     TEST_LOG("%s, %lu, %lu", masterId.toString().c_str(), segmentId,
              followingSegment ? followingSegment->segmentId : 0);
+    if (LOG_RECOVERY_REPLICATION_RPC_TIMING && recoveryStart) {
+        LOG(DEBUG, "@%7lu: Segment <%s,%lu> close queued",
+            Cycles::toMicroseconds(Cycles::rdtsc() - recoveryStart),
+            masterId.toString().c_str(), segmentId);
+    }
 
     // immutable after close
     assert(!queued.close);
@@ -690,6 +711,14 @@ ReplicatedSegment::performWrite(Replica& replica)
             }
             replica.writeRpc.destroy();
             --writeRpcsInFlight;
+            if (LOG_RECOVERY_REPLICATION_RPC_TIMING && recoveryStart) {
+                LOG(DEBUG, "@%7lu: Replica <%s,%lu,%lu> write <- %7u "
+                    "%u rpcs out %s",
+                    Cycles::toMicroseconds(Cycles::rdtsc() - recoveryStart),
+                    masterId.toString().c_str(),
+                    segmentId, &replica - &replicas[0], replica.acked.bytes,
+                    writeRpcsInFlight, replica.committed.close ? " CLOSE" : "");
+            }
             if (replica.committed != queued || recoveringFromLostOpenReplicas)
                 schedule();
             return;
@@ -700,7 +729,7 @@ ReplicatedSegment::performWrite(Replica& replica)
         }
     } else {
         if (!replica.committed.open) {
-            if (!precedingSegmentOpenCommitted) {
+            if (OBEY_SAFETY_CONSTRAINTS && !precedingSegmentOpenCommitted) {
                 TEST_LOG("Cannot open segment %lu until preceding segment "
                          "is durably open", segmentId);
                 schedule();
@@ -726,6 +755,14 @@ ReplicatedSegment::performWrite(Replica& replica)
                                        segment, 0, openLen, certificateToSend,
                                        true, false, replicaIsPrimary(replica));
             ++writeRpcsInFlight;
+            if (LOG_RECOVERY_REPLICATION_RPC_TIMING && recoveryStart) {
+                LOG(DEBUG, "@%7lu: Replica <%s,%lu,%lu> write -> %7u+%7u "
+                    "%u rpcs out OPEN",
+                    Cycles::toMicroseconds(Cycles::rdtsc() - recoveryStart),
+                    masterId.toString().c_str(), segmentId,
+                    &replica - &replicas[0],
+                    0, openLen, writeRpcsInFlight);
+            }
             replica.sent.open = true;
             replica.sent.bytes = openLen;
             replica.sent.epoch = queued.epoch;
@@ -736,7 +773,7 @@ ReplicatedSegment::performWrite(Replica& replica)
         // No outstanding write but not yet synced.
         if (replica.sent < queued) {
             // Some part of the data hasn't been sent yet.  Send it.
-            if (!precedingSegmentCloseCommitted) {
+            if (OBEY_SAFETY_CONSTRAINTS && !precedingSegmentCloseCommitted) {
                 TEST_LOG("Cannot write segment %lu until preceding segment "
                          "is durably closed", segmentId);
                 // This segment must wait to send write rpcs until the
@@ -762,7 +799,8 @@ ReplicatedSegment::performWrite(Replica& replica)
             }
 
             bool sendClose = queued.close && (offset + length) == queued.bytes;
-            if (sendClose &&
+            if (OBEY_SAFETY_CONSTRAINTS &&
+                sendClose &&
                 followingSegment &&
                 !followingSegment->getCommitted().open) {
                 TEST_LOG("Cannot close segment %lu until following segment "
@@ -793,6 +831,14 @@ ReplicatedSegment::performWrite(Replica& replica)
                                        false, sendClose,
                                        replicaIsPrimary(replica));
             ++writeRpcsInFlight;
+            if (LOG_RECOVERY_REPLICATION_RPC_TIMING && recoveryStart) {
+                LOG(DEBUG, "@%7lu: Replica <%s,%lu,%lu> write -> %7u+%7u "
+                    "%u rpcs out %s",
+                    Cycles::toMicroseconds(Cycles::rdtsc() - recoveryStart),
+                    masterId.toString().c_str(), segmentId,
+                    &replica - &replicas[0], offset, length,
+                    writeRpcsInFlight, sendClose ? " CLOSE" : "");
+            }
             replica.sent.bytes += length;
             replica.sent.epoch = queued.epoch;
             replica.sent.close = sendClose;

@@ -239,7 +239,25 @@ master.metric('replicaRecoveries',
 master.metric('openReplicaRecoveries',
     'of replicaRecoveries how many were for replicas which were open')
 master.metric('replicationTasks',
-    'number of outstanding tasks in ReplicaManager')
+    'max number of outstanding tasks in ReplicaManager')
+master.metric('replicationTransmitCopyTicks',
+    'time spent copying outgoing rpcs in transport')
+master.metric('logSyncTransmitCopyTicks',
+    'time spent copying outgoing rpcs in transport just during log sync')
+master.metric('replayMemoryReadBytes',
+    'rough estimate of memory read during log replay')
+master.metric('replayMemoryWrittenBytes',
+    'rough estimate of memory written during log replay')
+master.metric('replicationTransmitActiveTicks',
+    'time transport tx was active during replication')
+master.metric('logSyncTransmitActiveTicks',
+    'time transport tx was active during log sync')
+master.metric('replicationPostingWriteRpcTicks',
+    'time spent during recovery starting write rpcs in transport')
+master.metric('recoverSegmentPostingWriteRpcTicks',
+    'time spent during recoverSegment starting write rpcs in transport')
+master.metric('logSyncPostingWriteRpcTicks',
+    'time spent during recovery final log sync starting write rpcs in transport')
 
 backup = Group('Backup', 'metrics for backups')
 backup.metric('recoveryCount',

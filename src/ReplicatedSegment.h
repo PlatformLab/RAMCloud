@@ -32,6 +32,18 @@
 namespace RAMCloud {
 
 /**
+ * Toggles human and machine readable log messages on the start and finish of
+ * every replication write rpc, the receipt of recovery segments, and the start
+ * and end of replay for each recovery segment. Log messages are stamped with
+ * the number of microseconds elapsed since the start of recovery. This can be
+ * used with scripts/extract-recovery-rpc-timeline.sh and
+ * recovery-rpc-timeline.gnuplot to generate a human readable log and a
+ * visualization of replication progress during recovery.
+ * NOTE: You must use DEBUG log level as well for this to work.
+ */
+enum { LOG_RECOVERY_REPLICATION_RPC_TIMING = false };
+
+/**
  * Acts as a handle for the log module to enqueue changes to its segments for
  * eventual replication and freeing; logically part of the BackupMananger.
  * The log module calls ReplicaManager::openSegment() to allocate and acquire
@@ -339,6 +351,15 @@ class ReplicatedSegment : public Task {
     void sync(uint32_t offset = ~0u, Segment::Certificate* certificate = NULL);
     const Segment* swapSegment(const Segment* newSegment);
 
+    /**
+     * Unsafe, but handy global used to generate time-since-start-of-recovery
+     * stamps for recovery replication debugging log messages. Simply holds
+     * the TSC at the start of recovery on this recovery master.
+     * Set in MasterService::recover(). See LOG_RECOVERY_REPLICATION_RPC_TIMING
+     * above.
+     */
+    static uint64_t recoveryStart;
+
   PRIVATE:
     friend class ReplicaManager;
 
@@ -346,7 +367,7 @@ class ReplicatedSegment : public Task {
      * Maximum number of simultaenously outstanding write rpcs to backups
      * to allow across all ReplicatedSegments.
      */
-    enum { MAX_WRITE_RPCS_IN_FLIGHT = 4 };
+    enum { MAX_WRITE_RPCS_IN_FLIGHT = 8 };
 
     ReplicatedSegment(Context* context,
                       TaskQueue& taskQueue,

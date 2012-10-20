@@ -737,10 +737,6 @@ InfRcTransport<Infiniband>::getTransmitBuffer()
 
     BufferDescriptor* bd = freeTxBuffers.back();
     freeTxBuffers.pop_back();
-
-    if (!transmitCycleCounter) {
-        transmitCycleCounter.construct();
-    }
     return bd;
 }
 
@@ -887,6 +883,9 @@ InfRcTransport<Infiniband>::ServerRpc::sendReply()
     }
     metrics->transport.transmit.iovecCount += replyPayload.getNumberChunks();
     metrics->transport.transmit.byteCount += replyPayload.getTotalLength();
+    if (!t->transmitCycleCounter) {
+        t->transmitCycleCounter.construct();
+    }
     t->infiniband->postSend(qp, bd, replyPayload.getTotalLength());
     replyPayload.truncateFront(sizeof(Header)); // for politeness
 }
@@ -968,6 +967,10 @@ InfRcTransport<Infiniband>::ClientRpc::tryZeroCopy(Buffer* request)
             metrics->transport.transmit.iovecCount +=
                 request->getNumberChunks();
             metrics->transport.transmit.byteCount += request->getTotalLength();
+            if (!t->transmitCycleCounter) {
+                t->transmitCycleCounter.construct();
+            }
+            CycleCounter<RawMetric> _(&metrics->transport.transmit.ticks);
             t->infiniband->postSendZeroCopy(session->qp, bd,
                 hdrBytes, it.getData(), it.getLength(), t->logMemoryRegion);
             return true;
@@ -993,7 +996,6 @@ InfRcTransport<Infiniband>::ClientRpc::sendOrQueue()
             t->clientRpcsActiveTime.construct(
                 &metrics->transport.clientRpcsActiveTicks);
         }
-        CycleCounter<RawMetric> _(&metrics->transport.transmit.ticks);
         ++metrics->transport.transmit.messageCount;
         ++metrics->transport.transmit.packetCount;
         new(request, PREPEND) Header(nonce);
@@ -1008,6 +1010,10 @@ InfRcTransport<Infiniband>::ClientRpc::sendOrQueue()
             metrics->transport.transmit.iovecCount +=
                 request->getNumberChunks();
             metrics->transport.transmit.byteCount += request->getTotalLength();
+            if (!t->transmitCycleCounter) {
+                t->transmitCycleCounter.construct();
+            }
+            CycleCounter<RawMetric> _(&metrics->transport.transmit.ticks);
             t->infiniband->postSend(session->qp, bd,
                                     request->getTotalLength());
         }

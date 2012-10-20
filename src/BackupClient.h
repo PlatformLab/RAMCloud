@@ -19,9 +19,7 @@
 #include <list>
 
 #include "Common.h"
-#include "CycleCounter.h" // XXX
 #include "ProtoBuf.h"
-#include "RawMetrics.h" // XXX
 #include "Segment.h"
 #include "ServerId.h"
 #include "ServerIdRpcWrapper.h"
@@ -213,20 +211,8 @@ class WriteSegmentRpc : public ServerIdRpcWrapper {
                     bool open, bool close, bool primary);
     ~WriteSegmentRpc() {}
     void wait();
-    // XXX
-    virtual void completed() {
-        satUnreaped.construct(&metrics->master.writeRpcSatUnreapedTicks);
-        ServerIdRpcWrapper::completed();
-    }
-    // XXX
-    virtual void failed() {
-        satUnreaped.construct(&metrics->master.writeRpcSatUnreapedTicks);
-        ServerIdRpcWrapper::failed();
-    }
 
   PRIVATE:
-    // XXX
-    Tub<CycleCounter<RawMetric>> satUnreaped;
     DISALLOW_COPY_AND_ASSIGN(WriteSegmentRpc);
 };
 

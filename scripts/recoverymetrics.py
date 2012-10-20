@@ -518,8 +518,9 @@ def makeReport(data):
         coord.transport.receive.ticks / coord.clockFrequency,
         total=recoveryTime)
 
-    masterSection = report.add(Section('Master Time'))
+    masterSection = report.add(Section('Recovery Master Time'))
 
+    recoveryMasterTime = sum([m.master.recoveryTicks / m.clockFrequency for m in masters]) / len(masters)
     def master_ticks(label, field):
         """This is a shortcut for adding to the masterSection a recorded number
         of ticks that are a fraction of the total recovery.
@@ -533,30 +534,19 @@ def makeReport(data):
         masterSection.ms(label,
                          on_masters(lambda m: eval('m.' + field) /
                                               m.clockFrequency),
-                         total=recoveryTime)
+                         total=recoveryMasterTime)
 
+    masterSection.ms('Total (versus end-to-end recovery time)',
+                     on_masters(lambda m: m.master.recoveryTicks /
+                                          m.clockFrequency),
+                     total=recoveryTime)
     master_ticks('Total',
                  'master.recoveryTicks')
     master_ticks('Waiting for incoming segments',
                  'master.segmentReadStallTicks')
     master_ticks('Inside recoverSegment',
                  'master.recoverSegmentTicks')
-    master_ticks('Backup.proceed',
-                 'master.backupInRecoverTicks')
-    master_ticks('Verify checksum',
-                 'master.verifyChecksumTicks')
-    master_ticks('Segment append',
-                 'master.segmentAppendTicks')
-    master_ticks('Segment append copy',
-                 'master.segmentAppendCopyTicks')
-    masterSection.ms('Other recoverSegment',
-                     on_masters(lambda m: (m.master.recoverSegmentTicks -
-                                           m.master.backupInRecoverTicks -
-                                           m.master.verifyChecksumTicks -
-                                           m.master.segmentAppendTicks) /
-                                          m.clockFrequency),
-                     total=recoveryTime)
-    master_ticks('Final log sync',
+    master_ticks('Final log sync time',
                  'master.logSyncTicks')
     master_ticks('Removing tombstones',
                  'master.removeTombstoneTicks')
@@ -569,55 +559,194 @@ def makeReport(data):
                                           m.clockFrequency),
                      total=recoveryTime)
 
-    master_ticks('Receiving in transport',
+    recoverSegmentTime = sum([m.master.recoverSegmentTicks / m.clockFrequency  for m in masters]) / len(masters)
+    recoverSegmentSection = report.add(Section('Recovery Master recoverSegment Time'))
+    def recoverSegment_ticks(label, field):
+        recoverSegmentSection.ms(label,
+                         on_masters(lambda m: eval('m.' + field) /
+                                              m.clockFrequency),
+                         total=recoverSegmentTime)
+    recoverSegmentSection.ms('Total (versus end-to-end recovery time)',
+                     on_masters(lambda m: m.master.recoverSegmentTicks /
+                                          m.clockFrequency),
+                     total=recoveryTime)
+    recoverSegment_ticks('Total',
+                 'master.recoverSegmentTicks')
+    recoverSegment_ticks('Managing replication',
+                 'master.backupInRecoverTicks')
+    recoverSegment_ticks('Verify checksum',
+                 'master.verifyChecksumTicks')
+    recoverSegment_ticks('Segment append',
+                 'master.segmentAppendTicks')
+    # No longer measured: could be useful in the future. Make sure to add it to Other if used again.
+    # recoverSegment_ticks('Segment append copy',
+    #              'master.segmentAppendCopyTicks')
+    recoverSegmentSection.ms('Other',
+                     on_masters(lambda m: (m.master.recoverSegmentTicks -
+                                           m.master.backupInRecoverTicks -
+                                           m.master.verifyChecksumTicks -
+                                           m.master.segmentAppendTicks) /
+                                          m.clockFrequency),
+                     total=recoverSegmentTime)
+
+    replicaManagerTime = sum([m.master.backupInRecoverTicks / m.clockFrequency  for m in masters]) / len(masters)
+    replicaManagerSection = report.add(Section('Recovery Master ReplicaManager Time during recoverSegment'))
+    def replicaManager_ticks(label, field):
+        replicaManagerSection.ms(label,
+                         on_masters(lambda m: eval('m.' + field) /
+                                              m.clockFrequency),
+                         total=replicaManagerTime)
+    replicaManagerSection.ms('Total (versus end-to-end recovery time)',
+                     on_masters(lambda m: m.master.backupInRecoverTicks /
+                                          m.clockFrequency),
+                     total=recoveryTime)
+    replicaManager_ticks('Total',
+                 'master.backupInRecoverTicks')
+    replicaManagerSection.ms('Posting write RPCs for TX to transport',
+                     on_masters(lambda m: (m.master.recoverSegmentPostingWriteRpcTicks) /
+                                          m.clockFrequency),
+                     total=replicaManagerTime)
+    replicaManagerSection.ms('Other',
+                     on_masters(lambda m: (m.master.backupInRecoverTicks -
+                                           m.master.recoverSegmentPostingWriteRpcTicks) /
+                                          m.clockFrequency),
+                     total=replicaManagerTime)
+
+    masterStatsSection = report.add(Section('Recovery Master Stats'))
+    def masterStats_ticks(label, field):
+        masterStatsSection.ms(label,
+                         on_masters(lambda m: eval('m.' + field) /
+                                              m.clockFrequency),
+                         total=recoveryTime)
+    masterStatsSection.line('Final log sync amount',
+        on_masters(lambda m: (m.master.logSyncBytes / 2**20)),
+        unit='MB',
+        summaryFns=[AVG, MIN, SUM])
+    masterStatsSection.line('Total replication amount',
+        on_masters(lambda m: (m.master.replicationBytes / 2**20)),
+        unit='MB',
+        summaryFns=[AVG, MIN, SUM])
+    masterStatsSection.line('Total replication during replay',
+        on_masters(lambda m: ((m.master.replicationBytes - m.master.logSyncBytes) / 2**20)),
+        unit='MB',
+        summaryFns=[AVG, MIN, SUM])
+
+    masterStats_ticks('Opening sessions',
+                 'transport.sessionOpenTicks')
+    masterStats_ticks('Receiving in transport',
                  'transport.receive.ticks')
-    master_ticks('Transmitting in transport',
+    masterStats_ticks('Transmitting in transport',
                  'transport.transmit.ticks')
 
-    master_ticks('Opening sessions',
-                 'transport.sessionOpenTicks')
+    masterStats_ticks('Client RPCs Active',
+                 'transport.clientRpcsActiveTicks')
+    masterStatsSection.ms('Average GRD completion time',
+        on_masters(lambda m: (m.master.segmentReadTicks /
+                              m.master.segmentReadCount /
+                              m.clockFrequency)))
+
     # There used to be a bunch of code here for analyzing the variance in
     # session open times. We don't open sessions during recovery anymore, so
     # I've deleted this code. Look in the git repo for mid-2011 if you want it
     # back. -Diego
 
-    masterSection.ms('Replicating each segment',
-        on_masters(lambda m: (
-            (m.master.replicationTicks / m.clockFrequency) /
-            math.ceil(m.master.replicationBytes / m.segmentSize) /
-            m.master.replicas)))
-    masterSection.ms('Replicating each segment during replay',
-        on_masters(lambda m: (
-            ((m.master.replicationTicks - m.master.logSyncTicks) /
-             m.clockFrequency) /
-            math.ceil((m.master.replicationBytes - m.master.logSyncBytes) /
-                      m.segmentSize) /
-            m.master.replicas)))
-    masterSection.ms('Replicating each segment during log sync',
-        on_masters(lambda m: (
-            (m.master.logSyncTicks / m.clockFrequency) /
-            math.ceil(m.master.logSyncBytes / m.segmentSize) /
-            m.master.replicas)))
-    masterSection.ms('RPC latency replicating each segment',
-        on_masters(lambda m: (
-            (m.master.backupCloseTicks + m.master.logSyncCloseTicks) /
-            m.clockFrequency /
-            (m.master.backupCloseCount + m.master.logSyncCloseCount))))
-    masterSection.ms('RPC latency replicating each segment during replay',
-        on_masters(lambda m: m.master.backupCloseTicks / m.clockFrequency /
-                             m.master.backupCloseCount))
-    masterSection.ms('RPC latency replicating each segment during log sync',
-        on_masters(lambda m: m.master.logSyncCloseTicks / m.clockFrequency /
-                             m.master.logSyncCloseCount))
+    masterStatsSection.line('Log replication rate',
+        on_masters(lambda m: (m.master.replicationBytes / m.master.replicas / 2**20 /
+                              (m.master.replicationTicks / m.clockFrequency))),
+        unit='MB/s',
+        summaryFns=[AVG, MIN, SUM])
+    masterStatsSection.line('Log replication rate during replay',
+        on_masters(lambda m: ((m.master.replicationBytes - m.master.logSyncBytes)
+                               / m.master.replicas / 2**20 /
+                              ((m.master.replicationTicks - m.master.logSyncTicks)/ m.clockFrequency))),
+        unit='MB/s',
+        summaryFns=[AVG, MIN, SUM])
+    masterStatsSection.line('Log replication rate during log sync',
+        on_masters(lambda m: (m.master.logSyncBytes / m.master.replicas / 2**20 /
+                              (m.master.logSyncTicks / m.clockFrequency))),
+        unit='MB/s',
+        summaryFns=[AVG, MIN, SUM])
 
-    master_ticks('Replication',
+    masterStats_ticks('Replication',
                  'master.replicationTicks')
-    master_ticks('Client RPCs Active',
-                 'transport.clientRpcsActiveTicks')
-    masterSection.ms('Average GRD completion time',
-        on_masters(lambda m: (m.master.segmentReadTicks /
-                              m.master.segmentReadCount /
-                              m.clockFrequency)))
+
+    masterStatsSection.ms('TX active',
+        on_masters(lambda m: (m.transport.infiniband.transmitActiveTicks /
+                              m.clockFrequency)),
+        total=recoveryTime)
+
+    replicationTime = sum([m.master.replicationTicks / m.clockFrequency for m in masters]) / float(len(masters))
+    logSyncTime = sum([m.master.logSyncTicks / m.clockFrequency for m in masters]) / float(len(masters))
+    replayTime = sum([(m.master.replicationTicks - m.master.logSyncTicks)/ m.clockFrequency for m in masters]) / float(len(masters))
+
+    masterStatsSection.ms('TX active during replication',
+        on_masters(lambda m: (m.master.replicationTransmitActiveTicks /
+                              m.clockFrequency)),
+        total=replicationTime)
+    masterStatsSection.ms('TX active during replay',
+        on_masters(lambda m: ((m.master.replicationTransmitActiveTicks - m.master.logSyncTransmitActiveTicks) /
+                              m.clockFrequency)),
+        total=replayTime)
+    masterStatsSection.ms('TX active during log sync',
+        on_masters(lambda m: (m.master.logSyncTransmitActiveTicks /
+                              m.clockFrequency)),
+        total=logSyncTime)
+
+    masterStatsSection.line('TX active rate during replication',
+        on_masters(lambda m: m.master.replicationBytes / 2**20 / (m.master.replicationTransmitActiveTicks /
+                              m.clockFrequency)),
+        unit='MB/s',
+        summaryFns=[AVG, MIN, SUM])
+    masterStatsSection.line('TX active rate during replay',
+        on_masters(lambda m: (m.master.replicationBytes - m.master.logSyncBytes) / 2**20 / ((m.master.replicationTransmitActiveTicks - m.master.logSyncTransmitActiveTicks) /
+                              m.clockFrequency)),
+        unit='MB/s',
+        summaryFns=[AVG, MIN, SUM])
+    masterStatsSection.line('TX active rate during log sync',
+        on_masters(lambda m: m.master.logSyncBytes / 2**20 / (m.master.logSyncTransmitActiveTicks /
+                              m.clockFrequency)),
+        unit='MB/s',
+        summaryFns=[AVG, MIN, SUM])
+
+    masterStats_ticks('Copying for TX during replication',
+                 'master.replicationTransmitCopyTicks')
+    masterStatsSection.ms('Copying for TX during replay',
+        on_masters(lambda m: (m.master.replicationTransmitCopyTicks -
+                              m.master.logSyncTransmitCopyTicks) / m.clockFrequency),
+        total=recoveryTime)
+    masterStats_ticks('Copying for TX during log sync',
+                 'master.logSyncTransmitCopyTicks')
+    masterStatsSection.line('Copying for tx during replication rate',
+        on_masters(lambda m: (m.master.replicationBytes / m.master.replicas / 2**20 /
+                              (m.master.replicationTransmitCopyTicks / m.clockFrequency))),
+        unit='MB/s',
+        summaryFns=[AVG, MIN, SUM])
+    masterStatsSection.line('Copying for TX during replay rate',
+        on_masters(lambda m: ((m.master.replicationBytes - m.master.logSyncBytes) / m.master.replicas / 2**20 /
+                              ((m.master.replicationTransmitCopyTicks - m.master.logSyncTransmitCopyTicks) / m.clockFrequency))),
+        unit='MB/s',
+        summaryFns=[AVG, MIN, SUM])
+    masterStatsSection.line('Copying for TX during log sync rate',
+        on_masters(lambda m: (m.master.logSyncBytes / m.master.replicas / 2**20 /
+                              (m.master.logSyncTransmitCopyTicks / m.clockFrequency))),
+        unit='MB/s',
+        summaryFns=[AVG, MIN, SUM])
+
+    masterStatsSection.line('Max active replication tasks',
+        on_masters(lambda m: m.master.replicationTasks),
+        unit='tasks',
+        summaryFns=[AVG, MIN, SUM])
+
+    masterStatsSection.line('Memory read bandwidth used during replay',
+        on_masters(lambda m: (m.master.replayMemoryReadBytes / 2**20 /
+                              ((m.master.recoveryTicks - m.master.logSyncTicks) / m.clockFrequency))),
+        unit='MB/s',
+        summaryFns=[AVG, MIN, SUM])
+    masterStatsSection.line('Memory write bandwidth used during replay',
+        on_masters(lambda m: (m.master.replayMemoryWrittenBytes / 2**20 /
+                              ((m.master.recoveryTicks - m.master.logSyncTicks) / m.clockFrequency))),
+        unit='MB/s',
+        summaryFns=[AVG, MIN, SUM])
 
     backupSection = report.add(Section('Backup Time'))
 
@@ -662,9 +791,9 @@ def makeReport(data):
                  'transport.transmit.ticks')
     backup_ticks('Filtering segments',
                  'backup.filterTicks')
-    backup_ticks('Reading segments',
+    backup_ticks('Reading+filtering replicas',
                  'backup.readingDataTicks')
-    backup_ticks('Using disk',
+    backup_ticks('Reading replicas from disk',
                  'backup.storageReadTicks')
     backupSection.line('getRecoveryData completions',
         on_backups(lambda b: b.backup.readCompletionCount))

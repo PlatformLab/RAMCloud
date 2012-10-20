@@ -16,6 +16,8 @@
 #include "BackupClient.h"
 #include "Buffer.h"
 #include "ClientException.h"
+#include "CycleCounter.h"
+#include "RawMetrics.h"
 #include "Segment.h"
 #include "ShortMacros.h"
 #include "TransportManager.h"
@@ -647,7 +649,6 @@ WriteSegmentRpc::WriteSegmentRpc(Context* context,
                                  bool primary)
     : ServerIdRpcWrapper(context, backupId,
                          sizeof(WireFormat::BackupWrite::Response))
-    , satUnreaped()
 {
     WireFormat::BackupWrite::Request* reqHdr(
             allocHeader<WireFormat::BackupWrite>(backupId));
@@ -666,6 +667,7 @@ WriteSegmentRpc::WriteSegmentRpc(Context* context,
     reqHdr->primary = primary;
     if (segment)
         segment->appendToBuffer(request, offset, length);
+    CycleCounter<RawMetric> _(&metrics->master.replicationPostingWriteRpcTicks);
     send();
 }
 
@@ -679,8 +681,6 @@ WriteSegmentRpc::WriteSegmentRpc(Context* context,
 void
 WriteSegmentRpc::wait()
 {
-    // XXX
-    satUnreaped.destroy();
     waitAndCheckErrors();
 }
 
