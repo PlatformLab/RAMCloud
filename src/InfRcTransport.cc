@@ -941,22 +941,26 @@ InfRcTransport<Infiniband>::ClientRpc::ClientRpc(InfRcTransport* transport,
 }
 
 /**
- * This is a hack for doing zero-copy sends of log data to backups
- * during recovery. Diego has a cleaner solution, but we want this
- * quickly for the paper. Afterwards we'll have to bulldoze the Inf
- * stuff and write something clean.
+ * Post an RPC request for transmit by the HCA attempting to zero-copy any
+ * data from registered buffers (currently only seglets which are part of
+ * the log). Transparently handles buffers with more chunks than the
+ * scatter-gather entry limit and buffers which mix registered and
+ * non-registered chunks.
+ *
+ * \param request
+ *      Buffer containing the RPC request which should be transmitted
+ *      to the endpoint listening on #session.
  */
 template<typename Infiniband>
-bool
-InfRcTransport<Infiniband>::ClientRpc::tryZeroCopy(Buffer* request)
+void
+InfRcTransport<Infiniband>::ClientRpc::sendZeroCopy(Buffer* request)
 {
-    const bool allowZeroCopy = true;
-    InfRcTransport* const t = transport;
-//    const uint32_t numSges = std::min(request->getNumberChunks(),
-//                                      MAX_TX_SGE_COUNT);
-    const uint32_t numSges = request->getNumberChunks();
+    const bool allowZeroCopy = true; InfRcTransport* const t = transport;
+    const uint32_t numSges = std::min(request->getNumberChunks(),
+                                      MAX_TX_SGE_COUNT);
     ibv_sge isge[numSges];
 
+    uint32_t currentChunk = 0;
     uint32_t currentSge = 0;
     BufferDescriptor* bd = t->getTransmitBuffer();
     char* unaddedStart = bd->buffer;
@@ -964,7 +968,10 @@ InfRcTransport<Infiniband>::ClientRpc::tryZeroCopy(Buffer* request)
     Buffer::Iterator it(*request);
     while (!it.isDone()) {
         const uintptr_t addr = reinterpret_cast<const uintptr_t>(it.getData());
-        if (allowZeroCopy && addr >= t->logMemoryBase &&
+        if (allowZeroCopy &&
+            (currentChunk == request->getNumberChunks() - 1 ||
+             currentSge < numSges - 1) &&
+            addr >= t->logMemoryBase &&
             (addr + it.getLength()) < (t->logMemoryBase + t->logMemoryBytes))
         {
             if (unaddedStart != unaddedEnd) {
@@ -990,6 +997,7 @@ InfRcTransport<Infiniband>::ClientRpc::tryZeroCopy(Buffer* request)
             unaddedEnd += it.getLength();
         }
         it.next();
+        ++currentChunk;
     }
     if (unaddedStart != unaddedEnd) {
         isge[currentSge] = {
@@ -1017,15 +1025,16 @@ InfRcTransport<Infiniband>::ClientRpc::tryZeroCopy(Buffer* request)
     if ((request->getTotalLength()) <= Infiniband::MAX_INLINE_DATA)
         txWorkRequest.send_flags |= IBV_SEND_INLINE;
 
+    metrics->transport.transmit.iovecCount += currentSge;
+    metrics->transport.transmit.byteCount += request->getTotalLength();
     if (!t->transmitCycleCounter) {
         t->transmitCycleCounter.construct();
     }
+    CycleCounter<RawMetric> _(&metrics->transport.transmit.ticks);
     ibv_send_wr *bad_txWorkRequest;
     if (ibv_post_send(session->qp->qp, &txWorkRequest, &bad_txWorkRequest)) {
         throw TransportException(HERE, "ibv_post_send failed");
     }
-
-    return true;
 }
 
 /**
@@ -1046,25 +1055,9 @@ InfRcTransport<Infiniband>::ClientRpc::sendOrQueue()
         }
         ++metrics->transport.transmit.messageCount;
         ++metrics->transport.transmit.packetCount;
-        new(request, PREPEND) Header(nonce);
 
-        if (!tryZeroCopy(request)) {
-            BufferDescriptor* bd = t->getTransmitBuffer();
-            {
-                CycleCounter<RawMetric>
-                    copyTicks(&metrics->transport.transmit.copyTicks);
-                request->copy(0, request->getTotalLength(), bd->buffer);
-            }
-            metrics->transport.transmit.iovecCount +=
-                request->getNumberChunks();
-            metrics->transport.transmit.byteCount += request->getTotalLength();
-            if (!t->transmitCycleCounter) {
-                t->transmitCycleCounter.construct();
-            }
-            CycleCounter<RawMetric> _(&metrics->transport.transmit.ticks);
-            t->infiniband->postSend(session->qp, bd,
-                                    request->getTotalLength());
-        }
+        new(request, PREPEND) Header(nonce);
+        sendZeroCopy(request);
         request->truncateFront(sizeof(Header)); // for politeness
 
         t->outstandingRpcs.push_back(*this);
