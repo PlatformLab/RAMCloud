@@ -959,13 +959,24 @@ InfRcTransport<Infiniband>::ClientRpc::tryZeroCopy(Buffer* request)
 
     uint32_t currentSge = 0;
     BufferDescriptor* bd = t->getTransmitBuffer();
-    char* endOfBd = bd->buffer;
+    char* unaddedStart = bd->buffer;
+    char* unaddedEnd = bd->buffer;
     Buffer::Iterator it(*request);
     while (!it.isDone()) {
         const uintptr_t addr = reinterpret_cast<const uintptr_t>(it.getData());
         if (allowZeroCopy && addr >= t->logMemoryBase &&
             (addr + it.getLength()) < (t->logMemoryBase + t->logMemoryBytes))
         {
+            if (unaddedStart != unaddedEnd) {
+                isge[currentSge] = {
+                    reinterpret_cast<uint64_t>(unaddedStart),
+                    downCast<uint32_t>(unaddedEnd - unaddedStart),
+                    bd->mr->lkey
+                };
+                ++currentSge;
+                unaddedStart = unaddedEnd;
+            }
+
             isge[currentSge] = {
                 addr,
                 it.getLength(),
@@ -973,20 +984,21 @@ InfRcTransport<Infiniband>::ClientRpc::tryZeroCopy(Buffer* request)
             };
             ++currentSge;
         } else {
-            {
-                CycleCounter<RawMetric>
-                    copyTicks(&metrics->transport.transmit.copyTicks);
-                memcpy(endOfBd, it.getData(), it.getLength());
-            }
-            isge[currentSge] = {
-                reinterpret_cast<uint64_t>(endOfBd),
-                it.getLength(),
-                bd->mr->lkey
-            };
-            ++currentSge;
-            endOfBd += it.getLength();
+            CycleCounter<RawMetric>
+                copyTicks(&metrics->transport.transmit.copyTicks);
+            memcpy(unaddedEnd, it.getData(), it.getLength());
+            unaddedEnd += it.getLength();
         }
         it.next();
+    }
+    if (unaddedStart != unaddedEnd) {
+        isge[currentSge] = {
+            reinterpret_cast<uint64_t>(unaddedStart),
+            downCast<uint32_t>(unaddedEnd - unaddedStart),
+            bd->mr->lkey
+        };
+        ++currentSge;
+        unaddedStart = unaddedEnd;
     }
 
     ibv_send_wr txWorkRequest;
