@@ -17,6 +17,7 @@
 #include "InfRcTransport.h"
 #include "MockWrapper.h"
 #include "ServiceManager.h"
+#include "StringUtil.h"
 
 namespace RAMCloud {
 
@@ -44,7 +45,6 @@ TEST_F(InfRcTransportTest, sanityCheck) {
     // Verify that we can send a request, receive it, send a reply,
     // and receive it. Then try a second request with bigger chunks
     // of data.
-
     Transport::SessionRef session = client.getSession(locator);
     MockWrapper rpc("abcdefg");
     // Put junk in the response buffer to make sure it gets cleared properly.
@@ -52,7 +52,7 @@ TEST_F(InfRcTransportTest, sanityCheck) {
     session->sendRequest(&rpc.request, &rpc.response, &rpc);
     Transport::ServerRpc* serverRpc =
             context.serviceManager->waitForRpc(1.0);
-    EXPECT_TRUE(serverRpc != NULL);
+    ASSERT_TRUE(serverRpc != NULL);
     EXPECT_EQ("abcdefg", TestUtil::toString(&serverRpc->requestPayload));
     EXPECT_STREQ("completed: 0, failed: 0", rpc.getState());
     serverRpc->replyPayload.fillFromString("klmn");
@@ -72,6 +72,58 @@ TEST_F(InfRcTransportTest, sanityCheck) {
     serverRpc->sendReply();
     EXPECT_TRUE(TestUtil::waitForRpc(&context, rpc));
     EXPECT_EQ("ok", TestUtil::checkLargeBuffer(&rpc.response, 50000));
+}
+
+namespace {
+bool sendZeroCopyFilter(string s) {
+    return s == "sendZeroCopy";
+}
+}
+
+TEST_F(InfRcTransportTest, ClientRpc_sendZeroCopy) {
+    Transport::SessionRef session = client.getSession(locator);
+    client.testingDontReallySend = true;
+    MockWrapper rpc1("r1");
+    MockWrapper rpc2("r2");
+    TestLog::Enable _(sendZeroCopyFilter);
+    session->sendRequest(&rpc1.request, &rpc1.response, &rpc1);
+    EXPECT_EQ("sendZeroCopy: isge[0]: 10 bytes COPIED", TestLog::get());
+    TestLog::reset();
+    session->sendRequest(&rpc2.request, &rpc2.response, &rpc2);
+    EXPECT_EQ("sendZeroCopy: isge[0]: 10 bytes COPIED", TestLog::get());
+
+    void* page = Memory::xmemalign(HERE, getpagesize(), getpagesize());
+    client.registerMemory(page, getpagesize());
+
+    rpc1.request.append(page, getpagesize());
+    TestLog::reset();
+    session->sendRequest(&rpc1.request, &rpc1.response, &rpc1);
+    EXPECT_EQ("sendZeroCopy: isge[0]: 10 bytes COPIED | "
+              "sendZeroCopy: isge[1]: 4096 bytes ZERO-COPY", TestLog::get());
+
+    rpc1.request.append("other", 5);
+    TestLog::reset();
+    session->sendRequest(&rpc1.request, &rpc1.response, &rpc1);
+    EXPECT_EQ("sendZeroCopy: isge[0]: 10 bytes COPIED | "
+              "sendZeroCopy: isge[1]: 4096 bytes ZERO-COPY | "
+              "sendZeroCopy: isge[2]: 5 bytes COPIED", TestLog::get());
+
+    rpc1.request.append("more", 5);
+    TestLog::reset();
+    session->sendRequest(&rpc1.request, &rpc1.response, &rpc1);
+    EXPECT_EQ("sendZeroCopy: isge[0]: 10 bytes COPIED | "
+              "sendZeroCopy: isge[1]: 4096 bytes ZERO-COPY | "
+              "sendZeroCopy: isge[2]: 10 bytes COPIED", TestLog::get());
+
+    rpc1.request.append(page, getpagesize());
+    TestLog::reset();
+    session->sendRequest(&rpc1.request, &rpc1.response, &rpc1);
+    EXPECT_EQ("sendZeroCopy: isge[0]: 10 bytes COPIED | "
+              "sendZeroCopy: isge[1]: 4096 bytes ZERO-COPY | "
+              "sendZeroCopy: isge[2]: 10 bytes COPIED | "
+              "sendZeroCopy: isge[3]: 4096 bytes ZERO-COPY", TestLog::get());
+
+    free(page);
 }
 
 TEST_F(InfRcTransportTest, InfRcSession_abort_onClientSendQueue) {
@@ -146,7 +198,7 @@ TEST_F(InfRcTransportTest, InfRcSession_cancelRequest_rpcSent) {
     session->sendRequest(&rpc.request, &rpc.response, &rpc);
     Transport::ServerRpc* serverRpc =
             context.serviceManager->waitForRpc(1.0);
-    EXPECT_TRUE(serverRpc != NULL);
+    ASSERT_TRUE(serverRpc != NULL);
     EXPECT_STREQ("completed: 0, failed: 0", rpc.getState());
     EXPECT_EQ(1U, client.outstandingRpcs.size());
     EXPECT_EQ(1u, client.numUsedClientSrqBuffers);
@@ -196,7 +248,7 @@ TEST_F(InfRcTransportTest, ServerRpc_getClientServiceLocator) {
     session->sendRequest(&rpc.request, &rpc.response, &rpc);
     Transport::ServerRpc* serverRpc =
             context.serviceManager->waitForRpc(1.0);
-    EXPECT_TRUE(serverRpc != NULL);
+    ASSERT_TRUE(serverRpc != NULL);
     EXPECT_TRUE(TestUtil::matchesPosixRegex(
         "infrc:host=127\\.0\\.0\\.1,port=[0-9][0-9]*",
         serverRpc->getClientServiceLocator()));

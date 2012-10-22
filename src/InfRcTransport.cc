@@ -150,6 +150,7 @@ InfRcTransport<Infiniband>::InfRcTransport(Context* context,
     , serverRpcPool()
     , clientRpcPool()
     , deadQueuePairs()
+    , testingDontReallySend(false)
 {
     const char *ibDeviceName = NULL;
 
@@ -955,9 +956,11 @@ template<typename Infiniband>
 void
 InfRcTransport<Infiniband>::ClientRpc::sendZeroCopy(Buffer* request)
 {
-    const bool allowZeroCopy = true; InfRcTransport* const t = transport;
-    const uint32_t numSges = std::min(request->getNumberChunks(),
-                                      MAX_TX_SGE_COUNT);
+    const bool allowZeroCopy = true;
+    InfRcTransport* const t = transport;
+    uint32_t numSges = request->getNumberChunks();
+    if (request->getNumberChunks() > MAX_TX_SGE_COUNT)
+        numSges = MAX_TX_SGE_COUNT;
     ibv_sge isge[numSges];
 
     uint32_t currentChunk = 0;
@@ -972,7 +975,7 @@ InfRcTransport<Infiniband>::ClientRpc::sendZeroCopy(Buffer* request)
             (currentChunk == request->getNumberChunks() - 1 ||
              currentSge < numSges - 1) &&
             addr >= t->logMemoryBase &&
-            (addr + it.getLength()) < (t->logMemoryBase + t->logMemoryBytes))
+            (addr + it.getLength()) <= (t->logMemoryBase + t->logMemoryBytes))
         {
             if (unaddedStart != unaddedEnd) {
                 isge[currentSge] = {
@@ -1031,9 +1034,19 @@ InfRcTransport<Infiniband>::ClientRpc::sendZeroCopy(Buffer* request)
         t->transmitCycleCounter.construct();
     }
     CycleCounter<RawMetric> _(&metrics->transport.transmit.ticks);
-    ibv_send_wr *bad_txWorkRequest;
-    if (ibv_post_send(session->qp->qp, &txWorkRequest, &bad_txWorkRequest)) {
-        throw TransportException(HERE, "ibv_post_send failed");
+    ibv_send_wr* badTxWorkRequest;
+    if (__builtin_expect(!t->testingDontReallySend, true)) {
+        if (ibv_post_send(session->qp->qp, &txWorkRequest, &badTxWorkRequest)) {
+            throw TransportException(HERE, "ibv_post_send failed");
+        }
+    } else {
+        for (int i = 0; i < txWorkRequest.num_sge; ++i) {
+            const ibv_sge& sge = txWorkRequest.sg_list[i];
+            TEST_LOG("isge[%d]: %u bytes %s", i, sge.length,
+                     (t->logMemoryRegion && sge.lkey ==
+                        t->logMemoryRegion->lkey) ?
+                     "ZERO-COPY" : "COPIED");
+        }
     }
 }
 
