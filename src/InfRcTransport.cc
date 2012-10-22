@@ -950,34 +950,70 @@ template<typename Infiniband>
 bool
 InfRcTransport<Infiniband>::ClientRpc::tryZeroCopy(Buffer* request)
 {
+    const bool allowZeroCopy = true;
     InfRcTransport* const t = transport;
-    if (t->logMemoryBase != 0 && request->getNumberChunks() == 2) {
-        Buffer::Iterator it(*request);
-        it.next();
+//    const uint32_t numSges = std::min(request->getNumberChunks(),
+//                                      MAX_TX_SGE_COUNT);
+    const uint32_t numSges = request->getNumberChunks();
+    ibv_sge isge[numSges];
+
+    uint32_t currentSge = 0;
+    BufferDescriptor* bd = t->getTransmitBuffer();
+    char* endOfBd = bd->buffer;
+    Buffer::Iterator it(*request);
+    while (!it.isDone()) {
         const uintptr_t addr = reinterpret_cast<const uintptr_t>(it.getData());
-        if (addr >= t->logMemoryBase &&
-          (addr + it.getLength()) < (t->logMemoryBase + t->logMemoryBytes)) {
-            uint32_t hdrBytes = it.getTotalLength() - it.getLength();
-            BufferDescriptor* bd = t->getTransmitBuffer();
+        if (allowZeroCopy && addr >= t->logMemoryBase &&
+            (addr + it.getLength()) < (t->logMemoryBase + t->logMemoryBytes))
+        {
+            isge[currentSge] = {
+                addr,
+                it.getLength(),
+                t->logMemoryRegion->lkey
+            };
+            ++currentSge;
+        } else {
             {
                 CycleCounter<RawMetric>
                     copyTicks(&metrics->transport.transmit.copyTicks);
-                request->copy(0, hdrBytes, bd->buffer);
+                memcpy(endOfBd, it.getData(), it.getLength());
             }
-            metrics->transport.transmit.iovecCount +=
-                request->getNumberChunks();
-            metrics->transport.transmit.byteCount += request->getTotalLength();
-            if (!t->transmitCycleCounter) {
-                t->transmitCycleCounter.construct();
-            }
-            CycleCounter<RawMetric> _(&metrics->transport.transmit.ticks);
-            t->infiniband->postSendZeroCopy(session->qp, bd,
-                hdrBytes, it.getData(), it.getLength(), t->logMemoryRegion);
-            return true;
+            isge[currentSge] = {
+                reinterpret_cast<uint64_t>(endOfBd),
+                it.getLength(),
+                bd->mr->lkey
+            };
+            ++currentSge;
+            endOfBd += it.getLength();
         }
+        it.next();
     }
 
-    return false;
+    ibv_send_wr txWorkRequest;
+
+    memset(&txWorkRequest, 0, sizeof(txWorkRequest));
+    txWorkRequest.wr_id = reinterpret_cast<uint64_t>(bd);// stash descriptor ptr
+    txWorkRequest.next = NULL;
+    txWorkRequest.sg_list = isge;
+    txWorkRequest.num_sge = currentSge;
+    txWorkRequest.opcode = IBV_WR_SEND;
+    txWorkRequest.send_flags = IBV_SEND_SIGNALED;
+
+    // We can get a substantial latency improvement (nearly 2usec less per RTT)
+    // by inlining data with the WQE for small messages. The Verbs library
+    // automatically takes care of copying from the SGEs to the WQE.
+    if ((request->getTotalLength()) <= Infiniband::MAX_INLINE_DATA)
+        txWorkRequest.send_flags |= IBV_SEND_INLINE;
+
+    if (!t->transmitCycleCounter) {
+        t->transmitCycleCounter.construct();
+    }
+    ibv_send_wr *bad_txWorkRequest;
+    if (ibv_post_send(session->qp->qp, &txWorkRequest, &bad_txWorkRequest)) {
+        throw TransportException(HERE, "ibv_post_send failed");
+    }
+
+    return true;
 }
 
 /**
