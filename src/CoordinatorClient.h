@@ -59,6 +59,8 @@ class CoordinatorClient {
             const ProtoBuf::MasterRecoveryInfo& recoveryInfo);
     static void setRuntimeOption(Context* context, const char* option,
             const char* value);
+    static void verifyMembership(Context* context, ServerId serverId,
+            bool suicideOnFailure = true);
 
   private:
     CoordinatorClient();
@@ -186,6 +188,20 @@ class SetMasterRecoveryInfoRpc : public CoordinatorRpcWrapper {
 
     PRIVATE:
     DISALLOW_COPY_AND_ASSIGN(SetMasterRecoveryInfoRpc);
+};
+
+/**
+ * Encapsulates the state of a CoordinatorClient::verifyMembership
+ * request, allowing it to execute asynchronously.
+ */
+class VerifyMembershipRpc : public CoordinatorRpcWrapper {
+    public:
+    VerifyMembershipRpc(Context* context, ServerId serverId);
+    ~VerifyMembershipRpc() {}
+    void wait(bool suicideOnFailure = true);
+
+    PRIVATE:
+    DISALLOW_COPY_AND_ASSIGN(VerifyMembershipRpc);
 };
 
 } // end RAMCloud

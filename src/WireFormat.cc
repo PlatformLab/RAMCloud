@@ -94,6 +94,7 @@ opcodeSymbol(uint32_t opcode)
         case GET_SERVER_CONFIG:          return "GET_SERVER_CONFIG";
         case GET_LOG_METRICS:            return "GET_LOG_METRICS";
         case MULTI_WRITE:                return "MULTI_WRITE";
+        case VERIFY_MEMBERSHIP:          return "VERIFY_MEMBERSHIP";
         case ILLEGAL_RPC_TYPE:           return "ILLEGAL_RPC_TYPE";
     }
 

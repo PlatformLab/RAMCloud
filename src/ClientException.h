@@ -167,6 +167,9 @@ DEFINE_EXCEPTION(PartitionBeforeReadException,
 DEFINE_EXCEPTION(WrongServerException,
                  STATUS_WRONG_SERVER,
                  ClientException)
+DEFINE_EXCEPTION(CallerNotInClusterException,
+                 STATUS_CALLER_NOT_IN_CLUSTER,
+                 ClientException)
 
 } // namespace RAMCloud
 

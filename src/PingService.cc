@@ -64,16 +64,14 @@ PingService::ping(const WireFormat::Ping::Request& reqHdr,
              WireFormat::Ping::Response& respHdr,
              Rpc& rpc)
 {
-    if (ServerId(reqHdr.callerId) == ServerId()) {
-        LOG(DEBUG, "Received ping request from unknown endpoint "
-            "(perhaps the coordinator or a client)");
-    } else {
+    ServerId serverId(reqHdr.callerId);
+    if (serverId.isValid()) {
         LOG(DEBUG, "Received ping request from server %s",
             ServerId(reqHdr.callerId).toString().c_str());
+        if (!context->serverList->isUp(serverId)) {
+            respHdr.common.status = STATUS_CALLER_NOT_IN_CLUSTER;
+        }
     }
-    respHdr.serverListVersion = 0;
-    if (context->serverList != NULL)
-        respHdr.serverListVersion = context->serverList->getVersion();
 }
 
 /**
@@ -87,9 +85,9 @@ PingService::proxyPing(const WireFormat::ProxyPing::Request& reqHdr,
              Rpc& rpc)
 {
     uint64_t start = Cycles::rdtsc();
-    PingRpc pingRpc(context, ServerId(reqHdr.serverId), ServerId());
+    PingRpc pingRpc(context, ServerId(reqHdr.serverId));
     respHdr.replyNanoseconds = ~0UL;
-    if (pingRpc.wait(reqHdr.timeoutNanoseconds) != ~0UL) {
+    if (pingRpc.wait(reqHdr.timeoutNanoseconds)) {
         respHdr.replyNanoseconds = Cycles::toNanoseconds(
                 Cycles::rdtsc() - start);
     }

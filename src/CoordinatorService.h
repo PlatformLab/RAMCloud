@@ -92,6 +92,10 @@ class CoordinatorService : public Service {
         const WireFormat::SetMasterRecoveryInfo::Request& reqHdr,
         WireFormat::SetMasterRecoveryInfo::Response& respHdr,
         Rpc& rpc);
+    void verifyMembership(
+        const WireFormat::VerifyMembership::Request& reqHdr,
+        WireFormat::VerifyMembership::Response& respHdr,
+        Rpc& rpc);
 
     /**
      * Shared RAMCloud information.

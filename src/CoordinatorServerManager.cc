@@ -565,7 +565,7 @@ CoordinatorServerManager::verifyServerFailure(ServerId serverId) {
 
     const string& serviceLocator = service.serverList[serverId].serviceLocator;
     PingRpc pingRpc(service.context, serverId, ServerId());
-    if (pingRpc.wait(service.deadServerTimeout * 1000 * 1000) != ~0UL) {
+    if (pingRpc.wait(service.deadServerTimeout * 1000 * 1000)) {
         LOG(NOTICE, "False positive for server id %s (\"%s\")",
                     serverId.toString().c_str(), serviceLocator.c_str());
         return false;

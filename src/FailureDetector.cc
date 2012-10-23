@@ -45,6 +45,7 @@ FailureDetector::FailureDetector(Context* context,
     : context(context),
       ourServerId(ourServerId),
       serverTracker(context),
+      probesWithoutResponse(0),
       thread(),
       threadShouldExit(false)
 {
@@ -122,7 +123,7 @@ FailureDetector::detectorThreadEntry(FailureDetector* detector,
 }
 
 /**
- * Choose a random server from our list and ping it. Only one oustanding
+ * Choose a random server from our list and ping it. Only one outstanding
  * ping is issued at a given time. If a timeout occurs we attempt to notify
  * the coordinator.
  */
@@ -138,31 +139,40 @@ FailureDetector::pingRandomServer()
         return;
     }
 
+    probesWithoutResponse++;
     string locator;
     try {
         locator = context->serverList->getLocator(pingee);
-        uint64_t serverListVersion;
         LOG(DEBUG, "Sending ping to server %s (%s)", pingee.toString().c_str(),
             locator.c_str());
         uint64_t start = Cycles::rdtsc();
         PingRpc rpc(context, pingee, ourServerId);
-        serverListVersion = rpc.wait(TIMEOUT_USECS *1000);
-        if (serverListVersion == ~0LU) {
+        if (rpc.wait(TIMEOUT_USECS *1000)) {
+            probesWithoutResponse = 0;
+            LOG(DEBUG, "Ping succeeded to server %s (%s) in %.1f us",
+                pingee.toString().c_str(), locator.c_str(),
+                1e06*Cycles::toSeconds(Cycles::rdtsc() - start));
+        } else {
             // Server appears to have crashed; notify the coordinator.
             LOG(WARNING, "Ping timeout to server id %s (locator \"%s\")",
                 pingee.toString().c_str(), locator.c_str());
             CoordinatorClient::hintServerDown(context, pingee);
-            return;
         }
-        LOG(DEBUG, "Ping succeeded to server %s (%s) in %.1f us",
-            pingee.toString().c_str(), locator.c_str(),
-            1e06*Cycles::toSeconds(Cycles::rdtsc() - start));
     } catch (const ServerListException &sle) {
         // This isn't an error. It's just a race between this thread and
         // the membership service. It should be quite uncommon, so just
         // bail on this round and ping again next time.
         LOG(NOTICE, "Tried to ping locator \"%s\", but id %s was stale",
             locator.c_str(), pingee.toString().c_str());
+    } catch (const CallerNotInClusterException &e) {
+        // See "Zombies" in designNotes.
+        CoordinatorClient::verifyMembership(context, ourServerId);
+        probesWithoutResponse = 0;
+    }
+    if (probesWithoutResponse >= MAX_FAILED_PROBES) {
+        // See "Zombies" in designNotes.
+        CoordinatorClient::verifyMembership(context, ourServerId);
+        probesWithoutResponse = 0;
     }
 }
 } // namespace

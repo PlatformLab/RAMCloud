@@ -135,6 +135,10 @@ CoordinatorService::dispatch(WireFormat::Opcode opcode,
             callHandler<WireFormat::SplitTablet, CoordinatorService,
                         &CoordinatorService::splitTablet>(rpc);
             break;
+        case WireFormat::VerifyMembership::opcode:
+            callHandler<WireFormat::VerifyMembership, CoordinatorService,
+                        &CoordinatorService::verifyMembership>(rpc);
+            break;
         default:
             throw UnimplementedRequestError(HERE);
     }
@@ -549,6 +553,23 @@ CoordinatorService::setMasterRecoveryInfo(
         respHdr.common.status = STATUS_SERVER_NOT_UP;
         return;
     }
+}
+
+/**
+ * Check to see whether a given server is still considered an active member
+ * of the cluster; if not, return STATUS_CALLER_NOT_IN_CLUSTER status.
+ *
+ * \copydetails Service::ping
+ */
+void
+CoordinatorService::verifyMembership(
+    const WireFormat::VerifyMembership::Request& reqHdr,
+    WireFormat::VerifyMembership::Response& respHdr,
+    Rpc& rpc)
+{
+    ServerId serverId(reqHdr.serverId);
+    if (!serverList.isUp(serverId))
+        respHdr.common.status = STATUS_CALLER_NOT_IN_CLUSTER;
 }
 
 } // namespace RAMCloud

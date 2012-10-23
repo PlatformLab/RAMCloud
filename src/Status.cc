@@ -48,6 +48,8 @@ static const char* messages[] = {
     "tablet doesn't exist",                      // STATUS_TABLET_DOESNT_EXIST
     "reading data should preceed partitioning",  // STATUS_PARTITION_BEFORE_READ
     "rpc sent to wrong server id",               // STATUS_WRONG_SERVER
+    "invoking server does not appear to be in the cluster",
+                                                 // STATUS_CALLER_NOT_IN_CLUSTER
 };
 
 // The following table maps from a Status value to the internal name
@@ -79,6 +81,7 @@ static const char* symbols[] = {
     "STATUS_TABLET_DOESNT_EXIST",
     "STATUS_PARTITION_BEFORE_READ",
     "STATUS_WRONG_SERVER",
+    "STATUS_CALLER_NOT_IN_CLUSTER",
 };
 
 /**

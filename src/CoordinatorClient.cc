@@ -495,4 +495,85 @@ SetMasterRecoveryInfoRpc::SetMasterRecoveryInfoRpc(
     send();
 }
 
+/**
+ * Masters typically invoke this RPC when they suspect that they may
+ * no longer be part of the cluster (e.g., they haven't been able to
+ * communicate with other servers for a long time, or some other
+ * server seems to think this server isn't in its server list). This
+ * RPC checks with the coordinator to be sure and commits suicide if
+ * the coordinator doesn't recognize us.
+ *
+ * \param context
+ *      Overall information about this RAMCloud server or client.
+ * \param serverId
+ *      A server whose membership is in question; typically it's
+ *      the id of the server invoking this method.
+ * \param suicideOnFailure
+ *      True (default) means that the process should exit if it turns
+ *      out that we are no longer part of the cluster.
+ */
+void
+CoordinatorClient::verifyMembership(
+    Context* context,
+    ServerId serverId,
+    bool suicideOnFailure)
+{
+    VerifyMembershipRpc rpc(context, serverId);
+    rpc.wait(suicideOnFailure);
+}
+
+/**
+ * Constructor for VerifyMembershipRpc: initiates an RPC in the same way as
+ * #CoordinatorClient::verifyMembership, but returns once the RPC has been
+ * initiated, without waiting for it to complete.
+ *
+ * \param context
+ *      Overall information about this RAMCloud server or client.
+ * \param serverId
+ *      A server whose membership is in question; typically it's
+ *      the id of the server invoking this method.
+ */
+VerifyMembershipRpc::VerifyMembershipRpc(
+    Context* context,
+    ServerId serverId)
+    : CoordinatorRpcWrapper(context,
+            sizeof(WireFormat::VerifyMembership::Response))
+{
+    RAMCLOUD_LOG(WARNING,
+            "verifying cluster membership for %s",
+            serverId.toString().c_str());
+    WireFormat::VerifyMembership::Request* reqHdr(
+            allocHeader<WireFormat::VerifyMembership>());
+    reqHdr->serverId = serverId.getId();
+    send();
+}
+
+/**
+ * Wait for a verifyMembership RPC to complete, and return the same results as
+ * #CoordinatorClient::verifyMembership.
+ *
+ * \param suicideOnFailure
+ *      True (default) means that the process should exit if it turns
+ *      out that we are no longer part of the cluster.
+ *
+ * \throw CallerNotInClusterException
+ *      This server is no longer part of the cluster.
+ */
+void
+VerifyMembershipRpc::wait(bool suicideOnFailure)
+{
+    waitInternal(context->dispatch);
+    const WireFormat::VerifyMembership::Response* respHdr(
+            getResponseHeader<WireFormat::VerifyMembership>());
+    if (respHdr->common.status != STATUS_OK) {
+        if ((respHdr->common.status == STATUS_CALLER_NOT_IN_CLUSTER)
+                && suicideOnFailure) {
+            RAMCLOUD_LOG(WARNING,
+                    "server no longer in cluster; committing suicide");
+            exit(1);
+        }
+        ClientException::throwException(HERE, respHdr->common.status);
+    }
+}
+
 } // namespace RAMCloud
