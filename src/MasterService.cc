@@ -1865,6 +1865,22 @@ MasterService::recoverSegment(SegmentIterator& it)
         metrics->master.replicationPostingWriteRpcTicks;
     CycleCounter<RawMetric> _(&metrics->master.recoverSegmentTicks);
 
+    // Metrics can be very expense (they're atomic operations), so we aggregate
+    // as much as we can in local variables and update the counters once at the
+    // end of this method.
+    uint64_t verifyChecksumTicks = 0;
+    uint64_t segmentAppendTicks = 0;
+    uint64_t recoverySegmentEntryCount = 0;
+    uint64_t recoverySegmentEntryBytes = 0;
+    uint64_t objectAppendCount = 0;
+    uint64_t tombstoneAppendCount = 0;
+    uint64_t liveObjectCount = 0;
+    uint64_t liveObjectBytes = 0;
+    uint64_t objectDiscardCount = 0;
+    uint64_t tombstoneDiscardCount = 0;
+    uint64_t safeVersionRecoveryCount = 0;
+    uint64_t safeVersionNonRecoveryCount = 0;
+
     uint64_t bytesIterated = 0;
     while (!it.isDone()) {
         LogEntryType type = it.getType();
@@ -1875,8 +1891,8 @@ MasterService::recoverSegment(SegmentIterator& it)
         }
         bytesIterated += it.getLength();
 
-        metrics->master.recoverySegmentEntryCount++;
-        metrics->master.recoverySegmentEntryBytes += it.getLength();
+        recoverySegmentEntryCount++;
+        recoverySegmentEntryBytes += it.getLength();
 
         if (type == LOG_ENTRY_TYPE_OBJ) {
             // The recovery segment is guaranteed to be contiguous, so we need
@@ -1888,7 +1904,7 @@ MasterService::recoverSegment(SegmentIterator& it)
                     recoveryObj->keyLength);
 
             bool checksumIsValid = ({
-                CycleCounter<RawMetric> c(&metrics->master.verifyChecksumTicks);
+                CycleCounter<uint64_t> c(&verifyChecksumTicks);
                 Object::computeChecksum(recoveryObj, it.getLength()) ==
                     recoveryObj->checksum;
             });
@@ -1923,8 +1939,7 @@ MasterService::recoverSegment(SegmentIterator& it)
                 // write to log (with lazy backup flush) & update hash table
                 Log::Reference newObjReference;
                 {
-                    CycleCounter<RawMetric>
-                        _(&metrics->master.segmentAppendTicks);
+                    CycleCounter<uint64_t> _(&segmentAppendTicks);
                     log->append(LOG_ENTRY_TYPE_OBJ,
                                 recoveryObj->timestamp,
                                 recoveryObj,
@@ -1936,8 +1951,8 @@ MasterService::recoverSegment(SegmentIterator& it)
                 //      exception here just cause the master to try another
                 //      backup?
 
-                ++metrics->master.objectAppendCount;
-                metrics->master.liveObjectBytes += it.getLength();
+                objectAppendCount++;
+                liveObjectBytes += it.getLength();
 
                 objectMap->replace(key, newObjReference.toInteger());
 
@@ -1945,14 +1960,13 @@ MasterService::recoverSegment(SegmentIterator& it)
                 // TODO(steve): put tombstones in the HT and have this free them
                 //              as well
                 if (freeCurrentEntry) {
-                    metrics->master.liveObjectBytes -=
-                        currentBuffer.getTotalLength();
+                    liveObjectBytes -= currentBuffer.getTotalLength();
                     log->free(currentReference);
                 } else {
-                    ++metrics->master.liveObjectCount;
+                    liveObjectCount++;
                 }
             } else {
-                ++metrics->master.objectDiscardCount;
+                objectDiscardCount++;
             }
         } else if (type == LOG_ENTRY_TYPE_OBJTOMB) {
             Buffer buffer;
@@ -1961,7 +1975,7 @@ MasterService::recoverSegment(SegmentIterator& it)
 
             ObjectTombstone recoverTomb(buffer);
             bool checksumIsValid = ({
-                CycleCounter<RawMetric> c(&metrics->master.verifyChecksumTicks);
+                CycleCounter<uint64_t> c(&verifyChecksumTicks);
                 recoverTomb.checkIntegrity();
             });
             if (!checksumIsValid) {
@@ -1988,11 +2002,10 @@ MasterService::recoverSegment(SegmentIterator& it)
             }
 
             if (recoverTomb.getObjectVersion() >= minSuccessor) {
-                ++metrics->master.tombstoneAppendCount;
+                tombstoneAppendCount++;
                 Log::Reference newTombReference;
                 {
-                    CycleCounter<RawMetric>
-                        _(&metrics->master.segmentAppendTicks);
+                    CycleCounter<uint64_t> _(&segmentAppendTicks);
                     log->append(LOG_ENTRY_TYPE_OBJTOMB,
                                 recoverTomb.getTimestamp(),
                                 buffer,
@@ -2005,13 +2018,12 @@ MasterService::recoverSegment(SegmentIterator& it)
 
                 // nuke the object, if it existed
                 if (freeCurrentEntry) {
-                    --metrics->master.liveObjectCount;
-                    metrics->master.liveObjectBytes -=
-                        currentBuffer.getTotalLength();
+                    liveObjectCount++;
+                    liveObjectBytes -= currentBuffer.getTotalLength();
                     log->free(currentReference);
                 }
             } else {
-                ++metrics->master.tombstoneDiscardCount;
+                tombstoneDiscardCount++;
             }
         } else if (type == LOG_ENTRY_TYPE_SAFEVERSION) {
             // LOG_ENTRY_TYPE_SAFEVERSION is duplicated to all the
@@ -2023,7 +2035,7 @@ MasterService::recoverSegment(SegmentIterator& it)
             uint64_t safeVersion = recoverSafeVer.getSafeVersion();
 
             bool checksumIsValid = ({
-                CycleCounter<RawMetric> _(&metrics->master.verifyChecksumTicks);
+                CycleCounter<uint64_t> _(&verifyChecksumTicks);
                 recoverSafeVer.checkIntegrity();
             });
             if (!checksumIsValid) {
@@ -2036,28 +2048,41 @@ MasterService::recoverSegment(SegmentIterator& it)
             // Sync can be delayed, because recovery can be replayed
             // with the same backup data when the recovery crashes on the way.
             {
-                CycleCounter<RawMetric> _(&metrics->master.segmentAppendTicks);
+                CycleCounter<uint64_t> _(&segmentAppendTicks);
                 log->append(LOG_ENTRY_TYPE_SAFEVERSION, 0, buffer);
             }
 
             // recover segmentManager.safeVersion (Master safeVersion)
             if (segmentManager.raiseSafeVersion(safeVersion)) {
                 // true if log.safeVersion is revised.
-                ++metrics->master.safeVersionRecoveryCount;
+                safeVersionRecoveryCount++;
                 LOG(NOTICE, "SAFEVERSION %lu recovered", safeVersion);
             } else {
-                ++metrics->master.safeVersionNonRecoveryCount;
+                safeVersionNonRecoveryCount++;
                 LOG(NOTICE, "SAFEVERSION %lu discarded", safeVersion);
             }
         }
 
         it.next();
     }
+
     metrics->master.backupInRecoverTicks +=
         metrics->master.replicaManagerTicks - startReplicationTicks;
     metrics->master.recoverSegmentPostingWriteRpcTicks +=
         metrics->master.replicationPostingWriteRpcTicks -
         startReplicationPostingWriteRpcTicks;
+    metrics->master.verifyChecksumTicks += verifyChecksumTicks;
+    metrics->master.segmentAppendTicks += segmentAppendTicks;
+    metrics->master.recoverySegmentEntryCount += recoverySegmentEntryCount;
+    metrics->master.recoverySegmentEntryBytes += recoverySegmentEntryBytes;
+    metrics->master.objectAppendCount += objectAppendCount;
+    metrics->master.tombstoneAppendCount += tombstoneAppendCount;
+    metrics->master.liveObjectCount += liveObjectCount;
+    metrics->master.liveObjectBytes += liveObjectBytes;
+    metrics->master.objectDiscardCount += objectDiscardCount;
+    metrics->master.tombstoneDiscardCount += tombstoneDiscardCount;
+    metrics->master.safeVersionRecoveryCount += safeVersionRecoveryCount;
+    metrics->master.safeVersionNonRecoveryCount += safeVersionNonRecoveryCount;
 }
 
 /**
