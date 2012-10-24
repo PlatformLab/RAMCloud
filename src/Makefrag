@@ -94,7 +94,7 @@ SHARED_SRCFILES := \
 		   src/Status.cc \
 		   src/StringUtil.cc \
 		   src/TableEnumerator.cc \
-		   src/TabletMap.cc \
+		   src/Table.cc \
 		   src/TaskQueue.cc \
 		   src/TcpTransport.cc \
 		   src/TestLog.cc \

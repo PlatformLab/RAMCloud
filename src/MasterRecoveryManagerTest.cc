@@ -17,7 +17,7 @@
 #include "CoordinatorServerList.h"
 #include "MasterRecoveryManager.h"
 #include "ShortMacros.h"
-#include "TabletMap.h"
+#include "Table.h"
 #include "TabletsBuilder.h"
 
 namespace RAMCloud {

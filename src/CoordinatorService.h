@@ -31,7 +31,7 @@
 #include "Recovery.h"
 #include "RuntimeOptions.h"
 #include "Service.h"
-#include "TabletMap.h"
+#include "Table.h"
 #include "TransportManager.h"
 
 namespace RAMCloud {

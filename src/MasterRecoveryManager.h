@@ -23,7 +23,7 @@
 #include "Recovery.h"
 #include "RuntimeOptions.h"
 #include "ServerTracker.h"
-#include "TabletMap.h"
+#include "Table.h"
 #include "Tub.h"
 
 namespace RAMCloud {

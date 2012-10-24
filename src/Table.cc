@@ -13,7 +13,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "TabletMap.h"
+#include "Table.h"
 #include "Logger.h"
 #include "ShortMacros.h"
 
