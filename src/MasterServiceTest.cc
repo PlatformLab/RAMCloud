@@ -124,7 +124,8 @@ class MasterServiceTest : public ::testing::Test {
         tablet.set_table_id(0);
         tablet.set_start_key_hash(0);
         tablet.set_end_key_hash(~0UL);
-        tablet.set_user_data(reinterpret_cast<uint64_t>(new Table(0, 0, ~0UL)));
+        tablet.set_user_data(reinterpret_cast<uint64_t>(
+                new TabletsOnMaster(0, 0, ~0UL)));
     }
 
     // Build a properly formatted segment containing a single object. This
@@ -792,7 +793,7 @@ TEST_F(MasterServiceTest, removeIfFromUnknownTablet) {
     EXPECT_TRUE(service->objectMap->lookup(key, reference));
 
     foreach (const ProtoBuf::Tablets::Tablet& tablet, service->tablets.tablet())
-        delete reinterpret_cast<Table*>(tablet.user_data());
+        delete reinterpret_cast<TabletsOnMaster*>(tablet.user_data());
     service->tablets.Clear();
 
     EXPECT_TRUE(service->getTable(key) == NULL);
@@ -1330,7 +1331,7 @@ TEST_F(MasterServiceTest, incrementReadAndWriteStatistics) {
     MultiReadObject* requests[] = {&request1, &request2};
     ramcloud->multiRead(requests, 2);
 
-    Table* table = reinterpret_cast<Table*>(
+    TabletsOnMaster* table = reinterpret_cast<TabletsOnMaster*>(
                                     service->tablets.tablet(0).user_data());
     EXPECT_EQ((uint64_t)7, table->statEntry.number_read_and_writes());
 }
@@ -1408,9 +1409,9 @@ takeTabletOwnership_filter(string s)
 TEST_F(MasterServiceTest, takeTabletOwnership_newTablet) {
     TestLog::Enable _(takeTabletOwnership_filter);
 
-    std::unique_ptr<Table> table1(new Table(1 , 0 , 1));
+    std::unique_ptr<TabletsOnMaster> table1(new TabletsOnMaster(1 , 0 , 1));
     uint64_t addrTable1 = reinterpret_cast<uint64_t>(table1.get());
-    std::unique_ptr<Table> table2(new Table(2 , 0 , 1));
+    std::unique_ptr<TabletsOnMaster> table2(new TabletsOnMaster(2 , 0 , 1));
     uint64_t addrTable2 = reinterpret_cast<uint64_t>(table2.get());
 
     // Start empty.
@@ -1508,7 +1509,8 @@ TEST_F(MasterServiceTest, takeTabletOwnership_migratingTablet) {
     tab.set_start_key_hash(0);
     tab.set_end_key_hash(5);
     tab.set_state(ProtoBuf::Tablets_Tablet_State_RECOVERING);
-    tab.set_user_data(reinterpret_cast<uint64_t>(new Table(1 , 0 , 5)));
+    tab.set_user_data(reinterpret_cast<uint64_t>(
+                new TabletsOnMaster(1 , 0 , 5)));
 
     MasterClient::takeTabletOwnership(&context, masterServer->serverId,
                                       1, 0, 5);
@@ -1529,7 +1531,8 @@ TEST_F(MasterServiceTest, prepForMigration) {
     tablet.set_table_id(5);
     tablet.set_start_key_hash(27);
     tablet.set_end_key_hash(873);
-    tablet.set_user_data(reinterpret_cast<uint64_t>(new Table(0 , 27 , 873)));
+    tablet.set_user_data(reinterpret_cast<uint64_t>(
+                new TabletsOnMaster(0 , 27 , 873)));
 
     TestLog::Enable _(prepForMigrationFilter);
 
@@ -1584,7 +1587,8 @@ TEST_F(MasterServiceTest, migrateTablet_firstKeyHashTooLow) {
     tablet.set_table_id(99);
     tablet.set_start_key_hash(27);
     tablet.set_end_key_hash(873);
-    tablet.set_user_data(reinterpret_cast<uint64_t>(new Table(0 , 27 , 873)));
+    tablet.set_user_data(reinterpret_cast<uint64_t>(
+                new TabletsOnMaster(0 , 27 , 873)));
 
     TestLog::Enable _(migrateTabletFilter);
 
@@ -1600,7 +1604,8 @@ TEST_F(MasterServiceTest, migrateTablet_lastKeyHashTooHigh) {
     tablet.set_table_id(99);
     tablet.set_start_key_hash(27);
     tablet.set_end_key_hash(873);
-    tablet.set_user_data(reinterpret_cast<uint64_t>(new Table(0 , 27 , 873)));
+    tablet.set_user_data(reinterpret_cast<uint64_t>(
+                new TabletsOnMaster(0 , 27 , 873)));
 
     TestLog::Enable _(migrateTabletFilter);
 
@@ -1616,7 +1621,8 @@ TEST_F(MasterServiceTest, migrateTablet_migrateToSelf) {
     tablet.set_table_id(99);
     tablet.set_start_key_hash(27);
     tablet.set_end_key_hash(873);
-    tablet.set_user_data(reinterpret_cast<uint64_t>(new Table(0 , 27 , 873)));
+    tablet.set_user_data(reinterpret_cast<uint64_t>(
+                new TabletsOnMaster(0 , 27 , 873)));
 
     TestLog::Enable _(migrateTabletFilter);
 
@@ -1955,7 +1961,7 @@ TEST_F(MasterServiceTest, objectRelocationCallback_objectAlive) {
     bool success = service->lookup(key, oldType, oldBuffer);
     EXPECT_TRUE(success);
 
-    Table* table = service->getTable(key);
+    TabletsOnMaster* table = service->getTable(key);
     table->objectCount++;
     table->objectBytes += oldBuffer.getTotalLength();
 
@@ -2014,7 +2020,7 @@ TEST_F(MasterServiceTest, objectRelocationCallback_objectDeleted) {
     bool success = service->lookup(key, type, buffer);
     EXPECT_TRUE(success);
 
-    Table* table = service->getTable(key);
+    TabletsOnMaster* table = service->getTable(key);
     table->objectCount++;
     table->objectBytes += buffer.getTotalLength();
 
@@ -2044,7 +2050,7 @@ TEST_F(MasterServiceTest, objectRelocationCallback_objectModified) {
     Buffer buffer;
     service->lookup(key, type, buffer);
 
-    Table* table = service->getTable(key);
+    TabletsOnMaster* table = service->getTable(key);
     table->objectCount++;
     table->objectBytes += buffer.getTotalLength();
 

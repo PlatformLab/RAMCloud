@@ -13,8 +13,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#ifndef RAMCLOUD_TABLE_H
-#define RAMCLOUD_TABLE_H
+#ifndef RAMCLOUD_TABLETSONMASTER_H
+#define RAMCLOUD_TABLETSONMASTER_H
 
 #include "Common.h"
 #include "Object.h"
@@ -26,16 +26,17 @@ namespace RAMCloud {
 /**
  * This class keeps information for the subset of a table stored on a
  * particular master. Multiple tablets of the same table that happen to be
- * co-located on a single master will all refer to a single Table object.
+ * co-located on a single master will all refer to a single
+ * TabletsOnMaster object.
  *
  * This class is pretty thin right now. Eventually, it's likely that some
  * access control stuff will go in here.
  */
-class Table {
+class TabletsOnMaster {
   public:
 
-    explicit Table(uint64_t tableId, uint64_t start_key_hash,
-                   uint64_t end_key_hash)
+    explicit TabletsOnMaster(uint64_t tableId, uint64_t start_key_hash,
+                             uint64_t end_key_hash)
         : objectCount(0),
           objectBytes(0),
           tombstoneCount(0),
@@ -68,9 +69,9 @@ class Table {
      */
     uint64_t tableId;
 
-    DISALLOW_COPY_AND_ASSIGN(Table);
+    DISALLOW_COPY_AND_ASSIGN(TabletsOnMaster);
 };
 
 } // namespace RAMCloud
 
-#endif // RAMCLOUD_TABLE_H
+#endif // RAMCLOUD_TABLETSONMASTER_H

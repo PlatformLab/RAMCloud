@@ -125,10 +125,10 @@ MasterService::MasterService(Context* context,
 MasterService::~MasterService()
 {
     replicaManager.haltFailureMonitor();
-    std::set<Table*> tables;
+    std::set<TabletsOnMaster*> tables;
     foreach (const ProtoBuf::Tablets::Tablet& tablet, tablets.tablet())
-        tables.insert(reinterpret_cast<Table*>(tablet.user_data()));
-    foreach (Table* table, tables)
+        tables.insert(reinterpret_cast<TabletsOnMaster*>(tablet.user_data()));
+    foreach (TabletsOnMaster* table, tables)
         delete table;
 
     if (log)
@@ -349,7 +349,7 @@ MasterService::fillWithTestData(
     LOG(NOTICE, "Filling with %u objects of %u bytes each in %u tablets",
         reqHdr.numObjects, reqHdr.objectSize, tablets.tablet_size());
 
-    Table* tables[tablets.tablet_size()];
+    TabletsOnMaster* tables[tablets.tablet_size()];
     uint32_t numTablets = 0;
     foreach (const ProtoBuf::Tablets::Tablet& tablet, tablets.tablet()) {
         // Only use tables where we store the entire table here.
@@ -357,7 +357,7 @@ MasterService::fillWithTestData(
         if ((tablet.start_key_hash() == 0)
                 && (tablet.end_key_hash() == ~0LU)) {
             tables[numTablets++] =
-                    reinterpret_cast<Table*>(tablet.user_data());
+                    reinterpret_cast<TabletsOnMaster*>(tablet.user_data());
         }
     }
     if (numTablets == 0)
@@ -427,7 +427,8 @@ MasterService::getServerStatistics(
     ProtoBuf::ServerStatistics serverStats;
 
     foreach (const ProtoBuf::Tablets::Tablet& i, tablets.tablet()) {
-        Table* table = reinterpret_cast<Table*>(i.user_data());
+        TabletsOnMaster* table =
+                reinterpret_cast<TabletsOnMaster*>(i.user_data());
         *serverStats.add_tabletentry() = table->statEntry;
     }
 
@@ -685,7 +686,8 @@ MasterService::dropTabletOwnership(
           reqHdr.lastKeyHash == i.end_key_hash()) {
             LOG(NOTICE, "Dropping ownership of tablet (%lu, range [%lu,%lu])",
                 reqHdr.tableId, reqHdr.firstKeyHash, reqHdr.lastKeyHash);
-            Table* table = reinterpret_cast<Table*>(i.user_data());
+            TabletsOnMaster* table =
+                    reinterpret_cast<TabletsOnMaster*>(i.user_data());
             delete table;
             tablets.mutable_tablet()->SwapElements(
                 tablets.tablet_size() - 1, index);
@@ -725,8 +727,9 @@ MasterService::splitMasterTablet(
 
             newTablet = i;
 
-            Table* newTable = new Table(reqHdr.tableId, reqHdr.firstKeyHash,
-                                 reqHdr.splitKeyHash - 1);
+            TabletsOnMaster* newTable =
+                    new TabletsOnMaster(reqHdr.tableId, reqHdr.firstKeyHash,
+                              reqHdr.splitKeyHash - 1);
             i.set_user_data(reinterpret_cast<uint64_t>(newTable));
             i.set_end_key_hash(reqHdr.splitKeyHash - 1);
         }
@@ -734,8 +737,9 @@ MasterService::splitMasterTablet(
     }
 
     newTablet.set_start_key_hash(reqHdr.splitKeyHash);
-    Table* newTable = new Table(reqHdr.tableId, reqHdr.splitKeyHash,
-                                 reqHdr.lastKeyHash);
+    TabletsOnMaster* newTable =
+            new TabletsOnMaster(reqHdr.tableId, reqHdr.splitKeyHash,
+                                reqHdr.lastKeyHash);
     newTablet.set_user_data(reinterpret_cast<uint64_t>(newTable));
 
     *tablets.add_tablet() = newTablet;
@@ -805,8 +809,9 @@ MasterService::takeTabletOwnership(
         newTablet.set_end_key_hash(reqHdr.lastKeyHash);
         newTablet.set_state(ProtoBuf::Tablets_Tablet_State_NORMAL);
 
-        Table* table = new Table(reqHdr.tableId, reqHdr.firstKeyHash,
-                                 reqHdr.lastKeyHash);
+        TabletsOnMaster* table =
+                new TabletsOnMaster(reqHdr.tableId, reqHdr.firstKeyHash,
+                                    reqHdr.lastKeyHash);
         newTablet.set_user_data(reinterpret_cast<uint64_t>(table));
     } else {
         LOG(NOTICE, "Taking ownership of existing tablet (%lu, range "
@@ -862,8 +867,9 @@ MasterService::prepForMigration(
     tablet.set_end_key_hash(reqHdr.lastKeyHash);
     tablet.set_state(ProtoBuf::Tablets_Tablet_State_RECOVERING);
 
-    Table* table = new Table(reqHdr.tableId, reqHdr.firstKeyHash,
-                             reqHdr.lastKeyHash);
+    TabletsOnMaster* table =
+            new TabletsOnMaster(reqHdr.tableId, reqHdr.firstKeyHash,
+                                reqHdr.lastKeyHash);
     tablet.set_user_data(reinterpret_cast<uint64_t>(table));
 
     // TODO(rumble) would be nice to have a method to get a SL from an Rpc
@@ -920,7 +926,8 @@ MasterService::migrateTablet(const WireFormat::MigrateTablet::Request& reqHdr,
         return;
     }
 
-    Table* table = reinterpret_cast<Table*>(tablet->user_data());
+    TabletsOnMaster* table =
+            reinterpret_cast<TabletsOnMaster*>(tablet->user_data());
 
     // TODO(rumble/slaughter) what if we end up splitting?!?
 
@@ -1280,7 +1287,7 @@ using namespace MasterServiceInternal; // NOLINT
  *      Pointer to the table object that is assosiated with each tablet.
  */
 void
-MasterService::incrementReadAndWriteStatistics(Table* table)
+MasterService::incrementReadAndWriteStatistics(TabletsOnMaster* table)
 {
     table->statEntry.set_number_read_and_writes(
                                 table->statEntry.number_read_and_writes() + 1);
@@ -1768,7 +1775,7 @@ MasterService::recover(const WireFormat::Recover::Request& reqHdr,
              recoveryTablets.tablet()) {
         ProtoBuf::Tablets_Tablet& newTablet(*tablets.add_tablet());
         newTablet = tablet;
-        Table* table = new Table(newTablet.table_id(),
+        TabletsOnMaster* table = new TabletsOnMaster(newTablet.table_id(),
                                  newTablet.start_key_hash(),
                                  newTablet.end_key_hash());
         newTablet.set_user_data(reinterpret_cast<uint64_t>(table));
@@ -1836,7 +1843,9 @@ MasterService::recover(const WireFormat::Recover::Request& reqHdr,
                     tablet.start_key_hash() == newTablet->start_key_hash() &&
                     tablet.end_key_hash() == newTablet->end_key_hash())
                 {
-                    Table* table = reinterpret_cast<Table*>(tablet.user_data());
+                    TabletsOnMaster* table =
+                            reinterpret_cast<TabletsOnMaster*>(
+                                        tablet.user_data());
                     delete table;
                     tablets.mutable_tablet()->
                         SwapElements(tablets.tablet_size() - 1, i);
@@ -2074,7 +2083,7 @@ MasterService::remove(const WireFormat::Remove::Request& reqHdr,
                                                         reqHdr.keyLength);
     Key key(reqHdr.tableId, stringKey, reqHdr.keyLength);
 
-    Table* table = getTable(key);
+    TabletsOnMaster* table = getTable(key);
     if (table == NULL) {
         respHdr.common.status = STATUS_UNKNOWN_TABLET;
         return;
@@ -2244,7 +2253,7 @@ MasterService::write(const WireFormat::Write::Request& reqHdr,
  *      The Table of which the tablet containing this key is a part, or NULL if
  *      this master does not own the tablet.
  */
-Table*
+TabletsOnMaster*
 MasterService::getTable(Key& key)
 {
     ProtoBuf::Tablets::Tablet const* tablet = getTabletForHash(key.getTableId(),
@@ -2252,7 +2261,8 @@ MasterService::getTable(Key& key)
     if (tablet == NULL)
         return NULL;
 
-    Table* table = reinterpret_cast<Table*>(tablet->user_data());
+    TabletsOnMaster* table =
+            reinterpret_cast<TabletsOnMaster*>(tablet->user_data());
     incrementReadAndWriteStatistics(table);
     return table;
 }
@@ -2271,7 +2281,7 @@ MasterService::getTable(Key& key)
  *      The Table of which the tablet containing this object is a part,
  *      or NULL if this master does not own the tablet.
  */
-Table*
+TabletsOnMaster*
 MasterService::getTableForHash(uint64_t tableId, KeyHash keyHash)
 {
     ProtoBuf::Tablets::Tablet const* tablet = getTabletForHash(tableId,
@@ -2279,7 +2289,8 @@ MasterService::getTableForHash(uint64_t tableId, KeyHash keyHash)
     if (tablet == NULL)
         return NULL;
 
-    Table* table = reinterpret_cast<Table*>(tablet->user_data());
+    TabletsOnMaster* table =
+            reinterpret_cast<TabletsOnMaster*>(tablet->user_data());
     return table;
 }
 
@@ -2419,7 +2430,7 @@ MasterService::relocateObject(Buffer& oldBuffer,
 
     std::lock_guard<SpinLock> lock(objectUpdateLock);
 
-    Table* table = getTable(key);
+    TabletsOnMaster* table = getTable(key);
     if (table == NULL) {
         // That tablet doesn't exist on this server anymore.
         // Just remove the hash table entry, if it exists.
@@ -2508,7 +2519,7 @@ MasterService::relocateTombstone(Buffer& oldBuffer,
             return;
     } else {
         Key key(LOG_ENTRY_TYPE_OBJTOMB, oldBuffer);
-        Table* table = getTable(key);
+        TabletsOnMaster* table = getTable(key);
         if (table != NULL) {
             table->tombstoneCount--;
             table->tombstoneBytes -= oldBuffer.getTotalLength();
@@ -2575,7 +2586,7 @@ MasterService::storeObject(Key& key,
                            uint64_t* newVersion,
                            bool sync)
 {
-    Table* table = getTable(key);
+    TabletsOnMaster* table = getTable(key);
     if (table == NULL)
         return STATUS_UNKNOWN_TABLET;
 

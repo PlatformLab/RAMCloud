@@ -31,7 +31,7 @@
 #include "Service.h"
 #include "ServerConfig.h"
 #include "SpinLock.h"
-#include "Table.h"
+#include "TabletsOnMaster.h"
 #include "WireFormat.h"
 
 namespace RAMCloud {
@@ -301,7 +301,7 @@ class MasterService : public Service, LogEntryHandlers {
     }
 
 
-    void incrementReadAndWriteStatistics(Table* table);
+    void incrementReadAndWriteStatistics(TabletsOnMaster* table);
     static void
     detectSegmentRecoveryFailure(
                         const ServerId masterId,
@@ -312,8 +312,8 @@ class MasterService : public Service, LogEntryHandlers {
     friend void removeObjectIfFromUnknownTablet(uint64_t reference,
                                                 void *cookie);
 
-    Table* getTable(Key& key) __attribute__((warn_unused_result));
-    Table* getTableForHash(uint64_t tableId, KeyHash keyHash)
+    TabletsOnMaster* getTable(Key& key) __attribute__((warn_unused_result));
+    TabletsOnMaster* getTableForHash(uint64_t tableId, KeyHash keyHash)
         __attribute__((warn_unused_result));
     ProtoBuf::Tablets::Tablet const* getTabletForHash(uint64_t tableId,
                                                       KeyHash keyHash)
