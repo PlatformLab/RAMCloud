@@ -19,7 +19,6 @@
 #include "Tablets.pb.h"
 
 #include "Common.h"
-#include "CoordinatorServerList.h"
 #include "Log.h"
 #include "LogEntryTypes.h"
 #include "ServerId.h"
@@ -100,7 +99,7 @@ class TabletMap {
                       Tablet::Status status,
                       Log::Position ctime);
     vector<Tablet> removeTabletsForTable(uint64_t tableId);
-    void serialize(const CoordinatorServerList& serverList,
+    void serialize(AbstractServerList& serverList,
                    ProtoBuf::Tablets& tablets) const;
     vector<Tablet> setStatusForServer(ServerId serverId,
                                       Tablet::Status status);

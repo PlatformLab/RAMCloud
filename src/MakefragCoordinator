@@ -5,6 +5,7 @@ LOGCABIN_STATE_PROTOBUF_FILES := \
 			src/StateServerDown.pb.cc \
 
 COORDINATOR_SRCFILES := \
+			src/CoordinatorServerList.cc \
 			src/CoordinatorService.cc \
 			src/CoordinatorServiceRecovery.cc \
 			src/CoordinatorServerManager.cc \

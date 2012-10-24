@@ -29,7 +29,6 @@ SHARED_SRCFILES := \
 		   src/Context.cc \
 		   src/CoordinatorClient.cc \
 		   src/CoordinatorRpcWrapper.cc \
-		   src/CoordinatorServerList.cc \
 		   src/CoordinatorSession.cc \
 		   src/Crc32C.cc \
 		   src/BackupClient.cc \
@@ -109,7 +108,7 @@ SHARED_SRCFILES := \
 		   src/WireFormat.cc \
 		   $(INFINIBAND_SRCFILES) \
 		   $(OBJDIR)/EnumerationIterator.pb.cc \
-           $(OBJDIR)/Histogram.pb.cc \
+		   $(OBJDIR)/Histogram.pb.cc \
 		   $(OBJDIR)/LogMetrics.pb.cc \
 		   $(OBJDIR)/MasterRecoveryInfo.pb.cc \
 		   $(OBJDIR)/MetricList.pb.cc \
