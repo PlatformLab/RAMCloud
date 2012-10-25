@@ -62,6 +62,11 @@ CoordinatorService::CoordinatorService(Context* context,
     else
         expectedEntryId = logCabinLog.get()->getLastId() + 1;
 
+    context->recoveryManager = &recoveryManager;
+    context->logCabinLog = logCabinLog.get();
+    context->logCabinHelper = logCabinHelper.get();
+    context->expectedEntryId = &expectedEntryId;
+
     recoveryManager.start();
 
     // Replay the entire log (if any) before we start servicing the RPCs.

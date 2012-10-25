@@ -499,7 +499,8 @@ CoordinatorServerManager::SetMasterRecoveryInfo::complete(EntryId entryId)
     } catch (const ServerListException& e) {
         LOG(WARNING, "setMasterRecoveryInfo server doesn't exist: %s",
             serverId.toString().c_str());
-        manager.service.logCabinLog->invalidate(vector<EntryId>(entryId));
+        manager.service.logCabinHelper->invalidate(
+            manager.service.expectedEntryId, vector<EntryId>(entryId));
         throw ServerListException(e);
     }
 }

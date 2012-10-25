@@ -69,6 +69,10 @@ Context::Context(bool hasDedicatedDispatchThread)
     , coordinatorSession(NULL)
     , serverList(NULL)
     , coordinatorServerList(NULL)
+    , recoveryManager(NULL)
+    , logCabinLog(NULL)
+    , logCabinHelper(NULL)
+    , expectedEntryId(NULL)
 {
     try {
 #if TESTING
