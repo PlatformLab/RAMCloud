@@ -139,7 +139,11 @@ Key::operator==(const Key& other) const
         return false;
     if (stringKeyLength != other.stringKeyLength)
         return false;
-    return (memcmp(stringKey, other.stringKey, stringKeyLength) == 0);
+
+    // bcmp is used here because it's about 20-25ns faster than memcmp with
+    // 8-byte strings. The problem with memcmp appears to be that GCC emits
+    // an "optimization" (repz cmpsb) that is much slower than glibc's memcmp.
+    return (bcmp(stringKey, other.stringKey, stringKeyLength) == 0);
 }
 
 /**
@@ -217,13 +221,13 @@ Key::toString() const
 KeyHash
 Key::getHash(uint64_t tableId, const void* stringKey, uint16_t stringKeyLength)
 {
-    // Indexes 0 and 1 get the tableId's hash, 2 and 3 the string key's.
-    uint64_t tmp[4];
-    MurmurHash3_x64_128(&tableId, sizeof(tableId), 0, &tmp[0]);
-    MurmurHash3_x64_128(stringKey, stringKeyLength, 0, &tmp[2]);
-
+    // It would be nice if MurmurHash3 took a 64-bit seed so we could cheaply
+    // include the full tableId. For now just cast down to 32-bits and hope for
+    // the best. We used to invoke the hash function multiple times, but that
+    // added too much additional latency to hash table lookups.
+    uint32_t tableIdSeed = static_cast<uint32_t>(tableId);
     uint64_t out[2];
-    MurmurHash3_x64_128(tmp, sizeof(tmp), 0, out);
+    MurmurHash3_x64_128(stringKey, stringKeyLength, tableIdSeed, &out);
     return out[0];
 }
 
