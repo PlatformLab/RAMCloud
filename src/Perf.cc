@@ -262,6 +262,56 @@ double dispatchPoll()
     return Cycles::toSeconds(stop - start)/count;
 }
 
+// Measure the cost of a 32-bit divide. Divides don't take a constant
+// number of cycles. Values were chosen here semi-randomly to depict a
+// fairly expensive scenario. Someone with fancy ALU knowledge could
+// probably pick worse values.
+double div32()
+{
+    int count = 1000000;
+    Dispatch dispatch(false);
+    uint64_t start = Cycles::rdtsc();
+    // NB: Expect an x86 processor exception is there's overflow.
+    uint32_t numeratorHi = 0xa5a5a5a5U;
+    uint32_t numeratorLo = 0x55aa55aaU;
+    uint32_t divisor = 0xaa55aa55U;
+    uint32_t quotient;
+    uint32_t remainder;
+    for (int i = 0; i < count; i++) {
+        __asm__ __volatile__("div %4" :
+                             "=a"(quotient), "=d"(remainder) :
+                             "a"(numeratorLo), "d"(numeratorHi), "r"(divisor) :
+                             "cc");
+    }
+    uint64_t stop = Cycles::rdtsc();
+    return Cycles::toSeconds(stop - start)/count;
+}
+
+// Measure the cost of a 64-bit divide. Divides don't take a constant
+// number of cycles. Values were chosen here semi-randomly to depict a
+// fairly expensive scenario. Someone with fancy ALU knowledge could
+// probably pick worse values.
+double div64()
+{
+    int count = 1000000;
+    Dispatch dispatch(false);
+    // NB: Expect an x86 processor exception is there's overflow.
+    uint64_t start = Cycles::rdtsc();
+    uint64_t numeratorHi = 0x5a5a5a5a5a5UL;
+    uint64_t numeratorLo = 0x55aa55aa55aa55aaUL;
+    uint64_t divisor = 0xaa55aa55aa55aa55UL;
+    uint64_t quotient;
+    uint64_t remainder;
+    for (int i = 0; i < count; i++) {
+        __asm__ __volatile__("divq %4" :
+                             "=a"(quotient), "=d"(remainder) :
+                             "a"(numeratorLo), "d"(numeratorHi), "r"(divisor) :
+                             "cc");
+    }
+    uint64_t stop = Cycles::rdtsc();
+    return Cycles::toSeconds(stop - start)/count;
+}
+
 // Measure the cost of calling a non-inlined function.
 double functionCall()
 {
@@ -850,6 +900,10 @@ TestInfo tests[] = {
      "Convert a rdtsc result to (uint64_t) nanoseconds"},
     {"dispatchPoll", dispatchPoll,
      "Dispatch::poll (no timers or pollers)"},
+    {"div32", div32,
+     "32-bit integer division instruction"},
+    {"div64", div64,
+     "64-bit integer division instruction"},
     {"functionCall", functionCall,
      "Call a function that has not been inlined"},
     {"getThreadId", getThreadId,
