@@ -158,14 +158,6 @@ hashTableBenchmark(uint64_t nkeys, uint64_t nlines)
 
     printf("    minikey false positives: %lu\n", pc.lookupEntryHashCollisions);
 
-    printf("    min ticks: %lu, %lu nsec\n",
-           pc.lookupEntryDist.getMin(),
-           Cycles::toNanoseconds(pc.lookupEntryDist.getMin()));
-
-    printf("    max ticks: %lu, %lu nsec\n",
-           pc.lookupEntryDist.getMax(),
-           Cycles::toNanoseconds(pc.lookupEntryDist.getMax()));
-
     uint64_t *histogram = static_cast<uint64_t *>(
         Memory::xmalloc(HERE, nlines * sizeof(histogram[0])));
     memset(histogram, 0, sizeof(nlines * sizeof(histogram[0])));
@@ -197,9 +189,6 @@ hashTableBenchmark(uint64_t nkeys, uint64_t nlines)
 
     free(histogram);
     histogram = NULL;
-
-    printf("lookup cycle histogram:\n");
-    printf("%s\n", pc.lookupEntryDist.toString().c_str());
 }
 
 } // namespace RAMCloud
