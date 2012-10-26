@@ -1850,6 +1850,36 @@ MasterService::recover(const WireFormat::Recover::Request& reqHdr,
 }
 
 /**
+ * This method is used by recoverSegment() to prefetch the hash table bucket
+ * corresponding to the next piece of recovery data being iterated over.
+ * Doing so avoids a cache miss for subsequent hash table lookups and speeds
+ * up recovery.
+ *
+ * \param it
+ *      SegmentIterator to use for prefetching. Whatever is currently pointed
+ *      to by this iterator will be used to prefetch, if possible. Some entries
+ *      do not contain keys; they are safely ignored.
+ */
+inline void
+MasterService::recoverSegmentPrefetcher(SegmentIterator& it)
+{
+    if (__builtin_expect(it.isDone(), false))
+        return;
+    
+   if (__builtin_expect(it.getType() == LOG_ENTRY_TYPE_OBJ, true)) {
+        const Object::SerializedForm* obj =
+            it.getContiguous<Object::SerializedForm>(NULL, 0);
+        Key key(obj->tableId, obj->keyAndData, obj->keyLength);
+        objectMap->prefetchBucket(key);
+    } else if (it.getType() == LOG_ENTRY_TYPE_OBJTOMB) {
+        const ObjectTombstone::SerializedForm* tomb =
+            it.getContiguous<ObjectTombstone::SerializedForm>(NULL, 0);
+        Key key(tomb->tableId, tomb->key, tomb->keyLength);
+        objectMap->prefetchBucket(key);
+    }
+}
+
+/**
  * Replay a recovery segment from a crashed Master that this Master is taking
  * over for.
  *
@@ -1881,8 +1911,14 @@ MasterService::recoverSegment(SegmentIterator& it)
     uint64_t safeVersionRecoveryCount = 0;
     uint64_t safeVersionNonRecoveryCount = 0;
 
+    SegmentIterator prefetcher = it;
+    prefetcher.next();
+
     uint64_t bytesIterated = 0;
-    while (!it.isDone()) {
+    while (__builtin_expect(!it.isDone(), true)) {
+        recoverSegmentPrefetcher(prefetcher);
+        prefetcher.next();
+
         LogEntryType type = it.getType();
 
         if (bytesIterated > 50000) {
@@ -1894,7 +1930,7 @@ MasterService::recoverSegment(SegmentIterator& it)
         recoverySegmentEntryCount++;
         recoverySegmentEntryBytes += it.getLength();
 
-        if (type == LOG_ENTRY_TYPE_OBJ) {
+        if (__builtin_expect(type == LOG_ENTRY_TYPE_OBJ, true)) {
             // The recovery segment is guaranteed to be contiguous, so we need
             // not provide a copyout buffer.
             const Object::SerializedForm* recoveryObj =
@@ -1908,7 +1944,7 @@ MasterService::recoverSegment(SegmentIterator& it)
                 Object::computeChecksum(recoveryObj, it.getLength()) ==
                     recoveryObj->checksum;
             });
-            if (!checksumIsValid) {
+            if (__builtin_expect(!checksumIsValid, false)) {
                 LOG(WARNING, "bad object checksum! key: %s, version: %lu",
                     key.toString().c_str(), recoveryObj->version);
                 // TODO(Stutsman): Should throw and try another segment replica?
@@ -1978,7 +2014,7 @@ MasterService::recoverSegment(SegmentIterator& it)
                 CycleCounter<uint64_t> c(&verifyChecksumTicks);
                 recoverTomb.checkIntegrity();
             });
-            if (!checksumIsValid) {
+            if (__builtin_expect(!checksumIsValid, false)) {
                 LOG(WARNING, "bad tombstone checksum! key: %s, version: %lu",
                     key.toString().c_str(), recoverTomb.getObjectVersion());
                 // TODO(Stutsman): Should throw and try another segment replica?
@@ -2038,7 +2074,7 @@ MasterService::recoverSegment(SegmentIterator& it)
                 CycleCounter<uint64_t> _(&verifyChecksumTicks);
                 recoverSafeVer.checkIntegrity();
             });
-            if (!checksumIsValid) {
+            if (__builtin_expect(!checksumIsValid, false)) {
                 LOG(WARNING, "bad objectSafeVer checksum! version: %lu",
                     safeVersion);
                 // TODO(Stutsman): Should throw and try another segment replica?
