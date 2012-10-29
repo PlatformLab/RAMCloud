@@ -404,10 +404,10 @@ TEST_F(ReplicaManagerTest, endToEndBackupRecovery) {
 
     // Make sure the replication epoch on the coordinator was updated.
     EXPECT_EQ(2u,
-        cluster.coordinator->context->coordinatorServerList->at(
+        cluster.coordinator->context->coordinatorServerList->operator[](
         serverId).masterRecoveryInfo.min_open_segment_id());
     EXPECT_EQ(1u,
-        cluster.coordinator->context->coordinatorServerList->at(
+        cluster.coordinator->context->coordinatorServerList->operator[](
         serverId).masterRecoveryInfo.min_open_segment_epoch());
 }
 

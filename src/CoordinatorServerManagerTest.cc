@@ -121,9 +121,9 @@ TEST_F(CoordinatorServerManagerTest, assignReplicationGroup) {
     }
     // Check normal functionality.
     EXPECT_TRUE(serverManager->assignReplicationGroup(10U, serverIds));
-    EXPECT_EQ(10U, serverList->at(serverIds[0]).replicationId);
-    EXPECT_EQ(10U, serverList->at(serverIds[1]).replicationId);
-    EXPECT_EQ(10U, serverList->at(serverIds[2]).replicationId);
+    EXPECT_EQ(10U, serverList->operator[](serverIds[0]).replicationId);
+    EXPECT_EQ(10U, serverList->operator[](serverIds[1]).replicationId);
+    EXPECT_EQ(10U, serverList->operator[](serverIds[2]).replicationId);
 
     serverManager->forceServerDownForTesting = false;
 }
@@ -137,14 +137,14 @@ TEST_F(CoordinatorServerManagerTest, createReplicationGroup) {
         config.localLocator = format("mock:host=backup%u", i);
         serverIds[i] = cluster.addServer(config)->serverId;
     }
-    EXPECT_EQ(1U, serverList->at(serverIds[0]).replicationId);
-    EXPECT_EQ(1U, serverList->at(serverIds[1]).replicationId);
-    EXPECT_EQ(1U, serverList->at(serverIds[2]).replicationId);
-    EXPECT_EQ(2U, serverList->at(serverIds[3]).replicationId);
-    EXPECT_EQ(2U, serverList->at(serverIds[4]).replicationId);
-    EXPECT_EQ(2U, serverList->at(serverIds[5]).replicationId);
-    EXPECT_EQ(0U, serverList->at(serverIds[6]).replicationId);
-    EXPECT_EQ(0U, serverList->at(serverIds[7]).replicationId);
+    EXPECT_EQ(1U, serverList->operator[](serverIds[0]).replicationId);
+    EXPECT_EQ(1U, serverList->operator[](serverIds[1]).replicationId);
+    EXPECT_EQ(1U, serverList->operator[](serverIds[2]).replicationId);
+    EXPECT_EQ(2U, serverList->operator[](serverIds[3]).replicationId);
+    EXPECT_EQ(2U, serverList->operator[](serverIds[4]).replicationId);
+    EXPECT_EQ(2U, serverList->operator[](serverIds[5]).replicationId);
+    EXPECT_EQ(0U, serverList->operator[](serverIds[6]).replicationId);
+    EXPECT_EQ(0U, serverList->operator[](serverIds[7]).replicationId);
     // Kill server 7.
     serverManager->forceServerDownForTesting = true;
     serverManager->hintServerDown(serverIds[7]);
@@ -152,12 +152,12 @@ TEST_F(CoordinatorServerManagerTest, createReplicationGroup) {
     // Create a new server.
     config.localLocator = format("mock:host=backup%u", 9);
     serverIds[8] = cluster.addServer(config)->serverId;
-    EXPECT_EQ(0U, serverList->at(serverIds[6]).replicationId);
-    EXPECT_EQ(0U, serverList->at(serverIds[8]).replicationId);
+    EXPECT_EQ(0U, serverList->operator[](serverIds[6]).replicationId);
+    EXPECT_EQ(0U, serverList->operator[](serverIds[8]).replicationId);
     config.localLocator = format("mock:host=backup%u", 10);
     serverIds[9] = cluster.addServer(config)->serverId;
-    EXPECT_EQ(3U, serverList->at(serverIds[6]).replicationId);
-    EXPECT_EQ(3U, serverList->at(serverIds[9]).replicationId);
+    EXPECT_EQ(3U, serverList->operator[](serverIds[6]).replicationId);
+    EXPECT_EQ(3U, serverList->operator[](serverIds[9]).replicationId);
 }
 
 TEST_F(CoordinatorServerManagerTest, enlistServer) {
@@ -212,7 +212,7 @@ TEST_F(CoordinatorServerManagerTest, enlistServer_ReplaceAMaster) {
               TestLog::get());
     EXPECT_TRUE(serverList->contains(masterServerId));
     EXPECT_EQ(ServerStatus::CRASHED,
-              serverList->at(masterServerId).status);
+              serverList->operator[](masterServerId).status);
 
     ServerDetails details;
     ServerChangeEvent event;
@@ -389,19 +389,19 @@ TEST_F(CoordinatorServerManagerTest, removeReplicationGroup) {
         config.localLocator = format("mock:host=backup%u", i);
         serverIds[i] = cluster.addServer(config)->serverId;
     }
-    EXPECT_EQ(1U, serverList->at(serverIds[1]).replicationId);
+    EXPECT_EQ(1U, serverList->operator[](serverIds[1]).replicationId);
     serverManager->forceServerDownForTesting = true;
     serverManager->hintServerDown(serverIds[1]);
     serverManager->forceServerDownForTesting = false;
-    EXPECT_EQ(0U, serverList->at(serverIds[0]).replicationId);
-    EXPECT_EQ(0U, serverList->at(serverIds[2]).replicationId);
+    EXPECT_EQ(0U, serverList->operator[](serverIds[0]).replicationId);
+    EXPECT_EQ(0U, serverList->operator[](serverIds[2]).replicationId);
     config.localLocator = format("mock:host=backup%u", 3);
     serverIds[3] = cluster.addServer(config)->serverId;
-    EXPECT_EQ(2U, serverList->at(serverIds[2]).replicationId);
+    EXPECT_EQ(2U, serverList->operator[](serverIds[2]).replicationId);
     serverManager->removeReplicationGroup(2);
-    EXPECT_EQ(0U, serverList->at(serverIds[0]).replicationId);
-    EXPECT_EQ(0U, serverList->at(serverIds[2]).replicationId);
-    EXPECT_EQ(0U, serverList->at(serverIds[3]).replicationId);
+    EXPECT_EQ(0U, serverList->operator[](serverIds[0]).replicationId);
+    EXPECT_EQ(0U, serverList->operator[](serverIds[2]).replicationId);
+    EXPECT_EQ(0U, serverList->operator[](serverIds[3]).replicationId);
 }
 
 namespace {
@@ -436,7 +436,7 @@ TEST_F(CoordinatorServerManagerTest, serverDown_server) {
               "startMasterRecovery: Recovery crashedServerId: 1.0",
                TestLog::get());
     EXPECT_EQ(ServerStatus::CRASHED,
-              serverList->at(master->serverId).status);
+              serverList->operator[](master->serverId).status);
 }
 
 TEST_F(CoordinatorServerManagerTest, serverDown_LogCabin) {
@@ -484,7 +484,7 @@ TEST_F(CoordinatorServerManagerTest, serverDownRecover) {
               "startMasterRecovery: Recovery crashedServerId: 1.0",
                TestLog::get());
     EXPECT_EQ(ServerStatus::CRASHED,
-              serverList->at(master->serverId).status);
+              serverList->operator[](master->serverId).status);
 }
 
 TEST_F(CoordinatorServerManagerTest, setMasterRecoveryInfo) {
@@ -492,13 +492,13 @@ TEST_F(CoordinatorServerManagerTest, setMasterRecoveryInfo) {
     info.set_min_open_segment_id(10);
     info.set_min_open_segment_epoch(1);
     serverManager->setMasterRecoveryInfo(masterServerId, info);
-    auto other = serverList->at(masterServerId).masterRecoveryInfo;
+    auto other = serverList->operator[](masterServerId).masterRecoveryInfo;
     EXPECT_EQ(10lu, other.min_open_segment_id());
     EXPECT_EQ(1lu, other.min_open_segment_epoch());
     info.set_min_open_segment_id(9);
     info.set_min_open_segment_epoch(0);
     serverManager->setMasterRecoveryInfo(masterServerId, info);
-    other = serverList->at(masterServerId).masterRecoveryInfo;
+    other = serverList->operator[](masterServerId).masterRecoveryInfo;
     EXPECT_EQ(9lu, other.min_open_segment_id());
     EXPECT_EQ(0lu, other.min_open_segment_epoch());
 }
@@ -514,9 +514,9 @@ TEST_F(CoordinatorServerManagerTest, setMasterRecoveryInfoRecover) {
 
     serverManager->setMasterRecoveryInfoRecover(&serverUpdate, entryId);
 
-    EXPECT_EQ(10lu, serverList->at(masterServerId).
+    EXPECT_EQ(10lu, serverList->operator[](masterServerId).
                         masterRecoveryInfo.min_open_segment_id());
-    EXPECT_EQ(1lu, serverList->at(masterServerId).
+    EXPECT_EQ(1lu, serverList->operator[](masterServerId).
                         masterRecoveryInfo.min_open_segment_epoch());
 }
 

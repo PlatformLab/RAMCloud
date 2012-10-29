@@ -413,14 +413,15 @@ TEST_F(CoordinatorServerListTest, firstFreeIndex) {
 }
 
 TEST_F(CoordinatorServerListTest, getReferenceFromServerId) {
-    EXPECT_THROW(sl.getReferenceFromServerId(ServerId(0, 0)), Exception);
-    EXPECT_THROW(sl.getReferenceFromServerId(ServerId(1, 0)), Exception);
+    Lock lock(mutex);
+    EXPECT_THROW(sl.getReferenceFromServerId(lock, ServerId(0, 0)), Exception);
+    EXPECT_THROW(sl.getReferenceFromServerId(lock, ServerId(1, 0)), Exception);
     ServerId serverId = sl.generateUniqueId();
     sl.add(serverId, "", {WireFormat::MASTER_SERVICE}, 100);
-    EXPECT_THROW(sl.getReferenceFromServerId(ServerId(0, 0)), Exception);
-    EXPECT_NO_THROW(sl.getReferenceFromServerId(ServerId(1, 0)));
-    EXPECT_THROW(sl.getReferenceFromServerId(ServerId(1, 1)), Exception);
-    EXPECT_THROW(sl.getReferenceFromServerId(ServerId(2, 0)), Exception);
+    EXPECT_THROW(sl.getReferenceFromServerId(lock, ServerId(0, 0)), Exception);
+    EXPECT_NO_THROW(sl.getReferenceFromServerId(lock, ServerId(1, 0)));
+    EXPECT_THROW(sl.getReferenceFromServerId(lock, ServerId(1, 1)), Exception);
+    EXPECT_THROW(sl.getReferenceFromServerId(lock, ServerId(2, 0)), Exception);
 }
 
 TEST_F(CoordinatorServerListTest, Entry_constructor) {
@@ -471,16 +472,19 @@ TEST_F(CoordinatorServerListTest, addServerInfoLogId) {
     sl.add(serverId, "", {WireFormat::MASTER_SERVICE}, 100);
     sl.addServerInfoLogId(serverId, 10);
 
-    CoordinatorServerList::Entry entry(sl.getReferenceFromServerId(serverId));
+    Lock lock(mutex);
+    CoordinatorServerList::Entry
+                entry(sl.getReferenceFromServerId(lock, serverId));
     EXPECT_EQ(10U, entry.serverInfoLogId);
 }
 
 TEST_F(CoordinatorServerListTest, getServerInfoLogId) {
     ServerId serverId = sl.generateUniqueId();
     sl.add(serverId, "", {WireFormat::MASTER_SERVICE}, 100);
+    Lock lock(mutex);
     CoordinatorServerList::Entry& entry =
         const_cast<CoordinatorServerList::Entry&>(
-            sl.getReferenceFromServerId(serverId));
+            sl.getReferenceFromServerId(lock, serverId));
     entry.serverInfoLogId = 10U;
 
     LogCabin::Client::EntryId entryId = sl.getServerInfoLogId(serverId);
@@ -492,16 +496,19 @@ TEST_F(CoordinatorServerListTest, addServerUpdateLogId) {
     sl.add(serverId, "", {WireFormat::MASTER_SERVICE}, 100);
     sl.addServerUpdateLogId(serverId, 10);
 
-    CoordinatorServerList::Entry entry(sl.getReferenceFromServerId(serverId));
+    Lock lock(mutex);
+    CoordinatorServerList::Entry
+                entry(sl.getReferenceFromServerId(lock, serverId));
     EXPECT_EQ(10U, entry.serverUpdateLogId);
 }
 
 TEST_F(CoordinatorServerListTest, getServerUpdateLogId) {
     ServerId serverId = sl.generateUniqueId();
     sl.add(serverId, "", {WireFormat::MASTER_SERVICE}, 100);
+    Lock lock(mutex);
     CoordinatorServerList::Entry& entry =
         const_cast<CoordinatorServerList::Entry&>(
-            sl.getReferenceFromServerId(serverId));
+            sl.getReferenceFromServerId(lock, serverId));
     entry.serverUpdateLogId = 10U;
 
     LogCabin::Client::EntryId entryId = sl.getServerUpdateLogId(serverId);
@@ -549,7 +556,7 @@ TEST_F(CoordinatorServerListTest, isClusterUpToDate) {
     sl.add(id5, "mock:host=server5", {WireFormat::MEMBERSHIP_SERVICE}, 100);
     CoordinatorServerList::Entry& entry =
             const_cast<CoordinatorServerList::Entry&>
-                (sl.getReferenceFromServerId(id5));
+                (sl.getReferenceFromServerId(lock, id5));
     entry.serverListVersion = sl.version;
     EXPECT_TRUE(sl.isClusterUpToDate(lock));
     entry.isBeingUpdated = sl.version;
@@ -735,7 +742,8 @@ TEST_F(CoordinatorServerListTest, hasUpdates_specialCase) {
     EXPECT_TRUE(sl.hasUpdates(lock));
     EXPECT_FALSE(sl.updates.empty());
     (const_cast<CoordinatorServerList::Entry&>
-            (sl.getReferenceFromServerId(id1))).isBeingUpdated = sl.version;
+            (sl.getReferenceFromServerId(lock, id1))).isBeingUpdated =
+                        sl.version;
     EXPECT_FALSE(sl.hasUpdates(lock));
 
     // Start and finish update of server 2
@@ -751,17 +759,19 @@ TEST_F(CoordinatorServerListTest, hasUpdates_specialCase) {
 }
 
 TEST_F(CoordinatorServerListTest, updateEntryVersion) {
+    Lock lock(mutex);
     sl.haltUpdater();
     ServerId id1 = sl.generateUniqueId();
     sl.add(id1, "mock:host=server1", {WireFormat::MASTER_SERVICE}, 100);
-    EXPECT_EQ(0UL, sl.getReferenceFromServerId(id1).serverListVersion);
+    EXPECT_EQ(0UL, sl.getReferenceFromServerId(lock, id1).serverListVersion);
 
     sl.updateEntryVersion(id1, 2358);
-    EXPECT_EQ(2358UL, sl.getReferenceFromServerId(id1).serverListVersion);
-    EXPECT_EQ(0UL, sl.getReferenceFromServerId(id1).isBeingUpdated);
+    EXPECT_EQ(2358UL, sl.getReferenceFromServerId(lock, id1).serverListVersion);
+    EXPECT_EQ(0UL, sl.getReferenceFromServerId(lock, id1).isBeingUpdated);
 }
 
 TEST_F(CoordinatorServerListTest, updateEntryVersion_booleanToggles) {
+    Lock lock(mutex);
     sl.haltUpdater();
 
     ServerId id1 = sl.generateUniqueId();
@@ -773,7 +783,7 @@ TEST_F(CoordinatorServerListTest, updateEntryVersion_booleanToggles) {
 
     sl.updateEntryVersion(id1, 10);
     EXPECT_TRUE(sl.lastScan.noUpdatesFound);
-    EXPECT_EQ(0UL, sl.getReferenceFromServerId(id1).isBeingUpdated);
+    EXPECT_EQ(0UL, sl.getReferenceFromServerId(lock, id1).isBeingUpdated);
 
     // Lower update version should trigger noUpdatesFound
     sl.updateEntryVersion(id1, 2);

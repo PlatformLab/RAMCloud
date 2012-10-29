@@ -399,7 +399,7 @@ TEST_F(CoordinatorServiceTest, setMasterRecoveryInfo) {
     info.set_min_open_segment_id(10);
     info.set_min_open_segment_epoch(1);
     CoordinatorClient::setMasterRecoveryInfo(&context, masterServerId, info);
-    EXPECT_EQ(10u, service->context->coordinatorServerList->at(
+    EXPECT_EQ(10u, service->context->coordinatorServerList->operator[](
             masterServerId).masterRecoveryInfo.min_open_segment_id());
 }
 

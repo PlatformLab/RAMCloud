@@ -224,8 +224,8 @@ void
 CoordinatorServerList::setMasterRecoveryInfo(
         ServerId serverId, const ProtoBuf::MasterRecoveryInfo& recoveryInfo)
 {
-    Lock _(mutex);
-    Entry& entry = const_cast<Entry&>(getReferenceFromServerId(serverId));
+    Lock lock(mutex);
+    Entry& entry = const_cast<Entry&>(getReferenceFromServerId(lock, serverId));
     entry.masterRecoveryInfo = recoveryInfo;
 }
 
@@ -244,7 +244,7 @@ CoordinatorServerList::setReplicationId(ServerId serverId,
                                         uint64_t replicationId)
 {
     Lock lock(mutex);
-    Entry& entry = const_cast<Entry&>(getReferenceFromServerId(serverId));
+    Entry& entry = const_cast<Entry&>(getReferenceFromServerId(lock, serverId));
     if (entry.status != ServerStatus::UP) {
         return;
     }
@@ -256,6 +256,12 @@ CoordinatorServerList::setReplicationId(ServerId serverId,
 
 /**
  * Returns a copy of the details associated with the given ServerId.
+ * 
+ * Note: This function explictly acquires a lock, and is hence to be used
+ * only by functions external to CoordinatorServerList to prevent deadlocks.
+ * If a function in CoordinatorServerList class (that has already acquired
+ * a lock) wants to use this functionality, it should directly call
+ * #getReferenceFromServerId function.
  *
  * \param serverId
  *      ServerId to look up in the list.
@@ -265,14 +271,20 @@ CoordinatorServerList::setReplicationId(ServerId serverId,
 CoordinatorServerList::Entry
 CoordinatorServerList::operator[](const ServerId& serverId) const
 {
-    Lock _(mutex);
-    return getReferenceFromServerId(serverId);
+    Lock lock(mutex);
+    return getReferenceFromServerId(lock, serverId);
 }
 
 /**
  * Returns a copy of the details associated with the given position
  * in the server list or empty if the position in the list is
  * unoccupied.
+ * 
+ * Note: This function explictly acquires a lock, and is hence to be used
+ * only by functions external to CoordinatorServerList to prevent deadlocks.
+ * If a function in CoordinatorServerList class (that has already acquired
+ * a lock) wants to use this functionality, it should directly call
+ * #getReferenceFromServerId function.
  *
  * \param index
  *      Position of entry in the server list to return a copy of.
@@ -282,47 +294,9 @@ CoordinatorServerList::operator[](const ServerId& serverId) const
 Tub<CoordinatorServerList::Entry>
 CoordinatorServerList::operator[](size_t index) const
 {
-    Lock _(mutex);
-    if (index >= serverList.size())
-        throw Exception(HERE, format("Index beyond array length (%zd)", index));
-    return serverList[index].entry;
+    Lock lock(mutex);
+    return getReferenceFromIndex(lock, index);
 }
-
-
-/**
- * Returns a copy of the details associated with the given ServerId.
- *
- * \param serverId
- *      ServerId to look up in the list.
- * \throw
- *      Exception is thrown if the given ServerId is not in this list.
- */
-CoordinatorServerList::Entry
-CoordinatorServerList::at(const ServerId& serverId) const
-{
-    Lock _(mutex);
-    return getReferenceFromServerId(serverId);
-}
-
-/**
- * Returns a copy of the details associated with the given position
- * in the server list or empty if the position in the list is
- * unoccupied.
- *
- * \param index
- *      Position of entry in the server list to return a copy of.
- * \throw
- *      Exception is thrown if the given ServerId is not in this list.
- */
-Tub<CoordinatorServerList::Entry>
-CoordinatorServerList::at(size_t index) const
-{
-    Lock _(mutex);
-    if (index >= serverList.size())
-        throw Exception(HERE, format("Index beyond array length (%zd)", index));
-    return serverList[index].entry;
-}
-
 
 /**
  * Get the number of masters in the list; does not include servers in
@@ -438,8 +412,8 @@ void
 CoordinatorServerList::addServerInfoLogId(ServerId serverId,
                                           LogCabin::Client::EntryId entryId)
 {
-    Lock _(mutex);
-    Entry& entry = const_cast<Entry&>(getReferenceFromServerId(serverId));
+    Lock lock(mutex);
+    Entry& entry = const_cast<Entry&>(getReferenceFromServerId(lock, serverId));
     entry.serverInfoLogId = entryId;
 }
 
@@ -457,7 +431,8 @@ CoordinatorServerList::addServerInfoLogId(ServerId serverId,
 LogCabin::Client::EntryId
 CoordinatorServerList::getServerInfoLogId(ServerId serverId)
 {
-    Entry& entry = const_cast<Entry&>(getReferenceFromServerId(serverId));
+    Lock lock(mutex);
+    Entry& entry = const_cast<Entry&>(getReferenceFromServerId(lock, serverId));
     return entry.serverInfoLogId;
 }
 
@@ -474,8 +449,8 @@ void
 CoordinatorServerList::addServerUpdateLogId(ServerId serverId,
                                             LogCabin::Client::EntryId entryId)
 {
-    Lock _(mutex);
-    Entry& entry = const_cast<Entry&>(getReferenceFromServerId(serverId));
+    Lock lock(mutex);
+    Entry& entry = const_cast<Entry&>(getReferenceFromServerId(lock, serverId));
     entry.serverUpdateLogId = entryId;
 }
 
@@ -493,7 +468,8 @@ CoordinatorServerList::addServerUpdateLogId(ServerId serverId,
 LogCabin::Client::EntryId
 CoordinatorServerList::getServerUpdateLogId(ServerId serverId)
 {
-    Entry& entry = const_cast<Entry&>(getReferenceFromServerId(serverId));
+    Lock lock(mutex);
+    Entry& entry = const_cast<Entry&>(getReferenceFromServerId(lock, serverId));
     return entry.serverUpdateLogId;
 }
 
@@ -637,6 +613,9 @@ CoordinatorServerList::firstFreeIndex()
 /**
  * Obtain a reference to the entry associated with the given ServerId.
  *
+ * \param lock
+ *      Unused, but required to statically check that the caller is aware that
+ *      a lock must be held on #mutex for this call to be safe.
  * \param serverId
  *      The ServerId to look up in the list.
  *
@@ -644,7 +623,8 @@ CoordinatorServerList::firstFreeIndex()
  *      An exception is thrown if the given ServerId is not in this list.
  */
 const CoordinatorServerList::Entry&
-CoordinatorServerList::getReferenceFromServerId(const ServerId& serverId) const
+CoordinatorServerList::getReferenceFromServerId(const Lock& lock,
+                                                const ServerId& serverId) const
 {
     uint32_t index = serverId.indexNumber();
     if (index < serverList.size() && serverList[index].entry
@@ -653,6 +633,30 @@ CoordinatorServerList::getReferenceFromServerId(const ServerId& serverId) const
 
     throw ServerListException(HERE,
         format("Invalid ServerId (%s)", serverId.toString().c_str()));
+}
+
+/**
+ * Returns a copy of the details associated with the given position
+ * in the server list or empty if the position in the list is
+ * unoccupied.
+ *
+ * \param lock
+ *      Unused, but required to statically check that the caller is aware that
+ *      a lock must be held on #mutex for this call to be safe.
+ * \param index
+ *      Position of entry in the server list to return a copy of.
+ * 
+ * \throw
+ *      Exception is thrown if the given ServerId is not in this list.
+ */
+Tub<CoordinatorServerList::Entry>
+CoordinatorServerList::getReferenceFromIndex(const Lock& lock,
+                                             size_t index) const
+{
+    if (index < serverList.size())
+        return serverList[index].entry;
+
+    throw Exception(HERE, format("Index beyond array length (%zd)", index));
 }
 
 /**
@@ -1133,7 +1137,8 @@ CoordinatorServerList::updateEntryVersion(ServerId serverId, uint64_t version)
     Lock lock(mutex);
 
     try {
-        Entry& entry = const_cast<Entry&>(getReferenceFromServerId(serverId));
+        Entry& entry =
+                const_cast<Entry&>(getReferenceFromServerId(lock, serverId));
         LOG(DEBUG, "server %s updated (%lu->%lu)", serverId.toString().c_str(),
                 entry.serverListVersion, version);
 

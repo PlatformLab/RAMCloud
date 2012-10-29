@@ -347,7 +347,7 @@ MasterRecoveryManager::startMasterRecovery(ServerId crashedServerId)
 
     try {
         CoordinatorServerList::Entry server =
-            context->coordinatorServerList->at(crashedServerId);
+            context->coordinatorServerList->operator[](crashedServerId);
         LOG(NOTICE, "Scheduling recovery of master %s",
             crashedServerId.toString().c_str());
 
