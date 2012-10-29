@@ -522,7 +522,6 @@ TEST_F(HashTableTest, lookupEntry_notFound) {
                   findBucketAndLookupEntry(&ht, 0, "0", 1));
         EXPECT_EQ(1UL, ht.getPerfCounters().lookupEntryCalls);
         EXPECT_LT(0U, ht.getPerfCounters().lookupEntryCycles);
-        EXPECT_LT(0U, ht.getPerfCounters().lookupEntryDist.max);
     }
     {
         setup(0, HashTable::ENTRIES_PER_CACHE_LINE * 5);
@@ -587,7 +586,6 @@ TEST_F(HashTableTest, lookupEntry_hashCollision) {
     setup(0, 1);
     EXPECT_EQ(&entryAt(&ht, 0, 0),
               findBucketAndLookupEntry(&ht, 0, "0", 1));
-    EXPECT_LT(0U, ht.getPerfCounters().lookupEntryDist.max);
     values[0]->setKey("randomKeyValue");
     EXPECT_EQ(static_cast<HashTable::Entry*>(NULL),
               findBucketAndLookupEntry(&ht, 0, "0", 1));

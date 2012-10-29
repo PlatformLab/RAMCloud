@@ -89,9 +89,9 @@ TEST_F(KeyTest, constructor_fromVoidPointer) {
 TEST_F(KeyTest, getHash) {
     Key key(82, "hey-hey-hey", 13);
     EXPECT_FALSE(key.hash);
-    EXPECT_EQ(0x7583c65d5e989d90UL, key.getHash());
+    EXPECT_EQ(0xed7cc41c7081ba0UL, key.getHash());
     EXPECT_TRUE(key.hash);
-    EXPECT_EQ(0x7583c65d5e989d90UL, key.getHash());
+    EXPECT_EQ(0xed7cc41c7081ba0UL, key.getHash());
 }
 
 TEST_F(KeyTest, getHash_static) {
@@ -147,11 +147,11 @@ TEST_F(KeyTest, getStringKeyLength) {
 
 TEST_F(KeyTest, toString) {
     EXPECT_EQ("<tableId: 27, stringKey: \"ascii key\", "
-              "stringKeyLength: 9, hash: 0x3ce328541e4f8807>",
+              "stringKeyLength: 9, hash: 0xe415add6e960d438>",
               Key(27, "ascii key", 9).toString());
 
     EXPECT_EQ("<tableId: 814, stringKey: \"binary key\\xaa\\x0a\", "
-              "stringKeyLength: 12, hash: 0xcd0488aea78d5f31>",
+              "stringKeyLength: 12, hash: 0xe972fd5603c67b0e>",
               Key(814, "binary key\xaa\x0a", 12).toString());
 }
 

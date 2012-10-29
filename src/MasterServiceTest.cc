@@ -382,8 +382,8 @@ TEST_F(MasterServiceTest, enumeration_mergeTablet) {
     ramcloud->write(0, "012345", 6, "abcdef", 6, NULL, &version0, false);
     ramcloud->write(0, "678910", 6, "ghijkl", 6, NULL, &version1, false);
 
-    // Note that (0, "012345") hashes to 0x20d331db4d315fe2 and (1, "678910")
-    // hashes to 0x290e4a5b74ca2fbd.
+    // Note that (0, "012345") hashes to 0x88c0a92586be0a27 and (1, "678910")
+    // hashes to 0x4b935af2d2a5f327.
 
     Buffer iter, nextIter, finalIter, objects;
     uint64_t nextTabletStartHash;
@@ -397,7 +397,7 @@ TEST_F(MasterServiceTest, enumeration_mergeTablet) {
     EnumerationIterator::Frame preMergeConfiguration(
         0x0000000000000000LLU, 0x7f00000000000000LLU,
         service->objectMap->getNumBuckets(),
-        service->objectMap->getNumBuckets()*3/5, 0U);
+        service->objectMap->getNumBuckets()*4/5, 0U);
     initialIter.push(preMergeConfiguration);
     initialIter.serialize(iter);
     EnumerateTableRpc rpc(ramcloud.get(), 0, 0, iter, objects);
@@ -413,9 +413,9 @@ TEST_F(MasterServiceTest, enumeration_mergeTablet) {
     Object object1(buffer1);
     EXPECT_EQ(0U, object1.getTableId());                        // table ID
     EXPECT_EQ(6U, object1.getKeyLength());                      // key length
-    EXPECT_EQ(version1, object1.getVersion());                  // version
-    EXPECT_EQ(0, memcmp("678910", object1.getKey(), 6));        // key
-    EXPECT_EQ("ghijkl", string(reinterpret_cast<const char*>(
+    EXPECT_EQ(version0, object1.getVersion());                  // version
+    EXPECT_EQ(0, memcmp("012345", object1.getKey(), 6));        // key
+    EXPECT_EQ("abcdef", string(reinterpret_cast<const char*>(
                                object1.getData()), 6));         // value
 
     // The second object is not returned because it would have lived
@@ -445,7 +445,7 @@ TEST_F(MasterServiceTest, read_tableNotOnServer) {
     EXPECT_THROW(ramcloud->read(99, "0", 1, &value),
                  TableDoesntExistException);
     EXPECT_EQ("checkStatus: Server mock:host=master doesn't store "
-              "<99, 0x5d6056eb0c0352ce>; refreshing object map | "
+              "<99, 0xbaf01774b348c879>; refreshing object map | "
               "flush: flushing object map",
               TestLog::get());
 }
@@ -1273,7 +1273,7 @@ TEST_F(MasterServiceTest, remove_tableNotOnServer) {
     TestLog::Enable _;
     EXPECT_THROW(ramcloud->remove(99, "key0", 4), TableDoesntExistException);
     EXPECT_EQ("checkStatus: Server mock:host=master doesn't store "
-              "<99, 0x42f1a215441e6e54>; refreshing object map | "
+              "<99, 0xb3a4e310e6f49dd8>; refreshing object map | "
               "flush: flushing object map",
               TestLog::get());
 }

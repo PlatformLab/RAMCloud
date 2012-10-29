@@ -1865,8 +1865,8 @@ MasterService::recoverSegmentPrefetcher(SegmentIterator& it)
 {
     if (__builtin_expect(it.isDone(), false))
         return;
-    
-   if (__builtin_expect(it.getType() == LOG_ENTRY_TYPE_OBJ, true)) {
+
+    if (__builtin_expect(it.getType() == LOG_ENTRY_TYPE_OBJ, true)) {
         const Object::SerializedForm* obj =
             it.getContiguous<Object::SerializedForm>(NULL, 0);
         Key key(obj->tableId, obj->keyAndData, obj->keyLength);
