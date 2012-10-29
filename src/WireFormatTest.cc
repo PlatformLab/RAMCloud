@@ -41,6 +41,15 @@ TEST_F(WireFormatTest, serviceTypeSymbol) {
             (WireFormat::INVALID_SERVICE + 1)));
 }
 
+TEST_F(WireFormatTest, getStatus) {
+    Buffer buffer;
+    EXPECT_EQ(STATUS_RESPONSE_FORMAT_ERROR, WireFormat::getStatus(&buffer));
+    WireFormat::ResponseCommon* header =
+                new(&buffer, APPEND) WireFormat::ResponseCommon;
+    header->status = STATUS_WRONG_VERSION;
+    EXPECT_EQ(STATUS_WRONG_VERSION, WireFormat::getStatus(&buffer));
+}
+
 TEST_F(WireFormatTest, opcodeSymbol_integer) {
     // Sample a few opcode values.
     EXPECT_STREQ("PING", WireFormat::opcodeSymbol(WireFormat::PING));

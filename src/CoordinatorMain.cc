@@ -73,6 +73,7 @@ main(int argc, char *argv[])
         CoordinatorService coordinatorService(&context,
                                               deadServerTimeout,
                                               logCabinLocator);
+        context.coordinatorService = &coordinatorService;
         context.serviceManager->addService(coordinatorService,
                                            WireFormat::COORDINATOR_SERVICE);
         PingService pingService(&context);

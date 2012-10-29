@@ -119,6 +119,7 @@ TEST_F(FailureDetectorTest, pingRandomServer_notInCluster) {
     coordTransport.setInput("0");
     fd->pingRandomServer();
     EXPECT_EQ("pingRandomServer: Sending ping to server 1.0 (mock:) | "
+            "Disabler: master service disabled | "
             "VerifyMembershipRpc: verifying cluster membership for 57.27342",
             TestLog::get());
 }
@@ -142,6 +143,7 @@ TEST_F(FailureDetectorTest, pingRandomServer_tooManyFailedProbes) {
             "wait: timeout | "
             "pingRandomServer: Ping timeout to server id 1.0 "
             "(locator \"mock:\") | "
+            "Disabler: master service disabled | "
             "VerifyMembershipRpc: verifying cluster membership for 57.27342",
             TestLog::get());
     EXPECT_EQ(0, fd->probesWithoutResponse);

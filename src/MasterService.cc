@@ -120,6 +120,7 @@ MasterService::MasterService(Context* context,
     , anyWrites(false)
     , objectUpdateLock()
     , maxMultiReadResponseSize(Transport::MAX_RPC_LEN)
+    , disableCount(0)
 {
 }
 
@@ -144,6 +145,14 @@ void
 MasterService::dispatch(WireFormat::Opcode opcode, Rpc& rpc)
 {
     assert(initCalled);
+
+    if (disableCount  > 0) {
+        LOG(NOTICE, "requesting retry of %s request (master disable count %d)",
+                WireFormat::opcodeSymbol(opcode),
+                disableCount.load());
+        prepareErrorResponse(rpc.replyPayload, STATUS_RETRY);
+        return;
+    }
 
     std::lock_guard<SpinLock> lock(objectUpdateLock);
 
@@ -225,7 +234,8 @@ MasterService::dispatch(WireFormat::Opcode opcode, Rpc& rpc)
                         &MasterService::write>(rpc);
             break;
         default:
-            throw UnimplementedRequestError(HERE);
+            prepareErrorResponse(rpc.replyPayload,
+                                 STATUS_UNIMPLEMENTED_REQUEST);
     }
 }
 
@@ -2732,6 +2742,41 @@ MasterService::storeObject(Key& key,
     *newVersion = newObject.getVersion();
     bytesWritten += key.getStringKeyLength() + data.getTotalLength();
     return STATUS_OK;
+}
+
+/**
+ * Construct a Disabler object (disable the associated master).
+ *
+ * \param service
+ *      The MasterService that should be disabled.  If NULL, then no
+ *      service is disabled.
+ */
+MasterService::Disabler::Disabler(MasterService* service)
+    : service(service)
+{
+    if (service != NULL) {
+        service->disableCount++;
+    }
+    TEST_LOG("master service disabled");
+}
+/**
+ * Destroy a Disabler object (reenable the associated master).
+ */
+MasterService::Disabler::~Disabler()
+{
+    reenable();
+}
+
+/**
+ * Reenable request servicing on the associated MasterService.
+ */
+void
+MasterService::Disabler::reenable()
+{
+    if (service != NULL) {
+        service->disableCount--;
+        service = NULL;
+    }
 }
 
 } // namespace RAMCloud

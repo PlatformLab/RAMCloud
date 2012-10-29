@@ -108,6 +108,26 @@ opcodeSymbol(uint32_t opcode)
     return symbol;
 }
 
+/**
+ * Given a buffer containing an RPC response, returns the Status from
+ * that response.
+ *
+ * \param buffer
+ *      Must contain an ResponseCommon structure at the beginning.
+ *
+ * \return
+ *      The status value from response, or STATUS_RESPONSE_FORMAT_ERROR
+ *      if the response buffer is empty.
+ */
+Status
+getStatus(Buffer* buffer)
+{
+    const ResponseCommon* header = buffer->getStart<ResponseCommon>();
+    if (header == NULL)
+        return STATUS_RESPONSE_FORMAT_ERROR;
+    return header->status;
+}
+
 
 /**
  * Given a buffer containing an RPC request, return a human-readable string

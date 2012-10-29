@@ -320,6 +320,30 @@ class MasterServiceTest : public ::testing::Test {
     DISALLOW_COPY_AND_ASSIGN(MasterServiceTest);
 };
 
+TEST_F(MasterServiceTest, dispatch_disableCount) {
+    Buffer request, response;
+
+    // Attempt #1: service is enabled.
+    Service::Rpc rpc(NULL, request, response);
+    service->dispatch(WireFormat::Opcode::ILLEGAL_RPC_TYPE, rpc);
+    EXPECT_STREQ("STATUS_UNIMPLEMENTED_REQUEST", statusToSymbol(
+            WireFormat::getStatus(&response)));
+
+    // Attempt #2: service is disabled.
+    MasterService::Disabler disabler(service);
+    response.reset();
+    service->dispatch(WireFormat::Opcode::ILLEGAL_RPC_TYPE, rpc);
+    EXPECT_STREQ("STATUS_RETRY", statusToSymbol(
+            WireFormat::getStatus(&response)));
+
+    // Attempt #3: service is reenabled.
+    disabler.reenable();
+    response.reset();
+    service->dispatch(WireFormat::Opcode::ILLEGAL_RPC_TYPE, rpc);
+    EXPECT_STREQ("STATUS_UNIMPLEMENTED_REQUEST", statusToSymbol(
+            WireFormat::getStatus(&response)));
+}
+
 TEST_F(MasterServiceTest, enumeration_basics) {
     uint64_t version0, version1;
     ramcloud->write(0, "0", 1, "abcdef", 6, NULL, &version0, false);
@@ -776,7 +800,7 @@ TEST_F(MasterServiceTest, recover_basics) {
             ,  curPos, &curPos));
 }
 
-TEST_F(MasterServiceTest, removeIfFromUnknownTablet) {
+TEST_F(MasterServiceTest, removeObjectIfFromUnknownTablet) {
     ramcloud->createTable("table");
     uint64_t tableId = ramcloud->getTableId("table");
     Key key(tableId, "1", 1);
@@ -2315,9 +2339,18 @@ TEST_F(MasterRecoverTest, failedToRecoverAll) {
         log.substr(0, log.find(" thrown at"))));
 }
 
-/*
- * We should add a test for the kill method, but all process ending tests
- * were removed previously for performance reasons.
- */
+TEST_F(MasterServiceTest, Disabler) {
+    {
+        MasterService::Disabler disabler1(service);
+        EXPECT_EQ(1, service->disableCount.load());
+        MasterService::Disabler disabler2(service);
+        EXPECT_EQ(2, service->disableCount.load());
+        disabler2.reenable();
+        EXPECT_EQ(1, service->disableCount.load());
+        disabler2.reenable();
+        EXPECT_EQ(1, service->disableCount.load());
+    }
+    EXPECT_EQ(0, service->disableCount.load());
+}
 
 }  // namespace RAMCloud

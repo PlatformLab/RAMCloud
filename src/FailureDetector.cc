@@ -24,6 +24,7 @@
 #include "CoordinatorClient.h"
 #include "FailureDetector.h"
 #include "IpAddress.h"
+#include "MasterService.h"
 #include "ShortMacros.h"
 #include "WireFormat.h"
 
@@ -166,11 +167,13 @@ FailureDetector::pingRandomServer()
             locator.c_str(), pingee.toString().c_str());
     } catch (const CallerNotInClusterException &e) {
         // See "Zombies" in designNotes.
+        MasterService::Disabler disabler(context->masterService);
         CoordinatorClient::verifyMembership(context, ourServerId);
         probesWithoutResponse = 0;
     }
     if (probesWithoutResponse >= MAX_FAILED_PROBES) {
         // See "Zombies" in designNotes.
+        MasterService::Disabler disabler(context->masterService);
         CoordinatorClient::verifyMembership(context, ourServerId);
         probesWithoutResponse = 0;
     }

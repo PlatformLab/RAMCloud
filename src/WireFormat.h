@@ -1127,6 +1127,7 @@ struct Write {
 
 // DON'T DEFINE NEW RPC TYPES HERE!! Put them in alphabetical order above.
 
+Status getStatus(Buffer* buffer);
 const char* serviceTypeSymbol(ServiceType type);
 const char* opcodeSymbol(uint32_t opcode);
 const char* opcodeSymbol(Buffer& buffer);

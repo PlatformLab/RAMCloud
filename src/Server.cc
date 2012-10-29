@@ -25,7 +25,9 @@ namespace RAMCloud {
  *
  * \param context
  *      Overall information about the RAMCloud server.  Note: if caller
- *      has not provided a serverList here, then we will.
+ *      has not provided a serverList here, then we will.  This method
+ *      will store information about the master and backup services in
+ *      this context.
  * \param config
  *      Specifies which services and their configuration details for
  *      when the Server is run.
@@ -52,6 +54,10 @@ Server::Server(Context* context, const ServerConfig& config)
 Server::~Server()
 {
     delete serverList;
+    if (backup && (backup.get() == context->backupService))
+        context->backupService = NULL;
+    if (master && (master.get() == context->masterService))
+        context->masterService = NULL;
 }
 
 /**
@@ -136,6 +142,7 @@ Server::createAndRegisterServices(BindTransport* bindTransport)
     if (config.services.has(WireFormat::MASTER_SERVICE)) {
         LOG(NOTICE, "Master is using %u backups", config.master.numReplicas);
         master.construct(context, config);
+        context->masterService = master.get();
         if (bindTransport) {
             bindTransport->addService(*master,
                                       config.localLocator,
@@ -148,6 +155,7 @@ Server::createAndRegisterServices(BindTransport* bindTransport)
 
     if (config.services.has(WireFormat::BACKUP_SERVICE)) {
         backup.construct(context, config);
+        context->backupService = backup.get();
         formerServerId = backup->getFormerServerId();
         backupReadSpeed = backup->getReadSpeed();
         if (bindTransport) {

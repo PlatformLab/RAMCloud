@@ -61,6 +61,26 @@ class MasterService : public Service, LogEntryHandlers {
                   Buffer& oldBuffer,
                   LogEntryRelocator& relocator);
 
+    /*
+     * The following class is used to temporarily disable the servicing of
+     * incoming requests: they will be rejected with STATUS_RETRY until
+     * the object is destroyed or its reenable method has been called.  These
+     * objects are typically used when a server becomes uncertain that it
+     * is still part of the cluster See "Zombies" in designNotes for details.
+     */
+    class Disabler {
+      public:
+        explicit Disabler(MasterService* service);
+        ~Disabler();
+        void reenable();
+      PRIVATE:
+        /// MasterService that has been disabled.  NULL means either the
+        /// service has been reenabled or no service was specified in the
+        /// constructor; in either case there's nothing to reenable.
+        MasterService* service;
+        DISALLOW_COPY_AND_ASSIGN(Disabler);
+    };
+
   PRIVATE:
     /**
      * Comparison functor used by the HashTable to compare a key
@@ -262,6 +282,15 @@ class MasterService : public Service, LogEntryHandlers {
      * to simplify testing.
      */
     uint32_t maxMultiReadResponseSize;
+
+    /**
+     * Counts the number of times disable has been called, minus the number
+     * of times enable has been called; a value > 0 means that the service
+     * is disabled and should return STATUS_RETRY for all requests. This
+     * can happen, for example, if the server is no longer certain that it
+     * is a valid member of the cluster (see "Zombies" in designNotes).
+     */
+    Atomic<int> disableCount;
 
     /* Tombstone cleanup method used after recovery. */
     void removeTombstones();
