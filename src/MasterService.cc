@@ -2092,10 +2092,10 @@ MasterService::recoverSegment(SegmentIterator& it)
             if (segmentManager.raiseSafeVersion(safeVersion)) {
                 // true if log.safeVersion is revised.
                 safeVersionRecoveryCount++;
-                LOG(NOTICE, "SAFEVERSION %lu recovered", safeVersion);
+                LOG(DEBUG, "SAFEVERSION %lu recovered", safeVersion);
             } else {
                 safeVersionNonRecoveryCount++;
-                LOG(NOTICE, "SAFEVERSION %lu discarded", safeVersion);
+                LOG(DEBUG, "SAFEVERSION %lu discarded", safeVersion);
             }
         }
 
