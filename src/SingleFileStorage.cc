@@ -31,6 +31,26 @@
 
 namespace RAMCloud {
 
+/**
+ * Linux (and its specific filesystems) mandate a certain alignment for files
+ * using O_DIRECT. In Linux 2.6 that alignment is 512 bytes.
+ */
+enum { BUFFER_ALIGNMENT = 512 };
+
+/**
+ * Maximum number of replica buffers to pool. These are used whenever a
+ * replica is opened on a backup or when a replica is loaded from disk.
+ * Backups will pool any buffers they allocate up to this number. Any buffers
+ * beyond this amount that are no longer needed will be returned to the OS.
+ */
+enum { MAX_POOLED_BUFFERS = 128 };
+
+/**
+ * Number of replicas buffers to allocate on startup. Used to warm backup
+ * replica buffer pools. See MAX_POOLED_BUFFERS for more details.
+ */
+enum { INIT_POOLED_BUFFERS = MAX_POOLED_BUFFERS };
+
 // --- SingleFileStorage::Frame ---
 
 bool SingleFileStorage::Frame::testingSkipRealIo = false;
@@ -50,7 +70,7 @@ SingleFileStorage::Frame::Frame(SingleFileStorage* storage, size_t frameIndex)
     : PriorityTask(storage->ioQueue)
     , storage(storage)
     , frameIndex(frameIndex)
-    , buffer(NULL, std::free)
+    , buffer(NULL, storage->bufferDeleter)
     , isOpen()
     , isClosed()
     , sync()
@@ -58,7 +78,7 @@ SingleFileStorage::Frame::Frame(SingleFileStorage* storage, size_t frameIndex)
     , appendedLength()
     , committedLength()
     , appendedMetadata(Memory::xmemalign(HERE,
-                                         getpagesize(),
+                                         BUFFER_ALIGNMENT,
                                          METADATA_SIZE),
                        std::free)
     , appendedMetadataLength()
@@ -225,6 +245,20 @@ SingleFileStorage::Frame::load()
         }
         return buffer.get();
     }
+}
+
+/**
+ * Release a replica from in-memory buffers so they can be reused for other
+ * replicas. Called after filtering completes on a replica during recovery.
+ * Must only be called after a replica has been fully loaded.
+ */
+void
+SingleFileStorage::Frame::unload()
+{
+    Lock lock(storage->mutex);
+    assert(loadRequested);
+    buffer.reset();
+    loadRequested = false;
 }
 
 /**
@@ -418,7 +452,7 @@ SingleFileStorage::Frame::open(bool sync)
     Lock _(storage->mutex);
     if (isOpen || isClosed)
         return;
-    buffer = allocateBuffer();
+    buffer = storage->allocateBuffer();
     // nonVolatileBuffersInUse already incremented in caller.
     isOpen = true;
     isClosed = false;
@@ -441,7 +475,11 @@ unlockedRead(SingleFileStorage::Frame::Lock& lock,
              int fd, void* buf, size_t count, off_t offset)
 {
     lock.unlock();
-    ssize_t r = pread(fd, buf, count, offset);
+    ssize_t r;
+    {
+        CycleCounter<RawMetric> _(&metrics->backup.storageReadTicks);
+        r = pread(fd, buf, count, offset);
+    }
     if (r != downCast<ssize_t>(count))
         DIE("Failure performing asynchronous IO: %s", strerror(errno));
     if (r == -1) {
@@ -523,7 +561,7 @@ void
 SingleFileStorage::Frame::performRead(Lock& lock)
 {
     assert(loadRequested);
-    Memory::unique_ptr_free buffer = allocateBuffer();
+    BufferPtr buffer = storage->allocateBuffer();
     // Don't increment nonVolatileBuffersInUse, this will eventually be from
     // a normal, DRAM buffer. No need to read read-only data into NVRAM.
     const size_t frameStart = storage->offsetOfFrame(frameIndex);
@@ -531,7 +569,6 @@ SingleFileStorage::Frame::performRead(Lock& lock)
     if (testingSkipRealIo) {
         TEST_LOG("count %lu offset %lu", storage->segmentSize, frameStart);
     } else {
-        CycleCounter<RawMetric> _(&metrics->backup.storageReadTicks);
         ++metrics->backup.storageReadCount;
         metrics->backup.storageReadBytes += storage->segmentSize;
         // Lock released during this call; assume any field could have changed.
@@ -619,16 +656,41 @@ SingleFileStorage::Frame::isSynced() const
            (appendedMetadataVersion == committedMetadataVersion);
 }
 
+// --- SingleFileStorage::BufferDeleter ---
+
 /**
- * Return a buffer large enough to hold the replica and the metadata block
- * that meets the alignment constraints required for O_DIRECT.
+ * Create a functor that returns chunks of memory to #storage.buffers or
+ * to the OS.
+ *
+ * \param storage
+ *      SingleFileStorage to which returned buffers are pushed.
  */
-Memory::unique_ptr_free
-SingleFileStorage::Frame::allocateBuffer()
+SingleFileStorage::BufferDeleter::BufferDeleter(SingleFileStorage* storage)
+    : storage(storage)
 {
-    return {Memory::xmemalign(HERE, getpagesize(),
-                              storage->segmentSize + METADATA_SIZE),
-            std::free};
+}
+
+/**
+ * Return a buffer allocated with SingleFileStorage::allocateBuffer().
+ * Returns the buffer to a pool, or if there are already plenty of buffers
+ * it returns it to the OS (which will unmap it).
+ * Should only be called by SingleFileStorage::BufferPtr objects.
+ *
+ * \param buffer
+ *      Pointer to buffer which is being released by a
+ *      SingleFileStorage::BufferPtr and should be returned to the pool or
+ *      the OS.
+ */
+void
+SingleFileStorage::BufferDeleter::operator()(void* buffer)
+{
+    if (buffer) {
+        if (storage->buffers.size() >= MAX_POOLED_BUFFERS) {
+            std::free(buffer);
+        } else {
+            storage->buffers.push(buffer);
+        }
+    }
 }
 
 // --- SingleFileStorage ---
@@ -675,6 +737,8 @@ SingleFileStorage::SingleFileStorage(size_t segmentSize,
     , tempFilePath()
     , nonVolatileBuffersInUse()
     , maxNonVolatileBuffers(maxNonVolatileBuffers)
+    , bufferDeleter(this)
+    , buffers()
 {
     freeMap.set();
 
@@ -706,6 +770,26 @@ SingleFileStorage::SingleFileStorage(size_t segmentSize,
     if (st.st_mode & S_IFREG)
         reserveSpace();
 
+    // The following line is completely black magic. I (stutsman) have no
+    // idea why it improves things. As of 10/29/2012 removing the following
+    // allocation and immediate free seems to cause nearly all memory related
+    // operations during recovery to slow down. Hopefully in the future we'll
+    // find that it is no longer needed or we come to understand what effect
+    // it has. Upon removal check to ensure that loading replicas from disk
+    // proceeds as quickly as it did before, that replay and replication
+    // times during recovery look good, and that end-to-end recovery times
+    // are good in a variety of configurations. As of writing this removing
+    // this line takes a recovery of 10 600 MB partitions across 20 hosts
+    // with 10 recovery masters with flash from a time of 1.45 s to
+    // 1.75 ms.
+    std::free(Memory::xmemalign(HERE, BUFFER_ALIGNMENT, segmentSize));
+
+    { // Pre-fill the buffer pool.
+        std::vector<BufferPtr> buffers;
+        for (int i = 0; i < INIT_POOLED_BUFFERS; ++i)
+            buffers.emplace_back(allocateBuffer());
+    }
+
     for (size_t frame = 0; frame < frameCount; ++frame)
         frames.emplace_back(this, frame);
 
@@ -726,6 +810,30 @@ SingleFileStorage::~SingleFileStorage()
         ::free(tempFilePath);
         tempFilePath = NULL;
     }
+
+    while (!buffers.empty()) {
+        std::free(buffers.top());
+        buffers.pop();
+    }
+}
+
+/**
+ * Return a buffer large enough to hold the replica and the metadata block
+ * that meets the alignment constraints required for O_DIRECT.
+ * Caller must hold a lock on #mutex and must hold a lock on #mutex when
+ * the returned pointer is destroyed or reset().
+ */
+SingleFileStorage::BufferPtr
+SingleFileStorage::allocateBuffer()
+{
+    if (buffers.empty()) {
+        void* block = Memory::xmemalign(HERE, BUFFER_ALIGNMENT,
+                                        segmentSize + METADATA_SIZE);
+        buffers.push(block);
+    }
+    void* buffer = buffers.top();
+    buffers.pop();
+    return BufferPtr{buffer, bufferDeleter};
 }
 
 /**
@@ -874,7 +982,7 @@ SingleFileStorage::resetSuperblock(ServerId serverId,
         Superblock(superblock.version + 1, serverId, clusterName.c_str());
 
     Memory::unique_ptr_free block(
-        Memory::xmemalign(HERE, getpagesize(), BLOCK_SIZE), std::free);
+        Memory::xmemalign(HERE, BUFFER_ALIGNMENT, BLOCK_SIZE), std::free);
     struct FileContents {
         explicit FileContents(const Superblock& newSuperblock)
             : superblock(newSuperblock)
@@ -1101,7 +1209,7 @@ Tub<BackupStorage::Superblock>
 SingleFileStorage::tryLoadSuperblock(uint32_t superblockFrame)
 {
     Memory::unique_ptr_free block(
-        Memory::xmemalign(HERE, getpagesize(), BLOCK_SIZE), std::free);
+        Memory::xmemalign(HERE, BUFFER_ALIGNMENT, BLOCK_SIZE), std::free);
     struct FileContents {
         Superblock superblock;
         Crc32C::ResultType checksum;
