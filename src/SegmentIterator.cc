@@ -149,7 +149,7 @@ SegmentIterator::next()
 
     // Check again, since we may have just moved on from the last entry in the
     // segment.
-    if (__builtin_expect(isDone(), 0))
+    if (expect_false(isDone()))
         currentHeader = Segment::EntryHeader();
     else
         currentHeader = segment->getEntryHeader(currentOffset);

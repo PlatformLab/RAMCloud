@@ -1035,7 +1035,7 @@ InfRcTransport<Infiniband>::ClientRpc::sendZeroCopy(Buffer* request)
     }
     CycleCounter<RawMetric> _(&metrics->transport.transmit.ticks);
     ibv_send_wr* badTxWorkRequest;
-    if (__builtin_expect(!t->testingDontReallySend, true)) {
+    if (expect_true(!t->testingDontReallySend)) {
         if (ibv_post_send(session->qp->qp, &txWorkRequest, &badTxWorkRequest)) {
             throw TransportException(HERE, "ibv_post_send failed");
         }

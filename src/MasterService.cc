@@ -1863,10 +1863,10 @@ MasterService::recover(const WireFormat::Recover::Request& reqHdr,
 inline void
 MasterService::recoverSegmentPrefetcher(SegmentIterator& it)
 {
-    if (__builtin_expect(it.isDone(), false))
+    if (expect_false(it.isDone()))
         return;
 
-    if (__builtin_expect(it.getType() == LOG_ENTRY_TYPE_OBJ, true)) {
+    if (expect_true(it.getType() == LOG_ENTRY_TYPE_OBJ)) {
         const Object::SerializedForm* obj =
             it.getContiguous<Object::SerializedForm>(NULL, 0);
         Key key(obj->tableId, obj->keyAndData, obj->keyLength);
@@ -1915,7 +1915,7 @@ MasterService::recoverSegment(SegmentIterator& it)
     prefetcher.next();
 
     uint64_t bytesIterated = 0;
-    while (__builtin_expect(!it.isDone(), true)) {
+    while (expect_true(!it.isDone())) {
         recoverSegmentPrefetcher(prefetcher);
         prefetcher.next();
 
@@ -1930,7 +1930,7 @@ MasterService::recoverSegment(SegmentIterator& it)
         recoverySegmentEntryCount++;
         recoverySegmentEntryBytes += it.getLength();
 
-        if (__builtin_expect(type == LOG_ENTRY_TYPE_OBJ, true)) {
+        if (expect_true(type == LOG_ENTRY_TYPE_OBJ)) {
             // The recovery segment is guaranteed to be contiguous, so we need
             // not provide a copyout buffer.
             const Object::SerializedForm* recoveryObj =
@@ -1944,7 +1944,7 @@ MasterService::recoverSegment(SegmentIterator& it)
                 Object::computeChecksum(recoveryObj, it.getLength()) ==
                     recoveryObj->checksum;
             });
-            if (__builtin_expect(!checksumIsValid, false)) {
+            if (expect_false(!checksumIsValid)) {
                 LOG(WARNING, "bad object checksum! key: %s, version: %lu",
                     key.toString().c_str(), recoveryObj->version);
                 // TODO(Stutsman): Should throw and try another segment replica?
@@ -2014,7 +2014,7 @@ MasterService::recoverSegment(SegmentIterator& it)
                 CycleCounter<uint64_t> c(&verifyChecksumTicks);
                 recoverTomb.checkIntegrity();
             });
-            if (__builtin_expect(!checksumIsValid, false)) {
+            if (expect_false(!checksumIsValid)) {
                 LOG(WARNING, "bad tombstone checksum! key: %s, version: %lu",
                     key.toString().c_str(), recoverTomb.getObjectVersion());
                 // TODO(Stutsman): Should throw and try another segment replica?
@@ -2074,7 +2074,7 @@ MasterService::recoverSegment(SegmentIterator& it)
                 CycleCounter<uint64_t> _(&verifyChecksumTicks);
                 recoverSafeVer.checkIntegrity();
             });
-            if (__builtin_expect(!checksumIsValid, false)) {
+            if (expect_false(!checksumIsValid)) {
                 LOG(WARNING, "bad objectSafeVer checksum! version: %lu",
                     safeVersion);
                 // TODO(Stutsman): Should throw and try another segment replica?
