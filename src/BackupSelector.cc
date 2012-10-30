@@ -48,10 +48,14 @@ BackupStats::getExpectedReadMs() {
  * \param serverId
  *      The ServerId of the backup. Used for selecting appropriate primary
  *      and secondary replicas.
+ * \param numReplicas
+ *      The replication factor of each segment.
  */
-BackupSelector::BackupSelector(Context* context, const ServerId serverId)
+BackupSelector::BackupSelector(Context* context, const ServerId serverId,
+                               uint32_t numReplicas)
     : tracker(context)
     , serverId(serverId)
+    , numReplicas(numReplicas)
     , replicationIdMap()
 {
 }
@@ -65,8 +69,8 @@ BackupSelector::BackupSelector(Context* context, const ServerId serverId)
  *      The number of entries in the \a backupIds array.
  * \param backupIds
  *      An array of numBackups backup ids, none of which may conflict with the
- *      returned backup. All existing replica locations as well as the
- *      server id of the master should be listed.
+ *      returned backup. All existing replica locations should be listed (the
+ *      server Id of the master itself should not be listed).
  */
 ServerId
 BackupSelector::selectPrimary(uint32_t numBackups,

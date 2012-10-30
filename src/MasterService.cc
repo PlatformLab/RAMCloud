@@ -107,7 +107,8 @@ MasterService::MasterService(Context* context,
     : context(context)
     , config(config)
     , bytesWritten(0)
-    , replicaManager(context, serverId, config.master.numReplicas)
+    , replicaManager(context, serverId, config.master.numReplicas,
+                     config.master.useMinCopysets)
     , allocator(config)
     , segmentManager(context, config, serverId,
                      allocator, replicaManager)

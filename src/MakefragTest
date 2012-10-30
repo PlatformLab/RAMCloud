@@ -56,6 +56,7 @@ TESTS_SRCFILES := \
 		  src/MasterRecoveryManagerTest.cc \
 		  src/MasterServiceTest.cc \
 		  src/MembershipServiceTest.cc \
+		  src/MinCopysetsBackupSelectorTest.cc \
 		  src/MockCluster.cc \
 		  src/MockClusterTest.cc \
 		  src/MockDriver.cc \

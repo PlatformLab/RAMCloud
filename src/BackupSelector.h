@@ -70,20 +70,17 @@ class BaseBackupSelector {
 class BackupSelector : public BaseBackupSelector {
   PUBLIC:
 
-    explicit BackupSelector(Context* context, const ServerId serverId);
+    explicit BackupSelector(Context* context, const ServerId serverId,
+                            uint32_t numReplicas);
     ServerId selectPrimary(uint32_t numBackups, const ServerId backupIds[]);
-    ServerId selectSecondary(uint32_t numBackups, const ServerId backupIds[]);
+    virtual ServerId selectSecondary(uint32_t numBackups,
+                                     const ServerId backupIds[]);
 
-  PRIVATE:
+  PROTECTED:
     void applyTrackerChanges();
-    bool conflict(const ServerId backupId,
-                  const ServerId otherBackupId) const;
     bool conflictWithAny(const ServerId backupId,
                          uint32_t numBackups,
                          const ServerId backupIds[]) const;
-    void eraseReplicationId(uint64_t replicationId,
-                            const ServerId backupId);
-
     /**
      * A ServerTracker used to find backups and track replica distribution
      * stats.  Each entry in the tracker contains a pointer to a BackupStats
@@ -98,12 +95,23 @@ class BackupSelector : public BaseBackupSelector {
     ServerId serverId;
 
     /**
+     * Number of replicas for each segment.
+     */
+    uint32_t numReplicas;
+
+    /**
      * Maps replication groups to servers. Used for selecting secondary
      * replicas with MinCopysets.
      */
     typedef std::unordered_multimap<uint64_t, ServerId> ReplicationIdMap;
     typedef ReplicationIdMap::const_iterator replicationIter;
     ReplicationIdMap replicationIdMap;
+
+  PRIVATE:
+    bool conflict(const ServerId backupId,
+                  const ServerId otherBackupId) const;
+    void eraseReplicationId(uint64_t replicationId,
+                            const ServerId backupId);
 
     DISALLOW_COPY_AND_ASSIGN(BackupSelector);
 };

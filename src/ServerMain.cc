@@ -92,6 +92,10 @@ main(int argc, char *argv[])
              ProgramOptions::value<uint32_t>(&config.master.numReplicas)->
                 default_value(0),
              "Number of backup copies to make for each segment")
+            ("useMinCopysets",
+             ProgramOptions::value<bool>(&config.master.useMinCopysets)->
+                default_value(false),
+             "Whether to use MinCopysets or random replication")
             ("segmentFrames",
              ProgramOptions::value<uint32_t>(&config.backup.numSegmentFrames)->
                 default_value(512),

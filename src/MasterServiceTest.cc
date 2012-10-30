@@ -592,7 +592,7 @@ TEST_F(MasterServiceTest, recover_basics) {
                               server->config.services, 100, ServerStatus::UP});
     }
 
-    ReplicaManager mgr(&context, serverId, 1);
+    ReplicaManager mgr(&context, serverId, 1, false);
 
     // Create a segment with objectSafeVersion 23
     writeRecoverableSegment(&context, mgr, serverId, 123, 87, 23U);
@@ -722,7 +722,7 @@ TEST_F(MasterServiceTest, recover) {
                               server->config.services, 100, ServerStatus::UP});
     }
 
-    ReplicaManager mgr(&context, serverId, 1);
+    ReplicaManager mgr(&context, serverId, 1, false);
     writeRecoverableSegment(&context, mgr, serverId, 123, 88);
 
     ServerConfig backup2Config = backup1Config;
@@ -2129,7 +2129,7 @@ TEST_F(MasterRecoverTest, recover) {
                              WireFormat::MEMBERSHIP_SERVICE},
                             100, ServerStatus::UP});
     ServerId serverId(99, 0);
-    ReplicaManager mgr(&context2, serverId, 1);
+    ReplicaManager mgr(&context2, serverId, 1, false);
     MasterServiceTest::writeRecoverableSegment(&context, mgr, serverId, 99, 87);
     MasterServiceTest::writeRecoverableSegment(&context, mgr, serverId, 99, 88);
 

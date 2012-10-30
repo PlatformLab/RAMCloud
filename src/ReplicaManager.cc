@@ -16,6 +16,7 @@
 #include "BackupClient.h"
 #include "CycleCounter.h"
 #include "Logger.h"
+#include "MinCopysetsBackupSelector.h"
 #include "ShortMacros.h"
 #include "RawMetrics.h"
 #include "ReplicaManager.h"
@@ -35,13 +36,17 @@ namespace RAMCloud {
  *      serves as the log id).
  * \param numReplicas
  *      Number replicas to keep of each segment.
+ * \param useMinCopysets
+ *      Specifies whether to use the MinCopysets replication scheme or random
+ *      replication.
  */
 ReplicaManager::ReplicaManager(Context* context,
                                const ServerId& masterId,
-                               uint32_t numReplicas)
+                               uint32_t numReplicas,
+                               bool useMinCopysets)
     : context(context)
     , numReplicas(numReplicas)
-    , backupSelector(context, masterId)
+    , backupSelector()
     , dataMutex()
     , masterId(masterId)
     , replicatedSegmentPool(ReplicatedSegment::sizeOf(numReplicas))
@@ -52,6 +57,13 @@ ReplicaManager::ReplicaManager(Context* context,
     , failureMonitor(context, this)
     , replicationCounter()
 {
+    if (useMinCopysets) {
+        backupSelector.reset(new MinCopysetsBackupSelector(context, masterId,
+                                                           numReplicas));
+    } else {
+        backupSelector.reset(new BackupSelector(context, masterId,
+                                                numReplicas));
+    }
     replicationEpoch.construct(context, &taskQueue, &masterId);
 }
 
@@ -396,7 +408,7 @@ ReplicaManager::allocateSegment(const Lock& lock,
     if (p == NULL)
         DIE("Out of memory");
     auto* replicatedSegment =
-        new(p) ReplicatedSegment(context, taskQueue, backupSelector, *this,
+        new(p) ReplicatedSegment(context, taskQueue, *backupSelector, *this,
                                  writeRpcsInFlight, *replicationEpoch,
                                  dataMutex, segmentId, segment,
                                  isLogHead, masterId, numReplicas,

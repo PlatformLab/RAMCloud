@@ -66,7 +66,8 @@ class ReplicaManager
 
     ReplicaManager(Context* context,
                    const ServerId& masterId,
-                   uint32_t numReplicas);
+                   uint32_t numReplicas,
+                   bool useMinCopysets);
     ~ReplicaManager();
 
     bool isIdle();
@@ -95,7 +96,7 @@ class ReplicaManager
 
   PRIVATE:
     /// Selects backups to store replicas while obeying placement constraints.
-    BackupSelector backupSelector;
+    std::unique_ptr<BackupSelector> backupSelector;
 
     /**
      * Protects all internal data structures during concurrent calls to the

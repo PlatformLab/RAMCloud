@@ -216,6 +216,7 @@ struct ServerConfig {
             , diskExpansionFactor(1.0)
             , cleanerWriteCostThreshold(0)
             , numReplicas(0)
+            , useMinCopysets(false)
         {}
 
         /**
@@ -231,6 +232,7 @@ struct ServerConfig {
             , diskExpansionFactor()
             , cleanerWriteCostThreshold()
             , numReplicas()
+            , useMinCopysets()
         {}
 
         /**
@@ -246,6 +248,7 @@ struct ServerConfig {
             config.set_backup_disk_expansion_factor(diskExpansionFactor);
             config.set_cleaner_write_cost_threshold(cleanerWriteCostThreshold);
             config.set_num_replicas(numReplicas);
+            config.set_use_mincopysets(useMinCopysets);
         }
 
         /// Total number bytes to use for the in-memory Log.
@@ -273,6 +276,10 @@ struct ServerConfig {
 
         /// Number of replicas to keep per segment stored on backups.
         uint32_t numReplicas;
+
+        /// Specifies whether to use MinCopysets replication or random
+        /// replication.
+        bool useMinCopysets;
     } master;
 
     /**

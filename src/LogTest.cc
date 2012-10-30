@@ -53,7 +53,7 @@ class LogTest : public ::testing::Test {
           serverId(ServerId(57, 0)),
           serverList(&context),
           serverConfig(ServerConfig::forTesting()),
-          replicaManager(&context, serverId, 0),
+          replicaManager(&context, serverId, 0, false),
           allocator(serverConfig),
           segmentManager(&context, serverConfig, serverId,
                          allocator, replicaManager),

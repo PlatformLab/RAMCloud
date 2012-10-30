@@ -39,7 +39,7 @@ struct BackupSelectorTest : public ::testing::Test {
         config.services = {WireFormat::MASTER_SERVICE,
                            WireFormat::MEMBERSHIP_SERVICE};
         Server* server = cluster.addServer(config);
-        selector = &server->master->replicaManager.backupSelector;
+        selector = server->master->replicaManager.backupSelector.get();
     }
 
     char lastChar(const string& s) {
