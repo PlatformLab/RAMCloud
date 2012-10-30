@@ -20,6 +20,17 @@
 
 namespace RAMCloud {
 
+uint64_t ReplicatedSegment::recoveryStart = 0;
+
+/**
+ * Toggles ordering constraints on log replication operations. This must be
+ * enabled to ensure that replicas are be consistent in future recoveries and
+ * to ensure that recovery won't report data loss if none has occurred.
+ * Removing these contraints can be helpful for (replication performance)
+ * testing.
+ */
+enum { OBEY_SAFETY_CONSTRAINTS = true };
+
 // --- ReplicatedSegment ---
 
 /**
@@ -107,7 +118,12 @@ ReplicatedSegment::ReplicatedSegment(Context* context,
     , replicationCounter(replicationCounter)
     , replicas(numReplicas)
 {
-    openLen = segment->getAppendedLength(openingWriteCertificate);
+    openLen = segment->getAppendedLength(&openingWriteCertificate);
+    if (LOG_RECOVERY_REPLICATION_RPC_TIMING && recoveryStart) {
+        LOG(DEBUG, "@%7lu: Segment <%s,%lu> open queued",
+            Cycles::toMicroseconds(Cycles::rdtsc() - recoveryStart),
+            masterId.toString().c_str(), segmentId);
+    }
     queued.bytes = openLen;
     queuedCertificate = openingWriteCertificate;
     schedule(); // schedule to replicate the opening data
@@ -200,6 +216,11 @@ ReplicatedSegment::close()
     Lock _(dataMutex);
     TEST_LOG("%s, %lu, %lu", masterId.toString().c_str(), segmentId,
              followingSegment ? followingSegment->segmentId : 0);
+    if (LOG_RECOVERY_REPLICATION_RPC_TIMING && recoveryStart) {
+        LOG(DEBUG, "@%7lu: Segment <%s,%lu> close queued",
+            Cycles::toMicroseconds(Cycles::rdtsc() - recoveryStart),
+            masterId.toString().c_str(), segmentId);
+    }
 
     // immutable after close
     assert(!queued.close);
@@ -207,10 +228,10 @@ ReplicatedSegment::close()
     // It is necessary to update queued.bytes here because the segment believes
     // it has fully replicated all data when queued.close and
     // getCommitted().bytes == queued.bytes.
-    Segment::Certificate certficate;
-    uint32_t appendedBytes = segment->getAppendedLength(certficate);
+    Segment::Certificate certificate;
+    uint32_t appendedBytes = segment->getAppendedLength(&certificate);
     queued.bytes = appendedBytes;
-    queuedCertificate = certficate;
+    queuedCertificate = certificate;
     // Dealing with followingSegment here helps unit tests when
     // numReplicas == 0. Otherwise, performWrite never gets called so there is
     // no chance to clear it, which breaks calls to free().
@@ -305,9 +326,19 @@ ReplicatedSegment::handleBackupFailure(ServerId failedId)
  *      call will return. If offset is not provided then the call will only
  *      return when all enqueued data has been synced including the
  *      closed flag.
+ *
+ * \param certificate
+ *      If non-NULL, this points to the certificate associated with the provided
+ *      offset and will be sent to backups if the segment has not been synced
+ *      to this point yet.
+ *
+ *      Specifying this parameter avoids querying the segment for the latest
+ *      length and certificate. This is sometimes necessary when one thread is
+ *      syncing a segment, but does not want to block other threads from
+ *      appending to it.
  */
 void
-ReplicatedSegment::sync(uint32_t offset)
+ReplicatedSegment::sync(uint32_t offset, Segment::Certificate* certificate)
 {
     CycleCounter<RawMetric> _(&metrics->master.replicaManagerTicks);
     TEST_LOG("syncing");
@@ -333,11 +364,18 @@ ReplicatedSegment::sync(uint32_t offset)
         }
     }
 
-    Segment::Certificate certficate;
-    uint32_t appendedBytes = segment->getAppendedLength(certficate);
+    // If the caller did not provide the desired certificate, obtain the
+    // latest one and use that.
+    uint32_t appendedBytes = offset;
+    Segment::Certificate localCertificate;
+    if (certificate == NULL) {
+        appendedBytes = segment->getAppendedLength(&localCertificate);
+        certificate = &localCertificate;
+    }
+
     if (appendedBytes > queued.bytes) {
         queued.bytes = appendedBytes;
-        queuedCertificate = certficate;
+        queuedCertificate = *certificate;
         schedule();
     }
 
@@ -361,6 +399,70 @@ ReplicatedSegment::sync(uint32_t offset)
         }
         lock.construct(dataMutex);
     }
+}
+
+/**
+ * Replace the current in-memory segment this object is providing durability for
+ * with a different, but logically identical one, and return the old segment.
+ *
+ * This is used during memory compaction when segment A has dead entries dropped
+ * and an equivalent segment A' is produced. In order to free the memory used by
+ * A, the replicated segment for A must be told to use the new version (A') and
+ * drop any references to the previous one.
+ *
+ * An alternative would be to create an entirely new replicated segment for A',
+ * but that would cause A' to be written to backups unnecessarily (A' only ever
+ * needs to be written to backups if a replica for A fails).
+ *
+ * After this method returns, the previous segment that was replaced will never
+ * again be accessed by the replication system.
+ *
+ * This method may block until the current segment has been fully replicated
+ * before proceeding.
+ *
+ * This method may only be called on segments that have already been closed.
+ *
+ * \param newSegment
+ *      A new segment this replicated segment will provide replication for. It
+ *      must be logically identical to the current segment. That is, it must
+ *      have the same segment id and same live data contents.
+ * \return
+ *      The previous segment that was just replaced is returned.
+ */
+const Segment*
+ReplicatedSegment::swapSegment(const Segment* newSegment)
+{
+    // Wait until we're at a quiescent point for this segment.
+    // There should be no outstanding RPCs.
+    Tub<Lock> lock;
+    while (true) {
+        lock.construct(dataMutex);
+        if (isSynced())
+            break;
+    }
+    assert(getCommitted() == queued);
+
+    // Only closed segments are permitted.
+    assert(getCommitted().close);
+
+    const Segment* oldSegment = segment;
+    segment = newSegment;
+
+    queued.bytes = segment->getAppendedLength(&queuedCertificate);
+    foreach (auto& replica, replicas)
+        replica.committed = replica.acked = replica.sent = queued;
+
+    // TODO(stutsman): Does openingWriteCertificate need to be updated?
+    //                 Will, for example, replicateAtomically ever affect this?
+    //
+    //                 Should anything be done about openLen?
+    //
+    //                 Also, why do we send openLen bytes in the open RPC when
+    //                 rereplicating closed segments in performWrite? If no
+    //                 certificate is sent, shouldn't it not matter? Why not
+    //                 send maxBytesPerWriteRpc?
+
+    return oldSegment;
 }
 
 // - private -
@@ -609,6 +711,14 @@ ReplicatedSegment::performWrite(Replica& replica)
             }
             replica.writeRpc.destroy();
             --writeRpcsInFlight;
+            if (LOG_RECOVERY_REPLICATION_RPC_TIMING && recoveryStart) {
+                LOG(DEBUG, "@%7lu: Replica <%s,%lu,%lu> write <- %7u "
+                    "%u rpcs out %s",
+                    Cycles::toMicroseconds(Cycles::rdtsc() - recoveryStart),
+                    masterId.toString().c_str(),
+                    segmentId, &replica - &replicas[0], replica.acked.bytes,
+                    writeRpcsInFlight, replica.committed.close ? " CLOSE" : "");
+            }
             if (replica.committed != queued || recoveringFromLostOpenReplicas)
                 schedule();
             return;
@@ -619,7 +729,7 @@ ReplicatedSegment::performWrite(Replica& replica)
         }
     } else {
         if (!replica.committed.open) {
-            if (!precedingSegmentOpenCommitted) {
+            if (OBEY_SAFETY_CONSTRAINTS && !precedingSegmentOpenCommitted) {
                 TEST_LOG("Cannot open segment %lu until preceding segment "
                          "is durably open", segmentId);
                 schedule();
@@ -645,6 +755,14 @@ ReplicatedSegment::performWrite(Replica& replica)
                                        segment, 0, openLen, certificateToSend,
                                        true, false, replicaIsPrimary(replica));
             ++writeRpcsInFlight;
+            if (LOG_RECOVERY_REPLICATION_RPC_TIMING && recoveryStart) {
+                LOG(DEBUG, "@%7lu: Replica <%s,%lu,%lu> write -> %7u+%7u "
+                    "%u rpcs out OPEN",
+                    Cycles::toMicroseconds(Cycles::rdtsc() - recoveryStart),
+                    masterId.toString().c_str(), segmentId,
+                    &replica - &replicas[0],
+                    0, openLen, writeRpcsInFlight);
+            }
             replica.sent.open = true;
             replica.sent.bytes = openLen;
             replica.sent.epoch = queued.epoch;
@@ -655,7 +773,7 @@ ReplicatedSegment::performWrite(Replica& replica)
         // No outstanding write but not yet synced.
         if (replica.sent < queued) {
             // Some part of the data hasn't been sent yet.  Send it.
-            if (!precedingSegmentCloseCommitted) {
+            if (OBEY_SAFETY_CONSTRAINTS && !precedingSegmentCloseCommitted) {
                 TEST_LOG("Cannot write segment %lu until preceding segment "
                          "is durably closed", segmentId);
                 // This segment must wait to send write rpcs until the
@@ -681,7 +799,8 @@ ReplicatedSegment::performWrite(Replica& replica)
             }
 
             bool sendClose = queued.close && (offset + length) == queued.bytes;
-            if (sendClose &&
+            if (OBEY_SAFETY_CONSTRAINTS &&
+                sendClose &&
                 followingSegment &&
                 !followingSegment->getCommitted().open) {
                 TEST_LOG("Cannot close segment %lu until following segment "
@@ -712,6 +831,14 @@ ReplicatedSegment::performWrite(Replica& replica)
                                        false, sendClose,
                                        replicaIsPrimary(replica));
             ++writeRpcsInFlight;
+            if (LOG_RECOVERY_REPLICATION_RPC_TIMING && recoveryStart) {
+                LOG(DEBUG, "@%7lu: Replica <%s,%lu,%lu> write -> %7u+%7u "
+                    "%u rpcs out %s",
+                    Cycles::toMicroseconds(Cycles::rdtsc() - recoveryStart),
+                    masterId.toString().c_str(), segmentId,
+                    &replica - &replicas[0], offset, length,
+                    writeRpcsInFlight, sendClose ? " CLOSE" : "");
+            }
             replica.sent.bytes += length;
             replica.sent.epoch = queued.epoch;
             replica.sent.close = sendClose;

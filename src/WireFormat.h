@@ -100,7 +100,7 @@ enum Opcode {
     INCREMENT                 = 43,
     PREP_FOR_MIGRATION        = 44,
     RECEIVE_MIGRATION_DATA    = 45,
-    REASSIGN_TABLET_OWNERSHIP   = 46,
+    REASSIGN_TABLET_OWNERSHIP = 46,
     MIGRATE_TABLET            = 47,
     IS_REPLICA_NEEDED         = 48,
     SPLIT_TABLET              = 49,
@@ -108,7 +108,8 @@ enum Opcode {
     SET_RUNTIME_OPTION        = 51,
     GET_SERVER_CONFIG         = 52,
     GET_LOG_METRICS           = 53,
-    ILLEGAL_RPC_TYPE          = 54,  // 1 + the highest legitimate Opcode
+    MULTI_WRITE               = 54,
+    ILLEGAL_RPC_TYPE          = 55,  // 1 + the highest legitimate Opcode
 };
 
 /**
@@ -392,11 +393,6 @@ struct BackupWrite {
     } __attribute__((packed));
     struct Response {
         ResponseCommon common;
-        uint32_t numReplicas;     ///< Following this field, we append a list
-                                  ///< of uint64_t ServerId's, which represent
-                                  ///< the servers in the replication group.
-                                  ///< The list is only sent for an open
-                                  ///< segment.
     } __attribute__((packed));
 };
 
@@ -758,6 +754,49 @@ struct MultiRead {
     } __attribute__((packed));
 };
 
+struct MultiWrite {
+    static const Opcode opcode = MULTI_WRITE;
+    static const ServiceType service = MASTER_SERVICE;
+    struct Request {
+        RequestCommon common;
+        uint32_t count;
+        struct Part {
+            uint64_t tableId;
+            uint16_t keyLength;
+            uint32_t valueLength;
+            RejectRules rejectRules;
+
+            // In buffer: The actual key and data for this part
+            // follow immediately after this.
+            Part(uint64_t tableId, uint16_t keyLength,
+                 uint32_t valueLength, RejectRules rejectRules)
+                : tableId(tableId)
+                , keyLength(keyLength)
+                , valueLength(valueLength)
+                , rejectRules(rejectRules)
+            {
+            }
+        } __attribute__((packed));
+    } __attribute__((packed));
+    struct Response {
+        // RpcResponseCommon contains a status field. But it is not used in
+        // multiRead since there is a separate status for each object returned.
+        // Included here to fulfill requirements in common code.
+        ResponseCommon common;
+        uint32_t count;             // Number of Part structures following this.
+
+        // Each Response::Part contains the Status for the newly written object
+        // returned and the version.
+        struct Part {
+            /// Status of the write operation.
+            Status status;
+
+            /// Version of the written object.
+            uint64_t version;
+        } __attribute__((packed));
+    } __attribute__((packed));
+};
+
 struct Ping {
     static const Opcode opcode = Opcode::PING;
     static const ServiceType service = PING_SERVICE;
@@ -838,6 +877,11 @@ struct ReassignTabletOwnership {
         uint64_t firstKeyHash;      // First key hash of the migrated tablet.
         uint64_t lastKeyHash;       // Last key hash of the migrated tablet.
         uint64_t newOwnerId;        // ServerId of the new master.
+        uint64_t ctimeSegmentId;    // Segment id of log head before migration.
+        uint64_t ctimeSegmentOffset;// Offset in log head before migration.
+                                    // Used with above to set the migrated
+                                    // tablet's log ``creation time'' on the
+                                    // coordinator.
     } __attribute__((packed));
     struct Response {
         ResponseCommon common;

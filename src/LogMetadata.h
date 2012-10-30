@@ -30,28 +30,16 @@ namespace RAMCloud {
 struct SegmentHeader {
     SegmentHeader(uint64_t logId,
                   uint64_t segmentId,
-                  uint32_t capacity,
-                  uint64_t headSegmentIdDuringCleaning)
+                  uint32_t capacity)
         : logId(logId),
           segmentId(segmentId),
           capacity(capacity),
-          headSegmentIdDuringCleaning(headSegmentIdDuringCleaning),
           checksum()
     {
         Crc32C segmentChecksum;
         segmentChecksum.update(this,
             sizeof(*this) - sizeof(Crc32C::ResultType));
         checksum = segmentChecksum.getResult();
-    }
-
-    /**
-     * Return true if the segment this header describes was created by the
-     * cleaner. Otherwise, it is or was a log head.
-     */
-    bool
-    generatedByCleaner() const
-    {
-        return headSegmentIdDuringCleaning != Segment::INVALID_SEGMENT_ID;
     }
 
     /// ID of the Log this segment belongs to.
@@ -63,18 +51,10 @@ struct SegmentHeader {
     /// Total capacity of this segment in bytes.
     uint32_t capacity;
 
-    /// If != INVALID_SEGMENT_ID, this Segment was created by the cleaner and
-    /// the value here is the id of the head segment at the time cleaning
-    /// started. Any data in this segment is guaranteed to have come from
-    /// earlier segments. This allows us to logically order cleaner-generated
-    /// survivor segments, even though they may have IDs larger than head
-    /// segments containing newer data.
-    uint64_t headSegmentIdDuringCleaning;
-
     /// Checksum cover all of the above fields in the SegmentHeader.
     Crc32C::ResultType checksum;
 } __attribute__((__packed__));
-static_assert(sizeof(SegmentHeader) == 32,
+static_assert(sizeof(SegmentHeader) == 24,
               "Header has unexpected padding");
 
 } // namespace RAMCloud

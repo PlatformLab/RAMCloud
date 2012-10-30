@@ -39,9 +39,12 @@ class LogCabinHelper {
     explicit LogCabinHelper(LogCabin::Client::Log& logCabinLog)
         : logCabinLog(logCabinLog) {}
 
-    EntryId appendProtoBuf(const google::protobuf::Message& message,
-            const vector<EntryId>& invalidates = vector<EntryId>(),
-            EntryId expectedId = NO_ID);
+    EntryId appendProtoBuf(EntryId& expectedEntryId,
+            const google::protobuf::Message& message,
+            const vector<EntryId>& invalidates = vector<EntryId>());
+
+    EntryId invalidate(EntryId& expectedEntryId,
+        const vector<EntryId>& invalidates = vector<EntryId>());
 
     string getEntryType(Entry& entryRead);
 

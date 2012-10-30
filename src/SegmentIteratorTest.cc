@@ -31,7 +31,7 @@ class SegmentIteratorTest : public ::testing::Test {
         , certificate()
     {
         Logger::get().setLogLevels(RAMCloud::SILENT_LOG_LEVEL);
-        s.getAppendedLength(certificate);
+        s.getAppendedLength(&certificate);
     }
 
     Segment s;
@@ -88,7 +88,7 @@ TEST_F(SegmentIteratorTest, constructor_fromBuffer) {
 
     // The new certificate (including the above append) should also work.
     {
-        s.getAppendedLength(certificate);
+        s.getAppendedLength(&certificate);
         SegmentIterator it(buf, buffer.getTotalLength(), certificate);
         EXPECT_NO_THROW(it.checkMetadataIntegrity());
         EXPECT_FALSE(it.isDone());
@@ -101,7 +101,7 @@ TEST_F(SegmentIteratorTest, constructor_fromBuffer) {
     // The certificate should also work if the segment length given is larger
     // than the actual contents.
     {
-        s.getAppendedLength(certificate);
+        s.getAppendedLength(&certificate);
         SegmentIterator it(buf, sizeof(buf), certificate);
         EXPECT_NO_THROW(it.checkMetadataIntegrity());
         EXPECT_FALSE(it.isDone());

@@ -34,12 +34,24 @@
 namespace RAMCloud {
 
 /**
- * Special exception for when the log runs out of memory entirely.
+ * Exception thrown when invalid arguments are passed to the constructor.
  */
 struct SegmentManagerException : public Exception {
     SegmentManagerException(const CodeLocation& where, std::string msg)
             : Exception(where, msg) {}
 };
+
+/// Slots are indexes in the "segments" table of SegmentManager. That table
+/// contains all LogSegment objects corresponding to segments being managed
+/// by this class. The SegmentSlot serves as a short reference to a particular
+/// segment. Users of the log are returned references to their entries
+/// containing the slot and an offset within the segment. This makes it easy
+/// to both address the entry within the segment, and figure out which
+/// LogSegment structure corresponds to it.
+typedef uint32_t SegmentSlot;
+
+/// Invalid SegmentSlot number. May be used as a return value to indicate error.
+enum : SegmentSlot { INVALID_SEGMENT_SLOT = -1U };
 
 /**
  * The SegmentManager is essentially the core of the master server's in-memory
@@ -61,13 +73,12 @@ struct SegmentManagerException : public Exception {
  * segments as needed. It also tracks the state of each segment and determines
  * when it is safe to reuse memory from cleaned segments (since RPCs could
  * still reference a segment after the cleaner has finished with it).
+ *
+ * This class is necessarily thread-safe, since the log and the log cleaner
+ * run in parallel.
  */
 class SegmentManager {
   public:
-    /// Invalid slot number. #alloc returns this if there is not enough free
-    /// memory.
-    enum { INVALID_SLOT = -1 };
-
     // Defined after this class.
     class Allocator;
 
@@ -80,16 +91,15 @@ class SegmentManager {
     void getMetrics(ProtoBuf::LogMetrics_SegmentMetrics& m);
     SegletAllocator& getAllocator() const;
     LogSegment* allocHead(bool mustNotFail = false);
-    LogSegment* allocSurvivor(uint64_t headSegmentIdDuringCleaning);
-    LogSegment* allocSurvivor(LogSegment* replacing);
-    void cleaningComplete(LogSegmentVector& clean);
-    void memoryCleaningComplete(LogSegment* cleaned);
+    LogSegment* allocSurvivor(LogSegment* replacing = NULL);
+    void cleaningComplete(LogSegmentVector& clean, LogSegmentVector& survivors);
+    void compactionComplete(LogSegment* oldSegment, LogSegment* newSegment);
     void cleanableSegments(LogSegmentVector& out);
     void logIteratorCreated();
     void logIteratorDestroyed();
     void getActiveSegments(uint64_t nextSegmentId, LogSegmentVector& list);
     bool initializeSurvivorReserve(uint32_t numSegments);
-    LogSegment& operator[](uint32_t slot);
+    LogSegment& operator[](SegmentSlot slot);
     bool doesIdExist(uint64_t id);
     size_t getFreeSurvivorCount();
     int getSegmentUtilization();
@@ -126,7 +136,7 @@ class SegmentManager {
      * For segments created during cleaning to hold survivor data, the sequence
      * is: 
      *
-     *     CLEANING_INTO --> CLEANABLE_PENDING_DIGEST -->
+     *     CLEANING_INTO --> CLEANABLE_PENDING_DIGEST --> CLEANABLE -->
      *        FREEABLE_PENDING_DIGEST_AND_REFERENCES -->
      *        FREEABLE_PENDING_REFERENCES --> FREE*
      *
@@ -167,14 +177,17 @@ class SegmentManager {
         FREEABLE_PENDING_REFERENCES,
 
         /// Not a state, but rather a count of the number of states.
-        TOTAL_STATES
+        TOTAL_STATES,
+
+        /// Also not a state. Indicates that a State variable is uninitialized.
+        INVALID_STATE = -1
     };
 
     INTRUSIVE_LIST_TYPEDEF(LogSegment, listEntries) SegmentList;
     INTRUSIVE_LIST_TYPEDEF(LogSegment, allListEntries) AllSegmentList;
     typedef std::lock_guard<SpinLock> Lock;
 
-    void writeHeader(LogSegment* segment, uint64_t headSegmentIdDuringCleaning);
+    void writeHeader(LogSegment* segment);
     void writeDigest(LogSegment* newHead, LogSegment* prevHead);
     void writeSafeVersion(LogSegment* head);
     LogSegment* getHeadSegment();
@@ -182,12 +195,12 @@ class SegmentManager {
     LogSegment* alloc(SegletAllocator::AllocationType type, uint64_t segmentId);
     void addToLists(LogSegment& s);
     void removeFromLists(LogSegment& s);
-    uint32_t allocSlot(SegletAllocator::AllocationType type);
-    void freeSlot(uint32_t slot, bool wasEmergencyHead);
+    SegmentSlot allocSlot(SegletAllocator::AllocationType type);
+    void freeSlot(SegmentSlot slot, bool wasEmergencyHead);
     void free(LogSegment* s);
     void freeUnreferencedSegments();
 
-    /// The pervasive RAMCloud context->
+    /// The pervasive RAMCloud context.
     Context* context;
 
     /// Size of each full segment in bytes.
@@ -221,19 +234,21 @@ class SegmentManager {
     /// 'segments', there is a corresponding state in this array at the same
     /// index. The state is not kept within the LogSegment class because its
     /// private to this class. A pair<> would also suffice, but seems uglier.
-    Tub<State>* states;
+    /// For any index in segments that not containing a constructed LogSegment
+    /// the corresponding index in this array will have the value INVALID_STATE.
+    State* states;
 
     /// List of indices in 'segments' that are reserved for new emergency head
     /// segments.
-    vector<uint32_t> freeEmergencyHeadSlots;
+    vector<SegmentSlot> freeEmergencyHeadSlots;
 
     /// List of indices in 'segments' that are reserved for new survivor
     /// segments allocated by the cleaner.
-    vector<uint32_t> freeSurvivorSlots;
+    vector<SegmentSlot> freeSurvivorSlots;
 
     /// List of indices in 'segments' that are free. This exists simply to allow
     /// for fast allocation of LogSegments.
-    vector<uint32_t> freeSlots;
+    vector<SegmentSlot> freeSlots;
 
     /// Number of segments we need to reserve for emergency heads (to allow us
     /// to roll over to a new log digest when otherwise out of memory).
@@ -243,19 +258,20 @@ class SegmentManager {
     uint32_t survivorSlotsReserved;
 
     /// Monotonically increasing identifier to be given to the next segment
-    /// allocated by this module.
+    /// allocated by this module. The first segment allocated is given id 1.
+    /// 0 and -1 are reserved values.
     uint64_t nextSegmentId;
 
     /// Lookup table from segment identifier to the corresponding index in
     /// 'segments' and 'states'. Currently used only to check for existence
     /// of a particular segment.
-    std::unordered_map<uint64_t, uint32_t> idToSlotMap;
+    std::unordered_map<uint64_t, SegmentSlot> idToSlotMap;
 
-    /// Linked list of all LogSegments managed by this module.
+    /// Unordered linked list of all LogSegments managed by this module.
     AllSegmentList allSegments;
 
-    /// Linked lists of LogSegments based on their current state. The contents
-    /// of all lists together is equivalent to the 'allSegments' list.
+    /// Unordered linked lists of LogSegments based on their current state. Each
+    /// segment is present in exactly one of these lists at any given time.
     SegmentList segmentsByState[TOTAL_STATES];
 
     /// Monitor lock protecting the SegmentManager from multiple calling
@@ -315,9 +331,9 @@ class SegmentManager {
      * \li SafeVersion might be behind the version number 
      * of any particular object.
      * As far as the object is not removed, its 
-     * version number has no influence of the safeVersion, because the safeVersion
-     * is used to keep the monotonicitiy of the version number of any recreated
-     * object.
+     * version number has no influence of the safeVersion, because the
+     * safeVersion is used to keep the monotonicitiy of the version number of
+     * any recreated object.
      *
      * \li When an object is removed, set the safeVersion
      * to the higher than any version number of the removed

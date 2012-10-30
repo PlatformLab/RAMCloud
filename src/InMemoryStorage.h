@@ -59,6 +59,7 @@ class InMemoryStorage : public BackupStorage {
         void startLoading();
         bool isLoaded();
         void* load();
+        void unload();
 
         void append(Buffer& source,
                     size_t sourceOffset,

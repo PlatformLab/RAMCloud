@@ -18,11 +18,12 @@
 
 #include "Buffer.h"
 #include "HashTable.h"
-#include "LogCleaner.h"
-#include "LogEntryRelocator.h"
 #include "LogEntryTypes.h"
 
 namespace RAMCloud {
+
+// Forward declare around header pain.
+class LogEntryRelocator;
 
 /**
  * This class specifies an interface that must be implemented for handling

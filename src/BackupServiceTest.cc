@@ -69,22 +69,22 @@ class BackupServiceTest : public ::testing::Test {
     closeSegment(ServerId masterId, uint64_t segmentId) {
         Segment segment;
         Segment::Certificate certificate;
-        uint32_t length = segment.getAppendedLength(certificate);
+        uint32_t length = segment.getAppendedLength(&certificate);
         BackupClient::writeSegment(&context, backupId, masterId, segmentId, 0,
                                    &segment, 0, length, &certificate,
                                    false, true, false);
     }
 
-    vector<ServerId>
+    void
     openSegment(ServerId masterId, uint64_t segmentId, bool primary = true)
     {
         Segment segment;
         Segment::Certificate certificate;
-        uint32_t length = segment.getAppendedLength(certificate);
-        return BackupClient::writeSegment(&context, backupId, masterId,
-                                          segmentId, 0, &segment, 0, length,
-                                          &certificate,
-                                          true, false, primary);
+        uint32_t length = segment.getAppendedLength(&certificate);
+        BackupClient::writeSegment(&context, backupId, masterId,
+                                   segmentId, 0, &segment, 0, length,
+                                   &certificate,
+                                   true, false, primary);
     }
 
     /**
@@ -199,23 +199,6 @@ TEST_F(BackupServiceTest, constructorReuseReplicas)
         "init: Backup 2.1 will store replicas under cluster name "
             "'testing'"
         , TestLog::get());
-}
-
-TEST_F(BackupServiceTest, assignGroup) {
-    uint64_t groupId = 100;
-    const uint32_t numReplicas = 3;
-    ServerId ids[numReplicas] = {ServerId(15), ServerId(16), ServerId(99)};
-    BackupClient::assignGroup(&context, backupId, groupId, numReplicas, ids);
-    EXPECT_EQ(groupId, backup->replicationId);
-    EXPECT_EQ(15U, backup->replicationGroup.at(0).getId());
-    EXPECT_EQ(16U, backup->replicationGroup.at(1).getId());
-    EXPECT_EQ(99U, backup->replicationGroup.at(2).getId());
-    ids[0] = ServerId(33);
-    ids[1] = ServerId(22);
-    ids[2] = ServerId(11);
-    BackupClient::assignGroup(&context, backupId, groupId, numReplicas, ids);
-    EXPECT_EQ(3U, backup->replicationGroup.size());
-    EXPECT_EQ(33U, backup->replicationGroup.at(0).getId());
 }
 
 TEST_F(BackupServiceTest, freeSegment) {
@@ -452,26 +435,6 @@ TEST_F(BackupServiceTest, writeSegment_epochStored) {
     EXPECT_EQ(1lu, metadata->segmentEpoch);
     EXPECT_STREQ("test",
                  static_cast<char*>(frameIt->second->load()) + 10);
-}
-
-
-TEST_F(BackupServiceTest, writeSegment_response) {
-    uint64_t groupId = 100;
-    const uint32_t numReplicas = 3;
-    ServerId ids[numReplicas] = {ServerId(15), ServerId(16), ServerId(33)};
-    BackupClient::assignGroup(&context, backupId, groupId, numReplicas, ids);
-    const vector<ServerId> group =
-        openSegment(ServerId(99, 0), 88);
-    EXPECT_EQ(3U, group.size());
-    EXPECT_EQ(15U, group.at(0).getId());
-    EXPECT_EQ(16U, group.at(1).getId());
-    EXPECT_EQ(33U, group.at(2).getId());
-    ServerId newIds[1] = {ServerId(99)};
-    BackupClient::assignGroup(&context, backupId, 0, 1, newIds);
-    const vector<ServerId> newGroup =
-        openSegment(ServerId(99, 0), 88);
-    EXPECT_EQ(1U, newGroup.size());
-    EXPECT_EQ(99U, newGroup.at(0).getId());
 }
 
 TEST_F(BackupServiceTest, writeSegment_segmentNotOpen) {

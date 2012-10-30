@@ -37,7 +37,7 @@ struct EnumerateBucketArgs {
     EnumerationIterator* iter;
 
     /// A vector in which to place the resulting objects.
-    std::vector<HashTable::Reference>* objectReferences;
+    std::vector<Log::Reference>* objectReferences;
 };
 
 /**
@@ -56,20 +56,20 @@ struct EnumerateBucketArgs {
  *      HashTable::forEachInBucket interface.
  */
 static void
-enumerateBucket(HashTable::Reference reference, void* cookie)
+enumerateBucket(uint64_t reference, void* cookie)
 {
     EnumerateBucketArgs& args = *static_cast<EnumerateBucketArgs*>(cookie);
 
     LogEntryType type;
     Buffer buffer;
-    type = args.log->getEntry(reference, buffer);
+    type = args.log->getEntry(Log::Reference(reference), buffer);
 
     if (type != LOG_ENTRY_TYPE_OBJ)
         return;
 
     // Filter objects by table and tablet hash range.
     Key key(type, buffer);
-    HashType keyHash = key.getHash();
+    KeyHash keyHash = key.getHash();
     if (key.getTableId() != args.tableId ||
         keyHash < args.requestedTabletStartHash ||
         args.iter->top().tabletEndHash < keyHash) {
@@ -104,7 +104,7 @@ enumerateBucket(HashTable::Reference reference, void* cookie)
         return;
     }
 
-    args.objectReferences->push_back(reference);
+    args.objectReferences->push_back(Log::Reference(reference));
 }
 
 /**
@@ -123,7 +123,7 @@ enumerateBucket(HashTable::Reference reference, void* cookie)
 static int64_t
 appendObjectsToBuffer(Log& log,
                       Buffer* buffer,
-                      std::vector<HashTable::Reference>& references,
+                      std::vector<Log::Reference>& references,
                       uint32_t maxBytes)
 {
     for (uint32_t index = 0; index < references.size(); index++) {
@@ -164,27 +164,27 @@ class ObjectHashComparator {
     /**
      * Compares two objects by key hash value.
      *
-     * \param first
+     * \param firstRef
      *      The first object to compare.
-     * \param second
+     * \param secondRef
      *      The second object to compare.
      * \return
      *      True if the first hash is less than the second hash, otherwise false.
      */
     bool
-    operator()(HashTable::Reference first, HashTable::Reference second)
+    operator()(Log::Reference firstRef, Log::Reference secondRef)
     {
         LogEntryType firstType;
         Buffer firstBuffer;
-        firstType = log.getEntry(first, firstBuffer);
+        firstType = log.getEntry(firstRef, firstBuffer);
         Key firstKey(firstType, firstBuffer);
-        HashType firstHash = firstKey.getHash();
+        KeyHash firstHash = firstKey.getHash();
 
         LogEntryType secondType;
         Buffer secondBuffer;
-        secondType = log.getEntry(second, secondBuffer);
+        secondType = log.getEntry(secondRef, secondBuffer);
         Key secondKey(secondType, secondBuffer);
-        HashType secondHash = secondKey.getHash();
+        KeyHash secondHash = secondKey.getHash();
 
         return firstHash < secondHash;
     }
@@ -272,19 +272,19 @@ Enumeration::complete()
     uint32_t bucketStart;
     uint32_t initialPayloadLength = payload.getTotalLength();
     bool payloadFull = false;
-    std::vector<HashTable::Reference> objects;
+    std::vector<Log::Reference> objectRefs;
     EnumerateBucketArgs args;
     args.tableId = tableId;
     args.requestedTabletStartHash = requestedTabletStartHash;
     args.log = &log;
     args.iter = &iter;
-    args.objectReferences = &objects;
+    args.objectReferences = &objectRefs;
     void* cookie = static_cast<void*>(&args);
     for (; bucketIndex < numBuckets && !payloadFull; bucketIndex++) {
-        objects.clear();
+        objectRefs.clear();
         bucketStart = payload.getTotalLength();
         objectMap.forEachInBucket(enumerateBucket, cookie, bucketIndex);
-        int64_t overflow = appendObjectsToBuffer(log, &payload, objects,
+        int64_t overflow = appendObjectsToBuffer(log, &payload, objectRefs,
                                                  maxPayloadBytes);
         payloadFull = overflow >= 0;
     }
@@ -298,16 +298,16 @@ Enumeration::complete()
         // objects can fit.
         if (iter.top().bucketIndex == bucketIndex) {
             ObjectHashComparator comparator(log);
-            std::sort(objects.begin(), objects.end(), comparator);
+            std::sort(objectRefs.begin(), objectRefs.end(), comparator);
 
-            int64_t overflow = appendObjectsToBuffer(log, &payload, objects,
+            int64_t overflow = appendObjectsToBuffer(log, &payload, objectRefs,
                                                      maxPayloadBytes);
             if (overflow >= 0) {
                 LogEntryType type;
                 Buffer buffer;
-                type = log.getEntry(objects[overflow], buffer);
+                type = log.getEntry(objectRefs[overflow], buffer);
                 Key key(type, buffer);
-                HashType nextHash = key.getHash();
+                KeyHash nextHash = key.getHash();
                 iter.top().bucketNextHash = nextHash;
             }
         }

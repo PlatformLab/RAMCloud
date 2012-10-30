@@ -434,7 +434,7 @@ TEST_F(ReplicatedSegmentTest, sync) {
     createSegment->logSegment.head = openLen;
     segment->sync(segment->queued.bytes); // first sync sends the opens
     Segment::Certificate certificate;
-    createSegment->logSegment.getAppendedLength(certificate);
+    createSegment->logSegment.getAppendedLength(&certificate);
     EXPECT_TRUE(transport.outputMatches(0, MockTransport::SEND_REQUEST,
         WrReq{{BACKUP_WRITE, BACKUP_SERVICE, 0},
                  999, 888, 0, 0, 10, true, false, true, true, certificate},
@@ -457,7 +457,7 @@ TEST_F(ReplicatedSegmentTest, sync) {
     EXPECT_TRUE(transport.output.empty());
     transport.clearOutput();
     segment->sync(openLen + 1); // will wait until after the next send
-    createSegment->logSegment.getAppendedLength(certificate);
+    createSegment->logSegment.getAppendedLength(&certificate);
     EXPECT_TRUE(transport.outputMatches(0, MockTransport::SEND_REQUEST,
         WrReq{{BACKUP_WRITE, BACKUP_SERVICE, 0},
                  999, 888, 0, 10, 10, false, false, true, true, certificate},
@@ -497,7 +497,7 @@ TEST_F(ReplicatedSegmentTest, syncDoubleCheckCrossSegmentOrderingConstraints) {
     transport.setInput("0 0"); // write
 
     Segment::Certificate segmentOpeningCertificate;
-    createSegment->logSegment.getAppendedLength(segmentOpeningCertificate);
+    createSegment->logSegment.getAppendedLength(&segmentOpeningCertificate);
 
     CreateSegment newHeadCreateSegment(this, segment,
                                        segmentId + 1, numReplicas);
@@ -505,18 +505,18 @@ TEST_F(ReplicatedSegmentTest, syncDoubleCheckCrossSegmentOrderingConstraints) {
 
     Segment::Certificate newHeadOpeningCertificate;
     newHeadCreateSegment.
-        logSegment.getAppendedLength(newHeadOpeningCertificate);
+        logSegment.getAppendedLength(&newHeadOpeningCertificate);
 
     segment->close(); // close queued
     newHeadCreateSegment.logSegment.head = openLen + 10; // write queued
     newHead->queued.bytes = openLen + 10;
     newHeadCreateSegment.
-        logSegment.getAppendedLength(newHead->queuedCertificate);
+        logSegment.getAppendedLength(&newHead->queuedCertificate);
 
     Segment::Certificate segmentFinalCertificate;
-    createSegment->logSegment.getAppendedLength(segmentFinalCertificate);
+    createSegment->logSegment.getAppendedLength(&segmentFinalCertificate);
     Segment::Certificate newHeadFinalCertificate;
-    newHeadCreateSegment.logSegment.getAppendedLength(newHeadFinalCertificate);
+    newHeadCreateSegment.logSegment.getAppendedLength(&newHeadFinalCertificate);
 
     // Mess up the queue order to simulate reorder due to failure.
     // This means newHead will be going first at 'taking turns'
@@ -681,7 +681,7 @@ TEST_F(ReplicatedSegmentTest, syncRecoveringFromLostOpenReplicas) {
         WrReq{{BACKUP_WRITE, BACKUP_SERVICE, 0},
                  999, 888, 1, 0, 10, true, false, true, false, certificate},
                 "abcdefghij", 10));
-    createSegment->logSegment.getAppendedLength(certificate);
+    createSegment->logSegment.getAppendedLength(&certificate);
     // Write to non-crashed replica includes certificate and new epoch.
     // No actual data is sent or change to the closed flag. Just need to update
     // the epoch is all.
@@ -706,14 +706,14 @@ TEST_F(ReplicatedSegmentTest, syncRecoveringFromLostOpenReplicas) {
  */
 TEST_F(ReplicatedSegmentTest, syncWaitsForCommittedEvenWhenAcked) {
     Segment::Certificate openingCertificate;
-    createSegment->logSegment.getAppendedLength(openingCertificate);
+    createSegment->logSegment.getAppendedLength(&openingCertificate);
 
     // oversized write queued
     createSegment->logSegment.head =
         segment->maxBytesPerWriteRpc + segment->openLen + 1;
     createSegment->logSegment.checksum.result = 0xcabba9e;
     Segment::Certificate certificate;
-    createSegment->logSegment.getAppendedLength(certificate);
+    createSegment->logSegment.getAppendedLength(&certificate);
     segment->close();
     EXPECT_TRUE(segment->isScheduled());
 
@@ -763,6 +763,84 @@ TEST_F(ReplicatedSegmentTest, syncWaitsForCommittedEvenWhenAcked) {
 
     EXPECT_EQ(0u, deleter.count);
     reset();
+}
+
+TEST_F(ReplicatedSegmentTest, swapSegment) {
+    transport.setInput("0 0"); // write+open first replica
+    transport.setInput("0 0"); // write+open second replica
+    transport.setInput("0 0"); // write+close first replica
+    transport.setInput("0 0"); // write+close second replica
+    segment->close();
+    segment->sync();
+    EXPECT_FALSE(segment->isScheduled());
+
+    const Segment* oldSegment = segment->segment;
+    Segment newSegment;
+    newSegment.append(LOG_ENTRY_TYPE_OBJ, "hi", 3);
+    EXPECT_EQ(oldSegment, segment->swapSegment(&newSegment));
+    EXPECT_EQ(&newSegment, segment->segment);
+
+    Segment::Certificate newCertificate;
+    uint32_t appendedBytes = newSegment.getAppendedLength(&newCertificate);
+    EXPECT_EQ(newCertificate, segment->queuedCertificate);
+    EXPECT_EQ(appendedBytes, segment->queued.bytes);
+    foreach (auto& replica, segment->replicas) {
+        EXPECT_EQ(segment->queued, replica.committed);
+        EXPECT_EQ(segment->queued, replica.acked);
+        EXPECT_EQ(segment->queued, replica.sent);
+    }
+}
+
+TEST_F(ReplicatedSegmentTest, swapSegmentThenBackupFailure) {
+    transport.setInput("0 0"); // open
+    transport.setInput("0 0"); // open
+    createSegment->logSegment.head = openLen; // write queued
+    taskQueue.performTask(); // send opens
+    taskQueue.performTask(); // reap opens
+
+    transport.setInput("0 0"); // close
+    transport.setInput("0 0"); // close
+    segment->close();
+    taskQueue.performTask(); // send closes
+    taskQueue.performTask(); // reap closes
+
+    // Do the brain transplant.
+    Segment newSegment("new content!", 13);
+    newSegment.checksum.result = 0xdeadbeef;
+    newSegment.append(LOG_ENTRY_TYPE_OBJ, "new content!", 13);
+    segment->swapSegment(&newSegment);
+
+    // Handle failure on the second replica.
+    transport.clearOutput();
+    TestLog::Enable _(handleBackupFailureFilter);
+    segment->handleBackupFailure({1, 0});
+
+    transport.setInput("0 0"); // open
+    taskQueue.performTask(); // send open
+    taskQueue.performTask(); // reap open
+    transport.setInput("0 0"); // close
+    taskQueue.performTask(); // send write
+    taskQueue.performTask(); // reap write
+    EXPECT_EQ("handleBackupFailure: Segment 888 recovering from lost replica "
+                "which was on backup 1.0 | "
+              "performWrite: Starting replication of segment 888 replica slot "
+                "1 on backup 0.0 | "
+              "performWrite: Sending open to backup 0.0 | "
+              "performWrite: Sending write to backup 0.0",
+        TestLog::get());
+
+    Segment::Certificate empty;
+    Segment::Certificate certificate;
+    newSegment.getAppendedLength(&certificate);
+
+    EXPECT_TRUE(transport.outputMatches(0, MockTransport::SEND_REQUEST,
+        WrReq{{BACKUP_WRITE, BACKUP_SERVICE, 0},
+                 999, 888, 0, 0, 10, true, false, false, false, empty},
+                "new conten", 10));
+    EXPECT_TRUE(transport.outputMatches(1, MockTransport::SEND_REQUEST,
+        WrReq{{BACKUP_WRITE, BACKUP_SERVICE, 0},
+                 999, 888, 0, 10, 3, false, true, false, true, certificate},
+                "t!", 3));
 }
 
 TEST_F(ReplicatedSegmentTest, scheduleWithReplicas) {
@@ -866,7 +944,7 @@ TEST_F(ReplicatedSegmentTest, performTaskRecoveringFromLostOpenReplicas) {
                  999, 888, 1, 0, 10, true, false, true, false, certificate},
                 "abcdefghij", 10));
     // Surviving replica gets epoch refreshed.
-    createSegment->logSegment.getAppendedLength(certificate);
+    createSegment->logSegment.getAppendedLength(&certificate);
     EXPECT_TRUE(transport.outputMatches(1, MockTransport::SEND_REQUEST,
         WrReq{{BACKUP_WRITE, BACKUP_SERVICE, 1},
                  999, 888, 1, 10, 0, false, false, false, true, certificate}));
@@ -941,7 +1019,7 @@ TEST_F(ReplicatedSegmentTest, performFreeRpcFailed) {
 
 TEST_F(ReplicatedSegmentTest, performWriteTooManyInFlight) {
     Segment::Certificate openingCertificate;
-    createSegment->logSegment.getAppendedLength(openingCertificate);
+    createSegment->logSegment.getAppendedLength(&openingCertificate);
 
     transport.setInput("0 0"); // open/write
     transport.setInput("0 0"); // open/write
@@ -1023,7 +1101,7 @@ TEST_F(ReplicatedSegmentTest, performWriteOpen) {
     }
 
     Segment::Certificate certificate;
-    createSegment->logSegment.getAppendedLength(certificate);
+    createSegment->logSegment.getAppendedLength(&certificate);
     EXPECT_TRUE(transport.outputMatches(0, MockTransport::SEND_REQUEST,
         WrReq{{BACKUP_WRITE, BACKUP_SERVICE, 0},
                  999, 888, 0, 0, 10, true, false, true, true, certificate},
@@ -1056,7 +1134,7 @@ TEST_F(ReplicatedSegmentTest, performWriteOpenTooManyInFlight) {
     writeRpcsInFlight = ReplicatedSegment::MAX_WRITE_RPCS_IN_FLIGHT - 1;
     taskQueue.performTask(); // retry writes since a slot freed up
     Segment::Certificate certificate;
-    createSegment->logSegment.getAppendedLength(certificate);
+    createSegment->logSegment.getAppendedLength(&certificate);
     EXPECT_TRUE(transport.outputMatches(0, MockTransport::SEND_REQUEST,
         WrReq{{BACKUP_WRITE, BACKUP_SERVICE, 0},
                  999, 888, 0, 0, 10, true, false, true, true, certificate},
@@ -1133,7 +1211,7 @@ TEST_F(ReplicatedSegmentTest, performWriteRpcFailed) {
     ServerId backupIdForFirstOpenAttempt = segment->replicas[1].backupId;
 
     Segment::Certificate certificate;
-    createSegment->logSegment.getAppendedLength(certificate);
+    createSegment->logSegment.getAppendedLength(&certificate);
     EXPECT_TRUE(transport.outputMatches(0, MockTransport::SEND_REQUEST,
         WrReq{{BACKUP_WRITE, BACKUP_SERVICE, 0},
                  999, 888, 0, 0, 10, true, false, true, true, certificate},
@@ -1171,7 +1249,7 @@ TEST_F(ReplicatedSegmentTest, performWriteRpcFailed) {
 
     createSegment->logSegment.head = openLen + 10; // write queued
     segment->close();
-    createSegment->logSegment.getAppendedLength(certificate);
+    createSegment->logSegment.getAppendedLength(&certificate);
     taskQueue.performTask();  // send close requests
     EXPECT_TRUE(transport.outputMatches(0, MockTransport::SEND_REQUEST,
         WrReq{{BACKUP_WRITE, BACKUP_SERVICE, 0},
@@ -1224,11 +1302,11 @@ TEST_F(ReplicatedSegmentTest, performWriteMoreToSend) {
 
     createSegment->logSegment.head = openLen + 20; // write queued
     Segment::Certificate openingCertificate;
-    createSegment->logSegment.getAppendedLength(openingCertificate);
+    createSegment->logSegment.getAppendedLength(&openingCertificate);
     createSegment->logSegment.checksum.result = 0xff00ff00;
     segment->close();
     Segment::Certificate closingCertificate;
-    createSegment->logSegment.getAppendedLength(closingCertificate);
+    createSegment->logSegment.getAppendedLength(&closingCertificate);
     taskQueue.performTask(); // send open
     EXPECT_TRUE(segment->isScheduled());
     taskQueue.performTask(); // reap opens
@@ -1267,7 +1345,7 @@ TEST_F(ReplicatedSegmentTest, performWriteClosedButLongerThanMaxTxLimit) {
     segment->close();
     EXPECT_TRUE(segment->isScheduled());
     Segment::Certificate certificate;
-    createSegment->logSegment.getAppendedLength(certificate);
+    createSegment->logSegment.getAppendedLength(&certificate);
 
     transport.clearOutput();
     transport.setInput("0 0"); // write

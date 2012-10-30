@@ -30,6 +30,7 @@ bool endsWith(const string& haystack, const string& needle);
 bool contains(const string& haystack, const string& needle);
 string regsub(const string& subject, const string& pattern,
         const string& replacement);
+string binaryToString(const void* input, uint32_t length);
 
 } // end StringUtil
 

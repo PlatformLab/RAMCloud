@@ -338,7 +338,7 @@ BackupMasterRecovery::getRecoverySegment(uint64_t recoveryId,
     if (buffer)
         replica->recoverySegments[partitionId].appendToBuffer(*buffer);
     if (certificate)
-        replica->recoverySegments[partitionId].getAppendedLength(*certificate);
+        replica->recoverySegments[partitionId].getAppendedLength(certificate);
 
     return STATUS_OK;
 }
@@ -416,6 +416,7 @@ BackupMasterRecovery::performTask()
     buildRecoverySegments(*nextToBuild);
     LOG(DEBUG, "Done building recovery segments for (<%s,%lu>)",
         crashedMasterId.toString().c_str(), nextToBuild->metadata->segmentId);
+    nextToBuild->frame->unload();
     ++nextToBuild;
 }
 

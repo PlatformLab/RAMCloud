@@ -146,8 +146,7 @@ TEST_F(ReplicaManagerTest, writeSegment) {
     Buffer buffer;
     Segment s;
 
-    SegmentHeader header = { *serverId, 88, segmentSize,
-        Segment::INVALID_SEGMENT_ID };
+    SegmentHeader header = { *serverId, 88, segmentSize };
     buffer.append(&header, sizeof(header));
     s.append(LOG_ENTRY_TYPE_SEGHEADER, buffer);
 
@@ -166,7 +165,7 @@ TEST_F(ReplicaManagerTest, writeSegment) {
     ProtoBuf::Tablets will;
     ProtoBuf::Tablets::Tablet& tablet(*will.add_tablet());
     tablet.set_table_id(123);
-    HashType keyHash = Key::getHash(123, "10", 2);
+    KeyHash keyHash = Key::getHash(123, "10", 2);
     tablet.set_start_key_hash(keyHash);
     tablet.set_end_key_hash(keyHash);
 
@@ -309,17 +308,18 @@ TEST_F(ReplicaManagerTest, endToEndBackupRecovery) {
     // Set up the scenario:
     // Two log segments in the log, one durably closed and the other open
     // with a single pending write.
-    log.allocateHeadIfStillOn({});
+    log.rollHeadOver();
     static char buf[64];
-    log.append(LOG_ENTRY_TYPE_OBJ, 0, buf, sizeof(buf), true);
+    log.append(LOG_ENTRY_TYPE_OBJ, 0, buf, sizeof(buf));
+    log.sync();
     // Non-synced append ensures mgr isn't idle, otherwise this unit test would
     // be racy: it waits for mgr->isIdle() to ensure recovery is complete, but
     // if the wait occurs before the failure notification gets processed this
     // will be trivially true.
-    log.append(LOG_ENTRY_TYPE_OBJ, 0, buf, sizeof(buf), false);
+    log.append(LOG_ENTRY_TYPE_OBJ, 0, buf, sizeof(buf));
     log.head->replicatedSegment->schedule();
     ASSERT_FALSE(mgr->isIdle());
-    ASSERT_EQ(1u, log.head->id);
+    ASSERT_EQ(2u, log.head->id);
 
     ServerConfig config = ServerConfig::forTesting();
     config.services = {WireFormat::BACKUP_SERVICE,
@@ -344,8 +344,8 @@ TEST_F(ReplicaManagerTest, endToEndBackupRecovery) {
     // of things during backup recovery which is exceptionally helpful since
     // the ordering doesn't follow the code flow at all. Comments are added
     // below to point out some of the important properties this is checking.
-    // Notice the log segments involved here are Segment 0 which is closed,
-    // Segment 1 which is currently the head.
+    // Notice the log segments involved here are Segment 1 which is closed,
+    // Segment 2 which is currently the head.
 
     EXPECT_EQ(
         // The failure is discovered through the tracker, notice that
@@ -356,54 +356,54 @@ TEST_F(ReplicaManagerTest, endToEndBackupRecovery) {
         // Next few, ensure open/closed segments get tagged appropriately
         // since recovery is different for each.
         "handleBackupFailure: Handling backup failure of serverId 1.0 | "
-        "handleBackupFailure: Segment 0 recovering from lost replica which "
-            "was on backup 1.0 | "
         "handleBackupFailure: Segment 1 recovering from lost replica which "
             "was on backup 1.0 | "
-        "handleBackupFailure: Lost replica(s) for segment 1 while open due "
+        "handleBackupFailure: Segment 2 recovering from lost replica which "
+            "was on backup 1.0 | "
+        "handleBackupFailure: Lost replica(s) for segment 2 while open due "
             "to crash of backup 1.0 | "
-        // Segment 1 goes first; since it stayed open it was always scheduled.
+        // Segment 2 goes first; since it stayed open it was always scheduled.
         // Replica slot 0 just needs an updated epoch, so that is sent out.
         "performWrite: Sending write to backup 2.0 | "
         // Replica slot 1 was the replica that was lost. Start re-replication.
-        "performWrite: Starting replication of segment 1 replica slot 1 on "
+        "performWrite: Starting replication of segment 2 replica slot 1 on "
             "backup 4.0 | "
         "performWrite: Sending open to backup 4.0 | "
-        "writeSegment: Opening <3.0,1> | "
-        // Segment 0 goes second because it was happily durable and descheduled
+        "writeSegment: Opening <3.0,2> | "
+        // Segment 1 goes second because it was happily durable and descheduled
         // until the failure woke it up.
         "selectPrimary: Chose server 4.0 with 0 primary replicas and 100 MB/s "
             "disk bandwidth (expected time to read on recovery is 80 ms) | "
-        "performWrite: Starting replication of segment 0 replica slot 0 on "
+        "performWrite: Starting replication of segment 1 replica slot 0 on "
             "backup 4.0 | "
         "performWrite: Sending open to backup 4.0 | "
-        "writeSegment: Opening <3.0,0> | "
-        // Write to re-replicate segment 1 replica slot 1.
+        "writeSegment: Opening <3.0,1> | "
+        // Write to re-replicate segment 2 replica slot 1.
         "performWrite: Sending write to backup 4.0 | "
-        // Write to re-replicate segment 0 replica slot 0 and close it.
+        // Write to re-replicate segment 1 replica slot 0 and close it.
         "performWrite: Sending write to backup 4.0 | "
-        "writeSegment: Closing <3.0,0> | "
+        "writeSegment: Closing <3.0,1> | "
         // All re-replication has been taken care of; bump the epoch number
         // on the coordinator.
-        "performTask: Updating replicationEpoch to 1,1 on coordinator to "
+        "performTask: Updating replicationEpoch to 2,1 on coordinator to "
             "ensure lost replicas will not be reused | "
         "updateToAtLeast: request update to master recovery info for 3.0 "
-            "to 1,1 | "
-        "performTask: Updating replicationEpoch to 1,1 on coordinator to "
+            "to 2,1 | "
+        "performTask: Updating replicationEpoch to 2,1 on coordinator to "
             "ensure lost replicas will not be reused | "
         "updateToAtLeast: request update to master recovery info for 3.0 "
-            "to 1,1 | "
-        "performTask: Updating replicationEpoch to 1,1 on coordinator to "
+            "to 2,1 | "
+        "performTask: Updating replicationEpoch to 2,1 on coordinator to "
             "ensure lost replicas will not be reused | "
         "updateToAtLeast: request update to master recovery info for 3.0 "
-            "to 1,1 | "
-        "performTask: coordinator replication epoch for 3.0 updated to 1,1 | "
+            "to 2,1 | "
+        "performTask: coordinator replication epoch for 3.0 updated to 2,1 | "
         "performTask: replicationEpoch ok, lost open replica recovery "
-            "complete on segment 1"
+            "complete on segment 2"
         , TestLog::get());
 
     // Make sure the replication epoch on the coordinator was updated.
-    EXPECT_EQ(1u,
+    EXPECT_EQ(2u,
         cluster.coordinator->context->coordinatorServerList->at(
         serverId).masterRecoveryInfo.min_open_segment_id());
     EXPECT_EQ(1u,

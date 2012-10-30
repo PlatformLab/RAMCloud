@@ -49,7 +49,8 @@ class CoordinatorClient {
     static void getTabletMap(Context* context, ProtoBuf::Tablets* tabletMap);
     static void hintServerDown(Context* context, ServerId serverId);
     static void reassignTabletOwnership(Context* context, uint64_t tableId,
-            uint64_t firstKey, uint64_t lastKey, ServerId newOwnerId);
+            uint64_t firstKey, uint64_t lastKey, ServerId newOwnerId,
+            uint64_t ctimeSegmentId, uint32_t ctimeSegmentOffset);
     static void recoveryMasterFinished(Context* context, uint64_t recoveryId,
             ServerId recoveryMasterId, const ProtoBuf::Tablets* tablets,
             bool successful);
@@ -129,7 +130,8 @@ class HintServerDownRpc : public CoordinatorRpcWrapper {
 class ReassignTabletOwnershipRpc : public CoordinatorRpcWrapper {
     public:
     ReassignTabletOwnershipRpc(Context* context, uint64_t tableId,
-            uint64_t firstKey, uint64_t lastKey, ServerId newOwnerMasterId);
+            uint64_t firstKey, uint64_t lastKey, ServerId newOwnerMasterId,
+            uint64_t ctimeSegmentId, uint32_t ctimeSegmentOffset);
     ~ReassignTabletOwnershipRpc() {}
     /// \copydoc RpcWrapper::docForWait
     void wait() {simpleWait(context->dispatch);}

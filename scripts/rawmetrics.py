@@ -239,7 +239,25 @@ master.metric('replicaRecoveries',
 master.metric('openReplicaRecoveries',
     'of replicaRecoveries how many were for replicas which were open')
 master.metric('replicationTasks',
-    'number of outstanding tasks in ReplicaManager')
+    'max number of outstanding tasks in ReplicaManager')
+master.metric('replicationTransmitCopyTicks',
+    'time spent copying outgoing rpcs in transport')
+master.metric('logSyncTransmitCopyTicks',
+    'time spent copying outgoing rpcs in transport just during log sync')
+master.metric('replayMemoryReadBytes',
+    'rough estimate of memory read during log replay')
+master.metric('replayMemoryWrittenBytes',
+    'rough estimate of memory written during log replay')
+master.metric('replicationTransmitActiveTicks',
+    'time transport tx was active during replication')
+master.metric('logSyncTransmitActiveTicks',
+    'time transport tx was active during log sync')
+master.metric('replicationPostingWriteRpcTicks',
+    'time spent during recovery starting write rpcs in transport')
+master.metric('recoverSegmentPostingWriteRpcTicks',
+    'time spent during recoverSegment starting write rpcs in transport')
+master.metric('logSyncPostingWriteRpcTicks',
+    'time spent during recovery final log sync starting write rpcs in transport')
 
 backup = Group('Backup', 'metrics for backups')
 backup.metric('recoveryCount',
@@ -290,7 +308,7 @@ rpc.metric('getServerListCount', 'number of invocations of GET_SERVER_LIST RPC')
 rpc.metric('getTabletMapCount', 'number of invocations of GET_TABLET_MAP RPC')
 rpc.metric('recoverCount', 'number of invocations of RECOVER RPC')
 rpc.metric('hintServerDownCount', 'number of invocations of HINT_SERVER_DOWN RPC')
-rpc.metric('recoveryMasterFinishedCount', 'number of invocations of RECOVERY_MASTER_FINISHED_RPC')
+rpc.metric('recoveryMasterFinishedCount', 'number of invocations of RECOVERY_MASTER_FINISHED RPC')
 rpc.metric('enumerateCount', 'number of invocations of ENUMERATE RPC')
 rpc.metric('setMasterRecoveryInfoCount', 'number of invocations of SET_MASTER_RECOVERY_INFO RPC')
 rpc.metric('fillWithTestDataCount', 'number of invocations of FILL_WITH_TEST_DATA RPC')
@@ -317,12 +335,13 @@ rpc.metric('prepForMigrationCount', 'number of invocations of PREP_FOR_MIGRATION
 rpc.metric('receiveMigrationDataCount', 'number of invocations of RECEIVE_MIGRATION_DATA RPC')
 rpc.metric('reassignTabletOwnershipCount', 'number of invocations of REASSIGN_TABLET_OWNERSHIP RPC')
 rpc.metric('migrateTabletCount', 'number of invocations of MIGRATE_TABLET RPC')
-rpc.metric('isReplicaNeededCount', 'number of invocations of IS_REPLICA_NEEDED_RPC')
+rpc.metric('isReplicaNeededCount', 'number of invocations of IS_REPLICA_NEEDED RPC')
 rpc.metric('splitTabletCount', 'number of invocations of SPLIT_TABLET')
-rpc.metric('getServerStatisticsCount', 'number of invocations of GET_SERVER_STATISTICS')
-rpc.metric('setRuntimeOptionCount', 'number of invocations of SET_RUNTIME_OPTION')
-rpc.metric('getServerConfigCount', 'number of invocations of GET_SERVER_CONFIG')
-rpc.metric('getLogMetricsCount', 'number of invocations of GET_LOG_METRICS')
+rpc.metric('getServerStatisticsCount', 'number of invocations of GET_SERVER_STATISTICS RPC')
+rpc.metric('setRuntimeOptionCount', 'number of invocations of SET_RUNTIME_OPTION RPC')
+rpc.metric('getServerConfigCount', 'number of invocations of GET_SERVER_CONFIG RPC')
+rpc.metric('getLogMetricsCount', 'number of invocations of GET_LOG_METRICS RPC')
+rpc.metric('multiWriteCount', 'number of invocations of MULTI_WRITE RPC')
 rpc.metric('illegalRpcCount', 'number of invocations of RPCs with illegal opcodes')
 
 rpc.metric('rpc0Ticks', 'time spent executing RPC 0 (undefined)')
@@ -379,6 +398,7 @@ rpc.metric('getServerStatisticsTicks', 'time spent executing GET_SERVER_STATISTI
 rpc.metric('setRuntimeOptionTicks', 'time spent executing SET_RUNTIME_OPTION RPC')
 rpc.metric('getServerConfigTicks', 'time spent executing GET_SERVER_CONFIG RPC')
 rpc.metric('getLogMetricsTicks', 'time spent executing GET_LOG_METRICS RPC')
+rpc.metric('multiWriteTicks', 'time spent executing MULTI_WRITE RPC')
 rpc.metric('illegalRpcTicks', 'time spent executing RPCs with illegal opcodes')
 
 transmit = Group('Transmit', 'metrics related to transmitting messages')

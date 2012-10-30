@@ -134,7 +134,7 @@ TEST_P(SegmentTest, append_outOfSpace) {
 
     // How many N-length writes can we make to this segment?
     char buf[107];
-    uint32_t bytesPerAppend = s.bytesNeeded(sizeof(buf));
+    uint32_t bytesPerAppend = sizeof(buf) + 2;  // EntryHeader, length, data
     uint32_t expectedAppends = GetParam()->segmentSize / bytesPerAppend;
 
     uint32_t actualAppends = 0;
@@ -154,7 +154,7 @@ TEST_P(SegmentTest, append_whiteBox) {
 
     EXPECT_EQ(0U, offset);
     Segment::Certificate certificate;
-    EXPECT_EQ(4U, s.getAppendedLength(certificate));
+    EXPECT_EQ(4U, s.getAppendedLength(&certificate));
     EXPECT_EQ(4u, certificate.segmentLength);
     EXPECT_EQ(0x87a632e2u, certificate.checksum);
 
@@ -254,11 +254,11 @@ TEST_P(SegmentTest, getAppendedLength) {
     Segment& s = *segAndAlloc.segment;
 
     Segment::Certificate certificate;
-    EXPECT_EQ(0lu, s.getAppendedLength(certificate));
+    EXPECT_EQ(0lu, s.getAppendedLength(&certificate));
     EXPECT_EQ(0lu, certificate.segmentLength);
     EXPECT_EQ(0x48674bc7lu, certificate.checksum);
     s.append(LOG_ENTRY_TYPE_OBJ, "yo!", 3);
-    EXPECT_EQ(5lu, s.getAppendedLength(certificate));
+    EXPECT_EQ(5lu, s.getAppendedLength(&certificate));
     EXPECT_EQ(5lu, certificate.segmentLength);
     EXPECT_EQ(0x62f2f7f6u, certificate.checksum);
 }
@@ -284,69 +284,6 @@ TEST_P(SegmentTest, getSegletsInUse) {
     } else {
         EXPECT_FALSE(ok);
         EXPECT_EQ(0U, s.getSegletsInUse());
-    }
-}
-
-TEST_P(SegmentTest, getEntryInfo) {
-    LogEntryType type;
-    uint32_t dataOffset;
-    uint32_t dataLength;
-
-    {
-        SegmentAndAllocator segAndAlloc(GetParam());
-        Segment& s = *segAndAlloc.segment;
-
-        char buf[200];
-        s.append(LOG_ENTRY_TYPE_OBJ, buf, 200);
-
-        s.getEntryInfo(0, type, dataOffset, dataLength);
-        EXPECT_EQ(LOG_ENTRY_TYPE_OBJ, type);
-        EXPECT_EQ(2U, dataOffset);
-        EXPECT_EQ(200U, dataLength);
-    }
-
-    {
-        SegmentAndAllocator segAndAlloc(GetParam());
-        Segment& s = *segAndAlloc.segment;
-
-        char buf[2000];
-        s.append(LOG_ENTRY_TYPE_OBJ, buf, 2000);
-        s.getEntryInfo(0, type, dataOffset, dataLength);
-        EXPECT_EQ(3U, dataOffset);
-        EXPECT_EQ(2000U, dataLength);
-    }
-
-    {
-        SegmentAndAllocator segAndAlloc(GetParam());
-        Segment& s = *segAndAlloc.segment;
-        s.append(LOG_ENTRY_TYPE_OBJ, NULL, 0);  // EntryHeader at 0
-        s.append(LOG_ENTRY_TYPE_OBJ, NULL, 0);  // EntryHeader at 2
-        s.append(LOG_ENTRY_TYPE_OBJ, "hi", 2);  // EntryHeader at 4
-        s.append(LOG_ENTRY_TYPE_OBJ, NULL, 0);  // EntryHeader at 8
-
-        s.getEntryInfo(0, type, dataOffset, dataLength);
-        EXPECT_EQ(2U, dataOffset);
-
-        s.getEntryInfo(2, type, dataOffset, dataLength);
-        EXPECT_EQ(4U, dataOffset);
-
-        s.getEntryInfo(4, type, dataOffset, dataLength);
-        EXPECT_EQ(6U, dataOffset);
-
-        s.getEntryInfo(8, type, dataOffset, dataLength);
-        EXPECT_EQ(10U, dataOffset);
-
-        s.getEntryInfo(0, type, dataOffset, dataLength);
-        EXPECT_EQ(0U, dataLength);
-
-        s.getEntryInfo(2, type, dataOffset, dataLength);
-        EXPECT_EQ(0U, dataLength);
-
-        s.getEntryInfo(4, type, dataOffset, dataLength);
-        EXPECT_EQ(2U, dataLength);
-
-        s.getEntryInfo(8, type, dataOffset, dataLength);
-        EXPECT_EQ(0U, dataLength);
     }
 }
 
@@ -379,22 +316,34 @@ TEST_P(SegmentTest, peek) {
     EXPECT_EQ(s.segletBlocks[0], pointer);
 }
 
-TEST_P(SegmentTest, bytesLeft) {
+TEST_P(SegmentTest, hasSpaceFor) {
     SegmentAndAllocator segAndAlloc(GetParam());
     Segment& s = *segAndAlloc.segment;
-    EXPECT_EQ(GetParam()->segmentSize, s.bytesLeft());
-    s.append(LOG_ENTRY_TYPE_OBJ, "blah", 5);
-    EXPECT_EQ(GetParam()->segmentSize - 7, s.bytesLeft());
-    s.close();
-    EXPECT_EQ(0U, s.bytesLeft());
-}
 
-TEST_P(SegmentTest, bytesNeeded) {
-    SegmentAndAllocator segAndAlloc(GetParam());
-    Segment& s = *segAndAlloc.segment;
-    EXPECT_EQ(2U, s.bytesNeeded(0));
-    EXPECT_EQ(257U, s.bytesNeeded(255));
-    EXPECT_EQ(259U, s.bytesNeeded(256));
+    EXPECT_TRUE(s.hasSpaceFor(NULL, 0));
+
+    uint32_t lengths[2];
+
+    s.closed = true;
+    lengths[0] = 0;
+    EXPECT_FALSE(s.hasSpaceFor(lengths, 1));
+
+    s.closed = false;
+    EXPECT_TRUE(s.hasSpaceFor(lengths, 1));
+
+    uint32_t totalFreeBytes = s.getSegletsAllocated() * s.segletSize - s.head;
+    lengths[0] = totalFreeBytes;
+    EXPECT_FALSE(s.hasSpaceFor(lengths, 1));
+
+    lengths[0] = totalFreeBytes - 4;        // EntryHeader + 3 bytes length
+    EXPECT_TRUE(s.hasSpaceFor(lengths, 1));
+
+    lengths[1] = 3;
+    EXPECT_FALSE(s.hasSpaceFor(lengths, 2));
+
+    lengths[0] = lengths[1] = lengths[2] = 20;
+    lengths[3] = 999999999;
+    EXPECT_TRUE(s.hasSpaceFor(lengths, 3));
 }
 
 TEST_P(SegmentTest, copyOut) {
@@ -463,10 +412,10 @@ TEST_P(SegmentTest, checkMetadataIntegrity_simple) {
     Segment& s = *segAndAlloc.segment;
 
     Segment::Certificate certificate;
-    s.getAppendedLength(certificate);
+    s.getAppendedLength(&certificate);
     EXPECT_TRUE(s.checkMetadataIntegrity(certificate));
     s.append(LOG_ENTRY_TYPE_OBJ, "asdfhasdf", 10);
-    s.getAppendedLength(certificate);
+    s.getAppendedLength(&certificate);
     EXPECT_TRUE(s.checkMetadataIntegrity(certificate));
 
     // scribbling on an entry's data won't harm anything
@@ -492,7 +441,7 @@ TEST_P(SegmentTest, checkMetadataIntegrity_badLength) {
     s.copyIn(0, &header, sizeof(header));
     s.copyIn(sizeof(header), &segmentSize, sizeof(segmentSize));
     s.head = 1;
-    s.getAppendedLength(certificate);
+    s.getAppendedLength(&certificate);
     EXPECT_FALSE(s.checkMetadataIntegrity(certificate));
     EXPECT_TRUE(StringUtil::startsWith(TestLog::get(),
         "checkMetadataIntegrity: segment corrupt: entries run off past "
@@ -502,7 +451,7 @@ TEST_P(SegmentTest, checkMetadataIntegrity_badLength) {
     segmentSize = segAndAlloc.segmentSize;
     s.copyIn(0, &header, sizeof(header));
     s.copyIn(sizeof(header), &segmentSize, sizeof(segmentSize));
-    s.getAppendedLength(certificate);
+    s.getAppendedLength(&certificate);
     EXPECT_FALSE(s.checkMetadataIntegrity(certificate));
     EXPECT_TRUE(StringUtil::startsWith(TestLog::get(),
         "checkMetadataIntegrity: segment corrupt: entries run off past "

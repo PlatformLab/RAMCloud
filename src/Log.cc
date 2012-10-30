@@ -17,6 +17,8 @@
 #include <stdint.h>
 
 #include "Log.h"
+#include "LogCleaner.h"
+#include "ServerConfig.h"
 #include "ShortMacros.h"
 
 namespace RAMCloud {
@@ -24,8 +26,8 @@ namespace RAMCloud {
 /**
  * Constructor for Log. No segments are allocated in the constructor, so if
  * replicas are being used no backups will have been contacted yet and there
- * will be no durable evidence of this log having existed. Call sync() or make
- * a synchronous append() to allocate and force the head segment to backups.
+ * will be no durable evidence of this log having existed. Call sync() to
+ * allocate and force the head segment (and others, perhaps) to backups.
  *
  * The reason for this behaviour is complicated. We want to ensure that the
  * log is made durable before assigning any tablets to the master, since we
@@ -61,11 +63,18 @@ Log::Log(Context* context,
       entryHandlers(entryHandlers),
       segmentManager(segmentManager),
       replicaManager(replicaManager),
-      cleaner(context, config, segmentManager, replicaManager, entryHandlers),
+      cleaner(NULL),
       head(NULL),
+      segmentSize(config.segmentSize),
       appendLock(),
+      syncLock(),
       metrics()
 {
+    cleaner = new LogCleaner(context,
+                             config,
+                             segmentManager,
+                             replicaManager,
+                             entryHandlers);
 }
 
 /**
@@ -73,6 +82,7 @@ Log::Log(Context* context,
  */
 Log::~Log()
 {
+    delete cleaner;
 }
 
 /**
@@ -81,7 +91,7 @@ Log::~Log()
 void
 Log::enableCleaner()
 {
-    cleaner.start();
+    cleaner->start();
 }
 
 /**
@@ -91,7 +101,7 @@ Log::enableCleaner()
 void
 Log::disableCleaner()
 {
-    cleaner.stop();
+    cleaner->stop();
 }
 
 /**
@@ -110,15 +120,265 @@ Log::getMetrics(ProtoBuf::LogMetrics& m)
     m.set_total_bytes_appended(metrics.totalBytesAppended);
     m.set_total_metadata_bytes_appended(metrics.totalMetadataBytesAppended);
 
-    cleaner.getMetrics(*m.mutable_cleaner_metrics());
+    cleaner->getMetrics(*m.mutable_cleaner_metrics());
     segmentManager.getMetrics(*m.mutable_segment_metrics());
     segmentManager.getAllocator().getMetrics(*m.mutable_seglet_metrics());
 }
 
 /**
- * Append a typed entry to the log by coping in the data. Entries are binary
+ * Append multiple entries to the log atomically. This ensures that either
+ * everything is written, or none of it is. Furthermore, recovery is
+ * guaranteed to see either none or all of the entries.
+ *
+ * Note that the append operation is not synchronous with respect to backups.
+ * To ensure that the data appended has been safely written to backups, the
+ * sync() method must be invoked after appending. Until sync() is called, the
+ * data may or may not have been made durable.
+ *
+ * \param appends
+ *      Array containing the entries to append. References to the entries
+ *      are also returned here.
+ * \param numAppends
+ *      Number of entries in the appends array.
+ * \return
+ *      True if the append succeeded, false if there was insufficient space
+ *      to complete the operation.
+ */
+bool
+Log::append(AppendVector* appends, uint32_t numAppends)
+{
+    Lock lock(appendLock);
+
+    uint32_t lengths[numAppends];
+    for (uint32_t i = 0; i < numAppends; i++)
+        lengths[i] = appends[i].buffer.getTotalLength();
+
+    if (head == NULL || !head->hasSpaceFor(lengths, numAppends))
+        head = segmentManager.allocHead(true);
+
+    if (head == NULL || head->isEmergencyHead)
+        return false;
+
+    if (!head->hasSpaceFor(lengths, numAppends))
+        throw FatalError(HERE, "too much data to append to one segment");
+
+    LogSegment* headBefore = head;
+    for (uint32_t i = 0; i < numAppends; i++) {
+        bool enoughSpace = append(lock,
+                                  appends[i].type,
+                                  appends[i].timestamp,
+                                  appends[i].buffer,
+                                  &appends[i].reference);
+        if (!enoughSpace)
+            throw FatalError(HERE, "Guaranteed append managed to fail");
+    }
+    assert(head == headBefore);
+
+    return true;
+}
+
+/**
+ * This method is invoked when a log entry is no longer needed (for example, an
+ * object that has been deleted). This method does not change anything in the
+ * log itself, but it is used to keep track of free space in segments to help
+ * the cleaner identify good candidates for cleaning.
+ *
+ * Free should be called only once for each entry. Behaviour is undefined if
+ * it is called more than once on the same reference.
+ *
+ * \param reference
+ *      Reference to the entry being freed.
+ */
+void
+Log::free(Reference reference)
+{
+    SegmentSlot slot = reference.getSlot(segmentSize);
+    uint32_t offset = reference.getOffset(segmentSize);
+    LogSegment& segment = segmentManager[slot];
+    Buffer buffer;
+    LogEntryType type = segment.getEntry(offset, buffer);
+    uint32_t timestamp = entryHandlers.getTimestamp(type, buffer);
+    segment.statistics.decrement(buffer.getTotalLength(), timestamp);
+}
+
+/**
+ * Given a reference to an entry previously appended to the log, return the
+ * entry's type and fill in a buffer that points to the entry's contents.
+ * This is the method to use to access something after it is appended to the
+ * log.
+ *
+ * \param reference
+ *      Reference to the entry requested. This value is returned in the append
+ *      method. If this reference is invalid behaviour is undefined. The log
+ *      will indicate when references become invalid via the LogEntryHandlers
+ *      class.
+ * \param outBuffer
+ *      Buffer to append the entry being looked up to.
+ * \return
+ *      The type of the entry being looked up is returned here.
+ */
+LogEntryType
+Log::getEntry(Reference reference, Buffer& outBuffer)
+{
+    SegmentSlot slot = reference.getSlot(segmentSize);
+    uint32_t offset = reference.getOffset(segmentSize);
+    return segmentManager[slot].getEntry(offset, outBuffer);
+}
+
+/**
+ * Wait for all log appends made at the time this method is invoked to be fully
+ * replicated to backups. If no appends have ever been done, this method will
+ * allocate the first log head and sync it to backups.
+ *
+ * This method is thread-safe. If no sync operation is currently underway, the
+ * caller will fully sync the log and return. Doing so will propagate any
+ * appends done since the last sync, including those performed by other threads.
+ *
+ * If a sync operation is already underway, this method will block until it
+ * completes. Afterwards it will either return immediately if a previous call
+ * did the work for us, or, if more replication is needed, it will sync the full
+ * log contents at that time, including any appends made since this method
+ * started waiting. This lets us batch backup writes and improve throughput for
+ * small entries.
+ *
+ * An alternative to batching writes would have been to pipeline replication
+ * RPCs to backups. That would probably also work just fine, but results in
+ * more RPCs and is more complicated (we'd need to keep track of various RPCs
+ * that may arrive out-of-order). The log also currently operates strictly
+ * in-order, so there'd be no opportunity for small writes to skip ahead of
+ * large ones anyway.
+ */
+void
+Log::sync()
+{
+    CycleCounter<uint64_t> __(&metrics.totalSyncTicks);
+
+    Tub<Lock> lock;
+    lock.construct(appendLock);
+
+    // The only time 'head' should be NULL is after construction and before the
+    // initial call to this method. Even if we run out of memory in the future,
+    // head will remain valid.
+    if (head == NULL) {
+        head = segmentManager.allocHead(true);
+        if (head == NULL)
+            throw FatalError(HERE, "Could not allocate initial head segment");
+    }
+
+    // Get the current log offset and assume this is the point we want to sync
+    // to. It may include more data than our thread's previous appends due to
+    // races between the append() call and this sync(), but it's both unlikely
+    // and does not affect correctness. We simply may do a little more work
+    // sometimes when the log really is synced up to our appends, but this logic
+    // mistakes additional data from other threads' appends as stuff we care
+    // about.
+    uint32_t appendedLength = head->getAppendedLength();
+
+    // Concurrent appends may cause the head segment to change while we wait
+    // for another thread to finish syncing, so save the segment associated
+    // with the appendedLength we just acquired.
+    LogSegment* originalHead = head;
+
+    // We have a consistent view of the current head segment, so drop the append
+    // lock and grab the sync lock. This allows other writers to append to the
+    // log while we wait. Once we grab the sync lock, take the append lock again
+    // to ensure our new view of the head is consistent.
+    lock.destroy();
+    Lock _(syncLock);
+    lock.construct(appendLock);
+
+    // See if we still have work to do. It's possible that another thread
+    // already did the syncing we needed for us.
+    if (appendedLength > originalHead->syncedLength) {
+        // Get the latest segment length and certificate. This allows us to
+        // batch up other appends that came in while we were waiting.
+        Segment::Certificate certificate;
+        appendedLength = originalHead->getAppendedLength(&certificate);
+
+        // Drop the append lock. We don't want to block other appending threads
+        // while we sync.
+        lock.destroy();
+
+        originalHead->replicatedSegment->sync(appendedLength, &certificate);
+        originalHead->syncedLength = appendedLength;
+        TEST_LOG("log synced");
+    } else {
+        TEST_LOG("sync not needed: already fully replicated");
+    }
+}
+
+/**
+ * Given a reference to an appended entry, return the identifier of the segment
+ * that contains the entry. An example use of this is tombstones, which mark
+ * themselves with the segment id of the object they're deleting. When that
+ * segment leaves the system, the tombstone may be garbage collected.
+ */
+uint64_t
+Log::getSegmentId(Reference reference)
+{
+    SegmentSlot slot = reference.getSlot(segmentSize);
+    return segmentManager[slot].id;
+}
+
+/**
+ * Force the log to roll over to a new head and return the new log position.
+ * At the instant of the new head segment's creation, it will have the highest
+ * segment identifier in the log.
+ *
+ * This method can be used to ensure that the head segment is advanced past any
+ * survivor segments generated by the cleaner. This can be used to then
+ * demarcate parts of the log that can and cannot contain certain data. For
+ * example, when a tablet is migrated to a new machine, it rolls over the head
+ * and records the position. All data in the tablet must exist at that position
+ * or after it. If there were an old instance of the same tablet, we would not
+ * want to recover that data if a failure occurrs. Fortunately, its data would
+ * be at strictly lower positions in the log, so it's easy to filter during
+ * recovery.
+ */
+Log::Position
+Log::rollHeadOver()
+{
+    Lock lock(appendLock);
+    head = segmentManager.allocHead(true);
+    return Position(head->id, head->getAppendedLength());
+}
+
+/**
+ * Check if a segment is still in the system. This method can be used to
+ * determine if data once written to the log is no longer present in the
+ * RAMCloud system and hence will not appear again during either normal
+ * operation or recovery. Tombstones use this to determine when they are
+ * eligible for garbage collection.
+ *
+ * \param segmentId
+ *      The Segment identifier to check for liveness.
+ * \return
+ *      True if the given segment is present in the log, otherwise false.
+ */
+bool
+Log::segmentExists(uint64_t segmentId)
+{
+    TEST_LOG("%lu", segmentId);
+    return segmentManager.doesIdExist(segmentId);
+}
+
+/******************************************************************************
+ * PRIVATE METHODS
+ ******************************************************************************/
+
+/**
+ * Append a typed entry to the log by copying in the data. Entries are binary
  * blobs described by a simple <type, length> tuple.
  *
+ * Note that the append operation is not synchronous with respect to backups.
+ * To ensure that the data appended has been safely written to backups, the
+ * sync() method must be invoked after appending. Until sync() is called, the
+ * data may or may not have been made durable.
+ *
+ * \param appendLock
+ *      The append lock must have already been acquired before entering this
+ *      method. This parameter exists in the hopes that you don't forget to
+ *      do that.
  * \param type
  *      Type of the entry. See LogEntryTypes.h.
  * \param timestamp
@@ -127,28 +387,23 @@ Log::getMetrics(ProtoBuf::LogMetrics& m)
  * \param buffer
  *      Pointer to buffer containing the entry to be appended.
  * \param length
- *      Number of bytes to append from the provided buffer.
- * \param sync
- *      If true, do not return until the append has been replicated to backups.
- *      If false, may return before any replication has been done.
+ *      Size of the entry pointed to by #buffer in bytes.
  * \param[out] outReference
  *      If the append succeeds, a reference to the created entry is returned
  *      here. This reference may be used to access the appended entry via the
  *      lookup method. It may also be inserted into a HashTable.
  * \return
- *      True if the append succeeded, false if there was either insufficient
- *      space to complete the operation or the requested append was larger
- *      than the system supports.
+ *      True if the append succeeded, false if there was insufficient space
+ *      to complete the operation.
  */
 bool
-Log::append(LogEntryType type,
+Log::append(Lock& appendLock,
+            LogEntryType type,
             uint32_t timestamp,
             const void* buffer,
             uint32_t length,
-            bool sync,
-            HashTable::Reference* outReference)
+            Reference* outReference)
 {
-    Lock lock(appendLock);
     CycleCounter<uint64_t> _(&metrics.totalAppendTicks);
 
     // This is only possible once after construction.
@@ -161,8 +416,8 @@ Log::append(LogEntryType type,
     // Try to append. If we can't, try to allocate a new head to get more space.
     uint32_t segmentOffset;
     uint32_t bytesUsedBefore = head->getAppendedLength();
-    bool success = head->append(type, buffer, length, &segmentOffset);
-    if (!success) {
+    bool enoughSpace = head->append(type, buffer, length, &segmentOffset);
+    if (!enoughSpace) {
         LogSegment* newHead = segmentManager.allocHead(false);
         if (newHead != NULL)
             head = newHead;
@@ -192,11 +447,8 @@ Log::append(LogEntryType type,
     if (metrics.noSpaceTimer)
         metrics.noSpaceTimer.destroy();
 
-    if (sync)
-        Log::sync();
-
     if (outReference != NULL)
-        *outReference = buildReference(head->slot, segmentOffset);
+        *outReference = Reference(head->slot, segmentOffset, segmentSize);
 
     head->statistics.increment(head->getAppendedLength() - bytesUsedBefore,
                                timestamp);
@@ -212,224 +464,43 @@ Log::append(LogEntryType type,
  * Append a typed entry to the log by coping in the data. Entries are binary
  * blobs described by a simple <type, length> tuple.
  *
+ * Note that the append operation is not synchronous with respect to backups.
+ * To ensure that the data appended has been safely written to backups, the
+ * sync() method must be invoked after appending. Until sync() is called, the
+ * data may or may not have been made durable.
+ *
+ * \param appendLock
+ *      The append lock must have already been acquired before entering this
+ *      method. This parameter exists in the hopes that you don't forget to
+ *      do that.
  * \param type
  *      Type of the entry. See LogEntryTypes.h.
  * \param timestamp
  *      Creation time of the entry, as provided by WallTime. This is used by the
  *      log cleaner to choose more optimal segments to garbage collect from.
  * \param buffer
- *      Buffer object describing the entry to be appended.
- * \param sync
- *      If true, do not return until the append has been replicated to backups.
- *      If false, may return before any replication has been done.
+ *      Buffer object containing the entry to be appended.
  * \param[out] outReference
  *      If the append succeeds, a reference to the created entry is returned
  *      here. This reference may be used to access the appended entry via the
  *      lookup method. It may also be inserted into a HashTable.
  * \return
- *      True if the append succeeded, false if there was either insufficient
- *      space to complete the operation or the requested append was larger
- *      than the system supports.
+ *      True if the append succeeded, false if there was insufficient space to
+ *      complete the operation.
  */
 bool
-Log::append(LogEntryType type,
+Log::append(Lock& appendLock,
+            LogEntryType type,
             uint32_t timestamp,
             Buffer& buffer,
-            bool sync,
-            HashTable::Reference* outReference)
+            Reference* outReference)
 {
-    return append(type,
+    return append(appendLock,
+                  type,
                   timestamp,
                   buffer.getRange(0, buffer.getTotalLength()),
                   buffer.getTotalLength(),
-                  sync,
                   outReference);
-}
-
-/**
- * Mark bytes in log as freed. When a previously-appended entry is no longer
- * needed, this method may be used to notify the log that it may garbage
- * collect it.
- */
-void
-Log::free(HashTable::Reference reference)
-{
-    uint32_t slot = referenceToSlot(reference);
-    uint32_t offset = referenceToOffset(reference);
-    LogSegment& segment = segmentManager[slot];
-    Buffer buffer;
-    LogEntryType type = segment.getEntry(offset, buffer);
-    uint32_t timestamp = entryHandlers.getTimestamp(type, buffer);
-    segment.statistics.decrement(buffer.getTotalLength(), timestamp);
-}
-
-/**
- * Given a reference to an entry previously appended to the log, return the
- * entry's type and fill in a buffer that points to the entry's contents.
- * This is the method to use to access something after it is appended to the
- * log.
- *
- * \param reference
- *      Reference to the entry requested. This value is returned in the append
- *      method. If this reference is invalid behaviour is undefined. The log
- *      will indicate when references become invalid via the LogEntryHandlers
- *      class.
- * \param outBuffer
- *      Buffer to append the entry being looked up to.
- * \return
- *      The type of the entry being looked up is returned here.
- */
-LogEntryType
-Log::getEntry(HashTable::Reference reference, Buffer& outBuffer)
-{
-    uint32_t slot = referenceToSlot(reference);
-    uint32_t offset = referenceToOffset(reference);
-    return segmentManager[slot].getEntry(offset, outBuffer);
-}
-
-/**
- * Wait for all segments to be fully replicated. If there has never been a head
- * segment, allocate one and sync it to backups. This method must be invoked
- * before any appends to the log are permitted.
- */
-void
-Log::sync()
-{
-    CycleCounter<uint64_t> __(&metrics.totalSyncTicks);
-
-    // The only time 'head' should be NULL is after construction and before the
-    // initial call to this method. Even if we run out of memory in the future,
-    // head will remain valid.
-    if (head == NULL) {
-        head = segmentManager.allocHead(true);
-        if (head == NULL)
-            throw FatalError(HERE, "Could not allocate initial head segment");
-    }
-
-    head->replicatedSegment->sync(head->getAppendedLength());
-    TEST_LOG("log synced");
-}
-
-/**
- * Get the current position of the log head. This can be used when adding
- * tablets in order to preclude any prior log data from being considered
- * part of the tablet. This is important in tablet migration and when
- * creating, deleting, and re-creating the same tablet on a master since we
- * don't want recovery to resurrect old objects.
- */
-Log::Position
-Log::getHeadPosition()
-{
-    // TODO(Steve): This will interact poorly with iteration - it will not
-    // return until iteration is done, since callers to append() will block
-    // holding this lock!
-    Lock lock(appendLock);
-
-    if (head == NULL) {
-        // If invoked before the first call to append or sync, then we can say
-        // the log is currently at the initial position.
-        return { 0, 0 };
-    }
-
-    return { head->id, head->getAppendedLength() };
-}
-
-/**
- * Given a reference to an appended entry, return the identifier of the segment
- * that contains the entry. An example use of this is tombstones, which mark
- * themselves with the segment id of the object they're deleting. When that
- * segment leaves the system, the tombstone may be garbage collected.
- */
-uint64_t
-Log::getSegmentId(HashTable::Reference reference)
-{
-    uint32_t slot = referenceToSlot(reference);
-    return segmentManager[slot].id;
-}
-
-/**
- * Allocate a new head Segment and write the LogDigest before returning if
- * the provided \a segmentId is still the current log head.
- * The current head is closed and replaced with the new one.  All the
- * usual log durability constraints are enforced by the underlying
- * ReplicaManager for safety during the transition to the new head.
- *
- * \param segmentId
- *      Only allocate a new log head if the current log head is the one
- *      specified.  If \a segmentId is empty a new head is allocated
- *      regardless of which segment is currently the log head.  This is
- *      used to prevent useless allocations in the case that multiple
- *      callers try to allocate new log heads at the same time.
- * \throw LogOutOfMemoryException
- *      If no Segments are free.
- */
-void
-Log::allocateHeadIfStillOn(Tub<uint64_t> segmentId)
-{
-    Lock lock(appendLock);
-
-    if (!segmentId || (head != NULL && head->id == *segmentId))
-        head = segmentManager.allocHead(true);
-}
-
-/**
- * Check if a segment is still in the system. This method can be used to
- * determine if data once written to the log is no longer present in the
- * RAMCloud system and hence will not appear again during either normal
- * operation or recovery. Tombstones use this to determine when they are
- * eligible for garbage collection.
- *
- * \param segmentId
- *      The Segment identifier to check for liveness.
- * \return
- *      True if the given segment is present in the log, otherwise false.
- */
-bool
-Log::containsSegment(uint64_t segmentId)
-{
-    TEST_LOG("%lu", segmentId);
-    return segmentManager.doesIdExist(segmentId);
-}
-
-/******************************************************************************
- * PRIVATE METHODS
- ******************************************************************************/
-
-/**
- * Build a HashTable::Reference pointing to an entry in the log.
- *
- * \param slot
- *      Slot of the segment containing the entry. This it the temporary,
- *      reusable identifier that SegmentManager allocates.
- * \param offset
- *      Byte offset of the entry in the segment referred to by 'slot'.
- */
-HashTable::Reference
-Log::buildReference(uint32_t slot, uint32_t offset)
-{
-    // TODO(Steve): Just calculate how many bits we need for the offset, rather
-    // than statically allocate.
-    return HashTable::Reference((static_cast<uint64_t>(slot) << 24) | offset);
-}
-
-/**
- * Given a HashTable::Reference pointing to a log entry, extract the segment
- * slot number.
- */
-uint32_t
-Log::referenceToSlot(HashTable::Reference reference)
-{
-    return downCast<uint32_t>(reference.get() >> 24);
-}
-
-/**
- * Given a HashTable::Reference pointing to a log entry, extract the entry's
- * segment byte offset.
- */
-uint32_t
-Log::referenceToOffset(HashTable::Reference reference)
-{
-    return downCast<uint32_t>(reference.get() & 0xffffff);
 }
 
 } // namespace

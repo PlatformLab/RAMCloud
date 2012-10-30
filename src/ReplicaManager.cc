@@ -363,7 +363,9 @@ ReplicaManager::proceed()
     CycleCounter<RawMetric> _(&metrics->master.replicaManagerTicks);
     Lock __(dataMutex);
     taskQueue.performTask();
-    metrics->master.replicationTasks = taskQueue.outstandingTasks();
+    metrics->master.replicationTasks =
+        std::max(metrics->master.replicationTasks.load(),
+                 taskQueue.outstandingTasks());
 }
 
 // - private -

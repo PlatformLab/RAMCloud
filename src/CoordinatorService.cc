@@ -43,6 +43,7 @@ CoordinatorService::CoordinatorService(Context* context,
     , logCabinCluster()
     , logCabinLog()
     , logCabinHelper()
+    , expectedEntryId(LogCabin::Client::NO_ID)
 {
     if (strcmp(LogCabinLocator.c_str(), "testing") == 0) {
         LOG(NOTICE, "Connecting to mock LogCabin cluster for testing.");
@@ -55,6 +56,16 @@ CoordinatorService::CoordinatorService(Context* context,
     logCabinLog.construct(logCabinCluster->openLog("coordinator"));
     logCabinHelper.construct(*logCabinLog);
     LOG(NOTICE, "Connected to LogCabin cluster.");
+
+    if (logCabinLog.get()->getLastId() == LogCabin::Client::NO_ID)
+        expectedEntryId = 0;
+    else
+        expectedEntryId = logCabinLog.get()->getLastId() + 1;
+
+    context->recoveryManager = &recoveryManager;
+    context->logCabinLog = logCabinLog.get();
+    context->logCabinHelper = logCabinHelper.get();
+    context->expectedEntryId = &expectedEntryId;
 
     recoveryManager.start();
 
@@ -451,12 +462,13 @@ CoordinatorService::reassignTabletOwnership(
 
     // Get current head of log to preclude all previous data in the log
     // from being considered part of this tablet.
-    Log::Position headOfLog = MasterClient::getHeadOfLog(context, newOwner);
+    Log::Position headOfLogAtCreation(reqHdr.ctimeSegmentId,
+                                      reqHdr.ctimeSegmentOffset);
 
     try {
         tabletMap.modifyTablet(reqHdr.tableId, reqHdr.firstKeyHash,
                                reqHdr.lastKeyHash, newOwner, Tablet::NORMAL,
-                               headOfLog);
+                               headOfLogAtCreation);
     } catch (const TabletMap::NoSuchTablet& e) {
         LOG(WARNING, "Could not reassign tablet %lu, range [%lu, %lu]: "
             "not found!", reqHdr.tableId, reqHdr.firstKeyHash,

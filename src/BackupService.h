@@ -49,9 +49,6 @@ class BackupService : public Service
     uint32_t getReadSpeed() { return readSpeed; }
 
   PRIVATE:
-    void assignGroup(const WireFormat::BackupAssignGroup::Request& reqHdr,
-                     WireFormat::BackupAssignGroup::Response& respHdr,
-                     Rpc& rpc);
     void freeSegment(const WireFormat::BackupFree::Request& reqHdr,
                      WireFormat::BackupFree::Response& respHdr,
                      Rpc& rpc);
@@ -164,16 +161,6 @@ class BackupService : public Service
 
     /// Used to ensure that init() is invoked before the dispatcher runs.
     bool initCalled;
-
-    /// Used to identify the replication group that the backup belongs to. Each
-    /// segment is replicated to a specific replication group. The default
-    /// replicationId is 0, which means that the backup has not been assigned
-    /// a replication group.
-    uint64_t replicationId;
-
-    /// The ServerId's all the members of the replication group. The backup
-    /// needs to notify the masters who the other members in its group are.
-    vector<ServerId> replicationGroup;
 
     /// Used to determine server status of masters for garbage collection.
     ServerTracker<void> gcTracker;

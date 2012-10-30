@@ -69,6 +69,8 @@ class LogCleaner {
     void getMetrics(ProtoBuf::LogMetrics_CleanerMetrics& m);
 
   PRIVATE:
+    typedef std::lock_guard<SpinLock> Lock;
+
     /// If no cleaning work had to be done the last time we checked, sleep for
     /// this many microseconds before checking again.
     enum { POLL_USEC = 10000 };
@@ -175,14 +177,12 @@ class LogCleaner {
     void doDiskCleaning();
     LogSegment* getSegmentToCompact(uint32_t& outFreeableSeglets);
     void sortSegmentsByCostBenefit(LogSegmentVector& segments);
-    void getSegmentsToClean(LogSegmentVector& outSegmentsToClean,
-                            uint32_t& outTotalSeglets);
+    void getSegmentsToClean(LogSegmentVector& outSegmentsToClean);
     void sortEntriesByTimestamp(LiveEntryVector& entries);
     void getSortedEntries(LogSegmentVector& segmentsToClean,
                           LiveEntryVector& outLiveEntries);
     void relocateLiveEntries(LiveEntryVector& liveEntries,
-                             uint32_t& outNewSeglets,
-                             uint32_t& outNewSegments);
+                             LogSegmentVector& outSurvivors);
     void closeSurvivor(LogSegment* survivor);
     void waitForAvailableSurvivors(size_t count, uint64_t& outTicks);
 
@@ -270,8 +270,13 @@ class LogCleaner {
     /// Closed log segments that are candidates for cleaning. Before each
     /// cleaning pass this list will be updated from the SegmentManager with
     /// newly closed segments. The most appropriate segments will then be
-    /// cleaned.
+    /// cleaned. This list is shared across all cleaning threads and must only
+    /// be accessed with the candidatesLock held.
     LogSegmentVector candidates;
+
+    /// SpinLock protecting access to candidates. Needed because multiple
+    /// cleaning threads may need to access it simultaneously.
+    SpinLock candidatesLock;
 
     /// Size of each seglet in bytes. Used to calculate the best segment for in-
     /// memory cleaning.
@@ -294,12 +299,19 @@ class LogCleaner {
     /// Metrics kept for measuring on-disk cleaning performance.
     LogCleanerMetrics::OnDisk onDiskMetrics;
 
-    /// Set by halt() to indicate that the cleaning thread should exit.
-    bool threadShouldExit;
+    /// Set by halt() to indicate that the cleaning thread(s) should exit.
+    bool threadsShouldExit;
 
-    /// The cleaner spins this new thread to do all of its work in. The tub
-    /// simply indicates whether or not it's running.
-    Tub<std::thread> thread;
+    /// The number of cleaner threads to run concurrently. More threads will
+    /// allow the system to perform more cleaning and compaction in parallel to
+    /// keep up with higher write rates and memory utilizations.
+    const int numThreads;
+
+    /// The cleaner spins one or more threads to perform its work (#numThreads).
+    /// This vector contains pointers to these threads. When the cleaner is
+    /// started, these threads are created. When stopped, they are deleted and
+    /// the pointers in this vector are set to NULL.
+    vector<std::thread*> threads;
 
     DISALLOW_COPY_AND_ASSIGN(LogCleaner);
 };

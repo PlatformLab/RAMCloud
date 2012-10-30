@@ -30,23 +30,6 @@
 namespace RAMCloud {
 
 /**
- * Encapsulates the state of a BackupClient::assignGroup operation,
- * allowing it to execute asynchronously.
- */
-class AssignGroupRpc : public ServerIdRpcWrapper {
-  public:
-    AssignGroupRpc(Context* context, ServerId backupId,
-            uint64_t replicationId, uint32_t numReplicas,
-            const ServerId* replicationGroupIds);
-    ~AssignGroupRpc() {}
-    /// \copydoc ServerIdRpcWrapper::waitAndCheckErrors
-    void wait() {waitAndCheckErrors();}
-
-  PRIVATE:
-    DISALLOW_COPY_AND_ASSIGN(AssignGroupRpc);
-};
-
-/**
  * Encapsulates the state of a BackupClient::freeSegment operation,
  * allowing it to execute asynchronously.
  */
@@ -227,7 +210,7 @@ class WriteSegmentRpc : public ServerIdRpcWrapper {
                     const Segment::Certificate* certificate,
                     bool open, bool close, bool primary);
     ~WriteSegmentRpc() {}
-    vector<ServerId> wait();
+    void wait();
 
   PRIVATE:
     DISALLOW_COPY_AND_ASSIGN(WriteSegmentRpc);
@@ -260,7 +243,7 @@ class BackupClient {
     static void StartPartitioningReplicas(Context* context, ServerId backupId,
             uint64_t recoveryId, ServerId masterId,
             const ProtoBuf::Tablets* partitions);
-    static vector<ServerId> writeSegment(Context* context, ServerId backupId,
+    static void writeSegment(Context* context, ServerId backupId,
             ServerId masterId, uint64_t segmentId, uint64_t segmentEpoch,
             const Segment* segment, uint32_t offset, uint32_t length,
             const Segment::Certificate* certificate,

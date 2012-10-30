@@ -81,29 +81,31 @@ TEST_F(LogIteratorTest, constructor_emptyLog) {
 
 TEST_F(LogIteratorTest, constructor_singleSegmentLog) {
     l.sync();
-    l.append(LOG_ENTRY_TYPE_OBJ, 0, data, sizeof(data), true);
+    l.append(LOG_ENTRY_TYPE_OBJ, 0, data, sizeof(data));
+    l.sync();
 
     EXPECT_EQ(0, segmentManager.logIteratorCount);
     LogIterator i(l);
     EXPECT_EQ(&l, &i.log);
     EXPECT_EQ(0U, i.segmentList.size());
     EXPECT_TRUE(i.currentIterator);
-    EXPECT_EQ(0U, i.currentSegmentId);
+    EXPECT_EQ(1U, i.currentSegmentId);
     EXPECT_TRUE(i.headLocked);
     EXPECT_EQ(1, segmentManager.logIteratorCount);
 }
 
 TEST_F(LogIteratorTest, constructor_multiSegmentLog) {
     l.sync();
-    while (l.getHeadPosition().getSegmentId() == 0)
-        l.append(LOG_ENTRY_TYPE_OBJ, 0, data, sizeof(data), true);
+    while (l.head == NULL || l.head->id == 1)
+        l.append(LOG_ENTRY_TYPE_OBJ, 0, data, sizeof(data));
+    l.sync();
 
     EXPECT_EQ(0, segmentManager.logIteratorCount);
     LogIterator i(l);
     EXPECT_EQ(&l, &i.log);
     EXPECT_EQ(1U, i.segmentList.size());
     EXPECT_TRUE(i.currentIterator);
-    EXPECT_EQ(0U, i.currentSegmentId);
+    EXPECT_EQ(1U, i.currentSegmentId);
     EXPECT_FALSE(i.headLocked);
     EXPECT_EQ(1, segmentManager.logIteratorCount);
 }
@@ -144,7 +146,8 @@ TEST_F(LogIteratorTest, isDone_simple) {
         EXPECT_TRUE(i.isDone());
     }
 
-    l.append(LOG_ENTRY_TYPE_OBJ, 0, data, sizeof(data), true);
+    l.append(LOG_ENTRY_TYPE_OBJ, 0, data, sizeof(data));
+    l.sync();
     LogIterator i(l);
     EXPECT_FALSE(i.isDone());
 
@@ -158,11 +161,12 @@ TEST_F(LogIteratorTest, isDone_simple) {
 TEST_F(LogIteratorTest, isDone_multiSegment) {
     int origObjCnt = 0;
 
-    while (l.getHeadPosition().getSegmentId() == 0) {
-        l.append(LOG_ENTRY_TYPE_OBJ, 0, data, sizeof(data), true);
+    while (l.head == NULL || l.head->id == 1) {
+        l.append(LOG_ENTRY_TYPE_OBJ, 0, data, sizeof(data));
         origObjCnt++;
     }
-    l.append(LOG_ENTRY_TYPE_OBJTOMB, 0, data, sizeof(data), true);
+    l.append(LOG_ENTRY_TYPE_OBJTOMB, 0, data, sizeof(data));
+    l.sync();
 
     LogEntryType lastType = LOG_ENTRY_TYPE_INVALID;
     int objCnt = 0, tombCnt = 0, otherCnt = 0;
@@ -192,13 +196,14 @@ TEST_F(LogIteratorTest, next) {
     }
 
     l.sync();
-    l.append(LOG_ENTRY_TYPE_OBJ, 0, data, sizeof(data), true);
+    l.append(LOG_ENTRY_TYPE_OBJ, 0, data, sizeof(data));
+    l.sync();
 
     {
         LogIterator i(l);
         EXPECT_TRUE(i.headLocked);
         EXPECT_TRUE(i.currentIterator);
-        EXPECT_EQ(0U, i.currentSegmentId);
+        EXPECT_EQ(1U, i.currentSegmentId);
         EXPECT_EQ(0U, i.segmentList.size());
         EXPECT_FALSE(i.currentIterator->isDone());
 
@@ -223,14 +228,15 @@ TEST_F(LogIteratorTest, next) {
         EXPECT_TRUE(i.isDone());
     }
 
-    while (l.getHeadPosition().getSegmentId() == 0)
-        l.append(LOG_ENTRY_TYPE_OBJ, 0, data, sizeof(data), true);
+    while (l.head == NULL || l.head->id == 1)
+        l.append(LOG_ENTRY_TYPE_OBJ, 0, data, sizeof(data));
+    l.sync();
 
     {
         LogIterator i(l);
         EXPECT_FALSE(i.headLocked);
         EXPECT_TRUE(i.currentIterator);
-        EXPECT_EQ(0U, i.currentSegmentId);
+        EXPECT_EQ(1U, i.currentSegmentId);
         EXPECT_EQ(1U, i.segmentList.size());
 
         while (!i.headLocked)
@@ -238,7 +244,7 @@ TEST_F(LogIteratorTest, next) {
 
         EXPECT_TRUE(i.headLocked);
         EXPECT_TRUE(i.currentIterator);
-        EXPECT_EQ(1U, i.currentSegmentId);
+        EXPECT_EQ(2U, i.currentSegmentId);
         EXPECT_EQ(0U, i.segmentList.size());
 
         while (!i.isDone())
@@ -248,7 +254,7 @@ TEST_F(LogIteratorTest, next) {
         EXPECT_TRUE(i.isDone());
         EXPECT_TRUE(i.headLocked);
         EXPECT_FALSE(i.currentIterator);
-        EXPECT_EQ(1U, i.currentSegmentId);
+        EXPECT_EQ(2U, i.currentSegmentId);
         EXPECT_EQ(0U, i.segmentList.size());
 
         // Ensure extra next()s are legal.
@@ -261,8 +267,8 @@ TEST_F(LogIteratorTest, next) {
     {
         // Inject a "cleaner" segment into the log
         segmentManager.initializeSurvivorReserve(1);
-        LogSegment* cleanerSeg = segmentManager.allocSurvivor(5);
-        EXPECT_EQ(2U, cleanerSeg->id);
+        LogSegment* cleanerSeg = segmentManager.allocSurvivor();
+        EXPECT_EQ(3U, cleanerSeg->id);
         segmentManager.changeState(*cleanerSeg,
                                    SegmentManager::NEWLY_CLEANABLE);
 
@@ -272,7 +278,7 @@ TEST_F(LogIteratorTest, next) {
             lastSegmentId = i.currentSegmentId;
             i.next();
         }
-        EXPECT_EQ(2U, lastSegmentId);
+        EXPECT_EQ(3U, lastSegmentId);
 
 #if 0 // TODO(steve): this hangs. something's wrong with what we're doing and
          RS::free()
@@ -296,18 +302,22 @@ TEST_F(LogIteratorTest, populateSegmentList) {
 
         i.segmentList.clear();
         i.populateSegmentList(1);
-        EXPECT_EQ(3U, i.segmentList.size());
+        EXPECT_EQ(4U, i.segmentList.size());
 
         i.segmentList.clear();
         i.populateSegmentList(2);
-        EXPECT_EQ(2U, i.segmentList.size());
+        EXPECT_EQ(3U, i.segmentList.size());
 
         i.segmentList.clear();
         i.populateSegmentList(3);
-        EXPECT_EQ(1U, i.segmentList.size());
+        EXPECT_EQ(2U, i.segmentList.size());
 
         i.segmentList.clear();
         i.populateSegmentList(4);
+        EXPECT_EQ(1U, i.segmentList.size());
+
+        i.segmentList.clear();
+        i.populateSegmentList(5);
         EXPECT_EQ(0U, i.segmentList.size());
 
         // ensure segments are sorted
@@ -315,7 +325,7 @@ TEST_F(LogIteratorTest, populateSegmentList) {
         *const_cast<uint64_t*>(&seg1->id) = 15;
         *const_cast<uint64_t*>(&seg2->id) = 10;
         *const_cast<uint64_t*>(&seg3->id) = 12;
-        i.populateSegmentList(1);
+        i.populateSegmentList(2);
         EXPECT_EQ(3U, i.segmentList.size());
         EXPECT_EQ(seg2, i.segmentList[2]);
         EXPECT_EQ(seg3, i.segmentList[1]);
@@ -330,8 +340,9 @@ TEST_F(LogIteratorTest, populateSegmentList) {
 // test belongs there more.
 #if 0
 TEST_F(LogIteratorTest, cleanerInteraction) {
-    while (l.getHeadPosition().getSegmentId() == 0)
-        l.append(LOG_ENTRY_TYPE_OBJ, 0, &serverId, sizeof(serverId), true);
+    while (l.head == NULL || l.head->id == 1)
+        l.append(LOG_ENTRY_TYPE_OBJ, 0, &serverId, sizeof(serverId));
+    l.sync();
 
     Tub<LogIterator> i;
     i.construct(l);
@@ -344,29 +355,30 @@ TEST_F(LogIteratorTest, cleanerInteraction) {
     l.getNewCleanableSegments(clean);
     l.cleaningInto(&cleanerSeg);
 
-    // Fake having cleaned seg 0
+    // Fake having cleaned seg 1
     EXPECT_EQ(1U, clean.size());
     EXPECT_EQ(1U, l.cleanableList.size());
     clean.push_back(&l.cleanableList.back());
     l.cleaningComplete(clean, unused);
 
-    // Sanity: seg 2 (cleaner seg) mustn't immediately become part of the log
+    // Sanity: seg 3 (cleaner seg) mustn't immediately become part of the log
     while (!i->isDone()) {
         foreach (Segment* s, i->segmentList)
-            EXPECT_NE(2U, s->getId());
+            EXPECT_NE(3U, s->getId());
         i->next();
     }
 
     i.destroy();
     i.construct(l);
 
-    // Nor must seg 2 join the log when a new head appears.
-    while (l.getHeadPosition().getSegmentId() == 1)
-        l.append(LOG_ENTRY_TYPE_OBJ, 0, &serverId, sizeof(serverId), true);
-    l.append(LOG_ENTRY_TYPE_OBJ, 0, &serverId, sizeof(serverId), true);
+    // Nor must seg 3 join the log when a new head appears.
+    while (l.head->id == 2)
+        l.append(LOG_ENTRY_TYPE_OBJ, 0, &serverId, sizeof(serverId));
+    l.append(LOG_ENTRY_TYPE_OBJ, 0, &serverId, sizeof(serverId));
+    l.sync();
     while (!i->isDone()) {
         foreach (Segment* s, i->segmentList)
-            EXPECT_NE(2U, s->getId());
+            EXPECT_NE(3U, s->getId());
         i->next();
     }
 

@@ -18,6 +18,7 @@
 #include "FailSession.h"
 #include "MasterClient.h"
 #include "MultiRead.h"
+#include "MultiWrite.h"
 #include "ProtoBuf.h"
 #include "ShortMacros.h"
 
@@ -923,6 +924,27 @@ RamCloud::multiRead(MultiReadObject* requests[], uint32_t numRequests)
 }
 
 /**
+ * Write multiple objects. This method has two performance advantages over
+ * calling RamCloud::write separately for each object:
+ * - If multiple objects belong on a single server, this method
+ *   issues a single RPC to write all of them at once.
+ * - If different objects belong to different servers, this method
+ *   issues multiple RPCs concurrently.
+ *
+ * \param requests
+ *      Each element in this array describes one object to write. The write
+ *      operation's status and the object version are also returned here.
+ * \param numRequests
+ *      Number of valid entries in \c requests.
+ */
+void
+RamCloud::multiWrite(MultiWriteObject* requests[], uint32_t numRequests)
+{
+    MultiWrite request(this, requests, numRequests);
+    request.wait();
+}
+
+/**
  * Ask the coordinator to broadcast a quiesce request to all backups.  When
  * this method returns, all backups will have flushed active segment replicas
  * to disk.  This is used primarily during recovery testing: it allows more
@@ -1283,7 +1305,7 @@ uint64_t
 RamCloud::testingGetServerId(uint64_t tableId,
                              const void* key, uint16_t keyLength)
 {
-    HashType keyHash = Key::getHash(tableId, key, keyLength);
+    KeyHash keyHash = Key::getHash(tableId, key, keyLength);
     return objectFinder.lookupTablet(tableId, keyHash).server_id();
 }
 
@@ -1299,7 +1321,7 @@ string
 RamCloud::testingGetServiceLocator(uint64_t tableId,
                                    const void* key, uint16_t keyLength)
 {
-    HashType keyHash = Key::getHash(tableId, key, keyLength);
+    KeyHash keyHash = Key::getHash(tableId, key, keyLength);
     return objectFinder.lookupTablet(tableId, keyHash).service_locator();
 }
 

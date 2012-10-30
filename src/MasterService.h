@@ -54,6 +54,7 @@ class MasterService : public Service, LogEntryHandlers {
     void init(ServerId id);
     void dispatch(WireFormat::Opcode opcode,
                   Rpc& rpc);
+    int maxThreads() { return 1; }
 
     uint32_t getTimestamp(LogEntryType type, Buffer& buffer);
     void relocate(LogEntryType type,
@@ -68,7 +69,7 @@ class MasterService : public Service, LogEntryHandlers {
     class LogKeyComparer : public HashTable::KeyComparer {
       public:
         explicit LogKeyComparer(Log& log);
-        bool doesMatch(Key& key, HashTable::Reference reference);
+        bool doesMatch(Key& key, uint64_t reference);
 
       private:
         Log& log;
@@ -125,6 +126,9 @@ class MasterService : public Service, LogEntryHandlers {
                       Rpc& rpc);
     void multiRead(const WireFormat::MultiRead::Request& reqHdr,
                    WireFormat::MultiRead::Response& respHdr,
+                   Rpc& rpc);
+    void multiWrite(const WireFormat::MultiWrite::Request& reqHdr,
+                   WireFormat::MultiWrite::Response& respHdr,
                    Rpc& rpc);
     void read(const WireFormat::Read::Request& reqHdr,
               WireFormat::Read::Response& respHdr,
@@ -202,10 +206,8 @@ class MasterService : public Service, LogEntryHandlers {
     SegmentManager segmentManager;
 
     /**
-     * The log stores all of our objects and tombstones. It is used to append
-     * new data is notified of dead data. Garbage collection ("cleaning") takes
-     * place concurrently with server execution and may cause live data to be
-     * reshuffled to new locations in memory.
+     * The log stores all of our objects and tombstones both in memory and on
+     * backups.
      *
      * The log is not constructed until init() is called, since we don't know
      * our own ServerId until then and the log's constructor will ensure that
@@ -265,23 +267,56 @@ class MasterService : public Service, LogEntryHandlers {
     void removeTombstones();
 
   PRIVATE:
-    void incrementReadAndWriteStatistics(Table* table);
+    /**
+     * Look up an object in the hash table, then extract the entry from the
+     * log. Since tombstones are stored in the hash table during recovery,
+     * this method may return either an object or a tombstone.
+     *
+     * \param key
+     *      Key of the object being looked up.
+     * \param[out] outType
+     *      The type of the log entry is returned here.
+     * \param buffer
+     *      The entry, if found, is appended to this buffer.
+     * \param outReference
+     *      The log reference to the entry, if found, is stored in this optional
+     *      parameter.
+     * \return
+     *      True if an entry is found matching the given key, otherwise false.
+     */
+    bool
+    lookup(Key& key,
+           LogEntryType& outType,
+           Buffer& buffer,
+           Log::Reference* outReference = NULL) const
+    {
+        uint64_t integerReference;
+        bool success = objectMap->lookup(key, integerReference);
+        if (!success)
+            return false;
+        if (outReference != NULL)
+            *outReference = Log::Reference(integerReference);
+        outType = log->getEntry(Log::Reference(integerReference), buffer);
+        return true;
+    }
 
+
+    void incrementReadAndWriteStatistics(Table* table);
     static void
     detectSegmentRecoveryFailure(
                         const ServerId masterId,
                         const uint64_t partitionId,
                         const vector<MasterService::Replica>& replicas);
 
-    friend void recoveryCleanup(HashTable::Reference maybeTomb, void *cookie);
-    friend void removeObjectIfFromUnknownTablet(HashTable::Reference reference,
+    friend void recoveryCleanup(uint64_t maybeTomb, void *cookie);
+    friend void removeObjectIfFromUnknownTablet(uint64_t reference,
                                                 void *cookie);
 
     Table* getTable(Key& key) __attribute__((warn_unused_result));
-    Table* getTableForHash(uint64_t tableId, HashType keyHash)
+    Table* getTableForHash(uint64_t tableId, KeyHash keyHash)
         __attribute__((warn_unused_result));
     ProtoBuf::Tablets::Tablet const* getTabletForHash(uint64_t tableId,
-                                                      HashType keyHash)
+                                                      KeyHash keyHash)
         __attribute__((warn_unused_result));
     Status rejectOperation(const RejectRules& rejectRules, uint64_t version)
         __attribute__((warn_unused_result));
@@ -298,11 +333,6 @@ class MasterService : public Service, LogEntryHandlers {
                        Buffer& data,
                        uint64_t* newVersion,
                        bool sync) __attribute__((warn_unused_result));
-    bool lookup(Key& key, LogEntryType& type, Buffer& buffer);
-    bool lookup(Key& key,
-                LogEntryType& type,
-                Buffer& buffer,
-                HashTable::Reference& reference);
 
     friend class RecoverSegmentBenchmark;
     friend class MasterServiceInternal::RecoveryTask;

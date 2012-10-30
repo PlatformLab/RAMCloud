@@ -16,6 +16,7 @@
 #include "Common.h"
 #include "Key.h"
 #include "Object.h"
+#include "StringUtil.h"
 
 namespace RAMCloud {
 
@@ -28,11 +29,12 @@ namespace RAMCloud {
  *      The log entry type of this entry, as indicated by the log or segment
  *      code.
  * \param buffer
- *      Buffer pointing to the entire object or object tombstone in a log or
- *      segment.
- * \throw KeyException
- *      An exception is thrown if this class does not recognize the type
- *      argument provided.
+ *      Buffer pointing to the entire object or tombstone entry in a log or
+ *      segment. The buffer must exist as long as this key object exists,
+ *      since the key will simply point into the data in the buffer.
+ * \throw FatalError 
+ *      A FatalError exception is thrown if this class does not recognize the
+ *      type argument provided.
  */
 Key::Key(LogEntryType type, Buffer& buffer)
     : tableId(-1),
@@ -53,7 +55,7 @@ Key::Key(LogEntryType type, Buffer& buffer)
         stringKey = tomb.getKey();
 
     } else {
-        throw KeyException(HERE, "unknown Log::Entry type");
+        throw FatalError(HERE, "unknown Log::Entry type");
     }
 }
 
@@ -80,6 +82,11 @@ Key::Key(uint64_t tableId, Buffer& buffer,
       stringKeyLength(stringKeyLength),
       hash()
 {
+    // TODO(anyone): We could instead delay calling getRange() until absolutely
+    // necessary. This might make things faster since getRange() could allocate
+    // and copy memory if the data is not all contiguous. It is unclear how
+    // frequently this might happen and whether or not it can adversely affect
+    // performance, so the current code errs on the side of simplicity.
 }
 
 /**
@@ -132,7 +139,11 @@ Key::operator==(const Key& other) const
         return false;
     if (stringKeyLength != other.stringKeyLength)
         return false;
-    return (memcmp(stringKey, other.stringKey, stringKeyLength) == 0);
+
+    // bcmp is used here because it's about 20-25ns faster than memcmp with
+    // 8-byte strings. The problem with memcmp appears to be that GCC emits
+    // an "optimization" (repz cmpsb) that is much slower than glibc's memcmp.
+    return (bcmp(stringKey, other.stringKey, stringKeyLength) == 0);
 }
 
 /**
@@ -149,16 +160,17 @@ Key::operator!=(const Key& other) const
  * Return the 64-bit table identifier.
  */
 uint64_t
-Key::getTableId()
+Key::getTableId() const
 {
     return tableId;
 }
 
 /**
- * Return a pointer to the binary string key. 
+ * Return a pointer to the binary string key. It is guaranteed to be contiguous
+ * in memory.
  */
 const void*
-Key::getStringKey()
+Key::getStringKey() const
 {
     return stringKey;
 }
@@ -167,7 +179,7 @@ Key::getStringKey()
  * Return the binary string key's length in bytes.
  */
 uint16_t
-Key::getStringKeyLength()
+Key::getStringKeyLength() const
 {
     return stringKeyLength;
 }
@@ -183,13 +195,40 @@ Key::getStringKeyLength()
  * newline character).
  */
 string
-Key::toString()
+Key::toString() const
 {
-    string printable = printableBinaryString(stringKey, stringKeyLength);
+    string printable = StringUtil::binaryToString(stringKey, stringKeyLength);
     string s = format("<tableId: %lu, stringKey: \"%s\", stringKeyLength: %hu, "
         "hash: 0x%lx>", tableId, printable.c_str(), stringKeyLength,
-        getHash());
+        getHash(tableId, stringKey, stringKeyLength));
     return s;
+}
+
+/**
+ * Given a key, returns its hash value.
+ *
+ * \param tableId
+ *      64-bit identifier of the table this key is in.
+ * \param stringKey
+ *      Variable length binary string that uniquely identifies the object
+ *      within tableId. It does not necessarily have to be nul-terminated
+ *      like a C-style string.
+ * \param stringKeyLength
+ *      Size stringKey in bytes.
+ * \return
+ *      Hash value of the Key that these arguments represent.
+ */
+KeyHash
+Key::getHash(uint64_t tableId, const void* stringKey, uint16_t stringKeyLength)
+{
+    // It would be nice if MurmurHash3 took a 64-bit seed so we could cheaply
+    // include the full tableId. For now just cast down to 32-bits and hope for
+    // the best. We used to invoke the hash function multiple times, but that
+    // added too much additional latency to hash table lookups.
+    uint32_t tableIdSeed = static_cast<uint32_t>(tableId);
+    uint64_t out[2];
+    MurmurHash3_x64_128(stringKey, stringKeyLength, tableIdSeed, &out);
+    return out[0];
 }
 
 } // end RAMCloud

@@ -46,15 +46,17 @@ class LogCabinHelperTest : public ::testing::Test {
 };
 
 TEST_F(LogCabinHelperTest, appendProtoBuf_and_parseProtoBufFromEntry) {
+    EntryId expectedEntryId = 0;
+
     ProtoBuf::EntryType entry0;
     entry0.set_entry_type("DummyEntry0");
-    EntryId entryId0 = logCabinHelper->appendProtoBuf(entry0);
+    EntryId entryId0 = logCabinHelper->appendProtoBuf(expectedEntryId, entry0);
     EXPECT_EQ(0U, entryId0);
 
     ProtoBuf::EntryType entry1;
     entry1.set_entry_type("DummyEntry1");
-    EntryId entryId1 =
-        logCabinHelper->appendProtoBuf(entry1, vector<EntryId>({entryId0}));
+    EntryId entryId1 = logCabinHelper->appendProtoBuf(
+            expectedEntryId, entry1, vector<EntryId>({entryId0}));
     EXPECT_EQ(1U, entryId1);
 
     vector<Entry> allEntries = logCabinLog->read(0);
@@ -72,9 +74,10 @@ TEST_F(LogCabinHelperTest, appendProtoBuf_and_parseProtoBufFromEntry) {
 }
 
 TEST_F(LogCabinHelperTest, getEntryType) {
+    EntryId expectedEntryId = 0;
     ProtoBuf::EntryType entry0;
     entry0.set_entry_type("DummyEntry0");
-    logCabinHelper->appendProtoBuf(entry0);
+    logCabinHelper->appendProtoBuf(expectedEntryId, entry0);
 
     vector<Entry> allEntries = logCabinLog->read(0);
 
@@ -83,27 +86,29 @@ TEST_F(LogCabinHelperTest, getEntryType) {
 }
 
 TEST_F(LogCabinHelperTest, readValidEntries) {
+    EntryId expectedEntryId = 0;
     ProtoBuf::EntryType entry0, entry1, entry2, entry3, entry4, entry5;
 
     entry0.set_entry_type("DummyEntry0");
-    EntryId entryId0 = logCabinHelper->appendProtoBuf(entry0);
+    EntryId entryId0 = logCabinHelper->appendProtoBuf(expectedEntryId, entry0);
 
     entry1.set_entry_type("DummyEntry1");
-    logCabinHelper->appendProtoBuf(entry1);
+    logCabinHelper->appendProtoBuf(expectedEntryId, entry1);
 
     entry2.set_entry_type("DummyEntry2");
     vector<EntryId> invalidates2 = {entryId0};
-    EntryId entryId2 = logCabinHelper->appendProtoBuf(entry2, invalidates2);
+    EntryId entryId2 = logCabinHelper->appendProtoBuf(
+            expectedEntryId, entry2, invalidates2);
 
     entry3.set_entry_type("DummyEntry3");
-    logCabinHelper->appendProtoBuf(entry3);
+    logCabinHelper->appendProtoBuf(expectedEntryId, entry3);
 
     entry4.set_entry_type("DummyEntry4");
-    EntryId entryId4 = logCabinHelper->appendProtoBuf(entry4);
+    EntryId entryId4 = logCabinHelper->appendProtoBuf(expectedEntryId, entry4);
 
     entry5.set_entry_type("DummyEntry5");
     vector<EntryId> invalidates5 {entryId2, entryId4};
-    logCabinHelper->appendProtoBuf(entry5, invalidates5);
+    logCabinHelper->appendProtoBuf(expectedEntryId, entry5, invalidates5);
 
     vector<Entry> validEntries = logCabinHelper->readValidEntries();
 

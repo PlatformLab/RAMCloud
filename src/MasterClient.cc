@@ -363,7 +363,7 @@ ReceiveMigrationDataRpc::ReceiveMigrationDataRpc(Context* context,
             allocHeader<WireFormat::ReceiveMigrationData>(serverId));
     reqHdr->tableId = tableId;
     reqHdr->firstKeyHash = firstKeyHash;
-    segment->getAppendedLength(reqHdr->certificate);
+    segment->getAppendedLength(&reqHdr->certificate);
     reqHdr->segmentBytes = segment->appendToBuffer(request);
     send();
 }

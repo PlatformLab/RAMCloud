@@ -22,7 +22,8 @@
 #include <thread>
 
 #include "Common.h"
-#include "BenchUtil.h"
+#include "Cycles.h"
+#include "Memory.h"
 #include "Tub.h"
 
 namespace RAMCloud {
@@ -130,9 +131,9 @@ struct timeCopy {
         nop<64>();
 
         // now time it
-        uint64_t before = rdtscp();
+        uint64_t before = Cycles::rdtsc();
         memcpyFn(dst, src, bytes);
-        *results = rdtscp() - before;
+        *results = Cycles::rdtsc() - before;
 
         // compile-time recursion
         timeCopy<N-1, cached, memcpyFn>(results + 1, dst, src, bytes);
@@ -158,8 +159,8 @@ template<bool cached, void* (*memcpyFn)(void*, const void*, size_t)>
 static void
 measure(uint64_t bytes)
 {
-    uint8_t *src = reinterpret_cast<uint8_t *>(xmalloc(bytes));
-    uint8_t *dst = reinterpret_cast<uint8_t *>(xmalloc(bytes));
+    uint8_t *src = reinterpret_cast<uint8_t *>(Memory::xmalloc(HERE, bytes));
+    uint8_t *dst = reinterpret_cast<uint8_t *>(Memory::xmalloc(HERE, bytes));
 
     // Write to all pages so that the OS is forced to allocate them. Note that
     // it's not sufficient to just read from all pages, as the OS can alias
@@ -190,20 +191,21 @@ measure(uint64_t bytes)
         total += results[j];
         sumSquares += results[j] * results[j];
     }
-    double avg = total * 1.0 / runs;
-    double stddev = sqrt(sumSquares * 1.0 / runs -
-                         total * total * 1.0 / runs / runs);
+    double avg = downCast<double>(total) * 1.0 / runs;
+    double stddev = sqrt(downCast<double>(sumSquares) * 1.0 / runs -
+                         downCast<double>(total) *
+                         downCast<double>(total) * 1.0 / runs / runs);
 
     printf("%10lu bytes: "
            "%10lu avg    "
-           "%10.2f stddev "
+           "%10lu stddev "
            "%10lu min    "
            "%10lu max\n",
            bytes,
-           (uint64_t) cyclesToNanoseconds(avg),
-           cyclesToNanoseconds(stddev),
-           cyclesToNanoseconds(min),
-           cyclesToNanoseconds(max));
+           Cycles::toNanoseconds(uint64_t(avg)),
+           Cycles::toNanoseconds(uint64_t(stddev)),
+           Cycles::toNanoseconds(min),
+           Cycles::toNanoseconds(max));
 
     free(src);
     free(dst);

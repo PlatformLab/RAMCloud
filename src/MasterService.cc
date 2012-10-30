@@ -62,11 +62,11 @@ MasterService::LogKeyComparer::LogKeyComparer(Log& log)
  */
 bool
 MasterService::LogKeyComparer::doesMatch(Key& key,
-                                         HashTable::Reference reference)
+                                         uint64_t reference)
 {
     LogEntryType type;
     Buffer buffer;
-    type = log.getEntry(reference, buffer);
+    type = log.getEntry(Log::Reference(reference), buffer);
     Key candidateKey(type, buffer);
     return key == candidateKey;
 }
@@ -187,6 +187,10 @@ MasterService::dispatch(WireFormat::Opcode opcode, Rpc& rpc)
         case WireFormat::MultiRead::opcode:
             callHandler<WireFormat::MultiRead, MasterService,
                         &MasterService::multiRead>(rpc);
+            break;
+        case WireFormat::MultiWrite::opcode:
+            callHandler<WireFormat::MultiWrite, MasterService,
+                        &MasterService::multiWrite>(rpc);
             break;
         case WireFormat::PrepForMigration::opcode:
             callHandler<WireFormat::PrepForMigration, MasterService,
@@ -407,7 +411,7 @@ MasterService::getHeadOfLog(const WireFormat::GetHeadOfLog::Request& reqHdr,
                             WireFormat::GetHeadOfLog::Response& respHdr,
                             Rpc& rpc)
 {
-    Log::Position head = log->getHeadPosition();
+    Log::Position head = log->rollHeadOver();
     respHdr.headSegmentId = head.getSegmentId();
     respHdr.headSegmentOffset = head.getSegmentOffset();
 }
@@ -433,7 +437,7 @@ MasterService::getServerStatistics(
 }
 
 /**
- * Top-level server method to handle the MULTIREAD request.
+ * Top-level server method to handle the MULTI_READ request.
  *
  * \param reqHdr
  *      Header from the incoming RPC request; contains the parameters
@@ -487,12 +491,10 @@ MasterService::multiRead(const WireFormat::MultiRead::Request& reqHdr,
         const WireFormat::MultiRead::Request::Part *currentReq =
             rpc.requestPayload.getOffset<WireFormat::MultiRead::Request::Part>(
             reqOffset);
-        reqOffset += downCast<uint32_t>(
-            sizeof(WireFormat::MultiRead::Request::Part));
-        const void* stringKey =
-            static_cast<const void*>(rpc.requestPayload.getRange(
-            reqOffset, currentReq->keyLength));
-        reqOffset += downCast<uint32_t>(currentReq->keyLength);
+        reqOffset += sizeof32(WireFormat::MultiRead::Request::Part);
+        const void* stringKey = rpc.requestPayload.getRange(
+            reqOffset, currentReq->keyLength);
+        reqOffset += currentReq->keyLength;
         Key key(currentReq->tableId, stringKey, currentReq->keyLength);
 
         Status* status = new(&rpc.replyPayload, APPEND) Status(STATUS_OK);
@@ -522,6 +524,81 @@ MasterService::multiRead(const WireFormat::MultiRead::Request& reqHdr,
         currentResp->length = object.getDataLength();
         object.appendDataToBuffer(rpc.replyPayload);
     }
+}
+
+/**
+ * Top-level server method to handle the MULTI_WRITE request.
+ *
+ * \param reqHdr
+ *      Header from the incoming RPC request. Lists the number of writes
+ *      contained in this request.
+ * \param[out] respHdr
+ *      Header for the response that will be returned to the client.
+ *      The caller has pre-allocated the right amount of space in the
+ *      response buffer for this type of request, and has zeroed out
+ *      its contents (so, for example, status is already zero).
+ * \param[out] rpc
+ *      Complete information about the remote procedure call.
+ *      It contains the the key and value for each object, as well as
+ *      RejectRules to support conditional writes.
+ */
+void
+MasterService::multiWrite(const WireFormat::MultiWrite::Request& reqHdr,
+                          WireFormat::MultiWrite::Response& respHdr,
+                          Rpc& rpc)
+{
+    uint32_t numRequests = reqHdr.count;
+    uint32_t reqOffset = sizeof32(reqHdr);
+
+    respHdr.count = numRequests;
+
+    // Each iteration extracts one request from the rpc, writes the object
+    // if possible, and appends a status and version to the response buffer.
+    for (uint32_t i = 0; i < numRequests; i++) {
+        const WireFormat::MultiWrite::Request::Part *currentReq =
+            rpc.requestPayload.getOffset<WireFormat::MultiWrite::Request::Part>(
+            reqOffset);
+
+        if (currentReq == NULL) {
+            respHdr.common.status = STATUS_REQUEST_FORMAT_ERROR;
+            break;
+        }
+
+        reqOffset += sizeof32(WireFormat::MultiWrite::Request::Part);
+        const void* stringKey = rpc.requestPayload.getRange(
+            reqOffset, currentReq->keyLength);
+        reqOffset += currentReq->keyLength;
+        const void* value = rpc.requestPayload.getRange(
+            reqOffset, currentReq->valueLength);
+        reqOffset += currentReq->valueLength;
+
+        if (stringKey == NULL || value == NULL) {
+            respHdr.common.status = STATUS_REQUEST_FORMAT_ERROR;
+            break;
+        }
+
+        Key key(currentReq->tableId, stringKey, currentReq->keyLength);
+        Buffer buffer;
+        buffer.append(value, currentReq->valueLength);
+
+        WireFormat::MultiWrite::Response::Part* currentResp =
+            new(&rpc.replyPayload, APPEND)
+                WireFormat::MultiWrite::Response::Part();
+
+        currentResp->status = storeObject(key,
+                                          &currentReq->rejectRules,
+                                          buffer,
+                                          &currentResp->version,
+                                          false);
+    }
+
+    // By design, our response will be shorter than the request. This ensures
+    // that the response can go back in a single RPC.
+    assert(rpc.replyPayload.getTotalLength() <= Transport::MAX_RPC_LEN);
+
+    // All of the individual writes were done asynchronously. Sync the objects
+    // now to propagate them in bulk to backups.
+    log->sync();
 }
 
 /**
@@ -853,6 +930,8 @@ MasterService::migrateTablet(const WireFormat::MigrateTablet::Request& reqHdr,
     // boundary. Otherwise we can't tell where bytes are in the chosen range.
     MasterClient::prepForMigration(context, newOwnerMasterId, tableId,
                                    firstKeyHash, lastKeyHash, 0, 0);
+    Log::Position newOwnerLogHead = MasterClient::getHeadOfLog(context,
+                                                              newOwnerMasterId);
 
     LOG(NOTICE, "Migrating tablet (id %lu, first %lu, last %lu) to "
         "ServerId %s (\"%s\")", tableId, firstKeyHash, lastKeyHash,
@@ -957,7 +1036,8 @@ MasterService::migrateTablet(const WireFormat::MigrateTablet::Request& reqHdr,
     // data is all on the other machine and the coordinator knows to use it
     // for any recoveries.
     CoordinatorClient::reassignTabletOwnership(context,
-        tableId, firstKeyHash, lastKeyHash, newOwnerMasterId);
+        tableId, firstKeyHash, lastKeyHash, newOwnerMasterId,
+        newOwnerLogHead.getSegmentId(), newOwnerLogHead.getSegmentOffset());
 
     LOG(NOTICE, "Tablet migration succeeded. Sent %lu objects and %lu "
         "tombstones. %lu bytes in total.", totalObjects, totalTombstones,
@@ -1045,13 +1125,13 @@ MasterService::receiveMigrationData(
  * HashTable::forEach.
  */
 void
-recoveryCleanup(HashTable::Reference maybeTomb, void *cookie)
+recoveryCleanup(uint64_t maybeTomb, void *cookie)
 {
     MasterService *server = reinterpret_cast<MasterService*>(cookie);
     LogEntryType type;
     Buffer buffer;
 
-    type = server->log->getEntry(maybeTomb, buffer);
+    type = server->log->getEntry(Log::Reference(maybeTomb), buffer);
     if (type == LOG_ENTRY_TYPE_OBJTOMB) {
         Key key(type, buffer);
 
@@ -1401,27 +1481,70 @@ MasterService::recover(uint64_t recoveryId,
                 if (!gotFirstGRD) {
                     metrics->master.replicationBytes =
                         0 - metrics->transport.transmit.byteCount;
+                    metrics->master.replicationTransmitCopyTicks =
+                        0 - metrics->transport.transmit.copyTicks;
+                    metrics->master.replicationTransmitActiveTicks =
+                        0 - metrics->transport.infiniband.transmitActiveTicks;
+                    metrics->master.replicationPostingWriteRpcTicks = 0;
+                    metrics->master.replayMemoryReadBytes = 0 -
+                        // tx
+                        (metrics->master.replicationBytes +
+                        // tx copy
+                         metrics->master.replicationBytes +
+                        // backup write copy
+                         metrics->backup.writeCopyBytes +
+                        // read from filtering objects
+                         metrics->backup.storageReadBytes +
+                        // log append copy
+                         metrics->master.liveObjectBytes);
+                    metrics->master.replayMemoryWrittenBytes = 0 -
+                        // tx copy
+                        (metrics->master.replicationBytes +
+                        // backup write copy
+                         metrics->backup.writeCopyBytes +
+                        // disk read into memory
+                         metrics->backup.storageReadBytes +
+                        // copy from filtering objects
+                         metrics->backup.storageReadBytes +
+                        // rx into memory
+                         metrics->transport.receive.byteCount +
+                        // log append copy
+                         metrics->master.liveObjectBytes);
                     gotFirstGRD = true;
                 }
-                LOG(DEBUG, "Got getRecoveryData response from %s, took %.1f us "
-                    "on channel %ld",
-                    context->serverList->toString(
-                        task->replica.backupId).c_str(),
-                    Cycles::toSeconds(grdTime)*1e06,
-                    &task - &tasks[0]);
+                if (LOG_RECOVERY_REPLICATION_RPC_TIMING) {
+                    LOG(DEBUG, "@%7lu: Got getRecoveryData response from %s, "
+                        "took %.1f us on channel %ld",
+                        Cycles::toMicroseconds(Cycles::rdtsc() -
+                            ReplicatedSegment::recoveryStart),
+                        context->serverList->toString(
+                            task->replica.backupId).c_str(),
+                        Cycles::toSeconds(grdTime)*1e06,
+                        &task - &tasks[0]);
+                }
 
                 uint32_t responseLen = task->response.getTotalLength();
                 metrics->master.segmentReadByteCount += responseLen;
-                LOG(DEBUG, "Recovering segment %lu with size %u",
-                    task->replica.segmentId, responseLen);
                 uint64_t startUseful = Cycles::rdtsc();
                 SegmentIterator it(task->response.getRange(0, responseLen),
                                    responseLen, certificate);
                 it.checkMetadataIntegrity();
+                if (LOG_RECOVERY_REPLICATION_RPC_TIMING) {
+                    LOG(DEBUG, "@%7lu: Replaying segment %lu with length %u",
+                        Cycles::toMicroseconds(Cycles::rdtsc() -
+                            ReplicatedSegment::recoveryStart),
+                        task->replica.segmentId, responseLen);
+                }
                 recoverSegment(it);
-                LOG(DEBUG, "Segment %lu replay complete",
-                    task->replica.segmentId);
                 usefulTime += Cycles::rdtsc() - startUseful;
+                TEST_LOG("Segment %lu replay complete",
+                         task->replica.segmentId);
+                if (LOG_RECOVERY_REPLICATION_RPC_TIMING) {
+                    LOG(DEBUG, "@%7lu: Replaying segment %lu done",
+                        Cycles::toMicroseconds(Cycles::rdtsc() -
+                            ReplicatedSegment::recoveryStart),
+                        task->replica.segmentId);
+                }
 
                 runningSet.erase(task->replica.segmentId);
                 // Mark this and any other entries for this segment as OK.
@@ -1504,12 +1627,43 @@ MasterService::recover(uint64_t recoveryId,
         LOG(NOTICE, "Syncing the log");
         metrics->master.logSyncBytes =
             0 - metrics->transport.transmit.byteCount;
+        metrics->master.logSyncTransmitCopyTicks =
+            0 - metrics->transport.transmit.copyTicks;
+        metrics->master.logSyncTransmitActiveTicks =
+            0 - metrics->transport.infiniband.transmitActiveTicks;
+        metrics->master.logSyncPostingWriteRpcTicks =
+            0 - metrics->master.replicationPostingWriteRpcTicks;
         log->sync();
         metrics->master.logSyncBytes += metrics->transport.transmit.byteCount;
+        metrics->master.logSyncTransmitCopyTicks +=
+            metrics->transport.transmit.copyTicks;
+        metrics->master.logSyncTransmitActiveTicks +=
+            metrics->transport.infiniband.transmitActiveTicks;
+        metrics->master.logSyncPostingWriteRpcTicks +=
+            metrics->master.replicationPostingWriteRpcTicks;
         LOG(NOTICE, "Syncing the log done");
     }
 
     metrics->master.replicationBytes += metrics->transport.transmit.byteCount;
+    metrics->master.replicationTransmitCopyTicks +=
+        metrics->transport.transmit.copyTicks;
+    // See the lines with "0 -" above to get the purpose of each of these
+    // fields in this metric.
+    metrics->master.replayMemoryReadBytes +=
+        (metrics->master.replicationBytes +
+         metrics->master.replicationBytes +
+         metrics->backup.writeCopyBytes +
+         metrics->backup.storageReadBytes +
+         metrics->master.liveObjectBytes);
+    metrics->master.replayMemoryWrittenBytes +=
+        (metrics->master.replicationBytes +
+         metrics->backup.writeCopyBytes +
+         metrics->backup.storageReadBytes +
+         metrics->transport.receive.byteCount +
+         metrics->backup.storageReadBytes +
+         metrics->master.liveObjectBytes);
+    metrics->master.replicationTransmitActiveTicks +=
+        metrics->transport.infiniband.transmitActiveTicks;
 
     double totalSecs = Cycles::toSeconds(Cycles::rdtsc() - start);
     double usefulSecs = Cycles::toSeconds(usefulTime);
@@ -1535,13 +1689,13 @@ MasterService::recover(uint64_t recoveryId,
  *      stored.
  */
 void
-removeObjectIfFromUnknownTablet(HashTable::Reference reference, void *cookie)
+removeObjectIfFromUnknownTablet(uint64_t reference, void *cookie)
 {
     MasterService* master = reinterpret_cast<MasterService*>(cookie);
     LogEntryType type;
     Buffer buffer;
 
-    type = master->log->getEntry(reference, buffer);
+    type = master->log->getEntry(Log::Reference(reference), buffer);
     if (type != LOG_ENTRY_TYPE_OBJ)
         return;
 
@@ -1549,7 +1703,7 @@ removeObjectIfFromUnknownTablet(HashTable::Reference reference, void *cookie)
     if (!master->getTable(key)) {
         bool r = master->objectMap->remove(key);
         assert(r);
-        master->log->free(reference);
+        master->log->free(Log::Reference(reference));
     }
 }
 
@@ -1573,6 +1727,7 @@ MasterService::recover(const WireFormat::Recover::Request& reqHdr,
                        WireFormat::Recover::Response& respHdr,
                        Rpc& rpc)
 {
+    ReplicatedSegment::recoveryStart = Cycles::rdtsc();
     CycleCounter<RawMetric> recoveryTicks(&metrics->master.recoveryTicks);
     metrics->master.recoveryCount++;
     metrics->master.replicas = replicaManager.numReplicas;
@@ -1623,7 +1778,7 @@ MasterService::recover(const WireFormat::Recover::Request& reqHdr,
     }
 
     // Record the log position before recovery started.
-    Log::Position headOfLog = log->getHeadPosition();
+    Log::Position headOfLog = log->rollHeadOver();
 
     // Recover Segments, firing MasterService::recoverSegment for each one.
     bool successful = false;
@@ -1696,6 +1851,36 @@ MasterService::recover(const WireFormat::Recover::Request& reqHdr,
 }
 
 /**
+ * This method is used by recoverSegment() to prefetch the hash table bucket
+ * corresponding to the next piece of recovery data being iterated over.
+ * Doing so avoids a cache miss for subsequent hash table lookups and speeds
+ * up recovery.
+ *
+ * \param it
+ *      SegmentIterator to use for prefetching. Whatever is currently pointed
+ *      to by this iterator will be used to prefetch, if possible. Some entries
+ *      do not contain keys; they are safely ignored.
+ */
+inline void
+MasterService::recoverSegmentPrefetcher(SegmentIterator& it)
+{
+    if (__builtin_expect(it.isDone(), false))
+        return;
+
+    if (__builtin_expect(it.getType() == LOG_ENTRY_TYPE_OBJ, true)) {
+        const Object::SerializedForm* obj =
+            it.getContiguous<Object::SerializedForm>(NULL, 0);
+        Key key(obj->tableId, obj->keyAndData, obj->keyLength);
+        objectMap->prefetchBucket(key);
+    } else if (it.getType() == LOG_ENTRY_TYPE_OBJTOMB) {
+        const ObjectTombstone::SerializedForm* tomb =
+            it.getContiguous<ObjectTombstone::SerializedForm>(NULL, 0);
+        Key key(tomb->tableId, tomb->key, tomb->keyLength);
+        objectMap->prefetchBucket(key);
+    }
+}
+
+/**
  * Replay a recovery segment from a crashed Master that this Master is taking
  * over for.
  *
@@ -1707,10 +1892,34 @@ void
 MasterService::recoverSegment(SegmentIterator& it)
 {
     uint64_t startReplicationTicks = metrics->master.replicaManagerTicks;
+    uint64_t startReplicationPostingWriteRpcTicks =
+        metrics->master.replicationPostingWriteRpcTicks;
     CycleCounter<RawMetric> _(&metrics->master.recoverSegmentTicks);
 
+    // Metrics can be very expense (they're atomic operations), so we aggregate
+    // as much as we can in local variables and update the counters once at the
+    // end of this method.
+    uint64_t verifyChecksumTicks = 0;
+    uint64_t segmentAppendTicks = 0;
+    uint64_t recoverySegmentEntryCount = 0;
+    uint64_t recoverySegmentEntryBytes = 0;
+    uint64_t objectAppendCount = 0;
+    uint64_t tombstoneAppendCount = 0;
+    uint64_t liveObjectCount = 0;
+    uint64_t liveObjectBytes = 0;
+    uint64_t objectDiscardCount = 0;
+    uint64_t tombstoneDiscardCount = 0;
+    uint64_t safeVersionRecoveryCount = 0;
+    uint64_t safeVersionNonRecoveryCount = 0;
+
+    SegmentIterator prefetcher = it;
+    prefetcher.next();
+
     uint64_t bytesIterated = 0;
-    while (!it.isDone()) {
+    while (__builtin_expect(!it.isDone(), true)) {
+        recoverSegmentPrefetcher(prefetcher);
+        prefetcher.next();
+
         LogEntryType type = it.getType();
 
         if (bytesIterated > 50000) {
@@ -1719,10 +1928,10 @@ MasterService::recoverSegment(SegmentIterator& it)
         }
         bytesIterated += it.getLength();
 
-        metrics->master.recoverySegmentEntryCount++;
-        metrics->master.recoverySegmentEntryBytes += it.getLength();
+        recoverySegmentEntryCount++;
+        recoverySegmentEntryBytes += it.getLength();
 
-        if (type == LOG_ENTRY_TYPE_OBJ) {
+        if (__builtin_expect(type == LOG_ENTRY_TYPE_OBJ, true)) {
             // The recovery segment is guaranteed to be contiguous, so we need
             // not provide a copyout buffer.
             const Object::SerializedForm* recoveryObj =
@@ -1732,11 +1941,11 @@ MasterService::recoverSegment(SegmentIterator& it)
                     recoveryObj->keyLength);
 
             bool checksumIsValid = ({
-                CycleCounter<RawMetric> c(&metrics->master.verifyChecksumTicks);
+                CycleCounter<uint64_t> c(&verifyChecksumTicks);
                 Object::computeChecksum(recoveryObj, it.getLength()) ==
                     recoveryObj->checksum;
             });
-            if (!checksumIsValid) {
+            if (__builtin_expect(!checksumIsValid, false)) {
                 LOG(WARNING, "bad object checksum! key: %s, version: %lu",
                     key.toString().c_str(), recoveryObj->version);
                 // TODO(Stutsman): Should throw and try another segment replica?
@@ -1747,8 +1956,8 @@ MasterService::recoverSegment(SegmentIterator& it)
 
             LogEntryType currentType;
             Buffer currentBuffer;
-            HashTable::Reference currentReference;
-            if (lookup(key, currentType, currentBuffer, currentReference)) {
+            Log::Reference currentReference;
+            if (lookup(key, currentType, currentBuffer, &currentReference)) {
                 uint64_t currentVersion;
 
                 if (currentType == LOG_ENTRY_TYPE_OBJTOMB) {
@@ -1765,15 +1974,13 @@ MasterService::recoverSegment(SegmentIterator& it)
 
             if (recoveryObj->version >= minSuccessor) {
                 // write to log (with lazy backup flush) & update hash table
-                HashTable::Reference newObjReference;
+                Log::Reference newObjReference;
                 {
-                    CycleCounter<RawMetric>
-                        _(&metrics->master.segmentAppendTicks);
+                    CycleCounter<uint64_t> _(&segmentAppendTicks);
                     log->append(LOG_ENTRY_TYPE_OBJ,
                                 recoveryObj->timestamp,
                                 recoveryObj,
                                 it.getLength(),
-                                false,
                                 &newObjReference);
                 }
 
@@ -1781,23 +1988,22 @@ MasterService::recoverSegment(SegmentIterator& it)
                 //      exception here just cause the master to try another
                 //      backup?
 
-                ++metrics->master.objectAppendCount;
-                metrics->master.liveObjectBytes += it.getLength();
+                objectAppendCount++;
+                liveObjectBytes += it.getLength();
 
-                objectMap->replace(key, newObjReference);
+                objectMap->replace(key, newObjReference.toInteger());
 
                 // nuke the old object, if it existed
                 // TODO(steve): put tombstones in the HT and have this free them
                 //              as well
                 if (freeCurrentEntry) {
-                    metrics->master.liveObjectBytes -=
-                        currentBuffer.getTotalLength();
+                    liveObjectBytes -= currentBuffer.getTotalLength();
                     log->free(currentReference);
                 } else {
-                    ++metrics->master.liveObjectCount;
+                    liveObjectCount++;
                 }
             } else {
-                ++metrics->master.objectDiscardCount;
+                objectDiscardCount++;
             }
         } else if (type == LOG_ENTRY_TYPE_OBJTOMB) {
             Buffer buffer;
@@ -1806,10 +2012,10 @@ MasterService::recoverSegment(SegmentIterator& it)
 
             ObjectTombstone recoverTomb(buffer);
             bool checksumIsValid = ({
-                CycleCounter<RawMetric> c(&metrics->master.verifyChecksumTicks);
+                CycleCounter<uint64_t> c(&verifyChecksumTicks);
                 recoverTomb.checkIntegrity();
             });
-            if (!checksumIsValid) {
+            if (__builtin_expect(!checksumIsValid, false)) {
                 LOG(WARNING, "bad tombstone checksum! key: %s, version: %lu",
                     key.toString().c_str(), recoverTomb.getObjectVersion());
                 // TODO(Stutsman): Should throw and try another segment replica?
@@ -1820,8 +2026,8 @@ MasterService::recoverSegment(SegmentIterator& it)
 
             LogEntryType currentType;
             Buffer currentBuffer;
-            HashTable::Reference currentReference;
-            if (lookup(key, currentType, currentBuffer, currentReference)) {
+            Log::Reference currentReference;
+            if (lookup(key, currentType, currentBuffer, &currentReference)) {
                 if (currentType == LOG_ENTRY_TYPE_OBJTOMB) {
                     ObjectTombstone currentTombstone(currentBuffer);
                     minSuccessor = currentTombstone.getObjectVersion() + 1;
@@ -1833,31 +2039,28 @@ MasterService::recoverSegment(SegmentIterator& it)
             }
 
             if (recoverTomb.getObjectVersion() >= minSuccessor) {
-                ++metrics->master.tombstoneAppendCount;
-                HashTable::Reference newTombReference;
+                tombstoneAppendCount++;
+                Log::Reference newTombReference;
                 {
-                    CycleCounter<RawMetric>
-                        _(&metrics->master.segmentAppendTicks);
+                    CycleCounter<uint64_t> _(&segmentAppendTicks);
                     log->append(LOG_ENTRY_TYPE_OBJTOMB,
                                 recoverTomb.getTimestamp(),
                                 buffer,
-                                false,
                                 &newTombReference);
                 }
 
                 // TODO(steve/ryan): append could fail here!
 
-                objectMap->replace(key, newTombReference);
+                objectMap->replace(key, newTombReference.toInteger());
 
                 // nuke the object, if it existed
                 if (freeCurrentEntry) {
-                    --metrics->master.liveObjectCount;
-                    metrics->master.liveObjectBytes -=
-                        currentBuffer.getTotalLength();
+                    liveObjectCount++;
+                    liveObjectBytes -= currentBuffer.getTotalLength();
                     log->free(currentReference);
                 }
             } else {
-                ++metrics->master.tombstoneDiscardCount;
+                tombstoneDiscardCount++;
             }
         } else if (type == LOG_ENTRY_TYPE_SAFEVERSION) {
             // LOG_ENTRY_TYPE_SAFEVERSION is duplicated to all the
@@ -1869,10 +2072,10 @@ MasterService::recoverSegment(SegmentIterator& it)
             uint64_t safeVersion = recoverSafeVer.getSafeVersion();
 
             bool checksumIsValid = ({
-                CycleCounter<RawMetric> _(&metrics->master.verifyChecksumTicks);
+                CycleCounter<uint64_t> _(&verifyChecksumTicks);
                 recoverSafeVer.checkIntegrity();
             });
-            if (!checksumIsValid) {
+            if (__builtin_expect(!checksumIsValid, false)) {
                 LOG(WARNING, "bad objectSafeVer checksum! version: %lu",
                     safeVersion);
                 // TODO(Stutsman): Should throw and try another segment replica?
@@ -1882,25 +2085,41 @@ MasterService::recoverSegment(SegmentIterator& it)
             // Sync can be delayed, because recovery can be replayed
             // with the same backup data when the recovery crashes on the way.
             {
-                CycleCounter<RawMetric> _(&metrics->master.segmentAppendTicks);
-                log->append(LOG_ENTRY_TYPE_SAFEVERSION, 0, buffer, false);
+                CycleCounter<uint64_t> _(&segmentAppendTicks);
+                log->append(LOG_ENTRY_TYPE_SAFEVERSION, 0, buffer);
             }
 
             // recover segmentManager.safeVersion (Master safeVersion)
             if (segmentManager.raiseSafeVersion(safeVersion)) {
                 // true if log.safeVersion is revised.
-                ++metrics->master.safeVersionRecoveryCount;
-                LOG(NOTICE, "SAFEVERSION %lu recovered", safeVersion);
+                safeVersionRecoveryCount++;
+                LOG(DEBUG, "SAFEVERSION %lu recovered", safeVersion);
             } else {
-                ++metrics->master.safeVersionNonRecoveryCount;
-                LOG(NOTICE, "SAFEVERSION %lu discarded", safeVersion);
+                safeVersionNonRecoveryCount++;
+                LOG(DEBUG, "SAFEVERSION %lu discarded", safeVersion);
             }
         }
 
         it.next();
     }
+
     metrics->master.backupInRecoverTicks +=
         metrics->master.replicaManagerTicks - startReplicationTicks;
+    metrics->master.recoverSegmentPostingWriteRpcTicks +=
+        metrics->master.replicationPostingWriteRpcTicks -
+        startReplicationPostingWriteRpcTicks;
+    metrics->master.verifyChecksumTicks += verifyChecksumTicks;
+    metrics->master.segmentAppendTicks += segmentAppendTicks;
+    metrics->master.recoverySegmentEntryCount += recoverySegmentEntryCount;
+    metrics->master.recoverySegmentEntryBytes += recoverySegmentEntryBytes;
+    metrics->master.objectAppendCount += objectAppendCount;
+    metrics->master.tombstoneAppendCount += tombstoneAppendCount;
+    metrics->master.liveObjectCount += liveObjectCount;
+    metrics->master.liveObjectBytes += liveObjectBytes;
+    metrics->master.objectDiscardCount += objectDiscardCount;
+    metrics->master.tombstoneDiscardCount += tombstoneDiscardCount;
+    metrics->master.safeVersionRecoveryCount += safeVersionRecoveryCount;
+    metrics->master.safeVersionNonRecoveryCount += safeVersionNonRecoveryCount;
 }
 
 /**
@@ -1925,8 +2144,8 @@ MasterService::remove(const WireFormat::Remove::Request& reqHdr,
 
     LogEntryType type;
     Buffer buffer;
-    HashTable::Reference reference;
-    if (!lookup(key, type, buffer, reference) || type != LOG_ENTRY_TYPE_OBJ) {
+    Log::Reference reference;
+    if (!lookup(key, type, buffer, &reference) || type != LOG_ENTRY_TYPE_OBJ) {
         Status status = rejectOperation(reqHdr.rejectRules,
                                         VERSION_NONEXISTENT);
         if (status != STATUS_OK)
@@ -1954,14 +2173,14 @@ MasterService::remove(const WireFormat::Remove::Request& reqHdr,
     // number, and remove from the hash table.
     if (!log->append(LOG_ENTRY_TYPE_OBJTOMB,
                      tombstone.getTimestamp(),
-                     tombstoneBuffer,
-                     false)) {
+                     tombstoneBuffer)) {
         // The log is out of space. Tell the client to retry and hope
         // that either the cleaner makes space soon or we shift load
         // off of this server.
         respHdr.common.status = STATUS_RETRY;
         return;
     }
+    log->sync();
 
     segmentManager.raiseSafeVersion(object.getVersion() + 1);
     log->free(reference);
@@ -2055,8 +2274,6 @@ MasterService::write(const WireFormat::Write::Request& reqHdr,
                      WireFormat::Write::Response& respHdr,
                      Rpc& rpc)
 {
-    // TODO(anyone): Make Buffers do virtual copying so we don't need to copy
-    //               into contiguous space in getRange().
     Buffer buffer;
     const void* objectData = rpc.requestPayload.getRange(
         sizeof32(reqHdr) + reqHdr.keyLength, reqHdr.length);
@@ -2066,6 +2283,7 @@ MasterService::write(const WireFormat::Write::Request& reqHdr,
             rpc.requestPayload,
             sizeof32(reqHdr),
             reqHdr.keyLength);
+
     Status status = storeObject(key,
                                 &reqHdr.rejectRules,
                                 buffer,
@@ -2116,7 +2334,7 @@ MasterService::getTable(Key& key)
  *      or NULL if this master does not own the tablet.
  */
 Table*
-MasterService::getTableForHash(uint64_t tableId, HashType keyHash)
+MasterService::getTableForHash(uint64_t tableId, KeyHash keyHash)
 {
     ProtoBuf::Tablets::Tablet const* tablet = getTabletForHash(tableId,
                                                                keyHash);
@@ -2142,7 +2360,7 @@ MasterService::getTableForHash(uint64_t tableId, HashType keyHash)
  *      or NULL if this master does not own the tablet.
  */
 ProtoBuf::Tablets::Tablet const*
-MasterService::getTabletForHash(uint64_t tableId, HashType keyHash)
+MasterService::getTabletForHash(uint64_t tableId, KeyHash keyHash)
 {
     foreach (const ProtoBuf::Tablets::Tablet& tablet, tablets.tablet()) {
         if (tablet.table_id() == tableId &&
@@ -2286,7 +2504,7 @@ MasterService::relocateObject(Buffer& oldBuffer,
             uint32_t timestamp = getObjectTimestamp(oldBuffer);
             if (!relocator.append(LOG_ENTRY_TYPE_OBJ, oldBuffer, timestamp))
                 return;
-            objectMap->replace(key, relocator.getNewReference());
+            objectMap->replace(key, relocator.getNewReference().toInteger());
         }
     }
 
@@ -2342,7 +2560,7 @@ MasterService::relocateTombstone(Buffer& oldBuffer,
     ObjectTombstone tomb(oldBuffer);
 
     // See if the object this tombstone refers to is still in the log.
-    bool keepNewTomb = log->containsSegment(tomb.getSegmentId());
+    bool keepNewTomb = log->segmentExists(tomb.getSegmentId());
 
     if (keepNewTomb) {
         // Try to relocate it. If it fails, just return. The cleaner will
@@ -2376,7 +2594,7 @@ MasterService::getTombstoneTimestamp(Buffer& buffer)
 }
 
 /**
- * This method will does everything needed to store an object associated with
+ * This method will do everything needed to store an object associated with
  * a particular key. This includes allocating or incrementing version numbers,
  * writing a tombstone if a previous version exists, storing to the log,
  * and adding or replacing an entry in the hash table.
@@ -2442,14 +2660,14 @@ MasterService::storeObject(Key& key,
         }
     }
 
-    LogEntryType currentType;
+    LogEntryType currentType = LOG_ENTRY_TYPE_INVALID;
     Buffer currentBuffer;
-    HashTable::Reference currentReference;
+    Log::Reference currentReference;
     uint64_t currentVersion = VERSION_NONEXISTENT;
 
-    if (lookup(key, currentType, currentBuffer, currentReference)) {
+    if (lookup(key, currentType, currentBuffer, &currentReference)) {
         if (currentType == LOG_ENTRY_TYPE_OBJTOMB) {
-            recoveryCleanup(currentReference, this);
+            recoveryCleanup(currentReference.toInteger(), this);
         } else {
             Object currentObject(currentBuffer);
             currentVersion = currentObject.getVersion();
@@ -2465,84 +2683,55 @@ MasterService::storeObject(Key& key,
     // Existing objects get a bump in version, new objects start from
     // the next version allocated in the table.
     uint64_t newObjectVersion = (currentVersion == VERSION_NONEXISTENT) ?
-            segmentManager.allocateVersion(): currentVersion + 1;
+            segmentManager.allocateVersion() : currentVersion + 1;
 
     Object newObject(key, data, newObjectVersion, WallTime::secondsTimestamp());
 
     assert(currentVersion == VERSION_NONEXISTENT ||
            newObject.getVersion() > currentVersion);
 
-    bool freeCurrentReference = false;
+    Tub<ObjectTombstone> tombstone;
     if (currentVersion != VERSION_NONEXISTENT &&
       currentType == LOG_ENTRY_TYPE_OBJ) {
         Object object(currentBuffer);
-        ObjectTombstone tombstone(object,
-                                  log->getSegmentId(currentReference),
-                                  WallTime::secondsTimestamp());
-
-        Buffer tombstoneBuffer;
-        tombstone.serializeToBuffer(tombstoneBuffer);
-
-        if (!log->append(LOG_ENTRY_TYPE_OBJTOMB,
-                         tombstone.getTimestamp(),
-                         tombstoneBuffer,
-                         false)) {
-            return STATUS_RETRY;
-        }
-
-        // TODO(anyone): The above isn't safe. If we crash before writing the
-        //               new entry (because of timing, or we run out of space),
-        //               we'll have lost the old object. One solution is to
-        //               introduce the combined Object+Tombstone type.
-
-        // We can't free here. Not only because of the aforementioned issue,
-        // but also because if we do so and the new object append fails, the
-        // cleaner's statistics won't match what's in the objectMap and it
-        // will not operate correctly.
-        freeCurrentReference = true;
+        tombstone.construct(object,
+                           log->getSegmentId(currentReference),
+                           WallTime::secondsTimestamp());
     }
 
-    Buffer buffer;
-    newObject.serializeToBuffer(buffer);
+    // Create a vector of appends in case we need to write a tombstone and
+    // an object. This is necessary to ensure that both tombstone and object
+    // are written atomically. The log makes no atomicity guarantees across
+    // multiple append calls and we don't want a tombstone going to backups
+    // before the new object, or the new object going out without a tombstone
+    // for the old deleted version. Both cases lead to consistency problems.
+    Log::AppendVector appends[2];
 
-    HashTable::Reference newObjectReference;
-    if (!log->append(LOG_ENTRY_TYPE_OBJ,
-                     newObject.getTimestamp(),
-                     buffer,
-                     sync,
-                     &newObjectReference)) {
+    newObject.serializeToBuffer(appends[0].buffer);
+    appends[0].type = LOG_ENTRY_TYPE_OBJ;
+    appends[0].timestamp = newObject.getTimestamp();
+
+    if (tombstone) {
+        tombstone->serializeToBuffer(appends[1].buffer);
+        appends[1].type = LOG_ENTRY_TYPE_OBJTOMB;
+        appends[1].timestamp = tombstone->getTimestamp();
+    }
+
+    if (!log->append(appends, tombstone ? 2 : 1)) {
         // The log is out of space. Tell the client to retry and hope
         // that either the cleaner makes space soon or we shift load
         // off of this server.
         return STATUS_RETRY;
     }
+    if (sync)
+        log->sync();
 
-    objectMap->replace(key, newObjectReference);
-    if (freeCurrentReference)
+    objectMap->replace(key, appends[0].reference.toInteger());
+    if (tombstone)
         log->free(currentReference);
     *newVersion = newObject.getVersion();
     bytesWritten += key.getStringKeyLength() + data.getTotalLength();
     return STATUS_OK;
-}
-
-bool
-MasterService::lookup(Key& key, LogEntryType& type, Buffer& buffer)
-{
-    HashTable::Reference reference;
-    return lookup(key, type, buffer, reference);
-}
-
-bool
-MasterService::lookup(Key& key,
-                      LogEntryType& type,
-                      Buffer& buffer,
-                      HashTable::Reference& reference)
-{
-    bool success = objectMap->lookup(key, reference);
-    if (!success)
-        return false;
-    type = log->getEntry(reference, buffer);
-    return true;
 }
 
 } // namespace RAMCloud

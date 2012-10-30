@@ -27,16 +27,7 @@ namespace RAMCloud {
 /**
  * The type of the hash for the key of an object.
  */
-typedef uint64_t HashType;
-
-/**
- * An exception that is thrown when a Key cannot be constructed,
- * perhaps because the type of log entry is unknown.
- */
-struct KeyException : public Exception {
-    KeyException(const CodeLocation& where, std::string msg)
-        : Exception(where, msg) {}
-};
+typedef uint64_t KeyHash;
 
 /**
  * RAMCloud objects are named using a 2-tuple consisting of a 64-bit table
@@ -62,70 +53,18 @@ class Key {
     Key(uint64_t tableId, Buffer& buffer,
         uint32_t stringKeyOffset, uint16_t stringKeyLength);
     Key(uint64_t tableId, const void* stringKey, uint16_t stringKeyLength);
-    HashType getHash();
+    KeyHash getHash();
     bool operator==(const Key& other) const;
     bool operator!=(const Key& other) const;
-    uint64_t getTableId();
-    const void* getStringKey();
-    uint16_t getStringKeyLength();
-    string toString();
-
-    /**
-     * Given a key, returns its hash value.
-     *
-     * \param tableId
-     *      64-bit identifier of the table this key is in.
-     * \param stringKey
-     *      Variable length binary string that uniquely identifies the object
-     *      within tableId. It does not necessarily have to be nul-terminated
-     *      like a C-style string.
-     * \param stringKeyLength
-     *      Size stringKey in bytes.
-     * \return
-     *      Hash value of the Key that these arguments represent.
-     */
-    static HashType
-    getHash(uint64_t tableId, const void* stringKey, uint16_t stringKeyLength)
-    {
-        // Indexes 0 and 1 get the tableId's hash, 2 and 3 the string key's.
-        uint64_t tmp[4];
-        MurmurHash3_x64_128(&tableId, sizeof(tableId), 0, &tmp[0]);
-        MurmurHash3_x64_128(stringKey, stringKeyLength, 0, &tmp[2]);
-
-        uint64_t out[2];
-        MurmurHash3_x64_128(tmp, sizeof(tmp), 0, out);
-        return out[0];
-    }
+    uint64_t getTableId() const;
+    const void* getStringKey() const;
+    uint16_t getStringKeyLength() const;
+    string toString() const;
+    static KeyHash getHash(uint64_t tableId,
+                           const void* stringKey,
+                           uint16_t stringKeyLength);
 
   PRIVATE:
-    /**
-     * Take the binary string key and convert it into a printable string.
-     * Any printable ASCII characters (including space, but not other
-     * whitespace), will be unchanged. Any non-printable characters will
-     * be represented in escaped hexadecimal form, for example "\xf8\x07".
-     *
-     * \param input
-     *      Pointer to some memory that may or may not contain ascii
-     *      characters.
-     * \param length
-     *      Length of the input in bytes.
-     */
-    static string
-    printableBinaryString(const void* input, uint32_t length)
-    {
-        string s = "";
-        const unsigned char* c = reinterpret_cast<const unsigned char*>(input);
-
-        for (uint16_t i = 0; i < length; i++) {
-            if (isprint(c[i]))
-                s += c[i];
-            else
-                s += format("\\x%02x", static_cast<uint32_t>(c[i]));
-        }
-
-        return s;
-    }
-
     /// The 64-bit table identifier.
     uint64_t tableId;
 
@@ -137,7 +76,7 @@ class Key {
 
     /// Cache for this key's hash. Initially empty and filled on demand when
     /// getHash() is called. Used to avoid recalculation in subsequent calls.
-    Tub<HashType> hash;
+    Tub<KeyHash> hash;
 
     DISALLOW_COPY_AND_ASSIGN(Key);
 };

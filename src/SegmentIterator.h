@@ -46,21 +46,35 @@ struct SegmentIteratorException : public Exception {
  */
 class SegmentIterator {
   public:
-    SegmentIterator();
     explicit SegmentIterator(Segment& segment);
     SegmentIterator(const void* buffer, uint32_t length,
                     const Segment::Certificate& certificate);
     SegmentIterator(const SegmentIterator& other);
     SegmentIterator& operator=(const SegmentIterator& other);
-    VIRTUAL_FOR_TESTING ~SegmentIterator();
-    VIRTUAL_FOR_TESTING bool isDone();
-    VIRTUAL_FOR_TESTING void next();
-    VIRTUAL_FOR_TESTING LogEntryType getType();
-    VIRTUAL_FOR_TESTING uint32_t getLength();
-    VIRTUAL_FOR_TESTING uint32_t getOffset();
-    VIRTUAL_FOR_TESTING uint32_t appendToBuffer(Buffer& buffer);
-    VIRTUAL_FOR_TESTING uint32_t setBufferTo(Buffer& buffer);
-    VIRTUAL_FOR_TESTING void checkMetadataIntegrity();
+    ~SegmentIterator();
+    void next();
+    LogEntryType getType();
+    uint32_t getLength();
+    uint32_t getOffset();
+    uint32_t appendToBuffer(Buffer& buffer);
+    uint32_t setBufferTo(Buffer& buffer);
+    void checkMetadataIntegrity();
+
+    /**
+     * Test if the SegmentIterator has exhausted all entries. More concretely, if
+     * the current entry is valid, this will return false. After next() has been
+     * called on the last valid entry, this will return true.
+     *
+     * \return
+     *      true if there are no more entries left to iterate, else false.
+     */
+    bool
+    isDone()
+    {
+        // This is defined in the header file so that the logic is inlined,
+        // rather than duplicated in the .cc file to avoid extra method calls.
+        return currentOffset >= certificate.segmentLength;
+    }
 
     /**
      * Return a pointer to the current entry being iterated over. This will
@@ -105,8 +119,8 @@ class SegmentIterator {
             return NULL;
 
         uint32_t entryOffset = currentOffset +
-                               sizeof32(*currentHeader) +
-                               currentHeader->getLengthBytes();
+                               sizeof32(currentHeader) +
+                               currentHeader.getLengthBytes();
         const void* pointer;
         uint32_t contigBytes = segment->peek(entryOffset, &pointer);
         if (contigBytes < getLength() && contigBytes < length) {
@@ -150,8 +164,8 @@ class SegmentIterator {
     /// will use in the getType, getLength, appendToBuffer, etc. calls.
     uint32_t currentOffset;
 
-    /// Pointer to the current log entry's header (the one at currentOffset).
-    const Segment::EntryHeader* currentHeader;
+    /// Copy of the current log entry's header (the one at currentOffset).
+    Segment::EntryHeader currentHeader;
 
     /// Cache of the length of the entry at currentOffset. Set the first time
     /// getLength() is called and destroyed when next() is called.

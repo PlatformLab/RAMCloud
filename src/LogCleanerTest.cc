@@ -118,7 +118,7 @@ class LogCleanerTest : public ::testing::Test {
 
 TEST_F(LogCleanerTest, constructor) {
     EXPECT_TRUE(cleaner.disableInMemoryCleaning);
-    EXPECT_FALSE(cleaner.threadShouldExit);
+    EXPECT_FALSE(cleaner.threadsShouldExit);
     EXPECT_EQ(LogCleaner::SURVIVOR_SEGMENTS_TO_RESERVE,
         segmentManager.freeSurvivorSlots.size());
 
@@ -217,11 +217,11 @@ TEST_F(LogCleanerTest, doMemoryCleaning) {
     EXPECT_EQ(
       "doMemoryCleaning: called | "
       "alloc: for cleaner | "
-      "allocSurvivor: id = 0 | "
-      "relocate: type 1, size 32 | "
+      "allocSurvivor: id = 1 | "
+      "relocate: type 1, size 24 | "
       "relocate: type 4, size 12 | "
       "relocate: type 5, size 12 | "
-      "memoryCleaningComplete: Compaction used 1 seglets to free 128 seglets",
+      "compactionComplete: Compaction used 1 seglets to free 128 seglets",
         TestLog::get());
 }
 
@@ -246,10 +246,10 @@ TEST_F(LogCleanerTest, doDiskCleaning) {
         "doDiskCleaning: called | "
         "getSegmentsToClean: 1 segments selected with 128 allocated segments | "
         "getSortedEntries: 3 entries extracted from 1 segments | "
-        "relocate: type 1, size 32 | "
+        "relocate: type 1, size 24 | "
         "relocate: type 4, size 12 | "
         "relocate: type 5, size 12 | "
-        "relocateLiveEntries: used 0 seglets and 0 segments | "
+        "doDiskCleaning: used 0 seglets and 0 segments | "
         "cleaningComplete: Cleaning used 0 seglets to free 128 seglets",
         TestLog::get());
 }
@@ -323,15 +323,15 @@ TEST_F(LogCleanerTest, sortSegmentsByCostBenefit) {
 TEST_F(LogCleanerTest, getSegmentsToClean) {
     // add segment with util > MAX_CLEANABLE_MEMORY_UTILIZATION
     LogSegment* s = segmentManager.allocHead(false);
-    s->statistics.liveBytes = s->segmentSizeOnBackups;
+    s->statistics.liveBytes = s->segmentSize;
 
     // add a few with lower utilizations
     LogSegment *small = segmentManager.allocHead(false);
     LogSegment* medium = segmentManager.allocHead(false);
     LogSegment* large = segmentManager.allocHead(false);
-    small->statistics.liveBytes = s->segmentSizeOnBackups / 8;
-    medium->statistics.liveBytes = s->segmentSizeOnBackups / 4;
-    large->statistics.liveBytes = s->segmentSizeOnBackups / 2;
+    small->statistics.liveBytes = s->segmentSize / 8;
+    medium->statistics.liveBytes = s->segmentSize / 4;
+    large->statistics.liveBytes = s->segmentSize / 2;
 
     // roll over head
     segmentManager.allocHead(false);
@@ -340,9 +340,11 @@ TEST_F(LogCleanerTest, getSegmentsToClean) {
     segmentManager.cleanableSegments(cleaner.candidates);
     EXPECT_EQ(4U, cleaner.candidates.size());
 
-    uint32_t totalSeglets;
     LogSegmentVector segments;
-    cleaner.getSegmentsToClean(segments, totalSeglets);
+    cleaner.getSegmentsToClean(segments);
+    uint32_t totalSeglets = 0;
+    foreach (LogSegment* s, segments)
+        totalSeglets += s->getSegletsAllocated();
 
     uint32_t segletsPerSegment = cleaner.segmentSize / cleaner.segletSize;
 
@@ -360,15 +362,14 @@ TEST_F(LogCleanerTest, getSegmentsToClean_maxBytes) {
     for (int i = 0; i < LogCleaner::MAX_LIVE_SEGMENTS_PER_DISK_PASS * 2; i++) {
         LogSegment* s = segmentManager.allocHead(false);
         EXPECT_TRUE(s != NULL);
-        s->statistics.liveBytes = (s->segmentSizeOnBackups * 2) / 3;
+        s->statistics.liveBytes = (s->segmentSize * 2) / 3;
     }
 
     // roll over head
     segmentManager.allocHead(false);
 
-    uint32_t total;
     LogSegmentVector segments;
-    cleaner.getSegmentsToClean(segments, total);
+    cleaner.getSegmentsToClean(segments);
 
     uint32_t totalBytes = 0;
     foreach (LogSegment *s, segments)
@@ -428,25 +429,22 @@ TEST_F(LogCleanerTest, relocateLiveEntries) {
     LogCleaner::LiveEntryVector entries;
     cleaner.getSortedEntries(segments, entries);
 
-    uint32_t newSeglets;
-    uint32_t newSegments;
-
     TestLog::Enable _;
-    cleaner.relocateLiveEntries(entries, newSeglets, newSegments);
+    LogSegmentVector survivors;
+    cleaner.relocateLiveEntries(entries, survivors);
     EXPECT_EQ(
-        "relocate: type 1, size 32 | "
+        "relocate: type 1, size 24 | "
         "alloc: for cleaner | "
-        "allocateSegment: Allocating new replicated segment for <57.0,1> | "
+        "allocateSegment: Allocating new replicated segment for <57.0,2> | "
         "schedule: zero replicas: nothing to schedule | "
-        "allocSurvivor: id = 1 | "
-        "relocate: type 1, size 32 | "
+        "allocSurvivor: id = 2 | "
+        "relocate: type 1, size 24 | "
         "relocate: type 4, size 12 | "
         "relocate: type 5, size 12 | "
-        "close: 57.0, 1, 0 | "
+        "close: 57.0, 2, 0 | "
         "schedule: zero replicas: nothing to schedule | "
-        "close: Segment 1 closed (length 96) | "
-        "sync: syncing | "
-        "relocateLiveEntries: used 1 seglets and 1 segments",
+        "close: Segment 2 closed (length 80) | "
+        "sync: syncing",
             TestLog::get());
 }
 
@@ -457,7 +455,7 @@ TEST_F(LogCleanerTest, closeSurvivor) {
     TestLog::Enable _;
     cleaner.closeSurvivor(a);
     EXPECT_TRUE(a->closed);
-    EXPECT_TRUE(StringUtil::startsWith(TestLog::get(), "close: 57.0, 0, 0"));
+    EXPECT_TRUE(StringUtil::startsWith(TestLog::get(), "close: 57.0, 1, 0"));
 }
 
 TEST_F(LogCleanerTest, waitForAvailableSurvivors) {

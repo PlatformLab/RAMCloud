@@ -61,20 +61,24 @@ TEST_F(CoordinatorServiceRecoveryTest, replay_basic) {
             ServiceMask({WireFormat::MASTER_SERVICE}).serialize());
     serverInfo.set_read_speed(0);
     serverInfo.set_service_locator("mock:host=master");
-    logCabinHelper->appendProtoBuf(serverInfo);
+    logCabinHelper->appendProtoBuf(
+                coordRecovery->service.expectedEntryId, serverInfo);
 
     serverInfo.set_entry_type("ServerEnlisted");
-    logCabinHelper->appendProtoBuf(serverInfo);
+    logCabinHelper->appendProtoBuf(
+                coordRecovery->service.expectedEntryId, serverInfo);
 
     ProtoBuf::ServerUpdate serverUpdate;
     serverUpdate.set_entry_type("ServerUpdate");
     serverUpdate.set_server_id(ServerId(1, 0).getId());
-    logCabinHelper->appendProtoBuf(serverUpdate);
+    logCabinHelper->appendProtoBuf(
+                coordRecovery->service.expectedEntryId, serverUpdate);
 
     ProtoBuf::StateServerDown stateServerDown;
     stateServerDown.set_entry_type("StateServerDown");
     stateServerDown.set_server_id(ServerId(1, 0).getId());
-    logCabinHelper->appendProtoBuf(stateServerDown);
+    logCabinHelper->appendProtoBuf(
+                coordRecovery->service.expectedEntryId, stateServerDown);
 
     TestLog::Enable _(replayFilter);
     coordRecovery->replay(true);

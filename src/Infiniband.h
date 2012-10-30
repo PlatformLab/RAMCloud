@@ -467,11 +467,6 @@ class RealInfiniband {
              uint32_t remoteQKey = 0);
 
     void
-    postSendZeroCopy(QueuePair* qp, BufferDescriptor *bd,
-        uint32_t length, const void* zeroCopyBuf, uint32_t zeroCopyBytes,
-        ibv_mr* zeroCopyMemoryRegion);
-
-    void
     postSendAndWait(QueuePair* qp,
                     BufferDescriptor* bd,
                     uint32_t length,

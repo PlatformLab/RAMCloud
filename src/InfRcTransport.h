@@ -116,8 +116,7 @@ class InfRcTransport : public Transport {
             void sendOrQueue();
 
         PRIVATE:
-            bool
-            tryZeroCopy(Buffer* request);
+            void sendZeroCopy(Buffer* buffer);
 
             InfRcTransport*     transport;
             InfRcSession*       session;
@@ -161,7 +160,9 @@ class InfRcTransport : public Transport {
     // which results in a higher number of on-controller cache misses.
     static const uint32_t MAX_SHARED_RX_SGE_COUNT = 1;
     static const uint32_t MAX_TX_QUEUE_DEPTH = 16;
-    static const uint32_t MAX_TX_SGE_COUNT = 8;
+    // With 64 KB seglets 1 MB is fractured into 16 or 17 pieces, plus we
+    // need an entry for the headers.
+    enum { MAX_TX_SGE_COUNT = 24 };
     static const uint32_t QP_EXCHANGE_USEC_TIMEOUT = 50000;
     static const uint32_t QP_EXCHANGE_MAX_TIMEOUTS = 10;
 
@@ -383,6 +384,10 @@ class InfRcTransport : public Transport {
     /// save them in this vector and delete them at a safe time, when there are
     /// no outstanding transmit buffers to be lost.
     vector<QueuePair*> deadQueuePairs;
+
+    /// Used during unit testing; if set then don't actually transmit during
+    /// sendZeroCopy(), just log sges instead.
+    bool testingDontReallySend;
 
     DISALLOW_COPY_AND_ASSIGN(InfRcTransport);
 };

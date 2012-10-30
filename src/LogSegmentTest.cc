@@ -72,7 +72,7 @@ TEST_F(LogSegmentTest, getMemoryUtilization) {
 
 TEST_F(LogSegmentTest, getDiskUtilization) {
     EXPECT_EQ(0, s->getDiskUtilization());
-    s->statistics.liveBytes = s->segmentSizeOnBackups / 2;
+    s->statistics.liveBytes = s->segmentSize / 2;
     EXPECT_EQ(50, s->getDiskUtilization());
 }
 
