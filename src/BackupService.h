@@ -171,6 +171,10 @@ class BackupService : public Service
     /// For testing; don't start gcThread when tracker changes are enqueued.
     bool testingDoNotStartGcThread;
 
+    /// Set during unit tests to skip the check that ensures the caller is
+    /// actually in the cluster.
+    bool testingSkipCallerIdCheck;
+
     /**
      * Executes enqueued tasks for replica garbage collection and master
      * recovery.

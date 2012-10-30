@@ -52,6 +52,7 @@ BackupService::BackupService(Context* context,
     , gcTracker(context, this)
     , gcThread()
     , testingDoNotStartGcThread(false)
+    , testingSkipCallerIdCheck(false)
     , taskQueue()
 {
     if (config.backup.inMemory) {
@@ -549,6 +550,10 @@ BackupService::writeSegment(const WireFormat::BackupWrite::Request& reqHdr,
     ServerId masterId(reqHdr.masterId);
     uint64_t segmentId = reqHdr.segmentId;
 
+    if  (!context->serverList->isUp(masterId) && !testingSkipCallerIdCheck) {
+        // See "Zombies" in designNotes.
+        throw CallerNotInClusterException(HERE);
+    }
     auto frameIt = frames.find({masterId, segmentId});
     BackupStorage::FrameRef frame;
     if (frameIt != frames.end())

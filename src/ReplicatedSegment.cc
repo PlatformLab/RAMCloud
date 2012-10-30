@@ -679,6 +679,8 @@ ReplicatedSegment::performWrite(Replica& replica)
             // Wait for it to complete if it is ready.
             try {
                 replica.writeRpc->wait();
+                TEST_LOG("Write RPC finished for replica slot %ld",
+                         &replica - &replicas[0]);
                 replica.acked = replica.sent;
                 if (replica.acked == queued || replica.acked.bytes == openLen) {
                     // #committed advances whenever a certificate was sent.
@@ -708,6 +710,15 @@ ReplicatedSegment::performWrite(Replica& replica)
                     "which was found on disk after a crash; will choose "
                     "another backup", replica.backupId.toString().c_str());
                 replica.reset();
+            } catch (const CallerNotInClusterException& e) {
+                // The backup seems to think we have crashed (or never existed).
+                // Check with the coordinator to be sure, then retry.  See
+                // "Zombies" in designNotes for more information.
+                LOG(WARNING, "Backup write RPC rejected by %s with "
+                    "STATUS_CALLER_NOT_IN_CLUSTER",
+                    replica.backupId.toString().c_str());
+                replica.sent = replica.acked;
+                CoordinatorClient::verifyMembership(context, masterId);
             }
             replica.writeRpc.destroy();
             --writeRpcsInFlight;

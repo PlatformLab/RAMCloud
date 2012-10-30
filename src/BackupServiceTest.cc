@@ -57,6 +57,7 @@ class BackupServiceTest : public ::testing::Test {
         config.backup.numSegmentFrames = 5;
         server = cluster->addServer(config);
         backup = server->backup.get();
+        backup->testingSkipCallerIdCheck = true;
         backupId = server->serverId;
     }
 
@@ -423,6 +424,11 @@ TEST_F(BackupServiceTest, writeSegment) {
     auto frameIt = backup->frames.find({{99, 0}, 88});
     EXPECT_STREQ("test",
                  static_cast<char*>(frameIt->second->load()) + 10);
+}
+
+TEST_F(BackupServiceTest, writeSegment_checkCallerId) {
+    backup->testingSkipCallerIdCheck = false;
+    EXPECT_THROW(openSegment({99, 0}, 88), CallerNotInClusterException);
 }
 
 TEST_F(BackupServiceTest, writeSegment_epochStored) {

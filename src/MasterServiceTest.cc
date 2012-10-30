@@ -102,7 +102,9 @@ class MasterServiceTest : public ::testing::Test {
                                   WireFormat::MEMBERSHIP_SERVICE};
         backup1Config.segmentSize = segmentSize;
         backup1Config.backup.numSegmentFrames = 3;
-        backup1Id = cluster.addServer(backup1Config)->serverId;
+        Server* server = cluster.addServer(backup1Config);
+        server->backup->testingSkipCallerIdCheck = true;
+        backup1Id = server->serverId;
 
         masterConfig = ServerConfig::forTesting();
         masterConfig.segmentSize = segmentSize;
@@ -713,22 +715,18 @@ TEST_F(MasterServiceTest, getHeadOfLog) {
 
 TEST_F(MasterServiceTest, recover_basics) {
     ServerId serverId(123, 0);
-    foreach (auto* server, cluster.servers) {
-        serverList.testingAdd({server->serverId, server->config.localLocator,
-                              server->config.services, 100, ServerStatus::UP});
-    }
-
     ReplicaManager mgr(&context, serverId, 1, false);
 
     // Create a segment with objectSafeVersion 23
-    writeRecoverableSegment(&context, mgr, serverId, 123, 87, 23U);
+    writeRecoverableSegment(&context, mgr, serverId, serverId.getId(),
+                            87, 23U);
 
     ProtoBuf::Tablets tablets;
     createTabletList(tablets);
     auto result = BackupClient::startReadingData(&context, backup1Id,
-                                                 10lu, ServerId(123));
+                                                 10lu, serverId);
     BackupClient::StartPartitioningReplicas(&context, backup1Id,
-                                                 10lu, ServerId(123),
+                                                 10lu, serverId,
                                                  &tablets);
     ASSERT_EQ(1lu, result.replicas.size());
     ASSERT_EQ(87lu, result.replicas.at(0).segmentId);
@@ -743,7 +741,7 @@ TEST_F(MasterServiceTest, recover_basics) {
 
     TestLog::Enable __(recoverSegmentFilter);
     MasterClient::recover(&context, masterServer->serverId, 10lu,
-                          ServerId(123), 0, &tablets, replicas,
+                          serverId, 0, &tablets, replicas,
                           arrayLength(replicas));
     // safeVersion Recovered
     EXPECT_EQ(23U, service->segmentManager.safeVersion);
@@ -839,13 +837,9 @@ TEST_F(MasterServiceTest, removeObjectIfFromUnknownTablet) {
   */
 TEST_F(MasterServiceTest, recover) {
     ServerId serverId(123, 0);
-    foreach (auto* server, cluster.servers) {
-        serverList.testingAdd({server->serverId, server->config.localLocator,
-                              server->config.services, 100, ServerStatus::UP});
-    }
 
     ReplicaManager mgr(&context, serverId, 1, false);
-    writeRecoverableSegment(&context, mgr, serverId, 123, 88);
+    writeRecoverableSegment(&context, mgr, serverId, serverId.getId(), 88);
 
     ServerConfig backup2Config = backup1Config;
     backup2Config.localLocator = "mock:host=backup2";
@@ -853,10 +847,10 @@ TEST_F(MasterServiceTest, recover) {
 
     ProtoBuf::Tablets tablets;
     createTabletList(tablets);
-    BackupClient::startReadingData(&context, backup1Id, 456lu, ServerId(123));
+    BackupClient::startReadingData(&context, backup1Id, 456lu, serverId);
 
     BackupClient::StartPartitioningReplicas(&context, backup1Id, 456lu,
-                                   ServerId(123), &tablets);
+                                   serverId, &tablets);
 
     vector<MasterService::Replica> replicas {
         // Started in initial round of RPCs - eventually fails
@@ -881,7 +875,7 @@ TEST_F(MasterServiceTest, recover) {
     };
 
     TestLog::Enable _;
-    EXPECT_THROW(service->recover(456lu, ServerId(123, 0), 0, replicas),
+    EXPECT_THROW(service->recover(456lu, serverId, 0, replicas),
                  SegmentRecoveryFailedException);
     // 1,2,3) 87 was requested from the first server list entry.
     EXPECT_TRUE(TestUtil::matchesPosixRegex(
@@ -2203,10 +2197,13 @@ class MasterRecoverTest : public ::testing::Test {
                            WireFormat::MEMBERSHIP_SERVICE};
         config.segmentSize = segmentSize;
         config.backup.numSegmentFrames = segmentFrames;
-        backup1Id = cluster.addServer(config)->serverId;
+        Server* server = cluster.addServer(config);
+        server->backup->testingSkipCallerIdCheck = true;
+        backup1Id = server->serverId;
 
         config.localLocator = "mock:host=backup2";
         backup2Id = cluster.addServer(config)->serverId;
+        cluster.coordinatorContext.coordinatorServerList->sync();
     }
 
     ~MasterRecoverTest()
