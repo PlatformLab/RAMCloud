@@ -74,6 +74,21 @@ class InfRcTransport : public Transport {
         infiniband->dumpStats();
     }
     uint32_t getMaxRpcSize() const;
+
+    /**
+     * Register a memory region with the HCA for zero-copy transmission.
+     * After registration Buffer::Chunks sent in client RPC requests can
+     * be given directly to the HCA without copying into a transmit
+     * buffer first. Callers must collectively ensure this function is only
+     * once. It is possible to extend this function to support multiple
+     * regions, but for the moment we only use it to register the
+     * Log Seglets.
+     *
+     * \param base
+     *      Starting address of the region to be registered with the HCA.
+     * \param bytes
+     *      Length of the region starting at \a base to register with the HCA.
+     */
     void registerMemory(void* base, size_t bytes)
     {
         assert(logMemoryRegion == NULL);
@@ -357,10 +372,19 @@ class InfRcTransport : public Transport {
     };
     Tub<ServerConnectHandler> serverConnectHandler;
 
-    // Hack for 0-copy from Log
-    // This must go away after SOSP
+    /// Starting address of the region registered with the HCA for zero-copy
+    /// transmission, if any. If no region is registered then 0.
+    /// See registerMemory().
     uintptr_t logMemoryBase;
+
+    /// Length of the region starting at #logMemoryBase which is registered
+    /// with the HCA for zero-copy transmission. If no region is registered
+    /// then 0. See registerMemory().
     size_t logMemoryBytes;
+
+    /// Infiniband memory region of the region registered with the HCA for
+    /// zero-copy transmission. If no region is registered then NULL.
+    /// See registerMemory().
     ibv_mr* logMemoryRegion;
 
     // CycleCounter that's constructed when TX goes active and is destroyed
