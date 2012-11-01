@@ -17,6 +17,7 @@
 #define RAMCLOUD_MOCKWRAPPER_H
 
 #include "Transport.h"
+#include "WireFormat.h"
 
 namespace RAMCloud {
 class RamCloud;
@@ -72,6 +73,24 @@ class MockWrapper : public Transport::RpcNotifier {
     void reset()
     {
         completedCount = failedCount = 0;
+    }
+    
+    /**
+     * Set the opcode field in the request buffer.
+     * 
+     * \param opcode
+     *      Store this in the opcode field of the request buffer.
+     */
+    void setOpcode(WireFormat::Opcode opcode) {
+        WireFormat::RequestCommon* header;
+        if (request.getTotalLength() < sizeof(WireFormat::RequestCommon)) {
+            request.reset();
+            header = new(&request, APPEND) WireFormat::RequestCommon;
+        } else {
+            header = const_cast<WireFormat::RequestCommon*>(
+                    request.getStart<WireFormat::RequestCommon>());
+        }
+        header->opcode = opcode;
     }
 
     /// Request and response messages.

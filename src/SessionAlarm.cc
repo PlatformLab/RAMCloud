@@ -187,8 +187,8 @@ SessionAlarmTimer::handleTimerEvent()
             continue;
         if (alarm->waitingForResponseMs > alarm->abortMs) {
             RAMCLOUD_LOG(WARNING,
-                "Server at %s is not responding, aborting session after %d ms",
-                alarm->session.getServiceLocator().c_str(),
+                "Aborting %s after %d ms (server not responding)",
+                alarm->session.getRpcInfo().c_str(),
                 alarm->waitingForResponseMs);
             alarm->session.abort();
             continue;
@@ -213,8 +213,8 @@ SessionAlarmTimer::handleTimerEvent()
         if (rpc->isReady()) {
             if (rpc->succeeded()) {
                 RAMCLOUD_LOG(NOTICE,
-                        "Waiting for RPC from server at %s (ping succeeded)",
-                        current->first->session.getServiceLocator().c_str());
+                        "Waiting for %s (ping succeeded)",
+                        current->first->session.getRpcInfo().c_str());
             }
             delete rpc;
             pings.erase(current);

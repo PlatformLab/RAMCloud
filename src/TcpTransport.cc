@@ -713,6 +713,29 @@ TcpTransport::TcpSession::findRpc(Header& header) {
     return NULL;
 }
 
+// See Transport::Session::getRpcInfo for documentation.
+string
+TcpTransport::TcpSession::getRpcInfo()
+{
+    const char* separator = "";
+    string result;
+    foreach (TcpClientRpc& rpc, rpcsWaitingForResponse) {
+        result += separator;
+        result += WireFormat::opcodeSymbol(*rpc.request);
+        separator = ", ";
+    }
+    foreach (TcpClientRpc& rpc, rpcsWaitingToSend) {
+        result += separator;
+        result += WireFormat::opcodeSymbol(*rpc.request);
+        separator = ", ";
+    }
+    if (result.empty())
+        result = "no active RPCs";
+    result += " to server at ";
+    result += getServiceLocator();
+    return result;
+}
+
 // See Transport::Session::sendRequest for documentation.
 void
 TcpTransport::TcpSession::sendRequest(Buffer* request, Buffer* response,

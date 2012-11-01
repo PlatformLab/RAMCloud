@@ -449,7 +449,7 @@ void
 ServiceManager::WorkerSession::abort()
 {
     // Must make sure that the dispatch thread isn't running when we
-    // invoked the real abort.
+    // invoke the real abort.
     Dispatch::Lock lock(context->dispatch);
     return wrapped->abort();
 }
@@ -460,9 +460,19 @@ ServiceManager::WorkerSession::cancelRequest(
         Transport::RpcNotifier* notifier)
 {
     // Must make sure that the dispatch thread isn't running when we
-    // invoked the real cancelRequest.
+    // invoke the real cancelRequest.
     Dispatch::Lock lock(context->dispatch);
     return wrapped->cancelRequest(notifier);
+}
+
+// See Transport::Session::getRpcInfo for documentation.
+string
+ServiceManager::WorkerSession::getRpcInfo()
+{
+    // Must make sure that the dispatch thread isn't running when we
+    // invoke the real getRpcInfo.
+    Dispatch::Lock lock(context->dispatch);
+    return wrapped->getRpcInfo();
 }
 
 // See Transport::Session::sendRequest for documentation.

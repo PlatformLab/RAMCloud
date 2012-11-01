@@ -1356,6 +1356,32 @@ FastTransport::ClientSession::getAddress()
     return serverAddress.get();
 }
 
+// See Transport::Session::getRpcInfo for documentation.
+string
+FastTransport::ClientSession::getRpcInfo()
+{
+    const char* separator = "";
+    string result;
+    for (uint32_t i = 0; i < numChannels; i++) {
+        if (channels[i].state != ClientChannel::IDLE) {
+            result += separator;
+            result += WireFormat::opcodeSymbol(
+                    *channels[i].currentRpc->request);
+            separator = ", ";
+        }
+    }
+    foreach (ClientRpc& rpc, channelQueue) {
+        result += separator;
+        result += WireFormat::opcodeSymbol(*rpc.request);
+        separator = ", ";
+    }
+    if (result.empty())
+        result = "no active RPCs";
+    result += " to server at ";
+    result += getServiceLocator();
+    return result;
+}
+
 /**
  * Prepare a client session (which may be either new or recycled) for use.
  *

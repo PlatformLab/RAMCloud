@@ -413,6 +413,34 @@ InfRcTransport<Infiniband>::InfRcSession::cancelRequest(
     }
 }
 
+// See Transport::Session::getRpcInfo for documentation.
+template<typename Infiniband>
+string
+InfRcTransport<Infiniband>::InfRcSession::getRpcInfo()
+{
+    const char* separator = "";
+    string result;
+    foreach (ClientRpc& rpc, transport->outstandingRpcs) {
+        if (rpc.session == this) {
+            result += separator;
+            result += WireFormat::opcodeSymbol(*rpc.request);
+            separator = ", ";
+        }
+    }
+    foreach (ClientRpc& rpc, transport->clientSendQueue) {
+        if (rpc.session == this) {
+            result += separator;
+            result += WireFormat::opcodeSymbol(*rpc.request);
+            separator = ", ";
+        }
+    }
+    if (result.empty())
+        result = "no active RPCs";
+    result += " to server at ";
+    result += getServiceLocator();
+    return result;
+}
+
 // See Transport::Session::sendRequest for documentation.
 template<typename Infiniband>
 void

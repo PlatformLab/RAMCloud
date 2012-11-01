@@ -122,6 +122,7 @@ class ServiceManager : Dispatch::Poller {
         ~WorkerSession() {}
         virtual void abort();
         virtual void cancelRequest(Transport::RpcNotifier* notifier);
+        virtual string getRpcInfo();
         void release() {
             delete this;
         }

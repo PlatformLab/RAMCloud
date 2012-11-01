@@ -253,6 +253,7 @@ class TcpTransport : public Transport {
         virtual void abort();
         virtual void cancelRequest(RpcNotifier* notifier);
         Buffer* findRpc(Header& header);
+        virtual string getRpcInfo();
         void release() {
             delete this;
         }
