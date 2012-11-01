@@ -377,6 +377,7 @@ InfRcTransport<Infiniband>::InfRcSession::abort()
             erase(transport->outstandingRpcs, rpc);
             --transport->numUsedClientSrqBuffers;
             transport->clientRpcPool.destroy(&rpc);
+            alarm.rpcFinished();
         }
     }
     if (qp)
