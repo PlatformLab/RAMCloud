@@ -54,8 +54,7 @@ namespace RAMCloud {
  * \param ethernet
  *      Whether to use the Ethernet port.
  */
-template<typename Infiniband>
-InfUdDriver<Infiniband>::InfUdDriver(Context* context,
+InfUdDriver::InfUdDriver(Context* context,
                                      const ServiceLocator *sl,
                                      bool ethernet)
     : context(context)
@@ -162,8 +161,7 @@ InfUdDriver<Infiniband>::InfUdDriver(Context* context,
 /**
  * Destroy an InfUdDriver and free allocated resources.
  */
-template<typename Infiniband>
-InfUdDriver<Infiniband>::~InfUdDriver()
+InfUdDriver::~InfUdDriver()
 {
     if (packetBufsUtilized != 0) {
         LOG(WARNING, "packetBufsUtilized: %lu",
@@ -178,10 +176,8 @@ InfUdDriver<Infiniband>::~InfUdDriver()
 /*
  * See docs in the ``Driver'' class.
  */
-template<typename Infiniband>
 void
-InfUdDriver<Infiniband>::connect(IncomingPacketHandler*
-                                                incomingPacketHandler) {
+InfUdDriver::connect(IncomingPacketHandler* incomingPacketHandler) {
     this->incomingPacketHandler.reset(incomingPacketHandler);
     poller.construct(context, this);
 }
@@ -189,9 +185,8 @@ InfUdDriver<Infiniband>::connect(IncomingPacketHandler*
 /*
  * See docs in the ``Driver'' class.
  */
-template<typename Infiniband>
 void
-InfUdDriver<Infiniband>::disconnect() {
+InfUdDriver::disconnect() {
     poller.destroy();
     this->incomingPacketHandler.reset();
 }
@@ -199,9 +194,8 @@ InfUdDriver<Infiniband>::disconnect() {
 /*
  * See docs in the ``Driver'' class.
  */
-template<typename Infiniband>
 uint32_t
-InfUdDriver<Infiniband>::getMaxPacketSize()
+InfUdDriver::getMaxPacketSize()
 {
     const uint32_t eth = 1500 + 14 - sizeof(EthernetHeader);
     const uint32_t inf = 2048 - GRH_SIZE;
@@ -224,9 +218,8 @@ InfUdDriver<Infiniband>::getMaxPacketSize()
  * TODO(ongaro): This code is copied from InfRcTransport. It should probably
  *               move in some form to the Infiniband class.
  */
-template<typename Infiniband>
-typename Infiniband::BufferDescriptor*
-InfUdDriver<Infiniband>::getTransmitBuffer()
+Infiniband::BufferDescriptor*
+InfUdDriver::getTransmitBuffer()
 {
     // if we've drained our free tx buffer pool, we must wait.
     while (freeTxBuffers.empty()) {
@@ -254,9 +247,8 @@ InfUdDriver<Infiniband>::getTransmitBuffer()
 /*
  * See docs in the ``Driver'' class.
  */
-template<typename Infiniband>
 void
-InfUdDriver<Infiniband>::release(char *payload)
+InfUdDriver::release(char *payload)
 {
     // Must sync with the dispatch thread, since this method could potentially
     // be invoked in a worker.
@@ -273,9 +265,8 @@ InfUdDriver<Infiniband>::release(char *payload)
 /*
  * See docs in the ``Driver'' class.
  */
-template<typename Infiniband>
 void
-InfUdDriver<Infiniband>::sendPacket(const Driver::Address *addr,
+InfUdDriver::sendPacket(const Driver::Address *addr,
                         const void *header,
                         uint32_t headerLen,
                         Buffer::Iterator *payload)
@@ -326,9 +317,8 @@ InfUdDriver<Infiniband>::sendPacket(const Driver::Address *addr,
 /*
  * See docs in the ``Driver'' class.
  */
-template<typename Infiniband>
 void
-InfUdDriver<Infiniband>::Poller::poll()
+InfUdDriver::Poller::poll()
 {
     assert(driver->context->dispatch->isDispatchThread());
 
@@ -396,13 +386,10 @@ InfUdDriver<Infiniband>::Poller::poll()
 /**
  * See docs in the ``Driver'' class.
  */
-template<typename Infiniband>
 string
-InfUdDriver<Infiniband>::getServiceLocator()
+InfUdDriver::getServiceLocator()
 {
     return locatorString;
 }
-
-template class InfUdDriver<RealInfiniband>;
 
 } // namespace RAMCloud

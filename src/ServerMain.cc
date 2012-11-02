@@ -164,7 +164,7 @@ main(int argc, char *argv[])
         const string localLocator = optionParser.options.getLocalLocator();
 
 #if INFINIBAND
-        InfRcTransport<>::setName(localLocator.c_str());
+        InfRcTransport::setName(localLocator.c_str());
 #endif
         context.transportManager->setTimeout(
                 optionParser.options.getTransportTimeout());
