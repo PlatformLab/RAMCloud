@@ -74,11 +74,11 @@ class FailureDetector {
     /// ServerTracker used for obtaining random servers to ping. Nothing is
     /// currently stored with servers in the tracker.
     ServerTracker<bool>  serverTracker;
-    
+
     /// Counts the number of probes that have been made since the last
     /// successful response.
     int probesWithoutResponse;
-    
+
     /// If probesWithoutResponse reaches this value, then check with the
     /// coordinator to make sure we're still in the cluster.
     static const int MAX_FAILED_PROBES = 5;

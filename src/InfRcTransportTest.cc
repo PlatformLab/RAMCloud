@@ -240,7 +240,7 @@ TEST_F(InfRcTransportTest, getRpcInfo) {
     InfRcTransport<RealInfiniband>::InfRcSession* rawSession =
             reinterpret_cast<InfRcTransport<RealInfiniband>::
             InfRcSession*>(session.get());
-    
+
     EXPECT_EQ("no active RPCs to server at infrc: host=localhost, port=11000",
             rawSession-> getRpcInfo());
 
@@ -250,7 +250,7 @@ TEST_F(InfRcTransportTest, getRpcInfo) {
     rpc1.setOpcode(WireFormat::READ);
     session->sendRequest(&rpc1.request, &rpc1.response, &rpc1);
     EXPECT_EQ(1U, client.outstandingRpcs.size());
-    
+
     client.numUsedClientSrqBuffers =
             InfRcTransport<RealInfiniband>::MAX_SHARED_RX_QUEUE_DEPTH+1;
     MockWrapper rpc2;
@@ -260,7 +260,7 @@ TEST_F(InfRcTransportTest, getRpcInfo) {
     rpc3.setOpcode(WireFormat::INCREMENT);
     session->sendRequest(&rpc3.request, &rpc3.response, &rpc3);
     EXPECT_EQ(2U, client.clientSendQueue.size());
-    
+
     EXPECT_EQ("READ, REMOVE, INCREMENT to server at infrc: host=localhost, "
             "port=11000", rawSession-> getRpcInfo());
 }

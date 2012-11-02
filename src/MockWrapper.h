@@ -74,10 +74,10 @@ class MockWrapper : public Transport::RpcNotifier {
     {
         completedCount = failedCount = 0;
     }
-    
+
     /**
      * Set the opcode field in the request buffer.
-     * 
+     *
      * \param opcode
      *      Store this in the opcode field of the request buffer.
      */

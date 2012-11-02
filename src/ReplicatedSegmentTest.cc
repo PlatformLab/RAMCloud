@@ -1628,7 +1628,7 @@ TEST_F(ReplicatedSegmentTest, performWrite_CallerNotInClusterException) {
     EXPECT_EQ("performWrite: Sending open to backup 1.0",
               TestLog::get());
     TestLog::reset();
-    
+
     taskQueue.performTask();
     // The second replica write retry has now succeeded.
     EXPECT_EQ("performWrite: Write RPC finished for replica slot 1",

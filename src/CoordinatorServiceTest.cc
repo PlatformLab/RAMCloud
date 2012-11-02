@@ -419,7 +419,7 @@ TEST_F(CoordinatorServiceTest, setMasterRecoveryInfo_noSuchServer) {
 
 TEST_F(CoordinatorServiceTest, verifyMembership) {
     CoordinatorClient::verifyMembership(&context, masterServerId);
-    ServerId bogus(3,2);
+    ServerId bogus(3, 2);
     EXPECT_THROW(CoordinatorClient::verifyMembership(&context, bogus, false),
                  CallerNotInClusterException);
 }

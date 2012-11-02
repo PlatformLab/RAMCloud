@@ -1667,8 +1667,9 @@ TEST_F(ClientSessionTest, fillHeader) {
 TEST_F(ClientSessionTest, getRpcInfo) {
     session->numChannels = 2;
     session->allocateChannels();
-    
-    EXPECT_EQ("no active RPCs to server at dummyService", session-> getRpcInfo());
+
+    EXPECT_EQ("no active RPCs to server at dummyService",
+        session-> getRpcInfo());
 
     // Arrange for 2 RPCs to be active, with 2 others waiting for channels.
     MockWrapper rpc1;
