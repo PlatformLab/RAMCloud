@@ -352,6 +352,95 @@ class RecoveryTestCase(ContextManagerTestCase):
         value = self.rc.read(self.table, 'testKey')
         self.assertEqual(('testValue', 1), value)
 
+    @sync()
+    @timeout(120)
+    def test_11_cold_deadservers(self):
+        # Cold start with two servers not restarted.
+        # Since replicas are written to three backups, RAMClould should
+        # restart.
+        self.createTestValue()
+        self.rc.testing_fill(self.table, '0', 592950, 1024)
+        print('Killing all %d servers' % self.num_hosts)
+        for server in self.servers:
+            self.cluster.sandbox.kill(server)
+        self.servers = []
+        start_servers = self.num_hosts - 2
+        print('Starting %d servers' % start_servers)
+        for host in hosts[:start_servers]:
+            self.servers.append(
+                self.cluster.start_server(host,
+                    port=self.last_unused_port,
+                    args='--clusterName=%s' % self.clusterName))
+            self.last_unused_port += 1
+        server_count = len(self.servers)
+        print('Waiting for new %d servers to enlist' % server_count)
+        self.cluster.ensure_servers(server_count, server_count)
+        print('Giving servers a little time to come back')
+        time.sleep(10)
+        print('Attempting read')
+        value = self.rc.read(self.table, 'testKey')
+        self.assertEqual(('testValue', 1), value)
+
+    @sync()
+    @timeout(120)
+    def test_12_cold_deadservers_large(self):
+        # Cold start with two servers not restarted with larger
+        # 1k of 600KB objects.
+        # Since replicas are written to three backups, RAMClould should
+        # restart.
+        self.createTestValue()
+        self.rc.testing_fill(self.table, '0', 1024, 614400)
+        print('Killing all %d servers' % self.num_hosts)
+        for server in self.servers:
+            self.cluster.sandbox.kill(server)
+        self.servers = []
+        start_servers = self.num_hosts - 2
+        print('Starting %d servers' % start_servers)
+        for host in hosts[:start_servers]:
+            self.servers.append(
+                self.cluster.start_server(host,
+                    port=self.last_unused_port,
+                    args='--clusterName=%s' % self.clusterName))
+            self.last_unused_port += 1
+        server_count = len(self.servers)
+        print('Waiting for new %d servers to enlist' % server_count)
+        self.cluster.ensure_servers(server_count, server_count)
+        print('Giving servers a little time to come back')
+        time.sleep(10)
+        print('Attempting read')
+        value = self.rc.read(self.table, 'testKey')
+        self.assertEqual(('testValue', 1), value)
+
+#   No @sync() : asynchronous
+    @timeout(120)
+    def test_13_cold_deadservers_large_async(self):
+        # Cold start with two servers not restarted with larger
+        # 1k of 600KB objects.
+        # Since replicas are written to three backups, RAMClould should
+        # restart.
+        self.createTestValue()
+        self.rc.testing_fill(self.table, '0', 1024, 614400)
+        print('Killing all %d servers' % self.num_hosts)
+        for server in self.servers:
+            self.cluster.sandbox.kill(server)
+        self.servers = []
+        start_servers = self.num_hosts - 2
+        print('Starting %d servers' % start_servers)
+        for host in hosts[:start_servers]:
+            self.servers.append(
+                self.cluster.start_server(host,
+                    port=self.last_unused_port,
+                    args='--clusterName=%s' % self.clusterName))
+            self.last_unused_port += 1
+        server_count = len(self.servers)
+        print('Waiting for new %d servers to enlist' % server_count)
+        self.cluster.ensure_servers(server_count, server_count)
+        print('Giving servers a little time to come back')
+        time.sleep(10)
+        print('Attempting read')
+        value = self.rc.read(self.table, 'testKey')
+        self.assertEqual(('testValue', 1), value)
+
 def removeAllTestsExcept(klass, name):
     for k in dir(klass):
         if k.startswith('test') and not k == name:
