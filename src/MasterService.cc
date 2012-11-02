@@ -103,12 +103,12 @@ MasterService::Replica::Replica(uint64_t backupId, uint64_t segmentId,
  *      this server.
  */
 MasterService::MasterService(Context* context,
-                             const ServerConfig& config)
+                             const ServerConfig* config)
     : context(context)
     , config(config)
     , bytesWritten(0)
-    , replicaManager(context, serverId, config.master.numReplicas,
-                     config.master.useMinCopysets)
+    , replicaManager(context, serverId, config->master.numReplicas,
+                     config->master.useMinCopysets)
     , allocator(config)
     , segmentManager(context, config, serverId,
                      allocator, replicaManager)
@@ -255,11 +255,11 @@ MasterService::init(ServerId id)
 
     log = new Log(context, config, *this, segmentManager, replicaManager);
     keyComparer = new LogKeyComparer(*log);
-    objectMap = new HashTable(config.master.hashTableBytes /
+    objectMap = new HashTable(config->master.hashTableBytes /
         HashTable::bytesPerCacheLine(), *keyComparer);
     replicaManager.startFailureMonitor();
 
-    if (!config.master.disableLogCleaner)
+    if (!config->master.disableLogCleaner)
         log->enableCleaner();
 
     initCalled = true;
@@ -1817,9 +1817,9 @@ MasterService::recover(const WireFormat::Recover::Request* reqHdr,
              *recoveryTablets.mutable_tablet()) {
         LOG(NOTICE, "set tablet %lu %lu %lu to locator %s, id %s",
                  tablet.table_id(), tablet.start_key_hash(),
-                 tablet.end_key_hash(), config.localLocator.c_str(),
+                 tablet.end_key_hash(), config->localLocator.c_str(),
                  serverId.toString().c_str());
-        tablet.set_service_locator(config.localLocator);
+        tablet.set_service_locator(config->localLocator);
         tablet.set_server_id(serverId.getId());
         tablet.set_ctime_log_head_id(headOfLog.getSegmentId());
         tablet.set_ctime_log_head_offset(headOfLog.getSegmentOffset());

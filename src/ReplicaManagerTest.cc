@@ -299,11 +299,11 @@ TEST_F(ReplicaManagerTest, endToEndBackupRecovery) {
     MockRandom __(1);
 
     ServerConfig serverConfig(ServerConfig::forTesting());
-    SegletAllocator allocator(serverConfig);
-    SegmentManager segmentManager(&context, serverConfig,
+    SegletAllocator allocator(&serverConfig);
+    SegmentManager segmentManager(&context, &serverConfig,
                                   serverId, allocator, *mgr);
     DoNothingHandlers entryHandlers;
-    Log log(&context, serverConfig, entryHandlers, segmentManager, *mgr);
+    Log log(&context, &serverConfig, entryHandlers, segmentManager, *mgr);
     log.sync();
 
     // Set up the scenario:

@@ -69,7 +69,7 @@ class SegletAllocator {
         DEFAULT
     };
 
-    explicit SegletAllocator(const ServerConfig& config);
+    explicit SegletAllocator(const ServerConfig* config);
     ~SegletAllocator();
     void getMetrics(ProtoBuf::LogMetrics_SegletMetrics& m);
     bool alloc(AllocationType type,

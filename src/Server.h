@@ -42,7 +42,7 @@ class BindTransport;
  */
 class Server {
   PUBLIC:
-    explicit Server(Context* context, const ServerConfig& config);
+    explicit Server(Context* context, const ServerConfig* config);
     ~Server();
 
     void startForTesting(BindTransport& bindTransport);

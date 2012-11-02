@@ -1366,13 +1366,13 @@ FastTransport::ClientSession::getRpcInfo()
         if (channels[i].state != ClientChannel::IDLE) {
             result += separator;
             result += WireFormat::opcodeSymbol(
-                    *channels[i].currentRpc->request);
+                    channels[i].currentRpc->request);
             separator = ", ";
         }
     }
     foreach (ClientRpc& rpc, channelQueue) {
         result += separator;
-        result += WireFormat::opcodeSymbol(*rpc.request);
+        result += WireFormat::opcodeSymbol(rpc.request);
         separator = ", ";
     }
     if (result.empty())

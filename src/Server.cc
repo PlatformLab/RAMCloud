@@ -32,9 +32,9 @@ namespace RAMCloud {
  *      Specifies which services and their configuration details for
  *      when the Server is run.
  */
-Server::Server(Context* context, const ServerConfig& config)
+Server::Server(Context* context, const ServerConfig* config)
     : context(context)
-    , config(config)
+    , config(*config)
     , backupReadSpeed()
     , serverId()
     , serverList(NULL)
@@ -45,7 +45,7 @@ Server::Server(Context* context, const ServerConfig& config)
     , ping()
 {
     context->coordinatorSession->setLocation(
-            config.coordinatorLocator.c_str());
+            config->coordinatorLocator.c_str());
 }
 
 /**
@@ -141,7 +141,7 @@ Server::createAndRegisterServices(BindTransport* bindTransport)
 
     if (config.services.has(WireFormat::MASTER_SERVICE)) {
         LOG(NOTICE, "Master is using %u backups", config.master.numReplicas);
-        master.construct(context, config);
+        master.construct(context, &config);
         context->masterService = master.get();
         if (bindTransport) {
             bindTransport->addService(*master,
@@ -154,7 +154,7 @@ Server::createAndRegisterServices(BindTransport* bindTransport)
     }
 
     if (config.services.has(WireFormat::BACKUP_SERVICE)) {
-        backup.construct(context, config);
+        backup.construct(context, &config);
         context->backupService = backup.get();
         formerServerId = backup->getFormerServerId();
         backupReadSpeed = backup->getReadSpeed();
@@ -170,8 +170,8 @@ Server::createAndRegisterServices(BindTransport* bindTransport)
 
     if (config.services.has(WireFormat::MEMBERSHIP_SERVICE)) {
         membership.construct(serverId,
-            *static_cast<ServerList*>(context->serverList),
-            config);
+            static_cast<ServerList*>(context->serverList),
+            &config);
         if (bindTransport) {
             bindTransport->addService(*membership,
                                       config.localLocator,

@@ -238,7 +238,7 @@ class Log {
     typedef std::lock_guard<SpinLock> Lock;
 
     Log(Context* context,
-        const ServerConfig& config,
+        const ServerConfig* config,
         LogEntryHandlers& entryHandlers,
         SegmentManager& segmentManager,
         ReplicaManager& replicaManager);

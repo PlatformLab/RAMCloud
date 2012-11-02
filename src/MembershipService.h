@@ -49,9 +49,9 @@ namespace RAMCloud {
  */
 class MembershipService : public Service {
   public:
-    explicit MembershipService(ServerId& ourServerId,
-                               ServerList& serverList,
-                               const ServerConfig& serverConfig);
+    explicit MembershipService(ServerId ourServerId,
+                               ServerList* serverList,
+                               const ServerConfig* serverConfig);
     void dispatch(WireFormat::Opcode opcode, Rpc* rpc);
     virtual int maxThreads() {
         return 1;
@@ -66,10 +66,10 @@ class MembershipService : public Service {
                        Rpc* rpc);
 
     /// ServerList to update in response to Coordinator's RPCs.
-    ServerList& serverList;
+    ServerList* serverList;
 
     /// This server's ServerConfig, which we export to curious parties.
-    const ServerConfig& serverConfig;
+    const ServerConfig* serverConfig;
 
     DISALLOW_COPY_AND_ASSIGN(MembershipService);
 };

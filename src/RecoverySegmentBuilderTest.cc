@@ -41,8 +41,8 @@ struct RecoverySegmentBuilderTest : public ::testing::Test {
         , serverList(&context)
         , serverConfig(ServerConfig::forTesting())
         , replicaManager(&context, serverId, 0, false)
-        , allocator(serverConfig)
-        , segmentManager(&context, serverConfig, serverId,
+        , allocator(&serverConfig)
+        , segmentManager(&context, &serverConfig, serverId,
                          allocator, replicaManager)
     {
         Logger::get().setLogLevels(RAMCloud::SILENT_LOG_LEVEL);

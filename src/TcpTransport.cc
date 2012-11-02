@@ -583,7 +583,7 @@ TcpTransport::TcpSession::TcpSession(TcpTransport& transport,
     , current(NULL)
     , message()
     , clientIoHandler()
-    , alarm(*transport.context->sessionAlarmTimer, *this,
+    , alarm(transport.context->sessionAlarmTimer, this,
             (timeoutMs != 0) ? timeoutMs : DEFAULT_TIMEOUT_MS)
 {
     setServiceLocator(serviceLocator.getOriginalString());
@@ -721,12 +721,12 @@ TcpTransport::TcpSession::getRpcInfo()
     string result;
     foreach (TcpClientRpc& rpc, rpcsWaitingForResponse) {
         result += separator;
-        result += WireFormat::opcodeSymbol(*rpc.request);
+        result += WireFormat::opcodeSymbol(rpc.request);
         separator = ", ";
     }
     foreach (TcpClientRpc& rpc, rpcsWaitingToSend) {
         result += separator;
-        result += WireFormat::opcodeSymbol(*rpc.request);
+        result += WireFormat::opcodeSymbol(rpc.request);
         separator = ", ";
     }
     if (result.empty())

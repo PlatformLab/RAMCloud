@@ -71,13 +71,13 @@ TEST_F(WireFormatTest, opcodeSymbol_integer) {
 TEST_F(WireFormatTest, opcodeSymbol_buffer) {
     // First, try an empty buffer with a valid header.
     Buffer b;
-    EXPECT_STREQ("null", WireFormat::opcodeSymbol(b));
+    EXPECT_STREQ("null", WireFormat::opcodeSymbol(&b));
 
     // Now try a buffer with a valid header.
     WireFormat::RequestCommon* header =
             new(&b, APPEND) WireFormat::RequestCommon;
     header->opcode = WireFormat::PING;
-    EXPECT_STREQ("PING", WireFormat::opcodeSymbol(b));
+    EXPECT_STREQ("PING", WireFormat::opcodeSymbol(&b));
 }
 
 }  // namespace RAMCloud

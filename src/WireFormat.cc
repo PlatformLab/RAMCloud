@@ -140,9 +140,9 @@ getStatus(Buffer* buffer)
  *      A symbolic name for the request's opcode.
  */
 const char*
-opcodeSymbol(Buffer& buffer)
+opcodeSymbol(Buffer* buffer)
 {
-    const RequestCommon* header = buffer.getStart<RequestCommon>();
+    const RequestCommon* header = buffer->getStart<RequestCommon>();
     if (header == NULL)
         return "null";
     return opcodeSymbol(header->opcode);

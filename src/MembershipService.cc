@@ -34,9 +34,9 @@ namespace RAMCloud {
  * Construct a new MembershipService object. There should really only be one
  * per server.
  */
-MembershipService::MembershipService(ServerId& ourServerId,
-                                     ServerList& serverList,
-                                     const ServerConfig& serverConfig)
+MembershipService::MembershipService(ServerId ourServerId,
+                                     ServerList* serverList,
+                                     const ServerConfig* serverConfig)
     : serverList(serverList),
       serverConfig(serverConfig)
 {
@@ -82,7 +82,7 @@ MembershipService::getServerConfig(
     Rpc* rpc)
 {
     ProtoBuf::ServerConfig serverConfigBuf;
-    serverConfig.serialize(serverConfigBuf);
+    serverConfig->serialize(serverConfigBuf);
     respHdr->serverConfigLength = ProtoBuf::serializeToResponse(
         rpc->replyPayload, &serverConfigBuf);
 }
@@ -102,7 +102,7 @@ MembershipService::updateServerList(
     ProtoBuf::parseFromRequest(rpc->requestPayload, sizeof(*reqHdr),
                                reqHdr->serverListLength, &list);
 
-    serverList.applyServerList(list);
+    serverList->applyServerList(list);
 }
 
 } // namespace RAMCloud

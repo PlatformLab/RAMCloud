@@ -33,8 +33,8 @@ namespace RAMCloud {
  *      time has elapsed we will send a ping RPC to the server; as long as
  *      it responds to the pings there will be no abort.
  */
-SessionAlarm::SessionAlarm(SessionAlarmTimer& timer,
-        Transport::Session& session,
+SessionAlarm::SessionAlarm(SessionAlarmTimer* timer,
+        Transport::Session* session,
         int timeoutMs)
     : session(session)
     , timer(timer)
@@ -76,8 +76,8 @@ SessionAlarm::rpcStarted()
 {
     outstandingRpcs++;
     if (outstandingRpcs == 1) {
-        timerIndex = timer.activeAlarms.size();
-        timer.activeAlarms.push_back(this);
+        timerIndex = timer->activeAlarms.size();
+        timer->activeAlarms.push_back(this);
         if (timerIndex == 0) {
             // Before now there were no active alarms, so make sure the
             // timer is running.
@@ -87,8 +87,8 @@ SessionAlarm::rpcStarted()
             // timer wakeup, resulting in waitingForResponseMs overestimating
             // by up to TIMER_INTERVAL_MS.  This approach saves the time of
             // reading the clock every time an RPC starts.
-            timer.start(timer.owner->currentTime +
-                    timer.timerIntervalTicks);
+            timer->start(timer->owner->currentTime +
+                    timer->timerIntervalTicks);
         }
     }
 }
@@ -102,12 +102,12 @@ SessionAlarm::rpcFinished()
 {
     outstandingRpcs--;
     if (outstandingRpcs == 0) {
-        assert(timerIndex < timer.activeAlarms.size());
-        assert(timer.activeAlarms[timerIndex] = this);
+        assert(timerIndex < timer->activeAlarms.size());
+        assert(timer->activeAlarms[timerIndex] = this);
 
-        timer.activeAlarms[timerIndex] = timer.activeAlarms.back();
-        timer.activeAlarms[timerIndex]->timerIndex = timerIndex;
-        timer.activeAlarms.pop_back();
+        timer->activeAlarms[timerIndex] = timer->activeAlarms.back();
+        timer->activeAlarms[timerIndex]->timerIndex = timerIndex;
+        timer->activeAlarms.pop_back();
 
         // Note: we don't turn off the timer here, even if there are no
         // active RPCs.  Just let the timer fire, and it will turn itself
@@ -188,9 +188,9 @@ SessionAlarmTimer::handleTimerEvent()
         if (alarm->waitingForResponseMs > alarm->abortMs) {
             RAMCLOUD_LOG(WARNING,
                 "Aborting %s after %d ms (server not responding)",
-                alarm->session.getRpcInfo().c_str(),
+                alarm->session->getRpcInfo().c_str(),
                 alarm->waitingForResponseMs);
-            alarm->session.abort();
+            alarm->session->abort();
             continue;
         }
         if (pings.find(alarm) != pings.end()) {
@@ -201,7 +201,7 @@ SessionAlarmTimer::handleTimerEvent()
 
         // It's time to initiate a ping RPC to make sure the server is still
         // alive.
-        pings[alarm] = new PingRpc(context, &alarm->session);
+        pings[alarm] = new PingRpc(context, alarm->session);
         RAMCLOUD_TEST_LOG("sent ping");
     }
 
@@ -214,7 +214,7 @@ SessionAlarmTimer::handleTimerEvent()
             if (rpc->succeeded()) {
                 RAMCLOUD_LOG(NOTICE,
                         "Waiting for %s (ping succeeded)",
-                        current->first->session.getRpcInfo().c_str());
+                        current->first->session->getRpcInfo().c_str());
             }
             delete rpc;
             pings.erase(current);

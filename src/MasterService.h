@@ -49,7 +49,7 @@ class RecoveryTask;
 class MasterService : public Service, LogEntryHandlers {
   public:
     MasterService(Context* context,
-                  const ServerConfig& config);
+                  const ServerConfig* config);
     virtual ~MasterService();
     void init(ServerId id);
     void dispatch(WireFormat::Opcode opcode,
@@ -199,7 +199,7 @@ class MasterService : public Service, LogEntryHandlers {
     /// Shared RAMCloud information.
     Context* context;
 
-    const ServerConfig& config;
+    const ServerConfig* config;
 
   PRIVATE:
 

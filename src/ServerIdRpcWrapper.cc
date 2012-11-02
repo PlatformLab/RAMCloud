@@ -68,7 +68,7 @@ ServerIdRpcWrapper::checkStatus()
         // a server that has crashed and restarted under the same locator,
         // and we ended up talking to the new server, not the old one).
         LOG(NOTICE, "STATUS_WRONG_SERVER in %s RPC to %s",
-                WireFormat::opcodeSymbol(request),
+                WireFormat::opcodeSymbol(&request),
                 context->serverList->toString(id).c_str());
         context->serverList->flushSession(id);
         if (!context->serverList->isUp(id)) {

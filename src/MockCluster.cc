@@ -146,7 +146,7 @@ MockCluster::addServer(ServerConfig config) {
     context->transportManager->registerMock(&transport);
     contexts.push_back(context);
 
-    Server* server = new Server(context, config);
+    Server* server = new Server(context, &config);
     servers.push_back(server);
     server->startForTesting(transport);
 

@@ -42,7 +42,7 @@ class MembershipServiceTest : public ::testing::Test {
         , serverId(99, 2)
         , serverList(&context)
         , serverConfig(ServerConfig::forTesting())
-        , service(serverId, serverList, serverConfig)
+        , service(serverId, &serverList, &serverConfig)
         , transport(&context)
         , mockRegistrar(&context, transport)
     {

@@ -323,7 +323,7 @@ InfRcTransport<Infiniband>::InfRcSession::InfRcSession(
     InfRcTransport *transport, const ServiceLocator& sl, uint32_t timeoutMs)
     : transport(transport)
     , qp(NULL)
-    , alarm(*transport->context->sessionAlarmTimer, *this,
+    , alarm(transport->context->sessionAlarmTimer, this,
             (timeoutMs != 0) ? timeoutMs : DEFAULT_TIMEOUT_MS)
 {
     setServiceLocator(sl.getOriginalString());
@@ -357,7 +357,7 @@ InfRcTransport<Infiniband>::InfRcSession::abort()
         it++;
         if (rpc.session == this) {
             LOG(NOTICE, "Infiniband aborting %s request to %s",
-                    WireFormat::opcodeSymbol(*rpc.request),
+                    WireFormat::opcodeSymbol(rpc.request),
                     getServiceLocator().c_str());
             rpc.notifier->failed();
             erase(transport->clientSendQueue, rpc);
@@ -371,7 +371,7 @@ InfRcTransport<Infiniband>::InfRcSession::abort()
         it++;
         if (rpc.session == this) {
             LOG(NOTICE, "Infiniband aborting %s request to %s",
-                    WireFormat::opcodeSymbol(*rpc.request),
+                    WireFormat::opcodeSymbol(rpc.request),
                     getServiceLocator().c_str());
             rpc.notifier->failed();
             erase(transport->outstandingRpcs, rpc);
@@ -424,14 +424,14 @@ InfRcTransport<Infiniband>::InfRcSession::getRpcInfo()
     foreach (ClientRpc& rpc, transport->outstandingRpcs) {
         if (rpc.session == this) {
             result += separator;
-            result += WireFormat::opcodeSymbol(*rpc.request);
+            result += WireFormat::opcodeSymbol(rpc.request);
             separator = ", ";
         }
     }
     foreach (ClientRpc& rpc, transport->clientSendQueue) {
         if (rpc.session == this) {
             result += separator;
-            result += WireFormat::opcodeSymbol(*rpc.request);
+            result += WireFormat::opcodeSymbol(rpc.request);
             separator = ", ";
         }
     }
@@ -456,7 +456,7 @@ InfRcTransport<Infiniband>::InfRcSession::sendRequest(Buffer* request,
     }
 
     LOG(DEBUG, "Sending %s request to %s with %u bytes",
-            WireFormat::opcodeSymbol(*request), getServiceLocator().c_str(),
+            WireFormat::opcodeSymbol(request), getServiceLocator().c_str(),
             request->getTotalLength());
     if (request->getTotalLength() > t->getMaxRpcSize()) {
         throw TransportException(HERE,
@@ -1162,7 +1162,7 @@ InfRcTransport<Infiniband>::Poller::poll()
                                                  len, t, t->clientSrq, bd);
                 }
                 LOG(DEBUG, "Received %s response from %s with %u bytes",
-                        WireFormat::opcodeSymbol(*rpc.request),
+                        WireFormat::opcodeSymbol(rpc.request),
                         rpc.session->getServiceLocator().c_str(),
                         rpc.response->getTotalLength());
                 rpc.state = ClientRpc::RESPONSE_RECEIVED;

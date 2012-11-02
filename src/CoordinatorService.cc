@@ -30,7 +30,7 @@ CoordinatorService::CoordinatorService(Context* context,
                                        uint32_t deadServerTimeout,
                                        string LogCabinLocator)
     : context(context)
-    , serverList(*context->coordinatorServerList)
+    , serverList(context->coordinatorServerList)
     , deadServerTimeout(deadServerTimeout)
     , tabletMap()
     , tables()
@@ -153,7 +153,7 @@ CoordinatorService::createTable(const WireFormat::CreateTable::Request* reqHdr,
                                 WireFormat::CreateTable::Response* respHdr,
                                 Rpc* rpc)
 {
-    if (serverList.masterCount() == 0) {
+    if (serverList->masterCount() == 0) {
         respHdr->common.status = STATUS_RETRY;
         return;
     }
@@ -181,8 +181,8 @@ CoordinatorService::createTable(const WireFormat::CreateTable::Request* reqHdr,
         // Find the next master in the list.
         CoordinatorServerList::Entry master;
         while (true) {
-            size_t masterIdx = nextTableMasterIdx++ % serverList.size();
-            auto entry = serverList[masterIdx];
+            size_t masterIdx = nextTableMasterIdx++ % serverList->size();
+            auto entry = serverList->at(masterIdx);
             if (entry && entry->isMaster()) {
                 master = *entry;
                 break;
@@ -358,7 +358,7 @@ CoordinatorService::getTabletMap(
     Rpc* rpc)
 {
     ProtoBuf::Tablets tablets;
-    tabletMap.serialize(serverList, tablets);
+    tabletMap.serialize(*serverList, tablets);
     respHdr->tabletMapLength = serializeToResponse(rpc->replyPayload,
                                                   &tablets);
 }
@@ -415,9 +415,9 @@ CoordinatorService::quiesce(const WireFormat::BackupQuiesce::Request* reqHdr,
                             WireFormat::BackupQuiesce::Response* respHdr,
                             Rpc* rpc)
 {
-    for (size_t i = 0; i < serverList.size(); i++) {
-        if (serverList[i] && serverList[i]->isBackup()) {
-            BackupClient::quiesce(context, serverList[i]->serverId);
+    for (size_t i = 0; i < serverList->size(); i++) {
+        if (serverList->at(i) && serverList->at(i)->isBackup()) {
+            BackupClient::quiesce(context, serverList->at(i)->serverId);
         }
     }
 }
@@ -436,7 +436,7 @@ CoordinatorService::reassignTabletOwnership(
     Rpc* rpc)
 {
     ServerId newOwner(reqHdr->newOwnerId);
-    if (!serverList.isUp(newOwner)) {
+    if (!serverList->isUp(newOwner)) {
         LOG(WARNING, "Server id %s is not up! Cannot reassign "
             "ownership of tablet %lu, range [%lu, %lu]!",
             newOwner.toString().c_str(), reqHdr->tableId,
@@ -568,7 +568,7 @@ CoordinatorService::verifyMembership(
     Rpc* rpc)
 {
     ServerId serverId(reqHdr->serverId);
-    if (!serverList.isUp(serverId))
+    if (!serverList->isUp(serverId))
         respHdr->common.status = STATUS_CALLER_NOT_IN_CLUSTER;
 }
 

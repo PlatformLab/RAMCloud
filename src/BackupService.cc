@@ -37,7 +37,7 @@ namespace RAMCloud {
  *      exist for the duration of this BackupService's lifetime.
  */
 BackupService::BackupService(Context* context,
-                             const ServerConfig& config)
+                             const ServerConfig* config)
     : context(context)
     , mutex()
     , config(config)
@@ -45,7 +45,7 @@ BackupService::BackupService(Context* context,
     , storage()
     , frames()
     , recoveries()
-    , segmentSize(config.segmentSize)
+    , segmentSize(config->segmentSize)
     , readSpeed()
     , bytesWritten(0)
     , initCalled(false)
@@ -55,9 +55,9 @@ BackupService::BackupService(Context* context,
     , testingSkipCallerIdCheck(false)
     , taskQueue()
 {
-    if (config.backup.inMemory) {
-        storage.reset(new InMemoryStorage(config.segmentSize,
-                                          config.backup.numSegmentFrames));
+    if (config->backup.inMemory) {
+        storage.reset(new InMemoryStorage(config->segmentSize,
+                                          config->backup.numSegmentFrames));
     } else {
         // This is basically set to unlimited right now because limiting it
         // can severely impact recovery performance or even cause it to
@@ -65,11 +65,11 @@ BackupService::BackupService(Context* context,
         // (All recovery reads are prioritized over writes so backups
         // collectively need enough non-volatile buffer to absorb the entire
         // recovery).
-        size_t maxNonVolatileBuffers = config.backup.numSegmentFrames;
-        storage.reset(new SingleFileStorage(config.segmentSize,
-                                            config.backup.numSegmentFrames,
+        size_t maxNonVolatileBuffers = config->backup.numSegmentFrames;
+        storage.reset(new SingleFileStorage(config->segmentSize,
+                                            config->backup.numSegmentFrames,
                                             maxNonVolatileBuffers,
-                                            config.backup.file.c_str(),
+                                            config->backup.file.c_str(),
                                             O_DIRECT | O_SYNC));
     }
     if (storage->getMetadataSize() < sizeof(BackupReplicaMetadata))
@@ -78,15 +78,15 @@ BackupService::BackupService(Context* context,
     benchmark();
 
     BackupStorage::Superblock superblock = storage->loadSuperblock();
-    if (config.clusterName == "__unnamed__") {
+    if (config->clusterName == "__unnamed__") {
         LOG(NOTICE, "Cluster '__unnamed__'; ignoring existing backup storage. "
             "Any replicas stored will not be reusable by future backups. "
             "Specify clusterName for persistence across backup restarts.");
     } else {
         LOG(NOTICE, "Backup storing replicas with clusterName '%s'. Future "
             "backups must be restarted with the same clusterName for replicas "
-            "stored on this backup to be reused.", config.clusterName.c_str());
-        if (config.clusterName == superblock.getClusterName()) {
+            "stored on this backup to be reused.", config->clusterName.c_str());
+        if (config->clusterName == superblock.getClusterName()) {
             LOG(NOTICE, "Replicas stored on disk have matching clusterName "
                 "('%s'). Scanning storage to find all replicas and to make "
                 "them available to recoveries.",
@@ -155,11 +155,11 @@ BackupService::getServerId() const
 void
 BackupService::benchmark()
 {
-    if (config.backup.mockSpeed == 0) {
-        auto strategy = static_cast<BackupStrategy>(config.backup.strategy);
+    if (config->backup.mockSpeed == 0) {
+        auto strategy = static_cast<BackupStrategy>(config->backup.strategy);
         readSpeed = storage->benchmark(strategy);
     } else {
-        readSpeed = config.backup.mockSpeed;
+        readSpeed = config->backup.mockSpeed;
     }
 }
 
@@ -311,9 +311,9 @@ BackupService::init(ServerId id)
         metrics->serverId = *serverId;
     }
 
-    storage->resetSuperblock(serverId, config.clusterName);
+    storage->resetSuperblock(serverId, config->clusterName);
     LOG(NOTICE, "Backup %s will store replicas under cluster name '%s'",
-        serverId.toString().c_str(), config.clusterName.c_str());
+        serverId.toString().c_str(), config->clusterName.c_str());
     initCalled = true;
 }
 
@@ -332,7 +332,7 @@ BackupService::quiesce(const WireFormat::BackupQuiesce::Request* reqHdr,
                        WireFormat::BackupQuiesce::Response* respHdr,
                        Rpc* rpc)
 {
-    LOG(NOTICE, "Backup at %s quiescing", config.localLocator.c_str());
+    LOG(NOTICE, "Backup at %s quiescing", config->localLocator.c_str());
     storage->quiesce();
 }
 
@@ -586,7 +586,7 @@ BackupService::writeSegment(const WireFormat::BackupWrite::Request* reqHdr,
         LOG(DEBUG, "Opening <%s,%lu>", masterId.toString().c_str(),
             segmentId);
         try {
-            frame = storage->open(config.backup.sync);
+            frame = storage->open(config->backup.sync);
         } catch (const BackupStorageException& e) {
             LOG(NOTICE, "Master tried to open replica for <%s,%lu> but "
                 "there was a problem allocating storage space; "
@@ -725,7 +725,7 @@ BackupService::GarbageCollectReplicasFoundOnStorageTask::
 void
 BackupService::GarbageCollectReplicasFoundOnStorageTask::performTask()
 {
-    if (!service.config.backup.gc || segmentIds.empty()) {
+    if (!service.config->backup.gc || segmentIds.empty()) {
         delete this;
         return;
     }
@@ -863,7 +863,7 @@ BackupService::GarbageCollectDownServerTask::performTask()
 
     // Then, if replica garbage collection is enabled, clean up replicas stored
     // for that now irrelevant master.
-    if (!service.config.backup.gc) {
+    if (!service.config->backup.gc) {
         delete this;
         return;
     }

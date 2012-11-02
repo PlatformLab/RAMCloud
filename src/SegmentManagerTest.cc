@@ -43,8 +43,8 @@ class SegmentManagerTest : public ::testing::Test {
           serverList(&context),
           serverConfig(ServerConfig::forTesting()),
           replicaManager(&context, serverId, 0, false),
-          allocator(serverConfig),
-          segmentManager(&context, serverConfig, serverId,
+          allocator(&serverConfig),
+          segmentManager(&context, &serverConfig, serverId,
                          allocator, replicaManager)
     {
     }
@@ -57,7 +57,7 @@ TEST_F(SegmentManagerTest, constructor)
 {
     serverConfig.master.diskExpansionFactor = 0.99;
     EXPECT_THROW(SegmentManager(&context,
-                                serverConfig,
+                                &serverConfig,
                                 serverId,
                                 allocator,
                                 replicaManager),
@@ -72,9 +72,10 @@ TEST_F(SegmentManagerTest, constructor)
 }
 
 TEST_F(SegmentManagerTest, destructor) {
-    SegletAllocator allocator2(serverConfig);
+    SegletAllocator allocator2(&serverConfig);
     Tub<SegmentManager> mgr;
-    mgr.construct(&context, serverConfig, serverId, allocator2, replicaManager);
+    mgr.construct(&context, &serverConfig, serverId, allocator2,
+                  replicaManager);
     EXPECT_EQ(2U, allocator2.getFreeCount(SegletAllocator::EMERGENCY_HEAD));
     EXPECT_EQ(0U, allocator2.getFreeCount(SegletAllocator::CLEANER));
     EXPECT_EQ(254U, allocator2.getFreeCount(SegletAllocator::DEFAULT));

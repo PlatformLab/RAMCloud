@@ -52,10 +52,10 @@ CoordinatorServerManager::assignReplicationGroup(
     uint64_t replicationId, const vector<ServerId>& replicationGroupIds)
 {
     foreach (ServerId backupId, replicationGroupIds) {
-        if (!service.serverList.contains(backupId)) {
+        if (!service.serverList->contains(backupId)) {
             return false;
         }
-        service.serverList.setReplicationId(backupId, replicationId);
+        service.serverList->setReplicationId(backupId, replicationId);
     }
     return true;
 }
@@ -75,11 +75,11 @@ CoordinatorServerManager::createReplicationGroup()
     // and are up. Note that this is a performance optimization and is not
     // required for correctness.
     vector<ServerId> freeBackups;
-    for (size_t i = 0; i < service.serverList.size(); i++) {
-        if (service.serverList[i] &&
-            service.serverList[i]->isBackup() &&
-            service.serverList[i]->replicationId == 0) {
-            freeBackups.push_back(service.serverList[i]->serverId);
+    for (size_t i = 0; i < service.serverList->size(); i++) {
+        if (service.serverList->at(i) &&
+            service.serverList->at(i)->isBackup() &&
+            service.serverList->at(i)->replicationId == 0) {
+            freeBackups.push_back(service.serverList->at(i)->serverId);
         }
     }
 
@@ -108,7 +108,7 @@ CoordinatorServerManager::createReplicationGroup()
 ServerId
 CoordinatorServerManager::EnlistServer::execute()
 {
-    newServerId = manager.service.serverList.generateUniqueId();
+    newServerId = manager.service.serverList->generateUniqueId();
 
     ProtoBuf::ServerInformation state;
     state.set_entry_type("ServerEnlisting");
@@ -120,7 +120,7 @@ CoordinatorServerManager::EnlistServer::execute()
     EntryId entryId =
         manager.service.logCabinHelper->appendProtoBuf(
                 manager.service.expectedEntryId, state);
-    manager.service.serverList.addServerInfoLogId(newServerId, entryId);
+    manager.service.serverList->addServerInfoLogId(newServerId, entryId);
     LOG(DEBUG, "LogCabin: ServerEnlisting entryId: %lu", entryId);
 
     return complete(entryId);
@@ -140,11 +140,11 @@ CoordinatorServerManager::EnlistServer::execute()
 ServerId
 CoordinatorServerManager::EnlistServer::complete(EntryId entryId)
 {
-    manager.service.serverList.add(
+    manager.service.serverList->add(
             newServerId, serviceLocator, serviceMask, readSpeed);
 
     CoordinatorServerList::Entry entry =
-            manager.service.serverList[newServerId];
+            manager.service.serverList->at(newServerId);
 
     LOG(NOTICE, "Enlisting new server at %s (server id %s) supporting "
         "services: %s", serviceLocator, newServerId.toString().c_str(),
@@ -165,7 +165,7 @@ CoordinatorServerManager::EnlistServer::complete(EntryId entryId)
 
     EntryId newEntryId = manager.service.logCabinHelper->appendProtoBuf(
         manager.service.expectedEntryId, state, vector<EntryId>({entryId}));
-    manager.service.serverList.addServerInfoLogId(newServerId, newEntryId);
+    manager.service.serverList->addServerInfoLogId(newServerId, newEntryId);
     LOG(DEBUG, "LogCabin: ServerEnlisted entryId: %lu", newEntryId);
 
     return newServerId;
@@ -199,7 +199,7 @@ CoordinatorServerManager::enlistServer(
     // update they will see the removal of the old server id before the
     // addition of the new, replacing server id.
 
-    if (service.serverList.contains(replacesId)) {
+    if (service.serverList->contains(replacesId)) {
         LOG(NOTICE, "%s is enlisting claiming to replace server id "
             "%s, which is still in the server list, taking its word "
             "for it and assuming the old server has failed",
@@ -262,7 +262,7 @@ CoordinatorServerManager::enlistedServerRecover(
     LOG(DEBUG, "CoordinatorServerManager::enlistedServerRecover()");
     // TODO(ankitak): This will automatically queue a serverlist update
     // to be sent to the cluster. We don't want to do that for efficiency.
-    service.serverList.add(
+    service.serverList->add(
             ServerId(state->server_id()),
             state->service_locator().c_str(),
             ServiceMask::deserialize(state->service_mask()),
@@ -281,7 +281,7 @@ ProtoBuf::ServerList
 CoordinatorServerManager::getServerList(ServiceMask serviceMask)
 {
     ProtoBuf::ServerList serialServerList;
-    service.serverList.serialize(serialServerList, serviceMask);
+    service.serverList->serialize(serialServerList, serviceMask);
     return serialServerList;
 }
 
@@ -297,15 +297,15 @@ bool
 CoordinatorServerManager::hintServerDown(ServerId serverId)
 {
     Lock _(mutex);
-    if (!service.serverList.contains(serverId) ||
-         service.serverList[serverId].status != ServerStatus::UP) {
+    if (!service.serverList->contains(serverId) ||
+         service.serverList->at(serverId).status != ServerStatus::UP) {
          LOG(NOTICE, "Spurious crash report on unknown server id %s",
              serverId.toString().c_str());
          return true;
      }
 
      LOG(NOTICE, "Checking server id %s (%s)",
-         serverId.toString().c_str(), service.serverList.getLocator(serverId));
+         serverId.toString().c_str(), service.serverList->getLocator(serverId));
      if (!verifyServerFailure(serverId))
          return false;
 
@@ -331,11 +331,11 @@ CoordinatorServerManager::removeReplicationGroup(uint64_t groupId)
         return;
     }
     vector<ServerId> group;
-    for (size_t i = 0; i < service.serverList.size(); i++) {
-        if (service.serverList[i] &&
-            service.serverList[i]->isBackup() &&
-            service.serverList[i]->replicationId == groupId) {
-            group.push_back(service.serverList[i]->serverId);
+    for (size_t i = 0; i < service.serverList->size(); i++) {
+        if (service.serverList->at(i) &&
+            service.serverList->at(i)->isBackup() &&
+            service.serverList->at(i)->replicationId == groupId) {
+            group.push_back(service.serverList->at(i)->serverId);
         }
         if (group.size() != 0) {
             assignReplicationGroup(0, group);
@@ -380,22 +380,23 @@ CoordinatorServerManager::ServerDown::complete(EntryId entryId)
     // server before the server information is removed from serverList,
     // so that the LogCabin entry can be invalidated later.
     EntryId serverInfoLogId =
-        manager.service.serverList.getServerInfoLogId(serverId);
+        manager.service.serverList->getServerInfoLogId(serverId);
     EntryId serverUpdateLogId =
-        manager.service.serverList.getServerUpdateLogId(serverId);
+        manager.service.serverList->getServerUpdateLogId(serverId);
 
     // If this machine has a backup and master on the same server it is best
     // to remove the dead backup before initiating recovery. Otherwise, other
     // servers may try to backup onto a dead machine which will cause delays.
-    CoordinatorServerList::Entry entry(manager.service.serverList[serverId]);
+    CoordinatorServerList::Entry entry(
+        manager.service.serverList->at(serverId));
 
-    manager.service.serverList.crashed(serverId);
+    manager.service.serverList->crashed(serverId);
     // If the server being replaced did not have a master then there
     // will be no recovery.  That means it needs to transition to
     // removed status now (usually recoveries remove servers from the
     // list when they complete).
     if (!entry.services.has(WireFormat::MASTER_SERVICE))
-        manager.service.serverList.remove(serverId);
+        manager.service.serverList->remove(serverId);
 
     manager.service.recoveryManager.startMasterRecovery(entry.serverId);
 
@@ -450,7 +451,7 @@ void
 CoordinatorServerManager::SetMasterRecoveryInfo::execute()
 {
     EntryId oldEntryId =
-        manager.service.serverList.getServerUpdateLogId(serverId);
+        manager.service.serverList->getServerUpdateLogId(serverId);
 
     ProtoBuf::ServerUpdate serverUpdate;
     vector<EntryId> invalidates;
@@ -493,8 +494,8 @@ CoordinatorServerManager::SetMasterRecoveryInfo::complete(EntryId entryId)
 {
     try {
         // Update local state.
-        manager.service.serverList.addServerUpdateLogId(serverId, entryId);
-        manager.service.serverList.setMasterRecoveryInfo(serverId,
+        manager.service.serverList->addServerUpdateLogId(serverId, entryId);
+        manager.service.serverList->setMasterRecoveryInfo(serverId,
                                                          recoveryInfo);
     } catch (const ServerListException& e) {
         LOG(WARNING, "setMasterRecoveryInfo server doesn't exist: %s",
@@ -563,7 +564,8 @@ CoordinatorServerManager::verifyServerFailure(ServerId serverId) {
     if (forceServerDownForTesting)
         return true;
 
-    const string& serviceLocator = service.serverList[serverId].serviceLocator;
+    const string& serviceLocator =
+            service.serverList->at(serverId).serviceLocator;
     PingRpc pingRpc(service.context, serverId, ServerId());
     if (pingRpc.wait(service.deadServerTimeout * 1000 * 1000)) {
         LOG(NOTICE, "False positive for server id %s (\"%s\")",

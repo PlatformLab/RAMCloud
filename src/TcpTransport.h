@@ -266,7 +266,7 @@ class TcpTransport : public Transport {
             rpcsWaitingToSend(), bytesLeftToSend(0),
             rpcsWaitingForResponse(), current(NULL),
             message(), clientIoHandler(),
-            alarm(*transport.context->sessionAlarmTimer, *this, 0) { }
+            alarm(transport.context->sessionAlarmTimer, this, 0) { }
 #endif
         void close();
         static void tryReadReply(int fd, int16_t event, void *arg);

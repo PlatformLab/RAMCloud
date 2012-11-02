@@ -1130,7 +1130,7 @@ struct Write {
 Status getStatus(Buffer* buffer);
 const char* serviceTypeSymbol(ServiceType type);
 const char* opcodeSymbol(uint32_t opcode);
-const char* opcodeSymbol(Buffer& buffer);
+const char* opcodeSymbol(Buffer* buffer);
 
 // --- Magic numbers ---
 

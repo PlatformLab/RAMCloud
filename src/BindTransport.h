@@ -91,7 +91,7 @@ struct BindTransport : public Transport {
             if (lastNotifier == NULL)
                 return "no active RPCs via BindTransport";
             return format("%s via BindTransport",
-                    WireFormat::opcodeSymbol(*lastRequest));
+                    WireFormat::opcodeSymbol(lastRequest));
         }
         void release() {
             delete this;

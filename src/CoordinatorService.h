@@ -108,7 +108,7 @@ class CoordinatorService : public Service {
      * ServerIds as well as to keep track of any information we need to keep
      * for individual servers (e.g. ServiceLocator strings, Wills, etc).
      */
-    CoordinatorServerList& serverList;
+    CoordinatorServerList* serverList;
 
     /**
      * The ping timeout, in milliseconds, used when the Coordinator verifies an

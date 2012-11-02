@@ -39,7 +39,7 @@ namespace RAMCloud {
 class BackupService : public Service
                     , ServerTracker<void>::Callback {
   PUBLIC:
-    BackupService(Context* context, const ServerConfig& config);
+    BackupService(Context* context, const ServerConfig* config);
     virtual ~BackupService();
     void benchmark();
     void dispatch(WireFormat::Opcode opcode, Rpc* rpc);
@@ -93,7 +93,7 @@ class BackupService : public Service
     typedef std::unique_lock<Mutex> Lock;
 
     /// Settings passed to the constructor
-    const ServerConfig& config;
+    const ServerConfig* config;
 
     /**
      * If the backup was formerly part of a cluster this was its server id.
