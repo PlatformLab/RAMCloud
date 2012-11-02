@@ -53,7 +53,7 @@ class MasterService : public Service, LogEntryHandlers {
     virtual ~MasterService();
     void init(ServerId id);
     void dispatch(WireFormat::Opcode opcode,
-                  Rpc& rpc);
+                  Rpc* rpc);
     int maxThreads() { return 1; }
 
     uint32_t getTimestamp(LogEntryType type, Buffer& buffer);
@@ -126,74 +126,74 @@ class MasterService : public Service, LogEntryHandlers {
         State state;
     };
 
-    void enumerate(const WireFormat::Enumerate::Request& reqHdr,
-                   WireFormat::Enumerate::Response& respHdr,
-                   Rpc& rpc);
-    void getLogMetrics(const WireFormat::GetLogMetrics::Request& reqHdr,
-                       WireFormat::GetLogMetrics::Response& respHdr,
-                       Rpc& rpc);
-    void fillWithTestData(const WireFormat::FillWithTestData::Request& reqHdr,
-                          WireFormat::FillWithTestData::Response& respHdr,
-                          Rpc& rpc);
-    void increment(const WireFormat::Increment::Request& reqHdr,
-                 WireFormat::Increment::Response& respHdr,
-                 Rpc& rpc);
-    void isReplicaNeeded(const WireFormat::IsReplicaNeeded::Request& reqHdr,
-                         WireFormat::IsReplicaNeeded::Response& respHdr,
-                         Rpc& rpc);
-    void getHeadOfLog(const WireFormat::GetHeadOfLog::Request& reqHdr,
-                      WireFormat::GetHeadOfLog::Response& respHdr,
-                      Rpc& rpc);
-    void multiRead(const WireFormat::MultiRead::Request& reqHdr,
-                   WireFormat::MultiRead::Response& respHdr,
-                   Rpc& rpc);
-    void multiWrite(const WireFormat::MultiWrite::Request& reqHdr,
-                   WireFormat::MultiWrite::Response& respHdr,
-                   Rpc& rpc);
-    void read(const WireFormat::Read::Request& reqHdr,
-              WireFormat::Read::Response& respHdr,
-              Rpc& rpc);
+    void enumerate(const WireFormat::Enumerate::Request* reqHdr,
+                   WireFormat::Enumerate::Response* respHdr,
+                   Rpc* rpc);
+    void getLogMetrics(const WireFormat::GetLogMetrics::Request* reqHdr,
+                       WireFormat::GetLogMetrics::Response* respHdr,
+                       Rpc* rpc);
+    void fillWithTestData(const WireFormat::FillWithTestData::Request* reqHdr,
+                          WireFormat::FillWithTestData::Response* respHdr,
+                          Rpc* rpc);
+    void increment(const WireFormat::Increment::Request* reqHdr,
+                 WireFormat::Increment::Response* respHdr,
+                 Rpc* rpc);
+    void isReplicaNeeded(const WireFormat::IsReplicaNeeded::Request* reqHdr,
+                         WireFormat::IsReplicaNeeded::Response* respHdr,
+                         Rpc* rpc);
+    void getHeadOfLog(const WireFormat::GetHeadOfLog::Request* reqHdr,
+                      WireFormat::GetHeadOfLog::Response* respHdr,
+                      Rpc* rpc);
+    void multiRead(const WireFormat::MultiRead::Request* reqHdr,
+                   WireFormat::MultiRead::Response* respHdr,
+                   Rpc* rpc);
+    void multiWrite(const WireFormat::MultiWrite::Request* reqHdr,
+                   WireFormat::MultiWrite::Response* respHdr,
+                   Rpc* rpc);
+    void read(const WireFormat::Read::Request* reqHdr,
+              WireFormat::Read::Response* respHdr,
+              Rpc* rpc);
     void getServerStatistics(
-        const WireFormat::GetServerStatistics::Request& reqHdr,
-        WireFormat::GetServerStatistics::Response& respHdr,
-        Rpc& rpc);
+        const WireFormat::GetServerStatistics::Request* reqHdr,
+        WireFormat::GetServerStatistics::Response* respHdr,
+        Rpc* rpc);
     void dropTabletOwnership(
-        const WireFormat::DropTabletOwnership::Request& reqHdr,
-        WireFormat::DropTabletOwnership::Response& respHdr,
-        Rpc& rpc);
+        const WireFormat::DropTabletOwnership::Request* reqHdr,
+        WireFormat::DropTabletOwnership::Response* respHdr,
+        Rpc* rpc);
     void takeTabletOwnership(
-            const WireFormat::TakeTabletOwnership::Request& reqHdr,
-            WireFormat::TakeTabletOwnership::Response& respHdr,
-            Rpc& rpc);
-    void prepForMigration(const WireFormat::PrepForMigration::Request& reqHdr,
-                          WireFormat::PrepForMigration::Response& respHdr,
-                          Rpc& rpc);
-    void migrateTablet(const WireFormat::MigrateTablet::Request& reqHdr,
-                       WireFormat::MigrateTablet::Response& respHdr,
-                       Rpc& rpc);
+            const WireFormat::TakeTabletOwnership::Request* reqHdr,
+            WireFormat::TakeTabletOwnership::Response* respHdr,
+            Rpc* rpc);
+    void prepForMigration(const WireFormat::PrepForMigration::Request* reqHdr,
+                          WireFormat::PrepForMigration::Response* respHdr,
+                          Rpc* rpc);
+    void migrateTablet(const WireFormat::MigrateTablet::Request* reqHdr,
+                       WireFormat::MigrateTablet::Response* respHdr,
+                       Rpc* rpc);
     void receiveMigrationData(
-        const WireFormat::ReceiveMigrationData::Request& reqHdr,
-        WireFormat::ReceiveMigrationData::Response& respHdr,
-        Rpc& rpc);
+        const WireFormat::ReceiveMigrationData::Request* reqHdr,
+        WireFormat::ReceiveMigrationData::Response* respHdr,
+        Rpc* rpc);
     void purgeObjectsFromUnknownTablets();
-    void recover(const WireFormat::Recover::Request& reqHdr,
-                 WireFormat::Recover::Response& respHdr,
-                 Rpc& rpc);
+    void recover(const WireFormat::Recover::Request* reqHdr,
+                 WireFormat::Recover::Response* respHdr,
+                 Rpc* rpc);
     void recoverSegmentPrefetcher(SegmentIterator& i);
     void recoverSegment(SegmentIterator& it);
     void recover(uint64_t recoveryId,
                  ServerId masterId,
                  uint64_t partitionId,
                  vector<Replica>& replicas);
-    void remove(const WireFormat::Remove::Request& reqHdr,
-                WireFormat::Remove::Response& respHdr,
-                Rpc& rpc);
-    void splitMasterTablet(const WireFormat::SplitMasterTablet::Request& reqHdr,
-                WireFormat::SplitMasterTablet::Response& respHdr,
-                Rpc& rpc);
-    void write(const WireFormat::Write::Request& reqHdr,
-               WireFormat::Write::Response& respHdr,
-               Rpc& rpc);
+    void remove(const WireFormat::Remove::Request* reqHdr,
+                WireFormat::Remove::Response* respHdr,
+                Rpc* rpc);
+    void splitMasterTablet(const WireFormat::SplitMasterTablet::Request* reqHdr,
+                WireFormat::SplitMasterTablet::Response* respHdr,
+                Rpc* rpc);
+    void write(const WireFormat::Write::Request* reqHdr,
+               WireFormat::Write::Response* respHdr,
+               Rpc* rpc);
 
   public:
     /// Shared RAMCloud information.

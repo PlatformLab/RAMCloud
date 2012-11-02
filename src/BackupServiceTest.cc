@@ -597,9 +597,9 @@ TEST_F(BackupServiceTest, GarbageCollectDownServerTask) {
 
 namespace {
 class GcMockMasterService : public Service {
-    void dispatch(Opcode opcode, Rpc& rpc) {
+    void dispatch(Opcode opcode, Rpc* rpc) {
         const RequestCommon* hdr =
-            rpc.requestPayload.getStart<RequestCommon>();
+            rpc->requestPayload->getStart<RequestCommon>();
         switch (hdr->service) {
         case MEMBERSHIP_SERVICE:
             switch (opcode) {
@@ -613,10 +613,10 @@ class GcMockMasterService : public Service {
             case Opcode::IS_REPLICA_NEEDED:
             {
                 const IsReplicaNeeded::Request* req =
-                    rpc.requestPayload.getStart<
+                    rpc->requestPayload->getStart<
                     IsReplicaNeeded::Request>();
                 auto* resp =
-                    new(&rpc.replyPayload, APPEND)
+                    new(rpc->replyPayload, APPEND)
                         IsReplicaNeeded::Response();
                 resp->needed = req->segmentId % 2;
                 resp->common.status = STATUS_OK;

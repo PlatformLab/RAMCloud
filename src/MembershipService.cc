@@ -49,7 +49,7 @@ MembershipService::MembershipService(ServerId& ourServerId,
  * Dispatch an RPC to the right handler based on its opcode.
  */
 void
-MembershipService::dispatch(WireFormat::Opcode opcode, Rpc& rpc)
+MembershipService::dispatch(WireFormat::Opcode opcode, Rpc* rpc)
 {
     switch (opcode) {
     case WireFormat::GetServerConfig::opcode:
@@ -77,14 +77,14 @@ MembershipService::dispatch(WireFormat::Opcode opcode, Rpc& rpc)
  */
 void
 MembershipService::getServerConfig(
-    const WireFormat::GetServerConfig::Request& reqHdr,
-    WireFormat::GetServerConfig::Response& respHdr,
-    Rpc& rpc)
+    const WireFormat::GetServerConfig::Request* reqHdr,
+    WireFormat::GetServerConfig::Response* respHdr,
+    Rpc* rpc)
 {
     ProtoBuf::ServerConfig serverConfigBuf;
     serverConfig.serialize(serverConfigBuf);
-    respHdr.serverConfigLength = ProtoBuf::serializeToResponse(
-        &rpc.replyPayload, &serverConfigBuf);
+    respHdr->serverConfigLength = ProtoBuf::serializeToResponse(
+        rpc->replyPayload, &serverConfigBuf);
 }
 
 /**
@@ -94,13 +94,13 @@ MembershipService::getServerConfig(
  */
 void
 MembershipService::updateServerList(
-    const WireFormat::UpdateServerList::Request& reqHdr,
-    WireFormat::UpdateServerList::Response& respHdr,
-    Rpc& rpc)
+    const WireFormat::UpdateServerList::Request* reqHdr,
+    WireFormat::UpdateServerList::Response* respHdr,
+    Rpc* rpc)
 {
     ProtoBuf::ServerList list;
-    ProtoBuf::parseFromRequest(&rpc.requestPayload, sizeof(reqHdr),
-                               reqHdr.serverListLength, &list);
+    ProtoBuf::parseFromRequest(rpc->requestPayload, sizeof(*reqHdr),
+                               reqHdr->serverListLength, &list);
 
     serverList.applyServerList(list);
 }

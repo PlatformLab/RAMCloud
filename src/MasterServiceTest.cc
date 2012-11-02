@@ -326,22 +326,22 @@ TEST_F(MasterServiceTest, dispatch_disableCount) {
     Buffer request, response;
 
     // Attempt #1: service is enabled.
-    Service::Rpc rpc(NULL, request, response);
-    service->dispatch(WireFormat::Opcode::ILLEGAL_RPC_TYPE, rpc);
+    Service::Rpc rpc(NULL, &request, &response);
+    service->dispatch(WireFormat::Opcode::ILLEGAL_RPC_TYPE, &rpc);
     EXPECT_STREQ("STATUS_UNIMPLEMENTED_REQUEST", statusToSymbol(
             WireFormat::getStatus(&response)));
 
     // Attempt #2: service is disabled.
     MasterService::Disabler disabler(service);
     response.reset();
-    service->dispatch(WireFormat::Opcode::ILLEGAL_RPC_TYPE, rpc);
+    service->dispatch(WireFormat::Opcode::ILLEGAL_RPC_TYPE, &rpc);
     EXPECT_STREQ("STATUS_RETRY", statusToSymbol(
             WireFormat::getStatus(&response)));
 
     // Attempt #3: service is reenabled.
     disabler.reenable();
     response.reset();
-    service->dispatch(WireFormat::Opcode::ILLEGAL_RPC_TYPE, rpc);
+    service->dispatch(WireFormat::Opcode::ILLEGAL_RPC_TYPE, &rpc);
     EXPECT_STREQ("STATUS_UNIMPLEMENTED_REQUEST", statusToSymbol(
             WireFormat::getStatus(&response)));
 }
@@ -653,12 +653,12 @@ TEST_F(MasterServiceTest, multiWrite_malformedRequests) {
     requestPayload.append(&reqHdr, sizeof(reqHdr));
     replyPayload.append(&respHdr, sizeof(respHdr));
 
-    Service::Rpc rpc(NULL, requestPayload, replyPayload);
+    Service::Rpc rpc(NULL, &requestPayload, &replyPayload);
 
     // part field is bogus
     requestPayload.append(&part, sizeof(part) - 1);
     respHdr.common.status = STATUS_OK;
-    service->multiWrite(reqHdr, respHdr, rpc);
+    service->multiWrite(&reqHdr, &respHdr, &rpc);
     EXPECT_EQ(STATUS_REQUEST_FORMAT_ERROR, respHdr.common.status);
 
     requestPayload.truncateEnd(sizeof(part) - 1);
@@ -666,19 +666,19 @@ TEST_F(MasterServiceTest, multiWrite_malformedRequests) {
 
     // both key and value length fields are bogus.
     respHdr.common.status = STATUS_OK;
-    service->multiWrite(reqHdr, respHdr, rpc);
+    service->multiWrite(&reqHdr, &respHdr, &rpc);
     EXPECT_EQ(STATUS_REQUEST_FORMAT_ERROR, respHdr.common.status);
 
     // only the value length field is bogus.
     requestPayload.append("tenchars!!", 10);
     respHdr.common.status = STATUS_OK;
-    service->multiWrite(reqHdr, respHdr, rpc);
+    service->multiWrite(&reqHdr, &respHdr, &rpc);
     EXPECT_EQ(STATUS_REQUEST_FORMAT_ERROR, respHdr.common.status);
 
     // sanity check: should work with 10 bytes of key and 10 of value
     requestPayload.append("tenmorechars", 10);
     respHdr.common.status = STATUS_OK;
-    service->multiWrite(reqHdr, respHdr, rpc);
+    service->multiWrite(&reqHdr, &respHdr, &rpc);
     EXPECT_EQ(STATUS_OK, respHdr.common.status);
 }
 

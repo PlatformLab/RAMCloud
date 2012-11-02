@@ -80,7 +80,7 @@ CoordinatorService::~CoordinatorService()
 
 void
 CoordinatorService::dispatch(WireFormat::Opcode opcode,
-                             Rpc& rpc)
+                             Rpc* rpc)
 {
     switch (opcode) {
         case WireFormat::CreateTable::opcode:
@@ -149,24 +149,24 @@ CoordinatorService::dispatch(WireFormat::Opcode opcode,
  * \copydetails Service::ping
  */
 void
-CoordinatorService::createTable(const WireFormat::CreateTable::Request& reqHdr,
-                                WireFormat::CreateTable::Response& respHdr,
-                                Rpc& rpc)
+CoordinatorService::createTable(const WireFormat::CreateTable::Request* reqHdr,
+                                WireFormat::CreateTable::Response* respHdr,
+                                Rpc* rpc)
 {
     if (serverList.masterCount() == 0) {
-        respHdr.common.status = STATUS_RETRY;
+        respHdr->common.status = STATUS_RETRY;
         return;
     }
 
-    const char* name = getString(rpc.requestPayload, sizeof(reqHdr),
-                                 reqHdr.nameLength);
+    const char* name = getString(rpc->requestPayload, sizeof(*reqHdr),
+                                 reqHdr->nameLength);
     if (tables.find(name) != tables.end())
         return;
     uint64_t tableId = nextTableId++;
     tables[name] = tableId;
-    respHdr.tableId = tableId;
+    respHdr->tableId = tableId;
 
-    uint32_t serverSpan = reqHdr.serverSpan;
+    uint32_t serverSpan = reqHdr->serverSpan;
     if (serverSpan == 0)
         serverSpan = 1;
 
@@ -214,12 +214,12 @@ CoordinatorService::createTable(const WireFormat::CreateTable::Request& reqHdr,
  * \copydetails Service::ping
  */
 void
-CoordinatorService::dropTable(const WireFormat::DropTable::Request& reqHdr,
-                              WireFormat::DropTable::Response& respHdr,
-                              Rpc& rpc)
+CoordinatorService::dropTable(const WireFormat::DropTable::Request* reqHdr,
+                              WireFormat::DropTable::Response* respHdr,
+                              Rpc* rpc)
 {
-    const char* name = getString(rpc.requestPayload, sizeof(reqHdr),
-                                 reqHdr.nameLength);
+    const char* name = getString(rpc->requestPayload, sizeof(*reqHdr),
+                                 reqHdr->nameLength);
     Tables::iterator it = tables.find(name);
     if (it == tables.end())
         return;
@@ -243,19 +243,19 @@ CoordinatorService::dropTable(const WireFormat::DropTable::Request& reqHdr,
  * \copydetails Service::ping
  */
 void
-CoordinatorService::splitTablet(const WireFormat::SplitTablet::Request& reqHdr,
-                              WireFormat::SplitTablet::Response& respHdr,
-                              Rpc& rpc)
+CoordinatorService::splitTablet(const WireFormat::SplitTablet::Request* reqHdr,
+                              WireFormat::SplitTablet::Response* respHdr,
+                              Rpc* rpc)
 {
     // Check that the tablet with the described key ranges exists.
     // If the tablet exists, adjust its lastKeyHash so it becomes the tablet
     // for the first part after the split and also copy the tablet and use
     // the copy for the second part after the split.
-    const char* name = getString(rpc.requestPayload, sizeof(reqHdr),
-                                 reqHdr.nameLength);
+    const char* name = getString(rpc->requestPayload, sizeof(*reqHdr),
+                                 reqHdr->nameLength);
     Tables::iterator it(tables.find(name));
     if (it == tables.end()) {
-        respHdr.common.status = STATUS_TABLE_DOESNT_EXIST;
+        respHdr->common.status = STATUS_TABLE_DOESNT_EXIST;
         return;
     }
     uint64_t tableId = it->second;
@@ -263,25 +263,25 @@ CoordinatorService::splitTablet(const WireFormat::SplitTablet::Request& reqHdr,
     ServerId serverId;
     try {
         serverId = tabletMap.splitTablet(tableId,
-                                         reqHdr.firstKeyHash,
-                                         reqHdr.lastKeyHash,
-                                         reqHdr.splitKeyHash).first.serverId;
+                                         reqHdr->firstKeyHash,
+                                         reqHdr->lastKeyHash,
+                                         reqHdr->splitKeyHash).first.serverId;
     } catch (const TabletMap::NoSuchTablet& e) {
-        respHdr.common.status = STATUS_TABLET_DOESNT_EXIST;
+        respHdr->common.status = STATUS_TABLET_DOESNT_EXIST;
         return;
     } catch (const TabletMap::BadSplit& e) {
-        respHdr.common.status = STATUS_REQUEST_FORMAT_ERROR;
+        respHdr->common.status = STATUS_REQUEST_FORMAT_ERROR;
         return;
     }
 
     // Tell the master to split the tablet
     MasterClient::splitMasterTablet(context, serverId, tableId,
-                                    reqHdr.firstKeyHash, reqHdr.lastKeyHash,
-                                    reqHdr.splitKeyHash);
+                                    reqHdr->firstKeyHash, reqHdr->lastKeyHash,
+                                    reqHdr->splitKeyHash);
 
     LOG(NOTICE, "In table '%s' I split the tablet that started at key %lu and "
-                "ended at key %lu", name, reqHdr.firstKeyHash,
-                reqHdr.lastKeyHash);
+                "ended at key %lu", name, reqHdr->firstKeyHash,
+                reqHdr->lastKeyHash);
 }
 
 /**
@@ -290,18 +290,18 @@ CoordinatorService::splitTablet(const WireFormat::SplitTablet::Request& reqHdr,
  */
 void
 CoordinatorService::getTableId(
-    const WireFormat::GetTableId::Request& reqHdr,
-    WireFormat::GetTableId::Response& respHdr,
-    Rpc& rpc)
+    const WireFormat::GetTableId::Request* reqHdr,
+    WireFormat::GetTableId::Response* respHdr,
+    Rpc* rpc)
 {
-    const char* name = getString(rpc.requestPayload, sizeof(reqHdr),
-                                 reqHdr.nameLength);
+    const char* name = getString(rpc->requestPayload, sizeof(*reqHdr),
+                                 reqHdr->nameLength);
     Tables::iterator it(tables.find(name));
     if (it == tables.end()) {
-        respHdr.common.status = STATUS_TABLE_DOESNT_EXIST;
+        respHdr->common.status = STATUS_TABLE_DOESNT_EXIST;
         return;
     }
-    respHdr.tableId = it->second;
+    respHdr->tableId = it->second;
 }
 
 /**
@@ -310,22 +310,22 @@ CoordinatorService::getTableId(
  */
 void
 CoordinatorService::enlistServer(
-    const WireFormat::EnlistServer::Request& reqHdr,
-    WireFormat::EnlistServer::Response& respHdr,
-    Rpc& rpc)
+    const WireFormat::EnlistServer::Request* reqHdr,
+    WireFormat::EnlistServer::Response* respHdr,
+    Rpc* rpc)
 {
-    ServerId replacesId = ServerId(reqHdr.replacesId);
-    ServiceMask serviceMask = ServiceMask::deserialize(reqHdr.serviceMask);
-    const uint32_t readSpeed = reqHdr.readSpeed;
-    const char* serviceLocator = getString(rpc.requestPayload, sizeof(reqHdr),
-                                           reqHdr.serviceLocatorLength);
+    ServerId replacesId = ServerId(reqHdr->replacesId);
+    ServiceMask serviceMask = ServiceMask::deserialize(reqHdr->serviceMask);
+    const uint32_t readSpeed = reqHdr->readSpeed;
+    const char* serviceLocator = getString(rpc->requestPayload, sizeof(*reqHdr),
+                                           reqHdr->serviceLocatorLength);
 
     ServerId newServerId = serverManager.enlistServer(
         replacesId, serviceMask, readSpeed,
         serviceLocator);
 
-    respHdr.serverId = newServerId.getId();
-    rpc.sendReply();
+    respHdr->serverId = newServerId.getId();
+    rpc->sendReply();
 }
 
 /**
@@ -334,17 +334,17 @@ CoordinatorService::enlistServer(
  */
 void
 CoordinatorService::getServerList(
-    const WireFormat::GetServerList::Request& reqHdr,
-    WireFormat::GetServerList::Response& respHdr,
-    Rpc& rpc)
+    const WireFormat::GetServerList::Request* reqHdr,
+    WireFormat::GetServerList::Response* respHdr,
+    Rpc* rpc)
 {
-    ServiceMask serviceMask = ServiceMask::deserialize(reqHdr.serviceMask);
+    ServiceMask serviceMask = ServiceMask::deserialize(reqHdr->serviceMask);
 
     ProtoBuf::ServerList serialServerList =
         serverManager.getServerList(serviceMask);
 
-    respHdr.serverListLength =
-        serializeToResponse(&rpc.replyPayload, &serialServerList);
+    respHdr->serverListLength =
+        serializeToResponse(rpc->replyPayload, &serialServerList);
 }
 
 /**
@@ -353,13 +353,13 @@ CoordinatorService::getServerList(
  */
 void
 CoordinatorService::getTabletMap(
-    const WireFormat::GetTabletMap::Request& reqHdr,
-    WireFormat::GetTabletMap::Response& respHdr,
-    Rpc& rpc)
+    const WireFormat::GetTabletMap::Request* reqHdr,
+    WireFormat::GetTabletMap::Response* respHdr,
+    Rpc* rpc)
 {
     ProtoBuf::Tablets tablets;
     tabletMap.serialize(serverList, tablets);
-    respHdr.tabletMapLength = serializeToResponse(&rpc.replyPayload,
+    respHdr->tabletMapLength = serializeToResponse(rpc->replyPayload,
                                                   &tablets);
 }
 
@@ -369,12 +369,12 @@ CoordinatorService::getTabletMap(
  */
 void
 CoordinatorService::hintServerDown(
-        const WireFormat::HintServerDown::Request& reqHdr,
-        WireFormat::HintServerDown::Response& respHdr,
-        Rpc& rpc)
+        const WireFormat::HintServerDown::Request* reqHdr,
+        WireFormat::HintServerDown::Response* respHdr,
+        Rpc* rpc)
 {
-    ServerId serverId(reqHdr.serverId);
-    rpc.sendReply();
+    ServerId serverId(reqHdr->serverId);
+    rpc->sendReply();
 
     // reqHdr, respHdr, and rpc are off-limits now
     serverManager.hintServerDown(serverId);
@@ -386,20 +386,20 @@ CoordinatorService::hintServerDown(
  */
 void
 CoordinatorService::recoveryMasterFinished(
-    const WireFormat::RecoveryMasterFinished::Request& reqHdr,
-    WireFormat::RecoveryMasterFinished::Response& respHdr,
-    Rpc& rpc)
+    const WireFormat::RecoveryMasterFinished::Request* reqHdr,
+    WireFormat::RecoveryMasterFinished::Response* respHdr,
+    Rpc* rpc)
 {
     ProtoBuf::Tablets recoveredTablets;
-    ProtoBuf::parseFromRequest(&rpc.requestPayload,
-                               sizeof32(reqHdr),
-                               reqHdr.tabletsLength, &recoveredTablets);
+    ProtoBuf::parseFromRequest(rpc->requestPayload,
+                               sizeof32(*reqHdr),
+                               reqHdr->tabletsLength, &recoveredTablets);
 
-    ServerId serverId = ServerId(reqHdr.recoveryMasterId);
-    recoveryManager.recoveryMasterFinished(reqHdr.recoveryId,
+    ServerId serverId = ServerId(reqHdr->recoveryMasterId);
+    recoveryManager.recoveryMasterFinished(reqHdr->recoveryId,
                                            serverId,
                                            recoveredTablets,
-                                           reqHdr.successful);
+                                           reqHdr->successful);
 
     // TODO(stutsman): Eventually we'll want to be able to 'reject' recovery
     // master completions, so we'll need to get a return value from
@@ -411,9 +411,9 @@ CoordinatorService::recoveryMasterFinished(
  * \copydetails Service::ping
  */
 void
-CoordinatorService::quiesce(const WireFormat::BackupQuiesce::Request& reqHdr,
-                            WireFormat::BackupQuiesce::Response& respHdr,
-                            Rpc& rpc)
+CoordinatorService::quiesce(const WireFormat::BackupQuiesce::Request* reqHdr,
+                            WireFormat::BackupQuiesce::Response* respHdr,
+                            Rpc* rpc)
 {
     for (size_t i = 0; i < serverList.size(); i++) {
         if (serverList[i] && serverList[i]->isBackup()) {
@@ -431,17 +431,17 @@ CoordinatorService::quiesce(const WireFormat::BackupQuiesce::Request& reqHdr,
  */
 void
 CoordinatorService::reassignTabletOwnership(
-    const WireFormat::ReassignTabletOwnership::Request& reqHdr,
-    WireFormat::ReassignTabletOwnership::Response& respHdr,
-    Rpc& rpc)
+    const WireFormat::ReassignTabletOwnership::Request* reqHdr,
+    WireFormat::ReassignTabletOwnership::Response* respHdr,
+    Rpc* rpc)
 {
-    ServerId newOwner(reqHdr.newOwnerId);
+    ServerId newOwner(reqHdr->newOwnerId);
     if (!serverList.isUp(newOwner)) {
         LOG(WARNING, "Server id %s is not up! Cannot reassign "
             "ownership of tablet %lu, range [%lu, %lu]!",
-            newOwner.toString().c_str(), reqHdr.tableId,
-            reqHdr.firstKeyHash, reqHdr.lastKeyHash);
-        respHdr.common.status = STATUS_SERVER_NOT_UP;
+            newOwner.toString().c_str(), reqHdr->tableId,
+            reqHdr->firstKeyHash, reqHdr->lastKeyHash);
+        respHdr->common.status = STATUS_SERVER_NOT_UP;
         return;
     }
 
@@ -449,35 +449,35 @@ CoordinatorService::reassignTabletOwnership(
         // Note currently this log message may not be exactly correct due to
         // concurrent operations on the tablet map which may slip in between
         // the message and the actual operation.
-        Tablet tablet = tabletMap.getTablet(reqHdr.tableId,
-                                           reqHdr.firstKeyHash,
-                                           reqHdr.lastKeyHash);
+        Tablet tablet = tabletMap.getTablet(reqHdr->tableId,
+                                           reqHdr->firstKeyHash,
+                                           reqHdr->lastKeyHash);
         LOG(NOTICE, "Reassigning tablet %lu, range [%lu, %lu] from server "
-            "id %s to server id %s.", reqHdr.tableId, reqHdr.firstKeyHash,
-            reqHdr.lastKeyHash, tablet.serverId.toString().c_str(),
+            "id %s to server id %s.", reqHdr->tableId, reqHdr->firstKeyHash,
+            reqHdr->lastKeyHash, tablet.serverId.toString().c_str(),
             newOwner.toString().c_str());
     } catch (const TabletMap::NoSuchTablet& e) {
         LOG(WARNING, "Could not reassign tablet %lu, range [%lu, %lu]: "
-            "not found!", reqHdr.tableId, reqHdr.firstKeyHash,
-            reqHdr.lastKeyHash);
-        respHdr.common.status = STATUS_TABLE_DOESNT_EXIST;
+            "not found!", reqHdr->tableId, reqHdr->firstKeyHash,
+            reqHdr->lastKeyHash);
+        respHdr->common.status = STATUS_TABLE_DOESNT_EXIST;
         return;
     }
 
     // Get current head of log to preclude all previous data in the log
     // from being considered part of this tablet.
-    Log::Position headOfLogAtCreation(reqHdr.ctimeSegmentId,
-                                      reqHdr.ctimeSegmentOffset);
+    Log::Position headOfLogAtCreation(reqHdr->ctimeSegmentId,
+                                      reqHdr->ctimeSegmentOffset);
 
     try {
-        tabletMap.modifyTablet(reqHdr.tableId, reqHdr.firstKeyHash,
-                               reqHdr.lastKeyHash, newOwner, Tablet::NORMAL,
+        tabletMap.modifyTablet(reqHdr->tableId, reqHdr->firstKeyHash,
+                               reqHdr->lastKeyHash, newOwner, Tablet::NORMAL,
                                headOfLogAtCreation);
     } catch (const TabletMap::NoSuchTablet& e) {
         LOG(WARNING, "Could not reassign tablet %lu, range [%lu, %lu]: "
-            "not found!", reqHdr.tableId, reqHdr.firstKeyHash,
-            reqHdr.lastKeyHash);
-        respHdr.common.status = STATUS_TABLE_DOESNT_EXIST;
+            "not found!", reqHdr->tableId, reqHdr->firstKeyHash,
+            reqHdr->lastKeyHash);
+        respHdr->common.status = STATUS_TABLE_DOESNT_EXIST;
         return;
     }
 
@@ -486,14 +486,14 @@ CoordinatorService::reassignTabletOwnership(
     // as we think the new owner is up (i.e. haven't started a recovery
     // on it), then it's safe for the old owner to drop the data and for
     // us to switch over.
-    rpc.sendReply();
+    rpc->sendReply();
 
     // TODO(rumble/slaughter) If we fail to alert the new owner we could
     //      get stuck in limbo. What should we do? Retry? Fail the
     //      server and recover it? Can't return to the old master if we
     //      reply early...
-    MasterClient::takeTabletOwnership(context, newOwner, reqHdr.tableId,
-                                     reqHdr.firstKeyHash, reqHdr.lastKeyHash);
+    MasterClient::takeTabletOwnership(context, newOwner, reqHdr->tableId,
+                                     reqHdr->firstKeyHash, reqHdr->lastKeyHash);
 }
 
 /**
@@ -504,19 +504,19 @@ CoordinatorService::reassignTabletOwnership(
  */
 void
 CoordinatorService::setRuntimeOption(
-    const WireFormat::SetRuntimeOption::Request& reqHdr,
-    WireFormat::SetRuntimeOption::Response& respHdr,
-    Rpc& rpc)
+    const WireFormat::SetRuntimeOption::Request* reqHdr,
+    WireFormat::SetRuntimeOption::Response* respHdr,
+    Rpc* rpc)
 {
-    const char* option = getString(rpc.requestPayload, sizeof(reqHdr),
-                                   reqHdr.optionLength);
-    const char* value = getString(rpc.requestPayload,
-                                  sizeof32(reqHdr) + reqHdr.optionLength,
-                                  reqHdr.valueLength);
+    const char* option = getString(rpc->requestPayload, sizeof(*reqHdr),
+                                   reqHdr->optionLength);
+    const char* value = getString(rpc->requestPayload,
+                                  sizeof32(*reqHdr) + reqHdr->optionLength,
+                                  reqHdr->valueLength);
     try {
         runtimeOptions.set(option, value);
     } catch (const std::out_of_range& e) {
-        respHdr.common.status = STATUS_OBJECT_DOESNT_EXIST;
+        respHdr->common.status = STATUS_OBJECT_DOESNT_EXIST;
     }
 }
 
@@ -532,15 +532,15 @@ CoordinatorService::setRuntimeOption(
  */
 void
 CoordinatorService::setMasterRecoveryInfo(
-    const WireFormat::SetMasterRecoveryInfo::Request& reqHdr,
-    WireFormat::SetMasterRecoveryInfo::Response& respHdr,
-    Rpc& rpc)
+    const WireFormat::SetMasterRecoveryInfo::Request* reqHdr,
+    WireFormat::SetMasterRecoveryInfo::Response* respHdr,
+    Rpc* rpc)
 {
-    ServerId serverId(reqHdr.serverId);
+    ServerId serverId(reqHdr->serverId);
     ProtoBuf::MasterRecoveryInfo recoveryInfo;
-    ProtoBuf::parseFromRequest(&rpc.requestPayload,
-                               sizeof32(reqHdr),
-                               reqHdr.infoLength, &recoveryInfo);
+    ProtoBuf::parseFromRequest(rpc->requestPayload,
+                               sizeof32(*reqHdr),
+                               reqHdr->infoLength, &recoveryInfo);
 
     LOG(DEBUG, "setMasterRecoveryInfo for server %s to %s",
         serverId.toString().c_str(), recoveryInfo.ShortDebugString().c_str());
@@ -550,7 +550,7 @@ CoordinatorService::setMasterRecoveryInfo(
     } catch (const ServerListException& e) {
         LOG(WARNING, "setMasterRecoveryInfo server doesn't exist: %s",
             serverId.toString().c_str());
-        respHdr.common.status = STATUS_SERVER_NOT_UP;
+        respHdr->common.status = STATUS_SERVER_NOT_UP;
         return;
     }
 }
@@ -563,13 +563,13 @@ CoordinatorService::setMasterRecoveryInfo(
  */
 void
 CoordinatorService::verifyMembership(
-    const WireFormat::VerifyMembership::Request& reqHdr,
-    WireFormat::VerifyMembership::Response& respHdr,
-    Rpc& rpc)
+    const WireFormat::VerifyMembership::Request* reqHdr,
+    WireFormat::VerifyMembership::Response* respHdr,
+    Rpc* rpc)
 {
-    ServerId serverId(reqHdr.serverId);
+    ServerId serverId(reqHdr->serverId);
     if (!serverList.isUp(serverId))
-        respHdr.common.status = STATUS_CALLER_NOT_IN_CLUSTER;
+        respHdr->common.status = STATUS_CALLER_NOT_IN_CLUSTER;
 }
 
 } // namespace RAMCloud

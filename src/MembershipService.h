@@ -52,18 +52,18 @@ class MembershipService : public Service {
     explicit MembershipService(ServerId& ourServerId,
                                ServerList& serverList,
                                const ServerConfig& serverConfig);
-    void dispatch(WireFormat::Opcode opcode, Rpc& rpc);
+    void dispatch(WireFormat::Opcode opcode, Rpc* rpc);
     virtual int maxThreads() {
         return 1;
     }
 
   PRIVATE:
-    void getServerConfig(const WireFormat::GetServerConfig::Request& reqHdr,
-                         WireFormat::GetServerConfig::Response& respHdr,
-                         Rpc& rpc);
-    void updateServerList(const WireFormat::UpdateServerList::Request& reqHdr,
-                       WireFormat::UpdateServerList::Response& respHdr,
-                       Rpc& rpc);
+    void getServerConfig(const WireFormat::GetServerConfig::Request* reqHdr,
+                         WireFormat::GetServerConfig::Response* respHdr,
+                         Rpc* rpc);
+    void updateServerList(const WireFormat::UpdateServerList::Request* reqHdr,
+                       WireFormat::UpdateServerList::Response* respHdr,
+                       Rpc* rpc);
 
     /// ServerList to update in response to Coordinator's RPCs.
     ServerList& serverList;

@@ -43,15 +43,15 @@ PingService::PingService(Context* context)
  * \copydetails Service::ping
  */
 void
-PingService::getMetrics(const WireFormat::GetMetrics::Request& reqHdr,
-             WireFormat::GetMetrics::Response& respHdr,
-             Rpc& rpc)
+PingService::getMetrics(const WireFormat::GetMetrics::Request* reqHdr,
+             WireFormat::GetMetrics::Response* respHdr,
+             Rpc* rpc)
 {
     string serialized;
     metrics->serialize(serialized);
-    respHdr.messageLength = downCast<uint32_t>(serialized.length());
-    memcpy(new(&rpc.replyPayload, APPEND) uint8_t[respHdr.messageLength],
-           serialized.c_str(), respHdr.messageLength);
+    respHdr->messageLength = downCast<uint32_t>(serialized.length());
+    memcpy(new(rpc->replyPayload, APPEND) uint8_t[respHdr->messageLength],
+           serialized.c_str(), respHdr->messageLength);
 }
 
 /**
@@ -60,16 +60,16 @@ PingService::getMetrics(const WireFormat::GetMetrics::Request& reqHdr,
  * \copydetails Service::ping
  */
 void
-PingService::ping(const WireFormat::Ping::Request& reqHdr,
-             WireFormat::Ping::Response& respHdr,
-             Rpc& rpc)
+PingService::ping(const WireFormat::Ping::Request* reqHdr,
+             WireFormat::Ping::Response* respHdr,
+             Rpc* rpc)
 {
-    ServerId serverId(reqHdr.callerId);
+    ServerId serverId(reqHdr->callerId);
     if (serverId.isValid()) {
         LOG(DEBUG, "Received ping request from server %s",
-            ServerId(reqHdr.callerId).toString().c_str());
+            ServerId(reqHdr->callerId).toString().c_str());
         if (!context->serverList->isUp(serverId)) {
-            respHdr.common.status = STATUS_CALLER_NOT_IN_CLUSTER;
+            respHdr->common.status = STATUS_CALLER_NOT_IN_CLUSTER;
         }
     }
 }
@@ -80,15 +80,15 @@ PingService::ping(const WireFormat::Ping::Request& reqHdr,
  * \copydetails Service::ping
  */
 void
-PingService::proxyPing(const WireFormat::ProxyPing::Request& reqHdr,
-             WireFormat::ProxyPing::Response& respHdr,
-             Rpc& rpc)
+PingService::proxyPing(const WireFormat::ProxyPing::Request* reqHdr,
+             WireFormat::ProxyPing::Response* respHdr,
+             Rpc* rpc)
 {
     uint64_t start = Cycles::rdtsc();
-    PingRpc pingRpc(context, ServerId(reqHdr.serverId));
-    respHdr.replyNanoseconds = ~0UL;
-    if (pingRpc.wait(reqHdr.timeoutNanoseconds)) {
-        respHdr.replyNanoseconds = Cycles::toNanoseconds(
+    PingRpc pingRpc(context, ServerId(reqHdr->serverId));
+    respHdr->replyNanoseconds = ~0UL;
+    if (pingRpc.wait(reqHdr->timeoutNanoseconds)) {
+        respHdr->replyNanoseconds = Cycles::toNanoseconds(
                 Cycles::rdtsc() - start);
     }
 }
@@ -101,9 +101,9 @@ PingService::proxyPing(const WireFormat::ProxyPing::Request& reqHdr,
  * TODO(Rumble): Should be only for debugging and performance testing.
  */
 void
-PingService::kill(const WireFormat::Kill::Request& reqHdr,
-                  WireFormat::Kill::Response& respHdr,
-                  Rpc& rpc)
+PingService::kill(const WireFormat::Kill::Request* reqHdr,
+                  WireFormat::Kill::Response* respHdr,
+                  Rpc* rpc)
 {
     LOG(ERROR, "Server remotely told to kill itself.");
     if (!ignoreKill)
@@ -114,7 +114,7 @@ PingService::kill(const WireFormat::Kill::Request& reqHdr,
  * Dispatch an RPC to the right handler based on its opcode.
  */
 void
-PingService::dispatch(WireFormat::Opcode opcode, Rpc& rpc)
+PingService::dispatch(WireFormat::Opcode opcode, Rpc* rpc)
 {
     switch (opcode) {
         case WireFormat::GetMetrics::opcode:

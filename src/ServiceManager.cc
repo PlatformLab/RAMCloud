@@ -143,12 +143,12 @@ ServiceManager::handleRpc(Transport::ServerRpc* rpc)
         if (header == NULL) {
             LOG(WARNING, "Incoming RPC contains no header (message length %d)",
                     rpc->requestPayload.getTotalLength());
-            Service::prepareErrorResponse(rpc->replyPayload,
+            Service::prepareErrorResponse(&rpc->replyPayload,
                     STATUS_MESSAGE_TOO_SHORT);
         } else {
             LOG(WARNING, "Incoming RPC requested unavailable service %d",
                     header->service);
-            Service::prepareErrorResponse(rpc->replyPayload,
+            Service::prepareErrorResponse(&rpc->replyPayload,
                     STATUS_SERVICE_NOT_AVAILABLE);
         }
         rpc->sendReply();
@@ -172,7 +172,7 @@ ServiceManager::handleRpc(Transport::ServerRpc* rpc)
     if ((header->opcode == RpcOpcode::READ) &&
             (header->service == MASTER_SERVICE)) {
         Service::Rpc serviceRpc(NULL, rpc->requestPayload, rpc->replyPayload);
-        services[MASTER_SERVICE]->service.handleRpc(serviceRpc);
+        services[MASTER_SERVICE]->service.handleRpc(&serviceRpc);
         rpc->sendReply();
         return;
     }
@@ -335,9 +335,9 @@ ServiceManager::workerMain(Worker* worker)
             if (worker->rpc == WORKER_EXIT)
                 break;
 
-            Service::Rpc rpc(worker, worker->rpc->requestPayload,
-                    worker->rpc->replyPayload);
-            worker->serviceInfo->service.handleRpc(rpc);
+            Service::Rpc rpc(worker, &worker->rpc->requestPayload,
+                    &worker->rpc->replyPayload);
+            worker->serviceInfo->service.handleRpc(&rpc);
 
             // Pass the RPC back to ServiceManager for completion.
             Fence::leave();

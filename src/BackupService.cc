@@ -165,7 +165,7 @@ BackupService::benchmark()
 
 // See Server::dispatch.
 void
-BackupService::dispatch(WireFormat::Opcode opcode, Rpc& rpc)
+BackupService::dispatch(WireFormat::Opcode opcode, Rpc* rpc)
 {
     Lock _(mutex); // Lock out GC while any RPC is being processed.
 
@@ -225,19 +225,19 @@ BackupService::dispatch(WireFormat::Opcode opcode, Rpc& rpc)
  *      The Rpc being serviced.
  */
 void
-BackupService::freeSegment(const WireFormat::BackupFree::Request& reqHdr,
-                           WireFormat::BackupFree::Response& respHdr,
-                           Rpc& rpc)
+BackupService::freeSegment(const WireFormat::BackupFree::Request* reqHdr,
+                           WireFormat::BackupFree::Response* respHdr,
+                           Rpc* rpc)
 {
-    ServerId masterId(reqHdr.masterId);
+    ServerId masterId(reqHdr->masterId);
     LOG(DEBUG, "Freeing replica for master %s segment %lu",
-        masterId.toString().c_str(), reqHdr.segmentId);
+        masterId.toString().c_str(), reqHdr->segmentId);
 
     auto it =
-        frames.find(MasterSegmentIdPair(masterId, reqHdr.segmentId));
+        frames.find(MasterSegmentIdPair(masterId, reqHdr->segmentId));
     if (it == frames.end()) {
         LOG(WARNING, "Master tried to free non-existent segment: <%s,%lu>",
-            masterId.toString().c_str(), reqHdr.segmentId);
+            masterId.toString().c_str(), reqHdr->segmentId);
         return;
     }
 
@@ -264,31 +264,31 @@ BackupService::freeSegment(const WireFormat::BackupFree::Request& reqHdr,
  */
 void
 BackupService::getRecoveryData(
-    const WireFormat::BackupGetRecoveryData::Request& reqHdr,
-    WireFormat::BackupGetRecoveryData::Response& respHdr,
-    Rpc& rpc)
+    const WireFormat::BackupGetRecoveryData::Request* reqHdr,
+    WireFormat::BackupGetRecoveryData::Response* respHdr,
+    Rpc* rpc)
 {
-    ServerId crashedMasterId(reqHdr.masterId);
+    ServerId crashedMasterId(reqHdr->masterId);
     LOG(DEBUG, "getRecoveryData masterId %s, segmentId %lu, partitionId %lu",
         crashedMasterId.toString().c_str(),
-        reqHdr.segmentId, reqHdr.partitionId);
+        reqHdr->segmentId, reqHdr->partitionId);
 
     auto recoveryIt = recoveries.find(crashedMasterId);
     if (recoveryIt == recoveries.end()) {
         LOG(WARNING, "Asked for recovery segment for <%s,%lu> but the master "
             "wasn't under recovery on the backup",
-            crashedMasterId.toString().c_str(), reqHdr.segmentId);
+            crashedMasterId.toString().c_str(), reqHdr->segmentId);
         throw BackupBadSegmentIdException(HERE);
     }
 
     Status status =
-        recoveryIt->second->getRecoverySegment(reqHdr.recoveryId,
-                                               reqHdr.segmentId,
-                                               reqHdr.partitionId,
-                                               &rpc.replyPayload,
-                                               &respHdr.certificate);
+        recoveryIt->second->getRecoverySegment(reqHdr->recoveryId,
+                                               reqHdr->segmentId,
+                                               reqHdr->partitionId,
+                                               rpc->replyPayload,
+                                               &respHdr->certificate);
     if (status != STATUS_OK) {
-        respHdr.common.status = status;
+        respHdr->common.status = status;
         return;
     }
 
@@ -328,9 +328,9 @@ BackupService::init(ServerId id)
  *      The Rpc being serviced.
  */
 void
-BackupService::quiesce(const WireFormat::BackupQuiesce::Request& reqHdr,
-                       WireFormat::BackupQuiesce::Response& respHdr,
-                       Rpc& rpc)
+BackupService::quiesce(const WireFormat::BackupQuiesce::Request* reqHdr,
+                       WireFormat::BackupQuiesce::Response* respHdr,
+                       Rpc* rpc)
 {
     LOG(NOTICE, "Backup at %s quiescing", config.localLocator.c_str());
     storage->quiesce();
@@ -347,13 +347,13 @@ BackupService::quiesce(const WireFormat::BackupQuiesce::Request& reqHdr,
  */
 void
 BackupService::recoveryComplete(
-        const WireFormat::BackupRecoveryComplete::Request& reqHdr,
-        WireFormat::BackupRecoveryComplete::Response& respHdr,
-        Rpc& rpc)
+        const WireFormat::BackupRecoveryComplete::Request* reqHdr,
+        WireFormat::BackupRecoveryComplete::Response* respHdr,
+        Rpc* rpc)
 {
     LOG(DEBUG, "masterID: %s",
-        ServerId(reqHdr.masterId).toString().c_str());
-    rpc.sendReply();
+        ServerId(reqHdr->masterId).toString().c_str());
+    rpc->sendReply();
 }
 
 /**
@@ -430,23 +430,23 @@ BackupService::restartFromStorage()
  */
 void
 BackupService::startReadingData(
-        const WireFormat::BackupStartReadingData::Request& reqHdr,
-        WireFormat::BackupStartReadingData::Response& respHdr,
-        Rpc& rpc)
+        const WireFormat::BackupStartReadingData::Request* reqHdr,
+        WireFormat::BackupStartReadingData::Response* respHdr,
+        Rpc* rpc)
 {
-    ServerId crashedMasterId(reqHdr.masterId);
+    ServerId crashedMasterId(reqHdr->masterId);
 
     bool mustCreateRecovery = false;
     auto recoveryIt = recoveries.find(crashedMasterId);
     if (recoveryIt == recoveries.end()) {
         mustCreateRecovery = true;
-    } else if (recoveryIt->second->getRecoveryId() != reqHdr.recoveryId) {
+    } else if (recoveryIt->second->getRecoveryId() != reqHdr->recoveryId) {
         // The old recovery may be in the middle of processing so we can just
         // delete it outright. Let it know it should schedule itself on the task
         // queue and should delete itself on the next iteration.
         LOG(NOTICE, "Got startReadingData for recovery %lu for crashed master "
             "%s; abandoning existing recovery %lu for that master and starting "
-            "anew.", reqHdr.recoveryId, crashedMasterId.toString().c_str(),
+            "anew.", reqHdr->recoveryId, crashedMasterId.toString().c_str(),
             recoveryIt->second->getRecoveryId());
         BackupMasterRecovery* oldRecovery = recoveryIt->second;
         recoveries.erase(recoveryIt);
@@ -456,7 +456,7 @@ BackupService::startReadingData(
     BackupMasterRecovery* recovery;
     if (mustCreateRecovery) {
         recovery = new BackupMasterRecovery(taskQueue,
-                                            reqHdr.recoveryId,
+                                            reqHdr->recoveryId,
                                             crashedMasterId,
                                             segmentSize);
         recoveries[crashedMasterId] = recovery;
@@ -471,7 +471,7 @@ BackupService::startReadingData(
             break;
         framesForRecovery.emplace_back(it->second);
     }
-    recovery->start(framesForRecovery, &rpc.replyPayload, &respHdr);
+    recovery->start(framesForRecovery, rpc->replyPayload, respHdr);
     metrics->backup.storageType = uint64_t(storage->storageType);
 }
 
@@ -488,14 +488,14 @@ BackupService::startReadingData(
  */
 void
 BackupService::startPartitioningReplicas(
-        const WireFormat::BackupStartPartitioningReplicas::Request& reqHdr,
-        WireFormat::BackupStartPartitioningReplicas::Response& respHdr,
-        Rpc& rpc)
+        const WireFormat::BackupStartPartitioningReplicas::Request* reqHdr,
+        WireFormat::BackupStartPartitioningReplicas::Response* respHdr,
+        Rpc* rpc)
 {
-    ServerId crashedMasterId(reqHdr.masterId);
+    ServerId crashedMasterId(reqHdr->masterId);
     BackupMasterRecovery* recovery = recoveries[crashedMasterId];
 
-    if (recovery == NULL || recovery->getRecoveryId() != reqHdr.recoveryId) {
+    if (recovery == NULL || recovery->getRecoveryId() != reqHdr->recoveryId) {
         LOG(ERROR, "Cannot partition segments from master %s since they have "
                 "not been read yet (no preceeding startReadingDataRpc call)",
                 crashedMasterId.toString().c_str());
@@ -504,8 +504,8 @@ BackupService::startPartitioningReplicas(
     }
 
     ProtoBuf::Tablets partitions;
-    ProtoBuf::parseFromResponse(&rpc.requestPayload, sizeof(reqHdr),
-                                reqHdr.partitionsLength, &partitions);
+    ProtoBuf::parseFromResponse(rpc->requestPayload, sizeof(*reqHdr),
+                                reqHdr->partitionsLength, &partitions);
     recovery->setPartitionsAndSchedule(partitions);
 }
 
@@ -543,12 +543,12 @@ BackupService::startPartitioningReplicas(
  *      If the segment is not open.
  */
 void
-BackupService::writeSegment(const WireFormat::BackupWrite::Request& reqHdr,
-                            WireFormat::BackupWrite::Response& respHdr,
-                            Rpc& rpc)
+BackupService::writeSegment(const WireFormat::BackupWrite::Request* reqHdr,
+                            WireFormat::BackupWrite::Response* respHdr,
+                            Rpc* rpc)
 {
-    ServerId masterId(reqHdr.masterId);
-    uint64_t segmentId = reqHdr.segmentId;
+    ServerId masterId(reqHdr->masterId);
+    uint64_t segmentId = reqHdr->segmentId;
 
     if  (!context->serverList->isUp(masterId) && !testingSkipCallerIdCheck) {
         // See "Zombies" in designNotes.
@@ -560,7 +560,7 @@ BackupService::writeSegment(const WireFormat::BackupWrite::Request& reqHdr,
         frame = frameIt->second;
 
     if (frame && !frame->wasAppendedToByCurrentProcess()) {
-        if (reqHdr.open) {
+        if (reqHdr->open) {
             // This can happen if a backup crashes, restarts, reloads a
             // replica from disk, and then the master detects the crash and
             // tries to re-replicate the segment which lost a replica on
@@ -582,7 +582,7 @@ BackupService::writeSegment(const WireFormat::BackupWrite::Request& reqHdr,
     }
 
     // Perform open, if any.
-    if (reqHdr.open && !frame) {
+    if (reqHdr->open && !frame) {
         LOG(DEBUG, "Opening <%s,%lu>", masterId.toString().c_str(),
             segmentId);
         try {
@@ -607,22 +607,22 @@ BackupService::writeSegment(const WireFormat::BackupWrite::Request& reqHdr,
     } else {
         CycleCounter<RawMetric> __(&metrics->backup.writeCopyTicks);
         Tub<BackupReplicaMetadata> metadata;
-        if (reqHdr.certificateIncluded) {
-            metadata.construct(reqHdr.certificate,
+        if (reqHdr->certificateIncluded) {
+            metadata.construct(reqHdr->certificate,
                                masterId.getId(), segmentId,
                                segmentSize,
-                               reqHdr.segmentEpoch,
-                               reqHdr.close, reqHdr.primary);
+                               reqHdr->segmentEpoch,
+                               reqHdr->close, reqHdr->primary);
         }
-        frame->append(rpc.requestPayload, sizeof(reqHdr),
-                      reqHdr.length, reqHdr.offset,
+        frame->append(*rpc->requestPayload, sizeof(*reqHdr),
+                      reqHdr->length, reqHdr->offset,
                       metadata.get(), sizeof(*metadata));
-        metrics->backup.writeCopyBytes += reqHdr.length;
-        bytesWritten += reqHdr.length;
+        metrics->backup.writeCopyBytes += reqHdr->length;
+        bytesWritten += reqHdr->length;
     }
 
     // Perform close, if any.
-    if (reqHdr.close) {
+    if (reqHdr->close) {
         LOG(DEBUG, "Closing <%s,%lu>", masterId.toString().c_str(), segmentId);
         frame->close();
     }
