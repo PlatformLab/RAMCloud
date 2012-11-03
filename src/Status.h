@@ -72,15 +72,22 @@ typedef enum Status {
     STATUS_BACKUP_SEGMENT_OVERFLOW      = 14,
     STATUS_BACKUP_MALFORMED_SEGMENT     = 15,
     STATUS_SEGMENT_RECOVERY_FAILED      = 16,
+
+    /// Indicates that a server is not prepared to handle a request at
+    /// the present time; the caller should retry at a later time. This
+    /// status can be returned under many different situations, such as
+    /// (a) the server is out of resources to execute the request, or
+    /// (b) the server is not sure it actually has authority to execute
+    /// the request, and is checking with the coordinator.
     STATUS_RETRY                        = 17,
     STATUS_SERVICE_NOT_AVAILABLE        = 18,
     STATUS_TIMEOUT                      = 19,
 
-    // Indicates that a particular server either never existed, has come
-    // and gone, or is currently in crashed state. The server is not in a
-    // position to respond to RPCs and probably never will be again (unless
-    // the id hasn't yet existed; once a server crashes its id will never
-    // be reused).
+    /// Indicates that server to which an RPC is directed either never existed,
+    /// has come and gone, or is currently in crashed state. The server is not
+    /// in a position to respond to RPCs and probably never will be again
+    /// (unless the id hasn't yet existed; once a server crashes its id will
+    /// never be reused).
     STATUS_SERVER_NOT_UP                = 20,
     STATUS_INTERNAL_ERROR               = 21,
 
@@ -96,7 +103,15 @@ typedef enum Status {
     /// Indicates that an RPC was intended for a particular server id, but
     /// was actually sent to a different server id.
     STATUS_WRONG_SERVER                 = 25,
-    STATUS_MAX_VALUE                    = 25,
+    /// Indicates that the server sending an RPC is not present in the
+    /// server list of the RPC recipient.  Used to help servers discover
+    /// that they are zombies (the rest of the cluster thinks a zombie
+    /// is dead, but the zombie thinks it's still alive), so they don't
+    /// continue servicing requests when other servers have already
+    /// taken over their tablets.  See "Zombies" in designNotes.
+    STATUS_CALLER_NOT_IN_CLUSTER        = 26,
+
+    STATUS_MAX_VALUE                    = 26,
     // Note: if you add a new status value you must make the following
     // additional updates:
     // * Modify STATUS_MAX_VALUE to have a value equal to the largest

@@ -31,7 +31,7 @@ class MockService : public Service {
             gate(0), sendReply(false),
             threadLimit(threadLimit) { }
     virtual ~MockService() {}
-    virtual void dispatch(WireFormat::Opcode opcode, Rpc& rpc)
+    virtual void dispatch(WireFormat::Opcode opcode, Rpc* rpc)
     {
         {
             std::unique_lock<std::mutex> lock(mutex);
@@ -39,25 +39,25 @@ class MockService : public Service {
                  log.append(", ");
             }
             log.append("rpc: ");
-            log.append(TestUtil::toString(&rpc.requestPayload));
+            log.append(TestUtil::toString(rpc->requestPayload));
         }
 
         // Create a response that increments each of the (integer) values
         // in the request.  Throw an error if value 54321 appears.
-        for (uint32_t i = 0; i < rpc.requestPayload.getTotalLength()-3;
+        for (uint32_t i = 0; i < rpc->requestPayload->getTotalLength()-3;
                 i += 4) {
-            int32_t inputValue = *(rpc.requestPayload.getOffset<int32_t>(i));
+            int32_t inputValue = *(rpc->requestPayload->getOffset<int32_t>(i));
             if (inputValue == 54321) {
                 throw ClientException(HERE, STATUS_REQUEST_FORMAT_ERROR);
             }
-            *(new(&rpc.replyPayload, APPEND) int32_t) = inputValue+1;
+            *(new(rpc->replyPayload, APPEND) int32_t) = inputValue+1;
         }
-        int secondWord = *(rpc.requestPayload.getOffset<int>(4));
+        int secondWord = *(rpc->requestPayload->getOffset<int>(4));
 
         // The following code is used to test the sendReply Rpc method.
         // Be careful not to access rpc after this point.
         if (sendReply)
-            rpc.sendReply();
+            rpc->sendReply();
 
         // The following code is used to delay completion of requests.
         while (gate != 0) {

@@ -94,7 +94,7 @@ TEST_F(FailureDetectorTest, pingRandomServer_onlySelfServers) {
 TEST_F(FailureDetectorTest, pingRandomServer_pingSuccess) {
     MockRandom _(1);
     addServer(ServerId(1, 0), "mock:");
-    mockTransport.setInput("0 0 55 0 1 0");
+    mockTransport.setInput("0");
     fd->pingRandomServer();
     EXPECT_TRUE(StringUtil::startsWith(TestLog::get(),
                 "pingRandomServer: Sending ping to server 1.0 (mock:) | "
@@ -110,4 +110,43 @@ TEST_F(FailureDetectorTest, pingRandomServer_pingFailure) {
               "wait: timeout | pingRandomServer: Ping timeout to "
               "server id 1.0 (locator \"mock:\")", TestLog::get());
 }
+
+TEST_F(FailureDetectorTest, pingRandomServer_notInCluster) {
+    MockRandom _(1);
+    addServer(ServerId(1, 0), "mock:");
+    string input = format("%d", STATUS_CALLER_NOT_IN_CLUSTER);
+    mockTransport.setInput(input.c_str());
+    coordTransport.setInput("0");
+    fd->pingRandomServer();
+    EXPECT_EQ("pingRandomServer: Sending ping to server 1.0 (mock:) | "
+            "Disabler: master service disabled | "
+            "VerifyMembershipRpc: verifying cluster membership for 57.27342",
+            TestLog::get());
+}
+
+TEST_F(FailureDetectorTest, pingRandomServer_tooManyFailedProbes) {
+    MockRandom _(1);
+    addServer(ServerId(1, 0), "mock:");
+    fd->probesWithoutResponse = FailureDetector::MAX_FAILED_PROBES-2;
+    coordTransport.setInput("0");
+    coordTransport.setInput("0");
+    coordTransport.setInput("0");
+    fd->pingRandomServer();
+    EXPECT_EQ("pingRandomServer: Sending ping to server 1.0 (mock:) | "
+            "wait: timeout | "
+            "pingRandomServer: Ping timeout to server id 1.0 "
+            "(locator \"mock:\")",
+            TestLog::get());
+    TestLog::reset();
+    fd->pingRandomServer();
+    EXPECT_EQ("pingRandomServer: Sending ping to server 1.0 (mock:) | "
+            "wait: timeout | "
+            "pingRandomServer: Ping timeout to server id 1.0 "
+            "(locator \"mock:\") | "
+            "Disabler: master service disabled | "
+            "VerifyMembershipRpc: verifying cluster membership for 57.27342",
+            TestLog::get());
+    EXPECT_EQ(0, fd->probesWithoutResponse);
+}
+
 } // namespace RAMCloud

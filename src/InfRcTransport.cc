@@ -116,8 +116,7 @@ namespace RAMCloud {
  *      address and port numbers to use for handshaking. If NULL,
  *      the transport will be configured for client use only.
  */
-template<typename Infiniband>
-InfRcTransport<Infiniband>::InfRcTransport(Context* context,
+InfRcTransport::InfRcTransport(Context* context,
                                            const ServiceLocator *sl)
     : context(context)
     , realInfiniband()
@@ -275,8 +274,7 @@ InfRcTransport<Infiniband>::InfRcTransport(Context* context,
 /**
  * Destructor for InfRcTransport.
  */
-template<typename Infiniband>
-InfRcTransport<Infiniband>::~InfRcTransport()
+InfRcTransport::~InfRcTransport()
 {
     // Note: this destructor isn't yet complete; it contains just enough cleanup
     // for the unit tests to run.
@@ -286,9 +284,8 @@ InfRcTransport<Infiniband>::~InfRcTransport()
         close(clientSetupSocket);
 }
 
-template<typename Infiniband>
 void
-InfRcTransport<Infiniband>::setNonBlocking(int fd)
+InfRcTransport::setNonBlocking(int fd)
 {
     int flags = fcntl(fd, F_GETFL);
     if (flags == -1) {
@@ -318,12 +315,11 @@ InfRcTransport<Infiniband>::setNonBlocking(int fd)
  * \throw TransportException
  *      There was a problem that prevented us from creating the session.
  */
-template<typename Infiniband>
-InfRcTransport<Infiniband>::InfRcSession::InfRcSession(
+InfRcTransport::InfRcSession::InfRcSession(
     InfRcTransport *transport, const ServiceLocator& sl, uint32_t timeoutMs)
     : transport(transport)
     , qp(NULL)
-    , alarm(*transport->context->sessionAlarmTimer, *this,
+    , alarm(transport->context->sessionAlarmTimer, this,
             (timeoutMs != 0) ? timeoutMs : DEFAULT_TIMEOUT_MS)
 {
     setServiceLocator(sl.getOriginalString());
@@ -337,46 +333,45 @@ InfRcTransport<Infiniband>::InfRcSession::InfRcSession(
 /**
  * Destroy the Session.
  */
-template<typename Infiniband>
 void
-InfRcTransport<Infiniband>::InfRcSession::release()
+InfRcTransport::InfRcSession::release()
 {
     abort();
     delete this;
 }
 
 // See documentation for Transport::Session::abort.
-template<typename Infiniband>
 void
-InfRcTransport<Infiniband>::InfRcSession::abort()
+InfRcTransport::InfRcSession::abort()
 {
-    for (typename ClientRpcList::iterator
+    for (ClientRpcList::iterator
             it(transport->clientSendQueue.begin());
             it != transport->clientSendQueue.end(); ) {
         ClientRpc& rpc = *it;
         it++;
         if (rpc.session == this) {
-            LOG(NOTICE, "Infiniband aborting %s request to %s",
-                    WireFormat::opcodeSymbol(*rpc.request),
+            LOG(NOTICE, "InfRcTransport aborting %s request to %s",
+                    WireFormat::opcodeSymbol(rpc.request),
                     getServiceLocator().c_str());
             rpc.notifier->failed();
             erase(transport->clientSendQueue, rpc);
             transport->clientRpcPool.destroy(&rpc);
         }
     }
-    for (typename ClientRpcList::iterator
+    for (ClientRpcList::iterator
             it(transport->outstandingRpcs.begin());
             it != transport->outstandingRpcs.end(); ) {
         ClientRpc& rpc = *it;
         it++;
         if (rpc.session == this) {
-            LOG(NOTICE, "Infiniband aborting %s request to %s",
-                    WireFormat::opcodeSymbol(*rpc.request),
+            LOG(NOTICE, "InfRcTransport aborting %s request to %s",
+                    WireFormat::opcodeSymbol(rpc.request),
                     getServiceLocator().c_str());
             rpc.notifier->failed();
             erase(transport->outstandingRpcs, rpc);
             --transport->numUsedClientSrqBuffers;
             transport->clientRpcPool.destroy(&rpc);
+            alarm.rpcFinished();
         }
     }
     if (qp)
@@ -385,9 +380,8 @@ InfRcTransport<Infiniband>::InfRcSession::abort()
 }
 
 // See Transport::Session::cancelRequest for documentation.
-template<typename Infiniband>
 void
-InfRcTransport<Infiniband>::InfRcSession::cancelRequest(
+InfRcTransport::InfRcSession::cancelRequest(
     RpcNotifier* notifier)
 {
     // Search for an RPC that refers to this notifier; if one is
@@ -413,10 +407,36 @@ InfRcTransport<Infiniband>::InfRcSession::cancelRequest(
     }
 }
 
+// See Transport::Session::getRpcInfo for documentation.
+string
+InfRcTransport::InfRcSession::getRpcInfo()
+{
+    const char* separator = "";
+    string result;
+    foreach (ClientRpc& rpc, transport->outstandingRpcs) {
+        if (rpc.session == this) {
+            result += separator;
+            result += WireFormat::opcodeSymbol(rpc.request);
+            separator = ", ";
+        }
+    }
+    foreach (ClientRpc& rpc, transport->clientSendQueue) {
+        if (rpc.session == this) {
+            result += separator;
+            result += WireFormat::opcodeSymbol(rpc.request);
+            separator = ", ";
+        }
+    }
+    if (result.empty())
+        result = "no active RPCs";
+    result += " to server at ";
+    result += getServiceLocator();
+    return result;
+}
+
 // See Transport::Session::sendRequest for documentation.
-template<typename Infiniband>
 void
-InfRcTransport<Infiniband>::InfRcSession::sendRequest(Buffer* request,
+InfRcTransport::InfRcSession::sendRequest(Buffer* request,
         Buffer* response, RpcNotifier* notifier)
 {
     response->reset();
@@ -427,7 +447,7 @@ InfRcTransport<Infiniband>::InfRcSession::sendRequest(Buffer* request,
     }
 
     LOG(DEBUG, "Sending %s request to %s with %u bytes",
-            WireFormat::opcodeSymbol(*request), getServiceLocator().c_str(),
+            WireFormat::opcodeSymbol(request), getServiceLocator().c_str(),
             request->getTotalLength());
     if (request->getTotalLength() > t->getMaxRpcSize()) {
         throw TransportException(HERE,
@@ -468,9 +488,8 @@ InfRcTransport<Infiniband>::InfRcSession::sendRequest(Buffer* request,
  *      An exception is thrown if any of the socket system calls fail for
  *      some strange reason.
  */
-template<typename Infiniband>
 bool
-InfRcTransport<Infiniband>::clientTryExchangeQueuePairs(struct sockaddr_in *sin,
+InfRcTransport::clientTryExchangeQueuePairs(struct sockaddr_in *sin,
     QueuePairTuple *outgoingQpt, QueuePairTuple *incomingQpt,
     uint32_t usTimeout)
 {
@@ -549,9 +568,8 @@ InfRcTransport<Infiniband>::clientTryExchangeQueuePairs(struct sockaddr_in *sin,
  * \throw TransportException
  *      There was a problem that prevented us from creating the session.
  */
-template<typename Infiniband>
-typename Infiniband::QueuePair*
-InfRcTransport<Infiniband>::clientTrySetupQueuePair(IpAddress& address)
+Infiniband::QueuePair*
+InfRcTransport::clientTrySetupQueuePair(IpAddress& address)
 {
     sockaddr_in* sin = reinterpret_cast<sockaddr_in*>(&address.address);
 
@@ -610,9 +628,8 @@ InfRcTransport<Infiniband>::clientTrySetupQueuePair(IpAddress& address)
  *      Indicates whether the socket was readable, writable, or both
  *      (OR-ed combination of Dispatch::FileEvent bits).
  */
-template<typename Infiniband>
 void
-InfRcTransport<Infiniband>::ServerConnectHandler::handleFileEvent(int events)
+InfRcTransport::ServerConnectHandler::handleFileEvent(int events)
 {
     sockaddr_in sin;
     socklen_t sinlen = sizeof(sin);
@@ -682,9 +699,8 @@ InfRcTransport<Infiniband>::ServerConnectHandler::handleFileEvent(int events)
  * \throw
  *      TransportException if posting to the queue fails.
  */
-template<typename Infiniband>
 void
-InfRcTransport<Infiniband>::postSrqReceiveAndKickTransmit(ibv_srq* srq,
+InfRcTransport::postSrqReceiveAndKickTransmit(ibv_srq* srq,
     BufferDescriptor *bd)
 {
     infiniband->postSrqReceive(srq, bd);
@@ -712,9 +728,8 @@ InfRcTransport<Infiniband>::postSrqReceiveAndKickTransmit(ibv_srq* srq,
  *               to think a bit more about how this 'fire-and-forget'
  *               behaviour impacts our Transport API.
  */
-template<typename Infiniband>
-typename Infiniband::BufferDescriptor*
-InfRcTransport<Infiniband>::getTransmitBuffer()
+Infiniband::BufferDescriptor*
+InfRcTransport::getTransmitBuffer()
 {
     // if we've drained our free tx buffer pool, we must wait.
     while (freeTxBuffers.empty()) {
@@ -748,9 +763,8 @@ InfRcTransport<Infiniband>::getTransmitBuffer()
  * \return
  *      The number of buffers reaped.
  */
-template<typename Infiniband>
 int
-InfRcTransport<Infiniband>::reapTxBuffers()
+InfRcTransport::reapTxBuffers()
 {
     ibv_wc retArray[MAX_TX_QUEUE_DEPTH];
     int n = infiniband->pollCompletionQueue(commonTxCq,
@@ -792,17 +806,15 @@ InfRcTransport<Infiniband>::reapTxBuffers()
  * little more than a segment size to avoid allocating too much
  * space in RX buffers.
  */
-template<typename Infiniband>
 uint32_t
-InfRcTransport<Infiniband>::getMaxRpcSize() const
+InfRcTransport::getMaxRpcSize() const
 {
     return MAX_RPC_LEN;
 }
 
 
-template<typename Infiniband>
 string
-InfRcTransport<Infiniband>::getServiceLocator()
+InfRcTransport::getServiceLocator()
 {
     return locatorString;
 }
@@ -815,9 +827,8 @@ InfRcTransport<Infiniband>::getServiceLocator()
  *      Name suitable for use in log messages on servers that we
  *      interact with.
  */
-template<typename Infiniband>
 void
-InfRcTransport<Infiniband>::setName(const char* debugName)
+InfRcTransport::setName(const char* debugName)
 {
     snprintf(name, sizeof(name), "%s", debugName);
 }
@@ -838,8 +849,7 @@ InfRcTransport<Infiniband>::setName(const char* debugName)
  * \param nonce
  *      Uniquely identifies this RPC.
  */
-template<typename Infiniband>
-InfRcTransport<Infiniband>::ServerRpc::ServerRpc(InfRcTransport* transport,
+InfRcTransport::ServerRpc::ServerRpc(InfRcTransport* transport,
                                                  QueuePair* qp,
                                                  uint64_t nonce)
     : transport(transport),
@@ -854,9 +864,8 @@ InfRcTransport<Infiniband>::ServerRpc::ServerRpc(InfRcTransport* transport,
  * Transmits are done using a copy into a pre-registered HCA buffer.
  * The function blocks until the HCA returns success or failure.
  */
-template<typename Infiniband>
 void
-InfRcTransport<Infiniband>::ServerRpc::sendReply()
+InfRcTransport::ServerRpc::sendReply()
 {
     CycleCounter<RawMetric> _(&metrics->transport.transmit.ticks);
     ++metrics->transport.transmit.messageCount;
@@ -894,9 +903,8 @@ InfRcTransport<Infiniband>::ServerRpc::sendReply()
 /**
  * Return the RPC source's (i.e. client's) address in string form.
  */
-template<typename Infiniband>
 string
-InfRcTransport<Infiniband>::ServerRpc::getClientServiceLocator()
+InfRcTransport::ServerRpc::getClientServiceLocator()
 {
     return format("infrc:host=%s,port=%hu",
         inet_ntoa(qp->handshakeSin.sin_addr), NTOHS(qp->handshakeSin.sin_port));
@@ -922,8 +930,7 @@ InfRcTransport<Infiniband>::ServerRpc::getClientServiceLocator()
  * \param notifier
  *      Used to notify wrappers when the RPC is finished.
  */
-template<typename Infiniband>
-InfRcTransport<Infiniband>::ClientRpc::ClientRpc(InfRcTransport* transport,
+InfRcTransport::ClientRpc::ClientRpc(InfRcTransport* transport,
                                      InfRcSession* session,
                                      Buffer* request,
                                      Buffer* response,
@@ -952,9 +959,8 @@ InfRcTransport<Infiniband>::ClientRpc::ClientRpc(InfRcTransport* transport,
  *      Buffer containing the RPC request which should be transmitted
  *      to the endpoint listening on #session.
  */
-template<typename Infiniband>
 void
-InfRcTransport<Infiniband>::ClientRpc::sendZeroCopy(Buffer* request)
+InfRcTransport::ClientRpc::sendZeroCopy(Buffer* request)
 {
     const bool allowZeroCopy = true;
     InfRcTransport* const t = transport;
@@ -1054,9 +1060,8 @@ InfRcTransport<Infiniband>::ClientRpc::sendZeroCopy(Buffer* request)
  * Send the RPC request out onto the network if there is a receive buffer
  * available for its response, or queue it for transmission otherwise.
  */
-template<typename Infiniband>
 void
-InfRcTransport<Infiniband>::ClientRpc::sendOrQueue()
+InfRcTransport::ClientRpc::sendOrQueue()
 {
     assert(state == PENDING);
     InfRcTransport* const t = transport;
@@ -1091,9 +1096,8 @@ InfRcTransport<Infiniband>::ClientRpc::sendOrQueue()
  *      True if we were able to do anything useful, false if there was
  *      no meaningful data.
  */
-template<typename Infiniband>
 void
-InfRcTransport<Infiniband>::Poller::poll()
+InfRcTransport::Poller::poll()
 {
     InfRcTransport* t = transport;
     ibv_wc wc;
@@ -1133,7 +1137,7 @@ InfRcTransport<Infiniband>::Poller::poll()
                                                  len, t, t->clientSrq, bd);
                 }
                 LOG(DEBUG, "Received %s response from %s with %u bytes",
-                        WireFormat::opcodeSymbol(*rpc.request),
+                        WireFormat::opcodeSymbol(rpc.request),
                         rpc.session->getServiceLocator().c_str(),
                         rpc.response->getTotalLength());
                 rpc.state = ClientRpc::RESPONSE_RECEIVED;
@@ -1241,9 +1245,8 @@ InfRcTransport<Infiniband>::Poller::poll()
  * \param bd
  *      The BufferDescriptor to return to the HCA on Buffer destruction.
  */
-template<typename Infiniband>
-typename InfRcTransport<Infiniband>::PayloadChunk*
-InfRcTransport<Infiniband>::PayloadChunk::prependToBuffer(Buffer* buffer,
+InfRcTransport::PayloadChunk*
+InfRcTransport::PayloadChunk::prependToBuffer(Buffer* buffer,
                                              char* data,
                                              uint32_t dataLength,
                                              InfRcTransport* transport,
@@ -1274,9 +1277,8 @@ InfRcTransport<Infiniband>::PayloadChunk::prependToBuffer(Buffer* buffer,
  * \param bd
  *      The BufferDescriptor to return to the HCA on Buffer destruction.
  */
-template<typename Infiniband>
-typename InfRcTransport<Infiniband>::PayloadChunk*
-InfRcTransport<Infiniband>::PayloadChunk::appendToBuffer(Buffer* buffer,
+InfRcTransport::PayloadChunk*
+InfRcTransport::PayloadChunk::appendToBuffer(Buffer* buffer,
                                             char* data,
                                             uint32_t dataLength,
                                             InfRcTransport* transport,
@@ -1290,8 +1292,7 @@ InfRcTransport<Infiniband>::PayloadChunk::appendToBuffer(Buffer* buffer,
 }
 
 /// Returns memory to the HCA once the Chunk is discarded.
-template<typename Infiniband>
-InfRcTransport<Infiniband>::PayloadChunk::~PayloadChunk()
+InfRcTransport::PayloadChunk::~PayloadChunk()
 {
     transport->postSrqReceiveAndKickTransmit(srq, bd);
 }
@@ -1312,8 +1313,7 @@ InfRcTransport<Infiniband>::PayloadChunk::~PayloadChunk()
  * \param bd
  *      The BufferDescriptor to return to the HCA on Buffer destruction.
  */
-template<typename Infiniband>
-InfRcTransport<Infiniband>::PayloadChunk::PayloadChunk(void* data,
+InfRcTransport::PayloadChunk::PayloadChunk(void* data,
                                           uint32_t dataLength,
                                           InfRcTransport *transport,
                                           ibv_srq* srq,
@@ -1325,8 +1325,6 @@ InfRcTransport<Infiniband>::PayloadChunk::PayloadChunk(void* data,
 {
 }
 
-template class InfRcTransport<RealInfiniband>;
-template<typename Infiniband> char InfRcTransport<Infiniband>::name[50]
-        = "?unknown?";
+char InfRcTransport::name[50] = "?unknown?";
 
 }  // namespace RAMCloud

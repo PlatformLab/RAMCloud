@@ -1197,9 +1197,11 @@ CoordinatorServerList::verifyServerFailure(ServerId serverId) {
 
     const string& serviceLocator = iget(serverId)->serviceLocator;
     PingRpc pingRpc(context, serverId, ServerId());
-    // TODO(ankitak): Replace 250 with deadServerTimeout that currently exists
-    // in CoordinatorService. Will have to move it here.
-    if (pingRpc.wait(250 * 1000 * 1000) != ~0UL) {
+
+    // TODO(ankitak): From CoordinatorService, add deadServerTimeout
+    // to context, and use it here as *context->deadServerTimeout
+    // instead of the first hard-coded value of 1000.
+    if (pingRpc.wait(1000 * 1000 * 1000)) {
         LOG(NOTICE, "False positive for server id %s (\"%s\")",
                     serverId.toString().c_str(), serviceLocator.c_str());
         return false;

@@ -26,12 +26,15 @@ namespace RAMCloud {
 
 // forward declarations
 class AbstractServerList;
+class BackupService;
 class CoordinatorServerList;
+class CoordinatorService;
 class CoordinatorSession;
 class Dispatch;
 class LogCabinHelper;
 class Logger;
 class MasterRecoveryManager;
+class MasterService;
 class MockContextMember;
 class ServiceManager;
 class SessionAlarmTimer;
@@ -83,6 +86,21 @@ class Context {
 
     // Variables below this point are used only in servers.  They are
     // always NULL on clients.
+
+    // Master-related information for this server. NULL if this process
+    // is not running a RAMCloud master. Owned elsewhere; not freed by this
+    // class.
+    MasterService* masterService;
+
+    // Backup-related information for this server. NULL if this process
+    // is not running a RAMCloud backup. Owned elsewhere; not freed by this
+    // class.
+    BackupService* backupService;
+
+    // Coordinator-related information for this server. NULL if this process
+    // is not running a RAMCloud coordinator. Owned elsewhere; not freed by
+    // this class.
+    CoordinatorService* coordinatorService;
 
     // The following variable is available on all servers (masters, backups,
     // coordinator). It provides facilities that are common to both ServerList

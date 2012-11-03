@@ -691,7 +691,7 @@ class ObjectTombstone {
         return sizeof32(SerializedForm) + keyLength;
     }
 
-  PRIVATE:
+  //PRIVATE:
     /**
      * This data structure defines the format of an object's tombstone stored
      * in a master server's log. When writing a tombstone, the fields below are

@@ -44,19 +44,19 @@ namespace RAMCloud {
  *      allocates.
  */
 SegmentManager::SegmentManager(Context* context,
-                               const ServerConfig& config,
+                               const ServerConfig* config,
                                ServerId& logId,
                                SegletAllocator& allocator,
                                ReplicaManager& replicaManager)
     : context(context),
-      segmentSize(config.segmentSize),
+      segmentSize(config->segmentSize),
       logId(logId),
       allocator(allocator),
       replicaManager(replicaManager),
       segletsPerSegment(segmentSize / allocator.getSegletSize()),
       maxSegments(static_cast<uint32_t>(static_cast<double>(
         allocator.getTotalCount() / segletsPerSegment)
-          * config.master.diskExpansionFactor)),
+          * config->master.diskExpansionFactor)),
       segments(NULL),
       states(NULL),
       freeEmergencyHeadSlots(),
@@ -78,7 +78,7 @@ SegmentManager::SegmentManager(Context* context,
     if ((segmentSize % allocator.getSegletSize()) != 0)
         throw SegmentManagerException(HERE, "segmentSize % segletSize != 0");
 
-    if (config.master.diskExpansionFactor < 1.0)
+    if (config->master.diskExpansionFactor < 1.0)
         throw SegmentManagerException(HERE, "diskExpansionFactor not >= 1.0");
 
     if (!allocator.initializeEmergencyHeadReserve(2 * segletsPerSegment))

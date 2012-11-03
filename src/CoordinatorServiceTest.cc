@@ -417,4 +417,11 @@ TEST_F(CoordinatorServiceTest, setMasterRecoveryInfo_noSuchServer) {
     EXPECT_EQ("STATUS_SERVER_NOT_UP", message);
 }
 
+TEST_F(CoordinatorServiceTest, verifyMembership) {
+    CoordinatorClient::verifyMembership(&context, masterServerId);
+    ServerId bogus(3, 2);
+    EXPECT_THROW(CoordinatorClient::verifyMembership(&context, bogus, false),
+                 CallerNotInClusterException);
+}
+
 }  // namespace RAMCloud

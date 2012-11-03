@@ -62,6 +62,7 @@ SHARED_SRCFILES := \
 		   src/MembershipClient.cc \
 		   src/MembershipService.cc \
 		   src/Memory.cc \
+		   src/MinCopysetsBackupSelector.cc \
 		   src/MultiRead.cc \
 		   src/MultiWrite.cc \
 		   src/MurmurHash3.cc \

@@ -43,7 +43,7 @@ class SessionAlarmTimer;
  */
 class SessionAlarm {
   public:
-    SessionAlarm(SessionAlarmTimer& timer, Transport::Session& session,
+    SessionAlarm(SessionAlarmTimer* timer, Transport::Session* session,
             int timeoutMs);
     ~SessionAlarm();
     void rpcStarted();
@@ -51,10 +51,10 @@ class SessionAlarm {
 
   PRIVATE:
     /// Session that this alarm is monitoring.
-    Transport::Session& session;
+    Transport::Session* session;
 
     /// Used to detect failures in this session.
-    SessionAlarmTimer& timer;
+    SessionAlarmTimer* timer;
 
     /// The index of the entry within timer->alarms that points to us.
     /// Meaningless if outstandingRpcs == 0.

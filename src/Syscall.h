@@ -72,6 +72,10 @@ class Syscall {
         return ::epoll_wait(epfd, events, maxEvents, timeout);
     }
     VIRTUAL_FOR_TESTING
+    void exit(int status) {
+        ::exit(status);
+    }
+    VIRTUAL_FOR_TESTING
     int fcntl(int fd, int cmd, int arg1) {
         return ::fcntl(fd, cmd, arg1);
     }

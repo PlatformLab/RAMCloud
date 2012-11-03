@@ -29,24 +29,24 @@ namespace RAMCloud {
 class PingService : public Service {
   public:
     explicit PingService(Context* context);
-    void dispatch(WireFormat::Opcode opcode, Rpc& rpc);
+    void dispatch(WireFormat::Opcode opcode, Rpc* rpc);
     virtual int maxThreads() {
         return 5;
     }
 
   PRIVATE:
-    void getMetrics(const WireFormat::GetMetrics::Request& reqHdr,
-              WireFormat::GetMetrics::Response& respHdr,
-              Rpc& rpc);
-    void ping(const WireFormat::Ping::Request& reqHdr,
-              WireFormat::Ping::Response& respHdr,
-              Rpc& rpc);
-    void proxyPing(const WireFormat::ProxyPing::Request& reqHdr,
-              WireFormat::ProxyPing::Response& respHdr,
-              Rpc& rpc);
-    void kill(const WireFormat::Kill::Request& reqHdr,
-               WireFormat::Kill::Response& respHdr,
-               Rpc& rpc);
+    void getMetrics(const WireFormat::GetMetrics::Request* reqHdr,
+              WireFormat::GetMetrics::Response* respHdr,
+              Rpc* rpc);
+    void ping(const WireFormat::Ping::Request* reqHdr,
+              WireFormat::Ping::Response* respHdr,
+              Rpc* rpc);
+    void proxyPing(const WireFormat::ProxyPing::Request* reqHdr,
+              WireFormat::ProxyPing::Response* respHdr,
+              Rpc* rpc);
+    void kill(const WireFormat::Kill::Request* reqHdr,
+               WireFormat::Kill::Response* respHdr,
+               Rpc* rpc);
 
     /// Shared RAMCloud information.
     Context* context;

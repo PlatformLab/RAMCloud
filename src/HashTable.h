@@ -19,7 +19,6 @@
 #include "Common.h"
 #include "BitOps.h"
 #include "CycleCounter.h"
-#include "Histogram.h"
 #include "LargeBlockOfMemory.h"
 #include "Memory.h"
 #include "MurmurHash3.h"
@@ -126,18 +125,12 @@ class HashTable {
         uint64_t lookupEntryHashCollisions;
 
         /**
-         * The distribution of CPU cycles spent for #lookupEntry() operations.
-         */
-        Histogram lookupEntryDist;
-
-        /**
          * Constructor for HashTable::PerfCounters.
          */
         PerfCounters()
             : replaceCalls(0), lookupEntryCalls(0), replaceCycles(0),
             lookupEntryCycles(0), insertChainsFollowed(0),
-            lookupEntryChainsFollowed(0), lookupEntryHashCollisions(0),
-            lookupEntryDist(5000, 10)
+            lookupEntryChainsFollowed(0), lookupEntryHashCollisions(0)
         {
         }
 
@@ -154,7 +147,6 @@ class HashTable {
             insertChainsFollowed = 0;
             lookupEntryChainsFollowed = 0;
             lookupEntryHashCollisions = 0;
-            lookupEntryDist.reset();
         }
     };
 
@@ -508,7 +500,6 @@ class HashTable {
                     // high probability this is the pointer we're looking for.
                     // To check, we must go to the object.
                     if (keyComparer.doesMatch(key, candidate->getReference())) {
-                        perfCounters.lookupEntryDist.storeSample(cycles.stop());
                         return candidate;
                     } else {
                         ++perfCounters.lookupEntryHashCollisions;
@@ -521,7 +512,6 @@ class HashTable {
             Entry* entry = &cl->entries[ENTRIES_PER_CACHE_LINE - 1];
             cl = entry->getChainPointer();
             if (cl == NULL) {
-                perfCounters.lookupEntryDist.storeSample(cycles.stop());
                 return NULL;
             }
             ++perfCounters.lookupEntryChainsFollowed;

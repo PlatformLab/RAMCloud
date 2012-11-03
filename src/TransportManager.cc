@@ -59,7 +59,7 @@ static struct FastInfUdTransportFactory : public TransportFactory {
     Transport* createTransport(Context* context,
             const ServiceLocator* localServiceLocator) {
         return new FastTransport(context,
-                new InfUdDriver<>(context, localServiceLocator, false));
+                new InfUdDriver(context, localServiceLocator, false));
     }
 } fastInfUdTransportFactory;
 
@@ -69,7 +69,7 @@ static struct FastInfEthTransportFactory : public TransportFactory {
     Transport* createTransport(Context* context,
             const ServiceLocator* localServiceLocator) {
         return new FastTransport(context,
-                new InfUdDriver<>(context, localServiceLocator, true));
+                new InfUdDriver(context, localServiceLocator, true));
     }
 } fastInfEthTransportFactory;
 
@@ -78,7 +78,7 @@ static struct InfRcTransportFactory : public TransportFactory {
         : TransportFactory("infinibandrc", "infrc") {}
     Transport* createTransport(Context* context,
             const ServiceLocator* localServiceLocator) {
-        return new InfRcTransport<>(context, localServiceLocator);
+        return new InfRcTransport(context, localServiceLocator);
     }
 } infRcTransportFactory;
 #endif

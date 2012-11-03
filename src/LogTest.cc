@@ -53,12 +53,12 @@ class LogTest : public ::testing::Test {
           serverId(ServerId(57, 0)),
           serverList(&context),
           serverConfig(ServerConfig::forTesting()),
-          replicaManager(&context, serverId, 0),
-          allocator(serverConfig),
-          segmentManager(&context, serverConfig, serverId,
+          replicaManager(&context, serverId, 0, false),
+          allocator(&serverConfig),
+          segmentManager(&context, &serverConfig, serverId,
                          allocator, replicaManager),
           entryHandlers(),
-          l(&context, serverConfig, entryHandlers,
+          l(&context, &serverConfig, entryHandlers,
             segmentManager, replicaManager)
     {
         l.sync();
@@ -69,10 +69,10 @@ class LogTest : public ::testing::Test {
 };
 
 TEST_F(LogTest, constructor) {
-    SegletAllocator allocator2(serverConfig);
-    SegmentManager segmentManager2(&context, serverConfig, serverId,
+    SegletAllocator allocator2(&serverConfig);
+    SegmentManager segmentManager2(&context, &serverConfig, serverId,
                                    allocator2, replicaManager);
-    Log l2(&context, serverConfig, entryHandlers,
+    Log l2(&context, &serverConfig, entryHandlers,
            segmentManager2, replicaManager);
     EXPECT_EQ(static_cast<LogSegment*>(NULL), l2.head);
 }

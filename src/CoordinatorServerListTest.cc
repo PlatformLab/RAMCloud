@@ -1689,6 +1689,8 @@ TEST_F(CoordinatorServerListTest, setMasterRecoveryInfo_complete_noSuchServer) {
 }
 
 TEST_F(CoordinatorServerListTest, verifyServerFailure) {
+    Lock lock(mutex);
+
     // Case 1: server up.
     enlistMaster();
     EXPECT_FALSE(sl->verifyServerFailure(masterServerId));
@@ -1696,7 +1698,8 @@ TEST_F(CoordinatorServerListTest, verifyServerFailure) {
     // Case 2: server incommunicado.
     MockTransport mockTransport(service->context);
     service->context->transportManager->registerMock(&mockTransport, "mock2");
-    ServerId deadId = sl->generateUniqueId();
+    ServerId deadId = sl->generateUniqueId(lock);
+
     sl->add(deadId, "mock2:", {WireFormat::PING_SERVICE}, 100);
     EXPECT_TRUE(sl->verifyServerFailure(deadId));
 }

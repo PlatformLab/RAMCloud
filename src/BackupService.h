@@ -39,43 +39,43 @@ namespace RAMCloud {
 class BackupService : public Service
                     , ServerTracker<void>::Callback {
   PUBLIC:
-    BackupService(Context* context, const ServerConfig& config);
+    BackupService(Context* context, const ServerConfig* config);
     virtual ~BackupService();
     void benchmark();
-    void dispatch(WireFormat::Opcode opcode, Rpc& rpc);
+    void dispatch(WireFormat::Opcode opcode, Rpc* rpc);
     ServerId getFormerServerId() const;
     ServerId getServerId() const;
     void init(ServerId id);
     uint32_t getReadSpeed() { return readSpeed; }
 
   PRIVATE:
-    void freeSegment(const WireFormat::BackupFree::Request& reqHdr,
-                     WireFormat::BackupFree::Response& respHdr,
-                     Rpc& rpc);
+    void freeSegment(const WireFormat::BackupFree::Request* reqHdr,
+                     WireFormat::BackupFree::Response* respHdr,
+                     Rpc* rpc);
     void getRecoveryData(
-        const WireFormat::BackupGetRecoveryData::Request& reqHdr,
-        WireFormat::BackupGetRecoveryData::Response& respHdr,
-        Rpc& rpc);
+        const WireFormat::BackupGetRecoveryData::Request* reqHdr,
+        WireFormat::BackupGetRecoveryData::Response* respHdr,
+        Rpc* rpc);
     void killAllStorage();
-    void quiesce(const WireFormat::BackupQuiesce::Request& reqHdr,
-                 WireFormat::BackupQuiesce::Response& respHdr,
-                 Rpc& rpc);
+    void quiesce(const WireFormat::BackupQuiesce::Request* reqHdr,
+                 WireFormat::BackupQuiesce::Response* respHdr,
+                 Rpc* rpc);
     void recoveryComplete(
-        const WireFormat::BackupRecoveryComplete::Request& reqHdr,
-        WireFormat::BackupRecoveryComplete::Response& respHdr,
-        Rpc& rpc);
+        const WireFormat::BackupRecoveryComplete::Request* reqHdr,
+        WireFormat::BackupRecoveryComplete::Response* respHdr,
+        Rpc* rpc);
     void restartFromStorage();
     void startReadingData(
-        const WireFormat::BackupStartReadingData::Request& reqHdr,
-        WireFormat::BackupStartReadingData::Response& respHdr,
-        Rpc& rpc);
+        const WireFormat::BackupStartReadingData::Request* reqHdr,
+        WireFormat::BackupStartReadingData::Response* respHdr,
+        Rpc* rpc);
     void startPartitioningReplicas(
-        const WireFormat::BackupStartPartitioningReplicas::Request& reqHdr,
-        WireFormat::BackupStartPartitioningReplicas::Response& respHdr,
-        Rpc& rpc);
-    void writeSegment(const WireFormat::BackupWrite::Request& req,
-                      WireFormat::BackupWrite::Response& resp,
-                      Rpc& rpc);
+        const WireFormat::BackupStartPartitioningReplicas::Request* reqHdr,
+        WireFormat::BackupStartPartitioningReplicas::Response* respHdr,
+        Rpc* rpc);
+    void writeSegment(const WireFormat::BackupWrite::Request* req,
+                      WireFormat::BackupWrite::Response* resp,
+                      Rpc* rpc);
     void gcMain();
     void trackerChangesEnqueued();
 
@@ -93,7 +93,7 @@ class BackupService : public Service
     typedef std::unique_lock<Mutex> Lock;
 
     /// Settings passed to the constructor
-    const ServerConfig& config;
+    const ServerConfig* config;
 
     /**
      * If the backup was formerly part of a cluster this was its server id.
@@ -170,6 +170,10 @@ class BackupService : public Service
 
     /// For testing; don't start gcThread when tracker changes are enqueued.
     bool testingDoNotStartGcThread;
+
+    /// Set during unit tests to skip the check that ensures the caller is
+    /// actually in the cluster.
+    bool testingSkipCallerIdCheck;
 
     /**
      * Executes enqueued tasks for replica garbage collection and master

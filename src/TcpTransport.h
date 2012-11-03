@@ -253,6 +253,7 @@ class TcpTransport : public Transport {
         virtual void abort();
         virtual void cancelRequest(RpcNotifier* notifier);
         Buffer* findRpc(Header& header);
+        virtual string getRpcInfo();
         void release() {
             delete this;
         }
@@ -265,7 +266,7 @@ class TcpTransport : public Transport {
             rpcsWaitingToSend(), bytesLeftToSend(0),
             rpcsWaitingForResponse(), current(NULL),
             message(), clientIoHandler(),
-            alarm(*transport.context->sessionAlarmTimer, *this, 0) { }
+            alarm(transport.context->sessionAlarmTimer, this, 0) { }
 #endif
         void close();
         static void tryReadReply(int fd, int16_t event, void *arg);

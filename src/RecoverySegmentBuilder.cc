@@ -92,13 +92,13 @@ RecoverySegmentBuilder::build(const void* buffer, uint32_t length,
             // Copy SAFEVERSION to all the partitions for
             // safeVersion recovery on all recovery masters
             Log::Position position(header->segmentId, it.getOffset());
-            LOG(NOTICE, "Copying SAFEVERSION ");
+            LOG(DEBUG, "Copying SAFEVERSION ");
             for (int i = 0; i < partitions.tablet_size(); i++) {
                 const ProtoBuf::Tablets::Tablet* partition =
                         &partitions.tablet(i);
 
                 if (!isEntryAlive(position, partition)) {
-                    LOG(NOTICE, "Skipping SAFEVERSION for partition "
+                    LOG(DEBUG, "Skipping SAFEVERSION for partition "
                         "%u because it appears to have existed prior.",
                         i);
                     continue;

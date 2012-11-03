@@ -28,7 +28,7 @@ class SegletTest : public ::testing::Test {
   public:
     SegletTest()
         : serverConfig(ServerConfig::forTesting()),
-          allocator(serverConfig),
+          allocator(&serverConfig),
           buf(new char[serverConfig.segletSize]),
           s(allocator, buf, sizeof(buf))
     {

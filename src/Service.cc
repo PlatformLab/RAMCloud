@@ -60,12 +60,12 @@ Service::Service()
  *      The string was not null-terminated or had zero length.
  */
 const char*
-Service::getString(Buffer& buffer, uint32_t offset, uint32_t length) {
+Service::getString(Buffer* buffer, uint32_t offset, uint32_t length) {
     const char* result;
     if (length == 0) {
         throw RequestFormatError(HERE);
     }
-    result = static_cast<const char*>(buffer.getRange(offset, length));
+    result = static_cast<const char*>(buffer->getRange(offset, length));
     if (result == NULL) {
         throw MessageTooShortError(HERE);
     }
@@ -92,9 +92,9 @@ Service::getString(Buffer& buffer, uint32_t offset, uint32_t length) {
  *      and/or append additional information to the response buffer.
  */
 void
-Service::ping(const WireFormat::Ping::Request& reqHdr,
-             WireFormat::Ping::Response& respHdr,
-             Rpc& rpc)
+Service::ping(const WireFormat::Ping::Request* reqHdr,
+             WireFormat::Ping::Response* respHdr,
+             Rpc* rpc)
 {
     // This method no longer serves any useful purpose (as of 6/2011) and
     // shouldn't get invoked except during tests.  It stays around mostly
@@ -106,7 +106,7 @@ Service::ping(const WireFormat::Ping::Request& reqHdr,
  * Dispatch an RPC to the right handler based on its opcode.
  */
 void
-Service::dispatch(WireFormat::Opcode opcode, Rpc& rpc)
+Service::dispatch(WireFormat::Opcode opcode, Rpc* rpc)
 {
     switch (opcode) {
         case WireFormat::Ping::opcode:
@@ -128,14 +128,14 @@ Service::dispatch(WireFormat::Opcode opcode, Rpc& rpc)
  *      An incoming RPC that is ready to be serviced.
  */
 void
-Service::handleRpc(Rpc& rpc) {
+Service::handleRpc(Rpc* rpc) {
     // This method takes care of things that are the same in all services,
     // such as keeping statistics. It then calls a service-specific dispatch
     // method to handle the details of performing the RPC.
     const WireFormat::RequestCommon* header;
-    header = rpc.requestPayload.getStart<WireFormat::RequestCommon>();
+    header = rpc->requestPayload->getStart<WireFormat::RequestCommon>();
     if (header == NULL) {
-        prepareErrorResponse(rpc.replyPayload, STATUS_MESSAGE_TOO_SHORT);
+        prepareErrorResponse(rpc->replyPayload, STATUS_MESSAGE_TOO_SHORT);
         return;
     }
 
@@ -149,7 +149,7 @@ Service::handleRpc(Rpc& rpc) {
     try {
         dispatch(WireFormat::Opcode(header->opcode), rpc);
     } catch (ClientException& e) {
-        prepareErrorResponse(rpc.replyPayload, e.status);
+        prepareErrorResponse(rpc->replyPayload, e.status);
     }
     (&metrics->rpc.rpc0Ticks)[opcode] += Cycles::rdtsc() - start;
 }
@@ -168,15 +168,15 @@ Service::handleRpc(Rpc& rpc) {
  *      The problem that caused the RPC to fail.
  */
 void
-Service::prepareErrorResponse(Buffer& replyPayload, Status status)
+Service::prepareErrorResponse(Buffer* replyPayload, Status status)
 {
     WireFormat::ResponseCommon* responseCommon =
         const_cast<WireFormat::ResponseCommon*>(
-        replyPayload.getStart<WireFormat::ResponseCommon>());
+        replyPayload->getStart<WireFormat::ResponseCommon>());
     if (responseCommon == NULL) {
         // Response is currently empty; add a header to it.
         responseCommon =
-            new(&replyPayload, APPEND) WireFormat::ResponseCommon;
+            new(replyPayload, APPEND) WireFormat::ResponseCommon;
     }
     responseCommon->status = status;
 }

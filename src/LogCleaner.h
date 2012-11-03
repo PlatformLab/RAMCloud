@@ -59,7 +59,7 @@ class ServerConfig;
 class LogCleaner {
   public:
     LogCleaner(Context* context,
-               const ServerConfig& config,
+               const ServerConfig* config,
                SegmentManager& segmentManager,
                ReplicaManager& replicaManager,
                LogEntryHandlers& entryHandlers);

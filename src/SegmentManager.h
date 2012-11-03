@@ -83,7 +83,7 @@ class SegmentManager {
     class Allocator;
 
     SegmentManager(Context* context,
-                   const ServerConfig& config,
+                   const ServerConfig* config,
                    ServerId& logId,
                    SegletAllocator& allocator,
                    ReplicaManager& replicaManager);

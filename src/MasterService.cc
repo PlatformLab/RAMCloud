@@ -103,11 +103,12 @@ MasterService::Replica::Replica(uint64_t backupId, uint64_t segmentId,
  *      this server.
  */
 MasterService::MasterService(Context* context,
-                             const ServerConfig& config)
+                             const ServerConfig* config)
     : context(context)
     , config(config)
     , bytesWritten(0)
-    , replicaManager(context, serverId, config.master.numReplicas)
+    , replicaManager(context, serverId, config->master.numReplicas,
+                     config->master.useMinCopysets)
     , allocator(config)
     , segmentManager(context, config, serverId,
                      allocator, replicaManager)
@@ -119,6 +120,7 @@ MasterService::MasterService(Context* context,
     , anyWrites(false)
     , objectUpdateLock()
     , maxMultiReadResponseSize(Transport::MAX_RPC_LEN)
+    , disableCount(0)
 {
 }
 
@@ -140,9 +142,17 @@ MasterService::~MasterService()
 }
 
 void
-MasterService::dispatch(WireFormat::Opcode opcode, Rpc& rpc)
+MasterService::dispatch(WireFormat::Opcode opcode, Rpc* rpc)
 {
     assert(initCalled);
+
+    if (disableCount  > 0) {
+        LOG(NOTICE, "requesting retry of %s request (master disable count %d)",
+                WireFormat::opcodeSymbol(opcode),
+                disableCount.load());
+        prepareErrorResponse(rpc->replyPayload, STATUS_RETRY);
+        return;
+    }
 
     std::lock_guard<SpinLock> lock(objectUpdateLock);
 
@@ -224,7 +234,8 @@ MasterService::dispatch(WireFormat::Opcode opcode, Rpc& rpc)
                         &MasterService::write>(rpc);
             break;
         default:
-            throw UnimplementedRequestError(HERE);
+            prepareErrorResponse(rpc->replyPayload,
+                                 STATUS_UNIMPLEMENTED_REQUEST);
     }
 }
 
@@ -244,11 +255,11 @@ MasterService::init(ServerId id)
 
     log = new Log(context, config, *this, segmentManager, replicaManager);
     keyComparer = new LogKeyComparer(*log);
-    objectMap = new HashTable(config.master.hashTableBytes /
+    objectMap = new HashTable(config->master.hashTableBytes /
         HashTable::bytesPerCacheLine(), *keyComparer);
     replicaManager.startFailureMonitor();
 
-    if (!config.master.disableLogCleaner)
+    if (!config->master.disableLogCleaner)
         log->enableCleaner();
 
     initCalled = true;
@@ -260,21 +271,21 @@ MasterService::init(ServerId id)
  * \copydetails Service::ping
  */
 void
-MasterService::enumerate(const WireFormat::Enumerate::Request& reqHdr,
-                           WireFormat::Enumerate::Response& respHdr,
-                           Rpc& rpc)
+MasterService::enumerate(const WireFormat::Enumerate::Request* reqHdr,
+                           WireFormat::Enumerate::Response* respHdr,
+                           Rpc* rpc)
 {
     bool validTablet = false;
     // In some cases, actualTabletStartHash may differ from
-    // reqHdr.tabletFirstHash, e.g. when a tablet is merged in between
+    // reqHdr->tabletFirstHash, e.g. when a tablet is merged in between
     // RPCs made to enumerate that tablet. If that happens, we must
-    // filter by reqHdr.tabletFirstHash, NOT the actualTabletStartHash
+    // filter by reqHdr->tabletFirstHash, NOT the actualTabletStartHash
     // for the tablet we own.
     uint64_t actualTabletStartHash = 0, actualTabletEndHash = 0;
     foreach (auto& tablet, tablets.tablet()) {
-        if (tablet.table_id() == reqHdr.tableId &&
-            tablet.start_key_hash() <= reqHdr.tabletFirstHash &&
-            reqHdr.tabletFirstHash <= tablet.end_key_hash()) {
+        if (tablet.table_id() == reqHdr->tableId &&
+            tablet.start_key_hash() <= reqHdr->tabletFirstHash &&
+            reqHdr->tabletFirstHash <= tablet.end_key_hash()) {
             validTablet = true;
             actualTabletStartHash = tablet.start_key_hash();
             actualTabletEndHash = tablet.end_key_hash();
@@ -282,30 +293,30 @@ MasterService::enumerate(const WireFormat::Enumerate::Request& reqHdr,
         }
     }
     if (!validTablet) {
-        respHdr.common.status = STATUS_UNKNOWN_TABLET;
+        respHdr->common.status = STATUS_UNKNOWN_TABLET;
         return;
     }
 
     EnumerationIterator iter(
-        rpc.requestPayload,
-        downCast<uint32_t>(sizeof(reqHdr)), reqHdr.iteratorBytes);
+        *rpc->requestPayload,
+        downCast<uint32_t>(sizeof(*reqHdr)), reqHdr->iteratorBytes);
 
     Buffer payload;
     // A rough upper bound on how much space will be available in the response.
     uint32_t maxPayloadBytes =
-            downCast<uint32_t>(Transport::MAX_RPC_LEN - sizeof(respHdr)
-                               - reqHdr.iteratorBytes);
-    Enumeration enumeration(reqHdr.tableId, reqHdr.tabletFirstHash,
+            downCast<uint32_t>(Transport::MAX_RPC_LEN - sizeof(*respHdr)
+                               - reqHdr->iteratorBytes);
+    Enumeration enumeration(reqHdr->tableId, reqHdr->tabletFirstHash,
                             actualTabletStartHash, actualTabletEndHash,
-                            &respHdr.tabletFirstHash, iter, *log, *objectMap,
-                            rpc.replyPayload, maxPayloadBytes);
+                            &respHdr->tabletFirstHash, iter, *log, *objectMap,
+                            *rpc->replyPayload, maxPayloadBytes);
     enumeration.complete();
-    respHdr.payloadBytes = rpc.replyPayload.getTotalLength()
-            - downCast<uint32_t>(sizeof(respHdr));
+    respHdr->payloadBytes = rpc->replyPayload->getTotalLength()
+            - downCast<uint32_t>(sizeof(*respHdr));
 
     // Add new iterator to the end of the response.
-    uint32_t iteratorBytes = iter.serialize(rpc.replyPayload);
-    respHdr.iteratorBytes = iteratorBytes;
+    uint32_t iteratorBytes = iter.serialize(*rpc->replyPayload);
+    respHdr->iteratorBytes = iteratorBytes;
 }
 
 /**
@@ -316,13 +327,13 @@ MasterService::enumerate(const WireFormat::Enumerate::Request& reqHdr,
  */
 void
 MasterService::getLogMetrics(
-    const WireFormat::GetLogMetrics::Request& reqHdr,
-    WireFormat::GetLogMetrics::Response& respHdr,
-    Rpc& rpc)
+    const WireFormat::GetLogMetrics::Request* reqHdr,
+    WireFormat::GetLogMetrics::Response* respHdr,
+    Rpc* rpc)
 {
     ProtoBuf::LogMetrics logMetrics;
     log->getMetrics(logMetrics);
-    respHdr.logMetricsLength = ProtoBuf::serializeToResponse(&rpc.replyPayload,
+    respHdr->logMetricsLength = ProtoBuf::serializeToResponse(rpc->replyPayload,
                                                              &logMetrics);
 }
 
@@ -342,12 +353,12 @@ MasterService::getLogMetrics(
  */
 void
 MasterService::fillWithTestData(
-    const WireFormat::FillWithTestData::Request& reqHdr,
-    WireFormat::FillWithTestData::Response& respHdr,
-    Rpc& rpc)
+    const WireFormat::FillWithTestData::Request* reqHdr,
+    WireFormat::FillWithTestData::Response* respHdr,
+    Rpc* rpc)
 {
     LOG(NOTICE, "Filling with %u objects of %u bytes each in %u tablets",
-        reqHdr.numObjects, reqHdr.objectSize, tablets.tablet_size());
+        reqHdr->numObjects, reqHdr->objectSize, tablets.tablet_size());
 
     TabletsOnMaster* tables[tablets.tablet_size()];
     uint32_t numTablets = 0;
@@ -367,15 +378,15 @@ MasterService::fillWithTestData(
     memset(&rejectRules, 0, sizeof(RejectRules));
     rejectRules.exists = 1;
 
-    for (uint32_t objects = 0; objects < reqHdr.numObjects; objects++) {
+    for (uint32_t objects = 0; objects < reqHdr->numObjects; objects++) {
         Buffer buffer;
 
         int t = objects % numTablets;
 
         // safe? doubtful. simple? you bet.
-        uint8_t data[reqHdr.objectSize];
-        memset(data, 0xcc, reqHdr.objectSize);
-        buffer.append(data, reqHdr.objectSize);
+        uint8_t data[reqHdr->objectSize];
+        memset(data, 0xcc, reqHdr->objectSize);
+        buffer.append(data, reqHdr->objectSize);
 
         string keyString = format("%d", objects / numTablets);
         Key key(tables[t]->getId(),
@@ -389,7 +400,7 @@ MasterService::fillWithTestData(
                                     &newVersion,
                                     false);
         if (status != STATUS_OK) {
-            respHdr.common.status = status;
+            respHdr->common.status = status;
             return;
         }
         if ((objects % 50) == 0) {
@@ -406,13 +417,13 @@ MasterService::fillWithTestData(
  * Top-level server method to handle the GET_HEAD_OF_LOG request.
  */
 void
-MasterService::getHeadOfLog(const WireFormat::GetHeadOfLog::Request& reqHdr,
-                            WireFormat::GetHeadOfLog::Response& respHdr,
-                            Rpc& rpc)
+MasterService::getHeadOfLog(const WireFormat::GetHeadOfLog::Request* reqHdr,
+                            WireFormat::GetHeadOfLog::Response* respHdr,
+                            Rpc* rpc)
 {
     Log::Position head = log->rollHeadOver();
-    respHdr.headSegmentId = head.getSegmentId();
-    respHdr.headSegmentOffset = head.getSegmentOffset();
+    respHdr->headSegmentId = head.getSegmentId();
+    respHdr->headSegmentOffset = head.getSegmentOffset();
 }
 
 /**
@@ -420,9 +431,9 @@ MasterService::getHeadOfLog(const WireFormat::GetHeadOfLog::Request& reqHdr,
  */
 void
 MasterService::getServerStatistics(
-    const WireFormat::GetServerStatistics::Request& reqHdr,
-    WireFormat::GetServerStatistics::Response& respHdr,
-    Rpc& rpc)
+    const WireFormat::GetServerStatistics::Request* reqHdr,
+    WireFormat::GetServerStatistics::Response* respHdr,
+    Rpc* rpc)
 {
     ProtoBuf::ServerStatistics serverStats;
 
@@ -432,7 +443,7 @@ MasterService::getServerStatistics(
         *serverStats.add_tabletentry() = table->statEntry;
     }
 
-    respHdr.serverStatsLength = serializeToResponse(&rpc.replyPayload,
+    respHdr->serverStatsLength = serializeToResponse(rpc->replyPayload,
                                                     &serverStats);
 }
 
@@ -456,15 +467,15 @@ MasterService::getServerStatistics(
  *      information to the response buffer.
  */
 void
-MasterService::multiRead(const WireFormat::MultiRead::Request& reqHdr,
-                         WireFormat::MultiRead::Response& respHdr,
-                         Rpc& rpc)
+MasterService::multiRead(const WireFormat::MultiRead::Request* reqHdr,
+                         WireFormat::MultiRead::Response* respHdr,
+                         Rpc* rpc)
 {
-    uint32_t numRequests = reqHdr.count;
-    uint32_t reqOffset = sizeof32(reqHdr);
+    uint32_t numRequests = reqHdr->count;
+    uint32_t reqOffset = sizeof32(*reqHdr);
 
-    respHdr.count = numRequests;
-    uint32_t oldResponseLength = rpc.replyPayload.getTotalLength();
+    respHdr->count = numRequests;
+    uint32_t oldResponseLength = rpc->replyPayload->getTotalLength();
 
     // Each iteration extracts one request from request rpc, finds the
     // corresponding object, and appends the response to the response rpc.
@@ -472,10 +483,10 @@ MasterService::multiRead(const WireFormat::MultiRead::Request& reqHdr,
         // If the RPC response has exceeded the legal limit, truncate it
         // to the last object that fits below the limit (the client will
         // retry the objects we don't return).
-        uint32_t newLength = rpc.replyPayload.getTotalLength();
+        uint32_t newLength = rpc->replyPayload->getTotalLength();
         if (newLength > maxMultiReadResponseSize) {
-            rpc.replyPayload.truncateEnd(newLength - oldResponseLength);
-            respHdr.count = i-1;
+            rpc->replyPayload->truncateEnd(newLength - oldResponseLength);
+            respHdr->count = i-1;
             break;
         } else {
             oldResponseLength = newLength;
@@ -489,15 +500,15 @@ MasterService::multiRead(const WireFormat::MultiRead::Request& reqHdr,
         }
 
         const WireFormat::MultiRead::Request::Part *currentReq =
-            rpc.requestPayload.getOffset<WireFormat::MultiRead::Request::Part>(
-            reqOffset);
+            rpc->requestPayload->getOffset<
+                WireFormat::MultiRead::Request::Part>(reqOffset);
         reqOffset += sizeof32(WireFormat::MultiRead::Request::Part);
-        const void* stringKey = rpc.requestPayload.getRange(
+        const void* stringKey = rpc->requestPayload->getRange(
             reqOffset, currentReq->keyLength);
         reqOffset += currentReq->keyLength;
         Key key(currentReq->tableId, stringKey, currentReq->keyLength);
 
-        Status* status = new(&rpc.replyPayload, APPEND) Status(STATUS_OK);
+        Status* status = new(rpc->replyPayload, APPEND) Status(STATUS_OK);
         // We must note the status if the table is not present here. Also,
         // we might have an entry in the hash table that's invalid because
         // its tablet no longer lives here.
@@ -516,13 +527,13 @@ MasterService::multiRead(const WireFormat::MultiRead::Request& reqHdr,
         }
 
         WireFormat::MultiRead::Response::Part* currentResp =
-            new(&rpc.replyPayload, APPEND)
+            new(rpc->replyPayload, APPEND)
                 WireFormat::MultiRead::Response::Part();
 
         Object object(buffer);
         currentResp->version = object.getVersion();
         currentResp->length = object.getDataLength();
-        object.appendDataToBuffer(rpc.replyPayload);
+        object.appendDataToBuffer(*rpc->replyPayload);
     }
 }
 
@@ -543,37 +554,37 @@ MasterService::multiRead(const WireFormat::MultiRead::Request& reqHdr,
  *      RejectRules to support conditional writes.
  */
 void
-MasterService::multiWrite(const WireFormat::MultiWrite::Request& reqHdr,
-                          WireFormat::MultiWrite::Response& respHdr,
-                          Rpc& rpc)
+MasterService::multiWrite(const WireFormat::MultiWrite::Request* reqHdr,
+                          WireFormat::MultiWrite::Response* respHdr,
+                          Rpc* rpc)
 {
-    uint32_t numRequests = reqHdr.count;
-    uint32_t reqOffset = sizeof32(reqHdr);
+    uint32_t numRequests = reqHdr->count;
+    uint32_t reqOffset = sizeof32(*reqHdr);
 
-    respHdr.count = numRequests;
+    respHdr->count = numRequests;
 
     // Each iteration extracts one request from the rpc, writes the object
     // if possible, and appends a status and version to the response buffer.
     for (uint32_t i = 0; i < numRequests; i++) {
         const WireFormat::MultiWrite::Request::Part *currentReq =
-            rpc.requestPayload.getOffset<WireFormat::MultiWrite::Request::Part>(
-            reqOffset);
+            rpc->requestPayload->getOffset<
+                WireFormat::MultiWrite::Request::Part>(reqOffset);
 
         if (currentReq == NULL) {
-            respHdr.common.status = STATUS_REQUEST_FORMAT_ERROR;
+            respHdr->common.status = STATUS_REQUEST_FORMAT_ERROR;
             break;
         }
 
         reqOffset += sizeof32(WireFormat::MultiWrite::Request::Part);
-        const void* stringKey = rpc.requestPayload.getRange(
+        const void* stringKey = rpc->requestPayload->getRange(
             reqOffset, currentReq->keyLength);
         reqOffset += currentReq->keyLength;
-        const void* value = rpc.requestPayload.getRange(
+        const void* value = rpc->requestPayload->getRange(
             reqOffset, currentReq->valueLength);
         reqOffset += currentReq->valueLength;
 
         if (stringKey == NULL || value == NULL) {
-            respHdr.common.status = STATUS_REQUEST_FORMAT_ERROR;
+            respHdr->common.status = STATUS_REQUEST_FORMAT_ERROR;
             break;
         }
 
@@ -582,7 +593,7 @@ MasterService::multiWrite(const WireFormat::MultiWrite::Request& reqHdr,
         buffer.append(value, currentReq->valueLength);
 
         WireFormat::MultiWrite::Response::Part* currentResp =
-            new(&rpc.replyPayload, APPEND)
+            new(rpc->replyPayload, APPEND)
                 WireFormat::MultiWrite::Response::Part();
 
         currentResp->status = storeObject(key,
@@ -594,7 +605,7 @@ MasterService::multiWrite(const WireFormat::MultiWrite::Request& reqHdr,
 
     // By design, our response will be shorter than the request. This ensures
     // that the response can go back in a single RPC.
-    assert(rpc.replyPayload.getTotalLength() <= Transport::MAX_RPC_LEN);
+    assert(rpc->replyPayload->getTotalLength() <= Transport::MAX_RPC_LEN);
 
     // All of the individual writes were done asynchronously. Sync the objects
     // now to propagate them in bulk to backups.
@@ -619,21 +630,21 @@ MasterService::multiWrite(const WireFormat::MultiWrite::Request& reqHdr,
  *      append additional information to the response buffer.
  */
 void
-MasterService::read(const WireFormat::Read::Request& reqHdr,
-                    WireFormat::Read::Response& respHdr,
-                    Rpc& rpc)
+MasterService::read(const WireFormat::Read::Request* reqHdr,
+                    WireFormat::Read::Response* respHdr,
+                    Rpc* rpc)
 {
-    uint32_t reqOffset = sizeof32(reqHdr);
-    const void* stringKey = rpc.requestPayload.getRange(reqOffset,
-                                                        reqHdr.keyLength);
-    Key key(reqHdr.tableId, stringKey, reqHdr.keyLength);
+    uint32_t reqOffset = sizeof32(*reqHdr);
+    const void* stringKey = rpc->requestPayload->getRange(reqOffset,
+                                                        reqHdr->keyLength);
+    Key key(reqHdr->tableId, stringKey, reqHdr->keyLength);
 
     // We must return table doesn't exist if the table does not exist. Also, we
     // might have an entry in the hash table that's invalid because its tablet
     // no longer lives here.
 
     if (getTable(key) == NULL) {
-        respHdr.common.status = STATUS_UNKNOWN_TABLET;
+        respHdr->common.status = STATUS_UNKNOWN_TABLET;
         return;
     }
 
@@ -642,20 +653,20 @@ MasterService::read(const WireFormat::Read::Request& reqHdr,
 
     bool found = lookup(key, type, buffer);
     if (!found || type != LOG_ENTRY_TYPE_OBJ) {
-        respHdr.common.status = STATUS_OBJECT_DOESNT_EXIST;
+        respHdr->common.status = STATUS_OBJECT_DOESNT_EXIST;
         return;
     }
 
     Object object(buffer);
-    respHdr.version = object.getVersion();
-    Status status = rejectOperation(reqHdr.rejectRules, object.getVersion());
+    respHdr->version = object.getVersion();
+    Status status = rejectOperation(reqHdr->rejectRules, object.getVersion());
     if (status != STATUS_OK) {
-        respHdr.common.status = status;
+        respHdr->common.status = status;
         return;
     }
 
-    respHdr.length = object.getDataLength();
-    object.appendDataToBuffer(rpc.replyPayload);
+    respHdr->length = object.getDataLength();
+    object.appendDataToBuffer(*rpc->replyPayload);
 
     // TODO(ongaro): We'll need a new type of Chunk to block the cleaner
     //               from scribbling over obj->data.
@@ -675,17 +686,17 @@ MasterService::read(const WireFormat::Read::Request& reqHdr,
  */
 void
 MasterService::dropTabletOwnership(
-    const WireFormat::DropTabletOwnership::Request& reqHdr,
-    WireFormat::DropTabletOwnership::Response& respHdr,
-    Rpc& rpc)
+    const WireFormat::DropTabletOwnership::Request* reqHdr,
+    WireFormat::DropTabletOwnership::Response* respHdr,
+    Rpc* rpc)
 {
     int index = 0;
     foreach (ProtoBuf::Tablets::Tablet& i, *tablets.mutable_tablet()) {
-        if (reqHdr.tableId == i.table_id() &&
-          reqHdr.firstKeyHash == i.start_key_hash() &&
-          reqHdr.lastKeyHash == i.end_key_hash()) {
+        if (reqHdr->tableId == i.table_id() &&
+          reqHdr->firstKeyHash == i.start_key_hash() &&
+          reqHdr->lastKeyHash == i.end_key_hash()) {
             LOG(NOTICE, "Dropping ownership of tablet (%lu, range [%lu,%lu])",
-                reqHdr.tableId, reqHdr.firstKeyHash, reqHdr.lastKeyHash);
+                reqHdr->tableId, reqHdr->firstKeyHash, reqHdr->lastKeyHash);
             TabletsOnMaster* table =
                     reinterpret_cast<TabletsOnMaster*>(i.user_data());
             delete table;
@@ -699,8 +710,9 @@ MasterService::dropTabletOwnership(
     }
 
     LOG(WARNING, "Could not drop ownership on unknown tablet (%lu, range "
-        "[%lu,%lu])!", reqHdr.tableId, reqHdr.firstKeyHash, reqHdr.lastKeyHash);
-    respHdr.common.status = STATUS_UNKNOWN_TABLET;
+        "[%lu,%lu])!", reqHdr->tableId, reqHdr->firstKeyHash,
+        reqHdr->lastKeyHash);
+    respHdr->common.status = STATUS_UNKNOWN_TABLET;
 }
 
 /**
@@ -714,39 +726,39 @@ MasterService::dropTabletOwnership(
  */
 void
 MasterService::splitMasterTablet(
-    const WireFormat::SplitMasterTablet::Request& reqHdr,
-    WireFormat::SplitMasterTablet::Response& respHdr,
-    Rpc& rpc)
+    const WireFormat::SplitMasterTablet::Request* reqHdr,
+    WireFormat::SplitMasterTablet::Response* respHdr,
+    Rpc* rpc)
 {
     ProtoBuf::Tablets_Tablet newTablet;
 
     foreach (ProtoBuf::Tablets::Tablet& i, *tablets.mutable_tablet()) {
-        if (reqHdr.tableId == i.table_id() &&
-          reqHdr.firstKeyHash == i.start_key_hash() &&
-          reqHdr.lastKeyHash == i.end_key_hash()) {
+        if (reqHdr->tableId == i.table_id() &&
+          reqHdr->firstKeyHash == i.start_key_hash() &&
+          reqHdr->lastKeyHash == i.end_key_hash()) {
 
             newTablet = i;
 
             TabletsOnMaster* newTable =
-                    new TabletsOnMaster(reqHdr.tableId, reqHdr.firstKeyHash,
-                              reqHdr.splitKeyHash - 1);
+                    new TabletsOnMaster(reqHdr->tableId, reqHdr->firstKeyHash,
+                                 reqHdr->splitKeyHash - 1);
             i.set_user_data(reinterpret_cast<uint64_t>(newTable));
-            i.set_end_key_hash(reqHdr.splitKeyHash - 1);
+            i.set_end_key_hash(reqHdr->splitKeyHash - 1);
         }
 
     }
 
-    newTablet.set_start_key_hash(reqHdr.splitKeyHash);
+    newTablet.set_start_key_hash(reqHdr->splitKeyHash);
     TabletsOnMaster* newTable =
-            new TabletsOnMaster(reqHdr.tableId, reqHdr.splitKeyHash,
-                                reqHdr.lastKeyHash);
+            new TabletsOnMaster(reqHdr->tableId, reqHdr->splitKeyHash,
+                                 reqHdr->lastKeyHash);
     newTablet.set_user_data(reinterpret_cast<uint64_t>(newTable));
 
     *tablets.add_tablet() = newTablet;
 
     LOG(NOTICE, "In table '%lu' I split the tablet that started at key %lu and "
-                "ended at key %lu", reqHdr.tableId, reqHdr.firstKeyHash,
-                reqHdr.lastKeyHash);
+                "ended at key %lu", reqHdr->tableId, reqHdr->firstKeyHash,
+                reqHdr->lastKeyHash);
 }
 
 /**
@@ -762,9 +774,9 @@ MasterService::splitMasterTablet(
  */
 void
 MasterService::takeTabletOwnership(
-    const WireFormat::TakeTabletOwnership::Request& reqHdr,
-    WireFormat::TakeTabletOwnership::Response& respHdr,
-    Rpc& rpc)
+    const WireFormat::TakeTabletOwnership::Request* reqHdr,
+    WireFormat::TakeTabletOwnership::Response* respHdr,
+    Rpc* rpc)
 {
     // Before any tablets can be assigned to this master it must have at
     // least one segment on backups, otherwise it is impossible to
@@ -778,9 +790,9 @@ MasterService::takeTabletOwnership(
 
     ProtoBuf::Tablets::Tablet* tablet = NULL;
     foreach (ProtoBuf::Tablets::Tablet& i, *tablets.mutable_tablet()) {
-        if (reqHdr.tableId == i.table_id() &&
-          reqHdr.firstKeyHash == i.start_key_hash() &&
-          reqHdr.lastKeyHash == i.end_key_hash()) {
+        if (reqHdr->tableId == i.table_id() &&
+          reqHdr->firstKeyHash == i.start_key_hash() &&
+          reqHdr->lastKeyHash == i.end_key_hash()) {
             tablet = &i;
             break;
        }
@@ -788,35 +800,35 @@ MasterService::takeTabletOwnership(
 
     if (tablet == NULL) {
         // Sanity check that this tablet doesn't overlap with an existing one.
-        if (getTableForHash(reqHdr.tableId, reqHdr.firstKeyHash) != NULL ||
-          getTableForHash(reqHdr.tableId, reqHdr.lastKeyHash) != NULL) {
+        if (getTableForHash(reqHdr->tableId, reqHdr->firstKeyHash) != NULL ||
+          getTableForHash(reqHdr->tableId, reqHdr->lastKeyHash) != NULL) {
             LOG(WARNING, "Tablet being assigned (%lu, range [%lu,%lu]) "
-                "partially overlaps an existing tablet!", reqHdr.tableId,
-                reqHdr.firstKeyHash, reqHdr.lastKeyHash);
+                "partially overlaps an existing tablet!", reqHdr->tableId,
+                reqHdr->firstKeyHash, reqHdr->lastKeyHash);
             // TODO(anybody): Do we want a more meaningful error code?
-            respHdr.common.status = STATUS_INTERNAL_ERROR;
+            respHdr->common.status = STATUS_INTERNAL_ERROR;
             return;
         }
 
         LOG(NOTICE, "Taking ownership of new tablet (%lu, range "
-            "[%lu,%lu])", reqHdr.tableId, reqHdr.firstKeyHash,
-            reqHdr.lastKeyHash);
+            "[%lu,%lu])", reqHdr->tableId, reqHdr->firstKeyHash,
+            reqHdr->lastKeyHash);
 
 
         ProtoBuf::Tablets_Tablet& newTablet(*tablets.add_tablet());
-        newTablet.set_table_id(reqHdr.tableId);
-        newTablet.set_start_key_hash(reqHdr.firstKeyHash);
-        newTablet.set_end_key_hash(reqHdr.lastKeyHash);
+        newTablet.set_table_id(reqHdr->tableId);
+        newTablet.set_start_key_hash(reqHdr->firstKeyHash);
+        newTablet.set_end_key_hash(reqHdr->lastKeyHash);
         newTablet.set_state(ProtoBuf::Tablets_Tablet_State_NORMAL);
 
         TabletsOnMaster* table =
-                new TabletsOnMaster(reqHdr.tableId, reqHdr.firstKeyHash,
-                                    reqHdr.lastKeyHash);
+                new TabletsOnMaster(reqHdr->tableId, reqHdr->firstKeyHash,
+                                    reqHdr->lastKeyHash);
         newTablet.set_user_data(reinterpret_cast<uint64_t>(table));
     } else {
         LOG(NOTICE, "Taking ownership of existing tablet (%lu, range "
-            "[%lu,%lu]) in state %d", reqHdr.tableId, reqHdr.firstKeyHash,
-            reqHdr.lastKeyHash, tablet->state());
+            "[%lu,%lu]) in state %d", reqHdr->tableId, reqHdr->firstKeyHash,
+            reqHdr->lastKeyHash, tablet->state());
 
         if (tablet->state() != ProtoBuf::Tablets_Tablet_State_RECOVERING) {
             LOG(WARNING, "Taking ownership when existing tablet is in "
@@ -842,41 +854,41 @@ MasterService::takeTabletOwnership(
  */
 void
 MasterService::prepForMigration(
-    const WireFormat::PrepForMigration::Request& reqHdr,
-    WireFormat::PrepForMigration::Response& respHdr,
-    Rpc& rpc)
+    const WireFormat::PrepForMigration::Request* reqHdr,
+    WireFormat::PrepForMigration::Response* respHdr,
+    Rpc* rpc)
 {
     // Decide if we want to decline this request.
 
     // Ensure that there's no tablet overlap, just in case.
     bool overlap =
-        (getTableForHash(reqHdr.tableId, reqHdr.firstKeyHash) != NULL ||
-         getTableForHash(reqHdr.tableId, reqHdr.lastKeyHash) != NULL);
+        (getTableForHash(reqHdr->tableId, reqHdr->firstKeyHash) != NULL ||
+         getTableForHash(reqHdr->tableId, reqHdr->lastKeyHash) != NULL);
     if (overlap) {
         LOG(WARNING, "already have tablet in range [%lu, %lu] for tableId %lu",
-            reqHdr.firstKeyHash, reqHdr.lastKeyHash, reqHdr.tableId);
-        respHdr.common.status = STATUS_OBJECT_EXISTS;
+            reqHdr->firstKeyHash, reqHdr->lastKeyHash, reqHdr->tableId);
+        respHdr->common.status = STATUS_OBJECT_EXISTS;
         return;
     }
 
     // Add the tablet to our map and mark it as RECOVERING so that no requests
     // are served on it.
     ProtoBuf::Tablets_Tablet& tablet(*tablets.add_tablet());
-    tablet.set_table_id(reqHdr.tableId);
-    tablet.set_start_key_hash(reqHdr.firstKeyHash);
-    tablet.set_end_key_hash(reqHdr.lastKeyHash);
+    tablet.set_table_id(reqHdr->tableId);
+    tablet.set_start_key_hash(reqHdr->firstKeyHash);
+    tablet.set_end_key_hash(reqHdr->lastKeyHash);
     tablet.set_state(ProtoBuf::Tablets_Tablet_State_RECOVERING);
 
     TabletsOnMaster* table =
-            new TabletsOnMaster(reqHdr.tableId, reqHdr.firstKeyHash,
-                                reqHdr.lastKeyHash);
+            new TabletsOnMaster(reqHdr->tableId, reqHdr->firstKeyHash,
+                                reqHdr->lastKeyHash);
     tablet.set_user_data(reinterpret_cast<uint64_t>(table));
 
     // TODO(rumble) would be nice to have a method to get a SL from an Rpc
     // object.
     LOG(NOTICE, "Ready to receive tablet from \"??\". Table %lu, "
-        "range [%lu,%lu]", reqHdr.tableId, reqHdr.firstKeyHash,
-        reqHdr.lastKeyHash);
+        "range [%lu,%lu]", reqHdr->tableId, reqHdr->firstKeyHash,
+        reqHdr->lastKeyHash);
 }
 
 /**
@@ -888,14 +900,14 @@ MasterService::prepForMigration(
  * \copydetails Service::ping
  */
 void
-MasterService::migrateTablet(const WireFormat::MigrateTablet::Request& reqHdr,
-                             WireFormat::MigrateTablet::Response& respHdr,
-                             Rpc& rpc)
+MasterService::migrateTablet(const WireFormat::MigrateTablet::Request* reqHdr,
+                             WireFormat::MigrateTablet::Response* respHdr,
+                             Rpc* rpc)
 {
-    uint64_t tableId = reqHdr.tableId;
-    uint64_t firstKeyHash = reqHdr.firstKeyHash;
-    uint64_t lastKeyHash = reqHdr.lastKeyHash;
-    ServerId newOwnerMasterId(reqHdr.newOwnerMasterId);
+    uint64_t tableId = reqHdr->tableId;
+    uint64_t firstKeyHash = reqHdr->firstKeyHash;
+    uint64_t lastKeyHash = reqHdr->lastKeyHash;
+    ServerId newOwnerMasterId(reqHdr->newOwnerMasterId);
 
     // Find the tablet we're trying to move. We only support migration
     // when the tablet to be migrated consists of a range within a single,
@@ -916,13 +928,13 @@ MasterService::migrateTablet(const WireFormat::MigrateTablet::Request& reqHdr,
         LOG(WARNING, "Migration request for range this master does not "
             "own. TableId %lu, range [%lu,%lu]",
             tableId, firstKeyHash, lastKeyHash);
-        respHdr.common.status = STATUS_UNKNOWN_TABLET;
+        respHdr->common.status = STATUS_UNKNOWN_TABLET;
         return;
     }
 
     if (newOwnerMasterId == serverId) {
         LOG(WARNING, "Migrating to myself doesn't make much sense");
-        respHdr.common.status = STATUS_REQUEST_FORMAT_ERROR;
+        respHdr->common.status = STATUS_REQUEST_FORMAT_ERROR;
         return;
     }
 
@@ -1023,7 +1035,7 @@ MasterService::migrateTablet(const WireFormat::MigrateTablet::Request& reqHdr,
                 LOG(ERROR, "Tablet migration failed: could not fit object "
                     "into empty segment (obj bytes %u)",
                     buffer.getTotalLength());
-                respHdr.common.status = STATUS_INTERNAL_ERROR;
+                respHdr->common.status = STATUS_INTERNAL_ERROR;
                 return;
             }
         }
@@ -1065,13 +1077,13 @@ MasterService::migrateTablet(const WireFormat::MigrateTablet::Request& reqHdr,
  */
 void
 MasterService::receiveMigrationData(
-    const WireFormat::ReceiveMigrationData::Request& reqHdr,
-    WireFormat::ReceiveMigrationData::Response& respHdr,
-    Rpc& rpc)
+    const WireFormat::ReceiveMigrationData::Request* reqHdr,
+    WireFormat::ReceiveMigrationData::Response* respHdr,
+    Rpc* rpc)
 {
-    uint64_t tableId = reqHdr.tableId;
-    uint64_t firstKeyHash = reqHdr.firstKeyHash;
-    uint32_t segmentBytes = reqHdr.segmentBytes;
+    uint64_t tableId = reqHdr->tableId;
+    uint64_t firstKeyHash = reqHdr->firstKeyHash;
+    uint32_t segmentBytes = reqHdr->segmentBytes;
 
     // TODO(rumble/slaughter) need to make sure we already have a table
     // created that was previously prepped for migration.
@@ -1086,7 +1098,7 @@ MasterService::receiveMigrationData(
     if (tablet == NULL) {
         LOG(WARNING, "migration data received for unknown tablet %lu, "
             "firstKeyHash %lu", tableId, firstKeyHash);
-        respHdr.common.status = STATUS_UNKNOWN_TABLET;
+        respHdr->common.status = STATUS_UNKNOWN_TABLET;
         return;
     }
 
@@ -1095,23 +1107,23 @@ MasterService::receiveMigrationData(
             "RECOVERING state (state = %s)!",
             ProtoBuf::Tablets_Tablet_State_Name(tablet->state()).c_str());
         // TODO(rumble/slaughter): better error code here?
-        respHdr.common.status = STATUS_INTERNAL_ERROR;
+        respHdr->common.status = STATUS_INTERNAL_ERROR;
         return;
     }
 
     LOG(NOTICE, "RECEIVED MIGRATION DATA (tbl %lu, fk %lu, bytes %u)!\n",
         tableId, firstKeyHash, segmentBytes);
 
-    Segment::Certificate certificate = reqHdr.certificate;
-    rpc.requestPayload.truncateFront(sizeof(reqHdr));
-    if (rpc.requestPayload.getTotalLength() != segmentBytes) {
+    Segment::Certificate certificate = reqHdr->certificate;
+    rpc->requestPayload->truncateFront(sizeof(*reqHdr));
+    if (rpc->requestPayload->getTotalLength() != segmentBytes) {
         LOG(ERROR, "RPC size (%u) does not match advertised length (%u)",
-            rpc.requestPayload.getTotalLength(),
+            rpc->requestPayload->getTotalLength(),
             segmentBytes);
-        respHdr.common.status = STATUS_REQUEST_FORMAT_ERROR;
+        respHdr->common.status = STATUS_REQUEST_FORMAT_ERROR;
         return;
     }
-    const void* segmentMemory = rpc.requestPayload.getStart<const void*>();
+    const void* segmentMemory = rpc->requestPayload->getStart<const void*>();
     SegmentIterator it(segmentMemory, segmentBytes, certificate);
     it.checkMetadataIntegrity();
     recoverSegment(it);
@@ -1729,31 +1741,32 @@ MasterService::purgeObjectsFromUnknownTablets()
  * \copydetails Service::ping
  */
 void
-MasterService::recover(const WireFormat::Recover::Request& reqHdr,
-                       WireFormat::Recover::Response& respHdr,
-                       Rpc& rpc)
+MasterService::recover(const WireFormat::Recover::Request* reqHdr,
+                       WireFormat::Recover::Response* respHdr,
+                       Rpc* rpc)
 {
     ReplicatedSegment::recoveryStart = Cycles::rdtsc();
     CycleCounter<RawMetric> recoveryTicks(&metrics->master.recoveryTicks);
     metrics->master.recoveryCount++;
     metrics->master.replicas = replicaManager.numReplicas;
 
-    uint64_t recoveryId = reqHdr.recoveryId;
-    ServerId crashedServerId(reqHdr.crashedServerId);
-    uint64_t partitionId = reqHdr.partitionId;
+    uint64_t recoveryId = reqHdr->recoveryId;
+    ServerId crashedServerId(reqHdr->crashedServerId);
+    uint64_t partitionId = reqHdr->partitionId;
     if (partitionId == ~0u)
         DIE("Recovery master %s got super secret partition id; killing self.",
             serverId.toString().c_str());
     ProtoBuf::Tablets recoveryTablets;
-    ProtoBuf::parseFromResponse(&rpc.requestPayload, sizeof(reqHdr),
-                                reqHdr.tabletsLength, &recoveryTablets);
+    ProtoBuf::parseFromResponse(rpc->requestPayload, sizeof(*reqHdr),
+                                reqHdr->tabletsLength, &recoveryTablets);
 
-    uint32_t offset = sizeof32(reqHdr) + reqHdr.tabletsLength;
+    uint32_t offset = sizeof32(*reqHdr) + reqHdr->tabletsLength;
     vector<Replica> replicas;
-    replicas.reserve(reqHdr.numReplicas);
-    for (uint32_t i = 0; i < reqHdr.numReplicas; ++i) {
+    replicas.reserve(reqHdr->numReplicas);
+    for (uint32_t i = 0; i < reqHdr->numReplicas; ++i) {
         const WireFormat::Recover::Replica* replicaLocation =
-            rpc.requestPayload.getOffset<WireFormat::Recover::Replica>(offset);
+            rpc->requestPayload->getOffset<WireFormat::Recover::Replica>(
+            offset);
         offset += sizeof32(WireFormat::Recover::Replica);
         Replica replica(replicaLocation->backupId,
                         replicaLocation->segmentId);
@@ -1764,7 +1777,7 @@ MasterService::recover(const WireFormat::Recover::Request& reqHdr,
         "partitions:\n%s",
         recoveryId, crashedServerId.toString().c_str(), partitionId,
         recoveryTablets.DebugString().c_str());
-    rpc.sendReply();
+    rpc->sendReply();
 
     // reqHdr, respHdr, and rpc are off-limits now
 
@@ -1811,14 +1824,14 @@ MasterService::recover(const WireFormat::Recover::Request& reqHdr,
              *recoveryTablets.mutable_tablet()) {
         LOG(NOTICE, "set tablet %lu %lu %lu to locator %s, id %s",
                  tablet.table_id(), tablet.start_key_hash(),
-                 tablet.end_key_hash(), config.localLocator.c_str(),
+                 tablet.end_key_hash(), config->localLocator.c_str(),
                  serverId.toString().c_str());
-        tablet.set_service_locator(config.localLocator);
+        tablet.set_service_locator(config->localLocator);
         tablet.set_server_id(serverId.getId());
         tablet.set_ctime_log_head_id(headOfLog.getSegmentId());
         tablet.set_ctime_log_head_offset(headOfLog.getSegmentOffset());
     }
-    LOG(NOTICE, "Reporting completion of recovery %lu", reqHdr.recoveryId);
+    LOG(NOTICE, "Reporting completion of recovery %lu", reqHdr->recoveryId);
     CoordinatorClient::recoveryMasterFinished(context, recoveryId,
                                               serverId, &recoveryTablets,
                                               successful);
@@ -1859,6 +1872,36 @@ MasterService::recover(const WireFormat::Recover::Request& reqHdr,
 }
 
 /**
+ * This method is used by recoverSegment() to prefetch the hash table bucket
+ * corresponding to the next piece of recovery data being iterated over.
+ * Doing so avoids a cache miss for subsequent hash table lookups and speeds
+ * up recovery.
+ *
+ * \param it
+ *      SegmentIterator to use for prefetching. Whatever is currently pointed
+ *      to by this iterator will be used to prefetch, if possible. Some entries
+ *      do not contain keys; they are safely ignored.
+ */
+inline void
+MasterService::recoverSegmentPrefetcher(SegmentIterator& it)
+{
+    if (__builtin_expect(it.isDone(), false))
+        return;
+
+    if (__builtin_expect(it.getType() == LOG_ENTRY_TYPE_OBJ, true)) {
+        const Object::SerializedForm* obj =
+            it.getContiguous<Object::SerializedForm>(NULL, 0);
+        Key key(obj->tableId, obj->keyAndData, obj->keyLength);
+        objectMap->prefetchBucket(key);
+    } else if (it.getType() == LOG_ENTRY_TYPE_OBJTOMB) {
+        const ObjectTombstone::SerializedForm* tomb =
+            it.getContiguous<ObjectTombstone::SerializedForm>(NULL, 0);
+        Key key(tomb->tableId, tomb->key, tomb->keyLength);
+        objectMap->prefetchBucket(key);
+    }
+}
+
+/**
  * Replay a recovery segment from a crashed Master that this Master is taking
  * over for.
  *
@@ -1874,8 +1917,30 @@ MasterService::recoverSegment(SegmentIterator& it)
         metrics->master.replicationPostingWriteRpcTicks;
     CycleCounter<RawMetric> _(&metrics->master.recoverSegmentTicks);
 
+    // Metrics can be very expense (they're atomic operations), so we aggregate
+    // as much as we can in local variables and update the counters once at the
+    // end of this method.
+    uint64_t verifyChecksumTicks = 0;
+    uint64_t segmentAppendTicks = 0;
+    uint64_t recoverySegmentEntryCount = 0;
+    uint64_t recoverySegmentEntryBytes = 0;
+    uint64_t objectAppendCount = 0;
+    uint64_t tombstoneAppendCount = 0;
+    uint64_t liveObjectCount = 0;
+    uint64_t liveObjectBytes = 0;
+    uint64_t objectDiscardCount = 0;
+    uint64_t tombstoneDiscardCount = 0;
+    uint64_t safeVersionRecoveryCount = 0;
+    uint64_t safeVersionNonRecoveryCount = 0;
+
+    SegmentIterator prefetcher = it;
+    prefetcher.next();
+
     uint64_t bytesIterated = 0;
-    while (!it.isDone()) {
+    while (__builtin_expect(!it.isDone(), true)) {
+        recoverSegmentPrefetcher(prefetcher);
+        prefetcher.next();
+
         LogEntryType type = it.getType();
 
         if (bytesIterated > 50000) {
@@ -1884,10 +1949,10 @@ MasterService::recoverSegment(SegmentIterator& it)
         }
         bytesIterated += it.getLength();
 
-        metrics->master.recoverySegmentEntryCount++;
-        metrics->master.recoverySegmentEntryBytes += it.getLength();
+        recoverySegmentEntryCount++;
+        recoverySegmentEntryBytes += it.getLength();
 
-        if (type == LOG_ENTRY_TYPE_OBJ) {
+        if (__builtin_expect(type == LOG_ENTRY_TYPE_OBJ, true)) {
             // The recovery segment is guaranteed to be contiguous, so we need
             // not provide a copyout buffer.
             const Object::SerializedForm* recoveryObj =
@@ -1897,11 +1962,11 @@ MasterService::recoverSegment(SegmentIterator& it)
                     recoveryObj->keyLength);
 
             bool checksumIsValid = ({
-                CycleCounter<RawMetric> c(&metrics->master.verifyChecksumTicks);
+                CycleCounter<uint64_t> c(&verifyChecksumTicks);
                 Object::computeChecksum(recoveryObj, it.getLength()) ==
                     recoveryObj->checksum;
             });
-            if (!checksumIsValid) {
+            if (__builtin_expect(!checksumIsValid, false)) {
                 LOG(WARNING, "bad object checksum! key: %s, version: %lu",
                     key.toString().c_str(), recoveryObj->version);
                 // TODO(Stutsman): Should throw and try another segment replica?
@@ -1932,8 +1997,7 @@ MasterService::recoverSegment(SegmentIterator& it)
                 // write to log (with lazy backup flush) & update hash table
                 Log::Reference newObjReference;
                 {
-                    CycleCounter<RawMetric>
-                        _(&metrics->master.segmentAppendTicks);
+                    CycleCounter<uint64_t> _(&segmentAppendTicks);
                     log->append(LOG_ENTRY_TYPE_OBJ,
                                 recoveryObj->timestamp,
                                 recoveryObj,
@@ -1945,8 +2009,8 @@ MasterService::recoverSegment(SegmentIterator& it)
                 //      exception here just cause the master to try another
                 //      backup?
 
-                ++metrics->master.objectAppendCount;
-                metrics->master.liveObjectBytes += it.getLength();
+                objectAppendCount++;
+                liveObjectBytes += it.getLength();
 
                 objectMap->replace(key, newObjReference.toInteger());
 
@@ -1954,14 +2018,13 @@ MasterService::recoverSegment(SegmentIterator& it)
                 // TODO(steve): put tombstones in the HT and have this free them
                 //              as well
                 if (freeCurrentEntry) {
-                    metrics->master.liveObjectBytes -=
-                        currentBuffer.getTotalLength();
+                    liveObjectBytes -= currentBuffer.getTotalLength();
                     log->free(currentReference);
                 } else {
-                    ++metrics->master.liveObjectCount;
+                    liveObjectCount++;
                 }
             } else {
-                ++metrics->master.objectDiscardCount;
+                objectDiscardCount++;
             }
         } else if (type == LOG_ENTRY_TYPE_OBJTOMB) {
             Buffer buffer;
@@ -1970,10 +2033,10 @@ MasterService::recoverSegment(SegmentIterator& it)
 
             ObjectTombstone recoverTomb(buffer);
             bool checksumIsValid = ({
-                CycleCounter<RawMetric> c(&metrics->master.verifyChecksumTicks);
+                CycleCounter<uint64_t> c(&verifyChecksumTicks);
                 recoverTomb.checkIntegrity();
             });
-            if (!checksumIsValid) {
+            if (__builtin_expect(!checksumIsValid, false)) {
                 LOG(WARNING, "bad tombstone checksum! key: %s, version: %lu",
                     key.toString().c_str(), recoverTomb.getObjectVersion());
                 // TODO(Stutsman): Should throw and try another segment replica?
@@ -1997,11 +2060,10 @@ MasterService::recoverSegment(SegmentIterator& it)
             }
 
             if (recoverTomb.getObjectVersion() >= minSuccessor) {
-                ++metrics->master.tombstoneAppendCount;
+                tombstoneAppendCount++;
                 Log::Reference newTombReference;
                 {
-                    CycleCounter<RawMetric>
-                        _(&metrics->master.segmentAppendTicks);
+                    CycleCounter<uint64_t> _(&segmentAppendTicks);
                     log->append(LOG_ENTRY_TYPE_OBJTOMB,
                                 recoverTomb.getTimestamp(),
                                 buffer,
@@ -2014,13 +2076,12 @@ MasterService::recoverSegment(SegmentIterator& it)
 
                 // nuke the object, if it existed
                 if (freeCurrentEntry) {
-                    --metrics->master.liveObjectCount;
-                    metrics->master.liveObjectBytes -=
-                        currentBuffer.getTotalLength();
+                    liveObjectCount++;
+                    liveObjectBytes -= currentBuffer.getTotalLength();
                     log->free(currentReference);
                 }
             } else {
-                ++metrics->master.tombstoneDiscardCount;
+                tombstoneDiscardCount++;
             }
         } else if (type == LOG_ENTRY_TYPE_SAFEVERSION) {
             // LOG_ENTRY_TYPE_SAFEVERSION is duplicated to all the
@@ -2032,10 +2093,10 @@ MasterService::recoverSegment(SegmentIterator& it)
             uint64_t safeVersion = recoverSafeVer.getSafeVersion();
 
             bool checksumIsValid = ({
-                CycleCounter<RawMetric> _(&metrics->master.verifyChecksumTicks);
+                CycleCounter<uint64_t> _(&verifyChecksumTicks);
                 recoverSafeVer.checkIntegrity();
             });
-            if (!checksumIsValid) {
+            if (__builtin_expect(!checksumIsValid, false)) {
                 LOG(WARNING, "bad objectSafeVer checksum! version: %lu",
                     safeVersion);
                 // TODO(Stutsman): Should throw and try another segment replica?
@@ -2045,28 +2106,41 @@ MasterService::recoverSegment(SegmentIterator& it)
             // Sync can be delayed, because recovery can be replayed
             // with the same backup data when the recovery crashes on the way.
             {
-                CycleCounter<RawMetric> _(&metrics->master.segmentAppendTicks);
+                CycleCounter<uint64_t> _(&segmentAppendTicks);
                 log->append(LOG_ENTRY_TYPE_SAFEVERSION, 0, buffer);
             }
 
             // recover segmentManager.safeVersion (Master safeVersion)
             if (segmentManager.raiseSafeVersion(safeVersion)) {
                 // true if log.safeVersion is revised.
-                ++metrics->master.safeVersionRecoveryCount;
-                LOG(NOTICE, "SAFEVERSION %lu recovered", safeVersion);
+                safeVersionRecoveryCount++;
+                LOG(DEBUG, "SAFEVERSION %lu recovered", safeVersion);
             } else {
-                ++metrics->master.safeVersionNonRecoveryCount;
-                LOG(NOTICE, "SAFEVERSION %lu discarded", safeVersion);
+                safeVersionNonRecoveryCount++;
+                LOG(DEBUG, "SAFEVERSION %lu discarded", safeVersion);
             }
         }
 
         it.next();
     }
+
     metrics->master.backupInRecoverTicks +=
         metrics->master.replicaManagerTicks - startReplicationTicks;
     metrics->master.recoverSegmentPostingWriteRpcTicks +=
         metrics->master.replicationPostingWriteRpcTicks -
         startReplicationPostingWriteRpcTicks;
+    metrics->master.verifyChecksumTicks += verifyChecksumTicks;
+    metrics->master.segmentAppendTicks += segmentAppendTicks;
+    metrics->master.recoverySegmentEntryCount += recoverySegmentEntryCount;
+    metrics->master.recoverySegmentEntryBytes += recoverySegmentEntryBytes;
+    metrics->master.objectAppendCount += objectAppendCount;
+    metrics->master.tombstoneAppendCount += tombstoneAppendCount;
+    metrics->master.liveObjectCount += liveObjectCount;
+    metrics->master.liveObjectBytes += liveObjectBytes;
+    metrics->master.objectDiscardCount += objectDiscardCount;
+    metrics->master.tombstoneDiscardCount += tombstoneDiscardCount;
+    metrics->master.safeVersionRecoveryCount += safeVersionRecoveryCount;
+    metrics->master.safeVersionNonRecoveryCount += safeVersionNonRecoveryCount;
 }
 
 /**
@@ -2075,17 +2149,17 @@ MasterService::recoverSegment(SegmentIterator& it)
  * \copydetails MasterService::read
  */
 void
-MasterService::remove(const WireFormat::Remove::Request& reqHdr,
-                      WireFormat::Remove::Response& respHdr,
-                      Rpc& rpc)
+MasterService::remove(const WireFormat::Remove::Request* reqHdr,
+                      WireFormat::Remove::Response* respHdr,
+                      Rpc* rpc)
 {
-    const void* stringKey = rpc.requestPayload.getRange(sizeof32(reqHdr),
-                                                        reqHdr.keyLength);
-    Key key(reqHdr.tableId, stringKey, reqHdr.keyLength);
+    const void* stringKey = rpc->requestPayload->getRange(sizeof32(*reqHdr),
+                                                        reqHdr->keyLength);
+    Key key(reqHdr->tableId, stringKey, reqHdr->keyLength);
 
     TabletsOnMaster* table = getTable(key);
     if (table == NULL) {
-        respHdr.common.status = STATUS_UNKNOWN_TABLET;
+        respHdr->common.status = STATUS_UNKNOWN_TABLET;
         return;
     }
 
@@ -2093,20 +2167,20 @@ MasterService::remove(const WireFormat::Remove::Request& reqHdr,
     Buffer buffer;
     Log::Reference reference;
     if (!lookup(key, type, buffer, &reference) || type != LOG_ENTRY_TYPE_OBJ) {
-        Status status = rejectOperation(reqHdr.rejectRules,
+        Status status = rejectOperation(reqHdr->rejectRules,
                                         VERSION_NONEXISTENT);
         if (status != STATUS_OK)
-            respHdr.common.status = status;
+            respHdr->common.status = status;
         return;
     }
 
     Object object(buffer);
-    respHdr.version = object.getVersion();
+    respHdr->version = object.getVersion();
 
     // Abort if we're trying to delete the wrong version.
-    Status status = rejectOperation(reqHdr.rejectRules, respHdr.version);
+    Status status = rejectOperation(reqHdr->rejectRules, respHdr->version);
     if (status != STATUS_OK) {
-        respHdr.common.status = status;
+        respHdr->common.status = status;
         return;
     }
 
@@ -2124,7 +2198,7 @@ MasterService::remove(const WireFormat::Remove::Request& reqHdr,
         // The log is out of space. Tell the client to retry and hope
         // that either the cleaner makes space soon or we shift load
         // off of this server.
-        respHdr.common.status = STATUS_RETRY;
+        respHdr->common.status = STATUS_RETRY;
         return;
     }
     log->sync();
@@ -2140,59 +2214,59 @@ MasterService::remove(const WireFormat::Remove::Request& reqHdr,
  * \copydetails MasterService::read
  */
 void
-MasterService::increment(const WireFormat::Increment::Request& reqHdr,
-                     WireFormat::Increment::Response& respHdr,
-                     Rpc& rpc)
+MasterService::increment(const WireFormat::Increment::Request* reqHdr,
+                     WireFormat::Increment::Response* respHdr,
+                     Rpc* rpc)
 {
     // Read the current value of the object and add the increment value
-    Key key(reqHdr.tableId, rpc.requestPayload, sizeof32(reqHdr),
-            reqHdr.keyLength);
+    Key key(reqHdr->tableId, *rpc->requestPayload, sizeof32(*reqHdr),
+            reqHdr->keyLength);
 
     if (getTable(key) == NULL) {
-        respHdr.common.status = STATUS_TABLE_DOESNT_EXIST;
+        respHdr->common.status = STATUS_TABLE_DOESNT_EXIST;
         return;
     }
 
     LogEntryType type;
     Buffer buffer;
     if (!lookup(key, type, buffer) || type != LOG_ENTRY_TYPE_OBJ) {
-        respHdr.common.status = STATUS_OBJECT_DOESNT_EXIST;
+        respHdr->common.status = STATUS_OBJECT_DOESNT_EXIST;
         return;
     }
 
     Object object(buffer);
-    Status status = rejectOperation(reqHdr.rejectRules, object.getVersion());
+    Status status = rejectOperation(reqHdr->rejectRules, object.getVersion());
     if (status != STATUS_OK) {
-        respHdr.common.status = status;
+        respHdr->common.status = status;
         return;
     }
 
     if (object.getDataLength() != sizeof(int64_t)) {
-        respHdr.common.status = STATUS_INVALID_OBJECT;
+        respHdr->common.status = STATUS_INVALID_OBJECT;
         return;
     }
 
     const int64_t oldValue = *reinterpret_cast<const int64_t*>(
         object.getData());
-    int64_t newValue = oldValue + reqHdr.incrementValue;
+    int64_t newValue = oldValue + reqHdr->incrementValue;
 
     // Write the new value back
     Buffer newValueBuffer;
     newValueBuffer.append(&newValue, sizeof(int64_t));
 
     status = storeObject(key,
-                         &reqHdr.rejectRules,
+                         &reqHdr->rejectRules,
                          newValueBuffer,
-                         &respHdr.version,
+                         &respHdr->version,
                          true);
 
     if (status != STATUS_OK) {
-        respHdr.common.status = status;
+        respHdr->common.status = status;
         return;
     }
 
     // Return new value
-    respHdr.newValue = newValue;
+    respHdr->newValue = newValue;
 }
 
 /**
@@ -2202,13 +2276,13 @@ MasterService::increment(const WireFormat::Increment::Request& reqHdr,
  */
 void
 MasterService::isReplicaNeeded(
-    const WireFormat::IsReplicaNeeded::Request& reqHdr,
-    WireFormat::IsReplicaNeeded::Response& respHdr,
-    Rpc& rpc)
+    const WireFormat::IsReplicaNeeded::Request* reqHdr,
+    WireFormat::IsReplicaNeeded::Response* respHdr,
+    Rpc* rpc)
 {
-    ServerId backupServerId = ServerId(reqHdr.backupServerId);
-    respHdr.needed = replicaManager.isReplicaNeeded(backupServerId,
-                                                    reqHdr.segmentId);
+    ServerId backupServerId = ServerId(reqHdr->backupServerId);
+    respHdr->needed = replicaManager.isReplicaNeeded(backupServerId,
+                                                    reqHdr->segmentId);
 }
 
 /**
@@ -2217,28 +2291,28 @@ MasterService::isReplicaNeeded(
  * \copydetails MasterService::read
  */
 void
-MasterService::write(const WireFormat::Write::Request& reqHdr,
-                     WireFormat::Write::Response& respHdr,
-                     Rpc& rpc)
+MasterService::write(const WireFormat::Write::Request* reqHdr,
+                     WireFormat::Write::Response* respHdr,
+                     Rpc* rpc)
 {
     Buffer buffer;
-    const void* objectData = rpc.requestPayload.getRange(
-        sizeof32(reqHdr) + reqHdr.keyLength, reqHdr.length);
-    buffer.append(objectData, reqHdr.length);
+    const void* objectData = rpc->requestPayload->getRange(
+        sizeof32(*reqHdr) + reqHdr->keyLength, reqHdr->length);
+    buffer.append(objectData, reqHdr->length);
 
-    Key key(reqHdr.tableId,
-            rpc.requestPayload,
-            sizeof32(reqHdr),
-            reqHdr.keyLength);
+    Key key(reqHdr->tableId,
+            *rpc->requestPayload,
+            sizeof32(*reqHdr),
+            reqHdr->keyLength);
 
     Status status = storeObject(key,
-                                &reqHdr.rejectRules,
+                                &reqHdr->rejectRules,
                                 buffer,
-                                &respHdr.version,
-                                !reqHdr.async);
+                                &respHdr->version,
+                                !reqHdr->async);
 
     if (status != STATUS_OK) {
-        respHdr.common.status = status;
+        respHdr->common.status = status;
         return;
     }
 }
@@ -2681,6 +2755,41 @@ MasterService::storeObject(Key& key,
     *newVersion = newObject.getVersion();
     bytesWritten += key.getStringKeyLength() + data.getTotalLength();
     return STATUS_OK;
+}
+
+/**
+ * Construct a Disabler object (disable the associated master).
+ *
+ * \param service
+ *      The MasterService that should be disabled.  If NULL, then no
+ *      service is disabled.
+ */
+MasterService::Disabler::Disabler(MasterService* service)
+    : service(service)
+{
+    if (service != NULL) {
+        service->disableCount++;
+    }
+    TEST_LOG("master service disabled");
+}
+/**
+ * Destroy a Disabler object (reenable the associated master).
+ */
+MasterService::Disabler::~Disabler()
+{
+    reenable();
+}
+
+/**
+ * Reenable request servicing on the associated MasterService.
+ */
+void
+MasterService::Disabler::reenable()
+{
+    if (service != NULL) {
+        service->disableCount--;
+        service = NULL;
+    }
 }
 
 } // namespace RAMCloud

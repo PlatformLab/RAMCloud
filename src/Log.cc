@@ -55,7 +55,7 @@ namespace RAMCloud {
  *      Segments durable.
  */
 Log::Log(Context* context,
-         const ServerConfig& config,
+         const ServerConfig* config,
          LogEntryHandlers& entryHandlers,
          SegmentManager& segmentManager,
          ReplicaManager& replicaManager)
@@ -65,7 +65,7 @@ Log::Log(Context* context,
       replicaManager(replicaManager),
       cleaner(NULL),
       head(NULL),
-      segmentSize(config.segmentSize),
+      segmentSize(config->segmentSize),
       appendLock(),
       syncLock(),
       metrics()
