@@ -253,18 +253,25 @@ ReplicatedSegment::close()
  * needed to restore durability guarantees. Keep in mind a context needs to be
  * provided to actually drive the re-replication (for example,
  * BackupFailureMonitor).
+ * If the server is using MinCopysets, we kill all the replicas that belong
+ * to the same replication group if any of the group members fails. Otherwise,
+ * we just kill the replica that belongs to the failed server.
  *
  * \param failedId
  *      ServerId of the backup which has failed.
+ * \param useMinCopysets
+ *      Specifies whether to use the MinCopysets replication scheme.
  */
 void
-ReplicatedSegment::handleBackupFailure(ServerId failedId)
+ReplicatedSegment::handleBackupFailure(ServerId failedId, bool useMinCopysets)
 {
     bool someOpenReplicaLost = false;
     foreach (auto& replica, replicas) {
         if (!replica.isActive)
             continue;
-        if (replica.backupId != failedId)
+        // If we are using MinCopysets and any of the backups on which the
+        // segment fails, we re-replicate all the copies of that segment.
+        if (!useMinCopysets && replica.backupId != failedId)
             continue;
         LOG(DEBUG, "Segment %lu recovering from lost replica which was on "
             "backup %s", segmentId, failedId.toString().c_str());

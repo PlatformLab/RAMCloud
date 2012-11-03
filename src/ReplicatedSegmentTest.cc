@@ -293,7 +293,7 @@ TEST_F(ReplicatedSegmentTest, close) {
 }
 
 TEST_F(ReplicatedSegmentTest, handleBackupFailureWhileOpen) {
-    segment->handleBackupFailure({0, 0});
+    segment->handleBackupFailure({0, 0}, false);
     foreach (auto& replica, segment->replicas)
         EXPECT_FALSE(replica.replicateAtomically);
 
@@ -301,17 +301,17 @@ TEST_F(ReplicatedSegmentTest, handleBackupFailureWhileOpen) {
     transport.setInput("0 0"); // write
     createSegment->logSegment.head = openLen; // write queued
     // Not active still, next performTask chooses backups and sends opens.
-    segment->handleBackupFailure({0, 0});
+    segment->handleBackupFailure({0, 0}, false);
     foreach (auto& replica, segment->replicas)
         EXPECT_FALSE(replica.replicateAtomically);
 
     taskQueue.performTask();
     // Replicas are now active with an outstanding open rpc.
-    segment->handleBackupFailure({88888, 0});
+    segment->handleBackupFailure({88888, 0}, false);
     foreach (auto& replica, segment->replicas)
         EXPECT_FALSE(replica.replicateAtomically);
 
-    segment->handleBackupFailure({0, 0});
+    segment->handleBackupFailure({0, 0}, false);
     // The failed replica must restart replication in atomic mode.
     EXPECT_TRUE(segment->replicas[0].replicateAtomically);
     // The other open replica is in normal (non-atomic) mode still.
@@ -319,7 +319,7 @@ TEST_F(ReplicatedSegmentTest, handleBackupFailureWhileOpen) {
     EXPECT_EQ(1lu, segment->queued.epoch);
 
     // Failure of the second replica.
-    segment->handleBackupFailure({1, 0});
+    segment->handleBackupFailure({1, 0}, false);
     EXPECT_TRUE(segment->replicas[0].replicateAtomically);
     EXPECT_TRUE(segment->replicas[1].replicateAtomically);
     EXPECT_EQ(2lu, segment->queued.epoch);
@@ -362,7 +362,7 @@ TEST_F(ReplicatedSegmentTest, handleBackupFailureWhileOpenDoesntSendForClosed) {
 
     // Handle failure on the open replica.
     TestLog::Enable _(handleBackupFailureFilter);
-    segment->handleBackupFailure({1, 0});
+    segment->handleBackupFailure({1, 0}, false);
     EXPECT_FALSE(segment->replicas[0].replicateAtomically);
     EXPECT_TRUE(segment->replicas[1].replicateAtomically);
     EXPECT_EQ(1lu, segment->queued.epoch);
@@ -410,19 +410,36 @@ TEST_F(ReplicatedSegmentTest, handleBackupFailureWhileHandlingFailure) {
 
     // Handle failure while closed. This should technically
     // "reopen" the segment, though only in atomic replication mode.
-    segment->handleBackupFailure({0, 0});
+    segment->handleBackupFailure({0, 0}, false);
     EXPECT_TRUE(segment->replicas[0].replicateAtomically);
     EXPECT_FALSE(segment->replicas[1].replicateAtomically);
     EXPECT_EQ(0lu, segment->queued.epoch);
 
     // Check to make sure that atomic replications aren't counted as
     // failures while open. They can't threaten the integrity of the log.
-    segment->handleBackupFailure({0, 0});
+    segment->handleBackupFailure({0, 0}, false);
     EXPECT_TRUE(segment->replicas[0].replicateAtomically);
     EXPECT_FALSE(segment->replicas[1].replicateAtomically);
     EXPECT_EQ(0lu, segment->queued.epoch);
 
     reset();
+}
+
+TEST_F(ReplicatedSegmentTest, handleBackupFailureWithMinCopysets) {
+    transport.setInput("0 0"); // write+open first replica
+    transport.setInput("0 0"); // write+open second replica
+    transport.setInput("0 0"); // write+close first replica
+    transport.setInput("0 0"); // write+close second replica
+    segment->close();
+    taskQueue.performTask();
+
+    TestLog::Enable _(handleBackupFailureFilter);
+    EXPECT_FALSE(segment->replicas[0].replicateAtomically);
+    EXPECT_FALSE(segment->replicas[1].replicateAtomically);
+    // Should kill all replicas if any one is down.
+    segment->handleBackupFailure({1, 0}, true);
+    EXPECT_TRUE(segment->replicas[0].replicateAtomically);
+    EXPECT_TRUE(segment->replicas[1].replicateAtomically);
 }
 
 TEST_F(ReplicatedSegmentTest, sync) {
@@ -612,7 +629,7 @@ TEST_F(ReplicatedSegmentTest, syncRecoveringFromLostOpenReplicas) {
     EXPECT_FALSE(segment->getCommitted().close);
 
     // Now the open segment encounters a failure.
-    segment->handleBackupFailure({0, 0});
+    segment->handleBackupFailure({0, 0}, false);
     EXPECT_EQ(1lu, segment->queued.epoch);
     EXPECT_TRUE(segment->recoveringFromLostOpenReplicas);
     EXPECT_FALSE(segment->replicas[0].isActive);
@@ -813,7 +830,7 @@ TEST_F(ReplicatedSegmentTest, swapSegmentThenBackupFailure) {
     // Handle failure on the second replica.
     transport.clearOutput();
     TestLog::Enable _(handleBackupFailureFilter);
-    segment->handleBackupFailure({1, 0});
+    segment->handleBackupFailure({1, 0}, false);
 
     transport.setInput("0 0"); // open
     taskQueue.performTask(); // send open
@@ -910,7 +927,7 @@ TEST_F(ReplicatedSegmentTest, performTaskRecoveringFromLostOpenReplicas) {
     transport.setInput("0 0"); // open/write
     transport.setInput("0 0"); // open/write
     taskQueue.performTask(); // send open/writes
-    segment->handleBackupFailure({0, 0});
+    segment->handleBackupFailure({0, 0}, false);
     EXPECT_TRUE(segment->recoveringFromLostOpenReplicas);
     EXPECT_EQ(1lu, segment->queued.epoch);
     EXPECT_EQ(0lu, segment->replicas[0].committed.epoch);
