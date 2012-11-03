@@ -93,7 +93,7 @@ TEST_F(MasterRecoveryManagerTest, startAndHalt) {
 TEST_F(MasterRecoveryManagerTest, startMasterRecoveryNoTablets) {
     auto crashedServerId = addMaster();
     TestLog::Enable _;
-    mgr.startMasterRecovery(crashedServerId);
+    mgr.startMasterRecovery(serverList[crashedServerId]);
     EXPECT_EQ("startMasterRecovery: Server 1.0 crashed, "
               "but it had no tablets", TestLog::get());
 }
@@ -103,7 +103,7 @@ TEST_F(MasterRecoveryManagerTest, startMasterRecovery) {
     crashServer(crashedServerId);
     tabletMap.addTablet({0, 0, ~0lu, crashedServerId, Tablet::NORMAL, {2, 3}});
     TestLog::Enable _;
-    mgr.startMasterRecovery(crashedServerId);
+    mgr.startMasterRecovery(serverList[crashedServerId]);
     EXPECT_EQ("startMasterRecovery: Scheduling recovery of master 1.0 | "
                 "schedule: scheduled",
               TestLog::get());
@@ -307,9 +307,9 @@ TEST_F(MasterRecoveryManagerTest,
     crashServer(addMaster());
     crashServer(addMaster());
 
-    mgr.startMasterRecovery({1, 0});
-    mgr.startMasterRecovery({2, 0});
-    mgr.startMasterRecovery({3, 0});
+    mgr.startMasterRecovery(serverList[ServerId(1, 0)]);
+    mgr.startMasterRecovery(serverList[ServerId(2, 0)]);
+    mgr.startMasterRecovery(serverList[ServerId(3, 0)]);
     // Process each of the Enqueue tasks.
     mgr.taskQueue.performTask();
     mgr.taskQueue.performTask();
@@ -345,8 +345,8 @@ TEST_F(MasterRecoveryManagerTest,
     crashServer(crashedServerId);
     EXPECT_EQ(ServerId(1, 0), crashedServerId);
 
-    mgr.startMasterRecovery({1, 0});
-    mgr.startMasterRecovery({1, 0});
+    mgr.startMasterRecovery(serverList[ServerId(1, 0)]);
+    mgr.startMasterRecovery(serverList[ServerId(1, 0)]);
     // Process each of the Enqueue tasks.
     mgr.taskQueue.performTask();
     mgr.taskQueue.performTask();

@@ -330,13 +330,15 @@ MasterRecoveryManager::halt()
  * the recovery of the crashed master's tablets; actual recovery happens
  * asynchronously.
  *
- * \param crashedServerId
+ * \param crashedServer
  *      The crashed server which is to be recovered. If the server did
  *      not own any tablets when it crashed then no recovery is started.
  */
 void
-MasterRecoveryManager::startMasterRecovery(ServerId crashedServerId)
+MasterRecoveryManager::startMasterRecovery(
+        CoordinatorServerList::Entry crashedServer)
 {
+    ServerId crashedServerId = crashedServer.serverId;
     auto tablets =
         tabletMap.setStatusForServer(crashedServerId, Tablet::RECOVERING);
     if (tablets.empty()) {
@@ -346,8 +348,6 @@ MasterRecoveryManager::startMasterRecovery(ServerId crashedServerId)
     }
 
     try {
-        CoordinatorServerList::Entry server =
-            context->coordinatorServerList->operator[](crashedServerId);
         LOG(NOTICE, "Scheduling recovery of master %s",
             crashedServerId.toString().c_str());
 
@@ -358,7 +358,7 @@ MasterRecoveryManager::startMasterRecovery(ServerId crashedServerId)
         }
 
         (new EnqueueMasterRecoveryTask(*this, crashedServerId,
-                                       server.masterRecoveryInfo))->schedule();
+                        crashedServer.masterRecoveryInfo))->schedule();
     } catch (const Exception& e) {
         // Check one last time just to sanity check the correctness of the
         // recovery mananger: make sure that if the server isn't in the

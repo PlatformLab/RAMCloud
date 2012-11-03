@@ -38,7 +38,6 @@ CoordinatorService::CoordinatorService(Context* context,
     , nextTableMasterIdx(0)
     , runtimeOptions()
     , recoveryManager(context, tabletMap, &runtimeOptions)
-    , serverManager(*this)
     , coordinatorRecovery(*this)
     , logCabinCluster()
     , logCabinLog()
@@ -67,7 +66,8 @@ CoordinatorService::CoordinatorService(Context* context,
     context->logCabinHelper = logCabinHelper.get();
     context->expectedEntryId = &expectedEntryId;
 
-    recoveryManager.start();
+    if (strcmp(LogCabinLocator.c_str(), "testing") != 0)
+        recoveryManager.start();
 
     // Replay the entire log (if any) before we start servicing the RPCs.
     coordinatorRecovery.replay();
@@ -316,9 +316,8 @@ CoordinatorService::enlistServer(
     const char* serviceLocator = getString(rpc.requestPayload, sizeof(reqHdr),
                                            reqHdr.serviceLocatorLength);
 
-    ServerId newServerId = serverManager.enlistServer(
-        replacesId, serviceMask, readSpeed,
-        serviceLocator);
+    ServerId newServerId = serverList.enlistServer(
+        replacesId, serviceMask, readSpeed, serviceLocator);
 
     respHdr.serverId = newServerId.getId();
     rpc.sendReply();
@@ -336,8 +335,8 @@ CoordinatorService::getServerList(
 {
     ServiceMask serviceMask = ServiceMask::deserialize(reqHdr.serviceMask);
 
-    ProtoBuf::ServerList serialServerList =
-        serverManager.getServerList(serviceMask);
+    ProtoBuf::ServerList serialServerList;
+    serverList.serialize(serialServerList, serviceMask);
 
     respHdr.serverListLength =
         serializeToResponse(&rpc.replyPayload, &serialServerList);
@@ -373,7 +372,7 @@ CoordinatorService::hintServerDown(
     rpc.sendReply();
 
     // reqHdr, respHdr, and rpc are off-limits now
-    serverManager.hintServerDown(serverId);
+    serverList.hintServerDown(serverId);
 }
 
 /**
@@ -542,7 +541,7 @@ CoordinatorService::setMasterRecoveryInfo(
         serverId.toString().c_str(), recoveryInfo.ShortDebugString().c_str());
 
     try {
-        serverManager.setMasterRecoveryInfo(serverId, recoveryInfo);
+        serverList.setMasterRecoveryInfo(serverId, recoveryInfo);
     } catch (const ServerListException& e) {
         LOG(WARNING, "setMasterRecoveryInfo server doesn't exist: %s",
             serverId.toString().c_str());

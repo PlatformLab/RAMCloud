@@ -58,7 +58,7 @@ class MasterRecoveryManager : public Recovery::Owner
     void start();
     void halt();
 
-    void startMasterRecovery(ServerId crashedServerId);
+    void startMasterRecovery(CoordinatorServerList::Entry crashedServer);
     void recoveryMasterFinished(uint64_t recoveryId,
                                 ServerId recoveryMasterId,
                                 const ProtoBuf::Tablets& recoveredTablets,

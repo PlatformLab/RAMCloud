@@ -23,7 +23,7 @@
 
 #include "Common.h"
 #include "ClientException.h"
-#include "CoordinatorServerManager.h"
+#include "CoordinatorServerList.h"
 #include "CoordinatorServiceRecovery.h"
 #include "LogCabinHelper.h"
 #include "MasterRecoveryManager.h"
@@ -152,11 +152,6 @@ class CoordinatorService : public Service {
     MasterRecoveryManager recoveryManager;
 
     /**
-     * Handles all server configuration details on behalf of the coordinator.
-     */
-    CoordinatorServerManager serverManager;
-
-    /**
      * Handles recovery of a coordinator.
      */
     CoordinatorServiceRecovery coordinatorRecovery;
@@ -186,8 +181,8 @@ class CoordinatorService : public Service {
      */
     LogCabin::Client::EntryId expectedEntryId;
 
-    friend class CoordinatorServerManager;
     friend class CoordinatorServiceRecovery;
+    friend class CoordinatorServerList;
 
     DISALLOW_COPY_AND_ASSIGN(CoordinatorService);
 };

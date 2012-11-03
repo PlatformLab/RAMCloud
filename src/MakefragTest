@@ -28,7 +28,6 @@ TESTS_SRCFILES := \
 		  src/ContextTest.cc \
 		  src/CoordinatorRpcWrapperTest.cc \
 		  src/CoordinatorServerListTest.cc \
-		  src/CoordinatorServerManagerTest.cc \
 		  src/CoordinatorServiceRecoveryTest.cc \
 		  src/CoordinatorServiceTest.cc \
 		  src/CoordinatorSessionTest.cc \
