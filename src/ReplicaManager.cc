@@ -56,6 +56,7 @@ ReplicaManager::ReplicaManager(Context* context,
     , replicationEpoch()
     , failureMonitor(context, this)
     , replicationCounter()
+    , useMinCopysets(useMinCopysets)
 {
     if (useMinCopysets) {
         backupSelector.reset(new MinCopysetsBackupSelector(context, masterId,
@@ -439,7 +440,7 @@ ReplicaManager::handleBackupFailure(ServerId failedId)
         failedId.toString().c_str());
 
     foreach (auto& segment, replicatedSegmentList)
-        segment.handleBackupFailure(failedId);
+        segment.handleBackupFailure(failedId, useMinCopysets);
 }
 
 /**

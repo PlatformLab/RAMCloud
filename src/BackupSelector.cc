@@ -163,7 +163,7 @@ BackupSelector::applyTrackerChanges()
             tracker[server.serverId]->expectedReadMBytesPerSec =
                 server.expectedReadMBytesPerSec;
             tracker[server.serverId]->replicationId = server.replicationId;
-            replicationIdMap.insert(std::make_pair<uint64_t, ServerId>(
+            replicationIdMap.insert(std::make_pair(
                 server.replicationId, server.serverId));
         } else if (event == SERVER_REMOVED) {
             BackupStats* stats = tracker[server.serverId];

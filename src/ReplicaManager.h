@@ -183,6 +183,11 @@ class ReplicaManager
      */
     Tub<CycleCounter<RawMetric>> replicationCounter;
 
+    /**
+     * Specifies whether to use the MinCopysets replication scheme.
+     */
+    bool useMinCopysets;
+
   PUBLIC:
     // Only used by BackupFailureMonitor.
     void handleBackupFailure(ServerId failedId);
