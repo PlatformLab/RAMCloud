@@ -30,7 +30,7 @@ namespace RAMCloud {
  */
 class PingClient {
   public:
-    static uint64_t ping(Context* context, ServerId targetId,
+    static void ping(Context* context, ServerId targetId,
             ServerId callerId = ServerId());
     static uint64_t proxyPing(Context* context, ServerId proxyId,
             ServerId targetId, uint64_t timeoutNanoseconds);
@@ -48,8 +48,9 @@ class PingRpc : public ServerIdRpcWrapper {
     PingRpc(Context* context, ServerId targetId,
             ServerId callerId = ServerId());
     ~PingRpc() {}
-    uint64_t wait();
-    uint64_t wait(uint64_t timeoutNanoseconds);
+    /// \copydoc ServerIdRpcWrapper::waitAndCheckErrors
+    void wait() {waitAndCheckErrors();}
+    bool wait(uint64_t timeoutNanoseconds);
 
     PRIVATE:
     DISALLOW_COPY_AND_ASSIGN(PingRpc);

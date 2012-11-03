@@ -41,6 +41,15 @@ TEST_F(WireFormatTest, serviceTypeSymbol) {
             (WireFormat::INVALID_SERVICE + 1)));
 }
 
+TEST_F(WireFormatTest, getStatus) {
+    Buffer buffer;
+    EXPECT_EQ(STATUS_RESPONSE_FORMAT_ERROR, WireFormat::getStatus(&buffer));
+    WireFormat::ResponseCommon* header =
+                new(&buffer, APPEND) WireFormat::ResponseCommon;
+    header->status = STATUS_WRONG_VERSION;
+    EXPECT_EQ(STATUS_WRONG_VERSION, WireFormat::getStatus(&buffer));
+}
+
 TEST_F(WireFormatTest, opcodeSymbol_integer) {
     // Sample a few opcode values.
     EXPECT_STREQ("PING", WireFormat::opcodeSymbol(WireFormat::PING));
@@ -50,7 +59,7 @@ TEST_F(WireFormatTest, opcodeSymbol_integer) {
             WireFormat::ILLEGAL_RPC_TYPE));
 
     // Test out-of-range values.
-    EXPECT_STREQ("unknown(56)", WireFormat::opcodeSymbol(
+    EXPECT_STREQ("unknown(57)", WireFormat::opcodeSymbol(
             WireFormat::ILLEGAL_RPC_TYPE+1));
 
     // Make sure the next-to-last value is defined (this will fail if
@@ -62,13 +71,13 @@ TEST_F(WireFormatTest, opcodeSymbol_integer) {
 TEST_F(WireFormatTest, opcodeSymbol_buffer) {
     // First, try an empty buffer with a valid header.
     Buffer b;
-    EXPECT_STREQ("null", WireFormat::opcodeSymbol(b));
+    EXPECT_STREQ("null", WireFormat::opcodeSymbol(&b));
 
     // Now try a buffer with a valid header.
     WireFormat::RequestCommon* header =
             new(&b, APPEND) WireFormat::RequestCommon;
     header->opcode = WireFormat::PING;
-    EXPECT_STREQ("PING", WireFormat::opcodeSymbol(b));
+    EXPECT_STREQ("PING", WireFormat::opcodeSymbol(&b));
 }
 
 }  // namespace RAMCloud

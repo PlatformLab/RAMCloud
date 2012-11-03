@@ -378,13 +378,16 @@ TEST_F(ReplicatedSegmentTest, handleBackupFailureWhileOpenDoesntSendForClosed) {
             "was on backup 1.0 | "
         "handleBackupFailure: Lost replica(s) for segment 888 while open due "
             "to crash of backup 1.0 | "
+        "performWrite: Write RPC finished for replica slot 0 | "
         // Don't get weirded out by the fact that replica 0 and 1 are both
         // on the same backup. It's an artifact of the MockBackupSelector.
         // Shouldn't happen with the real BackupSelector.
         "performWrite: Starting replication of segment 888 replica slot 1 on "
             "backup 0.0 | "
         "performWrite: Sending open to backup 0.0 | "
+        "performWrite: Write RPC finished for replica slot 1 | "
         "performWrite: Sending write to backup 0.0 | "
+        "performWrite: Write RPC finished for replica slot 1 | "
         "performTask: Updating replicationEpoch to 888,1 on coordinator to "
             "ensure lost replicas will not be reused | "
         "updateToAtLeast: request update to master recovery info for 999.0 "
@@ -672,6 +675,8 @@ TEST_F(ReplicatedSegmentTest, syncRecoveringFromLostOpenReplicas) {
                   "slot 0 on backup 0.0 | "
               "performWrite: Sending open to backup 0.0 | "
               "performWrite: Sending write to backup 1.0 | "
+              "performWrite: Write RPC finished for replica slot 0 | "
+              "performWrite: Write RPC finished for replica slot 1 | "
               // After both replicas have received a write they should try to
               // update the replication epoch on the coordinator to invalidate
               // stale replicas.
@@ -843,7 +848,9 @@ TEST_F(ReplicatedSegmentTest, swapSegmentThenBackupFailure) {
               "performWrite: Starting replication of segment 888 replica slot "
                 "1 on backup 0.0 | "
               "performWrite: Sending open to backup 0.0 | "
-              "performWrite: Sending write to backup 0.0",
+              "performWrite: Write RPC finished for replica slot 1 | "
+              "performWrite: Sending write to backup 0.0 | "
+              "performWrite: Write RPC finished for replica slot 1",
         TestLog::get());
 
     Segment::Certificate empty;
@@ -949,6 +956,7 @@ TEST_F(ReplicatedSegmentTest, performTaskRecoveringFromLostOpenReplicas) {
     TestLog::Enable _(filter);
     taskQueue.performTask(); // reap replica 1, update epoch on coordinator
     EXPECT_EQ(
+        "performWrite: Write RPC finished for replica slot 1 | "
         "performTask: Updating replicationEpoch to 888,1 on coordinator to "
             "ensure lost replicas will not be reused | "
         "updateToAtLeast: request update to master recovery info for 999.0 "
@@ -1569,6 +1577,7 @@ TEST_F(ReplicatedSegmentTest, performWriteBackupRejectedOpen) {
     TestLog::Enable _(filter);
     taskQueue.performTask(); // reap - second replica gets rejected
     EXPECT_EQ(
+        "performWrite: Write RPC finished for replica slot 0 | "
         "performWrite: Couldn't open replica on backup 1.0; server may be "
         "overloaded or may already have a replica for this segment which "
         "was found on disk after a crash; will choose another backup",
@@ -1599,6 +1608,49 @@ namespace {
 bool performWriteFilter(string s) {
     return s == "performWrite";
 }
+}
+
+TEST_F(ReplicatedSegmentTest, performWrite_CallerNotInClusterException) {
+    TestLog::Enable _(performWriteFilter);
+    context.coordinatorSession->setLocation("mock:host=coord");
+    // Arrange for RPC responses:
+    transport.setInput("0");  // accept write for first replica
+    transport.setInput("26"); // reject write for 2nd replica - caller not
+                              // in cluster
+    transport.setInput("0");  // verifyMembership response
+    transport.setInput("0");  // accept write retry for 2nd replica
+
+    taskQueue.performTask();
+    // At this point writes should have been issued for both replicas.
+    EXPECT_EQ("performWrite: Starting replication of segment 888 replica "
+                  "slot 0 on backup 0.0 | "
+              "performWrite: Sending open to backup 0.0 | "
+              "performWrite: Starting replication of segment 888 replica "
+                  "slot 1 on backup 1.0 | "
+              "performWrite: Sending open to backup 1.0",
+              TestLog::get());
+    TestLog::reset();
+
+    taskQueue.performTask();
+    // The first replica write has now succeeded. The second has completed
+    // with an error, and verifyMembership has been invoked (and succeeded).
+    EXPECT_EQ("performWrite: Write RPC finished for replica slot 0 | "
+              "performWrite: Backup write RPC rejected by 1.0 with "
+                  "STATUS_CALLER_NOT_IN_CLUSTER",
+              TestLog::get());
+    TestLog::reset();
+
+    taskQueue.performTask();
+    // The second replica write has now been reissued.
+    EXPECT_EQ("performWrite: Sending open to backup 1.0",
+              TestLog::get());
+    TestLog::reset();
+
+    taskQueue.performTask();
+    // The second replica write retry has now succeeded.
+    EXPECT_EQ("performWrite: Write RPC finished for replica slot 1",
+              TestLog::get());
+    reset();
 }
 
 TEST_F(ReplicatedSegmentTest, performWriteEnsureDurableOpensOrdered) {

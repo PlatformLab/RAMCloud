@@ -25,8 +25,8 @@ class InfRcTransportTest : public ::testing::Test {
   public:
     Context context;
     ServiceLocator locator;
-    InfRcTransport<RealInfiniband> server;
-    InfRcTransport<RealInfiniband> client;
+    InfRcTransport server;
+    InfRcTransport client;
 
     InfRcTransportTest()
         : context()
@@ -131,13 +131,12 @@ TEST_F(InfRcTransportTest, InfRcSession_abort_onClientSendQueue) {
 
     // Arrange for 2 messages on clientSendQueue.
     Transport::SessionRef session = client.getSession(locator);
-    InfRcTransport<RealInfiniband>::InfRcSession* rawSession =
-            reinterpret_cast<InfRcTransport<RealInfiniband>::
-            InfRcSession*>(session.get());
+    InfRcTransport::InfRcSession* rawSession =
+            reinterpret_cast<InfRcTransport::InfRcSession*>(session.get());
     MockWrapper rpc1("r1");
     MockWrapper rpc2("r2");
     client.numUsedClientSrqBuffers =
-            InfRcTransport<RealInfiniband>::MAX_SHARED_RX_QUEUE_DEPTH+1;
+            InfRcTransport::MAX_SHARED_RX_QUEUE_DEPTH+1;
     session->sendRequest(&rpc1.request, &rpc1.response, &rpc1);
     session->sendRequest(&rpc2.request, &rpc2.response, &rpc2);
     EXPECT_EQ(2U, client.clientSendQueue.size());
@@ -171,12 +170,11 @@ TEST_F(InfRcTransportTest, InfRcSession_cancelRequest_rpcPending) {
 
     // Send a message, then cancel before the response is received.
     Transport::SessionRef session = client.getSession(locator);
-    InfRcTransport<RealInfiniband>::InfRcSession* rawSession =
-            reinterpret_cast<InfRcTransport<RealInfiniband>::
-            InfRcSession*>(session.get());
+    InfRcTransport::InfRcSession* rawSession =
+            reinterpret_cast<InfRcTransport::InfRcSession*>(session.get());
     MockWrapper rpc("abcdefg");
     client.numUsedClientSrqBuffers =
-            InfRcTransport<RealInfiniband>::MAX_SHARED_RX_QUEUE_DEPTH+1;
+            InfRcTransport::MAX_SHARED_RX_QUEUE_DEPTH+1;
     session->sendRequest(&rpc.request, &rpc.response, &rpc);
     EXPECT_EQ(1U, client.clientSendQueue.size());
     session->cancelRequest(&rpc);
@@ -191,9 +189,8 @@ TEST_F(InfRcTransportTest, InfRcSession_cancelRequest_rpcSent) {
 
     // Send a message, then cancel before the response is received.
     Transport::SessionRef session = client.getSession(locator);
-    InfRcTransport<RealInfiniband>::InfRcSession* rawSession =
-            reinterpret_cast<InfRcTransport<RealInfiniband>::
-            InfRcSession*>(session.get());
+    InfRcTransport::InfRcSession* rawSession =
+            reinterpret_cast<InfRcTransport::InfRcSession*>(session.get());
     MockWrapper rpc("abcdefg");
     session->sendRequest(&rpc.request, &rpc.response, &rpc);
     Transport::ServerRpc* serverRpc =
@@ -232,6 +229,36 @@ TEST_F(InfRcTransportTest, InfRcSession_cancelRequest_rpcSent) {
     serverRpc->sendReply();
     EXPECT_TRUE(TestUtil::waitForRpc(&context, rpc));
     EXPECT_EQ("response2/0", TestUtil::toString(&rpc.response));
+}
+
+TEST_F(InfRcTransportTest, getRpcInfo) {
+    TestLog::Enable _;
+    Transport::SessionRef session = client.getSession(locator);
+    InfRcTransport::InfRcSession* rawSession =
+            reinterpret_cast<InfRcTransport::InfRcSession*>(session.get());
+
+    EXPECT_EQ("no active RPCs to server at infrc: host=localhost, port=11000",
+            rawSession-> getRpcInfo());
+
+    // Arrange for 1 message on outstandingRpcs and 2 messages on
+    // clientSendQueue.
+    MockWrapper rpc1;
+    rpc1.setOpcode(WireFormat::READ);
+    session->sendRequest(&rpc1.request, &rpc1.response, &rpc1);
+    EXPECT_EQ(1U, client.outstandingRpcs.size());
+
+    client.numUsedClientSrqBuffers =
+            InfRcTransport::MAX_SHARED_RX_QUEUE_DEPTH+1;
+    MockWrapper rpc2;
+    rpc2.setOpcode(WireFormat::REMOVE);
+    session->sendRequest(&rpc2.request, &rpc2.response, &rpc2);
+    MockWrapper rpc3;
+    rpc3.setOpcode(WireFormat::INCREMENT);
+    session->sendRequest(&rpc3.request, &rpc3.response, &rpc3);
+    EXPECT_EQ(2U, client.clientSendQueue.size());
+
+    EXPECT_EQ("READ, REMOVE, INCREMENT to server at infrc: host=localhost, "
+            "port=11000", rawSession-> getRpcInfo());
 }
 
 TEST_F(InfRcTransportTest, ClientRpc_sendRequest_sessionAborted) {

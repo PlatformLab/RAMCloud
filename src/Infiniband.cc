@@ -27,7 +27,6 @@
 
 namespace RAMCloud {
 
-typedef RealInfiniband Infiniband;
 
 /**
  * Construct an Infiniband object.
@@ -35,7 +34,7 @@ typedef RealInfiniband Infiniband;
  *      The string name of the installed interface to look for.
  *      If NULL, open the first one returned by the Verbs library.
  */
-Infiniband::RealInfiniband(const char* deviceName)
+Infiniband::Infiniband(const char* deviceName)
     : device(deviceName)
     , pd(device)
     , totalAddressHandleAllocCalls()
@@ -46,7 +45,7 @@ Infiniband::RealInfiniband(const char* deviceName)
 /**
  * Destroy an Infiniband object.
  */
-Infiniband::~RealInfiniband()
+Infiniband::~Infiniband()
 {
 }
 
@@ -864,7 +863,7 @@ Infiniband::QueuePair::getPeerName() const
  *      (e.g. a required option was missing, or the host name
  *      couldn't be parsed).
  */
-Infiniband::Address::Address(RealInfiniband& infiniband,
+Infiniband::Address::Address(Infiniband& infiniband,
                              int physicalPort,
                              const ServiceLocator& serviceLocator)
     : infiniband(infiniband)

@@ -54,11 +54,11 @@ class LogIteratorTest : public ::testing::Test {
           serverList(&context),
           serverConfig(ServerConfig::forTesting()),
           replicaManager(&context, serverId, 0, false),
-          allocator(serverConfig),
-          segmentManager(&context, serverConfig, serverId,
+          allocator(&serverConfig),
+          segmentManager(&context, &serverConfig, serverId,
                          allocator, replicaManager),
           entryHandlers(),
-          l(&context, serverConfig, entryHandlers,
+          l(&context, &serverConfig, entryHandlers,
             segmentManager, replicaManager),
           data()
     {

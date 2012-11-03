@@ -164,7 +164,7 @@ main(int argc, char *argv[])
         const string localLocator = optionParser.options.getLocalLocator();
 
 #if INFINIBAND
-        InfRcTransport<>::setName(localLocator.c_str());
+        InfRcTransport::setName(localLocator.c_str());
 #endif
         context.transportManager->setTimeout(
                 optionParser.options.getTransportTimeout());
@@ -187,7 +187,7 @@ main(int argc, char *argv[])
             config.setLogAndHashTableSize(masterTotalMemory, hashTableMemory);
         }
 
-        Server server(&context, config);
+        Server server(&context, &config);
         server.run(); // Never returns except for exceptions.
 
         return 0;

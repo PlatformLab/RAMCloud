@@ -66,7 +66,7 @@ class CoordinatorServerManagerTest : public ::testing::Test {
 
         ramcloud.construct(&context, "mock:host=coordinator");
 
-        serverList = &(serverManager->service.serverList);
+        serverList = serverManager->service.serverList;
         logCabinHelper = serverManager->service.logCabinHelper.get();
         logCabinLog = serverManager->service.logCabinLog.get();
     }
@@ -197,7 +197,7 @@ TEST_F(CoordinatorServerManagerTest, enlistServer_ReplaceAMaster) {
     serverManager->service.recoveryManager.doNotStartRecoveries = true;
     // I can't figure out how the auto-register server list crap works.
     // It's horrible and dumb, so here's my fix.
-    context.serverList = &serverManager->service.serverList;
+    context.serverList = serverManager->service.serverList;
     ServerTracker<void> tracker(&context);
     ASSERT_EQ(serverList, tracker.parent);
 
@@ -414,7 +414,7 @@ TEST_F(CoordinatorServerManagerTest, serverDown_backup) {
     ServerId id =
         serverManager->enlistServer({}, {WireFormat::BACKUP_SERVICE},
                                     0, "mock:host=backup");
-    EXPECT_EQ(1U, serverManager->service.serverList.backupCount());
+    EXPECT_EQ(1U, serverManager->service.serverList->backupCount());
     serverManager->forceServerDownForTesting = true;
     serverManager->serverDown(id);
     EXPECT_EQ(0U, serverList->backupCount());

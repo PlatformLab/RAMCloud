@@ -121,6 +121,8 @@ ClientException::throwException(const CodeLocation& where, Status status)
             throw PartitionBeforeReadException(where);
         case STATUS_WRONG_SERVER:
             throw WrongServerException(where);
+        case STATUS_CALLER_NOT_IN_CLUSTER:
+            throw CallerNotInClusterException(where);
         default:
             throw InternalError(where, status);
     }

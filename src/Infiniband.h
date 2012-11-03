@@ -33,8 +33,7 @@ namespace RAMCloud {
  * A collection of Infiniband helper functions and classes, which can be shared
  * across different Infiniband transports and drivers.
  */
-class RealInfiniband {
-    typedef RealInfiniband Infiniband;
+class Infiniband {
   PUBLIC:
 
     static const char*
@@ -72,8 +71,8 @@ class RealInfiniband {
                                  // use in error messages); null-terminated.
     } __attribute__((packed));
 
-    explicit RealInfiniband(const char* deviceName);
-    ~RealInfiniband();
+    explicit Infiniband(const char* deviceName);
+    ~Infiniband();
 
     void dumpStats();
 

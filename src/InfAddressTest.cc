@@ -18,8 +18,6 @@
 
 namespace RAMCloud {
 
-typedef RealInfiniband Infiniband;
-
 class InfAddressTest : public ::testing::Test {
   public:
     InfAddressTest() {}
@@ -28,7 +26,7 @@ class InfAddressTest : public ::testing::Test {
     string tryLocator(const char *locator) {
         try {
             // dangerous cast!
-            Infiniband::Address(*reinterpret_cast<RealInfiniband*>(x), 0,
+            Infiniband::Address(*reinterpret_cast<Infiniband*>(x), 0,
                        ServiceLocator(locator));
         } catch (Infiniband::Address::BadAddressException& e) {
             return e.message;
@@ -68,7 +66,7 @@ TEST_F(InfAddressTest, constructor) {
 
 TEST_F(InfAddressTest, toString) {
     // dangerous cast!
-    Infiniband::Address a(*reinterpret_cast<RealInfiniband*>(x), 0,
+    Infiniband::Address a(*reinterpret_cast<Infiniband*>(x), 0,
                         ServiceLocator("fast+infud: lid=721, qpn=23472"));
     EXPECT_EQ("721:23472", a.toString());
 }

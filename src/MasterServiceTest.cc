@@ -102,7 +102,9 @@ class MasterServiceTest : public ::testing::Test {
                                   WireFormat::MEMBERSHIP_SERVICE};
         backup1Config.segmentSize = segmentSize;
         backup1Config.backup.numSegmentFrames = 3;
-        backup1Id = cluster.addServer(backup1Config)->serverId;
+        Server* server = cluster.addServer(backup1Config);
+        server->backup->testingSkipCallerIdCheck = true;
+        backup1Id = server->serverId;
 
         masterConfig = ServerConfig::forTesting();
         masterConfig.segmentSize = segmentSize;
@@ -319,6 +321,30 @@ class MasterServiceTest : public ::testing::Test {
 
     DISALLOW_COPY_AND_ASSIGN(MasterServiceTest);
 };
+
+TEST_F(MasterServiceTest, dispatch_disableCount) {
+    Buffer request, response;
+
+    // Attempt #1: service is enabled.
+    Service::Rpc rpc(NULL, &request, &response);
+    service->dispatch(WireFormat::Opcode::ILLEGAL_RPC_TYPE, &rpc);
+    EXPECT_STREQ("STATUS_UNIMPLEMENTED_REQUEST", statusToSymbol(
+            WireFormat::getStatus(&response)));
+
+    // Attempt #2: service is disabled.
+    MasterService::Disabler disabler(service);
+    response.reset();
+    service->dispatch(WireFormat::Opcode::ILLEGAL_RPC_TYPE, &rpc);
+    EXPECT_STREQ("STATUS_RETRY", statusToSymbol(
+            WireFormat::getStatus(&response)));
+
+    // Attempt #3: service is reenabled.
+    disabler.reenable();
+    response.reset();
+    service->dispatch(WireFormat::Opcode::ILLEGAL_RPC_TYPE, &rpc);
+    EXPECT_STREQ("STATUS_UNIMPLEMENTED_REQUEST", statusToSymbol(
+            WireFormat::getStatus(&response)));
+}
 
 TEST_F(MasterServiceTest, enumeration_basics) {
     uint64_t version0, version1;
@@ -627,12 +653,12 @@ TEST_F(MasterServiceTest, multiWrite_malformedRequests) {
     requestPayload.append(&reqHdr, sizeof(reqHdr));
     replyPayload.append(&respHdr, sizeof(respHdr));
 
-    Service::Rpc rpc(NULL, requestPayload, replyPayload);
+    Service::Rpc rpc(NULL, &requestPayload, &replyPayload);
 
     // part field is bogus
     requestPayload.append(&part, sizeof(part) - 1);
     respHdr.common.status = STATUS_OK;
-    service->multiWrite(reqHdr, respHdr, rpc);
+    service->multiWrite(&reqHdr, &respHdr, &rpc);
     EXPECT_EQ(STATUS_REQUEST_FORMAT_ERROR, respHdr.common.status);
 
     requestPayload.truncateEnd(sizeof(part) - 1);
@@ -640,19 +666,19 @@ TEST_F(MasterServiceTest, multiWrite_malformedRequests) {
 
     // both key and value length fields are bogus.
     respHdr.common.status = STATUS_OK;
-    service->multiWrite(reqHdr, respHdr, rpc);
+    service->multiWrite(&reqHdr, &respHdr, &rpc);
     EXPECT_EQ(STATUS_REQUEST_FORMAT_ERROR, respHdr.common.status);
 
     // only the value length field is bogus.
     requestPayload.append("tenchars!!", 10);
     respHdr.common.status = STATUS_OK;
-    service->multiWrite(reqHdr, respHdr, rpc);
+    service->multiWrite(&reqHdr, &respHdr, &rpc);
     EXPECT_EQ(STATUS_REQUEST_FORMAT_ERROR, respHdr.common.status);
 
     // sanity check: should work with 10 bytes of key and 10 of value
     requestPayload.append("tenmorechars", 10);
     respHdr.common.status = STATUS_OK;
-    service->multiWrite(reqHdr, respHdr, rpc);
+    service->multiWrite(&reqHdr, &respHdr, &rpc);
     EXPECT_EQ(STATUS_OK, respHdr.common.status);
 }
 
@@ -689,22 +715,18 @@ TEST_F(MasterServiceTest, getHeadOfLog) {
 
 TEST_F(MasterServiceTest, recover_basics) {
     ServerId serverId(123, 0);
-    foreach (auto* server, cluster.servers) {
-        serverList.testingAdd({server->serverId, server->config.localLocator,
-                              server->config.services, 100, ServerStatus::UP});
-    }
-
     ReplicaManager mgr(&context, serverId, 1, false);
 
     // Create a segment with objectSafeVersion 23
-    writeRecoverableSegment(&context, mgr, serverId, 123, 87, 23U);
+    writeRecoverableSegment(&context, mgr, serverId, serverId.getId(),
+                            87, 23U);
 
     ProtoBuf::Tablets tablets;
     createTabletList(tablets);
     auto result = BackupClient::startReadingData(&context, backup1Id,
-                                                 10lu, ServerId(123));
+                                                 10lu, serverId);
     BackupClient::StartPartitioningReplicas(&context, backup1Id,
-                                                 10lu, ServerId(123),
+                                                 10lu, serverId,
                                                  &tablets);
     ASSERT_EQ(1lu, result.replicas.size());
     ASSERT_EQ(87lu, result.replicas.at(0).segmentId);
@@ -719,7 +741,7 @@ TEST_F(MasterServiceTest, recover_basics) {
 
     TestLog::Enable __(recoverSegmentFilter);
     MasterClient::recover(&context, masterServer->serverId, 10lu,
-                          ServerId(123), 0, &tablets, replicas,
+                          serverId, 0, &tablets, replicas,
                           arrayLength(replicas));
     // safeVersion Recovered
     EXPECT_EQ(23U, service->segmentManager.safeVersion);
@@ -776,7 +798,7 @@ TEST_F(MasterServiceTest, recover_basics) {
             ,  curPos, &curPos));
 }
 
-TEST_F(MasterServiceTest, removeIfFromUnknownTablet) {
+TEST_F(MasterServiceTest, removeObjectIfFromUnknownTablet) {
     ramcloud->createTable("table");
     uint64_t tableId = ramcloud->getTableId("table");
     Key key(tableId, "1", 1);
@@ -815,13 +837,9 @@ TEST_F(MasterServiceTest, removeIfFromUnknownTablet) {
   */
 TEST_F(MasterServiceTest, recover) {
     ServerId serverId(123, 0);
-    foreach (auto* server, cluster.servers) {
-        serverList.testingAdd({server->serverId, server->config.localLocator,
-                              server->config.services, 100, ServerStatus::UP});
-    }
 
     ReplicaManager mgr(&context, serverId, 1, false);
-    writeRecoverableSegment(&context, mgr, serverId, 123, 88);
+    writeRecoverableSegment(&context, mgr, serverId, serverId.getId(), 88);
 
     ServerConfig backup2Config = backup1Config;
     backup2Config.localLocator = "mock:host=backup2";
@@ -829,10 +847,10 @@ TEST_F(MasterServiceTest, recover) {
 
     ProtoBuf::Tablets tablets;
     createTabletList(tablets);
-    BackupClient::startReadingData(&context, backup1Id, 456lu, ServerId(123));
+    BackupClient::startReadingData(&context, backup1Id, 456lu, serverId);
 
     BackupClient::StartPartitioningReplicas(&context, backup1Id, 456lu,
-                                   ServerId(123), &tablets);
+                                   serverId, &tablets);
 
     vector<MasterService::Replica> replicas {
         // Started in initial round of RPCs - eventually fails
@@ -857,7 +875,7 @@ TEST_F(MasterServiceTest, recover) {
     };
 
     TestLog::Enable _;
-    EXPECT_THROW(service->recover(456lu, ServerId(123, 0), 0, replicas),
+    EXPECT_THROW(service->recover(456lu, serverId, 0, replicas),
                  SegmentRecoveryFailedException);
     // 1,2,3) 87 was requested from the first server list entry.
     EXPECT_TRUE(TestUtil::matchesPosixRegex(
@@ -2179,10 +2197,13 @@ class MasterRecoverTest : public ::testing::Test {
                            WireFormat::MEMBERSHIP_SERVICE};
         config.segmentSize = segmentSize;
         config.backup.numSegmentFrames = segmentFrames;
-        backup1Id = cluster.addServer(config)->serverId;
+        Server* server = cluster.addServer(config);
+        server->backup->testingSkipCallerIdCheck = true;
+        backup1Id = server->serverId;
 
         config.localLocator = "mock:host=backup2";
         backup2Id = cluster.addServer(config)->serverId;
+        cluster.coordinatorContext.coordinatorServerList->sync();
     }
 
     ~MasterRecoverTest()
@@ -2315,9 +2336,18 @@ TEST_F(MasterRecoverTest, failedToRecoverAll) {
         log.substr(0, log.find(" thrown at"))));
 }
 
-/*
- * We should add a test for the kill method, but all process ending tests
- * were removed previously for performance reasons.
- */
+TEST_F(MasterServiceTest, Disabler) {
+    {
+        MasterService::Disabler disabler1(service);
+        EXPECT_EQ(1, service->disableCount.load());
+        MasterService::Disabler disabler2(service);
+        EXPECT_EQ(2, service->disableCount.load());
+        disabler2.reenable();
+        EXPECT_EQ(1, service->disableCount.load());
+        disabler2.reenable();
+        EXPECT_EQ(1, service->disableCount.load());
+    }
+    EXPECT_EQ(0, service->disableCount.load());
+}
 
 }  // namespace RAMCloud

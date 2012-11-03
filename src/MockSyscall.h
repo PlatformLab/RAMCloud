@@ -35,7 +35,7 @@ class MockSyscall : public Syscall {
     MockSyscall() : acceptErrno(0), bindErrno(0), closeErrno(0), closeCount(0),
                     connectErrno(0), epollCreateErrno(0), epollCtlErrno(0),
                     epollWaitCount(-1), epollWaitEvents(NULL),
-                    epollWaitErrno(0),
+                    epollWaitErrno(0), exitCount(0),
                     fcntlErrno(0), futexWaitErrno(0), futexWakeErrno(0),
                     listenErrno(0),
                     pipeErrno(0), recvErrno(0), recvEof(false),
@@ -117,6 +117,12 @@ class MockSyscall : public Syscall {
         }
         errno = epollWaitErrno;
         return -1;
+    }
+
+    int exitCount;
+    void exit(int status) {
+        exitCount++;
+        return;
     }
 
     int fcntlErrno;

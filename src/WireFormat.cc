@@ -94,6 +94,7 @@ opcodeSymbol(uint32_t opcode)
         case GET_SERVER_CONFIG:          return "GET_SERVER_CONFIG";
         case GET_LOG_METRICS:            return "GET_LOG_METRICS";
         case MULTI_WRITE:                return "MULTI_WRITE";
+        case VERIFY_MEMBERSHIP:          return "VERIFY_MEMBERSHIP";
         case ILLEGAL_RPC_TYPE:           return "ILLEGAL_RPC_TYPE";
     }
 
@@ -105,6 +106,26 @@ opcodeSymbol(uint32_t opcode)
     static char symbol[50];
     snprintf(symbol, sizeof(symbol), "unknown(%d)", opcode);
     return symbol;
+}
+
+/**
+ * Given a buffer containing an RPC response, returns the Status from
+ * that response.
+ *
+ * \param buffer
+ *      Must contain an ResponseCommon structure at the beginning.
+ *
+ * \return
+ *      The status value from response, or STATUS_RESPONSE_FORMAT_ERROR
+ *      if the response buffer is empty.
+ */
+Status
+getStatus(Buffer* buffer)
+{
+    const ResponseCommon* header = buffer->getStart<ResponseCommon>();
+    if (header == NULL)
+        return STATUS_RESPONSE_FORMAT_ERROR;
+    return header->status;
 }
 
 
@@ -119,9 +140,9 @@ opcodeSymbol(uint32_t opcode)
  *      A symbolic name for the request's opcode.
  */
 const char*
-opcodeSymbol(Buffer& buffer)
+opcodeSymbol(Buffer* buffer)
 {
-    const RequestCommon* header = buffer.getStart<RequestCommon>();
+    const RequestCommon* header = buffer->getStart<RequestCommon>();
     if (header == NULL)
         return "null";
     return opcodeSymbol(header->opcode);

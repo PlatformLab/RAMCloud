@@ -56,14 +56,14 @@ class PingServiceTest : public ::testing::Test {
 
 TEST_F(PingServiceTest, ping_basics) {
     TestLog::Enable _;
-    EXPECT_EQ(0UL,
-              PingClient::ping(&context, serverId, ServerId()));
-    EXPECT_EQ("ping: Received ping request from unknown endpoint "
-              "(perhaps the coordinator or a client)",
-              TestLog::get());
+    PingClient::ping(&context, serverId);
+    EXPECT_EQ("", TestLog::get());
     TestLog::reset();
-    EXPECT_EQ(0UL,
-              PingClient::ping(&context, serverId, ServerId(99)));
+    PingClient::ping(&context, serverId, serverId);
+    EXPECT_EQ("ping: Received ping request from server 1.3", TestLog::get());
+    TestLog::reset();
+    EXPECT_THROW(PingClient::ping(&context, serverId, ServerId(99)),
+                CallerNotInClusterException);
     EXPECT_EQ("ping: Received ping request from server 99.0",
               TestLog::get());
 }
@@ -75,9 +75,9 @@ TEST_F(PingServiceTest, ping_wait_timeout) {
     context.transportManager->registerMock(&mockTransport, "mock2");
     serverList.testingAdd({serverId2, "mock2:", {WireFormat::PING_SERVICE}, 100,
                            ServerStatus::UP});
-    PingRpc rpc(&context, serverId2, ServerId());
+    PingRpc rpc(&context, serverId2);
     uint64_t start = Cycles::rdtsc();
-    EXPECT_EQ(~0LU, rpc.wait(1000000));
+    EXPECT_FALSE(rpc.wait(1000000));
     EXPECT_EQ("wait: timeout", TestLog::get());
     double elapsedMicros = 1e06* Cycles::toSeconds(Cycles::rdtsc() - start);
     EXPECT_GE(elapsedMicros, 1000.0);
@@ -85,7 +85,7 @@ TEST_F(PingServiceTest, ping_wait_timeout) {
 }
 
 // Helper function that runs in a separate thread for the following test.
-static void pingThread(PingRpc* rpc, uint64_t* result) {
+static void pingThread(PingRpc* rpc, bool* result) {
     *result = rpc->wait(100000000);
 }
 
@@ -96,8 +96,8 @@ TEST_F(PingServiceTest, ping_wait_serverGoesAway) {
     context.transportManager->registerMock(&mockTransport, "mock2");
     serverList.testingAdd({serverId2, "mock2:", {WireFormat::PING_SERVICE}, 100,
                            ServerStatus::UP});
-    uint64_t result = 0;
-    PingRpc rpc(&context, serverId2, ServerId());
+    bool result = 0;
+    PingRpc rpc(&context, serverId2);
     std::thread thread(pingThread, &rpc, &result);
     usleep(100);
     EXPECT_EQ(0LU, result);
@@ -112,9 +112,21 @@ TEST_F(PingServiceTest, ping_wait_serverGoesAway) {
         usleep(100);
     }
 
-    EXPECT_EQ(0xffffffffffffffffU, result);
+    EXPECT_FALSE(result);
     EXPECT_EQ("wait: server doesn't exist", TestLog::get());
     thread.join();
+}
+
+TEST_F(PingServiceTest, ping_wait_exception) {
+    TestLog::Enable _;
+    PingRpc rpc(&context, serverId, ServerId(99));
+    EXPECT_THROW(rpc.wait(100000), CallerNotInClusterException);
+}
+
+TEST_F(PingServiceTest, ping_wait_success) {
+    TestLog::Enable _;
+    PingRpc rpc(&context, serverId);
+    EXPECT_TRUE(rpc.wait(100000));
 }
 
 TEST_F(PingServiceTest, proxyPing_basics) {

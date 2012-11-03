@@ -86,6 +86,13 @@ struct BindTransport : public Transport {
 
         void abort() {}
         void cancelRequest(RpcNotifier* notifier) {}
+        string getRpcInfo()
+        {
+            if (lastNotifier == NULL)
+                return "no active RPCs via BindTransport";
+            return format("%s via BindTransport",
+                    WireFormat::opcodeSymbol(lastRequest));
+        }
         void release() {
             delete this;
         }
@@ -96,7 +103,7 @@ struct BindTransport : public Transport {
             lastRequest = request;
             lastResponse = response;
             lastNotifier = notifier;
-            Service::Rpc rpc(NULL, *request, *response);
+            Service::Rpc rpc(NULL, request, response);
             if (transport.abortCounter > 0) {
                 transport.abortCounter--;
                 if (transport.abortCounter == 0) {
@@ -120,7 +127,7 @@ struct BindTransport : public Transport {
             if (service == NULL) {
                 throw ServiceNotAvailableException(HERE);
             }
-            service->handleRpc(rpc);
+            service->handleRpc(&rpc);
             if (!dontNotify) {
                 notifier->completed();
                 lastNotifier = NULL;

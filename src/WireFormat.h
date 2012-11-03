@@ -109,7 +109,8 @@ enum Opcode {
     GET_SERVER_CONFIG         = 52,
     GET_LOG_METRICS           = 53,
     MULTI_WRITE               = 54,
-    ILLEGAL_RPC_TYPE          = 55,  // 1 + the highest legitimate Opcode
+    VERIFY_MEMBERSHIP         = 55,
+    ILLEGAL_RPC_TYPE          = 56,  // 1 + the highest legitimate Opcode
 };
 
 /**
@@ -802,15 +803,11 @@ struct Ping {
     static const ServiceType service = PING_SERVICE;
     struct Request {
         RequestCommon common;
-        uint64_t callerId;          // ServerId of the server issuing the
-                                    // ping. May be invalid if coming
-                                    // from a client.
+        uint64_t callerId;          // ServerId of the caller, or invalid
+                                    // server id.
     } __attribute__((packed));
     struct Response {
         ResponseCommon common;
-        uint64_t serverListVersion; // Version of the server list this server
-                                    // has. Used to determine if the issuer of
-                                    // the ping request is out of date.
     } __attribute__((packed));
 };
 
@@ -1095,6 +1092,18 @@ struct UpdateServerList {
     } __attribute__((packed));
 };
 
+struct VerifyMembership {
+    static const Opcode opcode = VERIFY_MEMBERSHIP;
+    static const ServiceType service = COORDINATOR_SERVICE;
+    struct Request {
+        RequestCommon common;
+        uint64_t serverId;            // Is this server still in cluster?
+    } __attribute__((packed));
+    struct Response {
+        ResponseCommon common;
+    } __attribute__((packed));
+};
+
 struct Write {
     static const Opcode opcode = WRITE;
     static const ServiceType service = MASTER_SERVICE;
@@ -1118,9 +1127,10 @@ struct Write {
 
 // DON'T DEFINE NEW RPC TYPES HERE!! Put them in alphabetical order above.
 
+Status getStatus(Buffer* buffer);
 const char* serviceTypeSymbol(ServiceType type);
 const char* opcodeSymbol(uint32_t opcode);
-const char* opcodeSymbol(Buffer& buffer);
+const char* opcodeSymbol(Buffer* buffer);
 
 // --- Magic numbers ---
 
