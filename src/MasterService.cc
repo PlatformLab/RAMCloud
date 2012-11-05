@@ -1495,6 +1495,7 @@ MasterService::recover(uint64_t recoveryId,
                 context->serverList->toString(task->replica.backupId).c_str());
             try {
                 Segment::Certificate certificate = task->rpc->wait();
+                task->rpc.destroy();
                 uint64_t grdTime = Cycles::rdtsc() - task->startTime;
                 metrics->master.segmentReadTicks += grdTime;
 
