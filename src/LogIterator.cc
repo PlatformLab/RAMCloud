@@ -64,7 +64,7 @@ LogIterator::LogIterator(Log& log)
       currentSegmentId(Segment::INVALID_SEGMENT_ID),
       headLocked(false)
 {
-    log.segmentManager.logIteratorCreated();
+    log.segmentManager->logIteratorCreated();
 
     // If there's no log head yet we need to preclude any appends.
     log.appendLock.lock();
@@ -85,7 +85,7 @@ LogIterator::~LogIterator()
 {
     if (headLocked)
         log.appendLock.unlock();
-    log.segmentManager.logIteratorDestroyed();
+    log.segmentManager->logIteratorDestroyed();
 }
 
 /**
@@ -224,7 +224,7 @@ LogIterator::setBufferTo(Buffer& buffer)
 void
 LogIterator::populateSegmentList(uint64_t nextSegmentId)
 {
-    log.segmentManager.getActiveSegments(nextSegmentId, segmentList);
+    log.segmentManager->getActiveSegments(nextSegmentId, segmentList);
 
     // Sort in descending order (so we can pop oldest ones off the back).
     std::sort(segmentList.begin(),

@@ -302,7 +302,7 @@ TEST_F(ReplicaManagerTest, endToEndBackupRecovery) {
     SegmentManager segmentManager(&context, serverConfig,
                                   serverId, allocator, *mgr);
     DoNothingHandlers entryHandlers;
-    Log log(&context, serverConfig, entryHandlers, segmentManager, *mgr);
+    Log log(&context, &serverConfig, &entryHandlers, &segmentManager, &*mgr);
     log.sync();
 
     // Set up the scenario:

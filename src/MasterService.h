@@ -30,6 +30,7 @@
 #include "ServerStatistics.pb.h"
 #include "Service.h"
 #include "ServerConfig.h"
+#include "SideLog.h"
 #include "SpinLock.h"
 #include "Table.h"
 #include "WireFormat.h"
@@ -160,7 +161,7 @@ class MasterService : public Service, LogEntryHandlers {
                  WireFormat::Recover::Response& respHdr,
                  Rpc& rpc);
     void recoverSegmentPrefetcher(SegmentIterator& i);
-    void recoverSegment(SegmentIterator& it);
+    void recoverSegment(SideLog* sideLog, SegmentIterator& it);
     void recover(uint64_t recoveryId,
                  ServerId masterId,
                  uint64_t partitionId,

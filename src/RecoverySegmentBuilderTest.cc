@@ -59,7 +59,7 @@ struct RecoverySegmentBuilderTest : public ::testing::Test {
 
 TEST_F(RecoverySegmentBuilderTest, build) {
     auto build = RecoverySegmentBuilder::build;
-    LogSegment* segment = segmentManager.allocHead();
+    LogSegment* segment = segmentManager.allocHeadSegment();
 
     { // Object and tombstone should go in partition 1.
         Key key(1, "1", 1);
@@ -119,7 +119,7 @@ TEST_F(RecoverySegmentBuilderTest, build) {
 
 TEST_F(RecoverySegmentBuilderTest, extractDigest) {
     auto extractDigest = RecoverySegmentBuilder::extractDigest;
-    LogSegment* segment = segmentManager.allocHead();
+    LogSegment* segment = segmentManager.allocHeadSegment();
     Segment::Certificate certificate;
     uint32_t length = segment->getAppendedLength(&certificate);
     char buffer[serverConfig.segmentSize];

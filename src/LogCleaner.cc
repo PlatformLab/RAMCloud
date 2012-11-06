@@ -237,7 +237,7 @@ LogCleaner::doMemoryCleaning()
     inMemoryMetrics.totalBytesInCompactedSegments +=
         segment->getSegletsAllocated() * segletSize;
 
-    LogSegment* survivor = segmentManager.allocSurvivor(segment);
+    LogSegment* survivor = segmentManager.allocSideSegment(0, segment);
 
     for (SegmentIterator it(*segment); !it.isDone(); it.next()) {
         LogEntryType type = it.getType();
@@ -537,7 +537,7 @@ LogCleaner::relocateLiveEntries(LiveEntryVector& liveEntries,
             if (survivor != NULL)
                 closeSurvivor(survivor);
 
-            survivor = segmentManager.allocSurvivor();
+            survivor = segmentManager.allocSideSegment(0, NULL);
             outSurvivors.push_back(survivor);
 
             if (!relocateEntry(type, buffer, survivor, onDiskMetrics))
@@ -584,7 +584,7 @@ LogCleaner::closeSurvivor(LogSegment* survivor)
  * Wait until the desired number of survivor segments are available for
  * cleaning. This is necessary to ensure that we have enough space to work
  * with. A perhaps more elegant alternative would be to make SegmentManager::
- * allocSurvivor() a blocking call. That way we could overlap some more work
+ * allocSideSegment() a blocking call. That way we could overlap some more work
  * when some, but not all, needed segments are available.
  *
  * \param count

@@ -242,7 +242,7 @@ MasterService::init(ServerId id)
     LOG(NOTICE, "My server ID is %s", serverId.toString().c_str());
     metrics->serverId = serverId.getId();
 
-    log = new Log(context, config, *this, segmentManager, replicaManager);
+    log = new Log(context, &config, this, &segmentManager, &replicaManager);
     keyComparer = new LogKeyComparer(*log);
     objectMap = new HashTable(config.master.hashTableBytes /
         HashTable::bytesPerCacheLine(), *keyComparer);
@@ -1107,7 +1107,9 @@ MasterService::receiveMigrationData(
     const void* segmentMemory = rpc.requestPayload.getStart<const void*>();
     SegmentIterator it(segmentMemory, segmentBytes, certificate);
     it.checkMetadataIntegrity();
-    recoverSegment(it);
+    SideLog sideLog(log);
+    recoverSegment(&sideLog, it);
+    sideLog.commit();
 
     // TODO(rumble/slaughter) what about tablet version numbers?
     //          - need to be made per-server now, no? then take max of two?
@@ -1423,6 +1425,11 @@ MasterService::recover(uint64_t recoveryId,
     auto notStarted = replicas.begin();
     auto replicasEnd = replicas.end();
 
+    // The SideLog we'll append recovered entries to. It will be committed after
+    // replay completes on all segments, making all of the recovered data
+    // durable.
+    SideLog sideLog(log);
+
     // Start RPCs
     auto replicaIt = notStarted;
     foreach (auto& task, tasks) {
@@ -1534,7 +1541,7 @@ MasterService::recover(uint64_t recoveryId,
                             ReplicatedSegment::recoveryStart),
                         task->replica.segmentId, responseLen);
                 }
-                recoverSegment(it);
+                recoverSegment(&sideLog, it);
                 usefulTime += Cycles::rdtsc() - startUseful;
                 TEST_LOG("Segment %lu replay complete",
                          task->replica.segmentId);
@@ -1623,7 +1630,7 @@ MasterService::recover(uint64_t recoveryId,
 
     {
         CycleCounter<RawMetric> logSyncTicks(&metrics->master.logSyncTicks);
-        LOG(NOTICE, "Syncing the log");
+        LOG(NOTICE, "Committing the SideLog...");
         metrics->master.logSyncBytes =
             0 - metrics->transport.transmit.byteCount;
         metrics->master.logSyncTransmitCopyTicks =
@@ -1632,7 +1639,7 @@ MasterService::recover(uint64_t recoveryId,
             0 - metrics->transport.infiniband.transmitActiveTicks;
         metrics->master.logSyncPostingWriteRpcTicks =
             0 - metrics->master.replicationPostingWriteRpcTicks;
-        log->sync();
+        sideLog.commit();
         metrics->master.logSyncBytes += metrics->transport.transmit.byteCount;
         metrics->master.logSyncTransmitCopyTicks +=
             metrics->transport.transmit.copyTicks;
@@ -1640,7 +1647,7 @@ MasterService::recover(uint64_t recoveryId,
             metrics->transport.infiniband.transmitActiveTicks;
         metrics->master.logSyncPostingWriteRpcTicks +=
             metrics->master.replicationPostingWriteRpcTicks;
-        LOG(NOTICE, "Syncing the log done");
+        LOG(NOTICE, "SideLog finished committing (data is durable).");
     }
 
     metrics->master.replicationBytes += metrics->transport.transmit.byteCount;
@@ -1883,12 +1890,16 @@ MasterService::recoverSegmentPrefetcher(SegmentIterator& it)
  * Replay a recovery segment from a crashed Master that this Master is taking
  * over for.
  *
+ * \param sideLog
+ *      The SideLog to append the recovered entries to. The regular log is not
+ *      used to improve performance (the SideLog is synced once at the very end,
+ *      rather than once each segment is filled).
  * \param it
  *       SegmentIterator which is pointing to the start of the recovery segment
  *       to be replayed into the log.
  */
 void
-MasterService::recoverSegment(SegmentIterator& it)
+MasterService::recoverSegment(SideLog* sideLog, SegmentIterator& it)
 {
     uint64_t startReplicationTicks = metrics->master.replicaManagerTicks;
     uint64_t startReplicationPostingWriteRpcTicks =
@@ -1976,11 +1987,11 @@ MasterService::recoverSegment(SegmentIterator& it)
                 Log::Reference newObjReference;
                 {
                     CycleCounter<uint64_t> _(&segmentAppendTicks);
-                    log->append(LOG_ENTRY_TYPE_OBJ,
-                                recoveryObj->timestamp,
-                                recoveryObj,
-                                it.getLength(),
-                                &newObjReference);
+                    sideLog->append(LOG_ENTRY_TYPE_OBJ,
+                                    recoveryObj->timestamp,
+                                    recoveryObj,
+                                    it.getLength(),
+                                    &newObjReference);
                 }
 
                 // TODO(steve/ryan): what happens if the log is full? won't an
@@ -1997,7 +2008,7 @@ MasterService::recoverSegment(SegmentIterator& it)
                 //              as well
                 if (freeCurrentEntry) {
                     liveObjectBytes -= currentBuffer.getTotalLength();
-                    log->free(currentReference);
+                    sideLog->free(currentReference);
                 } else {
                     liveObjectCount++;
                 }
@@ -2042,10 +2053,10 @@ MasterService::recoverSegment(SegmentIterator& it)
                 Log::Reference newTombReference;
                 {
                     CycleCounter<uint64_t> _(&segmentAppendTicks);
-                    log->append(LOG_ENTRY_TYPE_OBJTOMB,
-                                recoverTomb.getTimestamp(),
-                                buffer,
-                                &newTombReference);
+                    sideLog->append(LOG_ENTRY_TYPE_OBJTOMB,
+                                    recoverTomb.getTimestamp(),
+                                    buffer,
+                                    &newTombReference);
                 }
 
                 // TODO(steve/ryan): append could fail here!
@@ -2056,7 +2067,7 @@ MasterService::recoverSegment(SegmentIterator& it)
                 if (freeCurrentEntry) {
                     liveObjectCount++;
                     liveObjectBytes -= currentBuffer.getTotalLength();
-                    log->free(currentReference);
+                    sideLog->free(currentReference);
                 }
             } else {
                 tombstoneDiscardCount++;
@@ -2085,7 +2096,7 @@ MasterService::recoverSegment(SegmentIterator& it)
             // with the same backup data when the recovery crashes on the way.
             {
                 CycleCounter<uint64_t> _(&segmentAppendTicks);
-                log->append(LOG_ENTRY_TYPE_SAFEVERSION, 0, buffer);
+                sideLog->append(LOG_ENTRY_TYPE_SAFEVERSION, 0, buffer);
             }
 
             // recover segmentManager.safeVersion (Master safeVersion)
