@@ -265,13 +265,23 @@ ReplicatedSegment::close()
 void
 ReplicatedSegment::handleBackupFailure(ServerId failedId, bool useMinCopysets)
 {
+    // If we are using MinCopysets and any of the backups on which the
+    // segment fails, we re-replicate all the copies of that segment.
+    bool replicationGroupFailed = false;
+    if (useMinCopysets) {
+        foreach (auto& replica, replicas) {
+            if (!replica.isActive)
+                continue;
+            if (replica.backupId == failedId)
+                replicationGroupFailed = true;
+        }
+    }
+
     bool someOpenReplicaLost = false;
     foreach (auto& replica, replicas) {
         if (!replica.isActive)
             continue;
-        // If we are using MinCopysets and any of the backups on which the
-        // segment fails, we re-replicate all the copies of that segment.
-        if (!useMinCopysets && replica.backupId != failedId)
+        if (!replicationGroupFailed && replica.backupId != failedId)
             continue;
         LOG(DEBUG, "Segment %lu recovering from lost replica which was on "
             "backup %s", segmentId, failedId.toString().c_str());
