@@ -57,6 +57,7 @@ class BackupServiceTest : public ::testing::Test {
         config.backup.numSegmentFrames = 5;
         server = cluster->addServer(config);
         backup = server->backup.get();
+        backup->testingSkipCallerIdCheck = true;
         backupId = server->serverId;
     }
 
@@ -425,6 +426,11 @@ TEST_F(BackupServiceTest, writeSegment) {
                  static_cast<char*>(frameIt->second->load()) + 10);
 }
 
+TEST_F(BackupServiceTest, writeSegment_checkCallerId) {
+    backup->testingSkipCallerIdCheck = false;
+    EXPECT_THROW(openSegment({99, 0}, 88), CallerNotInClusterException);
+}
+
 TEST_F(BackupServiceTest, writeSegment_epochStored) {
     openSegment({99, 0}, 88);
     auto frameIt = backup->frames.find({{99, 0}, 88});
@@ -562,7 +568,7 @@ TEST_F(BackupServiceTest, GarbageCollectDownServerTask) {
     typedef BackupService::GarbageCollectDownServerTask Task;
     std::unique_ptr<Task> task(new Task(*backup, {99, 0}));
     task->schedule();
-    const_cast<ServerConfig&>(backup->config).backup.gc = true;
+    const_cast<ServerConfig*>(backup->config)->backup.gc = true;
 
     backup->taskQueue.performTask();
     EXPECT_EQ(backup->recoveries.end(), backup->recoveries.find({99, 0}));
@@ -591,9 +597,9 @@ TEST_F(BackupServiceTest, GarbageCollectDownServerTask) {
 
 namespace {
 class GcMockMasterService : public Service {
-    void dispatch(Opcode opcode, Rpc& rpc) {
+    void dispatch(Opcode opcode, Rpc* rpc) {
         const RequestCommon* hdr =
-            rpc.requestPayload.getStart<RequestCommon>();
+            rpc->requestPayload->getStart<RequestCommon>();
         switch (hdr->service) {
         case MEMBERSHIP_SERVICE:
             switch (opcode) {
@@ -607,10 +613,10 @@ class GcMockMasterService : public Service {
             case Opcode::IS_REPLICA_NEEDED:
             {
                 const IsReplicaNeeded::Request* req =
-                    rpc.requestPayload.getStart<
+                    rpc->requestPayload->getStart<
                     IsReplicaNeeded::Request>();
                 auto* resp =
-                    new(&rpc.replyPayload, APPEND)
+                    new(rpc->replyPayload, APPEND)
                         IsReplicaNeeded::Response();
                 resp->needed = req->segmentId % 2;
                 resp->common.status = STATUS_OK;
@@ -651,7 +657,7 @@ TEST_F(BackupServiceTest, GarbageCollectReplicaFoundOnStorageTask) {
     task->addSegmentId(11);
     task->addSegmentId(12);
     task->schedule();
-    const_cast<ServerConfig&>(backup->config).backup.gc = true;
+    const_cast<ServerConfig*>(backup->config)->backup.gc = true;
 
     EXPECT_FALSE(task->rpc);
     backup->taskQueue.performTask(); // send rpc to probe 10
@@ -722,7 +728,7 @@ TEST_F(BackupServiceTest, GarbageCollectReplicaFoundOnStorageTask_freedFirst) {
     std::unique_ptr<Task> task(new Task(*backup, {99, 0}));
     task->addSegmentId(88);
     task->schedule();
-    const_cast<ServerConfig&>(backup->config).backup.gc = true;
+    const_cast<ServerConfig*>(backup->config)->backup.gc = true;
 
     TestLog::Enable _(taskScheduleFilter);
     backup->taskQueue.performTask();

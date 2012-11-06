@@ -196,6 +196,14 @@ class Transport {
         virtual void cancelRequest(RpcNotifier* notifier) = 0;
 
         /**
+         * Returns a human-readable string containing useful information
+         * about any active  RPC(s) on this session.
+         */
+        virtual string getRpcInfo() {
+            return format("unknown RPC(s) on %s", serviceLocator.c_str());
+        }
+
+        /**
          * \return
          *      Return a reference to the service locator this Session is to.
          */

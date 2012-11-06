@@ -561,7 +561,7 @@ TEST_F(TcpTransportTest, IncomingMessage_readMessage_messageTooLong) {
 }
 
 TEST_F(TcpTransportTest, IncomingMessage_readMessage_getBufferFromSession) {
-    // This test is a bit goofy, and that we set up a server, then
+    // This test is a bit goofy, in that we set up a server, then
     // initialize the IncomingMessage to receive a client-side reply.
     int fd = connectToServer(locator);
     server.acceptHandler->handleFileEvent(Dispatch::FileEvent::READABLE);
@@ -870,6 +870,42 @@ TEST_F(TcpTransportTest, findRpc) {
     header.nonce = 334UL;
     EXPECT_TRUE(session.findRpc(header) == NULL);
     session.abort();
+}
+
+TEST_F(TcpTransportTest, TcpSession_getRpcInfo) {
+    Transport::SessionRef session = client.getSession(locator);
+    TcpTransport::TcpSession* rawSession =
+            reinterpret_cast<TcpTransport::TcpSession*>(session.get());
+
+    // No active RPCs.
+    EXPECT_EQ("no active RPCs to server at tcp+ip:host=localhost,port=11000",
+                rawSession-> getRpcInfo());
+
+    // Send a couple of small requests, which will end up queued on
+    // rpcsWaitingForResponse, then send a large request, which will queue
+    // on rpcsWaitingToSend, followed by a couple more smaller ones, which
+    // will queue behind it.
+    MockWrapper rpc1;
+    rpc1.setOpcode(WireFormat::READ);
+    session->sendRequest(&rpc1.request, &rpc1.response, &rpc1);
+    MockWrapper rpc2;
+    rpc2.setOpcode(WireFormat::REMOVE);
+    session->sendRequest(&rpc2.request, &rpc2.response, &rpc2);
+    MockWrapper rpc3;
+    TestUtil::fillLargeBuffer(&rpc3.request, 777777);
+    rpc3.setOpcode(WireFormat::WRITE);
+    session->sendRequest(&rpc3.request, &rpc3.response, &rpc3);
+    MockWrapper rpc4;
+    rpc4.setOpcode(WireFormat::PING);
+    session->sendRequest(&rpc4.request, &rpc4.response, &rpc4);
+    MockWrapper rpc5;
+    rpc5.setOpcode(WireFormat::INCREMENT);
+    session->sendRequest(&rpc5.request, &rpc5.response, &rpc5);
+    EXPECT_EQ(3U, rawSession->rpcsWaitingToSend.size());
+
+    EXPECT_EQ("READ, REMOVE, WRITE, PING, INCREMENT to server "
+                "at tcp+ip:host=localhost,port=11000",
+                rawSession-> getRpcInfo());
 }
 
 TEST_F(TcpTransportTest, sendRequest_clearResponse) {

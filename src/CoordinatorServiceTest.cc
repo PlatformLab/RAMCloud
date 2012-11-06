@@ -399,7 +399,7 @@ TEST_F(CoordinatorServiceTest, setMasterRecoveryInfo) {
     info.set_min_open_segment_id(10);
     info.set_min_open_segment_epoch(1);
     CoordinatorClient::setMasterRecoveryInfo(&context, masterServerId, info);
-    EXPECT_EQ(10u, service->context->coordinatorServerList->at(
+    EXPECT_EQ(10u, service->context->coordinatorServerList->operator[](
             masterServerId).masterRecoveryInfo.min_open_segment_id());
 }
 
@@ -415,6 +415,13 @@ TEST_F(CoordinatorServiceTest, setMasterRecoveryInfo_noSuchServer) {
         message = e.toSymbol();
     }
     EXPECT_EQ("STATUS_SERVER_NOT_UP", message);
+}
+
+TEST_F(CoordinatorServiceTest, verifyMembership) {
+    CoordinatorClient::verifyMembership(&context, masterServerId);
+    ServerId bogus(3, 2);
+    EXPECT_THROW(CoordinatorClient::verifyMembership(&context, bogus, false),
+                 CallerNotInClusterException);
 }
 
 }  // namespace RAMCloud

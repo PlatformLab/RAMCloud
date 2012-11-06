@@ -293,7 +293,7 @@ TEST_F(ReplicatedSegmentTest, close) {
 }
 
 TEST_F(ReplicatedSegmentTest, handleBackupFailureWhileOpen) {
-    segment->handleBackupFailure({0, 0});
+    segment->handleBackupFailure({0, 0}, false);
     foreach (auto& replica, segment->replicas)
         EXPECT_FALSE(replica.replicateAtomically);
 
@@ -301,17 +301,17 @@ TEST_F(ReplicatedSegmentTest, handleBackupFailureWhileOpen) {
     transport.setInput("0 0"); // write
     createSegment->logSegment.head = openLen; // write queued
     // Not active still, next performTask chooses backups and sends opens.
-    segment->handleBackupFailure({0, 0});
+    segment->handleBackupFailure({0, 0}, false);
     foreach (auto& replica, segment->replicas)
         EXPECT_FALSE(replica.replicateAtomically);
 
     taskQueue.performTask();
     // Replicas are now active with an outstanding open rpc.
-    segment->handleBackupFailure({88888, 0});
+    segment->handleBackupFailure({88888, 0}, false);
     foreach (auto& replica, segment->replicas)
         EXPECT_FALSE(replica.replicateAtomically);
 
-    segment->handleBackupFailure({0, 0});
+    segment->handleBackupFailure({0, 0}, false);
     // The failed replica must restart replication in atomic mode.
     EXPECT_TRUE(segment->replicas[0].replicateAtomically);
     // The other open replica is in normal (non-atomic) mode still.
@@ -319,7 +319,7 @@ TEST_F(ReplicatedSegmentTest, handleBackupFailureWhileOpen) {
     EXPECT_EQ(1lu, segment->queued.epoch);
 
     // Failure of the second replica.
-    segment->handleBackupFailure({1, 0});
+    segment->handleBackupFailure({1, 0}, false);
     EXPECT_TRUE(segment->replicas[0].replicateAtomically);
     EXPECT_TRUE(segment->replicas[1].replicateAtomically);
     EXPECT_EQ(2lu, segment->queued.epoch);
@@ -362,7 +362,7 @@ TEST_F(ReplicatedSegmentTest, handleBackupFailureWhileOpenDoesntSendForClosed) {
 
     // Handle failure on the open replica.
     TestLog::Enable _(handleBackupFailureFilter);
-    segment->handleBackupFailure({1, 0});
+    segment->handleBackupFailure({1, 0}, false);
     EXPECT_FALSE(segment->replicas[0].replicateAtomically);
     EXPECT_TRUE(segment->replicas[1].replicateAtomically);
     EXPECT_EQ(1lu, segment->queued.epoch);
@@ -378,13 +378,16 @@ TEST_F(ReplicatedSegmentTest, handleBackupFailureWhileOpenDoesntSendForClosed) {
             "was on backup 1.0 | "
         "handleBackupFailure: Lost replica(s) for segment 888 while open due "
             "to crash of backup 1.0 | "
+        "performWrite: Write RPC finished for replica slot 0 | "
         // Don't get weirded out by the fact that replica 0 and 1 are both
         // on the same backup. It's an artifact of the MockBackupSelector.
         // Shouldn't happen with the real BackupSelector.
         "performWrite: Starting replication of segment 888 replica slot 1 on "
             "backup 0.0 | "
         "performWrite: Sending open to backup 0.0 | "
+        "performWrite: Write RPC finished for replica slot 1 | "
         "performWrite: Sending write to backup 0.0 | "
+        "performWrite: Write RPC finished for replica slot 1 | "
         "performTask: Updating replicationEpoch to 888,1 on coordinator to "
             "ensure lost replicas will not be reused | "
         "updateToAtLeast: request update to master recovery info for 999.0 "
@@ -410,19 +413,36 @@ TEST_F(ReplicatedSegmentTest, handleBackupFailureWhileHandlingFailure) {
 
     // Handle failure while closed. This should technically
     // "reopen" the segment, though only in atomic replication mode.
-    segment->handleBackupFailure({0, 0});
+    segment->handleBackupFailure({0, 0}, false);
     EXPECT_TRUE(segment->replicas[0].replicateAtomically);
     EXPECT_FALSE(segment->replicas[1].replicateAtomically);
     EXPECT_EQ(0lu, segment->queued.epoch);
 
     // Check to make sure that atomic replications aren't counted as
     // failures while open. They can't threaten the integrity of the log.
-    segment->handleBackupFailure({0, 0});
+    segment->handleBackupFailure({0, 0}, false);
     EXPECT_TRUE(segment->replicas[0].replicateAtomically);
     EXPECT_FALSE(segment->replicas[1].replicateAtomically);
     EXPECT_EQ(0lu, segment->queued.epoch);
 
     reset();
+}
+
+TEST_F(ReplicatedSegmentTest, handleBackupFailureWithMinCopysets) {
+    transport.setInput("0 0"); // write+open first replica
+    transport.setInput("0 0"); // write+open second replica
+    transport.setInput("0 0"); // write+close first replica
+    transport.setInput("0 0"); // write+close second replica
+    segment->close();
+    taskQueue.performTask();
+
+    TestLog::Enable _(handleBackupFailureFilter);
+    EXPECT_FALSE(segment->replicas[0].replicateAtomically);
+    EXPECT_FALSE(segment->replicas[1].replicateAtomically);
+    // Should kill all replicas if any one is down.
+    segment->handleBackupFailure({1, 0}, true);
+    EXPECT_TRUE(segment->replicas[0].replicateAtomically);
+    EXPECT_TRUE(segment->replicas[1].replicateAtomically);
 }
 
 TEST_F(ReplicatedSegmentTest, sync) {
@@ -612,7 +632,7 @@ TEST_F(ReplicatedSegmentTest, syncRecoveringFromLostOpenReplicas) {
     EXPECT_FALSE(segment->getCommitted().close);
 
     // Now the open segment encounters a failure.
-    segment->handleBackupFailure({0, 0});
+    segment->handleBackupFailure({0, 0}, false);
     EXPECT_EQ(1lu, segment->queued.epoch);
     EXPECT_TRUE(segment->recoveringFromLostOpenReplicas);
     EXPECT_FALSE(segment->replicas[0].isActive);
@@ -655,6 +675,8 @@ TEST_F(ReplicatedSegmentTest, syncRecoveringFromLostOpenReplicas) {
                   "slot 0 on backup 0.0 | "
               "performWrite: Sending open to backup 0.0 | "
               "performWrite: Sending write to backup 1.0 | "
+              "performWrite: Write RPC finished for replica slot 0 | "
+              "performWrite: Write RPC finished for replica slot 1 | "
               // After both replicas have received a write they should try to
               // update the replication epoch on the coordinator to invalidate
               // stale replicas.
@@ -813,7 +835,7 @@ TEST_F(ReplicatedSegmentTest, swapSegmentThenBackupFailure) {
     // Handle failure on the second replica.
     transport.clearOutput();
     TestLog::Enable _(handleBackupFailureFilter);
-    segment->handleBackupFailure({1, 0});
+    segment->handleBackupFailure({1, 0}, false);
 
     transport.setInput("0 0"); // open
     taskQueue.performTask(); // send open
@@ -826,7 +848,9 @@ TEST_F(ReplicatedSegmentTest, swapSegmentThenBackupFailure) {
               "performWrite: Starting replication of segment 888 replica slot "
                 "1 on backup 0.0 | "
               "performWrite: Sending open to backup 0.0 | "
-              "performWrite: Sending write to backup 0.0",
+              "performWrite: Write RPC finished for replica slot 1 | "
+              "performWrite: Sending write to backup 0.0 | "
+              "performWrite: Write RPC finished for replica slot 1",
         TestLog::get());
 
     Segment::Certificate empty;
@@ -910,7 +934,7 @@ TEST_F(ReplicatedSegmentTest, performTaskRecoveringFromLostOpenReplicas) {
     transport.setInput("0 0"); // open/write
     transport.setInput("0 0"); // open/write
     taskQueue.performTask(); // send open/writes
-    segment->handleBackupFailure({0, 0});
+    segment->handleBackupFailure({0, 0}, false);
     EXPECT_TRUE(segment->recoveringFromLostOpenReplicas);
     EXPECT_EQ(1lu, segment->queued.epoch);
     EXPECT_EQ(0lu, segment->replicas[0].committed.epoch);
@@ -932,6 +956,7 @@ TEST_F(ReplicatedSegmentTest, performTaskRecoveringFromLostOpenReplicas) {
     TestLog::Enable _(filter);
     taskQueue.performTask(); // reap replica 1, update epoch on coordinator
     EXPECT_EQ(
+        "performWrite: Write RPC finished for replica slot 1 | "
         "performTask: Updating replicationEpoch to 888,1 on coordinator to "
             "ensure lost replicas will not be reused | "
         "updateToAtLeast: request update to master recovery info for 999.0 "
@@ -1552,6 +1577,7 @@ TEST_F(ReplicatedSegmentTest, performWriteBackupRejectedOpen) {
     TestLog::Enable _(filter);
     taskQueue.performTask(); // reap - second replica gets rejected
     EXPECT_EQ(
+        "performWrite: Write RPC finished for replica slot 0 | "
         "performWrite: Couldn't open replica on backup 1.0; server may be "
         "overloaded or may already have a replica for this segment which "
         "was found on disk after a crash; will choose another backup",
@@ -1582,6 +1608,49 @@ namespace {
 bool performWriteFilter(string s) {
     return s == "performWrite";
 }
+}
+
+TEST_F(ReplicatedSegmentTest, performWrite_CallerNotInClusterException) {
+    TestLog::Enable _(performWriteFilter);
+    context.coordinatorSession->setLocation("mock:host=coord");
+    // Arrange for RPC responses:
+    transport.setInput("0");  // accept write for first replica
+    transport.setInput("26"); // reject write for 2nd replica - caller not
+                              // in cluster
+    transport.setInput("0");  // verifyMembership response
+    transport.setInput("0");  // accept write retry for 2nd replica
+
+    taskQueue.performTask();
+    // At this point writes should have been issued for both replicas.
+    EXPECT_EQ("performWrite: Starting replication of segment 888 replica "
+                  "slot 0 on backup 0.0 | "
+              "performWrite: Sending open to backup 0.0 | "
+              "performWrite: Starting replication of segment 888 replica "
+                  "slot 1 on backup 1.0 | "
+              "performWrite: Sending open to backup 1.0",
+              TestLog::get());
+    TestLog::reset();
+
+    taskQueue.performTask();
+    // The first replica write has now succeeded. The second has completed
+    // with an error, and verifyMembership has been invoked (and succeeded).
+    EXPECT_EQ("performWrite: Write RPC finished for replica slot 0 | "
+              "performWrite: Backup write RPC rejected by 1.0 with "
+                  "STATUS_CALLER_NOT_IN_CLUSTER",
+              TestLog::get());
+    TestLog::reset();
+
+    taskQueue.performTask();
+    // The second replica write has now been reissued.
+    EXPECT_EQ("performWrite: Sending open to backup 1.0",
+              TestLog::get());
+    TestLog::reset();
+
+    taskQueue.performTask();
+    // The second replica write retry has now succeeded.
+    EXPECT_EQ("performWrite: Write RPC finished for replica slot 1",
+              TestLog::get());
+    reset();
 }
 
 TEST_F(ReplicatedSegmentTest, performWriteEnsureDurableOpensOrdered) {

@@ -28,7 +28,6 @@ TESTS_SRCFILES := \
 		  src/ContextTest.cc \
 		  src/CoordinatorRpcWrapperTest.cc \
 		  src/CoordinatorServerListTest.cc \
-		  src/CoordinatorServerManagerTest.cc \
 		  src/CoordinatorServiceRecoveryTest.cc \
 		  src/CoordinatorServiceTest.cc \
 		  src/CoordinatorSessionTest.cc \
@@ -56,6 +55,7 @@ TESTS_SRCFILES := \
 		  src/MasterRecoveryManagerTest.cc \
 		  src/MasterServiceTest.cc \
 		  src/MembershipServiceTest.cc \
+		  src/MinCopysetsBackupSelectorTest.cc \
 		  src/MockCluster.cc \
 		  src/MockClusterTest.cc \
 		  src/MockDriver.cc \

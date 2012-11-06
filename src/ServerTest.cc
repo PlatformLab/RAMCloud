@@ -44,7 +44,7 @@ class ServerTest: public ::testing::Test {
                            WireFormat::PING_SERVICE};
         config.coordinatorLocator = cluster.coordinatorLocator;
         config.localLocator = "mock:host=server0";
-        server.construct(&context, config);
+        server.construct(&context, &config);
     }
 
     ~ServerTest() {

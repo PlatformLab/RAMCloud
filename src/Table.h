@@ -1,4 +1,4 @@
-/* Copyright (c) 2009 Stanford University
+/* Copyright (c) 2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -16,61 +16,120 @@
 #ifndef RAMCLOUD_TABLE_H
 #define RAMCLOUD_TABLE_H
 
+#include "Tablets.pb.h"
+
 #include "Common.h"
-#include "Object.h"
-#include "HashTable.h"
-#include "ServerStatistics.pb.h"
+#include "Log.h"
+#include "LogEntryTypes.h"
+#include "ServerId.h"
 
 namespace RAMCloud {
 
 /**
- * This class keeps information for the subset of a table stored on a
- * particular master. Multiple tablets of the same table that happen to be
- * co-located on a single master will all refer to a single Table object.
- *
- * This class is pretty thin right now. Eventually, it's likely that some
- * access control stuff will go in here.
+ * Describes a contiguous subrange of key hashes from a single table.
+ * Used as the unit of mapping of key to owning master.
  */
-class Table {
-  public:
-
-    explicit Table(uint64_t tableId, uint64_t start_key_hash,
-                   uint64_t end_key_hash)
-        : objectCount(0),
-          objectBytes(0),
-          tombstoneCount(0),
-          tombstoneBytes(0),
-          statEntry(),
-          tableId(tableId)
-    {
-        statEntry.set_table_id(tableId);
-        statEntry.set_start_key_hash(start_key_hash);
-        statEntry.set_end_key_hash(end_key_hash);
-    }
-
-    /**
-     * Get the Table's identifier.
-     */
-    uint64_t getId() {
-        return tableId;
-    }
-
-    uint64_t objectCount;
-    uint64_t objectBytes;
-    uint64_t tombstoneCount;
-    uint64_t tombstoneBytes;
-    ProtoBuf::ServerStatistics_TabletEntry statEntry;
-
-  private:
-
-    /**
-     * The unique numerical identifier for this table.
-     */
+struct Tablet {
+    /// The id of the containing table.
     uint64_t tableId;
 
-    DISALLOW_COPY_AND_ASSIGN(Table);
+    /// The smallest hash value for a key that is in this tablet.
+    uint64_t startKeyHash;
+
+    /// The largest hash value for a key that is in this tablet.
+    uint64_t endKeyHash;
+
+    /// The server id of the master owning this tablet.
+    ServerId serverId;
+
+    enum Status : uint8_t {
+        /// The tablet is available.
+        NORMAL = 0 ,
+        /// The tablet is being recovered, it is not available.
+        RECOVERING = 1,
+    };
+
+    /// The status of the tablet, see Status.
+    Status status;
+
+    /**
+     * The Log::Position of the log belonging to the master that owns this
+     * tablet when it was assigned to the server. Any earlier position
+     * cannot contain data belonging to this tablet.
+     */
+    Log::Position ctime;
+
+    void serialize(ProtoBuf::Tablets::Tablet& entry) const;
+};
+
+/**
+ * Maps tablets to masters which serve requests for that tablet.
+ * The tablet map is the definitive truth about tablet ownership in
+ * a cluster.
+ *
+ * Instances are locked for thread-safety, and methods return tablets
+ * by-value to avoid inconsistencies due to concurrency.
+ */
+class TabletMap {
+  PUBLIC:
+    /**
+     * Thrown from methods when the arguments indicate a tablet that is
+     * not present in the tablet map.
+     */
+    struct NoSuchTablet : public Exception {
+        explicit NoSuchTablet(const CodeLocation& where) : Exception(where) {}
+    };
+
+    /// Thrown in response to invalid splitTablet() arguments.
+    struct BadSplit : public Exception {
+        explicit BadSplit(const CodeLocation& where) : Exception(where) {}
+    };
+
+    TabletMap();
+    void addTablet(const Tablet& tablet);
+    string debugString() const;
+    Tablet getTablet(uint64_t tableId,
+                     uint64_t startKeyHash,
+                     uint64_t endKeyHash) const;
+    vector<Tablet> getTabletsForTable(uint64_t tableId) const;
+    void modifyTablet(uint64_t tableId,
+                      uint64_t startKeyHash,
+                      uint64_t endKeyHash,
+                      ServerId serverId,
+                      Tablet::Status status,
+                      Log::Position ctime);
+    vector<Tablet> removeTabletsForTable(uint64_t tableId);
+    void serialize(AbstractServerList& serverList,
+                   ProtoBuf::Tablets& tablets) const;
+    vector<Tablet> setStatusForServer(ServerId serverId,
+                                      Tablet::Status status);
+    size_t size() const;
+    pair<Tablet, Tablet> splitTablet(uint64_t tableId,
+                                     uint64_t startKeyHash,
+                                     uint64_t endKeyHash,
+                                     uint64_t splitKeyHash);
+
+  PRIVATE:
+    Tablet& find(uint64_t tableId,
+                 uint64_t startKeyHash,
+                 uint64_t endKeyHash);
+    const Tablet& cfind(uint64_t tableId,
+                        uint64_t startKeyHash,
+                        uint64_t endKeyHash) const;
+
+    /**
+     * Provides monitor-style protection for all operations on the tablet map.
+     * A Lock for this mutex must be held to read or modify any state in
+     * the tablet map.
+     */
+    mutable std::mutex mutex;
+    typedef std::lock_guard<std::mutex> Lock;
+
+    /// List of tablets that make up the current set of tables in a cluster.
+    vector<Tablet> map;
 };
 
 } // namespace RAMCloud
 
-#endif // RAMCLOUD_TABLE_H
+#endif
+

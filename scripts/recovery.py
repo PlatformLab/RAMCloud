@@ -148,6 +148,7 @@ def recover(num_servers,
     args['transport'] = transport
     args['verbose'] = verbose
     args['debug'] = debug
+    args['coordinator_host'] = config.old_master_host
     args['coordinator_args'] = coordinator_args
     args['backup_args'] = backup_args
     # Just a guess of about how much capacity a master will have to have

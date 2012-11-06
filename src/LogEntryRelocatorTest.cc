@@ -40,9 +40,9 @@ class LogEntryRelocatorTest : public ::testing::Test {
           serverId(ServerId(57, 0)),
           serverList(&context),
           serverConfig(ServerConfig::forTesting()),
-          replicaManager(&context, serverId, 0),
-          allocator(serverConfig),
-          segmentManager(&context, serverConfig, serverId,
+          replicaManager(&context, serverId, 0, false),
+          allocator(&serverConfig),
+          segmentManager(&context, &serverConfig, serverId,
                          allocator, replicaManager)
     {
     }

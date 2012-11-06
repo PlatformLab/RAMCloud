@@ -13,7 +13,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "TabletMap.h"
+#include "Table.h"
 #include "Logger.h"
 #include "ShortMacros.h"
 
@@ -211,14 +211,14 @@ TabletMap::removeTabletsForTable(uint64_t tableId)
  * suitable for sending across the wire to servers.
  *
  * \param serverList
- *      The single instance of the CoordinatorServerList. Used to fill in
+ *      The single instance of the AbstractServerList. Used to fill in
  *      the service_locator field of entries in \a tablets;
  * \param tablets
  *      Protocol buffer to which entries are added representing each of
  *      the tablets in the tablet map.
  */
 void
-TabletMap::serialize(const CoordinatorServerList& serverList,
+TabletMap::serialize(AbstractServerList& serverList,
                      ProtoBuf::Tablets& tablets) const
 {
     Lock _(mutex);
@@ -226,8 +226,8 @@ TabletMap::serialize(const CoordinatorServerList& serverList,
         ProtoBuf::Tablets::Tablet& entry(*tablets.add_tablet());
         tablet.serialize(entry);
         try {
-            const string& locator = serverList[tablet.serverId].serviceLocator;
-            entry.set_service_locator(locator.c_str());
+            const char* locator = serverList.getLocator(tablet.serverId);
+            entry.set_service_locator(locator);
         } catch (const Exception& e) {
             LOG(NOTICE, "Server id (%s) in tablet map no longer in server "
                 "list; sending empty locator for entry",

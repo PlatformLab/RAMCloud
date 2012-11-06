@@ -25,7 +25,7 @@
 #include "ParallelRun.h"
 #include "RawMetrics.h"
 #include "ServerTracker.h"
-#include "TabletMap.h"
+#include "Table.h"
 #include "Tablets.pb.h"
 #include "TaskQueue.h"
 

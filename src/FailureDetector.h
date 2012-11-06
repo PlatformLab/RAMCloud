@@ -62,16 +62,6 @@ class FailureDetector {
      */
     static const int TIMEOUT_USECS = 50 * 1000;
 
-    /**
-     * Number of microseconds to wait before our ServerList is considered stale.
-     * If we see a newer ServerList version (returned in a ping response), then
-     * we will request that the coordinator re-send the list if ours does not
-     * update within this timeout period. This ensures that our list does not
-     * stay out of date if we happen to miss an update (and no further updates
-     * are issued in the meantime that would have otherwise alerted us).
-     */
-    static const int STALE_SERVER_LIST_USECS = 500 * 1000;
-
     static_assert(TIMEOUT_USECS <= PROBE_INTERVAL_USECS,
                   "Timeout us should be less than probe interval.");
 
@@ -84,6 +74,14 @@ class FailureDetector {
     /// ServerTracker used for obtaining random servers to ping. Nothing is
     /// currently stored with servers in the tracker.
     ServerTracker<bool>  serverTracker;
+
+    /// Counts the number of probes that have been made since the last
+    /// successful response.
+    int probesWithoutResponse;
+
+    /// If probesWithoutResponse reaches this value, then check with the
+    /// coordinator to make sure we're still in the cluster.
+    static const int MAX_FAILED_PROBES = 5;
 
     /// Failure detector thread
     Tub<std::thread>     thread;

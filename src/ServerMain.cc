@@ -92,6 +92,10 @@ main(int argc, char *argv[])
              ProgramOptions::value<uint32_t>(&config.master.numReplicas)->
                 default_value(0),
              "Number of backup copies to make for each segment")
+            ("useMinCopysets",
+             ProgramOptions::value<bool>(&config.master.useMinCopysets)->
+                default_value(false),
+             "Whether to use MinCopysets or random replication")
             ("segmentFrames",
              ProgramOptions::value<uint32_t>(&config.backup.numSegmentFrames)->
                 default_value(512),
@@ -160,7 +164,7 @@ main(int argc, char *argv[])
         const string localLocator = optionParser.options.getLocalLocator();
 
 #if INFINIBAND
-        InfRcTransport<>::setName(localLocator.c_str());
+        InfRcTransport::setName(localLocator.c_str());
 #endif
         context.transportManager->setTimeout(
                 optionParser.options.getTransportTimeout());
@@ -183,7 +187,7 @@ main(int argc, char *argv[])
             config.setLogAndHashTableSize(masterTotalMemory, hashTableMemory);
         }
 
-        Server server(&context, config);
+        Server server(&context, &config);
         server.run(); // Never returns except for exceptions.
 
         return 0;

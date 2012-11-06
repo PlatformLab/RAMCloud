@@ -18,7 +18,6 @@ CLIENT_SRCFILES := \
 		   src/Context.cc \
 		   src/CoordinatorClient.cc \
 		   src/CoordinatorRpcWrapper.cc \
-		   src/CoordinatorServerList.cc \
 		   src/CoordinatorSession.cc \
 		   src/Crc32C.cc \
 		   src/Common.cc \
@@ -28,7 +27,7 @@ CLIENT_SRCFILES := \
 		   src/FailSession.cc \
 		   src/FastTransport.cc \
 		   src/IpAddress.cc \
-           src/Key.cc \
+                   src/Key.cc \
 		   src/Logger.cc \
 		   src/MacAddress.cc \
 		   src/LargeBlockOfMemory.cc \

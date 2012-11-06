@@ -73,10 +73,10 @@ class MyServerConfig {
         serverConfig.master.logBytes = serverConfig.segmentSize * 50;
     }
 
-    ServerConfig&
+    ServerConfig*
     operator()()
     {
-        return serverConfig;
+        return &serverConfig;
     }
 
     ServerConfig serverConfig;
@@ -102,7 +102,7 @@ class LogCleanerTest : public ::testing::Test {
           serverId(ServerId(57, 0)),
           serverList(&context),
           serverConfig(),
-          replicaManager(&context, serverId, 0),
+          replicaManager(&context, serverId, 0, false),
           allocator(serverConfig()),
           segmentManager(&context, serverConfig(), serverId,
                          allocator, replicaManager),
@@ -126,8 +126,8 @@ TEST_F(LogCleanerTest, constructor) {
     SegletAllocator allocator2(serverConfig());
     SegmentManager segmentManager2(&context, serverConfig(), serverId,
                                    allocator2, replicaManager);
-    serverConfig().master.disableInMemoryCleaning = false;
-    serverConfig().master.cleanerWriteCostThreshold = 0;
+    serverConfig()->master.disableInMemoryCleaning = false;
+    serverConfig()->master.cleanerWriteCostThreshold = 0;
     LogCleaner cleaner2(&context, serverConfig(),
                         segmentManager2, replicaManager, entryHandlers);
     EXPECT_TRUE(cleaner2.disableInMemoryCleaning);
@@ -136,8 +136,8 @@ TEST_F(LogCleanerTest, constructor) {
     SegletAllocator allocator3(serverConfig());
     SegmentManager segmentManager3(&context, serverConfig(), serverId,
                                    allocator3, replicaManager);
-    serverConfig().master.disableInMemoryCleaning = false;
-    serverConfig().master.cleanerWriteCostThreshold = 1;
+    serverConfig()->master.disableInMemoryCleaning = false;
+    serverConfig()->master.cleanerWriteCostThreshold = 1;
     LogCleaner cleaner3(&context, serverConfig(),
                         segmentManager3, replicaManager, entryHandlers);
     EXPECT_FALSE(cleaner3.disableInMemoryCleaning);

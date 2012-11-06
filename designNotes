@@ -1,0 +1,83 @@
+This file contains additional design notes for RAMCloud, which supplement
+the comments present in the code. This file is intended for protocols
+and other decisions that reflect themselves in many different places in the
+RAMCloud code, such that there is no obvious place to put documentation
+in the code. When this happens, there should be a comment of the following
+format each point in the code where the design decision manifests itself:
+
+// See "Foo" in designNotes.
+
+"Foo" is the name for the design note, which should appear as a header line
+in this file.
+
+If there is a logical single place to put comments in the code, then please
+do that rather than creating a design note here.
+
+Zombies
+-------
+A zombie is a server that is considered dead by the rest of the cluster;
+any data stored on the server has been recovered and will be managed by
+other servers. However, if a zombie is not actually dead (e.g. it was
+just disconnected from the other servers for a while) two forms of
+inconsistency can arise:
+* A zombie server must not serve read requests once replacement servers
+  have taken over; otherwise it may return stale data that does not reflect
+  writes accepted by the replacement servers.
+* The zombie server must not accept write request once replacement servers
+  have begun replaying its log during recovery; if it does, these writes
+  may be lost (the new values may not be stored on the replacement servers
+  and thus will not be returned by reads).
+
+RAMCloud uses two techniques to neutralize zombies. First, at the beginning
+of crash recovery the coordinator contacts every server in the cluster,
+notifying it of the crashed server. Once this happens, servers will reject
+backup requests from the crashed server with STATUS_CALLER_NOT_IN_CLUSTER
+errors. This prevents the zombie from writing new data. In addition, the
+zombie will then contact the coordinator to verify its cluster
+membership (just in case the backup's server list was out of date). If the
+coordinator confirms that the zombie is no longer part of the cluster, then
+the zombie commits suicide. If the coordinator believes that the server is
+still part of the cluster, then the server will retry its replication
+operation. Overall, this approach ensures that by the time replacement
+servers begin replaying log data from a crashed master, the master can no
+no longer complete new write operations.
+
+Potential weakness: if for some reason the coordinator does not contact all
+servers at the beginning of crash recovery, it's possible that the zombie
+may be able to write new data using backups that aren't aware of its death.
+However, the coordinator cannot begin crash recovery unless it has contacted
+at least one backup storing each of the crashed master's segments, including
+the head segment. Thus, this failure cannot happen.
+
+The second technique is used to ensure that masters have stopped servicing
+read requests before replacement masters can service any write requests.
+This mechanism is implemented as part of the failure detection mechanism
+(FailureDetector.cc) where each master occasionally pings a randomly-chosen
+server in the cluster. This mechanism is intended primarily to detect
+failures of the pingees, but it also allows the pinger to find out if it is
+a zombie. As part of each ping request, the caller includes its server id,
+and the pingee returns a STATUS_CALLER_NOT_IN_CLUSTER exception if the
+caller does not appear in its server list. When the caller receives this
+error it verifies its cluster membership with the coordinator as
+described above, and commits suicide if it is not part of the cluster.
+
+Potential weakness: if FailureDetector is not able to contact any other
+servers it might not detect the fact that it is a zombie. To handle this,
+if several ping attempts in a row fail, a server automatically questions
+its own liveness and verifies its cluster membership with the coordinator.
+
+Potential weakness: a server might not be able to contact the coordinator
+to verify its membership, and hence might continue servicing requests.
+To eliminate this problem, a server refuses to serve client requests such
+as reads and writes while it is verifying its cluster membership. It rejects
+these requests with STATUS_RETRY; if it turns out that the server really
+isn't a zombie, it will eventually serve the requests when they get retried.
+
+Potential weakness: if the coordinator is unable to contact all of the servers
+in the cluster to notify them of the crashed server's failure, then if the
+crashed server "gets lucky" and happens to ping the servers that weren't reached
+by the coordinator, it might continue servicing read requests. This problem
+is unlikely to occur in practice, because the zombie server will ping at least
+10 other servers before replacement servers accept any write requests; at
+least one of them is likely to know about the server's death. However, this
+is just a probabilistic argument: there is no guarantee.

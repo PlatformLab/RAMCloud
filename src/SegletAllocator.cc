@@ -30,15 +30,15 @@ namespace RAMCloud {
  *      seglet size and bytes to allocate for seglets.
  *
  */
-SegletAllocator::SegletAllocator(const ServerConfig& config)
-    : segletSize(config.segletSize),
+SegletAllocator::SegletAllocator(const ServerConfig* config)
+    : segletSize(config->segletSize),
       lock(),
       emergencyHeadPool(),
       emergencyHeadPoolReserve(0),
       cleanerPool(),
       cleanerPoolReserve(0),
       defaultPool(),
-      block(config.master.logBytes)
+      block(config->master.logBytes)
 {
     uint8_t* segletBlock = block.get();
     for (size_t i = 0; i < (block.length / segletSize); i++) {

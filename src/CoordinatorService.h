@@ -23,7 +23,7 @@
 
 #include "Common.h"
 #include "ClientException.h"
-#include "CoordinatorServerManager.h"
+#include "CoordinatorServerList.h"
 #include "CoordinatorServiceRecovery.h"
 #include "LogCabinHelper.h"
 #include "MasterRecoveryManager.h"
@@ -31,7 +31,7 @@
 #include "Recovery.h"
 #include "RuntimeOptions.h"
 #include "Service.h"
-#include "TabletMap.h"
+#include "Table.h"
 #include "TransportManager.h"
 
 namespace RAMCloud {
@@ -46,52 +46,56 @@ class CoordinatorService : public Service {
                                 string LogCabinLocator = "testing");
     ~CoordinatorService();
     void dispatch(WireFormat::Opcode opcode,
-                  Rpc& rpc);
+                  Rpc* rpc);
 
   PRIVATE:
     // - rpc handlers -
-    void createTable(const WireFormat::CreateTable::Request& reqHdr,
-                     WireFormat::CreateTable::Response& respHdr,
-                     Rpc& rpc);
-    void dropTable(const WireFormat::DropTable::Request& reqHdr,
-                   WireFormat::DropTable::Response& respHdr,
-                   Rpc& rpc);
-    void splitTablet(const WireFormat::SplitTablet::Request& reqHdr,
-                   WireFormat::SplitTablet::Response& respHdr,
-                   Rpc& rpc);
-    void getTableId(const WireFormat::GetTableId::Request& reqHdr,
-                    WireFormat::GetTableId::Response& respHdr,
-                    Rpc& rpc);
-    void enlistServer(const WireFormat::EnlistServer::Request& reqHdr,
-                      WireFormat::EnlistServer::Response& respHdr,
-                      Rpc& rpc);
-    void getServerList(const WireFormat::GetServerList::Request& reqHdr,
-                       WireFormat::GetServerList::Response& respHdr,
-                       Rpc& rpc);
-    void getTabletMap(const WireFormat::GetTabletMap::Request& reqHdr,
-                      WireFormat::GetTabletMap::Response& respHdr,
-                      Rpc& rpc);
-    void hintServerDown(const WireFormat::HintServerDown::Request& reqHdr,
-                        WireFormat::HintServerDown::Response& respHdr,
-                        Rpc& rpc);
+    void createTable(const WireFormat::CreateTable::Request* reqHdr,
+                     WireFormat::CreateTable::Response* respHdr,
+                     Rpc* rpc);
+    void dropTable(const WireFormat::DropTable::Request* reqHdr,
+                   WireFormat::DropTable::Response* respHdr,
+                   Rpc* rpc);
+    void splitTablet(const WireFormat::SplitTablet::Request* reqHdr,
+                   WireFormat::SplitTablet::Response* respHdr,
+                   Rpc* rpc);
+    void getTableId(const WireFormat::GetTableId::Request* reqHdr,
+                    WireFormat::GetTableId::Response* respHdr,
+                    Rpc* rpc);
+    void enlistServer(const WireFormat::EnlistServer::Request* reqHdr,
+                      WireFormat::EnlistServer::Response* respHdr,
+                      Rpc* rpc);
+    void getServerList(const WireFormat::GetServerList::Request* reqHdr,
+                       WireFormat::GetServerList::Response* respHdr,
+                       Rpc* rpc);
+    void getTabletMap(const WireFormat::GetTabletMap::Request* reqHdr,
+                      WireFormat::GetTabletMap::Response* respHdr,
+                      Rpc* rpc);
+    void hintServerDown(const WireFormat::HintServerDown::Request* reqHdr,
+                        WireFormat::HintServerDown::Response* respHdr,
+                        Rpc* rpc);
     void recoveryMasterFinished(
-            const WireFormat::RecoveryMasterFinished::Request& reqHdr,
-            WireFormat::RecoveryMasterFinished::Response& respHdr,
-            Rpc& rpc);
-    void quiesce(const WireFormat::BackupQuiesce::Request& reqHdr,
-                 WireFormat::BackupQuiesce::Response& respHdr,
-                 Rpc& rpc);
+            const WireFormat::RecoveryMasterFinished::Request* reqHdr,
+            WireFormat::RecoveryMasterFinished::Response* respHdr,
+            Rpc* rpc);
+    void quiesce(const WireFormat::BackupQuiesce::Request* reqHdr,
+                 WireFormat::BackupQuiesce::Response* respHdr,
+                 Rpc* rpc);
     void reassignTabletOwnership(
-            const WireFormat::ReassignTabletOwnership::Request& reqHdr,
-            WireFormat::ReassignTabletOwnership::Response& respHdr,
-            Rpc& rpc);
-    void setRuntimeOption(const WireFormat::SetRuntimeOption::Request& reqHdr,
-                          WireFormat::SetRuntimeOption::Response& respHdr,
-                          Rpc& rpc);
+            const WireFormat::ReassignTabletOwnership::Request* reqHdr,
+            WireFormat::ReassignTabletOwnership::Response* respHdr,
+            Rpc* rpc);
+    void setRuntimeOption(const WireFormat::SetRuntimeOption::Request* reqHdr,
+                          WireFormat::SetRuntimeOption::Response* respHdr,
+                          Rpc* rpc);
     void setMasterRecoveryInfo(
-        const WireFormat::SetMasterRecoveryInfo::Request& reqHdr,
-        WireFormat::SetMasterRecoveryInfo::Response& respHdr,
-        Rpc& rpc);
+        const WireFormat::SetMasterRecoveryInfo::Request* reqHdr,
+        WireFormat::SetMasterRecoveryInfo::Response* respHdr,
+        Rpc* rpc);
+    void verifyMembership(
+        const WireFormat::VerifyMembership::Request* reqHdr,
+        WireFormat::VerifyMembership::Response* respHdr,
+        Rpc* rpc);
 
     /**
      * Shared RAMCloud information.
@@ -104,14 +108,14 @@ class CoordinatorService : public Service {
      * ServerIds as well as to keep track of any information we need to keep
      * for individual servers (e.g. ServiceLocator strings, Wills, etc).
      */
-    CoordinatorServerList& serverList;
+    CoordinatorServerList* serverList;
 
     /**
      * The ping timeout, in milliseconds, used when the Coordinator verifies an
      * incoming hint server down message. Until we resolve the scheduler issues
      * that we have been seeing this timeout should be at least 250ms.
      */
-    const uint32_t deadServerTimeout;
+    uint32_t deadServerTimeout;
 
   PRIVATE:
     /**
@@ -152,11 +156,6 @@ class CoordinatorService : public Service {
     MasterRecoveryManager recoveryManager;
 
     /**
-     * Handles all server configuration details on behalf of the coordinator.
-     */
-    CoordinatorServerManager serverManager;
-
-    /**
      * Handles recovery of a coordinator.
      */
     CoordinatorServiceRecovery coordinatorRecovery;
@@ -186,8 +185,8 @@ class CoordinatorService : public Service {
      */
     LogCabin::Client::EntryId expectedEntryId;
 
-    friend class CoordinatorServerManager;
     friend class CoordinatorServiceRecovery;
+    friend class CoordinatorServerList;
 
     DISALLOW_COPY_AND_ASSIGN(CoordinatorService);
 };

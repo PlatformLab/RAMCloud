@@ -253,18 +253,35 @@ ReplicatedSegment::close()
  * needed to restore durability guarantees. Keep in mind a context needs to be
  * provided to actually drive the re-replication (for example,
  * BackupFailureMonitor).
+ * If the server is using MinCopysets, we kill all the replicas that belong
+ * to the same replication group if any of the group members fails. Otherwise,
+ * we just kill the replica that belongs to the failed server.
  *
  * \param failedId
  *      ServerId of the backup which has failed.
+ * \param useMinCopysets
+ *      Specifies whether to use the MinCopysets replication scheme.
  */
 void
-ReplicatedSegment::handleBackupFailure(ServerId failedId)
+ReplicatedSegment::handleBackupFailure(ServerId failedId, bool useMinCopysets)
 {
+    // If we are using MinCopysets and any of the backups on which the
+    // segment fails, we re-replicate all the copies of that segment.
+    bool replicationGroupFailed = false;
+    if (useMinCopysets) {
+        foreach (auto& replica, replicas) {
+            if (!replica.isActive)
+                continue;
+            if (replica.backupId == failedId)
+                replicationGroupFailed = true;
+        }
+    }
+
     bool someOpenReplicaLost = false;
     foreach (auto& replica, replicas) {
         if (!replica.isActive)
             continue;
-        if (replica.backupId != failedId)
+        if (!replicationGroupFailed && replica.backupId != failedId)
             continue;
         LOG(DEBUG, "Segment %lu recovering from lost replica which was on "
             "backup %s", segmentId, failedId.toString().c_str());
@@ -679,6 +696,8 @@ ReplicatedSegment::performWrite(Replica& replica)
             // Wait for it to complete if it is ready.
             try {
                 replica.writeRpc->wait();
+                TEST_LOG("Write RPC finished for replica slot %ld",
+                         &replica - &replicas[0]);
                 replica.acked = replica.sent;
                 if (replica.acked == queued || replica.acked.bytes == openLen) {
                     // #committed advances whenever a certificate was sent.
@@ -708,6 +727,15 @@ ReplicatedSegment::performWrite(Replica& replica)
                     "which was found on disk after a crash; will choose "
                     "another backup", replica.backupId.toString().c_str());
                 replica.reset();
+            } catch (const CallerNotInClusterException& e) {
+                // The backup seems to think we have crashed (or never existed).
+                // Check with the coordinator to be sure, then retry.  See
+                // "Zombies" in designNotes for more information.
+                LOG(WARNING, "Backup write RPC rejected by %s with "
+                    "STATUS_CALLER_NOT_IN_CLUSTER",
+                    replica.backupId.toString().c_str());
+                replica.sent = replica.acked;
+                CoordinatorClient::verifyMembership(context, masterId);
             }
             replica.writeRpc.destroy();
             --writeRpcsInFlight;

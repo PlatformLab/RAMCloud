@@ -34,19 +34,13 @@ namespace RAMCloud {
 /**
  * A Driver for Infiniband unreliable datagram (UD) communication.
  * Simple packet send/receive style interface. See Driver for more detail.
- * This class is templated in order to simplify replacing some of the
- * Infiniband guts for testing.  The "Infiniband" type name corresponds
- * to various low-level Infiniband facilities used here.  "RealInfiniband"
- * (the only instantiation that currently exists) corresponds to the actual
- * Infiniband driver facilities in Infiniband.cc.
  */
-template<typename Infiniband = RealInfiniband>
 class InfUdDriver : public Driver {
-    typedef typename Infiniband::BufferDescriptor BufferDescriptor;
-    typedef typename Infiniband::QueuePairTuple QueuePairTuple;
-    typedef typename Infiniband::QueuePair QueuePair;
-    typedef typename Infiniband::Address Address;
-    typedef typename Infiniband::RegisteredBuffers RegisteredBuffers;
+    typedef Infiniband::BufferDescriptor BufferDescriptor;
+    typedef Infiniband::QueuePairTuple QueuePairTuple;
+    typedef Infiniband::QueuePair QueuePair;
+    typedef Infiniband::Address Address;
+    typedef Infiniband::RegisteredBuffers RegisteredBuffers;
 
   public:
     explicit InfUdDriver(Context* context,
@@ -174,8 +168,6 @@ class InfUdDriver : public Driver {
 
     DISALLOW_COPY_AND_ASSIGN(InfUdDriver);
 };
-
-extern template class InfUdDriver<RealInfiniband>;
 
 } // end RAMCloud
 

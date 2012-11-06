@@ -44,24 +44,17 @@
 namespace RAMCloud {
 
 /**
- * Transport mechanism that uses Infiniband's reliable connections.
- * This class is templated in order to simplify replacing some of the
- * Infiniband guts for testing.  The "Infiniband" type name corresponds
- * to various low-level Infiniband facilities used both here and in
- * InfUdDriver.  "RealInfiniband" (the only instantiation that currently
- * exists) corresponds to the actual Infiniband driver facilities in
- * Infiniband.cc.
+ * Transport mechanism that uses Infiniband reliable queue pairs.
  */
-template<typename Infiniband = RealInfiniband>
 class InfRcTransport : public Transport {
     // forward declarations
   PRIVATE:
     class InfRcSession;
     class Poller;
-    typedef typename Infiniband::BufferDescriptor BufferDescriptor;
-    typedef typename Infiniband::QueuePair QueuePair;
-    typedef typename Infiniband::QueuePairTuple QueuePairTuple;
-    typedef typename Infiniband::RegisteredBuffers RegisteredBuffers;
+    typedef Infiniband::BufferDescriptor BufferDescriptor;
+    typedef Infiniband::QueuePair QueuePair;
+    typedef Infiniband::QueuePairTuple QueuePairTuple;
+    typedef Infiniband::RegisteredBuffers RegisteredBuffers;
 
   public:
     explicit InfRcTransport(Context* context, const ServiceLocator* sl = NULL);
@@ -74,6 +67,21 @@ class InfRcTransport : public Transport {
         infiniband->dumpStats();
     }
     uint32_t getMaxRpcSize() const;
+
+    /**
+     * Register a memory region with the HCA for zero-copy transmission.
+     * After registration Buffer::Chunks sent in client RPC requests can
+     * be given directly to the HCA without copying into a transmit
+     * buffer first. Callers must collectively ensure this function is only
+     * once. It is possible to extend this function to support multiple
+     * regions, but for the moment we only use it to register the
+     * Log Seglets.
+     *
+     * \param base
+     *      Starting address of the region to be registered with the HCA.
+     * \param bytes
+     *      Length of the region starting at \a base to register with the HCA.
+     */
     void registerMemory(void* base, size_t bytes)
     {
         assert(logMemoryRegion == NULL);
@@ -174,6 +182,7 @@ class InfRcTransport : public Transport {
             const ServiceLocator& sl, uint32_t timeoutMs);
         virtual void abort();
         virtual void cancelRequest(RpcNotifier* notifier);
+        virtual string getRpcInfo();
         void release();
         virtual void sendRequest(Buffer* request, Buffer* response,
             RpcNotifier* notifier);
@@ -357,10 +366,19 @@ class InfRcTransport : public Transport {
     };
     Tub<ServerConnectHandler> serverConnectHandler;
 
-    // Hack for 0-copy from Log
-    // This must go away after SOSP
+    /// Starting address of the region registered with the HCA for zero-copy
+    /// transmission, if any. If no region is registered then 0.
+    /// See registerMemory().
     uintptr_t logMemoryBase;
+
+    /// Length of the region starting at #logMemoryBase which is registered
+    /// with the HCA for zero-copy transmission. If no region is registered
+    /// then 0. See registerMemory().
     size_t logMemoryBytes;
+
+    /// Infiniband memory region of the region registered with the HCA for
+    /// zero-copy transmission. If no region is registered then NULL.
+    /// See registerMemory().
     ibv_mr* logMemoryRegion;
 
     // CycleCounter that's constructed when TX goes active and is destroyed
@@ -391,8 +409,6 @@ class InfRcTransport : public Transport {
 
     DISALLOW_COPY_AND_ASSIGN(InfRcTransport);
 };
-
-extern template class InfRcTransport<RealInfiniband>;
 
 }  // namespace RAMCloud
 

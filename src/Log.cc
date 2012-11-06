@@ -69,7 +69,7 @@ Log::Log(Context* context,
       metrics()
 {
     cleaner = new LogCleaner(context,
-                             *config,
+                             config,
                              *segmentManager,
                              *replicaManager,
                              *entryHandlers);

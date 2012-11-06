@@ -40,7 +40,7 @@ class SegmentAndAllocator {
         ServerConfig serverConfig(ServerConfig::forTesting());
         serverConfig.segmentSize = segmentSize;
         serverConfig.segletSize = segletSize;
-        allocator.construct(serverConfig);
+        allocator.construct(&serverConfig);
 
         vector<Seglet*> seglets;
         EXPECT_TRUE(allocator->alloc(SegletAllocator::DEFAULT,

@@ -56,9 +56,10 @@ struct ReplicaManagerTest : public ::testing::Test {
         config.localLocator = "mock:host=backup2";
         backup2Id = addToServerList(cluster.addServer(config));
 
-        mgr.construct(&context, serverId, 2);
+        mgr.construct(&context, serverId, 2, false);
         serverId = CoordinatorClient::enlistServer(&context, {},
             {WireFormat::MASTER_SERVICE}, "", 0);
+        cluster.coordinatorContext.coordinatorServerList->sync();
     }
 
     ServerId addToServerList(Server* server)
@@ -298,8 +299,8 @@ TEST_F(ReplicaManagerTest, endToEndBackupRecovery) {
     MockRandom __(1);
 
     ServerConfig serverConfig(ServerConfig::forTesting());
-    SegletAllocator allocator(serverConfig);
-    SegmentManager segmentManager(&context, serverConfig,
+    SegletAllocator allocator(&serverConfig);
+    SegmentManager segmentManager(&context, &serverConfig,
                                   serverId, allocator, *mgr);
     DoNothingHandlers entryHandlers;
     Log log(&context, &serverConfig, &entryHandlers, &segmentManager, &*mgr);
@@ -378,17 +379,22 @@ TEST_F(ReplicaManagerTest, endToEndBackupRecovery) {
             "backup 4.0 | "
         "performWrite: Sending open to backup 4.0 | "
         "writeSegment: Opening <3.0,1> | "
+        "performWrite: Write RPC finished for replica slot 0 | "
+        "performWrite: Write RPC finished for replica slot 1 | "
+        "performWrite: Write RPC finished for replica slot 0 | "
         // Write to re-replicate segment 2 replica slot 1.
         "performWrite: Sending write to backup 4.0 | "
         // Write to re-replicate segment 1 replica slot 0 and close it.
         "performWrite: Sending write to backup 4.0 | "
         "writeSegment: Closing <3.0,1> | "
+        "performWrite: Write RPC finished for replica slot 1 | "
         // All re-replication has been taken care of; bump the epoch number
         // on the coordinator.
         "performTask: Updating replicationEpoch to 2,1 on coordinator to "
             "ensure lost replicas will not be reused | "
         "updateToAtLeast: request update to master recovery info for 3.0 "
             "to 2,1 | "
+        "performWrite: Write RPC finished for replica slot 0 | "
         "performTask: Updating replicationEpoch to 2,1 on coordinator to "
             "ensure lost replicas will not be reused | "
         "updateToAtLeast: request update to master recovery info for 3.0 "
@@ -404,10 +410,10 @@ TEST_F(ReplicaManagerTest, endToEndBackupRecovery) {
 
     // Make sure the replication epoch on the coordinator was updated.
     EXPECT_EQ(2u,
-        cluster.coordinator->context->coordinatorServerList->at(
+        cluster.coordinator->context->coordinatorServerList->operator[](
         serverId).masterRecoveryInfo.min_open_segment_id());
     EXPECT_EQ(1u,
-        cluster.coordinator->context->coordinatorServerList->at(
+        cluster.coordinator->context->coordinatorServerList->operator[](
         serverId).masterRecoveryInfo.min_open_segment_epoch());
 }
 

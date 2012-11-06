@@ -28,7 +28,7 @@ class LogSegmentTest : public ::testing::Test {
   public:
     LogSegmentTest()
         : serverConfig(ServerConfig::forTesting()),
-          allocator(serverConfig),
+          allocator(&serverConfig),
           buf(new char[serverConfig.segletSize]),
           seglet(allocator, buf, sizeof(buf)),
           s()

@@ -57,7 +57,7 @@ namespace RAMCloud {
  *    additional services like the PingService.  For now, those must be created
  *    manually and registered.  In the future, perhaps the coordinator will
  *    have a CoordinatorConfig of some kind to make this easier.  It was
- *    just left out because it wouldn't have simpilfied our test much at the
+ *    just left out because it wouldn't have simplified our test much at the
  *    time of writing.
  */
 class MockCluster {

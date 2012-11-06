@@ -112,6 +112,14 @@ InMemoryStorage::Frame::load()
 }
 
 /**
+ * Has no effect for InMemoryStorage.
+ */
+void
+InMemoryStorage::Frame::unload()
+{
+}
+
+/**
  * Append data to frame and update metadata.
  *
  * Idempotence: the caller must guarantee duplicated calls provide identical

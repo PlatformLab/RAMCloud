@@ -31,9 +31,10 @@ namespace RAMCloud {
  * \param targetId
  *      Identifies the server to which the RPC should be sent.
  * \param callerId
- *      Used to inform the pinged server of which server is sending the ping.
- *      Used on the pingee side for debug logging.
- *      Clients and coordinators should use an invalid ServerId (ServerID()).
+ *      If this is a valid ServerId, then the callee will check to see
+ *      if this id exists in its server list as an active cluster member.
+ *      If not, CallerNotInClusterException will be thrown. If this is an
+ *      invalid ServerId (default), then no check is made.
  *
  * \return
  *      If \a serverId had a server list, then its version number is returned;
@@ -42,12 +43,15 @@ namespace RAMCloud {
  * \throw ServerNotUpException
  *      The intended server for this RPC is not part of the cluster;
  *      if it ever existed, it has since crashed.
+ * \throw CallerNotInClusterException
+ *      CallerId was specified, but the target server doesn't think
+ *      it is part of the cluster anymore.
  */ 
-uint64_t
+void
 PingClient::ping(Context* context, ServerId targetId, ServerId callerId)
 {
     PingRpc rpc(context, targetId, callerId);
-    return rpc.wait();
+    rpc.wait();
 }
 
 /**
@@ -60,9 +64,10 @@ PingClient::ping(Context* context, ServerId targetId, ServerId callerId)
  * \param targetId
  *      Identifies the server to which the RPC should be sent.
  * \param callerId
- *      Used to inform the pinged server of which server is sending the ping.
- *      Used on the pingee side for debug logging.
- *      Clients and coordinators should use an invalid ServerId (ServerID()).
+ *      If this is a valid ServerId, then the callee will check to see
+ *      if this id exists in its server list as an active cluster member.
+ *      If not, CallerNotInClusterException will be thrown. If this is an
+ *      invalid ServerId (default), then no check is made.
  */
 PingRpc::PingRpc(Context* context, ServerId targetId, ServerId callerId)
     : ServerIdRpcWrapper(context, targetId,
@@ -75,26 +80,6 @@ PingRpc::PingRpc(Context* context, ServerId targetId, ServerId callerId)
 }
 
 /**
- * Wait for a ping RPC to complete.
- *
- * \return
- *      If the target server had a server list, then its version number
- *      is returned; otherwise zero is returned.
- *
- * \throw ServerNotUpException
- *      The target server for this RPC is not part of the cluster;
- *      if it ever existed, it has since crashed.
- */
-uint64_t
-PingRpc::wait()
-{
-    waitAndCheckErrors();
-    const WireFormat::Ping::Response* respHdr(
-            getResponseHeader<WireFormat::Ping>());
-    return respHdr->serverListVersion;
-}
-
-/**
  * Wait for a ping RPC to complete, but only wait for a given amount of
  * time, and return if no response is received by then.
  *
@@ -103,32 +88,32 @@ PingRpc::wait()
  *      give up.
  *
  * \return
- *      If no response was received within \c timeoutNanoseconds, or if
- *      we reach a point where the target server is no longer part of the
- *      cluster, then all ones is returned (note: this method will not
- *      throw ServerNotUpException). If the target server responds
- *      and it has a server list, then the version number for its server
- *      list is returned. If the server responded but has no server list,
- *      then zero is returned.
+ *      True is returned if a response was received within
+ *      \c timeoutNanoseconds; otherwise, false is returned.
+ *
+ * \throw ServerNotUpException
+ *      The target server for this RPC is not part of the cluster;
+ *      if it ever existed, it has since crashed.
+ * \throw CallerNotInClusterException
+ *      CallerId was specified, but the target server doesn't think
+ *      it is part of the cluster anymore.
  */
-uint64_t
+bool
 PingRpc::wait(uint64_t timeoutNanoseconds)
 {
     uint64_t abortTime = Cycles::rdtsc() +
             Cycles::fromNanoseconds(timeoutNanoseconds);
     if (!waitInternal(context->dispatch, abortTime)) {
         TEST_LOG("timeout");
-        return ~0UL;
+        return false;
     }
     if (serverDown) {
         TEST_LOG("server doesn't exist");
-        return ~0UL;
+        return false;
     }
     if (responseHeader->status != STATUS_OK)
         ClientException::throwException(HERE, responseHeader->status);
-    const WireFormat::Ping::Response* respHdr(
-            getResponseHeader<WireFormat::Ping>());
-    return respHdr->serverListVersion;
+    return true;
 }
 
 /**

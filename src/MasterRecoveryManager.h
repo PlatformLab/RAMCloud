@@ -23,7 +23,7 @@
 #include "Recovery.h"
 #include "RuntimeOptions.h"
 #include "ServerTracker.h"
-#include "TabletMap.h"
+#include "Table.h"
 #include "Tub.h"
 
 namespace RAMCloud {
@@ -58,7 +58,7 @@ class MasterRecoveryManager : public Recovery::Owner
     void start();
     void halt();
 
-    void startMasterRecovery(ServerId crashedServerId);
+    void startMasterRecovery(CoordinatorServerList::Entry crashedServer);
     void recoveryMasterFinished(uint64_t recoveryId,
                                 ServerId recoveryMasterId,
                                 const ProtoBuf::Tablets& recoveredTablets,

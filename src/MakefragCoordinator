@@ -1,16 +1,16 @@
 LOGCABIN_STATE_PROTOBUF_FILES := \
-            src/EntryType.pb.cc \
+                        src/EntryType.pb.cc \
 			src/ServerInformation.pb.cc \
 			src/ServerUpdate.pb.cc \
-			src/StateServerDown.pb.cc \
+			src/ForceServerDown.pb.cc \
 
 COORDINATOR_SRCFILES := \
+			src/CoordinatorServerList.cc \
 			src/CoordinatorService.cc \
 			src/CoordinatorServiceRecovery.cc \
-			src/CoordinatorServerManager.cc \
 			src/LogCabinHelper.cc \
 			src/MasterRecoveryManager.cc \
-			src/TabletMap.cc \
+			src/Table.cc \
 			src/Recovery.cc \
 			src/RuntimeOptions.cc \
 			$(LOGCABIN_STATE_PROTOBUF_FILES) \

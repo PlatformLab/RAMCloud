@@ -920,6 +920,7 @@ class FastTransport : public Transport {
         bool expire(NonIdleAction nonIdleAction = IGNORE_NON_IDLE);
         void fillHeader(Header* const header, uint8_t channelId) const;
         const Driver::Address* getAddress();
+        virtual string getRpcInfo();
         void init(const ServiceLocator& serviceLocator, uint32_t timeoutMs);
         bool isConnected();
         void processInboundPacket(Driver::Received* received);

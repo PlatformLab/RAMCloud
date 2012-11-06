@@ -1664,6 +1664,32 @@ TEST_F(ClientSessionTest, fillHeader) {
         header.toString());
 }
 
+TEST_F(ClientSessionTest, getRpcInfo) {
+    session->numChannels = 2;
+    session->allocateChannels();
+
+    EXPECT_EQ("no active RPCs to server at dummyService",
+            session->getRpcInfo());
+
+    // Arrange for 2 RPCs to be active, with 2 others waiting for channels.
+    MockWrapper rpc1;
+    rpc1.setOpcode(WireFormat::READ);
+    session->sendRequest(&rpc1.request, &rpc1.response, &rpc1);
+    MockWrapper rpc2;
+    session->sendRequest(&rpc2.request, &rpc2.response, &rpc2);
+    rpc2.setOpcode(WireFormat::WRITE);
+    MockWrapper rpc3;
+    session->sendRequest(&rpc3.request, &rpc3.response, &rpc3);
+    rpc3.setOpcode(WireFormat::REMOVE);
+    MockWrapper rpc4;
+    rpc4.setOpcode(WireFormat::INCREMENT);
+    session->sendRequest(&rpc4.request, &rpc4.response, &rpc4);
+    EXPECT_EQ(2U, session->channelQueue.size());
+
+    EXPECT_EQ("READ, WRITE, REMOVE, INCREMENT to server at dummyService",
+            session-> getRpcInfo());
+}
+
 TEST_F(ClientSessionTest, init) {
     Cycles::cyclesPerSec = 1000000000.0;
     ServiceLocator serviceLocator("fast+udp: host=1.2.3.4, port=0x3742");

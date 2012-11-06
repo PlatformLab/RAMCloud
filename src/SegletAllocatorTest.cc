@@ -27,7 +27,7 @@ class SegletAllocatorTest : public ::testing::Test {
   public:
     SegletAllocatorTest()
         : serverConfig(ServerConfig::forTesting()),
-          allocator(serverConfig)
+          allocator(&serverConfig)
     {
     }
 
@@ -50,7 +50,7 @@ TEST_F(SegletAllocatorTest, constructor) {
 TEST_F(SegletAllocatorTest, destructor) {
     TestLog::Enable _;
     Tub<SegletAllocator> allocator2;
-    allocator2.construct(serverConfig);
+    allocator2.construct(&serverConfig);
     vector<Seglet*> seglets;
     allocator2->alloc(SegletAllocator::DEFAULT, 1, seglets);
     allocator2.destroy();

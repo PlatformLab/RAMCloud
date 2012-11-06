@@ -416,6 +416,7 @@ BackupMasterRecovery::performTask()
     buildRecoverySegments(*nextToBuild);
     LOG(DEBUG, "Done building recovery segments for (<%s,%lu>)",
         crashedMasterId.toString().c_str(), nextToBuild->metadata->segmentId);
+    nextToBuild->frame->unload();
     ++nextToBuild;
 }
 

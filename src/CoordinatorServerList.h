@@ -23,6 +23,10 @@
 #include "MasterRecoveryInfo.pb.h"
 #include "ServerList.pb.h"
 
+#include "ServerInformation.pb.h"
+#include "ServerUpdate.pb.h"
+#include "ForceServerDown.pb.h"
+
 #include "AbstractServerList.h"
 #include "MembershipClient.h"
 #include "ServiceMask.h"
@@ -30,26 +34,32 @@
 #include "Tub.h"
 
 namespace RAMCloud {
-/**
- * A CoordinatorServerList allocates ServerIds and holds Coordinator
- * state associated with live servers. It is closely related to the
- * ServerList and ServerTracker classes in that it essentially consists
- * of a map of ServerIds to some data and supports ServerTrackers. The
- * tracker will be fed updates whenever servers come or go (add,
- * crashed, removed).
- *
- * Additionally, this class contains the logic to propagate membership updates
- * (add/crashed/remove) and send the full list to ServerIds on the list.
- * Add/Crashed/Removes statuses are buffered into an internally managed
- * Protobuf until commitUpdate() is called, which will finalize the update.
- * The updates are done asynchronously from the CoordinatorServerList call
- * thread. sync() can be called to force a synchronization point.
- *
- * CoordinatorServerList is thread-safe and supports ServerTrackers.
- *
- * This class publicly extends AbstractServerList to provide a common
- * interface to READ from map of ServerIds and (un)register trackers.
- */
+
+// Not using LogCabin::Client::Entry since the CoordinatorServerList also
+// defines an Entry class.
+using LogCabin::Client::EntryId;
+using LogCabin::Client::NO_ID;
+
+ /**
+  * A CoordinatorServerList allocates ServerIds and holds Coordinator
+  * state associated with live servers. It is closely related to the
+  * ServerList and ServerTracker classes in that it essentially consists
+  * of a map of ServerIds to some data and supports ServerTrackers. The
+  * tracker will be fed updates whenever servers come or go (add,
+  * crashed, removed).
+  *
+  * Additionally, this class contains the logic to propagate membership updates
+  * (add/crashed/remove) and send the full list to ServerIds on the list.
+  * Add/Crashed/Removes statuses are buffered into an internally managed
+  * Protobuf until commitUpdate() is called, which will finalize the update.
+  * The updates are done asynchronously from the CoordinatorServerList call
+  * thread. sync() can be called to force a synchronization point.
+  *
+  * CoordinatorServerList is thread-safe and supports ServerTrackers.
+  *
+  * This class publicly extends AbstractServerList to provide a common
+  * interface to READ from map of ServerIds and (un)register trackers.
+  */
 class CoordinatorServerList : public AbstractServerList{
   PUBLIC:
     /**
@@ -122,34 +132,63 @@ class CoordinatorServerList : public AbstractServerList{
 
     explicit CoordinatorServerList(Context* context);
     ~CoordinatorServerList();
+
+    //TODO(ankitak): This public version used only for unit tests. Remove?
     void add(ServerId serverId, string serviceLocator,
              ServiceMask serviceMask, uint32_t readSpeed);
+    //TODO(ankitak): This public version used only for unit tests. Remove?
     void crashed(ServerId serverId);
+    //TODO(ankitak): This public version used only for unit tests. Remove?
     void remove(ServerId serverId);
+    //TODO(ankitak): This version used only for unit tests. Remove?
     ServerId generateUniqueId();
+    ServerId generateUniqueId(Lock& lock);
 
-    void setMasterRecoveryInfo(
-        ServerId serverId, const ProtoBuf::MasterRecoveryInfo& recoveryInfo);
-    void setReplicationId(ServerId serverId, uint64_t segmentId);
+    void setMasterRecoveryInfo(ServerId serverId,
+        const ProtoBuf::MasterRecoveryInfo& recoveryInfo);
+    void setMasterRecoveryInfoRecover(ProtoBuf::ServerUpdate* state,
+        EntryId entryId);
+    void setReplicationId(Lock& lock, ServerId serverId, uint64_t segmentId);
 
     Entry operator[](const ServerId& serverId) const;
     Tub<Entry> operator[](size_t index) const;
-    Entry at(const ServerId& serverId) const;
-    Tub<Entry> at(size_t index) const;
+
     uint32_t masterCount() const;
     uint32_t backupCount() const;
-    uint32_t nextMasterIndex(uint32_t startIndex) const;
-    uint32_t nextBackupIndex(uint32_t startIndex) const;
-    void serialize(ProtoBuf::ServerList& protoBuf) const;
-    void serialize(ProtoBuf::ServerList& protobuf,
-                   ServiceMask services) const;
 
-    void addServerInfoLogId(ServerId serverId,
+    //TODO(ankitak): Tested in unit tests, but not really used. Why is it here?
+    uint32_t nextMasterIndex(uint32_t startIndex) const;
+    //TODO(ankitak): Tested in unit tests, but not really used. Why is it here?
+    uint32_t nextBackupIndex(uint32_t startIndex) const;
+
+    //TODO(ankitak): Used only by unit tests. Remove?
+    void serialize(ProtoBuf::ServerList& protoBuf) const;
+    void serialize(ProtoBuf::ServerList& protobuf, ServiceMask services) const;
+
+    void addServerInfoLogId(Lock& lock, ServerId serverId,
                             LogCabin::Client::EntryId entryId);
-    void addServerUpdateLogId(ServerId serverId,
+    void addServerUpdateLogId(Lock& lock, ServerId serverId,
                               LogCabin::Client::EntryId entryId);
-    LogCabin::Client::EntryId getServerInfoLogId(ServerId serverId);
-    LogCabin::Client::EntryId getServerUpdateLogId(ServerId serverId);
+    LogCabin::Client::EntryId getServerInfoLogId(Lock& lock, ServerId serverId);
+    LogCabin::Client::EntryId getServerUpdateLogId(Lock& lock,
+                                                   ServerId serverId);
+
+    bool assignReplicationGroup(Lock& lock, uint64_t replicationId,
+                                const vector<ServerId>& replicationGroupIds);
+    void createReplicationGroup(Lock& lock);
+    void removeReplicationGroup(Lock& lock, uint64_t groupId);
+
+    ServerId enlistServer(ServerId replacesId, ServiceMask serviceMask,
+                          const uint32_t readSpeed, const char* serviceLocator);
+    void enlistServerRecover(ProtoBuf::ServerInformation* state,
+                             EntryId entryId);
+    void enlistedServerRecover(ProtoBuf::ServerInformation* state,
+                               EntryId entryId);
+
+    bool hintServerDown(ServerId serverId);
+    void forceServerDown(Lock& lock, ServerId serverId);
+    void forceServerDownRecover(ProtoBuf::ForceServerDown* state,
+                                EntryId entryId);
 
   PROTECTED:
     /// Internal Use Only - Does not grab locks
@@ -158,6 +197,120 @@ class CoordinatorServerList : public AbstractServerList{
     size_t isize() const;
 
   PRIVATE:
+    /**
+     * Defines methods and stores data to enlist a server.
+     */
+    class EnlistServer {
+      public:
+          EnlistServer(CoordinatorServerList &csl,
+                       Lock& lock,
+                       ServerId newServerId,
+                       ServiceMask serviceMask,
+                       uint32_t readSpeed,
+                       const char* serviceLocator)
+              : csl(csl), lock(lock),
+                newServerId(newServerId),
+                serviceMask(serviceMask),
+                readSpeed(readSpeed),
+                serviceLocator(serviceLocator) {}
+          ServerId execute();
+          ServerId complete(EntryId entryId);
+
+      private:
+          /**
+           * Reference to the instance of CoordinatorServerList
+           * initializing this class.
+           */
+          CoordinatorServerList &csl;
+          /**
+           * Explicity needs CoordinatorServerList lock.
+           */
+          Lock& lock;
+          /**
+           * The id assigned to the enlisting server.
+           */
+          ServerId newServerId;
+    	  /**
+    	   * Services supported by the enlisting server.
+    	   */
+          ServiceMask serviceMask;
+          /**
+           * Read speed of the enlisting server in MB/s.
+    	   */
+          const uint32_t readSpeed;
+    	  /**
+    	   * Service Locator of the enlisting server.
+    	   */
+          const char* serviceLocator;
+          DISALLOW_COPY_AND_ASSIGN(EnlistServer);
+    };
+
+    /**
+     * Defines methods and stores data to force a server out of the cluster.
+     */
+    class ForceServerDown {
+        public:
+            ForceServerDown(CoordinatorServerList &csl,
+                            Lock& lock,
+                            ServerId serverId)
+                : csl(csl), lock(lock), serverId(serverId) {}
+            void execute();
+            void complete(EntryId entryId);
+        private:
+            /**
+             * Reference to the instance of CoordinatorServerList
+             * initializing this class.
+             */
+            CoordinatorServerList &csl;
+            /**
+             * Explicity needs CoordinatorServerList lock.
+             */
+            Lock& lock;
+            /**
+             * ServerId of the server that is suspected to be down.
+             */
+            ServerId serverId;
+            DISALLOW_COPY_AND_ASSIGN(ForceServerDown);
+    };
+
+    /**
+     * Defines methods and stores data to set recovery info of server
+     * with id serverId to segmentId.
+     */
+    class SetMasterRecoveryInfo {
+        public:
+            SetMasterRecoveryInfo(
+                    CoordinatorServerList &csl,
+                    Lock& lock,
+                    ServerId serverId,
+                    const ProtoBuf::MasterRecoveryInfo& recoveryInfo)
+                : csl(csl), lock(lock), serverId(serverId)
+                , recoveryInfo(recoveryInfo) {}
+            void execute();
+            void complete(EntryId entryId);
+        private:
+            /**
+             * Reference to the instance of CoordinatorServerList
+             * initializing this class.
+             */
+            CoordinatorServerList &csl;
+            /**
+             * Explicity needs CoordinatorServerList lock.
+             */
+            Lock& lock;
+            /**
+             * ServerId of the server whose recovery info will be set.
+             */
+            ServerId serverId;
+            /**
+             * The new master recovery info to be set.
+             */
+            ProtoBuf::MasterRecoveryInfo recoveryInfo;
+            DISALLOW_COPY_AND_ASSIGN(SetMasterRecoveryInfo);
+    };
+
+    bool verifyServerFailure(ServerId serverId);
+
     /**
      * The list of servers is just a vector of the following structure,
      * containing a permanent generation number that increments each
@@ -243,7 +396,10 @@ class CoordinatorServerList : public AbstractServerList{
     void crashed(const Lock& lock, ServerId serverId);
     void remove(Lock& lock, ServerId serverId);
     uint32_t firstFreeIndex();
-    const Entry& getReferenceFromServerId(const ServerId& serverId) const;
+    const Entry& getReferenceFromServerId(const Lock& lock,
+                                          const ServerId& serverId) const;
+    Tub<Entry> getReferenceFromIndex(const Lock& lock,
+                                     size_t index) const;
     void serialize(const Lock& lock, ProtoBuf::ServerList& protoBuf) const;
     void serialize(const Lock& lock, ProtoBuf::ServerList& protobuf,
                    ServiceMask services) const;
@@ -279,7 +435,7 @@ class CoordinatorServerList : public AbstractServerList{
 
     /**
      * Indicates that the updateLoop() method should return and
-     *therefore exit the updater thread. Do NOT set this manually,
+     * therefore exit the updater thread. Do NOT set this manually,
      * use haltUpdater() and startUpdater().
      */
     bool stopUpdater;
@@ -323,6 +479,20 @@ class CoordinatorServerList : public AbstractServerList{
 
     /// Thread that runs in the background to send out updates.
     Tub<std::thread> thread;
+
+    /**
+     * The id of the next replication group to be created. The replication
+     * group is a set of backups that store all of the replicas of a segment.
+     * NextReplicationId starts at 1 and is never reused.
+     * Id 0 is reserved for nodes that do not belong to a replication group.
+     */
+    uint64_t nextReplicationId;
+
+    /**
+     * Used for testing only. If true, the HINT_SERVER_DOWN handler will
+     * assume that the server has failed (rather than checking for itself).
+     */
+    bool forceServerDownForTesting;
 
     DISALLOW_COPY_AND_ASSIGN(CoordinatorServerList);
 };

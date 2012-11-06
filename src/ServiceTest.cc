@@ -36,7 +36,7 @@ class ServiceTest : public ::testing::Test {
         , request()
         , response()
         , worker(&context)
-        , rpc(&worker, request, response)
+        , rpc(&worker, &request, &response)
     {
         TestLog::enable();
     }
@@ -50,14 +50,14 @@ class ServiceTest : public ::testing::Test {
 TEST_F(ServiceTest, getString_basics) {
     Buffer buffer;
     buffer.fillFromString("abcdefg");
-    const char* result = Service::getString(buffer, 3, 5);
+    const char* result = Service::getString(&buffer, 3, 5);
     EXPECT_STREQ("defg", result);
 }
 TEST_F(ServiceTest, getString_lengthZero) {
     Buffer buffer;
     Status status = Status(0);
     try {
-        Service::getString(buffer, 0, 0);
+        Service::getString(&buffer, 0, 0);
     } catch (RequestFormatError& e) {
         status = e.status;
     }
@@ -68,7 +68,7 @@ TEST_F(ServiceTest, getString_bufferTooShort) {
     buffer.fillFromString("abcde");
     Status status = Status(0);
     try {
-        Service::getString(buffer, 2, 5);
+        Service::getString(&buffer, 2, 5);
     } catch (MessageTooShortError& e) {
         status = e.status;
     }
@@ -79,7 +79,7 @@ TEST_F(ServiceTest, getString_stringNotTerminated) {
     buffer.fillFromString("abcde");
     Status status = Status(0);
     try {
-        Service::getString(buffer, 1, 3);
+        Service::getString(&buffer, 1, 3);
     } catch (RequestFormatError& e) {
         status = e.status;
     }
@@ -88,7 +88,7 @@ TEST_F(ServiceTest, getString_stringNotTerminated) {
 
 TEST_F(ServiceTest, dispatch_ping) {
     request.fillFromString("7 0 0 0 0 0");
-    service.dispatch(WireFormat::Ping::opcode, rpc);
+    service.dispatch(WireFormat::Ping::opcode, &rpc);
     EXPECT_TRUE(TestUtil::matchesPosixRegex("Service::ping invoked",
             TestLog::get()));
 }
@@ -100,20 +100,20 @@ TEST_F(ServiceTest, dispatch_unknown) {
     } t;
     t.y = 12345;
     EXPECT_THROW(
-        service.dispatch(t.x, rpc),
+        service.dispatch(t.x, &rpc),
         UnimplementedRequestError);
 }
 
 TEST_F(ServiceTest, handleRpc_messageTooShortForCommon) {
     request.fillFromString("x");
-    service.handleRpc(rpc);
+    service.handleRpc(&rpc);
     EXPECT_STREQ("STATUS_MESSAGE_TOO_SHORT", TestUtil::getStatus(&response));
 }
 TEST_F(ServiceTest, handleRpc_undefinedType) {
     metrics->rpc.illegalRpcCount = 0;
     auto* header = new(&request, APPEND) WireFormat::RequestCommon;
     header->opcode = WireFormat::ILLEGAL_RPC_TYPE;
-    service.handleRpc(rpc);
+    service.handleRpc(&rpc);
     EXPECT_STREQ("STATUS_UNIMPLEMENTED_REQUEST",
             TestUtil::getStatus(&response));
     EXPECT_EQ(1U, metrics->rpc.illegalRpcCount);
@@ -121,19 +121,19 @@ TEST_F(ServiceTest, handleRpc_undefinedType) {
 TEST_F(ServiceTest, handleRpc_clientException) {
     MockService service;
     request.fillFromString("1 2 54321 3 4");
-    service.handleRpc(rpc);
+    service.handleRpc(&rpc);
     EXPECT_STREQ("STATUS_REQUEST_FORMAT_ERROR", TestUtil::getStatus(&response));
 }
 
 TEST_F(ServiceTest, prepareErrorResponse_bufferNotEmpty) {
     response.fillFromString("1 abcdef");
-    Service::prepareErrorResponse(response, STATUS_WRONG_VERSION);
+    Service::prepareErrorResponse(&response, STATUS_WRONG_VERSION);
     EXPECT_STREQ("STATUS_WRONG_VERSION", TestUtil::getStatus(&response));
     EXPECT_STREQ("abcdef",
             static_cast<const char*>(response.getRange(4, 7)));
 }
 TEST_F(ServiceTest, prepareErrorResponse_bufferEmpty) {
-    Service::prepareErrorResponse(response, STATUS_WRONG_VERSION);
+    Service::prepareErrorResponse(&response, STATUS_WRONG_VERSION);
     EXPECT_EQ(sizeof(WireFormat::ResponseCommon), response.getTotalLength());
     EXPECT_STREQ("STATUS_WRONG_VERSION", TestUtil::getStatus(&response));
 }
@@ -141,12 +141,12 @@ TEST_F(ServiceTest, prepareErrorResponse_bufferEmpty) {
 TEST_F(ServiceTest, callHandler_messageTooShort) {
     request.fillFromString("");
     EXPECT_THROW(
-        (service.callHandler<WireFormat::Ping, Service, &Service::ping>(rpc)),
+        (service.callHandler<WireFormat::Ping, Service, &Service::ping>(&rpc)),
         MessageTooShortError);
 }
 TEST_F(ServiceTest, callHandler_normal) {
     request.fillFromString("7 0 0 0 0 0");
-    service.callHandler<WireFormat::Ping, Service, &Service::ping>(rpc);
+    service.callHandler<WireFormat::Ping, Service, &Service::ping>(&rpc);
     EXPECT_TRUE(TestUtil::matchesPosixRegex("ping", TestLog::get()));
 }
 
@@ -164,8 +164,8 @@ class DummyService : public Service {
             WireFormat::ResponseCommon common;
         } __attribute__((packed));
     };
-    void serviceMethod1(const Rpc1::Request& reqHdr, Rpc1::Response& respHdr,
-                Rpc& rpc)
+    void serviceMethod1(const Rpc1::Request* reqHdr, Rpc1::Response* respHdr,
+                Rpc* rpc)
     {
         // No-op.
     }
@@ -179,7 +179,7 @@ TEST_F(ServiceTest, checkServerId) {
     string message("no exception");
     try {
         service.callHandler<DummyService::Rpc1, DummyService,
-                &DummyService::serviceMethod1>(rpc);
+                &DummyService::serviceMethod1>(&rpc);
     } catch (WrongServerException& e) {
         message = e.toSymbol();
     }
@@ -191,7 +191,7 @@ TEST_F(ServiceTest, checkServerId) {
     message = "no exception";
     try {
         service.callHandler<DummyService::Rpc1, DummyService,
-                &DummyService::serviceMethod1>(rpc);
+                &DummyService::serviceMethod1>(&rpc);
     } catch (WrongServerException& e) {
         message = e.toSymbol();
     }
@@ -203,7 +203,7 @@ TEST_F(ServiceTest, checkServerId) {
     message = "no exception";
     try {
         service.callHandler<DummyService::Rpc1, DummyService,
-                &DummyService::serviceMethod1>(rpc);
+                &DummyService::serviceMethod1>(&rpc);
     } catch (WrongServerException& e) {
         message = e.toSymbol();
     }
@@ -216,7 +216,7 @@ TEST_F(ServiceTest, checkServerId) {
     message = "no exception";
     try {
         service.callHandler<DummyService::Rpc1, DummyService,
-                &DummyService::serviceMethod1>(rpc);
+                &DummyService::serviceMethod1>(&rpc);
     } catch (WrongServerException& e) {
         message = e.toSymbol();
     }

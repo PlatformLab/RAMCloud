@@ -53,8 +53,8 @@ class Service {
         /**
          * Constructor for Rpc.
          */
-        Rpc(Worker* worker, Buffer& requestPayload,
-                Buffer& replyPayload)
+        Rpc(Worker* worker, Buffer* requestPayload,
+                Buffer* replyPayload)
             : requestPayload(requestPayload)
             , replyPayload(replyPayload)
             , worker(worker)
@@ -63,10 +63,10 @@ class Service {
         void sendReply();
 
         /// The incoming request, which describes the desired operation.
-        Buffer& requestPayload;
+        Buffer* requestPayload;
 
         /// The response, which will eventually be returned to the client.
-        Buffer& replyPayload;
+        Buffer* replyPayload;
 
       PRIVATE:
         /// Information about the worker thread that is executing
@@ -83,12 +83,12 @@ class Service {
     Service();
     virtual ~Service() {}
     virtual void dispatch(WireFormat::Opcode opcode,
-                          Rpc& rpc);
-    static void prepareErrorResponse(Buffer& buffer, Status status);
+                          Rpc* rpc);
+    static void prepareErrorResponse(Buffer* buffer, Status status);
 
-    static const char* getString(Buffer& buffer, uint32_t offset,
+    static const char* getString(Buffer* buffer, uint32_t offset,
                                  uint32_t length);
-    void handleRpc(Rpc& rpc);
+    void handleRpc(Rpc* rpc);
 
     /**
      * Returns the maximum number of threads that may be executing in
@@ -99,9 +99,9 @@ class Service {
         return 1;
     }
 
-    void ping(const WireFormat::Ping::Request& reqHdr,
-              WireFormat::Ping::Response& respHdr,
-              Rpc& rpc);
+    void ping(const WireFormat::Ping::Request* reqHdr,
+              WireFormat::Ping::Response* respHdr,
+              Rpc* rpc);
 
   PROTECTED:
     /**
@@ -116,26 +116,26 @@ class Service {
      *      The method of \a S which executes an RPC.
      */
     template <typename Op, typename S,
-              void (S::*handler)(const typename Op::Request&,
-                                 typename Op::Response&,
-                                 Rpc&)>
+              void (S::*handler)(const typename Op::Request*,
+                                 typename Op::Response*,
+                                 Rpc*)>
     void
-    callHandler(Rpc& rpc) {
-        assert(rpc.replyPayload.getTotalLength() == 0);
+    callHandler(Rpc* rpc) {
+        assert(rpc->replyPayload->getTotalLength() == 0);
         const typename Op::Request* reqHdr =
-            rpc.requestPayload.getStart<typename Op::Request>();
+            rpc->requestPayload->getStart<typename Op::Request>();
         if (reqHdr == NULL)
             throw MessageTooShortError(HERE);
         checkServerId(&reqHdr->common);
         typename Op::Response* respHdr =
-            new(&rpc.replyPayload, APPEND) typename Op::Response;
+            new(rpc->replyPayload, APPEND) typename Op::Response;
         /* Clear the response header, so that unused fields are zero;
          * this makes tests more reproducible, and it is also needed
          * to avoid possible security problems where random server
          * info could leak out to clients through unused packet
          * fields. */
         memset(respHdr, 0, sizeof(*respHdr));
-        (static_cast<S*>(this)->*handler)(*reqHdr, *respHdr, rpc);
+        (static_cast<S*>(this)->*handler)(reqHdr, respHdr, rpc);
     }
 
     /**

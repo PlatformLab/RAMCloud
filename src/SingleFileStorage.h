@@ -16,6 +16,8 @@
 #ifndef RAMCLOUD_SINGLEFILESTORAGE_H
 #define RAMCLOUD_SINGLEFILESTORAGE_H
 
+#include <stack>
+
 #include "Common.h"
 #include "BackupStorage.h"
 #include "PriorityTaskQueue.h"
@@ -28,6 +30,17 @@ namespace RAMCloud {
  */
 class SingleFileStorage : public BackupStorage {
   public:
+    /// See bufferDeleter below.
+    struct BufferDeleter {
+        explicit BufferDeleter(SingleFileStorage* storage);
+        void operator()(void* buffer);
+
+        /// SingleFileStorage which houses the pool where buffers are returned.
+        SingleFileStorage* storage;
+    };
+
+    typedef std::unique_ptr<void, BufferDeleter> BufferPtr;
+
     /**
      * Represents a region of the file on storage which holds a single replica.
      * Frames manage the details of moving replica data to and from disk and
@@ -64,6 +77,7 @@ class SingleFileStorage : public BackupStorage {
         void startLoading();
         bool isLoaded();
         void* load();
+        void unload();
 
         void append(Buffer& source,
                     size_t sourceOffset,
@@ -83,7 +97,6 @@ class SingleFileStorage : public BackupStorage {
         void performWrite(Lock& lock);
 
         bool isSynced() const;
-        Memory::unique_ptr_free allocateBuffer();
 
         /// Storage where this frame resides.
         SingleFileStorage* storage;
@@ -102,7 +115,7 @@ class SingleFileStorage : public BackupStorage {
          * since it must stay valid even during performWrite() even though
          * the lock isn't held for the duration of the call.
          */
-        Memory::unique_ptr_free buffer;
+        BufferPtr buffer;
 
         /**
          * Tracks whether a replica has been opened (either initially or
@@ -215,6 +228,8 @@ class SingleFileStorage : public BackupStorage {
     void quiesce();
     void fry();
 
+    BufferPtr allocateBuffer();
+
     /**
      * Intermnal use only; block size of storage. Needed to deal
      * with alignment constraints for O_DIRECT.
@@ -229,8 +244,8 @@ class SingleFileStorage : public BackupStorage {
      * size limit.
      */
     enum { METADATA_SIZE = BLOCK_SIZE };
-  PRIVATE:
 
+  PRIVATE:
     off_t offsetOfFrame(size_t frameIndex) const;
     off_t offsetOfMetadataFrame(size_t frameIndex) const;
     off_t offsetOfSuperblockFrame(size_t superblockIndex) const;
@@ -310,6 +325,21 @@ class SingleFileStorage : public BackupStorage {
      * generated during recovery.
      */
     size_t maxNonVolatileBuffers;
+
+    /**
+     * Returns buffers allocated with SingleFileStorage::allocateBuffer()
+     * to a pool, or if there are already plenty of buffers
+     * it returns it to the OS (which will unmap it).
+     * Should only be called by SingleFileStorage::BufferPtr objects.
+     */
+    BufferDeleter bufferDeleter;
+
+    /**
+     * Pool of unused buffers which the backup uses to stage new segment
+     * replicas in and to load replicas from disk into. This pool is
+     * managed by allocateBuffer() and #bufferDeleter.
+     */
+    std::stack<void*, std::vector<void*>> buffers;
 
     DISALLOW_COPY_AND_ASSIGN(SingleFileStorage);
 };

@@ -62,6 +62,8 @@ TEST_F(MockClusterTest, destructor) {
 TEST_F(MockClusterTest, addServer) {
     config.services = {WireFormat::BACKUP_SERVICE};
     Server* server = cluster->addServer(config);
+    server->backup.get()->testingSkipCallerIdCheck = true;
+    cluster->coordinatorContext.coordinatorServerList->sync();
     EXPECT_EQ(server->config.localLocator, "mock:host=server0");
     EXPECT_FALSE(server->master);
     EXPECT_TRUE(server->backup);
@@ -69,7 +71,7 @@ TEST_F(MockClusterTest, addServer) {
     EXPECT_FALSE(server->ping);
     EXPECT_EQ(1u, cluster->servers.size());
     Segment segment;
-    BackupClient::writeSegment(&context, server->serverId, {99, 0},
+    BackupClient::writeSegment(&context, server->serverId, ServerId(),
                                100, 0, &segment, 0, 0, {}, true, false, false);
     server = cluster->addServer(config);
     EXPECT_EQ(server->config.localLocator, "mock:host=server1");

@@ -41,7 +41,7 @@ class AlarmSession : public Transport::Session {
         if (alarm != NULL)
             alarm->rpcStarted();
         appendLog(format("sendRequest: opcode %s",
-                WireFormat::opcodeSymbol(*request)));
+                WireFormat::opcodeSymbol(request)));
     }
 
     void finishRpcs()
@@ -128,7 +128,7 @@ TEST_F(SessionAlarmTest, basics) {
     // expect (scheduling glitches on the machine could cause timeouts
     // to occasionally take longer than this).
     TestLog::Enable _;
-    SessionAlarm alarm(timer, *session, 0);
+    SessionAlarm alarm(&timer, session, 0);
     session->alarm = &alarm;
     double elapsed = 0.0;
     double desired = .035;
@@ -156,14 +156,14 @@ TEST_F(SessionAlarmTest, basics) {
 }
 
 TEST_F(SessionAlarmTest, constructor_timeoutTooShort) {
-    SessionAlarm alarm(timer, *session, 10);
+    SessionAlarm alarm(&timer, session, 10);
     EXPECT_EQ(15, alarm.pingMs);
     EXPECT_EQ(30, alarm.abortMs);
 }
 
 TEST_F(SessionAlarmTest, destructor_cleanupOutstandingRpcs) {
     Tub<SessionAlarm> alarm;
-    alarm.construct(timer, *session, 0);
+    alarm.construct(&timer, session, 0);
     alarm->rpcStarted();
     alarm->rpcStarted();
     alarm.destroy();
@@ -171,7 +171,7 @@ TEST_F(SessionAlarmTest, destructor_cleanupOutstandingRpcs) {
 }
 
 TEST_F(SessionAlarmTest, rpcStarted) {
-    SessionAlarm alarm(timer, *session, 0);
+    SessionAlarm alarm(&timer, session, 0);
 
     // First RPC starts: must start timer.
     alarm.rpcStarted();
@@ -186,20 +186,20 @@ TEST_F(SessionAlarmTest, rpcStarted) {
     EXPECT_TRUE(timer.isRunning());
 
     // Start another RPC on a different alarm.
-    SessionAlarm alarm2(timer, *session, 0);
+    SessionAlarm alarm2(&timer, session, 0);
     alarm2.rpcStarted();
     EXPECT_EQ(1, alarm2.outstandingRpcs);
     EXPECT_EQ(2U, timer.activeAlarms.size());
 }
 
 TEST_F(SessionAlarmTest, rpcFinished_removeFromActiveAlarms) {
-    SessionAlarm alarm1(timer, *session, 0);
+    SessionAlarm alarm1(&timer, session, 0);
     alarm1.rpcStarted();
-    SessionAlarm alarm2(timer, *session, 0);
+    SessionAlarm alarm2(&timer, session, 0);
     alarm2.rpcStarted();
     alarm2.rpcStarted();
     alarm2.waitingForResponseMs = 10;
-    SessionAlarm alarm3(timer, *session, 0);
+    SessionAlarm alarm3(&timer, session, 0);
     alarm3.rpcStarted();
 
     alarm2.rpcFinished();
@@ -222,10 +222,10 @@ TEST_F(SessionAlarmTest, rpcFinished_removeFromActiveAlarms) {
 TEST_F(SessionAlarmTimerTest, destructor) {
     Tub<SessionAlarmTimer> timer2;
     timer2.construct(&context);
-    SessionAlarm alarm1(*timer2, *session, 0);
+    SessionAlarm alarm1(timer2.get(), session, 0);
     alarm1.rpcStarted();
     alarm1.rpcStarted();
-    SessionAlarm alarm2(*timer2, *session, 0);
+    SessionAlarm alarm2(timer2.get(), session, 0);
     alarm2.rpcStarted();
 
     // Wait until ping RPCs get sent on each alarm.
@@ -242,8 +242,8 @@ TEST_F(SessionAlarmTimerTest, destructor) {
 }
 
 TEST_F(SessionAlarmTimerTest, handleTimerEvent_incrementResponseTime) {
-    SessionAlarm alarm1(timer, *session, 0);
-    SessionAlarm alarm2(timer, *session, 0);
+    SessionAlarm alarm1(&timer, session, 0);
+    SessionAlarm alarm2(&timer, session, 0);
     alarm1.rpcStarted();
     alarm2.rpcStarted();
     alarm2.waitingForResponseMs = 5;
@@ -255,7 +255,7 @@ TEST_F(SessionAlarmTimerTest, handleTimerEvent_incrementResponseTime) {
 
 TEST_F(SessionAlarmTimerTest, handleTimerEvent_pingAndAbortSession) {
     TestLog::Enable _;
-    SessionAlarm alarm1(timer, *session, 0);
+    SessionAlarm alarm1(&timer, session, 0);
     alarm1.rpcStarted();
     alarm1.waitingForResponseMs = 25;
 
@@ -271,19 +271,19 @@ TEST_F(SessionAlarmTimerTest, handleTimerEvent_pingAndAbortSession) {
 TEST_F(SessionAlarmTest, handleTimerEvent_cleanupPings) {
     TestLog::Enable _;
     // Create 3 different alarms.
-    SessionAlarm alarm1(timer, *session, 0);
+    SessionAlarm alarm1(&timer, session, 0);
     session->alarm = &alarm1;
     alarm1.rpcStarted();
 
     AlarmSession* session2 = new AlarmSession(&context);
     Transport::SessionRef ref2 = session2;
-    SessionAlarm alarm2(timer, *session2, 0);
+    SessionAlarm alarm2(&timer, session2, 0);
     session2->alarm = &alarm2;
     alarm2.rpcStarted();
 
     AlarmSession* session3 = new AlarmSession(&context);
     Transport::SessionRef ref3 = session3;
-    SessionAlarm alarm3(timer, *session3, 0);
+    SessionAlarm alarm3(&timer, session3, 0);
     session3->alarm = &alarm3;
     alarm3.rpcStarted();
 
@@ -316,7 +316,7 @@ TEST_F(SessionAlarmTimerTest, handleTimerEvent_restartTimer) {
     Cycles::mockTscValue = 1000;
     timer.timerIntervalTicks = 100;
     context.dispatch->poll();
-    SessionAlarm alarm1(timer, *session, 0);
+    SessionAlarm alarm1(&timer, session, 0);
     alarm1.rpcStarted();
     Cycles::mockTscValue = 2000;
     context.dispatch->poll();

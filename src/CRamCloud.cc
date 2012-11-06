@@ -21,6 +21,7 @@
 #include "RamCloud.h"
 #include "CRamCloud.h"
 #include "ClientException.h"
+#include "Logger.h"
 
 using namespace RAMCloud;
 
@@ -42,7 +43,7 @@ struct rc_client {
  *      to other "rc_" functions to invoke RAMCloud operations.
  *
  * \return
- *      STATUS_OK or STATUS_COULDNT_CONNECT.
+ *      STATUS_OK or STATUS_COULDNT_CONNECT or STATUS_INTERNAL_ERROR.
  */
 Status rc_connect(const char* serverLocator, struct rc_client** newClient)
 {
@@ -51,8 +52,18 @@ Status rc_connect(const char* serverLocator, struct rc_client** newClient)
         client->client = new RamCloud(serverLocator);
     } catch (CouldntConnectException& e) {
         delete client;
+        *newClient = NULL;
         return e.status;
     }
+    catch (std::exception& e) {
+        RAMCLOUD_LOG(ERROR, "An unhandled C++ Exception occurred: %s",
+                e.what());
+        return STATUS_INTERNAL_ERROR;
+    } catch (...) {
+        RAMCLOUD_LOG(ERROR, "An unknown, unhandled C++ Exception occurred");
+        return STATUS_INTERNAL_ERROR;
+    }
+
     *newClient = client;
     return STATUS_OK;
 }
@@ -70,7 +81,7 @@ Status rc_connect(const char* serverLocator, struct rc_client** newClient)
  *      RAMCloud operations.
  *
  * \return
- *      STATUS_OK or STATUS_COULDNT_CONNECT.
+ *      STATUS_OK or STATUS_COULDNT_CONNECT or STATUS_INTERNAL_ERROR.
  */
 Status rc_connectWithClient(
         struct RamCloud* existingClient,
@@ -111,6 +122,15 @@ rc_createTable(struct rc_client* client, const char* name)
     } catch (ClientException& e) {
         return e.status;
     }
+    catch (std::exception& e) {
+        RAMCLOUD_LOG(ERROR, "An unhandled C++ Exception occurred: %s",
+                e.what());
+        return STATUS_INTERNAL_ERROR;
+    } catch (...) {
+        RAMCLOUD_LOG(ERROR, "An unknown, unhandled C++ Exception occurred");
+        return STATUS_INTERNAL_ERROR;
+    }
+
     return STATUS_OK;
 }
 
@@ -122,6 +142,15 @@ rc_dropTable(struct rc_client* client, const char* name)
     } catch (ClientException& e) {
         return e.status;
     }
+    catch (std::exception& e) {
+        RAMCLOUD_LOG(ERROR, "An unhandled C++ Exception occurred: %s",
+                e.what());
+        return STATUS_INTERNAL_ERROR;
+    } catch (...) {
+        RAMCLOUD_LOG(ERROR, "An unknown, unhandled C++ Exception occurred");
+        return STATUS_INTERNAL_ERROR;
+    }
+
     return STATUS_OK;
 }
 
@@ -145,6 +174,15 @@ rc_getTableId(struct rc_client* client, const char* name,
     } catch (ClientException& e) {
         return e.status;
     }
+    catch (std::exception& e) {
+        RAMCLOUD_LOG(ERROR, "An unhandled C++ Exception occurred: %s",
+                e.what());
+        return STATUS_INTERNAL_ERROR;
+    } catch (...) {
+        RAMCLOUD_LOG(ERROR, "An unknown, unhandled C++ Exception occurred");
+        return STATUS_INTERNAL_ERROR;
+    }
+
     return STATUS_OK;
 }
 
@@ -177,7 +215,7 @@ rc_getTableId(struct rc_client* client, const char* name,
  * \param[out] actualLength
  *      The total size of the object is stored here; this may be
  *      larger than maxLength.
- *      
+ *
  * \return
  *      0 means success, anything else indicates an error.
  */
@@ -201,6 +239,15 @@ rc_read(struct rc_client* client, uint64_t tableId,
         *actualLength = 0;
         return e.status;
     }
+    catch (std::exception& e) {
+        RAMCLOUD_LOG(ERROR, "An unhandled C++ Exception occurred: %s",
+                e.what());
+        return STATUS_INTERNAL_ERROR;
+    } catch (...) {
+        RAMCLOUD_LOG(ERROR, "An unknown, unhandled C++ Exception occurred");
+        return STATUS_INTERNAL_ERROR;
+    }
+
     return STATUS_OK;
 }
 
@@ -214,6 +261,15 @@ rc_remove(struct rc_client* client, uint64_t tableId,
     } catch (ClientException& e) {
         return e.status;
     }
+    catch (std::exception& e) {
+        RAMCLOUD_LOG(ERROR, "An unhandled C++ Exception occurred: %s",
+                e.what());
+        return STATUS_INTERNAL_ERROR;
+    } catch (...) {
+        RAMCLOUD_LOG(ERROR, "An unknown, unhandled C++ Exception occurred");
+        return STATUS_INTERNAL_ERROR;
+    }
+
     return STATUS_OK;
 }
 
@@ -230,6 +286,15 @@ rc_write(struct rc_client* client, uint64_t tableId,
     } catch (ClientException& e) {
         return e.status;
     }
+    catch (std::exception& e) {
+        RAMCLOUD_LOG(ERROR, "An unhandled C++ Exception occurred: %s",
+                e.what());
+        return STATUS_INTERNAL_ERROR;
+    } catch (...) {
+        RAMCLOUD_LOG(ERROR, "An unknown, unhandled C++ Exception occurred");
+        return STATUS_INTERNAL_ERROR;
+    }
+
     return STATUS_OK;
 }
 

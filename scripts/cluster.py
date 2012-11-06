@@ -398,8 +398,9 @@ def run(
                                    # before the others are started.  Useful
                                    # for creating the old master for
                                    # recoveries.
-        old_master_args=''         # Additional arguments to run on the
+        old_master_args='',        # Additional arguments to run on the
                                    # old master (e.g. total RAM).
+        coordinator_host=None
         ):       
     """
     Start a coordinator and servers, as indicated by the arguments.
@@ -432,7 +433,10 @@ def run(
         cluster.timeout = timeout
         cluster.disk = disk1
 
-        coordinator = cluster.start_coordinator(hosts[0], coordinator_args)
+        if not coordinator_host:
+            coordinator_host = hosts[0]
+        coordinator = cluster.start_coordinator(coordinator_host,
+                                                coordinator_args)
 
         if old_master_host:
             oldMaster = cluster.start_server(old_master_host,

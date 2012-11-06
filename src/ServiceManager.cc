@@ -143,12 +143,12 @@ ServiceManager::handleRpc(Transport::ServerRpc* rpc)
         if (header == NULL) {
             LOG(WARNING, "Incoming RPC contains no header (message length %d)",
                     rpc->requestPayload.getTotalLength());
-            Service::prepareErrorResponse(rpc->replyPayload,
+            Service::prepareErrorResponse(&rpc->replyPayload,
                     STATUS_MESSAGE_TOO_SHORT);
         } else {
             LOG(WARNING, "Incoming RPC requested unavailable service %d",
                     header->service);
-            Service::prepareErrorResponse(rpc->replyPayload,
+            Service::prepareErrorResponse(&rpc->replyPayload,
                     STATUS_SERVICE_NOT_AVAILABLE);
         }
         rpc->sendReply();
@@ -172,7 +172,7 @@ ServiceManager::handleRpc(Transport::ServerRpc* rpc)
     if ((header->opcode == RpcOpcode::READ) &&
             (header->service == MASTER_SERVICE)) {
         Service::Rpc serviceRpc(NULL, rpc->requestPayload, rpc->replyPayload);
-        services[MASTER_SERVICE]->service.handleRpc(serviceRpc);
+        services[MASTER_SERVICE]->service.handleRpc(&serviceRpc);
         rpc->sendReply();
         return;
     }
@@ -335,9 +335,9 @@ ServiceManager::workerMain(Worker* worker)
             if (worker->rpc == WORKER_EXIT)
                 break;
 
-            Service::Rpc rpc(worker, worker->rpc->requestPayload,
-                    worker->rpc->replyPayload);
-            worker->serviceInfo->service.handleRpc(rpc);
+            Service::Rpc rpc(worker, &worker->rpc->requestPayload,
+                    &worker->rpc->replyPayload);
+            worker->serviceInfo->service.handleRpc(&rpc);
 
             // Pass the RPC back to ServiceManager for completion.
             Fence::leave();
@@ -449,7 +449,7 @@ void
 ServiceManager::WorkerSession::abort()
 {
     // Must make sure that the dispatch thread isn't running when we
-    // invoked the real abort.
+    // invoke the real abort.
     Dispatch::Lock lock(context->dispatch);
     return wrapped->abort();
 }
@@ -460,9 +460,19 @@ ServiceManager::WorkerSession::cancelRequest(
         Transport::RpcNotifier* notifier)
 {
     // Must make sure that the dispatch thread isn't running when we
-    // invoked the real cancelRequest.
+    // invoke the real cancelRequest.
     Dispatch::Lock lock(context->dispatch);
     return wrapped->cancelRequest(notifier);
+}
+
+// See Transport::Session::getRpcInfo for documentation.
+string
+ServiceManager::WorkerSession::getRpcInfo()
+{
+    // Must make sure that the dispatch thread isn't running when we
+    // invoke the real getRpcInfo.
+    Dispatch::Lock lock(context->dispatch);
+    return wrapped->getRpcInfo();
 }
 
 // See Transport::Session::sendRequest for documentation.

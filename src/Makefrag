@@ -30,7 +30,6 @@ SHARED_SRCFILES := \
 		   src/Context.cc \
 		   src/CoordinatorClient.cc \
 		   src/CoordinatorRpcWrapper.cc \
-		   src/CoordinatorServerList.cc \
 		   src/CoordinatorSession.cc \
 		   src/Crc32C.cc \
 		   src/BackupClient.cc \
@@ -64,6 +63,7 @@ SHARED_SRCFILES := \
 		   src/MembershipClient.cc \
 		   src/MembershipService.cc \
 		   src/Memory.cc \
+		   src/MinCopysetsBackupSelector.cc \
 		   src/MultiRead.cc \
 		   src/MultiWrite.cc \
 		   src/MurmurHash3.cc \
@@ -97,7 +97,7 @@ SHARED_SRCFILES := \
 		   src/Status.cc \
 		   src/StringUtil.cc \
 		   src/TableEnumerator.cc \
-		   src/TabletMap.cc \
+		   src/Table.cc \
 		   src/TaskQueue.cc \
 		   src/TcpTransport.cc \
 		   src/TestLog.cc \
@@ -111,7 +111,7 @@ SHARED_SRCFILES := \
 		   src/WireFormat.cc \
 		   $(INFINIBAND_SRCFILES) \
 		   $(OBJDIR)/EnumerationIterator.pb.cc \
-           $(OBJDIR)/Histogram.pb.cc \
+		   $(OBJDIR)/Histogram.pb.cc \
 		   $(OBJDIR)/LogMetrics.pb.cc \
 		   $(OBJDIR)/MasterRecoveryInfo.pb.cc \
 		   $(OBJDIR)/MetricList.pb.cc \
