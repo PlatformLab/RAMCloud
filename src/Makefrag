@@ -68,6 +68,7 @@ SHARED_SRCFILES := \
 		   src/MultiWrite.cc \
 		   src/MurmurHash3.cc \
 		   src/ObjectFinder.cc \
+		   src/ObjectManager.cc \
 		   src/ObjectRpcWrapper.cc \
 		   src/OptionParser.cc \
 		   src/PcapFile.cc \

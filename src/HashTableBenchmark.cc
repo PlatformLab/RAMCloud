@@ -45,28 +45,13 @@ class TestObject {
     DISALLOW_COPY_AND_ASSIGN(TestObject); // NOLINT
 } __attribute__((aligned(64)));
 
-class TestObjectKeyComparer : public HashTable::KeyComparer {
-  public:
-    bool
-    doesMatch(Key& key, uint64_t candidate)
-    {
-        // A pointer to a TestObject has been squished into each
-        // uint64_t.
-        TestObject* candidateObject = reinterpret_cast<TestObject*>(candidate);
-        Key candidateKey(0, &candidateObject->key,
-            sizeof(candidateObject->key));
-        return (key == candidateKey);
-    }
-};
-
 } // anonymous namespace
 
 void
 hashTableBenchmark(uint64_t nkeys, uint64_t nlines)
 {
     uint64_t i;
-    TestObjectKeyComparer keyComparer;
-    HashTable ht(nlines, keyComparer);
+    HashTable ht(nlines);
     TestObject** values = new TestObject*[nkeys];
 
     printf("hash table keys: %lu\n", nkeys);
@@ -81,20 +66,9 @@ hashTableBenchmark(uint64_t nkeys, uint64_t nlines)
         Key key(0, &i, sizeof(i));
         values[i] = new TestObject(i);
         uint64_t reference(reinterpret_cast<uint64_t>(values[i]));
-        ht.replace(key, reference);
-
-        // Here just in case.
-        //   NB: This alters our PerfDistribution bin counts,
-        //       so be sure to reset them below!
-        uint64_t outReference = 0;
-        assert(ht.lookup(key, outReference));
-        assert(outReference == reference);
+        ht.insert(key, reference);
     }
     printf("done!\n");
-
-    // replace/lookup affects the PerfDistribution, so reset for replace
-    // benchmarks
-    ht.resetPerfCounters();
 
     printf("running replace measurements...");
     fflush(stdout);
@@ -104,7 +78,24 @@ hashTableBenchmark(uint64_t nkeys, uint64_t nlines)
     for (i = 0; i < nkeys; i++) {
         Key key(0, &i, sizeof(i));
         uint64_t reference(reinterpret_cast<uint64_t>(values[i]));
-        ht.replace(key, reference);
+
+        bool success = false;
+        HashTable::Candidates c;
+        ht.lookup(key, &c);
+        while (!c.isDone()) {
+            TestObject* candidateObject =
+                reinterpret_cast<TestObject*>(c.getReference());
+            Key candidateKey(0,
+                             &candidateObject->key,
+                             sizeof(candidateObject->key));
+            if (candidateKey == key) {
+                c.setReference(reference);
+                success = true;
+                break;
+            }
+            c.next();
+        }
+        assert(success);
     }
     i = Cycles::rdtsc() - replaceCycles;
     printf("done!\n");
@@ -112,22 +103,10 @@ hashTableBenchmark(uint64_t nkeys, uint64_t nlines)
     delete[] values;
     values = NULL;
 
-    const HashTable::PerfCounters & pc = ht.getPerfCounters();
-
     printf("== replace() ==\n");
 
     printf("    external avg: %lu ticks, %lu nsec\n",
            i / nkeys, Cycles::toNanoseconds(i / nkeys));
-
-    printf("    internal avg: %lu ticks, %lu nsec\n",
-           pc.replaceCycles / nkeys,
-           Cycles::toNanoseconds(pc.replaceCycles / nkeys));
-
-    printf("    multi-cacheline accesses: %lu / %lu\n",
-           pc.insertChainsFollowed, nkeys);
-
-    // replace affects the PerfDistribution, so reset for lookup benchmarks
-    ht.resetPerfCounters();
 
     printf("running lookup measurements...");
     fflush(stdout);
@@ -137,7 +116,23 @@ hashTableBenchmark(uint64_t nkeys, uint64_t nlines)
     for (i = 0; i < nkeys; i++) {
         Key key(0, &i, sizeof(i));
         uint64_t reference = 0;
-        bool success = ht.lookup(key, reference);
+        bool success = false;
+
+        HashTable::Candidates c;
+        ht.lookup(key, &c);
+        while (!c.isDone()) {
+            reference = c.getReference();
+            TestObject* candidateObject =
+                reinterpret_cast<TestObject*>(reference);
+            Key candidateKey(0,
+                             &candidateObject->key,
+                             sizeof(candidateObject->key));
+            if (candidateKey == key) {
+                success = true;
+                break;
+            }
+            c.next();
+        }
         assert(success);
         assert(reinterpret_cast<TestObject*>(reference)->key == i);
     }
@@ -148,15 +143,6 @@ hashTableBenchmark(uint64_t nkeys, uint64_t nlines)
 
     printf("    external avg: %lu ticks, %lu nsec\n", i / nkeys,
         Cycles::toNanoseconds(i / nkeys));
-
-    printf("    internal avg: %lu ticks, %lu nsec\n",
-           pc.lookupEntryCycles / nkeys,
-           Cycles::toNanoseconds(pc.lookupEntryCycles / nkeys));
-
-    printf("    multi-cacheline accesses: %lu / %lu\n",
-           pc.lookupEntryChainsFollowed, nkeys);
-
-    printf("    minikey false positives: %lu\n", pc.lookupEntryHashCollisions);
 
     uint64_t *histogram = static_cast<uint64_t *>(
         Memory::xmalloc(HERE, nlines * sizeof(histogram[0])));

@@ -90,7 +90,7 @@ class RecoverSegmentBenchmark {
         tablet.set_end_key_hash(~0UL);
         tablet.set_state(ProtoBuf::Tablets_Tablet_State_NORMAL);
         tablet.set_server_id(service->serverId.getId());
-        *service->tablets.add_tablet() = tablet;
+        *service->objectManager->tablets.add_tablet() = tablet;
 
         metrics->temp.ticks0 =
         metrics->temp.ticks1 =
@@ -117,7 +117,7 @@ class RecoverSegmentBenchmark {
         /*
          * Now run a fake recovery.
          */
-        SideLog sideLog(service->log);
+        SideLog sideLog(&service->objectManager->log);
         uint64_t before = Cycles::rdtsc();
         for (int i = 0; i < numSegments; i++) {
             Segment* s = segments[i];
@@ -127,7 +127,7 @@ class RecoverSegmentBenchmark {
             s->getAppendedLength(&certificate);
             const void* contigSeg = buffer.getRange(0, buffer.getTotalLength());
             SegmentIterator it(contigSeg, buffer.getTotalLength(), certificate);
-            service->recoverSegment(&sideLog, it);
+            service->objectManager->replaySegment(&sideLog, it);
         }
         uint64_t ticks = Cycles::rdtsc() - before;
 

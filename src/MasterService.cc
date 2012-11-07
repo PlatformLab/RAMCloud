@@ -36,40 +36,8 @@
 
 namespace RAMCloud {
 
-// class MasterService::KeyComparer -
-//      Compares keys of objects stored in the hash table.
-
-/**
- * Constructor.
- *
- * \param log
- *      Log this comparator should get entrys from when comparing.
- */
-MasterService::LogKeyComparer::LogKeyComparer(Log& log)
-    : log(log)
-{
-}
-
-/**
- * Compare a given key for equality with an entry stored in the log->
- *
- * \param key
- *      Key to match again the log entry.
- * \param reference
- *      Reference to an entry in the log, whose key we're comparing 'key' with.
- * \return
- *      True if the keys are equal, otherwise false.
- */
-bool
-MasterService::LogKeyComparer::doesMatch(Key& key,
-                                         uint64_t reference)
-{
-    LogEntryType type;
-    Buffer buffer;
-    type = log.getEntry(Log::Reference(reference), buffer);
-    Key candidateKey(type, buffer);
-    return key == candidateKey;
-}
+/// An instance of RejectRules that does not reject anything. 
+static RejectRules defaultRejectRules;
 
 // struct MasterService::Replica
 
@@ -106,19 +74,8 @@ MasterService::MasterService(Context* context,
                              const ServerConfig* config)
     : context(context)
     , config(config)
-    , bytesWritten(0)
-    , replicaManager(context, serverId, config->master.numReplicas,
-                     config->master.useMinCopysets)
-    , allocator(config)
-    , segmentManager(context, config, serverId,
-                     allocator, replicaManager)
-    , log(NULL)
-    , keyComparer(NULL)
-    , objectMap(NULL)
-    , tablets()
+    , objectManager()
     , initCalled(false)
-    , anyWrites(false)
-    , objectUpdateLock()
     , maxMultiReadResponseSize(Transport::MAX_RPC_LEN)
     , disableCount(0)
 {
@@ -126,19 +83,6 @@ MasterService::MasterService(Context* context,
 
 MasterService::~MasterService()
 {
-    replicaManager.haltFailureMonitor();
-    std::set<TabletsOnMaster*> tables;
-    foreach (const ProtoBuf::Tablets::Tablet& tablet, tablets.tablet())
-        tables.insert(reinterpret_cast<TabletsOnMaster*>(tablet.user_data()));
-    foreach (TabletsOnMaster* table, tables)
-        delete table;
-
-    if (log)
-        delete log;
-    if (keyComparer)
-        delete keyComparer;
-    if (objectMap)
-        delete objectMap;
 }
 
 void
@@ -153,8 +97,6 @@ MasterService::dispatch(WireFormat::Opcode opcode, Rpc* rpc)
         prepareErrorResponse(rpc->replyPayload, STATUS_RETRY);
         return;
     }
-
-    std::lock_guard<SpinLock> lock(objectUpdateLock);
 
     switch (opcode) {
         case WireFormat::DropTabletOwnership::opcode:
@@ -252,16 +194,7 @@ MasterService::init(ServerId id)
     serverId = id;
     LOG(NOTICE, "My server ID is %s", serverId.toString().c_str());
     metrics->serverId = serverId.getId();
-
-    log = new Log(context, config, this, &segmentManager, &replicaManager);
-    keyComparer = new LogKeyComparer(*log);
-    objectMap = new HashTable(config->master.hashTableBytes /
-        HashTable::bytesPerCacheLine(), *keyComparer);
-    replicaManager.startFailureMonitor();
-
-    if (!config->master.disableLogCleaner)
-        log->enableCleaner();
-
+    objectManager.construct(context, serverId, config);
     initCalled = true;
 }
 
@@ -282,7 +215,8 @@ MasterService::enumerate(const WireFormat::Enumerate::Request* reqHdr,
     // filter by reqHdr->tabletFirstHash, NOT the actualTabletStartHash
     // for the tablet we own.
     uint64_t actualTabletStartHash = 0, actualTabletEndHash = 0;
-    foreach (auto& tablet, tablets.tablet()) {
+    ProtoBuf::Tablets* tablets = &objectManager->tablets;
+    foreach (auto& tablet, tablets->tablet()) {
         if (tablet.table_id() == reqHdr->tableId &&
             tablet.start_key_hash() <= reqHdr->tabletFirstHash &&
             reqHdr->tabletFirstHash <= tablet.end_key_hash()) {
@@ -308,7 +242,8 @@ MasterService::enumerate(const WireFormat::Enumerate::Request* reqHdr,
                                - reqHdr->iteratorBytes);
     Enumeration enumeration(reqHdr->tableId, reqHdr->tabletFirstHash,
                             actualTabletStartHash, actualTabletEndHash,
-                            &respHdr->tabletFirstHash, iter, *log, *objectMap,
+                            &respHdr->tabletFirstHash, iter,
+                            objectManager->log, objectManager->objectMap,
                             *rpc->replyPayload, maxPayloadBytes);
     enumeration.complete();
     respHdr->payloadBytes = rpc->replyPayload->getTotalLength()
@@ -332,7 +267,7 @@ MasterService::getLogMetrics(
     Rpc* rpc)
 {
     ProtoBuf::LogMetrics logMetrics;
-    log->getMetrics(logMetrics);
+    objectManager->log.getMetrics(logMetrics);
     respHdr->logMetricsLength = ProtoBuf::serializeToResponse(rpc->replyPayload,
                                                              &logMetrics);
 }
@@ -357,12 +292,14 @@ MasterService::fillWithTestData(
     WireFormat::FillWithTestData::Response* respHdr,
     Rpc* rpc)
 {
-    LOG(NOTICE, "Filling with %u objects of %u bytes each in %u tablets",
-        reqHdr->numObjects, reqHdr->objectSize, tablets.tablet_size());
+    ProtoBuf::Tablets* tablets = &objectManager->tablets;
 
-    TabletsOnMaster* tables[tablets.tablet_size()];
+    LOG(NOTICE, "Filling with %u objects of %u bytes each in %u tablets",
+        reqHdr->numObjects, reqHdr->objectSize, tablets->tablet_size());
+
+    TabletsOnMaster* tables[tablets->tablet_size()];
     uint32_t numTablets = 0;
-    foreach (const ProtoBuf::Tablets::Tablet& tablet, tablets.tablet()) {
+    foreach (const ProtoBuf::Tablets::Tablet& tablet, tablets->tablet()) {
         // Only use tables where we store the entire table here.
         // The key calculation is not safe otherwise.
         if ((tablet.start_key_hash() == 0)
@@ -394,21 +331,20 @@ MasterService::fillWithTestData(
                 downCast<uint16_t>(keyString.length()));
 
         uint64_t newVersion;
-        Status status = storeObject(key,
-                                    &rejectRules,
-                                    buffer,
-                                    &newVersion,
-                                    false);
+        Status status = objectManager->writeObject(key,
+                                                   buffer,
+                                                   rejectRules,
+                                                   &newVersion);
         if (status != STATUS_OK) {
             respHdr->common.status = status;
             return;
         }
         if ((objects % 50) == 0) {
-            replicaManager.proceed();
+            objectManager->replicaManager.proceed();
         }
     }
 
-    log->sync();
+    objectManager->syncWrites();
 
     LOG(NOTICE, "Done writing objects.");
 }
@@ -421,7 +357,7 @@ MasterService::getHeadOfLog(const WireFormat::GetHeadOfLog::Request* reqHdr,
                             WireFormat::GetHeadOfLog::Response* respHdr,
                             Rpc* rpc)
 {
-    Log::Position head = log->rollHeadOver();
+    Log::Position head = objectManager->log.rollHeadOver();
     respHdr->headSegmentId = head.getSegmentId();
     respHdr->headSegmentOffset = head.getSegmentOffset();
 }
@@ -437,7 +373,8 @@ MasterService::getServerStatistics(
 {
     ProtoBuf::ServerStatistics serverStats;
 
-    foreach (const ProtoBuf::Tablets::Tablet& i, tablets.tablet()) {
+    ProtoBuf::Tablets* tablets = &objectManager->tablets;
+    foreach (const ProtoBuf::Tablets::Tablet& i, tablets->tablet()) {
         TabletsOnMaster* table =
                 reinterpret_cast<TabletsOnMaster*>(i.user_data());
         *serverStats.add_tabletentry() = table->statEntry;
@@ -509,31 +446,21 @@ MasterService::multiRead(const WireFormat::MultiRead::Request* reqHdr,
         Key key(currentReq->tableId, stringKey, currentReq->keyLength);
 
         Status* status = new(rpc->replyPayload, APPEND) Status(STATUS_OK);
-        // We must note the status if the table is not present here. Also,
-        // we might have an entry in the hash table that's invalid because
-        // its tablet no longer lives here.
-        if (getTable(key) == NULL) {
-            *status = STATUS_UNKNOWN_TABLET;
-            continue;
-        }
-
-        LogEntryType type;
-        Buffer buffer;
-
-        bool found = lookup(key, type, buffer);
-        if (!found || type != LOG_ENTRY_TYPE_OBJ) {
-             *status = STATUS_OBJECT_DOESNT_EXIST;
-             continue;
-        }
 
         WireFormat::MultiRead::Response::Part* currentResp =
             new(rpc->replyPayload, APPEND)
                 WireFormat::MultiRead::Response::Part();
 
-        Object object(buffer);
-        currentResp->version = object.getVersion();
-        currentResp->length = object.getDataLength();
-        object.appendDataToBuffer(*rpc->replyPayload);
+        Buffer buffer;
+        *status = objectManager->readObject(key,
+                                            &buffer,
+                                            defaultRejectRules,
+                                            &currentResp->version);
+        if (*status == STATUS_OK) {
+            Object object(buffer);
+            currentResp->length = object.getDataLength();
+            object.appendDataToBuffer(*rpc->replyPayload);
+        }
     }
 }
 
@@ -596,11 +523,11 @@ MasterService::multiWrite(const WireFormat::MultiWrite::Request* reqHdr,
             new(rpc->replyPayload, APPEND)
                 WireFormat::MultiWrite::Response::Part();
 
-        currentResp->status = storeObject(key,
-                                          &currentReq->rejectRules,
-                                          buffer,
-                                          &currentResp->version,
-                                          false);
+        RejectRules rejectRules = currentReq->rejectRules;
+        currentResp->status = objectManager->writeObject(key,
+                                                         buffer,
+                                                         rejectRules,
+                                                         &currentResp->version);
     }
 
     // By design, our response will be shorter than the request. This ensures
@@ -609,7 +536,7 @@ MasterService::multiWrite(const WireFormat::MultiWrite::Request* reqHdr,
 
     // All of the individual writes were done asynchronously. Sync the objects
     // now to propagate them in bulk to backups.
-    log->sync();
+    objectManager->syncWrites();
 }
 
 /**
@@ -639,39 +566,15 @@ MasterService::read(const WireFormat::Read::Request* reqHdr,
                                                         reqHdr->keyLength);
     Key key(reqHdr->tableId, stringKey, reqHdr->keyLength);
 
-    // We must return table doesn't exist if the table does not exist. Also, we
-    // might have an entry in the hash table that's invalid because its tablet
-    // no longer lives here.
-
-    if (getTable(key) == NULL) {
-        respHdr->common.status = STATUS_UNKNOWN_TABLET;
-        return;
-    }
-
-    LogEntryType type;
+    RejectRules rejectRules = reqHdr->rejectRules;
     Buffer buffer;
-
-    bool found = lookup(key, type, buffer);
-    if (!found || type != LOG_ENTRY_TYPE_OBJ) {
-        respHdr->common.status = STATUS_OBJECT_DOESNT_EXIST;
-        return;
-    }
-
+    respHdr->common.status = objectManager->readObject(key,
+                                                       &buffer,
+                                                       rejectRules,
+                                                       &respHdr->version);
     Object object(buffer);
-    respHdr->version = object.getVersion();
-    Status status = rejectOperation(reqHdr->rejectRules, object.getVersion());
-    if (status != STATUS_OK) {
-        respHdr->common.status = status;
-        return;
-    }
-
     respHdr->length = object.getDataLength();
     object.appendDataToBuffer(*rpc->replyPayload);
-
-    // TODO(ongaro): We'll need a new type of Chunk to block the cleaner
-    //               from scribbling over obj->data.
-    //
-    // TODO(steve): Does the above comment make any sense?
 }
 
 /**
@@ -691,7 +594,8 @@ MasterService::dropTabletOwnership(
     Rpc* rpc)
 {
     int index = 0;
-    foreach (ProtoBuf::Tablets::Tablet& i, *tablets.mutable_tablet()) {
+    ProtoBuf::Tablets* tablets = &objectManager->tablets;
+    foreach (ProtoBuf::Tablets::Tablet& i, *tablets->mutable_tablet()) {
         if (reqHdr->tableId == i.table_id() &&
           reqHdr->firstKeyHash == i.start_key_hash() &&
           reqHdr->lastKeyHash == i.end_key_hash()) {
@@ -700,9 +604,9 @@ MasterService::dropTabletOwnership(
             TabletsOnMaster* table =
                     reinterpret_cast<TabletsOnMaster*>(i.user_data());
             delete table;
-            tablets.mutable_tablet()->SwapElements(
-                tablets.tablet_size() - 1, index);
-            tablets.mutable_tablet()->RemoveLast();
+            tablets->mutable_tablet()->SwapElements(
+                tablets->tablet_size() - 1, index);
+            tablets->mutable_tablet()->RemoveLast();
             return;
         }
 
@@ -732,7 +636,8 @@ MasterService::splitMasterTablet(
 {
     ProtoBuf::Tablets_Tablet newTablet;
 
-    foreach (ProtoBuf::Tablets::Tablet& i, *tablets.mutable_tablet()) {
+    ProtoBuf::Tablets* tablets = &objectManager->tablets;
+    foreach (ProtoBuf::Tablets::Tablet& i, *tablets->mutable_tablet()) {
         if (reqHdr->tableId == i.table_id() &&
           reqHdr->firstKeyHash == i.start_key_hash() &&
           reqHdr->lastKeyHash == i.end_key_hash()) {
@@ -754,7 +659,7 @@ MasterService::splitMasterTablet(
                                  reqHdr->lastKeyHash);
     newTablet.set_user_data(reinterpret_cast<uint64_t>(newTable));
 
-    *tablets.add_tablet() = newTablet;
+    *tablets->add_tablet() = newTablet;
 
     LOG(NOTICE, "In table '%lu' I split the tablet that started at key %lu and "
                 "ended at key %lu", reqHdr->tableId, reqHdr->firstKeyHash,
@@ -786,10 +691,11 @@ MasterService::takeTabletOwnership(
     // blocks, waiting to hear about enough backup servers, meanwhile the
     // coordinator is trying to issue an RPC to the master, but it isn't
     // even servicing transports yet!
-    log->sync();
+    objectManager->syncWrites();
 
     ProtoBuf::Tablets::Tablet* tablet = NULL;
-    foreach (ProtoBuf::Tablets::Tablet& i, *tablets.mutable_tablet()) {
+    ProtoBuf::Tablets* tablets = &objectManager->tablets;
+    foreach (ProtoBuf::Tablets::Tablet& i, *tablets->mutable_tablet()) {
         if (reqHdr->tableId == i.table_id() &&
           reqHdr->firstKeyHash == i.start_key_hash() &&
           reqHdr->lastKeyHash == i.end_key_hash()) {
@@ -800,8 +706,8 @@ MasterService::takeTabletOwnership(
 
     if (tablet == NULL) {
         // Sanity check that this tablet doesn't overlap with an existing one.
-        if (getTableForHash(reqHdr->tableId, reqHdr->firstKeyHash) != NULL ||
-          getTableForHash(reqHdr->tableId, reqHdr->lastKeyHash) != NULL) {
+        if (objectManager->getTable(reqHdr->tableId, reqHdr->firstKeyHash) != NULL ||
+          objectManager->getTable(reqHdr->tableId, reqHdr->lastKeyHash) != NULL) {
             LOG(WARNING, "Tablet being assigned (%lu, range [%lu,%lu]) "
                 "partially overlaps an existing tablet!", reqHdr->tableId,
                 reqHdr->firstKeyHash, reqHdr->lastKeyHash);
@@ -815,7 +721,7 @@ MasterService::takeTabletOwnership(
             reqHdr->lastKeyHash);
 
 
-        ProtoBuf::Tablets_Tablet& newTablet(*tablets.add_tablet());
+        ProtoBuf::Tablets_Tablet& newTablet(*tablets->add_tablet());
         newTablet.set_table_id(reqHdr->tableId);
         newTablet.set_start_key_hash(reqHdr->firstKeyHash);
         newTablet.set_end_key_hash(reqHdr->lastKeyHash);
@@ -862,8 +768,8 @@ MasterService::prepForMigration(
 
     // Ensure that there's no tablet overlap, just in case.
     bool overlap =
-        (getTableForHash(reqHdr->tableId, reqHdr->firstKeyHash) != NULL ||
-         getTableForHash(reqHdr->tableId, reqHdr->lastKeyHash) != NULL);
+        (objectManager->getTable(reqHdr->tableId, reqHdr->firstKeyHash) != NULL ||
+         objectManager->getTable(reqHdr->tableId, reqHdr->lastKeyHash) != NULL);
     if (overlap) {
         LOG(WARNING, "already have tablet in range [%lu, %lu] for tableId %lu",
             reqHdr->firstKeyHash, reqHdr->lastKeyHash, reqHdr->tableId);
@@ -873,7 +779,8 @@ MasterService::prepForMigration(
 
     // Add the tablet to our map and mark it as RECOVERING so that no requests
     // are served on it.
-    ProtoBuf::Tablets_Tablet& tablet(*tablets.add_tablet());
+    ProtoBuf::Tablets* tablets = &objectManager->tablets;
+    ProtoBuf::Tablets_Tablet& tablet(*tablets->add_tablet());
     tablet.set_table_id(reqHdr->tableId);
     tablet.set_start_key_hash(reqHdr->firstKeyHash);
     tablet.set_end_key_hash(reqHdr->lastKeyHash);
@@ -914,7 +821,8 @@ MasterService::migrateTablet(const WireFormat::MigrateTablet::Request* reqHdr,
     // contiguous tablet of ours.
     const ProtoBuf::Tablets::Tablet* tablet = NULL;
     int tabletIndex = 0;
-    foreach (const ProtoBuf::Tablets::Tablet& i, tablets.tablet()) {
+    ProtoBuf::Tablets* tablets = &objectManager->tablets;
+    foreach (const ProtoBuf::Tablets::Tablet& i, tablets->tablet()) {
         if (tableId == i.table_id() &&
           firstKeyHash >= i.start_key_hash() &&
           lastKeyHash <= i.end_key_hash()) {
@@ -967,7 +875,7 @@ MasterService::migrateTablet(const WireFormat::MigrateTablet::Request* reqHdr,
 
     // Hold on to the iterator since it locks the head Segment, avoiding any
     // additional appends once we've finished iterating.
-    LogIterator it(*log);
+    LogIterator it(objectManager->log);
     for (; !it.isDone(); it.next()) {
         LogEntryType type = it.getType();
         if (type != LOG_ENTRY_TYPE_OBJ && type != LOG_ENTRY_TYPE_OBJTOMB) {
@@ -987,6 +895,7 @@ MasterService::migrateTablet(const WireFormat::MigrateTablet::Request* reqHdr,
             continue;
 
         if (type == LOG_ENTRY_TYPE_OBJ) {
+#if 0 // XXXX- fix this
             // Only send objects when they're currently in the hash table.
             // Otherwise they're dead.
             LogEntryType currentType;
@@ -1001,6 +910,7 @@ MasterService::migrateTablet(const WireFormat::MigrateTablet::Request* reqHdr,
                 continue;
 
             totalObjects++;
+#endif
         } else {
             // We must always send tombstones, since an object we may have sent
             // could have been deleted more recently. We could be smarter and
@@ -1061,9 +971,9 @@ MasterService::migrateTablet(const WireFormat::MigrateTablet::Request* reqHdr,
         "tombstones. %lu bytes in total.", totalObjects, totalTombstones,
         totalBytes);
 
-    tablets.mutable_tablet()->SwapElements(tablets.tablet_size() - 1,
+    tablets->mutable_tablet()->SwapElements(tablets->tablet_size() - 1,
                                            tabletIndex);
-    tablets.mutable_tablet()->RemoveLast();
+    tablets->mutable_tablet()->RemoveLast();
     free(table);
 }
 
@@ -1088,7 +998,8 @@ MasterService::receiveMigrationData(
     // TODO(rumble/slaughter) need to make sure we already have a table
     // created that was previously prepped for migration.
     const ProtoBuf::Tablets::Tablet* tablet = NULL;
-    foreach (const ProtoBuf::Tablets::Tablet& i, tablets.tablet()) {
+    ProtoBuf::Tablets* tablets = &objectManager->tablets;
+    foreach (const ProtoBuf::Tablets::Tablet& i, tablets->tablet()) {
         if (tableId == i.table_id() && firstKeyHash == i.start_key_hash()) {
             tablet = &i;
             break;
@@ -1126,8 +1037,8 @@ MasterService::receiveMigrationData(
     const void* segmentMemory = rpc->requestPayload->getStart<const void*>();
     SegmentIterator it(segmentMemory, segmentBytes, certificate);
     it.checkMetadataIntegrity();
-    SideLog sideLog(log);
-    recoverSegment(&sideLog, it);
+    SideLog sideLog(&objectManager->log);
+    objectManager->replaySegment(&sideLog, it);
     sideLog.commit();
 
     // TODO(rumble/slaughter) what about tablet version numbers?
@@ -1147,6 +1058,7 @@ MasterService::receiveMigrationData(
 void
 recoveryCleanup(uint64_t maybeTomb, void *cookie)
 {
+#if 0
     MasterService *server = reinterpret_cast<MasterService*>(cookie);
     LogEntryType type;
     Buffer buffer;
@@ -1161,6 +1073,7 @@ recoveryCleanup(uint64_t maybeTomb, void *cookie)
         // Tombstones are not explicitly freed in the log-> The cleaner will
         // figure out that they're dead.
     }
+#endif
 }
 
 /**
@@ -1230,6 +1143,7 @@ class RemoveTombstonePoller : public Dispatch::Poller {
 void
 MasterService::removeTombstones()
 {
+#if 0
     CycleCounter<RawMetric> _(&metrics->master.removeTombstoneTicks);
 #if TESTING
     // Asynchronous tombstone removal raises hell in unit tests.
@@ -1237,6 +1151,7 @@ MasterService::removeTombstones()
 #else
     Dispatch::Lock lock(context->dispatch);
     new RemoveTombstonePoller(*this, *objectMap);
+#endif
 #endif
 }
 
@@ -1292,20 +1207,6 @@ class RecoveryTask {
 };
 } // namespace MasterServiceInternal
 using namespace MasterServiceInternal; // NOLINT
-
-
-/**
- * Increments the access statistics for each read and write operation
- * on the repsective tablet.
- * \param *table
- *      Pointer to the table object that is assosiated with each tablet.
- */
-void
-MasterService::incrementReadAndWriteStatistics(TabletsOnMaster* table)
-{
-    table->statEntry.set_number_read_and_writes(
-                                table->statEntry.number_read_and_writes() + 1);
-}
 
 /**
  * Look through \a backups and ensure that for each segment id that appears
@@ -1447,7 +1348,7 @@ MasterService::recover(uint64_t recoveryId,
     // The SideLog we'll append recovered entries to. It will be committed after
     // replay completes on all segments, making all of the recovered data
     // durable.
-    SideLog sideLog(log);
+    SideLog sideLog(&objectManager->log);
 
     // Start RPCs
     auto replicaIt = notStarted;
@@ -1488,7 +1389,7 @@ MasterService::recover(uint64_t recoveryId,
     while (activeRequests) {
         if (!readStallTicks)
             readStallTicks.construct(&metrics->master.segmentReadStallTicks);
-        replicaManager.proceed();
+        objectManager->replicaManager.proceed();
         foreach (auto& task, tasks) {
             if (!task)
                 continue;
@@ -1560,7 +1461,7 @@ MasterService::recover(uint64_t recoveryId,
                             ReplicatedSegment::recoveryStart),
                         task->replica.segmentId, responseLen);
                 }
-                recoverSegment(&sideLog, it);
+                objectManager->replaySegment(&sideLog, it);
                 usefulTime += Cycles::rdtsc() - startUseful;
                 TEST_LOG("Segment %lu replay complete",
                          task->replica.segmentId);
@@ -1716,6 +1617,7 @@ MasterService::recover(uint64_t recoveryId,
 void
 removeObjectIfFromUnknownTablet(uint64_t reference, void *cookie)
 {
+#if 0
     MasterService* master = reinterpret_cast<MasterService*>(cookie);
     LogEntryType type;
     Buffer buffer;
@@ -1730,6 +1632,7 @@ removeObjectIfFromUnknownTablet(uint64_t reference, void *cookie)
         assert(r);
         master->log->free(Log::Reference(reference));
     }
+#endif
 }
 
 /**
@@ -1740,7 +1643,9 @@ removeObjectIfFromUnknownTablet(uint64_t reference, void *cookie)
 void
 MasterService::purgeObjectsFromUnknownTablets()
 {
+#if 0
     objectMap->forEach(removeObjectIfFromUnknownTablet, this);
+#endif
 }
 
 /**
@@ -1755,7 +1660,7 @@ MasterService::recover(const WireFormat::Recover::Request* reqHdr,
     ReplicatedSegment::recoveryStart = Cycles::rdtsc();
     CycleCounter<RawMetric> recoveryTicks(&metrics->master.recoveryTicks);
     metrics->master.recoveryCount++;
-    metrics->master.replicas = replicaManager.numReplicas;
+    metrics->master.replicas = objectManager->replicaManager.numReplicas;
 
     uint64_t recoveryId = reqHdr->recoveryId;
     ServerId crashedServerId(reqHdr->crashedServerId);
@@ -1791,9 +1696,10 @@ MasterService::recover(const WireFormat::Recover::Request* reqHdr,
     // Install tablets we are recovering and mark them as such (we don't
     // own them yet).
     vector<ProtoBuf::Tablets_Tablet*> newTablets;
+    ProtoBuf::Tablets* tablets = &objectManager->tablets;
     foreach (const ProtoBuf::Tablets::Tablet& tablet,
              recoveryTablets.tablet()) {
-        ProtoBuf::Tablets_Tablet& newTablet(*tablets.add_tablet());
+        ProtoBuf::Tablets_Tablet& newTablet(*tablets->add_tablet());
         newTablet = tablet;
         TabletsOnMaster* table = new TabletsOnMaster(newTablet.table_id(),
                                  newTablet.start_key_hash(),
@@ -1804,7 +1710,7 @@ MasterService::recover(const WireFormat::Recover::Request* reqHdr,
     }
 
     // Record the log position before recovery started.
-    Log::Position headOfLog = log->rollHeadOver();
+    Log::Position headOfLog = objectManager->log.rollHeadOver();
 
     // Recover Segments, firing MasterService::recoverSegment for each one.
     bool successful = false;
@@ -1857,8 +1763,8 @@ MasterService::recover(const WireFormat::Recover::Request* reqHdr,
         // If recovery failed then cleanup all objects written by
         // recovery before starting to serve requests again.
         foreach (ProtoBuf::Tablets_Tablet* newTablet, newTablets) {
-            for (int i = 0; i < tablets.tablet_size(); ++i) {
-                const auto& tablet = tablets.tablet(i);
+            for (int i = 0; i < tablets->tablet_size(); ++i) {
+                const auto& tablet = tablets->tablet(i);
                 if (tablet.table_id() == newTablet->table_id() &&
                     tablet.start_key_hash() == newTablet->start_key_hash() &&
                     tablet.end_key_hash() == newTablet->end_key_hash())
@@ -1867,291 +1773,15 @@ MasterService::recover(const WireFormat::Recover::Request* reqHdr,
                             reinterpret_cast<TabletsOnMaster*>(
                                         tablet.user_data());
                     delete table;
-                    tablets.mutable_tablet()->
-                        SwapElements(tablets.tablet_size() - 1, i);
-                    tablets.mutable_tablet()->RemoveLast();
+                    tablets->mutable_tablet()->
+                        SwapElements(tablets->tablet_size() - 1, i);
+                    tablets->mutable_tablet()->RemoveLast();
                     break;
                 }
             }
         }
         purgeObjectsFromUnknownTablets();
     }
-}
-
-/**
- * This method is used by recoverSegment() to prefetch the hash table bucket
- * corresponding to the next piece of recovery data being iterated over.
- * Doing so avoids a cache miss for subsequent hash table lookups and speeds
- * up recovery.
- *
- * \param it
- *      SegmentIterator to use for prefetching. Whatever is currently pointed
- *      to by this iterator will be used to prefetch, if possible. Some entries
- *      do not contain keys; they are safely ignored.
- */
-inline void
-MasterService::recoverSegmentPrefetcher(SegmentIterator& it)
-{
-    if (expect_false(it.isDone()))
-        return;
-
-    if (expect_true(it.getType() == LOG_ENTRY_TYPE_OBJ)) {
-        const Object::SerializedForm* obj =
-            it.getContiguous<Object::SerializedForm>(NULL, 0);
-        Key key(obj->tableId, obj->keyAndData, obj->keyLength);
-        objectMap->prefetchBucket(key);
-    } else if (it.getType() == LOG_ENTRY_TYPE_OBJTOMB) {
-        const ObjectTombstone::SerializedForm* tomb =
-            it.getContiguous<ObjectTombstone::SerializedForm>(NULL, 0);
-        Key key(tomb->tableId, tomb->key, tomb->keyLength);
-        objectMap->prefetchBucket(key);
-    }
-}
-
-/**
- * Replay a recovery segment from a crashed Master that this Master is taking
- * over for.
- *
- * \param sideLog
- *      The SideLog to append the recovered entries to. The regular log is not
- *      used to improve performance (the SideLog is synced once at the very end,
- *      rather than once each segment is filled).
- * \param it
- *       SegmentIterator which is pointing to the start of the recovery segment
- *       to be replayed into the log.
- */
-void
-MasterService::recoverSegment(SideLog* sideLog, SegmentIterator& it)
-{
-    uint64_t startReplicationTicks = metrics->master.replicaManagerTicks;
-    uint64_t startReplicationPostingWriteRpcTicks =
-        metrics->master.replicationPostingWriteRpcTicks;
-    CycleCounter<RawMetric> _(&metrics->master.recoverSegmentTicks);
-
-    // Metrics can be very expense (they're atomic operations), so we aggregate
-    // as much as we can in local variables and update the counters once at the
-    // end of this method.
-    uint64_t verifyChecksumTicks = 0;
-    uint64_t segmentAppendTicks = 0;
-    uint64_t recoverySegmentEntryCount = 0;
-    uint64_t recoverySegmentEntryBytes = 0;
-    uint64_t objectAppendCount = 0;
-    uint64_t tombstoneAppendCount = 0;
-    uint64_t liveObjectCount = 0;
-    uint64_t liveObjectBytes = 0;
-    uint64_t objectDiscardCount = 0;
-    uint64_t tombstoneDiscardCount = 0;
-    uint64_t safeVersionRecoveryCount = 0;
-    uint64_t safeVersionNonRecoveryCount = 0;
-
-    SegmentIterator prefetcher = it;
-    prefetcher.next();
-
-    uint64_t bytesIterated = 0;
-    while (expect_true(!it.isDone())) {
-        recoverSegmentPrefetcher(prefetcher);
-        prefetcher.next();
-
-        LogEntryType type = it.getType();
-
-        if (bytesIterated > 50000) {
-            bytesIterated = 0;
-            replicaManager.proceed();
-        }
-        bytesIterated += it.getLength();
-
-        recoverySegmentEntryCount++;
-        recoverySegmentEntryBytes += it.getLength();
-
-        if (expect_true(type == LOG_ENTRY_TYPE_OBJ)) {
-            // The recovery segment is guaranteed to be contiguous, so we need
-            // not provide a copyout buffer.
-            const Object::SerializedForm* recoveryObj =
-                it.getContiguous<Object::SerializedForm>(NULL, 0);
-            Key key(recoveryObj->tableId,
-                    recoveryObj->keyAndData,
-                    recoveryObj->keyLength);
-
-            bool checksumIsValid = ({
-                CycleCounter<uint64_t> c(&verifyChecksumTicks);
-                Object::computeChecksum(recoveryObj, it.getLength()) ==
-                    recoveryObj->checksum;
-            });
-            if (expect_false(!checksumIsValid)) {
-                LOG(WARNING, "bad object checksum! key: %s, version: %lu",
-                    key.toString().c_str(), recoveryObj->version);
-                // TODO(Stutsman): Should throw and try another segment replica?
-            }
-
-            uint64_t minSuccessor = 0;
-            bool freeCurrentEntry = false;
-
-            LogEntryType currentType;
-            Buffer currentBuffer;
-            Log::Reference currentReference;
-            if (lookup(key, currentType, currentBuffer, &currentReference)) {
-                uint64_t currentVersion;
-
-                if (currentType == LOG_ENTRY_TYPE_OBJTOMB) {
-                    ObjectTombstone currentTombstone(currentBuffer);
-                    currentVersion = currentTombstone.getObjectVersion();
-                } else {
-                    Object currentObject(currentBuffer);
-                    currentVersion = currentObject.getVersion();
-                    freeCurrentEntry = true;
-                }
-
-                minSuccessor = currentVersion + 1;
-            }
-
-            if (recoveryObj->version >= minSuccessor) {
-                // write to log (with lazy backup flush) & update hash table
-                Log::Reference newObjReference;
-                {
-                    CycleCounter<uint64_t> _(&segmentAppendTicks);
-                    sideLog->append(LOG_ENTRY_TYPE_OBJ,
-                                    recoveryObj->timestamp,
-                                    recoveryObj,
-                                    it.getLength(),
-                                    &newObjReference);
-                }
-
-                // TODO(steve/ryan): what happens if the log is full? won't an
-                //      exception here just cause the master to try another
-                //      backup?
-
-                objectAppendCount++;
-                liveObjectBytes += it.getLength();
-
-                objectMap->replace(key, newObjReference.toInteger());
-
-                // nuke the old object, if it existed
-                // TODO(steve): put tombstones in the HT and have this free them
-                //              as well
-                if (freeCurrentEntry) {
-                    liveObjectBytes -= currentBuffer.getTotalLength();
-                    sideLog->free(currentReference);
-                } else {
-                    liveObjectCount++;
-                }
-            } else {
-                objectDiscardCount++;
-            }
-        } else if (type == LOG_ENTRY_TYPE_OBJTOMB) {
-            Buffer buffer;
-            it.appendToBuffer(buffer);
-            Key key(type, buffer);
-
-            ObjectTombstone recoverTomb(buffer);
-            bool checksumIsValid = ({
-                CycleCounter<uint64_t> c(&verifyChecksumTicks);
-                recoverTomb.checkIntegrity();
-            });
-            if (expect_false(!checksumIsValid)) {
-                LOG(WARNING, "bad tombstone checksum! key: %s, version: %lu",
-                    key.toString().c_str(), recoverTomb.getObjectVersion());
-                // TODO(Stutsman): Should throw and try another segment replica?
-            }
-
-            uint64_t minSuccessor = 0;
-            bool freeCurrentEntry = false;
-
-            LogEntryType currentType;
-            Buffer currentBuffer;
-            Log::Reference currentReference;
-            if (lookup(key, currentType, currentBuffer, &currentReference)) {
-                if (currentType == LOG_ENTRY_TYPE_OBJTOMB) {
-                    ObjectTombstone currentTombstone(currentBuffer);
-                    minSuccessor = currentTombstone.getObjectVersion() + 1;
-                } else {
-                    Object currentObject(currentBuffer);
-                    minSuccessor = currentObject.getVersion();
-                    freeCurrentEntry = true;
-                }
-            }
-
-            if (recoverTomb.getObjectVersion() >= minSuccessor) {
-                tombstoneAppendCount++;
-                Log::Reference newTombReference;
-                {
-                    CycleCounter<uint64_t> _(&segmentAppendTicks);
-                    sideLog->append(LOG_ENTRY_TYPE_OBJTOMB,
-                                    recoverTomb.getTimestamp(),
-                                    buffer,
-                                    &newTombReference);
-                }
-
-                // TODO(steve/ryan): append could fail here!
-
-                objectMap->replace(key, newTombReference.toInteger());
-
-                // nuke the object, if it existed
-                if (freeCurrentEntry) {
-                    liveObjectCount++;
-                    liveObjectBytes -= currentBuffer.getTotalLength();
-                    sideLog->free(currentReference);
-                }
-            } else {
-                tombstoneDiscardCount++;
-            }
-        } else if (type == LOG_ENTRY_TYPE_SAFEVERSION) {
-            // LOG_ENTRY_TYPE_SAFEVERSION is duplicated to all the
-            // partitions in BackupService::buildRecoverySegments()
-            Buffer buffer;
-            it.appendToBuffer(buffer);
-
-            ObjectSafeVersion recoverSafeVer(buffer);
-            uint64_t safeVersion = recoverSafeVer.getSafeVersion();
-
-            bool checksumIsValid = ({
-                CycleCounter<uint64_t> _(&verifyChecksumTicks);
-                recoverSafeVer.checkIntegrity();
-            });
-            if (expect_false(!checksumIsValid)) {
-                LOG(WARNING, "bad objectSafeVer checksum! version: %lu",
-                    safeVersion);
-                // TODO(Stutsman): Should throw and try another segment replica?
-            }
-
-            // Copy SafeVerObject to the recovery segment.
-            // Sync can be delayed, because recovery can be replayed
-            // with the same backup data when the recovery crashes on the way.
-            {
-                CycleCounter<uint64_t> _(&segmentAppendTicks);
-                sideLog->append(LOG_ENTRY_TYPE_SAFEVERSION, 0, buffer);
-            }
-
-            // recover segmentManager.safeVersion (Master safeVersion)
-            if (segmentManager.raiseSafeVersion(safeVersion)) {
-                // true if log.safeVersion is revised.
-                safeVersionRecoveryCount++;
-                LOG(DEBUG, "SAFEVERSION %lu recovered", safeVersion);
-            } else {
-                safeVersionNonRecoveryCount++;
-                LOG(DEBUG, "SAFEVERSION %lu discarded", safeVersion);
-            }
-        }
-
-        it.next();
-    }
-
-    metrics->master.backupInRecoverTicks +=
-        metrics->master.replicaManagerTicks - startReplicationTicks;
-    metrics->master.recoverSegmentPostingWriteRpcTicks +=
-        metrics->master.replicationPostingWriteRpcTicks -
-        startReplicationPostingWriteRpcTicks;
-    metrics->master.verifyChecksumTicks += verifyChecksumTicks;
-    metrics->master.segmentAppendTicks += segmentAppendTicks;
-    metrics->master.recoverySegmentEntryCount += recoverySegmentEntryCount;
-    metrics->master.recoverySegmentEntryBytes += recoverySegmentEntryBytes;
-    metrics->master.objectAppendCount += objectAppendCount;
-    metrics->master.tombstoneAppendCount += tombstoneAppendCount;
-    metrics->master.liveObjectCount += liveObjectCount;
-    metrics->master.liveObjectBytes += liveObjectBytes;
-    metrics->master.objectDiscardCount += objectDiscardCount;
-    metrics->master.tombstoneDiscardCount += tombstoneDiscardCount;
-    metrics->master.safeVersionRecoveryCount += safeVersionRecoveryCount;
-    metrics->master.safeVersionNonRecoveryCount += safeVersionNonRecoveryCount;
 }
 
 /**
@@ -2168,55 +1798,8 @@ MasterService::remove(const WireFormat::Remove::Request* reqHdr,
                                                         reqHdr->keyLength);
     Key key(reqHdr->tableId, stringKey, reqHdr->keyLength);
 
-    TabletsOnMaster* table = getTable(key);
-    if (table == NULL) {
-        respHdr->common.status = STATUS_UNKNOWN_TABLET;
-        return;
-    }
-
-    LogEntryType type;
-    Buffer buffer;
-    Log::Reference reference;
-    if (!lookup(key, type, buffer, &reference) || type != LOG_ENTRY_TYPE_OBJ) {
-        Status status = rejectOperation(reqHdr->rejectRules,
-                                        VERSION_NONEXISTENT);
-        if (status != STATUS_OK)
-            respHdr->common.status = status;
-        return;
-    }
-
-    Object object(buffer);
-    respHdr->version = object.getVersion();
-
-    // Abort if we're trying to delete the wrong version.
-    Status status = rejectOperation(reqHdr->rejectRules, respHdr->version);
-    if (status != STATUS_OK) {
-        respHdr->common.status = status;
-        return;
-    }
-
-    ObjectTombstone tombstone(object,
-                              log->getSegmentId(reference),
-                              WallTime::secondsTimestamp());
-    Buffer tombstoneBuffer;
-    tombstone.serializeToBuffer(tombstoneBuffer);
-
-    // Write the tombstone into the Log, increment the tablet version
-    // number, and remove from the hash table.
-    if (!log->append(LOG_ENTRY_TYPE_OBJTOMB,
-                     tombstone.getTimestamp(),
-                     tombstoneBuffer)) {
-        // The log is out of space. Tell the client to retry and hope
-        // that either the cleaner makes space soon or we shift load
-        // off of this server.
-        respHdr->common.status = STATUS_RETRY;
-        return;
-    }
-    log->sync();
-
-    segmentManager.raiseSafeVersion(object.getVersion() + 1);
-    log->free(reference);
-    objectMap->remove(key);
+    RejectRules rejectRules = reqHdr->rejectRules;
+        respHdr->common.status = objectManager->removeObject(key, rejectRules);
 }
 
 /**
@@ -2233,48 +1816,31 @@ MasterService::increment(const WireFormat::Increment::Request* reqHdr,
     Key key(reqHdr->tableId, *rpc->requestPayload, sizeof32(*reqHdr),
             reqHdr->keyLength);
 
-    if (getTable(key) == NULL) {
-        respHdr->common.status = STATUS_TABLE_DOESNT_EXIST;
+    Status *status = &respHdr->common.status;
+
+    Buffer value;
+    RejectRules rejectRules = reqHdr->rejectRules;
+    *status = objectManager->readObject(key, &value, rejectRules);
+    if (respHdr->common.status != STATUS_OK)
+        return;
+
+    if (value.getTotalLength() != sizeof(int64_t)) {
+        *status = STATUS_INVALID_OBJECT;
         return;
     }
-
-    LogEntryType type;
-    Buffer buffer;
-    if (!lookup(key, type, buffer) || type != LOG_ENTRY_TYPE_OBJ) {
-        respHdr->common.status = STATUS_OBJECT_DOESNT_EXIST;
-        return;
-    }
-
-    Object object(buffer);
-    Status status = rejectOperation(reqHdr->rejectRules, object.getVersion());
-    if (status != STATUS_OK) {
-        respHdr->common.status = status;
-        return;
-    }
-
-    if (object.getDataLength() != sizeof(int64_t)) {
-        respHdr->common.status = STATUS_INVALID_OBJECT;
-        return;
-    }
-
-    const int64_t oldValue = *reinterpret_cast<const int64_t*>(
-        object.getData());
+                        
+    const int64_t oldValue = *value.getOffset<int64_t>(0);
     int64_t newValue = oldValue + reqHdr->incrementValue;
 
     // Write the new value back
     Buffer newValueBuffer;
-    newValueBuffer.append(&newValue, sizeof(int64_t));
+    newValueBuffer.append(&newValue, sizeof(int64_t));     
 
-    status = storeObject(key,
-                         &reqHdr->rejectRules,
-                         newValueBuffer,
-                         &respHdr->version,
-                         true);
-
-    if (status != STATUS_OK) {
-        respHdr->common.status = status;
+    *status = objectManager->writeObject(key, newValueBuffer,
+        rejectRules, &respHdr->version);
+    if (*status != STATUS_OK)
         return;
-    }
+    objectManager->syncWrites();
 
     // Return new value
     respHdr->newValue = newValue;
@@ -2292,7 +1858,7 @@ MasterService::isReplicaNeeded(
     Rpc* rpc)
 {
     ServerId backupServerId = ServerId(reqHdr->backupServerId);
-    respHdr->needed = replicaManager.isReplicaNeeded(backupServerId,
+    respHdr->needed = objectManager->replicaManager.isReplicaNeeded(backupServerId,
                                                     reqHdr->segmentId);
 }
 
@@ -2316,456 +1882,10 @@ MasterService::write(const WireFormat::Write::Request* reqHdr,
             sizeof32(*reqHdr),
             reqHdr->keyLength);
 
-    Status status = storeObject(key,
-                                &reqHdr->rejectRules,
-                                buffer,
-                                &respHdr->version,
-                                !reqHdr->async);
-
-    if (status != STATUS_OK) {
-        respHdr->common.status = status;
-        return;
-    }
-}
-
-/**
- * Ensures that this master owns the tablet for the given object (based on its
- * tableId and string key) and returns the corresponding Table.
- *
- * \param key
- *      Key to look up the corresponding table for.
- * \return
- *      The Table of which the tablet containing this key is a part, or NULL if
- *      this master does not own the tablet.
- */
-TabletsOnMaster*
-MasterService::getTable(Key& key)
-{
-    ProtoBuf::Tablets::Tablet const* tablet = getTabletForHash(key.getTableId(),
-                                                               key.getHash());
-    if (tablet == NULL)
-        return NULL;
-
-    TabletsOnMaster* table =
-            reinterpret_cast<TabletsOnMaster*>(tablet->user_data());
-    incrementReadAndWriteStatistics(table);
-    return table;
-}
-
-/**
- * Ensures that this master owns the tablet for any object corresponding
- * to the given hash value of its string key and returns the
- * corresponding Table.
- *
- * \param tableId
- *      Identifier for a desired table.
- * \param keyHash
- *      Hash value of the variable length key of the object.
- *
- * \return
- *      The Table of which the tablet containing this object is a part,
- *      or NULL if this master does not own the tablet.
- */
-TabletsOnMaster*
-MasterService::getTableForHash(uint64_t tableId, KeyHash keyHash)
-{
-    ProtoBuf::Tablets::Tablet const* tablet = getTabletForHash(tableId,
-                                                               keyHash);
-    if (tablet == NULL)
-        return NULL;
-
-    TabletsOnMaster* table =
-            reinterpret_cast<TabletsOnMaster*>(tablet->user_data());
-    return table;
-}
-
-/**
- * Ensures that this master owns the tablet for any object corresponding
- * to the given hash value of its string key and returns the
- * corresponding Table.
- *
- * \param tableId
- *      Identifier for a desired table.
- * \param keyHash
- *      Hash value of the variable length key of the object.
- *
- * \return
- *      The Table of which the tablet containing this object is a part,
- *      or NULL if this master does not own the tablet.
- */
-ProtoBuf::Tablets::Tablet const*
-MasterService::getTabletForHash(uint64_t tableId, KeyHash keyHash)
-{
-    foreach (const ProtoBuf::Tablets::Tablet& tablet, tablets.tablet()) {
-        if (tablet.table_id() == tableId &&
-            tablet.start_key_hash() <= keyHash &&
-            keyHash <= tablet.end_key_hash()) {
-            return &tablet;
-        }
-    }
-    return NULL;
-}
-
-/**
- * Check a set of RejectRules against the current state of an object
- * to decide whether an operation is allowed.
- *
- * \param rejectRules
- *      Specifies conditions under which the operation should fail.
- * \param version
- *      The current version of an object, or VERSION_NONEXISTENT
- *      if the object does not currently exist (used to test rejectRules)
- *
- * \return
- *      The return value is STATUS_OK if none of the reject rules
- *      indicate that the operation should be rejected. Otherwise
- *      the return value indicates the reason for the rejection.
- */
-Status
-MasterService::rejectOperation(const RejectRules& rejectRules, uint64_t version)
-{
-    if (version == VERSION_NONEXISTENT) {
-        if (rejectRules.doesntExist)
-            return STATUS_OBJECT_DOESNT_EXIST;
-        return STATUS_OK;
-    }
-    if (rejectRules.exists)
-        return STATUS_OBJECT_EXISTS;
-    if (rejectRules.versionLeGiven && version <= rejectRules.givenVersion)
-        return STATUS_WRONG_VERSION;
-    if (rejectRules.versionNeGiven && version != rejectRules.givenVersion)
-        return STATUS_WRONG_VERSION;
-    return STATUS_OK;
-}
-
-/**
- * Extract the timestamp from an entry written into the log. Used by the log
- * code do more efficient cleaning.
- *
- * \param type
- *      Type of the object being queried.
- * \param buffer
- *      Buffer pointing to the object in the log being queried.
- */
-uint32_t
-MasterService::getTimestamp(LogEntryType type, Buffer& buffer)
-{
-    if (type == LOG_ENTRY_TYPE_OBJ)
-        return getObjectTimestamp(buffer);
-    else if (type == LOG_ENTRY_TYPE_OBJTOMB)
-        return getTombstoneTimestamp(buffer);
-    else
-        return 0;
-}
-
-/**
- * Relocate and update metadata for an object or tombstone that is being
- * cleaned. The cleaner invokes this method for every entry it comes across
- * when processing a segment. If the entry is no longer needed, nothing needs
- * to be done. If it is needed, the provided relocator should be used to copy
- * it to a new location and any metadata pointing to the old entry must be
- * updated before returning.
- *
- * \param type
- *      Type of the entry being cleaned.
- * \param oldBuffer
- *      Buffer pointing to the entry in the log being cleaned. This is the
- *      location that will soon be invalid due to garbage collection.
- * \param relocator
- *      The relocator is used to copy a live entry to a new location in the
- *      log and get a reference to that new location. If the entry is not
- *      needed, the relocator should not be used.
- */
-void
-MasterService::relocate(LogEntryType type,
-                        Buffer& oldBuffer,
-                        LogEntryRelocator& relocator)
-{
-    if (type == LOG_ENTRY_TYPE_OBJ)
-        relocateObject(oldBuffer, relocator);
-    else if (type == LOG_ENTRY_TYPE_OBJTOMB)
-        relocateTombstone(oldBuffer, relocator);
-}
-
-/**
- * Callback used by the LogCleaner when it's cleaning a Segment and comes
- * across an Object.
- *
- * This callback will decide if the object is still alive. If it is, it must
- * use the relocator to move it to a new location and atomically update the
- * hash table.
- *
- * \param oldBuffer
- *      Buffer pointing to the object's current location, which will soon be
- *      invalidated.
- * \param relocator
- *      The relocator may be used to store the object in a new location if it
- *      is still alive. It also provides a reference to the new location and
- *      keeps track of whether this call wanted the object anymore or not.
- *
- *      It is possible that relocation may fail (because more memory needs to
- *      be allocated). In this case, the callback should just return. The
- *      cleaner will note the failure, allocate more memory, and try again.
- */
-void
-MasterService::relocateObject(Buffer& oldBuffer,
-                              LogEntryRelocator& relocator)
-{
-    Key key(LOG_ENTRY_TYPE_OBJ, oldBuffer);
-
-    std::lock_guard<SpinLock> lock(objectUpdateLock);
-
-    TabletsOnMaster* table = getTable(key);
-    if (table == NULL) {
-        // That tablet doesn't exist on this server anymore.
-        // Just remove the hash table entry, if it exists.
-        objectMap->remove(key);
-        return;
-    }
-
-    bool keepNewObject = false;
-
-    LogEntryType currentType;
-    Buffer currentBuffer;
-    if (lookup(key, currentType, currentBuffer)) {
-        assert(currentType == LOG_ENTRY_TYPE_OBJ);
-
-        keepNewObject = (currentBuffer.getStart<uint8_t>() ==
-                         oldBuffer.getStart<uint8_t>());
-        if (keepNewObject) {
-            // Try to relocate it. If it fails, just return. The cleaner will
-            // allocate more memory and retry.
-            uint32_t timestamp = getObjectTimestamp(oldBuffer);
-            if (!relocator.append(LOG_ENTRY_TYPE_OBJ, oldBuffer, timestamp))
-                return;
-            objectMap->replace(key, relocator.getNewReference().toInteger());
-        }
-    }
-
-    // Update table statistics.
-    if (!keepNewObject) {
-        table->objectCount--;
-        table->objectBytes -= oldBuffer.getTotalLength();
-    }
-}
-
-/**
- * Callback used by the Log to determine the modification timestamp of an
- * Object. Timestamps are stored in the Object itself, rather than in the
- * Log, since not all Log entries need timestamps and other parts of the
- * system (or clients) may care about Object modification times.
- *
- * \param buffer
- *      Buffer pointing to the object the timestamp is to be extracted from.
- * \return
- *      The Object's modification timestamp.
- */
-uint32_t
-MasterService::getObjectTimestamp(Buffer& buffer)
-{
-    Object object(buffer);
-    return object.getTimestamp();
-}
-
-/**
- * Callback used by the LogCleaner when it's cleaning a Segment and comes
- * across a Tombstone.
- *
- * This callback will decide if the tombstone is still alive. If it is, it must
- * use the relocator to move it to a new location and atomically update the
- * hash table.
- *
- * \param oldBuffer
- *      Buffer pointing to the tombstone's current location, which will soon be
- *      invalidated.
- * \param relocator
- *      The relocator may be used to store the tombstone in a new location if it
- *      is still alive. It also provides a reference to the new location and
- *      keeps track of whether this call wanted the tombstone anymore or not.
- *
- *      It is possible that relocation may fail (because more memory needs to
- *      be allocated). In this case, the callback should just return. The
- *      cleaner will note the failure, allocate more memory, and try again.
- */
-void
-MasterService::relocateTombstone(Buffer& oldBuffer,
-                                 LogEntryRelocator& relocator)
-{
-    ObjectTombstone tomb(oldBuffer);
-
-    // See if the object this tombstone refers to is still in the log.
-    bool keepNewTomb = log->segmentExists(tomb.getSegmentId());
-
-    if (keepNewTomb) {
-        // Try to relocate it. If it fails, just return. The cleaner will
-        // allocate more memory and retry.
-        uint32_t timestamp = getTombstoneTimestamp(oldBuffer);
-        if (!relocator.append(LOG_ENTRY_TYPE_OBJTOMB, oldBuffer, timestamp))
-            return;
-    } else {
-        Key key(LOG_ENTRY_TYPE_OBJTOMB, oldBuffer);
-        TabletsOnMaster* table = getTable(key);
-        if (table != NULL) {
-            table->tombstoneCount--;
-            table->tombstoneBytes -= oldBuffer.getTotalLength();
-        }
-    }
-}
-
-/**
- * Callback used by the Log to determine the age of Tombstone.
- *
- * \param buffer
- *      Buffer pointing to the tombstone the timestamp is to be extracted from.
- * \return
- *      The tombstone's creation timestamp.
- */
-uint32_t
-MasterService::getTombstoneTimestamp(Buffer& buffer)
-{
-    ObjectTombstone tomb(buffer);
-    return tomb.getTimestamp();
-}
-
-/**
- * This method will do everything needed to store an object associated with
- * a particular key. This includes allocating or incrementing version numbers,
- * writing a tombstone if a previous version exists, storing to the log,
- * and adding or replacing an entry in the hash table.
- *
- * \param key
- *      Key that will refer to the object being stored.
- * \param rejectRules
- *      Specifies conditions under which the write should be aborted with an
- *      error.
- *
- *      Must not be NULL. The reason this is a pointer and not a reference is
- *      to (dubiously?) work around an issue where we pass in from a packed
- *      Rpc wire format struct.
- * \param data
- *      Constitutes the binary blob that will be value of this object. That is,
- *      everything following the Object header and the string key. Everything
- *      from the buffer will be copied into the log->
- * \param newVersion
- *      The version number of the new object is returned here. If the operation
- *      was successful this will be the new version for the object; if this
- *      object has ever existed previously the new version is guaranteed to be
- *      greater than any previous version of the object. If the operation failed
- *      then the version number returned is the current version of the object,
- *      or VERSION_NONEXISTENT if the object does not exist.
- *
- *      Must not be NULL. The reason this is a pointer and not a reference is
- *      to (dubiously?) work around an issue where we pass out to a packed
- *      Rpc wire format struct.
- * \param sync
- *      If true, this write will be replicated to backups before return.
- *      If false, the replication may happen sometime later.
- * \return
- *      STATUS_OK if the object was written. Otherwise, for example,
- *      STATUS_UKNOWN_TABLE may be returned.
- */
-Status
-MasterService::storeObject(Key& key,
-                           const RejectRules* rejectRules,
-                           Buffer& data,
-                           uint64_t* newVersion,
-                           bool sync)
-{
-    TabletsOnMaster* table = getTable(key);
-    if (table == NULL)
-        return STATUS_UNKNOWN_TABLET;
-
-    if (!anyWrites) {
-        // This is the first write; use this as a trigger to update the
-        // cluster configuration information and open a session with each
-        // backup, so it won't slow down recovery benchmarks.  This is a
-        // temporary hack, and needs to be replaced with a more robust
-        // approach to updating cluster configuration information.
-        anyWrites = true;
-
-        // Empty coordinator locator means we're in test mode, so skip this.
-        if (!context->coordinatorSession->getLocation().empty()) {
-            ProtoBuf::ServerList backups;
-            CoordinatorClient::getBackupList(context, &backups);
-            TransportManager& transportManager =
-                *context->transportManager;
-            foreach(auto& backup, backups.server())
-                transportManager.getSession(backup.service_locator().c_str());
-        }
-    }
-
-    LogEntryType currentType = LOG_ENTRY_TYPE_INVALID;
-    Buffer currentBuffer;
-    Log::Reference currentReference;
-    uint64_t currentVersion = VERSION_NONEXISTENT;
-
-    if (lookup(key, currentType, currentBuffer, &currentReference)) {
-        if (currentType == LOG_ENTRY_TYPE_OBJTOMB) {
-            recoveryCleanup(currentReference.toInteger(), this);
-        } else {
-            Object currentObject(currentBuffer);
-            currentVersion = currentObject.getVersion();
-        }
-    }
-
-    Status status = rejectOperation(*rejectRules, currentVersion);
-    if (status != STATUS_OK) {
-        *newVersion = currentVersion;
-        return status;
-    }
-
-    // Existing objects get a bump in version, new objects start from
-    // the next version allocated in the table.
-    uint64_t newObjectVersion = (currentVersion == VERSION_NONEXISTENT) ?
-            segmentManager.allocateVersion() : currentVersion + 1;
-
-    Object newObject(key, data, newObjectVersion, WallTime::secondsTimestamp());
-
-    assert(currentVersion == VERSION_NONEXISTENT ||
-           newObject.getVersion() > currentVersion);
-
-    Tub<ObjectTombstone> tombstone;
-    if (currentVersion != VERSION_NONEXISTENT &&
-      currentType == LOG_ENTRY_TYPE_OBJ) {
-        Object object(currentBuffer);
-        tombstone.construct(object,
-                           log->getSegmentId(currentReference),
-                           WallTime::secondsTimestamp());
-    }
-
-    // Create a vector of appends in case we need to write a tombstone and
-    // an object. This is necessary to ensure that both tombstone and object
-    // are written atomically. The log makes no atomicity guarantees across
-    // multiple append calls and we don't want a tombstone going to backups
-    // before the new object, or the new object going out without a tombstone
-    // for the old deleted version. Both cases lead to consistency problems.
-    Log::AppendVector appends[2];
-
-    newObject.serializeToBuffer(appends[0].buffer);
-    appends[0].type = LOG_ENTRY_TYPE_OBJ;
-    appends[0].timestamp = newObject.getTimestamp();
-
-    if (tombstone) {
-        tombstone->serializeToBuffer(appends[1].buffer);
-        appends[1].type = LOG_ENTRY_TYPE_OBJTOMB;
-        appends[1].timestamp = tombstone->getTimestamp();
-    }
-
-    if (!log->append(appends, tombstone ? 2 : 1)) {
-        // The log is out of space. Tell the client to retry and hope
-        // that either the cleaner makes space soon or we shift load
-        // off of this server.
-        return STATUS_RETRY;
-    }
-    if (sync)
-        log->sync();
-
-    objectMap->replace(key, appends[0].reference.toInteger());
-    if (tombstone)
-        log->free(currentReference);
-    *newVersion = newObject.getVersion();
-    bytesWritten += key.getStringKeyLength() + data.getTotalLength();
-    return STATUS_OK;
+    RejectRules rejectRules = reqHdr->rejectRules;
+    respHdr->common.status = objectManager->writeObject(key,
+        buffer, rejectRules, &respHdr->version);
+    objectManager->syncWrites();
 }
 
 /**
