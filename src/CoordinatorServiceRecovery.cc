@@ -61,28 +61,28 @@ CoordinatorServiceRecovery::replay(bool testing)
             RAMCLOUD_LOG(DEBUG, "ServiceRecovery: ServerEnlisting");
             ProtoBuf::ServerInformation state;
             service.logCabinHelper->parseProtoBufFromEntry(*it, state);
-            service.serverList->enlistServerRecover(&state, entryId);
+            service.serverList->recoverEnlistServer(&state, entryId);
 
         } else if (!entryType.compare("ServerEnlisted")) {
 
             RAMCLOUD_LOG(DEBUG, "ServiceRecovery: ServerEnlisted");
             ProtoBuf::ServerInformation state;
             service.logCabinHelper->parseProtoBufFromEntry(*it, state);
-            service.serverList->enlistedServerRecover(&state, entryId);
+            service.serverList->recoverEnlistedServer(&state, entryId);
 
         } else if (!entryType.compare("ServerUpdate")) {
 
             RAMCLOUD_LOG(DEBUG, "ServiceRecovery: ServerUpdate");
             ProtoBuf::ServerUpdate state;
             service.logCabinHelper->parseProtoBufFromEntry(*it, state);
-            service.serverList->setMasterRecoveryInfoRecover(&state, entryId);
+            service.serverList->recoverMasterRecoveryInfo(&state, entryId);
 
         } else if (!entryType.compare("ServerDown")) {
 
             RAMCLOUD_LOG(DEBUG, "ServiceRecovery: ServerDown");
             ProtoBuf::ServerDown state;
             service.logCabinHelper->parseProtoBufFromEntry(*it, state);
-            service.serverList->serverDownRecover(&state, entryId);
+            service.serverList->recoverServerDown(&state, entryId);
 
         } else {
 

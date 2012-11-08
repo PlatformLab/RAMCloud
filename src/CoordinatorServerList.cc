@@ -163,11 +163,11 @@ CoordinatorServerList::setMasterRecoveryInfo(
  *      The entry id of the LogCabin entry corresponding to serverUpdate.
  */
 void
-CoordinatorServerList::setMasterRecoveryInfoRecover(
+CoordinatorServerList::recoverMasterRecoveryInfo(
     ProtoBuf::ServerUpdate* serverUpdate, EntryId entryId)
 {
     Lock lock(mutex);
-    LOG(DEBUG, "CoordinatorServerList::setMasterRecoveryInfoRecover()");
+    LOG(DEBUG, "CoordinatorServerList::recoverSetMasterRecoveryInfo()");
     SetMasterRecoveryInfo(
             *this, lock,
             ServerId(serverUpdate->server_id()),
@@ -855,11 +855,11 @@ CoordinatorServerList::enlistServer(
  *      The entry id of the LogCabin entry corresponding to the state.
  */
 void
-CoordinatorServerList::enlistServerRecover(
+CoordinatorServerList::recoverEnlistServer(
     ProtoBuf::ServerInformation* state, EntryId entryId)
 {
     Lock lock(mutex);
-    LOG(DEBUG, "CoordinatorServerList::enlistServerRecover()");
+    LOG(DEBUG, "CoordinatorServerList::recoverEnlistServer()");
     EnlistServer(*this, lock,
                  ServerId(state->server_id()),
                  ServiceMask::deserialize(state->service_mask()),
@@ -879,11 +879,11 @@ CoordinatorServerList::enlistServerRecover(
  *      The entry id of the LogCabin entry corresponding to the state.
  */
 void
-CoordinatorServerList::enlistedServerRecover(
+CoordinatorServerList::recoverEnlistedServer(
     ProtoBuf::ServerInformation* state, EntryId entryId)
 {
     Lock lock(mutex);
-    LOG(DEBUG, "CoordinatorServerList::enlistedServerRecover()");
+    LOG(DEBUG, "CoordinatorServerList::recoverEnlistedServer()");
     add(lock,
         ServerId(state->server_id()),
         state->service_locator().c_str(),
@@ -934,11 +934,11 @@ CoordinatorServerList::serverDown(Lock& lock, ServerId serverId)
  *      The entry id of the LogCabin entry corresponding to the state.
  */
 void
-CoordinatorServerList::serverDownRecover(
+CoordinatorServerList::recoverServerDown(
     ProtoBuf::ServerDown* state, EntryId entryId)
 {
     Lock lock(mutex);
-    LOG(DEBUG, "CoordinatorServerList::serverDownRecover()");
+    LOG(DEBUG, "CoordinatorServerList::recoverServerDown()");
     ServerDown(
             *this, lock, ServerId(state->server_id())).complete(entryId);
 }
@@ -978,7 +978,7 @@ CoordinatorServerList::EnlistServer::execute()
  * logged in LogCabin.
  * This is called internally by #execute() in case of normal operation
  * (which is in turn called by #enlistServer()), and
- * directly for coordinator recovery (by #enlistServerRecover()).
+ * directly for coordinator recovery (by #recoverEnlistServer()).
  *
  * \param entryId
  *      The entry id of the LogCabin entry corresponding to the state
@@ -1041,7 +1041,7 @@ CoordinatorServerList::ServerDown::execute()
  * Complete the operation to force a server out of the cluster
  * after its state has been logged in LogCabin.
  * This is called internally by #execute() in case of normal operation, and
- * directly for coordinator recovery (by #serverDownRecover()).
+ * directly for coordinator recovery (by #recoverServerDown()).
  *
  * \param entryId
  *      The entry id of the LogCabin entry corresponding to the state
@@ -1123,7 +1123,7 @@ CoordinatorServerList::SetMasterRecoveryInfo::execute()
  * logged in LogCabin.
  * This is called internally by #execute() in case of normal operation
  * (which is in turn called by #setMasterRecoveryInfo()), and
- * directly for coordinator recovery (by #setMasterRecoveryInfoRecover()).
+ * directly for coordinator recovery (by #recoverSetMasterRecoveryInfo()).
  *
  * \param entryId
  *      The entry id of the LogCabin entry corresponding to the state

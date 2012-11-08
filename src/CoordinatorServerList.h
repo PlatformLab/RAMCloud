@@ -137,8 +137,8 @@ class CoordinatorServerList : public AbstractServerList{
 
     void setMasterRecoveryInfo(ServerId serverId,
         const ProtoBuf::MasterRecoveryInfo& recoveryInfo);
-    void setMasterRecoveryInfoRecover(ProtoBuf::ServerUpdate* state,
-        EntryId entryId);
+    void recoverMasterRecoveryInfo(ProtoBuf::ServerUpdate* state,
+                                      EntryId entryId);
     void setReplicationId(Lock& lock, ServerId serverId, uint64_t segmentId);
 
     Entry operator[](ServerId serverId) const;
@@ -164,15 +164,15 @@ class CoordinatorServerList : public AbstractServerList{
 
     ServerId enlistServer(ServerId replacesId, ServiceMask serviceMask,
                           const uint32_t readSpeed, const char* serviceLocator);
-    void enlistServerRecover(ProtoBuf::ServerInformation* state,
+    void recoverEnlistServer(ProtoBuf::ServerInformation* state,
                              EntryId entryId);
-    void enlistedServerRecover(ProtoBuf::ServerInformation* state,
+    void recoverEnlistedServer(ProtoBuf::ServerInformation* state,
                                EntryId entryId);
 
     void serverDown(ServerId serverId);
     void serverDown(Lock& lock, ServerId serverId);
-    void serverDownRecover(ProtoBuf::ServerDown* state,
-                                EntryId entryId);
+    void recoverServerDown(ProtoBuf::ServerDown* state,
+                           EntryId entryId);
 
   PRIVATE:
     /**
