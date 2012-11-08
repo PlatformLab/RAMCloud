@@ -214,7 +214,7 @@ CoordinatorServerList::setReplicationId(Lock& lock, ServerId serverId,
  *      Exception is thrown if the given ServerId is not in this list.
  */
 CoordinatorServerList::Entry
-CoordinatorServerList::operator[](const ServerId& serverId) const
+CoordinatorServerList::operator[](ServerId serverId) const
 {
     Lock lock(mutex);
     return getReferenceFromServerId(lock, serverId);
@@ -222,8 +222,7 @@ CoordinatorServerList::operator[](const ServerId& serverId) const
 
 /**
  * Returns a copy of the details associated with the given position
- * in the server list or empty if the position in the list is
- * unoccupied.
+ * in the server list.
  * 
  * Note: This function explictly acquires a lock, and is hence to be used
  * only by functions external to CoordinatorServerList to prevent deadlocks.
@@ -234,9 +233,9 @@ CoordinatorServerList::operator[](const ServerId& serverId) const
  * \param index
  *      Position of entry in the server list to return a copy of.
  * \throw
- *      Exception is thrown if the given ServerId is not in this list.
+ *      Exception is thrown if the position in the list is unoccupied.
  */
-Tub<CoordinatorServerList::Entry>
+CoordinatorServerList::Entry
 CoordinatorServerList::operator[](size_t index) const
 {
     Lock lock(mutex);
@@ -582,7 +581,7 @@ CoordinatorServerList::firstFreeIndex()
  */
 const CoordinatorServerList::Entry&
 CoordinatorServerList::getReferenceFromServerId(const Lock& lock,
-                                                const ServerId& serverId) const
+                                                ServerId serverId) const
 {
     uint32_t index = serverId.indexNumber();
     if (index < serverList.size() && serverList[index].entry
@@ -590,13 +589,12 @@ CoordinatorServerList::getReferenceFromServerId(const Lock& lock,
         return *serverList[index].entry;
 
     throw ServerListException(HERE,
-        format("Invalid ServerId (%s)", serverId.toString().c_str()));
+            format("Invalid ServerId (%s)", serverId.toString().c_str()));
 }
 
 /**
- * Returns a copy of the details associated with the given position
- * in the server list or empty if the position in the list is
- * unoccupied.
+ * Obtain a reference to the entry associated with the given position
+ * in the server list.
  *
  * \param lock
  *      Unused, but required to statically check that the caller is aware that
@@ -605,16 +603,19 @@ CoordinatorServerList::getReferenceFromServerId(const Lock& lock,
  *      Position of entry in the server list to return a copy of.
  * 
  * \throw
- *      Exception is thrown if the given ServerId is not in this list.
+ *      Exception is thrown if the position in the list is unoccupied
+ *      or doesn't contain a valid entry.
  */
-Tub<CoordinatorServerList::Entry>
+const CoordinatorServerList::Entry&
 CoordinatorServerList::getReferenceFromIndex(const Lock& lock,
                                              size_t index) const
 {
-    if (index < serverList.size())
-        return serverList[index].entry;
+    if (index < serverList.size() && serverList[index].entry)
+        return *serverList[index].entry;
 
-    throw Exception(HERE, format("Index beyond array length (%zd)", index));
+    throw ServerListException(HERE,
+            format("Index beyond array length (%zd) or entry"
+                   "doesn't exist", index));
 }
 
 /**

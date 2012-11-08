@@ -184,10 +184,15 @@ CoordinatorService::createTable(const WireFormat::CreateTable::Request* reqHdr,
         CoordinatorServerList::Entry master;
         while (true) {
             size_t masterIdx = nextTableMasterIdx++ % serverList->size();
-            auto entry = (*serverList)[masterIdx];
-            if (entry && entry->isMaster()) {
-                master = *entry;
-                break;
+            CoordinatorServerList::Entry entry;
+            try {
+                entry = (*serverList)[masterIdx];
+                if (entry.isMaster()) {
+                    master = entry;
+                    break;
+                }
+            } catch (ServerListException& e) {
+                continue;
             }
         }
         // Get current log head. Only entries >= this can be part of the tablet.
@@ -432,8 +437,12 @@ CoordinatorService::quiesce(const WireFormat::BackupQuiesce::Request* reqHdr,
                             Rpc* rpc)
 {
     for (size_t i = 0; i < serverList->size(); i++) {
-        if ((*serverList)[i] && (*serverList)[i]->isBackup()) {
-            BackupClient::quiesce(context, (*serverList)[i]->serverId);
+        try {
+            if ((*serverList)[i].isBackup()) {
+                BackupClient::quiesce(context, (*serverList)[i].serverId);
+            }
+        } catch (ServerListException& e) {
+            // Do nothing for the server that doesn't exist. Continue.
         }
     }
 }

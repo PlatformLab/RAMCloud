@@ -141,8 +141,8 @@ class CoordinatorServerList : public AbstractServerList{
         EntryId entryId);
     void setReplicationId(Lock& lock, ServerId serverId, uint64_t segmentId);
 
-    Entry operator[](const ServerId& serverId) const;
-    Tub<Entry> operator[](size_t index) const;
+    Entry operator[](ServerId serverId) const;
+    Entry operator[](size_t index) const;
 
     uint32_t masterCount() const;
     uint32_t backupCount() const;
@@ -374,9 +374,8 @@ class CoordinatorServerList : public AbstractServerList{
     ServerId generateUniqueId(Lock& lock);
     uint32_t firstFreeIndex();
     const Entry& getReferenceFromServerId(const Lock& lock,
-                                          const ServerId& serverId) const;
-    Tub<Entry> getReferenceFromIndex(const Lock& lock,
-                                     size_t index) const;
+                                          ServerId serverId) const;
+    const Entry& getReferenceFromIndex(const Lock& lock, size_t index) const;
     void serialize(const Lock& lock, ProtoBuf::ServerList& protoBuf) const;
     void serialize(const Lock& lock, ProtoBuf::ServerList& protobuf,
                    ServiceMask services) const;
