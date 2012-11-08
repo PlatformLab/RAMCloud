@@ -133,16 +133,7 @@ class CoordinatorServerList : public AbstractServerList{
     explicit CoordinatorServerList(Context* context);
     ~CoordinatorServerList();
 
-    //TODO(ankitak): This public version used only for unit tests. Remove?
-    void add(ServerId serverId, string serviceLocator,
-             ServiceMask serviceMask, uint32_t readSpeed);
-    //TODO(ankitak): This public version used only for unit tests. Remove?
-    void crashed(ServerId serverId);
-    //TODO(ankitak): This public version used only for unit tests. Remove?
-    void remove(ServerId serverId);
-    //TODO(ankitak): This version used only for unit tests. Remove?
-    ServerId generateUniqueId();
-    ServerId generateUniqueId(Lock& lock);
+    void removeAfterRecovery(ServerId serverId);
 
     void setMasterRecoveryInfo(ServerId serverId,
         const ProtoBuf::MasterRecoveryInfo& recoveryInfo);
@@ -395,6 +386,7 @@ class CoordinatorServerList : public AbstractServerList{
              ServiceMask serviceMask, uint32_t readSpeed);
     void crashed(const Lock& lock, ServerId serverId);
     void remove(Lock& lock, ServerId serverId);
+    ServerId generateUniqueId(Lock& lock);
     uint32_t firstFreeIndex();
     const Entry& getReferenceFromServerId(const Lock& lock,
                                           const ServerId& serverId) const;

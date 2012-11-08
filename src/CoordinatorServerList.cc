@@ -101,67 +101,6 @@ CoordinatorServerList::isize() const
 //////////////////////////////////////////////////////////////////////
 // CoordinatorServerList Public Methods
 //////////////////////////////////////////////////////////////////////
-/**
- * Add a new server to the CoordinatorServerList with a given ServerId.
- *
- * The result of this operation will be added in the class's update Protobuffer
- * intended for the cluster. To send out the update, call commitUpdate()
- * which will also increment the version number. Calls to remove()
- * and crashed() must proceed call to add() to ensure ordering guarantees
- * about notifications related to servers which re-enlist.
- *
- * The addition will be pushed to all registered trackers and those with
- * callbacks will be notified.
- *
- * \param serverId
- *      The serverId to be assigned to the new server.
- * \param serviceLocator
- *      The ServiceLocator string of the server to add.
- * \param serviceMask
- *      Which services this server supports.
- * \param readSpeed
- *      Speed of the storage on the enlisting server if it includes a backup
- *      service. Argument is ignored otherwise.
- */
-void
-CoordinatorServerList::add(ServerId serverId,
-                           string serviceLocator,
-                           ServiceMask serviceMask,
-                           uint32_t readSpeed)
-{
-    Lock lock(mutex);
-    add(lock, serverId, serviceLocator, serviceMask, readSpeed);
-    commitUpdate(lock);
-}
-
-/**
- * Mark a server as crashed in the list (when it has crashed and is
- * being recovered and resources [replicas] for its recovery must be
- * retained).
- *
- * This is a no-op of the server is already marked as crashed;
- * the effect is undefined if the server's status is DOWN.
- *
- * The result of this operation will be added in the class's update Protobuffer
- * intended for the cluster. To send out the update, call commitUpdate()
- * which will also increment the version number. Calls to remove()
- * and crashed() must proceed call to add() to ensure ordering guarantees
- * about notifications related to servers which re-enlist.
- *
- * The addition will be pushed to all registered trackers and those with
- * callbacks will be notified.
- *
- * \param serverId
- *      The ServerId of the server to remove from the CoordinatorServerList.
- *      It must not have been removed already (see remove()).
- */
-void
-CoordinatorServerList::crashed(ServerId serverId)
-{
-    Lock lock(mutex);
-    crashed(lock, serverId);
-    commitUpdate(lock);
-}
 
 /**
  * Remove a server from the list, typically when it is no longer part of
@@ -184,45 +123,11 @@ CoordinatorServerList::crashed(ServerId serverId)
  *      It must be in the list (either UP or CRASHED).
  */
 void
-CoordinatorServerList::remove(ServerId serverId)
+CoordinatorServerList::removeAfterRecovery(ServerId serverId)
 {
     Lock lock(mutex);
     remove(lock, serverId);
     commitUpdate(lock);
-}
-
-/**
- * Generate a new, unique ServerId that may later be assigned to a server
- * using add().
- *
- * \return
- *      The unique ServerId generated.
- */
-ServerId
-CoordinatorServerList::generateUniqueId()
-{
-    Lock lock(mutex);
-    return generateUniqueId(lock);
-}
-
-/**
- * Generate a new, unique ServerId that may later be assigned to a server
- * using add().
- *
- * \return
- *      The unique ServerId generated.
- */
-ServerId
-CoordinatorServerList::generateUniqueId(Lock& lock)
-{
-    uint32_t index = firstFreeIndex();
-
-    auto& pair = serverList[index];
-    ServerId id(index, pair.nextGenerationNumber);
-    pair.nextGenerationNumber++;
-    pair.entry.construct(id, "", ServiceMask());
-
-    return id;
 }
 
 /**
@@ -520,9 +425,33 @@ CoordinatorServerList::getServerUpdateLogId(Lock& lock, ServerId serverId)
 // TODO(ankitak): I'm not catching the errors that can be thrown
 // in the above 4 operations.
 
-// See docs on public version.
-// This version doesn't acquire locks and does not send out updates
-// since it is used internally.
+/**
+ * Add a new server to the CoordinatorServerList with a given ServerId.
+ *
+ * The result of this operation will be added in the class's update Protobuffer
+ * intended for the cluster. To send out the update, call commitUpdate()
+ * which will also increment the version number. Calls to remove()
+ * and crashed() must proceed call to add() to ensure ordering guarantees
+ * about notifications related to servers which re-enlist.
+ *
+ * The addition will be pushed to all registered trackers and those with
+ * callbacks will be notified.
+ *
+ * It doesn't acquire locks and does not send out updates
+ * since it is used internally.
+ *
+ * \param lock
+ *      Explicity needs CoordinatorServerList lock.
+ * \param serverId
+ *      The serverId to be assigned to the new server.
+ * \param serviceLocator
+ *      The ServiceLocator string of the server to add.
+ * \param serviceMask
+ *      Which services this server supports.
+ * \param readSpeed
+ *      Speed of the storage on the enlisting server if it includes a backup
+ *      service. Argument is ignored otherwise.
+ */
 void
 CoordinatorServerList::add(Lock& lock,
                            ServerId serverId,
@@ -563,9 +492,33 @@ CoordinatorServerList::add(Lock& lock,
         tracker->fireCallback();
 }
 
-// See docs on public version.
-// This version doesn't acquire locks and does not send out updates
-// since it is used internally.
+/**
+ * Mark a server as crashed in the list (when it has crashed and is
+ * being recovered and resources [replicas] for its recovery must be
+ * retained).
+ *
+ * This is a no-op of the server is already marked as crashed;
+ * the effect is undefined if the server's status is DOWN.
+ *
+ * The result of this operation will be added in the class's update Protobuffer
+ * intended for the cluster. To send out the update, call commitUpdate()
+ * which will also increment the version number. Calls to remove()
+ * and crashed() must proceed call to add() to ensure ordering guarantees
+ * about notifications related to servers which re-enlist.
+ *
+ * It doesn't acquire locks and does not send out updates
+ * since it is used internally.
+ *
+ * \param lock
+ *      Explicity needs CoordinatorServerList lock.
+ * The addition will be pushed to all registered trackers and those with
+ * callbacks will be notified.
+ *
+ * \param serverId
+ *      The ServerId of the server to remove from the CoordinatorServerList.
+ *      It must not have been removed already (see remove()).
+ */
+
 void
 CoordinatorServerList::crashed(const Lock& lock,
                                ServerId serverId)
@@ -598,7 +551,7 @@ CoordinatorServerList::crashed(const Lock& lock,
         tracker->fireCallback();
 }
 
-// See docs on public version.
+// See docs on #removeAfterRecovery().
 // This version doesn't acquire locks and does not send out updates
 // since it is used internally.
 void
@@ -629,6 +582,28 @@ CoordinatorServerList::remove(Lock& lock,
         tracker->enqueueChange(removedEntry, ServerChangeEvent::SERVER_REMOVED);
     foreach (ServerTrackerInterface* tracker, trackers)
         tracker->fireCallback();
+}
+
+/**
+ * Generate a new, unique ServerId that may later be assigned to a server
+ * using add().
+ *
+ * \param lock
+ *      Explicity needs CoordinatorServerList lock.
+ * \return
+ *      The unique ServerId generated.
+ */
+ServerId
+CoordinatorServerList::generateUniqueId(Lock& lock)
+{
+    uint32_t index = firstFreeIndex();
+
+    auto& pair = serverList[index];
+    ServerId id(index, pair.nextGenerationNumber);
+    pair.nextGenerationNumber++;
+    pair.entry.construct(id, "", ServiceMask());
+
+    return id;
 }
 
 /**

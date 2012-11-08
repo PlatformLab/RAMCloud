@@ -28,10 +28,12 @@ class TabletMapTest : public ::testing::Test {
   public:
     Context context;
     TabletMap map;
+    std::mutex mutex;
 
     TabletMapTest()
         : context()
         , map()
+        , mutex()
     {
         Logger::get().setLogLevels(RAMCloud::SILENT_LOG_LEVEL);
     }
@@ -44,6 +46,7 @@ class TabletMapTest : public ::testing::Test {
         }
     }
 
+    typedef std::unique_lock<std::mutex> Lock;
     DISALLOW_COPY_AND_ASSIGN(TabletMapTest);
 };
 
@@ -137,11 +140,12 @@ TEST_F(TabletMapTest, removeTabletsForTable) {
 }
 
 TEST_F(TabletMapTest, serialize) {
+    Lock lock(mutex);
     CoordinatorServerList serverList(&context);
-    ServerId id1 = serverList.generateUniqueId();
-    serverList.add(id1, "mock:host=one", {WireFormat::MASTER_SERVICE}, 1);
-    ServerId id2 = serverList.generateUniqueId();
-    serverList.add(id2, "mock:host=two", {WireFormat::MASTER_SERVICE}, 2);
+    ServerId id1 = serverList.generateUniqueId(lock);
+    serverList.add(lock, id1, "mock:host=one", {WireFormat::MASTER_SERVICE}, 1);
+    ServerId id2 = serverList.generateUniqueId(lock);
+    serverList.add(lock, id2, "mock:host=two", {WireFormat::MASTER_SERVICE}, 2);
     map.addTablet({0, 1, 6, id1, Tablet::NORMAL, {0, 5}});
     map.addTablet({1, 2, 7, id2, Tablet::NORMAL, {1, 6}});
     ProtoBuf::Tablets tablets;

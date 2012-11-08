@@ -29,12 +29,14 @@ struct MasterRecoveryManagerTest : public ::testing::Test {
     CoordinatorServerList serverList;
     TabletMap tabletMap;
     MasterRecoveryManager mgr;
+    std::mutex mutex;
 
     MasterRecoveryManagerTest()
         : context()
         , serverList(&context)
         , tabletMap()
         , mgr(&context, tabletMap, NULL)
+        , mutex()
     {
         Logger::get().setLogLevels(RAMCloud::SILENT_LOG_LEVEL);
     }
@@ -50,9 +52,11 @@ struct MasterRecoveryManagerTest : public ::testing::Test {
      *      ServerId of the entry added to #serverList.
      */
     ServerId addMaster() {
-        ServerId serverId = serverList.generateUniqueId();
-        serverList.add(serverId, "fake-locator",
+        Lock lock(mutex);
+        ServerId serverId = serverList.generateUniqueId(lock);
+        serverList.add(lock, serverId, "fake-locator",
             {WireFormat::MASTER_SERVICE}, 0);
+        serverList.commitUpdate(lock);
         serverList.update.Clear(); // prevents cross contamination
         while (!mgr.taskQueue.isIdle())
             mgr.taskQueue.performTask();
@@ -70,11 +74,15 @@ struct MasterRecoveryManagerTest : public ::testing::Test {
      *      Server to mark as crashed.
      */
     void crashServer(ServerId crashedServerId) {
-        serverList.crashed(crashedServerId);
+        Lock lock(mutex);
+        serverList.crashed(lock, crashedServerId);
+        serverList.commitUpdate(lock);
         serverList.update.Clear(); // prevents cross contamination
         while (!mgr.taskQueue.isIdle())
             mgr.taskQueue.performTask();
     }
+
+    typedef std::unique_lock<std::mutex> Lock;
 };
 
 TEST_F(MasterRecoveryManagerTest, startAndHalt) {
