@@ -139,7 +139,6 @@ class CoordinatorServerList : public AbstractServerList{
         const ProtoBuf::MasterRecoveryInfo& recoveryInfo);
     void recoverMasterRecoveryInfo(ProtoBuf::ServerUpdate* state,
                                       EntryId entryId);
-    void setReplicationId(Lock& lock, ServerId serverId, uint64_t segmentId);
 
     Entry operator[](ServerId serverId) const;
     Entry operator[](size_t index) const;
@@ -149,28 +148,13 @@ class CoordinatorServerList : public AbstractServerList{
 
     void serialize(ProtoBuf::ServerList& protobuf, ServiceMask services) const;
 
-    void addServerInfoLogId(Lock& lock, ServerId serverId,
-                            LogCabin::Client::EntryId entryId);
-    void addServerUpdateLogId(Lock& lock, ServerId serverId,
-                              LogCabin::Client::EntryId entryId);
-    LogCabin::Client::EntryId getServerInfoLogId(Lock& lock, ServerId serverId);
-    LogCabin::Client::EntryId getServerUpdateLogId(Lock& lock,
-                                                   ServerId serverId);
-
-    bool assignReplicationGroup(Lock& lock, uint64_t replicationId,
-                                const vector<ServerId>& replicationGroupIds);
-    void createReplicationGroup(Lock& lock);
-    void removeReplicationGroup(Lock& lock, uint64_t groupId);
-
+    void serverDown(ServerId serverId);
     ServerId enlistServer(ServerId replacesId, ServiceMask serviceMask,
                           const uint32_t readSpeed, const char* serviceLocator);
     void recoverEnlistServer(ProtoBuf::ServerInformation* state,
                              EntryId entryId);
     void recoverEnlistedServer(ProtoBuf::ServerInformation* state,
                                EntryId entryId);
-
-    void serverDown(ServerId serverId);
-    void serverDown(Lock& lock, ServerId serverId);
     void recoverServerDown(ProtoBuf::ServerDown* state,
                            EntryId entryId);
 
@@ -392,6 +376,21 @@ class CoordinatorServerList : public AbstractServerList{
     bool hasUpdates(const Lock& lock);
     bool loadNextUpdate(UpdateSlot& updateRequest);
     void updateEntryVersion(ServerId serverId, uint64_t version);
+
+    void setReplicationId(Lock& lock, ServerId serverId, uint64_t segmentId);
+    void addServerInfoLogId(Lock& lock, ServerId serverId,
+                            LogCabin::Client::EntryId entryId);
+    void addServerUpdateLogId(Lock& lock, ServerId serverId,
+                              LogCabin::Client::EntryId entryId);
+    LogCabin::Client::EntryId getServerInfoLogId(Lock& lock, ServerId serverId);
+    LogCabin::Client::EntryId getServerUpdateLogId(Lock& lock,
+                                                   ServerId serverId);
+
+    bool assignReplicationGroup(Lock& lock, uint64_t replicationId,
+                                const vector<ServerId>& replicationGroupIds);
+    void createReplicationGroup(Lock& lock);
+    void removeReplicationGroup(Lock& lock, uint64_t groupId);
+    void serverDown(Lock& lock, ServerId serverId);
 
     /// Internal Use Only - Does not grab locks
     ServerDetails* iget(ServerId id);
