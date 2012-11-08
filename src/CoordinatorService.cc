@@ -23,6 +23,7 @@
 #include "ShortMacros.h"
 #include "ServerId.h"
 #include "ServiceMask.h"
+#include "PingClient.h"
 
 namespace RAMCloud {
 
@@ -43,6 +44,7 @@ CoordinatorService::CoordinatorService(Context* context,
     , logCabinLog()
     , logCabinHelper()
     , expectedEntryId(LogCabin::Client::NO_ID)
+    , forceServerDownForTesting(false)
 {
     if (strcmp(LogCabinLocator.c_str(), "testing") == 0) {
         LOG(NOTICE, "Connecting to mock LogCabin cluster for testing.");
@@ -374,9 +376,24 @@ CoordinatorService::hintServerDown(
 {
     ServerId serverId(reqHdr->serverId);
     rpc->sendReply();
-
     // reqHdr, respHdr, and rpc are off-limits now
-    serverList->hintServerDown(serverId);
+
+    if (!serverList->contains(serverId) ||
+            (*serverList)[serverId].status != ServerStatus::UP) {
+        LOG(NOTICE, "Spurious crash report on unknown server id %s",
+                     serverId.toString().c_str());
+        return;
+     }
+
+     LOG(NOTICE, "Checking server id %s (%s)",
+         serverId.toString().c_str(), serverList->getLocator(serverId));
+     if (!verifyServerFailure(serverId))
+         return;
+
+     LOG(NOTICE, "Server id %s has crashed, notifying the cluster and "
+         "starting recovery", serverId.toString().c_str());
+
+     serverList->serverDown(serverId);
 }
 
 /**
@@ -569,6 +586,35 @@ CoordinatorService::verifyMembership(
     ServerId serverId(reqHdr->serverId);
     if (!serverList->isUp(serverId))
         respHdr->common.status = STATUS_CALLER_NOT_IN_CLUSTER;
+}
+
+/**
+ * Investigate \a serverId and make a verdict about its whether it is alive.
+ *
+ * \param serverId
+ *      Server to investigate.
+ * \return
+ *      True if the server is dead, false if it is alive.
+ * \throw Exception
+ *      If \a serverId is not in #serverList.
+ */
+bool
+CoordinatorService::verifyServerFailure(ServerId serverId) {
+    // Skip the real ping if this is from a unit test
+    if (forceServerDownForTesting)
+        return true;
+
+    const string& serviceLocator = serverList->getLocator(serverId);
+    PingRpc pingRpc(context, serverId, ServerId());
+
+    if (pingRpc.wait(deadServerTimeout * 1000 * 1000)) {
+        LOG(NOTICE, "False positive for server id %s (\"%s\")",
+                    serverId.toString().c_str(), serviceLocator.c_str());
+        return false;
+    }
+    LOG(NOTICE, "Verified host failure: id %s (\"%s\")",
+        serverId.toString().c_str(), serviceLocator.c_str());
+    return true;
 }
 
 } // namespace RAMCloud

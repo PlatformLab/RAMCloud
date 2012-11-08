@@ -2,7 +2,7 @@ LOGCABIN_STATE_PROTOBUF_FILES := \
                         src/EntryType.pb.cc \
 			src/ServerInformation.pb.cc \
 			src/ServerUpdate.pb.cc \
-			src/ForceServerDown.pb.cc \
+			src/ServerDown.pb.cc \
 
 COORDINATOR_SRCFILES := \
 			src/CoordinatorServerList.cc \

@@ -25,7 +25,7 @@
 
 #include "ServerInformation.pb.h"
 #include "ServerUpdate.pb.h"
-#include "ForceServerDown.pb.h"
+#include "ServerDown.pb.h"
 
 #include "AbstractServerList.h"
 #include "MembershipClient.h"
@@ -169,9 +169,9 @@ class CoordinatorServerList : public AbstractServerList{
     void enlistedServerRecover(ProtoBuf::ServerInformation* state,
                                EntryId entryId);
 
-    bool hintServerDown(ServerId serverId);
-    void forceServerDown(Lock& lock, ServerId serverId);
-    void forceServerDownRecover(ProtoBuf::ForceServerDown* state,
+    void serverDown(ServerId serverId);
+    void serverDown(Lock& lock, ServerId serverId);
+    void serverDownRecover(ProtoBuf::ServerDown* state,
                                 EntryId entryId);
 
   PROTECTED:
@@ -230,11 +230,11 @@ class CoordinatorServerList : public AbstractServerList{
     };
 
     /**
-     * Defines methods and stores data to force a server out of the cluster.
+     * Defines methods and stores data to remove a server from the cluster.
      */
-    class ForceServerDown {
+    class ServerDown {
         public:
-            ForceServerDown(CoordinatorServerList &csl,
+            ServerDown(CoordinatorServerList &csl,
                             Lock& lock,
                             ServerId serverId)
                 : csl(csl), lock(lock), serverId(serverId) {}
@@ -254,7 +254,7 @@ class CoordinatorServerList : public AbstractServerList{
              * ServerId of the server that is suspected to be down.
              */
             ServerId serverId;
-            DISALLOW_COPY_AND_ASSIGN(ForceServerDown);
+            DISALLOW_COPY_AND_ASSIGN(ServerDown);
     };
 
     /**
@@ -292,8 +292,6 @@ class CoordinatorServerList : public AbstractServerList{
             ProtoBuf::MasterRecoveryInfo recoveryInfo;
             DISALLOW_COPY_AND_ASSIGN(SetMasterRecoveryInfo);
     };
-
-    bool verifyServerFailure(ServerId serverId);
 
     /**
      * The list of servers is just a vector of the following structure,
@@ -472,12 +470,6 @@ class CoordinatorServerList : public AbstractServerList{
      * Id 0 is reserved for nodes that do not belong to a replication group.
      */
     uint64_t nextReplicationId;
-
-    /**
-     * Used for testing only. If true, the HINT_SERVER_DOWN handler will
-     * assume that the server has failed (rather than checking for itself).
-     */
-    bool forceServerDownForTesting;
 
     DISALLOW_COPY_AND_ASSIGN(CoordinatorServerList);
 };

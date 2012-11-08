@@ -77,12 +77,12 @@ CoordinatorServiceRecovery::replay(bool testing)
             service.logCabinHelper->parseProtoBufFromEntry(*it, state);
             service.serverList->setMasterRecoveryInfoRecover(&state, entryId);
 
-        } else if (!entryType.compare("StateServerDown")) {
+        } else if (!entryType.compare("ServerDown")) {
 
-            RAMCLOUD_LOG(DEBUG, "ServiceRecovery: ForceServerDown");
-            ProtoBuf::ForceServerDown state;
+            RAMCLOUD_LOG(DEBUG, "ServiceRecovery: ServerDown");
+            ProtoBuf::ServerDown state;
             service.logCabinHelper->parseProtoBufFromEntry(*it, state);
-            service.serverList->forceServerDownRecover(&state, entryId);
+            service.serverList->serverDownRecover(&state, entryId);
 
         } else {
 

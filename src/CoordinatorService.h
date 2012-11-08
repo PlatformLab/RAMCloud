@@ -97,6 +97,9 @@ class CoordinatorService : public Service {
         WireFormat::VerifyMembership::Response* respHdr,
         Rpc* rpc);
 
+    // - helper methods -
+    bool verifyServerFailure(ServerId serverId);
+
     /**
      * Shared RAMCloud information.
      */
@@ -184,6 +187,12 @@ class CoordinatorService : public Service {
      * ensure leadership.
      */
     LogCabin::Client::EntryId expectedEntryId;
+
+    /**
+     * Used for testing only. If true, the HINT_SERVER_DOWN handler will
+     * assume that the server has failed (rather than checking for itself).
+     */
+    bool forceServerDownForTesting;
 
     friend class CoordinatorServiceRecovery;
     friend class CoordinatorServerList;

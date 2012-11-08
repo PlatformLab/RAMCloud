@@ -424,4 +424,16 @@ TEST_F(CoordinatorServiceTest, verifyMembership) {
                  CallerNotInClusterException);
 }
 
+TEST_F(CoordinatorServiceTest, verifyServerFailure) {
+    // Case 1: server up.
+    EXPECT_FALSE(service->verifyServerFailure(masterServerId));
+
+    // Case 2: server incommunicado.
+    MockTransport mockTransport(&context);
+    context.transportManager->registerMock(&mockTransport, "mock2");
+    ServerId deadId = service->serverList->enlistServer(
+                {}, {WireFormat::PING_SERVICE}, 100, "mock2:");
+    EXPECT_TRUE(service->verifyServerFailure(deadId));
+}
+
 }  // namespace RAMCloud

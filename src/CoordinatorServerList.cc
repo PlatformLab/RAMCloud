@@ -21,7 +21,6 @@
 #include "Cycles.h"
 #include "LogCabinHelper.h"
 #include "MasterRecoveryManager.h"
-#include "PingClient.h"
 #include "ServerTracker.h"
 #include "ShortMacros.h"
 #include "TransportManager.h"
@@ -52,7 +51,6 @@ CoordinatorServerList::CoordinatorServerList(Context* context)
     , listUpToDate()
     , thread()
     , nextReplicationId(1)
-    , forceServerDownForTesting(false)
 {
     context->coordinatorServerList = this;
     startUpdater();
@@ -829,7 +827,7 @@ CoordinatorServerList::enlistServer(
             "for it and assuming the old server has failed",
             serviceLocator, replacesId.toString().c_str());
 
-        forceServerDown(lock, replacesId);
+        serverDown(lock, replacesId);
     }
 
     ServerId newServerId =
@@ -898,42 +896,31 @@ CoordinatorServerList::enlistedServerRecover(
 }
 
 /**
- * Returns true if server is down, false otherwise.
- *
+ * Remove a server from the cluster.
+ * 
  * \param serverId
  *      ServerId of the server that is suspected to be down.
- * \return
- *      True if server is down, false otherwise.
  */
-bool
-CoordinatorServerList::hintServerDown(ServerId serverId)
+void
+CoordinatorServerList::serverDown(ServerId serverId)
 {
     Lock lock(mutex);
-    if (!iget(serverId) ||
-         iget(serverId)->status != ServerStatus::UP) {
-         LOG(NOTICE, "Spurious crash report on unknown server id %s",
-             serverId.toString().c_str());
-         return true;
-     }
-
-     LOG(NOTICE, "Checking server id %s (%s)",
-         serverId.toString().c_str(), getLocator(serverId));
-     if (!verifyServerFailure(serverId))
-         return false;
-
-     LOG(NOTICE, "Server id %s has crashed, notifying the cluster and "
-         "starting recovery", serverId.toString().c_str());
-
-     forceServerDown(lock, serverId);
-
-     commitUpdate(lock);
-     return true;
+    serverDown(lock, serverId);
 }
 
+/**
+ * Remove a server from the cluster.
+ * 
+ * \param lock
+ *      explicity needs CoordinatorServerList lock.
+ * \param serverId
+ *      ServerId of the server that is suspected to be down.
+ */
 void
-CoordinatorServerList::forceServerDown(Lock& lock, ServerId serverId)
+CoordinatorServerList::serverDown(Lock& lock, ServerId serverId)
 {
-    ForceServerDown(*this, lock, serverId).execute();
+    ServerDown(*this, lock, serverId).execute();
+    commitUpdate(lock);
 }
 
 /**
@@ -946,12 +933,12 @@ CoordinatorServerList::forceServerDown(Lock& lock, ServerId serverId)
  *      The entry id of the LogCabin entry corresponding to the state.
  */
 void
-CoordinatorServerList::forceServerDownRecover(
-    ProtoBuf::ForceServerDown* state, EntryId entryId)
+CoordinatorServerList::serverDownRecover(
+    ProtoBuf::ServerDown* state, EntryId entryId)
 {
     Lock lock(mutex);
-    LOG(DEBUG, "CoordinatorServerList::forceServerDownRecover()");
-    ForceServerDown(
+    LOG(DEBUG, "CoordinatorServerList::serverDownRecover()");
+    ServerDown(
             *this, lock, ServerId(state->server_id())).complete(entryId);
 }
 
@@ -1035,16 +1022,16 @@ CoordinatorServerList::EnlistServer::complete(EntryId entryId)
  * in LogCabin, log the state in LogCabin, then call #complete().
  */
 void
-CoordinatorServerList::ForceServerDown::execute()
+CoordinatorServerList::ServerDown::execute()
 {
-    ProtoBuf::ForceServerDown state;
-    state.set_entry_type("ForceServerDown");
+    ProtoBuf::ServerDown state;
+    state.set_entry_type("ServerDown");
     state.set_server_id(this->serverId.getId());
 
     EntryId entryId =
         csl.context->logCabinHelper->appendProtoBuf(
             *csl.context->expectedEntryId, state);
-    LOG(DEBUG, "LogCabin: ForceServerDown entryId: %lu", entryId);
+    LOG(DEBUG, "LogCabin: ServerDown entryId: %lu", entryId);
 
     complete(entryId);
 }
@@ -1053,14 +1040,14 @@ CoordinatorServerList::ForceServerDown::execute()
  * Complete the operation to force a server out of the cluster
  * after its state has been logged in LogCabin.
  * This is called internally by #execute() in case of normal operation, and
- * directly for coordinator recovery (by #forceServerDownRecover()).
+ * directly for coordinator recovery (by #serverDownRecover()).
  *
  * \param entryId
  *      The entry id of the LogCabin entry corresponding to the state
  *      of the operation to be completed.
  */
 void
-CoordinatorServerList::ForceServerDown::complete(EntryId entryId)
+CoordinatorServerList::ServerDown::complete(EntryId entryId)
 {
     // Get the entry ids for the LogCabin entries corresponding to this
     // server before the server information is removed from serverList,
@@ -1093,38 +1080,6 @@ CoordinatorServerList::ForceServerDown::complete(EntryId entryId)
 
     csl.context->logCabinHelper->invalidate(
         *csl.context->expectedEntryId, invalidates);
-}
-
-/**
- * Investigate \a serverId and make a verdict about its whether it is alive.
- *
- * \param serverId
- *      Server to investigate.
- * \return
- *      True if the server is dead, false if it is alive.
- * \throw Exception
- *      If \a serverId is not in #serverList.
- */
-bool
-CoordinatorServerList::verifyServerFailure(ServerId serverId) {
-    // Skip the real ping if this is from a unit test
-    if (forceServerDownForTesting)
-        return true;
-
-    const string& serviceLocator = iget(serverId)->serviceLocator;
-    PingRpc pingRpc(context, serverId, ServerId());
-
-    // TODO(ankitak): From CoordinatorService, add deadServerTimeout
-    // to context, and use it here as *context->deadServerTimeout
-    // instead of the first hard-coded value of 1000.
-    if (pingRpc.wait(1000 * 1000 * 1000)) {
-        LOG(NOTICE, "False positive for server id %s (\"%s\")",
-                    serverId.toString().c_str(), serviceLocator.c_str());
-        return false;
-    }
-    LOG(NOTICE, "Verified host failure: id %s (\"%s\")",
-        serverId.toString().c_str(), serviceLocator.c_str());
-    return true;
 }
 
 /**
@@ -1226,7 +1181,7 @@ CoordinatorServerList::isClusterUpToDate(const Lock& lock) {
  * will be Clear()ed and empty updates are silently ignored.
  *
  * \param lock
- *      explicity needs CoordinatorServerList lock
+ *      explicity needs CoordinatorServerList lock.
  */
 void
 CoordinatorServerList::commitUpdate(const Lock& lock)
