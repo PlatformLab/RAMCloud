@@ -174,12 +174,6 @@ class CoordinatorServerList : public AbstractServerList{
     void serverDownRecover(ProtoBuf::ServerDown* state,
                                 EntryId entryId);
 
-  PROTECTED:
-    /// Internal Use Only - Does not grab locks
-    ServerDetails* iget(ServerId id);
-    ServerDetails* iget(uint32_t index);
-    size_t isize() const;
-
   PRIVATE:
     /**
      * Defines methods and stores data to enlist a server.
@@ -399,6 +393,11 @@ class CoordinatorServerList : public AbstractServerList{
     bool hasUpdates(const Lock& lock);
     bool loadNextUpdate(UpdateSlot& updateRequest);
     void updateEntryVersion(ServerId serverId, uint64_t version);
+
+    /// Internal Use Only - Does not grab locks
+    ServerDetails* iget(ServerId id);
+    ServerDetails* iget(uint32_t index);
+    size_t isize() const;
 
     /// Slots in the server list.
     std::vector<GenerationNumberEntryPair> serverList;
