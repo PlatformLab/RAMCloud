@@ -147,13 +147,6 @@ class CoordinatorServerList : public AbstractServerList{
     uint32_t masterCount() const;
     uint32_t backupCount() const;
 
-    //TODO(ankitak): Tested in unit tests, but not really used. Why is it here?
-    uint32_t nextMasterIndex(uint32_t startIndex) const;
-    //TODO(ankitak): Tested in unit tests, but not really used. Why is it here?
-    uint32_t nextBackupIndex(uint32_t startIndex) const;
-
-    //TODO(ankitak): Used only by unit tests. Remove?
-    void serialize(ProtoBuf::ServerList& protoBuf) const;
     void serialize(ProtoBuf::ServerList& protobuf, ServiceMask services) const;
 
     void addServerInfoLogId(Lock& lock, ServerId serverId,

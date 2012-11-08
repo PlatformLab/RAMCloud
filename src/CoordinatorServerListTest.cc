@@ -149,8 +149,9 @@ class CoordinatorServerListTest : public ::testing::Test {
         if (position == string::npos) {
             throw "Search string not found";
         } else {
-            string entryIdString = TestLog::get().substr(
-                    TestLog::get().find(searchString) + searchString.length(), 1);
+            string entryIdString =
+                TestLog::get().substr(TestLog::get().find(searchString) +
+                                      searchString.length(), 1);
             return strtoul(entryIdString.c_str(), NULL, 0);
         }
     }
@@ -395,41 +396,6 @@ TEST_F(CoordinatorServerListTest, indexOperator) {
     crashed(ServerId(1, 0));
     remove(ServerId(1, 0));
     EXPECT_THROW((*sl)[ServerId(1, 0)], Exception);
-}
-
-TEST_F(CoordinatorServerListTest, nextMasterIndex) {
-    EXPECT_EQ(-1U, sl->nextMasterIndex(0));
-    ServerId serverId1 = generateUniqueId();
-    add(serverId1, "", {WireFormat::BACKUP_SERVICE}, 100);
-    ServerId serverId2 = generateUniqueId();
-    add(serverId2, "", {WireFormat::MASTER_SERVICE}, 100);
-    ServerId serverId3 = generateUniqueId();
-    add(serverId3, "", {WireFormat::BACKUP_SERVICE}, 100);
-    ServerId serverId4 = generateUniqueId();
-    add(serverId4, "", {WireFormat::BACKUP_SERVICE}, 100);
-    ServerId serverId5 = generateUniqueId();
-    add(serverId5, "", {WireFormat::MASTER_SERVICE}, 100);
-    ServerId serverId6 = generateUniqueId();
-    add(serverId6, "", {WireFormat::BACKUP_SERVICE}, 100);
-
-    EXPECT_EQ(2U, sl->nextMasterIndex(0));
-    EXPECT_EQ(2U, sl->nextMasterIndex(2));
-    EXPECT_EQ(5U, sl->nextMasterIndex(3));
-    EXPECT_EQ(-1U, sl->nextMasterIndex(6));
-}
-
-TEST_F(CoordinatorServerListTest, nextBackupIndex) {
-    EXPECT_EQ(-1U, sl->nextMasterIndex(0));
-    ServerId serverId1 = generateUniqueId();
-    add(serverId1, "", {WireFormat::MASTER_SERVICE}, 100);
-    ServerId serverId2 = generateUniqueId();
-    add(serverId2, "", {WireFormat::BACKUP_SERVICE}, 100);
-    ServerId serverId3 = generateUniqueId();
-    add(serverId3, "", {WireFormat::MASTER_SERVICE}, 100);
-
-    EXPECT_EQ(2U, sl->nextBackupIndex(0));
-    EXPECT_EQ(2U, sl->nextBackupIndex(2));
-    EXPECT_EQ(-1U, sl->nextBackupIndex(3));
 }
 
 TEST_F(CoordinatorServerListTest, serialize) {

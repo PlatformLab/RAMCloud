@@ -268,65 +268,6 @@ CoordinatorServerList::backupCount() const
 }
 
 /**
- * Finds a master in the list starting at some position in the list.
- *
- * \param startIndex
- *      Position in the list to start searching for a master.
- * \return
- *      If no backup is found in the remainder of the list then -1,
- *      otherwise the position of the first master in the list
- *      starting at or after \a startIndex. Also, -1 if
- *      \a startIndex is greater than or equal to the list size.
- */
-uint32_t
-CoordinatorServerList::nextMasterIndex(uint32_t startIndex) const
-{
-    Lock _(mutex);
-    for (; startIndex < serverList.size(); startIndex++) {
-        uint32_t i = startIndex;
-        if (serverList[i].entry && serverList[i].entry->isMaster())
-            break;
-    }
-    return (startIndex >= serverList.size()) ? -1 : startIndex;
-}
-
-/**
- * Finds a backup in the list starting at some position in the list.
- *
- * \param startIndex
- *      Position in the list to start searching for a backup.
- * \return
- *      If no backup is found in the remainder of the list then -1,
- *      otherwise the position of the first backup in the list
- *      starting at or after \a startIndex. Also, -1 if
- *      \a startIndex is greater than or equal to the list size.
- */
-uint32_t
-CoordinatorServerList::nextBackupIndex(uint32_t startIndex) const
-{
-    Lock _(mutex);
-    for (; startIndex < serverList.size(); startIndex++) {
-        uint32_t i = startIndex;
-        if (serverList[i].entry && serverList[i].entry->isBackup())
-            break;
-    }
-    return (startIndex >= serverList.size()) ? -1 : startIndex;
-}
-
-/**
- * Serialize the entire list to a Protocol Buffer form.
- *
- * \param[out] protoBuf
- *      Reference to the ProtoBuf to fill.
- */
-void
-CoordinatorServerList::serialize(ProtoBuf::ServerList& protoBuf) const
-{
-    serialize(protoBuf, {WireFormat::MASTER_SERVICE,
-        WireFormat::BACKUP_SERVICE});
-}
-
-/**
  * Serialize this list (or part of it, depending on which services the
  * caller wants) to a protocol buffer. Not all state is included, but
  * enough to be useful for disseminating cluster membership information

@@ -76,7 +76,8 @@ TEST_F(MembershipServiceTest, updateServerList) {
             WireFormat::PING_SERVICE}, 100);
     source.commitUpdate(lock);
     ProtoBuf::ServerList fullList;
-    source.serialize(fullList);
+    source.serialize(fullList, {WireFormat::MASTER_SERVICE,
+            WireFormat::BACKUP_SERVICE});
 
     MembershipClient::UpdateServerList(&context, serverId, &fullList);
     EXPECT_STREQ("mock:host=55", serverList.getLocator(id1));
