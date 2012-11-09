@@ -241,6 +241,7 @@ graph_tests = [
     Test("multiRead_oneMaster", multiRead),
     Test("multiRead_oneObjectPerMaster", multiRead),
     Test("multiRead_general", multiRead),
+    Test("multiRead_generalRandom", multiRead),
     Test("readVaryingKeyLength", default),
     Test("writeVaryingKeyLength", default),
     Test("readLoaded", readLoaded),

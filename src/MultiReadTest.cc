@@ -242,21 +242,37 @@ TEST_F(MultiReadTest, startRpcs_noAvailableRpc) {
     EXPECT_EQ("- -", rpcStatus(request));
     EXPECT_EQ("value:3-1", bufferString(values[4]));
 }
-TEST_F(MultiReadTest, startRpcs_tooManyObjectsForOneRpc) {
+
+TEST_F(MultiReadTest, startRpcs_50PercentRule) {
+    Tub<Buffer> value4, value5;
+    MultiReadObject object4(tableId3, "bogus1", 6, &value4);
+    MultiReadObject object5(tableId3, "bogus2", 6, &value5);
+
+    MultiReadObject* requests[] = {&objects[0], &objects[3], &objects[4],
+        &object4, &objects[1], &objects[2]};
+
+    // 50% rule violated since it's in the tableId order 1 2 3 3 1 1
+    // The batch of 3's violate the rule.
+    MultiRead request(ramcloud.get(), requests, 5);
+    EXPECT_EQ("mock:host=master1(1) mock:host=master2(1)", rpcStatus(request));
+    EXPECT_EQ(2UL, request.startIndex);
+}
+
+TEST_F(MultiReadTest, startRpcs_tooManyObjectsForOneRoundOfRpcs) {
     Tub<Buffer> value4, value5;
     MultiReadObject object4(tableId1, "bogus1", 6, &value4);
     MultiReadObject object5(tableId1, "bogus2", 6, &value5);
     MultiReadObject* requests[] = {&objects[0], &objects[1], &objects[2],
-            &object4, &object5};
+            &objects[3], &object4, &object5};
 
-    // Not enough space in RPC to send all requests in the first RPC.
-    MultiRead request(ramcloud.get(), requests, 5);
-    EXPECT_EQ("mock:host=master1(3) -", rpcStatus(request));
+    // Not enough space in RPC to send all requests in the first RPCs.
+    MultiRead request(ramcloud.get(), requests, 6);
+    EXPECT_EQ("mock:host=master1(3) mock:host=master2(1)", rpcStatus(request));
 
     // During the second call, still no space (first call
     // hasn't finished).
     EXPECT_FALSE(request.startRpcs());
-    EXPECT_EQ("mock:host=master1(3) -", rpcStatus(request));
+    EXPECT_EQ("mock:host=master1(3) mock:host=master2(1)", rpcStatus(request));
 
     // First call has finished, so another starts.
     EXPECT_FALSE(request.isReady());
@@ -310,6 +326,45 @@ TEST_F(MultiReadTest, wait_canceled) {
         message = "RpcCanceledException";
     }
     EXPECT_EQ("RpcCanceledException", message);
+}
+
+TEST_F(MultiReadTest, removeRequestAt) {
+    MultiReadObject* requests[] = {&objects[0], &objects[1], &objects[2],
+            &objects[3], &objects[4], &objects[5], &objects[0], &objects[1]};
+    MultiRead request(ramcloud.get(), requests, 8);
+
+    // 4U Results from the original scheduling.
+    EXPECT_EQ(4UL, request.startIndex);
+    EXPECT_EQ(8UL, request.requestQueue.size());
+
+    for (int ii=0; ii< 3; ii++)
+        ASSERT_EQ((void*)(&objects[ii]), (void*)(request.requestQueue[ii]));
+
+    // Remove -> Expect index to move up and request from slot 4 to 6
+    request.removeRequestAt(6);
+    EXPECT_EQ(5UL, request.startIndex);
+
+    ASSERT_EQ((void*)(&objects[4]),
+        (void*)(request.requestQueue[6]));
+}
+
+TEST_F(MultiReadTest, retryRequest) {
+    MultiReadObject* requests[] = {&objects[0], &objects[1], &objects[2],
+            &objects[3], &objects[4], &objects[5], &objects[0], &objects[1]};
+    MultiRead request(ramcloud.get(), requests, 8);
+
+    // 4U Results from the original scheduling.
+    EXPECT_EQ(4UL, request.startIndex);
+    EXPECT_EQ(8UL, request.requestQueue.size());
+
+    for (int ii=0; ii< 3; ii++)
+        ASSERT_EQ((void*)(&objects[ii]), (void*)(request.requestQueue[ii]));
+
+    //Retry object[0] -> Should end up in startIndex's location.
+    request.retryRequest(&objects[0]);
+
+    EXPECT_EQ(3UL, request.startIndex);
+    EXPECT_EQ((void*)(&objects[0]), (void*)(request.requestQueue[3]));
 }
 
 TEST_F(MultiReadTest, PartRpc_finish_transportError) {

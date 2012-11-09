@@ -38,11 +38,16 @@ MultiRead::MultiRead(RamCloud* ramcloud, MultiReadObject* requests[],
     , numRequests(numRequests)
     , rpcs()
     , canceled(false)
+    , requestQueue()
+    , startIndex(0)
 {
-    startRpcs();
+    requestQueue.reserve(numRequests);
+
     for (uint32_t i = 0; i < numRequests; i++) {
         requests[i]->value->destroy();
+        requestQueue.push_back(requests[i]);
     }
+    startRpcs();
 }
 
 /**
@@ -109,31 +114,39 @@ MultiRead::isReady() {
 bool
 MultiRead::startRpcs()
 {
+    uint32_t hit = 0, miss = 0, activeRpcCnt=0;
+    for (uint32_t i=0; i < MAX_RPCS; i++) {
+        if (rpcs[i])
+            activeRpcCnt++;
+    }
+
     // Each iteration through the following loop examines one of the
     // objects we are supposed to read.  If we haven't already read it,
     // add it to an outgoing RPC if possible.  We won't necessarily
     // be able to read all of the objects in one shot, due to limitations
     // on the number of objects we can read in one RPC and the number
     // of outstanding RPCs we can have.
-    for (uint32_t i = 0; i < numRequests; i++) {
-        MultiReadObject& request = *requests[i];
-        if (*request.value) {
-            // This object has already been read successfully.
-            continue;
-        }
-        if (request.status != STATUS_OK) {
-            // We tried to read this object and failed (or the object is
-            // being requested in an active RPC (status UNDERWAY)). No
-            // need to try again.
-            continue;
-        }
+    //
+    // The main loop over all requests below terminates when either:
+    // a) All rpcs are used (activeRpcCnt = MAX_RPCS)
+    //    -- No point in looking for work we can't do.
+    //
+    // b) The number of scheduled requests (hit) equals the number
+    //    of requests that could not be scheduled (miss).
+    //    -- Stats show that a 50% miss results in a 10% performance
+    //       loss and this grows n**2 with higher misses.
+    //
+    for (uint32_t i=startIndex; i < requestQueue.size(); i++) {
+        MultiReadObject* request = requestQueue[i];
+
         Transport::SessionRef session;
         try {
-            session = ramcloud->objectFinder.lookup(request.tableId,
-                    request.key, request.keyLength);
+           session = ramcloud->objectFinder.lookup(request->tableId,
+                    request->key, request->keyLength);
         }
         catch (TableDoesntExistException &e) {
-            request.status = STATUS_TABLE_DOESNT_EXIST;
+            request->status = STATUS_TABLE_DOESNT_EXIST;
+            removeRequestAt(i);
             continue;
         }
 
@@ -145,27 +158,46 @@ MultiRead::startRpcs()
                 // An unused RPC: start a new one.  If we get to an empty
                 // slot then there cannot be any more uninitiated RPCs after
                 // this slot.
-                rpc.construct(ramcloud, session);
+                rpc.construct(ramcloud, session, this);
             }
-            if (rpc->session == session) {
-                if ((rpc->reqHdr->count < PartRpc::MAX_OBJECTS_PER_RPC)
-                        && (rpc->state == RpcWrapper::RpcState::NOT_STARTED)) {
-                    // Add the current object to the list of those being
-                    // fetched by this RPC.
-                    new(&rpc->request, APPEND)
-                            WireFormat::MultiRead::Request::Part(
-                            request.tableId, request.keyLength);
-                    rpc->request.append(request.key, request.keyLength);
-                    rpc->requests[rpc->reqHdr->count] = &request;
-                    rpc->reqHdr->count++;
-                    request.status = UNDERWAY;
+
+            if (rpc->session != session)
+                continue;
+
+            if ((rpc->reqHdr->count < PartRpc::MAX_OBJECTS_PER_RPC)
+                    && (rpc->state == RpcWrapper::RpcState::NOT_STARTED)) {
+                // Add the current object to the list of those being
+                // fetched by this RPC.
+                new(&rpc->request, APPEND)
+                        WireFormat::MultiRead::Request::Part(
+                        request->tableId, request->keyLength);
+                rpc->request.append(request->key, request->keyLength);
+                rpc->requests[rpc->reqHdr->count] = request;
+                rpc->reqHdr->count++;
+                request->status = UNDERWAY;
+                removeRequestAt(i);
+
+                // Launch rpc if full
+                if (rpc->reqHdr->count == PartRpc::MAX_OBJECTS_PER_RPC) {
+                    activeRpcCnt++;
+                    rpc->send();
                 }
+
                 break;
             }
         }
+
+        if (request->status == UNDERWAY)
+            hit++;
+        else
+            miss++;
+
+        // Termination Conditions
+        if (hit == miss || activeRpcCnt == MAX_RPCS)
+            break;
     }
 
-    // Now launch all of the new RPCs we have generated.
+    // Now launch all of the new RPCs we have generated that are not yet full
     bool done = true;
     for (uint32_t j = 0; j < MAX_RPCS; j++) {
         Tub<PartRpc>& rpc = rpcs[j];
@@ -203,6 +235,35 @@ MultiRead::wait()
 }
 
 /**
+ * Deletes an entry off the request queue.
+ *
+ * \param index
+ *      Index of the request in the queue
+ */
+inline void
+MultiRead::removeRequestAt(uint32_t index) {
+    if (index > startIndex)
+        requestQueue[index] = requestQueue[startIndex];
+
+    startIndex++;
+}
+
+/**
+ * Adds a request back to the request queue (for error handling).
+ *
+ * \param request
+ *      Pointer to the request to be readded in.
+ */
+inline void
+MultiRead::retryRequest(MultiReadObject* request) {
+    assert(startIndex != 0);
+
+    startIndex--;
+    request->status = STATUS_RETRY;
+    requestQueue[startIndex] = request;
+}
+
+/**
  * Constructor for PartRpc objects.
  *
  * \param ramcloud
@@ -211,12 +272,13 @@ MultiRead::wait()
  *      Session on which this RPC will eventually be sent.
  */
 MultiRead::PartRpc::PartRpc(RamCloud* ramcloud,
-        Transport::SessionRef session)
+        Transport::SessionRef session, MultiRead* parent)
     : RpcWrapper(sizeof(WireFormat::MultiRead::Response))
     , ramcloud(ramcloud)
     , session(session)
     , requests()
     , reqHdr(allocHeader<WireFormat::MultiRead>())
+    , parent(parent)
 {
     reqHdr->count = 0;
 }
@@ -296,7 +358,7 @@ MultiRead::PartRpc::finish()
                     messageLogged = true;
                 }
                 ramcloud->objectFinder.flush();
-                request.status = STATUS_OK;
+                parent->retryRequest(requests[i]);
             }
         }
     }
@@ -305,9 +367,8 @@ MultiRead::PartRpc::finish()
     // because we hit the end of the buffer. For all objects we haven't
     // currently processed, reset their statuses to indicate that these
     // objects need to be fetched again.
-
     for ( ; i < reqHdr->count; i++) {
-        requests[i]->status = STATUS_OK;
+        parent->retryRequest(requests[i]);
     }
 }
 
