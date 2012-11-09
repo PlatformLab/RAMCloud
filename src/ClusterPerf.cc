@@ -1034,7 +1034,7 @@ doMultiRead(int dataLength, uint16_t keyLength,
         uint64_t numRequests = numMasters*objsPerMaster;
         MultiReadObject** reqs = *requests;
 
-        for (uint64_t i=0; i < numRequests; i++) {
+        for (uint64_t i = 0; i < numRequests; i++) {
             uint64_t rand = generateRandom() % numRequests;
 
             MultiReadObject* tmp = reqs[i];

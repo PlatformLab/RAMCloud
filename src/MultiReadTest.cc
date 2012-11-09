@@ -337,15 +337,14 @@ TEST_F(MultiReadTest, removeRequestAt) {
     EXPECT_EQ(4UL, request.startIndex);
     EXPECT_EQ(8UL, request.requestQueue.size());
 
-    for (int ii=0; ii< 3; ii++)
-        ASSERT_EQ((void*)(&objects[ii]), (void*)(request.requestQueue[ii]));
+    for (int ii = 0; ii< 3; ii++)
+        ASSERT_EQ((&objects[ii]), (request.requestQueue[ii]));
 
     // Remove -> Expect index to move up and request from slot 4 to 6
     request.removeRequestAt(6);
     EXPECT_EQ(5UL, request.startIndex);
 
-    ASSERT_EQ((void*)(&objects[4]),
-        (void*)(request.requestQueue[6]));
+    ASSERT_EQ((&objects[4]), (request.requestQueue[6]));
 }
 
 TEST_F(MultiReadTest, retryRequest) {
@@ -357,14 +356,14 @@ TEST_F(MultiReadTest, retryRequest) {
     EXPECT_EQ(4UL, request.startIndex);
     EXPECT_EQ(8UL, request.requestQueue.size());
 
-    for (int ii=0; ii< 3; ii++)
-        ASSERT_EQ((void*)(&objects[ii]), (void*)(request.requestQueue[ii]));
+    for (int ii = 0; ii< 3; ii++)
+        ASSERT_EQ((&objects[ii]), (request.requestQueue[ii]));
 
     //Retry object[0] -> Should end up in startIndex's location.
     request.retryRequest(&objects[0]);
 
     EXPECT_EQ(3UL, request.startIndex);
-    EXPECT_EQ((void*)(&objects[0]), (void*)(request.requestQueue[3]));
+    EXPECT_EQ((&objects[0]), (request.requestQueue[3]));
 }
 
 TEST_F(MultiReadTest, PartRpc_finish_transportError) {

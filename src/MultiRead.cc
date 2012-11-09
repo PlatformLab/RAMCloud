@@ -114,8 +114,8 @@ MultiRead::isReady() {
 bool
 MultiRead::startRpcs()
 {
-    uint32_t hit = 0, miss = 0, activeRpcCnt=0;
-    for (uint32_t i=0; i < MAX_RPCS; i++) {
+    uint32_t hit = 0, miss = 0, activeRpcCnt = 0;
+    for (uint32_t i = 0; i < MAX_RPCS; i++) {
         if (rpcs[i])
             activeRpcCnt++;
     }
@@ -136,7 +136,7 @@ MultiRead::startRpcs()
     //    -- Stats show that a 50% miss results in a 10% performance
     //       loss and this grows n**2 with higher misses.
     //
-    for (uint32_t i=startIndex; i < requestQueue.size(); i++) {
+    for (uint32_t i = startIndex; i < requestQueue.size(); i++) {
         MultiReadObject* request = requestQueue[i];
 
         Transport::SessionRef session;
@@ -270,6 +270,8 @@ MultiRead::retryRequest(MultiReadObject* request) {
  *      The RAMCloud object that governs this RPC.
  * \param session
  *      Session on which this RPC will eventually be sent.
+ * \param parent
+ *      MultiReadObject that started this RPC.
  */
 MultiRead::PartRpc::PartRpc(RamCloud* ramcloud,
         Transport::SessionRef session, MultiRead* parent)
