@@ -695,8 +695,9 @@ MasterService::dropTabletOwnership(
         if (reqHdr->tableId == i.table_id() &&
           reqHdr->firstKeyHash == i.start_key_hash() &&
           reqHdr->lastKeyHash == i.end_key_hash()) {
-            LOG(NOTICE, "Dropping ownership of tablet (%lu, range [%lu,%lu])",
-                reqHdr->tableId, reqHdr->firstKeyHash, reqHdr->lastKeyHash);
+            LOG(NOTICE, "Dropping ownership of tablet [0x%lx,0x%lx] in "
+                "tableId %lu", reqHdr->firstKeyHash, reqHdr->lastKeyHash,
+                reqHdr->tableId);
             TabletsOnMaster* table =
                     reinterpret_cast<TabletsOnMaster*>(i.user_data());
             delete table;
@@ -709,9 +710,9 @@ MasterService::dropTabletOwnership(
         index++;
     }
 
-    LOG(WARNING, "Could not drop ownership on unknown tablet (%lu, range "
-        "[%lu,%lu])!", reqHdr->tableId, reqHdr->firstKeyHash,
-        reqHdr->lastKeyHash);
+    LOG(WARNING, "Could not drop ownership on unknown tablet [0x%lx,0x%lx] "
+        "in tableId %lu)!", reqHdr->firstKeyHash,
+        reqHdr->lastKeyHash, reqHdr->tableId);
     respHdr->common.status = STATUS_UNKNOWN_TABLET;
 }
 
@@ -756,9 +757,9 @@ MasterService::splitMasterTablet(
 
     *tablets.add_tablet() = newTablet;
 
-    LOG(NOTICE, "In table '%lu' I split the tablet that started at key %lu and "
-                "ended at key %lu", reqHdr->tableId, reqHdr->firstKeyHash,
-                reqHdr->lastKeyHash);
+    LOG(NOTICE, "Split tablet [0x%lx,0x%lx] in tableId %lu at 0x%lx",
+        reqHdr->firstKeyHash, reqHdr->lastKeyHash, reqHdr->tableId,
+        reqHdr->splitKeyHash);
 }
 
 /**
@@ -802,17 +803,18 @@ MasterService::takeTabletOwnership(
         // Sanity check that this tablet doesn't overlap with an existing one.
         if (getTableForHash(reqHdr->tableId, reqHdr->firstKeyHash) != NULL ||
           getTableForHash(reqHdr->tableId, reqHdr->lastKeyHash) != NULL) {
-            LOG(WARNING, "Tablet being assigned (%lu, range [%lu,%lu]) "
-                "partially overlaps an existing tablet!", reqHdr->tableId,
+            LOG(WARNING,
+                "Can't take ownership of tablet [0x%lx,0x%lx] in tableId %lu: "
+                "partially overlaps an existing tablet", reqHdr->tableId,
                 reqHdr->firstKeyHash, reqHdr->lastKeyHash);
             // TODO(anybody): Do we want a more meaningful error code?
             respHdr->common.status = STATUS_INTERNAL_ERROR;
             return;
         }
 
-        LOG(NOTICE, "Taking ownership of new tablet (%lu, range "
-            "[%lu,%lu])", reqHdr->tableId, reqHdr->firstKeyHash,
-            reqHdr->lastKeyHash);
+        LOG(NOTICE, "Taking ownership of tablet [0x%lx,0x%lx] "
+            "in table %lu", reqHdr->firstKeyHash,
+            reqHdr->lastKeyHash, reqHdr->tableId);
 
 
         ProtoBuf::Tablets_Tablet& newTablet(*tablets.add_tablet());
@@ -826,9 +828,9 @@ MasterService::takeTabletOwnership(
                                     reqHdr->lastKeyHash);
         newTablet.set_user_data(reinterpret_cast<uint64_t>(table));
     } else {
-        LOG(NOTICE, "Taking ownership of existing tablet (%lu, range "
-            "[%lu,%lu]) in state %d", reqHdr->tableId, reqHdr->firstKeyHash,
-            reqHdr->lastKeyHash, tablet->state());
+        LOG(NOTICE, "Taking ownership of tablet [0x%lx,0x%lx] "
+            "in table %lu in state %d", reqHdr->firstKeyHash,
+            reqHdr->lastKeyHash, reqHdr->tableId, tablet->state());
 
         if (tablet->state() != ProtoBuf::Tablets_Tablet_State_RECOVERING) {
             LOG(WARNING, "Taking ownership when existing tablet is in "
@@ -865,7 +867,7 @@ MasterService::prepForMigration(
         (getTableForHash(reqHdr->tableId, reqHdr->firstKeyHash) != NULL ||
          getTableForHash(reqHdr->tableId, reqHdr->lastKeyHash) != NULL);
     if (overlap) {
-        LOG(WARNING, "already have tablet in range [%lu, %lu] for tableId %lu",
+        LOG(WARNING, "Already have tablet [0x%lx,0x%lx] in tableId %lu",
             reqHdr->firstKeyHash, reqHdr->lastKeyHash, reqHdr->tableId);
         respHdr->common.status = STATUS_OBJECT_EXISTS;
         return;
@@ -886,9 +888,9 @@ MasterService::prepForMigration(
 
     // TODO(rumble) would be nice to have a method to get a SL from an Rpc
     // object.
-    LOG(NOTICE, "Ready to receive tablet from \"??\". Table %lu, "
-        "range [%lu,%lu]", reqHdr->tableId, reqHdr->firstKeyHash,
-        reqHdr->lastKeyHash);
+    LOG(NOTICE, "Ready to receive tablet [0x%lx,0x%lx] in tableId %lu "
+        "from \"??\"", reqHdr->firstKeyHash, reqHdr->lastKeyHash,
+        reqHdr->tableId);
 }
 
 /**
@@ -925,9 +927,9 @@ MasterService::migrateTablet(const WireFormat::MigrateTablet::Request* reqHdr,
     }
 
     if (tablet == NULL) {
-        LOG(WARNING, "Migration request for range this master does not "
-            "own. TableId %lu, range [%lu,%lu]",
-            tableId, firstKeyHash, lastKeyHash);
+        LOG(WARNING, "Migration request for tablet this master does not "
+            "own (tablet [0x%lx,0x%lx] in tableId %lu)",
+            firstKeyHash, lastKeyHash, tableId);
         respHdr->common.status = STATUS_UNKNOWN_TABLET;
         return;
     }
@@ -951,10 +953,9 @@ MasterService::migrateTablet(const WireFormat::MigrateTablet::Request* reqHdr,
     Log::Position newOwnerLogHead = MasterClient::getHeadOfLog(context,
                                                               newOwnerMasterId);
 
-    LOG(NOTICE, "Migrating tablet (id %lu, first %lu, last %lu) to "
-        "ServerId %s (\"%s\")", tableId, firstKeyHash, lastKeyHash,
-        newOwnerMasterId.toString().c_str(),
-        context->serverList->getLocator(newOwnerMasterId));
+    LOG(NOTICE, "Migrating tablet [0x%lx,0x%lx] in tableId %lu to %s",
+        firstKeyHash, lastKeyHash, tableId,
+        context->serverList->toString(newOwnerMasterId).c_str());
 
     // We'll send over objects in Segment containers for better network
     // efficiency and convenience.
@@ -1057,9 +1058,11 @@ MasterService::migrateTablet(const WireFormat::MigrateTablet::Request* reqHdr,
         tableId, firstKeyHash, lastKeyHash, newOwnerMasterId,
         newOwnerLogHead.getSegmentId(), newOwnerLogHead.getSegmentOffset());
 
-    LOG(NOTICE, "Tablet migration succeeded. Sent %lu objects and %lu "
-        "tombstones. %lu bytes in total.", totalObjects, totalTombstones,
-        totalBytes);
+    LOG(NOTICE, "Migration succeeded for tablet [0x%lx,0x%lx] in "
+        "tableId %lu; sent %lu objects and %lu tombstones to %s, "
+        "%lu bytes in total",
+        firstKeyHash, lastKeyHash, tableId, totalObjects, totalTombstones,
+        context->serverList->toString(newOwnerMasterId).c_str(), totalBytes);
 
     tablets.mutable_tablet()->SwapElements(tablets.tablet_size() - 1,
                                            tabletIndex);
@@ -1085,6 +1088,9 @@ MasterService::receiveMigrationData(
     uint64_t firstKeyHash = reqHdr->firstKeyHash;
     uint32_t segmentBytes = reqHdr->segmentBytes;
 
+    LOG(NOTICE, "Receiving %u bytes of migration data for tablet [0x%lx,??] "
+        "in tableId %lu", segmentBytes, firstKeyHash, tableId);
+
     // TODO(rumble/slaughter) need to make sure we already have a table
     // created that was previously prepped for migration.
     const ProtoBuf::Tablets::Tablet* tablet = NULL;
@@ -1096,23 +1102,19 @@ MasterService::receiveMigrationData(
     }
 
     if (tablet == NULL) {
-        LOG(WARNING, "migration data received for unknown tablet %lu, "
-            "firstKeyHash %lu", tableId, firstKeyHash);
+        LOG(WARNING, "Unknown tableId %lu", tableId);
         respHdr->common.status = STATUS_UNKNOWN_TABLET;
         return;
     }
 
     if (tablet->state() != ProtoBuf::Tablets_Tablet_State_RECOVERING) {
-        LOG(WARNING, "migration data received for tablet not in the "
+        LOG(WARNING, "Migration data received for tablet not in the "
             "RECOVERING state (state = %s)!",
             ProtoBuf::Tablets_Tablet_State_Name(tablet->state()).c_str());
         // TODO(rumble/slaughter): better error code here?
         respHdr->common.status = STATUS_INTERNAL_ERROR;
         return;
     }
-
-    LOG(NOTICE, "RECEIVED MIGRATION DATA (tbl %lu, fk %lu, bytes %u)!\n",
-        tableId, firstKeyHash, segmentBytes);
 
     Segment::Certificate certificate = reqHdr->certificate;
     rpc->requestPayload->truncateFront(sizeof(*reqHdr));

@@ -354,25 +354,26 @@ TEST_F(CoordinatorServiceTest, reassignTabletOwnership) {
 
     EXPECT_THROW(CoordinatorClient::reassignTabletOwnership(&context,
         0, 0, -1, ServerId(472, 2), 83, 835), ServerNotUpException);
-    EXPECT_EQ("reassignTabletOwnership: Server id 472.2 is not up! "
-        "Cannot reassign ownership of tablet 0, range "
-        "[0, 18446744073709551615]!", TestLog::get());
+    EXPECT_EQ("reassignTabletOwnership: Cannot reassign tablet "
+        "[0x0,0xffffffffffffffff] in tableId 0 to 472.2: server not up",
+        TestLog::get());
     EXPECT_EQ(1, master->tablets.tablet_size());
     EXPECT_EQ(0, master2->master->tablets.tablet_size());
 
     TestLog::reset();
     EXPECT_THROW(CoordinatorClient::reassignTabletOwnership(&context,
         0, 0, 57, master2->serverId, 83, 835), TableDoesntExistException);
-    EXPECT_EQ("reassignTabletOwnership: Could not reassign tablet 0, "
-        "range [0, 57]: not found!", TestLog::get());
+    EXPECT_EQ("reassignTabletOwnership: Could not reassign tablet [0x0,0x39] "
+              "in tableId 0: tablet not found", TestLog::get());
     EXPECT_EQ(1, master->tablets.tablet_size());
     EXPECT_EQ(0, master2->master->tablets.tablet_size());
 
     TestLog::reset();
     CoordinatorClient::reassignTabletOwnership(&context, 0, 0, -1,
         master2->serverId, 83, 835);
-    EXPECT_EQ("reassignTabletOwnership: Reassigning tablet 0, range "
-        "[0, 18446744073709551615] from server id 1.0 to server id 2.0.",
+    EXPECT_EQ("reassignTabletOwnership: Reassigning tablet "
+        "[0x0,0xffffffffffffffff] in tableId 0 from server 1.0 at "
+        "mock:host=master to server 2.0 at mock:host=master2",
         TestLog::get());
     // Calling master removes the entry itself after the RPC completes on coord.
     EXPECT_EQ(1, master->tablets.tablet_size());
