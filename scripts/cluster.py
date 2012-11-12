@@ -472,9 +472,11 @@ def run(
                 print('All servers running')
 
         if client:
-            host_list = hosts
-            if not share_hosts:
-                host_list = hosts[num_servers:]
+            # Note: even if it's OK to share hosts between clients and servers,
+            # don't do it unless necessary.
+            host_list = hosts[num_servers:]
+            if share_hosts:
+                host_list.extend(hosts[:num_servers])
             client_hosts = [host_list[i % len(host_list)]
                             for i in range(num_clients)]
             assert(len(client_hosts) == num_clients)
