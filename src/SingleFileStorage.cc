@@ -412,11 +412,21 @@ SingleFileStorage::Frame::free()
 {
     Lock lock(storage->mutex);
     ++epoch;
+    deschedule();
     isOpen = false;
     isClosed = false;
     // Must reset this before open(), because on startup after benchmark, the
     // frame may be loaded without open.
     loadRequested = false;
+
+    // Reset these to ensure we don't have a case where a freed frame still
+    // appears to be !isSynced().
+    appendedLength = 0;
+    committedLength = 0;
+    memset(appendedMetadata.get(), '\0', METADATA_SIZE);
+    appendedMetadataLength = 1;
+    appendedMetadataVersion = 0;
+    committedMetadataVersion = 0;
 
     if (buffer) {
         buffer.reset();
@@ -754,7 +764,7 @@ SingleFileStorage::SingleFileStorage(size_t segmentSize,
                     0666);
     }
     if (fd == -1) {
-        auto e = errno;
+        int e = errno;
         LOG(ERROR, "Failed to open backup storage file %s: %s",
             filePath, strerror(e));
         throw BackupStorageException(HERE,
@@ -899,7 +909,7 @@ SingleFileStorage::open(bool sync)
 uint32_t
 SingleFileStorage::benchmark(BackupStrategy backupStrategy)
 {
-    auto r = BackupStorage::benchmark(backupStrategy);
+    uint32_t r = BackupStorage::benchmark(backupStrategy);
     lastAllocatedFrame = FreeMap::npos;
     return r;
 }
@@ -934,7 +944,7 @@ SingleFileStorage::loadAllMetadata()
 {
     std::vector<FrameRef> ret;
     ret.reserve(frames.size());
-    foreach (auto& frame, frames) {
+    foreach (Frame& frame, frames) {
         frame.loadMetadata();
         assert(freeMap[frame.frameIndex] == 1);
         freeMap[frame.frameIndex] = 0;
@@ -1088,14 +1098,14 @@ SingleFileStorage::loadSuperblock()
 void
 SingleFileStorage::quiesce()
 {
-    foreach (const auto& frame, frames) {
-        uint64_t start = 0;
+    foreach (const Frame& frame, frames) {
+        uint64_t start = Cycles::rdtsc();
         while (true) {
             Lock lock(mutex);
             if (frame.isSynced())
                 break;
             if (Cycles::toSeconds(Cycles::rdtsc() - start) > 1.0) {
-                LOG(NOTICE, "Quiesce waiting for frame %lu to sync "
+                LOG(WARNING, "Quiesce waiting for frame %lu to sync "
                     "(isScheduled: %u)", frame.frameIndex, frame.isScheduled());
                 start = Cycles::rdtsc();
             }
@@ -1118,7 +1128,7 @@ SingleFileStorage::fry()
     Buffer empty;
     uint8_t zeroes[getMetadataSize()];
     memset(zeroes, 0, sizeof(zeroes));
-    foreach (auto& frame, frames) {
+    foreach (Frame& frame, frames) {
         frame.open(true);
         frame.append(empty, 0, 0, 0, zeroes, sizeof(zeroes));
         frame.free();
