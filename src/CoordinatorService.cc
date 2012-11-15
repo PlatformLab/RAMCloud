@@ -29,7 +29,8 @@ namespace RAMCloud {
 
 CoordinatorService::CoordinatorService(Context* context,
                                        uint32_t deadServerTimeout,
-                                       string LogCabinLocator)
+                                       string LogCabinLocator,
+                                       bool startRecoveryManager)
     : context(context)
     , serverList(context->coordinatorServerList)
     , deadServerTimeout(deadServerTimeout)
@@ -68,7 +69,7 @@ CoordinatorService::CoordinatorService(Context* context,
     context->logCabinHelper = logCabinHelper.get();
     context->expectedEntryId = &expectedEntryId;
 
-    if (strcmp(LogCabinLocator.c_str(), "testing") != 0)
+    if (startRecoveryManager)
         recoveryManager.start();
 
     // Replay the entire log (if any) before we start servicing the RPCs.

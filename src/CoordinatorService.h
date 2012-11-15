@@ -43,7 +43,8 @@ class CoordinatorService : public Service {
   public:
     explicit CoordinatorService(Context* context,
                                 uint32_t deadServerTimeout,
-                                string LogCabinLocator = "testing");
+                                string LogCabinLocator = "testing",
+                                bool startRecoveryManager = true);
     ~CoordinatorService();
     void dispatch(WireFormat::Opcode opcode,
                   Rpc* rpc);
