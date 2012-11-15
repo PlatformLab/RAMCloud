@@ -133,32 +133,48 @@ class CoordinatorServerList : public AbstractServerList{
     explicit CoordinatorServerList(Context* context);
     ~CoordinatorServerList();
 
-    void removeAfterRecovery(ServerId serverId);
-
-    void setMasterRecoveryInfo(ServerId serverId,
-        const ProtoBuf::MasterRecoveryInfo& recoveryInfo);
-    void recoverMasterRecoveryInfo(ProtoBuf::ServerUpdate* state,
-                                      EntryId entryId);
-
-    Entry operator[](ServerId serverId) const;
-    Entry operator[](size_t index) const;
-
-    uint32_t masterCount() const;
     uint32_t backupCount() const;
-
-    void serialize(ProtoBuf::ServerList& protobuf, ServiceMask services) const;
-
-    void serverDown(ServerId serverId);
     ServerId enlistServer(ServerId replacesId, ServiceMask serviceMask,
                           const uint32_t readSpeed, const char* serviceLocator);
-    void recoverEnlistServer(ProtoBuf::ServerInformation* state,
-                             EntryId entryId);
+    uint32_t masterCount() const;
+    Entry operator[](ServerId serverId) const;
+    Entry operator[](size_t index) const;
     void recoverEnlistedServer(ProtoBuf::ServerInformation* state,
                                EntryId entryId);
+    void recoverEnlistServer(ProtoBuf::ServerInformation* state,
+                             EntryId entryId);
+    void recoverMasterRecoveryInfo(ProtoBuf::ServerUpdate* state,
+                                      EntryId entryId);
     void recoverServerDown(ProtoBuf::ServerDown* state,
                            EntryId entryId);
+    void removeAfterRecovery(ServerId serverId);
+    void serialize(ProtoBuf::ServerList& protobuf, ServiceMask services) const;
+    void serverDown(ServerId serverId);
+    void setMasterRecoveryInfo(ServerId serverId,
+        const ProtoBuf::MasterRecoveryInfo& recoveryInfo);
 
   PRIVATE:
+    /**
+     * The list of servers is just a vector of the following structure,
+     * containing a permanent generation number that increments each
+     * time an index is reused, and a Tubbed Entry, which describes the
+     * server currently allocated to that slot, if there is one.
+     */
+    class GenerationNumberEntryPair {
+      public:
+        GenerationNumberEntryPair()
+            : nextGenerationNumber(0),
+              entry()
+        {
+        }
+
+        /// The next generation number to be assigned in this slot.
+        uint32_t nextGenerationNumber;
+
+        /// If allocated, the entry associated with the ServerId in this slot.
+        Tub<Entry> entry;
+    };
+
     /**
      * Defines methods and stores data to enlist a server.
      */
@@ -272,24 +288,30 @@ class CoordinatorServerList : public AbstractServerList{
     };
 
     /**
-     * The list of servers is just a vector of the following structure,
-     * containing a permanent generation number that increments each
-     * time an index is reused, and a Tubbed Entry, which describes the
-     * server currently allocated to that slot, if there is one.
+     * State of partial scans through the server list to find updates.
+     * Modifying these fields can break search heuristics and cause
+     * \a deadlock.
      */
-    class GenerationNumberEntryPair {
-      public:
-        GenerationNumberEntryPair()
-            : nextGenerationNumber(0),
-              entry()
-        {
-        }
+    struct ScanMetadata {
+        /**
+         * Indicates that no updates were found in the last scan.
+         * Only hasUpdates() should toggle this field to true, but
+         * it is safe to toggle false by other entities. It is used
+         * to skip scans through the server list.
+         */
+        bool noUpdatesFound;
 
-        /// The next generation number to be assigned in this slot.
-        uint32_t nextGenerationNumber;
+        /**
+         * The index that the server list left off on during
+         * its last scan for entries to update.
+         */
+        size_t searchIndex;
 
-        /// If allocated, the entry associated with the ServerId in this slot.
-        Tub<Entry> entry;
+        /**
+         * Minimum version of all the entry server list versions that have
+         * been encountered thus far in the scan.
+         */
+        uint64_t minVersion;
     };
 
     /**
@@ -323,79 +345,52 @@ class CoordinatorServerList : public AbstractServerList{
         DISALLOW_COPY_AND_ASSIGN(UpdateSlot);
     };
 
-    /**
-     * State of partial scans through the server list to find updates.
-     * Modifying these fields can break search heuristics and cause
-     * \a deadlock.
-     */
-    struct ScanMetadata {
-        /**
-         * Indicates that no updates were found in the last scan.
-         * Only hasUpdates() should toggle this field to true, but
-         * it is safe to toggle false by other entities. It is used
-         * to skip scans through the server list.
-         */
-        bool noUpdatesFound;
-
-        /**
-         * The index that the server list left off on during
-         * its last scan for entries to update.
-         */
-        size_t searchIndex;
-
-        /**
-         * Minimum version of all the entry server list versions that have
-         * been encountered thus far in the scan.
-         */
-        uint64_t minVersion;
-    };
-
-    /// Functions related to modifying the server list
-    void add(Lock& lock, ServerId serverId, string serviceLocator,
-             ServiceMask serviceMask, uint32_t readSpeed);
-    void crashed(const Lock& lock, ServerId serverId);
-    void remove(Lock& lock, ServerId serverId);
-    ServerId generateUniqueId(Lock& lock);
-    uint32_t firstFreeIndex();
-    const Entry& getReferenceFromServerId(const Lock& lock,
-                                          ServerId serverId) const;
-    const Entry& getReferenceFromIndex(const Lock& lock, size_t index) const;
-    void serialize(const Lock& lock, ProtoBuf::ServerList& protoBuf) const;
-    void serialize(const Lock& lock, ProtoBuf::ServerList& protobuf,
-                   ServiceMask services) const;
-
-    /// Functions related to keeping the cluster up-to-date
-    bool isClusterUpToDate(const Lock& lock);
-    void commitUpdate(const Lock& lock);
-    void pruneUpdates(const Lock& lock, uint64_t version);
-    void startUpdater();
-    void haltUpdater();
-    void updateLoop();
-    void sync();
-    bool dispatchRpc(UpdateSlot& update);
-    bool hasUpdates(const Lock& lock);
-    bool loadNextUpdate(UpdateSlot& updateRequest);
-    void updateEntryVersion(ServerId serverId, uint64_t version);
-
-    void setReplicationId(Lock& lock, ServerId serverId, uint64_t segmentId);
-    void addServerInfoLogId(Lock& lock, ServerId serverId,
-                            LogCabin::Client::EntryId entryId);
-    void addServerUpdateLogId(Lock& lock, ServerId serverId,
-                              LogCabin::Client::EntryId entryId);
-    LogCabin::Client::EntryId getServerInfoLogId(Lock& lock, ServerId serverId);
-    LogCabin::Client::EntryId getServerUpdateLogId(Lock& lock,
-                                                   ServerId serverId);
-
-    bool assignReplicationGroup(Lock& lock, uint64_t replicationId,
-                                const vector<ServerId>& replicationGroupIds);
-    void createReplicationGroup(Lock& lock);
-    void removeReplicationGroup(Lock& lock, uint64_t groupId);
-    void serverDown(Lock& lock, ServerId serverId);
-
     /// Internal Use Only - Does not grab locks
     ServerDetails* iget(ServerId id);
     ServerDetails* iget(uint32_t index);
     size_t isize() const;
+
+    /// Functions related to modifying the server list
+    void add(Lock& lock, ServerId serverId, string serviceLocator,
+             ServiceMask serviceMask, uint32_t readSpeed);
+    void addServerInfoLogId(Lock& lock, ServerId serverId,
+                            LogCabin::Client::EntryId entryId);
+    void addServerUpdateLogId(Lock& lock, ServerId serverId,
+                              LogCabin::Client::EntryId entryId);
+    void crashed(const Lock& lock, ServerId serverId);
+    uint32_t firstFreeIndex();
+    ServerId generateUniqueId(Lock& lock);
+    const Entry& getReferenceFromIndex(const Lock& lock, size_t index) const;
+    const Entry& getReferenceFromServerId(const Lock& lock,
+                                          ServerId serverId) const;
+    LogCabin::Client::EntryId getServerInfoLogId(Lock& lock, ServerId serverId);
+    LogCabin::Client::EntryId getServerUpdateLogId(Lock& lock,
+                                                   ServerId serverId);
+    void remove(Lock& lock, ServerId serverId);
+    void serialize(const Lock& lock, ProtoBuf::ServerList& protoBuf) const;
+    void serialize(const Lock& lock, ProtoBuf::ServerList& protobuf,
+                   ServiceMask services) const;
+    void serverDown(Lock& lock, ServerId serverId);
+
+    /// Functions related to replication groups.
+    bool assignReplicationGroup(Lock& lock, uint64_t replicationId,
+                                const vector<ServerId>& replicationGroupIds);
+    void createReplicationGroup(Lock& lock);
+    void removeReplicationGroup(Lock& lock, uint64_t groupId);
+    void setReplicationId(Lock& lock, ServerId serverId, uint64_t segmentId);
+
+    /// Functions related to keeping the cluster up-to-date
+    void commitUpdate(const Lock& lock);
+    bool dispatchRpc(UpdateSlot& update);
+    void haltUpdater();
+    bool hasUpdates(const Lock& lock);
+    bool isClusterUpToDate(const Lock& lock);
+    bool loadNextUpdate(UpdateSlot& updateRequest);
+    void pruneUpdates(const Lock& lock, uint64_t version);
+    void startUpdater();
+    void sync();
+    void updateEntryVersion(ServerId serverId, uint64_t version);
+    void updateLoop();
 
     /// Slots in the server list.
     std::vector<GenerationNumberEntryPair> serverList;
