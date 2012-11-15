@@ -168,6 +168,9 @@ CoordinatorService::createTable(const WireFormat::CreateTable::Request* reqHdr,
     tables[name] = tableId;
     respHdr->tableId = tableId;
 
+    LOG(NOTICE, "Created table '%s' with id %lu",
+                    name, tableId);
+
     uint32_t serverSpan = reqHdr->serverSpan;
     if (serverSpan == 0)
         serverSpan = 1;
@@ -207,13 +210,11 @@ CoordinatorService::createTable(const WireFormat::CreateTable::Request* reqHdr,
         MasterClient::takeTabletOwnership(context, master.serverId, tableId,
                                           firstKeyHash, lastKeyHash);
 
-        LOG(DEBUG, "Created table '%s' with id %lu and a span %u on master %s",
-                    name, tableId, serverSpan,
-                    master.serverId.toString().c_str());
+        LOG(NOTICE, "Assigned tablet [0x%lx,0x%lx] in table '%s' (id %lu) "
+                    "to %s",
+                    firstKeyHash, lastKeyHash, name, tableId,
+                    serverList->toString(master.serverId).c_str());
     }
-
-    LOG(NOTICE, "Created table '%s' with id %lu",
-                    name, tableId);
 }
 
 /**
@@ -241,8 +242,8 @@ CoordinatorService::dropTable(const WireFormat::DropTable::Request* reqHdr,
                                               tablet.endKeyHash);
     }
 
-    LOG(NOTICE, "Dropped table '%s' with id %lu", name, tableId);
-    LOG(DEBUG, "There are now %lu tablets in the map", tabletMap.size());
+    LOG(NOTICE, "Dropped table '%s' (id %lu), %lu tablets left in map",
+        name, tableId, tabletMap.size());
 }
 
 /**
@@ -462,10 +463,10 @@ CoordinatorService::reassignTabletOwnership(
 {
     ServerId newOwner(reqHdr->newOwnerId);
     if (!serverList->isUp(newOwner)) {
-        LOG(WARNING, "Server id %s is not up! Cannot reassign "
-            "ownership of tablet %lu, range [%lu, %lu]!",
-            newOwner.toString().c_str(), reqHdr->tableId,
-            reqHdr->firstKeyHash, reqHdr->lastKeyHash);
+        LOG(WARNING, "Cannot reassign tablet [0x%lx,0x%lx] in tableId %lu "
+            "to %s: server not up", reqHdr->firstKeyHash,
+            reqHdr->lastKeyHash, reqHdr->tableId,
+            newOwner.toString().c_str());
         respHdr->common.status = STATUS_SERVER_NOT_UP;
         return;
     }
@@ -477,14 +478,15 @@ CoordinatorService::reassignTabletOwnership(
         Tablet tablet = tabletMap.getTablet(reqHdr->tableId,
                                            reqHdr->firstKeyHash,
                                            reqHdr->lastKeyHash);
-        LOG(NOTICE, "Reassigning tablet %lu, range [%lu, %lu] from server "
-            "id %s to server id %s.", reqHdr->tableId, reqHdr->firstKeyHash,
-            reqHdr->lastKeyHash, tablet.serverId.toString().c_str(),
-            newOwner.toString().c_str());
+        LOG(NOTICE, "Reassigning tablet [0x%lx,0x%lx] in tableId %lu "
+            "from %s to %s", reqHdr->firstKeyHash,
+            reqHdr->lastKeyHash, reqHdr->tableId,
+            serverList->toString(tablet.serverId).c_str(),
+            serverList->toString(newOwner).c_str());
     } catch (const TabletMap::NoSuchTablet& e) {
-        LOG(WARNING, "Could not reassign tablet %lu, range [%lu, %lu]: "
-            "not found!", reqHdr->tableId, reqHdr->firstKeyHash,
-            reqHdr->lastKeyHash);
+        LOG(WARNING, "Could not reassign tablet [0x%lx,0x%lx] in tableId %lu: "
+            "tablet not found", reqHdr->firstKeyHash,
+            reqHdr->lastKeyHash, reqHdr->tableId);
         respHdr->common.status = STATUS_TABLE_DOESNT_EXIST;
         return;
     }
@@ -499,9 +501,9 @@ CoordinatorService::reassignTabletOwnership(
                                reqHdr->lastKeyHash, newOwner, Tablet::NORMAL,
                                headOfLogAtCreation);
     } catch (const TabletMap::NoSuchTablet& e) {
-        LOG(WARNING, "Could not reassign tablet %lu, range [%lu, %lu]: "
-            "not found!", reqHdr->tableId, reqHdr->firstKeyHash,
-            reqHdr->lastKeyHash);
+        LOG(WARNING, "Could not reassign tablet [0x%lx,0x%lx] in tableId %lu: "
+            "tablet not found", reqHdr->firstKeyHash,
+            reqHdr->lastKeyHash, reqHdr->tableId);
         respHdr->common.status = STATUS_TABLE_DOESNT_EXIST;
         return;
     }
@@ -593,8 +595,11 @@ CoordinatorService::verifyMembership(
     Rpc* rpc)
 {
     ServerId serverId(reqHdr->serverId);
-    if (!serverList->isUp(serverId))
+    if (!serverList->isUp(serverId)) {
         respHdr->common.status = STATUS_CALLER_NOT_IN_CLUSTER;
+        LOG(WARNING, "Membership verification failed for %s",
+            serverList->toString(serverId).c_str());
+    }
 }
 
 /**
