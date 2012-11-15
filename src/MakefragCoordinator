@@ -10,7 +10,7 @@ COORDINATOR_SRCFILES := \
 			src/CoordinatorServiceRecovery.cc \
 			src/LogCabinHelper.cc \
 			src/MasterRecoveryManager.cc \
-			src/Table.cc \
+			src/TabletMap.cc \
 			src/Recovery.cc \
 			src/RuntimeOptions.cc \
 			$(LOGCABIN_STATE_PROTOBUF_FILES) \

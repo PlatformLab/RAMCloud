@@ -17,7 +17,6 @@
 #include "Recovery.h"
 #include "ShortMacros.h"
 #include "TabletsBuilder.h"
-#include "Table.h"
 #include "ProtoBuf.h"
 
 namespace RAMCloud {
