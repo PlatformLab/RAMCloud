@@ -234,8 +234,13 @@ struct LargeBlockOfMemory {
         // to do the trick and using it makes polling mmap for aligned base
         // addresses much slower.
         uint64_t pageSize = sysconf(_SC_PAGESIZE);
-        for (uint64_t i = 0; i < length; i += pageSize)
+        for (uint64_t i = 0; i < length; i += pageSize) {
             reinterpret_cast<uint8_t*>(block)[i] = 0;
+            if (!(i & ((1 << 30) - 1))) {
+                RAMCLOUD_LOG(NOTICE, "Populating pages; progress %lu of %lu MB",
+                             i / (1 << 20), length / (1 << 20));
+            }
+        }
 #endif // !TESTING
 
         // Cache last mapped address to avoid re-probing same addresses later.
