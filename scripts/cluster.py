@@ -256,7 +256,7 @@ class Cluster(object):
                    server_locator(self.transport, host, port), command))
         return server
 
-    def ensure_servers(self, numMasters=None, numBackups=None):
+    def ensure_servers(self, numMasters=None, numBackups=None, timeout=30):
         """Poll the coordinator and block until the specified number of
         masters and backups have enlisted. Useful for ensuring that the
         cluster is in the expected state before experiments begin.
@@ -279,10 +279,10 @@ class Cluster(object):
         self.sandbox.checkFailures()
         try:
             self.sandbox.rsh(self.coordinator_host[0],
-                             '%s -C %s -m %d -b %d -l 1 --wait 10 '
+                             '%s -C %s -m %d -b %d -l 1 --wait %d '
                              '--logFile %s/ensureServers.log' %
                              (ensure_servers_bin, self.coordinator_locator,
-                              numMasters, numBackups, self.log_subdir))
+                              numMasters, numBackups, timeout, self.log_subdir))
         except:
             # prefer exceptions from dead processes to timeout error
             self.sandbox.checkFailures()
@@ -444,7 +444,7 @@ def run(
                                              backup=False)
             oldMaster.ignoreFailures = True
             masters_started += 1
-            cluster.ensure_servers()
+            cluster.ensure_servers(timeout=40)
 
         for host in hosts[:num_servers]:
             backup = False
