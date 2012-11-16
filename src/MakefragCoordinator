@@ -10,6 +10,7 @@ COORDINATOR_SRCFILES := \
 			src/CoordinatorServiceRecovery.cc \
 			src/LogCabinHelper.cc \
 			src/MasterRecoveryManager.cc \
+			src/Tablet.cc \
 			src/TabletMap.cc \
 			src/Recovery.cc \
 			src/RuntimeOptions.cc \

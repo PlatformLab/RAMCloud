@@ -20,31 +20,6 @@
 namespace RAMCloud {
 
 /**
- * Populate a protocol buffer entry with the details of this tablet.
- * Note, this does not provide the service_locator field (which isn't
- * known by the tablet).
- *
- * \param entry
- *      Entry in the protocol buffer to populate.
- */
-void
-Tablet::serialize(ProtoBuf::Tablets::Tablet& entry) const
-{
-    entry.set_table_id(tableId);
-    entry.set_start_key_hash(startKeyHash);
-    entry.set_end_key_hash(endKeyHash);
-    entry.set_server_id(serverId.getId());
-    if (status == NORMAL)
-        entry.set_state(ProtoBuf::Tablets::Tablet::NORMAL);
-    else if (status == RECOVERING)
-        entry.set_state(ProtoBuf::Tablets::Tablet::RECOVERING);
-    else
-        DIE("Unknown status stored in tablet map");
-    entry.set_ctime_log_head_id(ctime.getSegmentId());
-    entry.set_ctime_log_head_offset(ctime.getSegmentOffset());
-}
-
-/**
  * Construct a TabletMap.
  */
 TabletMap::TabletMap()

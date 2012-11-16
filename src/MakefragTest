@@ -101,6 +101,7 @@ TESTS_SRCFILES := \
 		  src/StatusTest.cc \
 		  src/StringUtilTest.cc \
 		  src/TableEnumeratorTest.cc \
+		  src/TabletTest.cc \
 		  src/TabletMapTest.cc \
 		  src/TaskQueueTest.cc \
 		  src/TcpTransportTest.cc \
