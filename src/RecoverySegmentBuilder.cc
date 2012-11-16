@@ -60,7 +60,6 @@ RecoverySegmentBuilder::build(const void* buffer, uint32_t length,
                               const ProtoBuf::Tablets& partitions,
                               Segment* recoverySegments)
 {
-    CycleCounter<RawMetric> _(&metrics->backup.filterTicks);
     SegmentIterator it(buffer, length, certificate);
     it.checkMetadataIntegrity();
 
