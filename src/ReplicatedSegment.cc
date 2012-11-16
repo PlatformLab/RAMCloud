@@ -456,6 +456,8 @@ ReplicatedSegment::swapSegment(const Segment* newSegment)
         lock.construct(dataMutex);
         if (isSynced())
             break;
+        lock.destroy();
+        sync();
     }
     assert(getCommitted() == queued);
 
