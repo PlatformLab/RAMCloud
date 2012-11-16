@@ -31,6 +31,7 @@ int
 main(int argc, char *argv[])
 {
     using namespace RAMCloud;
+    Logger::installCrashBacktraceHandlers();
     string localLocator("???");
     uint32_t deadServerTimeout;
     string logCabinLocator("testing");

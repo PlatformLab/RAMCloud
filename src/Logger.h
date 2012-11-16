@@ -117,6 +117,8 @@ class Logger {
         return (level <= logLevels[module]);
     }
 
+    static void installCrashBacktraceHandlers();
+
   PRIVATE:
     void cleanCollapseMap(struct timespec now);
     FILE* getStream();
