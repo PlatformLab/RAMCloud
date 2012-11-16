@@ -331,7 +331,7 @@ class Cluster(object):
                 self.sandbox.checkFailures()
                 time.sleep(.1)
                 if time.time() - start > timeout:
-                    raise Exception('timeout exceeded')
+                    raise Exception('timeout exceeded %s' % self.log_subdir)
             if self.verbose:
                 print('%s finished' % p.sonce)
 
