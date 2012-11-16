@@ -157,7 +157,7 @@ def recover(num_servers,
         log_space_per_partition = master_ram
     else:
         log_space_per_partition = (200 + (1.3 * num_objects / object_size))
-    args['master_args'] = '-t %d' % log_space_per_partition
+    args['master_args'] = '-d -D -t %d' % log_space_per_partition
     if master_args:
         args['master_args'] += ' ' + master_args;
     args['client'] = ('%s -f -n %d -r %d -s %d '
@@ -168,7 +168,7 @@ def recover(num_servers,
     if old_master_ram:
         args['old_master_args'] = '-t %d' % old_master_ram
     else:
-        args['old_master_args'] = '-t %d' % (log_space_per_partition *
+        args['old_master_args'] = '-d -D -t %d' % (log_space_per_partition *
                                              num_partitions)
     recovery_logs = cluster.run(**args)
 
@@ -312,6 +312,10 @@ if __name__ == '__main__':
 
     finally:
         log_info = log.scan("%s/latest" % (options.log_dir),
-                            ["WARNING", "ERROR"])
+                            ["WARNING", "ERROR"],
+                            ["Ping timeout", "Pool destroyed", "told to kill",
+                             "is not responding", "failed to exchange",
+                             "timed out waiting for response",
+                             "received nonce", "Couldn't open session"])
         if len(log_info) > 0:
             print(log_info)
