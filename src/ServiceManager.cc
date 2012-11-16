@@ -157,7 +157,7 @@ ServiceManager::handleRpc(Transport::ServerRpc* rpc)
     ServiceInfo* serviceInfo = services[header->service].get();
 #ifdef LOG_RPCS
     LOG(NOTICE, "Received %s RPC at %lu with %u bytes",
-            WireFormat::opcodeSymbol(rpc->requestPayload),
+            WireFormat::opcodeSymbol(&rpc->requestPayload),
             reinterpret_cast<uint64_t>(rpc),
             rpc->requestPayload.getTotalLength());
 #endif
@@ -227,7 +227,7 @@ ServiceManager::poll()
         if (worker->rpc != NULL) {
 #ifdef LOG_RPCS
             LOG(NOTICE, "Sending reply for %s at %lu with %u bytes",
-                    WireFormat::opcodeSymbol(worker->rpc->requestPayload),
+                    WireFormat::opcodeSymbol(&worker->rpc->requestPayload),
                     reinterpret_cast<uint64_t>(worker->rpc),
                     worker->rpc->replyPayload.getTotalLength());
 #endif
