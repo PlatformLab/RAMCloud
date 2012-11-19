@@ -122,7 +122,8 @@ struct BackupEndTaskTestingCallback {
 }
 
 /**
- * Manages the recovery of a crashed master.
+ * Runs on the coordinator and attempts the recovery of a single crashed master.
+ * Created and managed by the MasterRecoveryManager on the coordinator.
  */
 class Recovery : public Task {
   public:
