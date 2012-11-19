@@ -53,6 +53,7 @@ MockCluster::MockCluster(Context* context, string coordinatorLocator)
     linkedContext->coordinatorSession->setLocation(coordinatorLocator.c_str());
 
     new CoordinatorServerList(&coordinatorContext);
+    new TableManager(&coordinatorContext);
     coordinatorContext.transportManager->registerMock(&transport);
     coordinatorContext.coordinatorSession->setLocation(
             coordinatorLocator.c_str());

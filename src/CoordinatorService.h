@@ -31,7 +31,7 @@
 #include "Recovery.h"
 #include "RuntimeOptions.h"
 #include "Service.h"
-#include "TabletMap.h"
+#include "TableManager.h"
 #include "TransportManager.h"
 
 namespace RAMCloud {
@@ -121,12 +121,12 @@ class CoordinatorService : public Service {
      */
     uint32_t deadServerTimeout;
 
-  PRIVATE:
     /**
-     * What are the tablets, and who is the master for each.
+     * Manages the tables and constituting tablets information on Coordinator.
      */
-    TabletMap tabletMap;
+    TableManager* tableManager;
 
+  PRIVATE:
     typedef std::map<string, uint64_t> Tables;
     /**
      * Map from table name to table id.

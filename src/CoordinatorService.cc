@@ -34,12 +34,12 @@ CoordinatorService::CoordinatorService(Context* context,
     : context(context)
     , serverList(context->coordinatorServerList)
     , deadServerTimeout(deadServerTimeout)
-    , tabletMap()
+    , tableManager(context->tableManager)
     , tables()
     , nextTableId(0)
     , nextTableMasterIdx(0)
     , runtimeOptions()
-    , recoveryManager(context, tabletMap, &runtimeOptions)
+    , recoveryManager(context, *tableManager, &runtimeOptions)
     , coordinatorRecovery(*this)
     , logCabinCluster()
     , logCabinLog()
@@ -204,7 +204,7 @@ CoordinatorService::createTable(const WireFormat::CreateTable::Request* reqHdr,
                                                              master.serverId);
 
         // Create tablet map entry.
-        tabletMap.addTablet({tableId, firstKeyHash, lastKeyHash,
+        tableManager->addTablet({tableId, firstKeyHash, lastKeyHash,
                              master.serverId, Tablet::NORMAL, headOfLog});
 
         // Inform the master.
@@ -234,7 +234,7 @@ CoordinatorService::dropTable(const WireFormat::DropTable::Request* reqHdr,
         return;
     uint64_t tableId = it->second;
     tables.erase(it);
-    vector<Tablet> removed = tabletMap.removeTabletsForTable(tableId);
+    vector<Tablet> removed = tableManager->removeTabletsForTable(tableId);
     foreach (const auto& tablet, removed) {
             MasterClient::dropTabletOwnership(context,
                                               tablet.serverId,
@@ -244,7 +244,7 @@ CoordinatorService::dropTable(const WireFormat::DropTable::Request* reqHdr,
     }
 
     LOG(NOTICE, "Dropped table '%s' (id %lu), %lu tablets left in map",
-        name, tableId, tabletMap.size());
+        name, tableId, tableManager->size());
 }
 
 /**
@@ -271,14 +271,14 @@ CoordinatorService::splitTablet(const WireFormat::SplitTablet::Request* reqHdr,
 
     ServerId serverId;
     try {
-        serverId = tabletMap.splitTablet(tableId,
+        serverId = tableManager->splitTablet(tableId,
                                          reqHdr->firstKeyHash,
                                          reqHdr->lastKeyHash,
                                          reqHdr->splitKeyHash).first.serverId;
-    } catch (const TabletMap::NoSuchTablet& e) {
+    } catch (const TableManager::NoSuchTablet& e) {
         respHdr->common.status = STATUS_TABLET_DOESNT_EXIST;
         return;
-    } catch (const TabletMap::BadSplit& e) {
+    } catch (const TableManager::BadSplit& e) {
         respHdr->common.status = STATUS_REQUEST_FORMAT_ERROR;
         return;
     }
@@ -366,9 +366,9 @@ CoordinatorService::getTabletMap(
     Rpc* rpc)
 {
     ProtoBuf::Tablets tablets;
-    tabletMap.serialize(*serverList, tablets);
+    tableManager->serialize(*serverList, tablets);
     respHdr->tabletMapLength = serializeToResponse(rpc->replyPayload,
-                                                  &tablets);
+                                                   &tablets);
 }
 
 /**
@@ -476,7 +476,7 @@ CoordinatorService::reassignTabletOwnership(
         // Note currently this log message may not be exactly correct due to
         // concurrent operations on the tablet map which may slip in between
         // the message and the actual operation.
-        Tablet tablet = tabletMap.getTablet(reqHdr->tableId,
+        Tablet tablet = tableManager->getTablet(reqHdr->tableId,
                                            reqHdr->firstKeyHash,
                                            reqHdr->lastKeyHash);
         LOG(NOTICE, "Reassigning tablet [0x%lx,0x%lx] in tableId %lu "
@@ -484,7 +484,7 @@ CoordinatorService::reassignTabletOwnership(
             reqHdr->lastKeyHash, reqHdr->tableId,
             serverList->toString(tablet.serverId).c_str(),
             serverList->toString(newOwner).c_str());
-    } catch (const TabletMap::NoSuchTablet& e) {
+    } catch (const TableManager::NoSuchTablet& e) {
         LOG(WARNING, "Could not reassign tablet [0x%lx,0x%lx] in tableId %lu: "
             "tablet not found", reqHdr->firstKeyHash,
             reqHdr->lastKeyHash, reqHdr->tableId);
@@ -498,10 +498,10 @@ CoordinatorService::reassignTabletOwnership(
                                       reqHdr->ctimeSegmentOffset);
 
     try {
-        tabletMap.modifyTablet(reqHdr->tableId, reqHdr->firstKeyHash,
+        tableManager->modifyTablet(reqHdr->tableId, reqHdr->firstKeyHash,
                                reqHdr->lastKeyHash, newOwner, Tablet::NORMAL,
                                headOfLogAtCreation);
-    } catch (const TabletMap::NoSuchTablet& e) {
+    } catch (const TableManager::NoSuchTablet& e) {
         LOG(WARNING, "Could not reassign tablet [0x%lx,0x%lx] in tableId %lu: "
             "tablet not found", reqHdr->firstKeyHash,
             reqHdr->lastKeyHash, reqHdr->tableId);

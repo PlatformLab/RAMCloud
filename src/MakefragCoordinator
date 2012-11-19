@@ -11,7 +11,7 @@ COORDINATOR_SRCFILES := \
 			src/LogCabinHelper.cc \
 			src/MasterRecoveryManager.cc \
 			src/Tablet.cc \
-			src/TabletMap.cc \
+			src/TableManager.cc \
 			src/Recovery.cc \
 			src/RuntimeOptions.cc \
 			$(LOGCABIN_STATE_PROTOBUF_FILES) \

@@ -1690,7 +1690,7 @@ TEST_F(MasterServiceTest, migrateTablet_movingData) {
         master2->master->log->head->id,
         master2->master->log->head->getAppendedLength());
     Log::Position ctimeCoord =
-        cluster.coordinator->tabletMap.getTablet(tbl, 0, -1).ctime;
+        cluster.coordinator->tableManager->getTablet(tbl, 0, -1).ctime;
     EXPECT_GT(ctimeCoord, master2HeadPositionBefore);
     EXPECT_LT(ctimeCoord, master2HeadPositionAfter);
 }

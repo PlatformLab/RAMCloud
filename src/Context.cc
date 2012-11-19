@@ -21,6 +21,7 @@
 #include "ServiceManager.h"
 #include "ShortMacros.h"
 #include "SessionAlarm.h"
+#include "TableManager.h"
 #include "TransportManager.h"
 
 namespace RAMCloud {
@@ -72,6 +73,7 @@ Context::Context(bool hasDedicatedDispatchThread)
     , coordinatorService(NULL)
     , serverList(NULL)
     , coordinatorServerList(NULL)
+    , tableManager(NULL)
     , recoveryManager(NULL)
     , logCabinLog(NULL)
     , logCabinHelper(NULL)
@@ -141,6 +143,8 @@ Context::destroy()
 
     serverList = NULL;
     coordinatorServerList = NULL;
+
+    tableManager = NULL;
 }
 
 } // namespace RAMCloud

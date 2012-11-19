@@ -125,7 +125,7 @@ class EnqueueMasterRecoveryTask : public Task {
         , masterRecoveryInfo(recoveryInfo)
     {
         recovery = new Recovery(recoveryManager.context, mgr.taskQueue,
-                                &mgr.tabletMap, &mgr.tracker,
+                                &mgr.tableManager, &mgr.tracker,
                                 &mgr, crashedServerId, masterRecoveryInfo);
     }
 
@@ -226,7 +226,7 @@ class RecoveryMasterFinishedTask : public Task {
                         ServerId(tablet.server_id()).toString().c_str(),
                         tablet.table_id(), tablet.start_key_hash(),
                         tablet.end_key_hash());
-                    mgr.tabletMap.modifyTablet(tablet.table_id(),
+                    mgr.tableManager.modifyTablet(tablet.table_id(),
                                                tablet.start_key_hash(),
                                                tablet.end_key_hash(),
                                                ServerId(tablet.server_id()),
@@ -239,10 +239,10 @@ class RecoveryMasterFinishedTask : public Task {
                         "we need to handle this sensibly");
                 }
             }
-            LOG(DEBUG, "Coordinator tabletMap after recovery master %s "
+            LOG(DEBUG, "Coordinator tableManager after recovery master %s "
                 "finished: %s",
                 recoveryMasterId.toString().c_str(),
-                mgr.tabletMap.debugString().c_str());
+                mgr.tableManager.debugString().c_str());
         } else {
             LOG(WARNING, "A recovery master failed to recover its partition");
         }
@@ -268,17 +268,17 @@ using namespace MasterRecoveryManagerInternal; // NOLINT
  *
  * \param context
  *      Overall information about the RAMCloud server or client..
- * \param  tabletMap
+ * \param  tableManager
  *      Authoritative information about tablets and their mapping to servers.
  * \param runtimeOptions
  *      Configuration options which are stored by the coordinator.
  *      May be NULL for testing.
  */
 MasterRecoveryManager::MasterRecoveryManager(Context* context,
-                                             TabletMap& tabletMap,
+                                             TableManager& tableManager,
                                              RuntimeOptions* runtimeOptions)
     : context(context)
-    , tabletMap(tabletMap)
+    , tableManager(tableManager)
     , runtimeOptions(runtimeOptions)
     , thread()
     , waitingRecoveries()
@@ -340,7 +340,7 @@ MasterRecoveryManager::startMasterRecovery(
 {
     ServerId crashedServerId = crashedServer.serverId;
     auto tablets =
-        tabletMap.setStatusForServer(crashedServerId, Tablet::RECOVERING);
+        tableManager.setStatusForServer(crashedServerId, Tablet::RECOVERING);
     if (tablets.empty()) {
         LOG(NOTICE, "Server %s crashed, but it had no tablets",
             crashedServerId.toString().c_str());
@@ -365,8 +365,8 @@ MasterRecoveryManager::startMasterRecovery(
         // server list anymore (presumably because a recovery completed on
         // it since the time of the start of the call) that there really aren't
         // any tablets left on it.
-        tablets =
-            tabletMap.setStatusForServer(crashedServerId, Tablet::RECOVERING);
+        tablets = tableManager.setStatusForServer(crashedServerId,
+                                                  Tablet::RECOVERING);
         if (!tablets.empty()) {
             LOG(ERROR, "Tried to start recovery for crashed server %s which "
                 "has tablets in the tablet map but is no longer in the "

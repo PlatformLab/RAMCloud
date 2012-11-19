@@ -110,7 +110,7 @@ TEST_F(CoordinatorServiceTest, createTable) {
               "endKeyHash: 18446744073709551615 "
               "serverId: 1.0 status: NORMAL "
               "ctime: 3, 70 }",
-              service->tabletMap.debugString());
+              service->tableManager->debugString());
     EXPECT_EQ(2, master->tablets.tablet_size());
     EXPECT_EQ(1, master2.tablets.tablet_size());
 }
@@ -133,7 +133,7 @@ TEST_F(CoordinatorServiceTest,
               "endKeyHash: 18446744073709551615 "
               "serverId: 2.0 status: NORMAL "
               "ctime: 1, 54 }",
-              service->tabletMap.debugString());
+              service->tableManager->debugString());
     EXPECT_EQ(1, master->tablets.tablet_size());
     EXPECT_EQ(1, master2.tablets.tablet_size());
     EXPECT_EQ(0, master3.tablets.tablet_size());
@@ -160,7 +160,7 @@ TEST_F(CoordinatorServiceTest,
               "endKeyHash: 18446744073709551615 "
               "serverId: 1.0 status: NORMAL "
               "ctime: 3, 70 }",
-              service->tabletMap.debugString());
+              service->tableManager->debugString());
     EXPECT_EQ(2, master->tablets.tablet_size());
     EXPECT_EQ(1, master2.tablets.tablet_size());
 }
@@ -178,7 +178,7 @@ TEST_F(CoordinatorServiceTest, splitTablet) {
               "endKeyHash: 18446744073709551615 "
               "serverId: 1.0 status: NORMAL "
               "ctime: 2, 62 }",
-              service->tabletMap.debugString());
+              service->tableManager->debugString());
 
     ramcloud->splitTablet("foo", 0, 9223372036854775806, 4611686018427387903);
     EXPECT_EQ("Tablet { tableId: 0 startKeyHash: 0 "
@@ -195,7 +195,7 @@ TEST_F(CoordinatorServiceTest, splitTablet) {
               "endKeyHash: 9223372036854775806 "
               "serverId: 1.0 status: NORMAL "
               "ctime: 2, 62 }",
-              service->tabletMap.debugString());
+              service->tableManager->debugString());
 
     EXPECT_THROW(ramcloud->splitTablet("foo", 0, 16, 8),
                  TabletDoesntExistException);
@@ -223,7 +223,7 @@ TEST_F(CoordinatorServiceTest, dropTable) {
               "endKeyHash: 18446744073709551615 "
               "serverId: 1.0 status: NORMAL "
               "ctime: 2, 62 }",
-              service->tabletMap.debugString());
+              service->tableManager->debugString());
     EXPECT_EQ(0, master2.tablets.tablet_size());
 
     // Test dropping a table that is spread across two masters
@@ -235,7 +235,7 @@ TEST_F(CoordinatorServiceTest, dropTable) {
               "endKeyHash: 18446744073709551615 "
               "serverId: 1.0 status: NORMAL "
               "ctime: 2, 62 }",
-              service->tabletMap.debugString());
+              service->tableManager->debugString());
     EXPECT_EQ(1, master->tablets.tablet_size());
     EXPECT_EQ(0, master2.tablets.tablet_size());
 }
@@ -269,7 +269,7 @@ TEST_F(CoordinatorServiceTest, getServerList) {
     ProtoBuf::ServerList list;
     CoordinatorClient::getServerList(&context, &list);
     EXPECT_EQ("mock:host=master mock:host=master2 mock:host=backup1",
-            getLocators(list));
+              getLocators(list));
 }
 
 TEST_F(CoordinatorServiceTest, getServerList_backups) {
@@ -310,14 +310,14 @@ TEST_F(CoordinatorServiceTest, getServerList_masters) {
 
 TEST_F(CoordinatorServiceTest, getTabletMap) {
     ramcloud->createTable("foo");
-    ProtoBuf::Tablets tabletMap;
-    CoordinatorClient::getTabletMap(&context, &tabletMap);
+    ProtoBuf::Tablets tabletMapProtoBuf;
+    CoordinatorClient::getTabletMap(&context, &tabletMapProtoBuf);
     EXPECT_EQ("tablet { table_id: 0 start_key_hash: 0 "
               "end_key_hash: 18446744073709551615 "
               "state: NORMAL server_id: 1 "
               "service_locator: \"mock:host=master\" "
               "ctime_log_head_id: 2 ctime_log_head_offset: 62 }",
-              tabletMap.ShortDebugString());
+              tabletMapProtoBuf.ShortDebugString());
 }
 
 static bool
@@ -345,7 +345,7 @@ TEST_F(CoordinatorServiceTest, reassignTabletOwnership) {
     ramcloud->createTable("foo");
     EXPECT_EQ(1, master->tablets.tablet_size());
     EXPECT_EQ(0, master2->master->tablets.tablet_size());
-    Tablet tablet = service->tabletMap.getTablet(0lu, 0lu, ~(0lu));
+    Tablet tablet = service->tableManager->getTablet(0lu, 0lu, ~(0lu));
     EXPECT_EQ(masterServerId, tablet.serverId);
     EXPECT_EQ(2U, tablet.ctime.getSegmentId());
     EXPECT_EQ(62U, tablet.ctime.getSegmentOffset());
@@ -378,7 +378,7 @@ TEST_F(CoordinatorServiceTest, reassignTabletOwnership) {
     // Calling master removes the entry itself after the RPC completes on coord.
     EXPECT_EQ(1, master->tablets.tablet_size());
     EXPECT_EQ(1, master2->master->tablets.tablet_size());
-    tablet = service->tabletMap.getTablet(0lu, 0lu, ~(0lu));
+    tablet = service->tableManager->getTablet(0lu, 0lu, ~(0lu));
     EXPECT_EQ(master2->serverId, tablet.serverId);
     EXPECT_EQ(83U, tablet.ctime.getSegmentId());
     EXPECT_EQ(835U, tablet.ctime.getSegmentOffset());

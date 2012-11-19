@@ -26,15 +26,15 @@ using namespace MasterRecoveryManagerInternal; // NOLINT
 struct MasterRecoveryManagerTest : public ::testing::Test {
     Context context;
     CoordinatorServerList serverList;
-    TabletMap tabletMap;
+    TableManager tableManager;
     MasterRecoveryManager mgr;
     std::mutex mutex;
 
     MasterRecoveryManagerTest()
         : context()
         , serverList(&context)
-        , tabletMap()
-        , mgr(&context, tabletMap, NULL)
+        , tableManager(&context)
+        , mgr(&context, tableManager, NULL)
         , mutex()
     {
         Logger::get().setLogLevels(RAMCloud::SILENT_LOG_LEVEL);
@@ -108,13 +108,14 @@ TEST_F(MasterRecoveryManagerTest, startMasterRecoveryNoTablets) {
 TEST_F(MasterRecoveryManagerTest, startMasterRecovery) {
     auto crashedServerId = addMaster();
     crashServer(crashedServerId);
-    tabletMap.addTablet({0, 0, ~0lu, crashedServerId, Tablet::NORMAL, {2, 3}});
+    tableManager.addTablet(
+        {0, 0, ~0lu, crashedServerId, Tablet::NORMAL, {2, 3}});
     TestLog::Enable _;
     mgr.startMasterRecovery(serverList[crashedServerId]);
     EXPECT_EQ("startMasterRecovery: Scheduling recovery of master 1.0 | "
-                "schedule: scheduled",
+              "schedule: scheduled",
               TestLog::get());
-    auto tablet = tabletMap.getTablet(0, 0, ~0lu);
+    auto tablet = tableManager.getTablet(0, 0, ~0lu);
     EXPECT_EQ(tablet.status, Tablet::RECOVERING);
 
     EXPECT_EQ(1lu, mgr.taskQueue.outstandingTasks());
@@ -129,7 +130,7 @@ TEST_F(MasterRecoveryManagerTest, startMasterRecovery) {
 
 TEST_F(MasterRecoveryManagerTest, destroyAndFreeRecovery) {
     std::unique_ptr<Recovery> recovery{
-        new Recovery(&context, mgr.taskQueue, &tabletMap, &mgr.tracker, &mgr,
+        new Recovery(&context, mgr.taskQueue, &tableManager, &mgr.tracker, &mgr,
                      {1, 0}, {})};
     mgr.activeRecoveries[recovery->recoveryId] = recovery.get();
     mgr.destroyAndFreeRecovery(recovery.get());
@@ -144,7 +145,7 @@ TEST_F(MasterRecoveryManagerTest, trackerChangesEnqueued) {
     // Create a recovery which has serverId as a recovery master, make
     // sure it gets informed if serverId crashes.
     std::unique_ptr<Recovery> recovery{
-        new Recovery(&context, mgr.taskQueue, &tabletMap, &mgr.tracker, &mgr,
+        new Recovery(&context, mgr.taskQueue, &tableManager, &mgr.tracker, &mgr,
                      {1, 0},  {})};
     recovery->numPartitions = 2;
     mgr.tracker[ServerId(1, 0)] = recovery.get();
@@ -159,7 +160,7 @@ TEST_F(MasterRecoveryManagerTest, recoveryFinished) {
     EXPECT_EQ(0lu, serverList.version);
     addMaster();
     EXPECT_EQ(1lu, serverList.version);
-    Recovery recovery(&context, mgr.taskQueue, &tabletMap, &mgr.tracker,
+    Recovery recovery(&context, mgr.taskQueue, &tableManager, &mgr.tracker,
                       NULL, {1, 0}, {});
     recovery.status = Recovery::BROADCAST_RECOVERY_COMPLETE;
     ASSERT_EQ(0lu, mgr.taskQueue.outstandingTasks());
@@ -176,7 +177,7 @@ TEST_F(MasterRecoveryManagerTest, recoveryFinishedUnsuccessful) {
     EXPECT_EQ(0lu, serverList.version);
     addMaster();
     EXPECT_EQ(1lu, serverList.version);
-    Recovery recovery(&context, mgr.taskQueue, &tabletMap, &mgr.tracker,
+    Recovery recovery(&context, mgr.taskQueue, &tableManager, &mgr.tracker,
                       NULL, {1, 0},  {});
     ASSERT_EQ(0lu, mgr.taskQueue.outstandingTasks());
     EXPECT_EQ(1lu, serverList.version);
@@ -200,7 +201,7 @@ TEST_F(MasterRecoveryManagerTest, recoveryMasterFinishedNoSuchRecovery) {
 
 TEST_F(MasterRecoveryManagerTest, recoveryMasterFinished) {
     MockRandom __(1);
-    tabletMap.addTablet({0, 0, ~0lu, {1, 0}, Tablet::NORMAL, {2, 3}});
+    tableManager.addTablet({0, 0, ~0lu, {1, 0}, Tablet::NORMAL, {2, 3}});
 
     EXPECT_EQ(0lu, serverList.version);
     auto crashedServerId = addMaster();
@@ -209,7 +210,7 @@ TEST_F(MasterRecoveryManagerTest, recoveryMasterFinished) {
     EXPECT_EQ(3lu, serverList.version);
 
     std::unique_ptr<Recovery> recovery{
-        new Recovery(&context, mgr.taskQueue, &tabletMap, &mgr.tracker, &mgr,
+        new Recovery(&context, mgr.taskQueue, &tableManager, &mgr.tracker, &mgr,
                      crashedServerId, {})};
     recovery->numPartitions = 1;
     mgr.activeRecoveries[recovery->recoveryId] = recovery.get();
@@ -219,7 +220,7 @@ TEST_F(MasterRecoveryManagerTest, recoveryMasterFinished) {
     ProtoBuf::Tablets recoveredTablets;
     TabletsBuilder{recoveredTablets}
         (0, 0, ~0lu, TabletsBuilder::RECOVERING, 0, {2, 0});
-    tabletMap.addTablet({0, 0, ~0lu, {1, 0}, Tablet::RECOVERING, {2, 3}});
+    tableManager.addTablet({0, 0, ~0lu, {1, 0}, Tablet::RECOVERING, {2, 3}});
 
     mgr.recoveryMasterFinished(recovery->recoveryId,
                                {2, 0}, recoveredTablets, true);
@@ -230,7 +231,7 @@ TEST_F(MasterRecoveryManagerTest, recoveryMasterFinished) {
     EXPECT_EQ(
         "performTask: Modifying tablet map to set recovery master 2.0 as "
             "master for 0, 0, 18446744073709551615 | "
-        "performTask: Coordinator tabletMap after recovery master 2.0 "
+        "performTask: Coordinator tableManager after recovery master 2.0 "
             "finished: "
         "Tablet { tableId: 0 startKeyHash: 0 endKeyHash: 18446744073709551615 "
             "serverId: 2.0 status: NORMAL ctime: 0, 0 } "
@@ -253,14 +254,14 @@ TEST_F(MasterRecoveryManagerTest,
        recoveryMasterFinishedNotCompletelySuccessful)
 {
     MockRandom __(1);
-    tabletMap.addTablet({0, 0, ~0lu, {1, 0}, Tablet::NORMAL, {2, 3}});
+    tableManager.addTablet({0, 0, ~0lu, {1, 0}, Tablet::NORMAL, {2, 3}});
 
     auto crashedServerId = addMaster();
     crashServer(crashedServerId);
     addMaster(); // Recovery master.
 
     std::unique_ptr<Recovery> recovery{
-        new Recovery(&context, mgr.taskQueue, &tabletMap, &mgr.tracker, &mgr,
+        new Recovery(&context, mgr.taskQueue, &tableManager, &mgr.tracker, &mgr,
                      crashedServerId, {})};
     recovery->numPartitions = 1;
     mgr.activeRecoveries[recovery->recoveryId] = recovery.get();
@@ -270,7 +271,7 @@ TEST_F(MasterRecoveryManagerTest,
     ProtoBuf::Tablets recoveredTablets;
     TabletsBuilder{recoveredTablets}
         (0, 0, ~0lu, TabletsBuilder::RECOVERING, 0, {2, 0});
-    tabletMap.addTablet({0, 0, ~0lu, {1, 0}, Tablet::RECOVERING, {2, 3}});
+    tableManager.addTablet({0, 0, ~0lu, {1, 0}, Tablet::RECOVERING, {2, 3}});
 
     mgr.recoveryMasterFinished(recovery->recoveryId, {2, 0},
                                recoveredTablets, false);
@@ -306,9 +307,9 @@ TEST_F(MasterRecoveryManagerTest,
 {
     // Damn straight. I always wanted to do that, man.
 
-    tabletMap.addTablet({0, 0, ~0lu, {1, 0}, Tablet::NORMAL, {2, 3}});
-    tabletMap.addTablet({1, 0, ~0lu, {2, 0}, Tablet::NORMAL, {2, 3}});
-    tabletMap.addTablet({2, 0, ~0lu, {3, 0}, Tablet::NORMAL, {2, 3}});
+    tableManager.addTablet({0, 0, ~0lu, {1, 0}, Tablet::NORMAL, {2, 3}});
+    tableManager.addTablet({1, 0, ~0lu, {2, 0}, Tablet::NORMAL, {2, 3}});
+    tableManager.addTablet({2, 0, ~0lu, {3, 0}, Tablet::NORMAL, {2, 3}});
 
     crashServer(addMaster());
     crashServer(addMaster());
@@ -344,9 +345,9 @@ TEST_F(MasterRecoveryManagerTest,
 TEST_F(MasterRecoveryManagerTest,
        MaybeStartRecoveryTaskServerAlreadyRecovering)
 {
-    tabletMap.addTablet({0, 0, ~0lu, {1, 0}, Tablet::NORMAL, {2, 3}});
-    tabletMap.addTablet({1, 0, ~0lu, {2, 0}, Tablet::NORMAL, {2, 3}});
-    tabletMap.addTablet({2, 0, ~0lu, {3, 0}, Tablet::NORMAL, {2, 3}});
+    tableManager.addTablet({0, 0, ~0lu, {1, 0}, Tablet::NORMAL, {2, 3}});
+    tableManager.addTablet({1, 0, ~0lu, {2, 0}, Tablet::NORMAL, {2, 3}});
+    tableManager.addTablet({2, 0, ~0lu, {3, 0}, Tablet::NORMAL, {2, 3}});
 
     auto crashedServerId = addMaster();
     crashServer(crashedServerId);

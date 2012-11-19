@@ -24,6 +24,7 @@
 #include "Server.h"
 #include "ServerList.h"
 #include "ServiceMask.h"
+#include "TableManager.h"
 
 namespace RAMCloud {
 

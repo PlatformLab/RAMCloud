@@ -25,7 +25,7 @@
 #include "ParallelRun.h"
 #include "RawMetrics.h"
 #include "ServerTracker.h"
-#include "TabletMap.h"
+#include "TableManager.h"
 #include "Tablets.pb.h"
 #include "TaskQueue.h"
 
@@ -141,7 +141,7 @@ class Recovery : public Task {
     };
     Recovery(Context* context,
              TaskQueue& taskQueue,
-             TabletMap* tabletMap,
+             TableManager* tableManager,
              RecoveryTracker* tracker,
              Owner* owner,
              ServerId crashedServerId,
@@ -196,7 +196,7 @@ class Recovery : public Task {
      * to servers. Used during to find out which tablets need to be recovered
      * for the crashed master.
      */
-    TabletMap* tabletMap;
+    TableManager* tableManager;
 
      /**
       * The MasterRecoveryManager's tracker which maintains a list of all

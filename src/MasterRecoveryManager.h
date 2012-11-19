@@ -23,7 +23,7 @@
 #include "Recovery.h"
 #include "RuntimeOptions.h"
 #include "ServerTracker.h"
-#include "TabletMap.h"
+#include "TableManager.h"
 #include "Tub.h"
 
 namespace RAMCloud {
@@ -42,7 +42,7 @@ class RecoveryMasterFinishedTask;
  * retrying indefinitely). These recoveries proceed independently of the
  * main coordinator worker threads via a thread provided internally by
  * the manager. The manager must make pervasive use of the coordinator's
- * serverList and tabletMap which are synchronized to make operations
+ * serverList and tableManager which are synchronized to make operations
  * safe.  The coordinator delegates the handling of recovery related RPCs
  * to this manager.
  */
@@ -51,7 +51,7 @@ class MasterRecoveryManager : public Recovery::Owner
 {
   PUBLIC:
     MasterRecoveryManager(Context* context,
-                          TabletMap& tabletMap,
+                          TableManager& tableManager,
                           RuntimeOptions* runtimeOptions);
     ~MasterRecoveryManager();
 
@@ -76,7 +76,7 @@ class MasterRecoveryManager : public Recovery::Owner
     Context* context;
 
     /// Authoritative information about tablets and their mapping to servers.
-    TabletMap& tabletMap;
+    TableManager& tableManager;
 
     /**
      * Contains coordinator configuration options which can be modified while
