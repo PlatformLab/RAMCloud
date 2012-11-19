@@ -74,7 +74,6 @@ SHARED_SRCFILES := \
 		   src/PingService.cc \
 		   src/RamCloud.cc \
 		   src/RawMetrics.cc \
-		   src/Recovery.cc \
 		   src/ReplicaManager.cc \
 		   src/ReplicatedSegment.cc \
 		   src/RpcWrapper.cc \
