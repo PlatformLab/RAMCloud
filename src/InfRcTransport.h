@@ -335,7 +335,8 @@ class InfRcTransport : public Transport {
     class Poller : public Dispatch::Poller {
       public:
         explicit Poller(InfRcTransport* transport)
-            : Dispatch::Poller(*transport->context->dispatch)
+            : Dispatch::Poller(*transport->context->dispatch,
+                               "InfRcTransport::Poller")
             , transport(transport) {}
         virtual void poll();
 

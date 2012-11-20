@@ -1181,7 +1181,8 @@ class RemoveTombstonePoller : public Dispatch::Poller {
      *      The HashTable which will be purged of tombstones.
      */
     RemoveTombstonePoller(MasterService& masterService, HashTable& objectMap)
-        : Dispatch::Poller(*masterService.context->dispatch)
+        : Dispatch::Poller(*masterService.context->dispatch,
+                           "RemoveTombstonePoller")
         , currentBucket(0)
         , masterService(masterService)
         , objectMap(objectMap)

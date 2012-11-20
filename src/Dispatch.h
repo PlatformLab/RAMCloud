@@ -78,7 +78,7 @@ class Dispatch {
      */
     class Poller {
       public:
-        explicit Poller(Dispatch& dispatch);
+        explicit Poller(Dispatch& dispatch, const string& pollerName);
         virtual ~Poller();
 
         /**
@@ -95,6 +95,11 @@ class Dispatch {
         /// The Dispatch object that owns this Poller.  NULL means the
         /// Dispatch has been deleted.
         Dispatch* owner;
+
+        /// Human-readable string name given to the poller to make it
+        /// easy to identify for debugging. For most pollers just passing
+        /// in the subclass name probably makes sense.
+        string pollerName;
 
         /// Index of this Poller in Dispatch::pollers.  Allows deletion
         /// without having to scan all the entries in pollers. -1 means

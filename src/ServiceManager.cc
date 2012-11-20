@@ -58,7 +58,7 @@ int ServiceManager::pollMicros = 10000;
  * Construct a ServiceManager.
  */
 ServiceManager::ServiceManager(Context* context)
-    : Dispatch::Poller(*context->dispatch)
+    : Dispatch::Poller(*context->dispatch, "ServiceManager")
     , context(context)
     , services()
     , busyThreads()
