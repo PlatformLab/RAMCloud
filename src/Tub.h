@@ -114,10 +114,18 @@ class Tub {
     operator=(const Tub<ElementType>& other) {
         if (this != &other) {
             if (other.occupied) {
-                if (occupied)
+                if (occupied) {
+#if __GNUC__ && __GNUC__ >= 4 && __GNUC_MINOR__ >= 7
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Warray-bounds"
+#endif
                     *object = *other.object; // use ElementType's assignment
-                else
+#if __GNUC__ && __GNUC__ >= 4 && __GNUC_MINOR__ >= 7
+#pragma GCC diagnostic pop
+#endif
+                } else {
                     construct(*other.object);
+                }
             } else {
                 destroy();
             }
