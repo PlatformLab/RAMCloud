@@ -23,6 +23,10 @@
 
 // If the following line is uncommented, trace records will be generated that
 // allow service times to be computed for all RPCs.
+// WARNING: These extra logging calls may (read: will likely) make the system
+// unstable. The additional file IO on the dispatch thread will cause service
+// gaps that prevent servers from responding to pings quickly enough to prevent
+// eviction from the cluster.
 // #define LOG_RPCS 1
 
 namespace RAMCloud {
