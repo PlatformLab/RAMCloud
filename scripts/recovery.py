@@ -316,6 +316,7 @@ if __name__ == '__main__':
                             ["Ping timeout", "Pool destroyed", "told to kill",
                              "is not responding", "failed to exchange",
                              "timed out waiting for response",
-                             "received nonce", "Couldn't open session"])
+                             "received nonce", "Couldn't open session",
+                             "verifying cluster membership"])
         if len(log_info) > 0:
             print(log_info)
