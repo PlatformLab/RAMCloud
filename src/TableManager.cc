@@ -114,6 +114,33 @@ TableManager::createTable(const char* name, uint32_t serverSpan)
 }
 
 /**
+ * Returns a protocol-buffer-like debug string listing the details of each of
+ * the tablets currently in the tablet map.
+ */
+string
+TableManager::debugString() const
+{
+    Lock _(mutex);
+    std::stringstream result;
+    for (auto it = map.begin(); it != map.end(); ++it)  {
+        if (it != map.begin())
+            result << " ";
+        const auto& tablet = *it;
+        const char* status = "NORMAL";
+        if (tablet.status != Tablet::NORMAL)
+            status = "RECOVERING";
+        result << "Tablet { tableId: " << tablet.tableId
+               << " startKeyHash: " << tablet.startKeyHash
+               << " endKeyHash: " << tablet.endKeyHash
+               << " serverId: " << tablet.serverId.toString().c_str()
+               << " status: " << status
+               << " ctime: " << tablet.ctime.getSegmentId()
+               << ", " << tablet.ctime.getSegmentOffset() <<  " }";
+    }
+    return result.str();
+}
+
+/**
  * Drop the table with the given name.
  * 
  * \param name
@@ -163,6 +190,42 @@ TableManager::getTableId(const char* name)
         throw NoSuchTable(HERE);
     }
     return it->second;
+}
+
+/**
+ * Change the server id, status, or ctime of a Tablet in the tablet map.
+ *
+ * \param tableId
+ *      Table id of the tablet to return the details of.
+ * \param startKeyHash
+ *      First key hash that is part of the range of key hashes for the tablet
+ *      to return the details of.
+ * \param endKeyHash
+ *      Last key hash that is part of the range of key hashes for the tablet
+ *      to return the details of.
+ * \param serverId
+ *      Tablet is updated to indicate that it is owned by \a serverId.
+ * \param status
+ *      Tablet is updated with this status (NORMAL or RECOVERING).
+ * \param ctime
+ *      Tablet is updated with this Log::Position indicating any object earlier
+ *      than \a ctime in its log cannot contain objects belonging to it.
+ * \throw NoSuchTablet
+ *      If the arguments do not identify a tablet currently in the tablet map.
+ */
+void
+TableManager::modifyTablet(uint64_t tableId,
+                           uint64_t startKeyHash,
+                           uint64_t endKeyHash,
+                           ServerId serverId,
+                           Tablet::Status status,
+                           Log::Position ctime)
+{
+    Lock _(mutex);
+    Tablet& tablet = find(tableId, startKeyHash, endKeyHash);
+    tablet.serverId = serverId;
+    tablet.status = status;
+    tablet.ctime = ctime;
 }
 
 /**
@@ -218,216 +281,6 @@ TableManager::reassignTabletOwnership(
     //      reply early...
     MasterClient::takeTabletOwnership(context, newOwner, tableId,
                                       startKeyHash, endKeyHash);
-}
-
-/**
- * Split a Tablet in the tablet map into two disjoint Tablets at a specific
- * key hash. One Tablet will have all the key hashes
- * [ \a startKeyHash, \a splitKeyHash), the other will have
- * [ \a splitKeyHash, \a endKeyHash ].
- *
- * Also inform the master to split the tablet.
- * 
- * \param name
- *      Name of the table that contains the tablet to be split.
- * \param startKeyHash
- *      First key hash that is part of the range of key hashes for the tablet
- *      to split.
- * \param endKeyHash
- *      Last key hash that is part of the range of key hashes for the tablet
- *      to split.
- * \param splitKeyHash
- *      Key hash to used to partition the tablet into two. Keys less than
- *      \a splitKeyHash belong to one Tablet, keys greater than or equal to
- *      \a splitKeyHash belong to the other.
- * 
- * \throw NoSuchTablet
- *      If the arguments do not identify a tablet currently in the tablet map.
- * \throw BadSplit
- *      If \a splitKeyHash is not in the range
- *      ( \a startKeyHash, \a endKeyHash ].
- * \throw NoSuchTable
- *      If name does not identify a table currently in the tables.
- */
-void
-TableManager::splitTablet(const char* name,
-                          uint64_t startKeyHash,
-                          uint64_t endKeyHash,
-                          uint64_t splitKeyHash)
-{
-    Tables::iterator it(tables.find(name));
-    if (it == tables.end()) {
-        throw NoSuchTable(HERE);
-    }
-    uint64_t tableId = it->second;
-
-    if (startKeyHash >= (splitKeyHash - 1) || splitKeyHash >= endKeyHash) {
-        throw BadSplit(HERE);
-    }
-
-    Lock _(mutex);
-    Tablet& tablet = find(tableId, startKeyHash, endKeyHash);
-    Tablet newTablet = tablet;
-    newTablet.startKeyHash = splitKeyHash;
-    tablet.endKeyHash = splitKeyHash - 1;
-    map.push_back(newTablet);
-
-    // Tell the master to split the tablet
-    MasterClient::splitMasterTablet(context, tablet.serverId, tableId,
-                                    startKeyHash, endKeyHash, splitKeyHash);
-}
-
-/**
- * Add a Tablet to the tablet map.
- *
- * \param tablet
- *      Tablet entry which is copied into the tablet map.
- */
-void
-TableManager::addTablet(const Tablet& tablet)
-{
-    Lock _(mutex);
-    map.push_back(tablet);
-}
-
-/**
- * Returns a protocol-buffer-like debug string listing the details of each of
- * the tablets currently in the tablet map.
- */
-string
-TableManager::debugString() const
-{
-    Lock _(mutex);
-    std::stringstream result;
-    for (auto it = map.begin(); it != map.end(); ++it)  {
-        if (it != map.begin())
-            result << " ";
-        const auto& tablet = *it;
-        const char* status = "NORMAL";
-        if (tablet.status != Tablet::NORMAL)
-            status = "RECOVERING";
-        result << "Tablet { tableId: " << tablet.tableId
-               << " startKeyHash: " << tablet.startKeyHash
-               << " endKeyHash: " << tablet.endKeyHash
-               << " serverId: " << tablet.serverId.toString().c_str()
-               << " status: " << status
-               << " ctime: " << tablet.ctime.getSegmentId()
-               << ", " << tablet.ctime.getSegmentOffset() <<  " }";
-    }
-    return result.str();
-}
-
-/**
- * Get the details of a Tablet in the tablet map.
- *
- * \param tableId
- *      Table id of the tablet to return the details of.
- * \param startKeyHash
- *      First key hash that is part of the range of key hashes for the tablet
- *      to return the details of.
- * \param endKeyHash
- *      Last key hash that is part of the range of key hashes for the tablet
- *      to return the details of.
- * \return
- *      A copy of the Tablet entry in the tablet map corresponding to
- *      \a tableId, \a startKeyHash, \a endKeyHash.
- * \throw NoSuchTablet
- *      If the arguments do not identify a tablet currently in the tablet map.
- */
-Tablet
-TableManager::getTablet(uint64_t tableId,
-                        uint64_t startKeyHash,
-                        uint64_t endKeyHash) const
-{
-    Lock _(mutex);
-    return cfind(tableId, startKeyHash, endKeyHash);
-}
-
-/**
- * Get the details of all the Tablets in the tablet map that are part of a
- * specific table.
- *
- * \param tableId
- *      Table id of the table whose tablets are to be returned.
- * \return
- *      List of copies of all the Tablets in the tablet map which are part
- *      of the table indicated by \a tableId.
- */
-vector<Tablet>
-TableManager::getTabletsForTable(uint64_t tableId) const
-{
-    Lock _(mutex);
-    vector<Tablet> results;
-    foreach (const auto& tablet, map) {
-        if (tablet.tableId == tableId)
-            results.push_back(tablet);
-    }
-    return results;
-}
-
-/**
- * Change the server id, status, or ctime of a Tablet in the tablet map.
- *
- * \param tableId
- *      Table id of the tablet to return the details of.
- * \param startKeyHash
- *      First key hash that is part of the range of key hashes for the tablet
- *      to return the details of.
- * \param endKeyHash
- *      Last key hash that is part of the range of key hashes for the tablet
- *      to return the details of.
- * \param serverId
- *      Tablet is updated to indicate that it is owned by \a serverId.
- * \param status
- *      Tablet is updated with this status (NORMAL or RECOVERING).
- * \param ctime
- *      Tablet is updated with this Log::Position indicating any object earlier
- *      than \a ctime in its log cannot contain objects belonging to it.
- * \throw NoSuchTablet
- *      If the arguments do not identify a tablet currently in the tablet map.
- */
-void
-TableManager::modifyTablet(uint64_t tableId,
-                           uint64_t startKeyHash,
-                           uint64_t endKeyHash,
-                           ServerId serverId,
-                           Tablet::Status status,
-                           Log::Position ctime)
-{
-    Lock _(mutex);
-    Tablet& tablet = find(tableId, startKeyHash, endKeyHash);
-    tablet.serverId = serverId;
-    tablet.status = status;
-    tablet.ctime = ctime;
-}
-
-/**
- * Remove all the Tablets in the tablet map that are part of a specific table.
- * Copies of the details about the removed Tablets are returned.
- *
- * \param tableId
- *      Table id of the table whose tablets are removed.
- * \return
- *      List of copies of all the Tablets in the tablet map which were part
- *      of the table indicated by \a tableId (which have now been removed from
- *      the tablet map).
- */
-vector<Tablet>
-TableManager::removeTabletsForTable(uint64_t tableId)
-{
-    Lock _(mutex);
-    vector<Tablet> removed;
-    auto it = map.begin();
-    while (it != map.end()) {
-        if (it->tableId == tableId) {
-            removed.push_back(*it);
-            std::swap(*it, map.back());
-            map.pop_back();
-        } else {
-            ++it;
-        }
-    }
-    return removed;
 }
 
 /**
@@ -489,15 +342,79 @@ TableManager::setStatusForServer(ServerId serverId, Tablet::Status status)
     return results;
 }
 
-/// Return the number of Tablets in the tablet map.
-size_t
-TableManager::size() const
+/**
+ * Split a Tablet in the tablet map into two disjoint Tablets at a specific
+ * key hash. One Tablet will have all the key hashes
+ * [ \a startKeyHash, \a splitKeyHash), the other will have
+ * [ \a splitKeyHash, \a endKeyHash ].
+ *
+ * Also inform the master to split the tablet.
+ * 
+ * \param name
+ *      Name of the table that contains the tablet to be split.
+ * \param startKeyHash
+ *      First key hash that is part of the range of key hashes for the tablet
+ *      to split.
+ * \param endKeyHash
+ *      Last key hash that is part of the range of key hashes for the tablet
+ *      to split.
+ * \param splitKeyHash
+ *      Key hash to used to partition the tablet into two. Keys less than
+ *      \a splitKeyHash belong to one Tablet, keys greater than or equal to
+ *      \a splitKeyHash belong to the other.
+ * 
+ * \throw NoSuchTablet
+ *      If the arguments do not identify a tablet currently in the tablet map.
+ * \throw BadSplit
+ *      If \a splitKeyHash is not in the range
+ *      ( \a startKeyHash, \a endKeyHash ].
+ * \throw NoSuchTable
+ *      If name does not identify a table currently in the tables.
+ */
+void
+TableManager::splitTablet(const char* name,
+                          uint64_t startKeyHash,
+                          uint64_t endKeyHash,
+                          uint64_t splitKeyHash)
 {
+    Tables::iterator it(tables.find(name));
+    if (it == tables.end()) {
+        throw NoSuchTable(HERE);
+    }
+    uint64_t tableId = it->second;
+
+    if (startKeyHash >= (splitKeyHash - 1) || splitKeyHash >= endKeyHash) {
+        throw BadSplit(HERE);
+    }
+
     Lock _(mutex);
-    return map.size();
+    Tablet& tablet = find(tableId, startKeyHash, endKeyHash);
+    Tablet newTablet = tablet;
+    newTablet.startKeyHash = splitKeyHash;
+    tablet.endKeyHash = splitKeyHash - 1;
+    map.push_back(newTablet);
+
+    // Tell the master to split the tablet
+    MasterClient::splitMasterTablet(context, tablet.serverId, tableId,
+                                    startKeyHash, endKeyHash, splitKeyHash);
 }
 
-// - private -
+/////////////////////////////////////////////////////////////////////////////
+//////////////////////////// Private Methods ////////////////////////////////
+/////////////////////////////////////////////////////////////////////////////
+
+/**
+ * Add a Tablet to the tablet map.
+ *
+ * \param tablet
+ *      Tablet entry which is copied into the tablet map.
+ */
+void
+TableManager::addTablet(const Tablet& tablet)
+{
+    Lock _(mutex);
+    map.push_back(tablet);
+}
 
 /**
  * Get the details of a Tablet in the tablet map by reference. For internal
@@ -540,6 +457,91 @@ TableManager::cfind(uint64_t tableId,
 {
     return const_cast<TableManager*>(this)->find(tableId,
                                                  startKeyHash, endKeyHash);
+}
+
+/**
+ * Get the details of a Tablet in the tablet map.
+ *
+ * \param tableId
+ *      Table id of the tablet to return the details of.
+ * \param startKeyHash
+ *      First key hash that is part of the range of key hashes for the tablet
+ *      to return the details of.
+ * \param endKeyHash
+ *      Last key hash that is part of the range of key hashes for the tablet
+ *      to return the details of.
+ * \return
+ *      A copy of the Tablet entry in the tablet map corresponding to
+ *      \a tableId, \a startKeyHash, \a endKeyHash.
+ * \throw NoSuchTablet
+ *      If the arguments do not identify a tablet currently in the tablet map.
+ */
+Tablet
+TableManager::getTablet(uint64_t tableId,
+                        uint64_t startKeyHash,
+                        uint64_t endKeyHash) const
+{
+    Lock _(mutex);
+    return cfind(tableId, startKeyHash, endKeyHash);
+}
+
+/**
+ * Get the details of all the Tablets in the tablet map that are part of a
+ * specific table.
+ *
+ * \param tableId
+ *      Table id of the table whose tablets are to be returned.
+ * \return
+ *      List of copies of all the Tablets in the tablet map which are part
+ *      of the table indicated by \a tableId.
+ */
+vector<Tablet>
+TableManager::getTabletsForTable(uint64_t tableId) const
+{
+    Lock _(mutex);
+    vector<Tablet> results;
+    foreach (const auto& tablet, map) {
+        if (tablet.tableId == tableId)
+            results.push_back(tablet);
+    }
+    return results;
+}
+
+/**
+ * Remove all the Tablets in the tablet map that are part of a specific table.
+ * Copies of the details about the removed Tablets are returned.
+ *
+ * \param tableId
+ *      Table id of the table whose tablets are removed.
+ * \return
+ *      List of copies of all the Tablets in the tablet map which were part
+ *      of the table indicated by \a tableId (which have now been removed from
+ *      the tablet map).
+ */
+vector<Tablet>
+TableManager::removeTabletsForTable(uint64_t tableId)
+{
+    Lock _(mutex);
+    vector<Tablet> removed;
+    auto it = map.begin();
+    while (it != map.end()) {
+        if (it->tableId == tableId) {
+            removed.push_back(*it);
+            std::swap(*it, map.back());
+            map.pop_back();
+        } else {
+            ++it;
+        }
+    }
+    return removed;
+}
+
+/// Return the number of Tablets in the tablet map.
+size_t
+TableManager::size() const
+{
+    Lock _(mutex);
+    return map.size();
 }
 
 } // namespace RAMCloud

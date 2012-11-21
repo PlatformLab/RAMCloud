@@ -65,43 +65,41 @@ class TableManager {
     ~TableManager();
 
     uint64_t createTable(const char* name, uint32_t serverSpan);
+    string debugString() const;
     void dropTable(const char* name);
     uint64_t getTableId(const char* name);
-    void reassignTabletOwnership(ServerId newOwner, uint64_t tableId,
-                                 uint64_t startKeyHash, uint64_t endKeyHash,
-                                 uint64_t ctimeSegmentId,
-                                 uint64_t ctimeSegmentOffset);
-    void splitTablet(const char* name,
-                     uint64_t startKeyHash, uint64_t endKeyHash,
-                     uint64_t splitKeyHash);
-
-    // TODO(ankitak): proper public / private
-    void addTablet(const Tablet& tablet);
-    string debugString() const;
-    Tablet getTablet(uint64_t tableId,
-                     uint64_t startKeyHash,
-                     uint64_t endKeyHash) const;
-    vector<Tablet> getTabletsForTable(uint64_t tableId) const;
     void modifyTablet(uint64_t tableId,
                       uint64_t startKeyHash,
                       uint64_t endKeyHash,
                       ServerId serverId,
                       Tablet::Status status,
                       Log::Position ctime);
-    vector<Tablet> removeTabletsForTable(uint64_t tableId);
+    void reassignTabletOwnership(ServerId newOwner, uint64_t tableId,
+                                 uint64_t startKeyHash, uint64_t endKeyHash,
+                                 uint64_t ctimeSegmentId,
+                                 uint64_t ctimeSegmentOffset);
     void serialize(AbstractServerList& serverList,
                    ProtoBuf::Tablets& tablets) const;
     vector<Tablet> setStatusForServer(ServerId serverId,
                                       Tablet::Status status);
-    size_t size() const;
+    void splitTablet(const char* name,
+                     uint64_t startKeyHash, uint64_t endKeyHash,
+                     uint64_t splitKeyHash);
 
   PRIVATE:
+    void addTablet(const Tablet& tablet);
     Tablet& find(uint64_t tableId,
                  uint64_t startKeyHash,
                  uint64_t endKeyHash);
     const Tablet& cfind(uint64_t tableId,
                         uint64_t startKeyHash,
                         uint64_t endKeyHash) const;
+    Tablet getTablet(uint64_t tableId,
+                     uint64_t startKeyHash,
+                     uint64_t endKeyHash) const;
+    vector<Tablet> getTabletsForTable(uint64_t tableId) const;
+    vector<Tablet> removeTabletsForTable(uint64_t tableId);
+    size_t size() const;
 
     /**
      * Shared RAMCloud information.

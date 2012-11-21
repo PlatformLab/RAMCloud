@@ -80,6 +80,10 @@ class TableManagerTest : public ::testing::Test {
     DISALLOW_COPY_AND_ASSIGN(TableManagerTest);
 };
 
+/////////////////////////////////////////////////////////////////////////////
+///////////////////// Unit tests for public methods /////////////////////////
+/////////////////////////////////////////////////////////////////////////////
+
 TEST_F(TableManagerTest, createTable) {
     // Enlist master
     enlistMaster();
@@ -227,6 +231,18 @@ TEST_F(TableManagerTest, getTableId) {
                  TableManager::NoSuchTable);
 }
 
+TEST_F(TableManagerTest, modifyTablet) {
+    tableManager->addTablet({0, 1, 6, {0, 1}, Tablet::NORMAL, {0, 5}});
+    tableManager->modifyTablet(0, 1, 6, {1, 2}, Tablet::RECOVERING, {3, 9});
+    Tablet tablet = tableManager->getTablet(0, 1, 6);
+    EXPECT_EQ(ServerId(1, 2), tablet.serverId);
+    EXPECT_EQ(Tablet::RECOVERING, tablet.status);
+    EXPECT_EQ(Log::Position(3, 9), tablet.ctime);
+    EXPECT_THROW(
+        tableManager->modifyTablet(0, 0, 0, {0, 0}, Tablet::NORMAL, {0, 0}),
+        TableManager::NoSuchTablet);
+}
+
 static bool
 reassignTabletOwnershipFilter(string s)
 {
@@ -292,96 +308,6 @@ TEST_F(TableManagerTest, reassignTabletOwnership) {
     EXPECT_EQ(master2->serverId, tablet.serverId);
     EXPECT_EQ(83U, tablet.ctime.getSegmentId());
     EXPECT_EQ(835U, tablet.ctime.getSegmentOffset());
-}
-
-TEST_F(TableManagerTest, addTablet) {
-    tableManager->addTablet({1, 2, 3, {4, 5}, Tablet::RECOVERING, {6, 7}});
-    EXPECT_EQ(1lu, tableManager->size());
-    Tablet tablet = tableManager->getTablet(1, 2, 3);
-    EXPECT_EQ(1lu, tablet.tableId);
-    EXPECT_EQ(2lu, tablet.startKeyHash);
-    EXPECT_EQ(3lu, tablet.endKeyHash);
-    EXPECT_EQ(ServerId(4, 5), tablet.serverId);
-    EXPECT_EQ(Tablet::RECOVERING, tablet.status);
-    EXPECT_EQ(Log::Position(6, 7), tablet.ctime);
-}
-
-TEST_F(TableManagerTest, getTablet) {
-    fillMap(3);
-    for (uint32_t i = 0; i < 3; ++i) {
-        const uint32_t b = i * 10;
-        Tablet tablet = tableManager->getTablet(b + 1, b + 2, b + 3);
-        EXPECT_EQ(b + 1, tablet.tableId);
-        EXPECT_EQ(b + 2, tablet.startKeyHash);
-        EXPECT_EQ(b + 3, tablet.endKeyHash);
-        EXPECT_EQ(ServerId(b + 4, b + 5), tablet.serverId);
-        EXPECT_EQ(Tablet::RECOVERING, tablet.status);
-        EXPECT_EQ(Log::Position(b + 6, b + 7), tablet.ctime);
-    }
-    EXPECT_THROW(tableManager->getTablet(0, 0, 0), TableManager::NoSuchTablet);
-}
-
-TEST_F(TableManagerTest, getTabletsForTable) {
-    tableManager->addTablet({0, 1, 6, {0, 1}, Tablet::NORMAL, {0, 5}});
-    tableManager->addTablet({1, 2, 7, {1, 1}, Tablet::NORMAL, {1, 6}});
-    tableManager->addTablet({0, 3, 8, {2, 1}, Tablet::NORMAL, {2, 7}});
-    tableManager->addTablet({1, 4, 9, {3, 1}, Tablet::NORMAL, {3, 8}});
-    tableManager->addTablet({2, 5, 10, {4, 1}, Tablet::NORMAL, {4, 9}});
-    auto tablets = tableManager->getTabletsForTable(0);
-    EXPECT_EQ(2lu, tablets.size());
-    EXPECT_EQ(ServerId(0, 1), tablets[0].serverId);
-    EXPECT_EQ(ServerId(2, 1), tablets[1].serverId);
-
-    tablets = tableManager->getTabletsForTable(1);
-    EXPECT_EQ(2lu, tablets.size());
-    EXPECT_EQ(ServerId(1, 1), tablets[0].serverId);
-    EXPECT_EQ(ServerId(3, 1), tablets[1].serverId);
-
-    tablets = tableManager->getTabletsForTable(2);
-    EXPECT_EQ(1lu, tablets.size());
-    EXPECT_EQ(ServerId(4, 1), tablets[0].serverId);
-
-    tablets = tableManager->getTabletsForTable(3);
-    EXPECT_EQ(0lu, tablets.size());
-}
-
-TEST_F(TableManagerTest, modifyTablet) {
-    tableManager->addTablet({0, 1, 6, {0, 1}, Tablet::NORMAL, {0, 5}});
-    tableManager->modifyTablet(0, 1, 6, {1, 2}, Tablet::RECOVERING, {3, 9});
-    Tablet tablet = tableManager->getTablet(0, 1, 6);
-    EXPECT_EQ(ServerId(1, 2), tablet.serverId);
-    EXPECT_EQ(Tablet::RECOVERING, tablet.status);
-    EXPECT_EQ(Log::Position(3, 9), tablet.ctime);
-    EXPECT_THROW(
-        tableManager->modifyTablet(0, 0, 0, {0, 0}, Tablet::NORMAL, {0, 0}),
-        TableManager::NoSuchTablet);
-}
-
-TEST_F(TableManagerTest, removeTabletsForTable) {
-    tableManager->addTablet({0, 1, 6, {0, 1}, Tablet::NORMAL, {0, 5}});
-    tableManager->addTablet({1, 2, 7, {1, 1}, Tablet::NORMAL, {1, 6}});
-    tableManager->addTablet({0, 3, 8, {2, 1}, Tablet::NORMAL, {2, 7}});
-
-    EXPECT_EQ(0lu, tableManager->removeTabletsForTable(2).size());
-    EXPECT_EQ(3lu, tableManager->size());
-
-    auto tablets = tableManager->removeTabletsForTable(1);
-    EXPECT_EQ(2lu, tableManager->size());
-    foreach (const auto& tablet, tablets) {
-        EXPECT_THROW(tableManager->getTablet(tablet.tableId,
-                                   tablet.startKeyHash,
-                                   tablet.endKeyHash),
-                     TableManager::NoSuchTablet);
-    }
-
-    tablets = tableManager->removeTabletsForTable(0);
-    EXPECT_EQ(0lu, tableManager->size());
-    foreach (const auto& tablet, tablets) {
-        EXPECT_THROW(tableManager->getTablet(tablet.tableId,
-                                   tablet.startKeyHash,
-                                   tablet.endKeyHash),
-                     TableManager::NoSuchTablet);
-    }
 }
 
 TEST_F(TableManagerTest, serialize) {
@@ -479,6 +405,88 @@ TEST_F(TableManagerTest, splitTablet) {
 
     EXPECT_THROW(tableManager->splitTablet("bar", 0, ~0ul, ~0ul / 2),
                  TableManager::NoSuchTable);
+}
+
+/////////////////////////////////////////////////////////////////////////////
+///////////////////// Unit tests for private methods ////////////////////////
+/////////////////////////////////////////////////////////////////////////////
+
+TEST_F(TableManagerTest, addTablet) {
+    tableManager->addTablet({1, 2, 3, {4, 5}, Tablet::RECOVERING, {6, 7}});
+    EXPECT_EQ(1lu, tableManager->size());
+    Tablet tablet = tableManager->getTablet(1, 2, 3);
+    EXPECT_EQ(1lu, tablet.tableId);
+    EXPECT_EQ(2lu, tablet.startKeyHash);
+    EXPECT_EQ(3lu, tablet.endKeyHash);
+    EXPECT_EQ(ServerId(4, 5), tablet.serverId);
+    EXPECT_EQ(Tablet::RECOVERING, tablet.status);
+    EXPECT_EQ(Log::Position(6, 7), tablet.ctime);
+}
+
+TEST_F(TableManagerTest, getTablet) {
+    fillMap(3);
+    for (uint32_t i = 0; i < 3; ++i) {
+        const uint32_t b = i * 10;
+        Tablet tablet = tableManager->getTablet(b + 1, b + 2, b + 3);
+        EXPECT_EQ(b + 1, tablet.tableId);
+        EXPECT_EQ(b + 2, tablet.startKeyHash);
+        EXPECT_EQ(b + 3, tablet.endKeyHash);
+        EXPECT_EQ(ServerId(b + 4, b + 5), tablet.serverId);
+        EXPECT_EQ(Tablet::RECOVERING, tablet.status);
+        EXPECT_EQ(Log::Position(b + 6, b + 7), tablet.ctime);
+    }
+    EXPECT_THROW(tableManager->getTablet(0, 0, 0), TableManager::NoSuchTablet);
+}
+
+TEST_F(TableManagerTest, getTabletsForTable) {
+    tableManager->addTablet({0, 1, 6, {0, 1}, Tablet::NORMAL, {0, 5}});
+    tableManager->addTablet({1, 2, 7, {1, 1}, Tablet::NORMAL, {1, 6}});
+    tableManager->addTablet({0, 3, 8, {2, 1}, Tablet::NORMAL, {2, 7}});
+    tableManager->addTablet({1, 4, 9, {3, 1}, Tablet::NORMAL, {3, 8}});
+    tableManager->addTablet({2, 5, 10, {4, 1}, Tablet::NORMAL, {4, 9}});
+    auto tablets = tableManager->getTabletsForTable(0);
+    EXPECT_EQ(2lu, tablets.size());
+    EXPECT_EQ(ServerId(0, 1), tablets[0].serverId);
+    EXPECT_EQ(ServerId(2, 1), tablets[1].serverId);
+
+    tablets = tableManager->getTabletsForTable(1);
+    EXPECT_EQ(2lu, tablets.size());
+    EXPECT_EQ(ServerId(1, 1), tablets[0].serverId);
+    EXPECT_EQ(ServerId(3, 1), tablets[1].serverId);
+
+    tablets = tableManager->getTabletsForTable(2);
+    EXPECT_EQ(1lu, tablets.size());
+    EXPECT_EQ(ServerId(4, 1), tablets[0].serverId);
+
+    tablets = tableManager->getTabletsForTable(3);
+    EXPECT_EQ(0lu, tablets.size());
+}
+
+TEST_F(TableManagerTest, removeTabletsForTable) {
+    tableManager->addTablet({0, 1, 6, {0, 1}, Tablet::NORMAL, {0, 5}});
+    tableManager->addTablet({1, 2, 7, {1, 1}, Tablet::NORMAL, {1, 6}});
+    tableManager->addTablet({0, 3, 8, {2, 1}, Tablet::NORMAL, {2, 7}});
+
+    EXPECT_EQ(0lu, tableManager->removeTabletsForTable(2).size());
+    EXPECT_EQ(3lu, tableManager->size());
+
+    auto tablets = tableManager->removeTabletsForTable(1);
+    EXPECT_EQ(2lu, tableManager->size());
+    foreach (const auto& tablet, tablets) {
+        EXPECT_THROW(tableManager->getTablet(tablet.tableId,
+                                   tablet.startKeyHash,
+                                   tablet.endKeyHash),
+                     TableManager::NoSuchTablet);
+    }
+
+    tablets = tableManager->removeTabletsForTable(0);
+    EXPECT_EQ(0lu, tableManager->size());
+    foreach (const auto& tablet, tablets) {
+        EXPECT_THROW(tableManager->getTablet(tablet.tableId,
+                                   tablet.startKeyHash,
+                                   tablet.endKeyHash),
+                     TableManager::NoSuchTablet);
+    }
 }
 
 }  // namespace RAMCloud
