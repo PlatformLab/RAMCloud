@@ -35,9 +35,6 @@ CoordinatorService::CoordinatorService(Context* context,
     , serverList(context->coordinatorServerList)
     , deadServerTimeout(deadServerTimeout)
     , tableManager(context->tableManager)
-    , tables()
-    , nextTableId(0)
-    , nextTableMasterIdx(0)
     , runtimeOptions()
     , recoveryManager(context, *tableManager, &runtimeOptions)
     , coordinatorRecovery(*this)
@@ -163,58 +160,13 @@ CoordinatorService::createTable(const WireFormat::CreateTable::Request* reqHdr,
 
     const char* name = getString(rpc->requestPayload, sizeof(*reqHdr),
                                  reqHdr->nameLength);
-    if (tables.find(name) != tables.end())
-        return;
-    uint64_t tableId = nextTableId++;
-    tables[name] = tableId;
-    respHdr->tableId = tableId;
-
-    LOG(NOTICE, "Created table '%s' with id %lu",
-                    name, tableId);
-
     uint32_t serverSpan = reqHdr->serverSpan;
-    if (serverSpan == 0)
-        serverSpan = 1;
 
-    for (uint32_t i = 0; i < serverSpan; i++) {
-        uint64_t firstKeyHash = i * (~0UL / serverSpan);
-        if (i != 0)
-            firstKeyHash++;
-        uint64_t lastKeyHash = (i + 1) * (~0UL / serverSpan);
-        if (i == serverSpan - 1)
-            lastKeyHash = ~0UL;
-
-        // Find the next master in the list.
-        CoordinatorServerList::Entry master;
-        while (true) {
-            size_t masterIdx = nextTableMasterIdx++ % serverList->size();
-            CoordinatorServerList::Entry entry;
-            try {
-                entry = (*serverList)[masterIdx];
-                if (entry.isMaster()) {
-                    master = entry;
-                    break;
-                }
-            } catch (ServerListException& e) {
-                continue;
-            }
-        }
-        // Get current log head. Only entries >= this can be part of the tablet.
-        Log::Position headOfLog = MasterClient::getHeadOfLog(context,
-                                                             master.serverId);
-
-        // Create tablet map entry.
-        tableManager->addTablet({tableId, firstKeyHash, lastKeyHash,
-                             master.serverId, Tablet::NORMAL, headOfLog});
-
-        // Inform the master.
-        MasterClient::takeTabletOwnership(context, master.serverId, tableId,
-                                          firstKeyHash, lastKeyHash);
-
-        LOG(NOTICE, "Assigned tablet [0x%lx,0x%lx] in table '%s' (id %lu) "
-                    "to %s",
-                    firstKeyHash, lastKeyHash, name, tableId,
-                    serverList->toString(master.serverId).c_str());
+    try {
+        uint64_t tableId = tableManager->createTable(name, serverSpan);
+        respHdr->tableId = tableId;
+    } catch (TableManager::TableExists& e) {
+        return;
     }
 }
 
@@ -229,22 +181,7 @@ CoordinatorService::dropTable(const WireFormat::DropTable::Request* reqHdr,
 {
     const char* name = getString(rpc->requestPayload, sizeof(*reqHdr),
                                  reqHdr->nameLength);
-    Tables::iterator it = tables.find(name);
-    if (it == tables.end())
-        return;
-    uint64_t tableId = it->second;
-    tables.erase(it);
-    vector<Tablet> removed = tableManager->removeTabletsForTable(tableId);
-    foreach (const auto& tablet, removed) {
-            MasterClient::dropTabletOwnership(context,
-                                              tablet.serverId,
-                                              tableId,
-                                              tablet.startKeyHash,
-                                              tablet.endKeyHash);
-    }
-
-    LOG(NOTICE, "Dropped table '%s' (id %lu), %lu tablets left in map",
-        name, tableId, tableManager->size());
+    tableManager->dropTable(name);
 }
 
 /**
@@ -253,8 +190,8 @@ CoordinatorService::dropTable(const WireFormat::DropTable::Request* reqHdr,
  */
 void
 CoordinatorService::splitTablet(const WireFormat::SplitTablet::Request* reqHdr,
-                              WireFormat::SplitTablet::Response* respHdr,
-                              Rpc* rpc)
+                                WireFormat::SplitTablet::Response* respHdr,
+                                Rpc* rpc)
 {
     // Check that the tablet with the described key ranges exists.
     // If the tablet exists, adjust its lastKeyHash so it becomes the tablet
@@ -262,35 +199,25 @@ CoordinatorService::splitTablet(const WireFormat::SplitTablet::Request* reqHdr,
     // the copy for the second part after the split.
     const char* name = getString(rpc->requestPayload, sizeof(*reqHdr),
                                  reqHdr->nameLength);
-    Tables::iterator it(tables.find(name));
-    if (it == tables.end()) {
-        respHdr->common.status = STATUS_TABLE_DOESNT_EXIST;
-        return;
-    }
-    uint64_t tableId = it->second;
 
-    ServerId serverId;
     try {
-        serverId = tableManager->splitTablet(tableId,
-                                         reqHdr->firstKeyHash,
-                                         reqHdr->lastKeyHash,
-                                         reqHdr->splitKeyHash).first.serverId;
+        tableManager->splitTablet(
+                name, reqHdr->firstKeyHash, reqHdr->lastKeyHash,
+                reqHdr->splitKeyHash);
+        LOG(NOTICE,
+            "In table '%s' I split the tablet that started at key %lu and "
+            "ended at key %lu",
+            name, reqHdr->firstKeyHash, reqHdr->lastKeyHash);
     } catch (const TableManager::NoSuchTablet& e) {
         respHdr->common.status = STATUS_TABLET_DOESNT_EXIST;
         return;
     } catch (const TableManager::BadSplit& e) {
         respHdr->common.status = STATUS_REQUEST_FORMAT_ERROR;
         return;
+    } catch (TableManager::NoSuchTable& e) {
+        respHdr->common.status = STATUS_TABLE_DOESNT_EXIST;
+        return;
     }
-
-    // Tell the master to split the tablet
-    MasterClient::splitMasterTablet(context, serverId, tableId,
-                                    reqHdr->firstKeyHash, reqHdr->lastKeyHash,
-                                    reqHdr->splitKeyHash);
-
-    LOG(NOTICE, "In table '%s' I split the tablet that started at key %lu and "
-                "ended at key %lu", name, reqHdr->firstKeyHash,
-                reqHdr->lastKeyHash);
 }
 
 /**
@@ -305,12 +232,14 @@ CoordinatorService::getTableId(
 {
     const char* name = getString(rpc->requestPayload, sizeof(*reqHdr),
                                  reqHdr->nameLength);
-    Tables::iterator it(tables.find(name));
-    if (it == tables.end()) {
+
+    try {
+        uint64_t tableId = tableManager->getTableId(name);
+        respHdr->tableId = tableId;
+    } catch (TableManager::NoSuchTable& e) {
         respHdr->common.status = STATUS_TABLE_DOESNT_EXIST;
         return;
     }
-    respHdr->tableId = it->second;
 }
 
 /**
@@ -450,9 +379,7 @@ CoordinatorService::quiesce(const WireFormat::BackupQuiesce::Request* reqHdr,
 }
 
 /**
- * Handle the REASSIGN_TABLET_OWNER RPC. This involves switching
- * ownership of the tablet and alerting the new owner that it may
- * begin servicing requests on that tablet.
+ * Handle the REASSIGN_TABLET_OWNER RPC.
  *
  * \copydetails Service::ping
  */
@@ -463,65 +390,29 @@ CoordinatorService::reassignTabletOwnership(
     Rpc* rpc)
 {
     ServerId newOwner(reqHdr->newOwnerId);
+    uint64_t tableId = reqHdr->tableId;
+    uint64_t startKeyHash = reqHdr->firstKeyHash;
+    uint64_t endKeyHash = reqHdr->lastKeyHash;
+
     if (!serverList->isUp(newOwner)) {
         LOG(WARNING, "Cannot reassign tablet [0x%lx,0x%lx] in tableId %lu "
-            "to %s: server not up", reqHdr->firstKeyHash,
-            reqHdr->lastKeyHash, reqHdr->tableId,
-            newOwner.toString().c_str());
+                     "to %s: server not up",
+                      startKeyHash, endKeyHash, tableId,
+                      newOwner.toString().c_str());
         respHdr->common.status = STATUS_SERVER_NOT_UP;
         return;
     }
 
     try {
-        // Note currently this log message may not be exactly correct due to
-        // concurrent operations on the tablet map which may slip in between
-        // the message and the actual operation.
-        Tablet tablet = tableManager->getTablet(reqHdr->tableId,
-                                           reqHdr->firstKeyHash,
-                                           reqHdr->lastKeyHash);
-        LOG(NOTICE, "Reassigning tablet [0x%lx,0x%lx] in tableId %lu "
-            "from %s to %s", reqHdr->firstKeyHash,
-            reqHdr->lastKeyHash, reqHdr->tableId,
-            serverList->toString(tablet.serverId).c_str(),
-            serverList->toString(newOwner).c_str());
+        tableManager->reassignTabletOwnership(
+                newOwner, tableId, startKeyHash, endKeyHash,
+                reqHdr->ctimeSegmentId, reqHdr->ctimeSegmentOffset);
     } catch (const TableManager::NoSuchTablet& e) {
         LOG(WARNING, "Could not reassign tablet [0x%lx,0x%lx] in tableId %lu: "
-            "tablet not found", reqHdr->firstKeyHash,
-            reqHdr->lastKeyHash, reqHdr->tableId);
+            "tablet not found",
+            startKeyHash, endKeyHash, tableId);
         respHdr->common.status = STATUS_TABLE_DOESNT_EXIST;
-        return;
     }
-
-    // Get current head of log to preclude all previous data in the log
-    // from being considered part of this tablet.
-    Log::Position headOfLogAtCreation(reqHdr->ctimeSegmentId,
-                                      reqHdr->ctimeSegmentOffset);
-
-    try {
-        tableManager->modifyTablet(reqHdr->tableId, reqHdr->firstKeyHash,
-                               reqHdr->lastKeyHash, newOwner, Tablet::NORMAL,
-                               headOfLogAtCreation);
-    } catch (const TableManager::NoSuchTablet& e) {
-        LOG(WARNING, "Could not reassign tablet [0x%lx,0x%lx] in tableId %lu: "
-            "tablet not found", reqHdr->firstKeyHash,
-            reqHdr->lastKeyHash, reqHdr->tableId);
-        respHdr->common.status = STATUS_TABLE_DOESNT_EXIST;
-        return;
-    }
-
-    // No need to keep the master waiting. If it sent us this request,
-    // then it has guaranteed that all data has been migrated. So long
-    // as we think the new owner is up (i.e. haven't started a recovery
-    // on it), then it's safe for the old owner to drop the data and for
-    // us to switch over.
-    rpc->sendReply();
-
-    // TODO(rumble/slaughter) If we fail to alert the new owner we could
-    //      get stuck in limbo. What should we do? Retry? Fail the
-    //      server and recover it? Can't return to the old master if we
-    //      reply early...
-    MasterClient::takeTabletOwnership(context, newOwner, reqHdr->tableId,
-                                     reqHdr->firstKeyHash, reqHdr->lastKeyHash);
 }
 
 /**

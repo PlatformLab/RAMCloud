@@ -13,9 +13,11 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "TableManager.h"
+#include "CoordinatorServerList.h"
 #include "Logger.h"
+#include "MasterClient.h"
 #include "ShortMacros.h"
+#include "TableManager.h"
 
 namespace RAMCloud {
 
@@ -23,8 +25,12 @@ namespace RAMCloud {
  * Construct a TableManager.
  */
 TableManager::TableManager(Context* context)
-    : mutex()
+    : context(context)
     , map()
+    , mutex()
+    , nextTableId(0)
+    , nextTableMasterIdx(0)
+    , tables()
 {
     context->tableManager = this;
 }
@@ -33,6 +39,243 @@ TableManager::TableManager(Context* context)
  * Destructor for TableManager.
  */
 TableManager::~TableManager(){}
+
+/**
+ * Create a table with the given name.
+ * 
+ * \param name
+ *      Name for the table to be created.
+ * \param serverSpan
+ *      Number of servers across which this table should be split during
+ *      creation.
+ * 
+ * \return
+ *      tableId of the table created.
+ * 
+ * \throw TableExists
+ *      If trying to create a table that already exists.
+ */
+uint64_t
+TableManager::createTable(const char* name, uint32_t serverSpan)
+{
+    if (tables.find(name) != tables.end())
+        throw TableExists(HERE);
+    uint64_t tableId = nextTableId++;
+    tables[name] = tableId;
+
+    LOG(NOTICE, "Created table '%s' with id %lu", name, tableId);
+
+    if (serverSpan == 0)
+        serverSpan = 1;
+
+    for (uint32_t i = 0; i < serverSpan; i++) {
+        uint64_t firstKeyHash = i * (~0UL / serverSpan);
+        if (i != 0)
+            firstKeyHash++;
+        uint64_t lastKeyHash = (i + 1) * (~0UL / serverSpan);
+        if (i == serverSpan - 1)
+            lastKeyHash = ~0UL;
+
+        // Find the next master in the list.
+        CoordinatorServerList::Entry master;
+        while (true) {
+            size_t masterIdx = nextTableMasterIdx++ %
+                               context->coordinatorServerList->size();
+            CoordinatorServerList::Entry entry;
+            try {
+                entry = (*context->coordinatorServerList)[masterIdx];
+                if (entry.isMaster()) {
+                    master = entry;
+                    break;
+                }
+            } catch (ServerListException& e) {
+                continue;
+            }
+        }
+        // Get current log head. Only entries >= this can be part of the tablet.
+        Log::Position headOfLog = MasterClient::getHeadOfLog(context,
+                                                             master.serverId);
+
+        // Create tablet map entry.
+        addTablet({tableId, firstKeyHash, lastKeyHash,
+                   master.serverId, Tablet::NORMAL, headOfLog});
+
+        // Inform the master.
+        MasterClient::takeTabletOwnership(context, master.serverId, tableId,
+                                          firstKeyHash, lastKeyHash);
+
+        LOG(NOTICE,
+            "Assigned tablet [0x%lx,0x%lx] in table '%s' (id %lu) to %s",
+            firstKeyHash, lastKeyHash, name, tableId,
+            context->coordinatorServerList->toString(master.serverId).c_str());
+    }
+
+    return tableId;
+}
+
+/**
+ * Drop the table with the given name.
+ * 
+ * \param name
+ *      Name to identify the table that is to be dropped.
+ * 
+ * \throw NoSuchTable
+ *      If name does not identify a table currently in the tables.
+ */
+void
+TableManager::dropTable(const char* name)
+{
+    Tables::iterator it = tables.find(name);
+    if (it == tables.end())
+        return;
+    uint64_t tableId = it->second;
+    tables.erase(it);
+    vector<Tablet> removed = removeTabletsForTable(tableId);
+    foreach (const auto& tablet, removed) {
+            MasterClient::dropTabletOwnership(context,
+                                              tablet.serverId,
+                                              tableId,
+                                              tablet.startKeyHash,
+                                              tablet.endKeyHash);
+    }
+
+    LOG(NOTICE, "Dropped table '%s' (id %lu), %lu tablets left in map",
+        name, tableId, size());
+}
+
+/**
+ * Get the tableId of the table with the given name.
+ * 
+ * \param name
+ *      Name to identify the table.
+ * 
+ * \return
+ *      tableId of the table whose name is given.
+ * 
+ * \throw NoSuchTable
+ *      If name does not identify a table currently in the tables.
+ */
+uint64_t
+TableManager::getTableId(const char* name)
+{
+    Tables::iterator it(tables.find(name));
+    if (it == tables.end()) {
+        throw NoSuchTable(HERE);
+    }
+    return it->second;
+}
+
+/**
+ * Switch ownership of the tablet and alert the new owner that it may
+ * begin servicing requests on that tablet.
+ * 
+ * \param newOwner
+ *      ServerId of the server that will own this tablet at the end of
+ *      the operation.
+ * \param tableId
+ *      Table id of the tablet whose ownership is being reassigned.
+ * \param startKeyHash
+ *      First key hash that is part of the range of key hashes for the tablet.
+ * \param endKeyHash
+ *      Last key hash that is part of the range of key hashes for the tablet.
+ * \param ctimeSegmentId
+ *      ServerId of the log head before migration.
+ * \param ctimeSegmentOffset
+ *      Offset in log head before migration.
+ * 
+ * \throw NoSuchTablet
+ *      If the arguments do not identify a tablet currently in the tablet map.
+ */
+void
+TableManager::reassignTabletOwnership(
+        ServerId newOwner, uint64_t tableId,
+        uint64_t startKeyHash, uint64_t endKeyHash,
+        uint64_t ctimeSegmentId, uint64_t ctimeSegmentOffset)
+{
+    // Could throw TableManager::NoSuchTablet exception
+    Tablet tablet = getTablet(tableId, startKeyHash, endKeyHash);
+    LOG(NOTICE, "Reassigning tablet [0x%lx,0x%lx] in tableId %lu "
+        "from %s to %s",
+        startKeyHash, endKeyHash, tableId,
+        context->coordinatorServerList->toString(tablet.serverId).c_str(),
+        context->coordinatorServerList->toString(newOwner).c_str());
+
+    // Get current head of log to preclude all previous data in the log
+    // from being considered part of this tablet.
+    Log::Position headOfLogAtCreation(ctimeSegmentId,
+                                      ctimeSegmentOffset);
+
+    // Could throw TableManager::NoSuchTablet exception
+    modifyTablet(tableId, startKeyHash, endKeyHash,
+                 newOwner, Tablet::NORMAL, headOfLogAtCreation);
+
+    // TODO(ankitak): The todo comment below this was an issue earlier
+    //      because there was a rpc.sendReply() before this.
+    //      Is it still an issue?
+    // TODO(rumble/slaughter) If we fail to alert the new owner we could
+    //      get stuck in limbo. What should we do? Retry? Fail the
+    //      server and recover it? Can't return to the old master if we
+    //      reply early...
+    MasterClient::takeTabletOwnership(context, newOwner, tableId,
+                                      startKeyHash, endKeyHash);
+}
+
+/**
+ * Split a Tablet in the tablet map into two disjoint Tablets at a specific
+ * key hash. One Tablet will have all the key hashes
+ * [ \a startKeyHash, \a splitKeyHash), the other will have
+ * [ \a splitKeyHash, \a endKeyHash ].
+ *
+ * Also inform the master to split the tablet.
+ * 
+ * \param name
+ *      Name of the table that contains the tablet to be split.
+ * \param startKeyHash
+ *      First key hash that is part of the range of key hashes for the tablet
+ *      to split.
+ * \param endKeyHash
+ *      Last key hash that is part of the range of key hashes for the tablet
+ *      to split.
+ * \param splitKeyHash
+ *      Key hash to used to partition the tablet into two. Keys less than
+ *      \a splitKeyHash belong to one Tablet, keys greater than or equal to
+ *      \a splitKeyHash belong to the other.
+ * 
+ * \throw NoSuchTablet
+ *      If the arguments do not identify a tablet currently in the tablet map.
+ * \throw BadSplit
+ *      If \a splitKeyHash is not in the range
+ *      ( \a startKeyHash, \a endKeyHash ].
+ * \throw NoSuchTable
+ *      If name does not identify a table currently in the tables.
+ */
+void
+TableManager::splitTablet(const char* name,
+                          uint64_t startKeyHash,
+                          uint64_t endKeyHash,
+                          uint64_t splitKeyHash)
+{
+    Tables::iterator it(tables.find(name));
+    if (it == tables.end()) {
+        throw NoSuchTable(HERE);
+    }
+    uint64_t tableId = it->second;
+
+    if (startKeyHash >= (splitKeyHash - 1) || splitKeyHash >= endKeyHash) {
+        throw BadSplit(HERE);
+    }
+
+    Lock _(mutex);
+    Tablet& tablet = find(tableId, startKeyHash, endKeyHash);
+    Tablet newTablet = tablet;
+    newTablet.startKeyHash = splitKeyHash;
+    tablet.endKeyHash = splitKeyHash - 1;
+    map.push_back(newTablet);
+
+    // Tell the master to split the tablet
+    MasterClient::splitMasterTablet(context, tablet.serverId, tableId,
+                                    startKeyHash, endKeyHash, splitKeyHash);
+}
 
 /**
  * Add a Tablet to the tablet map.
@@ -93,8 +336,8 @@ TableManager::debugString() const
  */
 Tablet
 TableManager::getTablet(uint64_t tableId,
-                     uint64_t startKeyHash,
-                     uint64_t endKeyHash) const
+                        uint64_t startKeyHash,
+                        uint64_t endKeyHash) const
 {
     Lock _(mutex);
     return cfind(tableId, startKeyHash, endKeyHash);
@@ -145,11 +388,11 @@ TableManager::getTabletsForTable(uint64_t tableId) const
  */
 void
 TableManager::modifyTablet(uint64_t tableId,
-                        uint64_t startKeyHash,
-                        uint64_t endKeyHash,
-                        ServerId serverId,
-                        Tablet::Status status,
-                        Log::Position ctime)
+                           uint64_t startKeyHash,
+                           uint64_t endKeyHash,
+                           ServerId serverId,
+                           Tablet::Status status,
+                           Log::Position ctime)
 {
     Lock _(mutex);
     Tablet& tablet = find(tableId, startKeyHash, endKeyHash);
@@ -200,7 +443,7 @@ TableManager::removeTabletsForTable(uint64_t tableId)
  */
 void
 TableManager::serialize(AbstractServerList& serverList,
-                     ProtoBuf::Tablets& tablets) const
+                        ProtoBuf::Tablets& tablets) const
 {
     Lock _(mutex);
     foreach (const auto& tablet, map) {
@@ -254,52 +497,6 @@ TableManager::size() const
     return map.size();
 }
 
-/**
- * Split a Tablet in the tablet map into two disjoint Tablets at a specific
- * key hash. One Tablet will have all the key hashes
- * [ \a startKeyHash, \a splitKeyHash), the other will have
- * [ \a splitKeyHash, \a endKeyHash ].
- *
- * \param tableId
- *      Table id of the tablet to split.
- * \param startKeyHash
- *      First key hash that is part of the range of key hashes for the tablet
- *      to split.
- * \param endKeyHash
- *      Last key hash that is part of the range of key hashes for the tablet
- *      to split.
- * \param splitKeyHash
- *      Key hash to used to partition the tablet into two. Keys less than
- *      \a splitKeyHash belong to one Tablet, keys greater than or equal to
- *      \a splitKeyHash belong to the other.
- * \return
- *      Returns a pair containing the two Tablets affected by the split. The
- *      first Tablet contains the lower part of the key hash range, the second
- *      contains the upper part.
- * \throw NoSuchTablet
- *      If the arguments do not identify a tablet currently in the tablet map.
- * \throw BadSplit
- *      If \a splitKeyHash is not in the range
- *      ( \a startKeyHash, \a endKeyHash ].
- */
-pair<Tablet, Tablet>
-TableManager::splitTablet(uint64_t tableId,
-                       uint64_t startKeyHash,
-                       uint64_t endKeyHash,
-                       uint64_t splitKeyHash)
-{
-    if (startKeyHash >= (splitKeyHash - 1) || splitKeyHash >= endKeyHash)
-        throw BadSplit(HERE);
-
-    Lock _(mutex);
-    Tablet& tablet = find(tableId, startKeyHash, endKeyHash);
-    Tablet newTablet = tablet;
-    newTablet.startKeyHash = splitKeyHash;
-    tablet.endKeyHash = splitKeyHash - 1;
-    map.push_back(newTablet);
-    return {tablet, newTablet};
-}
-
 // - private -
 
 /**
@@ -323,8 +520,8 @@ TableManager::splitTablet(uint64_t tableId,
  */
 Tablet&
 TableManager::find(uint64_t tableId,
-                uint64_t startKeyHash,
-                uint64_t endKeyHash)
+                   uint64_t startKeyHash,
+                   uint64_t endKeyHash)
 {
     foreach (auto& tablet, map) {
         if (tablet.tableId == tableId &&
@@ -338,11 +535,11 @@ TableManager::find(uint64_t tableId,
 /// Const version of find().
 const Tablet&
 TableManager::cfind(uint64_t tableId,
-                 uint64_t startKeyHash,
-                 uint64_t endKeyHash) const
+                    uint64_t startKeyHash,
+                    uint64_t endKeyHash) const
 {
     return const_cast<TableManager*>(this)->find(tableId,
-                                              startKeyHash, endKeyHash);
+                                                 startKeyHash, endKeyHash);
 }
 
 } // namespace RAMCloud

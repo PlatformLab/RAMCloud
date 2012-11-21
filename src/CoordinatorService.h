@@ -127,26 +127,6 @@ class CoordinatorService : public Service {
     TableManager* tableManager;
 
   PRIVATE:
-    typedef std::map<string, uint64_t> Tables;
-    /**
-     * Map from table name to table id.
-     */
-    Tables tables;
-
-    /**
-     * The id of the next table to be created.
-     * These start at 0 and are never reused.
-     */
-    uint64_t nextTableId;
-
-    /**
-     * Used in #createTable() to assign new tables to masters.
-     * If you take this modulo the number of entries in #masterList, you get
-     * the index into #masterList of the master that should be assigned the
-     * next table.
-     */
-    uint32_t nextTableMasterIdx;
-
     /**
      * Contains coordinator configuration options which can be modified while
      * the cluster is running. Currently mostly used for setting debugging
