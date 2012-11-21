@@ -787,6 +787,63 @@ TEST_F(ReplicatedSegmentTest, syncWaitsForCommittedEvenWhenAcked) {
     reset();
 }
 
+TEST_F(ReplicatedSegmentTest, syncOnHeaderWaitsForCloseOfPriorSegment) {
+    transport.setInput("0 0"); // write - segment open
+    transport.setInput("0 0"); // write - segment open
+    transport.setInput("0 0"); // write - newHead open
+    transport.setInput("0 0"); // write - newHead open
+    transport.setInput("0 0"); // write - segment close
+    transport.setInput("0 0"); // write - segment close
+
+    Segment::Certificate segmentOpeningCertificate;
+    createSegment->logSegment.getAppendedLength(&segmentOpeningCertificate);
+
+    CreateSegment newHeadCreateSegment(this, segment,
+                                       segmentId + 1, numReplicas);
+    auto newHead = newHeadCreateSegment.segment.get();
+
+    Segment::Certificate newHeadOpeningCertificate;
+    newHeadCreateSegment.
+        logSegment.getAppendedLength(&newHeadOpeningCertificate);
+
+    segment->close(); // close queued
+
+    Segment::Certificate segmentFinalCertificate;
+    createSegment->logSegment.getAppendedLength(&segmentFinalCertificate);
+
+    EXPECT_TRUE(transport.output.empty());
+    newHead->sync(newHead->openLen);
+
+    EXPECT_TRUE(transport.outputMatches(0, MockTransport::SEND_REQUEST,
+        WrReq{{BACKUP_WRITE, BACKUP_SERVICE, 0},
+                 999, 888, 0, 0, 10, true, false, true, true,
+                 segmentOpeningCertificate},
+                "abcdefghij", 10));
+    EXPECT_TRUE(transport.outputMatches(1, MockTransport::SEND_REQUEST,
+        WrReq{{BACKUP_WRITE, BACKUP_SERVICE, 1},
+                 999, 888, 0, 0, 10, true, false, false, true,
+                 segmentOpeningCertificate},
+                "abcdefghij", 10));
+    EXPECT_TRUE(transport.outputMatches(2, MockTransport::SEND_REQUEST,
+        WrReq{{BACKUP_WRITE, BACKUP_SERVICE, 0},
+                 999, 889, 0, 0, 10, true, false, true, true,
+                 newHeadOpeningCertificate},
+                "abcdefghij", 10));
+    EXPECT_TRUE(transport.outputMatches(3, MockTransport::SEND_REQUEST,
+        WrReq{{BACKUP_WRITE, BACKUP_SERVICE, 1},
+                 999, 889, 0, 0, 10, true, false, false, true,
+                 newHeadOpeningCertificate},
+                "abcdefghij", 10));
+    EXPECT_TRUE(transport.outputMatches(4, MockTransport::SEND_REQUEST,
+        WrReq{{BACKUP_WRITE, BACKUP_SERVICE, 0},
+                 999, 888, 0, 10, 0, false, true, true, true,
+                 segmentFinalCertificate}));
+    EXPECT_TRUE(transport.outputMatches(5, MockTransport::SEND_REQUEST,
+        WrReq{{BACKUP_WRITE, BACKUP_SERVICE, 1},
+                 999, 888, 0, 10, 0, false, true, false, true,
+                 segmentFinalCertificate}));
+}
+
 TEST_F(ReplicatedSegmentTest, swapSegment) {
     transport.setInput("0 0"); // write+open first replica
     transport.setInput("0 0"); // write+open second replica
