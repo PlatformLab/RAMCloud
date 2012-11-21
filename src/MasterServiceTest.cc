@@ -80,6 +80,9 @@ class MasterServiceTest : public ::testing::Test {
     MasterService* service;
     Server* masterServer;
 
+    mutable std::mutex mutex;
+    typedef std::unique_lock<std::mutex> Lock;
+
     // To make tests that don't need big segments faster, set a smaller default
     // segmentSize. Since we can't provide arguments to it in gtest, nor can we
     // apparently template easily on that, we need to subclass this if we want
@@ -94,6 +97,7 @@ class MasterServiceTest : public ::testing::Test {
         , masterConfig(ServerConfig::forTesting())
         , service()
         , masterServer()
+        , mutex()
     {
         Logger::get().setLogLevels(RAMCloud::SILENT_LOG_LEVEL);
 
@@ -1689,8 +1693,9 @@ TEST_F(MasterServiceTest, migrateTablet_movingData) {
     Log::Position master2HeadPositionAfter = Log::Position(
         master2->master->log->head->id,
         master2->master->log->head->getAppendedLength());
+    Lock lock(mutex);   // Used to trick TableManager internal calls.
     Log::Position ctimeCoord =
-        cluster.coordinator->tableManager->getTablet(tbl, 0, -1).ctime;
+        cluster.coordinator->tableManager->getTablet(lock, tbl, 0, -1).ctime;
     EXPECT_GT(ctimeCoord, master2HeadPositionBefore);
     EXPECT_LT(ctimeCoord, master2HeadPositionAfter);
 }

@@ -226,13 +226,12 @@ class RecoveryMasterFinishedTask : public Task {
                         ServerId(tablet.server_id()).toString().c_str(),
                         tablet.table_id(), tablet.start_key_hash(),
                         tablet.end_key_hash());
-                    mgr.tableManager.modifyTablet(tablet.table_id(),
-                                               tablet.start_key_hash(),
-                                               tablet.end_key_hash(),
-                                               ServerId(tablet.server_id()),
-                                               Tablet::NORMAL,
-                                               {tablet.ctime_log_head_id(),
-                                               tablet.ctime_log_head_offset()});
+                    mgr.tableManager.modifyTabletOnRecovery(
+                        tablet.table_id(),
+                        tablet.start_key_hash(), tablet.end_key_hash(),
+                        ServerId(tablet.server_id()), Tablet::NORMAL,
+                        {tablet.ctime_log_head_id(),
+                                tablet.ctime_log_head_offset()});
                 } catch (const Exception& e) {
                     // TODO(stutsman): What should we do here?
                     DIE("Entry wasn't in the list anymore; "

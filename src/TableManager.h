@@ -16,6 +16,8 @@
 #ifndef RAMCLOUD_TABLEMANAGER_H
 #define RAMCLOUD_TABLEMANAGER_H
 
+#include <mutex>
+
 #include "Tablets.pb.h"
 
 #include "Common.h"
@@ -68,12 +70,12 @@ class TableManager {
     string debugString() const;
     void dropTable(const char* name);
     uint64_t getTableId(const char* name);
-    void modifyTablet(uint64_t tableId,
-                      uint64_t startKeyHash,
-                      uint64_t endKeyHash,
-                      ServerId serverId,
-                      Tablet::Status status,
-                      Log::Position ctime);
+    void modifyTabletOnRecovery(uint64_t tableId,
+                                uint64_t startKeyHash,
+                                uint64_t endKeyHash,
+                                ServerId serverId,
+                                Tablet::Status status,
+                                Log::Position ctime);
     void reassignTabletOwnership(ServerId newOwner, uint64_t tableId,
                                  uint64_t startKeyHash, uint64_t endKeyHash,
                                  uint64_t ctimeSegmentId,
@@ -86,20 +88,38 @@ class TableManager {
                      uint64_t startKeyHash, uint64_t endKeyHash,
                      uint64_t splitKeyHash);
 
+    /**
+     * Provides monitor-style protection for all operations on the tablet map.
+     * A Lock for this mutex must be held to read or modify any state in
+     * the tablet map.
+     */
+    mutable std::mutex mutex;
+    typedef std::unique_lock<std::mutex> Lock;
+
   PRIVATE:
-    void addTablet(const Tablet& tablet);
-    Tablet& find(uint64_t tableId,
+    void addTablet(const Lock& lock, const Tablet& tablet);
+    Tablet& find(const Lock& lock,
+                 uint64_t tableId,
                  uint64_t startKeyHash,
                  uint64_t endKeyHash);
-    const Tablet& cfind(uint64_t tableId,
+    const Tablet& cfind(const Lock& lock,
+                        uint64_t tableId,
                         uint64_t startKeyHash,
                         uint64_t endKeyHash) const;
-    Tablet getTablet(uint64_t tableId,
+    Tablet getTablet(const Lock& lock,
+                     uint64_t tableId,
                      uint64_t startKeyHash,
                      uint64_t endKeyHash) const;
-    vector<Tablet> getTabletsForTable(uint64_t tableId) const;
-    vector<Tablet> removeTabletsForTable(uint64_t tableId);
-    size_t size() const;
+    vector<Tablet> getTabletsForTable(const Lock& lock, uint64_t tableId) const;
+    void modifyTablet(const Lock& lock,
+                      uint64_t tableId,
+                      uint64_t startKeyHash,
+                      uint64_t endKeyHash,
+                      ServerId serverId,
+                      Tablet::Status status,
+                      Log::Position ctime);
+    vector<Tablet> removeTabletsForTable(const Lock& lock, uint64_t tableId);
+    size_t size(const Lock& lock) const;
 
     /**
      * Shared RAMCloud information.
@@ -108,14 +128,6 @@ class TableManager {
 
     /// List of tablets that make up the current set of tables in a cluster.
     vector<Tablet> map;
-
-    /**
-     * Provides monitor-style protection for all operations on the tablet map.
-     * A Lock for this mutex must be held to read or modify any state in
-     * the tablet map.
-     */
-    mutable std::mutex mutex;
-    typedef std::lock_guard<std::mutex> Lock;
 
     /**
      * The id of the next table to be created.

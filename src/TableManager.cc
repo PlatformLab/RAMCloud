@@ -25,9 +25,9 @@ namespace RAMCloud {
  * Construct a TableManager.
  */
 TableManager::TableManager(Context* context)
-    : context(context)
+    : mutex()
+    , context(context)
     , map()
-    , mutex()
     , nextTableId(0)
     , nextTableMasterIdx(0)
     , tables()
@@ -58,6 +58,8 @@ TableManager::~TableManager(){}
 uint64_t
 TableManager::createTable(const char* name, uint32_t serverSpan)
 {
+    Lock lock(mutex);
+
     if (tables.find(name) != tables.end())
         throw TableExists(HERE);
     uint64_t tableId = nextTableId++;
@@ -97,8 +99,8 @@ TableManager::createTable(const char* name, uint32_t serverSpan)
                                                              master.serverId);
 
         // Create tablet map entry.
-        addTablet({tableId, firstKeyHash, lastKeyHash,
-                   master.serverId, Tablet::NORMAL, headOfLog});
+        addTablet(lock, {tableId, firstKeyHash, lastKeyHash,
+                  master.serverId, Tablet::NORMAL, headOfLog});
 
         // Inform the master.
         MasterClient::takeTabletOwnership(context, master.serverId, tableId,
@@ -120,7 +122,7 @@ TableManager::createTable(const char* name, uint32_t serverSpan)
 string
 TableManager::debugString() const
 {
-    Lock _(mutex);
+    Lock lock(mutex);
     std::stringstream result;
     for (auto it = map.begin(); it != map.end(); ++it)  {
         if (it != map.begin())
@@ -152,12 +154,13 @@ TableManager::debugString() const
 void
 TableManager::dropTable(const char* name)
 {
+    Lock lock(mutex);
     Tables::iterator it = tables.find(name);
     if (it == tables.end())
         return;
     uint64_t tableId = it->second;
     tables.erase(it);
-    vector<Tablet> removed = removeTabletsForTable(tableId);
+    vector<Tablet> removed = removeTabletsForTable(lock, tableId);
     foreach (const auto& tablet, removed) {
             MasterClient::dropTabletOwnership(context,
                                               tablet.serverId,
@@ -167,7 +170,7 @@ TableManager::dropTable(const char* name)
     }
 
     LOG(NOTICE, "Dropped table '%s' (id %lu), %lu tablets left in map",
-        name, tableId, size());
+        name, tableId, size(lock));
 }
 
 /**
@@ -185,6 +188,7 @@ TableManager::dropTable(const char* name)
 uint64_t
 TableManager::getTableId(const char* name)
 {
+    Lock lock(mutex);
     Tables::iterator it(tables.find(name));
     if (it == tables.end()) {
         throw NoSuchTable(HERE);
@@ -193,39 +197,17 @@ TableManager::getTableId(const char* name)
 }
 
 /**
- * Change the server id, status, or ctime of a Tablet in the tablet map.
- *
- * \param tableId
- *      Table id of the tablet to return the details of.
- * \param startKeyHash
- *      First key hash that is part of the range of key hashes for the tablet
- *      to return the details of.
- * \param endKeyHash
- *      Last key hash that is part of the range of key hashes for the tablet
- *      to return the details of.
- * \param serverId
- *      Tablet is updated to indicate that it is owned by \a serverId.
- * \param status
- *      Tablet is updated with this status (NORMAL or RECOVERING).
- * \param ctime
- *      Tablet is updated with this Log::Position indicating any object earlier
- *      than \a ctime in its log cannot contain objects belonging to it.
- * \throw NoSuchTablet
- *      If the arguments do not identify a tablet currently in the tablet map.
+ * Public version of modifyTablet. To be called only by MasterRecoveryManager
+ * after recovery.
  */
 void
-TableManager::modifyTablet(uint64_t tableId,
-                           uint64_t startKeyHash,
-                           uint64_t endKeyHash,
-                           ServerId serverId,
-                           Tablet::Status status,
-                           Log::Position ctime)
+TableManager::modifyTabletOnRecovery(
+        uint64_t tableId, uint64_t startKeyHash, uint64_t endKeyHash,
+        ServerId serverId, Tablet::Status status, Log::Position ctime)
 {
-    Lock _(mutex);
-    Tablet& tablet = find(tableId, startKeyHash, endKeyHash);
-    tablet.serverId = serverId;
-    tablet.status = status;
-    tablet.ctime = ctime;
+    Lock lock(mutex);
+    modifyTablet(lock, tableId, startKeyHash, endKeyHash,
+                 serverId, status, ctime);
 }
 
 /**
@@ -255,8 +237,9 @@ TableManager::reassignTabletOwnership(
         uint64_t startKeyHash, uint64_t endKeyHash,
         uint64_t ctimeSegmentId, uint64_t ctimeSegmentOffset)
 {
+    Lock lock(mutex);
     // Could throw TableManager::NoSuchTablet exception
-    Tablet tablet = getTablet(tableId, startKeyHash, endKeyHash);
+    Tablet tablet = getTablet(lock, tableId, startKeyHash, endKeyHash);
     LOG(NOTICE, "Reassigning tablet [0x%lx,0x%lx] in tableId %lu "
         "from %s to %s",
         startKeyHash, endKeyHash, tableId,
@@ -269,7 +252,7 @@ TableManager::reassignTabletOwnership(
                                       ctimeSegmentOffset);
 
     // Could throw TableManager::NoSuchTablet exception
-    modifyTablet(tableId, startKeyHash, endKeyHash,
+    modifyTablet(lock, tableId, startKeyHash, endKeyHash,
                  newOwner, Tablet::NORMAL, headOfLogAtCreation);
 
     // TODO(ankitak): The todo comment below this was an issue earlier
@@ -298,7 +281,7 @@ void
 TableManager::serialize(AbstractServerList& serverList,
                         ProtoBuf::Tablets& tablets) const
 {
-    Lock _(mutex);
+    Lock lock(mutex);
     foreach (const auto& tablet, map) {
         ProtoBuf::Tablets::Tablet& entry(*tablets.add_tablet());
         tablet.serialize(entry);
@@ -331,7 +314,7 @@ TableManager::serialize(AbstractServerList& serverList,
 vector<Tablet>
 TableManager::setStatusForServer(ServerId serverId, Tablet::Status status)
 {
-    Lock _(mutex);
+    Lock lock(mutex);
     vector<Tablet> results;
     foreach (Tablet& tablet, map) {
         if (tablet.serverId == serverId) {
@@ -377,6 +360,7 @@ TableManager::splitTablet(const char* name,
                           uint64_t endKeyHash,
                           uint64_t splitKeyHash)
 {
+    Lock lock(mutex);
     Tables::iterator it(tables.find(name));
     if (it == tables.end()) {
         throw NoSuchTable(HERE);
@@ -387,8 +371,7 @@ TableManager::splitTablet(const char* name,
         throw BadSplit(HERE);
     }
 
-    Lock _(mutex);
-    Tablet& tablet = find(tableId, startKeyHash, endKeyHash);
+    Tablet& tablet = find(lock, tableId, startKeyHash, endKeyHash);
     Tablet newTablet = tablet;
     newTablet.startKeyHash = splitKeyHash;
     tablet.endKeyHash = splitKeyHash - 1;
@@ -406,13 +389,14 @@ TableManager::splitTablet(const char* name,
 /**
  * Add a Tablet to the tablet map.
  *
+ *  \param lock
+ *      Explicity needs caller to hold a lock.
  * \param tablet
  *      Tablet entry which is copied into the tablet map.
  */
 void
-TableManager::addTablet(const Tablet& tablet)
+TableManager::addTablet(const Lock& lock, const Tablet& tablet)
 {
-    Lock _(mutex);
     map.push_back(tablet);
 }
 
@@ -421,6 +405,8 @@ TableManager::addTablet(const Tablet& tablet)
  * use only since returning a reference to an internal value is not
  * thread-safe.
  *
+ *  \param lock
+ *      Explicity needs caller to hold a lock.
  * \param tableId
  *      Table id of the tablet to return the details of.
  * \param startKeyHash
@@ -436,7 +422,8 @@ TableManager::addTablet(const Tablet& tablet)
  *      If the arguments do not identify a tablet currently in the tablet map.
  */
 Tablet&
-TableManager::find(uint64_t tableId,
+TableManager::find(const Lock& lock,
+                   uint64_t tableId,
                    uint64_t startKeyHash,
                    uint64_t endKeyHash)
 {
@@ -451,17 +438,20 @@ TableManager::find(uint64_t tableId,
 
 /// Const version of find().
 const Tablet&
-TableManager::cfind(uint64_t tableId,
+TableManager::cfind(const Lock& lock,
+                    uint64_t tableId,
                     uint64_t startKeyHash,
                     uint64_t endKeyHash) const
 {
-    return const_cast<TableManager*>(this)->find(tableId,
+    return const_cast<TableManager*>(this)->find(lock, tableId,
                                                  startKeyHash, endKeyHash);
 }
 
 /**
  * Get the details of a Tablet in the tablet map.
  *
+ * \param lock
+ *      Explicity needs caller to hold a lock.
  * \param tableId
  *      Table id of the tablet to return the details of.
  * \param startKeyHash
@@ -477,18 +467,20 @@ TableManager::cfind(uint64_t tableId,
  *      If the arguments do not identify a tablet currently in the tablet map.
  */
 Tablet
-TableManager::getTablet(uint64_t tableId,
+TableManager::getTablet(const Lock& lock,
+                        uint64_t tableId,
                         uint64_t startKeyHash,
                         uint64_t endKeyHash) const
 {
-    Lock _(mutex);
-    return cfind(tableId, startKeyHash, endKeyHash);
+    return cfind(lock, tableId, startKeyHash, endKeyHash);
 }
 
 /**
  * Get the details of all the Tablets in the tablet map that are part of a
  * specific table.
  *
+ * \param lock
+ *      Explicity needs caller to hold a lock.
  * \param tableId
  *      Table id of the table whose tablets are to be returned.
  * \return
@@ -496,9 +488,8 @@ TableManager::getTablet(uint64_t tableId,
  *      of the table indicated by \a tableId.
  */
 vector<Tablet>
-TableManager::getTabletsForTable(uint64_t tableId) const
+TableManager::getTabletsForTable(const Lock& lock, uint64_t tableId) const
 {
-    Lock _(mutex);
     vector<Tablet> results;
     foreach (const auto& tablet, map) {
         if (tablet.tableId == tableId)
@@ -508,9 +499,49 @@ TableManager::getTabletsForTable(uint64_t tableId) const
 }
 
 /**
+ * Change the server id, status, or ctime of a Tablet in the tablet map.
+ *
+ * \param lock
+ *      Explicity needs caller to hold a lock.
+ * \param tableId
+ *      Table id of the tablet to return the details of.
+ * \param startKeyHash
+ *      First key hash that is part of the range of key hashes for the tablet
+ *      to return the details of.
+ * \param endKeyHash
+ *      Last key hash that is part of the range of key hashes for the tablet
+ *      to return the details of.
+ * \param serverId
+ *      Tablet is updated to indicate that it is owned by \a serverId.
+ * \param status
+ *      Tablet is updated with this status (NORMAL or RECOVERING).
+ * \param ctime
+ *      Tablet is updated with this Log::Position indicating any object earlier
+ *      than \a ctime in its log cannot contain objects belonging to it.
+ * \throw NoSuchTablet
+ *      If the arguments do not identify a tablet currently in the tablet map.
+ */
+void
+TableManager::modifyTablet(const Lock& lock,
+                           uint64_t tableId,
+                           uint64_t startKeyHash,
+                           uint64_t endKeyHash,
+                           ServerId serverId,
+                           Tablet::Status status,
+                           Log::Position ctime)
+{
+    Tablet& tablet = find(lock, tableId, startKeyHash, endKeyHash);
+    tablet.serverId = serverId;
+    tablet.status = status;
+    tablet.ctime = ctime;
+}
+
+/**
  * Remove all the Tablets in the tablet map that are part of a specific table.
  * Copies of the details about the removed Tablets are returned.
  *
+ * \param lock
+ *      Explicity needs caller to hold a lock.
  * \param tableId
  *      Table id of the table whose tablets are removed.
  * \return
@@ -519,9 +550,8 @@ TableManager::getTabletsForTable(uint64_t tableId) const
  *      the tablet map).
  */
 vector<Tablet>
-TableManager::removeTabletsForTable(uint64_t tableId)
+TableManager::removeTabletsForTable(const Lock& lock, uint64_t tableId)
 {
-    Lock _(mutex);
     vector<Tablet> removed;
     auto it = map.begin();
     while (it != map.end()) {
@@ -538,9 +568,8 @@ TableManager::removeTabletsForTable(uint64_t tableId)
 
 /// Return the number of Tablets in the tablet map.
 size_t
-TableManager::size() const
+TableManager::size(const Lock& lock) const
 {
-    Lock _(mutex);
     return map.size();
 }
 

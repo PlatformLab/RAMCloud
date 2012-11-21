@@ -31,6 +31,7 @@ struct RecoveryTest : public ::testing::Test {
     ServerList serverList;
     TableManager tableManager;
     ProtoBuf::MasterRecoveryInfo recoveryInfo;
+    std::mutex mutex;
 
     RecoveryTest()
         : context()
@@ -39,6 +40,7 @@ struct RecoveryTest : public ::testing::Test {
         , serverList(&context)
         , tableManager(&context)
         , recoveryInfo()
+        , mutex()
     {
         Logger::get().setLogLevels(SILENT_LOG_LEVEL);
     }
@@ -64,6 +66,7 @@ struct RecoveryTest : public ::testing::Test {
         while (tracker.getChange(_, __));
     }
 
+    typedef std::unique_lock<std::mutex> Lock;
   private:
     DISALLOW_COPY_AND_ASSIGN(RecoveryTest);
 };
@@ -101,6 +104,7 @@ populateLogDigest(StartReadingDataRpc::Result& result,
 } // namespace
 
 TEST_F(RecoveryTest, partitionTablets) {
+    Lock lock(mutex);     // To trick TableManager internal calls.
     Tub<Recovery> recovery;
     Recovery::Owner* own = static_cast<Recovery::Owner*>(NULL);
     recovery.construct(&context, taskQueue, &tableManager, &tracker, own,
@@ -110,15 +114,18 @@ TEST_F(RecoveryTest, partitionTablets) {
     recovery->partitionTablets(tablets);
     EXPECT_EQ(0lu, recovery->numPartitions);
 
-    tableManager.addTablet({123,  0,  9, {99, 0}, Tablet::RECOVERING, {}});
-    tableManager.addTablet({123, 20, 29, {99, 0}, Tablet::RECOVERING, {}});
+    tableManager.addTablet(
+        lock, {123,  0,  9, {99, 0}, Tablet::RECOVERING, {}});
+    tableManager.addTablet(
+        lock, {123, 20, 29, {99, 0}, Tablet::RECOVERING, {}});
     recovery.construct(&context, taskQueue, &tableManager, &tracker, own,
                        ServerId(99), recoveryInfo);
     tablets = tableManager.setStatusForServer(ServerId(99), Tablet::RECOVERING);
     recovery->partitionTablets(tablets);
     EXPECT_EQ(2lu, recovery->numPartitions);
 
-    tableManager.addTablet({123, 10, 19, {99, 0}, Tablet::RECOVERING, {}});
+    tableManager.addTablet(
+        lock, {123, 10, 19, {99, 0}, Tablet::RECOVERING, {}});
     recovery.construct(&context, taskQueue, &tableManager, &tracker, own,
                        ServerId(99), recoveryInfo);
     tablets = tableManager.setStatusForServer(ServerId(99), Tablet::RECOVERING);
@@ -155,8 +162,10 @@ TEST_F(RecoveryTest, startBackups) {
             callCount++;
         }
     } callback;
+    Lock lock(mutex);     // To trick TableManager internal calls.
     addServersToTracker(3, {WireFormat::BACKUP_SERVICE});
-    tableManager.addTablet({123, 10, 19, {99, 0}, Tablet::RECOVERING, {}});
+    tableManager.addTablet(
+        lock, {123, 10, 19, {99, 0}, Tablet::RECOVERING, {}});
     Recovery recovery(&context, taskQueue, &tableManager, &tracker, NULL,
                       ServerId(99), recoveryInfo);
     recovery.testingBackupStartTaskSendCallback = &callback;
@@ -200,8 +209,10 @@ TEST_F(RecoveryTest, startBackups_secondariesEarlyInSomeList) {
             callCount++;
         }
     } callback;
+    Lock lock(mutex);     // To trick TableManager internal calls.
     addServersToTracker(3, {WireFormat::BACKUP_SERVICE});
-    tableManager.addTablet({123, 10, 19, {99, 0}, Tablet::RECOVERING, {}});
+    tableManager.addTablet(
+        lock, {123, 10, 19, {99, 0}, Tablet::RECOVERING, {}});
     Recovery recovery(&context, taskQueue, &tableManager, &tracker, NULL,
                       ServerId(99), recoveryInfo);
     recovery.testingBackupStartTaskSendCallback = &callback;
@@ -219,8 +230,10 @@ bool startBackupsFilter(string s) {
 
 TEST_F(RecoveryTest, startBackups_noLogDigestFound) {
     BackupStartTask::TestingCallback callback; // No-op callback.
+    Lock lock(mutex);     // To trick TableManager internal calls.
     addServersToTracker(3, {WireFormat::BACKUP_SERVICE});
-    tableManager.addTablet({123, 10, 19, {99, 0}, Tablet::RECOVERING, {}});
+    tableManager.addTablet(
+        lock, {123, 10, 19, {99, 0}, Tablet::RECOVERING, {}});
     Recovery recovery(&context, taskQueue, &tableManager, &tracker, NULL,
                       ServerId(99), recoveryInfo);
     recovery.testingBackupStartTaskSendCallback = &callback;
@@ -241,8 +254,10 @@ TEST_F(RecoveryTest, startBackups_someReplicasMissing) {
             populateLogDigest(result, 91, {91});
         }
     } callback;
+    Lock lock(mutex);     // To trick TableManager internal calls.
     addServersToTracker(3, {WireFormat::BACKUP_SERVICE});
-    tableManager.addTablet({123, 10, 19, {99, 0}, Tablet::RECOVERING, {}});
+    tableManager.addTablet(
+        lock, {123, 10, 19, {99, 0}, Tablet::RECOVERING, {}});
     Recovery recovery(&context, taskQueue, &tableManager, &tracker, NULL,
                       ServerId(99), recoveryInfo);
     recovery.testingBackupStartTaskSendCallback = &callback;
@@ -472,10 +487,14 @@ TEST_F(RecoveryTest, startRecoveryMasters) {
             ++callCount;
         }
     } callback;
+    Lock lock(mutex);     // To trick TableManager internal calls.
     addServersToTracker(2, {WireFormat::MASTER_SERVICE});
-    tableManager.addTablet({123,  0,  9, {99, 0}, Tablet::RECOVERING, {}});
-    tableManager.addTablet({123, 20, 29, {99, 0}, Tablet::RECOVERING, {}});
-    tableManager.addTablet({123, 10, 19, {99, 0}, Tablet::RECOVERING, {}});
+    tableManager.addTablet(
+        lock, {123,  0,  9, {99, 0}, Tablet::RECOVERING, {}});
+    tableManager.addTablet(
+        lock, {123, 20, 29, {99, 0}, Tablet::RECOVERING, {}});
+    tableManager.addTablet(
+        lock, {123, 10, 19, {99, 0}, Tablet::RECOVERING, {}});
     Recovery recovery(&context, taskQueue, &tableManager, &tracker, NULL,
                       {99, 0}, recoveryInfo);
     recovery.partitionTablets(
@@ -520,11 +539,15 @@ TEST_F(RecoveryTest, startRecoveryMasters_tooFewIdleMasters) {
             ++callCount;
         }
     } callback;
+    Lock lock(mutex);     // To trick TableManager internal calls.
     addServersToTracker(2, {WireFormat::MASTER_SERVICE});
     tracker[ServerId(1, 0)] = reinterpret_cast<Recovery*>(0x1);
-    tableManager.addTablet({123,  0,  9, {99, 0}, Tablet::RECOVERING, {}});
-    tableManager.addTablet({123, 20, 29, {99, 0}, Tablet::RECOVERING, {}});
-    tableManager.addTablet({123, 10, 19, {99, 0}, Tablet::RECOVERING, {}});
+    tableManager.addTablet(
+        lock, {123,  0,  9, {99, 0}, Tablet::RECOVERING, {}});
+    tableManager.addTablet(
+        lock, {123, 20, 29, {99, 0}, Tablet::RECOVERING, {}});
+    tableManager.addTablet(
+        lock, {123, 10, 19, {99, 0}, Tablet::RECOVERING, {}});
     Recovery recovery(&context, taskQueue, &tableManager, &tracker, NULL,
                       {99, 0}, recoveryInfo);
     recovery.partitionTablets(
@@ -561,13 +584,17 @@ TEST_F(RecoveryTest, startRecoveryMasters_noIdleMasters) {
             destroyCalled = true;
         }
     } owner;
+    Lock lock(mutex);     // To trick TableManager internal calls.
     MockRandom __(1);
     addServersToTracker(2, {WireFormat::MASTER_SERVICE});
     tracker[ServerId(1, 0)] = reinterpret_cast<Recovery*>(0x1);
     tracker[ServerId(2, 0)] = reinterpret_cast<Recovery*>(0x1);
-    tableManager.addTablet({123,  0,  9, {99, 0}, Tablet::RECOVERING, {}});
-    tableManager.addTablet({123, 20, 29, {99, 0}, Tablet::RECOVERING, {}});
-    tableManager.addTablet({123, 10, 19, {99, 0}, Tablet::RECOVERING, {}});
+    tableManager.addTablet(
+        lock, {123,  0,  9, {99, 0}, Tablet::RECOVERING, {}});
+    tableManager.addTablet(
+        lock, {123, 20, 29, {99, 0}, Tablet::RECOVERING, {}});
+    tableManager.addTablet(
+        lock, {123, 10, 19, {99, 0}, Tablet::RECOVERING, {}});
     Recovery recovery(&context, taskQueue, &tableManager, &tracker, &owner,
                       {99, 0}, recoveryInfo);
     recovery.partitionTablets(
@@ -596,10 +623,14 @@ TEST_F(RecoveryTest, startRecoveryMasters_noIdleMasters) {
 }
 
 TEST_F(RecoveryTest, startRecoveryMasters_allFailDuringRecoverRpc) {
+    Lock lock(mutex);     // To trick TableManager internal calls.
     addServersToTracker(2, {WireFormat::MASTER_SERVICE});
-    tableManager.addTablet({123,  0,  9, {99, 0}, Tablet::RECOVERING, {}});
-    tableManager.addTablet({123, 20, 29, {99, 0}, Tablet::RECOVERING, {}});
-    tableManager.addTablet({123, 10, 19, {99, 0}, Tablet::RECOVERING, {}});
+    tableManager.addTablet(
+        lock, {123,  0,  9, {99, 0}, Tablet::RECOVERING, {}});
+    tableManager.addTablet(
+        lock, {123, 20, 29, {99, 0}, Tablet::RECOVERING, {}});
+    tableManager.addTablet(
+        lock, {123, 10, 19, {99, 0}, Tablet::RECOVERING, {}});
     Recovery recovery(&context, taskQueue, &tableManager, &tracker, NULL,
                       {99, 0}, recoveryInfo);
     recovery.partitionTablets(

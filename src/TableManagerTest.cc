@@ -13,15 +13,14 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include <thread>
+#include <mutex>
+#include <queue>
+
 #include "TestUtil.h"
-#include "CoordinatorClient.h"
-#include "CoordinatorService.h"
-#include "MasterService.h"
-#include "MembershipService.h"
+#include "TableManager.h"
+
 #include "MockCluster.h"
-#include "RamCloud.h"
-#include "Recovery.h"
-#include "ServerList.h"
 
 namespace RAMCloud {
 
@@ -36,7 +35,9 @@ class TableManagerTest : public ::testing::Test {
                              // before trying to use masterServerId.
     CoordinatorServerList* serverList;
     TableManager* tableManager;
+
     std::mutex mutex;
+    typedef std::unique_lock<std::mutex> Lock;
 
     TableManagerTest()
         : context()
@@ -60,11 +61,11 @@ class TableManagerTest : public ::testing::Test {
         masterConfig.localLocator = "mock:host=master";
     }
 
-    void fillMap(uint32_t entries) {
+    void fillMap(const Lock& lock, uint32_t entries) {
         for (uint32_t i = 0; i < entries; ++i) {
             const uint32_t b = i * 10;
-            tableManager->addTablet({b + 1, b + 2, b + 3, {b + 4, b + 5},
-                           Tablet::RECOVERING, {b + 6l, b + 7}});
+            tableManager->addTablet(lock, {b + 1, b + 2, b + 3, {b + 4, b + 5},
+                                    Tablet::RECOVERING, {b + 6l, b + 7}});
         }
     }
 
@@ -76,7 +77,6 @@ class TableManagerTest : public ::testing::Test {
         masterServerId = masterServer->serverId;
     }
 
-    typedef std::unique_lock<std::mutex> Lock;
     DISALLOW_COPY_AND_ASSIGN(TableManagerTest);
 };
 
@@ -231,18 +231,6 @@ TEST_F(TableManagerTest, getTableId) {
                  TableManager::NoSuchTable);
 }
 
-TEST_F(TableManagerTest, modifyTablet) {
-    tableManager->addTablet({0, 1, 6, {0, 1}, Tablet::NORMAL, {0, 5}});
-    tableManager->modifyTablet(0, 1, 6, {1, 2}, Tablet::RECOVERING, {3, 9});
-    Tablet tablet = tableManager->getTablet(0, 1, 6);
-    EXPECT_EQ(ServerId(1, 2), tablet.serverId);
-    EXPECT_EQ(Tablet::RECOVERING, tablet.status);
-    EXPECT_EQ(Log::Position(3, 9), tablet.ctime);
-    EXPECT_THROW(
-        tableManager->modifyTablet(0, 0, 0, {0, 0}, Tablet::NORMAL, {0, 0}),
-        TableManager::NoSuchTablet);
-}
-
 static bool
 reassignTabletOwnershipFilter(string s)
 {
@@ -250,6 +238,7 @@ reassignTabletOwnershipFilter(string s)
 }
 
 TEST_F(TableManagerTest, reassignTabletOwnership) {
+    Lock lock(mutex);     // Used to trick internal calls.
     // Enlist master
     enlistMaster();
 
@@ -271,7 +260,7 @@ TEST_F(TableManagerTest, reassignTabletOwnership) {
     tableManager->createTable("foo", 1);
     EXPECT_EQ(1, master->tablets.tablet_size());
     EXPECT_EQ(0, master2->master->tablets.tablet_size());
-    Tablet tablet = tableManager->getTablet(0lu, 0lu, ~(0lu));
+    Tablet tablet = tableManager->getTablet(lock, 0lu, 0lu, ~(0lu));
     EXPECT_EQ(masterServerId, tablet.serverId);
     EXPECT_EQ(2U, tablet.ctime.getSegmentId());
     EXPECT_EQ(62U, tablet.ctime.getSegmentOffset());
@@ -304,22 +293,24 @@ TEST_F(TableManagerTest, reassignTabletOwnership) {
     // Calling master removes the entry itself after the RPC completes on coord.
     EXPECT_EQ(1, master->tablets.tablet_size());
     EXPECT_EQ(1, master2->master->tablets.tablet_size());
-    tablet = tableManager->getTablet(0lu, 0lu, ~(0lu));
+    tablet = tableManager->getTablet(lock, 0lu, 0lu, ~(0lu));
     EXPECT_EQ(master2->serverId, tablet.serverId);
     EXPECT_EQ(83U, tablet.ctime.getSegmentId());
     EXPECT_EQ(835U, tablet.ctime.getSegmentOffset());
 }
 
 TEST_F(TableManagerTest, serialize) {
-    Lock lock(mutex);
+    Lock lock(mutex);     // Used to trick internal calls.
     ServerId id1 = serverList->generateUniqueId(lock);
     serverList->add(lock, id1, "mock:host=one",
-                {WireFormat::MASTER_SERVICE}, 1);
+                    {WireFormat::MASTER_SERVICE}, 1);
     ServerId id2 = serverList->generateUniqueId(lock);
     serverList->add(lock, id2, "mock:host=two",
-                {WireFormat::MASTER_SERVICE}, 2);
-    tableManager->addTablet({0, 1, 6, id1, Tablet::NORMAL, {0, 5}});
-    tableManager->addTablet({1, 2, 7, id2, Tablet::NORMAL, {1, 6}});
+                    {WireFormat::MASTER_SERVICE}, 2);
+
+    tableManager->map.push_back(Tablet({0, 1, 6, id1, Tablet::NORMAL, {0, 5}}));
+    tableManager->map.push_back(Tablet({1, 2, 7, id2, Tablet::NORMAL, {1, 6}}));
+
     ProtoBuf::Tablets tablets;
     tableManager->serialize(*serverList, tablets);
     EXPECT_EQ("tablet { table_id: 0 start_key_hash: 1 end_key_hash: 6 "
@@ -332,9 +323,10 @@ TEST_F(TableManagerTest, serialize) {
 }
 
 TEST_F(TableManagerTest, setStatusForServer) {
-    tableManager->addTablet({0, 1, 6, {0, 1}, Tablet::NORMAL, {0, 5}});
-    tableManager->addTablet({1, 2, 7, {1, 1}, Tablet::NORMAL, {1, 6}});
-    tableManager->addTablet({0, 3, 8, {0, 1}, Tablet::NORMAL, {2, 7}});
+    Lock lock(mutex);     // Used to trick internal calls.
+    tableManager->addTablet(lock, {0, 1, 6, {0, 1}, Tablet::NORMAL, {0, 5}});
+    tableManager->addTablet(lock, {1, 2, 7, {1, 1}, Tablet::NORMAL, {1, 6}});
+    tableManager->addTablet(lock, {0, 3, 8, {0, 1}, Tablet::NORMAL, {2, 7}});
 
     EXPECT_EQ(0lu,
         tableManager->setStatusForServer({2, 1}, Tablet::RECOVERING).size());
@@ -342,7 +334,7 @@ TEST_F(TableManagerTest, setStatusForServer) {
     auto tablets = tableManager->setStatusForServer({0, 1}, Tablet::RECOVERING);
     EXPECT_EQ(2lu, tablets.size());
     foreach (const auto& tablet, tablets) {
-        Tablet inMap = tableManager->getTablet(tablet.tableId,
+        Tablet inMap = tableManager->getTablet(lock, tablet.tableId,
                                      tablet.startKeyHash,
                                      tablet.endKeyHash);
         EXPECT_EQ(ServerId(0, 1), tablet.serverId);
@@ -354,7 +346,7 @@ TEST_F(TableManagerTest, setStatusForServer) {
     tablets = tableManager->setStatusForServer({1, 1}, Tablet::RECOVERING);
     ASSERT_EQ(1lu, tablets.size());
     auto tablet = tablets[0];
-    Tablet inMap = tableManager->getTablet(tablet.tableId,
+    Tablet inMap = tableManager->getTablet(lock, tablet.tableId,
                                  tablet.startKeyHash,
                                  tablet.endKeyHash);
     EXPECT_EQ(ServerId(1, 1), tablet.serverId);
@@ -412,9 +404,11 @@ TEST_F(TableManagerTest, splitTablet) {
 /////////////////////////////////////////////////////////////////////////////
 
 TEST_F(TableManagerTest, addTablet) {
-    tableManager->addTablet({1, 2, 3, {4, 5}, Tablet::RECOVERING, {6, 7}});
-    EXPECT_EQ(1lu, tableManager->size());
-    Tablet tablet = tableManager->getTablet(1, 2, 3);
+    Lock lock(mutex);     // Used to trick internal calls.
+    tableManager->addTablet(
+        lock, {1, 2, 3, {4, 5}, Tablet::RECOVERING, {6, 7}});
+    EXPECT_EQ(1lu, tableManager->size(lock));
+    Tablet tablet = tableManager->getTablet(lock, 1, 2, 3);
     EXPECT_EQ(1lu, tablet.tableId);
     EXPECT_EQ(2lu, tablet.startKeyHash);
     EXPECT_EQ(3lu, tablet.endKeyHash);
@@ -424,10 +418,11 @@ TEST_F(TableManagerTest, addTablet) {
 }
 
 TEST_F(TableManagerTest, getTablet) {
-    fillMap(3);
+    Lock lock(mutex);     // Used to trick internal calls.
+    fillMap(lock, 3);
     for (uint32_t i = 0; i < 3; ++i) {
         const uint32_t b = i * 10;
-        Tablet tablet = tableManager->getTablet(b + 1, b + 2, b + 3);
+        Tablet tablet = tableManager->getTablet(lock, b + 1, b + 2, b + 3);
         EXPECT_EQ(b + 1, tablet.tableId);
         EXPECT_EQ(b + 2, tablet.startKeyHash);
         EXPECT_EQ(b + 3, tablet.endKeyHash);
@@ -435,54 +430,74 @@ TEST_F(TableManagerTest, getTablet) {
         EXPECT_EQ(Tablet::RECOVERING, tablet.status);
         EXPECT_EQ(Log::Position(b + 6, b + 7), tablet.ctime);
     }
-    EXPECT_THROW(tableManager->getTablet(0, 0, 0), TableManager::NoSuchTablet);
+    EXPECT_THROW(tableManager->getTablet(lock, 0, 0, 0),
+                 TableManager::NoSuchTablet);
 }
 
 TEST_F(TableManagerTest, getTabletsForTable) {
-    tableManager->addTablet({0, 1, 6, {0, 1}, Tablet::NORMAL, {0, 5}});
-    tableManager->addTablet({1, 2, 7, {1, 1}, Tablet::NORMAL, {1, 6}});
-    tableManager->addTablet({0, 3, 8, {2, 1}, Tablet::NORMAL, {2, 7}});
-    tableManager->addTablet({1, 4, 9, {3, 1}, Tablet::NORMAL, {3, 8}});
-    tableManager->addTablet({2, 5, 10, {4, 1}, Tablet::NORMAL, {4, 9}});
-    auto tablets = tableManager->getTabletsForTable(0);
+    Lock lock(mutex); // Used to trick internal calls.
+    Tablet tablet1({0, 1, 6, {0, 1}, Tablet::NORMAL, {0, 5}});
+    tableManager->addTablet(lock, tablet1);
+
+    tableManager->addTablet(lock, {1, 2, 7, {1, 1}, Tablet::NORMAL, {1, 6}});
+    tableManager->addTablet(lock, {0, 3, 8, {2, 1}, Tablet::NORMAL, {2, 7}});
+    tableManager->addTablet(lock, {1, 4, 9, {3, 1}, Tablet::NORMAL, {3, 8}});
+    tableManager->addTablet(lock, {2, 5, 10, {4, 1}, Tablet::NORMAL, {4, 9}});
+    auto tablets = tableManager->getTabletsForTable(lock, 0);
     EXPECT_EQ(2lu, tablets.size());
     EXPECT_EQ(ServerId(0, 1), tablets[0].serverId);
     EXPECT_EQ(ServerId(2, 1), tablets[1].serverId);
 
-    tablets = tableManager->getTabletsForTable(1);
+    tablets = tableManager->getTabletsForTable(lock, 1);
     EXPECT_EQ(2lu, tablets.size());
     EXPECT_EQ(ServerId(1, 1), tablets[0].serverId);
     EXPECT_EQ(ServerId(3, 1), tablets[1].serverId);
 
-    tablets = tableManager->getTabletsForTable(2);
+    tablets = tableManager->getTabletsForTable(lock, 2);
     EXPECT_EQ(1lu, tablets.size());
     EXPECT_EQ(ServerId(4, 1), tablets[0].serverId);
 
-    tablets = tableManager->getTabletsForTable(3);
+    tablets = tableManager->getTabletsForTable(lock, 3);
     EXPECT_EQ(0lu, tablets.size());
 }
 
+TEST_F(TableManagerTest, modifyTablet) {
+    Lock lock(mutex);     // Used to trick internal calls.
+    tableManager->addTablet(lock, {0, 1, 6, {0, 1}, Tablet::NORMAL, {0, 5}});
+    tableManager->modifyTablet(
+        lock, 0, 1, 6, {1, 2}, Tablet::RECOVERING, {3, 9});
+    Tablet tablet = tableManager->getTablet(lock, 0, 1, 6);
+    EXPECT_EQ(ServerId(1, 2), tablet.serverId);
+    EXPECT_EQ(Tablet::RECOVERING, tablet.status);
+    EXPECT_EQ(Log::Position(3, 9), tablet.ctime);
+    EXPECT_THROW(
+        tableManager->modifyTablet(
+                lock, 0, 0, 0, {0, 0}, Tablet::NORMAL, {0, 0}),
+        TableManager::NoSuchTablet);
+}
+
 TEST_F(TableManagerTest, removeTabletsForTable) {
-    tableManager->addTablet({0, 1, 6, {0, 1}, Tablet::NORMAL, {0, 5}});
-    tableManager->addTablet({1, 2, 7, {1, 1}, Tablet::NORMAL, {1, 6}});
-    tableManager->addTablet({0, 3, 8, {2, 1}, Tablet::NORMAL, {2, 7}});
+    Lock lock(mutex); // Used to trick internal calls.-
+    tableManager->addTablet(lock, {0, 1, 6, {0, 1}, Tablet::NORMAL, {0, 5}});
+    tableManager->addTablet(lock, {1, 2, 7, {1, 1}, Tablet::NORMAL, {1, 6}});
+    tableManager->addTablet(lock, {0, 3, 8, {2, 1}, Tablet::NORMAL, {2, 7}});
 
-    EXPECT_EQ(0lu, tableManager->removeTabletsForTable(2).size());
-    EXPECT_EQ(3lu, tableManager->size());
+    EXPECT_EQ(0lu, tableManager->removeTabletsForTable(lock, 2).size());
+    EXPECT_EQ(3lu, tableManager->size(lock));
 
-    auto tablets = tableManager->removeTabletsForTable(1);
-    EXPECT_EQ(2lu, tableManager->size());
+    auto tablets = tableManager->removeTabletsForTable(lock, 1);
+    EXPECT_EQ(2lu, tableManager->size(lock));
     foreach (const auto& tablet, tablets) {
-        EXPECT_THROW(tableManager->getTablet(tablet.tableId,
+        EXPECT_THROW(tableManager->getTablet(lock, tablet.tableId,
                                    tablet.startKeyHash,
                                    tablet.endKeyHash),
                      TableManager::NoSuchTablet);
     }
 
-    tablets = tableManager->removeTabletsForTable(0);
-    EXPECT_EQ(0lu, tableManager->size());
+    tablets = tableManager->removeTabletsForTable(lock, 0);
+    EXPECT_EQ(0lu, tableManager->size(lock));
     foreach (const auto& tablet, tablets) {
-        EXPECT_THROW(tableManager->getTablet(tablet.tableId,
+        EXPECT_THROW(tableManager->getTablet(lock, tablet.tableId,
                                    tablet.startKeyHash,
                                    tablet.endKeyHash),
                      TableManager::NoSuchTablet);
