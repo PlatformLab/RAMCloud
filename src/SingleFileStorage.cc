@@ -411,6 +411,10 @@ void
 SingleFileStorage::Frame::free()
 {
     Lock lock(storage->mutex);
+    while (performingIo) {
+        lock.unlock();
+        lock.lock();
+    }
     ++epoch;
     deschedule();
     isOpen = false;
