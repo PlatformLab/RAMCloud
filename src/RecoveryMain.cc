@@ -365,8 +365,14 @@ try
         } catch (...) {
         }
         auto session = client.objectFinder.lookup(tables[t], "0", 1);
-        LOG(NOTICE, "recovered value read from %s has length %u",
-            session->getServiceLocator().c_str(), nb.getTotalLength());
+        if (nb.getTotalLength() == objectDataSize) {
+            LOG(NOTICE, "recovered value read from %s has length %u",
+                session->getServiceLocator().c_str(), nb.getTotalLength());
+        } else {
+            LOG(ERROR, "recovered value read from %s has length %u "
+                "(expected %u)", session->getServiceLocator().c_str(),
+                nb.getTotalLength(), objectDataSize);
+        }
     }
     LOG(NOTICE, "Recovery completed in %lu ns, failure detected in %lu ns",
         Cycles::toNanoseconds(stopTime - startTime),
