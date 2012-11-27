@@ -400,9 +400,11 @@ MasterService::fillWithTestData(
                                     &newVersion,
                                     false);
         if (status == STATUS_RETRY) {
-            LOG(ERROR, "Server ran out of space while filling with test data;"
-                "run your experiment again with a larger master");
-            return;
+            LOG(ERROR, "Server ran out of space while filling with test data; "
+                "run your experiment again with a larger master; "
+                "stored %u of %u objects before running out of space",
+                objects, reqHdr->numObjects);
+            status = STATUS_NO_TABLE_SPACE;
         }
 
         if (status != STATUS_OK) {
