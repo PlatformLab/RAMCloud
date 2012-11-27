@@ -309,6 +309,13 @@ TEST_F(SessionAlarmTest, handleTimerEvent_cleanupPings) {
     session3->finishRpcs();
     timer.handleTimerEvent();
     EXPECT_EQ(0U, timer.pings.size());
+    EXPECT_EQ(
+        "handleTimerEvent: Waiting for unknown RPC(s) "
+            "on test:alarm (ping failed) | "
+        "handleTimerEvent: Waiting for unknown RPC(s) "
+            "on test:alarm (ping failed) | "
+        "handleTimerEvent: Waiting for unknown RPC(s) "
+            "on test:alarm (ping failed)", TestLog::get());
 }
 
 TEST_F(SessionAlarmTimerTest, handleTimerEvent_restartTimer) {
