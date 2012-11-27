@@ -119,7 +119,7 @@ class ServerDetails {
     ServerDetails(const ServerDetails& other)
         : serverId(other.serverId)
         , serviceLocator(other.serviceLocator.c_str())
-        , session()
+        , session(other.session)
         , services(other.services)
         , expectedReadMBytesPerSec(other.expectedReadMBytesPerSec)
         , status(other.status)
@@ -132,6 +132,7 @@ class ServerDetails {
             return *this;
         serverId = other.serverId;
         serviceLocator = other.serviceLocator.c_str();
+        session = other.session;
         services = other.services;
         expectedReadMBytesPerSec = other.expectedReadMBytesPerSec;
         status = other.status;
@@ -155,6 +156,7 @@ class ServerDetails {
             return *this;
         serverId = other.serverId;
         serviceLocator = other.serviceLocator.c_str();
+        session = other.session;
         services = other.services;
         expectedReadMBytesPerSec = other.expectedReadMBytesPerSec;
         status = other.status;
