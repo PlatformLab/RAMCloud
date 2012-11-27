@@ -399,6 +399,12 @@ MasterService::fillWithTestData(
                                     buffer,
                                     &newVersion,
                                     false);
+        if (status == STATUS_RETRY) {
+            LOG(ERROR, "Server ran out of space while filling with test data;"
+                "run your experiment again with a larger master");
+            return;
+        }
+
         if (status != STATUS_OK) {
             respHdr->common.status = status;
             return;
