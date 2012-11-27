@@ -16,17 +16,23 @@
 #ifndef RAMCLOUD_TABLEMANAGER_H
 #define RAMCLOUD_TABLEMANAGER_H
 
+#include <Client/Client.h>
 #include <mutex>
 
 #include "Tablets.pb.h"
 
 #include "Common.h"
 #include "Log.h"
+#include "LogCabinHelper.h"
 #include "LogEntryTypes.h"
 #include "ServerId.h"
 #include "Tablet.h"
 
 namespace RAMCloud {
+
+using LogCabin::Client::Entry;
+using LogCabin::Client::EntryId;
+using LogCabin::Client::NO_ID;
 
 /**
  * Maps tablets to masters which serve requests for that tablet.
