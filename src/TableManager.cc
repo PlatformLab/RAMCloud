@@ -255,9 +255,6 @@ TableManager::reassignTabletOwnership(
     modifyTablet(lock, tableId, startKeyHash, endKeyHash,
                  newOwner, Tablet::NORMAL, headOfLogAtCreation);
 
-    // TODO(ankitak): The todo comment below this was an issue earlier
-    //      because there was a rpc.sendReply() before this.
-    //      Is it still an issue?
     // TODO(rumble/slaughter) If we fail to alert the new owner we could
     //      get stuck in limbo. What should we do? Retry? Fail the
     //      server and recover it? Can't return to the old master if we

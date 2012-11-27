@@ -16,8 +16,6 @@
 #ifndef RAMCLOUD_CONTEXT_H
 #define RAMCLOUD_CONTEXT_H
 
-// TODO(ankitak): Figure out a way to include logcabin classes without
-// including here, using only forward declarations.
 #include <Client/Client.h>
 
 #include "Common.h"
