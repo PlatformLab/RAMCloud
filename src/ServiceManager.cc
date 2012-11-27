@@ -448,6 +448,17 @@ ServiceManager::WorkerSession::WorkerSession(Context* context,
     TEST_LOG("created");
 }
 
+/**
+ * Destructor for WorkerSessions.
+ */
+ServiceManager::WorkerSession::~WorkerSession()
+{
+    // Make sure that the underlying session is released while the
+    // dispatch thread is locked.
+    Dispatch::Lock lock(context->dispatch);
+    wrapped = NULL;
+}
+
 // See Transport::Session::abort for documentation.
 void
 ServiceManager::WorkerSession::abort()
