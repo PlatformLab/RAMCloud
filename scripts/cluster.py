@@ -385,6 +385,11 @@ def run(
                                    # aren't enough available machines then
                                    # multiple clients will run on some
                                    # machines.
+        client_hosts=None,         # An explicit list of hosts (in
+                                   # host, ip, id triples) on which clients
+                                   # should be run. If this is set and
+                                   # share_hosts is set then share_hosts is
+                                   # ignored.
         share_hosts=False,         # True means clients can be run on
                                    # machines running servers, if needed.
         transport='infrc',         # Name of transport to use for servers.
@@ -416,7 +421,7 @@ def run(
         raise Exception('num_servers (%d) exceeds the available hosts (%d)'
                         % (num_servers, len(hosts)))
 
-    if not share_hosts:
+    if not share_hosts and not client_hosts:
         if (len(hosts) - num_servers) < 1:
             raise Exception('Asked for %d servers without sharing hosts with %d '
                             'clients, but only %d hosts were available'
@@ -444,7 +449,7 @@ def run(
                                              backup=False)
             oldMaster.ignoreFailures = True
             masters_started += 1
-            cluster.ensure_servers(timeout=40)
+            cluster.ensure_servers(timeout=60)
 
         for host in hosts[:num_servers]:
             backup = False
@@ -474,11 +479,12 @@ def run(
         if client:
             # Note: even if it's OK to share hosts between clients and servers,
             # don't do it unless necessary.
-            host_list = hosts[num_servers:]
-            if share_hosts:
-                host_list.extend(hosts[:num_servers])
-            client_hosts = [host_list[i % len(host_list)]
-                            for i in range(num_clients)]
+            if not client_hosts:
+                host_list = hosts[num_servers:]
+                if share_hosts:
+                    host_list.extend(hosts[:num_servers])
+                client_hosts = [host_list[i % len(host_list)]
+                                for i in range(num_clients)]
             assert(len(client_hosts) == num_clients)
 
             clients = cluster.start_clients(client_hosts, client)

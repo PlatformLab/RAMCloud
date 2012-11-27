@@ -156,20 +156,23 @@ def recover(num_servers,
     if master_ram:
         log_space_per_partition = master_ram
     else:
-        log_space_per_partition = (200 + (1.3 * num_objects / object_size))
+        log_space_per_partition = (100 + (1.2 * num_objects / object_size))
     args['master_args'] = '-d -D -t %d' % log_space_per_partition
     if master_args:
         args['master_args'] += ' ' + master_args;
     args['client'] = ('%s -f -n %d -r %d -s %d '
-                      '-t %d -k %d' % (client_binary,
+                      '-t %d -k %d -l %s' % (client_binary,
                       num_objects, num_removals, object_size,
-                      num_partitions, num_servers))
+                      num_partitions, num_servers, log_level))
     args['old_master_host'] = config.old_master_host
+    args['client_hosts'] = [config.old_master_host]
     if old_master_ram:
         args['old_master_args'] = '-t %d' % old_master_ram
     else:
-        args['old_master_args'] = '-d -D -t %d' % (log_space_per_partition *
-                                             num_partitions)
+        old_master_ram = log_space_per_partition * num_partitions
+        if old_master_ram > 40000:
+            old_master_ram = 40000
+        args['old_master_args'] = '-d -D -t %d' % old_master_ram
     recovery_logs = cluster.run(**args)
 
     # Collect metrics information.
