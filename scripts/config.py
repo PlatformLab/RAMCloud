@@ -27,8 +27,8 @@ import subprocess
 import sys
 
 __all__ = ['coordinator_port', 'default_disk1','default_disk2', 'git_branch',
-        'hosts', 'obj_dir', 'obj_path', 'scripts_path', 'second_backup_port',
-        'server_port', 'top_path']
+           'git_ref', 'git_diff', 'hosts', 'obj_dir', 'obj_path', 'scripts_path',
+           'second_backup_port', 'server_port', 'top_path']
 
 # git_branch is the name of the current git branch, which is used
 # for purposes such as computing objDir.
@@ -41,6 +41,21 @@ except subprocess.CalledProcessError:
 else:
     git_branch = git_branch.group(1)
     obj_dir = 'obj.%s' % git_branch
+
+# git_ref is the id of the commit at the HEAD of the current branch.
+try:
+    git_ref = captureSh('git rev-parse HEAD 2>/dev/null')
+except subprocess.CalledProcessError:
+    git_ref = '{{unknown commit}}'
+
+# git_diff is None if the working directory and index are clean, otherwise
+# it is a string containing the unified diff of the uncommitted changes.
+try:
+    git_diff = captureSh('git diff HEAD')
+    if git_diff == '':
+        git_diff = None
+except subprocess.CalledProcessError:
+    git_diff = '{{using unknown diff against commit}}'
 
 # obj_dir is the name of the directory containing binaries for the current
 # git branch (it's just a single name such as "obj.master", not a full path)
