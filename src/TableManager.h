@@ -112,6 +112,10 @@ class TableManager {
                         uint64_t tableId,
                         uint64_t startKeyHash,
                         uint64_t endKeyHash) const;
+    EntryId getTableInfoLogId(const Lock& lock,
+                              uint64_t tableId);
+    EntryId getTableIncompleteOpLogId(const Lock& lock,
+                                      uint64_t tableId);
     Tablet getTablet(const Lock& lock,
                      uint64_t tableId,
                      uint64_t startKeyHash,
@@ -125,6 +129,12 @@ class TableManager {
                       Tablet::Status status,
                       Log::Position ctime);
     vector<Tablet> removeTabletsForTable(const Lock& lock, uint64_t tableId);
+    void setTableInfoLogId(const Lock& lock,
+                           uint64_t tableId,
+                           EntryId entryId);
+    void setTableIncompleteOpLogId(const Lock& lock,
+                                   uint64_t tableId,
+                                   EntryId entryId);
     size_t size(const Lock& lock) const;
 
     /**
@@ -154,6 +164,17 @@ class TableManager {
      * Map from table name to table id.
      */
     Tables tables;
+
+    struct TableLogIds {
+        EntryId tableInfoLogId;
+        EntryId tableIncompleteOpLogId;
+    };
+    typedef std::map<uint64_t, TableLogIds> TablesLogIds;
+    /**
+     * Map from table id to LogCabin EntryId where the information corresponding
+     * to this table was logged.
+     */
+    TablesLogIds tablesLogIds;
 
     DISALLOW_COPY_AND_ASSIGN(TableManager);
 };

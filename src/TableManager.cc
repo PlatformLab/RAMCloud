@@ -31,6 +31,7 @@ TableManager::TableManager(Context* context)
     , nextTableId(0)
     , nextTableMasterIdx(0)
     , tables()
+    , tablesLogIds()
 {
     context->tableManager = this;
 }
@@ -445,6 +446,54 @@ TableManager::cfind(const Lock& lock,
 }
 
 /**
+ * Get the LogCabin EntryId corresponding to the information about this table.
+ *
+ * \param lock
+ *      Explicity needs caller to hold a lock.
+ * \param tableId
+ *      Table id of the table for which we want the LogCabin EntryId.
+ *
+ * \return
+ *      LogCabin EntryId corresponding to the information about this table.
+ * \throw NoSuchTable
+ *      If the arguments do not identify a table currently in the tablesInfo.
+ */
+EntryId
+TableManager::getTableInfoLogId(const Lock& lock, uint64_t tableId)
+{
+    TablesLogIds::iterator it(tablesLogIds.find(tableId));
+    if (it == tablesLogIds.end()) {
+        throw NoSuchTable(HERE);
+    }
+    return (it->second).tableInfoLogId;
+}
+
+/**
+ * Get the LogCabin EntryId corresponding to the current (incomplete)
+ * operation happening on this table.
+ *
+ * \param lock
+ *      Explicity needs caller to hold a lock.
+ * \param tableId
+ *      Table id of the table for which we want the LogCabin EntryId.
+ *
+ * \return
+ *      LogCabin EntryId corresponding to the current (incomplete)
+ *      operation happening on this table.
+ * \throw NoSuchTable
+ *      If the arguments do not identify a table currently in the tablesInfo.
+ */
+EntryId
+TableManager::getTableIncompleteOpLogId(const Lock& lock, uint64_t tableId)
+{
+    TablesLogIds::iterator it(tablesLogIds.find(tableId));
+    if (it == tablesLogIds.end()) {
+        throw NoSuchTable(HERE);
+    }
+    return (it->second).tableIncompleteOpLogId;
+}
+
+/**
  * Get the details of a Tablet in the tablet map.
  *
  * \param lock
@@ -561,6 +610,44 @@ TableManager::removeTabletsForTable(const Lock& lock, uint64_t tableId)
         }
     }
     return removed;
+}
+
+/**
+ * Add the LogCabin EntryId corresponding to the information about this table.
+ *
+ * \param lock
+ *      Explicity needs caller to hold a lock.
+ * \param tableId
+ *      Table id of the table for which we are storing the LogCabin EntryId.
+ *  \param entryId
+ *      LogCabin EntryId corresponding to the information about this table.
+ */
+void
+TableManager::setTableInfoLogId(const Lock& lock,
+                                uint64_t tableId,
+                                EntryId entryId)
+{
+    tablesLogIds[tableId].tableInfoLogId = entryId;
+}
+
+/**
+ * Add the LogCabin EntryId corresponding to the current (incomplete)
+ * operation happening on this table.
+ *
+ * \param lock
+ *      Explicity needs caller to hold a lock.
+ * \param tableId
+ *      Table id of the table for which we are storing the LogCabin EntryId.
+ *  \param entryId
+ *      LogCabin EntryId corresponding to the current (incomplete)
+ *      operation happening on this table.
+ */
+void
+TableManager::setTableIncompleteOpLogId(const Lock& lock,
+                                        uint64_t tableId,
+                                        EntryId entryId)
+{
+    tablesLogIds[tableId].tableIncompleteOpLogId = entryId;
 }
 
 /// Return the number of Tablets in the tablet map.
