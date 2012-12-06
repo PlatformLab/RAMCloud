@@ -1615,6 +1615,8 @@ TEST_F(CoordinatorServerListTest, updateLoop_expansion) {
     EXPECT_EQ(4UL, sl->concurrentRPCs);
 }
 
+// Test disabled on 12/6/2012 because of RAM-501.
+#if 0
 TEST_F(CoordinatorServerListTest, updateLoop_contraction) {
     MockTransport transport(service->context);
     TransportManager::MockRegistrar _(service->context, transport);
@@ -1665,5 +1667,6 @@ TEST_F(CoordinatorServerListTest, updateLoop_contraction) {
     sl->sync();
     EXPECT_EQ(4UL, sl->concurrentRPCs);
 }
+#endif
 
 } // namespace RAMCloud
