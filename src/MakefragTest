@@ -111,6 +111,7 @@ TESTS_SRCFILES := \
 		  src/TestUtilTest.cc \
 		  src/ThreadIdTest.cc \
 		  src/TransportManagerTest.cc \
+		  src/TransportTest.cc \
 		  src/TubTest.cc \
 		  src/UdpDriverTest.cc \
 		  src/UpdateReplicationEpochTaskTest.cc \
@@ -119,6 +120,7 @@ TESTS_SRCFILES := \
 		  src/WallTimeTest.cc \
 		  src/WindowTest.cc \
 		  src/WireFormatTest.cc \
+		  src/WorkerSessionTest.cc \
 		  src/RamCloudTest.cc \
 		  $(INFINIBAND_SRCFILES) \
 		  $(OBJDIR)/ProtoBufTest.pb.cc

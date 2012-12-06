@@ -105,6 +105,13 @@ MockTransport::MockSession::cancelRequest(RpcNotifier* notifier)
     transport->appendToOutput(CANCEL, "");
 }
 
+// See Transport::Session::getRpcInfo for documentation.
+string
+MockTransport::MockSession::getRpcInfo()
+{
+    return "dummy RPC info for MockTransport";
+}
+
 // See Transport::Session::release for documentation.
 void
 MockTransport::MockSession::release()

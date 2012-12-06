@@ -25,6 +25,7 @@
 #include "FastTransport.h"
 #include "UdpDriver.h"
 #include "FailSession.h"
+#include "WorkerSession.h"
 
 #ifdef INFINIBAND
 #include "InfRcTransport.h"
@@ -343,10 +344,8 @@ TransportManager::openSessionInternal(const char* serviceLocator)
                 Transport::SessionRef session = transports[i]->getSession(
                         locator, timeoutMs);
                 if (isServer) {
-                    session = new ServiceManager::WorkerSession(context,
-                                                                session);
+                    return new WorkerSession(context, session);
                 }
-                session->setServiceLocator(serviceLocator);
                 return session;
             } catch (TransportException& e) {
                 // Save error information in case none of the locators works.

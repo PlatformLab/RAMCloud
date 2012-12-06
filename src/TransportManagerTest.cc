@@ -230,8 +230,7 @@ TEST_F(TransportManagerTest, openSession_succeedAfterFailure) {
             "m1:host=error;m2:host=ok"));
     EXPECT_TRUE(session.get() != NULL);
     EXPECT_TRUE(manager.transports.back() != NULL);
-    EXPECT_EQ("m1:host=error;m2:host=ok",
-            session->getServiceLocator());
+    EXPECT_EQ("m2:host=ok", session->getServiceLocator());
 }
 
 TEST_F(TransportManagerTest, registerMemory) {

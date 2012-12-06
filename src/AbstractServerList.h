@@ -281,7 +281,7 @@ class AbstractServerList {
     bool isBeingDestroyed;
 
     /// This variable is used to maintain consistency between the server
-    /// list on the coordinator and those on masters. On the coordinator, 
+    /// list on the coordinator and those on masters. On the coordinator,
     /// this value is incremented for each update that it sends out to
     /// the rest of the cluster, and it includes that version number in the
     /// update RPCs.  On servers other than the coordinator, this variable
