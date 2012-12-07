@@ -164,10 +164,12 @@ class Transport {
          * all copies of the SessionRef for this session have been deleted; it
          * should reclaim the storage for the session.  This method is invoked
          * (rather than just deleting the object) to enable transport-specific
-         * memory allocation for sessions.  In most cases the method should just
-         * "delete this".
+         * memory allocation for sessions.  The default is to delete the
+         * Session object.
          */
-        virtual void release() = 0;
+        virtual void release() {
+            delete this;
+        }
 
         /**
          * Initiate the transmission of an RPC request to the server.
@@ -186,7 +188,7 @@ class Transport {
          *      which can be passed to cancelRequest.
          */
         virtual void sendRequest(Buffer* request, Buffer* response,
-                RpcNotifier* notifier) = 0;
+                RpcNotifier* notifier) {}
 
         /**
          * Cancel an RPC request that was sent previously.
@@ -194,7 +196,7 @@ class Transport {
          *      Notifier object associated with this request (was passed
          *      to #sendRequest when the RPC was initiated).
          */
-        virtual void cancelRequest(RpcNotifier* notifier) = 0;
+        virtual void cancelRequest(RpcNotifier* notifier) {}
 
         /**
          * Returns a human-readable string containing useful information
@@ -225,7 +227,7 @@ class Transport {
          * any future calls to \c sendRequest. The caller is responsible
          * for logging the reason for the abort.
          */
-        virtual void abort() = 0;
+        virtual void abort() {}
 
         /**
          * This method is invoked by boost::intrusive_ptr as part of the

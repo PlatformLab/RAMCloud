@@ -112,13 +112,6 @@ MockTransport::MockSession::getRpcInfo()
     return "dummy RPC info for MockTransport";
 }
 
-// See Transport::Session::release for documentation.
-void
-MockTransport::MockSession::release()
-{
-    delete this;
-}
-
 // See Transport::Session::sendRequest for documentation.
 void
 MockTransport::MockSession::sendRequest(Buffer* request, Buffer* response,

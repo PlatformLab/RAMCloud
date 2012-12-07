@@ -40,9 +40,6 @@ class WorkerSession : public Transport::Session {
     void abort();
     void cancelRequest(Transport::RpcNotifier* notifier);
     string getRpcInfo();
-    void release() {
-        delete this;
-    }
     void sendRequest(Buffer* request, Buffer* response,
             Transport::RpcNotifier* notifier);
   PRIVATE:

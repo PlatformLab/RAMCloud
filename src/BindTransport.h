@@ -96,9 +96,6 @@ struct BindTransport : public Transport {
             return format("%s via BindTransport",
                     WireFormat::opcodeSymbol(lastRequest));
         }
-        void release() {
-            delete this;
-        }
         void sendRequest(Buffer* request, Buffer* response,
                          RpcNotifier* notifier)
         {

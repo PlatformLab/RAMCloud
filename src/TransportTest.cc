@@ -19,14 +19,6 @@
 
 namespace RAMCloud {
 
-class DummySession : public Transport:: Session {
-    virtual void abort() {}
-    virtual void release() {}
-    virtual void sendRequest(Buffer* request, Buffer* response,
-                Transport::RpcNotifier* notifier) {}
-    virtual void cancelRequest(Transport::RpcNotifier* notifier) {}
-};
-
 class TransportTest : public ::testing::Test {
   public:
     Context context;
@@ -49,7 +41,7 @@ static void releaseThread(Transport::SessionRef* ref, bool* done)
 }
 
 TEST_F(TransportTest, intrusive_ptr_release) {
-    Transport::SessionRef wrappedSession = new DummySession();
+    Transport::SessionRef wrappedSession = new Transport::Session();
     bool done = false;
     Transport::Session::testingSimulateConflict = true;
     std::thread child(releaseThread, &wrappedSession, &done);
@@ -82,7 +74,7 @@ static void contentionThread(Transport::SessionRef* ref, bool* done)
     }
 }
 TEST_F(TransportTest, sessionRef_contention) {
-    Transport::SessionRef wrappedSession = new DummySession();
+    Transport::SessionRef wrappedSession = new Transport::Session();
     Transport::SessionRef copy = wrappedSession;
     bool done = false;
     std::thread child(contentionThread, &wrappedSession, &done);

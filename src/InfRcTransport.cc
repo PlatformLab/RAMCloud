@@ -340,13 +340,11 @@ InfRcTransport::InfRcSession::InfRcSession(
 }
 
 /**
- * Destroy the Session.
+ * Destructor for InfRcSessions.
  */
-void
-InfRcTransport::InfRcSession::release()
+InfRcTransport::InfRcSession::~InfRcSession()
 {
     abort();
-    delete this;
 }
 
 // See documentation for Transport::Session::abort.
