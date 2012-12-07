@@ -31,7 +31,7 @@
 #include "Recovery.h"
 #include "RuntimeOptions.h"
 #include "Service.h"
-#include "Table.h"
+#include "TableManager.h"
 #include "TransportManager.h"
 
 namespace RAMCloud {
@@ -43,7 +43,8 @@ class CoordinatorService : public Service {
   public:
     explicit CoordinatorService(Context* context,
                                 uint32_t deadServerTimeout,
-                                string LogCabinLocator = "testing");
+                                string LogCabinLocator = "testing",
+                                bool startRecoveryManager = true);
     ~CoordinatorService();
     void dispatch(WireFormat::Opcode opcode,
                   Rpc* rpc);
@@ -97,6 +98,9 @@ class CoordinatorService : public Service {
         WireFormat::VerifyMembership::Response* respHdr,
         Rpc* rpc);
 
+    // - helper methods -
+    bool verifyServerFailure(ServerId serverId);
+
     /**
      * Shared RAMCloud information.
      */
@@ -117,32 +121,12 @@ class CoordinatorService : public Service {
      */
     uint32_t deadServerTimeout;
 
+    /**
+     * Manages the tables and constituting tablets information on Coordinator.
+     */
+    TableManager* tableManager;
+
   PRIVATE:
-    /**
-     * What are the tablets, and who is the master for each.
-     */
-    TabletMap tabletMap;
-
-    typedef std::map<string, uint64_t> Tables;
-    /**
-     * Map from table name to table id.
-     */
-    Tables tables;
-
-    /**
-     * The id of the next table to be created.
-     * These start at 0 and are never reused.
-     */
-    uint64_t nextTableId;
-
-    /**
-     * Used in #createTable() to assign new tables to masters.
-     * If you take this modulo the number of entries in #masterList, you get
-     * the index into #masterList of the master that should be assigned the
-     * next table.
-     */
-    uint32_t nextTableMasterIdx;
-
     /**
      * Contains coordinator configuration options which can be modified while
      * the cluster is running. Currently mostly used for setting debugging
@@ -184,6 +168,12 @@ class CoordinatorService : public Service {
      * ensure leadership.
      */
     LogCabin::Client::EntryId expectedEntryId;
+
+    /**
+     * Used for testing only. If true, the HINT_SERVER_DOWN handler will
+     * assume that the server has failed (rather than checking for itself).
+     */
+    bool forceServerDownForTesting;
 
     friend class CoordinatorServiceRecovery;
     friend class CoordinatorServerList;

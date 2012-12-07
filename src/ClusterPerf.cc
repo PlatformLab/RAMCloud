@@ -66,6 +66,10 @@ static int numClients;
 // commands from the master.
 static int clientIndex;
 
+// Value of the "--count" command-line option: used by some tests
+// to determine how many times to invoke a particular operation.
+static int count;
+
 // Value of the "--size" command-line option: used by some tests to
 // determine the number of bytes in each object.  -1 means the option
 // wasn't specified, so each test should pick an appropriate default.
@@ -74,6 +78,11 @@ static int objectSize;
 // Value of the "--numTables" command-line option: used by some tests
 // to specify the number of tables to create.
 static int numTables;
+
+// Value of the "--warmup" command-line option: in some tests this
+// determines how many times to invoke the operation before starting
+// measurements (e.g. to make sure that caches are loaded).
+static int warmupCount;
 
 // Identifier for table that is used for test-specific data.
 uint64_t dataTable = -1;
@@ -422,10 +431,10 @@ fillBuffer(Buffer& buffer, uint32_t size, uint64_t tableId,
  *      there was an error.
  */
 bool
-checkBuffer(Buffer& buffer, uint32_t expectedLength, uint64_t tableId,
+checkBuffer(Buffer* buffer, uint32_t expectedLength, uint64_t tableId,
             const void* key, uint16_t keyLength)
 {
-    uint32_t length = buffer.getTotalLength();
+    uint32_t length = buffer->getTotalLength();
     if (length != expectedLength) {
         RAMCLOUD_LOG(ERROR, "corrupted data: expected %u bytes, "
                 "found %u bytes", expectedLength, length);
@@ -434,7 +443,7 @@ checkBuffer(Buffer& buffer, uint32_t expectedLength, uint64_t tableId,
     Buffer comparison;
     fillBuffer(comparison, expectedLength, tableId, key, keyLength);
     for (uint32_t i = 0; i < expectedLength; i++) {
-        char c1 = *buffer.getOffset<char>(i);
+        char c1 = *buffer->getOffset<char>(i);
         char c2 = *comparison.getOffset<char>(i);
         if (c1 != c2) {
             int start = i - 10;
@@ -453,7 +462,7 @@ checkBuffer(Buffer& buffer, uint32_t expectedLength, uint64_t tableId,
                     "(\"%s%.*s%s\" vs \"%s%.*s%s\")", c2, c1, prefix, length,
                     static_cast<const char*>(comparison.getRange(start,
                     length)), suffix, prefix, length,
-                    static_cast<const char*>(buffer.getRange(start,
+                    static_cast<const char*>(buffer->getRange(start,
                     length)), suffix);
             return false;
         }
@@ -532,7 +541,7 @@ readObject(uint64_t tableId, const void* key, uint16_t keyLength,
  *      Buffer in which to store the state.
  * \param size
  *      Size of buffer.
- * 
+ *
  * \return
  *      The return value is a pointer to a buffer, which now holds the
  *      command.
@@ -877,7 +886,7 @@ basic()
                 input.getRange(0, size), size);
         Buffer output;
         double t = timeRead(dataTable, key, keyLength, 100, output);
-        checkBuffer(output, size, dataTable, key, keyLength);
+        checkBuffer(&output, size, dataTable, key, keyLength);
 
         snprintf(name, sizeof(name), "basic.read%s", ids[i]);
         snprintf(description, sizeof(description),
@@ -899,7 +908,7 @@ basic()
                 input.getRange(0, size), size, 100);
         // Make sure the object was properly written.
         cluster->read(dataTable, key, keyLength, &output);
-        checkBuffer(output, size, dataTable, key, keyLength);
+        checkBuffer(&output, size, dataTable, key, keyLength);
 
         snprintf(name, sizeof(name), "basic.write%s", ids[i]);
         snprintf(description, sizeof(description),
@@ -972,7 +981,7 @@ broadcast()
 
 /**
  * This method contains the core of all the "multiRead" tests.
- * It writes objsPerMaster objects on numMasters servers 
+ * It writes objsPerMaster objects on numMasters servers
  * and reads them back in one multiRead operation.
  *
  * \param dataLength
@@ -984,13 +993,19 @@ broadcast()
  *      should be distributed.
  * \param objsPerMaster
  *      The number of objects to be written to each master server.
+ * \param randomize
+ *      Randomize the order of requests sent from the client.
+ *      Note: Randomization can cause bad cache effects on the client
+ *      and cause slower than normal operation.
+ *
  * \return
  *      The average time, in seconds, to read all the objects in a single
  *      multiRead operation.
  */
 double
 doMultiRead(int dataLength, uint16_t keyLength,
-            int numMasters, int objsPerMaster)
+            int numMasters, int objsPerMaster,
+            bool randomize = false)
 {
     if (clientIndex != 0)
         return 0;
@@ -1022,51 +1037,33 @@ doMultiRead(int dataLength, uint16_t keyLength,
         }
     }
 
+    // Scramble the requests. Checking code below it stays valid
+    // since the value buffer is a pointer to a Buffer in the request.
+    if (randomize) {
+        uint64_t numRequests = numMasters*objsPerMaster;
+        MultiReadObject** reqs = *requests;
+
+        for (uint64_t i = 0; i < numRequests; i++) {
+            uint64_t rand = generateRandom() % numRequests;
+
+            MultiReadObject* tmp = reqs[i];
+            reqs[i] = reqs[rand];
+            reqs[rand] = tmp;
+        }
+    }
+
     double latency = timeMultiRead(*requests, numMasters*objsPerMaster);
 
     // Check that the values read were the same as the values written.
     for (int tableNum = 0; tableNum < numMasters; ++tableNum) {
         for (int i = 0; i < objsPerMaster; i++) {
             Buffer* output = values[tableNum][i].get();
-            checkBuffer(*output, dataLength, tableIds[tableNum],
+            checkBuffer(output, dataLength, tableIds[tableNum],
                     keys[tableNum][i], keyLength);
         }
     }
 
     return latency;
-}
-
-// This benchmark measures the multiread times for multiple
-// 100B objects with 30B keys on a single master server.
-void
-multiRead_oneMaster()
-{
-    int dataLength = 100;
-    uint16_t keyLength = 30;
-
-    printf("# RAMCloud multiRead performance for %u B objects"
-           " with %u byte keys\n", dataLength, keyLength);
-    printf("# located on a single master.\n");
-    printf("# Generated by 'clusterperf.py multiRead_oneMaster'\n#\n");
-    printf("# Num Objs    Num Masters    Objs/Master    "
-           "Latency (us)    Latency/Obj (us)\n");
-    printf("#--------------------------------------------------------"
-            "--------------------\n");
-
-    int numMasters = 1;
-    int maxObjsPerMaster = 1000;
-
-    for (int objsPerMaster = 1; objsPerMaster <= maxObjsPerMaster;
-         objsPerMaster = (objsPerMaster < 10) ?
-            objsPerMaster + 1 : (objsPerMaster < 100) ?
-            objsPerMaster + 10 : objsPerMaster + 100) {
-
-        double latency =
-            doMultiRead(dataLength, keyLength, numMasters, objsPerMaster);
-        printf("%10d %14d %14d %14.1f %18.1f\n",
-            numMasters*objsPerMaster, numMasters, objsPerMaster,
-            1e06*latency, 1e06*latency/numMasters/objsPerMaster);
-    }
 }
 
 // This benchmark measures the multiread times for 100B objects with 30B keys
@@ -1099,6 +1096,40 @@ multiRead_oneObjectPerMaster()
     }
 }
 
+// This benchmark measures the multiread times for multiple
+// 100B objects with 30B keys on a single master server.
+void
+multiRead_oneMaster()
+{
+    int dataLength = 100;
+    uint16_t keyLength = 30;
+
+    printf("# RAMCloud multiRead performance for %u B objects"
+           " with %u byte keys\n", dataLength, keyLength);
+    printf("# located on a single master.\n");
+    printf("# Generated by 'clusterperf.py multiRead_oneMaster'\n#\n");
+    printf("# Num Objs    Num Masters    Objs/Master    "
+           "Latency (us)    Latency/Obj (us)\n");
+    printf("#--------------------------------------------------------"
+            "--------------------\n");
+
+    int numMasters = 1;
+    int maxObjsPerMaster = 5000;
+
+    for (int objsPerMaster = 1; objsPerMaster <= maxObjsPerMaster;
+         objsPerMaster = (objsPerMaster < 10) ?
+            objsPerMaster + 1 : (objsPerMaster < 100) ?
+            objsPerMaster + 10 : (objsPerMaster < 1000) ?
+                objsPerMaster + 100 : objsPerMaster + 1000) {
+
+        double latency =
+            doMultiRead(dataLength, keyLength, numMasters, objsPerMaster);
+        printf("%10d %14d %14d %14.1f %18.1f\n",
+            numMasters*objsPerMaster, numMasters, objsPerMaster,
+            1e06*latency, 1e06*latency/numMasters/objsPerMaster);
+    }
+}
+
 // This benchmark measures the multiread times for an approximately
 // fixed number of 100B objects with 30B keys distributed evenly
 // across varying number of master servers.
@@ -1118,13 +1149,47 @@ multiRead_general()
     printf("#--------------------------------------------------------"
             "--------------------\n");
 
-    int totalObjs = 1000;
+    int totalObjs = 5000;
     int maxNumMasters = numTables;
 
     for (int numMasters = 1; numMasters <= maxNumMasters; numMasters++) {
         int objsPerMaster = totalObjs / numMasters;
         double latency =
             doMultiRead(dataLength, keyLength, numMasters, objsPerMaster);
+        printf("%10d %14d %14d %14.1f %18.1f\n",
+            numMasters*objsPerMaster, numMasters, objsPerMaster,
+            1e06*latency, 1e06*latency/numMasters/objsPerMaster);
+    }
+}
+
+// This benchmark measures the multiread times for an approximately
+// fixed number of 100B objects with 30B keys distributed evenly
+// across varying number of master servers. Requests are issued
+// in a random order.
+void
+multiRead_generalRandom()
+{
+    int dataLength = 100;
+    uint16_t keyLength = 30;
+
+    printf("# RAMCloud multiRead performance for "
+           "an approximately fixed number\n");
+    printf("# of %u B objects with %u byte keys\n", dataLength, keyLength);
+    printf("# distributed evenly across varying number of masters.\n");
+    printf("# Requests are issued in a random order.\n");
+    printf("# Generated by 'clusterperf.py multiRead_generalRandom'\n#\n");
+    printf("# Num Objs    Num Masters    Objs/Master    "
+           "Latency (us)    Latency/Obj (us)\n");
+    printf("#--------------------------------------------------------"
+            "--------------------\n");
+
+    int totalObjs = 5000;
+    int maxNumMasters = numTables;
+
+    for (int numMasters = 1; numMasters <= maxNumMasters; numMasters++) {
+        int objsPerMaster = totalObjs / numMasters;
+        double latency =
+            doMultiRead(dataLength, keyLength, numMasters, objsPerMaster, true);
         printf("%10d %14d %14d %14.1f %18.1f\n",
             numMasters*objsPerMaster, numMasters, objsPerMaster,
             1e06*latency, 1e06*latency/numMasters/objsPerMaster);
@@ -1192,7 +1257,7 @@ netBandwidth()
             value.getTotalLength(), keyLength, bandwidth/(1024*1024));
 
     printBandwidth("netBandwidth", sum(metrics[0]),
-            "many clients reading from different servers");
+            "many clients reading from Cdifferent servers");
     printBandwidth("netBandwidth.max", max(metrics[0]),
             "fastest client");
     printBandwidth("netBandwidth.min", min(metrics[0]),
@@ -1256,7 +1321,6 @@ readAllToAll()
         size = 100;
     uint64_t* tableIds = createTables(numTables, size, key, keyLength);
 
-    std::cout << "Master client reading from all masters" << std::endl;
     for (int i = 0; i < numTables; ++i) {
         uint64_t tableId = tableIds[i];
         Buffer result;
@@ -1281,6 +1345,56 @@ readAllToAll()
     }
 
     delete[] tableIds;
+}
+// Read a single object many times, and compute a cumulative distribution
+// of read times.
+void
+readDist()
+{
+    if (clientIndex != 0)
+        return;
+
+    // Create an object to read, and verify its contents (this also
+    // loads all caches along the way).
+    const char* key = "123456789012345678901234567890";
+    uint16_t keyLength = downCast<uint16_t>(strlen(key));
+    Buffer input, value;
+    fillBuffer(input, objectSize, dataTable, key, keyLength);
+    cluster->write(dataTable, key, keyLength,
+                input.getRange(0, objectSize), objectSize);
+    cluster->read(dataTable, key, keyLength, &value);
+    checkBuffer(&value, objectSize, dataTable, key, keyLength);
+
+    // Warmup, if desired
+    for (int i = 0; i < warmupCount; i++) {
+        cluster->read(dataTable, key, keyLength, &value);
+    }
+
+    // Issue the reads as quickly as possible, and save the times.
+    std::vector<uint64_t> ticks;
+    ticks.resize(count);
+    uint64_t start = Cycles::rdtsc();
+    for (int i = 0; i < count; i++) {
+        cluster->read(dataTable, key, keyLength, &value);
+        ticks[i] = Cycles::rdtsc();
+    }
+
+    // Output the times (several comma-separated values on each line).
+    int valuesInLine = 0;
+    for (int i = 0; i < count; i++) {
+        if (valuesInLine >= 10) {
+            valuesInLine = 0;
+            printf("\n");
+        }
+        if (valuesInLine != 0) {
+            printf(",");
+        }
+        double micros = Cycles::toSeconds(ticks[i] - start)*1.0e06;
+        printf("%.2f", micros);
+        valuesInLine++;
+        start = ticks[i];
+    }
+    printf("\n");
 }
 
 // This benchmark measures the latency and server throughput for reads
@@ -1368,7 +1482,7 @@ readLoaded()
                 input.getRange(0, size), size);
         double t = timeRead(dataTable, key, keyLength, 100, output);
         cluster->write(dataTable, key, keyLength, "");
-        checkBuffer(output, size, dataTable, key, keyLength);
+        checkBuffer(&output, size, dataTable, key, keyLength);
         printf("%5d     %10.1f          %8.0f\n", numSlaves+1, t*1e06,
                 (numSlaves+1)/(1e03*t));
         sendCommand(NULL, "idle", 1, numSlaves);
@@ -1577,7 +1691,7 @@ readVaryingKeyLength()
         cluster->write(dataTable, key, keyLength,
                 input.getRange(0, dataLength), dataLength);
         double t = timeRead(dataTable, key, keyLength, 100, output);
-        checkBuffer(output, dataLength, dataTable, key, keyLength);
+        checkBuffer(&output, dataLength, dataTable, key, keyLength);
 
         printf("%12u %16.1f %19.1f\n", keyLength, 1e06*t,
                (keyLength / t)/(1024.0*1024.0));
@@ -1618,7 +1732,7 @@ writeVaryingKeyLength()
                 input.getRange(0, dataLength), dataLength, 100);
         Buffer output;
         cluster->read(dataTable, key, keyLength, &output);
-        checkBuffer(output, dataLength, dataTable, key, keyLength);
+        checkBuffer(&output, dataLength, dataTable, key, keyLength);
 
         printf("%12u %16.1f %19.1f\n", keyLength, 1e06*t,
                (keyLength / t)/(1024.0*1024.0));
@@ -1661,7 +1775,7 @@ writeAsyncSync()
            "# write is given by 'firstWriteLatency'. The second write is\n"
            "# a %u B object which is always written synchronously (its \n"
            "# response time is given by 'syncWriteLatency'\n"
-           "# Both writes use a %u B key."
+           "# Both writes use a %u B key.\n"
            "# Generated by 'clusterperf.py writeAsyncSync'\n#\n"
            "# firstWriteIsSync firstObjectSize firstWriteLatency(us) "
                "syncWriteLatency(us)\n"
@@ -1708,8 +1822,10 @@ TestInfo tests[] = {
     {"multiRead_oneMaster", multiRead_oneMaster},
     {"multiRead_oneObjectPerMaster", multiRead_oneObjectPerMaster},
     {"multiRead_general", multiRead_general},
+    {"multiRead_generalRandom", multiRead_generalRandom},
     {"netBandwidth", netBandwidth},
     {"readAllToAll", readAllToAll},
+    {"readDist", readDist},
     {"readLoaded", readLoaded},
     {"readNotFound", readNotFound},
     {"readRandom", readRandom},
@@ -1737,6 +1853,8 @@ try
                 "Index of this client (first client is 0)")
         ("coordinator,C", po::value<string>(&coordinatorLocator),
                 "Service locator for the cluster coordinator (required)")
+        ("count,c", po::value<int>(&count)->default_value(100000),
+                "Number of times to invoke operation for test")
         ("logFile", po::value<string>(&logFile),
                 "Redirect all output to this file")
         ("logLevel,l", po::value<string>(&logLevel)->default_value("NOTICE"),
@@ -1745,12 +1863,15 @@ try
         ("help,h", "Print this help message")
         ("numClients", po::value<int>(&numClients)->default_value(1),
                 "Total number of clients running")
-        ("size,s", po::value<int>(&objectSize)->default_value(-1),
+        ("size,s", po::value<int>(&objectSize)->default_value(100),
                 "Size of objects (in bytes) to use for test")
         ("numTables", po::value<int>(&numTables)->default_value(10),
                 "Number of tables to use for test")
         ("testName", po::value<vector<string>>(&testNames),
-                "Name(s) of test(s) to run");
+                "Name(s) of test(s) to run")
+        ("warmup", po::value<int>(&warmupCount)->default_value(100),
+                "Number of times to invoke operation before beginning "
+                "measurements");
     po::positional_options_description desc2;
     desc2.add("testName", -1);
     po::variables_map vm;

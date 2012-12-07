@@ -36,6 +36,7 @@ class MembershipServiceTest : public ::testing::Test {
     MembershipService service;
     BindTransport transport;
     TransportManager::MockRegistrar mockRegistrar;
+    std::mutex mutex;
 
     MembershipServiceTest()
         : context()
@@ -45,6 +46,7 @@ class MembershipServiceTest : public ::testing::Test {
         , service(serverId, &serverList, &serverConfig)
         , transport(&context)
         , mockRegistrar(&context, transport)
+        , mutex()
     {
         transport.addService(service, "mock:host=member",
                              WireFormat::MEMBERSHIP_SERVICE);
@@ -53,25 +55,29 @@ class MembershipServiceTest : public ::testing::Test {
                               ServerStatus::UP});
     }
 
+    typedef std::unique_lock<std::mutex> Lock;
     DISALLOW_COPY_AND_ASSIGN(MembershipServiceTest);
 };
 
 TEST_F(MembershipServiceTest, updateServerList) {
+    Lock lock(mutex); // Used to trick CoordinatorServerList internal calls
     // Create a temporary coordinator server list (with its own context)
     // to use as a source for update information.
     Context context2;
     CoordinatorServerList source(&context2);
-    ServerId id1 = source.generateUniqueId();
-    source.add(id1, "mock:host=55", {WireFormat::MASTER_SERVICE,
+    ServerId id1 = source.generateUniqueId(lock);
+    source.add(lock, id1, "mock:host=55", {WireFormat::MASTER_SERVICE,
             WireFormat::PING_SERVICE}, 100);
-    ServerId id2 = source.generateUniqueId();
-    source.add(id2, "mock:host=56", {WireFormat::MASTER_SERVICE,
+    ServerId id2 = source.generateUniqueId(lock);
+    source.add(lock, id2, "mock:host=56", {WireFormat::MASTER_SERVICE,
             WireFormat::PING_SERVICE}, 100);
-    ServerId id3 = source.generateUniqueId();
-    source.add(id3, "mock:host=57", {WireFormat::MASTER_SERVICE,
+    ServerId id3 = source.generateUniqueId(lock);
+    source.add(lock, id3, "mock:host=57", {WireFormat::MASTER_SERVICE,
             WireFormat::PING_SERVICE}, 100);
+    source.commitUpdate(lock);
     ProtoBuf::ServerList fullList;
-    source.serialize(fullList);
+    source.serialize(fullList, {WireFormat::MASTER_SERVICE,
+            WireFormat::BACKUP_SERVICE});
 
     MembershipClient::UpdateServerList(&context, serverId, &fullList);
     EXPECT_STREQ("mock:host=55", serverList.getLocator(id1));

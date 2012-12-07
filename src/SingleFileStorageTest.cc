@@ -276,6 +276,7 @@ TEST_F(SingleFileStorageTest, Frame_free) {
     Frame* frame = static_cast<Frame*>(frameRef.get());
     frame->free();
 
+    EXPECT_TRUE(frame->isSynced());
     EXPECT_FALSE(frame->isOpen);
     EXPECT_FALSE(frame->isClosed);
     EXPECT_FALSE(frame->loadRequested);

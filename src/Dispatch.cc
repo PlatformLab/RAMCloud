@@ -18,11 +18,17 @@
 
 #include "ShortMacros.h"
 #include "Common.h"
+#include "CycleCounter.h"
 #include "Cycles.h"
 #include "Dispatch.h"
 #include "Fence.h"
 #include "RawMetrics.h"
 #include "NoOp.h"
+
+// Uncomment to print out a human readable name for any poller that takes longer
+// than slowPollerCycles to complete. Useful for determining which poller is
+// responsible for "Long gap" messages.
+// #define DEBUG_SLOW_POLLERS 1
 
 namespace RAMCloud {
 
@@ -149,7 +155,19 @@ Dispatch::poll()
         currentTime = newCurrent;
     }
     for (uint32_t i = 0; i < pollers.size(); i++) {
+#if DEBUG_SLOW_POLLERS
+        uint64_t ticks = 0;
+        CycleCounter<> counter(&ticks);
+#endif
         pollers[i]->poll();
+#if DEBUG_SLOW_POLLERS
+        counter.stop();
+        if (ticks > slowPollerCycles) {
+            double ms = Cycles::toSeconds(ticks) * 1000;
+            LOG(NOTICE, "Poller %s (%u) took awhile: %.1f ms",
+                pollers[i]->pollerName.c_str(), i, ms);
+        }
+#endif
     }
     if (readyFd >= 0) {
         int fd = readyFd;
@@ -252,9 +270,15 @@ Dispatch::poll()
  * \param dispatch
  *      Dispatch object through which the poller will be invoked (defaults
  *      to the global #RAMCloud::dispatch object).
+ * \param pollerName
+ *      Human readable name that can be printed out in debugging messages
+ *      about the poller. The name of the superclass is probably sufficient
+ *      for most cases.
  */
-Dispatch::Poller::Poller(Dispatch& dispatch)
-    : owner(&dispatch), slot(downCast<int>(owner->pollers.size()))
+Dispatch::Poller::Poller(Dispatch& dispatch, const string& pollerName)
+    : owner(&dispatch)
+    , pollerName(pollerName)
+    , slot(downCast<int>(owner->pollers.size()))
 {
     CHECK_LOCK;
     owner->pollers.push_back(this);

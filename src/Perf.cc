@@ -588,18 +588,6 @@ double rdtscTest()
     return Cycles::toSeconds(stop - start)/count;
 }
 
-// Measure the cost of an sfence instruction.
-double sfence()
-{
-    int count = 1000000;
-    uint64_t start = Cycles::rdtsc();
-    for (int i = 0; i < count; i++) {
-        Fence::sfence();
-    }
-    uint64_t stop = Cycles::rdtsc();
-    return Cycles::toSeconds(stop - start)/count;
-}
-
 // Sorting functor for #segmentEntrySort.
 struct SegmentEntryLessThan {
   public:
@@ -701,6 +689,33 @@ double segmentIterator()
     double time = Cycles::toSeconds(counter.stop());
 
     return time;
+}
+
+// Measure the cost of incrementing and decrementing the reference count in
+// a SessionRef.
+double sessionRefCount()
+{
+    int count = 1000000;
+    Transport::Session session;
+    Transport::SessionRef ref1(&session);
+    uint64_t start = Cycles::rdtsc();
+    for (int i = 0; i < count; i++) {
+        Transport::SessionRef ref2 = ref1;
+    }
+    uint64_t stop = Cycles::rdtsc();
+    return Cycles::toSeconds(stop - start)/count;
+}
+
+// Measure the cost of an sfence instruction.
+double sfence()
+{
+    int count = 1000000;
+    uint64_t start = Cycles::rdtsc();
+    for (int i = 0; i < count; i++) {
+        Fence::sfence();
+    }
+    uint64_t stop = Cycles::rdtsc();
+    return Cycles::toSeconds(stop - start)/count;
 }
 
 // Measure the cost of acquiring and releasing a SpinLock (assuming the
@@ -932,6 +947,8 @@ TestInfo tests[] = {
      "Sort a Segment full of avg. 100-byte Objects by age"},
     {"segmentIterator", segmentIterator<50, 150>,
      "Iterate a Segment full of avg. 100-byte Objects"},
+    {"sessionRefCount", sessionRefCount,
+     "Create/delete SessionRef"},
     {"sfence", sfence,
      "Sfence instruction"},
     {"spinLock", spinLock,

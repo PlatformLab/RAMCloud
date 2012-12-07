@@ -41,6 +41,8 @@ class MultiRead {
 
   PRIVATE:
     bool startRpcs();
+    void removeRequestAt(uint32_t index);
+    void retryRequest(MultiReadObject* request);
 
     /// A special Status value indicating than an RPC is underway but
     /// we haven't yet seen the response.
@@ -50,7 +52,9 @@ class MultiRead {
     class PartRpc : public RpcWrapper {
         friend class MultiRead;
       public:
-        PartRpc(RamCloud* ramcloud, Transport::SessionRef session);
+        PartRpc(RamCloud* ramcloud,
+                Transport::SessionRef session,
+                MultiRead *parent);
         ~PartRpc() {}
         void finish();
         bool handleTransportError();
@@ -73,6 +77,9 @@ class MultiRead {
 
         /// Header for the RPC (used to update count as objects are added).
         WireFormat::MultiRead::Request* reqHdr;
+
+        /// MultiRead that issued this RPC
+        MultiRead* parent;
 
         DISALLOW_COPY_AND_ASSIGN(PartRpc);
     };
@@ -97,6 +104,14 @@ class MultiRead {
 
     /// Set by \c cancel.
     bool canceled;
+
+    /// Manipulable array used to shuffle requests around for performance.
+    /// Size should always be MAX_RPCs, but front (before startIndex)
+    /// contains junk and rest contains unfinished rpcs.
+    std::vector<MultiReadObject*> requestQueue;
+
+    /// Marks the start of unfinished requests in requestIndecies.
+    uint32_t startIndex;
 
     DISALLOW_COPY_AND_ASSIGN(MultiRead);
 };

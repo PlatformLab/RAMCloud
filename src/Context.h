@@ -38,6 +38,7 @@ class MasterService;
 class MockContextMember;
 class ServiceManager;
 class SessionAlarmTimer;
+class TableManager;
 class TransportManager;
 
 /**
@@ -112,6 +113,11 @@ class Context {
     // manage cluster membership.  NULL except on coordinators.  Owned
     // elsewhere; not freed by this class.
     CoordinatorServerList* coordinatorServerList;
+
+    // On coordinators, it has the information about tablet map and
+    // provides functions to modify and read this tablet map.
+    // NULL except on coordinators.  Owned elsewhere; not freed by this class.
+    TableManager* tableManager;
 
     // Handles all master recovery details on behalf of the coordinator.
     // NULL except on coordinators. Owned elsewhere;

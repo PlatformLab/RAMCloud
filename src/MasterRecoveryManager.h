@@ -23,7 +23,7 @@
 #include "Recovery.h"
 #include "RuntimeOptions.h"
 #include "ServerTracker.h"
-#include "Table.h"
+#include "TableManager.h"
 #include "Tub.h"
 
 namespace RAMCloud {
@@ -36,22 +36,23 @@ class RecoveryMasterFinishedTask;
 }
 
 /**
- * Handles all master recovery details on behalf of the coordinator.
- * Provides an interface to the coordinator to start recoveries. This manager
- * ensures the recovery eventually completes successfully (or continues
- * retrying indefinitely). These recoveries proceed independently of the
- * main coordinator worker threads via a thread provided internally by
- * the manager. The manager must make pervasive use of the coordinator's
- * serverList and tabletMap which are synchronized to make operations
- * safe.  The coordinator delegates the handling of recovery related RPCs
- * to this manager.
+ * Runs on the coordinator and manages the recovery of one or more crashed
+ * masters. The coordinator enqueues servers for recovery and the manager
+ * takes care of the rest.
+ *
+ * This manager ensures the recovery eventually completes successfully (or
+ * continues retrying indefinitely). These recoveries proceed independently of
+ * the main coordinator worker threads via a thread provided internally by the
+ * manager. The manager must make pervasive use of the coordinator's serverList
+ * and tabletMap which are synchronized to make operations safe. The
+ * coordinator delegates the handling of recovery related RPCs to this manager.
  */
 class MasterRecoveryManager : public Recovery::Owner
                             , public ServerTracker<Recovery>::Callback
 {
   PUBLIC:
     MasterRecoveryManager(Context* context,
-                          TabletMap& tabletMap,
+                          TableManager& tableManager,
                           RuntimeOptions* runtimeOptions);
     ~MasterRecoveryManager();
 
@@ -76,7 +77,7 @@ class MasterRecoveryManager : public Recovery::Owner
     Context* context;
 
     /// Authoritative information about tablets and their mapping to servers.
-    TabletMap& tabletMap;
+    TableManager& tableManager;
 
     /**
      * Contains coordinator configuration options which can be modified while

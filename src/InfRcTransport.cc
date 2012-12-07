@@ -237,8 +237,17 @@ InfRcTransport::InfRcTransport(Context* context,
     check_error_null(clientSrq,
                      "failed to create client shared receive queue");
 
+    // Note: RPC performance is highly sensitive to the buffer size. For
+    // example, as of 11/2012, using buffers of (1<<23 + 200) bytes is
+    // 1.3 microseconds slower than using buffers of (1<<23 + 4096)
+    // bytes.  For now, make buffers large enough for the largest RPC,
+    // and round up to the next multiple of 4096.  This approach isn't
+    // perfect (for example buffers of 1<<23 bytes also seem to be slow)
+    // but it will work for now.
+    uint32_t bufferSize = (getMaxRpcSize() + 4095) & ~0xfff;
+
     rxBuffers.construct(infiniband->pd,
-                        getMaxRpcSize(),
+                        bufferSize,
                         uint32_t(MAX_SHARED_RX_QUEUE_DEPTH * 2));
     uint32_t i = 0;
     foreach (auto& bd, *rxBuffers) {
@@ -251,7 +260,7 @@ InfRcTransport::InfRcTransport(Context* context,
     assert(numUsedClientSrqBuffers == 0);
 
     txBuffers.construct(infiniband->pd,
-                        getMaxRpcSize(),
+                        bufferSize,
                         uint32_t(MAX_TX_QUEUE_DEPTH));
     foreach (auto& bd, *txBuffers)
         freeTxBuffers.push_back(&bd);
@@ -331,13 +340,11 @@ InfRcTransport::InfRcSession::InfRcSession(
 }
 
 /**
- * Destroy the Session.
+ * Destructor for InfRcSessions.
  */
-void
-InfRcTransport::InfRcSession::release()
+InfRcTransport::InfRcSession::~InfRcSession()
 {
     abort();
-    delete this;
 }
 
 // See documentation for Transport::Session::abort.

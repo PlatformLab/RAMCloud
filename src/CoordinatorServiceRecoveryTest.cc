@@ -74,18 +74,18 @@ TEST_F(CoordinatorServiceRecoveryTest, replay_basic) {
     logCabinHelper->appendProtoBuf(
                 coordRecovery->service.expectedEntryId, serverUpdate);
 
-    ProtoBuf::ForceServerDown forceServerDown;
-    forceServerDown.set_entry_type("ForceServerDown");
-    forceServerDown.set_server_id(ServerId(1, 0).getId());
+    ProtoBuf::ServerDown serverDown;
+    serverDown.set_entry_type("ServerDown");
+    serverDown.set_server_id(ServerId(1, 0).getId());
     logCabinHelper->appendProtoBuf(
-                coordRecovery->service.expectedEntryId, forceServerDown);
+                coordRecovery->service.expectedEntryId, serverDown);
 
     TestLog::Enable _(replayFilter);
     coordRecovery->replay(true);
     EXPECT_EQ("replay: Entry Id: 0, Entry Type: ServerEnlisting\n | "
               "replay: Entry Id: 1, Entry Type: ServerEnlisted\n | "
               "replay: Entry Id: 2, Entry Type: ServerUpdate\n | "
-              "replay: Entry Id: 3, Entry Type: ForceServerDown\n",
+              "replay: Entry Id: 3, Entry Type: ServerDown\n",
               TestLog::get());
 }
 

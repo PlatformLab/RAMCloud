@@ -330,10 +330,19 @@ MasterService::fillWithTestData(
                                                    buffer,
                                                    &rejectRules,
                                                    &newVersion);
+        if (status == STATUS_RETRY) {
+            LOG(ERROR, "Server ran out of space while filling with test data; "
+                "run your experiment again with a larger master; "
+                "stored %u of %u objects before running out of space",
+                objects, reqHdr->numObjects);
+            status = STATUS_NO_TABLE_SPACE;
+        }
+
         if (status != STATUS_OK) {
             respHdr->common.status = status;
             return;
         }
+
         if ((objects % 50) == 0) {
             objectManager->getReplicaManager()->proceed();
         }
@@ -593,12 +602,12 @@ MasterService::dropTabletOwnership(
                                               reqHdr->firstKeyHash,
                                               reqHdr->lastKeyHash);
     if (deleted) {
-        LOG(NOTICE, "Dropped ownership of tablet (%lu, range [%lu,%lu])",
-            reqHdr->tableId, reqHdr->firstKeyHash, reqHdr->lastKeyHash);
+        LOG(NOTICE, "Dropped ownership of tablet [0x%lx,0x%lx] in tableId %lu",
+            reqHdr->firstKeyHash, reqHdr->lastKeyHash, reqHdr->tableId);
     } else {
-        LOG(WARNING, "Could not drop ownership on unknown tablet (%lu, range "
-            "[%lu,%lu])!", reqHdr->tableId, reqHdr->firstKeyHash,
-        reqHdr->lastKeyHash);
+        LOG(WARNING, "Could not drop ownership on unknown tablet [0x%lx,0x%lx]"
+            " in tableId %lu!", reqHdr->firstKeyHash, reqHdr->lastKeyHash,
+            reqHdr->tableId);
 
         // Would it be preferable to not consider this an error (for
         // idempotency, perhaps)?
@@ -669,8 +678,8 @@ MasterService::takeTabletOwnership(
                                          reqHdr->lastKeyHash,
                                          TabletManager::NORMAL);
     if (added) {
-        LOG(NOTICE, "Took ownership of new tablet (%lu, range [%lu,%lu])",
-            reqHdr->tableId, reqHdr->firstKeyHash, reqHdr->lastKeyHash);
+        LOG(NOTICE, "Took ownership of new tablet [0x%lx,0x%lx] in tableId %lu",
+            reqHdr->firstKeyHash, reqHdr->lastKeyHash, reqHdr->tableId);
     } else {
         TabletManager::Tablet tablet;
         if (tabletManager.getTablet(reqHdr->tableId,
@@ -678,9 +687,10 @@ MasterService::takeTabletOwnership(
                                     reqHdr->lastKeyHash,
                                     &tablet)) {
             if (tablet.state == TabletManager::NORMAL) {
-                LOG(NOTICE, "Told to take ownership of tablet I already own "
-                    "(%lu range [%lu,%lu]). Returning success.",
-                    reqHdr->tableId, reqHdr->firstKeyHash, reqHdr->lastKeyHash);
+                LOG(NOTICE, "Told to take ownership of tablet [0x%lx,0x%lx] in "
+                    "tableId %lu, but already own [0x%lx,0x%lx]. Returning "
+                    "success.", reqHdr->firstKeyHash, reqHdr->lastKeyHash,
+                    reqHdr->tableId, tablet.startKeyHash, tablet.endKeyHash);
                 return;
             }
         }
@@ -693,14 +703,13 @@ MasterService::takeTabletOwnership(
                                                  TabletManager::RECOVERING,
                                                  TabletManager::NORMAL);
         if (changed) {
-            LOG(NOTICE, "Took ownership of existing tablet (%lu, range "
-                "[%lu,%lu]) in RECOVERING state", reqHdr->tableId,
-                reqHdr->firstKeyHash, reqHdr->lastKeyHash);
+            LOG(NOTICE, "Took ownership of existing tablet [0x%lx,0x%lx] in "
+                "tableId %lu in RECOVERING state", reqHdr->firstKeyHash,
+                reqHdr->lastKeyHash, reqHdr->tableId);
         } else {
-            LOG(WARNING, "Could not take ownership of tablet (%lu, range "
-                "[%lu,%lu]). Tablet overlaps with one or more different "
-                "ranges.", reqHdr->tableId, reqHdr->firstKeyHash,
-                reqHdr->lastKeyHash);
+            LOG(WARNING, "Could not take ownership of tablet [0x%lx,0x%lx] in "
+                "tableId %lu: overlaps with one or more different ranges.",
+                reqHdr->firstKeyHash, reqHdr->lastKeyHash, reqHdr->tableId);
 
             // TODO(anybody): Do we want a more meaningful error code?
             respHdr->common.status = STATUS_INTERNAL_ERROR;
@@ -733,13 +742,29 @@ MasterService::prepForMigration(
     if (added) {
         // TODO(rumble) would be nice to have a method to get a SL from an Rpc
         // object.
-        LOG(NOTICE, "Ready to receive tablet from \"??\". Table %lu, "
-            "range [%lu,%lu]", reqHdr->tableId, reqHdr->firstKeyHash,
-            reqHdr->lastKeyHash);
+        LOG(NOTICE, "Ready to receive tablet [0x%lx,0x%lx] in tableId %lu from "
+            "\"??\"", reqHdr->firstKeyHash, reqHdr->lastKeyHash,
+            reqHdr->tableId);
     } else {
-        LOG(WARNING, "Cannot receive tablet %lu (range [%lu, %lu]) - an "
-            "existing tablet overlaps that range",
-            reqHdr->tableId, reqHdr->firstKeyHash, reqHdr->lastKeyHash);
+        TabletManager::Tablet tablet;
+        if (!tabletManager.getTablet(reqHdr->tableId,
+                                     reqHdr->firstKeyHash,
+                                     &tablet)) {
+            if (!tabletManager.getTablet(reqHdr->tableId,
+                                         reqHdr->lastKeyHash,
+                                         &tablet)) {
+                LOG(NOTICE, "Failed to add tablet [0x%lx,0x%lx] in tableId %lu "
+                    ", but no overlap found. Assuming innocuous race and "
+                    "sending STATUS_RETRY.", reqHdr->firstKeyHash,
+                    reqHdr->lastKeyHash, reqHdr->tableId);
+                respHdr->common.status = STATUS_RETRY;
+                return;
+            }
+        }
+        LOG(WARNING, "Already have tablet [0x%lx,0x%lx] in tableId %lu, "
+            "cannot add [0x%lx,0x%lx]",
+            tablet.startKeyHash, tablet.endKeyHash, tablet.tableId,
+            reqHdr->firstKeyHash, reqHdr->lastKeyHash);
         respHdr->common.status = STATUS_OBJECT_EXISTS;
         return;
     }
@@ -768,9 +793,9 @@ MasterService::migrateTablet(const WireFormat::MigrateTablet::Request* reqHdr,
     // contiguous tablet of ours.
     bool found = tabletManager.getTablet(tableId, firstKeyHash, lastKeyHash, 0);
     if (!found) {
-        LOG(WARNING, "Migration request for range this master does not "
-            "own. TableId %lu, range [%lu,%lu]",
-            tableId, firstKeyHash, lastKeyHash);
+        LOG(WARNING, "Migration request for tablet this master does not own: "
+            "tablet [0x%lx,0x%lx] in tableId %lu", firstKeyHash, lastKeyHash,
+            tableId);
         respHdr->common.status = STATUS_UNKNOWN_TABLET;
         return;
     }
@@ -791,10 +816,9 @@ MasterService::migrateTablet(const WireFormat::MigrateTablet::Request* reqHdr,
     Log::Position newOwnerLogHead = MasterClient::getHeadOfLog(context,
                                                               newOwnerMasterId);
 
-    LOG(NOTICE, "Migrating tablet (id %lu, first %lu, last %lu) to "
-        "ServerId %s (\"%s\")", tableId, firstKeyHash, lastKeyHash,
-        newOwnerMasterId.toString().c_str(),
-        context->serverList->getLocator(newOwnerMasterId));
+    LOG(NOTICE, "Migrating tablet [0x%lx,0x%lx] in tableId %lu to %s",
+        firstKeyHash, lastKeyHash, tableId,
+        context->serverList->toString(newOwnerMasterId).c_str());
 
     // We'll send over objects in Segment containers for better network
     // efficiency and convenience.
@@ -898,9 +922,11 @@ MasterService::migrateTablet(const WireFormat::MigrateTablet::Request* reqHdr,
         tableId, firstKeyHash, lastKeyHash, newOwnerMasterId,
         newOwnerLogHead.getSegmentId(), newOwnerLogHead.getSegmentOffset());
 
-    LOG(NOTICE, "Tablet migration succeeded. Sent %lu objects and %lu "
-        "tombstones. %lu bytes in total.", totalObjects, totalTombstones,
-        totalBytes);
+    LOG(NOTICE, "Migration succeeded for tablet [0x%lx,0x%lx] in "
+        "tableId %lu; sent %lu objects and %lu tombstones to %s, "
+        "%lu bytes in total",
+        firstKeyHash, lastKeyHash, tableId, totalObjects, totalTombstones,
+        context->serverList->toString(newOwnerMasterId).c_str(), totalBytes);
 
     tabletManager.deleteTablet(tableId, firstKeyHash, lastKeyHash);
 }
@@ -923,6 +949,9 @@ MasterService::receiveMigrationData(
     uint64_t firstKeyHash = reqHdr->firstKeyHash;
     uint32_t segmentBytes = reqHdr->segmentBytes;
 
+    LOG(NOTICE, "Receiving %u bytes of migration data for tablet [0x%lx,??] "
+        "in tableId %lu", segmentBytes, firstKeyHash, tableId);
+
     // TODO(rumble/slaughter) need to make sure we already have a table
     // created that was previously prepped for migration.
     TabletManager::Tablet tablet;
@@ -930,8 +959,8 @@ MasterService::receiveMigrationData(
                                          firstKeyHash,
                                          &tablet);
     if (!found) {
-        LOG(WARNING, "migration data received for unknown tablet %lu, "
-            "firstKeyHash %lu", tableId, firstKeyHash);
+        LOG(WARNING, "migration data received for unknown tablet [0x%lx,??] "
+            "in tableId %lu", firstKeyHash, tableId);
         respHdr->common.status = STATUS_UNKNOWN_TABLET;
         return;
     }
@@ -944,9 +973,6 @@ MasterService::receiveMigrationData(
         respHdr->common.status = STATUS_INTERNAL_ERROR;
         return;
     }
-
-    LOG(NOTICE, "RECEIVED MIGRATION DATA (tbl %lu, fk %lu, bytes %u)!\n",
-        tableId, firstKeyHash, segmentBytes);
 
     Segment::Certificate certificate = reqHdr->certificate;
     rpc->requestPayload->truncateFront(sizeof(*reqHdr));
@@ -1220,6 +1246,7 @@ MasterService::recover(uint64_t recoveryId,
                 context->serverList->toString(task->replica.backupId).c_str());
             try {
                 Segment::Certificate certificate = task->rpc->wait();
+                task->rpc.destroy();
                 uint64_t grdTime = Cycles::rdtsc() - task->startTime;
                 metrics->master.segmentReadTicks += grdTime;
 
@@ -1420,6 +1447,16 @@ MasterService::recover(uint64_t recoveryId,
 }
 
 /**
+ * Thrown during recovery in recoverSegment when a log append fails. Caught
+ * by recover() which aborts the recovery cleanly and notifies the coordiantor
+ * that this master could not recover the partition.
+ */
+struct OutOfSpaceException : public Exception {
+    explicit OutOfSpaceException(const CodeLocation& where)
+        : Exception(where) {}
+};
+
+/**
  * Top-level server method to handle the RECOVER request.
  * \copydetails Service::ping
  */
@@ -1490,6 +1527,8 @@ MasterService::recover(const WireFormat::Recover::Request* reqHdr,
         recover(recoveryId, crashedServerId, partitionId, replicas);
         successful = true;
     } catch (const SegmentRecoveryFailedException& e) {
+        // Recovery wasn't successful.
+    } catch (const OutOfSpaceException& e) {
         // Recovery wasn't successful.
     }
 

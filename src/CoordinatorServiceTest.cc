@@ -80,180 +80,6 @@ class CoordinatorServiceTest : public ::testing::Test {
     DISALLOW_COPY_AND_ASSIGN(CoordinatorServiceTest);
 };
 
-TEST_F(CoordinatorServiceTest, createTable) {
-    ServerConfig master2Config = masterConfig;
-    master2Config.localLocator = "mock:host=master2";
-    MasterService& master2 = *cluster.addServer(master2Config)->master;
-
-    // Advance the log head slightly so creation time offset is non-zero.
-    Buffer empty;
-    master->objectManager->log.append(LOG_ENTRY_TYPE_INVALID, 0, empty);
-    master->objectManager->log.sync();
-
-    // master is already enlisted
-    EXPECT_EQ(0U, ramcloud->createTable("foo"));
-    EXPECT_EQ(0U, ramcloud->createTable("foo")); // should be no-op
-    EXPECT_EQ(1U, ramcloud->createTable("bar")); // should go to master2
-    EXPECT_EQ(2U, ramcloud->createTable("baz")); // and back to master1
-
-    EXPECT_EQ(0U, get(service->tables, "foo"));
-    EXPECT_EQ(1U, get(service->tables, "bar"));
-    EXPECT_EQ("Tablet { tableId: 0 startKeyHash: 0 "
-              "endKeyHash: 18446744073709551615 "
-              "serverId: 1.0 status: NORMAL "
-              "ctime: 2, 62 } "
-              "Tablet { tableId: 1 startKeyHash: 0 "
-              "endKeyHash: 18446744073709551615 "
-              "serverId: 2.0 status: NORMAL "
-              "ctime: 1, 54 } "
-              "Tablet { tableId: 2 startKeyHash: 0 "
-              "endKeyHash: 18446744073709551615 "
-              "serverId: 1.0 status: NORMAL "
-              "ctime: 3, 70 }",
-              service->tabletMap.debugString());
-    EXPECT_EQ(2U, master->tabletManager.getCount());
-    EXPECT_EQ(1U, master2.tabletManager.getCount());
-}
-
-TEST_F(CoordinatorServiceTest,
-  createTableSpannedAcrossTwoMastersWithThreeServers) {
-    ServerConfig master2Config = masterConfig;
-    master2Config.localLocator = "mock:host=master2";
-    MasterService& master2 = *cluster.addServer(master2Config)->master;
-    ServerConfig master3Config = masterConfig;
-    master3Config.localLocator = "mock:host=master3";
-    MasterService& master3 = *cluster.addServer(master3Config)->master;
-    // master is already enlisted
-    ramcloud->createTable("foo", 2);
-    EXPECT_EQ("Tablet { tableId: 0 startKeyHash: 0 "
-              "endKeyHash: 9223372036854775807 "
-              "serverId: 1.0 status: NORMAL "
-              "ctime: 2, 62 } "
-              "Tablet { tableId: 0 startKeyHash: 9223372036854775808 "
-              "endKeyHash: 18446744073709551615 "
-              "serverId: 2.0 status: NORMAL "
-              "ctime: 1, 54 }",
-              service->tabletMap.debugString());
-    EXPECT_EQ(1U, master->tabletManager.getCount());
-    EXPECT_EQ(1U, master2.tabletManager.getCount());
-    EXPECT_EQ(0U, master3.tabletManager.getCount());
-}
-
-
-TEST_F(CoordinatorServiceTest,
-  createTableSpannedAcrossThreeMastersWithTwoServers) {
-    ServerConfig master2Config = masterConfig;
-    master2Config.localLocator = "mock:host=master2";
-    MasterService& master2 = *cluster.addServer(master2Config)->master;
-    // master is already enlisted
-    ramcloud->createTable("foo", 3);
-
-    EXPECT_EQ("Tablet { tableId: 0 startKeyHash: 0 "
-              "endKeyHash: 6148914691236517205 "
-              "serverId: 1.0 status: NORMAL "
-              "ctime: 2, 62 } "
-              "Tablet { tableId: 0 startKeyHash: 6148914691236517206 "
-              "endKeyHash: 12297829382473034410 "
-              "serverId: 2.0 status: NORMAL "
-              "ctime: 1, 54 } "
-              "Tablet { tableId: 0 startKeyHash: 12297829382473034411 "
-              "endKeyHash: 18446744073709551615 "
-              "serverId: 1.0 status: NORMAL "
-              "ctime: 3, 70 }",
-              service->tabletMap.debugString());
-    EXPECT_EQ(2U, master->tabletManager.getCount());
-    EXPECT_EQ(1U, master2.tabletManager.getCount());
-}
-
-TEST_F(CoordinatorServiceTest, splitTablet) {
-    // master is already enlisted
-    ramcloud->createTable("foo");
-    ramcloud->splitTablet("foo", 0, ~0UL, (~0UL/2));
-    EXPECT_EQ("Tablet { tableId: 0 startKeyHash: 0 "
-              "endKeyHash: 9223372036854775806 "
-              "serverId: 1.0 status: NORMAL "
-              "ctime: 2, 62 } "
-              "Tablet { tableId: 0 "
-              "startKeyHash: 9223372036854775807 "
-              "endKeyHash: 18446744073709551615 "
-              "serverId: 1.0 status: NORMAL "
-              "ctime: 2, 62 }",
-              service->tabletMap.debugString());
-
-    ramcloud->splitTablet("foo", 0, 9223372036854775806, 4611686018427387903);
-    EXPECT_EQ("Tablet { tableId: 0 startKeyHash: 0 "
-              "endKeyHash: 4611686018427387902 "
-              "serverId: 1.0 status: NORMAL "
-              "ctime: 2, 62 } "
-              "Tablet { tableId: 0 "
-              "startKeyHash: 9223372036854775807 "
-              "endKeyHash: 18446744073709551615 "
-              "serverId: 1.0 status: NORMAL "
-              "ctime: 2, 62 } "
-              "Tablet { tableId: 0 "
-              "startKeyHash: 4611686018427387903 "
-              "endKeyHash: 9223372036854775806 "
-              "serverId: 1.0 status: NORMAL "
-              "ctime: 2, 62 }",
-              service->tabletMap.debugString());
-
-    EXPECT_THROW(ramcloud->splitTablet("foo", 0, 16, 8),
-                 TabletDoesntExistException);
-
-    EXPECT_THROW(ramcloud->splitTablet("foo", 0, 0, (~0UL/2)),
-                 RequestFormatError);
-
-    EXPECT_THROW(ramcloud->splitTablet("bar", 0, ~0UL, (~0UL/2)),
-                 TableDoesntExistException);
-}
-
-TEST_F(CoordinatorServiceTest, dropTable) {
-    ServerConfig master2Config = masterConfig;
-    master2Config.localLocator = "mock:host=master2";
-    MasterService& master2 = *cluster.addServer(master2Config)->master;
-
-    // Add a table, so the tests won't just compare against an empty tabletMap
-    ramcloud->createTable("foo");
-
-    // Test dropping a table that is spread across one master
-    ramcloud->createTable("bar");
-    EXPECT_EQ(1U, master2.tabletManager.getCount());
-    ramcloud->dropTable("bar");
-    EXPECT_EQ("Tablet { tableId: 0 startKeyHash: 0 "
-              "endKeyHash: 18446744073709551615 "
-              "serverId: 1.0 status: NORMAL "
-              "ctime: 2, 62 }",
-              service->tabletMap.debugString());
-    EXPECT_EQ(0U, master2.tabletManager.getCount());
-
-    // Test dropping a table that is spread across two masters
-    ramcloud->createTable("bar", 2);
-    EXPECT_EQ(2U, master->tabletManager.getCount());
-    EXPECT_EQ(1U, master2.tabletManager.getCount());
-    ramcloud->dropTable("bar");
-    EXPECT_EQ("Tablet { tableId: 0 startKeyHash: 0 "
-              "endKeyHash: 18446744073709551615 "
-              "serverId: 1.0 status: NORMAL "
-              "ctime: 2, 62 }",
-              service->tabletMap.debugString());
-    EXPECT_EQ(1U, master->tabletManager.getCount());
-    EXPECT_EQ(0U, master2.tabletManager.getCount());
-}
-
-TEST_F(CoordinatorServiceTest, getTableId) {
-    // Get the id for an existing table
-    ramcloud->createTable("foo");
-    uint64_t tableId = ramcloud->getTableId("foo");
-    EXPECT_EQ(0lu, tableId);
-
-    ramcloud->createTable("foo2");
-    tableId = ramcloud->getTableId("foo2");
-    EXPECT_EQ(1lu, tableId);
-
-    // Try to get the id for a non-existing table
-    EXPECT_THROW(ramcloud->getTableId("bar"), TableDoesntExistException);
-}
-
 TEST_F(CoordinatorServiceTest, getServerList) {
     ServerConfig master2Config = masterConfig;
     master2Config.localLocator = "mock:host=master2";
@@ -269,7 +95,7 @@ TEST_F(CoordinatorServiceTest, getServerList) {
     ProtoBuf::ServerList list;
     CoordinatorClient::getServerList(&context, &list);
     EXPECT_EQ("mock:host=master mock:host=master2 mock:host=backup1",
-            getLocators(list));
+              getLocators(list));
 }
 
 TEST_F(CoordinatorServiceTest, getServerList_backups) {
@@ -310,79 +136,14 @@ TEST_F(CoordinatorServiceTest, getServerList_masters) {
 
 TEST_F(CoordinatorServiceTest, getTabletMap) {
     ramcloud->createTable("foo");
-    ProtoBuf::Tablets tabletMap;
-    CoordinatorClient::getTabletMap(&context, &tabletMap);
+    ProtoBuf::Tablets tabletMapProtoBuf;
+    CoordinatorClient::getTabletMap(&context, &tabletMapProtoBuf);
     EXPECT_EQ("tablet { table_id: 0 start_key_hash: 0 "
               "end_key_hash: 18446744073709551615 "
               "state: NORMAL server_id: 1 "
               "service_locator: \"mock:host=master\" "
               "ctime_log_head_id: 2 ctime_log_head_offset: 62 }",
-              tabletMap.ShortDebugString());
-}
-
-static bool
-reassignTabletOwnershipFilter(string s)
-{
-    return s == "reassignTabletOwnership";
-}
-
-TEST_F(CoordinatorServiceTest, reassignTabletOwnership) {
-    ServerConfig master2Config = masterConfig;
-    master2Config.services = { WireFormat::MASTER_SERVICE,
-                               WireFormat::PING_SERVICE,
-                               WireFormat::MEMBERSHIP_SERVICE };
-    master2Config.localLocator = "mock:host=master2";
-    auto* master2 = cluster.addServer(master2Config);
-    master2->master->objectManager->log.sync();
-
-    // Advance the log head slightly so creation time offset is non-zero
-    // on host being migrated to.
-    Buffer empty;
-    master2->master->objectManager->log.append(LOG_ENTRY_TYPE_INVALID,
-                                               0,
-                                               empty);
-    master2->master->objectManager->log.sync();
-
-    // master is already enlisted
-    ramcloud->createTable("foo");
-    EXPECT_EQ(1U, master->tabletManager.getCount());
-    EXPECT_EQ(0U, master2->master->tabletManager.getCount());
-    Tablet tablet = service->tabletMap.getTablet(0lu, 0lu, ~(0lu));
-    EXPECT_EQ(masterServerId, tablet.serverId);
-    EXPECT_EQ(2U, tablet.ctime.getSegmentId());
-    EXPECT_EQ(62U, tablet.ctime.getSegmentOffset());
-
-    TestLog::Enable _(reassignTabletOwnershipFilter);
-
-    EXPECT_THROW(CoordinatorClient::reassignTabletOwnership(&context,
-        0, 0, -1, ServerId(472, 2), 83, 835), ServerNotUpException);
-    EXPECT_EQ("reassignTabletOwnership: Server id 472.2 is not up! "
-        "Cannot reassign ownership of tablet 0, range "
-        "[0, 18446744073709551615]!", TestLog::get());
-    EXPECT_EQ(1U, master->tabletManager.getCount());
-    EXPECT_EQ(0U, master2->master->tabletManager.getCount());
-
-    TestLog::reset();
-    EXPECT_THROW(CoordinatorClient::reassignTabletOwnership(&context,
-        0, 0, 57, master2->serverId, 83, 835), TableDoesntExistException);
-    EXPECT_EQ("reassignTabletOwnership: Could not reassign tablet 0, "
-        "range [0, 57]: not found!", TestLog::get());
-    EXPECT_EQ(1U, master->tabletManager.getCount());
-    EXPECT_EQ(0U, master2->master->tabletManager.getCount());
-
-    TestLog::reset();
-    CoordinatorClient::reassignTabletOwnership(&context, 0, 0, -1,
-        master2->serverId, 83, 835);
-    EXPECT_EQ("reassignTabletOwnership: Reassigning tablet 0, range "
-        "[0, 18446744073709551615] from server id 1.0 to server id 2.0.",
-        TestLog::get());
-    // Calling master removes the entry itself after the RPC completes on coord.
-    EXPECT_EQ(1U, master->tabletManager.getCount());
-    EXPECT_EQ(1U, master2->master->tabletManager.getCount());
-    tablet = service->tabletMap.getTablet(0lu, 0lu, ~(0lu));
-    EXPECT_EQ(master2->serverId, tablet.serverId);
-    EXPECT_EQ(83U, tablet.ctime.getSegmentId());
-    EXPECT_EQ(835U, tablet.ctime.getSegmentOffset());
+              tabletMapProtoBuf.ShortDebugString());
 }
 
 TEST_F(CoordinatorServiceTest, setRuntimeOption) {
@@ -424,6 +185,18 @@ TEST_F(CoordinatorServiceTest, verifyMembership) {
     ServerId bogus(3, 2);
     EXPECT_THROW(CoordinatorClient::verifyMembership(&context, bogus, false),
                  CallerNotInClusterException);
+}
+
+TEST_F(CoordinatorServiceTest, verifyServerFailure) {
+    // Case 1: server up.
+    EXPECT_FALSE(service->verifyServerFailure(masterServerId));
+
+    // Case 2: server incommunicado.
+    MockTransport mockTransport(&context);
+    context.transportManager->registerMock(&mockTransport, "mock2");
+    ServerId deadId = service->serverList->enlistServer(
+                {}, {WireFormat::PING_SERVICE}, 100, "mock2:");
+    EXPECT_TRUE(service->verifyServerFailure(deadId));
 }
 
 }  // namespace RAMCloud

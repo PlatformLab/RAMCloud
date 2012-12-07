@@ -80,6 +80,9 @@ class MasterServiceTest : public ::testing::Test {
     MasterService* service;
     Server* masterServer;
 
+    mutable std::mutex mutex;
+    typedef std::unique_lock<std::mutex> Lock;
+
     // To make tests that don't need big segments faster, set a smaller default
     // segmentSize. Since we can't provide arguments to it in gtest, nor can we
     // apparently template easily on that, we need to subclass this if we want
@@ -94,6 +97,7 @@ class MasterServiceTest : public ::testing::Test {
         , masterConfig(ServerConfig::forTesting())
         , service()
         , masterServer()
+        , mutex()
     {
         Logger::get().setLogLevels(RAMCloud::SILENT_LOG_LEVEL);
 
@@ -1103,8 +1107,8 @@ TEST_F(MasterServiceTest, dropTabletOwnership) {
 
     EXPECT_THROW(MasterClient::dropTabletOwnership(&context,
         masterServer-> serverId, 1, 1, 1), ClientException);
-    EXPECT_EQ("dropTabletOwnership: Could not drop ownership on unknown "
-        "tablet (1, range [1,1])!", TestLog::get());
+    EXPECT_EQ("dropTabletOwnership: Could not drop ownership "
+              "on unknown tablet [0x1,0x1] in tableId 1!", TestLog::get());
 
     TestLog::reset();
 
@@ -1112,8 +1116,8 @@ TEST_F(MasterServiceTest, dropTabletOwnership) {
         1, 1, 1);
     MasterClient::dropTabletOwnership(&context, masterServer-> serverId,
         1, 1, 1);
-    EXPECT_EQ("dropTabletOwnership: Dropped ownership of tablet "
-        "(1, range [1,1])", TestLog::get());
+    EXPECT_EQ("dropTabletOwnership: Dropped ownership of tablet [0x1,0x1] "
+        "in tableId 1", TestLog::get());
 }
 
 static bool
@@ -1156,12 +1160,12 @@ TEST_F(MasterServiceTest, takeTabletOwnership_newTablet) {
             service->tabletManager.toString());
 
         EXPECT_EQ(
-            "takeTabletOwnership: Took ownership of new tablet "
-                "(2, range [2,3]) | "
-            "takeTabletOwnership: Took ownership of new tablet "
-                "(2, range [4,5]) | "
-            "takeTabletOwnership: Took ownership of new tablet "
-                "(3, range [0,1])", TestLog::get());
+            "takeTabletOwnership: Took ownership of new tablet [0x2,0x3] "
+                "in tableId 2 | "
+            "takeTabletOwnership: Took ownership of new tablet [0x4,0x5] "
+                "in tableId 2 | "
+            "takeTabletOwnership: Took ownership of new tablet [0x0,0x1] "
+                "in tableId 3", TestLog::get());
     }
 
     TestLog::reset();
@@ -1171,8 +1175,9 @@ TEST_F(MasterServiceTest, takeTabletOwnership_newTablet) {
     {
         MasterClient::takeTabletOwnership(&context, masterServer->serverId,
             2, 2, 3);
-        EXPECT_EQ("takeTabletOwnership: Told to take ownership of tablet I "
-            "already own (2 range [2,3]). Returning success.", TestLog::get());
+        EXPECT_EQ("takeTabletOwnership: Told to take ownership of tablet "
+            "[0x2,0x3] in tableId 2, but already own [0x2,0x3]. Returning "
+            "success.", TestLog::get());
     }
 
     TestLog::reset();
@@ -1183,7 +1188,7 @@ TEST_F(MasterServiceTest, takeTabletOwnership_newTablet) {
         EXPECT_THROW(MasterClient::takeTabletOwnership(&context,
             masterServer->serverId, 2, 2, 2), ClientException);
         EXPECT_EQ("takeTabletOwnership: Could not take ownership of tablet "
-            "(2, range [2,2]). Tablet overlaps with one or more different "
+            "[0x2,0x2] in tableId 2: overlaps with one or more different "
             "ranges.", TestLog::get());
     }
 }
@@ -1199,7 +1204,7 @@ TEST_F(MasterServiceTest, takeTabletOwnership_migratingTablet) {
 
     EXPECT_EQ(
         "takeTabletOwnership: Took ownership of existing tablet "
-            "(1, range [0,5]) in RECOVERING state", TestLog::get());
+            "[0x0,0x5] in tableId 1 in RECOVERING state", TestLog::get());
 }
 
 static bool
@@ -1218,8 +1223,8 @@ TEST_F(MasterServiceTest, prepForMigration) {
                                                 masterServer->serverId,
                                                 5, 27, 873, 0, 0),
         ObjectExistsException);
-    EXPECT_EQ("prepForMigration: Cannot receive tablet 5 (range [27, 873]) - "
-        "an existing tablet overlaps that range", TestLog::get());
+    EXPECT_EQ("prepForMigration: Already have tablet [0x1b,0x369] "
+        "in tableId 5, cannot add [0x1b,0x369]", TestLog::get());
     EXPECT_THROW(MasterClient::prepForMigration(&context,
                                                 masterServer->serverId,
                                                 5, 0, 27, 0, 0),
@@ -1232,15 +1237,14 @@ TEST_F(MasterServiceTest, prepForMigration) {
     TestLog::reset();
     MasterClient::prepForMigration(&context, masterServer->serverId,
                                    5, 1000, 2000, 0, 0);
-
     TabletManager::Tablet tablet;
     EXPECT_TRUE(service->tabletManager.getTablet(5, 1000, 2000, &tablet));
     EXPECT_EQ(5U, tablet.tableId);
     EXPECT_EQ(1000U, tablet.startKeyHash);
     EXPECT_EQ(2000U, tablet.endKeyHash);
     EXPECT_EQ(TabletManager::RECOVERING, tablet.state);
-    EXPECT_EQ("prepForMigration: Ready to receive tablet from "
-        "\"\?\?\". Table 5, range [1000,2000]", TestLog::get());
+    EXPECT_EQ("prepForMigration: Ready to receive tablet [0x3e8,0x7d0] "
+        "in tableId 5 from \"??\"", TestLog::get());
 }
 
 static bool
@@ -1253,8 +1257,8 @@ TEST_F(MasterServiceTest, migrateTablet_tabletNotOnServer) {
     TestLog::Enable _;
     EXPECT_THROW(ramcloud->migrateTablet(99, 0, -1, ServerId(0, 0)),
         TableDoesntExistException);
-    EXPECT_EQ("migrateTablet: Migration request for range this master "
-              "does not own. TableId 99, range [0,18446744073709551615] | "
+    EXPECT_EQ("migrateTablet: Migration request for tablet this master "
+              "does not own: tablet [0x0,0xffffffffffffffff] in tableId 99 | "
               "checkStatus: Server mock:host=master doesn't store "
               "<99, 0x0>; refreshing object map | flush: flushing object map",
               TestLog::get());
@@ -1267,8 +1271,8 @@ TEST_F(MasterServiceTest, migrateTablet_firstKeyHashTooLow) {
 
     EXPECT_THROW(ramcloud->migrateTablet(99, 0, 26, ServerId(0, 0)),
         TableDoesntExistException);
-    EXPECT_EQ("migrateTablet: Migration request for range this master "
-              "does not own. TableId 99, range [0,26]",
+    EXPECT_EQ("migrateTablet: Migration request for tablet this master "
+              "does not own: tablet [0x0,0x1a] in tableId 99",
               TestLog::get());
 }
 
@@ -1279,8 +1283,8 @@ TEST_F(MasterServiceTest, migrateTablet_lastKeyHashTooHigh) {
 
     EXPECT_THROW(ramcloud->migrateTablet(99, 874, -1, ServerId(0, 0)),
         TableDoesntExistException);
-    EXPECT_EQ("migrateTablet: Migration request for range this master "
-              "does not own. TableId 99, range [874,18446744073709551615]",
+    EXPECT_EQ("migrateTablet: Migration request for tablet this master "
+              "does not own: tablet [0x36a,0xffffffffffffffff] in tableId 99",
               TestLog::get());
 }
 
@@ -1319,11 +1323,13 @@ TEST_F(MasterServiceTest, migrateTablet_movingData) {
     TestLog::Enable _(migrateTabletFilter);
 
     ramcloud->migrateTablet(tbl, 0, -1, master2->serverId);
-    EXPECT_EQ("migrateTablet: Migrating tablet (id 0, first 0, last "
-        "18446744073709551615) to ServerId 3.0 (\"mock:host=master2\") "
-        "| migrateTablet: Sending last migration segment | "
-        "migrateTablet: Tablet migration succeeded. Sent 1 objects "
-        "and 0 tombstones. 35 bytes in total.", TestLog::get());
+    EXPECT_EQ("migrateTablet: Migrating tablet [0x0,0xffffffffffffffff] "
+        "in tableId 0 to server 3.0 at mock:host=master2 | "
+        "migrateTablet: Sending last migration segment | "
+        "migrateTablet: Migration succeeded for tablet "
+        "[0x0,0xffffffffffffffff] in tableId 0; sent 1 objects and "
+        "0 tombstones to server 3.0 at mock:host=master2, 35 bytes in total",
+        TestLog::get());
 
     // Ensure that the tablet ``creation'' time on the new master is
     // appropriate. It should be greater than the log position before
@@ -1332,8 +1338,9 @@ TEST_F(MasterServiceTest, migrateTablet_movingData) {
     Log::Position master2HeadPositionAfter = Log::Position(
         master2Log->head->id,
         master2Log->head->getAppendedLength());
+    Lock lock(mutex);   // Used to trick TableManager internal calls.
     Log::Position ctimeCoord =
-        cluster.coordinator->tabletMap.getTablet(tbl, 0, -1).ctime;
+        cluster.coordinator->tableManager->getTablet(lock, tbl, 0, -1).ctime;
     EXPECT_GT(ctimeCoord, master2HeadPositionBefore);
     EXPECT_LT(ctimeCoord, master2HeadPositionAfter);
 }
@@ -1356,8 +1363,10 @@ TEST_F(MasterServiceTest, receiveMigrationData) {
                                                     masterServer->serverId,
                                                     6, 0, &s),
         UnknownTabletException);
-    EXPECT_EQ("receiveMigrationData: migration data received for "
-        "unknown tablet 6, firstKeyHash 0", TestLog::get());
+    EXPECT_EQ("receiveMigrationData: Receiving 0 bytes of migration data "
+              "for tablet [0x0,??] in tableId 6 | "
+              "receiveMigrationData: migration data received for unknown "
+              "tablet [0x0,??] in tableId 6", TestLog::get());
     EXPECT_THROW(MasterClient::receiveMigrationData(&context,
                                                     masterServer->serverId,
                                                     5, 0, &s),
@@ -1368,8 +1377,10 @@ TEST_F(MasterServiceTest, receiveMigrationData) {
                                                     masterServer->serverId,
                                                     0, 0, &s),
         InternalError);
-    EXPECT_EQ("receiveMigrationData: migration data received for tablet "
-        "not in the RECOVERING state (state = 0)!", TestLog::get());
+    EXPECT_EQ("receiveMigrationData: Receiving 0 bytes of migration data for "
+        "tablet [0x0,??] in tableId 0 | receiveMigrationData: migration data "
+        "received for tablet not in the RECOVERING state (state = 0)!",
+        TestLog::get());
 
     Key key(5, "wee!", 4);
     Object o(key, "watch out for the migrant object", 32, 0, 0);

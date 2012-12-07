@@ -47,10 +47,11 @@ def createDir(top):
     os.symlink(datetime, latest)
     return subdir
 
-def scan(dir, strings):
+def scan(dir, strings, skip_strings = []):
     """
     Read all .log files in dir, searching for lines that contain any
-    strings in strings.  Return all of the matching lines, along with
+    strings in strings (and omitting lines that contain any string in
+    skip_strings).  Return all of the matching lines, along with
     info about which log file they were in.
     """
     
@@ -60,6 +61,12 @@ def scan(dir, strings):
         for line in open(name, 'r'):
             for s in strings:
                 if line.find(s) >= 0:
+                    skip = False
+                    for skip_string in skip_strings:
+                        if line.find(skip_string) >= 0:
+                            skip = True
+                    if skip:
+                        continue
                     if not matchesThisFile:
                         result += '**** %s:\n' % os.path.basename(name)
                         matchesThisFile = True

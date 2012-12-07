@@ -15,6 +15,8 @@
 
 #include <stdarg.h>
 #include <execinfo.h>
+#include <signal.h>
+#include <stdexcept>
 
 #include <boost/lexical_cast.hpp>
 
@@ -564,6 +566,81 @@ Logger::assertionError(const char *assertion, const char *file,
             logModuleNames[RAMCLOUD_CURRENT_LOG_MODULE],
             logLevelNames[ERROR], getpid(), ThreadId::get(), assertion);
     printMessage(now, buffer, 0);
+}
+
+/**
+ * Signal handler which logs a backtrace and exits.
+ *
+ * \param signal
+ *      Signal number which caused the handler to be invoked.
+ * \param info
+ *      Details about the cause of the signal. Used to find the
+ *      faulting address for segfaults.
+ * \param ucontext
+ *      CPU context at the time the signal occurred.
+ */
+static void
+criticalErrorHandler(int signal, siginfo_t* info, void* ucontext)
+{
+    ucontext_t* uc = static_cast<ucontext_t*>(ucontext);
+    void* callerAddress =
+        reinterpret_cast<void*>(uc->uc_mcontext.gregs[REG_RIP]);
+
+    LOG(ERROR, "Signal %d (%s) at address %p from %p",
+        signal, strsignal(signal), info->si_addr,
+        callerAddress);
+
+    const int maxFrames = 128;
+    void* retAddrs[maxFrames];
+    int frames = backtrace(retAddrs, maxFrames);
+
+    // Overwrite sigaction with caller's address.
+    retAddrs[1] = callerAddress;
+
+    char** symbols = backtrace_symbols(retAddrs, frames);
+    if (symbols == NULL) {
+        // If the malloc failed we might be able to get the backtrace out
+        // to stderr still.
+        backtrace_symbols_fd(retAddrs, frames, 2);
+        return;
+    }
+
+    LOG(ERROR, "Backtrace:");
+    for (int i = 1; i < frames; ++i)
+        LOG(ERROR, "%s\n", symbols[i]);
+
+    free(symbols);
+
+    exit(1);
+}
+
+/**
+ * Logs a backtrace and exits. For use with std::set_terminate().
+ */
+static void
+terminateHandler()
+{
+    BACKTRACE(ERROR);
+    exit(1);
+}
+
+/**
+ * Install handlers for SIGSEGV and std::terminate which log backtraces to
+ * the process log file before exiting. This function currently ignores all
+ * the thread-safety issues that signals introduce. Since the handlers are
+ * only invoked in fatal cases its probably not a big deal.
+ */
+void
+Logger::installCrashBacktraceHandlers()
+{
+    struct sigaction signalAction;
+    signalAction.sa_sigaction = criticalErrorHandler;
+    signalAction.sa_flags = SA_RESTART | SA_SIGINFO;
+
+    if (sigaction(SIGSEGV, &signalAction, NULL) != 0)
+        LOG(ERROR, "Couldn't set signal handler for SIGSEGV, oh well");
+
+    std::set_terminate(terminateHandler);
 }
 
 } // end RAMCloud

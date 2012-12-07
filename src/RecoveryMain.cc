@@ -356,6 +356,7 @@ try
     Buffer nb;
     uint64_t stopTime = Cycles::rdtsc();
     // Check a value in each table to make sure we're good
+    bool somethingWentWrong = false;
     for (uint32_t t = 0; t < tableCount; t++) {
         uint64_t table = tables[t];
         try {
@@ -365,9 +366,18 @@ try
         } catch (...) {
         }
         auto session = client.objectFinder.lookup(tables[t], "0", 1);
-        LOG(NOTICE, "recovered value read from %s has length %u",
-            session->getServiceLocator().c_str(), nb.getTotalLength());
+        if (nb.getTotalLength() == objectDataSize) {
+            LOG(NOTICE, "recovered value read from %s has length %u",
+                session->getServiceLocator().c_str(), nb.getTotalLength());
+        } else {
+            LOG(ERROR, "recovered value read from %s has length %u "
+                "(expected %u)", session->getServiceLocator().c_str(),
+                nb.getTotalLength(), objectDataSize);
+            somethingWentWrong = true;
+        }
     }
+    if (somethingWentWrong)
+        DIE("Recovery failed; some objects seem to be missing");
     LOG(NOTICE, "Recovery completed in %lu ns, failure detected in %lu ns",
         Cycles::toNanoseconds(stopTime - startTime),
         Cycles::toNanoseconds(downTime - startTime));

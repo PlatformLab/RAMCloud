@@ -16,8 +16,8 @@
 package RAMCloud.ProtoBuf;
 
 // The information appended to LogCabin by the Coordinator
-// to store the state when forcing a server out of the cluster.
-message ForceServerDown {
+// to store the state when removing a server from the cluster.
+message ServerDown {
 
     /// Entry type for this LogCabin entry.
     required string entry_type = 1;

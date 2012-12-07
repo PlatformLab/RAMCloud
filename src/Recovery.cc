@@ -35,7 +35,7 @@ namespace RAMCloud {
  * \param taskQueue
  *      MasterRecoveryManager TaskQueue which drives this recovery
  *      (by calling performTask() whenever this recovery is scheduled).
- * \param tabletMap
+ * \param tableManager
  *      Coordinator's authoritative information about tablets and their
  *      mapping to servers. Used during to find out which tablets need
  *      to be recovered for the crashed master.
@@ -59,7 +59,7 @@ namespace RAMCloud {
  */
 Recovery::Recovery(Context* context,
                    TaskQueue& taskQueue,
-                   TabletMap* tabletMap,
+                   TableManager* tableManager,
                    RecoveryTracker* tracker,
                    Owner* owner,
                    ServerId crashedServerId,
@@ -69,7 +69,7 @@ Recovery::Recovery(Context* context,
     , crashedServerId(crashedServerId)
     , masterRecoveryInfo(recoveryInfo)
     , tabletsToRecover()
-    , tabletMap(tabletMap)
+    , tableManager(tableManager)
     , tracker(tracker)
     , owner(owner)
     , recoveryId(generateRandom())
@@ -555,7 +555,7 @@ Recovery::startBackups()
     CycleCounter<RawMetric>
         _(&metrics->coordinator.recoveryBuildReplicaMapTicks);
 
-    auto tablets = tabletMap->setStatusForServer(crashedServerId,
+    auto tablets = tableManager->setStatusForServer(crashedServerId,
                                                  Tablet::RECOVERING);
 
     if (tablets.size() == 0) {

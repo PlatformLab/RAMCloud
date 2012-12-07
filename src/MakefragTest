@@ -61,7 +61,7 @@ TESTS_SRCFILES := \
 		  src/MockDriver.cc \
 		  src/MockTransport.cc \
 		  src/MultiReadTest.cc \
-          src/MultiWriteTest.cc \
+		  src/MultiWriteTest.cc \
 		  src/ObjectFinderTest.cc \
           src/ObjectManagerTest.cc \
 		  src/ObjectPoolTest.cc \
@@ -103,6 +103,8 @@ TESTS_SRCFILES := \
 		  src/StatusTest.cc \
 		  src/StringUtilTest.cc \
 		  src/TableEnumeratorTest.cc \
+		  src/TabletTest.cc \
+		  src/TableManagerTest.cc \
 		  src/TabletMapTest.cc \
           src/TabletManagerTest.cc \
 		  src/TaskQueueTest.cc \
@@ -112,6 +114,7 @@ TESTS_SRCFILES := \
 		  src/TestUtilTest.cc \
 		  src/ThreadIdTest.cc \
 		  src/TransportManagerTest.cc \
+		  src/TransportTest.cc \
 		  src/TubTest.cc \
 		  src/UdpDriverTest.cc \
 		  src/UpdateReplicationEpochTaskTest.cc \
@@ -120,6 +123,7 @@ TESTS_SRCFILES := \
 		  src/WallTimeTest.cc \
 		  src/WindowTest.cc \
 		  src/WireFormatTest.cc \
+		  src/WorkerSessionTest.cc \
 		  src/RamCloudTest.cc \
 		  $(INFINIBAND_SRCFILES) \
 		  $(OBJDIR)/ProtoBufTest.pb.cc

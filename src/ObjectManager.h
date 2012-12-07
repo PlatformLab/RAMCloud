@@ -27,7 +27,6 @@
 #include "ReplicaManager.h"
 #include "ServerConfig.h"
 #include "SpinLock.h"
-#include "Table.h"
 #include "TabletManager.h"
 
 namespace RAMCloud {

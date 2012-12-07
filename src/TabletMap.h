@@ -13,8 +13,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#ifndef RAMCLOUD_TABLE_H
-#define RAMCLOUD_TABLE_H
+#ifndef RAMCLOUD_TABLETMAP_H
+#define RAMCLOUD_TABLETMAP_H
 
 #include "Tablets.pb.h"
 
@@ -22,45 +22,9 @@
 #include "Log.h"
 #include "LogEntryTypes.h"
 #include "ServerId.h"
+#include "Tablet.h"
 
 namespace RAMCloud {
-
-/**
- * Describes a contiguous subrange of key hashes from a single table.
- * Used as the unit of mapping of key to owning master.
- */
-struct Tablet {
-    /// The id of the containing table.
-    uint64_t tableId;
-
-    /// The smallest hash value for a key that is in this tablet.
-    uint64_t startKeyHash;
-
-    /// The largest hash value for a key that is in this tablet.
-    uint64_t endKeyHash;
-
-    /// The server id of the master owning this tablet.
-    ServerId serverId;
-
-    enum Status : uint8_t {
-        /// The tablet is available.
-        NORMAL = 0 ,
-        /// The tablet is being recovered, it is not available.
-        RECOVERING = 1,
-    };
-
-    /// The status of the tablet, see Status.
-    Status status;
-
-    /**
-     * The Log::Position of the log belonging to the master that owns this
-     * tablet when it was assigned to the server. Any earlier position
-     * cannot contain data belonging to this tablet.
-     */
-    Log::Position ctime;
-
-    void serialize(ProtoBuf::Tablets::Tablet& entry) const;
-};
 
 /**
  * Maps tablets to masters which serve requests for that tablet.

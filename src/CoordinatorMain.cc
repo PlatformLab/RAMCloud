@@ -20,6 +20,7 @@
 #include "PingService.h"
 #include "ServerId.h"
 #include "ServiceManager.h"
+#include "TableManager.h"
 #include "TransportManager.h"
 
 /**
@@ -31,11 +32,13 @@ int
 main(int argc, char *argv[])
 {
     using namespace RAMCloud;
+    Logger::installCrashBacktraceHandlers();
     string localLocator("???");
     uint32_t deadServerTimeout;
     string logCabinLocator("testing");
     Context context(true);
     CoordinatorServerList serverList(&context);
+    TableManager tableManager(&context);
     try {
         OptionsDescription coordinatorOptions("Coordinator");
         coordinatorOptions.add_options()

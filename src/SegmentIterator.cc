@@ -86,7 +86,8 @@ SegmentIterator::SegmentIterator(const void *buffer, uint32_t length,
 {
     wrapperSegment.construct(buffer, length);
     segment = &*wrapperSegment;
-    currentHeader = segment->getEntryHeader(0);
+    if (length)
+        currentHeader = segment->getEntryHeader(0);
 }
 
 SegmentIterator::SegmentIterator(const SegmentIterator& other)

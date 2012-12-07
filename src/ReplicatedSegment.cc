@@ -196,10 +196,16 @@ ReplicatedSegment::free()
 bool
 ReplicatedSegment::isSynced() const
 {
+    if (recoveringFromLostOpenReplicas)
+        return false;
+    if (normalLogSegment && !precedingSegmentCloseCommitted)
+        return false;
     uint32_t appendedBytes = segment->getAppendedLength();
     if (queued.bytes != appendedBytes)
         return false;
-    return !recoveringFromLostOpenReplicas && (getCommitted() == queued);
+    if (getCommitted() != queued)
+        return false;
+    return true;
 }
 
 /**
@@ -372,12 +378,14 @@ ReplicatedSegment::sync(uint32_t offset, Segment::Certificate* certificate)
     // Once this flag is cleared those conditions have been met and
     // it is safe to use the usual definition.
     if (!recoveringFromLostOpenReplicas) {
-        if (offset == ~0u) {
-            if (getCommitted().close)
-                return;
-        } else {
-            if (getCommitted().bytes >= offset)
-                return;
+        if (!normalLogSegment || precedingSegmentCloseCommitted) {
+            if (offset == ~0u) {
+                if (getCommitted().close)
+                    return;
+            } else {
+                if (getCommitted().bytes >= offset)
+                    return;
+            }
         }
     }
 
@@ -400,12 +408,14 @@ ReplicatedSegment::sync(uint32_t offset, Segment::Certificate* certificate)
     while (true) {
         taskQueue.performTask();
         if (!recoveringFromLostOpenReplicas) {
-            if (offset == ~0u) {
-                if (getCommitted().close)
-                    return;
-            } else {
-                if (getCommitted().bytes >= offset)
-                    return;
+            if (!normalLogSegment || precedingSegmentCloseCommitted) {
+                if (offset == ~0u) {
+                    if (getCommitted().close)
+                        return;
+                } else {
+                    if (getCommitted().bytes >= offset)
+                        return;
+                }
             }
         }
         double waited = Cycles::toSeconds(Cycles::rdtsc() - syncStartTicks);
@@ -456,6 +466,8 @@ ReplicatedSegment::swapSegment(const Segment* newSegment)
         lock.construct(dataMutex);
         if (isSynced())
             break;
+        lock.destroy();
+        sync();
     }
     assert(getCommitted() == queued);
 

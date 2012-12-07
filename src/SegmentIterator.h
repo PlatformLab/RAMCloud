@@ -121,7 +121,7 @@ class SegmentIterator {
         uint32_t entryOffset = currentOffset +
                                sizeof32(currentHeader) +
                                currentHeader.getLengthBytes();
-        const void* pointer;
+        const void* pointer = NULL;
         uint32_t contigBytes = segment->peek(entryOffset, &pointer);
         if (contigBytes < getLength() && contigBytes < length) {
             assert(getLength() <= length);

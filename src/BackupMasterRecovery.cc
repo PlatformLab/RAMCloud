@@ -526,6 +526,8 @@ BackupMasterRecovery::buildRecoverySegments(Replica& replica)
     replica.recoverySegments.reset();
 
     void* replicaData = replica.frame->load();
+    CycleCounter<RawMetric> _(&metrics->backup.filterTicks);
+
     std::unique_ptr<Segment[]> recoverySegments(new Segment[numPartitions]);
     uint64_t start = Cycles::rdtsc();
     try {

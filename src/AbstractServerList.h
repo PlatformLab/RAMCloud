@@ -119,7 +119,7 @@ class ServerDetails {
     ServerDetails(const ServerDetails& other)
         : serverId(other.serverId)
         , serviceLocator(other.serviceLocator.c_str())
-        , session()
+        , session(other.session)
         , services(other.services)
         , expectedReadMBytesPerSec(other.expectedReadMBytesPerSec)
         , status(other.status)
@@ -132,6 +132,7 @@ class ServerDetails {
             return *this;
         serverId = other.serverId;
         serviceLocator = other.serviceLocator.c_str();
+        session = other.session;
         services = other.services;
         expectedReadMBytesPerSec = other.expectedReadMBytesPerSec;
         status = other.status;
@@ -155,6 +156,7 @@ class ServerDetails {
             return *this;
         serverId = other.serverId;
         serviceLocator = other.serviceLocator.c_str();
+        session = other.session;
         services = other.services;
         expectedReadMBytesPerSec = other.expectedReadMBytesPerSec;
         status = other.status;
@@ -278,10 +280,13 @@ class AbstractServerList {
     /// phase and will no longer accept new trackers.
     bool isBeingDestroyed;
 
-    /// Incremented each time the server list is modified (i.e. when add or
-    /// remove is called). Since we usually send delta updates to clients,
-    /// they can use this to determine if any previous RPC was missed and
-    /// then re-fetch the latest list in its entirety to get back on track.
+    /// This variable is used to maintain consistency between the server
+    /// list on the coordinator and those on masters. On the coordinator,
+    /// this value is incremented for each update that it sends out to
+    /// the rest of the cluster, and it includes that version number in the
+    /// update RPCs.  On servers other than the coordinator, this variable
+    /// contains the version of the most recent update received from the
+    /// coordinator. It is used to ignore stale updates.
     uint64_t version;
 
     /// ServerTrackers that have registered with us and will receive updates

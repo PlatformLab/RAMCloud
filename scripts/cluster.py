@@ -256,7 +256,7 @@ class Cluster(object):
                    server_locator(self.transport, host, port), command))
         return server
 
-    def ensure_servers(self, numMasters=None, numBackups=None):
+    def ensure_servers(self, numMasters=None, numBackups=None, timeout=30):
         """Poll the coordinator and block until the specified number of
         masters and backups have enlisted. Useful for ensuring that the
         cluster is in the expected state before experiments begin.
@@ -279,10 +279,10 @@ class Cluster(object):
         self.sandbox.checkFailures()
         try:
             self.sandbox.rsh(self.coordinator_host[0],
-                             '%s -C %s -m %d -b %d -l 1 --wait 10 '
+                             '%s -C %s -m %d -b %d -l 1 --wait %d '
                              '--logFile %s/ensureServers.log' %
                              (ensure_servers_bin, self.coordinator_locator,
-                              numMasters, numBackups, self.log_subdir))
+                              numMasters, numBackups, timeout, self.log_subdir))
         except:
             # prefer exceptions from dead processes to timeout error
             self.sandbox.checkFailures()
@@ -331,7 +331,7 @@ class Cluster(object):
                 self.sandbox.checkFailures()
                 time.sleep(.1)
                 if time.time() - start > timeout:
-                    raise Exception('timeout exceeded')
+                    raise Exception('timeout exceeded %s' % self.log_subdir)
             if self.verbose:
                 print('%s finished' % p.sonce)
 
@@ -385,6 +385,11 @@ def run(
                                    # aren't enough available machines then
                                    # multiple clients will run on some
                                    # machines.
+        client_hosts=None,         # An explicit list of hosts (in
+                                   # host, ip, id triples) on which clients
+                                   # should be run. If this is set and
+                                   # share_hosts is set then share_hosts is
+                                   # ignored.
         share_hosts=False,         # True means clients can be run on
                                    # machines running servers, if needed.
         transport='infrc',         # Name of transport to use for servers.
@@ -416,7 +421,7 @@ def run(
         raise Exception('num_servers (%d) exceeds the available hosts (%d)'
                         % (num_servers, len(hosts)))
 
-    if not share_hosts:
+    if not share_hosts and not client_hosts:
         if (len(hosts) - num_servers) < 1:
             raise Exception('Asked for %d servers without sharing hosts with %d '
                             'clients, but only %d hosts were available'
@@ -444,7 +449,7 @@ def run(
                                              backup=False)
             oldMaster.ignoreFailures = True
             masters_started += 1
-            cluster.ensure_servers()
+            cluster.ensure_servers(timeout=60)
 
         for host in hosts[:num_servers]:
             backup = False
@@ -472,11 +477,14 @@ def run(
                 print('All servers running')
 
         if client:
-            host_list = hosts
-            if not share_hosts:
+            # Note: even if it's OK to share hosts between clients and servers,
+            # don't do it unless necessary.
+            if not client_hosts:
                 host_list = hosts[num_servers:]
-            client_hosts = [host_list[i % len(host_list)]
-                            for i in range(num_clients)]
+                if share_hosts:
+                    host_list.extend(hosts[:num_servers])
+                client_hosts = [host_list[i % len(host_list)]
+                                for i in range(num_clients)]
             assert(len(client_hosts) == num_clients)
 
             clients = cluster.start_clients(client_hosts, client)

@@ -25,7 +25,7 @@
 #include "ParallelRun.h"
 #include "RawMetrics.h"
 #include "ServerTracker.h"
-#include "Table.h"
+#include "TableManager.h"
 #include "Tablets.pb.h"
 #include "TaskQueue.h"
 
@@ -122,7 +122,8 @@ struct BackupEndTaskTestingCallback {
 }
 
 /**
- * Manages the recovery of a crashed master.
+ * Runs on the coordinator and attempts the recovery of a single crashed master.
+ * Created and managed by the MasterRecoveryManager on the coordinator.
  */
 class Recovery : public Task {
   public:
@@ -141,7 +142,7 @@ class Recovery : public Task {
     };
     Recovery(Context* context,
              TaskQueue& taskQueue,
-             TabletMap* tabletMap,
+             TableManager* tableManager,
              RecoveryTracker* tracker,
              Owner* owner,
              ServerId crashedServerId,
@@ -196,7 +197,7 @@ class Recovery : public Task {
      * to servers. Used during to find out which tablets need to be recovered
      * for the crashed master.
      */
-    TabletMap* tabletMap;
+    TableManager* tableManager;
 
      /**
       * The MasterRecoveryManager's tracker which maintains a list of all

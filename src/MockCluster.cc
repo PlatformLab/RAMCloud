@@ -53,11 +53,12 @@ MockCluster::MockCluster(Context* context, string coordinatorLocator)
     linkedContext->coordinatorSession->setLocation(coordinatorLocator.c_str());
 
     new CoordinatorServerList(&coordinatorContext);
+    new TableManager(&coordinatorContext);
     coordinatorContext.transportManager->registerMock(&transport);
     coordinatorContext.coordinatorSession->setLocation(
             coordinatorLocator.c_str());
 
-    coordinator.construct(&coordinatorContext, 1000, "testing");
+    coordinator.construct(&coordinatorContext, 1000, "testing", false);
     transport.addService(*coordinator, coordinatorLocator,
                          WireFormat::COORDINATOR_SERVICE);
 }

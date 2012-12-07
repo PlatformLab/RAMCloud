@@ -28,7 +28,7 @@ static string *localLog;
 class DummyPoller : public Dispatch::Poller {
   public:
     DummyPoller(const char *name, int callsUntilTrue, Dispatch *dispatch)
-        : Dispatch::Poller(*dispatch), myName(name),
+        : Dispatch::Poller(*dispatch, "DummyPoller"), myName(name),
         callsUntilTrue(callsUntilTrue), pollersToDelete() { }
     void poll() {
         bool deleteThis = false;
@@ -71,7 +71,7 @@ class DummyPoller : public Dispatch::Poller {
 class CountPoller : public Dispatch::Poller {
   public:
     explicit CountPoller(Dispatch* dispatch)
-            : Dispatch::Poller(*dispatch), count(0) { }
+            : Dispatch::Poller(*dispatch, "CountPoller"), count(0) { }
     void poll() {
         count++;
     }

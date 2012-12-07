@@ -76,7 +76,6 @@ SHARED_SRCFILES := \
 		   src/PingService.cc \
 		   src/RamCloud.cc \
 		   src/RawMetrics.cc \
-		   src/Recovery.cc \
 		   src/ReplicaManager.cc \
 		   src/ReplicatedSegment.cc \
 		   src/RpcWrapper.cc \
@@ -98,8 +97,9 @@ SHARED_SRCFILES := \
 		   src/Status.cc \
 		   src/StringUtil.cc \
 		   src/TableEnumerator.cc \
-		   src/Table.cc \
+		   src/Tablet.cc \
 		   src/TabletManager.cc \
+		   src/TabletMap.cc \
 		   src/TaskQueue.cc \
 		   src/TcpTransport.cc \
 		   src/TestLog.cc \
@@ -111,6 +111,7 @@ SHARED_SRCFILES := \
 		   src/Util.cc \
 		   src/WallTime.cc \
 		   src/WireFormat.cc \
+		   src/WorkerSession.cc \
 		   $(INFINIBAND_SRCFILES) \
 		   $(OBJDIR)/EnumerationIterator.pb.cc \
 		   $(OBJDIR)/Histogram.pb.cc \

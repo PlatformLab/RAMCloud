@@ -2,7 +2,7 @@ LOGCABIN_STATE_PROTOBUF_FILES := \
                         src/EntryType.pb.cc \
 			src/ServerInformation.pb.cc \
 			src/ServerUpdate.pb.cc \
-			src/ForceServerDown.pb.cc \
+			src/ServerDown.pb.cc \
 
 COORDINATOR_SRCFILES := \
 			src/CoordinatorServerList.cc \
@@ -10,7 +10,8 @@ COORDINATOR_SRCFILES := \
 			src/CoordinatorServiceRecovery.cc \
 			src/LogCabinHelper.cc \
 			src/MasterRecoveryManager.cc \
-			src/Table.cc \
+			src/Tablet.cc \
+			src/TableManager.cc \
 			src/Recovery.cc \
 			src/RuntimeOptions.cc \
 			$(LOGCABIN_STATE_PROTOBUF_FILES) \

@@ -662,11 +662,6 @@ Infiniband::QueuePair::plumb(QueuePairTuple *qpt)
 
     // the queue pair should be ready to use once the client has finished
     // setting up their end.
-    LOG(DEBUG, "infiniband qp plumbed: lid 0x%x, qpn 0x%x, psn 0x%x, "
-        "ibPhysicalPort %u to remote lid 0x%x, remote qpn 0x%x, "
-        "remote psn 0x%x", infiniband.getLid(ibPhysicalPort),
-        qp->qp_num, initialPsn, ibPhysicalPort, qpt->getLid(), qpt->getQpn(),
-        qpt->getPsn());
 }
 
 void
@@ -713,11 +708,6 @@ Infiniband::QueuePair::activate(const Tub<MacAddress>& localMac)
             throw TransportException(HERE, ret);
         }
     }
-
-    LOG(DEBUG, "infiniband qp activated: lid 0x%x, qpn 0x%x, "
-        "ibPhysicalPort %u",
-        infiniband.getLid(ibPhysicalPort), qp->qp_num, ibPhysicalPort);
-
 }
 
 /**

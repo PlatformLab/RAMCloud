@@ -552,6 +552,11 @@ BackupService::writeSegment(const WireFormat::BackupWrite::Request* reqHdr,
 
     if  (!context->serverList->isUp(masterId) && !testingSkipCallerIdCheck) {
         // See "Zombies" in designNotes.
+        LOG(WARNING, "Received backup write request from server %s which is "
+            "not in server list version %lu:\n%s",
+            masterId.toString().c_str(),
+            context->serverList->getVersion(),
+            context->serverList->toString().c_str());
         throw CallerNotInClusterException(HERE);
     }
     auto frameIt = frames.find({masterId, segmentId});

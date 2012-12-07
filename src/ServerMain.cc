@@ -32,6 +32,7 @@ int
 main(int argc, char *argv[])
 {
     using namespace RAMCloud;
+    Logger::installCrashBacktraceHandlers();
     Context context(true);
     try {
         ServerConfig config = ServerConfig::forExecution();
