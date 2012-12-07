@@ -32,7 +32,7 @@
 #include "ServerConfig.h"
 #include "SideLog.h"
 #include "SpinLock.h"
-#include "TabletsOnMaster.h"
+#include "TabletManager.h"
 #include "WireFormat.h"
 
 namespace RAMCloud {
@@ -183,6 +183,13 @@ class MasterService : public Service {
     const ServerConfig* config;
 
   PRIVATE:
+    /**
+     * The TabletManager keeps track of ranges of tables that are assigned to
+     * this server by the coordinator. Ranges are contiguous spans of the 64-bit
+     * key hash space.
+     */
+    TabletManager tabletManager;
+
     /**
      * The ObjectManager class that is responsible for object storage. This is
      * constructed when MasterService::init() is called.

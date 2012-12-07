@@ -55,7 +55,7 @@ class CoordinatorServiceTest : public ::testing::Test {
         masterConfig.localLocator = "mock:host=master";
         Server* masterServer = cluster.addServer(masterConfig);
         master = masterServer->master.get();
-        master->log->sync();
+        master->objectManager->log.sync();
         masterServerId = masterServer->serverId;
 
         ramcloud.construct(&context, "mock:host=coordinator");
@@ -87,8 +87,8 @@ TEST_F(CoordinatorServiceTest, createTable) {
 
     // Advance the log head slightly so creation time offset is non-zero.
     Buffer empty;
-    master->log->append(LOG_ENTRY_TYPE_INVALID, 0, empty);
-    master->log->sync();
+    master->objectManager->log.append(LOG_ENTRY_TYPE_INVALID, 0, empty);
+    master->objectManager->log.sync();
 
     // master is already enlisted
     EXPECT_EQ(0U, ramcloud->createTable("foo"));
@@ -111,8 +111,8 @@ TEST_F(CoordinatorServiceTest, createTable) {
               "serverId: 1.0 status: NORMAL "
               "ctime: 3, 70 }",
               service->tabletMap.debugString());
-    EXPECT_EQ(2, master->tablets.tablet_size());
-    EXPECT_EQ(1, master2.tablets.tablet_size());
+    EXPECT_EQ(2U, master->tabletManager.getCount());
+    EXPECT_EQ(1U, master2.tabletManager.getCount());
 }
 
 TEST_F(CoordinatorServiceTest,
@@ -134,9 +134,9 @@ TEST_F(CoordinatorServiceTest,
               "serverId: 2.0 status: NORMAL "
               "ctime: 1, 54 }",
               service->tabletMap.debugString());
-    EXPECT_EQ(1, master->tablets.tablet_size());
-    EXPECT_EQ(1, master2.tablets.tablet_size());
-    EXPECT_EQ(0, master3.tablets.tablet_size());
+    EXPECT_EQ(1U, master->tabletManager.getCount());
+    EXPECT_EQ(1U, master2.tabletManager.getCount());
+    EXPECT_EQ(0U, master3.tabletManager.getCount());
 }
 
 
@@ -161,8 +161,8 @@ TEST_F(CoordinatorServiceTest,
               "serverId: 1.0 status: NORMAL "
               "ctime: 3, 70 }",
               service->tabletMap.debugString());
-    EXPECT_EQ(2, master->tablets.tablet_size());
-    EXPECT_EQ(1, master2.tablets.tablet_size());
+    EXPECT_EQ(2U, master->tabletManager.getCount());
+    EXPECT_EQ(1U, master2.tabletManager.getCount());
 }
 
 TEST_F(CoordinatorServiceTest, splitTablet) {
@@ -217,27 +217,27 @@ TEST_F(CoordinatorServiceTest, dropTable) {
 
     // Test dropping a table that is spread across one master
     ramcloud->createTable("bar");
-    EXPECT_EQ(1, master2.tablets.tablet_size());
+    EXPECT_EQ(1U, master2.tabletManager.getCount());
     ramcloud->dropTable("bar");
     EXPECT_EQ("Tablet { tableId: 0 startKeyHash: 0 "
               "endKeyHash: 18446744073709551615 "
               "serverId: 1.0 status: NORMAL "
               "ctime: 2, 62 }",
               service->tabletMap.debugString());
-    EXPECT_EQ(0, master2.tablets.tablet_size());
+    EXPECT_EQ(0U, master2.tabletManager.getCount());
 
     // Test dropping a table that is spread across two masters
     ramcloud->createTable("bar", 2);
-    EXPECT_EQ(2, master->tablets.tablet_size());
-    EXPECT_EQ(1, master2.tablets.tablet_size());
+    EXPECT_EQ(2U, master->tabletManager.getCount());
+    EXPECT_EQ(1U, master2.tabletManager.getCount());
     ramcloud->dropTable("bar");
     EXPECT_EQ("Tablet { tableId: 0 startKeyHash: 0 "
               "endKeyHash: 18446744073709551615 "
               "serverId: 1.0 status: NORMAL "
               "ctime: 2, 62 }",
               service->tabletMap.debugString());
-    EXPECT_EQ(1, master->tablets.tablet_size());
-    EXPECT_EQ(0, master2.tablets.tablet_size());
+    EXPECT_EQ(1U, master->tabletManager.getCount());
+    EXPECT_EQ(0U, master2.tabletManager.getCount());
 }
 
 TEST_F(CoordinatorServiceTest, getTableId) {
@@ -333,18 +333,20 @@ TEST_F(CoordinatorServiceTest, reassignTabletOwnership) {
                                WireFormat::MEMBERSHIP_SERVICE };
     master2Config.localLocator = "mock:host=master2";
     auto* master2 = cluster.addServer(master2Config);
-    master2->master->log->sync();
+    master2->master->objectManager->log.sync();
 
     // Advance the log head slightly so creation time offset is non-zero
     // on host being migrated to.
     Buffer empty;
-    master2->master->log->append(LOG_ENTRY_TYPE_INVALID, 0, empty);
-    master2->master->log->sync();
+    master2->master->objectManager->log.append(LOG_ENTRY_TYPE_INVALID,
+                                               0,
+                                               empty);
+    master2->master->objectManager->log.sync();
 
     // master is already enlisted
     ramcloud->createTable("foo");
-    EXPECT_EQ(1, master->tablets.tablet_size());
-    EXPECT_EQ(0, master2->master->tablets.tablet_size());
+    EXPECT_EQ(1U, master->tabletManager.getCount());
+    EXPECT_EQ(0U, master2->master->tabletManager.getCount());
     Tablet tablet = service->tabletMap.getTablet(0lu, 0lu, ~(0lu));
     EXPECT_EQ(masterServerId, tablet.serverId);
     EXPECT_EQ(2U, tablet.ctime.getSegmentId());
@@ -357,16 +359,16 @@ TEST_F(CoordinatorServiceTest, reassignTabletOwnership) {
     EXPECT_EQ("reassignTabletOwnership: Server id 472.2 is not up! "
         "Cannot reassign ownership of tablet 0, range "
         "[0, 18446744073709551615]!", TestLog::get());
-    EXPECT_EQ(1, master->tablets.tablet_size());
-    EXPECT_EQ(0, master2->master->tablets.tablet_size());
+    EXPECT_EQ(1U, master->tabletManager.getCount());
+    EXPECT_EQ(0U, master2->master->tabletManager.getCount());
 
     TestLog::reset();
     EXPECT_THROW(CoordinatorClient::reassignTabletOwnership(&context,
         0, 0, 57, master2->serverId, 83, 835), TableDoesntExistException);
     EXPECT_EQ("reassignTabletOwnership: Could not reassign tablet 0, "
         "range [0, 57]: not found!", TestLog::get());
-    EXPECT_EQ(1, master->tablets.tablet_size());
-    EXPECT_EQ(0, master2->master->tablets.tablet_size());
+    EXPECT_EQ(1U, master->tabletManager.getCount());
+    EXPECT_EQ(0U, master2->master->tabletManager.getCount());
 
     TestLog::reset();
     CoordinatorClient::reassignTabletOwnership(&context, 0, 0, -1,
@@ -375,8 +377,8 @@ TEST_F(CoordinatorServiceTest, reassignTabletOwnership) {
         "[0, 18446744073709551615] from server id 1.0 to server id 2.0.",
         TestLog::get());
     // Calling master removes the entry itself after the RPC completes on coord.
-    EXPECT_EQ(1, master->tablets.tablet_size());
-    EXPECT_EQ(1, master2->master->tablets.tablet_size());
+    EXPECT_EQ(1U, master->tabletManager.getCount());
+    EXPECT_EQ(1U, master2->master->tabletManager.getCount());
     tablet = service->tabletMap.getTablet(0lu, 0lu, ~(0lu));
     EXPECT_EQ(master2->serverId, tablet.serverId);
     EXPECT_EQ(83U, tablet.ctime.getSegmentId());

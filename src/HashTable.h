@@ -325,20 +325,11 @@ class HashTable {
         }
 
         void
-        setUp(CacheLine* newBucket, uint64_t newSecondaryHash)
-        {
-            bucket = newBucket;
-            secondaryHash = newSecondaryHash;
-            index = -1;
-            next();
-        }
-
-        void
         next()
         {
             while (true) {
-                // Not found in the cache line, see if there's a chain to another
-                // cache line.
+                // Not found in the cache line, see if there's a chain to
+                // another cache line.
                 if (index == ENTRIES_PER_CACHE_LINE && bucket != NULL) {
                     Entry* entry = &bucket->entries[ENTRIES_PER_CACHE_LINE - 1];
                     bucket = entry->getChainPointer();
@@ -354,9 +345,10 @@ class HashTable {
                 while (index < ENTRIES_PER_CACHE_LINE) {
                     if (candidate->hashMatches(secondaryHash)) {
                         // The hash within the hash table entry matches, so with
-                        // high probability this is the pointer we're looking for.
-                        // We'll report this index to the user of this class in the
-                        // next getReference() call so that they can verify it.
+                        // high probability this is the pointer we're looking
+                        // for. We'll report this index to the user of this
+                        // class in the next getReference() call so that they
+                        // can verify the match.
                         return;
                     }
                     candidate++;
@@ -371,7 +363,7 @@ class HashTable {
             return (bucket == NULL);
         }
 
-      //PRIVATE:
+      PRIVATE:
         /// Pointer to the hash table bucket we're currently iterating over.
         CacheLine* bucket;
 
@@ -390,12 +382,10 @@ class HashTable {
      * \param[in] numBuckets
      *      The number of buckets in the new hash table. This should be a power
      *      of two.
-     * \param[in] keyComparer
-     *      Comparison functor that will compare keys for equality.
      * \throw Exception
      *      An exception is thrown if numBuckets is 0.
      */
-    HashTable(uint64_t numBuckets)
+    explicit HashTable(uint64_t numBuckets)
         : numBuckets(BitOps::powerOfTwoLessOrEqual(numBuckets))
         , buckets(this->numBuckets * sizeof(CacheLine))
     {
@@ -419,24 +409,26 @@ class HashTable {
     }
 
     /**
-     * Find the address of an element in the hash table given its key.
+     * Find possible references to an element in the hash table given a key.
+     * This method returns an object that allows the caller to iterate over
+     * possible matches, if there are any. It is up to the caller to check
+     * whether or not each candidate matches the key they're looking for.
+     *
      * \param[in] key
      *      Key representing the element to look up.
-     * \param[out] reference
-     *      If found, the reference matching the given key is returned here.
      * \return
-     *      True if found, else false.
+     *      A HashTable::Candidates object is returned that can be used to
+     *      iterate over all potential matches to find the desired element.
      */
-    void
-    lookup(Key& key, Candidates* candidates)
+    Candidates
+    lookup(Key& key)
     {
         // Find the bucket using 64 bit hash of the key. Any collisions
-        // arising out of this hashing will be detected / resolved during
-        // lookupEntry(), just as hash table bucket collisions would
-        // be detected / resolved.
+        // arising out of this hashing will be detected / resolved by the
+        // caller as it examines possible candidates.
         uint64_t secondaryHash;
         CacheLine *bucket = findBucket(key, &secondaryHash);
-        candidates->setUp(bucket, secondaryHash);
+        return Candidates(bucket, secondaryHash);
     }
 
     /**

@@ -26,10 +26,6 @@ namespace RAMCloud {
 /**
  * Constructor for AbstractLog.
  *
- * \param config
- *      The ServerConfig containing configuration options that affect this
- *      log instance. Rather than passing in various separate bits, the log
- *      will extract any parameters it needs from the global server config.
  * \param entryHandlers
  *      Class to query for various bits of per-object information. For instance,
  *      the log may want to know whether an object is still needed or if it can
@@ -40,6 +36,8 @@ namespace RAMCloud {
  * \param replicaManager
  *      The ReplicaManager that will be used to make each of this Log's
  *      Segments durable.
+ * \param segmentSize
+ *      The size, in bytes, of segments this log will use.
  */
 AbstractLog::AbstractLog(LogEntryHandlers* entryHandlers,
                          SegmentManager* segmentManager,
@@ -122,6 +120,7 @@ AbstractLog::append(AppendVector* appends, uint32_t numAppends)
 void
 AbstractLog::free(Reference reference)
 {
+    TEST_LOG("free on reference %lu", reference.toInteger());
     SegmentSlot slot = reference.getSlot(segmentSize);
     uint32_t offset = reference.getOffset(segmentSize);
     LogSegment& segment = (*segmentManager)[slot];

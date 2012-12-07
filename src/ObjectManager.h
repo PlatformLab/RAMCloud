@@ -28,7 +28,7 @@
 #include "ServerConfig.h"
 #include "SpinLock.h"
 #include "Table.h"
-#include "TabletsOnMaster.h"
+#include "TabletManager.h"
 
 namespace RAMCloud {
 
@@ -49,21 +49,24 @@ class ObjectManager : public LogEntryHandlers {
   public:
     ObjectManager(Context* context,
                   ServerId serverId,
-                  const ServerConfig* config);
+                  const ServerConfig* config,
+                  TabletManager* tabletManager);
     virtual ~ObjectManager();
-    Status readObject(Key& key, Buffer* outBuffer, RejectRules& rejectRules, uint64_t* outVersion = NULL);
-    Status writeObject(Key& key, Buffer& value, RejectRules& rejectRules, uint64_t* outVersion = NULL);
+    Status readObject(Key& key,
+                      Buffer* outBuffer,
+                      RejectRules* rejectRules,
+                      uint64_t* outVersion);
+    Status writeObject(Key& key,
+                       Buffer& value,
+                       RejectRules* rejectRules,
+                       uint64_t* outVersion);
     void syncWrites();
-    Status removeObject(Key& key, RejectRules& rejectRules);
+    Status removeObject(Key& key,
+                        RejectRules* rejectRules,
+                        uint64_t* outVersion);
     void prefetchHashTableBucket(SegmentIterator* it);
     void replaySegment(SideLog* sideLog, SegmentIterator& it);
-
-    TabletsOnMaster* getTable(Key& key) __attribute__((warn_unused_result));
-    TabletsOnMaster* getTable(uint64_t tableId, KeyHash keyHash) __attribute__((warn_unused_result));
-    ProtoBuf::Tablets::Tablet const* getTablet(uint64_t tableId, KeyHash keyHash) __attribute__((warn_unused_result));
-
-    // should be private?
-    void incrementReadAndWriteStatistics(TabletsOnMaster* table);
+    void removeOrphanedObjects();
 
     /**
      * The following two methods are used by the log cleaner. They aren't
@@ -75,10 +78,16 @@ class ObjectManager : public LogEntryHandlers {
                   LogEntryRelocator& relocator);
 
     /**
-     * Tablets this master owns.
-     * The user_data field in each tablet points to a Table object.
+     * The following methods exist because our current abstraction doesn't quite
+     * cut it in terms of hiding object storage information from MasterService.
+     * Sometimes MasterService needs to poke at the log, the replica manager, or
+     * the object map.
+     *
+     * If you're considering using these methods, please think twice.
      */
-    ProtoBuf::Tablets tablets;
+    Log* getLog() { return &log; }
+    ReplicaManager* getReplicaManager() { return &replicaManager; }
+    HashTable* getObjectMap() { return &objectMap; }
 
   PRIVATE:
     /**
@@ -89,23 +98,41 @@ class ObjectManager : public LogEntryHandlers {
      * Taking the lock for a particular key serializes modifications to objects
      * belonging to that key. ObjectManager maintains a number of fine-grained
      * locks to reduce the likelihood of contention between operations on
-     * different keys.
+     * different keys (see ObjectManager::hashTableBucketLocks).
      */
     class HashTableBucketLock {
       public:
-        HashTableBucketLock(ObjectManager& manager, Key& key)
+        /**
+         * This constructor finds the bucket a given key maps to in the hash
+         * table and acquires the lock.
+         *
+         * \param objectManager
+         *      The ObjectManager that owns the hash table bucket to lock.
+         * \param key 
+         *      Key whose corresponding bucket in the hash table will be locked.
+         */
+        HashTableBucketLock(ObjectManager& objectManager, Key& key)
             : lock(NULL)
         {
-            uint32_t numLocks = arrayLength(manager.hashTableBucketLocks);
-            assert(BitOps::isPowerOfTwo(numLocks));
-
             uint64_t unused;
             uint64_t bucket = HashTable::findBucketIndex(
-                manager.objectMap.getNumBuckets(), key, &unused);
-            uint64_t lockIndex = bucket & (numLocks - 1);
+                objectManager.objectMap.getNumBuckets(), key, &unused);
+            takeBucketLock(objectManager, bucket);
+        }
 
-            lock = &manager.hashTableBucketLocks[lockIndex]; 
-            lock->lock();
+        /**
+         * This constructor acquires the lock for a particular bucket index
+         * in the hash table.
+         *
+         * \param objectManager
+         *      The ObjectManager that owns the hash table bucket to lock.
+         * \param bucket
+         *      Index of the hash table bucket to lock.
+         */
+        HashTableBucketLock(ObjectManager& objectManager, uint64_t bucket)
+            : lock(NULL)
+        {
+            takeBucketLock(objectManager, bucket);
         }
 
         ~HashTableBucketLock()
@@ -114,10 +141,95 @@ class ObjectManager : public LogEntryHandlers {
         }
 
       PRIVATE:
+        /**
+         * Helper method that actually acquires the appropriate bucket lock.
+         * Used by both constructors.
+         *
+         * \param objectManager
+         *      The ObjectManager that owns the hash table bucket to lock.
+         * \param bucket
+         *      Index of the hash table bucket to lock.
+         */
+        void
+        takeBucketLock(ObjectManager& objectManager, uint64_t bucket)
+        {
+            assert(lock == NULL);
+            uint32_t numLocks = arrayLength(objectManager.hashTableBucketLocks);
+            assert(BitOps::isPowerOfTwo(numLocks));
+            uint64_t lockIndex = bucket & (numLocks - 1);
+            lock = &objectManager.hashTableBucketLocks[lockIndex];
+            lock->lock();
+        }
+
+        /// The hash table bucket spinlock this object acquired in the
+        /// constructor and will release in the destructor.
         SpinLock* lock;
 
         DISALLOW_COPY_AND_ASSIGN(HashTableBucketLock);
     };
+
+    /**
+     * A Dispatch::Poller that lazily removes tombstones that were added to the
+     * objectMap during calls to replaySegment(). ObjectManager instantiates one
+     * on creation that runs automatically as needed.
+     */
+    class RemoveTombstonePoller : public Dispatch::Poller {
+      public:
+        RemoveTombstonePoller(ObjectManager* objectManager,
+                              HashTable* objectMap);
+        virtual void poll();
+
+      PRIVATE:
+        /// Which bucket of #objectMap should be cleaned out next.
+        uint64_t currentBucket;
+
+        /// Number of times this tombstone remover has gone through every single
+        /// bucket in the objectMap. Used only for logging.
+        uint64_t passes;
+
+        /// Count of the number of times ObjectManager::replaySegment() was
+        /// called (and completed) at the beginning of the most recent pass
+        /// through the hash table. This is used to avoid scanning the hash
+        /// table when it does not need to be scanned. That is, when a full
+        /// pass through has been done after the last replaySegment call
+        /// completed, we can be sure that no more tombstones are left to be
+        /// removed.
+        uint64_t lastReplaySegmentCount;
+
+        /// The ObjectManager that owns the hash table to remove tombstones
+        /// from in the #recoveryCleanup callback.
+        ObjectManager* objectManager;
+
+        /// The hash table to be purged of tombstones.
+        HashTable* objectMap;
+
+        DISALLOW_COPY_AND_ASSIGN(RemoveTombstonePoller);
+    };
+
+    /**
+     * Struct used to pass parameters into the removeIfOrphanedObject and
+     * removeIfTombstone methods through the generic HashTable::forEachInBucket
+     * method.
+     */
+    struct CleanupParameters {
+        /// Pointer to the ObjectManager class owning the hash table.
+        ObjectManager* objectManager;
+
+        /// Pointer to the locking object that is keeping the hash table bucket
+        /// currently begin iterated thread-safe.
+        ObjectManager::HashTableBucketLock* lock;
+    };
+
+    bool lookup(HashTableBucketLock& lock,
+                Key& key,
+                LogEntryType& outType,
+                Buffer& buffer,
+                uint64_t* outVersion = NULL,
+                Log::Reference* outReference = NULL);
+    bool remove(HashTableBucketLock& lock, Key& key);
+    bool replace(HashTableBucketLock& lock, Key& key, Log::Reference reference);
+    static void removeIfOrphanedObject(uint64_t reference, void *cookie);
+    static void removeIfTombstone(uint64_t maybeTomb, void *cookie);
 
     /**
      * Shared RAMCloud information.
@@ -132,20 +244,26 @@ class ObjectManager : public LogEntryHandlers {
     const ServerConfig* config;
 
     /**
-     * Creates and tracks replicas of in-memory log segments on remote backups.
-     * Its BackupFailureMonitor must be started after the log is created
-     * and halted before the log is destroyed.
+     * The TabletManager keeps track of table hash ranges that belong to this
+     * server. ObjectManager uses this information to avoid returning objects
+     * that are still in the hash table, but whose tablets are not assigned to
+     * the server. This occurs, for instance, during recovery before a tablet's
+     * ownership is taken and after a tablet is dropped.
      */
-// WAR for isReplicaNeeded
-public:
-    ReplicaManager replicaManager;
-PRIVATE:
+    TabletManager* tabletManager;
 
     /**
      * Allocator used by the SegmentManager to obtain main memory for log
      * segments.
      */
     SegletAllocator allocator;
+
+    /**
+     * Creates and tracks replicas of in-memory log segments on remote backups.
+     * Its BackupFailureMonitor must be started after the log is created
+     * and halted before the log is destroyed.
+     */
+    ReplicaManager replicaManager;
 
     /**
      * The SegmentManager manages all segments in the log and interfaces
@@ -157,10 +275,7 @@ PRIVATE:
      * The log stores all of our objects and tombstones both in memory and on
      * backups.
      */
-// WAR enumeration needing access to this.
-public:
     Log log;
-PRIVATE:
 
     /**
      * The (table ID, key, keyLength) to #RAMCloud::Object pointer map for all
@@ -169,10 +284,9 @@ PRIVATE:
      * server; objects from deleted tablets are not immediately purged from the
      * hash table.
      */
-// WAR enumeration needing access to this.
-public:
     HashTable objectMap;
-PRIVATE:
+
+  PRIVATE:
 
     /**
      * Used to identify the first write request, so that we can initialize
@@ -183,109 +297,27 @@ PRIVATE:
     bool anyWrites;
 
     /**
-     * Lock that serialises all object updates (creations, overwrites,
-     * deletions, and cleaning relocations). This protects regular RPC
-     * operations from the log cleaner. When we work on multithreaded
-     * writes we'll need to revisit this.
+     * Locks that serialise all object updates (creations, overwrites,
+     * deletions, and cleaning relocations) for the same key. This protects
+     * regular, parallel RPC operations from one another and from the log
+     * cleaner.
      */
     SpinLock hashTableBucketLocks[1024];
 
     /**
-     * Look up an object in the hash table, then extract the entry from the
-     * log. Since tombstones are stored in the hash table during recovery,
-     * this method may return either an object or a tombstone.
-     *
-     * \param key
-     *      Key of the object being looked up.
-     * \param[out] outType
-     *      The type of the log entry is returned here.
-     * \param buffer
-     *      The entry, if found, is appended to this buffer.
-     * \param outReference
-     *      The log reference to the entry, if found, is stored in this optional
-     *      parameter.
-     * \return
-     *      True if an entry is found matching the given key, otherwise false.
+     * Number of times the replaySegment() method returned (or threw an
+     * exception). This is used by the RemoveTombstonePoller to decide when
+     * there may be tombstones in the objectMap that need removal and when it
+     * need not scan. This mechanism is simpler than trying to maintain an
+     * exact count of outstanding tombstones in the hash table.
      */
-    bool
-    lookup(Key& key,
-           LogEntryType& outType,
-           Buffer& buffer,
-           uint64_t* outVersion = NULL,
-           Log::Reference* outReference = NULL)
-    {
-        HashTable::Candidates candidates;
-        objectMap.lookup(key, &candidates);
-        while (!candidates.isDone()) {
-            Buffer candidateBuffer;
-            Log::Reference candidateRef(candidates.getReference());
-            LogEntryType type = log.getEntry(candidateRef, candidateBuffer);
+    std::atomic<uint64_t> replaySegmentReturnCount;
 
-            Key candidateKey(type, candidateBuffer);
-            if (key == candidateKey) {
-                outType = type;
-                // TODO: A proper Buffer to Buffer virtual copy method.
-                buffer.append(candidateBuffer.getRange(0, candidateBuffer.getTotalLength()),
-                              candidateBuffer.getTotalLength());
-                if (outVersion != NULL) {
-                    if (type == LOG_ENTRY_TYPE_OBJ) {
-                        Object o(candidateBuffer);
-                        *outVersion = o.getVersion();
-                    } else {
-                        ObjectTombstone o(candidateBuffer);
-                        *outVersion = o.getObjectVersion();
-                    }
-                }
-                if (outReference != NULL)
-                    *outReference = candidateRef;
-                return true;
-            }
-
-            candidates.next();
-        }
-
-        return false;
-    }
-
-    bool
-    remove(Key& key)
-    {
-        HashTable::Candidates candidates;
-        objectMap.lookup(key, &candidates);
-        while (!candidates.isDone()) {
-            Buffer buffer;
-            Log::Reference candidateRef(candidates.getReference());
-            LogEntryType type = log.getEntry(candidateRef, buffer);
-            Key candidateKey(type, buffer);
-            if (key == candidateKey) {
-                candidates.remove();
-                return true;
-            }
-            candidates.next();
-        }
-        return false;
-    }
-
-    bool
-    replace(Key& key, Log::Reference reference)
-    {
-        HashTable::Candidates candidates;
-        objectMap.lookup(key, &candidates);
-        while (!candidates.isDone()) {
-            Buffer buffer;
-            Log::Reference candidateRef(candidates.getReference());
-            LogEntryType type = log.getEntry(candidateRef, buffer);
-            Key candidateKey(type, buffer);
-            if (key == candidateKey) {
-                candidates.setReference(reference.toInteger());
-                return true;
-            }
-            candidates.next();
-        }
-
-        objectMap.insert(key, reference.toInteger());
-        return false;
-    }
+    /**
+     * This object automatically garbage collects tombstones that were added to
+     * the hash table during replaySegment() calls.
+     */
+    RemoveTombstonePoller tombstoneRemover;
 
     friend void recoveryCleanup(uint64_t maybeTomb, void *cookie);
     friend void removeObjectIfFromUnknownTablet(uint64_t reference,
@@ -293,7 +325,7 @@ PRIVATE:
 
     uint32_t getObjectTimestamp(Buffer& buffer);
     uint32_t getTombstoneTimestamp(Buffer& buffer);
-    Status rejectOperation(const RejectRules& rejectRules, uint64_t version)
+    Status rejectOperation(const RejectRules* rejectRules, uint64_t version)
         __attribute__((warn_unused_result));
     void relocateObject(Buffer& oldBuffer,
                         LogEntryRelocator& relocator);

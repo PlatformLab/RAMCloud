@@ -99,6 +99,7 @@ SHARED_SRCFILES := \
 		   src/StringUtil.cc \
 		   src/TableEnumerator.cc \
 		   src/Table.cc \
+		   src/TabletManager.cc \
 		   src/TaskQueue.cc \
 		   src/TcpTransport.cc \
 		   src/TestLog.cc \

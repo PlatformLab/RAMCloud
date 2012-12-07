@@ -63,10 +63,11 @@ TESTS_SRCFILES := \
 		  src/MultiReadTest.cc \
           src/MultiWriteTest.cc \
 		  src/ObjectFinderTest.cc \
-		  src/OptionParserTest.cc \
+          src/ObjectManagerTest.cc \
 		  src/ObjectPoolTest.cc \
 		  src/ObjectTest.cc \
 		  src/ObjectRpcWrapperTest.cc \
+		  src/OptionParserTest.cc \
 		  src/PingServiceTest.cc \
 		  src/PriorityTaskQueueTest.cc \
 		  src/ProtoBufTest.cc \
@@ -103,6 +104,7 @@ TESTS_SRCFILES := \
 		  src/StringUtilTest.cc \
 		  src/TableEnumeratorTest.cc \
 		  src/TabletMapTest.cc \
+          src/TabletManagerTest.cc \
 		  src/TaskQueueTest.cc \
 		  src/TcpTransportTest.cc \
 		  src/TestRunner.cc \

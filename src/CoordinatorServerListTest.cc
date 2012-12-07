@@ -99,7 +99,7 @@ class CoordinatorServerListTest : public ::testing::Test {
         masterConfig.localLocator = "mock:host=master";
         Server* masterServer = cluster.addServer(masterConfig);
         master = masterServer->master.get();
-        master->log->sync();
+        master->objectManager->log.sync();
         masterServerId = masterServer->serverId;
     }
 

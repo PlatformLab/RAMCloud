@@ -116,18 +116,13 @@ class MasterServiceTest : public ::testing::Test {
         masterConfig.master.numReplicas = 1;
         masterServer = cluster.addServer(masterConfig);
         service = masterServer->master.get();
-        service->log->sync();
+        service->objectManager->log.sync();
 
         ramcloud.construct(&context, "mock:host=coordinator");
         ramcloud->objectFinder.tabletMapFetcher.reset(
                 new MasterServiceRefresher);
 
-        ProtoBuf::Tablets_Tablet& tablet(*service->tablets.add_tablet());
-        tablet.set_table_id(0);
-        tablet.set_start_key_hash(0);
-        tablet.set_end_key_hash(~0UL);
-        tablet.set_user_data(reinterpret_cast<uint64_t>(
-                new TabletsOnMaster(0, 0, ~0UL)));
+        service->tabletManager.addTablet(0, 0, ~0UL, TabletManager::NORMAL);
     }
 
     // Build a properly formatted segment containing a single object. This
@@ -267,7 +262,8 @@ class MasterServiceTest : public ::testing::Test {
         bool safeVerFound = false;
         int  safeVerScanned = 0;
 
-        for (LogIterator it(*(service->log)); !it.isDone(); it.next()) {
+        Log* log = &service->objectManager->log;
+        for (LogIterator it(*log); !it.isDone(); it.next()) {
             // Notice that more than two safeVersion objects exist
             // in the head segment:
             // 1st safeVersion is allocated when the segment is opened.
@@ -288,9 +284,9 @@ class MasterServiceTest : public ::testing::Test {
     }
 
     static bool
-    recoverSegmentFilter(string s)
+    recoveryFilter(string s)
     {
-        return (s == "recoverSegment" || s == "recover" ||
+        return (s == "replaySegment" || s == "recover" ||
                 s == "recoveryMasterFinished");
     }
 
@@ -423,8 +419,8 @@ TEST_F(MasterServiceTest, enumeration_mergeTablet) {
     EnumerationIterator initialIter(iter, 0, 0);
     EnumerationIterator::Frame preMergeConfiguration(
         0x0000000000000000LLU, 0x7f00000000000000LLU,
-        service->objectMap->getNumBuckets(),
-        service->objectMap->getNumBuckets()*4/5, 0U);
+        service->objectManager->objectMap.getNumBuckets(),
+        service->objectManager->objectMap.getNumBuckets()*4/5, 0U);
     initialIter.push(preMergeConfiguration);
     initialIter.serialize(iter);
     EnumerateTableRpc rpc(ramcloud.get(), 0, 0, iter, objects);
@@ -732,20 +728,21 @@ TEST_F(MasterServiceTest, recover_basics) {
     ASSERT_EQ(1lu, result.replicas.size());
     ASSERT_EQ(87lu, result.replicas.at(0).segmentId);
 
-    service->segmentManager.safeVersion = 1U; // reset safeVersion
-    EXPECT_EQ(1U, service->segmentManager.safeVersion); // check safeVersion
+    SegmentManager* segmentManager = &service->objectManager->segmentManager;
+    segmentManager->safeVersion = 1U; // reset safeVersion
+    EXPECT_EQ(1U, segmentManager->safeVersion); // check safeVersion
 
     ProtoBuf::ServerList backups;
     WireFormat::Recover::Replica replicas[] = {
         {backup1Id.getId(), 87},
     };
 
-    TestLog::Enable __(recoverSegmentFilter);
+    TestLog::Enable __(recoveryFilter);
     MasterClient::recover(&context, masterServer->serverId, 10lu,
                           serverId, 0, &tablets, replicas,
                           arrayLength(replicas));
     // safeVersion Recovered
-    EXPECT_EQ(23U, service->segmentManager.safeVersion);
+    EXPECT_EQ(23U, segmentManager->safeVersion);
 
     size_t curPos = 0; // Current Pos: given to getUntil()
     TestLog::getUntil("recover: Recovering master 123.0"
@@ -759,14 +756,14 @@ TEST_F(MasterServiceTest, recover_basics) {
         "recover: Waiting on recovery data for segment 87 from "
         "server 1.0 at mock:host=backup1 | "
         , TestLog::getUntil(
-            "recoverSegment: SAFEVERSION 23 recovered"
+            "replaySegment: SAFEVERSION 23 recovered"
             , curPos, &curPos));
 
     EXPECT_EQ(
-        "recoverSegment: SAFEVERSION 23 recovered | "
-        "recoverSegment: SAFEVERSION 23 discarded | "
-        "recoverSegment: SAFEVERSION 23 discarded | "
-        "recoverSegment: SAFEVERSION 23 discarded | "
+        "replaySegment: SAFEVERSION 23 recovered | "
+        "replaySegment: SAFEVERSION 23 discarded | "
+        "replaySegment: SAFEVERSION 23 discarded | "
+        "replaySegment: SAFEVERSION 23 discarded | "
         "recover: Segment 87 replay complete | "
         , TestLog::getUntil(
             "recover: Checking server 1.0 at mock:host=backup1 "
@@ -797,30 +794,6 @@ TEST_F(MasterServiceTest, recover_basics) {
         , TestLog::getUntil(
             "recoveryMasterFinished: Recovered tablets | "
             ,  curPos, &curPos));
-}
-
-TEST_F(MasterServiceTest, removeObjectIfFromUnknownTablet) {
-    ramcloud->createTable("table");
-    uint64_t tableId = ramcloud->getTableId("table");
-    Key key(tableId, "1", 1);
-    uint64_t reference;
-
-    ramcloud->write(tableId, "1", 1, "");
-
-    bool success = service->objectMap->lookup(key, reference);
-    EXPECT_TRUE(success);
-
-    EXPECT_TRUE(service->getTable(key) != NULL);
-    removeObjectIfFromUnknownTablet(reference, service);
-    EXPECT_TRUE(service->objectMap->lookup(key, reference));
-
-    foreach (const ProtoBuf::Tablets::Tablet& tablet, service->tablets.tablet())
-        delete reinterpret_cast<TabletsOnMaster*>(tablet.user_data());
-    service->tablets.Clear();
-
-    EXPECT_TRUE(service->getTable(key) == NULL);
-    removeObjectIfFromUnknownTablet(reference, service);
-    EXPECT_FALSE(service->objectMap->lookup(key, reference));
 }
 
 /**
@@ -1018,266 +991,10 @@ TEST_F(MasterServiceTest, recover_unsuccessful) {
               "aborting recovery on this recovery master", log);
 
     foreach (const auto& tablet, tablets.tablet()) {
-        foreach (const auto& mtablet, service->tablets.tablet()) {
-            EXPECT_FALSE(tablet.table_id() == mtablet.table_id() &&
-                         tablet.start_key_hash() == mtablet.start_key_hash() &&
-                         tablet.end_key_hash() == mtablet.end_key_hash());
-        }
+        EXPECT_FALSE(service->tabletManager.getTablet(tablet.table_id(),
+                                                      tablet.start_key_hash(),
+                                                      tablet.end_key_hash()));
     }
-}
-
-TEST_F(MasterServiceTest, recoverSegment) {
-    uint32_t segLen = 8192;
-    char seg[segLen];
-    uint32_t len; // number of bytes in a recovery segment
-    Buffer value;
-    Buffer buffer;
-    uint64_t reference;
-    Log::Reference logTomb1Ref;
-    Log::Reference logTomb2Ref;
-    LogEntryType type;
-    bool ret;
-    SideLog sl(service->log);
-
-    ////////////////////////////////////////////////////////////////////
-    // For Object recovery there are 3 major cases.
-    //  1) Object is in the HashTable, but no corresponding
-    //     ObjectTombstone.
-    //     The recovered obj is only added if the version is newer than
-    //     the existing obj.
-    //
-    //  2) Opposite of 1 above.
-    //     The recovered obj is only added if the version is newer than
-    //     the tombstone. If so, the tombstone is also discarded.
-    //
-    //  3) Neither an Object nor ObjectTombstone is present.
-    //     The recovered obj is always added.
-    ////////////////////////////////////////////////////////////////////
-
-    // Case 1a: Newer object already there; ignore object.
-    Key key0(0, "key0", 4);
-    Segment::Certificate certificate;
-    len = buildRecoverySegment(seg, segLen, key0, 1, "newer guy", &certificate);
-    Tub<SegmentIterator> it;
-    it.construct(&seg[0], len, certificate);
-    service->recoverSegment(&sl, *it);
-    verifyRecoveryObject(key0, "newer guy");
-    len = buildRecoverySegment(seg, segLen, key0, 0, "older guy", &certificate);
-    it.construct(&seg[0], len, certificate);
-    service->recoverSegment(&sl, *it);
-    verifyRecoveryObject(key0, "newer guy");
-
-    // Case 1b: Older object already there; replace object.
-    Key key1(0, "key1", 4);
-    len = buildRecoverySegment(seg, segLen, key1, 0, "older guy", &certificate);
-    it.construct(&seg[0], len, certificate);
-    service->recoverSegment(&sl, *it);
-    verifyRecoveryObject(key1, "older guy");
-    len = buildRecoverySegment(seg, segLen, key1, 1, "newer guy", &certificate);
-    it.construct(&seg[0], len, certificate);
-    service->recoverSegment(&sl, *it);
-    verifyRecoveryObject(key1, "newer guy");
-
-    // Case 2a: Equal/newer tombstone already there; ignore object.
-    Key key2(0, "key2", 4);
-    Object o1(key2, NULL, 0, 1, 0);
-    ObjectTombstone t1(o1, 0, 0);
-    buffer.reset();
-    t1.serializeToBuffer(buffer);
-    service->log->append(LOG_ENTRY_TYPE_OBJTOMB, 0, buffer, &logTomb1Ref);
-    service->log->sync();
-    ret = service->objectMap->replace(key2, logTomb1Ref.toInteger());
-    EXPECT_FALSE(ret);
-    len = buildRecoverySegment(seg, segLen, key2, 1, "equal guy", &certificate);
-    it.construct(&seg[0], len, certificate);
-    service->recoverSegment(&sl, *it);
-    len = buildRecoverySegment(seg, segLen, key2, 0, "older guy", &certificate);
-    it.construct(&seg[0], len, certificate);
-    service->recoverSegment(&sl, *it);
-    EXPECT_TRUE(service->objectMap->lookup(key2, reference));
-    EXPECT_EQ(reference, logTomb1Ref.toInteger());
-    service->removeTombstones();
-    EXPECT_THROW(ramcloud->read(0, "key2", 4, &value),
-                 ObjectDoesntExistException);
-
-    // Case 2b: Lesser tombstone already there; add object, remove tomb.
-    Key key3(0, "key3", 4);
-    Object o2(key3, NULL, 0, 10, 0);
-    ObjectTombstone t2(o2, 0, 0);
-    buffer.reset();
-    t2.serializeToBuffer(buffer);
-    ret = service->log->append(LOG_ENTRY_TYPE_OBJTOMB, 0, buffer, &logTomb2Ref);
-    service->log->sync();
-    EXPECT_TRUE(ret);
-    ret = service->objectMap->replace(key3, logTomb2Ref.toInteger());
-    EXPECT_FALSE(ret);
-    len = buildRecoverySegment(seg, segLen, key3, 11, "newer guy",
-                               &certificate);
-    it.construct(&seg[0], len, certificate);
-    service->recoverSegment(&sl, *it);
-    verifyRecoveryObject(key3, "newer guy");
-    EXPECT_TRUE(service->objectMap->lookup(key3, reference));
-    EXPECT_NE(reference, logTomb1Ref.toInteger());
-    EXPECT_NE(reference, logTomb2Ref.toInteger());
-    service->removeTombstones();
-
-    // Case 3: No tombstone, no object. Recovered object always added.
-    Key key4(0 , "key4", 4);
-    EXPECT_FALSE(service->objectMap->lookup(key4, reference));
-    len = buildRecoverySegment(seg, segLen, key4, 0, "only guy", &certificate);
-    it.construct(&seg[0], len, certificate);
-    service->recoverSegment(&sl, *it);
-    verifyRecoveryObject(key4, "only guy");
-
-    ////////////////////////////////////////////////////////////////////
-    // For ObjectTombstone recovery there are the same 3 major cases:
-    //  1) Object is in  the HashTable, but no corresponding
-    //     ObjectTombstone.
-    //     The recovered tomb is only added if the version is equal to
-    //     or greater than the object. If so, the object is purged.
-    //
-    //  2) Opposite of 1 above.
-    //     The recovered tomb is only added if the version is newer than
-    //     the current tombstone. If so, the old tombstone is discarded.
-    //
-    //  3) Neither an Object nor ObjectTombstone is present.
-    //     The recovered tombstone is always added.
-    ////////////////////////////////////////////////////////////////////
-
-    // Case 1a: Newer object already there; ignore tombstone.
-    Key key5(0, "key5", 4);
-    len = buildRecoverySegment(seg, segLen, key5, 1, "newer guy", &certificate);
-    it.construct(&seg[0], len, certificate);
-    service->recoverSegment(&sl, *it);
-    Object o3(key5, NULL, 0, 0, 0);
-    ObjectTombstone t3(o3, 0, 0);
-    len = buildRecoverySegment(seg, segLen, t3, &certificate);
-    service->recoverSegment(&sl, *it);
-    verifyRecoveryObject(key5, "newer guy");
-
-    // Case 1b: Equal/older object already there; discard and add tombstone.
-    Key key6(0, "key6", 4);
-    len = buildRecoverySegment(seg, segLen, key6, 0, "equal guy", &certificate);
-    it.construct(&seg[0], len, certificate);
-    service->recoverSegment(&sl, *it);
-    verifyRecoveryObject(key6, "equal guy");
-    Object o4(key6, NULL, 0, 0, 0);
-    ObjectTombstone t4(o4, 0, 0);
-    len = buildRecoverySegment(seg, segLen, t4, &certificate);
-    it.construct(&seg[0], len, certificate);
-    service->recoverSegment(&sl, *it);
-    service->removeTombstones();
-    EXPECT_FALSE(service->objectMap->lookup(key6, reference));
-    EXPECT_THROW(ramcloud->read(0, "key6", 4, &value),
-                 ObjectDoesntExistException);
-
-    Key key7(0, "key7", 4);
-    len = buildRecoverySegment(seg, segLen, key7, 0, "older guy", &certificate);
-    it.construct(&seg[0], len, certificate);
-    service->recoverSegment(&sl, *it);
-    verifyRecoveryObject(key7, "older guy");
-    Object o5(key7, NULL, 0, 1, 0);
-    ObjectTombstone t5(o5, 0, 0);
-    len = buildRecoverySegment(seg, segLen, t5, &certificate);
-    it.construct(&seg[0], len, certificate);
-    service->recoverSegment(&sl, *it);
-    service->removeTombstones();
-    EXPECT_FALSE(service->objectMap->lookup(key7, reference));
-    EXPECT_THROW(ramcloud->read(0, "key7", 4, &value),
-                 ObjectDoesntExistException);
-
-    // Case 2a: Newer tombstone already there; ignore.
-    Key key8(0, "key8", 4);
-    Object o6(key8, NULL, 0, 1, 0);
-    ObjectTombstone t6(o6, 0, 0);
-    len = buildRecoverySegment(seg, segLen, t6, &certificate);
-    it.construct(&seg[0], len, certificate);
-    service->recoverSegment(&sl, *it);
-    buffer.reset();
-    ret = service->lookup(key8, type, buffer);
-    EXPECT_TRUE(ret);
-    EXPECT_EQ(LOG_ENTRY_TYPE_OBJTOMB, type);
-    ObjectTombstone t6InLog(buffer);
-    EXPECT_EQ(1U, t6InLog.getObjectVersion());
-    ObjectTombstone t7(o6, 0, 0);
-    t7.serializedForm.objectVersion = 0;
-    len = buildRecoverySegment(seg, segLen, t7, &certificate);
-    it.construct(&seg[0], len, certificate);
-    service->recoverSegment(&sl, *it);
-    const uint8_t* t6LogPtr = buffer.getStart<uint8_t>();
-    buffer.reset();
-    ret = service->lookup(key8, type, buffer);
-    EXPECT_TRUE(ret);
-    EXPECT_EQ(t6LogPtr, buffer.getStart<uint8_t>());
-
-    // Case 2b: Older tombstone already there; replace.
-    Key key9(0, "key9", 4);
-    Object o8(key9, NULL, 0, 0, 0);
-    ObjectTombstone t8(o8, 0, 0);
-    len = buildRecoverySegment(seg, segLen, t8, &certificate);
-    it.construct(&seg[0], len, certificate);
-    service->recoverSegment(&sl, *it);
-    buffer.reset();
-    ret = service->lookup(key9, type, buffer);
-    EXPECT_TRUE(ret);
-    ObjectTombstone t8InLog(buffer);
-    EXPECT_EQ(0U, t8InLog.getObjectVersion());
-
-    Object o9(key9, NULL, 0, 1, 0);
-    ObjectTombstone t9(o9, 0, 0);
-    len = buildRecoverySegment(seg, segLen, t9, &certificate);
-    it.construct(&seg[0], len, certificate);
-    service->recoverSegment(&sl, *it);
-    buffer.reset();
-    ret = service->lookup(key9, type, buffer);
-    EXPECT_TRUE(ret);
-    EXPECT_EQ(LOG_ENTRY_TYPE_OBJTOMB, type);
-    ObjectTombstone t9InLog(buffer);
-    EXPECT_EQ(1U, t9InLog.getObjectVersion());
-
-    // Case 3: No tombstone, no object. Recovered tombstone always added.
-    Key key10(0, "key10", 5);
-    EXPECT_FALSE(service->objectMap->lookup(key10, reference));
-    Object o10(key10, NULL, 0, 0, 0);
-    ObjectTombstone t10(o10, 0, 0);
-    len = buildRecoverySegment(seg, segLen, t10, &certificate);
-    it.construct(&seg[0], len, certificate);
-    service->recoverSegment(&sl, *it);
-    buffer.reset();
-    EXPECT_TRUE(service->lookup(key10, type, buffer));
-    EXPECT_EQ(LOG_ENTRY_TYPE_OBJTOMB, type);
-    Buffer t10Buffer;
-    t10.serializeToBuffer(t10Buffer);
-    EXPECT_EQ(0, memcmp(t10Buffer.getRange(0, t10Buffer.getTotalLength()),
-                        buffer.getRange(0, buffer.getTotalLength()),
-                        buffer.getTotalLength()));
-    ////////////////////////////////////////////////////////////////////
-    //
-    //  For safeVersion recovery from OBJECT_SAFEVERSION entry
-    //
-    ////////////////////////////////////////////////////////////////////
-    service->segmentManager.safeVersion = 1UL; // reset safeVersion to 1
-
-    ObjectSafeVersion safeVer(10UL);
-    len = buildRecoverySegment(seg, segLen, safeVer, &certificate);
-    it.construct(&seg[0], len, certificate);
-    EXPECT_EQ(14U, len); // 14 = EntryHeader(1B) + ? (1B)
-    //                    + safeVersion (8B) + checksum (4B)
-    TestLog::Enable _(recoverSegmentFilter);
-    service->recoverSegment(&sl, *it);
-    EXPECT_TRUE(TestUtil::matchesPosixRegex(
-        "SAFEVERSION 10 recovered",
-        TestLog::get()));
-    TestLog::reset();
-    // The SideLog must be committed before we can iterate the log to look
-    // for safe version objects.
-    sl.commit();
-    // three safeVer should be found (SideLog commit() opened a new head).
-    EXPECT_EQ(3, verifyCopiedSafeVer(&safeVer));
-
-    // recovered from safeVer
-    EXPECT_EQ(10UL, service->segmentManager.safeVersion);
-
 }
 
 TEST_F(MasterServiceTest, remove_basics) {
@@ -1335,29 +1052,6 @@ TEST_F(MasterServiceTest, remove_objectAlreadyDeleted) {
     EXPECT_EQ(VERSION_NONEXISTENT, version);
 }
 
-TEST_F(MasterServiceTest, incrementReadAndWriteStatistics) {
-    Buffer value;
-    uint64_t version;
-    int64_t objectValue = 16;
-
-    uint64_t tableId1 = ramcloud->createTable("table1");
-    ramcloud->write(tableId1, "key0", 4, &objectValue, 8, NULL, &version);
-    ramcloud->write(tableId1, "key1", 4, &objectValue, 8, NULL, &version);
-    ramcloud->read(tableId1, "key0", 4, &value);
-    objectValue = ramcloud->increment(tableId1, "key0", 4, 5, NULL, &version);
-
-    Tub<Buffer> val1;
-    MultiReadObject request1(tableId1, "key0", 4, &val1);
-    Tub<Buffer> val2;
-    MultiReadObject request2(tableId1, "key1", 4, &val2);
-    MultiReadObject* requests[] = {&request1, &request2};
-    ramcloud->multiRead(requests, 2);
-
-    TabletsOnMaster* table = reinterpret_cast<TabletsOnMaster*>(
-                                    service->tablets.tablet(0).user_data());
-    EXPECT_EQ((uint64_t)7, table->statEntry.number_read_and_writes());
-}
-
 TEST_F(MasterServiceTest, GetServerStatistics) {
     Buffer value;
     uint64_t version;
@@ -1390,12 +1084,12 @@ TEST_F(MasterServiceTest, splitMasterTablet) {
 
     MasterClient::splitMasterTablet(&context, masterServer->serverId, 0,
                                     0, ~0UL, (~0UL/2));
-    EXPECT_TRUE(TestUtil::matchesPosixRegex("tablet { table_id: 0 "
-              "start_key_hash: 0 "
-              "end_key_hash: 9223372036854775806 user_data: [0-9]* } "
-              "tablet { table_id: 0 start_key_hash: 9223372036854775807 "
-              "end_key_hash: 18446744073709551615 user_data: [0-9]* }",
-              service->tablets.ShortDebugString()));
+    EXPECT_EQ(
+        "{ tableId: 0 startKeyHash: 0 "
+            "endKeyHash: 9223372036854775806 state: 0 }\n"
+        "{ tableId: 0 startKeyHash: 9223372036854775807 "
+            "endKeyHash: 18446744073709551615 state: 0 }",
+        service->tabletManager.toString());
 }
 
 static bool
@@ -1418,7 +1112,7 @@ TEST_F(MasterServiceTest, dropTabletOwnership) {
         1, 1, 1);
     MasterClient::dropTabletOwnership(&context, masterServer-> serverId,
         1, 1, 1);
-    EXPECT_EQ("dropTabletOwnership: Dropping ownership of tablet "
+    EXPECT_EQ("dropTabletOwnership: Dropped ownership of tablet "
         "(1, range [1,1])", TestLog::get());
 }
 
@@ -1431,37 +1125,18 @@ takeTabletOwnership_filter(string s)
 TEST_F(MasterServiceTest, takeTabletOwnership_newTablet) {
     TestLog::Enable _(takeTabletOwnership_filter);
 
-    std::unique_ptr<TabletsOnMaster> table1(new TabletsOnMaster(1 , 0 , 1));
-    uint64_t addrTable1 = reinterpret_cast<uint64_t>(table1.get());
-    std::unique_ptr<TabletsOnMaster> table2(new TabletsOnMaster(2 , 0 , 1));
-    uint64_t addrTable2 = reinterpret_cast<uint64_t>(table2.get());
-
     // Start empty.
-    service->tablets.mutable_tablet()->RemoveLast();
-    EXPECT_EQ("", service->tablets.ShortDebugString());
+    EXPECT_TRUE(service->tabletManager.deleteTablet(0, 0, ~0UL));
+    EXPECT_EQ("", service->tabletManager.toString());
 
     { // set t1 and t2 directly
-        ProtoBuf::Tablets_Tablet& t1(*service->tablets.add_tablet());
-        t1.set_table_id(1);
-        t1.set_start_key_hash(0);
-        t1.set_end_key_hash(1);
-        t1.set_state(ProtoBuf::Tablets_Tablet_State_NORMAL);
-        t1.set_user_data(reinterpret_cast<uint64_t>(table1.release()));
+        service->tabletManager.addTablet(1, 0, 1, TabletManager::NORMAL);
+        service->tabletManager.addTablet(2, 0, 1, TabletManager::NORMAL);
 
-        ProtoBuf::Tablets_Tablet& t2(*service->tablets.add_tablet());
-        t2.set_table_id(2);
-        t2.set_start_key_hash(0);
-        t2.set_end_key_hash(1);
-        t2.set_state(ProtoBuf::Tablets_Tablet_State_NORMAL);
-        t2.set_user_data(reinterpret_cast<uint64_t>(table2.release()));
-
-        EXPECT_EQ(format(
-            "tablet { table_id: 1 start_key_hash: 0 end_key_hash: 1 "
-                "state: NORMAL user_data: %lu } "
-            "tablet { table_id: 2 start_key_hash: 0 end_key_hash: 1 "
-                "state: NORMAL user_data: %lu }",
-            addrTable1, addrTable2),
-                                service->tablets.ShortDebugString());
+        EXPECT_EQ(
+            "{ tableId: 1 startKeyHash: 0 endKeyHash: 1 state: 0 }\n"
+            "{ tableId: 2 startKeyHash: 0 endKeyHash: 1 state: 0 }",
+            service->tabletManager.toString());
     }
 
     { // set t2, t2b, and t3 through client
@@ -1472,53 +1147,44 @@ TEST_F(MasterServiceTest, takeTabletOwnership_newTablet) {
         MasterClient::takeTabletOwnership(&context, masterServer->serverId,
             3, 0, 1);
 
-        EXPECT_EQ(format(
-            "tablet { table_id: 1 start_key_hash: 0 end_key_hash: 1 "
-                "state: NORMAL user_data: %lu } "
-            "tablet { table_id: 2 start_key_hash: 0 end_key_hash: 1 "
-                "state: NORMAL user_data: %lu } "
-            "tablet { table_id: 2 start_key_hash: 2 end_key_hash: 3 "
-                "state: NORMAL user_data: %lu } "
-            "tablet { table_id: 2 start_key_hash: 4 end_key_hash: 5 "
-                "state: NORMAL user_data: %lu } "
-            "tablet { table_id: 3 start_key_hash: 0 end_key_hash: 1 "
-                "state: NORMAL user_data: %lu }",
-            addrTable1, addrTable2,
-            service->tablets.tablet(2).user_data(),
-            service->tablets.tablet(3).user_data(),
-            service->tablets.tablet(4).user_data()),
-                                service->tablets.ShortDebugString());
+        EXPECT_EQ(
+            "{ tableId: 1 startKeyHash: 0 endKeyHash: 1 state: 0 }\n"
+            "{ tableId: 2 startKeyHash: 0 endKeyHash: 1 state: 0 }\n"
+            "{ tableId: 2 startKeyHash: 2 endKeyHash: 3 state: 0 }\n"
+            "{ tableId: 2 startKeyHash: 4 endKeyHash: 5 state: 0 }\n"
+            "{ tableId: 3 startKeyHash: 0 endKeyHash: 1 state: 0 }",
+            service->tabletManager.toString());
 
         EXPECT_EQ(
-            "takeTabletOwnership: Taking ownership of new tablet "
+            "takeTabletOwnership: Took ownership of new tablet "
                 "(2, range [2,3]) | "
-            "takeTabletOwnership: Taking ownership of new tablet "
+            "takeTabletOwnership: Took ownership of new tablet "
                 "(2, range [4,5]) | "
-            "takeTabletOwnership: Taking ownership of new tablet "
+            "takeTabletOwnership: Took ownership of new tablet "
                 "(3, range [0,1])", TestLog::get());
     }
 
     TestLog::reset();
 
-    // Test assigning ownership of an already-owned tablet.
+    // Test assigning ownership of an already-owned tablet. This isn't a
+    // failure case, but we log the strange occurrence.
     {
         MasterClient::takeTabletOwnership(&context, masterServer->serverId,
             2, 2, 3);
-        EXPECT_EQ("takeTabletOwnership: Taking ownership of existing tablet "
-            "(2, range [2,3]) in state 0 | takeTabletOwnership: Taking "
-            "ownership when existing tablet is in unexpected state (0)!",
-            TestLog::get());
+        EXPECT_EQ("takeTabletOwnership: Told to take ownership of tablet I "
+            "already own (2 range [2,3]). Returning success.", TestLog::get());
     }
 
     TestLog::reset();
 
     // Test partially overlapping sanity check. The coordinator should
-    // know better, but I'd rather be safe sorry...
+    // know better, but I'd rather be safe than sorry...
     {
         EXPECT_THROW(MasterClient::takeTabletOwnership(&context,
             masterServer->serverId, 2, 2, 2), ClientException);
-        EXPECT_EQ("takeTabletOwnership: Tablet being assigned (2, range [2,2]) "
-            "partially overlaps an existing tablet!", TestLog::get());
+        EXPECT_EQ("takeTabletOwnership: Could not take ownership of tablet "
+            "(2, range [2,2]). Tablet overlaps with one or more different "
+            "ranges.", TestLog::get());
     }
 }
 
@@ -1526,20 +1192,14 @@ TEST_F(MasterServiceTest, takeTabletOwnership_migratingTablet) {
     TestLog::Enable _(takeTabletOwnership_filter);
 
     // Fake up a tablet in migration.
-    ProtoBuf::Tablets_Tablet& tab(*service->tablets.add_tablet());
-    tab.set_table_id(1);
-    tab.set_start_key_hash(0);
-    tab.set_end_key_hash(5);
-    tab.set_state(ProtoBuf::Tablets_Tablet_State_RECOVERING);
-    tab.set_user_data(reinterpret_cast<uint64_t>(
-                new TabletsOnMaster(1 , 0 , 5)));
+    service->tabletManager.addTablet(1, 0, 5, TabletManager::RECOVERING);
 
     MasterClient::takeTabletOwnership(&context, masterServer->serverId,
                                       1, 0, 5);
 
     EXPECT_EQ(
-        "takeTabletOwnership: Taking ownership of existing tablet "
-            "(1, range [0,5]) in state 1", TestLog::get());
+        "takeTabletOwnership: Took ownership of existing tablet "
+            "(1, range [0,5]) in RECOVERING state", TestLog::get());
 }
 
 static bool
@@ -1549,12 +1209,7 @@ prepForMigrationFilter(string s)
 }
 
 TEST_F(MasterServiceTest, prepForMigration) {
-    ProtoBuf::Tablets_Tablet& tablet(*service->tablets.add_tablet());
-    tablet.set_table_id(5);
-    tablet.set_start_key_hash(27);
-    tablet.set_end_key_hash(873);
-    tablet.set_user_data(reinterpret_cast<uint64_t>(
-                new TabletsOnMaster(0 , 27 , 873)));
+    service->tabletManager.addTablet(5, 27, 873, TabletManager::NORMAL);
 
     TestLog::Enable _(prepForMigrationFilter);
 
@@ -1563,8 +1218,8 @@ TEST_F(MasterServiceTest, prepForMigration) {
                                                 masterServer->serverId,
                                                 5, 27, 873, 0, 0),
         ObjectExistsException);
-    EXPECT_EQ("prepForMigration: already have tablet in range "
-        "[27, 873] for tableId 5", TestLog::get());
+    EXPECT_EQ("prepForMigration: Cannot receive tablet 5 (range [27, 873]) - "
+        "an existing tablet overlaps that range", TestLog::get());
     EXPECT_THROW(MasterClient::prepForMigration(&context,
                                                 masterServer->serverId,
                                                 5, 0, 27, 0, 0),
@@ -1577,12 +1232,13 @@ TEST_F(MasterServiceTest, prepForMigration) {
     TestLog::reset();
     MasterClient::prepForMigration(&context, masterServer->serverId,
                                    5, 1000, 2000, 0, 0);
-    int i = service->tablets.tablet_size() - 1;
-    EXPECT_EQ(5U, service->tablets.tablet(i).table_id());
-    EXPECT_EQ(1000U, service->tablets.tablet(i).start_key_hash());
-    EXPECT_EQ(2000U, service->tablets.tablet(i).end_key_hash());
-    EXPECT_EQ(ProtoBuf::Tablets_Tablet_State_RECOVERING,
-        service->tablets.tablet(i).state());
+
+    TabletManager::Tablet tablet;
+    EXPECT_TRUE(service->tabletManager.getTablet(5, 1000, 2000, &tablet));
+    EXPECT_EQ(5U, tablet.tableId);
+    EXPECT_EQ(1000U, tablet.startKeyHash);
+    EXPECT_EQ(2000U, tablet.endKeyHash);
+    EXPECT_EQ(TabletManager::RECOVERING, tablet.state);
     EXPECT_EQ("prepForMigration: Ready to receive tablet from "
         "\"\?\?\". Table 5, range [1000,2000]", TestLog::get());
 }
@@ -1605,12 +1261,7 @@ TEST_F(MasterServiceTest, migrateTablet_tabletNotOnServer) {
 }
 
 TEST_F(MasterServiceTest, migrateTablet_firstKeyHashTooLow) {
-    ProtoBuf::Tablets_Tablet& tablet(*service->tablets.add_tablet());
-    tablet.set_table_id(99);
-    tablet.set_start_key_hash(27);
-    tablet.set_end_key_hash(873);
-    tablet.set_user_data(reinterpret_cast<uint64_t>(
-                new TabletsOnMaster(0 , 27 , 873)));
+    service->tabletManager.addTablet(99, 27, 873, TabletManager::NORMAL);
 
     TestLog::Enable _(migrateTabletFilter);
 
@@ -1622,12 +1273,7 @@ TEST_F(MasterServiceTest, migrateTablet_firstKeyHashTooLow) {
 }
 
 TEST_F(MasterServiceTest, migrateTablet_lastKeyHashTooHigh) {
-    ProtoBuf::Tablets_Tablet& tablet(*service->tablets.add_tablet());
-    tablet.set_table_id(99);
-    tablet.set_start_key_hash(27);
-    tablet.set_end_key_hash(873);
-    tablet.set_user_data(reinterpret_cast<uint64_t>(
-                new TabletsOnMaster(0 , 27 , 873)));
+    service->tabletManager.addTablet(99, 27, 873, TabletManager::NORMAL);
 
     TestLog::Enable _(migrateTabletFilter);
 
@@ -1639,12 +1285,7 @@ TEST_F(MasterServiceTest, migrateTablet_lastKeyHashTooHigh) {
 }
 
 TEST_F(MasterServiceTest, migrateTablet_migrateToSelf) {
-    ProtoBuf::Tablets_Tablet& tablet(*service->tablets.add_tablet());
-    tablet.set_table_id(99);
-    tablet.set_start_key_hash(27);
-    tablet.set_end_key_hash(873);
-    tablet.set_user_data(reinterpret_cast<uint64_t>(
-                new TabletsOnMaster(0 , 27 , 873)));
+    service->tabletManager.addTablet(99, 27, 873, TabletManager::NORMAL);
 
     TestLog::Enable _(migrateTabletFilter);
 
@@ -1663,11 +1304,12 @@ TEST_F(MasterServiceTest, migrateTablet_movingData) {
     master2Config.master.numReplicas = 0;
     master2Config.localLocator = "mock:host=master2";
     Server* master2 = cluster.addServer(master2Config);
-    master2->master->log->sync();
+    Log* master2Log = &master2->master->objectManager->log;
+    master2Log->sync();
 
     Log::Position master2HeadPositionBefore = Log::Position(
-        master2->master->log->head->id,
-        master2->master->log->head->getAppendedLength());
+        master2Log->head->id,
+        master2Log->head->getAppendedLength());
 
     // TODO(syang0) RAM-441 without the syncCoordinatorServerList() call  in
     // cluster.addServer(..) above, this crashes since the CoordinatorServerList
@@ -1688,8 +1330,8 @@ TEST_F(MasterServiceTest, migrateTablet_movingData) {
     // migration, but less than the current log position (since we added
     // data).
     Log::Position master2HeadPositionAfter = Log::Position(
-        master2->master->log->head->id,
-        master2->master->log->head->getAppendedLength());
+        master2Log->head->id,
+        master2Log->head->getAppendedLength());
     Log::Position ctimeCoord =
         cluster.coordinator->tabletMap.getTablet(tbl, 0, -1).ctime;
     EXPECT_GT(ctimeCoord, master2HeadPositionBefore);
@@ -1706,7 +1348,7 @@ TEST_F(MasterServiceTest, receiveMigrationData) {
     Segment s;
 
     MasterClient::prepForMigration(&context, masterServer->serverId,
-                                   5, 1000, 2000, 0, 0);
+                                   5, 1, -1UL, 0, 0);
 
     TestLog::Enable _(receiveMigrationDataFilter);
 
@@ -1727,7 +1369,7 @@ TEST_F(MasterServiceTest, receiveMigrationData) {
                                                     0, 0, &s),
         InternalError);
     EXPECT_EQ("receiveMigrationData: migration data received for tablet "
-        "not in the RECOVERING state (state = NORMAL)!", TestLog::get());
+        "not in the RECOVERING state (state = 0)!", TestLog::get());
 
     Key key(5, "wee!", 4);
     Object o(key, "watch out for the migrant object", 32, 0, 0);
@@ -1739,15 +1381,17 @@ TEST_F(MasterServiceTest, receiveMigrationData) {
     s.close();
 
     MasterClient::receiveMigrationData(&context, masterServer->serverId,
-                                       5, 1000, &s);
+                                       5, 1, &s);
 
-    LogEntryType logType;
     Buffer logBuffer;
-    bool success = service->lookup(key, logType, logBuffer);
-    EXPECT_TRUE(success);
-    EXPECT_EQ(LOG_ENTRY_TYPE_OBJ, logType);
-    Object logObject(logBuffer);
-    EXPECT_EQ(0, memcmp(logObject.getData(),
+    Status status = service->objectManager->readObject(key, &logBuffer, 0, 0);
+    EXPECT_NE(STATUS_OK, status);
+    // Need to mark the tablet as NORMAL before we can read from it.
+    service->tabletManager.changeState(5, 1, -1UL, TabletManager::RECOVERING,
+        TabletManager::NORMAL);
+    status = service->objectManager->readObject(key, &logBuffer, 0, 0);
+    EXPECT_EQ(STATUS_OK, status);
+    EXPECT_EQ(0, memcmp(logBuffer.getRange(0, logBuffer.getTotalLength()),
                         "watch out for the migrant object",
                         32));
 }
@@ -1779,7 +1423,8 @@ TEST_F(MasterServiceTest, safeVersionNumberUpdate) {
     Buffer value;
     uint64_t version;
 
-    service->segmentManager.safeVersion = 1UL; // reset safeVersion
+    SegmentManager* segmentManager = &service->objectManager->segmentManager;
+    segmentManager->safeVersion = 1UL; // reset safeVersion
     // initial data to original table
     //         Table, Key, KeyLen, Data, Len, rejectRule, Version
     ramcloud->write(0, "k0", 2, "value0", 6, NULL, &version);
@@ -1787,7 +1432,7 @@ TEST_F(MasterServiceTest, safeVersionNumberUpdate) {
     ramcloud->read(0,  "k0", 2, &value);
     EXPECT_EQ("value0", TestUtil::toString(&value));
     EXPECT_EQ(1U, version); // current object version returned
-    EXPECT_EQ(2U, service->segmentManager.safeVersion); // incremented
+    EXPECT_EQ(2U, segmentManager->safeVersion); // incremented
 
     // original key to original table
     ramcloud->write(0, "k0", 2, "value1", 6, NULL, &version);
@@ -1795,16 +1440,16 @@ TEST_F(MasterServiceTest, safeVersionNumberUpdate) {
     ramcloud->read(0,  "k0", 2, &value);
     EXPECT_EQ("value1", TestUtil::toString(&value));
     EXPECT_EQ(2U, version); // current object version returned
-    EXPECT_EQ(2U, service->segmentManager.safeVersion); // unchanged
+    EXPECT_EQ(2U, segmentManager->safeVersion); // unchanged
 
-    service->segmentManager.safeVersion = 29UL; // increase safeVersion
+    segmentManager->safeVersion = 29UL; // increase safeVersion
     // different key to original table
     ramcloud->write(0, "k1", 2, "value3", 6, NULL, &version);
     EXPECT_EQ(29U, version);  // safeVersion++ is given
     ramcloud->read(0, "k1", 2, &value);
     EXPECT_EQ("value3", TestUtil::toString(&value));
     EXPECT_EQ(29U, version);  // current object version returned
-    EXPECT_EQ(30U, service->segmentManager.safeVersion); // incremented
+    EXPECT_EQ(30U, segmentManager->safeVersion); // incremented
 
     // original key to original table
     ramcloud->write(0, "k0", 2, "value4", 6, NULL, &version);
@@ -1812,7 +1457,7 @@ TEST_F(MasterServiceTest, safeVersionNumberUpdate) {
     ramcloud->read(0,  "k0", 2, &value);
     EXPECT_EQ("value4", TestUtil::toString(&value));
     EXPECT_EQ(3U, version); // current object version returned
-    EXPECT_EQ(30U, service->segmentManager.safeVersion); // unchanged
+    EXPECT_EQ(30U, segmentManager->safeVersion); // unchanged
 }
 
 TEST_F(MasterServiceTest, write_rejectRules) {
@@ -1914,242 +1559,6 @@ TEST_F(MasterServiceTest, write_varyingKeyLength) {
     }
 }
 
-TEST_F(MasterServiceTest, getTable) {
-    // Table exists.
-    Key key1(0, "0", 1);
-    EXPECT_TRUE(service->getTable(key1) != NULL);
-
-    // Table doesn't exist.
-    Key key2(1000, "0", 1);
-    EXPECT_TRUE(service->getTable(key2) == NULL);
-}
-
-TEST_F(MasterServiceTest, rejectOperation) {
-    RejectRules empty, rules;
-    memset(&empty, 0, sizeof(empty));
-
-    // Fail: object doesn't exist.
-    rules = empty;
-    rules.doesntExist = 1;
-    EXPECT_EQ(service->rejectOperation(rules, VERSION_NONEXISTENT),
-              STATUS_OBJECT_DOESNT_EXIST);
-
-    // Succeed: object doesn't exist.
-    rules = empty;
-    rules.exists = rules.versionLeGiven = rules.versionNeGiven = 1;
-    EXPECT_EQ(service->rejectOperation(rules, VERSION_NONEXISTENT),
-              STATUS_OK);
-
-    // Fail: object exists.
-    rules = empty;
-    rules.exists = 1;
-    EXPECT_EQ(service->rejectOperation(rules, 2),
-              STATUS_OBJECT_EXISTS);
-
-    // versionLeGiven.
-    rules = empty;
-    rules.givenVersion = 0x400000001;
-    rules.versionLeGiven = 1;
-    EXPECT_EQ(service->rejectOperation(rules, 0x400000000),
-              STATUS_WRONG_VERSION);
-    EXPECT_EQ(service->rejectOperation(rules, 0x400000001),
-              STATUS_WRONG_VERSION);
-    EXPECT_EQ(service->rejectOperation(rules, 0x400000002),
-              STATUS_OK);
-
-    // versionNeGiven.
-    rules = empty;
-    rules.givenVersion = 0x400000001;
-    rules.versionNeGiven = 1;
-    EXPECT_EQ(service->rejectOperation(rules, 0x400000000),
-              STATUS_WRONG_VERSION);
-    EXPECT_EQ(service->rejectOperation(rules, 0x400000001),
-              STATUS_OK);
-    EXPECT_EQ(service->rejectOperation(rules, 0x400000002),
-              STATUS_WRONG_VERSION);
-}
-
-TEST_F(MasterServiceTest, objectRelocationCallback_objectAlive) {
-    Key key(0, "key0", 4);
-    uint64_t version;
-
-    ramcloud->write(key.getTableId(),
-                    key.getStringKey(),
-                    key.getStringKeyLength(),
-                    "item0", 5, NULL, &version);
-
-    LogEntryType oldType;
-    Buffer oldBuffer;
-    bool success = service->lookup(key, oldType, oldBuffer);
-    EXPECT_TRUE(success);
-
-    TabletsOnMaster* table = service->getTable(key);
-    table->objectCount++;
-    table->objectBytes += oldBuffer.getTotalLength();
-
-    Log::Reference newReference;
-    success = service->log->append(LOG_ENTRY_TYPE_OBJ,
-                                  0,
-                                  oldBuffer,
-                                  &newReference);
-    service->log->sync();
-    EXPECT_TRUE(success);
-
-    LogEntryType newType;
-    Buffer newBuffer;
-    newType = service->log->getEntry(newReference, newBuffer);
-
-    LogEntryType oldType2;
-    Buffer oldBuffer2;
-    Log::Reference oldReference;
-    success = service->lookup(key, oldType2, oldBuffer2, &oldReference);
-    EXPECT_TRUE(success);
-    EXPECT_EQ(oldType, oldType2);
-    EXPECT_EQ(oldBuffer.getStart<uint8_t>(), oldBuffer2.getStart<uint8_t>());
-
-    uint64_t initialTotalTrackedBytes = table->objectBytes;
-
-    LogEntryRelocator relocator(service->segmentManager.getHeadSegment(), 1000);
-    service->relocate(LOG_ENTRY_TYPE_OBJ, oldBuffer, relocator);
-    EXPECT_TRUE(relocator.didAppend);
-    EXPECT_EQ(initialTotalTrackedBytes, table->objectBytes);
-
-    LogEntryType newType2;
-    Buffer newBuffer2;
-    Log::Reference newReference2;
-    service->lookup(key, newType2, newBuffer2, &newReference2);
-    EXPECT_TRUE(relocator.didAppend);
-    EXPECT_EQ(newType, newType2);
-    EXPECT_EQ(newReference.toInteger() + 37, newReference2.toInteger());
-    EXPECT_NE(oldReference, newReference);
-    EXPECT_NE(newBuffer.getStart<uint8_t>(),
-              oldBuffer.getStart<uint8_t>());
-    EXPECT_EQ(newBuffer.getStart<uint8_t>() + 37,
-              newBuffer2.getStart<uint8_t>());
-}
-
-TEST_F(MasterServiceTest, objectRelocationCallback_objectDeleted) {
-    Key key(0, "key0", 4);
-    uint64_t version;
-
-    ramcloud->write(key.getTableId(),
-                    key.getStringKey(),
-                    key.getStringKeyLength(),
-                    "item0", 5, NULL, &version);
-
-    LogEntryType type;
-    Buffer buffer;
-    bool success = service->lookup(key, type, buffer);
-    EXPECT_TRUE(success);
-
-    TabletsOnMaster* table = service->getTable(key);
-    table->objectCount++;
-    table->objectBytes += buffer.getTotalLength();
-
-    ramcloud->remove(key.getTableId(),
-                     key.getStringKey(),
-                     key.getStringKeyLength());
-
-    uint64_t initialTotalTrackedBytes = table->objectBytes;
-
-    LogEntryRelocator relocator(service->segmentManager.getHeadSegment(), 1000);
-    service->relocate(LOG_ENTRY_TYPE_OBJ, buffer, relocator);
-    EXPECT_FALSE(relocator.didAppend);
-    EXPECT_EQ(initialTotalTrackedBytes - buffer.getTotalLength(),
-              table->objectBytes);
-}
-
-TEST_F(MasterServiceTest, objectRelocationCallback_objectModified) {
-    Key key(0, "key0", 4);
-    uint64_t version;
-
-    ramcloud->write(key.getTableId(),
-                    key.getStringKey(),
-                    key.getStringKeyLength(),
-                    "item0", 5, NULL, &version);
-
-    LogEntryType type;
-    Buffer buffer;
-    service->lookup(key, type, buffer);
-
-    TabletsOnMaster* table = service->getTable(key);
-    table->objectCount++;
-    table->objectBytes += buffer.getTotalLength();
-
-    ramcloud->write(key.getTableId(),
-                    key.getStringKey(),
-                    key.getStringKeyLength(),
-                    "item0-v2", 8, NULL, &version);
-
-    Log::Reference dummyReference;
-    uint64_t initialTotalTrackedBytes = table->objectBytes;
-
-    LogEntryRelocator relocator(service->segmentManager.getHeadSegment(), 1000);
-    service->relocate(LOG_ENTRY_TYPE_OBJ, buffer, relocator);
-    EXPECT_FALSE(relocator.didAppend);
-    EXPECT_EQ(initialTotalTrackedBytes - buffer.getTotalLength(),
-              table->objectBytes);
-}
-
-static bool
-segmentExists(string s)
-{
-    return s == "segmentExists";
-}
-
-TEST_F(MasterServiceTest, tombstoneRelocationCallback_basics) {
-    TestLog::Enable _(&segmentExists);
-    Key key(0, "key0", 4);
-    uint64_t version;
-
-    ramcloud->write(key.getTableId(),
-                    key.getStringKey(),
-                    key.getStringKeyLength(),
-                    "item0", 5, NULL, &version);
-
-    LogEntryType type;
-    Buffer buffer;
-    Log::Reference reference;
-    bool success = service->lookup(key, type, buffer, &reference);
-    EXPECT_TRUE(success);
-    EXPECT_EQ(LOG_ENTRY_TYPE_OBJ, type);
-
-    Object object(buffer);
-    ObjectTombstone tombstone(object,
-                              service->log->getSegmentId(reference),
-                              0);
-
-    Buffer tombstoneBuffer;
-    tombstone.serializeToBuffer(tombstoneBuffer);
-
-    Log::Reference oldTombstoneReference;
-    success = service->log->append(LOG_ENTRY_TYPE_OBJTOMB, 0, tombstoneBuffer,
-                                  &oldTombstoneReference);
-    service->log->sync();
-    EXPECT_TRUE(success);
-
-    Log::Reference newTombstoneReference;
-    success = service->log->append(LOG_ENTRY_TYPE_OBJTOMB, 0, tombstoneBuffer,
-                                   &newTombstoneReference);
-    service->log->sync();
-    EXPECT_TRUE(success);
-
-    LogEntryType oldTypeInLog;
-    Buffer oldBufferInLog;
-    oldTypeInLog = service->log->getEntry(oldTombstoneReference,
-                                          oldBufferInLog);
-
-    LogEntryRelocator relocator(service->segmentManager.getHeadSegment(), 1000);
-    service->relocate(LOG_ENTRY_TYPE_OBJTOMB, oldBufferInLog, relocator);
-    EXPECT_TRUE(relocator.didAppend);
-
-    // Check that tombstoneRelocationCallback() is checking the liveness
-    // of the right segment (in log->segmentExists() function call).
-    string comparisonString = "segmentExists: " +
-            format("%lu", service->log->getSegmentId(oldTombstoneReference));
-    EXPECT_EQ(comparisonString, TestLog::get());
-}
-
 /**
  * Unit tests requiring a full segment size (rather than the smaller default
  * allocation that's done to make tests faster).
@@ -2220,9 +1629,9 @@ class MasterRecoverTest : public ::testing::Test {
     { }
 
     static bool
-    recoverSegmentFilter(string s)
+    recoveryFilter(string s)
     {
-        return (s == "recoverSegment" || s == "recover");
+        return (s == "replaySegment" || s == "recover");
     }
 
     MasterService*
@@ -2304,7 +1713,7 @@ TEST_F(MasterRecoverTest, recover) {
     };
 
     MockRandom __(1); // triggers deterministic rand().
-    TestLog::Enable _(&recoverSegmentFilter);
+    TestLog::Enable _(&recoveryFilter);
     master->recover(456lu, ServerId(99, 0), 0, replicas);
     EXPECT_EQ(0U, TestLog::get().find(
         "recover: Recovering master 99.0, partition 0, 3 replicas "
@@ -2326,7 +1735,7 @@ TEST_F(MasterRecoverTest, failedToRecoverAll) {
     };
 
     MockRandom __(1); // triggers deterministic rand().
-    TestLog::Enable _(&recoverSegmentFilter);
+    TestLog::Enable _(&recoveryFilter);
     EXPECT_THROW(master->recover(456lu, ServerId(99, 0), 0, replicas),
                  SegmentRecoveryFailedException);
     string log = TestLog::get();

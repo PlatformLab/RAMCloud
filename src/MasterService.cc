@@ -36,9 +36,6 @@
 
 namespace RAMCloud {
 
-/// An instance of RejectRules that does not reject anything. 
-static RejectRules defaultRejectRules;
-
 // struct MasterService::Replica
 
 /**
@@ -74,6 +71,7 @@ MasterService::MasterService(Context* context,
                              const ServerConfig* config)
     : context(context)
     , config(config)
+    , tabletManager()
     , objectManager()
     , initCalled(false)
     , maxMultiReadResponseSize(Transport::MAX_RPC_LEN)
@@ -194,7 +192,7 @@ MasterService::init(ServerId id)
     serverId = id;
     LOG(NOTICE, "My server ID is %s", serverId.toString().c_str());
     metrics->serverId = serverId.getId();
-    objectManager.construct(context, serverId, config);
+    objectManager.construct(context, serverId, config, &tabletManager);
     initCalled = true;
 }
 
@@ -208,28 +206,24 @@ MasterService::enumerate(const WireFormat::Enumerate::Request* reqHdr,
                            WireFormat::Enumerate::Response* respHdr,
                            Rpc* rpc)
 {
-    bool validTablet = false;
+    TabletManager::Tablet tablet;
+    bool found = tabletManager.getTablet(reqHdr->tableId,
+                                         reqHdr->tabletFirstHash,
+                                         &tablet);
+    if (!found) {
+        // TODO(Ouster): The code has never handled non-NORMAL table states.
+        // Does this matter at all?
+        respHdr->common.status = STATUS_UNKNOWN_TABLET;
+        return;
+    }
+
     // In some cases, actualTabletStartHash may differ from
     // reqHdr->tabletFirstHash, e.g. when a tablet is merged in between
     // RPCs made to enumerate that tablet. If that happens, we must
     // filter by reqHdr->tabletFirstHash, NOT the actualTabletStartHash
     // for the tablet we own.
-    uint64_t actualTabletStartHash = 0, actualTabletEndHash = 0;
-    ProtoBuf::Tablets* tablets = &objectManager->tablets;
-    foreach (auto& tablet, tablets->tablet()) {
-        if (tablet.table_id() == reqHdr->tableId &&
-            tablet.start_key_hash() <= reqHdr->tabletFirstHash &&
-            reqHdr->tabletFirstHash <= tablet.end_key_hash()) {
-            validTablet = true;
-            actualTabletStartHash = tablet.start_key_hash();
-            actualTabletEndHash = tablet.end_key_hash();
-            break;
-        }
-    }
-    if (!validTablet) {
-        respHdr->common.status = STATUS_UNKNOWN_TABLET;
-        return;
-    }
+    uint64_t actualTabletStartHash = tablet.startKeyHash;
+    uint64_t actualTabletEndHash = tablet.endKeyHash;
 
     EnumerationIterator iter(
         *rpc->requestPayload,
@@ -243,7 +237,8 @@ MasterService::enumerate(const WireFormat::Enumerate::Request* reqHdr,
     Enumeration enumeration(reqHdr->tableId, reqHdr->tabletFirstHash,
                             actualTabletStartHash, actualTabletEndHash,
                             &respHdr->tabletFirstHash, iter,
-                            objectManager->log, objectManager->objectMap,
+                            *objectManager->getLog(),
+                            *objectManager->getObjectMap(),
                             *rpc->replyPayload, maxPayloadBytes);
     enumeration.complete();
     respHdr->payloadBytes = rpc->replyPayload->getTotalLength()
@@ -267,7 +262,7 @@ MasterService::getLogMetrics(
     Rpc* rpc)
 {
     ProtoBuf::LogMetrics logMetrics;
-    objectManager->log.getMetrics(logMetrics);
+    objectManager->getLog()->getMetrics(logMetrics);
     respHdr->logMetricsLength = ProtoBuf::serializeToResponse(rpc->replyPayload,
                                                              &logMetrics);
 }
@@ -292,24 +287,24 @@ MasterService::fillWithTestData(
     WireFormat::FillWithTestData::Response* respHdr,
     Rpc* rpc)
 {
-    ProtoBuf::Tablets* tablets = &objectManager->tablets;
+    vector<TabletManager::Tablet> tablets;
+    tabletManager.getTablets(&tablets);
 
-    LOG(NOTICE, "Filling with %u objects of %u bytes each in %u tablets",
-        reqHdr->numObjects, reqHdr->objectSize, tablets->tablet_size());
-
-    TabletsOnMaster* tables[tablets->tablet_size()];
-    uint32_t numTablets = 0;
-    foreach (const ProtoBuf::Tablets::Tablet& tablet, tablets->tablet()) {
-        // Only use tables where we store the entire table here.
+    for (size_t i = 0; i < tablets.size(); i++) {
+        // Only use tablets that span the entire table here.
         // The key calculation is not safe otherwise.
-        if ((tablet.start_key_hash() == 0)
-                && (tablet.end_key_hash() == ~0LU)) {
-            tables[numTablets++] =
-                    reinterpret_cast<TabletsOnMaster*>(tablet.user_data());
+        TabletManager::Tablet* tablet = &tablets[i];
+        if (tablet->startKeyHash != 0 || tablet->endKeyHash != ~0UL) {
+            tablets[i] = tablets[tablets.size() - 1];
+            tablets.pop_back();
+            i--;
         }
     }
-    if (numTablets == 0)
+    if (tablets.size() == 0)
         throw ObjectDoesntExistException(HERE);
+
+    LOG(NOTICE, "Filling with %u objects of %u bytes each in %Zd tablets",
+        reqHdr->numObjects, reqHdr->objectSize, tablets.size());
 
     RejectRules rejectRules;
     memset(&rejectRules, 0, sizeof(RejectRules));
@@ -318,29 +313,29 @@ MasterService::fillWithTestData(
     for (uint32_t objects = 0; objects < reqHdr->numObjects; objects++) {
         Buffer buffer;
 
-        int t = objects % numTablets;
+        int t = downCast<int>(objects % tablets.size());
 
         // safe? doubtful. simple? you bet.
         uint8_t data[reqHdr->objectSize];
         memset(data, 0xcc, reqHdr->objectSize);
         buffer.append(data, reqHdr->objectSize);
 
-        string keyString = format("%d", objects / numTablets);
-        Key key(tables[t]->getId(),
+        string keyString = format("%lu", objects / tablets.size());
+        Key key(tablets[t].tableId,
                 keyString.c_str(),
                 downCast<uint16_t>(keyString.length()));
 
         uint64_t newVersion;
         Status status = objectManager->writeObject(key,
                                                    buffer,
-                                                   rejectRules,
+                                                   &rejectRules,
                                                    &newVersion);
         if (status != STATUS_OK) {
             respHdr->common.status = status;
             return;
         }
         if ((objects % 50) == 0) {
-            objectManager->replicaManager.proceed();
+            objectManager->getReplicaManager()->proceed();
         }
     }
 
@@ -357,7 +352,7 @@ MasterService::getHeadOfLog(const WireFormat::GetHeadOfLog::Request* reqHdr,
                             WireFormat::GetHeadOfLog::Response* respHdr,
                             Rpc* rpc)
 {
-    Log::Position head = objectManager->log.rollHeadOver();
+    Log::Position head = objectManager->getLog()->rollHeadOver();
     respHdr->headSegmentId = head.getSegmentId();
     respHdr->headSegmentOffset = head.getSegmentOffset();
 }
@@ -372,14 +367,7 @@ MasterService::getServerStatistics(
     Rpc* rpc)
 {
     ProtoBuf::ServerStatistics serverStats;
-
-    ProtoBuf::Tablets* tablets = &objectManager->tablets;
-    foreach (const ProtoBuf::Tablets::Tablet& i, tablets->tablet()) {
-        TabletsOnMaster* table =
-                reinterpret_cast<TabletsOnMaster*>(i.user_data());
-        *serverStats.add_tabletentry() = table->statEntry;
-    }
-
+    tabletManager.getStatistics(&serverStats);
     respHdr->serverStatsLength = serializeToResponse(rpc->replyPayload,
                                                     &serverStats);
 }
@@ -447,20 +435,24 @@ MasterService::multiRead(const WireFormat::MultiRead::Request* reqHdr,
 
         Status* status = new(rpc->replyPayload, APPEND) Status(STATUS_OK);
 
+        Buffer buffer;
+        uint64_t version;
+        *status = objectManager->readObject(key,
+                                            &buffer,
+                                            NULL,
+                                            &version);
+        if (*status != STATUS_OK)
+            continue;
+
         WireFormat::MultiRead::Response::Part* currentResp =
             new(rpc->replyPayload, APPEND)
                 WireFormat::MultiRead::Response::Part();
 
-        Buffer buffer;
-        *status = objectManager->readObject(key,
-                                            &buffer,
-                                            defaultRejectRules,
-                                            &currentResp->version);
-        if (*status == STATUS_OK) {
-            Object object(buffer);
-            currentResp->length = object.getDataLength();
-            object.appendDataToBuffer(*rpc->replyPayload);
-        }
+        currentResp->version = version;
+        currentResp->length = buffer.getTotalLength();
+        // TODO(anyone): buffer-to-buffer virtual copy
+        rpc->replyPayload->append(buffer.getRange(0,
+            buffer.getTotalLength()), buffer.getTotalLength());
     }
 }
 
@@ -526,7 +518,7 @@ MasterService::multiWrite(const WireFormat::MultiWrite::Request* reqHdr,
         RejectRules rejectRules = currentReq->rejectRules;
         currentResp->status = objectManager->writeObject(key,
                                                          buffer,
-                                                         rejectRules,
+                                                         &rejectRules,
                                                          &currentResp->version);
     }
 
@@ -570,11 +562,15 @@ MasterService::read(const WireFormat::Read::Request* reqHdr,
     Buffer buffer;
     respHdr->common.status = objectManager->readObject(key,
                                                        &buffer,
-                                                       rejectRules,
+                                                       &rejectRules,
                                                        &respHdr->version);
-    Object object(buffer);
-    respHdr->length = object.getDataLength();
-    object.appendDataToBuffer(*rpc->replyPayload);
+    if (respHdr->common.status != STATUS_OK)
+        return;
+
+    respHdr->length = buffer.getTotalLength();
+    // TODO(anyone): buffer-to-buffer virtual copy
+    rpc->replyPayload->append(buffer.getRange(0,
+        buffer.getTotalLength()), buffer.getTotalLength());
 }
 
 /**
@@ -593,30 +589,21 @@ MasterService::dropTabletOwnership(
     WireFormat::DropTabletOwnership::Response* respHdr,
     Rpc* rpc)
 {
-    int index = 0;
-    ProtoBuf::Tablets* tablets = &objectManager->tablets;
-    foreach (ProtoBuf::Tablets::Tablet& i, *tablets->mutable_tablet()) {
-        if (reqHdr->tableId == i.table_id() &&
-          reqHdr->firstKeyHash == i.start_key_hash() &&
-          reqHdr->lastKeyHash == i.end_key_hash()) {
-            LOG(NOTICE, "Dropping ownership of tablet (%lu, range [%lu,%lu])",
-                reqHdr->tableId, reqHdr->firstKeyHash, reqHdr->lastKeyHash);
-            TabletsOnMaster* table =
-                    reinterpret_cast<TabletsOnMaster*>(i.user_data());
-            delete table;
-            tablets->mutable_tablet()->SwapElements(
-                tablets->tablet_size() - 1, index);
-            tablets->mutable_tablet()->RemoveLast();
-            return;
-        }
-
-        index++;
-    }
-
-    LOG(WARNING, "Could not drop ownership on unknown tablet (%lu, range "
-        "[%lu,%lu])!", reqHdr->tableId, reqHdr->firstKeyHash,
+    bool deleted = tabletManager.deleteTablet(reqHdr->tableId,
+                                              reqHdr->firstKeyHash,
+                                              reqHdr->lastKeyHash);
+    if (deleted) {
+        LOG(NOTICE, "Dropped ownership of tablet (%lu, range [%lu,%lu])",
+            reqHdr->tableId, reqHdr->firstKeyHash, reqHdr->lastKeyHash);
+    } else {
+        LOG(WARNING, "Could not drop ownership on unknown tablet (%lu, range "
+            "[%lu,%lu])!", reqHdr->tableId, reqHdr->firstKeyHash,
         reqHdr->lastKeyHash);
-    respHdr->common.status = STATUS_UNKNOWN_TABLET;
+
+        // Would it be preferable to not consider this an error (for
+        // idempotency, perhaps)?
+        respHdr->common.status = STATUS_UNKNOWN_TABLET;
+    }
 }
 
 /**
@@ -634,36 +621,20 @@ MasterService::splitMasterTablet(
     WireFormat::SplitMasterTablet::Response* respHdr,
     Rpc* rpc)
 {
-    ProtoBuf::Tablets_Tablet newTablet;
-
-    ProtoBuf::Tablets* tablets = &objectManager->tablets;
-    foreach (ProtoBuf::Tablets::Tablet& i, *tablets->mutable_tablet()) {
-        if (reqHdr->tableId == i.table_id() &&
-          reqHdr->firstKeyHash == i.start_key_hash() &&
-          reqHdr->lastKeyHash == i.end_key_hash()) {
-
-            newTablet = i;
-
-            TabletsOnMaster* newTable =
-                    new TabletsOnMaster(reqHdr->tableId, reqHdr->firstKeyHash,
-                                 reqHdr->splitKeyHash - 1);
-            i.set_user_data(reinterpret_cast<uint64_t>(newTable));
-            i.set_end_key_hash(reqHdr->splitKeyHash - 1);
-        }
-
+    bool split = tabletManager.splitTablet(reqHdr->tableId,
+                                           reqHdr->firstKeyHash,
+                                           reqHdr->lastKeyHash,
+                                           reqHdr->splitKeyHash);
+    if (split) {
+        LOG(NOTICE, "In table '%lu' I split the tablet that started at key %lu "
+            "and ended at key %lu", reqHdr->tableId, reqHdr->firstKeyHash,
+            reqHdr->lastKeyHash);
+    } else {
+        LOG(WARNING, "Could not split unknown tablet %lu [%lu, %lu] at %lu",
+             reqHdr->tableId, reqHdr->firstKeyHash, reqHdr->lastKeyHash,
+             reqHdr->splitKeyHash);
+        respHdr->common.status = STATUS_UNKNOWN_TABLET;
     }
-
-    newTablet.set_start_key_hash(reqHdr->splitKeyHash);
-    TabletsOnMaster* newTable =
-            new TabletsOnMaster(reqHdr->tableId, reqHdr->splitKeyHash,
-                                 reqHdr->lastKeyHash);
-    newTablet.set_user_data(reinterpret_cast<uint64_t>(newTable));
-
-    *tablets->add_tablet() = newTablet;
-
-    LOG(NOTICE, "In table '%lu' I split the tablet that started at key %lu and "
-                "ended at key %lu", reqHdr->tableId, reqHdr->firstKeyHash,
-                reqHdr->lastKeyHash);
 }
 
 /**
@@ -693,59 +664,47 @@ MasterService::takeTabletOwnership(
     // even servicing transports yet!
     objectManager->syncWrites();
 
-    ProtoBuf::Tablets::Tablet* tablet = NULL;
-    ProtoBuf::Tablets* tablets = &objectManager->tablets;
-    foreach (ProtoBuf::Tablets::Tablet& i, *tablets->mutable_tablet()) {
-        if (reqHdr->tableId == i.table_id() &&
-          reqHdr->firstKeyHash == i.start_key_hash() &&
-          reqHdr->lastKeyHash == i.end_key_hash()) {
-            tablet = &i;
-            break;
-       }
-    }
+    bool added = tabletManager.addTablet(reqHdr->tableId,
+                                         reqHdr->firstKeyHash,
+                                         reqHdr->lastKeyHash,
+                                         TabletManager::NORMAL);
+    if (added) {
+        LOG(NOTICE, "Took ownership of new tablet (%lu, range [%lu,%lu])",
+            reqHdr->tableId, reqHdr->firstKeyHash, reqHdr->lastKeyHash);
+    } else {
+        TabletManager::Tablet tablet;
+        if (tabletManager.getTablet(reqHdr->tableId,
+                                    reqHdr->firstKeyHash,
+                                    reqHdr->lastKeyHash,
+                                    &tablet)) {
+            if (tablet.state == TabletManager::NORMAL) {
+                LOG(NOTICE, "Told to take ownership of tablet I already own "
+                    "(%lu range [%lu,%lu]). Returning success.",
+                    reqHdr->tableId, reqHdr->firstKeyHash, reqHdr->lastKeyHash);
+                return;
+            }
+        }
 
-    if (tablet == NULL) {
-        // Sanity check that this tablet doesn't overlap with an existing one.
-        if (objectManager->getTable(reqHdr->tableId, reqHdr->firstKeyHash) != NULL ||
-          objectManager->getTable(reqHdr->tableId, reqHdr->lastKeyHash) != NULL) {
-            LOG(WARNING, "Tablet being assigned (%lu, range [%lu,%lu]) "
-                "partially overlaps an existing tablet!", reqHdr->tableId,
+        // It's possible we already have the tablet in the RECOVERING state.
+        // Try to update it to the NORMAL state to take ownership.
+        bool changed = tabletManager.changeState(reqHdr->tableId,
+                                                 reqHdr->firstKeyHash,
+                                                 reqHdr->lastKeyHash,
+                                                 TabletManager::RECOVERING,
+                                                 TabletManager::NORMAL);
+        if (changed) {
+            LOG(NOTICE, "Took ownership of existing tablet (%lu, range "
+                "[%lu,%lu]) in RECOVERING state", reqHdr->tableId,
                 reqHdr->firstKeyHash, reqHdr->lastKeyHash);
+        } else {
+            LOG(WARNING, "Could not take ownership of tablet (%lu, range "
+                "[%lu,%lu]). Tablet overlaps with one or more different "
+                "ranges.", reqHdr->tableId, reqHdr->firstKeyHash,
+                reqHdr->lastKeyHash);
+
             // TODO(anybody): Do we want a more meaningful error code?
             respHdr->common.status = STATUS_INTERNAL_ERROR;
-            return;
         }
-
-        LOG(NOTICE, "Taking ownership of new tablet (%lu, range "
-            "[%lu,%lu])", reqHdr->tableId, reqHdr->firstKeyHash,
-            reqHdr->lastKeyHash);
-
-
-        ProtoBuf::Tablets_Tablet& newTablet(*tablets->add_tablet());
-        newTablet.set_table_id(reqHdr->tableId);
-        newTablet.set_start_key_hash(reqHdr->firstKeyHash);
-        newTablet.set_end_key_hash(reqHdr->lastKeyHash);
-        newTablet.set_state(ProtoBuf::Tablets_Tablet_State_NORMAL);
-
-        TabletsOnMaster* table =
-                new TabletsOnMaster(reqHdr->tableId, reqHdr->firstKeyHash,
-                                    reqHdr->lastKeyHash);
-        newTablet.set_user_data(reinterpret_cast<uint64_t>(table));
-    } else {
-        LOG(NOTICE, "Taking ownership of existing tablet (%lu, range "
-            "[%lu,%lu]) in state %d", reqHdr->tableId, reqHdr->firstKeyHash,
-            reqHdr->lastKeyHash, tablet->state());
-
-        if (tablet->state() != ProtoBuf::Tablets_Tablet_State_RECOVERING) {
-            LOG(WARNING, "Taking ownership when existing tablet is in "
-                "unexpected state (%d)!", tablet->state());
-        }
-
-        tablet->set_state(ProtoBuf::Tablets_Tablet_State_NORMAL);
-
-        // If we took ownership after migration, then recoverSegment() may have
-        // added tombstones to the hash table. Clean them up.
-        removeTombstones();
     }
 }
 
@@ -764,38 +723,26 @@ MasterService::prepForMigration(
     WireFormat::PrepForMigration::Response* respHdr,
     Rpc* rpc)
 {
-    // Decide if we want to decline this request.
+    // TODO(anyone): Decide if we want to decline this request.
 
-    // Ensure that there's no tablet overlap, just in case.
-    bool overlap =
-        (objectManager->getTable(reqHdr->tableId, reqHdr->firstKeyHash) != NULL ||
-         objectManager->getTable(reqHdr->tableId, reqHdr->lastKeyHash) != NULL);
-    if (overlap) {
-        LOG(WARNING, "already have tablet in range [%lu, %lu] for tableId %lu",
-            reqHdr->firstKeyHash, reqHdr->lastKeyHash, reqHdr->tableId);
+    // Try to add the tablet. If it fails, there's some overlapping tablet.
+    bool added = tabletManager.addTablet(reqHdr->tableId,
+                                         reqHdr->firstKeyHash,
+                                         reqHdr->lastKeyHash,
+                                         TabletManager::RECOVERING);
+    if (added) {
+        // TODO(rumble) would be nice to have a method to get a SL from an Rpc
+        // object.
+        LOG(NOTICE, "Ready to receive tablet from \"??\". Table %lu, "
+            "range [%lu,%lu]", reqHdr->tableId, reqHdr->firstKeyHash,
+            reqHdr->lastKeyHash);
+    } else {
+        LOG(WARNING, "Cannot receive tablet %lu (range [%lu, %lu]) - an "
+            "existing tablet overlaps that range",
+            reqHdr->tableId, reqHdr->firstKeyHash, reqHdr->lastKeyHash);
         respHdr->common.status = STATUS_OBJECT_EXISTS;
         return;
     }
-
-    // Add the tablet to our map and mark it as RECOVERING so that no requests
-    // are served on it.
-    ProtoBuf::Tablets* tablets = &objectManager->tablets;
-    ProtoBuf::Tablets_Tablet& tablet(*tablets->add_tablet());
-    tablet.set_table_id(reqHdr->tableId);
-    tablet.set_start_key_hash(reqHdr->firstKeyHash);
-    tablet.set_end_key_hash(reqHdr->lastKeyHash);
-    tablet.set_state(ProtoBuf::Tablets_Tablet_State_RECOVERING);
-
-    TabletsOnMaster* table =
-            new TabletsOnMaster(reqHdr->tableId, reqHdr->firstKeyHash,
-                                reqHdr->lastKeyHash);
-    tablet.set_user_data(reinterpret_cast<uint64_t>(table));
-
-    // TODO(rumble) would be nice to have a method to get a SL from an Rpc
-    // object.
-    LOG(NOTICE, "Ready to receive tablet from \"??\". Table %lu, "
-        "range [%lu,%lu]", reqHdr->tableId, reqHdr->firstKeyHash,
-        reqHdr->lastKeyHash);
 }
 
 /**
@@ -819,20 +766,8 @@ MasterService::migrateTablet(const WireFormat::MigrateTablet::Request* reqHdr,
     // Find the tablet we're trying to move. We only support migration
     // when the tablet to be migrated consists of a range within a single,
     // contiguous tablet of ours.
-    const ProtoBuf::Tablets::Tablet* tablet = NULL;
-    int tabletIndex = 0;
-    ProtoBuf::Tablets* tablets = &objectManager->tablets;
-    foreach (const ProtoBuf::Tablets::Tablet& i, tablets->tablet()) {
-        if (tableId == i.table_id() &&
-          firstKeyHash >= i.start_key_hash() &&
-          lastKeyHash <= i.end_key_hash()) {
-            tablet = &i;
-            break;
-        }
-        tabletIndex++;
-    }
-
-    if (tablet == NULL) {
+    bool found = tabletManager.getTablet(tableId, firstKeyHash, lastKeyHash, 0);
+    if (!found) {
         LOG(WARNING, "Migration request for range this master does not "
             "own. TableId %lu, range [%lu,%lu]",
             tableId, firstKeyHash, lastKeyHash);
@@ -845,9 +780,6 @@ MasterService::migrateTablet(const WireFormat::MigrateTablet::Request* reqHdr,
         respHdr->common.status = STATUS_REQUEST_FORMAT_ERROR;
         return;
     }
-
-    TabletsOnMaster* table =
-            reinterpret_cast<TabletsOnMaster*>(tablet->user_data());
 
     // TODO(rumble/slaughter) what if we end up splitting?!?
 
@@ -875,7 +807,7 @@ MasterService::migrateTablet(const WireFormat::MigrateTablet::Request* reqHdr,
 
     // Hold on to the iterator since it locks the head Segment, avoiding any
     // additional appends once we've finished iterating.
-    LogIterator it(objectManager->log);
+    LogIterator it(*objectManager->getLog());
     for (; !it.isDone(); it.next()) {
         LogEntryType type = it.getType();
         if (type != LOG_ENTRY_TYPE_OBJ && type != LOG_ENTRY_TYPE_OBJTOMB) {
@@ -895,22 +827,21 @@ MasterService::migrateTablet(const WireFormat::MigrateTablet::Request* reqHdr,
             continue;
 
         if (type == LOG_ENTRY_TYPE_OBJ) {
-#if 0 // XXXX- fix this
             // Only send objects when they're currently in the hash table.
             // Otherwise they're dead.
-            LogEntryType currentType;
             Buffer currentBuffer;
-            if (lookup(key, currentType, currentBuffer) == false)
+            uint64_t currentVersion;
+            if (objectManager->readObject(
+              key, &currentBuffer, 0, &currentVersion) != STATUS_OK) {
                 continue;
+            }
 
-            // NB: The cleaner is currently locked out due to the global
-            //     objectUpdateLock. In the future this may not be the
-            //     case and objects may be moved forward during iteration.
-            if (buffer.getStart<uint8_t>() != currentBuffer.getStart<uint8_t>())
+            // Skip objects older than what is currently in the hash table.
+            Object iteratorObject(buffer);
+            if (iteratorObject.getVersion() < currentVersion)
                 continue;
 
             totalObjects++;
-#endif
         } else {
             // We must always send tombstones, since an object we may have sent
             // could have been deleted more recently. We could be smarter and
@@ -971,10 +902,7 @@ MasterService::migrateTablet(const WireFormat::MigrateTablet::Request* reqHdr,
         "tombstones. %lu bytes in total.", totalObjects, totalTombstones,
         totalBytes);
 
-    tablets->mutable_tablet()->SwapElements(tablets->tablet_size() - 1,
-                                           tabletIndex);
-    tablets->mutable_tablet()->RemoveLast();
-    free(table);
+    tabletManager.deleteTablet(tableId, firstKeyHash, lastKeyHash);
 }
 
 /**
@@ -997,26 +925,21 @@ MasterService::receiveMigrationData(
 
     // TODO(rumble/slaughter) need to make sure we already have a table
     // created that was previously prepped for migration.
-    const ProtoBuf::Tablets::Tablet* tablet = NULL;
-    ProtoBuf::Tablets* tablets = &objectManager->tablets;
-    foreach (const ProtoBuf::Tablets::Tablet& i, tablets->tablet()) {
-        if (tableId == i.table_id() && firstKeyHash == i.start_key_hash()) {
-            tablet = &i;
-            break;
-        }
-    }
-
-    if (tablet == NULL) {
+    TabletManager::Tablet tablet;
+    bool found = tabletManager.getTablet(tableId,
+                                         firstKeyHash,
+                                         &tablet);
+    if (!found) {
         LOG(WARNING, "migration data received for unknown tablet %lu, "
             "firstKeyHash %lu", tableId, firstKeyHash);
         respHdr->common.status = STATUS_UNKNOWN_TABLET;
         return;
     }
 
-    if (tablet->state() != ProtoBuf::Tablets_Tablet_State_RECOVERING) {
+    if (tablet.state != TabletManager::RECOVERING) {
         LOG(WARNING, "migration data received for tablet not in the "
-            "RECOVERING state (state = %s)!",
-            ProtoBuf::Tablets_Tablet_State_Name(tablet->state()).c_str());
+            "RECOVERING state (state = %d)!",
+            static_cast<int>(tablet.state));
         // TODO(rumble/slaughter): better error code here?
         respHdr->common.status = STATUS_INTERNAL_ERROR;
         return;
@@ -1037,7 +960,7 @@ MasterService::receiveMigrationData(
     const void* segmentMemory = rpc->requestPayload->getStart<const void*>();
     SegmentIterator it(segmentMemory, segmentBytes, certificate);
     it.checkMetadataIntegrity();
-    SideLog sideLog(&objectManager->log);
+    SideLog sideLog(objectManager->getLog());
     objectManager->replaySegment(&sideLog, it);
     sideLog.commit();
 
@@ -1049,110 +972,6 @@ MasterService::receiveMigrationData(
     //    - what if we didn't send a whole tablet, but rather split one?!
     //      how does this affect autoincr. keys and the version number(s),
     //      if at all?
-}
-
-/**
- * Callback used to purge the tombstones from the hash table. Invoked by
- * HashTable::forEach.
- */
-void
-recoveryCleanup(uint64_t maybeTomb, void *cookie)
-{
-#if 0
-    MasterService *server = reinterpret_cast<MasterService*>(cookie);
-    LogEntryType type;
-    Buffer buffer;
-
-    type = server->log->getEntry(Log::Reference(maybeTomb), buffer);
-    if (type == LOG_ENTRY_TYPE_OBJTOMB) {
-        Key key(type, buffer);
-
-        bool r = server->objectMap->remove(key);
-        assert(r);
-
-        // Tombstones are not explicitly freed in the log-> The cleaner will
-        // figure out that they're dead.
-    }
-#endif
-}
-
-/**
- * A Dispatch::Poller which lazily removes tombstones from the main HashTable.
- */
-class RemoveTombstonePoller : public Dispatch::Poller {
-  public:
-    /**
-     * Clean tombstones from #objectMap lazily and in the background.
-     *
-     * Instances of this class must be allocated with new since they
-     * delete themselves when the #objectMap scan is completed which
-     * automatically deregisters it from Dispatch.
-     *
-     * \param masterService
-     *      The instance of MasterService which owns the #objectMap->
-     * \param objectMap
-     *      The HashTable which will be purged of tombstones.
-     */
-    RemoveTombstonePoller(MasterService& masterService, HashTable& objectMap)
-        : Dispatch::Poller(*masterService.context->dispatch)
-        , currentBucket(0)
-        , masterService(masterService)
-        , objectMap(objectMap)
-    {
-        LOG(NOTICE, "Starting cleanup of tombstones in background");
-    }
-
-    /**
-     * Remove tombstones from a single bucket and yield to other work
-     * in the system.
-     */
-    virtual void
-    poll()
-    {
-        // This method runs in the dispatch thread, so it isn't safe to
-        // manipulate any of the objectMap state if any RPCs are currently
-        // executing.
-        if (!masterService.context->serviceManager->idle())
-            return;
-        objectMap.forEachInBucket(
-            recoveryCleanup, &masterService, currentBucket);
-        ++currentBucket;
-        if (currentBucket == objectMap.getNumBuckets()) {
-            LOG(NOTICE, "Cleanup of tombstones complete");
-            delete this;
-        }
-    }
-
-  private:
-    /// Which bucket of #objectMap should be cleaned out next.
-    uint64_t currentBucket;
-
-    /// The MasterService used by the #recoveryCleanup callback.
-    MasterService& masterService;
-
-    /// The hash table to be purged of tombstones.
-    HashTable& objectMap;
-
-    DISALLOW_COPY_AND_ASSIGN(RemoveTombstonePoller);
-};
-
-/**
- * Remove leftover tombstones in the hash table added during recovery.
- * This method exists independently for testing purposes.
- */
-void
-MasterService::removeTombstones()
-{
-#if 0
-    CycleCounter<RawMetric> _(&metrics->master.removeTombstoneTicks);
-#if TESTING
-    // Asynchronous tombstone removal raises hell in unit tests.
-    objectMap->forEach(recoveryCleanup, this);
-#else
-    Dispatch::Lock lock(context->dispatch);
-    new RemoveTombstonePoller(*this, *objectMap);
-#endif
-#endif
 }
 
 namespace MasterServiceInternal {
@@ -1348,7 +1167,7 @@ MasterService::recover(uint64_t recoveryId,
     // The SideLog we'll append recovered entries to. It will be committed after
     // replay completes on all segments, making all of the recovered data
     // durable.
-    SideLog sideLog(&objectManager->log);
+    SideLog sideLog(objectManager->getLog());
 
     // Start RPCs
     auto replicaIt = notStarted;
@@ -1389,7 +1208,7 @@ MasterService::recover(uint64_t recoveryId,
     while (activeRequests) {
         if (!readStallTicks)
             readStallTicks.construct(&metrics->master.segmentReadStallTicks);
-        objectManager->replicaManager.proceed();
+        objectManager->getReplicaManager()->proceed();
         foreach (auto& task, tasks) {
             if (!task)
                 continue;
@@ -1601,54 +1420,6 @@ MasterService::recover(uint64_t recoveryId,
 }
 
 /**
- * Removes an object from the hashtable and frees it from the log if
- * it belongs to a tablet that isn't listed in the master's tablets.
- * Used by purgeObjectsFromUnknownTablets().
- *
- * \param reference
- *      Reference into the log for an object as returned from the master's
- *      objectMap->lookup() or on callback from objectMap->forEach(). This
- *      object is removed from the objectMap and freed from the log if it
- *      doesn't belong to any tablet the master lists among its tablets.
- * \param cookie
- *      Pointer to the MasterService where this object is currently
- *      stored.
- */
-void
-removeObjectIfFromUnknownTablet(uint64_t reference, void *cookie)
-{
-#if 0
-    MasterService* master = reinterpret_cast<MasterService*>(cookie);
-    LogEntryType type;
-    Buffer buffer;
-
-    type = master->log->getEntry(Log::Reference(reference), buffer);
-    if (type != LOG_ENTRY_TYPE_OBJ)
-        return;
-
-    Key key(type, buffer);
-    if (!master->getTable(key)) {
-        bool r = master->objectMap->remove(key);
-        assert(r);
-        master->log->free(Log::Reference(reference));
-    }
-#endif
-}
-
-/**
- * Scan the hashtable and remove all objects that do not belong to a
- * tablet currently owned by this master. Used to clean up any objects
- * created as part of an aborted recovery.
- */
-void
-MasterService::purgeObjectsFromUnknownTablets()
-{
-#if 0
-    objectMap->forEach(removeObjectIfFromUnknownTablet, this);
-#endif
-}
-
-/**
  * Top-level server method to handle the RECOVER request.
  * \copydetails Service::ping
  */
@@ -1660,7 +1431,7 @@ MasterService::recover(const WireFormat::Recover::Request* reqHdr,
     ReplicatedSegment::recoveryStart = Cycles::rdtsc();
     CycleCounter<RawMetric> recoveryTicks(&metrics->master.recoveryTicks);
     metrics->master.recoveryCount++;
-    metrics->master.replicas = objectManager->replicaManager.numReplicas;
+    metrics->master.replicas = objectManager->getReplicaManager()->numReplicas;
 
     uint64_t recoveryId = reqHdr->recoveryId;
     ServerId crashedServerId(reqHdr->crashedServerId);
@@ -1695,24 +1466,25 @@ MasterService::recover(const WireFormat::Recover::Request* reqHdr,
 
     // Install tablets we are recovering and mark them as such (we don't
     // own them yet).
-    vector<ProtoBuf::Tablets_Tablet*> newTablets;
-    ProtoBuf::Tablets* tablets = &objectManager->tablets;
-    foreach (const ProtoBuf::Tablets::Tablet& tablet,
+    foreach (const ProtoBuf::Tablets::Tablet& newTablet,
              recoveryTablets.tablet()) {
-        ProtoBuf::Tablets_Tablet& newTablet(*tablets->add_tablet());
-        newTablet = tablet;
-        TabletsOnMaster* table = new TabletsOnMaster(newTablet.table_id(),
-                                 newTablet.start_key_hash(),
-                                 newTablet.end_key_hash());
-        newTablet.set_user_data(reinterpret_cast<uint64_t>(table));
-        newTablet.set_state(ProtoBuf::Tablets::Tablet::RECOVERING);
-        newTablets.push_back(&newTablet);
+        bool added = tabletManager.addTablet(newTablet.table_id(),
+                                             newTablet.start_key_hash(),
+                                             newTablet.end_key_hash(),
+                                             TabletManager::RECOVERING);
+        if (!added) {
+            throw Exception(HERE, format("Cannot recover tablet that overlaps "
+                "an already existing one (new tablet: %lu range [%lu,%lu])",
+                newTablet.table_id(),
+                newTablet.start_key_hash(),
+                newTablet.end_key_hash()));
+        }
     }
 
     // Record the log position before recovery started.
-    Log::Position headOfLog = objectManager->log.rollHeadOver();
+    Log::Position headOfLog = objectManager->getLog()->rollHeadOver();
 
-    // Recover Segments, firing MasterService::recoverSegment for each one.
+    // Recover Segments, firing ObjectManager::replaySegment for each one.
     bool successful = false;
     try {
         recover(recoveryId, crashedServerId, partitionId, replicas);
@@ -1720,9 +1492,6 @@ MasterService::recover(const WireFormat::Recover::Request* reqHdr,
     } catch (const SegmentRecoveryFailedException& e) {
         // Recovery wasn't successful.
     }
-
-    // Free recovery tombstones left in the hash table.
-    removeTombstones();
 
     // Once the coordinator and the recovery master agree that the
     // master has taken over for the tablets it can update its tables
@@ -1755,32 +1524,40 @@ MasterService::recover(const WireFormat::Recover::Request* reqHdr,
     if (successful) {
         // Ok - we're expected to be serving now. Mark recovered tablets
         // as normal so we can handle clients.
-        foreach (ProtoBuf::Tablets_Tablet* newTablet, newTablets)
-            newTablet->set_state(ProtoBuf::Tablets::Tablet::NORMAL);
+        foreach (const ProtoBuf::Tablets::Tablet& tablet,
+                     recoveryTablets.tablet()) {
+            bool changed = tabletManager.changeState(tablet.table_id(),
+                                                     tablet.start_key_hash(),
+                                                     tablet.end_key_hash(),
+                                                     TabletManager::RECOVERING,
+                                                     TabletManager::NORMAL);
+            if (!changed) {
+                throw FatalError(HERE, format("Could not change recovering "
+                    "tablet's state to NORMAL (%lu range [%lu,%lu])",
+                        tablet.table_id(),
+                        tablet.start_key_hash(),
+                        tablet.end_key_hash()));
+            }
+        }
     } else {
         LOG(WARNING, "Failed to recover partition for recovery %lu; "
             "aborting recovery on this recovery master", recoveryId);
-        // If recovery failed then cleanup all objects written by
+        // If recovery failed then clean up all objects written by
         // recovery before starting to serve requests again.
-        foreach (ProtoBuf::Tablets_Tablet* newTablet, newTablets) {
-            for (int i = 0; i < tablets->tablet_size(); ++i) {
-                const auto& tablet = tablets->tablet(i);
-                if (tablet.table_id() == newTablet->table_id() &&
-                    tablet.start_key_hash() == newTablet->start_key_hash() &&
-                    tablet.end_key_hash() == newTablet->end_key_hash())
-                {
-                    TabletsOnMaster* table =
-                            reinterpret_cast<TabletsOnMaster*>(
-                                        tablet.user_data());
-                    delete table;
-                    tablets->mutable_tablet()->
-                        SwapElements(tablets->tablet_size() - 1, i);
-                    tablets->mutable_tablet()->RemoveLast();
-                    break;
-                }
+        foreach (const ProtoBuf::Tablets::Tablet& tablet,
+                 recoveryTablets.tablet()) {
+            bool deleted = tabletManager.deleteTablet(tablet.table_id(),
+                                                      tablet.start_key_hash(),
+                                                      tablet.end_key_hash());
+            if (!deleted) {
+                throw FatalError(HERE, format("Could not delete recovery "
+                    "tablet (%lu range [%lu,%lu]). It disappeared!?",
+                        tablet.table_id(),
+                        tablet.start_key_hash(),
+                        tablet.end_key_hash()));
             }
         }
-        purgeObjectsFromUnknownTablets();
+        objectManager->removeOrphanedObjects();
     }
 }
 
@@ -1799,7 +1576,9 @@ MasterService::remove(const WireFormat::Remove::Request* reqHdr,
     Key key(reqHdr->tableId, stringKey, reqHdr->keyLength);
 
     RejectRules rejectRules = reqHdr->rejectRules;
-        respHdr->common.status = objectManager->removeObject(key, rejectRules);
+    respHdr->common.status = objectManager->removeObject(key,
+                                                         &rejectRules,
+                                                         &respHdr->version);
 }
 
 /**
@@ -1820,24 +1599,24 @@ MasterService::increment(const WireFormat::Increment::Request* reqHdr,
 
     Buffer value;
     RejectRules rejectRules = reqHdr->rejectRules;
-    *status = objectManager->readObject(key, &value, rejectRules);
-    if (respHdr->common.status != STATUS_OK)
+    *status = objectManager->readObject(key, &value, &rejectRules, NULL);
+    if (*status != STATUS_OK)
         return;
 
     if (value.getTotalLength() != sizeof(int64_t)) {
         *status = STATUS_INVALID_OBJECT;
         return;
     }
-                        
+
     const int64_t oldValue = *value.getOffset<int64_t>(0);
     int64_t newValue = oldValue + reqHdr->incrementValue;
 
     // Write the new value back
     Buffer newValueBuffer;
-    newValueBuffer.append(&newValue, sizeof(int64_t));     
+    newValueBuffer.append(&newValue, sizeof(int64_t));
 
     *status = objectManager->writeObject(key, newValueBuffer,
-        rejectRules, &respHdr->version);
+        &rejectRules, &respHdr->version);
     if (*status != STATUS_OK)
         return;
     objectManager->syncWrites();
@@ -1858,8 +1637,8 @@ MasterService::isReplicaNeeded(
     Rpc* rpc)
 {
     ServerId backupServerId = ServerId(reqHdr->backupServerId);
-    respHdr->needed = objectManager->replicaManager.isReplicaNeeded(backupServerId,
-                                                    reqHdr->segmentId);
+    respHdr->needed = objectManager->getReplicaManager()->isReplicaNeeded(
+        backupServerId, reqHdr->segmentId);
 }
 
 /**
@@ -1884,7 +1663,7 @@ MasterService::write(const WireFormat::Write::Request* reqHdr,
 
     RejectRules rejectRules = reqHdr->rejectRules;
     respHdr->common.status = objectManager->writeObject(key,
-        buffer, rejectRules, &respHdr->version);
+        buffer, &rejectRules, &respHdr->version);
     objectManager->syncWrites();
 }
 

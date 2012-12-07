@@ -134,18 +134,31 @@ TEST_F(SegmentManagerTest, allocHead) {
         segmentManager.segmentsByState[SegmentManager::NEWLY_CLEANABLE].size());
 }
 
-TEST_F(SegmentManagerTest, allocSideSegment_forSideLog) {
-    // XXX
+TEST_F(SegmentManagerTest, allocSideSegment_forRegularSideLog) {
+    TestLog::Enable _(allocFilter);
+
+    uint64_t regularSlotCount = segmentManager.freeSlots.size();
+    LogSegment* s =
+        segmentManager.allocSideSegment(0);
+    EXPECT_NE(static_cast<LogSegment*>(NULL), s);
+    EXPECT_EQ("alloc: purpose: 2", TestLog::get());
+    EXPECT_EQ(regularSlotCount - 1, segmentManager.freeSlots.size());
+
+    SegmentIterator it(*s);
+    EXPECT_FALSE(it.isDone());
+    EXPECT_EQ(LOG_ENTRY_TYPE_SEGHEADER, it.getType());
 }
 
-TEST_F(SegmentManagerTest, allocSideSegment_forCleaning) {
+TEST_F(SegmentManagerTest, allocSideSegment_forCleanerSideLog) {
     TestLog::Enable _(allocFilter);
 
     segmentManager.initializeSurvivorReserve(1);
+    uint64_t cleanerSlotCount = segmentManager.freeSurvivorSlots.size();
     LogSegment* s =
         segmentManager.allocSideSegment(SegmentManager::FOR_CLEANING);
     EXPECT_NE(static_cast<LogSegment*>(NULL), s);
     EXPECT_EQ("alloc: purpose: 3", TestLog::get());
+    EXPECT_EQ(cleanerSlotCount - 1, segmentManager.freeSurvivorSlots.size());
 
     SegmentIterator it(*s);
     EXPECT_FALSE(it.isDone());
@@ -155,8 +168,29 @@ TEST_F(SegmentManagerTest, allocSideSegment_forCleaning) {
         segmentManager.allocSideSegment(SegmentManager::FOR_CLEANING));
 }
 
+static void
+initCleanerSegmentPool(SegmentManager* sm)
+{
+    usleep(1000);
+    sm->initializeSurvivorReserve(1);
+}
+
 TEST_F(SegmentManagerTest, allocSideSegment_mustNotFail) {
-    // XXX
+    EXPECT_EQ(0U, segmentManager.freeSurvivorSlots.size());
+    EXPECT_EQ(static_cast<LogSegment*>(NULL),
+            segmentManager.allocSideSegment(SegmentManager::FOR_CLEANING));
+
+    // spin a thread that will sleep for 1ms and then initialize the cleaner
+    // pool.
+    std::thread thread(initCleanerSegmentPool, &segmentManager);
+
+    // ensure that we wait around for the thread to fill the pool.
+    LogSegment* s =
+        segmentManager.allocSideSegment(SegmentManager::FOR_CLEANING |
+                                        SegmentManager::MUST_NOT_FAIL);
+    EXPECT_NE(static_cast<LogSegment*>(NULL), s);
+
+    thread.join();
 }
 
 TEST_F(SegmentManagerTest, cleaningComplete) {
@@ -424,47 +458,51 @@ TEST_F(SegmentManagerTest, alloc_normal) {
 }
 
 TEST_F(SegmentManagerTest, alloc_emergencyHead) {
-    LogSegment* s = segmentManager.alloc(SegmentManager::ALLOC_EMERGENCY_HEAD, 88);
+    SegmentManager* sm = &segmentManager;
+    LogSegment* s = sm->alloc(SegmentManager::ALLOC_EMERGENCY_HEAD, 88);
     EXPECT_NE(static_cast<LogSegment*>(NULL), s);
     EXPECT_TRUE(s->isEmergencyHead);
-    EXPECT_EQ(SegmentManager::HEAD, segmentManager.states[s->slot]);
+    EXPECT_EQ(SegmentManager::HEAD, sm->states[s->slot]);
 }
 
 TEST_F(SegmentManagerTest, alloc_survivor) {
+    SegmentManager* sm = &segmentManager;
     segmentManager.initializeSurvivorReserve(1);
-    LogSegment* s = segmentManager.alloc(SegmentManager::ALLOC_CLEANER_SIDELOG, 88);
+    LogSegment* s = sm->alloc(SegmentManager::ALLOC_CLEANER_SIDELOG, 88);
     EXPECT_NE(static_cast<LogSegment*>(NULL), s);
     EXPECT_FALSE(s->isEmergencyHead);
-    EXPECT_EQ(SegmentManager::SIDELOG, segmentManager.states[s->slot]);
+    EXPECT_EQ(SegmentManager::SIDELOG, sm->states[s->slot]);
 }
 
 TEST_F(SegmentManagerTest, allocSlot) {
+    SegmentManager* sm = &segmentManager;
+
     // default pool
-    segmentManager.freeSlots.clear();
-    EXPECT_EQ(-1U, segmentManager.allocSlot(SegmentManager::ALLOC_HEAD));
-    segmentManager.freeSlots.push_back(57);
-    EXPECT_EQ(57U, segmentManager.allocSlot(SegmentManager::ALLOC_HEAD));
-    EXPECT_EQ(-1U, segmentManager.allocSlot(SegmentManager::ALLOC_HEAD));
+    sm->freeSlots.clear();
+    EXPECT_EQ(-1U, sm->allocSlot(SegmentManager::ALLOC_HEAD));
+    sm->freeSlots.push_back(57);
+    EXPECT_EQ(57U, sm->allocSlot(SegmentManager::ALLOC_HEAD));
+    EXPECT_EQ(-1U, sm->allocSlot(SegmentManager::ALLOC_HEAD));
 
     // default pool again
-    segmentManager.freeSlots.clear();
-    EXPECT_EQ(-1U, segmentManager.allocSlot(SegmentManager::ALLOC_REGULAR_SIDELOG));
-    segmentManager.freeSlots.push_back(57);
-    EXPECT_EQ(57U, segmentManager.allocSlot(SegmentManager::ALLOC_REGULAR_SIDELOG));
-    EXPECT_EQ(-1U, segmentManager.allocSlot(SegmentManager::ALLOC_REGULAR_SIDELOG));
+    sm->freeSlots.clear();
+    EXPECT_EQ(-1U, sm->allocSlot(SegmentManager::ALLOC_REGULAR_SIDELOG));
+    sm->freeSlots.push_back(57);
+    EXPECT_EQ(57U, sm->allocSlot(SegmentManager::ALLOC_REGULAR_SIDELOG));
+    EXPECT_EQ(-1U, sm->allocSlot(SegmentManager::ALLOC_REGULAR_SIDELOG));
 
     // survivor pool
-    EXPECT_EQ(-1U, segmentManager.allocSlot(SegmentManager::ALLOC_CLEANER_SIDELOG));
-    segmentManager.freeSurvivorSlots.push_back(86);
-    EXPECT_EQ(86U, segmentManager.allocSlot(SegmentManager::ALLOC_CLEANER_SIDELOG));
-    EXPECT_EQ(-1U, segmentManager.allocSlot(SegmentManager::ALLOC_CLEANER_SIDELOG));
+    EXPECT_EQ(-1U, sm->allocSlot(SegmentManager::ALLOC_CLEANER_SIDELOG));
+    sm->freeSurvivorSlots.push_back(86);
+    EXPECT_EQ(86U, sm->allocSlot(SegmentManager::ALLOC_CLEANER_SIDELOG));
+    EXPECT_EQ(-1U, sm->allocSlot(SegmentManager::ALLOC_CLEANER_SIDELOG));
 
     // emergency head pool
-    segmentManager.freeEmergencyHeadSlots.clear();
-    EXPECT_EQ(-1U, segmentManager.allocSlot(SegmentManager::ALLOC_EMERGENCY_HEAD));
-    segmentManager.freeEmergencyHeadSlots.push_back(13);
-    EXPECT_EQ(13U, segmentManager.allocSlot(SegmentManager::ALLOC_EMERGENCY_HEAD));
-    EXPECT_EQ(-1U, segmentManager.allocSlot(SegmentManager::ALLOC_EMERGENCY_HEAD));
+    sm->freeEmergencyHeadSlots.clear();
+    EXPECT_EQ(-1U, sm->allocSlot(SegmentManager::ALLOC_EMERGENCY_HEAD));
+    sm->freeEmergencyHeadSlots.push_back(13);
+    EXPECT_EQ(13U, sm->allocSlot(SegmentManager::ALLOC_EMERGENCY_HEAD));
+    EXPECT_EQ(-1U, sm->allocSlot(SegmentManager::ALLOC_EMERGENCY_HEAD));
 }
 
 TEST_F(SegmentManagerTest, freeSlot) {

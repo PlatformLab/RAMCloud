@@ -347,25 +347,23 @@ double getThreadId()
 template<int prefetchBucketAhead = 0>
 double hashTableLookup()
 {
-#if 0 /// XXXXX- fix me
     uint64_t numBuckets = 16777216;       // 16M * 64 = 1GB
-    int numLookups = 1000000;
-    PerfKeyComparer keyComparer;
-    HashTable hashTable(numBuckets, keyComparer);
+    uint32_t numLookups = 1000000;
+    HashTable hashTable(numBuckets);
 
     // fill with some objects to look up (enough to blow caches)
-    for (int i = 0; i < numLookups; i++) {
+    for (uint64_t i = 0; i < numLookups; i++) {
         uint64_t* object = new uint64_t(i);
         uint64_t reference = reinterpret_cast<uint64_t>(object);
         Key key(0, object, downCast<uint16_t>(sizeof(*object)));
-        hashTable.replace(key, reference);
+        hashTable.insert(key, reference);
     }
 
     PerfHelper::flushCache();
 
     // now look up the objects again
     uint64_t start = Cycles::rdtsc();
-    for (int i = 0; i < numLookups; i++) {
+    for (uint64_t i = 0; i < numLookups; i++) {
         if (prefetchBucketAhead) {
             if (i + prefetchBucketAhead < numLookups) {
                 uint64_t object = i + prefetchBucketAhead;
@@ -375,23 +373,29 @@ double hashTableLookup()
         }
 
         Key key(0, &i, downCast<uint16_t>(sizeof(i)));
-        uint64_t outReference = 0;
-        hashTable.lookup(key, outReference);
+        HashTable::Candidates candidates = hashTable.lookup(key);
+        while (!candidates.isDone()) {
+            if (*reinterpret_cast<uint64_t*>(candidates.getReference()) == i)
+                break;
+            candidates.next();
+        }
     }
     uint64_t stop = Cycles::rdtsc();
 
     // clean up
-    for (int i = 0; i < numLookups; i++) {
-        uint64_t object = i;
-        Key key(0, &object, downCast<uint16_t>(sizeof(object)));
-        uint64_t outReference = 0;
-        hashTable.lookup(key, outReference);
-        delete reinterpret_cast<uint64_t*>(outReference);
+    for (uint64_t i = 0; i < numLookups; i++) {
+        Key key(0, &i, downCast<uint16_t>(sizeof(i)));
+        HashTable::Candidates candidates = hashTable.lookup(key);
+        while (!candidates.isDone()) {
+            if (*reinterpret_cast<uint64_t*>(candidates.getReference()) == i) {
+                delete reinterpret_cast<uint64_t*>(candidates.getReference());
+                candidates.remove();
+                break;
+            }
+        }
     }
 
     return Cycles::toSeconds((stop - start) / numLookups);
-#endif
-    return 1;
 }
 
 // Measure the cost of an lfence instruction.

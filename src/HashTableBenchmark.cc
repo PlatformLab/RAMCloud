@@ -80,8 +80,7 @@ hashTableBenchmark(uint64_t nkeys, uint64_t nlines)
         uint64_t reference(reinterpret_cast<uint64_t>(values[i]));
 
         bool success = false;
-        HashTable::Candidates c;
-        ht.lookup(key, &c);
+        HashTable::Candidates c = ht.lookup(key);
         while (!c.isDone()) {
             TestObject* candidateObject =
                 reinterpret_cast<TestObject*>(c.getReference());
@@ -118,8 +117,7 @@ hashTableBenchmark(uint64_t nkeys, uint64_t nlines)
         uint64_t reference = 0;
         bool success = false;
 
-        HashTable::Candidates c;
-        ht.lookup(key, &c);
+        HashTable::Candidates c = ht.lookup(key);
         while (!c.isDone()) {
             reference = c.getReference();
             TestObject* candidateObject =

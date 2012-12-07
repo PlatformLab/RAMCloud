@@ -144,7 +144,8 @@ SideLog::allocNextSegment(bool mustNotFail)
 
     LogSegment* segment;
     if (mustNotFail)
-        segment = segmentManager->allocSideSegment(SegmentManager::MUST_NOT_FAIL, NULL);
+        segment = segmentManager->allocSideSegment(
+            SegmentManager::MUST_NOT_FAIL, NULL);
     else
         segment = segmentManager->allocSideSegment(0, NULL);
 

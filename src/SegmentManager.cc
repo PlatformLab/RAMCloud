@@ -144,10 +144,10 @@ SegmentManager::getAllocator() const
  * be synced to backups before the function returns. In short, the caller need
  * not do anything special.
  *
- * \param mustNotFail
- *      If true, the allocation of a new head must not fail. By specifying this,
- *      the caller may be returned an immutable (closed) head segment if memory
- *      has been exhausted.
+ * \param flags
+ *      If out of memory and the MUST_NOT_FAIL flag is provided, an emergency
+ *      head segment is allocated and returned. Otherwise, NULL is returned
+ *      when out of memory and the flag is not provided.
  *
  * \return
  *      NULL if out of memory, otherwise the new head segment. If NULL is
@@ -231,6 +231,12 @@ SegmentManager::allocHeadSegment(uint32_t flags)
  *
  * This method will never return NULL. It will, however, block forever if the
  * cleaner fails to keep its promise of not using more than it frees.
+ *
+ * \param flags
+ *      If the FOR_CLEANING flag is provided, the allocate will be attempted
+ *      from a pool specially reserved for the cleaner. If MUST_NOT_FAIL is
+ *      provided, the method will block until a segment is free. Otherwise, it
+ *      will return immediately with NULL if no segment is available.
  *
  * \param replacing
  *      If memory compaction is being performed, this must point to the current
@@ -649,7 +655,9 @@ SegmentManager::raiseSafeVersion(uint64_t minimum) {
  *      this parameter will remind you to obey that constraint.
  */
 void
-SegmentManager::injectSideSegment(LogSegment* segment, State nextState, Lock& lock)
+SegmentManager::injectSideSegment(LogSegment* segment,
+                                  State nextState,
+                                  Lock& lock)
 {
     assert(states[segment->slot] == SIDELOG);
     assert(nextState == CLEANABLE_PENDING_DIGEST ||
@@ -657,7 +665,7 @@ SegmentManager::injectSideSegment(LogSegment* segment, State nextState, Lock& lo
 
     // The segment we're adding will become part of the on-disk log
     // when the next head is written.
-    changeState(*segment, nextState); 
+    changeState(*segment, nextState);
 }
 
 /**
@@ -846,9 +854,9 @@ SegmentManager::changeState(LogSegment& s, State newState)
 /**
  * Allocate a new segment, if possible, and set its initial state appropriately.
  *
- * \param type 
- *      Type of segment being allocated. Either it is for an emergency head,
- *      the cleaner, or a new regular head segment.
+ * \param purpose
+ *      Purpose for which this segment being is allocated. Either it is for an
+ *      emergency head, the cleaner, or a new regular head segment.
  * \param segmentId
  *      Identifier given to the segment. This is the log-unique value that will
  *      be placed in the log digest.
@@ -907,11 +915,10 @@ SegmentManager::alloc(AllocPurpose purpose, uint64_t segmentId)
  * Allocate an unused segment slot. Returns -1 if there is no
  * slot available.
  *
- * \param type
- *      The type of segment we're allocating a slot for. Some slots
- *      are reserved for special purposes like cleaning and emergency
- *      head segments and can only be allocated if the appropriate
- *      type is provided.
+ * \param purpose 
+ *      The purpose for which the segment slot is being allocated. Some slots
+ *      are reserved for special purposes like cleaning and emergency head
+ *      segments and can only be allocated if the appropriate purpose is given.
  */
 SegmentSlot
 SegmentManager::allocSlot(AllocPurpose purpose)
