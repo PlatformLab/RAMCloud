@@ -643,9 +643,19 @@ Infiniband::QueuePair::plumb(QueuePairTuple *qpt)
 
     // now move to RTS
     qpa.qp_state = IBV_QPS_RTS;
-    qpa.timeout = 14;
-    qpa.retry_cnt = 7;
-    qpa.rnr_retry = 7;
+
+    // How long to wait before retrying if packet lost or server dead.
+    // Supposedly the timeout is 4.096us*2^timeout.  However, the actual
+    // timeout appears to be 4.096us*2^(timeout+1), so the setting
+    // below creates a 1ms timeout.
+    qpa.timeout = 7;
+
+    // How many times to retry after timeouts before giving up.
+    qpa.retry_cnt = 3;
+
+    // How many times to retry after RNR (receiver not ready?) condition
+    // before giving up.
+    qpa.rnr_retry = 5;
     qpa.sq_psn = initialPsn;
     qpa.max_rd_atomic = 1;
 
