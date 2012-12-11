@@ -224,6 +224,13 @@ ObjectManager::writeObject(Key& key,
 
     tabletManager->incrementWriteCount(key);
 
+    TEST_LOG("object: %u bytes, version %lu",
+        appends[0].buffer.getTotalLength(), newObject.getVersion());
+    if (tombstone) {
+        TEST_LOG("tombstone: %u bytes, version %lu",
+            appends[1].buffer.getTotalLength(), tombstone->getObjectVersion());
+    }
+
     return STATUS_OK;
 }
 
@@ -1139,6 +1146,7 @@ ObjectManager::removeIfTombstone(uint64_t maybeTomb, void *cookie)
         }
 
         if (discard) {
+            TEST_LOG("discarding");
             bool r = objectManager->remove(*params->lock, key);
             assert(r);
         }
@@ -1196,8 +1204,10 @@ ObjectManager::RemoveTombstonePoller::RemoveTombstonePoller(
 void
 ObjectManager::RemoveTombstonePoller::poll()
 {
-    if (lastReplaySegmentCount == objectManager->replaySegmentReturnCount)
+    if (lastReplaySegmentCount == objectManager->replaySegmentReturnCount &&
+      currentBucket == 0) {
         return;
+    }
 
     // At the start of a new pass, record the number of replaySegment()
     // calls that have completed by this point. We will then keep doing
@@ -1223,4 +1233,4 @@ ObjectManager::RemoveTombstonePoller::poll()
     }
 }
 
-} // namespace RAMCloud
+} //enamespace RAMCloud

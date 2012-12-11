@@ -102,7 +102,7 @@ class SegmentManager {
 
     SegmentManager(Context* context,
                    const ServerConfig* config,
-                   ServerId& logId,
+                   ServerId logId,
                    SegletAllocator& allocator,
                    ReplicaManager& replicaManager);
     ~SegmentManager();
@@ -266,7 +266,7 @@ class SegmentManager {
 
     /// ServerId this log will be tagged with (for example, in SegmentHeader
     /// structures).
-    const ServerId& logId;
+    const ServerId logId;
 
     /// Allocator to allocate segment memory (seglets) from.
     SegletAllocator& allocator;

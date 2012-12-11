@@ -135,6 +135,43 @@ class ObjectManagerTest : public ::testing::Test {
     }
 
     /**
+     * Store an object in the log and hash table, returning its Log::Reference.
+     */
+    Log::Reference
+    storeObject(Key& key, string value)
+    {
+        Object o(key, value.c_str(), downCast<uint32_t>(value.size()), 0, 0);
+        Buffer buffer;
+        o.serializeToBuffer(buffer);
+        Log::Reference reference;
+        objectManager.log.append(LOG_ENTRY_TYPE_OBJ, 0, buffer, &reference);
+        {
+            ObjectManager::HashTableBucketLock lock(objectManager, key);
+            objectManager.replace(lock, key, reference);
+        }
+        return reference;
+    }
+
+    /**
+     * Store a tombstone in the log and hash table, return its Log::Reference.
+     */
+    Log::Reference
+    storeTombstone(Key& key)
+    {
+        Object o(key, NULL, 0, 1, 0);
+        ObjectTombstone t(o, 0, 0);
+        Buffer buffer;
+        t.serializeToBuffer(buffer);
+        Log::Reference reference;
+        objectManager.log.append(LOG_ENTRY_TYPE_OBJTOMB, 0, buffer, &reference);
+        {
+            ObjectManager::HashTableBucketLock lock(objectManager, key);
+            objectManager.replace(lock, key, reference);
+        }
+        return reference;
+    }
+
+    /**
      * Verify an object replayed during recovery by looking it up in the hash
      * table by key and comparing contents.
      */
@@ -214,6 +251,58 @@ class ObjectManagerTest : public ::testing::Test {
 
     DISALLOW_COPY_AND_ASSIGN(ObjectManagerTest);
 };
+
+TEST_F(ObjectManagerTest, constructor) {
+    // After switching from passing ServerId& to ServerId (we used to not know
+    // the ServerId prior to instantiation), a bug was introduced where OM took
+    // a ServerId, but passed the stack temporary by reference to replicaManager
+    // and SegmentManager. Ensure this doesn't happen anymore.
+    EXPECT_EQ(ServerId(5), objectManager.segmentManager.logId);
+    EXPECT_EQ(ServerId(5), objectManager.replicaManager.masterId);
+}
+
+static bool
+writeObjectFilter(string s)
+{
+    return s == "writeObject";
+}
+
+TEST_F(ObjectManagerTest, writeObject) {
+    Key key(1, "1", 1);
+    Buffer buffer;
+    buffer.append("value", 5);
+
+    // no tablet, no dice.
+    EXPECT_EQ(STATUS_UNKNOWN_TABLET,
+        objectManager.writeObject(key, buffer, 0, 0));
+
+    // non-NORMAL tablet state, no dice.
+    tabletManager.addTablet(1, 0, ~0UL, TabletManager::RECOVERING);
+    EXPECT_EQ(STATUS_UNKNOWN_TABLET,
+        objectManager.writeObject(key, buffer, 0, 0));
+
+    TestLog::Enable _(writeObjectFilter);
+
+    // new object (no tombstone needed)
+    tabletManager.changeState(1, 0, ~0UL, TabletManager::RECOVERING,
+                                          TabletManager::NORMAL);
+    EXPECT_EQ(STATUS_OK, objectManager.writeObject(key, buffer, 0, 0));
+    EXPECT_EQ("writeObject: object: 32 bytes, version 1", TestLog::get());
+
+    // object overwrite (tombstone needed)
+    TestLog::reset();
+    EXPECT_EQ(STATUS_OK, objectManager.writeObject(key, buffer, 0, 0));
+    EXPECT_EQ("writeObject: object: 32 bytes, version 2 | "
+              "writeObject: tombstone: 35 bytes, version 1", TestLog::get());
+}
+
+TEST_F(ObjectManagerTest, readObject) {
+    // XXX
+}
+
+TEST_F(ObjectManagerTest, removeObject) {
+    // XXX
+}
 
 TEST_F(ObjectManagerTest, removeOrphanedObjects) {
     tabletManager.addTablet(97, 0, ~0UL, TabletManager::NORMAL);
@@ -519,32 +608,6 @@ TEST_F(ObjectManagerTest, replaySegment) {
     EXPECT_EQ(10UL, objectManager.segmentManager.safeVersion);
 }
 
-// Fix me.
-#if 0
-TEST_F(ObjectManagerTest, incrementReadAndWriteStatistics) {
-    Buffer value;
-    uint64_t version;
-    int64_t objectValue = 16;
-
-    uint64_t tableId1 = ramcloud->createTable("table1");
-    ramcloud->write(tableId1, "key0", 4, &objectValue, 8, NULL, &version);
-    ramcloud->write(tableId1, "key1", 4, &objectValue, 8, NULL, &version);
-    ramcloud->read(tableId1, "key0", 4, &value);
-    objectValue = ramcloud->increment(tableId1, "key0", 4, 5, NULL, &version);
-
-    Tub<Buffer> val1;
-    MultiReadObject request1(tableId1, "key0", 4, &val1);
-    Tub<Buffer> val2;
-    MultiReadObject request2(tableId1, "key1", 4, &val2);
-    MultiReadObject* requests[] = {&request1, &request2};
-    ramcloud->multiRead(requests, 2);
-
-    TabletsOnMaster* table = reinterpret_cast<TabletsOnMaster*>(
-                                    service->tablets.tablet(0).user_data());
-    EXPECT_EQ((uint64_t)7, table->statEntry.number_read_and_writes());
-}
-#endif
-
 TEST_F(ObjectManagerTest, rejectOperation) {
     RejectRules empty, rules;
     memset(&empty, 0, sizeof(empty));
@@ -773,6 +836,127 @@ TEST_F(ObjectManagerTest, tombstoneRelocationCallback_basics) {
     string comparisonString = "segmentExists: " +
         format("%lu", objectManager.log.getSegmentId(oldTombstoneReference));
     EXPECT_EQ(comparisonString, TestLog::get());
+}
+
+TEST_F(ObjectManagerTest, lookup) {
+    // XXX
+}
+
+TEST_F(ObjectManagerTest, remove) {
+    // XXX
+}
+
+TEST_F(ObjectManagerTest, replace) {
+    // XXX
+}
+
+static bool
+removeIfTombstoneFilter(string s)
+{
+    return s == "removeIfTombstone";
+}
+
+TEST_F(ObjectManagerTest, removeIfTombstone_nonTombstone) {
+    // 1. calling on a non-tombstone does nothing
+    TestLog::Enable _(removeIfTombstoneFilter);
+    Key key(1, "key!", 4);
+    Log::Reference reference = storeObject(key, "value!");
+    tabletManager.addTablet(1, 0, ~0UL, TabletManager::RECOVERING);
+    ObjectManager::CleanupParameters params = { &objectManager, 0 };
+    objectManager.removeIfTombstone(reference.toInteger(), &params);
+    EXPECT_EQ("", TestLog::get());
+}
+
+TEST_F(ObjectManagerTest, removeIfTombstone_recoveringTablet) {
+    // 2. calling on a tombstone with a RECOVERING tablet does nothing
+    TestLog::Enable _(removeIfTombstoneFilter);
+    Key key(1, "key!", 4);
+    Log::Reference reference = storeTombstone(key);
+    tabletManager.addTablet(1, 0, ~0UL, TabletManager::RECOVERING);
+    ObjectManager::CleanupParameters params = { &objectManager, 0 };
+    objectManager.removeIfTombstone(reference.toInteger(), &params);
+    EXPECT_EQ("", TestLog::get());
+}
+
+TEST_F(ObjectManagerTest, removeIfTombstone_nonRecoveringTablet) {
+    // 3. calling on a tombstone with a non-RECOVERING tablet discards
+    TestLog::Enable _(removeIfTombstoneFilter);
+    Key key(1, "key!", 4);
+    Log::Reference reference = storeTombstone(key);
+    tabletManager.addTablet(1, 0, ~0UL, TabletManager::NORMAL);
+    ObjectManager::CleanupParameters params = { &objectManager, 0 };
+    objectManager.removeIfTombstone(reference.toInteger(), &params);
+    EXPECT_EQ("removeIfTombstone: discarding", TestLog::get());
+}
+
+TEST_F(ObjectManagerTest, removeIfTombstone_noTablet) {
+    // 4. calling on a tombstone with no tablet discards
+    TestLog::Enable _(removeIfTombstoneFilter);
+    Key key(1, "key!", 4);
+    Log::Reference reference = storeTombstone(key);
+    ObjectManager::CleanupParameters params = { &objectManager, 0 };
+    objectManager.removeIfTombstone(reference.toInteger(), &params);
+    EXPECT_EQ("removeIfTombstone: discarding", TestLog::get());
+}
+
+TEST_F(ObjectManagerTest, removeTombstones) {
+    Key key(0, "key!", 4);
+    storeTombstone(key);
+
+    objectManager.removeTombstones();
+
+    {
+        ObjectManager::HashTableBucketLock lock(objectManager, key);
+        LogEntryType type;
+        Buffer buffer;
+        EXPECT_FALSE(objectManager.lookup(lock, key, type, buffer, 0, 0));
+    }
+}
+
+TEST_F(ObjectManagerTest, RemoveTombstonePoller_poll) {
+    LogEntryType type;
+    Buffer buffer;
+
+    Key key(0, "key!", 4);
+    storeTombstone(key);
+
+    ObjectManager::RemoveTombstonePoller* remover =
+        &objectManager.tombstoneRemover;
+
+    // poller should do nothing if it doesn't think there's work to do
+    EXPECT_EQ(0U, remover->currentBucket);
+    objectManager.tombstoneRemover.lastReplaySegmentCount =
+        objectManager.replaySegmentReturnCount = 0;
+
+    TestLog::Enable _;
+
+    for (uint64_t i = 0; i < 2 * objectManager.objectMap.getNumBuckets(); i++)
+        objectManager.tombstoneRemover.poll();
+    EXPECT_EQ("", TestLog::get());
+    {
+        ObjectManager::HashTableBucketLock lock(objectManager, key);
+        EXPECT_TRUE(objectManager.lookup(lock, key, type, buffer, 0, 0));
+    }
+
+    // now it should scan the whole thing
+    TestLog::reset();
+    EXPECT_EQ(0U, remover->currentBucket);
+    objectManager.replaySegmentReturnCount++;
+    for (uint64_t i = 0; i < objectManager.objectMap.getNumBuckets(); i++)
+        objectManager.tombstoneRemover.poll();
+    EXPECT_EQ("removeIfTombstone: discarding | "
+              "poll: Cleanup of tombstones completed pass 0", TestLog::get());
+    EXPECT_EQ(1U, remover->passes);
+    {
+        ObjectManager::HashTableBucketLock lock(objectManager, key);
+        EXPECT_FALSE(objectManager.lookup(lock, key, type, buffer, 0, 0));
+    }
+
+    // and it shouldn't run anymore...
+    TestLog::reset();
+    for (uint64_t i = 0; i < 2 * objectManager.objectMap.getNumBuckets(); i++)
+        objectManager.tombstoneRemover.poll();
+    EXPECT_EQ("", TestLog::get());
 }
 
 }  // namespace RAMCloud

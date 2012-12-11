@@ -159,7 +159,7 @@ struct ReplicatedSegmentTest : public ::testing::Test {
         , dataMutex()
         , masterId(999, 0)
         , segmentId(888)
-        , replicationEpoch(&context, &taskQueue, &masterId)
+        , replicationEpoch(&context, &taskQueue, masterId)
         , data()
         , logSegment()
         , openLen(10)

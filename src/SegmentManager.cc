@@ -45,7 +45,7 @@ namespace RAMCloud {
  */
 SegmentManager::SegmentManager(Context* context,
                                const ServerConfig* config,
-                               ServerId& logId,
+                               ServerId logId,
                                SegletAllocator& allocator,
                                ReplicaManager& replicaManager)
     : context(context),

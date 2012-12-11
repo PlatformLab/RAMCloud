@@ -27,7 +27,7 @@ class UpdateReplicationEpochTaskTest : public ::testing::Test {
     CoordinatorService* service;
     ServerId serverId;
     TaskQueue taskQueue;
-    UpdateReplicationEpochTask epoch;
+    Tub<UpdateReplicationEpochTask> epoch;
     CoordinatorServerList* serverList;
 
     UpdateReplicationEpochTaskTest()
@@ -36,75 +36,76 @@ class UpdateReplicationEpochTaskTest : public ::testing::Test {
         , service(cluster.coordinator.get())
         , serverId()
         , taskQueue()
-        , epoch(&context, &taskQueue, &serverId)
+        , epoch()
         , serverList(service->context->coordinatorServerList)
     {
         ServerConfig config = ServerConfig::forTesting();
         config.services = {WireFormat::MASTER_SERVICE};
         serverId = cluster.addServer(config)->serverId;
+        epoch.construct(&context, &taskQueue, serverId);
     }
 
     DISALLOW_COPY_AND_ASSIGN(UpdateReplicationEpochTaskTest);
 };
 
 TEST_F(UpdateReplicationEpochTaskTest, isAtLeast) {
-    epoch.updateToAtLeast(1, 0); // first request
-    EXPECT_FALSE(epoch.isAtLeast(1, 0));
+    epoch->updateToAtLeast(1, 0); // first request
+    EXPECT_FALSE(epoch->isAtLeast(1, 0));
     taskQueue.performTask(); // send rpc
-    EXPECT_FALSE(epoch.isAtLeast(1, 0));
-    epoch.updateToAtLeast(2, 0); // request while rpc outstanding
-    epoch.updateToAtLeast(2, 1); // request while rpc outstanding
-    EXPECT_FALSE(epoch.isAtLeast(1, 0));
+    EXPECT_FALSE(epoch->isAtLeast(1, 0));
+    epoch->updateToAtLeast(2, 0); // request while rpc outstanding
+    epoch->updateToAtLeast(2, 1); // request while rpc outstanding
+    EXPECT_FALSE(epoch->isAtLeast(1, 0));
     taskQueue.performTask(); // reap rpc
-    EXPECT_TRUE(epoch.isAtLeast(1, 0));
-    EXPECT_FALSE(epoch.isAtLeast(2, 1));
+    EXPECT_TRUE(epoch->isAtLeast(1, 0));
+    EXPECT_FALSE(epoch->isAtLeast(2, 1));
     taskQueue.performTask(); // send rpc
     taskQueue.performTask(); // reap rpc
-    EXPECT_TRUE(epoch.isAtLeast(2, 0));
-    EXPECT_TRUE(epoch.isAtLeast(2, 1));
-    EXPECT_FALSE(epoch.isAtLeast(2, 2));
-    EXPECT_FALSE(epoch.isAtLeast(3, 0));
+    EXPECT_TRUE(epoch->isAtLeast(2, 0));
+    EXPECT_TRUE(epoch->isAtLeast(2, 1));
+    EXPECT_FALSE(epoch->isAtLeast(2, 2));
+    EXPECT_FALSE(epoch->isAtLeast(3, 0));
 }
 
 TEST_F(UpdateReplicationEpochTaskTest, updateToAtLeast) {
     auto coordRecoveryInfo = &(*serverList)[serverId].masterRecoveryInfo;
     typedef UpdateReplicationEpochTask::ReplicationEpoch Epoch;
-    epoch.updateToAtLeast(1, 0); // first request
-    EXPECT_EQ(Epoch(1, 0), epoch.requested);
-    EXPECT_EQ(Epoch(0, 0), epoch.sent);
-    EXPECT_EQ(Epoch(0, 0), epoch.current);
+    epoch->updateToAtLeast(1, 0); // first request
+    EXPECT_EQ(Epoch(1, 0), epoch->requested);
+    EXPECT_EQ(Epoch(0, 0), epoch->sent);
+    EXPECT_EQ(Epoch(0, 0), epoch->current);
     EXPECT_EQ(0lu, coordRecoveryInfo->min_open_segment_id());
     EXPECT_EQ(0lu, coordRecoveryInfo->min_open_segment_epoch());
-    EXPECT_TRUE(epoch.isScheduled());
+    EXPECT_TRUE(epoch->isScheduled());
     taskQueue.performTask(); // send rpc
-    epoch.updateToAtLeast(1, 1); // request while rpc outstanding
-    EXPECT_EQ(Epoch(1, 1), epoch.requested);
-    EXPECT_EQ(Epoch(1, 0), epoch.sent);
-    EXPECT_EQ(Epoch(0, 0), epoch.current);
+    epoch->updateToAtLeast(1, 1); // request while rpc outstanding
+    EXPECT_EQ(Epoch(1, 1), epoch->requested);
+    EXPECT_EQ(Epoch(1, 0), epoch->sent);
+    EXPECT_EQ(Epoch(0, 0), epoch->current);
     coordRecoveryInfo = &(*serverList)[serverId].masterRecoveryInfo;
     EXPECT_EQ(1lu, coordRecoveryInfo->min_open_segment_id());
     EXPECT_EQ(0lu, coordRecoveryInfo->min_open_segment_epoch());
-    EXPECT_TRUE(epoch.rpc);
-    EXPECT_TRUE(epoch.isScheduled());
+    EXPECT_TRUE(epoch->rpc);
+    EXPECT_TRUE(epoch->isScheduled());
     taskQueue.performTask(); // reap rpc
-    EXPECT_EQ(Epoch(1, 1), epoch.requested);
-    EXPECT_EQ(Epoch(1, 0), epoch.sent);
-    EXPECT_EQ(Epoch(1, 0), epoch.current);
+    EXPECT_EQ(Epoch(1, 1), epoch->requested);
+    EXPECT_EQ(Epoch(1, 0), epoch->sent);
+    EXPECT_EQ(Epoch(1, 0), epoch->current);
     coordRecoveryInfo = &(*serverList)[serverId].masterRecoveryInfo;
     EXPECT_EQ(1lu, coordRecoveryInfo->min_open_segment_id());
     EXPECT_EQ(0lu, coordRecoveryInfo->min_open_segment_epoch());
-    EXPECT_FALSE(epoch.rpc);
-    EXPECT_TRUE(epoch.isScheduled());
+    EXPECT_FALSE(epoch->rpc);
+    EXPECT_TRUE(epoch->isScheduled());
     taskQueue.performTask(); // send rpc
     taskQueue.performTask(); // reap rpc
-    EXPECT_EQ(Epoch(1, 1), epoch.requested);
-    EXPECT_EQ(Epoch(1, 1), epoch.sent);
-    EXPECT_EQ(Epoch(1, 1), epoch.current);
+    EXPECT_EQ(Epoch(1, 1), epoch->requested);
+    EXPECT_EQ(Epoch(1, 1), epoch->sent);
+    EXPECT_EQ(Epoch(1, 1), epoch->current);
     coordRecoveryInfo = &(*serverList)[serverId].masterRecoveryInfo;
     EXPECT_EQ(1lu, coordRecoveryInfo->min_open_segment_id());
     EXPECT_EQ(1lu, coordRecoveryInfo->min_open_segment_epoch());
-    EXPECT_FALSE(epoch.rpc);
-    EXPECT_FALSE(epoch.isScheduled());
+    EXPECT_FALSE(epoch->rpc);
+    EXPECT_FALSE(epoch->isScheduled());
 }
 
 }  // namespace RAMCloud

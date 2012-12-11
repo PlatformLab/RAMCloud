@@ -56,9 +56,11 @@ struct ReplicaManagerTest : public ::testing::Test {
         config.localLocator = "mock:host=backup2";
         backup2Id = addToServerList(cluster.addServer(config));
 
-        mgr.construct(&context, serverId, 2, false);
+        // Get the ServerId _before_ it's used. We don't pass by reference
+        // anymore.
         serverId = CoordinatorClient::enlistServer(&context, {},
             {WireFormat::MASTER_SERVICE}, "", 0);
+        mgr.construct(&context, serverId, 2, false);
         cluster.coordinatorContext.coordinatorServerList->sync();
     }
 
