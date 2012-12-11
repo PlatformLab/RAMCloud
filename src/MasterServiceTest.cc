@@ -1090,9 +1090,9 @@ TEST_F(MasterServiceTest, splitMasterTablet) {
                                     0, ~0UL, (~0UL/2));
     EXPECT_EQ(
         "{ tableId: 0 startKeyHash: 0 "
-            "endKeyHash: 9223372036854775806 state: 0 }\n"
+            "endKeyHash: 9223372036854775806 state: 0 reads: 0 writes: 0 }\n"
         "{ tableId: 0 startKeyHash: 9223372036854775807 "
-            "endKeyHash: 18446744073709551615 state: 0 }",
+            "endKeyHash: 18446744073709551615 state: 0 reads: 0 writes: 0 }",
         service->tabletManager.toString());
 }
 
@@ -1138,8 +1138,10 @@ TEST_F(MasterServiceTest, takeTabletOwnership_newTablet) {
         service->tabletManager.addTablet(2, 0, 1, TabletManager::NORMAL);
 
         EXPECT_EQ(
-            "{ tableId: 1 startKeyHash: 0 endKeyHash: 1 state: 0 }\n"
-            "{ tableId: 2 startKeyHash: 0 endKeyHash: 1 state: 0 }",
+            "{ tableId: 1 startKeyHash: 0 "
+                "endKeyHash: 1 state: 0 reads: 0 writes: 0 }\n"
+            "{ tableId: 2 startKeyHash: 0 "
+                "endKeyHash: 1 state: 0 reads: 0 writes: 0 }",
             service->tabletManager.toString());
     }
 
@@ -1152,11 +1154,16 @@ TEST_F(MasterServiceTest, takeTabletOwnership_newTablet) {
             3, 0, 1);
 
         EXPECT_EQ(
-            "{ tableId: 1 startKeyHash: 0 endKeyHash: 1 state: 0 }\n"
-            "{ tableId: 2 startKeyHash: 0 endKeyHash: 1 state: 0 }\n"
-            "{ tableId: 2 startKeyHash: 2 endKeyHash: 3 state: 0 }\n"
-            "{ tableId: 2 startKeyHash: 4 endKeyHash: 5 state: 0 }\n"
-            "{ tableId: 3 startKeyHash: 0 endKeyHash: 1 state: 0 }",
+            "{ tableId: 1 startKeyHash: 0 "
+                "endKeyHash: 1 state: 0 reads: 0 writes: 0 }\n"
+            "{ tableId: 2 startKeyHash: 0 "
+                "endKeyHash: 1 state: 0 reads: 0 writes: 0 }\n"
+            "{ tableId: 2 startKeyHash: 2 "
+                "endKeyHash: 3 state: 0 reads: 0 writes: 0 }\n"
+            "{ tableId: 2 startKeyHash: 4 "
+                "endKeyHash: 5 state: 0 reads: 0 writes: 0 }\n"
+            "{ tableId: 3 startKeyHash: 0 "
+                "endKeyHash: 1 state: 0 reads: 0 writes: 0 }",
             service->tabletManager.toString());
 
         EXPECT_EQ(

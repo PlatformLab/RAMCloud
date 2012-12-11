@@ -138,9 +138,10 @@ class ObjectManagerTest : public ::testing::Test {
      * Store an object in the log and hash table, returning its Log::Reference.
      */
     Log::Reference
-    storeObject(Key& key, string value)
+    storeObject(Key& key, string value, uint64_t version = 0)
     {
-        Object o(key, value.c_str(), downCast<uint32_t>(value.size()), 0, 0);
+        Object o(key, value.c_str(),
+            downCast<uint32_t>(value.size()), version, 0);
         Buffer buffer;
         o.serializeToBuffer(buffer);
         Log::Reference reference;
@@ -156,9 +157,9 @@ class ObjectManagerTest : public ::testing::Test {
      * Store a tombstone in the log and hash table, return its Log::Reference.
      */
     Log::Reference
-    storeTombstone(Key& key)
+    storeTombstone(Key& key, uint64_t version = 0)
     {
-        Object o(key, NULL, 0, 1, 0);
+        Object o(key, NULL, 0, version, 0);
         ObjectTombstone t(o, 0, 0);
         Buffer buffer;
         t.serializeToBuffer(buffer);
@@ -297,11 +298,96 @@ TEST_F(ObjectManagerTest, writeObject) {
 }
 
 TEST_F(ObjectManagerTest, readObject) {
-    // XXX
+    Buffer buffer;
+    Key key(1, "1", 1);
+    storeObject(key, "hi", 93);
+
+    // no tablet, no dice
+    EXPECT_EQ(STATUS_UNKNOWN_TABLET,
+        objectManager.readObject(key, &buffer, 0, 0));
+
+    // non-normal tablet, no dice
+    tabletManager.addTablet(1, 0, ~0UL, TabletManager::RECOVERING);
+    EXPECT_EQ(STATUS_UNKNOWN_TABLET,
+        objectManager.readObject(key, &buffer, 0, 0));
+
+    // (now make the tablet acceptable for handling reads)
+    tabletManager.changeState(1, 0, ~0UL, TabletManager::RECOVERING,
+                                          TabletManager::NORMAL);
+
+    // not found, clearly no dice
+    Key key2(1, "2", 1);
+    EXPECT_EQ(STATUS_OBJECT_DOESNT_EXIST,
+        objectManager.readObject(key2, &buffer, 0, 0));
+
+    // non-object, no dice
+    storeTombstone(key2);
+    EXPECT_EQ(STATUS_OBJECT_DOESNT_EXIST,
+        objectManager.readObject(key2, &buffer, 0, 0));
+
+    // ensure reject rules are applied
+    RejectRules rules;
+    memset(&rules, 0, sizeof(rules));
+    rules.exists = 1;
+    EXPECT_EQ(STATUS_OBJECT_EXISTS,
+        objectManager.readObject(key, &buffer, &rules, 0));
+
+    // let's finally try a case that should work...
+    uint64_t version;
+    EXPECT_EQ(STATUS_OK, objectManager.readObject(key, &buffer, 0, &version));
+    EXPECT_EQ(93UL, version);
+    EXPECT_EQ(
+        "{ tableId: 0 startKeyHash: 0 "
+            "endKeyHash: 18446744073709551615 state: 0 reads: 0 writes: 0 }\n"
+        "{ tableId: 1 startKeyHash: 0 "
+            "endKeyHash: 18446744073709551615 state: 0 reads: 1 writes: 0 }",
+        tabletManager.toString());
 }
 
 TEST_F(ObjectManagerTest, removeObject) {
-    // XXX
+    Key key(1, "1", 1);
+    storeObject(key, "hi", 93);
+
+    // no tablet, no dice
+    EXPECT_EQ(STATUS_UNKNOWN_TABLET, objectManager.removeObject(key, 0, 0));
+
+    // non-normal tablet, no dice
+    tabletManager.addTablet(1, 0, ~0UL, TabletManager::RECOVERING);
+    EXPECT_EQ(STATUS_UNKNOWN_TABLET, objectManager.removeObject(key, 0, 0));
+
+    // (now make the tablet acceptable for handling removes)
+    tabletManager.changeState(1, 0, ~0UL, TabletManager::RECOVERING,
+                                          TabletManager::NORMAL);
+
+    // not found, not an error
+    Key key2(1, "2", 1);
+    EXPECT_EQ(STATUS_OK, objectManager.removeObject(key2, 0, 0));
+
+    // non-object, not an error
+    storeTombstone(key2);
+    EXPECT_EQ(STATUS_OK, objectManager.removeObject(key2, 0, 0));
+
+    // ensure reject rules are applied
+    RejectRules rules;
+    memset(&rules, 0, sizeof(rules));
+    rules.exists = 1;
+    EXPECT_EQ(STATUS_OBJECT_EXISTS,
+        objectManager.removeObject(key, &rules, 0));
+
+    // let's finally try a case that should work...
+    TestLog::Enable _;
+    uint64_t version;
+    EXPECT_EQ(STATUS_OK, objectManager.removeObject(key, 0, &version));
+    EXPECT_EQ(93UL, version);
+    EXPECT_EQ("sync: syncing | schedule: zero replicas: nothing to schedule | "
+        "sync: log synced | free: free on reference 31457334", TestLog::get());
+    Buffer buffer;
+    EXPECT_EQ(STATUS_OBJECT_DOESNT_EXIST,
+        objectManager.readObject(key, &buffer, 0, 0));
+    EXPECT_EQ(94UL, objectManager.segmentManager.safeVersion);
+    LogEntryType type;
+    ObjectManager::HashTableBucketLock lock(objectManager, key);
+    EXPECT_FALSE(objectManager.lookup(lock, key, type, buffer, 0, 0));
 }
 
 TEST_F(ObjectManagerTest, removeOrphanedObjects) {
@@ -838,16 +924,112 @@ TEST_F(ObjectManagerTest, tombstoneRelocationCallback_basics) {
     EXPECT_EQ(comparisonString, TestLog::get());
 }
 
-TEST_F(ObjectManagerTest, lookup) {
-    // XXX
+TEST_F(ObjectManagerTest, lookup_object) {
+    Key key(1, "1", 1);
+    Buffer buffer;
+    LogEntryType type;
+
+    {
+        ObjectManager::HashTableBucketLock lock(objectManager, key);
+        EXPECT_FALSE(objectManager.lookup(lock, key, type, buffer, 0, 0));
+    }
+
+    Log::Reference reference = storeObject(key, "value", 15);
+
+    {
+        ObjectManager::HashTableBucketLock lock(objectManager, key);
+        EXPECT_TRUE(objectManager.lookup(lock, key, type, buffer, 0, 0));
+    }
+    Object o(buffer);
+    EXPECT_EQ(LOG_ENTRY_TYPE_OBJ, type);
+    EXPECT_EQ(0, memcmp("1", o.getKey(), 1));
+    EXPECT_EQ(0, memcmp("value", o.getData(), 5));
+
+    uint64_t v;
+    Log::Reference r;
+    ObjectManager::HashTableBucketLock lock(objectManager, key);
+    EXPECT_TRUE(objectManager.lookup(lock, key, type, buffer, &v, &r));
+    EXPECT_EQ(15U, v);
+    EXPECT_EQ(reference, r);
+}
+
+TEST_F(ObjectManagerTest, lookup_tombstone) {
+    Key key(1, "1", 1);
+    Buffer buffer;
+    LogEntryType type;
+
+    Log::Reference reference = storeTombstone(key, 15);
+
+    {
+        ObjectManager::HashTableBucketLock lock(objectManager, key);
+        EXPECT_TRUE(objectManager.lookup(lock, key, type, buffer, 0, 0));
+    }
+    ObjectTombstone t(buffer);
+    EXPECT_EQ(LOG_ENTRY_TYPE_OBJTOMB, type);
+    EXPECT_EQ(0, memcmp("1", t.getKey(), 1));
+    EXPECT_EQ(15U, t.getObjectVersion());
+
+    uint64_t v;
+    Log::Reference r;
+    ObjectManager::HashTableBucketLock lock(objectManager, key);
+    EXPECT_TRUE(objectManager.lookup(lock, key, type, buffer, &v, &r));
+    EXPECT_EQ(15U, v);
+    EXPECT_EQ(reference, r);
 }
 
 TEST_F(ObjectManagerTest, remove) {
-    // XXX
+    Key key(1, "1", 1);
+    Key key2(2, "2", 2);
+
+    {
+        ObjectManager::HashTableBucketLock lock(objectManager, key);
+        EXPECT_FALSE(objectManager.remove(lock, key));
+    }
+
+    storeObject(key, "value1", 15);
+    storeTombstone(key2, 827);
+
+    {
+        ObjectManager::HashTableBucketLock lock(objectManager, key);
+        EXPECT_TRUE(objectManager.remove(lock, key));
+        EXPECT_FALSE(objectManager.remove(lock, key));
+
+        EXPECT_TRUE(objectManager.remove(lock, key2));
+        EXPECT_FALSE(objectManager.remove(lock, key2));
+    }
 }
 
-TEST_F(ObjectManagerTest, replace) {
-    // XXX
+TEST_F(ObjectManagerTest, replace_noPriorVersion) {
+    Key key(1, "1", 1);
+
+    ObjectManager::HashTableBucketLock lock(objectManager, key);
+    EXPECT_TRUE(objectManager.objectMap.lookup(key).isDone());
+
+    Log::Reference reference(0xdeadbeef);
+    EXPECT_FALSE(objectManager.replace(lock, key, reference));
+    EXPECT_FALSE(objectManager.objectMap.lookup(key).isDone());
+    EXPECT_EQ(reference.toInteger(),
+        objectManager.objectMap.lookup(key).getReference());
+}
+
+TEST_F(ObjectManagerTest, replace_priorVersion) {
+    Key key(1, "1", 1);
+
+    Log::Reference firstRef = storeObject(key, "old", 0);
+    {
+        ObjectManager::HashTableBucketLock lock(objectManager, key);
+        EXPECT_TRUE(objectManager.remove(lock, key));
+        EXPECT_FALSE(objectManager.replace(lock, key, firstRef));
+    }
+    Log::Reference secondRef = storeObject(key, "new", 1);
+    {
+        ObjectManager::HashTableBucketLock lock(objectManager, key);
+        EXPECT_TRUE(objectManager.replace(lock, key, secondRef));
+    }
+
+    EXPECT_FALSE(objectManager.objectMap.lookup(key).isDone());
+    EXPECT_EQ(secondRef.toInteger(),
+        objectManager.objectMap.lookup(key).getReference());
 }
 
 static bool

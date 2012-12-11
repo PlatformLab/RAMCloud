@@ -231,11 +231,14 @@ TEST_F(TabletManagerTest, getCount) {
 TEST_F(TabletManagerTest, toString) {
     EXPECT_EQ("", tm.toString());
     tm.addTablet(0, 1, 2, TabletManager::NORMAL);
-    EXPECT_EQ("{ tableId: 0 startKeyHash: 1 endKeyHash: 2 state: 0 }",
-        tm.toString());
+    EXPECT_EQ("{ tableId: 0 startKeyHash: 1 "
+        "endKeyHash: 2 state: 0 reads: 0 writes: 0 }", tm.toString());
     tm.addTablet(9, 8, 7, TabletManager::RECOVERING);
-    EXPECT_EQ("{ tableId: 0 startKeyHash: 1 endKeyHash: 2 state: 0 }\n"
-              "{ tableId: 9 startKeyHash: 8 endKeyHash: 7 state: 1 }",
+    EXPECT_EQ(
+        "{ tableId: 0 startKeyHash: 1 "
+            "endKeyHash: 2 state: 0 reads: 0 writes: 0 }\n"
+        "{ tableId: 9 startKeyHash: 8 "
+            "endKeyHash: 7 state: 1 reads: 0 writes: 0 }",
         tm.toString());
 }
 

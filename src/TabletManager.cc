@@ -299,6 +299,10 @@ TabletManager::changeState(uint64_t tableId,
     return true;
 }
 
+/**
+ * Increment the object read counter on the tablet associated with the given
+ * key.
+ */
 void
 TabletManager::incrementReadCount(Key& key)
 {
@@ -308,6 +312,10 @@ TabletManager::incrementReadCount(Key& key)
         it->second.readCount++;
 }
 
+/**
+ * Increment the object write counter on the tablet associated with the given
+ * key.
+ */
 void
 TabletManager::incrementWriteCount(Key& key)
 {
@@ -317,6 +325,10 @@ TabletManager::incrementWriteCount(Key& key)
         it->second.writeCount++;
 }
 
+/**
+ * Populate a ServerStatistics protocol buffer with read and write statistics
+ * gathered for our tablets.
+ */
 void
 TabletManager::getStatistics(ProtoBuf::ServerStatistics* serverStatistics)
 {
@@ -363,8 +375,8 @@ TabletManager::toString()
             output += "\n";
         Tablet* t = &it->second;
         output += format("{ tableId: %lu startKeyHash: %lu endKeyHash: %lu "
-            "state: %d }", t->tableId, t->startKeyHash, t->endKeyHash,
-            t->state);
+            "state: %d reads: %lu writes: %lu }", t->tableId, t->startKeyHash,
+            t->endKeyHash, t->state, t->readCount, t->writeCount);
         ++it;
     }
 
