@@ -226,10 +226,10 @@ class RecoveryMasterFinishedTask : public Task {
                         ServerId(tablet.server_id()).toString().c_str(),
                         tablet.table_id(), tablet.start_key_hash(),
                         tablet.end_key_hash());
-                    mgr.tableManager.modifyTabletOnRecovery(
+                    mgr.tableManager.tabletRecovered(
                         tablet.table_id(),
                         tablet.start_key_hash(), tablet.end_key_hash(),
-                        ServerId(tablet.server_id()), Tablet::NORMAL,
+                        ServerId(tablet.server_id()),
                         {tablet.ctime_log_head_id(),
                                 tablet.ctime_log_head_offset()});
                 } catch (const Exception& e) {

@@ -132,17 +132,33 @@ TableManager::getTableId(const char* name)
 }
 
 /**
- * Public version of modifyTablet. To be called only by MasterRecoveryManager
- * after recovery.
+ * Used by MasterRecoveryManager after recovery for a tablet has successfully
+ * completed to inform coordinator about the new master for the tablet.
+ * 
+ * \param tableId
+ *      Table id of the tablet.
+ * \param startKeyHash
+ *      First key hash that is part of the range of key hashes for the tablet
+ *      to return the details of.
+ * \param endKeyHash
+ *      Last key hash that is part of the range of key hashes for the tablet
+ *      to return the details of.
+ * \param serverId
+ *      Tablet is updated to indicate that it is owned by \a serverId.
+ * \param ctime
+ *      Tablet is updated with this Log::Position indicating any object earlier
+ *      than \a ctime in its log cannot contain objects belonging to it.
+ * \throw NoSuchTablet
+ *      If the arguments do not identify a tablet currently in the tablet map.
  */
 void
-TableManager::modifyTabletOnRecovery(
+TableManager::tabletRecovered(
         uint64_t tableId, uint64_t startKeyHash, uint64_t endKeyHash,
-        ServerId serverId, Tablet::Status status, Log::Position ctime)
+        ServerId serverId, Log::Position ctime)
 {
     Lock lock(mutex);
     modifyTablet(lock, tableId, startKeyHash, endKeyHash,
-                 serverId, status, ctime);
+                 serverId, Tablet::NORMAL, ctime);
 }
 
 /**
