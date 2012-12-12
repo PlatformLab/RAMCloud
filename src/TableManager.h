@@ -19,6 +19,8 @@
 #include <Client/Client.h>
 #include <mutex>
 
+#include "TableDrop.pb.h"
+#include "TableInformation.pb.h"
 #include "Tablets.pb.h"
 
 #include "Common.h"
@@ -94,6 +96,13 @@ class TableManager {
                      uint64_t startKeyHash, uint64_t endKeyHash,
                      uint64_t splitKeyHash);
 
+    void recoverAliveTable(ProtoBuf::TableInformation* state,
+                           EntryId entryId);
+    void recoverCreateTable(ProtoBuf::TableInformation* state,
+                            EntryId entryId);
+    void recoverDropTable(ProtoBuf::TableDrop* state,
+                          EntryId entryId);
+
     /**
      * Provides monitor-style protection for all operations on the tablet map.
      * A Lock for this mutex must be held to read or modify any state in
@@ -103,6 +112,86 @@ class TableManager {
     typedef std::unique_lock<std::mutex> Lock;
 
   PRIVATE:
+
+    /**
+     * Defines methods and stores data to create a table.
+     */
+    class CreateTable {
+      public:
+        CreateTable(TableManager &tm,
+                    const Lock& lock,
+                    const char* name,
+                    uint32_t serverSpan,
+                    ProtoBuf::TableInformation state =
+                                ProtoBuf::TableInformation())
+            : tm(tm), lock(lock),
+              name(name),
+              tableId(),
+              serverSpan(serverSpan),
+              state(state) {}
+        uint64_t execute();
+        uint64_t complete(EntryId entryId);
+
+      private:
+        /**
+         * Reference to the instance of TableManager initializing this class.
+         */
+        TableManager &tm;
+        /**
+         * Explicitly needs a TableManager lock.
+         */
+        const Lock& lock;
+        /**
+         * Name for the table to be created.
+         */
+        const char* name;
+        /**
+         * tableId of the table created.
+         */
+        uint64_t tableId;
+        /**
+         * Number of servers across which this table should be split during
+         * creation.
+         */
+        uint32_t serverSpan;
+        /**
+         * State information for this operation that was logged to LogCabin.
+         * This is used to get the computed tablet to master mappings for
+         * each tablet in this table.
+         */
+        ProtoBuf::TableInformation state;
+        DISALLOW_COPY_AND_ASSIGN(CreateTable);
+    };
+
+    /**
+     * Defines methods and stores data to create a table.
+     */
+    class DropTable {
+      public:
+        DropTable(TableManager &tm,
+                  const Lock& lock,
+                  const char* name)
+            : tm(tm), lock(lock),
+              name(name) {}
+        void execute();
+        void complete(EntryId entryId);
+
+      private:
+        /**
+         * Reference to the instance of TableManager initializing this class.
+         */
+        TableManager &tm;
+        /**
+         * Explicitly needs a TableManager lock.
+         */
+        const Lock& lock;
+        /**
+         * Name for the table to be dropped.
+         */
+        const char* name;
+        DISALLOW_COPY_AND_ASSIGN(DropTable);
+    };
+
     void addTablet(const Lock& lock, const Tablet& tablet);
     Tablet& find(const Lock& lock,
                  uint64_t tableId,

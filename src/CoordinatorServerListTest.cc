@@ -141,26 +141,26 @@ class CoordinatorServerListTest : public ::testing::Test {
         masterServerId = masterServer->serverId;
     }
 
+    /**
+     * From the debug log messages, find the entry id specified immediately
+     * next to the given search string.
+     */
+    EntryId
+    findEntryId(string searchString) {
+        auto position = TestLog::get().find(searchString);
+        if (position == string::npos) {
+            throw "Search string not found";
+        } else {
+            string entryIdString =
+                TestLog::get().substr(TestLog::get().find(searchString) +
+                                      searchString.length(), 1);
+            return strtoul(entryIdString.c_str(), NULL, 0);
+        }
+    }
+
     typedef std::unique_lock<std::mutex> Lock;
     DISALLOW_COPY_AND_ASSIGN(CoordinatorServerListTest);
 };
-
-/**
- * From the debug log messages, find the entry id specified immediately
- * next to the given search string.
- */
-EntryId
-findEntryId(string searchString) {
-    auto position = TestLog::get().find(searchString);
-    if (position == string::npos) {
-        throw "Search string not found";
-    } else {
-        string entryIdString =
-            TestLog::get().substr(TestLog::get().find(searchString) +
-                                  searchString.length(), 1);
-        return strtoul(entryIdString.c_str(), NULL, 0);
-    }
-}
 
 /*
  * Return true if a CoordinatorServerList::Entry is indentical to the

@@ -854,7 +854,7 @@ CoordinatorServerList::getReferenceFromServerId(const Lock& lock,
 
 /**
  * Return the entry id corresponding to entry in LogCabin log
- * that has the intial information for the server.
+ * that has the initial information for the server.
  *
  * \param lock
  *      Explicity needs CoordinatorServerList lock.
@@ -863,7 +863,7 @@ CoordinatorServerList::getReferenceFromServerId(const Lock& lock,
  *      LogCabin entry id is being requested.
  *
  * \return
- *      LogCabin entry id corresponding to the intial information for server.
+ *      LogCabin entry id corresponding to the initial information for server.
  */
 LogCabin::Client::EntryId
 CoordinatorServerList::getServerInfoLogId(Lock& lock, ServerId serverId)
