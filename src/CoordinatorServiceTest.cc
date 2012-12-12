@@ -142,7 +142,7 @@ TEST_F(CoordinatorServiceTest, getTabletMap) {
               "end_key_hash: 18446744073709551615 "
               "state: NORMAL server_id: 1 "
               "service_locator: \"mock:host=master\" "
-              "ctime_log_head_id: 2 ctime_log_head_offset: 62 }",
+              "ctime_log_head_id: 0 ctime_log_head_offset: 0 }",
               tabletMapProtoBuf.ShortDebugString());
 }
 

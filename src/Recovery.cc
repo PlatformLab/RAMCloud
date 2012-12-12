@@ -556,7 +556,7 @@ Recovery::startBackups()
         _(&metrics->coordinator.recoveryBuildReplicaMapTicks);
 
     auto tablets = tableManager->setStatusForServer(crashedServerId,
-                                                 Tablet::RECOVERING);
+                                                    Tablet::RECOVERING);
 
     if (tablets.size() == 0) {
         LOG(NOTICE, "Server %s crashed, but it had no tablets",

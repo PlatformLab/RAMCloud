@@ -360,7 +360,7 @@ MasterRecoveryManager::startMasterRecovery(
                         crashedServer.masterRecoveryInfo))->schedule();
     } catch (const Exception& e) {
         // Check one last time just to sanity check the correctness of the
-        // recovery mananger: make sure that if the server isn't in the
+        // recovery manager: make sure that if the server isn't in the
         // server list anymore (presumably because a recovery completed on
         // it since the time of the start of the call) that there really aren't
         // any tablets left on it.

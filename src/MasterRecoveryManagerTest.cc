@@ -214,7 +214,6 @@ TEST_F(MasterRecoveryManagerTest, recoveryMasterFinished) {
     MockRandom __(1);
     tableManager.addTablet(lock, {0, 0, ~0lu, {1, 0}, Tablet::NORMAL, {2, 3}});
 
-// TODO(ankitak): I was here.
     EXPECT_EQ(0lu, serverList.version);
     auto crashedServerId = addMaster(lock);
     crashServer(lock, crashedServerId);
