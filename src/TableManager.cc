@@ -504,6 +504,7 @@ TableManager::CreateTable::execute()
     EntryId entryId =
         tm.context->logCabinHelper->appendProtoBuf(
             *tm.context->expectedEntryId, state);
+    tm.setTableInfoLogId(lock, tableId, entryId);
     LOG(DEBUG, "LogCabin: CreatingTable entryId: %lu", entryId);
 
     return complete(entryId);
@@ -575,6 +576,7 @@ TableManager::CreateTable::complete(EntryId entryId)
     state.set_entry_type("AliveTable");
     EntryId newEntryId = tm.context->logCabinHelper->appendProtoBuf(
             *tm.context->expectedEntryId, state, vector<EntryId>({entryId}));
+    tm.setTableInfoLogId(lock, tableId, newEntryId);
     LOG(DEBUG, "LogCabin: AliveTable entryId: %lu", newEntryId);
 
     return tableId;
@@ -586,6 +588,7 @@ TableManager::DropTable::execute()
     Tables::iterator it = tm.tables.find(name);
     if (it == tm.tables.end())
         return;
+    uint64_t tableId = it->second;
 
     ProtoBuf::TableDrop state;
     state.set_entry_type("DroppingTable");
@@ -593,6 +596,7 @@ TableManager::DropTable::execute()
 
     EntryId entryId = tm.context->logCabinHelper->appendProtoBuf(
             *tm.context->expectedEntryId, state);
+    tm.setTableIncompleteOpLogId(lock, tableId, entryId);
     LOG(DEBUG, "LogCabin: DroppingTable entryId: %lu", entryId);
 
     return complete(entryId);
