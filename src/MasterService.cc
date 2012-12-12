@@ -83,15 +83,21 @@ MasterService::~MasterService()
 {
 }
 
+// See Server::dispatch.
 void
 MasterService::dispatch(WireFormat::Opcode opcode, Rpc* rpc)
 {
-    assert(initCalled);
-
     if (disableCount  > 0) {
         LOG(NOTICE, "requesting retry of %s request (master disable count %d)",
                 WireFormat::opcodeSymbol(opcode),
                 disableCount.load());
+        prepareErrorResponse(rpc->replyPayload, STATUS_RETRY);
+        return;
+    }
+
+    if (!initCalled) {
+        LOG(DEBUG, "init not yet called; requesting retry of %s request",
+            WireFormat::opcodeSymbol(opcode));
         prepareErrorResponse(rpc->replyPayload, STATUS_RETRY);
         return;
     }
@@ -185,14 +191,13 @@ MasterService::dispatch(WireFormat::Opcode opcode, Rpc* rpc)
  * enlisted the process with the coordinator.
  */
 void
-MasterService::init(ServerId id)
+MasterService::initOnceEnlisted()
 {
     assert(!initCalled);
-
-    serverId = id;
     LOG(NOTICE, "My server ID is %s", serverId.toString().c_str());
     metrics->serverId = serverId.getId();
     objectManager.construct(context, serverId, config, &tabletManager);
+    Fence::sfence();
     initCalled = true;
 }
 
@@ -203,8 +208,8 @@ MasterService::init(ServerId id)
  */
 void
 MasterService::enumerate(const WireFormat::Enumerate::Request* reqHdr,
-                           WireFormat::Enumerate::Response* respHdr,
-                           Rpc* rpc)
+                         WireFormat::Enumerate::Response* respHdr,
+                         Rpc* rpc)
 {
     TabletManager::Tablet tablet;
     bool found = tabletManager.getTablet(reqHdr->tableId,

@@ -52,7 +52,6 @@ class MasterService : public Service {
     MasterService(Context* context,
                   const ServerConfig* config);
     virtual ~MasterService();
-    void init(ServerId id);
     void dispatch(WireFormat::Opcode opcode,
                   Rpc* rpc);
     int maxThreads() { return 1; }
@@ -221,6 +220,8 @@ class MasterService : public Service {
     void removeTombstones();
 
   PRIVATE:
+    void initOnceEnlisted();
+
     static void
     detectSegmentRecoveryFailure(
                         const ServerId masterId,

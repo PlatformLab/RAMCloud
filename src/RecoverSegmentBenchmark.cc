@@ -48,7 +48,7 @@ class RecoverSegmentBenchmark {
         config.segmentSize = Segment::DEFAULT_SEGMENT_SIZE;
         config.segletSize = Seglet::DEFAULT_SEGLET_SIZE;
         service = new MasterService(&context, &config);
-        service->init({1, 0});
+        service->setServerId({1, 0});
     }
 
     ~RecoverSegmentBenchmark()

@@ -74,7 +74,7 @@ void
 Server::startForTesting(BindTransport& bindTransport)
 {
     ServerId formerServerId = createAndRegisterServices(&bindTransport);
-    enlist(formerServerId);
+    enlist(this, formerServerId);
 }
 
 /**
@@ -99,7 +99,15 @@ Server::run()
     Dispatch& dispatch = *context->dispatch;
     dispatch.currentTime = Cycles::rdtsc();
 
-    enlist(formerServerId);
+    // Spin a separate thread to enlist and issue our ServerId to all services
+    // registered with ServiceManager. This lets us handle incoming RPCs while
+    // services are doing any initialization that had to be deferred until the
+    // ServerId was known. Some, like PingService and MembershipService, don't
+    // need a ServerId and can handle RPCs right away. Other ones, suhc as
+    // MasterService, will simply repond with STATUS_RETRY until it learns the
+    // id.
+    std::thread enlister(enlist, this, formerServerId);
+    enlister.detach();
 
     while (true)
         dispatch.poll();
@@ -110,11 +118,12 @@ Server::run()
 /**
  * Create each of the services which are marked as active in config.services,
  * configure them according to #config, and register them with the
- * ServiceManager (or, if bindTransport is supplied, with the transport).
+ * ServiceManager (or, if bindTransport is supplied, with the transport also).
  *
  * \param bindTransport
- *      If given register the services with \a bindTransport instead of
- *      the Context's ServiceManager.
+ *      If given, register the services with \a bindTransport. Services will
+ *      also be registered with the Context's ServiceManager, but it is mostly
+ *      not used during unit tests.
  * \return
  *      If this server is rejoining a cluster its former server id is returned,
  *      otherwise an invalid server is returned.  "Rejoining" means the backup
@@ -147,10 +156,9 @@ Server::createAndRegisterServices(BindTransport* bindTransport)
             bindTransport->addService(*master,
                                       config.localLocator,
                                       WireFormat::MASTER_SERVICE);
-        } else {
-            context->serviceManager->addService(*master,
-                                               WireFormat::MASTER_SERVICE);
         }
+        context->serviceManager->addService(*master,
+                                            WireFormat::MASTER_SERVICE);
     }
 
     if (config.services.has(WireFormat::BACKUP_SERVICE)) {
@@ -162,24 +170,21 @@ Server::createAndRegisterServices(BindTransport* bindTransport)
             bindTransport->addService(*backup,
                                       config.localLocator,
                                       WireFormat::BACKUP_SERVICE);
-        } else {
-            context->serviceManager->addService(*backup,
-                                               WireFormat::BACKUP_SERVICE);
         }
+        context->serviceManager->addService(*backup,
+                                            WireFormat::BACKUP_SERVICE);
     }
 
     if (config.services.has(WireFormat::MEMBERSHIP_SERVICE)) {
-        membership.construct(serverId,
-            static_cast<ServerList*>(context->serverList),
-            &config);
+        membership.construct(static_cast<ServerList*>(context->serverList),
+                             &config);
         if (bindTransport) {
             bindTransport->addService(*membership,
                                       config.localLocator,
                                       WireFormat::MEMBERSHIP_SERVICE);
-        } else {
-            context->serviceManager->addService(*membership,
-                                               WireFormat::MEMBERSHIP_SERVICE);
         }
+        context->serviceManager->addService(*membership,
+                                            WireFormat::MEMBERSHIP_SERVICE);
     }
 
     if (config.services.has(WireFormat::PING_SERVICE)) {
@@ -188,19 +193,28 @@ Server::createAndRegisterServices(BindTransport* bindTransport)
             bindTransport->addService(*ping,
                                       config.localLocator,
                                       WireFormat::PING_SERVICE);
-        } else {
-            context->serviceManager->addService(*ping,
-                                               WireFormat::PING_SERVICE);
         }
+        context->serviceManager->addService(*ping,
+                                            WireFormat::PING_SERVICE);
     }
 
     return formerServerId;
 }
 
 /**
- * Enlist the Server with the coordinator and start the failure detector
- * if it is enabled in #config.
+ * Enlist the Server with the coordinator, notify all services of the ServerId
+ * assigned by the coordinator, and start the failure detector if it is enabled
+ * in #config.
  *
+ * In normal operation (when not unit testing), this is invoked by a thread spun
+ * up in #run. This allows us to ensure that the dispatch loop is running
+ * immediately following enlistment. Services that don't need the ServerId can
+ * respond right away. Others can return STATUS_RETRY until ready.
+ *
+ * When unit testing, this is invoked directly from #startForTesting instead.
+ *
+ * \param server
+ *      Pointer to the server that is being enlisted.
  * \param replacingId
  *      If this server has found replicas on storage written by a now-defunct
  *      server then the backup must report the server id that formerly owned
@@ -211,24 +225,20 @@ Server::createAndRegisterServices(BindTransport* bindTransport)
  *      of the backup's replica garbage collection routines.
  */
 void
-Server::enlist(ServerId replacingId)
+Server::enlist(Server* server, ServerId replacingId)
 {
-    // Enlist with the coordinator just before dedicating this thread
-    // to rpc dispatch. This reduces the window of being unavailable to
-    // service rpcs after enlisting with the coordinator (which can
-    // lead to session open timeouts).
-    serverId = CoordinatorClient::enlistServer(context, replacingId,
-            config.services, config.localLocator, backupReadSpeed);
+    server->serverId =
+        CoordinatorClient::enlistServer(server->context,
+                                        replacingId,
+                                        server->config.services,
+                                        server->config.localLocator,
+                                        server->backupReadSpeed);
 
-    if (master)
-        master->init(serverId);
-    if (backup)
-        backup->init(serverId);
-    if (config.detectFailures) {
-        failureDetector.construct(
-            context,
-            serverId);
-        failureDetector->start();
+    server->context->serviceManager->setServerId(server->serverId);
+
+    if (server->config.detectFailures) {
+        server->failureDetector.construct(server->context, server->serverId);
+        server->failureDetector->start();
     }
 }
 

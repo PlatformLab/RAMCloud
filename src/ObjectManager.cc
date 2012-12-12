@@ -64,12 +64,15 @@ ObjectManager::ObjectManager(Context* context,
     , anyWrites(false)
     , hashTableBucketLocks()
     , replaySegmentReturnCount(0)
-    , tombstoneRemover(this, &objectMap)
+    , tombstoneRemover()
 {
     replicaManager.startFailureMonitor();
 
     if (!config->master.disableLogCleaner)
         log.enableCleaner();
+
+    Dispatch::Lock lock(context->dispatch);
+    tombstoneRemover.construct(this, &objectMap);
 }
 
 /**

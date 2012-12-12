@@ -314,9 +314,11 @@ class ObjectManager : public LogEntryHandlers {
 
     /**
      * This object automatically garbage collects tombstones that were added to
-     * the hash table during replaySegment() calls.
+     * the hash table during replaySegment() calls. Wrapped in a Tub so that we
+     * can construct it after grabbing the Dispatch lock (required by the parent
+     * constructor).
      */
-    RemoveTombstonePoller tombstoneRemover;
+    Tub<RemoveTombstonePoller> tombstoneRemover;
 
     friend void recoveryCleanup(uint64_t maybeTomb, void *cookie);
     friend void removeObjectIfFromUnknownTablet(uint64_t reference,

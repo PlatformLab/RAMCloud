@@ -263,6 +263,25 @@ ServiceManager::poll()
 }
 
 /**
+ * This method is called once after enlistment completes to notify all services
+ * of the ServerId assigned by the coordinator. Calling this method multiple
+ * times results in undefined behavior. Don't do it.
+ *
+ * \param serverId
+ *      ServerId assigned by the coordinator in response to the enlistment RPC
+ *      issued by this server.
+ */
+void
+ServiceManager::setServerId(ServerId serverId)
+{
+    TEST_LOG("id = %s", serverId.toString().c_str());
+    foreach (Tub<ServiceInfo>& serviceInfo, services) {
+        if (serviceInfo)
+            serviceInfo->service.setServerId(serverId);
+    }
+}
+
+/**
  * Wait for an RPC request to appear in the testRpcs queue, but give up if
  * it takes too long.  This method is intended only for testing (it only
  * works when there are no registered services).

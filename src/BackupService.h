@@ -45,7 +45,6 @@ class BackupService : public Service
     void dispatch(WireFormat::Opcode opcode, Rpc* rpc);
     ServerId getFormerServerId() const;
     ServerId getServerId() const;
-    void init(ServerId id);
     uint32_t getReadSpeed() { return readSpeed; }
 
   PRIVATE:
@@ -77,6 +76,7 @@ class BackupService : public Service
                       WireFormat::BackupWrite::Response* resp,
                       Rpc* rpc);
     void gcMain();
+    void initOnceEnlisted();
     void trackerChangesEnqueued();
 
     /**

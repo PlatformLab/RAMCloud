@@ -88,21 +88,22 @@ TEST_F(ServerTest, createAndRegisterServices) {
 
 namespace {
 bool enlistServerFilter(string s) {
-    return s == "complete" || s == "enlistServer";
+    return s == "complete" || s == "enlistServer" || s == "setServerId";
 }
 }
 
 TEST_F(ServerTest, enlist) {
     server->createAndRegisterServices(&cluster.transport);
     TestLog::Enable _(enlistServerFilter);
-    server->enlist({128, 0});
+    server->enlist(server.get(), {128, 0});
     EXPECT_EQ(
         "complete: Enlisting new server at mock:host=server0 "
         "(server id 1.0) supporting services: MASTER_SERVICE, "
         "BACKUP_SERVICE, PING_SERVICE, MEMBERSHIP_SERVICE | "
         "complete: Backup at id 1.0 has 100 MB/s read | "
         "complete: LogCabin: ServerEnlisted entryId: 1 | "
-        "enlistServer: Newly enlisted server 1.0 replaces server 128.0",
+        "enlistServer: Newly enlisted server 1.0 replaces server 128.0 | "
+        "setServerId: id = 1.0",
          TestLog::get());
     ASSERT_TRUE(server->master->serverId.isValid());
     EXPECT_TRUE(server->backup->serverId.isValid());

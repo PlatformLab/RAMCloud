@@ -49,8 +49,7 @@ namespace RAMCloud {
  */
 class MembershipService : public Service {
   public:
-    explicit MembershipService(ServerId ourServerId,
-                               ServerList* serverList,
+    explicit MembershipService(ServerList* serverList,
                                const ServerConfig* serverConfig);
     void dispatch(WireFormat::Opcode opcode, Rpc* rpc);
     virtual int maxThreads() {
