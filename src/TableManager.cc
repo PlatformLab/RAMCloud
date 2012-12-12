@@ -138,15 +138,13 @@ TableManager::getTableId(const char* name)
  * \param tableId
  *      Table id of the tablet.
  * \param startKeyHash
- *      First key hash that is part of the range of key hashes for the tablet
- *      to return the details of.
+ *      First key hash that is part of range of key hashes for the tablet.
  * \param endKeyHash
- *      Last key hash that is part of the range of key hashes for the tablet
- *      to return the details of.
+ *      Last key hash that is part of range of key hashes for the tablet.
  * \param serverId
  *      Tablet is updated to indicate that it is owned by \a serverId.
  * \param ctime
- *      Tablet is updated with this Log::Position indicating any object earlier
+ *      Tablet is updated with this ctime indicating any object earlier
  *      than \a ctime in its log cannot contain objects belonging to it.
  * \throw NoSuchTablet
  *      If the arguments do not identify a tablet currently in the tablet map.
@@ -157,8 +155,8 @@ TableManager::tabletRecovered(
         ServerId serverId, Log::Position ctime)
 {
     Lock lock(mutex);
-    modifyTablet(lock, tableId, startKeyHash, endKeyHash,
-                 serverId, Tablet::NORMAL, ctime);
+    TabletRecovered(*this, lock, tableId, startKeyHash, endKeyHash,
+                    serverId, ctime).execute();
 }
 
 /**
@@ -407,6 +405,31 @@ TableManager::recoverDropTable(
               state->name().c_str()).complete(entryId);
 }
 
+/**
+ * During coordinator recovery, complete a tabletRecovered operation that
+ * had already been started.
+ *
+ * \param state
+ *      The ProtoBuf that encapsulates the information about the tablet
+ *      that was recovered during a master recovery.
+ * \param entryId
+ *      The entry id of the LogCabin entry corresponding to the state.
+ */
+void
+TableManager::recoverTabletRecovered(
+    ProtoBuf::TabletRecovered* state, EntryId entryId)
+{
+    Lock lock(mutex);
+    LOG(DEBUG, "TableManager::recoverTabletRecovered()");
+    TabletRecovered(*this, lock,
+                    state->table_id(),
+                    state->start_key_hash(),
+                    state->end_key_hash(),
+                    ServerId(state->server_id()),
+                    Log::Position(state->ctime_log_head_id(),
+                        state->ctime_log_head_offset())).complete(entryId);
+}
+
 /////////////////////////////////////////////////////////////////////////////
 //////////////////////////// Private Methods ////////////////////////////////
 /////////////////////////////////////////////////////////////////////////////
@@ -608,6 +631,35 @@ TableManager::DropTable::complete(EntryId entryId)
         invalidates.push_back(tableIncompleteOpLogId);
     tm.context->logCabinHelper->invalidate(
                 *tm.context->expectedEntryId, invalidates);
+}
+
+void
+TableManager::TabletRecovered::execute()
+{
+    ProtoBuf::TabletRecovered state;
+    state.set_entry_type("TabletRecovered");
+    state.set_table_id(tableId);
+    state.set_start_key_hash(startKeyHash);
+    state.set_end_key_hash(endKeyHash);
+    state.set_server_id(serverId.getId());
+    state.set_ctime_log_head_id(ctime.getSegmentId());
+    state.set_ctime_log_head_offset(ctime.getSegmentOffset());
+
+    EntryId entryId = tm.context->logCabinHelper->appendProtoBuf(
+            *tm.context->expectedEntryId, state);
+    LOG(DEBUG, "LogCabin: TabletRecovered entryId: %lu", entryId);
+
+    complete(entryId);
+}
+
+void
+TableManager::TabletRecovered::complete(EntryId entryId)
+{
+    tm.modifyTablet(lock, tableId, startKeyHash, endKeyHash,
+                    serverId, Tablet::NORMAL, ctime);
+
+    tm.context->logCabinHelper->invalidate(
+                *tm.context->expectedEntryId, vector<EntryId>({entryId}));
 }
 
 /**

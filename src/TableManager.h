@@ -21,6 +21,7 @@
 
 #include "TableDrop.pb.h"
 #include "TableInformation.pb.h"
+#include "TabletRecovered.pb.h"
 #include "Tablets.pb.h"
 
 #include "Common.h"
@@ -101,7 +102,8 @@ class TableManager {
                             EntryId entryId);
     void recoverDropTable(ProtoBuf::TableDrop* state,
                           EntryId entryId);
-
+    void recoverTabletRecovered(ProtoBuf::TabletRecovered* state,
+                                EntryId entryId);
     /**
      * Provides monitor-style protection for all operations on the tablet map.
      * A Lock for this mutex must be held to read or modify any state in
@@ -189,6 +191,61 @@ class TableManager {
          */
         const char* name;
         DISALLOW_COPY_AND_ASSIGN(DropTable);
+    };
+
+    /**
+     * Defines methods and stores data to record the new master of a tablet
+     * after it was recovered by MasterRecoveryManager.
+     */
+    class TabletRecovered {
+      public:
+        TabletRecovered(TableManager &tm,
+                        const Lock& lock,
+                        uint64_t tableId,
+                        uint64_t startKeyHash,
+                        uint64_t endKeyHash,
+                        ServerId serverId,
+                        Log::Position ctime)
+            : tm(tm), lock(lock),
+              tableId(tableId),
+              startKeyHash(startKeyHash),
+              endKeyHash(endKeyHash),
+              serverId(serverId),
+              ctime(ctime) {}
+        void execute();
+        void complete(EntryId entryId);
+
+      private:
+        /**
+         * Reference to the instance of TableManager initializing this class.
+         */
+        TableManager &tm;
+        /**
+         * Explicitly needs a TableManager lock.
+         */
+        const Lock& lock;
+        /**
+         * Table id of the tablet.
+         */
+        uint64_t tableId;
+        /**
+         * First key hash that is part of range of key hashes for the tablet.
+         */
+        uint64_t startKeyHash;
+        /**
+         * Last key hash that is part of range of key hashes for the tablet.
+         */
+        uint64_t endKeyHash;
+        /**
+         * Tablet is updated to indicate that it is owned by \a serverId.
+         */
+        ServerId serverId;
+        /**
+         * Tablet is updated with this ctime indicating any object earlier
+         * than \a ctime in its log cannot contain objects belonging to it.
+         */
+        Log::Position ctime;
+        DISALLOW_COPY_AND_ASSIGN(TabletRecovered);
     };
 
     void addTablet(const Lock& lock, const Tablet& tablet);
