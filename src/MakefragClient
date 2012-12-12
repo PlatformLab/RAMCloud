@@ -34,8 +34,9 @@ CLIENT_SRCFILES := \
 		   src/MasterClient.cc \
 		   src/MembershipClient.cc \
 		   src/Memory.cc \
-		   src/MultiRead.cc \
-		   src/MultiWrite.cc \
+		   src/MultiOp.cc \
+		  src/MultiRead.cc \
+		  src/MultiWrite.cc \
 		   src/MurmurHash3.cc \
 		   src/ObjectFinder.cc \
 		   src/ObjectRpcWrapper.cc \

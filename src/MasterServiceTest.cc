@@ -566,7 +566,7 @@ TEST_F(MasterServiceTest, multiRead_unknownTable) {
             static_cast<BindTransport::BindSession*>(session.get());
     const Status* status =
             rawSession->lastResponse->getOffset<Status>(
-            sizeof(WireFormat::MultiRead::Response));
+            sizeof(WireFormat::MultiOp::Response));
     EXPECT_TRUE(status != NULL);
     if (status != NULL) {
         EXPECT_STREQ("STATUS_UNKNOWN_TABLET", statusToSymbol(*status));
@@ -632,10 +632,10 @@ TEST_F(MasterServiceTest, multiWrite_unknownTable) {
             "mock:host=master");
     BindTransport::BindSession* rawSession =
             static_cast<BindTransport::BindSession*>(session.get());
-    const WireFormat::MultiWrite::Response::Part* part =
+    const WireFormat::MultiOp::Response::WritePart* part =
             rawSession->lastResponse->getOffset<
-            WireFormat::MultiWrite::Response::Part>(
-            sizeof(WireFormat::MultiWrite::Response));
+            WireFormat::MultiOp::Response::WritePart>(
+            sizeof(WireFormat::MultiOp::Response));
     EXPECT_TRUE(part != NULL);
     if (part != NULL) {
         EXPECT_STREQ("STATUS_UNKNOWN_TABLET", statusToSymbol(part->status));
@@ -645,13 +645,14 @@ TEST_F(MasterServiceTest, multiWrite_unknownTable) {
 TEST_F(MasterServiceTest, multiWrite_malformedRequests) {
     // Fabricate a valid-looking RPC, but make the key and value length
     // fields not match what's in the buffer.
-    WireFormat::MultiWrite::Request reqHdr;
-    WireFormat::MultiWrite::Response respHdr;
-    WireFormat::MultiWrite::Request::Part part(0, 10, 10, RejectRules());
+    WireFormat::MultiOp::Request reqHdr;
+    WireFormat::MultiOp::Response respHdr;
+    WireFormat::MultiOp::Request::WritePart part(0, 10, 10, RejectRules());
 
-    reqHdr.common.opcode = downCast<uint16_t>(WireFormat::MULTI_WRITE);
+    reqHdr.common.opcode = downCast<uint16_t>(WireFormat::MULTI_OP);
     reqHdr.common.service = downCast<uint16_t>(WireFormat::MASTER_SERVICE);
     reqHdr.count = 1;
+    reqHdr.type = WireFormat::MultiOp::OpType::WRITE;
 
     Buffer requestPayload;
     Buffer replyPayload;

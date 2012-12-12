@@ -279,6 +279,39 @@ timeMultiRead(MultiReadObject** requests, int numObjects)
 }
 
 /**
+ * Time how long it takes to write a set of objects in one multiWrite
+ * operation repeatedly.
+ *
+ * \param requests
+ *      The set of WriteObjects that encapsulate information about objects
+ *      to be written.
+ * \param numObjects
+ *      The number of objects to be written in a single multiWrite operation.
+ *
+ * \return
+ *      The average time, in seconds, to write all the objects in a single
+ *      multiWrite operation.
+ */
+double
+timeMultiWrite(MultiWriteObject** requests, int numObjects)
+{
+    uint64_t runCycles = Cycles::fromSeconds(500/1e03);
+    uint64_t start = Cycles::rdtsc();
+    uint64_t elapsed;
+    int count = 0;
+    while (true) {
+        for (int i = 0; i < 10; i++) {
+            cluster->multiWrite(requests, numObjects);
+        }
+        count += 10;
+        elapsed = Cycles::rdtsc() - start;
+        if (elapsed >= runCycles)
+            break;
+    }
+    return Cycles::toSeconds(elapsed)/count;
+}
+
+/**
  * Time how long it takes to read a particular object repeatedly.
  *
  * \param tableId
@@ -1009,7 +1042,7 @@ doMultiRead(int dataLength, uint16_t keyLength,
 {
     if (clientIndex != 0)
         return 0;
-    Buffer input, output;
+    Buffer input;
 
     MultiReadObject requestObjects[numMasters][objsPerMaster];
     MultiReadObject* requests[numMasters][objsPerMaster];
@@ -1062,6 +1095,84 @@ doMultiRead(int dataLength, uint16_t keyLength,
                     keys[tableNum][i], keyLength);
         }
     }
+
+    return latency;
+}
+
+/**
+ * This method contains the core of all the "multiWrite" tests.
+ * It writes objsPerMaster objects on numMasters servers.
+ *
+ * \param dataLength
+ *      Length of data for each object to be written.
+ * \param keyLength
+ *      Length of key for each object to be written.
+ * \param numMasters
+ *      The number of master servers across which the objects written
+ *      should be distributed.
+ * \param objsPerMaster
+ *      The number of objects to be written to each master server.
+ * \param randomize
+ *      Randomize the order of requests sent from the client.
+ *      Note: Randomization can cause bad cache effects on the client
+ *      and cause slower than normal operation.
+ *
+ * \return
+ *      The average time, in seconds, to read all the objects in a single
+ *      multiRead operation.
+ */
+double
+doMultiWrite(int dataLength, uint16_t keyLength,
+            int numMasters, int objsPerMaster,
+            bool randomize = false)
+{
+    if (clientIndex != 0)
+        return 0;
+
+    // MultiWrite Objects
+    MultiWriteObject writeRequestObjects[numMasters][objsPerMaster];
+    MultiWriteObject* writeRequests[numMasters][objsPerMaster];
+    Buffer values[numMasters][objsPerMaster];
+    char keys[numMasters][objsPerMaster][keyLength];
+
+    uint64_t* tableIds = createTables(numMasters, dataLength, "0", 1);
+
+    for (int tableNum = 0; tableNum < numMasters; tableNum++) {
+        for (int i = 0; i < objsPerMaster; i++) {
+            genRandomString(keys[tableNum][i], keyLength);
+            fillBuffer(values[tableNum][i], dataLength,
+                    tableIds[tableNum], keys[tableNum][i], keyLength);
+
+            // Create write object corresponding to each object to be
+            // used in the multiWrite request later.
+            writeRequestObjects[tableNum][i] =
+                MultiWriteObject(tableIds[tableNum],
+                        keys[tableNum][i], keyLength,
+                        values[tableNum][i].getRange(0, dataLength),
+                        dataLength);
+            writeRequests[tableNum][i] = &writeRequestObjects[tableNum][i];
+        }
+    }
+
+    // Scramble the requests. Checking code below it stays valid
+    // since the value buffer is a pointer to a Buffer in the request.
+    if (randomize) {
+        uint64_t numRequests = numMasters*objsPerMaster;
+        MultiWriteObject ** wreqs = *writeRequests;
+
+        for (uint64_t i = 0; i < numRequests; i++) {
+            uint64_t rand = generateRandom() % numRequests;
+
+            MultiWriteObject* wtmp = wreqs[i];
+            wreqs[i] = wreqs[rand];
+            wreqs[rand] = wtmp;
+        }
+    }
+
+    double latency = timeMultiWrite(*writeRequests, numMasters*objsPerMaster);
+
+    // TODO(syang0) currently values written are unchecked, someone should do
+    // this with a multiread.
 
     return latency;
 }
@@ -1194,6 +1305,40 @@ multiRead_generalRandom()
             numMasters*objsPerMaster, numMasters, objsPerMaster,
             1e06*latency, 1e06*latency/numMasters/objsPerMaster);
     }
+}
+
+// This benchmark measures the multiwrite times for multiple
+// 100B objects with 30B keys on a single master server.
+void
+multiWrite_oneMaster()
+{
+    int numMasters = 1;
+    int dataLength = 100;
+    uint16_t keyLength = 30;
+    int maxObjsPerMaster = 5000;
+
+    printf("# RAMCloud multiWrite performance for %u B objects"
+           " with %u byte keys\n", dataLength, keyLength);
+    printf("# located on a single master.\n");
+    printf("# Generated by 'clusterperf.py multiWrite_oneMaster'\n#\n");
+    printf("# Num Objs    Num Masters    Objs/Master    "
+           "Latency (us)    Latency/Obj (us)\n");
+    printf("#--------------------------------------------------------"
+            "--------------------\n");
+
+    for (int objsPerMaster = 1; objsPerMaster <= maxObjsPerMaster;
+         objsPerMaster = (objsPerMaster < 10) ?
+            objsPerMaster + 1 : (objsPerMaster < 100) ?
+            objsPerMaster + 10 : (objsPerMaster < 1000) ?
+                objsPerMaster + 100 : objsPerMaster + 1000) {
+
+        double latency =
+            doMultiWrite(dataLength, keyLength, numMasters, objsPerMaster);
+        printf("%10d %14d %14d %14.1f %18.1f\n",
+            numMasters*objsPerMaster, numMasters, objsPerMaster,
+            1e06*latency, 1e06*latency/numMasters/objsPerMaster);
+    }
+
 }
 
 // This benchmark measures overall network bandwidth using many clients, each
@@ -1819,6 +1964,7 @@ struct TestInfo {
 TestInfo tests[] = {
     {"basic", basic},
     {"broadcast", broadcast},
+    {"multiWrite_oneMaster", multiWrite_oneMaster},
     {"multiRead_oneMaster", multiRead_oneMaster},
     {"multiRead_oneObjectPerMaster", multiRead_oneObjectPerMaster},
     {"multiRead_general", multiRead_general},

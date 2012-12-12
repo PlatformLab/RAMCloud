@@ -145,7 +145,6 @@ void
 MasterService::dispatch(WireFormat::Opcode opcode, Rpc* rpc)
 {
     assert(initCalled);
-
     if (disableCount  > 0) {
         LOG(NOTICE, "requesting retry of %s request (master disable count %d)",
                 WireFormat::opcodeSymbol(opcode),
@@ -193,13 +192,9 @@ MasterService::dispatch(WireFormat::Opcode opcode, Rpc* rpc)
             callHandler<WireFormat::MigrateTablet, MasterService,
                         &MasterService::migrateTablet>(rpc);
             break;
-        case WireFormat::MultiRead::opcode:
-            callHandler<WireFormat::MultiRead, MasterService,
-                        &MasterService::multiRead>(rpc);
-            break;
-        case WireFormat::MultiWrite::opcode:
-            callHandler<WireFormat::MultiWrite, MasterService,
-                        &MasterService::multiWrite>(rpc);
+        case WireFormat::MultiOp::opcode:
+            callHandler<WireFormat::MultiOp, MasterService,
+                        &MasterService::multiOp>(rpc);
             break;
         case WireFormat::PrepForMigration::opcode:
             callHandler<WireFormat::PrepForMigration, MasterService,
@@ -456,6 +451,30 @@ MasterService::getServerStatistics(
 }
 
 /**
+ * Multiplexor for the MultiOp opcode.
+ */
+void
+MasterService::multiOp(const WireFormat::MultiOp::Request* reqHdr,
+                         WireFormat::MultiOp::Response* respHdr,
+                         Rpc* rpc)
+{
+    switch (reqHdr->type) {
+        case WireFormat::MultiOp::OpType::READ:
+            multiRead(reqHdr, respHdr, rpc);
+            break;
+        case WireFormat::MultiOp::OpType::WRITE:
+            multiWrite(reqHdr, respHdr, rpc);
+            break;
+        default:
+            LOG(ERROR, "Unimplemented multiOp (type = %u) received!",
+                    (uint32_t) reqHdr->type);
+            prepareErrorResponse(rpc->replyPayload,
+                         STATUS_UNIMPLEMENTED_REQUEST);
+            break;
+    }
+}
+
+/**
  * Top-level server method to handle the MULTI_READ request.
  *
  * \param reqHdr
@@ -475,8 +494,8 @@ MasterService::getServerStatistics(
  *      information to the response buffer.
  */
 void
-MasterService::multiRead(const WireFormat::MultiRead::Request* reqHdr,
-                         WireFormat::MultiRead::Response* respHdr,
+MasterService::multiRead(const WireFormat::MultiOp::Request* reqHdr,
+                         WireFormat::MultiOp::Response* respHdr,
                          Rpc* rpc)
 {
     uint32_t numRequests = reqHdr->count;
@@ -507,21 +526,24 @@ MasterService::multiRead(const WireFormat::MultiRead::Request* reqHdr,
             break;
         }
 
-        const WireFormat::MultiRead::Request::Part *currentReq =
+        const WireFormat::MultiOp::Request::ReadPart *currentReq =
             rpc->requestPayload->getOffset<
-                WireFormat::MultiRead::Request::Part>(reqOffset);
-        reqOffset += sizeof32(WireFormat::MultiRead::Request::Part);
+                WireFormat::MultiOp::Request::ReadPart>(reqOffset);
+        reqOffset += sizeof32(WireFormat::MultiOp::Request::ReadPart);
         const void* stringKey = rpc->requestPayload->getRange(
             reqOffset, currentReq->keyLength);
         reqOffset += currentReq->keyLength;
         Key key(currentReq->tableId, stringKey, currentReq->keyLength);
 
-        Status* status = new(rpc->replyPayload, APPEND) Status(STATUS_OK);
+        WireFormat::MultiOp::Response::ReadPart* currentResp =
+                   new(rpc->replyPayload, APPEND)
+                       WireFormat::MultiOp::Response::ReadPart();
+
         // We must note the status if the table is not present here. Also,
         // we might have an entry in the hash table that's invalid because
         // its tablet no longer lives here.
         if (getTable(key) == NULL) {
-            *status = STATUS_UNKNOWN_TABLET;
+            currentResp->status = STATUS_UNKNOWN_TABLET;
             continue;
         }
 
@@ -530,15 +552,12 @@ MasterService::multiRead(const WireFormat::MultiRead::Request* reqHdr,
 
         bool found = lookup(key, type, buffer);
         if (!found || type != LOG_ENTRY_TYPE_OBJ) {
-             *status = STATUS_OBJECT_DOESNT_EXIST;
+             currentResp->status = STATUS_OBJECT_DOESNT_EXIST;
              continue;
         }
 
-        WireFormat::MultiRead::Response::Part* currentResp =
-            new(rpc->replyPayload, APPEND)
-                WireFormat::MultiRead::Response::Part();
-
         Object object(buffer);
+        currentResp->status = STATUS_OK;
         currentResp->version = object.getVersion();
         currentResp->length = object.getDataLength();
         object.appendDataToBuffer(*rpc->replyPayload);
@@ -562,8 +581,8 @@ MasterService::multiRead(const WireFormat::MultiRead::Request* reqHdr,
  *      RejectRules to support conditional writes.
  */
 void
-MasterService::multiWrite(const WireFormat::MultiWrite::Request* reqHdr,
-                          WireFormat::MultiWrite::Response* respHdr,
+MasterService::multiWrite(const WireFormat::MultiOp::Request* reqHdr,
+                          WireFormat::MultiOp::Response* respHdr,
                           Rpc* rpc)
 {
     uint32_t numRequests = reqHdr->count;
@@ -574,16 +593,16 @@ MasterService::multiWrite(const WireFormat::MultiWrite::Request* reqHdr,
     // Each iteration extracts one request from the rpc, writes the object
     // if possible, and appends a status and version to the response buffer.
     for (uint32_t i = 0; i < numRequests; i++) {
-        const WireFormat::MultiWrite::Request::Part *currentReq =
+        const WireFormat::MultiOp::Request::WritePart *currentReq =
             rpc->requestPayload->getOffset<
-                WireFormat::MultiWrite::Request::Part>(reqOffset);
+                WireFormat::MultiOp::Request::WritePart>(reqOffset);
 
         if (currentReq == NULL) {
             respHdr->common.status = STATUS_REQUEST_FORMAT_ERROR;
             break;
         }
 
-        reqOffset += sizeof32(WireFormat::MultiWrite::Request::Part);
+        reqOffset += sizeof32(WireFormat::MultiOp::Request::WritePart);
         const void* stringKey = rpc->requestPayload->getRange(
             reqOffset, currentReq->keyLength);
         reqOffset += currentReq->keyLength;
@@ -600,9 +619,9 @@ MasterService::multiWrite(const WireFormat::MultiWrite::Request* reqHdr,
         Buffer buffer;
         buffer.append(value, currentReq->valueLength);
 
-        WireFormat::MultiWrite::Response::Part* currentResp =
+        WireFormat::MultiOp::Response::WritePart* currentResp =
             new(rpc->replyPayload, APPEND)
-                WireFormat::MultiWrite::Response::Part();
+                WireFormat::MultiOp::Response::WritePart();
 
         currentResp->status = storeObject(key,
                                           &currentReq->rejectRules,

@@ -203,7 +203,7 @@ def broadcast(name, options, cluster_args, client_args):
             (obj_path, flatten_args(client_args), name), **cluster_args)
     print(get_client_log(), end='')
 
-def multiRead(name, options, cluster_args, client_args):
+def multiOp(name, options, cluster_args, client_args):
     cluster_args['timeout'] = 100
     if options.num_servers == None:
         cluster_args['num_servers'] = len(hosts)
@@ -211,6 +211,7 @@ def multiRead(name, options, cluster_args, client_args):
     cluster.run(client='%s/ClusterPerf %s %s' %
             (obj_path, flatten_args(client_args), name), master_args='-d', **cluster_args)
     print(get_client_log(), end='')
+
 
 def netBandwidth(name, options, cluster_args, client_args):
     if 'num_clients' not in cluster_args:
@@ -292,10 +293,11 @@ simple_tests = [
 ]
 
 graph_tests = [
-    Test("multiRead_oneMaster", multiRead),
-    Test("multiRead_oneObjectPerMaster", multiRead),
-    Test("multiRead_general", multiRead),
-    Test("multiRead_generalRandom", multiRead),
+    Test("multiWrite_oneMaster", multiOp),
+    Test("multiRead_oneMaster", multiOp),
+    Test("multiRead_oneObjectPerMaster", multiOp),
+    Test("multiRead_general", multiOp),
+    Test("multiRead_generalRandom", multiOp),
     Test("readDist", readDist),
     Test("readVaryingKeyLength", default),
     Test("writeVaryingKeyLength", default),

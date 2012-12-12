@@ -144,11 +144,14 @@ class MasterService : public Service, LogEntryHandlers {
     void getHeadOfLog(const WireFormat::GetHeadOfLog::Request* reqHdr,
                       WireFormat::GetHeadOfLog::Response* respHdr,
                       Rpc* rpc);
-    void multiRead(const WireFormat::MultiRead::Request* reqHdr,
-                   WireFormat::MultiRead::Response* respHdr,
+    void multiOp(const WireFormat::MultiOp::Request* reqHdr,
+                   WireFormat::MultiOp::Response* respHdr,
                    Rpc* rpc);
-    void multiWrite(const WireFormat::MultiWrite::Request* reqHdr,
-                   WireFormat::MultiWrite::Response* respHdr,
+    void multiRead(const WireFormat::MultiOp::Request* reqHdr,
+                   WireFormat::MultiOp::Response* respHdr,
+                   Rpc* rpc);
+    void multiWrite(const WireFormat::MultiOp::Request* reqHdr,
+                   WireFormat::MultiOp::Response* respHdr,
                    Rpc* rpc);
     void read(const WireFormat::Read::Request* reqHdr,
               WireFormat::Read::Response* respHdr,
