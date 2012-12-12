@@ -182,7 +182,7 @@ Service::prepareErrorResponse(Buffer* replyPayload, Status status)
 }
 
 /**
- * This method is invoked by ServiceManager to notify the service that the
+ * This method is invoked once by Server.cc to notify the service that the
  * server has enlisted with the coordinator and to provide the ServerId it
  * was assigned. We simply record the serverId and call into the subclass so
  * that it can do any work it had been deferring until now.

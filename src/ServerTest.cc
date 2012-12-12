@@ -88,7 +88,7 @@ TEST_F(ServerTest, createAndRegisterServices) {
 
 namespace {
 bool enlistServerFilter(string s) {
-    return s == "complete" || s == "enlistServer" || s == "setServerId";
+    return s == "complete" || s == "enlistServer";
 }
 }
 
@@ -102,8 +102,7 @@ TEST_F(ServerTest, enlist) {
         "BACKUP_SERVICE, PING_SERVICE, MEMBERSHIP_SERVICE | "
         "complete: Backup at id 1.0 has 100 MB/s read | "
         "complete: LogCabin: ServerEnlisted entryId: 1 | "
-        "enlistServer: Newly enlisted server 1.0 replaces server 128.0 | "
-        "setServerId: id = 1.0",
+        "enlistServer: Newly enlisted server 1.0 replaces server 128.0",
          TestLog::get());
     ASSERT_TRUE(server->master->serverId.isValid());
     EXPECT_TRUE(server->backup->serverId.isValid());

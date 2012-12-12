@@ -1459,7 +1459,7 @@ CoordinatorServerList::updateEntryVersion(ServerId serverId, uint64_t version)
 
 /**
  * Main loop that checks for outdated servers and sends out rpcs. This is
- * intended to run thread separate from the master.
+ * intended to run in a thread separate from the master.
  *
  * Once called, this loop can be exited by calling haltUpdater().
  */

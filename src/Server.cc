@@ -118,12 +118,12 @@ Server::run()
 /**
  * Create each of the services which are marked as active in config.services,
  * configure them according to #config, and register them with the
- * ServiceManager (or, if bindTransport is supplied, with the transport also).
+ * ServiceManager (or, if bindTransport is supplied, with the transport).
  *
  * \param bindTransport
- *      If given, register the services with \a bindTransport. Services will
- *      also be registered with the Context's ServiceManager, but it is mostly
- *      not used during unit tests.
+ *      If given, register the services with \a bindTransport instead of the
+ *      Context's ServiceManager.
+ *
  * \return
  *      If this server is rejoining a cluster its former server id is returned,
  *      otherwise an invalid server is returned.  "Rejoining" means the backup
@@ -156,9 +156,10 @@ Server::createAndRegisterServices(BindTransport* bindTransport)
             bindTransport->addService(*master,
                                       config.localLocator,
                                       WireFormat::MASTER_SERVICE);
+        } else {
+            context->serviceManager->addService(*master,
+                                                WireFormat::MASTER_SERVICE);
         }
-        context->serviceManager->addService(*master,
-                                            WireFormat::MASTER_SERVICE);
     }
 
     if (config.services.has(WireFormat::BACKUP_SERVICE)) {
@@ -170,9 +171,10 @@ Server::createAndRegisterServices(BindTransport* bindTransport)
             bindTransport->addService(*backup,
                                       config.localLocator,
                                       WireFormat::BACKUP_SERVICE);
+        } else {
+            context->serviceManager->addService(*backup,
+                                                WireFormat::BACKUP_SERVICE);
         }
-        context->serviceManager->addService(*backup,
-                                            WireFormat::BACKUP_SERVICE);
     }
 
     if (config.services.has(WireFormat::MEMBERSHIP_SERVICE)) {
@@ -182,9 +184,10 @@ Server::createAndRegisterServices(BindTransport* bindTransport)
             bindTransport->addService(*membership,
                                       config.localLocator,
                                       WireFormat::MEMBERSHIP_SERVICE);
+        } else {
+            context->serviceManager->addService(*membership,
+                                                WireFormat::MEMBERSHIP_SERVICE);
         }
-        context->serviceManager->addService(*membership,
-                                            WireFormat::MEMBERSHIP_SERVICE);
     }
 
     if (config.services.has(WireFormat::PING_SERVICE)) {
@@ -193,9 +196,10 @@ Server::createAndRegisterServices(BindTransport* bindTransport)
             bindTransport->addService(*ping,
                                       config.localLocator,
                                       WireFormat::PING_SERVICE);
+        } else {
+            context->serviceManager->addService(*ping,
+                                                WireFormat::PING_SERVICE);
         }
-        context->serviceManager->addService(*ping,
-                                            WireFormat::PING_SERVICE);
     }
 
     return formerServerId;
@@ -234,7 +238,14 @@ Server::enlist(Server* server, ServerId replacingId)
                                         server->config.localLocator,
                                         server->backupReadSpeed);
 
-    server->context->serviceManager->setServerId(server->serverId);
+    if (server->master)
+        server->master->setServerId(server->serverId);
+    if (server->backup)
+        server->backup->setServerId(server->serverId);
+    if (server->membership)
+        server->membership->setServerId(server->serverId);
+    if (server->ping)
+        server->ping->setServerId(server->serverId);
 
     if (server->config.detectFailures) {
         server->failureDetector.construct(server->context, server->serverId);

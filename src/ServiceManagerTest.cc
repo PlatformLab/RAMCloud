@@ -278,13 +278,6 @@ TEST_F(ServiceManagerTest, poll_postprocessing) {
     EXPECT_EQ(2U, manager->idleThreads.size());
 }
 
-TEST_F(ServiceManagerTest, setServerId) {
-    TestLog::Enable _;
-    manager->setServerId(ServerId(5, 10));
-    EXPECT_EQ("setServerId: id = 5.10 | initOnceEnlisted: called",
-        TestLog::get());
-}
-
 // No tests for waitForRpc: this method is only used in tests.
 
 TEST_F(ServiceManagerTest, workerMain_goToSleep) {
