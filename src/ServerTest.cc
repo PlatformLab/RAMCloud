@@ -95,7 +95,7 @@ bool enlistServerFilter(string s) {
 TEST_F(ServerTest, enlist) {
     server->createAndRegisterServices(&cluster.transport);
     TestLog::Enable _(enlistServerFilter);
-    server->enlist({128, 0});
+    server->enlist(server.get(), {128, 0});
     EXPECT_EQ(
         "complete: Enlisting new server at mock:host=server0 "
         "(server id 1.0) supporting services: MASTER_SERVICE, "

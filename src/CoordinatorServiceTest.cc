@@ -55,7 +55,7 @@ class CoordinatorServiceTest : public ::testing::Test {
         masterConfig.localLocator = "mock:host=master";
         Server* masterServer = cluster.addServer(masterConfig);
         master = masterServer->master.get();
-        master->log->sync();
+        master->objectManager->log.sync();
         masterServerId = masterServer->serverId;
 
         ramcloud.construct(&context, "mock:host=coordinator");
@@ -142,7 +142,7 @@ TEST_F(CoordinatorServiceTest, getTabletMap) {
               "end_key_hash: 18446744073709551615 "
               "state: NORMAL server_id: 1 "
               "service_locator: \"mock:host=master\" "
-              "ctime_log_head_id: 2 ctime_log_head_offset: 62 }",
+              "ctime_log_head_id: 0 ctime_log_head_offset: 0 }",
               tabletMapProtoBuf.ShortDebugString());
 }
 

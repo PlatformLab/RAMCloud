@@ -156,8 +156,12 @@ def recover(num_servers,
     if master_ram:
         log_space_per_partition = master_ram
     else:
-        log_space_per_partition = (200 + (1.2 * num_objects / object_size))
-    args['master_args'] = '-d -D -t %d' % log_space_per_partition
+        log_space_per_partition = (200 + (1.3 * num_objects / object_size))
+    # Extra segments are needed because the dummy tablets placed on the
+    # masters cause log head rollovers. Without compensating for the
+    # space waster by that the recovery masters run out of space.
+    args['master_args'] = '-d -D -t %d' % (log_space_per_partition +
+                                           8 * num_partitions)
     if master_args:
         args['master_args'] += ' ' + master_args;
     args['client'] = ('%s -f -n %d -r %d -s %d '

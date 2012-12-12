@@ -20,9 +20,9 @@
 #include "CoordinatorClient.h"
 #include "Log.h"
 #include "LogCleaner.h"
-#include "LogEntryHandlers.h"
 #include "HashTable.h"
 #include "Object.h"
+#include "ObjectManager.h"
 #include "SegmentIterator.h"
 #include "SegmentManager.h"
 #include "ReplicaManager.h"
@@ -30,8 +30,9 @@
 #include "ServerStatistics.pb.h"
 #include "Service.h"
 #include "ServerConfig.h"
+#include "SideLog.h"
 #include "SpinLock.h"
-#include "TabletsOnMaster.h"
+#include "TabletManager.h"
 #include "WireFormat.h"
 
 namespace RAMCloud {
@@ -46,20 +47,14 @@ class RecoveryTask;
  * respond to client RPC requests to manipulate objects stored on the
  * server.
  */
-class MasterService : public Service, LogEntryHandlers {
+class MasterService : public Service {
   public:
     MasterService(Context* context,
                   const ServerConfig* config);
     virtual ~MasterService();
-    void init(ServerId id);
     void dispatch(WireFormat::Opcode opcode,
                   Rpc* rpc);
     int maxThreads() { return 1; }
-
-    uint32_t getTimestamp(LogEntryType type, Buffer& buffer);
-    void relocate(LogEntryType type,
-                  Buffer& oldBuffer,
-                  LogEntryRelocator& relocator);
 
     /*
      * The following class is used to temporarily disable the servicing of
@@ -82,19 +77,6 @@ class MasterService : public Service, LogEntryHandlers {
     };
 
   PRIVATE:
-    /**
-     * Comparison functor used by the HashTable to compare a key
-     * we're querying with a potential match.
-     */
-    class LogKeyComparer : public HashTable::KeyComparer {
-      public:
-        explicit LogKeyComparer(Log& log);
-        bool doesMatch(Key& key, uint64_t reference);
-
-      private:
-        Log& log;
-    };
-
     /**
      * Represents a known segment replica during recovery and the state
      * of fetching it from backups.
@@ -182,8 +164,6 @@ class MasterService : public Service, LogEntryHandlers {
     void recover(const WireFormat::Recover::Request* reqHdr,
                  WireFormat::Recover::Response* respHdr,
                  Rpc* rpc);
-    void recoverSegmentPrefetcher(SegmentIterator& i);
-    void recoverSegment(SegmentIterator& it);
     void recover(uint64_t recoveryId,
                  ServerId masterId,
                  uint64_t partitionId,
@@ -205,79 +185,23 @@ class MasterService : public Service, LogEntryHandlers {
     const ServerConfig* config;
 
   PRIVATE:
-
-    /// Track total bytes of object data written (not including log overhead).
-    uint64_t bytesWritten;
+    /**
+     * The TabletManager keeps track of ranges of tables that are assigned to
+     * this server by the coordinator. Ranges are contiguous spans of the 64-bit
+     * key hash space.
+     */
+    TabletManager tabletManager;
 
     /**
-     * Creates and tracks replicas of in-memory log segments on remote backups.
-     * Its BackupFailureMonitor must be started after the log is created
-     * and halted before the log is destroyed.
+     * The ObjectManager class that is responsible for object storage. This is
+     * constructed when MasterService::init() is called.
      */
-    ReplicaManager replicaManager;
-
-    /**
-     * Allocator used by the SegmentManager to obtain main memory for log
-     * segments.
-     */
-    SegletAllocator allocator;
-
-    /**
-     * The SegmentManager manages all segments in the log and interfaces
-     * between the log and the cleaner modules.
-     */
-    SegmentManager segmentManager;
-
-    /**
-     * The log stores all of our objects and tombstones both in memory and on
-     * backups.
-     *
-     * The log is not constructed until init() is called, since we don't know
-     * our own ServerId until then and the log's constructor will ensure that
-     * the first segment is replicated before returning (if needed).
-     */
-    Log* log;
-
-    /**
-     * Comparison functor used by the hash table to compare keys for equality.
-     */
-    LogKeyComparer* keyComparer;
-
-    /**
-     * The (table ID, key, keyLength) to #RAMCloud::Object pointer map for all
-     * objects stored on this server. Before accessing objects via the hash
-     * table, you usually need to check that the tablet still lives on this
-     * server; objects from deleted tablets are not immediately purged from the
-     * hash table.
-     */
-    HashTable* objectMap;
-
-    /**
-     * Tablets this master owns.
-     * The user_data field in each tablet points to a Table object.
-     */
-    ProtoBuf::Tablets tablets;
+    Tub<ObjectManager> objectManager;
 
     /**
      * Used to ensure that init() is invoked before the dispatcher runs.
      */
     bool initCalled;
-
-    /**
-     * Used to identify the first write request, so that we can initialize
-     * connections to all backups at that time (this is a temporary kludge
-     * that needs to be replaced with a better solution).  False means this
-     * service has not yet processed any write requests.
-     */
-    bool anyWrites;
-
-    /**
-     * Lock that serialises all object updates (creations, overwrites,
-     * deletions, and cleaning relocations). This protects regular RPC
-     * operations from the log cleaner. When we work on multithreaded
-     * writes we'll need to revisit this.
-     */
-    SpinLock objectUpdateLock;
 
     /**
      * Determines the maximum size of the response buffer for multiRead
@@ -299,41 +223,8 @@ class MasterService : public Service, LogEntryHandlers {
     void removeTombstones();
 
   PRIVATE:
-    /**
-     * Look up an object in the hash table, then extract the entry from the
-     * log. Since tombstones are stored in the hash table during recovery,
-     * this method may return either an object or a tombstone.
-     *
-     * \param key
-     *      Key of the object being looked up.
-     * \param[out] outType
-     *      The type of the log entry is returned here.
-     * \param buffer
-     *      The entry, if found, is appended to this buffer.
-     * \param outReference
-     *      The log reference to the entry, if found, is stored in this optional
-     *      parameter.
-     * \return
-     *      True if an entry is found matching the given key, otherwise false.
-     */
-    bool
-    lookup(Key& key,
-           LogEntryType& outType,
-           Buffer& buffer,
-           Log::Reference* outReference = NULL) const
-    {
-        uint64_t integerReference;
-        bool success = objectMap->lookup(key, integerReference);
-        if (!success)
-            return false;
-        if (outReference != NULL)
-            *outReference = Log::Reference(integerReference);
-        outType = log->getEntry(Log::Reference(integerReference), buffer);
-        return true;
-    }
+    void initOnceEnlisted();
 
-
-    void incrementReadAndWriteStatistics(TabletsOnMaster* table);
     static void
     detectSegmentRecoveryFailure(
                         const ServerId masterId,
@@ -343,29 +234,6 @@ class MasterService : public Service, LogEntryHandlers {
     friend void recoveryCleanup(uint64_t maybeTomb, void *cookie);
     friend void removeObjectIfFromUnknownTablet(uint64_t reference,
                                                 void *cookie);
-
-    TabletsOnMaster* getTable(Key& key) __attribute__((warn_unused_result));
-    TabletsOnMaster* getTableForHash(uint64_t tableId, KeyHash keyHash)
-        __attribute__((warn_unused_result));
-    ProtoBuf::Tablets::Tablet const* getTabletForHash(uint64_t tableId,
-                                                      KeyHash keyHash)
-        __attribute__((warn_unused_result));
-    Status rejectOperation(const RejectRules& rejectRules, uint64_t version)
-        __attribute__((warn_unused_result));
-    bool checkObjectLiveness(Buffer& buffer);
-    void relocateObject(Buffer& oldBuffer,
-                        LogEntryRelocator& relocator);
-    uint32_t getObjectTimestamp(Buffer& buffer);
-    bool checkTombstoneLiveness(Buffer& buffer);
-    void relocateTombstone(Buffer& oldBuffer,
-                           LogEntryRelocator& relocator);
-    uint32_t getTombstoneTimestamp(Buffer& buffer);
-    Status storeObject(Key& key,
-                       const RejectRules* rejectRules,
-                       Buffer& data,
-                       uint64_t* newVersion,
-                       bool sync) __attribute__((warn_unused_result));
-
     friend class RecoverSegmentBenchmark;
     friend class MasterServiceInternal::RecoveryTask;
 

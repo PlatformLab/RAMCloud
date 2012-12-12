@@ -99,7 +99,8 @@ TEST_F(ObjectFinderTest, lookup_key) {
     // find tablet in operation
     EXPECT_EQ(3U, refresher->called);
     EXPECT_EQ("mock:host=server0",
-        static_cast<BindTransport::BindSession*>(session.get())->locator);
+        static_cast<BindTransport::BindSession*>(session.get())->
+                getServiceLocator());
 }
 
 TEST_F(ObjectFinderTest, lookup_hash) {
@@ -114,7 +115,8 @@ TEST_F(ObjectFinderTest, lookup_hash) {
     // find tablet in operation
     EXPECT_EQ(3U, refresher->called);
     EXPECT_EQ("mock:host=server0",
-        static_cast<BindTransport::BindSession*>(session.get())->locator);
+        static_cast<BindTransport::BindSession*>(session.get())->
+                getServiceLocator());
 }
 
 }  // namespace RAMCloud

@@ -24,6 +24,7 @@ endif
 
 # these files are compiled into everything but clients
 SHARED_SRCFILES := \
+		   src/AbstractLog.cc \
 		   src/AbstractServerList.cc \
 		   src/ClientException.cc \
 		   src/Context.cc \
@@ -68,6 +69,7 @@ SHARED_SRCFILES := \
                   src/MultiWrite.cc \
 		   src/MurmurHash3.cc \
 		   src/ObjectFinder.cc \
+		   src/ObjectManager.cc \
 		   src/ObjectRpcWrapper.cc \
 		   src/OptionParser.cc \
 		   src/PcapFile.cc \
@@ -91,11 +93,13 @@ SHARED_SRCFILES := \
 		   src/ServiceLocator.cc \
 		   src/ServiceManager.cc \
 		   src/SessionAlarm.cc \
+           src/SideLog.cc \
 		   src/SpinLock.cc \
 		   src/Status.cc \
 		   src/StringUtil.cc \
 		   src/TableEnumerator.cc \
 		   src/Tablet.cc \
+		   src/TabletManager.cc \
 		   src/TabletMap.cc \
 		   src/TaskQueue.cc \
 		   src/TcpTransport.cc \
@@ -108,6 +112,7 @@ SHARED_SRCFILES := \
 		   src/Util.cc \
 		   src/WallTime.cc \
 		   src/WireFormat.cc \
+		   src/WorkerSession.cc \
 		   $(INFINIBAND_SRCFILES) \
 		   $(OBJDIR)/EnumerationIterator.pb.cc \
 		   $(OBJDIR)/Histogram.pb.cc \

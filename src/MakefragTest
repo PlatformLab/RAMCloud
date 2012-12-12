@@ -63,10 +63,11 @@ TESTS_SRCFILES := \
 		  src/MultiReadTest.cc \
 		  src/MultiWriteTest.cc \
 		  src/ObjectFinderTest.cc \
-		  src/OptionParserTest.cc \
+          src/ObjectManagerTest.cc \
 		  src/ObjectPoolTest.cc \
 		  src/ObjectTest.cc \
 		  src/ObjectRpcWrapperTest.cc \
+		  src/OptionParserTest.cc \
 		  src/PingServiceTest.cc \
 		  src/PriorityTaskQueueTest.cc \
 		  src/ProtoBufTest.cc \
@@ -96,6 +97,7 @@ TESTS_SRCFILES := \
 		  src/ServiceMaskTest.cc \
 		  src/ServiceTest.cc \
 		  src/SessionAlarmTest.cc \
+          src/SideLogTest.cc \
 		  src/SingleFileStorageTest.cc \
 		  src/SpinLockTest.cc \
 		  src/StatusTest.cc \
@@ -104,6 +106,7 @@ TESTS_SRCFILES := \
 		  src/TabletTest.cc \
 		  src/TableManagerTest.cc \
 		  src/TabletMapTest.cc \
+          src/TabletManagerTest.cc \
 		  src/TaskQueueTest.cc \
 		  src/TcpTransportTest.cc \
 		  src/TestRunner.cc \
@@ -111,6 +114,7 @@ TESTS_SRCFILES := \
 		  src/TestUtilTest.cc \
 		  src/ThreadIdTest.cc \
 		  src/TransportManagerTest.cc \
+		  src/TransportTest.cc \
 		  src/TubTest.cc \
 		  src/UdpDriverTest.cc \
 		  src/UpdateReplicationEpochTaskTest.cc \
@@ -119,6 +123,7 @@ TESTS_SRCFILES := \
 		  src/WallTimeTest.cc \
 		  src/WindowTest.cc \
 		  src/WireFormatTest.cc \
+		  src/WorkerSessionTest.cc \
 		  src/RamCloudTest.cc \
 		  $(INFINIBAND_SRCFILES) \
 		  $(OBJDIR)/ProtoBufTest.pb.cc

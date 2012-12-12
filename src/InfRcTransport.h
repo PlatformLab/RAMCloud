@@ -180,10 +180,10 @@ class InfRcTransport : public Transport {
       public:
         explicit InfRcSession(InfRcTransport *transport,
             const ServiceLocator& sl, uint32_t timeoutMs);
+        ~InfRcSession();
         virtual void abort();
         virtual void cancelRequest(RpcNotifier* notifier);
         virtual string getRpcInfo();
-        void release();
         virtual void sendRequest(Buffer* request, Buffer* response,
             RpcNotifier* notifier);
 

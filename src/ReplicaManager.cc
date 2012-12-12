@@ -41,7 +41,7 @@ namespace RAMCloud {
  *      replication.
  */
 ReplicaManager::ReplicaManager(Context* context,
-                               const ServerId& masterId,
+                               const ServerId masterId,
                                uint32_t numReplicas,
                                bool useMinCopysets)
     : context(context)
@@ -65,7 +65,7 @@ ReplicaManager::ReplicaManager(Context* context,
         backupSelector.reset(new BackupSelector(context, masterId,
                                                 numReplicas));
     }
-    replicationEpoch.construct(context, &taskQueue, &masterId);
+    replicationEpoch.construct(context, &taskQueue, masterId);
 }
 
 /**

@@ -48,7 +48,7 @@ class RecoverSegmentBenchmark {
         config.segmentSize = Segment::DEFAULT_SEGMENT_SIZE;
         config.segletSize = Seglet::DEFAULT_SEGLET_SIZE;
         service = new MasterService(&context, &config);
-        service->init({1, 0});
+        service->setServerId({1, 0});
     }
 
     ~RecoverSegmentBenchmark()
@@ -84,13 +84,7 @@ class RecoverSegmentBenchmark {
         }
 
         /* Update the list of Tablets */
-        ProtoBuf::Tablets_Tablet tablet;
-        tablet.set_table_id(0);
-        tablet.set_start_key_hash(0);
-        tablet.set_end_key_hash(~0UL);
-        tablet.set_state(ProtoBuf::Tablets_Tablet_State_NORMAL);
-        tablet.set_server_id(service->serverId.getId());
-        *service->tablets.add_tablet() = tablet;
+        service->tabletManager.addTablet(0, 0, ~0UL, TabletManager::NORMAL);
 
         metrics->temp.ticks0 =
         metrics->temp.ticks1 =
@@ -117,6 +111,7 @@ class RecoverSegmentBenchmark {
         /*
          * Now run a fake recovery.
          */
+        SideLog sideLog(service->objectManager->getLog());
         uint64_t before = Cycles::rdtsc();
         for (int i = 0; i < numSegments; i++) {
             Segment* s = segments[i];
@@ -126,7 +121,7 @@ class RecoverSegmentBenchmark {
             s->getAppendedLength(&certificate);
             const void* contigSeg = buffer.getRange(0, buffer.getTotalLength());
             SegmentIterator it(contigSeg, buffer.getTotalLength(), certificate);
-            service->recoverSegment(it);
+            service->objectManager->replaySegment(&sideLog, it);
         }
         uint64_t ticks = Cycles::rdtsc() - before;
 

@@ -295,7 +295,7 @@ class Segment {
     uint32_t
     peek(uint32_t offset, const void** outAddress) const
     {
-        if (__builtin_expect(offset >= (segletSize * segletBlocks.size()), 0))
+        if (expect_false(offset >= (segletSize * segletBlocks.size())))
             return 0;
 
         uint32_t segletOffset = offset;
@@ -305,7 +305,7 @@ class Segment {
         // and a power of two, so use bit ops rather than division and modulo to
         // save time. This method can be hot enough that this makes a big
         // difference.
-        if (__builtin_expect(segletSizeShift != 0, 1)) {
+        if (expect_true(segletSizeShift != 0)) {
             segletOffset = offset & (segletSize - 1);
             segletIndex = offset >> segletSizeShift;
         }

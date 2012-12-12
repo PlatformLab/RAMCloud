@@ -16,7 +16,6 @@
 #ifndef RAMCLOUD_COORDINATORSERVERLIST_H
 #define RAMCLOUD_COORDINATORSERVERLIST_H
 
-
 #include <condition_variable>
 #include <deque>
 
@@ -146,7 +145,7 @@ class CoordinatorServerList : public AbstractServerList{
     void recoverEnlistServer(ProtoBuf::ServerInformation* state,
                              EntryId entryId);
     void recoverMasterRecoveryInfo(ProtoBuf::ServerUpdate* state,
-                                      EntryId entryId);
+                                   EntryId entryId);
     void recoverServerDown(ProtoBuf::ServerDown* state,
                            EntryId entryId);
     void removeAfterRecovery(ServerId serverId);

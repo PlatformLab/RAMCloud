@@ -60,7 +60,12 @@ Logger::Logger(LogLevel level)
     , collapseIntervalMs(DEFAULT_COLLAPSE_INTERVAL)
     , maxCollapseMapSize(DEFAULT_COLLAPSE_MAP_LIMIT)
     , nextCleanTime({0, 0})
-    , collapsingDisableCount(0)
+    // Collapsing log messages is usually more trouble than it is worth.
+    // It causes log messages to show up out of order and has created more
+    // confusion than it has save.
+    // The default below is now to run the system without log collapsing
+    // unless enableCollapsing() is called first.
+    , collapsingDisableCount(1)
     , testingBufferSize(0)
 {
     setLogLevels(level);
@@ -611,7 +616,8 @@ criticalErrorHandler(int signal, siginfo_t* info, void* ucontext)
 
     free(symbols);
 
-    exit(1);
+    // use abort, rather than exit, to dump core/trap in gdb
+    abort();
 }
 
 /**
@@ -621,7 +627,9 @@ static void
 terminateHandler()
 {
     BACKTRACE(ERROR);
-    exit(1);
+
+    // use abort, rather than exit, to dump core/trap in gdb
+    abort();
 }
 
 /**

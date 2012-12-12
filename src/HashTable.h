@@ -54,469 +54,9 @@ namespace RAMCloud {
  * log reference.
  */
 class HashTable {
-  public:
-    /**
-     * Functor used to compare a Key given in a lookup, remove, etc.
-     * operation and a candidate match found in the hash table. The
-     * functor is responsible for extracting a Key from the reference
-     * and comparing it with the original key the hash table was queried
-     * with.
-     *
-     * This class exists to break a strong dependency between HashTable
-     * and Log, which makes testing the HashTable in isolation much easier,
-     * even if the HashTable class will never be used for any other purpose
-     * besides storing logged objects.
-     */
-    struct KeyComparer {
-        virtual ~KeyComparer() { }
-
-        /**
-         * Returns true if the given Key refers to the given reference.
-         * Otherwise, returns false.
-         */
-        virtual bool doesMatch(Key& key, uint64_t reference) = 0;
-    };
-
-    /**
-     * Performance counters for the HashTable.
-     */
-    struct PerfCounters {
-        /**
-         * The number of #replace() operations.
-         */
-        uint64_t replaceCalls;
-
-        /**
-         * The number of #lookupEntry() operations.
-         */
-        uint64_t lookupEntryCalls;
-
-        /**
-         * The total number of CPU cycles spent across all #replace()
-         * operations.
-         */
-        uint64_t replaceCycles;
-
-        /**
-         * The total number of CPU cycles spent across all #lookupEntry()
-         * operations.
-         */
-        uint64_t lookupEntryCycles;
-
-        /**
-         * The total number of times a chain pointer was followed to another
-         * CacheLine while trying to insert a new entry within #replace().
-         */
-        uint64_t insertChainsFollowed;
-
-        /**
-         * The total number of times a chain pointer was followed to another
-         * CacheLine across all #lookupEntry() operations.
-         */
-        uint64_t lookupEntryChainsFollowed;
-
-        /**
-         * The total number of times there was an Entry collision across
-         * all #lookupEntry() operations. This is when the buckets collide for
-         * a key, and the extra disambiguation bits inside the Entry collide,
-         * but the reference itself reveals that the entry does not correspond
-         * to the given key.
-         */
-        uint64_t lookupEntryHashCollisions;
-
-        /**
-         * Constructor for HashTable::PerfCounters.
-         */
-        PerfCounters()
-            : replaceCalls(0), lookupEntryCalls(0), replaceCycles(0),
-            lookupEntryCycles(0), insertChainsFollowed(0),
-            lookupEntryChainsFollowed(0), lookupEntryHashCollisions(0)
-        {
-        }
-
-        /**
-         * Reset all of the HashTable::PerfCounters statistics.
-         */
-        void
-        reset()
-        {
-            replaceCalls = 0;
-            lookupEntryCalls = 0;
-            replaceCycles = 0;
-            lookupEntryCycles = 0;
-            insertChainsFollowed = 0;
-            lookupEntryChainsFollowed = 0;
-            lookupEntryHashCollisions = 0;
-        }
-    };
-
-    /**
-     * Constructor for HashTable.
-     * \param[in] numBuckets
-     *      The number of buckets in the new hash table. This should be a power
-     *      of two.
-     * \param[in] keyComparer
-     *      Comparison functor that will compare keys for equality.
-     * \throw Exception
-     *      An exception is thrown if numBuckets is 0.
-     */
-    HashTable(uint64_t numBuckets, KeyComparer& keyComparer)
-        : numBuckets(BitOps::powerOfTwoLessOrEqual(numBuckets))
-        , buckets(this->numBuckets * sizeof(CacheLine))
-        , keyComparer(keyComparer)
-        , perfCounters()
-    {
-        if (numBuckets != this->numBuckets) {
-            RAMCLOUD_LOG(DEBUG,
-                         "HashTable truncated to %lu buckets "
-                         "(nearest power of two)",
-                         this->numBuckets);
-        }
-
-        if (numBuckets == 0)
-            throw Exception(HERE, "HashTable numBuckets == 0?!");
-    }
-
-    /**
-     * Destructor for HashTable.
-     */
-    ~HashTable()
-    {
-        // TODO(ongaro): free chained CacheLines that were allocated in insert()
-    }
-
-    /**
-     * Find the address of an element in the hash table given its key.
-     * \param[in] key
-     *      Key representing the element to look up.
-     * \param[out] reference
-     *      If found, the reference matching the given key is returned here.
-     * \return
-     *      True if found, else false.
-     */
-    bool
-    lookup(Key& key, uint64_t& reference)
-    {
-        // Find the bucket using 64 bit hash of the key. Any collisions
-        // arising out of this hashing will be detected / resolved during
-        // lookupEntry(), just as hash table bucket collisions would
-        // be detected / resolved.
-        uint64_t secondaryHash;
-        Entry *entry;
-        CacheLine *bucket = findBucket(key, &secondaryHash);
-
-        // While finding the entry, we will compare the actual string key
-        // instead of the hash to ensure that the right entry is retrieved.
-        entry = lookupEntry(bucket, secondaryHash, key);
-        if (entry == NULL)
-             return false;
-
-        reference = entry->getReference();
-        return true;
-    }
-
-    /**
-     * Remove an element from the hash table.
-     * \param[in] key
-     *      Key representing the element to be removed from the hash table.
-     * \return
-     *      Whether the hash table contained the key specified.
-     */
-    bool
-    remove(Key& key)
-    {
-        uint64_t secondaryHash;
-        Entry *entry;
-
-        CacheLine *bucket = findBucket(key, &secondaryHash);
-        entry = lookupEntry(bucket, secondaryHash, key);
-        if (entry == NULL)
-            return false;
-        entry->clear();
-        return true;
-    }
-
-    /**
-     * Update the element corresponding to a key in the hash table.
-     * This is equivalent to, but faster than, #remove() followed by #replace().
-     * \param[in] key
-     *      Key representing the element to replace and being replaced.
-     * \param[in] reference
-     *      New element to insert into the hash table.
-     * \retval true
-     *      The hash table previously contained the key and its entry has
-     *      been updated to reflect the new element.
-     * \retval false
-     *      The hash table did not previously contain the key. An entry has
-     *      been created to reflect the new element.
-     */
-    bool
-    replace(Key& key, uint64_t reference)
-    {
-        CycleCounter<> cycles(&perfCounters.replaceCycles);
-        unsigned int i;
-
-        ++perfCounters.replaceCalls;
-
-        uint64_t secondaryHash;
-        CacheLine *bucket = findBucket(key, &secondaryHash);
-        Entry *entry =
-            lookupEntry(bucket, secondaryHash, key);
-
-        if (entry != NULL) {
-            entry->setReference(secondaryHash, reference);
-            return true;
-        }
-
-        CacheLine *cl = bucket;
-        while (1) {
-            entry = cl->entries;
-            for (i = 0; i < ENTRIES_PER_CACHE_LINE; i++) {
-                if (entry->isAvailable()) {
-                    entry->setReference(secondaryHash, reference);
-                    return false;
-                }
-                entry++;
-            }
-
-            Entry &last = cl->entries[ENTRIES_PER_CACHE_LINE - 1];
-            cl = last.getChainPointer();
-            if (cl == NULL) {
-                // no empty space found, allocate a new cache line
-                void *buf = Memory::xmemalign(HERE, sizeof(CacheLine),
-                                              sizeof(CacheLine));
-                cl = static_cast<CacheLine *>(buf);
-                cl->entries[0] = last;
-                for (i = 1; i < ENTRIES_PER_CACHE_LINE; i++)
-                    cl->entries[i].clear();
-                last.setChainPointer(cl);
-            }
-            ++perfCounters.insertChainsFollowed;
-        }
-    }
-
-    /**
-     * Apply the given callback function to each element stored in the
-     * specified bucket of the hash table.
-     * \param callback
-     *      The callback to fire on each element stored in the HashTable.
-     * \param cookie
-     *      An opaque parameter to pass to the callback function.
-     * \param bucket
-     *      An index into the HashTable's buckets.  Must be < #numBuckets.
-     * \return
-     *      The total number of callbacks fired (i.e. the number of elements
-     *      in the HashTable).
-     */
-    uint64_t
-    forEachInBucket(void (*callback)(uint64_t, void *),
-                    void *cookie,
-                    uint64_t bucket)
-    {
-        uint64_t numCalls = 0;
-        CacheLine *cl = &buckets.get()[bucket];
-        while (1) {
-            for (uint32_t j = 0; j < ENTRIES_PER_CACHE_LINE; j++) {
-                Entry *e = &cl->entries[j];
-                if (!e->isAvailable() && e->getChainPointer() == NULL) {
-                    callback(e->getReference(), cookie);
-                    numCalls++;
-                }
-            }
-
-            Entry *entry = &cl->entries[ENTRIES_PER_CACHE_LINE - 1];
-            cl = entry->getChainPointer();
-            if (cl == NULL)
-                break;
-        }
-        return numCalls;
-    }
-
-    /**
-     * Apply the given callback function to each element stored in the
-     * HashTable.
-     * \param[in] callback
-     *      The callback to fire on each element stored in the HashTable.
-     * \param[in] cookie
-     *      An opaque parameter to pass to the callback function.
-     * \return
-     *      The total number of callbacks fired (i.e. the number of elements
-     *      in the HashTable).
-     */
-    uint64_t
-    forEach(void (*callback)(uint64_t, void *), void *cookie)
-    {
-        uint64_t numCalls = 0;
-
-        for (uint64_t i = 0; i < numBuckets; i++)
-            numCalls += forEachInBucket(callback, cookie, i);
-
-        return numCalls;
-    }
-
-    /**
-     * Prefetch the cacheline associated with the given key.
-     */
-    void
-    prefetchBucket(Key& key)
-    {
-        uint64_t dummy;
-        prefetch(findBucket(key, &dummy));
-    }
-
-    /**
-     * Return the number of bytes per cache line.
-     */
-    static uint32_t
-    bytesPerCacheLine()
-    {
-        return BYTES_PER_CACHE_LINE;
-    }
-
-    /**
-     * Return the number of elements (references) each cacheline
-     * holds.
-     */
-    static uint32_t
-    entriesPerCacheLine()
-    {
-        return ENTRIES_PER_CACHE_LINE;
-    }
-
-    /**
-     * Return a read-only view of the hash table's performance counters.
-     * \return
-     *      See above.
-     */
-    const PerfCounters&
-    getPerfCounters() const
-    {
-        return perfCounters;
-    }
-
-    /**
-     * Reset the hash table's performance counters.
-     */
-    void
-    resetPerfCounters()
-    {
-        perfCounters.reset();
-    }
-
-    /**
-     * Returns the number of buckets allocated to the table.
-     */
-    uint64_t
-    getNumBuckets() const
-    {
-        return numBuckets;
-    }
-
-    /**
-     * Find the bucket index corresponding to a particular key.
-     * This also calculates the secondary hash bits used to disambiguate entries
-     * in the same bucket.
-     * \param[in] numBuckets
-     *      The number of buckets in the HashTable as reported by
-     *      #getNumBuckets().
-     * \param[in] key
-     *      Key object representing the element we're looking for. 
-     * \param[out] secondaryHash
-     *      The secondary hash bits (16 bits).
-     * \return
-     *      The bucket index corresponding to the given referent ID.
-     */
-    static uint64_t
-    findBucketIndex(uint64_t numBuckets, Key& key, uint64_t *secondaryHash)
-    {
-        uint64_t hashValue = key.getHash();
-        uint64_t bucketHash = hashValue & 0x0000ffffffffffffUL;
-        *secondaryHash = hashValue >> 48;
-        return (bucketHash & (numBuckets - 1));
-        // This is equivalent to:
-        //     &buckets.get()[bucketHash % numBuckets]
-        // since numBuckets is a power of two, and this saves about 14 cycles on
-        // an Intel Core 2 (see src/misc/modulus.cc).
-    }
-
   PRIVATE:
-
-    // forward declarations
-    class Entry;
+    // Forward declaration.
     struct CacheLine;
-
-    /**
-     * Find the bucket corresponding to a particular key.
-     * This also calculates the secondary hash bits used to disambiguate entries
-     * in the same bucket.
-     * \param[in] key
-     *      Key object representing the element we're looking for. 
-     * \param[out] secondaryHash
-     *      The secondary hash bits (16 bits).
-     * \return
-     *      The bucket corresponding to the given key.
-     */
-    CacheLine *
-    findBucket(Key& key, uint64_t *secondaryHash) //const
-    {
-        uint64_t bucketIndex =
-                findBucketIndex(numBuckets, key, secondaryHash);
-        return &buckets.get()[bucketIndex];
-    }
-
-    /**
-     * Find a hash table entry for a given key.
-     * This is used in #lookup(), #remove(), and #replace() to find the hash
-     * table entry to operate on.
-     * \param[in] bucket
-     *      The bucket corresponding to the key.
-     * \param[in] secondaryHash
-     *      Secondary hash bits for the key's hash (obtained in #findBucket()).
-     *      The secondary hash is 16 bits.
-     * \param[in] key
-     *      Key object representing the element we're looking for. 
-     * \return
-     *      The pointer to the hash table entry, or \a NULL if there is no such
-     *      hash table entry.
-     */
-    Entry*
-    lookupEntry(CacheLine *bucket, uint64_t secondaryHash, Key& key)
-    {
-        CycleCounter<> cycles(&perfCounters.lookupEntryCycles);
-        unsigned int i;
-
-        ++perfCounters.lookupEntryCalls;
-
-        CacheLine *cl = bucket;
-
-        while (1) {
-
-            // Try this cache line.
-            Entry* candidate = cl->entries;
-            for (i = 0; i < ENTRIES_PER_CACHE_LINE; i++, candidate++) {
-
-                if (candidate->hashMatches(secondaryHash)) {
-                    // The hash within the hash table entry matches, so with
-                    // high probability this is the pointer we're looking for.
-                    // To check, we must go to the object.
-                    if (keyComparer.doesMatch(key, candidate->getReference())) {
-                        return candidate;
-                    } else {
-                        ++perfCounters.lookupEntryHashCollisions;
-                    }
-                }
-            }
-
-            // Not found in this cache line, see if there's a chain to another
-            // cache line.
-            Entry* entry = &cl->entries[ENTRIES_PER_CACHE_LINE - 1];
-            cl = entry->getChainPointer();
-            if (cl == NULL) {
-                return NULL;
-            }
-            ++perfCounters.lookupEntryChainsFollowed;
-        }
-    }
 
     /**
      * A hash table entry.
@@ -537,9 +77,7 @@ class HashTable {
      * In this case, its reference will be invalid.
      */
     class Entry {
-
       public:
-
         /**
          * Reinitialize a hash table entry as unused.
          */
@@ -746,6 +284,344 @@ class HashTable {
     static_assert(sizeof(CacheLine) == sizeof(Entry) * ENTRIES_PER_CACHE_LINE,
                   "HashTable entries don't fit evenly into a cacheline");
 
+  public:
+    class Candidates {
+      public:
+        Candidates()
+            : bucket(NULL)
+            , index(0)
+            , secondaryHash(0)
+        {
+        }
+
+        Candidates(CacheLine* cl, uint64_t secondaryHash)
+            : bucket(cl)
+            , index(-1)
+            , secondaryHash(secondaryHash)
+        {
+            next();
+        }
+
+        uint64_t
+        getReference()
+        {
+            if (bucket == NULL)
+                return 0;
+            return bucket->entries[index].getReference();
+        }
+
+        void
+        setReference(uint64_t reference)
+        {
+            if (bucket != NULL)
+                bucket->entries[index].setReference(secondaryHash, reference);
+        }
+
+        void
+        remove()
+        {
+            if (bucket != NULL)
+                bucket->entries[index].clear();
+        }
+
+        void
+        next()
+        {
+            while (true) {
+                // Not found in the cache line, see if there's a chain to
+                // another cache line.
+                if (index == ENTRIES_PER_CACHE_LINE && bucket != NULL) {
+                    Entry* entry = &bucket->entries[ENTRIES_PER_CACHE_LINE - 1];
+                    bucket = entry->getChainPointer();
+                    index = -1;
+                }
+
+                if (bucket == NULL)
+                    return;
+
+                // Resume in the current cache line.
+                index++;
+                Entry* candidate = &bucket->entries[index];
+                while (index < ENTRIES_PER_CACHE_LINE) {
+                    if (candidate->hashMatches(secondaryHash)) {
+                        // The hash within the hash table entry matches, so with
+                        // high probability this is the pointer we're looking
+                        // for. We'll report this index to the user of this
+                        // class in the next getReference() call so that they
+                        // can verify the match.
+                        return;
+                    }
+                    candidate++;
+                    index++;
+                }
+            }
+        }
+
+        bool
+        isDone()
+        {
+            return (bucket == NULL);
+        }
+
+      PRIVATE:
+        /// Pointer to the hash table bucket we're currently iterating over.
+        CacheLine* bucket;
+
+        /// Index into bucket we're currently iterating over.
+        uint32_t index;
+
+        /// This iterator only returns references to entries that share this
+        /// secondaryHash. All others cannot possibly be matches. This helps
+        /// to reduce the number of candidates whose keys are extracted from
+        /// the log and compared.
+        uint64_t secondaryHash;
+    };
+
+    /**
+     * Constructor for HashTable.
+     * \param[in] numBuckets
+     *      The number of buckets in the new hash table. This should be a power
+     *      of two.
+     * \throw Exception
+     *      An exception is thrown if numBuckets is 0.
+     */
+    explicit HashTable(uint64_t numBuckets)
+        : numBuckets(BitOps::powerOfTwoLessOrEqual(numBuckets))
+        , buckets(this->numBuckets * sizeof(CacheLine))
+    {
+        if (numBuckets != this->numBuckets) {
+            RAMCLOUD_LOG(DEBUG,
+                         "HashTable truncated to %lu buckets "
+                         "(nearest power of two)",
+                         this->numBuckets);
+        }
+
+        if (numBuckets == 0)
+            throw Exception(HERE, "HashTable numBuckets == 0?!");
+    }
+
+    /**
+     * Destructor for HashTable.
+     */
+    ~HashTable()
+    {
+        // TODO(ongaro): free chained CacheLines that were allocated in insert()
+    }
+
+    /**
+     * Find possible references to an element in the hash table given a key.
+     * This method returns an object that allows the caller to iterate over
+     * possible matches, if there are any. It is up to the caller to check
+     * whether or not each candidate matches the key they're looking for.
+     *
+     * \param[in] key
+     *      Key representing the element to look up.
+     * \return
+     *      A HashTable::Candidates object is returned that can be used to
+     *      iterate over all potential matches to find the desired element.
+     */
+    Candidates
+    lookup(Key& key)
+    {
+        // Find the bucket using 64 bit hash of the key. Any collisions
+        // arising out of this hashing will be detected / resolved by the
+        // caller as it examines possible candidates.
+        uint64_t secondaryHash;
+        CacheLine *bucket = findBucket(key, &secondaryHash);
+        return Candidates(bucket, secondaryHash);
+    }
+
+    /**
+     * Insert an element corresponding to a given key into the hash table.
+     *
+     * Note that this method will not ensure that the same key does not already
+     * exist (in other words, it will not replace a key). It is up to the caller
+     * to ensure that the key was first removed, if necessary.
+     *
+     * \param[in] key
+     *      Key naming the element to insert.
+     * \param[in] reference
+     *      Reference to the new element to insert into the hash table.
+     */
+    void
+    insert(Key& key, uint64_t reference)
+    {
+        uint64_t secondaryHash;
+        CacheLine* bucket = findBucket(key, &secondaryHash);
+        while (true) {
+            Entry* entry = bucket->entries;
+            for (size_t i = 0; i < ENTRIES_PER_CACHE_LINE; i++) {
+                if (entry->isAvailable()) {
+                    entry->setReference(secondaryHash, reference);
+                    return;
+                }
+                entry++;
+            }
+
+            Entry* last = &bucket->entries[ENTRIES_PER_CACHE_LINE - 1];
+            bucket = last->getChainPointer();
+            if (bucket == NULL) {
+                // no empty space found, allocate a new cache line
+                void *buf = Memory::xmemalign(HERE, sizeof(CacheLine),
+                                              sizeof(CacheLine));
+                bucket = static_cast<CacheLine *>(buf);
+                bucket->entries[0] = *last;
+                for (size_t i = 1; i < ENTRIES_PER_CACHE_LINE; i++)
+                    bucket->entries[i].clear();
+                last->setChainPointer(bucket);
+            }
+        }
+    }
+
+    /**
+     * Apply the given callback function to each element stored in the
+     * specified bucket of the hash table.
+     * \param callback
+     *      The callback to fire on each element stored in the HashTable.
+     * \param cookie
+     *      An opaque parameter to pass to the callback function.
+     * \param bucket
+     *      An index into the HashTable's buckets.  Must be < #numBuckets.
+     * \return
+     *      The total number of callbacks fired (i.e. the number of elements
+     *      in the HashTable).
+     */
+    uint64_t
+    forEachInBucket(void (*callback)(uint64_t, void *),
+                    void *cookie,
+                    uint64_t bucket)
+    {
+        uint64_t numCalls = 0;
+        CacheLine *cl = &buckets.get()[bucket];
+        while (1) {
+            for (uint32_t j = 0; j < ENTRIES_PER_CACHE_LINE; j++) {
+                Entry *e = &cl->entries[j];
+                if (!e->isAvailable() && e->getChainPointer() == NULL) {
+                    callback(e->getReference(), cookie);
+                    numCalls++;
+                }
+            }
+
+            Entry *entry = &cl->entries[ENTRIES_PER_CACHE_LINE - 1];
+            cl = entry->getChainPointer();
+            if (cl == NULL)
+                break;
+        }
+        return numCalls;
+    }
+
+    /**
+     * Apply the given callback function to each element stored in the
+     * HashTable.
+     * \param[in] callback
+     *      The callback to fire on each element stored in the HashTable.
+     * \param[in] cookie
+     *      An opaque parameter to pass to the callback function.
+     * \return
+     *      The total number of callbacks fired (i.e. the number of elements
+     *      in the HashTable).
+     */
+    uint64_t
+    forEach(void (*callback)(uint64_t, void *), void *cookie)
+    {
+        uint64_t numCalls = 0;
+
+        for (uint64_t i = 0; i < numBuckets; i++)
+            numCalls += forEachInBucket(callback, cookie, i);
+
+        return numCalls;
+    }
+
+    /**
+     * Prefetch the cacheline associated with the given key.
+     */
+    void
+    prefetchBucket(Key& key)
+    {
+        uint64_t dummy;
+        prefetch(findBucket(key, &dummy));
+    }
+
+    /**
+     * Return the number of bytes per cache line.
+     */
+    static uint32_t
+    bytesPerCacheLine()
+    {
+        return BYTES_PER_CACHE_LINE;
+    }
+
+    /**
+     * Return the number of elements (references) each cacheline
+     * holds.
+     */
+    static uint32_t
+    entriesPerCacheLine()
+    {
+        return ENTRIES_PER_CACHE_LINE;
+    }
+
+    /**
+     * Returns the number of buckets allocated to the table.
+     */
+    uint64_t
+    getNumBuckets() const
+    {
+        return numBuckets;
+    }
+
+    /**
+     * Find the bucket index corresponding to a particular key.
+     * This also calculates the secondary hash bits used to disambiguate entries
+     * in the same bucket.
+     * \param[in] numBuckets
+     *      The number of buckets in the HashTable as reported by
+     *      #getNumBuckets().
+     * \param[in] key
+     *      Key object representing the element we're looking for. 
+     * \param[out] secondaryHash
+     *      The secondary hash bits (16 bits).
+     * \return
+     *      The bucket index corresponding to the given referent ID.
+     */
+    static uint64_t
+    findBucketIndex(uint64_t numBuckets, Key& key, uint64_t *secondaryHash)
+    {
+        uint64_t hashValue = key.getHash();
+        uint64_t bucketHash = hashValue & 0x0000ffffffffffffUL;
+        *secondaryHash = hashValue >> 48;
+        return (bucketHash & (numBuckets - 1));
+        // This is equivalent to:
+        //     &buckets.get()[bucketHash % numBuckets]
+        // since numBuckets is a power of two, and this saves about 14 cycles on
+        // an Intel Core 2 (see src/misc/modulus.cc).
+    }
+
+  PRIVATE:
+
+    // forward declarations
+    class Entry;
+    struct CacheLine;
+
+    /**
+     * Find the bucket corresponding to a particular key.
+     * This also calculates the secondary hash bits used to disambiguate entries
+     * in the same bucket.
+     * \param[in] key
+     *      Key object representing the element we're looking for. 
+     * \param[out] secondaryHash
+     *      The secondary hash bits (16 bits).
+     * \return
+     *      The bucket corresponding to the given key.
+     */
+    CacheLine *
+    findBucket(Key& key, uint64_t *secondaryHash) //const
+    {
+        uint64_t bucketIndex =
+                findBucketIndex(numBuckets, key, secondaryHash);
+        return &buckets.get()[bucketIndex];
+    }
+
     /**
      * The number of buckets allocated to the table.
      */
@@ -756,17 +632,6 @@ class HashTable {
      * See HashTable.
      */
     LargeBlockOfMemory<CacheLine> buckets;
-
-    /**
-     * The log this HashTable is storing entries for.
-     */
-    KeyComparer& keyComparer;
-
-    /**
-     * The performance counters for the HashTable.
-     * See #getPerfCounters().
-     */
-    PerfCounters perfCounters;
 
     friend void hashTableBenchmark(uint64_t nkeys, uint64_t nlines);
     DISALLOW_COPY_AND_ASSIGN(HashTable);

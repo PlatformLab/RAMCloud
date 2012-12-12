@@ -158,7 +158,7 @@ class MockTransport : public Transport {
             virtual ~MockSession();
             void abort();
             virtual void cancelRequest(RpcNotifier* notifier);
-            virtual void release();
+            virtual string getRpcInfo();
             virtual void sendRequest(Buffer* request, Buffer* response,
                     RpcNotifier* notifier);
         private:

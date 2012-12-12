@@ -145,7 +145,8 @@ class ServerId {
     /**
      * Return a human-readable representation of a ServerId.
      */
-    string toString() const
+    string
+    toString() const
     {
         if (isValid())
             return format("%u.%u", indexNumber(), generationNumber());
@@ -206,7 +207,7 @@ class ServerId {
     /// this generation number (despite the index number value) is invalid.
     /// This value must never be allocated as any legitimate ServerId's
     /// generation number.
-    enum { INVALID_SERVERID_GENERATION_NUMBER = (uint32_t)-1 };   // NOLINT
+    enum : uint32_t { INVALID_SERVERID_GENERATION_NUMBER = -1U };
 
   PRIVATE:
     /// The uint64_t representation of this ServerId.

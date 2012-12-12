@@ -254,9 +254,6 @@ class TcpTransport : public Transport {
         virtual void cancelRequest(RpcNotifier* notifier);
         Buffer* findRpc(Header& header);
         virtual string getRpcInfo();
-        void release() {
-            delete this;
-        }
         virtual void sendRequest(Buffer* request, Buffer* response,
                 RpcNotifier* notifier);
       PRIVATE:

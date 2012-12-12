@@ -42,6 +42,7 @@ class ServiceManager : Dispatch::Poller {
     bool idle();
     static void init();
     void poll();
+    void setServerId(ServerId serverId);
     Transport::ServerRpc* waitForRpc(double timeoutSeconds);
 
   PROTECTED:
@@ -105,35 +106,6 @@ class ServiceManager : Dispatch::Poller {
     static Syscall *sys;
 
     friend class Worker;
-
-  public:
-    /**
-     * Sessions of this type are used as wrappers in worker threads on
-     * servers.  These are needed because "real" Session objects are owned
-     * by transports (which run in the dispatch thread) and hence cannot be
-     * accessed in worker threads without synchronization.  WorkerSession
-     * objects forward methods to the actual Session object after
-     * synchronizing appropriately with the dispatch thread.
-     */
-    class WorkerSession : public Transport::Session {
-      public:
-        explicit WorkerSession(Context* context,
-                Transport::SessionRef wrapped);
-        ~WorkerSession();
-        virtual void abort();
-        virtual void cancelRequest(Transport::RpcNotifier* notifier);
-        virtual string getRpcInfo();
-        void release() {
-            delete this;
-        }
-        virtual void sendRequest(Buffer* request, Buffer* response,
-                Transport::RpcNotifier* notifier);
-      PRIVATE:
-        Context* context;              /// Global RAMCloud state.
-        Transport::SessionRef wrapped; /// sendRequest calls must be forwarded
-                                       /// to this underlying object.
-        DISALLOW_COPY_AND_ASSIGN(WorkerSession);
-    };
     DISALLOW_COPY_AND_ASSIGN(ServiceManager);
 };
 

@@ -18,6 +18,8 @@
 
 #include <mutex>
 #include "Service.h"
+#include "ShortMacros.h"
+#include "TestLog.h"
 
 namespace RAMCloud {
 
@@ -73,6 +75,9 @@ class MockService : public Service {
     }
     virtual int maxThreads() {
         return threadLimit;
+    }
+    virtual void initOnceEnlisted() {
+        TEST_LOG("called");
     }
 
     /// Used to serialize access to #log.

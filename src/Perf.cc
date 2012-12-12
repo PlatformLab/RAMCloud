@@ -338,42 +338,32 @@ double getThreadId()
     // printf("Result: %d\n", downCast<int>(result));
     return Cycles::toSeconds(stop - start)/count;
 }
+
 // Measure hash table lookup performance. Prefetching can
 // be enabled to measure its effect. This test is a lot
 // slower than the others (takes several seconds) due to the
 // set up cost, but we really need a large hash table to
 // avoid caching.
-class PerfKeyComparer : public HashTable::KeyComparer {
-  public:
-    bool doesMatch(Key& key, uint64_t candidate)
-    {
-        uint64_t* object = reinterpret_cast<uint64_t*>(candidate);
-        Key candidateKey(0, object, downCast<uint16_t>(sizeof(*object)));
-        return (key == candidateKey);
-    }
-};
-
 template<int prefetchBucketAhead = 0>
 double hashTableLookup()
 {
     uint64_t numBuckets = 16777216;       // 16M * 64 = 1GB
-    int numLookups = 1000000;
-    PerfKeyComparer keyComparer;
-    HashTable hashTable(numBuckets, keyComparer);
+    uint32_t numLookups = 1000000;
+    HashTable hashTable(numBuckets);
 
     // fill with some objects to look up (enough to blow caches)
-    for (int i = 0; i < numLookups; i++) {
+    for (uint64_t i = 0; i < numLookups; i++) {
         uint64_t* object = new uint64_t(i);
         uint64_t reference = reinterpret_cast<uint64_t>(object);
         Key key(0, object, downCast<uint16_t>(sizeof(*object)));
-        hashTable.replace(key, reference);
+        hashTable.insert(key, reference);
     }
 
     PerfHelper::flushCache();
 
     // now look up the objects again
     uint64_t start = Cycles::rdtsc();
-    for (int i = 0; i < numLookups; i++) {
+    for (uint64_t i = 0; i < numLookups; i++) {
         if (prefetchBucketAhead) {
             if (i + prefetchBucketAhead < numLookups) {
                 uint64_t object = i + prefetchBucketAhead;
@@ -383,18 +373,26 @@ double hashTableLookup()
         }
 
         Key key(0, &i, downCast<uint16_t>(sizeof(i)));
-        uint64_t outReference = 0;
-        hashTable.lookup(key, outReference);
+        HashTable::Candidates candidates = hashTable.lookup(key);
+        while (!candidates.isDone()) {
+            if (*reinterpret_cast<uint64_t*>(candidates.getReference()) == i)
+                break;
+            candidates.next();
+        }
     }
     uint64_t stop = Cycles::rdtsc();
 
     // clean up
-    for (int i = 0; i < numLookups; i++) {
-        uint64_t object = i;
-        Key key(0, &object, downCast<uint16_t>(sizeof(object)));
-        uint64_t outReference = 0;
-        hashTable.lookup(key, outReference);
-        delete reinterpret_cast<uint64_t*>(outReference);
+    for (uint64_t i = 0; i < numLookups; i++) {
+        Key key(0, &i, downCast<uint16_t>(sizeof(i)));
+        HashTable::Candidates candidates = hashTable.lookup(key);
+        while (!candidates.isDone()) {
+            if (*reinterpret_cast<uint64_t*>(candidates.getReference()) == i) {
+                delete reinterpret_cast<uint64_t*>(candidates.getReference());
+                candidates.remove();
+                break;
+            }
+        }
     }
 
     return Cycles::toSeconds((stop - start) / numLookups);
@@ -590,18 +588,6 @@ double rdtscTest()
     return Cycles::toSeconds(stop - start)/count;
 }
 
-// Measure the cost of an sfence instruction.
-double sfence()
-{
-    int count = 1000000;
-    uint64_t start = Cycles::rdtsc();
-    for (int i = 0; i < count; i++) {
-        Fence::sfence();
-    }
-    uint64_t stop = Cycles::rdtsc();
-    return Cycles::toSeconds(stop - start)/count;
-}
-
 // Sorting functor for #segmentEntrySort.
 struct SegmentEntryLessThan {
   public:
@@ -703,6 +689,33 @@ double segmentIterator()
     double time = Cycles::toSeconds(counter.stop());
 
     return time;
+}
+
+// Measure the cost of incrementing and decrementing the reference count in
+// a SessionRef.
+double sessionRefCount()
+{
+    int count = 1000000;
+    Transport::Session session;
+    Transport::SessionRef ref1(&session);
+    uint64_t start = Cycles::rdtsc();
+    for (int i = 0; i < count; i++) {
+        Transport::SessionRef ref2 = ref1;
+    }
+    uint64_t stop = Cycles::rdtsc();
+    return Cycles::toSeconds(stop - start)/count;
+}
+
+// Measure the cost of an sfence instruction.
+double sfence()
+{
+    int count = 1000000;
+    uint64_t start = Cycles::rdtsc();
+    for (int i = 0; i < count; i++) {
+        Fence::sfence();
+    }
+    uint64_t stop = Cycles::rdtsc();
+    return Cycles::toSeconds(stop - start)/count;
 }
 
 // Measure the cost of acquiring and releasing a SpinLock (assuming the
@@ -934,6 +947,8 @@ TestInfo tests[] = {
      "Sort a Segment full of avg. 100-byte Objects by age"},
     {"segmentIterator", segmentIterator<50, 150>,
      "Iterate a Segment full of avg. 100-byte Objects"},
+    {"sessionRefCount", sessionRefCount,
+     "Create/delete SessionRef"},
     {"sfence", sfence,
      "Sfence instruction"},
     {"spinLock", spinLock,

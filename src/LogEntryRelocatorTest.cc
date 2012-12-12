@@ -84,7 +84,7 @@ TEST_F(LogEntryRelocatorTest, append_alreadyAppended) {
 }
 
 TEST_F(LogEntryRelocatorTest, append) {
-    LogSegment* s = segmentManager.allocHead(false);
+    LogSegment* s = segmentManager.allocHeadSegment();
     LogEntryRelocator r(s, 50);
     Buffer buffer;
     buffer.append("!", 2);
@@ -102,7 +102,7 @@ TEST_F(LogEntryRelocatorTest, getNewReference_noAppend) {
 }
 
 TEST_F(LogEntryRelocatorTest, getNewReference) {
-    LogSegment* s = segmentManager.allocHead(false);
+    LogSegment* s = segmentManager.allocHeadSegment();
     LogEntryRelocator r(s, 50);
     Buffer buffer;
     buffer.append("!", 2);

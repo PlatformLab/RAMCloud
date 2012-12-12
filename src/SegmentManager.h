@@ -82,18 +82,39 @@ class SegmentManager {
     // Defined after this class.
     class Allocator;
 
+    /// Flags that may be passed to the allocHeadSegment and allocSideSegment
+    /// methods below. Each flag is assigned a power of two value and may
+    /// be ORed together to specify multiple parameters.
+    enum AllocSegmentFlags : uint32_t {
+        /// The null flag. This means that no flags are specified.
+        EMPTY = 0,
+
+        /// The allocation must not be allowed to fail. The method may block
+        /// until more memory is available, or may return a closed emergency
+        /// head segment, as appropriate.
+        MUST_NOT_FAIL = 1,
+
+        /// The segment being allocated will be used for cleaning. This simply
+        /// tells SegmentManager which pool of memory to allocate from. This
+        /// flag only makes sense in the allocSideSegment method.
+        FOR_CLEANING = 2
+    };
+
     SegmentManager(Context* context,
                    const ServerConfig* config,
-                   ServerId& logId,
+                   ServerId logId,
                    SegletAllocator& allocator,
                    ReplicaManager& replicaManager);
     ~SegmentManager();
     void getMetrics(ProtoBuf::LogMetrics_SegmentMetrics& m);
     SegletAllocator& getAllocator() const;
-    LogSegment* allocHead(bool mustNotFail = false);
-    LogSegment* allocSurvivor(LogSegment* replacing = NULL);
+    LogSegment* allocHeadSegment(uint32_t flags = EMPTY);
+    LogSegment* allocSideSegment(uint32_t flags = EMPTY,
+                                 LogSegment* replacing = NULL);
     void cleaningComplete(LogSegmentVector& clean, LogSegmentVector& survivors);
     void compactionComplete(LogSegment* oldSegment, LogSegment* newSegment);
+    void injectSideSegments(LogSegmentVector& segments);
+    void freeUnusedSideSegments(LogSegmentVector& segments);
     void cleanableSegments(LogSegmentVector& out);
     void logIteratorCreated();
     void logIteratorDestroyed();
@@ -133,11 +154,12 @@ class SegmentManager {
      *        FREEABLE_PENDING_DIGEST_AND_REFERENCES -->
      *        FREEABLE_PENDING_REFERENCES --> FREE*
      *
-     * For segments created during cleaning to hold survivor data, the sequence
-     * is: 
+     * For segments written by the SideLog class (for example, those created
+     * during cleaning to hold survivor data or populated during crash
+     * recovery), the sequence is identical aside from the first two states:
      *
-     *     CLEANING_INTO --> CLEANABLE_PENDING_DIGEST --> CLEANABLE -->
-     *        FREEABLE_PENDING_DIGEST_AND_REFERENCES -->
+     *     SIDELOG --> CLEANABLE_PENDING_DIGEST --> NEWLY_CLEANABLE -->
+     *        CLEANABLE --> FREEABLE_PENDING_DIGEST_AND_REFERENCES -->
      *        FREEABLE_PENDING_REFERENCES --> FREE*
      *
      * [*] There is no explicit FREE state. Rather, the segment is destroyed
@@ -157,13 +179,16 @@ class SegmentManager {
         /// existence and may clean it at any time.
         CLEANABLE,
 
-        /// The segment is currently being used to store survivor data from
-        /// segments during cleaning. It will eventually be injected into the
-        /// log after cleaning completes.
-        CLEANING_INTO,
+        /// The segment is currently being used by an instance of the SideLog
+        /// class (typically for log cleaning or memory compaction, but also
+        /// recovery or tablet migration). It will eventually be either injected
+        /// into the log or freed immediately, depending on whether the SideLog
+        /// is committed or aborted.
+        SIDELOG,
 
-        /// The segment holds survivor data from a previous cleaning pass. Once
-        /// it is added to the log (with the next LogDigest), it can be cleaned.
+        /// The segment holds entries from a committed SideLog. When the head is
+        /// rolled over and a new LogDigest is written, the segment will be part
+        /// of the durable log and eligible for cleaning.
         CLEANABLE_PENDING_DIGEST,
 
         /// The segment was cleaned, but it cannot be freed until it is removed
@@ -171,9 +196,10 @@ class SegmentManager {
         /// have completed.
         FREEABLE_PENDING_DIGEST_AND_REFERENCES,
 
-        /// The segmen was cleaned and has been removed from the log, but it
+        /// The segment was cleaned and has been removed from the log, but it
         /// cannot be freed until all outstanding references to its data in
-        /// memory have completed.
+        /// memory have completed. Aborted SideLog segments also transition to
+        /// this state when being freed.
         FREEABLE_PENDING_REFERENCES,
 
         /// Not a state, but rather a count of the number of states.
@@ -187,15 +213,47 @@ class SegmentManager {
     INTRUSIVE_LIST_TYPEDEF(LogSegment, allListEntries) AllSegmentList;
     typedef std::lock_guard<SpinLock> Lock;
 
+    /// The private alloc() routine allocates segments for four different
+    /// purposes: heads, emergency heads, regular SideLog segments, and
+    /// cleaner SideLog segments. These enums specify which. They affect the
+    /// pools from which segments (and seglets) are allocated, as well as the
+    /// initial states of the segments returned.
+    enum AllocPurpose {
+        /// Allocate a head segment that entries may be appended to. The log
+        /// will be rolled over to this new segment in memory and on backups.
+        /// These segments are allocated from the default pool.
+        ALLOC_HEAD = 0,
+
+        /// Allocate an emergency head segment. The log will be rolled over to
+        /// this new segment in memory and on backups, but it cannot be appended
+        /// to. This simply serves to move the log forward and write out a new
+        /// digest when memory is low. These segments are allocated from the
+        /// emergency head pool.
+        ALLOC_EMERGENCY_HEAD,
+
+        /// Allocate a segment for use by a SideLog instance that is not being
+        /// used for cleaning. These segments are allocated from the default
+        /// pool.
+        ALLOC_REGULAR_SIDELOG,
+
+        /// Allocate a segment for use by a SideLog instance that is involved
+        /// in log cleaning. These segments are allocated from the cleaner pool.
+        /// This separate pool ensures that the system does not deadlock itself
+        /// by allocating all segments and having nothing left to clean with.
+        ALLOC_CLEANER_SIDELOG
+    };
+
+    LogSegment* alloc(AllocPurpose purpose, uint64_t segmentId);
+    void injectSideSegment(LogSegment* segment, State nextState, Lock& lock);
+    void freeSegment(LogSegment* segment, bool waitForDigest, Lock& lock);
     void writeHeader(LogSegment* segment);
     void writeDigest(LogSegment* newHead, LogSegment* prevHead);
     void writeSafeVersion(LogSegment* head);
     LogSegment* getHeadSegment();
     void changeState(LogSegment& s, State newState);
-    LogSegment* alloc(SegletAllocator::AllocationType type, uint64_t segmentId);
     void addToLists(LogSegment& s);
     void removeFromLists(LogSegment& s);
-    SegmentSlot allocSlot(SegletAllocator::AllocationType type);
+    SegmentSlot allocSlot(AllocPurpose purpose);
     void freeSlot(SegmentSlot slot, bool wasEmergencyHead);
     void free(LogSegment* s);
     void freeUnreferencedSegments();
@@ -208,7 +266,7 @@ class SegmentManager {
 
     /// ServerId this log will be tagged with (for example, in SegmentHeader
     /// structures).
-    const ServerId& logId;
+    const ServerId logId;
 
     /// Allocator to allocate segment memory (seglets) from.
     SegletAllocator& allocator;
@@ -341,11 +399,6 @@ class SegmentManager {
      *
      **/
     uint64_t safeVersion;
-
-    /// Used for testing only. If true, allocSurvivor() will not block until
-    /// memory is free, but instead returns immediately with a NULL pointer if
-    /// nothing could be allocated.
-    bool testing_allocSurvivorMustNotBlock;
 
     DISALLOW_COPY_AND_ASSIGN(SegmentManager);
 };

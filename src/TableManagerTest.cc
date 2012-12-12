@@ -34,7 +34,11 @@ class TableManagerTest : public ::testing::Test {
     ServerId masterServerId; // Unit tests need to call enlistMaster()
                              // before trying to use masterServerId.
     CoordinatorServerList* serverList;
+    CoordinatorService* service;
     TableManager* tableManager;
+
+    LogCabinHelper* logCabinHelper;
+    LogCabin::Client::Log* logCabinLog;
 
     std::mutex mutex;
     typedef std::unique_lock<std::mutex> Lock;
@@ -46,14 +50,20 @@ class TableManagerTest : public ::testing::Test {
         , masterConfig(ServerConfig::forTesting())
         , masterServerId()
         , serverList()
+        , service()
         , tableManager()
+        , logCabinHelper()
+        , logCabinLog()
         , mutex()
     {
         Logger::get().setLogLevels(RAMCloud::SILENT_LOG_LEVEL);
 
-        CoordinatorService* service = cluster.coordinator.get();
+        service = cluster.coordinator.get();
         serverList = service->context->coordinatorServerList;
         tableManager = service->context->tableManager;
+
+        logCabinHelper = service->context->logCabinHelper;
+        logCabinLog = service->context->logCabinLog;
 
         masterConfig.services = {WireFormat::MASTER_SERVICE,
                                  WireFormat::PING_SERVICE,
@@ -73,8 +83,25 @@ class TableManagerTest : public ::testing::Test {
     void enlistMaster() {
         Server* masterServer = cluster.addServer(masterConfig);
         master = masterServer->master.get();
-        master->log->sync();
+        master->objectManager->log.sync();
         masterServerId = masterServer->serverId;
+    }
+
+    /**
+     * From the debug log messages, find the entry id specified immediately
+     * next to the given search string.
+     */
+    EntryId
+    findEntryId(string searchString) {
+        auto position = TestLog::get().find(searchString);
+        if (position == string::npos) {
+            throw "Search string not found";
+        } else {
+            string entryIdString =
+                TestLog::get().substr(TestLog::get().find(searchString) +
+                                      searchString.length(), 1);
+            return strtoul(entryIdString.c_str(), NULL, 0);
+        }
     }
 
     DISALLOW_COPY_AND_ASSIGN(TableManagerTest);
@@ -94,8 +121,8 @@ TEST_F(TableManagerTest, createTable) {
 
     // Advance the log head slightly so creation time offset is non-zero.
     Buffer empty;
-    master->log->append(LOG_ENTRY_TYPE_INVALID, 0, empty);
-    master->log->sync();
+    master->objectManager->log.append(LOG_ENTRY_TYPE_INVALID, 0, empty);
+    master->objectManager->log.sync();
 
     EXPECT_EQ(0U, tableManager->createTable("foo", 1));
     EXPECT_THROW(tableManager->createTable("foo", 1),
@@ -108,18 +135,18 @@ TEST_F(TableManagerTest, createTable) {
     EXPECT_EQ("Tablet { tableId: 0 startKeyHash: 0 "
               "endKeyHash: 18446744073709551615 "
               "serverId: 1.0 status: NORMAL "
-              "ctime: 2, 62 } "
+              "ctime: 0, 0 } "
               "Tablet { tableId: 1 startKeyHash: 0 "
               "endKeyHash: 18446744073709551615 "
               "serverId: 2.0 status: NORMAL "
-              "ctime: 1, 54 } "
+              "ctime: 0, 0 } "
               "Tablet { tableId: 2 startKeyHash: 0 "
               "endKeyHash: 18446744073709551615 "
               "serverId: 1.0 status: NORMAL "
-              "ctime: 3, 70 }",
+              "ctime: 0, 0 }",
               tableManager->debugString());
-    EXPECT_EQ(2, master->tablets.tablet_size());
-    EXPECT_EQ(1, master2.tablets.tablet_size());
+    EXPECT_EQ(2U, master->tabletManager.getCount());
+    EXPECT_EQ(1U, master2.tabletManager.getCount());
 }
 
 TEST_F(TableManagerTest, createTableSpannedAcrossTwoMastersWithThreeServers) {
@@ -139,15 +166,15 @@ TEST_F(TableManagerTest, createTableSpannedAcrossTwoMastersWithThreeServers) {
     EXPECT_EQ("Tablet { tableId: 0 startKeyHash: 0 "
               "endKeyHash: 9223372036854775807 "
               "serverId: 1.0 status: NORMAL "
-              "ctime: 2, 62 } "
+              "ctime: 0, 0 } "
               "Tablet { tableId: 0 startKeyHash: 9223372036854775808 "
               "endKeyHash: 18446744073709551615 "
               "serverId: 2.0 status: NORMAL "
-              "ctime: 1, 54 }",
+              "ctime: 0, 0 }",
               tableManager->debugString());
-    EXPECT_EQ(1, master->tablets.tablet_size());
-    EXPECT_EQ(1, master2.tablets.tablet_size());
-    EXPECT_EQ(0, master3.tablets.tablet_size());
+    EXPECT_EQ(1U, master->tabletManager.getCount());
+    EXPECT_EQ(1U, master2.tabletManager.getCount());
+    EXPECT_EQ(0U, master3.tabletManager.getCount());
 }
 
 
@@ -164,18 +191,167 @@ TEST_F(TableManagerTest, createTableSpannedAcrossThreeMastersWithTwoServers) {
     EXPECT_EQ("Tablet { tableId: 0 startKeyHash: 0 "
               "endKeyHash: 6148914691236517205 "
               "serverId: 1.0 status: NORMAL "
-              "ctime: 2, 62 } "
+              "ctime: 0, 0 } "
               "Tablet { tableId: 0 startKeyHash: 6148914691236517206 "
               "endKeyHash: 12297829382473034410 "
               "serverId: 2.0 status: NORMAL "
-              "ctime: 1, 54 } "
+              "ctime: 0, 0 } "
               "Tablet { tableId: 0 startKeyHash: 12297829382473034411 "
               "endKeyHash: 18446744073709551615 "
               "serverId: 1.0 status: NORMAL "
-              "ctime: 3, 70 }",
+              "ctime: 0, 0 }",
               tableManager->debugString());
-    EXPECT_EQ(2, master->tablets.tablet_size());
-    EXPECT_EQ(1, master2.tablets.tablet_size());
+    EXPECT_EQ(2U, master->tabletManager.getCount());
+    EXPECT_EQ(1U, master2.tabletManager.getCount());
+}
+
+TEST_F(TableManagerTest, createTable_LogCabin) {
+    // Enlist master
+    enlistMaster();
+
+    ServerConfig master2Config = masterConfig;
+    master2Config.localLocator = "mock:host=master2";
+    *cluster.addServer(master2Config)->master;
+
+    TestLog::Enable _;
+    tableManager->createTable("foo", 2);
+
+    vector<Entry> entriesRead = logCabinLog->read(0);
+    string searchString;
+
+    ProtoBuf::TableInformation creatingTable;
+    searchString = "execute: LogCabin: CreatingTable entryId: ";
+    ASSERT_NO_THROW(findEntryId(searchString));
+    logCabinHelper->parseProtoBufFromEntry(
+            entriesRead[findEntryId(searchString)], creatingTable);
+    EXPECT_EQ("entry_type: \"CreatingTable\"\n"
+              "name: \"foo\"\ntable_id: 0\nserver_span: 2\n"
+              "tablet_info {\n  "
+              "start_key_hash: 0\n  end_key_hash: 9223372036854775807\n  "
+              "master_id: 1\n  "
+              "ctime_log_head_id: 0\n  ctime_log_head_offset: 0\n}\n"
+              "tablet_info {\n  "
+              "start_key_hash: 9223372036854775808\n  "
+              "end_key_hash: 18446744073709551615\n  "
+              "master_id: 2\n  "
+              "ctime_log_head_id: 0\n  ctime_log_head_offset: 0\n}\n",
+               creatingTable.DebugString());
+
+    ProtoBuf::TableInformation stableTable;
+    searchString = "complete: LogCabin: AliveTable entryId: ";
+    ASSERT_NO_THROW(findEntryId(searchString));
+    logCabinHelper->parseProtoBufFromEntry(
+            entriesRead[findEntryId(searchString)], stableTable);
+    EXPECT_EQ("entry_type: \"AliveTable\"\n"
+              "name: \"foo\"\ntable_id: 0\nserver_span: 2\n"
+              "tablet_info {\n  "
+              "start_key_hash: 0\n  end_key_hash: 9223372036854775807\n  "
+              "master_id: 1\n  "
+              "ctime_log_head_id: 0\n  ctime_log_head_offset: 0\n}\n"
+              "tablet_info {\n  "
+              "start_key_hash: 9223372036854775808\n  "
+              "end_key_hash: 18446744073709551615\n  "
+              "master_id: 2\n  "
+              "ctime_log_head_id: 0\n  ctime_log_head_offset: 0\n}\n",
+               stableTable.DebugString());
+}
+
+TEST_F(TableManagerTest, recoverAliveTable) {
+    // Enlist master
+    enlistMaster();
+
+    ServerConfig master2Config = masterConfig;
+    master2Config.localLocator = "mock:host=master2";
+    MasterService& master2 = *cluster.addServer(master2Config)->master;
+
+    ProtoBuf::TableInformation state;
+    state.set_entry_type("AliveTable");
+    state.set_name("foo");
+    state.set_table_id(0);
+    state.set_server_span(2);
+
+    ProtoBuf::TableInformation::TabletInfo& tablet1(*state.add_tablet_info());
+    tablet1.set_start_key_hash(0UL);
+    tablet1.set_end_key_hash(9223372036854775807UL);
+    tablet1.set_master_id(master->serverId.getId());
+    tablet1.set_ctime_log_head_id(0);
+    tablet1.set_ctime_log_head_offset(0);
+
+    ProtoBuf::TableInformation::TabletInfo& tablet2(*state.add_tablet_info());
+    tablet2.set_start_key_hash(9223372036854775808UL);
+    tablet2.set_end_key_hash(18446744073709551615UL);
+    tablet2.set_master_id(master2.serverId.getId());
+    tablet2.set_ctime_log_head_id(0);
+    tablet2.set_ctime_log_head_offset(0);
+
+    EntryId entryId = logCabinHelper->appendProtoBuf(
+            *service->context->expectedEntryId, state);
+
+    TestLog::Enable _;
+    tableManager->recoverAliveTable(&state, entryId);
+
+    EXPECT_EQ("Tablet { tableId: 0 startKeyHash: 0 "
+              "endKeyHash: 9223372036854775807 "
+              "serverId: 1.0 status: NORMAL "
+              "ctime: 0, 0 } "
+              "Tablet { tableId: 0 startKeyHash: 9223372036854775808 "
+              "endKeyHash: 18446744073709551615 "
+              "serverId: 2.0 status: NORMAL "
+              "ctime: 0, 0 }",
+              tableManager->debugString());
+
+    // The masters shouldn't actually own the tablets since the
+    // recoverAliveTable() call adds the tablets only to the local tablet map
+    // and doesn't assign them to the masters.
+    EXPECT_EQ(0U, master->tabletManager.getCount());
+    EXPECT_EQ(0U, master2.tabletManager.getCount());
+}
+
+TEST_F(TableManagerTest, recoverCreateTable) {
+    // Enlist master
+    enlistMaster();
+
+    ServerConfig master2Config = masterConfig;
+    master2Config.localLocator = "mock:host=master2";
+    MasterService& master2 = *cluster.addServer(master2Config)->master;
+
+    ProtoBuf::TableInformation state;
+    state.set_entry_type("CreatingTable");
+    state.set_name("foo");
+    state.set_table_id(0);
+    state.set_server_span(2);
+
+    ProtoBuf::TableInformation::TabletInfo& tablet1(*state.add_tablet_info());
+    tablet1.set_start_key_hash(0UL);
+    tablet1.set_end_key_hash(9223372036854775807UL);
+    tablet1.set_master_id(master->serverId.getId());
+    tablet1.set_ctime_log_head_id(0);
+    tablet1.set_ctime_log_head_offset(0);
+
+    ProtoBuf::TableInformation::TabletInfo& tablet2(*state.add_tablet_info());
+    tablet2.set_start_key_hash(9223372036854775808UL);
+    tablet2.set_end_key_hash(18446744073709551615UL);
+    tablet2.set_master_id(master2.serverId.getId());
+    tablet2.set_ctime_log_head_id(0);
+    tablet2.set_ctime_log_head_offset(0);
+
+    EntryId entryId = logCabinHelper->appendProtoBuf(
+            *service->context->expectedEntryId, state);
+
+    TestLog::Enable _;
+    tableManager->recoverCreateTable(&state, entryId);
+
+    EXPECT_EQ("Tablet { tableId: 0 startKeyHash: 0 "
+              "endKeyHash: 9223372036854775807 "
+              "serverId: 1.0 status: NORMAL "
+              "ctime: 0, 0 } "
+              "Tablet { tableId: 0 startKeyHash: 9223372036854775808 "
+              "endKeyHash: 18446744073709551615 "
+              "serverId: 2.0 status: NORMAL "
+              "ctime: 0, 0 }",
+              tableManager->debugString());
+    EXPECT_EQ(1U, master->tabletManager.getCount());
+    EXPECT_EQ(1U, master2.tabletManager.getCount());
 }
 
 TEST_F(TableManagerTest, dropTable) {
@@ -191,27 +367,88 @@ TEST_F(TableManagerTest, dropTable) {
 
     // Test dropping a table that is spread across one master
     tableManager->createTable("bar", 1);
-    EXPECT_EQ(1, master2.tablets.tablet_size());
+    EXPECT_EQ(1U, master2.tabletManager.getCount());
     tableManager->dropTable("bar");
     EXPECT_EQ("Tablet { tableId: 0 startKeyHash: 0 "
               "endKeyHash: 18446744073709551615 "
               "serverId: 1.0 status: NORMAL "
-              "ctime: 2, 62 }",
+              "ctime: 0, 0 }",
               tableManager->debugString());
-    EXPECT_EQ(0, master2.tablets.tablet_size());
+    EXPECT_EQ(0U, master2.tabletManager.getCount());
 
     // Test dropping a table that is spread across two masters
     tableManager->createTable("bar", 2);
-    EXPECT_EQ(2, master->tablets.tablet_size());
-    EXPECT_EQ(1, master2.tablets.tablet_size());
+    EXPECT_EQ(2U, master->tabletManager.getCount());
+    EXPECT_EQ(1U, master2.tabletManager.getCount());
     tableManager->dropTable("bar");
     EXPECT_EQ("Tablet { tableId: 0 startKeyHash: 0 "
               "endKeyHash: 18446744073709551615 "
               "serverId: 1.0 status: NORMAL "
-              "ctime: 2, 62 }",
+              "ctime: 0, 0 }",
               tableManager->debugString());
-    EXPECT_EQ(1, master->tablets.tablet_size());
-    EXPECT_EQ(0, master2.tablets.tablet_size());
+    EXPECT_EQ(1U, master->tabletManager.getCount());
+    EXPECT_EQ(0U, master2.tabletManager.getCount());
+}
+
+TEST_F(TableManagerTest, dropTable_LogCabin) {
+    // Enlist master
+    enlistMaster();
+
+    ServerConfig master2Config = masterConfig;
+    master2Config.localLocator = "mock:host=master2";
+    MasterService& master2 = *cluster.addServer(master2Config)->master;
+
+    // Add a table, so the tests won't just compare against an empty tabletMap
+    tableManager->createTable("foo", 1);
+
+    // Test dropping a table that is spread across one master
+    tableManager->createTable("bar", 1);
+    EXPECT_EQ(1U, master2.tabletManager.getCount());
+
+    TestLog::Enable _;
+    tableManager->dropTable("bar");
+
+    vector<Entry> entriesRead = logCabinLog->read(0);
+    string searchString;
+
+    ProtoBuf::TableDrop dropTable;
+    searchString = "execute: LogCabin: DroppingTable entryId: ";
+    ASSERT_NO_THROW(findEntryId(searchString));
+    logCabinHelper->parseProtoBufFromEntry(
+            entriesRead[findEntryId(searchString)], dropTable);
+    EXPECT_EQ("entry_type: \"DroppingTable\"\n"
+              "name: \"bar\"\n",
+               dropTable.DebugString());
+}
+
+TEST_F(TableManagerTest, recoverDropTable) {
+    // Enlist master
+    enlistMaster();
+
+    ServerConfig master2Config = masterConfig;
+    master2Config.localLocator = "mock:host=master2";
+    MasterService& master2 = *cluster.addServer(master2Config)->master;
+
+    // Add a table, so the tests won't just compare against an empty tabletMap
+    tableManager->createTable("foo", 1);
+
+    // Test dropping a table that is spread across one master
+    tableManager->createTable("bar", 1);
+    EXPECT_EQ(1U, master2.tabletManager.getCount());
+
+    ProtoBuf::TableDrop state;
+    state.set_entry_type("DroppingTable");
+    state.set_name("bar");
+    EntryId entryId = logCabinHelper->appendProtoBuf(
+            *service->context->expectedEntryId, state);
+
+    tableManager->recoverDropTable(&state, entryId);
+    EXPECT_EQ("Tablet { tableId: 0 startKeyHash: 0 "
+              "endKeyHash: 18446744073709551615 "
+              "serverId: 1.0 status: NORMAL "
+              "ctime: 0, 0 }",
+              tableManager->debugString());
+    EXPECT_EQ(0U, master2.tabletManager.getCount());
 }
 
 TEST_F(TableManagerTest, getTableId) {
@@ -248,22 +485,24 @@ TEST_F(TableManagerTest, reassignTabletOwnership) {
                                WireFormat::MEMBERSHIP_SERVICE };
     master2Config.localLocator = "mock:host=master2";
     auto* master2 = cluster.addServer(master2Config);
-    master2->master->log->sync();
+    master2->master->objectManager->log.sync();
 
     // Advance the log head slightly so creation time offset is non-zero
     // on host being migrated to.
     Buffer empty;
-    master2->master->log->append(LOG_ENTRY_TYPE_INVALID, 0, empty);
-    master2->master->log->sync();
+    master2->master->objectManager->log.append(LOG_ENTRY_TYPE_INVALID,
+                                               0,
+                                               empty);
+    master2->master->objectManager->log.sync();
 
     // master is already enlisted
     tableManager->createTable("foo", 1);
-    EXPECT_EQ(1, master->tablets.tablet_size());
-    EXPECT_EQ(0, master2->master->tablets.tablet_size());
+    EXPECT_EQ(1U, master->tabletManager.getCount());
+    EXPECT_EQ(0U, master2->master->tabletManager.getCount());
     Tablet tablet = tableManager->getTablet(lock, 0lu, 0lu, ~(0lu));
     EXPECT_EQ(masterServerId, tablet.serverId);
-    EXPECT_EQ(2U, tablet.ctime.getSegmentId());
-    EXPECT_EQ(62U, tablet.ctime.getSegmentOffset());
+    EXPECT_EQ(0U, tablet.ctime.getSegmentId());
+    EXPECT_EQ(0U, tablet.ctime.getSegmentOffset());
 
     TestLog::Enable _(reassignTabletOwnershipFilter);
 
@@ -272,16 +511,16 @@ TEST_F(TableManagerTest, reassignTabletOwnership) {
     EXPECT_EQ("reassignTabletOwnership: Cannot reassign tablet "
         "[0x0,0xffffffffffffffff] in tableId 0 to 472.2: server not up",
         TestLog::get());
-    EXPECT_EQ(1, master->tablets.tablet_size());
-    EXPECT_EQ(0, master2->master->tablets.tablet_size());
+    EXPECT_EQ(1U, master->tabletManager.getCount());
+    EXPECT_EQ(0U, master2->master->tabletManager.getCount());
 
     TestLog::reset();
     EXPECT_THROW(CoordinatorClient::reassignTabletOwnership(&context,
         0, 0, 57, master2->serverId, 83, 835), TableDoesntExistException);
     EXPECT_EQ("reassignTabletOwnership: Could not reassign tablet [0x0,0x39] "
               "in tableId 0: tablet not found", TestLog::get());
-    EXPECT_EQ(1, master->tablets.tablet_size());
-    EXPECT_EQ(0, master2->master->tablets.tablet_size());
+    EXPECT_EQ(1U, master->tabletManager.getCount());
+    EXPECT_EQ(0U, master2->master->tabletManager.getCount());
 
     TestLog::reset();
     CoordinatorClient::reassignTabletOwnership(&context, 0, 0, -1,
@@ -291,8 +530,8 @@ TEST_F(TableManagerTest, reassignTabletOwnership) {
         "mock:host=master to server 2.0 at mock:host=master2",
         TestLog::get());
     // Calling master removes the entry itself after the RPC completes on coord.
-    EXPECT_EQ(1, master->tablets.tablet_size());
-    EXPECT_EQ(1, master2->master->tablets.tablet_size());
+    EXPECT_EQ(1U, master->tabletManager.getCount());
+    EXPECT_EQ(1U, master2->master->tabletManager.getCount());
     tablet = tableManager->getTablet(lock, 0lu, 0lu, ~(0lu));
     EXPECT_EQ(master2->serverId, tablet.serverId);
     EXPECT_EQ(83U, tablet.ctime.getSegmentId());
@@ -363,12 +602,12 @@ TEST_F(TableManagerTest, splitTablet) {
     EXPECT_EQ("Tablet { tableId: 0 startKeyHash: 0 "
               "endKeyHash: 9223372036854775806 "
               "serverId: 1.0 status: NORMAL "
-              "ctime: 2, 62 } "
+              "ctime: 0, 0 } "
               "Tablet { tableId: 0 "
               "startKeyHash: 9223372036854775807 "
               "endKeyHash: 18446744073709551615 "
               "serverId: 1.0 status: NORMAL "
-              "ctime: 2, 62 }",
+              "ctime: 0, 0 }",
               tableManager->debugString());
 
     tableManager->splitTablet("foo", 0,
@@ -376,17 +615,17 @@ TEST_F(TableManagerTest, splitTablet) {
     EXPECT_EQ("Tablet { tableId: 0 startKeyHash: 0 "
               "endKeyHash: 4611686018427387902 "
               "serverId: 1.0 status: NORMAL "
-              "ctime: 2, 62 } "
+              "ctime: 0, 0 } "
               "Tablet { tableId: 0 "
               "startKeyHash: 9223372036854775807 "
               "endKeyHash: 18446744073709551615 "
               "serverId: 1.0 status: NORMAL "
-              "ctime: 2, 62 } "
+              "ctime: 0, 0 } "
               "Tablet { tableId: 0 "
               "startKeyHash: 4611686018427387903 "
               "endKeyHash: 9223372036854775806 "
               "serverId: 1.0 status: NORMAL "
-              "ctime: 2, 62 }",
+              "ctime: 0, 0 }",
               tableManager->debugString());
 
     EXPECT_THROW(tableManager->splitTablet("foo", 0, 16, 8),

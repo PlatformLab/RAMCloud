@@ -31,6 +31,7 @@ TableManager::TableManager(Context* context)
     , nextTableId(0)
     , nextTableMasterIdx(0)
     , tables()
+    , tablesLogIds()
 {
     context->tableManager = this;
 }
@@ -60,59 +61,7 @@ TableManager::createTable(const char* name, uint32_t serverSpan)
 {
     Lock lock(mutex);
 
-    if (tables.find(name) != tables.end())
-        throw TableExists(HERE);
-    uint64_t tableId = nextTableId++;
-    tables[name] = tableId;
-
-    LOG(NOTICE, "Created table '%s' with id %lu", name, tableId);
-
-    if (serverSpan == 0)
-        serverSpan = 1;
-
-    for (uint32_t i = 0; i < serverSpan; i++) {
-        uint64_t firstKeyHash = i * (~0UL / serverSpan);
-        if (i != 0)
-            firstKeyHash++;
-        uint64_t lastKeyHash = (i + 1) * (~0UL / serverSpan);
-        if (i == serverSpan - 1)
-            lastKeyHash = ~0UL;
-
-        // Find the next master in the list.
-        CoordinatorServerList::Entry master;
-        while (true) {
-            size_t masterIdx = nextTableMasterIdx++ %
-                               context->coordinatorServerList->size();
-            CoordinatorServerList::Entry entry;
-            try {
-                entry = (*context->coordinatorServerList)[masterIdx];
-                if (entry.isMaster()) {
-                    master = entry;
-                    break;
-                }
-            } catch (ServerListException& e) {
-                continue;
-            }
-        }
-        // Get current log head. Only entries >= this can be part of the tablet.
-        Log::Position headOfLog = MasterClient::getHeadOfLog(context,
-                                                             master.serverId);
-
-        // Create tablet map entry.
-        addTablet(lock, {tableId, firstKeyHash, lastKeyHash,
-                  master.serverId, Tablet::NORMAL, headOfLog});
-
-        // Inform the master.
-        MasterClient::takeTabletOwnership(context, master.serverId, tableId,
-                                          firstKeyHash, lastKeyHash);
-
-        LOG(NOTICE,
-            "Assigned tablet [0x%lx,0x%lx] in table '%s' (id %lu) to %s",
-            firstKeyHash, lastKeyHash, name, tableId,
-            context->coordinatorServerList->toString(master.serverId).c_str());
-    }
-
-    return tableId;
+    return CreateTable(*this, lock, name, serverSpan).execute();
 }
 
 /**
@@ -155,22 +104,8 @@ void
 TableManager::dropTable(const char* name)
 {
     Lock lock(mutex);
-    Tables::iterator it = tables.find(name);
-    if (it == tables.end())
-        return;
-    uint64_t tableId = it->second;
-    tables.erase(it);
-    vector<Tablet> removed = removeTabletsForTable(lock, tableId);
-    foreach (const auto& tablet, removed) {
-            MasterClient::dropTabletOwnership(context,
-                                              tablet.serverId,
-                                              tableId,
-                                              tablet.startKeyHash,
-                                              tablet.endKeyHash);
-    }
 
-    LOG(NOTICE, "Dropped table '%s' (id %lu), %lu tablets left in map",
-        name, tableId, size(lock));
+    return DropTable(*this, lock, name).execute();
 }
 
 /**
@@ -255,9 +190,6 @@ TableManager::reassignTabletOwnership(
     modifyTablet(lock, tableId, startKeyHash, endKeyHash,
                  newOwner, Tablet::NORMAL, headOfLogAtCreation);
 
-    // TODO(ankitak): The todo comment below this was an issue earlier
-    //      because there was a rpc.sendReply() before this.
-    //      Is it still an issue?
     // TODO(rumble/slaughter) If we fail to alert the new owner we could
     //      get stuck in limbo. What should we do? Retry? Fail the
     //      server and recover it? Can't return to the old master if we
@@ -382,9 +314,285 @@ TableManager::splitTablet(const char* name,
                                     startKeyHash, endKeyHash, splitKeyHash);
 }
 
+/**
+ * During coordinator recovery, add local metadata for a table that had
+ * already been successfully created.
+ *
+ * \param state
+ *      The ProtoBuf that encapsulates the information about the table.
+ * \param entryId
+ *      The entry id of the LogCabin entry corresponding to the state.
+ */
+void
+TableManager::recoverAliveTable(
+    ProtoBuf::TableInformation* state, EntryId entryId)
+{
+    Lock lock(mutex);
+    LOG(DEBUG, "TableManager::recoverCreateTable()");
+    uint64_t tableId = state->table_id();
+    tables[state->name()] = tableId;
+    tablesLogIds[tableId].tableInfoLogId = entryId;
+
+    for (uint32_t i = 0; i < state->server_span(); i++) {
+        const ProtoBuf::TableInformation::TabletInfo* tabletInfo =
+                &state->tablet_info(i);
+
+        uint64_t firstKeyHash = tabletInfo->start_key_hash();
+        uint64_t lastKeyHash = tabletInfo->end_key_hash();
+        ServerId computedMasterId = ServerId(tabletInfo->master_id());
+        Log::Position headOfLog(tabletInfo->ctime_log_head_id(),
+                tabletInfo->ctime_log_head_id());
+
+        // Create tablet map entry.
+        addTablet(lock, {tableId, firstKeyHash, lastKeyHash,
+                         computedMasterId, Tablet::NORMAL, headOfLog});
+    }
+}
+
+/**
+ * During coordinator recovery, complete a createTable operation that
+ * had already been started.
+ *
+ * \param state
+ *      The ProtoBuf that encapsulates the information about table
+ *      being created.
+ * \param entryId
+ *      The entry id of the LogCabin entry corresponding to the state.
+ */
+void
+TableManager::recoverCreateTable(
+    ProtoBuf::TableInformation* state, EntryId entryId)
+{
+    Lock lock(mutex);
+    LOG(DEBUG, "TableManager::recoverCreateTable()");
+    CreateTable(*this, lock,
+                state->name().c_str(),
+                state->server_span(),
+                *state).complete(entryId);
+}
+
+/**
+ * During coordinator recovery, complete a dropTable operation that
+ * had already been started.
+ *
+ * \param state
+ *      The ProtoBuf that encapsulates the information about table
+ *      being dropped.
+ * \param entryId
+ *      The entry id of the LogCabin entry corresponding to the state.
+ */
+void
+TableManager::recoverDropTable(
+    ProtoBuf::TableDrop* state, EntryId entryId)
+{
+    Lock lock(mutex);
+    LOG(DEBUG, "TableManager::recoverDropTable()");
+    DropTable(*this, lock,
+              state->name().c_str()).complete(entryId);
+}
+
 /////////////////////////////////////////////////////////////////////////////
 //////////////////////////// Private Methods ////////////////////////////////
 /////////////////////////////////////////////////////////////////////////////
+
+/**
+ * Do everything needed to execute the CreateTable operation.
+ * Do any processing required before logging the state
+ * in LogCabin, log the state in LogCabin, then call #complete().
+ * 
+ * \return
+ *      The tableId assigned to the table created.
+ */
+uint64_t
+TableManager::CreateTable::execute()
+{
+    if (tm.tables.find(name) != tm.tables.end())
+        throw TableExists(HERE);
+    tableId = tm.nextTableId++;
+
+    LOG(NOTICE, "Creating table '%s' with id %lu", name, tableId);
+
+    if (serverSpan == 0)
+        serverSpan = 1;
+
+    state.set_entry_type("CreatingTable");
+    state.set_name(name);
+    state.set_table_id(tableId);
+    state.set_server_span(serverSpan);
+
+    for (uint32_t i = 0; i < serverSpan; i++) {
+        uint64_t firstKeyHash = i * (~0UL / serverSpan);
+        if (i != 0)
+            firstKeyHash++;
+        uint64_t lastKeyHash = (i + 1) * (~0UL / serverSpan);
+        if (i == serverSpan - 1)
+            lastKeyHash = ~0UL;
+
+        // Find the next master in the list.
+        CoordinatorServerList::Entry master;
+        while (true) {
+            size_t masterIdx = tm.nextTableMasterIdx++ %
+                               tm.context->coordinatorServerList->size();
+            CoordinatorServerList::Entry entry;
+            try {
+                entry = (*tm.context->coordinatorServerList)[masterIdx];
+                if (entry.isMaster()) {
+                    master = entry;
+                    break;
+                }
+            } catch (ServerListException& e) {
+                continue;
+            }
+        }
+
+        // add to local tablet map
+
+        // headOfLog is actually supposed to be the current log head on master.
+        // Only entries >= this can be part of the tablet.
+        // For a new table that is being created, using a value of (0,0)
+        // suffices for safety, and reduces the number of calls to the masters.
+        Log::Position headOfLog(0, 0);
+
+        ProtoBuf::TableInformation::TabletInfo&
+                tablet(*state.add_tablet_info());
+        tablet.set_start_key_hash(firstKeyHash);
+        tablet.set_end_key_hash(lastKeyHash);
+        tablet.set_master_id(master.serverId.getId());
+        tablet.set_ctime_log_head_id(headOfLog.getSegmentId());
+        tablet.set_ctime_log_head_offset(headOfLog.getSegmentOffset());
+    }
+
+    EntryId entryId =
+        tm.context->logCabinHelper->appendProtoBuf(
+            *tm.context->expectedEntryId, state);
+    LOG(DEBUG, "LogCabin: CreatingTable entryId: %lu", entryId);
+
+    return complete(entryId);
+}
+
+/**
+ * Complete the CreateTable operation after its state has been
+ * logged in LogCabin.
+ * This is called internally by #execute() in case of normal operation
+ * (which is in turn called by #createTable()), and
+ * directly for coordinator recovery (by #recoverCreateTable()).
+ *
+ * \param entryId
+ *      The entry id of the LogCabin entry corresponding to the state
+ *      of the operation to be completed.
+ * 
+ * \return
+ *      The tableId assigned to the table created.
+ */
+uint64_t
+TableManager::CreateTable::complete(EntryId entryId)
+{
+    tm.tables[name] = tableId;
+    tm.tablesLogIds[tableId].tableInfoLogId = entryId;
+
+    for (uint32_t i = 0; i < serverSpan; i++) {
+        const ProtoBuf::TableInformation::TabletInfo* tabletInfo =
+                &state.tablet_info(i);
+
+        uint64_t firstKeyHash = tabletInfo->start_key_hash();
+        uint64_t lastKeyHash = tabletInfo->end_key_hash();
+        ServerId computedMasterId = ServerId(tabletInfo->master_id());
+        Log::Position headOfLog(tabletInfo->ctime_log_head_id(),
+                tabletInfo->ctime_log_head_id());
+
+        // Create tablet map entry.
+        tm.addTablet(lock, {tableId, firstKeyHash, lastKeyHash,
+                            computedMasterId, Tablet::NORMAL, headOfLog});
+
+        try {
+            CoordinatorServerList::Entry computedMaster =
+                        (*tm.context->coordinatorServerList)[computedMasterId];
+            assert(computedMaster.isMaster());
+
+            // Inform the master if it is up.
+            MasterClient::takeTabletOwnership(tm.context, computedMasterId,
+                        tableId, firstKeyHash, lastKeyHash);
+        } catch (ServerListException& e) {
+            // If the computer master doesn't exist anymore, that means that
+            // it has crashed. Its recovery may or may not have been started
+            // yet.
+            // However, when the master recovery contacts the coordinator
+            // to get the tablet map, it will be stalled till the end of
+            // the create table completion since this operation is currently
+            // holding the TableManager lock.
+            // Thus, when we add the entry for the current tablet to the
+            // tablet map, it will be recovered as a part of the crashed master
+            // recovery, whenever that recovery contacts the coordinator.
+            LOG(NOTICE, "Master that was computed doesn't exist anymore.");
+        }
+
+        LOG(NOTICE,
+            "Assigned tablet [0x%lx,0x%lx] in table '%s' (id %lu) to %s",
+            firstKeyHash, lastKeyHash, name, tableId,
+            tm.context->coordinatorServerList->toString(
+                        computedMasterId).c_str());
+    }
+
+    state.set_entry_type("AliveTable");
+    EntryId newEntryId = tm.context->logCabinHelper->appendProtoBuf(
+            *tm.context->expectedEntryId, state, vector<EntryId>({entryId}));
+    LOG(DEBUG, "LogCabin: AliveTable entryId: %lu", newEntryId);
+
+    return tableId;
+}
+
+void
+TableManager::DropTable::execute()
+{
+    Tables::iterator it = tm.tables.find(name);
+    if (it == tm.tables.end())
+        return;
+
+    ProtoBuf::TableDrop state;
+    state.set_entry_type("DroppingTable");
+    state.set_name(name);
+
+    EntryId entryId = tm.context->logCabinHelper->appendProtoBuf(
+            *tm.context->expectedEntryId, state);
+    LOG(DEBUG, "LogCabin: DroppingTable entryId: %lu", entryId);
+
+    return complete(entryId);
+}
+
+void
+TableManager::DropTable::complete(EntryId entryId)
+{
+    Tables::iterator it = tm.tables.find(name);
+    if (it == tm.tables.end())
+        return;
+    uint64_t tableId = it->second;
+    tm.tables.erase(it);
+
+    vector<Tablet> removed = tm.removeTabletsForTable(lock, tableId);
+    // If a master is down and never receives the dropTabletOwnership
+    // call, we don't care, since this tablet has been removed from
+    // coordinator's tablet mapping, and hence will not be recovered
+    // if / when the master recovers.
+    foreach (const auto& tablet, removed) {
+            MasterClient::dropTabletOwnership(tm.context,
+                                              tablet.serverId,
+                                              tableId,
+                                              tablet.startKeyHash,
+                                              tablet.endKeyHash);
+    }
+
+    LOG(NOTICE, "Dropped table '%s' (id %lu), %lu tablets left in map",
+        name, tableId, tm.size(lock));
+
+    EntryId tableInfoLogId = tm.getTableInfoLogId(lock, tableId);
+    EntryId tableIncompleteOpLogId =
+                tm.getTableIncompleteOpLogId(lock, tableId);
+    vector<EntryId> invalidates {tableInfoLogId, entryId};
+    if (tableIncompleteOpLogId)
+        invalidates.push_back(tableIncompleteOpLogId);
+    tm.context->logCabinHelper->invalidate(
+                *tm.context->expectedEntryId, invalidates);
+}
 
 /**
  * Add a Tablet to the tablet map.
@@ -445,6 +653,54 @@ TableManager::cfind(const Lock& lock,
 {
     return const_cast<TableManager*>(this)->find(lock, tableId,
                                                  startKeyHash, endKeyHash);
+}
+
+/**
+ * Get the LogCabin EntryId corresponding to the information about this table.
+ *
+ * \param lock
+ *      Explicity needs caller to hold a lock.
+ * \param tableId
+ *      Table id of the table for which we want the LogCabin EntryId.
+ *
+ * \return
+ *      LogCabin EntryId corresponding to the information about this table.
+ * \throw NoSuchTable
+ *      If the arguments do not identify a table currently in the tablesInfo.
+ */
+EntryId
+TableManager::getTableInfoLogId(const Lock& lock, uint64_t tableId)
+{
+    TablesLogIds::iterator it(tablesLogIds.find(tableId));
+    if (it == tablesLogIds.end()) {
+        throw NoSuchTable(HERE);
+    }
+    return (it->second).tableInfoLogId;
+}
+
+/**
+ * Get the LogCabin EntryId corresponding to the current (incomplete)
+ * operation happening on this table.
+ *
+ * \param lock
+ *      Explicity needs caller to hold a lock.
+ * \param tableId
+ *      Table id of the table for which we want the LogCabin EntryId.
+ *
+ * \return
+ *      LogCabin EntryId corresponding to the current (incomplete)
+ *      operation happening on this table.
+ * \throw NoSuchTable
+ *      If the arguments do not identify a table currently in the tablesInfo.
+ */
+EntryId
+TableManager::getTableIncompleteOpLogId(const Lock& lock, uint64_t tableId)
+{
+    TablesLogIds::iterator it(tablesLogIds.find(tableId));
+    if (it == tablesLogIds.end()) {
+        throw NoSuchTable(HERE);
+    }
+    return (it->second).tableIncompleteOpLogId;
 }
 
 /**
@@ -564,6 +820,44 @@ TableManager::removeTabletsForTable(const Lock& lock, uint64_t tableId)
         }
     }
     return removed;
+}
+
+/**
+ * Add the LogCabin EntryId corresponding to the information about this table.
+ *
+ * \param lock
+ *      Explicity needs caller to hold a lock.
+ * \param tableId
+ *      Table id of the table for which we are storing the LogCabin EntryId.
+ *  \param entryId
+ *      LogCabin EntryId corresponding to the information about this table.
+ */
+void
+TableManager::setTableInfoLogId(const Lock& lock,
+                                uint64_t tableId,
+                                EntryId entryId)
+{
+    tablesLogIds[tableId].tableInfoLogId = entryId;
+}
+
+/**
+ * Add the LogCabin EntryId corresponding to the current (incomplete)
+ * operation happening on this table.
+ *
+ * \param lock
+ *      Explicity needs caller to hold a lock.
+ * \param tableId
+ *      Table id of the table for which we are storing the LogCabin EntryId.
+ *  \param entryId
+ *      LogCabin EntryId corresponding to the current (incomplete)
+ *      operation happening on this table.
+ */
+void
+TableManager::setTableIncompleteOpLogId(const Lock& lock,
+                                        uint64_t tableId,
+                                        EntryId entryId)
+{
+    tablesLogIds[tableId].tableIncompleteOpLogId = entryId;
 }
 
 /// Return the number of Tablets in the tablet map.

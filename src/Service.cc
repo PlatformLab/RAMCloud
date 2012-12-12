@@ -182,6 +182,26 @@ Service::prepareErrorResponse(Buffer* replyPayload, Status status)
 }
 
 /**
+ * This method is invoked once by Server.cc to notify the service that the
+ * server has enlisted with the coordinator and to provide the ServerId it
+ * was assigned. We simply record the serverId and call into the subclass so
+ * that it can do any work it had been deferring until now.
+ *
+ * \param assignedServerId
+ *      The ServerId assigned to this server by the coordinator.
+ */
+void
+Service::setServerId(ServerId assignedServerId)
+{
+    assert(!serverId.isValid());
+    serverId = assignedServerId;
+
+    // Call into the subclass (if implemented) to notify that enlistment has
+    // completed and that 'serverId' ready for use.
+    initOnceEnlisted();
+}
+
+/**
  * A worker thread can invoke this method to start sending a reply to
  * an RPC.  Normally a worker thread does not call this method; when it
  * returns from handling the request the reply will be sent automatically.
