@@ -1305,7 +1305,7 @@ FastTransport::ClientSession::expire(NonIdleAction nonIdleAction)
 {
     if (refCount > 0) {
         if (nonIdleAction != IGNORE_NON_IDLE) {
-            LOG(ERROR, "refCount %d in session for %s", refCount,
+            LOG(ERROR, "refCount %d in session for %s", refCount.load(),
                 getServiceLocator().c_str());
             if (nonIdleAction == ASSERT_NON_IDLE)
                 assert(refCount <= 0);

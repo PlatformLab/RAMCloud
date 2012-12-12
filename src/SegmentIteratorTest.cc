@@ -112,6 +112,12 @@ TEST_F(SegmentIteratorTest, constructor_fromBuffer) {
     }
 }
 
+TEST_F(SegmentIteratorTest, constructor_fromBufferNull) {
+    SegmentIterator it(NULL, 0, certificate);
+    EXPECT_NO_THROW(it.checkMetadataIntegrity());
+    EXPECT_TRUE(it.isDone());
+}
+
 TEST_F(SegmentIteratorTest, isDone) {
     EXPECT_TRUE(SegmentIterator(s).isDone());
 

@@ -133,7 +133,9 @@ SessionAlarmTimer::PingRpc::PingRpc(Context* context,
     , context(context)
 {
     this->session = session;
-    allocHeader<WireFormat::Ping>();
+    WireFormat::Ping::Request* reqHdr(
+            allocHeader<WireFormat::Ping>());
+    reqHdr->callerId = ServerId().getId();
     send();
 }
 
@@ -214,6 +216,10 @@ SessionAlarmTimer::handleTimerEvent()
             if (rpc->succeeded()) {
                 RAMCLOUD_LOG(NOTICE,
                         "Waiting for %s (ping succeeded)",
+                        current->first->session->getRpcInfo().c_str());
+            } else {
+                RAMCLOUD_LOG(NOTICE,
+                        "Waiting for %s (ping failed)",
                         current->first->session->getRpcInfo().c_str());
             }
             delete rpc;

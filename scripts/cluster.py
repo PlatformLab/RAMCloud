@@ -36,6 +36,8 @@ from optparse import OptionParser
 coordinator_binary = '%s/coordinator' % obj_path
 server_binary = '%s/server' % obj_path
 ensure_servers_bin = '%s/ensureServers' % obj_path
+# valgrind
+valgrind_command = ''
 
 # Info used to construct service locators for each of the transports
 # supported by RAMCloud.  In some cases the locator for the coordinator
@@ -184,12 +186,16 @@ class Cluster(object):
         self.coordinator_host = host
         self.coordinator_locator = coord_locator(self.transport,
                                                  self.coordinator_host)
+        command = (
+            '%s %s -C %s -l %s --logFile %s/coordinator.%s.log %s' %
+            (valgrind_command,
+             coordinator_binary, self.coordinator_locator,
+             self.log_level, self.log_subdir,
+             self.coordinator_host[0], args))
+
         self.coordinator = self.sandbox.rsh(self.coordinator_host[0],
-                  ('%s -C %s -l %s --logFile %s/coordinator.%s.log %s' %
-                   (coordinator_binary, self.coordinator_locator,
-                    self.log_level, self.log_subdir,
-                    self.coordinator_host[0], args)),
-                  bg=True, stderr=subprocess.STDOUT)
+                    command, bg=True, stderr=subprocess.STDOUT)
+
         self.ensure_servers(0, 0)
         if self.verbose:
             print('Coordinator started on %s at %s' %
@@ -220,13 +226,15 @@ class Cluster(object):
                      (default: see server_locator())
         @return: Sandbox.Process representing the server process.
         """
-        command = ('%s -C %s -L %s -r %d -l %s '
+        command = ('%s %s -C %s -L %s -r %d -l %s '
                    '--logFile %s/server%d.%s.log %s' %
-                   (server_binary, self.coordinator_locator,
+                   (valgrind_command,
+                    server_binary, self.coordinator_locator,
                     server_locator(self.transport, host, port),
                     self.replicas,
                     self.log_level, self.log_subdir,
                     self.next_server_id, host[0], args))
+
         self.next_server_id += 1
         if master and backup:
             pass
@@ -304,9 +312,10 @@ class Cluster(object):
         client_args = ' '.join(args[1:])
         clients = []
         for i, client_host in enumerate(hosts):
-            command = ('%s -C %s --numClients %d --clientIndex %d '
+            command = ('%s %s -C %s --numClients %d --clientIndex %d '
                        '--logFile %s/client%d.%s.log %s' %
-                       (client_bin, self.coordinator_locator, num_clients,
+                       (valgrind_command,
+                        client_bin, self.coordinator_locator, num_clients,
                         i, self.log_subdir, self.next_client_id,
                         client_host[0], client_args))
             self.next_client_id += 1
@@ -385,6 +394,11 @@ def run(
                                    # aren't enough available machines then
                                    # multiple clients will run on some
                                    # machines.
+        client_hosts=None,         # An explicit list of hosts (in
+                                   # host, ip, id triples) on which clients
+                                   # should be run. If this is set and
+                                   # share_hosts is set then share_hosts is
+                                   # ignored.
         share_hosts=False,         # True means clients can be run on
                                    # machines running servers, if needed.
         transport='infrc',         # Name of transport to use for servers.
@@ -400,6 +414,8 @@ def run(
                                    # recoveries.
         old_master_args='',        # Additional arguments to run on the
                                    # old master (e.g. total RAM).
+        valgrind=False,		   # Do not run under valgrind
+        valgrind_args='',	   # Additional arguments for valgrind
         coordinator_host=None
         ):       
     """
@@ -416,7 +432,7 @@ def run(
         raise Exception('num_servers (%d) exceeds the available hosts (%d)'
                         % (num_servers, len(hosts)))
 
-    if not share_hosts:
+    if not share_hosts and not client_hosts:
         if (len(hosts) - num_servers) < 1:
             raise Exception('Asked for %d servers without sharing hosts with %d '
                             'clients, but only %d hosts were available'
@@ -424,6 +440,10 @@ def run(
 
     masters_started = 0
     backups_started = 0
+
+    global valgrind_command
+    if valgrind:
+        valgrind_command = ('valgrind %s' % valgrind_args)
 
     with Cluster(log_dir) as cluster:
         cluster.log_level = log_level
@@ -444,7 +464,7 @@ def run(
                                              backup=False)
             oldMaster.ignoreFailures = True
             masters_started += 1
-            cluster.ensure_servers(timeout=40)
+            cluster.ensure_servers(timeout=60)
 
         for host in hosts[:num_servers]:
             backup = False
@@ -474,11 +494,12 @@ def run(
         if client:
             # Note: even if it's OK to share hosts between clients and servers,
             # don't do it unless necessary.
-            host_list = hosts[num_servers:]
-            if share_hosts:
-                host_list.extend(hosts[:num_servers])
-            client_hosts = [host_list[i % len(host_list)]
-                            for i in range(num_clients)]
+            if not client_hosts:
+                host_list = hosts[num_servers:]
+                if share_hosts:
+                    host_list.extend(hosts[:num_servers])
+                client_hosts = [host_list[i % len(host_list)]
+                                for i in range(num_clients)]
             assert(len(client_hosts) == num_clients)
 
             clients = cluster.start_clients(client_hosts, client)
@@ -549,6 +570,11 @@ if __name__ == '__main__':
             help='Transport to use for communication with servers')
     parser.add_option('-v', '--verbose', action='store_true', default=False,
             help='Print progress messages')
+    parser.add_option('--valgrind', action='store_true', default=False,
+            help='Run all the processes under valgrind')
+    parser.add_option('--valgrindArgs', metavar='ARGS', default='',
+            dest='valgrind_args',
+            help='Arguments to pass to valgrind')
     (options, args) = parser.parse_args()
 
     status = 0

@@ -399,6 +399,14 @@ MasterService::fillWithTestData(
                                     buffer,
                                     &newVersion,
                                     false);
+        if (status == STATUS_RETRY) {
+            LOG(ERROR, "Server ran out of space while filling with test data; "
+                "run your experiment again with a larger master; "
+                "stored %u of %u objects before running out of space",
+                objects, reqHdr->numObjects);
+            status = STATUS_NO_TABLE_SPACE;
+        }
+
         if (status != STATUS_OK) {
             respHdr->common.status = status;
             return;
@@ -1741,6 +1749,16 @@ MasterService::purgeObjectsFromUnknownTablets()
 }
 
 /**
+ * Thrown during recovery in recoverSegment when a log append fails. Caught
+ * by recover() which aborts the recovery cleanly and notifies the coordiantor
+ * that this master could not recover the partition.
+ */
+struct OutOfSpaceException : public Exception {
+    explicit OutOfSpaceException(const CodeLocation& where)
+        : Exception(where) {}
+};
+
+/**
  * Top-level server method to handle the RECOVER request.
  * \copydetails Service::ping
  */
@@ -1809,6 +1827,8 @@ MasterService::recover(const WireFormat::Recover::Request* reqHdr,
         recover(recoveryId, crashedServerId, partitionId, replicas);
         successful = true;
     } catch (const SegmentRecoveryFailedException& e) {
+        // Recovery wasn't successful.
+    } catch (const OutOfSpaceException& e) {
         // Recovery wasn't successful.
     }
 
@@ -2002,16 +2022,20 @@ MasterService::recoverSegment(SegmentIterator& it)
                 Log::Reference newObjReference;
                 {
                     CycleCounter<uint64_t> _(&segmentAppendTicks);
-                    log->append(LOG_ENTRY_TYPE_OBJ,
-                                recoveryObj->timestamp,
-                                recoveryObj,
-                                it.getLength(),
-                                &newObjReference);
+                    if (!log->append(LOG_ENTRY_TYPE_OBJ,
+                                     recoveryObj->timestamp,
+                                     recoveryObj,
+                                     it.getLength(),
+                                     &newObjReference))
+                    {
+                        LOG(WARNING, "Insufficient log space to complete "
+                            "recovery; aborting recovery on this master");
+                        // TODO(stutsman): Do we want to give the log cleaner
+                        // some kind of chance here? Maybe we should back off
+                        // a bit and if it isn't making progress then abort.
+                        throw OutOfSpaceException(HERE);
+                    }
                 }
-
-                // TODO(steve/ryan): what happens if the log is full? won't an
-                //      exception here just cause the master to try another
-                //      backup?
 
                 objectAppendCount++;
                 liveObjectBytes += it.getLength();
@@ -2068,13 +2092,19 @@ MasterService::recoverSegment(SegmentIterator& it)
                 Log::Reference newTombReference;
                 {
                     CycleCounter<uint64_t> _(&segmentAppendTicks);
-                    log->append(LOG_ENTRY_TYPE_OBJTOMB,
-                                recoverTomb.getTimestamp(),
-                                buffer,
-                                &newTombReference);
+                    if (!log->append(LOG_ENTRY_TYPE_OBJTOMB,
+                                     recoverTomb.getTimestamp(),
+                                     buffer,
+                                     &newTombReference))
+                    {
+                        LOG(WARNING, "Insufficient log space to complete "
+                            "recovery; aborting recovery on this master");
+                        // TODO(stutsman): Do we want to give the log cleaner
+                        // some kind of chance here? Maybe we should back off
+                        // a bit and if it isn't making progress then abort.
+                        throw OutOfSpaceException(HERE);
+                    }
                 }
-
-                // TODO(steve/ryan): append could fail here!
 
                 objectMap->replace(key, newTombReference.toInteger());
 
@@ -2111,7 +2141,14 @@ MasterService::recoverSegment(SegmentIterator& it)
             // with the same backup data when the recovery crashes on the way.
             {
                 CycleCounter<uint64_t> _(&segmentAppendTicks);
-                log->append(LOG_ENTRY_TYPE_SAFEVERSION, 0, buffer);
+                if (!log->append(LOG_ENTRY_TYPE_SAFEVERSION, 0, buffer)) {
+                    LOG(WARNING, "Insufficient log space to complete "
+                        "recovery; aborting recovery on this master");
+                    // TODO(stutsman): Do we want to give the log cleaner
+                    // some kind of chance here? Maybe we should back off
+                    // a bit and if it isn't making progress then abort.
+                    throw OutOfSpaceException(HERE);
+                }
             }
 
             // recover segmentManager.safeVersion (Master safeVersion)

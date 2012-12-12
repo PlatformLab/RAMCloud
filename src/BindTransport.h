@@ -80,9 +80,12 @@ struct BindTransport : public Transport {
       public:
         explicit BindSession(BindTransport& transport, ServiceArray* services,
                              const string& locator)
-            : transport(transport), services(services), locator(locator),
+            : transport(transport), services(services),
             lastRequest(NULL), lastResponse(NULL), lastNotifier(NULL),
-            dontNotify(false) {}
+            dontNotify(false)\
+        {
+            setServiceLocator(locator);
+        }
 
         void abort() {}
         void cancelRequest(RpcNotifier* notifier) {}
@@ -92,9 +95,6 @@ struct BindTransport : public Transport {
                 return "no active RPCs via BindTransport";
             return format("%s via BindTransport",
                     WireFormat::opcodeSymbol(lastRequest));
-        }
-        void release() {
-            delete this;
         }
         void sendRequest(Buffer* request, Buffer* response,
                          RpcNotifier* notifier)
@@ -137,7 +137,6 @@ struct BindTransport : public Transport {
 
         // Points to an array holding one of each of the available services.
         ServiceArray* services;
-        const string locator;
 
         // The request and response buffers from the last call to sendRequest
         // for this session.

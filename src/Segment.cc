@@ -525,7 +525,7 @@ Segment::getEntryHeader(uint32_t offset)
 {
     static_assert(sizeof(EntryHeader) == 1,
                   "Contiguity in segments not guaranteed!");
-    const EntryHeader* header;
+    const EntryHeader* header = NULL;
     peek(offset, reinterpret_cast<const void**>(&header));
     return *header;
 }

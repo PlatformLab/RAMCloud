@@ -14,6 +14,7 @@
  */
 
 #include "Common.h"
+#include "CycleCounter.h"
 #include "Cycles.h"
 #include "RawMetrics.h"
 #include "ShortMacros.h"
@@ -64,13 +65,27 @@ PingService::ping(const WireFormat::Ping::Request* reqHdr,
              WireFormat::Ping::Response* respHdr,
              Rpc* rpc)
 {
+    uint64_t ticks = 0;
+    CycleCounter<> counter(&ticks);
+
+    string callerId = ServerId(reqHdr->callerId).toString();
+
     ServerId serverId(reqHdr->callerId);
     if (serverId.isValid()) {
-        LOG(DEBUG, "Received ping request from server %s",
-            ServerId(reqHdr->callerId).toString().c_str());
+        // Careful, turning this into a real log message causes spurious
+        // ping timeouts.
+        TEST_LOG("Received ping request from server %s",
+                 serverId.toString().c_str());
         if (!context->serverList->isUp(serverId)) {
             respHdr->common.status = STATUS_CALLER_NOT_IN_CLUSTER;
         }
+    }
+
+    counter.stop();
+    double ms = Cycles::toSeconds(ticks) * 1000;
+    if (ms > 10) {
+        LOG(WARNING, "Slow responding to ping request from server %s; "
+            "took %.2f ms", callerId.c_str(), ms);
     }
 }
 

@@ -20,6 +20,7 @@
 #include <boost/intrusive_ptr.hpp>
 
 #include "Common.h"
+#include "Atomic.h"
 #include "BoostIntrusive.h"
 #include "Buffer.h"
 #include "ServiceLocator.h"
@@ -163,10 +164,12 @@ class Transport {
          * all copies of the SessionRef for this session have been deleted; it
          * should reclaim the storage for the session.  This method is invoked
          * (rather than just deleting the object) to enable transport-specific
-         * memory allocation for sessions.  In most cases the method should just
-         * "delete this".
+         * memory allocation for sessions.  The default is to delete the
+         * Session object.
          */
-        virtual void release() = 0;
+        virtual void release() {
+            delete this;
+        }
 
         /**
          * Initiate the transmission of an RPC request to the server.
@@ -185,7 +188,7 @@ class Transport {
          *      which can be passed to cancelRequest.
          */
         virtual void sendRequest(Buffer* request, Buffer* response,
-                RpcNotifier* notifier) = 0;
+                RpcNotifier* notifier) {}
 
         /**
          * Cancel an RPC request that was sent previously.
@@ -193,7 +196,7 @@ class Transport {
          *      Notifier object associated with this request (was passed
          *      to #sendRequest when the RPC was initiated).
          */
-        virtual void cancelRequest(RpcNotifier* notifier) = 0;
+        virtual void cancelRequest(RpcNotifier* notifier) {}
 
         /**
          * Returns a human-readable string containing useful information
@@ -224,23 +227,31 @@ class Transport {
          * any future calls to \c sendRequest. The caller is responsible
          * for logging the reason for the abort.
          */
-        virtual void abort() = 0;
+        virtual void abort() {}
 
-        /// Used by boost::intrusive_ptr. Do not call explicitly.
+        /**
+         * This method is invoked by boost::intrusive_ptr as part of the
+         * implementation of SessionRef; do not call explicitly.
+         *
+         * \param session
+         *      WorkerSession for which a new WorkerSessionRef  is being
+         *      created.
+         */
         friend void intrusive_ptr_add_ref(Session* session) {
-            ++session->refCount;
+            session->refCount.inc();
         }
 
-        /// Used by boost::intrusive_ptr. Do not call explicitly.
-        friend void intrusive_ptr_release(Session* session) {
-            if (--session->refCount == 0)
-                session->release();
-        }
+        friend void intrusive_ptr_release(Session* session);
 
       PROTECTED:
-        uint32_t refCount;
+        Atomic<int> refCount;          /// Count of SessionRefs that exist
+                                       /// for this Session.
       PRIVATE:
         string serviceLocator;
+
+        // The following variable is used to simulate simultaneous calls to
+        // intrusive_ptr_release in order to test its conflict handling.
+        static bool testingSimulateConflict;
 
         DISALLOW_COPY_AND_ASSIGN(Session);
     };
@@ -250,6 +261,10 @@ class Transport {
      * Usage is automatically tracked by boost::intrusive_ptr, so this can
      * be copied freely.  When the last copy is deleted the transport is
      * invoked to reclaim the session storage.
+     *
+     * Note: the reference count management in this class is thread-safe
+     * (but normal Transport::Session objects are not: they should be
+     * manipulated only of the dispatch thread).
      */
     typedef boost::intrusive_ptr<Session> SessionRef;
 

@@ -16,8 +16,10 @@
 #ifndef RAMCLOUD_COORDINATORSERVERLIST_H
 #define RAMCLOUD_COORDINATORSERVERLIST_H
 
-#include <Client/Client.h>
+#include <condition_variable>
 #include <deque>
+
+#include <Client/Client.h> // NOLINT
 
 #include "MasterRecoveryInfo.pb.h"
 #include "ServerList.pb.h"

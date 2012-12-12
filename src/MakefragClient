@@ -68,6 +68,7 @@ CLIENT_SRCFILES := \
 		   src/UdpDriver.cc \
 		   src/Util.cc \
 		   src/WireFormat.cc \
+		   src/WorkerSession.cc \
 		   $(INFINIBAND_SRCFILES) \
 		   $(OBJDIR)/MasterRecoveryInfo.pb.cc \
 		   $(OBJDIR)/MetricList.pb.cc \

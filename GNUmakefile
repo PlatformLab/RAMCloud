@@ -30,7 +30,7 @@ BASECFLAGS := -g
 OPTFLAG	 :=
 DEBUGFLAGS := -DTESTING=1 -fno-builtin
 else
-BASECFLAGS :=
+BASECFLAGS := -g
 OPTFLAG := -O3
 DEBUGFLAGS := -DNDEBUG -Wno-unused-variable
 endif
@@ -61,7 +61,7 @@ endif
 # -Winline
 
 LIBS := $(EXTRALIBS) -lpcrecpp -lboost_program_options -lprotobuf -lrt \
-        -lpthread -lssl -lcrypto
+        -lboost_filesystem -lboost_system -lpthread -lssl -lcrypto
 ifeq ($(DEBUG),yes)
 # -rdynamic generates more useful backtraces when you have debugging symbols
 LIBS += -rdynamic
