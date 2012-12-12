@@ -303,8 +303,8 @@ TEST_F(TableManagerTest, recoverAliveTable) {
     // The masters shouldn't actually own the tablets since the
     // recoverAliveTable() call adds the tablets only to the local tablet map
     // and doesn't assign them to the masters.
-    EXPECT_EQ(0, master->tablets.tablet_size());
-    EXPECT_EQ(0, master2.tablets.tablet_size());
+    EXPECT_EQ(0U, master->tabletManager.getCount());
+    EXPECT_EQ(0U, master2.tabletManager.getCount());
 }
 
 TEST_F(TableManagerTest, recoverCreateTable) {
@@ -350,8 +350,8 @@ TEST_F(TableManagerTest, recoverCreateTable) {
               "serverId: 2.0 status: NORMAL "
               "ctime: 0, 0 }",
               tableManager->debugString());
-    EXPECT_EQ(1, master->tablets.tablet_size());
-    EXPECT_EQ(1, master2.tablets.tablet_size());
+    EXPECT_EQ(1U, master->tabletManager.getCount());
+    EXPECT_EQ(1U, master2.tabletManager.getCount());
 }
 
 TEST_F(TableManagerTest, dropTable) {
@@ -403,7 +403,7 @@ TEST_F(TableManagerTest, dropTable_LogCabin) {
 
     // Test dropping a table that is spread across one master
     tableManager->createTable("bar", 1);
-    EXPECT_EQ(1, master2.tablets.tablet_size());
+    EXPECT_EQ(1U, master2.tabletManager.getCount());
 
     TestLog::Enable _;
     tableManager->dropTable("bar");
@@ -434,7 +434,7 @@ TEST_F(TableManagerTest, recoverDropTable) {
 
     // Test dropping a table that is spread across one master
     tableManager->createTable("bar", 1);
-    EXPECT_EQ(1, master2.tablets.tablet_size());
+    EXPECT_EQ(1U, master2.tabletManager.getCount());
 
     ProtoBuf::TableDrop state;
     state.set_entry_type("DroppingTable");
@@ -448,7 +448,7 @@ TEST_F(TableManagerTest, recoverDropTable) {
               "serverId: 1.0 status: NORMAL "
               "ctime: 0, 0 }",
               tableManager->debugString());
-    EXPECT_EQ(0, master2.tablets.tablet_size());
+    EXPECT_EQ(0U, master2.tabletManager.getCount());
 }
 
 TEST_F(TableManagerTest, getTableId) {
