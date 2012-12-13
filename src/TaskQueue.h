@@ -79,7 +79,7 @@ class TaskQueue {
     ~TaskQueue();
     bool isIdle();
     size_t outstandingTasks();
-    void performTask();
+    bool performTask();
     void performTasksUntilHalt();
     void halt();
 

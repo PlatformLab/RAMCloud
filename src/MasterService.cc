@@ -1570,14 +1570,11 @@ MasterService::recover(const WireFormat::Recover::Request* reqHdr,
         tablet.set_ctime_log_head_offset(headOfLog.getSegmentOffset());
     }
     LOG(NOTICE, "Reporting completion of recovery %lu", reqHdr->recoveryId);
-    CoordinatorClient::recoveryMasterFinished(context, recoveryId,
-                                              serverId, &recoveryTablets,
-                                              successful);
-
-    // TODO(stutsman) Delete tablets if recoveryMasterFinished returns
-    // failure by setting successful to false. Rest is handled below.
-
-    if (successful) {
+    bool cancelRecovery =
+        CoordinatorClient::recoveryMasterFinished(context, recoveryId,
+                                                  serverId, &recoveryTablets,
+                                                  successful);
+    if (!cancelRecovery) {
         // Ok - we're expected to be serving now. Mark recovered tablets
         // as normal so we can handle clients.
         foreach (const ProtoBuf::Tablets::Tablet& tablet,

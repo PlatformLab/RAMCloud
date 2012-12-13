@@ -73,7 +73,7 @@ struct TaskQueueTest : public ::testing::Test {
 
 TEST_F(TaskQueueTest, performTaskEmpty)
 {
-    taskQueue.performTask();
+    EXPECT_FALSE(taskQueue.performTask());
 }
 
 TEST_F(TaskQueueTest, performTask)
@@ -82,11 +82,12 @@ TEST_F(TaskQueueTest, performTask)
     for (int i = 0; i < times; ++i) {
         task1.schedule();
         task2.schedule();
-        taskQueue.performTask();
+        EXPECT_TRUE(taskQueue.performTask());
         EXPECT_FALSE(task1.isScheduled());
         EXPECT_TRUE(task2.isScheduled());
-        taskQueue.performTask();
+        EXPECT_TRUE(taskQueue.performTask());
         EXPECT_FALSE(task2.isScheduled());
+        EXPECT_FALSE(taskQueue.performTask());
     }
     EXPECT_EQ(3, task1.count);
     EXPECT_EQ(3, task2.count);

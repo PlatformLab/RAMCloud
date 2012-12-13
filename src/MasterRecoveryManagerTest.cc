@@ -116,7 +116,7 @@ TEST_F(MasterRecoveryManagerTest, startAndHalt) {
 }
 
 TEST_F(MasterRecoveryManagerTest, startMasterRecoveryNoTablets) {
-    Lock lock(mutex);     // To trick internal calls.
+    Lock lock(mutex); // For calls to internal functions without real lock.
     auto crashedServerId = addMaster(lock);
     TestLog::Enable _;
     mgr->startMasterRecovery((*serverList)[crashedServerId]);
@@ -125,7 +125,7 @@ TEST_F(MasterRecoveryManagerTest, startMasterRecoveryNoTablets) {
 }
 
 TEST_F(MasterRecoveryManagerTest, startMasterRecovery) {
-    Lock lock(mutex);     // To trick internal calls.
+    Lock lock(mutex); // For calls to internal functions without real lock.
     auto crashedServerId = addMaster(lock);
     crashServer(lock, crashedServerId);
     tableManager->addTablet(
@@ -159,7 +159,7 @@ TEST_F(MasterRecoveryManagerTest, destroyAndFreeRecovery) {
 }
 
 TEST_F(MasterRecoveryManagerTest, trackerChangesEnqueued) {
-    Lock lock(mutex);     // To trick internal calls.
+    Lock lock(mutex); // For calls to internal functions without real lock.
     // Changes to serverList implicitly call trackerChangesEnqueued.
     auto serverId = addMaster(lock);
 
@@ -178,7 +178,7 @@ TEST_F(MasterRecoveryManagerTest, trackerChangesEnqueued) {
 }
 
 TEST_F(MasterRecoveryManagerTest, recoveryFinished) {
-    Lock lock(mutex);     // To trick internal calls.
+    Lock lock(mutex); // For calls to internal functions without real lock.
     EXPECT_EQ(0lu, serverList->version);
     addMaster(lock);
     EXPECT_EQ(1lu, serverList->version);
@@ -196,7 +196,7 @@ TEST_F(MasterRecoveryManagerTest, recoveryFinished) {
 }
 
 TEST_F(MasterRecoveryManagerTest, recoveryFinishedUnsuccessful) {
-    Lock lock(mutex);     // To trick internal calls.
+    Lock lock(mutex); // For calls to internal functions without real lock.
     EXPECT_EQ(0lu, serverList->version);
     addMaster(lock);
     EXPECT_EQ(1lu, serverList->version);
@@ -212,19 +212,30 @@ TEST_F(MasterRecoveryManagerTest, recoveryFinishedUnsuccessful) {
 }
 
 TEST_F(MasterRecoveryManagerTest, recoveryMasterFinishedNoSuchRecovery) {
-    Lock lock(mutex);     // To trick internal calls.
+    Lock lock(mutex); // For calls to internal functions without real lock.
     addMaster(lock);
     const ProtoBuf::Tablets recoveredTablets;
-    mgr->recoveryMasterFinished(0lu, {1, 0}, recoveredTablets, false);
     TestLog::Enable _;
-    mgr->taskQueue.performTask(); // Do RecoveryMasterFinishedTask.
-    EXPECT_EQ("performTask: Recovery master reported completing recovery 0 "
-              "but there is no ongoing recovery with that id; this "
-              "should never happen in RAMCloud", TestLog::get());
+    std::thread thread(&MasterRecoveryManager::recoveryMasterFinished,
+                       std::ref(*mgr),
+                       0lu, ServerId{1, 0}, recoveredTablets, false);
+    while (!mgr->taskQueue.performTask()); // Do RecoveryMasterFinishedTask.
+    thread.join();
+    EXPECT_EQ(
+        "recoveryMasterFinished: Called by masterId 1.0 with 0 tablets | "
+        "recoveryMasterFinished: Recovered tablets | "
+        "recoveryMasterFinished:  | "
+        "schedule: scheduled | "
+        "performTask: Recovery master reported completing recovery 0 "
+        "but there is no ongoing recovery with that id; "
+        "this should only happen after coordinator rollover; "
+        "asking recovery master to abort this recovery | "
+        "recoveryMasterFinished: Asking recovery master to abort its recovery",
+        TestLog::get());
 }
 
 TEST_F(MasterRecoveryManagerTest, recoveryMasterFinished) {
-    Lock lock(mutex);     // To trick internal calls.
+    Lock lock(mutex); // For calls to internal functions without real lock.
     MockRandom __(1);
     tableManager->addTablet(lock, {0, 0, ~0lu, {1, 0}, Tablet::NORMAL, {2, 3}});
 
@@ -264,14 +275,24 @@ TEST_F(MasterRecoveryManagerTest, recoveryMasterFinished) {
             *service->context->expectedEntryId, state);
     tableManager->setTableInfoLogId(lock, 0, entryId);
 
-    mgr->recoveryMasterFinished(recovery->recoveryId,
-                               {2, 0}, recoveredTablets, true);
     EXPECT_EQ(3lu, serverList->version);
-    EXPECT_EQ(1lu, mgr->taskQueue.outstandingTasks());
-    serverList->sync();
+
     TestLog::Enable _;
-    mgr->taskQueue.performTask(); // Do RecoveryMasterFinishedTask.
+    std::thread thread(&MasterRecoveryManager::recoveryMasterFinished,
+                       std::ref(*mgr),
+                       recovery->recoveryId,
+                       ServerId{2, 0}, recoveredTablets, true);
+    while (!mgr->taskQueue.performTask()); // Do RecoveryMasterFinishedTask.
+    thread.join();
+    serverList->sync();
     EXPECT_EQ(
+        "recoveryMasterFinished: Called by masterId 2.0 with 1 tablets | "
+        "recoveryMasterFinished: Recovered tablets | "
+        "recoveryMasterFinished: tablet { "
+            "table_id: 0 start_key_hash: 0 end_key_hash: 18446744073709551615 "
+            "state: RECOVERING server_id: 2 user_data: 0 ctime_log_head_id: 0 "
+            "ctime_log_head_offset: 0 } | "
+        "schedule: scheduled | "
         "performTask: Modifying tablet map to set recovery master 2.0 as "
             "master for 0, 0, 18446744073709551615 | "
         "execute: LogCabin: TabletRecovered entryId: 6 | "
@@ -285,7 +306,9 @@ TEST_F(MasterRecoveryManagerTest, recoveryMasterFinished) {
         "schedule: scheduled | "
         "recoveryFinished: Recovery 1 completed for master 1.0 | "
         "execute: LogCabin: ServerRemoveUpdate entryId: 8 | "
-        "schedule: scheduled | schedule: scheduled",
+        "schedule: scheduled | schedule: scheduled | "
+        "execute: LogCabin: ServerListVersion entryId: 9 | "
+        "recoveryMasterFinished: Notifying recovery master ok to serve tablets",
               TestLog::get());
 
     // Recovery task which is finishing up, ApplyTrackerChangesTask (due to
@@ -299,7 +322,7 @@ TEST_F(MasterRecoveryManagerTest, recoveryMasterFinished) {
 TEST_F(MasterRecoveryManagerTest,
        recoveryMasterFinishedNotCompletelySuccessful)
 {
-    Lock lock(mutex);     // To trick internal calls.
+    Lock lock(mutex); // For calls to internal functions without real lock.
     MockRandom __(1);
     tableManager->addTablet(lock, {0, 0, ~0lu, {1, 0}, Tablet::NORMAL, {2, 3}});
 
@@ -321,11 +344,20 @@ TEST_F(MasterRecoveryManagerTest,
     tableManager->addTablet(
         lock, {0, 0, ~0lu, {1, 0}, Tablet::RECOVERING, {2, 3}});
 
-    mgr->recoveryMasterFinished(recovery->recoveryId, {2, 0},
-                               recoveredTablets, false);
     TestLog::Enable _;
-    mgr->taskQueue.performTask();
+    std::thread thread(&MasterRecoveryManager::recoveryMasterFinished,
+                       std::ref(*mgr),
+                       recovery->recoveryId,
+                       ServerId{2, 0}, recoveredTablets, false);
+    while (!mgr->taskQueue.performTask());
+    thread.join();
     EXPECT_EQ(
+        "recoveryMasterFinished: Called by masterId 2.0 with 1 tablets | "
+        "recoveryMasterFinished: Recovered tablets | "
+        "recoveryMasterFinished: tablet { table_id: 0 start_key_hash: 0 "
+        "end_key_hash: 18446744073709551615 state: RECOVERING server_id: 2 "
+        "user_data: 0 ctime_log_head_id: 0 ctime_log_head_offset: 0 } | "
+        "schedule: scheduled | "
         "performTask: A recovery master failed to recover its partition | "
         "recoveryMasterFinished: Recovery master 2.0 failed to recover its "
             "partition of the will for crashed server 1.0 | "
@@ -336,7 +368,8 @@ TEST_F(MasterRecoveryManagerTest,
             "tablets, rescheduling another recovery | "
         "schedule: scheduled | "
         "destroyAndFreeRecovery: Recovery of server 1.0 done (now 0 active "
-            "recoveries)"
+            "recoveries) | "
+        "recoveryMasterFinished: Asking recovery master to abort its recovery"
         , TestLog::get());
     recovery.release();
 
@@ -355,7 +388,7 @@ TEST_F(MasterRecoveryManagerTest,
 {
     // Damn straight. I always wanted to do that, man.
 
-    Lock lock(mutex);     // To trick internal calls.
+    Lock lock(mutex); // For calls to internal functions without real lock.
     tableManager->addTablet(lock, {0, 0, ~0lu, {1, 0}, Tablet::NORMAL, {2, 3}});
     tableManager->addTablet(lock, {1, 0, ~0lu, {2, 0}, Tablet::NORMAL, {2, 3}});
     tableManager->addTablet(lock, {2, 0, ~0lu, {3, 0}, Tablet::NORMAL, {2, 3}});
@@ -394,7 +427,7 @@ TEST_F(MasterRecoveryManagerTest,
 TEST_F(MasterRecoveryManagerTest,
        MaybeStartRecoveryTaskServerAlreadyRecovering)
 {
-    Lock lock(mutex);     // To trick internal calls.
+    Lock lock(mutex); // For calls to internal functions without real lock.
     tableManager->addTablet(lock, {0, 0, ~0lu, {1, 0}, Tablet::NORMAL, {2, 3}});
     tableManager->addTablet(lock, {1, 0, ~0lu, {2, 0}, Tablet::NORMAL, {2, 3}});
     tableManager->addTablet(lock, {2, 0, ~0lu, {3, 0}, Tablet::NORMAL, {2, 3}});

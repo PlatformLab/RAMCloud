@@ -716,6 +716,7 @@ TEST_F(MasterServiceTest, getHeadOfLog) {
 }
 
 TEST_F(MasterServiceTest, recover_basics) {
+    cluster.coordinator->recoveryManager.start();
     ServerId serverId(123, 0);
     ReplicaManager mgr(&context, &serverId, 1, false);
 
@@ -795,7 +796,7 @@ TEST_F(MasterServiceTest, recover_basics) {
         "recover: set tablet 124 20 100 to locator mock:host=master, "
         "id 2.0 | "
         "recover: Reporting completion of recovery 10 | "
-        "recoveryMasterFinished: called by masterId 2.0 with 4 tablets | "
+        "recoveryMasterFinished: Called by masterId 2.0 with 4 tablets | "
         , TestLog::getUntil(
             "recoveryMasterFinished: Recovered tablets | "
             ,  curPos, &curPos));
@@ -943,6 +944,7 @@ recoveryMasterFinishedFilter(string s)
 }
 
 TEST_F(MasterServiceTest, recover_ctimeUpdateIssued) {
+    cluster.coordinator->recoveryManager.start();
     TestLog::Enable _(recoveryMasterFinishedFilter);
     ramcloud->write(0, "0", 1, "abcdef", 6);
     ProtoBuf::Tablets tablets;
@@ -953,7 +955,7 @@ TEST_F(MasterServiceTest, recover_ctimeUpdateIssued) {
 
     size_t curPos = 0; // Current Pos: given to getUntil() as 2nd arg, and
     EXPECT_EQ(
-        "recoveryMasterFinished: called by masterId 2.0 with 4 tablets | "
+        "recoveryMasterFinished: Called by masterId 2.0 with 4 tablets | "
         "recoveryMasterFinished: Recovered tablets | "
         "recoveryMasterFinished: tablet { "
         "table_id: 123 start_key_hash: 0 end_key_hash: 9 state: RECOVERING "
@@ -979,6 +981,7 @@ bool recoverFilter(string s) {
 }
 
 TEST_F(MasterServiceTest, recover_unsuccessful) {
+    cluster.coordinator->recoveryManager.start();
     TestLog::Enable _(recoverFilter);
     ramcloud->write(0, "0", 1, "abcdef", 6);
     ProtoBuf::Tablets tablets;

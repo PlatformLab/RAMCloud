@@ -51,7 +51,7 @@ class CoordinatorClient {
     static void reassignTabletOwnership(Context* context, uint64_t tableId,
             uint64_t firstKey, uint64_t lastKey, ServerId newOwnerId,
             uint64_t ctimeSegmentId, uint32_t ctimeSegmentOffset);
-    static void recoveryMasterFinished(Context* context, uint64_t recoveryId,
+    static bool recoveryMasterFinished(Context* context, uint64_t recoveryId,
             ServerId recoveryMasterId, const ProtoBuf::Tablets* tablets,
             bool successful);
     static void sendServerList(Context* context, ServerId destination);
@@ -152,8 +152,7 @@ class RecoveryMasterFinishedRpc : public CoordinatorRpcWrapper {
             ServerId recoveryMasterId, const ProtoBuf::Tablets* tablets,
             bool successful);
     ~RecoveryMasterFinishedRpc() {}
-    /// \copydoc RpcWrapper::docForWait
-    void wait() {simpleWait(context->dispatch);}
+    bool wait();
 
     PRIVATE:
     DISALLOW_COPY_AND_ASSIGN(RecoveryMasterFinishedRpc);

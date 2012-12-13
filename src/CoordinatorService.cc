@@ -348,14 +348,11 @@ CoordinatorService::recoveryMasterFinished(
                                reqHdr->tabletsLength, &recoveredTablets);
 
     ServerId serverId = ServerId(reqHdr->recoveryMasterId);
-    recoveryManager.recoveryMasterFinished(reqHdr->recoveryId,
-                                           serverId,
-                                           recoveredTablets,
-                                           reqHdr->successful);
-
-    // TODO(stutsman): Eventually we'll want to be able to 'reject' recovery
-    // master completions, so we'll need to get a return value from
-    // recoveryMasterFinished.
+    respHdr->cancelRecovery =
+        recoveryManager.recoveryMasterFinished(reqHdr->recoveryId,
+                                               serverId,
+                                               recoveredTablets,
+                                               reqHdr->successful);
 }
 
 /**

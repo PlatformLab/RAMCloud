@@ -961,6 +961,7 @@ struct RecoveryMasterFinished {
     } __attribute__((packed));
     struct Response {
         ResponseCommon common;
+        bool cancelRecovery;
     } __attribute__((packed));
 };
 
