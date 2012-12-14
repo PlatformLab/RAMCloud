@@ -233,7 +233,7 @@ SegmentManager::allocHeadSegment(uint32_t flags)
  * cleaner fails to keep its promise of not using more than it frees.
  *
  * \param flags
- *      If the FOR_CLEANING flag is provided, the allocate will be attempted
+ *      If the FOR_CLEANING flag is provided, the allocation will be attempted
  *      from a pool specially reserved for the cleaner. If MUST_NOT_FAIL is
  *      provided, the method will block until a segment is free. Otherwise, it
  *      will return immediately with NULL if no segment is available.

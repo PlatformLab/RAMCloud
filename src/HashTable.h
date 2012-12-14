@@ -285,8 +285,31 @@ class HashTable {
                   "HashTable entries don't fit evenly into a cacheline");
 
   public:
+    /**
+     * This class is essentially an iterator for potential matches found during
+     * a lookup operation. This exists because the HashTable::lookup() method
+     * does not know how to extract and compare keys from elements being stored
+     * in the table. Instead, each lookup returns an instance of this object,
+     * which the caller can use to loop over any potential matches and do their
+     * own key equality comparison.
+     *
+     * Since the HashTable attempts to avoid extraneous comparisons by keeping a
+     * small hash in each reference it stores, in nearly all circumstances this
+     * class will iterate over zero or one candidates. However, the caller must
+     * be able to deal with arbitrarily many in the case of hash collisions.
+     *
+     * The main reason for turning the HashTable inside-out like this is (as
+     * usual) efficiency. If the HashTable were to do compare keys internally,
+     * it would need not allocate a Buffer and fill it in from the Log to do
+     * the comparison. Then it'd throw that work away as it pops down the stack
+     * to return, after which the caller would have to allocate another Buffer
+     * and fill it in to return the same object data.
+     */
     class Candidates {
       public:
+        /**
+         * Construct an empty set of candidates.
+         */
         Candidates()
             : bucket(NULL)
             , index(0)
@@ -294,6 +317,11 @@ class HashTable {
         {
         }
 
+        /**
+         * Construct a candidate object from a given bucket in the hash table.
+         * It will scan the bucket for the first reference that matches the
+         * given secondaryHash.
+         */
         Candidates(CacheLine* cl, uint64_t secondaryHash)
             : bucket(cl)
             , index(-1)
@@ -302,6 +330,10 @@ class HashTable {
             next();
         }
 
+        /**
+         * Obtain the reference for the candidate currently pointed to by the
+         * iterator. If there is no next candidate, 0 is returned.
+         */
         uint64_t
         getReference()
         {
@@ -310,6 +342,10 @@ class HashTable {
             return bucket->entries[index].getReference();
         }
 
+        /**
+         * Replace the reference currently pointed to by the iterator. This is
+         * used to change what a key refers to in the table.
+         */
         void
         setReference(uint64_t reference)
         {
@@ -317,6 +353,10 @@ class HashTable {
                 bucket->entries[index].setReference(secondaryHash, reference);
         }
 
+        /**
+         * Remove the reference currently pointed to by the iterator. This is
+         * used to delete references from the table.
+         */
         void
         remove()
         {
@@ -324,6 +364,9 @@ class HashTable {
                 bucket->entries[index].clear();
         }
 
+        /**
+         * Advance the iterator to the next candidate, if there is one.
+         */
         void
         next()
         {
@@ -357,6 +400,10 @@ class HashTable {
             }
         }
 
+        /**
+         * If all candidates have been iterated over, return true. Otherwise,
+         * return false.
+         */
         bool
         isDone()
         {
