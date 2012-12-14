@@ -73,7 +73,7 @@ RamCloud::RamCloud(Context* context, const char* serviceLocator)
  *      to this number of servers according to their hash. This is a temporary
  *      work-around until tablet migration is complete; until then, we must
  *      place tablets on servers statically.
- * 
+ *
  * \return
  *      The return value is an identifier for the created table; this is
  *      used instead of the table's name for most RAMCloud operations
@@ -116,7 +116,7 @@ CreateTableRpc::CreateTableRpc(RamCloud* ramcloud,
 /**
  * Wait for the RPC to complete, and return the same results as
  * #RamCloud::createTable.
- * 
+ *
  * \return
  *      The return value is an identifier for the created table.
  */
@@ -273,7 +273,7 @@ EnumerateTableRpc::EnumerateTableRpc(RamCloud* ramcloud, uint64_t tableId,
  *       constructor.  A zero return value, combined with no objects
  *       returned in \a objects, means that all objects in the table have
  *       been enumerated.
- *       
+ *
  */
 uint64_t
 EnumerateTableRpc::wait(Buffer& state)
@@ -730,7 +730,7 @@ GetTableIdRpc::GetTableIdRpc(RamCloud* ramcloud,
 /**
  * Wait for a getTableId RPC to complete, and return the same results as
  * #RamCloud::getTableId.
- * 
+ *
  * \return
  *      The return value is an identifier for the table.
  *

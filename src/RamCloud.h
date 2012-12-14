@@ -126,10 +126,11 @@ class RamCloud {
 };
 
 /**
- * Objects of this class are used to pass parameters into \c multiRead
- * and for multiRead to return result values.
+ * The base class used to pass parameters into the MultiOp Framework. Any
+ * multi operation xxxxx that uses the Framework should have its own
+ * MultixxxxxObject that extends this object to describe its own parameters.
  */
-struct MultiReadObject {
+struct MultiOpObject {
     /**
      * The table containing the desired object (return value from
      * a previous call to getTableId).
@@ -150,6 +151,50 @@ struct MultiReadObject {
     uint16_t keyLength;
 
     /**
+     * The status of read (either that the read succeeded, or the
+     * error in case it didn't) is returned here.
+     */
+    Status status;
+
+    PROTECTED:
+    MultiOpObject(uint64_t tableId, const void* key, uint16_t keyLength)
+        : tableId(tableId)
+        , key(key)
+        , keyLength(keyLength)
+        , status()
+    {}
+
+    MultiOpObject()
+        : tableId()
+        , key()
+        , keyLength()
+        , status()
+    {}
+
+    MultiOpObject(const MultiOpObject& other)
+        : tableId(other.tableId)
+        , key(other.key)
+        , keyLength(other.keyLength)
+        , status(other.status)
+    {};
+
+    MultiOpObject& operator=(const MultiOpObject& other) {
+        tableId = other.tableId;
+        key = other.key;
+        keyLength = other.keyLength;
+        status = other.status;
+        return *this;
+    }
+
+    virtual ~MultiOpObject() {};
+};
+
+/**
+ * Objects of this class are used to pass parameters into \c multiRead
+ * and for multiRead to return result values.
+ */
+struct MultiReadObject : public MultiOpObject {
+    /**
      * If the read for this object was successful, the Tub<Buffer>
      * will hold the contents of the desired object. If not, it will
      * not be initialized, giving "false" when the buffer is tested.
@@ -161,32 +206,31 @@ struct MultiReadObject {
      */
     uint64_t version;
 
-    /**
-     * The status of read (either that the read succeeded, or the
-     * error in case it didn't) is returned here.
-     */
-    Status status;
-
     MultiReadObject(uint64_t tableId, const void* key, uint16_t keyLength,
             Tub<Buffer>* value)
-        : tableId(tableId)
-        , key(key)
-        , keyLength(keyLength)
+        : MultiOpObject(tableId, key, keyLength)
         , value(value)
         , version()
-        , status()
-    {
-    }
+    {}
 
     MultiReadObject()
-        : tableId()
-        , key()
-        , keyLength()
-        , value()
+        : value()
         , version()
-        , status()
-    {
+    {}
+
+    MultiReadObject(const MultiReadObject& other)
+        : MultiOpObject(other)
+        , value(other.value)
+        , version(other.version)
+    {}
+
+    MultiReadObject& operator=(const MultiReadObject& other){
+        MultiOpObject::operator =(other);
+        value = other.value;
+        version = other.version;
+        return *this;
     }
+
 };
 
 /**
@@ -194,26 +238,7 @@ struct MultiReadObject {
  * and for multiWrite to return status values for conditional operations
  * (if used).
  */
-struct MultiWriteObject {
-    /**
-     * The table to write the object to (return value from a previous call
-     * to getTableId).
-     */
-    uint64_t tableId;
-
-    /**
-     * Variable length key that will uniquely identify the new object within
-     * the table. It does not necessarily have to be null terminated like a
-     * string. The caller is responsible for ensuring that this key remains
-     * valid until the call is reaped/canceled.
-     */
-    const void* key;
-
-    /**
-     * Length of key, in bytes.
-     */
-    uint16_t keyLength;
-
+struct MultiWriteObject : public MultiOpObject {
     /**
      * Pointer to the contents of the new object.
      */
@@ -228,42 +253,44 @@ struct MultiWriteObject {
      * The RejectRules specify when conditional writes should be aborted.
      */
     const RejectRules* rejectRules;
-
     /**
      * The version number of the newly written object is returned here.
      */
     uint64_t version;
 
-    /**
-     * The status of write (either that the write succeeded, or the
-     * error in case it didn't) is returned here.
-     */
-    Status status;
-
     MultiWriteObject(uint64_t tableId, const void* key, uint16_t keyLength,
-                     const void* value, uint32_t valueLength,
-                     const RejectRules* rejectRules = NULL)
-        : tableId(tableId)
-        , key(key)
-        , keyLength(keyLength)
+                 const void* value, uint32_t valueLength,
+                 const RejectRules* rejectRules = NULL)
+        : MultiOpObject(tableId, key, keyLength)
         , value(value)
         , valueLength(valueLength)
         , rejectRules(rejectRules)
         , version()
-        , status()
-    {
-    }
+    {}
 
     MultiWriteObject()
-        : tableId()
-        , key()
-        , keyLength()
+        : MultiOpObject()
         , value()
         , valueLength()
         , rejectRules()
         , version()
-        , status()
-    {
+    {}
+
+    MultiWriteObject(const MultiWriteObject& other)
+        : MultiOpObject(other)
+        , value(other.value)
+        , valueLength(other.valueLength)
+        , rejectRules(other.rejectRules)
+        , version(other.version)
+    {}
+
+    MultiWriteObject& operator=(const MultiWriteObject& other){
+        MultiOpObject::operator =(other);
+        value = other.value;
+        valueLength = other.valueLength;
+        rejectRules = other.rejectRules;
+        version = other.version;
+        return *this;
     }
 };
 

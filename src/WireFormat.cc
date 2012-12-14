@@ -67,12 +67,12 @@ opcodeSymbol(uint32_t opcode)
         case RECOVERY_MASTER_FINISHED:   return "RECOVERY_MASTER_FINISHED";
         case ENUMERATE:                  return "ENUMERATE";
         case FILL_WITH_TEST_DATA:        return "FILL_WITH_TEST_DATA";
-        case MULTI_READ:                 return "MULTI_READ";
+        case MULTI_OP:                   return "MULTI_OP";
         case GET_METRICS:                return "GET_METRICS";
         case BACKUP_FREE:                return "BACKUP_FREE";
         case BACKUP_GETRECOVERYDATA:     return "BACKUP_GETRECOVERYDATA";
         case BACKUP_STARTREADINGDATA:    return "BACKUP_STARTREADINGDATA";
-        case BACKUP_STARTPARTITION:   return "BACKUP_STARTPARTITIONING";
+        case BACKUP_STARTPARTITION:      return "BACKUP_STARTPARTITIONING";
         case BACKUP_WRITE:               return "BACKUP_WRITE";
         case BACKUP_RECOVERYCOMPLETE:    return "BACKUP_RECOVERYCOMPLETE";
         case BACKUP_QUIESCE:             return "BACKUP_QUIESCE";
@@ -93,7 +93,6 @@ opcodeSymbol(uint32_t opcode)
         case SET_RUNTIME_OPTION:         return "SET_RUNTIME_OPTION";
         case GET_SERVER_CONFIG:          return "GET_SERVER_CONFIG";
         case GET_LOG_METRICS:            return "GET_LOG_METRICS";
-        case MULTI_WRITE:                return "MULTI_WRITE";
         case VERIFY_MEMBERSHIP:          return "VERIFY_MEMBERSHIP";
         case ILLEGAL_RPC_TYPE:           return "ILLEGAL_RPC_TYPE";
     }

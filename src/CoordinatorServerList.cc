@@ -143,7 +143,7 @@ CoordinatorServerList::masterCount() const
 
 /**
  * Returns a copy of the details associated with the given ServerId.
- * 
+ *
  * Note: This function explictly acquires a lock, and is hence to be used
  * only by functions external to CoordinatorServerList to prevent deadlocks.
  * If a function in CoordinatorServerList class (that has already acquired
@@ -165,7 +165,7 @@ CoordinatorServerList::operator[](ServerId serverId) const
 /**
  * Returns a copy of the details associated with the given position
  * in the server list.
- * 
+ *
  * Note: This function explictly acquires a lock, and is hence to be used
  * only by functions external to CoordinatorServerList to prevent deadlocks.
  * If a function in CoordinatorServerList class (that has already acquired
@@ -326,7 +326,7 @@ CoordinatorServerList::serialize(ProtoBuf::ServerList& protoBuf,
 
 /**
  * Remove a server from the cluster.
- * 
+ *
  * \param serverId
  *      ServerId of the server that is suspected to be down.
  */
@@ -810,7 +810,7 @@ CoordinatorServerList::generateUniqueId(Lock& lock)
  *      a lock must be held on #mutex for this call to be safe.
  * \param index
  *      Position of entry in the server list to return a copy of.
- * 
+ *
  * \throw
  *      Exception is thrown if the position in the list is unoccupied
  *      or doesn't contain a valid entry.
@@ -990,7 +990,7 @@ CoordinatorServerList::serialize(const Lock& lock,
 
 /**
  * Remove a server from the cluster.
- * 
+ *
  * \param lock
  *      explicity needs CoordinatorServerList lock.
  * \param serverId
@@ -1038,7 +1038,7 @@ CoordinatorServerList::assignReplicationGroup(
  * returns without sending out any Rpcs. If there are enough group members
  * to form a new group, but one of the servers is down, hintServerDown will
  * reset the replication group of that server.
- * 
+ *
  * \param lock
  *      Explicity needs CoordinatorServerList lock.
  */
