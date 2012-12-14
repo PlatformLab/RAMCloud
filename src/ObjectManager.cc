@@ -300,7 +300,6 @@ ObjectManager::readObject(Key& key,
             return status;
     }
 
-    // TODO(anyone): Buffer-to-buffer virtual copy.
     Object object(buffer);
     object.appendDataToBuffer(*outBuffer);
 
@@ -990,7 +989,10 @@ ObjectManager::getTombstoneTimestamp(Buffer& buffer)
  * \param[out] outType
  *      The type of the log entry is returned here.
  * \param[out] buffer
- *      The entry, if found, is appended to this buffer.
+ *      The entry, if found, is appended to this buffer. Note that the data
+ *      pointed to by this buffer will be exactly the data in the log. The
+ *      cleaner uses this fact to check whether an object in a segment is
+ *      alive by comparing the pointer in the hash table (see #relocateObject).
  * \param[out] outVersion
  *      The version of the object or tombstone, when one is found, stored in
  *      this optional patameter.
@@ -1017,10 +1019,7 @@ ObjectManager::lookup(HashTableBucketLock& lock,
         Key candidateKey(type, candidateBuffer);
         if (key == candidateKey) {
             outType = type;
-            // TODO(anyone): A proper Buffer to Buffer virtual copy method.
-            buffer.append(candidateBuffer.getRange(0,
-                    candidateBuffer.getTotalLength()),
-                candidateBuffer.getTotalLength());
+            buffer.append(&candidateBuffer);
             if (outVersion != NULL) {
                 if (type == LOG_ENTRY_TYPE_OBJ) {
                     Object o(candidateBuffer);

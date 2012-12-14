@@ -464,9 +464,7 @@ MasterService::multiRead(const WireFormat::MultiRead::Request* reqHdr,
 
         currentResp->version = version;
         currentResp->length = buffer.getTotalLength();
-        // TODO(anyone): buffer-to-buffer virtual copy
-        rpc->replyPayload->append(buffer.getRange(0,
-            buffer.getTotalLength()), buffer.getTotalLength());
+        rpc->replyPayload->append(&buffer);
     }
 }
 
@@ -582,9 +580,7 @@ MasterService::read(const WireFormat::Read::Request* reqHdr,
         return;
 
     respHdr->length = buffer.getTotalLength();
-    // TODO(anyone): buffer-to-buffer virtual copy
-    rpc->replyPayload->append(buffer.getRange(0,
-        buffer.getTotalLength()), buffer.getTotalLength());
+    rpc->replyPayload->append(&buffer);
 }
 
 /**
