@@ -444,7 +444,7 @@ TEST_F(LogCleanerTest, relocateLiveEntries) {
         "close: 57.0, 2, 0 | "
         "schedule: zero replicas: nothing to schedule | "
         "close: Segment 2 closed (length 80) | "
-        "sync: syncing",
+        "sync: syncing segment 2 to offset 80",
             TestLog::get());
 }
 

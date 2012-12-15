@@ -69,9 +69,13 @@ class SideLogTest : public ::testing::Test {
 };
 
 TEST_F(SideLogTest, constructor_regular) {
+    SideLog sl(&l);
+    EXPECT_FALSE(sl.forCleaner);
 }
 
 TEST_F(SideLogTest, constructor_cleaner) {
+    SideLog sl(&l, l.cleaner);
+    EXPECT_TRUE(sl.forCleaner);
 }
 
 TEST_F(SideLogTest, destructor) {
@@ -114,13 +118,14 @@ TEST_F(SideLogTest, commit) {
         "close: 57.0, 2, 0 | "
         "schedule: zero replicas: nothing to schedule | "
         "close: Segment 2 closed (length 30) | "
-        "sync: syncing | "
+        "sync: syncing segment 2 to offset 4294967295 | "
         "alloc: purpose: 0 | "
         "allocateSegment: Allocating new replicated segment for <57.0,3> | "
         "schedule: zero replicas: nothing to schedule | "
         "close: 57.0, 1, 3 | "
         "schedule: zero replicas: nothing to schedule | "
-        "close: Segment 1 closed (length 54)",
+        "close: Segment 1 closed (length 54) | "
+        "sync: syncing segment 3 to offset 70",
         TestLog::get());
 
     // an empty sidelog still shouldn't alter the log
@@ -129,10 +134,46 @@ TEST_F(SideLogTest, commit) {
     EXPECT_EQ(headId, l.head->id);
 }
 
-TEST_F(SideLogTest, allocNextSegment) {
+static void
+freeSegmentSoon(SegmentManager* segmentManager, LogSegment* segment) {
+    usleep(1000);
+    segment->replicatedSegment->close();
+    segmentManager->free(segment);
+}
+
+TEST_F(SideLogTest, allocNextSegment_basics) {
     SideLog sl(&l);
+    SideLog::Lock lock(sl.appendLock);
 
+    LogSegment* segment = segmentManager.allocSideSegment(0, NULL);
+    EXPECT_NE(static_cast<LogSegment*>(NULL), segment);
+    while (segmentManager.allocSideSegment(0, NULL) != NULL) {
+        // eat up all free segments
+    }
 
+    // if SegmentManager is tapped, should return NULL
+    EXPECT_EQ(static_cast<LogSegment*>(NULL), sl.allocNextSegment(false));
+
+    // if we specify to block until we have space, it should not return NULL
+    std::thread freer(freeSegmentSoon, &segmentManager, segment);
+    EXPECT_EQ(0U, sl.segments.size());
+    EXPECT_EQ(segment, sl.allocNextSegment(true));
+    EXPECT_EQ(1U, sl.segments.size());
+    freer.join();
+}
+
+TEST_F(SideLogTest, allocNextSegment_closePrevious) {
+    SideLog sl(&l);
+    SideLog::Lock lock(sl.appendLock);
+
+    LogSegment* s1 = sl.allocNextSegment(false);
+    EXPECT_FALSE(s1->replicatedSegment->queued.close);
+    EXPECT_FALSE(s1->closed);
+    LogSegment* s2 = sl.allocNextSegment(false);
+    EXPECT_TRUE(s1->closed);
+    EXPECT_TRUE(s1->replicatedSegment->queued.close);
+    EXPECT_FALSE(s2->closed);
+    EXPECT_FALSE(s2->replicatedSegment->queued.close);
 }
 
 } // namespace RAMCloud

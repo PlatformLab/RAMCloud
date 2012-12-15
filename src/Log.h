@@ -104,6 +104,9 @@ class Log : public AbstractLog {
     /// protects the ReplicatedSegment from concurrent access and queues up
     /// syncs in the log so that multiple appends can be flushed to backups
     /// in the same RPC.
+    ///
+    /// If both this lock and the AbstractLog::appendLock need to be taken,
+    /// this one must be acquired first to avoid deadlock.
     SpinLock syncLock;
 
     /// Various event counters and performance measurements taken during log
