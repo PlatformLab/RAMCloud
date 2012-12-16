@@ -19,6 +19,7 @@
 #include <Client/Client.h>
 #include <mutex>
 
+#include "SplitTablet.pb.h"
 #include "TableDrop.pb.h"
 #include "TableInformation.pb.h"
 #include "TabletRecovered.pb.h"
@@ -104,6 +105,9 @@ class TableManager {
                           EntryId entryId);
     void recoverTabletRecovered(ProtoBuf::TabletRecovered* state,
                                 EntryId entryId);
+    void recoverSplitTablet(ProtoBuf::SplitTablet* state,
+                           EntryId entryId);
+
     /**
      * Provides monitor-style protection for all operations on the tablet map.
      * A Lock for this mutex must be held to read or modify any state in
@@ -246,6 +250,55 @@ class TableManager {
          */
         Log::Position ctime;
         DISALLOW_COPY_AND_ASSIGN(TabletRecovered);
+    };
+
+    /**
+     * Defines methods and stores data to split a tablet in the tablet map.
+     */
+    class SplitTablet {
+      public:
+        SplitTablet(TableManager &tm,
+                    const Lock& lock,
+                    const char* name,
+                    uint64_t startKeyHash,
+                    uint64_t endKeyHash,
+                    uint64_t splitKeyHash)
+            : tm(tm), lock(lock),
+              name(name),
+              startKeyHash(startKeyHash),
+              endKeyHash(endKeyHash),
+              splitKeyHash(splitKeyHash) {}
+        void execute();
+        void complete(EntryId entryId);
+
+      private:
+        /**
+         * Reference to the instance of TableManager initializing this class.
+         */
+        TableManager &tm;
+        /**
+         * Explicitly needs a TableManager lock.
+         */
+        const Lock& lock;
+        /**
+         * Name for the table containing the tablet.
+         */
+        const char* name;
+        /**
+         * First key hash that is part of range of key hashes for the tablet.
+         */
+        uint64_t startKeyHash;
+        /**
+         * Last key hash that is part of range of key hashes for the tablet.
+         */
+        uint64_t endKeyHash;
+        /**
+         * Key hash to used to partition the tablet into two. Keys less than
+         * \a splitKeyHash belong to one Tablet, keys greater than or equal to
+         * \a splitKeyHash belong to the other.
+         */
+        uint64_t splitKeyHash;
+        DISALLOW_COPY_AND_ASSIGN(SplitTablet);
     };
 
     void addTablet(const Lock& lock, const Tablet& tablet);

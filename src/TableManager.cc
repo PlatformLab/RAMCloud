@@ -307,25 +307,9 @@ TableManager::splitTablet(const char* name,
                           uint64_t splitKeyHash)
 {
     Lock lock(mutex);
-    Tables::iterator it(tables.find(name));
-    if (it == tables.end()) {
-        throw NoSuchTable(HERE);
-    }
-    uint64_t tableId = it->second;
-
-    if (startKeyHash >= (splitKeyHash - 1) || splitKeyHash >= endKeyHash) {
-        throw BadSplit(HERE);
-    }
-
-    Tablet& tablet = find(lock, tableId, startKeyHash, endKeyHash);
-    Tablet newTablet = tablet;
-    newTablet.startKeyHash = splitKeyHash;
-    tablet.endKeyHash = splitKeyHash - 1;
-    map.push_back(newTablet);
-
-    // Tell the master to split the tablet
-    MasterClient::splitMasterTablet(context, tablet.serverId, tableId,
-                                    startKeyHash, endKeyHash, splitKeyHash);
+    SplitTablet(*this, lock,
+                name, startKeyHash, endKeyHash,
+                splitKeyHash).execute();
 }
 
 /**
@@ -428,6 +412,29 @@ TableManager::recoverTabletRecovered(
                     ServerId(state->server_id()),
                     Log::Position(state->ctime_log_head_id(),
                         state->ctime_log_head_offset())).complete(entryId);
+}
+
+/**
+ * During coordinator recovery, complete a splitTablet operation that
+ * had already been started.
+ *
+ * \param state
+ *      The ProtoBuf that encapsulates the information about the tablet
+ *      that was being split.
+ * \param entryId
+ *      The entry id of the LogCabin entry corresponding to the state.
+ */
+void
+TableManager::recoverSplitTablet(
+    ProtoBuf::SplitTablet* state, EntryId entryId)
+{
+    Lock lock(mutex);
+    LOG(DEBUG, "TableManager::recoverSplitTablet()");
+    SplitTablet(*this, lock,
+                state->name().c_str(),
+                state->start_key_hash(),
+                state->end_key_hash(),
+                state->split_key_hash()).complete(entryId);
 }
 
 /////////////////////////////////////////////////////////////////////////////
@@ -662,8 +669,87 @@ TableManager::TabletRecovered::complete(EntryId entryId)
     tm.modifyTablet(lock, tableId, startKeyHash, endKeyHash,
                     serverId, Tablet::NORMAL, ctime);
 
+    // TODO(ankitak): BUG! Need to read in table information from LogCabin,
+    // update info for this tablet, and then append the entire
+    // table information again.
     tm.context->logCabinHelper->invalidate(
                 *tm.context->expectedEntryId, vector<EntryId>({entryId}));
+}
+
+void
+TableManager::SplitTablet::execute()
+{
+    ProtoBuf::SplitTablet state;
+    state.set_entry_type("SplitTablet");
+    state.set_name(name);
+    state.set_start_key_hash(startKeyHash);
+    state.set_end_key_hash(endKeyHash);
+    state.set_split_key_hash(splitKeyHash);
+
+    EntryId entryId = tm.context->logCabinHelper->appendProtoBuf(
+            *tm.context->expectedEntryId, state);
+    LOG(DEBUG, "LogCabin: SplitTablet entryId: %lu", entryId);
+
+    complete(entryId);
+}
+
+void
+TableManager::SplitTablet::complete(EntryId entryId)
+{
+    Tables::iterator it(tm.tables.find(name));
+    if (it == tm.tables.end()) {
+        throw NoSuchTable(HERE);
+    }
+    uint64_t tableId = it->second;
+
+    if (startKeyHash >= (splitKeyHash - 1) || splitKeyHash >= endKeyHash) {
+        throw BadSplit(HERE);
+    }
+
+    Tablet& tablet = tm.find(lock, tableId, startKeyHash, endKeyHash);
+    Tablet newTablet = tablet;
+    newTablet.startKeyHash = splitKeyHash;
+    tablet.endKeyHash = splitKeyHash - 1;
+    tm.map.push_back(newTablet);
+
+    // Tell the master to split the tablet
+    MasterClient::splitMasterTablet(tm.context, tablet.serverId, tableId,
+                                    startKeyHash, endKeyHash, splitKeyHash);
+
+    EntryId oldTableInfoEntryId = tm.getTableInfoLogId(lock, tableId);
+    vector<EntryId> invalidates {oldTableInfoEntryId, entryId};
+
+    ProtoBuf::TableInformation tableInfo;
+    // TODO(ankitak): After ongaro has added cursor API to LogCabin,
+    // use that to read in only one entry here.
+    vector<Entry> entriesRead =
+            tm.context->logCabinLog->read(oldTableInfoEntryId);
+    tm.context->logCabinHelper->parseProtoBufFromEntry(
+            entriesRead[0], tableInfo);
+
+    for (uint32_t i = 0; i < tableInfo.server_span(); i++) {
+        ProtoBuf::TableInformation::TabletInfo& tabletInfo =
+                *(tableInfo.mutable_tablet_info(i));
+        if (startKeyHash != tabletInfo.start_key_hash() ||
+                endKeyHash != tabletInfo.end_key_hash()) {
+            continue;
+        }
+        tabletInfo.set_end_key_hash(splitKeyHash - 1);
+
+        ProtoBuf::TableInformation::TabletInfo&
+                newTablet(*tableInfo.add_tablet_info());
+        newTablet.set_start_key_hash(splitKeyHash);
+        newTablet.set_end_key_hash(endKeyHash);
+        newTablet.set_master_id(tabletInfo.master_id());
+        newTablet.set_ctime_log_head_id(tabletInfo.ctime_log_head_id());
+        newTablet.set_ctime_log_head_offset(
+                tabletInfo.ctime_log_head_offset());
+    }
+    tableInfo.set_server_span(tableInfo.server_span() + 1);
+
+    EntryId newEntryId = tm.context->logCabinHelper->appendProtoBuf(
+            *tm.context->expectedEntryId, tableInfo, invalidates);
+    LOG(DEBUG, "LogCabin: AliveTable entryId: %lu", newEntryId);
 }
 
 /**

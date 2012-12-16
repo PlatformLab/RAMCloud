@@ -696,6 +696,72 @@ TEST_F(TableManagerTest, splitTablet) {
                  TableManager::NoSuchTable);
 }
 
+TEST_F(TableManagerTest, splitTablet_LogCabin) {
+    enlistMaster();
+
+    tableManager->createTable("foo", 1);
+
+    TestLog::Enable _;
+    tableManager->splitTablet("foo", 0, ~0lu, ~0lu / 2);
+
+    vector<Entry> entriesRead = logCabinLog->read(0);
+    string searchString;
+
+    ProtoBuf::SplitTablet splitTablet;
+    searchString = "execute: LogCabin: SplitTablet entryId: ";
+    ASSERT_NO_THROW(findEntryId(searchString));
+    logCabinHelper->parseProtoBufFromEntry(
+            entriesRead[findEntryId(searchString)], splitTablet);
+    EXPECT_EQ("entry_type: \"SplitTablet\"\n"
+              "name: \"foo\"\n"
+              "start_key_hash: 0\nend_key_hash: 18446744073709551615\n"
+              "split_key_hash: 9223372036854775807\n",
+               splitTablet.DebugString());
+
+    ProtoBuf::TableInformation aliveTableNew;
+    searchString = "complete: LogCabin: AliveTable entryId: ";
+    ASSERT_NO_THROW(findEntryId(searchString));
+    logCabinHelper->parseProtoBufFromEntry(
+            entriesRead[findEntryId(searchString)], aliveTableNew);
+    EXPECT_EQ("entry_type: \"AliveTable\"\n"
+              "name: \"foo\"\ntable_id: 0\nserver_span: 2\n"
+              "tablet_info {\n  start_key_hash: 0\n  "
+              "end_key_hash: 9223372036854775806\n  master_id: 1\n  "
+              "ctime_log_head_id: 0\n  ctime_log_head_offset: 0\n}\n"
+              "tablet_info {\n  start_key_hash: 9223372036854775807\n  "
+              "end_key_hash: 18446744073709551615\n  master_id: 1\n  "
+              "ctime_log_head_id: 0\n  ctime_log_head_offset: 0\n}\n",
+              aliveTableNew.DebugString());
+}
+
+TEST_F(TableManagerTest, recoverSplitTablet) {
+    enlistMaster();
+
+    tableManager->createTable("foo", 1);
+
+    ProtoBuf::SplitTablet state;
+    state.set_entry_type("SplitTablet");
+    state.set_name("foo");
+    state.set_start_key_hash(0);
+    state.set_end_key_hash(~0lu);
+    state.set_split_key_hash(~0lu / 2);
+    EntryId entryId = logCabinHelper->appendProtoBuf(
+            *service->context->expectedEntryId, state);
+
+    tableManager->recoverSplitTablet(&state, entryId);
+
+    EXPECT_EQ("Tablet { tableId: 0 startKeyHash: 0 "
+              "endKeyHash: 9223372036854775806 "
+              "serverId: 1.0 status: NORMAL "
+              "ctime: 0, 0 } "
+              "Tablet { tableId: 0 "
+              "startKeyHash: 9223372036854775807 "
+              "endKeyHash: 18446744073709551615 "
+              "serverId: 1.0 status: NORMAL "
+              "ctime: 0, 0 }",
+              tableManager->debugString());
+}
+
 /////////////////////////////////////////////////////////////////////////////
 ///////////////////// Unit tests for private methods ////////////////////////
 /////////////////////////////////////////////////////////////////////////////
