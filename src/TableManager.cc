@@ -132,34 +132,6 @@ TableManager::getTableId(const char* name)
 }
 
 /**
- * Used by MasterRecoveryManager after recovery for a tablet has successfully
- * completed to inform coordinator about the new master for the tablet.
- * 
- * \param tableId
- *      Table id of the tablet.
- * \param startKeyHash
- *      First key hash that is part of range of key hashes for the tablet.
- * \param endKeyHash
- *      Last key hash that is part of range of key hashes for the tablet.
- * \param serverId
- *      Tablet is updated to indicate that it is owned by \a serverId.
- * \param ctime
- *      Tablet is updated with this ctime indicating any object earlier
- *      than \a ctime in its log cannot contain objects belonging to it.
- * \throw NoSuchTablet
- *      If the arguments do not identify a tablet currently in the tablet map.
- */
-void
-TableManager::tabletRecovered(
-        uint64_t tableId, uint64_t startKeyHash, uint64_t endKeyHash,
-        ServerId serverId, Log::Position ctime)
-{
-    Lock lock(mutex);
-    TabletRecovered(*this, lock, tableId, startKeyHash, endKeyHash,
-                    serverId, ctime).execute();
-}
-
-/**
  * Switch ownership of the tablet and alert the new owner that it may
  * begin servicing requests on that tablet.
  * 
@@ -310,6 +282,34 @@ TableManager::splitTablet(const char* name,
     SplitTablet(*this, lock,
                 name, startKeyHash, endKeyHash,
                 splitKeyHash).execute();
+}
+
+/**
+ * Used by MasterRecoveryManager after recovery for a tablet has successfully
+ * completed to inform coordinator about the new master for the tablet.
+ * 
+ * \param tableId
+ *      Table id of the tablet.
+ * \param startKeyHash
+ *      First key hash that is part of range of key hashes for the tablet.
+ * \param endKeyHash
+ *      Last key hash that is part of range of key hashes for the tablet.
+ * \param serverId
+ *      Tablet is updated to indicate that it is owned by \a serverId.
+ * \param ctime
+ *      Tablet is updated with this ctime indicating any object earlier
+ *      than \a ctime in its log cannot contain objects belonging to it.
+ * \throw NoSuchTablet
+ *      If the arguments do not identify a tablet currently in the tablet map.
+ */
+void
+TableManager::tabletRecovered(
+        uint64_t tableId, uint64_t startKeyHash, uint64_t endKeyHash,
+        ServerId serverId, Log::Position ctime)
+{
+    Lock lock(mutex);
+    TabletRecovered(*this, lock, tableId, startKeyHash, endKeyHash,
+                    serverId, ctime).execute();
 }
 
 /**

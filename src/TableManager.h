@@ -80,11 +80,6 @@ class TableManager {
     string debugString() const;
     void dropTable(const char* name);
     uint64_t getTableId(const char* name);
-    void tabletRecovered(uint64_t tableId,
-                         uint64_t startKeyHash,
-                         uint64_t endKeyHash,
-                         ServerId serverId,
-                         Log::Position ctime);
     void reassignTabletOwnership(ServerId newOwner, uint64_t tableId,
                                  uint64_t startKeyHash, uint64_t endKeyHash,
                                  uint64_t ctimeSegmentId,
@@ -96,6 +91,11 @@ class TableManager {
     void splitTablet(const char* name,
                      uint64_t startKeyHash, uint64_t endKeyHash,
                      uint64_t splitKeyHash);
+    void tabletRecovered(uint64_t tableId,
+                         uint64_t startKeyHash,
+                         uint64_t endKeyHash,
+                         ServerId serverId,
+                         Log::Position ctime);
 
     void recoverAliveTable(ProtoBuf::TableInformation* state,
                            EntryId entryId);
@@ -106,7 +106,7 @@ class TableManager {
     void recoverTabletRecovered(ProtoBuf::TabletRecovered* state,
                                 EntryId entryId);
     void recoverSplitTablet(ProtoBuf::SplitTablet* state,
-                           EntryId entryId);
+                            EntryId entryId);
 
     /**
      * Provides monitor-style protection for all operations on the tablet map.
