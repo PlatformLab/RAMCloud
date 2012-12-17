@@ -339,6 +339,39 @@ TEST_F(TableManagerTest, getTableId) {
                  TableManager::NoSuchTable);
 }
 
+TEST_F(TableManagerTest, markAllTabletsRecovering) {
+    Lock lock(mutex);     // Used to trick internal calls.
+    tableManager->addTablet(lock, {0, 1, 6, {0, 1}, Tablet::NORMAL, {0, 5}});
+    tableManager->addTablet(lock, {1, 2, 7, {1, 1}, Tablet::NORMAL, {1, 6}});
+    tableManager->addTablet(lock, {0, 3, 8, {0, 1}, Tablet::NORMAL, {2, 7}});
+
+    EXPECT_EQ(0lu,
+        tableManager->markAllTabletsRecovering({2, 1}).size());
+
+    auto tablets = tableManager->markAllTabletsRecovering({0, 1});
+    EXPECT_EQ(2lu, tablets.size());
+    foreach (const auto& tablet, tablets) {
+        Tablet inMap = tableManager->getTablet(lock, tablet.tableId,
+                                     tablet.startKeyHash,
+                                     tablet.endKeyHash);
+        EXPECT_EQ(ServerId(0, 1), tablet.serverId);
+        EXPECT_EQ(ServerId(0, 1), inMap.serverId);
+        EXPECT_EQ(Tablet::RECOVERING, tablet.status);
+        EXPECT_EQ(Tablet::RECOVERING, inMap.status);
+    }
+
+    tablets = tableManager->markAllTabletsRecovering({1, 1});
+    ASSERT_EQ(1lu, tablets.size());
+    auto tablet = tablets[0];
+    Tablet inMap = tableManager->getTablet(lock, tablet.tableId,
+                                 tablet.startKeyHash,
+                                 tablet.endKeyHash);
+    EXPECT_EQ(ServerId(1, 1), tablet.serverId);
+    EXPECT_EQ(ServerId(1, 1), inMap.serverId);
+    EXPECT_EQ(Tablet::RECOVERING, tablet.status);
+    EXPECT_EQ(Tablet::RECOVERING, inMap.status);
+}
+
 static bool
 reassignTabletOwnershipFilter(string s)
 {
@@ -430,39 +463,6 @@ TEST_F(TableManagerTest, serialize) {
               "state: NORMAL server_id: 2 service_locator: \"mock:host=two\" "
               "ctime_log_head_id: 1 ctime_log_head_offset: 6 }",
               tablets.ShortDebugString());
-}
-
-TEST_F(TableManagerTest, setStatusForServer) {
-    Lock lock(mutex);     // Used to trick internal calls.
-    tableManager->addTablet(lock, {0, 1, 6, {0, 1}, Tablet::NORMAL, {0, 5}});
-    tableManager->addTablet(lock, {1, 2, 7, {1, 1}, Tablet::NORMAL, {1, 6}});
-    tableManager->addTablet(lock, {0, 3, 8, {0, 1}, Tablet::NORMAL, {2, 7}});
-
-    EXPECT_EQ(0lu,
-        tableManager->setStatusForServer({2, 1}, Tablet::RECOVERING).size());
-
-    auto tablets = tableManager->setStatusForServer({0, 1}, Tablet::RECOVERING);
-    EXPECT_EQ(2lu, tablets.size());
-    foreach (const auto& tablet, tablets) {
-        Tablet inMap = tableManager->getTablet(lock, tablet.tableId,
-                                     tablet.startKeyHash,
-                                     tablet.endKeyHash);
-        EXPECT_EQ(ServerId(0, 1), tablet.serverId);
-        EXPECT_EQ(ServerId(0, 1), inMap.serverId);
-        EXPECT_EQ(Tablet::RECOVERING, tablet.status);
-        EXPECT_EQ(Tablet::RECOVERING, inMap.status);
-    }
-
-    tablets = tableManager->setStatusForServer({1, 1}, Tablet::RECOVERING);
-    ASSERT_EQ(1lu, tablets.size());
-    auto tablet = tablets[0];
-    Tablet inMap = tableManager->getTablet(lock, tablet.tableId,
-                                 tablet.startKeyHash,
-                                 tablet.endKeyHash);
-    EXPECT_EQ(ServerId(1, 1), tablet.serverId);
-    EXPECT_EQ(ServerId(1, 1), inMap.serverId);
-    EXPECT_EQ(Tablet::RECOVERING, tablet.status);
-    EXPECT_EQ(Tablet::RECOVERING, inMap.status);
 }
 
 TEST_F(TableManagerTest, splitTablet) {

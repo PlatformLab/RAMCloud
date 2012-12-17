@@ -80,14 +80,13 @@ class TableManager {
     string debugString() const;
     void dropTable(const char* name);
     uint64_t getTableId(const char* name);
+    vector<Tablet> markAllTabletsRecovering(ServerId serverId);
     void reassignTabletOwnership(ServerId newOwner, uint64_t tableId,
                                  uint64_t startKeyHash, uint64_t endKeyHash,
                                  uint64_t ctimeSegmentId,
                                  uint64_t ctimeSegmentOffset);
     void serialize(AbstractServerList& serverList,
                    ProtoBuf::Tablets& tablets) const;
-    vector<Tablet> setStatusForServer(ServerId serverId,
-                                      Tablet::Status status);
     void splitTablet(const char* name,
                      uint64_t startKeyHash, uint64_t endKeyHash,
                      uint64_t splitKeyHash);

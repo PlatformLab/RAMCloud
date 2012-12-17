@@ -339,7 +339,7 @@ MasterRecoveryManager::startMasterRecovery(
 {
     ServerId crashedServerId = crashedServer.serverId;
     auto tablets =
-        tableManager.setStatusForServer(crashedServerId, Tablet::RECOVERING);
+        tableManager.markAllTabletsRecovering(crashedServerId);
     if (tablets.empty()) {
         LOG(NOTICE, "Server %s crashed, but it had no tablets",
             crashedServerId.toString().c_str());
@@ -364,8 +364,7 @@ MasterRecoveryManager::startMasterRecovery(
         // server list anymore (presumably because a recovery completed on
         // it since the time of the start of the call) that there really aren't
         // any tablets left on it.
-        tablets = tableManager.setStatusForServer(crashedServerId,
-                                                  Tablet::RECOVERING);
+        tablets = tableManager.markAllTabletsRecovering(crashedServerId);
         if (!tablets.empty()) {
             LOG(ERROR, "Tried to start recovery for crashed server %s which "
                 "has tablets in the tablet map but is no longer in the "

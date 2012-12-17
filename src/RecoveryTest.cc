@@ -109,8 +109,7 @@ TEST_F(RecoveryTest, partitionTablets) {
     Recovery::Owner* own = static_cast<Recovery::Owner*>(NULL);
     recovery.construct(&context, taskQueue, &tableManager, &tracker, own,
                        ServerId(99), recoveryInfo);
-    auto tablets = tableManager.setStatusForServer(ServerId(99),
-                                                 Tablet::RECOVERING);
+    auto tablets = tableManager.markAllTabletsRecovering(ServerId(99));
     recovery->partitionTablets(tablets);
     EXPECT_EQ(0lu, recovery->numPartitions);
 
@@ -120,7 +119,7 @@ TEST_F(RecoveryTest, partitionTablets) {
         lock, {123, 20, 29, {99, 0}, Tablet::RECOVERING, {}});
     recovery.construct(&context, taskQueue, &tableManager, &tracker, own,
                        ServerId(99), recoveryInfo);
-    tablets = tableManager.setStatusForServer(ServerId(99), Tablet::RECOVERING);
+    tablets = tableManager.markAllTabletsRecovering(ServerId(99));
     recovery->partitionTablets(tablets);
     EXPECT_EQ(2lu, recovery->numPartitions);
 
@@ -128,7 +127,7 @@ TEST_F(RecoveryTest, partitionTablets) {
         lock, {123, 10, 19, {99, 0}, Tablet::RECOVERING, {}});
     recovery.construct(&context, taskQueue, &tableManager, &tracker, own,
                        ServerId(99), recoveryInfo);
-    tablets = tableManager.setStatusForServer(ServerId(99), Tablet::RECOVERING);
+    tablets = tableManager.markAllTabletsRecovering(ServerId(99));
     recovery->partitionTablets(tablets);
     EXPECT_EQ(3lu, recovery->numPartitions);
 }
@@ -498,7 +497,7 @@ TEST_F(RecoveryTest, startRecoveryMasters) {
     Recovery recovery(&context, taskQueue, &tableManager, &tracker, NULL,
                       {99, 0}, recoveryInfo);
     recovery.partitionTablets(
-                tableManager.setStatusForServer({99, 0}, Tablet::RECOVERING));
+                tableManager.markAllTabletsRecovering({99, 0}));
     // Hack 'tablets' to get the first two tablets on the same server.
     recovery.tabletsToRecover.mutable_tablet(1)->set_user_data(0);
     recovery.tabletsToRecover.mutable_tablet(2)->set_user_data(1);
@@ -551,7 +550,7 @@ TEST_F(RecoveryTest, startRecoveryMasters_tooFewIdleMasters) {
     Recovery recovery(&context, taskQueue, &tableManager, &tracker, NULL,
                       {99, 0}, recoveryInfo);
     recovery.partitionTablets(
-                tableManager.setStatusForServer({99, 0}, Tablet::RECOVERING));
+                tableManager.markAllTabletsRecovering({99, 0}));
     // Hack 'tablets' to get the first two tablets on the same server.
     recovery.tabletsToRecover.mutable_tablet(1)->set_user_data(0);
     recovery.tabletsToRecover.mutable_tablet(2)->set_user_data(1);
@@ -598,7 +597,7 @@ TEST_F(RecoveryTest, startRecoveryMasters_noIdleMasters) {
     Recovery recovery(&context, taskQueue, &tableManager, &tracker, &owner,
                       {99, 0}, recoveryInfo);
     recovery.partitionTablets(
-                tableManager.setStatusForServer({99, 0}, Tablet::RECOVERING));
+                tableManager.markAllTabletsRecovering({99, 0}));
 
     TestLog::Enable _;
     recovery.startRecoveryMasters();
@@ -634,7 +633,7 @@ TEST_F(RecoveryTest, startRecoveryMasters_allFailDuringRecoverRpc) {
     Recovery recovery(&context, taskQueue, &tableManager, &tracker, NULL,
                       {99, 0}, recoveryInfo);
     recovery.partitionTablets(
-                tableManager.setStatusForServer({99, 0}, Tablet::RECOVERING));
+                tableManager.markAllTabletsRecovering({99, 0}));
     recovery.startRecoveryMasters();
 
     EXPECT_EQ(3u, recovery.numPartitions);

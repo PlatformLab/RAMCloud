@@ -132,6 +132,32 @@ TableManager::getTableId(const char* name)
 }
 
 /**
+ * Update the status of all the Tablets in the tablet map that are on a
+ * specific server as recovering.
+ * Copies of the details about the affected Tablets are returned.
+ *
+ * \param serverId
+ *      Table id of the table whose tablets status should be changed to
+ *      \a status.
+ * \return
+ *      List of copies of all the Tablets in the tablet map which are owned
+ *      by the server indicated by \a serverId.
+ */
+vector<Tablet>
+TableManager::markAllTabletsRecovering(ServerId serverId)
+{
+    Lock lock(mutex);
+    vector<Tablet> results;
+    foreach (Tablet& tablet, map) {
+        if (tablet.serverId == serverId) {
+            tablet.status = Tablet::RECOVERING;
+            results.push_back(tablet);
+        }
+    }
+    return results;
+}
+
+/**
  * Switch ownership of the tablet and alert the new owner that it may
  * begin servicing requests on that tablet.
  * 
@@ -212,35 +238,6 @@ TableManager::serialize(AbstractServerList& serverList,
                 tablet.serverId.toString().c_str());
         }
     }
-}
-
-/**
- * Update the status of all the Tablets in the tablet map that are on a
- * specific server. Copies of the details about the affected Tablets are
- * returned.
- *
- * \param serverId
- *      Table id of the table whose tablets status should be changed to
- *      \a status.
- * \param status
- *      New status to change the Tablets in the tablet map residing on
- *      the server with id \a serverId.
- * \return
- *      List of copies of all the Tablets in the tablet map which are owned
- *      by the server indicated by \a serverId.
- */
-vector<Tablet>
-TableManager::setStatusForServer(ServerId serverId, Tablet::Status status)
-{
-    Lock lock(mutex);
-    vector<Tablet> results;
-    foreach (Tablet& tablet, map) {
-        if (tablet.serverId == serverId) {
-            tablet.status = status;
-            results.push_back(tablet);
-        }
-    }
-    return results;
 }
 
 /**
