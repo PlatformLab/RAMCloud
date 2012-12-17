@@ -387,6 +387,29 @@ TableManager::recoverDropTable(
 }
 
 /**
+ * During coordinator recovery, complete a splitTablet operation that
+ * had already been started.
+ *
+ * \param state
+ *      The ProtoBuf that encapsulates the information about the tablet
+ *      that was being split.
+ * \param entryId
+ *      The entry id of the LogCabin entry corresponding to the state.
+ */
+void
+TableManager::recoverSplitTablet(
+    ProtoBuf::SplitTablet* state, EntryId entryId)
+{
+    Lock lock(mutex);
+    LOG(DEBUG, "TableManager::recoverSplitTablet()");
+    SplitTablet(*this, lock,
+                state->name().c_str(),
+                state->start_key_hash(),
+                state->end_key_hash(),
+                state->split_key_hash()).complete(entryId);
+}
+
+/**
  * During coordinator recovery, complete a tabletRecovered operation that
  * had already been started.
  *
@@ -409,29 +432,6 @@ TableManager::recoverTabletRecovered(
                     ServerId(state->server_id()),
                     Log::Position(state->ctime_log_head_id(),
                         state->ctime_log_head_offset())).complete(entryId);
-}
-
-/**
- * During coordinator recovery, complete a splitTablet operation that
- * had already been started.
- *
- * \param state
- *      The ProtoBuf that encapsulates the information about the tablet
- *      that was being split.
- * \param entryId
- *      The entry id of the LogCabin entry corresponding to the state.
- */
-void
-TableManager::recoverSplitTablet(
-    ProtoBuf::SplitTablet* state, EntryId entryId)
-{
-    Lock lock(mutex);
-    LOG(DEBUG, "TableManager::recoverSplitTablet()");
-    SplitTablet(*this, lock,
-                state->name().c_str(),
-                state->start_key_hash(),
-                state->end_key_hash(),
-                state->split_key_hash()).complete(entryId);
 }
 
 /////////////////////////////////////////////////////////////////////////////
@@ -458,7 +458,7 @@ TableManager::CreateTable::execute()
     if (serverSpan == 0)
         serverSpan = 1;
 
-    state.set_entry_type("CreatingTable");
+    state.set_entry_type("CreateTable");
     state.set_name(name);
     state.set_table_id(tableId);
     state.set_server_span(serverSpan);
@@ -509,7 +509,7 @@ TableManager::CreateTable::execute()
         tm.context->logCabinHelper->appendProtoBuf(
             *tm.context->expectedEntryId, state);
     tm.setTableInfoLogId(lock, tableId, entryId);
-    LOG(DEBUG, "LogCabin: CreatingTable entryId: %lu", entryId);
+    LOG(DEBUG, "LogCabin: CreateTable entryId: %lu", entryId);
 
     return complete(entryId);
 }
@@ -592,16 +592,14 @@ TableManager::DropTable::execute()
     Tables::iterator it = tm.tables.find(name);
     if (it == tm.tables.end())
         return;
-    uint64_t tableId = it->second;
 
     ProtoBuf::TableDrop state;
-    state.set_entry_type("DroppingTable");
+    state.set_entry_type("DropTable");
     state.set_name(name);
 
     EntryId entryId = tm.context->logCabinHelper->appendProtoBuf(
             *tm.context->expectedEntryId, state);
-    tm.setTableIncompleteOpLogId(lock, tableId, entryId);
-    LOG(DEBUG, "LogCabin: DroppingTable entryId: %lu", entryId);
+    LOG(DEBUG, "LogCabin: DropTable entryId: %lu", entryId);
 
     return complete(entryId);
 }
@@ -632,66 +630,9 @@ TableManager::DropTable::complete(EntryId entryId)
         name, tableId, tm.size(lock));
 
     EntryId tableInfoLogId = tm.getTableInfoLogId(lock, tableId);
-    EntryId tableIncompleteOpLogId =
-                tm.getTableIncompleteOpLogId(lock, tableId);
     vector<EntryId> invalidates {tableInfoLogId, entryId};
-    if (tableIncompleteOpLogId)
-        invalidates.push_back(tableIncompleteOpLogId);
     tm.context->logCabinHelper->invalidate(
                 *tm.context->expectedEntryId, invalidates);
-}
-
-void
-TableManager::TabletRecovered::execute()
-{
-    ProtoBuf::TabletRecovered state;
-    state.set_entry_type("TabletRecovered");
-    state.set_table_id(tableId);
-    state.set_start_key_hash(startKeyHash);
-    state.set_end_key_hash(endKeyHash);
-    state.set_server_id(serverId.getId());
-    state.set_ctime_log_head_id(ctime.getSegmentId());
-    state.set_ctime_log_head_offset(ctime.getSegmentOffset());
-
-    EntryId entryId = tm.context->logCabinHelper->appendProtoBuf(
-            *tm.context->expectedEntryId, state);
-    LOG(DEBUG, "LogCabin: TabletRecovered entryId: %lu", entryId);
-
-    complete(entryId);
-}
-
-void
-TableManager::TabletRecovered::complete(EntryId entryId)
-{
-    tm.modifyTablet(lock, tableId, startKeyHash, endKeyHash,
-                    serverId, Tablet::NORMAL, ctime);
-
-    EntryId oldTableInfoEntryId = tm.getTableInfoLogId(lock, tableId);
-    vector<EntryId> invalidates {oldTableInfoEntryId, entryId};
-
-    ProtoBuf::TableInformation tableInfo;
-    // TODO(ankitak): After ongaro has added cursor API to LogCabin,
-    // use that to read in only one entry here.
-    vector<Entry> entriesRead =
-            tm.context->logCabinLog->read(oldTableInfoEntryId);
-    tm.context->logCabinHelper->parseProtoBufFromEntry(
-            entriesRead[0], tableInfo);
-
-    for (uint32_t i = 0; i < tableInfo.server_span(); i++) {
-        ProtoBuf::TableInformation::TabletInfo& tabletInfo =
-                *(tableInfo.mutable_tablet_info(i));
-        if (startKeyHash != tabletInfo.start_key_hash() ||
-                endKeyHash != tabletInfo.end_key_hash()) {
-            continue;
-        }
-        tabletInfo.set_master_id(serverId.getId());
-        tabletInfo.set_ctime_log_head_id(ctime.getSegmentId());
-        tabletInfo.set_ctime_log_head_offset(ctime.getSegmentOffset());
-    }
-
-    EntryId newEntryId = tm.context->logCabinHelper->appendProtoBuf(
-            *tm.context->expectedEntryId, tableInfo, invalidates);
-    LOG(DEBUG, "LogCabin: AliveTable entryId: %lu", newEntryId);
 }
 
 void
@@ -764,6 +705,59 @@ TableManager::SplitTablet::complete(EntryId entryId)
                 tabletInfo.ctime_log_head_offset());
     }
     tableInfo.set_server_span(tableInfo.server_span() + 1);
+
+    EntryId newEntryId = tm.context->logCabinHelper->appendProtoBuf(
+            *tm.context->expectedEntryId, tableInfo, invalidates);
+    LOG(DEBUG, "LogCabin: AliveTable entryId: %lu", newEntryId);
+}
+
+void
+TableManager::TabletRecovered::execute()
+{
+    ProtoBuf::TabletRecovered state;
+    state.set_entry_type("TabletRecovered");
+    state.set_table_id(tableId);
+    state.set_start_key_hash(startKeyHash);
+    state.set_end_key_hash(endKeyHash);
+    state.set_server_id(serverId.getId());
+    state.set_ctime_log_head_id(ctime.getSegmentId());
+    state.set_ctime_log_head_offset(ctime.getSegmentOffset());
+
+    EntryId entryId = tm.context->logCabinHelper->appendProtoBuf(
+            *tm.context->expectedEntryId, state);
+    LOG(DEBUG, "LogCabin: TabletRecovered entryId: %lu", entryId);
+
+    complete(entryId);
+}
+
+void
+TableManager::TabletRecovered::complete(EntryId entryId)
+{
+    tm.modifyTablet(lock, tableId, startKeyHash, endKeyHash,
+                    serverId, Tablet::NORMAL, ctime);
+
+    EntryId oldTableInfoEntryId = tm.getTableInfoLogId(lock, tableId);
+    vector<EntryId> invalidates {oldTableInfoEntryId, entryId};
+
+    ProtoBuf::TableInformation tableInfo;
+    // TODO(ankitak): After ongaro has added cursor API to LogCabin,
+    // use that to read in only one entry here.
+    vector<Entry> entriesRead =
+            tm.context->logCabinLog->read(oldTableInfoEntryId);
+    tm.context->logCabinHelper->parseProtoBufFromEntry(
+            entriesRead[0], tableInfo);
+
+    for (uint32_t i = 0; i < tableInfo.server_span(); i++) {
+        ProtoBuf::TableInformation::TabletInfo& tabletInfo =
+                *(tableInfo.mutable_tablet_info(i));
+        if (startKeyHash != tabletInfo.start_key_hash() ||
+                endKeyHash != tabletInfo.end_key_hash()) {
+            continue;
+        }
+        tabletInfo.set_master_id(serverId.getId());
+        tabletInfo.set_ctime_log_head_id(ctime.getSegmentId());
+        tabletInfo.set_ctime_log_head_offset(ctime.getSegmentOffset());
+    }
 
     EntryId newEntryId = tm.context->logCabinHelper->appendProtoBuf(
             *tm.context->expectedEntryId, tableInfo, invalidates);
@@ -852,31 +846,6 @@ TableManager::getTableInfoLogId(const Lock& lock, uint64_t tableId)
         throw NoSuchTable(HERE);
     }
     return (it->second).tableInfoLogId;
-}
-
-/**
- * Get the LogCabin EntryId corresponding to the current (incomplete)
- * operation happening on this table.
- *
- * \param lock
- *      Explicity needs caller to hold a lock.
- * \param tableId
- *      Table id of the table for which we want the LogCabin EntryId.
- *
- * \return
- *      LogCabin EntryId corresponding to the current (incomplete)
- *      operation happening on this table.
- * \throw NoSuchTable
- *      If the arguments do not identify a table currently in the tablesInfo.
- */
-EntryId
-TableManager::getTableIncompleteOpLogId(const Lock& lock, uint64_t tableId)
-{
-    TablesLogIds::iterator it(tablesLogIds.find(tableId));
-    if (it == tablesLogIds.end()) {
-        throw NoSuchTable(HERE);
-    }
-    return (it->second).tableIncompleteOpLogId;
 }
 
 /**
@@ -1014,26 +983,6 @@ TableManager::setTableInfoLogId(const Lock& lock,
                                 EntryId entryId)
 {
     tablesLogIds[tableId].tableInfoLogId = entryId;
-}
-
-/**
- * Add the LogCabin EntryId corresponding to the current (incomplete)
- * operation happening on this table.
- *
- * \param lock
- *      Explicity needs caller to hold a lock.
- * \param tableId
- *      Table id of the table for which we are storing the LogCabin EntryId.
- *  \param entryId
- *      LogCabin EntryId corresponding to the current (incomplete)
- *      operation happening on this table.
- */
-void
-TableManager::setTableIncompleteOpLogId(const Lock& lock,
-                                        uint64_t tableId,
-                                        EntryId entryId)
-{
-    tablesLogIds[tableId].tableIncompleteOpLogId = entryId;
 }
 
 /// Return the number of Tablets in the tablet map.
