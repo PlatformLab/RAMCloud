@@ -50,7 +50,7 @@ class Server {
 
   PRIVATE:
     ServerId createAndRegisterServices(BindTransport* bindTransport);
-    void enlist(ServerId replacingId);
+    static void enlist(Server* server, ServerId replacingId);
 
     /**
      * Shared RAMCloud information.

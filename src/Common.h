@@ -288,5 +288,16 @@ void pinAllMemory();
 #define DEBUG_BUILD true
 #endif
 
+/*
+ * The following two macros are used in highly optimized code paths to hint
+ * to the compiler what the expected truth value of a given expression is.
+ * For instance, an 'if (expr) { ... }' statement in a hot code path might
+ * benefit from being coded 'if (expect_true(expr)) { ... }' if we know that
+ * 'expr' is usually true. If, instead, 'expr' is almost always false, one may
+ * use the expect_false macro instead.
+ */
+#define expect_true(expr)   __builtin_expect((expr), true)
+#define expect_false(expr)   __builtin_expect((expr), false)
+
 } // end RAMCloud
 #endif // RAMCLOUD_COMMON_H

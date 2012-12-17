@@ -249,7 +249,7 @@ TEST_F(LoggerTest, logMessage_basics) { // also tests LOG
     const char* pattern = "^[[:digit:]]\\{10\\}\\.[[:digit:]]\\{9\\} "
                             "src/LoggerTest.cc:[[:digit:]]\\{1,4\\} "
                             "in LoggerTest_logMessage_basics_Test::TestBody "
-                            "default ERROR\\[[[:digit:]]\\{1,5\\}"
+                            "default ERROR\\[[[:digit:]]\\{1,6\\}"
                             ":[[:digit:]]\\{1,5\\}\\]: "
                             "rofl: 3\n$";
     EXPECT_TRUE(TestUtil::matchesPosixRegex(pattern,

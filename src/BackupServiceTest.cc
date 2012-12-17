@@ -122,7 +122,7 @@ class BackupServiceTest : public ::testing::Test {
 
 namespace {
 bool constructFilter(string s) {
-    return s == "BackupService" || s == "init";
+    return s == "BackupService" || s == "initOnceEnlisted";
 }
 };
 
@@ -142,8 +142,9 @@ TEST_F(BackupServiceTest, constructorNoReuseReplicas) {
             "storage. Any replicas stored will not be reusable by future "
             "backups. Specify clusterName for persistence across backup "
             "restarts. | "
-        "init: My server ID is 3.0 | "
-        "init: Backup 3.0 will store replicas under cluster name '__unnamed__'"
+        "initOnceEnlisted: My server ID is 3.0 | "
+        "initOnceEnlisted: Backup 3.0 will store replicas under cluster "
+            "name '__unnamed__'"
         , TestLog::get());
 }
 
@@ -165,9 +166,10 @@ TEST_F(BackupServiceTest, constructorDestroyConfusingReplicas) {
         "BackupService: Replicas stored on disk have a different clusterName "
             "('__unnamed__'). Scribbling storage to ensure any stale replicas "
             "left behind by old backups aren't used by future backups | "
-        "init: My server ID is 3.0 | "
-        "init: Backup 3.0 will store replicas under cluster name 'testing'"
-        , TestLog::get());
+        "initOnceEnlisted: My server ID is 3.0 | "
+        "initOnceEnlisted: Backup 3.0 will store replicas under cluster name "
+            "'testing'",
+        TestLog::get());
 }
 
 TEST_F(BackupServiceTest, constructorReuseReplicas)
@@ -196,8 +198,8 @@ TEST_F(BackupServiceTest, constructorReuseReplicas)
             "them available to recoveries. | "
         "BackupService: Will enlist as a replacement for formerly crashed "
             "server 2.0 which left replicas behind on disk | "
-        "init: My server ID is 2.1 | "
-        "init: Backup 2.1 will store replicas under cluster name "
+        "initOnceEnlisted: My server ID is 2.1 | "
+        "initOnceEnlisted: Backup 2.1 will store replicas under cluster name "
             "'testing'"
         , TestLog::get());
 }

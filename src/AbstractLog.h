@@ -1,0 +1,393 @@
+/* Copyright (c) 2009-2012 Stanford University
+ *
+ * Permission to use, copy, modify, and distribute this software for any
+ * purpose with or without fee is hereby granted, provided that the above
+ * copyright notice and this permission notice appear in all copies.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR(S) DISCLAIM ALL WARRANTIES
+ * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+ * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL AUTHORS BE LIABLE FOR
+ * ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+ * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+ * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+ */
+
+#ifndef RAMCLOUD_ABSTRACTLOG_H
+#define RAMCLOUD_ABSTRACTLOG_H
+
+#include <stdint.h>
+#include <unordered_map>
+#include <vector>
+
+#include "BoostIntrusive.h"
+#include "LogEntryTypes.h"
+#include "LogEntryHandlers.h"
+#include "Segment.h"
+#include "SegmentManager.h"
+#include "LogSegment.h"
+#include "SpinLock.h"
+#include "ReplicaManager.h"
+#include "HashTable.h"
+
+#include "LogMetrics.pb.h"
+
+namespace RAMCloud {
+
+/**
+ * This class implements functionality common to the Log and SideLog subclasses.
+ * The Log class is typically used when servers store individual entries such as
+ * new objects or tombstones. The SideLog is used when a large number of entries
+ * need to be added to the log all at once with maximum backup performance. For
+ * instance, recovery uses that class to efficiently re-replicate data from a
+ * failed master during replay. See the Log and SideLog documentation for more
+ * details.
+ *
+ * This class is thread-safe.
+ */
+class AbstractLog {
+  public:
+    /**
+     * Position is a (Segment Id, Segment Offset) tuple that represents a
+     * position in the log. For example, it can be considered the logical time
+     * at which something was appended to the Log. It can be used for things
+     * like computing table partitions and obtaining a master's current log
+     * position.
+     */
+    class Position {
+      public:
+        /**
+         * Default constructor that creates a zeroed position. This refers to
+         * the very beginning of a log.
+         */
+        Position()
+            : pos(0, 0)
+        {
+        }
+
+        /**
+         * Construct a position given a segment identifier and offset within
+         * the segment.
+         */
+        Position(uint64_t segmentId, uint64_t segmentOffset)
+            : pos(segmentId, downCast<uint32_t>(segmentOffset))
+        {
+        }
+
+        bool operator==(const Position& other) const {return pos == other.pos;}
+        bool operator!=(const Position& other) const {return pos != other.pos;}
+        bool operator< (const Position& other) const {return pos <  other.pos;}
+        bool operator<=(const Position& other) const {return pos <= other.pos;}
+        bool operator> (const Position& other) const {return pos >  other.pos;}
+        bool operator>=(const Position& other) const {return pos >= other.pos;}
+
+        /**
+         * Return the segment identifier component of this position object.
+         */
+        uint64_t getSegmentId() const { return pos.first; }
+
+        /**
+         * Return the offset component of this position object.
+         */
+        uint32_t getSegmentOffset() const { return pos.second; }
+
+      PRIVATE:
+        std::pair<uint64_t, uint32_t> pos;
+    };
+
+    /**
+     * Data appended to the log is referenced by instances of this class.
+     * We simply pack the entry's segment slot and byte offset within the
+     * segment into a uint64_t that can go in the hash table. The slot is
+     * maintained by SegmentManager and is an index into an array of active
+     * segments in the system.
+     *
+     * Direct pointers are not used because log entries are not necessarily
+     * contiguous in memory. This indirection also makes it easy to find the
+     * segment metadata associated with a specific entry so that we can update
+     * state (for example, the free space counts in a Log::free() call). In
+     * the past we aligned segments in memory and ANDed off bits from the
+     * entry pointer to address the segment itself, but this was messy and
+     * convoluted.
+     */
+    class Reference {
+      public:
+        Reference()
+            : value(0)
+        {
+        }
+
+        Reference(SegmentSlot slot,
+                  uint32_t offset,
+                  uint32_t segmentSize)
+            : value(0)
+        {
+            assert(offset < segmentSize);
+            assert(BitOps::isPowerOfTwo(segmentSize));
+            int shift = BitOps::findFirstSet(segmentSize) - 1;
+            value = (static_cast<uint64_t>(slot) << shift) | offset;
+        }
+
+        explicit Reference(uint64_t value)
+            : value(value)
+        {
+        }
+
+        /**
+         * Obtain the 64-bit integer value of the reference. The upper 16 bits
+         * are guaranteed to be zero.
+         */
+        uint64_t
+        toInteger() const
+        {
+            return value;
+        }
+
+        /**
+         * Compare references for equality. Returns true if equal, else false.
+         */
+        bool
+        operator==(const Reference& other) const
+        {
+            return value == other.value;
+        }
+
+        /**
+         * Returns the exact opposite of operator==.
+         */
+        bool
+        operator!=(const Reference& other) const
+        {
+            return !operator==(other);
+        }
+
+        uint32_t
+        getSlot(uint32_t segmentSize) const
+        {
+            assert(BitOps::isPowerOfTwo(segmentSize));
+            int shift = BitOps::findFirstSet(segmentSize) - 1;
+            return downCast<uint32_t>(value >> shift);
+        }
+
+        uint32_t
+        getOffset(uint32_t segmentSize) const
+        {
+            assert(BitOps::isPowerOfTwo(segmentSize));
+            return downCast<uint32_t>(value & (segmentSize - 1));
+        }
+
+      PRIVATE:
+        /// The integer value of the reference.
+        uint64_t value;
+    };
+
+    /**
+     * Structure used when appending multiple entries atomically. It is used to
+     * both describe the entry, as well as return the log reference once it has
+     * been appended. Callers will typically allocate an array of these on the
+     * stack, set up each individual entry, and pass its pointer to the append
+     * method.
+     */
+    class AppendVector {
+      public:
+        /**
+         * This default constructor simply initializes to invalid values.
+         */
+        AppendVector()
+            : type(LOG_ENTRY_TYPE_INVALID),
+              timestamp(0),
+              buffer(),
+              reference(0)
+        {
+        }
+
+        /// Type of the entry to append (see LogEntryTypes.h).
+        LogEntryType type;
+
+        /// Creation timestamp of the entry (see WallTime.h).
+        uint32_t timestamp;
+
+        /// Buffer describing the contents of the entry to append.
+        Buffer buffer;
+
+        /// A log reference to the entry once appended is returned here.
+        Reference reference;
+    };
+
+    typedef std::lock_guard<SpinLock> Lock;
+
+    AbstractLog(LogEntryHandlers* entryHandlers,
+                SegmentManager* segmentManager,
+                ReplicaManager* replicaManager,
+                uint32_t segmentSize);
+    virtual ~AbstractLog() { }
+
+    bool append(AppendVector* appends, uint32_t numAppends);
+    void free(Reference reference);
+    void getMetrics(ProtoBuf::LogMetrics& m);
+    LogEntryType getEntry(Reference reference,
+                          Buffer& outBuffer);
+    uint64_t getSegmentId(Reference reference);
+    bool segmentExists(uint64_t segmentId);
+
+    /*
+     * The following overloaded append() methods are for convenience. Fast path
+     * code (like the heart of segment replay during recovery) use a single
+     * contiguous const void* buffer when appending. Other paths tend to use
+     * Buffers for convenience and to avoid extra copies.
+     *
+     * These methods all call a common private append() core that is optimized
+     * for the single const void* case. They also acquire append locks, since
+     * the core function is lockless (to support atomic appends of multiple
+     * entries).
+     */
+
+    /**
+     * \overload
+     */
+    bool
+    append(LogEntryType type,
+           uint32_t timestamp,
+           const void* buffer,
+           uint32_t length,
+           Reference* outReference = NULL)
+    {
+        Lock lock(appendLock);
+        return append(lock, type, timestamp, buffer, length, outReference);
+    }
+
+    /**
+     * \overload
+     */
+    bool
+    append(LogEntryType type,
+           uint32_t timestamp,
+           Buffer& buffer,
+           Reference* outReference = NULL)
+    {
+        Lock lock(appendLock);
+        return append(lock,
+                      type,
+                      timestamp,
+                      buffer.getRange(0, buffer.getTotalLength()),
+                      buffer.getTotalLength(),
+                      outReference);
+    }
+
+  PROTECTED:
+    INTRUSIVE_LIST_TYPEDEF(LogSegment, listEntries) SegmentList;
+
+    /**
+     * This virtual method is used to allocate the next segment to append
+     * entries to when either there was no previous one (immediately following
+     * construction) or the previous one had insufficient space.
+     *
+     * The Log subclass' implementation of this allocates a new log head from
+     * the SegmentManager. The SideClass class allocates a non-head segment
+     * that is not yet part of the log from SegmentManager. This allows the
+     * latter class to ignore any segment ordering constraints until it is
+     * time to merge with the log proper.
+     * 
+     * \param mustNotFail
+     *      If true, this method must return a valid LogSegment pointer. It may
+     *      block indefinitely if necessary. If false, the method must return
+     *      immediately and may provide a NULL pointer if no segment is
+     *      available.
+     * \return
+     *      A new LogSegment pointer. If mustNotFail is true, this is guaranteed
+     *      to be non-NULL.
+     */
+    virtual LogSegment* allocNextSegment(bool mustNotFail = true) = 0;
+
+    bool append(Lock& lock,
+                LogEntryType type,
+                uint32_t timestamp,
+                const void* data,
+                uint32_t length,
+                Reference* outReference = NULL);
+    bool append(Lock& lock,
+                LogEntryType type,
+                uint32_t timestamp,
+                Buffer& buffer,
+                Reference* outReference = NULL);
+
+    /// Various handlers for entries appended to this log. Used to obtain
+    /// timestamps, check liveness, and notify of entry relocation during
+    /// cleaning.
+    LogEntryHandlers* entryHandlers;
+
+    /// The SegmentManager allocates and keeps track of our segments. It
+    /// also mediates mutation of the log between this class and the
+    /// LogCleaner.
+    SegmentManager* segmentManager;
+
+    /// Class responsible for handling the durability of segments. Segment
+    /// objects don't themselves have any concept of replication, but the
+    /// Log and SegmentManager classes ensure that the data is replicated
+    /// consistently nonetheless.
+    ReplicaManager* replicaManager;
+
+    /// The size of each full segment in bytes. This is the exact amount of
+    /// space allocated for segments on backups and the maximum amount of
+    /// space each memory segment may contain.
+    uint32_t segmentSize;
+
+    /// Current segment being appended to. Whatever this points to is owned by
+    /// SegmentManager, which is responsible for its eventual deallocation.
+    /// This pointer will be initalized to NULL in the constructor, but once
+    /// the first segment is allocated it will never be NULL again.
+    ///
+    /// In the Log subclass, this is the actual head of the log. In the SideLog
+    /// subclass, there is not quite the same concept of a log head. In that
+    /// case, this is simply the segment currently being appended to.
+    LogSegment* head;
+
+    /// Lock taken around log append operations. This ensures that parallel
+    /// writers do not modify the head segment concurrently. The sync()
+    /// method also uses this lock to get a consistent view of the head
+    /// segment in the presence of multiple appending threads.
+    SpinLock appendLock;
+
+    /// Various event counters and performance measurements taken during log
+    /// operation.
+    class Metrics {
+      public:
+        Metrics()
+            : totalAppendTicks(0),
+              totalNoSpaceTicks(0),
+              noSpaceTimer(),
+              totalBytesAppended(0),
+              totalMetadataBytesAppended(0)
+        {
+        }
+
+        /// Total number of cpu cycles spent appending data. Includes any
+        /// synchronous replication time, but does not include waiting for
+        /// the log lock.
+        uint64_t totalAppendTicks;
+
+        /// Total number of ticks spent out of memory and unable to service
+        /// append operations.
+        uint64_t totalNoSpaceTicks;
+
+        /// Timer used to measure how long the log has spent unable to allocate
+        /// memory. Constructed when we transition from being able to append to
+        /// not, and destructed when we can append again.
+        Tub<CycleCounter<uint64_t>> noSpaceTimer;
+
+        /// Total number of useful user bytes appended to the log. This does not
+        /// include any segment metadata.
+        uint64_t totalBytesAppended;
+
+        /// Total number of metadata bytes appended to the log. This, plus the
+        /// #totalBytesAppended value is equal to the grand total of bytes
+        /// appended to the log.
+        uint64_t totalMetadataBytesAppended;
+    } metrics;
+
+    DISALLOW_COPY_AND_ASSIGN(AbstractLog);
+};
+
+} // namespace
+
+#endif // !RAMCLOUD_LOG_H

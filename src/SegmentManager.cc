@@ -45,7 +45,7 @@ namespace RAMCloud {
  */
 SegmentManager::SegmentManager(Context* context,
                                const ServerConfig* config,
-                               ServerId& logId,
+                               ServerId logId,
                                SegletAllocator& allocator,
                                ReplicaManager& replicaManager)
     : context(context),
@@ -72,8 +72,7 @@ SegmentManager::SegmentManager(Context* context,
       logIteratorCount(0),
       segmentsOnDisk(0),
       segmentsOnDiskHistogram(maxSegments, 1),
-      safeVersion(1),
-      testing_allocSurvivorMustNotBlock(false)
+      safeVersion(1)
 {
     if ((segmentSize % allocator.getSegletSize()) != 0)
         throw SegmentManagerException(HERE, "segmentSize % segletSize != 0");
@@ -145,10 +144,10 @@ SegmentManager::getAllocator() const
  * be synced to backups before the function returns. In short, the caller need
  * not do anything special.
  *
- * \param mustNotFail
- *      If true, the allocation of a new head must not fail. By specifying this,
- *      the caller may be returned an immutable (closed) head segment if memory
- *      has been exhausted.
+ * \param flags
+ *      If out of memory and the MUST_NOT_FAIL flag is provided, an emergency
+ *      head segment is allocated and returned. Otherwise, NULL is returned
+ *      when out of memory and the flag is not provided.
  *
  * \return
  *      NULL if out of memory, otherwise the new head segment. If NULL is
@@ -156,19 +155,19 @@ SegmentManager::getAllocator() const
  *      as the head of the log.
  */
 LogSegment*
-SegmentManager::allocHead(bool mustNotFail)
+SegmentManager::allocHeadSegment(uint32_t flags)
 {
     Lock guard(lock);
 
     LogSegment* prevHead = getHeadSegment();
-    LogSegment* newHead = alloc(SegletAllocator::DEFAULT, nextSegmentId);
+    LogSegment* newHead = alloc(ALLOC_HEAD, nextSegmentId);
     if (newHead == NULL) {
         /// Even if out of memory, we may need to allocate an emergency head
         /// segment to deal with replica failure or to let cleaning free
         /// resources.
-        if (mustNotFail ||
+        if ((flags & MUST_NOT_FAIL) ||
           segmentsByState[FREEABLE_PENDING_DIGEST_AND_REFERENCES].size() > 0) {
-            newHead = alloc(SegletAllocator::EMERGENCY_HEAD, nextSegmentId);
+            newHead = alloc(ALLOC_EMERGENCY_HEAD, nextSegmentId);
         } else {
             return NULL;
         }
@@ -233,14 +232,22 @@ SegmentManager::allocHead(bool mustNotFail)
  * This method will never return NULL. It will, however, block forever if the
  * cleaner fails to keep its promise of not using more than it frees.
  *
+ * \param flags
+ *      If the FOR_CLEANING flag is provided, the allocation will be attempted
+ *      from a pool specially reserved for the cleaner. If MUST_NOT_FAIL is
+ *      provided, the method will block until a segment is free. Otherwise, it
+ *      will return immediately with NULL if no segment is available.
+ *
  * \param replacing
  *      If memory compaction is being performed, this must point to the current
  *      segment that is being compacted. If a survivor is being allocated for
  *      disk cleaning instead, this must be NULL (the default).
  */
 LogSegment*
-SegmentManager::allocSurvivor(LogSegment* replacing)
+SegmentManager::allocSideSegment(uint32_t flags, LogSegment* replacing)
 {
+    assert(replacing == NULL || states[replacing->slot] == CLEANABLE);
+
     Tub<Lock> guard;
     LogSegment* s = NULL;
 
@@ -248,11 +255,16 @@ SegmentManager::allocSurvivor(LogSegment* replacing)
         guard.construct(lock);
 
         uint64_t id = (replacing != NULL) ? replacing->id : nextSegmentId;
-        s = alloc(SegletAllocator::CLEANER, id);
+
+        if (flags & FOR_CLEANING)
+            s = alloc(ALLOC_CLEANER_SIDELOG, id);
+        else
+            s = alloc(ALLOC_REGULAR_SIDELOG, id);
+
         if (s != NULL)
             break;
 
-        if (testing_allocSurvivorMustNotBlock)
+        if ((flags & MUST_NOT_FAIL) == 0)
             return NULL;
 
         guard.destroy();
@@ -295,37 +307,24 @@ SegmentManager::cleaningComplete(LogSegmentVector& clean,
 {
     Lock guard(lock);
 
+    // Sanity check: the cleaner must not have used more seglets than it freed.
     uint32_t segletsUsed = 0;
     uint32_t segletsFreed = 0;
-
-    // New Segments we've added during cleaning need to wait
-    // until the next head is written before they become part
-    // of the Log.
-    foreach (LogSegment* s, survivors) {
-        assert(states[s->slot] == CLEANING_INTO);
+    foreach (LogSegment* s, survivors)
         segletsUsed += s->getSegletsAllocated();
-        changeState(*s, CLEANABLE_PENDING_DIGEST);
-    }
-
-    // Increment the current epoch and save the last epoch any
-    // RPC could have been a part of so we can store it with
-    // the Segments to be freed.
-    uint64_t epoch = ServerRpcPool<>::incrementCurrentEpoch() - 1;
-
-    // Cleaned Segments must wait until the next digest has been
-    // written (that is, the new Segments we cleaned into are part
-    // of the Log and the cleaned ones are not) and no outstanding
-    // RPCs could reference the data in those Segments before they
-    // may be cleaned.
-    foreach (LogSegment* s, clean) {
+    foreach (LogSegment* s, clean)
         segletsFreed += s->getSegletsAllocated();
-        s->cleanedEpoch = epoch;
-        changeState(*s, FREEABLE_PENDING_DIGEST_AND_REFERENCES);
-    }
+    assert(segletsUsed <= segletsFreed);
+
+    // Mark the new segments for insertion into the log when the next digest is
+    // written and mark the cleaned segments for removal at the same point.
+    foreach (LogSegment* s, survivors)
+        injectSideSegment(s, CLEANABLE_PENDING_DIGEST, guard);
+    foreach (LogSegment* s, clean)
+        freeSegment(s, true, guard);
 
     LOG(DEBUG, "Cleaning used %u seglets to free %u seglets",
         segletsUsed, segletsFreed);
-    assert(segletsUsed <= segletsFreed);
 }
 
 /**
@@ -347,21 +346,57 @@ SegmentManager::compactionComplete(LogSegment* oldSegment,
 {
     Lock guard(lock);
 
-    assert(states[newSegment->slot] == CLEANING_INTO);
-    changeState(*newSegment, NEWLY_CLEANABLE);
-
-    uint64_t epoch = ServerRpcPool<>::incrementCurrentEpoch() - 1;
-    oldSegment->cleanedEpoch = epoch;
-    changeState(*oldSegment, FREEABLE_PENDING_REFERENCES);
-
     // Update the previous version's ReplicatedSegment to use the new, compacted
     // segment in the event of a backup failure.
+    assert(newSegment->replicatedSegment == NULL);
     newSegment->replicatedSegment = oldSegment->replicatedSegment;
     oldSegment->replicatedSegment = NULL;
     newSegment->replicatedSegment->swapSegment(newSegment);
 
+    injectSideSegment(newSegment, NEWLY_CLEANABLE, guard);
+    freeSegment(oldSegment, false, guard);
+
     LOG(DEBUG, "Compaction used %u seglets to free %u seglets",
         newSegment->getSegletsAllocated(), oldSegment->getSegletsAllocated());
+}
+
+/**
+ * Mark the given segments for inclusion into the log. They will not be made
+ * part of the on-disk log until the next head segment is allocated and a
+ * digest is written.
+ *
+ * This method is used by the SideLog class when committing appended entries.
+ *
+ * \param segments
+ *      The segments to add to the log. They must have been allocated via the
+ *      allocSideSegment method.
+ */
+void
+SegmentManager::injectSideSegments(LogSegmentVector& segments)
+{
+    Lock guard(lock);
+    foreach (LogSegment* segment, segments)
+        injectSideSegment(segment, CLEANABLE_PENDING_DIGEST, guard);
+}
+
+/**
+ * Free the given segments that were allocated in the allocSideSegment method,
+ * but never added to the log (injectSideSegments was never invoked on them).
+ *
+ * This method is used by the SideLog class when aborting and returning all
+ * previously-allocated segments since the last commit.
+ *
+ * \param segments
+ *      The segments to free. Upon return, these segments are no longer valid.
+ *      The system will reuse the memory only after any outstanding RPCs that
+ *      could have referenced them have completed.
+ */
+void
+SegmentManager::freeUnusedSideSegments(LogSegmentVector& segments)
+{
+    Lock guard(lock);
+    foreach (LogSegment* segment, segments)
+        freeSegment(segment, false, guard);
 }
 
 /**
@@ -523,8 +558,9 @@ SegmentManager::doesIdExist(uint64_t id)
 
 /**
  * Return the number of free survivor segments left in the reserve. The caller
- * may subsequently call allocSurvivor() this many times with a guarantee that
- * a survivor segment will be returned.
+ * may subsequently call allocSideSegment() requesting a cleaner-reserved
+ * segment this many times with a guarantee that a survivor segment will be
+ * returned.
  */
 size_t
 SegmentManager::getFreeSurvivorCount()
@@ -601,8 +637,90 @@ SegmentManager::raiseSafeVersion(uint64_t minimum) {
  ******************************************************************************/
 
 /**
+ * Mark a previously-allocated side segment (see allocSideSegment()) to be added
+ * to the log when the next log digest is written. This is used to add survivor
+ * segments generated by the cleaner to the log, as well as SideLog segments
+ * that have been committed.
+ *
+ * Note that the segment given will not be part of the replicated log until the
+ * next head is allocated and a digest is written out. allocHeadSegment() can be
+ * called to ensure this, if necessary.
+ *
+ * \param segment
+ *      The segment to add to the log. It must be in the SIDELOG state.
+ * \param nextState
+ *      The next state to place the injected segment into. This must be either
+ *      CLEANABLE_PENDING_DIGEST or NEWLY_CLEANABLE. No other value is allowed.
+ * \param lock
+ *      This internal method assumes that the monitor lock is held. Hopefully
+ *      this parameter will remind you to obey that constraint.
+ */
+void
+SegmentManager::injectSideSegment(LogSegment* segment,
+                                  State nextState,
+                                  Lock& lock)
+{
+    assert(states[segment->slot] == SIDELOG);
+    assert(nextState == CLEANABLE_PENDING_DIGEST ||
+           nextState == NEWLY_CLEANABLE);
+
+    // The segment we're adding will become part of the on-disk log
+    // when the next head is written.
+    changeState(*segment, nextState);
+}
+
+/**
+ * Free a segment. This method will ensure that the segment given is freed
+ * when it is safe to do so (for example, when no more RPCs could reference
+ * data within it). Segments are freed in one of two ways: either the cleaner
+ * relocates live data and frees a segment previously in the log, or an
+ * instance of the SideLog class aborts and any segments that were allocated
+ * to it since the last commit are freed.
+ *
+ * \param segment
+ *      The segment to free. When this method returns, the pointer is not longer
+ *      valid. The segment must be in either the CLEANABLE or SIDELOG state.
+ * \param waitForDigest
+ *      Indicates whether or not freeing of the segment must be delayed until
+ *      the next log digest is written (so that it will not appear in any
+ *      backup copy of the log). This is set for cleaned segments, but not for
+ *      compacted segments or aborted SideLog segments.
+ * \param lock
+ *      This internal method assumes that the monitor lock is held. Hopefully
+ *      this parameter will remind you to obey that constraint.
+ */
+void
+SegmentManager::freeSegment(LogSegment* segment, bool waitForDigest, Lock& lock)
+{
+    assert(states[segment->slot] == CLEANABLE ||
+           states[segment->slot] == SIDELOG);
+
+    State state = (waitForDigest) ? FREEABLE_PENDING_DIGEST_AND_REFERENCES :
+                                    FREEABLE_PENDING_REFERENCES;
+
+    // Increment the current epoch and save the last epoch any
+    // RPC could have been a part of so we can store it with
+    // the segment to be freed.
+    uint64_t epoch = ServerRpcPool<>::incrementCurrentEpoch() - 1;
+
+    // Cleaned segments must wait until the next digest has been
+    // written (that is, the new segments we cleaned into are part
+    // of the Log and the cleaned ones are not) and no outstanding
+    // RPCs could reference the data in those segments before they
+    // may be cleaned.
+    //
+    // This method may also be invoked for segments that were never
+    // actually part of the log (an aborted SideLog, for example).
+    // The above restriction does not need to apply in that case,
+    // but for simplicity we'll be conservative.
+    segment->cleanedEpoch = epoch;
+    changeState(*segment, state);
+}
+
+/**
  * Write the SegmentHeader to a segment that's presumably the new head of the
- * log. This method is only really useful in allocHead() and allocSurvivor().
+ * log. This method is only really useful in allocHeadSegment() and
+ * allocSideSegment().
  *
  * \param segment
  *      Pointer to the segment the header should be written to.
@@ -619,8 +737,8 @@ SegmentManager::writeHeader(LogSegment* segment)
 
 /**
  * Write the LogDigest to the new head of the log. This method should only be
- * called by allocHead(), since it will modify segment states in a way that
- * is not idempotent.
+ * called by allocHeadSEgment(), since it will modify segment states in a way
+ * that is not idempotent.
  *
  * \param newHead
  *      Pointer to the segment the digest should be written into. Generally
@@ -681,7 +799,7 @@ SegmentManager::writeDigest(LogSegment* newHead, LogSegment* prevHead)
 
 /**
  * Write the ObjectSafeVersion to the new head of the log.
- * This method should only be called by allocHead(), since it will
+ * This method should only be called by allocHeadSegment(), since it will
  * modify segment states in a way that is not idempotent.
  *
  * \param head
@@ -738,9 +856,9 @@ SegmentManager::changeState(LogSegment& s, State newState)
 /**
  * Allocate a new segment, if possible, and set its initial state appropriately.
  *
- * \param type 
- *      Type of segment being allocated. Either it is for an emergency head,
- *      the cleaner, or a new regular head segment.
+ * \param purpose
+ *      Purpose for which this segment being is allocated. Either it is for an
+ *      emergency head, the cleaner, or a new regular head segment.
  * \param segmentId
  *      Identifier given to the segment. This is the log-unique value that will
  *      be placed in the log digest.
@@ -749,37 +867,43 @@ SegmentManager::changeState(LogSegment& s, State newState)
  *      allocated segment.
  */
 LogSegment*
-SegmentManager::alloc(SegletAllocator::AllocationType type,
-                      uint64_t segmentId)
+SegmentManager::alloc(AllocPurpose purpose, uint64_t segmentId)
 {
-    TEST_LOG((type == SegletAllocator::CLEANER) ? "for cleaner" :
-        ((type == SegletAllocator::DEFAULT) ?  "for head of log" :
-        "for emergency head of log"));
+    TEST_LOG("purpose: %d", static_cast<int>(purpose));
 
     // Use this opportunity to see if we can free segments that have been
     // cleaned but were previously waiting for readers to finish.
     freeUnreferencedSegments();
 
-    SegmentSlot slot = allocSlot(type);
+    SegmentSlot slot = allocSlot(purpose);
     if (slot == INVALID_SEGMENT_SLOT)
         return NULL;
 
     uint32_t segletSize = allocator.getSegletSize();
     vector<Seglet*> seglets;
 
+    SegletAllocator::AllocationType type = SegletAllocator::DEFAULT;
+    if (purpose == ALLOC_CLEANER_SIDELOG)
+        type = SegletAllocator::CLEANER;
+    else if (purpose == ALLOC_EMERGENCY_HEAD)
+        type = SegletAllocator::EMERGENCY_HEAD;
+
     if (!allocator.alloc(type, segmentSize / segletSize, seglets)) {
-        assert(type == SegletAllocator::DEFAULT);
+        assert(purpose == ALLOC_HEAD || purpose == ALLOC_REGULAR_SIDELOG);
         freeSlot(slot, false);
         return NULL;
     }
 
-    State state = (type == SegletAllocator::CLEANER) ? CLEANING_INTO : HEAD;
+    State state = HEAD;
+    if (purpose == ALLOC_REGULAR_SIDELOG || purpose == ALLOC_CLEANER_SIDELOG)
+        state = SIDELOG;
+
     segments[slot].construct(seglets,
                              segletSize,
                              segmentSize,
                              segmentId,
                              slot,
-                             (type == SegletAllocator::EMERGENCY_HEAD));
+                             (purpose == ALLOC_EMERGENCY_HEAD));
     states[slot] = state;
     idToSlotMap[segmentId] = slot;
 
@@ -793,23 +917,28 @@ SegmentManager::alloc(SegletAllocator::AllocationType type,
  * Allocate an unused segment slot. Returns -1 if there is no
  * slot available.
  *
- * \param type
- *      The type of segment we're allocating a slot for. Some slots
- *      are reserved for special purposes like cleaning and emergency
- *      head segments and can only be allocated if the appropriate
- *      type is provided.
+ * \param purpose 
+ *      The purpose for which the segment slot is being allocated. Some slots
+ *      are reserved for special purposes like cleaning and emergency head
+ *      segments and can only be allocated if the appropriate purpose is given.
  */
 SegmentSlot
-SegmentManager::allocSlot(SegletAllocator::AllocationType type)
+SegmentManager::allocSlot(AllocPurpose purpose)
 {
     vector<uint32_t>* source = NULL;
 
-    if (type == SegletAllocator::DEFAULT)
+    switch (purpose) {
+    case ALLOC_HEAD:
+    case ALLOC_REGULAR_SIDELOG:
         source = &freeSlots;
-    else if (type == SegletAllocator::CLEANER)
-        source = &freeSurvivorSlots;
-    else if (type == SegletAllocator::EMERGENCY_HEAD)
+        break;
+    case ALLOC_EMERGENCY_HEAD:
         source = &freeEmergencyHeadSlots;
+        break;
+    case ALLOC_CLEANER_SIDELOG:
+        source = &freeSurvivorSlots;
+        break;
+    }
 
     if (source->empty())
         return -1;

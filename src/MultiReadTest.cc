@@ -335,16 +335,16 @@ TEST_F(MultiReadTest, removeRequestAt) {
 
     // 4U Results from the original scheduling.
     EXPECT_EQ(4UL, request.startIndex);
-    EXPECT_EQ(8UL, request.requestQueue.size());
+    EXPECT_EQ(8UL, request.workQueue.size());
 
     for (int ii = 0; ii< 3; ii++)
-        ASSERT_EQ((&objects[ii]), (request.requestQueue[ii]));
+        ASSERT_EQ((&objects[ii]), (request.workQueue[ii]));
 
     // Remove -> Expect index to move up and request from slot 4 to 6
     request.removeRequestAt(6);
     EXPECT_EQ(5UL, request.startIndex);
 
-    ASSERT_EQ((&objects[4]), (request.requestQueue[6]));
+    ASSERT_EQ((&objects[4]), (request.workQueue[6]));
 }
 
 TEST_F(MultiReadTest, retryRequest) {
@@ -354,16 +354,16 @@ TEST_F(MultiReadTest, retryRequest) {
 
     // 4U Results from the original scheduling.
     EXPECT_EQ(4UL, request.startIndex);
-    EXPECT_EQ(8UL, request.requestQueue.size());
+    EXPECT_EQ(8UL, request.workQueue.size());
 
     for (int ii = 0; ii< 3; ii++)
-        ASSERT_EQ((&objects[ii]), (request.requestQueue[ii]));
+        ASSERT_EQ((&objects[ii]), (request.workQueue[ii]));
 
     //Retry object[0] -> Should end up in startIndex's location.
     request.retryRequest(&objects[0]);
 
     EXPECT_EQ(3UL, request.startIndex);
-    EXPECT_EQ((&objects[0]), (request.requestQueue[3]));
+    EXPECT_EQ((&objects[0]), (request.workQueue[3]));
 }
 
 TEST_F(MultiReadTest, PartRpc_finish_transportError) {
@@ -374,7 +374,7 @@ TEST_F(MultiReadTest, PartRpc_finish_transportError) {
     EXPECT_STREQ("STATUS_UNKNOWN", statusToSymbol(objects[0].status));
     EXPECT_STREQ("STATUS_UNKNOWN", statusToSymbol(objects[1].status));
     session1->lastNotifier->failed();
-    request.rpcs[0]->finish();
+    request.finishRpc(request.rpcs[0].get());
     EXPECT_STREQ("STATUS_OK", statusToSymbol(objects[0].status));
     EXPECT_STREQ("STATUS_OK", statusToSymbol(objects[0].status));
     request.rpcs[0].destroy();
@@ -396,7 +396,7 @@ TEST_F(MultiReadTest, PartRpc_finish_shortResponse) {
         session1->lastResponse->getTotalLength() - 11);
     session1->lastNotifier->completed();
     EXPECT_FALSE(request.isReady());
-    EXPECT_EQ("finish: missing status", TestLog::get());
+    EXPECT_EQ("readResponse: missing Response::Part", TestLog::get());
     TestLog::reset();
     EXPECT_EQ("mock:host=master1(2) -", rpcStatus(request));
 
@@ -405,7 +405,7 @@ TEST_F(MultiReadTest, PartRpc_finish_shortResponse) {
         session1->lastResponse->getTotalLength() - 18);
     session1->lastNotifier->completed();
     EXPECT_FALSE(request.isReady());
-    EXPECT_EQ("finish: missing Response::Part", TestLog::get());
+    EXPECT_EQ("readResponse: missing Response::Part", TestLog::get());
     TestLog::reset();
     EXPECT_EQ("mock:host=master1(2) -", rpcStatus(request));
 
@@ -414,7 +414,7 @@ TEST_F(MultiReadTest, PartRpc_finish_shortResponse) {
     session1->lastResponse->truncateEnd(1);
     session1->lastNotifier->completed();
     EXPECT_FALSE(request.isReady());
-    EXPECT_EQ("finish: missing object data", TestLog::get());
+    EXPECT_EQ("readResponse: missing object data", TestLog::get());
     TestLog::reset();
     EXPECT_EQ("mock:host=master1(1) -", rpcStatus(request));
 
@@ -435,14 +435,16 @@ TEST_F(MultiReadTest, PartRpc_unknownTable) {
     // Modify the response to reject all objects.
     session1->lastResponse->truncateEnd(
             session1->lastResponse->getTotalLength() -
-            downCast<uint32_t>(sizeof(WireFormat::MultiRead::Response)));
-    Status* statuses = new(session1->lastResponse, APPEND) Status[3];
-    statuses[0] = STATUS_UNKNOWN_TABLET;
-    statuses[1] = STATUS_OBJECT_DOESNT_EXIST;
-    statuses[2] = STATUS_UNKNOWN_TABLET;
+            downCast<uint32_t>(sizeof(WireFormat::MultiOp::Response)));
+    WireFormat::MultiOp::Response::ReadPart* parts =
+        new(session1->lastResponse, APPEND)
+        WireFormat::MultiOp::Response::ReadPart[3];
+    parts[0].status = STATUS_UNKNOWN_TABLET;
+    parts[1].status = STATUS_OBJECT_DOESNT_EXIST;
+    parts[2].status = STATUS_UNKNOWN_TABLET;
     session1->lastNotifier->completed();
     EXPECT_FALSE(request.isReady());
-    EXPECT_EQ("finish: Server mock:host=master1 doesn't store "
+    EXPECT_EQ("finishRpc: Server mock:host=master1 doesn't store "
             "<0, object1-1>; refreshing object map | "
             "flush: flushing object map | flush: flushing object map",
             TestLog::get());

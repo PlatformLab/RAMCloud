@@ -62,7 +62,6 @@ class CoordinatorServerListTest : public ::testing::Test {
     Tub<MockServerTracker> tr;
     LogCabinHelper* logCabinHelper;
     LogCabin::Client::Log* logCabinLog;
-    std::mutex mutex;
 
     CoordinatorServerListTest()
         : context()
@@ -75,7 +74,6 @@ class CoordinatorServerListTest : public ::testing::Test {
         , tr()
         , logCabinHelper()
         , logCabinLog()
-        , mutex()
     {
         service = cluster.coordinator.get();
 
@@ -94,37 +92,65 @@ class CoordinatorServerListTest : public ::testing::Test {
     }
 
     void add(ServerId serverId, string serviceLocator,
-            ServiceMask serviceMask, uint32_t readSpeed) {
-        Lock lock(mutex);
+               ServiceMask serviceMask, uint32_t readSpeed,
+               bool commit = true)
+    {
+        Lock lock(sl->mutex);
         sl->add(lock, serverId, serviceLocator, serviceMask, readSpeed);
-        sl->commitUpdate(lock);
+
+        if (commit)
+          sl->commitUpdate(lock);
     }
 
-    void crashed(ServerId serverId) {
-        Lock lock(mutex);
+    void crashed(ServerId serverId, bool commit = true)
+    {
+        Lock lock(sl->mutex);
         sl->crashed(lock, serverId);
-        sl->commitUpdate(lock);
+
+        if (commit)
+          sl->commitUpdate(lock);
     }
 
-    void remove(ServerId serverId) {
-        Lock lock(mutex);
+    void remove(ServerId serverId, bool commit = true)
+    {
+        Lock lock(sl->mutex);
         sl->remove(lock, serverId);
-        sl->commitUpdate(lock);
+
+        if (commit)
+          sl->commitUpdate(lock);
     }
 
     ServerId generateUniqueId() {
-        Lock lock(mutex);
+        Lock lock(sl->mutex);
         return sl->generateUniqueId(lock);
     }
 
     bool isClusterUpToDate() {
-        Lock lock(mutex);
+        Lock lock(sl->mutex);
         return sl->isClusterUpToDate(lock);
     }
 
     bool hasUpdates() {
-        Lock lock(mutex);
+        Lock lock(sl->mutex);
         return sl->hasUpdates(lock);
+    }
+
+    void commitUpdate() {
+        Lock lock(sl->mutex);
+        sl->commitUpdate(lock);
+    }
+
+    CoordinatorServerList::Entry&
+    getReferenceFromServerId(ServerId serverId) {
+        Lock lock(sl->mutex);
+        return const_cast<CoordinatorServerList::Entry&>(
+            sl->getReferenceFromServerId(lock, serverId));
+    }
+
+    LogCabin::Client::EntryId
+    getServerUpdateLogId(ServerId serverId) {
+        Lock lock(sl->mutex);
+        return sl->getServerUpdateLogId(lock, serverId);
     }
 
     // Enlist a master and store details in master and masterServerId.
@@ -137,7 +163,7 @@ class CoordinatorServerListTest : public ::testing::Test {
         masterConfig.localLocator = "mock:host=master";
         Server* masterServer = cluster.addServer(masterConfig);
         master = masterServer->master.get();
-        master->log->sync();
+        master->objectManager->log.sync();
         masterServerId = masterServer->serverId;
     }
 
@@ -571,26 +597,24 @@ TEST_F(CoordinatorServerListTest, serialize) {
 }
 
 TEST_F(CoordinatorServerListTest, serverDown_backup) {
-    Lock lock(mutex); // Used to trick internal calls
     ServerId id = sl->enlistServer({}, {WireFormat::BACKUP_SERVICE},
                                    0, "mock:host=backup");
     EXPECT_EQ(1U, sl->backupCount());
     service->forceServerDownForTesting = true;
-    sl->serverDown(lock, id);
+    sl->serverDown(id);
     EXPECT_EQ(0U, sl->backupCount());
     EXPECT_FALSE(sl->contains(id));
 }
 
 TEST_F(CoordinatorServerListTest, serverDown_server) {
     enlistMaster();
-    Lock lock(mutex); // Used to trick internal calls
     service->context->recoveryManager->doNotStartRecoveries = true;
 
     ramcloud->createTable("foo");
     service->forceServerDownForTesting = true;
     TestLog::Enable _(startMasterRecoveryFilter);
 
-    sl->serverDown(lock, masterServerId);
+    sl->serverDown(masterServerId);
 
     EXPECT_EQ("startMasterRecovery: Scheduling recovery of master 1.0 | "
               "startMasterRecovery: Recovery crashedServerId: 1.0",
@@ -600,14 +624,13 @@ TEST_F(CoordinatorServerListTest, serverDown_server) {
 
 TEST_F(CoordinatorServerListTest, serverDown_LogCabin) {
     enlistMaster();
-    Lock lock(mutex); // Used to trick internal calls
     service->context->recoveryManager->doNotStartRecoveries = true;
 
     ramcloud->createTable("foo");
     service->forceServerDownForTesting = true;
 
     TestLog::Enable _;
-    sl->serverDown(lock, masterServerId);
+    sl->serverDown(masterServerId);
 
     vector<Entry> entriesRead = logCabinLog->read(0);
     string searchString = "execute: LogCabin: ServerDown entryId: ";
@@ -639,7 +662,6 @@ TEST_F(CoordinatorServerListTest, setMasterRecoveryInfo) {
 
 TEST_F(CoordinatorServerListTest, setMasterRecoveryInfo_execute) {
     enlistMaster();
-    Lock lock(mutex); // Used to trick internal calls
     TestLog::Enable _;
     ProtoBuf::MasterRecoveryInfo info;
     info.set_min_open_segment_id(10);
@@ -648,7 +670,7 @@ TEST_F(CoordinatorServerListTest, setMasterRecoveryInfo_execute) {
 
     vector<Entry> entriesRead = logCabinLog->read(0);
 
-    EntryId entryId = sl->getServerUpdateLogId(lock, masterServerId);
+    EntryId entryId = getServerUpdateLogId(masterServerId);
     ProtoBuf::ServerUpdate readUpdate;
     logCabinHelper->parseProtoBufFromEntry(entriesRead[entryId], readUpdate);
 
@@ -747,9 +769,9 @@ TEST_F(CoordinatorServerListTest, add_trackerUpdated) {
 TEST_F(CoordinatorServerListTest, addServerInfoLogId) {
     ServerId serverId = generateUniqueId();
     add(serverId, "", {WireFormat::MASTER_SERVICE}, 100);
-
-    Lock lock(mutex); // tricks private calls
+    Lock lock(sl->mutex);
     sl->addServerInfoLogId(lock, serverId, 10);
+    lock.unlock();
 
     CoordinatorServerList::Entry entry((*sl)[serverId]);
     EXPECT_EQ(10U, entry.serverInfoLogId);
@@ -758,9 +780,9 @@ TEST_F(CoordinatorServerListTest, addServerInfoLogId) {
 TEST_F(CoordinatorServerListTest, addServerUpdateLogId) {
     ServerId serverId = generateUniqueId();
     add(serverId, "", {WireFormat::MASTER_SERVICE}, 100);
-
-    Lock lock(mutex); // tricks private calls
+    Lock lock(sl->mutex);
     sl->addServerUpdateLogId(lock, serverId, 10);
+    lock.unlock();
 
     CoordinatorServerList::Entry entry((*sl)[serverId]);
     EXPECT_EQ(10U, entry.serverUpdateLogId);
@@ -853,13 +875,13 @@ TEST_F(CoordinatorServerListTest, getServerInfoLogId) {
     ServerId serverId = generateUniqueId();
     add(serverId, "", {WireFormat::MASTER_SERVICE}, 100);
 
-    Lock lock(mutex); // tricks private calls
-    CoordinatorServerList::Entry& entry =
-        const_cast<CoordinatorServerList::Entry&>(
-            sl->getReferenceFromServerId(lock, serverId));
+    CoordinatorServerList::Entry& entry = getReferenceFromServerId(serverId);
     entry.serverInfoLogId = 10U;
 
+
+    Lock lock(sl->mutex);
     LogCabin::Client::EntryId entryId = sl->getServerInfoLogId(lock, serverId);
+    lock.unlock();
     EXPECT_EQ(10U, entryId);
 }
 
@@ -867,14 +889,10 @@ TEST_F(CoordinatorServerListTest, getServerUpdateLogId) {
     ServerId serverId = generateUniqueId();
     add(serverId, "", {WireFormat::MASTER_SERVICE}, 100);
 
-    Lock lock(mutex); // tricks private calls
-    CoordinatorServerList::Entry& entry =
-            const_cast<CoordinatorServerList::Entry&> (
-            sl->getReferenceFromServerId(lock, serverId));
+    CoordinatorServerList::Entry& entry = getReferenceFromServerId(serverId);
     entry.serverUpdateLogId = 10U;
 
-    LogCabin::Client::EntryId entryId =
-            sl->getServerUpdateLogId(lock, serverId);
+    LogCabin::Client::EntryId entryId = getServerUpdateLogId(serverId);
     EXPECT_EQ(10U, entryId);
 }
 
@@ -917,8 +935,6 @@ TEST_F(CoordinatorServerListTest, remove) {
 }
 
 TEST_F(CoordinatorServerListTest, assignReplicationGroup) {
-    Lock lock(mutex); // Used to trick internal calls
-
     vector<ServerId> serverIds;
     ServerConfig config = ServerConfig::forTesting();
     config.services = {WireFormat::BACKUP_SERVICE,
@@ -929,7 +945,9 @@ TEST_F(CoordinatorServerListTest, assignReplicationGroup) {
     }
 
     // Check normal functionality.
+    Lock lock(sl->mutex);
     EXPECT_TRUE(sl->assignReplicationGroup(lock, 10U, serverIds));
+    lock.unlock();
     EXPECT_EQ(10U, (*sl)[serverIds[0]].replicationId);
     EXPECT_EQ(10U, (*sl)[serverIds[1]].replicationId);
     EXPECT_EQ(10U, (*sl)[serverIds[2]].replicationId);
@@ -938,8 +956,6 @@ TEST_F(CoordinatorServerListTest, assignReplicationGroup) {
 }
 
 TEST_F(CoordinatorServerListTest, createReplicationGroup) {
-    Lock lock(mutex); // Used to trick internal calls
-
     ServerId serverIds[10];
     ServerConfig config = ServerConfig::forTesting();
     config.services = {WireFormat::BACKUP_SERVICE,
@@ -959,7 +975,7 @@ TEST_F(CoordinatorServerListTest, createReplicationGroup) {
     EXPECT_EQ(0U, (*sl)[serverIds[7]].replicationId);
     // Kill server 7.
     service->forceServerDownForTesting = true;
-    sl->serverDown(lock, serverIds[7]);
+    sl->serverDown(serverIds[7]);
     service->forceServerDownForTesting = false;
     // Create a new server.
     config.localLocator = format("mock:host=backup%u", 9);
@@ -974,7 +990,6 @@ TEST_F(CoordinatorServerListTest, createReplicationGroup) {
 
 TEST_F(CoordinatorServerListTest, removeReplicationGroup) {
     enlistMaster();
-    Lock lock(mutex); // Used to trick internal calls
 
     ServerId serverIds[4];
     ServerConfig config = ServerConfig::forTesting();
@@ -986,14 +1001,16 @@ TEST_F(CoordinatorServerListTest, removeReplicationGroup) {
     }
     EXPECT_EQ(1U, (*sl)[serverIds[1]].replicationId);
     service->forceServerDownForTesting = true;
-    sl->serverDown(lock, serverIds[1]);
+    sl->serverDown(serverIds[1]);
     service->forceServerDownForTesting = false;
     EXPECT_EQ(0U, (*sl)[serverIds[0]].replicationId);
     EXPECT_EQ(0U, (*sl)[serverIds[2]].replicationId);
     config.localLocator = format("mock:host=backup%u", 3);
     serverIds[3] = cluster.addServer(config)->serverId;
     EXPECT_EQ(2U, (*sl)[serverIds[2]].replicationId);
+    Lock lock(sl->mutex);
     sl->removeReplicationGroup(lock, 2);
+    lock.unlock();
     EXPECT_EQ(0U, (*sl)[serverIds[0]].replicationId);
     EXPECT_EQ(0U, (*sl)[serverIds[2]].replicationId);
     EXPECT_EQ(0U, (*sl)[serverIds[3]].replicationId);
@@ -1022,27 +1039,26 @@ TEST_F(CoordinatorServerListTest, remove_trackerUpdated) {
 }
 
 TEST_F(CoordinatorServerListTest, commitUpdate) {
-    Lock lock(mutex); // Used to trick internal calls
     ProtoBuf::ServerList& update = sl->update;
     uint64_t orig_ver = sl->version;
     sl->lastScan.noUpdatesFound = true;
 
     // Empty update, not committed
-    sl->commitUpdate(lock);
+    commitUpdate();
     EXPECT_EQ(orig_ver, sl->version);
     EXPECT_TRUE(sl->updates.empty());
     EXPECT_TRUE(sl->lastScan.noUpdatesFound);
 
     // Update with at least something in it
     update.add_server();
-    sl->commitUpdate(lock);
+    commitUpdate();
     EXPECT_EQ(orig_ver + 1, sl->version);
     EXPECT_EQ(1UL, sl->updates.size());
     EXPECT_FALSE(sl->lastScan.noUpdatesFound);
 
     // Add a second one in
     update.add_server();
-    sl->commitUpdate(lock);
+    commitUpdate();
     EXPECT_EQ(2UL, sl->updates.size());
     EXPECT_EQ(orig_ver + 1, sl->updates.front().version_number());
     EXPECT_EQ(orig_ver + 2, sl->updates.back().version_number());
@@ -1240,11 +1256,7 @@ TEST_F(CoordinatorServerListTest, hasUpdates_specialCase) {
     add(id1, "mock:host=server1", {WireFormat::MEMBERSHIP_SERVICE}, 100);
     EXPECT_TRUE(hasUpdates());
     EXPECT_FALSE(sl->updates.empty());
-    Lock lock(mutex);
-    (const_cast<CoordinatorServerList::Entry&>
-            (sl->getReferenceFromServerId(lock, id1))).isBeingUpdated =
-            sl->version;
-    lock.unlock();
+    getReferenceFromServerId(id1).isBeingUpdated = sl->version;
     EXPECT_FALSE(hasUpdates());
 
     // Start and finish update of server 2
@@ -1302,11 +1314,7 @@ TEST_F(CoordinatorServerListTest, isClusterUpToDate) {
     ServerId id5 = generateUniqueId();
     add(id5, "mock:host=server5", {WireFormat::MEMBERSHIP_SERVICE}, 100);
 
-    Lock lock(mutex);
-    CoordinatorServerList::Entry& entry =
-            const_cast<CoordinatorServerList::Entry&>
-            (sl->getReferenceFromServerId(lock, id5));
-    lock.unlock();
+    CoordinatorServerList::Entry& entry = getReferenceFromServerId(id5);
     entry.serverListVersion = sl->version;
     EXPECT_TRUE(isClusterUpToDate());
     entry.isBeingUpdated = sl->version;
@@ -1369,7 +1377,7 @@ TEST_F(CoordinatorServerListTest, loadNextUpdate) {
 }
 
 TEST_F(CoordinatorServerListTest, pruneUpdates) {
-    Lock lock(mutex); // Used to trick internal calls.
+    Lock lock(sl->mutex); // Global lock on csl.
     ProtoBuf::ServerList& update = sl->update;
     for (int i = 1; i <= 10; i++) {
         for (int j = 1; j <= i; j++)
@@ -1464,35 +1472,34 @@ TEST_F(CoordinatorServerListTest, updateEntryVersion_booleanToggles) {
 TEST_F(CoordinatorServerListTest, updateLoop) {
     MockTransport transport(service->context);
     TransportManager::MockRegistrar _(service->context, transport);
-    Lock lock(mutex);   // Trick for internal calls
 
     // Test unoccupied server slot. Remove must wait until after last add to
     // ensure slot isn't recycled.
-    ServerId serverId1 = sl->generateUniqueId(lock);
-    sl->add(lock, serverId1, "mock:host=server1",
-            {WireFormat::MEMBERSHIP_SERVICE}, 0);
+    ServerId serverId1 = generateUniqueId();
+    add(serverId1, "mock:host=server1", {WireFormat::MEMBERSHIP_SERVICE},
+        0, false);
 
     // Test crashed server gets skipped as a recipient.
-    ServerId serverId2 = sl->generateUniqueId(lock);
-    sl->add(lock, serverId2, "mock:host=server2", {}, 0);
-    sl->crashed(lock, serverId2);
+    ServerId serverId2 = generateUniqueId();
+    add(serverId2, "mock:host=server2", {}, 0, false);
+    crashed(serverId2, false);
 
     // Test server with no membership service.
-    ServerId serverId3 = sl->generateUniqueId(lock);
-    sl->add(lock, serverId3, "mock:host=server3", {}, 0);
+    ServerId serverId3 = generateUniqueId();
+    add(serverId3, "mock:host=server3", {}, 0, false);
 
     // Only Server that can receive updates
-    ServerId serverId4 = sl->generateUniqueId(lock);
-    sl->add(lock, serverId4, "mock:host=server4",
-            {WireFormat::MEMBERSHIP_SERVICE}, 0);
-    sl->remove(lock, serverId1);
+    ServerId serverId4 = generateUniqueId();
+    add(serverId4, "mock:host=server4",
+            {WireFormat::MEMBERSHIP_SERVICE}, 0, false);
+    remove(serverId1, false);
 
     TestLog::Enable __(statusFilter);
 
     transport.setInput("0"); // Server 4 response -> ok
 
     // Send Full List to server 4
-    sl->commitUpdate(lock);
+    commitUpdate();
     sl->sync();
     EXPECT_EQ("updateEntryVersion: server 4.0 updated (0->1)", TestLog::get());
     EXPECT_EQ("sendRequest: 0x40023 4 0 11 273 0 /0 /x18/0",
@@ -1507,16 +1514,16 @@ TEST_F(CoordinatorServerListTest, updateLoop) {
     transport.setInput("0"); // Server 4 update received
 
     // Add two more servers eligible for updates and crash one
-    ServerId serverId5 = sl->generateUniqueId(lock);
-    sl->add(lock, serverId5, "mock:host=server5",
-            {WireFormat::MEMBERSHIP_SERVICE}, 0);
-    ServerId serverId6 = sl->generateUniqueId(lock);
-    sl->add(lock, serverId6, "mock:host=server6",
-            {WireFormat::MEMBERSHIP_SERVICE}, 0);
-    sl->crashed(lock, serverId6);
+    ServerId serverId5 = generateUniqueId();
+    add(serverId5, "mock:host=server5",
+            {WireFormat::MEMBERSHIP_SERVICE}, 0, false);
+    ServerId serverId6 = generateUniqueId();
+    add(serverId6, "mock:host=server6",
+            {WireFormat::MEMBERSHIP_SERVICE}, 0, false);
+    crashed(serverId6, false);
 
     TestLog::reset();
-    sl->commitUpdate(lock);
+    commitUpdate();
     sl->sync();
     EXPECT_EQ("updateEntryVersion: server 1.1 updated (0->2) | "
               "updateEntryVersion: server 4.0 updated (1->2)",
@@ -1615,8 +1622,6 @@ TEST_F(CoordinatorServerListTest, updateLoop_expansion) {
     EXPECT_EQ(4UL, sl->concurrentRPCs);
 }
 
-// Test disabled on 12/6/2012 because of RAM-501.
-#if 0
 TEST_F(CoordinatorServerListTest, updateLoop_contraction) {
     MockTransport transport(service->context);
     TransportManager::MockRegistrar _(service->context, transport);
@@ -1653,20 +1658,16 @@ TEST_F(CoordinatorServerListTest, updateLoop_contraction) {
     EXPECT_EQ(3UL, sl->concurrentRPCs);
 
     // 5 + 7 = 13 updates (2 expand + 1 contract)
-    Lock lock(mutex);
-    id = sl->generateUniqueId(lock);
-    sl->add(lock, id, "mock:host=server",
-                {WireFormat::MEMBERSHIP_SERVICE}, 100);
-    sl->commitUpdate(lock);
-    id = sl->generateUniqueId(lock);
-    sl->add(lock, id, "mock:host=server",
-                {WireFormat::MEMBERSHIP_SERVICE}, 100);
-    sl->commitUpdate(lock);
+    id = generateUniqueId();
+    add(id, "mock:host=server", {WireFormat::MEMBERSHIP_SERVICE}, 100, false);
+    commitUpdate();
+    id = generateUniqueId();
+    add(id, "mock:host=server", {WireFormat::MEMBERSHIP_SERVICE}, 100, false);
+    commitUpdate();
     for (int i = 0; i < 12; i++)
         transport.setInput("0");
     sl->sync();
     EXPECT_EQ(4UL, sl->concurrentRPCs);
 }
-#endif
 
 } // namespace RAMCloud

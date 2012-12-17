@@ -83,7 +83,7 @@ enum Opcode {
     ENUMERATE                 = 22,
     SET_MASTER_RECOVERY_INFO  = 23,
     FILL_WITH_TEST_DATA       = 24,
-    MULTI_READ                = 25,
+    MULTI_OP                  = 25,
     GET_METRICS               = 26,
     BACKUP_FREE               = 28,
     BACKUP_GETRECOVERYDATA    = 29,
@@ -108,7 +108,6 @@ enum Opcode {
     SET_RUNTIME_OPTION        = 51,
     GET_SERVER_CONFIG         = 52,
     GET_LOG_METRICS           = 53,
-    MULTI_WRITE               = 54,
     VERIFY_MEMBERSHIP         = 55,
     ILLEGAL_RPC_TYPE          = 56,  // 1 + the highest legitimate Opcode
 };
@@ -710,58 +709,28 @@ struct MigrateTablet {
     } __attribute__((packed));
 };
 
-struct MultiRead {
-    static const Opcode opcode = MULTI_READ;
+struct MultiOp {
+    static const Opcode opcode = MULTI_OP;
     static const ServiceType service = MASTER_SERVICE;
+
+    /// Type of Multi Operation
+    enum OpType { READ, WRITE, DELETE };
+
     struct Request {
         RequestCommon common;
-        uint32_t count;
-        struct Part {
+        uint32_t count; // Number of Part structures following this.
+        OpType type;
+
+        struct ReadPart {
             uint64_t tableId;
             uint16_t keyLength;
             // In buffer: The actual key for this part
             // follows immediately after this.
-            Part(uint64_t tableId, uint16_t keyLength)
+            ReadPart(uint64_t tableId, uint16_t keyLength)
                 : tableId(tableId), keyLength(keyLength) {}
         } __attribute__((packed));
-    } __attribute__((packed));
-    struct Response {
-        // RpcResponseCommon contains a status field. But it is not used in
-        // multiRead since there is a separate status for each object returned.
-        // Included here to fulfill requirements in common code.
-        ResponseCommon common;
-        uint32_t count;
-        // In buffer: Status, Part, and object data go here. Object data are
-        // a variable number of bytes (depending on data size.)
-        // In case of an error, only Status goes here
 
-        // Each Response::Part contains the minimum object metadata we need
-        // returned, followed by the object data itself.
-        //
-        // TODO(Ankita): This was a quick way to get multiRead working such
-        // that it doesn't depend on unrelated Segment internals. A nicer
-        // solution might be to construct segments on the master and send
-        // those in the response. However, that'd currently incur an extra
-        // copy. I doubt the copy would have much impact, but it's worth
-        // considering. Not sending the whole object also means we lose the
-        // checksum, but we weren't using it anyway.
-        struct Part {
-            /// Version of the object.
-            uint64_t version;
-
-            /// Length of the object data following this struct.
-            uint32_t length;
-        } __attribute__((packed));
-    } __attribute__((packed));
-};
-
-struct MultiWrite {
-    static const Opcode opcode = MULTI_WRITE;
-    static const ServiceType service = MASTER_SERVICE;
-    struct Request {
-        RequestCommon common;
-        uint32_t count;
-        struct Part {
+        struct WritePart {
             uint64_t tableId;
             uint16_t keyLength;
             uint32_t valueLength;
@@ -769,7 +738,7 @@ struct MultiWrite {
 
             // In buffer: The actual key and data for this part
             // follow immediately after this.
-            Part(uint64_t tableId, uint16_t keyLength,
+            WritePart(uint64_t tableId, uint16_t keyLength,
                  uint32_t valueLength, RejectRules rejectRules)
                 : tableId(tableId)
                 , keyLength(keyLength)
@@ -784,11 +753,37 @@ struct MultiWrite {
         // multiRead since there is a separate status for each object returned.
         // Included here to fulfill requirements in common code.
         ResponseCommon common;
-        uint32_t count;             // Number of Part structures following this.
+        uint32_t count; // Number of Part structures following this.
 
-        // Each Response::Part contains the Status for the newly written object
-        // returned and the version.
-        struct Part {
+        struct ReadPart {
+            // In buffer: Status/Part and object data go here. Object data are
+            // a variable number of bytes (depending on data size.)
+
+            // Each Response::Part contains the minimum object metadata we need
+            // returned, followed by the object data itself.
+            //
+            // TODO(Ankita): This was a quick way to get multiRead working such
+            // that it doesn't depend on unrelated Segment internals. A nicer
+            // solution might be to construct segments on the master and send
+            // those in the response. However, that'd currently incur an extra
+            // copy. I doubt the copy would have much impact, but it's worth
+            // considering. Not sending the whole object also means we lose the
+            // checksum, but we weren't using it anyway.
+            /// Status of the request
+
+            Status status;
+
+            /// Version of the object.
+            uint64_t version;
+
+            /// Length of the object data following this struct.
+            uint32_t length;
+        } __attribute__((packed));
+
+        struct WritePart {
+            // Each Response::Part contains the Status for the newly written
+            ///object returned and the version.
+
             /// Status of the write operation.
             Status status;
 

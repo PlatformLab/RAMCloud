@@ -250,27 +250,32 @@ TEST_F(MultiWriteTest, startRpcs_noAvailableRpc) {
 TEST_F(MultiWriteTest, startRpcs_tooManyObjectsForOneRpc) {
     MultiWriteObject object4(tableId1, "extra1", 6, "value:extra1", 12);
     MultiWriteObject object5(tableId1, "extra2", 6, "value:extra2", 12);
+    MultiWriteObject object6(tableId1, "extra3", 6, "value:extra3", 12);
+    MultiWriteObject object7(tableId1, "extra4", 6, "value:extra4", 12);
     MultiWriteObject* requests[] = {
-        objects[0].get(), objects[1].get(), objects[2].get(), &object4, &object5
+        objects[0].get(), objects[1].get(), objects[2].get(), &object4,
+        &object5, &object6, &object7
     };
 
     // Not enough space in RPC to send all requests in the first RPC.
-    MultiWrite request(ramcloud.get(), requests, 5);
-    EXPECT_EQ("mock:host=master1(3) -", rpcStatus(request));
+    MultiWrite request(ramcloud.get(), requests, 7);
+    EXPECT_EQ("mock:host=master1(3) mock:host=master1(3)", rpcStatus(request));
 
     // During the second call, still no space (first call
     // hasn't finished).
     EXPECT_FALSE(request.startRpcs());
-    EXPECT_EQ("mock:host=master1(3) -", rpcStatus(request));
+    EXPECT_EQ("mock:host=master1(3) mock:host=master1(3)", rpcStatus(request));
 
     // First call has finished, so another starts.
     EXPECT_FALSE(request.isReady());
-    EXPECT_EQ("mock:host=master1(2) -", rpcStatus(request));
+    EXPECT_EQ("mock:host=master1(1) -", rpcStatus(request));
     EXPECT_EQ(STATUS_OK, objects[4]->status);
+    EXPECT_EQ(STATUS_OK, object5.status);
+    EXPECT_EQ(STATUS_OK, object6.status);
 
     EXPECT_TRUE(request.isReady());
     EXPECT_EQ("- -", rpcStatus(request));
-    EXPECT_EQ(STATUS_OK, object5.status);
+    EXPECT_EQ(STATUS_OK, object7.status);
 }
 
 // Helper function that runs in a separate thread for the following test.
@@ -286,7 +291,8 @@ static bool
 testLogFilter(string s)
 {
     return s == "multiWriteWaitThread" ||
-           s == "finish" ||
+           s == "readResponse" ||
+           s == "finishRpc" ||
            s == "flush" ||
            s == "flushSession";
 }
@@ -338,7 +344,7 @@ TEST_F(MultiWriteTest, PartRpc_finish_transportError) {
     EXPECT_NE(STATUS_OK, objects[0]->status);
     EXPECT_NE(STATUS_OK, objects[1]->status);
     session1->lastNotifier->failed();
-    request.rpcs[0]->finish();
+    request.finishRpc(request.rpcs[0].get());
     EXPECT_EQ(STATUS_OK, objects[0]->status);
     EXPECT_EQ(STATUS_OK, objects[1]->status);
     request.rpcs[0].destroy();
@@ -355,21 +361,31 @@ TEST_F(MultiWriteTest, PartRpc_finish_shortResponse) {
     session1->dontNotify = true;
     MultiWrite request(ramcloud.get(), requests, 2);
     EXPECT_EQ("mock:host=master1(2) -", rpcStatus(request));
+    // Initial order of requests is object 0, object 1.
 
-    // Can't read first Response::Part from response.
+    // Can't read second Response::Part from both responses.
     session1->lastResponse->truncateEnd(
-        sizeof(WireFormat::MultiWrite::Response::Part) + 1);
+        sizeof(WireFormat::MultiOp::Response::WritePart) + 1);
     session1->lastNotifier->completed();
     EXPECT_FALSE(request.isReady());
-    EXPECT_EQ("finish: missing Response::Part", TestLog::get());
+    EXPECT_EQ("readResponse: missing Response::Part", TestLog::get());
     TestLog::reset();
     EXPECT_EQ("mock:host=master1(2) -", rpcStatus(request));
+    // MultiWrite retries requests in the order object 1, object 0.
 
-    // Can't read second Response::Part from response.
+    // Can't read second Response::Part from response, retries object 0.
     session1->lastResponse->truncateEnd(1);
     session1->lastNotifier->completed();
     EXPECT_FALSE(request.isReady());
-    EXPECT_EQ("finish: missing Response::Part", TestLog::get());
+    EXPECT_EQ("readResponse: missing Response::Part", TestLog::get());
+    TestLog::reset();
+    EXPECT_EQ("mock:host=master1(1) -", rpcStatus(request));
+
+    // Can't read Response::Part from response again, retries object 0.
+    session1->lastResponse->truncateEnd(1);
+    session1->lastNotifier->completed();
+    EXPECT_FALSE(request.isReady());
+    EXPECT_EQ("readResponse: missing Response::Part", TestLog::get());
     TestLog::reset();
     EXPECT_EQ("mock:host=master1(1) -", rpcStatus(request));
 
@@ -377,15 +393,16 @@ TEST_F(MultiWriteTest, PartRpc_finish_shortResponse) {
     // retried, so the versions will be larger than expected. That is,
     // objects[0] and objects[1] were written with version=1 and version=2,
     // respectively, but the responses were bad. So, both are retried.
-    // Object[0] succeeds the second time and is stored with version=2.
-    // Object[1] fails the second time, but succeeds the third time with
-    // version=4.
+    // Object[1] succeeds the second time and is stored with version=3.
+    // Object[0] fails the second time and third time, but succeeds the
+    // fourth time with version=4.
+
     session1->lastNotifier->completed();
     EXPECT_TRUE(request.isReady());
     EXPECT_EQ(STATUS_OK, objects[0]->status);
     EXPECT_EQ(STATUS_OK, objects[1]->status);
-    EXPECT_EQ(2U, objects[0]->version);
-    EXPECT_EQ(4U, objects[1]->version);
+    EXPECT_EQ(4U, objects[0]->version);
+    EXPECT_EQ(3U, objects[1]->version);
 }
 
 TEST_F(MultiWriteTest, PartRpc_unknownTable) {
@@ -400,16 +417,16 @@ TEST_F(MultiWriteTest, PartRpc_unknownTable) {
     // Modify the response to reject all objects.
     session1->lastResponse->truncateEnd(
             session1->lastResponse->getTotalLength() -
-            downCast<uint32_t>(sizeof(WireFormat::MultiWrite::Response)));
-    WireFormat::MultiWrite::Response::Part* parts =
+            downCast<uint32_t>(sizeof(WireFormat::MultiOp::Response)));
+    WireFormat::MultiOp::Response::WritePart* parts =
         new(session1->lastResponse, APPEND)
-        WireFormat::MultiWrite::Response::Part[3];
+        WireFormat::MultiOp::Response::WritePart[3];
     parts[0].status = STATUS_UNKNOWN_TABLET;
     parts[1].status = STATUS_OBJECT_DOESNT_EXIST;
     parts[2].status = STATUS_UNKNOWN_TABLET;
     session1->lastNotifier->completed();
     EXPECT_FALSE(request.isReady());
-    EXPECT_EQ("finish: Server mock:host=master1 doesn't store "
+    EXPECT_EQ("finishRpc: Server mock:host=master1 doesn't store "
             "<0, object1-1>; refreshing object map | "
             "flush: flushing object map | flush: flushing object map",
             TestLog::get());

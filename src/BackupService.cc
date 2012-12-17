@@ -169,9 +169,17 @@ BackupService::dispatch(WireFormat::Opcode opcode, Rpc* rpc)
 {
     Lock _(mutex); // Lock out GC while any RPC is being processed.
 
-    // This is a hack. We allow the AssignGroup Rpc to be processed before
-    // initCalled is set to true, since it is sent during initialization.
-    assert(initCalled || opcode == WireFormat::BackupAssignGroup::opcode);
+    if (!initCalled) {
+        // This is a hack. We allow the AssignGroup Rpc to be processed before
+        // initCalled is set to true, since it is sent during initialization.
+        if (opcode != WireFormat::BackupAssignGroup::opcode) {
+            LOG(DEBUG, "init not yet called; requesting retry of %s request",
+                WireFormat::opcodeSymbol(opcode));
+            prepareErrorResponse(rpc->replyPayload, STATUS_RETRY);
+            return;
+        }
+    }
+
     CycleCounter<RawMetric> serviceTicks(&metrics->backup.serviceTicks);
 
     switch (opcode) {
@@ -301,12 +309,11 @@ BackupService::getRecoveryData(
  * enlisted the process with the coordinator
  */
 void
-BackupService::init(ServerId id)
+BackupService::initOnceEnlisted()
 {
     assert(!initCalled);
 
-    serverId = id;
-    LOG(NOTICE, "My server ID is %s", id.toString().c_str());
+    LOG(NOTICE, "My server ID is %s", serverId.toString().c_str());
     if (metrics->serverId == 0) {
         metrics->serverId = *serverId;
     }
@@ -314,6 +321,7 @@ BackupService::init(ServerId id)
     storage->resetSuperblock(serverId, config->clusterName);
     LOG(NOTICE, "Backup %s will store replicas under cluster name '%s'",
         serverId.toString().c_str(), config->clusterName.c_str());
+    Fence::sfence();
     initCalled = true;
 }
 

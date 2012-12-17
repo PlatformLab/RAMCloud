@@ -616,7 +616,8 @@ criticalErrorHandler(int signal, siginfo_t* info, void* ucontext)
 
     free(symbols);
 
-    exit(1);
+    // use abort, rather than exit, to dump core/trap in gdb
+    abort();
 }
 
 /**
@@ -626,7 +627,9 @@ static void
 terminateHandler()
 {
     BACKTRACE(ERROR);
-    exit(1);
+
+    // use abort, rather than exit, to dump core/trap in gdb
+    abort();
 }
 
 /**

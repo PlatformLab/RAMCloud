@@ -281,6 +281,87 @@ class Buffer {
             return chunk;
         }
 
+        /**
+         * Prepend unmanaged memory chunks from one Buffer to another.
+         * This is effectively a means of copying data from one Buffer to
+         * another, without actually moving the underlying bytes.
+         *
+         * This method should only be called on Buffers that contain
+         * unmanaged memory (this class will not ensure that memory
+         * prepended to the destination Buffer will remain valid if the
+         * source Buffer owned it and was destroyed).
+         *
+         * \param[out] destination
+         *      Buffer to prepend unmanaged memory to.
+         * \param[in] source
+         *      Buffer containing the memory we wish to prepend to the
+         *      destination.
+         * \param[in] offset
+         *      Byte offset within the source Buffer to begin prepend
+         *      memory from.
+         * \param[in] length
+         *      Number of bytes to prepend from the source Buffer.
+         */
+        static void prependToBuffer(Buffer* destination,
+                                    Buffer* source,
+                                    uint32_t offset,
+                                    uint32_t length)
+        {
+            Buffer::Iterator it(*source, offset, length);
+            uint32_t sourceChunks = it.getNumberChunks();
+
+            // We need to prepend chunks in reverse order, otherwise if we
+            // prepend <A, B, C>, we'll end up with <C, B, A>.
+            struct {
+                const void* data;
+                uint32_t length;
+            } sourceData[sourceChunks];
+
+            for (uint32_t i = 0; i < sourceChunks; i++) {
+                sourceData[i].data = it.getData();
+                sourceData[i].length = it.getLength();
+                it.next();
+            }
+
+            for (uint32_t i = 0; i < sourceChunks; i++) {
+                destination->prepend(sourceData[sourceChunks - 1 - i].data,
+                                     sourceData[sourceChunks - 1 - i].length);
+            }
+        }
+
+        /**
+         * Append unmanaged memory chunks from one Buffer to another.
+         * This is effectively a means of copying data from one Buffer to
+         * another, without actually moving the underlying bytes.
+         *
+         * This method should only be called on Buffers that contain
+         * unmanaged memory (this class will not ensure that memory
+         * appended to the destination Buffer will remain valid if the
+         * source Buffer owned it and was destroyed).
+         *
+         * \param[out] destination
+         *      Buffer to append unmanaged memory to.
+         * \param[in] source
+         *      Buffer containing the memory we wish to append to the
+         *      destination.
+         * \param[in] offset
+         *      Byte offset within the source Buffer to begin append 
+         *      memory from.
+         * \param[in] length
+         *      Number of bytes to append from the source Buffer.
+         */
+        static void appendToBuffer(Buffer* destination,
+                                   Buffer* source,
+                                   uint32_t offset,
+                                   uint32_t length)
+        {
+            Buffer::Iterator it(*source, offset, length);
+            while (!it.isDone()) {
+                destination->append(it.getData(), it.getLength());
+                it.next();
+            }
+        }
+
       PROTECTED:
         /**
          * Construct a chunk that does not release the memory it points to.
@@ -425,6 +506,19 @@ class Buffer {
     }
 
     /**
+     * Convenience method that invokes Buffer::Chunk::appendToBuffer.
+     * on this Buffer object, appending the entire given buffer to it.
+     *
+     * \param[in] src
+     *      The buffer whose data will be appended to this Buffer.
+     */
+    void
+    append(Buffer* src)
+    {
+        Buffer::Chunk::appendToBuffer(this, src, 0, src->getTotalLength());
+    }
+
+    /**
      * Convenience method that invokes Buffer::Chunk::prependToBuffer
      * on this Buffer object.
      */
@@ -432,6 +526,19 @@ class Buffer {
     prepend(const void* data, uint32_t length)
     {
         return Buffer::Chunk::prependToBuffer(this, data, length);
+    }
+
+    /**
+     * Convenience method that invokes Buffer::Chunk::prependToBuffer
+     * on this Buffer object, prepending the entire given buffer to it.
+     *
+     * \param[in] src
+     *      The buffer whose data will be prepended to this Buffer.
+     */
+    void
+    prepend(Buffer* src)
+    {
+        Buffer::Chunk::prependToBuffer(this, src, 0, src->getTotalLength());
     }
 
     uint32_t peek(uint32_t offset, const void** returnPtr);

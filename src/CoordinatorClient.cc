@@ -568,9 +568,7 @@ VerifyMembershipRpc::wait(bool suicideOnFailure)
     if (respHdr->common.status != STATUS_OK) {
         if ((respHdr->common.status == STATUS_CALLER_NOT_IN_CLUSTER)
                 && suicideOnFailure) {
-            RAMCLOUD_LOG(WARNING,
-                    "server no longer in cluster; committing suicide");
-            exit(1);
+            RAMCLOUD_DIE("server no longer in cluster; committing suicide");
         }
         ClientException::throwException(HERE, respHdr->common.status);
     }

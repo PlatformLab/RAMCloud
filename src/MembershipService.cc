@@ -34,15 +34,11 @@ namespace RAMCloud {
  * Construct a new MembershipService object. There should really only be one
  * per server.
  */
-MembershipService::MembershipService(ServerId ourServerId,
-                                     ServerList* serverList,
+MembershipService::MembershipService(ServerList* serverList,
                                      const ServerConfig* serverConfig)
     : serverList(serverList),
       serverConfig(serverConfig)
 {
-    // The coordinator will push the server list to us once we've
-    // enlisted.
-    serverId = ourServerId;
 }
 
 /**

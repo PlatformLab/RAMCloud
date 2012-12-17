@@ -89,6 +89,7 @@ class Service {
     static const char* getString(Buffer* buffer, uint32_t offset,
                                  uint32_t length);
     void handleRpc(Rpc* rpc);
+    void setServerId(ServerId serverId);
 
     /**
      * Returns the maximum number of threads that may be executing in
@@ -179,6 +180,14 @@ class Service {
     ServerId serverId;
 
   private:
+    /**
+     * This method is invoked by #setServerId after the server has enlisted and
+     * the #serverId variable has been set. Services may use this to do any
+     * initialization or other work that needs to be deferred until after
+     * enlistment when the serverId is known.
+     */
+    virtual void initOnceEnlisted() { }
+
     friend class BindTransport;
     DISALLOW_COPY_AND_ASSIGN(Service);
 };

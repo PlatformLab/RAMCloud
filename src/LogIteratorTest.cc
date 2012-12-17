@@ -58,8 +58,8 @@ class LogIteratorTest : public ::testing::Test {
           segmentManager(&context, &serverConfig, serverId,
                          allocator, replicaManager),
           entryHandlers(),
-          l(&context, &serverConfig, entryHandlers,
-            segmentManager, replicaManager),
+          l(&context, &serverConfig, &entryHandlers,
+            &segmentManager, &replicaManager),
           data()
     {
     }
@@ -267,7 +267,7 @@ TEST_F(LogIteratorTest, next) {
     {
         // Inject a "cleaner" segment into the log
         segmentManager.initializeSurvivorReserve(1);
-        LogSegment* cleanerSeg = segmentManager.allocSurvivor();
+        LogSegment* cleanerSeg = segmentManager.allocSideSegment();
         EXPECT_EQ(3U, cleanerSeg->id);
         segmentManager.changeState(*cleanerSeg,
                                    SegmentManager::NEWLY_CLEANABLE);
@@ -289,9 +289,9 @@ TEST_F(LogIteratorTest, next) {
 
 TEST_F(LogIteratorTest, populateSegmentList) {
         l.sync();
-        LogSegment* seg1 = segmentManager.allocHead(false);
-        LogSegment* seg2 = segmentManager.allocHead(false);
-        LogSegment* seg3 = segmentManager.allocHead(false);
+        LogSegment* seg1 = segmentManager.allocHeadSegment();
+        LogSegment* seg2 = segmentManager.allocHeadSegment();
+        LogSegment* seg3 = segmentManager.allocHeadSegment();
 
         LogIterator i(l);
         EXPECT_EQ(3U, i.segmentList.size());

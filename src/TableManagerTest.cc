@@ -82,7 +82,7 @@ class TableManagerTest : public ::testing::Test {
     void enlistMaster() {
         Server* masterServer = cluster.addServer(masterConfig);
         master = masterServer->master.get();
-        master->log->sync();
+        master->objectManager->log.sync();
         masterServerId = masterServer->serverId;
     }
 
@@ -120,8 +120,8 @@ TEST_F(TableManagerTest, createTable) {
 
     // Advance the log head slightly so creation time offset is non-zero.
     Buffer empty;
-    master->log->append(LOG_ENTRY_TYPE_INVALID, 0, empty);
-    master->log->sync();
+    master->objectManager->log.append(LOG_ENTRY_TYPE_INVALID, 0, empty);
+    master->objectManager->log.sync();
 
     EXPECT_EQ(0U, tableManager->createTable("foo", 1));
     EXPECT_THROW(tableManager->createTable("foo", 1),
@@ -144,8 +144,8 @@ TEST_F(TableManagerTest, createTable) {
               "serverId: 1.0 status: NORMAL "
               "ctime: 0, 0 }",
               tableManager->debugString());
-    EXPECT_EQ(2, master->tablets.tablet_size());
-    EXPECT_EQ(1, master2.tablets.tablet_size());
+    EXPECT_EQ(2U, master->tabletManager.getCount());
+    EXPECT_EQ(1U, master2.tabletManager.getCount());
 }
 
 TEST_F(TableManagerTest, createTableSpannedAcrossTwoMastersWithThreeServers) {
@@ -171,9 +171,9 @@ TEST_F(TableManagerTest, createTableSpannedAcrossTwoMastersWithThreeServers) {
               "serverId: 2.0 status: NORMAL "
               "ctime: 0, 0 }",
               tableManager->debugString());
-    EXPECT_EQ(1, master->tablets.tablet_size());
-    EXPECT_EQ(1, master2.tablets.tablet_size());
-    EXPECT_EQ(0, master3.tablets.tablet_size());
+    EXPECT_EQ(1U, master->tabletManager.getCount());
+    EXPECT_EQ(1U, master2.tabletManager.getCount());
+    EXPECT_EQ(0U, master3.tabletManager.getCount());
 }
 
 
@@ -200,8 +200,8 @@ TEST_F(TableManagerTest, createTableSpannedAcrossThreeMastersWithTwoServers) {
               "serverId: 1.0 status: NORMAL "
               "ctime: 0, 0 }",
               tableManager->debugString());
-    EXPECT_EQ(2, master->tablets.tablet_size());
-    EXPECT_EQ(1, master2.tablets.tablet_size());
+    EXPECT_EQ(2U, master->tabletManager.getCount());
+    EXPECT_EQ(1U, master2.tabletManager.getCount());
 }
 
 TEST_F(TableManagerTest, createTable_LogCabin) {
@@ -268,27 +268,27 @@ TEST_F(TableManagerTest, dropTable) {
 
     // Test dropping a table that is spread across one master
     tableManager->createTable("bar", 1);
-    EXPECT_EQ(1, master2.tablets.tablet_size());
+    EXPECT_EQ(1U, master2.tabletManager.getCount());
     tableManager->dropTable("bar");
     EXPECT_EQ("Tablet { tableId: 0 startKeyHash: 0 "
               "endKeyHash: 18446744073709551615 "
               "serverId: 1.0 status: NORMAL "
               "ctime: 0, 0 }",
               tableManager->debugString());
-    EXPECT_EQ(0, master2.tablets.tablet_size());
+    EXPECT_EQ(0U, master2.tabletManager.getCount());
 
     // Test dropping a table that is spread across two masters
     tableManager->createTable("bar", 2);
-    EXPECT_EQ(2, master->tablets.tablet_size());
-    EXPECT_EQ(1, master2.tablets.tablet_size());
+    EXPECT_EQ(2U, master->tabletManager.getCount());
+    EXPECT_EQ(1U, master2.tabletManager.getCount());
     tableManager->dropTable("bar");
     EXPECT_EQ("Tablet { tableId: 0 startKeyHash: 0 "
               "endKeyHash: 18446744073709551615 "
               "serverId: 1.0 status: NORMAL "
               "ctime: 0, 0 }",
               tableManager->debugString());
-    EXPECT_EQ(1, master->tablets.tablet_size());
-    EXPECT_EQ(0, master2.tablets.tablet_size());
+    EXPECT_EQ(1U, master->tabletManager.getCount());
+    EXPECT_EQ(0U, master2.tabletManager.getCount());
 }
 
 TEST_F(TableManagerTest, dropTable_LogCabin) {
@@ -304,7 +304,7 @@ TEST_F(TableManagerTest, dropTable_LogCabin) {
 
     // Test dropping a table that is spread across one master
     tableManager->createTable("bar", 1);
-    EXPECT_EQ(1, master2.tablets.tablet_size());
+    EXPECT_EQ(1U, master2.tabletManager.getCount());
 
     TestLog::Enable _;
     tableManager->dropTable("bar");
@@ -356,18 +356,20 @@ TEST_F(TableManagerTest, reassignTabletOwnership) {
                                WireFormat::MEMBERSHIP_SERVICE };
     master2Config.localLocator = "mock:host=master2";
     auto* master2 = cluster.addServer(master2Config);
-    master2->master->log->sync();
+    master2->master->objectManager->log.sync();
 
     // Advance the log head slightly so creation time offset is non-zero
     // on host being migrated to.
     Buffer empty;
-    master2->master->log->append(LOG_ENTRY_TYPE_INVALID, 0, empty);
-    master2->master->log->sync();
+    master2->master->objectManager->log.append(LOG_ENTRY_TYPE_INVALID,
+                                               0,
+                                               empty);
+    master2->master->objectManager->log.sync();
 
     // master is already enlisted
     tableManager->createTable("foo", 1);
-    EXPECT_EQ(1, master->tablets.tablet_size());
-    EXPECT_EQ(0, master2->master->tablets.tablet_size());
+    EXPECT_EQ(1U, master->tabletManager.getCount());
+    EXPECT_EQ(0U, master2->master->tabletManager.getCount());
     Tablet tablet = tableManager->getTablet(lock, 0lu, 0lu, ~(0lu));
     EXPECT_EQ(masterServerId, tablet.serverId);
     EXPECT_EQ(0U, tablet.ctime.getSegmentId());
@@ -380,16 +382,16 @@ TEST_F(TableManagerTest, reassignTabletOwnership) {
     EXPECT_EQ("reassignTabletOwnership: Cannot reassign tablet "
         "[0x0,0xffffffffffffffff] in tableId 0 to 472.2: server not up",
         TestLog::get());
-    EXPECT_EQ(1, master->tablets.tablet_size());
-    EXPECT_EQ(0, master2->master->tablets.tablet_size());
+    EXPECT_EQ(1U, master->tabletManager.getCount());
+    EXPECT_EQ(0U, master2->master->tabletManager.getCount());
 
     TestLog::reset();
     EXPECT_THROW(CoordinatorClient::reassignTabletOwnership(&context,
         0, 0, 57, master2->serverId, 83, 835), TableDoesntExistException);
     EXPECT_EQ("reassignTabletOwnership: Could not reassign tablet [0x0,0x39] "
               "in tableId 0: tablet not found", TestLog::get());
-    EXPECT_EQ(1, master->tablets.tablet_size());
-    EXPECT_EQ(0, master2->master->tablets.tablet_size());
+    EXPECT_EQ(1U, master->tabletManager.getCount());
+    EXPECT_EQ(0U, master2->master->tabletManager.getCount());
 
     TestLog::reset();
     CoordinatorClient::reassignTabletOwnership(&context, 0, 0, -1,
@@ -399,8 +401,8 @@ TEST_F(TableManagerTest, reassignTabletOwnership) {
         "mock:host=master to server 2.0 at mock:host=master2",
         TestLog::get());
     // Calling master removes the entry itself after the RPC completes on coord.
-    EXPECT_EQ(1, master->tablets.tablet_size());
-    EXPECT_EQ(1, master2->master->tablets.tablet_size());
+    EXPECT_EQ(1U, master->tabletManager.getCount());
+    EXPECT_EQ(1U, master2->master->tabletManager.getCount());
     tablet = tableManager->getTablet(lock, 0lu, 0lu, ~(0lu));
     EXPECT_EQ(master2->serverId, tablet.serverId);
     EXPECT_EQ(83U, tablet.ctime.getSegmentId());
@@ -638,8 +640,8 @@ TEST_F(TableManagerTest, recoverAliveTable) {
     // The masters shouldn't actually own the tablets since the
     // recoverAliveTable() call adds the tablets only to the local tablet map
     // and doesn't assign them to the masters.
-    EXPECT_EQ(0, master->tablets.tablet_size());
-    EXPECT_EQ(0, master2.tablets.tablet_size());
+    EXPECT_EQ(0U, master->tabletManager.getCount());
+    EXPECT_EQ(0U, master2.tabletManager.getCount());
 }
 
 TEST_F(TableManagerTest, recoverCreateTable) {
@@ -685,8 +687,8 @@ TEST_F(TableManagerTest, recoverCreateTable) {
               "serverId: 2.0 status: NORMAL "
               "ctime: 0, 0 }",
               tableManager->debugString());
-    EXPECT_EQ(1, master->tablets.tablet_size());
-    EXPECT_EQ(1, master2.tablets.tablet_size());
+    EXPECT_EQ(1U, master->tabletManager.getCount());
+    EXPECT_EQ(1U, master2.tabletManager.getCount());
 }
 
 TEST_F(TableManagerTest, recoverDropTable) {
@@ -702,7 +704,7 @@ TEST_F(TableManagerTest, recoverDropTable) {
 
     // Test dropping a table that is spread across one master
     tableManager->createTable("bar", 1);
-    EXPECT_EQ(1, master2.tablets.tablet_size());
+    EXPECT_EQ(1U, master2.tabletManager.getCount());
 
     ProtoBuf::TableDrop state;
     state.set_entry_type("DroppingTable");
@@ -716,7 +718,7 @@ TEST_F(TableManagerTest, recoverDropTable) {
               "serverId: 1.0 status: NORMAL "
               "ctime: 0, 0 }",
               tableManager->debugString());
-    EXPECT_EQ(0, master2.tablets.tablet_size());
+    EXPECT_EQ(0U, master2.tabletManager.getCount());
 }
 
 TEST_F(TableManagerTest, recoverSplitTablet) {

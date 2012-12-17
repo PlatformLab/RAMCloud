@@ -208,16 +208,16 @@ TEST_F(LogCleanerTest, doWork) {
 }
 
 TEST_F(LogCleanerTest, doMemoryCleaning) {
-    segmentManager.allocHead(false)->statistics.liveBytes = 0;
-    segmentManager.allocHead(false); // roll over
+    segmentManager.allocHeadSegment()->statistics.liveBytes = 0;
+    segmentManager.allocHeadSegment(); // roll over
     segmentManager.cleanableSegments(cleaner.candidates);
 
     TestLog::Enable _;
     EXPECT_NEAR(1, cleaner.doMemoryCleaning(), 0.01);
     EXPECT_EQ(
       "doMemoryCleaning: called | "
-      "alloc: for cleaner | "
-      "allocSurvivor: id = 1 | "
+      "alloc: purpose: 2 | "
+      "allocSideSegment: id = 1 | "
       "relocate: type 1, size 24 | "
       "relocate: type 4, size 12 | "
       "relocate: type 5, size 12 | "
@@ -236,8 +236,8 @@ TEST_F(LogCleanerTest, doDiskCleaning) {
     // invokes a standard sequence of meatier methods and updates metrics.
     // Right now we'll just ensure that it calls all of the expected functions.
 
-    segmentManager.allocHead(false)->statistics.liveBytes = 0;
-    segmentManager.allocHead(false); // roll over
+    segmentManager.allocHeadSegment()->statistics.liveBytes = 0;
+    segmentManager.allocHeadSegment(); // roll over
     segmentManager.cleanableSegments(cleaner.candidates);
 
     TestLog::Enable _;
@@ -261,9 +261,9 @@ TEST_F(LogCleanerTest, getSegmentToCompact) {
     EXPECT_EQ(static_cast<LogSegment*>(NULL),
               cleaner.getSegmentToCompact(freeableSeglets));
 
-    LogSegment* best = segmentManager.allocHead(false);
-    LogSegment* middle = segmentManager.allocHead(false);
-    LogSegment* worst = segmentManager.allocHead(false);
+    LogSegment* best = segmentManager.allocHeadSegment();
+    LogSegment* middle = segmentManager.allocHeadSegment();
+    LogSegment* worst = segmentManager.allocHeadSegment();
 
     best->statistics.liveBytes = cleaner.segmentSize / 8;
     middle->statistics.liveBytes = cleaner.segmentSize / 4;
@@ -280,7 +280,7 @@ TEST_F(LogCleanerTest, getSegmentToCompact) {
 TEST_F(LogCleanerTest, getSegmentToCompact_freeSegletInvariant) {
     uint32_t freeableSeglets;
 
-    LogSegment* s = segmentManager.allocHead(false);
+    LogSegment* s = segmentManager.allocHeadSegment();
     cleaner.candidates.push_back(s);
     s->statistics.liveBytes = cleaner.segmentSize * 98 / 100;
     EXPECT_EQ(static_cast<LogSegment*>(NULL),
@@ -295,9 +295,9 @@ TEST_F(LogCleanerTest, getSegmentToCompact_freeSegletInvariant) {
 TEST_F(LogCleanerTest, sortSegmentsByCostBenefit) {
     WallTime::mockWallTimeValue = 10000;
 
-    LogSegment* best = segmentManager.allocHead(false);
-    LogSegment* middle = segmentManager.allocHead(false);
-    LogSegment* worst = segmentManager.allocHead(false);
+    LogSegment* best = segmentManager.allocHeadSegment();
+    LogSegment* middle = segmentManager.allocHeadSegment();
+    LogSegment* worst = segmentManager.allocHeadSegment();
 
     best->statistics.liveBytes = cleaner.segmentSize / 2;
     best->statistics.spaceTimeSum = 1 * best->statistics.liveBytes;
@@ -322,19 +322,19 @@ TEST_F(LogCleanerTest, sortSegmentsByCostBenefit) {
 
 TEST_F(LogCleanerTest, getSegmentsToClean) {
     // add segment with util > MAX_CLEANABLE_MEMORY_UTILIZATION
-    LogSegment* s = segmentManager.allocHead(false);
+    LogSegment* s = segmentManager.allocHeadSegment();
     s->statistics.liveBytes = s->segmentSize;
 
     // add a few with lower utilizations
-    LogSegment *small = segmentManager.allocHead(false);
-    LogSegment* medium = segmentManager.allocHead(false);
-    LogSegment* large = segmentManager.allocHead(false);
+    LogSegment *small = segmentManager.allocHeadSegment();
+    LogSegment* medium = segmentManager.allocHeadSegment();
+    LogSegment* large = segmentManager.allocHeadSegment();
     small->statistics.liveBytes = s->segmentSize / 8;
     medium->statistics.liveBytes = s->segmentSize / 4;
     large->statistics.liveBytes = s->segmentSize / 2;
 
     // roll over head
-    segmentManager.allocHead(false);
+    segmentManager.allocHeadSegment();
 
     // learn about the new candidates
     segmentManager.cleanableSegments(cleaner.candidates);
@@ -360,13 +360,13 @@ TEST_F(LogCleanerTest, getSegmentsToClean_maxBytes) {
     // add a bunch of segments, ensuring we are returned no more than the
     // maximum possible amount of live data
     for (int i = 0; i < LogCleaner::MAX_LIVE_SEGMENTS_PER_DISK_PASS * 2; i++) {
-        LogSegment* s = segmentManager.allocHead(false);
+        LogSegment* s = segmentManager.allocHeadSegment();
         EXPECT_TRUE(s != NULL);
         s->statistics.liveBytes = (s->segmentSize * 2) / 3;
     }
 
     // roll over head
-    segmentManager.allocHead(false);
+    segmentManager.allocHeadSegment();
 
     LogSegmentVector segments;
     cleaner.getSegmentsToClean(segments);
@@ -393,10 +393,10 @@ TEST_F(LogCleanerTest, sortEntriesByTimestamp) {
 
 TEST_F(LogCleanerTest, getSortedEntries) {
     LogSegmentVector segments;
-    LogSegment* a = segmentManager.allocHead(false);
+    LogSegment* a = segmentManager.allocHeadSegment();
     a->append(LOG_ENTRY_TYPE_OBJ, "hi", 3);
     a->append(LOG_ENTRY_TYPE_OBJ, "bye", 4);
-    LogSegment* b = segmentManager.allocHead(false);
+    LogSegment* b = segmentManager.allocHeadSegment();
     b->append(LOG_ENTRY_TYPE_OBJ, ":-)", 4);
     segments.push_back(a);
     segments.push_back(b);
@@ -422,7 +422,7 @@ TEST_F(LogCleanerTest, getSortedEntries) {
 
 TEST_F(LogCleanerTest, relocateLiveEntries) {
     entryHandlers.attemptToRelocate = true;
-    LogSegment* s = segmentManager.allocHead(false);
+    LogSegment* s = segmentManager.allocHeadSegment();
 
     LogSegmentVector segments;
     segments.push_back(s);
@@ -434,22 +434,22 @@ TEST_F(LogCleanerTest, relocateLiveEntries) {
     cleaner.relocateLiveEntries(entries, survivors);
     EXPECT_EQ(
         "relocate: type 1, size 24 | "
-        "alloc: for cleaner | "
+        "alloc: purpose: 2 | "
         "allocateSegment: Allocating new replicated segment for <57.0,2> | "
         "schedule: zero replicas: nothing to schedule | "
-        "allocSurvivor: id = 2 | "
+        "allocSideSegment: id = 2 | "
         "relocate: type 1, size 24 | "
         "relocate: type 4, size 12 | "
         "relocate: type 5, size 12 | "
         "close: 57.0, 2, 0 | "
         "schedule: zero replicas: nothing to schedule | "
         "close: Segment 2 closed (length 80) | "
-        "sync: syncing",
+        "sync: syncing segment 2 to offset 80",
             TestLog::get());
 }
 
 TEST_F(LogCleanerTest, closeSurvivor) {
-    LogSegment* a = segmentManager.allocHead(false);
+    LogSegment* a = segmentManager.allocHeadSegment();
 
     // Ensure both the Segment and ReplicatedSegment are closed.
     TestLog::Enable _;
@@ -477,7 +477,7 @@ TEST_F(LogCleanerTest, CostBenefitComparer_constructor) {
 TEST_F(LogCleanerTest, CostBenefitComparer_costBenefit) {
     WallTime::mockWallTimeValue = 44556677;
     LogCleaner::CostBenefitComparer c;
-    LogSegment* a = segmentManager.allocHead(false);
+    LogSegment* a = segmentManager.allocHeadSegment();
 
     EXPECT_EQ(0, a->getDiskUtilization());
     EXPECT_EQ(-1UL, c.costBenefit(a));
@@ -501,8 +501,8 @@ TEST_F(LogCleanerTest, CostBenefitComparer_operatorParen) {
     c.now = 100;
     c.version = 15;
 
-    LogSegment* a = segmentManager.allocHead(false);
-    LogSegment* b = segmentManager.allocHead(false);
+    LogSegment* a = segmentManager.allocHeadSegment();
+    LogSegment* b = segmentManager.allocHeadSegment();
 
     // Ensure that cached values are used if the version is the same.
     a->costBenefitVersion = c.version;

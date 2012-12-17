@@ -150,6 +150,74 @@ TEST_F(BufferChunkTest, ChunkDerivative) {
     EXPECT_TRUE(c->destructed);
 }
 
+TEST_F(BufferChunkTest, prependToBuffer_fromBuffer) {
+    const char* firstChunk = "!!";
+    const char* secondChunk = "@@@";
+    Buffer source;
+    source.append(firstChunk, 2);
+    source.append(secondChunk, 3);
+
+    const char* thirdChunk = "<<>>";
+    Buffer dest;
+    dest.append(thirdChunk, 4);
+    Buffer::Chunk::prependToBuffer(&dest, &source, 0, 5);
+    Buffer::Iterator it(dest);
+    EXPECT_EQ(3U, it.getNumberChunks());
+    EXPECT_FALSE(it.isDone());
+    EXPECT_EQ(firstChunk, it.getData());
+    it.next();
+    EXPECT_EQ(secondChunk, it.getData());
+    it.next();
+    EXPECT_EQ(thirdChunk, it.getData());
+    it.next();
+    EXPECT_TRUE(it.isDone());
+
+    // test a partial append
+    const char* newFirstChunk = "!@#$%^&*()";
+    source.prepend(newFirstChunk, 10);
+    Buffer::Chunk::prependToBuffer(&dest, &source, 3, 6);
+    Buffer::Iterator it2(dest);
+    EXPECT_EQ(4U, it2.getNumberChunks());
+    EXPECT_EQ(newFirstChunk + 3, it2.getData());
+    EXPECT_EQ(6U, it2.getLength());
+}
+
+TEST_F(BufferChunkTest, appendToBuffer_fromBuffer) {
+    const char* firstChunk = "<<>>";
+    Buffer dest;
+    dest.append(firstChunk, 4);
+
+    const char* secondChunk = "!!";
+    const char* thirdChunk = "@@@";
+    Buffer source;
+    source.append(secondChunk, 2);
+    source.append(thirdChunk, 3);
+
+    Buffer::Chunk::appendToBuffer(&dest, &source, 0, 5);
+    Buffer::Iterator it(dest);
+    EXPECT_EQ(3U, it.getNumberChunks());
+    EXPECT_FALSE(it.isDone());
+    EXPECT_EQ(firstChunk, it.getData());
+    it.next();
+    EXPECT_EQ(secondChunk, it.getData());
+    it.next();
+    EXPECT_EQ(thirdChunk, it.getData());
+    it.next();
+    EXPECT_TRUE(it.isDone());
+
+    // test a partial append
+    const char* newLastChunk = "!@#$%^&*()";
+    source.prepend(newLastChunk, 10);
+    Buffer::Chunk::appendToBuffer(&dest, &source, 3, 6);
+    Buffer::Iterator it2(dest);
+    EXPECT_EQ(4U, it2.getNumberChunks());
+    it2.next();
+    it2.next();
+    it2.next();
+    EXPECT_EQ(newLastChunk + 3, it2.getData());
+    EXPECT_EQ(6U, it2.getLength());
+}
+
 class BufferTest : public ::testing::Test {
   public:
 
