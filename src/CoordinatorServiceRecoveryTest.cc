@@ -80,12 +80,55 @@ TEST_F(CoordinatorServiceRecoveryTest, replay_basic) {
     logCabinHelper->appendProtoBuf(
                 coordRecovery->service.expectedEntryId, serverDown);
 
+    ProtoBuf::TableInformation tableInfo;
+    tableInfo.set_entry_type("AliveTable");
+    tableInfo.set_name("foo");
+    tableInfo.set_table_id(0);
+    tableInfo.set_server_span(1);
+    logCabinHelper->appendProtoBuf(
+                coordRecovery->service.expectedEntryId, tableInfo);
+
+    tableInfo.set_entry_type("CreatingTable");
+    logCabinHelper->appendProtoBuf(
+                coordRecovery->service.expectedEntryId, tableInfo);
+
+    ProtoBuf::TableDrop dropTable;
+    dropTable.set_entry_type("DropTable");
+    dropTable.set_name("bar");
+    logCabinHelper->appendProtoBuf(
+                coordRecovery->service.expectedEntryId, dropTable);
+
+    ProtoBuf::SplitTablet splitTablet;
+    splitTablet.set_entry_type("SplitTablet");
+    splitTablet.set_name("foo");
+    splitTablet.set_start_key_hash(0);
+    splitTablet.set_end_key_hash(~0lu);
+    splitTablet.set_split_key_hash(~0lu / 2);
+    logCabinHelper->appendProtoBuf(
+                coordRecovery->service.expectedEntryId, splitTablet);
+
+    ProtoBuf::TabletRecovered tabletRecovered;
+    tabletRecovered.set_entry_type("TabletRecovered");
+    tabletRecovered.set_table_id(0);
+    tabletRecovered.set_start_key_hash(0);
+    tabletRecovered.set_end_key_hash(~0lu);
+    tabletRecovered.set_server_id(ServerId(1, 0).getId());
+    tabletRecovered.set_ctime_log_head_id(0);
+    tabletRecovered.set_ctime_log_head_offset(0);
+    logCabinHelper->appendProtoBuf(
+                coordRecovery->service.expectedEntryId, tabletRecovered);
+
     TestLog::Enable _(replayFilter);
     coordRecovery->replay(true);
     EXPECT_EQ("replay: Entry Id: 0, Entry Type: ServerEnlisting\n | "
               "replay: Entry Id: 1, Entry Type: ServerEnlisted\n | "
               "replay: Entry Id: 2, Entry Type: ServerUpdate\n | "
-              "replay: Entry Id: 3, Entry Type: ServerDown\n",
+              "replay: Entry Id: 3, Entry Type: ServerDown\n | "
+              "replay: Entry Id: 4, Entry Type: AliveTable\n | "
+              "replay: Entry Id: 5, Entry Type: CreatingTable\n | "
+              "replay: Entry Id: 6, Entry Type: DropTable\n | "
+              "replay: Entry Id: 7, Entry Type: SplitTablet\n | "
+              "replay: Entry Id: 8, Entry Type: TabletRecovered\n",
               TestLog::get());
 }
 
