@@ -495,6 +495,18 @@ TEST_F(TableManagerTest, tabletRecovered_LogCabin) {
               "server_id: 2\n"
               "ctime_log_head_id: 0\nctime_log_head_offset: 0\n",
                tabletInfo.DebugString());
+
+    ProtoBuf::TableInformation aliveTableNew;
+    searchString = "complete: LogCabin: AliveTable entryId: ";
+    ASSERT_NO_THROW(findEntryId(searchString));
+    logCabinHelper->parseProtoBufFromEntry(
+            entriesRead[findEntryId(searchString)], aliveTableNew);
+    EXPECT_EQ("entry_type: \"AliveTable\"\n"
+              "name: \"foo\"\ntable_id: 0\nserver_span: 1\n"
+              "tablet_info {\n  start_key_hash: 0\n  "
+              "end_key_hash: 18446744073709551615\n  master_id: 2\n  "
+              "ctime_log_head_id: 0\n  ctime_log_head_offset: 0\n}\n",
+              aliveTableNew.DebugString());
 }
 
 TEST_F(TableManagerTest, recoverTabletRecovered) {

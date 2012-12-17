@@ -669,11 +669,32 @@ TableManager::TabletRecovered::complete(EntryId entryId)
     tm.modifyTablet(lock, tableId, startKeyHash, endKeyHash,
                     serverId, Tablet::NORMAL, ctime);
 
-    // TODO(ankitak): BUG! Need to read in table information from LogCabin,
-    // update info for this tablet, and then append the entire
-    // table information again.
-    tm.context->logCabinHelper->invalidate(
-                *tm.context->expectedEntryId, vector<EntryId>({entryId}));
+    EntryId oldTableInfoEntryId = tm.getTableInfoLogId(lock, tableId);
+    vector<EntryId> invalidates {oldTableInfoEntryId, entryId};
+
+    ProtoBuf::TableInformation tableInfo;
+    // TODO(ankitak): After ongaro has added cursor API to LogCabin,
+    // use that to read in only one entry here.
+    vector<Entry> entriesRead =
+            tm.context->logCabinLog->read(oldTableInfoEntryId);
+    tm.context->logCabinHelper->parseProtoBufFromEntry(
+            entriesRead[0], tableInfo);
+
+    for (uint32_t i = 0; i < tableInfo.server_span(); i++) {
+        ProtoBuf::TableInformation::TabletInfo& tabletInfo =
+                *(tableInfo.mutable_tablet_info(i));
+        if (startKeyHash != tabletInfo.start_key_hash() ||
+                endKeyHash != tabletInfo.end_key_hash()) {
+            continue;
+        }
+        tabletInfo.set_master_id(serverId.getId());
+        tabletInfo.set_ctime_log_head_id(ctime.getSegmentId());
+        tabletInfo.set_ctime_log_head_offset(ctime.getSegmentOffset());
+    }
+
+    EntryId newEntryId = tm.context->logCabinHelper->appendProtoBuf(
+            *tm.context->expectedEntryId, tableInfo, invalidates);
+    LOG(DEBUG, "LogCabin: AliveTable entryId: %lu", newEntryId);
 }
 
 void

@@ -27,6 +27,7 @@ using namespace MasterRecoveryManagerInternal; // NOLINT
 struct MasterRecoveryManagerTest : public ::testing::Test {
     Context context;
     MockCluster cluster;
+    CoordinatorService* service;
     CoordinatorServerList* serverList;
     TableManager* tableManager;
     MasterRecoveryManager* mgr;
@@ -37,12 +38,13 @@ struct MasterRecoveryManagerTest : public ::testing::Test {
     MasterRecoveryManagerTest()
         : context()
         , cluster(&context)
+        , service()
         , serverList()
         , tableManager()
         , mgr()
         , mutex()
     {
-        CoordinatorService* service = cluster.coordinator.get();
+        service = cluster.coordinator.get();
         serverList = service->context->coordinatorServerList;
         tableManager = service->context->tableManager;
         mgr = service->context->recoveryManager;
@@ -242,6 +244,22 @@ TEST_F(MasterRecoveryManagerTest, recoveryMasterFinished) {
     tableManager->addTablet(
         lock, {0, 0, ~0lu, {1, 0}, Tablet::RECOVERING, {2, 3}});
 
+    // Add information about table to LogCabin, so t
+    ProtoBuf::TableInformation state;
+    state.set_entry_type("AliveTable");
+    state.set_name("foo");
+    state.set_table_id(0);
+    state.set_server_span(1);
+    ProtoBuf::TableInformation::TabletInfo& tablet(*state.add_tablet_info());
+    tablet.set_start_key_hash(0);
+    tablet.set_end_key_hash(~0lu);
+    tablet.set_master_id(ServerId(1, 0).getId());
+    tablet.set_ctime_log_head_id(2);
+    tablet.set_ctime_log_head_offset(3);
+    EntryId entryId = service->context->logCabinHelper->appendProtoBuf(
+            *service->context->expectedEntryId, state);
+    tableManager->setTableInfoLogId(lock, 0, entryId);
+
     mgr->recoveryMasterFinished(recovery->recoveryId,
                                {2, 0}, recoveredTablets, true);
     EXPECT_EQ(3lu, serverList->version);
@@ -251,7 +269,8 @@ TEST_F(MasterRecoveryManagerTest, recoveryMasterFinished) {
     EXPECT_EQ(
         "performTask: Modifying tablet map to set recovery master 2.0 as "
             "master for 0, 0, 18446744073709551615 | "
-        "execute: LogCabin: TabletRecovered entryId: 0 | "
+        "execute: LogCabin: TabletRecovered entryId: 1 | "
+        "complete: LogCabin: AliveTable entryId: 2 | "
         "performTask: Coordinator tableManager after recovery master 2.0 "
             "finished: "
         "Tablet { tableId: 0 startKeyHash: 0 endKeyHash: 18446744073709551615 "
