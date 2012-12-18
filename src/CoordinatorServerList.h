@@ -66,7 +66,7 @@ class CoordinatorServerList : public AbstractServerList{
     /**
      * This class represents one entry in the CoordinatorServerList. Each
      * entry describes a specific server in the system and contains the
-     * state that the Coordinator is maintain on its behalf.
+     * state that the Coordinator maintains on its behalf.
      *
      * Note that pointer members are not allocated or freed by this class.
      * It's up to the user to ensure proper memory management, and they're
@@ -126,7 +126,7 @@ class CoordinatorServerList : public AbstractServerList{
 
         /**
          * Entry id corresponding to entry in LogCabin log that has
-         * updates for this server.
+         * the most recent update for this server.
          */
          LogCabin::Client::EntryId serverUpdateLogId;
     };
@@ -226,6 +226,9 @@ class CoordinatorServerList : public AbstractServerList{
 
     /**
      * Defines methods and stores data to remove a server from the cluster.
+     * This includes marking the server as crashed, propagating that information
+     * (through server trackers and the cluster updater) and invoking recovery.
+     * Once recovery has finished, the server will be removed from server list.
      */
     class ServerDown {
         public:

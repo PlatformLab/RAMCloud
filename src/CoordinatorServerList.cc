@@ -325,7 +325,10 @@ CoordinatorServerList::serialize(ProtoBuf::ServerList& protoBuf,
 }
 
 /**
- * Remove a server from the cluster.
+ * This method is invoked when a server is determined to have crashed.
+ * It marks the server as crashed, propagates that information
+ * (through server trackers and the cluster updater) and invokes recovery.
+ * Once recovery has finished, the server will be removed from the server list.
  *
  * \param serverId
  *      ServerId of the server that is suspected to be down.
@@ -385,7 +388,6 @@ CoordinatorServerList::EnlistServer::execute()
     EntryId entryId =
         csl.context->logCabinHelper->appendProtoBuf(
             *csl.context->expectedEntryId, state);
-    csl.addServerInfoLogId(lock, newServerId, entryId);
     LOG(DEBUG, "LogCabin: ServerEnlisting entryId: %lu", entryId);
 
     return complete(entryId);
@@ -468,17 +470,17 @@ CoordinatorServerList::ServerDown::execute()
 void
 CoordinatorServerList::ServerDown::complete(EntryId entryId)
 {
-    // Get the entry ids for the LogCabin entries corresponding to this
-    // server before the server information is removed from serverList,
-    // so that the LogCabin entry can be invalidated later.
-    EntryId serverInfoLogId = csl.getServerInfoLogId(lock, serverId);
-    EntryId serverUpdateLogId = csl.getServerUpdateLogId(lock, serverId);
-
     // If this machine has a backup and master on the same server it is best
     // to remove the dead backup before initiating recovery. Otherwise, other
     // servers may try to backup onto a dead machine which will cause delays.
     CoordinatorServerList::Entry
         entry(csl.getReferenceFromServerId(lock, serverId));
+
+    // Get the entry ids for the LogCabin entries corresponding to this
+    // server before the server information is removed from serverList,
+    // so that the LogCabin entry can be invalidated later.
+    EntryId serverInfoLogId = entry.serverInfoLogId;
+    EntryId serverUpdateLogId = entry.serverUpdateLogId;
 
     csl.crashed(lock, serverId); // Call the internal method directly.
     // If the server being replaced did not have a master then there
@@ -989,7 +991,7 @@ CoordinatorServerList::serialize(const Lock& lock,
 }
 
 /**
- * Remove a server from the cluster.
+ * Remove a server from the cluster. See documentation in the public method.
  *
  * \param lock
  *      explicity needs CoordinatorServerList lock.
