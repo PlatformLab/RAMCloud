@@ -185,98 +185,6 @@ CoordinatorServerList::operator[](size_t index) const
 }
 
 /**
- * During coordinator recovery, add a server that had already been
- * enlisted to local server list.
- *
- * \param state
- *      The ProtoBuf that encapsulates the information about server
- *      to be added.
- * \param entryId
- *      The entry id of the LogCabin entry corresponding to the state.
- */
-void
-CoordinatorServerList::recoverEnlistedServer(
-    ProtoBuf::ServerInformation* state, EntryId entryId)
-{
-    Lock lock(mutex);
-    LOG(DEBUG, "CoordinatorServerList::recoverEnlistedServer()");
-    add(lock,
-        ServerId(state->server_id()),
-        state->service_locator().c_str(),
-        ServiceMask::deserialize(state->service_mask()),
-        state->read_speed());
-    // TODO(ankitak): We probably do not want to do the following commitUpdate()
-    // that sends updates to the cluster,
-    // since this action has already been completed and reflected to the cluster
-    // before coordinator failure that triggered this recovery.
-    commitUpdate(lock);
-}
-
-/**
- * Complete an enlistServer during coordinator recovery.
- *
- * \param state
- *      The ProtoBuf that encapsulates the state of the enlistServer
- *      operation to be recovered.
- * \param entryId
- *      The entry id of the LogCabin entry corresponding to the state.
- */
-void
-CoordinatorServerList::recoverEnlistServer(
-    ProtoBuf::ServerInformation* state, EntryId entryId)
-{
-    Lock lock(mutex);
-    LOG(DEBUG, "CoordinatorServerList::recoverEnlistServer()");
-    EnlistServer(*this, lock,
-                 ServerId(state->server_id()),
-                 ServiceMask::deserialize(state->service_mask()),
-                 state->read_speed(),
-                 state->service_locator().c_str()).complete(entryId);
-    commitUpdate(lock);
-}
-
-/**
- * Reset the extra metadata for master recovery of the server specified in
- * the serverInfo Protobuf.
- *
- * \param serverUpdate
- *      The ProtoBuf that has the update about the server whose
- *      masterRecoveryInfo is to be set.
- * \param entryId
- *      The entry id of the LogCabin entry corresponding to serverUpdate.
- */
-void
-CoordinatorServerList::recoverMasterRecoveryInfo(
-    ProtoBuf::ServerUpdate* serverUpdate, EntryId entryId)
-{
-    Lock lock(mutex);
-    LOG(DEBUG, "CoordinatorServerList::recoverSetMasterRecoveryInfo()");
-    SetMasterRecoveryInfo(
-            *this, lock,
-            ServerId(serverUpdate->server_id()),
-            serverUpdate->master_recovery_info()).complete(entryId);
-}
-
-/**
- * Complete a ServerDown during coordinator recovery.
- *
- * \param state
- *      The ProtoBuf that encapsulates the state of the ServerDown
- *      operation to be recovered.
- * \param entryId
- *      The entry id of the LogCabin entry corresponding to the state.
- */
-void
-CoordinatorServerList::recoverServerDown(
-    ProtoBuf::ServerDown* state, EntryId entryId)
-{
-    Lock lock(mutex);
-    LOG(DEBUG, "CoordinatorServerList::recoverServerDown()");
-    ServerDown(
-            *this, lock, ServerId(state->server_id())).complete(entryId);
-}
-
-/**
  * Remove a server from the list, typically when it is no longer part of
  * the system and we don't care about it anymore (it crashed and has
  * been properly recovered).
@@ -365,6 +273,101 @@ CoordinatorServerList::setMasterRecoveryInfo(
 }
 
 //////////////////////////////////////////////////////////////////////
+// CoordinatorServerList Recovery Methods
+//////////////////////////////////////////////////////////////////////
+
+/**
+ * During coordinator recovery, add a server that had already been
+ * enlisted to local server list.
+ *
+ * \param state
+ *      The ProtoBuf that encapsulates the information about server
+ *      to be added.
+ * \param entryId
+ *      The entry id of the LogCabin entry corresponding to the state.
+ */
+void
+CoordinatorServerList::recoverEnlistedServer(
+    ProtoBuf::ServerInformation* state, EntryId entryId)
+{
+    Lock lock(mutex);
+    LOG(DEBUG, "CoordinatorServerList::recoverEnlistedServer()");
+    add(lock,
+        ServerId(state->server_id()),
+        state->service_locator().c_str(),
+        ServiceMask::deserialize(state->service_mask()),
+        state->read_speed());
+    // TODO(ankitak): We probably do not want to do the following commitUpdate()
+    // that sends updates to the cluster,
+    // since this action has already been completed and reflected to the cluster
+    // before coordinator failure that triggered this recovery.
+    commitUpdate(lock);
+}
+
+/**
+ * Complete an enlistServer during coordinator recovery.
+ *
+ * \param state
+ *      The ProtoBuf that encapsulates the state of the enlistServer
+ *      operation to be recovered.
+ * \param entryId
+ *      The entry id of the LogCabin entry corresponding to the state.
+ */
+void
+CoordinatorServerList::recoverEnlistServer(
+    ProtoBuf::ServerInformation* state, EntryId entryId)
+{
+    Lock lock(mutex);
+    LOG(DEBUG, "CoordinatorServerList::recoverEnlistServer()");
+    EnlistServer(*this, lock,
+                 ServerId(state->server_id()),
+                 ServiceMask::deserialize(state->service_mask()),
+                 state->read_speed(),
+                 state->service_locator().c_str()).complete(entryId);
+    commitUpdate(lock);
+}
+
+/**
+ * Reset the extra metadata for master recovery of the server specified in
+ * the serverInfo Protobuf.
+ *
+ * \param serverUpdate
+ *      The ProtoBuf that has the update about the server whose
+ *      masterRecoveryInfo is to be set.
+ * \param entryId
+ *      The entry id of the LogCabin entry corresponding to serverUpdate.
+ */
+void
+CoordinatorServerList::recoverMasterRecoveryInfo(
+    ProtoBuf::ServerUpdate* serverUpdate, EntryId entryId)
+{
+    Lock lock(mutex);
+    LOG(DEBUG, "CoordinatorServerList::recoverSetMasterRecoveryInfo()");
+    SetMasterRecoveryInfo(
+            *this, lock,
+            ServerId(serverUpdate->server_id()),
+            serverUpdate->master_recovery_info()).complete(entryId);
+}
+
+/**
+ * Complete a ServerDown during coordinator recovery.
+ *
+ * \param state
+ *      The ProtoBuf that encapsulates the state of the ServerDown
+ *      operation to be recovered.
+ * \param entryId
+ *      The entry id of the LogCabin entry corresponding to the state.
+ */
+void
+CoordinatorServerList::recoverServerDown(
+    ProtoBuf::ServerDown* state, EntryId entryId)
+{
+    Lock lock(mutex);
+    LOG(DEBUG, "CoordinatorServerList::recoverServerDown()");
+    ServerDown(*this, lock, ServerId(state->server_id())).complete(entryId);
+}
+
+//////////////////////////////////////////////////////////////////////
 // CoordinatorServerList Private Methods
 //////////////////////////////////////////////////////////////////////
 
@@ -431,7 +434,7 @@ CoordinatorServerList::EnlistServer::complete(EntryId entryId)
 
     EntryId newEntryId = csl.context->logCabinHelper->appendProtoBuf(
         *csl.context->expectedEntryId, state, vector<EntryId>({entryId}));
-    csl.addServerInfoLogId(lock, newServerId, newEntryId);
+    entry.serverInfoLogId = newEntryId;
     LOG(DEBUG, "LogCabin: ServerEnlisted entryId: %lu", newEntryId);
 
     return newServerId;
@@ -511,7 +514,9 @@ CoordinatorServerList::ServerDown::complete(EntryId entryId)
 void
 CoordinatorServerList::SetMasterRecoveryInfo::execute()
 {
-    EntryId oldEntryId = csl.getServerUpdateLogId(lock, serverId);
+    CoordinatorServerList::Entry
+        entry(csl.getReferenceFromServerId(lock, serverId));
+    EntryId oldEntryId = entry.serverUpdateLogId;
 
     ProtoBuf::ServerUpdate serverUpdate;
     vector<EntryId> invalidates;
@@ -534,6 +539,7 @@ CoordinatorServerList::SetMasterRecoveryInfo::execute()
     EntryId newEntryId =
         csl.context->logCabinHelper->appendProtoBuf(
             *csl.context->expectedEntryId, serverUpdate, invalidates);
+    LOG(DEBUG, "LogCabin: SetMasterRecoveryInfo entryId: %lu", newEntryId);
 
     complete(newEntryId);
 }
@@ -553,18 +559,15 @@ void
 CoordinatorServerList::SetMasterRecoveryInfo::complete(EntryId entryId)
 {
     try {
-        // Update local state.
-        csl.addServerUpdateLogId(lock, serverId, entryId);
-        Entry& entry =
-                const_cast<Entry&>(
-                        csl.getReferenceFromServerId(lock, serverId));
+        Entry& entry = const_cast<Entry&>(
+                csl.getReferenceFromServerId(lock, serverId));
         entry.masterRecoveryInfo = recoveryInfo;
+        entry.serverUpdateLogId = entryId;
     } catch (const ServerListException& e) {
         LOG(WARNING, "setMasterRecoveryInfo server doesn't exist: %s",
             serverId.toString().c_str());
         csl.context->logCabinHelper->invalidate(
             *csl.context->expectedEntryId, vector<EntryId>(entryId));
-        throw ServerListException(e);
     }
 }
 
@@ -602,7 +605,7 @@ CoordinatorServerList::isize() const
  * The result of this operation will be added in the class's update Protobuffer
  * intended for the cluster. To send out the update, call commitUpdate()
  * which will also increment the version number. Calls to remove()
- * and crashed() must proceed call to add() to ensure ordering guarantees
+ * and crashed() must precede call to add() to ensure ordering guarantees
  * about notifications related to servers which re-enlist.
  *
  * The addition will be pushed to all registered trackers and those with
@@ -664,47 +667,11 @@ CoordinatorServerList::add(Lock& lock,
 }
 
 /**
- * Add LogCabin entry id corresponding to the initial information for a server.
- *
- * \param lock
- *      Explicity needs CoordinatorServerList lock.
- * \param serverId
- *      ServerId of the server for which the LogCabin entry id is being stored.
- * \param entryId
- *      LogCabin entry id corresponding to the intial information for server.
- */
-void
-CoordinatorServerList::addServerInfoLogId(Lock& lock, ServerId serverId,
-                                          LogCabin::Client::EntryId entryId)
-{
-    Entry& entry = const_cast<Entry&>(getReferenceFromServerId(lock, serverId));
-    entry.serverInfoLogId = entryId;
-}
-
-/**
- * Add a LogCabin entry id corresponding to the updates for a server.
- *
- * \param lock
- *      Explicity needs CoordinatorServerList lock.
- * \param serverId
- *      ServerId of the server for which the LogCabin entry id is being stored.
- * \param entryId
- *      LogCabin entry id corresponding to the updates for server.
- */
-void
-CoordinatorServerList::addServerUpdateLogId(Lock& lock, ServerId serverId,
-                                            LogCabin::Client::EntryId entryId)
-{
-    Entry& entry = const_cast<Entry&>(getReferenceFromServerId(lock, serverId));
-    entry.serverUpdateLogId = entryId;
-}
-
-/**
  * Mark a server as crashed in the list (when it has crashed and is
  * being recovered and resources [replicas] for its recovery must be
  * retained).
  *
- * This is a no-op of the server is already marked as crashed;
+ * This is a no-op if the server is already marked as crashed;
  * the effect is undefined if the server's status is DOWN.
  *
  * The result of this operation will be added in the class's update Protobuffer
@@ -716,11 +683,11 @@ CoordinatorServerList::addServerUpdateLogId(Lock& lock, ServerId serverId,
  * It doesn't acquire locks and does not send out updates
  * since it is used internally.
  *
- * \param lock
- *      Explicity needs CoordinatorServerList lock.
  * The addition will be pushed to all registered trackers and those with
  * callbacks will be notified.
  *
+ * \param lock
+ *      Explicity needs CoordinatorServerList lock.
  * \param serverId
  *      The ServerId of the server to remove from the CoordinatorServerList.
  *      It must not have been removed already (see remove()).
@@ -814,7 +781,7 @@ CoordinatorServerList::generateUniqueId(Lock& lock)
  *      Position of entry in the server list to return a copy of.
  *
  * \throw
- *      Exception is thrown if the position in the list is unoccupied
+ *      ServerListException is thrown if the position in the list is unoccupied
  *      or doesn't contain a valid entry.
  */
 const CoordinatorServerList::Entry&
@@ -839,7 +806,7 @@ CoordinatorServerList::getReferenceFromIndex(const Lock& lock,
  *      The ServerId to look up in the list.
  *
  * \throw
- *      An exception is thrown if the given ServerId is not in this list.
+ *      ServerListException is thrown if the given ServerId is not in this list.
  */
 const CoordinatorServerList::Entry&
 CoordinatorServerList::getReferenceFromServerId(const Lock& lock,
@@ -852,46 +819,6 @@ CoordinatorServerList::getReferenceFromServerId(const Lock& lock,
 
     throw ServerListException(HERE,
             format("Invalid ServerId (%s)", serverId.toString().c_str()));
-}
-
-/**
- * Return the entry id corresponding to entry in LogCabin log
- * that has the initial information for the server.
- *
- * \param lock
- *      Explicity needs CoordinatorServerList lock.
- * \param serverId
- *      ServerId of the server for whose initial information the
- *      LogCabin entry id is being requested.
- *
- * \return
- *      LogCabin entry id corresponding to the initial information for server.
- */
-LogCabin::Client::EntryId
-CoordinatorServerList::getServerInfoLogId(Lock& lock, ServerId serverId)
-{
-    Entry& entry = const_cast<Entry&>(getReferenceFromServerId(lock, serverId));
-    return entry.serverInfoLogId;
-}
-
-/**
- * Return the entry id corresponding to entry in LogCabin log
- * that has the updates for the server.
- *
- * \param lock
- *      Explicity needs CoordinatorServerList lock.
- * \param serverId
- *      ServerId of the server for whose updates the
- *      LogCabin entry id is being requested.
- *
- * \return
- *      LogCabin entry id corresponding to the updates for server.
- */
-LogCabin::Client::EntryId
-CoordinatorServerList::getServerUpdateLogId(Lock& lock, ServerId serverId)
-{
-    Entry& entry = const_cast<Entry&>(getReferenceFromServerId(lock, serverId));
-    return entry.serverUpdateLogId;
 }
 
 // See docs on #removeAfterRecovery().
@@ -996,7 +923,7 @@ CoordinatorServerList::serialize(const Lock& lock,
  * \param lock
  *      explicity needs CoordinatorServerList lock.
  * \param serverId
- *      ServerId of the server that is suspected to be down.
+ *      ServerId of the server that has been determined to have crashed.
  */
 void
 CoordinatorServerList::serverDown(Lock& lock, ServerId serverId)
@@ -1165,7 +1092,8 @@ CoordinatorServerList::commitUpdate(const Lock& lock)
 bool
 CoordinatorServerList::dispatchRpc(UpdateSlot& update) {
     if (update.rpc) {
-        // Check completion/ error
+        // An RPC is already active in the slot.
+        // Check to see if it has finished.
         if (update.rpc->isReady()) {
             uint64_t newVersion;
             try {
@@ -1188,9 +1116,9 @@ CoordinatorServerList::dispatchRpc(UpdateSlot& update) {
                                                 update.startCycle);
             if (rpcTimeoutNs != 0 && ns > rpcTimeoutNs) {
                 LOG(NOTICE, "ServerList update to %s timed out after %lu ms; "
-                    "trying again later",
-                    update.serverId.toString().c_str(),
-                    ns / 1000 / 1000);
+                            "trying again later",
+                            update.serverId.toString().c_str(),
+                            ns / 1000 / 1000);
                 update.rpc.destroy();
                 updateEntryVersion(update.serverId, update.originalVersion);
             }
