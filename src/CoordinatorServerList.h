@@ -66,7 +66,7 @@ class CoordinatorServerList : public AbstractServerList{
     /**
      * This class represents one entry in the CoordinatorServerList. Each
      * entry describes a specific server in the system and contains the
-     * state that the Coordinator is maintain on its behalf.
+     * state that the Coordinator maintains on its behalf.
      *
      * Note that pointer members are not allocated or freed by this class.
      * It's up to the user to ensure proper memory management, and they're
@@ -84,11 +84,11 @@ class CoordinatorServerList : public AbstractServerList{
 
         bool isMaster() const {
             return (status == ServerStatus::UP) &&
-                   services.has(WireFormat::MASTER_SERVICE);
+                    services.has(WireFormat::MASTER_SERVICE);
         }
         bool isBackup() const {
             return (status == ServerStatus::UP) &&
-                   services.has(WireFormat::BACKUP_SERVICE);
+                    services.has(WireFormat::BACKUP_SERVICE);
         }
 
         // Fields below this point are maintained on the coordinator only
@@ -126,7 +126,7 @@ class CoordinatorServerList : public AbstractServerList{
 
         /**
          * Entry id corresponding to entry in LogCabin log that has
-         * updates for this server.
+         * the most recent update for this server.
          */
          LogCabin::Client::EntryId serverUpdateLogId;
     };
@@ -140,6 +140,13 @@ class CoordinatorServerList : public AbstractServerList{
     uint32_t masterCount() const;
     Entry operator[](ServerId serverId) const;
     Entry operator[](size_t index) const;
+    void removeAfterRecovery(ServerId serverId);
+    void serialize(ProtoBuf::ServerList& protobuf, ServiceMask services) const;
+    void serverDown(ServerId serverId);
+    void setMasterRecoveryInfo(ServerId serverId,
+                const ProtoBuf::MasterRecoveryInfo& recoveryInfo);
+
+    /// Functions for CoordinatorServerList Recovery.
     void recoverEnlistedServer(ProtoBuf::ServerInformation* state,
                                EntryId entryId);
     void recoverEnlistServer(ProtoBuf::ServerInformation* state,
@@ -148,11 +155,6 @@ class CoordinatorServerList : public AbstractServerList{
                                    EntryId entryId);
     void recoverServerDown(ProtoBuf::ServerDown* state,
                            EntryId entryId);
-    void removeAfterRecovery(ServerId serverId);
-    void serialize(ProtoBuf::ServerList& protobuf, ServiceMask services) const;
-    void serverDown(ServerId serverId);
-    void setMasterRecoveryInfo(ServerId serverId,
-        const ProtoBuf::MasterRecoveryInfo& recoveryInfo);
 
   PRIVATE:
     /**
@@ -226,12 +228,15 @@ class CoordinatorServerList : public AbstractServerList{
 
     /**
      * Defines methods and stores data to remove a server from the cluster.
+     * This includes marking the server as crashed, propagating that information
+     * (through server trackers and the cluster updater) and invoking recovery.
+     * Once recovery has finished, the server will be removed from server list.
      */
     class ServerDown {
         public:
             ServerDown(CoordinatorServerList &csl,
-                            Lock& lock,
-                            ServerId serverId)
+                       Lock& lock,
+                       ServerId serverId)
                 : csl(csl), lock(lock), serverId(serverId) {}
             void execute();
             void complete(EntryId entryId);
@@ -354,22 +359,15 @@ class CoordinatorServerList : public AbstractServerList{
     /// Functions related to modifying the server list
     void add(Lock& lock, ServerId serverId, string serviceLocator,
              ServiceMask serviceMask, uint32_t readSpeed);
-    void addServerInfoLogId(Lock& lock, ServerId serverId,
-                            LogCabin::Client::EntryId entryId);
-    void addServerUpdateLogId(Lock& lock, ServerId serverId,
-                              LogCabin::Client::EntryId entryId);
     void crashed(const Lock& lock, ServerId serverId);
     uint32_t firstFreeIndex();
     ServerId generateUniqueId(Lock& lock);
     const Entry& getReferenceFromIndex(const Lock& lock, size_t index) const;
     const Entry& getReferenceFromServerId(const Lock& lock,
                                           ServerId serverId) const;
-    LogCabin::Client::EntryId getServerInfoLogId(Lock& lock, ServerId serverId);
-    LogCabin::Client::EntryId getServerUpdateLogId(Lock& lock,
-                                                   ServerId serverId);
     void remove(Lock& lock, ServerId serverId);
     void serialize(const Lock& lock, ProtoBuf::ServerList& protoBuf) const;
-    void serialize(const Lock& lock, ProtoBuf::ServerList& protobuf,
+    void serialize(const Lock& lock, ProtoBuf::ServerList& protoBuf,
                    ServiceMask services) const;
     void serverDown(Lock& lock, ServerId serverId);
 

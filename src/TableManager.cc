@@ -132,17 +132,29 @@ TableManager::getTableId(const char* name)
 }
 
 /**
- * Public version of modifyTablet. To be called only by MasterRecoveryManager
- * after recovery.
+ * Update the status of all the Tablets in the tablet map that are on a
+ * specific server as recovering.
+ * Copies of the details about the affected Tablets are returned.
+ *
+ * \param serverId
+ *      Table id of the table whose tablets status should be changed to
+ *      \a status.
+ * \return
+ *      List of copies of all the Tablets in the tablet map which are owned
+ *      by the server indicated by \a serverId.
  */
-void
-TableManager::modifyTabletOnRecovery(
-        uint64_t tableId, uint64_t startKeyHash, uint64_t endKeyHash,
-        ServerId serverId, Tablet::Status status, Log::Position ctime)
+vector<Tablet>
+TableManager::markAllTabletsRecovering(ServerId serverId)
 {
     Lock lock(mutex);
-    modifyTablet(lock, tableId, startKeyHash, endKeyHash,
-                 serverId, status, ctime);
+    vector<Tablet> results;
+    foreach (Tablet& tablet, map) {
+        if (tablet.serverId == serverId) {
+            tablet.status = Tablet::RECOVERING;
+            results.push_back(tablet);
+        }
+    }
+    return results;
 }
 
 /**
@@ -229,35 +241,6 @@ TableManager::serialize(AbstractServerList& serverList,
 }
 
 /**
- * Update the status of all the Tablets in the tablet map that are on a
- * specific server. Copies of the details about the affected Tablets are
- * returned.
- *
- * \param serverId
- *      Table id of the table whose tablets status should be changed to
- *      \a status.
- * \param status
- *      New status to change the Tablets in the tablet map residing on
- *      the server with id \a serverId.
- * \return
- *      List of copies of all the Tablets in the tablet map which are owned
- *      by the server indicated by \a serverId.
- */
-vector<Tablet>
-TableManager::setStatusForServer(ServerId serverId, Tablet::Status status)
-{
-    Lock lock(mutex);
-    vector<Tablet> results;
-    foreach (Tablet& tablet, map) {
-        if (tablet.serverId == serverId) {
-            tablet.status = status;
-            results.push_back(tablet);
-        }
-    }
-    return results;
-}
-
-/**
  * Split a Tablet in the tablet map into two disjoint Tablets at a specific
  * key hash. One Tablet will have all the key hashes
  * [ \a startKeyHash, \a splitKeyHash), the other will have
@@ -293,25 +276,37 @@ TableManager::splitTablet(const char* name,
                           uint64_t splitKeyHash)
 {
     Lock lock(mutex);
-    Tables::iterator it(tables.find(name));
-    if (it == tables.end()) {
-        throw NoSuchTable(HERE);
-    }
-    uint64_t tableId = it->second;
+    SplitTablet(*this, lock,
+                name, startKeyHash, endKeyHash,
+                splitKeyHash).execute();
+}
 
-    if (startKeyHash >= (splitKeyHash - 1) || splitKeyHash >= endKeyHash) {
-        throw BadSplit(HERE);
-    }
-
-    Tablet& tablet = find(lock, tableId, startKeyHash, endKeyHash);
-    Tablet newTablet = tablet;
-    newTablet.startKeyHash = splitKeyHash;
-    tablet.endKeyHash = splitKeyHash - 1;
-    map.push_back(newTablet);
-
-    // Tell the master to split the tablet
-    MasterClient::splitMasterTablet(context, tablet.serverId, tableId,
-                                    startKeyHash, endKeyHash, splitKeyHash);
+/**
+ * Used by MasterRecoveryManager after recovery for a tablet has successfully
+ * completed to inform coordinator about the new master for the tablet.
+ * 
+ * \param tableId
+ *      Table id of the tablet.
+ * \param startKeyHash
+ *      First key hash that is part of range of key hashes for the tablet.
+ * \param endKeyHash
+ *      Last key hash that is part of range of key hashes for the tablet.
+ * \param serverId
+ *      Tablet is updated to indicate that it is owned by \a serverId.
+ * \param ctime
+ *      Tablet is updated with this ctime indicating any object earlier
+ *      than \a ctime in its log cannot contain objects belonging to it.
+ * \throw NoSuchTablet
+ *      If the arguments do not identify a tablet currently in the tablet map.
+ */
+void
+TableManager::tabletRecovered(
+        uint64_t tableId, uint64_t startKeyHash, uint64_t endKeyHash,
+        ServerId serverId, Log::Position ctime)
+{
+    Lock lock(mutex);
+    TabletRecovered(*this, lock, tableId, startKeyHash, endKeyHash,
+                    serverId, ctime).execute();
 }
 
 /**
@@ -391,6 +386,54 @@ TableManager::recoverDropTable(
               state->name().c_str()).complete(entryId);
 }
 
+/**
+ * During coordinator recovery, complete a splitTablet operation that
+ * had already been started.
+ *
+ * \param state
+ *      The ProtoBuf that encapsulates the information about the tablet
+ *      that was being split.
+ * \param entryId
+ *      The entry id of the LogCabin entry corresponding to the state.
+ */
+void
+TableManager::recoverSplitTablet(
+    ProtoBuf::SplitTablet* state, EntryId entryId)
+{
+    Lock lock(mutex);
+    LOG(DEBUG, "TableManager::recoverSplitTablet()");
+    SplitTablet(*this, lock,
+                state->name().c_str(),
+                state->start_key_hash(),
+                state->end_key_hash(),
+                state->split_key_hash()).complete(entryId);
+}
+
+/**
+ * During coordinator recovery, complete a tabletRecovered operation that
+ * had already been started.
+ *
+ * \param state
+ *      The ProtoBuf that encapsulates the information about the tablet
+ *      that was recovered during a master recovery.
+ * \param entryId
+ *      The entry id of the LogCabin entry corresponding to the state.
+ */
+void
+TableManager::recoverTabletRecovered(
+    ProtoBuf::TabletRecovered* state, EntryId entryId)
+{
+    Lock lock(mutex);
+    LOG(DEBUG, "TableManager::recoverTabletRecovered()");
+    TabletRecovered(*this, lock,
+                    state->table_id(),
+                    state->start_key_hash(),
+                    state->end_key_hash(),
+                    ServerId(state->server_id()),
+                    Log::Position(state->ctime_log_head_id(),
+                        state->ctime_log_head_offset())).complete(entryId);
+}
+
 /////////////////////////////////////////////////////////////////////////////
 //////////////////////////// Private Methods ////////////////////////////////
 /////////////////////////////////////////////////////////////////////////////
@@ -415,7 +458,7 @@ TableManager::CreateTable::execute()
     if (serverSpan == 0)
         serverSpan = 1;
 
-    state.set_entry_type("CreatingTable");
+    state.set_entry_type("CreateTable");
     state.set_name(name);
     state.set_table_id(tableId);
     state.set_server_span(serverSpan);
@@ -465,7 +508,8 @@ TableManager::CreateTable::execute()
     EntryId entryId =
         tm.context->logCabinHelper->appendProtoBuf(
             *tm.context->expectedEntryId, state);
-    LOG(DEBUG, "LogCabin: CreatingTable entryId: %lu", entryId);
+    tm.setTableInfoLogId(lock, tableId, entryId);
+    LOG(DEBUG, "LogCabin: CreateTable entryId: %lu", entryId);
 
     return complete(entryId);
 }
@@ -536,6 +580,7 @@ TableManager::CreateTable::complete(EntryId entryId)
     state.set_entry_type("AliveTable");
     EntryId newEntryId = tm.context->logCabinHelper->appendProtoBuf(
             *tm.context->expectedEntryId, state, vector<EntryId>({entryId}));
+    tm.setTableInfoLogId(lock, tableId, newEntryId);
     LOG(DEBUG, "LogCabin: AliveTable entryId: %lu", newEntryId);
 
     return tableId;
@@ -549,12 +594,12 @@ TableManager::DropTable::execute()
         return;
 
     ProtoBuf::TableDrop state;
-    state.set_entry_type("DroppingTable");
+    state.set_entry_type("DropTable");
     state.set_name(name);
 
     EntryId entryId = tm.context->logCabinHelper->appendProtoBuf(
             *tm.context->expectedEntryId, state);
-    LOG(DEBUG, "LogCabin: DroppingTable entryId: %lu", entryId);
+    LOG(DEBUG, "LogCabin: DropTable entryId: %lu", entryId);
 
     return complete(entryId);
 }
@@ -585,13 +630,138 @@ TableManager::DropTable::complete(EntryId entryId)
         name, tableId, tm.size(lock));
 
     EntryId tableInfoLogId = tm.getTableInfoLogId(lock, tableId);
-    EntryId tableIncompleteOpLogId =
-                tm.getTableIncompleteOpLogId(lock, tableId);
     vector<EntryId> invalidates {tableInfoLogId, entryId};
-    if (tableIncompleteOpLogId)
-        invalidates.push_back(tableIncompleteOpLogId);
     tm.context->logCabinHelper->invalidate(
                 *tm.context->expectedEntryId, invalidates);
+}
+
+void
+TableManager::SplitTablet::execute()
+{
+    ProtoBuf::SplitTablet state;
+    state.set_entry_type("SplitTablet");
+    state.set_name(name);
+    state.set_start_key_hash(startKeyHash);
+    state.set_end_key_hash(endKeyHash);
+    state.set_split_key_hash(splitKeyHash);
+
+    EntryId entryId = tm.context->logCabinHelper->appendProtoBuf(
+            *tm.context->expectedEntryId, state);
+    LOG(DEBUG, "LogCabin: SplitTablet entryId: %lu", entryId);
+
+    complete(entryId);
+}
+
+void
+TableManager::SplitTablet::complete(EntryId entryId)
+{
+    Tables::iterator it(tm.tables.find(name));
+    if (it == tm.tables.end()) {
+        throw NoSuchTable(HERE);
+    }
+    uint64_t tableId = it->second;
+
+    if (startKeyHash >= (splitKeyHash - 1) || splitKeyHash >= endKeyHash) {
+        throw BadSplit(HERE);
+    }
+
+    Tablet& tablet = tm.find(lock, tableId, startKeyHash, endKeyHash);
+    Tablet newTablet = tablet;
+    newTablet.startKeyHash = splitKeyHash;
+    tablet.endKeyHash = splitKeyHash - 1;
+    tm.map.push_back(newTablet);
+
+    // Tell the master to split the tablet
+    MasterClient::splitMasterTablet(tm.context, tablet.serverId, tableId,
+                                    startKeyHash, endKeyHash, splitKeyHash);
+
+    EntryId oldTableInfoEntryId = tm.getTableInfoLogId(lock, tableId);
+    vector<EntryId> invalidates {oldTableInfoEntryId, entryId};
+
+    ProtoBuf::TableInformation tableInfo;
+    // TODO(ankitak): After ongaro has added cursor API to LogCabin,
+    // use that to read in only one entry here.
+    vector<Entry> entriesRead =
+            tm.context->logCabinLog->read(oldTableInfoEntryId);
+    tm.context->logCabinHelper->parseProtoBufFromEntry(
+            entriesRead[0], tableInfo);
+
+    for (uint32_t i = 0; i < tableInfo.server_span(); i++) {
+        ProtoBuf::TableInformation::TabletInfo& tabletInfo =
+                *(tableInfo.mutable_tablet_info(i));
+        if (startKeyHash != tabletInfo.start_key_hash() ||
+                endKeyHash != tabletInfo.end_key_hash()) {
+            continue;
+        }
+        tabletInfo.set_end_key_hash(splitKeyHash - 1);
+
+        ProtoBuf::TableInformation::TabletInfo&
+                newTablet(*tableInfo.add_tablet_info());
+        newTablet.set_start_key_hash(splitKeyHash);
+        newTablet.set_end_key_hash(endKeyHash);
+        newTablet.set_master_id(tabletInfo.master_id());
+        newTablet.set_ctime_log_head_id(tabletInfo.ctime_log_head_id());
+        newTablet.set_ctime_log_head_offset(
+                tabletInfo.ctime_log_head_offset());
+    }
+    tableInfo.set_server_span(tableInfo.server_span() + 1);
+
+    EntryId newEntryId = tm.context->logCabinHelper->appendProtoBuf(
+            *tm.context->expectedEntryId, tableInfo, invalidates);
+    LOG(DEBUG, "LogCabin: AliveTable entryId: %lu", newEntryId);
+}
+
+void
+TableManager::TabletRecovered::execute()
+{
+    ProtoBuf::TabletRecovered state;
+    state.set_entry_type("TabletRecovered");
+    state.set_table_id(tableId);
+    state.set_start_key_hash(startKeyHash);
+    state.set_end_key_hash(endKeyHash);
+    state.set_server_id(serverId.getId());
+    state.set_ctime_log_head_id(ctime.getSegmentId());
+    state.set_ctime_log_head_offset(ctime.getSegmentOffset());
+
+    EntryId entryId = tm.context->logCabinHelper->appendProtoBuf(
+            *tm.context->expectedEntryId, state);
+    LOG(DEBUG, "LogCabin: TabletRecovered entryId: %lu", entryId);
+
+    complete(entryId);
+}
+
+void
+TableManager::TabletRecovered::complete(EntryId entryId)
+{
+    tm.modifyTablet(lock, tableId, startKeyHash, endKeyHash,
+                    serverId, Tablet::NORMAL, ctime);
+
+    EntryId oldTableInfoEntryId = tm.getTableInfoLogId(lock, tableId);
+    vector<EntryId> invalidates {oldTableInfoEntryId, entryId};
+
+    ProtoBuf::TableInformation tableInfo;
+    // TODO(ankitak): After ongaro has added cursor API to LogCabin,
+    // use that to read in only one entry here.
+    vector<Entry> entriesRead =
+            tm.context->logCabinLog->read(oldTableInfoEntryId);
+    tm.context->logCabinHelper->parseProtoBufFromEntry(
+            entriesRead[0], tableInfo);
+
+    for (uint32_t i = 0; i < tableInfo.server_span(); i++) {
+        ProtoBuf::TableInformation::TabletInfo& tabletInfo =
+                *(tableInfo.mutable_tablet_info(i));
+        if (startKeyHash != tabletInfo.start_key_hash() ||
+                endKeyHash != tabletInfo.end_key_hash()) {
+            continue;
+        }
+        tabletInfo.set_master_id(serverId.getId());
+        tabletInfo.set_ctime_log_head_id(ctime.getSegmentId());
+        tabletInfo.set_ctime_log_head_offset(ctime.getSegmentOffset());
+    }
+
+    EntryId newEntryId = tm.context->logCabinHelper->appendProtoBuf(
+            *tm.context->expectedEntryId, tableInfo, invalidates);
+    LOG(DEBUG, "LogCabin: AliveTable entryId: %lu", newEntryId);
 }
 
 /**
@@ -676,31 +846,6 @@ TableManager::getTableInfoLogId(const Lock& lock, uint64_t tableId)
         throw NoSuchTable(HERE);
     }
     return (it->second).tableInfoLogId;
-}
-
-/**
- * Get the LogCabin EntryId corresponding to the current (incomplete)
- * operation happening on this table.
- *
- * \param lock
- *      Explicity needs caller to hold a lock.
- * \param tableId
- *      Table id of the table for which we want the LogCabin EntryId.
- *
- * \return
- *      LogCabin EntryId corresponding to the current (incomplete)
- *      operation happening on this table.
- * \throw NoSuchTable
- *      If the arguments do not identify a table currently in the tablesInfo.
- */
-EntryId
-TableManager::getTableIncompleteOpLogId(const Lock& lock, uint64_t tableId)
-{
-    TablesLogIds::iterator it(tablesLogIds.find(tableId));
-    if (it == tablesLogIds.end()) {
-        throw NoSuchTable(HERE);
-    }
-    return (it->second).tableIncompleteOpLogId;
 }
 
 /**
@@ -838,26 +983,6 @@ TableManager::setTableInfoLogId(const Lock& lock,
                                 EntryId entryId)
 {
     tablesLogIds[tableId].tableInfoLogId = entryId;
-}
-
-/**
- * Add the LogCabin EntryId corresponding to the current (incomplete)
- * operation happening on this table.
- *
- * \param lock
- *      Explicity needs caller to hold a lock.
- * \param tableId
- *      Table id of the table for which we are storing the LogCabin EntryId.
- *  \param entryId
- *      LogCabin EntryId corresponding to the current (incomplete)
- *      operation happening on this table.
- */
-void
-TableManager::setTableIncompleteOpLogId(const Lock& lock,
-                                        uint64_t tableId,
-                                        EntryId entryId)
-{
-    tablesLogIds[tableId].tableIncompleteOpLogId = entryId;
 }
 
 /// Return the number of Tablets in the tablet map.

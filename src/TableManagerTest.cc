@@ -18,9 +18,8 @@
 #include <queue>
 
 #include "TestUtil.h"
-#include "TableManager.h"
-
 #include "MockCluster.h"
+#include "TableManager.h"
 
 namespace RAMCloud {
 
@@ -220,11 +219,11 @@ TEST_F(TableManagerTest, createTable_LogCabin) {
     string searchString;
 
     ProtoBuf::TableInformation creatingTable;
-    searchString = "execute: LogCabin: CreatingTable entryId: ";
+    searchString = "execute: LogCabin: CreateTable entryId: ";
     ASSERT_NO_THROW(findEntryId(searchString));
     logCabinHelper->parseProtoBufFromEntry(
             entriesRead[findEntryId(searchString)], creatingTable);
-    EXPECT_EQ("entry_type: \"CreatingTable\"\n"
+    EXPECT_EQ("entry_type: \"CreateTable\"\n"
               "name: \"foo\"\ntable_id: 0\nserver_span: 2\n"
               "tablet_info {\n  "
               "start_key_hash: 0\n  end_key_hash: 9223372036854775807\n  "
@@ -254,104 +253,6 @@ TEST_F(TableManagerTest, createTable_LogCabin) {
               "master_id: 2\n  "
               "ctime_log_head_id: 0\n  ctime_log_head_offset: 0\n}\n",
                stableTable.DebugString());
-}
-
-TEST_F(TableManagerTest, recoverAliveTable) {
-    // Enlist master
-    enlistMaster();
-
-    ServerConfig master2Config = masterConfig;
-    master2Config.localLocator = "mock:host=master2";
-    MasterService& master2 = *cluster.addServer(master2Config)->master;
-
-    ProtoBuf::TableInformation state;
-    state.set_entry_type("AliveTable");
-    state.set_name("foo");
-    state.set_table_id(0);
-    state.set_server_span(2);
-
-    ProtoBuf::TableInformation::TabletInfo& tablet1(*state.add_tablet_info());
-    tablet1.set_start_key_hash(0UL);
-    tablet1.set_end_key_hash(9223372036854775807UL);
-    tablet1.set_master_id(master->serverId.getId());
-    tablet1.set_ctime_log_head_id(0);
-    tablet1.set_ctime_log_head_offset(0);
-
-    ProtoBuf::TableInformation::TabletInfo& tablet2(*state.add_tablet_info());
-    tablet2.set_start_key_hash(9223372036854775808UL);
-    tablet2.set_end_key_hash(18446744073709551615UL);
-    tablet2.set_master_id(master2.serverId.getId());
-    tablet2.set_ctime_log_head_id(0);
-    tablet2.set_ctime_log_head_offset(0);
-
-    EntryId entryId = logCabinHelper->appendProtoBuf(
-            *service->context->expectedEntryId, state);
-
-    TestLog::Enable _;
-    tableManager->recoverAliveTable(&state, entryId);
-
-    EXPECT_EQ("Tablet { tableId: 0 startKeyHash: 0 "
-              "endKeyHash: 9223372036854775807 "
-              "serverId: 1.0 status: NORMAL "
-              "ctime: 0, 0 } "
-              "Tablet { tableId: 0 startKeyHash: 9223372036854775808 "
-              "endKeyHash: 18446744073709551615 "
-              "serverId: 2.0 status: NORMAL "
-              "ctime: 0, 0 }",
-              tableManager->debugString());
-
-    // The masters shouldn't actually own the tablets since the
-    // recoverAliveTable() call adds the tablets only to the local tablet map
-    // and doesn't assign them to the masters.
-    EXPECT_EQ(0U, master->tabletManager.getCount());
-    EXPECT_EQ(0U, master2.tabletManager.getCount());
-}
-
-TEST_F(TableManagerTest, recoverCreateTable) {
-    // Enlist master
-    enlistMaster();
-
-    ServerConfig master2Config = masterConfig;
-    master2Config.localLocator = "mock:host=master2";
-    MasterService& master2 = *cluster.addServer(master2Config)->master;
-
-    ProtoBuf::TableInformation state;
-    state.set_entry_type("CreatingTable");
-    state.set_name("foo");
-    state.set_table_id(0);
-    state.set_server_span(2);
-
-    ProtoBuf::TableInformation::TabletInfo& tablet1(*state.add_tablet_info());
-    tablet1.set_start_key_hash(0UL);
-    tablet1.set_end_key_hash(9223372036854775807UL);
-    tablet1.set_master_id(master->serverId.getId());
-    tablet1.set_ctime_log_head_id(0);
-    tablet1.set_ctime_log_head_offset(0);
-
-    ProtoBuf::TableInformation::TabletInfo& tablet2(*state.add_tablet_info());
-    tablet2.set_start_key_hash(9223372036854775808UL);
-    tablet2.set_end_key_hash(18446744073709551615UL);
-    tablet2.set_master_id(master2.serverId.getId());
-    tablet2.set_ctime_log_head_id(0);
-    tablet2.set_ctime_log_head_offset(0);
-
-    EntryId entryId = logCabinHelper->appendProtoBuf(
-            *service->context->expectedEntryId, state);
-
-    TestLog::Enable _;
-    tableManager->recoverCreateTable(&state, entryId);
-
-    EXPECT_EQ("Tablet { tableId: 0 startKeyHash: 0 "
-              "endKeyHash: 9223372036854775807 "
-              "serverId: 1.0 status: NORMAL "
-              "ctime: 0, 0 } "
-              "Tablet { tableId: 0 startKeyHash: 9223372036854775808 "
-              "endKeyHash: 18446744073709551615 "
-              "serverId: 2.0 status: NORMAL "
-              "ctime: 0, 0 }",
-              tableManager->debugString());
-    EXPECT_EQ(1U, master->tabletManager.getCount());
-    EXPECT_EQ(1U, master2.tabletManager.getCount());
 }
 
 TEST_F(TableManagerTest, dropTable) {
@@ -412,43 +313,13 @@ TEST_F(TableManagerTest, dropTable_LogCabin) {
     string searchString;
 
     ProtoBuf::TableDrop dropTable;
-    searchString = "execute: LogCabin: DroppingTable entryId: ";
+    searchString = "execute: LogCabin: DropTable entryId: ";
     ASSERT_NO_THROW(findEntryId(searchString));
     logCabinHelper->parseProtoBufFromEntry(
             entriesRead[findEntryId(searchString)], dropTable);
-    EXPECT_EQ("entry_type: \"DroppingTable\"\n"
+    EXPECT_EQ("entry_type: \"DropTable\"\n"
               "name: \"bar\"\n",
                dropTable.DebugString());
-}
-
-TEST_F(TableManagerTest, recoverDropTable) {
-    // Enlist master
-    enlistMaster();
-
-    ServerConfig master2Config = masterConfig;
-    master2Config.localLocator = "mock:host=master2";
-    MasterService& master2 = *cluster.addServer(master2Config)->master;
-
-    // Add a table, so the tests won't just compare against an empty tabletMap
-    tableManager->createTable("foo", 1);
-
-    // Test dropping a table that is spread across one master
-    tableManager->createTable("bar", 1);
-    EXPECT_EQ(1U, master2.tabletManager.getCount());
-
-    ProtoBuf::TableDrop state;
-    state.set_entry_type("DroppingTable");
-    state.set_name("bar");
-    EntryId entryId = logCabinHelper->appendProtoBuf(
-            *service->context->expectedEntryId, state);
-
-    tableManager->recoverDropTable(&state, entryId);
-    EXPECT_EQ("Tablet { tableId: 0 startKeyHash: 0 "
-              "endKeyHash: 18446744073709551615 "
-              "serverId: 1.0 status: NORMAL "
-              "ctime: 0, 0 }",
-              tableManager->debugString());
-    EXPECT_EQ(0U, master2.tabletManager.getCount());
 }
 
 TEST_F(TableManagerTest, getTableId) {
@@ -466,6 +337,39 @@ TEST_F(TableManagerTest, getTableId) {
     // Try to get the id for a non-existing table
     EXPECT_THROW(tableManager->getTableId("bar"),
                  TableManager::NoSuchTable);
+}
+
+TEST_F(TableManagerTest, markAllTabletsRecovering) {
+    Lock lock(mutex);     // Used to trick internal calls.
+    tableManager->addTablet(lock, {0, 1, 6, {0, 1}, Tablet::NORMAL, {0, 5}});
+    tableManager->addTablet(lock, {1, 2, 7, {1, 1}, Tablet::NORMAL, {1, 6}});
+    tableManager->addTablet(lock, {0, 3, 8, {0, 1}, Tablet::NORMAL, {2, 7}});
+
+    EXPECT_EQ(0lu,
+        tableManager->markAllTabletsRecovering({2, 1}).size());
+
+    auto tablets = tableManager->markAllTabletsRecovering({0, 1});
+    EXPECT_EQ(2lu, tablets.size());
+    foreach (const auto& tablet, tablets) {
+        Tablet inMap = tableManager->getTablet(lock, tablet.tableId,
+                                               tablet.startKeyHash,
+                                               tablet.endKeyHash);
+        EXPECT_EQ(ServerId(0, 1), tablet.serverId);
+        EXPECT_EQ(ServerId(0, 1), inMap.serverId);
+        EXPECT_EQ(Tablet::RECOVERING, tablet.status);
+        EXPECT_EQ(Tablet::RECOVERING, inMap.status);
+    }
+
+    tablets = tableManager->markAllTabletsRecovering({1, 1});
+    ASSERT_EQ(1lu, tablets.size());
+    auto tablet = tablets[0];
+    Tablet inMap = tableManager->getTablet(lock, tablet.tableId,
+                                           tablet.startKeyHash,
+                                           tablet.endKeyHash);
+    EXPECT_EQ(ServerId(1, 1), tablet.serverId);
+    EXPECT_EQ(ServerId(1, 1), inMap.serverId);
+    EXPECT_EQ(Tablet::RECOVERING, tablet.status);
+    EXPECT_EQ(Tablet::RECOVERING, inMap.status);
 }
 
 static bool
@@ -561,39 +465,6 @@ TEST_F(TableManagerTest, serialize) {
               tablets.ShortDebugString());
 }
 
-TEST_F(TableManagerTest, setStatusForServer) {
-    Lock lock(mutex);     // Used to trick internal calls.
-    tableManager->addTablet(lock, {0, 1, 6, {0, 1}, Tablet::NORMAL, {0, 5}});
-    tableManager->addTablet(lock, {1, 2, 7, {1, 1}, Tablet::NORMAL, {1, 6}});
-    tableManager->addTablet(lock, {0, 3, 8, {0, 1}, Tablet::NORMAL, {2, 7}});
-
-    EXPECT_EQ(0lu,
-        tableManager->setStatusForServer({2, 1}, Tablet::RECOVERING).size());
-
-    auto tablets = tableManager->setStatusForServer({0, 1}, Tablet::RECOVERING);
-    EXPECT_EQ(2lu, tablets.size());
-    foreach (const auto& tablet, tablets) {
-        Tablet inMap = tableManager->getTablet(lock, tablet.tableId,
-                                     tablet.startKeyHash,
-                                     tablet.endKeyHash);
-        EXPECT_EQ(ServerId(0, 1), tablet.serverId);
-        EXPECT_EQ(ServerId(0, 1), inMap.serverId);
-        EXPECT_EQ(Tablet::RECOVERING, tablet.status);
-        EXPECT_EQ(Tablet::RECOVERING, inMap.status);
-    }
-
-    tablets = tableManager->setStatusForServer({1, 1}, Tablet::RECOVERING);
-    ASSERT_EQ(1lu, tablets.size());
-    auto tablet = tablets[0];
-    Tablet inMap = tableManager->getTablet(lock, tablet.tableId,
-                                 tablet.startKeyHash,
-                                 tablet.endKeyHash);
-    EXPECT_EQ(ServerId(1, 1), tablet.serverId);
-    EXPECT_EQ(ServerId(1, 1), inMap.serverId);
-    EXPECT_EQ(Tablet::RECOVERING, tablet.status);
-    EXPECT_EQ(Tablet::RECOVERING, inMap.status);
-}
-
 TEST_F(TableManagerTest, splitTablet) {
     enlistMaster();
 
@@ -636,6 +507,277 @@ TEST_F(TableManagerTest, splitTablet) {
 
     EXPECT_THROW(tableManager->splitTablet("bar", 0, ~0ul, ~0ul / 2),
                  TableManager::NoSuchTable);
+}
+
+TEST_F(TableManagerTest, splitTablet_LogCabin) {
+    enlistMaster();
+
+    tableManager->createTable("foo", 1);
+
+    TestLog::Enable _;
+    tableManager->splitTablet("foo", 0, ~0lu, ~0lu / 2);
+
+    vector<Entry> entriesRead = logCabinLog->read(0);
+    string searchString;
+
+    ProtoBuf::SplitTablet splitTablet;
+    searchString = "execute: LogCabin: SplitTablet entryId: ";
+    ASSERT_NO_THROW(findEntryId(searchString));
+    logCabinHelper->parseProtoBufFromEntry(
+            entriesRead[findEntryId(searchString)], splitTablet);
+    EXPECT_EQ("entry_type: \"SplitTablet\"\n"
+              "name: \"foo\"\n"
+              "start_key_hash: 0\nend_key_hash: 18446744073709551615\n"
+              "split_key_hash: 9223372036854775807\n",
+               splitTablet.DebugString());
+
+    ProtoBuf::TableInformation aliveTableNew;
+    searchString = "complete: LogCabin: AliveTable entryId: ";
+    ASSERT_NO_THROW(findEntryId(searchString));
+    logCabinHelper->parseProtoBufFromEntry(
+            entriesRead[findEntryId(searchString)], aliveTableNew);
+    EXPECT_EQ("entry_type: \"AliveTable\"\n"
+              "name: \"foo\"\ntable_id: 0\nserver_span: 2\n"
+              "tablet_info {\n  start_key_hash: 0\n  "
+              "end_key_hash: 9223372036854775806\n  master_id: 1\n  "
+              "ctime_log_head_id: 0\n  ctime_log_head_offset: 0\n}\n"
+              "tablet_info {\n  start_key_hash: 9223372036854775807\n  "
+              "end_key_hash: 18446744073709551615\n  master_id: 1\n  "
+              "ctime_log_head_id: 0\n  ctime_log_head_offset: 0\n}\n",
+              aliveTableNew.DebugString());
+}
+
+TEST_F(TableManagerTest, tabletRecovered_LogCabin) {
+    // Enlist master
+    enlistMaster();
+
+    ServerConfig master2Config = masterConfig;
+    master2Config.localLocator = "mock:host=master2";
+    MasterService& master2 = *cluster.addServer(master2Config)->master;
+
+    tableManager->createTable("foo", 1);
+
+    TestLog::Enable _;
+    tableManager->tabletRecovered(0UL, 0UL, ~0UL, master2.serverId,
+                                  Log::Position(0UL, 0U));
+
+    vector<Entry> entriesRead = logCabinLog->read(0);
+    string searchString;
+
+    ProtoBuf::TabletRecovered tabletInfo;
+    searchString = "execute: LogCabin: TabletRecovered entryId: ";
+    ASSERT_NO_THROW(findEntryId(searchString));
+    logCabinHelper->parseProtoBufFromEntry(
+            entriesRead[findEntryId(searchString)], tabletInfo);
+    EXPECT_EQ("entry_type: \"TabletRecovered\"\n"
+              "table_id: 0\n"
+              "start_key_hash: 0\nend_key_hash: 18446744073709551615\n"
+              "server_id: 2\n"
+              "ctime_log_head_id: 0\nctime_log_head_offset: 0\n",
+               tabletInfo.DebugString());
+
+    ProtoBuf::TableInformation aliveTableNew;
+    searchString = "complete: LogCabin: AliveTable entryId: ";
+    ASSERT_NO_THROW(findEntryId(searchString));
+    logCabinHelper->parseProtoBufFromEntry(
+            entriesRead[findEntryId(searchString)], aliveTableNew);
+    EXPECT_EQ("entry_type: \"AliveTable\"\n"
+              "name: \"foo\"\ntable_id: 0\nserver_span: 1\n"
+              "tablet_info {\n  start_key_hash: 0\n  "
+              "end_key_hash: 18446744073709551615\n  master_id: 2\n  "
+              "ctime_log_head_id: 0\n  ctime_log_head_offset: 0\n}\n",
+              aliveTableNew.DebugString());
+}
+
+/////////////////////////////////////////////////////////////////////////////
+///////////////////// Unit tests for recovery methods ///////////////////////
+/////////////////////////////////////////////////////////////////////////////
+
+TEST_F(TableManagerTest, recoverAliveTable) {
+    // Enlist master
+    enlistMaster();
+
+    ServerConfig master2Config = masterConfig;
+    master2Config.localLocator = "mock:host=master2";
+    MasterService& master2 = *cluster.addServer(master2Config)->master;
+
+    ProtoBuf::TableInformation state;
+    state.set_entry_type("AliveTable");
+    state.set_name("foo");
+    state.set_table_id(0);
+    state.set_server_span(2);
+
+    ProtoBuf::TableInformation::TabletInfo& tablet1(*state.add_tablet_info());
+    tablet1.set_start_key_hash(0);
+    tablet1.set_end_key_hash(9223372036854775807UL);
+    tablet1.set_master_id(master->serverId.getId());
+    tablet1.set_ctime_log_head_id(0);
+    tablet1.set_ctime_log_head_offset(0);
+
+    ProtoBuf::TableInformation::TabletInfo& tablet2(*state.add_tablet_info());
+    tablet2.set_start_key_hash(9223372036854775808UL);
+    tablet2.set_end_key_hash(~0lu);
+    tablet2.set_master_id(master2.serverId.getId());
+    tablet2.set_ctime_log_head_id(0);
+    tablet2.set_ctime_log_head_offset(0);
+
+    EntryId entryId = logCabinHelper->appendProtoBuf(
+            *service->context->expectedEntryId, state);
+
+    TestLog::Enable _;
+    tableManager->recoverAliveTable(&state, entryId);
+
+    EXPECT_EQ("Tablet { tableId: 0 startKeyHash: 0 "
+              "endKeyHash: 9223372036854775807 "
+              "serverId: 1.0 status: NORMAL "
+              "ctime: 0, 0 } "
+              "Tablet { tableId: 0 startKeyHash: 9223372036854775808 "
+              "endKeyHash: 18446744073709551615 "
+              "serverId: 2.0 status: NORMAL "
+              "ctime: 0, 0 }",
+              tableManager->debugString());
+
+    // The masters shouldn't actually own the tablets since the
+    // recoverAliveTable() call adds the tablets only to the local tablet map
+    // and doesn't assign them to the masters.
+    EXPECT_EQ(0U, master->tabletManager.getCount());
+    EXPECT_EQ(0U, master2.tabletManager.getCount());
+}
+
+TEST_F(TableManagerTest, recoverCreateTable) {
+    // Enlist master
+    enlistMaster();
+
+    ServerConfig master2Config = masterConfig;
+    master2Config.localLocator = "mock:host=master2";
+    MasterService& master2 = *cluster.addServer(master2Config)->master;
+
+    ProtoBuf::TableInformation state;
+    state.set_entry_type("CreateTable");
+    state.set_name("foo");
+    state.set_table_id(0);
+    state.set_server_span(2);
+
+    ProtoBuf::TableInformation::TabletInfo& tablet1(*state.add_tablet_info());
+    tablet1.set_start_key_hash(0);
+    tablet1.set_end_key_hash(9223372036854775807UL);
+    tablet1.set_master_id(master->serverId.getId());
+    tablet1.set_ctime_log_head_id(0);
+    tablet1.set_ctime_log_head_offset(0);
+
+    ProtoBuf::TableInformation::TabletInfo& tablet2(*state.add_tablet_info());
+    tablet2.set_start_key_hash(9223372036854775808UL);
+    tablet2.set_end_key_hash(~0lu);
+    tablet2.set_master_id(master2.serverId.getId());
+    tablet2.set_ctime_log_head_id(0);
+    tablet2.set_ctime_log_head_offset(0);
+
+    EntryId entryId = logCabinHelper->appendProtoBuf(
+            *service->context->expectedEntryId, state);
+
+    TestLog::Enable _;
+    tableManager->recoverCreateTable(&state, entryId);
+
+    EXPECT_EQ("Tablet { tableId: 0 startKeyHash: 0 "
+              "endKeyHash: 9223372036854775807 "
+              "serverId: 1.0 status: NORMAL "
+              "ctime: 0, 0 } "
+              "Tablet { tableId: 0 startKeyHash: 9223372036854775808 "
+              "endKeyHash: 18446744073709551615 "
+              "serverId: 2.0 status: NORMAL "
+              "ctime: 0, 0 }",
+              tableManager->debugString());
+    EXPECT_EQ(1U, master->tabletManager.getCount());
+    EXPECT_EQ(1U, master2.tabletManager.getCount());
+}
+
+TEST_F(TableManagerTest, recoverDropTable) {
+    // Enlist master
+    enlistMaster();
+
+    ServerConfig master2Config = masterConfig;
+    master2Config.localLocator = "mock:host=master2";
+    MasterService& master2 = *cluster.addServer(master2Config)->master;
+
+    // Add a table, so the tests won't just compare against an empty tabletMap
+    tableManager->createTable("foo", 1);
+
+    // Test dropping a table that is spread across one master
+    tableManager->createTable("bar", 1);
+    EXPECT_EQ(1U, master2.tabletManager.getCount());
+
+    ProtoBuf::TableDrop state;
+    state.set_entry_type("DropTable");
+    state.set_name("bar");
+    EntryId entryId = logCabinHelper->appendProtoBuf(
+            *service->context->expectedEntryId, state);
+
+    tableManager->recoverDropTable(&state, entryId);
+    EXPECT_EQ("Tablet { tableId: 0 startKeyHash: 0 "
+              "endKeyHash: 18446744073709551615 "
+              "serverId: 1.0 status: NORMAL "
+              "ctime: 0, 0 }",
+              tableManager->debugString());
+    EXPECT_EQ(0U, master2.tabletManager.getCount());
+}
+
+TEST_F(TableManagerTest, recoverSplitTablet) {
+    enlistMaster();
+
+    tableManager->createTable("foo", 1);
+
+    ProtoBuf::SplitTablet state;
+    state.set_entry_type("SplitTablet");
+    state.set_name("foo");
+    state.set_start_key_hash(0);
+    state.set_end_key_hash(~0lu);
+    state.set_split_key_hash(~0lu / 2);
+    EntryId entryId = logCabinHelper->appendProtoBuf(
+            *service->context->expectedEntryId, state);
+
+    tableManager->recoverSplitTablet(&state, entryId);
+
+    EXPECT_EQ("Tablet { tableId: 0 startKeyHash: 0 "
+              "endKeyHash: 9223372036854775806 "
+              "serverId: 1.0 status: NORMAL "
+              "ctime: 0, 0 } "
+              "Tablet { tableId: 0 "
+              "startKeyHash: 9223372036854775807 "
+              "endKeyHash: 18446744073709551615 "
+              "serverId: 1.0 status: NORMAL "
+              "ctime: 0, 0 }",
+              tableManager->debugString());
+}
+
+TEST_F(TableManagerTest, recoverTabletRecovered) {
+    // Enlist master
+    enlistMaster();
+
+    ServerConfig master2Config = masterConfig;
+    master2Config.localLocator = "mock:host=master2";
+    MasterService& master2 = *cluster.addServer(master2Config)->master;
+
+    tableManager->createTable("foo", 1);
+
+    ProtoBuf::TabletRecovered state;
+    state.set_entry_type("TabletRecovered");
+    state.set_table_id(0);
+    state.set_start_key_hash(0);
+    state.set_end_key_hash(~0lu);
+    state.set_server_id(master2.serverId.getId());
+    state.set_ctime_log_head_id(0);
+    state.set_ctime_log_head_offset(0);
+    EntryId entryId = logCabinHelper->appendProtoBuf(
+            *service->context->expectedEntryId, state);
+
+    TestLog::Enable _;
+    tableManager->recoverTabletRecovered(&state, entryId);
+
+    EXPECT_EQ("Tablet { tableId: 0 "
+              "startKeyHash: 0 endKeyHash: 18446744073709551615 "
+              "serverId: 2.0 "
+              "status: NORMAL ctime: 0, 0 }",
+              tableManager->debugString());
 }
 
 /////////////////////////////////////////////////////////////////////////////

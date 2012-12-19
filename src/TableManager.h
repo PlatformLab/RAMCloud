@@ -19,8 +19,10 @@
 #include <Client/Client.h>
 #include <mutex>
 
+#include "SplitTablet.pb.h"
 #include "TableDrop.pb.h"
 #include "TableInformation.pb.h"
+#include "TabletRecovered.pb.h"
 #include "Tablets.pb.h"
 
 #include "Common.h"
@@ -78,23 +80,21 @@ class TableManager {
     string debugString() const;
     void dropTable(const char* name);
     uint64_t getTableId(const char* name);
-    void modifyTabletOnRecovery(uint64_t tableId,
-                                uint64_t startKeyHash,
-                                uint64_t endKeyHash,
-                                ServerId serverId,
-                                Tablet::Status status,
-                                Log::Position ctime);
+    vector<Tablet> markAllTabletsRecovering(ServerId serverId);
     void reassignTabletOwnership(ServerId newOwner, uint64_t tableId,
                                  uint64_t startKeyHash, uint64_t endKeyHash,
                                  uint64_t ctimeSegmentId,
                                  uint64_t ctimeSegmentOffset);
     void serialize(AbstractServerList& serverList,
                    ProtoBuf::Tablets& tablets) const;
-    vector<Tablet> setStatusForServer(ServerId serverId,
-                                      Tablet::Status status);
     void splitTablet(const char* name,
                      uint64_t startKeyHash, uint64_t endKeyHash,
                      uint64_t splitKeyHash);
+    void tabletRecovered(uint64_t tableId,
+                         uint64_t startKeyHash,
+                         uint64_t endKeyHash,
+                         ServerId serverId,
+                         Log::Position ctime);
 
     void recoverAliveTable(ProtoBuf::TableInformation* state,
                            EntryId entryId);
@@ -102,6 +102,10 @@ class TableManager {
                             EntryId entryId);
     void recoverDropTable(ProtoBuf::TableDrop* state,
                           EntryId entryId);
+    void recoverSplitTablet(ProtoBuf::SplitTablet* state,
+                            EntryId entryId);
+    void recoverTabletRecovered(ProtoBuf::TabletRecovered* state,
+                                EntryId entryId);
 
     /**
      * Provides monitor-style protection for all operations on the tablet map.
@@ -192,6 +196,110 @@ class TableManager {
         DISALLOW_COPY_AND_ASSIGN(DropTable);
     };
 
+    /**
+     * Defines methods and stores data to split a tablet in the tablet map.
+     */
+    class SplitTablet {
+      public:
+        SplitTablet(TableManager &tm,
+                    const Lock& lock,
+                    const char* name,
+                    uint64_t startKeyHash,
+                    uint64_t endKeyHash,
+                    uint64_t splitKeyHash)
+            : tm(tm), lock(lock),
+              name(name),
+              startKeyHash(startKeyHash),
+              endKeyHash(endKeyHash),
+              splitKeyHash(splitKeyHash) {}
+        void execute();
+        void complete(EntryId entryId);
+
+      private:
+        /**
+         * Reference to the instance of TableManager initializing this class.
+         */
+        TableManager &tm;
+        /**
+         * Explicitly needs a TableManager lock.
+         */
+        const Lock& lock;
+        /**
+         * Name for the table containing the tablet.
+         */
+        const char* name;
+        /**
+         * First key hash that is part of range of key hashes for the tablet.
+         */
+        uint64_t startKeyHash;
+        /**
+         * Last key hash that is part of range of key hashes for the tablet.
+         */
+        uint64_t endKeyHash;
+        /**
+         * Key hash to used to partition the tablet into two. Keys less than
+         * \a splitKeyHash belong to one Tablet, keys greater than or equal to
+         * \a splitKeyHash belong to the other.
+         */
+        uint64_t splitKeyHash;
+        DISALLOW_COPY_AND_ASSIGN(SplitTablet);
+    };
+
+    /**
+     * Defines methods and stores data to record the new master of a tablet
+     * after it was recovered by MasterRecoveryManager.
+     */
+    class TabletRecovered {
+      public:
+        TabletRecovered(TableManager &tm,
+                        const Lock& lock,
+                        uint64_t tableId,
+                        uint64_t startKeyHash,
+                        uint64_t endKeyHash,
+                        ServerId serverId,
+                        Log::Position ctime)
+            : tm(tm), lock(lock),
+              tableId(tableId),
+              startKeyHash(startKeyHash),
+              endKeyHash(endKeyHash),
+              serverId(serverId),
+              ctime(ctime) {}
+        void execute();
+        void complete(EntryId entryId);
+
+      private:
+        /**
+         * Reference to the instance of TableManager initializing this class.
+         */
+        TableManager &tm;
+        /**
+         * Explicitly needs a TableManager lock.
+         */
+        const Lock& lock;
+        /**
+         * Table id of the tablet.
+         */
+        uint64_t tableId;
+        /**
+         * First key hash that is part of range of key hashes for the tablet.
+         */
+        uint64_t startKeyHash;
+        /**
+         * Last key hash that is part of range of key hashes for the tablet.
+         */
+        uint64_t endKeyHash;
+        /**
+         * Tablet is updated to indicate that it is owned by \a serverId.
+         */
+        ServerId serverId;
+        /**
+         * Tablet is updated with this ctime indicating any object earlier
+         * than \a ctime in its log cannot contain objects belonging to it.
+         */
+        Log::Position ctime;
+        DISALLOW_COPY_AND_ASSIGN(TabletRecovered);
+    };
+
     void addTablet(const Lock& lock, const Tablet& tablet);
     Tablet& find(const Lock& lock,
                  uint64_t tableId,
@@ -203,8 +311,6 @@ class TableManager {
                         uint64_t endKeyHash) const;
     EntryId getTableInfoLogId(const Lock& lock,
                               uint64_t tableId);
-    EntryId getTableIncompleteOpLogId(const Lock& lock,
-                                      uint64_t tableId);
     Tablet getTablet(const Lock& lock,
                      uint64_t tableId,
                      uint64_t startKeyHash,
@@ -221,9 +327,6 @@ class TableManager {
     void setTableInfoLogId(const Lock& lock,
                            uint64_t tableId,
                            EntryId entryId);
-    void setTableIncompleteOpLogId(const Lock& lock,
-                                   uint64_t tableId,
-                                   EntryId entryId);
     size_t size(const Lock& lock) const;
 
     /**
