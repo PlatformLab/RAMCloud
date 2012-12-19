@@ -45,7 +45,7 @@ namespace RAMCloud {
  */
 SegmentManager::SegmentManager(Context* context,
                                const ServerConfig* config,
-                               ServerId logId,
+                               ServerId* logId,
                                SegletAllocator& allocator,
                                ReplicaManager& replicaManager)
     : context(context),
@@ -728,7 +728,7 @@ SegmentManager::freeSegment(LogSegment* segment, bool waitForDigest, Lock& lock)
 void
 SegmentManager::writeHeader(LogSegment* segment)
 {
-    SegmentHeader header(*logId, segment->id, segmentSize);
+    SegmentHeader header(**logId, segment->id, segmentSize);
     bool success = segment->append(LOG_ENTRY_TYPE_SEGHEADER,
                                    &header, sizeof(header));
     if (!success)

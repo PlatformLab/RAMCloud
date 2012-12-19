@@ -53,9 +53,9 @@ class LogTest : public ::testing::Test {
           serverId(ServerId(57, 0)),
           serverList(&context),
           serverConfig(ServerConfig::forTesting()),
-          replicaManager(&context, serverId, 0, false),
+          replicaManager(&context, &serverId, 0, false),
           allocator(&serverConfig),
-          segmentManager(&context, &serverConfig, serverId,
+          segmentManager(&context, &serverConfig, &serverId,
                          allocator, replicaManager),
           entryHandlers(),
           l(&context, &serverConfig, &entryHandlers,
@@ -70,7 +70,7 @@ class LogTest : public ::testing::Test {
 
 TEST_F(LogTest, constructor) {
     SegletAllocator allocator2(&serverConfig);
-    SegmentManager segmentManager2(&context, &serverConfig, serverId,
+    SegmentManager segmentManager2(&context, &serverConfig, &serverId,
                                    allocator2, replicaManager);
     Log l2(&context, &serverConfig, &entryHandlers,
            &segmentManager2, &replicaManager);
@@ -81,7 +81,7 @@ TEST_F(LogTest, constructor) {
 TEST_F(LogTest, destructor) {
     // ensure that the cleaner is deleted
     SegletAllocator allocator2(&serverConfig);
-    SegmentManager segmentManager2(&context, &serverConfig, serverId,
+    SegmentManager segmentManager2(&context, &serverConfig, &serverId,
                                    allocator2, replicaManager);
     Tub<Log> l2;
     l2.construct(&context, &serverConfig, &entryHandlers,

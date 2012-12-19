@@ -74,7 +74,7 @@ void
 Server::startForTesting(BindTransport& bindTransport)
 {
     ServerId formerServerId = createAndRegisterServices(&bindTransport);
-    enlist(this, formerServerId);
+    enlist(formerServerId);
 }
 
 /**
@@ -99,15 +99,13 @@ Server::run()
     Dispatch& dispatch = *context->dispatch;
     dispatch.currentTime = Cycles::rdtsc();
 
-    // Spin a separate thread to enlist and issue our ServerId to all services
-    // registered with ServiceManager. This lets us handle incoming RPCs while
-    // services are doing any initialization that had to be deferred until the
-    // ServerId was known. Some, like PingService and MembershipService, don't
-    // need a ServerId and can handle RPCs right away. Other ones, suhc as
-    // MasterService, will simply repond with STATUS_RETRY until it learns the
-    // id.
-    std::thread enlister(enlist, this, formerServerId);
-    enlister.detach();
+    // Enlist only once all expensive initialization has been done.
+    // In particular, we must not enlist until we have mmapped all of the
+    // log and hash table memory and have registered any regions with the NIC
+    // (if appropriate). These large virtual memory operations can block
+    // the entire process for seconds at a time, so we must not be expected
+    // to handle RPCs until we're confident such hiccups won't occur.
+    enlist(formerServerId);
 
     while (true)
         dispatch.poll();
@@ -210,15 +208,6 @@ Server::createAndRegisterServices(BindTransport* bindTransport)
  * assigned by the coordinator, and start the failure detector if it is enabled
  * in #config.
  *
- * In normal operation (when not unit testing), this is invoked by a thread spun
- * up in #run. This allows us to ensure that the dispatch loop is running
- * immediately following enlistment. Services that don't need the ServerId can
- * respond right away. Others can return STATUS_RETRY until ready.
- *
- * When unit testing, this is invoked directly from #startForTesting instead.
- *
- * \param server
- *      Pointer to the server that is being enlisted.
  * \param replacingId
  *      If this server has found replicas on storage written by a now-defunct
  *      server then the backup must report the server id that formerly owned
@@ -229,27 +218,30 @@ Server::createAndRegisterServices(BindTransport* bindTransport)
  *      of the backup's replica garbage collection routines.
  */
 void
-Server::enlist(Server* server, ServerId replacingId)
+Server::enlist(ServerId replacingId)
 {
-    server->serverId =
-        CoordinatorClient::enlistServer(server->context,
-                                        replacingId,
-                                        server->config.services,
-                                        server->config.localLocator,
-                                        server->backupReadSpeed);
+    // Enlist with the coordinator just before dedicating this thread
+    // to rpc dispatch. This reduces the window of being unavailable to
+    // service rpcs after enlisting with the coordinator (which can
+    // lead to session open timeouts).
+    serverId = CoordinatorClient::enlistServer(context,
+                                               replacingId,
+                                               config.services,
+                                               config.localLocator,
+                                               backupReadSpeed);
 
-    if (server->master)
-        server->master->setServerId(server->serverId);
-    if (server->backup)
-        server->backup->setServerId(server->serverId);
-    if (server->membership)
-        server->membership->setServerId(server->serverId);
-    if (server->ping)
-        server->ping->setServerId(server->serverId);
+    if (master)
+        master->setServerId(serverId);
+    if (backup)
+        backup->setServerId(serverId);
+    if (membership)
+        membership->setServerId(serverId);
+    if (ping)
+        ping->setServerId(serverId);
 
-    if (server->config.detectFailures) {
-        server->failureDetector.construct(server->context, server->serverId);
-        server->failureDetector->start();
+    if (config.detectFailures) {
+        failureDetector.construct(context, serverId);
+        failureDetector->start();
     }
 }
 

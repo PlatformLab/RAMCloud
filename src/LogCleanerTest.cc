@@ -102,9 +102,9 @@ class LogCleanerTest : public ::testing::Test {
           serverId(ServerId(57, 0)),
           serverList(&context),
           serverConfig(),
-          replicaManager(&context, serverId, 0, false),
+          replicaManager(&context, &serverId, 0, false),
           allocator(serverConfig()),
-          segmentManager(&context, serverConfig(), serverId,
+          segmentManager(&context, serverConfig(), &serverId,
                          allocator, replicaManager),
           entryHandlers(),
           cleaner(&context, serverConfig(), segmentManager,
@@ -124,7 +124,7 @@ TEST_F(LogCleanerTest, constructor) {
 
     // wct 0 => no in-memory cleaning
     SegletAllocator allocator2(serverConfig());
-    SegmentManager segmentManager2(&context, serverConfig(), serverId,
+    SegmentManager segmentManager2(&context, serverConfig(), &serverId,
                                    allocator2, replicaManager);
     serverConfig()->master.disableInMemoryCleaning = false;
     serverConfig()->master.cleanerWriteCostThreshold = 0;
@@ -134,7 +134,7 @@ TEST_F(LogCleanerTest, constructor) {
 
     // ensure in-memory cleaning can be enabled
     SegletAllocator allocator3(serverConfig());
-    SegmentManager segmentManager3(&context, serverConfig(), serverId,
+    SegmentManager segmentManager3(&context, serverConfig(), &serverId,
                                    allocator3, replicaManager);
     serverConfig()->master.disableInMemoryCleaning = false;
     serverConfig()->master.cleanerWriteCostThreshold = 1;

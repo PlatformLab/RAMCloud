@@ -41,7 +41,7 @@ namespace RAMCloud {
  *      replication.
  */
 ReplicaManager::ReplicaManager(Context* context,
-                               const ServerId masterId,
+                               const ServerId* masterId,
                                uint32_t numReplicas,
                                bool useMinCopysets)
     : context(context)
@@ -406,7 +406,7 @@ ReplicaManager::allocateSegment(const Lock& lock,
                                 bool isLogHead)
 {
     LOG(DEBUG, "Allocating new replicated segment for <%s,%lu>",
-        masterId.toString().c_str(), segmentId);
+        masterId->toString().c_str(), segmentId);
     auto* p = replicatedSegmentPool.malloc();
     if (p == NULL)
         DIE("Out of memory");
@@ -414,7 +414,7 @@ ReplicaManager::allocateSegment(const Lock& lock,
         new(p) ReplicatedSegment(context, taskQueue, *backupSelector, *this,
                                  writeRpcsInFlight, *replicationEpoch,
                                  dataMutex, segmentId, segment,
-                                 isLogHead, masterId, numReplicas,
+                                 isLogHead, *masterId, numReplicas,
                                  &replicationCounter);
     replicatedSegmentList.push_back(*replicatedSegment);
 

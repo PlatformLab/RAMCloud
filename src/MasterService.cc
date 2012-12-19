@@ -72,7 +72,7 @@ MasterService::MasterService(Context* context,
     : context(context)
     , config(config)
     , tabletManager()
-    , objectManager()
+    , objectManager(context, &serverId, config, &tabletManager)
     , initCalled(false)
     , maxMultiReadResponseSize(Transport::MAX_RPC_LEN)
     , disableCount(0)
@@ -87,17 +87,12 @@ MasterService::~MasterService()
 void
 MasterService::dispatch(WireFormat::Opcode opcode, Rpc* rpc)
 {
-    if (disableCount  > 0) {
+    assert(initCalled);
+
+    if (disableCount > 0) {
         LOG(NOTICE, "requesting retry of %s request (master disable count %d)",
                 WireFormat::opcodeSymbol(opcode),
                 disableCount.load());
-        prepareErrorResponse(rpc->replyPayload, STATUS_RETRY);
-        return;
-    }
-
-    if (!initCalled) {
-        LOG(DEBUG, "init not yet called; requesting retry of %s request",
-            WireFormat::opcodeSymbol(opcode));
         prepareErrorResponse(rpc->replyPayload, STATUS_RETRY);
         return;
     }
@@ -185,15 +180,19 @@ MasterService::dispatch(WireFormat::Opcode opcode, Rpc* rpc)
 /**
  * Perform once-only initialization for the master service after having
  * enlisted the process with the coordinator.
+ *
+ * Any actions performed here must not block the process or dispatch thread,
+ * otherwise the server may be timed out and declared failed by the coordinator.
  */
 void
 MasterService::initOnceEnlisted()
 {
     assert(!initCalled);
+
     LOG(NOTICE, "My server ID is %s", serverId.toString().c_str());
     metrics->serverId = serverId.getId();
-    objectManager.construct(context, serverId, config, &tabletManager);
-    Fence::sfence();
+    objectManager.initOnceEnlisted();
+
     initCalled = true;
 }
 
@@ -238,8 +237,8 @@ MasterService::enumerate(const WireFormat::Enumerate::Request* reqHdr,
     Enumeration enumeration(reqHdr->tableId, reqHdr->tabletFirstHash,
                             actualTabletStartHash, actualTabletEndHash,
                             &respHdr->tabletFirstHash, iter,
-                            *objectManager->getLog(),
-                            *objectManager->getObjectMap(),
+                            *objectManager.getLog(),
+                            *objectManager.getObjectMap(),
                             *rpc->replyPayload, maxPayloadBytes);
     enumeration.complete();
     respHdr->payloadBytes = rpc->replyPayload->getTotalLength()
@@ -263,7 +262,7 @@ MasterService::getLogMetrics(
     Rpc* rpc)
 {
     ProtoBuf::LogMetrics logMetrics;
-    objectManager->getLog()->getMetrics(logMetrics);
+    objectManager.getLog()->getMetrics(logMetrics);
     respHdr->logMetricsLength = ProtoBuf::serializeToResponse(rpc->replyPayload,
                                                              &logMetrics);
 }
@@ -327,7 +326,7 @@ MasterService::fillWithTestData(
                 downCast<uint16_t>(keyString.length()));
 
         uint64_t newVersion;
-        Status status = objectManager->writeObject(key,
+        Status status = objectManager.writeObject(key,
                                                    buffer,
                                                    &rejectRules,
                                                    &newVersion);
@@ -345,11 +344,11 @@ MasterService::fillWithTestData(
         }
 
         if ((objects % 50) == 0) {
-            objectManager->getReplicaManager()->proceed();
+            objectManager.getReplicaManager()->proceed();
         }
     }
 
-    objectManager->syncWrites();
+    objectManager.syncWrites();
 
     LOG(NOTICE, "Done writing objects.");
 }
@@ -362,7 +361,7 @@ MasterService::getHeadOfLog(const WireFormat::GetHeadOfLog::Request* reqHdr,
                             WireFormat::GetHeadOfLog::Response* respHdr,
                             Rpc* rpc)
 {
-    Log::Position head = objectManager->getLog()->rollHeadOver();
+    Log::Position head = objectManager.getLog()->rollHeadOver();
     respHdr->headSegmentId = head.getSegmentId();
     respHdr->headSegmentOffset = head.getSegmentOffset();
 }
@@ -473,7 +472,7 @@ MasterService::multiRead(const WireFormat::MultiOp::Request* reqHdr,
                        WireFormat::MultiOp::Response::ReadPart();
 
         Buffer buffer;
-        currentResp->status = objectManager->readObject(key,
+        currentResp->status = objectManager.readObject(key,
                                                         &buffer,
                                                         NULL,
                                                         &currentResp->version);
@@ -546,7 +545,7 @@ MasterService::multiWrite(const WireFormat::MultiOp::Request* reqHdr,
                 WireFormat::MultiOp::Response::WritePart();
 
         RejectRules rejectRules = currentReq->rejectRules;
-        currentResp->status = objectManager->writeObject(key,
+        currentResp->status = objectManager.writeObject(key,
                                                          buffer,
                                                          &rejectRules,
                                                          &currentResp->version);
@@ -558,7 +557,7 @@ MasterService::multiWrite(const WireFormat::MultiOp::Request* reqHdr,
 
     // All of the individual writes were done asynchronously. Sync the objects
     // now to propagate them in bulk to backups.
-    objectManager->syncWrites();
+    objectManager.syncWrites();
 }
 
 /**
@@ -590,7 +589,7 @@ MasterService::read(const WireFormat::Read::Request* reqHdr,
 
     RejectRules rejectRules = reqHdr->rejectRules;
     Buffer buffer;
-    respHdr->common.status = objectManager->readObject(key,
+    respHdr->common.status = objectManager.readObject(key,
                                                        &buffer,
                                                        &rejectRules,
                                                        &respHdr->version);
@@ -690,7 +689,7 @@ MasterService::takeTabletOwnership(
     // blocks, waiting to hear about enough backup servers, meanwhile the
     // coordinator is trying to issue an RPC to the master, but it isn't
     // even servicing transports yet!
-    objectManager->syncWrites();
+    objectManager.syncWrites();
 
     bool added = tabletManager.addTablet(reqHdr->tableId,
                                          reqHdr->firstKeyHash,
@@ -850,7 +849,7 @@ MasterService::migrateTablet(const WireFormat::MigrateTablet::Request* reqHdr,
 
     // Hold on to the iterator since it locks the head Segment, avoiding any
     // additional appends once we've finished iterating.
-    LogIterator it(*objectManager->getLog());
+    LogIterator it(*objectManager.getLog());
     for (; !it.isDone(); it.next()) {
         LogEntryType type = it.getType();
         if (type != LOG_ENTRY_TYPE_OBJ && type != LOG_ENTRY_TYPE_OBJTOMB) {
@@ -874,7 +873,7 @@ MasterService::migrateTablet(const WireFormat::MigrateTablet::Request* reqHdr,
             // Otherwise they're dead.
             Buffer currentBuffer;
             uint64_t currentVersion;
-            if (objectManager->readObject(
+            if (objectManager.readObject(
               key, &currentBuffer, 0, &currentVersion) != STATUS_OK) {
                 continue;
             }
@@ -1005,8 +1004,8 @@ MasterService::receiveMigrationData(
     const void* segmentMemory = rpc->requestPayload->getStart<const void*>();
     SegmentIterator it(segmentMemory, segmentBytes, certificate);
     it.checkMetadataIntegrity();
-    SideLog sideLog(objectManager->getLog());
-    objectManager->replaySegment(&sideLog, it);
+    SideLog sideLog(objectManager.getLog());
+    objectManager.replaySegment(&sideLog, it);
     sideLog.commit();
 
     // TODO(rumble/slaughter) what about tablet version numbers?
@@ -1212,7 +1211,7 @@ MasterService::recover(uint64_t recoveryId,
     // The SideLog we'll append recovered entries to. It will be committed after
     // replay completes on all segments, making all of the recovered data
     // durable.
-    SideLog sideLog(objectManager->getLog());
+    SideLog sideLog(objectManager.getLog());
 
     // Start RPCs
     auto replicaIt = notStarted;
@@ -1253,7 +1252,7 @@ MasterService::recover(uint64_t recoveryId,
     while (activeRequests) {
         if (!readStallTicks)
             readStallTicks.construct(&metrics->master.segmentReadStallTicks);
-        objectManager->getReplicaManager()->proceed();
+        objectManager.getReplicaManager()->proceed();
         foreach (auto& task, tasks) {
             if (!task)
                 continue;
@@ -1326,7 +1325,7 @@ MasterService::recover(uint64_t recoveryId,
                             ReplicatedSegment::recoveryStart),
                         task->replica.segmentId, responseLen);
                 }
-                objectManager->replaySegment(&sideLog, it);
+                objectManager.replaySegment(&sideLog, it);
                 usefulTime += Cycles::rdtsc() - startUseful;
                 TEST_LOG("Segment %lu replay complete",
                          task->replica.segmentId);
@@ -1487,7 +1486,7 @@ MasterService::recover(const WireFormat::Recover::Request* reqHdr,
     ReplicatedSegment::recoveryStart = Cycles::rdtsc();
     CycleCounter<RawMetric> recoveryTicks(&metrics->master.recoveryTicks);
     metrics->master.recoveryCount++;
-    metrics->master.replicas = objectManager->getReplicaManager()->numReplicas;
+    metrics->master.replicas = objectManager.getReplicaManager()->numReplicas;
 
     uint64_t recoveryId = reqHdr->recoveryId;
     ServerId crashedServerId(reqHdr->crashedServerId);
@@ -1538,7 +1537,7 @@ MasterService::recover(const WireFormat::Recover::Request* reqHdr,
     }
 
     // Record the log position before recovery started.
-    Log::Position headOfLog = objectManager->getLog()->rollHeadOver();
+    Log::Position headOfLog = objectManager.getLog()->rollHeadOver();
 
     // Recover Segments, firing ObjectManager::replaySegment for each one.
     bool successful = false;
@@ -1615,7 +1614,7 @@ MasterService::recover(const WireFormat::Recover::Request* reqHdr,
                         tablet.end_key_hash()));
             }
         }
-        objectManager->removeOrphanedObjects();
+        objectManager.removeOrphanedObjects();
     }
 }
 
@@ -1634,7 +1633,7 @@ MasterService::remove(const WireFormat::Remove::Request* reqHdr,
     Key key(reqHdr->tableId, stringKey, reqHdr->keyLength);
 
     RejectRules rejectRules = reqHdr->rejectRules;
-    respHdr->common.status = objectManager->removeObject(key,
+    respHdr->common.status = objectManager.removeObject(key,
                                                          &rejectRules,
                                                          &respHdr->version);
 }
@@ -1657,7 +1656,7 @@ MasterService::increment(const WireFormat::Increment::Request* reqHdr,
 
     Buffer value;
     RejectRules rejectRules = reqHdr->rejectRules;
-    *status = objectManager->readObject(key, &value, &rejectRules, NULL);
+    *status = objectManager.readObject(key, &value, &rejectRules, NULL);
     if (*status != STATUS_OK)
         return;
 
@@ -1673,11 +1672,11 @@ MasterService::increment(const WireFormat::Increment::Request* reqHdr,
     Buffer newValueBuffer;
     newValueBuffer.append(&newValue, sizeof(int64_t));
 
-    *status = objectManager->writeObject(key, newValueBuffer,
+    *status = objectManager.writeObject(key, newValueBuffer,
         &rejectRules, &respHdr->version);
     if (*status != STATUS_OK)
         return;
-    objectManager->syncWrites();
+    objectManager.syncWrites();
 
     // Return new value
     respHdr->newValue = newValue;
@@ -1695,7 +1694,7 @@ MasterService::isReplicaNeeded(
     Rpc* rpc)
 {
     ServerId backupServerId = ServerId(reqHdr->backupServerId);
-    respHdr->needed = objectManager->getReplicaManager()->isReplicaNeeded(
+    respHdr->needed = objectManager.getReplicaManager()->isReplicaNeeded(
         backupServerId, reqHdr->segmentId);
 }
 
@@ -1720,9 +1719,9 @@ MasterService::write(const WireFormat::Write::Request* reqHdr,
             reqHdr->keyLength);
 
     RejectRules rejectRules = reqHdr->rejectRules;
-    respHdr->common.status = objectManager->writeObject(key,
+    respHdr->common.status = objectManager.writeObject(key,
         buffer, &rejectRules, &respHdr->version);
-    objectManager->syncWrites();
+    objectManager.syncWrites();
 }
 
 /**

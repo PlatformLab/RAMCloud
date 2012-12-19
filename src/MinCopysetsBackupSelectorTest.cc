@@ -47,7 +47,7 @@ struct MinCopysetsBackupSelectorTest : public ::testing::Test {
         config.master.useMinCopysets = true;
         Server* server = cluster.addServer(config);
         selector = static_cast<MinCopysetsBackupSelector*>(
-            server->master->objectManager->replicaManager.backupSelector.get());
+            server->master->objectManager.replicaManager.backupSelector.get());
         sl = static_cast<ServerList*>(selector->tracker.parent);
         for (uint32_t i = 1; i < 13; i++) {
             uint64_t rep_id = (i + 1) / 3;

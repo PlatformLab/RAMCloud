@@ -39,7 +39,7 @@ struct BackupSelectorTest : public ::testing::Test {
         config.services = {WireFormat::MASTER_SERVICE,
                            WireFormat::MEMBERSHIP_SERVICE};
         Server* server = cluster.addServer(config);
-        ObjectManager* objectManager = server->master->objectManager.get();
+        ObjectManager* objectManager = &server->master->objectManager;
         selector = objectManager->replicaManager.backupSelector.get();
     }
 

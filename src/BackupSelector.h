@@ -70,7 +70,7 @@ class BaseBackupSelector {
 class BackupSelector : public BaseBackupSelector {
   PUBLIC:
 
-    explicit BackupSelector(Context* context, const ServerId serverId,
+    explicit BackupSelector(Context* context, const ServerId* serverId,
                             uint32_t numReplicas);
     ServerId selectPrimary(uint32_t numBackups, const ServerId backupIds[]);
     virtual ServerId selectSecondary(uint32_t numBackups,
@@ -92,7 +92,7 @@ class BackupSelector : public BaseBackupSelector {
     /**
      * Id of the backup.
      */
-    ServerId serverId;
+    const ServerId* serverId;
 
     /**
      * Number of replicas for each segment.

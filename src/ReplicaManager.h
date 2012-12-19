@@ -65,7 +65,7 @@ class ReplicaManager
     typedef std::lock_guard<std::mutex> Lock;
 
     ReplicaManager(Context* context,
-                   const ServerId masterId,
+                   const ServerId* masterId,
                    uint32_t numReplicas,
                    bool useMinCopysets);
     ~ReplicaManager();
@@ -135,7 +135,7 @@ class ReplicaManager
     std::mutex dataMutex;
 
     /// Id of master that this will be managing replicas for.
-    const ServerId masterId;
+    const ServerId* masterId;
 
     /// Allows fast reuse of ReplicatedSegment allocations.
     boost::pool<> replicatedSegmentPool;

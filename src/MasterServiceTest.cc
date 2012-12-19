@@ -120,7 +120,7 @@ class MasterServiceTest : public ::testing::Test {
         masterConfig.master.numReplicas = 1;
         masterServer = cluster.addServer(masterConfig);
         service = masterServer->master.get();
-        service->objectManager->log.sync();
+        service->objectManager.log.sync();
 
         ramcloud.construct(&context, "mock:host=coordinator");
         ramcloud->objectFinder.tabletMapFetcher.reset(
@@ -266,7 +266,7 @@ class MasterServiceTest : public ::testing::Test {
         bool safeVerFound = false;
         int  safeVerScanned = 0;
 
-        Log* log = &service->objectManager->log;
+        Log* log = &service->objectManager.log;
         for (LogIterator it(*log); !it.isDone(); it.next()) {
             // Notice that more than two safeVersion objects exist
             // in the head segment:
@@ -423,8 +423,8 @@ TEST_F(MasterServiceTest, enumeration_mergeTablet) {
     EnumerationIterator initialIter(iter, 0, 0);
     EnumerationIterator::Frame preMergeConfiguration(
         0x0000000000000000LLU, 0x7f00000000000000LLU,
-        service->objectManager->objectMap.getNumBuckets(),
-        service->objectManager->objectMap.getNumBuckets()*4/5, 0U);
+        service->objectManager.objectMap.getNumBuckets(),
+        service->objectManager.objectMap.getNumBuckets()*4/5, 0U);
     initialIter.push(preMergeConfiguration);
     initialIter.serialize(iter);
     EnumerateTableRpc rpc(ramcloud.get(), 0, 0, iter, objects);
@@ -717,7 +717,7 @@ TEST_F(MasterServiceTest, getHeadOfLog) {
 
 TEST_F(MasterServiceTest, recover_basics) {
     ServerId serverId(123, 0);
-    ReplicaManager mgr(&context, serverId, 1, false);
+    ReplicaManager mgr(&context, &serverId, 1, false);
 
     // Create a segment with objectSafeVersion 23
     writeRecoverableSegment(&context, mgr, serverId, serverId.getId(),
@@ -733,7 +733,7 @@ TEST_F(MasterServiceTest, recover_basics) {
     ASSERT_EQ(1lu, result.replicas.size());
     ASSERT_EQ(87lu, result.replicas.at(0).segmentId);
 
-    SegmentManager* segmentManager = &service->objectManager->segmentManager;
+    SegmentManager* segmentManager = &service->objectManager.segmentManager;
     segmentManager->safeVersion = 1U; // reset safeVersion
     EXPECT_EQ(1U, segmentManager->safeVersion); // check safeVersion
 
@@ -817,7 +817,7 @@ TEST_F(MasterServiceTest, recover_basics) {
 TEST_F(MasterServiceTest, recover) {
     ServerId serverId(123, 0);
 
-    ReplicaManager mgr(&context, serverId, 1, false);
+    ReplicaManager mgr(&context, &serverId, 1, false);
     writeRecoverableSegment(&context, mgr, serverId, serverId.getId(), 88);
 
     ServerConfig backup2Config = backup1Config;
@@ -1316,7 +1316,7 @@ TEST_F(MasterServiceTest, migrateTablet_movingData) {
     master2Config.master.numReplicas = 0;
     master2Config.localLocator = "mock:host=master2";
     Server* master2 = cluster.addServer(master2Config);
-    Log* master2Log = &master2->master->objectManager->log;
+    Log* master2Log = &master2->master->objectManager.log;
     master2Log->sync();
 
     Log::Position master2HeadPositionBefore = Log::Position(
@@ -1403,12 +1403,12 @@ TEST_F(MasterServiceTest, receiveMigrationData) {
                                        5, 1, &s);
 
     Buffer logBuffer;
-    Status status = service->objectManager->readObject(key, &logBuffer, 0, 0);
+    Status status = service->objectManager.readObject(key, &logBuffer, 0, 0);
     EXPECT_NE(STATUS_OK, status);
     // Need to mark the tablet as NORMAL before we can read from it.
     service->tabletManager.changeState(5, 1, -1UL, TabletManager::RECOVERING,
         TabletManager::NORMAL);
-    status = service->objectManager->readObject(key, &logBuffer, 0, 0);
+    status = service->objectManager.readObject(key, &logBuffer, 0, 0);
     EXPECT_EQ(STATUS_OK, status);
     EXPECT_EQ(0, memcmp(logBuffer.getRange(0, logBuffer.getTotalLength()),
                         "watch out for the migrant object",
@@ -1442,7 +1442,7 @@ TEST_F(MasterServiceTest, safeVersionNumberUpdate) {
     Buffer value;
     uint64_t version;
 
-    SegmentManager* segmentManager = &service->objectManager->segmentManager;
+    SegmentManager* segmentManager = &service->objectManager.segmentManager;
     segmentManager->safeVersion = 1UL; // reset safeVersion
     // initial data to original table
     //         Table, Key, KeyLen, Data, Len, rejectRule, Version
@@ -1705,7 +1705,7 @@ TEST_F(MasterRecoverTest, recover) {
                              WireFormat::MEMBERSHIP_SERVICE},
                             100, ServerStatus::UP});
     ServerId serverId(99, 0);
-    ReplicaManager mgr(&context2, serverId, 1, false);
+    ReplicaManager mgr(&context2, &serverId, 1, false);
     MasterServiceTest::writeRecoverableSegment(&context, mgr, serverId, 99, 87);
     MasterServiceTest::writeRecoverableSegment(&context, mgr, serverId, 99, 88);
 

@@ -28,7 +28,7 @@ namespace RAMCloud {
 class MinCopysetsBackupSelector : public BackupSelector {
   PUBLIC:
     explicit MinCopysetsBackupSelector(Context* context,
-                                       const ServerId serverId,
+                                       const ServerId* serverId,
                                        uint32_t numReplicas);
     ServerId selectSecondary(uint32_t numBackups, const ServerId backupIds[]);
 

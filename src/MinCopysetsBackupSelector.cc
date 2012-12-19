@@ -33,7 +33,7 @@ namespace RAMCloud {
  *      The replication factor of each segment.
  */
 MinCopysetsBackupSelector::MinCopysetsBackupSelector(Context* context,
-    const ServerId serverId, uint32_t numReplicas)
+    const ServerId* serverId, uint32_t numReplicas)
     : BackupSelector(context, serverId, numReplicas)
 {
 }

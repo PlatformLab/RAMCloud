@@ -83,7 +83,7 @@ class TableManagerTest : public ::testing::Test {
     void enlistMaster() {
         Server* masterServer = cluster.addServer(masterConfig);
         master = masterServer->master.get();
-        master->objectManager->log.sync();
+        master->objectManager.log.sync();
         masterServerId = masterServer->serverId;
     }
 
@@ -121,8 +121,8 @@ TEST_F(TableManagerTest, createTable) {
 
     // Advance the log head slightly so creation time offset is non-zero.
     Buffer empty;
-    master->objectManager->log.append(LOG_ENTRY_TYPE_INVALID, 0, empty);
-    master->objectManager->log.sync();
+    master->objectManager.log.append(LOG_ENTRY_TYPE_INVALID, 0, empty);
+    master->objectManager.log.sync();
 
     EXPECT_EQ(0U, tableManager->createTable("foo", 1));
     EXPECT_THROW(tableManager->createTable("foo", 1),
@@ -485,15 +485,15 @@ TEST_F(TableManagerTest, reassignTabletOwnership) {
                                WireFormat::MEMBERSHIP_SERVICE };
     master2Config.localLocator = "mock:host=master2";
     auto* master2 = cluster.addServer(master2Config);
-    master2->master->objectManager->log.sync();
+    master2->master->objectManager.log.sync();
 
     // Advance the log head slightly so creation time offset is non-zero
     // on host being migrated to.
     Buffer empty;
-    master2->master->objectManager->log.append(LOG_ENTRY_TYPE_INVALID,
+    master2->master->objectManager.log.append(LOG_ENTRY_TYPE_INVALID,
                                                0,
                                                empty);
-    master2->master->objectManager->log.sync();
+    master2->master->objectManager.log.sync();
 
     // master is already enlisted
     tableManager->createTable("foo", 1);

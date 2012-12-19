@@ -169,17 +169,9 @@ BackupService::dispatch(WireFormat::Opcode opcode, Rpc* rpc)
 {
     Lock _(mutex); // Lock out GC while any RPC is being processed.
 
-    if (!initCalled) {
-        // This is a hack. We allow the AssignGroup Rpc to be processed before
-        // initCalled is set to true, since it is sent during initialization.
-        if (opcode != WireFormat::BackupAssignGroup::opcode) {
-            LOG(DEBUG, "init not yet called; requesting retry of %s request",
-                WireFormat::opcodeSymbol(opcode));
-            prepareErrorResponse(rpc->replyPayload, STATUS_RETRY);
-            return;
-        }
-    }
-
+    // This is a hack. We allow the AssignGroup Rpc to be processed before
+    // initCalled is set to true, since it is sent during initialization.
+    assert(initCalled || opcode == WireFormat::BackupAssignGroup::opcode);
     CycleCounter<RawMetric> serviceTicks(&metrics->backup.serviceTicks);
 
     switch (opcode) {
@@ -306,7 +298,10 @@ BackupService::getRecoveryData(
 
 /**
  * Perform once-only initialization for the backup service after having
- * enlisted the process with the coordinator
+ * enlisted the process with the coordinator.
+ *
+ * Any actions performed here must not block the process or dispatch thread,
+ * otherwise the server may be timed out and declared failed by the coordinator.
  */
 void
 BackupService::initOnceEnlisted()
@@ -321,7 +316,6 @@ BackupService::initOnceEnlisted()
     storage->resetSuperblock(serverId, config->clusterName);
     LOG(NOTICE, "Backup %s will store replicas under cluster name '%s'",
         serverId.toString().c_str(), config->clusterName.c_str());
-    Fence::sfence();
     initCalled = true;
 }
 
