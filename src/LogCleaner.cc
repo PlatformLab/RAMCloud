@@ -87,6 +87,7 @@ LogCleaner::LogCleaner(Context* context,
 LogCleaner::~LogCleaner()
 {
     stop();
+    TEST_LOG("destroyed");
 }
 
 /**

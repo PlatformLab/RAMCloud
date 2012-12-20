@@ -45,7 +45,7 @@ namespace RAMCloud {
  */
 SegmentManager::SegmentManager(Context* context,
                                const ServerConfig* config,
-                               ServerId logId,
+                               ServerId* logId,
                                SegletAllocator& allocator,
                                ReplicaManager& replicaManager)
     : context(context),
@@ -233,7 +233,7 @@ SegmentManager::allocHeadSegment(uint32_t flags)
  * cleaner fails to keep its promise of not using more than it frees.
  *
  * \param flags
- *      If the FOR_CLEANING flag is provided, the allocate will be attempted
+ *      If the FOR_CLEANING flag is provided, the allocation will be attempted
  *      from a pool specially reserved for the cleaner. If MUST_NOT_FAIL is
  *      provided, the method will block until a segment is free. Otherwise, it
  *      will return immediately with NULL if no segment is available.
@@ -558,8 +558,9 @@ SegmentManager::doesIdExist(uint64_t id)
 
 /**
  * Return the number of free survivor segments left in the reserve. The caller
- * may subsequently call allocSurvivor() this many times with a guarantee that
- * a survivor segment will be returned.
+ * may subsequently call allocSideSegment() requesting a cleaner-reserved
+ * segment this many times with a guarantee that a survivor segment will be
+ * returned.
  */
 size_t
 SegmentManager::getFreeSurvivorCount()
@@ -642,8 +643,8 @@ SegmentManager::raiseSafeVersion(uint64_t minimum) {
  * that have been committed.
  *
  * Note that the segment given will not be part of the replicated log until the
- * next head is allocated and a digest is written out. allocHead() can be called
- * to ensure this, if necessary.
+ * next head is allocated and a digest is written out. allocHeadSegment() can be
+ * called to ensure this, if necessary.
  *
  * \param segment
  *      The segment to add to the log. It must be in the SIDELOG state.
@@ -718,7 +719,8 @@ SegmentManager::freeSegment(LogSegment* segment, bool waitForDigest, Lock& lock)
 
 /**
  * Write the SegmentHeader to a segment that's presumably the new head of the
- * log. This method is only really useful in allocHead() and allocSurvivor().
+ * log. This method is only really useful in allocHeadSegment() and
+ * allocSideSegment().
  *
  * \param segment
  *      Pointer to the segment the header should be written to.
@@ -726,7 +728,7 @@ SegmentManager::freeSegment(LogSegment* segment, bool waitForDigest, Lock& lock)
 void
 SegmentManager::writeHeader(LogSegment* segment)
 {
-    SegmentHeader header(*logId, segment->id, segmentSize);
+    SegmentHeader header(**logId, segment->id, segmentSize);
     bool success = segment->append(LOG_ENTRY_TYPE_SEGHEADER,
                                    &header, sizeof(header));
     if (!success)
@@ -735,8 +737,8 @@ SegmentManager::writeHeader(LogSegment* segment)
 
 /**
  * Write the LogDigest to the new head of the log. This method should only be
- * called by allocHead(), since it will modify segment states in a way that
- * is not idempotent.
+ * called by allocHeadSEgment(), since it will modify segment states in a way
+ * that is not idempotent.
  *
  * \param newHead
  *      Pointer to the segment the digest should be written into. Generally
@@ -797,7 +799,7 @@ SegmentManager::writeDigest(LogSegment* newHead, LogSegment* prevHead)
 
 /**
  * Write the ObjectSafeVersion to the new head of the log.
- * This method should only be called by allocHead(), since it will
+ * This method should only be called by allocHeadSegment(), since it will
  * modify segment states in a way that is not idempotent.
  *
  * \param head

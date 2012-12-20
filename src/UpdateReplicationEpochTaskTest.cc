@@ -42,7 +42,7 @@ class UpdateReplicationEpochTaskTest : public ::testing::Test {
         ServerConfig config = ServerConfig::forTesting();
         config.services = {WireFormat::MASTER_SERVICE};
         serverId = cluster.addServer(config)->serverId;
-        epoch.construct(&context, &taskQueue, serverId);
+        epoch.construct(&context, &taskQueue, &serverId);
     }
 
     DISALLOW_COPY_AND_ASSIGN(UpdateReplicationEpochTaskTest);

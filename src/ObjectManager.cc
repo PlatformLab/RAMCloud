@@ -36,7 +36,10 @@ namespace RAMCloud {
  * \param context
  *      Overall information about the RAMCloud server or client.
  * \param serverId
- *      ServerId of the master server that is instantiating this object manager.
+ *      Pointer to the ServerId of the master server that is instantiating this
+ *      object manager. The ServerId pointed to need not be valid when this
+ *      constructor is invoked, but it must be valid before any other methods
+ *      are called.
  * \param config
  *      Contains various parameters that configure the operation of this server.
  * \param tabletManager
@@ -47,7 +50,7 @@ namespace RAMCloud {
  *      will fail because the tablet is no longer owned by the master.
  */
 ObjectManager::ObjectManager(Context* context,
-                             ServerId serverId,
+                             ServerId* serverId,
                              const ServerConfig* config,
                              TabletManager* tabletManager)
     : context(context)
@@ -66,13 +69,6 @@ ObjectManager::ObjectManager(Context* context,
     , replaySegmentReturnCount(0)
     , tombstoneRemover()
 {
-    replicaManager.startFailureMonitor();
-
-    if (!config->master.disableLogCleaner)
-        log.enableCleaner();
-
-    Dispatch::Lock lock(context->dispatch);
-    tombstoneRemover.construct(this, &objectMap);
 }
 
 /**
@@ -81,6 +77,27 @@ ObjectManager::ObjectManager(Context* context,
 ObjectManager::~ObjectManager()
 {
     replicaManager.haltFailureMonitor();
+}
+
+/**
+ * Perform any initialization that needed to wait until after the server has
+ * enlisted. This must be called only once.
+ *
+ * Any actions performed here must not block the process or dispatch thread,
+ * otherwise the server may be timed out and declared failed by the coordinator.
+ */
+void
+ObjectManager::initOnceEnlisted()
+{
+    assert(!tombstoneRemover);
+
+    replicaManager.startFailureMonitor();
+
+    if (!config->master.disableLogCleaner)
+        log.enableCleaner();
+
+    Dispatch::Lock lock(context->dispatch);
+    tombstoneRemover.construct(this, &objectMap);
 }
 
 /**
@@ -300,7 +317,6 @@ ObjectManager::readObject(Key& key,
             return status;
     }
 
-    // TODO(anyone): Buffer-to-buffer virtual copy.
     Object object(buffer);
     object.appendDataToBuffer(*outBuffer);
 
@@ -990,7 +1006,10 @@ ObjectManager::getTombstoneTimestamp(Buffer& buffer)
  * \param[out] outType
  *      The type of the log entry is returned here.
  * \param[out] buffer
- *      The entry, if found, is appended to this buffer.
+ *      The entry, if found, is appended to this buffer. Note that the data
+ *      pointed to by this buffer will be exactly the data in the log. The
+ *      cleaner uses this fact to check whether an object in a segment is
+ *      alive by comparing the pointer in the hash table (see #relocateObject).
  * \param[out] outVersion
  *      The version of the object or tombstone, when one is found, stored in
  *      this optional patameter.
@@ -1017,10 +1036,7 @@ ObjectManager::lookup(HashTableBucketLock& lock,
         Key candidateKey(type, candidateBuffer);
         if (key == candidateKey) {
             outType = type;
-            // TODO(anyone): A proper Buffer to Buffer virtual copy method.
-            buffer.append(candidateBuffer.getRange(0,
-                    candidateBuffer.getTotalLength()),
-                candidateBuffer.getTotalLength());
+            buffer.append(&candidateBuffer);
             if (outVersion != NULL) {
                 if (type == LOG_ENTRY_TYPE_OBJ) {
                     Object o(candidateBuffer);

@@ -159,7 +159,7 @@ struct ReplicatedSegmentTest : public ::testing::Test {
         , dataMutex()
         , masterId(999, 0)
         , segmentId(888)
-        , replicationEpoch(&context, &taskQueue, masterId)
+        , replicationEpoch(&context, &taskQueue, &masterId)
         , data()
         , logSegment()
         , openLen(10)
@@ -669,7 +669,7 @@ TEST_F(ReplicatedSegmentTest, syncRecoveringFromLostOpenReplicas) {
     EXPECT_EQ(1lu, segment->replicas[1].committed.epoch);
     // Fragile test log check, but left here because the output is pretty
     // reassuring to a human reader that the test does what one expects.
-    EXPECT_EQ("sync: syncing | "
+    EXPECT_EQ("sync: syncing segment 888 to offset 10 | "
               "selectSecondary: conflicting backupId: 1.0 | "
               "performWrite: Starting replication of segment 888 replica "
                   "slot 0 on backup 0.0 | "

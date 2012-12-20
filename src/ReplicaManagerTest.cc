@@ -60,7 +60,7 @@ struct ReplicaManagerTest : public ::testing::Test {
         // anymore.
         serverId = CoordinatorClient::enlistServer(&context, {},
             {WireFormat::MASTER_SERVICE}, "", 0);
-        mgr.construct(&context, serverId, 2, false);
+        mgr.construct(&context, &serverId, 2, false);
         cluster.coordinatorContext.coordinatorServerList->sync();
     }
 
@@ -303,7 +303,7 @@ TEST_F(ReplicaManagerTest, endToEndBackupRecovery) {
     ServerConfig serverConfig(ServerConfig::forTesting());
     SegletAllocator allocator(&serverConfig);
     SegmentManager segmentManager(&context, &serverConfig,
-                                  serverId, allocator, *mgr);
+                                  &serverId, allocator, *mgr);
     DoNothingHandlers entryHandlers;
     Log log(&context, &serverConfig, &entryHandlers, &segmentManager, &*mgr);
     log.sync();

@@ -111,7 +111,7 @@ class RecoverSegmentBenchmark {
         /*
          * Now run a fake recovery.
          */
-        SideLog sideLog(service->objectManager->getLog());
+        SideLog sideLog(service->objectManager.getLog());
         uint64_t before = Cycles::rdtsc();
         for (int i = 0; i < numSegments; i++) {
             Segment* s = segments[i];
@@ -121,7 +121,7 @@ class RecoverSegmentBenchmark {
             s->getAppendedLength(&certificate);
             const void* contigSeg = buffer.getRange(0, buffer.getTotalLength());
             SegmentIterator it(contigSeg, buffer.getTotalLength(), certificate);
-            service->objectManager->replaySegment(&sideLog, it);
+            service->objectManager.replaySegment(&sideLog, it);
         }
         uint64_t ticks = Cycles::rdtsc() - before;
 

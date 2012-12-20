@@ -51,7 +51,7 @@ BackupStats::getExpectedReadMs() {
  * \param numReplicas
  *      The replication factor of each segment.
  */
-BackupSelector::BackupSelector(Context* context, const ServerId serverId,
+BackupSelector::BackupSelector(Context* context, const ServerId* serverId,
                                uint32_t numReplicas)
     : tracker(context)
     , serverId(serverId)
@@ -207,7 +207,7 @@ BackupSelector::conflictWithAny(const ServerId backupId,
         return false;
     }
     // Finally, check if backup conflicts with the server's own Id.
-    return conflict(backupId, serverId);
+    return conflict(backupId, *serverId);
 }
 
 /**

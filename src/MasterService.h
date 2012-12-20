@@ -193,10 +193,9 @@ class MasterService : public Service {
     TabletManager tabletManager;
 
     /**
-     * The ObjectManager class that is responsible for object storage. This is
-     * constructed when MasterService::init() is called.
+     * The ObjectManager class that is responsible for object storage.
      */
-    Tub<ObjectManager> objectManager;
+    ObjectManager objectManager;
 
     /**
      * Used to ensure that init() is invoked before the dispatcher runs.

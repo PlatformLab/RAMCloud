@@ -364,7 +364,7 @@ void
 ReplicatedSegment::sync(uint32_t offset, Segment::Certificate* certificate)
 {
     CycleCounter<RawMetric> _(&metrics->master.replicaManagerTicks);
-    TEST_LOG("syncing");
+    TEST_LOG("syncing segment %lu to offset %u", segmentId, offset);
 
     Lock syncLock(syncMutex);
     Tub<Lock> lock;

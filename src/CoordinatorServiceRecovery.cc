@@ -70,19 +70,54 @@ CoordinatorServiceRecovery::replay(bool testing)
             service.logCabinHelper->parseProtoBufFromEntry(*it, state);
             service.serverList->recoverEnlistedServer(&state, entryId);
 
-        } else if (!entryType.compare("ServerUpdate")) {
-
-            RAMCLOUD_LOG(DEBUG, "ServiceRecovery: ServerUpdate");
-            ProtoBuf::ServerUpdate state;
-            service.logCabinHelper->parseProtoBufFromEntry(*it, state);
-            service.serverList->recoverMasterRecoveryInfo(&state, entryId);
-
         } else if (!entryType.compare("ServerDown")) {
 
             RAMCLOUD_LOG(DEBUG, "ServiceRecovery: ServerDown");
             ProtoBuf::ServerDown state;
             service.logCabinHelper->parseProtoBufFromEntry(*it, state);
             service.serverList->recoverServerDown(&state, entryId);
+
+        } else if (!entryType.compare("ServerUpdate")) {
+
+            RAMCLOUD_LOG(DEBUG, "ServiceRecovery: ServerUpdate");
+            ProtoBuf::ServerUpdate state;
+            service.logCabinHelper->parseProtoBufFromEntry(*it, state);
+            service.serverList->recoverServerUpdate(&state, entryId);
+
+        } else if (!entryType.compare("AliveTable")) {
+
+            RAMCLOUD_LOG(DEBUG, "ServiceRecovery: AliveTable");
+            ProtoBuf::TableInformation state;
+            service.logCabinHelper->parseProtoBufFromEntry(*it, state);
+            service.tableManager->recoverAliveTable(&state, entryId);
+
+        } else if (!entryType.compare("CreatingTable")) {
+
+            RAMCLOUD_LOG(DEBUG, "ServiceRecovery: CreatingTable");
+            ProtoBuf::TableInformation state;
+            service.logCabinHelper->parseProtoBufFromEntry(*it, state);
+            service.tableManager->recoverCreateTable(&state, entryId);
+
+        } else if (!entryType.compare("DroppingTable")) {
+
+            RAMCLOUD_LOG(DEBUG, "ServiceRecovery: DroppingTable");
+            ProtoBuf::TableDrop state;
+            service.logCabinHelper->parseProtoBufFromEntry(*it, state);
+            service.tableManager->recoverDropTable(&state, entryId);
+
+        } else if (!entryType.compare("SplitTablet")) {
+
+            RAMCLOUD_LOG(DEBUG, "ServiceRecovery: SplitTablet");
+            ProtoBuf::SplitTablet state;
+            service.logCabinHelper->parseProtoBufFromEntry(*it, state);
+            service.tableManager->recoverSplitTablet(&state, entryId);
+
+        } else if (!entryType.compare("TabletRecovered")) {
+
+            RAMCLOUD_LOG(DEBUG, "ServiceRecovery: TabletRecovered");
+            ProtoBuf::TabletRecovered state;
+            service.logCabinHelper->parseProtoBufFromEntry(*it, state);
+            service.tableManager->recoverTabletRecovered(&state, entryId);
 
         } else {
 

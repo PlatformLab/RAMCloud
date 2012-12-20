@@ -47,10 +47,11 @@ namespace RAMCloud {
 class ObjectManager : public LogEntryHandlers {
   public:
     ObjectManager(Context* context,
-                  ServerId serverId,
+                  ServerId* serverId,
                   const ServerConfig* config,
                   TabletManager* tabletManager);
     virtual ~ObjectManager();
+    void initOnceEnlisted();
     Status readObject(Key& key,
                       Buffer* outBuffer,
                       RejectRules* rejectRules,

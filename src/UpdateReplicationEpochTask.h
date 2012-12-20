@@ -54,7 +54,7 @@ class UpdateReplicationEpochTask : public Task {
      */
     UpdateReplicationEpochTask(Context* context,
                                TaskQueue* taskQueue,
-                               const ServerId serverId)
+                               const ServerId* serverId)
         : Task(*taskQueue)
         , context(context)
         , serverId(serverId)
@@ -90,7 +90,7 @@ class UpdateReplicationEpochTask : public Task {
     void updateToAtLeast(uint64_t segmentId, uint64_t epoch) {
         RAMCLOUD_TEST_LOG("request update to master recovery info for %s to "
                           "%lu,%lu",
-                          serverId.toString().c_str(), segmentId, epoch);
+                          serverId->toString().c_str(), segmentId, epoch);
         ReplicationEpoch newEpoch{segmentId, epoch};
         if (requested > newEpoch)
             return;
@@ -119,7 +119,7 @@ class UpdateReplicationEpochTask : public Task {
                 ProtoBuf::MasterRecoveryInfo recoveryInfo;
                 recoveryInfo.set_min_open_segment_id(requested.first);
                 recoveryInfo.set_min_open_segment_epoch(requested.second);
-                rpc.construct(context, serverId, recoveryInfo);
+                rpc.construct(context, *serverId, recoveryInfo);
                 sent = requested;
             }
         } else {
@@ -127,7 +127,7 @@ class UpdateReplicationEpochTask : public Task {
                 rpc->wait();
                 current = sent;
                 RAMCLOUD_LOG(DEBUG, "coordinator replication epoch for %s "
-                             "updated to %lu,%lu", serverId.toString().c_str(),
+                             "updated to %lu,%lu", serverId->toString().c_str(),
                              current.first, current.second);
                 rpc.destroy();
             }
@@ -146,7 +146,7 @@ class UpdateReplicationEpochTask : public Task {
      * The ServerId of the master whose replication epoch is to be updated on
      * the coordinator.
      */
-    const ServerId serverId;
+    const ServerId* serverId;
 
     typedef std::pair<uint64_t, uint64_t> ReplicationEpoch;
 

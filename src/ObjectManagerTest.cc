@@ -37,6 +37,7 @@ namespace RAMCloud {
 class ObjectManagerTest : public ::testing::Test {
   public:
     Context context;
+    ServerId serverId;
     ServerList serverList;
     ServerConfig masterConfig;
     TabletManager tabletManager;
@@ -44,11 +45,13 @@ class ObjectManagerTest : public ::testing::Test {
 
     ObjectManagerTest()
         : context()
+        , serverId(5)
         , serverList(&context)
         , masterConfig(ServerConfig::forTesting())
         , tabletManager()
-        , objectManager(&context, ServerId(5), &masterConfig, &tabletManager)
+        , objectManager(&context, &serverId, &masterConfig, &tabletManager)
     {
+        objectManager.initOnceEnlisted();
         tabletManager.addTablet(0, 0, ~0UL, TabletManager::NORMAL);
     }
 
@@ -258,8 +261,8 @@ TEST_F(ObjectManagerTest, constructor) {
     // the ServerId prior to instantiation), a bug was introduced where OM took
     // a ServerId, but passed the stack temporary by reference to replicaManager
     // and SegmentManager. Ensure this doesn't happen anymore.
-    EXPECT_EQ(ServerId(5), objectManager.segmentManager.logId);
-    EXPECT_EQ(ServerId(5), objectManager.replicaManager.masterId);
+    EXPECT_EQ(ServerId(5), *objectManager.segmentManager.logId);
+    EXPECT_EQ(ServerId(5), *objectManager.replicaManager.masterId);
 }
 
 static bool
@@ -379,8 +382,10 @@ TEST_F(ObjectManagerTest, removeObject) {
     uint64_t version;
     EXPECT_EQ(STATUS_OK, objectManager.removeObject(key, 0, &version));
     EXPECT_EQ(93UL, version);
-    EXPECT_EQ("sync: syncing | schedule: zero replicas: nothing to schedule | "
-        "sync: log synced | free: free on reference 31457334", TestLog::get());
+    EXPECT_EQ("sync: syncing segment 1 to offset 159 | "
+              "schedule: zero replicas: nothing to schedule | "
+              "sync: log synced | free: free on reference 31457334",
+        TestLog::get());
     Buffer buffer;
     EXPECT_EQ(STATUS_OBJECT_DOESNT_EXIST,
         objectManager.readObject(key, &buffer, 0, 0));

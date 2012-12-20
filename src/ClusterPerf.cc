@@ -1402,7 +1402,7 @@ netBandwidth()
             value.getTotalLength(), keyLength, bandwidth/(1024*1024));
 
     printBandwidth("netBandwidth", sum(metrics[0]),
-            "many clients reading from Cdifferent servers");
+            "many clients reading from different servers");
     printBandwidth("netBandwidth.max", max(metrics[0]),
             "fastest client");
     printBandwidth("netBandwidth.min", min(metrics[0]),
