@@ -87,8 +87,8 @@ class CoordinatorServerListTest : public ::testing::Test {
     }
 
     ~CoordinatorServerListTest() {
-        // Finish all pending ServerList updates before destroying cluster.
-        cluster.syncCoordinatorServerList();
+        // Stop all pending ServerList updates before destroying cluster.
+        cluster.haltCoordinatorServerListUpdater();
     }
 
     void add(ServerId serverId, string serviceLocator,
@@ -99,7 +99,7 @@ class CoordinatorServerListTest : public ::testing::Test {
         sl->add(lock, serverId, serviceLocator, serviceMask, readSpeed);
 
         if (commit)
-          sl->commitUpdate(lock);
+          sl->pushUpdate(lock);
     }
 
     void crashed(ServerId serverId, bool commit = true)
@@ -108,7 +108,7 @@ class CoordinatorServerListTest : public ::testing::Test {
         sl->crashed(lock, serverId);
 
         if (commit)
-          sl->commitUpdate(lock);
+          sl->pushUpdate(lock);
     }
 
     void remove(ServerId serverId, bool commit = true)
@@ -117,7 +117,7 @@ class CoordinatorServerListTest : public ::testing::Test {
         sl->remove(lock, serverId);
 
         if (commit)
-          sl->commitUpdate(lock);
+          sl->pushUpdate(lock);
     }
 
     ServerId generateUniqueId() {
@@ -130,14 +130,9 @@ class CoordinatorServerListTest : public ::testing::Test {
         return sl->isClusterUpToDate(lock);
     }
 
-    bool hasUpdates() {
+    void pushUpdate() {
         Lock lock(sl->mutex);
-        return sl->hasUpdates(lock);
-    }
-
-    void commitUpdate() {
-        Lock lock(sl->mutex);
-        sl->commitUpdate(lock);
+        sl->pushUpdate(lock);
     }
 
     CoordinatorServerList::Entry&
@@ -217,8 +212,8 @@ namespace {
         return s != "checkStatus";
     }
 
-    bool updateEntryFilter(string s) {
-        return s == "updateEntryVersion";
+    bool workSuccessFilter(string s) {
+        return s == "workSuccess";
     }
 
     bool updateLoopFilter(string s) {
@@ -719,7 +714,7 @@ TEST_F(CoordinatorServerListTest, add) {
         EXPECT_FALSE(sl->serverList[1].entry->isBackup());
         EXPECT_EQ(0u, sl->serverList[1].entry->expectedReadMBytesPerSec);
         EXPECT_EQ(1U, sl->serverList[1].nextGenerationNumber);
-        ProtoBuf::ServerList update = sl->updates[0];
+        ProtoBuf::ServerList update = sl->updates[0].incremental;
         EXPECT_EQ(1U, sl->version);
         EXPECT_EQ(1U, update.version_number());
         EXPECT_EQ(1, update.server_size());
@@ -742,7 +737,7 @@ TEST_F(CoordinatorServerListTest, add) {
         EXPECT_EQ(1U, sl->serverList[2].nextGenerationNumber);
         EXPECT_EQ(1U, sl->numberOfMasters);
         EXPECT_EQ(1U, sl->numberOfBackups);
-        ProtoBuf::ServerList update = sl->updates[1];
+        ProtoBuf::ServerList update = sl->updates[1].incremental;
         EXPECT_EQ(2U, sl->version);
         EXPECT_EQ(2U, update.version_number());
         EXPECT_TRUE(protoBufMatchesEntry(update.server(0),
@@ -801,7 +796,7 @@ TEST_F(CoordinatorServerListTest, crashed) {
     EXPECT_NO_THROW(crashed(ServerId(1, 0)));
     ASSERT_TRUE(sl->serverList[1].entry);
     EXPECT_EQ(ServerStatus::CRASHED, sl->serverList[1].entry->status);
-    EXPECT_TRUE(protoBufMatchesEntry(sl->updates[1].server(0),
+    EXPECT_TRUE(protoBufMatchesEntry(sl->updates[1].incremental.server(0),
                 entryCopy, ServerStatus::CRASHED));
 
     orig_version = sl->version;
@@ -904,14 +899,14 @@ TEST_F(CoordinatorServerListTest, remove) {
     ServerId serverId1 = generateUniqueId();
     add(serverId1, "hi!", {WireFormat::MASTER_SERVICE}, 100);
     CoordinatorServerList::Entry entryCopy = (*sl)[ServerId(1, 0)];
-    EXPECT_EQ(1, sl->updates[0].server_size());
+    EXPECT_EQ(1, sl->updates[0].incremental.server_size());
 
     EXPECT_NO_THROW(remove(ServerId(1, 0)));
     EXPECT_FALSE(sl->serverList[1].entry);
     // Critical that an UP server gets both crashed and down events.
-    EXPECT_TRUE(protoBufMatchesEntry(sl->updates[1].server(0),
+    EXPECT_TRUE(protoBufMatchesEntry(sl->updates[1].incremental.server(0),
             entryCopy, ServerStatus::CRASHED));
-    EXPECT_TRUE(protoBufMatchesEntry(sl->updates[1].server(1),
+    EXPECT_TRUE(protoBufMatchesEntry(sl->updates[1].incremental.server(1),
             entryCopy, ServerStatus::DOWN));
 
     orig_version = sl->version;
@@ -922,14 +917,16 @@ TEST_F(CoordinatorServerListTest, remove) {
 
     ServerId serverId2 = generateUniqueId();
     add(serverId2, "hi, again", {WireFormat::BACKUP_SERVICE}, 100);
-    EXPECT_EQ(uint32_t(ServerStatus::UP), sl->updates[2].server(0).status());
+    EXPECT_EQ(uint32_t(ServerStatus::UP),
+              sl->updates[2].incremental.server(0).status());
     crashed(ServerId(1, 1));
     EXPECT_EQ(uint32_t(ServerStatus::CRASHED),
-            sl->updates[3].server(0).status());
+            sl->updates[3].incremental.server(0).status());
     EXPECT_TRUE(sl->serverList[1].entry);
     EXPECT_THROW(remove(ServerId(1, 2)), Exception);
     EXPECT_NO_THROW(remove(ServerId(1, 1)));
-    EXPECT_EQ(uint32_t(ServerStatus::DOWN), sl->updates[4].server(0).status());
+    EXPECT_EQ(uint32_t(ServerStatus::DOWN),
+             sl->updates[4].incremental.server(0).status());
     EXPECT_EQ(0U, sl->numberOfMasters);
     EXPECT_EQ(0U, sl->numberOfBackups);
 }
@@ -1038,342 +1035,83 @@ TEST_F(CoordinatorServerListTest, remove_trackerUpdated) {
     EXPECT_EQ(SERVER_REMOVED, tr->changes.front().event);
 }
 
-TEST_F(CoordinatorServerListTest, commitUpdate) {
+
+////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////
+////  Tests for Updater Mechanism
+////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////
+
+TEST_F(CoordinatorServerListTest, pushUpdate) {
     ProtoBuf::ServerList& update = sl->update;
     uint64_t orig_ver = sl->version;
-    sl->lastScan.noUpdatesFound = true;
 
     // Empty update, not committed
-    commitUpdate();
+    pushUpdate();
     EXPECT_EQ(orig_ver, sl->version);
     EXPECT_TRUE(sl->updates.empty());
-    EXPECT_TRUE(sl->lastScan.noUpdatesFound);
 
     // Update with at least something in it
     update.add_server();
-    commitUpdate();
+    pushUpdate();
     EXPECT_EQ(orig_ver + 1, sl->version);
     EXPECT_EQ(1UL, sl->updates.size());
-    EXPECT_FALSE(sl->lastScan.noUpdatesFound);
+    EXPECT_EQ(orig_ver + 1, sl->updates.front().version);
 
     // Add a second one in
     update.add_server();
-    commitUpdate();
+    pushUpdate();
     EXPECT_EQ(2UL, sl->updates.size());
-    EXPECT_EQ(orig_ver + 1, sl->updates.front().version_number());
-    EXPECT_EQ(orig_ver + 2, sl->updates.back().version_number());
-}
-
-TEST_F(CoordinatorServerListTest, dispatchRpc) {
-    sl->haltUpdater();
-    sl->rpcTimeoutNs = 1000;
-    MockTransport transport(service->context);
-    TransportManager::MockRegistrar _(service->context, transport);
-    CoordinatorServerList::UpdateSlot slot;
-
-    // No servers in server list so no RPCs out
-    sl->dispatchRpc(slot);
-    EXPECT_FALSE(slot.rpc);
-    EXPECT_FALSE(slot.rpc);
-
-    // Expect update to id1
-    ServerId id1 = generateUniqueId();
-    add(id1, "mock:host=server1", {WireFormat::MEMBERSHIP_SERVICE}, 0);
-
-    ServerId id2 = generateUniqueId();
-    add(id2, "mock:host=server1", {WireFormat::MEMBERSHIP_SERVICE}, 0);
-
-    sl->dispatchRpc(slot);
-    EXPECT_TRUE(slot.rpc);
-    EXPECT_TRUE(slot.rpc);
-    EXPECT_EQ(ProtoBuf::ServerList_Type_FULL_LIST, slot.protobuf.type());
-    EXPECT_EQ(0UL, slot.originalVersion);
-    EXPECT_EQ(2UL, slot.protobuf.version_number());
-
-    // Expect a Timeout to roll over to updating id2
-    TestLog::Enable __;
-    Cycles::mockTscValue = slot.startCycle +
-            Cycles::fromNanoseconds(sl->rpcTimeoutNs) + 100;
-    sl->dispatchRpc(slot);
-    EXPECT_EQ("dispatchRpc: ServerList update to 1.0 timed out after 0 ms; "
-            "trying again later | "
-            "updateEntryVersion: server 1.0 updated (0->0)", TestLog::get());
-    EXPECT_TRUE(slot.rpc);
-    EXPECT_EQ(id2, slot.serverId);
-
-    // Time out again, expect to roll back over to id1
-    TestLog::reset();
-    Cycles::mockTscValue = slot.startCycle +
-            Cycles::fromNanoseconds(sl->rpcTimeoutNs) + 100;
-    sl->dispatchRpc(slot);
-    EXPECT_EQ("dispatchRpc: ServerList update to 2.0 timed out after 0 ms; "
-              "trying again later | "
-              "updateEntryVersion: server 2.0 updated (0->0)", TestLog::get());
-    EXPECT_TRUE(slot.rpc);
-    EXPECT_EQ(id1, slot.serverId);
-
-    // OK responses
-    transport.setInput("0");
-    transport.setInput("0");
-    Cycles::mockTscValue = 0;
-
-    TestLog::reset();
-    sl->dispatchRpc(slot);      // fails due to time roll back to 0 (underflow)
-    sl->dispatchRpc(slot);      // Updates 2
-    sl->dispatchRpc(slot);      // Updates 1
-    EXPECT_EQ("dispatchRpc: ServerList update to 1.0 timed out after 0 ms; "
-              "trying again later | "
-              "updateEntryVersion: server 1.0 updated (0->0) | "
-              "updateEntryVersion: server 2.0 updated (0->2) | "
-              "updateEntryVersion: server 1.0 updated (0->2)", TestLog::get());
-    EXPECT_FALSE(slot.rpc);
-}
-
-TEST_F(CoordinatorServerListTest, dispatchRpc_nonExistantServer) {
-    sl->haltUpdater();
-
-    MockTransport transport(service->context);
-    TransportManager::MockRegistrar _(service->context, transport);
-
-    CoordinatorServerList::UpdateSlot slot;
-    ServerId id1 = generateUniqueId();
-    add(id1, "mock:host=server1", {WireFormat::MEMBERSHIP_SERVICE}, 0);
-
-    // Start an RPC to id1
-    transport.setInput("20"); // ServerDoesNotExist!
-    sl->dispatchRpc(slot); // Loads the Rpc first
-    EXPECT_TRUE(slot.rpc);
-
-    remove(id1);
-    TestLog::Enable __;
-    sl->dispatchRpc(slot); // check status
-    EXPECT_FALSE(slot.rpc);
-
-    EXPECT_EQ("dispatchRpc: Async update to 1.0 occurred during/after it was "
-            "crashed/downed in the CoordinatorServerList.", TestLog::get());
+    EXPECT_EQ(orig_ver + 1, sl->updates.front().version);
+    EXPECT_EQ(orig_ver + 2, sl->updates.back().version);
 }
 
 TEST_F(CoordinatorServerListTest, haltUpdater) {
     sl->startUpdater();
     EXPECT_FALSE(sl->stopUpdater);
-    EXPECT_TRUE(sl->thread);
-    EXPECT_TRUE(sl->thread->joinable());
+    EXPECT_TRUE(sl->updaterThread);
+    EXPECT_TRUE(sl->updaterThread->joinable());
 
     sl->haltUpdater();
-    EXPECT_FALSE(sl->thread);
+    EXPECT_FALSE(sl->updaterThread);
     EXPECT_TRUE(sl->stopUpdater);
 }
 
-TEST_F(CoordinatorServerListTest, hasUpdates) {
+TEST_F(CoordinatorServerListTest, startUpdater) {
     sl->haltUpdater();
+    EXPECT_TRUE(sl->stopUpdater);
+    EXPECT_FALSE(sl->updaterThread);
 
-    // Empty list
-    EXPECT_FALSE(hasUpdates());
-
-    ServerId id1 = generateUniqueId();
-    add(id1, "mock:host=server1", {WireFormat::MASTER_SERVICE,
-        WireFormat::MEMBERSHIP_SERVICE}, 100);
-    ServerId id2 = generateUniqueId();
-    add(id2, "mock:host=server2", {WireFormat::MASTER_SERVICE}, 100);
-    EXPECT_TRUE(hasUpdates());
-
-    sl->updateEntryVersion(id1, sl->version);
-    EXPECT_FALSE(hasUpdates());
-
-    crashed(id2);
-    EXPECT_TRUE(hasUpdates());
-    sl->updateEntryVersion(id1, sl->version);
-    EXPECT_FALSE(hasUpdates());
-
-    // Impossible case, but just in case
-    sl->updateEntryVersion(id1, 0);
-    EXPECT_TRUE(hasUpdates());
-
-    sl->serverList[id1.indexNumber()].entry->isBeingUpdated = sl->version;
-    EXPECT_FALSE(hasUpdates());
-
-    sl->updateEntryVersion(id1, sl->version);
-    sl->lastScan.noUpdatesFound = false;
-    EXPECT_FALSE(hasUpdates());
-
-    // Check that the minVersion and updates have been pruned completely
-    EXPECT_TRUE(sl->updates.empty());
-}
-
-TEST_F(CoordinatorServerListTest, hasUpdates_partialPrune) {
-    sl->haltUpdater();
-
-    // Add three candidates and update them striped.
-    ServerId id1 = generateUniqueId();
-    add(id1, "mock:host=server1", {WireFormat::MEMBERSHIP_SERVICE}, 100);
-    ServerId id2 = generateUniqueId();
-    add(id2, "mock:host=server2", {WireFormat::MEMBERSHIP_SERVICE}, 100);
-    ServerId id3 = generateUniqueId();
-    add(id3, "mock:host=server3", {WireFormat::MEMBERSHIP_SERVICE}, 100);
-    EXPECT_TRUE(hasUpdates());
-    EXPECT_EQ(3UL, sl->version);
-    EXPECT_EQ(3UL, sl->updates.size());
-
-    sl->updateEntryVersion(id1, 0);
-    sl->updateEntryVersion(id2, 2);
-    sl->updateEntryVersion(id3, 3);
-    EXPECT_TRUE(hasUpdates());
-
-    // Make sure no prunes occur while updating
-    sl->serverList[id1.indexNumber()].entry->isBeingUpdated = sl->version;
-    sl->serverList[id2.indexNumber()].entry->isBeingUpdated = sl->version;
-    sl->serverList[id3.indexNumber()].entry->isBeingUpdated = sl->version;
-    EXPECT_EQ(3UL, sl->updates.size());
-    sl->lastScan.noUpdatesFound = false; // tricks full rescan
-    EXPECT_FALSE(hasUpdates()); // False because all are updating
-
-    // Update first one and expect prune to version 3
-    sl->updateEntryVersion(id1, 2);
-    EXPECT_TRUE(hasUpdates());
-    sl->serverList[id1.indexNumber()].entry->isBeingUpdated = sl->version;
-
-    EXPECT_EQ(1UL, sl->updates.size());
-    EXPECT_EQ(3UL, sl->updates.front().version_number());
-
-    // Clean up to allow teardown.
-    sl->updateEntryVersion(id1, sl->version);
-    sl->updateEntryVersion(id2, sl->version);
-    sl->updateEntryVersion(id3, sl->version);
-}
-
-TEST_F(CoordinatorServerListTest, hasUpdates_specialCase) {
-    // This case was discovered in a bug whereby the prune was pruning too much
-    // when it assumes an entry with version 0 will always update to the
-    // latest version. The case this would not be true is in this timeline:
-    // Server1 -> initiate update from 0 -> 2
-    // Server2 added
-    // Server2 -> initiate and finish update 0 -> 3
-    // Prune Occurs (pruning up to 3)
-    // Server1 -> finish update to 2, asks for pruned 3.
-    sl->haltUpdater();
-
-    ServerId id1 = generateUniqueId();
-    add(id1, "mock:host=server1", {WireFormat::MEMBERSHIP_SERVICE}, 100);
-    EXPECT_TRUE(hasUpdates());
-    EXPECT_FALSE(sl->updates.empty());
-    getReferenceFromServerId(id1).isBeingUpdated = sl->version;
-    EXPECT_FALSE(hasUpdates());
-
-    // Start and finish update of server 2
-    ServerId id2 = generateUniqueId();
-    add(id2, "mock:host=server1", {WireFormat::MEMBERSHIP_SERVICE}, 100);
-    EXPECT_TRUE(hasUpdates());
-    sl->updateEntryVersion(id2, sl->version);
-    EXPECT_FALSE(hasUpdates());
-    EXPECT_FALSE(sl->updates.empty());
-
-    // make sure the update 1->2 has not been pruned
-    EXPECT_EQ(sl->version, sl->updates.front().version_number());
-
-    // Clean up to allow teardown.
-    sl->updateEntryVersion(id1, sl->version);
-    sl->updateEntryVersion(id2, sl->version);
+    sl->startUpdater();
+    EXPECT_FALSE(sl->stopUpdater);
+    EXPECT_TRUE(sl->updaterThread);
+    EXPECT_TRUE(sl->updaterThread->joinable());
 }
 
 TEST_F(CoordinatorServerListTest, isClusterUpToDate) {
+    CoordinatorServerList::UpdaterWorkUnit wu;
     sl->haltUpdater();
 
-    ServerId id1 = generateUniqueId();
-    add(id1, "mock:host=server1", {WireFormat::MEMBERSHIP_SERVICE}, 100);
-    ServerId id2 = generateUniqueId();
-    add(id2, "mock:host=server2", {WireFormat::MEMBERSHIP_SERVICE}, 100);
-    EXPECT_FALSE(isClusterUpToDate());
-
-    // Normal update path
-    sl->updateEntryVersion(id1, sl->version);
-    EXPECT_FALSE(isClusterUpToDate());
-    sl->updateEntryVersion(id2, sl->version);
-    EXPECT_TRUE(isClusterUpToDate());
-    crashed(id2);
-    EXPECT_FALSE(isClusterUpToDate());
-    sl->updateEntryVersion(id1, sl->version);
+    // Empty cluster, should be up to date.
+    ASSERT_EQ(0UL, sl->serverList.size());
     EXPECT_TRUE(isClusterUpToDate());
 
-    // Not eligible for update, but others are
-    ServerId id3 = generateUniqueId();
-    add(id3, "mock:host=server3", {WireFormat::BACKUP_SERVICE}, 100);
+    // Add ineligible server
+    ServerId id = generateUniqueId();
+    add(id, "mock:host=server2", {}, 100);
+    EXPECT_FALSE(sl->getWork(&wu));
+    EXPECT_TRUE(isClusterUpToDate());
+
+    // Add a server w/ commit
+    id = generateUniqueId();
+    add(id, "mock:host=server1", {WireFormat::MEMBERSHIP_SERVICE}, 100);
     EXPECT_FALSE(isClusterUpToDate());
-    sl->updateEntryVersion(id1, 1);
-    EXPECT_FALSE(isClusterUpToDate());
-    sl->updateEntryVersion(id1, sl->version);
+
+    // Fake an update
+    ASSERT_TRUE(sl->getWork(&wu));
+    sl->workSuccess(wu.targetServer);
+    ASSERT_FALSE(sl->getWork(&wu));
     EXPECT_TRUE(isClusterUpToDate());
-
-    // Server List now contains no servers that can receive updates
-    // so it's automatically "up-to-date"
-    ServerId id4 = generateUniqueId();
-    add(id4, "mock:host=server4", {}, 100);
-    remove(id1);
-    EXPECT_TRUE(isClusterUpToDate());
-
-    // Test that even tho a server is "updating" the cluster is not up to date
-    ServerId id5 = generateUniqueId();
-    add(id5, "mock:host=server5", {WireFormat::MEMBERSHIP_SERVICE}, 100);
-
-    CoordinatorServerList::Entry& entry = getReferenceFromServerId(id5);
-    entry.serverListVersion = sl->version;
-    EXPECT_TRUE(isClusterUpToDate());
-    entry.isBeingUpdated = sl->version;
-    EXPECT_FALSE(isClusterUpToDate());
-    entry.isBeingUpdated = 0;
-    EXPECT_TRUE(isClusterUpToDate());
-}
-
-TEST_F(CoordinatorServerListTest, loadNextUpdate) {
-    sl->haltUpdater();
-    CoordinatorServerList::UpdateSlot slot;
-
-    // Empty list
-    EXPECT_FALSE(sl->loadNextUpdate(slot));
-
-    // Load 2 updatable servers and 1 not updatable
-    ServerId id1 = generateUniqueId();
-    add(id1, "mock:host=server1", {WireFormat::MASTER_SERVICE,
-        WireFormat::MEMBERSHIP_SERVICE}, 100);
-    ServerId id2 = generateUniqueId();
-    add(id2, "mock:host=server2", {WireFormat::MASTER_SERVICE}, 100);
-    ServerId id3 = generateUniqueId();
-    add(id3, "mock:host=server3", {WireFormat::MEMBERSHIP_SERVICE}, 100);
-
-    EXPECT_TRUE(sl->loadNextUpdate(slot));      // id1 update
-    EXPECT_EQ(id1, slot.serverId);
-    EXPECT_EQ(sl->version, slot.protobuf.version_number());
-    EXPECT_EQ(ProtoBuf::ServerList_Type_FULL_LIST, slot.protobuf.type());
-
-    EXPECT_TRUE(sl->loadNextUpdate(slot));      // id3 update
-    EXPECT_EQ(id3, slot.serverId);
-    EXPECT_EQ(ProtoBuf::ServerList_Type_FULL_LIST, slot.protobuf.type());
-    EXPECT_EQ(sl->version, slot.protobuf.version_number());
-
-    EXPECT_FALSE(sl->loadNextUpdate(slot)); // no more id2 doesn't qualify
-
-    // generate more version updates via non-updatable server additions
-    ServerId id4 = generateUniqueId();
-    add(id4, "mock:host=server3", {WireFormat::MASTER_SERVICE}, 100);
-    ServerId id5 = generateUniqueId();
-    add(id4, "mock:host=server3", {WireFormat::MASTER_SERVICE}, 100);
-    EXPECT_FALSE(sl->loadNextUpdate(slot));
-
-    remove(id1);
-    sl->updateEntryVersion(id3, 4);
-
-    EXPECT_FALSE(sl->lastScan.noUpdatesFound);
-    EXPECT_TRUE(sl->loadNextUpdate(slot));
-    EXPECT_EQ(id3, slot.serverId);
-    EXPECT_EQ(ProtoBuf::ServerList_Type_UPDATE, slot.protobuf.type());
-    EXPECT_EQ(5UL, slot.protobuf.version_number());
-    EXPECT_FALSE(sl->loadNextUpdate(slot));
-
-    // expect prune updates to work
-    EXPECT_EQ(5UL, sl->updates.front().version_number());
-
-    // Crash our remaining server with membership updates
-    crashed(id3);
-    EXPECT_FALSE(sl->loadNextUpdate(slot));
 }
 
 TEST_F(CoordinatorServerListTest, pruneUpdates) {
@@ -1382,42 +1120,49 @@ TEST_F(CoordinatorServerListTest, pruneUpdates) {
     for (int i = 1; i <= 10; i++) {
         for (int j = 1; j <= i; j++)
             update.add_server();
-        sl->commitUpdate(lock);
+        sl->pushUpdate(lock);
     }
 
     EXPECT_EQ(10UL, sl->version);
     EXPECT_EQ(10UL, sl->updates.size());
 
-    // Nothing should be pruned
-    sl->pruneUpdates(lock, 0);
+    // Out of Bounds Test
+    TestLog::Enable _;
+    sl->minConfirmedVersion = 1000;
+    sl->pruneUpdates(lock);
+    EXPECT_EQ(0UL, sl->minConfirmedVersion);
+    EXPECT_EQ(10UL, sl->updates.size());
+    EXPECT_STREQ("pruneUpdates: Inconsistent state detected! "
+            "CoordinatorServerList's minConfirmedVersion 1000 is larger "
+            "than it's current version 10. This should NEVER happen!",
+            TestLog::get().c_str());
+
+    // Nothing should be pruned and without errors.
+    TestLog::reset();
+    sl->minConfirmedVersion = sl->UNINITIALIZED_VERSION;
+    sl->pruneUpdates(lock);
     EXPECT_EQ(10UL, sl->version);
     EXPECT_EQ(10UL, sl->updates.size());
 
     // Normal Prune
-    sl->pruneUpdates(lock, 4);
+    sl->minConfirmedVersion = 4;
+    sl->pruneUpdates(lock);
     EXPECT_EQ(10UL, sl->version);
     EXPECT_EQ(6UL, sl->updates.size());
 
     for (int i = 5; i <= 10; i++) {
-        ProtoBuf::ServerList& update = sl->updates.at(i - 5);
+        ProtoBuf::ServerList& update = sl->updates.at(i - 5).incremental;
         EXPECT_EQ(i, static_cast<int>(update.version_number()));
         EXPECT_EQ(i, update.server_size());
     }
 
     // No-op
-    sl->pruneUpdates(lock, 2);
+    sl->minConfirmedVersion = 2;
+    sl->pruneUpdates(lock);
     EXPECT_EQ(6UL, sl->updates.size());
-}
 
-TEST_F(CoordinatorServerListTest, startUpdater) {
-    EXPECT_TRUE(sl->stopUpdater);
-    EXPECT_FALSE(sl->thread);
-
-    sl->startUpdater();
-
-    EXPECT_FALSE(sl->stopUpdater);
-    EXPECT_TRUE(sl->thread);
-    EXPECT_TRUE(sl->thread->joinable());
+    // No errors should have occurred since the last reset.
+    EXPECT_STREQ("", TestLog::get().c_str());
 }
 
 TEST_F(CoordinatorServerListTest, sync) {
@@ -1433,40 +1178,12 @@ TEST_F(CoordinatorServerListTest, sync) {
     sl->sync();
     EXPECT_EQ("sendRequest: 0x40023 1 0 11 273 0 /0 /x18/0",
             transport.outputLog);
+    transport.clearOutput();
 
     // Test that syncs on up-to-date list don't clog
     sl->sync();
     sl->sync();
-}
-
-TEST_F(CoordinatorServerListTest, updateEntryVersion) {
-    sl->haltUpdater();
-    ServerId id1 = generateUniqueId();
-    add(id1, "mock:host=server1", {WireFormat::MASTER_SERVICE}, 100);
-    EXPECT_EQ(0UL, (*sl)[id1].serverListVersion);
-
-    sl->updateEntryVersion(id1, 2358);
-    EXPECT_EQ(2358UL, (*sl)[id1].serverListVersion);
-    EXPECT_EQ(0UL, (*sl)[id1].isBeingUpdated);
-}
-
-TEST_F(CoordinatorServerListTest, updateEntryVersion_booleanToggles) {
-    sl->haltUpdater();
-
-    ServerId id1 = generateUniqueId();
-    add(id1, "mock:host=server1", {WireFormat::MASTER_SERVICE}, 100);
-
-    sl->version = 10;
-    sl->serverList[id1.indexNumber()].entry->isBeingUpdated = 100;
-    sl->lastScan.noUpdatesFound = true;
-
-    sl->updateEntryVersion(id1, 10);
-    EXPECT_TRUE(sl->lastScan.noUpdatesFound);
-    EXPECT_EQ(0UL, (*sl)[id1].isBeingUpdated);
-
-    // Lower update version should trigger noUpdatesFound
-    sl->updateEntryVersion(id1, 2);
-    EXPECT_FALSE(sl->lastScan.noUpdatesFound);
+    EXPECT_EQ("", transport.outputLog);
 }
 
 TEST_F(CoordinatorServerListTest, updateLoop) {
@@ -1499,9 +1216,10 @@ TEST_F(CoordinatorServerListTest, updateLoop) {
     transport.setInput("0"); // Server 4 response -> ok
 
     // Send Full List to server 4
-    commitUpdate();
+    pushUpdate();
     sl->sync();
-    EXPECT_EQ("updateEntryVersion: server 4.0 updated (0->1)", TestLog::get());
+    EXPECT_EQ("workSuccess: ServerList Update Success: 4.0 update (-1 => 1)",
+                TestLog::get());
     EXPECT_EQ("sendRequest: 0x40023 4 0 11 273 0 /0 /x18/0",
                transport.outputLog);
 
@@ -1523,19 +1241,11 @@ TEST_F(CoordinatorServerListTest, updateLoop) {
     crashed(serverId6, false);
 
     TestLog::reset();
-    commitUpdate();
+    pushUpdate();
     sl->sync();
-    EXPECT_EQ("updateEntryVersion: server 1.1 updated (0->2) | "
-              "updateEntryVersion: server 4.0 updated (1->2)",
+    EXPECT_EQ("workSuccess: ServerList Update Success: 4.0 update (1 => 2) | "
+              "workSuccess: ServerList Update Success: 1.1 update (-1 => 2)",
               TestLog::get());
-
-    EXPECT_EQ(
-        "sendRequest: 0x40023 1 1 11 529 0 /0 /x18/0 | "
-        "sendRequest: 0x40023 4 0 173 0x100d340a 0x11000000 1 1 0x6f6d111a "
-        "ck:host=server5-/0 0x35000000 0 57 0 0xd340a00 16 1297 0 0x6d111a00 "
-        "ock:host=server6-/0 0x35000000 0 57 0 0xd340a00 16 1297 0 0x6d111a00 "
-        "ock:host=server6-/0 0x35000000 1 57 0 0x21100 0 0x1180000",
-        transport.outputLog);
 }
 
 TEST_F(CoordinatorServerListTest, updateLoop_multiAllAtOnce) {
@@ -1543,7 +1253,6 @@ TEST_F(CoordinatorServerListTest, updateLoop_multiAllAtOnce) {
     TransportManager::MockRegistrar _(service->context, transport);
     sl->haltUpdater();
 
-    sl->concurrentRPCs = 2;
     for (int i = 1; i <= 5; i++) {
         transport.setInput("0");
         ServerId id = generateUniqueId();
@@ -1553,11 +1262,11 @@ TEST_F(CoordinatorServerListTest, updateLoop_multiAllAtOnce) {
     TestLog::Enable __;
     sl->sync();
 
-    EXPECT_EQ("updateEntryVersion: server 1.0 updated (0->5) | "
-              "updateEntryVersion: server 2.0 updated (0->5) | "
-              "updateEntryVersion: server 3.0 updated (0->5) | "
-              "updateEntryVersion: server 4.0 updated (0->5) | "
-              "updateEntryVersion: server 5.0 updated (0->5)",
+    EXPECT_EQ("workSuccess: ServerList Update Success: 1.0 update (-1 => 5) | "
+              "workSuccess: ServerList Update Success: 2.0 update (-1 => 5) | "
+              "workSuccess: ServerList Update Success: 3.0 update (-1 => 5) | "
+              "workSuccess: ServerList Update Success: 4.0 update (-1 => 5) | "
+              "workSuccess: ServerList Update Success: 5.0 update (-1 => 5)",
                TestLog::get());
 }
 
@@ -1566,12 +1275,10 @@ TEST_F(CoordinatorServerListTest, updateLoop_multiStriped) {
     TransportManager::MockRegistrar _(service->context, transport);
     sl->haltUpdater();
 
-    TestLog::Enable __(updateEntryFilter);
-    sl->concurrentRPCs = 2;
+    TestLog::Enable __(workSuccessFilter);
     for (int i = 1; i <= 4; i++) {
         ServerId id = generateUniqueId();
-        add(id, "mock:host=server_xxx",
-                    {WireFormat::MEMBERSHIP_SERVICE}, 100);
+        add(id, "mock:host=server_xxx", {WireFormat::MEMBERSHIP_SERVICE}, 100);
 
         // (every n-th server will cause n updates)
         for (int j = 0; j < i; j++)
@@ -1583,19 +1290,24 @@ TEST_F(CoordinatorServerListTest, updateLoop_multiStriped) {
         EXPECT_GE(1LU, sl->updates.size());
     }
 
-    EXPECT_EQ("updateEntryVersion: server 1.0 updated (0->1) | "
-              "updateEntryVersion: server 1.0 updated (1->2) | "
-              "updateEntryVersion: server 2.0 updated (0->2) | "
-              "updateEntryVersion: server 1.0 updated (2->3) | "
-              "updateEntryVersion: server 2.0 updated (2->3) | "
-              "updateEntryVersion: server 3.0 updated (0->3) | "
-              "updateEntryVersion: server 1.0 updated (3->4) | "
-              "updateEntryVersion: server 2.0 updated (3->4) | "
-              "updateEntryVersion: server 3.0 updated (3->4) | "
-              "updateEntryVersion: server 4.0 updated (0->4)",
-               TestLog::get());
+    EXPECT_EQ("workSuccess: ServerList Update Success: 1.0 update (-1 => 1) | "
+              "workSuccess: ServerList Update Success: 1.0 update (1 => 2) | "
+              "workSuccess: ServerList Update Success: 2.0 update (-1 => 2) | "
+              "workSuccess: ServerList Update Success: 2.0 update (2 => 3) | "
+              "workSuccess: ServerList Update Success: 3.0 update (-1 => 3) | "
+              "workSuccess: ServerList Update Success: 1.0 update (2 => 3) | "
+              "workSuccess: ServerList Update Success: 1.0 update (3 => 4) | "
+              "workSuccess: ServerList Update Success: 2.0 update (3 => 4) | "
+              "workSuccess: ServerList Update Success: 3.0 update (3 => 4) | "
+              "workSuccess: ServerList Update Success: 4.0 update (-1 => 4)",
+              TestLog::get());
 }
 
+// Tests disabled since the Updater in its current form
+// does not use any globals to hint at any observable state changes.
+// This will be fixed when ServerList is abstracted out into its own
+// files and its state is exposed.
+#if 0
 TEST_F(CoordinatorServerListTest, updateLoop_expansion) {
     MockTransport transport(service->context);
     TransportManager::MockRegistrar _(service->context, transport);
@@ -1660,14 +1372,262 @@ TEST_F(CoordinatorServerListTest, updateLoop_contraction) {
     // 5 + 7 = 13 updates (2 expand + 1 contract)
     id = generateUniqueId();
     add(id, "mock:host=server", {WireFormat::MEMBERSHIP_SERVICE}, 100, false);
-    commitUpdate();
+    pushUpdate();
     id = generateUniqueId();
     add(id, "mock:host=server", {WireFormat::MEMBERSHIP_SERVICE}, 100, false);
-    commitUpdate();
+    pushUpdate();
     for (int i = 0; i < 12; i++)
         transport.setInput("0");
     sl->sync();
     EXPECT_EQ(4UL, sl->concurrentRPCs);
 }
+#endif
+
+/**
+ * This test can't actually test for cases where waitForWork will stall
+ * so only the 'there is work' cases are checked. If this test stalls,
+ * then there's an error.
+ */
+TEST_F(CoordinatorServerListTest, waitForWork) {
+    sl->stopUpdater = false;
+    sl->minConfirmedVersion = 10;
+    sl->waitForWork();
+
+    sl->minConfirmedVersion = sl->version;
+    sl->stopUpdater = true;
+    sl->waitForWork();
+}
+
+TEST_F(CoordinatorServerListTest, getWork) {
+    CoordinatorServerList::UpdaterWorkUnit wu;
+    sl->haltUpdater();
+
+    // Empty server list
+    EXPECT_FALSE(sl->getWork(&wu));
+
+    // Server ineligible for updates
+    ServerId id = generateUniqueId();
+    add(id, "mock:host=server1", {}, 0);
+    EXPECT_FALSE(sl->getWork(&wu));
+    // Should have set heuristic metrics and pruned updates
+    EXPECT_EQ(sl->version, sl->minConfirmedVersion);
+    EXPECT_EQ(sl->version, sl->lastScan.noWorkFoundForEpoch);
+    EXPECT_EQ(0UL, sl->updates.size());
+    EXPECT_EQ(0UL, sl->numUpdatingServers);
+
+    // Updatable server
+    id = generateUniqueId();
+    add(id, "mock:host=server2", {WireFormat::MEMBERSHIP_SERVICE}, 0);
+    EXPECT_TRUE(sl->getWork(&wu));
+    EXPECT_EQ(id, wu.targetServer);
+    EXPECT_TRUE(wu.sendFullList);
+    EXPECT_EQ(sl->version, wu.firstUpdate->version);
+    EXPECT_EQ(sl->version, wu.updateVersionTail);
+
+    EXPECT_EQ(1UL, sl->numUpdatingServers);
+    EXPECT_FALSE(sl->getWork(&wu)); // update already assigned
+
+    // Work failed, retry
+    sl->workFailed(id);
+    EXPECT_EQ(0UL, sl->numUpdatingServers);
+    EXPECT_TRUE(sl->getWork(&wu));
+    EXPECT_EQ(id, wu.targetServer);
+    EXPECT_TRUE(wu.sendFullList);
+    EXPECT_EQ(2UL, wu.firstUpdate->version);
+    EXPECT_FALSE(sl->getWork(&wu)); // update already assigned
+    EXPECT_NE(sl->version, sl->minConfirmedVersion);
+    EXPECT_EQ(1UL, sl->numUpdatingServers);
+
+    // Work success, no more work and all updates pruned
+    sl->workSuccess(id);
+    EXPECT_FALSE(sl->getWork(&wu));
+    EXPECT_EQ(sl->version, sl->minConfirmedVersion);
+    EXPECT_EQ(0UL, sl->updates.size());
+    EXPECT_EQ(0UL, sl->numUpdatingServers);
+}
+
+TEST_F(CoordinatorServerListTest, getWork_incrementalUpdate) {
+    CoordinatorServerList::UpdaterWorkUnit wu, wu1, wu2;
+    sl->haltUpdater();
+
+    // Eligible for updates
+    ServerId id1 = generateUniqueId();
+    add(id1, "mock:host=server1", {WireFormat::MEMBERSHIP_SERVICE}, 0);
+
+    EXPECT_TRUE(sl->getWork(&wu));
+    EXPECT_FALSE(sl->getWork(&wu)); // update already assigned
+    EXPECT_EQ(1UL, sl->numUpdatingServers);
+    sl->workSuccess(id1);
+
+    // Add second server; it gets full update and first server gets incremental.
+    ServerId id2 = generateUniqueId();
+    add(id2, "mock:host=server2", {WireFormat::MEMBERSHIP_SERVICE}, 0);
+
+    EXPECT_TRUE(sl->getWork(&wu1));
+    EXPECT_TRUE(sl->getWork(&wu2));
+    EXPECT_EQ(2UL, sl->numUpdatingServers);
+    EXPECT_FALSE(sl->getWork(&wu)); // work already assigned
+
+    // Swap the two work units so that the checks are correct
+    if (wu1.targetServer == id2) {
+        wu = wu2;
+        wu2 = wu1;
+        wu1 = wu;
+    }
+
+    EXPECT_EQ(id1, wu1.targetServer);
+    EXPECT_FALSE(wu1.sendFullList);
+    EXPECT_EQ(sl->version, wu1.firstUpdate->version);
+    EXPECT_EQ(sl->version, wu1.updateVersionTail);
+
+    EXPECT_EQ(id2, wu2.targetServer);
+    EXPECT_TRUE(wu2.sendFullList);
+    ASSERT_TRUE(wu2.firstUpdate->full);
+    EXPECT_EQ(sl->version, wu1.firstUpdate->version);
+    EXPECT_EQ(sl->version, wu1.updateVersionTail);
+
+    // Finish the requests
+    EXPECT_EQ(2UL, sl->numUpdatingServers);
+    sl->workSuccess(id1);
+    sl->workSuccess(id2);
+
+    // Crash & remove one and check that updates keep going
+    crashed(id1);
+    EXPECT_TRUE(sl->getWork(&wu2));
+    EXPECT_EQ(id2, wu2.targetServer);
+    EXPECT_EQ(sl->version, wu2.updateVersionTail);
+    EXPECT_FALSE(wu2.sendFullList);
+    EXPECT_FALSE(sl->getWork(&wu)); // work already assigned
+
+    // Remove then finish work -> leaves work left over
+    remove(id1);
+    sl->workSuccess(id2);
+
+    EXPECT_TRUE(sl->getWork(&wu2));
+    EXPECT_EQ(id2, wu2.targetServer);
+    EXPECT_EQ(sl->version, wu2.updateVersionTail);
+    EXPECT_FALSE(wu2.sendFullList);
+    EXPECT_FALSE(sl->getWork(&wu)); // work already assigned
+
+    // Check that all is well again
+    sl->workSuccess(id2);
+    EXPECT_FALSE(sl->getWork(&wu));
+    EXPECT_EQ(sl->version, sl->minConfirmedVersion);
+    EXPECT_EQ(0UL, sl->numUpdatingServers);
+}
+
+static const uint64_t UNINITIALIZED_VERSION =
+        CoordinatorServerList::UNINITIALIZED_VERSION;
+
+TEST_F(CoordinatorServerListTest, workSuccess) {
+    CoordinatorServerList::UpdaterWorkUnit wu;
+    sl->haltUpdater();
+
+    ServerId id1 = generateUniqueId();
+    add(id1, "mock:host=server1", {WireFormat::MEMBERSHIP_SERVICE}, 0);
+    ServerId id2 = generateUniqueId();
+    add(id2, "mock:host=server2", {WireFormat::MEMBERSHIP_SERVICE}, 0);
+
+    TestLog::Enable _;
+    ASSERT_TRUE(sl->getWork(&wu));
+    ASSERT_TRUE(sl->getWork(&wu));
+
+    TestLog::reset();
+    sl->workSuccess(id1);
+    EXPECT_STREQ("workSuccess: ServerList Update Success: 1.0 update (-1 => 2)",
+                TestLog::get().c_str());
+
+    CoordinatorServerList::Entry* e1 = sl->getEntry(id1);
+    CoordinatorServerList::Entry* e2 = sl->getEntry(id2);
+
+    EXPECT_EQ(sl->version, e1->verifiedVersion);
+    EXPECT_EQ(sl->version, e1->updateVersion);
+    EXPECT_EQ(UNINITIALIZED_VERSION, e2->verifiedVersion);
+    EXPECT_EQ(sl->version, e2->updateVersion);
+}
+
+TEST_F(CoordinatorServerListTest, workSuccess_multipleInvokes) {
+    CoordinatorServerList::UpdaterWorkUnit wu;
+    sl->haltUpdater();
+
+    ServerId id1 = generateUniqueId();
+    add(id1, "mock:host=server1", {WireFormat::MEMBERSHIP_SERVICE}, 0);
+    ASSERT_TRUE(sl->getWork(&wu));
+
+    TestLog::Enable _;
+    sl->workSuccess(id1);
+    EXPECT_STREQ("workSuccess: ServerList Update Success: 1.0 update (-1 => 1)",
+                 TestLog::get().c_str());
+
+    // Second call triggers warning
+    TestLog::reset();
+    sl->numUpdatingServers++;
+    sl->workSuccess(id1);
+    EXPECT_STREQ("workSuccess: Invoked for server 1.0 even though either "
+            "no update was sent out or it has already been invoked. "
+            "Possible race/bookeeping issue.",
+                TestLog::get().c_str());
+
+    // Everything should be up to date from the POV of the CSL.
+    EXPECT_FALSE(sl->getWork(&wu));
+}
+
+TEST_F(CoordinatorServerListTest, workSuccess_nonExistantServer) {
+    sl->haltUpdater();
+    TestLog::Enable _;
+
+    // Test Non-existent ServerId
+    ServerId id(100, 200);
+    sl->workSuccess(id);
+    EXPECT_STREQ("workSuccess: Bookeeping issue detected; server's count "
+            "of numUpdatingServers just went negative. Not total failure "
+            "but will cause the updater thread to spin even w/o work. "
+            "Cause is mismatch # of getWork() and workSuccess/Failed() | "
+            "workSuccess: Server 100.200 responded to a server list update "
+            "but is no longer in the server list...",
+            TestLog::get().c_str());
+}
+
+TEST_F(CoordinatorServerListTest, workFailed) {
+    CoordinatorServerList::UpdaterWorkUnit wu;
+    sl->haltUpdater();
+
+    ServerId id1 = generateUniqueId();
+    add(id1, "mock:host=server1", {WireFormat::MEMBERSHIP_SERVICE}, 0);
+    CoordinatorServerList::Entry* e = sl->getEntry(id1);
+    ASSERT_TRUE(sl->getWork(&wu));
+    EXPECT_EQ(id1, wu.targetServer);
+    EXPECT_EQ(UNINITIALIZED_VERSION, e->verifiedVersion);
+    EXPECT_EQ(sl->version, e->updateVersion);
+
+    TestLog::Enable _;
+    sl->workFailed(id1);
+    EXPECT_STREQ("workFailed: ServerList Update Failed : 1.0 update (-1 => -1)",
+            TestLog::get().c_str());
+
+    EXPECT_EQ(UNINITIALIZED_VERSION, e->verifiedVersion);
+    EXPECT_EQ(UNINITIALIZED_VERSION, e->updateVersion);
+
+    // Work should be available again
+    EXPECT_TRUE(sl->getWork(&wu));
+    EXPECT_EQ(id1, wu.targetServer);
+}
+
+TEST_F(CoordinatorServerListTest, workFailed_multipleInvokes) {
+    sl->haltUpdater();
+
+    ServerId id1 = generateUniqueId();
+    add(id1, "mock:host=server1", {WireFormat::MEMBERSHIP_SERVICE}, 0);
+
+    TestLog::Enable _;
+    sl->workFailed(id1);
+    EXPECT_STREQ("workFailed: Bookeeping issue detected; server's count of "
+            "numUpdatingServers just went negative. Not total failure but "
+            "will cause the updater thread to spin even w/o work. Cause is "
+            "mismatch # of getWork() and workSuccess/Failed() | workFailed: "
+            "ServerList Update Failed : 1.0 update (-1 => -1)",
+            TestLog::get().c_str());
+}
+
 
 } // namespace RAMCloud

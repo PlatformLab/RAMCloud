@@ -31,7 +31,7 @@ namespace RAMCloud {
  * class can be found at the top of MultiOp.cc
  *
  * To add a new multi-operation, xxx, to this framework follow these steps:
- *   1) In Ramcloud.cc, create a new MultixxxObject that extends MultiOpObject.
+ *   1) In Ramcloud.h, create a new MultixxxObject that extends MultiOpObject.
  *      This MultixxxObject will serve as a place to pass in parameters
  *      and store server responses.
  *

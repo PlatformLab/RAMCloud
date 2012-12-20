@@ -41,15 +41,15 @@ CoordinatorServerList::CoordinatorServerList(Context* context)
     , serverList()
     , numberOfMasters(0)
     , numberOfBackups(0)
-    , concurrentRPCs(5)
-    , rpcTimeoutNs(0)  // 0 = infinite timeout
     , stopUpdater(true)
     , lastScan()
     , update()
     , updates()
     , hasUpdatesOrStop()
     , listUpToDate()
-    , thread()
+    , updaterThread()
+    , minConfirmedVersion(0)
+    , numUpdatingServers(0)
     , nextReplicationId(1)
 {
     context->coordinatorServerList = this;
@@ -126,7 +126,7 @@ CoordinatorServerList::enlistServer(
                     replacesId.toString().c_str());
     }
 
-    commitUpdate(lock);
+    pushUpdate(lock);
     return newServerId;
 }
 
@@ -205,11 +205,11 @@ CoordinatorServerList::recoverEnlistedServer(
         state->service_locator().c_str(),
         ServiceMask::deserialize(state->service_mask()),
         state->read_speed());
-    // TODO(ankitak): We probably do not want to do the following commitUpdate()
+    // TODO(ankitak): We probably do not want to do the following pushUpdate()
     // that sends updates to the cluster,
     // since this action has already been completed and reflected to the cluster
     // before coordinator failure that triggered this recovery.
-    commitUpdate(lock);
+    pushUpdate(lock);
 }
 
 /**
@@ -232,7 +232,7 @@ CoordinatorServerList::recoverEnlistServer(
                  ServiceMask::deserialize(state->service_mask()),
                  state->read_speed(),
                  state->service_locator().c_str()).complete(entryId);
-    commitUpdate(lock);
+    pushUpdate(lock);
 }
 
 /**
@@ -284,7 +284,7 @@ CoordinatorServerList::recoverServerDown(
  * This method may actually append two entries to \a update (see below).
  *
  * The result of this operation will be added in the class's update Protobuffer
- * intended for the cluster. To send out the update, call commitUpdate()
+ * intended for the cluster. To send out the update, call pushUpdate()
  * which will also increment the version number. Calls to remove()
  * and crashed() must proceed call to add() to ensure ordering guarantees
  * about notifications related to servers which re-enlist.
@@ -301,7 +301,7 @@ CoordinatorServerList::removeAfterRecovery(ServerId serverId)
 {
     Lock lock(mutex);
     remove(lock, serverId);
-    commitUpdate(lock);
+    pushUpdate(lock);
 }
 
 /**
@@ -566,6 +566,7 @@ CoordinatorServerList::SetMasterRecoveryInfo::complete(EntryId entryId)
     }
 }
 
+//TODO(syang0) Merge iget(ServerId)
 ServerDetails*
 CoordinatorServerList::iget(ServerId id)
 {
@@ -595,10 +596,31 @@ CoordinatorServerList::isize() const
 }
 
 /**
+ * Returns the entry corresponding to a ServerId with bounds checks.
+ * Does not use locks; assumes internal use only.
+ *
+ * \param id
+ *      ServerId corresponding to the entry you want to get.
+ * \return
+ *      The Entry, null if id is invalid.
+ */
+CoordinatorServerList::Entry*
+CoordinatorServerList::getEntry(ServerId id) {
+    uint32_t index = id.indexNumber();
+    if ((index < serverList.size()) && serverList[index].entry) {
+        Entry* e = serverList[index].entry.get();
+        if (e->serverId == id)
+            return e;
+    }
+
+    return NULL;
+}
+
+/**
  * Add a new server to the CoordinatorServerList with a given ServerId.
  *
  * The result of this operation will be added in the class's update Protobuffer
- * intended for the cluster. To send out the update, call commitUpdate()
+ * intended for the cluster. To send out the update, call pushUpdate()
  * which will also increment the version number. Calls to remove()
  * and crashed() must proceed call to add() to ensure ordering guarantees
  * about notifications related to servers which re-enlist.
@@ -706,7 +728,7 @@ CoordinatorServerList::addServerUpdateLogId(Lock& lock, ServerId serverId,
  * the effect is undefined if the server's status is DOWN.
  *
  * The result of this operation will be added in the class's update Protobuffer
- * intended for the cluster. To send out the update, call commitUpdate()
+ * intended for the cluster. To send out the update, call pushUpdate()
  * which will also increment the version number. Calls to remove()
  * and crashed() must proceed call to add() to ensure ordering guarantees
  * about notifications related to servers which re-enlist.
@@ -1000,7 +1022,7 @@ void
 CoordinatorServerList::serverDown(Lock& lock, ServerId serverId)
 {
     ServerDown(*this, lock, serverId).execute();
-    commitUpdate(lock);
+    pushUpdate(lock);
 }
 
 /**
@@ -1136,7 +1158,7 @@ CoordinatorServerList::setReplicationId(Lock& lock, ServerId serverId,
  *      explicity needs CoordinatorServerList lock.
  */
 void
-CoordinatorServerList::commitUpdate(const Lock& lock)
+CoordinatorServerList::pushUpdate(const Lock& lock)
 {
     // If there are no updates, don't generate a send.
     if (update.server_size() == 0)
@@ -1145,74 +1167,18 @@ CoordinatorServerList::commitUpdate(const Lock& lock)
     version++;
     update.set_version_number(version);
     update.set_type(ProtoBuf::ServerList_Type_UPDATE);
-    updates.push_back(update);
-    lastScan.noUpdatesFound = false;
+    updates.emplace_back(update);
+
     hasUpdatesOrStop.notify_one();
     update.Clear();
 }
 
 /**
- * Core logic that handles starting rpcs, timeouts, and following up on them.
- *
- * \param update
- *      The UpdateSlot that as an rpc to manage
- *
- * \return
- *      true if the UpdateSlot contains an active rpc
- */
-bool
-CoordinatorServerList::dispatchRpc(UpdateSlot& update) {
-    if (update.rpc) {
-        // Check completion/ error
-        if (update.rpc->isReady()) {
-            uint64_t newVersion;
-            try {
-                update.rpc->wait();
-                newVersion = update.protobuf.version_number();
-            } catch (const ServerNotUpException& e) {
-                newVersion = update.originalVersion;
-
-                LOG(NOTICE, "Async update to %s occurred during/after it was "
-                "crashed/downed in the CoordinatorServerList.",
-                update.serverId.toString().c_str());
-            }
-
-            update.rpc.destroy();
-            updateEntryVersion(update.serverId, newVersion);
-
-            // Check timeout event
-        } else {
-            uint64_t ns = Cycles::toNanoseconds(Cycles::rdtsc() -
-                                                update.startCycle);
-            if (rpcTimeoutNs != 0 && ns > rpcTimeoutNs) {
-                LOG(NOTICE, "ServerList update to %s timed out after %lu ms; "
-                    "trying again later",
-                    update.serverId.toString().c_str(),
-                    ns / 1000 / 1000);
-                update.rpc.destroy();
-                updateEntryVersion(update.serverId, update.originalVersion);
-            }
-        }
-    }
-
-    // Valid update still in progress
-    if (update.rpc)
-        return true;
-
-    // Else load new rpc and start if applicable
-    if (!loadNextUpdate(update))
-        return false;
-
-    update.rpc.construct(context, update.serverId, &(update.protobuf));
-    update.startCycle = Cycles::rdtsc();
-
-    return true;
-}
-
-/**
  * Stops the background updater. It cancel()'s all pending update rpcs
- * and leaves the cluster out-of-date. To force a synchronization point
- * before halting, call sync() first.
+ * and leaves the cluster potentially out-of-date. To force a
+ * synchronization point before halting, call sync() first.
+ *
+ * This will block until the updater thread stops.
  */
 void
 CoordinatorServerList::haltUpdater()
@@ -1224,174 +1190,10 @@ CoordinatorServerList::haltUpdater()
     lock.unlock();
 
     // Wait for Thread stop
-    if (thread && thread->joinable()) {
-        thread->join();
-        thread.destroy();
+    if (updaterThread && updaterThread->joinable()) {
+        updaterThread->join();
+        updaterThread.destroy();
     }
-}
-
-/**
- * Searches through the server list looking for servers that need
- * to be sent updates/full lists. This search omits entries that are
- * currently being updated which means false can be returned even if
- * !clusterIsUpToDate().
- *
- * This is internally used to search for entries that need to be sent
- * update rpcs that do not currently have an rpc attached to them.
- *
- * \param lock
- *      Needs exclusive CoordinatorServerlist lock
- *
- * \return
- *      true if there are server list entries that are out of date
- *      AND do not have rpcs sent to them yet.
- */
-bool
-CoordinatorServerList::hasUpdates(const Lock& lock)
-{
-    if (lastScan.noUpdatesFound || serverList.size() == 0)
-        return false;
-
-    size_t i = lastScan.searchIndex;
-    do {
-        if (i == 0) {
-            pruneUpdates(lock, lastScan.minVersion);
-            lastScan.minVersion = 0;
-        }
-
-        if (serverList[i].entry) {
-            Entry& entry = *serverList[i].entry;
-            if (entry.services.has(WireFormat::MEMBERSHIP_SERVICE) &&
-                    entry.status == ServerStatus::UP )
-            {
-                 // Check for new minVersion
-                uint64_t entryMinVersion = (entry.serverListVersion) ?
-                    entry.serverListVersion : entry.isBeingUpdated;
-
-                if (lastScan.minVersion == 0 || (entryMinVersion > 0 &&
-                        entryMinVersion < lastScan.minVersion)) {
-                    lastScan.minVersion = entryMinVersion;
-                }
-
-                // Check for Update eligibility
-                if (entry.serverListVersion != version &&
-                        !entry.isBeingUpdated) {
-                    lastScan.searchIndex = i;
-                    lastScan.noUpdatesFound = false;
-                    return true;
-                }
-            }
-        }
-
-        i = (i+1)%serverList.size();
-    } while (i != lastScan.searchIndex);
-
-    lastScan.noUpdatesFound = true;
-    return false;
-}
-
-/**
- * Scans the server list to see if all entries eligible for server
- * list updates are up-to-date.
- *
- * \param lock
- *      explicity needs CoordinatorServerList lock
- *
- * \return
- *      true if entire list is up-to-date
- */
-bool
-CoordinatorServerList::isClusterUpToDate(const Lock& lock) {
-    for (size_t i = 0; i < serverList.size(); i++) {
-        if (!serverList[i].entry)
-            continue;
-
-        Entry& entry = *serverList[i].entry;
-        if (entry.services.has(WireFormat::MEMBERSHIP_SERVICE) &&
-                entry.status == ServerStatus::UP &&
-                (entry.serverListVersion != version ||
-                entry.isBeingUpdated > 0) ) {
-            return false;
-        }
-    }
-
-    return true;
-}
-
-/**
- * Loads the information needed to start an async update rpc to a server into
- * an UpdateSlot. The entity managing the UpdateSlot is MUST call back with
- * updateEntryVersion() regardless of rpc success or fail. Failure to do so
- * will result internal mismanaged state.
- *
- * This will return false if there are no entries that need an update.
- *
- * \param updateSlot
- *      the update slot to load the update info into
- *
- * \return bool
- *      true if update has been loaded; false if no servers require an update.
- *
- */
-bool
-CoordinatorServerList::loadNextUpdate(UpdateSlot& updateSlot)
-{
-    Lock lock(mutex);
-
-    // Check for Updates
-    if (!hasUpdates(lock))
-        return false;
-
-    // Grab entry that needs update
-    // note: lastScan.searchIndex was set by hasUpdates(lock)
-    Entry& entry = *serverList[lastScan.searchIndex].entry;
-    lastScan.searchIndex = (lastScan.searchIndex + 1)%serverList.size();
-
-    // Package info and return
-    updateSlot.originalVersion = entry.serverListVersion;
-    updateSlot.serverId = entry.serverId;
-
-    if (entry.serverListVersion == 0) {
-        updateSlot.protobuf.Clear();
-        serialize(lock, updateSlot.protobuf,
-                {WireFormat::MASTER_SERVICE, WireFormat::BACKUP_SERVICE});
-        entry.isBeingUpdated = version;
-    } else {
-        assert(!updates.empty());
-        assert(updates.front().version_number() <= version);
-        assert(updates.back().version_number()  >= version);
-
-        uint64_t head = updates.front().version_number();
-        uint64_t targetVersion = entry.serverListVersion + 1;
-        updateSlot.protobuf = updates.at(targetVersion - head);
-        entry.isBeingUpdated = targetVersion;
-    }
-
-    return true;
-}
-
-/**
- * Deletes past updates up to and including the param version. This
- * help maintain the updates list so that it does not get too large.
- *
-  * \param lock
- *      explicity needs CoordinatorServerList lock
- *
- *  \param version
- *      the version to delete up to and including
- */
-void
-CoordinatorServerList::pruneUpdates(const Lock& lock, uint64_t version)
-{
-    assert(version <= this->version);
-
-    while (!updates.empty() && updates.front().version_number() <= version)
-        updates.pop_front();
-
-    if (updates.empty())    // Empty list = no updates to send
-        listUpToDate.notify_all();
-
-    //TODO(syang0) ankitak -> This is where you detect oldest version.
 }
 
 /**
@@ -1404,13 +1206,65 @@ CoordinatorServerList::startUpdater()
     Lock _(mutex);
 
     // Start thread if not started
-    if (!thread) {
+    if (!updaterThread) {
         stopUpdater = false;
-        thread.construct(&CoordinatorServerList::updateLoop, this);
+        updaterThread.construct(&CoordinatorServerList::updateLoop, this);
     }
 
     // Tell it to start work regardless
     hasUpdatesOrStop.notify_one();
+}
+
+/**
+ * Checks if the cluster is up-to-date.
+ *
+ * \param lock
+ *      explicity needs CoordinatorServerList lock
+ * \return
+ *      true if entire list is up-to-date
+ */
+bool
+CoordinatorServerList::isClusterUpToDate(const Lock& lock) {
+    return (serverList.size() == 0) ||
+                (numUpdatingServers == 0 &&
+                minConfirmedVersion == version);
+}
+
+/**
+ * Causes a deletion of server list updates that are no longer needed
+ * by the coordinator serverlist. This will delete all updates older than
+ * the CoordinatorServerList's current minConfirmedVersion.
+ *
+ * This is safe to invoke whenever, but is typically done so after a
+ * new minConfirmedVersion is set.
+ *
+  * \param lock
+ *      explicity needs CoordinatorServerList lock
+ */
+void
+CoordinatorServerList::pruneUpdates(const Lock& lock)
+{
+    if (minConfirmedVersion == UNINITIALIZED_VERSION)
+        return;
+
+    if (minConfirmedVersion > version) {
+        LOG(ERROR, "Inconsistent state detected! CoordinatorServerList's "
+                   "minConfirmedVersion %lu is larger than it's current "
+                   "version %lu. This should NEVER happen!",
+                   minConfirmedVersion, version);
+
+        // Reset minVersion in the hopes of it being a transient bug.
+        minConfirmedVersion = 0;
+        return;
+    }
+
+    while (!updates.empty() && updates.front().version <= minConfirmedVersion)
+        updates.pop_front();
+
+    if (updates.empty())    // Empty list = no updates to send
+        listUpToDate.notify_all();
+
+    //TODO(syang0) ankitak -> This is where you detect oldest version.
 }
 
 /**
@@ -1426,123 +1280,166 @@ CoordinatorServerList::sync()
     }
 }
 
-/**
- * Updates the server list version of an entry. Updates to non-existent
- * serverIds will be ignored silently.
- *
- * \param serverId
- *      ServerId of the entry that has just been updated.
- * \param version
- *      The version to update that entry to.
- */
-void
-CoordinatorServerList::updateEntryVersion(ServerId serverId, uint64_t version)
-{
-    Lock lock(mutex);
-
-    try {
-        Entry& entry =
-                const_cast<Entry&>(getReferenceFromServerId(lock, serverId));
-        LOG(DEBUG, "server %s updated (%lu->%lu)", serverId.toString().c_str(),
-                entry.serverListVersion, version);
-
-        entry.serverListVersion = version;
-        entry.isBeingUpdated = 0;
-
-        if (version < this->version)
-            lastScan.noUpdatesFound = false;
-
-    } catch(ServerListException& e) {
-        // Don't care if entry no longer exists.
-    }
-}
 
 /**
- * Main loop that checks for outdated servers and sends out rpcs. This is
- * intended to run in a thread separate from the master.
+ * Main loop that checks for outdated servers and sends out update rpcs.
+ * This is the top-level method of a dedicated thread separate from the
+ * main coordinator's.
  *
- * Once called, this loop can be exited by calling haltUpdater().
+ * Once invoked, this loop can be exited by calling haltUpdater() in another
+ * thread.
+ *
+ * The Updater Loop manages starting, stopping, and following up on ServerList
+ * Update RPCs asynchronous to the main thread with minimal locking of
+ * Coordinator Server List, CSL. The intention of this mechanism is to
+ * ensure that the critical sections of the CSL are not delayed while
+ * waiting for RPCs to finish.
+ *
+ * Since Coordinator Server List houses all the information about updatable
+ * servers, this mechanism requires at least two entry points (conceptual)
+ * into the server list, a) a way to get info about outdated servers and b)
+ * a way to signal update success/failure. The former is achieved via
+ * getWork() and the latter is achieved by workSucceeded()/workFailed().
+ * For polling efficiency, there is an additional call, waitForWork(), that
+ * will sleep until more servers get out of date. These are the only calls
+ * that require locks on the Coordinator Server List that UpdateLoop uses.
+ * Other than that, the updateLoop operates asynchronously from the CSL.
+ *
  */
 void
 CoordinatorServerList::updateLoop()
 {
+    UpdaterWorkUnit wu;
+    uint64_t max_rpcs = 8;
+    std::deque<Tub<UpdateServerListRpc>> rpcs_backing;
+    std::list<Tub<UpdateServerListRpc>*> rpcs;
+    std::list<Tub<UpdateServerListRpc>*>::iterator it;
+
+
     /**
-     * updateSlots stores all the slots we've ever allocated. It can grow
-     * as necessary. inUse stores the indeces of slots in updateSlotes
-     * that are eligible for update rpcs. The free list are the left over
-     * rpcs that are allocated but ineligible for updates.
+     * The Updater Loop manages a number of outgoing RPCs. The maximum number
+     * of concurrent RPCs is determined dynamically in the hopes of finding a
+     * sweet spot where the time to iterate through the list of outgoing RPCs
+     * is roughly equivalent to the time of one RPC finishing. The heuristic
+     * for doing this is simply only allowing one new RPC to be started with
+     * each pass through the internal list of outgoing RPCs and allowing an
+     * unlimited number to finish. The intuition for doing this is based on
+     * the observation that checking whether an RPC is finished and finishing
+     * it takes ~10-20ns whereas starting a new RPC takes much longer. Thus,
+     * by limiting the number of RPCs started per iteration, we would allow
+     * for rapid polling of unfinished RPCs and a rapid ramp up to the steady
+     * state where roughly one RPC finishes per iteration. This is preferable
+     * over trying start multiple new RPCs per iteration.
      *
-     * The motivation behind this is that we want just enough slots such
-     * that by the time we loop all the way through the list, the rpcs we
-     * sent out in the previous iteration would be done. We don't want too many
-     * slots such that done rpcs wait for a long period of time before we
-     * get back to them and constantly allocating/deallocating update slots
-     * is expensive. Thus, the solution was to keep track of how many slots
-     * are "inUse" and we'd have to iterate over. This list grows and shrinks
-     * as necessary to achieve our goal outlined in the first sentence.
+     * The Updater keeps track of the outgoing RPCs internally in a
+     * List<Tub<UpdateServerListRPC*>> that is organized as such:
+     *
+     * **************************************************....
+     * * Active RPCS   *   Inactive RPCs  *  Unused RPCs ....
+     * **************************************************
+     *                                    /\ max_rpcs
+     *
+     * Active RPCs are ones that have started but not finished. They are
+     * compacted to the left so that scans through the list would look at
+     * the active RPCs first. Inactive RPCs are ones that have not been
+     * started and are allocated, unoccupied Tubs. Unused RPCs conceptually
+     * represent RPCs that are unallocated and are outside the max_rpcs range.
+     *
+     * The division between Active RPCs and Inactive RPCs is defined as the
+     * index where the first, leftmost unoccupied Tub resides. The division
+     * between inactive and unused RPCs is the physical size of the list
+     * which monotonically increases as the updater determines that more
+     * RPCs need to be started.
+     *
+     * In normal operation, the Updater will start scanning through the list
+     * left to right. Conceptually, the actions it takes would depend on
+     * which region of the list it's in. In the active RPCs range, it will
+     * check for finished RPCs. If it encounters one, it will clean up the
+     * RPC and place its Tub at the back of the list to compact the active
+     * range. Once in the inactive range, it will start up one new RPC and
+     * continue on.
+     *
+     * At this point, the iteration will either still be in the inactive
+     * range or it would have reached the max_rpcs marker (unused range).
+     * If it's in the unused range, it will allocate more Tubs. Otherwise,
+     * it will determine if the thread should sleep or not. The thread will
+     * sleep when the active range is empty.
      */
     try {
-        std::deque<UpdateSlot> updateSlots;
-        std::list<uint64_t>::iterator it;
-        std::list<uint64_t> inUse;
-        std::list<uint64_t> free;
-
-        // Prefill RPC slots
-        for (uint64_t i = 0; i < concurrentRPCs; i++) {
-            updateSlots.emplace_back();
-            inUse.push_back(i);
-        }
-
         while (!stopUpdater) {
-            std::list<uint64_t>::iterator lastFree = inUse.end();
-            uint32_t liveRpcs = 0;
+            // Phase 0: Alloc more RPCs to fill max_rpcs.
+            for (size_t i = rpcs.size(); i < max_rpcs && !stopUpdater; i++) {
+                rpcs_backing.emplace_back();
+                rpcs.push_back(&rpcs_backing.back());
+            }
 
-            // Handle Rpc logic
-            for (it = inUse.begin(); it != inUse.end(); it++) {
-                if (dispatchRpc(updateSlots.at(*it)))
-                    liveRpcs++;
+            // Phase 1: Scan through and compact active rpcs to the front.
+            it = rpcs.begin();
+            while ( it != rpcs.end() && !stopUpdater ) {
+                UpdateServerListRpc* rpc = (*it)->get();
+
+                // Reached end of active rpcs, enter phase 2.
+                if (!rpc)
+                    break;
+
+                // Skip not-finished rpcs
+                if (!rpc->isReady()) {
+                    it++;
+                    continue;
+                }
+
+                // Finished rpc found
+                bool success = false;
+                try {
+                    rpc->wait();
+                    success = true;
+                } catch (const ServerNotUpException& e) {}
+
+                if (success)
+                    workSuccess(rpc->getTargetServerId());
                 else
-                    lastFree = it;
+                    workFailed(rpc->getTargetServerId());
+                (*it)->destroy();
+
+                // Compaction swap
+                rpcs.push_back(*it);
+                it = rpcs.erase(it);
             }
 
-            // Expand/Contract slots as necessary
-            if (inUse.size() == liveRpcs && lastFree == inUse.end()) {
-                // All slots are in use and there are no new free slots, Expand
-                if (free.empty()) {
-                    updateSlots.emplace_back();
-                    free.push_back(updateSlots.size() - 1);
-                }
+            // Phase 2: Start up to 1 new rpc
+            if ( it != rpcs.end() && !stopUpdater ) {
+                if (getWork(&wu)) {
 
-                concurrentRPCs++;
-                inUse.push_back(free.front());
-                free.pop_front();
-            } else if (inUse.size() < liveRpcs - 1) {
-                // Contract
-                concurrentRPCs--;
-                free.push_back(*lastFree);
-                inUse.erase(lastFree);
+                    //TODO(syang0) CSLpkOne only pack ONE for now.
+                    if (wu.sendFullList) {
+                        (*it)->construct(context, wu.targetServer,
+                            wu.firstUpdate->full.get());
+                    } else {
+                        (*it)->construct(context, wu.targetServer,
+                            &(wu.firstUpdate->incremental));
+                    }
+                    it++;
+                }
             }
 
-            // If there are no live rpcs, wait for more updates
-            if ( liveRpcs == 0 ) {
-                Lock lock(mutex);
-
-                while (!hasUpdates(lock) && !stopUpdater) {
-                    assert(isClusterUpToDate(lock)); //O(n) check can be deleted
-                    listUpToDate.notify_all();
-                    hasUpdatesOrStop.wait(lock);
-                }
+            // Phase 3: Expand and/or stop
+            if (it == rpcs.end()) {
+                max_rpcs += 8;
+            } else if (it == rpcs.begin()) {
+                waitForWork();
             }
         }
 
-        // if (stopUpdater) Stop all Rpcs
-        for (it = inUse.begin(); it != inUse.end(); it++) {
-            UpdateSlot& update = updateSlots[*it];
-            if (update.rpc) {
-                update.rpc->cancel();
-                updateEntryVersion(update.serverId, update.originalVersion);
+        // wend; stopUpdater = true
+        for (size_t i = 0; i < rpcs_backing.size(); i++) {
+            if (rpcs_backing[i]) {
+                workFailed(rpcs_backing[i]->getTargetServerId());
+                rpcs_backing[i]->cancel();
+                rpcs_backing[i].destroy();
+
             }
         }
+
     } catch (const std::exception& e) {
         LOG(ERROR, "Fatal error in CoordinatorServerList: %s", e.what());
         throw;
@@ -1550,6 +1447,236 @@ CoordinatorServerList::updateLoop()
         LOG(ERROR, "Unknown fatal error in CoordinatorServerList.");
         throw;
     }
+}
+
+/**
+ * Invoked by the updater thread to wait (sleep) until there are
+ * more updates. This will block until there is more updating work
+ * to be done and will notify those waiting for the server list to
+ * be up to date (if any).
+ */
+void
+CoordinatorServerList::waitForWork()
+{
+    Lock lock(mutex);
+
+    while (minConfirmedVersion == version && !stopUpdater) {
+        listUpToDate.notify_all();
+        hasUpdatesOrStop.wait(lock);
+    }
+}
+
+/**
+ * Attempts to find servers that require updates that don't already
+ * have outstanding update rpcs.
+ *
+ * This call MUST be followed by a workSuccuss or workFailed call
+ * with the serverId contained within the WorkUnit at some point in
+ * the future to ensure that internal metadata is reset for the work
+ * unit so that the server can receive future updates.
+ *
+ * There is a contract that comes with call. All updates that come after-
+ * and the update that starts on- the iterator in the WorkUnit is
+ * GUARANTEED to be NOT deleted as long as a workSuccess or workFailed
+ * is not invoked with the corresponding serverId in the WorkUnit. There
+ * are no guarantees for updates that come before the iterator's starting
+ * position, so don't iterate backwards. See documentation on UpdaterWorkUnit
+ * for more info.
+ *
+ * \param wu
+ *      Work Unit that can be filled out by this method
+ *
+ * \return
+ *      true if an updatable server (work) was found
+ *
+ */
+bool
+CoordinatorServerList::getWork(UpdaterWorkUnit* wu) {
+    Lock lock(mutex);
+
+    // Heuristic to prevent duplicate scans when no new work has shown up.
+    if (serverList.size() == 0 ||
+          (numUpdatingServers > 0 && lastScan.noWorkFoundForEpoch == version))
+        return false;
+
+    /**
+     * Searches through the server list for servers that are eligible
+     * for updates and are currently not updating. The former is defined as
+     * the server having MEMBERSHIP_SERVICE, is UP, and has a verfiedVersion
+     * not equal to the current version. The latter is defined as a server
+     * having verfiedVersion == updateVersion.
+     *
+     * The search starts at lastScan.searchIndex, which is a marker for
+     * where the last invocation of getWork() stopped before returning.
+     * The search ends when either the entire server list has been scanned
+     * (when we reach lastScan.searchIndex again) or when an outdated server
+     * eligible for updates has been found. In the latter case, the function
+     * will package the update details into a WorkUnit and mark the index it
+     * left off on in lastScan.searchIndex.
+     *
+     * While scanning, the loop will also keep track of the minimum
+     * verifiedVersion in the server list and will propagate this
+     * value to minConfirmedVersion. This is done to track whether
+     * the server list is up to date and which old updates, which
+     * are guaranteed to never be used again, can be pruned.
+     *
+     */
+    size_t i = lastScan.searchIndex;
+    uint64_t numUpdatableServers = 0;
+    do {
+        Entry* server = serverList[i].entry.get();
+        // Does server exist and is it updatable?
+        if (server && server->status == ServerStatus::UP &&
+                server->services.has(WireFormat::MEMBERSHIP_SERVICE)) {
+
+            // Record Stats
+            numUpdatableServers++;
+            if (server->verifiedVersion < lastScan.minVersion) {
+                lastScan.minVersion = server->verifiedVersion;
+            }
+
+            // update required
+            if (server->updateVersion != version &&
+                    server->updateVersion == server->verifiedVersion) {
+                // New server, construct full server list
+                if (server->verifiedVersion == UNINITIALIZED_VERSION) {
+                    if (!updates.back().full) {
+                        updates.back().full.construct();
+                        serialize(lock, *(updates.back().full.get()));
+                    }
+
+                    wu->targetServer = server->serverId;
+                    wu->sendFullList = true;
+                    wu->firstUpdate = (updates.end()-=1);
+                    wu->updateVersionTail = version;
+                } else {
+                    //TODO(syang0) CSLpkOne pack 1 update at a time for now
+                    // Incremental update.
+                    wu->targetServer = server->serverId;
+                    wu->updateVersionTail = server->verifiedVersion + 1;
+                    wu->sendFullList = false;
+                    size_t offset =  wu->updateVersionTail -
+                            updates.front().version;
+                    wu->firstUpdate = (updates.begin()+=offset);
+                }
+
+                numUpdatingServers++;
+                lastScan.searchIndex = i;
+                server->updateVersion = wu->updateVersionTail;
+                return true;
+            }
+        }
+
+        i = (i+1)%serverList.size();
+
+        // update statistics
+        if (i == 0) {
+            if ( lastScan.minVersion != UNINITIALIZED_VERSION)
+                minConfirmedVersion = lastScan.minVersion;
+
+            lastScan.minVersion = UNINITIALIZED_VERSION;
+            pruneUpdates(lock);
+        }
+    // While we haven't reached a full scan through the list yet.
+    } while (i != lastScan.searchIndex);
+
+    // If no one is updating, then it's safe to prune ALL updates.
+    if (numUpdatableServers == 0) {
+        minConfirmedVersion = version;
+        pruneUpdates(lock);
+    }
+
+    lastScan.noWorkFoundForEpoch = version;
+    return false;
+}
+
+/**
+ * Signals the success of updater to complete a work unit. This
+ * will update internal metadata to allow the server described by
+ * the work unit to be updatable again.
+ *
+ * Note that this should only be invoked AT MOST ONCE for each WorkUnit.
+ *
+ * \param id
+ *      The serverId originally contained in the work unit
+ *      that just succeeded.
+ */
+void
+CoordinatorServerList::workSuccess(ServerId id) {
+    Lock lock(mutex);
+
+    // Error checking for next 3 blocks
+    if (numUpdatingServers > 0) {
+        numUpdatingServers--;
+    } else {
+        LOG(ERROR, "Bookeeping issue detected; server's count of "
+                "numUpdatingServers just went negative. Not total failure "
+                "but will cause the updater thread to spin even w/o work. "
+                "Cause is mismatch # of getWork() and workSuccess/Failed()");
+    }
+
+    Entry* server = getEntry(id);
+    if (server == NULL) {
+        // Typically not an error, but this is UNUSUAL in normal cases.
+        LOG(DEBUG, "Server %s responded to a server list update but "
+                "is no longer in the server list...",
+                id.toString().c_str());
+        return;
+    }
+
+    if (server->verifiedVersion == server->updateVersion) {
+        LOG(ERROR, "Invoked for server %s even though either no update "
+                "was sent out or it has already been invoked. Possible "
+                "race/bookeeping issue.",
+                server->serverId.toString().c_str());
+    } else {
+        // Meat of actual functionality
+        LOG(DEBUG, "ServerList Update Success: %s update (%ld => %ld)",
+                server->serverId.toString().c_str(),
+                server->verifiedVersion,
+                server->updateVersion);
+        server->verifiedVersion = server->updateVersion;
+    }
+
+    // If update didn't update all the way or it's the last server updating,
+    // hint for a full scan to update minConfirmedVersion.
+    if (server->verifiedVersion < version)
+        lastScan.noWorkFoundForEpoch = 0;
+}
+
+/**
+ * Signals the failure of the updater to execute a work unit. Causes
+ * an internal rollback on metadata so that the server involved will
+ * be retried later.
+ *
+ * \param id
+ *      The serverId contained within the work unit that the updater
+ *      had failed to send out.
+ */
+void
+CoordinatorServerList::workFailed(ServerId id) {
+    Lock lock(mutex);
+
+    if (numUpdatingServers > 0) {
+        numUpdatingServers--;
+    } else {
+        LOG(ERROR, "Bookeeping issue detected; server's count of "
+                "numUpdatingServers just went negative. Not total failure "
+                "but will cause the updater thread to spin even w/o work. "
+                "Cause is mismatch # of getWork() and workSuccess/Failed()");
+    }
+
+    Entry* server = getEntry(id);
+    if (server) {
+        server->updateVersion = server->verifiedVersion;
+
+        LOG(DEBUG, "ServerList Update Failed : %s update (%ld => %ld)",
+               server->serverId.toString().c_str(),
+               server->verifiedVersion,
+               server->updateVersion);
+    }
+
+    lastScan.noWorkFoundForEpoch = 0;
 }
 
 //////////////////////////////////////////////////////////////////////
@@ -1562,8 +1689,8 @@ CoordinatorServerList::updateLoop()
 CoordinatorServerList::Entry::Entry()
     : ServerDetails()
     , masterRecoveryInfo()
-    , serverListVersion(0)
-    , isBeingUpdated(0)
+    , verifiedVersion(UNINITIALIZED_VERSION)
+    , updateVersion(UNINITIALIZED_VERSION)
     , serverInfoLogId(0)
     , serverUpdateLogId(0)
 {
@@ -1593,8 +1720,8 @@ CoordinatorServerList::Entry::Entry(ServerId serverId,
                     0,
                     ServerStatus::UP)
     , masterRecoveryInfo()
-    , serverListVersion(0)
-    , isBeingUpdated(0)
+    , verifiedVersion(UNINITIALIZED_VERSION)
+    , updateVersion(UNINITIALIZED_VERSION)
     , serverInfoLogId(LogCabin::Client::EntryId(0))
     , serverUpdateLogId(LogCabin::Client::EntryId(0))
 {

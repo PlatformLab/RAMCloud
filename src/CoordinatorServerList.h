@@ -52,7 +52,7 @@ using LogCabin::Client::NO_ID;
   * Additionally, this class contains the logic to propagate membership updates
   * (add/crashed/remove) and send the full list to ServerIds on the list.
   * Add/Crashed/Removes statuses are buffered into an internally managed
-  * Protobuf until commitUpdate() is called, which will finalize the update.
+  * Protobuf until pushUpdate() is called, which will finalize the update.
   * The updates are done asynchronously from the CoordinatorServerList call
   * thread. sync() can be called to force a synchronization point.
   *
@@ -63,7 +63,9 @@ using LogCabin::Client::NO_ID;
   */
 class CoordinatorServerList : public AbstractServerList{
   PUBLIC:
-    /**
+    static const uint64_t UNINITIALIZED_VERSION = ((uint64_t)-1);
+
+  /**
      * This class represents one entry in the CoordinatorServerList. Each
      * entry describes a specific server in the system and contains the
      * state that the Coordinator is maintain on its behalf.
@@ -104,19 +106,59 @@ class CoordinatorServerList : public AbstractServerList{
          */
         ProtoBuf::MasterRecoveryInfo masterRecoveryInfo;
 
-        /**
-         * The last version of the ServerList that was successfully received
-         * by this server. A value of 0 indicates that a server list was
-         * never sent.
-         */
-        uint64_t serverListVersion;
 
         /**
-         * Marks whether the entry is being sent an update rpc or not.
-         * 0 means it's not updating and any other value is what it's being
-         * updated to.
+         * The two fields below, verifiedVersion and updateVersion,
+         * provide a mechanism to do a 2-phase commit when updating
+         * servers.
+         *
+         * \b updateVersion stores the last version of the server list
+         * sent to the server in an update rpc that has either not
+         * been responded to yet or has succeeded already. In a sense,
+         * this stores the speculative version of the server's server
+         * list.
+         *
+         * \b verifiedVersion stores the latest version of the server
+         * list that the server received, applied, and responded to.
+         * In a sense, this stores the version of the server list that
+         * has been "committed" on the server.
+         *
+         * == Semantic meaning ==
+         * Together, these variables help determine the update state
+         * of the server. If they are equal to each other, then that
+         * means there are currently no update rpcs being sent to
+         * the server. Otherwise, there is an update rpc being sent
+         * to the server and that rpc is trying to update the server
+         * list up to updateVersion.
+         *
+         * One special state of the server is when both the variables
+         * are equal to UNINITIALIZED_VERSION. This means that the
+         * server has just been added to the server list and has not
+         * yet have any updates sent to it yet.
+         *
+         * == Legal modifications ==
+         * With these definitions in place, the mapping of a 2-phase
+         * commit to these variables is quite natural:
+         *
+         * Semantic Action        -> Literal Action
+         * Start a new update RPC -> Set updateVersion = version of update RPC
+         * RPC failed (rollback)  -> Set updateVersion = verifiedVersion
+         * RPC Success (commit)   -> Set verfiedVersion = updateVersion
+         *
          */
-        uint64_t isBeingUpdated;
+
+         /**
+          * The latest version of the ServerList that server received,
+          * applied, and ACKed to. See comment block above for more info.
+          */
+        uint64_t verifiedVersion;
+
+         /*
+          * The version of the ServerList that was last sent out in an
+          * RPC, which may be in progress or has completed successfully.
+          * See comment block above verfiedVersion for more info.
+          */
+        uint64_t updateVersion;
 
         /**
          * Entry id corresponding to entry in LogCabin log that has
@@ -289,22 +331,28 @@ class CoordinatorServerList : public AbstractServerList{
     };
 
     /**
-     * State of partial scans through the server list to find updates.
-     * Modifying these fields can break search heuristics and cause
-     * \a deadlock.
+     * State of partial scans through the server list to find servers
+     * that require updates.
      */
     struct ScanMetadata {
         /**
-         * Indicates that no updates were found in the last scan.
-         * Only hasUpdates() should toggle this field to true, but
-         * it is safe to toggle false by other entities. It is used
-         * to skip scans through the server list.
+         * Encodes the last version in which getWork() could not find
+         * a server that needed a server list update that wasn't
+         * already being updated. A value of 0 indicates that either
+         * work was found during the last scan or there's a suspicion
+         * there's additional work in the current epoch/version.
+         *
+         * The design decision of this being an epoch is so that when
+         * the heuristic fails, it's only transient; it goes away
+         * when a new server comes up or another dies (i.e. when the
+         * server list updates to a newer version).
          */
-        bool noUpdatesFound;
+        uint64_t noWorkFoundForEpoch;
 
         /**
-         * The index that the server list left off on during
-         * its last scan for entries to update.
+         * Marks where a scan through the server list to find updates
+         * would restart. This is set when the search loop exits and
+         * during the scan, it serves as both a start and stop
          */
         size_t searchIndex;
 
@@ -313,37 +361,88 @@ class CoordinatorServerList : public AbstractServerList{
          * been encountered thus far in the scan.
          */
         uint64_t minVersion;
+
+        ScanMetadata() : noWorkFoundForEpoch(0), searchIndex(0),
+                     minVersion(UNINITIALIZED_VERSION) {}
     };
 
     /**
-     * Information needed to handle an async server list RPC and call back.
+     * Stores the incremental and full Server List protobufs for a
+     * particular version of the server list. This is used by the server list
+     * to keep track of past server list updates. Note that the full
+     * list is a Tub because it may not be needed such as in the case
+     * of a crash/remove only update (i.e. no new server needs a full
+     * list) and in the case where servers are added faster than the
+     * updater thread can poll. In the latter case, many full versions
+     * may be skipped in favor for the latest full server list.
      */
-    struct UpdateSlot {
-        UpdateSlot()
-            : startCycle()
-            , serverId()
-            , originalVersion()
-            , protobuf()
-            , rpc()
-        {
-        }
+    struct ServerListUpdatePair {
+        /// Version of the ServerLists contained
+        uint64_t version;
 
-        /// Cycle at which the update Rpc was started
-        uint64_t startCycle;
+        /// Incremental ServerList for this version
+        ProtoBuf::ServerList incremental;
 
-        /// Intended recipient of the update
-        ServerId serverId;
+        /// Full ServerList for this version (may not be occupied, see above)
+        Tub<ProtoBuf::ServerList> full;
 
-        /// Server List version of the recipient before update
-        uint64_t originalVersion;
+        explicit ServerListUpdatePair(ProtoBuf::ServerList& incremental)
+                : version(incremental.version_number())
+                , incremental(incremental)
+                , full()
+        {}
+    };
 
-        /// Update to send out (can be full list or partial membership update)
-        ProtoBuf::ServerList protobuf;
+    /**
+     * Describes the basic work unit that can be assigned to the
+     * updater thread. It provides the serverId and the RANGE of
+     * updates that should be batched up and sent to the server
+     * in one shot.
+     *
+     * There is an implicit contract that comes with every work unit
+     * handed out by the coordinator. Once a work unit is handed out,
+     * it is expected that a call back to workSuccess or workFailed
+     * with the target serverId will eventually occur and until it
+     * does, these conditions hold:
+     *      a) The ServerList will not hand out more UpdateUnit's for
+     *         the server addressed by targerServer.
+     *      b) The range of updates described by firstUpdate to
+     *         updateVersionTail are GUARANTEED to remain valid
+     *         until a call back to workSuccess/Failed occurs.
+     *      c) There are no guarantees about the integrity of updates
+     *         outside this range so don't decrement the iterator and
+     *         don't iterate past the updateVersionTail.
+     *
+     * The implications of a dropped WorkUnit would mean that part of
+     * the cluster will indefinitely remain out of date and the false
+     * report of a workSuccess would result in server/backup suicide.
+     * The latter case happens because if a server/backup misses an
+     * update, there is no guarantee that the required update protobuf
+     * version would still be around on the coordinator when the server
+     * realizes that it had missed an update.
+     *
+     * A false report of a workFailed however, would result in a transient
+     * bug whereby duplicate updates are sent to the server. This will not
+     * result in suicide so it is safe to invoke workFailed in error cases.
+     */
+    struct UpdaterWorkUnit {
+        /// To whom to send the update
+        ServerId targetServer;
 
-        /// Actual Rpc
-        Tub<UpdateServerListRpc> rpc;
+        /// Whether to send full or partial update
+        bool sendFullList;
 
-        DISALLOW_COPY_AND_ASSIGN(UpdateSlot);
+        /// An iterator to the update deque starting at the first
+        /// update that should be sent to the server.
+        std::deque<ServerListUpdatePair>::const_iterator firstUpdate;
+
+        /// Signifies the end range to be sent to the server.
+        /// Practically, it is used to stop iterating.
+        uint64_t updateVersionTail;
+
+        UpdaterWorkUnit()
+          : targetServer(), sendFullList(), firstUpdate(), updateVersionTail()
+        {}
     };
 
     /// Internal Use Only - Does not grab locks
@@ -361,6 +460,7 @@ class CoordinatorServerList : public AbstractServerList{
     void crashed(const Lock& lock, ServerId serverId);
     uint32_t firstFreeIndex();
     ServerId generateUniqueId(Lock& lock);
+    CoordinatorServerList::Entry* getEntry(ServerId id);
     const Entry& getReferenceFromIndex(const Lock& lock, size_t index) const;
     const Entry& getReferenceFromServerId(const Lock& lock,
                                           ServerId serverId) const;
@@ -381,17 +481,19 @@ class CoordinatorServerList : public AbstractServerList{
     void setReplicationId(Lock& lock, ServerId serverId, uint64_t segmentId);
 
     /// Functions related to keeping the cluster up-to-date
-    void commitUpdate(const Lock& lock);
-    bool dispatchRpc(UpdateSlot& update);
+    void pushUpdate(const Lock& lock);
     void haltUpdater();
-    bool hasUpdates(const Lock& lock);
-    bool isClusterUpToDate(const Lock& lock);
-    bool loadNextUpdate(UpdateSlot& updateRequest);
-    void pruneUpdates(const Lock& lock, uint64_t version);
     void startUpdater();
-    void sync();
-    void updateEntryVersion(ServerId serverId, uint64_t version);
     void updateLoop();
+    void sync();
+
+    bool isClusterUpToDate(const Lock& lock);
+    void pruneUpdates(const Lock& lock);
+
+    bool getWork(UpdaterWorkUnit* wu);
+    void workSuccess(ServerId id) ;
+    void workFailed(ServerId id);
+    void waitForWork();
 
     /// Slots in the server list.
     std::vector<GenerationNumberEntryPair> serverList;
@@ -401,13 +503,6 @@ class CoordinatorServerList : public AbstractServerList{
 
     /// Number of backups in the server list.
     uint32_t numberOfBackups;
-
-    /// max number of concurrent update Rpcs that can be issued (soft limit)
-    uint32_t concurrentRPCs;
-
-    /// Timeout for the rpcs in nanoseconds before they are cancel()ed
-    /// Value of 0 = infinite time
-    uint64_t rpcTimeoutNs;
 
     /**
      * Indicates that the updateLoop() method should return and
@@ -421,7 +516,7 @@ class CoordinatorServerList : public AbstractServerList{
 
     /**
      * Stores add/remove/crashed updates to server list until a
-     * commitUpdate call which will update the version number, enqueue
+     * pushUpdate call which will update the version number, enqueue
      * a copy to the updates list and clear() this entry.
      *
      * \a update can contain remove, crash, and add notifications,
@@ -437,7 +532,7 @@ class CoordinatorServerList : public AbstractServerList{
      * all the updates created, only the ones needed by the servers
      * currently in the server list. Older updates are pruned.
      */
-    std::deque<ProtoBuf::ServerList> updates;
+    std::deque<ServerListUpdatePair> updates;
 
     /**
      * Triggered when the server list is detected to be out of date or
@@ -453,8 +548,20 @@ class CoordinatorServerList : public AbstractServerList{
      */
     std::condition_variable listUpToDate;
 
-    /// Thread that runs in the background to send out updates.
-    Tub<std::thread> thread;
+    /// Runs the asynchronous server list updater (updateLoop())
+    Tub<std::thread> updaterThread;
+
+    /**
+     * Indicates the the oldest ServerList version amongst servers
+     * that have received updates from us.
+     */
+    uint64_t minConfirmedVersion;
+
+    /**
+     * Number of servers currently being sent updates. This is used
+     * as part of a fast check to see if servers are being updated.
+     */
+    uint32_t numUpdatingServers;
 
     /**
      * The id of the next replication group to be created. The replication

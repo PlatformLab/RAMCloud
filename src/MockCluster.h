@@ -68,6 +68,7 @@ class MockCluster {
     ~MockCluster();
     Server* addServer(ServerConfig config);
     void syncCoordinatorServerList();
+    void haltCoordinatorServerListUpdater();
 
     /// Caller-supplied context that we manage to provide access to
     /// the cluster (see documentation for constructor parameter).

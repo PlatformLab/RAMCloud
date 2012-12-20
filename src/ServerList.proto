@@ -50,7 +50,7 @@ message ServerList {
   /// Generation number of the Coordinator's list at the time this message
   /// is sent. Used to determine if the current list is out of date. See
   /// CoordinatorServerList::version and ServerList::version for more details.
-  optional fixed64 version_number = 2;
+  required fixed64 version_number = 2;
 
   enum Type {
      /// Specifies that this is a full server list

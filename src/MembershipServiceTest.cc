@@ -74,7 +74,7 @@ TEST_F(MembershipServiceTest, updateServerList) {
     ServerId id3 = source.generateUniqueId(lock);
     source.add(lock, id3, "mock:host=57", {WireFormat::MASTER_SERVICE,
             WireFormat::PING_SERVICE}, 100);
-    source.commitUpdate(lock);
+    source.pushUpdate(lock);
     ProtoBuf::ServerList fullList;
     source.serialize(fullList, {WireFormat::MASTER_SERVICE,
             WireFormat::BACKUP_SERVICE});

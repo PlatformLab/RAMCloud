@@ -99,26 +99,17 @@ TEST_F(ServerListTest, applyServerList) {
     EXPECT_EQ(ServerChangeEvent::SERVER_CRASHED, change->event);
     tr.changes.pop();
 
-    wholeList.set_version_number(2);
-    TestLog::Enable _;
-    sl.applyServerList(wholeList);
-    EXPECT_EQ(
-        "applyServerList: Coordinator sent a full list to a server "
-        "whose serverlist was already populated. This is a bug and "
-        "should neverhappen unless the coordinator code is busted.",
-        TestLog::get());
-
     // Apply an update
-    TestLog::reset();
+    TestLog::Enable _;
     ProtoBuf::ServerList update;
     ServerListBuilder{update}
         ({}, *ServerId{1, 0}, "mock:host=one", 101, 1, ServerStatus::CRASHED)
         ({}, *ServerId{5, 0}, "mock:host=one", 105, 1)
         ({}, *ServerId{4, 2}, "mock:host=one", 104, 1, ServerStatus::DOWN);
-    update.set_version_number(3);
+    update.set_version_number(2);
     update.set_type(ProtoBuf::ServerList_Type_UPDATE);
     sl.applyServerList(update);
-    EXPECT_EQ(3lu, sl.version);
+    EXPECT_EQ(2lu, sl.version);
     ASSERT_EQ(6lu, sl.size());
     EXPECT_FALSE(sl.isUp({1, 0}));
     EXPECT_TRUE(sl.contains({1, 0}));
@@ -138,6 +129,66 @@ TEST_F(ServerListTest, applyServerList) {
     EXPECT_EQ(ServerId(4, 2), change->server.serverId);
     EXPECT_EQ(ServerChangeEvent::SERVER_REMOVED, change->event);
     tr.changes.pop();
+}
+
+TEST_F(ServerListTest, applyServerList_doubleFullLists) {
+    // Apply Full List
+    ProtoBuf::ServerList wholeList;
+    ServerListBuilder{wholeList}
+        ({}, *ServerId{1, 0}, "mock:host=one", 101, 1);
+    wholeList.set_version_number(1);
+    wholeList.set_type(ProtoBuf::ServerList_Type_FULL_LIST);
+    ASSERT_NO_THROW(sl.applyServerList(wholeList));
+
+    // Apply Full List again
+    wholeList.set_version_number(2);
+    TestLog::Enable _;
+    EXPECT_ANY_THROW(sl.applyServerList(wholeList));
+    EXPECT_STREQ("applyServerList: Coordinator sent a full list to a server "
+            "whose serverlist was already populated. This is a bug and should "
+            "never happen unless the coordinator code is busted.",
+            TestLog::get().c_str());
+}
+
+TEST_F(ServerListTest, applyServerList_updateVersionTooHigh) {
+    // Apply Full List
+    ProtoBuf::ServerList wholeList;
+    ServerListBuilder{wholeList}
+        ({}, *ServerId{1, 0}, "mock:host=one", 101, 1);
+    wholeList.set_version_number(1);
+    wholeList.set_type(ProtoBuf::ServerList_Type_FULL_LIST);
+    ASSERT_NO_THROW(sl.applyServerList(wholeList));
+
+    // Apply Update too new
+    ProtoBuf::ServerList update;
+    ServerListBuilder{update}
+        ({}, *ServerId{1, 0}, "mock:host=one", 101, 1, ServerStatus::CRASHED);
+    update.set_version_number(sl.version + 2);
+    update.set_type(ProtoBuf::ServerList_Type_UPDATE);
+
+    TestLog::Enable _;
+    EXPECT_ANY_THROW(sl.applyServerList(update));
+    EXPECT_STREQ("applyServerList: Missed an update from the Coordinator. "
+            "This is a bug andshould never happen unless the coordinator "
+            "code is busted.",
+            TestLog::get().c_str());
+
+}
+
+TEST_F(ServerListTest, applyServerList_updateBeforeFullList) {
+     // Apply an update w/o full list first.
+    ProtoBuf::ServerList update;
+    ServerListBuilder{update}
+        ({}, *ServerId{1, 0}, "mock:host=one", 101, 1, ServerStatus::CRASHED);
+    update.set_version_number(2000);
+    update.set_type(ProtoBuf::ServerList_Type_UPDATE);
+
+    TestLog::Enable _;
+    EXPECT_ANY_THROW(sl.applyServerList(update));
+    EXPECT_STREQ("applyServerList: Missed an update from the Coordinator. "
+            "This is a bug andshould never happen unless the coordinator "
+            "code is busted.",
+            TestLog::get().c_str());
 }
 
 TEST_F(ServerListTest, applyServerList_oldVersion) {

@@ -147,12 +147,12 @@ ServerList::operator[](uint32_t index)
  *    that into account.)
  *
  * \param list
- *      A complete snapshot of the coordinator's server list.
+ *      A snapshot of the coordinator's server list.
  */
 void
 ServerList::applyServerList(const ProtoBuf::ServerList& list)
 {
-    // Ignore older updates
+    // Ignore older updates; this check MUST go first.
     if (list.version_number() <= version) {
         LOG(NOTICE, "A repeated/old update version %lu was sent to "
                 "a ServerList with version %lu.",
@@ -161,10 +161,20 @@ ServerList::applyServerList(const ProtoBuf::ServerList& list)
     }
 
     if (list.type() == ProtoBuf::ServerList::FULL_LIST && version) {
-        LOG(ERROR, "Coordinator sent a full list to a server whose server"
-            "list was already populated. This is a bug and should never"
+        DIE("Coordinator sent a full list to a server whose server"
+            "list was already populated. This is a bug and should never "
             "happen unless the coordinator code is busted.");
-        return;
+
+        // Note: this error is recoverable only if the version is younger
+        // because the coordinator will just send incremental updates from
+        // that version on after we just respond. This case is handled
+        // above.
+    }
+
+    if (list.type() == ProtoBuf::ServerList::UPDATE &&
+            list.version_number() > version + 1) {
+        DIE("Missed an update from the Coordinator. This is a bug and"
+                "should never happen unless the coordinator code is busted.");
     }
 
     LOG(DEBUG, "Server List from coordinator:\n%s",

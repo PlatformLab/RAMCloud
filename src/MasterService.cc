@@ -467,7 +467,6 @@ MasterService::multiRead(const WireFormat::MultiOp::Request* reqHdr,
         reqOffset += currentReq->keyLength;
         Key key(currentReq->tableId, stringKey, currentReq->keyLength);
 
-        //TODO(syang0) verify
         WireFormat::MultiOp::Response::ReadPart* currentResp =
                    new(rpc->replyPayload, APPEND)
                        WireFormat::MultiOp::Response::ReadPart();

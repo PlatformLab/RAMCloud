@@ -61,10 +61,12 @@ class MembershipClient {
 class UpdateServerListRpc : public ServerIdRpcWrapper {
   public:
     UpdateServerListRpc(Context* context, ServerId serverId,
-            ProtoBuf::ServerList* list);
+            const ProtoBuf::ServerList* list);
     ~UpdateServerListRpc() {}
     /// \copydoc ServerIdRpcWrapper::waitAndCheckErrors
     void wait() {waitAndCheckErrors();}
+
+    ServerId getTargetServerId();
 
   PRIVATE:
     DISALLOW_COPY_AND_ASSIGN(UpdateServerListRpc);

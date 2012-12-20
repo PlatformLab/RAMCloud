@@ -62,7 +62,7 @@ MembershipClient::UpdateServerList(Context* context, ServerId serverId,
  *      The complete server list representing all cluster membership.
  */
 UpdateServerListRpc::UpdateServerListRpc(Context* context, ServerId serverId,
-        ProtoBuf::ServerList* list)
+        const ProtoBuf::ServerList* list)
     : ServerIdRpcWrapper(context, serverId,
             sizeof(WireFormat::UpdateServerList::Response))
 {
@@ -70,5 +70,16 @@ UpdateServerListRpc::UpdateServerListRpc(Context* context, ServerId serverId,
             allocHeader<WireFormat::UpdateServerList>(serverId));
     reqHdr->serverListLength = serializeToRequest(&request, list);
     send();
+}
+
+/**
+ * Returns the serverId associated with this update rpc.
+ *
+ * \return
+ *      ServerId
+ */
+ServerId
+UpdateServerListRpc::getTargetServerId() {
+    return id;
 }
 }  // namespace RAMCloud

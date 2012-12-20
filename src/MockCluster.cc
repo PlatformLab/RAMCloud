@@ -68,7 +68,7 @@ MockCluster::MockCluster(Context* context, string coordinatorLocator)
  */
 MockCluster::~MockCluster()
 {
-    syncCoordinatorServerList();
+    haltCoordinatorServerListUpdater();
 
     // Servers must be deleted in reverse order of their creation to avoid
     // weird shutdown deadlock issues (for example, master try indefinitely to
@@ -163,6 +163,13 @@ MockCluster::syncCoordinatorServerList()
 {
     if (coordinatorContext.coordinatorServerList)
         coordinatorContext.coordinatorServerList->sync();
+}
+
+void
+MockCluster::haltCoordinatorServerListUpdater()
+{
+    if (coordinatorContext.coordinatorServerList)
+        coordinatorContext.coordinatorServerList->haltUpdater();
 }
 
 } // namespace RAMCloud
