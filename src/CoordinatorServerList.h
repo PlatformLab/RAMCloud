@@ -151,10 +151,10 @@ class CoordinatorServerList : public AbstractServerList{
                                EntryId entryId);
     void recoverEnlistServer(ProtoBuf::ServerInformation* state,
                              EntryId entryId);
-    void recoverMasterRecoveryInfo(ProtoBuf::ServerUpdate* state,
-                                   EntryId entryId);
     void recoverServerDown(ProtoBuf::ServerDown* state,
                            EntryId entryId);
+    void recoverServerUpdate(ProtoBuf::ServerUpdate* state,
+                             EntryId entryId);
 
   PRIVATE:
     /**
@@ -179,7 +179,9 @@ class CoordinatorServerList : public AbstractServerList{
     };
 
     /**
-     * Defines methods and stores data to enlist a server.
+     * Defines methods for enlisting a server, for persisting required
+     * information in LogCabin, and using it to recover if the
+     * Coordinator crashes.
      */
     class EnlistServer {
       public:
@@ -227,9 +229,13 @@ class CoordinatorServerList : public AbstractServerList{
     };
 
     /**
-     * Defines methods and stores data to remove a server from the cluster.
-     * This includes marking the server as crashed, propagating that information
-     * (through server trackers and the cluster updater) and invoking recovery.
+     * Defines methods and stores data to remove a server from the cluster,
+     * for persisting required information in LogCabin, and using it to
+     * recover if the Coordinator crashes.
+     *
+     * Removing the server includes marking the server as crashed,
+     * propagating that information (through server trackers and the
+     * cluster updater) and invoking recovery.
      * Once recovery has finished, the server will be removed from server list.
      */
     class ServerDown {
@@ -237,7 +243,8 @@ class CoordinatorServerList : public AbstractServerList{
             ServerDown(CoordinatorServerList &csl,
                        Lock& lock,
                        ServerId serverId)
-                : csl(csl), lock(lock), serverId(serverId) {}
+                : csl(csl), lock(lock),
+                  serverId(serverId) {}
             void execute();
             void complete(EntryId entryId);
         private:
@@ -258,18 +265,21 @@ class CoordinatorServerList : public AbstractServerList{
     };
 
     /**
-     * Defines methods and stores data to set recovery info of server
-     * with id serverId to segmentId.
+     * Defines methods and stores data to set update-able fields corresponding
+     * to a server, for persisting required information in LogCabin,
+     * and using it to recover if the Coordinator crashes.
      */
-    class SetMasterRecoveryInfo {
+    class ServerUpdate {
         public:
-            SetMasterRecoveryInfo(
-                    CoordinatorServerList &csl,
-                    Lock& lock,
-                    ServerId serverId,
-                    const ProtoBuf::MasterRecoveryInfo& recoveryInfo)
-                : csl(csl), lock(lock), serverId(serverId)
-                , recoveryInfo(recoveryInfo) {}
+            ServerUpdate(CoordinatorServerList &csl,
+                         Lock& lock,
+                         ServerId serverId,
+                         const ProtoBuf::MasterRecoveryInfo& recoveryInfo,
+                         EntryId oldServerUpdateEntryId = NO_ID)
+                : csl(csl), lock(lock),
+                  serverId(serverId),
+                  recoveryInfo(recoveryInfo),
+                  oldServerUpdateEntryId(oldServerUpdateEntryId) {}
             void execute();
             void complete(EntryId entryId);
         private:
@@ -290,7 +300,12 @@ class CoordinatorServerList : public AbstractServerList{
              * The new master recovery info to be set.
              */
             ProtoBuf::MasterRecoveryInfo recoveryInfo;
-            DISALLOW_COPY_AND_ASSIGN(SetMasterRecoveryInfo);
+            /**
+             * LogCabin entry id for the previous ServerUpdate entry appended
+             * to LogCabin corresponding to this server (if any).
+             */
+            EntryId oldServerUpdateEntryId;
+            DISALLOW_COPY_AND_ASSIGN(ServerUpdate);
     };
 
     /**
@@ -369,7 +384,6 @@ class CoordinatorServerList : public AbstractServerList{
     void serialize(const Lock& lock, ProtoBuf::ServerList& protoBuf) const;
     void serialize(const Lock& lock, ProtoBuf::ServerList& protoBuf,
                    ServiceMask services) const;
-    void serverDown(Lock& lock, ServerId serverId);
 
     /// Functions related to replication groups.
     bool assignReplicationGroup(Lock& lock, uint64_t replicationId,

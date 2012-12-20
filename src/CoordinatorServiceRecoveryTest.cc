@@ -68,17 +68,17 @@ TEST_F(CoordinatorServiceRecoveryTest, replay_basic) {
     logCabinHelper->appendProtoBuf(
                 coordRecovery->service.expectedEntryId, serverInfo);
 
-    ProtoBuf::ServerUpdate serverUpdate;
-    serverUpdate.set_entry_type("ServerUpdate");
-    serverUpdate.set_server_id(ServerId(1, 0).getId());
-    logCabinHelper->appendProtoBuf(
-                coordRecovery->service.expectedEntryId, serverUpdate);
-
     ProtoBuf::ServerDown serverDown;
     serverDown.set_entry_type("ServerDown");
     serverDown.set_server_id(ServerId(1, 0).getId());
     logCabinHelper->appendProtoBuf(
                 coordRecovery->service.expectedEntryId, serverDown);
+
+    ProtoBuf::ServerUpdate serverUpdate;
+    serverUpdate.set_entry_type("ServerUpdate");
+    serverUpdate.set_server_id(ServerId(1, 0).getId());
+    logCabinHelper->appendProtoBuf(
+                coordRecovery->service.expectedEntryId, serverUpdate);
 
     ProtoBuf::TableInformation tableInfo;
     tableInfo.set_entry_type("AliveTable");
@@ -122,8 +122,8 @@ TEST_F(CoordinatorServiceRecoveryTest, replay_basic) {
     coordRecovery->replay(true);
     EXPECT_EQ("replay: Entry Id: 0, Entry Type: ServerEnlisting\n | "
               "replay: Entry Id: 1, Entry Type: ServerEnlisted\n | "
-              "replay: Entry Id: 2, Entry Type: ServerUpdate\n | "
-              "replay: Entry Id: 3, Entry Type: ServerDown\n | "
+              "replay: Entry Id: 2, Entry Type: ServerDown\n | "
+              "replay: Entry Id: 3, Entry Type: ServerUpdate\n | "
               "replay: Entry Id: 4, Entry Type: AliveTable\n | "
               "replay: Entry Id: 5, Entry Type: CreatingTable\n | "
               "replay: Entry Id: 6, Entry Type: DropTable\n | "

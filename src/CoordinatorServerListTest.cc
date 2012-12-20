@@ -533,7 +533,7 @@ TEST_F(CoordinatorServerListTest, setMasterRecoveryInfo_execute) {
     sl->setMasterRecoveryInfo(masterServerId, info);
 
     vector<Entry> entriesRead = logCabinLog->read(0);
-    string searchString = "execute: LogCabin: SetMasterRecoveryInfo entryId: ";
+    string searchString = "execute: LogCabin: ServerUpdate entryId: ";
     ASSERT_NO_THROW(findEntryId(searchString));
     ProtoBuf::ServerUpdate readUpdate;
     logCabinHelper->parseProtoBufFromEntry(
@@ -643,7 +643,7 @@ TEST_F(CoordinatorServerListTest, recoverEnlistServer) {
                backupList.ShortDebugString());
 }
 
-TEST_F(CoordinatorServerListTest, recoverMasterRecoveryInfo) {
+TEST_F(CoordinatorServerListTest, recoverServerUpdate) {
     enlistMaster();
     ProtoBuf::ServerUpdate serverUpdate;
     serverUpdate.set_entry_type("ServerUpdate");
@@ -653,7 +653,7 @@ TEST_F(CoordinatorServerListTest, recoverMasterRecoveryInfo) {
     EntryId entryId = logCabinHelper->appendProtoBuf(
             *service->context->expectedEntryId, serverUpdate);
 
-    sl->recoverMasterRecoveryInfo(&serverUpdate, entryId);
+    sl->recoverServerUpdate(&serverUpdate, entryId);
 
     EXPECT_EQ(10lu,
             (*sl)[masterServerId].masterRecoveryInfo.min_open_segment_id());
