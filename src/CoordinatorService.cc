@@ -464,9 +464,7 @@ CoordinatorService::setMasterRecoveryInfo(
     LOG(DEBUG, "setMasterRecoveryInfo for server %s to %s",
         serverId.toString().c_str(), recoveryInfo.ShortDebugString().c_str());
 
-    try {
-        serverList->setMasterRecoveryInfo(serverId, recoveryInfo);
-    } catch (const ServerListException& e) {
+    if (!serverList->setMasterRecoveryInfo(serverId, recoveryInfo)) {
         LOG(WARNING, "setMasterRecoveryInfo server doesn't exist: %s",
             serverId.toString().c_str());
         respHdr->common.status = STATUS_SERVER_NOT_UP;

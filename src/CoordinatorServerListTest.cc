@@ -135,13 +135,6 @@ class CoordinatorServerListTest : public ::testing::Test {
         sl->pushUpdate(lock);
     }
 
-    CoordinatorServerList::Entry&
-    getReferenceFromServerId(ServerId serverId) {
-        Lock lock(sl->mutex);
-        return const_cast<CoordinatorServerList::Entry&>(
-            sl->getReferenceFromServerId(lock, serverId));
-    }
-
     // Enlist a master and store details in master and masterServerId.
     void
     enlistMaster() {
@@ -542,8 +535,7 @@ TEST_F(CoordinatorServerListTest, setMasterRecoveryInfo_complete_noSuchServer) {
     ProtoBuf::MasterRecoveryInfo info;
     info.set_min_open_segment_id(10);
     info.set_min_open_segment_epoch(1);
-    EXPECT_THROW(sl->setMasterRecoveryInfo({2, 2}, info),
-            ServerListException);
+    EXPECT_FALSE(sl->setMasterRecoveryInfo({2, 2}, info));
 }
 
 //////////////////////////////////////////////////////////////////////
@@ -684,16 +676,17 @@ TEST_F(CoordinatorServerListTest, recoverServerDown) {
 // Unit Tests for CoordinatorServerList Private Methods
 //////////////////////////////////////////////////////////////////////
 
-TEST_F(CoordinatorServerListTest, iget_serverId) {
+TEST_F(CoordinatorServerListTest, getEntry) {
     sl->serverList.resize(6);
 
     add(ServerId(5, 2), "mock:id=5", {WireFormat::MASTER_SERVICE}, 100);
-    EXPECT_TRUE(sl->iget({20, 0}) == NULL);
-    EXPECT_TRUE(sl->iget({2, 0}) == NULL);
-    EXPECT_TRUE(sl->iget({5, 1}) == NULL);
-    EXPECT_TRUE(sl->iget({5, 2}) != NULL);
-    EXPECT_EQ("mock:id=5", sl->iget({5, 2})->serviceLocator);
+    EXPECT_TRUE(sl->getEntry({20, 0}) == NULL);
+    EXPECT_TRUE(sl->getEntry({2, 0}) == NULL);
+    EXPECT_TRUE(sl->getEntry({5, 1}) == NULL);
+    EXPECT_TRUE(sl->getEntry({5, 2}) != NULL);
+    EXPECT_EQ("mock:id=5", sl->getEntry({5, 2})->serviceLocator);
 }
+
 
 TEST_F(CoordinatorServerListTest, add) {
     sl->haltUpdater();
@@ -831,7 +824,7 @@ TEST_F(CoordinatorServerListTest, generateUniqueId) {
     EXPECT_EQ(ServerId(1, 1), generateUniqueId());
 }
 
-TEST_F(CoordinatorServerListTest, getReferenceFromServerId) {
+TEST_F(CoordinatorServerListTest, serverIdIndexOperator) {
     EXPECT_THROW((*sl)[ServerId(0, 0)], Exception);
     EXPECT_THROW((*sl)[ServerId(1, 0)], Exception);
     ServerId serverId = generateUniqueId();

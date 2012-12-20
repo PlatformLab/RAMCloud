@@ -185,7 +185,7 @@ class CoordinatorServerList : public AbstractServerList{
     void removeAfterRecovery(ServerId serverId);
     void serialize(ProtoBuf::ServerList& protobuf, ServiceMask services) const;
     void serverDown(ServerId serverId);
-    void setMasterRecoveryInfo(ServerId serverId,
+    bool setMasterRecoveryInfo(ServerId serverId,
                 const ProtoBuf::MasterRecoveryInfo& recoveryInfo);
 
     /// Functions for CoordinatorServerList Recovery.
@@ -476,10 +476,8 @@ class CoordinatorServerList : public AbstractServerList{
     void crashed(const Lock& lock, ServerId serverId);
     uint32_t firstFreeIndex();
     ServerId generateUniqueId(Lock& lock);
-    CoordinatorServerList::Entry* getEntry(ServerId id);
-    const Entry& getReferenceFromIndex(const Lock& lock, size_t index) const;
-    const Entry& getReferenceFromServerId(const Lock& lock,
-                                          ServerId serverId) const;
+    CoordinatorServerList::Entry* getEntry(ServerId id) const;
+    CoordinatorServerList::Entry* getEntry(size_t index) const;
     void remove(Lock& lock, ServerId serverId);
     void serialize(const Lock& lock, ProtoBuf::ServerList& protoBuf) const;
     void serialize(const Lock& lock, ProtoBuf::ServerList& protoBuf,
@@ -490,7 +488,6 @@ class CoordinatorServerList : public AbstractServerList{
                                 const vector<ServerId>& replicationGroupIds);
     void createReplicationGroup(Lock& lock);
     void removeReplicationGroup(Lock& lock, uint64_t groupId);
-    void setReplicationId(Lock& lock, ServerId serverId, uint64_t segmentId);
 
     /// Functions related to keeping the cluster up-to-date
     void pushUpdate(const Lock& lock);

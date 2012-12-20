@@ -151,7 +151,7 @@ CoordinatorServerList::masterCount() const
  * only by functions external to CoordinatorServerList to prevent deadlocks.
  * If a function in CoordinatorServerList class (that has already acquired
  * a lock) wants to use this functionality, it should directly call
- * #getReferenceFromServerId function.
+ * #getEntry function.
  *
  * \param serverId
  *      ServerId to look up in the list.
@@ -161,8 +161,15 @@ CoordinatorServerList::masterCount() const
 CoordinatorServerList::Entry
 CoordinatorServerList::operator[](ServerId serverId) const
 {
-    Lock lock(mutex);
-    return getReferenceFromServerId(lock, serverId);
+    Lock _(mutex);
+    Entry* entry = getEntry(serverId);
+
+    if (!entry) {
+        throw ServerListException(HERE,
+                format("Invalid ServerId (%s)", serverId.toString().c_str()));
+    }
+
+    return *entry;
 }
 
 /**
@@ -173,7 +180,7 @@ CoordinatorServerList::operator[](ServerId serverId) const
  * only by functions external to CoordinatorServerList to prevent deadlocks.
  * If a function in CoordinatorServerList class (that has already acquired
  * a lock) wants to use this functionality, it should directly call
- * #getReferenceFromServerId function.
+ * #getEntry function.
  *
  * \param index
  *      Position of entry in the server list to return a copy of.
@@ -183,8 +190,16 @@ CoordinatorServerList::operator[](ServerId serverId) const
 CoordinatorServerList::Entry
 CoordinatorServerList::operator[](size_t index) const
 {
-    Lock lock(mutex);
-    return getReferenceFromIndex(lock, index);
+    Lock _(mutex);
+    Entry* entry = getEntry(index);
+
+    if (!entry) {
+        throw ServerListException(HERE,
+            format("Index beyond array length (%zd) or entry"
+                   "doesn't exist", index));
+    }
+
+    return *entry;
 }
 
 /**
@@ -264,19 +279,25 @@ CoordinatorServerList::serverDown(ServerId serverId)
  *      at \a serverId. The information is opaque to the coordinator other
  *      than its master recovery routines, but, basically, this is used to
  *      prevent inconsistent open replicas from being used during recovery.
- * \throw
- *      Exception is thrown if the given ServerId is not in this list.
+ * \return
+ *      Whether the operation succeeded or not (i.e. if the serverId exists).
  */
-void
+bool
 CoordinatorServerList::setMasterRecoveryInfo(
     ServerId serverId, const ProtoBuf::MasterRecoveryInfo& recoveryInfo)
 {
     Lock lock(mutex);
-    Entry& entry = const_cast<Entry&>(getReferenceFromServerId(lock, serverId));
-    entry.masterRecoveryInfo = recoveryInfo;
-    ServerUpdate(*this, lock,
-                 serverId, recoveryInfo,
-                 entry.serverUpdateLogId).execute();
+    Entry* entry = getEntry(serverId);
+
+    if (entry) {
+        entry->masterRecoveryInfo = recoveryInfo;
+        ServerUpdate(*this, lock,
+                     serverId, recoveryInfo,
+                     entry->serverUpdateLogId).execute();
+        return true;
+    } else {
+        return false;
+    }
 }
 
 //////////////////////////////////////////////////////////////////////
@@ -420,7 +441,7 @@ CoordinatorServerList::EnlistServer::complete(EntryId entryId)
     csl.add(lock, newServerId, serviceLocator, serviceMask, readSpeed);
 
     CoordinatorServerList::Entry
-        entry(csl.getReferenceFromServerId(lock, newServerId));
+        entry(*csl.getEntry(newServerId));
 
     LOG(NOTICE, "Enlisting new server at %s (server id %s) supporting "
         "services: %s", serviceLocator, newServerId.toString().c_str(),
@@ -483,8 +504,7 @@ CoordinatorServerList::ServerDown::complete(EntryId entryId)
     // If this machine has a backup and master on the same server it is best
     // to remove the dead backup before initiating recovery. Otherwise, other
     // servers may try to backup onto a dead machine which will cause delays.
-    CoordinatorServerList::Entry
-        entry(csl.getReferenceFromServerId(lock, serverId));
+    CoordinatorServerList::Entry entry(*csl.getEntry(serverId));
 
     // Get the entry ids for the LogCabin entries corresponding to this
     // server before the server information is removed from serverList,
@@ -549,12 +569,12 @@ CoordinatorServerList::ServerUpdate::execute()
 void
 CoordinatorServerList::ServerUpdate::complete(EntryId entryId)
 {
-    try {
-        Entry& entry = const_cast<Entry&>(
-                csl.getReferenceFromServerId(lock, serverId));
-        entry.masterRecoveryInfo = recoveryInfo;
-        entry.serverUpdateLogId = entryId;
-    } catch (const ServerListException& e) {
+    Entry* entry = csl.getEntry(serverId);
+
+    if (entry) {
+        entry->masterRecoveryInfo = recoveryInfo;
+        entry->serverUpdateLogId = entryId;
+    } else {
         LOG(WARNING, "Server being updated doesn't exist: %s",
             serverId.toString().c_str());
         csl.context->logCabinHelper->invalidate(
@@ -562,17 +582,10 @@ CoordinatorServerList::ServerUpdate::complete(EntryId entryId)
     }
 }
 
-//TODO(syang0) Merge iget(ServerId)
 ServerDetails*
 CoordinatorServerList::iget(ServerId id)
 {
-    uint32_t index = id.indexNumber();
-    if ((index < serverList.size()) && serverList[index].entry) {
-        ServerDetails* details = serverList[index].entry.get();
-        if (details->serverId == id)
-            return details;
-    }
-    return NULL;
+    return getEntry(id);
 }
 
 ServerDetails*
@@ -593,7 +606,7 @@ CoordinatorServerList::isize() const
 
 /**
  * Returns the entry corresponding to a ServerId with bounds checks.
- * Does not use locks; assumes internal use only.
+ * Assumes caller already has CoordinatorServerList lock.
  *
  * \param id
  *      ServerId corresponding to the entry you want to get.
@@ -601,12 +614,32 @@ CoordinatorServerList::isize() const
  *      The Entry, null if id is invalid.
  */
 CoordinatorServerList::Entry*
-CoordinatorServerList::getEntry(ServerId id) {
+CoordinatorServerList::getEntry(ServerId id) const {
     uint32_t index = id.indexNumber();
     if ((index < serverList.size()) && serverList[index].entry) {
-        Entry* e = serverList[index].entry.get();
+        Entry* e = const_cast<Entry*>(serverList[index].entry.get());
         if (e->serverId == id)
             return e;
+    }
+
+    return NULL;
+}
+
+/**
+ * Obtain a pointer to the entry associated with the given position
+ * in the server list with bounds check. Assumes caller already has
+ * CoordinatorServerList lock.
+ *
+ * \param index
+ *      Position of entry in the server list to return a copy of.
+ * \return
+ *      The Entry, null if index doesn't have an entry or is out of bounds
+ */
+CoordinatorServerList::Entry*
+CoordinatorServerList::getEntry(size_t index) const {
+    if ((index < serverList.size()) && serverList[index].entry) {
+        Entry* e = const_cast<Entry*>(serverList[index].entry.get());
+        return e;
     }
 
     return NULL;
@@ -710,14 +743,13 @@ void
 CoordinatorServerList::crashed(const Lock& lock,
                                ServerId serverId)
 {
-    uint32_t index = serverId.indexNumber();
-    if (index >= serverList.size() || !serverList[index].entry ||
-        serverList[index].entry->serverId != serverId) {
+    Entry* entry = getEntry(serverId);
+
+    if (!entry) {
         throw ServerListException(HERE,
             format("Invalid ServerId (%s)", serverId.toString().c_str()));
     }
 
-    auto& entry = serverList[index].entry;
     if (entry->status == ServerStatus::CRASHED)
         return;
     assert(entry->status != ServerStatus::DOWN);
@@ -783,57 +815,6 @@ CoordinatorServerList::generateUniqueId(Lock& lock)
     return id;
 }
 
-/**
- * Obtain a reference to the entry associated with the given position
- * in the server list.
- *
- * \param lock
- *      Unused, but required to statically check that the caller is aware that
- *      a lock must be held on #mutex for this call to be safe.
- * \param index
- *      Position of entry in the server list to return a copy of.
- *
- * \throw
- *      ServerListException is thrown if the position in the list is unoccupied
- *      or doesn't contain a valid entry.
- */
-const CoordinatorServerList::Entry&
-CoordinatorServerList::getReferenceFromIndex(const Lock& lock,
-                                             size_t index) const
-{
-    if (index < serverList.size() && serverList[index].entry)
-        return *serverList[index].entry;
-
-    throw ServerListException(HERE,
-            format("Index beyond array length (%zd) or entry"
-                   "doesn't exist", index));
-}
-
-/**
- * Obtain a reference to the entry associated with the given ServerId.
- *
- * \param lock
- *      Unused, but required to statically check that the caller is aware that
- *      a lock must be held on #mutex for this call to be safe.
- * \param serverId
- *      The ServerId to look up in the list.
- *
- * \throw
- *      ServerListException is thrown if the given ServerId is not in this list.
- */
-const CoordinatorServerList::Entry&
-CoordinatorServerList::getReferenceFromServerId(const Lock& lock,
-                                                ServerId serverId) const
-{
-    uint32_t index = serverId.indexNumber();
-    if (index < serverList.size() && serverList[index].entry
-            && serverList[index].entry->serverId == serverId)
-        return *serverList[index].entry;
-
-    throw ServerListException(HERE,
-            format("Invalid ServerId (%s)", serverId.toString().c_str()));
-}
-
 // See docs on #removeAfterRecovery().
 // This version doesn't acquire locks and does not send out updates
 // since it is used internally.
@@ -841,16 +822,14 @@ void
 CoordinatorServerList::remove(Lock& lock,
                               ServerId serverId)
 {
-    uint32_t index = serverId.indexNumber();
-    if (index >= serverList.size() || !serverList[index].entry ||
-        serverList[index].entry->serverId != serverId) {
+    if (!iget(serverId)) {
         throw ServerListException(HERE,
             format("Invalid ServerId (%s)", serverId.toString().c_str()));
     }
 
     crashed(lock, serverId);
 
-    auto& entry = serverList[index].entry;
+    Tub<Entry>& entry = serverList[serverId.indexNumber()].entry;
     // Even though we destroy this entry almost immediately setting the state
     // gets the serialized update message's state field correct.
     entry->status = ServerStatus::DOWN;
@@ -950,10 +929,16 @@ CoordinatorServerList::assignReplicationGroup(
     const vector<ServerId>& replicationGroupIds)
 {
     foreach (ServerId backupId, replicationGroupIds) {
-        if (!iget(backupId)) {
+        Entry* e = getEntry(backupId);
+        if (!e) {
             return false;
         }
-        setReplicationId(lock, backupId, replicationId);
+
+        if (e->status == ServerStatus::UP) {
+            e->replicationId = replicationId;
+            ProtoBuf::ServerList_Entry& protoBufEntry(*update.add_server());
+            e->serialize(protoBufEntry);
+        }
     }
     return true;
 }
@@ -1027,31 +1012,6 @@ CoordinatorServerList::removeReplicationGroup(Lock& lock, uint64_t groupId)
             assignReplicationGroup(lock, 0, group);
         }
     }
-}
-
-/**
- * Modify the replication group id associated with a specific server.
- *
- * \param lock
- *      Explicity needs CoordinatorServerList lock.
- * \param serverId
- *      Server whose replication group id is being changed.
- * \param replicationId
- *      New replication group id for the server \a serverId.
- * \throw
- *      Exception is thrown if the given ServerId is not in this list.
- */
-void
-CoordinatorServerList::setReplicationId(Lock& lock, ServerId serverId,
-                                        uint64_t replicationId)
-{
-    Entry& entry = const_cast<Entry&>(getReferenceFromServerId(lock, serverId));
-    if (entry.status != ServerStatus::UP) {
-        return;
-    }
-    entry.replicationId = replicationId;
-    ProtoBuf::ServerList_Entry& protoBufEntry(*update.add_server());
-    entry.serialize(protoBufEntry);
 }
 
 /**
