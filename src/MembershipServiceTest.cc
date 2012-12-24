@@ -16,7 +16,6 @@
 #include "TestUtil.h"
 #include "BindTransport.h"
 #include "CoordinatorServerList.h"
-#include "MembershipClient.h"
 #include "MembershipService.h"
 #include "ServerId.h"
 #include "ServerList.h"
@@ -59,12 +58,13 @@ class MembershipServiceTest : public ::testing::Test {
     DISALLOW_COPY_AND_ASSIGN(MembershipServiceTest);
 };
 
-TEST_F(MembershipServiceTest, updateServerList) {
-    Lock lock(mutex); // Used to trick CoordinatorServerList internal calls
+TEST_F(MembershipServiceTest, updateServerList_single) {
+    Lock lock(mutex); // Lock used to trick internal calls
     // Create a temporary coordinator server list (with its own context)
     // to use as a source for update information.
     Context context2;
     CoordinatorServerList source(&context2);
+    source.haltUpdater();
     ServerId id1 = source.generateUniqueId(lock);
     source.add(lock, id1, "mock:host=55", {WireFormat::MASTER_SERVICE,
             WireFormat::PING_SERVICE}, 100);
@@ -79,7 +79,49 @@ TEST_F(MembershipServiceTest, updateServerList) {
     source.serialize(fullList, {WireFormat::MASTER_SERVICE,
             WireFormat::BACKUP_SERVICE});
 
-    MembershipClient::UpdateServerList(&context, serverId, &fullList);
+    CoordinatorServerList::UpdateServerListRpc
+        rpc(&context, serverId, &fullList);
+    rpc.send();
+    EXPECT_STREQ("mock:host=55", serverList.getLocator(id1));
+    EXPECT_STREQ("mock:host=56", serverList.getLocator(id2));
+    EXPECT_STREQ("mock:host=57", serverList.getLocator(id3));
+}
+
+TEST_F(MembershipServiceTest, updateServerList_multi) {
+    Lock lock(mutex); // Lock used to trick internal calls
+    // Create a temporary coordinator server list (with its own context)
+    // to use as a source for update information.
+    Context context2;
+    ProtoBuf::ServerList fullList, update2, update3;
+    CoordinatorServerList source(&context2);
+    source.haltUpdater();
+
+    // Full List v1
+    ServerId id1 = source.generateUniqueId(lock);
+    source.add(lock, id1, "mock:host=55", {WireFormat::MASTER_SERVICE,
+            WireFormat::PING_SERVICE}, 100);
+    source.pushUpdate(lock);
+    source.serialize(fullList, {WireFormat::MASTER_SERVICE,
+            WireFormat::BACKUP_SERVICE});
+    // Update v2
+    ServerId id2 = source.generateUniqueId(lock);
+    source.add(lock, id2, "mock:host=56", {WireFormat::MASTER_SERVICE,
+            WireFormat::PING_SERVICE}, 100);
+    source.pushUpdate(lock);
+    update2 = source.updates.back().incremental;
+    // Update v3
+    ServerId id3 = source.generateUniqueId(lock);
+    source.add(lock, id3, "mock:host=57", {WireFormat::MASTER_SERVICE,
+            WireFormat::PING_SERVICE}, 100);
+    source.pushUpdate(lock);
+    update3 = source.updates.back().incremental;
+
+
+    CoordinatorServerList::UpdateServerListRpc
+        rpc(&context, serverId, &fullList);
+    rpc.appendServerList(&update2);
+    rpc.appendServerList(&update3);
+    rpc.send();
     EXPECT_STREQ("mock:host=55", serverList.getLocator(id1));
     EXPECT_STREQ("mock:host=56", serverList.getLocator(id2));
     EXPECT_STREQ("mock:host=57", serverList.getLocator(id3));

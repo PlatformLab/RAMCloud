@@ -84,7 +84,7 @@ MembershipService::getServerConfig(
 }
 
 /**
- * Top-level service method to handle the GET_SERVER_ID request.
+ * Top-level service method to handle the UPDATE_SERVER_LIST request.
  *
  * \copydetails Service::ping
  */
@@ -94,11 +94,32 @@ MembershipService::updateServerList(
     WireFormat::UpdateServerList::Response* respHdr,
     Rpc* rpc)
 {
-    ProtoBuf::ServerList list;
-    ProtoBuf::parseFromRequest(rpc->requestPayload, sizeof(*reqHdr),
-                               reqHdr->serverListLength, &list);
+    uint32_t reqOffset = sizeof32(*reqHdr);
+    uint32_t reqLen = rpc->requestPayload->getTotalLength();
 
-    serverList->applyServerList(list);
+    // Repeatedly apply the server lists in the RPC while we haven't reached
+    // the end of the RPC.
+    while (reqOffset < reqLen) {
+        ProtoBuf::ServerList list;
+        auto* part = rpc->requestPayload->getOffset<
+                    WireFormat::UpdateServerList::Request::Part>(reqOffset);
+        reqOffset += sizeof32(*part);
+
+        // Bounds check on rpc size.
+        if (part == NULL || reqOffset + part->serverListLength > reqLen) {
+            LOG(WARNING, "A partial UpdateServerList request is detected. "
+                    "Perhaps limit the number of ProtoBufs the Coordinator"
+                    "ServerList can batch into one rpc.");
+            break;
+        }
+
+
+        // Check passed, parse server list and apply.
+        ProtoBuf::parseFromRequest(rpc->requestPayload, reqOffset,
+                                   part->serverListLength, &list);
+        reqOffset += part->serverListLength;
+        serverList->applyServerList(list);
+    }
 }
 
 } // namespace RAMCloud

@@ -1077,10 +1077,13 @@ struct UpdateServerList {
     static const ServiceType service = MEMBERSHIP_SERVICE;
     struct Request {
         RequestCommonWithId common;
-        uint32_t serverListLength; // Number of bytes in the server list.
-                                   // The bytes of the server list follow
-                                   // immediately after this header. See
-                                   // ProtoBuf::ServerList.
+
+        struct Part {
+            uint32_t serverListLength; // Number of bytes in the server list.
+                                       // The bytes of the server list follow
+                                       // immediately after this header. See
+                                       // ProtoBuf::ServerList.
+        }  __attribute__((packed));
     } __attribute__((packed));
     struct Response {
         ResponseCommon common;

@@ -1025,15 +1025,21 @@ CoordinatorServerList::removeReplicationGroup(Lock& lock, uint64_t groupId)
 void
 CoordinatorServerList::pushUpdate(const Lock& lock)
 {
+    ProtoBuf::ServerList full;
+
     // If there are no updates, don't generate a send.
     if (update.server_size() == 0)
         return;
 
+    // prepare incremental server list
     version++;
     update.set_version_number(version);
     update.set_type(ProtoBuf::ServerList_Type_UPDATE);
-    updates.emplace_back(update);
 
+    // prepare full server list
+    serialize(lock, full);
+
+    updates.emplace_back(update, full);
     hasUpdatesOrStop.notify_one();
     update.Clear();
 }
@@ -1072,6 +1078,7 @@ CoordinatorServerList::startUpdater()
 
     // Start thread if not started
     if (!updaterThread) {
+        lastScan.reset();
         stopUpdater = false;
         updaterThread.construct(&CoordinatorServerList::updateLoop, this);
     }
@@ -1261,9 +1268,9 @@ CoordinatorServerList::updateLoop()
                 } catch (const ServerNotUpException& e) {}
 
                 if (success)
-                    workSuccess(rpc->getTargetServerId());
+                    workSuccess(rpc->id);
                 else
-                    workFailed(rpc->getTargetServerId());
+                    workFailed(rpc->id);
                 (*it)->destroy();
 
                 // Compaction swap
@@ -1278,11 +1285,19 @@ CoordinatorServerList::updateLoop()
                     //TODO(syang0) CSLpkOne only pack ONE for now.
                     if (wu.sendFullList) {
                         (*it)->construct(context, wu.targetServer,
-                            wu.firstUpdate->full.get());
+                            &(wu.firstUpdate->full));
                     } else {
                         (*it)->construct(context, wu.targetServer,
                             &(wu.firstUpdate->incremental));
+
+                        // Batch up multiple requests
+                        auto& updateIt = wu.firstUpdate;
+                        while (updateIt->version < wu.updateVersionTail) {
+                            updateIt++;
+                            (**it)->appendServerList(&(updateIt->incremental));
+                        }
                     }
+                    (**it)->send();
                     it++;
                 }
             }
@@ -1298,7 +1313,7 @@ CoordinatorServerList::updateLoop()
         // wend; stopUpdater = true
         for (size_t i = 0; i < rpcs_backing.size(); i++) {
             if (rpcs_backing[i]) {
-                workFailed(rpcs_backing[i]->getTargetServerId());
+                workFailed(rpcs_backing[i]->id);
                 rpcs_backing[i]->cancel();
                 rpcs_backing[i].destroy();
 
@@ -1379,12 +1394,33 @@ CoordinatorServerList::getWork(UpdaterWorkUnit* wu) {
      * will package the update details into a WorkUnit and mark the index it
      * left off on in lastScan.searchIndex.
      *
+     * Updates get packed into WorkUnits as one would expect; servers that
+     * haven't heard from the Coordinator get one full list and those that
+     * have get a batch of incremental updates. One peculiarity is the version
+     * of the full list. If the work unit was created during the first scan
+     * through the server list, the lowest version is used. Otherwise, the
+     * latest server list is used.
+     *
+     * The reason for this is because when the updater thread stops or the
+     * coordinator crashes, update rpcs may be prematurely canceled. Some
+     * servers may have actually gotten a full list and applied it but could
+     * not respond in time. Thus, to prevent sending servers a newer full
+     * server list they can't process, we send the oldest server list on the
+     * first scan through the server list and then later patch it up to date
+     * with a batch of incremental updates.
+     *
      * While scanning, the loop will also keep track of the minimum
      * verifiedVersion in the server list and will propagate this
      * value to minConfirmedVersion. This is done to track whether
      * the server list is up to date and which old updates, which
-     * are guaranteed to never be used again, can be pruned.
-     *
+     * are guaranteed to never be used again, can be pruned. The
+     * propagation occurs only when the minVersion in the scan is
+     * interesting, i.e. not MAX64 and not UNINITIALIZED_VERSION.
+     * The former means that there are no updatable servers and the
+     * latter means there are updatable servers with uninitialized
+     * server lists. Neither contribute to the knowledge of what
+     * the minimum server list version in the cluster is and what
+     * can be pruned.
      */
     size_t i = lastScan.searchIndex;
     uint64_t numUpdatableServers = 0;
@@ -1403,25 +1439,26 @@ CoordinatorServerList::getWork(UpdaterWorkUnit* wu) {
             // update required
             if (server->updateVersion != version &&
                     server->updateVersion == server->verifiedVersion) {
-                // New server, construct full server list
+                // New server, send full server list
                 if (server->verifiedVersion == UNINITIALIZED_VERSION) {
-                    if (!updates.back().full) {
-                        updates.back().full.construct();
-                        serialize(lock, *(updates.back().full.get()));
-                    }
-
                     wu->targetServer = server->serverId;
                     wu->sendFullList = true;
-                    wu->firstUpdate = (updates.end()-=1);
-                    wu->updateVersionTail = version;
+                    //
+                    if (lastScan.completeScansSinceStart == 0) {
+                        wu->firstUpdate = (updates.begin());
+                        wu->updateVersionTail = updates.front().version;
+                    } else {
+                        wu->firstUpdate = (updates.end()-=1);
+                        wu->updateVersionTail = version;
+                    }
                 } else {
-                    //TODO(syang0) CSLpkOne pack 1 update at a time for now
-                    // Incremental update.
+                    // Incremental update(s).
                     wu->targetServer = server->serverId;
-                    wu->updateVersionTail = server->verifiedVersion + 1;
+                    uint64_t firstVersion = server->verifiedVersion + 1;
+                    wu->updateVersionTail = std::min(version,
+                                            firstVersion + MAX_UPDATES_PER_RPC);
                     wu->sendFullList = false;
-                    size_t offset =  wu->updateVersionTail -
-                            updates.front().version;
+                    size_t offset =  firstVersion - updates.front().version;
                     wu->firstUpdate = (updates.begin()+=offset);
                 }
 
@@ -1436,10 +1473,13 @@ CoordinatorServerList::getWork(UpdaterWorkUnit* wu) {
 
         // update statistics
         if (i == 0) {
-            if ( lastScan.minVersion != UNINITIALIZED_VERSION)
+            // Record min version only if it's interesting
+            if ( lastScan.minVersion != UNINITIALIZED_VERSION &&
+                    lastScan.minVersion != MAX64)
                 minConfirmedVersion = lastScan.minVersion;
 
-            lastScan.minVersion = UNINITIALIZED_VERSION;
+            lastScan.completeScansSinceStart++;
+            lastScan.minVersion = MAX64;
             pruneUpdates(lock);
         }
     // While we haven't reached a full scan through the list yet.
@@ -1543,6 +1583,78 @@ CoordinatorServerList::workFailed(ServerId id) {
 
     lastScan.noWorkFoundForEpoch = 0;
 }
+
+//////////////////////////////////////////////////////////////////////
+// CoordinatorServerList::UpdateServerListRpc Methods
+//////////////////////////////////////////////////////////////////////
+/**
+ * Constructor for UpdateServerListRpc that creates but does not send()
+ * a server list update rpc. It initially accepts one protobuf to ensure
+ * that the rpc would never be sent empty and provides a convenient way to
+ * send only a single full list.
+ *
+ * After invoking the constructor, it is up to the caller to invoke
+ * as many appendServerList() calls as necessary to batch up multiple
+ * updates and follow it up with a send().
+ *
+ * \param context
+ *      Overall information about this RAMCloud server.
+ * \param serverId
+ *      Identifies the server to which this update should be sent.
+ * \param list
+ *      The complete server list representing all cluster membership.
+ */
+CoordinatorServerList::UpdateServerListRpc::UpdateServerListRpc(
+            Context* context,
+            ServerId serverId,
+            const ProtoBuf::ServerList* list)
+    : ServerIdRpcWrapper(context, serverId,
+            sizeof(WireFormat::UpdateServerList::Response))
+{
+    allocHeader<WireFormat::UpdateServerList>(serverId);
+
+    auto* part = new(&request, APPEND)
+            WireFormat::UpdateServerList::Request::Part();
+
+    part->serverListLength = serializeToRequest(&request, list);
+}
+
+/**
+ * Appends a server list update ProtoBuf to the request rpc. This is used
+ * to batch up multiple server list updates into one rpc for the server and
+ * can be invoked multiple times on the same rpc.
+ *
+ * It is the caller's responsibility invoke send() on the rpc when enough
+ * updates have been appended and to ensure that this append is invoked only
+ * when the RPC has not been started yet.
+ *
+ * \param list
+ *      ProtoBuf::ServerList to append to the new RPC
+ * \return
+ *      true if append succeeded, false if it didn't fit in the current rpc
+ *      and has been removed. In the later case, it's time to call send().
+ */
+bool
+CoordinatorServerList::UpdateServerListRpc::appendServerList(
+                                        const ProtoBuf::ServerList* list)
+{
+    assert(this->getState() == NOT_STARTED);
+    uint32_t sizeBefore = request.getTotalLength();
+
+    auto* part = new(&request, APPEND)
+            WireFormat::UpdateServerList::Request::Part();
+
+    part->serverListLength = serializeToRequest(&request, list);
+
+    uint32_t sizeAfter = request.getTotalLength();
+    if (sizeAfter > Transport::MAX_RPC_LEN) {
+        request.truncateEnd(sizeAfter - sizeBefore);
+        return false;
+    }
+
+    return true;
+}
+
 
 //////////////////////////////////////////////////////////////////////
 // CoordinatorServerList::Entry Methods

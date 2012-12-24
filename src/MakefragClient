@@ -32,7 +32,6 @@ CLIENT_SRCFILES := \
 		   src/MacAddress.cc \
 		   src/LargeBlockOfMemory.cc \
 		   src/MasterClient.cc \
-		   src/MembershipClient.cc \
 		   src/Memory.cc \
 		   src/MultiOp.cc \
 		  src/MultiRead.cc \

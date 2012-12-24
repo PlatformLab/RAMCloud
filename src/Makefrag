@@ -60,7 +60,6 @@ SHARED_SRCFILES := \
 		   src/MacAddress.cc \
 		   src/MasterClient.cc \
 		   src/MasterService.cc \
-		   src/MembershipClient.cc \
 		   src/MembershipService.cc \
 		   src/Memory.cc \
 		   src/MinCopysetsBackupSelector.cc \

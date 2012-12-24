@@ -29,10 +29,11 @@
 #include "ServerDown.pb.h"
 
 #include "AbstractServerList.h"
-#include "MembershipClient.h"
 #include "ServiceMask.h"
 #include "ServerId.h"
 #include "Tub.h"
+
+#include "ServerIdRpcWrapper.h"
 
 namespace RAMCloud {
 
@@ -63,7 +64,14 @@ using LogCabin::Client::NO_ID;
   */
 class CoordinatorServerList : public AbstractServerList{
   PUBLIC:
-    static const uint64_t UNINITIALIZED_VERSION = ((uint64_t)-1);
+    static const uint64_t MAX64 = ((uint64_t)-1);
+
+    /// Used to describe new servers' versions
+    static const uint64_t UNINITIALIZED_VERSION = ((uint64_t)0);
+
+    /// Maximum number of server list incremental updates to batch
+    /// in one UpdaterWorkUnit
+    static const uint64_t MAX_UPDATES_PER_RPC = 100;
 
   /**
      * This class represents one entry in the CoordinatorServerList. Each
@@ -350,6 +358,30 @@ class CoordinatorServerList : public AbstractServerList{
             DISALLOW_COPY_AND_ASSIGN(ServerUpdate);
     };
 
+   /**
+    * This class implements the client-side Rpc to the membership service,
+    * which runs on each RAMCloud server. The coordinator uses this Rpc to
+    * push cluster membership updates so that servers have an up-to-date view of
+    * all other servers in the cluster and receive failure notifications that
+    * may require some action.
+    *
+    * See #MembershipService for more information.
+    */
+    class UpdateServerListRpc : public ServerIdRpcWrapper {
+      friend class CoordinatorServerList;
+      public:
+        UpdateServerListRpc(Context* context, ServerId serverId,
+                const ProtoBuf::ServerList* list);
+        ~UpdateServerListRpc() {}
+        /// \copydoc ServerIdRpcWrapper::waitAndCheckErrors
+        void wait() {waitAndCheckErrors();}
+        ServerId getTargetServerId();
+
+      PRIVATE:
+        bool appendServerList(const ProtoBuf::ServerList* list);
+        DISALLOW_COPY_AND_ASSIGN(UpdateServerListRpc);
+    };
+
     /**
      * State of partial scans through the server list to find servers
      * that require updates.
@@ -382,19 +414,36 @@ class CoordinatorServerList : public AbstractServerList{
          */
         uint64_t minVersion;
 
+        /**
+         * The number of complete scans through the server list by getWork().
+         * Since the server list expands with time, each scan through the
+         * server list may represent different amounts of work and thus it's
+         * not necessarily an interesting performance metric. Instead, it's
+         * used for detecting the first iteration through the loop and for
+         * debugging.
+         */
+        uint64_t completeScansSinceStart;
+
         ScanMetadata() : noWorkFoundForEpoch(0), searchIndex(0),
-                     minVersion(UNINITIALIZED_VERSION) {}
+                     minVersion(MAX64), completeScansSinceStart(0) {}
+
+        /**
+         * Resets the values within to be the same as a newly
+         * constructed ScanMetadata. This is usually invoked
+         * when the updater is started/restarted.
+         */
+        void reset() {
+            noWorkFoundForEpoch = 0;
+            searchIndex = 0;
+            minVersion = MAX64;
+            completeScansSinceStart = 0;
+        }
     };
 
     /**
      * Stores the incremental and full Server List protobufs for a
-     * particular version of the server list. This is used by the server list
-     * to keep track of past server list updates. Note that the full
-     * list is a Tub because it may not be needed such as in the case
-     * of a crash/remove only update (i.e. no new server needs a full
-     * list) and in the case where servers are added faster than the
-     * updater thread can poll. In the latter case, many full versions
-     * may be skipped in favor for the latest full server list.
+     * particular version of the server list. This is used by the
+     * server list to keep track of past server list updates.
      */
     struct ServerListUpdatePair {
         /// Version of the ServerLists contained
@@ -403,13 +452,14 @@ class CoordinatorServerList : public AbstractServerList{
         /// Incremental ServerList for this version
         ProtoBuf::ServerList incremental;
 
-        /// Full ServerList for this version (may not be occupied, see above)
-        Tub<ProtoBuf::ServerList> full;
+        /// Full ServerList for this version
+        ProtoBuf::ServerList full;
 
-        explicit ServerListUpdatePair(ProtoBuf::ServerList& incremental)
+        ServerListUpdatePair(ProtoBuf::ServerList& incremental,
+                ProtoBuf::ServerList& full)
                 : version(incremental.version_number())
                 , incremental(incremental)
-                , full()
+                , full(full)
         {}
     };
 
@@ -562,7 +612,10 @@ class CoordinatorServerList : public AbstractServerList{
 
     /**
      * Indicates the the oldest ServerList version amongst servers
-     * that have received updates from us.
+     * that have received updates from us. This value is updated
+     * lazily but does guarantee that whatever the value is, no
+     * server has a version younger than that. Hence, it is safe
+     * to use for pruning updates.
      */
     uint64_t minConfirmedVersion;
 

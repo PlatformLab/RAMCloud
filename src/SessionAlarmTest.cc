@@ -14,7 +14,6 @@
  */
 
 #include "TestUtil.h"
-#include "MembershipClient.h"
 #include "RpcWrapper.h"
 #include "SessionAlarm.h"
 #include "Transport.h"

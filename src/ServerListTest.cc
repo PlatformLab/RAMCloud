@@ -169,7 +169,7 @@ TEST_F(ServerListTest, applyServerList_updateVersionTooHigh) {
     TestLog::Enable _;
     EXPECT_ANY_THROW(sl.applyServerList(update));
     EXPECT_STREQ("applyServerList: Missed an update from the Coordinator. "
-            "This is a bug andshould never happen unless the coordinator "
+            "This is a bug and should never happen unless the coordinator "
             "code is busted.",
             TestLog::get().c_str());
 
@@ -186,7 +186,7 @@ TEST_F(ServerListTest, applyServerList_updateBeforeFullList) {
     TestLog::Enable _;
     EXPECT_ANY_THROW(sl.applyServerList(update));
     EXPECT_STREQ("applyServerList: Missed an update from the Coordinator. "
-            "This is a bug andshould never happen unless the coordinator "
+            "This is a bug and should never happen unless the coordinator "
             "code is busted.",
             TestLog::get().c_str());
 }

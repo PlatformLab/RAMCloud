@@ -160,20 +160,21 @@ ServerList::applyServerList(const ProtoBuf::ServerList& list)
         return;
     }
 
+    // This case will only trigger if the Coordinator sends double full lists
+    // that are of DIFFERENT versions. Duplicate full lists are caught
+    // by the first if statement above.
     if (list.type() == ProtoBuf::ServerList::FULL_LIST && version) {
-        DIE("Coordinator sent a full list to a server whose server"
-            "list was already populated. This is a bug and should never "
-            "happen unless the coordinator code is busted.");
-
-        // Note: this error is recoverable only if the version is younger
-        // because the coordinator will just send incremental updates from
-        // that version on after we just respond. This case is handled
-        // above.
+        DIE("Coordinator sent a full list to a server whose serverlist was "
+                "already populated. This is a bug and should never happen "
+                "unless the coordinator code is busted.");
     }
 
+    // This case will trigger if updates are somehow missed. This can't happen
+    // under normal circumstances; it would mean the Coordinator goofed or
+    // a false ACK was received. The latter should never be the case.
     if (list.type() == ProtoBuf::ServerList::UPDATE &&
-            list.version_number() > version + 1) {
-        DIE("Missed an update from the Coordinator. This is a bug and"
+            list.version_number() != version + 1) {
+        DIE("Missed an update from the Coordinator. This is a bug and "
                 "should never happen unless the coordinator code is busted.");
     }
 

@@ -15,7 +15,6 @@
  */
 
 #include "CycleCounter.h"
-#include "MembershipClient.h"
 #include "ShortMacros.h"
 #include "RawMetrics.h"
 #include "ServiceManager.h"
