@@ -492,9 +492,14 @@ CoordinatorServerList::EnlistServer::complete(
 void
 CoordinatorServerList::ServerDown::execute()
 {
+    if (!csl.getEntry(serverId)) {
+        throw ServerListException(HERE,
+            format("Invalid ServerId (%s)", serverId.toString().c_str()));
+    }
+
     ProtoBuf::ServerDown state;
     state.set_entry_type("ServerDown");
-    state.set_server_id(this->serverId.getId());
+    state.set_server_id(serverId.getId());
 
     EntryId entryId =
         csl.context->logCabinHelper->appendProtoBuf(
@@ -517,8 +522,6 @@ CoordinatorServerList::ServerDown::execute()
 void
 CoordinatorServerList::ServerDown::complete(EntryId entryId)
 {
-    // TODO(ankitak): This throws ServerListException when server does
-    // not exist. We need to clean up previous log entry in that case.
     csl.crashed(lock, serverId); // Call the internal method directly.
 
     // If this machine has a backup and master on the same server it is best
