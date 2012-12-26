@@ -539,7 +539,8 @@ class CoordinatorServerList : public AbstractServerList{
 
     /// Functions related to modifying the server list
     void add(Lock& lock, ServerId serverId, string serviceLocator,
-             ServiceMask serviceMask, uint32_t readSpeed);
+             ServiceMask serviceMask, uint32_t readSpeed,
+             bool enqueueUpdate = true);
     void crashed(const Lock& lock, ServerId serverId);
     uint32_t firstFreeIndex();
     ServerId generateUniqueId(Lock& lock);

@@ -328,9 +328,8 @@ CoordinatorServerList::recoverAliveServer(
         ServerId(state->server_id()),
         state->service_locator().c_str(),
         ServiceMask::deserialize(state->service_mask()),
-        state->read_speed());
-    // TODO(ankitak): add generally queues up an update. Modify add to have a
-    // flag such that i can disable queuing when needed.
+        state->read_speed(),
+        false);
 
     Entry entry(*getEntry(ServerId(state->server_id())));
     entry.logIdAliveServer = logIdAliveServer;
@@ -680,13 +679,20 @@ CoordinatorServerList::getEntry(size_t index) const {
  * \param readSpeed
  *      Speed of the storage on the enlisting server if it includes a backup
  *      service. Argument is ignored otherwise.
+ * \param enqueueUpdate
+ *      Whether the update (to be sent to the cluster) about the enlisting
+ *      server should be enqueued. This is false during coordinator recovery
+ *      while replaying an AliveServer entry since it only needs local
+ *      (coordinator) change, and the rest of the cluster had already
+ *      acknowledged the update.
  */
 void
 CoordinatorServerList::add(Lock& lock,
                            ServerId serverId,
                            string serviceLocator,
                            ServiceMask serviceMask,
-                           uint32_t readSpeed)
+                           uint32_t readSpeed,
+                           bool enqueueUpdate)
 {
     uint32_t index = serverId.indexNumber();
 
@@ -712,13 +718,16 @@ CoordinatorServerList::add(Lock& lock,
         pair.entry->expectedReadMBytesPerSec = readSpeed;
     }
 
-    ProtoBuf::ServerList_Entry& protoBufEntry(*update.add_server());
-    pair.entry->serialize(protoBufEntry);
+    if (enqueueUpdate) {
+        ProtoBuf::ServerList_Entry& protoBufEntry(*update.add_server());
+        pair.entry->serialize(protoBufEntry);
 
-    foreach (ServerTrackerInterface* tracker, trackers)
-        tracker->enqueueChange(*pair.entry, ServerChangeEvent::SERVER_ADDED);
-    foreach (ServerTrackerInterface* tracker, trackers)
-        tracker->fireCallback();
+        foreach (ServerTrackerInterface* tracker, trackers)
+            tracker->enqueueChange(*pair.entry,
+                                   ServerChangeEvent::SERVER_ADDED);
+        foreach (ServerTrackerInterface* tracker, trackers)
+            tracker->fireCallback();
+    }
 }
 
 /**
