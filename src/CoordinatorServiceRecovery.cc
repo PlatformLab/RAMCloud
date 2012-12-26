@@ -68,7 +68,7 @@ CoordinatorServiceRecovery::replay(bool testing)
             RAMCLOUD_LOG(DEBUG, "ServiceRecovery: ServerEnlisted");
             ProtoBuf::ServerInformation state;
             service.logCabinHelper->parseProtoBufFromEntry(*it, state);
-            service.serverList->recoverEnlistedServer(&state, entryId);
+            service.serverList->recoverAliveServer(&state, entryId);
 
         } else if (!entryType.compare("ServerDown")) {
 

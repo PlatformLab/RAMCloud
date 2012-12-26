@@ -68,8 +68,6 @@ MockCluster::MockCluster(Context* context, string coordinatorLocator)
  */
 MockCluster::~MockCluster()
 {
-    haltCoordinatorServerListUpdater();
-
     // Servers must be deleted in reverse order of their creation to avoid
     // weird shutdown deadlock issues (for example, master try indefinitely to
     // flush their logs to backups on shutdown).

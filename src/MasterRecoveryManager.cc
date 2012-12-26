@@ -484,7 +484,7 @@ MasterRecoveryManager::recoveryFinished(Recovery* recovery)
         // Remove recovered server from the server list and broadcast
         // the change to the cluster.
         try {
-            context->coordinatorServerList->removeAfterRecovery(
+            context->coordinatorServerList->recoveryCompleted(
                         recovery->crashedServerId);
         } catch (const ServerListException& e) {
             // Server may have already been removed from the list

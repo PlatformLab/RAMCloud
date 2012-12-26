@@ -171,14 +171,30 @@ class CoordinatorServerList : public AbstractServerList{
         /**
          * Entry id corresponding to entry in LogCabin log that has
          * initial information for this server.
+         * During recovery, reading an AliveServer entry means that
+         * the enlistment has already been acknowledged by the cluster.
          */
-         LogCabin::Client::EntryId serverInfoLogId;
+         LogCabin::Client::EntryId logIdAliveServer;
+
+         /**
+         * Entry id corresponding to entry in LogCabin log that has
+         * initial information for this server.
+         * During recovery, reading an EnlistServer entry means that
+         * the enlistment update should be (re-)sent to the cluster.
+          */
+         LogCabin::Client::EntryId logIdEnlistServer;
+
+         /**
+          * Entry id corresponding to entry in LogCabin log that has
+          * the most information about removing a server from the cluster.
+          */
+         LogCabin::Client::EntryId logIdServerDown;
 
         /**
          * Entry id corresponding to entry in LogCabin log that has
          * the most recent update for this server.
          */
-         LogCabin::Client::EntryId serverUpdateLogId;
+         LogCabin::Client::EntryId logIdServerUpdate;
     };
 
     explicit CoordinatorServerList(Context* context);
@@ -190,21 +206,21 @@ class CoordinatorServerList : public AbstractServerList{
     uint32_t masterCount() const;
     Entry operator[](ServerId serverId) const;
     Entry operator[](size_t index) const;
-    void removeAfterRecovery(ServerId serverId);
+    void recoveryCompleted(ServerId serverId);
     void serialize(ProtoBuf::ServerList& protobuf, ServiceMask services) const;
     void serverDown(ServerId serverId);
     bool setMasterRecoveryInfo(ServerId serverId,
                 const ProtoBuf::MasterRecoveryInfo& recoveryInfo);
 
     /// Functions for CoordinatorServerList Recovery.
-    void recoverEnlistedServer(ProtoBuf::ServerInformation* state,
-                               EntryId entryId);
+    void recoverAliveServer(ProtoBuf::ServerInformation* state,
+                               EntryId logIdAliveServer);
     void recoverEnlistServer(ProtoBuf::ServerInformation* state,
-                             EntryId entryId);
+                             EntryId logIdEnlistServer);
     void recoverServerDown(ProtoBuf::ServerDown* state,
-                           EntryId entryId);
+                           EntryId logIdServerDown);
     void recoverServerUpdate(ProtoBuf::ServerUpdate* state,
-                             EntryId entryId);
+                             EntryId logIdServerUpdate);
 
   PRIVATE:
     /**
@@ -247,7 +263,8 @@ class CoordinatorServerList : public AbstractServerList{
                 readSpeed(readSpeed),
                 serviceLocator(serviceLocator) {}
           ServerId execute();
-          ServerId complete(EntryId entryId);
+          ServerId complete(EntryId logIdEnlistServer,
+                            EntryId logIdAliveServer = NO_ID);
 
       private:
           /**
@@ -522,13 +539,14 @@ class CoordinatorServerList : public AbstractServerList{
 
     /// Functions related to modifying the server list
     void add(Lock& lock, ServerId serverId, string serviceLocator,
-             ServiceMask serviceMask, uint32_t readSpeed);
+             ServiceMask serviceMask, uint32_t readSpeed,
+             bool enqueueUpdate = true);
     void crashed(const Lock& lock, ServerId serverId);
     uint32_t firstFreeIndex();
     ServerId generateUniqueId(Lock& lock);
     CoordinatorServerList::Entry* getEntry(ServerId id) const;
     CoordinatorServerList::Entry* getEntry(size_t index) const;
-    void remove(Lock& lock, ServerId serverId);
+    void recoveryCompleted(Lock& lock, ServerId serverId);
     void serialize(const Lock& lock, ProtoBuf::ServerList& protoBuf) const;
     void serialize(const Lock& lock, ProtoBuf::ServerList& protoBuf,
                    ServiceMask services) const;

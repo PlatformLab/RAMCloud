@@ -96,9 +96,10 @@ class TableManagerTest : public ::testing::Test {
         if (position == string::npos) {
             throw "Search string not found";
         } else {
-            string entryIdString =
-                TestLog::get().substr(TestLog::get().find(searchString) +
-                                      searchString.length(), 1);
+            size_t startPoint = TestLog::get().find(searchString) +
+                                searchString.length();
+            size_t endPoint = TestLog::get().find("|", startPoint);
+            string entryIdString = TestLog::get().substr(startPoint, endPoint);
             return strtoul(entryIdString.c_str(), NULL, 0);
         }
     }
@@ -309,14 +310,13 @@ TEST_F(TableManagerTest, dropTable_LogCabin) {
     TestLog::Enable _;
     tableManager->dropTable("bar");
 
-    vector<Entry> entriesRead = logCabinLog->read(0);
-    string searchString;
+    string searchString = "execute: LogCabin: DropTable entryId: ";
+    ASSERT_NO_THROW(findEntryId(searchString));
+    EntryId entryId = findEntryId(searchString);
+    vector<Entry> entriesRead = logCabinLog->read(entryId);
 
     ProtoBuf::TableDrop dropTable;
-    searchString = "execute: LogCabin: DropTable entryId: ";
-    ASSERT_NO_THROW(findEntryId(searchString));
-    logCabinHelper->parseProtoBufFromEntry(
-            entriesRead[findEntryId(searchString)], dropTable);
+    logCabinHelper->parseProtoBufFromEntry(entriesRead[0], dropTable);
     EXPECT_EQ("entry_type: \"DropTable\"\n"
               "name: \"bar\"\n",
                dropTable.DebugString());

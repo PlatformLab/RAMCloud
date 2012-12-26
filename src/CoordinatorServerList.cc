@@ -122,6 +122,7 @@ CoordinatorServerList::enlistServer(
     ServerId newServerId =
         EnlistServer(*this, lock, ServerId(), serviceMask,
                      readSpeed, serviceLocator).execute();
+    pushUpdate(lock);
 
     if (replacesId.isValid()) {
         LOG(NOTICE, "Newly enlisted server %s replaces server %s",
@@ -129,7 +130,6 @@ CoordinatorServerList::enlistServer(
                     replacesId.toString().c_str());
     }
 
-    pushUpdate(lock);
     return newServerId;
 }
 
@@ -203,9 +203,12 @@ CoordinatorServerList::operator[](size_t index) const
 }
 
 /**
- * Remove a server from the list, typically when it is no longer part of
+ * Mark a server as DOWN, typically when it is no longer part of
  * the system and we don't care about it anymore (it crashed and has
  * been properly recovered).
+ * 
+ * When the update sent to and acknowledged by the rest of the cluster
+ * is being pruned, the server list entry for this server will be removed.
  *
  * This method may actually append two entries to \a update (see below).
  *
@@ -223,10 +226,10 @@ CoordinatorServerList::operator[](size_t index) const
  *      It must be in the list (either UP or CRASHED).
  */
 void
-CoordinatorServerList::removeAfterRecovery(ServerId serverId)
+CoordinatorServerList::recoveryCompleted(ServerId serverId)
 {
     Lock lock(mutex);
-    remove(lock, serverId);
+    recoveryCompleted(lock, serverId);
     pushUpdate(lock);
 }
 
@@ -293,7 +296,7 @@ CoordinatorServerList::setMasterRecoveryInfo(
         entry->masterRecoveryInfo = recoveryInfo;
         ServerUpdate(*this, lock,
                      serverId, recoveryInfo,
-                     entry->serverUpdateLogId).execute();
+                     entry->logIdServerUpdate).execute();
         return true;
     } else {
         return false;
@@ -311,25 +314,25 @@ CoordinatorServerList::setMasterRecoveryInfo(
  * \param state
  *      The ProtoBuf that encapsulates the information about server
  *      to be added.
- * \param entryId
+ * \param logIdAliveServer
  *      The entry id of the LogCabin entry corresponding to the state.
  */
 void
-CoordinatorServerList::recoverEnlistedServer(
-    ProtoBuf::ServerInformation* state, EntryId entryId)
+CoordinatorServerList::recoverAliveServer(
+    ProtoBuf::ServerInformation* state, EntryId logIdAliveServer)
 {
     Lock lock(mutex);
-    LOG(DEBUG, "CoordinatorServerList::recoverEnlistedServer()");
+    LOG(DEBUG, "CoordinatorServerList::recoverAliveServer()");
+
     add(lock,
         ServerId(state->server_id()),
         state->service_locator().c_str(),
         ServiceMask::deserialize(state->service_mask()),
-        state->read_speed());
-    // TODO(ankitak): We probably do not want to do the following pushUpdate()
-    // that sends updates to the cluster,
-    // since this action has already been completed and reflected to the cluster
-    // before coordinator failure that triggered this recovery.
-    pushUpdate(lock);
+        state->read_speed(),
+        false);
+
+    Entry entry(*getEntry(ServerId(state->server_id())));
+    entry.logIdAliveServer = logIdAliveServer;
 }
 
 /**
@@ -339,12 +342,12 @@ CoordinatorServerList::recoverEnlistedServer(
  * \param state
  *      The ProtoBuf that encapsulates the state of the enlistServer
  *      operation to be recovered.
- * \param entryId
+ * \param logIdEnlistServer
  *      The entry id of the LogCabin entry corresponding to the state.
  */
 void
 CoordinatorServerList::recoverEnlistServer(
-    ProtoBuf::ServerInformation* state, EntryId entryId)
+    ProtoBuf::ServerInformation* state, EntryId logIdEnlistServer)
 {
     Lock lock(mutex);
     LOG(DEBUG, "CoordinatorServerList::recoverEnlistServer()");
@@ -352,29 +355,8 @@ CoordinatorServerList::recoverEnlistServer(
                  ServerId(state->server_id()),
                  ServiceMask::deserialize(state->service_mask()),
                  state->read_speed(),
-                 state->service_locator().c_str()).complete(entryId);
+                 state->service_locator().c_str()).complete(logIdEnlistServer);
     pushUpdate(lock);
-}
-
-/**
- * During Coordinator recovery, set update-able fields for the server.
- *
- * \param serverUpdate
- *      The ProtoBuf that has the updates for the server.
- * \param entryId
- *      The entry id of the LogCabin entry corresponding to serverUpdate.
- */
-void
-CoordinatorServerList::recoverServerUpdate(
-    ProtoBuf::ServerUpdate* serverUpdate, EntryId entryId)
-{
-    Lock lock(mutex);
-    LOG(DEBUG, "CoordinatorServerList::recoverServerUpdate()");
-    // If there are other update-able fields in the future, read them in from
-    // ServerUpdate and update them all.
-    ServerUpdate(*this, lock,
-                 ServerId(serverUpdate->server_id()),
-                 serverUpdate->master_recovery_info()).complete(entryId);
 }
 
 /**
@@ -383,16 +365,39 @@ CoordinatorServerList::recoverServerUpdate(
  * \param state
  *      The ProtoBuf that encapsulates the state of the ServerDown
  *      operation to be recovered.
- * \param entryId
+ * \param logIdServerDown
  *      The entry id of the LogCabin entry corresponding to the state.
  */
 void
 CoordinatorServerList::recoverServerDown(
-    ProtoBuf::ServerDown* state, EntryId entryId)
+    ProtoBuf::ServerDown* state, EntryId logIdServerDown)
 {
     Lock lock(mutex);
     LOG(DEBUG, "CoordinatorServerList::recoverServerDown()");
-    ServerDown(*this, lock, ServerId(state->server_id())).complete(entryId);
+    ServerDown(*this, lock,
+               ServerId(state->server_id())).complete(logIdServerDown);
+}
+
+/**
+ * During Coordinator recovery, set update-able fields for the server.
+ *
+ * \param serverUpdate
+ *      The ProtoBuf that has the updates for the server.
+ * \param logIdServerUpdate
+ *      The entry id of the LogCabin entry corresponding to serverUpdate.
+ */
+void
+CoordinatorServerList::recoverServerUpdate(
+    ProtoBuf::ServerUpdate* serverUpdate, EntryId logIdServerUpdate)
+{
+    Lock lock(mutex);
+    LOG(DEBUG, "CoordinatorServerList::recoverServerUpdate()");
+    // If there are other update-able fields in the future, read them in from
+    // ServerUpdate and update them all.
+    ServerUpdate(
+            *this, lock,
+            ServerId(serverUpdate->server_id()),
+            serverUpdate->master_recovery_info()).complete(logIdServerUpdate);
 }
 
 //////////////////////////////////////////////////////////////////////
@@ -409,19 +414,31 @@ CoordinatorServerList::EnlistServer::execute()
 {
     newServerId = csl.generateUniqueId(lock);
 
-    ProtoBuf::ServerInformation state;
-    state.set_entry_type("ServerEnlisting");
-    state.set_server_id(newServerId.getId());
-    state.set_service_mask(serviceMask.serialize());
-    state.set_read_speed(readSpeed);
-    state.set_service_locator(string(serviceLocator));
+    ProtoBuf::ServerInformation stateEnlistServer;
+    stateEnlistServer.set_entry_type("EnlistServer");
+    stateEnlistServer.set_server_id(newServerId.getId());
+    stateEnlistServer.set_service_mask(serviceMask.serialize());
+    stateEnlistServer.set_read_speed(readSpeed);
+    stateEnlistServer.set_service_locator(string(serviceLocator));
 
-    EntryId entryId =
+    EntryId logIdEnlistServer =
         csl.context->logCabinHelper->appendProtoBuf(
-            *csl.context->expectedEntryId, state);
-    LOG(DEBUG, "LogCabin: ServerEnlisting entryId: %lu", entryId);
+                *csl.context->expectedEntryId, stateEnlistServer);
+    LOG(DEBUG, "LogCabin: EnlistServer entryId: %lu", logIdEnlistServer);
 
-    return complete(entryId);
+    ProtoBuf::ServerInformation stateAliveServer;
+    stateAliveServer.set_entry_type("AliveServer");
+    stateAliveServer.set_server_id(newServerId.getId());
+    stateAliveServer.set_service_mask(serviceMask.serialize());
+    stateAliveServer.set_read_speed(readSpeed);
+    stateAliveServer.set_service_locator(string(serviceLocator));
+
+    EntryId logIdAliveServer =
+        csl.context->logCabinHelper->appendProtoBuf(
+                *csl.context->expectedEntryId, stateAliveServer);
+    LOG(DEBUG, "LogCabin: AliveServer entryId: %lu", logIdAliveServer);
+
+    return complete(logIdEnlistServer, logIdAliveServer);
 }
 
 /**
@@ -431,17 +448,27 @@ CoordinatorServerList::EnlistServer::execute()
  * (which is in turn called by #enlistServer()), and
  * directly for coordinator recovery (by #recoverEnlistServer()).
  *
- * \param entryId
- *      The entry id of the LogCabin entry corresponding to the state
- *      of the operation to be completed.
+ * \param logIdEnlistServer
+ *      The entry id of the LogCabin entry that has initial information
+ *      for this server.
+ *      During recovery, reading an EnlistServer entry means that
+ *      the enlistment update should be (re-)sent to the cluster.
+ * \param logIdAliveServer
+ *      The entry id of the LogCabin entry that has initial information
+ *      for this server.
+ *      During recovery, reading an AliveServer entry means that
+ *      the enlistment has already been acknowledged by the cluster.
  */
 ServerId
-CoordinatorServerList::EnlistServer::complete(EntryId entryId)
+CoordinatorServerList::EnlistServer::complete(
+        EntryId logIdEnlistServer, EntryId logIdAliveServer)
 {
     csl.add(lock, newServerId, serviceLocator, serviceMask, readSpeed);
 
-    CoordinatorServerList::Entry
-        entry(*csl.getEntry(newServerId));
+    CoordinatorServerList::Entry entry(*csl.getEntry(newServerId));
+    entry.logIdEnlistServer = logIdEnlistServer;
+    if (logIdAliveServer != NO_ID)
+        entry.logIdAliveServer = logIdAliveServer;
 
     LOG(NOTICE, "Enlisting new server at %s (server id %s) supporting "
         "services: %s", serviceLocator, newServerId.toString().c_str(),
@@ -452,18 +479,6 @@ CoordinatorServerList::EnlistServer::complete(EntryId entryId)
             newServerId.toString().c_str(), readSpeed);
         csl.createReplicationGroup(lock);
     }
-
-    ProtoBuf::ServerInformation state;
-    state.set_entry_type("ServerEnlisted");
-    state.set_server_id(newServerId.getId());
-    state.set_service_mask(serviceMask.serialize());
-    state.set_read_speed(readSpeed);
-    state.set_service_locator(string(serviceLocator));
-
-    EntryId newEntryId = csl.context->logCabinHelper->appendProtoBuf(
-        *csl.context->expectedEntryId, state, vector<EntryId>({entryId}));
-    entry.serverInfoLogId = newEntryId;
-    LOG(DEBUG, "LogCabin: ServerEnlisted entryId: %lu", newEntryId);
 
     return newServerId;
 }
@@ -476,9 +491,14 @@ CoordinatorServerList::EnlistServer::complete(EntryId entryId)
 void
 CoordinatorServerList::ServerDown::execute()
 {
+    if (!csl.getEntry(serverId)) {
+        throw ServerListException(HERE,
+            format("Invalid ServerId (%s)", serverId.toString().c_str()));
+    }
+
     ProtoBuf::ServerDown state;
     state.set_entry_type("ServerDown");
-    state.set_server_id(this->serverId.getId());
+    state.set_server_id(serverId.getId());
 
     EntryId entryId =
         csl.context->logCabinHelper->appendProtoBuf(
@@ -501,36 +521,24 @@ CoordinatorServerList::ServerDown::execute()
 void
 CoordinatorServerList::ServerDown::complete(EntryId entryId)
 {
+    csl.crashed(lock, serverId); // Call the internal method directly.
+
     // If this machine has a backup and master on the same server it is best
     // to remove the dead backup before initiating recovery. Otherwise, other
     // servers may try to backup onto a dead machine which will cause delays.
     CoordinatorServerList::Entry entry(*csl.getEntry(serverId));
 
-    // Get the entry ids for the LogCabin entries corresponding to this
-    // server before the server information is removed from serverList,
-    // so that the LogCabin entry can be invalidated later.
-    EntryId serverInfoLogId = entry.serverInfoLogId;
-    EntryId serverUpdateLogId = entry.serverUpdateLogId;
-
-    csl.crashed(lock, serverId); // Call the internal method directly.
     // If the server being replaced did not have a master then there
     // will be no recovery.  That means it needs to transition to
     // removed status now (usually recoveries remove servers from the
     // list when they complete).
     if (!entry.services.has(WireFormat::MASTER_SERVICE))
-        csl.remove(lock, serverId); // Call the internal method directly.
+        csl.recoveryCompleted(lock, serverId);
 
     csl.context->recoveryManager->startMasterRecovery(entry);
 
     csl.removeReplicationGroup(lock, entry.replicationId);
     csl.createReplicationGroup(lock);
-
-    vector<EntryId> invalidates {serverInfoLogId, entryId};
-    if (serverUpdateLogId)
-        invalidates.push_back(serverUpdateLogId);
-
-    csl.context->logCabinHelper->invalidate(
-        *csl.context->expectedEntryId, invalidates);
 }
 
 /**
@@ -573,7 +581,7 @@ CoordinatorServerList::ServerUpdate::complete(EntryId entryId)
 
     if (entry) {
         entry->masterRecoveryInfo = recoveryInfo;
-        entry->serverUpdateLogId = entryId;
+        entry->logIdServerUpdate = entryId;
     } else {
         LOG(WARNING, "Server being updated doesn't exist: %s",
             serverId.toString().c_str());
@@ -671,13 +679,20 @@ CoordinatorServerList::getEntry(size_t index) const {
  * \param readSpeed
  *      Speed of the storage on the enlisting server if it includes a backup
  *      service. Argument is ignored otherwise.
+ * \param enqueueUpdate
+ *      Whether the update (to be sent to the cluster) about the enlisting
+ *      server should be enqueued. This is false during coordinator recovery
+ *      while replaying an AliveServer entry since it only needs local
+ *      (coordinator) change, and the rest of the cluster had already
+ *      acknowledged the update.
  */
 void
 CoordinatorServerList::add(Lock& lock,
                            ServerId serverId,
                            string serviceLocator,
                            ServiceMask serviceMask,
-                           uint32_t readSpeed)
+                           uint32_t readSpeed,
+                           bool enqueueUpdate)
 {
     uint32_t index = serverId.indexNumber();
 
@@ -703,13 +718,16 @@ CoordinatorServerList::add(Lock& lock,
         pair.entry->expectedReadMBytesPerSec = readSpeed;
     }
 
-    ProtoBuf::ServerList_Entry& protoBufEntry(*update.add_server());
-    pair.entry->serialize(protoBufEntry);
+    if (enqueueUpdate) {
+        ProtoBuf::ServerList_Entry& protoBufEntry(*update.add_server());
+        pair.entry->serialize(protoBufEntry);
 
-    foreach (ServerTrackerInterface* tracker, trackers)
-        tracker->enqueueChange(*pair.entry, ServerChangeEvent::SERVER_ADDED);
-    foreach (ServerTrackerInterface* tracker, trackers)
-        tracker->fireCallback();
+        foreach (ServerTrackerInterface* tracker, trackers)
+            tracker->enqueueChange(*pair.entry,
+                                   ServerChangeEvent::SERVER_ADDED);
+        foreach (ServerTrackerInterface* tracker, trackers)
+            tracker->fireCallback();
+    }
 }
 
 /**
@@ -815,12 +833,12 @@ CoordinatorServerList::generateUniqueId(Lock& lock)
     return id;
 }
 
-// See docs on #removeAfterRecovery().
+// See docs on public version of #recoveryCompleted().
 // This version doesn't acquire locks and does not send out updates
 // since it is used internally.
 void
-CoordinatorServerList::remove(Lock& lock,
-                              ServerId serverId)
+CoordinatorServerList::recoveryCompleted(Lock& lock,
+                                         ServerId serverId)
 {
     if (!iget(serverId)) {
         throw ServerListException(HERE,
@@ -830,18 +848,14 @@ CoordinatorServerList::remove(Lock& lock,
     crashed(lock, serverId);
 
     Tub<Entry>& entry = serverList[serverId.indexNumber()].entry;
-    // Even though we destroy this entry almost immediately setting the state
-    // gets the serialized update message's state field correct.
+    // Setting state gets the serialized update message's state field correct.
     entry->status = ServerStatus::DOWN;
 
     ProtoBuf::ServerList_Entry& protoBufEntry(*update.add_server());
     entry->serialize(protoBufEntry);
 
-    Entry removedEntry = *entry;
-    entry.destroy();
-
     foreach (ServerTrackerInterface* tracker, trackers)
-        tracker->enqueueChange(removedEntry, ServerChangeEvent::SERVER_REMOVED);
+        tracker->enqueueChange(*entry, ServerChangeEvent::SERVER_REMOVED);
     foreach (ServerTrackerInterface* tracker, trackers)
         tracker->fireCallback();
 }
@@ -1130,13 +1144,66 @@ CoordinatorServerList::pruneUpdates(const Lock& lock)
         return;
     }
 
-    while (!updates.empty() && updates.front().version <= minConfirmedVersion)
+    while (!updates.empty() && updates.front().version <= minConfirmedVersion) {
+
+        ProtoBuf::ServerList currentUpdate = updates.front().incremental;
+        assert(currentUpdate.type() ==
+                ProtoBuf::ServerList::Type::ServerList_Type_UPDATE);
+
+        for (int i = 0; i < currentUpdate.server().size(); i++) {
+            ProtoBuf::ServerList::Entry currentEntry = currentUpdate.server(i);
+            ServerStatus updateStatus =
+                    ServerStatus(currentEntry.status());
+
+            if (updateStatus == ServerStatus::UP) {
+                // An enlistServer operation has successfully completed.
+
+                if (context->logCabinHelper) {
+                    ServerId serverId =
+                            ServerId(currentEntry.server_id());
+                    CoordinatorServerList::Entry* entry = getEntry(serverId);
+                    assert(entry != NULL);
+                    vector<EntryId> invalidates {entry->logIdEnlistServer};
+                    context->logCabinHelper->invalidate(
+                                *context->expectedEntryId, invalidates);
+                    entry->logIdEnlistServer = NO_ID;
+                }
+
+            } else if (updateStatus == ServerStatus::CRASHED) {
+                // A serverDown operation has completed. The server that crashed
+                // may be still recovering. So we're not invalidating its
+                // LogCabin entries just yet.
+
+            } else if (updateStatus == ServerStatus::DOWN) {
+                // This marks the final completion of the serverDown operation.
+                // i.e., If the crashed server was a master, then its recovery
+                // (that was sparked by a serverDown operation) has completed.
+                // If it was not a master, then the serverDown operation (which
+                // will not spark any recoveries) has completed.
+
+                ServerId serverId = ServerId(currentEntry.server_id());
+                Tub<Entry>& entry = serverList[serverId.indexNumber()].entry;
+
+                if (context->logCabinHelper) {
+                    assert(entry);
+                    vector<EntryId> invalidates {entry->logIdAliveServer,
+                                                 entry->logIdServerDown};
+                    if (entry->logIdServerUpdate != NO_ID)
+                        invalidates.push_back(entry->logIdServerUpdate);
+
+                    context->logCabinHelper->invalidate(
+                                *context->expectedEntryId, invalidates);
+                }
+
+                entry.destroy();
+            }
+        }
+
         updates.pop_front();
+    }
 
     if (updates.empty())    // Empty list = no updates to send
         listUpToDate.notify_all();
-
-    //TODO(syang0) ankitak -> This is where you detect oldest version.
 }
 
 /**
@@ -1668,8 +1735,10 @@ CoordinatorServerList::Entry::Entry()
     , masterRecoveryInfo()
     , verifiedVersion(UNINITIALIZED_VERSION)
     , updateVersion(UNINITIALIZED_VERSION)
-    , serverInfoLogId(0)
-    , serverUpdateLogId(0)
+    , logIdAliveServer(NO_ID)
+    , logIdEnlistServer(NO_ID)
+    , logIdServerDown(NO_ID)
+    , logIdServerUpdate(NO_ID)
 {
 }
 
@@ -1699,8 +1768,10 @@ CoordinatorServerList::Entry::Entry(ServerId serverId,
     , masterRecoveryInfo()
     , verifiedVersion(UNINITIALIZED_VERSION)
     , updateVersion(UNINITIALIZED_VERSION)
-    , serverInfoLogId(LogCabin::Client::EntryId(0))
-    , serverUpdateLogId(LogCabin::Client::EntryId(0))
+    , logIdAliveServer(NO_ID)
+    , logIdEnlistServer(NO_ID)
+    , logIdServerDown(NO_ID)
+    , logIdServerUpdate(NO_ID)
 {
 }
 
