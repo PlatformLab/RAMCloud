@@ -269,8 +269,8 @@ TEST_F(MasterRecoveryManagerTest, recoveryMasterFinished) {
     EXPECT_EQ(
         "performTask: Modifying tablet map to set recovery master 2.0 as "
             "master for 0, 0, 18446744073709551615 | "
-        "execute: LogCabin: TabletRecovered entryId: 1 | "
-        "complete: LogCabin: AliveTable entryId: 2 | "
+        "execute: LogCabin: TabletRecovered entryId: 3 | "
+        "complete: LogCabin: AliveTable entryId: 4 | "
         "performTask: Coordinator tableManager after recovery master 2.0 "
             "finished: "
         "Tablet { tableId: 0 startKeyHash: 0 endKeyHash: 18446744073709551615 "

@@ -198,8 +198,8 @@ TEST_F(BackupServiceTest, constructorReuseReplicas)
             "them available to recoveries. | "
         "BackupService: Will enlist as a replacement for formerly crashed "
             "server 2.0 which left replicas behind on disk | "
-        "initOnceEnlisted: My server ID is 2.1 | "
-        "initOnceEnlisted: Backup 2.1 will store replicas under cluster name "
+        "initOnceEnlisted: My server ID is 3.0 | "
+        "initOnceEnlisted: Backup 3.0 will store replicas under cluster name "
             "'testing'"
         , TestLog::get());
 }
