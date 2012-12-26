@@ -31,7 +31,7 @@ namespace RAMCloud {
  * to applications by RAMCloud operations.
  *
  * 0 means success; anything else means that an error occurred.
- * Not all status values can be returned by all operations. 
+ * Not all status values can be returned by all operations.
  */
 typedef enum Status {
     /// Default return value when an operation was successful.
@@ -110,8 +110,10 @@ typedef enum Status {
     /// continue servicing requests when other servers have already
     /// taken over their tablets.  See "Zombies" in designNotes.
     STATUS_CALLER_NOT_IN_CLUSTER        = 26,
-
-    STATUS_MAX_VALUE                    = 26,
+    /// Indicates that a single request was too big to fit in an rpc and
+    /// thus could not be sent/carried out.
+    STATUS_REQUEST_TOO_LARGE            = 27,
+    STATUS_MAX_VALUE                    = 27,
     // Note: if you add a new status value you must make the following
     // additional updates:
     // * Modify STATUS_MAX_VALUE to have a value equal to the largest

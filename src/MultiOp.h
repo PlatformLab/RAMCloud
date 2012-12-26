@@ -115,7 +115,8 @@ class MultiOp {
 
     /// The maximum RPC length we will ever issue to a master in bytes. Requests
     /// that exceed this value will be issued in multiple RPCs.
-    static const uint32_t maxRequestSize = Transport::MAX_RPC_LEN;
+    static const uint32_t maxRequestSize = Transport::MAX_RPC_LEN -
+                                        sizeof(WireFormat::MultiOp::Request);
 
     /// Overall client state information.
     RamCloud* ramcloud;
@@ -149,6 +150,10 @@ class MultiOp {
 
     /// Marks the start of unfinished requests in requestIndecies.
     uint32_t startIndex;
+
+    /// Used for tests only. True = ignores buffer size checking in finishRpc.
+    /// Needed since test responses don't put anything in the response buffer.
+    bool test_ignoreBufferOverflow;
 
     // TOOD(syang0) These should be abstracted into sub class.
     virtual void appendRequest(MultiOpObject* request, Buffer* buf)=0;

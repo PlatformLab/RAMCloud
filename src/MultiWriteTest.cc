@@ -135,7 +135,19 @@ class MultiWriteTest : public ::testing::Test {
     DISALLOW_COPY_AND_ASSIGN(MultiWriteTest);
 };
 
-TEST_F(MultiWriteTest, basics) {
+// Filter out the desired log entries below (skipping log and replicated segment
+// messages made during the multiwrite operations).
+static bool
+testLogFilter(string s)
+{
+    return s == "multiWriteWaitThread" ||
+           s == "readResponse" ||
+           s == "finishRpc" ||
+           s == "flush" ||
+           s == "flushSession";
+}
+
+TEST_F(MultiWriteTest, basics_end_to_end) {
     MultiWriteObject* requests[] = {
         objects[0].get(), objects[1].get(), objects[2].get(),
         objects[3].get(), objects[4].get(), objects[5].get()
@@ -155,205 +167,25 @@ TEST_F(MultiWriteTest, basics) {
     // object[5].version is undefined when tablet doesn't exist
 }
 
-TEST_F(MultiWriteTest, cancel) {
-    MultiWriteObject* requests[] = {
-        objects[0].get(), objects[1].get(), objects[4].get()
-    };
-    session1->dontNotify = true;
+TEST_F(MultiWriteTest, appendRequest) {
+    MultiWriteObject* requests[] = {objects[0].get()};
+    uint32_t dif, before;
+    Buffer buf;
 
-    MultiWrite request(ramcloud.get(), requests, 3);
-    EXPECT_EQ("mock:host=master1(2) mock:host=master3(1)",
-            rpcStatus(request));
-    request.cancel();
-    EXPECT_EQ("- -", rpcStatus(request));
-}
-
-TEST_F(MultiWriteTest, isReady) {
-    MultiWriteObject* requests[] = {
-        objects[0].get(), objects[1].get(), objects[3].get(), objects[4].get()
-    };
-    session1->dontNotify = true;
-    session3->dontNotify = true;
-
-    // Launch RPCs, let one of them finish.
-    MultiWrite request(ramcloud.get(), requests, 4);
-    EXPECT_EQ("mock:host=master1(2) mock:host=master2(1)",
-            rpcStatus(request));
-    EXPECT_FALSE(request.isReady());
-    EXPECT_EQ("mock:host=master1(2) mock:host=master3(1)",
-            rpcStatus(request));
-
-    // Make sure that isReady calls don't do anything until something
-    // finishes.
-    EXPECT_FALSE(request.isReady());
-    EXPECT_FALSE(request.isReady());
-    EXPECT_EQ("mock:host=master1(2) mock:host=master3(1)",
-            rpcStatus(request));
-
-    // Let the remaining RPCs finish one at a time.
-    session1->lastNotifier->completed();
-    EXPECT_FALSE(request.isReady());
-    EXPECT_EQ("- mock:host=master3(1)", rpcStatus(request));
-
-    session3->lastNotifier->completed();
-    EXPECT_TRUE(request.isReady());
-    EXPECT_EQ("- -", rpcStatus(request));
-    EXPECT_EQ(STATUS_OK, objects[0]->status);
-    EXPECT_EQ(STATUS_OK, objects[4]->status);
-}
-
-TEST_F(MultiWriteTest, startRpcs_skipFinishedOrFailed) {
-    MultiWriteObject* requests[] = {
-        objects[0].get(), objects[1].get(), objects[5].get()
-    };
-    MultiWrite request(ramcloud.get(), requests, 3);
-    EXPECT_TRUE(request.isReady());
-    EXPECT_TRUE(request.startRpcs());
-    EXPECT_EQ("- -", rpcStatus(request));
-}
-
-TEST_F(MultiWriteTest, startRpcs_tableDoesntExist) {
-    MultiWriteObject object(bogusTableId, "bogus", 5, "value:bogus", 11);
-    MultiWriteObject* requests[] = { &object };
-    MultiWrite request(ramcloud.get(), requests, 1);
-    EXPECT_TRUE(request.isReady());
-    EXPECT_EQ(STATUS_TABLE_DOESNT_EXIST, object.status);
-}
-
-TEST_F(MultiWriteTest, startRpcs_noAvailableRpc) {
-    MultiWriteObject* requests[] = {
-        objects[0].get(), objects[3].get(), objects[4].get()
-    };
-
-    // During the first call, the last object can't be sent because all
-    // RPC slots are in use and its session doesn't match.
-    MultiWrite request(ramcloud.get(), requests, 3);
-    EXPECT_EQ("mock:host=master1(1) mock:host=master2(1)",
-            rpcStatus(request));
-
-    // During the second call, the RPC slots are in process, so we don't
-    // even check the session.
-    EXPECT_FALSE(request.startRpcs());
-    EXPECT_EQ("mock:host=master1(1) mock:host=master2(1)",
-            rpcStatus(request));
-
-    // During the third call RPC slots open up.
-    EXPECT_FALSE(request.isReady());
-    EXPECT_EQ("mock:host=master3(1) -", rpcStatus(request));
-    EXPECT_NE(STATUS_OK, objects[4]->status);
-
-    EXPECT_TRUE(request.isReady());
-    EXPECT_EQ("- -", rpcStatus(request));
-    EXPECT_EQ(STATUS_OK, objects[4]->status);
-}
-
-TEST_F(MultiWriteTest, startRpcs_tooManyObjectsForOneRpc) {
-    MultiWriteObject object4(tableId1, "extra1", 6, "value:extra1", 12);
-    MultiWriteObject object5(tableId1, "extra2", 6, "value:extra2", 12);
-    MultiWriteObject object6(tableId1, "extra3", 6, "value:extra3", 12);
-    MultiWriteObject object7(tableId1, "extra4", 6, "value:extra4", 12);
-    MultiWriteObject* requests[] = {
-        objects[0].get(), objects[1].get(), objects[2].get(), &object4,
-        &object5, &object6, &object7
-    };
-
-    // Not enough space in RPC to send all requests in the first RPC.
-    MultiWrite request(ramcloud.get(), requests, 7);
-    EXPECT_EQ("mock:host=master1(3) mock:host=master1(3)", rpcStatus(request));
-
-    // During the second call, still no space (first call
-    // hasn't finished).
-    EXPECT_FALSE(request.startRpcs());
-    EXPECT_EQ("mock:host=master1(3) mock:host=master1(3)", rpcStatus(request));
-
-    // First call has finished, so another starts.
-    EXPECT_FALSE(request.isReady());
-    EXPECT_EQ("mock:host=master1(1) -", rpcStatus(request));
-    EXPECT_EQ(STATUS_OK, objects[4]->status);
-    EXPECT_EQ(STATUS_OK, object5.status);
-    EXPECT_EQ(STATUS_OK, object6.status);
-
-    EXPECT_TRUE(request.isReady());
-    EXPECT_EQ("- -", rpcStatus(request));
-    EXPECT_EQ(STATUS_OK, object7.status);
-}
-
-// Helper function that runs in a separate thread for the following test.
-static void
-multiWriteWaitThread(MultiWrite* request) {
-    request->wait();
-    TEST_LOG("request finished");
-}
-
-// Filter out the desired log entries below (skipping log and replicated segment
-// messages made during the multiwrite operations).
-static bool
-testLogFilter(string s)
-{
-    return s == "multiWriteWaitThread" ||
-           s == "readResponse" ||
-           s == "finishRpc" ||
-           s == "flush" ||
-           s == "flushSession";
-}
-
-TEST_F(MultiWriteTest, wait) {
-    TestLog::Enable _(testLogFilter);
-    MultiWriteObject* requests[] = { objects[0].get() };
-    session1->dontNotify = true;
-    MultiWrite request(ramcloud.get(), requests, 1);
-    std::thread thread(multiWriteWaitThread, &request);
-    usleep(1000);
-    EXPECT_EQ("", TestLog::get());
-    session1->lastNotifier->completed();
-
-    // Give the waiting thread a chance to finish.
-    for (int i = 0; i < 1000; i++) {
-        if (TestLog::get().size() != 0)
-            break;
-        usleep(100);
-    }
-    EXPECT_EQ("multiWriteWaitThread: request finished", TestLog::get());
-    thread.join();
-    EXPECT_EQ(STATUS_OK, objects[0]->status);
-    EXPECT_EQ(1U, objects[0]->version);
-}
-
-TEST_F(MultiWriteTest, wait_canceled) {
-    MultiWriteObject* requests[] = { objects[0].get() };
-    session1->dontNotify = true;
-
-    MultiWrite request(ramcloud.get(), requests, 1);
-    EXPECT_EQ("mock:host=master1(1) -", rpcStatus(request));
-    request.cancel();
-    string message = "no exception";
-    try {
-        request.wait();
-    }
-    catch (RpcCanceledException& e) {
-        message = "RpcCanceledException";
-    }
-    EXPECT_EQ("RpcCanceledException", message);
-}
-
-TEST_F(MultiWriteTest, PartRpc_finish_transportError) {
-    MultiWriteObject* requests[] = { objects[0].get(), objects[1].get() };
-    session1->dontNotify = true;
-    MultiWrite request(ramcloud.get(), requests, 2);
-    EXPECT_EQ("mock:host=master1(2) -", rpcStatus(request));
-    EXPECT_NE(STATUS_OK, objects[0]->status);
-    EXPECT_NE(STATUS_OK, objects[1]->status);
-    session1->lastNotifier->failed();
-    request.finishRpc(request.rpcs[0].get());
-    EXPECT_EQ(STATUS_OK, objects[0]->status);
-    EXPECT_EQ(STATUS_OK, objects[1]->status);
-    request.rpcs[0].destroy();
+    // Create a non-operating multi write
+    MultiWrite request(ramcloud.get(), requests, 0);
     request.wait();
-    EXPECT_EQ(1U, objects[0]->version);
-    EXPECT_EQ(2U, objects[1]->version);
+
+    before = buf.getTotalLength();
+    request.appendRequest(requests[0], &buf);
+    dif = buf.getTotalLength() - before;
+
+    uint32_t expected_size = sizeof32(WireFormat::MultiOp::Request::WritePart) +
+                    requests[0]->keyLength + requests[0]->valueLength;
+    EXPECT_EQ(expected_size, dif);
 }
 
-TEST_F(MultiWriteTest, PartRpc_finish_shortResponse) {
+TEST_F(MultiWriteTest, readResponse_shortResponses) {
     // This test checks for proper handling of responses that are
     // too short.
     TestLog::Enable _(testLogFilter);
@@ -403,57 +235,6 @@ TEST_F(MultiWriteTest, PartRpc_finish_shortResponse) {
     EXPECT_EQ(STATUS_OK, objects[1]->status);
     EXPECT_EQ(4U, objects[0]->version);
     EXPECT_EQ(3U, objects[1]->version);
-}
-
-TEST_F(MultiWriteTest, PartRpc_unknownTable) {
-    TestLog::Enable _(testLogFilter);
-    MultiWriteObject* requests[] = {
-        objects[0].get(), objects[1].get(), objects[2].get()
-    };
-    session1->dontNotify = true;
-    MultiWrite request(ramcloud.get(), requests, 3);
-    EXPECT_EQ("mock:host=master1(3) -", rpcStatus(request));
-
-    // Modify the response to reject all objects.
-    session1->lastResponse->truncateEnd(
-            session1->lastResponse->getTotalLength() -
-            downCast<uint32_t>(sizeof(WireFormat::MultiOp::Response)));
-    WireFormat::MultiOp::Response::WritePart* parts =
-        new(session1->lastResponse, APPEND)
-        WireFormat::MultiOp::Response::WritePart[3];
-    parts[0].status = STATUS_UNKNOWN_TABLET;
-    parts[1].status = STATUS_OBJECT_DOESNT_EXIST;
-    parts[2].status = STATUS_UNKNOWN_TABLET;
-    session1->lastNotifier->completed();
-    EXPECT_FALSE(request.isReady());
-    EXPECT_EQ("finishRpc: Server mock:host=master1 doesn't store "
-            "<0, object1-1>; refreshing object map | "
-            "flush: flushing object map | flush: flushing object map",
-            TestLog::get());
-    EXPECT_EQ("mock:host=master1(2) -", rpcStatus(request));
-
-    // Let the retry succeed.
-    session1->lastNotifier->completed();
-    EXPECT_TRUE(request.isReady());
-    EXPECT_EQ(STATUS_OK, objects[0]->status);
-    EXPECT_EQ(2U, objects[0]->version);
-    EXPECT_EQ(STATUS_OBJECT_DOESNT_EXIST, objects[1]->status);
-    EXPECT_EQ(STATUS_OK, objects[2]->status);
-    EXPECT_EQ(4U, objects[2]->version);
-}
-
-TEST_F(MultiWriteTest, PartRpc_handleTransportError) {
-    TestLog::Enable _(testLogFilter);
-    MultiWriteObject* requests[] = { objects[0].get() };
-    session1->dontNotify = true;
-    MultiWrite request(ramcloud.get(), requests, 1);
-    EXPECT_EQ("mock:host=master1(1) -", rpcStatus(request));
-    session1->lastNotifier->failed();
-    request.wait();
-    EXPECT_EQ("flushSession: flushing session for mock:host=master1 "
-            "| flush: flushing object map", TestLog::get());
-    EXPECT_EQ(STATUS_OK, objects[0]->status);
-    EXPECT_EQ(1U, objects[0]->version);
 }
 
 }  // namespace RAMCloud

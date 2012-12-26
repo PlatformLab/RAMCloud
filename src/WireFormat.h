@@ -714,7 +714,8 @@ struct MultiOp {
     static const ServiceType service = MASTER_SERVICE;
 
     /// Type of Multi Operation
-    enum OpType { READ, WRITE, DELETE };
+    /// Note: Make sure INVALID is always last.
+    enum OpType { READ, WRITE, DELETE, INVALID };
 
     struct Request {
         RequestCommon common;

@@ -170,6 +170,9 @@ DEFINE_EXCEPTION(WrongServerException,
 DEFINE_EXCEPTION(CallerNotInClusterException,
                  STATUS_CALLER_NOT_IN_CLUSTER,
                  ClientException)
+DEFINE_EXCEPTION(RequestTooLargeException,
+                 STATUS_REQUEST_TOO_LARGE,
+                 ClientException)
 
 } // namespace RAMCloud
 

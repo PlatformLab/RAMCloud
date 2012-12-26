@@ -96,6 +96,7 @@ MultiOp::MultiOp(RamCloud* ramcloud, WireFormat::MultiOp::OpType type,
     , canceled(false)
     , workQueue()
     , startIndex(0)
+    , test_ignoreBufferOverflow(false)
 {
     workQueue.reserve(numRequests);
 
@@ -225,10 +226,18 @@ MultiOp::startRpcs()
                         && (rpc->state == RpcWrapper::RpcState::NOT_STARTED)) {
                     uint32_t lengthBefore = rpc->request.getTotalLength();
                     appendRequest(request, &(rpc->request));
-
                     uint32_t lengthAfter = rpc->request.getTotalLength();
+
+                    // Check that request isn't too big in general
+                    if (lengthAfter - lengthBefore > maxRequestSize) {
+                        rpc->request.truncateEnd(lengthAfter - lengthBefore);
+                        request->status = STATUS_REQUEST_TOO_LARGE;
+                        removeRequestAt(i);
+                        break;
+                    }
+
+                    // Check for full rpc, remove + retry
                     if (lengthAfter > maxRequestSize) {
-                        // Request too large, remove & try next rpc
                         rpc->request.truncateEnd(lengthAfter - lengthBefore);
                         activeRpcCnt++;
                         rpc->send();
@@ -294,13 +303,15 @@ MultiOp::finishRpc(MultiOp::PartRpc* rpc) {
         // Transport error or canceled; just reset state so that all of
         // the objects will be retried.
         for (i = 0; i < rpc->reqHdr->count; i++) {
-            rpc->requests[i]->status = STATUS_RETRY;
+            retryRequest(rpc->requests[i]);
         }
+        return;
     }
 
     // The following variable acts as a cursor in the response as
     // we scan through the results for each request.
     uint32_t respOffset = sizeof32(WireFormat::MultiOp::Response);
+    uint32_t respSize = rpc->response->getTotalLength();
 
     // Each iteration extracts one object from the response.  Be careful
     // to handle situations where the response is too short.  This can
@@ -309,8 +320,10 @@ MultiOp::finishRpc(MultiOp::PartRpc* rpc) {
     for (i = 0; i < rpc->reqHdr->count; i++) {
         MultiOpObject* request = rpc->requests[i];
 
+        if (!test_ignoreBufferOverflow && respOffset >= respSize)
+            break;
+
         /**
-         * //TOOD(syang0) reorder?
          * At this point four things can happen after the call
          * to the subclass's readResponseFromRPC():
          *
@@ -353,6 +366,8 @@ MultiOp::finishRpc(MultiOp::PartRpc* rpc) {
             request->status = STATUS_RETRY;
         }
 
+        // We check status instead of directly retryRequest in other places
+        // to ensure that requests don't accidently get retried twice.
         if (request->status == STATUS_RETRY) {
             retryRequest(request);
         }

@@ -123,6 +123,8 @@ ClientException::throwException(const CodeLocation& where, Status status)
             throw WrongServerException(where);
         case STATUS_CALLER_NOT_IN_CLUSTER:
             throw CallerNotInClusterException(where);
+        case STATUS_REQUEST_TOO_LARGE:
+            throw RequestTooLargeException(where);
         default:
             throw InternalError(where, status);
     }

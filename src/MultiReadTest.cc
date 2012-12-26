@@ -139,10 +139,12 @@ class MultiReadTest : public ::testing::Test {
     DISALLOW_COPY_AND_ASSIGN(MultiReadTest);
 };
 
-TEST_F(MultiReadTest, basics) {
+TEST_F(MultiReadTest, basics_end_to_end) {
     MultiReadObject* requests[] = {&objects[0], &objects[1], &objects[2],
             &objects[3], &objects[4], &objects[5]};
-    ramcloud->multiRead(requests, 6);
+    MultiRead request(ramcloud.get(), requests, 6);
+    request.wait();
+    ASSERT_TRUE(request.isReady());
     EXPECT_STREQ("STATUS_OK", statusToSymbol(objects[0].status));
     EXPECT_EQ("value:1-1", bufferString(values[0]));
     EXPECT_STREQ("STATUS_OK", statusToSymbol(objects[1].status));
@@ -158,231 +160,25 @@ TEST_F(MultiReadTest, basics) {
     EXPECT_EQ("uninitialized", bufferString(values[5]));
 }
 
-TEST_F(MultiReadTest, cancel) {
-    MultiReadObject* requests[] = {&objects[0], &objects[1], &objects[4]};
-    session1->dontNotify = true;
-
-    MultiRead request(ramcloud.get(), requests, 3);
-    EXPECT_EQ("mock:host=master1(2) mock:host=master3(1)",
-            rpcStatus(request));
-    request.cancel();
-    EXPECT_EQ("- -", rpcStatus(request));
-}
-
-TEST_F(MultiReadTest, isReady) {
-    MultiReadObject* requests[] = {&objects[0], &objects[1], &objects[3],
-            &objects[4]};
-    session1->dontNotify = true;
-    session3->dontNotify = true;
-
-    // Launch RPCs, let one of them finish.
-    MultiRead request(ramcloud.get(), requests, 4);
-    EXPECT_EQ("mock:host=master1(2) mock:host=master2(1)",
-            rpcStatus(request));
-    EXPECT_FALSE(request.isReady());
-    EXPECT_EQ("mock:host=master1(2) mock:host=master3(1)",
-            rpcStatus(request));
-
-    // Make sure that isReady calls don't do anything until something
-    // finishes.
-    EXPECT_FALSE(request.isReady());
-    EXPECT_FALSE(request.isReady());
-    EXPECT_EQ("mock:host=master1(2) mock:host=master3(1)",
-            rpcStatus(request));
-
-    // Let the remaining RPCs finish one at a time.
-    session1->lastNotifier->completed();
-    EXPECT_FALSE(request.isReady());
-    EXPECT_EQ("- mock:host=master3(1)", rpcStatus(request));
-
-    session3->lastNotifier->completed();
-    EXPECT_TRUE(request.isReady());
-    EXPECT_EQ("- -", rpcStatus(request));
-    EXPECT_EQ("value:1-1", bufferString(values[0]));
-    EXPECT_EQ("value:3-1", bufferString(values[4]));
-}
-
-TEST_F(MultiReadTest, startRpcs_skipFinishedOrFailed) {
-    MultiReadObject* requests[] = {&objects[0], &objects[1], &objects[5]};
-    MultiRead request(ramcloud.get(), requests, 3);
-    EXPECT_TRUE(request.isReady());
-    EXPECT_TRUE(request.startRpcs());
-    EXPECT_EQ("- -", rpcStatus(request));
-}
-TEST_F(MultiReadTest, startRpcs_tableDoesntExist) {
-    Tub<Buffer> value;
-    MultiReadObject object(tableId3+1, "bogus", 5, &value);
-    MultiReadObject* requests[] = {&object};
-    MultiRead request(ramcloud.get(), requests, 1);
-    EXPECT_TRUE(request.isReady());
-    EXPECT_STREQ("STATUS_TABLE_DOESNT_EXIST", statusToSymbol(object.status));
-    EXPECT_EQ("uninitialized", bufferString(value));
-}
-TEST_F(MultiReadTest, startRpcs_noAvailableRpc) {
-    MultiReadObject* requests[] = {&objects[0], &objects[3], &objects[4]};
-
-    // During the first call, the last object can't be sent because all
-    // RPC slots are in use and its session doesn't match.
-    MultiRead request(ramcloud.get(), requests, 3);
-    EXPECT_EQ("mock:host=master1(1) mock:host=master2(1)",
-            rpcStatus(request));
-
-    // During the second call, the RPC slots are in process, so we don't
-    // even check the session.
-    EXPECT_FALSE(request.startRpcs());
-    EXPECT_EQ("mock:host=master1(1) mock:host=master2(1)",
-            rpcStatus(request));
-
-    // During the third call RPC slots open up.
-    EXPECT_FALSE(request.isReady());
-    EXPECT_EQ("mock:host=master3(1) -", rpcStatus(request));
-    EXPECT_EQ("uninitialized", bufferString(values[4]));
-
-    EXPECT_TRUE(request.isReady());
-    EXPECT_EQ("- -", rpcStatus(request));
-    EXPECT_EQ("value:3-1", bufferString(values[4]));
-}
-
-TEST_F(MultiReadTest, startRpcs_50PercentRule) {
-    Tub<Buffer> value4, value5;
-    MultiReadObject object4(tableId3, "bogus1", 6, &value4);
-    MultiReadObject object5(tableId3, "bogus2", 6, &value5);
-
-    MultiReadObject* requests[] = {&objects[0], &objects[3], &objects[4],
-        &object4, &objects[1], &objects[2]};
-
-    // 50% rule violated since it's in the tableId order 1 2 3 3 1 1
-    // The batch of 3's violate the rule.
-    MultiRead request(ramcloud.get(), requests, 5);
-    EXPECT_EQ("mock:host=master1(1) mock:host=master2(1)", rpcStatus(request));
-    EXPECT_EQ(2UL, request.startIndex);
-}
-
-TEST_F(MultiReadTest, startRpcs_tooManyObjectsForOneRoundOfRpcs) {
-    Tub<Buffer> value4, value5;
-    MultiReadObject object4(tableId1, "bogus1", 6, &value4);
-    MultiReadObject object5(tableId1, "bogus2", 6, &value5);
-    MultiReadObject* requests[] = {&objects[0], &objects[1], &objects[2],
-            &objects[3], &object4, &object5};
-
-    // Not enough space in RPC to send all requests in the first RPCs.
-    MultiRead request(ramcloud.get(), requests, 6);
-    EXPECT_EQ("mock:host=master1(3) mock:host=master2(1)", rpcStatus(request));
-
-    // During the second call, still no space (first call
-    // hasn't finished).
-    EXPECT_FALSE(request.startRpcs());
-    EXPECT_EQ("mock:host=master1(3) mock:host=master2(1)", rpcStatus(request));
-
-    // First call has finished, so another starts.
-    EXPECT_FALSE(request.isReady());
-    EXPECT_EQ("mock:host=master1(2) -", rpcStatus(request));
-    EXPECT_EQ("uninitialized", bufferString(values[4]));
-
-    EXPECT_TRUE(request.isReady());
-    EXPECT_EQ("- -", rpcStatus(request));
-    EXPECT_STREQ("STATUS_OBJECT_DOESNT_EXIST", statusToSymbol(object5.status));
-}
-
-// Helper function that runs in a separate thread for the following test.
-static void multiReadWaitThread(MultiRead* request) {
-    request->wait();
-    TEST_LOG("request finished");
-}
-
-TEST_F(MultiReadTest, wait) {
-    TestLog::Enable _;
+TEST_F(MultiReadTest, appendRequest) {
     MultiReadObject* requests[] = {&objects[0]};
-    session1->dontNotify = true;
-    MultiRead request(ramcloud.get(), requests, 1);
-    std::thread thread(multiReadWaitThread, &request);
-    usleep(1000);
-    EXPECT_EQ("", TestLog::get());
-    session1->lastNotifier->completed();
+    uint32_t dif, before;
+    Buffer buf;
 
-    // Give the waiting thread a chance to finish.
-    for (int i = 0; i < 1000; i++) {
-        if (TestLog::get().size() != 0)
-            break;
-        usleep(100);
-    }
-    EXPECT_EQ("multiReadWaitThread: request finished", TestLog::get());
-    thread.join();
-    EXPECT_EQ("value:1-1", bufferString(values[0]));
-}
-
-TEST_F(MultiReadTest, wait_canceled) {
-    MultiReadObject* requests[] = {&objects[0]};
-    session1->dontNotify = true;
-
-    MultiRead request(ramcloud.get(), requests, 1);
-    EXPECT_EQ("mock:host=master1(1) -", rpcStatus(request));
-    request.cancel();
-    string message = "no exception";
-    try {
-        request.wait();
-    }
-    catch (RpcCanceledException& e) {
-        message = "RpcCanceledException";
-    }
-    EXPECT_EQ("RpcCanceledException", message);
-}
-
-TEST_F(MultiReadTest, removeRequestAt) {
-    MultiReadObject* requests[] = {&objects[0], &objects[1], &objects[2],
-            &objects[3], &objects[4], &objects[5], &objects[0], &objects[1]};
-    MultiRead request(ramcloud.get(), requests, 8);
-
-    // 4U Results from the original scheduling.
-    EXPECT_EQ(4UL, request.startIndex);
-    EXPECT_EQ(8UL, request.workQueue.size());
-
-    for (int ii = 0; ii< 3; ii++)
-        ASSERT_EQ((&objects[ii]), (request.workQueue[ii]));
-
-    // Remove -> Expect index to move up and request from slot 4 to 6
-    request.removeRequestAt(6);
-    EXPECT_EQ(5UL, request.startIndex);
-
-    ASSERT_EQ((&objects[4]), (request.workQueue[6]));
-}
-
-TEST_F(MultiReadTest, retryRequest) {
-    MultiReadObject* requests[] = {&objects[0], &objects[1], &objects[2],
-            &objects[3], &objects[4], &objects[5], &objects[0], &objects[1]};
-    MultiRead request(ramcloud.get(), requests, 8);
-
-    // 4U Results from the original scheduling.
-    EXPECT_EQ(4UL, request.startIndex);
-    EXPECT_EQ(8UL, request.workQueue.size());
-
-    for (int ii = 0; ii< 3; ii++)
-        ASSERT_EQ((&objects[ii]), (request.workQueue[ii]));
-
-    //Retry object[0] -> Should end up in startIndex's location.
-    request.retryRequest(&objects[0]);
-
-    EXPECT_EQ(3UL, request.startIndex);
-    EXPECT_EQ((&objects[0]), (request.workQueue[3]));
-}
-
-TEST_F(MultiReadTest, PartRpc_finish_transportError) {
-    MultiReadObject* requests[] = {&objects[0], &objects[1]};
-    session1->dontNotify = true;
-    MultiRead request(ramcloud.get(), requests, 2);
-    EXPECT_EQ("mock:host=master1(2) -", rpcStatus(request));
-    EXPECT_STREQ("STATUS_UNKNOWN", statusToSymbol(objects[0].status));
-    EXPECT_STREQ("STATUS_UNKNOWN", statusToSymbol(objects[1].status));
-    session1->lastNotifier->failed();
-    request.finishRpc(request.rpcs[0].get());
-    EXPECT_STREQ("STATUS_OK", statusToSymbol(objects[0].status));
-    EXPECT_STREQ("STATUS_OK", statusToSymbol(objects[0].status));
-    request.rpcs[0].destroy();
+    // Create a non-operating multi write
+    MultiRead request(ramcloud.get(), requests, 0);
     request.wait();
-    EXPECT_EQ("value:1-1", bufferString(values[0]));
-    EXPECT_EQ("value:1-2", bufferString(values[1]));
+
+    before = buf.getTotalLength();
+    request.appendRequest(requests[0], &buf);
+    dif = buf.getTotalLength() - before;
+
+    uint32_t expected_size = sizeof32(WireFormat::MultiOp::Request::ReadPart) +
+                    requests[0]->keyLength;
+    EXPECT_EQ(expected_size, dif);
 }
-TEST_F(MultiReadTest, PartRpc_finish_shortResponse) {
+
+TEST_F(MultiReadTest, readResponse_shortResponse) {
     // This test checks for proper handling of responses that are
     // too short.
     TestLog::Enable _;
@@ -424,52 +220,4 @@ TEST_F(MultiReadTest, PartRpc_finish_shortResponse) {
     EXPECT_EQ("value:1-1", bufferString(values[0]));
     EXPECT_EQ("value:1-2", bufferString(values[1]));
 }
-TEST_F(MultiReadTest, PartRpc_unknownTable) {
-    TestLog::Enable _;
-    MultiReadObject* requests[] = {&objects[0], &objects[1],
-            &objects[2]};
-    session1->dontNotify = true;
-    MultiRead request(ramcloud.get(), requests, 3);
-    EXPECT_EQ("mock:host=master1(3) -", rpcStatus(request));
-
-    // Modify the response to reject all objects.
-    session1->lastResponse->truncateEnd(
-            session1->lastResponse->getTotalLength() -
-            downCast<uint32_t>(sizeof(WireFormat::MultiOp::Response)));
-    WireFormat::MultiOp::Response::ReadPart* parts =
-        new(session1->lastResponse, APPEND)
-        WireFormat::MultiOp::Response::ReadPart[3];
-    parts[0].status = STATUS_UNKNOWN_TABLET;
-    parts[1].status = STATUS_OBJECT_DOESNT_EXIST;
-    parts[2].status = STATUS_UNKNOWN_TABLET;
-    session1->lastNotifier->completed();
-    EXPECT_FALSE(request.isReady());
-    EXPECT_EQ("finishRpc: Server mock:host=master1 doesn't store "
-            "<0, object1-1>; refreshing object map | "
-            "flush: flushing object map | flush: flushing object map",
-            TestLog::get());
-    EXPECT_EQ("mock:host=master1(2) -", rpcStatus(request));
-
-    // Let the retry succeed.
-    session1->lastNotifier->completed();
-    EXPECT_TRUE(request.isReady());
-    EXPECT_EQ("value:1-1", bufferString(values[0]));
-    EXPECT_STREQ("STATUS_OBJECT_DOESNT_EXIST",
-            statusToSymbol(objects[1].status));
-    EXPECT_EQ("value:1-3", bufferString(values[2]));
-}
-
-TEST_F(MultiReadTest, PartRpc_handleTransportError) {
-    TestLog::Enable _;
-    MultiReadObject* requests[] = {&objects[0]};
-    session1->dontNotify = true;
-    MultiRead request(ramcloud.get(), requests, 1);
-    EXPECT_EQ("mock:host=master1(1) -", rpcStatus(request));
-    session1->lastNotifier->failed();
-    request.wait();
-    EXPECT_EQ("flushSession: flushing session for mock:host=master1 "
-            "| flush: flushing object map", TestLog::get());
-    EXPECT_EQ("value:1-1", bufferString(values[0]));
-}
-
 }  // namespace RAMCloud

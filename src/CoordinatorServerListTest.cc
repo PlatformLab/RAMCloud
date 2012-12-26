@@ -1346,7 +1346,8 @@ TEST_F(CoordinatorServerListTest, updateLoop_contraction) {
 /**
  * This test can't actually test for cases where waitForWork will stall
  * so only the 'there is work' cases are checked. If this test stalls,
- * then there's an error.
+ * then there's an error; check that the conditions here match the ones
+ * inside waitForWork.
  */
 TEST_F(CoordinatorServerListTest, waitForWork) {
     sl->stopUpdater = false;
