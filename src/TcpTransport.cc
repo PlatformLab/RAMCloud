@@ -70,6 +70,8 @@ TcpTransport::TcpTransport(Context* context,
 
     listenSocket = sys->socket(PF_INET, SOCK_STREAM, 0);
     if (listenSocket == -1) {
+        LOG(WARNING, "TcpTransport couldn't create listen socket: %s",
+                strerror(errno));
         throw TransportException(HERE,
                 "TcpTransport couldn't create listen socket", errno);
     }
@@ -77,6 +79,8 @@ TcpTransport::TcpTransport(Context* context,
     int r = sys->fcntl(listenSocket, F_SETFL, O_NONBLOCK);
     if (r != 0) {
         sys->close(listenSocket);
+        LOG(WARNING, "TcpTransport couldn't set nonblocking on listen "
+                "socket: %s", strerror(errno));
         throw TransportException(HERE,
                 "TcpTransport couldn't set nonblocking on listen socket",
                 errno);
@@ -86,6 +90,8 @@ TcpTransport::TcpTransport(Context* context,
     if (sys->setsockopt(listenSocket, SOL_SOCKET, SO_REUSEADDR, &optval,
                            sizeof(optval)) != 0) {
         sys->close(listenSocket);
+        LOG(WARNING, "TcpTransport couldn't set SO_REUSEADDR on "
+                "listen socket: %s", strerror(errno));
         throw TransportException(HERE,
                 "TcpTransport couldn't set SO_REUSEADDR on listen socket",
                 errno);
@@ -96,11 +102,14 @@ TcpTransport::TcpTransport(Context* context,
         sys->close(listenSocket);
         string message = format("TcpTransport couldn't bind to '%s'",
                 serviceLocator->getOriginalString().c_str());
+        LOG(WARNING, "%s: %s", message.c_str(), strerror(errno));
         throw TransportException(HERE, message, errno);
     }
 
     if (sys->listen(listenSocket, INT_MAX) == -1) {
         sys->close(listenSocket);
+        LOG(WARNING, "TcpTransport couldn't listen on socket: %s",
+                strerror(errno));
         throw TransportException(HERE,
                 "TcpTransport couldn't listen on socket", errno);
     }
@@ -319,8 +328,6 @@ TcpTransport::ServerSocketHandler::handleFileEvent(int events)
             }
         }
     } catch (TransportException& e) {
-        LOG(ERROR, "TcpTransport::ServerSocketHandler closing client "
-                "connection: %s", e.message.c_str());
         transport.closeSocket(fd);
     }
 }
@@ -406,10 +413,9 @@ TcpTransport::sendMessage(int fd, uint64_t nonce, Buffer* payload,
 #endif
     if (r == -1) {
         if ((errno != EAGAIN) && (errno != EWOULDBLOCK)) {
-            LOG(DEBUG, "I/O error in TcpTransport::sendMessage: %s",
-                strerror(errno));
-            throw TransportException(HERE,
-                    "I/O error in TcpTransport::sendMessage", errno);
+            LOG(WARNING, "TcpTransport sendmsg error: %s", strerror(errno));
+            throw TransportException(HERE, "TcpTransport sendmsg error",
+                    errno);
         }
         r = 0;
     }
@@ -442,12 +448,13 @@ TcpTransport::recvCarefully(int fd, void* buffer, size_t length) {
         return actual;
     }
     if (actual == 0) {
-        throw TransportException(HERE, "session closed by other end");
+        throw TransportException(HERE, "session closed by peer");
     }
     if ((errno == EAGAIN) || (errno == EWOULDBLOCK)) {
         return 0;
     }
-    throw TransportException(HERE, "I/O read error in TcpTransport", errno);
+    LOG(WARNING, "TcpTransport recv error: %s", strerror(errno));
+    throw TransportException(HERE, "TcpTransport recv error", errno);
 }
 
 /**
@@ -589,7 +596,7 @@ TcpTransport::TcpSession::TcpSession(TcpTransport& transport,
     setServiceLocator(serviceLocator.getOriginalString());
     fd = sys->socket(PF_INET, SOCK_STREAM, 0);
     if (fd == -1) {
-        LOG(DEBUG, "TcpTransport couldn't open socket for session: %s",
+        LOG(WARNING, "TcpTransport couldn't open socket for session: %s",
             strerror(errno));
         throw TransportException(HERE,
                 "TcpTransport couldn't open socket for session", errno);
@@ -599,7 +606,7 @@ TcpTransport::TcpSession::TcpSession(TcpTransport& transport,
     if (r == -1) {
         sys->close(fd);
         fd = -1;
-        LOG(DEBUG, "TcpTransport couldn't connect to %s: %s",
+        LOG(WARNING, "TcpTransport couldn't connect to %s: %s",
             getServiceLocator().c_str(), strerror(errno));
         throw TransportException(HERE, format(
                 "TcpTransport couldn't connect to %s",
@@ -838,8 +845,6 @@ TcpTransport::ClientSocketHandler::handleFileEvent(int events)
             setEvents(Dispatch::FileEvent::READABLE);
         }
     } catch (TransportException& e) {
-        LOG(ERROR, "TcpTransport::ClientSocketHandler aborting session: %s",
-                e.message.c_str());
         session.abort();
     }
 }
