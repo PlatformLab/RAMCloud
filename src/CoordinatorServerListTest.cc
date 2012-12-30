@@ -98,8 +98,10 @@ class CoordinatorServerListTest : public ::testing::Test {
         Lock lock(sl->mutex);
         sl->add(lock, serverId, serviceLocator, serviceMask, readSpeed);
 
-        if (commit)
-          sl->pushUpdate(lock);
+        if (commit) {
+            sl->version++;
+            sl->pushUpdate(lock, sl->version);
+        }
     }
 
     void crashed(ServerId serverId, bool commit = true)
@@ -107,8 +109,10 @@ class CoordinatorServerListTest : public ::testing::Test {
         Lock lock(sl->mutex);
         sl->crashed(lock, serverId);
 
-        if (commit)
-          sl->pushUpdate(lock);
+        if (commit) {
+            sl->version++;
+            sl->pushUpdate(lock, sl->version);
+        }
     }
 
     void remove(ServerId serverId, bool commit = true)
@@ -128,9 +132,9 @@ class CoordinatorServerListTest : public ::testing::Test {
         return sl->isClusterUpToDate(lock);
     }
 
-    void pushUpdate() {
+    void pushUpdate(uint64_t version) {
         Lock lock(sl->mutex);
-        sl->pushUpdate(lock);
+        sl->pushUpdate(lock, version);
     }
 
     // Enlist a master and store details in master and masterServerId.
@@ -787,10 +791,8 @@ TEST_F(CoordinatorServerListTest, crashed) {
     EXPECT_TRUE(protoBufMatchesEntry(sl->updates[1].incremental.server(0),
                 entryCopy, ServerStatus::CRASHED));
 
-    orig_version = sl->version;
     // Already crashed; a no-op.
     crashed(ServerId(1, 0));
-    EXPECT_EQ(orig_version, sl->version);
     EXPECT_EQ(0U, sl->numberOfMasters);
     EXPECT_EQ(0U, sl->numberOfBackups);
 }
@@ -1034,20 +1036,22 @@ TEST_F(CoordinatorServerListTest, pushUpdate) {
     uint64_t orig_ver = sl->version;
 
     // Empty update, not committed
-    pushUpdate();
+    pushUpdate(sl->version);
     EXPECT_EQ(orig_ver, sl->version);
     EXPECT_TRUE(sl->updates.empty());
 
     // Update with at least something in it
     update.add_server();
-    pushUpdate();
+    sl->version++;
+    pushUpdate(sl->version);
     EXPECT_EQ(orig_ver + 1, sl->version);
     EXPECT_EQ(1UL, sl->updates.size());
     EXPECT_EQ(orig_ver + 1, sl->updates.front().version);
 
     // Add a second one in
     update.add_server();
-    pushUpdate();
+    sl->version++;
+    pushUpdate(sl->version);
     EXPECT_EQ(2UL, sl->updates.size());
     EXPECT_EQ(orig_ver + 1, sl->updates.front().version);
     EXPECT_EQ(orig_ver + 2, sl->updates.back().version);
@@ -1114,7 +1118,8 @@ TEST_F(CoordinatorServerListTest, pruneUpdates) {
             sl->add(lock, id, "mock:host=server",
                     {WireFormat::MEMBERSHIP_SERVICE}, 100);
         }
-        sl->pushUpdate(lock);
+        sl->version++;
+        sl->pushUpdate(lock, sl->version);
     }
 
     EXPECT_EQ(10UL, sl->version);
@@ -1211,7 +1216,6 @@ TEST_F(CoordinatorServerListTest, updateLoop) {
     transport.setInput("0"); // Server 4 response -> ok
 
     // Send Full List to server 4
-    pushUpdate();
     sl->sync();
     EXPECT_TRUE(sl->updates.empty());
     EXPECT_EQ("workSuccess: ServerList Update Success: 4.0 update (0 => 1)",
@@ -1237,7 +1241,8 @@ TEST_F(CoordinatorServerListTest, updateLoop) {
     crashed(serverId6, false);
 
     TestLog::reset();
-    pushUpdate();
+    sl->version++;
+    pushUpdate(sl->version);
     sl->sync();
     EXPECT_TRUE(sl->updates.empty());
     EXPECT_EQ("workSuccess: ServerList Update Success: 4.0 update (1 => 2) | "

@@ -74,7 +74,8 @@ TEST_F(MembershipServiceTest, updateServerList_single) {
     ServerId id3 = source.generateUniqueId(lock);
     source.add(lock, id3, "mock:host=57", {WireFormat::MASTER_SERVICE,
             WireFormat::PING_SERVICE}, 100);
-    source.pushUpdate(lock);
+    source.version++;
+    source.pushUpdate(lock, source.version);
     ProtoBuf::ServerList fullList;
     source.serialize(fullList, {WireFormat::MASTER_SERVICE,
             WireFormat::BACKUP_SERVICE});
@@ -100,20 +101,23 @@ TEST_F(MembershipServiceTest, updateServerList_multi) {
     ServerId id1 = source.generateUniqueId(lock);
     source.add(lock, id1, "mock:host=55", {WireFormat::MASTER_SERVICE,
             WireFormat::PING_SERVICE}, 100);
-    source.pushUpdate(lock);
+    source.version++;
+    source.pushUpdate(lock, source.version);
     source.serialize(fullList, {WireFormat::MASTER_SERVICE,
             WireFormat::BACKUP_SERVICE});
     // Update v2
     ServerId id2 = source.generateUniqueId(lock);
     source.add(lock, id2, "mock:host=56", {WireFormat::MASTER_SERVICE,
             WireFormat::PING_SERVICE}, 100);
-    source.pushUpdate(lock);
+    source.version++;
+    source.pushUpdate(lock, source.version);
     update2 = source.updates.back().incremental;
     // Update v3
     ServerId id3 = source.generateUniqueId(lock);
     source.add(lock, id3, "mock:host=57", {WireFormat::MASTER_SERVICE,
             WireFormat::PING_SERVICE}, 100);
-    source.pushUpdate(lock);
+    source.version++;
+    source.pushUpdate(lock, source.version);
     update3 = source.updates.back().incremental;
 
 

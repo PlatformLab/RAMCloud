@@ -558,7 +558,7 @@ class CoordinatorServerList : public AbstractServerList{
     void removeReplicationGroup(Lock& lock, uint64_t groupId);
 
     /// Functions related to keeping the cluster up-to-date
-    void pushUpdate(const Lock& lock);
+    void pushUpdate(const Lock& lock, uint64_t updateVersion);
     void haltUpdater();
     void startUpdater();
     void updateLoop();

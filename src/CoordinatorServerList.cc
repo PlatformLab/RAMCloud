@@ -116,13 +116,11 @@ CoordinatorServerList::enlistServer(
             serviceLocator, replacesId.toString().c_str());
 
         ServerCrashed(*this, lock, replacesId).execute();
-        pushUpdate(lock);
     }
 
     ServerId newServerId =
         EnlistServer(*this, lock, ServerId(), serviceMask,
                      readSpeed, serviceLocator).execute();
-    pushUpdate(lock);
 
     if (replacesId.isValid()) {
         LOG(NOTICE, "Newly enlisted server %s replaces server %s",
@@ -230,7 +228,9 @@ CoordinatorServerList::recoveryCompleted(ServerId serverId)
 {
     Lock lock(mutex);
     recoveryCompleted(lock, serverId);
-    pushUpdate(lock);
+
+    version++;
+    pushUpdate(lock, version);
 }
 
 /**
@@ -268,7 +268,6 @@ CoordinatorServerList::serverCrashed(ServerId serverId)
 {
     Lock lock(mutex);
     ServerCrashed(*this, lock, serverId).execute();
-    pushUpdate(lock);
 }
 
 /**
@@ -356,7 +355,6 @@ CoordinatorServerList::recoverEnlistServer(
                  ServiceMask::deserialize(state->service_mask()),
                  state->read_speed(),
                  state->service_locator().c_str()).complete(logIdEnlistServer);
-    pushUpdate(lock);
 }
 
 /**
@@ -480,6 +478,8 @@ CoordinatorServerList::EnlistServer::complete(
         csl.createReplicationGroup(lock);
     }
 
+    csl.version++;
+    csl.pushUpdate(lock, csl.version);
     return newServerId;
 }
 
@@ -539,6 +539,9 @@ CoordinatorServerList::ServerCrashed::complete(EntryId entryId)
 
     csl.removeReplicationGroup(lock, entry.replicationId);
     csl.createReplicationGroup(lock);
+
+    csl.version++;
+    csl.pushUpdate(lock, csl.version);
 }
 
 /**
@@ -1034,10 +1037,12 @@ CoordinatorServerList::removeReplicationGroup(Lock& lock, uint64_t groupId)
  * will be Clear()ed and empty updates are silently ignored.
  *
  * \param lock
- *      explicity needs CoordinatorServerList lock.
+ *      Explicity needs CoordinatorServerList lock.
+ * \param updateVersion
+ *      Server list version number to be assigned to the update being pushed.
  */
 void
-CoordinatorServerList::pushUpdate(const Lock& lock)
+CoordinatorServerList::pushUpdate(const Lock& lock, uint64_t updateVersion)
 {
     ProtoBuf::ServerList full;
 
@@ -1046,8 +1051,7 @@ CoordinatorServerList::pushUpdate(const Lock& lock)
         return;
 
     // prepare incremental server list
-    version++;
-    update.set_version_number(version);
+    update.set_version_number(updateVersion);
     update.set_type(ProtoBuf::ServerList_Type_UPDATE);
 
     // prepare full server list

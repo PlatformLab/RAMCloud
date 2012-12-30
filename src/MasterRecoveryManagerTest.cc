@@ -68,7 +68,8 @@ struct MasterRecoveryManagerTest : public ::testing::Test {
         ServerId serverId = serverList->generateUniqueId(lock);
         serverList->add(lock, serverId, "fake-locator",
             {WireFormat::MASTER_SERVICE}, 0);
-        serverList->pushUpdate(lock);
+        serverList->version++;
+        serverList->pushUpdate(lock, serverList->version);
         serverList->update.Clear(); // prevents cross contamination
         while (!mgr->taskQueue.isIdle())
             mgr->taskQueue.performTask();
@@ -89,7 +90,8 @@ struct MasterRecoveryManagerTest : public ::testing::Test {
      */
     void crashServer(Lock& lock, ServerId crashedServerId) {
         serverList->crashed(lock, crashedServerId);
-        serverList->pushUpdate(lock);
+        serverList->version++;
+        serverList->pushUpdate(lock, serverList->version);
         serverList->update.Clear(); // prevents cross contamination
         while (!mgr->taskQueue.isIdle())
             mgr->taskQueue.performTask();
