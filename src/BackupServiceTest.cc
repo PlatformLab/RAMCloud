@@ -754,11 +754,11 @@ TEST_F(BackupServiceTest, trackerChangesEnqueued) {
     backup->trackerChangesEnqueued();
     EXPECT_EQ(0lu, backup->taskQueue.outstandingTasks());
 
-    backup->gcTracker.enqueueChange({{99, 0}, "", {}, 0, ServerStatus::DOWN},
+    backup->gcTracker.enqueueChange({{99, 0}, "", {}, 0, ServerStatus::REMOVE},
                                     SERVER_REMOVED);
     backup->gcTracker.enqueueChange({{98, 0}, "", {}, 0, ServerStatus::UP},
                                     SERVER_ADDED);
-    backup->gcTracker.enqueueChange({{98, 0}, "", {}, 0, ServerStatus::DOWN},
+    backup->gcTracker.enqueueChange({{98, 0}, "", {}, 0, ServerStatus::REMOVE},
                                     SERVER_REMOVED);
     backup->trackerChangesEnqueued();
     EXPECT_EQ(2lu, backup->taskQueue.outstandingTasks());

@@ -41,7 +41,7 @@ enum class ServerStatus : uint32_t {
     CRASHED = 1,
     /// The server is no longer part of the cluster and will never be
     /// referred to again.
-    DOWN = 2,
+    REMOVE = 2,
 };
 
 /**
@@ -60,7 +60,7 @@ class ServerDetails {
         , session()
         , services()
         , expectedReadMBytesPerSec()
-        , status(ServerStatus::DOWN)
+        , status(ServerStatus::REMOVE)
         , replicationId(0)
     {}
 

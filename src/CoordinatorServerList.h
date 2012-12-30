@@ -26,7 +26,7 @@
 
 #include "ServerInformation.pb.h"
 #include "ServerUpdate.pb.h"
-#include "ServerDown.pb.h"
+#include "ServerCrashed.pb.h"
 
 #include "AbstractServerList.h"
 #include "ServiceMask.h"
@@ -188,7 +188,7 @@ class CoordinatorServerList : public AbstractServerList{
           * Entry id corresponding to entry in LogCabin log that has
           * the most information about removing a server from the cluster.
           */
-         LogCabin::Client::EntryId logIdServerDown;
+         LogCabin::Client::EntryId logIdServerCrashed;
 
         /**
          * Entry id corresponding to entry in LogCabin log that has
@@ -208,7 +208,7 @@ class CoordinatorServerList : public AbstractServerList{
     Entry operator[](size_t index) const;
     void recoveryCompleted(ServerId serverId);
     void serialize(ProtoBuf::ServerList& protobuf, ServiceMask services) const;
-    void serverDown(ServerId serverId);
+    void serverCrashed(ServerId serverId);
     bool setMasterRecoveryInfo(ServerId serverId,
                 const ProtoBuf::MasterRecoveryInfo& recoveryInfo);
 
@@ -217,8 +217,8 @@ class CoordinatorServerList : public AbstractServerList{
                                EntryId logIdAliveServer);
     void recoverEnlistServer(ProtoBuf::ServerInformation* state,
                              EntryId logIdEnlistServer);
-    void recoverServerDown(ProtoBuf::ServerDown* state,
-                           EntryId logIdServerDown);
+    void recoverServerCrashed(ProtoBuf::ServerCrashed* state,
+                           EntryId logIdServerCrashed);
     void recoverServerUpdate(ProtoBuf::ServerUpdate* state,
                              EntryId logIdServerUpdate);
 
@@ -305,9 +305,9 @@ class CoordinatorServerList : public AbstractServerList{
      * cluster updater) and invoking recovery.
      * Once recovery has finished, the server will be removed from server list.
      */
-    class ServerDown {
+    class ServerCrashed {
         public:
-            ServerDown(CoordinatorServerList &csl,
+            ServerCrashed(CoordinatorServerList &csl,
                        Lock& lock,
                        ServerId serverId)
                 : csl(csl), lock(lock),
@@ -328,7 +328,7 @@ class CoordinatorServerList : public AbstractServerList{
              * ServerId of the server that is suspected to be down.
              */
             ServerId serverId;
-            DISALLOW_COPY_AND_ASSIGN(ServerDown);
+            DISALLOW_COPY_AND_ASSIGN(ServerCrashed);
     };
 
     /**

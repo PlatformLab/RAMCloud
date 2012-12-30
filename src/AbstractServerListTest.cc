@@ -88,7 +88,7 @@ class AbstractServerListSubClass : public AbstractServerList {
 
         foreach (ServerTrackerInterface* tracker, trackers) {
             tracker->enqueueChange(
-                ServerDetails(id, ServerStatus::DOWN),
+                ServerDetails(id, ServerStatus::REMOVE),
                 ServerChangeEvent::SERVER_REMOVED);
         }
 
@@ -149,7 +149,7 @@ TEST_F(AbstractServerListTest, getLocator) {
 TEST_F(AbstractServerListTest, isUp) {
     EXPECT_FALSE(sl.isUp(ServerId(1, 0)));
     ServerId& id1 = sl.add("mock::2", ServerStatus::UP);
-    ServerId& id2 = sl.add("mock::3", ServerStatus::DOWN);
+    ServerId& id2 = sl.add("mock::3", ServerStatus::REMOVE);
     EXPECT_TRUE(sl.iget(id1) != NULL);
     EXPECT_TRUE(sl.iget(id2) != NULL);
     EXPECT_TRUE(sl.isUp(id1));
@@ -195,7 +195,7 @@ TEST_F(AbstractServerListTest, contains) {
     EXPECT_FALSE(sl.contains(ServerId(0, 0)));
     EXPECT_FALSE(sl.contains(ServerId(1, 0)));
 
-    ServerId& id1 = sl.add("mock::4", ServerStatus::DOWN);
+    ServerId& id1 = sl.add("mock::4", ServerStatus::REMOVE);
     ServerId& id2 = sl.add("mock::5", ServerStatus::UP);
 
     EXPECT_TRUE(sl.contains(id1));
@@ -276,7 +276,7 @@ TEST_F(AbstractServerListTest, getVersion) {
 
 TEST_F(AbstractServerListTest, size) {
     for (int n = 0; n < 22; n++)
-        sl.add("Hasta La Vista, Baby.", ServerStatus::DOWN);
+        sl.add("Hasta La Vista, Baby.", ServerStatus::REMOVE);
 
     EXPECT_EQ(22UL, sl.size());
 
@@ -297,7 +297,7 @@ TEST_F(AbstractServerListTest, toString) {
 TEST_F(AbstractServerListTest, toString_status) {
     EXPECT_EQ("UP", ServerList::toString(ServerStatus::UP));
     EXPECT_EQ("CRASHED", ServerList::toString(ServerStatus::CRASHED));
-    EXPECT_EQ("DOWN", ServerList::toString(ServerStatus::DOWN));
+    EXPECT_EQ("REMOVE", ServerList::toString(ServerStatus::REMOVE));
 }
 
 TEST_F(AbstractServerListTest, toString_all) {

@@ -958,8 +958,8 @@ RamCloud::quiesce()
 }
 
 /**
- * Constructor for HintServerDownRpc: initiates an RPC in the same way as
- * #RamCloud::hintServerDown, but returns once the RPC has been
+ * Constructor for HintServerCrashedRpc: initiates an RPC in the same way as
+ * #RamCloud::hintServerCrashed, but returns once the RPC has been
  * initiated, without waiting for it to complete.
  *
  * \param ramcloud

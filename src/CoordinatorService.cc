@@ -107,9 +107,9 @@ CoordinatorService::dispatch(WireFormat::Opcode opcode,
             callHandler<WireFormat::GetTabletMap, CoordinatorService,
                         &CoordinatorService::getTabletMap>(rpc);
             break;
-        case WireFormat::HintServerDown::opcode:
-            callHandler<WireFormat::HintServerDown, CoordinatorService,
-                        &CoordinatorService::hintServerDown>(rpc);
+        case WireFormat::HintServerCrashed::opcode:
+            callHandler<WireFormat::HintServerCrashed, CoordinatorService,
+                        &CoordinatorService::hintServerCrashed>(rpc);
             break;
         case WireFormat::RecoveryMasterFinished::opcode:
             callHandler<WireFormat::RecoveryMasterFinished, CoordinatorService,
@@ -305,9 +305,9 @@ CoordinatorService::getTabletMap(
  * \copydetails Service::ping
  */
 void
-CoordinatorService::hintServerDown(
-        const WireFormat::HintServerDown::Request* reqHdr,
-        WireFormat::HintServerDown::Response* respHdr,
+CoordinatorService::hintServerCrashed(
+        const WireFormat::HintServerCrashed::Request* reqHdr,
+        WireFormat::HintServerCrashed::Response* respHdr,
         Rpc* rpc)
 {
     ServerId serverId(reqHdr->serverId);
@@ -329,7 +329,7 @@ CoordinatorService::hintServerDown(
      LOG(NOTICE, "Server id %s has crashed, notifying the cluster and "
          "starting recovery", serverId.toString().c_str());
 
-     serverList->serverDown(serverId);
+     serverList->serverCrashed(serverId);
 }
 
 /**

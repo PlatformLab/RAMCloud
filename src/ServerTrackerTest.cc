@@ -213,7 +213,7 @@ TEST_F(ServerTrackerTest, getChange) {
 
     // Remove
     tr[ServerId(2, 0)] = reinterpret_cast<int*>(57);
-    tr.enqueueChange(ServerDetails(ServerId(2, 0), ServerStatus::DOWN),
+    tr.enqueueChange(ServerDetails(ServerId(2, 0), ServerStatus::REMOVE),
                      ServerChangeEvent::SERVER_REMOVED);
     EXPECT_EQ(reinterpret_cast<void*>(57), tr[ServerId(2, 0)]);
     EXPECT_TRUE(tr.getChange(server, event));
@@ -277,9 +277,9 @@ TEST_F(ServerTrackerTest, getRandomServerIdWithService) {
     EXPECT_TRUE(secondSeen);
 
     // Ensure looping over empty list terminates.
-    tr.enqueueChange(ServerDetails(ServerId(0, 1), ServerStatus::DOWN),
+    tr.enqueueChange(ServerDetails(ServerId(0, 1), ServerStatus::REMOVE),
                      ServerChangeEvent::SERVER_REMOVED);
-    tr.enqueueChange(ServerDetails(ServerId(1, 1), ServerStatus::DOWN),
+    tr.enqueueChange(ServerDetails(ServerId(1, 1), ServerStatus::REMOVE),
                      ServerChangeEvent::SERVER_REMOVED);
     EXPECT_TRUE(tr.getChange(server, event));
     EXPECT_TRUE(tr.getChange(server, event));
@@ -375,7 +375,7 @@ TEST_F(ServerTrackerTest, indexOperator) {
     EXPECT_EQ(reinterpret_cast<int*>(45), tr[ServerId(0, 0)]);
     EXPECT_THROW(tr[ServerId(0, 1)], Exception);
 
-    tr.enqueueChange(ServerDetails(ServerId(0, 0), ServerStatus::DOWN),
+    tr.enqueueChange(ServerDetails(ServerId(0, 0), ServerStatus::REMOVE),
                      ServerChangeEvent::SERVER_REMOVED);
     EXPECT_TRUE(tr.getChange(server, event));
     EXPECT_NO_THROW(tr[ServerId(0, 0)]);
@@ -397,7 +397,7 @@ TEST_F(ServerTrackerTest, size) {
     tr.getChange(server, event);
     EXPECT_EQ(1U, tr.size());
 
-    tr.enqueueChange(ServerDetails(ServerId(0, 0), ServerStatus::DOWN),
+    tr.enqueueChange(ServerDetails(ServerId(0, 0), ServerStatus::REMOVE),
                      ServerChangeEvent::SERVER_REMOVED);
     EXPECT_EQ(1U, tr.size());
     tr.getChange(server, event);
@@ -432,7 +432,7 @@ TEST_F(ServerTrackerTest, getServersWithService) {
     tr.enqueueChange({{4, 0}, "", {WireFormat::BACKUP_SERVICE}, 100,
                       ServerStatus::UP}, ServerChangeEvent::SERVER_ADDED);
     tr.enqueueChange({{4, 0}, "", {WireFormat::BACKUP_SERVICE}, 100,
-                      ServerStatus::DOWN}, ServerChangeEvent::SERVER_REMOVED);
+                      ServerStatus::REMOVE}, ServerChangeEvent::SERVER_REMOVED);
     ServerDetails server;
     ServerChangeEvent event;
     while (tr.getChange(server, event));

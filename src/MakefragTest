@@ -208,7 +208,7 @@ $(OBJDIR)/BackupStorageBenchmark: $(OBJDIR)/BackupStorageBenchmark.o $(SHARED_OB
 	@mkdir -p $(@D)
 	$(CXX) -o $@ $^ $(LIBS)
 
-$(OBJDIR)/HintServerDown: $(OBJDIR)/HintServerDown.o $(SHARED_OBJFILES) $(CLIENT_OBJFILES)
+$(OBJDIR)/HintServerCrashed: $(OBJDIR)/HintServerCrashed.o $(SHARED_OBJFILES) $(CLIENT_OBJFILES)
 	@mkdir -p $(@D)
 	$(CXX) -o $@ $^ $(LIBS)
 

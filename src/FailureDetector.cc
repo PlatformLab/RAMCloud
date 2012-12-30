@@ -157,7 +157,7 @@ FailureDetector::pingRandomServer()
             // Server appears to have crashed; notify the coordinator.
             LOG(WARNING, "Ping timeout to server id %s (locator \"%s\")",
                 pingee.toString().c_str(), locator.c_str());
-            CoordinatorClient::hintServerDown(context, pingee);
+            CoordinatorClient::hintServerCrashed(context, pingee);
         }
     } catch (const ServerListException &sle) {
         // This isn't an error. It's just a race between this thread and

@@ -78,7 +78,7 @@ enum Opcode {
     GET_SERVER_LIST           = 17,
     GET_TABLET_MAP            = 18,
     RECOVER                   = 19,
-    HINT_SERVER_DOWN          = 20,
+    HINT_SERVER_CRASHED       = 20,
     RECOVERY_MASTER_FINISHED  = 21,
     ENUMERATE                 = 22,
     SET_MASTER_RECOVERY_INFO  = 23,
@@ -630,8 +630,8 @@ struct GetTabletMap {
     } __attribute__((packed));
 };
 
-struct HintServerDown {
-    static const Opcode opcode = HINT_SERVER_DOWN;
+struct HintServerCrashed {
+    static const Opcode opcode = HINT_SERVER_CRASHED;
     static const ServiceType service = COORDINATOR_SERVICE;
     struct Request {
         RequestCommon common;

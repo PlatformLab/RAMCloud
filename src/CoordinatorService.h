@@ -72,8 +72,8 @@ class CoordinatorService : public Service {
     void getTabletMap(const WireFormat::GetTabletMap::Request* reqHdr,
                       WireFormat::GetTabletMap::Response* respHdr,
                       Rpc* rpc);
-    void hintServerDown(const WireFormat::HintServerDown::Request* reqHdr,
-                        WireFormat::HintServerDown::Response* respHdr,
+    void hintServerCrashed(const WireFormat::HintServerCrashed::Request* reqHdr,
+                        WireFormat::HintServerCrashed::Response* respHdr,
                         Rpc* rpc);
     void recoveryMasterFinished(
             const WireFormat::RecoveryMasterFinished::Request* reqHdr,
@@ -116,8 +116,9 @@ class CoordinatorService : public Service {
 
     /**
      * The ping timeout, in milliseconds, used when the Coordinator verifies an
-     * incoming hint server down message. Until we resolve the scheduler issues
-     * that we have been seeing this timeout should be at least 250ms.
+     * incoming hint server crashed message.
+     * Until we resolve the scheduler issues that we have been seeing,
+     * this timeout should be at least 250ms.
      */
     uint32_t deadServerTimeout;
 
@@ -170,7 +171,7 @@ class CoordinatorService : public Service {
     LogCabin::Client::EntryId expectedEntryId;
 
     /**
-     * Used for testing only. If true, the HINT_SERVER_DOWN handler will
+     * Used for testing only. If true, the HINT_SERVER_CRASHED handler will
      * assume that the server has failed (rather than checking for itself).
      */
     bool forceServerDownForTesting;

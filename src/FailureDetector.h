@@ -33,7 +33,7 @@ namespace RAMCloud {
  * This class instantiates and manages the failure detector. Each RAMCloud
  * server should have an instantiation of this class that randomly pings
  * other servers in the cluster. If any pings time out, the coordinator
- * is warned of a possible failure via the HintServerDown RPC. It is then
+ * is warned of a possible failure via the HintServerCrashed RPC. It is then
  * up to the coordinator to make a diagnosis. This class simply reports
  * possible symptoms that it sees.
  *

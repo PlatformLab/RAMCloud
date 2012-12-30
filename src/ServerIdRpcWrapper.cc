@@ -54,7 +54,7 @@ ServerIdRpcWrapper::ServerIdRpcWrapper(Context* context, ServerId id,
     : RpcWrapper(responseHeaderLength, response)
     , context(context)
     , id(id)
-    , serverDown(false)
+    , serverCrashed(false)
 {
 }
 
@@ -72,7 +72,7 @@ ServerIdRpcWrapper::checkStatus()
                 context->serverList->toString(id).c_str());
         context->serverList->flushSession(id);
         if (!context->serverList->isUp(id)) {
-            serverDown = true;
+            serverCrashed = true;
             return true;
         }
         send();
@@ -86,14 +86,14 @@ bool
 ServerIdRpcWrapper::handleTransportError()
 {
     if (convertExceptionsToDoesntExist) {
-        serverDown = true;
+        serverCrashed = true;
         return true;
     }
 
     // There was a transport-level failure. The transport should already
     // have logged this. Retry unless the server is down.
 
-    if (serverDown) {
+    if (serverCrashed) {
         // We've already done everything we can; no need to repeat the
         // work (returning now eliminates some duplicate log messages that
         // would occur during testing otherwise).
@@ -101,7 +101,7 @@ ServerIdRpcWrapper::handleTransportError()
     }
     context->serverList->flushSession(id);
     if (!context->serverList->isUp(id)) {
-        serverDown = true;
+        serverCrashed = true;
         return true;
     }
     send();
@@ -132,7 +132,7 @@ ServerIdRpcWrapper::waitAndCheckErrors()
     // return results and don't need to do any processing of the response
     // packet except checking for errors.
     waitInternal(context->dispatch);
-    if (serverDown) {
+    if (serverCrashed) {
         throw ServerNotUpException(HERE);
     }
     if (responseHeader->status != STATUS_OK)

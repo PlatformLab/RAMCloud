@@ -104,7 +104,7 @@ TEST_F(ServerIdRpcWrapperTest, handleTransportError_serverAlreadyDown) {
     wrapper.request.fillFromString("100");
     wrapper.send();
     wrapper.state = RpcWrapper::RpcState::FAILED;
-    wrapper.serverDown = true;
+    wrapper.serverCrashed = true;
     EXPECT_TRUE(wrapper.isReady());
     EXPECT_STREQ("FAILED", wrapper.stateString());
     EXPECT_EQ("", TestLog::get());
@@ -120,7 +120,7 @@ TEST_F(ServerIdRpcWrapperTest, handleTransportError_serverUp) {
     EXPECT_STREQ("IN_PROGRESS", wrapper.stateString());
     EXPECT_EQ("flushSession: flushed session for id 1.0",
             TestLog::get());
-    EXPECT_FALSE(wrapper.serverDown);
+    EXPECT_FALSE(wrapper.serverCrashed);
 }
 
 TEST_F(ServerIdRpcWrapperTest, handleTransportError_serverCrashed) {
@@ -134,7 +134,7 @@ TEST_F(ServerIdRpcWrapperTest, handleTransportError_serverCrashed) {
     EXPECT_STREQ("FAILED", wrapper.stateString());
     EXPECT_EQ("flushSession: flushed session for id 1.0",
             TestLog::get());
-    EXPECT_TRUE(wrapper.serverDown);
+    EXPECT_TRUE(wrapper.serverCrashed);
 }
 
 TEST_F(ServerIdRpcWrapperTest, handleTransportError_nonexistentServer) {
@@ -144,7 +144,7 @@ TEST_F(ServerIdRpcWrapperTest, handleTransportError_nonexistentServer) {
     EXPECT_TRUE(wrapper.handleTransportError());
     EXPECT_STREQ("NOT_STARTED", wrapper.stateString());
     EXPECT_EQ("", TestLog::get());
-    EXPECT_TRUE(wrapper.serverDown);
+    EXPECT_TRUE(wrapper.serverCrashed);
 }
 
 TEST_F(ServerIdRpcWrapperTest, send) {

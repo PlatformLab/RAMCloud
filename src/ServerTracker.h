@@ -193,7 +193,7 @@ class ServerTracker : public ServerTrackerInterface {
                (event == SERVER_CRASHED &&
                 server.status == ServerStatus::CRASHED) ||
                (event == SERVER_REMOVED &&
-                server.status == ServerStatus::DOWN));
+                server.status == ServerStatus::REMOVE));
 
         changes.addChange(server, event);
     }

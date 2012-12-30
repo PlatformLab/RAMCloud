@@ -115,7 +115,7 @@ CoordinatorServerList::enlistServer(
             "for it and assuming the old server has failed",
             serviceLocator, replacesId.toString().c_str());
 
-        ServerDown(*this, lock, replacesId).execute();
+        ServerCrashed(*this, lock, replacesId).execute();
         pushUpdate(lock);
     }
 
@@ -203,7 +203,7 @@ CoordinatorServerList::operator[](size_t index) const
 }
 
 /**
- * Mark a server as DOWN, typically when it is no longer part of
+ * Mark a server as REMOVE, typically when it is no longer part of
  * the system and we don't care about it anymore (it crashed and has
  * been properly recovered).
  * 
@@ -264,10 +264,10 @@ CoordinatorServerList::serialize(ProtoBuf::ServerList& protoBuf,
  *      ServerId of the server that is suspected to be down.
  */
 void
-CoordinatorServerList::serverDown(ServerId serverId)
+CoordinatorServerList::serverCrashed(ServerId serverId)
 {
     Lock lock(mutex);
-    ServerDown(*this, lock, serverId).execute();
+    ServerCrashed(*this, lock, serverId).execute();
     pushUpdate(lock);
 }
 
@@ -360,22 +360,22 @@ CoordinatorServerList::recoverEnlistServer(
 }
 
 /**
- * Complete a ServerDown during coordinator recovery.
+ * Complete a ServerCrashed during coordinator recovery.
  *
  * \param state
- *      The ProtoBuf that encapsulates the state of the ServerDown
+ *      The ProtoBuf that encapsulates the state of the ServerCrashed
  *      operation to be recovered.
- * \param logIdServerDown
+ * \param logIdServerCrashed
  *      The entry id of the LogCabin entry corresponding to the state.
  */
 void
-CoordinatorServerList::recoverServerDown(
-    ProtoBuf::ServerDown* state, EntryId logIdServerDown)
+CoordinatorServerList::recoverServerCrashed(
+    ProtoBuf::ServerCrashed* state, EntryId logIdServerCrashed)
 {
     Lock lock(mutex);
-    LOG(DEBUG, "CoordinatorServerList::recoverServerDown()");
-    ServerDown(*this, lock,
-               ServerId(state->server_id())).complete(logIdServerDown);
+    LOG(DEBUG, "CoordinatorServerList::recoverServerCrashed()");
+    ServerCrashed(*this, lock,
+               ServerId(state->server_id())).complete(logIdServerCrashed);
 }
 
 /**
@@ -489,21 +489,21 @@ CoordinatorServerList::EnlistServer::complete(
  * in LogCabin, log the state in LogCabin, then call #complete().
  */
 void
-CoordinatorServerList::ServerDown::execute()
+CoordinatorServerList::ServerCrashed::execute()
 {
     if (!csl.getEntry(serverId)) {
         throw ServerListException(HERE,
             format("Invalid ServerId (%s)", serverId.toString().c_str()));
     }
 
-    ProtoBuf::ServerDown state;
-    state.set_entry_type("ServerDown");
+    ProtoBuf::ServerCrashed state;
+    state.set_entry_type("ServerCrashed");
     state.set_server_id(serverId.getId());
 
     EntryId entryId =
         csl.context->logCabinHelper->appendProtoBuf(
             *csl.context->expectedEntryId, state);
-    LOG(DEBUG, "LogCabin: ServerDown entryId: %lu", entryId);
+    LOG(DEBUG, "LogCabin: ServerCrashed entryId: %lu", entryId);
 
     complete(entryId);
 }
@@ -512,14 +512,14 @@ CoordinatorServerList::ServerDown::execute()
  * Complete the operation to force a server out of the cluster
  * after its state has been logged in LogCabin.
  * This is called internally by #execute() in case of normal operation, and
- * directly for coordinator recovery (by #recoverServerDown()).
+ * directly for coordinator recovery (by #recoverServerCrashed()).
  *
  * \param entryId
  *      The entry id of the LogCabin entry corresponding to the state
  *      of the operation to be completed.
  */
 void
-CoordinatorServerList::ServerDown::complete(EntryId entryId)
+CoordinatorServerList::ServerCrashed::complete(EntryId entryId)
 {
     csl.crashed(lock, serverId); // Call the internal method directly.
 
@@ -736,7 +736,7 @@ CoordinatorServerList::add(Lock& lock,
  * retained).
  *
  * This is a no-op if the server is already marked as crashed;
- * the effect is undefined if the server's status is DOWN.
+ * the effect is undefined if the server's status is REMOVE.
  *
  * The result of this operation will be added in the class's update Protobuffer
  * intended for the cluster. To send out the update, call pushUpdate()
@@ -770,7 +770,7 @@ CoordinatorServerList::crashed(const Lock& lock,
 
     if (entry->status == ServerStatus::CRASHED)
         return;
-    assert(entry->status != ServerStatus::DOWN);
+    assert(entry->status != ServerStatus::REMOVE);
 
     if (entry->isMaster())
         numberOfMasters--;
@@ -849,7 +849,7 @@ CoordinatorServerList::recoveryCompleted(Lock& lock,
 
     Tub<Entry>& entry = serverList[serverId.indexNumber()].entry;
     // Setting state gets the serialized update message's state field correct.
-    entry->status = ServerStatus::DOWN;
+    entry->status = ServerStatus::REMOVE;
 
     ProtoBuf::ServerList_Entry& protoBufEntry(*update.add_server());
     entry->serialize(protoBufEntry);
@@ -962,7 +962,7 @@ CoordinatorServerList::assignReplicationGroup(
  * are not assigned a replication group and are up.
  * If there are not enough available candidates for a new group, the function
  * returns without sending out any Rpcs. If there are enough group members
- * to form a new group, but one of the servers is down, hintServerDown will
+ * to form a new group, but one of the servers is down, hintServerCrashed will
  * reset the replication group of that server.
  *
  * \param lock
@@ -1170,16 +1170,16 @@ CoordinatorServerList::pruneUpdates(const Lock& lock)
                 }
 
             } else if (updateStatus == ServerStatus::CRASHED) {
-                // A serverDown operation has completed. The server that crashed
-                // may be still recovering. So we're not invalidating its
-                // LogCabin entries just yet.
+                // A serverCrashed operation has completed. The server that
+                // crashed may be still recovering.
+                // So we're not invalidating its LogCabin entries just yet.
 
-            } else if (updateStatus == ServerStatus::DOWN) {
-                // This marks the final completion of the serverDown operation.
+            } else if (updateStatus == ServerStatus::REMOVE) {
+                // This marks the final completion of serverCrashed() operation.
                 // i.e., If the crashed server was a master, then its recovery
-                // (that was sparked by a serverDown operation) has completed.
-                // If it was not a master, then the serverDown operation (which
-                // will not spark any recoveries) has completed.
+                // (sparked by a serverCrashed operation) has completed.
+                // If it was not a master, then the serverCrashed operation
+                // (which will not spark any recoveries) has completed.
 
                 ServerId serverId = ServerId(currentEntry.server_id());
                 Tub<Entry>& entry = serverList[serverId.indexNumber()].entry;
@@ -1187,7 +1187,7 @@ CoordinatorServerList::pruneUpdates(const Lock& lock)
                 if (context->logCabinHelper) {
                     assert(entry);
                     vector<EntryId> invalidates {entry->logIdAliveServer,
-                                                 entry->logIdServerDown};
+                                                 entry->logIdServerCrashed};
                     if (entry->logIdServerUpdate != NO_ID)
                         invalidates.push_back(entry->logIdServerUpdate);
 
@@ -1737,7 +1737,7 @@ CoordinatorServerList::Entry::Entry()
     , updateVersion(UNINITIALIZED_VERSION)
     , logIdAliveServer(NO_ID)
     , logIdEnlistServer(NO_ID)
-    , logIdServerDown(NO_ID)
+    , logIdServerCrashed(NO_ID)
     , logIdServerUpdate(NO_ID)
 {
 }
@@ -1770,7 +1770,7 @@ CoordinatorServerList::Entry::Entry(ServerId serverId,
     , updateVersion(UNINITIALIZED_VERSION)
     , logIdAliveServer(NO_ID)
     , logIdEnlistServer(NO_ID)
-    , logIdServerDown(NO_ID)
+    , logIdServerCrashed(NO_ID)
     , logIdServerUpdate(NO_ID)
 {
 }

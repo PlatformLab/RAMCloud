@@ -107,7 +107,7 @@ PingRpc::wait(uint64_t timeoutNanoseconds)
         TEST_LOG("timeout");
         return false;
     }
-    if (serverDown) {
+    if (serverCrashed) {
         TEST_LOG("server doesn't exist");
         return false;
     }

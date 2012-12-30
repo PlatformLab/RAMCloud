@@ -105,7 +105,7 @@ TEST_F(ServerListTest, applyServerList) {
     ServerListBuilder{update}
         ({}, *ServerId{1, 0}, "mock:host=one", 101, 1, ServerStatus::CRASHED)
         ({}, *ServerId{5, 0}, "mock:host=one", 105, 1)
-        ({}, *ServerId{4, 2}, "mock:host=one", 104, 1, ServerStatus::DOWN);
+        ({}, *ServerId{4, 2}, "mock:host=one", 104, 1, ServerStatus::REMOVE);
     update.set_version_number(2);
     update.set_type(ProtoBuf::ServerList_Type_UPDATE);
     sl.applyServerList(update);

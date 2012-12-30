@@ -25,18 +25,18 @@ main(int argc, char* argv[])
     using namespace RAMCloud;
 
     vector<uint64_t> serverIds;
-    OptionsDescription options("HintServerDown");
+    OptionsDescription options("HintServerCrashed");
     options.add_options()
         ("down,d",
          ProgramOptions::value<vector<uint64_t>>(&serverIds),
-         "Report the specified ServerId(s) as down, "
+         "Report the specified ServerId(s) as crashed, "
          "can be passed multiple times for multiple reports");
 
     OptionParser optionParser(options, argc, argv);
     RamCloud client(optionParser.options.getCoordinatorLocator().c_str());
     foreach (const auto& serverId, serverIds) {
-        std::cout << "Hinting server down: " << *serverId << std::endl;
-        client.coordinator.hintServerDown(ServerId(serverId));
+        std::cout << "Hinting server crashed: " << *serverId << std::endl;
+        client.coordinator.hintServerCrashed(ServerId(serverId));
     }
     return 0;
 }

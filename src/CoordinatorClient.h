@@ -47,7 +47,7 @@ class CoordinatorClient {
     static void getServerList(Context* context,
             ProtoBuf::ServerList* serverList);
     static void getTabletMap(Context* context, ProtoBuf::Tablets* tabletMap);
-    static void hintServerDown(Context* context, ServerId serverId);
+    static void hintServerCrashed(Context* context, ServerId serverId);
     static void reassignTabletOwnership(Context* context, uint64_t tableId,
             uint64_t firstKey, uint64_t lastKey, ServerId newOwnerId,
             uint64_t ctimeSegmentId, uint32_t ctimeSegmentOffset);
@@ -111,18 +111,18 @@ class GetTabletMapRpc : public CoordinatorRpcWrapper {
 };
 
 /**
- * Encapsulates the state of a CoordinatorClient::hintServerDown
+ * Encapsulates the state of a CoordinatorClient::hintServerCrashed
  * request, allowing it to execute asynchronously.
  */
-class HintServerDownRpc : public CoordinatorRpcWrapper {
+class HintServerCrashedRpc : public CoordinatorRpcWrapper {
     public:
-    HintServerDownRpc(Context* context, ServerId serverId);
-    ~HintServerDownRpc() {}
+    HintServerCrashedRpc(Context* context, ServerId serverId);
+    ~HintServerCrashedRpc() {}
     /// \copydoc RpcWrapper::docForWait
     void wait() {simpleWait(context->dispatch);}
 
     PRIVATE:
-    DISALLOW_COPY_AND_ASSIGN(HintServerDownRpc);
+    DISALLOW_COPY_AND_ASSIGN(HintServerCrashedRpc);
 };
 
 /**

@@ -268,15 +268,15 @@ GetTabletMapRpc::wait(ProtoBuf::Tablets* tabletMap)
  *      Identifies a server that appears to have crashed.
  */
 void
-CoordinatorClient::hintServerDown(Context* context, ServerId serverId)
+CoordinatorClient::hintServerCrashed(Context* context, ServerId serverId)
 {
-    HintServerDownRpc rpc(context, serverId);
+    HintServerCrashedRpc rpc(context, serverId);
     rpc.wait();
 }
 
 /**
- * Constructor for HintServerDownRpc: initiates an RPC in the same way as
- * #CoordinatorClient::hintServerDown, but returns once the RPC has been
+ * Constructor for HintServerCrashedRpc: initiates an RPC in the same way as
+ * #CoordinatorClient::hintServerCrashed, but returns once the RPC has been
  * initiated, without waiting for it to complete.
  *
  * \param context
@@ -284,13 +284,13 @@ CoordinatorClient::hintServerDown(Context* context, ServerId serverId)
  * \param serverId
  *      Identifies a server that appears to have crashed.
  */
-HintServerDownRpc::HintServerDownRpc(Context* context,
+HintServerCrashedRpc::HintServerCrashedRpc(Context* context,
         ServerId serverId)
     : CoordinatorRpcWrapper(context,
-            sizeof(WireFormat::HintServerDown::Response))
+            sizeof(WireFormat::HintServerCrashed::Response))
 {
-    WireFormat::HintServerDown::Request* reqHdr(
-            allocHeader<WireFormat::HintServerDown>());
+    WireFormat::HintServerCrashed::Request* reqHdr(
+            allocHeader<WireFormat::HintServerCrashed>());
     reqHdr->serverId = serverId.getId();
     send();
 }

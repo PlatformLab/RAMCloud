@@ -63,7 +63,7 @@ opcodeSymbol(uint32_t opcode)
         case GET_SERVER_LIST:            return "GET_SERVER_LIST";
         case GET_TABLET_MAP:             return "GET_TABLET_MAP";
         case RECOVER:                    return "RECOVER";
-        case HINT_SERVER_DOWN:           return "HINT_SERVER_DOWN";
+        case HINT_SERVER_CRASHED:        return "HINT_SERVER_CRASHED";
         case RECOVERY_MASTER_FINISHED:   return "RECOVERY_MASTER_FINISHED";
         case ENUMERATE:                  return "ENUMERATE";
         case FILL_WITH_TEST_DATA:        return "FILL_WITH_TEST_DATA";

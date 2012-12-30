@@ -450,12 +450,12 @@ TEST_F(CoordinatorServerListTest, serialize) {
     }
 }
 
-TEST_F(CoordinatorServerListTest, serverDown_backup) {
+TEST_F(CoordinatorServerListTest, serverCrashed_backup) {
     ServerId id = sl->enlistServer({}, {WireFormat::BACKUP_SERVICE},
                                    0, "mock:host=backup");
     EXPECT_EQ(1U, sl->backupCount());
     service->forceServerDownForTesting = true;
-    sl->serverDown(id);
+    sl->serverCrashed(id);
     EXPECT_EQ(0U, sl->backupCount());
     // Can't test this any more since the entry for server with id replacesId
     // will actually get removed from server list only once updates to cluster
@@ -463,7 +463,7 @@ TEST_F(CoordinatorServerListTest, serverDown_backup) {
     // EXPECT_FALSE(sl->contains(id));
 }
 
-TEST_F(CoordinatorServerListTest, serverDown_server) {
+TEST_F(CoordinatorServerListTest, serverCrashed_server) {
     enlistMaster();
     service->context->recoveryManager->doNotStartRecoveries = true;
 
@@ -471,7 +471,7 @@ TEST_F(CoordinatorServerListTest, serverDown_server) {
     service->forceServerDownForTesting = true;
     TestLog::Enable _(startMasterRecoveryFilter);
 
-    sl->serverDown(masterServerId);
+    sl->serverCrashed(masterServerId);
 
     EXPECT_EQ("startMasterRecovery: Scheduling recovery of master 1.0 | "
               "startMasterRecovery: Recovery crashedServerId: 1.0",
@@ -479,7 +479,7 @@ TEST_F(CoordinatorServerListTest, serverDown_server) {
     EXPECT_EQ(ServerStatus::CRASHED, (*sl)[master->serverId].status);
 }
 
-TEST_F(CoordinatorServerListTest, serverDown_LogCabin) {
+TEST_F(CoordinatorServerListTest, serverCrashed_LogCabin) {
     enlistMaster();
     service->context->recoveryManager->doNotStartRecoveries = true;
 
@@ -487,16 +487,16 @@ TEST_F(CoordinatorServerListTest, serverDown_LogCabin) {
     service->forceServerDownForTesting = true;
 
     TestLog::Enable _;
-    sl->serverDown(masterServerId);
+    sl->serverCrashed(masterServerId);
 
     vector<Entry> entriesRead = logCabinLog->read(0);
-    string searchString = "execute: LogCabin: ServerDown entryId: ";
+    string searchString = "execute: LogCabin: ServerCrashed entryId: ";
     ASSERT_NO_THROW(findEntryId(searchString));
-    ProtoBuf::ServerDown readState;
+    ProtoBuf::ServerCrashed readState;
     logCabinHelper->parseProtoBufFromEntry(
             entriesRead[findEntryId(searchString)], readState);
 
-    EXPECT_EQ("entry_type: \"ServerDown\"\nserver_id: 1\n",
+    EXPECT_EQ("entry_type: \"ServerCrashed\"\nserver_id: 1\n",
             readState.DebugString());
 }
 
@@ -662,7 +662,7 @@ TEST_F(CoordinatorServerListTest, recoverServerUpdate) {
             (*sl)[masterServerId].masterRecoveryInfo.min_open_segment_epoch());
 }
 
-TEST_F(CoordinatorServerListTest, recoverServerDown) {
+TEST_F(CoordinatorServerListTest, recoverServerCrashed) {
     enlistMaster();
     service->context->recoveryManager->doNotStartRecoveries = true;
 
@@ -670,14 +670,14 @@ TEST_F(CoordinatorServerListTest, recoverServerDown) {
     service->forceServerDownForTesting = true;
     TestLog::Enable _(startMasterRecoveryFilter);
 
-    ProtoBuf::ServerDown state;
-    state.set_entry_type("ServerDown");
+    ProtoBuf::ServerCrashed state;
+    state.set_entry_type("ServerCrashed");
     state.set_server_id(masterServerId.getId());
 
     EntryId entryId = logCabinHelper->appendProtoBuf(
             *service->context->expectedEntryId, state);
 
-    sl->recoverServerDown(&state, entryId);
+    sl->recoverServerCrashed(&state, entryId);
 
     EXPECT_EQ("startMasterRecovery: Scheduling recovery of master 1.0 | "
             "startMasterRecovery: Recovery crashedServerId: 1.0",
@@ -847,7 +847,7 @@ TEST_F(CoordinatorServerListTest, generateUniqueId_real) {
     EXPECT_EQ(ServerId(2, 0), serverId2);
     add(serverId2, "mock:host=server2", {}, 0, false);
 
-    sl->serverDown(serverId1);
+    sl->serverCrashed(serverId1);
     sl->sync();
 
     EXPECT_EQ(ServerId(1, 1), generateUniqueId());
@@ -872,7 +872,7 @@ TEST_F(CoordinatorServerListTest, serverIdIndexOperator) {
 
 TEST_F(CoordinatorServerListTest, recoveryCompleted) {
     uint64_t orig_version = sl->version;
-    EXPECT_THROW(sl->serverDown(ServerId(0, 0)), Exception);
+    EXPECT_THROW(sl->serverCrashed(ServerId(0, 0)), Exception);
     EXPECT_EQ(orig_version, sl->version);
 
     ServerId serverId1 = generateUniqueId();
@@ -882,17 +882,17 @@ TEST_F(CoordinatorServerListTest, recoveryCompleted) {
     EXPECT_EQ(1, sl->updates[0].incremental.server_size());
     sl->sync();
 
-    EXPECT_NO_THROW(sl->serverDown(ServerId(1, 0)));
+    EXPECT_NO_THROW(sl->serverCrashed(ServerId(1, 0)));
     // Critical that an UP server gets both crashed and down events.
     EXPECT_TRUE(protoBufMatchesEntry(sl->updates[0].incremental.server(0),
             entryCopy, ServerStatus::CRASHED));
     EXPECT_TRUE(protoBufMatchesEntry(sl->updates[0].incremental.server(1),
-            entryCopy, ServerStatus::DOWN));
+            entryCopy, ServerStatus::REMOVE));
     sl->sync();
     EXPECT_FALSE(sl->serverList[1].entry);
 
     orig_version = sl->version;
-    EXPECT_THROW(sl->serverDown(ServerId(1, 0)), Exception);
+    EXPECT_THROW(sl->serverCrashed(ServerId(1, 0)), Exception);
     sl->sync();
     EXPECT_EQ(orig_version, sl->version);
     EXPECT_EQ(0U, sl->numberOfMasters);
@@ -910,9 +910,9 @@ TEST_F(CoordinatorServerListTest, recoveryCompleted) {
     sl->sync();
     EXPECT_TRUE(sl->serverList[1].entry);
 
-    EXPECT_THROW(sl->serverDown(ServerId(1, 2)), Exception);
-    EXPECT_NO_THROW(sl->serverDown(ServerId(1, 1)));
-    EXPECT_EQ(uint32_t(ServerStatus::DOWN),
+    EXPECT_THROW(sl->serverCrashed(ServerId(1, 2)), Exception);
+    EXPECT_NO_THROW(sl->serverCrashed(ServerId(1, 1)));
+    EXPECT_EQ(uint32_t(ServerStatus::REMOVE),
               sl->updates[0].incremental.server(0).status());
     sl->sync();
     EXPECT_EQ(0U, sl->numberOfMasters);
@@ -923,7 +923,7 @@ TEST_F(CoordinatorServerListTest, recoveryCompleted_trackerUpdated) {
     TestLog::Enable _(fireCallbackFilter);
     ServerId serverId = generateUniqueId();
     add(serverId, "hi!", {WireFormat::BACKUP_SERVICE}, 100);
-    sl->serverDown(serverId);
+    sl->serverCrashed(serverId);
     EXPECT_EQ("fireCallback: called | fireCallback: called | "
               "fireCallback: called", TestLog::get());
     ASSERT_FALSE(tr->changes.empty());
@@ -935,7 +935,7 @@ TEST_F(CoordinatorServerListTest, recoveryCompleted_trackerUpdated) {
     EXPECT_EQ(serverId, server.serverId);
     EXPECT_EQ("hi!", server.serviceLocator);
     EXPECT_EQ("BACKUP_SERVICE", server.services.toString());
-    EXPECT_EQ(ServerStatus::DOWN, server.status);
+    EXPECT_EQ(ServerStatus::REMOVE, server.status);
     EXPECT_EQ(SERVER_REMOVED, tr->changes.front().event);
 }
 
@@ -980,7 +980,7 @@ TEST_F(CoordinatorServerListTest, createReplicationGroup) {
     EXPECT_EQ(0U, (*sl)[serverIds[7]].replicationId);
     // Kill server 7.
 //    service->forceServerDownForTesting = true;
-    sl->serverDown(serverIds[7]);
+    sl->serverCrashed(serverIds[7]);
     sl->sync();
 //    service->forceServerDownForTesting = false;
     // Create a new server.
@@ -1007,7 +1007,7 @@ TEST_F(CoordinatorServerListTest, removeReplicationGroup) {
     }
     EXPECT_EQ(1U, (*sl)[serverIds[1]].replicationId);
     service->forceServerDownForTesting = true;
-    sl->serverDown(serverIds[1]);
+    sl->serverCrashed(serverIds[1]);
     sl->sync();
     service->forceServerDownForTesting = false;
     EXPECT_EQ(0U, (*sl)[serverIds[0]].replicationId);
@@ -1204,7 +1204,7 @@ TEST_F(CoordinatorServerListTest, updateLoop) {
     add(serverId4, "mock:host=server4",
             {WireFormat::MEMBERSHIP_SERVICE}, 0, false);
 
-    sl->serverDown(serverId1);
+    sl->serverCrashed(serverId1);
 
     TestLog::Enable __(statusFilter);
 

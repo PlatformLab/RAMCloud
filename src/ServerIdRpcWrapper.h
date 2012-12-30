@@ -54,7 +54,7 @@ class ServerIdRpcWrapper : public RpcWrapper {
     /// This flag is set to true if we discover that the target server is
     /// no longer up; the wait method in wrapper classes should then return
     /// an error.
-    bool serverDown;
+    bool serverCrashed;
 
   PRIVATE:
     /// For testing; prefer using ConvertExceptionsToDoesntExist where possible.

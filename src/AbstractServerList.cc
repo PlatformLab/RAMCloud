@@ -292,8 +292,8 @@ AbstractServerList::toString(ServerStatus status)
             return "UP";
         case ServerStatus::CRASHED:
             return "CRASHED";
-        case ServerStatus::DOWN:
-            return "DOWN";
+        case ServerStatus::REMOVE:
+            return "REMOVE";
         default:
             return "UNKOWN";
     }

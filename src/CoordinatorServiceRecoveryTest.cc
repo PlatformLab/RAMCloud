@@ -68,11 +68,11 @@ TEST_F(CoordinatorServiceRecoveryTest, replay_basic) {
     logCabinHelper->appendProtoBuf(
                 coordRecovery->service.expectedEntryId, serverInfo);
 
-    ProtoBuf::ServerDown serverDown;
-    serverDown.set_entry_type("ServerDown");
-    serverDown.set_server_id(ServerId(1, 0).getId());
+    ProtoBuf::ServerCrashed serverCrashed;
+    serverCrashed.set_entry_type("ServerCrashed");
+    serverCrashed.set_server_id(ServerId(1, 0).getId());
     logCabinHelper->appendProtoBuf(
-                coordRecovery->service.expectedEntryId, serverDown);
+                coordRecovery->service.expectedEntryId, serverCrashed);
 
     ProtoBuf::ServerUpdate serverUpdate;
     serverUpdate.set_entry_type("ServerUpdate");
@@ -122,7 +122,7 @@ TEST_F(CoordinatorServiceRecoveryTest, replay_basic) {
     coordRecovery->replay(true);
     EXPECT_EQ("replay: Entry Id: 0, Entry Type: ServerEnlisting\n | "
               "replay: Entry Id: 1, Entry Type: ServerEnlisted\n | "
-              "replay: Entry Id: 2, Entry Type: ServerDown\n | "
+              "replay: Entry Id: 2, Entry Type: ServerCrashed\n | "
               "replay: Entry Id: 3, Entry Type: ServerUpdate\n | "
               "replay: Entry Id: 4, Entry Type: AliveTable\n | "
               "replay: Entry Id: 5, Entry Type: CreatingTable\n | "
