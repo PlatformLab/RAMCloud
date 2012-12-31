@@ -246,6 +246,8 @@ class CoordinatorServerList : public AbstractServerList{
                               EntryId logIdServerCrashed);
     void recoverServerNeedsRecovery(ProtoBuf::ServerCrashInfo* state,
                                     EntryId logIdServerNeedsRecovery);
+    void recoverServerRemoveUpdate(ProtoBuf::ServerCrashInfo* state,
+                                   EntryId logIdServerRemoveUpdate);
     void recoverServerUpdate(ProtoBuf::ServerUpdate* state,
                              EntryId logIdServerUpdate);
 
@@ -404,11 +406,11 @@ class CoordinatorServerList : public AbstractServerList{
      * update has been acknowledged, the server will be removed from the server
      * list, and all the corresponding LogCabin entries will be invalidated.
      */
-    class ServerRecoveryCompleted {
+    class ServerRemoveUpdate {
         public:
-            ServerRecoveryCompleted(CoordinatorServerList &csl,
-                                    Lock& lock,
-                                    ServerId serverId)
+            ServerRemoveUpdate(CoordinatorServerList &csl,
+                               Lock& lock,
+                               ServerId serverId)
                 : csl(csl), lock(lock),
                   serverId(serverId) {}
             void execute();
@@ -427,7 +429,7 @@ class CoordinatorServerList : public AbstractServerList{
              * ServerId of the server whose recovery has been completed.
              */
             ServerId serverId;
-            DISALLOW_COPY_AND_ASSIGN(ServerRecoveryCompleted);
+            DISALLOW_COPY_AND_ASSIGN(ServerRemoveUpdate);
     };
 
     /**

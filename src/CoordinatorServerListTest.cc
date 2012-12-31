@@ -698,6 +698,25 @@ TEST_F(CoordinatorServerListTest, recoverServerNeedsRecovery) {
     EXPECT_EQ(ServerStatus::CRASHED, (*sl)[master->serverId].status);
 }
 
+TEST_F(CoordinatorServerListTest, recoverServerRemoveUpdate) {
+    enlistMaster();
+    service->context->recoveryManager->doNotStartRecoveries = true;
+
+    ramcloud->createTable("foo");
+    service->forceServerDownForTesting = true;
+
+    ProtoBuf::ServerCrashInfo state;
+    state.set_entry_type("ServerRemoveUpdate");
+    state.set_server_id(masterServerId.getId());
+
+    EntryId entryId = logCabinHelper->appendProtoBuf(
+            *service->context->expectedEntryId, state);
+
+    sl->recoverServerRemoveUpdate(&state, entryId);
+
+    EXPECT_EQ(ServerStatus::REMOVE, (*sl)[master->serverId].status);
+}
+
 TEST_F(CoordinatorServerListTest, recoverServerUpdate) {
     enlistMaster();
     ProtoBuf::ServerUpdate serverUpdate;

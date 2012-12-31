@@ -281,7 +281,7 @@ TEST_F(MasterRecoveryManagerTest, recoveryMasterFinished) {
             "serverId: 1.0 status: RECOVERING ctime: 2, 3 } | "
         "schedule: scheduled | "
         "recoveryFinished: Recovery 1 completed for master 1.0 | "
-        "execute: LogCabin: ServerRecoveryCompleted entryId: 5 | "
+        "execute: LogCabin: ServerRemoveUpdate entryId: 5 | "
         "schedule: scheduled | schedule: scheduled",
               TestLog::get());
 

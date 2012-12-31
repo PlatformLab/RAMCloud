@@ -228,7 +228,7 @@ void
 CoordinatorServerList::recoveryCompleted(ServerId serverId)
 {
     Lock lock(mutex);
-    ServerRecoveryCompleted(*this, lock, serverId).execute();
+    ServerRemoveUpdate(*this, lock, serverId).execute();
 
     version++;
     pushUpdate(lock, version);
@@ -400,6 +400,27 @@ CoordinatorServerList::recoverServerNeedsRecovery(
 }
 
 /**
+ * During coordinator recovery, propagate REMOVE updates for a crashed server
+ * whose recovery had already completed.
+ *
+ * \param state
+ *      The ProtoBuf that encapsulates the state of the ServerRemoveUpdate
+ *      operation to be recovered.
+ * \param logIdServerRemoveUpdate
+ *      The entry id of the LogCabin entry corresponding to the state.
+ */
+void
+CoordinatorServerList::recoverServerRemoveUpdate(
+    ProtoBuf::ServerCrashInfo* state, EntryId logIdServerRemoveUpdate)
+{
+    Lock lock(mutex);
+    LOG(DEBUG, "CoordinatorServerList::recoverServerRemoveUpdate()");
+    ServerRemoveUpdate(*this, lock,
+                       ServerId(state->server_id())).complete(
+                                        logIdServerRemoveUpdate);
+}
+
+/**
  * During Coordinator recovery, set update-able fields for the server.
  *
  * \param state
@@ -556,7 +577,7 @@ CoordinatorServerList::ServerCrashed::complete(EntryId entryId)
         // will be no recovery.  That means it needs to transition to
         // removed status now (usually recoveries remove servers from the
         // list when they complete).
-        CoordinatorServerList::ServerRecoveryCompleted(
+        CoordinatorServerList::ServerRemoveUpdate(
                 csl, lock, serverId).execute();
     }
 
@@ -630,7 +651,7 @@ CoordinatorServerList::ServerNeedsRecovery::complete(EntryId entryId)
  * Log the state in LogCabin, then call #complete().
  */
 void
-CoordinatorServerList::ServerRecoveryCompleted::execute()
+CoordinatorServerList::ServerRemoveUpdate::execute()
 {
     Entry* entry = csl.getEntry(serverId);
     if (!entry) {
@@ -639,7 +660,7 @@ CoordinatorServerList::ServerRecoveryCompleted::execute()
     }
 
     ProtoBuf::ServerCrashInfo state;
-    state.set_entry_type("ServerRecoveryCompleted");
+    state.set_entry_type("ServerRemoveUpdate");
     state.set_server_id(serverId.getId());
 
     vector<EntryId> invalidates;
@@ -649,7 +670,7 @@ CoordinatorServerList::ServerRecoveryCompleted::execute()
     EntryId entryId =
             csl.context->logCabinHelper->appendProtoBuf(
                 *csl.context->expectedEntryId, state, invalidates);
-    LOG(DEBUG, "LogCabin: ServerRecoveryCompleted entryId: %lu", entryId);
+    LOG(DEBUG, "LogCabin: ServerRemoveUpdate entryId: %lu", entryId);
 
     complete(entryId);
 }
@@ -658,14 +679,14 @@ CoordinatorServerList::ServerRecoveryCompleted::execute()
  * Complete the operation to indicate that a crashed server needs to be
  * recovered after its state has been logged in LogCabin.
  * This is called internally by #execute() in case of normal operation, and
- * directly for coordinator recovery (by #recoverServerRecoveryCompleted()).
+ * directly for coordinator recovery (by #recoverServerRemoveUpdate()).
  *
  * \param entryId
  *      The entry id of the LogCabin entry corresponding to the state
  *      of the operation to be completed.
  */
 void
-CoordinatorServerList::ServerRecoveryCompleted::complete(EntryId entryId)
+CoordinatorServerList::ServerRemoveUpdate::complete(EntryId entryId)
 {
     Entry* entry = csl.getEntry(serverId);
 
