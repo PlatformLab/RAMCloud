@@ -116,12 +116,12 @@ CoordinatorServerList::enlistServer(
             serviceLocator, replacesId.toString().c_str());
 
         ServerNeedsRecovery(*this, lock, replacesId).execute();
-        ServerCrashed(*this, lock, replacesId).execute();
+        ServerCrashed(*this, lock, replacesId, version + 1).execute();
     }
 
     ServerId newServerId =
         EnlistServer(*this, lock, ServerId(), serviceMask,
-                     readSpeed, serviceLocator).execute();
+                     readSpeed, serviceLocator, version + 1).execute();
 
     if (replacesId.isValid()) {
         LOG(NOTICE, "Newly enlisted server %s replaces server %s",
@@ -228,10 +228,7 @@ void
 CoordinatorServerList::recoveryCompleted(ServerId serverId)
 {
     Lock lock(mutex);
-    ServerRemoveUpdate(*this, lock, serverId).execute();
-
-    version++;
-    pushUpdate(lock, version);
+    ServerRemoveUpdate(*this, lock, serverId, version + 1).execute();
 }
 
 /**
@@ -269,7 +266,7 @@ CoordinatorServerList::serverCrashed(ServerId serverId)
 {
     Lock lock(mutex);
     ServerNeedsRecovery(*this, lock, serverId).execute();
-    ServerCrashed(*this, lock, serverId).execute();
+    ServerCrashed(*this, lock, serverId, version + 1).execute();
 }
 
 /**
@@ -352,11 +349,13 @@ CoordinatorServerList::recoverEnlistServer(
 {
     Lock lock(mutex);
     LOG(DEBUG, "CoordinatorServerList::recoverEnlistServer()");
+    version = state->update_version();
     EnlistServer(*this, lock,
                  ServerId(state->server_id()),
                  ServiceMask::deserialize(state->service_mask()),
                  state->read_speed(),
-                 state->service_locator().c_str()).complete(logIdEnlistServer);
+                 state->service_locator().c_str(),
+                 state->update_version()).complete(logIdEnlistServer);
 }
 
 /**
@@ -374,8 +373,10 @@ CoordinatorServerList::recoverServerCrashed(
 {
     Lock lock(mutex);
     LOG(DEBUG, "CoordinatorServerList::recoverServerCrashed()");
+    version = state->update_version();
     ServerCrashed(*this, lock,
-                  ServerId(state->server_id())).complete(logIdServerCrashed);
+                  ServerId(state->server_id()),
+                  state->update_version()).complete(logIdServerCrashed);
 }
 
 /**
@@ -415,8 +416,10 @@ CoordinatorServerList::recoverServerRemoveUpdate(
 {
     Lock lock(mutex);
     LOG(DEBUG, "CoordinatorServerList::recoverServerRemoveUpdate()");
+    version = state->update_version();
     ServerRemoveUpdate(*this, lock,
-                       ServerId(state->server_id())).complete(
+                       ServerId(state->server_id()),
+                       state->update_version()).complete(
                                         logIdServerRemoveUpdate);
 }
 
@@ -461,6 +464,7 @@ CoordinatorServerList::EnlistServer::execute()
     stateEnlistServer.set_service_mask(serviceMask.serialize());
     stateEnlistServer.set_read_speed(readSpeed);
     stateEnlistServer.set_service_locator(string(serviceLocator));
+    stateEnlistServer.set_update_version(updateVersion);
 
     EntryId logIdEnlistServer =
         csl.context->logCabinHelper->appendProtoBuf(
@@ -505,6 +509,8 @@ CoordinatorServerList::EnlistServer::complete(
         EntryId logIdEnlistServer, EntryId logIdAliveServer)
 {
     csl.add(lock, newServerId, serviceLocator, serviceMask, readSpeed);
+    csl.version = updateVersion;
+    csl.pushUpdate(lock, updateVersion);
 
     CoordinatorServerList::Entry entry(*csl.getEntry(newServerId));
     entry.logIdEnlistServer = logIdEnlistServer;
@@ -521,8 +527,6 @@ CoordinatorServerList::EnlistServer::complete(
         csl.createReplicationGroup(lock);
     }
 
-    csl.version++;
-    csl.pushUpdate(lock, csl.version);
     return newServerId;
 }
 
@@ -542,6 +546,7 @@ CoordinatorServerList::ServerCrashed::execute()
     ProtoBuf::ServerCrashInfo state;
     state.set_entry_type("ServerCrashed");
     state.set_server_id(serverId.getId());
+    state.set_update_version(updateVersion);
 
     EntryId entryId =
         csl.context->logCabinHelper->appendProtoBuf(
@@ -564,7 +569,9 @@ CoordinatorServerList::ServerCrashed::execute()
 void
 CoordinatorServerList::ServerCrashed::complete(EntryId entryId)
 {
-    csl.crashed(lock, serverId); // Call the internal method directly.
+    csl.crashed(lock, serverId);
+    csl.version = updateVersion;
+    csl.pushUpdate(lock, updateVersion);
 
     // If this machine has a backup and master on the same server it is best
     // to remove the dead backup before initiating recovery. Otherwise, other
@@ -572,16 +579,16 @@ CoordinatorServerList::ServerCrashed::complete(EntryId entryId)
     CoordinatorServerList::Entry entry(*csl.getEntry(serverId));
     entry.logIdServerCrashed = entryId;
 
-    if (!entry.services.has(WireFormat::MASTER_SERVICE)) {
-        // If the server being replaced did not have a master then there
-        // will be no recovery.  That means it needs to transition to
-        // removed status now (usually recoveries remove servers from the
-        // list when they complete).
-        CoordinatorServerList::ServerRemoveUpdate(
-                csl, lock, serverId).execute();
-    }
-
     if (entry.needsRecovery) {
+        if (!entry.services.has(WireFormat::MASTER_SERVICE)) {
+            // If the server being replaced did not have a master then there
+            // will be no recovery.  That means it needs to transition to
+            // removed status now (usually recoveries remove servers from the
+            // list when they complete).
+            CoordinatorServerList::ServerRemoveUpdate(
+                            csl, lock, serverId, ++csl.version).execute();
+        }
+
         csl.context->recoveryManager->startMasterRecovery(entry);
     } else {
         // Don't start recovery when the coordinator is replaying a serverDown
@@ -590,9 +597,6 @@ CoordinatorServerList::ServerCrashed::complete(EntryId entryId)
 
     csl.removeReplicationGroup(lock, entry.replicationId);
     csl.createReplicationGroup(lock);
-
-    csl.version++;
-    csl.pushUpdate(lock, csl.version);
 }
 
 /**
@@ -662,6 +666,7 @@ CoordinatorServerList::ServerRemoveUpdate::execute()
     ProtoBuf::ServerCrashInfo state;
     state.set_entry_type("ServerRemoveUpdate");
     state.set_server_id(serverId.getId());
+    state.set_update_version(updateVersion);
 
     vector<EntryId> invalidates;
     if (entry->logIdServerNeedsRecovery)
@@ -705,13 +710,16 @@ CoordinatorServerList::ServerRemoveUpdate::complete(EntryId entryId)
     // Setting state gets the serialized update message's state field correct.
     entry->status = ServerStatus::REMOVE;
 
-    ProtoBuf::ServerList_Entry& protoBufEntry(*csl.update.add_server());
+    ProtoBuf::ServerList_Entry& protoBufEntry(*(csl.update).add_server());
     entry->serialize(protoBufEntry);
 
     foreach (ServerTrackerInterface* tracker, csl.trackers)
         tracker->enqueueChange(*entry, ServerChangeEvent::SERVER_REMOVED);
     foreach (ServerTrackerInterface* tracker, csl.trackers)
         tracker->fireCallback();
+
+    csl.version = updateVersion;
+    csl.pushUpdate(lock, updateVersion);
 }
 
 /**

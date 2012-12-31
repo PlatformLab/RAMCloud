@@ -36,4 +36,9 @@ message ServerCrashInfo {
 
     /// ServerId of the server that has crashed.
     required uint64 server_id = 2;
+
+    /// Server list update version corresponding to the update
+    /// (either CRASH or REMOVE) being sent for the server that has crashed.
+    /// Not set if the update doesn't have to be sent.
+    optional uint64 update_version = 3;
 }

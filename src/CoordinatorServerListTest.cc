@@ -374,7 +374,8 @@ TEST_F(CoordinatorServerListTest, enlistServer_LogCabin) {
     EXPECT_EQ("entry_type: \"EnlistServer\"\n"
               "server_id: 2\nservice_mask: 2\n"
               "read_speed: 0\n"
-              "service_locator: \"mock:host=backup\"\n",
+              "service_locator: \"mock:host=backup\"\n"
+              "update_version: 3\n",
                readState.DebugString());
 
     searchString = "execute: LogCabin: AliveServer entryId: ";
@@ -460,11 +461,9 @@ TEST_F(CoordinatorServerListTest, serverCrashed_backup) {
     EXPECT_EQ(1U, sl->backupCount());
     service->forceServerDownForTesting = true;
     sl->serverCrashed(id);
+    sl->sync();
     EXPECT_EQ(0U, sl->backupCount());
-    // Can't test this any more since the entry for server with id replacesId
-    // will actually get removed from server list only once updates to cluster
-    // are acknowledged -- and that does not happen in this unit test.
-    // EXPECT_FALSE(sl->contains(id));
+    EXPECT_FALSE(sl->contains(id));
 }
 
 TEST_F(CoordinatorServerListTest, serverCrashed_server) {
@@ -500,7 +499,8 @@ TEST_F(CoordinatorServerListTest, serverCrashed_LogCabin) {
     logCabinHelper->parseProtoBufFromEntry(
             entriesRead[findEntryId(searchString)], readState);
 
-    EXPECT_EQ("entry_type: \"ServerCrashed\"\nserver_id: 1\n",
+    EXPECT_EQ("entry_type: \"ServerCrashed\"\nserver_id: 1\n"
+              "update_version: 2\n",
               readState.DebugString());
 }
 
@@ -610,6 +610,7 @@ TEST_F(CoordinatorServerListTest, recoverEnlistServer) {
             ServiceMask({WireFormat::BACKUP_SERVICE}).serialize());
     stateEnlistServer.set_read_speed(0);
     stateEnlistServer.set_service_locator("mock:host=backup");
+    stateEnlistServer.set_update_version(sl->version + 1);
 
     EntryId entryId = logCabinHelper->appendProtoBuf(
             *service->context->expectedEntryId, stateEnlistServer);
@@ -659,6 +660,7 @@ TEST_F(CoordinatorServerListTest, recoverServerCrashed) {
     ProtoBuf::ServerCrashInfo state;
     state.set_entry_type("ServerCrashed");
     state.set_server_id(masterServerId.getId());
+    state.set_update_version(sl->version + 1);
 
     EntryId entryId = logCabinHelper->appendProtoBuf(
             *service->context->expectedEntryId, state);
@@ -667,6 +669,7 @@ TEST_F(CoordinatorServerListTest, recoverServerCrashed) {
 
     EXPECT_EQ("", TestLog::get());
     EXPECT_EQ(ServerStatus::CRASHED, (*sl)[master->serverId].status);
+    EXPECT_EQ(2UL, sl->version);
 }
 
 TEST_F(CoordinatorServerListTest, recoverServerNeedsRecovery) {
@@ -686,6 +689,7 @@ TEST_F(CoordinatorServerListTest, recoverServerNeedsRecovery) {
     ProtoBuf::ServerCrashInfo state2;
     state2.set_entry_type("ServerCrashed");
     state2.set_server_id(masterServerId.getId());
+    state2.set_update_version(sl->version + 1);
     EntryId entryId2 = logCabinHelper->appendProtoBuf(
             *service->context->expectedEntryId, state2);
 
@@ -705,9 +709,12 @@ TEST_F(CoordinatorServerListTest, recoverServerRemoveUpdate) {
     ramcloud->createTable("foo");
     service->forceServerDownForTesting = true;
 
+    // For this unit test we're skipping the recoverServerCrashed.
+
     ProtoBuf::ServerCrashInfo state;
     state.set_entry_type("ServerRemoveUpdate");
     state.set_server_id(masterServerId.getId());
+    state.set_update_version(sl->version + 1);
 
     EntryId entryId = logCabinHelper->appendProtoBuf(
             *service->context->expectedEntryId, state);
@@ -715,6 +722,7 @@ TEST_F(CoordinatorServerListTest, recoverServerRemoveUpdate) {
     sl->recoverServerRemoveUpdate(&state, entryId);
 
     EXPECT_EQ(ServerStatus::REMOVE, (*sl)[master->serverId].status);
+    EXPECT_EQ(2UL, sl->version);
 }
 
 TEST_F(CoordinatorServerListTest, recoverServerUpdate) {
@@ -933,7 +941,7 @@ TEST_F(CoordinatorServerListTest, recoveryCompleted) {
     // Critical that an UP server gets both crashed and down events.
     EXPECT_TRUE(protoBufMatchesEntry(sl->updates[0].incremental.server(0),
             entryCopy, ServerStatus::CRASHED));
-    EXPECT_TRUE(protoBufMatchesEntry(sl->updates[0].incremental.server(1),
+    EXPECT_TRUE(protoBufMatchesEntry(sl->updates[1].incremental.server(0),
             entryCopy, ServerStatus::REMOVE));
     sl->sync();
     EXPECT_FALSE(sl->serverList[1].entry);
@@ -1026,16 +1034,16 @@ TEST_F(CoordinatorServerListTest, createReplicationGroup) {
     EXPECT_EQ(0U, (*sl)[serverIds[6]].replicationId);
     EXPECT_EQ(0U, (*sl)[serverIds[7]].replicationId);
     // Kill server 7.
-//    service->forceServerDownForTesting = true;
+    service->forceServerDownForTesting = true;
     sl->serverCrashed(serverIds[7]);
     sl->sync();
-//    service->forceServerDownForTesting = false;
+    service->forceServerDownForTesting = false;
     // Create a new server.
-    config.localLocator = format("mock:host=backup%u", 9);
+    config.localLocator = format("mock:host=backup%u", 8);
     serverIds[8] = cluster.addServer(config)->serverId;
     EXPECT_EQ(0U, (*sl)[serverIds[6]].replicationId);
     EXPECT_EQ(0U, (*sl)[serverIds[8]].replicationId);
-    config.localLocator = format("mock:host=backup%u", 10);
+    config.localLocator = format("mock:host=backup%u", 9);
     serverIds[9] = cluster.addServer(config)->serverId;
     EXPECT_EQ(3U, (*sl)[serverIds[6]].replicationId);
     EXPECT_EQ(3U, (*sl)[serverIds[9]].replicationId);
@@ -1254,7 +1262,8 @@ TEST_F(CoordinatorServerListTest, updateLoop) {
     add(serverId4, "mock:host=server4",
             {WireFormat::MEMBERSHIP_SERVICE}, 0, false);
 
-    sl->serverCrashed(serverId1);
+    crashed(serverId1, false);
+    sl->recoveryCompleted(serverId1);
 
     TestLog::Enable __(statusFilter);
 

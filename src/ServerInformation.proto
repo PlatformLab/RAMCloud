@@ -22,15 +22,20 @@ message ServerInformation {
     /// Entry type for this LogCabin entry.
     required string entry_type = 1;
 
-	/// The server id of the server.
+    /// The server id of the server.
     required fixed64 server_id = 2;
 
-	/// Services supported by the server.
+    /// Services supported by the server.
     required uint32 service_mask = 3;
 
     /// Read speed of the server in MB/s.
     required uint32 read_speed = 4;
 
-	/// Service Locator of the server.
+    /// Service Locator of the server.
     required string service_locator = 6;
+
+    /// Server list update version corresponding to the update
+    /// being sent for the enlisting server.
+    /// Not set if the update doesn't have to be sent.
+    optional uint64 update_version = 7;
 }

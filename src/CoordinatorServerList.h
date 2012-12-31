@@ -285,12 +285,14 @@ class CoordinatorServerList : public AbstractServerList{
                        ServerId newServerId,
                        ServiceMask serviceMask,
                        uint32_t readSpeed,
-                       const char* serviceLocator)
+                       const char* serviceLocator,
+                       uint64_t updateVersion)
               : csl(csl), lock(lock),
                 newServerId(newServerId),
                 serviceMask(serviceMask),
                 readSpeed(readSpeed),
-                serviceLocator(serviceLocator) {}
+                serviceLocator(serviceLocator),
+                updateVersion(updateVersion) {}
           ServerId execute();
           ServerId complete(EntryId logIdEnlistServer,
                             EntryId logIdAliveServer = NO_ID);
@@ -321,6 +323,11 @@ class CoordinatorServerList : public AbstractServerList{
     	   * Service Locator of the enlisting server.
     	   */
           const char* serviceLocator;
+          /**
+           * Server list update version number for the update corresponding
+           * to the enlisting server being sent out to the cluster.
+           */
+          uint64_t updateVersion;
           DISALLOW_COPY_AND_ASSIGN(EnlistServer);
     };
 
@@ -339,9 +346,11 @@ class CoordinatorServerList : public AbstractServerList{
         public:
             ServerCrashed(CoordinatorServerList &csl,
                           Lock& lock,
-                          ServerId serverId)
+                          ServerId serverId,
+                          uint64_t updateVersion)
                 : csl(csl), lock(lock),
-                  serverId(serverId) {}
+                  serverId(serverId),
+                  updateVersion(updateVersion) {}
             void execute();
             void complete(EntryId entryId);
         private:
@@ -358,6 +367,11 @@ class CoordinatorServerList : public AbstractServerList{
              * ServerId of the server that is suspected to have crashed.
              */
             ServerId serverId;
+            /**
+             * Server list update version number for the CRASH update
+             * corresponding to the crashed server being sent out to cluster.
+             */
+            uint64_t updateVersion;
             DISALLOW_COPY_AND_ASSIGN(ServerCrashed);
     };
 
@@ -410,9 +424,11 @@ class CoordinatorServerList : public AbstractServerList{
         public:
             ServerRemoveUpdate(CoordinatorServerList &csl,
                                Lock& lock,
-                               ServerId serverId)
+                               ServerId serverId,
+                               uint64_t updateVersion)
                 : csl(csl), lock(lock),
-                  serverId(serverId) {}
+                  serverId(serverId),
+                  updateVersion(updateVersion) {}
             void execute();
             void complete(EntryId entryId);
         private:
@@ -429,6 +445,11 @@ class CoordinatorServerList : public AbstractServerList{
              * ServerId of the server whose recovery has been completed.
              */
             ServerId serverId;
+            /**
+             * Server list update version number for the REMOVE update
+             * corresponding to the crashed server being sent out to cluster.
+             */
+            uint64_t updateVersion;
             DISALLOW_COPY_AND_ASSIGN(ServerRemoveUpdate);
     };
 
