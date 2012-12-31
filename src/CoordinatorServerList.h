@@ -24,6 +24,7 @@
 #include "MasterRecoveryInfo.pb.h"
 #include "ServerList.pb.h"
 
+#include "EntryType.pb.h"
 #include "ServerCrashInfo.pb.h"
 #include "ServerInformation.pb.h"
 #include "ServerUpdate.pb.h"
@@ -240,6 +241,8 @@ class CoordinatorServerList : public AbstractServerList{
     /// Functions for CoordinatorServerList Recovery.
     void recoverAliveServer(ProtoBuf::ServerInformation* state,
                             EntryId logIdAliveServer);
+    void recoverAppendServerAlive(ProtoBuf::EntryType* state,
+                                  EntryId logIdAppendServerAlive);
     void recoverEnlistServer(ProtoBuf::ServerInformation* state,
                              EntryId logIdEnlistServer);
     void recoverServerCrashed(ProtoBuf::ServerCrashInfo* state,
@@ -278,6 +281,32 @@ class CoordinatorServerList : public AbstractServerList{
      * information in LogCabin, and using it to recover if the
      * Coordinator crashes.
      */
+    class AppendServerAlive {
+      public:
+          AppendServerAlive(CoordinatorServerList &csl,
+                            Lock& lock)
+              : csl(csl), lock(lock) {}
+          void execute();
+          void complete(EntryId logIdAppendServerAlive);
+
+      private:
+          /**
+           * Reference to the instance of CoordinatorServerList
+           * initializing this class.
+           */
+          CoordinatorServerList &csl;
+          /**
+           * Explicity needs CoordinatorServerList lock.
+           */
+          Lock& lock;
+          DISALLOW_COPY_AND_ASSIGN(AppendServerAlive);
+    };
+
+    /**
+     * Defines methods for enlisting a server, for persisting required
+     * information in LogCabin, and using it to recover if the
+     * Coordinator crashes.
+     */
     class EnlistServer {
       public:
           EnlistServer(CoordinatorServerList &csl,
@@ -294,8 +323,7 @@ class CoordinatorServerList : public AbstractServerList{
                 serviceLocator(serviceLocator),
                 updateVersion(updateVersion) {}
           ServerId execute();
-          ServerId complete(EntryId logIdEnlistServer,
-                            EntryId logIdAliveServer = NO_ID);
+          ServerId complete(EntryId logIdEnlistServer);
 
       private:
           /**
@@ -772,6 +800,14 @@ class CoordinatorServerList : public AbstractServerList{
      * Id 0 is reserved for nodes that do not belong to a replication group.
      */
     uint64_t nextReplicationId;
+
+    /**
+     * The entry id of the LogCabin entry that indicates that the next
+     * EnlistServer operation should also append a ServerAlive entry
+     * in addition to EnlistServer entry.
+     * A value of NO_ID means that such an entry does not exist.
+     */
+    EntryId logIdAppendServerAlive;
 
     DISALLOW_COPY_AND_ASSIGN(CoordinatorServerList);
 };

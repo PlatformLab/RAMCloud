@@ -378,7 +378,7 @@ TEST_F(CoordinatorServerListTest, enlistServer_LogCabin) {
               "update_version: 3\n",
                readState.DebugString());
 
-    searchString = "execute: LogCabin: AliveServer entryId: ";
+    searchString = "complete: LogCabin: AliveServer entryId: ";
     ASSERT_NO_THROW(findEntryId(searchString));
     ProtoBuf::ServerInformation readInfo;
     logCabinHelper->parseProtoBufFromEntry(

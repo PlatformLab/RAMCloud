@@ -51,6 +51,7 @@ CoordinatorServerList::CoordinatorServerList(Context* context)
     , minConfirmedVersion(0)
     , numUpdatingServers(0)
     , nextReplicationId(1)
+    , logIdAppendServerAlive(NO_ID)
 {
     context->coordinatorServerList = this;
     startUpdater();
@@ -119,6 +120,7 @@ CoordinatorServerList::enlistServer(
         ServerCrashed(*this, lock, replacesId, version + 1).execute();
     }
 
+    AppendServerAlive(*this, lock).execute();
     ServerId newServerId =
         EnlistServer(*this, lock, ServerId(), serviceMask,
                      readSpeed, serviceLocator, version + 1).execute();
@@ -334,6 +336,25 @@ CoordinatorServerList::recoverAliveServer(
 }
 
 /**
+ * During Coordinator recovery, complete an AppendServerAlive operation that had
+ * started before Coordinator crash, but not completed.
+ *
+ * \param state
+ *      The ProtoBuf that encapsulates the state of the AppendServerAlive
+ *      operation to be recovered.
+ * \param logIdAppendServerAlive
+ *      The entry id of the LogCabin entry corresponding to the state.
+ */
+void
+CoordinatorServerList::recoverAppendServerAlive(
+    ProtoBuf::EntryType* state, EntryId logIdAppendServerAlive)
+{
+    Lock lock(mutex);
+    LOG(DEBUG, "CoordinatorServerList::recoverAppendServerAlive()");
+    AppendServerAlive(*this, lock).complete(logIdAppendServerAlive);
+}
+
+/**
  * During Coordinator recovery, complete an enlistServer operation that had
  * started before Coordinator crash, but not completed.
  *
@@ -449,6 +470,47 @@ CoordinatorServerList::recoverServerUpdate(
 //////////////////////////////////////////////////////////////////////
 
 /**
+ * Do everything needed to execute the AppendServerAlive operation.
+ * This indicates that the next EnlistServer operation should also append
+ * a ServerAlive entry in addition to EnlistServer entry.
+ * Do any processing required before logging the state
+ * in LogCabin, log the state in LogCabin, then call #complete().
+ */
+void
+CoordinatorServerList::AppendServerAlive::execute()
+{
+    ProtoBuf::EntryType state;
+    state.set_entry_type("AppendServerAlive");
+
+    EntryId logIdAppendServerAlive =
+        csl.context->logCabinHelper->appendProtoBuf(
+                *csl.context->expectedEntryId, state);
+    LOG(DEBUG, "LogCabin: AppendServerAlive entryId: %lu",
+                logIdAppendServerAlive);
+
+    return complete(logIdAppendServerAlive);
+}
+
+/**
+ * Complete the AppendServerAlive operation after its state has been
+ * logged in LogCabin.
+ * This is called internally by #execute() in case of normal operation
+ * (which is in turn called by #enlistServer()), and
+ * directly for coordinator recovery (by #recoverAppendServerAlive()).
+ *
+ * \param logIdAppendServerAlive
+ *      The entry id of the LogCabin entry that indicates that the next
+ *      EnlistServer operation should also append a ServerAlive entry
+ *      in addition to EnlistServer entry.
+ */
+void
+CoordinatorServerList::AppendServerAlive::complete(
+        EntryId logIdAppendServerAlive)
+{
+    csl.logIdAppendServerAlive = logIdAppendServerAlive;
+}
+
+/**
  * Do everything needed to execute the EnlistServer operation.
  * Do any processing required before logging the state
  * in LogCabin, log the state in LogCabin, then call #complete().
@@ -471,19 +533,7 @@ CoordinatorServerList::EnlistServer::execute()
                 *csl.context->expectedEntryId, stateEnlistServer);
     LOG(DEBUG, "LogCabin: EnlistServer entryId: %lu", logIdEnlistServer);
 
-    ProtoBuf::ServerInformation stateAliveServer;
-    stateAliveServer.set_entry_type("AliveServer");
-    stateAliveServer.set_server_id(newServerId.getId());
-    stateAliveServer.set_service_mask(serviceMask.serialize());
-    stateAliveServer.set_read_speed(readSpeed);
-    stateAliveServer.set_service_locator(string(serviceLocator));
-
-    EntryId logIdAliveServer =
-        csl.context->logCabinHelper->appendProtoBuf(
-                *csl.context->expectedEntryId, stateAliveServer);
-    LOG(DEBUG, "LogCabin: AliveServer entryId: %lu", logIdAliveServer);
-
-    return complete(logIdEnlistServer, logIdAliveServer);
+    return complete(logIdEnlistServer);
 }
 
 /**
@@ -498,19 +548,33 @@ CoordinatorServerList::EnlistServer::execute()
  *      for this server.
  *      During recovery, reading an EnlistServer entry means that
  *      the enlistment update should be (re-)sent to the cluster.
- * \param logIdAliveServer
- *      The entry id of the LogCabin entry that has initial information
- *      for this server.
- *      During recovery, reading an AliveServer entry means that
- *      the enlistment has already been acknowledged by the cluster.
  */
 ServerId
 CoordinatorServerList::EnlistServer::complete(
-        EntryId logIdEnlistServer, EntryId logIdAliveServer)
+        EntryId logIdEnlistServer)
 {
     csl.add(lock, newServerId, serviceLocator, serviceMask, readSpeed);
     csl.version = updateVersion;
     csl.pushUpdate(lock, updateVersion);
+
+    EntryId logIdAliveServer = NO_ID;
+    if (csl.logIdAppendServerAlive != NO_ID) {
+        ProtoBuf::ServerInformation stateAliveServer;
+        stateAliveServer.set_entry_type("AliveServer");
+        stateAliveServer.set_server_id(newServerId.getId());
+        stateAliveServer.set_service_mask(serviceMask.serialize());
+        stateAliveServer.set_read_speed(readSpeed);
+        stateAliveServer.set_service_locator(string(serviceLocator));
+
+        logIdAliveServer =
+            csl.context->logCabinHelper->appendProtoBuf(
+                    *csl.context->expectedEntryId, stateAliveServer,
+                    vector<EntryId>(csl.logIdAppendServerAlive));
+        LOG(DEBUG, "LogCabin: AliveServer entryId: %lu", logIdAliveServer);
+
+        // Reset the csl.logIdAppendServerAlive for next operation.
+        csl.logIdAppendServerAlive = NO_ID;
+    }
 
     CoordinatorServerList::Entry entry(*csl.getEntry(newServerId));
     entry.logIdEnlistServer = logIdEnlistServer;
