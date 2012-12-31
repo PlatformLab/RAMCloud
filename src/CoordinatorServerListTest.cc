@@ -496,12 +496,12 @@ TEST_F(CoordinatorServerListTest, serverCrashed_LogCabin) {
     vector<Entry> entriesRead = logCabinLog->read(0);
     string searchString = "execute: LogCabin: ServerCrashed entryId: ";
     ASSERT_NO_THROW(findEntryId(searchString));
-    ProtoBuf::ServerCrashed readState;
+    ProtoBuf::ServerCrashInfo readState;
     logCabinHelper->parseProtoBufFromEntry(
             entriesRead[findEntryId(searchString)], readState);
 
     EXPECT_EQ("entry_type: \"ServerCrashed\"\nserver_id: 1\n",
-            readState.DebugString());
+              readState.DebugString());
 }
 
 TEST_F(CoordinatorServerListTest, setMasterRecoveryInfo) {
@@ -648,6 +648,56 @@ TEST_F(CoordinatorServerListTest, recoverEnlistServer) {
                backupList.ShortDebugString());
 }
 
+TEST_F(CoordinatorServerListTest, recoverServerCrashed) {
+    enlistMaster();
+    service->context->recoveryManager->doNotStartRecoveries = true;
+
+    ramcloud->createTable("foo");
+    service->forceServerDownForTesting = true;
+    TestLog::Enable _(startMasterRecoveryFilter);
+
+    ProtoBuf::ServerCrashInfo state;
+    state.set_entry_type("ServerCrashed");
+    state.set_server_id(masterServerId.getId());
+
+    EntryId entryId = logCabinHelper->appendProtoBuf(
+            *service->context->expectedEntryId, state);
+
+    sl->recoverServerCrashed(&state, entryId);
+
+    EXPECT_EQ("", TestLog::get());
+    EXPECT_EQ(ServerStatus::CRASHED, (*sl)[master->serverId].status);
+}
+
+TEST_F(CoordinatorServerListTest, recoverServerNeedsRecovery) {
+    enlistMaster();
+    service->context->recoveryManager->doNotStartRecoveries = true;
+
+    ramcloud->createTable("foo");
+    service->forceServerDownForTesting = true;
+    TestLog::Enable _(startMasterRecoveryFilter);
+
+    ProtoBuf::ServerCrashInfo state1;
+    state1.set_entry_type("ServerNeedsRecovery");
+    state1.set_server_id(masterServerId.getId());
+    EntryId entryId1 = logCabinHelper->appendProtoBuf(
+            *service->context->expectedEntryId, state1);
+
+    ProtoBuf::ServerCrashInfo state2;
+    state2.set_entry_type("ServerCrashed");
+    state2.set_server_id(masterServerId.getId());
+    EntryId entryId2 = logCabinHelper->appendProtoBuf(
+            *service->context->expectedEntryId, state2);
+
+    sl->recoverServerNeedsRecovery(&state1, entryId1);
+    sl->recoverServerCrashed(&state2, entryId2);
+
+    EXPECT_EQ("startMasterRecovery: Scheduling recovery of master 1.0 | "
+              "startMasterRecovery: Recovery crashedServerId: 1.0",
+               TestLog::get());
+    EXPECT_EQ(ServerStatus::CRASHED, (*sl)[master->serverId].status);
+}
+
 TEST_F(CoordinatorServerListTest, recoverServerUpdate) {
     enlistMaster();
     ProtoBuf::ServerUpdate serverUpdate;
@@ -664,30 +714,6 @@ TEST_F(CoordinatorServerListTest, recoverServerUpdate) {
             (*sl)[masterServerId].masterRecoveryInfo.min_open_segment_id());
     EXPECT_EQ(1lu,
             (*sl)[masterServerId].masterRecoveryInfo.min_open_segment_epoch());
-}
-
-TEST_F(CoordinatorServerListTest, recoverServerCrashed) {
-    enlistMaster();
-    service->context->recoveryManager->doNotStartRecoveries = true;
-
-    ramcloud->createTable("foo");
-    service->forceServerDownForTesting = true;
-    TestLog::Enable _(startMasterRecoveryFilter);
-
-    ProtoBuf::ServerCrashed state;
-    state.set_entry_type("ServerCrashed");
-    state.set_server_id(masterServerId.getId());
-
-    EntryId entryId = logCabinHelper->appendProtoBuf(
-            *service->context->expectedEntryId, state);
-
-    sl->recoverServerCrashed(&state, entryId);
-
-    EXPECT_EQ("startMasterRecovery: Scheduling recovery of master 1.0 | "
-            "startMasterRecovery: Recovery crashedServerId: 1.0",
-            TestLog::get());
-    EXPECT_EQ(ServerStatus::CRASHED,
-            (*sl)[master->serverId].status);
 }
 
 //////////////////////////////////////////////////////////////////////

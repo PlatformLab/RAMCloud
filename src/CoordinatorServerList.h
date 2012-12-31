@@ -24,9 +24,9 @@
 #include "MasterRecoveryInfo.pb.h"
 #include "ServerList.pb.h"
 
+#include "ServerCrashInfo.pb.h"
 #include "ServerInformation.pb.h"
 #include "ServerUpdate.pb.h"
-#include "ServerCrashed.pb.h"
 
 #include "AbstractServerList.h"
 #include "ServiceMask.h"
@@ -42,26 +42,26 @@ namespace RAMCloud {
 using LogCabin::Client::EntryId;
 using LogCabin::Client::NO_ID;
 
- /**
-  * A CoordinatorServerList allocates ServerIds and holds Coordinator
-  * state associated with live servers. It is closely related to the
-  * ServerList and ServerTracker classes in that it essentially consists
-  * of a map of ServerIds to some data and supports ServerTrackers. The
-  * tracker will be fed updates whenever servers come or go (add,
-  * crashed, removed).
-  *
-  * Additionally, this class contains the logic to propagate membership updates
-  * (add/crashed/remove) and send the full list to ServerIds on the list.
-  * Add/Crashed/Removes statuses are buffered into an internally managed
-  * Protobuf until pushUpdate() is called, which will finalize the update.
-  * The updates are done asynchronously from the CoordinatorServerList call
-  * thread. sync() can be called to force a synchronization point.
-  *
-  * CoordinatorServerList is thread-safe and supports ServerTrackers.
-  *
-  * This class publicly extends AbstractServerList to provide a common
-  * interface to READ from map of ServerIds and (un)register trackers.
-  */
+/**
+ * A CoordinatorServerList allocates ServerIds and holds Coordinator
+ * state associated with live servers. It is closely related to the
+ * ServerList and ServerTracker classes in that it essentially consists
+ * of a map of ServerIds to some data and supports ServerTrackers. The
+ * tracker will be fed updates whenever servers come or go (add,
+ * crashed, removed).
+ *
+ * Additionally, this class contains the logic to propagate membership updates
+ * (add/crashed/remove) and send the full list to ServerIds on the list.
+ * Add/Crashed/Removes statuses are buffered into an internally managed
+ * Protobuf until pushUpdate() is called, which will finalize the update.
+ * The updates are done asynchronously from the CoordinatorServerList call
+ * thread. sync() can be called to force a synchronization point.
+ *
+ * CoordinatorServerList is thread-safe and supports ServerTrackers.
+ *
+ * This class publicly extends AbstractServerList to provide a common
+ * interface to READ from map of ServerIds and (un)register trackers.
+ */
 class CoordinatorServerList : public AbstractServerList{
   PUBLIC:
     static const uint64_t MAX64 = ((uint64_t)-1);
@@ -73,7 +73,7 @@ class CoordinatorServerList : public AbstractServerList{
     /// in one UpdaterWorkUnit
     static const uint64_t MAX_UPDATES_PER_RPC = 100;
 
-  /**
+    /**
      * This class represents one entry in the CoordinatorServerList. Each
      * entry describes a specific server in the system and contains the
      * state that the Coordinator maintains on its behalf.
@@ -114,6 +114,13 @@ class CoordinatorServerList : public AbstractServerList{
          */
         ProtoBuf::MasterRecoveryInfo masterRecoveryInfo;
 
+        /**
+         * Indicates whether this server needs to be recovered.
+         * Its value is false by default (when the server it UP). It is set
+         * to true at the beginning of crash recovery for the server, and
+         * reset to false when that recovery completes.
+         */
+        bool needsRecovery;
 
         /**
          * The two fields below, verifiedVersion and updateVersion,
@@ -155,46 +162,64 @@ class CoordinatorServerList : public AbstractServerList{
          *
          */
 
-         /**
-          * The latest version of the ServerList that server received,
-          * applied, and ACKed to. See comment block above for more info.
-          */
+        /**
+         * The latest version of the ServerList that server received,
+         * applied, and ACKed to. See comment block above for more info.
+         */
         uint64_t verifiedVersion;
 
-         /*
-          * The version of the ServerList that was last sent out in an
-          * RPC, which may be in progress or has completed successfully.
-          * See comment block above verfiedVersion for more info.
-          */
-        uint64_t updateVersion;
-
-        /**
-         * Entry id corresponding to entry in LogCabin log that has
-         * initial information for this server.
-         * During recovery, reading an AliveServer entry means that
-         * the enlistment has already been acknowledged by the cluster.
+        /*
+         * The version of the ServerList that was last sent out in an
+         * RPC, which may be in progress or has completed successfully.
+         * See comment block above verfiedVersion for more info.
          */
-         LogCabin::Client::EntryId logIdAliveServer;
-
-         /**
-         * Entry id corresponding to entry in LogCabin log that has
-         * initial information for this server.
-         * During recovery, reading an EnlistServer entry means that
-         * the enlistment update should be (re-)sent to the cluster.
-          */
-         LogCabin::Client::EntryId logIdEnlistServer;
+        uint64_t updateVersion;
 
          /**
           * Entry id corresponding to entry in LogCabin log that has
-          * the most information about removing a server from the cluster.
+          * initial information for this server.
+          * During recovery, reading an AliveServer entry means that
+          * the enlistment has already been acknowledged by the cluster.
           */
-         LogCabin::Client::EntryId logIdServerCrashed;
+         EntryId logIdAliveServer;
 
-        /**
-         * Entry id corresponding to entry in LogCabin log that has
-         * the most recent update for this server.
-         */
-         LogCabin::Client::EntryId logIdServerUpdate;
+         /**
+          * Entry id corresponding to entry in LogCabin log that has
+          * initial information for this server.
+          * During recovery, reading an EnlistServer entry means that
+          * the enlistment update should be (re-)sent to the cluster.
+          */
+         EntryId logIdEnlistServer;
+
+         /**
+          * Entry id corresponding to entry in LogCabin log that has
+          * information about removing a server from the cluster.
+          */
+         EntryId logIdServerCrashed;
+
+         /**
+          * Entry id corresponding to entry in LogCabin log that indicates
+          * that recovery for this server has not yet completed and
+          * should be started.
+          * Appending this entry at the beginning of a server's crash recovery
+          * and invalidating it when the recovery has completed is equivalent
+          * of toggling a boolean (in a key-value store) indicating whether
+          * this server needs to be recovered.
+          */
+         EntryId logIdServerNeedsRecovery;
+
+         /**
+          * Entry id corresponding to entry in LogCabin log that indicates
+          * that recovery for this server has completed, and REMOVE updates
+          * need to be sent to the clusters.
+          */
+         EntryId logIdServerRemoveUpdate;
+
+         /**
+          * Entry id corresponding to entry in LogCabin log that has
+          * the most recent update for this server.
+          */
+         EntryId logIdServerUpdate;
     };
 
     explicit CoordinatorServerList(Context* context);
@@ -214,11 +239,13 @@ class CoordinatorServerList : public AbstractServerList{
 
     /// Functions for CoordinatorServerList Recovery.
     void recoverAliveServer(ProtoBuf::ServerInformation* state,
-                               EntryId logIdAliveServer);
+                            EntryId logIdAliveServer);
     void recoverEnlistServer(ProtoBuf::ServerInformation* state,
                              EntryId logIdEnlistServer);
-    void recoverServerCrashed(ProtoBuf::ServerCrashed* state,
-                           EntryId logIdServerCrashed);
+    void recoverServerCrashed(ProtoBuf::ServerCrashInfo* state,
+                              EntryId logIdServerCrashed);
+    void recoverServerNeedsRecovery(ProtoBuf::ServerCrashInfo* state,
+                                    EntryId logIdServerNeedsRecovery);
     void recoverServerUpdate(ProtoBuf::ServerUpdate* state,
                              EntryId logIdServerUpdate);
 
@@ -303,13 +330,14 @@ class CoordinatorServerList : public AbstractServerList{
      * Removing the server includes marking the server as crashed,
      * propagating that information (through server trackers and the
      * cluster updater) and invoking recovery.
-     * Once recovery has finished, the server will be removed from server list.
+     * Once recovery has finished (in a separate thread), it will invoke
+     * recoveryCompleted() to do the rest of the work.
      */
     class ServerCrashed {
         public:
             ServerCrashed(CoordinatorServerList &csl,
-                       Lock& lock,
-                       ServerId serverId)
+                          Lock& lock,
+                          ServerId serverId)
                 : csl(csl), lock(lock),
                   serverId(serverId) {}
             void execute();
@@ -325,10 +353,81 @@ class CoordinatorServerList : public AbstractServerList{
              */
             Lock& lock;
             /**
-             * ServerId of the server that is suspected to be down.
+             * ServerId of the server that is suspected to have crashed.
              */
             ServerId serverId;
             DISALLOW_COPY_AND_ASSIGN(ServerCrashed);
+    };
+
+    /**
+     * Defines methods and stores data to indicate that a server that had
+     * crashed needs to be recovered.
+     * 
+     * Invoking its execute() before starting crash recovery, logs that
+     * this server's recovery has not yet completed, and that it should be
+     * restarted if the coordinator crashes.
+     * During normal operation, and during replay, it (in the complete()
+     * method) indicates in the server list entry that this server
+     * needs recovery.
+     */
+    class ServerNeedsRecovery {
+        public:
+            ServerNeedsRecovery(CoordinatorServerList &csl,
+                                Lock& lock,
+                                ServerId serverId)
+                : csl(csl), lock(lock),
+                  serverId(serverId) {}
+            void execute();
+            void complete(EntryId entryId);
+        private:
+            /**
+             * Reference to the instance of CoordinatorServerList
+             * initializing this class.
+             */
+            CoordinatorServerList &csl;
+            /**
+             * Explicity needs CoordinatorServerList lock.
+             */
+            Lock& lock;
+            /**
+             * ServerId of the server that has crashed and needs recovery.
+             */
+            ServerId serverId;
+            DISALLOW_COPY_AND_ASSIGN(ServerNeedsRecovery);
+    };
+
+    /**
+     * Defines methods and stores data to handle removal of a server
+     * after its recovery has completed.
+     * 
+     * This includes propagating remove update to the cluster. Once that
+     * update has been acknowledged, the server will be removed from the server
+     * list, and all the corresponding LogCabin entries will be invalidated.
+     */
+    class ServerRecoveryCompleted {
+        public:
+            ServerRecoveryCompleted(CoordinatorServerList &csl,
+                                    Lock& lock,
+                                    ServerId serverId)
+                : csl(csl), lock(lock),
+                  serverId(serverId) {}
+            void execute();
+            void complete(EntryId entryId);
+        private:
+            /**
+             * Reference to the instance of CoordinatorServerList
+             * initializing this class.
+             */
+            CoordinatorServerList &csl;
+            /**
+             * Explicity needs CoordinatorServerList lock.
+             */
+            Lock& lock;
+            /**
+             * ServerId of the server whose recovery has been completed.
+             */
+            ServerId serverId;
+            DISALLOW_COPY_AND_ASSIGN(ServerRecoveryCompleted);
     };
 
     /**

@@ -16,12 +16,24 @@
 package RAMCloud.ProtoBuf;
 
 // The information appended to LogCabin by the Coordinator
-// to store the state when removing a server from the cluster.
-message ServerCrashed {
+// to store the state after a server has crashed, and the Coordinator
+// is handling its recovery and removal.
+
+// The different entry_type's indicate the different states.
+// "ServerNeedsRecovery" means that this server's recovery has not been
+// completed, and needs to be restarted when its crash is being handled.
+// "ServerCrashed" means that this server has crashed, and needs its
+// CRASH update to be sent out and recovery started if its entry indicates
+// that it needs recovery.
+// "ServerRemoveUpdate" means that this server had crashed, and its CRASH
+// updates have been sent out, and its recovery completed. It now needs its
+// REMOVE updates to be sent out to the cluster.
+
+message ServerCrashInfo {
 
     /// Entry type for this LogCabin entry.
     required string entry_type = 1;
 
-    /// ServerId of the server that is being forced out.
+    /// ServerId of the server that has crashed.
     required uint64 server_id = 2;
 }

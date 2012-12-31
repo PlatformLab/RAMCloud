@@ -73,7 +73,7 @@ CoordinatorServiceRecovery::replay(bool testing)
         } else if (!entryType.compare("ServerCrashed")) {
 
             RAMCLOUD_LOG(DEBUG, "ServiceRecovery: ServerCrashed");
-            ProtoBuf::ServerCrashed state;
+            ProtoBuf::ServerCrashInfo state;
             service.logCabinHelper->parseProtoBufFromEntry(*it, state);
             service.serverList->recoverServerCrashed(&state, entryId);
 

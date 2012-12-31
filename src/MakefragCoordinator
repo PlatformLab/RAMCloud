@@ -1,8 +1,8 @@
 LOGCABIN_STATE_PROTOBUF_FILES := \
                         src/EntryType.pb.cc \
+			src/ServerCrashInfo.pb.cc \
 			src/ServerInformation.pb.cc \
 			src/ServerUpdate.pb.cc \
-			src/ServerCrashed.pb.cc \
 			src/SplitTablet.pb.cc \
 			src/TableDrop.pb.cc \
 			src/TableInformation.pb.cc \

@@ -68,7 +68,7 @@ TEST_F(CoordinatorServiceRecoveryTest, replay_basic) {
     logCabinHelper->appendProtoBuf(
                 coordRecovery->service.expectedEntryId, serverInfo);
 
-    ProtoBuf::ServerCrashed serverCrashed;
+    ProtoBuf::ServerCrashInfo serverCrashed;
     serverCrashed.set_entry_type("ServerCrashed");
     serverCrashed.set_server_id(ServerId(1, 0).getId());
     logCabinHelper->appendProtoBuf(
