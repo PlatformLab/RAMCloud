@@ -371,7 +371,6 @@ CoordinatorServerList::recoverEnlistServer(
 {
     Lock lock(mutex);
     LOG(DEBUG, "CoordinatorServerList::recoverEnlistServer()");
-    version = state->update_version();
     EnlistServer(*this, lock,
                  ServerId(state->server_id()),
                  ServiceMask::deserialize(state->service_mask()),
@@ -395,7 +394,6 @@ CoordinatorServerList::recoverServerCrashed(
 {
     Lock lock(mutex);
     LOG(DEBUG, "CoordinatorServerList::recoverServerCrashed()");
-    version = state->update_version();
     ServerCrashed(*this, lock,
                   ServerId(state->server_id()),
                   state->update_version()).complete(logIdServerCrashed);
@@ -447,7 +445,6 @@ CoordinatorServerList::recoverServerRemoveUpdate(
 {
     Lock lock(mutex);
     LOG(DEBUG, "CoordinatorServerList::recoverServerRemoveUpdate()");
-    version = state->update_version();
     ServerRemoveUpdate(*this, lock,
                        ServerId(state->server_id()),
                        state->update_version()).complete(
