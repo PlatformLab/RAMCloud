@@ -70,6 +70,7 @@ struct MasterRecoveryManagerTest : public ::testing::Test {
             {WireFormat::MASTER_SERVICE}, 0);
         serverList->version++;
         serverList->pushUpdate(lock, serverList->version);
+        serverList->sync();
         serverList->update.Clear(); // prevents cross contamination
         while (!mgr->taskQueue.isIdle())
             mgr->taskQueue.performTask();
@@ -92,6 +93,7 @@ struct MasterRecoveryManagerTest : public ::testing::Test {
         serverList->crashed(lock, crashedServerId);
         serverList->version++;
         serverList->pushUpdate(lock, serverList->version);
+        serverList->sync();
         serverList->update.Clear(); // prevents cross contamination
         while (!mgr->taskQueue.isIdle())
             mgr->taskQueue.performTask();
@@ -266,13 +268,14 @@ TEST_F(MasterRecoveryManagerTest, recoveryMasterFinished) {
                                {2, 0}, recoveredTablets, true);
     EXPECT_EQ(3lu, serverList->version);
     EXPECT_EQ(1lu, mgr->taskQueue.outstandingTasks());
+    serverList->sync();
     TestLog::Enable _;
     mgr->taskQueue.performTask(); // Do RecoveryMasterFinishedTask.
     EXPECT_EQ(
         "performTask: Modifying tablet map to set recovery master 2.0 as "
             "master for 0, 0, 18446744073709551615 | "
-        "execute: LogCabin: TabletRecovered entryId: 3 | "
-        "complete: LogCabin: AliveTable entryId: 4 | "
+        "execute: LogCabin: TabletRecovered entryId: 6 | "
+        "complete: LogCabin: AliveTable entryId: 7 | "
         "performTask: Coordinator tableManager after recovery master 2.0 "
             "finished: "
         "Tablet { tableId: 0 startKeyHash: 0 endKeyHash: 18446744073709551615 "
@@ -281,7 +284,7 @@ TEST_F(MasterRecoveryManagerTest, recoveryMasterFinished) {
             "serverId: 1.0 status: RECOVERING ctime: 2, 3 } | "
         "schedule: scheduled | "
         "recoveryFinished: Recovery 1 completed for master 1.0 | "
-        "execute: LogCabin: ServerRemoveUpdate entryId: 5 | "
+        "execute: LogCabin: ServerRemoveUpdate entryId: 8 | "
         "schedule: scheduled | schedule: scheduled",
               TestLog::get());
 

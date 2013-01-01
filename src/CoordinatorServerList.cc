@@ -52,6 +52,7 @@ CoordinatorServerList::CoordinatorServerList(Context* context)
     , numUpdatingServers(0)
     , nextReplicationId(1)
     , logIdAppendServerAlive(NO_ID)
+    , logIdServerListVersion(NO_ID)
 {
     context->coordinatorServerList = this;
     startUpdater();
@@ -400,6 +401,15 @@ CoordinatorServerList::recoverServerCrashed(
                   state->update_version()).complete(logIdServerCrashed);
 }
 
+void
+CoordinatorServerList::recoverServerListVersion(
+    ProtoBuf::ServerListVersion* state, EntryId logIdServerListVersion)
+{
+    Lock lock(mutex);
+    PersistServerListVersion(*this, lock,
+                             state->version()).complete(logIdServerListVersion);
+}
+
 /**
  * During coordinator recovery, record in server list that for this server
  * (that had crashed), we need to start the master crash recovery. 
@@ -566,10 +576,11 @@ CoordinatorServerList::EnlistServer::complete(
         stateAliveServer.set_read_speed(readSpeed);
         stateAliveServer.set_service_locator(string(serviceLocator));
 
+        vector<EntryId> invalidates {csl.logIdAppendServerAlive};
         logIdAliveServer =
             csl.context->logCabinHelper->appendProtoBuf(
                     *csl.context->expectedEntryId, stateAliveServer,
-                    vector<EntryId>(csl.logIdAppendServerAlive));
+                    invalidates);
         LOG(DEBUG, "LogCabin: AliveServer entryId: %lu", logIdAliveServer);
 
         // Reset the csl.logIdAppendServerAlive for next operation.
@@ -592,6 +603,32 @@ CoordinatorServerList::EnlistServer::complete(
     }
 
     return newServerId;
+}
+
+void
+CoordinatorServerList::PersistServerListVersion::execute()
+{
+    ProtoBuf::ServerListVersion state;
+    state.set_entry_type("PersistServerListVersion");
+    state.set_version(version);
+
+    vector<EntryId> invalidates;
+    if (csl.logIdServerListVersion != NO_ID)
+        invalidates.push_back(csl.logIdServerListVersion);
+    EntryId entryId =
+        csl.context->logCabinHelper->appendProtoBuf(
+            *csl.context->expectedEntryId, state, invalidates);
+    LOG(DEBUG, "LogCabin: PersistServerListVersion entryId: %lu", entryId);
+
+    complete(entryId);
+}
+
+void
+CoordinatorServerList::PersistServerListVersion::complete(
+        EntryId logIdServerListVersion)
+{
+    csl.version = version;
+    csl.logIdServerListVersion = logIdServerListVersion;
 }
 
 /**
@@ -1361,6 +1398,10 @@ CoordinatorServerList::pruneUpdates(const Lock& lock)
         // Reset minVersion in the hopes of it being a transient bug.
         minConfirmedVersion = 0;
         return;
+    }
+
+    if (minConfirmedVersion == version) {
+        PersistServerListVersion(*this, lock, version).execute();
     }
 
     while (!updates.empty() && updates.front().version <= minConfirmedVersion) {

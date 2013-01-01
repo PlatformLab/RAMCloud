@@ -27,6 +27,7 @@
 #include "EntryType.pb.h"
 #include "ServerCrashInfo.pb.h"
 #include "ServerInformation.pb.h"
+#include "ServerListVersion.pb.h"
 #include "ServerUpdate.pb.h"
 
 #include "AbstractServerList.h"
@@ -247,6 +248,8 @@ class CoordinatorServerList : public AbstractServerList{
                              EntryId logIdEnlistServer);
     void recoverServerCrashed(ProtoBuf::ServerCrashInfo* state,
                               EntryId logIdServerCrashed);
+    void recoverServerListVersion(ProtoBuf::ServerListVersion* state,
+                                  EntryId logIdServerListVersion);
     void recoverServerNeedsRecovery(ProtoBuf::ServerCrashInfo* state,
                                     EntryId logIdServerNeedsRecovery);
     void recoverServerRemoveUpdate(ProtoBuf::ServerCrashInfo* state,
@@ -357,6 +360,36 @@ class CoordinatorServerList : public AbstractServerList{
            */
           uint64_t updateVersion;
           DISALLOW_COPY_AND_ASSIGN(EnlistServer);
+    };
+
+    /**
+     * Defines methods and stores data to persist and restore server list
+     * version number.
+     */
+    class PersistServerListVersion {
+        public:
+            PersistServerListVersion(CoordinatorServerList &csl,
+                                     const Lock& lock,
+                                     uint64_t version)
+                : csl(csl), lock(lock),
+                  version(version) {}
+            void execute();
+            void complete(EntryId entryId);
+        private:
+            /**
+             * Reference to the instance of CoordinatorServerList
+             * initializing this class.
+             */
+            CoordinatorServerList &csl;
+            /**
+             * Explicity needs CoordinatorServerList lock.
+             */
+            const Lock& lock;
+            /**
+             * Latest coordinator server list update version number.
+             */
+            uint64_t version;
+            DISALLOW_COPY_AND_ASSIGN(PersistServerListVersion);
     };
 
     /**
@@ -808,6 +841,12 @@ class CoordinatorServerList : public AbstractServerList{
      * A value of NO_ID means that such an entry does not exist.
      */
     EntryId logIdAppendServerAlive;
+
+    /**
+     * The entry id of the LogCabin entry that has the latest server list
+     * version number.
+     */
+    EntryId logIdServerListVersion;
 
     DISALLOW_COPY_AND_ASSIGN(CoordinatorServerList);
 };
