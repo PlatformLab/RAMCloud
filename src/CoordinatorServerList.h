@@ -242,8 +242,7 @@ class CoordinatorServerList : public AbstractServerList{
     /// Functions for CoordinatorServerList Recovery.
     void recoverAliveServer(ProtoBuf::ServerInformation* state,
                             EntryId logIdAliveServer);
-    void recoverAppendServerAlive(ProtoBuf::EntryType* state,
-                                  EntryId logIdAppendServerAlive);
+    void recoverAppendServerAlive(EntryId logIdAppendServerAlive);
     void recoverEnlistServer(ProtoBuf::ServerInformation* state,
                              EntryId logIdEnlistServer);
     void recoverServerCrashed(ProtoBuf::ServerCrashInfo* state,

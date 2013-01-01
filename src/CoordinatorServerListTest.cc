@@ -1273,7 +1273,7 @@ TEST_F(CoordinatorServerListTest, updateLoop) {
     sl->sync();
     EXPECT_TRUE(sl->updates.empty());
     EXPECT_EQ("workSuccess: ServerList Update Success: 4.0 update (0 => 1) | "
-              "execute: LogCabin: PersistServerListVersion entryId: 1",
+              "execute: LogCabin: ServerListVersion entryId: 1",
                TestLog::get());
     EXPECT_EQ("sendRequest: 0x40023 4 0 11 273 0 /0 /x18/0",
                transport.outputLog);
@@ -1302,7 +1302,7 @@ TEST_F(CoordinatorServerListTest, updateLoop) {
     EXPECT_TRUE(sl->updates.empty());
     EXPECT_EQ("workSuccess: ServerList Update Success: 4.0 update (1 => 2) | "
               "workSuccess: ServerList Update Success: 1.1 update (0 => 2) | "
-              "execute: LogCabin: PersistServerListVersion entryId: 7",
+              "execute: LogCabin: ServerListVersion entryId: 7",
               TestLog::get());
 }
 
@@ -1331,7 +1331,7 @@ TEST_F(CoordinatorServerListTest, updateLoop_SlowStartWithBatch) {
             "workSuccess: ServerList Update Success: 4.0 update (1 => 5) | "
             "workSuccess: ServerList Update Success: 5.0 update (0 => 1) | "
             "workSuccess: ServerList Update Success: 5.0 update (1 => 5) | "
-            "execute: LogCabin: PersistServerListVersion entryId: 0",
+            "execute: LogCabin: ServerListVersion entryId: 0",
                TestLog::get());
 }
 

@@ -56,19 +56,24 @@ CoordinatorServiceRecovery::replay(bool testing)
         if (testing) continue;
 
         // Dispatch
-        if (!entryType.compare("ServerEnlisting")) {
-
-            RAMCLOUD_LOG(DEBUG, "ServiceRecovery: ServerEnlisting");
-            ProtoBuf::ServerInformation state;
-            service.logCabinHelper->parseProtoBufFromEntry(*it, state);
-            service.serverList->recoverEnlistServer(&state, entryId);
-
-        } else if (!entryType.compare("ServerEnlisted")) {
+        if (!entryType.compare("ServerEnlisted")) {
 
             RAMCLOUD_LOG(DEBUG, "ServiceRecovery: ServerEnlisted");
             ProtoBuf::ServerInformation state;
             service.logCabinHelper->parseProtoBufFromEntry(*it, state);
             service.serverList->recoverAliveServer(&state, entryId);
+
+        } else if (!entryType.compare("AppendServerAlive")) {
+
+            RAMCLOUD_LOG(DEBUG, "ServiceRecovery: AppendServerAlive");
+            service.serverList->recoverAppendServerAlive(entryId);
+
+        } else if (!entryType.compare("ServerEnlisting")) {
+
+            RAMCLOUD_LOG(DEBUG, "ServiceRecovery: ServerEnlisting");
+            ProtoBuf::ServerInformation state;
+            service.logCabinHelper->parseProtoBufFromEntry(*it, state);
+            service.serverList->recoverEnlistServer(&state, entryId);
 
         } else if (!entryType.compare("ServerCrashed")) {
 
@@ -76,6 +81,20 @@ CoordinatorServiceRecovery::replay(bool testing)
             ProtoBuf::ServerCrashInfo state;
             service.logCabinHelper->parseProtoBufFromEntry(*it, state);
             service.serverList->recoverServerCrashed(&state, entryId);
+
+        } else if (!entryType.compare("ServerListVersion")) {
+
+            RAMCLOUD_LOG(DEBUG, "ServiceRecovery: ServerListVersion");
+            ProtoBuf::ServerListVersion state;
+            service.logCabinHelper->parseProtoBufFromEntry(*it, state);
+            service.serverList->recoverServerListVersion(&state, entryId);
+
+        } else if (!entryType.compare("ServerNeedsRecovery")) {
+
+            RAMCLOUD_LOG(DEBUG, "ServiceRecovery: ServerNeedsRecovery");
+            ProtoBuf::ServerCrashInfo state;
+            service.logCabinHelper->parseProtoBufFromEntry(*it, state);
+            service.serverList->recoverServerNeedsRecovery(&state, entryId);
 
         } else if (!entryType.compare("ServerUpdate")) {
 

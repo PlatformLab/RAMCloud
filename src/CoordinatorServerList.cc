@@ -340,15 +340,11 @@ CoordinatorServerList::recoverAliveServer(
  * During Coordinator recovery, complete an AppendServerAlive operation that had
  * started before Coordinator crash, but not completed.
  *
- * \param state
- *      The ProtoBuf that encapsulates the state of the AppendServerAlive
- *      operation to be recovered.
  * \param logIdAppendServerAlive
  *      The entry id of the LogCabin entry corresponding to the state.
  */
 void
-CoordinatorServerList::recoverAppendServerAlive(
-    ProtoBuf::EntryType* state, EntryId logIdAppendServerAlive)
+CoordinatorServerList::recoverAppendServerAlive(EntryId logIdAppendServerAlive)
 {
     Lock lock(mutex);
     LOG(DEBUG, "CoordinatorServerList::recoverAppendServerAlive()");
@@ -606,7 +602,7 @@ void
 CoordinatorServerList::PersistServerListVersion::execute()
 {
     ProtoBuf::ServerListVersion state;
-    state.set_entry_type("PersistServerListVersion");
+    state.set_entry_type("ServerListVersion");
     state.set_version(version);
 
     vector<EntryId> invalidates;
@@ -615,7 +611,7 @@ CoordinatorServerList::PersistServerListVersion::execute()
     EntryId entryId =
         csl.context->logCabinHelper->appendProtoBuf(
             *csl.context->expectedEntryId, state, invalidates);
-    LOG(DEBUG, "LogCabin: PersistServerListVersion entryId: %lu", entryId);
+    LOG(DEBUG, "LogCabin: ServerListVersion entryId: %lu", entryId);
 
     complete(entryId);
 }
