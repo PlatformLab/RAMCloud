@@ -334,8 +334,8 @@ TcpTransport::ServerSocketHandler::handleFileEvent(int events)
 
 /**
  * Transmit an RPC request or response on a socket.  This method uses
- * a nonblocking approach: if entire message cannot be transmitted,
- * entrances as many bytes as possible and returns information about
+ * a nonblocking approach: if the entire message cannot be transmitted,
+ * it transmits as many bytes as possible and returns information about
  * how much more work is still left to do.
  *
  * \param fd
@@ -765,8 +765,14 @@ TcpTransport::TcpSession::sendRequest(Buffer* request, Buffer* response,
     }
 
     // Try to transmit the request.
-    bytesLeftToSend = TcpTransport::sendMessage(fd, rpc->nonce,
-            request, -1);
+    try {
+        bytesLeftToSend = TcpTransport::sendMessage(fd, rpc->nonce,
+                request, -1);
+    } catch (TransportException& e) {
+        abort();
+        notifier->failed();
+        return;
+    }
     if (bytesLeftToSend == 0) {
         // The whole request was sent immediately (this should be the
         // common case).
@@ -853,26 +859,31 @@ TcpTransport::ClientSocketHandler::handleFileEvent(int events)
 void
 TcpTransport::TcpServerRpc::sendReply()
 {
-    // It's possible that our fd has been closed (or even reused for a
-    // new connection); if so, just discard the RPC without sending
-    // a response.
-    Socket* socket = transport.sockets[fd];
-    if ((socket != NULL) && (socket->id == socketId)) {
-        if (!socket->rpcsWaitingToReply.empty()) {
-            // Can't transmit the response yet; the socket is backed up.
-            socket->rpcsWaitingToReply.push_back(*this);
-            return;
-        }
+    try {
+        Socket* socket = transport.sockets[fd];
 
-        // Try to transmit the response.
-        socket->bytesLeftToSend = TcpTransport::sendMessage(fd,
-                message.header.nonce, &replyPayload, -1);
-        if (socket->bytesLeftToSend > 0) {
-            socket->rpcsWaitingToReply.push_back(*this);
-            socket->ioHandler.setEvents(Dispatch::FileEvent::READABLE |
-                    Dispatch::FileEvent::WRITABLE);
-            return;
+        // It's possible that our fd has been closed (or even reused for a
+        // new connection); if so, just discard the RPC without sending
+        // a response.
+        if ((socket != NULL) && (socket->id == socketId)) {
+            if (!socket->rpcsWaitingToReply.empty()) {
+                // Can't transmit the response yet; the socket is backed up.
+                socket->rpcsWaitingToReply.push_back(*this);
+                return;
+            }
+
+            // Try to transmit the response.
+            socket->bytesLeftToSend = TcpTransport::sendMessage(fd,
+                    message.header.nonce, &replyPayload, -1);
+            if (socket->bytesLeftToSend > 0) {
+                socket->rpcsWaitingToReply.push_back(*this);
+                socket->ioHandler.setEvents(Dispatch::FileEvent::READABLE |
+                        Dispatch::FileEvent::WRITABLE);
+                return;
+            }
         }
+    } catch (TransportException& e) {
+        transport.closeSocket(fd);
     }
 
     // The whole response was sent immediately (this should be the

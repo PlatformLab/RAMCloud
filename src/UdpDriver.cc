@@ -94,20 +94,37 @@ UdpDriver::~UdpDriver()
     if (packetBufsUtilized != 0)
         LOG(ERROR, "UdpDriver deleted with %d packets still in use",
             packetBufsUtilized);
-    sys->close(socketFd);
+    close();
+}
+
+/**
+ * Shuts down this driver: closes the socket, turns off event handlers, etc.
+ */
+void
+UdpDriver::close()
+{
+    if (readHandler)
+        readHandler.destroy();
+    if (socketFd != -1) {
+        sys->close(socketFd);
+        socketFd = -1;
+    }
 }
 
 // See docs in Driver class.
 void
-UdpDriver::connect(IncomingPacketHandler* incomingPacketHandler) {
+UdpDriver::connect(IncomingPacketHandler* incomingPacketHandler)
+{
     this->incomingPacketHandler.reset(incomingPacketHandler);
     readHandler.construct(socketFd, this);
 }
 
 // See docs in Driver class.
 void
-UdpDriver::disconnect() {
-    readHandler.destroy();
+UdpDriver::disconnect()
+{
+    if (readHandler)
+        readHandler.destroy();
     this->incomingPacketHandler.reset();
 }
 
@@ -141,6 +158,8 @@ UdpDriver::sendPacket(const Address *addr,
                       uint32_t headerLen,
                       Buffer::Iterator *payload)
 {
+    if (socketFd == -1)
+        return;
     uint32_t totalLength = headerLen +
                            (payload ? payload->getTotalLength() : 0);
     assert(totalLength <= MAX_PAYLOAD_SIZE);
@@ -171,10 +190,9 @@ UdpDriver::sendPacket(const Address *addr,
 
     ssize_t r = sys->sendmsg(socketFd, &msg, 0);
     if (r == -1) {
-        int e = errno;
-        close(socketFd);
-        socketFd = -1;
-        throw DriverException(HERE, "UdpDriver error sending to socket", e);
+        LOG(WARNING, "UdpDriver error sending to socket: %s", strerror(errno));
+        close();
+        return;
     }
     assert(static_cast<size_t>(r) == totalLength);
 }
@@ -202,9 +220,10 @@ UdpDriver::ReadHandler::handleFileEvent(int events)
         driver->packetBufPool.destroy(buffer);
         if (errno == EAGAIN || errno == EWOULDBLOCK)
             return;
-        // TODO(stutsman) We could probably recover from a lot of errors here.
-        throw DriverException(HERE, "UdpDriver error receiving from socket",
-                              errno);
+        LOG(WARNING, "UdpDriver error receiving from socket: %s",
+                strerror(errno));
+        driver->close();
+        return;
     }
     Received received;
     received.len = downCast<uint32_t>(r);

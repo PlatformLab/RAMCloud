@@ -968,6 +968,21 @@ TEST_F(TcpTransportTest, sendRequest_shortAndLongMessages) {
     EXPECT_FALSE(r3.sent);
 }
 
+TEST_F(TcpTransportTest, sendRequest_sendMessageException) {
+    Transport::SessionRef session = client.getSession(locator);
+    TcpTransport::TcpSession* rawSession =
+            reinterpret_cast<TcpTransport::TcpSession*>(session.get());
+    sys->sendmsgErrno = EPERM;
+    MockWrapper rpc("request1");
+    session->sendRequest(&rpc.request, &rpc.response, &rpc);
+    EXPECT_EQ(1, rpc.failedCount);
+    EXPECT_EQ(-1, rawSession->fd);
+    EXPECT_EQ(0U, rawSession->rpcsWaitingToSend.size());
+    EXPECT_EQ(0U, rawSession->rpcsWaitingForResponse.size());
+    EXPECT_EQ("sendMessage: TcpTransport sendmsg error: Operation not "
+            "permitted", TestLog::get());
+}
+
 TEST_F(TcpTransportTest, ClientSocketHandler_handleFileEvent_readResponse) {
     Transport::SessionRef session = client.getSession(locator);
     TcpTransport::TcpSession* rawSession =
@@ -1166,6 +1181,27 @@ TEST_F(TcpTransportTest, sendReply) {
     EXPECT_EQ("~TcpServerRpc: deleted | ~TcpServerRpc: deleted",
             TestLog::get());
     EXPECT_EQ(0U, socket->rpcsWaitingToReply.size());
+}
+
+TEST_F(TcpTransportTest, sendReply_error) {
+    Transport::SessionRef session = client.getSession(locator);
+    MockWrapper rpc1("request1");
+    session->sendRequest(&rpc1.request, &rpc1.response, &rpc1);
+    Transport::ServerRpc* serverRpc = serviceManager->waitForRpc(1.0);
+    EXPECT_TRUE(serverRpc != NULL);
+    serverRpc->replyPayload.fillFromString("response1");
+
+    // Arrange for an error to occur while sending the reply, and make
+    // sure it is caught properly.
+    sys->sendmsgErrno = EPERM;
+    TcpTransport::TcpServerRpc* tcpRpc =
+            static_cast<TcpTransport::TcpServerRpc*>(serverRpc);
+    TcpTransport *transport = &tcpRpc->transport;
+    int fd = tcpRpc->fd;
+    EXPECT_NO_THROW(serverRpc->sendReply());
+    EXPECT_EQ("sendMessage: TcpTransport sendmsg error: Operation not "
+            "permitted | ~TcpServerRpc: deleted", TestLog::get());
+    EXPECT_TRUE(transport->sockets[fd] == NULL);
 }
 
 TEST_F(TcpTransportTest, sessionAlarm) {
