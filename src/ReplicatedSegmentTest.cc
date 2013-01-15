@@ -311,7 +311,9 @@ TEST_F(ReplicatedSegmentTest, handleBackupFailureWhileOpen) {
     foreach (auto& replica, segment->replicas)
         EXPECT_FALSE(replica.replicateAtomically);
 
+    EXPECT_EQ(2u, writeRpcsInFlight);
     segment->handleBackupFailure({0, 0}, false);
+    EXPECT_EQ(1u, writeRpcsInFlight);
     // The failed replica must restart replication in atomic mode.
     EXPECT_TRUE(segment->replicas[0].replicateAtomically);
     // The other open replica is in normal (non-atomic) mode still.

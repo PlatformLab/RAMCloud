@@ -299,6 +299,8 @@ ReplicatedSegment::handleBackupFailure(ServerId failedId, bool useMinCopysets)
             ++metrics->master.openReplicaRecoveries;
         }
 
+        if (replica.writeRpc)
+            --writeRpcsInFlight;
         replica.failed();
         schedule();
         ++metrics->master.replicaRecoveries;
