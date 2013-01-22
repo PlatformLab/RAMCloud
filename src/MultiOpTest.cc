@@ -556,7 +556,7 @@ TEST_F(MultiOpTest, PartRpc_unknownTable) {
     session1->lastNotifier->completed();
     EXPECT_FALSE(request.isReady());
     EXPECT_EQ("finishRpc: Server mock:host=master1 doesn't store "
-            "<0, object1-1>; refreshing object map | "
+            "<1, object1-1>; refreshing object map | "
             "flush: flushing object map | flush: flushing object map",
             TestLog::get());
     EXPECT_EQ("mock:host=master1(2) -", rpcStatus(request));

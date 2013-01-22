@@ -59,7 +59,7 @@ def version_smack(c, loops):
         buf = buf[0:1000]
 
         p.before()
-        last_version = c.write(0, 0, buf)
+        last_version = c.write(1, 0, buf)
         p.after()
 
         caught = False
@@ -68,14 +68,14 @@ def version_smack(c, loops):
             try_version = last_version + 1
             if i & 0x1:
                 try_version = last_version - 1
-            c.write(0, 0, "Will you break for me?", try_version)
+            c.write(1, 0, "Will you break for me?", try_version)
         except:
             caught = True
         p.after()
         assert caught
 
         p.before()
-        rbuf, vers = c.read(0, 0)
+        rbuf, vers = c.read(1, 0)
         p.after()
         assert vers == last_version
         assert rbuf == buf
@@ -86,7 +86,7 @@ def version_smack(c, loops):
             try_version = last_version + 1;
             if i & 0x1:
                 try_version = last_version - 1;
-            rbuf, vers = c.read(0, 0, try_version)
+            rbuf, vers = c.read(1, 0, try_version)
         except:
             caught = True
         p.after()
@@ -99,7 +99,7 @@ def version_smack(c, loops):
             try_version = last_version + 1
             if i & 0x1:
                 try_version = last_version - 1
-            c.delete(0, 0, try_version)
+            c.delete(1, 0, try_version)
         except:
             caught = True
         p.after()
@@ -107,13 +107,13 @@ def version_smack(c, loops):
         #TODO(Rumble): exception should contain newest version... assert vers == last_version
 
         p.before()
-        c.delete(0, 0, last_version)
+        c.delete(1, 0, last_version)
         p.after()
 
         caught = False
         p.before()
         try:
-            c.delete(0, 0)
+            c.delete(1, 0)
         except:
             caught = True 
         p.after()
@@ -134,11 +134,11 @@ def rewrite_smack(c, loops):
         buf = buf[0:1000]
 
         p.before()
-        c.write(0, 0, buf)
+        c.write(1, 0, buf)
         p.after()
 
         p.before()
-        rbuf, vers = c.read(0, 0)
+        rbuf, vers = c.read(1, 0)
         p.after()
         assert rbuf == buf
         i += 1
@@ -157,16 +157,16 @@ def delete_smack(c, loops):
         buf = buf[0:1000]
 
         p.before()
-        c.write(0, 0, buf)
+        c.write(1, 0, buf)
         p.after()
 
         p.before()
-        rbuf, vers = c.read(0, 0)
+        rbuf, vers = c.read(1, 0)
         p.after()
         assert rbuf == buf
 
         p.before()
-        c.delete(0, 0)
+        c.delete(1, 0)
         p.after()
         i += 1
 
@@ -179,7 +179,7 @@ def rewrite_delete_smack(c, loops, p):
     p = rpcperf()
 
     p.before()
-    c.write(0, 0, randbuf[0:1000])
+    c.write(1, 0, randbuf[0:1000])
     p.after()
 
     i = 0
@@ -189,19 +189,19 @@ def rewrite_delete_smack(c, loops, p):
         
         if random.random() < p:
             p.before()
-            c.write(0, 0, buf)
+            c.write(1, 0, buf)
             p.after()
         else:
             p.before()
-            c.delete(0, 0)
+            c.delete(1, 0)
             p.after()
 
             p.before()
-            c.write(0, 0, buf)
+            c.write(1, 0, buf)
             p.after()
 
         p.before()
-        rbuf, vers = c.read(0, 0)
+        rbuf, vers = c.read(1, 0)
         p.after()
         assert rbuf == buf
 
@@ -219,7 +219,7 @@ def cleaner_consistency_smack(c, smacks):
     i = 0
     while i < 8192:
         p.before()
-        c.write(0, i, str(i) + "." + buf10k)
+        c.write(1, i, str(i) + "." + buf10k)
         p.after()
 
         i += 1
@@ -229,14 +229,14 @@ def cleaner_consistency_smack(c, smacks):
     while i < 8192:
         if (i % 3) != 0:
             p.before()
-            c.delete(0, i)
+            c.delete(1, i)
             p.after()
         i += 1
 
     # write a bunch more to get the previous segments cleaned
     while i < 16384:
         p.before()
-        c.write(0, i, str(i) + "." + buf10k)
+        c.write(1, i, str(i) + "." + buf10k)
         p.after()
 
         i += 1
@@ -248,7 +248,7 @@ def cleaner_consistency_smack(c, smacks):
         isLive = True
         buf = ""
         try:
-            buf = c.read(0, i)
+            buf = c.read(1, i)
         except:
             isLive = False
         p.after()

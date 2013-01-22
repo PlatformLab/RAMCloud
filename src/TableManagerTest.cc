@@ -124,23 +124,23 @@ TEST_F(TableManagerTest, createTable) {
     master->objectManager.log.append(LOG_ENTRY_TYPE_INVALID, 0, empty);
     master->objectManager.log.sync();
 
-    EXPECT_EQ(0U, tableManager->createTable("foo", 1));
+    EXPECT_EQ(1U, tableManager->createTable("foo", 1));
     EXPECT_THROW(tableManager->createTable("foo", 1),
                  TableManager::TableExists);
-    EXPECT_EQ(1U, tableManager->createTable("bar", 1)); // should go to master2
-    EXPECT_EQ(2U, tableManager->createTable("baz", 1)); // and back to master1
+    EXPECT_EQ(2U, tableManager->createTable("bar", 1)); // should go to master2
+    EXPECT_EQ(3U, tableManager->createTable("baz", 1)); // and back to master1
 
-    EXPECT_EQ(0U, get(tableManager->tables, "foo"));
-    EXPECT_EQ(1U, get(tableManager->tables, "bar"));
-    EXPECT_EQ("Tablet { tableId: 0 startKeyHash: 0 "
+    EXPECT_EQ(1U, get(tableManager->tables, "foo"));
+    EXPECT_EQ(2U, get(tableManager->tables, "bar"));
+    EXPECT_EQ("Tablet { tableId: 1 startKeyHash: 0 "
               "endKeyHash: 18446744073709551615 "
               "serverId: 1.0 status: NORMAL "
               "ctime: 0, 0 } "
-              "Tablet { tableId: 1 startKeyHash: 0 "
+              "Tablet { tableId: 2 startKeyHash: 0 "
               "endKeyHash: 18446744073709551615 "
               "serverId: 2.0 status: NORMAL "
               "ctime: 0, 0 } "
-              "Tablet { tableId: 2 startKeyHash: 0 "
+              "Tablet { tableId: 3 startKeyHash: 0 "
               "endKeyHash: 18446744073709551615 "
               "serverId: 1.0 status: NORMAL "
               "ctime: 0, 0 }",
@@ -163,11 +163,11 @@ TEST_F(TableManagerTest, createTableSpannedAcrossTwoMastersWithThreeServers) {
 
     tableManager->createTable("foo", 2);
 
-    EXPECT_EQ("Tablet { tableId: 0 startKeyHash: 0 "
+    EXPECT_EQ("Tablet { tableId: 1 startKeyHash: 0 "
               "endKeyHash: 9223372036854775807 "
               "serverId: 1.0 status: NORMAL "
               "ctime: 0, 0 } "
-              "Tablet { tableId: 0 startKeyHash: 9223372036854775808 "
+              "Tablet { tableId: 1 startKeyHash: 9223372036854775808 "
               "endKeyHash: 18446744073709551615 "
               "serverId: 2.0 status: NORMAL "
               "ctime: 0, 0 }",
@@ -188,15 +188,15 @@ TEST_F(TableManagerTest, createTableSpannedAcrossThreeMastersWithTwoServers) {
 
     tableManager->createTable("foo", 3);
 
-    EXPECT_EQ("Tablet { tableId: 0 startKeyHash: 0 "
+    EXPECT_EQ("Tablet { tableId: 1 startKeyHash: 0 "
               "endKeyHash: 6148914691236517205 "
               "serverId: 1.0 status: NORMAL "
               "ctime: 0, 0 } "
-              "Tablet { tableId: 0 startKeyHash: 6148914691236517206 "
+              "Tablet { tableId: 1 startKeyHash: 6148914691236517206 "
               "endKeyHash: 12297829382473034410 "
               "serverId: 2.0 status: NORMAL "
               "ctime: 0, 0 } "
-              "Tablet { tableId: 0 startKeyHash: 12297829382473034411 "
+              "Tablet { tableId: 1 startKeyHash: 12297829382473034411 "
               "endKeyHash: 18446744073709551615 "
               "serverId: 1.0 status: NORMAL "
               "ctime: 0, 0 }",
@@ -225,7 +225,7 @@ TEST_F(TableManagerTest, createTable_LogCabin) {
     logCabinHelper->parseProtoBufFromEntry(
             entriesRead[findEntryId(searchString)], creatingTable);
     EXPECT_EQ("entry_type: \"CreateTable\"\n"
-              "name: \"foo\"\ntable_id: 0\nserver_span: 2\n"
+              "name: \"foo\"\ntable_id: 1\nserver_span: 2\n"
               "tablet_info {\n  "
               "start_key_hash: 0\n  end_key_hash: 9223372036854775807\n  "
               "master_id: 1\n  "
@@ -243,7 +243,7 @@ TEST_F(TableManagerTest, createTable_LogCabin) {
     logCabinHelper->parseProtoBufFromEntry(
             entriesRead[findEntryId(searchString)], stableTable);
     EXPECT_EQ("entry_type: \"AliveTable\"\n"
-              "name: \"foo\"\ntable_id: 0\nserver_span: 2\n"
+              "name: \"foo\"\ntable_id: 1\nserver_span: 2\n"
               "tablet_info {\n  "
               "start_key_hash: 0\n  end_key_hash: 9223372036854775807\n  "
               "master_id: 1\n  "
@@ -271,7 +271,7 @@ TEST_F(TableManagerTest, dropTable) {
     tableManager->createTable("bar", 1);
     EXPECT_EQ(1U, master2.tabletManager.getCount());
     tableManager->dropTable("bar");
-    EXPECT_EQ("Tablet { tableId: 0 startKeyHash: 0 "
+    EXPECT_EQ("Tablet { tableId: 1 startKeyHash: 0 "
               "endKeyHash: 18446744073709551615 "
               "serverId: 1.0 status: NORMAL "
               "ctime: 0, 0 }",
@@ -283,7 +283,7 @@ TEST_F(TableManagerTest, dropTable) {
     EXPECT_EQ(2U, master->tabletManager.getCount());
     EXPECT_EQ(1U, master2.tabletManager.getCount());
     tableManager->dropTable("bar");
-    EXPECT_EQ("Tablet { tableId: 0 startKeyHash: 0 "
+    EXPECT_EQ("Tablet { tableId: 1 startKeyHash: 0 "
               "endKeyHash: 18446744073709551615 "
               "serverId: 1.0 status: NORMAL "
               "ctime: 0, 0 }",
@@ -328,11 +328,11 @@ TEST_F(TableManagerTest, getTableId) {
     // Get the id for an existing table
     tableManager->createTable("foo", 1);
     uint64_t tableId = tableManager->getTableId("foo");
-    EXPECT_EQ(0lu, tableId);
+    EXPECT_EQ(1lu, tableId);
 
     tableManager->createTable("foo2", 1);
     tableId = tableManager->getTableId("foo2");
-    EXPECT_EQ(1lu, tableId);
+    EXPECT_EQ(2lu, tableId);
 
     // Try to get the id for a non-existing table
     EXPECT_THROW(tableManager->getTableId("bar"),
@@ -341,9 +341,9 @@ TEST_F(TableManagerTest, getTableId) {
 
 TEST_F(TableManagerTest, markAllTabletsRecovering) {
     Lock lock(mutex);     // Used to trick internal calls.
-    tableManager->addTablet(lock, {0, 1, 6, {0, 1}, Tablet::NORMAL, {0, 5}});
-    tableManager->addTablet(lock, {1, 2, 7, {1, 1}, Tablet::NORMAL, {1, 6}});
-    tableManager->addTablet(lock, {0, 3, 8, {0, 1}, Tablet::NORMAL, {2, 7}});
+    tableManager->addTablet(lock, {1, 1, 6, {0, 1}, Tablet::NORMAL, {0, 5}});
+    tableManager->addTablet(lock, {2, 2, 7, {1, 1}, Tablet::NORMAL, {1, 6}});
+    tableManager->addTablet(lock, {1, 3, 8, {0, 1}, Tablet::NORMAL, {2, 7}});
 
     EXPECT_EQ(0lu,
         tableManager->markAllTabletsRecovering({2, 1}).size());
@@ -403,7 +403,7 @@ TEST_F(TableManagerTest, reassignTabletOwnership) {
     tableManager->createTable("foo", 1);
     EXPECT_EQ(1U, master->tabletManager.getCount());
     EXPECT_EQ(0U, master2->master->tabletManager.getCount());
-    Tablet tablet = tableManager->getTablet(lock, 0lu, 0lu, ~(0lu));
+    Tablet tablet = tableManager->getTablet(lock, 1lu, 0lu, ~(0lu));
     EXPECT_EQ(masterServerId, tablet.serverId);
     EXPECT_EQ(0U, tablet.ctime.getSegmentId());
     EXPECT_EQ(0U, tablet.ctime.getSegmentOffset());
@@ -411,32 +411,32 @@ TEST_F(TableManagerTest, reassignTabletOwnership) {
     TestLog::Enable _(reassignTabletOwnershipFilter);
 
     EXPECT_THROW(CoordinatorClient::reassignTabletOwnership(&context,
-        0, 0, -1, ServerId(472, 2), 83, 835), ServerNotUpException);
+        1, 0, -1, ServerId(472, 2), 83, 835), ServerNotUpException);
     EXPECT_EQ("reassignTabletOwnership: Cannot reassign tablet "
-        "[0x0,0xffffffffffffffff] in tableId 0 to 472.2: server not up",
+        "[0x0,0xffffffffffffffff] in tableId 1 to 472.2: server not up",
         TestLog::get());
     EXPECT_EQ(1U, master->tabletManager.getCount());
     EXPECT_EQ(0U, master2->master->tabletManager.getCount());
 
     TestLog::reset();
     EXPECT_THROW(CoordinatorClient::reassignTabletOwnership(&context,
-        0, 0, 57, master2->serverId, 83, 835), TableDoesntExistException);
+        1, 0, 57, master2->serverId, 83, 835), TableDoesntExistException);
     EXPECT_EQ("reassignTabletOwnership: Could not reassign tablet [0x0,0x39] "
-              "in tableId 0: tablet not found", TestLog::get());
+              "in tableId 1: tablet not found", TestLog::get());
     EXPECT_EQ(1U, master->tabletManager.getCount());
     EXPECT_EQ(0U, master2->master->tabletManager.getCount());
 
     TestLog::reset();
-    CoordinatorClient::reassignTabletOwnership(&context, 0, 0, -1,
+    CoordinatorClient::reassignTabletOwnership(&context, 1, 0, -1,
         master2->serverId, 83, 835);
     EXPECT_EQ("reassignTabletOwnership: Reassigning tablet "
-        "[0x0,0xffffffffffffffff] in tableId 0 from server 1.0 at "
+        "[0x0,0xffffffffffffffff] in tableId 1 from server 1.0 at "
         "mock:host=master to server 2.0 at mock:host=master2",
         TestLog::get());
     // Calling master removes the entry itself after the RPC completes on coord.
     EXPECT_EQ(1U, master->tabletManager.getCount());
     EXPECT_EQ(1U, master2->master->tabletManager.getCount());
-    tablet = tableManager->getTablet(lock, 0lu, 0lu, ~(0lu));
+    tablet = tableManager->getTablet(lock, 1lu, 0lu, ~(0lu));
     EXPECT_EQ(master2->serverId, tablet.serverId);
     EXPECT_EQ(83U, tablet.ctime.getSegmentId());
     EXPECT_EQ(835U, tablet.ctime.getSegmentOffset());
@@ -451,15 +451,15 @@ TEST_F(TableManagerTest, serialize) {
     serverList->add(lock, id2, "mock:host=two",
                     {WireFormat::MASTER_SERVICE}, 2);
 
-    tableManager->map.push_back(Tablet({0, 1, 6, id1, Tablet::NORMAL, {0, 5}}));
-    tableManager->map.push_back(Tablet({1, 2, 7, id2, Tablet::NORMAL, {1, 6}}));
+    tableManager->map.push_back(Tablet({1, 1, 6, id1, Tablet::NORMAL, {0, 5}}));
+    tableManager->map.push_back(Tablet({2, 2, 7, id2, Tablet::NORMAL, {1, 6}}));
 
     ProtoBuf::Tablets tablets;
     tableManager->serialize(*serverList, tablets);
-    EXPECT_EQ("tablet { table_id: 0 start_key_hash: 1 end_key_hash: 6 "
+    EXPECT_EQ("tablet { table_id: 1 start_key_hash: 1 end_key_hash: 6 "
               "state: NORMAL server_id: 1 service_locator: \"mock:host=one\" "
               "ctime_log_head_id: 0 ctime_log_head_offset: 5 } "
-              "tablet { table_id: 1 start_key_hash: 2 end_key_hash: 7 "
+              "tablet { table_id: 2 start_key_hash: 2 end_key_hash: 7 "
               "state: NORMAL server_id: 2 service_locator: \"mock:host=two\" "
               "ctime_log_head_id: 1 ctime_log_head_offset: 6 }",
               tablets.ShortDebugString());
@@ -470,11 +470,11 @@ TEST_F(TableManagerTest, splitTablet) {
 
     tableManager->createTable("foo", 1);
     tableManager->splitTablet("foo", 0, ~0lu, ~0lu / 2);
-    EXPECT_EQ("Tablet { tableId: 0 startKeyHash: 0 "
+    EXPECT_EQ("Tablet { tableId: 1 startKeyHash: 0 "
               "endKeyHash: 9223372036854775806 "
               "serverId: 1.0 status: NORMAL "
               "ctime: 0, 0 } "
-              "Tablet { tableId: 0 "
+              "Tablet { tableId: 1 "
               "startKeyHash: 9223372036854775807 "
               "endKeyHash: 18446744073709551615 "
               "serverId: 1.0 status: NORMAL "
@@ -483,16 +483,16 @@ TEST_F(TableManagerTest, splitTablet) {
 
     tableManager->splitTablet("foo", 0,
                               9223372036854775806, 4611686018427387903);
-    EXPECT_EQ("Tablet { tableId: 0 startKeyHash: 0 "
+    EXPECT_EQ("Tablet { tableId: 1 startKeyHash: 0 "
               "endKeyHash: 4611686018427387902 "
               "serverId: 1.0 status: NORMAL "
               "ctime: 0, 0 } "
-              "Tablet { tableId: 0 "
+              "Tablet { tableId: 1 "
               "startKeyHash: 9223372036854775807 "
               "endKeyHash: 18446744073709551615 "
               "serverId: 1.0 status: NORMAL "
               "ctime: 0, 0 } "
-              "Tablet { tableId: 0 "
+              "Tablet { tableId: 1 "
               "startKeyHash: 4611686018427387903 "
               "endKeyHash: 9223372036854775806 "
               "serverId: 1.0 status: NORMAL "
@@ -537,7 +537,7 @@ TEST_F(TableManagerTest, splitTablet_LogCabin) {
     logCabinHelper->parseProtoBufFromEntry(
             entriesRead[findEntryId(searchString)], aliveTableNew);
     EXPECT_EQ("entry_type: \"AliveTable\"\n"
-              "name: \"foo\"\ntable_id: 0\nserver_span: 2\n"
+              "name: \"foo\"\ntable_id: 1\nserver_span: 2\n"
               "tablet_info {\n  start_key_hash: 0\n  "
               "end_key_hash: 9223372036854775806\n  master_id: 1\n  "
               "ctime_log_head_id: 0\n  ctime_log_head_offset: 0\n}\n"
@@ -558,7 +558,7 @@ TEST_F(TableManagerTest, tabletRecovered_LogCabin) {
     tableManager->createTable("foo", 1);
 
     TestLog::Enable _;
-    tableManager->tabletRecovered(0UL, 0UL, ~0UL, master2.serverId,
+    tableManager->tabletRecovered(1UL, 0UL, ~0UL, master2.serverId,
                                   Log::Position(0UL, 0U));
 
     vector<Entry> entriesRead = logCabinLog->read(0);
@@ -570,7 +570,7 @@ TEST_F(TableManagerTest, tabletRecovered_LogCabin) {
     logCabinHelper->parseProtoBufFromEntry(
             entriesRead[findEntryId(searchString)], tabletInfo);
     EXPECT_EQ("entry_type: \"TabletRecovered\"\n"
-              "table_id: 0\n"
+              "table_id: 1\n"
               "start_key_hash: 0\nend_key_hash: 18446744073709551615\n"
               "server_id: 2\n"
               "ctime_log_head_id: 0\nctime_log_head_offset: 0\n",
@@ -582,7 +582,7 @@ TEST_F(TableManagerTest, tabletRecovered_LogCabin) {
     logCabinHelper->parseProtoBufFromEntry(
             entriesRead[findEntryId(searchString)], aliveTableNew);
     EXPECT_EQ("entry_type: \"AliveTable\"\n"
-              "name: \"foo\"\ntable_id: 0\nserver_span: 1\n"
+              "name: \"foo\"\ntable_id: 1\nserver_span: 1\n"
               "tablet_info {\n  start_key_hash: 0\n  "
               "end_key_hash: 18446744073709551615\n  master_id: 2\n  "
               "ctime_log_head_id: 0\n  ctime_log_head_offset: 0\n}\n",
@@ -604,7 +604,7 @@ TEST_F(TableManagerTest, recoverAliveTable) {
     ProtoBuf::TableInformation state;
     state.set_entry_type("AliveTable");
     state.set_name("foo");
-    state.set_table_id(0);
+    state.set_table_id(1);
     state.set_server_span(2);
 
     ProtoBuf::TableInformation::TabletInfo& tablet1(*state.add_tablet_info());
@@ -627,11 +627,11 @@ TEST_F(TableManagerTest, recoverAliveTable) {
     TestLog::Enable _;
     tableManager->recoverAliveTable(&state, entryId);
 
-    EXPECT_EQ("Tablet { tableId: 0 startKeyHash: 0 "
+    EXPECT_EQ("Tablet { tableId: 1 startKeyHash: 0 "
               "endKeyHash: 9223372036854775807 "
               "serverId: 1.0 status: NORMAL "
               "ctime: 0, 0 } "
-              "Tablet { tableId: 0 startKeyHash: 9223372036854775808 "
+              "Tablet { tableId: 1 startKeyHash: 9223372036854775808 "
               "endKeyHash: 18446744073709551615 "
               "serverId: 2.0 status: NORMAL "
               "ctime: 0, 0 }",
@@ -713,7 +713,7 @@ TEST_F(TableManagerTest, recoverDropTable) {
             *service->context->expectedEntryId, state);
 
     tableManager->recoverDropTable(&state, entryId);
-    EXPECT_EQ("Tablet { tableId: 0 startKeyHash: 0 "
+    EXPECT_EQ("Tablet { tableId: 1 startKeyHash: 0 "
               "endKeyHash: 18446744073709551615 "
               "serverId: 1.0 status: NORMAL "
               "ctime: 0, 0 }",
@@ -737,11 +737,11 @@ TEST_F(TableManagerTest, recoverSplitTablet) {
 
     tableManager->recoverSplitTablet(&state, entryId);
 
-    EXPECT_EQ("Tablet { tableId: 0 startKeyHash: 0 "
+    EXPECT_EQ("Tablet { tableId: 1 startKeyHash: 0 "
               "endKeyHash: 9223372036854775806 "
               "serverId: 1.0 status: NORMAL "
               "ctime: 0, 0 } "
-              "Tablet { tableId: 0 "
+              "Tablet { tableId: 1 "
               "startKeyHash: 9223372036854775807 "
               "endKeyHash: 18446744073709551615 "
               "serverId: 1.0 status: NORMAL "
@@ -761,7 +761,7 @@ TEST_F(TableManagerTest, recoverTabletRecovered) {
 
     ProtoBuf::TabletRecovered state;
     state.set_entry_type("TabletRecovered");
-    state.set_table_id(0);
+    state.set_table_id(1);
     state.set_start_key_hash(0);
     state.set_end_key_hash(~0lu);
     state.set_server_id(master2.serverId.getId());
@@ -773,7 +773,7 @@ TEST_F(TableManagerTest, recoverTabletRecovered) {
     TestLog::Enable _;
     tableManager->recoverTabletRecovered(&state, entryId);
 
-    EXPECT_EQ("Tablet { tableId: 0 "
+    EXPECT_EQ("Tablet { tableId: 1 "
               "startKeyHash: 0 endKeyHash: 18446744073709551615 "
               "serverId: 2.0 "
               "status: NORMAL ctime: 0, 0 }",
@@ -817,56 +817,56 @@ TEST_F(TableManagerTest, getTablet) {
 
 TEST_F(TableManagerTest, getTabletsForTable) {
     Lock lock(mutex); // Used to trick internal calls.
-    Tablet tablet1({0, 1, 6, {0, 1}, Tablet::NORMAL, {0, 5}});
+    Tablet tablet1({1, 1, 6, {0, 1}, Tablet::NORMAL, {0, 5}});
     tableManager->addTablet(lock, tablet1);
 
-    tableManager->addTablet(lock, {1, 2, 7, {1, 1}, Tablet::NORMAL, {1, 6}});
-    tableManager->addTablet(lock, {0, 3, 8, {2, 1}, Tablet::NORMAL, {2, 7}});
-    tableManager->addTablet(lock, {1, 4, 9, {3, 1}, Tablet::NORMAL, {3, 8}});
-    tableManager->addTablet(lock, {2, 5, 10, {4, 1}, Tablet::NORMAL, {4, 9}});
-    auto tablets = tableManager->getTabletsForTable(lock, 0);
+    tableManager->addTablet(lock, {2, 2, 7, {1, 1}, Tablet::NORMAL, {1, 6}});
+    tableManager->addTablet(lock, {1, 3, 8, {2, 1}, Tablet::NORMAL, {2, 7}});
+    tableManager->addTablet(lock, {2, 4, 9, {3, 1}, Tablet::NORMAL, {3, 8}});
+    tableManager->addTablet(lock, {3, 5, 10, {4, 1}, Tablet::NORMAL, {4, 9}});
+    auto tablets = tableManager->getTabletsForTable(lock, 1);
     EXPECT_EQ(2lu, tablets.size());
     EXPECT_EQ(ServerId(0, 1), tablets[0].serverId);
     EXPECT_EQ(ServerId(2, 1), tablets[1].serverId);
 
-    tablets = tableManager->getTabletsForTable(lock, 1);
+    tablets = tableManager->getTabletsForTable(lock, 2);
     EXPECT_EQ(2lu, tablets.size());
     EXPECT_EQ(ServerId(1, 1), tablets[0].serverId);
     EXPECT_EQ(ServerId(3, 1), tablets[1].serverId);
 
-    tablets = tableManager->getTabletsForTable(lock, 2);
+    tablets = tableManager->getTabletsForTable(lock, 3);
     EXPECT_EQ(1lu, tablets.size());
     EXPECT_EQ(ServerId(4, 1), tablets[0].serverId);
 
-    tablets = tableManager->getTabletsForTable(lock, 3);
+    tablets = tableManager->getTabletsForTable(lock, 4);
     EXPECT_EQ(0lu, tablets.size());
 }
 
 TEST_F(TableManagerTest, modifyTablet) {
     Lock lock(mutex);     // Used to trick internal calls.
-    tableManager->addTablet(lock, {0, 1, 6, {0, 1}, Tablet::NORMAL, {0, 5}});
+    tableManager->addTablet(lock, {1, 1, 6, {0, 1}, Tablet::NORMAL, {0, 5}});
     tableManager->modifyTablet(
-        lock, 0, 1, 6, {1, 2}, Tablet::RECOVERING, {3, 9});
-    Tablet tablet = tableManager->getTablet(lock, 0, 1, 6);
+        lock, 1, 1, 6, {1, 2}, Tablet::RECOVERING, {3, 9});
+    Tablet tablet = tableManager->getTablet(lock, 1, 1, 6);
     EXPECT_EQ(ServerId(1, 2), tablet.serverId);
     EXPECT_EQ(Tablet::RECOVERING, tablet.status);
     EXPECT_EQ(Log::Position(3, 9), tablet.ctime);
     EXPECT_THROW(
         tableManager->modifyTablet(
-                lock, 0, 0, 0, {0, 0}, Tablet::NORMAL, {0, 0}),
+                lock, 1, 0, 0, {0, 0}, Tablet::NORMAL, {0, 0}),
         TableManager::NoSuchTablet);
 }
 
 TEST_F(TableManagerTest, removeTabletsForTable) {
     Lock lock(mutex); // Used to trick internal calls.-
-    tableManager->addTablet(lock, {0, 1, 6, {0, 1}, Tablet::NORMAL, {0, 5}});
-    tableManager->addTablet(lock, {1, 2, 7, {1, 1}, Tablet::NORMAL, {1, 6}});
-    tableManager->addTablet(lock, {0, 3, 8, {2, 1}, Tablet::NORMAL, {2, 7}});
+    tableManager->addTablet(lock, {1, 1, 6, {0, 1}, Tablet::NORMAL, {0, 5}});
+    tableManager->addTablet(lock, {2, 2, 7, {1, 1}, Tablet::NORMAL, {1, 6}});
+    tableManager->addTablet(lock, {1, 3, 8, {2, 1}, Tablet::NORMAL, {2, 7}});
 
-    EXPECT_EQ(0lu, tableManager->removeTabletsForTable(lock, 2).size());
+    EXPECT_EQ(0lu, tableManager->removeTabletsForTable(lock, 3).size());
     EXPECT_EQ(3lu, tableManager->size(lock));
 
-    auto tablets = tableManager->removeTabletsForTable(lock, 1);
+    auto tablets = tableManager->removeTabletsForTable(lock, 2);
     EXPECT_EQ(2lu, tableManager->size(lock));
     foreach (const auto& tablet, tablets) {
         EXPECT_THROW(tableManager->getTablet(lock, tablet.tableId,
@@ -875,7 +875,7 @@ TEST_F(TableManagerTest, removeTabletsForTable) {
                      TableManager::NoSuchTablet);
     }
 
-    tablets = tableManager->removeTabletsForTable(lock, 0);
+    tablets = tableManager->removeTabletsForTable(lock, 1);
     EXPECT_EQ(0lu, tableManager->size(lock));
     foreach (const auto& tablet, tablets) {
         EXPECT_THROW(tableManager->getTablet(lock, tablet.tableId,
