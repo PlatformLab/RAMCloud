@@ -179,6 +179,9 @@ DropTableRpc::DropTableRpc(RamCloud* ramcloud,
  * and also provides information about where we are in the overall
  * enumeration, which is used in future invocations of this method.
  *
+ * This method is meant to be called from TableEnumerator and should not
+ * normally be used directly by applications.
+ *
  * \param tableId
  *      The table being enumerated (return value from a previous call
  *      to getTableId) .
