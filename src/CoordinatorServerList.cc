@@ -803,6 +803,8 @@ CoordinatorServerList::ServerRemoveUpdate::complete(EntryId entryId)
     csl.crashed(lock, serverId);
     // Setting state gets the serialized update message's state field correct.
     entry->status = ServerStatus::REMOVE;
+    LOG(NOTICE, "Removing %s from cluster/coordinator server list",
+        serverId.toString().c_str());
 
     ProtoBuf::ServerList_Entry& protoBufEntry(*(csl.update).add_server());
     entry->serialize(protoBufEntry);

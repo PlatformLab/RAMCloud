@@ -306,6 +306,7 @@ TEST_F(MasterRecoveryManagerTest, recoveryMasterFinished) {
         "schedule: scheduled | "
         "recoveryFinished: Recovery 1 completed for master 1.0 | "
         "execute: LogCabin: ServerRemoveUpdate entryId: 8 | "
+        "complete: Removing 1.0 from cluster/coordinator server list | "
         "schedule: scheduled | schedule: scheduled | "
         "execute: LogCabin: ServerListVersion entryId: 9 | "
         "recoveryMasterFinished: Notifying recovery master ok to serve tablets",

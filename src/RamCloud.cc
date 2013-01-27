@@ -513,6 +513,8 @@ GetMetricsLocatorRpc::wait()
 {
     waitInternal(ramcloud->clientContext->dispatch);
     if (getState() != RpcState::FINISHED) {
+        LOG(ERROR, "GetMetricsLocatorRpc call failed with status %d",
+            getState());
         throw TransportException(HERE);
     }
     const WireFormat::GetMetrics::Response* respHdr(

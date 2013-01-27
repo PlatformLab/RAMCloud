@@ -13,8 +13,11 @@
  * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include "AbstractServerList.h"
 #include "Buffer.h"
 #include "ClusterMetrics.h"
+#include "Logger.h"
+#include "ShortMacros.h"
 
 namespace RAMCloud {
 
@@ -51,6 +54,13 @@ ClusterMetrics::load(RamCloud* cluster)
         const ProtoBuf::ServerList_Entry& server = serverList.server(i);
         const string& serviceLocator = server.service_locator();
         if (find(serviceLocator) == end()) {
+            if (server.status() != uint32_t(ServerStatus::UP)) {
+                // Don't fetch metrics from servers that aren't up.
+                LOG(DEBUG, "Skipping metrics for %s; it is not up",
+                    serviceLocator.c_str());
+                continue;
+            }
+            LOG(DEBUG, "Gathering metrics from %s", serviceLocator.c_str());
             servers[serviceLocator] = cluster->getMetrics(
                     serviceLocator.c_str());
         }

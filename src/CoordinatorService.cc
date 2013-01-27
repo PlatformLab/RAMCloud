@@ -258,11 +258,14 @@ CoordinatorService::enlistServer(
     const char* serviceLocator = getString(rpc->requestPayload, sizeof(*reqHdr),
                                            reqHdr->serviceLocatorLength);
 
+    LOG(NOTICE, "Starting enlistment for %s", serviceLocator);
     ServerId newServerId = serverList->enlistServer(
         replacesId, serviceMask, readSpeed, serviceLocator);
 
     respHdr->serverId = newServerId.getId();
     rpc->sendReply();
+    LOG(NOTICE, "Replied to enlistment for %s with serverId %s",
+        serviceLocator, newServerId.toString().c_str());
 }
 
 /**
