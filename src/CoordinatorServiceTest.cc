@@ -138,7 +138,7 @@ TEST_F(CoordinatorServiceTest, getTabletMap) {
     ramcloud->createTable("foo");
     ProtoBuf::Tablets tabletMapProtoBuf;
     CoordinatorClient::getTabletMap(&context, &tabletMapProtoBuf);
-    EXPECT_EQ("tablet { table_id: 0 start_key_hash: 0 "
+    EXPECT_EQ("tablet { table_id: 1 start_key_hash: 0 "
               "end_key_hash: 18446744073709551615 "
               "state: NORMAL server_id: 1 "
               "service_locator: \"mock:host=master\" "

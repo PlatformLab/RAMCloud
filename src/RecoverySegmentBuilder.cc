@@ -66,6 +66,7 @@ RecoverySegmentBuilder::build(const void* buffer, uint32_t length,
     // Buffer must be retained for iteration to provide storage for header.
     Buffer headerBuffer;
     const SegmentHeader* header = NULL;
+    bool supressNoPartitionWarning = false;
     for (; !it.isDone(); it.next()) {
         LogEntryType type = it.getType();
 
@@ -134,8 +135,21 @@ RecoverySegmentBuilder::build(const void* buffer, uint32_t length,
         }
 
         const auto* partition = whichPartition(tableId, keyHash, partitions);
-        if (!partition)
+        if (!partition) {
+            if (!supressNoPartitionWarning) {
+                LOG(WARNING,
+                    "Couldn't place object with <tableId, keyHash> of "
+                    "<%lu,%lu> into any of the given "
+                    "tablets for recovery; hopefully it belonged to a deleted "
+                    "tablet or lives in another log now. "
+                    "*** Only warning you once; it's likely if you are running "
+                    "recovery.py for testing you just recovered from more "
+                    "failures than you expected in a single run and your "
+                    "numbers are garbage.", tableId, keyHash);
+                supressNoPartitionWarning = true;
+            }
             continue;
+        }
         uint64_t partitionId = partition->user_data();
 
         Log::Position position(header->segmentId, it.getOffset());
@@ -278,10 +292,6 @@ RecoverySegmentBuilder::whichPartition(uint64_t tableId, KeyHash keyHash,
             return &tablet;
         }
     }
-    LOG(WARNING, "Couldn't place object with <tableId, keyHash> of <%lu,%lu> "
-                 "into any of the given "
-                 "tablets for recovery; hopefully it belonged to a deleted "
-                 "tablet or lives in another log now", tableId, keyHash);
     return NULL;
 }
 

@@ -185,13 +185,8 @@ TEST_F(RecoverySegmentBuilderTest, whichPartition) {
     EXPECT_TRUE(r);
     EXPECT_EQ(0u, r->user_data());
     TestLog::Enable _;
-    auto hash = Key::getHash(3, "1", 1);
     r = whichPartition(3, Key::getHash(3, "1", 1), partitions);
-    EXPECT_EQ(format("whichPartition: Couldn't place object with "
-              "<tableId, keyHash> of <3,%lu> into any "
-              "of the given tablets for recovery; hopefully it belonged to "
-              "a deleted tablet or lives in another log now", hash),
-              TestLog::get());
+    EXPECT_FALSE(r);
 }
 
 } // namespace RAMCloud

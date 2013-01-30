@@ -258,11 +258,14 @@ CoordinatorService::enlistServer(
     const char* serviceLocator = getString(rpc->requestPayload, sizeof(*reqHdr),
                                            reqHdr->serviceLocatorLength);
 
+    LOG(NOTICE, "Starting enlistment for %s", serviceLocator);
     ServerId newServerId = serverList->enlistServer(
         replacesId, serviceMask, readSpeed, serviceLocator);
 
     respHdr->serverId = newServerId.getId();
     rpc->sendReply();
+    LOG(NOTICE, "Replied to enlistment for %s with serverId %s",
+        serviceLocator, newServerId.toString().c_str());
 }
 
 /**
@@ -348,14 +351,11 @@ CoordinatorService::recoveryMasterFinished(
                                reqHdr->tabletsLength, &recoveredTablets);
 
     ServerId serverId = ServerId(reqHdr->recoveryMasterId);
-    recoveryManager.recoveryMasterFinished(reqHdr->recoveryId,
-                                           serverId,
-                                           recoveredTablets,
-                                           reqHdr->successful);
-
-    // TODO(stutsman): Eventually we'll want to be able to 'reject' recovery
-    // master completions, so we'll need to get a return value from
-    // recoveryMasterFinished.
+    respHdr->cancelRecovery =
+        recoveryManager.recoveryMasterFinished(reqHdr->recoveryId,
+                                               serverId,
+                                               recoveredTablets,
+                                               reqHdr->successful);
 }
 
 /**

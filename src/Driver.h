@@ -154,6 +154,15 @@ class Driver {
      */
     virtual uint32_t getMaxPacketSize() = 0;
 
+    /**
+     * Invoked by a transport when it has finished processing the data
+     * in an incoming packet; used by drivers to recycle packet buffers
+     * at a safe time.
+     *
+     * \param payload
+     *      The payload field from the Received object used to pass the
+     *      packet to the transport when it was received.
+     */
     virtual void release(char *payload);
 
     /**
@@ -195,7 +204,9 @@ class Driver {
      * Send a single packet out over this Driver. The method doesn't return
      * until header and payload have been read and the packet is "on the wire";
      * the caller can safely discard or reuse the memory associated with payload
-     * and header once the method returns.
+     * and header once the method returns.  If an error occurs, this method
+     * will log the error and return without sending anything; this method
+     * does not throw exceptions.
      *
      * header provides a means to slip data onto the front of the packet
      * without having to pay for a prepend to the Buffer containing the

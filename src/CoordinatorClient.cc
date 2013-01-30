@@ -394,15 +394,19 @@ ReassignTabletOwnershipRpc::ReassignTabletOwnershipRpc(Context* context,
  *      in recovering its partition of the crashed master. If false the
  *      coordinator will not assign ownership to this master and this master
  *      can clean up any state resulting attempting recovery.
+ * \return
+ *      True if the recovery master should begin servicing requests. False
+ *      if the recovery master should abort recovery and discard replayed
+ *      log state for the crashed master.
  */
-void
+bool
 CoordinatorClient::recoveryMasterFinished(Context* context, uint64_t recoveryId,
         ServerId recoveryMasterId, const ProtoBuf::Tablets* tablets,
         bool successful)
 {
     RecoveryMasterFinishedRpc rpc(context, recoveryId, recoveryMasterId,
             tablets, successful);
-    rpc.wait();
+    return rpc.wait();
 }
 
 /**
@@ -439,6 +443,21 @@ RecoveryMasterFinishedRpc::RecoveryMasterFinishedRpc(Context* context,
     reqHdr->tabletsLength = serializeToRequest(&request, tablets);
     reqHdr->successful = successful;
     send();
+}
+
+/**
+ * Wait for a RecoveryMasterFinished RPC to complete, and return the same
+ * results as #CoordinatorClient::recoveryMasterFinished.
+ */
+bool
+RecoveryMasterFinishedRpc::wait()
+{
+    waitInternal(context->dispatch);
+    const WireFormat::RecoveryMasterFinished::Response* respHdr(
+            getResponseHeader<WireFormat::RecoveryMasterFinished>());
+    if (respHdr->common.status != STATUS_OK)
+        ClientException::throwException(HERE, respHdr->common.status);
+    return respHdr->cancelRecovery;
 }
 
 /**

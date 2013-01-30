@@ -158,6 +158,11 @@ class RecoveryMasterFinishedTask : public Task {
      * tasks are performed and/or scheduled.
      * This is a one-shot task that deletes itself when complete.
      *
+     * Notice: these tasks don't delete themselves so that the creator
+     * can extract the result of the task via wait(). The creator is
+     * responsible for reclaiming space when the task is no longer
+     * needed.
+     *
      * \param recoveryManager
      *      MasterRecoveryManager this recovery is part of.
      * \param recoveryId
@@ -189,6 +194,10 @@ class RecoveryMasterFinishedTask : public Task {
         , recoveryMasterId(recoveryMasterId)
         , recoveredTablets(recoveredTablets)
         , successful(successful)
+        , mutex()
+        , taskPerformed(false)
+        , performed()
+        , cancelRecoveryOnRecoveryMaster(false)
     {}
 
     /**
@@ -198,12 +207,16 @@ class RecoveryMasterFinishedTask : public Task {
      */
     void performTask()
     {
+        Lock _(mutex);
         auto it = mgr.activeRecoveries.find(recoveryId);
         if (it == mgr.activeRecoveries.end()) {
             LOG(ERROR, "Recovery master reported completing recovery "
                 "%lu but there is no ongoing recovery with that id; "
-                "this should never happen in RAMCloud", recoveryId);
-            delete this;
+                "this should only happen after coordinator rollover; "
+                "asking recovery master to abort this recovery", recoveryId);
+            taskPerformed = true;
+            cancelRecoveryOnRecoveryMaster = true;
+            performed.notify_all();
             return;
         }
 
@@ -244,11 +257,33 @@ class RecoveryMasterFinishedTask : public Task {
                 mgr.tableManager.debugString().c_str());
         } else {
             LOG(WARNING, "A recovery master failed to recover its partition");
+            cancelRecoveryOnRecoveryMaster = true;
         }
 
         Recovery* recovery = it->second;
         recovery->recoveryMasterFinished(recoveryMasterId, successful);
-        delete this;
+        taskPerformed = true;
+        performed.notify_all();
+    }
+
+    /**
+     * Block until this task has been executed.
+     *
+     * \return
+     *      True if the recovery master should abort the recovery without
+     *      taking ownership of the recovered tablets; false if the
+     *      recovery master now owns the recovered tablets and can safely
+     *      begin servicing requests for the data. Always return true if #successful is false
+     *      true is always returned (if the recovery wasn't successful it
+     *      should trivially be aborted already).
+     */
+    bool wait()
+    {
+        Lock lock(mutex);
+        while (!taskPerformed)
+            performed.wait(lock);
+        bool shouldAbort = this->cancelRecoveryOnRecoveryMaster;
+        return shouldAbort;
     }
 
   PRIVATE:
@@ -257,6 +292,36 @@ class RecoveryMasterFinishedTask : public Task {
     ServerId recoveryMasterId;
     ProtoBuf::Tablets recoveredTablets;
     bool successful;
+
+    /**
+     * Mutex to synchronize access to the #taskPerformed and
+     * #cancelRecoveryOnRecoveryMaster fields.
+     */
+    std::mutex mutex;
+    typedef std::unique_lock<std::mutex> Lock;
+
+    /**
+     * False initially, set to true once the task has been performed. Used by
+     * the caller of recoveryMasterFinished to determine when the recovery has
+     * been notified of the success/failure of the recovery master.
+     * #cancelRecoveryOnRecoveryMaster is not valid until this field is true.
+     */
+    bool taskPerformed;
+
+    /**
+     * Notified when taskPerformed is set to true so the caller can wake up and
+     * extract the result from #cancelRecoveryOnRecoveryMaster.
+     */
+    std::condition_variable performed;
+
+    /**
+     * Valid only after taskPerformed is true; if true the calling recovery
+     * master should abort the recovery and should NOT serve requests for the
+     * data which they were originally assigned to recover. If false then the
+     * calling recovery master now owns the recovered tablets and can begin
+     * servicing requests for the data.
+     */
+    bool cancelRecoveryOnRecoveryMaster;
 };
 }
 using namespace MasterRecoveryManagerInternal; // NOLINT
@@ -527,22 +592,38 @@ MasterRecoveryManager::recoveryFinished(Recovery* recovery)
  *      then \a recoveredTablets is ignored and the tablets of
  *      the partition the recovery master was supposed to recover
  *      are left marked RECOVERING.
+ * \return
+ *      True if the recovery master should abort the recovery without
+ *      taking ownership of the recovered tablets; false if the
+ *      recovery master now owns the recovered tablets and can safely
+ *      begin servicing requests for the data. If \a successful is false
+ *      then this always returns true (the recovery master should abort if
+ *      the recovery wasn't succesful).
  */
-void
+bool
 MasterRecoveryManager::recoveryMasterFinished(
     uint64_t recoveryId,
     ServerId recoveryMasterId,
     const ProtoBuf::Tablets& recoveredTablets,
     bool successful)
 {
-    LOG(NOTICE, "called by masterId %s with %u tablets",
+    LOG(NOTICE, "Called by masterId %s with %u tablets",
         recoveryMasterId.toString().c_str(), recoveredTablets.tablet_size());
 
     TEST_LOG("Recovered tablets");
     TEST_LOG("%s", recoveredTablets.ShortDebugString().c_str());
 
-    (new RecoveryMasterFinishedTask(*this, recoveryId, recoveryMasterId,
-                                   recoveredTablets, successful))->schedule();
+    // RecoveryMasterFinishedTasks don't delete themselves so we can get the
+    // result back via wait().
+    RecoveryMasterFinishedTask task(*this, recoveryId, recoveryMasterId,
+                                    recoveredTablets, successful);
+    task.schedule();
+    bool shouldAbort = task.wait();
+    if (shouldAbort)
+        LOG(NOTICE, "Asking recovery master to abort its recovery");
+    else
+        LOG(NOTICE, "Notifying recovery master ok to serve tablets");
+    return shouldAbort;
 }
 
 // - private -

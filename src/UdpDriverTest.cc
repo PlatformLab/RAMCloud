@@ -164,6 +164,34 @@ TEST_F(UdpDriverTest, destructor_closeSocket) {
     EXPECT_EQ("no exception", exceptionMessage);
 }
 
+TEST_F(UdpDriverTest, close_closeSocket) {
+    // If the socket isn't closed, we won't be able to create another
+    // UdpDriver that binds to the same socket.
+    server->close();
+    EXPECT_EQ(-1, server->socketFd);
+    try {
+        UdpDriver duplicate(&context, serverLocator);
+    } catch (DriverException& e) {
+        exceptionMessage = e.message;
+    }
+    EXPECT_EQ("no exception", exceptionMessage);
+}
+
+TEST_F(UdpDriverTest, close_deleteReadHandler) {
+    server->close();
+    EXPECT_FALSE(server->readHandler);
+}
+
+TEST_F(UdpDriverTest, sendPacket_alreadyClosed) {
+    sys->sendmsgErrno = EPERM;
+    Buffer message;
+    message.append("xyzzy", 5);
+    Buffer::Iterator iterator(message);
+    client->close();
+    client->sendPacket(serverAddress, "header:", 7, &iterator);
+    EXPECT_EQ("", TestLog::get());
+}
+
 TEST_F(UdpDriverTest, sendPacket_headerEmpty) {
     Buffer message;
     message.append("xyzzy", 5);
@@ -196,26 +224,20 @@ TEST_F(UdpDriverTest, sendPacket_errorInSend) {
     Buffer message;
     message.append("xyzzy", 5);
     Buffer::Iterator iterator(message);
-    try {
-        client->sendPacket(serverAddress, "header:", 7, &iterator);
-    } catch (DriverException& e) {
-        exceptionMessage = e.message;
-    }
-    EXPECT_EQ("UdpDriver error sending to socket: "
-            "Operation not permitted", exceptionMessage);
+    client->sendPacket(serverAddress, "header:", 7, &iterator);
+    EXPECT_EQ("sendPacket: UdpDriver error sending to socket: "
+            "Operation not permitted", TestLog::get());
+    EXPECT_EQ(-1, client->socketFd);
 }
 
 TEST_F(UdpDriverTest, ReadHandler_errorInRecv) {
     sys->recvfromErrno = EPERM;
     Driver::Received received;
-    try {
-        server->readHandler->handleFileEvent(
-                Dispatch::FileEvent::READABLE);
-    } catch (DriverException& e) {
-        exceptionMessage = e.message;
-    }
-    EXPECT_EQ("UdpDriver error receiving from socket: "
-            "Operation not permitted", exceptionMessage);
+    server->readHandler->handleFileEvent(
+            Dispatch::FileEvent::READABLE);
+    EXPECT_EQ("handleFileEvent: UdpDriver error receiving from socket: "
+            "Operation not permitted", TestLog::get());
+    EXPECT_EQ(-1, server->socketFd);
 }
 
 TEST_F(UdpDriverTest, ReadHandler_noPacketAvailable) {

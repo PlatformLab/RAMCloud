@@ -125,14 +125,18 @@ TaskQueue::outstandingTasks()
  * having multiple threads calling performTask() (and/or
  * performTasksUntilHalt()) means any shared state between tasks will have
  * to have synchronized access.
+ *
+ * \return
+ *      True if a task was performed, false if no task was performed.
  */
-void
+bool
 TaskQueue::performTask()
 {
     Task* task = getNextTask(false);
     if (!task)
-        return;
+        return false;
     task->performTask();
+    return true;
 }
 
 /**

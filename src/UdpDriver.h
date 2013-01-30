@@ -38,6 +38,7 @@ class UdpDriver : public Driver {
     explicit UdpDriver(Context* context,
                        const ServiceLocator* localServiceLocator = NULL);
     virtual ~UdpDriver();
+    void close();
     virtual void connect(IncomingPacketHandler* incomingPacketHandler);
     virtual void disconnect();
     virtual uint32_t getMaxPacketSize();
@@ -67,6 +68,7 @@ class UdpDriver : public Driver {
     Context* context;
 
     /// File descriptor of the UDP socket this driver uses for communication.
+    /// -1 means socket was closed because of error.
     int socketFd;
 
     /// Handler to invoke whenever packets arrive.

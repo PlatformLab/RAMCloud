@@ -144,6 +144,8 @@ TEST_F(TcpTransportTest, constructor_socketError) {
     sys->socketErrno = EPERM;
     EXPECT_EQ("TcpTransport couldn't create listen socket: "
         "Operation not permitted", catchConstruct(&locator));
+    EXPECT_EQ("TcpTransport: TcpTransport couldn't create listen socket: "
+        "Operation not permitted", TestLog::get());
 }
 
 TEST_F(TcpTransportTest, constructor_nonBlockError) {
@@ -151,6 +153,8 @@ TEST_F(TcpTransportTest, constructor_nonBlockError) {
     EXPECT_EQ("TcpTransport couldn't set nonblocking on "
         "listen socket: Operation not permitted",
         catchConstruct(&locator));
+    EXPECT_EQ("TcpTransport: TcpTransport couldn't set nonblocking "
+        "on listen socket: Operation not permitted", TestLog::get());
 }
 
 TEST_F(TcpTransportTest, constructor_reuseAddrError) {
@@ -158,6 +162,8 @@ TEST_F(TcpTransportTest, constructor_reuseAddrError) {
     EXPECT_EQ("TcpTransport couldn't set SO_REUSEADDR "
         "on listen socket: Operation not permitted",
         catchConstruct(&locator));
+    EXPECT_EQ("TcpTransport: TcpTransport couldn't set SO_REUSEADDR "
+        "on listen socket: Operation not permitted", TestLog::get());
 }
 
 TEST_F(TcpTransportTest, constructor_bindError) {
@@ -165,6 +171,8 @@ TEST_F(TcpTransportTest, constructor_bindError) {
     EXPECT_EQ("TcpTransport couldn't bind to 'tcp+ip:"
         "host=localhost,port=11000': Operation not permitted",
         catchConstruct(&locator));
+    EXPECT_EQ("TcpTransport: TcpTransport couldn't bind to 'tcp+ip:"
+        "host=localhost,port=11000': Operation not permitted", TestLog::get());
 }
 
 TEST_F(TcpTransportTest, constructor_listenError) {
@@ -172,6 +180,8 @@ TEST_F(TcpTransportTest, constructor_listenError) {
     sys->listenErrno = EPERM;
     EXPECT_EQ("TcpTransport couldn't listen on socket: "
         "Operation not permitted", catchConstruct(&locator));
+    EXPECT_EQ("TcpTransport: TcpTransport couldn't listen on socket: "
+        "Operation not permitted", TestLog::get());
 }
 
 TEST_F(TcpTransportTest, destructor) {
@@ -374,8 +384,7 @@ TEST_F(TcpTransportTest, ServerSocketHandler_handleFileEvent_error) {
     server.sockets[serverFd]->ioHandler.handleFileEvent(
             Dispatch::FileEvent::READABLE);
     EXPECT_TRUE(server.sockets[serverFd] == NULL);
-    EXPECT_EQ("handleFileEvent: TcpTransport::ServerSocketHandler "
-            "closing client connection: I/O read error in TcpTransport: "
+    EXPECT_EQ("recvCarefully: TcpTransport recv error: "
             "Operation not permitted | ~TcpServerRpc: deleted",
             TestLog::get());
 
@@ -437,8 +446,7 @@ TEST_F(TcpTransportTest, sendMessage_errorOnSend) {
     } catch (TransportException& e) {
         message = e.message;
     }
-    EXPECT_EQ("I/O error in TcpTransport::sendMessage: "
-            "Operation not permitted", message);
+    EXPECT_EQ("TcpTransport sendmsg error: Operation not permitted", message);
 
     close(fd);
 }
@@ -486,8 +494,7 @@ TEST_F(TcpTransportTest, sendMessage_brokenPipe) {
     } catch (TransportException& e) {
         message = e.message;
     }
-    EXPECT_EQ("I/O error in TcpTransport::sendMessage: "
-            "Broken pipe", message);
+    EXPECT_EQ("TcpTransport sendmsg error: Broken pipe", message);
 }
 
 TEST_F(TcpTransportTest, recvCarefully_ioErrors) {
@@ -498,7 +505,7 @@ TEST_F(TcpTransportTest, recvCarefully_ioErrors) {
     } catch (TransportException& e) {
         message = e.message;
     }
-    EXPECT_EQ("session closed by other end", message);
+    EXPECT_EQ("session closed by peer", message);
     sys->recvEof = false;
     sys->recvErrno = EAGAIN;
     EXPECT_EQ(0, TcpTransport::recvCarefully(2, NULL, 100));
@@ -509,8 +516,7 @@ TEST_F(TcpTransportTest, recvCarefully_ioErrors) {
     } catch (TransportException& e) {
         message = e.message;
     }
-    EXPECT_EQ("I/O read error in TcpTransport: "
-            "Operation not permitted", message);
+    EXPECT_EQ("TcpTransport recv error: Operation not permitted", message);
 }
 
 // (IncomingMessage::cancel is tested by cancelRequest tests below.)
@@ -677,6 +683,8 @@ TEST_F(TcpTransportTest, sessionConstructor_socketError) {
     }
     EXPECT_EQ("TcpTransport couldn't open socket "
             "for session: Operation not permitted", message);
+    EXPECT_EQ("TcpSession: TcpTransport couldn't open socket "
+            "for session: Operation not permitted", TestLog::get());
 }
 
 TEST_F(TcpTransportTest, sessionConstructor_connectError) {
@@ -690,6 +698,9 @@ TEST_F(TcpTransportTest, sessionConstructor_connectError) {
     EXPECT_EQ("TcpTransport couldn't connect to "
             "tcp+ip:host=localhost,port=11000: Operation not permitted",
             message);
+    EXPECT_EQ("TcpSession: TcpTransport couldn't connect to "
+            "tcp+ip:host=localhost,port=11000: Operation not permitted",
+            TestLog::get());
     EXPECT_EQ(1, sys->closeCount);
 }
 
@@ -957,6 +968,21 @@ TEST_F(TcpTransportTest, sendRequest_shortAndLongMessages) {
     EXPECT_FALSE(r3.sent);
 }
 
+TEST_F(TcpTransportTest, sendRequest_sendMessageException) {
+    Transport::SessionRef session = client.getSession(locator);
+    TcpTransport::TcpSession* rawSession =
+            reinterpret_cast<TcpTransport::TcpSession*>(session.get());
+    sys->sendmsgErrno = EPERM;
+    MockWrapper rpc("request1");
+    session->sendRequest(&rpc.request, &rpc.response, &rpc);
+    EXPECT_EQ(1, rpc.failedCount);
+    EXPECT_EQ(-1, rawSession->fd);
+    EXPECT_EQ(0U, rawSession->rpcsWaitingToSend.size());
+    EXPECT_EQ(0U, rawSession->rpcsWaitingForResponse.size());
+    EXPECT_EQ("sendMessage: TcpTransport sendmsg error: Operation not "
+            "permitted", TestLog::get());
+}
+
 TEST_F(TcpTransportTest, ClientSocketHandler_handleFileEvent_readResponse) {
     Transport::SessionRef session = client.getSession(locator);
     TcpTransport::TcpSession* rawSession =
@@ -1053,8 +1079,7 @@ TEST_F(TcpTransportTest, ClientSocketHandler_ioError) {
     sys->recvErrno = EPERM;
     rawSession->clientIoHandler->handleFileEvent(Dispatch::FileEvent::READABLE);
     EXPECT_EQ(-1, rawSession->fd);
-    EXPECT_EQ("handleFileEvent: TcpTransport::ClientSocketHandler "
-            "aborting session: I/O read error in TcpTransport: "
+    EXPECT_EQ("recvCarefully: TcpTransport recv error: "
             "Operation not permitted", TestLog::get());
     string message("no exception");
     EXPECT_STREQ("completed: 0, failed: 1", rpc1.getState());
@@ -1156,6 +1181,27 @@ TEST_F(TcpTransportTest, sendReply) {
     EXPECT_EQ("~TcpServerRpc: deleted | ~TcpServerRpc: deleted",
             TestLog::get());
     EXPECT_EQ(0U, socket->rpcsWaitingToReply.size());
+}
+
+TEST_F(TcpTransportTest, sendReply_error) {
+    Transport::SessionRef session = client.getSession(locator);
+    MockWrapper rpc1("request1");
+    session->sendRequest(&rpc1.request, &rpc1.response, &rpc1);
+    Transport::ServerRpc* serverRpc = serviceManager->waitForRpc(1.0);
+    EXPECT_TRUE(serverRpc != NULL);
+    serverRpc->replyPayload.fillFromString("response1");
+
+    // Arrange for an error to occur while sending the reply, and make
+    // sure it is caught properly.
+    sys->sendmsgErrno = EPERM;
+    TcpTransport::TcpServerRpc* tcpRpc =
+            static_cast<TcpTransport::TcpServerRpc*>(serverRpc);
+    TcpTransport *transport = &tcpRpc->transport;
+    int fd = tcpRpc->fd;
+    EXPECT_NO_THROW(serverRpc->sendReply());
+    EXPECT_EQ("sendMessage: TcpTransport sendmsg error: Operation not "
+            "permitted | ~TcpServerRpc: deleted", TestLog::get());
+    EXPECT_TRUE(transport->sockets[fd] == NULL);
 }
 
 TEST_F(TcpTransportTest, sessionAlarm) {
