@@ -174,7 +174,10 @@ def recover(num_servers,
         args['old_master_args'] = '-t %d' % old_master_ram
     else:
         old_master_ram = log_space_per_partition * num_partitions
-        if old_master_ram > 42000:
+        if args['coordinator_host'][0] == 'rcmaster' and old_master_ram > 42000:
+            print('Warning: pushing the limits of rcmaster; '
+                  'limiting RAM to 42000 MB to avoid knocking it over; '
+                  'use rcmonster if you need more')
             old_master_ram = 42000
         args['old_master_args'] = '-d -D -t %d' % old_master_ram
     recovery_logs = cluster.run(**args)
