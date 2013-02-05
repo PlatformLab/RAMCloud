@@ -217,6 +217,11 @@ class RpcWrapper : public Transport::RpcNotifier {
     /// Retry the RPC when Cycles::rdtsc reaches this value.
     uint64_t retryTime;
 
+    /// Microseconds to wait before retrying an RPC after it receives
+    /// STATUS_RETRY from a server. Defaults to 100 us, but RPCs
+    /// may override it.
+    uint64_t usBetweenRetry;
+
     /// Expected size of the response header, in bytes.
     uint32_t responseHeaderLength;
 

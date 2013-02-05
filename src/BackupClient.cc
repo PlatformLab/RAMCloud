@@ -147,6 +147,7 @@ GetRecoveryDataRpc::GetRecoveryDataRpc(Context* context,
     : ServerIdRpcWrapper(context, backupId,
             sizeof(WireFormat::BackupGetRecoveryData::Response), response)
 {
+    usBetweenRetry = 1000;
     WireFormat::BackupGetRecoveryData::Request* reqHdr(
             allocHeader<WireFormat::BackupGetRecoveryData>(backupId));
     reqHdr->recoveryId = recoveryId;
