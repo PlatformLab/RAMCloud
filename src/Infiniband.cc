@@ -647,15 +647,16 @@ Infiniband::QueuePair::plumb(QueuePairTuple *qpt)
     // How long to wait before retrying if packet lost or server dead.
     // Supposedly the timeout is 4.096us*2^timeout.  However, the actual
     // timeout appears to be 4.096us*2^(timeout+1), so the setting
-    // below creates a 1ms timeout.
-    qpa.timeout = 7;
+    // below creates a 135ms timeout.
+    qpa.timeout = 14;
 
     // How many times to retry after timeouts before giving up.
-    qpa.retry_cnt = 3;
+    qpa.retry_cnt = 7;
 
-    // How many times to retry after RNR (receiver not ready?) condition
-    // before giving up.
-    qpa.rnr_retry = 5;
+    // How many times to retry after RNR (receiver not ready) condition
+    // before giving up. Occurs when the remote side has not yet posted
+    // a receive request.
+    qpa.rnr_retry = 7; // 7 is infinite retry.
     qpa.sq_psn = initialPsn;
     qpa.max_rd_atomic = 1;
 
