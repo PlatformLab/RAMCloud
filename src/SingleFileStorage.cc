@@ -300,8 +300,9 @@ SingleFileStorage::Frame::append(Buffer& source,
 {
     Lock lock(storage->mutex);
     if (!isOpen) {
-        LOG(ERROR, "Tried to append to a frame but it wasn't"
-            "open on this backup");
+        LOG(WARNING, "Tried to append to a frame but it wasn't "
+            "open on this backup; this can happen legitimately if a master's "
+            "rpc system retried a closing write rpc.");
         throw BackupBadSegmentIdException(HERE);
     }
     if (loadRequested) {
