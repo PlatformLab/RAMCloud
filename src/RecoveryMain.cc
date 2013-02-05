@@ -250,9 +250,10 @@ try
         count * tableCount, objectDataSize);
 
     if (fillWithTestData) {
-        LOG(NOTICE, "Using the fillWithTestData rpc on a single master");
+        LOG(NOTICE, "Using the fillWithTestData rpc on the master "
+            "with key <1,'0'>");
         uint64_t b = Cycles::rdtsc();
-        client.testingFill(0, "0", 1, count * tableCount, objectDataSize);
+        client.testingFill(1, "0", 1, count * tableCount, objectDataSize);
         LOG(NOTICE, "%d inserts took %lu ticks",
             count * tableCount, Cycles::rdtsc() - b);
         LOG(NOTICE, "avg insert took %lu ticks",
