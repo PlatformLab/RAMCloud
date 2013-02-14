@@ -165,12 +165,16 @@ LogCleaner::cleanerThreadEntry(LogCleaner* logCleaner, Context* context)
 {
     LOG(NOTICE, "LogCleaner thread started");
 
-    while (1) {
-        Fence::lfence();
-        if (logCleaner->threadsShouldExit)
-            break;
+    try {
+        while (1) {
+            Fence::lfence();
+            if (logCleaner->threadsShouldExit)
+                break;
 
-        logCleaner->doWork();
+            logCleaner->doWork();
+        }
+    } catch (const Exception& e) {
+        DIE("Fatal error in cleaner thread: %s", e.what());
     }
 
     LOG(NOTICE, "LogCleaner thread stopping");
@@ -238,7 +242,8 @@ LogCleaner::doMemoryCleaning()
     inMemoryMetrics.totalBytesInCompactedSegments +=
         segment->getSegletsAllocated() * segletSize;
 
-    LogSegment* survivor = segmentManager.allocSideSegment(0, segment);
+    LogSegment* survivor = segmentManager.allocSideSegment(
+            SegmentManager::FOR_CLEANING, segment);
 
     for (SegmentIterator it(*segment); !it.isDone(); it.next()) {
         LogEntryType type = it.getType();
@@ -538,7 +543,8 @@ LogCleaner::relocateLiveEntries(LiveEntryVector& liveEntries,
             if (survivor != NULL)
                 closeSurvivor(survivor);
 
-            survivor = segmentManager.allocSideSegment(0, NULL);
+            survivor = segmentManager.allocSideSegment(
+                    SegmentManager::FOR_CLEANING, NULL);
             outSurvivors.push_back(survivor);
 
             if (!relocateEntry(type, buffer, survivor, onDiskMetrics))

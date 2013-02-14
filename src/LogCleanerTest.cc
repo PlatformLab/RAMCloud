@@ -216,7 +216,7 @@ TEST_F(LogCleanerTest, doMemoryCleaning) {
     EXPECT_NEAR(1, cleaner.doMemoryCleaning(), 0.01);
     EXPECT_EQ(
       "doMemoryCleaning: called | "
-      "alloc: purpose: 2 | "
+      "alloc: purpose: 3 | "
       "allocSideSegment: id = 1 | "
       "relocate: type 1, size 24 | "
       "relocate: type 4, size 12 | "
@@ -434,7 +434,7 @@ TEST_F(LogCleanerTest, relocateLiveEntries) {
     cleaner.relocateLiveEntries(entries, survivors);
     EXPECT_EQ(
         "relocate: type 1, size 24 | "
-        "alloc: purpose: 2 | "
+        "alloc: purpose: 3 | "
         "allocateSegment: Allocating new replicated segment for <57.0,2> | "
         "schedule: zero replicas: nothing to schedule | "
         "allocSideSegment: id = 2 | "
