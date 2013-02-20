@@ -166,7 +166,6 @@ test: $(OBJDIR)/test \
       $(OBJDIR)/ClusterPerf \
       $(OBJDIR)/Echo \
       $(OBJDIR)/HashTableBenchmark \
-      $(OBJDIR)/LogCleanerBenchmark \
       $(OBJDIR)/Perf \
       $(OBJDIR)/RecoverSegmentBenchmark
 	$(OBJDIR)/test
@@ -197,10 +196,6 @@ $(OBJDIR)/ClusterPerf: $(OBJDIR)/ClusterPerf.o $(OBJDIR)/libramcloud.a
 	$(CXX) -o $@ $^ $(LIBS)
 
 $(OBJDIR)/TransportBench: $(OBJDIR)/TransportBench.o $(OBJDIR)/RawMetrics.o $(OBJDIR)/libramcloud.a
-	@mkdir -p $(@D)
-	$(CXX) -o $@ $^ $(TESTS_LIB)
-
-$(OBJDIR)/LogCleanerBenchmark: $(OBJDIR)/LogCleanerBenchmark.o $(OBJDIR)/Histogram.pb.o $(OBJDIR)/OptionParser.o $(OBJDIR)/LogMetrics.pb.o $(OBJDIR)/ServerConfig.pb.o $(OBJDIR)/libramcloud.a
 	@mkdir -p $(@D)
 	$(CXX) -o $@ $^ $(TESTS_LIB)
 
