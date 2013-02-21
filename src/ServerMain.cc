@@ -131,7 +131,20 @@ main(int argc, char *argv[])
             ("sync",
              ProgramOptions::bool_switch(&config.backup.sync),
              "Make all updates completely synchronous all the way down to "
-             "stable storage.");
+             "stable storage.")
+            ("masterServiceThreads",
+             ProgramOptions::value<uint32_t>(
+                &config.master.masterServiceThreadCount)->default_value(1),
+             "The number of threads in MasterService determines the maximum "
+             "number of client RPCs that may be processed in parallel. "
+             "Increasing this value will use more cores and may improve client "
+             "throuphput, especially for reads.")
+            ("logCleanerThreads",
+             ProgramOptions::value<uint32_t>(
+                &config.master.cleanerThreadCount)->default_value(1),
+             "The number of cleaner threads controls the amount of parallelism "
+             "in the cleaner. More threads will use more cores, but may be "
+             "able to better keep up with high write rates.");
 
         OptionParser optionParser(serverOptions, argc, argv);
 

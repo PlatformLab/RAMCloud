@@ -215,6 +215,8 @@ struct ServerConfig {
             , disableInMemoryCleaning(true)
             , diskExpansionFactor(1.0)
             , cleanerWriteCostThreshold(0)
+            , cleanerThreadCount(1)
+            , masterServiceThreadCount(1)
             , numReplicas(0)
             , useMinCopysets(false)
         {}
@@ -231,6 +233,8 @@ struct ServerConfig {
             , disableInMemoryCleaning()
             , diskExpansionFactor()
             , cleanerWriteCostThreshold()
+            , cleanerThreadCount()
+            , masterServiceThreadCount()
             , numReplicas()
             , useMinCopysets()
         {}
@@ -247,6 +251,8 @@ struct ServerConfig {
             config.set_disable_in_memory_cleaning(disableInMemoryCleaning);
             config.set_backup_disk_expansion_factor(diskExpansionFactor);
             config.set_cleaner_write_cost_threshold(cleanerWriteCostThreshold);
+            config.set_cleaner_thread_count(cleanerThreadCount);
+            config.set_master_service_thread_count(masterServiceThreadCount);
             config.set_num_replicas(numReplicas);
             config.set_use_mincopysets(useMinCopysets);
         }
@@ -273,6 +279,16 @@ struct ServerConfig {
         /// If in-memory cleaning is enabled, this specifies the balance between
         /// in-memory and disk cleaning.
         uint32_t cleanerWriteCostThreshold;
+
+        /// If log cleaning is enabled, determines the maximum number of threads
+        /// the cleaner will use. Higher values may increase write throughput
+        /// at the expense of CPU cycles.
+        uint32_t cleanerThreadCount;
+
+        /// Determines the maximum number of threads that may service requests
+        /// in MasterService simultaneously. Higher values may increase client
+        /// throughput (especially for reads).
+        uint32_t masterServiceThreadCount;
 
         /// Number of replicas to keep per segment stored on backups.
         uint32_t numReplicas;

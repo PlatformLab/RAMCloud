@@ -894,6 +894,12 @@ Output::dumpParameters(FILE* fp,
         (serverConfig.master().disable_in_memory_cleaning()) ?
             "disabled" : "enabled");
 
+    fprintf(fp, "  MasterService Threads:  %u\n",
+        serverConfig.master().master_service_thread_count());
+
+    fprintf(fp, "  Cleaner Threads:        %u\n",
+        serverConfig.master().cleaner_thread_count());
+
     fprintf(fp, "===> LOG CONSTANTS:\n");
 
     fprintf(fp, "  Poll Interval:          %d us\n",

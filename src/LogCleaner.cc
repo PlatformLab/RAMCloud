@@ -67,7 +67,7 @@ LogCleaner::LogCleaner(Context* context,
       inMemoryMetrics(),
       onDiskMetrics(),
       threadsShouldExit(false),
-      numThreads(1),
+      numThreads(config->master.cleanerThreadCount),
       threads()
 {
     if (!segmentManager.initializeSurvivorReserve(numThreads *

@@ -193,9 +193,9 @@ class LogCleaner {
      * cleaning (compaction). 
      *
      * During cleaning, this is invoked on every entry in the segments being
-     * cleaned. It is up to the caller to decide whether or not they want the
-     * entry anymore and to use the LogEntryRelocator this method provides them
-     * to perpetuate the entry if they need it.
+     * cleaned. It is up to the LogEntryHandlers callee to decide whether or not
+     * they want the entry anymore and to use the LogEntryRelocator this method
+     * provides them to perpetuate the entry if they need it.
      *
      * \param type
      *      The type of entry that may need relocation.
