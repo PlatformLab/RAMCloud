@@ -91,7 +91,7 @@ class SegletAllocator {
     static int mockMemoryUtilization;
 #endif
 
-  PRIVATE:
+//  PRIVATE:
     bool allocFromPool(vector<Seglet*>& pool,
                        uint32_t count,
                        vector<Seglet*>& outSeglets);

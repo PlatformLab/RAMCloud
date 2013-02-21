@@ -81,10 +81,12 @@ AbstractLog::append(AppendVector* appends, uint32_t numAppends)
     for (uint32_t i = 0; i < numAppends; i++)
         lengths[i] = appends[i].buffer.getTotalLength();
 
-    if (head == NULL || !head->hasSpaceFor(lengths, numAppends))
-        head = allocNextSegment();
+    if (head == NULL || !head->hasSpaceFor(lengths, numAppends)) {
+        if (!allocNewWritableHead())
+            return false;
+    }
 
-    if (head == NULL || head->isEmergencyHead)
+    if (head->isEmergencyHead)
         return false;
 
     if (!head->hasSpaceFor(lengths, numAppends))
@@ -251,8 +253,7 @@ AbstractLog::append(Lock& appendLock,
 
     // This is only possible once after construction.
     if (head == NULL) {
-        head = allocNextSegment();
-        if (head == NULL)
+        if (!allocNewWritableHead())
             throw FatalError(HERE, "Could not allocate initial head segment");
     }
 
@@ -261,19 +262,8 @@ AbstractLog::append(Lock& appendLock,
     uint32_t bytesUsedBefore = head->getAppendedLength();
     bool enoughSpace = head->append(type, buffer, length, &segmentOffset);
     if (!enoughSpace) {
-        LogSegment* newHead = allocNextSegment(false);
-        if (newHead != NULL)
-            head = newHead;
-
-        // If we're entirely out of memory or were allocated an emergency head
-        // segment due to memory pressure, we can't service the append. Return
-        // failure and let the client retry. Hopefully the cleaner will free up
-        // more memory soon.
-        if (newHead == NULL || head->isEmergencyHead) {
-            if (!metrics.noSpaceTimer)
-                metrics.noSpaceTimer.construct(&metrics.totalNoSpaceTicks);
+        if (!allocNewWritableHead())
             return false;
-        }
 
         bytesUsedBefore = head->getAppendedLength();
         if (!head->append(type, buffer, length, &segmentOffset)) {
@@ -286,9 +276,6 @@ AbstractLog::append(Lock& appendLock,
             throw FatalError(HERE, "Entry too big to append to log");
         }
     }
-
-    if (metrics.noSpaceTimer)
-        metrics.noSpaceTimer.destroy();
 
     if (outReference != NULL)
         *outReference = Reference(head->slot, segmentOffset, segmentSize);
@@ -344,6 +331,38 @@ AbstractLog::append(Lock& appendLock,
                   buffer.getRange(0, buffer.getTotalLength()),
                   buffer.getTotalLength(),
                   outReference);
+}
+
+/**
+ * Allocate a new head segment, changing the ``head'' field. If the allocation
+ * succeeds and the allocated segment is writable (that is, not an emergency
+ * head segment), return true. Otherwise, return false.
+ *
+ * This method centralizes a bit of subtle logic shared between the append
+ * methods (the ``head'' field should never be NULL after the first segment
+ * has been allocated).
+ */
+bool
+AbstractLog::allocNewWritableHead()
+{
+    LogSegment* newHead = allocNextSegment(false);
+    if (newHead != NULL)
+        head = newHead;
+
+    // If we're entirely out of memory or were allocated an emergency head
+    // segment due to memory pressure, we can't service the append. Return
+    // failure and let the client retry. Hopefully the cleaner will free up
+    // more memory soon.
+    if (newHead == NULL || head->isEmergencyHead) {
+        if (!metrics.noSpaceTimer)
+            metrics.noSpaceTimer.construct(&metrics.totalNoSpaceTicks);
+        return false;
+    }
+
+    if (metrics.noSpaceTimer)
+        metrics.noSpaceTimer.destroy();
+
+    return true;
 }
 
 } // namespace

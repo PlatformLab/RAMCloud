@@ -992,14 +992,14 @@ void
 SegmentManager::free(LogSegment* s)
 {
     SegmentSlot slot = s->slot;
-    uint64_t id = segments[slot]->id;
+    assert(segments[slot].get() == s);
 
     freeSlot(slot, s->isEmergencyHead);
 
     // In-memory cleaning may have replaced this segment in the map, so do not
     // unconditionally remove it.
-    if (idToSlotMap[id] == slot)
-        idToSlotMap.erase(id);
+    if (idToSlotMap[s->id] == slot)
+        idToSlotMap.erase(s->id);
 
     // Free any backup replicas. Segments cleaned in memory will have had their
     // replicatedSegment stolen and the pointer set to NULL on the old cleaned

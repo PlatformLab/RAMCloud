@@ -297,7 +297,7 @@ class AbstractLog {
      *      A new LogSegment pointer. If mustNotFail is true, this is guaranteed
      *      to be non-NULL.
      */
-    virtual LogSegment* allocNextSegment(bool mustNotFail = true) = 0;
+    virtual LogSegment* allocNextSegment(bool mustNotFail) = 0;
 
     bool append(Lock& lock,
                 LogEntryType type,
@@ -310,6 +310,7 @@ class AbstractLog {
                 uint32_t timestamp,
                 Buffer& buffer,
                 Reference* outReference = NULL);
+    bool allocNewWritableHead();
 
     /// Various handlers for entries appended to this log. Used to obtain
     /// timestamps, check liveness, and notify of entry relocation during

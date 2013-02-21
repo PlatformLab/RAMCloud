@@ -146,13 +146,14 @@ Log::sync()
 
     Tub<Lock> lock;
     lock.construct(appendLock);
+    metrics.syncCalls++;
 
     // The only time 'head' should be NULL is after construction and before the
     // initial call to this method. Even if we run out of memory in the future,
     // head will remain valid.
     if (head == NULL) {
-        head = allocNextSegment(true);
-        if (head == NULL)
+        assert(metrics.syncCalls == 1);
+        if (!allocNewWritableHead())
             throw FatalError(HERE, "Could not allocate initial head segment");
     }
 

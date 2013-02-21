@@ -142,6 +142,8 @@ TEST_F(LogTest, sync) {
     l.sync();
     EXPECT_EQ("sync: sync not needed: already fully replicated",
         TestLog::get());
+
+    EXPECT_EQ(4U, l.metrics.syncCalls);
 }
 
 TEST_F(LogTest, rollHeadOver) {

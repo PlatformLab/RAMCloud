@@ -22,6 +22,7 @@
 #include "Memory.h"
 #include "ServerConfig.h"
 #include "StringUtil.h"
+#include "TestLog.h"
 #include "Transport.h"
 
 namespace RAMCloud {
@@ -208,6 +209,63 @@ TEST_F(AbstractLogTest, segmentExists) {
     EXPECT_TRUE(l.segmentExists(1));
     EXPECT_TRUE(l.segmentExists(2));
     EXPECT_FALSE(l.segmentExists(3));
+}
+
+/// A mostly unusable implementation of AbstractLog that's just good enough
+/// to text allocNewWritableHead().
+class MockLog : public AbstractLog {
+  public:
+    explicit MockLog(Log* l)
+        : AbstractLog(l->entryHandlers,
+                            l->segmentManager,
+                            l->replicaManager,
+                            0)
+        , emptySegletVector()
+        , returnSegment(false)
+        , segment(emptySegletVector, 2, 2, 1983, 12, false)
+    {
+    }
+
+    LogSegment*
+    allocNextSegment(bool mustNotFail)
+    {
+        if (mustNotFail)
+            RAMCLOUD_TEST_LOG("mustNotFail");
+        if (returnSegment)
+            return &segment;
+        return NULL;
+    }
+
+  private:
+    vector<Seglet*> emptySegletVector;
+
+  public:
+    bool returnSegment;
+    LogSegment segment;
+};
+
+TEST_F(AbstractLogTest, allocNewWritableHead) {
+    MockLog ml(&l);
+
+    ml.head = reinterpret_cast<LogSegment*>(0xdeadbeef);
+    EXPECT_FALSE(ml.metrics.noSpaceTimer);
+    EXPECT_FALSE(ml.allocNewWritableHead());
+    EXPECT_EQ(reinterpret_cast<LogSegment*>(0xdeadbeef), ml.head);
+    EXPECT_TRUE(ml.metrics.noSpaceTimer);
+
+    ml.returnSegment = true;
+    EXPECT_TRUE(ml.allocNewWritableHead());
+    EXPECT_EQ(&ml.segment, ml.head);
+    EXPECT_FALSE(ml.metrics.noSpaceTimer);
+    EXPECT_NE(0U, ml.metrics.totalNoSpaceTicks);
+
+    *const_cast<bool*>(&ml.head->isEmergencyHead) = true;
+    EXPECT_FALSE(ml.allocNewWritableHead());
+    EXPECT_EQ(&ml.segment, ml.head);
+    EXPECT_TRUE(ml.metrics.noSpaceTimer);
+
+    // Ensure mustNotFail was false in allocNextSegment()
+    EXPECT_EQ("", TestLog::get());
 }
 
 TEST_F(AbstractLogTest, reference_constructors) {
