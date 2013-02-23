@@ -58,7 +58,7 @@ class LogSegment : public Segment {
         Statistics()
             : liveBytes(0),
               spaceTimeSum(0),
-              lock()
+              lock("LogSegment::Statistics::lock")
         {
         }
 

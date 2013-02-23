@@ -1,0 +1,39 @@
+/* Copyright (c) 2013 Stanford University
+ *
+ * Permission to use, copy, modify, and distribute this software for any
+ * purpose with or without fee is hereby granted, provided that the above
+ * copyright notice and this permission notice appear in all copies.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR(S) DISCLAIM ALL WARRANTIES
+ * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+ * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL AUTHORS BE LIABLE FOR
+ * ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+ * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+ * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+ */
+
+package RAMCloud.ProtoBuf;
+
+/// A list of SpinLocks instantiated in a server, including the lock's
+/// name (if one was given), and statistics used to monitor contention
+/// for each lock.
+message SpinLockStatistics {
+    /// See SpinLock.h.
+    message Lock {
+        /// String name of the SpinLock.
+        required string name = 1;
+
+        /// Number of times the lock has been acquired.
+        required fixed64 acquisitions = 2;
+
+        /// Number of times the lock has been acquired, but only after having
+        /// to spin wait first.
+        required fixed64 contended_acquisitions = 3;
+
+        /// Total number of nanoseconds spent waiting to acquire the lock when
+        /// it was already held.
+        required fixed64 contended_nsec = 4;
+    }
+    repeated Lock locks = 1;
+}

@@ -1072,19 +1072,21 @@ TEST_F(MasterServiceTest, GetServerStatistics) {
 
     ProtoBuf::ServerStatistics serverStats;
     ramcloud->getServerStatistics("mock:host=master", serverStats);
-    EXPECT_EQ("tabletentry { table_id: 1 start_key_hash: 0 "
-              "end_key_hash: 18446744073709551615 number_read_and_writes: 4 }",
-              serverStats.ShortDebugString());
+    EXPECT_TRUE(StringUtil::startsWith(serverStats.ShortDebugString(),
+              "tabletentry { table_id: 1 start_key_hash: 0 "
+              "end_key_hash: 18446744073709551615 number_read_and_writes: 4 } "
+              "spin_lock_stats { locks { name:"));
 
     MasterClient::splitMasterTablet(&context, masterServer->serverId, 1,
                                     0, ~0UL, (~0UL/2));
     ramcloud->getServerStatistics("mock:host=master", serverStats);
-    EXPECT_EQ("tabletentry { table_id: 1 "
+    EXPECT_TRUE(StringUtil::startsWith(serverStats.ShortDebugString(),
+              "tabletentry { table_id: 1 "
               "start_key_hash: 0 "
               "end_key_hash: 9223372036854775806 } "
               "tabletentry { table_id: 1 start_key_hash: 9223372036854775807 "
-              "end_key_hash: 18446744073709551615 }",
-              serverStats.ShortDebugString());
+              "end_key_hash: 18446744073709551615 } "
+              "spin_lock_stats { locks { name:"));
 }
 
 

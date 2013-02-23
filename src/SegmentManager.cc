@@ -68,7 +68,7 @@ SegmentManager::SegmentManager(Context* context,
       idToSlotMap(),
       allSegments(),
       segmentsByState(),
-      lock(),
+      lock("SegmentManager::lock"),
       logIteratorCount(0),
       segmentsOnDisk(0),
       segmentsOnDiskHistogram(maxSegments, 1),
@@ -251,6 +251,7 @@ SegmentManager::allocSideSegment(uint32_t flags, LogSegment* replacing)
     Tub<Lock> guard;
     LogSegment* s = NULL;
 
+    uint64_t start = Cycles::rdtsc();
     while (1) {
         guard.construct(lock);
 
@@ -268,6 +269,13 @@ SegmentManager::allocSideSegment(uint32_t flags, LogSegment* replacing)
             return NULL;
 
         guard.destroy();
+
+        if (Cycles::toSeconds(Cycles::rdtsc() - start) >= 1) {
+            LOG(WARNING, "Haven't made progress in 1s\n");
+            start = Cycles::rdtsc();
+        }
+
+        // Reduce monitor lock contention.
         usleep(100);
     }
     assert(guard);
@@ -554,20 +562,6 @@ SegmentManager::doesIdExist(uint64_t id)
 {
     Lock guard(lock);
     return contains(idToSlotMap, id);
-}
-
-/**
- * Return the number of free survivor segments left in the reserve. The caller
- * may subsequently call allocSideSegment() requesting a cleaner-reserved
- * segment this many times with a guarantee that a survivor segment will be
- * returned.
- */
-size_t
-SegmentManager::getFreeSurvivorCount()
-{
-    Lock guard(lock);
-    return allocator.getFreeCount(SegletAllocator::CLEANER) /
-           (segmentSize / allocator.getSegletSize());
 }
 
 #ifdef TESTING

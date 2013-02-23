@@ -32,7 +32,7 @@ namespace RAMCloud {
  */
 SegletAllocator::SegletAllocator(const ServerConfig* config)
     : segletSize(config->segletSize),
-      lock(),
+      lock("SegletAllocator::lock"),
       emergencyHeadPool(),
       emergencyHeadPoolReserve(0),
       cleanerPool(),

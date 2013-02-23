@@ -122,7 +122,6 @@ class SegmentManager {
     bool initializeSurvivorReserve(uint32_t numSegments);
     LogSegment& operator[](SegmentSlot slot);
     bool doesIdExist(uint64_t id);
-    size_t getFreeSurvivorCount();
     int getSegmentUtilization();
     uint64_t allocateVersion();
     bool raiseSafeVersion(uint64_t minimum);

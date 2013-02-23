@@ -64,8 +64,8 @@ SHARED_SRCFILES := \
 		   src/Memory.cc \
 		   src/MinCopysetsBackupSelector.cc \
 		   src/MultiOp.cc \
-		  src/MultiRead.cc \
-                  src/MultiWrite.cc \
+		   src/MultiRead.cc \
+		   src/MultiWrite.cc \
 		   src/MurmurHash3.cc \
 		   src/ObjectFinder.cc \
 		   src/ObjectManager.cc \
@@ -92,7 +92,7 @@ SHARED_SRCFILES := \
 		   src/ServiceLocator.cc \
 		   src/ServiceManager.cc \
 		   src/SessionAlarm.cc \
-           src/SideLog.cc \
+		   src/SideLog.cc \
 		   src/SpinLock.cc \
 		   src/Status.cc \
 		   src/StringUtil.cc \
@@ -121,6 +121,7 @@ SHARED_SRCFILES := \
 		   $(OBJDIR)/ServerConfig.pb.cc \
 		   $(OBJDIR)/ServerList.pb.cc \
 		   $(OBJDIR)/ServerStatistics.pb.cc \
+		   $(OBJDIR)/SpinLockStatistics.pb.cc \
 		   $(OBJDIR)/Tablets.pb.cc \
 		   $(NULL)
 

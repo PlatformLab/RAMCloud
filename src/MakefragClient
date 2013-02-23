@@ -27,15 +27,15 @@ CLIENT_SRCFILES := \
 		   src/FailSession.cc \
 		   src/FastTransport.cc \
 		   src/IpAddress.cc \
-                   src/Key.cc \
+		   src/Key.cc \
 		   src/Logger.cc \
 		   src/MacAddress.cc \
 		   src/LargeBlockOfMemory.cc \
 		   src/MasterClient.cc \
 		   src/Memory.cc \
 		   src/MultiOp.cc \
-		  src/MultiRead.cc \
-		  src/MultiWrite.cc \
+		   src/MultiRead.cc \
+		   src/MultiWrite.cc \
 		   src/MurmurHash3.cc \
 		   src/ObjectFinder.cc \
 		   src/ObjectRpcWrapper.cc \
@@ -74,6 +74,7 @@ CLIENT_SRCFILES := \
 		   $(OBJDIR)/MetricList.pb.cc \
 		   $(OBJDIR)/ServerList.pb.cc \
 		   $(OBJDIR)/ServerStatistics.pb.cc \
+		   $(OBJDIR)/SpinLockStatistics.pb.cc \
 		   $(OBJDIR)/Tablets.pb.cc \
 		   $(NULL)
 

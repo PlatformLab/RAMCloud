@@ -19,7 +19,12 @@
 namespace RAMCloud {
 
 TEST(SpinLockTest, basics) {
-    SpinLock lock;
+    SpinLock lock("Lord Lockington");
+    EXPECT_EQ("Lord Lockington", lock.name);
+    EXPECT_EQ(0U, lock.acquisitions);
+    EXPECT_EQ(0U, lock.contendedAcquisitions);
+    EXPECT_EQ(0U, lock.contendedTicks);
+
     EXPECT_EQ(0, lock.mutex.load());
     lock.lock();
     EXPECT_EQ(1, lock.mutex.load());
@@ -29,6 +34,10 @@ TEST(SpinLockTest, basics) {
     EXPECT_EQ(0, lock.mutex.load());
     EXPECT_TRUE(lock.try_lock());
     EXPECT_EQ(1, lock.mutex.load());
+
+    EXPECT_EQ(1U, lock.acquisitions);
+    EXPECT_EQ(0U, lock.contendedAcquisitions);
+    EXPECT_EQ(0U, lock.contendedTicks);
 }
 
 // Helper function that runs in a separate thread for the following test.
@@ -90,6 +99,42 @@ TEST(SpinLockTest, contention) {
     thread1.join();
     thread2.join();
     EXPECT_EQ(3000, value);
+    EXPECT_EQ(3000U, lock.acquisitions);
+    EXPECT_GT(lock.contendedAcquisitions, 0U);
+    EXPECT_LT(lock.contendedAcquisitions, lock.acquisitions);
+    EXPECT_GT(lock.contendedTicks, 0U);
+}
+
+TEST(SpinLockTest, setName) {
+    SpinLock lock;
+    EXPECT_EQ("unnamed", lock.name);
+    lock.setName("John Paul Jones");
+    EXPECT_EQ("John Paul Jones", lock.name);
+}
+
+TEST(SpinLockTest, getStatistics) {
+    SpinLock lock1("Jimmy Page");
+    SpinLock lock2("John Bonham");
+    SpinLock lock3("Robert Plant");
+
+    lock1.acquisitions = 2;
+    lock1.contendedAcquisitions = 1;
+    lock1.contendedTicks = Cycles::fromNanoseconds(10000);
+
+    lock2.acquisitions = 51;
+    lock2.contendedAcquisitions = 12;
+    lock2.contendedTicks = Cycles::fromNanoseconds(5000);
+
+    ProtoBuf::SpinLockStatistics stats;
+    SpinLock::getStatistics(&stats);
+
+    EXPECT_EQ("locks { name: \"Jimmy Page\" acquisitions: 2 "
+              "contended_acquisitions: 1 contended_nsec: 10000 } "
+              "locks { name: \"John Bonham\" acquisitions: 51 "
+              "contended_acquisitions: 12 contended_nsec: 5000 } "
+              "locks { name: \"Robert Plant\" acquisitions: 0 "
+              "contended_acquisitions: 0 contended_nsec: 0 }",
+        stats.ShortDebugString());
 }
 
 }  // namespace RAMCloud

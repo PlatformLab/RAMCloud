@@ -69,6 +69,8 @@ ObjectManager::ObjectManager(Context* context,
     , replaySegmentReturnCount(0)
     , tombstoneRemover()
 {
+    for (size_t i = 0; i < arrayLength(hashTableBucketLocks); i++)
+        hashTableBucketLocks[i].setName("hashTableBucketLock");
 }
 
 /**

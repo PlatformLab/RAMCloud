@@ -59,7 +59,7 @@ LogCleaner::LogCleaner(Context* context,
       writeCostThreshold(config->master.cleanerWriteCostThreshold),
       disableInMemoryCleaning(config->master.disableInMemoryCleaning),
       candidates(),
-      candidatesLock(),
+      candidatesLock("LogCleaner::candidatesLock"),
       segletSize(config->segletSize),
       segmentSize(config->segmentSize),
       doWorkTicks(0),
@@ -236,14 +236,17 @@ LogCleaner::doMemoryCleaning()
     if (segment == NULL)
         return std::numeric_limits<double>::max();
 
-    // Only proceed once we have a survivor segment to work with.
-    waitForAvailableSurvivors(1, inMemoryMetrics.waitForFreeSurvivorTicks);
+    // Allocate a survivor segment to write into. This call may block if one
+    // is not available right now.
+    CycleCounter<uint64_t> waitTicks(&inMemoryMetrics.waitForFreeSurvivorTicks);
+    LogSegment* survivor = segmentManager.allocSideSegment(
+            SegmentManager::FOR_CLEANING | SegmentManager::MUST_NOT_FAIL,
+            segment);
+    assert(survivor != NULL);
+    waitTicks.stop();
 
     inMemoryMetrics.totalBytesInCompactedSegments +=
         segment->getSegletsAllocated() * segletSize;
-
-    LogSegment* survivor = segmentManager.allocSideSegment(
-            SegmentManager::FOR_CLEANING, segment);
 
     for (SegmentIterator it(*segment); !it.isDone(); it.next()) {
         LogEntryType type = it.getType();
@@ -529,10 +532,6 @@ LogCleaner::relocateLiveEntries(LiveEntryVector& liveEntries,
 {
     CycleCounter<uint64_t> _(&onDiskMetrics.relocateLiveEntriesTicks);
 
-    // Only proceed once our pool of survivor segments is full.
-    waitForAvailableSurvivors(SURVIVOR_SEGMENTS_TO_RESERVE,
-                              onDiskMetrics.waitForFreeSurvivorsTicks);
-
     LogSegment* survivor = NULL;
 
     foreach (LiveEntry& entry, liveEntries) {
@@ -543,8 +542,15 @@ LogCleaner::relocateLiveEntries(LiveEntryVector& liveEntries,
             if (survivor != NULL)
                 closeSurvivor(survivor);
 
+            // Allocate a survivor segment to write into. This call may block if
+            // one is not available right now.
+            CycleCounter<uint64_t> waitTicks(
+                &onDiskMetrics.waitForFreeSurvivorsTicks);
             survivor = segmentManager.allocSideSegment(
-                    SegmentManager::FOR_CLEANING, NULL);
+                SegmentManager::FOR_CLEANING | SegmentManager::MUST_NOT_FAIL,
+                NULL);
+            assert(survivor != NULL);
+            waitTicks.stop();
             outSurvivors.push_back(survivor);
 
             if (!relocateEntry(type, buffer, survivor, onDiskMetrics))
@@ -585,28 +591,6 @@ LogCleaner::closeSurvivor(LogSegment* survivor)
     // begin replicating the contents. By closing survivors as we go, we can
     // overlap backup writes with filling up new survivors.
     survivor->replicatedSegment->close();
-}
-
-/**
- * Wait until the desired number of survivor segments are available for
- * cleaning. This is necessary to ensure that we have enough space to work
- * with. A perhaps more elegant alternative would be to make SegmentManager::
- * allocSideSegment() a blocking call. That way we could overlap some more work
- * when some, but not all, needed segments are available.
- *
- * \param count
- *      The number of survivor segments we want to have available to us before
- *      continuing.
- * \param outTicks
- *      The number of ticks spent waiting is added to this out parameter. 
- */
-void
-LogCleaner::waitForAvailableSurvivors(size_t count, uint64_t& outTicks)
-{
-    CycleCounter<uint64_t> _(&outTicks);
-
-    while (segmentManager.getFreeSurvivorCount() < count)
-        usleep(100);
 }
 
 /******************************************************************************

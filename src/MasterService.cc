@@ -377,6 +377,7 @@ MasterService::getServerStatistics(
 {
     ProtoBuf::ServerStatistics serverStats;
     tabletManager.getStatistics(&serverStats);
+    SpinLock::getStatistics(serverStats.mutable_spin_lock_stats());
     respHdr->serverStatsLength = serializeToResponse(rpc->replyPayload,
                                                     &serverStats);
 }

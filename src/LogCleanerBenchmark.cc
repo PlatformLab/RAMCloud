@@ -387,6 +387,7 @@ class Output {
     void dumpDiskMetrics(FILE* fp, ProtoBuf::LogMetrics& metrics);
     void dumpMemoryMetrics(FILE* fp, ProtoBuf::LogMetrics& metrics);
     void dumpLogMetrics(FILE* fp, ProtoBuf::LogMetrics& metrics);
+    void dumpSpinLockMetrics(FILE* fp, ProtoBuf::ServerStatistics& serverStats);
 
     RamCloud& ramcloud;
     string masterLocator;
@@ -1208,7 +1209,7 @@ Output::dumpLogMetrics(FILE* fp, ProtoBuf::LogMetrics& metrics)
         100.0 * appendTime / elapsed);
 
     double syncTime = Cycles::toSeconds(metrics.total_sync_ticks(), serverHz);
-    fprintf(fp, "    Time Syncing:                %.3f sec (%.2f%%)\n",
+    fprintf(fp, "  Total Time Syncing:            %.3f sec (%.2f%%)\n",
         syncTime, 100.0 * syncTime / elapsed);
 
     double noMemTime = Cycles::toSeconds(metrics.total_no_space_ticks(),
@@ -1217,11 +1218,59 @@ Output::dumpLogMetrics(FILE* fp, ProtoBuf::LogMetrics& metrics)
         noMemTime, 100.0 * noMemTime / elapsed);
 }
 
+struct SpinLockStats {
+    SpinLockStats(string name, double contentionPct, uint64_t contendedNsec)
+        : name(name), contentionPct(contentionPct), contendedNsec(contendedNsec)
+    {
+    }
+    string name;
+    double contentionPct;
+    uint64_t contendedNsec;
+};
+
+static bool
+lockSorter(const SpinLockStats& a, const SpinLockStats& b)
+{
+    return a.contentionPct > b.contentionPct;
+}
+
+void
+Output::dumpSpinLockMetrics(FILE* fp, ProtoBuf::ServerStatistics& serverStats)
+{
+    const ProtoBuf::SpinLockStatistics& spinLockStats =
+        serverStats.spin_lock_stats();
+
+    vector<SpinLockStats> locks;
+
+    foreach (const ProtoBuf::SpinLockStatistics_Lock& lock,
+      spinLockStats.locks()) {
+        locks.push_back({ lock.name(),
+                          static_cast<double>(lock.contended_acquisitions()) /
+                            static_cast<double>(lock.acquisitions()) * 100,
+                          lock.contended_nsec() });
+    }
+
+    std::sort(locks.begin(), locks.end(), lockSorter);
+
+    // we don't want to report them all, since the hashTable has a ton
+    // protecting different buckets.
+    const int maxLocks = 10;
+    fprintf(fp, "===> %d MOST CONTENDED SPINLOCKS\n", maxLocks);
+    for (int i = 0; i < maxLocks; i++) {
+        fprintf(fp, "  %-30s %.3f%% contended (%lu ms waited for)\n",
+            (locks[i].name + ":").c_str(),
+            locks[i].contentionPct,
+            locks[i].contendedNsec / 1000000);
+    }
+}
+
 void
 Output::dump()
 {
     ProtoBuf::LogMetrics metrics;
+    ProtoBuf::ServerStatistics serverStats;
     ramcloud.getLogMetrics(masterLocator.c_str(), metrics);
+    ramcloud.getServerStatistics(masterLocator.c_str(), serverStats);
 
     foreach (FILE* fp, outputFiles) {
         dumpSummary(fp);
@@ -1230,6 +1279,7 @@ Output::dump()
         dumpDiskMetrics(fp, metrics);
         dumpMemoryMetrics(fp, metrics);
         dumpLogMetrics(fp, metrics);
+        dumpSpinLockMetrics(fp, serverStats);
     }
 }
 
@@ -1349,6 +1399,13 @@ try
 
     OptionParser optionParser(benchOptions, argc, argv);
 
+    // TODO(steve?): Figure out some way of having this be implicitly set if
+    // the argment is provided to OptionParser. Right now every main() method
+    // has to do this separately (and if they don't, the argument just
+    // silently has no effect).
+    context.transportManager->setTimeout(
+        optionParser.options.getTransportTimeout());
+
     if (options.utilization < 1 || options.utilization > 100) {
         fprintf(stderr, "ERROR: Utilization must be between 1 and 100, "
             "inclusive\n");
@@ -1441,6 +1498,7 @@ try
                         *distribution,
                         options.pipelinedRpcs,
                         options.writeCostConvergence);
+    setvbuf(stdout, NULL, _IONBF, 0);
     Output output(ramcloud, locator, benchmark);
     output.addFile(stdout);
     if (metricsFile != NULL)
@@ -1484,7 +1542,7 @@ try
     while (1) {
         Buffer buffer;
         try {
-            ramcloud.read(0, &key, sizeof(key), &buffer);
+            ramcloud.read(tableId, &key, sizeof(key), &buffer);
         } catch (...) {
             break;
         }
