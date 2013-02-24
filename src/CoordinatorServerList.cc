@@ -332,8 +332,8 @@ CoordinatorServerList::recoverAliveServer(
         state->read_speed(),
         false);
 
-    Entry entry(*getEntry(ServerId(state->server_id())));
-    entry.logIdAliveServer = logIdAliveServer;
+    Entry* entry = getEntry(ServerId(state->server_id()));
+    entry->logIdAliveServer = logIdAliveServer;
 }
 
 /**
@@ -400,8 +400,18 @@ CoordinatorServerList::recoverServerListVersion(
     ProtoBuf::ServerListVersion* state, EntryId logIdServerListVersion)
 {
     Lock lock(mutex);
-    PersistServerListVersion(*this, lock,
-                             state->version()).complete(logIdServerListVersion);
+
+    uint64_t version = state->version();
+    PersistServerListVersion(*this, lock, version).complete(
+            logIdServerListVersion);
+
+    for (size_t index = 0; index < isize(); index++) {
+        Entry* entry = getEntry(index);
+        if (entry != NULL) {
+            entry->verifiedVersion = version;
+            entry->updateVersion = version;
+        }
+    }
 }
 
 /**
@@ -580,16 +590,16 @@ CoordinatorServerList::EnlistServer::complete(
         csl.logIdAppendServerAlive = NO_ID;
     }
 
-    CoordinatorServerList::Entry entry(*csl.getEntry(newServerId));
-    entry.logIdEnlistServer = logIdEnlistServer;
+    Entry* entry = csl.getEntry(newServerId);
+    entry->logIdEnlistServer = logIdEnlistServer;
     if (logIdAliveServer != NO_ID)
-        entry.logIdAliveServer = logIdAliveServer;
+        entry->logIdAliveServer = logIdAliveServer;
 
     LOG(NOTICE, "Enlisting new server at %s (server id %s) supporting "
         "services: %s", serviceLocator, newServerId.toString().c_str(),
-        entry.services.toString().c_str());
+        entry->services.toString().c_str());
 
-    if (entry.isBackup()) {
+    if (entry->isBackup()) {
         LOG(DEBUG, "Backup at id %s has %u MB/s read",
             newServerId.toString().c_str(), readSpeed);
         csl.createReplicationGroup(lock);
@@ -670,11 +680,11 @@ CoordinatorServerList::ServerCrashed::complete(EntryId entryId)
     // If this machine has a backup and master on the same server it is best
     // to remove the dead backup before initiating recovery. Otherwise, other
     // servers may try to backup onto a dead machine which will cause delays.
-    CoordinatorServerList::Entry entry(*csl.getEntry(serverId));
-    entry.logIdServerCrashed = entryId;
+    Entry* entry = csl.getEntry(serverId);
+    entry->logIdServerCrashed = entryId;
 
-    if (entry.needsRecovery) {
-        if (!entry.services.has(WireFormat::MASTER_SERVICE)) {
+    if (entry->needsRecovery) {
+        if (!entry->services.has(WireFormat::MASTER_SERVICE)) {
             // If the server being replaced did not have a master then there
             // will be no recovery.  That means it needs to transition to
             // removed status now (usually recoveries remove servers from the
@@ -683,13 +693,13 @@ CoordinatorServerList::ServerCrashed::complete(EntryId entryId)
                             csl, lock, serverId, ++csl.version).execute();
         }
 
-        csl.context->recoveryManager->startMasterRecovery(entry);
+        csl.context->recoveryManager->startMasterRecovery(*entry);
     } else {
         // Don't start recovery when the coordinator is replaying a serverDown
         // log entry for a server that had already been recovered.
     }
 
-    csl.removeReplicationGroup(lock, entry.replicationId);
+    csl.removeReplicationGroup(lock, entry->replicationId);
     csl.createReplicationGroup(lock);
 }
 
@@ -1416,7 +1426,7 @@ CoordinatorServerList::pruneUpdates(const Lock& lock)
                 if (context->logCabinHelper) {
                     ServerId serverId =
                             ServerId(currentEntry.server_id());
-                    CoordinatorServerList::Entry* entry = getEntry(serverId);
+                    Entry* entry = getEntry(serverId);
                     assert(entry != NULL);
                     vector<EntryId> invalidates {entry->logIdEnlistServer};
                     context->logCabinHelper->invalidate(
