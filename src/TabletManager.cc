@@ -20,7 +20,7 @@ namespace RAMCloud {
 
 TabletManager::TabletManager()
     : tabletMap()
-    , lock()
+    , lock("TabletManager::lock")
 {
 }
 

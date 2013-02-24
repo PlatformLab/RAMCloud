@@ -92,7 +92,7 @@ TransportManager::TransportManager(Context* context)
     , sessionCache()
     , registeredBases()
     , registeredSizes()
-    , mutex()
+    , mutex("TransportManager::mutex")
     , timeoutMs(0)
     , mockRegistrations(0)
 {
