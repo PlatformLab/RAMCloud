@@ -59,7 +59,8 @@ CoordinatorService::CoordinatorService(Context* context,
     if (logCabinLog.get()->getLastId() == LogCabin::Client::NO_ID)
         expectedEntryId = 0;
     else
-        expectedEntryId = logCabinLog.get()->getLastId() + 1;
+        expectedEntryId = logCabinLog.get()->getLastId();
+    LOG(DEBUG, "Expected EntryId is %lu", expectedEntryId);
 
     context->recoveryManager = &recoveryManager;
     context->logCabinLog = logCabinLog.get();

@@ -143,7 +143,7 @@ LogCabinHelper::readValidEntries()
     vector<Entry> entries = logCabinLog.read(0);
     vector<EntryId> allInvalidatedEntries;
 
-    for (auto it = entries.begin(); it < entries.end(); it++) {
+    for (auto it = entries.begin(); it != entries.end(); ++it) {
         vector<EntryId> invalidates = it->getInvalidates();
         foreach (EntryId entryId, invalidates) {
             allInvalidatedEntries.push_back(entryId);
@@ -152,7 +152,7 @@ LogCabinHelper::readValidEntries()
 
     // Sort "allInvalidatedEntries" such that the entry ids are arranged
     // in descending order. Then when we actually erase entries from
-    // "entries", it will happen from the end towards the begining
+    // "entries", it will happen from the end towards the beginning
     // so that deleting an entry doesn't change the position of the
     // entry to be deleted after it.
     sort(allInvalidatedEntries.begin(), allInvalidatedEntries.end(),
@@ -162,7 +162,7 @@ LogCabinHelper::readValidEntries()
     // So for every entry to be invalidated, I have to search through the entire
     // vector to find an entry with that id.
     foreach (EntryId entryId, allInvalidatedEntries) {
-        for (auto it = entries.end(); it >= entries.begin(); it--) {
+        for (auto it = entries.end(); it >= entries.begin(); --it) {
             if (it->getId() == entryId) {
                 RAMCLOUD_LOG(DEBUG, "Erasing entry with id %lu", entryId);
                 entries.erase(it);
