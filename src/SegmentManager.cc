@@ -883,7 +883,7 @@ SegmentManager::alloc(AllocPurpose purpose, uint64_t segmentId)
         type = SegletAllocator::EMERGENCY_HEAD;
 
     if (!allocator.alloc(type, segmentSize / segletSize, seglets)) {
-        assert(purpose == ALLOC_HEAD || purpose == ALLOC_REGULAR_SIDELOG);
+        assert(purpose != ALLOC_EMERGENCY_HEAD);
         freeSlot(slot, false);
         return NULL;
     }
