@@ -366,28 +366,25 @@ TEST_F(CoordinatorServerListTest, enlistServer_LogCabin) {
     vector<Entry> entriesRead = logCabinLog->read(0);
     string searchString;
 
-    ProtoBuf::ServerInformation readState;
-    searchString = "execute: LogCabin: EnlistServer entryId: ";
+    ProtoBuf::EntryType readStateServerUpUpdate;
+    searchString = "execute: LogCabin: ServerUpUpdate entryId: ";
     ASSERT_NO_THROW(findEntryId(searchString));
     logCabinHelper->parseProtoBufFromEntry(
-            entriesRead[findEntryId(searchString)], readState);
-    EXPECT_EQ("entry_type: \"EnlistServer\"\n"
+            entriesRead[findEntryId(searchString)], readStateServerUpUpdate);
+    EXPECT_EQ("entry_type: \"ServerUpUpdate\"\n",
+               readStateServerUpUpdate.DebugString());
+
+    ProtoBuf::ServerInformation readStateServerUp;
+    searchString = "execute: LogCabin: ServerUp entryId: ";
+    ASSERT_NO_THROW(findEntryId(searchString));
+    logCabinHelper->parseProtoBufFromEntry(
+            entriesRead[findEntryId(searchString)], readStateServerUp);
+    EXPECT_EQ("entry_type: \"ServerUp\"\n"
               "server_id: 2\nservice_mask: 2\n"
               "read_speed: 0\n"
               "service_locator: \"mock:host=backup\"\n"
               "update_version: 3\n",
-               readState.DebugString());
-
-    searchString = "complete: LogCabin: AliveServer entryId: ";
-    ASSERT_NO_THROW(findEntryId(searchString));
-    ProtoBuf::ServerInformation readInfo;
-    logCabinHelper->parseProtoBufFromEntry(
-            entriesRead[findEntryId(searchString)], readInfo);
-    EXPECT_EQ("entry_type: \"AliveServer\"\n"
-              "server_id: 2\nservice_mask: 2\n"
-              "read_speed: 0\n"
-              "service_locator: \"mock:host=backup\"\n",
-               readInfo.DebugString());
+               readStateServerUp.DebugString());
 }
 
 TEST_F(CoordinatorServerListTest, serialize) {
@@ -551,104 +548,6 @@ TEST_F(CoordinatorServerListTest, setMasterRecoveryInfo_complete_noSuchServer) {
 // Unit Tests for CoordinatorServerList Recovery Methods
 //////////////////////////////////////////////////////////////////////
 
-TEST_F(CoordinatorServerListTest, recoverAliveServer) {
-    enlistMaster();
-    EXPECT_EQ(1U, master->serverId.getId());
-
-    ProtoBuf::ServerInformation state;
-    state.set_entry_type("AliveServer");
-    state.set_server_id(ServerId(2, 0).getId());
-    state.set_service_mask(
-            ServiceMask({WireFormat::BACKUP_SERVICE}).serialize());
-    state.set_read_speed(0);
-    state.set_service_locator("mock:host=backup");
-
-    EntryId entryId = logCabinHelper->appendProtoBuf(
-            *service->context->expectedEntryId, state);
-
-    TestLog::Enable _(enlistServerFilter);
-    sl->recoverAliveServer(&state, entryId);
-
-    EXPECT_EQ("", TestLog::get());
-
-    // Note: During real operation, the version_number for serverList
-    // (both masterList and backupList) would be 2 (1 for master, and 1 for
-    // the other server). The 2nd update would have been propagated when the
-    // other server was originally enlisted (and after that the coordinator
-    // crashed). However, for this unit test, I'm not doing the original
-    // enlist server for that server, and only replaying an AliveServer entry
-    // appended outside the normal flow of events.
-
-    ProtoBuf::ServerList masterList;
-    sl->serialize(masterList, {WireFormat::MASTER_SERVICE});
-    EXPECT_TRUE(TestUtil::matchesPosixRegex(
-                "server { services: 25 server_id: 1 "
-                "service_locator: \"mock:host=master\" "
-                "expected_read_mbytes_per_sec: [0-9]\\+ status: 0 "
-                "replication_id: 0 } "
-                "version_number: 1 type: FULL_LIST",
-                 masterList.ShortDebugString()));
-
-    ProtoBuf::ServerList backupList;
-    sl->serialize(backupList, {WireFormat::BACKUP_SERVICE});
-    EXPECT_EQ("server { services: 2 server_id: 2 "
-              "service_locator: \"mock:host=backup\" "
-              "expected_read_mbytes_per_sec: 0 status: 0 "
-              "replication_id: 0 } "
-              "version_number: 1 type: FULL_LIST",
-               backupList.ShortDebugString());
-}
-
-TEST_F(CoordinatorServerListTest, recoverEnlistServer) {
-    enlistMaster();
-    EXPECT_EQ(1U, master->serverId.getId());
-
-    ProtoBuf::ServerInformation stateEnlistServer;
-    stateEnlistServer.set_entry_type("EnlistServer");
-    stateEnlistServer.set_server_id(ServerId(2, 0).getId());
-    stateEnlistServer.set_service_mask(
-            ServiceMask({WireFormat::BACKUP_SERVICE}).serialize());
-    stateEnlistServer.set_read_speed(0);
-    stateEnlistServer.set_service_locator("mock:host=backup");
-    stateEnlistServer.set_update_version(sl->version + 1);
-
-    EntryId entryId = logCabinHelper->appendProtoBuf(
-            *service->context->expectedEntryId, stateEnlistServer);
-
-    ProtoBuf::ServerInformation stateAliveServer;
-    stateAliveServer.set_entry_type("AliveServer");
-    stateAliveServer.set_server_id(ServerId(2, 0).getId());
-    stateAliveServer.set_service_mask(
-            ServiceMask({WireFormat::BACKUP_SERVICE}).serialize());
-    stateAliveServer.set_read_speed(0);
-    stateAliveServer.set_service_locator("mock:host=backup");
-
-    logCabinHelper->appendProtoBuf(
-            *service->context->expectedEntryId, stateAliveServer);
-
-    TestLog::Enable _(enlistServerFilter);
-    sl->recoverEnlistServer(&stateEnlistServer, entryId);
-
-    ProtoBuf::ServerList masterList;
-    sl->serialize(masterList, {WireFormat::MASTER_SERVICE});
-    EXPECT_TRUE(TestUtil::matchesPosixRegex(
-                "server { services: 25 server_id: 1 "
-                "service_locator: \"mock:host=master\" "
-                "expected_read_mbytes_per_sec: [0-9]\\+ status: 0 "
-                "replication_id: 0 } "
-                "version_number: 2",
-                 masterList.ShortDebugString()));
-
-    ProtoBuf::ServerList backupList;
-    sl->serialize(backupList, {WireFormat::BACKUP_SERVICE});
-    EXPECT_EQ("server { services: 2 server_id: 2 "
-              "service_locator: \"mock:host=backup\" "
-              "expected_read_mbytes_per_sec: 0 status: 0 "
-              "replication_id: 0 } "
-              "version_number: 2 type: FULL_LIST",
-               backupList.ShortDebugString());
-}
-
 TEST_F(CoordinatorServerListTest, recoverServerCrashed) {
     enlistMaster();
     service->context->recoveryManager->doNotStartRecoveries = true;
@@ -725,6 +624,45 @@ TEST_F(CoordinatorServerListTest, recoverServerRemoveUpdate) {
     EXPECT_EQ(2UL, sl->version);
 }
 
+TEST_F(CoordinatorServerListTest, recoverServerUp) {
+    enlistMaster();
+    EXPECT_EQ(1U, master->serverId.getId());
+
+    ProtoBuf::ServerInformation stateServerUp;
+    stateServerUp.set_entry_type("ServerUp");
+    stateServerUp.set_server_id(ServerId(2, 0).getId());
+    stateServerUp.set_service_mask(
+            ServiceMask({WireFormat::BACKUP_SERVICE}).serialize());
+    stateServerUp.set_read_speed(0);
+    stateServerUp.set_service_locator("mock:host=backup");
+    stateServerUp.set_update_version(sl->version + 1);
+
+    EntryId entryId = logCabinHelper->appendProtoBuf(
+            *service->context->expectedEntryId, stateServerUp);
+
+    TestLog::Enable _(enlistServerFilter);
+    sl->recoverServerUp(&stateServerUp, entryId);
+
+    ProtoBuf::ServerList masterList;
+    sl->serialize(masterList, {WireFormat::MASTER_SERVICE});
+    EXPECT_TRUE(TestUtil::matchesPosixRegex(
+                "server { services: 25 server_id: 1 "
+                "service_locator: \"mock:host=master\" "
+                "expected_read_mbytes_per_sec: [0-9]\\+ status: 0 "
+                "replication_id: 0 } "
+                "version_number: 1",
+                 masterList.ShortDebugString()));
+
+    ProtoBuf::ServerList backupList;
+    sl->serialize(backupList, {WireFormat::BACKUP_SERVICE});
+    EXPECT_EQ("server { services: 2 server_id: 2 "
+              "service_locator: \"mock:host=backup\" "
+              "expected_read_mbytes_per_sec: 0 status: 0 "
+              "replication_id: 0 } "
+              "version_number: 1 type: FULL_LIST",
+               backupList.ShortDebugString());
+}
+
 TEST_F(CoordinatorServerListTest, recoverServerUpdate) {
     enlistMaster();
     ProtoBuf::ServerUpdate serverUpdate;
@@ -741,6 +679,52 @@ TEST_F(CoordinatorServerListTest, recoverServerUpdate) {
             (*sl)[masterServerId].masterRecoveryInfo.min_open_segment_id());
     EXPECT_EQ(1lu,
             (*sl)[masterServerId].masterRecoveryInfo.min_open_segment_epoch());
+}
+
+TEST_F(CoordinatorServerListTest, recoverServerUpUpdateAndServerUp) {
+    enlistMaster();
+    EXPECT_EQ(1U, master->serverId.getId());
+
+    ProtoBuf::EntryType stateServerUpUpdate;
+    stateServerUpUpdate.set_entry_type("ServerUpUpdate");
+    EntryId entryId = logCabinHelper->appendProtoBuf(
+            *service->context->expectedEntryId, stateServerUpUpdate);
+
+    sl->recoverServerUpUpdate(&stateServerUpUpdate, entryId);
+
+    ProtoBuf::ServerInformation stateServerUp;
+    stateServerUp.set_entry_type("ServerUp");
+    stateServerUp.set_server_id(ServerId(2, 0).getId());
+    stateServerUp.set_service_mask(
+            ServiceMask({WireFormat::BACKUP_SERVICE}).serialize());
+    stateServerUp.set_read_speed(0);
+    stateServerUp.set_service_locator("mock:host=backup");
+    stateServerUp.set_update_version(sl->version + 1);
+
+    entryId = logCabinHelper->appendProtoBuf(
+            *service->context->expectedEntryId, stateServerUp);
+
+    TestLog::Enable _(enlistServerFilter);
+    sl->recoverServerUp(&stateServerUp, entryId);
+
+    ProtoBuf::ServerList masterList;
+    sl->serialize(masterList, {WireFormat::MASTER_SERVICE});
+    EXPECT_TRUE(TestUtil::matchesPosixRegex(
+                "server { services: 25 server_id: 1 "
+                "service_locator: \"mock:host=master\" "
+                "expected_read_mbytes_per_sec: [0-9]\\+ status: 0 "
+                "replication_id: 0 } "
+                "version_number: 2",
+                 masterList.ShortDebugString()));
+
+    ProtoBuf::ServerList backupList;
+    sl->serialize(backupList, {WireFormat::BACKUP_SERVICE});
+    EXPECT_EQ("server { services: 2 server_id: 2 "
+              "service_locator: \"mock:host=backup\" "
+              "expected_read_mbytes_per_sec: 0 status: 0 "
+              "replication_id: 0 } "
+              "version_number: 2 type: FULL_LIST",
+               backupList.ShortDebugString());
 }
 
 //////////////////////////////////////////////////////////////////////

@@ -53,18 +53,16 @@ bool replayFilter(string s) {
 }
 }
 
+// This test seems somewhat stupid since it is testing a simple dispatch.
+// But why not? We could remove it at some point.
 TEST_F(CoordinatorServiceRecoveryTest, replay_basic) {
     ProtoBuf::ServerInformation serverInfo;
-    serverInfo.set_entry_type("EnlistServer");
+    serverInfo.set_entry_type("ServerUp");
     serverInfo.set_server_id(ServerId(1, 0).getId());
     serverInfo.set_service_mask(
             ServiceMask({WireFormat::MASTER_SERVICE}).serialize());
     serverInfo.set_read_speed(0);
     serverInfo.set_service_locator("mock:host=master");
-    logCabinHelper->appendProtoBuf(
-                coordRecovery->service.expectedEntryId, serverInfo);
-
-    serverInfo.set_entry_type("AliveServer");
     logCabinHelper->appendProtoBuf(
                 coordRecovery->service.expectedEntryId, serverInfo);
 
@@ -120,15 +118,14 @@ TEST_F(CoordinatorServiceRecoveryTest, replay_basic) {
 
     TestLog::Enable _(replayFilter);
     coordRecovery->replay(true);
-    EXPECT_EQ("replay: Entry Id: 0, Entry Type: EnlistServer\n | "
-              "replay: Entry Id: 1, Entry Type: AliveServer\n | "
-              "replay: Entry Id: 2, Entry Type: ServerCrashed\n | "
-              "replay: Entry Id: 3, Entry Type: ServerUpdate\n | "
-              "replay: Entry Id: 4, Entry Type: AliveTable\n | "
-              "replay: Entry Id: 5, Entry Type: CreateTable\n | "
-              "replay: Entry Id: 6, Entry Type: DropTable\n | "
-              "replay: Entry Id: 7, Entry Type: SplitTablet\n | "
-              "replay: Entry Id: 8, Entry Type: TabletRecovered\n",
+    EXPECT_EQ("replay: Entry Id: 0, Entry Type: ServerUp\n | "
+              "replay: Entry Id: 1, Entry Type: ServerCrashed\n | "
+              "replay: Entry Id: 2, Entry Type: ServerUpdate\n | "
+              "replay: Entry Id: 3, Entry Type: AliveTable\n | "
+              "replay: Entry Id: 4, Entry Type: CreateTable\n | "
+              "replay: Entry Id: 5, Entry Type: DropTable\n | "
+              "replay: Entry Id: 6, Entry Type: SplitTablet\n | "
+              "replay: Entry Id: 7, Entry Type: TabletRecovered\n",
               TestLog::get());
 }
 

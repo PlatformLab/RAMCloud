@@ -177,51 +177,48 @@ class CoordinatorServerList : public AbstractServerList{
          */
         uint64_t updateVersion;
 
-         /**
-          * Entry id corresponding to entry in LogCabin log that has
-          * initial information for this server.
-          * During recovery, reading an AliveServer entry means that
-          * the enlistment has already been acknowledged by the cluster.
-          */
-         EntryId logIdAliveServer;
+        /**
+         * Entry id corresponding to entry in LogCabin log that has
+         * information about removing a server from the cluster.
+         */
+        EntryId logIdServerCrashed;
 
-         /**
-          * Entry id corresponding to entry in LogCabin log that has
-          * initial information for this server.
-          * During recovery, reading an EnlistServer entry means that
-          * the enlistment update should be (re-)sent to the cluster.
-          */
-         EntryId logIdEnlistServer;
+        /**
+         * Entry id corresponding to entry in LogCabin log that indicates
+         * that recovery for this server has not yet completed and
+         * should be started.
+         * Appending this entry at the beginning of a server's crash recovery
+         * and invalidating it when the recovery has completed is equivalent
+         * of toggling a boolean (in a key-value store) indicating whether
+         * this server needs to be recovered.
+         */
+        EntryId logIdServerNeedsRecovery;
 
-         /**
-          * Entry id corresponding to entry in LogCabin log that has
-          * information about removing a server from the cluster.
-          */
-         EntryId logIdServerCrashed;
+        /**
+         * Entry id corresponding to entry in LogCabin log that indicates
+         * that recovery for this server has completed, and REMOVE updates
+         * need to be sent to the clusters.
+         */
+        EntryId logIdServerRemoveUpdate;
 
-         /**
-          * Entry id corresponding to entry in LogCabin log that indicates
-          * that recovery for this server has not yet completed and
-          * should be started.
-          * Appending this entry at the beginning of a server's crash recovery
-          * and invalidating it when the recovery has completed is equivalent
-          * of toggling a boolean (in a key-value store) indicating whether
-          * this server needs to be recovered.
-          */
-         EntryId logIdServerNeedsRecovery;
+        /**
+         * Entry id corresponding to entry in LogCabin log that has
+         * initial information for this server.
+         */
+        EntryId logIdServerUp;
 
-         /**
-          * Entry id corresponding to entry in LogCabin log that indicates
-          * that recovery for this server has completed, and REMOVE updates
-          * need to be sent to the clusters.
-          */
-         EntryId logIdServerRemoveUpdate;
+        /**
+         * Entry id corresponding to entry in LogCabin log that has
+         * the most recent update for this server.
+         */
+        EntryId logIdServerUpdate;
 
-         /**
-          * Entry id corresponding to entry in LogCabin log that has
-          * the most recent update for this server.
-          */
-         EntryId logIdServerUpdate;
+        /**
+         * Entry id corresponding to entry in LogCabin log that indicates
+         * that enlistment for this Server needs to send out "UP" updates
+         * to the cluster.
+         */
+        EntryId logIdServerUpUpdate;
     };
 
     explicit CoordinatorServerList(Context* context);
@@ -242,9 +239,6 @@ class CoordinatorServerList : public AbstractServerList{
     /// Functions for CoordinatorServerList Recovery.
     void recoverAliveServer(ProtoBuf::ServerInformation* state,
                             EntryId logIdAliveServer);
-    void recoverAppendServerAlive(EntryId logIdAppendServerAlive);
-    void recoverEnlistServer(ProtoBuf::ServerInformation* state,
-                             EntryId logIdEnlistServer);
     void recoverServerCrashed(ProtoBuf::ServerCrashInfo* state,
                               EntryId logIdServerCrashed);
     void recoverServerListVersion(ProtoBuf::ServerListVersion* state,
@@ -253,8 +247,12 @@ class CoordinatorServerList : public AbstractServerList{
                                     EntryId logIdServerNeedsRecovery);
     void recoverServerRemoveUpdate(ProtoBuf::ServerCrashInfo* state,
                                    EntryId logIdServerRemoveUpdate);
+    void recoverServerUp(ProtoBuf::ServerInformation* state,
+                         EntryId logIdServerUp);
     void recoverServerUpdate(ProtoBuf::ServerUpdate* state,
                              EntryId logIdServerUpdate);
+    void recoverServerUpUpdate(ProtoBuf::EntryType* state,
+                               EntryId logIdEServerUpUpdate);
 
   PRIVATE:
     /**
@@ -276,32 +274,6 @@ class CoordinatorServerList : public AbstractServerList{
 
         /// If allocated, the entry associated with the ServerId in this slot.
         Tub<Entry> entry;
-    };
-
-    /**
-     * Defines methods for enlisting a server, for persisting required
-     * information in LogCabin, and using it to recover if the
-     * Coordinator crashes.
-     */
-    class AppendServerAlive {
-      public:
-          AppendServerAlive(CoordinatorServerList &csl,
-                            Lock& lock)
-              : csl(csl), lock(lock) {}
-          void execute();
-          void complete(EntryId logIdAppendServerAlive);
-
-      private:
-          /**
-           * Reference to the instance of CoordinatorServerList
-           * initializing this class.
-           */
-          CoordinatorServerList &csl;
-          /**
-           * Explicity needs CoordinatorServerList lock.
-           */
-          Lock& lock;
-          DISALLOW_COPY_AND_ASSIGN(AppendServerAlive);
     };
 
     /**
@@ -555,6 +527,31 @@ class CoordinatorServerList : public AbstractServerList{
              */
             EntryId oldServerUpdateEntryId;
             DISALLOW_COPY_AND_ASSIGN(ServerUpdate);
+    };
+
+    /**
+     * Defines methods indicating that next server to be enlisted has
+     * to send out "UP" updates to the cluster.
+     */
+    class ServerUpUpdate {
+      public:
+          ServerUpUpdate(CoordinatorServerList &csl,
+                         Lock& lock)
+              : csl(csl), lock(lock) {}
+          void execute();
+          void complete(EntryId logIdServerUpUpdate);
+
+      private:
+          /**
+           * Reference to the instance of CoordinatorServerList
+           * initializing this class.
+           */
+          CoordinatorServerList &csl;
+          /**
+           * Explicity needs CoordinatorServerList lock.
+           */
+          Lock& lock;
+          DISALLOW_COPY_AND_ASSIGN(ServerUpUpdate);
     };
 
    /**
@@ -846,6 +843,12 @@ class CoordinatorServerList : public AbstractServerList{
      * version number.
      */
     EntryId logIdServerListVersion;
+
+    /**
+     * The entry id of the LogCabin entry that indicates that the next
+     * EnlistServer has to send "UP" updates to the cluster.
+     */
+    EntryId logIdServerUpUpdate;
 
     DISALLOW_COPY_AND_ASSIGN(CoordinatorServerList);
 };
