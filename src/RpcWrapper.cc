@@ -42,6 +42,7 @@ RpcWrapper::RpcWrapper(uint32_t responseHeaderLength, Buffer* response)
     , state(NOT_STARTED)
     , session(NULL)
     , retryTime(0)
+    , usBetweenRetry(100)
     , responseHeaderLength(responseHeaderLength)
     , responseHeader(NULL)
 {
@@ -188,7 +189,7 @@ RpcWrapper::isReady() {
             LOG(DEBUG, "Server %s returned STATUS_RETRY from %s request",
                     session->getServiceLocator().c_str(),
                     WireFormat::opcodeSymbol(&request));
-            retry(100);
+            retry(usBetweenRetry);
             return false;
         }
 

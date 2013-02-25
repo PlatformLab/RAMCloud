@@ -56,9 +56,10 @@ CoordinatorServiceRecovery::replay(bool testing)
         if (testing) continue;
 
         // Dispatch
-        if (entryType.compare("ServerEnlisted") == 0) {
 
-            RAMCLOUD_LOG(DEBUG, "ServiceRecovery: ServerEnlisted");
+        if (entryType.compare("AliveServer") == 0) {
+
+            RAMCLOUD_LOG(DEBUG, "ServiceRecovery: AliveServer");
             ProtoBuf::ServerInformation state;
             service.logCabinHelper->parseProtoBufFromEntry(*it, state);
             service.serverList->recoverAliveServer(&state, entryId);
@@ -68,9 +69,9 @@ CoordinatorServiceRecovery::replay(bool testing)
             RAMCLOUD_LOG(DEBUG, "ServiceRecovery: AppendServerAlive");
             service.serverList->recoverAppendServerAlive(entryId);
 
-        } else if (entryType.compare("ServerEnlisting") == 0) {
+        } else if (entryType.compare("EnlistServer") == 0) {
 
-            RAMCLOUD_LOG(DEBUG, "ServiceRecovery: ServerEnlisting");
+            RAMCLOUD_LOG(DEBUG, "ServiceRecovery: EnlistServer");
             ProtoBuf::ServerInformation state;
             service.logCabinHelper->parseProtoBufFromEntry(*it, state);
             service.serverList->recoverEnlistServer(&state, entryId);
@@ -96,6 +97,13 @@ CoordinatorServiceRecovery::replay(bool testing)
             service.logCabinHelper->parseProtoBufFromEntry(*it, state);
             service.serverList->recoverServerNeedsRecovery(&state, entryId);
 
+        } else if (entryType.compare("ServerRemoveUpdate") == 0) {
+
+            RAMCLOUD_LOG(DEBUG, "ServiceRecovery: ServerRemoveUpdate");
+            ProtoBuf::ServerCrashInfo state;
+            service.logCabinHelper->parseProtoBufFromEntry(*it, state);
+            service.serverList->recoverServerRemoveUpdate(&state, entryId);
+
         } else if (entryType.compare("ServerUpdate") == 0) {
 
             RAMCLOUD_LOG(DEBUG, "ServiceRecovery: ServerUpdate");
@@ -110,16 +118,16 @@ CoordinatorServiceRecovery::replay(bool testing)
             service.logCabinHelper->parseProtoBufFromEntry(*it, state);
             service.tableManager->recoverAliveTable(&state, entryId);
 
-        } else if (entryType.compare("CreatingTable") == 0) {
+        } else if (entryType.compare("CreateTable") == 0) {
 
-            RAMCLOUD_LOG(DEBUG, "ServiceRecovery: CreatingTable");
+            RAMCLOUD_LOG(DEBUG, "ServiceRecovery: CreateTable");
             ProtoBuf::TableInformation state;
             service.logCabinHelper->parseProtoBufFromEntry(*it, state);
             service.tableManager->recoverCreateTable(&state, entryId);
 
-        } else if (entryType.compare("DroppingTable") == 0) {
+        } else if (entryType.compare("DropTable") == 0) {
 
-            RAMCLOUD_LOG(DEBUG, "ServiceRecovery: DroppingTable");
+            RAMCLOUD_LOG(DEBUG, "ServiceRecovery: DropTable");
             ProtoBuf::TableDrop state;
             service.logCabinHelper->parseProtoBufFromEntry(*it, state);
             service.tableManager->recoverDropTable(&state, entryId);
