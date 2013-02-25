@@ -64,13 +64,13 @@ AbstractServerList::~AbstractServerList()
  * \throw ServerListException
  *      An exception is thrown if this ServerId is not in the list.
  */
-const char*
+string
 AbstractServerList::getLocator(ServerId id)
 {
     Lock _(mutex);
     ServerDetails* details = iget(id);
     if (details != NULL)
-        return details->serviceLocator.c_str();
+        return details->serviceLocator;
 
     throw ServerListException(HERE,
             format("Invalid ServerId (%s)", id.toString().c_str()));

@@ -230,7 +230,7 @@ TableManager::serialize(AbstractServerList& serverList,
         ProtoBuf::Tablets::Tablet& entry(*tablets.add_tablet());
         tablet.serialize(entry);
         try {
-            const char* locator = serverList.getLocator(tablet.serverId);
+            string locator = serverList.getLocator(tablet.serverId);
             entry.set_service_locator(locator);
         } catch (const Exception& e) {
             LOG(NOTICE, "Server id (%s) in tablet map no longer in server "

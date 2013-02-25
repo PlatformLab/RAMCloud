@@ -231,7 +231,7 @@ class AbstractServerList {
     virtual ~AbstractServerList();
 
     virtual bool contains(ServerId id);
-    const char* getLocator(ServerId id);
+    string getLocator(ServerId id);
     void flushSession(ServerId id);
     Transport::SessionRef getSession(ServerId id);
     uint64_t getVersion() const;

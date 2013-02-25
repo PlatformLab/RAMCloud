@@ -143,7 +143,7 @@ TEST_F(AbstractServerListTest, getLocator) {
     EXPECT_THROW(sl.getLocator(ServerId(1, 0)), ServerListException);
     ServerId& id = sl.add("mock::1", ServerStatus::UP);
     EXPECT_THROW(sl.getLocator(ServerId(2, 0)), ServerListException);
-    EXPECT_STREQ("mock::1", sl.getLocator(id));
+    EXPECT_STREQ("mock::1", sl.getLocator(id).c_str());
 }
 
 TEST_F(AbstractServerListTest, isUp) {

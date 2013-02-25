@@ -326,7 +326,7 @@ CoordinatorService::hintServerCrashed(
      }
 
      LOG(NOTICE, "Checking server id %s (%s)",
-         serverId.toString().c_str(), serverList->getLocator(serverId));
+         serverId.toString().c_str(), serverList->getLocator(serverId).c_str());
      if (!verifyServerFailure(serverId))
          return;
 

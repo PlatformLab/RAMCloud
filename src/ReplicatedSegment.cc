@@ -912,7 +912,7 @@ ReplicatedSegment::dumpProgress()
         getCommitted().open, getCommitted().bytes, getCommitted().close);
     uint32_t i = 0;
     foreach (const auto& replica, replicas) {
-        const char *backupLocator = "<unknown>";
+        string backupLocator = "<unknown>";
         try {
             backupLocator = context->serverList->getLocator(replica.backupId);
         } catch (ServerListException& e) {}
@@ -923,7 +923,7 @@ ReplicatedSegment::dumpProgress()
             "    committed: open %u, bytes, %u, close %u\n"
             "    write rpc outstanding: %u\n",
             i++,
-            replica.backupId.toString().c_str(), backupLocator,
+            replica.backupId.toString().c_str(), backupLocator.c_str(),
             replica.sent.open, replica.sent.bytes, replica.sent.close,
             replica.acked.open, replica.acked.bytes, replica.acked.close,
             replica.committed.open, replica.committed.bytes,

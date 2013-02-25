@@ -83,9 +83,9 @@ TEST_F(MembershipServiceTest, updateServerList_single) {
     CoordinatorServerList::UpdateServerListRpc
         rpc(&context, serverId, &fullList);
     rpc.send();
-    EXPECT_STREQ("mock:host=55", serverList.getLocator(id1));
-    EXPECT_STREQ("mock:host=56", serverList.getLocator(id2));
-    EXPECT_STREQ("mock:host=57", serverList.getLocator(id3));
+    EXPECT_STREQ("mock:host=55", serverList.getLocator(id1).c_str());
+    EXPECT_STREQ("mock:host=56", serverList.getLocator(id2).c_str());
+    EXPECT_STREQ("mock:host=57", serverList.getLocator(id3).c_str());
 }
 
 TEST_F(MembershipServiceTest, updateServerList_multi) {
@@ -126,9 +126,9 @@ TEST_F(MembershipServiceTest, updateServerList_multi) {
     rpc.appendServerList(&update2);
     rpc.appendServerList(&update3);
     rpc.send();
-    EXPECT_STREQ("mock:host=55", serverList.getLocator(id1));
-    EXPECT_STREQ("mock:host=56", serverList.getLocator(id2));
-    EXPECT_STREQ("mock:host=57", serverList.getLocator(id3));
+    EXPECT_STREQ("mock:host=55", serverList.getLocator(id1).c_str());
+    EXPECT_STREQ("mock:host=56", serverList.getLocator(id2).c_str());
+    EXPECT_STREQ("mock:host=57", serverList.getLocator(id3).c_str());
 }
 
 }  // namespace RAMCloud
