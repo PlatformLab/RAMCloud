@@ -301,17 +301,16 @@ LogCleaner::doDiskCleaning()
     LiveEntryVector liveEntries;
     getSortedEntries(segmentsToClean, liveEntries);
 
-    uint32_t maxLiveBytes = 0;
+    uint64_t maxLiveBytes = 0;
     uint32_t segletsBefore = 0;
     foreach (LogSegment* segment, segmentsToClean) {
         maxLiveBytes += segment->getLiveBytes();
         segletsBefore += segment->getSegletsAllocated();
     }
-    uint64_t bytesBefore = onDiskMetrics.totalBytesAppendedToSurvivors;
 
     // Relocate the live entries to survivor segments.
     LogSegmentVector survivors;
-    relocateLiveEntries(liveEntries, survivors);
+    uint64_t entryBytesAppended = relocateLiveEntries(liveEntries, survivors);
 
     uint32_t segmentsAfter = downCast<uint32_t>(survivors.size());
     uint32_t segletsAfter = 0;
@@ -321,10 +320,9 @@ LogCleaner::doDiskCleaning()
     TEST_LOG("used %u seglets and %u segments", segletsAfter, segmentsAfter);
 
     // If this doesn't hold, then our statistics are wrong. Perhaps
-    // MasterService is probably issuing a log->free(), but is
-    // leaving a reference in the hash table.
-    assert((onDiskMetrics.totalBytesAppendedToSurvivors - bytesBefore)
-        <= maxLiveBytes);
+    // MasterService is issuing a log->free(), but is leaving a reference in
+    // the hash table.
+    assert(entryBytesAppended <= maxLiveBytes);
 
     uint32_t segmentsBefore = downCast<uint32_t>(segmentsToClean.size());
     assert(segletsBefore >= segletsAfter);
@@ -525,14 +523,21 @@ LogCleaner::getSortedEntries(LogSegmentVector& segmentsToClean,
  * \param outSurvivors
  *      The new survivor segments created to hold the relocated live data are
  *      returned here.
+ * \return
+ *      The number of live bytes appended to survivors is returned. This value
+ *      includes any segment metadata overhead. This makes it directly
+ *      comparable to the per-segment liveness statistics that also include
+ *      overhead.
  */
-void
+uint64_t
 LogCleaner::relocateLiveEntries(LiveEntryVector& liveEntries,
                                 LogSegmentVector& outSurvivors)
 {
     CycleCounter<uint64_t> _(&onDiskMetrics.relocateLiveEntriesTicks);
 
     LogSegment* survivor = NULL;
+    uint64_t currentSurvivorBytesAppended = 0;
+    uint64_t entryBytesAppended = 0;
 
     foreach (LiveEntry& entry, liveEntries) {
         Buffer buffer;
@@ -552,29 +557,35 @@ LogCleaner::relocateLiveEntries(LiveEntryVector& liveEntries,
             assert(survivor != NULL);
             waitTicks.stop();
             outSurvivors.push_back(survivor);
+            currentSurvivorBytesAppended = survivor->getAppendedLength();
 
             if (!relocateEntry(type, buffer, survivor, onDiskMetrics))
                 throw FatalError(HERE, "Entry didn't fit into empty survivor!");
+        }
+
+        if (survivor != NULL) {
+            uint32_t newSurvivorBytesAppended = survivor->getAppendedLength();
+            entryBytesAppended += (newSurvivorBytesAppended -
+                                   currentSurvivorBytesAppended);
+            currentSurvivorBytesAppended = newSurvivorBytesAppended;
         }
     }
 
     if (survivor != NULL)
         closeSurvivor(survivor);
 
-    foreach (survivor, outSurvivors) {
-        bool r = survivor->freeUnusedSeglets(survivor->getSegletsAllocated() -
-                                             survivor->getSegletsInUse());
-        assert(r);
-
-        // Ensure the survivor has been synced to backups before proceeding.
+    // Ensure that the survivors have been synced to backups before proceeding.
+    foreach (survivor, outSurvivors)
         survivor->replicatedSegment->sync(survivor->getAppendedLength());
-    }
+
+    return entryBytesAppended;
 }
 
 /**
  * Close a survivor segment we've written data to as part of a disk cleaning
  * pass and tell the replicaManager to begin flushing it asynchronously to
- * backups.
+ * backups. Any unused seglets in the survivor will will be freed for use in
+ * new segments.
  *
  * \param survivor
  *      The new disk segment we've written survivor data to.
@@ -591,6 +602,11 @@ LogCleaner::closeSurvivor(LogSegment* survivor)
     // begin replicating the contents. By closing survivors as we go, we can
     // overlap backup writes with filling up new survivors.
     survivor->replicatedSegment->close();
+
+    // Immediately free any unused seglets.
+    bool r = survivor->freeUnusedSeglets(survivor->getSegletsAllocated() -
+                                         survivor->getSegletsInUse());
+    assert(r);
 }
 
 /******************************************************************************

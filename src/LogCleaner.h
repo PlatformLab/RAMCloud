@@ -181,8 +181,8 @@ class LogCleaner {
     void sortEntriesByTimestamp(LiveEntryVector& entries);
     void getSortedEntries(LogSegmentVector& segmentsToClean,
                           LiveEntryVector& outLiveEntries);
-    void relocateLiveEntries(LiveEntryVector& liveEntries,
-                             LogSegmentVector& outSurvivors);
+    uint64_t relocateLiveEntries(LiveEntryVector& liveEntries,
+                                 LogSegmentVector& outSurvivors);
     void closeSurvivor(LogSegment* survivor);
     void waitForAvailableSurvivors(size_t count, uint64_t& outTicks);
 

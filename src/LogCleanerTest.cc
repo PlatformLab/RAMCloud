@@ -431,7 +431,7 @@ TEST_F(LogCleanerTest, relocateLiveEntries) {
 
     TestLog::Enable _;
     LogSegmentVector survivors;
-    cleaner.relocateLiveEntries(entries, survivors);
+    uint64_t bytes = cleaner.relocateLiveEntries(entries, survivors);
     EXPECT_EQ(
         "relocate: type 1, size 24 | "
         "alloc: purpose: 3 | "
@@ -446,16 +446,20 @@ TEST_F(LogCleanerTest, relocateLiveEntries) {
         "close: Segment 2 closed (length 80) | "
         "sync: syncing segment 2 to offset 80",
             TestLog::get());
+    EXPECT_EQ(24U + 12 + 12 + 3 * 2, bytes);
 }
 
 TEST_F(LogCleanerTest, closeSurvivor) {
     LogSegment* a = segmentManager.allocHeadSegment();
 
-    // Ensure both the Segment and ReplicatedSegment are closed.
+    // Ensure both the Segment and ReplicatedSegment are closed and unused
+    // seglets are freed.
     TestLog::Enable _;
+    EXPECT_EQ(128U, a->getSegletsAllocated());
     cleaner.closeSurvivor(a);
     EXPECT_TRUE(a->closed);
     EXPECT_TRUE(StringUtil::startsWith(TestLog::get(), "close: 57.0, 1, 0"));
+    EXPECT_EQ(1U, a->getSegletsAllocated());
 }
 
 TEST_F(LogCleanerTest, waitForAvailableSurvivors) {

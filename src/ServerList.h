@@ -59,9 +59,9 @@ class ServerList : public AbstractServerList {
     std::vector<Tub<ServerDetails>> serverList;
 
   PRIVATE:
-  void testingAdd(const ServerDetails server);
-  void testingCrashed(ServerId serverId);
-  void testingRemove(ServerId serverId);
+    void testingAdd(const ServerDetails server);
+    void testingCrashed(ServerId serverId);
+    void testingRemove(ServerId serverId);
 
     DISALLOW_COPY_AND_ASSIGN(ServerList);
 };
