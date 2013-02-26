@@ -21,6 +21,7 @@
  */
 
 #include <sys/stat.h>
+#include <signal.h>
 
 #include "Common.h"
 
@@ -28,6 +29,7 @@
 #include "Histogram.h"
 #include "MasterService.h"
 #include "MasterClient.h"
+#include "MultiWrite.h"
 #include "OptionParser.h"
 #include "Object.h"
 #include "RawMetrics.h"
@@ -40,6 +42,9 @@
 
 namespace RAMCloud {
 
+// Set to true if SIGINT is caught, terminating the benchmark prematurely.
+static bool interrupted = false;
+
 /**
  * This class simply wraps up options that are given to this program, making
  * it easier to pass them around.
@@ -51,6 +56,7 @@ class Options {
           objectSize(0),
           utilization(0),
           pipelinedRpcs(0),
+          objectsPerRpc(0),
           writeCostConvergence(0),
           abortTimeout(0),
           distributionName(),
@@ -65,6 +71,7 @@ class Options {
     int objectSize;
     int utilization;
     int pipelinedRpcs;
+    int objectsPerRpc;
     int writeCostConvergence;
     unsigned abortTimeout;
     string distributionName;
@@ -356,6 +363,7 @@ class Output {
     Output(RamCloud& ramcloud, string& masterLocator, Benchmark& benchmark);
 
     void addFile(FILE* fp);
+    void removeFiles();
     void dumpBeginning();
     void dumpEnd();
     void dumpParameters(Options& options,
@@ -417,6 +425,7 @@ class Benchmark {
               string serverLocator,
               Distribution& distribution,
               int pipelinedRpcs,
+              int objectsPerRpc,
               int writeCostConvergence)
         : ramcloud(ramcloud),
           tableId(tableId),
@@ -435,6 +444,7 @@ class Benchmark {
           lastOutputUpdateTsc(0),
           serverConfig(),
           pipelineMax(pipelinedRpcs),
+          objectsPerRpc(objectsPerRpc),
           writeCostConvergence(writeCostConvergence),
           lastWriteCostCheck(0),
           lastDiskWriteCost(0),
@@ -461,7 +471,7 @@ class Benchmark {
         // Pre-fill up to the desired utilization before measuring.
         fprintf(stderr, "Prefilling...\n");
         prefillStart = Cycles::rdtsc();
-        writeNextObjects(pipelineMax, timeoutSeconds);
+        writeNextObjects(timeoutSeconds);
         prefillStop = Cycles::rdtsc();
 
         updateOutput(true);
@@ -472,7 +482,7 @@ class Benchmark {
         // Now issue writes until we're done.
         fprintf(stderr, "Prefill complete. Running benchmark...\n");
         start = Cycles::rdtsc();
-        writeNextObjects(pipelineMax, timeoutSeconds);
+        writeNextObjects(timeoutSeconds);
         stop = Cycles::rdtsc();
 
         updateOutput(true);
@@ -519,29 +529,160 @@ class Benchmark {
 
     /**
      * This class simply encapulsates an asynchronous RPC sent to the server,
-     * the TSC when the RPC was initiated, as well as the key and object that
-     * were transmitted.
+     * the TSC when the RPC was initiated, as well as the key(s) and object(s)
+     * that were transmitted.
+     *
+     * If the write consists of only one RPC, it will be sent in a normal
+     * WriteRpc request. Otherwise MultiWrite will be used to send multiple
+     * writes at once.
+     *
+     * TODO(steve): This class does too much dynamic memory allocation.
      */
     class OutstandingWrite {
+      private:
+        struct WriteData {
+            WriteData(uint64_t tableId, const void* key, uint16_t keyLength,
+                      const void* object, uint32_t objectLength)
+                : tableId(tableId), key(key), keyLength(keyLength),
+                  object(object), objectLength(objectLength)
+            {
+            }
+            uint64_t tableId;
+            const void* key;
+            uint16_t keyLength;
+            const void* object;
+            uint32_t objectLength;
+        };
+
       public:
-        OutstandingWrite(RamCloud& ramcloud, uint64_t tableId,
-                         const void* key, uint16_t keyLength,
-                         const void* object, uint32_t objectLength)
-            : ticks(),
-              rpc(&ramcloud, tableId, key, keyLength, object, objectLength),
-              key(key),
-              keyLength(keyLength),
-              object(object),
-              objectLength(objectLength)
+        explicit OutstandingWrite(RamCloud* ramcloud)
+            : ramcloud(ramcloud)
+            , ticks()
+            , rpc()
+            , multiRpc()
+            , writes()
+            , multiWriteObjs()
+            , keys()
+            , objects()
         {
         }
 
-        CycleCounter<uint64_t> ticks;
-        WriteRpc rpc;
-        const void* key;
-        uint16_t keyLength;
-        const void* object;
-        uint32_t objectLength;
+        ~OutstandingWrite()
+        {
+            if (rpc)
+                rpc.destroy();
+
+            if (multiRpc)
+                multiRpc.destroy();
+
+            for (size_t i = 0; i < keys.size(); i++)
+                delete[] keys[i];
+
+            for (size_t i = 0; i < objects.size(); i++)
+                delete[] objects[i];
+
+            for (size_t i = 0; i < multiWriteObjs.size(); i++)
+                delete multiWriteObjs[i];
+        }
+
+        void
+        addObject(uint64_t tableId, Distribution* distribution)
+        {
+            uint16_t keyLength = distribution->getKeyLength();
+            uint32_t objectLength = distribution->getObjectLength();
+
+            keys.push_back(new uint8_t[keyLength]);
+            objects.push_back(new uint8_t[objectLength]);
+
+            distribution->getKey(keys.back());
+            distribution->getObject(objects.back());
+
+            writes.push_back({ tableId,
+                               keys.back(), keyLength,
+                               objects.back(), objectLength });
+
+            distribution->advance();
+        }
+
+        void
+        start()
+        {
+            assert(!rpc && !multiRpc);
+            assert(!writes.empty());
+
+            // single WriteRpc case
+            if (writes.size() == 1) {
+                rpc.construct(ramcloud,
+                              writes[0].tableId,
+                              writes[0].key,
+                              writes[0].keyLength,
+                              writes[0].object,
+                              writes[0].objectLength);
+                ticks.construct();
+                return;
+            }
+
+            // MultiWrite case
+            for (size_t i = 0; i < writes.size(); i++) {
+                multiWriteObjs.push_back(new MultiWriteObject(
+                                           writes[i].tableId,
+                                           writes[i].key,
+                                           writes[i].keyLength,
+                                           writes[i].object,
+                                           writes[i].objectLength));
+            }
+            multiRpc.construct(ramcloud,
+                               &multiWriteObjs[0],
+                               downCast<uint32_t>(multiWriteObjs.size()));
+            ticks.construct();
+        }
+
+        bool
+        isReady()
+        {
+            if (rpc) {
+                assert(!multiRpc);
+                return rpc->isReady();
+            }
+            if (multiRpc) {
+                assert(!rpc);
+                return multiRpc->isReady();
+            }
+            return false;
+        }
+
+        uint64_t
+        getTicks()
+        {
+            if (ticks)
+                return ticks->stop();
+            return 0;
+        }
+
+        uint64_t
+        getObjectCount()
+        {
+            return writes.size();
+        }
+
+        uint64_t
+        getObjectLengths()
+        {
+            uint64_t sum = 0;
+            for (size_t i = 0; i < writes.size(); i++)
+                sum += writes[i].objectLength;
+            return sum;
+        }
+
+      private:
+        RamCloud* ramcloud;
+        Tub<CycleCounter<uint64_t>> ticks;
+        Tub<WriteRpc> rpc;
+        Tub<MultiWrite> multiRpc;
+        vector<WriteData> writes;
+        vector<MultiWriteObject*> multiWriteObjs;
+        vector<uint8_t*> keys;
+        vector<uint8_t*> objects;
 
         DISALLOW_COPY_AND_ASSIGN(OutstandingWrite);
     };
@@ -552,33 +693,22 @@ class Benchmark {
      * then return. If we have prefilled, it will continue to write until the
      * disk write cost has converged to a sufficiently stable value.
      *
-     * \param pipelined
-     *      The number of pipelined write RPCs to use. At most this many
-     *      asynchronous RPCs will be initiated before any acknowledgements
-     *      are received.
      * \param timeoutSeconds
      *      If no progress is made within the given number of seconds, throw
      *      an Exception to terminate the benchmark. This avoids wedging the
      *      test if a server has stopped responding due to crash, deadlock, etc.
      */
     void
-    writeNextObjects(const int pipelined, const unsigned timeoutSeconds)
+    writeNextObjects(const unsigned timeoutSeconds)
     {
-        Tub<OutstandingWrite> rpcs[pipelined];
-        uint8_t* keys[pipelined];
-        uint8_t* objects[pipelined];
+        Tub<OutstandingWrite> rpcs[pipelineMax];
         bool prefilling = !distribution.isPrefillDone();
 
-        for (int i = 0; i < pipelined; i++) {
-            keys[i] = new uint8_t[distribution.getMaximumKeyLength()];
-            objects[i] = new uint8_t[distribution.getMaximumObjectLength()];
-        }
-
         bool isDone = false;
-        while (!isDone) {
+        while (!isDone && !interrupted) {
             // While any RPCs can still be sent, send them.
             bool allRpcsSent = false;
-            for (int i = 0; i < pipelined; i++) {
+            for (int i = 0; i < pipelineMax; i++) {
                 allRpcsSent = prefilling ? distribution.isPrefillDone() : false;
                 if (allRpcsSent)
                     break;
@@ -586,15 +716,15 @@ class Benchmark {
                 if (rpcs[i])
                     continue;
 
-                uint16_t keyLength = distribution.getKeyLength();
-                uint32_t objectLength = distribution.getObjectLength();
-                distribution.getKey(keys[i]);
-                distribution.getObject(objects[i]);
+                rpcs[i].construct(&ramcloud);
+                bool outOfObjects = false;
+                for (int cnt = 0; cnt < objectsPerRpc && !outOfObjects; cnt++) {
+                    rpcs[i]->addObject(tableId, &distribution);
+                    outOfObjects = prefilling ?
+                        distribution.isPrefillDone() : false;
+                }
 
-                rpcs[i].construct(ramcloud, tableId, keys[i], keyLength,
-                                  objects[i], objectLength);
-
-                distribution.advance();
+                rpcs[i]->start();
             }
 
             // As long as there are RPCs left outstanding, loop until one has
@@ -602,7 +732,7 @@ class Benchmark {
             bool anyRpcsDone = false;
             int numRpcsLeft = -1;
             uint64_t start = Cycles::rdtsc();
-            while (!anyRpcsDone && numRpcsLeft != 0) {
+            while (!anyRpcsDone && numRpcsLeft != 0 && !interrupted) {
                 double delta = Cycles::toSeconds(Cycles::rdtsc() - start);
                 if (delta >= timeoutSeconds)
                     throw Exception(HERE, "benchmark hasn't made progress");
@@ -614,25 +744,25 @@ class Benchmark {
                 // so do so here.
                 ramcloud.clientContext->dispatch->poll();
 
-                for (int i = 0; i < pipelined; i++) {
+                for (int i = 0; i < pipelineMax; i++) {
                     if (!rpcs[i])
                         continue;
 
-                    if (!rpcs[i]->rpc.isReady()) {
+                    if (!rpcs[i]->isReady()) {
                         numRpcsLeft++;
                         continue;
                     }
 
                     if (prefilling) {
                         prefillLatencyHistogram.storeSample(
-                            Cycles::toNanoseconds(rpcs[i]->ticks.stop()));
-                        totalPrefillObjectsWritten++;
-                        totalPrefillBytesWritten += rpcs[i]->objectLength;
+                            Cycles::toNanoseconds(rpcs[i]->getTicks()));
+                        totalPrefillObjectsWritten += rpcs[i]->getObjectCount();
+                        totalPrefillBytesWritten += rpcs[i]->getObjectLengths();
                     } else {
                         latencyHistogram.storeSample(
-                            Cycles::toNanoseconds(rpcs[i]->ticks.stop()));
-                        totalObjectsWritten++;
-                        totalBytesWritten += rpcs[i]->objectLength;
+                            Cycles::toNanoseconds(rpcs[i]->getTicks()));
+                        totalObjectsWritten += rpcs[i]->getObjectCount();
+                        totalBytesWritten += rpcs[i]->getObjectLengths();
                     }
 
                     rpcs[i].destroy();
@@ -650,11 +780,6 @@ class Benchmark {
             // stabilized.
             if (!prefilling && writeCostHasConverged())
                 isDone = true;
-        }
-
-        for (int i = 0; i < pipelined; i++) {
-            delete[] keys[i];
-            delete[] objects[i];
         }
     }
 
@@ -770,6 +895,10 @@ class Benchmark {
     /// each write.
     const int pipelineMax;
 
+    /// Number of objects written per RPC sent to the server. If 1, normal
+    /// Write RPCs will be used. If > 1, MultiWrite RPCs will be issused.
+    const int objectsPerRpc;
+
     /// The number of decimal digits in disk write cost that must remain
     /// unchanged in a 60-second window before the benchmark ends.
     const int writeCostConvergence;
@@ -823,6 +952,12 @@ Output::addFile(FILE* fp)
 }
 
 void
+Output::removeFiles()
+{
+    outputFiles.clear();
+}
+
+void
 Output::dumpParameters(Options& options,
                        ProtoBuf::ServerConfig& serverConfig,
                        ProtoBuf::LogMetrics& logMetrics)
@@ -856,6 +991,9 @@ Output::dumpParameters(FILE* fp,
 
     fprintf(fp, "  Pipelined RPCs:         %d\n",
         options.pipelinedRpcs);
+
+    fprintf(fp, "  Objects Per RPC:        %d (> 1 implies MultiWrites used)\n",
+        options.objectsPerRpc);
 
     fprintf(fp, "  Abort Timeout:          %u sec\n",
         options.abortTimeout);
@@ -1344,6 +1482,12 @@ fileExists(string& file)
     return (stat(file.c_str(), &sb) == 0);
 }
 
+void
+sigIntHandler(int sig)
+{
+    interrupted = true;
+}
+
 int
 main(int argc, char *argv[])
 try
@@ -1384,6 +1528,14 @@ try
          "after the benchmark completes. This program will append \"-m.txt\" "
          ", \"-l.txt\", and \"-rp.txt/-rb.txt\" prefixes for metrics, latency, "
          "and raw prefill/benchmark files.")
+        ("objectsPerRpc,o",
+         ProgramOptions::value<int>(&options.objectsPerRpc)->default_value(1),
+         "Number of objects to write for each RPC sent to the server. If 1, "
+         "normal write RPCs are used. If greater than 1, MultiWrite RPCs will "
+         "be used to batch up writes. This parameter greatly increases small"
+         "object throughput. This can also be used with the pipelinedRpcs "
+         "parameter to both batch and cause the server to process writes in "
+         "parallel across multiple MasterService threads.")
         ("pipelinedRpcs,p",
          ProgramOptions::value<int>(&options.pipelinedRpcs)->default_value(10),
          "Number of write RPCs that will be sent to the server without first "
@@ -1420,6 +1572,10 @@ try
     if (options.objectSize < 1 || options.objectSize > MAX_OBJECT_SIZE) {
         fprintf(stderr, "ERROR: objectSize must be between 1 and %u\n",
             MAX_OBJECT_SIZE);
+        exit(1);
+    }
+    if (options.objectsPerRpc < 1) {
+        fprintf(stderr, "ERROR: objectPerRpc must be >= 1\n");
         exit(1);
     }
     if (options.pipelinedRpcs < 1) {
@@ -1497,6 +1653,7 @@ try
                         locator,
                         *distribution,
                         options.pipelinedRpcs,
+                        options.objectsPerRpc,
                         options.writeCostConvergence);
     setvbuf(stdout, NULL, _IONBF, 0);
     Output output(ramcloud, locator, benchmark);
@@ -1510,7 +1667,16 @@ try
     // make progress.
     alarm(0);
 
+    signal(SIGINT, sigIntHandler);
     benchmark.run(options.abortTimeout);
+    if (interrupted) {
+        output.removeFiles();
+        output.addFile(stdout);
+        output.dump();
+        output.dumpEnd();
+        exit(1);
+    }
+
     output.dump();
     output.dumpEnd();
 
