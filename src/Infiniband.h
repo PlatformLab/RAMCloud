@@ -192,6 +192,7 @@ class Infiniband {
         void        setPeerName(const char *peerName);
         const char* getPeerName() const;
         void        activate(const Tub<MacAddress>& localMac);
+        const string  getSinName() const; // Name of handshakeSin
 
       //private:
       // TODO(Rumble): move send/recv functionality into the queue pair shit

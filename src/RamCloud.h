@@ -91,6 +91,7 @@ class RamCloud {
 
     explicit RamCloud(const char* serviceLocator);
     RamCloud(Context* context, const char* serviceLocator);
+    virtual ~RamCloud();
 
   PRIVATE:
     /**

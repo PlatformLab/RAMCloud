@@ -143,7 +143,7 @@ TEST_F(InfRcTransportTest, InfRcSession_abort_onClientSendQueue) {
 
     session->abort();
     EXPECT_EQ(0U, client.clientSendQueue.size());
-    EXPECT_EQ(0, rawSession->alarm.outstandingRpcs);
+    EXPECT_EQ(0, rawSession->sessionAlarm.outstandingRpcs);
     EXPECT_STREQ("completed: 0, failed: 1", rpc1.getState());
     EXPECT_STREQ("completed: 0, failed: 1", rpc2.getState());
 }
@@ -179,7 +179,7 @@ TEST_F(InfRcTransportTest, InfRcSession_cancelRequest_rpcPending) {
     EXPECT_EQ(1U, client.clientSendQueue.size());
     session->cancelRequest(&rpc);
     EXPECT_EQ(0U, client.clientSendQueue.size());
-    EXPECT_EQ(0, rawSession->alarm.outstandingRpcs);
+    EXPECT_EQ(0, rawSession->sessionAlarm.outstandingRpcs);
     // (cancelRequest doesn't call either completed or failed)
     EXPECT_STREQ("completed: 0, failed: 0", rpc.getState());
 }
@@ -199,11 +199,11 @@ TEST_F(InfRcTransportTest, InfRcSession_cancelRequest_rpcSent) {
     EXPECT_STREQ("completed: 0, failed: 0", rpc.getState());
     EXPECT_EQ(1U, client.outstandingRpcs.size());
     EXPECT_EQ(1u, client.numUsedClientSrqBuffers);
-    EXPECT_EQ(1, rawSession->alarm.outstandingRpcs);
+    EXPECT_EQ(1, rawSession->sessionAlarm.outstandingRpcs);
     session->cancelRequest(&rpc);
     EXPECT_EQ(0U, client.outstandingRpcs.size());
     EXPECT_EQ(0u, client.numUsedClientSrqBuffers);
-    EXPECT_EQ(0, rawSession->alarm.outstandingRpcs);
+    EXPECT_EQ(0, rawSession->sessionAlarm.outstandingRpcs);
 
     // Send the response, and make sure it is ignored by the client.
     serverRpc->replyPayload.fillFromString("klmn");

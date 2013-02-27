@@ -128,13 +128,14 @@ TEST(SpinLockTest, getStatistics) {
     ProtoBuf::SpinLockStatistics stats;
     SpinLock::getStatistics(&stats);
 
-    EXPECT_EQ("locks { name: \"Jimmy Page\" acquisitions: 2 "
-              "contended_acquisitions: 1 contended_nsec: 10000 } "
-              "locks { name: \"John Bonham\" acquisitions: 51 "
-              "contended_acquisitions: 12 contended_nsec: 5000 } "
-              "locks { name: \"Robert Plant\" acquisitions: 0 "
-              "contended_acquisitions: 0 contended_nsec: 0 }",
-        stats.ShortDebugString());
+    EXPECT_TRUE(TestUtil::matchesPosixRegex(
+        "locks { name: \"Jimmy Page\" acquisitions: 2 "
+        "contended_acquisitions: 1 contended_nsec: 10000 } "
+        "locks { name: \"John Bonham\" acquisitions: 51 "
+        "contended_acquisitions: 12 contended_nsec: 5000 } "
+        "locks { name: \"Robert Plant\" acquisitions: 0 "
+        "contended_acquisitions: 0 contended_nsec: 0 }",
+        stats.ShortDebugString()));
 }
 
 }  // namespace RAMCloud

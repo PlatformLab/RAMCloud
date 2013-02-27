@@ -55,6 +55,7 @@ class TransportManager {
     void dumpStats();
     void dumpTransportFactories();
     void setTimeout(uint32_t timeoutMs);
+    uint32_t getTimeout() const;
 
 #if TESTING
     /**
@@ -163,6 +164,7 @@ class TransportManager {
      * Used for detecting dead servers: if we can't get any response out
      * a server in this many milliseconds, the session gets aborted.  0
      * means that each transport gets to pick its own default.
+     * Also used for detecting dead client for a server port.
      */
     uint32_t timeoutMs;
 

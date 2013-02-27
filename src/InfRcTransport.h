@@ -33,7 +33,9 @@
 #include "ServerRpcPool.h"
 #include "ShortMacros.h"
 #include "SessionAlarm.h"
+#include "PortAlarm.h"
 #include "Transport.h"
+#include "TransportManager.h"
 #include "Infiniband.h"
 #include "CycleCounter.h"
 #include "RawMetrics.h"
@@ -51,6 +53,7 @@ class InfRcTransport : public Transport {
   PRIVATE:
     class InfRcSession;
     class Poller;
+    class InfRcServerPort;
     typedef Infiniband::BufferDescriptor BufferDescriptor;
     typedef Infiniband::QueuePair QueuePair;
     typedef Infiniband::QueuePairTuple QueuePairTuple;
@@ -190,16 +193,35 @@ class InfRcTransport : public Transport {
       PRIVATE:
         // Transport that manages this session.
         InfRcTransport *transport;
-
         // Connection to the server; NULL means this socket has been aborted.
         QueuePair* qp;
-
-        // Used to detect server timeouts.
-        SessionAlarm alarm;
+        // Used to detect server timeouts on the client port.
+        SessionAlarm sessionAlarm;
 
         friend class ClientRpc;
         friend class Poller;
         DISALLOW_COPY_AND_ASSIGN(InfRcSession);
+    };
+
+    class InfRcServerPort : public ServerPort {
+    public:
+        explicit InfRcServerPort(InfRcTransport *transport,
+                                 QueuePair* qp, uint32_t timeoutMs);
+        ~InfRcServerPort();
+        void close(); // close and shutdown this port
+        const string getPortName() const;
+    PRIVATE:
+        // Transport that manages this port
+        InfRcTransport *transport;
+        // Listening queue pair
+        QueuePair*  qp;
+        // Used to detect client timeouts on the server port for listening
+        PortAlarm  portAlarm;
+
+        friend class InfRcTransport;
+        friend class ServerConnectHandler;
+        friend class Poller;
+        DISALLOW_COPY_AND_ASSIGN(InfRcServerPort);
     };
 
     /**
@@ -293,9 +315,9 @@ class InfRcTransport : public Transport {
                                     // -1 means we're not a server
     int          clientSetupSocket; // UDP socket for outgoing setup requests
 
-    // ibv_wc.qp_num to QueuePair* lookup used to look up the QueuePair given
-    // a completion event on the shared receive queue
-    std::unordered_map<uint32_t, QueuePair*> queuePairMap;
+    // Map ibv_wc.qp_num/qp.LocalQpNumber to InfRcServerPort*.
+    // InfRcServePort contains QueuePair* and Alarm* for the port
+    std::unordered_map<uint32_t, InfRcServerPort*> serverPortMap;
 
     /**
      * RPCs which are waiting for a receive buffer to become available before
