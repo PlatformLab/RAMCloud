@@ -228,7 +228,7 @@ class LogCleaner {
 
         {
             metrics.totalRelocationCallbacks++;
-            CycleCounter<uint64_t> _(&metrics.relocationCallbackTicks);
+            LogCleanerMetrics::MetricCycleCounter _(&metrics.relocationCallbackTicks);
             entryHandlers.relocate(type, buffer, relocator);
         }
 
@@ -287,11 +287,11 @@ class LogCleaner {
     uint32_t segmentSize;
 
     /// Number of cpu cycles spent in the doWork() routine.
-    uint64_t doWorkTicks;
+    LogCleanerMetrics::Metric64BitType doWorkTicks;
 
     /// Number of cpu cycles spent sleeping in the doWork() routine because
     /// memory was not low.
-    uint64_t doWorkSleepTicks;
+    LogCleanerMetrics::Metric64BitType doWorkSleepTicks;
 
     /// Metrics kept for measuring in-memory cleaning (compaction) performance.
     LogCleanerMetrics::InMemory inMemoryMetrics;

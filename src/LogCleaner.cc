@@ -189,7 +189,7 @@ LogCleaner::cleanerThreadEntry(LogCleaner* logCleaner, Context* context)
 void
 LogCleaner::doWork()
 {
-    CycleCounter<uint64_t> _(&doWorkTicks);
+    LogCleanerMetrics::MetricCycleCounter _(&doWorkTicks);
 
     // Update our list of candidates.
     candidatesLock.lock();
@@ -215,7 +215,7 @@ LogCleaner::doWork()
     memoryUse = segmentManager.getAllocator().getMemoryUtilization();
     diskUse = segmentManager.getSegmentUtilization();
     if (memoryUse < MIN_MEMORY_UTILIZATION && diskUse < MIN_DISK_UTILIZATION) {
-        CycleCounter<uint64_t> __(&doWorkSleepTicks);
+        LogCleanerMetrics::MetricCycleCounter __(&doWorkSleepTicks);
         usleep(POLL_USEC);
     }
 }
@@ -229,7 +229,7 @@ double
 LogCleaner::doMemoryCleaning()
 {
     TEST_LOG("called");
-    CycleCounter<uint64_t> _(&inMemoryMetrics.totalTicks);
+    LogCleanerMetrics::MetricCycleCounter _(&inMemoryMetrics.totalTicks);
 
     uint32_t freeableSeglets;
     LogSegment* segment = getSegmentToCompact(freeableSeglets);
@@ -238,7 +238,7 @@ LogCleaner::doMemoryCleaning()
 
     // Allocate a survivor segment to write into. This call may block if one
     // is not available right now.
-    CycleCounter<uint64_t> waitTicks(&inMemoryMetrics.waitForFreeSurvivorTicks);
+    LogCleanerMetrics::MetricCycleCounter waitTicks(&inMemoryMetrics.waitForFreeSurvivorTicks);
     LogSegment* survivor = segmentManager.allocSideSegment(
             SegmentManager::FOR_CLEANING | SegmentManager::MUST_NOT_FAIL,
             segment);
@@ -271,7 +271,9 @@ LogCleaner::doMemoryCleaning()
     inMemoryMetrics.totalBytesFreed += freeableSeglets * segletSize;
     inMemoryMetrics.totalBytesAppendedToSurvivors +=
         survivor->getAppendedLength();
+    inMemoryMetrics.totalSegmentsCompacted++;
 
+    LogCleanerMetrics::MetricCycleCounter __(&inMemoryMetrics.compactionCompleteTicks);
     segmentManager.compactionComplete(segment, survivor);
 
     return writeCost;
@@ -286,7 +288,7 @@ void
 LogCleaner::doDiskCleaning()
 {
     TEST_LOG("called");
-    CycleCounter<uint64_t> _(&onDiskMetrics.totalTicks);
+    LogCleanerMetrics::MetricCycleCounter _(&onDiskMetrics.totalTicks);
 
     // Obtain the segments we'll clean in this pass. We're guaranteed to have
     // the resources to clean what's returned.
@@ -333,7 +335,7 @@ LogCleaner::doDiskCleaning()
     onDiskMetrics.totalDiskBytesFreed +=
         (segmentsBefore - segmentsAfter) * segmentSize;
 
-    CycleCounter<uint64_t> __(&onDiskMetrics.cleaningCompleteTicks);
+    LogCleanerMetrics::MetricCycleCounter __(&onDiskMetrics.cleaningCompleteTicks);
     segmentManager.cleaningComplete(segmentsToClean, survivors);
 }
 
@@ -345,15 +347,15 @@ LogCleaner::doDiskCleaning()
  * able to use the compacted version of this segment during disk cleaning.
  *
  * \param[out] outFreeableSeglets
- *      The maximum number of seglets the caller should be from this segment is
- *      returned here. Freeing any more may make it impossible to clean the
+ *      The maximum number of seglets the caller should free from this segment
+ *      is returned here. Freeing any more may make it impossible to clean the
  *      resulting compacted segment on disk, which may deadlock the system if
  *      it prevents freeing up tombstones in other segments.
  */
 LogSegment*
 LogCleaner::getSegmentToCompact(uint32_t& outFreeableSeglets)
 {
-    CycleCounter<uint64_t> _(&inMemoryMetrics.getSegmentToCompactTicks);
+    LogCleanerMetrics::MetricCycleCounter _(&inMemoryMetrics.getSegmentToCompactTicks);
     Lock guard(candidatesLock);
 
     size_t bestIndex = -1;
@@ -385,7 +387,7 @@ LogCleaner::getSegmentToCompact(uint32_t& outFreeableSeglets)
 void
 LogCleaner::sortSegmentsByCostBenefit(LogSegmentVector& segments)
 {
-    CycleCounter<uint64_t> _(&onDiskMetrics.costBenefitSortTicks);
+    LogCleanerMetrics::MetricCycleCounter _(&onDiskMetrics.costBenefitSortTicks);
 
     // Sort segments so that the best candidates are at the front of the vector.
     // We could probably use a heap instead and go a little faster, but it's not
@@ -408,7 +410,7 @@ LogCleaner::sortSegmentsByCostBenefit(LogSegmentVector& segments)
 void
 LogCleaner::getSegmentsToClean(LogSegmentVector& outSegmentsToClean)
 {
-    CycleCounter<uint64_t> _(&onDiskMetrics.getSegmentsToCleanTicks);
+    LogCleanerMetrics::MetricCycleCounter _(&onDiskMetrics.getSegmentsToCleanTicks);
     Lock guard(candidatesLock);
 
     sortSegmentsByCostBenefit(candidates);
@@ -462,7 +464,7 @@ LogCleaner::getSegmentsToClean(LogSegmentVector& outSegmentsToClean)
 void
 LogCleaner::sortEntriesByTimestamp(LiveEntryVector& entries)
 {
-    CycleCounter<uint64_t> _(&onDiskMetrics.timestampSortTicks);
+    LogCleanerMetrics::MetricCycleCounter _(&onDiskMetrics.timestampSortTicks);
     std::sort(entries.begin(), entries.end(), TimestampComparer());
 }
 
@@ -479,7 +481,7 @@ void
 LogCleaner::getSortedEntries(LogSegmentVector& segmentsToClean,
                              LiveEntryVector& outLiveEntries)
 {
-    CycleCounter<uint64_t> _(&onDiskMetrics.getSortedEntriesTicks);
+    LogCleanerMetrics::MetricCycleCounter _(&onDiskMetrics.getSortedEntriesTicks);
 
     foreach (LogSegment* segment, segmentsToClean) {
         for (SegmentIterator it(*segment); !it.isDone(); it.next()) {
@@ -533,7 +535,7 @@ uint64_t
 LogCleaner::relocateLiveEntries(LiveEntryVector& liveEntries,
                                 LogSegmentVector& outSurvivors)
 {
-    CycleCounter<uint64_t> _(&onDiskMetrics.relocateLiveEntriesTicks);
+    LogCleanerMetrics::MetricCycleCounter _(&onDiskMetrics.relocateLiveEntriesTicks);
 
     LogSegment* survivor = NULL;
     uint64_t currentSurvivorBytesAppended = 0;
@@ -549,7 +551,7 @@ LogCleaner::relocateLiveEntries(LiveEntryVector& liveEntries,
 
             // Allocate a survivor segment to write into. This call may block if
             // one is not available right now.
-            CycleCounter<uint64_t> waitTicks(
+            LogCleanerMetrics::MetricCycleCounter waitTicks(
                 &onDiskMetrics.waitForFreeSurvivorsTicks);
             survivor = segmentManager.allocSideSegment(
                 SegmentManager::FOR_CLEANING | SegmentManager::MUST_NOT_FAIL,

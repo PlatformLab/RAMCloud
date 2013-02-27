@@ -57,11 +57,13 @@ message LogMetrics {
             required fixed64 total_bytes_freed = 3;
             required fixed64 total_bytes_in_compacted_segments = 4;
             required fixed64 total_bytes_appended_to_survivors = 5;
-            required fixed64 total_ticks = 6;
-            required fixed64 get_segment_to_compact_ticks = 7;
-            required fixed64 wait_for_free_survivor_ticks = 8;
-            required fixed64 relocation_callback_ticks = 9;
-            required fixed64 relocation_append_ticks = 10;
+            required fixed64 total_segments_compacted = 6;
+            required fixed64 total_ticks = 7;
+            required fixed64 get_segment_to_compact_ticks = 8;
+            required fixed64 wait_for_free_survivor_ticks = 9;
+            required fixed64 relocation_callback_ticks = 10;
+            required fixed64 relocation_append_ticks = 11;
+            required fixed64 compaction_complete_ticks = 12;
         }
         required InMemoryMetrics in_memory_metrics = 9;
 

@@ -360,14 +360,16 @@ class Benchmark;
  */
 class Output {
   public:
-    Output(RamCloud& ramcloud, string& masterLocator, Benchmark& benchmark);
+    Output(RamCloud& ramcloud,
+           string& masterLocator,
+           ProtoBuf::ServerConfig& serverConfig,
+           Benchmark& benchmark);
 
     void addFile(FILE* fp);
     void removeFiles();
     void dumpBeginning();
     void dumpEnd();
     void dumpParameters(Options& options,
-                        ProtoBuf::ServerConfig& serverConfig,
                         ProtoBuf::LogMetrics& logMetrics);
     void dump();
 
@@ -387,7 +389,6 @@ class Output {
 
     void dumpParameters(FILE* fp,
                         Options& options,
-                        ProtoBuf::ServerConfig& serverConfig,
                         ProtoBuf::LogMetrics& logMetrics);
     void dumpSummary(FILE* fp);
     void dumpPrefillMetrics(FILE* fp);
@@ -399,6 +400,7 @@ class Output {
 
     RamCloud& ramcloud;
     string masterLocator;
+    ProtoBuf::ServerConfig& serverConfig;
     Benchmark& benchmark;
     vector<FILE*> outputFiles;
 };
@@ -937,9 +939,13 @@ class Benchmark {
 };
 
 
-Output::Output(RamCloud& ramcloud, string& masterLocator, Benchmark& benchmark)
+Output::Output(RamCloud& ramcloud,
+               string& masterLocator,
+               ProtoBuf::ServerConfig& serverConfig,
+               Benchmark& benchmark)
     : ramcloud(ramcloud),
       masterLocator(masterLocator),
+      serverConfig(serverConfig),
       benchmark(benchmark),
       outputFiles()
 {
@@ -959,17 +965,15 @@ Output::removeFiles()
 
 void
 Output::dumpParameters(Options& options,
-                       ProtoBuf::ServerConfig& serverConfig,
                        ProtoBuf::LogMetrics& logMetrics)
 {
     foreach (FILE* fp, outputFiles)
-        dumpParameters(fp, options, serverConfig, logMetrics);
+        dumpParameters(fp, options, logMetrics);
 }
 
 void
 Output::dumpParameters(FILE* fp,
                        Options& options,
-                       ProtoBuf::ServerConfig& serverConfig,
                        ProtoBuf::LogMetrics& logMetrics)
 {
     fprintf(fp, "===> EXPERIMENT PARAMETERS\n");
@@ -992,8 +996,9 @@ Output::dumpParameters(FILE* fp,
     fprintf(fp, "  Pipelined RPCs:         %d\n",
         options.pipelinedRpcs);
 
-    fprintf(fp, "  Objects Per RPC:        %d (> 1 implies MultiWrites used)\n",
-        options.objectsPerRpc);
+    fprintf(fp, "  Objects Per RPC:        %d   %s\n",
+        options.objectsPerRpc,
+        (options.objectsPerRpc > 1) ? "(MultiWrite used)" : "");
 
     fprintf(fp, "  Abort Timeout:          %u sec\n",
         options.abortTimeout);
@@ -1274,6 +1279,10 @@ Output::dumpMemoryMetrics(FILE* fp, ProtoBuf::LogMetrics& metrics)
     fprintf(fp, "  Avg Compacted Seg Util:        %.2f%%\n",
         100.0 * d(wrote) / d(bytesInCompactedSegments));
 
+    uint64_t segmentsCompacted = inMemoryMetrics.total_segments_compacted();
+    fprintf(fp, "  Avg Seglets Freed/Compaction:  %.2f\n",
+        d(freed) / d(segmentsCompacted) / d(serverConfig.seglet_size()));
+
     fprintf(fp, "  Memory Space Freeing Rate:     %.3f MB/s "
         "(%.3f MB/s active)\n",
         d(freed) / elapsed / 1024 / 1024,
@@ -1322,6 +1331,14 @@ Output::dumpMemoryMetrics(FILE* fp, ProtoBuf::LogMetrics& metrics)
         100.0 * appendTime / elapsed,
         100.0 * appendTime / cleanerTime,
         1.0e6 * appendTime / d(inMemoryMetrics.total_relocation_appends()));
+
+    double compactionCompleteTime = Cycles::toSeconds(
+        inMemoryMetrics.compaction_complete_ticks(), serverHz);
+    fprintf(fp, "    Compaction Complete:         %.3f sec "
+        "(%.2f%%, %.2f%% active)\n",
+        chooseTime,
+        100.0 * compactionCompleteTime / elapsed,
+        100.0 * compactionCompleteTime / cleanerTime);
 }
 
 void
@@ -1485,6 +1502,7 @@ fileExists(string& file)
 void
 sigIntHandler(int sig)
 {
+    fprintf(stderr, "Caught ctrl+c! Exiting...\n");
     interrupted = true;
 }
 
@@ -1529,7 +1547,7 @@ try
          ", \"-l.txt\", and \"-rp.txt/-rb.txt\" prefixes for metrics, latency, "
          "and raw prefill/benchmark files.")
         ("objectsPerRpc,o",
-         ProgramOptions::value<int>(&options.objectsPerRpc)->default_value(1),
+         ProgramOptions::value<int>(&options.objectsPerRpc)->default_value(10),
          "Number of objects to write for each RPC sent to the server. If 1, "
          "normal write RPCs are used. If greater than 1, MultiWrite RPCs will "
          "be used to batch up writes. This parameter greatly increases small"
@@ -1656,12 +1674,12 @@ try
                         options.objectsPerRpc,
                         options.writeCostConvergence);
     setvbuf(stdout, NULL, _IONBF, 0);
-    Output output(ramcloud, locator, benchmark);
+    Output output(ramcloud, locator, serverConfig, benchmark);
     output.addFile(stdout);
     if (metricsFile != NULL)
         output.addFile(metricsFile);
     output.dumpBeginning();
-    output.dumpParameters(options, serverConfig, logMetrics);
+    output.dumpParameters(options, logMetrics);
 
     // Reset the alarm. Benchmark::run() will throw an exception if it can't
     // make progress.

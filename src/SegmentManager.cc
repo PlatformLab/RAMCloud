@@ -271,7 +271,7 @@ SegmentManager::allocSideSegment(uint32_t flags, LogSegment* replacing)
         guard.destroy();
 
         if (Cycles::toSeconds(Cycles::rdtsc() - start) >= 1) {
-            LOG(WARNING, "Haven't made progress in 1s\n");
+            LOG(WARNING, "Haven't made progress in 1s");
             start = Cycles::rdtsc();
         }
 
