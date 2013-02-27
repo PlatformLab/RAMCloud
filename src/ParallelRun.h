@@ -110,7 +110,9 @@ class ParallelRun {
             if (firstNotDone == i)
                 ++firstNotDone;
             if (firstNotIssued < numTasks) {
-                tasks[firstNotIssued]->send();
+                Tub<T>& taskToIssue = tasks[firstNotIssued];
+                if (taskToIssue)
+                    taskToIssue->send();
                 ++firstNotIssued;
             }
         }
