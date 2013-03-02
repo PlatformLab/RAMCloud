@@ -1071,17 +1071,22 @@ Output::dumpSummary(FILE* fp)
 
     fprintf(fp, "===> BENCHMARK SUMMARY\n");
 
-    fprintf(fp, "  Benchmark Elapsed Time: %.2f sec\n", elapsed);
+    fprintf(fp, "  Benchmark Elapsed Time:        %.2f sec\n", elapsed);
 
-    fprintf(fp, "  Objects Written:        %lu  (%.2f objs/sec)\n",
+    fprintf(fp, "  Objects Written:               %lu  (%.2f objs/sec)\n",
         benchmark.totalObjectsWritten,
         d(benchmark.totalObjectsWritten) / elapsed);
 
-    fprintf(fp, "  Bytes Written:          %lu  (%.2f MB/sec)\n",
+    fprintf(fp, "  Object Value Bytes Written:    %lu  (%.2f MB/sec)\n",
         benchmark.totalBytesWritten,
         d(benchmark.totalBytesWritten) / elapsed / 1024 / 1024);
 
-    fprintf(fp, "  Average Latency:        %lu us\n",
+    uint64_t bytesAppended = benchmark.finalLogMetrics.total_bytes_appended() -
+                             benchmark.prefillLogMetrics.total_bytes_appended();
+    fprintf(fp, "  Total Log Bytes Written:       %lu  (%.2f MB/sec)\n",
+        bytesAppended, d(bytesAppended) / elapsed / 1024 / 1024);
+
+    fprintf(fp, "  Average Latency:               %lu us\n",
         benchmark.latencyHistogram.getAverage() / 1000);
 }
 
@@ -1093,17 +1098,21 @@ Output::dumpPrefillMetrics(FILE* fp)
 
     fprintf(fp, "===> PREFILL SUMMARY\n");
 
-    fprintf(fp, "  Prefill Elapsed Time:   %.2f sec\n", elapsed);
+    fprintf(fp, "  Prefill Elapsed Time:          %.2f sec\n", elapsed);
 
-    fprintf(fp, "  Objects Written:        %lu  (%.2f objs/sec)\n",
+    fprintf(fp, "  Objects Written:               %lu  (%.2f objs/sec)\n",
         benchmark.totalPrefillObjectsWritten,
         d(benchmark.totalPrefillObjectsWritten) / elapsed);
 
-    fprintf(fp, "  Bytes Written:          %lu  (%.2f MB/sec)\n",
+    fprintf(fp, "  Object Value Bytes Written:    %lu  (%.2f MB/sec)\n",
         benchmark.totalPrefillBytesWritten,
         d(benchmark.totalPrefillBytesWritten) / elapsed / 1024 / 1024);
 
-    fprintf(fp, "  Average Latency:        %lu us\n",
+    uint64_t bytesAppended = benchmark.prefillLogMetrics.total_bytes_appended();
+    fprintf(fp, "  Total Log Bytes Written:       %lu  (%.2f MB/sec)\n",
+        bytesAppended, d(bytesAppended) / elapsed / 1024 / 1024);
+
+    fprintf(fp, "  Average Latency:               %lu us\n",
         benchmark.prefillLatencyHistogram.getAverage() / 1000);
 }
 
@@ -1282,6 +1291,9 @@ Output::dumpMemoryMetrics(FILE* fp, ProtoBuf::LogMetrics& metrics)
     uint64_t segmentsCompacted = inMemoryMetrics.total_segments_compacted();
     fprintf(fp, "  Avg Seglets Freed/Compaction:  %.2f\n",
         d(freed) / d(segmentsCompacted) / d(serverConfig.seglet_size()));
+
+    fprintf(fp, "  Avg Time to Compact Segment:   %.2f ms\n",
+        cleanerTime * 1000 / d(segmentsCompacted));
 
     fprintf(fp, "  Memory Space Freeing Rate:     %.3f MB/s "
         "(%.3f MB/s active)\n",
@@ -1572,7 +1584,8 @@ try
     // TODO(steve?): Figure out some way of having this be implicitly set if
     // the argment is provided to OptionParser. Right now every main() method
     // has to do this separately (and if they don't, the argument just
-    // silently has no effect).
+    // silently has no effect). It gets even more confusing if there are
+    // multiple contexts per process.
     context.transportManager->setTimeout(
         optionParser.options.getTransportTimeout());
 
@@ -1635,7 +1648,7 @@ try
 
     string coordinatorLocator = optionParser.options.getCoordinatorLocator();
     fprintf(stderr, "Connecting to %s\n", coordinatorLocator.c_str());
-    RamCloud ramcloud(coordinatorLocator.c_str());
+    RamCloud ramcloud(&context, coordinatorLocator.c_str());
 
     // Get server parameters...
     // Perhaps this (and creating the distribution?) should be pushed into
