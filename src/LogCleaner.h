@@ -69,6 +69,7 @@ class LogCleaner {
     void getMetrics(ProtoBuf::LogMetrics_CleanerMetrics& m);
 
   PRIVATE:
+    typedef LogCleanerMetrics::MetricCycleCounter MetricCycleCounter;
     typedef std::lock_guard<SpinLock> Lock;
 
     /// If no cleaning work had to be done the last time we checked, sleep for
@@ -228,7 +229,7 @@ class LogCleaner {
 
         {
             metrics.totalRelocationCallbacks++;
-            LogCleanerMetrics::MetricCycleCounter _(&metrics.relocationCallbackTicks);
+            MetricCycleCounter _(&metrics.relocationCallbackTicks);
             entryHandlers.relocate(type, buffer, relocator);
         }
 
