@@ -1301,6 +1301,12 @@ InfRcTransport::PayloadChunk::appendToBuffer(Buffer* buffer,
 /// Returns memory to the HCA once the Chunk is discarded.
 InfRcTransport::PayloadChunk::~PayloadChunk()
 {
+    // It's crucial that we take the Dispatch lock here before invoking any
+    // transport methods. In all other cases we go through layers (such as
+    // WorkerSession) that ensure serialized access to the transport. This
+    // fancy Buffer destructor trick is an exception: it may be directly
+    // invoked by a worker.
+    Dispatch::Lock lock(transport->context->dispatch);
     transport->postSrqReceiveAndKickTransmit(srq, bd);
 }
 
