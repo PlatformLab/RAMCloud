@@ -63,6 +63,15 @@ RamCloud::RamCloud(Context* context, const char* serviceLocator)
 }
 
 /**
+ * Destructor of Ramcloud
+ **/
+
+RamCloud::~RamCloud()
+{
+    realClientContext.destroy();
+}
+
+/**
  * Create a new table.
  *
  * \param name

@@ -852,6 +852,16 @@ Infiniband::QueuePair::getPeerName() const
 }
 
 /**
+ * Get counter part Socket name of the Queue Pair
+ **/
+const string
+Infiniband::QueuePair::getSinName() const
+{
+    return format("infrc:host=%s,port=%hu",
+       inet_ntoa(handshakeSin.sin_addr), NTOHS(handshakeSin.sin_port));
+}
+
+/**
  * Construct an Address from the information in a ServiceLocator.
  * \param infiniband
  *      Infiniband instance under which this address is valid.

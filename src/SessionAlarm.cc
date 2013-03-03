@@ -103,8 +103,11 @@ SessionAlarm::rpcFinished()
     outstandingRpcs--;
     if (outstandingRpcs == 0) {
         assert(timerIndex < timer->activeAlarms.size());
-        assert(timer->activeAlarms[timerIndex] = this);
+        assert(timer->activeAlarms[timerIndex] == this);
 
+        // Deleting the element at timerIndex by
+        // copying the tail element to timerIndex and deleting
+        // the tail element
         timer->activeAlarms[timerIndex] = timer->activeAlarms.back();
         timer->activeAlarms[timerIndex]->timerIndex = timerIndex;
         timer->activeAlarms.pop_back();

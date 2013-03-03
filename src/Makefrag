@@ -74,6 +74,7 @@ SHARED_SRCFILES := \
 		   src/PcapFile.cc \
 		   src/PingClient.cc \
 		   src/PingService.cc \
+		   src/PortAlarm.cc \
 		   src/RamCloud.cc \
 		   src/RawMetrics.cc \
 		   src/ReplicaManager.cc \

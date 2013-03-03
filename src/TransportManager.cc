@@ -399,6 +399,15 @@ void TransportManager::setTimeout(uint32_t timeoutMs)
 }
 
 /**
+ * Return current timeout value (ms) for all server port created from now on.
+ *
+ */
+uint32_t TransportManager::getTimeout() const
+{
+    return timeoutMs;
+}
+
+/**
  * Calls dumpStats() on all existing transports.
  */
 void

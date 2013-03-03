@@ -41,6 +41,7 @@ CLIENT_SRCFILES := \
 		   src/ObjectRpcWrapper.cc \
 		   src/PcapFile.cc \
 		   src/PingClient.cc \
+		   src/PortAlarm.cc \
 		   src/RamCloud.cc \
 		   src/RawMetrics.cc \
 		   src/SegletAllocator.cc \

@@ -36,6 +36,7 @@ class MasterService;
 class MockContextMember;
 class ServiceManager;
 class SessionAlarmTimer;
+class PortAlarmTimer;
 class TableManager;
 class TransportManager;
 
@@ -81,6 +82,7 @@ class Context {
     TransportManager* transportManager;
     ServiceManager* serviceManager;
     SessionAlarmTimer* sessionAlarmTimer;
+    PortAlarmTimer*    portAlarmTimer;
     CoordinatorSession* coordinatorSession;
 
     // Variables below this point are used only in servers.  They are

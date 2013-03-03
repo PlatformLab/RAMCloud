@@ -226,6 +226,7 @@ class Transport {
          * Shut down this session: abort any RPCs in progress and reject
          * any future calls to \c sendRequest. The caller is responsible
          * for logging the reason for the abort.
+         * For server port, shutdown and close listening port.
          */
         virtual void abort() {}
 
@@ -242,6 +243,7 @@ class Transport {
         }
 
         friend void intrusive_ptr_release(Session* session);
+
 
       PROTECTED:
         Atomic<int> refCount;          /// Count of SessionRefs that exist
@@ -352,6 +354,24 @@ class Transport {
     /// somewhat subjectively in 11/2011, based on the presence of time gaps
     /// in the poller of as much as 250ms.
     static const uint32_t DEFAULT_TIMEOUT_MS = 500;
+
+    class ServerPort {
+      public:
+        explicit ServerPort() {}
+        virtual ~ServerPort() {}
+        /**
+         * Close this server port: shutdown and reject any future
+         * any future request. The caller is responsible
+         * for logging the reason for the close.
+         */
+        virtual void close() {}
+        virtual const string getPortName() const
+        {
+            return "Error: No transport assigned to this port.";
+        }
+      PRIVATE:
+        DISALLOW_COPY_AND_ASSIGN(ServerPort);
+        };
 
   PRIVATE:
     DISALLOW_COPY_AND_ASSIGN(Transport);

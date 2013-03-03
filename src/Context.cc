@@ -21,6 +21,7 @@
 #include "ServiceManager.h"
 #include "ShortMacros.h"
 #include "SessionAlarm.h"
+#include "PortAlarm.h"
 #include "TableManager.h"
 #include "TransportManager.h"
 
@@ -67,6 +68,7 @@ Context::Context(bool hasDedicatedDispatchThread)
     , transportManager(NULL)
     , serviceManager(NULL)
     , sessionAlarmTimer(NULL)
+    , portAlarmTimer(NULL)
     , coordinatorSession(NULL)
     , masterService(NULL)
     , backupService(NULL)
@@ -90,6 +92,7 @@ Context::Context(bool hasDedicatedDispatchThread)
         transportManager = new TransportManager(this);
         serviceManager = new ServiceManager(this);
         sessionAlarmTimer = new SessionAlarmTimer(this);
+        portAlarmTimer = new PortAlarmTimer(this);
         coordinatorSession = new CoordinatorSession(this);
     } catch (...) {
         destroy();

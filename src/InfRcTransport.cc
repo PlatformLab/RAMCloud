@@ -133,7 +133,7 @@ InfRcTransport::InfRcTransport(Context* context,
     , lid(0)
     , serverSetupSocket(-1)
     , clientSetupSocket(-1)
-    , queuePairMap()
+    , serverPortMap()
     , clientSendQueue()
     , numUsedClientSrqBuffers(MAX_SHARED_RX_QUEUE_DEPTH)
     , numFreeServerSrqBuffers(0)
@@ -328,7 +328,7 @@ InfRcTransport::InfRcSession::InfRcSession(
     InfRcTransport *transport, const ServiceLocator& sl, uint32_t timeoutMs)
     : transport(transport)
     , qp(NULL)
-    , alarm(transport->context->sessionAlarmTimer, this,
+    , sessionAlarm(transport->context->sessionAlarmTimer, this,
             (timeoutMs != 0) ? timeoutMs : DEFAULT_TIMEOUT_MS)
 {
     setServiceLocator(sl.getOriginalString());
@@ -378,7 +378,7 @@ InfRcTransport::InfRcSession::abort()
             erase(transport->outstandingRpcs, rpc);
             --transport->numUsedClientSrqBuffers;
             transport->clientRpcPool.destroy(&rpc);
-            alarm.rpcFinished();
+            sessionAlarm.rpcFinished();
         }
     }
     if (qp)
@@ -405,7 +405,7 @@ InfRcTransport::InfRcSession::cancelRequest(
             erase(transport->outstandingRpcs, rpc);
             transport->clientRpcPool.destroy(&rpc);
             --transport->numUsedClientSrqBuffers;
-            alarm.rpcFinished();
+            sessionAlarm.rpcFinished();
             if (transport->outstandingRpcs.empty()) {
                 transport->clientRpcsActiveTime.destroy();
             }
@@ -468,6 +468,56 @@ InfRcTransport::InfRcSession::sendRequest(Buffer* request,
                                                         notifier,
                                                         generateRandom());
     rpc->sendOrQueue();
+}
+
+/**
+ * Constrctor for ServerPort object, which maintains
+ * QP and port watchdog information.
+ **/
+InfRcTransport::InfRcServerPort::InfRcServerPort(
+    InfRcTransport *transport,  QueuePair* qp, uint32_t timeoutMs)
+        : transport(transport)
+        , qp(qp)
+          // Use longer timeout for initial session acquisition in
+          // coordinator, etc.
+        , portAlarm(transport->context->portAlarmTimer, this,
+                    ((timeoutMs != 0) ? timeoutMs : DEFAULT_TIMEOUT_MS) * 50)
+{
+    // Inserts this alarm entry to portAlarmTimer.activeAlarms
+    // and starts timer for this port
+    portAlarm.startPortTimer();
+}
+
+InfRcTransport::InfRcServerPort::~InfRcServerPort()
+{
+    if (qp)
+        transport->deadQueuePairs.push_back(qp); // to delete qp
+    qp = NULL;
+    portAlarm.stopPortTimer(); // Maybe redundant to portAlarm destructor.
+}
+
+/**
+ * Close and shutdown the server listening port
+ * QP is deleted by the destructor of InfRcServerPort
+ **/
+void
+InfRcTransport::InfRcServerPort::close()
+{
+    // Remove unused hash entry from unorderd_map
+    transport->serverPortMap.erase(qp->getLocalQpNumber());
+
+    // Maybe it is safe because it is dynamically allocated
+    // and pointed from unorderd maps.
+    delete this;
+}
+
+/**
+ * Returns port identifier consists of client ip address
+ **/
+const string
+InfRcTransport::InfRcServerPort::getPortName() const
+{
+    return qp->getSinName();
 }
 
 /**
@@ -687,11 +737,13 @@ InfRcTransport::ServerConnectHandler::handleFileEvent(int events)
         return;
     }
 
-    // maintain the qpn -> qp mapping
-    transport->queuePairMap[qp->getLocalQpNumber()] = qp;
-
     // store some identifying client information
     qp->handshakeSin = sin;
+
+    // maintain the qpn -> qp mapping
+    transport->serverPortMap[qp->getLocalQpNumber()] =
+            new InfRcServerPort(transport, qp,
+                      transport->context->transportManager->getTimeout());
 }
 
 /**
@@ -857,8 +909,8 @@ InfRcTransport::setName(const char* debugName)
  *      Uniquely identifies this RPC.
  */
 InfRcTransport::ServerRpc::ServerRpc(InfRcTransport* transport,
-                                                 QueuePair* qp,
-                                                 uint64_t nonce)
+                                     QueuePair* qp,
+                                     uint64_t nonce)
     : transport(transport),
       qp(qp),
       nonce(nonce)
@@ -905,6 +957,16 @@ InfRcTransport::ServerRpc::sendReply()
     }
     t->infiniband->postSend(qp, bd, replyPayload.getTotalLength());
     replyPayload.truncateFront(sizeof(Header)); // for politeness
+
+    // Restart port watchdog for this reply port
+    uint32_t qpNum = qp->getLocalQpNumber();
+    if (t->serverPortMap.find(qpNum)
+        == t->serverPortMap.end()) {
+        LOG(ERROR, "failed to find qp_num %ud in serverPortMap", qpNum);
+    } else {
+        InfRcServerPort *port = t->serverPortMap[qpNum];
+        port->portAlarm.requestArrived();
+    }
 }
 
 /**
@@ -916,6 +978,7 @@ InfRcTransport::ServerRpc::getClientServiceLocator()
     return format("infrc:host=%s,port=%hu",
         inet_ntoa(qp->handshakeSin.sin_addr), NTOHS(qp->handshakeSin.sin_port));
 }
+
 
 //-------------------------------------
 // InfRcTransport::ClientRpc class
@@ -1086,7 +1149,7 @@ InfRcTransport::ClientRpc::sendOrQueue()
         request->truncateFront(sizeof(Header)); // for politeness
 
         t->outstandingRpcs.push_back(*this);
-        session->alarm.rpcStarted();
+        session->sessionAlarm.rpcStarted();
         ++t->numUsedClientSrqBuffers;
         state = REQUEST_SENT;
     } else {
@@ -1127,7 +1190,7 @@ InfRcTransport::Poller::poll()
                 if (rpc.nonce != header.nonce)
                     continue;
                 t->outstandingRpcs.erase(t->outstandingRpcs.iterator_to(rpc));
-                rpc.session->alarm.rpcFinished();
+                rpc.session->sessionAlarm.rpcFinished();
                 uint32_t len = wc.byte_len - sizeof32(header);
                 if (t->numUsedClientSrqBuffers >=
                         MAX_SHARED_RX_QUEUE_DEPTH / 2) {
@@ -1180,12 +1243,13 @@ InfRcTransport::Poller::poll()
     if (t->serverSetupSocket >= 0) {
         CycleCounter<RawMetric> receiveTicks;
         if (t->infiniband->pollCompletionQueue(t->serverRxCq, 1, &wc) >= 1) {
-            if (t->queuePairMap.find(wc.qp_num) == t->queuePairMap.end()) {
+            if (t->serverPortMap.find(wc.qp_num) == t->serverPortMap.end()) {
                 LOG(ERROR, "failed to find qp_num in map");
                 goto done;
             }
 
-            QueuePair *qp = t->queuePairMap[wc.qp_num];
+            InfRcServerPort *port = t->serverPortMap[wc.qp_num];
+            QueuePair *qp = port->qp;
 
             BufferDescriptor* bd =
                 reinterpret_cast<BufferDescriptor*>(wc.wr_id);
@@ -1215,6 +1279,8 @@ InfRcTransport::Poller::poll()
                     bd->buffer + sizeof32(header),
                     len, t, t->serverSrq, bd);
             }
+
+            port->portAlarm.requestArrived(); // Restarts the port watchdog
             t->context->serviceManager->handleRpc(r);
             ++metrics->transport.receive.messageCount;
             ++metrics->transport.receive.packetCount;

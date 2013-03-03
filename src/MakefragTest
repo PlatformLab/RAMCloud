@@ -71,6 +71,8 @@ TESTS_SRCFILES := \
 		  src/ObjectRpcWrapperTest.cc \
 		  src/OptionParserTest.cc \
 		  src/PingServiceTest.cc \
+ 	          src/PortAlarm.cc \
+ 	          src/PortAlarmTest.cc \
 		  src/PriorityTaskQueueTest.cc \
 		  src/ProtoBufTest.cc \
 		  src/RawMetricsTest.cc \
