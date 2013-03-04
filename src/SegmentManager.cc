@@ -251,6 +251,7 @@ SegmentManager::allocSideSegment(uint32_t flags, LogSegment* replacing)
     Tub<Lock> guard;
     LogSegment* s = NULL;
 
+    uint32_t reportSeconds = 5;
     uint64_t start = Cycles::rdtsc();
     while (1) {
         guard.construct(lock);
@@ -270,9 +271,15 @@ SegmentManager::allocSideSegment(uint32_t flags, LogSegment* replacing)
 
         guard.destroy();
 
-        if (Cycles::toSeconds(Cycles::rdtsc() - start) >= 1) {
-            LOG(WARNING, "Haven't made progress in 1s");
-            start = Cycles::rdtsc();
+        // This message is likely benign (it can happen if there are no writes
+        // coming in to roll over the log head and free up previously-cleaned
+        // disk segments. It exists, however, in case this isn't the case and
+        // we've managed to deadlock.
+        if (Cycles::toSeconds(Cycles::rdtsc() - start) >= reportSeconds) {
+            LOG(NOTICE, "Haven't made progress in %us (likely just waiting for "
+                "a write to roll the log head over, but could be deadlocked)",
+                reportSeconds);
+            reportSeconds *= 2;
         }
 
         // Reduce monitor lock contention.
