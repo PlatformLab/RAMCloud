@@ -312,6 +312,7 @@ struct ServerConfig {
             , inMemory(true)
             , sync(false)
             , numSegmentFrames(4)
+            , maxNonVolatileBuffers(0)
             , file()
             , strategy(1)
             , mockSpeed(100)
@@ -327,6 +328,7 @@ struct ServerConfig {
             , inMemory(false)
             , sync(false)
             , numSegmentFrames(512)
+            , maxNonVolatileBuffers(0)
             , file("/var/tmp/backup.log")
             , strategy(1)
             , mockSpeed(0)
@@ -341,6 +343,7 @@ struct ServerConfig {
             config.set_gc(gc);
             config.set_in_memory(inMemory);
             config.set_num_segment_frames(numSegmentFrames);
+            config.set_max_non_volatile_buffers(maxNonVolatileBuffers);
             if (!inMemory)
                 config.set_file(file);
             config.set_strategy(strategy);
@@ -371,6 +374,16 @@ struct ServerConfig {
          * backing store.
          */
         uint32_t numSegmentFrames;
+
+        /**
+         * When using disk-based storage for replicas, this specifies the
+         * maximum number of segments that may be queued in memory while
+         * waiting for the disk to drain writes.
+         *
+         * If 0, the backup will allow as many buffers as there are segment
+         * frames on disk (that is, this parameter will equal numSegmentFrames).
+         */
+        uint32_t maxNonVolatileBuffers;
 
         /// Path to a file to use for the backing store if inMemory is false.
         string file;

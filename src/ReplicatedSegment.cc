@@ -735,7 +735,11 @@ ReplicatedSegment::performWrite(Replica& replica)
                 LOG(WARNING, "Couldn't write to backup %s; server is down",
                     replica.backupId.toString().c_str());
             } catch (const BackupOpenRejectedException& e) {
-                LOG(NOTICE,
+                // TODO(Stutsman): This message occurs far too frequently to
+                // print when backups are being heavily loaded. Perhaps we want
+                // to differentiate the loaded and existing replica cases, as
+                // the former might be rarer and of greater interest.
+                LOG(DEBUG,
                     "Couldn't open replica on backup %s; server may be "
                     "overloaded or may already have a replica for this segment "
                     "which was found on disk after a crash; will choose "

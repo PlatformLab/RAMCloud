@@ -98,14 +98,18 @@ message ServerConfig {
         /// backing store.
         required fixed32 num_segment_frames = 3;
 
+        /// Maximum number of segments that the backup will buffer in memory
+        /// before rejecting new segments until the disk catches up.
+        required fixed32 max_non_volatile_buffers = 4;
+
         /// Path to a file to use for the backing store if inMemory is false.
-        optional string file = 4;
+        optional string file = 5;
 
         /// BackupStrategy to use for balancing replicas across backups.
-        required int32 strategy = 5;
+        required int32 strategy = 6;
 
         /// If non-0, the fake backup disk speed this server is advertising.
-        required fixed32 mock_speed = 6;
+        required fixed32 mock_speed = 7;
     }
 
     /// The server's BackupService configuration, if it is running one.

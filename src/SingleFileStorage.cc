@@ -881,7 +881,7 @@ SingleFileStorage::open(bool sync)
     Lock lock(mutex);
     if (nonVolatileBuffersInUse == maxNonVolatileBuffers) {
         // Force the master to find some place else and/or backoff.
-        LOG(NOTICE, "Master tried to open a storage frame but too many "
+        LOG(DEBUG, "Master tried to open a storage frame but too many "
             "frames already buffered to accept it; rejecting");
         throw BackupOpenRejectedException(HERE);
     }

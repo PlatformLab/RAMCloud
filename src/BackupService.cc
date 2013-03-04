@@ -59,13 +59,22 @@ BackupService::BackupService(Context* context,
         storage.reset(new InMemoryStorage(config->segmentSize,
                                           config->backup.numSegmentFrames));
     } else {
-        // This is basically set to unlimited right now because limiting it
-        // can severely impact recovery performance or even cause it to
-        // deadlock on small clusters.
+        // This is basically set to unlimited right now by default because
+        // limiting it can severely impact recovery performance or even cause it
+        // to deadlock on small clusters.
         // (All recovery reads are prioritized over writes so backups
         // collectively need enough non-volatile buffer to absorb the entire
         // recovery).
+        //
+        // Unfortunately, not limiting buffers can lead to another obvious
+        // problem: an overloaded backup process may buffer enough to exhaust
+        // the server's free memory. The result is that the Linux OOM killer
+        // steps in and slays it. If a cap is provided on the commandline, we'll
+        // use that instead.
         size_t maxNonVolatileBuffers = config->backup.numSegmentFrames;
+        if (config->backup.maxNonVolatileBuffers != 0)
+            maxNonVolatileBuffers = config->backup.maxNonVolatileBuffers;
+
         storage.reset(new SingleFileStorage(config->segmentSize,
                                             config->backup.numSegmentFrames,
                                             maxNonVolatileBuffers,

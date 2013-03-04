@@ -101,6 +101,13 @@ main(int argc, char *argv[])
              ProgramOptions::value<uint32_t>(&config.backup.numSegmentFrames)->
                 default_value(512),
              "Number of segment frames in backup storage")
+            ("maxNonVolatileBuffers",
+             ProgramOptions::value<uint32_t>(
+               &config.backup.maxNonVolatileBuffers)->default_value(0),
+             "Maximum number of segments the backup will buffer in memory. The "
+             "0 value (default) is special: it tells the server to set the "
+             "limit equal to the \"segmentFrames\" value, effectively making "
+             "buffering unlimited.")
             ("detectFailures",
              ProgramOptions::value<bool>(&config.detectFailures)->
                 default_value(true),
