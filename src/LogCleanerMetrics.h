@@ -16,7 +16,11 @@
 #ifndef RAMCLOUD_LOGCLEANERMETRICS_H
 #define RAMCLOUD_LOGCLEANERMETRICS_H
 
-#include <stdatomic.h>
+#if __GNUC__ >= 4 && __GNUC_MINOR__ >= 5
+#include <atomic>
+#else
+#include <cstdatomic>
+#endif
 
 #include "Common.h"
 #include "Histogram.h"
