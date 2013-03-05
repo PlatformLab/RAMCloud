@@ -1130,6 +1130,19 @@ Output::dumpCleanerMetrics(FILE* fp, ProtoBuf::LogMetrics& metrics)
         Cycles::toSeconds(cleanerMetrics.do_work_ticks(), serverHz));
     fprintf(fp, "    Time Sleeping:               %.3f sec\n",
         Cycles::toSeconds(cleanerMetrics.do_work_sleep_ticks(), serverHz));
+
+    const ProtoBuf::LogMetrics_CleanerMetrics_ThreadMetrics& threadMetrics =
+        cleanerMetrics.thread_metrics();
+
+    uint64_t totalTicks = 0;
+    foreach (uint64_t ticks, threadMetrics.active_ticks())
+        totalTicks += ticks;
+    fprintf(fp, "  Active Thread Distribution:\n");
+    int i = 0;
+    foreach (uint64_t ticks, threadMetrics.active_ticks()) {
+        fprintf(fp, "    %3d simultaneous:            %.3f%% of time\n",
+            i++, d(ticks) / d(totalTicks) * 100);
+    }
 }
 
 void

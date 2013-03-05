@@ -67,8 +67,8 @@ message LogMetrics {
         }
         required InMemoryMetrics in_memory_metrics = 9;
 
-        /// Serialized form of LogCleanerMetrics::OnDiskMetrics. See the C++
-        /// class documentation for details.
+        /// Serialized form of LogCleanerMetrics::OnDisk. See the C++ class
+        /// documentation for details.
         message OnDiskMetrics {
             required fixed64 total_bytes_appended_to_survivors = 1;
             required fixed64 total_memory_bytes_freed = 2;
@@ -91,6 +91,13 @@ message LogMetrics {
             required Histogram cleaned_segment_disk_histogram = 19;
         }
         required OnDiskMetrics on_disk_metrics = 10;
+
+        /// Serialized form of LogCleanerMetrics::Threads. See the C++ class
+        /// documentation for details.
+        message ThreadMetrics {
+            repeated fixed64 active_ticks = 1;
+        }
+        required ThreadMetrics thread_metrics = 11;
     }
     required CleanerMetrics cleaner_metrics = 7;
 

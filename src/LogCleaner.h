@@ -268,6 +268,11 @@ class LogCleaner {
     /// cleaner will run in its place.
     bool disableInMemoryCleaning;
 
+    /// The number of cleaner threads to run concurrently. More threads will
+    /// allow the system to perform more cleaning and compaction in parallel to
+    /// keep up with higher write rates and memory utilizations.
+    const int numThreads;
+
     /// Closed log segments that are candidates for cleaning. Before each
     /// cleaning pass this list will be updated from the SegmentManager with
     /// newly closed segments. The most appropriate segments will then be
@@ -300,13 +305,11 @@ class LogCleaner {
     /// Metrics kept for measuring on-disk cleaning performance.
     LogCleanerMetrics::OnDisk onDiskMetrics;
 
+    /// Metrics kept for measuring how many threads the cleaner is using.
+    LogCleanerMetrics::Threads threadMetrics;
+
     /// Set by halt() to indicate that the cleaning thread(s) should exit.
     bool threadsShouldExit;
-
-    /// The number of cleaner threads to run concurrently. More threads will
-    /// allow the system to perform more cleaning and compaction in parallel to
-    /// keep up with higher write rates and memory utilizations.
-    const int numThreads;
 
     /// The cleaner spins one or more threads to perform its work (#numThreads).
     /// This vector contains pointers to these threads. When the cleaner is

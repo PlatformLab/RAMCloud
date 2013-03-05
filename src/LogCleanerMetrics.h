@@ -24,6 +24,7 @@
 
 #include "Common.h"
 #include "Histogram.h"
+#include "SpinLock.h"
 
 #include "LogMetrics.pb.h"
 
@@ -31,7 +32,12 @@ namespace RAMCloud {
 
 namespace LogCleanerMetrics {
 
+/// Just in case using atomics for metrics becomes a performance problem, we
+/// will use this typedef to allow us to run in fast-and-loose mode with
+/// regular uint64_ts, if needed.
 typedef std::atomic_uint_fast64_t Metric64BitType;
+
+/// Convenience typedef for CycleCounters of type Metric64BitType.
 typedef CycleCounter<Metric64BitType> MetricCycleCounter;
 
 /**
@@ -288,6 +294,90 @@ class OnDisk {
 
     /// Histogram of disk space utilizations for segments cleaned on disk.
     Histogram cleanedSegmentDiskHistogram;
+};
+
+/**
+ * Metrics that keep track of the cleaner's threads.
+ */
+class Threads {
+  public:
+    /**
+     * Construct a new Thread object for tracking cleaner threads.
+     *
+     * \param maxThreads
+     *      The maximum number of threads the cleaner will ever have running
+     *      simultaneously.
+     */
+    explicit Threads(size_t maxThreads)
+        : lock("LogCleanerMetrics::Threads")
+        , activeTicks()
+        , activeThreads(0)
+        , cycleCounter()
+    {
+        activeTicks.resize(maxThreads + 1, 0);
+        cycleCounter.construct();
+    }
+
+    /**
+     * Note that another thread has awoken in the cleaner and started doing
+     * some work. This is used to maintain a distribution of the amount of
+     * time the cleaner spends with various numbers of threads running.
+     */
+    void
+    noteThreadStart()
+    {
+            lock.lock();
+            activeTicks[activeThreads] += cycleCounter->stop();
+            cycleCounter.construct();
+            activeThreads++;
+            lock.unlock();
+    }
+
+    /**
+     * Note that a thread in the cleaner has finished whatever work it was doing
+     * for the moment. This is used to maintain a distribution of the amount of
+     * time the cleaner spends with various numbers of threads running.
+     */
+    void
+    noteThreadStop()
+    {
+        lock.lock();
+        activeTicks[activeThreads] += cycleCounter->stop();
+        cycleCounter.construct();
+        activeThreads--;
+        lock.unlock();
+    }
+
+    /**
+     * Serialize the metrics in this class to the given protocol buffer so we
+     * can ship it to another machine.
+     *
+     * \param[out] m
+     *      The protocol buffer to fill in.
+     */
+    void
+    serialize(ProtoBuf::LogMetrics_CleanerMetrics_ThreadMetrics& m)
+    {
+        lock.lock();
+        foreach (uint64_t ticks, activeTicks)
+            m.add_active_ticks(ticks);
+        lock.unlock();
+    }
+
+  private:
+    /// Monitor lock protecting all members on this class.
+    SpinLock lock;
+
+    /// Number of ticks the cleaner has spent with varying numbers of threads
+    /// active simultaneously. [0] doubles as a count of the time all threads
+    /// are sleeping without work to do.
+    vector<uint64_t> activeTicks;
+
+    /// Count of the number of threads currently active in the cleaner.
+    uint32_t activeThreads;
+
+    /// Number of cycles expended since the last change to 'activeThreads'.
+    Tub<MetricCycleCounter> cycleCounter;
 };
 
 } // namespace LogCleanerMetrics

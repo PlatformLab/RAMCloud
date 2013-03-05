@@ -58,6 +58,7 @@ LogCleaner::LogCleaner(Context* context,
       entryHandlers(entryHandlers),
       writeCostThreshold(config->master.cleanerWriteCostThreshold),
       disableInMemoryCleaning(config->master.disableInMemoryCleaning),
+      numThreads(config->master.cleanerThreadCount),
       candidates(),
       candidatesLock("LogCleaner::candidatesLock"),
       segletSize(config->segletSize),
@@ -66,8 +67,8 @@ LogCleaner::LogCleaner(Context* context,
       doWorkSleepTicks(0),
       inMemoryMetrics(),
       onDiskMetrics(),
+      threadMetrics(numThreads),
       threadsShouldExit(false),
-      numThreads(config->master.cleanerThreadCount),
       threads()
 {
     if (!segmentManager.initializeSurvivorReserve(numThreads *
@@ -149,6 +150,7 @@ LogCleaner::getMetrics(ProtoBuf::LogMetrics_CleanerMetrics& m)
     m.set_do_work_sleep_ticks(doWorkSleepTicks);
     inMemoryMetrics.serialize(*m.mutable_in_memory_metrics());
     onDiskMetrics.serialize(*m.mutable_on_disk_metrics());
+    threadMetrics.serialize(*m.mutable_thread_metrics());
 }
 
 /******************************************************************************
@@ -191,6 +193,8 @@ LogCleaner::doWork()
 {
     MetricCycleCounter _(&doWorkTicks);
 
+    threadMetrics.noteThreadStart();
+
     // Update our list of candidates.
     candidatesLock.lock();
     segmentManager.cleanableSegments(candidates);
@@ -212,9 +216,15 @@ LogCleaner::doWork()
     if (mustCleanOnDisk || diskUse >= MIN_DISK_UTILIZATION)
         doDiskCleaning();
 
+    bool sleepThread = false;
     memoryUse = segmentManager.getAllocator().getMemoryUtilization();
     diskUse = segmentManager.getSegmentUtilization();
-    if (memoryUse < MIN_MEMORY_UTILIZATION && diskUse < MIN_DISK_UTILIZATION) {
+    if (memoryUse < MIN_MEMORY_UTILIZATION && diskUse < MIN_DISK_UTILIZATION)
+        sleepThread = true;
+
+    threadMetrics.noteThreadStop();
+
+    if (sleepThread) {
         MetricCycleCounter __(&doWorkSleepTicks);
         usleep(POLL_USEC);
     }
