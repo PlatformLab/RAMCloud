@@ -19,9 +19,7 @@
 namespace RAMCloud {
 
 /**
- * Each entry in the log has an 8-bit type field. When adding types, be
- * sure to update the LogEntryGroker implementation in LogEntryGroker.h
- * as well.
+ * Each entry in the log has an 8-bit type field that identifies it.
  */
 enum LogEntryType {
     /// Invalid log entry. This type should never be used.

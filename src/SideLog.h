@@ -51,13 +51,13 @@ namespace RAMCloud {
  * backups every time a segment fills and another is allocated.
  *
  * What happens under the hood is that segments are allocated in memory and
- * backups on demand as entries are appended to the SideLog. These
- * segments, however, are not included in the master log's digest and so will
- * not be used during recovery. This class keeps track of all such segments,
- * and, when the commit() method is invoked, first ensures that all segments
- * have finished replicating to backups and then fuses the segments into the
- * master's log. This fusion is achieved by simply rolling over to a new head
- * segment that includes the SideLog's new segments.
+ * backups on demand as entries are appended to the SideLog. These segments,
+ * however, are not included in the master log's digest and so will not be used
+ * during recovery. This class keeps track of all such segments, and, when the
+ * commit() method is invoked, first ensures that all segments have finished
+ * replicating to backups and then fuses the segments into the master's log.
+ * This fusion is achieved by simply rolling over to a new head segment that
+ * includes the SideLog's new segments.
  *
  * One can also think of this like an atomic transaction. When commit() is
  * called, all appends are committed at once. If commit() is not called and the
