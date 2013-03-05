@@ -129,7 +129,7 @@ randomNumberGenerator(uint32_t n)
 }
 
 /**
- * Pin the process to a particular CPU.
+ * Pin the calling thread to a particular CPU.
  * \param cpu
  *      The number of the CPU on which to execute, starting from 0.
  * \return
