@@ -253,7 +253,13 @@ class AbstractLog {
            Reference* outReference = NULL)
     {
         Lock lock(appendLock);
-        return append(lock, type, timestamp, buffer, length, outReference);
+        return append(lock,
+                      type,
+                      timestamp,
+                      buffer,
+                      length,
+                      outReference,
+                      &metrics.totalAppendTicks);
     }
 
     /**
@@ -271,7 +277,8 @@ class AbstractLog {
                       timestamp,
                       buffer.getRange(0, buffer.getTotalLength()),
                       buffer.getTotalLength(),
-                      outReference);
+                      outReference,
+                      &metrics.totalAppendTicks);
     }
 
   PROTECTED:
@@ -304,12 +311,14 @@ class AbstractLog {
                 uint32_t timestamp,
                 const void* data,
                 uint32_t length,
-                Reference* outReference = NULL);
+                Reference* outReference = NULL,
+                uint64_t* outTickCounter = NULL);
     bool append(Lock& lock,
                 LogEntryType type,
                 uint32_t timestamp,
                 Buffer& buffer,
-                Reference* outReference = NULL);
+                Reference* outReference = NULL,
+                uint64_t* outTickCounter = NULL);
     bool allocNewWritableHead();
 
     /// Various handlers for entries appended to this log. Used to obtain

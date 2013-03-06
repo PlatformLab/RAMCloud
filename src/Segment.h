@@ -161,6 +161,10 @@ class Segment {
         LogEntryType
         getType() const
         {
+            // This assertion may be a little fragile for any sort of forward
+            // compatibility (assuming we only add types), but I'd rather make
+            // sure.
+            assert((lengthBytesAndType & 0x3f) < TOTAL_LOG_ENTRY_TYPES);
             return static_cast<LogEntryType>(lengthBytesAndType & 0x3f);
         }
 

@@ -75,6 +75,7 @@ AbstractLog::AbstractLog(LogEntryHandlers* entryHandlers,
 bool
 AbstractLog::append(AppendVector* appends, uint32_t numAppends)
 {
+    CycleCounter<uint64_t> _(&metrics.totalAppendTicks);
     Lock lock(appendLock);
 
     uint32_t lengths[numAppends];
@@ -237,6 +238,9 @@ AbstractLog::segmentExists(uint64_t segmentId)
  *      If the append succeeds, a reference to the created entry is returned
  *      here. This reference may be used to access the appended entry via the
  *      lookup method. It may also be inserted into a HashTable.
+ * \param[out] outTickCounter
+ *      If non-NULL, store the number of processor ticks spent executing this
+ *      method.
  * \return
  *      True if the append succeeded, false if there was insufficient space
  *      to complete the operation.
@@ -247,9 +251,10 @@ AbstractLog::append(Lock& appendLock,
             uint32_t timestamp,
             const void* buffer,
             uint32_t length,
-            Reference* outReference)
+            Reference* outReference,
+            uint64_t* outTickCounter)
 {
-    CycleCounter<uint64_t> _(&metrics.totalAppendTicks);
+    CycleCounter<uint64_t> _(outTickCounter);
 
     // This is only possible once after construction.
     if (head == NULL) {
@@ -314,6 +319,9 @@ AbstractLog::append(Lock& appendLock,
  *      If the append succeeds, a reference to the created entry is returned
  *      here. This reference may be used to access the appended entry via the
  *      lookup method. It may also be inserted into a HashTable.
+ * \param[out] outTickCounter
+ *      If non-NULL, store the number of processor ticks spent executing this
+ *      method.
  * \return
  *      True if the append succeeded, false if there was insufficient space to
  *      complete the operation.
@@ -323,14 +331,16 @@ AbstractLog::append(Lock& appendLock,
             LogEntryType type,
             uint32_t timestamp,
             Buffer& buffer,
-            Reference* outReference)
+            Reference* outReference,
+            uint64_t* outTickCounter)
 {
     return append(appendLock,
                   type,
                   timestamp,
                   buffer.getRange(0, buffer.getTotalLength()),
                   buffer.getTotalLength(),
-                  outReference);
+                  outReference,
+                  outTickCounter);
 }
 
 /**

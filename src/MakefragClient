@@ -108,7 +108,7 @@ $(OBJDIR)/ensureServers: $(OBJDIR)/EnsureServers.o $(OBJDIR)/OptionParser.o $(OB
 	@mkdir -p $(@D)
 	$(CXX) -o $@ $^ -L$(OBJDIR) $(LIBS)
 
-$(OBJDIR)/LogCleanerBenchmark: $(OBJDIR)/LogCleanerBenchmark.o $(OBJDIR)/Histogram.pb.o $(OBJDIR)/OptionParser.o $(OBJDIR)/LogMetrics.pb.o $(OBJDIR)/ServerConfig.pb.o $(OBJDIR)/libramcloud.a
+$(OBJDIR)/LogCleanerBenchmark: $(OBJDIR)/LogCleanerBenchmark.o $(OBJDIR)/Histogram.pb.o $(OBJDIR)/OptionParser.o $(OBJDIR)/LogEntryTypes.o $(OBJDIR)/LogMetrics.pb.o $(OBJDIR)/ServerConfig.pb.o $(OBJDIR)/libramcloud.a
 	@mkdir -p $(@D)
 	$(CXX) -o $@ $^ $(LIBS)
 

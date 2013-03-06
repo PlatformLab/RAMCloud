@@ -226,7 +226,12 @@ LogCleaner::doWork()
 
     if (sleepThread) {
         MetricCycleCounter __(&doWorkSleepTicks);
-        usleep(POLL_USEC);
+        // Jitter the sleep delay a little bit (up to 10%). It's not a big deal
+        // if we don't, but it can make some locks look artificially contended
+        // when there's no cleaning to be done and threads manage to caravan
+        // together.
+        useconds_t r = downCast<useconds_t>(generateRandom() % POLL_USEC) / 10;
+        usleep(POLL_USEC + r);
     }
 }
 
@@ -257,14 +262,25 @@ LogCleaner::doMemoryCleaning()
 
     inMemoryMetrics.totalBytesInCompactedSegments +=
         segment->getSegletsAllocated() * segletSize;
+    uint64_t entriesScanned[TOTAL_LOG_ENTRY_TYPES] = { 0 };
+    uint64_t liveEntriesScanned[TOTAL_LOG_ENTRY_TYPES] = { 0 };
 
     for (SegmentIterator it(*segment); !it.isDone(); it.next()) {
         LogEntryType type = it.getType();
         Buffer buffer;
         it.appendToBuffer(buffer);
 
-        if (!relocateEntry(type, buffer, survivor, inMemoryMetrics))
+        RelocStatus s = relocateEntry(type, buffer, survivor, inMemoryMetrics);
+        if (s == RELOCATION_FAILED)
             throw FatalError(HERE, "Entry didn't fit into survivor!");
+
+        entriesScanned[type]++;
+        if (s == RELOCATED)
+            liveEntriesScanned[type]++;
+    }
+    for (size_t i = 0; i < TOTAL_LOG_ENTRY_TYPES; i++) {
+        inMemoryMetrics.totalEntriesScanned[i] += entriesScanned[i];
+        inMemoryMetrics.totalLiveEntriesScanned[i] += liveEntriesScanned[i];
     }
 
     uint32_t segletsToFree = survivor->getSegletsAllocated() -
@@ -310,8 +326,8 @@ LogCleaner::doDiskCleaning()
 
     // Extract the currently live entries of the segments we're cleaning and
     // sort them by age.
-    LiveEntryVector liveEntries;
-    getSortedEntries(segmentsToClean, liveEntries);
+    EntryVector entries;
+    getSortedEntries(segmentsToClean, entries);
 
     uint64_t maxLiveBytes = 0;
     uint32_t segletsBefore = 0;
@@ -322,7 +338,7 @@ LogCleaner::doDiskCleaning()
 
     // Relocate the live entries to survivor segments.
     LogSegmentVector survivors;
-    uint64_t entryBytesAppended = relocateLiveEntries(liveEntries, survivors);
+    uint64_t entryBytesAppended = relocateLiveEntries(entries, survivors);
 
     uint32_t segmentsAfter = downCast<uint32_t>(survivors.size());
     uint32_t segletsAfter = 0;
@@ -472,7 +488,7 @@ LogCleaner::getSegmentsToClean(LogSegmentVector& outSegmentsToClean)
  *      Vector containing the entries to sort.
  */
 void
-LogCleaner::sortEntriesByTimestamp(LiveEntryVector& entries)
+LogCleaner::sortEntriesByTimestamp(EntryVector& entries)
 {
     MetricCycleCounter _(&onDiskMetrics.timestampSortTicks);
     std::sort(entries.begin(), entries.end(), TimestampComparer());
@@ -484,12 +500,12 @@ LogCleaner::sortEntriesByTimestamp(LiveEntryVector& entries)
  *
  * \param segmentsToClean
  *      Vector containing the segments to extract entries from.
- * \param[out] outLiveEntries
+ * \param[out] outEntries
  *      Vector containing sorted live entries in the segment.
  */
 void
 LogCleaner::getSortedEntries(LogSegmentVector& segmentsToClean,
-                             LiveEntryVector& outLiveEntries)
+                             EntryVector& outEntries)
 {
     MetricCycleCounter _(&onDiskMetrics.getSortedEntriesTicks);
 
@@ -499,12 +515,12 @@ LogCleaner::getSortedEntries(LogSegmentVector& segmentsToClean,
             Buffer buffer;
             it.appendToBuffer(buffer);
             uint32_t timestamp = entryHandlers.getTimestamp(type, buffer);
-            outLiveEntries.push_back(
-                LiveEntry(segment, it.getOffset(), timestamp));
+            outEntries.push_back(
+                Entry(segment, it.getOffset(), timestamp));
         }
     }
 
-    sortEntriesByTimestamp(outLiveEntries);
+    sortEntriesByTimestamp(outEntries);
 
     // TODO(Steve): Push all of this crap into LogCleanerMetrics. It already
     // knows about the various parts of cleaning, so why not have simple calls
@@ -521,7 +537,7 @@ LogCleaner::getSortedEntries(LogSegmentVector& segmentsToClean,
     }
 
     TEST_LOG("%lu entries extracted from %lu segments",
-        outLiveEntries.size(), segmentsToClean.size());
+        outEntries.size(), segmentsToClean.size());
 }
 
 /**
@@ -529,7 +545,7 @@ LogCleaner::getSortedEntries(LogSegmentVector& segmentsToClean,
  * survivor segments in order and alert their owning module (MasterService,
  * usually), that they've been relocated.
  *
- * \param liveEntries
+ * \param entries 
  *      Vector the entries from segments being cleaned that may need to be
  *      relocated.
  * \param outSurvivors
@@ -542,7 +558,7 @@ LogCleaner::getSortedEntries(LogSegmentVector& segmentsToClean,
  *      overhead.
  */
 uint64_t
-LogCleaner::relocateLiveEntries(LiveEntryVector& liveEntries,
+LogCleaner::relocateLiveEntries(EntryVector& entries,
                                 LogSegmentVector& outSurvivors)
 {
     MetricCycleCounter _(&onDiskMetrics.relocateLiveEntriesTicks);
@@ -550,12 +566,15 @@ LogCleaner::relocateLiveEntries(LiveEntryVector& liveEntries,
     LogSegment* survivor = NULL;
     uint64_t currentSurvivorBytesAppended = 0;
     uint64_t entryBytesAppended = 0;
+    uint64_t entriesScanned[TOTAL_LOG_ENTRY_TYPES] = { 0 };
+    uint64_t liveEntriesScanned[TOTAL_LOG_ENTRY_TYPES] = { 0 };
 
-    foreach (LiveEntry& entry, liveEntries) {
+    foreach (Entry& entry, entries) {
         Buffer buffer;
         LogEntryType type = entry.segment->getEntry(entry.offset, buffer);
 
-        if (!relocateEntry(type, buffer, survivor, onDiskMetrics)) {
+        RelocStatus s = relocateEntry(type, buffer, survivor, onDiskMetrics);
+        if (s == RELOCATION_FAILED) {
             if (survivor != NULL)
                 closeSurvivor(survivor);
 
@@ -571,9 +590,14 @@ LogCleaner::relocateLiveEntries(LiveEntryVector& liveEntries,
             outSurvivors.push_back(survivor);
             currentSurvivorBytesAppended = survivor->getAppendedLength();
 
-            if (!relocateEntry(type, buffer, survivor, onDiskMetrics))
+            s = relocateEntry(type, buffer, survivor, onDiskMetrics);
+            if (s == RELOCATION_FAILED)
                 throw FatalError(HERE, "Entry didn't fit into empty survivor!");
         }
+
+        entriesScanned[type]++;
+        if (s == RELOCATED)
+            liveEntriesScanned[type]++;
 
         if (survivor != NULL) {
             uint32_t newSurvivorBytesAppended = survivor->getAppendedLength();
@@ -589,6 +613,11 @@ LogCleaner::relocateLiveEntries(LiveEntryVector& liveEntries,
     // Ensure that the survivors have been synced to backups before proceeding.
     foreach (survivor, outSurvivors)
         survivor->replicatedSegment->sync(survivor->getAppendedLength());
+
+    for (size_t i = 0; i < TOTAL_LOG_ENTRY_TYPES; i++) {
+        onDiskMetrics.totalEntriesScanned[i] += entriesScanned[i];
+        onDiskMetrics.totalLiveEntriesScanned[i] += liveEntriesScanned[i];
+    }
 
     return entryBytesAppended;
 }

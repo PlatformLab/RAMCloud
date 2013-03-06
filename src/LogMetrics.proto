@@ -58,12 +58,17 @@ message LogMetrics {
             required fixed64 total_bytes_in_compacted_segments = 4;
             required fixed64 total_bytes_appended_to_survivors = 5;
             required fixed64 total_segments_compacted = 6;
-            required fixed64 total_ticks = 7;
-            required fixed64 get_segment_to_compact_ticks = 8;
-            required fixed64 wait_for_free_survivor_ticks = 9;
-            required fixed64 relocation_callback_ticks = 10;
-            required fixed64 relocation_append_ticks = 11;
-            required fixed64 compaction_complete_ticks = 12;
+
+            /// The index of each count corresponds to the LogEntryType enum.
+            repeated fixed64 total_entries_scanned = 7;
+            repeated fixed64 total_live_entries_scanned = 8;
+
+            required fixed64 total_ticks = 9;
+            required fixed64 get_segment_to_compact_ticks = 10;
+            required fixed64 wait_for_free_survivor_ticks = 11;
+            required fixed64 relocation_callback_ticks = 12;
+            required fixed64 relocation_append_ticks = 13;
+            required fixed64 compaction_complete_ticks = 14;
         }
         required InMemoryMetrics in_memory_metrics = 9;
 
@@ -77,18 +82,23 @@ message LogMetrics {
             required fixed64 total_disk_bytes_in_cleaned_segments = 5;
             required fixed64 total_relocation_callbacks = 6;
             required fixed64 total_relocation_appends = 7;
-            required fixed64 total_ticks = 8;
-            required fixed64 get_segments_to_clean_ticks = 9;
-            required fixed64 cost_benefit_sort_ticks = 10;
-            required fixed64 get_sorted_entries_ticks = 11;
-            required fixed64 timestamp_sort_ticks = 12;
-            required fixed64 relocate_live_entries_ticks = 13;
-            required fixed64 wait_for_free_survivors_ticks = 14;
-            required fixed64 cleaning_complete_ticks = 15;
-            required fixed64 relocation_callback_ticks = 16;
-            required fixed64 relocation_append_ticks = 17;
-            required Histogram cleaned_segment_memory_histogram = 18;
-            required Histogram cleaned_segment_disk_histogram = 19;
+
+            /// The index of each count corresponds to the LogEntryType enum.
+            repeated fixed64 total_entries_scanned = 8;
+            repeated fixed64 total_live_entries_scanned = 9;
+
+            required fixed64 total_ticks = 10;
+            required fixed64 get_segments_to_clean_ticks = 11;
+            required fixed64 cost_benefit_sort_ticks = 12;
+            required fixed64 get_sorted_entries_ticks = 13;
+            required fixed64 timestamp_sort_ticks = 14;
+            required fixed64 relocate_live_entries_ticks = 15;
+            required fixed64 wait_for_free_survivors_ticks = 16;
+            required fixed64 cleaning_complete_ticks = 17;
+            required fixed64 relocation_callback_ticks = 18;
+            required fixed64 relocation_append_ticks = 19;
+            required Histogram cleaned_segment_memory_histogram = 20;
+            required Histogram cleaned_segment_disk_histogram = 21;
         }
         required OnDiskMetrics on_disk_metrics = 10;
 

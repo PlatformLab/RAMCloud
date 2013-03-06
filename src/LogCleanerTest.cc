@@ -541,15 +541,15 @@ TEST_F(LogCleanerTest, TimestampComparer) {
 TEST_F(LogCleanerTest, relocateEntry) {
     LogCleanerMetrics::OnDisk metrics;
     Buffer buffer;
-    EXPECT_TRUE(cleaner.relocateEntry(LOG_ENTRY_TYPE_OBJ,
-                                      buffer,
-                                      NULL,
-                                      metrics));
+    EXPECT_EQ(RELOCATED, cleaner.relocateEntry(LOG_ENTRY_TYPE_OBJ,
+                                               buffer,
+                                               NULL,
+                                               metrics));
     entryHandlers.attemptToRelocate = true;
-    EXPECT_FALSE(cleaner.relocateEntry(LOG_ENTRY_TYPE_OBJ,
-                                       buffer,
-                                       NULL,
-                                       metrics));
+    EXPECT_EQ(DISCARDED, cleaner.relocateEntry(LOG_ENTRY_TYPE_OBJ,
+                                               buffer,
+                                               NULL,
+                                               metrics));
 }
 
 } // namespace RAMCloud

@@ -55,6 +55,8 @@ class InMemory {
           totalBytesInCompactedSegments(0),
           totalBytesAppendedToSurvivors(0),
           totalSegmentsCompacted(0),
+          totalEntriesScanned(),
+          totalLiveEntriesScanned(),
           totalTicks(0),
           getSegmentToCompactTicks(0),
           waitForFreeSurvivorTicks(0),
@@ -62,6 +64,8 @@ class InMemory {
           relocationAppendTicks(0),
           compactionCompleteTicks(0)
     {
+        memset(totalEntriesScanned, 0, sizeof(totalEntriesScanned));
+        memset(totalLiveEntriesScanned, 0, sizeof(totalLiveEntriesScanned));
     }
 
     /**
@@ -80,6 +84,12 @@ class InMemory {
         m.set_total_bytes_in_compacted_segments(totalBytesInCompactedSegments);
         m.set_total_bytes_appended_to_survivors(totalBytesAppendedToSurvivors);
         m.set_total_segments_compacted(totalSegmentsCompacted);
+
+        foreach (uint64_t count, totalEntriesScanned)
+            m.add_total_entries_scanned(count);
+        foreach (uint64_t count, totalLiveEntriesScanned)
+            m.add_total_live_entries_scanned(count);
+
         m.set_total_ticks(totalTicks);
         m.set_get_segment_to_compact_ticks(getSegmentToCompactTicks);
         m.set_wait_for_free_survivor_ticks(waitForFreeSurvivorTicks);
@@ -112,6 +122,16 @@ class InMemory {
     /// doMemoryCleaning() method processes one segment per call, this also
     /// implies the number of times it was called and did work.
     Metric64BitType totalSegmentsCompacted;
+
+    /// Total number of each log entry the disk cleaner has encountered while
+    /// cleaning segments. These counts include both dead and alive entries.
+    Metric64BitType totalEntriesScanned[TOTAL_LOG_ENTRY_TYPES];
+
+    /// Total number of each log entry the disk cleaner has encountered while
+    /// cleaning segments. These counts only include live entries that were
+    /// relocated. Take the difference from totalEntriesScanned to get the
+    /// dead entry count.
+    Metric64BitType totalLiveEntriesScanned[TOTAL_LOG_ENTRY_TYPES];
 
     /// Total number of cpu cycles spent in doMemoryCleaning().
     Metric64BitType totalTicks;
@@ -150,6 +170,8 @@ class OnDisk {
           totalDiskBytesInCleanedSegments(0),
           totalRelocationCallbacks(0),
           totalRelocationAppends(0),
+          totalEntriesScanned(),
+          totalLiveEntriesScanned(),
           totalTicks(0),
           getSegmentsToCleanTicks(0),
           costBenefitSortTicks(0),
@@ -163,6 +185,8 @@ class OnDisk {
           cleanedSegmentMemoryHistogram(101, 1),
           cleanedSegmentDiskHistogram(101, 1)
     {
+        memset(totalEntriesScanned, 0, sizeof(totalEntriesScanned));
+        memset(totalLiveEntriesScanned, 0, sizeof(totalLiveEntriesScanned));
     }
 
     /**
@@ -184,6 +208,12 @@ class OnDisk {
             totalDiskBytesInCleanedSegments);
         m.set_total_relocation_callbacks(totalRelocationCallbacks);
         m.set_total_relocation_appends(totalRelocationAppends);
+
+        foreach (uint64_t count, totalEntriesScanned)
+            m.add_total_entries_scanned(count);
+        foreach (uint64_t count, totalLiveEntriesScanned)
+            m.add_total_live_entries_scanned(count);
+
         m.set_total_ticks(totalTicks);
         m.set_get_segments_to_clean_ticks(getSegmentsToCleanTicks);
         m.set_cost_benefit_sort_ticks(costBenefitSortTicks);
@@ -252,6 +282,16 @@ class OnDisk {
     /// Appends that weren't successful due to insufficient space would have
     /// bailed quickly and been retried after allocating a new survivor segment.
     Metric64BitType totalRelocationAppends;
+
+    /// Total number of each log entry the disk cleaner has encountered while
+    /// cleaning segments. These counts include both dead and alive entries.
+    Metric64BitType totalEntriesScanned[TOTAL_LOG_ENTRY_TYPES];
+
+    /// Total number of each log entry the disk cleaner has encountered while
+    /// cleaning segments. These counts only include live entries that were
+    /// relocated. Take the difference from totalEntriesScanned to get the
+    /// dead entry count.
+    Metric64BitType totalLiveEntriesScanned[TOTAL_LOG_ENTRY_TYPES];
 
     /// Total number of cpu cycles spent in doDiskCleaning().
     Metric64BitType totalTicks;

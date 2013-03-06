@@ -108,21 +108,20 @@ class LogCleaner {
     enum { MIN_DISK_UTILIZATION = 95 };
 
     /**
-     * Tuple containing a reference to a live entry being cleaned, as well as a
+     * Tuple containing a reference to an entry being cleaned, as well as a
      * cache of its timestamp. The purpose of this is to make sorting entries
      * by age much faster by caching the timestamp when we first examine the
      * entry in getSortedEntries(), rather than extracting it on each sort
      * comparison.
      */
-    class LiveEntry {
+    class Entry {
       public:
-        LiveEntry(LogSegment* segment, uint32_t offset, uint32_t timestamp)
+        Entry(LogSegment* segment, uint32_t offset, uint32_t timestamp)
             : segment(segment),
               offset(offset),
               timestamp(timestamp)
         {
-            static_assert(sizeof(LiveEntry) == 16,
-                "LiveEntry isn't the expected size!");
+            static_assert(sizeof(Entry) == 16, "Entry isn't the expected size");
         }
 
         /// Pointer to the segment this entry is in.
@@ -134,7 +133,7 @@ class LogCleaner {
         /// Timestamp of the entry (see WallTime).
         uint32_t timestamp;
     } __attribute__((packed));
-    typedef std::vector<LiveEntry> LiveEntryVector;
+    typedef std::vector<Entry> EntryVector;
 
     /**
      * Comparison functor for sorting entries extracted from segments by their
@@ -145,7 +144,7 @@ class LogCleaner {
     class TimestampComparer {
       public:
         bool
-        operator()(const LiveEntry& a, const LiveEntry& b)
+        operator()(const Entry& a, const Entry& b)
         {
             return a.timestamp < b.timestamp;
         }
@@ -179,13 +178,32 @@ class LogCleaner {
     LogSegment* getSegmentToCompact(uint32_t& outFreeableSeglets);
     void sortSegmentsByCostBenefit(LogSegmentVector& segments);
     void getSegmentsToClean(LogSegmentVector& outSegmentsToClean);
-    void sortEntriesByTimestamp(LiveEntryVector& entries);
+    void sortEntriesByTimestamp(EntryVector& entries);
     void getSortedEntries(LogSegmentVector& segmentsToClean,
-                          LiveEntryVector& outLiveEntries);
-    uint64_t relocateLiveEntries(LiveEntryVector& liveEntries,
+                          EntryVector& outEntries);
+    uint64_t relocateLiveEntries(EntryVector& entries,
                                  LogSegmentVector& outSurvivors);
     void closeSurvivor(LogSegment* survivor);
     void waitForAvailableSurvivors(size_t count, uint64_t& outTicks);
+
+    /**
+     * Return values for the relocateEntry() method. There are three possible
+     * results: an entry was dead and needed no relocation, or it was alive
+     * and either was successfully relocated, or some failure occurred and it
+     * could not be relocated.
+     */
+    enum RelocStatus {
+        /// The entry was live but could not be relocated (usually because we
+        /// need to allocate another survivor segment, but it could be due to
+        /// an internal error that caused us to be out of memory entirely).
+        RELOCATION_FAILED = 0,
+
+        /// The entry was live and successfully relocated.
+        RELOCATED = 1,
+
+        /// The entry was dead and was discarded (not relocated).
+        DISCARDED = 2
+    };
 
     /**
      * Helper method that relocates a log entry and updates various metrics
@@ -219,7 +237,7 @@ class LogCleaner {
      *      case, the caller will simply allocate a new survivor and retry.
      */
     template<typename T>
-    bool
+    RelocStatus
     relocateEntry(LogEntryType type,
                   Buffer& buffer,
                   LogSegment* survivor,
@@ -234,11 +252,11 @@ class LogCleaner {
         }
 
         if (relocator.failed())
-            return false;
+            return RELOCATION_FAILED;
 
         metrics.totalRelocationAppends++;
         metrics.relocationAppendTicks += relocator.getAppendTicks();
-        return true;
+        return relocator.relocated() ? RELOCATED : DISCARDED;
     }
 
     /// Shared RAMCloud information.

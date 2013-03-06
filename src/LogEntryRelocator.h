@@ -55,6 +55,7 @@ class LogEntryRelocator {
     Log::Reference getNewReference();
     uint64_t getAppendTicks();
     bool failed();
+    bool relocated();
 
   PRIVATE:
     /// The segment we will attempt to append to.

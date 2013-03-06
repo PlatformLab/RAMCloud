@@ -393,6 +393,10 @@ class Output {
     void dumpSummary(FILE* fp);
     void dumpPrefillMetrics(FILE* fp);
     void dumpCleanerMetrics(FILE* fp, ProtoBuf::LogMetrics& metrics);
+    template<typename T> void dumpSegmentEntriesScanned(FILE* fp,
+                                                        T& metrics,
+                                                        double elapsed,
+                                                        double cleanerTime);
     void dumpDiskMetrics(FILE* fp, ProtoBuf::LogMetrics& metrics);
     void dumpMemoryMetrics(FILE* fp, ProtoBuf::LogMetrics& metrics);
     void dumpLogMetrics(FILE* fp, ProtoBuf::LogMetrics& metrics);
@@ -1145,6 +1149,47 @@ Output::dumpCleanerMetrics(FILE* fp, ProtoBuf::LogMetrics& metrics)
     }
 }
 
+template<typename T>
+void
+Output::dumpSegmentEntriesScanned(FILE* fp,
+                                  T& metrics,
+                                  double elapsed,
+                                  double cleanerTime)
+{
+    uint64_t totalEntriesScanned = 0;
+    foreach (uint64_t count, metrics.total_entries_scanned())
+        totalEntriesScanned += count;
+
+    uint64_t totalLiveEntriesScanned = 0;
+    foreach (uint64_t count, metrics.total_entries_scanned())
+        totalLiveEntriesScanned += count;
+
+    fprintf(fp, "  Segment Entries Scanned:       %lu (%.2f/sec, "
+        "%.2f/sec active)\n",
+        totalEntriesScanned,
+        d(totalEntriesScanned) / elapsed,
+        d(totalEntriesScanned) / cleanerTime);
+    fprintf(fp, "    Summary:\n");
+    fprintf(fp, "      Type                        %% Total       %% Alive    "
+        "    %% Dead\n");
+
+    for (int i = 0; i < metrics.total_entries_scanned_size(); i++) {
+        uint64_t totalCount = metrics.total_entries_scanned(i);
+        uint64_t liveCount = metrics.total_live_entries_scanned(i);
+        uint64_t deadCount = totalCount - liveCount;
+
+        if (totalCount == 0)
+            continue;
+
+        fprintf(fp, "      "
+            "%-26.26s  %6.2f%%       %6.2f%%       %6.2f%%\n",
+            LogEntryTypeHelpers::toString(static_cast<LogEntryType>(i)),
+            d(totalCount) / d(totalEntriesScanned) * 100,
+            d(liveCount) / d(totalCount) * 100,
+            d(deadCount) / d(totalCount) * 100);
+    }
+}
+
 void
 Output::dumpDiskMetrics(FILE* fp, ProtoBuf::LogMetrics& metrics)
 {
@@ -1194,6 +1239,8 @@ Output::dumpDiskMetrics(FILE* fp, ProtoBuf::LogMetrics& metrics)
 
     fprintf(fp, "  Survivor Bytes Written:        %lu (%.3f MB/s active)\n",
         wrote, d(wrote) / cleanerTime / 1024 / 1024);
+
+    dumpSegmentEntriesScanned(fp, onDiskMetrics, elapsed, cleanerTime);
 
     fprintf(fp, "  Total Time:                    %.3f sec (%.2f%% active)\n",
         cleanerTime, 100.0 * cleanerTime / elapsed);
@@ -1298,7 +1345,7 @@ Output::dumpMemoryMetrics(FILE* fp, ProtoBuf::LogMetrics& metrics)
 
     uint64_t bytesInCompactedSegments =
         inMemoryMetrics.total_bytes_in_compacted_segments();
-    fprintf(fp, "  Avg Compacted Seg Util:        %.2f%%\n",
+    fprintf(fp, "  Avg Seg Util Pre-Compaction:   %.2f%%\n",
         100.0 * d(wrote) / d(bytesInCompactedSegments));
 
     uint64_t segmentsCompacted = inMemoryMetrics.total_segments_compacted();
@@ -1317,6 +1364,8 @@ Output::dumpMemoryMetrics(FILE* fp, ProtoBuf::LogMetrics& metrics)
         "(%.3f MB/s active)\n",
         wrote,
         d(wrote) / cleanerTime / 1024 / 1024);
+
+    dumpSegmentEntriesScanned(fp, inMemoryMetrics, elapsed, cleanerTime);
 
     fprintf(fp, "  Total Time:                    %.3f sec "
         "(%.2f%% active)\n",

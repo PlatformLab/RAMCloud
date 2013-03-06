@@ -124,4 +124,13 @@ LogEntryRelocator::failed()
     return outOfSpace;
 }
 
+/**
+ * Returns true if the entry was relocated successfully.
+ */
+bool
+LogEntryRelocator::relocated()
+{
+    return didAppend;
+}
+
 } // end RAMCloud

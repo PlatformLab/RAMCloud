@@ -1267,7 +1267,8 @@ InfRcTransport::Poller::poll()
             if (t->numFreeServerSrqBuffers < 2) {
                 // Running low on buffers; copy the data so we can return
                 // the buffer immediately.
-                LOG(NOTICE, "Receive buffers running low; copying request");
+                LOG(NOTICE, "Receive buffers running low; copying %u-byte "
+                    "request", len);
                 memcpy(new(&r->requestPayload, APPEND) char[len],
                         bd->buffer + sizeof(header), len);
                 t->postSrqReceiveAndKickTransmit(t->serverSrq, bd);

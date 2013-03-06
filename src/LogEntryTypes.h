@@ -20,6 +20,9 @@ namespace RAMCloud {
 
 /**
  * Each entry in the log has an 8-bit type field that identifies it.
+ *
+ * When adding entries, also update the LogEntryTypeHelpers::toString()
+ * method below.
  */
 enum LogEntryType {
     /// Invalid log entry. This type should never be used.
@@ -46,6 +49,12 @@ enum LogEntryType {
     /// under it's own complexity before we exceed 64 types.
     TOTAL_LOG_ENTRY_TYPES
 };
+
+namespace LogEntryTypeHelpers {
+
+const char* toString(LogEntryType type);
+
+} // namespace LogEntryTypeHelpers
 
 } // namespace RAMCloud
 
