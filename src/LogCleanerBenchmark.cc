@@ -1227,6 +1227,33 @@ Output::dumpDiskMetrics(FILE* fp, ProtoBuf::LogMetrics& metrics)
     fprintf(fp, "  Avg Cleaned Seg Memory Util:   %.2f%%\n",
         100.0 * d(wrote) / d(memoryBytesInCleanedSegments));
 
+    uint64_t totalCleaned = onDiskMetrics.total_segments_cleaned();
+    fprintf(fp, "  Total Segments Cleaned:        %lu (%.2f/s, "
+        "%.2f/s active)\n",
+        totalCleaned,
+        d(totalCleaned) / elapsed,
+        d(totalCleaned) / cleanerTime);
+
+    uint64_t survivorsCreated = onDiskMetrics.total_survivors_created();
+    fprintf(fp, "  Total Survivors Created:       %lu (%.2f/s, "
+        "%.2f/s active)\n",
+        survivorsCreated,
+        d(survivorsCreated) / elapsed,
+        d(survivorsCreated) / cleanerTime);
+
+    fprintf(fp, "  Avg Time to Clean Segment:     %.2f ms\n",
+        cleanerTime / d(totalCleaned) * 1000);
+
+    uint64_t totalRuns = onDiskMetrics.total_runs();
+    fprintf(fp, "  Avg Time per Disk Run:         %.2f ms\n",
+        cleanerTime / d(totalRuns) * 1000);
+
+    fprintf(fp, "  Avg Segs Cleaned per Disk Run: %.2f\n",
+        d(totalCleaned) / d(totalRuns));
+
+    fprintf(fp, "  Avg Survivors per Disk Run:    %.2f\n",
+        d(survivorsCreated) / d(totalRuns));
+
     fprintf(fp, "  Disk Space Freeing Rate:       %.3f MB/s "
         "(%.3f MB/s active)\n",
         d(diskFreed) / elapsed / 1024 / 1024,

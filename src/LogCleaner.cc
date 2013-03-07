@@ -360,6 +360,9 @@ LogCleaner::doDiskCleaning()
         (segletsBefore - segletsAfter) * segletSize;
     onDiskMetrics.totalDiskBytesFreed +=
         (segmentsBefore - segmentsAfter) * segmentSize;
+    onDiskMetrics.totalSegmentsCleaned += segmentsToClean.size();
+    onDiskMetrics.totalSurvivorsCreated += survivors.size();
+    onDiskMetrics.totalRuns++;
 
     MetricCycleCounter __(&onDiskMetrics.cleaningCompleteTicks);
     segmentManager.cleaningComplete(segmentsToClean, survivors);

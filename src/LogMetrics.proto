@@ -82,23 +82,26 @@ message LogMetrics {
             required fixed64 total_disk_bytes_in_cleaned_segments = 5;
             required fixed64 total_relocation_callbacks = 6;
             required fixed64 total_relocation_appends = 7;
+            required fixed64 total_segments_cleaned = 8;
+            required fixed64 total_survivors_created = 9;
+            required fixed64 total_runs = 10;
 
             /// The index of each count corresponds to the LogEntryType enum.
-            repeated fixed64 total_entries_scanned = 8;
-            repeated fixed64 total_live_entries_scanned = 9;
+            repeated fixed64 total_entries_scanned = 11;
+            repeated fixed64 total_live_entries_scanned = 12;
 
-            required fixed64 total_ticks = 10;
-            required fixed64 get_segments_to_clean_ticks = 11;
-            required fixed64 cost_benefit_sort_ticks = 12;
-            required fixed64 get_sorted_entries_ticks = 13;
-            required fixed64 timestamp_sort_ticks = 14;
-            required fixed64 relocate_live_entries_ticks = 15;
-            required fixed64 wait_for_free_survivors_ticks = 16;
-            required fixed64 cleaning_complete_ticks = 17;
-            required fixed64 relocation_callback_ticks = 18;
-            required fixed64 relocation_append_ticks = 19;
-            required Histogram cleaned_segment_memory_histogram = 20;
-            required Histogram cleaned_segment_disk_histogram = 21;
+            required fixed64 total_ticks = 13;
+            required fixed64 get_segments_to_clean_ticks = 14;
+            required fixed64 cost_benefit_sort_ticks = 15;
+            required fixed64 get_sorted_entries_ticks = 16;
+            required fixed64 timestamp_sort_ticks = 17;
+            required fixed64 relocate_live_entries_ticks = 18;
+            required fixed64 wait_for_free_survivors_ticks = 19;
+            required fixed64 cleaning_complete_ticks = 20;
+            required fixed64 relocation_callback_ticks = 21;
+            required fixed64 relocation_append_ticks = 22;
+            required Histogram cleaned_segment_memory_histogram = 23;
+            required Histogram cleaned_segment_disk_histogram = 24;
         }
         required OnDiskMetrics on_disk_metrics = 10;
 

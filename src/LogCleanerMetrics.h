@@ -170,6 +170,9 @@ class OnDisk {
           totalDiskBytesInCleanedSegments(0),
           totalRelocationCallbacks(0),
           totalRelocationAppends(0),
+          totalSegmentsCleaned(0),
+          totalSurvivorsCreated(0),
+          totalRuns(0),
           totalEntriesScanned(),
           totalLiveEntriesScanned(),
           totalTicks(0),
@@ -208,6 +211,9 @@ class OnDisk {
             totalDiskBytesInCleanedSegments);
         m.set_total_relocation_callbacks(totalRelocationCallbacks);
         m.set_total_relocation_appends(totalRelocationAppends);
+        m.set_total_segments_cleaned(totalSegmentsCleaned);
+        m.set_total_survivors_created(totalSurvivorsCreated);
+        m.set_total_runs(totalRuns);
 
         foreach (uint64_t count, totalEntriesScanned)
             m.add_total_entries_scanned(count);
@@ -282,6 +288,17 @@ class OnDisk {
     /// Appends that weren't successful due to insufficient space would have
     /// bailed quickly and been retried after allocating a new survivor segment.
     Metric64BitType totalRelocationAppends;
+
+    /// Total number of segments the disk cleaner has cleaned.
+    Metric64BitType totalSegmentsCleaned;
+
+    /// Total number of survivor segments created to relocate live data into.
+    Metric64BitType totalSurvivorsCreated;
+
+    /// Total number of disk cleaner runs. That is, the number of times the
+    /// disk cleaner did some work (chose some segments and relocated their
+    /// live data to survivors).
+    Metric64BitType totalRuns;
 
     /// Total number of each log entry the disk cleaner has encountered while
     /// cleaning segments. These counts include both dead and alive entries.
