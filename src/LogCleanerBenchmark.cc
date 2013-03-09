@@ -1164,29 +1164,43 @@ Output::dumpSegmentEntriesScanned(FILE* fp,
     foreach (uint64_t count, metrics.total_entries_scanned())
         totalLiveEntriesScanned += count;
 
+    uint64_t totalScannedEntryLengths = 0;
+    foreach (uint64_t length, metrics.total_scanned_entry_lengths())
+        totalScannedEntryLengths += length;
+
+    uint64_t totalLiveScannedEntryLengths = 0;
+    foreach (uint64_t length, metrics.total_live_scanned_entry_lengths())
+        totalLiveScannedEntryLengths += length;
+
     fprintf(fp, "  Segment Entries Scanned:       %lu (%.2f/sec, "
         "%.2f/sec active)\n",
         totalEntriesScanned,
         d(totalEntriesScanned) / elapsed,
         d(totalEntriesScanned) / cleanerTime);
     fprintf(fp, "    Summary:\n");
-    fprintf(fp, "      Type                        %% Total       %% Alive    "
-        "    %% Dead\n");
+    fprintf(fp, "      Type                       %% Total  (Space)  "
+        "%% Alive (Space)   %% Dead  (Space)\n");
 
     for (int i = 0; i < metrics.total_entries_scanned_size(); i++) {
         uint64_t totalCount = metrics.total_entries_scanned(i);
+        uint64_t totalLengths = metrics.total_scanned_entry_lengths(i);
         uint64_t liveCount = metrics.total_live_entries_scanned(i);
+        uint64_t liveLengths = metrics.total_live_scanned_entry_lengths(i);
         uint64_t deadCount = totalCount - liveCount;
+        uint64_t deadLengths = totalLengths - liveLengths;
 
         if (totalCount == 0)
             continue;
 
         fprintf(fp, "      "
-            "%-26.26s  %6.2f%%       %6.2f%%       %6.2f%%\n",
+            "%-26.26s %6.2f%% (%6.2f%%) %6.2f%% (%6.2f%%) %6.2f%% (%6.2f%%)\n",
             LogEntryTypeHelpers::toString(static_cast<LogEntryType>(i)),
             d(totalCount) / d(totalEntriesScanned) * 100,
+            d(totalLengths) / d(totalScannedEntryLengths) * 100,
             d(liveCount) / d(totalCount) * 100,
-            d(deadCount) / d(totalCount) * 100);
+            d(liveLengths) / d(totalScannedEntryLengths) * 100,
+            d(deadCount) / d(totalCount) * 100,
+            d(deadLengths) / d(totalScannedEntryLengths) * 100);
     }
 }
 

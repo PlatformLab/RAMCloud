@@ -264,6 +264,8 @@ LogCleaner::doMemoryCleaning()
         segment->getSegletsAllocated() * segletSize;
     uint64_t entriesScanned[TOTAL_LOG_ENTRY_TYPES] = { 0 };
     uint64_t liveEntriesScanned[TOTAL_LOG_ENTRY_TYPES] = { 0 };
+    uint64_t scannedEntryLengths[TOTAL_LOG_ENTRY_TYPES] = { 0 };
+    uint64_t liveScannedEntryLengths[TOTAL_LOG_ENTRY_TYPES] = { 0 };
 
     for (SegmentIterator it(*segment); !it.isDone(); it.next()) {
         LogEntryType type = it.getType();
@@ -275,12 +277,18 @@ LogCleaner::doMemoryCleaning()
             throw FatalError(HERE, "Entry didn't fit into survivor!");
 
         entriesScanned[type]++;
-        if (s == RELOCATED)
+        scannedEntryLengths[type] += buffer.getTotalLength();
+        if (s == RELOCATED) {
             liveEntriesScanned[type]++;
+            liveScannedEntryLengths[type] += buffer.getTotalLength();
+        }
     }
     for (size_t i = 0; i < TOTAL_LOG_ENTRY_TYPES; i++) {
         inMemoryMetrics.totalEntriesScanned[i] += entriesScanned[i];
         inMemoryMetrics.totalLiveEntriesScanned[i] += liveEntriesScanned[i];
+        inMemoryMetrics.totalScannedEntryLengths[i] += scannedEntryLengths[i];
+        inMemoryMetrics.totalLiveScannedEntryLengths[i] +=
+            liveScannedEntryLengths[i];
     }
 
     uint32_t segletsToFree = survivor->getSegletsAllocated() -
@@ -571,6 +579,8 @@ LogCleaner::relocateLiveEntries(EntryVector& entries,
     uint64_t entryBytesAppended = 0;
     uint64_t entriesScanned[TOTAL_LOG_ENTRY_TYPES] = { 0 };
     uint64_t liveEntriesScanned[TOTAL_LOG_ENTRY_TYPES] = { 0 };
+    uint64_t scannedEntryLengths[TOTAL_LOG_ENTRY_TYPES] = { 0 };
+    uint64_t liveScannedEntryLengths[TOTAL_LOG_ENTRY_TYPES] = { 0 };
 
     foreach (Entry& entry, entries) {
         Buffer buffer;
@@ -599,8 +609,11 @@ LogCleaner::relocateLiveEntries(EntryVector& entries,
         }
 
         entriesScanned[type]++;
-        if (s == RELOCATED)
+        scannedEntryLengths[type] += buffer.getTotalLength();
+        if (s == RELOCATED) {
             liveEntriesScanned[type]++;
+            liveScannedEntryLengths[type] += buffer.getTotalLength();
+        }
 
         if (survivor != NULL) {
             uint32_t newSurvivorBytesAppended = survivor->getAppendedLength();
@@ -620,6 +633,9 @@ LogCleaner::relocateLiveEntries(EntryVector& entries,
     for (size_t i = 0; i < TOTAL_LOG_ENTRY_TYPES; i++) {
         onDiskMetrics.totalEntriesScanned[i] += entriesScanned[i];
         onDiskMetrics.totalLiveEntriesScanned[i] += liveEntriesScanned[i];
+        onDiskMetrics.totalScannedEntryLengths[i] += scannedEntryLengths[i];
+        onDiskMetrics.totalLiveScannedEntryLengths[i] +=
+            liveScannedEntryLengths[i];
     }
 
     return entryBytesAppended;

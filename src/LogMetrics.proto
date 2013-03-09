@@ -62,13 +62,15 @@ message LogMetrics {
             /// The index of each count corresponds to the LogEntryType enum.
             repeated fixed64 total_entries_scanned = 7;
             repeated fixed64 total_live_entries_scanned = 8;
+            repeated fixed64 total_scanned_entry_lengths = 9;
+            repeated fixed64 total_live_scanned_entry_lengths = 10;
 
-            required fixed64 total_ticks = 9;
-            required fixed64 get_segment_to_compact_ticks = 10;
-            required fixed64 wait_for_free_survivor_ticks = 11;
-            required fixed64 relocation_callback_ticks = 12;
-            required fixed64 relocation_append_ticks = 13;
-            required fixed64 compaction_complete_ticks = 14;
+            required fixed64 total_ticks = 11;
+            required fixed64 get_segment_to_compact_ticks = 12;
+            required fixed64 wait_for_free_survivor_ticks = 13;
+            required fixed64 relocation_callback_ticks = 14;
+            required fixed64 relocation_append_ticks = 15;
+            required fixed64 compaction_complete_ticks = 16;
         }
         required InMemoryMetrics in_memory_metrics = 9;
 
@@ -89,19 +91,21 @@ message LogMetrics {
             /// The index of each count corresponds to the LogEntryType enum.
             repeated fixed64 total_entries_scanned = 11;
             repeated fixed64 total_live_entries_scanned = 12;
+            repeated fixed64 total_scanned_entry_lengths = 13;
+            repeated fixed64 total_live_scanned_entry_lengths = 14;
 
-            required fixed64 total_ticks = 13;
-            required fixed64 get_segments_to_clean_ticks = 14;
-            required fixed64 cost_benefit_sort_ticks = 15;
-            required fixed64 get_sorted_entries_ticks = 16;
-            required fixed64 timestamp_sort_ticks = 17;
-            required fixed64 relocate_live_entries_ticks = 18;
-            required fixed64 wait_for_free_survivors_ticks = 19;
-            required fixed64 cleaning_complete_ticks = 20;
-            required fixed64 relocation_callback_ticks = 21;
-            required fixed64 relocation_append_ticks = 22;
-            required Histogram cleaned_segment_memory_histogram = 23;
-            required Histogram cleaned_segment_disk_histogram = 24;
+            required fixed64 total_ticks = 15;
+            required fixed64 get_segments_to_clean_ticks = 16;
+            required fixed64 cost_benefit_sort_ticks = 17;
+            required fixed64 get_sorted_entries_ticks = 18;
+            required fixed64 timestamp_sort_ticks = 19;
+            required fixed64 relocate_live_entries_ticks = 20;
+            required fixed64 wait_for_free_survivors_ticks = 21;
+            required fixed64 cleaning_complete_ticks = 22;
+            required fixed64 relocation_callback_ticks = 23;
+            required fixed64 relocation_append_ticks = 24;
+            required Histogram cleaned_segment_memory_histogram = 25;
+            required Histogram cleaned_segment_disk_histogram = 26;
         }
         required OnDiskMetrics on_disk_metrics = 10;
 
