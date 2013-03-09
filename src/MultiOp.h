@@ -40,7 +40,7 @@ namespace RAMCloud {
  *      2b) Create a new struct xxxPart within MultiOp::Request
  *          and MultiOp::Response.
  *
- *   3) In xxx.c and xxx.h, create a new Multixxx class that extends MultiOp.
+ *   3) In xxx.cc and xxx.h, create a new Multixxx class that extends MultiOp.
  *      3a) Extend the constructor. Contract/Description located in MultiOp.cc
  *      3b) Implement the two PROTECTED virtual functions. Contract/Description
  *          located below.

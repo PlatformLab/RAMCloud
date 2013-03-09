@@ -18,6 +18,7 @@
 #include "FailSession.h"
 #include "MasterClient.h"
 #include "MultiRead.h"
+#include "MultiRemove.h"
 #include "MultiWrite.h"
 #include "ProtoBuf.h"
 #include "ShortMacros.h"
@@ -934,6 +935,27 @@ void
 RamCloud::multiRead(MultiReadObject* requests[], uint32_t numRequests)
 {
     MultiRead request(this, requests, numRequests);
+    request.wait();
+}
+
+/**
+ * Remove multiple objects.
+ * This method has two performance advantages over calling RamCloud::remove
+ * separately for each object:
+ * - If multiple objects are stored on a single server, this method
+ *   issues a single RPC to fetch all of them at once.
+ * - If different objects are stored on different servers, this method
+ *   issues multiple RPCs concurrently.
+ *
+ * \param requests
+ *      Each element in this array describes one object to remove.
+ * \param numRequests
+ *      Number of valid entries in \c requests.
+ */
+void
+RamCloud::multiRemove(MultiRemoveObject* requests[], uint32_t numRequests)
+{
+    MultiRemove request(this, requests, numRequests);
     request.wait();
 }
 

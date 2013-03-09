@@ -28,6 +28,7 @@
 
 namespace RAMCloud {
 class MultiReadObject;
+class MultiRemoveObject;
 class MultiWriteObject;
 
 /**
@@ -63,6 +64,7 @@ class RamCloud {
     void migrateTablet(uint64_t tableId, uint64_t firstKeyHash,
             uint64_t lastKeyHash, ServerId newOwnerMasterId);
     void multiRead(MultiReadObject* requests[], uint32_t numRequests);
+    void multiRemove(MultiRemoveObject* requests[], uint32_t numRequests);
     void multiWrite(MultiWriteObject* requests[], uint32_t numRequests);
     void quiesce();
     void read(uint64_t tableId, const void* key, uint16_t keyLength,
@@ -124,175 +126,6 @@ class RamCloud {
 
   private:
     DISALLOW_COPY_AND_ASSIGN(RamCloud);
-};
-
-/**
- * The base class used to pass parameters into the MultiOp Framework. Any
- * multi operation xxxxx that uses the Framework should have its own
- * MultixxxxxObject that extends this object to describe its own parameters.
- */
-struct MultiOpObject {
-    /**
-     * The table containing the desired object (return value from
-     * a previous call to getTableId).
-     */
-    uint64_t tableId;
-
-    /**
-     * Variable length key that uniquely identifies the object within table.
-     * It does not necessarily have to be null terminated like a string.
-     * The caller is responsible for ensuring that this key remains valid
-     * until the call is reaped/canceled.
-     */
-    const void* key;
-
-    /**
-     * Length of key, in bytes.
-     */
-    uint16_t keyLength;
-
-    /**
-     * The status of read (either that the read succeeded, or the
-     * error in case it didn't) is returned here.
-     */
-    Status status;
-
-    PROTECTED:
-    MultiOpObject(uint64_t tableId, const void* key, uint16_t keyLength)
-        : tableId(tableId)
-        , key(key)
-        , keyLength(keyLength)
-        , status()
-    {}
-
-    MultiOpObject()
-        : tableId()
-        , key()
-        , keyLength()
-        , status()
-    {}
-
-    MultiOpObject(const MultiOpObject& other)
-        : tableId(other.tableId)
-        , key(other.key)
-        , keyLength(other.keyLength)
-        , status(other.status)
-    {};
-
-    MultiOpObject& operator=(const MultiOpObject& other) {
-        tableId = other.tableId;
-        key = other.key;
-        keyLength = other.keyLength;
-        status = other.status;
-        return *this;
-    }
-
-    virtual ~MultiOpObject() {};
-};
-
-/**
- * Objects of this class are used to pass parameters into \c multiRead
- * and for multiRead to return result values.
- */
-struct MultiReadObject : public MultiOpObject {
-    /**
-     * If the read for this object was successful, the Tub<Buffer>
-     * will hold the contents of the desired object. If not, it will
-     * not be initialized, giving "false" when the buffer is tested.
-     */
-    Tub<Buffer>* value;
-
-    /**
-     * The version number of the object is returned here.
-     */
-    uint64_t version;
-
-    MultiReadObject(uint64_t tableId, const void* key, uint16_t keyLength,
-            Tub<Buffer>* value)
-        : MultiOpObject(tableId, key, keyLength)
-        , value(value)
-        , version()
-    {}
-
-    MultiReadObject()
-        : value()
-        , version()
-    {}
-
-    MultiReadObject(const MultiReadObject& other)
-        : MultiOpObject(other)
-        , value(other.value)
-        , version(other.version)
-    {}
-
-    MultiReadObject& operator=(const MultiReadObject& other){
-        MultiOpObject::operator =(other);
-        value = other.value;
-        version = other.version;
-        return *this;
-    }
-
-};
-
-/**
- * Objects of this class are used to pass parameters into \c multiWrite
- * and for multiWrite to return status values for conditional operations
- * (if used).
- */
-struct MultiWriteObject : public MultiOpObject {
-    /**
-     * Pointer to the contents of the new object.
-     */
-    const void* value;
-
-    /**
-     * Length of value in bytes.
-     */
-    uint32_t valueLength;
-
-    /**
-     * The RejectRules specify when conditional writes should be aborted.
-     */
-    const RejectRules* rejectRules;
-    /**
-     * The version number of the newly written object is returned here.
-     */
-    uint64_t version;
-
-    MultiWriteObject(uint64_t tableId, const void* key, uint16_t keyLength,
-                 const void* value, uint32_t valueLength,
-                 const RejectRules* rejectRules = NULL)
-        : MultiOpObject(tableId, key, keyLength)
-        , value(value)
-        , valueLength(valueLength)
-        , rejectRules(rejectRules)
-        , version()
-    {}
-
-    MultiWriteObject()
-        : MultiOpObject()
-        , value()
-        , valueLength()
-        , rejectRules()
-        , version()
-    {}
-
-    MultiWriteObject(const MultiWriteObject& other)
-        : MultiOpObject(other)
-        , value(other.value)
-        , valueLength(other.valueLength)
-        , rejectRules(other.rejectRules)
-        , version(other.version)
-    {}
-
-    MultiWriteObject& operator=(const MultiWriteObject& other){
-        MultiOpObject::operator =(other);
-        value = other.value;
-        valueLength = other.valueLength;
-        rejectRules = other.rejectRules;
-        version = other.version;
-        return *this;
-    }
 };
 
 /**
@@ -495,6 +328,216 @@ class MigrateTabletRpc : public ObjectRpcWrapper {
 
   PRIVATE:
     DISALLOW_COPY_AND_ASSIGN(MigrateTabletRpc);
+};
+
+/**
+ * The base class used to pass parameters into the MultiOp Framework. Any
+ * multi operation xxxxx that uses the Framework should have its own
+ * MultixxxxxObject that extends this object to describe its own parameters.
+ */
+struct MultiOpObject {
+    /**
+     * The table containing the desired object (return value from
+     * a previous call to getTableId).
+     */
+    uint64_t tableId;
+
+    /**
+     * Variable length key that uniquely identifies the object within table.
+     * It does not necessarily have to be null terminated like a string.
+     * The caller is responsible for ensuring that this key remains valid
+     * until the call is reaped/canceled.
+     */
+    const void* key;
+
+    /**
+     * Length of key, in bytes.
+     */
+    uint16_t keyLength;
+
+    /**
+     * The status of read (either that the read succeeded, or the
+     * error in case it didn't) is returned here.
+     */
+    Status status;
+
+    PROTECTED:
+    MultiOpObject(uint64_t tableId, const void* key, uint16_t keyLength)
+        : tableId(tableId)
+        , key(key)
+        , keyLength(keyLength)
+        , status()
+    {}
+
+    MultiOpObject()
+        : tableId()
+        , key()
+        , keyLength()
+        , status()
+    {}
+
+    MultiOpObject(const MultiOpObject& other)
+        : tableId(other.tableId)
+        , key(other.key)
+        , keyLength(other.keyLength)
+        , status(other.status)
+    {};
+
+    MultiOpObject& operator=(const MultiOpObject& other) {
+        tableId = other.tableId;
+        key = other.key;
+        keyLength = other.keyLength;
+        status = other.status;
+        return *this;
+    }
+
+    virtual ~MultiOpObject() {};
+};
+
+/**
+ * Objects of this class are used to pass parameters into \c multiRead
+ * and for multiRead to return result values.
+ */
+struct MultiReadObject : public MultiOpObject {
+    /**
+     * If the read for this object was successful, the Tub<Buffer>
+     * will hold the contents of the desired object. If not, it will
+     * not be initialized, giving "false" when the buffer is tested.
+     */
+    Tub<Buffer>* value;
+
+    /**
+     * The version number of the object is returned here.
+     */
+    uint64_t version;
+
+    MultiReadObject(uint64_t tableId, const void* key, uint16_t keyLength,
+            Tub<Buffer>* value)
+        : MultiOpObject(tableId, key, keyLength)
+        , value(value)
+        , version()
+    {}
+
+    MultiReadObject()
+        : value()
+        , version()
+    {}
+
+    MultiReadObject(const MultiReadObject& other)
+        : MultiOpObject(other)
+        , value(other.value)
+        , version(other.version)
+    {}
+
+    MultiReadObject& operator=(const MultiReadObject& other) {
+        MultiOpObject::operator =(other);
+        value = other.value;
+        version = other.version;
+        return *this;
+    }
+};
+
+/**
+ * Objects of this class are used to pass parameters into \c multiRemove.
+ */
+struct MultiRemoveObject : public MultiOpObject {
+
+    /**
+     * The RejectRules specify when conditional removes should be aborted.
+     */
+    const RejectRules* rejectRules;
+
+    /**
+     * The version number of the object just before removal is returned here.
+     */
+    uint64_t version;
+
+    MultiRemoveObject(uint64_t tableId, const void* key, uint16_t keyLength,
+                      const RejectRules* rejectRules = NULL)
+        : MultiOpObject(tableId, key, keyLength)
+        , rejectRules(rejectRules)
+        , version()
+    {}
+
+    MultiRemoveObject()
+        : rejectRules()
+        , version()
+    {}
+
+    MultiRemoveObject(const MultiRemoveObject& other)
+        : MultiOpObject(other)
+        , rejectRules(other.rejectRules)
+        , version(other.version)
+    {}
+
+    MultiRemoveObject& operator=(const MultiRemoveObject& other) {
+        MultiOpObject::operator =(other);
+        rejectRules = other.rejectRules;
+        version = other.version;
+        return *this;
+    }
+};
+
+/**
+ * Objects of this class are used to pass parameters into \c multiWrite
+ * and for multiWrite to return status values for conditional operations
+ * (if used).
+ */
+struct MultiWriteObject : public MultiOpObject {
+    /**
+     * Pointer to the contents of the new object.
+     */
+    const void* value;
+
+    /**
+     * Length of value in bytes.
+     */
+    uint32_t valueLength;
+
+    /**
+     * The RejectRules specify when conditional writes should be aborted.
+     */
+    const RejectRules* rejectRules;
+
+    /**
+     * The version number of the newly written object is returned here.
+     */
+    uint64_t version;
+
+    MultiWriteObject(uint64_t tableId, const void* key, uint16_t keyLength,
+                 const void* value, uint32_t valueLength,
+                 const RejectRules* rejectRules = NULL)
+        : MultiOpObject(tableId, key, keyLength)
+        , value(value)
+        , valueLength(valueLength)
+        , rejectRules(rejectRules)
+        , version()
+    {}
+
+    MultiWriteObject()
+        : MultiOpObject()
+        , value()
+        , valueLength()
+        , rejectRules()
+        , version()
+    {}
+
+    MultiWriteObject(const MultiWriteObject& other)
+        : MultiOpObject(other)
+        , value(other.value)
+        , valueLength(other.valueLength)
+        , rejectRules(other.rejectRules)
+        , version(other.version)
+    {}
+
+    MultiWriteObject& operator=(const MultiWriteObject& other) {
+        MultiOpObject::operator =(other);
+        value = other.value;
+        valueLength = other.valueLength;
+        rejectRules = other.rejectRules;
+        version = other.version;
+        return *this;
+    }
 };
 
 /**

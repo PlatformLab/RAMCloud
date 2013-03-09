@@ -132,6 +132,9 @@ class MasterService : public Service {
     void multiRead(const WireFormat::MultiOp::Request* reqHdr,
                    WireFormat::MultiOp::Response* respHdr,
                    Rpc* rpc);
+    void multiRemove(const WireFormat::MultiOp::Request* reqHdr,
+                     WireFormat::MultiOp::Response* respHdr,
+                     Rpc* rpc);
     void multiWrite(const WireFormat::MultiOp::Request* reqHdr,
                    WireFormat::MultiOp::Response* respHdr,
                    Rpc* rpc);

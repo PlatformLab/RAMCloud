@@ -362,12 +362,11 @@ ObjectManager::removeObject(Key& key,
     Buffer buffer;
     Log::Reference reference;
     if (!lookup(lock, key, type, buffer, NULL, &reference) ||
-      type != LOG_ENTRY_TYPE_OBJ) {
+            type != LOG_ENTRY_TYPE_OBJ) {
         static RejectRules defaultRejectRules;
         if (rejectRules == NULL)
             rejectRules = &defaultRejectRules;
         return rejectOperation(rejectRules, VERSION_NONEXISTENT);
-
     }
 
     Object object(buffer);

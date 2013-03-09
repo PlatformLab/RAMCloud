@@ -65,6 +65,7 @@ SHARED_SRCFILES := \
 		   src/MinCopysetsBackupSelector.cc \
 		   src/MultiOp.cc \
 		   src/MultiRead.cc \
+		   src/MultiRemove.cc \
 		   src/MultiWrite.cc \
 		   src/MurmurHash3.cc \
 		   src/ObjectFinder.cc \
