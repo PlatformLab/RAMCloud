@@ -715,7 +715,7 @@ struct MultiOp {
 
     /// Type of Multi Operation
     /// Note: Make sure INVALID is always last.
-    enum OpType { READ, WRITE, DELETE, INVALID };
+    enum OpType { READ, REMOVE, WRITE, INVALID };
 
     struct Request {
         RequestCommon common;
@@ -731,6 +731,22 @@ struct MultiOp {
                 : tableId(tableId), keyLength(keyLength) {}
         } __attribute__((packed));
 
+        struct RemovePart {
+            uint64_t tableId;
+            uint16_t keyLength;
+            RejectRules rejectRules;
+
+            // In buffer: The actual key for this part
+            // follows immediately after this.
+            RemovePart(uint64_t tableId, uint16_t keyLength,
+                       RejectRules rejectRules)
+                : tableId(tableId)
+                , keyLength(keyLength)
+                , rejectRules(rejectRules)
+            {
+            }
+        } __attribute__((packed));
+
         struct WritePart {
             uint64_t tableId;
             uint16_t keyLength;
@@ -740,7 +756,7 @@ struct MultiOp {
             // In buffer: The actual key and data for this part
             // follow immediately after this.
             WritePart(uint64_t tableId, uint16_t keyLength,
-                 uint32_t valueLength, RejectRules rejectRules)
+                      uint32_t valueLength, RejectRules rejectRules)
                 : tableId(tableId)
                 , keyLength(keyLength)
                 , valueLength(valueLength)
@@ -779,6 +795,17 @@ struct MultiOp {
 
             /// Length of the object data following this struct.
             uint32_t length;
+        } __attribute__((packed));
+
+        struct RemovePart {
+            // Each Response::Part contains the Status for the newly written
+            // object removed and the version.
+
+            /// Status of the remove operation.
+            Status status;
+
+            /// Version of the object that was removed, if it existed.
+            uint64_t version;
         } __attribute__((packed));
 
         struct WritePart {

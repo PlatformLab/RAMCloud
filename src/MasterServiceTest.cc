@@ -24,6 +24,7 @@
 #include "MasterClient.h"
 #include "MasterService.h"
 #include "MultiRead.h"
+#include "MultiRemove.h"
 #include "MultiWrite.h"
 #include "RamCloud.h"
 #include "ReplicaManager.h"
@@ -578,6 +579,63 @@ TEST_F(MasterServiceTest, multiRead_noSuchObject) {
 
     EXPECT_STREQ("STATUS_OBJECT_DOESNT_EXIST",
                  statusToSymbol(request.status));
+}
+
+TEST_F(MasterServiceTest, multiRemove_basics) {
+    uint64_t tableId1 = ramcloud->createTable("table1");
+    ramcloud->write(tableId1, "0", 1, "firstVal", 8);
+    ramcloud->write(tableId1, "1", 1, "secondVal", 9);
+
+    MultiRemoveObject request1(tableId1, "0", 1);
+    MultiRemoveObject request2(tableId1, "1", 1);
+    MultiRemoveObject* requests[] = {&request1, &request2};
+
+    ramcloud->multiRemove(requests, 2);
+    EXPECT_STREQ("STATUS_OK", statusToSymbol(request1.status));
+    EXPECT_EQ(1U, request1.version);
+    EXPECT_STREQ("STATUS_OK", statusToSymbol(request2.status));
+    EXPECT_EQ(2U, request2.version);
+
+    // Try to remove the same objects again.
+    ramcloud->multiRemove(requests, 2);
+    EXPECT_STREQ("STATUS_OK", statusToSymbol(request1.status));
+    EXPECT_EQ(0U, request1.version);
+    EXPECT_STREQ("STATUS_OK", statusToSymbol(request2.status));
+    EXPECT_EQ(0U, request2.version);
+}
+
+TEST_F(MasterServiceTest, multiRemove_rejectRules) {
+    RejectRules rules;
+    memset(&rules, 0, sizeof(rules));
+    rules.doesntExist = true;
+    MultiRemoveObject request(1, "key0", 4, &rules);
+    MultiRemoveObject* requests[] = {&request};
+    ramcloud->multiRemove(requests, 1);
+    EXPECT_EQ(STATUS_OBJECT_DOESNT_EXIST, request.status);
+    EXPECT_EQ(VERSION_NONEXISTENT, request.version);
+}
+
+TEST_F(MasterServiceTest, multiRemove_unknownTable) {
+    // Table 99 will be directed to the server, but the server
+    // doesn't know about it.
+    MultiRemoveObject request(99, "bogus", 2);
+    MultiRemoveObject* requests[] = {&request};
+    MultiRemove op(ramcloud.get(), requests, 1);
+
+    // Check the status in the response message.
+    Transport::SessionRef session =
+            ramcloud->clientContext->transportManager->getSession(
+            "mock:host=master");
+    BindTransport::BindSession* rawSession =
+            static_cast<BindTransport::BindSession*>(session.get());
+    const WireFormat::MultiOp::Response::RemovePart* part =
+            rawSession->lastResponse->getOffset<
+            WireFormat::MultiOp::Response::RemovePart>(
+            sizeof(WireFormat::MultiOp::Response));
+    EXPECT_TRUE(part != NULL);
+    if (part != NULL) {
+        EXPECT_STREQ("STATUS_UNKNOWN_TABLET", statusToSymbol(part->status));
+    }
 }
 
 TEST_F(MasterServiceTest, multiWrite_basics) {

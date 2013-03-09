@@ -394,6 +394,9 @@ MasterService::multiOp(const WireFormat::MultiOp::Request* reqHdr,
         case WireFormat::MultiOp::OpType::READ:
             multiRead(reqHdr, respHdr, rpc);
             break;
+        case WireFormat::MultiOp::OpType::REMOVE:
+            multiRemove(reqHdr, respHdr, rpc);
+            break;
         case WireFormat::MultiOp::OpType::WRITE:
             multiWrite(reqHdr, respHdr, rpc);
             break;
@@ -482,6 +485,69 @@ MasterService::multiRead(const WireFormat::MultiOp::Request* reqHdr,
 
         currentResp->length = buffer.getTotalLength();
         rpc->replyPayload->append(&buffer);
+    }
+}
+
+/**
+ * Top-level server method to handle the MULTI_REMOVE request.
+ *
+ * \param reqHdr
+ *      Header from the incoming RPC request; contains the parameters
+ *      for this operation except the tableId, key, keyLength for each
+ *      of the objects to be read.
+ * \param[out] respHdr
+ *      Header for the response that will be returned to the client.
+ *      The caller has pre-allocated the right amount of space in the
+ *      response buffer for this type of request, and has zeroed out
+ *      its contents (so, for example, status is already zero).
+ * \param[out] rpc
+ *      Complete information about the remote procedure call.
+ *      It contains the the key and value for each object, as well as
+ *      RejectRules to support conditional removes.
+ */
+void
+MasterService::multiRemove(const WireFormat::MultiOp::Request* reqHdr,
+                           WireFormat::MultiOp::Response* respHdr,
+                           Rpc* rpc)
+{
+    uint32_t numRequests = reqHdr->count;
+    uint32_t reqOffset = sizeof32(*reqHdr);
+
+    respHdr->count = numRequests;
+
+    // Each iteration extracts one request from request rpc, deletes the
+    // corresponding object if possible, and appends the response to the
+    // response rpc.
+    for (uint32_t i = 0; ; i++) {
+        const WireFormat::MultiOp::Request::RemovePart *currentReq =
+            rpc->requestPayload->getOffset<
+                WireFormat::MultiOp::Request::RemovePart>(reqOffset);
+
+        if (currentReq == NULL) {
+            respHdr->common.status = STATUS_REQUEST_FORMAT_ERROR;
+            break;
+        }
+
+        reqOffset += sizeof32(WireFormat::MultiOp::Request::RemovePart);
+        const void* stringKey = rpc->requestPayload->getRange(
+            reqOffset, currentReq->keyLength);
+        reqOffset += currentReq->keyLength;
+
+        if (stringKey == NULL) {
+            respHdr->common.status = STATUS_REQUEST_FORMAT_ERROR;
+            break;
+        }
+
+        Key key(currentReq->tableId, stringKey, currentReq->keyLength);
+
+        WireFormat::MultiOp::Response::RemovePart* currentResp =
+            new(rpc->replyPayload, APPEND)
+                WireFormat::MultiOp::Response::RemovePart();
+
+        RejectRules rejectRules = currentReq->rejectRules;
+        currentResp->status = objectManager.removeObject(key,
+                                                         &rejectRules,
+                                                         &currentResp->version);
     }
 }
 

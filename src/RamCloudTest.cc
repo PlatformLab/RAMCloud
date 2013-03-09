@@ -224,20 +224,6 @@ TEST_F(RamCloudTest, increment) {
     EXPECT_EQ("STATUS_INVALID_OBJECT", message);
 }
 
-TEST_F(RamCloudTest, multiRead) {
-    ramcloud->write(tableId1, "0", 1, "first");
-    ramcloud->write(tableId1, "1", 1, "second");
-    Tub<Buffer> value1, value2;
-    MultiReadObject request1(tableId1, "0", 1, &value1);
-    MultiReadObject request2(tableId1, "1", 1, &value2);
-    MultiReadObject* requests[] = {&request1, &request2};
-    ramcloud->multiRead(requests, 2);
-    ASSERT_TRUE(value1);
-    ASSERT_TRUE(value2);
-    EXPECT_EQ("first", TestUtil::toString(value1.get()));
-    EXPECT_EQ("second", TestUtil::toString(value2.get()));
-}
-
 TEST_F(RamCloudTest, quiesce) {
     TestLog::Enable _;
     ServerConfig config = ServerConfig::forTesting();
