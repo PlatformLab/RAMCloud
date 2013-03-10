@@ -142,7 +142,7 @@ SegmentManager::getAllocator() const
  * manager will handle the transition between the previous and next log head,
  * as well as write a segment header and the log digest. These entries will also
  * be synced to backups before the function returns. In short, the caller need
- * not do anything special.
+ * not do anything special to maintain log integrity.
  *
  * \param flags
  *      If out of memory and the MUST_NOT_FAIL flag is provided, an emergency
@@ -163,8 +163,9 @@ SegmentManager::allocHeadSegment(uint32_t flags)
     LogSegment* newHead = alloc(ALLOC_HEAD, nextSegmentId);
     if (newHead == NULL) {
         /// Even if out of memory, we may need to allocate an emergency head
-        /// segment to deal with replica failure or to let cleaning free
-        /// resources.
+        /// segment to let cleaning free resources. We used also to do this as
+        /// part of handling segment replica failures, but that is now done
+        /// entirely in the replication layer.
         if ((flags & MUST_NOT_FAIL) ||
           segmentsByState[FREEABLE_PENDING_DIGEST_AND_REFERENCES].size() > 0) {
             newHead = alloc(ALLOC_EMERGENCY_HEAD, nextSegmentId);
@@ -203,8 +204,9 @@ SegmentManager::allocHeadSegment(uint32_t flags)
     segmentsOnDiskHistogram.storeSample(segmentsOnDisk++);
 
     // Close the old head after we've opened up the new head. This ensures that
-    // we always have an open segment on backups, unless of course there was a
-    // coordinated failure, in which case we can unambiguously detect it.
+    // we always have an open segment on backups (unless, of course, there is a
+    // coordinated failure of all replicas, in which case we can then
+    // unambiguously detect the loss of data).
     if (prevHead != NULL) {
         prevHead->close();
         prevHead->replicatedSegment->close();

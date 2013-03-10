@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2012 Stanford University
+/* Copyright (c) 2010-2013 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -167,13 +167,14 @@ LogCleaner::cleanerThreadEntry(LogCleaner* logCleaner, Context* context)
 {
     LOG(NOTICE, "LogCleaner thread started");
 
+    CleanerThreadState state;
     try {
         while (1) {
             Fence::lfence();
             if (logCleaner->threadsShouldExit)
                 break;
 
-            logCleaner->doWork();
+            logCleaner->doWork(&state);
         }
     } catch (const Exception& e) {
         DIE("Fatal error in cleaner thread: %s", e.what());
@@ -189,42 +190,75 @@ LogCleaner::cleanerThreadEntry(LogCleaner* logCleaner, Context* context)
  * CPU.
  */
 void
-LogCleaner::doWork()
+LogCleaner::doWork(CleanerThreadState* state)
 {
     MetricCycleCounter _(&doWorkTicks);
 
     threadMetrics.noteThreadStart();
 
-    // Update our list of candidates.
+    // Update our list of candidates whether we need to clean or not (it's
+    // better not to put off work until we really need to clean). 
     candidatesLock.lock();
     segmentManager.cleanableSegments(candidates);
     candidatesLock.unlock();
 
-    // Perform memory and disk cleaning, if needed.
-    bool mustCleanOnDisk = false;
-    int memoryUse = segmentManager.getAllocator().getMemoryUtilization();
-    if (memoryUse >= MIN_MEMORY_UTILIZATION) {
-        if (disableInMemoryCleaning) {
-            mustCleanOnDisk = true;
+    bool lowOnMemory = (segmentManager.getAllocator().getMemoryUtilization() >=
+                        MIN_MEMORY_UTILIZATION);
+    bool notKeepingUp = (segmentManager.getAllocator().getMemoryUtilization() >=
+                         MEMORY_DEPLETED_UTILIZATION);
+    bool lowOnDiskSpace = (segmentManager.getSegmentUtilization() >=
+                           MIN_DISK_UTILIZATION);
+    bool haveWorkToDo = (lowOnMemory || lowOnDiskSpace);
+
+    if (haveWorkToDo) {
+        // If we're running low on disk space we have no choice but to run the
+        // disk cleaner.
+        if (lowOnDiskSpace) {
+            state->lastDiskCleaningMemFreeRate = doDiskCleaning();
+            state->lastDiskCleaningTime = Cycles::rdtsc();
+        }
+
+        // If we aren't keeping up with write traffic, then we'll greedily
+        // choose whichever method freed memory for us the fastest last time.
+        //
+        // Otherwise, if we do appear to be keeping up with the write traffic,
+        // then we'll prefer compaction over disk cleaning (we don't care if
+        // compaction is slower than cleaning on disk because it's good enough
+        // and, more importantly, it isn't using any network bandwidth).
+        if (notKeepingUp) {
+            if (state->lastMemCompactionMemFreeRate >= state->lastDiskCleaningMemFreeRate) {
+                state->lastMemCompactionMemFreeRate = doMemoryCleaning();
+                state->lastMemCompactionTime = Cycles::rdtsc();
+            } else if (!lowOnDiskSpace) {
+                // Don't bother cleaning on disk again if we already did above.
+                state->lastDiskCleaningMemFreeRate = doDiskCleaning();
+                state->lastDiskCleaningTime = Cycles::rdtsc();
+            }
         } else {
-            double writeCost = doMemoryCleaning();
-            mustCleanOnDisk = (writeCost > writeCostThreshold);
+            // We're keeping up so far, so just keep compacting.
+            state->lastMemCompactionMemFreeRate = doMemoryCleaning();
+            state->lastMemCompactionTime = Cycles::rdtsc();
+        }
+
+        // It's possible that we could free memory faster by changing to
+        // compaction from disk cleaning, or vice-versa, even though our
+        // previous stats would hint otherwise. To be sure we don't miss out
+        // on a better opporunity, we'll occasionally sample the other mode
+        // if it hasn't been run in a while.
+        if (Cycles::toSeconds(Cycles::rdtsc() - state->lastMemCompactionTime) >= 1) {
+            state->lastMemCompactionMemFreeRate = doMemoryCleaning();
+            state->lastMemCompactionTime = Cycles::rdtsc();
+        }
+        if (notKeepingUp &&
+          Cycles::toSeconds(Cycles::rdtsc() - state->lastDiskCleaningTime) >= 10) {
+            state->lastDiskCleaningMemFreeRate = doDiskCleaning();
+            state->lastDiskCleaningTime = Cycles::rdtsc();
         }
     }
 
-    int diskUse = segmentManager.getSegmentUtilization();
-    if (mustCleanOnDisk || diskUse >= MIN_DISK_UTILIZATION)
-        doDiskCleaning();
-
-    bool sleepThread = false;
-    memoryUse = segmentManager.getAllocator().getMemoryUtilization();
-    diskUse = segmentManager.getSegmentUtilization();
-    if (memoryUse < MIN_MEMORY_UTILIZATION && diskUse < MIN_DISK_UTILIZATION)
-        sleepThread = true;
-
     threadMetrics.noteThreadStop();
 
-    if (sleepThread) {
+    if (!haveWorkToDo) {
         MetricCycleCounter __(&doWorkSleepTicks);
         // Jitter the sleep delay a little bit (up to 10%). It's not a big deal
         // if we don't, but it can make some locks look artificially contended
@@ -240,7 +274,7 @@ LogCleaner::doWork()
  * re-packing all live entries together sequentially, allowing us to reclaim
  * some of the dead space.
  */
-double
+uint64_t
 LogCleaner::doMemoryCleaning()
 {
     TEST_LOG("called");
@@ -249,7 +283,7 @@ LogCleaner::doMemoryCleaning()
     uint32_t freeableSeglets;
     LogSegment* segment = getSegmentToCompact(freeableSeglets);
     if (segment == NULL)
-        return std::numeric_limits<double>::max();
+        return 0;
 
     // Allocate a survivor segment to write into. This call may block if one
     // is not available right now.
@@ -299,10 +333,8 @@ LogCleaner::doMemoryCleaning()
     bool r = survivor->freeUnusedSeglets(segletsToFree);
     assert(r);
 
-    double writeCost = 1 + static_cast<double>(survivor->getAppendedLength()) /
-        (segletsToFree * segletSize);
-
-    inMemoryMetrics.totalBytesFreed += freeableSeglets * segletSize;
+    uint64_t bytesFreed = freeableSeglets * segletSize;
+    inMemoryMetrics.totalBytesFreed += bytesFreed;
     inMemoryMetrics.totalBytesAppendedToSurvivors +=
         survivor->getAppendedLength();
     inMemoryMetrics.totalSegmentsCompacted++;
@@ -310,7 +342,8 @@ LogCleaner::doMemoryCleaning()
     MetricCycleCounter __(&inMemoryMetrics.compactionCompleteTicks);
     segmentManager.compactionComplete(segment, survivor);
 
-    return writeCost;
+    return static_cast<uint64_t>(
+        static_cast<double>(bytesFreed) / Cycles::toSeconds(_.stop()));
 }
 
 /**
@@ -318,7 +351,7 @@ LogCleaner::doMemoryCleaning()
  * to clean, extracting entries from those segments, writing them out into new
  * "survivor" segments, and alerting the segment manager upon completion.
  */
-void
+uint64_t
 LogCleaner::doDiskCleaning()
 {
     TEST_LOG("called");
@@ -330,7 +363,7 @@ LogCleaner::doDiskCleaning()
     getSegmentsToClean(segmentsToClean);
 
     if (segmentsToClean.size() == 0)
-        return;
+        return 0;
 
     // Extract the currently live entries of the segments we're cleaning and
     // sort them by age.
@@ -364,6 +397,8 @@ LogCleaner::doDiskCleaning()
     assert(segletsBefore >= segletsAfter);
     assert(segmentsBefore >= segmentsAfter);
 
+    uint64_t memoryBytesFreed = (segletsBefore - segletsAfter) * segletSize;
+    uint64_t diskBytesFreed = (segmentsBefore - segmentsAfter) * segmentSize;
     onDiskMetrics.totalMemoryBytesFreed +=
         (segletsBefore - segletsAfter) * segletSize;
     onDiskMetrics.totalDiskBytesFreed +=
@@ -374,6 +409,9 @@ LogCleaner::doDiskCleaning()
 
     MetricCycleCounter __(&onDiskMetrics.cleaningCompleteTicks);
     segmentManager.cleaningComplete(segmentsToClean, survivors);
+
+    return static_cast<uint64_t>(
+        static_cast<double>(memoryBytesFreed) / Cycles::toSeconds(_.stop()));
 }
 
 /**

@@ -1,4 +1,4 @@
-/* Copyright (c) 2009, 2010 Stanford University
+/* Copyright (c) 2009-2013 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -101,10 +101,23 @@ class LogCleaner {
     /// the in-memory cleaner.
     enum { MIN_MEMORY_UTILIZATION = 90 };
 
+    /// Memory utilization at which we declare that the cleaner isn't able to
+    /// keep up with the incoming write rate. We'll then clean by whatever means
+    /// are most efficient at freeing memory, even if it means increasing backup
+    /// traffic by cleaning on disk (which may also reduce write throughput by
+    /// contending for the network).
+    ///
+    /// As long as our memory utilization is below this value, we'll prefer to
+    /// compact in memory. If compaction can keep up with the write rate, then
+    /// we'll not contend for network bandwidth, but if we fall behind, we'll
+    /// use this constant to permit more aggressive disk cleaning.
+    enum { MEMORY_DEPLETED_UTILIZATION = 99 };
+
     /// The minimum amount of backup disk utilization we will begin cleaning at
     /// using the disk cleaner. Note that the disk cleaner may also run if the
-    /// in-memory cleaner is not working efficiently (there are tombstones that
-    /// need to be made freeable by cleaning on disk).
+    /// in-memory cleaner is not working efficiently enough to keep up with the
+    /// log writes (accumulation of tombstones will eventually create such
+    /// inefficiency and requires disk cleaning to free them).
     enum { MIN_DISK_UTILIZATION = 95 };
 
     /**
@@ -171,10 +184,25 @@ class LogCleaner {
         uint64_t version;
     };
 
+    class CleanerThreadState {
+      public:
+        CleanerThreadState()
+            : lastDiskCleaningMemFreeRate(0)
+            , lastMemCompactionMemFreeRate(0)
+            , lastDiskCleaningTime(0)
+            , lastMemCompactionTime(0)
+        {
+        }
+        uint64_t lastDiskCleaningMemFreeRate;
+        uint64_t lastMemCompactionMemFreeRate;
+        uint64_t lastDiskCleaningTime;
+        uint64_t lastMemCompactionTime;
+    };
+
     static void cleanerThreadEntry(LogCleaner* logCleaner, Context* context);
-    void doWork();
-    double doMemoryCleaning();
-    void doDiskCleaning();
+    void doWork(CleanerThreadState* state);
+    uint64_t doMemoryCleaning();
+    uint64_t doDiskCleaning();
     LogSegment* getSegmentToCompact(uint32_t& outFreeableSeglets);
     void sortSegmentsByCostBenefit(LogSegmentVector& segments);
     void getSegmentsToClean(LogSegmentVector& outSegmentsToClean);

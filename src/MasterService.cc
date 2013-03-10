@@ -348,7 +348,7 @@ MasterService::fillWithTestData(
         }
     }
 
-    objectManager.syncWrites();
+    objectManager.syncChanges();
 
     LOG(NOTICE, "Done writing objects.");
 }
@@ -549,6 +549,10 @@ MasterService::multiRemove(const WireFormat::MultiOp::Request* reqHdr,
                                                          &rejectRules,
                                                          &currentResp->version);
     }
+
+    // All of the individual removes were done asynchronously. We must sync
+    // them to backups before returning to the caller.
+    objectManager.syncChanges();
 }
 
 /**
@@ -623,7 +627,7 @@ MasterService::multiWrite(const WireFormat::MultiOp::Request* reqHdr,
 
     // All of the individual writes were done asynchronously. Sync the objects
     // now to propagate them in bulk to backups.
-    objectManager.syncWrites();
+    objectManager.syncChanges();
 }
 
 /**
@@ -755,7 +759,7 @@ MasterService::takeTabletOwnership(
     // blocks, waiting to hear about enough backup servers, meanwhile the
     // coordinator is trying to issue an RPC to the master, but it isn't
     // even servicing transports yet!
-    objectManager.syncWrites();
+    objectManager.syncChanges();
 
     bool added = tabletManager.addTablet(reqHdr->tableId,
                                          reqHdr->firstKeyHash,
@@ -1739,7 +1743,7 @@ MasterService::increment(const WireFormat::Increment::Request* reqHdr,
         &rejectRules, &respHdr->version);
     if (*status != STATUS_OK)
         return;
-    objectManager.syncWrites();
+    objectManager.syncChanges();
 
     // Return new value
     respHdr->newValue = newValue;
@@ -1784,7 +1788,7 @@ MasterService::write(const WireFormat::Write::Request* reqHdr,
     RejectRules rejectRules = reqHdr->rejectRules;
     respHdr->common.status = objectManager.writeObject(key,
         buffer, &rejectRules, &respHdr->version);
-    objectManager.syncWrites();
+    objectManager.syncChanges();
 }
 
 /**

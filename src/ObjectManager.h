@@ -60,10 +60,10 @@ class ObjectManager : public LogEntryHandlers {
                        Buffer& value,
                        RejectRules* rejectRules,
                        uint64_t* outVersion);
-    void syncWrites();
     Status removeObject(Key& key,
                         RejectRules* rejectRules,
                         uint64_t* outVersion);
+    void syncChanges();
     void prefetchHashTableBucket(SegmentIterator* it);
     void replaySegment(SideLog* sideLog, SegmentIterator& it);
     void removeOrphanedObjects();

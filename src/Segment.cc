@@ -253,8 +253,10 @@ Segment::appendToBuffer(Buffer& buffer, uint32_t offset, uint32_t length) const
         length -= contigBytes;
     }
 
-    if (length != 0)
-        throw FatalError(HERE, "invalid length and/or offset parameter(s)");
+    if (length != 0) {
+        throw FatalError(HERE, format("invalid length (%u) and/or offset (%u) "
+            "parameter(s)", length, offset));
+    }
 }
 
 /**

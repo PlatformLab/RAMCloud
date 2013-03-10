@@ -392,7 +392,7 @@ class Output {
                         ProtoBuf::LogMetrics& logMetrics);
     void dumpSummary(FILE* fp);
     void dumpPrefillMetrics(FILE* fp);
-    void dumpCleanerMetrics(FILE* fp, ProtoBuf::LogMetrics& metrics);
+    void dumpCleanerMetrics(FILE* fp, RAMCloud::ProtoBuf::LogMetrics&);
     template<typename T> void dumpSegmentEntriesScanned(FILE* fp,
                                                         T& metrics,
                                                         double elapsed,
@@ -443,8 +443,10 @@ class Benchmark {
           prefillStop(0),
           totalPrefillObjectsWritten(0),
           totalPrefillBytesWritten(0),
+          totalPrefillOperations(0),
           totalObjectsWritten(0),
           totalBytesWritten(0),
+          totalOperations(0),
           start(0),
           stop(0),
           lastOutputUpdateTsc(0),
@@ -764,11 +766,13 @@ class Benchmark {
                             Cycles::toNanoseconds(rpcs[i]->getTicks()));
                         totalPrefillObjectsWritten += rpcs[i]->getObjectCount();
                         totalPrefillBytesWritten += rpcs[i]->getObjectLengths();
+                        totalPrefillOperations++;
                     } else {
                         latencyHistogram.storeSample(
                             Cycles::toNanoseconds(rpcs[i]->getTicks()));
                         totalObjectsWritten += rpcs[i]->getObjectCount();
                         totalBytesWritten += rpcs[i]->getObjectLengths();
+                        totalOperations++;
                     }
 
                     rpcs[i].destroy();
@@ -875,12 +879,22 @@ class Benchmark {
     /// Total object bytes written during prefilling.
     uint64_t totalPrefillBytesWritten;
 
+    /// Total number of RPCs sent during prefilling. This is also the number
+    /// of times Log::sync() is called. If multiWrites are being used, each
+    /// operation may encompass multiple individual object writes.
+    uint64_t totalPrefillOperations;
+
     /// Total objects written during the benchmark (not including pre-filling).
     uint64_t totalObjectsWritten;
 
     /// Total object bytes written during the benchmark (not including
     /// pre-filling).
     uint64_t totalBytesWritten;
+
+    /// Total number of RPCs sent during the benchmark. This is also the number
+    /// of times Log::sync() is called. If multiWrites are being used, each
+    /// operation may encompass multiple individual object writes.
+    uint64_t totalOperations;
 
     /// Cycle counter at the start of the benchmark.
     uint64_t start;
@@ -1090,8 +1104,25 @@ Output::dumpSummary(FILE* fp)
     fprintf(fp, "  Total Log Bytes Written:       %lu  (%.2f MB/sec)\n",
         bytesAppended, d(bytesAppended) / elapsed / 1024 / 1024);
 
-    fprintf(fp, "  Average Latency:               %lu us\n",
+    fprintf(fp, "  Average Latency:               %lu us / RPC (end-to-end, "
+        "including queueing delays)\n",
         benchmark.latencyHistogram.getAverage() / 1000);
+
+    double serverHz = benchmark.finalLogMetrics.ticks_per_second();
+
+    double appendTime = Cycles::toSeconds(
+        benchmark.finalLogMetrics.total_append_ticks() -
+        benchmark.prefillLogMetrics.total_append_ticks(), serverHz);
+    fprintf(fp, "  Average Log Append Time:       %.1f us / RPC (%.1f / obj; "
+        "including tombstone append)\n",
+        1.0e6 * appendTime / d(benchmark.totalOperations),
+        1.0e6 * appendTime / d(benchmark.totalObjectsWritten));
+
+    double syncTime = Cycles::toSeconds(
+        benchmark.finalLogMetrics.total_sync_ticks() -
+        benchmark.prefillLogMetrics.total_sync_ticks(), serverHz);
+    fprintf(fp, "  Average Log Sync Time:         %.1f us / RPC\n",
+        1.0e6 * syncTime / d(benchmark.totalOperations));
 }
 
 void
@@ -1116,8 +1147,22 @@ Output::dumpPrefillMetrics(FILE* fp)
     fprintf(fp, "  Total Log Bytes Written:       %lu  (%.2f MB/sec)\n",
         bytesAppended, d(bytesAppended) / elapsed / 1024 / 1024);
 
-    fprintf(fp, "  Average Latency:               %lu us\n",
+    fprintf(fp, "  Average Latency:               %lu us / RPC (end-to-end "
+        "including queueing delays)\n",
         benchmark.prefillLatencyHistogram.getAverage() / 1000);
+
+    double serverHz = benchmark.prefillLogMetrics.ticks_per_second();
+
+    double appendTime = Cycles::toSeconds(
+        benchmark.prefillLogMetrics.total_append_ticks(), serverHz);
+    fprintf(fp, "  Average Log Append Time:       %.1f us / RPC (%.1f / obj)\n",
+        1.0e6 * appendTime / d(benchmark.totalPrefillOperations),
+        1.0e6 * appendTime / d(benchmark.totalPrefillObjectsWritten));
+
+    double syncTime = Cycles::toSeconds(
+        benchmark.prefillLogMetrics.total_sync_ticks(), serverHz);
+    fprintf(fp, "  Average Log Sync Time:         %.1f us / RPC\n",
+        1.0e6 * syncTime / d(benchmark.totalPrefillOperations));
 }
 
 void
@@ -1179,7 +1224,7 @@ Output::dumpSegmentEntriesScanned(FILE* fp,
         d(totalEntriesScanned) / cleanerTime);
     fprintf(fp, "    Summary:\n");
     fprintf(fp, "      Type                       %% Total  (Space)  "
-        "%% Alive (Space)   %% Dead  (Space)\n");
+        "%% Alive  (Space)   %% Dead  (Space)\n");
 
     for (int i = 0; i < metrics.total_entries_scanned_size(); i++) {
         uint64_t totalCount = metrics.total_entries_scanned(i);

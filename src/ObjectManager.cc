@@ -111,7 +111,7 @@ ObjectManager::initOnceEnlisted()
  * and adding or replacing an entry in the hash table.
  *
  * Note, however, that the write is not be guaranteed to have completed on
- * backups until the syncWrites() method is called. This allows callers to
+ * backups until the syncChanges() method is called. This allows callers to
  * issue multiple object writes and batch backup writes by syncing once per
  * batch, rather than for each object.
  *
@@ -257,18 +257,6 @@ ObjectManager::writeObject(Key& key,
 }
 
 /**
- * Sync any previous writes. This operation is required after any writeObject()
- * calls to ensure that objects are on stable backup storage. Prior to invoking
- * this, no guarantees are made on the consistency of backup and master views of
- * the log since the previous sync operation.
- */
-void
-ObjectManager::syncWrites()
-{
-    log.sync();
-}
-
-/**
  * Read an object previously written to this ObjectManager.
  *
  * \param key
@@ -329,6 +317,10 @@ ObjectManager::readObject(Key& key,
 
 /**
  * Remove an object previously written to this ObjectManager.
+ *
+ * Note that just like writeObject(), this operation will not be stably commited
+ * to backups until the syncChanges() method is called. This allows many remove
+ * operations to be batched (to support, for example, the multiRemove RPC).
  *
  * \param key
  *      Key of the object to remove.
@@ -396,12 +388,24 @@ ObjectManager::removeObject(Key& key,
         // off of this server.
         return STATUS_RETRY;
     }
-    log.sync();
 
     segmentManager.raiseSafeVersion(object.getVersion() + 1);
     log.free(reference);
     remove(lock, key);
     return STATUS_OK;
+}
+
+/**
+ * Sync any previous writes or removes. This operation is required after any
+ * writeObject() or removeObject() invocation if the caller wants to ensure that
+ * the change is committed to stable storage. Prior to invoking this, no
+ * guarantees are made about the consistency of backup and master views of the
+ * log since the previous syncChanges() operation.
+ */
+void
+ObjectManager::syncChanges()
+{
+    log.sync();
 }
 
 /**
