@@ -240,7 +240,7 @@ ReplicaManager::isReplicaNeeded(ServerId backupServerId, uint64_t segmentId)
  * completed before they are added to the log.  Since they are spliced into
  * the log atomically as part of another open segment they do not (and cannot
  * obey these extra ordering constraints). To bypass these constraints the
- * log cleaner can simply pass NULL is for \a precedingSegment. Similarly,
+ * log cleaner can simply pass NULL in for \a precedingSegment. Similarly,
  * since unit tests should almost always pass NULL to avoid these extra
  * ordering checks.
  *
