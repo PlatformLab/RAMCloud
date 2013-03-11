@@ -1397,6 +1397,14 @@ Output::dumpDiskMetrics(FILE* fp, ProtoBuf::LogMetrics& metrics)
         100.0 * appendTime / cleanerTime,
         1.0e6 * appendTime / d(onDiskMetrics.total_relocation_appends()));
 
+    double syncTime = Cycles::toSeconds(
+        onDiskMetrics.survivor_sync_ticks(), serverHz);
+    fprintf(fp, "    Sync Survivors:              %.3f sec "
+        "(%.2f%%, %.2f%% active)\n",
+        syncTime,
+        100.0 * syncTime / elapsed,
+        100.0 * syncTime / cleanerTime);
+
     double completeTime = Cycles::toSeconds(
         onDiskMetrics.cleaning_complete_ticks(), serverHz);
     fprintf(fp, "    Cleaning Complete:           %.3f sec "

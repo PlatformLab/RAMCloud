@@ -210,6 +210,7 @@ class OnDisk {
           cleaningCompleteTicks(0),
           relocationCallbackTicks(0),
           relocationAppendTicks(0),
+          survivorSyncTicks(0),
           cleanedSegmentMemoryHistogram(101, 1),
           cleanedSegmentDiskHistogram(101, 1)
     {
@@ -262,6 +263,7 @@ class OnDisk {
         m.set_cleaning_complete_ticks(cleaningCompleteTicks);
         m.set_relocation_callback_ticks(relocationCallbackTicks);
         m.set_relocation_append_ticks(relocationAppendTicks);
+        m.set_survivor_sync_ticks(survivorSyncTicks);
         cleanedSegmentMemoryHistogram.serialize(
             *m.mutable_cleaned_segment_memory_histogram());
         cleanedSegmentDiskHistogram.serialize(
@@ -388,6 +390,9 @@ class OnDisk {
 
     /// Total number of cpu cycles spent appending relocated entries.
     Metric64BitType relocationAppendTicks;
+
+    /// Total number of cpu cycles spent syncing survivor segments to backups.
+    Metric64BitType survivorSyncTicks;
 
     /// Histogram of memory utilizations for segments cleaned on disk.
     /// This lets us see how frequency we clean segments with varying amounts

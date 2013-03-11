@@ -665,8 +665,10 @@ LogCleaner::relocateLiveEntries(EntryVector& entries,
         closeSurvivor(survivor);
 
     // Ensure that the survivors have been synced to backups before proceeding.
-    foreach (survivor, outSurvivors)
+    foreach (survivor, outSurvivors) {
+        MetricCycleCounter __(&onDiskMetrics.survivorSyncTicks);
         survivor->replicatedSegment->sync(survivor->getAppendedLength());
+    }
 
     for (size_t i = 0; i < TOTAL_LOG_ENTRY_TYPES; i++) {
         onDiskMetrics.totalEntriesScanned[i] += entriesScanned[i];
