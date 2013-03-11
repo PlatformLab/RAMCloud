@@ -61,7 +61,7 @@ TableManager::createTable(const char* name, uint32_t serverSpan)
 {
     Lock lock(mutex);
 
-    return CreateTable(*this, lock, name, serverSpan).execute();
+    return CreateTable(*this, lock, name, uint64_t(), serverSpan).execute();
 }
 
 /**
@@ -362,6 +362,7 @@ TableManager::recoverCreateTable(
     LOG(DEBUG, "TableManager::recoverCreateTable()");
     CreateTable(*this, lock,
                 state->name().c_str(),
+                state->table_id(),
                 state->server_span(),
                 *state).complete(entryId);
 }

@@ -125,12 +125,13 @@ class TableManager {
         CreateTable(TableManager &tm,
                     const Lock& lock,
                     const char* name,
+                    uint64_t tableId,
                     uint32_t serverSpan,
                     ProtoBuf::TableInformation state =
                                 ProtoBuf::TableInformation())
             : tm(tm), lock(lock),
               name(name),
-              tableId(),
+              tableId(tableId),
               serverSpan(serverSpan),
               state(state) {}
         uint64_t execute();
