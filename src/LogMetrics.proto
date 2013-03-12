@@ -104,9 +104,10 @@ message LogMetrics {
             required fixed64 cleaning_complete_ticks = 22;
             required fixed64 relocation_callback_ticks = 23;
             required fixed64 relocation_append_ticks = 24;
-            required fixed64 survivor_sync_ticks = 25;
-            required Histogram cleaned_segment_memory_histogram = 26;
-            required Histogram cleaned_segment_disk_histogram = 27;
+            required fixed64 close_survivor_ticks = 25;
+            required fixed64 survivor_sync_ticks = 26;
+            required Histogram cleaned_segment_memory_histogram = 27;
+            required Histogram cleaned_segment_disk_histogram = 28;
         }
         required OnDiskMetrics on_disk_metrics = 10;
 

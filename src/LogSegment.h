@@ -164,7 +164,8 @@ class LogSegment : public Segment {
           replicatedSegment(NULL),
           listEntries(),
           allListEntries(),
-          syncedLength(0)
+          syncedLength(0),
+          creationTicks(Cycles::rdtsc())
     {
     }
 
@@ -297,6 +298,10 @@ class LogSegment : public Segment {
     /// when the desired data has already been synced (perhaps by another thread
     /// that bundled our replication traffic with theirs).
     uint32_t syncedLength;
+
+    /// Cycles::rdtsc() value at which this segment was created. Use by the
+    /// cleaner to determine the best candidate to scan for dead tombstones.
+    const uint64_t creationTicks;
 
     DISALLOW_COPY_AND_ASSIGN(LogSegment);
 };

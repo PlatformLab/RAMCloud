@@ -166,6 +166,7 @@ $(OBJDIR)/test: $(TESTS_OBJFILES) $(LOGCABIN_LIBS) $(OBJDIR)/gtest.a
 # The unit tests don't actually call all of these programs, but
 # they are included here to make sure they continue to build.
 test: $(OBJDIR)/test \
+      $(OBJDIR)/CleanerCompactionBenchmark \
       $(OBJDIR)/ClusterPerf \
       $(OBJDIR)/Echo \
       $(OBJDIR)/HashTableBenchmark \
@@ -191,6 +192,10 @@ $(OBJDIR)/RecoverSegmentBenchmark: $(OBJDIR)/RecoverSegmentBenchmark.o $(SHARED_
 	$(CXX) -o $@ $^ $(LIBS)
 
 $(OBJDIR)/Perf: $(OBJDIR)/Perf.o $(OBJDIR)/PerfHelper.o $(SERVER_OBJFILES)
+	@mkdir -p $(@D)
+	$(CXX) -o $@ $^ $(LIBS)
+
+$(OBJDIR)/CleanerCompactionBenchmark: $(OBJDIR)/CleanerCompactionBenchmark.o $(SHARED_OBJFILES) $(SERVER_OBJFILES)
 	@mkdir -p $(@D)
 	$(CXX) -o $@ $^ $(LIBS)
 

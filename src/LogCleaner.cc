@@ -325,6 +325,13 @@ LogCleaner::doMemoryCleaning()
             liveScannedEntryLengths[i];
     }
 
+    // The survivor segment has at least as many seglets allocated as the one
+    // we've compacted (it was freshly allocated, so it has the maximum number
+    // of seglets). We can therefore free the difference (which ensures a 0 net
+    // gain) plus the number extra seglets that getSegmentToCompact() told us
+    // we could free. That value was carefully calculated to ensure that future
+    // disk cleaning will make forward progress (not use more seglets after
+    // cleaning than before).
     uint32_t segletsToFree = survivor->getSegletsAllocated() -
                              segment->getSegletsAllocated() +
                              freeableSeglets;
@@ -399,10 +406,8 @@ LogCleaner::doDiskCleaning()
 
     uint64_t memoryBytesFreed = (segletsBefore - segletsAfter) * segletSize;
     uint64_t diskBytesFreed = (segmentsBefore - segmentsAfter) * segmentSize;
-    onDiskMetrics.totalMemoryBytesFreed +=
-        (segletsBefore - segletsAfter) * segletSize;
-    onDiskMetrics.totalDiskBytesFreed +=
-        (segmentsBefore - segmentsAfter) * segmentSize;
+    onDiskMetrics.totalMemoryBytesFreed += memoryBytesFreed;
+    onDiskMetrics.totalDiskBytesFreed += diskBytesFreed;
     onDiskMetrics.totalSegmentsCleaned += segmentsToClean.size();
     onDiskMetrics.totalSurvivorsCreated += survivors.size();
     onDiskMetrics.totalRuns++;
@@ -448,8 +453,59 @@ LogCleaner::getSegmentToCompact(uint32_t& outFreeableSeglets)
         }
     }
 
-    if (bestIndex == static_cast<size_t>(-1))
-        return NULL;
+    // If we don't think any memory can be safely freed then either we're full
+    // up with live objects (in which case nothing's wrong and we can't actually
+    // do anything), or we have a lot of dead tombstones sitting around that is
+    // causing us to assume that we're full when we really aren't. This can
+    // happen because we don't (and can't easily) keep track of which tombstones
+    // are dead, so all are presumed to be alive. When objects are large and
+    // tombstones are relatively small, this accounting error is usually
+    // harmless. However, when storing very small objects, tombstones are
+    // relatively large and our percentage error can be significant. Also, one
+    // can imagine what'd happen if the cleaner somehow groups tombstones
+    // together into their own segments that always appear to have 100% live
+    // entries.
+    //
+    // So, to address this we'll try compacting the candidate segment with the
+    // most tombstones that has not been compacted in a while. Hopefully this
+    // will choose the one with the most dead tombstones and shake us out of
+    // any deadlock.
+    //
+    // It's entirely possible that we'd want to do this earlier (before we run
+    // out of candidates above, rather than as a last ditch effort). It's not
+    // clear to me, however, when we'd decide and what would give the best
+    // overall performance.
+    //
+    // Did I ever mention how much I hate tombstones?
+    if (bestIndex == static_cast<size_t>(-1)) {
+        __uint128_t bestGoodness = 0;
+        for (size_t i = 0; i < candidates.size(); i++) {
+            LogSegment* candidate = candidates[i];
+            uint32_t tombstoneCount = candidate->getEntryCount(LOG_ENTRY_TYPE_OBJTOMB);
+            uint64_t timeSinceLastCompaction = Cycles::rdtsc() - candidate->creationTicks;
+            __uint128_t goodness = (__uint128_t)tombstoneCount * timeSinceLastCompaction;
+            if (goodness > bestGoodness) {
+                bestIndex = i;
+                bestGoodness = goodness;
+            }
+        }
+
+        // Still no dice. Looks like we're just full of live data.
+        if (bestIndex == static_cast<size_t>(-1))
+            return NULL;
+        
+        // It's not safe for the compactor to free any memory this time around
+        // (it could be that no tombstones were dead, or we will free too few to
+        // allow us to free seglets while still guaranteeing forward progress
+        // of the disk cleaner).
+        //
+        // If we do free enough memory, we'll get it back in a subsequent pass.
+        // The alternative would be to have a separate algorithm that just
+        // counts dead tombstones and updates the liveness counters. That is
+        // slightly more complicated. Perhaps if this becomes frequently enough
+        // we can optimise that case.
+        bestDelta = 0;
+    }
 
     LogSegment* best = candidates[bestIndex];
     candidates[bestIndex] = candidates.back();
@@ -693,6 +749,7 @@ LogCleaner::relocateLiveEntries(EntryVector& entries,
 void
 LogCleaner::closeSurvivor(LogSegment* survivor)
 {
+    MetricCycleCounter _(&onDiskMetrics.closeSurvivorTicks);
     onDiskMetrics.totalBytesAppendedToSurvivors +=
         survivor->getAppendedLength();
 

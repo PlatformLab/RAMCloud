@@ -35,9 +35,11 @@ Segment::Segment()
       closed(false),
       mustFreeBlocks(true),
       head(0),
-      checksum()
+      checksum(),
+      entryCounts()
 {
     segletBlocks.push_back(new uint8_t[segletSize]);
+    memset(entryCounts, 0, sizeof(entryCounts));
 }
 
 /**
@@ -183,6 +185,8 @@ Segment::append(LogEntryType type,
     if (outOffset != NULL)
         *outOffset = startOffset;
 
+    entryCounts[type]++;
+
     return true;
 }
 
@@ -304,6 +308,12 @@ Segment::getEntry(uint32_t offset, Buffer& buffer)
 
     appendToBuffer(buffer, entryDataOffset, entryDataLength);
     return header.getType();
+}
+
+uint32_t
+Segment::getEntryCount(LogEntryType type)
+{
+    return entryCounts[type];
 }
 
 /**

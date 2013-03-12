@@ -274,6 +274,7 @@ class Segment {
                         uint32_t length) const;
     uint32_t appendToBuffer(Buffer& buffer);
     LogEntryType getEntry(uint32_t offset, Buffer& buffer);
+    uint32_t getEntryCount(LogEntryType type);
     uint32_t getAppendedLength(Certificate* certificate = NULL) const;
     uint32_t getSegletsAllocated();
     uint32_t getSegletsInUse();
@@ -379,6 +380,12 @@ class Segment {
     /// Any user data that is stored in the Segment is unprotected. Integrity
     /// is their responsibility. Used to generate Segment::Certificates.
     Crc32C checksum;
+
+    /// Counts of the number of each log entry type appended to this segment.
+    /// These values monotonically increase and therefore reflect the total
+    /// number of entries in the segment, not just the ones that are still
+    /// considered alive.
+    uint32_t entryCounts[TOTAL_LOG_ENTRY_TYPES];
 
     friend class SegmentIterator;
 

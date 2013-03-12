@@ -363,6 +363,8 @@ class LogCleaner {
     /// the pointers in this vector are set to NULL.
     vector<std::thread*> threads;
 
+    friend class CleanerCompactionBenchmark;
+
     DISALLOW_COPY_AND_ASSIGN(LogCleaner);
 };
 

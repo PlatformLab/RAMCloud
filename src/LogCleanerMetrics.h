@@ -210,6 +210,7 @@ class OnDisk {
           cleaningCompleteTicks(0),
           relocationCallbackTicks(0),
           relocationAppendTicks(0),
+          closeSurvivorTicks(0),
           survivorSyncTicks(0),
           cleanedSegmentMemoryHistogram(101, 1),
           cleanedSegmentDiskHistogram(101, 1)
@@ -263,6 +264,7 @@ class OnDisk {
         m.set_cleaning_complete_ticks(cleaningCompleteTicks);
         m.set_relocation_callback_ticks(relocationCallbackTicks);
         m.set_relocation_append_ticks(relocationAppendTicks);
+        m.set_close_survivor_ticks(closeSurvivorTicks);
         m.set_survivor_sync_ticks(survivorSyncTicks);
         cleanedSegmentMemoryHistogram.serialize(
             *m.mutable_cleaned_segment_memory_histogram());
@@ -390,6 +392,11 @@ class OnDisk {
 
     /// Total number of cpu cycles spent appending relocated entries.
     Metric64BitType relocationAppendTicks;
+
+    /// Total number of cpu cycles spent in the closeSurvivor() method, which
+    /// closes both the Segment and ReplicatedSegment (and initiates transfer
+    /// to backups).
+    Metric64BitType closeSurvivorTicks;
 
     /// Total number of cpu cycles spent syncing survivor segments to backups.
     Metric64BitType survivorSyncTicks;

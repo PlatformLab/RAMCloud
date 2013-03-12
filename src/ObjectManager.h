@@ -335,6 +335,8 @@ class ObjectManager : public LogEntryHandlers {
                            LogEntryRelocator& relocator);
     void removeTombstones();
 
+    friend class CleanerCompactionBenchmark;
+
     DISALLOW_COPY_AND_ASSIGN(ObjectManager);
 };
 
