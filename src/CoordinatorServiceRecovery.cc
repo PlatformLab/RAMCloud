@@ -141,6 +141,13 @@ CoordinatorServiceRecovery::replay(bool testing)
             service.logCabinHelper->parseProtoBufFromEntry(*it, state);
             service.tableManager->recoverTabletRecovered(&state, entryId);
 
+        } else if (entryType.compare("ServiceUpdateReplicationId") == 0) {
+
+            RAMCLOUD_LOG(DEBUG, "ServiceRecovery: ServerUpdate");
+            ProtoBuf::ServerUpdate state;
+            service.logCabinHelper->parseProtoBufFromEntry(*it, state);
+            service.serverList->recoverServerUpdate(&state, entryId);
+
         } else {
 
             // Ignore, and continue.

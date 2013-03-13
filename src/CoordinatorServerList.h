@@ -496,11 +496,15 @@ class CoordinatorServerList : public AbstractServerList{
                          Lock& lock,
                          ServerId serverId,
                          const ProtoBuf::MasterRecoveryInfo& recoveryInfo,
-                         EntryId oldServerUpdateEntryId = NO_ID)
+                         EntryId oldServerUpdateEntryId = NO_ID,
+                         bool isReplicationIdUpdate = false,
+                         uint64_t replicationId = 0)
                 : csl(csl), lock(lock),
                   serverId(serverId),
                   recoveryInfo(recoveryInfo),
-                  oldServerUpdateEntryId(oldServerUpdateEntryId) {}
+                  oldServerUpdateEntryId(oldServerUpdateEntryId),
+                  isReplicationIdUpdate(isReplicationIdUpdate),
+                  replicationId(replicationId) {}
             void execute();
             void complete(EntryId entryId);
         private:
@@ -526,6 +530,15 @@ class CoordinatorServerList : public AbstractServerList{
              * to LogCabin corresponding to this server (if any).
              */
             EntryId oldServerUpdateEntryId;
+            /**
+             * Flag that says whether the ServerUpdate is a replication id
+             * update.
+             */
+            bool isReplicationIdUpdate;
+            /**
+             * The replication id of the server.
+             */
+            uint64_t replicationId;
             DISALLOW_COPY_AND_ASSIGN(ServerUpdate);
     };
 
