@@ -486,8 +486,8 @@ TEST_F(LogCleanerTest, CostBenefitComparer_costBenefit) {
     EXPECT_EQ(0, a->getDiskUtilization());
     EXPECT_EQ(-1UL, c.costBenefit(a));
 
-    a->statistics.increment(88227, 2836461);
-    a->statistics.increment(1726, 826401);
+    a->statistics.increment(88227, 88227UL * 2836461);
+    a->statistics.increment(1726, 1726UL * 826401);
     EXPECT_EQ(1, a->getDiskUtilization());
     EXPECT_EQ(4134119715UL, c.costBenefit(a));
 

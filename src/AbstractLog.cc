@@ -130,7 +130,9 @@ AbstractLog::free(Reference reference)
     Buffer buffer;
     LogEntryType type = segment.getEntry(offset, buffer);
     uint32_t timestamp = entryHandlers->getTimestamp(type, buffer);
-    segment.statistics.decrement(buffer.getTotalLength(), timestamp);
+    uint32_t lengthWithMetadata = buffer.getTotalLength();
+    segment.statistics.decrement(lengthWithMetadata,
+        static_cast<uint64_t>(lengthWithMetadata) * timestamp);
 }
 
 /**
@@ -285,12 +287,15 @@ AbstractLog::append(Lock& appendLock,
     if (outReference != NULL)
         *outReference = Reference(head->slot, segmentOffset, segmentSize);
 
-    head->statistics.increment(head->getAppendedLength() - bytesUsedBefore,
-                               timestamp);
+    uint32_t lengthWithMetadata = head->getAppendedLength() - bytesUsedBefore;
+
+    // Update log statistics so that the cleaner can make intelligent decisions
+    // when trying to reclaim memory.
+    head->statistics.increment(lengthWithMetadata,
+        static_cast<uint64_t>(lengthWithMetadata) * timestamp);
 
     metrics.totalBytesAppended += length;
-    metrics.totalMetadataBytesAppended +=
-        (head->getAppendedLength() - bytesUsedBefore) - length;
+    metrics.totalMetadataBytesAppended += (lengthWithMetadata - length);
 
     return true;
 }

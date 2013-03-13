@@ -300,13 +300,22 @@ LogCleaner::doMemoryCleaning()
     uint64_t liveEntriesScanned[TOTAL_LOG_ENTRY_TYPES] = { 0 };
     uint64_t scannedEntryLengths[TOTAL_LOG_ENTRY_TYPES] = { 0 };
     uint64_t liveScannedEntryLengths[TOTAL_LOG_ENTRY_TYPES] = { 0 };
+    uint32_t bytesAppended = 0;
+    uint64_t spaceTimeSum = 0;
 
     for (SegmentIterator it(*segment); !it.isDone(); it.next()) {
         LogEntryType type = it.getType();
         Buffer buffer;
         it.appendToBuffer(buffer);
+        Log::Reference reference = segment->getReference(it.getOffset());
 
-        RelocStatus s = relocateEntry(type, buffer, survivor, inMemoryMetrics);
+        RelocStatus s = relocateEntry(type,
+                                      buffer,
+                                      reference,
+                                      survivor,
+                                      inMemoryMetrics,
+                                      &bytesAppended,
+                                      &spaceTimeSum);
         if (s == RELOCATION_FAILED)
             throw FatalError(HERE, "Entry didn't fit into survivor!");
 
@@ -317,6 +326,12 @@ LogCleaner::doMemoryCleaning()
             liveScannedEntryLengths[type] += buffer.getTotalLength();
         }
     }
+
+    // Be sure to update the usage statistics for the new segment. This
+    // is done once here, rather than for each relocated entry because
+    // it avoids the expense of atomically updating two separate fields.
+    survivor->statistics.increment(bytesAppended, spaceTimeSum);
+
     for (size_t i = 0; i < TOTAL_LOG_ENTRY_TYPES; i++) {
         inMemoryMetrics.totalEntriesScanned[i] += entriesScanned[i];
         inMemoryMetrics.totalLiveEntriesScanned[i] += liveEntriesScanned[i];
@@ -675,15 +690,28 @@ LogCleaner::relocateLiveEntries(EntryVector& entries,
     uint64_t liveEntriesScanned[TOTAL_LOG_ENTRY_TYPES] = { 0 };
     uint64_t scannedEntryLengths[TOTAL_LOG_ENTRY_TYPES] = { 0 };
     uint64_t liveScannedEntryLengths[TOTAL_LOG_ENTRY_TYPES] = { 0 };
+    uint32_t bytesAppended = 0;
+    uint64_t spaceTimeSum = 0;
 
     foreach (Entry& entry, entries) {
         Buffer buffer;
         LogEntryType type = entry.segment->getEntry(entry.offset, buffer);
+        Log::Reference reference = entry.segment->getReference(entry.offset);
 
-        RelocStatus s = relocateEntry(type, buffer, survivor, onDiskMetrics);
+        RelocStatus s = relocateEntry(type,
+                                      buffer,
+                                      reference,
+                                      survivor,
+                                      onDiskMetrics,
+                                      &bytesAppended,
+                                      &spaceTimeSum);
         if (s == RELOCATION_FAILED) {
-            if (survivor != NULL)
+            if (survivor != NULL) {
+                survivor->statistics.increment(bytesAppended, spaceTimeSum);
+                bytesAppended = 0;
+                spaceTimeSum = 0;
                 closeSurvivor(survivor);
+            }
 
             // Allocate a survivor segment to write into. This call may block if
             // one is not available right now.
@@ -697,7 +725,13 @@ LogCleaner::relocateLiveEntries(EntryVector& entries,
             outSurvivors.push_back(survivor);
             currentSurvivorBytesAppended = survivor->getAppendedLength();
 
-            s = relocateEntry(type, buffer, survivor, onDiskMetrics);
+            s = relocateEntry(type,
+                              buffer,
+                              reference,
+                              survivor,
+                              onDiskMetrics,
+                              &bytesAppended,
+                              &spaceTimeSum);
             if (s == RELOCATION_FAILED)
                 throw FatalError(HERE, "Entry didn't fit into empty survivor!");
         }
@@ -717,8 +751,10 @@ LogCleaner::relocateLiveEntries(EntryVector& entries,
         }
     }
 
-    if (survivor != NULL)
+    if (survivor != NULL) {
+        survivor->statistics.increment(bytesAppended, spaceTimeSum);
         closeSurvivor(survivor);
+    }
 
     // Ensure that the survivors have been synced to backups before proceeding.
     foreach (survivor, outSurvivors) {

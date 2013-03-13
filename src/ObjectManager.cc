@@ -855,6 +855,8 @@ ObjectManager::getTimestamp(LogEntryType type, Buffer& buffer)
  * \param oldBuffer
  *      Buffer pointing to the entry in the log being cleaned. This is the
  *      location that will soon be invalid due to garbage collection.
+ * \param oldReference
+ *      Log reference pointing to the entry being cleaned.
  * \param relocator
  *      The relocator is used to copy a live entry to a new location in the
  *      log and get a reference to that new location. If the entry is not
@@ -863,10 +865,11 @@ ObjectManager::getTimestamp(LogEntryType type, Buffer& buffer)
 void
 ObjectManager::relocate(LogEntryType type,
                         Buffer& oldBuffer,
+                        Log::Reference oldReference,
                         LogEntryRelocator& relocator)
 {
     if (type == LOG_ENTRY_TYPE_OBJ)
-        relocateObject(oldBuffer, relocator);
+        relocateObject(oldBuffer, oldReference, relocator);
     else if (type == LOG_ENTRY_TYPE_OBJTOMB)
         relocateTombstone(oldBuffer, relocator);
 }
@@ -893,6 +896,7 @@ ObjectManager::relocate(LogEntryType type,
  */
 void
 ObjectManager::relocateObject(Buffer& oldBuffer,
+                              Log::Reference oldReference,
                               LogEntryRelocator& relocator)
 {
     Key key(LOG_ENTRY_TYPE_OBJ, oldBuffer);
@@ -906,23 +910,25 @@ ObjectManager::relocateObject(Buffer& oldBuffer,
         return;
     }
 
-    bool keepNewObject = false;
-
-    LogEntryType currentType;
-    Buffer currentBuffer;
-    if (lookup(lock, key, currentType, currentBuffer)) {
-        assert(currentType == LOG_ENTRY_TYPE_OBJ);
-
-        keepNewObject = (currentBuffer.getStart<uint8_t>() ==
-                         oldBuffer.getStart<uint8_t>());
-        if (keepNewObject) {
-            // Try to relocate it. If it fails, just return. The cleaner will
-            // allocate more memory and retry.
-            uint32_t timestamp = getObjectTimestamp(oldBuffer);
-            if (!relocator.append(LOG_ENTRY_TYPE_OBJ, oldBuffer, timestamp))
-                return;
-            replace(lock, key, relocator.getNewReference());
+    // It's much faster not to use lookup and replace here, but to
+    // scan the hash table bucket ourselves. We already have the
+    // reference, so there's no need for a key comparison, and we
+    // can easily avoid looping over the bucket twice this way for
+    // live objects.
+    HashTable::Candidates candidates = objectMap.lookup(key);
+    while (!candidates.isDone()) {
+        if (candidates.getReference() != oldReference.toInteger()) {
+            candidates.next();
+            continue;
         }
+
+        // Try to relocate this live object. If we fail, just return. The
+        // cleaner will allocate more memory and retry.
+        uint32_t timestamp = getObjectTimestamp(oldBuffer);
+        if (!relocator.append(LOG_ENTRY_TYPE_OBJ, oldBuffer, timestamp))
+            return;
+        candidates.setReference(relocator.getNewReference().toInteger());
+        return;
     }
 }
 

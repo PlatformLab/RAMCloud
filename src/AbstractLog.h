@@ -22,10 +22,7 @@
 
 #include "BoostIntrusive.h"
 #include "LogEntryTypes.h"
-#include "LogEntryHandlers.h"
 #include "Segment.h"
-#include "SegmentManager.h"
-#include "LogSegment.h"
 #include "SpinLock.h"
 #include "ReplicaManager.h"
 #include "HashTable.h"
@@ -33,6 +30,20 @@
 #include "LogMetrics.pb.h"
 
 namespace RAMCloud {
+
+/// LogEntryHandlers needs the AbstractLog::Reference definition.
+class LogEntryHandlers;
+
+/// LogSegment needs the AbstractLog::Reference definition as well.
+class LogSegment;
+
+/// Avoid yet another circular dependency.
+class SegmentManager;
+
+/// Redeclare the typedef defined in SegmentManager.h to avoid a cyclical
+/// dependency. See SegmentManager.h's typedef comments for documentation on
+/// this type.
+typedef uint32_t SegmentSlot;
 
 /**
  * This class implements functionality common to the Log and SideLog subclasses.
@@ -282,8 +293,6 @@ class AbstractLog {
     }
 
   PROTECTED:
-    INTRUSIVE_LIST_TYPEDEF(LogSegment, listEntries) SegmentList;
-
     /**
      * This virtual method is used to allocate the next segment to append
      * entries to when either there was no previous one (immediately following

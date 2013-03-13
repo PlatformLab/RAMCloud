@@ -75,6 +75,7 @@ class ObjectManager : public LogEntryHandlers {
     uint32_t getTimestamp(LogEntryType type, Buffer& buffer);
     void relocate(LogEntryType type,
                   Buffer& oldBuffer,
+                  Log::Reference oldReference,
                   LogEntryRelocator& relocator);
 
     /**
@@ -330,6 +331,7 @@ class ObjectManager : public LogEntryHandlers {
     Status rejectOperation(const RejectRules* rejectRules, uint64_t version)
         __attribute__((warn_unused_result));
     void relocateObject(Buffer& oldBuffer,
+                        Log::Reference oldReference,
                         LogEntryRelocator& relocator);
     void relocateTombstone(Buffer& oldBuffer,
                            LogEntryRelocator& relocator);

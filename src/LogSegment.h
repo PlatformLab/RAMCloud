@@ -16,6 +16,7 @@
 #ifndef RAMCLOUD_LOGSEGMENT_H
 #define RAMCLOUD_LOGSEGMENT_H
 
+#include "AbstractLog.h"
 #include "BoostIntrusive.h"
 #include "ReplicatedSegment.h"
 #include "Segment.h"
@@ -63,41 +64,51 @@ class LogSegment : public Segment {
         }
 
         /**
-         * Increment the count of live bytes in this segment after a new entry
-         * has been appended.
+         * Increment the count of live bytes in this segment after one or more
+         * entries have been appended.
          *
          * \param newLiveBytes
-         *      The number of bytes added by the entry. This should include all
-         *      metadata to get a complete accounting of space used.
-         * \param timestamp
-         *      WallTime creation timestamp for this entry.
+         *      The number of bytes added by the entry or entries. This must
+         *      include all metadata to get a complete accounting of space used.
+         *      If multiple entries were added, this is simply the sum of their
+         *      lengths in the log.
+         * \param spaceTimeSum
+         *      Sum of each entry's length in the log times their WallTime
+         *      creation timestamp. For example, if we have two entries of
+         *      length L1 and L2 with timestamps T1 and T2, this value must be
+         *      L1 * T1 + L2 * T2.
          */
         void
-        increment(uint32_t newLiveBytes, uint32_t timestamp)
+        increment(uint32_t newLiveBytes, uint64_t spaceTimeSum)
         {
             std::lock_guard<SpinLock> guard(lock);
             liveBytes += newLiveBytes;
-            spaceTimeSum += static_cast<uint64_t>(newLiveBytes) * timestamp;
+            spaceTimeSum += spaceTimeSum;
         }
 
         /**
-         * Decrement the count of live bytes in this segment after an entry is 
-         * no longer alive. This is the opposite of #increment, and all of the
-         * parameters given for a particular entry should be identical to what
-         * was provided to #increment.
+         * Decrement the count of live bytes in this segment after one or more
+         * entries have been removed (are no longer alive). This is the opposite
+         * of #increment, and all of the parameters given for a particular entry
+         * should be identical to what was provided to #increment.
          *
-         * \param freedBytes
-         *      The number of bytes used by the dead entry. This should include
-         *      all metadata to get a complete accounting of space used.
-         * \param timestamp
-         *      The WallTime creation timestamp for the dead entry.
+         * \param freedDeadBytes
+         *      The number of bytes used by the dead entry or entries. This must
+         *      must include all metadata to get a complete accounting of space
+         *      used. If multiple entries were removed, this is simply the sum
+         *      of their lengths in the log.
+         * \param spaceTimeSum 
+         *      Sum of each entry's length in the log times their WallTime
+         *      creation timestamp. For example, if we have two entries of
+         *      length L1 and L2 with timestamps T1 and T2, this value must be
+         *      L1 * T1 + L2 * T2.
          */
         void
-        decrement(uint32_t freedBytes, uint32_t timestamp)
+        decrement(uint32_t freedDeadBytes, uint64_t spaceTimeSum)
         {
             std::lock_guard<SpinLock> guard(lock);
-            liveBytes -= freedBytes;
-            spaceTimeSum -= static_cast<uint64_t>(freedBytes) * timestamp;
+            liveBytes -= freedDeadBytes;
+            spaceTimeSum -= spaceTimeSum;
         }
 
         /**
@@ -234,6 +245,20 @@ class LogSegment : public Segment {
         uint64_t unused;
         statistics.get(liveBytes, unused);
         return liveBytes;
+    }
+
+    /**
+     * Given an offset into this segment, return a corresponding Log::Reference.
+     * This is primarily used by the cleaner to provide ObjectManager with a
+     * simple way to checking if an object is alive (this reference is in the
+     * hash table iff it's alive).
+     */
+    AbstractLog::Reference
+    getReference(uint32_t offset)
+    {
+        assert(offset < segmentSize);
+        assert(offset < (getSegletsAllocated() * segletSize));
+        return AbstractLog::Reference(slot, offset, segmentSize);
     }
 
     /// Log-unique 64-bit identifier for this segment.

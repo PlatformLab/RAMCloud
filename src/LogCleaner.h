@@ -268,23 +268,34 @@ class LogCleaner {
     RelocStatus
     relocateEntry(LogEntryType type,
                   Buffer& buffer,
+                  Log::Reference reference,
                   LogSegment* survivor,
-                  T& metrics)
+                  T& metrics,
+                  uint32_t* bytesAppended,
+                  uint64_t* spaceTimeSum)
     {
         LogEntryRelocator relocator(survivor, buffer.getTotalLength());
 
         {
             metrics.totalRelocationCallbacks++;
             MetricCycleCounter _(&metrics.relocationCallbackTicks);
-            entryHandlers.relocate(type, buffer, relocator);
+            entryHandlers.relocate(type, buffer, reference, relocator);
         }
 
         if (relocator.failed())
             return RELOCATION_FAILED;
 
-        metrics.totalRelocationAppends++;
-        metrics.relocationAppendTicks += relocator.getAppendTicks();
-        return relocator.relocated() ? RELOCATED : DISCARDED;
+        if (relocator.relocated()) {
+            uint32_t bytes = relocator.getTotalBytesAppended();
+            *bytesAppended += bytes;
+            *spaceTimeSum += (static_cast<uint64_t>(bytes) *
+                                relocator.getTimestamp());
+            metrics.totalRelocationAppends++;
+            metrics.relocationAppendTicks += relocator.getAppendTicks();
+            return RELOCATED;
+        }
+
+        return DISCARDED;
     }
 
     /// Shared RAMCloud information.

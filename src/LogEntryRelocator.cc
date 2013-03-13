@@ -39,7 +39,9 @@ LogEntryRelocator::LogEntryRelocator(LogSegment* segment,
       offset(-1),
       outOfSpace(false),
       didAppend(false),
-      appendTicks(0)
+      appendTicks(0),
+      totalBytesAppended(0),
+      timestamp(0)
 {
 }
 
@@ -84,8 +86,8 @@ LogEntryRelocator::append(LogEntryType type, Buffer& buffer, uint32_t timestamp)
         return false;
     }
 
-    uint32_t bytesUsed = segment->getAppendedLength() - priorLength;
-    segment->statistics.increment(bytesUsed, timestamp);
+    totalBytesAppended = segment->getAppendedLength() - priorLength;
+    this->timestamp = timestamp;
 
     didAppend = true;
     return true;
@@ -131,6 +133,18 @@ bool
 LogEntryRelocator::relocated()
 {
     return didAppend;
+}
+
+uint32_t
+LogEntryRelocator::getTimestamp()
+{
+    return timestamp;
+}
+
+uint32_t
+LogEntryRelocator::getTotalBytesAppended()
+{
+    return totalBytesAppended;
 }
 
 } // end RAMCloud

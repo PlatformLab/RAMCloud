@@ -97,16 +97,16 @@ TEST_F(LogSegment_StatisticsTest, constructor) {
 }
 
 TEST_F(LogSegment_StatisticsTest, increment) {
-    s.increment(2842, 9283842);
+    s.increment(2842, 2842UL * 9283842);
     EXPECT_EQ(2842U, s.liveBytes);
     EXPECT_EQ(2842UL * 9283842, s.spaceTimeSum);
 }
 
 TEST_F(LogSegment_StatisticsTest, decrement) {
-    s.increment(2842, 9283842);
-    s.increment(828274, 27346727);
-    s.increment(726, 283646292);
-    s.decrement(828274, 27346727);
+    s.increment(2842, 2842UL * 9283842);
+    s.increment(828274, 828274UL * 27346727);
+    s.increment(726, 726UL * 283646292);
+    s.decrement(828274, 828274UL * 27346727);
     EXPECT_EQ(2842U + 726, s.liveBytes);
     EXPECT_EQ(2842UL * 9283842 + 726UL * 283646292, s.spaceTimeSum);
 }
@@ -119,7 +119,7 @@ TEST_F(LogSegment_StatisticsTest, get) {
     EXPECT_EQ(0U, liveBytes);
     EXPECT_EQ(0U, spaceTimeSum);
 
-    s.increment(97013, 8262502);
+    s.increment(97013, 97013UL * 8262502);
     s.get(liveBytes, spaceTimeSum);
     EXPECT_EQ(97013U, liveBytes);
     EXPECT_EQ(801570106526UL, spaceTimeSum);

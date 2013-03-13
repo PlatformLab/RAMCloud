@@ -16,6 +16,7 @@
 #ifndef RAMCLOUD_LOGENTRYHANDLERS_H
 #define RAMCLOUD_LOGENTRYHANDLERS_H
 
+#include "AbstractLog.h"
 #include "Buffer.h"
 #include "HashTable.h"
 #include "LogEntryTypes.h"
@@ -56,6 +57,7 @@ class LogEntryHandlers {
      */
     virtual void relocate(LogEntryType type,
                           Buffer& oldBuffer,
+                          AbstractLog::Reference oldReference,
                           LogEntryRelocator& relocator) = 0;
 };
 

@@ -56,6 +56,8 @@ class LogEntryRelocator {
     uint64_t getAppendTicks();
     bool failed();
     bool relocated();
+    uint32_t getTotalBytesAppended();
+    uint32_t getTimestamp();
 
   PRIVATE:
     /// The segment we will attempt to append to.
@@ -79,6 +81,14 @@ class LogEntryRelocator {
     /// Number of cpu cycles spent in the append() routine. For log cleaner
     /// performance metrics.
     uint64_t appendTicks;
+
+    /// If the append() method is invoked and succeeds, this saves the total
+    /// number of bytes appended.
+    uint32_t totalBytesAppended;
+
+    /// If the append() method is invoked and succeeds, this saves the timestamp
+    /// argument that was provided.
+    uint32_t timestamp;
 };
 
 } // namespace
