@@ -156,6 +156,10 @@ message LogMetrics {
     message SegmentMetrics {
         /// Histogram tracking the number of segments replicated on backups.
         required Histogram segments_on_disk_histogram = 1;
+
+        /// The index of each count corresponds to the LogEntryType enum.
+        repeated fixed64 total_entry_counts = 2;
+        repeated fixed64 total_entry_lengths = 3;
     }
     required SegmentMetrics segment_metrics = 9;
 }

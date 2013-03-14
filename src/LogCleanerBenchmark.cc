@@ -620,13 +620,13 @@ class Benchmark {
 
             // single WriteRpc case
             if (writes.size() == 1) {
+                ticks.construct();
                 rpc.construct(ramcloud,
                               writes[0].tableId,
                               writes[0].key,
                               writes[0].keyLength,
                               writes[0].object,
                               writes[0].objectLength);
-                ticks.construct();
                 return;
             }
 
@@ -639,10 +639,10 @@ class Benchmark {
                                            writes[i].object,
                                            writes[i].objectLength));
             }
+            ticks.construct();
             multiRpc.construct(ramcloud,
                                &multiWriteObjs[0],
                                downCast<uint32_t>(multiWriteObjs.size()));
-            ticks.construct();
         }
 
         bool
@@ -1547,6 +1547,23 @@ Output::dumpLogMetrics(FILE* fp, ProtoBuf::LogMetrics& metrics)
                                          serverHz);
     fprintf(fp, "  Time Out of Memory:            %.3f sec (%.2f%%)\n",
         noMemTime, 100.0 * noMemTime / elapsed);
+
+    fprintf(fp, "  Total (Dead or Alive) Entry Counts in All Segments:\n");
+
+    const ProtoBuf::LogMetrics_SegmentMetrics& sm = metrics.segment_metrics();
+    uint64_t totalCount = 0;
+    uint64_t totalLength = 0;
+    foreach (uint64_t count, sm.total_entry_counts())
+        totalCount += count;
+    foreach (uint64_t length, sm.total_entry_lengths())
+        totalLength += length;
+
+    for (int i = 0; i < sm.total_entry_counts_size(); i++) {
+        fprintf(fp, "    %-26.26s   %5.2f%%  (%5.2f%% space)\n",
+            LogEntryTypeHelpers::toString(static_cast<LogEntryType>(i)),
+                d(sm.total_entry_counts(i)) / d(totalCount) * 100.0,
+                d(sm.total_entry_lengths(i)) / d(totalLength) * 100.0);
+    }
 }
 
 struct SpinLockStats {

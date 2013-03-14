@@ -36,10 +36,12 @@ Segment::Segment()
       mustFreeBlocks(true),
       head(0),
       checksum(),
-      entryCounts()
+      entryCounts(),
+      entryLengths()
 {
     segletBlocks.push_back(new uint8_t[segletSize]);
     memset(entryCounts, 0, sizeof(entryCounts));
+    memset(entryLengths, 0, sizeof(entryLengths));
 }
 
 /**
@@ -186,6 +188,9 @@ Segment::append(LogEntryType type,
         *outOffset = startOffset;
 
     entryCounts[type]++;
+    entryLengths[type] += length +
+                          downCast<uint32_t>(sizeof(entryHeader)) +
+                          entryHeader.getLengthBytes();
 
     return true;
 }
@@ -310,10 +315,29 @@ Segment::getEntry(uint32_t offset, Buffer& buffer)
     return header.getType();
 }
 
+/**
+ * Return the number of entries of the given type that have been appended to
+ * this segment. There is no notion of dead or alive entries. Any that were
+ * ever appended are reflected in the result.
+ */
 uint32_t
 Segment::getEntryCount(LogEntryType type)
 {
     return entryCounts[type];
+}
+
+/*
+ * Return the number of bytes taken up by entries of the given type that have
+ * been appended to this segment. There is no notion of dead or alive entries.
+ * Any that were ever appended are reflected in the result.
+ *
+ * Note that this value includes the header overheads (type and length field)
+ * within the Segment.
+ */
+uint32_t
+Segment::getEntryLengths(LogEntryType type)
+{
+    return entryLengths[type];
 }
 
 /**

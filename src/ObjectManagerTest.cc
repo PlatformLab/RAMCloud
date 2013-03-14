@@ -796,7 +796,8 @@ TEST_F(ObjectManagerTest, objectRelocationCallback_objectAlive) {
 
     LogEntryRelocator relocator(
         objectManager.segmentManager.getHeadSegment(), 1000);
-    objectManager.relocate(LOG_ENTRY_TYPE_OBJ, oldBuffer, relocator);
+    objectManager.relocate(LOG_ENTRY_TYPE_OBJ, oldBuffer,
+                           oldReference, relocator);
     EXPECT_TRUE(relocator.didAppend);
 
     LogEntryType newType2;
@@ -827,9 +828,10 @@ TEST_F(ObjectManagerTest, objectRelocationCallback_objectDeleted) {
     LogEntryType type;
     Buffer buffer;
     bool success = false;
+    Log::Reference reference;
     {
         ObjectManager::HashTableBucketLock lock(objectManager, key);
-        success = objectManager.lookup(lock, key, type, buffer);
+        success = objectManager.lookup(lock, key, type, buffer, 0, &reference);
     }
     EXPECT_TRUE(success);
 
@@ -837,7 +839,7 @@ TEST_F(ObjectManagerTest, objectRelocationCallback_objectDeleted) {
 
     LogEntryRelocator relocator(
         objectManager.segmentManager.getHeadSegment(), 1000);
-    objectManager.relocate(LOG_ENTRY_TYPE_OBJ, buffer, relocator);
+    objectManager.relocate(LOG_ENTRY_TYPE_OBJ, buffer, reference, relocator);
     EXPECT_FALSE(relocator.didAppend);
 }
 
@@ -850,9 +852,10 @@ TEST_F(ObjectManagerTest, objectRelocationCallback_objectModified) {
 
     LogEntryType type;
     Buffer buffer;
+    Log::Reference reference;
     {
         ObjectManager::HashTableBucketLock lock(objectManager, key);
-        objectManager.lookup(lock, key, type, buffer);
+        objectManager.lookup(lock, key, type, buffer, 0, &reference);
     }
 
     value.reset();
@@ -863,7 +866,7 @@ TEST_F(ObjectManagerTest, objectRelocationCallback_objectModified) {
 
     LogEntryRelocator relocator(
         objectManager.segmentManager.getHeadSegment(), 1000);
-    objectManager.relocate(LOG_ENTRY_TYPE_OBJ, buffer, relocator);
+    objectManager.relocate(LOG_ENTRY_TYPE_OBJ, buffer, reference, relocator);
     EXPECT_FALSE(relocator.didAppend);
 }
 

@@ -51,6 +51,7 @@ class TestEntryHandlers : public LogEntryHandlers {
     void
     relocate(LogEntryType type,
              Buffer& oldBuffer,
+             Log::Reference oldReference,
              LogEntryRelocator& relocator)
     {
         RAMCLOUD_TEST_LOG("type %d, size %u",
@@ -379,7 +380,7 @@ TEST_F(LogCleanerTest, getSegmentsToClean_maxBytes) {
 }
 
 TEST_F(LogCleanerTest, sortEntriesByTimestamp) {
-    LogCleaner::LiveEntryVector entries;
+    LogCleaner::EntryVector entries;
     entries.push_back({ NULL, 0, 5 });
     entries.push_back({ NULL, 0, 1 });
     entries.push_back({ NULL, 0, 3 });
@@ -401,7 +402,7 @@ TEST_F(LogCleanerTest, getSortedEntries) {
     segments.push_back(a);
     segments.push_back(b);
 
-    LogCleaner::LiveEntryVector entries;
+    LogCleaner::EntryVector entries;
     cleaner.getSortedEntries(segments, entries);
     string contents;
     int objectCount = 0;
@@ -426,7 +427,7 @@ TEST_F(LogCleanerTest, relocateLiveEntries) {
 
     LogSegmentVector segments;
     segments.push_back(s);
-    LogCleaner::LiveEntryVector entries;
+    LogCleaner::EntryVector entries;
     cleaner.getSortedEntries(segments, entries);
 
     TestLog::Enable _;
@@ -531,8 +532,8 @@ TEST_F(LogCleanerTest, CostBenefitComparer_operatorParen) {
 
 TEST_F(LogCleanerTest, TimestampComparer) {
     LogCleaner::TimestampComparer c;
-    LogCleaner::LiveEntry a(NULL, 0, 50);
-    LogCleaner::LiveEntry b(NULL, 0, 51);
+    LogCleaner::Entry a(NULL, 0, 50);
+    LogCleaner::Entry b(NULL, 0, 51);
     EXPECT_TRUE(c(a, b));
     EXPECT_FALSE(c(a, a));
     EXPECT_FALSE(c(b, a));

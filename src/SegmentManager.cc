@@ -123,8 +123,25 @@ SegmentManager::~SegmentManager()
 void
 SegmentManager::getMetrics(ProtoBuf::LogMetrics_SegmentMetrics& m)
 {
+    Lock guard(lock);
+
     segmentsOnDiskHistogram.serialize(
                 *m.mutable_segments_on_disk_histogram());
+
+    // Compile stats on the entries that exist in our segments (whether dead
+    // or alive).
+    uint64_t entryCounts[TOTAL_LOG_ENTRY_TYPES] = { 0 };
+    uint64_t entryLengths[TOTAL_LOG_ENTRY_TYPES] = { 0 };
+    foreach (Segment& s, allSegments) {
+        for (int i = 0; i < TOTAL_LOG_ENTRY_TYPES; i++) {
+            entryCounts[i] += s.getEntryCount(static_cast<LogEntryType>(i));
+            entryLengths[i] += s.getEntryLengths(static_cast<LogEntryType>(i));
+        }
+    }
+    for (int i = 0; i < TOTAL_LOG_ENTRY_TYPES; i++ ) {
+        m.add_total_entry_counts(entryCounts[i]);
+        m.add_total_entry_lengths(entryLengths[i]);
+    }
 }
 
 /**

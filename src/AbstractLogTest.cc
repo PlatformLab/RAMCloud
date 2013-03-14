@@ -31,7 +31,7 @@ class DoNothingHandlers : public LogEntryHandlers {
   public:
     uint32_t getTimestamp(LogEntryType type, Buffer& buffer) { return 0; }
     void relocate(LogEntryType type, Buffer& oldBuffer,
-                  LogEntryRelocator& relocator) { }
+                  Log::Reference oldReference, LogEntryRelocator& relocator) { }
 };
 
 /**

@@ -275,6 +275,7 @@ class Segment {
     uint32_t appendToBuffer(Buffer& buffer);
     LogEntryType getEntry(uint32_t offset, Buffer& buffer);
     uint32_t getEntryCount(LogEntryType type);
+    uint32_t getEntryLengths(LogEntryType type);
     uint32_t getAppendedLength(Certificate* certificate = NULL) const;
     uint32_t getSegletsAllocated();
     uint32_t getSegletsInUse();
@@ -386,6 +387,12 @@ class Segment {
     /// number of entries in the segment, not just the ones that are still
     /// considered alive.
     uint32_t entryCounts[TOTAL_LOG_ENTRY_TYPES];
+
+    /// Counts of the number of bytes appended to this segment corresponding
+    /// to each log entry type. These values monotonically increase and
+    /// therefore reflect the total number of bytes in the segment, not just
+    /// the ones that are still considered alive.
+    uint32_t entryLengths[TOTAL_LOG_ENTRY_TYPES];
 
     friend class SegmentIterator;
 
