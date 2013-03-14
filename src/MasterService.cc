@@ -690,6 +690,9 @@ MasterService::dropTabletOwnership(
                                               reqHdr->firstKeyHash,
                                               reqHdr->lastKeyHash);
     if (deleted) {
+        // Ensure that the ObjectManager never returns objects from this deleted
+        // tablet again.
+        objectManager.removeOrphanedObjects();
         LOG(NOTICE, "Dropped ownership of tablet [0x%lx,0x%lx] in tableId %lu",
             reqHdr->firstKeyHash, reqHdr->lastKeyHash, reqHdr->tableId);
     } else {
@@ -1017,6 +1020,10 @@ MasterService::migrateTablet(const WireFormat::MigrateTablet::Request* reqHdr,
         context->serverList->toString(newOwnerMasterId).c_str(), totalBytes);
 
     tabletManager.deleteTablet(tableId, firstKeyHash, lastKeyHash);
+
+    // Ensure that the ObjectManager never returns objects from this deleted
+    // tablet again.
+    objectManager.removeOrphanedObjects();
 }
 
 /**

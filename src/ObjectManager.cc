@@ -902,13 +902,14 @@ ObjectManager::relocateObject(Buffer& oldBuffer,
     Key key(LOG_ENTRY_TYPE_OBJ, oldBuffer);
     HashTableBucketLock lock(*this, key);
 
-    TabletManager::Tablet tablet;
-    if (!tabletManager->getTablet(key, &tablet)) {
-        // This tablet doesn't exist on the server anymore.
-        // Just remove the hash table entry, if it exists.
-        remove(lock, key);
-        return;
-    }
+    // Note that we do not query the TabletManager to see if this object
+    // belongs to a live tablet since that would create considerable
+    // contention for the TabletManager. We can do this safely because
+    // tablet drops synchronously purge the hash table of any objects
+    // corresponding to the tablet. Were we not to purge the objects,
+    // we could migrate a tablet away and back again while maintaining
+    // references to old objects (that could have been deleted on the
+    // intermediate master before migrating back).
 
     // It's much faster not to use lookup and replace here, but to
     // scan the hash table bucket ourselves. We already have the
