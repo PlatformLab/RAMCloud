@@ -118,10 +118,18 @@ class CleanerCompactionBenchmark {
             Cycles::toNanoseconds(ticks) / 1000 / 1000,
             100.0 * Cycles::toSeconds(metrics->relocationCallbackTicks) /
                     Cycles::toSeconds(ticks));
-        printf("  Avg Relocation Callback Time: %.0f ns\n",
+
+        uint64_t totalEntriesScanned = 0;
+        for (size_t i = 0; i < arrayLength(metrics->totalEntriesScanned); i++)
+            totalEntriesScanned += metrics->totalEntriesScanned[i];
+        printf("  Avg Time / Entry Scanned:     %.0f ns\n",
+            Cycles::toSeconds(ticks / totalEntriesScanned) * 1.0e9);
+
+        printf("  Avg Relocation Callback Time: %.0f ns (minus survivor append: %.0f)\n",
             Cycles::toSeconds(metrics->relocationCallbackTicks /
+                              metrics->totalRelocationCallbacks) * 1.0e9,
+            Cycles::toSeconds((metrics->relocationCallbackTicks - metrics->relocationAppendTicks) /
                               metrics->totalRelocationCallbacks) * 1.0e9);
-            
     }
 
     DISALLOW_COPY_AND_ASSIGN(CleanerCompactionBenchmark);

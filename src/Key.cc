@@ -116,7 +116,7 @@ Key::Key(uint64_t tableId, const void* stringKey, uint16_t stringKeyLength)
 uint64_t
 Key::getHash()
 {
-    if (!hash)
+    if (expect_false(!hash))
         hash.construct(getHash(tableId, stringKey, stringKeyLength));
 
     return *hash;

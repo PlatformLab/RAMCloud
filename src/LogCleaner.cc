@@ -316,12 +316,12 @@ LogCleaner::doMemoryCleaning()
                                       inMemoryMetrics,
                                       &bytesAppended,
                                       &spaceTimeSum);
-        if (s == RELOCATION_FAILED)
+        if (expect_false(s == RELOCATION_FAILED))
             throw FatalError(HERE, "Entry didn't fit into survivor!");
 
         entriesScanned[type]++;
         scannedEntryLengths[type] += buffer.getTotalLength();
-        if (s == RELOCATED) {
+        if (expect_true(s == RELOCATED)) {
             liveEntriesScanned[type]++;
             liveScannedEntryLengths[type] += buffer.getTotalLength();
         }
