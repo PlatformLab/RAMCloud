@@ -484,10 +484,12 @@ SingleFileStorage::Frame::open(bool sync)
 namespace {
 /**
  * Wrapper for pread that releases \a lock during IO and DIEs on any problem.
+ * If useDevNull is true, this method does not consider short reads to be a
+ * "problem".
  */
 void
 unlockedRead(SingleFileStorage::Frame::Lock& lock,
-             int fd, void* buf, size_t count, off_t offset)
+             int fd, void* buf, size_t count, off_t offset, bool usingDevNull)
 {
     lock.unlock();
     ssize_t r;
@@ -495,16 +497,17 @@ unlockedRead(SingleFileStorage::Frame::Lock& lock,
         CycleCounter<RawMetric> _(&metrics->backup.storageReadTicks);
         r = pread(fd, buf, count, offset);
     }
-    if (r != downCast<ssize_t>(count))
-        DIE("Failure performing asynchronous IO: %s", strerror(errno));
     if (r == -1) {
         DIE("Failed to read replica: %s, "
             "starting offset in file %lu, length %lu",
             strerror(errno), offset, count);
     } else if (r != downCast<ssize_t>(count)) {
-        DIE("Failed to read replica: reached end of "
-            "file, starting offset in file %lu, length %lu",
-             offset, count);
+        if (!usingDevNull)
+            DIE("Failure performing asynchronous IO (short read: "
+                "wanted %lu, got %lu at offset %lu; errno %d: %s)",
+                count, r, offset, errno, strerror(errno));
+        else
+            assert(errno == 0);
     }
     lock.lock();
 }
@@ -587,8 +590,8 @@ SingleFileStorage::Frame::performRead(Lock& lock)
         ++metrics->backup.storageReadCount;
         metrics->backup.storageReadBytes += storage->segmentSize;
         // Lock released during this call; assume any field could have changed.
-        unlockedRead(lock, storage->fd,
-                     buffer.get(), storage->segmentSize, frameStart);
+        unlockedRead(lock, storage->fd, buffer.get(),
+                     storage->segmentSize, frameStart, storage->usingDevNull);
     }
 
     assert(!this->buffer);
@@ -728,7 +731,8 @@ SingleFileStorage::BufferDeleter::operator()(void* buffer)
  * \param filePath
  *      A filesystem path to the device or file where segments will be stored.
  *      If NULL then a temporary file in the system temp directory is created
- *      and it is deleted when this storage instance is destroyed.
+ *      and it is deleted when this storage instance is destroyed. /dev/null
+ *      may also be used if you never want to see your data again.
  * \param openFlags
  *      Extra flags for use while opening filePath (default to 0, O_DIRECT may
  *      be used to disable the OS buffer cache.
@@ -749,6 +753,7 @@ SingleFileStorage::SingleFileStorage(size_t segmentSize,
     , lastAllocatedFrame(FreeMap::npos)
     , openFlags(openFlags)
     , fd(-1)
+    , usingDevNull(string(filePath) == "/dev/null")
     , tempFilePath()
     , nonVolatileBuffersInUse()
     , maxNonVolatileBuffers(maxNonVolatileBuffers)
@@ -764,6 +769,14 @@ SingleFileStorage::SingleFileStorage(size_t segmentSize,
                         O_CREAT | O_RDWR | openFlags);
         filePath = tempFilePath;
     } else {
+        // If we were given /dev/null (to take disk bandwidth out of the
+        // equation during testing/benchmarking), don't supply the O_DIRECT
+        // flag since it's not supported. Print an I-told-you-so while here.
+        if (usingDevNull) {
+            openFlags &= ~O_DIRECT;
+            LOG(WARNING, "Using /dev/null to \"store\" your data. I hope you "
+                "know what you're doing!");
+        }
         fd = ::open(filePath,
                     O_CREAT | O_RDWR | openFlags,
                     0666);
@@ -1029,7 +1042,7 @@ SingleFileStorage::resetSuperblock(ServerId serverId,
                     "cannot continue safely");
             }
             int s = fdatasync(fd);
-            if (s == -1) {
+            if (s == -1 && !usingDevNull) {
                 DIE("Failed to flush the backup superblock; "
                     "cannot continue safely: %s", strerror(errno));
             }

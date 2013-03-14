@@ -299,6 +299,12 @@ class SingleFileStorage : public BackupStorage {
     /// The file descriptor of the storage file.
     int fd;
 
+    /// Set to true if the filePath issued to the constructor was "/dev/null".
+    /// We need to keep track of this since /dev/null will readily take any
+    /// bytes written to it, but does not return anything, which breaks the
+    /// initial "disk" benchmark.
+    const bool usingDevNull;
+
     /**
      * Filename if none was specified. If set the file is deleted when this
      * instance is destroyed. Useful for testing.
