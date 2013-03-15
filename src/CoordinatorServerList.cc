@@ -498,16 +498,11 @@ CoordinatorServerList::recoverServerUpdate(
 {
     Lock lock(mutex);
     LOG(DEBUG, "CoordinatorServerList::recoverServerUpdate()");
-    if (state->entry_type() == "ServerUpdateReplicationId") {
-        ServerUpdate(*this, lock, ServerId(state->server_id()),
-            state->master_recovery_info(), NO_ID, true,
-            state->replication_id()).complete(logIdServerUpdate);
-    } else {
-        // If there are other update-able fields in the future, read them in
-        // from ServerUpdate and update them all.
-        ServerUpdate(*this, lock, ServerId(state->server_id()),
-            state->master_recovery_info()).complete(logIdServerUpdate);
-    }
+    // If there are other update-able fields in the future, read them in from
+    // ServerUpdate and update them all.
+    ServerUpdate(*this, lock,
+                 ServerId(state->server_id()),
+                 state->master_recovery_info()).complete(logIdServerUpdate);
 }
 
 //////////////////////////////////////////////////////////////////////
@@ -817,12 +812,7 @@ void
 CoordinatorServerList::ServerUpdate::execute()
 {
     ProtoBuf::ServerUpdate serverUpdate;
-    if (!isReplicationIdUpdate) {
-        serverUpdate.set_entry_type("ServerUpdate");
-    } else {
-        serverUpdate.set_entry_type("ServerUpdateReplicationId");
-        serverUpdate.set_replication_id(replicationId);
-    }
+    serverUpdate.set_entry_type("ServerUpdate");
     serverUpdate.set_server_id(serverId.getId());
     (*serverUpdate.mutable_master_recovery_info()) = recoveryInfo;
 
@@ -852,14 +842,8 @@ CoordinatorServerList::ServerUpdate::complete(EntryId entryId)
     Entry* entry = csl.getEntry(serverId);
 
     if (entry) {
+        entry->masterRecoveryInfo = recoveryInfo;
         entry->logIdServerUpdate = entryId;
-        if (isReplicationIdUpdate) {
-            entry->replicationId = replicationId;
-            ProtoBuf::ServerList_Entry& protoBufEntry(*csl.update.add_server());
-            entry->serialize(protoBufEntry);
-        } else {
-            entry->masterRecoveryInfo = recoveryInfo;
-        }
     } else {
         LOG(WARNING, "Server being updated doesn't exist: %s",
             serverId.toString().c_str());
@@ -1235,10 +1219,9 @@ CoordinatorServerList::assignReplicationGroup(
         }
 
         if (e->status == ServerStatus::UP) {
-            ProtoBuf::MasterRecoveryInfo r;
-            ServerUpdate(*this, lock, e->serverId, r,
-                         e->logIdServerUpdate,
-                         true, replicationId).execute();
+            e->replicationId = replicationId;
+            ProtoBuf::ServerList_Entry& protoBufEntry(*update.add_server());
+            e->serialize(protoBufEntry);
         }
     }
     return true;
