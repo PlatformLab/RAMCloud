@@ -280,6 +280,9 @@ LogCleaner::doMemoryCleaning()
     TEST_LOG("called");
     MetricCycleCounter _(&inMemoryMetrics.totalTicks);
 
+    if (disableInMemoryCleaning)
+        return 0;
+
     uint32_t freeableSeglets;
     LogSegment* segment = getSegmentToCompact(freeableSeglets);
     if (segment == NULL)
