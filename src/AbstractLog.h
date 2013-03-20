@@ -264,6 +264,7 @@ class AbstractLog {
            Reference* outReference = NULL)
     {
         Lock lock(appendLock);
+        metrics.totalAppendCalls++;
         return append(lock,
                       type,
                       timestamp,
@@ -283,6 +284,7 @@ class AbstractLog {
            Reference* outReference = NULL)
     {
         Lock lock(appendLock);
+        metrics.totalAppendCalls++;
         return append(lock,
                       type,
                       timestamp,
@@ -372,13 +374,18 @@ class AbstractLog {
     class Metrics {
       public:
         Metrics()
-            : totalAppendTicks(0),
+            : totalAppendCalls(0),
+              totalAppendTicks(0),
               totalNoSpaceTicks(0),
               noSpaceTimer(),
               totalBytesAppended(0),
               totalMetadataBytesAppended(0)
         {
         }
+
+        /// Total number of times any of the public append() methods have been
+        /// called.
+        uint64_t totalAppendCalls;
 
         /// Total number of cpu cycles spent appending data. Includes any
         /// synchronous replication time, but does not include waiting for

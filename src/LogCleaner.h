@@ -191,12 +191,14 @@ class LogCleaner {
             , lastMemCompactionMemFreeRate(0)
             , lastDiskCleaningTime(0)
             , lastMemCompactionTime(0)
+            , threadNumber(0)
         {
         }
         uint64_t lastDiskCleaningMemFreeRate;
         uint64_t lastMemCompactionMemFreeRate;
         uint64_t lastDiskCleaningTime;
         uint64_t lastMemCompactionTime;
+        uint32_t threadNumber;
     };
 
     static void cleanerThreadEntry(LogCleaner* logCleaner, Context* context);

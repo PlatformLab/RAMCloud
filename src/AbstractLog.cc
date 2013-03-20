@@ -77,6 +77,7 @@ AbstractLog::append(AppendVector* appends, uint32_t numAppends)
 {
     CycleCounter<uint64_t> _(&metrics.totalAppendTicks);
     Lock lock(appendLock);
+    metrics.totalAppendCalls++;
 
     uint32_t lengths[numAppends];
     for (uint32_t i = 0; i < numAppends; i++)
@@ -144,6 +145,7 @@ AbstractLog::free(Reference reference)
 void
 AbstractLog::getMetrics(ProtoBuf::LogMetrics& m)
 {
+    m.set_total_append_calls(metrics.totalAppendCalls);
     m.set_ticks_per_second(Cycles::perSecond());
     m.set_total_append_ticks(metrics.totalAppendTicks);
     m.set_total_no_space_ticks(metrics.totalNoSpaceTicks);
@@ -257,6 +259,11 @@ AbstractLog::append(Lock& appendLock,
             uint64_t* outTickCounter)
 {
     CycleCounter<uint64_t> _(outTickCounter);
+
+    // Note that we do not increment metrics.totalAppendCalls here, but rather
+    // in the public methods that invoke this. The reason is that we consider
+    // a single append of multiple entries (which invokes this method several
+    // times) to be a single call.
 
     // This is only possible once after construction.
     if (head == NULL) {

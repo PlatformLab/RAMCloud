@@ -56,6 +56,7 @@ SHARED_SRCFILES := \
 		   src/LogDigest.cc \
 		   src/LogEntryRelocator.cc \
 		   src/LogEntryTypes.cc \
+		   src/LogMetricsStringer.cc \
 		   src/Logger.cc \
 		   src/LogIterator.cc \
 		   src/MacAddress.cc \

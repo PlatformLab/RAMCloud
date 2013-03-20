@@ -72,8 +72,8 @@ TESTS_SRCFILES := \
 		  src/ObjectRpcWrapperTest.cc \
 		  src/OptionParserTest.cc \
 		  src/PingServiceTest.cc \
- 	          src/PortAlarm.cc \
- 	          src/PortAlarmTest.cc \
+		  src/PortAlarm.cc \
+		  src/PortAlarmTest.cc \
 		  src/PriorityTaskQueueTest.cc \
 		  src/ProtoBufTest.cc \
 		  src/RawMetricsTest.cc \
@@ -102,7 +102,7 @@ TESTS_SRCFILES := \
 		  src/ServiceMaskTest.cc \
 		  src/ServiceTest.cc \
 		  src/SessionAlarmTest.cc \
-          src/SideLogTest.cc \
+		  src/SideLogTest.cc \
 		  src/SingleFileStorageTest.cc \
 		  src/SpinLockTest.cc \
 		  src/StatusTest.cc \
@@ -111,7 +111,7 @@ TESTS_SRCFILES := \
 		  src/TabletTest.cc \
 		  src/TableManagerTest.cc \
 		  src/TabletMapTest.cc \
-          src/TabletManagerTest.cc \
+		  src/TabletManagerTest.cc \
 		  src/TaskQueueTest.cc \
 		  src/TcpTransportTest.cc \
 		  src/TestRunner.cc \

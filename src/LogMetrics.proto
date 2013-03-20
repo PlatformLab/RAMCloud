@@ -24,17 +24,21 @@ import "Histogram.proto";
 /// Clients can query a server's log for these metrics in order to observe what
 /// sort of load it's under and how it's performing.
 message LogMetrics {
-    /// Frequency of the server's timestamp counter. Needed to properlyu convert
+    /// Frequency of the server's timestamp counter. Needed to properly convert
     /// the advertised ticks into seconds across machines of different speed.
+    /// The machines should probably just return nanosecond values instead, but
+    /// we can fix that another time.
     required double ticks_per_second = 1;
 
-    /// The following fields are metrics maintained by the Log class. They're
-    /// documented in the Log::Metrics class.
-    required fixed64 total_append_ticks = 2;
+    /// The following fields are metrics maintained by the (Abstract)Log
+    /// classes. They're documented in Log::Metrics and AbstractLog::Metrics.
+    required fixed64 total_sync_calls = 2;
     required fixed64 total_sync_ticks = 3;
-    required fixed64 total_no_space_ticks = 4;
-    required fixed64 total_bytes_appended = 5;
-    required fixed64 total_metadata_bytes_appended = 6;
+    required fixed64 total_append_calls = 4;
+    required fixed64 total_append_ticks = 5;
+    required fixed64 total_no_space_ticks = 6;
+    required fixed64 total_bytes_appended = 7;
+    required fixed64 total_metadata_bytes_appended = 8;
 
     /// Log metrics related to cleaning. Filled in by the LogCleaner class.
     message CleanerMetrics {
@@ -118,7 +122,7 @@ message LogMetrics {
         }
         required ThreadMetrics thread_metrics = 11;
     }
-    required CleanerMetrics cleaner_metrics = 7;
+    required CleanerMetrics cleaner_metrics = 9;
 
     /// Log metrics related to allocation of seglets to in-memory segments.
     /// Filled in by the SegletAllocator class.
@@ -149,7 +153,7 @@ message LogMetrics {
         /// Number of seglets available for storing data in new head segments.
         required fixed64 default_pool_count = 7;
     }
-    required SegletMetrics seglet_metrics = 8;
+    required SegletMetrics seglet_metrics = 10;
 
     /// Log metrics related to allocated segments, both in memory and on disk.
     /// Filled in by the SegmentManager class.
@@ -161,5 +165,5 @@ message LogMetrics {
         repeated fixed64 total_entry_counts = 2;
         repeated fixed64 total_entry_lengths = 3;
     }
-    required SegmentMetrics segment_metrics = 9;
+    required SegmentMetrics segment_metrics = 11;
 }

@@ -27,6 +27,7 @@
 
 #include "Context.h"
 #include "Histogram.h"
+#include "LogMetricsStringer.h"
 #include "MasterService.h"
 #include "MasterClient.h"
 #include "MultiWrite.h"
@@ -996,90 +997,35 @@ Output::dumpParameters(FILE* fp,
 {
     fprintf(fp, "===> EXPERIMENT PARAMETERS\n");
 
-    fprintf(fp, "  Commandline Args:       %s\n",
+    fprintf(fp, "  Commandline Args:              %s\n",
         options.commandLineArgs.c_str());
 
-    fprintf(fp, "  Object Size:            %d\n",
+    fprintf(fp, "  Object Size:                   %d\n",
         options.objectSize);
 
-    fprintf(fp, "  Distribution:           %s\n",
+    fprintf(fp, "  Distribution:                  %s\n",
         options.distributionName.c_str());
 
-    fprintf(fp, "  Utilization:            %d\n",
+    fprintf(fp, "  Utilization:                   %d\n",
         options.utilization);
 
-    fprintf(fp, "  WC Convergence:         %d decimal places\n",
+    fprintf(fp, "  WC Convergence:                %d decimal places\n",
         options.writeCostConvergence);
 
-    fprintf(fp, "  Pipelined RPCs:         %d\n",
+    fprintf(fp, "  Pipelined RPCs:                %d\n",
         options.pipelinedRpcs);
 
-    fprintf(fp, "  Objects Per RPC:        %d   %s\n",
+    fprintf(fp, "  Objects Per RPC:               %d   %s\n",
         options.objectsPerRpc,
         (options.objectsPerRpc > 1) ? "(MultiWrite used)" : "");
 
-    fprintf(fp, "  Abort Timeout:          %u sec\n",
+    fprintf(fp, "  Abort Timeout:                 %u sec\n",
         options.abortTimeout);
 
-    fprintf(fp, "===> SERVER PARAMETERS\n");
-
-    fprintf(fp, "  Locator:                %s\n",
-        serverConfig.local_locator().c_str());
-
-    uint64_t logSize = logMetrics.seglet_metrics().total_usable_seglets() *
-                       serverConfig.seglet_size();
-    fprintf(fp, "  Usable Log Size:        %lu MB\n", logSize / 1024 / 1024);
-
-    fprintf(fp, "    Total Allocated:      %lu MB\n",
-        serverConfig.master().log_bytes() / 1024 / 1024);
-
-    fprintf(fp, "  Hash Table Size:        %lu MB\n",
-        serverConfig.master().hash_table_bytes() / 1024 / 1024);
-
-    fprintf(fp, "  Segment Size:           %d\n", serverConfig.segment_size());
-
-    fprintf(fp, "  Seglet Size:            %d\n", serverConfig.seglet_size());
-
-    fprintf(fp, "  WC Threshold:           %d\n",
-        serverConfig.master().cleaner_write_cost_threshold());
-
-    fprintf(fp, "  Replication Factor:     %d\n",
-        serverConfig.master().num_replicas());
-
-    fprintf(fp, "  Disk Expansion Factor:  %.3f\n",
-        serverConfig.master().backup_disk_expansion_factor());
-
-    fprintf(fp, "  Log Cleaner:            %s\n",
-        (serverConfig.master().disable_log_cleaner()) ? "disabled" : "enabled");
-
-    fprintf(fp, "  In-memory Cleaner:      %s\n",
-        (serverConfig.master().disable_in_memory_cleaning()) ?
-            "disabled" : "enabled");
-
-    fprintf(fp, "  MasterService Threads:  %u\n",
-        serverConfig.master().master_service_thread_count());
-
-    fprintf(fp, "  Cleaner Threads:        %u\n",
-        serverConfig.master().cleaner_thread_count());
-
-    fprintf(fp, "===> LOG CONSTANTS:\n");
-
-    fprintf(fp, "  Poll Interval:          %d us\n",
-        logMetrics.cleaner_metrics().poll_usec());
-
-    fprintf(fp, "  Max Utilization:        %d\n",
-        logMetrics.cleaner_metrics().max_cleanable_memory_utilization());
-    fprintf(fp, "  Live Segments per Pass: %d\n",
-        logMetrics.cleaner_metrics().live_segments_per_disk_pass());
-
-    fprintf(fp, "  Reserved Survivor Segs: %d\n",
-        logMetrics.cleaner_metrics().survivor_segments_to_reserve());
-
-    fprintf(fp, "  Min Memory Utilization: %d\n",
-        logMetrics.cleaner_metrics().min_memory_utilization());
-
-    fprintf(fp, "  Min Disk Utilization:   %d\n",
-        logMetrics.cleaner_metrics().min_disk_utilization());
+    double elapsed = Cycles::toSeconds(benchmark.stop - benchmark.start);
+    string s = LogMetricsStringer(&logMetrics,
+        &serverConfig, elapsed).getServerParameters();
+    fprintf(fp, "%s", s.c_str());
 }
 
 void
@@ -1168,353 +1114,28 @@ Output::dumpPrefillMetrics(FILE* fp)
 void
 Output::dumpCleanerMetrics(FILE* fp, ProtoBuf::LogMetrics& metrics)
 {
-    fprintf(fp, "===> GENERIC CLEANER METRICS\n");
-
-    const ProtoBuf::LogMetrics_CleanerMetrics& cleanerMetrics =
-        metrics.cleaner_metrics();
-
-    double serverHz = metrics.ticks_per_second();
-
-    fprintf(fp, "  Total Cleaner Time:            %.3f sec\n",
-        Cycles::toSeconds(cleanerMetrics.do_work_ticks(), serverHz));
-    fprintf(fp, "    Time Sleeping:               %.3f sec\n",
-        Cycles::toSeconds(cleanerMetrics.do_work_sleep_ticks(), serverHz));
-
-    const ProtoBuf::LogMetrics_CleanerMetrics_ThreadMetrics& threadMetrics =
-        cleanerMetrics.thread_metrics();
-
-    uint64_t totalTicks = 0;
-    foreach (uint64_t ticks, threadMetrics.active_ticks())
-        totalTicks += ticks;
-    fprintf(fp, "  Active Thread Distribution:\n");
-    int i = 0;
-    foreach (uint64_t ticks, threadMetrics.active_ticks()) {
-        fprintf(fp, "    %3d simultaneous:            %.3f%% of time\n",
-            i++, d(ticks) / d(totalTicks) * 100);
-    }
-}
-
-template<typename T>
-void
-Output::dumpSegmentEntriesScanned(FILE* fp,
-                                  T& metrics,
-                                  double elapsed,
-                                  double cleanerTime)
-{
-    uint64_t totalEntriesScanned = 0;
-    foreach (uint64_t count, metrics.total_entries_scanned())
-        totalEntriesScanned += count;
-
-    uint64_t totalLiveEntriesScanned = 0;
-    foreach (uint64_t count, metrics.total_entries_scanned())
-        totalLiveEntriesScanned += count;
-
-    uint64_t totalScannedEntryLengths = 0;
-    foreach (uint64_t length, metrics.total_scanned_entry_lengths())
-        totalScannedEntryLengths += length;
-
-    uint64_t totalLiveScannedEntryLengths = 0;
-    foreach (uint64_t length, metrics.total_live_scanned_entry_lengths())
-        totalLiveScannedEntryLengths += length;
-
-    fprintf(fp, "  Segment Entries Scanned:       %lu (%.2f/sec, "
-        "%.2f/sec active)\n",
-        totalEntriesScanned,
-        d(totalEntriesScanned) / elapsed,
-        d(totalEntriesScanned) / cleanerTime);
-    fprintf(fp, "    Summary:\n");
-    fprintf(fp, "      Type                       %% Total  (Space)  "
-        "%% Alive  (Space)   %% Dead  (Space)\n");
-
-    for (int i = 0; i < metrics.total_entries_scanned_size(); i++) {
-        uint64_t totalCount = metrics.total_entries_scanned(i);
-        uint64_t totalLengths = metrics.total_scanned_entry_lengths(i);
-        uint64_t liveCount = metrics.total_live_entries_scanned(i);
-        uint64_t liveLengths = metrics.total_live_scanned_entry_lengths(i);
-        uint64_t deadCount = totalCount - liveCount;
-        uint64_t deadLengths = totalLengths - liveLengths;
-
-        if (totalCount == 0)
-            continue;
-
-        fprintf(fp, "      "
-            "%-26.26s %6.2f%% (%6.2f%%) %6.2f%% (%6.2f%%) %6.2f%% (%6.2f%%)\n",
-            LogEntryTypeHelpers::toString(static_cast<LogEntryType>(i)),
-            d(totalCount) / d(totalEntriesScanned) * 100,
-            d(totalLengths) / d(totalScannedEntryLengths) * 100,
-            d(liveCount) / d(totalCount) * 100,
-            d(liveLengths) / d(totalScannedEntryLengths) * 100,
-            d(deadCount) / d(totalCount) * 100,
-            d(deadLengths) / d(totalScannedEntryLengths) * 100);
-    }
+    double elapsed = Cycles::toSeconds(benchmark.stop - benchmark.start);
+    string s = LogMetricsStringer(&metrics,
+        &serverConfig, elapsed).getGenericCleanerMetrics();
+    fprintf(fp, "%s", s.c_str());
 }
 
 void
 Output::dumpDiskMetrics(FILE* fp, ProtoBuf::LogMetrics& metrics)
 {
     double elapsed = Cycles::toSeconds(benchmark.stop - benchmark.start);
-
-    fprintf(fp, "===> DISK METRICS\n");
-
-    const ProtoBuf::LogMetrics_CleanerMetrics_OnDiskMetrics& onDiskMetrics =
-        metrics.cleaner_metrics().on_disk_metrics();
-
-    double serverHz = metrics.ticks_per_second();
-    double cleanerTime = Cycles::toSeconds(onDiskMetrics.total_ticks(),
-                                           serverHz);
-
-    uint64_t diskFreed = onDiskMetrics.total_disk_bytes_freed();
-    uint64_t memFreed = onDiskMetrics.total_memory_bytes_freed();
-    uint64_t wrote = onDiskMetrics.total_bytes_appended_to_survivors();
-
-    fprintf(fp, "  Duty Cycle:                    %.2f%% (%.2f sec)\n",
-        100.0 * cleanerTime / elapsed, cleanerTime);
-
-    fprintf(fp, "  Disk Write Cost:               %.3f\n",
-        d(diskFreed + wrote) / d(diskFreed));
-
-    fprintf(fp, "  Memory Write Cost:             %.3f\n",
-        d(memFreed + wrote) / d(memFreed));
-
-    uint64_t diskBytesInCleanedSegments =
-        onDiskMetrics.total_disk_bytes_in_cleaned_segments();
-    fprintf(fp, "  Avg Cleaned Seg Disk Util:     %.2f%%\n",
-        100.0 * d(wrote) / d(diskBytesInCleanedSegments));
-
-    uint64_t memoryBytesInCleanedSegments =
-        onDiskMetrics.total_memory_bytes_in_cleaned_segments();
-    fprintf(fp, "  Avg Cleaned Seg Memory Util:   %.2f%%\n",
-        100.0 * d(wrote) / d(memoryBytesInCleanedSegments));
-
-    uint64_t totalCleaned = onDiskMetrics.total_segments_cleaned();
-    fprintf(fp, "  Total Segments Cleaned:        %lu (%.2f/s, "
-        "%.2f/s active)\n",
-        totalCleaned,
-        d(totalCleaned) / elapsed,
-        d(totalCleaned) / cleanerTime);
-
-    uint64_t survivorsCreated = onDiskMetrics.total_survivors_created();
-    fprintf(fp, "  Total Survivors Created:       %lu (%.2f/s, "
-        "%.2f/s active)\n",
-        survivorsCreated,
-        d(survivorsCreated) / elapsed,
-        d(survivorsCreated) / cleanerTime);
-
-    fprintf(fp, "  Avg Time to Clean Segment:     %.2f ms\n",
-        cleanerTime / d(totalCleaned) * 1000);
-
-    uint64_t totalRuns = onDiskMetrics.total_runs();
-    fprintf(fp, "  Avg Time per Disk Run:         %.2f ms\n",
-        cleanerTime / d(totalRuns) * 1000);
-
-    fprintf(fp, "  Avg Segs Cleaned per Disk Run: %.2f\n",
-        d(totalCleaned) / d(totalRuns));
-
-    fprintf(fp, "  Avg Survivors per Disk Run:    %.2f\n",
-        d(survivorsCreated) / d(totalRuns));
-
-    fprintf(fp, "  Disk Space Freeing Rate:       %.3f MB/s "
-        "(%.3f MB/s active)\n",
-        d(diskFreed) / elapsed / 1024 / 1024,
-        d(diskFreed) / cleanerTime / 1024 / 1024);
-
-    fprintf(fp, "  Memory Space Freeing Rate:     %.3f MB/s "
-        "(%.3f MB/s active)\n",
-        d(memFreed) / elapsed / 1024 / 1024,
-        d(memFreed) / cleanerTime / 1024 / 1024);
-
-    fprintf(fp, "  Survivor Bytes Written:        %lu (%.3f MB/s active)\n",
-        wrote, d(wrote) / cleanerTime / 1024 / 1024);
-
-    dumpSegmentEntriesScanned(fp, onDiskMetrics, elapsed, cleanerTime);
-
-    fprintf(fp, "  Total Time:                    %.3f sec (%.2f%% active)\n",
-        cleanerTime, 100.0 * cleanerTime / elapsed);
-
-    double chooseTime = Cycles::toSeconds(
-        onDiskMetrics.get_segments_to_clean_ticks(), serverHz);
-    fprintf(fp, "    Choose Segments:             %.3f sec "
-        "(%.2f%%, %.2f%% active)\n",
-        chooseTime,
-        100.0 * chooseTime / elapsed,
-        100.0 * chooseTime / cleanerTime);
-
-    double sortSegmentTime = Cycles::toSeconds(
-        onDiskMetrics.cost_benefit_sort_ticks(), serverHz);
-    fprintf(fp, "      Sort Segments:             %.3f sec "
-        "(%.2f%%, %.2f%% active)\n",
-        sortSegmentTime,
-        100.0 * sortSegmentTime / elapsed,
-        100.0 * sortSegmentTime / cleanerTime);
-
-    double extractEntriesTime = Cycles::toSeconds(
-        onDiskMetrics.get_sorted_entries_ticks(), serverHz);
-    fprintf(fp, "    Extract Entries:             %.3f sec "
-        "(%.2f%%, %.2f%% active)\n",
-        extractEntriesTime,
-        100.0 * extractEntriesTime / elapsed,
-        100.0 * extractEntriesTime / cleanerTime);
-
-    double timestampSortTime = Cycles::toSeconds(
-        onDiskMetrics.timestamp_sort_ticks(), serverHz);
-    fprintf(fp, "      Sort Entries:              %.3f sec "
-        "(%.2f%%, %.2f%% active)\n",
-        timestampSortTime,
-        100.0 * timestampSortTime / elapsed,
-        100.0 * timestampSortTime / cleanerTime);
-
-    double relocateTime = Cycles::toSeconds(
-        onDiskMetrics.relocate_live_entries_ticks(), serverHz);
-    fprintf(fp, "    Relocate Entries:            %.3f sec "
-        "(%.2f%%, %.2f%% active)\n",
-        relocateTime,
-        100.0 * relocateTime / elapsed,
-        100.0 * relocateTime / cleanerTime);
-
-    double waitTime = Cycles::toSeconds(
-        onDiskMetrics.wait_for_free_survivors_ticks(), serverHz);
-    fprintf(fp, "      Wait for Free Survivors:   %.3f sec "
-        "(%.2f%%, %.2f%% active)\n",
-        waitTime,
-        100.0 * waitTime / elapsed,
-        100.0 * waitTime / cleanerTime);
-
-    double callbackTime = Cycles::toSeconds(
-        onDiskMetrics.relocation_callback_ticks(), serverHz);
-    fprintf(fp, "      Callbacks:                 %.3f sec "
-        "(%.2f%%, %.2f%% active, %.2f us avg)\n",
-        callbackTime,
-        100.0 * callbackTime / elapsed,
-        100.0 * callbackTime / cleanerTime,
-        1.0e6 * callbackTime / d(onDiskMetrics.total_relocation_callbacks()));
-
-    double appendTime = Cycles::toSeconds(
-        onDiskMetrics.relocation_append_ticks(), serverHz);
-    fprintf(fp, "        Segment Appends:         %.3f sec "
-        "(%.2f%%, %.2f%% active, %.2f us avg)\n",
-        appendTime,
-        100.0 * appendTime / elapsed,
-        100.0 * appendTime / cleanerTime,
-        1.0e6 * appendTime / d(onDiskMetrics.total_relocation_appends()));
-
-    double closeTime = Cycles::toSeconds(
-        onDiskMetrics.close_survivor_ticks(), serverHz);
-    fprintf(fp, "    Close Survivors:             %.3f sec "
-        "(%.2f%%, %.2f%% active)\n",
-        closeTime,
-        100.0 * closeTime / elapsed,
-        100.0 * closeTime / cleanerTime);
-
-    double syncTime = Cycles::toSeconds(
-        onDiskMetrics.survivor_sync_ticks(), serverHz);
-    fprintf(fp, "    Sync Survivors:              %.3f sec "
-        "(%.2f%%, %.2f%% active)\n",
-        syncTime,
-        100.0 * syncTime / elapsed,
-        100.0 * syncTime / cleanerTime);
-
-    double completeTime = Cycles::toSeconds(
-        onDiskMetrics.cleaning_complete_ticks(), serverHz);
-    fprintf(fp, "    Cleaning Complete:           %.3f sec "
-        "(%.2f%%, %.2f%% active)\n",
-        completeTime,
-        100.0 * completeTime / elapsed,
-        100.0 * completeTime / cleanerTime);
+    string s = LogMetricsStringer(&metrics,
+        &serverConfig, elapsed).getDiskCleanerMetrics();
+    fprintf(fp, "%s", s.c_str());
 }
 
 void
 Output::dumpMemoryMetrics(FILE* fp, ProtoBuf::LogMetrics& metrics)
 {
     double elapsed = Cycles::toSeconds(benchmark.stop - benchmark.start);
-
-    fprintf(fp, "===> MEMORY METRICS\n");
-
-    const ProtoBuf::LogMetrics_CleanerMetrics_InMemoryMetrics& inMemoryMetrics =
-        metrics.cleaner_metrics().in_memory_metrics();
-
-    double serverHz = metrics.ticks_per_second();
-    double cleanerTime = Cycles::toSeconds(inMemoryMetrics.total_ticks(),
-                                           serverHz);
-
-    uint64_t freed = inMemoryMetrics.total_bytes_freed();
-    uint64_t wrote = inMemoryMetrics.total_bytes_appended_to_survivors();
-
-    fprintf(fp, "  Duty Cycle:                    %.2f%% (%.2f sec)\n",
-        100.0 * cleanerTime / elapsed, cleanerTime);
-
-    fprintf(fp, "  Memory Write Cost:             %.3f\n",
-        d(freed + wrote) / d(freed));
-
-    uint64_t bytesInCompactedSegments =
-        inMemoryMetrics.total_bytes_in_compacted_segments();
-    fprintf(fp, "  Avg Seg Util Pre-Compaction:   %.2f%%\n",
-        100.0 * d(wrote) / d(bytesInCompactedSegments));
-
-    uint64_t segmentsCompacted = inMemoryMetrics.total_segments_compacted();
-    fprintf(fp, "  Avg Seglets Freed/Compaction:  %.2f\n",
-        d(freed) / d(segmentsCompacted) / d(serverConfig.seglet_size()));
-
-    fprintf(fp, "  Avg Time to Compact Segment:   %.2f ms\n",
-        cleanerTime * 1000 / d(segmentsCompacted));
-
-    fprintf(fp, "  Memory Space Freeing Rate:     %.3f MB/s "
-        "(%.3f MB/s active)\n",
-        d(freed) / elapsed / 1024 / 1024,
-        d(freed) / cleanerTime / 1024 / 1024);
-
-    fprintf(fp, "  Survivor Bytes Written:        %lu "
-        "(%.3f MB/s active)\n",
-        wrote,
-        d(wrote) / cleanerTime / 1024 / 1024);
-
-    dumpSegmentEntriesScanned(fp, inMemoryMetrics, elapsed, cleanerTime);
-
-    fprintf(fp, "  Total Time:                    %.3f sec "
-        "(%.2f%% active)\n",
-        cleanerTime,
-        100.0 * cleanerTime / elapsed);
-
-    double chooseTime = Cycles::toSeconds(
-        inMemoryMetrics.get_segment_to_compact_ticks(), serverHz);
-    fprintf(fp, "    Choose Segments:             %.3f sec "
-        "(%.2f%%, %.2f%% active)\n",
-        chooseTime,
-        100.0 * chooseTime / elapsed,
-        100.0 * chooseTime / cleanerTime);
-
-    double waitTime = Cycles::toSeconds(
-        inMemoryMetrics.wait_for_free_survivor_ticks(), serverHz);
-    fprintf(fp, "    Wait for Free Survivor:      %.3f sec "
-        "(%.2f%%, %.2f%% active)\n",
-        waitTime,
-        100.0 * waitTime / elapsed,
-        100.0 * waitTime / cleanerTime);
-
-    double callbackTime = Cycles::toSeconds(
-        inMemoryMetrics.relocation_callback_ticks(), serverHz);
-    fprintf(fp, "    Callbacks:                   %.3f sec "
-        "(%.2f%%, %.2f%% active, %.2f us avg)\n",
-        callbackTime,
-        100.0 * callbackTime / elapsed,
-        100.0 * callbackTime / cleanerTime,
-        1.0e6 * callbackTime / d(inMemoryMetrics.total_relocation_callbacks()));
-
-    double appendTime = Cycles::toSeconds(
-        inMemoryMetrics.relocation_append_ticks(), serverHz);
-    fprintf(fp, "      Segment Appends:           %.3f sec "
-        "(%.2f%%, %.2f%% active, %.2f us avg)\n",
-        appendTime,
-        100.0 * appendTime / elapsed,
-        100.0 * appendTime / cleanerTime,
-        1.0e6 * appendTime / d(inMemoryMetrics.total_relocation_appends()));
-
-    double compactionCompleteTime = Cycles::toSeconds(
-        inMemoryMetrics.compaction_complete_ticks(), serverHz);
-    fprintf(fp, "    Compaction Complete:         %.3f sec "
-        "(%.2f%%, %.2f%% active)\n",
-        chooseTime,
-        100.0 * compactionCompleteTime / elapsed,
-        100.0 * compactionCompleteTime / cleanerTime);
+    string s = LogMetricsStringer(&metrics,
+        &serverConfig, elapsed).getMemoryCompactorMetrics();
+    fprintf(fp, "%s", s.c_str());
 }
 
 void
@@ -1522,48 +1143,9 @@ Output::dumpLogMetrics(FILE* fp, ProtoBuf::LogMetrics& metrics)
 {
     double elapsed = Cycles::toSeconds(benchmark.stop - benchmark.start +
                             benchmark.prefillStop - benchmark.prefillStart);
-
-    fprintf(fp, "===> LOG METRICS\n");
-
-    double serverHz = metrics.ticks_per_second();
-
-    fprintf(fp, "  Total Non-metadata Appends:    %.2f MB\n",
-        d(metrics.total_bytes_appended()) / 1024 / 1024);
-
-    fprintf(fp, "  Total Metadata Appends:        %.2f MB\n",
-        d(metrics.total_metadata_bytes_appended()) / 1024 / 1024);
-
-    double appendTime = Cycles::toSeconds(metrics.total_append_ticks(),
-                                          serverHz);
-    fprintf(fp, "  Total Time Appending:          %.3f sec (%.2f%%)\n",
-        appendTime,
-        100.0 * appendTime / elapsed);
-
-    double syncTime = Cycles::toSeconds(metrics.total_sync_ticks(), serverHz);
-    fprintf(fp, "  Total Time Syncing:            %.3f sec (%.2f%%)\n",
-        syncTime, 100.0 * syncTime / elapsed);
-
-    double noMemTime = Cycles::toSeconds(metrics.total_no_space_ticks(),
-                                         serverHz);
-    fprintf(fp, "  Time Out of Memory:            %.3f sec (%.2f%%)\n",
-        noMemTime, 100.0 * noMemTime / elapsed);
-
-    fprintf(fp, "  Total (Dead or Alive) Entry Counts in All Segments:\n");
-
-    const ProtoBuf::LogMetrics_SegmentMetrics& sm = metrics.segment_metrics();
-    uint64_t totalCount = 0;
-    uint64_t totalLength = 0;
-    foreach (uint64_t count, sm.total_entry_counts())
-        totalCount += count;
-    foreach (uint64_t length, sm.total_entry_lengths())
-        totalLength += length;
-
-    for (int i = 0; i < sm.total_entry_counts_size(); i++) {
-        fprintf(fp, "    %-26.26s   %5.2f%%  (%5.2f%% space)\n",
-            LogEntryTypeHelpers::toString(static_cast<LogEntryType>(i)),
-                d(sm.total_entry_counts(i)) / d(totalCount) * 100.0,
-                d(sm.total_entry_lengths(i)) / d(totalLength) * 100.0);
-    }
+    string s = LogMetricsStringer(&metrics,
+        &serverConfig, elapsed).getLogMetrics();
+    fprintf(fp, "%s", s.c_str());
 }
 
 struct SpinLockStats {

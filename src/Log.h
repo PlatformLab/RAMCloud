@@ -114,16 +114,16 @@ class Log : public AbstractLog {
     class Metrics {
       public:
         Metrics()
-            : totalSyncTicks(0)
-            , syncCalls(0)
+            : totalSyncCalls(0)
+            , totalSyncTicks(0)
         {
         }
 
+        /// Total number of times sync() has been called.
+        uint64_t totalSyncCalls;
+
         /// Total number of cpu cycles spent syncing appended log entries.
         uint64_t totalSyncTicks;
-
-        /// Total number of times sync() has been called.
-        uint64_t syncCalls;
     } metrics;
 
     friend class LogIterator;

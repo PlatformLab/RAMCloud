@@ -112,6 +112,7 @@ void
 Log::getMetrics(ProtoBuf::LogMetrics& m)
 {
     AbstractLog::getMetrics(m);
+    m.set_total_sync_calls(metrics.totalSyncCalls);
     m.set_total_sync_ticks(metrics.totalSyncTicks);
     cleaner->getMetrics(*m.mutable_cleaner_metrics());
 }
@@ -146,13 +147,13 @@ Log::sync()
 
     Tub<Lock> lock;
     lock.construct(appendLock);
-    metrics.syncCalls++;
+    metrics.totalSyncCalls++;
 
     // The only time 'head' should be NULL is after construction and before the
     // initial call to this method. Even if we run out of memory in the future,
     // head will remain valid.
     if (head == NULL) {
-        assert(metrics.syncCalls == 1);
+        assert(metrics.totalSyncCalls == 1);
         if (!allocNewWritableHead())
             throw FatalError(HERE, "Could not allocate initial head segment");
     }

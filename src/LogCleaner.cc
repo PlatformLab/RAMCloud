@@ -157,6 +157,8 @@ LogCleaner::getMetrics(ProtoBuf::LogMetrics_CleanerMetrics& m)
  * PRIVATE METHODS
  ******************************************************************************/
 
+static volatile uint32_t threadCnt;
+
 /**
  * Static entry point for the cleaner thread. This is invoked via the
  * std::thread() constructor. This thread performs continuous cleaning on an
@@ -168,6 +170,7 @@ LogCleaner::cleanerThreadEntry(LogCleaner* logCleaner, Context* context)
     LOG(NOTICE, "LogCleaner thread started");
 
     CleanerThreadState state;
+    state.threadNumber = __sync_fetch_and_add(&threadCnt, 1);
     try {
         while (1) {
             Fence::lfence();
@@ -202,6 +205,7 @@ LogCleaner::doWork(CleanerThreadState* state)
     segmentManager.cleanableSegments(candidates);
     candidatesLock.unlock();
 
+    int memUtil = segmentManager.getAllocator().getMemoryUtilization();
     bool lowOnMemory = (segmentManager.getAllocator().getMemoryUtilization() >=
                         MIN_MEMORY_UTILIZATION);
     bool notKeepingUp = (segmentManager.getAllocator().getMemoryUtilization() >=
@@ -211,48 +215,16 @@ LogCleaner::doWork(CleanerThreadState* state)
     bool haveWorkToDo = (lowOnMemory || lowOnDiskSpace);
 
     if (haveWorkToDo) {
-        // If we're running low on disk space we have no choice but to run the
-        // disk cleaner.
-        if (lowOnDiskSpace) {
-            state->lastDiskCleaningMemFreeRate = doDiskCleaning();
-            state->lastDiskCleaningTime = Cycles::rdtsc();
-        }
-
-        // If we aren't keeping up with write traffic, then we'll greedily
-        // choose whichever method freed memory for us the fastest last time.
-        //
-        // Otherwise, if we do appear to be keeping up with the write traffic,
-        // then we'll prefer compaction over disk cleaning (we don't care if
-        // compaction is slower than cleaning on disk because it's good enough
-        // and, more importantly, it isn't using any network bandwidth).
-        if (notKeepingUp) {
-            if (state->lastMemCompactionMemFreeRate >= state->lastDiskCleaningMemFreeRate) {
-                state->lastMemCompactionMemFreeRate = doMemoryCleaning();
-                state->lastMemCompactionTime = Cycles::rdtsc();
-            } else if (!lowOnDiskSpace) {
-                // Don't bother cleaning on disk again if we already did above.
-                state->lastDiskCleaningMemFreeRate = doDiskCleaning();
-                state->lastDiskCleaningTime = Cycles::rdtsc();
-            }
+        if (state->threadNumber == 0) {
+            if (lowOnDiskSpace || notKeepingUp)
+                doDiskCleaning();
+            else
+                doMemoryCleaning();
         } else {
-            // We're keeping up so far, so just keep compacting.
-            state->lastMemCompactionMemFreeRate = doMemoryCleaning();
-            state->lastMemCompactionTime = Cycles::rdtsc();
-        }
-
-        // It's possible that we could free memory faster by changing to
-        // compaction from disk cleaning, or vice-versa, even though our
-        // previous stats would hint otherwise. To be sure we don't miss out
-        // on a better opporunity, we'll occasionally sample the other mode
-        // if it hasn't been run in a while.
-        if (Cycles::toSeconds(Cycles::rdtsc() - state->lastMemCompactionTime) >= 1) {
-            state->lastMemCompactionMemFreeRate = doMemoryCleaning();
-            state->lastMemCompactionTime = Cycles::rdtsc();
-        }
-        if (notKeepingUp &&
-          Cycles::toSeconds(Cycles::rdtsc() - state->lastDiskCleaningTime) >= 10) {
-            state->lastDiskCleaningMemFreeRate = doDiskCleaning();
-            state->lastDiskCleaningTime = Cycles::rdtsc();
+            if (memUtil >= std::min(99, (90 + 2 * (int)state->threadNumber)))
+                doMemoryCleaning();
+            else
+                haveWorkToDo = false;
         }
     }
 

@@ -28,9 +28,11 @@ CLIENT_SRCFILES := \
 		   src/FastTransport.cc \
 		   src/IpAddress.cc \
 		   src/Key.cc \
+		   src/LogEntryTypes.cc \
 		   src/Logger.cc \
-		   src/MacAddress.cc \
 		   src/LargeBlockOfMemory.cc \
+		   src/LogMetricsStringer.cc \
+		   src/MacAddress.cc \
 		   src/MasterClient.cc \
 		   src/Memory.cc \
 		   src/MultiOp.cc \
@@ -72,8 +74,11 @@ CLIENT_SRCFILES := \
 		   src/WireFormat.cc \
 		   src/WorkerSession.cc \
 		   $(INFINIBAND_SRCFILES) \
+		   $(OBJDIR)/Histogram.pb.cc \
+		   $(OBJDIR)/LogMetrics.pb.cc \
 		   $(OBJDIR)/MasterRecoveryInfo.pb.cc \
 		   $(OBJDIR)/MetricList.pb.cc \
+		   $(OBJDIR)/ServerConfig.pb.cc \
 		   $(OBJDIR)/ServerList.pb.cc \
 		   $(OBJDIR)/ServerStatistics.pb.cc \
 		   $(OBJDIR)/SpinLockStatistics.pb.cc \

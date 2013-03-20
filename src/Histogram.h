@@ -75,7 +75,7 @@ class Histogram {
      * \param histogram
      *      Protocol buffer serialization of another histogram.
      */
-    explicit Histogram(ProtoBuf::Histogram& histogram)
+    explicit Histogram(const ProtoBuf::Histogram& histogram)
         : numBuckets(histogram.num_buckets()),
           bucketWidth(histogram.bucket_width()),
           buckets(),
@@ -86,8 +86,8 @@ class Histogram {
     {
         buckets.resize(numBuckets, 0);
 
-        foreach (ProtoBuf::Histogram::Bucket& bucket,
-          *histogram.mutable_bucket()) {
+        foreach (const ProtoBuf::Histogram::Bucket& bucket,
+          histogram.bucket()) {
             assert(bucket.index() < numBuckets);
             buckets[bucket.index()] = bucket.count();
         }
