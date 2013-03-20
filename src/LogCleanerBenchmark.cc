@@ -62,7 +62,8 @@ class Options {
           abortTimeout(0),
           distributionName(),
           tableName(),
-          outputFilesPrefix()
+          outputFilesPrefix(),
+          doneWhenCleanerRuns(false)
     {
         for (int i = 0; i < argc; i++)
             commandLineArgs += format("%s ", argv[i]);
@@ -78,6 +79,7 @@ class Options {
     string distributionName;
     string tableName;
     string outputFilesPrefix;
+    bool doneWhenCleanerRuns;
 };
 
 /**
@@ -374,7 +376,7 @@ class Output {
                         ProtoBuf::LogMetrics& logMetrics);
     void dump();
 
-    static void updateLiveLine(RamCloud& ramcloud,
+    static bool updateLiveLine(RamCloud& ramcloud,
                                string& masterLocator,
                                uint64_t objects,
                                uint64_t bytes,
@@ -431,13 +433,12 @@ class Benchmark {
               uint64_t tableId,
               string serverLocator,
               Distribution& distribution,
-              int pipelinedRpcs,
-              int objectsPerRpc,
-              int writeCostConvergence)
+              Options& options)
         : ramcloud(ramcloud),
           tableId(tableId),
           serverLocator(serverLocator),
           distribution(distribution),
+          options(options),
           latencyHistogram(20 * 1000 * 1000, 1000),     // 20s of 1us buckets
           prefillLatencyHistogram(20 * 1000 * 1000, 1000),
           prefillStart(0),
@@ -452,9 +453,6 @@ class Benchmark {
           stop(0),
           lastOutputUpdateTsc(0),
           serverConfig(),
-          pipelineMax(pipelinedRpcs),
-          objectsPerRpc(objectsPerRpc),
-          writeCostConvergence(writeCostConvergence),
           lastWriteCostCheck(0),
           lastDiskWriteCost(0),
           lastWriteCostDiskCleanerTicks(0),
@@ -513,27 +511,30 @@ class Benchmark {
     }
 
   PRIVATE:
-    void
+    bool
     updateOutput(bool force = false)
     {
+        bool cleanerRan = false;
         double delta = Cycles::toSeconds(Cycles::rdtsc() - lastOutputUpdateTsc);
         if (force || delta >= 2) {
             if (start == 0) {
-                Output::updateLiveLine(ramcloud,
-                                       serverLocator,
-                                       totalPrefillObjectsWritten,
-                                       totalPrefillBytesWritten,
-                                       Cycles::rdtsc() - prefillStart);
+                cleanerRan = Output::updateLiveLine(ramcloud,
+                                                serverLocator,
+                                                totalPrefillObjectsWritten,
+                                                totalPrefillBytesWritten,
+                                                Cycles::rdtsc() - prefillStart);
             } else {
-                Output::updateLiveLine(ramcloud,
-                                       serverLocator,
-                                       totalObjectsWritten,
-                                       totalBytesWritten,
-                                       Cycles::rdtsc() - start);
+                cleanerRan = Output::updateLiveLine(ramcloud,
+                                             serverLocator,
+                                             totalObjectsWritten,
+                                             totalBytesWritten,
+                                             Cycles::rdtsc() - start);
             }
 
             lastOutputUpdateTsc = Cycles::rdtsc();
         }
+
+        return cleanerRan;
     }
 
     /**
@@ -710,14 +711,14 @@ class Benchmark {
     void
     writeNextObjects(const unsigned timeoutSeconds)
     {
-        Tub<OutstandingWrite> rpcs[pipelineMax];
+        Tub<OutstandingWrite> rpcs[options.pipelinedRpcs];
         bool prefilling = !distribution.isPrefillDone();
 
         bool isDone = false;
         while (!isDone && !interrupted) {
             // While any RPCs can still be sent, send them.
             bool allRpcsSent = false;
-            for (int i = 0; i < pipelineMax; i++) {
+            for (int i = 0; i < options.pipelinedRpcs; i++) {
                 allRpcsSent = prefilling ? distribution.isPrefillDone() : false;
                 if (allRpcsSent)
                     break;
@@ -727,7 +728,7 @@ class Benchmark {
 
                 rpcs[i].construct(&ramcloud);
                 bool outOfObjects = false;
-                for (int cnt = 0; cnt < objectsPerRpc && !outOfObjects; cnt++) {
+                for (int cnt = 0; cnt < options.objectsPerRpc && !outOfObjects; cnt++) {
                     rpcs[i]->addObject(tableId, &distribution);
                     outOfObjects = prefilling ?
                         distribution.isPrefillDone() : false;
@@ -753,7 +754,7 @@ class Benchmark {
                 // so do so here.
                 ramcloud.clientContext->dispatch->poll();
 
-                for (int i = 0; i < pipelineMax; i++) {
+                for (int i = 0; i < options.pipelinedRpcs; i++) {
                     if (!rpcs[i])
                         continue;
 
@@ -781,7 +782,9 @@ class Benchmark {
                 }
             }
 
-            updateOutput();
+            bool cleanerRan = updateOutput();
+            if (cleanerRan && options.doneWhenCleanerRuns)
+                isDone = true;
 
             // If we're prefilling, determine when we're done.
             if (numRpcsLeft == 0 && allRpcsSent)
@@ -826,9 +829,9 @@ class Benchmark {
         double diskWriteCost = static_cast<double>(diskFreed + diskWrote) /
                                static_cast<double>(diskFreed);
         uint64_t intDiskWriteCost = static_cast<uint64_t>(
-                            diskWriteCost * pow(10, writeCostConvergence));
+                            diskWriteCost * pow(10, options.writeCostConvergence));
         uint64_t intLastDiskWriteCost = static_cast<uint64_t>(
-                            lastDiskWriteCost * pow(10, writeCostConvergence));
+                            lastDiskWriteCost * pow(10, options.writeCostConvergence));
 
         bool areEqual = (intDiskWriteCost == intLastDiskWriteCost);
 
@@ -858,6 +861,10 @@ class Benchmark {
     /// as well as dictates the object's size and how many total objects to
     /// store.
     Distribution& distribution;
+
+    /// Various options passed to this program affect the execution of the
+    /// Benchmark class.
+    Options& options;
 
   public:
     /// Histogram of write latencies. One sample is stored for each write
@@ -911,25 +918,12 @@ class Benchmark {
     /// Configuration information for the server we're benchmarking.
     ProtoBuf::ServerConfig serverConfig;
 
-    /// Number of RPCs we'll pipeline to the server before waiting for
-    /// acknowledgements. Setting to 1 essentially does a synchronous RPC for
-    /// each write.
-    const int pipelineMax;
-
-    /// Number of objects written per RPC sent to the server. If 1, normal
-    /// Write RPCs will be used. If > 1, MultiWrite RPCs will be issused.
-    const int objectsPerRpc;
-
-    /// The number of decimal digits in disk write cost that must remain
-    /// unchanged in a 60-second window before the benchmark ends.
-    const int writeCostConvergence;
-
     /// Local ticks at which we last checked the server's disk write cost. Used
     /// to avoid querying the server too frequently.
     uint64_t lastWriteCostCheck;
 
     /// The last disk write cost computed. Used to determine when the benchmark
-    /// should end (see writeCostConvergence).
+    /// should end (see options.writeCostConvergence).
     double lastDiskWriteCost;
 
     /// Number of ticks the server's disk cleaner has spent in cleaning as of
@@ -1026,6 +1020,9 @@ Output::dumpParameters(FILE* fp,
     string s = LogMetricsStringer(&logMetrics,
         &serverConfig, elapsed).getServerParameters();
     fprintf(fp, "%s", s.c_str());
+
+    fprintf(fp, "  Quit Once Cleaner Runs        %s\n",
+        options.doneWhenCleanerRuns ? "true" : "false");
 }
 
 void
@@ -1229,7 +1226,7 @@ Output::dumpEnd()
         fprintf(fp, "===> END TIME:      %s", ctime(&now));
 }
 
-void
+bool
 Output::updateLiveLine(RamCloud& ramcloud,
                        string& masterLocator,
                        uint64_t objects,
@@ -1253,6 +1250,13 @@ Output::updateLiveLine(RamCloud& ramcloud,
         d(bytes) / elapsed / 1024 / 1024,
         d(objects) / elapsed,
         diskWriteCost);
+
+    const ProtoBuf::LogMetrics_CleanerMetrics_InMemoryMetrics& inMemoryMetrics =
+        logMetrics.cleaner_metrics().in_memory_metrics();
+    uint64_t memWrote = inMemoryMetrics.total_bytes_appended_to_survivors();
+
+    // Return true if either cleaner has ever run. If not, false.
+    return memWrote != 0 || wrote != 0;
 }
 
 } // namespace RAMCloud
@@ -1340,7 +1344,15 @@ try
          "that is stable (unchanging) to this many decimal places for 30 "
          "seconds' worth of disk cleaner run time. Higher values will "
          "significantly increase benchmark time, but lead to somewhat "
-         "more accurate results.");
+         "more accurate results.")
+        ("doneWhenCleanerRuns",
+         ProgramOptions::bool_switch(&options.doneWhenCleanerRuns)->
+            default_value(false),
+         "Stop the benchmark once the cleaner has done any work whatsoever. "
+         "This is useful when we want to measure performance/latency of "
+         "object overwrite operations without the cleaner on. This lets us "
+         "compare apples to apples (since there's a little overhead in writing "
+         "and object and a tombstone, rather than just an object alone).");
 
     OptionParser optionParser(benchOptions, argc, argv);
 
@@ -1446,9 +1458,7 @@ try
                         tableId,
                         locator,
                         *distribution,
-                        options.pipelinedRpcs,
-                        options.objectsPerRpc,
-                        options.writeCostConvergence);
+                        options);
     setvbuf(stdout, NULL, _IONBF, 0);
     Output output(ramcloud, locator, serverConfig, benchmark);
     output.addFile(stdout);
