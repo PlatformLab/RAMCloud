@@ -288,10 +288,11 @@ class BackupStorage {
     virtual ~BackupStorage() {}
 
     virtual uint32_t benchmark(BackupStrategy backupStrategy);
+    void sleepToThrottleWrites(size_t count, uint64_t ticks);
 
     /**
      * Reference to a frame; when the reference drops to zero
-     * BackupStorage::free() is called to release the frame for reuse with
+     * BackupStorage::freeFrame() is called to release the frame for reuse with
      * another replica.
      */
     typedef std::shared_ptr<Frame> FrameRef;
@@ -425,11 +426,20 @@ class BackupStorage {
      * \param storageType
      *      The storage type corresponding with the concrete implementation of
      *      this class.
+     * \param writeRateLimit
+     *      Throttle writes to this storage medium to at most the given number
+     *      of megabytes per second.
      */
-    BackupStorage(size_t segmentSize, Type storageType);
+    BackupStorage(size_t segmentSize, Type storageType, size_t writeRateLimit);
 
     /// Maximum length in bytes of a replica.
     size_t segmentSize;
+
+    /// If non-0, writes bandwidth to this storage medium should be limited to
+    /// this many megabytes to second. Subclasses of BackupStorage should invoke
+    /// sleepToThrottleWrites() after they've written to their storage to ensure
+    /// that the limit is maintained.
+    size_t writeRateLimit;
 
   PUBLIC:
     /// Used in RawMetrics to print out the backup storage type.

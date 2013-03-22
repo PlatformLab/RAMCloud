@@ -21,8 +21,11 @@ namespace RAMCloud {
 
 // --- BackupStorage ---
 
-BackupStorage::BackupStorage(size_t segmentSize, Type storageType)
+BackupStorage::BackupStorage(size_t segmentSize,
+                             Type storageType,
+                             size_t writeRateLimit)
     : segmentSize(segmentSize)
+    , writeRateLimit(writeRateLimit)
     , storageType(storageType)
 {
 }
@@ -88,6 +91,30 @@ void
 BackupStorage::freeFrame(Frame* frame)
 {
     frame->free();
+}
+
+/**
+ * Called by subclass instances to throttle the client-perceived write
+ * throughput after each write operation.
+ *
+ * \param count
+ *      The number of bytes written to storage in the last operation.
+ * \param ticks
+ *      The number of actual ticks required to write writeBytes to storage.
+ */
+void
+BackupStorage::sleepToThrottleWrites(size_t count, uint64_t ticks)
+{
+    if (writeRateLimit == 0)
+        return;
+
+    double rateLimit = static_cast<double>(writeRateLimit);
+    double minAllowedTime = static_cast<double>(count) / 1048576 / rateLimit;
+    double actualTime = Cycles::toSeconds(ticks);
+    if (actualTime < minAllowedTime) {
+        double delaySec = minAllowedTime - actualTime;
+        usleep(downCast<useconds_t>(delaySec * 1.0e6));
+    }
 }
 
 } // namespace RAMCloud

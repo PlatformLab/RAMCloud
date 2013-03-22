@@ -273,7 +273,9 @@ class Segment {
                         uint32_t offset,
                         uint32_t length) const;
     uint32_t appendToBuffer(Buffer& buffer);
-    LogEntryType getEntry(uint32_t offset, Buffer& buffer);
+    LogEntryType getEntry(uint32_t offset,
+                          Buffer& buffer,
+                          uint32_t* lengthWithMetadata = NULL);
     uint32_t getEntryCount(LogEntryType type);
     uint32_t getEntryLengths(LogEntryType type);
     uint32_t getAppendedLength(Certificate* certificate = NULL) const;

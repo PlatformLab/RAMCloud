@@ -418,6 +418,8 @@ SingleFileStorage::Frame::free()
     }
     ++epoch;
     deschedule();
+    if (!isSynced())
+        CycleCounter<RawMetric> _(&metrics->backup.uncommittedFramesFreed);
     isOpen = false;
     isClosed = false;
     // Must reset this before open(), because on startup after benchmark, the
@@ -636,7 +638,7 @@ SingleFileStorage::Frame::performWrite(Lock& lock)
                  startOfFirstDirtyBlock, dirtyLength,
                  frameStart + startOfFirstDirtyBlock, metadataStart);
     } else {
-        CycleCounter<RawMetric> _(&metrics->backup.storageWriteTicks);
+        CycleCounter<RawMetric> writeTicks(&metrics->backup.storageWriteTicks);
         ++metrics->backup.storageWriteCount;
         metrics->backup.storageWriteBytes += dirtyLength;
         // Lock released during this call; assume any field could have changed.
@@ -644,6 +646,10 @@ SingleFileStorage::Frame::performWrite(Lock& lock)
                       firstDirtyBlock, dirtyLength,
                       frameStart + startOfFirstDirtyBlock,
                       metadataBlock, METADATA_SIZE, metadataStart);
+        // Reduce our bandwidth if so configured by delaying this operation.
+        CycleCounter<RawMetric> _(&metrics->backup.storageWriteTicks);
+        storage->sleepToThrottleWrites(dirtyLength + METADATA_SIZE,
+                                       writeTicks.stop());
     }
 
     assert(buffer);
@@ -739,10 +745,11 @@ SingleFileStorage::BufferDeleter::operator()(void* buffer)
  */
 SingleFileStorage::SingleFileStorage(size_t segmentSize,
                                      size_t frameCount,
+                                     size_t writeRateLimit,
                                      size_t maxNonVolatileBuffers,
                                      const char* filePath,
                                      int openFlags)
-    : BackupStorage(segmentSize, Type::DISK)
+    : BackupStorage(segmentSize, Type::DISK, writeRateLimit)
     , mutex()
     , ioQueue()
     , superblock()

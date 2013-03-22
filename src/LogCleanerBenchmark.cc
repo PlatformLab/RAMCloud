@@ -1021,7 +1021,7 @@ Output::dumpParameters(FILE* fp,
         &serverConfig, elapsed).getServerParameters();
     fprintf(fp, "%s", s.c_str());
 
-    fprintf(fp, "  Quit Once Cleaner Runs        %s\n",
+    fprintf(fp, "  Quit Once Cleaner Runs:        %s\n",
         options.doneWhenCleanerRuns ? "true" : "false");
 }
 

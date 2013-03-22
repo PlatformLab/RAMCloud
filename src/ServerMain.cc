@@ -151,7 +151,14 @@ main(int argc, char *argv[])
                 &config.master.cleanerThreadCount)->default_value(1),
              "The number of cleaner threads controls the amount of parallelism "
              "in the cleaner. More threads will use more cores, but may be "
-             "able to better keep up with high write rates.");
+             "able to better keep up with high write rates.")
+            ("backupWriteRateLimit",
+             ProgramOptions::value<size_t>(
+                &config.backup.writeRateLimit)->default_value(0),
+             "If non-0, specifies the maximum number of megabytes per second "
+             "of bandwidth this backup should use. Useful for artificially "
+             "restricting bandwidth when measuring various parts of the "
+             "system.");
 
         OptionParser optionParser(serverOptions, argc, argv);
 

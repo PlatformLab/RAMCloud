@@ -57,7 +57,8 @@ BackupService::BackupService(Context* context,
 {
     if (config->backup.inMemory) {
         storage.reset(new InMemoryStorage(config->segmentSize,
-                                          config->backup.numSegmentFrames));
+                                          config->backup.numSegmentFrames,
+                                          config->backup.writeRateLimit));
     } else {
         // This is basically set to unlimited right now by default because
         // limiting it can severely impact recovery performance or even cause it
@@ -77,6 +78,7 @@ BackupService::BackupService(Context* context,
 
         storage.reset(new SingleFileStorage(config->segmentSize,
                                             config->backup.numSegmentFrames,
+                                            config->backup.writeRateLimit,
                                             maxNonVolatileBuffers,
                                             config->backup.file.c_str(),
                                             O_DIRECT | O_SYNC));

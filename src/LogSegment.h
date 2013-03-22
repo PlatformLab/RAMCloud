@@ -79,11 +79,11 @@ class LogSegment : public Segment {
          *      L1 * T1 + L2 * T2.
          */
         void
-        increment(uint32_t newLiveBytes, uint64_t spaceTimeSum)
+        increment(uint32_t newLiveBytes, uint64_t newSpaceTimeSum)
         {
             std::lock_guard<SpinLock> guard(lock);
             liveBytes += newLiveBytes;
-            spaceTimeSum += spaceTimeSum;
+            spaceTimeSum += newSpaceTimeSum;
         }
 
         /**
@@ -104,11 +104,11 @@ class LogSegment : public Segment {
          *      L1 * T1 + L2 * T2.
          */
         void
-        decrement(uint32_t freedDeadBytes, uint64_t spaceTimeSum)
+        decrement(uint32_t freedDeadBytes, uint64_t newSpaceTimeSum)
         {
             std::lock_guard<SpinLock> guard(lock);
             liveBytes -= freedDeadBytes;
-            spaceTimeSum -= spaceTimeSum;
+            spaceTimeSum -= newSpaceTimeSum;
         }
 
         /**

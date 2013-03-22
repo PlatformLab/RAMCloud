@@ -129,9 +129,9 @@ AbstractLog::free(Reference reference)
     uint32_t offset = reference.getOffset(segmentSize);
     LogSegment& segment = (*segmentManager)[slot];
     Buffer buffer;
-    LogEntryType type = segment.getEntry(offset, buffer);
+    uint32_t lengthWithMetadata;
+    LogEntryType type = segment.getEntry(offset, buffer, &lengthWithMetadata);
     uint32_t timestamp = entryHandlers->getTimestamp(type, buffer);
-    uint32_t lengthWithMetadata = buffer.getTotalLength();
     segment.statistics.decrement(lengthWithMetadata,
         static_cast<uint64_t>(lengthWithMetadata) * timestamp);
 }

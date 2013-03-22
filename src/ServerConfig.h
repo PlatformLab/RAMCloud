@@ -316,6 +316,7 @@ struct ServerConfig {
             , file()
             , strategy(1)
             , mockSpeed(100)
+            , writeRateLimit(0)
         {}
 
         /**
@@ -332,6 +333,7 @@ struct ServerConfig {
             , file("/var/tmp/backup.log")
             , strategy(1)
             , mockSpeed(0)
+            , writeRateLimit(0)
         {}
 
         /**
@@ -348,6 +350,7 @@ struct ServerConfig {
                 config.set_file(file);
             config.set_strategy(strategy);
             config.set_mock_speed(mockSpeed);
+            config.set_write_rate_limit(writeRateLimit);
         }
 
         /**
@@ -401,6 +404,11 @@ struct ServerConfig {
          * just report the performance as mockSpeed; in MB/s.
          */
         uint32_t mockSpeed;
+
+        /**
+         * If non-0, limit writes to backup to this many megabytes per second.
+         */
+        size_t writeRateLimit;
     } backup;
 
   public:

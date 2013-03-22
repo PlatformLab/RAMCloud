@@ -110,6 +110,9 @@ message ServerConfig {
 
         /// If non-0, the fake backup disk speed this server is advertising.
         required fixed32 mock_speed = 7;
+
+        /// If non-0, limit writes to backup to this many megabytes per second.
+        required fixed64 write_rate_limit = 8;
     }
 
     /// The server's BackupService configuration, if it is running one.

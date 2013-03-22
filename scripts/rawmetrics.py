@@ -282,6 +282,7 @@ backup.metric('filterTicks', 'time filtering segments')
 backup.metric('primaryLoadCount', 'number of primary segments requested')
 backup.metric('secondaryLoadCount', 'number of secondary segments requested')
 backup.metric('storageType', '1 = in-memory, 2 = on-disk')
+backup.metric('uncommittedFramesFreed', 'number of segment frames freed before being fully flushed to disk')
 
 # This class records basic statistics for RPCs (count & execution time):
 rpc = Group('Rpc', 'metrics for remote procedure calls')

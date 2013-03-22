@@ -212,6 +212,7 @@ class SingleFileStorage : public BackupStorage {
 
     SingleFileStorage(size_t segmentSize,
                       size_t frameCount,
+                      size_t writeRateLimit,
                       size_t maxNonVolatileBuffers,
                       const char* filePath,
                       int openFlags = 0);

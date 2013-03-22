@@ -296,11 +296,16 @@ Segment::appendToBuffer(Buffer& buffer)
  *      any other values.
  * \param buffer
  *      Buffer to append the entry to.
+ * \param lengthWithMetadata
+ *      If non-NULL, return the total number of bytes this entry uses in the
+ *      segment here, including any internal segment metadata. This is used by
+ *      LogSegment to keep track of the exact amount of live data within a
+ *      segment.
  * \return
  *      The entry's type as specified when it was appended (LogEntryType).
  */
 LogEntryType
-Segment::getEntry(uint32_t offset, Buffer& buffer)
+Segment::getEntry(uint32_t offset, Buffer& buffer, uint32_t* lengthWithMetadata)
 {
     EntryHeader header = getEntryHeader(offset);
     uint32_t entryDataOffset = offset +
@@ -312,6 +317,11 @@ Segment::getEntry(uint32_t offset, Buffer& buffer)
         header.getLengthBytes());
 
     appendToBuffer(buffer, entryDataOffset, entryDataLength);
+    if (lengthWithMetadata != NULL) {
+        *lengthWithMetadata = entryDataLength +
+                              sizeof32(header) +
+                              header.getLengthBytes();
+    }
     return header.getType();
 }
 

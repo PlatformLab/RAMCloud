@@ -133,7 +133,8 @@ class InMemoryStorage : public BackupStorage {
     };
 
     InMemoryStorage(size_t segmentSize,
-                    size_t frameCount);
+                    size_t frameCount,
+                    size_t writeRateLimit);
 
     FrameRef open(bool sync);
     size_t getMetadataSize();

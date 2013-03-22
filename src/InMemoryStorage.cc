@@ -16,6 +16,7 @@
 #include "InMemoryStorage.h"
 #include "ClientException.h"
 #include "Buffer.h"
+#include "CycleCounter.h"
 #include "ShortMacros.h"
 
 namespace RAMCloud {
@@ -154,6 +155,7 @@ InMemoryStorage::Frame::append(Buffer& source,
                                size_t metadataLength)
 {
     Lock lock(storage->mutex);
+    CycleCounter<uint64_t> ticks;
     if (!isOpen) {
         LOG(ERROR, "Tried to append to a frame but it wasn't"
             "open on this backup");
@@ -188,6 +190,8 @@ InMemoryStorage::Frame::append(Buffer& source,
 
     if (metadata)
         memcpy(this->metadata.get(), metadata, metadataLength);
+
+    storage->sleepToThrottleWrites(length + metadataLength, ticks.stop());
 }
 
 /**
@@ -262,8 +266,9 @@ InMemoryStorage::Frame::open()
  *      The number of segments this storage can store simultaneously.
  */
 InMemoryStorage::InMemoryStorage(size_t segmentSize,
-                                 size_t frameCount)
-    : BackupStorage(segmentSize, Type::MEMORY)
+                                 size_t frameCount,
+                                 size_t writeRateLimit)
+    : BackupStorage(segmentSize, Type::MEMORY, writeRateLimit)
     , mutex()
     , frames()
     , frameCount(frameCount)
