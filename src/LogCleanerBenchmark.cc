@@ -439,8 +439,8 @@ class Benchmark {
           serverLocator(serverLocator),
           distribution(distribution),
           options(options),
-          latencyHistogram(20 * 1000 * 1000, 1000),     // 20s of 1us buckets
-          prefillLatencyHistogram(20 * 1000 * 1000, 1000),
+          latencyHistogram(20 * 1000 * 1000, 100),        // 2s of 100ns buckets
+          prefillLatencyHistogram(20 * 1000 * 1000, 100),
           prefillStart(0),
           prefillStop(0),
           totalPrefillObjectsWritten(0),
@@ -1326,7 +1326,7 @@ try
          ", \"-l.txt\", and \"-rp.txt/-rb.txt\" prefixes for metrics, latency, "
          "and raw prefill/benchmark files.")
         ("objectsPerRpc,o",
-         ProgramOptions::value<int>(&options.objectsPerRpc)->default_value(10),
+         ProgramOptions::value<int>(&options.objectsPerRpc)->default_value(75),
          "Number of objects to write for each RPC sent to the server. If 1, "
          "normal write RPCs are used. If greater than 1, MultiWrite RPCs will "
          "be used to batch up writes. This parameter greatly increases small"
@@ -1393,21 +1393,28 @@ try
     FILE* latencyFile = NULL;
     FILE* rawPrefillFile = NULL;
     FILE* rawBenchFile = NULL;
+    FILE* diskHistoCleanedFile = NULL;
+    FILE* diskHistoAllFile = NULL;
 
     if (options.outputFilesPrefix != "") {
         string metricsFilename = options.outputFilesPrefix + "-m.txt";
         string latencyFilename = options.outputFilesPrefix + "-l.txt";
         string rawPrefillFilename = options.outputFilesPrefix + "-rp.txt";
         string rawBenchFilename = options.outputFilesPrefix + "-rb.txt";
+        string diskHistoCleanedFilename = options.outputFilesPrefix + "-dhc.txt";
+        string diskHistoAllFilename = options.outputFilesPrefix + "-dha.txt";
 
         if (fileExists(metricsFilename) || fileExists(latencyFilename) ||
-          fileExists(rawPrefillFilename) || fileExists(rawBenchFilename)) {
-            fprintf(stderr, "One or more output files (%s, %s, %s, or %s) "
+          fileExists(rawPrefillFilename) || fileExists(rawBenchFilename) ||
+          fileExists(diskHistoCleanedFilename) || fileExists(diskHistoAllFilename)) {
+            fprintf(stderr, "One or more output files (%s, %s, %s, %s, %s, or %s) "
                 "already exist!\n",
                 metricsFilename.c_str(),
                 latencyFilename.c_str(),
                 rawPrefillFilename.c_str(),
-                rawBenchFilename.c_str());
+                rawBenchFilename.c_str(),
+                diskHistoCleanedFilename.c_str(),
+                diskHistoAllFilename.c_str());
             exit(1);
         }
 
@@ -1415,6 +1422,8 @@ try
         latencyFile = fopen(latencyFilename.c_str(), "w");
         rawPrefillFile = fopen(rawPrefillFilename.c_str(), "w");
         rawBenchFile = fopen(rawBenchFilename.c_str(), "w");
+        diskHistoCleanedFile = fopen(diskHistoCleanedFilename.c_str(), "w");
+        diskHistoAllFile = fopen(diskHistoAllFilename.c_str(), "w");
     }
 
     // Set an alarm to abort this in case we can't connect.
@@ -1486,7 +1495,7 @@ try
 
     if (latencyFile != NULL) {
         fprintf(latencyFile, "=== PREFILL LATENCIES ===\n");
-        fprintf(latencyFile, "%s\n",
+        fprintf(latencyFile, "%s\n\n",
             benchmark.prefillLatencyHistogram.toString().c_str());
         fprintf(latencyFile, "=== BENCHMARK LATENCIES ===\n");
         fprintf(latencyFile, "%s\n",
@@ -1503,6 +1512,18 @@ try
         fprintf(rawBenchFile, "%s", serverConfig.DebugString().c_str());
         benchmark.getFinalLogMetrics(logMetrics);
         fprintf(rawBenchFile, "%s", logMetrics.DebugString().c_str());
+    }
+
+    if (diskHistoCleanedFile != NULL) {
+        benchmark.getFinalLogMetrics(logMetrics);
+        Histogram h(logMetrics.cleaner_metrics().on_disk_metrics().cleaned_segment_disk_histogram());
+        fprintf(diskHistoCleanedFile, "%s", h.toString().c_str()); 
+    }
+
+    if (diskHistoAllFile != NULL) {
+        benchmark.getFinalLogMetrics(logMetrics);
+        Histogram h(logMetrics.cleaner_metrics().on_disk_metrics().all_segments_disk_histogram());
+        fprintf(diskHistoAllFile, "%s", h.toString().c_str()); 
     }
 
     // TODO(rumble): add something that reads all objects and verifies that we

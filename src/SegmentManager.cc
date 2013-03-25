@@ -128,6 +128,8 @@ SegmentManager::getMetrics(ProtoBuf::LogMetrics_SegmentMetrics& m)
     segmentsOnDiskHistogram.serialize(
                 *m.mutable_segments_on_disk_histogram());
 
+    m.set_current_segments_on_disk(segmentsOnDisk);
+
     // Compile stats on the entries that exist in our segments (whether dead
     // or alive).
     uint64_t entryCounts[TOTAL_LOG_ENTRY_TYPES] = { 0 };
@@ -218,7 +220,7 @@ SegmentManager::allocHeadSegment(uint32_t flags)
     // number of replicas before returning.
     newHead->replicatedSegment = replicaManager.allocateHead(
         newHead->id, newHead, prevReplicatedSegment);
-    segmentsOnDiskHistogram.storeSample(segmentsOnDisk++);
+    segmentsOnDiskHistogram.storeSample(++segmentsOnDisk);
 
     // Close the old head after we've opened up the new head. This ensures that
     // we always have an open segment on backups (unless, of course, there is a
@@ -313,7 +315,7 @@ SegmentManager::allocSideSegment(uint32_t flags, LogSegment* replacing)
         // replaces when memoryCleaningComplete() is invoked.
     } else {
         s->replicatedSegment = replicaManager.allocateNonHead(s->id, s);
-        segmentsOnDiskHistogram.storeSample(segmentsOnDisk++);
+        segmentsOnDiskHistogram.storeSample(++segmentsOnDisk);
         nextSegmentId++;
     }
 

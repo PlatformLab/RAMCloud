@@ -217,7 +217,7 @@ LogCleaner::doWork(CleanerThreadState* state)
     if (haveWorkToDo) {
         if (state->threadNumber == 0) {
             if (lowOnDiskSpace || notKeepingUp)
-                doDiskCleaning();
+                doDiskCleaning(lowOnDiskSpace);
             else
                 doMemoryCleaning();
         } else {
@@ -349,7 +349,7 @@ LogCleaner::doMemoryCleaning()
  * "survivor" segments, and alerting the segment manager upon completion.
  */
 uint64_t
-LogCleaner::doDiskCleaning()
+LogCleaner::doDiskCleaning(bool lowOnDiskSpace)
 {
     TEST_LOG("called");
     MetricCycleCounter _(&onDiskMetrics.totalTicks);
@@ -401,6 +401,8 @@ LogCleaner::doDiskCleaning()
     onDiskMetrics.totalSegmentsCleaned += segmentsToClean.size();
     onDiskMetrics.totalSurvivorsCreated += survivors.size();
     onDiskMetrics.totalRuns++;
+    if (lowOnDiskSpace)
+        onDiskMetrics.totalLowDiskSpaceRuns++;
 
     MetricCycleCounter __(&onDiskMetrics.cleaningCompleteTicks);
     segmentManager.cleaningComplete(segmentsToClean, survivors);
@@ -533,6 +535,11 @@ LogCleaner::getSegmentsToClean(LogSegmentVector& outSegmentsToClean)
 {
     MetricCycleCounter _(&onDiskMetrics.getSegmentsToCleanTicks);
     Lock guard(candidatesLock);
+
+    foreach (LogSegment* segment, candidates) {
+        onDiskMetrics.allSegmentsDiskHistogram.storeSample(
+            segment->getDiskUtilization());
+    }
 
     sortSegmentsByCostBenefit(candidates);
 

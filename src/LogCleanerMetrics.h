@@ -196,6 +196,7 @@ class OnDisk {
           totalSegmentsCleaned(0),
           totalSurvivorsCreated(0),
           totalRuns(0),
+          totalLowDiskSpaceRuns(0),
           totalEntriesScanned(),
           totalLiveEntriesScanned(),
           totalScannedEntryLengths(),
@@ -213,7 +214,8 @@ class OnDisk {
           closeSurvivorTicks(0),
           survivorSyncTicks(0),
           cleanedSegmentMemoryHistogram(101, 1),
-          cleanedSegmentDiskHistogram(101, 1)
+          cleanedSegmentDiskHistogram(101, 1),
+          allSegmentsDiskHistogram(101, 1)
     {
         memset(totalEntriesScanned, 0, sizeof(totalEntriesScanned));
         memset(totalLiveEntriesScanned, 0, sizeof(totalLiveEntriesScanned));
@@ -244,6 +246,7 @@ class OnDisk {
         m.set_total_segments_cleaned(totalSegmentsCleaned);
         m.set_total_survivors_created(totalSurvivorsCreated);
         m.set_total_runs(totalRuns);
+        m.set_total_low_disk_space_runs(totalLowDiskSpaceRuns);
 
         foreach (uint64_t count, totalEntriesScanned)
             m.add_total_entries_scanned(count);
@@ -270,6 +273,8 @@ class OnDisk {
             *m.mutable_cleaned_segment_memory_histogram());
         cleanedSegmentDiskHistogram.serialize(
             *m.mutable_cleaned_segment_disk_histogram());
+        allSegmentsDiskHistogram.serialize(
+            *m.mutable_all_segments_disk_histogram());
     }
 
     double
@@ -335,6 +340,10 @@ class OnDisk {
     /// disk cleaner did some work (chose some segments and relocated their
     /// live data to survivors).
     Metric64BitType totalRuns;
+
+    /// Total number of disk cleaner runs that were initiated because we ran
+    /// out of disk space (rather than ran out of memory).
+    Metric64BitType totalLowDiskSpaceRuns;
 
     /// Total number of each log entry the disk cleaner has encountered while
     /// cleaning segments. These counts include both dead and alive entries.
@@ -408,6 +417,10 @@ class OnDisk {
 
     /// Histogram of disk space utilizations for segments cleaned on disk.
     Histogram cleanedSegmentDiskHistogram;
+
+    /// Histogram of disk space utilizations for all segments prior to running
+    /// a disk cleaner pass. Includes segments chosen to clean in that pass.
+    Histogram allSegmentsDiskHistogram;
 };
 
 /**

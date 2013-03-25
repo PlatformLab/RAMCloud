@@ -201,6 +201,15 @@ LogMetricsStringer::getDiskCleanerMetrics()
     s += ls + format("  Memory Write Cost:             %.3f\n",
         d(memFreed + wrote) / d(memFreed));
 
+    uint64_t totalRuns = onDiskMetrics.total_runs();
+    uint64_t totalLowDiskRuns = onDiskMetrics.total_low_disk_space_runs();
+    s += ls + format("  Total Runs:                    %lu  (%lu / %.3f%% due "
+        "to low disk space)\n",
+        totalRuns,
+        totalLowDiskRuns,
+        100.0 * d(totalLowDiskRuns) / d(totalRuns));
+
+
     uint64_t diskBytesInCleanedSegments =
         onDiskMetrics.total_disk_bytes_in_cleaned_segments();
     s += ls + format("  Avg Cleaned Seg Disk Util:     %.2f%%\n",
@@ -228,7 +237,6 @@ LogMetricsStringer::getDiskCleanerMetrics()
     s += ls + format("  Avg Time to Clean Segment:     %.2f ms\n",
         cleanerTime / d(totalCleaned) * 1000);
 
-    uint64_t totalRuns = onDiskMetrics.total_runs();
     s += ls + format("  Avg Time per Disk Run:         %.2f ms\n",
         cleanerTime / d(totalRuns) * 1000);
 
@@ -511,6 +519,12 @@ LogMetricsStringer::getLogMetrics()
         segmentsOnDisk.getAverage(),
         100 * static_cast<double>(segmentsOnDisk.getAverage()) /
           static_cast<double>(logSegments));
+
+    uint64_t onDisk = logMetrics->segment_metrics().current_segments_on_disk();
+    s += ls + format("    Last Count:                  %lu "
+        "(%.2f%%)\n",
+        onDisk, 
+        100 * static_cast<double>(onDisk) / static_cast<double>(logSegments));
 
     return s;
 }

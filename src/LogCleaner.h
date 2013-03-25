@@ -204,9 +204,10 @@ class LogCleaner {
     static void cleanerThreadEntry(LogCleaner* logCleaner, Context* context);
     void doWork(CleanerThreadState* state);
     uint64_t doMemoryCleaning();
-    uint64_t doDiskCleaning();
+    uint64_t doDiskCleaning(bool lowOnDiskSpace);
     LogSegment* getSegmentToCompact(uint32_t& outFreeableSeglets);
     void sortSegmentsByCostBenefit(LogSegmentVector& segments);
+    void debugDumpSegments(LogSegmentVector& segments);
     void getSegmentsToClean(LogSegmentVector& outSegmentsToClean);
     void sortEntriesByTimestamp(EntryVector& entries);
     void getSortedEntries(LogSegmentVector& segmentsToClean,

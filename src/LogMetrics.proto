@@ -91,27 +91,29 @@ message LogMetrics {
             required fixed64 total_segments_cleaned = 8;
             required fixed64 total_survivors_created = 9;
             required fixed64 total_runs = 10;
+            required fixed64 total_low_disk_space_runs = 11;
 
             /// The index of each count corresponds to the LogEntryType enum.
-            repeated fixed64 total_entries_scanned = 11;
-            repeated fixed64 total_live_entries_scanned = 12;
-            repeated fixed64 total_scanned_entry_lengths = 13;
-            repeated fixed64 total_live_scanned_entry_lengths = 14;
+            repeated fixed64 total_entries_scanned = 12;
+            repeated fixed64 total_live_entries_scanned = 13;
+            repeated fixed64 total_scanned_entry_lengths = 14;
+            repeated fixed64 total_live_scanned_entry_lengths = 15;
 
-            required fixed64 total_ticks = 15;
-            required fixed64 get_segments_to_clean_ticks = 16;
-            required fixed64 cost_benefit_sort_ticks = 17;
-            required fixed64 get_sorted_entries_ticks = 18;
-            required fixed64 timestamp_sort_ticks = 19;
-            required fixed64 relocate_live_entries_ticks = 20;
-            required fixed64 wait_for_free_survivors_ticks = 21;
-            required fixed64 cleaning_complete_ticks = 22;
-            required fixed64 relocation_callback_ticks = 23;
-            required fixed64 relocation_append_ticks = 24;
-            required fixed64 close_survivor_ticks = 25;
-            required fixed64 survivor_sync_ticks = 26;
-            required Histogram cleaned_segment_memory_histogram = 27;
-            required Histogram cleaned_segment_disk_histogram = 28;
+            required fixed64 total_ticks = 16;
+            required fixed64 get_segments_to_clean_ticks = 17;
+            required fixed64 cost_benefit_sort_ticks = 18;
+            required fixed64 get_sorted_entries_ticks = 19;
+            required fixed64 timestamp_sort_ticks = 20;
+            required fixed64 relocate_live_entries_ticks = 21;
+            required fixed64 wait_for_free_survivors_ticks = 22;
+            required fixed64 cleaning_complete_ticks = 23;
+            required fixed64 relocation_callback_ticks = 24;
+            required fixed64 relocation_append_ticks = 25;
+            required fixed64 close_survivor_ticks = 26;
+            required fixed64 survivor_sync_ticks = 27;
+            required Histogram cleaned_segment_memory_histogram = 28;
+            required Histogram cleaned_segment_disk_histogram = 29;
+            required Histogram all_segments_disk_histogram = 30;
         }
         required OnDiskMetrics on_disk_metrics = 10;
 
@@ -159,11 +161,16 @@ message LogMetrics {
     /// Filled in by the SegmentManager class.
     message SegmentMetrics {
         /// Histogram tracking the number of segments replicated on backups.
+        /// Note that this value does not take R into account, so it is not
+        /// the number of total replicas.
         required Histogram segments_on_disk_histogram = 1;
 
+        /// Current count of the number of segments allocated on backups.
+        required fixed64 current_segments_on_disk = 2;
+
         /// The index of each count corresponds to the LogEntryType enum.
-        repeated fixed64 total_entry_counts = 2;
-        repeated fixed64 total_entry_lengths = 3;
+        repeated fixed64 total_entry_counts = 3;
+        repeated fixed64 total_entry_lengths = 4;
     }
     required SegmentMetrics segment_metrics = 11;
 }

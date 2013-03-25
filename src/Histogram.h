@@ -148,9 +148,9 @@ class Histogram {
         string s;
         uint64_t totalSamples = getTotalSamples();
 
-        s += format("Histogram: buckets = %lu, bucket width = %lu\n",
+        s += format("# Histogram: buckets = %lu, bucket width = %lu\n",
             numBuckets, bucketWidth);
-        s += format("%lu samples, %lu outliers, min = %lu, max = %lu\n",
+        s += format("# %lu samples, %lu outliers, min = %lu, max = %lu\n",
             totalSamples, outliers, min, max);
 
         uint64_t sum = 0;
@@ -158,7 +158,9 @@ class Histogram {
             uint64_t count = buckets[i];
             sum += count;
             if (count >= minIncludedCount) {
-                s += format("%9u  %12lu  (%.3f%%,  %.3f%%)\n", i, count,
+                // Try to keep the format easily parsable by scripts (for
+                // example, numbers only and in fixed columns).
+                s += format("%9u  %12lu  %6.3f  %6.3f\n", i, count,
                     static_cast<double>(count) /
                       static_cast<double>(totalSamples) * 100,
                     static_cast<double>(sum) /
