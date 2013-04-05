@@ -26,7 +26,7 @@ class BackupStorageTest : public ::testing::Test {
     InMemoryStorage storage;
 
     BackupStorageTest()
-        : storage(1024, 16)
+        : storage(1024, 16, 0)
     {}
 };
 

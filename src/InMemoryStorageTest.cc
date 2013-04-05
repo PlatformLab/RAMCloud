@@ -40,7 +40,7 @@ class InMemoryStorageTest : public ::testing::Test {
         , storage()
     {
         testSource.append(test, testLength + 1);
-        storage.construct(segmentSize, segmentFrames);
+        storage.construct(segmentSize, segmentFrames, 0);
     }
 
     DISALLOW_COPY_AND_ASSIGN(InMemoryStorageTest);

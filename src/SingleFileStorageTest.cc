@@ -46,7 +46,7 @@ class SingleFileStorageTest : public ::testing::Test {
     {
         Logger::get().setLogLevels(SILENT_LOG_LEVEL);
         testSource.append(test, testLength + 1);
-        storage.construct(segmentSize, segmentFrames, segmentFrames,
+        storage.construct(segmentSize, segmentFrames, 0, segmentFrames,
                           static_cast<const char*>(NULL), O_DIRECT | O_SYNC);
         Frame::testingSkipRealIo = true;
     }
@@ -459,6 +459,7 @@ TEST_F(SingleFileStorageTest, openFails) {
     TestLog::Enable _;
     EXPECT_THROW(SingleFileStorage(segmentSize,
                                    segmentFrames,
+                                   0,
                                    segmentFrames,
                                    "/dev/null/cantcreate", 0),
                             BackupStorageException);

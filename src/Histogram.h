@@ -152,6 +152,8 @@ class Histogram {
             numBuckets, bucketWidth);
         s += format("# %lu samples, %lu outliers, min = %lu, max = %lu\n",
             totalSamples, outliers, min, max);
+        s += format("# median = %lu, average = %lu\n",
+            getMedian(), getAverage());
 
         uint64_t sum = 0;
         for (uint32_t i = 0; i < numBuckets; i++) {
@@ -160,7 +162,7 @@ class Histogram {
             if (count >= minIncludedCount) {
                 // Try to keep the format easily parsable by scripts (for
                 // example, numbers only and in fixed columns).
-                s += format("%9u  %12lu  %6.3f  %6.3f\n", i, count,
+                s += format("%9u  %12lu  %7.3f  %7.3f\n", i, count,
                     static_cast<double>(count) /
                       static_cast<double>(totalSamples) * 100,
                     static_cast<double>(sum) /
@@ -234,6 +236,39 @@ class Histogram {
         if (totalSamples == 0)
             return 0;
         return downCast<uint64_t>(sampleSum / getTotalSamples());
+    }
+
+    /**
+     * Get the median sample stored in the histogram.
+     *
+     * If no samples were stored, returns 0. If the median happens to fall
+     * within one of the outliers, this method returns -1 (since we don't
+     * store the values of all outliers). This is unlikely to be a big deal
+     * since if the median is an outlier, then the histogram probably isn't
+     * sized properly in begin with.
+     */
+    uint64_t
+    getMedian() const
+    {
+        uint64_t totalSamples = getTotalSamples();
+        if (totalSamples == 0)
+            return 0;
+
+        uint64_t currentCount = 0;
+        for (uint32_t i = 0; i < numBuckets; i++) {
+            currentCount += buckets[i];
+
+            // Doesn't average in the case where there are an even number
+            // of samples. Sue me.
+            if (currentCount > totalSamples/2)
+                return i;
+        }
+
+        // Looks like either numBuckets is 0, or our median was an outlier.
+        // We don't currently keep around all of the outliers, so we can't
+        // return a median in that case.
+        assert(numBuckets == 0 || outliers > 0);
+        return -1;
     }
 
     /**

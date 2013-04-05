@@ -1066,9 +1066,18 @@ TEST_F(MasterServiceTest, recover_unsuccessful) {
 TEST_F(MasterServiceTest, remove_basics) {
     ramcloud->write(1, "key0", 4, "item0", 5);
 
+    TestLog::Enable _;
     uint64_t version;
     ramcloud->remove(1, "key0", 4, NULL, &version);
     EXPECT_EQ(1U, version);
+    EXPECT_EQ("free: free on reference 3670070 | "
+              "sync: syncing segment 1 to offset 131 | "
+              "schedule: scheduled | "
+              "performWrite: Sending write to backup 1.0 | "
+              "schedule: scheduled | "
+              "performWrite: Write RPC finished for replica slot 0 | "
+              "sync: log synced",
+              TestLog::get());
 
     Buffer value;
     EXPECT_THROW(ramcloud->read(1, "key0", 4, &value),
@@ -1482,8 +1491,17 @@ TEST_F(MasterServiceTest, write_basics) {
     Buffer value;
     uint64_t version;
 
+    TestLog::Enable _;
     ramcloud->write(1, "key0", 4, "item0", 5, NULL, &version);
     EXPECT_EQ(1U, version);
+    EXPECT_EQ("writeObject: object: 35 bytes, version 1 | "
+              "sync: syncing segment 1 to offset 91 | "
+              "schedule: scheduled | "
+              "performWrite: Sending write to backup 1.0 | "
+              "schedule: scheduled | "
+              "performWrite: Write RPC finished for replica slot 0 | "
+              "sync: log synced",
+              TestLog::get());
     ramcloud->read(1, "key0", 4, &value);
     EXPECT_EQ("item0", TestUtil::toString(&value));
     EXPECT_EQ(1U, version);

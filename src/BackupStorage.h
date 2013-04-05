@@ -428,7 +428,7 @@ class BackupStorage {
      *      this class.
      * \param writeRateLimit
      *      Throttle writes to this storage medium to at most the given number
-     *      of megabytes per second.
+     *      of megabytes per second. A value of 0 turns off throttling.
      */
     BackupStorage(size_t segmentSize, Type storageType, size_t writeRateLimit);
 

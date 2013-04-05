@@ -264,6 +264,10 @@ InMemoryStorage::Frame::open()
  *      The size in bytes of the segments this storage will deal with.
  * \param frameCount
  *      The number of segments this storage can store simultaneously.
+ * \param writeRateLimit
+ *      When specified, writes to this storage instance should be
+ *      limited to at most the given rate (in megabytes per second).
+ *      The special value 0 turns off throttling.
  */
 InMemoryStorage::InMemoryStorage(size_t segmentSize,
                                  size_t frameCount,

@@ -726,6 +726,10 @@ SingleFileStorage::BufferDeleter::operator()(void* buffer)
  *      The size in bytes of the segments this storage will deal with.
  * \param frameCount
  *      The number of segments this storage can store simultaneously.
+ * \param writeRateLimit
+ *      When specified, writes to this storage instance should be limited
+ *      to at most the given rate (in megabytes per second). The special
+ *      value 0 turns off throttling.
  * \param maxNonVolatileBuffers
  *      Limit on the number of non-volatile buffers storage will fill with
  *      replica data queued for store before rejecting new open requests
@@ -738,7 +742,8 @@ SingleFileStorage::BufferDeleter::operator()(void* buffer)
  *      A filesystem path to the device or file where segments will be stored.
  *      If NULL then a temporary file in the system temp directory is created
  *      and it is deleted when this storage instance is destroyed. /dev/null
- *      may also be used if you never want to see your data again.
+ *      may also be used if you never want to see your data again, even while
+ *      the system is still running (that is, don't expect recoveries to work).
  * \param openFlags
  *      Extra flags for use while opening filePath (default to 0, O_DIRECT may
  *      be used to disable the OS buffer cache.
@@ -760,7 +765,7 @@ SingleFileStorage::SingleFileStorage(size_t segmentSize,
     , lastAllocatedFrame(FreeMap::npos)
     , openFlags(openFlags)
     , fd(-1)
-    , usingDevNull(string(filePath) == "/dev/null")
+    , usingDevNull(filePath != NULL && string(filePath) == "/dev/null")
     , tempFilePath()
     , nonVolatileBuffersInUse()
     , maxNonVolatileBuffers(maxNonVolatileBuffers)

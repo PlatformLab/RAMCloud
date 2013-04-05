@@ -1708,8 +1708,10 @@ MasterService::remove(const WireFormat::Remove::Request* reqHdr,
 
     RejectRules rejectRules = reqHdr->rejectRules;
     respHdr->common.status = objectManager.removeObject(key,
-                                                         &rejectRules,
-                                                         &respHdr->version);
+                                                        &rejectRules,
+                                                        &respHdr->version);
+    if (respHdr->common.status == STATUS_OK)
+        objectManager.syncChanges();
 }
 
 /**
@@ -1795,7 +1797,8 @@ MasterService::write(const WireFormat::Write::Request* reqHdr,
     RejectRules rejectRules = reqHdr->rejectRules;
     respHdr->common.status = objectManager.writeObject(key,
         buffer, &rejectRules, &respHdr->version);
-    objectManager.syncChanges();
+    if (respHdr->common.status == STATUS_OK)
+        objectManager.syncChanges();
 }
 
 /**

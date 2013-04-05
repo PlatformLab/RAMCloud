@@ -92,8 +92,10 @@ TEST_F(LogEntryRelocatorTest, append) {
     uint64_t spaceTimeSumBefore = s->statistics.spaceTimeSum;
     EXPECT_TRUE(r.append(LOG_ENTRY_TYPE_OBJ, buffer, 2));
     EXPECT_TRUE(r.didAppend);
-    EXPECT_GT(s->statistics.liveBytes, bytesBefore);
-    EXPECT_GT(s->statistics.spaceTimeSum, spaceTimeSumBefore);
+
+    // LogEntryRelocator no longer manages these statistics.
+    EXPECT_EQ(s->statistics.liveBytes, bytesBefore);
+    EXPECT_EQ(s->statistics.spaceTimeSum, spaceTimeSumBefore);
 }
 
 TEST_F(LogEntryRelocatorTest, getNewReference_noAppend) {

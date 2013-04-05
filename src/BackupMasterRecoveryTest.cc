@@ -40,7 +40,7 @@ struct BackupMasterRecoveryTest : public ::testing::Test {
         : taskQueue()
         , partitions()
         , segmentSize()
-        , storage(1024, 6)
+        , storage(1024, 6, 0)
         , frames()
         , source()
         , crashedMasterId(99, 0)

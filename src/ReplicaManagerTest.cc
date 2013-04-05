@@ -286,7 +286,9 @@ bool filter(string s) {
 class DoNothingHandlers : public LogEntryHandlers {
   public:
     uint32_t getTimestamp(LogEntryType type, Buffer& buffer) { return 0; }
-    void relocate(LogEntryType type, Buffer& oldBuffer,
+    void relocate(LogEntryType type,
+                  Buffer& oldBuffer,
+                  Log::Reference oldReference,
                   LogEntryRelocator& relocator) { }
 };
 

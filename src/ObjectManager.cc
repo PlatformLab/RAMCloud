@@ -113,7 +113,8 @@ ObjectManager::initOnceEnlisted()
  * Note, however, that the write is not be guaranteed to have completed on
  * backups until the syncChanges() method is called. This allows callers to
  * issue multiple object writes and batch backup writes by syncing once per
- * batch, rather than for each object.
+ * batch, rather than for each object. If this method returns anything other
+ * than STATUS_OK, there were no changes made and the caller need not sync.
  *
  * \param key
  *      Key that will refer to the object being stored.
@@ -320,7 +321,9 @@ ObjectManager::readObject(Key& key,
  *
  * Note that just like writeObject(), this operation will not be stably commited
  * to backups until the syncChanges() method is called. This allows many remove
- * operations to be batched (to support, for example, the multiRemove RPC).
+ * operations to be batched (to support, for example, the multiRemove RPC). If
+ * this method returns anything other than STATUS_OK, there were no changes made
+ * and the caller need not sync.
  *
  * \param key
  *      Key of the object to remove.

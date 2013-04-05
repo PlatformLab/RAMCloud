@@ -33,6 +33,7 @@
 #include "WallTime.h"
 
 namespace RAMCloud {
+#if 0
 
 class TestEntryHandlers : public LogEntryHandlers {
   public:
@@ -552,5 +553,5 @@ TEST_F(LogCleanerTest, relocateEntry) {
                                                NULL,
                                                metrics));
 }
-
+#endif
 } // namespace RAMCloud

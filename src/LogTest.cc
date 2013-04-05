@@ -29,7 +29,9 @@ namespace RAMCloud {
 class DoNothingHandlers : public LogEntryHandlers {
   public:
     uint32_t getTimestamp(LogEntryType type, Buffer& buffer) { return 0; }
-    void relocate(LogEntryType type, Buffer& oldBuffer,
+    void relocate(LogEntryType type,
+                  Buffer& oldBuffer,
+                  Log::Reference oldReference,
                   LogEntryRelocator& relocator) { }
 };
 
@@ -143,7 +145,8 @@ TEST_F(LogTest, sync) {
     EXPECT_EQ("sync: sync not needed: already fully replicated",
         TestLog::get());
 
-    EXPECT_EQ(4U, l.metrics.syncCalls);
+    EXPECT_EQ(4U, l.metrics.totalSyncCalls);
+    EXPECT_GT(l.metrics.totalSyncTicks, 0U);
 }
 
 TEST_F(LogTest, rollHeadOver) {

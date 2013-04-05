@@ -111,28 +111,31 @@ TEST_F(HistogramTest, reset) {
 TEST_F(HistogramTest, toString) {
     Histogram h(100, 1);
 
-    EXPECT_EQ("Histogram: buckets = 100, bucket width = 1\n"
-              "0 samples, 0 outliers, min = 18446744073709551615, max = 0\n",
+    EXPECT_EQ("# Histogram: buckets = 100, bucket width = 1\n"
+              "# 0 samples, 0 outliers, min = 18446744073709551615, max = 0\n"
+              "# median = 0, average = 0\n",
         h.toString());
 
     h.storeSample(23);
     h.storeSample(28343);
     h.storeSample(99);
-    EXPECT_EQ("Histogram: buckets = 100, bucket width = 1\n"
-              "3 samples, 1 outliers, min = 23, max = 28343\n"
-              "       23             1  (33.333%,  33.333%)\n"
-              "       99             1  (33.333%,  66.667%)\n",
+    EXPECT_EQ("# Histogram: buckets = 100, bucket width = 1\n"
+              "# 3 samples, 1 outliers, min = 23, max = 28343\n"
+              "# median = 99, average = 9488\n"
+              "       23             1   33.333   33.333\n"
+              "       99             1   33.333   66.667\n",
         h.toString());
 
     Histogram h2(5, 1);
     h2.storeSample(3);
-    EXPECT_EQ("Histogram: buckets = 5, bucket width = 1\n"
-              "1 samples, 0 outliers, min = 3, max = 3\n"
-              "        0             0  (0.000%,  0.000%)\n"
-              "        1             0  (0.000%,  0.000%)\n"
-              "        2             0  (0.000%,  0.000%)\n"
-              "        3             1  (100.000%,  100.000%)\n"
-              "        4             0  (0.000%,  100.000%)\n",
+    EXPECT_EQ("# Histogram: buckets = 5, bucket width = 1\n"
+              "# 1 samples, 0 outliers, min = 3, max = 3\n"
+              "# median = 3, average = 3\n"
+              "        0             0    0.000    0.000\n"
+              "        1             0    0.000    0.000\n"
+              "        2             0    0.000    0.000\n"
+              "        3             1  100.000  100.000\n"
+              "        4             0    0.000  100.000\n",
         h2.toString(0));
 }
 
@@ -171,6 +174,33 @@ TEST_F(HistogramTest, getAverage) {
     h.storeSample(0xffffffffffffffffUL);
     h.storeSample(0x0fffffffffffffffUL);
     EXPECT_EQ(0x4400000000000004UL, h.getAverage());
+}
+
+TEST_F(HistogramTest, getMedian) {
+    // totalSamples == 0
+    Histogram noSamples(1, 1);
+    EXPECT_EQ(0UL, noSamples.getMedian());
+
+    // numBuckets == 0
+    Histogram noBuckets(0, 1);
+    noBuckets.storeSample(5);
+    EXPECT_EQ(-1UL, noBuckets.getMedian());
+
+    // median falls within outliers
+    Histogram h(2, 1);
+    h.storeSample(10);
+    EXPECT_EQ(-1UL, h.getMedian());
+
+    // median falls within buckets
+    h.storeSample(1);
+    h.storeSample(1);
+    EXPECT_EQ(1UL, h.getMedian());
+
+    // test a slightly less trivial case
+    Histogram h2(11, 1);
+    for (int i = 0; i <= 10; i++)
+        h2.storeSample(i);
+    EXPECT_EQ(5UL, h2.getMedian());
 }
 
 TEST_F(HistogramTest, serialize) {
