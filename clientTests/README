@@ -1,0 +1,32 @@
+/**
+
+ RAMCloud client codes are located in this directory.
+ Each client-level test code should be located in a sub-directory
+ with Makefile and README file for short description of the test.
+
+====================================
+1. Building
+====================================
+
+$ cd 'sub-directory'
+$ make
+
+====================================
+2. Running
+====================================
+
+cd to the ramcloud top directory,
+$ scripts/cluster.py [other_runtime_options] --client=<client_test_path>
+
+See scripts/cluster.py for [other_runtime_options].
+
+<client_test_path> is, for example,
+  clientTests/RAM-462/ram462test
+
+====================================
+3. Sub directories
+====================================
+
+RAM-462/           A client code to QP leak problem (bug RAM-462).
+
+**/

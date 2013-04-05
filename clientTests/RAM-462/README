@@ -1,0 +1,61 @@
+/**
+ A client code to repeat RAM-462 bug.
+
+====================================
+1. Description of the test
+====================================
+
+Description of the problem:
+ Server leaks Queue Pairs and runs out after 259997 connections
+ ( ibv_create_qp failed).
+
+Reason:
+ When client side of a queue pair is removed, there was no way to
+ remove server side of the queue pair and related resources on the
+ server.
+
+Note:
+ Since it takes while to hit this problem, we need to extend test 
+ timeout with -timeout option of cluster.py .
+
+====================================
+2. Building
+====================================
+
+$ make
+
+====================================
+3. Running
+====================================
+
+$ make run
+
+or 
+
+Go to RAMCloud top directory
+$ cd ../..
+
+$ scripts/cluster.py --verbose --timeout=1000 --client=clientTests/RAM-462/ram462test
+
+Check the logfile in logs/<execution_id>
+if orphan server ports (Queue pairs) are closed and the warnings are seen
+by port timeout on coordinator with the bug fix.
+
+====================================
+4. Extra
+====================================
+
+Run RAMCloud under valgrind for memory leak test.
+
+4.1 Compiling thie client code with
+ #define USE_VALGRIND 
+
+4.2 cd to RAMCloud top directory and run the client test as follows:
+
+$ scripts/cluster.py --verbose --timeout=1000 --valgrind --valgrindArgs='--leak-check=yes --leak-resolution=med --show-reachable=no --undef-value-errors=no'  --client=clientTests/RAM-462/ram462test
+
+or 
+
+$ scripts/cluster.py --verbose --timeout=1000 --valgrind --valgrindArgs='--leak-check=yes'  --client=clientTests/RAM-462/ram462test
+
+**/

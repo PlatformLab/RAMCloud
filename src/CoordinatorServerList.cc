@@ -122,10 +122,29 @@ CoordinatorServerList::enlistServer(
         ServerCrashed(*this, lock, replacesId, version + 1).execute();
     }
 
-    ServerUpUpdate(*this, lock).execute();
-    ServerId newServerId =
-        EnlistServer(*this, lock, ServerId(), serviceMask,
-                     readSpeed, serviceLocator, version + 1).execute();
+    // Indicate that the next server enlistment would have to send out "UP"
+    // updates to the cluster.
+    // However:
+    // I can skip this step if such a log entry is pointed to by the csl's
+    // logIdServerUpUpdate.
+    // Because:
+    // This log entry is is not specific to a particular server that is
+    // enlisting, rather just meant for the "next" server enlisting.
+    // If it were meant for a particular server, it would be pointed to
+    // by the server entry's logIdServerUpUpdate, not csl's logIdServerUpUpdate.
+    // This situation an arise if the coordinator was in the middle of
+    // an enlistServer() operation (it had completed ServerUpUpdate::execute(),
+    // but not EnlistServer::complete()) when it last crashed.
+    // Reusing such an entry also helps prevent dangling ServerUpUpdate
+    // log entries.
+    if (logIdServerUpUpdate == NO_ID) {
+        ServerUpUpdate(*this, lock).execute();
+    }
+
+    // Enlist the server.
+    ServerId newServerId = EnlistServer(*this, lock, ServerId(),
+                                        serviceMask, readSpeed,
+                                        serviceLocator, version + 1).execute();
 
     if (replacesId.isValid()) {
         LOG(NOTICE, "Newly enlisted server %s replaces server %s",
@@ -269,7 +288,23 @@ void
 CoordinatorServerList::serverCrashed(ServerId serverId)
 {
     Lock lock(mutex);
-    ServerNeedsRecovery(*this, lock, serverId).execute();
+
+    // Indicate that the crashed server needs to be recovered.
+    // However:
+    // I can skip this step if such a log entry already exists.
+    // This situation can arise if the coordinator was in the middle of
+    // a crashedServer() operation (it had completed
+    // ServerNeedsRecovery::execute(), but not ServerCrashed::complete())
+    // or had completed serverCrashed() not completed the recovery for
+    // the crashed server when it last crashed.
+    // Reusing this log entry also helps prevent having multiple
+    // ServerNeedsRecovery log entries for crashed servers.
+    Entry* entry = getEntry(serverId);
+    if (entry && entry->logIdServerNeedsRecovery == NO_ID) {
+        ServerNeedsRecovery(*this, lock, serverId).execute();
+    }
+
+    // Remove the crashed server from the cluster.
     ServerCrashed(*this, lock, serverId, version + 1).execute();
 }
 
@@ -339,6 +374,21 @@ CoordinatorServerList::recoverServerListVersion(
     PersistServerListVersion(*this, lock, version).complete(
             logIdServerListVersion);
 
+    // When coordinator recovers, all the server list entries created
+    // corresponding to all the servers, will have a verified version and
+    // update version of 0. (Since it It will be too expensive to log the
+    // most up-to-date value of verified version for each entry during
+    // normal operation and then recover that later.)
+    // This would result in the entire server list being sent out to all
+    // the servers. This is not expected behavior (and the servers will
+    // shoot themselves in the head).
+    // Hence:
+    // Set these versions for every server entry in server list to be the
+    // ServerListVersion number that was last logged to LogCabin
+    // (since which was the minimum verified update number).
+    // This way, some servers might still get some updates they had already
+    // received, but the number will hopefully be low, and they will at least
+    // never receive the entire server list again.
     for (size_t index = 0; index < isize(); index++) {
         Entry* entry = getEntry(index);
         if (entry != NULL) {

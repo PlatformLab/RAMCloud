@@ -112,6 +112,8 @@ $ hooks/pre-commit
 
 bindings/          Bindings in languages other than C/C++ for RAMCloud clients.
 
+clientTests/	   RAMCloud client codes for testing
+
 docs/              Doxygen generated source documentation.
 
 ft/                Fast Transport Prototype - with helper scripts.

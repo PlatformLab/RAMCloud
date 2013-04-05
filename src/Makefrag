@@ -103,7 +103,6 @@ SHARED_SRCFILES := \
 		   src/TableEnumerator.cc \
 		   src/Tablet.cc \
 		   src/TabletManager.cc \
-		   src/TabletMap.cc \
 		   src/TaskQueue.cc \
 		   src/TcpTransport.cc \
 		   src/TestLog.cc \

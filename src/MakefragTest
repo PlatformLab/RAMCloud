@@ -110,7 +110,6 @@ TESTS_SRCFILES := \
 		  src/TableEnumeratorTest.cc \
 		  src/TabletTest.cc \
 		  src/TableManagerTest.cc \
-		  src/TabletMapTest.cc \
 		  src/TabletManagerTest.cc \
 		  src/TaskQueueTest.cc \
 		  src/TcpTransportTest.cc \
