@@ -264,8 +264,8 @@ LogMetricsStringer::getDiskCleanerMetrics()
 
     s += ls + getSegmentEntriesScanned(&onDiskMetrics, cleanerTime);
 
-    s += ls + format("  Total Time:                    %.3f sec (%.2f%% active)\n",
-        cleanerTime, 100.0 * cleanerTime / elapsedTime);
+    s += ls + format("  Total Time:                    %.3f sec "
+        "(%.2f%% active)\n", cleanerTime, 100.0 * cleanerTime / elapsedTime);
 
     double chooseTime = Cycles::toSeconds(
         onDiskMetrics.get_segments_to_clean_ticks(), serverHz);
@@ -523,7 +523,7 @@ LogMetricsStringer::getLogMetrics()
     uint64_t onDisk = logMetrics->segment_metrics().current_segments_on_disk();
     s += ls + format("    Last Count:                  %lu "
         "(%.2f%%)\n",
-        onDisk, 
+        onDisk,
         100 * static_cast<double>(onDisk) / static_cast<double>(logSegments));
 
     return s;

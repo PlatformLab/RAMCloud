@@ -140,7 +140,7 @@ SegmentManager::getMetrics(ProtoBuf::LogMetrics_SegmentMetrics& m)
             entryLengths[i] += s.getEntryLengths(static_cast<LogEntryType>(i));
         }
     }
-    for (int i = 0; i < TOTAL_LOG_ENTRY_TYPES; i++ ) {
+    for (int i = 0; i < TOTAL_LOG_ENTRY_TYPES; i++) {
         m.add_total_entry_counts(entryCounts[i]);
         m.add_total_entry_lengths(entryLengths[i]);
     }

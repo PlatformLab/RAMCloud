@@ -251,6 +251,8 @@ class LogCleaner {
      *      The type of entry that may need relocation.
      * \param buffer
      *      Buffer containing the segment entry that may need relocation.
+     * \param reference
+     *      Log reference to the entry that may need relocation.
      * \param survivor
      *      Survivor segment into which this entry may be relocated. This may
      *      be NULL, in which case the method will return false if relocation
@@ -260,6 +262,15 @@ class LogCleaner {
      *      The appropriate metrics to update with relocation performance
      *      statistics. This is an instance of LogCleanerMetrics::InMemory or
      *      LogCleanerMetrics::OnDisk.
+     * \param bytesAppended
+     *      The total number of bytes appended during relocation (including any
+     *      metadata) is returned here. Must not be NULL.
+     * \param spaceTimeSum
+     *      The product of bytesAppended and the timestamp of the relocated
+     *      entry is added to the value pointed by this variable. This is used
+     *      to queue up changes to LogSegment's counters so that it can be
+     *      updated just once, rather than on each object relocation. Must not
+     *      be NULL.
      * \return
      *      Returns true if the operation succeeded (the entry was successfully
      *      relocated or was not needed and no relocation was performed).

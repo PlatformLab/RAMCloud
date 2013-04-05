@@ -54,7 +54,10 @@ class CleanerCompactionBenchmark {
         config.master.disableLogCleaner = true;
         config.segmentSize = Segment::DEFAULT_SEGMENT_SIZE;
         config.segletSize = Seglet::DEFAULT_SEGLET_SIZE;
-        objectManager = new ObjectManager(&context, &serverId, &config, &tabletManager);
+        objectManager = new ObjectManager(&context,
+                                          &serverId,
+                                          &config,
+                                          &tabletManager);
     }
 
     ~CleanerCompactionBenchmark()
@@ -125,10 +128,12 @@ class CleanerCompactionBenchmark {
         printf("  Avg Time / Entry Scanned:     %.0f ns\n",
             Cycles::toSeconds(ticks / totalEntriesScanned) * 1.0e9);
 
-        printf("  Avg Relocation Callback Time: %.0f ns (minus survivor append: %.0f)\n",
+        printf("  Avg Relocation Callback Time: %.0f ns "
+            "(minus survivor append: %.0f)\n",
             Cycles::toSeconds(metrics->relocationCallbackTicks /
                               metrics->totalRelocationCallbacks) * 1.0e9,
-            Cycles::toSeconds((metrics->relocationCallbackTicks - metrics->relocationAppendTicks) /
+            Cycles::toSeconds((metrics->relocationCallbackTicks -
+                               metrics->relocationAppendTicks) /
                               metrics->totalRelocationCallbacks) * 1.0e9);
     }
 

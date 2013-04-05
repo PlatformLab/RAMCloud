@@ -200,7 +200,7 @@ LogCleaner::doWork(CleanerThreadState* state)
     threadMetrics.noteThreadStart();
 
     // Update our list of candidates whether we need to clean or not (it's
-    // better not to put off work until we really need to clean). 
+    // better not to put off work until we really need to clean).
     candidatesLock.lock();
     segmentManager.cleanableSegments(candidates);
     candidatesLock.unlock();
@@ -221,7 +221,8 @@ LogCleaner::doWork(CleanerThreadState* state)
             else
                 doMemoryCleaning();
         } else {
-            if (memUtil >= std::min(99, (90 + 2 * (int)state->threadNumber)))
+            int threshold = 90 + 2 * static_cast<int>(state->threadNumber);
+            if (memUtil >= std::min(99, threshold))
                 doMemoryCleaning();
             else
                 haveWorkToDo = false;
@@ -473,9 +474,12 @@ LogCleaner::getSegmentToCompact(uint32_t& outFreeableSeglets)
         __uint128_t bestGoodness = 0;
         for (size_t i = 0; i < candidates.size(); i++) {
             LogSegment* candidate = candidates[i];
-            uint32_t tombstoneCount = candidate->getEntryCount(LOG_ENTRY_TYPE_OBJTOMB);
-            uint64_t timeSinceLastCompaction = Cycles::rdtsc() - candidate->creationTicks;
-            __uint128_t goodness = (__uint128_t)tombstoneCount * timeSinceLastCompaction;
+            uint32_t tombstoneCount =
+                candidate->getEntryCount(LOG_ENTRY_TYPE_OBJTOMB);
+            uint64_t timeSinceLastCompaction =
+                Cycles::rdtsc() - candidate->creationTicks;
+            __uint128_t goodness =
+                (__uint128_t)tombstoneCount * timeSinceLastCompaction;
             if (goodness > bestGoodness) {
                 bestIndex = i;
                 bestGoodness = goodness;
@@ -485,7 +489,7 @@ LogCleaner::getSegmentToCompact(uint32_t& outFreeableSeglets)
         // Still no dice. Looks like we're just full of live data.
         if (bestIndex == static_cast<size_t>(-1))
             return NULL;
-        
+
         // It's not safe for the compactor to free any memory this time around
         // (it could be that no tombstones were dead, or we will free too few to
         // allow us to free seglets while still guaranteeing forward progress

@@ -37,4 +37,22 @@ TEST_F(BackupStorageTest, benchmark) {
     EXPECT_EQ(100u, storage.benchmark(EVEN_DISTRIBUTION));
 }
 
+TEST_F(BackupStorageTest, sleepToThrottleWrites) {
+    TestLog::Enable _;
+
+    storage.writeRateLimit = 0;
+    storage.sleepToThrottleWrites(1000, 1000);
+    EXPECT_EQ("", TestLog::get());
+
+    storage.writeRateLimit = 1;
+    storage.sleepToThrottleWrites(1024 * 1024, Cycles::fromSeconds(0.001));
+    EXPECT_EQ("sleepToThrottleWrites: delayed 999000 usec", TestLog::get());
+
+    TestLog::reset();
+
+    storage.writeRateLimit = 1000;
+    storage.sleepToThrottleWrites(100 * 1024 * 1024, Cycles::fromSeconds(0.05));
+    EXPECT_EQ("sleepToThrottleWrites: delayed 50000 usec", TestLog::get());
+}
+
 } // namespace RAMCloud

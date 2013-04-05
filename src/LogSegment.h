@@ -72,7 +72,7 @@ class LogSegment : public Segment {
          *      include all metadata to get a complete accounting of space used.
          *      If multiple entries were added, this is simply the sum of their
          *      lengths in the log.
-         * \param spaceTimeSum
+         * \param newSpaceTimeSum
          *      Sum of each entry's length in the log times their WallTime
          *      creation timestamp. For example, if we have two entries of
          *      length L1 and L2 with timestamps T1 and T2, this value must be
@@ -97,7 +97,7 @@ class LogSegment : public Segment {
          *      must include all metadata to get a complete accounting of space
          *      used. If multiple entries were removed, this is simply the sum
          *      of their lengths in the log.
-         * \param spaceTimeSum 
+         * \param newSpaceTimeSum 
          *      Sum of each entry's length in the log times their WallTime
          *      creation timestamp. For example, if we have two entries of
          *      length L1 and L2 with timestamps T1 and T2, this value must be

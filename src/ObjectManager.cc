@@ -888,6 +888,9 @@ ObjectManager::relocate(LogEntryType type,
  * \param oldBuffer
  *      Buffer pointing to the object's current location, which will soon be
  *      invalidated.
+ * \param oldReference
+ *      Reference to the old object in the log. This is used to make a fast
+ *      liveness check (the hash table points to this iff the object is alive).
  * \param relocator
  *      The relocator may be used to store the object in a new location if it
  *      is still alive. It also provides a reference to the new location and

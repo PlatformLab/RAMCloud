@@ -395,7 +395,7 @@ class Output {
                         ProtoBuf::LogMetrics& logMetrics);
     void dumpSummary(FILE* fp);
     void dumpPrefillMetrics(FILE* fp);
-    void dumpCleanerMetrics(FILE* fp, RAMCloud::ProtoBuf::LogMetrics&);
+    void dumpCleanerMetrics(FILE* fp, ProtoBuf::LogMetrics& metrics);
     template<typename T> void dumpSegmentEntriesScanned(FILE* fp,
                                                         T& metrics,
                                                         double elapsed,
@@ -728,7 +728,8 @@ class Benchmark {
 
                 rpcs[i].construct(&ramcloud);
                 bool outOfObjects = false;
-                for (int cnt = 0; cnt < options.objectsPerRpc && !outOfObjects; cnt++) {
+                for (int cnt = 0;
+                  cnt < options.objectsPerRpc && !outOfObjects; cnt++) {
                     rpcs[i]->addObject(tableId, &distribution);
                     outOfObjects = prefilling ?
                         distribution.isPrefillDone() : false;
@@ -829,9 +830,9 @@ class Benchmark {
         double diskWriteCost = static_cast<double>(diskFreed + diskWrote) /
                                static_cast<double>(diskFreed);
         uint64_t intDiskWriteCost = static_cast<uint64_t>(
-                            diskWriteCost * pow(10, options.writeCostConvergence));
+                    diskWriteCost * pow(10, options.writeCostConvergence));
         uint64_t intLastDiskWriteCost = static_cast<uint64_t>(
-                            lastDiskWriteCost * pow(10, options.writeCostConvergence));
+                    lastDiskWriteCost * pow(10, options.writeCostConvergence));
 
         bool areEqual = (intDiskWriteCost == intLastDiskWriteCost);
 
@@ -1393,28 +1394,32 @@ try
     FILE* latencyFile = NULL;
     FILE* rawPrefillFile = NULL;
     FILE* rawBenchFile = NULL;
-    FILE* diskHistoCleanedFile = NULL;
-    FILE* diskHistoAllFile = NULL;
+    FILE* diskHistCleanedFile = NULL;
+    FILE* diskHistAllFile = NULL;
 
     if (options.outputFilesPrefix != "") {
         string metricsFilename = options.outputFilesPrefix + "-m.txt";
         string latencyFilename = options.outputFilesPrefix + "-l.txt";
         string rawPrefillFilename = options.outputFilesPrefix + "-rp.txt";
         string rawBenchFilename = options.outputFilesPrefix + "-rb.txt";
-        string diskHistoCleanedFilename = options.outputFilesPrefix + "-dhc.txt";
-        string diskHistoAllFilename = options.outputFilesPrefix + "-dha.txt";
+        string diskHistCleanedFilename = options.outputFilesPrefix + "-dhc.txt";
+        string diskHistAllFilename = options.outputFilesPrefix + "-dha.txt";
 
-        if (fileExists(metricsFilename) || fileExists(latencyFilename) ||
-          fileExists(rawPrefillFilename) || fileExists(rawBenchFilename) ||
-          fileExists(diskHistoCleanedFilename) || fileExists(diskHistoAllFilename)) {
-            fprintf(stderr, "One or more output files (%s, %s, %s, %s, %s, or %s) "
+        if (fileExists(metricsFilename) ||
+          fileExists(latencyFilename) ||
+          fileExists(rawPrefillFilename) ||
+          fileExists(rawBenchFilename) ||
+          fileExists(diskHistCleanedFilename) ||
+          fileExists(diskHistAllFilename)) {
+            fprintf(stderr,
+                "One or more output files (%s, %s, %s, %s, %s, or %s) "
                 "already exist!\n",
                 metricsFilename.c_str(),
                 latencyFilename.c_str(),
                 rawPrefillFilename.c_str(),
                 rawBenchFilename.c_str(),
-                diskHistoCleanedFilename.c_str(),
-                diskHistoAllFilename.c_str());
+                diskHistCleanedFilename.c_str(),
+                diskHistAllFilename.c_str());
             exit(1);
         }
 
@@ -1422,8 +1427,8 @@ try
         latencyFile = fopen(latencyFilename.c_str(), "w");
         rawPrefillFile = fopen(rawPrefillFilename.c_str(), "w");
         rawBenchFile = fopen(rawBenchFilename.c_str(), "w");
-        diskHistoCleanedFile = fopen(diskHistoCleanedFilename.c_str(), "w");
-        diskHistoAllFile = fopen(diskHistoAllFilename.c_str(), "w");
+        diskHistCleanedFile = fopen(diskHistCleanedFilename.c_str(), "w");
+        diskHistAllFile = fopen(diskHistAllFilename.c_str(), "w");
     }
 
     // Set an alarm to abort this in case we can't connect.
@@ -1514,16 +1519,20 @@ try
         fprintf(rawBenchFile, "%s", logMetrics.DebugString().c_str());
     }
 
-    if (diskHistoCleanedFile != NULL) {
+    if (diskHistCleanedFile != NULL) {
         benchmark.getFinalLogMetrics(logMetrics);
-        Histogram h(logMetrics.cleaner_metrics().on_disk_metrics().cleaned_segment_disk_histogram());
-        fprintf(diskHistoCleanedFile, "%s", h.toString().c_str()); 
+        const ProtoBuf::LogMetrics_CleanerMetrics_OnDiskMetrics& onDiskMetrics =
+            logMetrics.cleaner_metrics().on_disk_metrics();
+        Histogram h(onDiskMetrics.cleaned_segment_disk_histogram());
+        fprintf(diskHistCleanedFile, "%s", h.toString().c_str());
     }
 
-    if (diskHistoAllFile != NULL) {
+    if (diskHistAllFile != NULL) {
         benchmark.getFinalLogMetrics(logMetrics);
-        Histogram h(logMetrics.cleaner_metrics().on_disk_metrics().all_segments_disk_histogram());
-        fprintf(diskHistoAllFile, "%s", h.toString().c_str()); 
+        const ProtoBuf::LogMetrics_CleanerMetrics_OnDiskMetrics& onDiskMetrics =
+            logMetrics.cleaner_metrics().on_disk_metrics();
+        Histogram h(onDiskMetrics.all_segments_disk_histogram());
+        fprintf(diskHistAllFile, "%s", h.toString().c_str());
     }
 
     // TODO(rumble): add something that reads all objects and verifies that we
