@@ -715,17 +715,14 @@ MasterService::splitMasterTablet(
     Rpc* rpc)
 {
     bool split = tabletManager.splitTablet(reqHdr->tableId,
-                                           reqHdr->firstKeyHash,
-                                           reqHdr->lastKeyHash,
                                            reqHdr->splitKeyHash);
     if (split) {
-        LOG(NOTICE, "In table '%lu' I split the tablet that started at key %lu "
-            "and ended at key %lu", reqHdr->tableId, reqHdr->firstKeyHash,
-            reqHdr->lastKeyHash);
+        LOG(NOTICE, "In table '%lu' I split the tablet at key %lu ",
+            reqHdr->tableId, reqHdr->splitKeyHash);
     } else {
-        LOG(WARNING, "Could not split unknown tablet %lu [%lu, %lu] at %lu",
-             reqHdr->tableId, reqHdr->firstKeyHash, reqHdr->lastKeyHash,
-             reqHdr->splitKeyHash);
+        LOG(WARNING, "Could not split table %lu at key hash %lu:"
+                      "no such tablet on this master",
+             reqHdr->tableId, reqHdr->splitKeyHash);
         respHdr->common.status = STATUS_UNKNOWN_TABLET;
     }
 }

@@ -247,43 +247,25 @@ TableManager::serialize(AbstractServerList& serverList,
 
 /**
  * Split a Tablet in the tablet map into two disjoint Tablets at a specific
- * key hash. One Tablet will have all the key hashes
- * [ \a startKeyHash, \a splitKeyHash), the other will have
- * [ \a splitKeyHash, \a endKeyHash ].
- *
- * Also inform the master to split the tablet.
+ * key hash. Check if the split already exists, in which case, just return.
+ * After a split, inform the master to split the tablet.
  * 
  * \param name
  *      Name of the table that contains the tablet to be split.
- * \param startKeyHash
- *      First key hash that is part of the range of key hashes for the tablet
- *      to split.
- * \param endKeyHash
- *      Last key hash that is part of the range of key hashes for the tablet
- *      to split.
  * \param splitKeyHash
  *      Key hash to used to partition the tablet into two. Keys less than
  *      \a splitKeyHash belong to one Tablet, keys greater than or equal to
  *      \a splitKeyHash belong to the other.
  * 
- * \throw NoSuchTablet
- *      If the arguments do not identify a tablet currently in the tablet map.
- * \throw BadSplit
- *      If \a splitKeyHash is not in the range
- *      ( \a startKeyHash, \a endKeyHash ].
  * \throw NoSuchTable
  *      If name does not identify a table currently in the tables.
  */
 void
 TableManager::splitTablet(const char* name,
-                          uint64_t startKeyHash,
-                          uint64_t endKeyHash,
                           uint64_t splitKeyHash)
 {
     Lock lock(mutex);
-    SplitTablet(*this, lock,
-                name, startKeyHash, endKeyHash,
-                splitKeyHash).execute();
+    SplitTablet(*this, lock, name, splitKeyHash).execute();
 }
 
 /**
@@ -441,8 +423,6 @@ TableManager::recoverSplitTablet(
     LOG(DEBUG, "TableManager::recoverSplitTablet()");
     SplitTablet(*this, lock,
                 state->name().c_str(),
-                state->start_key_hash(),
-                state->end_key_hash(),
                 state->split_key_hash()).complete(entryId);
 }
 
@@ -705,8 +685,6 @@ TableManager::SplitTablet::execute()
     ProtoBuf::SplitTablet state;
     state.set_entry_type("SplitTablet");
     state.set_name(name);
-    state.set_start_key_hash(startKeyHash);
-    state.set_end_key_hash(endKeyHash);
     state.set_split_key_hash(splitKeyHash);
 
     EntryId entryId = tm.context->logCabinHelper->appendProtoBuf(
@@ -725,54 +703,56 @@ TableManager::SplitTablet::complete(EntryId entryId)
     }
     uint64_t tableId = it->second;
 
-    if (startKeyHash >= (splitKeyHash - 1) || splitKeyHash >= endKeyHash) {
-        throw BadSplit(HERE);
-    }
+    if (tm.splitExists(lock, tableId, splitKeyHash)) {
+        return;
+    } else {
+        Tablet& tablet = tm.getTabletSplit(lock, tableId, splitKeyHash);
+        uint64_t startKeyHash = tablet.startKeyHash;
+        uint64_t endKeyHash = tablet.endKeyHash;
+        Tablet newTablet = tablet;
+        newTablet.startKeyHash = splitKeyHash;
+        tablet.endKeyHash = splitKeyHash - 1;
+        tm.map.push_back(newTablet);
 
-    Tablet& tablet = tm.find(lock, tableId, startKeyHash, endKeyHash);
-    Tablet newTablet = tablet;
-    newTablet.startKeyHash = splitKeyHash;
-    tablet.endKeyHash = splitKeyHash - 1;
-    tm.map.push_back(newTablet);
+        // Tell the master to split the tablet
+        MasterClient::splitMasterTablet(tm.context, tablet.serverId, tableId,
+                                        splitKeyHash);
 
-    // Tell the master to split the tablet
-    MasterClient::splitMasterTablet(tm.context, tablet.serverId, tableId,
-                                    startKeyHash, endKeyHash, splitKeyHash);
+        EntryId oldTableInfoEntryId = tm.getTableInfoLogId(lock, tableId);
+        vector<EntryId> invalidates {oldTableInfoEntryId, entryId};
 
-    EntryId oldTableInfoEntryId = tm.getTableInfoLogId(lock, tableId);
-    vector<EntryId> invalidates {oldTableInfoEntryId, entryId};
+        ProtoBuf::TableInformation tableInfo;
+        // TODO(ankitak): After ongaro has added cursor API to LogCabin,
+        // use that to read in only one entry here.
+        vector<Entry> entriesRead =
+                tm.context->logCabinLog->read(oldTableInfoEntryId);
+        tm.context->logCabinHelper->parseProtoBufFromEntry(
+                entriesRead[0], tableInfo);
 
-    ProtoBuf::TableInformation tableInfo;
-    // TODO(ankitak): After ongaro has added cursor API to LogCabin,
-    // use that to read in only one entry here.
-    vector<Entry> entriesRead =
-            tm.context->logCabinLog->read(oldTableInfoEntryId);
-    tm.context->logCabinHelper->parseProtoBufFromEntry(
-            entriesRead[0], tableInfo);
+        for (uint32_t i = 0; i < tableInfo.server_span(); i++) {
+            ProtoBuf::TableInformation::TabletInfo& tabletInfo =
+                    *(tableInfo.mutable_tablet_info(i));
+            if (startKeyHash != tabletInfo.start_key_hash() ||
+                    endKeyHash != tabletInfo.end_key_hash()) {
+                continue;
+            }
+            tabletInfo.set_end_key_hash(splitKeyHash - 1);
 
-    for (uint32_t i = 0; i < tableInfo.server_span(); i++) {
-        ProtoBuf::TableInformation::TabletInfo& tabletInfo =
-                *(tableInfo.mutable_tablet_info(i));
-        if (startKeyHash != tabletInfo.start_key_hash() ||
-                endKeyHash != tabletInfo.end_key_hash()) {
-            continue;
+            ProtoBuf::TableInformation::TabletInfo&
+                    newTablet(*tableInfo.add_tablet_info());
+            newTablet.set_start_key_hash(splitKeyHash);
+            newTablet.set_end_key_hash(endKeyHash);
+            newTablet.set_master_id(tabletInfo.master_id());
+            newTablet.set_ctime_log_head_id(tabletInfo.ctime_log_head_id());
+            newTablet.set_ctime_log_head_offset(
+                    tabletInfo.ctime_log_head_offset());
         }
-        tabletInfo.set_end_key_hash(splitKeyHash - 1);
+        tableInfo.set_server_span(tableInfo.server_span() + 1);
 
-        ProtoBuf::TableInformation::TabletInfo&
-                newTablet(*tableInfo.add_tablet_info());
-        newTablet.set_start_key_hash(splitKeyHash);
-        newTablet.set_end_key_hash(endKeyHash);
-        newTablet.set_master_id(tabletInfo.master_id());
-        newTablet.set_ctime_log_head_id(tabletInfo.ctime_log_head_id());
-        newTablet.set_ctime_log_head_offset(
-                tabletInfo.ctime_log_head_offset());
+        EntryId newEntryId = tm.context->logCabinHelper->appendProtoBuf(
+                *tm.context->expectedEntryId, tableInfo, invalidates);
+        LOG(DEBUG, "LogCabin: AliveTable entryId: %lu", newEntryId);
     }
-    tableInfo.set_server_span(tableInfo.server_span() + 1);
-
-    EntryId newEntryId = tm.context->logCabinHelper->appendProtoBuf(
-            *tm.context->expectedEntryId, tableInfo, invalidates);
-    LOG(DEBUG, "LogCabin: AliveTable entryId: %lu", newEntryId);
 }
 
 void
@@ -887,6 +867,78 @@ TableManager::cfind(const Lock& lock,
 {
     return const_cast<TableManager*>(this)->find(lock, tableId,
                                                  startKeyHash, endKeyHash);
+}
+
+/**
+ * Check if a tablet has already been split at the given hash value.
+ *
+ * \param lock
+ *      Explicity needs caller to hold a lock.
+ * \param tableId
+ *      Table id of the table containing the tablet to be split if it is not
+ *      already split.
+ * \param splitKeyHash
+ *      Hash value at which the function checks whether there already exists
+ *      a split.
+ * \return
+ *      true if the split already exists and false otherwise
+ */
+
+bool
+TableManager::splitExists(const Lock& lock, uint64_t tableId,
+                           uint64_t splitKeyHash)
+{
+    int count = 0;
+    // check if splitKeyHash falls on the appropriate boundaries of two
+    // disjoint hash ranges
+    foreach (auto& tablet, map) {
+        if (tablet.tableId == tableId &&
+            tablet.startKeyHash == splitKeyHash)
+            count++;
+        else if (tablet.tableId == tableId &&
+            tablet.endKeyHash == splitKeyHash - 1)
+            count++;
+    }
+    if (count == 2) {
+        return true;
+    } else {
+        return false;
+    }
+}
+
+/**
+ * Get the details of a Tablet in the tablet map by reference. For internal
+ * use only since returning a reference to an internal value is not
+ * thread-safe.
+ *
+ *  \param lock
+ *      Explicity needs caller to hold a lock.
+ * \param tableId
+ *      Table id of the tablet to return the details of.
+ * \param splitKeyHash
+ *      Split key hash that is part of the range of key hashes for the tablet
+ *      to return the details of.
+ * \return
+ *      A copy of the Tablet entry in the tablet map that contains
+ *      \a splitKeyHash.
+ */
+
+Tablet&
+TableManager::getTabletSplit(const Lock& lock,
+                               uint64_t tableId,
+                               uint64_t splitKeyHash)
+{
+    // the inner loop is guaranteed to break because splitKeyHash
+    // cannot fall outside the entire hash range
+    foreach (auto& tablet, map) {
+        if (tablet.tableId == tableId &&
+            tablet.startKeyHash < splitKeyHash - 1 &&
+            splitKeyHash < tablet.endKeyHash) {
+            return tablet;
+        }
+    }
+    DIE("could not fnid a containing tablet for splitKeyHash.Something"
+        "is terribly wrong in the tablet map");
 }
 
 /**

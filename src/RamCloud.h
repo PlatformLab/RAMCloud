@@ -72,8 +72,7 @@ class RamCloud {
             uint64_t* version = NULL);
     void remove(uint64_t tableId, const void* key, uint16_t keyLength,
             const RejectRules* rejectRules = NULL, uint64_t* version = NULL);
-    void splitTablet(const char* name, uint64_t startKeyHash,
-            uint64_t endKeyHash, uint64_t splitKeyHash);
+    void splitTablet(const char* name, uint64_t splitKeyHash);
     void testingFill(uint64_t tableId, const void* key, uint16_t keyLength,
             uint32_t numObjects, uint32_t objectSize);
     uint64_t testingGetServerId(uint64_t tableId, const void* key,
@@ -609,7 +608,6 @@ class SetRuntimeOptionRpc : public CoordinatorRpcWrapper {
 class SplitTabletRpc : public CoordinatorRpcWrapper {
   public:
     SplitTabletRpc(RamCloud* ramcloud, const char* name,
-            uint64_t startKeyHash, uint64_t endKeyHash,
             uint64_t splitKeyHash);
     ~SplitTabletRpc() {}
     /// \copydoc RpcWrapper::docForWait

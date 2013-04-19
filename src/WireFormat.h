@@ -1052,10 +1052,6 @@ struct SplitMasterTablet {
         RequestCommonWithId common;
         uint64_t tableId;             // Id of the table that contains the to
                                       // be split tablet.
-        uint64_t firstKeyHash;        // Identify the to be split tablet by
-                                      // providing its current start key hash.
-        uint64_t lastKeyHash;         // Identify the to be split tablet by
-                                      // providing its current end key hash.
         uint64_t splitKeyHash;        // Indicate where to split the tablet.
                                       // This will be the first key of the
                                       // second tablet after the split.
@@ -1074,10 +1070,6 @@ struct SplitTablet {
                                       // including terminating NULL
                                       // character. The bytes of the name
                                       // follow immediately after this header.
-        uint64_t firstKeyHash;        // Identify the to be split tablet by
-                                      // providing its current start key hash.
-        uint64_t lastKeyHash;         // Identify the to be split tablet by
-                                      // providing its current end key hash.
         uint64_t splitKeyHash;        // Indicate where to split the tablet.
                                       // This will be the first key of the
                                       // second tablet after the split.
