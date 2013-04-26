@@ -681,7 +681,23 @@ TEST_F(CoordinatorServerListTest, recoverServerUpdate) {
             (*sl)[masterServerId].masterRecoveryInfo.min_open_segment_epoch());
 }
 
-TEST_F(CoordinatorServerListTest, recoverServerUpUpdateAndServerUp) {
+TEST_F(CoordinatorServerListTest, recoverServerUpdateReplicationId) {
+    enlistMaster();
+    ProtoBuf::ServerUpdate serverUpdate;
+    serverUpdate.set_entry_type("ServerUpdateReplicationId");
+    serverUpdate.set_server_id(masterServerId.getId());
+    serverUpdate.set_replication_id(10lu);
+    EntryId entryId = logCabinHelper->appendProtoBuf(
+            *service->context->expectedEntryId, serverUpdate);
+    sl->logIdServerReplicationUpdate = entryId;
+
+    sl->recoverServerUpdate(&serverUpdate, entryId);
+    CoordinatorServerList::Entry* entry = sl->getEntry(masterServerId);
+    EXPECT_EQ(10lu, entry->replicationId);
+}
+
+TEST_F(CoordinatorServerListTest,
+        recoverServerUpUpdateAndServerUpAndReplicationUpdate) {
     enlistMaster();
     EXPECT_EQ(1U, master->serverId.getId());
 
@@ -725,6 +741,16 @@ TEST_F(CoordinatorServerListTest, recoverServerUpUpdateAndServerUp) {
               "replication_id: 0 } "
               "version_number: 2 type: FULL_LIST",
                backupList.ShortDebugString());
+
+    EXPECT_EQ(NO_ID, sl->logIdServerReplicationUpdate);
+
+    ProtoBuf::EntryType stateServerReplication;
+    stateServerReplication.set_entry_type("ServerReplicationUpdate");
+    entryId = logCabinHelper->appendProtoBuf(
+            *service->context->expectedEntryId, stateServerReplication);
+
+    sl->recoverServerReplicationUpdate(&stateServerReplication, entryId);
+    EXPECT_EQ(entryId, sl->logIdServerReplicationUpdate);
 }
 
 //////////////////////////////////////////////////////////////////////

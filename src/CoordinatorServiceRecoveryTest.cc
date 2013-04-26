@@ -116,6 +116,14 @@ TEST_F(CoordinatorServiceRecoveryTest, replay_basic) {
     logCabinHelper->appendProtoBuf(
                 coordRecovery->service.expectedEntryId, tabletRecovered);
 
+    ProtoBuf::ServerUpdate serverReplicationUpdate;
+    serverReplicationUpdate.set_entry_type("ServerReplicationUpdate");
+    serverReplicationUpdate.set_server_id(ServerId(1, 0).getId());
+    serverReplicationUpdate.set_replication_id(10lu);
+    logCabinHelper->appendProtoBuf(
+                coordRecovery->service.expectedEntryId,
+                serverReplicationUpdate);
+
     TestLog::Enable _(replayFilter);
     coordRecovery->replay(true);
     EXPECT_EQ("replay: Entry Id: 0, Entry Type: ServerUp\n | "
@@ -125,7 +133,8 @@ TEST_F(CoordinatorServiceRecoveryTest, replay_basic) {
               "replay: Entry Id: 4, Entry Type: CreateTable\n | "
               "replay: Entry Id: 5, Entry Type: DropTable\n | "
               "replay: Entry Id: 6, Entry Type: SplitTablet\n | "
-              "replay: Entry Id: 7, Entry Type: TabletRecovered\n",
+              "replay: Entry Id: 7, Entry Type: TabletRecovered\n | "
+              "replay: Entry Id: 8, Entry Type: ServerReplicationUpdate\n",
               TestLog::get());
 }
 

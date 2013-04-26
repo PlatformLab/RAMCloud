@@ -822,25 +822,24 @@ CoordinatorServerList::ServerUpdate::complete(EntryId entryId)
     Entry* entry = csl.getEntry(serverId);
 
     if (entry) {
-        entry->logIdServerUpdate = entryId;
         if (isReplicationIdUpdate) {
             entry->replicationId = replicationId;
+            if (csl.logIdServerReplicationUpdate != NO_ID) {
+                csl.add(lock, serverId, entry->serviceLocator,
+                        entry->services, entry->expectedReadMBytesPerSec);
+                csl.version = updateVersion;
+                csl.pushUpdate(lock, updateVersion);
+            } else {
+                csl.add(lock, newServerId, serviceLocator, serviceMask,
+                        readSpeed, false);
+            }
             entry->logIdServerReplicationUpdate =
                 csl.logIdServerReplicationUpdate;
-            // We check to see if the replication update field is set in
-            // Log Cabin. If it is, we can be sure that the replication id
-            // update hasn't been sent out to the masters.
-            if (csl.logIdServerReplicationUpdate != NO_ID) {
-                ProtoBuf::ServerList_Entry& protoBufEntry(
-                    *(csl.update).add_server());
-                entry->serialize(protoBufEntry);
-                csl.version = version;
-                csl.pushUpdate(lock, version);
-            }
             csl.logIdServerReplicationUpdate = NO_ID;
         } else {
             entry->masterRecoveryInfo = recoveryInfo;
         }
+        entry->logIdServerUpdate = entryId;
     } else {
         LOG(WARNING, "Server being updated doesn't exist: %s",
             serverId.toString().c_str());
@@ -927,6 +926,18 @@ void
 CoordinatorServerList::ServerReplicationUpdate::complete(EntryId entryId)
 {
     csl.logIdServerReplicationUpdate = entryId;
+}
+
+ServerDetails*
+CoordinatorServerList::iget(ServerId id)
+{
+    return getEntry(id);
+}
+
+ServerDetails*
+CoordinatorServerList::iget(uint32_t index)
+{
+    return (serverList[index].entry) ? serverList[index].entry.get() : NULL;
 }
 
 /**
@@ -1250,9 +1261,9 @@ CoordinatorServerList::assignReplicationGroup(
 
         if (e->status == ServerStatus::UP) {
             ServerReplicationUpdate(*this, lock).execute();
-            ServerUpdate(*this, lock, e->serverId, e->masterRecoveryInfo,
+            ServerUpdate(*this, lock, e->serverId, e->recoveryInfo,
                          e->logIdServerUpdate,
-                         true, replicationId, version + 1).execute();
+                         true, replicationId).execute();
         }
     }
     return true;
@@ -1477,15 +1488,13 @@ CoordinatorServerList::pruneUpdates(const Lock& lock)
                     if (entry->logIdServerUpUpdate != NO_ID) {
                         vector<EntryId> invalidates
                             {entry->logIdServerUpUpdate};
-                        context->logCabinHelper->invalidate(
-                            *context->expectedEntryId, invalidates);
                     } else {
                         isUpUpdate = false;
                         vector<EntryId> invalidates
                             {entry->logIdServerReplicationUpdate};
-                        context->logCabinHelper->invalidate(
-                            *context->expectedEntryId, invalidates);
-                   }
+                    }
+                    context->logCabinHelper->invalidate(
+                        *context->expectedEntryId, invalidates);
                     if (isUpUpdate) {
                         entry->logIdServerUpUpdate = NO_ID;
                     } else {
