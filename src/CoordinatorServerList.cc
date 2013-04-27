@@ -492,7 +492,7 @@ CoordinatorServerList::recoverServerUpUpdate(
  * \param state
  *      The ProtoBuf that indicates that the coordinator will need to send
  *      out replication id updates.
- * \param logIdServerUpUpdate
+ * \param logIdServerReplicationUpdate
  *      The entry id of the LogCabin entry corresponding to the state.
  */
 void
