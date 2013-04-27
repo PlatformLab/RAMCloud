@@ -89,7 +89,6 @@ class TableManager {
     void serialize(AbstractServerList& serverList,
                    ProtoBuf::Tablets& tablets) const;
     void splitTablet(const char* name,
-                     uint64_t startKeyHash, uint64_t endKeyHash,
                      uint64_t splitKeyHash);
     void tabletRecovered(uint64_t tableId,
                          uint64_t startKeyHash,
@@ -208,13 +207,9 @@ class TableManager {
         SplitTablet(TableManager &tm,
                     const Lock& lock,
                     const char* name,
-                    uint64_t startKeyHash,
-                    uint64_t endKeyHash,
                     uint64_t splitKeyHash)
             : tm(tm), lock(lock),
               name(name),
-              startKeyHash(startKeyHash),
-              endKeyHash(endKeyHash),
               splitKeyHash(splitKeyHash) {}
         void execute();
         void complete(EntryId entryId);
@@ -232,14 +227,6 @@ class TableManager {
          * Name for the table containing the tablet.
          */
         const char* name;
-        /**
-         * First key hash that is part of range of key hashes for the tablet.
-         */
-        uint64_t startKeyHash;
-        /**
-         * Last key hash that is part of range of key hashes for the tablet.
-         */
-        uint64_t endKeyHash;
         /**
          * Key hash to used to partition the tablet into two. Keys less than
          * \a splitKeyHash belong to one Tablet, keys greater than or equal to
@@ -313,6 +300,12 @@ class TableManager {
                         uint64_t tableId,
                         uint64_t startKeyHash,
                         uint64_t endKeyHash) const;
+    bool splitExists(const Lock& lock,
+                      uint64_t tableId,
+                      uint64_t splitKeyHash);
+    Tablet& getTabletSplit(const Lock& lock,
+                            uint64_t tableId,
+                            uint64_t splitKeyHash);
     EntryId getTableInfoLogId(const Lock& lock,
                               uint64_t tableId);
     Tablet getTablet(const Lock& lock,

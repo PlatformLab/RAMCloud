@@ -99,8 +99,6 @@ TEST_F(CoordinatorServiceRecoveryTest, replay_basic) {
     ProtoBuf::SplitTablet splitTablet;
     splitTablet.set_entry_type("SplitTablet");
     splitTablet.set_name("foo");
-    splitTablet.set_start_key_hash(0);
-    splitTablet.set_end_key_hash(~0lu);
     splitTablet.set_split_key_hash(~0lu / 2);
     logCabinHelper->appendProtoBuf(
                 coordRecovery->service.expectedEntryId, splitTablet);

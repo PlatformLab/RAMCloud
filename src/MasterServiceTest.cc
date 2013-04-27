@@ -1136,7 +1136,7 @@ TEST_F(MasterServiceTest, GetServerStatistics) {
               "spin_lock_stats { locks { name:"));
 
     MasterClient::splitMasterTablet(&context, masterServer->serverId, 1,
-                                    0, ~0UL, (~0UL/2));
+                                    (~0UL/2));
     ramcloud->getServerStatistics("mock:host=master", serverStats);
     EXPECT_TRUE(StringUtil::startsWith(serverStats.ShortDebugString(),
               "tabletentry { table_id: 1 "
@@ -1151,7 +1151,7 @@ TEST_F(MasterServiceTest, GetServerStatistics) {
 TEST_F(MasterServiceTest, splitMasterTablet) {
 
     MasterClient::splitMasterTablet(&context, masterServer->serverId, 1,
-                                    0, ~0UL, (~0UL/2));
+                                    (~0UL/2));
     EXPECT_EQ(
         "{ tableId: 1 startKeyHash: 0 "
             "endKeyHash: 9223372036854775806 state: 0 reads: 0 writes: 0 }\n"

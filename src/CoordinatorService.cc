@@ -200,15 +200,12 @@ CoordinatorService::splitTablet(const WireFormat::SplitTablet::Request* reqHdr,
     // the copy for the second part after the split.
     const char* name = getString(rpc->requestPayload, sizeof(*reqHdr),
                                  reqHdr->nameLength);
-
     try {
         tableManager->splitTablet(
-                name, reqHdr->firstKeyHash, reqHdr->lastKeyHash,
-                reqHdr->splitKeyHash);
+                name, reqHdr->splitKeyHash);
         LOG(NOTICE,
-            "In table '%s' I split the tablet that started at key %lu and "
-            "ended at key %lu",
-            name, reqHdr->firstKeyHash, reqHdr->lastKeyHash);
+            "In table '%s' I split the tablet at key %lu",
+            name, reqHdr->splitKeyHash);
     } catch (const TableManager::NoSuchTablet& e) {
         respHdr->common.status = STATUS_TABLET_DOESNT_EXIST;
         return;

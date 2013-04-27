@@ -458,21 +458,15 @@ RecoverRpc::RecoverRpc(Context* context, ServerId serverId,
  *      Identifier for the master containing the tablet.
  * \param tableId
  *      Id of the table that contains the tablet to be split.
- * \param firstKeyHash
- *      Lowest key hash in the range of the tablet to be split.
- * \param lastKeyHash
- *      Highest key hash in the range of the tablet to be split.
  * \param splitKeyHash
  *      The key hash where the split occurs. This will become the
  *      lowest key hash of the second tablet after the split.
  */
 void
 MasterClient::splitMasterTablet(Context* context, ServerId serverId,
-        uint64_t tableId, uint64_t firstKeyHash,
-        uint64_t lastKeyHash, uint64_t splitKeyHash)
+        uint64_t tableId, uint64_t splitKeyHash)
 {
-    SplitMasterTabletRpc rpc(context, serverId, tableId, firstKeyHash,
-        lastKeyHash, splitKeyHash);
+    SplitMasterTabletRpc rpc(context, serverId, tableId, splitKeyHash);
     rpc.wait();
 }
 
@@ -487,25 +481,18 @@ MasterClient::splitMasterTablet(Context* context, ServerId serverId,
  *      Identifier for the master containing the tablet.
  * \param tableId
  *      Id of the table that contains the tablet to be split.
- * \param firstKeyHash
- *      Lowest key hash in the range of the tablet to be split.
- * \param lastKeyHash
- *      Highest key hash in the range of the tablet to be split.
  * \param splitKeyHash
  *      The key hash where the split occurs. This will become the
  *      lowest key hash of the second tablet after the split.
  */
 SplitMasterTabletRpc::SplitMasterTabletRpc(Context* context,
-        ServerId serverId, uint64_t tableId, uint64_t firstKeyHash,
-        uint64_t lastKeyHash, uint64_t splitKeyHash)
+        ServerId serverId, uint64_t tableId, uint64_t splitKeyHash)
     : ServerIdRpcWrapper(context, serverId,
             sizeof(WireFormat::SplitMasterTablet::Response))
 {
     WireFormat::SplitMasterTablet::Request* reqHdr(
             allocHeader<WireFormat::SplitMasterTablet>(serverId));
     reqHdr->tableId = tableId;
-    reqHdr->firstKeyHash = firstKeyHash;
-    reqHdr->lastKeyHash = lastKeyHash;
     reqHdr->splitKeyHash = splitKeyHash;
     send();
 }

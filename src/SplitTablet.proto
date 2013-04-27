@@ -25,14 +25,8 @@ message SplitTablet {
   /// The name of the table containing this tablet.
   required string name = 2;
 
-  /// The smallest hash value for a key that is in this tablet.
-  required uint64 start_key_hash = 3;
-
-  /// The largest hash value for a key that is in this tablet.
-  required uint64 end_key_hash = 4;
-
   /// Key hash to used to partition the tablet into two. Keys less than
   /// a split_key_hash belong to one Tablet, keys greater than or equal to
   /// a split_key_hash belong to the other.
-  required fixed64 split_key_hash = 5;
+  required fixed64 split_key_hash = 3;
 }
