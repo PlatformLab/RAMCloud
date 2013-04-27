@@ -31,6 +31,6 @@ message ServerUpdate {
     /// recovery to prevent stale/lost replicas from being used.
     required MasterRecoveryInfo master_recovery_info = 3;
 
-    /// The new replicationId of the server.
+    /// The new replication id of the server.
     optional fixed64 replication_id = 4;
 }

@@ -142,19 +142,19 @@ CoordinatorServiceRecovery::replay(bool testing)
             service.logCabinHelper->parseProtoBufFromEntry(*it, state);
             service.tableManager->recoverSplitTablet(&state, entryId);
 
+        } else if (entryType.compare("LargestTableId") == 0) {
+
+            RAMCLOUD_LOG(DEBUG, "ServiceRecovery: LargestTableId");
+            ProtoBuf::LargestTableId state;
+            service.logCabinHelper->parseProtoBufFromEntry(*it, state);
+            service.tableManager->recoverLargestTableId(&state, entryId);
+
         } else if (entryType.compare("TabletRecovered") == 0) {
 
             RAMCLOUD_LOG(DEBUG, "ServiceRecovery: TabletRecovered");
             ProtoBuf::TabletRecovered state;
             service.logCabinHelper->parseProtoBufFromEntry(*it, state);
             service.tableManager->recoverTabletRecovered(&state, entryId);
-
-        } else if (entryType.compare("ServiceUpdateReplicationId") == 0) {
-
-            RAMCLOUD_LOG(DEBUG, "ServiceRecovery: ServerUpdate");
-            ProtoBuf::ServerUpdate state;
-            service.logCabinHelper->parseProtoBufFromEntry(*it, state);
-            service.serverList->recoverServerUpdate(&state, entryId);
 
         } else {
 

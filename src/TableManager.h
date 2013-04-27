@@ -19,6 +19,7 @@
 #include <Client/Client.h>
 #include <mutex>
 
+#include "LargestTableId.pb.h"
 #include "SplitTablet.pb.h"
 #include "TableDrop.pb.h"
 #include "TableInformation.pb.h"
@@ -102,6 +103,8 @@ class TableManager {
                             EntryId entryId);
     void recoverDropTable(ProtoBuf::TableDrop* state,
                           EntryId entryId);
+    void recoverLargestTableId(ProtoBuf::LargestTableId* state,
+                               EntryId entryId);
     void recoverSplitTablet(ProtoBuf::SplitTablet* state,
                             EntryId entryId);
     void recoverTabletRecovered(ProtoBuf::TabletRecovered* state,
@@ -335,7 +338,14 @@ class TableManager {
      */
     Context* context;
 
-    /// List of tablets that make up the current set of tables in a cluster.
+    /**
+     * LogCabin EntryId corresponding to the LargestTableId entry.
+     */
+    EntryId logIdLargestTableId;
+
+    /**
+     * List of tablets that make up the current set of tables in a cluster.
+     */
     vector<Tablet> map;
 
     /**

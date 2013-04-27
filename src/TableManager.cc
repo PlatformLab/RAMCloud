@@ -27,6 +27,7 @@ namespace RAMCloud {
 TableManager::TableManager(Context* context)
     : mutex()
     , context(context)
+    , logIdLargestTableId(NO_ID)
     , map()
     , nextTableId(1)
     , nextTableMasterIdx(0)
@@ -40,6 +41,10 @@ TableManager::TableManager(Context* context)
  * Destructor for TableManager.
  */
 TableManager::~TableManager(){}
+
+//////////////////////////////////////////////////////////////////////
+// TableManager Public Methods
+//////////////////////////////////////////////////////////////////////
 
 /**
  * Create a table with the given name.
@@ -309,6 +314,10 @@ TableManager::tabletRecovered(
                     serverId, ctime).execute();
 }
 
+//////////////////////////////////////////////////////////////////////
+// TableManager Recovery Methods
+//////////////////////////////////////////////////////////////////////
+
 /**
  * During coordinator recovery, add local metadata for a table that had
  * already been successfully created.
@@ -324,6 +333,9 @@ TableManager::recoverAliveTable(
 {
     Lock lock(mutex);
     LOG(DEBUG, "TableManager::recoverCreateTable()");
+
+    nextTableId = state->table_id() + 1;
+
     uint64_t tableId = state->table_id();
     tables[state->name()] = tableId;
     tablesLogIds[tableId].tableInfoLogId = entryId;
@@ -360,6 +372,7 @@ TableManager::recoverCreateTable(
 {
     Lock lock(mutex);
     LOG(DEBUG, "TableManager::recoverCreateTable()");
+    nextTableId = state->table_id() + 1;
     CreateTable(*this, lock,
                 state->name().c_str(),
                 state->table_id(),
@@ -385,6 +398,29 @@ TableManager::recoverDropTable(
     LOG(DEBUG, "TableManager::recoverDropTable()");
     DropTable(*this, lock,
               state->name().c_str()).complete(entryId);
+}
+
+/**
+ * During coordinator recovery, recover information about largest table id.
+ * This entry is encountered if the table with the largest table id was
+ * deleted, and hence the largest table id would not be recoverable by simply
+ * replaying the TableInformation protobuf corresponding to CreateTable
+ * or AliveTable entry types.
+ *
+ * \param state
+ *      The ProtoBuf that encapsulates the information about table
+ *      being dropped.
+ * \param entryId
+ *      The entry id of the LogCabin entry corresponding to the state.
+ */
+void
+TableManager::recoverLargestTableId(
+    ProtoBuf::LargestTableId* state, EntryId entryId)
+{
+    Lock lock(mutex);
+    LOG(DEBUG, "TableManager::recoverLargestTableId()");
+    nextTableId = state->table_id() + 1;
+    logIdLargestTableId = entryId;
 }
 
 /**
@@ -432,11 +468,11 @@ TableManager::recoverTabletRecovered(
                     state->end_key_hash(),
                     ServerId(state->server_id()),
                     Log::Position(state->ctime_log_head_id(),
-                        state->ctime_log_head_offset())).complete(entryId);
+                            state->ctime_log_head_offset())).complete(entryId);
 }
 
 /////////////////////////////////////////////////////////////////////////////
-//////////////////////////// Private Methods ////////////////////////////////
+// TableManager Private Methods
 /////////////////////////////////////////////////////////////////////////////
 
 /**
@@ -506,9 +542,20 @@ TableManager::CreateTable::execute()
         tablet.set_ctime_log_head_offset(headOfLog.getSegmentOffset());
     }
 
+    vector<EntryId> invalidates;
+
+    // If there was a LargestTableId log entry appended to LogCabin, invalidate
+    // it as it is no longer needed. The tableId for this table being created
+    // has to be strictly larger than the one indicated in the LargestTableId
+    // entry, hence there is no use for it anymore.
+    if (tm.logIdLargestTableId != NO_ID) {
+        invalidates.push_back(tm.logIdLargestTableId);
+        tm.logIdLargestTableId = NO_ID;
+    }
+
     EntryId entryId =
         tm.context->logCabinHelper->appendProtoBuf(
-            *tm.context->expectedEntryId, state);
+            *tm.context->expectedEntryId, state, invalidates);
     tm.setTableInfoLogId(lock, tableId, entryId);
     LOG(DEBUG, "LogCabin: CreateTable entryId: %lu", entryId);
 
@@ -632,8 +679,24 @@ TableManager::DropTable::complete(EntryId entryId)
 
     EntryId tableInfoLogId = tm.getTableInfoLogId(lock, tableId);
     vector<EntryId> invalidates {tableInfoLogId, entryId};
-    tm.context->logCabinHelper->invalidate(
+
+    // If the table being deleted has the largest tableId, then persist
+    // the tableId information.
+    // This is done so that if the coordinator crashes before the next
+    // createTable() and recovers, it should know not to use this tableId
+    // again, and start servicing new createTable() rpcs with a higher
+    // tableId.
+    if (tableId == tm.nextTableId - 1) {
+        ProtoBuf::LargestTableId state;
+        state.set_entry_type("LargestTableId");
+        state.set_table_id(tableId);
+
+        tm.context->logCabinHelper->appendProtoBuf(
+                *tm.context->expectedEntryId, state, invalidates);
+    } else {
+        tm.context->logCabinHelper->invalidate(
                 *tm.context->expectedEntryId, invalidates);
+    }
 }
 
 void
