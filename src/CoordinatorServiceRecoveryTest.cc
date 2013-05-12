@@ -114,7 +114,7 @@ TEST_F(CoordinatorServiceRecoveryTest, replay_basic) {
     logCabinHelper->appendProtoBuf(
                 coordRecovery->service.expectedEntryId, tabletRecovered);
 
-    ProtoBuf::ServerUpdate serverReplicationUpdate;
+    ProtoBuf::ServerReplicationUpdate serverReplicationUpdate;
     serverReplicationUpdate.set_entry_type("ServerReplicationUpdate");
     serverReplicationUpdate.set_server_id(ServerId(1, 0).getId());
     serverReplicationUpdate.set_replication_id(10lu);

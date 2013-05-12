@@ -18,8 +18,8 @@ import "MasterRecoveryInfo.proto";
 package RAMCloud.ProtoBuf;
 
 // The information appended to LogCabin by the Coordinator
-// to store updates for each server.
-message ServerUpdate {
+// to store replication updates for each server.
+message ServerReplicationUpdate {
 
     /// Entry type for this LogCabin entry.
     required string entry_type = 1;
@@ -30,4 +30,7 @@ message ServerUpdate {
     /// Information stored in the server list which is used during master
     /// recovery to prevent stale/lost replicas from being used.
     required MasterRecoveryInfo master_recovery_info = 3;
+
+    /// The new replication id of the server.
+    required fixed64 replication_id = 4;
 }

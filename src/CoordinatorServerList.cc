@@ -54,7 +54,7 @@ CoordinatorServerList::CoordinatorServerList(Context* context)
     , logIdAppendServerAlive(NO_ID)
     , logIdServerListVersion(NO_ID)
     , logIdServerUpUpdate(NO_ID)
-    , logIdServerReplicationUpdate(NO_ID)
+    , logIdServerReplicationUpUpdate(NO_ID)
 {
     context->coordinatorServerList = this;
     startUpdater();
@@ -492,16 +492,17 @@ CoordinatorServerList::recoverServerUpUpdate(
  * \param state
  *      The ProtoBuf that indicates that the coordinator will need to send
  *      out replication id updates.
- * \param logIdServerReplicationUpdate
+ * \param logIdServerReplicationUpUpdate
  *      The entry id of the LogCabin entry corresponding to the state.
  */
 void
-CoordinatorServerList::recoverServerReplicationUpdate(
-    ProtoBuf::EntryType* state, EntryId logIdServerReplicationUpdate)
+CoordinatorServerList::recoverServerReplicationUpUpdate(
+    ProtoBuf::EntryType* state, EntryId logIdServerReplicationUpUpdate)
 {
     Lock lock(mutex);
-    LOG(DEBUG, "CoordinatorServerList::recoverServerReplicationUpdate()");
-    ServerReplicationUpdate(*this, lock).complete(logIdServerReplicationUpdate);
+    LOG(DEBUG, "CoordinatorServerList::recoverServerReplicationUpUpdate()");
+    ServerReplicationUpUpdate(*this, lock).complete(
+        logIdServerReplicationUpUpdate);
 }
 
 /**
@@ -520,14 +521,32 @@ CoordinatorServerList::recoverServerUpdate(
     LOG(DEBUG, "CoordinatorServerList::recoverServerUpdate()");
     // If there are other update-able fields in the future, read them in from
     // ServerUpdate and update them all.
-    if (state->entry_type() == "ServerUpdateReplicationId") {
-        ServerUpdate(*this, lock, ServerId(state->server_id()),
-                     state->master_recovery_info(), NO_ID, true,
-                     state->replication_id()).complete(logIdServerUpdate);
-    } else {
-        ServerUpdate(*this, lock, ServerId(state->server_id()),
-                     state->master_recovery_info()).complete(logIdServerUpdate);
-    }
+    ServerUpdate(*this, lock, ServerId(state->server_id()),
+                 state->master_recovery_info()).complete(logIdServerUpdate);
+}
+
+/**
+ * During Coordinator recovery, set update-able fields for the server.
+ *
+ * \param state
+ *      The ProtoBuf that has the updates for the server.
+ * \param logIdServerReplicationUpdate
+ *      The entry id of the LogCabin entry corresponding to
+ *      serverReplicationUpdate.
+ */
+void
+CoordinatorServerList::recoverServerReplicationUpdate(
+    ProtoBuf::ServerReplicationUpdate* state,
+    EntryId logIdServerReplicationUpdate)
+{
+    Lock lock(mutex);
+    LOG(DEBUG, "CoordinatorServerList::recoverServerReplicationUpdate()");
+    // If there are other update-able fields in the future, read them in from
+    // ServerReplicationUpdate and update them all.
+    ServerReplicationUpdate(*this, lock, ServerId(state->server_id()),
+                           state->master_recovery_info(),
+                           state->replication_id(),
+                           version + 1).complete(logIdServerReplicationUpdate);
 }
 
 //////////////////////////////////////////////////////////////////////
@@ -837,12 +856,7 @@ void
 CoordinatorServerList::ServerUpdate::execute()
 {
     ProtoBuf::ServerUpdate serverUpdate;
-    if (!isReplicationIdUpdate) {
-        serverUpdate.set_entry_type("ServerUpdate");
-    } else {
-        serverUpdate.set_entry_type("ServerUpdateReplicationId");
-        serverUpdate.set_replication_id(replicationId);
-    }
+    serverUpdate.set_entry_type("ServerUpdate");
     serverUpdate.set_server_id(serverId.getId());
     (*serverUpdate.mutable_master_recovery_info()) = recoveryInfo;
 
@@ -874,21 +888,70 @@ CoordinatorServerList::ServerUpdate::complete(EntryId entryId)
     if (entry) {
         entry->masterRecoveryInfo = recoveryInfo;
         entry->logIdServerUpdate = entryId;
-        if (isReplicationIdUpdate) {
-            entry->replicationId = replicationId;
-            entry->logIdServerReplicationUpdate =
-                csl.logIdServerReplicationUpdate;
-            // We check to see if the replication update field is set in
-            // Log Cabin. If it is, we can be sure that the replication id
-            // update hasn't been sent out to the masters.
-            if (csl.logIdServerReplicationUpdate != NO_ID) {
-                ProtoBuf::ServerList_Entry& protoBufEntry(
-                    *(csl.update).add_server());
-                entry->serialize(protoBufEntry);
-                csl.version = version;
-                csl.pushUpdate(lock, version);
-            }
-            csl.logIdServerReplicationUpdate = NO_ID;
+    } else {
+        LOG(WARNING, "Server being updated doesn't exist: %s",
+            serverId.toString().c_str());
+        csl.context->logCabinHelper->invalidate(
+            *csl.context->expectedEntryId, vector<EntryId>(entryId));
+    }
+}
+
+/**
+ * Do everything needed to set update-able fields corresponding to a server.
+ * Do any processing required before logging the state to LogCabin,
+ * log the state in LogCabin, then call #complete().
+ */
+void
+CoordinatorServerList::ServerReplicationUpdate::execute()
+{
+    ProtoBuf::ServerReplicationUpdate serverReplicationUpdate;
+    serverReplicationUpdate.set_entry_type("ServerReplicationUpdate");
+    serverReplicationUpdate.set_replication_id(replicationId);
+    serverReplicationUpdate.set_server_id(serverId.getId());
+    (*serverReplicationUpdate.mutable_master_recovery_info()) = recoveryInfo;
+
+    vector<EntryId> invalidates;
+    if (oldServerReplicationUpdateEntryId != NO_ID)
+        invalidates.push_back(oldServerReplicationUpdateEntryId);
+
+    EntryId newEntryId =
+        csl.context->logCabinHelper->appendProtoBuf(
+            *csl.context->expectedEntryId, serverReplicationUpdate,
+            invalidates);
+    LOG(DEBUG, "LogCabin: ServerReplicationUpdate entryId: %lu", newEntryId);
+
+    complete(newEntryId);
+}
+
+/**
+ * Complete the operation to set update-able fields corresponding to a server
+ * after its state has been logged to LogCabin.
+ *
+ * \param entryId
+ *      The entry id of the LogCabin entry corresponding to the state
+ *      of the operation to be completed.
+ */
+void
+CoordinatorServerList::ServerReplicationUpdate::complete(EntryId entryId)
+{
+    Entry* entry = csl.getEntry(serverId);
+
+    if (entry) {
+        entry->masterRecoveryInfo = recoveryInfo;
+        entry->logIdServerReplicationUpdate = entryId;
+        entry->replicationId = replicationId;
+        entry->logIdServerReplicationUpUpdate =
+            csl.logIdServerReplicationUpUpdate;
+        // We check to see if the replication update field is set in
+        // Log Cabin. If it is, we can be sure that the replication id
+        // update hasn't been sent out to the masters.
+        if (csl.logIdServerReplicationUpUpdate != NO_ID) {
+            ProtoBuf::ServerList_Entry& protoBufEntry(
+                *(csl.update).add_server());
+            entry->serialize(protoBufEntry);
+            csl.version = updateVersion;
+            csl.pushUpdate(lock, updateVersion);
+            csl.logIdServerReplicationUpUpdate = NO_ID;
         }
     } else {
         LOG(WARNING, "Server being updated doesn't exist: %s",
@@ -950,15 +1013,15 @@ CoordinatorServerList::iget(uint32_t index)
  * Log the state in LogCabin, then call #complete().
  */
 void
-CoordinatorServerList::ServerReplicationUpdate::execute()
+CoordinatorServerList::ServerReplicationUpUpdate::execute()
 {
     ProtoBuf::EntryType state;
-    state.set_entry_type("ServerReplicationUpdate");
+    state.set_entry_type("ServerReplicationUpUpdate");
 
     EntryId entryId =
             csl.context->logCabinHelper->appendProtoBuf(
                 *csl.context->expectedEntryId, state);
-    LOG(DEBUG, "LogCabin: ServerReplicationUpdate entryId: %lu", entryId);
+    LOG(DEBUG, "LogCabin: ServerReplicationUpUpdate entryId: %lu", entryId);
 
     complete(entryId);
 }
@@ -973,9 +1036,9 @@ CoordinatorServerList::ServerReplicationUpdate::execute()
  *      of the operation to be completed.
  */
 void
-CoordinatorServerList::ServerReplicationUpdate::complete(EntryId entryId)
+CoordinatorServerList::ServerReplicationUpUpdate::complete(EntryId entryId)
 {
-    csl.logIdServerReplicationUpdate = entryId;
+    csl.logIdServerReplicationUpUpdate = entryId;
 }
 
 /**
@@ -1298,10 +1361,9 @@ CoordinatorServerList::assignReplicationGroup(
         }
 
         if (e->status == ServerStatus::UP) {
-            ServerReplicationUpdate(*this, lock).execute();
-            ServerUpdate(*this, lock, e->serverId, e->masterRecoveryInfo,
-                         e->logIdServerUpdate,
-                         true, replicationId, version + 1).execute();
+            ServerReplicationUpUpdate(*this, lock).execute();
+            ServerReplicationUpdate(*this, lock, e->serverId,
+                e->masterRecoveryInfo, replicationId, version + 1).execute();
         }
     }
     return true;
@@ -1522,6 +1584,8 @@ CoordinatorServerList::pruneUpdates(const Lock& lock)
                     // sent out before the replication id update is sent out by
                     // the coordinator, and therefore the order of
                     // acknowledgement has to be in the same order.
+                    // Otherwise, the coordinator will invalidate the wrong
+                    // updates.
                     bool isUpUpdate = true;
                     if (entry->logIdServerUpUpdate != NO_ID) {
                         vector<EntryId> invalidates
@@ -1531,14 +1595,14 @@ CoordinatorServerList::pruneUpdates(const Lock& lock)
                     } else {
                         isUpUpdate = false;
                         vector<EntryId> invalidates
-                            {entry->logIdServerReplicationUpdate};
+                            {entry->logIdServerReplicationUpUpdate};
                         context->logCabinHelper->invalidate(
                             *context->expectedEntryId, invalidates);
                    }
                     if (isUpUpdate) {
                         entry->logIdServerUpUpdate = NO_ID;
                     } else {
-                        entry->logIdServerReplicationUpdate = NO_ID;
+                        entry->logIdServerReplicationUpUpdate = NO_ID;
                     }
                 }
 
@@ -2118,6 +2182,7 @@ CoordinatorServerList::Entry::Entry()
     , logIdServerUpdate(NO_ID)
     , logIdServerUpUpdate(NO_ID)
     , logIdServerReplicationUpdate(NO_ID)
+    , logIdServerReplicationUpUpdate(NO_ID)
 {
 }
 
@@ -2155,6 +2220,7 @@ CoordinatorServerList::Entry::Entry(ServerId serverId,
     , logIdServerUpdate(NO_ID)
     , logIdServerUpUpdate(NO_ID)
     , logIdServerReplicationUpdate(NO_ID)
+    , logIdServerReplicationUpUpdate(NO_ID)
 {
 }
 

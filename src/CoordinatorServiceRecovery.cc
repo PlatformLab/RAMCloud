@@ -109,10 +109,17 @@ CoordinatorServiceRecovery::replay(bool testing)
         } else if (entryType.compare("ServerReplicationUpdate") == 0) {
 
             RAMCLOUD_LOG(DEBUG, "ServiceRecovery: ServerReplicationUpdate");
-            ProtoBuf::EntryType state;
+            ProtoBuf::ServerReplicationUpdate state;
             service.logCabinHelper->parseProtoBufFromEntry(*it, state);
             service.serverList->recoverServerReplicationUpdate(&state, entryId);
 
+        } else if (entryType.compare("ServerReplicationUpUpdate") == 0) {
+
+            RAMCLOUD_LOG(DEBUG, "ServiceRecovery: ServerReplicationUpUpdate");
+            ProtoBuf::EntryType state;
+            service.logCabinHelper->parseProtoBufFromEntry(*it, state);
+            service.serverList->recoverServerReplicationUpUpdate(
+                &state, entryId);
 
         } else if (entryType.compare("AliveTable") == 0) {
 

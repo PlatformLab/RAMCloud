@@ -29,6 +29,7 @@
 #include "ServerInformation.pb.h"
 #include "ServerListVersion.pb.h"
 #include "ServerUpdate.pb.h"
+#include "ServerReplicationUpdate.pb.h"
 
 #include "AbstractServerList.h"
 #include "ServiceMask.h"
@@ -221,10 +222,16 @@ class CoordinatorServerList : public AbstractServerList{
         EntryId logIdServerUpUpdate;
 
         /**
+        * The entry id of the LogCabin entry that has the most recent
+        * replication update for this server.
+        */
+        EntryId logIdServerReplicationUpdate;
+
+        /**
         * The entry id of the LogCabin entry that indicates that the
         * replication Id updates need to be sent out to the cluster.
         */
-        EntryId logIdServerReplicationUpdate;
+        EntryId logIdServerReplicationUpUpdate;
     };
 
     explicit CoordinatorServerList(Context* context);
@@ -259,8 +266,11 @@ class CoordinatorServerList : public AbstractServerList{
                              EntryId logIdServerUpdate);
     void recoverServerUpUpdate(ProtoBuf::EntryType* state,
                                EntryId logIdServerUpUpdate);
-    void recoverServerReplicationUpdate(ProtoBuf::EntryType* state,
-                                        EntryId logIdServerReplicationUpdate);
+    void recoverServerReplicationUpdate(
+        ProtoBuf::ServerReplicationUpdate* state,
+        EntryId logIdServerReplicationUpdate);
+    void recoverServerReplicationUpUpdate(ProtoBuf::EntryType* state,
+        EntryId logIdServerReplicationUpUpdate);
 
   PRIVATE:
     /**
@@ -504,17 +514,11 @@ class CoordinatorServerList : public AbstractServerList{
                          Lock& lock,
                          ServerId serverId,
                          const ProtoBuf::MasterRecoveryInfo& recoveryInfo,
-                         EntryId oldServerUpdateEntryId = NO_ID,
-                         bool isReplicationIdUpdate = false,
-                         uint64_t replicationId = 0,
-                         uint64_t version = UNINITIALIZED_VERSION)
+                         EntryId oldServerUpdateEntryId = NO_ID)
                 : csl(csl), lock(lock),
                   serverId(serverId),
                   recoveryInfo(recoveryInfo),
-                  oldServerUpdateEntryId(oldServerUpdateEntryId),
-                  isReplicationIdUpdate(isReplicationIdUpdate),
-                  replicationId(replicationId),
-                  version(version) {}
+                  oldServerUpdateEntryId(oldServerUpdateEntryId) {}
             void execute();
             void complete(EntryId entryId);
         private:
@@ -540,19 +544,6 @@ class CoordinatorServerList : public AbstractServerList{
              * to LogCabin corresponding to this server (if any).
              */
             EntryId oldServerUpdateEntryId;
-            /**
-             * Flag that says whether the ServerUpdate is a replication id
-             * update.
-             */
-            bool isReplicationIdUpdate;
-            /**
-             * The replication id of the server.
-             */
-            uint64_t replicationId;
-            /**
-             * Version number of the coordinator server list after the update.
-             */
-            uint64_t version;
            DISALLOW_COPY_AND_ASSIGN(ServerUpdate);
     };
 
@@ -582,12 +573,71 @@ class CoordinatorServerList : public AbstractServerList{
     };
 
     /**
+     * Provides methods for updating the replication id field in the server
+     * and for persisting required information in LogCabin and using it to
+     * recover the Coordinator.
+     */
+    class ServerReplicationUpdate {
+        public:
+            ServerReplicationUpdate(
+                CoordinatorServerList &csl,
+                Lock& lock,
+                ServerId serverId,
+                const ProtoBuf::MasterRecoveryInfo& recoveryInfo,
+                uint64_t replicationId,
+                uint64_t updateVersion,
+                EntryId oldServerReplicationUpdateEntryId = NO_ID)
+                : csl(csl),
+                  lock(lock),
+                  serverId(serverId),
+                  recoveryInfo(recoveryInfo),
+                  replicationId(replicationId),
+                  updateVersion(updateVersion),
+                  oldServerReplicationUpdateEntryId(
+                      oldServerReplicationUpdateEntryId) {}
+            void execute();
+            void complete(EntryId entryId);
+        private:
+            /**
+             * Reference to the instance of CoordinatorServerList
+             * initializing this class.
+             */
+            CoordinatorServerList &csl;
+            /**
+             * Explicity needs CoordinatorServerList lock.
+             */
+            Lock& lock;
+            /**
+             * ServerId of the server whose recovery info will be set.
+             */
+            ServerId serverId;
+            /**
+             * The new master recovery info to be set.
+             */
+            ProtoBuf::MasterRecoveryInfo recoveryInfo;
+            /**
+             * The replication id of the server.
+             */
+            uint64_t replicationId;
+            /**
+             * Version number of the coordinator server list after the update.
+             */
+            uint64_t updateVersion;
+             /**
+             * LogCabin entry id for the previous ServerReplicationUpdate entry
+             * appended to LogCabin corresponding to this server (if any).
+             */
+            EntryId oldServerReplicationUpdateEntryId;
+          DISALLOW_COPY_AND_ASSIGN(ServerReplicationUpdate);
+    };
+
+    /**
      * Defines methods indicating that the coordinator needs to send a
      * replication id update to the cluster.
      */
-    class ServerReplicationUpdate {
+    class ServerReplicationUpUpdate {
       public:
-          ServerReplicationUpdate(CoordinatorServerList &csl,
+          ServerReplicationUpUpdate(CoordinatorServerList &csl,
                          Lock& lock)
               : csl(csl), lock(lock) {}
           void execute();
@@ -603,7 +653,7 @@ class CoordinatorServerList : public AbstractServerList{
            * Explicity needs CoordinatorServerList lock.
            */
           Lock& lock;
-          DISALLOW_COPY_AND_ASSIGN(ServerReplicationUpdate);
+          DISALLOW_COPY_AND_ASSIGN(ServerReplicationUpUpdate);
     };
 
    /**
@@ -906,8 +956,7 @@ class CoordinatorServerList : public AbstractServerList{
      * The entry id of the LogCabin entry that indicates that the next
      * replication id update needs to be sent out to the entire cluster.
      */
-    EntryId logIdServerReplicationUpdate;
-
+    EntryId logIdServerReplicationUpUpdate;
     DISALLOW_COPY_AND_ASSIGN(CoordinatorServerList);
 };
 } // namespace RAMCloud
