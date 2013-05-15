@@ -92,7 +92,11 @@ Context::Context(bool hasDedicatedDispatchThread)
         transportManager = new TransportManager(this);
         serviceManager = new ServiceManager(this);
         sessionAlarmTimer = new SessionAlarmTimer(this);
-        portAlarmTimer = new PortAlarmTimer(this);
+
+        // Until we find the solution to prevent active ports
+        // which have just nothing to send, we disable portAlarm
+        // portAlarmTimer = new PortAlarmTimer(this);
+
         coordinatorSession = new CoordinatorSession(this);
     } catch (...) {
         destroy();
