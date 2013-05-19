@@ -1467,6 +1467,11 @@ CoordinatorServerList::pushUpdate(const Lock& lock, uint64_t updateVersion)
     serialize(lock, full);
 
     updates.emplace_back(update, full);
+
+    // Link the previous tail with the new tail in the deque.
+    if (updates.size() > 1)
+      (updates.end()-2)->next = &(updates.back());
+
     hasUpdatesOrStop.notify_one();
     update.Clear();
 }
@@ -1787,22 +1792,17 @@ CoordinatorServerList::updateLoop()
             // Phase 2: Start up to 1 new rpc
             if ( it != rpcs.end() && !stopUpdater ) {
                 if (getWork(&wu)) {
+                    auto* initial_list = (wu.sendFullList) ?
+                       &(wu.firstUpdate->full) : &(wu.firstUpdate->incremental);
+                    (*it)->construct(context, wu.targetServer, initial_list);
 
-                    //TODO(syang0) CSLpkOne only pack ONE for now.
-                    if (wu.sendFullList) {
-                        (*it)->construct(context, wu.targetServer,
-                            &(wu.firstUpdate->full));
-                    } else {
-                        (*it)->construct(context, wu.targetServer,
-                            &(wu.firstUpdate->incremental));
-
-                        // Batch up multiple requests
-                        auto& updateIt = wu.firstUpdate;
-                        while (updateIt->version < wu.updateVersionTail) {
-                            updateIt++;
-                            (**it)->appendServerList(&(updateIt->incremental));
-                        }
+                    // Batch up multiple requests
+                    const ServerListUpdatePair* updatePtr = wu.firstUpdate;
+                    while (updatePtr->version < wu.updateVersionTail) {
+                        updatePtr = updatePtr->next;
+                        (**it)->appendServerList(&(updatePtr->incremental));
                     }
+
                     (**it)->send();
                     it++;
                 }
@@ -1913,7 +1913,7 @@ CoordinatorServerList::getWork(UpdaterWorkUnit* wu) {
      * not respond in time. Thus, to prevent sending servers a newer full
      * server list they can't process, we send the oldest server list on the
      * first scan through the server list and then later patch it up to date
-     * with a batch of incremental updates.
+     * with a batch of incremental updates. This is called 'slow start.'
      *
      * While scanning, the loop will also keep track of the minimum
      * verifiedVersion in the server list and will propagate this
@@ -1947,26 +1947,26 @@ CoordinatorServerList::getWork(UpdaterWorkUnit* wu) {
                     server->updateVersion == server->verifiedVersion) {
                 // New server, send full server list
                 if (server->verifiedVersion == UNINITIALIZED_VERSION) {
-                    wu->targetServer = server->serverId;
                     wu->sendFullList = true;
-                    //
+
+                    // 'slow start'
                     if (lastScan.completeScansSinceStart == 0) {
-                        wu->firstUpdate = (updates.begin());
-                        wu->updateVersionTail = updates.front().version;
+                        wu->firstUpdate = &(updates.front());
                     } else {
-                        wu->firstUpdate = (updates.end()-=1);
-                        wu->updateVersionTail = version;
+                        wu->firstUpdate = &(updates.back());
                     }
                 } else {
                     // Incremental update(s).
-                    wu->targetServer = server->serverId;
-                    uint64_t firstVersion = server->verifiedVersion + 1;
-                    wu->updateVersionTail = std::min(version,
-                                            firstVersion + MAX_UPDATES_PER_RPC);
                     wu->sendFullList = false;
+
+                    uint64_t firstVersion = server->verifiedVersion + 1;
                     size_t offset =  firstVersion - updates.front().version;
-                    wu->firstUpdate = (updates.begin()+=offset);
+                    wu->firstUpdate = &*(updates.begin()+=offset);
                 }
+
+                wu->targetServer = server->serverId;
+                wu->updateVersionTail = std::min(version,
+                              wu->firstUpdate->version + MAX_UPDATES_PER_RPC-1);
 
                 numUpdatingServers++;
                 lastScan.searchIndex = i;

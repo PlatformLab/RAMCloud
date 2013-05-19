@@ -753,12 +753,23 @@ class CoordinatorServerList : public AbstractServerList{
         /// Full ServerList for this version
         ProtoBuf::ServerList full;
 
+        /**
+         * Helps form a singly-linked list through the update deque,
+         * ordered both by version # and deque index. This allows for
+         * lockless iteration/access concurrent with locked writes.
+         * See docs above updates deque for more info.
+         */
+        ServerListUpdatePair* next;
+
         ServerListUpdatePair(ProtoBuf::ServerList& incremental,
                 ProtoBuf::ServerList& full)
                 : version(incremental.version_number())
                 , incremental(incremental)
                 , full(full)
+                , next(NULL)
         {}
+
+        DISALLOW_COPY_AND_ASSIGN(ServerListUpdatePair);
     };
 
     /**
@@ -800,9 +811,9 @@ class CoordinatorServerList : public AbstractServerList{
         /// Whether to send full or partial update
         bool sendFullList;
 
-        /// An iterator to the update deque starting at the first
+        /// A pointer to the update deque starting at the first
         /// update that should be sent to the server.
-        std::deque<ServerListUpdatePair>::const_iterator firstUpdate;
+        const ServerListUpdatePair* firstUpdate;
 
         /// Signifies the end range to be sent to the server.
         /// Practically, it is used to stop iterating.
@@ -889,6 +900,15 @@ class CoordinatorServerList : public AbstractServerList{
      * Past updates that lead up to the \a version. This does not contain
      * all the updates created, only the ones needed by the servers
      * currently in the server list. Older updates are pruned.
+     *
+     * WARNING: Modifications MUST ONLY occur at the ends, but random access
+     * is otherwise allowed. Reason being that ServerListUpdatePairs form an
+     * in order singly-linked list within the deque and according to the C++0x
+     * specs, references are preserved ONLY IF modifications occur at the ends
+     * of the deque. Following this convention allows for lockless traversal
+     * in the middle of the deque concurrent with locked writes at the ends.
+     * Regular iterators are not used because they are invalidated on
+     * every deque modification.
      */
     std::deque<ServerListUpdatePair> updates;
 
