@@ -222,10 +222,11 @@ LogMetricsStringer::getDiskCleanerMetrics()
 
     uint64_t totalCleaned = onDiskMetrics.total_segments_cleaned();
     s += ls + format("  Total Segments Cleaned:        %lu (%.2f/s, "
-        "%.2f/s active)\n",
+        "%.2f/s active; %lu empty)\n",
         totalCleaned,
         d(totalCleaned) / elapsedTime,
-        d(totalCleaned) / cleanerTime);
+        d(totalCleaned) / cleanerTime,
+        onDiskMetrics.total_empty_segments_cleaned());
 
     uint64_t survivorsCreated = onDiskMetrics.total_survivors_created();
     s += ls + format("  Total Survivors Created:       %lu (%.2f/s, "

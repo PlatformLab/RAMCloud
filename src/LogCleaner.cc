@@ -371,7 +371,10 @@ LogCleaner::doDiskCleaning(bool lowOnDiskSpace)
     uint64_t maxLiveBytes = 0;
     uint32_t segletsBefore = 0;
     foreach (LogSegment* segment, segmentsToClean) {
-        maxLiveBytes += segment->getLiveBytes();
+        uint64_t liveBytes = segment->getLiveBytes();
+        if (liveBytes == 0)
+            onDiskMetrics.totalEmptySegmentsCleaned++;
+        maxLiveBytes += liveBytes;
         segletsBefore += segment->getSegletsAllocated();
     }
 

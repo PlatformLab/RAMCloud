@@ -194,6 +194,7 @@ class OnDisk {
           totalRelocationCallbacks(0),
           totalRelocationAppends(0),
           totalSegmentsCleaned(0),
+          totalEmptySegmentsCleaned(0),
           totalSurvivorsCreated(0),
           totalRuns(0),
           totalLowDiskSpaceRuns(0),
@@ -244,6 +245,7 @@ class OnDisk {
         m.set_total_relocation_callbacks(totalRelocationCallbacks);
         m.set_total_relocation_appends(totalRelocationAppends);
         m.set_total_segments_cleaned(totalSegmentsCleaned);
+        m.set_total_empty_segments_cleaned(totalEmptySegmentsCleaned);
         m.set_total_survivors_created(totalSurvivorsCreated);
         m.set_total_runs(totalRuns);
         m.set_total_low_disk_space_runs(totalLowDiskSpaceRuns);
@@ -332,6 +334,10 @@ class OnDisk {
 
     /// Total number of segments the disk cleaner has cleaned.
     Metric64BitType totalSegmentsCleaned;
+
+    /// Total number of segments the disk cleaner has cleaned that contained
+    /// no live data at all.
+    Metric64BitType totalEmptySegmentsCleaned;
 
     /// Total number of survivor segments created to relocate live data into.
     Metric64BitType totalSurvivorsCreated;
