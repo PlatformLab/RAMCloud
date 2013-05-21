@@ -1169,8 +1169,8 @@ dropTabletOwnership_filter(string s)
 TEST_F(MasterServiceTest, dropTabletOwnership) {
     TestLog::Enable _(dropTabletOwnership_filter);
 
-    EXPECT_THROW(MasterClient::dropTabletOwnership(&context,
-        masterServer-> serverId, 2, 1, 1), ClientException);
+    MasterClient::dropTabletOwnership(&context,
+        masterServer-> serverId, 2, 1, 1);
     EXPECT_EQ("dropTabletOwnership: Could not drop ownership "
               "on unknown tablet [0x1,0x1] in tableId 2!", TestLog::get());
 

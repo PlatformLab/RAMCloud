@@ -689,13 +689,11 @@ MasterService::dropTabletOwnership(
         LOG(NOTICE, "Dropped ownership of tablet [0x%lx,0x%lx] in tableId %lu",
             reqHdr->firstKeyHash, reqHdr->lastKeyHash, reqHdr->tableId);
     } else {
+        // to make this operation idempotent, don't return bad status.
+
         LOG(WARNING, "Could not drop ownership on unknown tablet [0x%lx,0x%lx]"
             " in tableId %lu!", reqHdr->firstKeyHash, reqHdr->lastKeyHash,
             reqHdr->tableId);
-
-        // Would it be preferable to not consider this an error (for
-        // idempotency, perhaps)?
-        respHdr->common.status = STATUS_UNKNOWN_TABLET;
     }
 }
 
