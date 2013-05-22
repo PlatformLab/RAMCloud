@@ -40,8 +40,7 @@ LogEntryRelocator::LogEntryRelocator(LogSegment* segment,
       outOfSpace(false),
       didAppend(false),
       appendTicks(0),
-      totalBytesAppended(0),
-      timestamp(0)
+      totalBytesAppended(0)
 {
 }
 
@@ -55,8 +54,6 @@ LogEntryRelocator::LogEntryRelocator(LogSegment* segment,
  *      Type of the entry being appended.
  * \param buffer
  *      The entry to append.
- * \param timestamp
- *      Creation timestamp of the entry being appended (see WallTime).
  * \return
  *      Returns true if the append succeeded. Otherwise, returns false if there
  *      was not sufficient space. The relocator will record this failure so that
@@ -65,7 +62,7 @@ LogEntryRelocator::LogEntryRelocator(LogSegment* segment,
  *      stays valid until another relocation callback is fired.
  */
 bool
-LogEntryRelocator::append(LogEntryType type, Buffer& buffer, uint32_t timestamp)
+LogEntryRelocator::append(LogEntryType type, Buffer& buffer)
 {
     CycleCounter<uint64_t> _(&appendTicks);
 
@@ -87,7 +84,6 @@ LogEntryRelocator::append(LogEntryType type, Buffer& buffer, uint32_t timestamp)
     }
 
     totalBytesAppended = segment->getAppendedLength() - priorLength;
-    this->timestamp = timestamp;
 
     didAppend = true;
     return true;
@@ -135,12 +131,10 @@ LogEntryRelocator::relocated()
     return didAppend;
 }
 
-uint32_t
-LogEntryRelocator::getTimestamp()
-{
-    return timestamp;
-}
-
+/**
+ * Returns the total number of bytes appended, including any log metadata
+ * overheads.
+ */
 uint32_t
 LogEntryRelocator::getTotalBytesAppended()
 {

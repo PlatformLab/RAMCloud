@@ -40,6 +40,7 @@ class LogSegmentTest : public ::testing::Test {
                     seglets[0]->getLength(),
                     183,
                     38,
+                    292,
                     false);
     }
 
@@ -57,72 +58,22 @@ class LogSegmentTest : public ::testing::Test {
     DISALLOW_COPY_AND_ASSIGN(LogSegmentTest);
 };
 
-TEST_F(LogSegmentTest, getAverageTimestamp) {
-    EXPECT_EQ(0U, s->getAverageTimestamp());
-    s->statistics.liveBytes = 28345;
-    s->statistics.spaceTimeSum = 8272901;
-    EXPECT_EQ(291U, s->getAverageTimestamp());
+TEST_F(LogSegmentTest, getAge) {
+    WallTime::mockWallTimeValue = s->creationTimestamp + 1;
+    EXPECT_EQ(1U, s->getAge());
+    WallTime::mockWallTimeValue = 0;
 }
 
 TEST_F(LogSegmentTest, getMemoryUtilization) {
     EXPECT_EQ(0, s->getMemoryUtilization());
-    s->statistics.liveBytes = s->segletSize / 2;
+    s->liveBytes = s->segletSize / 2;
     EXPECT_EQ(50, s->getMemoryUtilization());
 }
 
 TEST_F(LogSegmentTest, getDiskUtilization) {
     EXPECT_EQ(0, s->getDiskUtilization());
-    s->statistics.liveBytes = s->segmentSize / 2;
+    s->liveBytes = s->segmentSize / 2;
     EXPECT_EQ(50, s->getDiskUtilization());
-}
-
-/**
- * Unit tests for LogSegment::Statistics.
- */
-class LogSegment_StatisticsTest : public ::testing::Test {
-  public:
-    LogSegment_StatisticsTest()
-        : s()
-    {
-    }
-
-    LogSegment::Statistics s;
-
-    DISALLOW_COPY_AND_ASSIGN(LogSegment_StatisticsTest);
-};
-
-TEST_F(LogSegment_StatisticsTest, constructor) {
-    EXPECT_EQ(0U, s.liveBytes);
-    EXPECT_EQ(0U, s.spaceTimeSum);
-}
-
-TEST_F(LogSegment_StatisticsTest, increment) {
-    s.increment(2842, 2842UL * 9283842);
-    EXPECT_EQ(2842U, s.liveBytes);
-    EXPECT_EQ(2842UL * 9283842, s.spaceTimeSum);
-}
-
-TEST_F(LogSegment_StatisticsTest, decrement) {
-    s.increment(2842, 2842UL * 9283842);
-    s.increment(828274, 828274UL * 27346727);
-    s.increment(726, 726UL * 283646292);
-    s.decrement(828274, 828274UL * 27346727);
-    EXPECT_EQ(2842U + 726, s.liveBytes);
-    EXPECT_EQ(2842UL * 9283842 + 726UL * 283646292, s.spaceTimeSum);
-}
-
-TEST_F(LogSegment_StatisticsTest, get) {
-    uint32_t liveBytes;
-    uint64_t spaceTimeSum;
-
-    s.get(liveBytes, spaceTimeSum);
-    EXPECT_EQ(0U, liveBytes);
-    EXPECT_EQ(0U, spaceTimeSum);
-
-    s.increment(97013, 97013UL * 8262502);
-    s.get(liveBytes, spaceTimeSum);
-    EXPECT_EQ(97013U, liveBytes);
-    EXPECT_EQ(801570106526UL, spaceTimeSum);
 }
 
 } // namespace RAMCloud

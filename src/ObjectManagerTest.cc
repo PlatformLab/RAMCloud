@@ -148,7 +148,7 @@ class ObjectManagerTest : public ::testing::Test {
         Buffer buffer;
         o.serializeToBuffer(buffer);
         Log::Reference reference;
-        objectManager.log.append(LOG_ENTRY_TYPE_OBJ, 0, buffer, &reference);
+        objectManager.log.append(LOG_ENTRY_TYPE_OBJ, buffer, &reference);
         {
             ObjectManager::HashTableBucketLock lock(objectManager, key);
             objectManager.replace(lock, key, reference);
@@ -167,7 +167,7 @@ class ObjectManagerTest : public ::testing::Test {
         Buffer buffer;
         t.serializeToBuffer(buffer);
         Log::Reference reference;
-        objectManager.log.append(LOG_ENTRY_TYPE_OBJTOMB, 0, buffer, &reference);
+        objectManager.log.append(LOG_ENTRY_TYPE_OBJTOMB, buffer, &reference);
         {
             ObjectManager::HashTableBucketLock lock(objectManager, key);
             objectManager.replace(lock, key, reference);
@@ -481,7 +481,7 @@ TEST_F(ObjectManagerTest, replaySegment) {
     ObjectTombstone t1(o1, 0, 0);
     buffer.reset();
     t1.serializeToBuffer(buffer);
-    objectManager.log.append(LOG_ENTRY_TYPE_OBJTOMB, 0, buffer, &logTomb1Ref);
+    objectManager.log.append(LOG_ENTRY_TYPE_OBJTOMB, buffer, &logTomb1Ref);
     objectManager.log.sync();
     {
         ObjectManager::HashTableBucketLock lock(objectManager, key2);
@@ -506,7 +506,7 @@ TEST_F(ObjectManagerTest, replaySegment) {
     buffer.reset();
     t2.serializeToBuffer(buffer);
     ret = objectManager.log.append(
-        LOG_ENTRY_TYPE_OBJTOMB, 0, buffer, &logTomb2Ref);
+        LOG_ENTRY_TYPE_OBJTOMB, buffer, &logTomb2Ref);
     objectManager.log.sync();
     EXPECT_TRUE(ret);
     {
@@ -769,7 +769,6 @@ TEST_F(ObjectManagerTest, objectRelocationCallback_objectAlive) {
 
     Log::Reference newReference;
     success = objectManager.log.append(LOG_ENTRY_TYPE_OBJ,
-                                       0,
                                        oldBuffer,
                                        &newReference);
     objectManager.log.sync();
@@ -902,13 +901,13 @@ TEST_F(ObjectManagerTest, tombstoneRelocationCallback_basics) {
 
     Log::Reference oldTombstoneReference;
     success = objectManager.log.append(
-        LOG_ENTRY_TYPE_OBJTOMB, 0, tombstoneBuffer, &oldTombstoneReference);
+        LOG_ENTRY_TYPE_OBJTOMB, tombstoneBuffer, &oldTombstoneReference);
     objectManager.log.sync();
     EXPECT_TRUE(success);
 
     Log::Reference newTombstoneReference;
     success = objectManager.log.append(LOG_ENTRY_TYPE_OBJTOMB,
-        0, tombstoneBuffer, &newTombstoneReference);
+        tombstoneBuffer, &newTombstoneReference);
     objectManager.log.sync();
     EXPECT_TRUE(success);
 

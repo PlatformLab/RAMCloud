@@ -98,7 +98,6 @@ AbstractLog::append(AppendVector* appends, uint32_t numAppends)
     for (uint32_t i = 0; i < numAppends; i++) {
         bool enoughSpace = append(lock,
                                   appends[i].type,
-                                  appends[i].timestamp,
                                   appends[i].buffer,
                                   &appends[i].reference);
         if (!enoughSpace)
@@ -130,10 +129,8 @@ AbstractLog::free(Reference reference)
     LogSegment& segment = (*segmentManager)[slot];
     Buffer buffer;
     uint32_t lengthWithMetadata;
-    LogEntryType type = segment.getEntry(offset, buffer, &lengthWithMetadata);
-    uint32_t timestamp = entryHandlers->getTimestamp(type, buffer);
-    segment.statistics.decrement(lengthWithMetadata,
-        static_cast<uint64_t>(lengthWithMetadata) * timestamp);
+    segment.getEntry(offset, buffer, &lengthWithMetadata);
+    segment.liveBytes -= lengthWithMetadata;
 }
 
 /**
@@ -231,9 +228,6 @@ AbstractLog::segmentExists(uint64_t segmentId)
  *      do that.
  * \param type
  *      Type of the entry. See LogEntryTypes.h.
- * \param timestamp
- *      Creation time of the entry, as provided by WallTime. This is used by the
- *      log cleaner to choose more optimal segments to garbage collect from.
  * \param buffer
  *      Pointer to buffer containing the entry to be appended.
  * \param length
@@ -252,7 +246,6 @@ AbstractLog::segmentExists(uint64_t segmentId)
 bool
 AbstractLog::append(Lock& appendLock,
             LogEntryType type,
-            uint32_t timestamp,
             const void* buffer,
             uint32_t length,
             Reference* outReference,
@@ -298,8 +291,7 @@ AbstractLog::append(Lock& appendLock,
 
     // Update log statistics so that the cleaner can make intelligent decisions
     // when trying to reclaim memory.
-    head->statistics.increment(lengthWithMetadata,
-        static_cast<uint64_t>(lengthWithMetadata) * timestamp);
+    head->liveBytes += lengthWithMetadata;
 
     metrics.totalBytesAppended += length;
     metrics.totalMetadataBytesAppended += (lengthWithMetadata - length);
@@ -322,9 +314,6 @@ AbstractLog::append(Lock& appendLock,
  *      do that.
  * \param type
  *      Type of the entry. See LogEntryTypes.h.
- * \param timestamp
- *      Creation time of the entry, as provided by WallTime. This is used by the
- *      log cleaner to choose more optimal segments to garbage collect from.
  * \param buffer
  *      Buffer object containing the entry to be appended.
  * \param[out] outReference
@@ -341,14 +330,12 @@ AbstractLog::append(Lock& appendLock,
 bool
 AbstractLog::append(Lock& appendLock,
             LogEntryType type,
-            uint32_t timestamp,
             Buffer& buffer,
             Reference* outReference,
             uint64_t* outTickCounter)
 {
     return append(appendLock,
                   type,
-                  timestamp,
                   buffer.getRange(0, buffer.getTotalLength()),
                   buffer.getTotalLength(),
                   outReference,

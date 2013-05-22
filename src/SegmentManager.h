@@ -242,7 +242,9 @@ class SegmentManager {
         ALLOC_CLEANER_SIDELOG
     };
 
-    LogSegment* alloc(AllocPurpose purpose, uint64_t segmentId);
+    LogSegment* alloc(AllocPurpose purpose,
+                      uint64_t segmentId,
+                      uint32_t creationTimestamp);
     void injectSideSegment(LogSegment* segment, State nextState, Lock& lock);
     void freeSegment(LogSegment* segment, bool waitForDigest, Lock& lock);
     void writeHeader(LogSegment* segment);

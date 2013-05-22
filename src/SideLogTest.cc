@@ -91,7 +91,7 @@ TEST_F(SideLogTest, destructor) {
 
     // a non-empty sidelog aborts and returns segments to the SegmentManager
     sl.construct(&l);
-    EXPECT_TRUE(sl->append(LOG_ENTRY_TYPE_OBJ, 0, "hi", 2));
+    EXPECT_TRUE(sl->append(LOG_ENTRY_TYPE_OBJ, "hi", 2));
     sl.destroy();
     EXPECT_TRUE(StringUtil::contains(TestLog::get(),
         "~SideLog: Aborting 1 uncommitted segment(s)"));
@@ -106,7 +106,7 @@ TEST_F(SideLogTest, commit) {
     sl.commit();
     EXPECT_EQ(headId, l.head->id);
 
-    EXPECT_TRUE(sl.append(LOG_ENTRY_TYPE_OBJ, 0, "hi", 2));
+    EXPECT_TRUE(sl.append(LOG_ENTRY_TYPE_OBJ, "hi", 2));
     LogSegment* newSeg = sl.segments[0];
     sl.commit();
     EXPECT_NE(headId, l.head->id);

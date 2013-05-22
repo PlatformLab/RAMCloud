@@ -63,7 +63,7 @@ TEST_F(LogEntryRelocatorTest, constructor) {
 TEST_F(LogEntryRelocatorTest, append_nullSegment) {
     LogEntryRelocator r(NULL, 50);
     Buffer buffer;
-    EXPECT_FALSE(r.append(LOG_ENTRY_TYPE_OBJ, buffer, 0));
+    EXPECT_FALSE(r.append(LOG_ENTRY_TYPE_OBJ, buffer));
     EXPECT_TRUE(r.outOfSpace);
 }
 
@@ -71,7 +71,7 @@ TEST_F(LogEntryRelocatorTest, append_tooBig) {
     LogEntryRelocator r(NULL, 1);
     Buffer buffer;
     buffer.append("!", 2);
-    EXPECT_THROW(r.append(LOG_ENTRY_TYPE_OBJ, buffer, 0),
+    EXPECT_THROW(r.append(LOG_ENTRY_TYPE_OBJ, buffer),
         FatalError);
 }
 
@@ -79,7 +79,7 @@ TEST_F(LogEntryRelocatorTest, append_alreadyAppended) {
     LogEntryRelocator r(NULL, 50);
     r.didAppend = true;
     Buffer buffer;
-    EXPECT_THROW(r.append(LOG_ENTRY_TYPE_OBJ, buffer, 0),
+    EXPECT_THROW(r.append(LOG_ENTRY_TYPE_OBJ, buffer),
         FatalError);
 }
 
@@ -88,14 +88,14 @@ TEST_F(LogEntryRelocatorTest, append) {
     LogEntryRelocator r(s, 50);
     Buffer buffer;
     buffer.append("!", 2);
-    uint32_t bytesBefore = s->statistics.liveBytes;
-    uint64_t spaceTimeSumBefore = s->statistics.spaceTimeSum;
-    EXPECT_TRUE(r.append(LOG_ENTRY_TYPE_OBJ, buffer, 2));
+    uint32_t bytesBefore = s->liveBytes;
+    EXPECT_TRUE(r.append(LOG_ENTRY_TYPE_OBJ, buffer));
     EXPECT_TRUE(r.didAppend);
 
-    // LogEntryRelocator no longer manages these statistics.
-    EXPECT_EQ(s->statistics.liveBytes, bytesBefore);
-    EXPECT_EQ(s->statistics.spaceTimeSum, spaceTimeSumBefore);
+    // LogEntryRelocator no longer manages these statistics (the cleaner does
+    // one atomic increment per segment to avoid an operaton for every entry
+    // moved).
+    EXPECT_EQ(s->liveBytes, bytesBefore);
 }
 
 TEST_F(LogEntryRelocatorTest, getNewReference_noAppend) {
@@ -108,7 +108,7 @@ TEST_F(LogEntryRelocatorTest, getNewReference) {
     LogEntryRelocator r(s, 50);
     Buffer buffer;
     buffer.append("!", 2);
-    EXPECT_TRUE(r.append(LOG_ENTRY_TYPE_OBJ, buffer, 0));
+    EXPECT_TRUE(r.append(LOG_ENTRY_TYPE_OBJ, buffer));
     EXPECT_NO_THROW(r.getNewReference());
 }
 

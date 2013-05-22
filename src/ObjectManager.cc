@@ -224,12 +224,10 @@ ObjectManager::writeObject(Key& key,
 
     newObject.serializeToBuffer(appends[0].buffer);
     appends[0].type = LOG_ENTRY_TYPE_OBJ;
-    appends[0].timestamp = newObject.getTimestamp();
 
     if (tombstone) {
         tombstone->serializeToBuffer(appends[1].buffer);
         appends[1].type = LOG_ENTRY_TYPE_OBJTOMB;
-        appends[1].timestamp = tombstone->getTimestamp();
     }
 
     if (!log.append(appends, tombstone ? 2 : 1)) {
@@ -383,9 +381,7 @@ ObjectManager::removeObject(Key& key,
 
     // Write the tombstone into the Log, increment the tablet version
     // number, and remove from the hash table.
-    if (!log.append(LOG_ENTRY_TYPE_OBJTOMB,
-                    tombstone.getTimestamp(),
-                    tombstoneBuffer)) {
+    if (!log.append(LOG_ENTRY_TYPE_OBJTOMB, tombstoneBuffer)) {
         // The log is out of space. Tell the client to retry and hope
         // that either the cleaner makes space soon or we shift load
         // off of this server.
@@ -596,7 +592,6 @@ ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it)
                 {
                     CycleCounter<uint64_t> _(&segmentAppendTicks);
                     sideLog->append(LOG_ENTRY_TYPE_OBJ,
-                                    recoveryObj->timestamp,
                                     recoveryObj,
                                     it.getLength(),
                                     &newObjReference);
@@ -665,7 +660,6 @@ ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it)
                 {
                     CycleCounter<uint64_t> _(&segmentAppendTicks);
                     sideLog->append(LOG_ENTRY_TYPE_OBJTOMB,
-                                    recoverTomb.getTimestamp(),
                                     buffer,
                                     &newTombReference);
                 }
@@ -707,7 +701,7 @@ ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it)
             // with the same backup data when the recovery crashes on the way.
             {
                 CycleCounter<uint64_t> _(&segmentAppendTicks);
-                sideLog->append(LOG_ENTRY_TYPE_SAFEVERSION, 0, buffer);
+                sideLog->append(LOG_ENTRY_TYPE_SAFEVERSION, buffer);
             }
 
             // recover segmentManager.safeVersion (Master safeVersion)
@@ -931,8 +925,7 @@ ObjectManager::relocateObject(Buffer& oldBuffer,
 
         // Try to relocate this live object. If we fail, just return. The
         // cleaner will allocate more memory and retry.
-        uint32_t timestamp = getObjectTimestamp(oldBuffer);
-        if (!relocator.append(LOG_ENTRY_TYPE_OBJ, oldBuffer, timestamp))
+        if (!relocator.append(LOG_ENTRY_TYPE_OBJ, oldBuffer))
             return;
         candidates.setReference(relocator.getNewReference().toInteger());
         return;
@@ -989,8 +982,7 @@ ObjectManager::relocateTombstone(Buffer& oldBuffer,
     if (keepNewTomb) {
         // Try to relocate it. If it fails, just return. The cleaner will
         // allocate more memory and retry.
-        uint32_t timestamp = getTombstoneTimestamp(oldBuffer);
-        if (!relocator.append(LOG_ENTRY_TYPE_OBJTOMB, oldBuffer, timestamp))
+        if (!relocator.append(LOG_ENTRY_TYPE_OBJTOMB, oldBuffer))
             return;
     }
 }

@@ -121,7 +121,7 @@ TEST_F(TableManagerTest, createTable) {
 
     // Advance the log head slightly so creation time offset is non-zero.
     Buffer empty;
-    master->objectManager.log.append(LOG_ENTRY_TYPE_INVALID, 0, empty);
+    master->objectManager.log.append(LOG_ENTRY_TYPE_INVALID, empty);
     master->objectManager.log.sync();
 
     EXPECT_EQ(1U, tableManager->createTable("foo", 1));
@@ -394,9 +394,7 @@ TEST_F(TableManagerTest, reassignTabletOwnership) {
     // Advance the log head slightly so creation time offset is non-zero
     // on host being migrated to.
     Buffer empty;
-    master2->master->objectManager.log.append(LOG_ENTRY_TYPE_INVALID,
-                                               0,
-                                               empty);
+    master2->master->objectManager.log.append(LOG_ENTRY_TYPE_INVALID, empty);
     master2->master->objectManager.log.sync();
 
     // master is already enlisted

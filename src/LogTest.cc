@@ -133,10 +133,10 @@ TEST_F(LogTest, sync) {
         TestLog::get());
 
     TestLog::reset();
-    l.append(LOG_ENTRY_TYPE_OBJ, 0, "hi", 3);
+    l.append(LOG_ENTRY_TYPE_OBJ, "hi", 2);
     EXPECT_NE(l.head->syncedLength, l.head->getAppendedLength());
     l.sync();
-    EXPECT_EQ("sync: syncing segment 1 to offset 59 | sync: log synced",
+    EXPECT_EQ("sync: syncing segment 1 to offset 58 | sync: log synced",
         TestLog::get());
     EXPECT_EQ(l.head->syncedLength, l.head->getAppendedLength());
 

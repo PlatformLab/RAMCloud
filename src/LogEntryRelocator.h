@@ -51,7 +51,7 @@ namespace RAMCloud {
 class LogEntryRelocator {
   public:
     LogEntryRelocator(LogSegment* segment, uint32_t maximumLength);
-    bool append(LogEntryType type, Buffer& buffer, uint32_t timestamp);
+    bool append(LogEntryType type, Buffer& buffer);
     Log::Reference getNewReference();
     uint64_t getAppendTicks();
     bool failed();
@@ -85,10 +85,6 @@ class LogEntryRelocator {
     /// If the append() method is invoked and succeeds, this saves the total
     /// number of bytes appended.
     uint32_t totalBytesAppended;
-
-    /// If the append() method is invoked and succeeds, this saves the timestamp
-    /// argument that was provided.
-    uint32_t timestamp;
 };
 
 } // namespace

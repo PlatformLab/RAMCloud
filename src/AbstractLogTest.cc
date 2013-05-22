@@ -84,7 +84,7 @@ TEST_F(AbstractLogTest, append_basic) {
     LogSegment* oldHead = l.head;
 
     int appends = 0;
-    while (l.append(LOG_ENTRY_TYPE_OBJ, 0, data, dataLen)) {
+    while (l.append(LOG_ENTRY_TYPE_OBJ, data, dataLen)) {
         if (appends++ == 0)
             EXPECT_EQ(oldHead, l.head);
         else
@@ -112,7 +112,6 @@ TEST_F(AbstractLogTest, append_tooBigToEverFit) {
     LogSegment* oldHead = l.head;
 
     EXPECT_THROW(l.append(LOG_ENTRY_TYPE_OBJ,
-                          0,
                           data,
                           serverConfig.segmentSize + 1),
         FatalError);
@@ -129,10 +128,8 @@ TEST_F(AbstractLogTest, append_multiple_basics) {
     char* data = new char[dataLen];
 
     v[0].type = LOG_ENTRY_TYPE_OBJ;
-    v[0].timestamp = 1;
     v[0].buffer.append(data, dataLen);
     v[1].type = LOG_ENTRY_TYPE_OBJTOMB;
-    v[1].timestamp = 2;
     v[1].buffer.append(data, dataLen - 1);
 
     int appends = 0;
@@ -160,7 +157,7 @@ TEST_F(AbstractLogTest, getEntry) {
     Buffer sourceBuffer;
     sourceBuffer.append(&data, sizeof(data));
     Log::Reference ref;
-    EXPECT_TRUE(l.append(LOG_ENTRY_TYPE_OBJ, 0, sourceBuffer, &ref));
+    EXPECT_TRUE(l.append(LOG_ENTRY_TYPE_OBJ, sourceBuffer, &ref));
 
     LogEntryType type;
     Buffer buffer;
@@ -178,7 +175,7 @@ TEST_F(AbstractLogTest, getSegmentId) {
 
     int zero = 0, one = 0, two = 0, other = 0;
     while (l.head == NULL || l.head->id == 1) {
-        EXPECT_TRUE(l.append(LOG_ENTRY_TYPE_OBJ, 0, buffer, &reference));
+        EXPECT_TRUE(l.append(LOG_ENTRY_TYPE_OBJ, buffer, &reference));
         switch (l.getSegmentId(reference)) {
             case 0: zero++; break;
             case 1: one++; break;
@@ -201,7 +198,7 @@ TEST_F(AbstractLogTest, segmentExists) {
 
     char data[1000];
     while (l.head == NULL || l.head->id == 1)
-        l.append(LOG_ENTRY_TYPE_OBJ, 0, data, sizeof(data));
+        l.append(LOG_ENTRY_TYPE_OBJ, data, sizeof(data));
     l.sync();
 
 
@@ -222,7 +219,7 @@ class MockLog : public AbstractLog {
                             0)
         , emptySegletVector()
         , returnSegment(false)
-        , segment(emptySegletVector, 2, 2, 1983, 12, false)
+        , segment(emptySegletVector, 2, 2, 1983, 12, 0, false)
     {
     }
 

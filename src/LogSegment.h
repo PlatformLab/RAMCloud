@@ -1,4 +1,4 @@
-/* Copyright (c) 2012 Stanford University
+/* Copyright (c) 2012-2013 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -16,10 +16,17 @@
 #ifndef RAMCLOUD_LOGSEGMENT_H
 #define RAMCLOUD_LOGSEGMENT_H
 
+#if __GNUC__ >= 4 && __GNUC_MINOR__ >= 5
+#include <atomic>
+#else
+#include <cstdatomic>
+#endif
+
 #include "AbstractLog.h"
 #include "BoostIntrusive.h"
 #include "ReplicatedSegment.h"
 #include "Segment.h"
+#include "WallTime.h"
 
 namespace RAMCloud {
 
@@ -32,112 +39,14 @@ typedef uint32_t SegmentSlot;
  * LogSegment is a simple subclass of Segment. It exists to associate data the
  * Log and LogCleaner care about with a particular Segment (which shouldn't
  * have to know about these things).
+ *
+ * It's important to note that the same logical log segment may correspond to
+ * multiple instances of the LogSegment class over time. This is because the
+ * cleaner will occasionally compact a segment in memory. When it does, it moves
+ * the live log entries to a new LogSegment instance that has the same segment
+ * identifier as before compaction.
  */
 class LogSegment : public Segment {
-  PRIVATE:
-    /**
-     * Usage statistics for this segment. These are used to make cleaning
-     * decisions. More specifically, as part of the cleaner's cost-benefit
-     * analysis when it ranks potential segments to clean.
-     *
-     * The counters are protected by a spinlock because the liveBytes and
-     * spaceTimeSum fields are closely related and the cleaner should not get
-     * inconsistent values (old liveBytes, new spaceTimeSum for instance). We
-     * could use the cmpxchg16b instruction instead, but a SpinLock acquire/
-     * release is only about 20ns (cached, uncontended) vs. 10ns for the cas.
-     * I don't expect lock contention to be great enough to make a difference,
-     * but we'll see what happens.
-     *
-     * Note that these counters may sometimes underflow temporarily during
-     * cleaning. For example, the cleaner could be in the middle of relocating
-     * objects to a survivor segment and a delete RPC could come in and
-     * decrement the survivor segment's counts in-between the cleaner relocating
-     * the object and updating the statistics.
-     */
-    class Statistics {
-      public:
-        Statistics()
-            : liveBytes(0),
-              spaceTimeSum(0),
-              lock("LogSegment::Statistics::lock")
-        {
-        }
-
-        /**
-         * Increment the count of live bytes in this segment after one or more
-         * entries have been appended.
-         *
-         * \param newLiveBytes
-         *      The number of bytes added by the entry or entries. This must
-         *      include all metadata to get a complete accounting of space used.
-         *      If multiple entries were added, this is simply the sum of their
-         *      lengths in the log.
-         * \param newSpaceTimeSum
-         *      Sum of each entry's length in the log times their WallTime
-         *      creation timestamp. For example, if we have two entries of
-         *      length L1 and L2 with timestamps T1 and T2, this value must be
-         *      L1 * T1 + L2 * T2.
-         */
-        void
-        increment(uint32_t newLiveBytes, uint64_t newSpaceTimeSum)
-        {
-            std::lock_guard<SpinLock> guard(lock);
-            liveBytes += newLiveBytes;
-            spaceTimeSum += newSpaceTimeSum;
-        }
-
-        /**
-         * Decrement the count of live bytes in this segment after one or more
-         * entries have been removed (are no longer alive). This is the opposite
-         * of #increment, and all of the parameters given for a particular entry
-         * should be identical to what was provided to #increment.
-         *
-         * \param freedDeadBytes
-         *      The number of bytes used by the dead entry or entries. This must
-         *      must include all metadata to get a complete accounting of space
-         *      used. If multiple entries were removed, this is simply the sum
-         *      of their lengths in the log.
-         * \param newSpaceTimeSum 
-         *      Sum of each entry's length in the log times their WallTime
-         *      creation timestamp. For example, if we have two entries of
-         *      length L1 and L2 with timestamps T1 and T2, this value must be
-         *      L1 * T1 + L2 * T2.
-         */
-        void
-        decrement(uint32_t freedDeadBytes, uint64_t newSpaceTimeSum)
-        {
-            std::lock_guard<SpinLock> guard(lock);
-            liveBytes -= freedDeadBytes;
-            spaceTimeSum -= newSpaceTimeSum;
-        }
-
-        /**
-         * Get a consistent view of the live byte count and space-time sum for
-         * this segment.
-         */
-        void
-        get(uint32_t& outLiveBytes, uint64_t& outSpaceTimeSum)
-        {
-            std::lock_guard<SpinLock> guard(lock);
-            outLiveBytes = liveBytes;
-            outSpaceTimeSum = spaceTimeSum;
-        }
-
-      PRIVATE:
-        /// The current number of live bytes in a segment.
-        uint32_t liveBytes;
-
-        /// Sum of the products of each entry's size in bytes and timestamp (as
-        /// provided by WallTime) in a segment. Used in conjunction with the
-        /// liveBytes value to compute an average timestamp for each byte in
-        /// the segment. That, in turn, is used to make cleaning decisions.
-        uint64_t spaceTimeSum;
-
-        /// Lock ensuring that the liveBytes and spaceTimeSum values are read
-        /// and written consistently.
-        SpinLock lock;
-    };
-
   public:
     /**
      * Construct a new LogSegment.
@@ -152,6 +61,11 @@ class LogSegment : public Segment {
      *      64-bit identifier of the segment in the log.
      * \param slot
      *      Slot from which this segment was allocated in the SegmentManager.
+     * \param creationTimestamp
+     *      WallTime seconds timestamp when this segment was created. This is a
+     *      parameter because the cleaner will allocate a new Segment object
+     *      when it compacts an existing segment and the timestamp needs to be
+     *      preserved.
      * \param isEmergencyHead
      *      If true, this is a special segment that is being used to roll over
      *      to a new head and write a new digest when otherwise out of memory.
@@ -161,14 +75,15 @@ class LogSegment : public Segment {
                uint32_t segmentSize,
                uint64_t id,
                SegmentSlot slot,
+               uint32_t creationTimestamp,
                bool isEmergencyHead)
         : Segment(seglets, segletSize),
           id(id),
           slot(slot),
           segletSize(segletSize),
           segmentSize(segmentSize),
+          creationTimestamp(creationTimestamp),
           isEmergencyHead(isEmergencyHead),
-          statistics(),
           cleanedEpoch(0),
           costBenefit(0),
           costBenefitVersion(0),
@@ -176,7 +91,8 @@ class LogSegment : public Segment {
           listEntries(),
           allListEntries(),
           syncedLength(0),
-          creationTicks(Cycles::rdtsc())
+          lastCompactionTimestamp(WallTime::secondsTimestamp()),
+          liveBytes(0)
     {
     }
 
@@ -185,17 +101,10 @@ class LogSegment : public Segment {
      * This is used by the cost-benefit segment selection algorithm in the
      * cleaner.
      */
-    uint32_t
-    getAverageTimestamp()
+    uint64_t
+    getAge()
     {
-        uint32_t liveBytes;
-        uint64_t spaceTimeSum;
-        statistics.get(liveBytes, spaceTimeSum);
-        if (liveBytes == 0) {
-            assert(spaceTimeSum == 0);
-            return 0;
-        }
-        return downCast<uint32_t>(spaceTimeSum / liveBytes);
+        return WallTime::secondsTimestamp() - creationTimestamp;
     }
 
     /**
@@ -206,9 +115,6 @@ class LogSegment : public Segment {
     int
     getMemoryUtilization()
     {
-        uint32_t liveBytes;
-        uint64_t unused;
-        statistics.get(liveBytes, unused);
         uint32_t bytesAllocated = getSegletsAllocated() * segletSize;
         if (bytesAllocated == 0) {
             assert(liveBytes == 0);
@@ -227,24 +133,9 @@ class LogSegment : public Segment {
     int
     getDiskUtilization()
     {
-        uint32_t liveBytes;
-        uint64_t unused;
-        statistics.get(liveBytes, unused);
         assert(segmentSize != 0);
         return static_cast<int>(
             (static_cast<uint64_t>(liveBytes) * 100) / segmentSize);
-    }
-
-    /**
-     * Get the number of live bytes in the segment.
-     */
-    uint32_t
-    getLiveBytes()
-    {
-        uint32_t liveBytes;
-        uint64_t unused;
-        statistics.get(liveBytes, unused);
-        return liveBytes;
     }
 
     /**
@@ -276,6 +167,11 @@ class LogSegment : public Segment {
     /// segment in memory when in-memory cleaning is enabled.
     const uint32_t segmentSize;
 
+    /// Timestamp of this segment's creation in seconds (via WallTime::). Used
+    /// by the cleaner when selecting segments to clean (as part of the cost-
+    /// benefit formula).
+    const uint32_t creationTimestamp;
+
     /// If true, this segment is one of two special emergency heads the system
     /// reserves so that it can always open a new log head even if out of
     /// memory. This is needed so that the cleaner can advance the head and
@@ -289,25 +185,25 @@ class LogSegment : public Segment {
     /// that is expected to live longer.
     const bool isEmergencyHead;
 
-    /// Statistics that track the usage of this segment. Used by the cleaner in
-    /// deciding which segments to clean.
-    Statistics statistics;
-
     /// The epoch value when cleaning was completed on this segment. Once no
     /// more RPCs in the system exist with epochs less than or equal to this,
     /// there can be no more outstanding references into the segment and its
     /// memory may be safely freed and reused.
     uint64_t cleanedEpoch;
 
-    /// Cached value of this segment's cost-benefit analysis as computed by the
+    /// Cached value of this segment's cost-benefit score as computed by the
     /// cleaner. This value is really only of interest to the cleaner.
     uint64_t costBenefit;
 
     /// Version of our cached costBenefit value. The cleaner uses this to check
     /// when it must recompute and when it must use the cached value instead.
+    /// The point is that the costBenefit value must not change while std::sort
+    /// is in progress. This version ensures that the costBenefit calculation
+    /// is performed only once each time segments are evaluated for cleaning.
     uint64_t costBenefitVersion;
 
-    /// The ReplicatedSegment instance that is handling backups of this segment.
+    /// The ReplicatedSegment instance that is responsible for replicating and
+    /// this segment to backups.
     ReplicatedSegment* replicatedSegment;
 
     /// Hook used for linking this LogSegment into an intrusive list according
@@ -321,12 +217,21 @@ class LogSegment : public Segment {
     /// Number of bytes in this segment that have been synced in Log::sync. This
     /// is used in Log::sync to avoid issuing a sync() call to ReplicatedSegment
     /// when the desired data has already been synced (perhaps by another thread
-    /// that bundled our replication traffic with theirs).
+    /// that bundled our replication traffic with theirs). The point is to allow
+    /// batching of objects during backup writes when there are multiple threads
+    /// appending to the log.
     uint32_t syncedLength;
 
-    /// Cycles::rdtsc() value at which this segment was created. Use by the
-    /// cleaner to determine the best candidate to scan for dead tombstones.
-    const uint64_t creationTicks;
+    /// Timestamp when this segment was last compacted or created. Used by the
+    /// cleaner to decide when to scan for dead tombstones. Sometimes segments
+    /// will accumulate tombstones and appear cold even though many of the
+    /// tombstones may be dead. This ensures that the cleaner occasionally scans
+    /// such segments to reclaim any tombstones it can.
+    const uint32_t lastCompactionTimestamp;
+
+    /// The current number of live bytes in the segment. Used by the cleaner to
+    /// choose segments for compaction or disk cleaning.
+    std::atomic<uint32_t> liveBytes;
 
     DISALLOW_COPY_AND_ASSIGN(LogSegment);
 };

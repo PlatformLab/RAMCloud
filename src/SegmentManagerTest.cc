@@ -359,7 +359,8 @@ TEST_F(SegmentManagerTest, doesIdExist) {
 // aren't paricularly interesting
 
 TEST_F(SegmentManagerTest, writeHeader) {
-    LogSegment* s = segmentManager.alloc(SegmentManager::ALLOC_HEAD, 42);
+    LogSegment* s = segmentManager.alloc(SegmentManager::ALLOC_HEAD, 42, 8118);
+    EXPECT_EQ(8118U, s->creationTimestamp);
     SegmentIterator sanity(*s);
     EXPECT_TRUE(sanity.isDone());
 
@@ -377,8 +378,12 @@ TEST_F(SegmentManagerTest, writeHeader) {
 
 TEST_F(SegmentManagerTest, writeDigest_basics) {
     // Implicit check via calls via alloc().
-    LogSegment* prevHead = segmentManager.alloc(SegmentManager::ALLOC_HEAD, 0);
-    LogSegment* newHead = segmentManager.alloc(SegmentManager::ALLOC_HEAD, 1);
+    LogSegment* prevHead = segmentManager.alloc(SegmentManager::ALLOC_HEAD,
+                                                0,
+                                                0);
+    LogSegment* newHead = segmentManager.alloc(SegmentManager::ALLOC_HEAD,
+                                               1,
+                                               0);
 
     for (SegmentIterator it(*prevHead); !it.isDone(); it.next()) {
         if (it.getType() != LOG_ENTRY_TYPE_LOGDIGEST)
@@ -430,7 +435,7 @@ TEST_F(SegmentManagerTest, changeState) {
 TEST_F(SegmentManagerTest, alloc_noSlots) {
     segmentManager.freeSlots.clear();
     EXPECT_EQ(static_cast<LogSegment*>(NULL),
-        segmentManager.alloc(SegmentManager::ALLOC_HEAD, 0));
+        segmentManager.alloc(SegmentManager::ALLOC_HEAD, 0, 0));
 }
 
 TEST_F(SegmentManagerTest, alloc_noSeglets) {
@@ -440,16 +445,17 @@ TEST_F(SegmentManagerTest, alloc_noSeglets) {
                         allocator.getFreeCount(SegletAllocator::DEFAULT)),
                     seglets);
     EXPECT_EQ(static_cast<LogSegment*>(NULL),
-        segmentManager.alloc(SegmentManager::ALLOC_HEAD, 0));
+        segmentManager.alloc(SegmentManager::ALLOC_HEAD, 0, 0));
 
     foreach (Seglet* s, seglets)
         s->free();
 }
 
 TEST_F(SegmentManagerTest, alloc_normal) {
-    LogSegment* s = segmentManager.alloc(SegmentManager::ALLOC_HEAD, 79);
+    LogSegment* s = segmentManager.alloc(SegmentManager::ALLOC_HEAD, 79, 94305);
     EXPECT_NE(static_cast<LogSegment*>(NULL), s);
     EXPECT_EQ(79LU, s->id);
+    EXPECT_EQ(94305U, s->creationTimestamp);
     EXPECT_FALSE(s->isEmergencyHead);
     EXPECT_EQ(SegmentManager::HEAD, segmentManager.states[s->slot]);
     EXPECT_EQ(s->slot, segmentManager.idToSlotMap[s->id]);
@@ -459,8 +465,9 @@ TEST_F(SegmentManagerTest, alloc_normal) {
 
 TEST_F(SegmentManagerTest, alloc_emergencyHead) {
     SegmentManager* sm = &segmentManager;
-    LogSegment* s = sm->alloc(SegmentManager::ALLOC_EMERGENCY_HEAD, 88);
+    LogSegment* s = sm->alloc(SegmentManager::ALLOC_EMERGENCY_HEAD, 88, 94305);
     EXPECT_NE(static_cast<LogSegment*>(NULL), s);
+    EXPECT_EQ(94305U, s->creationTimestamp);
     EXPECT_TRUE(s->isEmergencyHead);
     EXPECT_EQ(SegmentManager::HEAD, sm->states[s->slot]);
 }
@@ -468,8 +475,9 @@ TEST_F(SegmentManagerTest, alloc_emergencyHead) {
 TEST_F(SegmentManagerTest, alloc_survivor) {
     SegmentManager* sm = &segmentManager;
     segmentManager.initializeSurvivorReserve(1);
-    LogSegment* s = sm->alloc(SegmentManager::ALLOC_CLEANER_SIDELOG, 88);
+    LogSegment* s = sm->alloc(SegmentManager::ALLOC_CLEANER_SIDELOG, 88, 94305);
     EXPECT_NE(static_cast<LogSegment*>(NULL), s);
+    EXPECT_EQ(94305U, s->creationTimestamp);
     EXPECT_FALSE(s->isEmergencyHead);
     EXPECT_EQ(SegmentManager::SIDELOG, sm->states[s->slot]);
 }

@@ -179,7 +179,9 @@ SegmentManager::allocHeadSegment(uint32_t flags)
     Lock guard(lock);
 
     LogSegment* prevHead = getHeadSegment();
-    LogSegment* newHead = alloc(ALLOC_HEAD, nextSegmentId);
+    LogSegment* newHead = alloc(ALLOC_HEAD,
+                                nextSegmentId,
+                                WallTime::secondsTimestamp());
     if (newHead == NULL) {
         /// Even if out of memory, we may need to allocate an emergency head
         /// segment to let cleaning free resources. We used also to do this as
@@ -187,7 +189,9 @@ SegmentManager::allocHeadSegment(uint32_t flags)
         /// entirely in the replication layer.
         if ((flags & MUST_NOT_FAIL) ||
           segmentsByState[FREEABLE_PENDING_DIGEST_AND_REFERENCES].size() > 0) {
-            newHead = alloc(ALLOC_EMERGENCY_HEAD, nextSegmentId);
+            newHead = alloc(ALLOC_EMERGENCY_HEAD,
+                            nextSegmentId,
+                            WallTime::secondsTimestamp());
         } else {
             return NULL;
         }
@@ -261,8 +265,11 @@ SegmentManager::allocHeadSegment(uint32_t flags)
  *
  * \param replacing
  *      If memory compaction is being performed, this must point to the current
- *      segment that is being compacted. If a survivor is being allocated for
- *      disk cleaning instead, this must be NULL (the default).
+ *      segment that is being compacted. The allocated segment will then be
+ *      created with the same segment identifier and creation timestamp.
+ *
+ *      If a survivor is being allocated for disk cleaning instead, this must be
+ *      NULL (the default).
  */
 LogSegment*
 SegmentManager::allocSideSegment(uint32_t flags, LogSegment* replacing)
@@ -277,12 +284,17 @@ SegmentManager::allocSideSegment(uint32_t flags, LogSegment* replacing)
     while (1) {
         guard.construct(lock);
 
-        uint64_t id = (replacing != NULL) ? replacing->id : nextSegmentId;
+        uint64_t id = nextSegmentId;
+        uint32_t creationTimestamp = WallTime::secondsTimestamp();
+        if (replacing != NULL) {
+            id = replacing->id;
+            creationTimestamp = replacing->creationTimestamp;
+        }
 
         if (flags & FOR_CLEANING)
-            s = alloc(ALLOC_CLEANER_SIDELOG, id);
+            s = alloc(ALLOC_CLEANER_SIDELOG, id, creationTimestamp);
         else
-            s = alloc(ALLOC_REGULAR_SIDELOG, id);
+            s = alloc(ALLOC_REGULAR_SIDELOG, id, creationTimestamp);
 
         if (s != NULL)
             break;
@@ -884,12 +896,18 @@ SegmentManager::changeState(LogSegment& s, State newState)
  * \param segmentId
  *      Identifier given to the segment. This is the log-unique value that will
  *      be placed in the log digest.
+ * \param creationTimestamp
+ *      WallTime seconds timestamp when this segment was created. Normally set
+ *      to the current time, but when segments are compacted in memory this will
+ *      be set to the prior segments' timestamp.
  * \return
  *      NULL if the allocation failed, otherwise a pointer to the newly
  *      allocated segment.
  */
 LogSegment*
-SegmentManager::alloc(AllocPurpose purpose, uint64_t segmentId)
+SegmentManager::alloc(AllocPurpose purpose,
+                      uint64_t segmentId,
+                      uint32_t creationTimestamp)
 {
     TEST_LOG("purpose: %d", static_cast<int>(purpose));
 
@@ -925,6 +943,7 @@ SegmentManager::alloc(AllocPurpose purpose, uint64_t segmentId)
                              segmentSize,
                              segmentId,
                              slot,
+                             creationTimestamp,
                              (purpose == ALLOC_EMERGENCY_HEAD));
     states[slot] = state;
     idToSlotMap[segmentId] = slot;

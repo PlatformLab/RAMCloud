@@ -277,7 +277,6 @@ LogCleaner::doMemoryCleaning()
     uint64_t scannedEntryLengths[TOTAL_LOG_ENTRY_TYPES] = { 0 };
     uint64_t liveScannedEntryLengths[TOTAL_LOG_ENTRY_TYPES] = { 0 };
     uint32_t bytesAppended = 0;
-    uint64_t spaceTimeSum = 0;
 
     for (SegmentIterator it(*segment); !it.isDone(); it.next()) {
         LogEntryType type = it.getType();
@@ -290,8 +289,7 @@ LogCleaner::doMemoryCleaning()
                                       reference,
                                       survivor,
                                       inMemoryMetrics,
-                                      &bytesAppended,
-                                      &spaceTimeSum);
+                                      &bytesAppended);
         if (expect_false(s == RELOCATION_FAILED))
             throw FatalError(HERE, "Entry didn't fit into survivor!");
 
@@ -306,7 +304,7 @@ LogCleaner::doMemoryCleaning()
     // Be sure to update the usage statistics for the new segment. This
     // is done once here, rather than for each relocated entry because
     // it avoids the expense of atomically updating two separate fields.
-    survivor->statistics.increment(bytesAppended, spaceTimeSum);
+    survivor->liveBytes += bytesAppended;
 
     for (size_t i = 0; i < TOTAL_LOG_ENTRY_TYPES; i++) {
         inMemoryMetrics.totalEntriesScanned[i] += entriesScanned[i];
@@ -371,7 +369,7 @@ LogCleaner::doDiskCleaning(bool lowOnDiskSpace)
     uint64_t maxLiveBytes = 0;
     uint32_t segletsBefore = 0;
     foreach (LogSegment* segment, segmentsToClean) {
-        uint64_t liveBytes = segment->getLiveBytes();
+        uint64_t liveBytes = segment->liveBytes;
         if (liveBytes == 0)
             onDiskMetrics.totalEmptySegmentsCleaned++;
         maxLiveBytes += liveBytes;
@@ -438,7 +436,7 @@ LogCleaner::getSegmentToCompact(uint32_t& outFreeableSeglets)
     uint32_t bestDelta = 0;
     for (size_t i = 0; i < candidates.size(); i++) {
         LogSegment* candidate = candidates[i];
-        uint32_t liveBytes = candidate->getLiveBytes();
+        uint32_t liveBytes = candidate->liveBytes;
         uint32_t segletsNeeded = (100 * (liveBytes + segletSize - 1)) /
                                  segletSize / MAX_CLEANABLE_MEMORY_UTILIZATION;
         uint32_t segletsAllocated = candidate->getSegletsAllocated();
@@ -479,8 +477,8 @@ LogCleaner::getSegmentToCompact(uint32_t& outFreeableSeglets)
             LogSegment* candidate = candidates[i];
             uint32_t tombstoneCount =
                 candidate->getEntryCount(LOG_ENTRY_TYPE_OBJTOMB);
-            uint64_t timeSinceLastCompaction =
-                Cycles::rdtsc() - candidate->creationTicks;
+            uint64_t timeSinceLastCompaction = WallTime::secondsTimestamp() -
+                                            candidate->lastCompactionTimestamp;
             __uint128_t goodness =
                 (__uint128_t)tombstoneCount * timeSinceLastCompaction;
             if (goodness > bestGoodness) {
@@ -562,7 +560,7 @@ LogCleaner::getSegmentsToClean(LogSegmentVector& outSegmentsToClean)
         if (utilization > MAX_CLEANABLE_MEMORY_UTILIZATION)
             continue;
 
-        uint64_t liveBytes = candidate->getLiveBytes();
+        uint64_t liveBytes = candidate->liveBytes;
         if ((totalLiveBytes + liveBytes) > maximumLiveBytes)
             break;
 
@@ -680,7 +678,6 @@ LogCleaner::relocateLiveEntries(EntryVector& entries,
     uint64_t scannedEntryLengths[TOTAL_LOG_ENTRY_TYPES] = { 0 };
     uint64_t liveScannedEntryLengths[TOTAL_LOG_ENTRY_TYPES] = { 0 };
     uint32_t bytesAppended = 0;
-    uint64_t spaceTimeSum = 0;
 
     foreach (Entry& entry, entries) {
         Buffer buffer;
@@ -692,13 +689,11 @@ LogCleaner::relocateLiveEntries(EntryVector& entries,
                                       reference,
                                       survivor,
                                       onDiskMetrics,
-                                      &bytesAppended,
-                                      &spaceTimeSum);
+                                      &bytesAppended);
         if (s == RELOCATION_FAILED) {
             if (survivor != NULL) {
-                survivor->statistics.increment(bytesAppended, spaceTimeSum);
+                survivor->liveBytes += bytesAppended;
                 bytesAppended = 0;
-                spaceTimeSum = 0;
                 closeSurvivor(survivor);
             }
 
@@ -719,8 +714,7 @@ LogCleaner::relocateLiveEntries(EntryVector& entries,
                               reference,
                               survivor,
                               onDiskMetrics,
-                              &bytesAppended,
-                              &spaceTimeSum);
+                              &bytesAppended);
             if (s == RELOCATION_FAILED)
                 throw FatalError(HERE, "Entry didn't fit into empty survivor!");
         }
@@ -741,7 +735,7 @@ LogCleaner::relocateLiveEntries(EntryVector& entries,
     }
 
     if (survivor != NULL) {
-        survivor->statistics.increment(bytesAppended, spaceTimeSum);
+        survivor->liveBytes += bytesAppended;
         closeSurvivor(survivor);
     }
 
@@ -816,14 +810,11 @@ LogCleaner::CostBenefitComparer::costBenefit(LogSegment* s)
 
     int utilization = s->getDiskUtilization();
     if (utilization != 0) {
-        uint64_t timestamp = s->getAverageTimestamp();
+        uint64_t timestamp = s->getAge();
 
         // This generally shouldn't happen, but is possible due to:
         //  1) Unsynchronized TSCs across cores (WallTime uses rdtsc).
-        //  2) Unsynchronized clocks and "newer" recovered data in the
-        //     log.
-        //  3) Getting an inconsistent view of the spaceTimeSum and
-        //     liveBytes segment counters due to buggy code.
+        //  2) Unsynchronized clocks and "newer" recovered data in the log.
         if (timestamp > now) {
             LOG(WARNING, "timestamp > now");
             timestamp = now;

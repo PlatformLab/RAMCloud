@@ -206,7 +206,6 @@ class AbstractLog {
          */
         AppendVector()
             : type(LOG_ENTRY_TYPE_INVALID),
-              timestamp(0),
               buffer(),
               reference(0)
         {
@@ -214,9 +213,6 @@ class AbstractLog {
 
         /// Type of the entry to append (see LogEntryTypes.h).
         LogEntryType type;
-
-        /// Creation timestamp of the entry (see WallTime.h).
-        uint32_t timestamp;
 
         /// Buffer describing the contents of the entry to append.
         Buffer buffer;
@@ -258,7 +254,6 @@ class AbstractLog {
      */
     bool
     append(LogEntryType type,
-           uint32_t timestamp,
            const void* buffer,
            uint32_t length,
            Reference* outReference = NULL)
@@ -267,7 +262,6 @@ class AbstractLog {
         metrics.totalAppendCalls++;
         return append(lock,
                       type,
-                      timestamp,
                       buffer,
                       length,
                       outReference,
@@ -279,7 +273,6 @@ class AbstractLog {
      */
     bool
     append(LogEntryType type,
-           uint32_t timestamp,
            Buffer& buffer,
            Reference* outReference = NULL)
     {
@@ -287,7 +280,6 @@ class AbstractLog {
         metrics.totalAppendCalls++;
         return append(lock,
                       type,
-                      timestamp,
                       buffer.getRange(0, buffer.getTotalLength()),
                       buffer.getTotalLength(),
                       outReference,
@@ -319,22 +311,19 @@ class AbstractLog {
 
     bool append(Lock& lock,
                 LogEntryType type,
-                uint32_t timestamp,
                 const void* data,
                 uint32_t length,
                 Reference* outReference = NULL,
                 uint64_t* outTickCounter = NULL);
     bool append(Lock& lock,
                 LogEntryType type,
-                uint32_t timestamp,
                 Buffer& buffer,
                 Reference* outReference = NULL,
                 uint64_t* outTickCounter = NULL);
     bool allocNewWritableHead();
 
     /// Various handlers for entries appended to this log. Used to obtain
-    /// timestamps, check liveness, and notify of entry relocation during
-    /// cleaning.
+    /// timestamps and to relocate entries during cleaning.
     LogEntryHandlers* entryHandlers;
 
     /// The SegmentManager allocates and keeps track of our segments. It
