@@ -54,8 +54,7 @@ class MasterClient {
     static void receiveMigrationData(Context* context, ServerId serverId,
             uint64_t tableId, uint64_t firstKeyHash, Segment* segment);
     static void splitMasterTablet(Context* context, ServerId serverId,
-            uint64_t tableId, uint64_t firstKeyHash, uint64_t lastKeyHash,
-            uint64_t splitKeyHash);
+            uint64_t tableId, uint64_t splitKeyHash);
     static void takeTabletOwnership(Context* context, ServerId id,
             uint64_t tableId, uint64_t firstKeyHash, uint64_t lastKeyHash);
 
@@ -167,8 +166,7 @@ class RecoverRpc : public ServerIdRpcWrapper {
 class SplitMasterTabletRpc : public ServerIdRpcWrapper {
   public:
     SplitMasterTabletRpc(Context* context, ServerId serverId,
-            uint64_t tableId, uint64_t firstKeyHash, uint64_t lastKeyHash,
-            uint64_t splitKeyHash);
+            uint64_t tableId, uint64_t splitKeyHash);
     ~SplitMasterTabletRpc() {}
     /// \copydoc ServerIdRpcWrapper::waitAndCheckErrors
     void wait() {waitAndCheckErrors();}

@@ -207,49 +207,42 @@ TabletManager::deleteTablet(uint64_t tableId,
  *
  * \param tableId
  *      Table identifier corresponding to the tablet to be split.
- * \param startKeyHash 
- *      First key hash value corresponding to the tablet to be split.
- * \param endKeyHash
- *      Last key hash value corresponding to the tablet to be split.
  * \param splitKeyHash
  *      The point at which to split the tablet. This value must be strictly
  *      between (but not equal to) startKeyHash and endKeyHash. The tablet
  *      will be split into two pieces: [startKeyHash, splitKeyHash - 1] and
  *      [splitKeyHash, endKeyHash].
  * \return
- *      True if the tablet was found and split. False if no tablet corresponding
- *      to the given (tableId, startKeyHash, endKeyHash) tuple was found, or if
- *      the specified splitKeyHash is not strictly between the start and end
- *      hashes.
+ *      True if the tablet was found and split or if the split already exists.
+ *      False if no tablet corresponding to the given (tableId, splitKeyHash)
+ *      tuple was found. This operation is idempotent.
  */
 bool
 TabletManager::splitTablet(uint64_t tableId,
-                           uint64_t startKeyHash,
-                           uint64_t endKeyHash,
                            uint64_t splitKeyHash)
 {
     Lock guard(lock);
 
-    if (splitKeyHash <= startKeyHash || splitKeyHash >= endKeyHash)
-        return false;
-
-    TabletMap::iterator it = lookup(tableId, startKeyHash, guard);
+    TabletMap::iterator it = lookup(tableId, splitKeyHash, guard);
     if (it == tabletMap.end())
         return false;
 
     Tablet* t = &it->second;
-    if (t->startKeyHash != startKeyHash || t->endKeyHash != endKeyHash) {
-        return false;
+
+    // If a split already exists in the master's tablet map, lookup
+    // will return the tablet whose startKeyHash matches splitKeyHash.
+    // So to make it idempotent, check for this condition before you
+    // decide to do the split
+    if (splitKeyHash != t->startKeyHash) {
+        tabletMap.emplace(tableId,
+                          tableId, splitKeyHash, t->endKeyHash, t->state);
+        t->endKeyHash = splitKeyHash - 1;
+
+        // It's unclear what to do with the counts when splitting. The old
+        // behavior was to simply zero them, so for the time being we'll
+        // stick with that. At the very least it's what Christian expects.
+        t->readCount = t->writeCount = 0;
     }
-
-    tabletMap.emplace(tableId,
-                      tableId, splitKeyHash, t->endKeyHash, t->state);
-    t->endKeyHash = splitKeyHash - 1;
-
-    // It's unclear what to do with the counts when splitting. The old behaviour
-    // was to simply zero them, so for the time being we'll stick with that. At
-    // the very least it's what Christian expects.
-    t->readCount = t->writeCount = 0;
 
     return true;
 }

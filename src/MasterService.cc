@@ -696,13 +696,11 @@ MasterService::dropTabletOwnership(
         LOG(NOTICE, "Dropped ownership of tablet [0x%lx,0x%lx] in tableId %lu",
             reqHdr->firstKeyHash, reqHdr->lastKeyHash, reqHdr->tableId);
     } else {
+        // to make this operation idempotent, don't return bad status.
+
         LOG(WARNING, "Could not drop ownership on unknown tablet [0x%lx,0x%lx]"
             " in tableId %lu!", reqHdr->firstKeyHash, reqHdr->lastKeyHash,
             reqHdr->tableId);
-
-        // Would it be preferable to not consider this an error (for
-        // idempotency, perhaps)?
-        respHdr->common.status = STATUS_UNKNOWN_TABLET;
     }
 }
 
@@ -722,17 +720,14 @@ MasterService::splitMasterTablet(
     Rpc* rpc)
 {
     bool split = tabletManager.splitTablet(reqHdr->tableId,
-                                           reqHdr->firstKeyHash,
-                                           reqHdr->lastKeyHash,
                                            reqHdr->splitKeyHash);
     if (split) {
-        LOG(NOTICE, "In table '%lu' I split the tablet that started at key %lu "
-            "and ended at key %lu", reqHdr->tableId, reqHdr->firstKeyHash,
-            reqHdr->lastKeyHash);
+        LOG(NOTICE, "In table '%lu' I split the tablet at key %lu ",
+            reqHdr->tableId, reqHdr->splitKeyHash);
     } else {
-        LOG(WARNING, "Could not split unknown tablet %lu [%lu, %lu] at %lu",
-             reqHdr->tableId, reqHdr->firstKeyHash, reqHdr->lastKeyHash,
-             reqHdr->splitKeyHash);
+        LOG(WARNING, "Could not split table %lu at key hash %lu:"
+                      "no such tablet on this master",
+             reqHdr->tableId, reqHdr->splitKeyHash);
         respHdr->common.status = STATUS_UNKNOWN_TABLET;
     }
 }

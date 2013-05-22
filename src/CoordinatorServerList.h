@@ -29,6 +29,7 @@
 #include "ServerInformation.pb.h"
 #include "ServerListVersion.pb.h"
 #include "ServerUpdate.pb.h"
+#include "ServerReplicationUpdate.pb.h"
 
 #include "AbstractServerList.h"
 #include "ServiceMask.h"
@@ -219,6 +220,18 @@ class CoordinatorServerList : public AbstractServerList{
          * to the cluster.
          */
         EntryId logIdServerUpUpdate;
+
+        /**
+        * The entry id of the LogCabin entry that has the most recent
+        * replication update for this server.
+        */
+        EntryId logIdServerReplicationUpdate;
+
+        /**
+        * The entry id of the LogCabin entry that indicates that the
+        * replication Id updates need to be sent out to the cluster.
+        */
+        EntryId logIdServerReplicationUpUpdate;
     };
 
     explicit CoordinatorServerList(Context* context);
@@ -252,7 +265,12 @@ class CoordinatorServerList : public AbstractServerList{
     void recoverServerUpdate(ProtoBuf::ServerUpdate* state,
                              EntryId logIdServerUpdate);
     void recoverServerUpUpdate(ProtoBuf::EntryType* state,
-                               EntryId logIdEServerUpUpdate);
+                               EntryId logIdServerUpUpdate);
+    void recoverServerReplicationUpdate(
+        ProtoBuf::ServerReplicationUpdate* state,
+        EntryId logIdServerReplicationUpdate);
+    void recoverServerReplicationUpUpdate(ProtoBuf::EntryType* state,
+        EntryId logIdServerReplicationUpUpdate);
 
   PRIVATE:
     /**
@@ -526,7 +544,7 @@ class CoordinatorServerList : public AbstractServerList{
              * to LogCabin corresponding to this server (if any).
              */
             EntryId oldServerUpdateEntryId;
-            DISALLOW_COPY_AND_ASSIGN(ServerUpdate);
+           DISALLOW_COPY_AND_ASSIGN(ServerUpdate);
     };
 
     /**
@@ -552,6 +570,90 @@ class CoordinatorServerList : public AbstractServerList{
            */
           Lock& lock;
           DISALLOW_COPY_AND_ASSIGN(ServerUpUpdate);
+    };
+
+    /**
+     * Provides methods for updating the replication id field in the server
+     * and for persisting required information in LogCabin and using it to
+     * recover the Coordinator.
+     */
+    class ServerReplicationUpdate {
+        public:
+            ServerReplicationUpdate(
+                CoordinatorServerList &csl,
+                Lock& lock,
+                ServerId serverId,
+                const ProtoBuf::MasterRecoveryInfo& recoveryInfo,
+                uint64_t replicationId,
+                uint64_t updateVersion,
+                EntryId oldServerReplicationUpdateEntryId = NO_ID)
+                : csl(csl),
+                  lock(lock),
+                  serverId(serverId),
+                  recoveryInfo(recoveryInfo),
+                  replicationId(replicationId),
+                  updateVersion(updateVersion),
+                  oldServerReplicationUpdateEntryId(
+                      oldServerReplicationUpdateEntryId) {}
+            void execute();
+            void complete(EntryId entryId);
+        private:
+            /**
+             * Reference to the instance of CoordinatorServerList
+             * initializing this class.
+             */
+            CoordinatorServerList &csl;
+            /**
+             * Explicity needs CoordinatorServerList lock.
+             */
+            Lock& lock;
+            /**
+             * ServerId of the server whose recovery info will be set.
+             */
+            ServerId serverId;
+            /**
+             * The new master recovery info to be set.
+             */
+            ProtoBuf::MasterRecoveryInfo recoveryInfo;
+            /**
+             * The replication id of the server.
+             */
+            uint64_t replicationId;
+            /**
+             * Version number of the coordinator server list after the update.
+             */
+            uint64_t updateVersion;
+             /**
+             * LogCabin entry id for the previous ServerReplicationUpdate entry
+             * appended to LogCabin corresponding to this server (if any).
+             */
+            EntryId oldServerReplicationUpdateEntryId;
+          DISALLOW_COPY_AND_ASSIGN(ServerReplicationUpdate);
+    };
+
+    /**
+     * Defines methods indicating that the coordinator needs to send a
+     * replication id update to the cluster.
+     */
+    class ServerReplicationUpUpdate {
+      public:
+          ServerReplicationUpUpdate(CoordinatorServerList &csl,
+                         Lock& lock)
+              : csl(csl), lock(lock) {}
+          void execute();
+          void complete(EntryId logIdServerReplicationUpdate);
+
+      private:
+          /**
+           * Reference to the instance of CoordinatorServerList
+           * initializing this class.
+           */
+          CoordinatorServerList &csl;
+          /**
+           * Explicity needs CoordinatorServerList lock.
+           */
+          Lock& lock;
+          DISALLOW_COPY_AND_ASSIGN(ServerReplicationUpUpdate);
     };
 
    /**
@@ -651,12 +753,23 @@ class CoordinatorServerList : public AbstractServerList{
         /// Full ServerList for this version
         ProtoBuf::ServerList full;
 
+        /**
+         * Helps form a singly-linked list through the update deque,
+         * ordered both by version # and deque index. This allows for
+         * lockless iteration/access concurrent with locked writes.
+         * See docs above updates deque for more info.
+         */
+        ServerListUpdatePair* next;
+
         ServerListUpdatePair(ProtoBuf::ServerList& incremental,
                 ProtoBuf::ServerList& full)
                 : version(incremental.version_number())
                 , incremental(incremental)
                 , full(full)
+                , next(NULL)
         {}
+
+        DISALLOW_COPY_AND_ASSIGN(ServerListUpdatePair);
     };
 
     /**
@@ -698,9 +811,9 @@ class CoordinatorServerList : public AbstractServerList{
         /// Whether to send full or partial update
         bool sendFullList;
 
-        /// An iterator to the update deque starting at the first
+        /// A pointer to the update deque starting at the first
         /// update that should be sent to the server.
-        std::deque<ServerListUpdatePair>::const_iterator firstUpdate;
+        const ServerListUpdatePair* firstUpdate;
 
         /// Signifies the end range to be sent to the server.
         /// Practically, it is used to stop iterating.
@@ -787,6 +900,15 @@ class CoordinatorServerList : public AbstractServerList{
      * Past updates that lead up to the \a version. This does not contain
      * all the updates created, only the ones needed by the servers
      * currently in the server list. Older updates are pruned.
+     *
+     * WARNING: Modifications MUST ONLY occur at the ends, but random access
+     * is otherwise allowed. Reason being that ServerListUpdatePairs form an
+     * in order singly-linked list within the deque and according to the C++0x
+     * specs, references are preserved ONLY IF modifications occur at the ends
+     * of the deque. Following this convention allows for lockless traversal
+     * in the middle of the deque concurrent with locked writes at the ends.
+     * Regular iterators are not used because they are invalidated on
+     * every deque modification.
      */
     std::deque<ServerListUpdatePair> updates;
 
@@ -850,6 +972,11 @@ class CoordinatorServerList : public AbstractServerList{
      */
     EntryId logIdServerUpUpdate;
 
+    /**
+     * The entry id of the LogCabin entry that indicates that the next
+     * replication id update needs to be sent out to the entire cluster.
+     */
+    EntryId logIdServerReplicationUpUpdate;
     DISALLOW_COPY_AND_ASSIGN(CoordinatorServerList);
 };
 } // namespace RAMCloud

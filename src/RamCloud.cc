@@ -1197,28 +1197,20 @@ RemoveRpc::wait(uint64_t* version)
 /**
  * Divide a tablet into two separate tablets.
  *
- * All objects in the table are implicitly deleted, along with any
- * other information associated with the table.  If the table does
- * not currently exist then the operation returns successfully without
- * actually doing anything.
- *
  * \param name
  *      Name of the table containing the tablet to be split.
  *     (NULL-terminated string).
- * \param firstKeyHash
- *      First key of the key range of the tablet to be split.
- * \param lastKeyHash
- *      Last key of the key range of the tablet to be split.
  * \param splitKeyHash
  *      Dividing point for the new tablets. All key hashes less than
  *      this will belong to one tablet, and all key hashes >= this
- *      will belong to the other.
+ *      will belong to the other. If splitKeyHash already represents
+ *      a split point between two tablets, then this operation will
+ *      be a NOP and thus be idempotent.
  */
 void
-RamCloud::splitTablet(const char* name, uint64_t firstKeyHash,
-        uint64_t lastKeyHash, uint64_t splitKeyHash)
+RamCloud::splitTablet(const char* name, uint64_t splitKeyHash)
 {
-    SplitTabletRpc rpc(this, name, firstKeyHash, lastKeyHash, splitKeyHash);
+    SplitTabletRpc rpc(this, name, splitKeyHash);
     rpc.wait();
 }
 
@@ -1232,18 +1224,13 @@ RamCloud::splitTablet(const char* name, uint64_t firstKeyHash,
  * \param name
  *      Name of the table containing the tablet to be split.
  *     (NULL-terminated string).
- * \param firstKeyHash
- *      First key of the key range of the tablet to be split.
- * \param lastKeyHash
- *      Last key of the key range of the tablet to be split.
  * \param splitKeyHash
  *      Dividing point for the new tablets. All key hashes less than
  *      this will belong to one tablet, and all key hashes >= this
  *      will belong to the other.
  */
 SplitTabletRpc::SplitTabletRpc(RamCloud* ramcloud,
-        const char* name, uint64_t firstKeyHash,
-        uint64_t lastKeyHash, uint64_t splitKeyHash)
+        const char* name, uint64_t splitKeyHash)
     : CoordinatorRpcWrapper(ramcloud->clientContext,
             sizeof(WireFormat::SplitTablet::Response))
 {
@@ -1251,8 +1238,6 @@ SplitTabletRpc::SplitTabletRpc(RamCloud* ramcloud,
     WireFormat::SplitTablet::Request* reqHdr(
             allocHeader<WireFormat::SplitTablet>());
     reqHdr->nameLength = length;
-    reqHdr->firstKeyHash = firstKeyHash;
-    reqHdr->lastKeyHash = lastKeyHash;
     reqHdr->splitKeyHash = splitKeyHash;
     memcpy(new(&request, APPEND) char[length], name, length);
     send();

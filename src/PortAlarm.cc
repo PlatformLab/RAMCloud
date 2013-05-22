@@ -72,7 +72,10 @@ PortAlarm::~PortAlarm()
 void
 PortAlarm::startPortTimer()
 {
-    if (!portTimerRunning) {
+    // Check if PortAlarm::timer is instanciated, so that
+    // we can stop portAlarm with commenting out
+    // its instanciation in the Context constructor.
+    if (timer != NULL && !portTimerRunning) {
         // Append this alarm at the end of activeAlarms.
         timerIndex = timer->activeAlarms.size();
         timer->activeAlarms.push_back(this);
@@ -100,7 +103,7 @@ PortAlarm::startPortTimer()
 void
 PortAlarm::stopPortTimer()
 {
-    if (portTimerRunning) {
+    if (timer != NULL &&  portTimerRunning) {
         assert(timerIndex < timer->activeAlarms.size());
         assert(timer->activeAlarms[timerIndex] == this);
 
@@ -126,7 +129,9 @@ PortAlarm::stopPortTimer()
 void
 PortAlarm::requestArrived()
 {
-    assert(portTimerRunning);
+    // Disable the following assertion check,
+    // since portAlarm is temporally disabled.
+    // assert(portTimerRunning);
     waitingForRequestMs = 0;
 }
 

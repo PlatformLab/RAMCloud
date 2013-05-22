@@ -132,8 +132,6 @@ class TabletManager {
                       uint64_t startKeyHash,
                       uint64_t endKeyHash);
     bool splitTablet(uint64_t tableId,
-                     uint64_t startKeyHash,
-                     uint64_t endKeyHash,
                      uint64_t splitKeyHash);
     bool changeState(uint64_t tableId,
                      uint64_t startKeyHash,

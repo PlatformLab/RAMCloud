@@ -467,7 +467,7 @@ TEST_F(TableManagerTest, splitTablet) {
     enlistMaster();
 
     tableManager->createTable("foo", 1);
-    tableManager->splitTablet("foo", 0, ~0lu, ~0lu / 2);
+    tableManager->splitTablet("foo", ~0lu / 2);
     EXPECT_EQ("Tablet { tableId: 1 startKeyHash: 0 "
               "endKeyHash: 9223372036854775806 "
               "serverId: 1.0 status: NORMAL "
@@ -479,8 +479,7 @@ TEST_F(TableManagerTest, splitTablet) {
               "ctime: 0, 0 }",
               tableManager->debugString());
 
-    tableManager->splitTablet("foo", 0,
-                              9223372036854775806, 4611686018427387903);
+    tableManager->splitTablet("foo", 4611686018427387903);
     EXPECT_EQ("Tablet { tableId: 1 startKeyHash: 0 "
               "endKeyHash: 4611686018427387902 "
               "serverId: 1.0 status: NORMAL "
@@ -497,13 +496,7 @@ TEST_F(TableManagerTest, splitTablet) {
               "ctime: 0, 0 }",
               tableManager->debugString());
 
-    EXPECT_THROW(tableManager->splitTablet("foo", 0, 16, 8),
-                 TableManager::NoSuchTablet);
-
-    EXPECT_THROW(tableManager->splitTablet("foo", 0, 0, ~0ul / 2),
-                 TableManager::BadSplit);
-
-    EXPECT_THROW(tableManager->splitTablet("bar", 0, ~0ul, ~0ul / 2),
+    EXPECT_THROW(tableManager->splitTablet("bar", ~0ul / 2),
                  TableManager::NoSuchTable);
 }
 
@@ -513,7 +506,7 @@ TEST_F(TableManagerTest, splitTablet_LogCabin) {
     tableManager->createTable("foo", 1);
 
     TestLog::Enable _;
-    tableManager->splitTablet("foo", 0, ~0lu, ~0lu / 2);
+    tableManager->splitTablet("foo", ~0lu / 2);
 
     vector<Entry> entriesRead = logCabinLog->read(0);
     string searchString;
@@ -525,7 +518,6 @@ TEST_F(TableManagerTest, splitTablet_LogCabin) {
             entriesRead[findEntryId(searchString)], splitTablet);
     EXPECT_EQ("entry_type: \"SplitTablet\"\n"
               "name: \"foo\"\n"
-              "start_key_hash: 0\nend_key_hash: 18446744073709551615\n"
               "split_key_hash: 9223372036854775807\n",
                splitTablet.DebugString());
 
@@ -727,8 +719,6 @@ TEST_F(TableManagerTest, recoverSplitTablet) {
     ProtoBuf::SplitTablet state;
     state.set_entry_type("SplitTablet");
     state.set_name("foo");
-    state.set_start_key_hash(0);
-    state.set_end_key_hash(~0lu);
     state.set_split_key_hash(~0lu / 2);
     EntryId entryId = logCabinHelper->appendProtoBuf(
             *service->context->expectedEntryId, state);

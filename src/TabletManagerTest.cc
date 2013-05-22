@@ -139,14 +139,8 @@ TEST_F(TabletManagerTest, deleteTablet) {
 
 TEST_F(TabletManagerTest, splitTablet) {
     EXPECT_TRUE(tm.addTablet(0, 50, 100, TabletManager::NORMAL));
-    EXPECT_FALSE(tm.splitTablet(0, 49, 100, 75));
-    EXPECT_FALSE(tm.splitTablet(0, 51, 100, 75));
-    EXPECT_FALSE(tm.splitTablet(0, 50, 99, 75));
-    EXPECT_FALSE(tm.splitTablet(0, 50, 101, 75));
-    EXPECT_FALSE(tm.splitTablet(0, 50, 100, 50));
-    EXPECT_FALSE(tm.splitTablet(0, 50, 100, 100));
 
-    EXPECT_TRUE(tm.splitTablet(0, 50, 100, 51));
+    EXPECT_TRUE(tm.splitTablet(0, 51));
 
     TabletManager::Tablet tablet;
     EXPECT_TRUE(tm.getTablet(0, 50, &tablet));

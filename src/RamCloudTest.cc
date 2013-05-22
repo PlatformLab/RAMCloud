@@ -265,13 +265,12 @@ TEST_F(RamCloudTest, remove) {
 TEST_F(RamCloudTest, splitTablet) {
     string message("no exception");
     try {
-        ramcloud->splitTablet("table1", 0, 10, 5);
+        ramcloud->splitTablet("table1", 5);
     }
     catch (ClientException& e) {
         message = e.toSymbol();
     }
-    EXPECT_EQ("STATUS_TABLET_DOESNT_EXIST", message);
-    ramcloud->splitTablet("table2", 0, ~0LU, 0x100000000U);
+    ramcloud->splitTablet("table2", 0x100000000U);
 }
 
 TEST_F(RamCloudTest, testingFill) {
