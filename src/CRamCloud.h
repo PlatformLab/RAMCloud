@@ -40,7 +40,9 @@ Status    rc_connectWithClient(
                             struct rc_client** newClient);
 void      rc_disconnect(struct rc_client* client);
 
-Status    rc_createTable(struct rc_client* client, const char* name);
+Status    rc_createTable(struct rc_client* client,
+                         const char* name,
+                         uint32_t serverSpan);
 Status    rc_dropTable(struct rc_client* client, const char* name);
 Status    rc_getStatus(struct rc_client* client);
 Status    rc_getTableId(struct rc_client* client, const char* name,

@@ -115,10 +115,10 @@ void rc_disconnect(struct rc_client* client) {
 // See the documentation in RamCloudClient.cc for details.
 
 Status
-rc_createTable(struct rc_client* client, const char* name)
+rc_createTable(struct rc_client* client, const char* name, uint32_t serverSpan)
 {
     try {
-        client->client->createTable(name);
+        client->client->createTable(name, serverSpan);
     } catch (ClientException& e) {
         return e.status;
     }

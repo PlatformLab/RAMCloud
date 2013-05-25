@@ -240,8 +240,8 @@ class RAMCloud(object):
         reject_rules = RejectRules(object_exists=True)
         return self.write_rr(table_id, id, data, reject_rules)
 
-    def create_table(self, name):
-        s = so.rc_createTable(self.client, name)
+    def create_table(self, name, serverSpan = 1):
+        s = so.rc_createTable(self.client, name, serverSpan)
         self.handle_error(s)
 
     def delete(self, table_id, id, want_version=None):
