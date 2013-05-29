@@ -96,14 +96,19 @@ LogCabinHelper::invalidate(
  * \param entryRead
  *      The entry whose entry_type is to be determined.
  * \return
- *      The entry_type of "entryRead".
+ *      The entry_type of "entryRead". If the LogCabin entry does not have
+ *      any data, then returns NULL.
  */
 string
 LogCabinHelper::getEntryType(Entry& entryRead)
 {
-    ProtoBuf::EntryType message;
-    parseProtoBufFromEntry(entryRead, message);
-    return message.entry_type();
+    if (entryRead.getLength() > 0) {
+        ProtoBuf::EntryType message;
+        parseProtoBufFromEntry(entryRead, message);
+        return message.entry_type();
+    } else {
+        return NULL;
+    }
 }
 
 /**
