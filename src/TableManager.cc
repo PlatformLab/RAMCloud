@@ -706,48 +706,43 @@ TableManager::SplitTablet::complete(EntryId entryId)
     if (tm.splitExists(lock, tableId, splitKeyHash)) {
         return;
     } else {
-        Tablet& tablet = tm.getTabletSplit(lock, tableId, splitKeyHash);
-        uint64_t startKeyHash = tablet.startKeyHash;
-        uint64_t endKeyHash = tablet.endKeyHash;
-        Tablet newTablet = tablet;
+        Tablet& originalTablet = tm.getTabletSplit(lock, tableId, splitKeyHash);
+        Tablet newTablet = originalTablet;
+
+        originalTablet.endKeyHash = splitKeyHash - 1;
         newTablet.startKeyHash = splitKeyHash;
-        tablet.endKeyHash = splitKeyHash - 1;
         tm.map.push_back(newTablet);
 
         // Tell the master to split the tablet
-        MasterClient::splitMasterTablet(tm.context, tablet.serverId, tableId,
-                                        splitKeyHash);
+        MasterClient::splitMasterTablet(tm.context, originalTablet.serverId,
+                                        tableId, splitKeyHash);
 
+        // Now append the new table information to LogCabin and invalidate
+        // the older table information and split tablet operation information.
         EntryId oldTableInfoEntryId = tm.getTableInfoLogId(lock, tableId);
         vector<EntryId> invalidates {oldTableInfoEntryId, entryId};
 
         ProtoBuf::TableInformation tableInfo;
-        // TODO(ankitak): After ongaro has added cursor API to LogCabin,
-        // use that to read in only one entry here.
-        vector<Entry> entriesRead =
-                tm.context->logCabinLog->read(oldTableInfoEntryId);
-        tm.context->logCabinHelper->parseProtoBufFromEntry(
-                entriesRead[0], tableInfo);
+        tableInfo.set_entry_type("AliveTable");
+        tableInfo.set_name(name);
+        tableInfo.set_table_id(tableId);
 
-        for (uint32_t i = 0; i < tableInfo.server_span(); i++) {
-            ProtoBuf::TableInformation::TabletInfo& tabletInfo =
-                    *(tableInfo.mutable_tablet_info(i));
-            if (startKeyHash != tabletInfo.start_key_hash() ||
-                    endKeyHash != tabletInfo.end_key_hash()) {
-                continue;
-            }
-            tabletInfo.set_end_key_hash(splitKeyHash - 1);
-
+        // Since we have already split the tablet in local state, we can
+        // directly use the local state to populate protobuf reflecting
+        // current state of this table to be appended to LogCabin.
+        vector<Tablet> allTablets = tm.getTabletsForTable(lock, tableId);
+        tableInfo.set_server_span(uint32_t(allTablets.size()));
+        foreach (Tablet currentTablet, allTablets) {
             ProtoBuf::TableInformation::TabletInfo&
-                    newTablet(*tableInfo.add_tablet_info());
-            newTablet.set_start_key_hash(splitKeyHash);
-            newTablet.set_end_key_hash(endKeyHash);
-            newTablet.set_master_id(tabletInfo.master_id());
-            newTablet.set_ctime_log_head_id(tabletInfo.ctime_log_head_id());
-            newTablet.set_ctime_log_head_offset(
-                    tabletInfo.ctime_log_head_offset());
+                        tablet(*tableInfo.add_tablet_info());
+            tablet.set_start_key_hash(currentTablet.startKeyHash);
+            tablet.set_end_key_hash(currentTablet.endKeyHash);
+            tablet.set_master_id(currentTablet.serverId.getId());
+            tablet.set_ctime_log_head_id(
+                        currentTablet.ctime.getSegmentId());
+            tablet.set_ctime_log_head_offset(
+                        currentTablet.ctime.getSegmentOffset());
         }
-        tableInfo.set_server_span(tableInfo.server_span() + 1);
 
         EntryId newEntryId = tm.context->logCabinHelper->appendProtoBuf(
                 *tm.context->expectedEntryId, tableInfo, invalidates);
@@ -777,30 +772,47 @@ TableManager::TabletRecovered::execute()
 void
 TableManager::TabletRecovered::complete(EntryId entryId)
 {
+    string name;
+    for (Tables::iterator it = tm.tables.begin(); it != tm.tables.end(); it++) {
+        if (it->second == tableId) {
+            name = it->first;
+            break;
+        }
+    }
+    // If name for this table doesn't exist, that means we're recovering a table
+    // that doesn't actually exist! Something is wrong.
+    if (name.empty()) {
+        throw NoSuchTable(HERE);
+    }
+
     tm.modifyTablet(lock, tableId, startKeyHash, endKeyHash,
                     serverId, Tablet::NORMAL, ctime);
 
+    // Now append the new table information to LogCabin and invalidate
+    // the older table information and tablet recovered operation information.
     EntryId oldTableInfoEntryId = tm.getTableInfoLogId(lock, tableId);
     vector<EntryId> invalidates {oldTableInfoEntryId, entryId};
 
     ProtoBuf::TableInformation tableInfo;
-    // TODO(ankitak): After ongaro has added cursor API to LogCabin,
-    // use that to read in only one entry here.
-    vector<Entry> entriesRead =
-            tm.context->logCabinLog->read(oldTableInfoEntryId);
-    tm.context->logCabinHelper->parseProtoBufFromEntry(
-            entriesRead[0], tableInfo);
+    tableInfo.set_entry_type("AliveTable");
+    tableInfo.set_name(name);
+    tableInfo.set_table_id(tableId);
 
-    for (uint32_t i = 0; i < tableInfo.server_span(); i++) {
-        ProtoBuf::TableInformation::TabletInfo& tabletInfo =
-                *(tableInfo.mutable_tablet_info(i));
-        if (startKeyHash != tabletInfo.start_key_hash() ||
-                endKeyHash != tabletInfo.end_key_hash()) {
-            continue;
-        }
-        tabletInfo.set_master_id(serverId.getId());
-        tabletInfo.set_ctime_log_head_id(ctime.getSegmentId());
-        tabletInfo.set_ctime_log_head_offset(ctime.getSegmentOffset());
+    // Since we have already changed the local state, we can
+    // directly use it to populate protobuf reflecting
+    // current state of this table to be appended to LogCabin.
+    vector<Tablet> allTablets = tm.getTabletsForTable(lock, tableId);
+    tableInfo.set_server_span(uint32_t(allTablets.size()));
+    foreach (Tablet currentTablet, allTablets) {
+        ProtoBuf::TableInformation::TabletInfo&
+                    tablet(*tableInfo.add_tablet_info());
+        tablet.set_start_key_hash(currentTablet.startKeyHash);
+        tablet.set_end_key_hash(currentTablet.endKeyHash);
+        tablet.set_master_id(currentTablet.serverId.getId());
+        tablet.set_ctime_log_head_id(
+                    currentTablet.ctime.getSegmentId());
+        tablet.set_ctime_log_head_offset(
+                    currentTablet.ctime.getSegmentOffset());
     }
 
     EntryId newEntryId = tm.context->logCabinHelper->appendProtoBuf(

@@ -301,8 +301,8 @@ class TableManager {
                         uint64_t startKeyHash,
                         uint64_t endKeyHash) const;
     bool splitExists(const Lock& lock,
-                      uint64_t tableId,
-                      uint64_t splitKeyHash);
+                     uint64_t tableId,
+                     uint64_t splitKeyHash);
     Tablet& getTabletSplit(const Lock& lock,
                             uint64_t tableId,
                             uint64_t splitKeyHash);

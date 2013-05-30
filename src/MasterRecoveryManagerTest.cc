@@ -237,6 +237,7 @@ TEST_F(MasterRecoveryManagerTest, recoveryMasterFinishedNoSuchRecovery) {
 TEST_F(MasterRecoveryManagerTest, recoveryMasterFinished) {
     Lock lock(mutex); // For calls to internal functions without real lock.
     MockRandom __(1);
+    tableManager->tables["foo"] = 0;
     tableManager->addTablet(lock, {0, 0, ~0lu, {1, 0}, Tablet::NORMAL, {2, 3}});
 
     EXPECT_EQ(0lu, serverList->version);
