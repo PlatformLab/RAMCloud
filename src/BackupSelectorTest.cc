@@ -225,6 +225,23 @@ TEST_F(BackupSelectorTest, selectSecondary) {
     EXPECT_EQ(ServerId(4, 0), id);
 }
 
+TEST_F(BackupSelectorTest, signalFreedPrimary) {
+    MockRandom _(1);
+    // getRandomServerIdWithServer(BACKUP_SERVICE) returns backups in order
+    // that they enlisted above.
+    std::vector<ServerId> ids;
+    addEqualHosts(ids);
+
+    ServerId backup = selector->selectPrimary(0, NULL); // use backup1 / id 2
+    EXPECT_EQ(ids[0], backup);
+
+    BackupStats *stats = selector->tracker[backup];
+    stats->primaryReplicaCount = 10;
+    EXPECT_EQ(10u, stats->primaryReplicaCount);
+    selector->signalFreedPrimary(backup);
+    EXPECT_EQ(9u, stats->primaryReplicaCount);
+}
+
 #if 0
 // This test should run forever, hence why it is commented out.
 // Occasionally, when self-doubt mounts, it is worth running, though.

@@ -134,6 +134,21 @@ BackupSelector::selectSecondary(uint32_t numBackups,
     }
 }
 
+/**
+ * Inform the BackupSelector that a primary replica has been freed from
+ * backupId. This allows the BackupSelector to maintain proper stats.  This
+ * should only be called in in the event a primary replica is freed.
+ * \param backupId
+ *      The ServerId of the backup whose primary replica the BackupSelector
+ *      should now recognize as freed.
+ */
+void
+BackupSelector::signalFreedPrimary(const ServerId backupId)
+{
+    BackupStats* stats = tracker[backupId];
+    --stats->primaryReplicaCount;
+}
+
 // - private -
 
 /**

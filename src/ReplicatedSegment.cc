@@ -626,6 +626,10 @@ ReplicatedSegment::performFree(Replica& replica)
                 // backup's replica garbage collector to free it.
                 TEST_LOG("ServerNotUpException thrown");
             }
+            // Let the backupSelector know if a primary replica is freed.
+            if (replicaIsPrimary(replica)) {
+                backupSelector.signalFreedPrimary(replica.backupId);
+            }
             replica.reset();
             // Free completed, no need to reschedule.
             return;

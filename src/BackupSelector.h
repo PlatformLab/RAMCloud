@@ -59,6 +59,7 @@ class BaseBackupSelector {
                                    const ServerId backupIds[]) = 0;
     virtual ServerId selectSecondary(uint32_t numBackups,
                                      const ServerId backupIds[]) = 0;
+    virtual void signalFreedPrimary(const ServerId backupId) = 0;
     virtual ~BaseBackupSelector() {}
 };
 
@@ -75,6 +76,7 @@ class BackupSelector : public BaseBackupSelector {
     ServerId selectPrimary(uint32_t numBackups, const ServerId backupIds[]);
     virtual ServerId selectSecondary(uint32_t numBackups,
                                      const ServerId backupIds[]);
+    void signalFreedPrimary(const ServerId backupId);
 
   PROTECTED:
     void applyTrackerChanges();

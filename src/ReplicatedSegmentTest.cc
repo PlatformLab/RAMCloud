@@ -43,6 +43,7 @@ typedef BackupWrite::Request WrReq;
 struct MockBackupSelector : public BaseBackupSelector {
     explicit MockBackupSelector(size_t count)
         : backups()
+        , primaryFreed()
         , nextIndex(0)
     {
         makeSimpleHostList(count);
@@ -62,12 +63,17 @@ struct MockBackupSelector : public BaseBackupSelector {
         return backup;
     }
 
+    void signalFreedPrimary(const ServerId backupId) {
+        primaryFreed.push_back(backupId);
+    }
+
     void makeSimpleHostList(size_t count) {
         for (uint32_t i = 0; i < count; ++i)
             backups.push_back(ServerId(i, 0));
     }
 
     std::vector<ServerId> backups;
+    std::vector<ServerId> primaryFreed;
     size_t nextIndex;
 };
 
