@@ -10,6 +10,7 @@
 *.patch
 *.diff
 
+/logs/
 /docs/doxygen/
 /docs/epydoc/
 /obj/

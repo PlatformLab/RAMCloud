@@ -1,0 +1,10 @@
+#!/bin/bash
+
+git diff --quiet
+if [[ "$?" != "0" ]]; then
+	echo "*********************************************************"
+	echo "WARNING: uncommited changes, working directory not clean."
+	git diff --shortstat
+	echo "*********************************************************"
+fi
+exit
