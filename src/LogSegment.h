@@ -97,17 +97,6 @@ class LogSegment : public Segment {
     }
 
     /**
-     * Compute the average timestamp of each byte of live data in the segment.
-     * This is used by the cost-benefit segment selection algorithm in the
-     * cleaner.
-     */
-    uint64_t
-    getAge()
-    {
-        return WallTime::secondsTimestamp() - creationTimestamp;
-    }
-
-    /**
      * Get the in-memory utilization of the segment. This is the percentage of
      * allocated memory bytes that belong to live data. The value returned is
      * in the range [0, 100].

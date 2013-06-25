@@ -810,7 +810,7 @@ LogCleaner::CostBenefitComparer::costBenefit(LogSegment* s)
 
     int utilization = s->getDiskUtilization();
     if (utilization != 0) {
-        uint64_t timestamp = s->getAge();
+        uint64_t timestamp = s->creationTimestamp;
 
         // This generally shouldn't happen, but is possible due to:
         //  1) Unsynchronized TSCs across cores (WallTime uses rdtsc).
