@@ -58,12 +58,6 @@ class LogSegmentTest : public ::testing::Test {
     DISALLOW_COPY_AND_ASSIGN(LogSegmentTest);
 };
 
-TEST_F(LogSegmentTest, getAge) {
-    WallTime::mockWallTimeValue = s->creationTimestamp + 1;
-    EXPECT_EQ(1U, s->getAge());
-    WallTime::mockWallTimeValue = 0;
-}
-
 TEST_F(LogSegmentTest, getMemoryUtilization) {
     EXPECT_EQ(0, s->getMemoryUtilization());
     s->liveBytes = s->segletSize / 2;
