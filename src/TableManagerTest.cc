@@ -453,7 +453,7 @@ TEST_F(TableManagerTest, serialize) {
     tableManager->map.push_back(Tablet({2, 2, 7, id2, Tablet::NORMAL, {1, 6}}));
 
     ProtoBuf::Tablets tablets;
-    tableManager->serialize(*serverList, tablets);
+    tableManager->serialize(serverList, &tablets);
     EXPECT_EQ("tablet { table_id: 1 start_key_hash: 1 end_key_hash: 6 "
               "state: NORMAL server_id: 1 service_locator: \"mock:host=one\" "
               "ctime_log_head_id: 0 ctime_log_head_offset: 5 } "

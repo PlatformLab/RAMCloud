@@ -296,7 +296,7 @@ CoordinatorService::getTabletMap(
     Rpc* rpc)
 {
     ProtoBuf::Tablets tablets;
-    tableManager->serialize(*serverList, tablets);
+    tableManager->serialize(serverList, &tablets);
     respHdr->tabletMapLength = serializeToResponse(rpc->replyPayload,
                                                    &tablets);
 }
