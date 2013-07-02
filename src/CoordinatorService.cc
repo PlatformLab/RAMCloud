@@ -279,7 +279,7 @@ CoordinatorService::getServerList(
     ServiceMask serviceMask = ServiceMask::deserialize(reqHdr->serviceMask);
 
     ProtoBuf::ServerList serialServerList;
-    serverList->serialize(serialServerList, serviceMask);
+    serverList->serialize(&serialServerList, serviceMask);
 
     respHdr->serverListLength =
         serializeToResponse(rpc->replyPayload, &serialServerList);
@@ -462,7 +462,7 @@ CoordinatorService::setMasterRecoveryInfo(
     LOG(DEBUG, "setMasterRecoveryInfo for server %s to %s",
         serverId.toString().c_str(), recoveryInfo.ShortDebugString().c_str());
 
-    if (!serverList->setMasterRecoveryInfo(serverId, recoveryInfo)) {
+    if (!serverList->setMasterRecoveryInfo(serverId, &recoveryInfo)) {
         LOG(WARNING, "setMasterRecoveryInfo server doesn't exist: %s",
             serverId.toString().c_str());
         respHdr->common.status = STATUS_SERVER_NOT_UP;

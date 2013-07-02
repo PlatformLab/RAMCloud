@@ -77,7 +77,7 @@ TEST_F(MembershipServiceTest, updateServerList_single) {
     source.version++;
     source.pushUpdate(lock, source.version);
     ProtoBuf::ServerList fullList;
-    source.serialize(fullList, {WireFormat::MASTER_SERVICE,
+    source.serialize(&fullList, {WireFormat::MASTER_SERVICE,
             WireFormat::BACKUP_SERVICE});
 
     CoordinatorServerList::UpdateServerListRpc
@@ -103,7 +103,7 @@ TEST_F(MembershipServiceTest, updateServerList_multi) {
             WireFormat::PING_SERVICE}, 100);
     source.version++;
     source.pushUpdate(lock, source.version);
-    source.serialize(fullList, {WireFormat::MASTER_SERVICE,
+    source.serialize(&fullList, {WireFormat::MASTER_SERVICE,
             WireFormat::BACKUP_SERVICE});
     // Update v2
     ServerId id2 = source.generateUniqueId(lock);

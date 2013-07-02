@@ -249,7 +249,7 @@ TEST_F(CoordinatorServerListTest, Entry_serialize) {
     entry.expectedReadMBytesPerSec = 723;
 
     ProtoBuf::ServerList_Entry serialEntry;
-    entry.serialize(serialEntry);
+    entry.serialize(&serialEntry);
     auto backupMask = ServiceMask{WireFormat::BACKUP_SERVICE}.serialize();
     EXPECT_EQ(backupMask, serialEntry.services());
     EXPECT_EQ(ServerId(5234, 23482).getId(), serialEntry.server_id());
@@ -259,7 +259,7 @@ TEST_F(CoordinatorServerListTest, Entry_serialize) {
 
     entry.services = ServiceMask{WireFormat::MASTER_SERVICE};
     ProtoBuf::ServerList_Entry serialEntry2;
-    entry.serialize(serialEntry2);
+    entry.serialize(&serialEntry2);
     auto masterMask = ServiceMask{WireFormat::MASTER_SERVICE}.serialize();
     EXPECT_EQ(masterMask, serialEntry2.services());
     EXPECT_EQ(0U, serialEntry2.expected_read_mbytes_per_sec());
@@ -280,7 +280,7 @@ TEST_F(CoordinatorServerListTest, enlistServer) {
                                "mock:host=backup"));
 
     ProtoBuf::ServerList masterList;
-    sl->serialize(masterList, {WireFormat::MASTER_SERVICE});
+    sl->serialize(&masterList, {WireFormat::MASTER_SERVICE});
     EXPECT_TRUE(TestUtil::matchesPosixRegex(
                 "server { services: 25 server_id: 1 "
                 "service_locator: \"mock:host=master\" "
@@ -290,7 +290,7 @@ TEST_F(CoordinatorServerListTest, enlistServer) {
                  masterList.ShortDebugString()));
 
     ProtoBuf::ServerList backupList;
-    sl->serialize(backupList, {WireFormat::BACKUP_SERVICE});
+    sl->serialize(&backupList, {WireFormat::BACKUP_SERVICE});
     EXPECT_EQ("server { services: 2 server_id: 2 "
               "service_locator: \"mock:host=backup\" "
               "expected_read_mbytes_per_sec: 0 status: 0 "
@@ -390,9 +390,9 @@ TEST_F(CoordinatorServerListTest, enlistServer_LogCabin) {
 TEST_F(CoordinatorServerListTest, serialize) {
     {
         ProtoBuf::ServerList serverList;
-        sl->serialize(serverList, {});
+        sl->serialize(&serverList, {});
         EXPECT_EQ(0, serverList.server_size());
-        sl->serialize(serverList, {WireFormat::MASTER_SERVICE,
+        sl->serialize(&serverList, {WireFormat::MASTER_SERVICE,
             WireFormat::BACKUP_SERVICE});
         EXPECT_EQ(0, serverList.server_size());
     }
@@ -417,9 +417,9 @@ TEST_F(CoordinatorServerListTest, serialize) {
         WireFormat::BACKUP_SERVICE}.serialize();
     {
         ProtoBuf::ServerList serverList;
-        sl->serialize(serverList, {});
+        sl->serialize(&serverList, {});
         EXPECT_EQ(0, serverList.server_size());
-        sl->serialize(serverList, {WireFormat::MASTER_SERVICE});
+        sl->serialize(&serverList, {WireFormat::MASTER_SERVICE});
         EXPECT_EQ(3, serverList.server_size());
         EXPECT_EQ(masterMask, serverList.server(0).services());
         EXPECT_EQ(masterMask, serverList.server(1).services());
@@ -430,7 +430,7 @@ TEST_F(CoordinatorServerListTest, serialize) {
 
     {
         ProtoBuf::ServerList serverList;
-        sl->serialize(serverList, {WireFormat::BACKUP_SERVICE});
+        sl->serialize(&serverList, {WireFormat::BACKUP_SERVICE});
         EXPECT_EQ(2, serverList.server_size());
         EXPECT_EQ(backupMask, serverList.server(0).services());
         EXPECT_EQ(bothMask, serverList.server(1).services());
@@ -440,7 +440,7 @@ TEST_F(CoordinatorServerListTest, serialize) {
 
     {
         ProtoBuf::ServerList serverList;
-        sl->serialize(serverList, {WireFormat::MASTER_SERVICE,
+        sl->serialize(&serverList, {WireFormat::MASTER_SERVICE,
                                    WireFormat::BACKUP_SERVICE});
         EXPECT_EQ(4, serverList.server_size());
         EXPECT_EQ(masterMask, serverList.server(0).services());
@@ -506,13 +506,13 @@ TEST_F(CoordinatorServerListTest, setMasterRecoveryInfo) {
     ProtoBuf::MasterRecoveryInfo info;
     info.set_min_open_segment_id(10);
     info.set_min_open_segment_epoch(1);
-    sl->setMasterRecoveryInfo(masterServerId, info);
+    sl->setMasterRecoveryInfo(masterServerId, &info);
     auto other = (*sl)[masterServerId].masterRecoveryInfo;
     EXPECT_EQ(10lu, other.min_open_segment_id());
     EXPECT_EQ(1lu, other.min_open_segment_epoch());
     info.set_min_open_segment_id(9);
     info.set_min_open_segment_epoch(0);
-    sl->setMasterRecoveryInfo(masterServerId, info);
+    sl->setMasterRecoveryInfo(masterServerId, &info);
     other = (*sl)[masterServerId].masterRecoveryInfo;
     EXPECT_EQ(9lu, other.min_open_segment_id());
     EXPECT_EQ(0lu, other.min_open_segment_epoch());
@@ -524,7 +524,7 @@ TEST_F(CoordinatorServerListTest, setMasterRecoveryInfo_execute) {
     ProtoBuf::MasterRecoveryInfo info;
     info.set_min_open_segment_id(10);
     info.set_min_open_segment_epoch(1);
-    sl->setMasterRecoveryInfo(masterServerId, info);
+    sl->setMasterRecoveryInfo(masterServerId, &info);
 
     vector<Entry> entriesRead = logCabinLog->read(0);
     string searchString = "execute: LogCabin: ServerUpdate entryId: ";
@@ -541,7 +541,7 @@ TEST_F(CoordinatorServerListTest, setMasterRecoveryInfo_complete_noSuchServer) {
     ProtoBuf::MasterRecoveryInfo info;
     info.set_min_open_segment_id(10);
     info.set_min_open_segment_epoch(1);
-    EXPECT_FALSE(sl->setMasterRecoveryInfo({2, 2}, info));
+    EXPECT_FALSE(sl->setMasterRecoveryInfo({2, 2}, &info));
 }
 
 //////////////////////////////////////////////////////////////////////
@@ -644,7 +644,7 @@ TEST_F(CoordinatorServerListTest, recoverServerUp) {
     sl->recoverServerUp(&stateServerUp, entryId);
 
     ProtoBuf::ServerList masterList;
-    sl->serialize(masterList, {WireFormat::MASTER_SERVICE});
+    sl->serialize(&masterList, {WireFormat::MASTER_SERVICE});
     EXPECT_TRUE(TestUtil::matchesPosixRegex(
                 "server { services: 25 server_id: 1 "
                 "service_locator: \"mock:host=master\" "
@@ -654,7 +654,7 @@ TEST_F(CoordinatorServerListTest, recoverServerUp) {
                  masterList.ShortDebugString()));
 
     ProtoBuf::ServerList backupList;
-    sl->serialize(backupList, {WireFormat::BACKUP_SERVICE});
+    sl->serialize(&backupList, {WireFormat::BACKUP_SERVICE});
     EXPECT_EQ("server { services: 2 server_id: 2 "
               "service_locator: \"mock:host=backup\" "
               "expected_read_mbytes_per_sec: 0 status: 0 "
@@ -724,7 +724,7 @@ TEST_F(CoordinatorServerListTest,
     sl->recoverServerUp(&stateServerUp, entryId);
 
     ProtoBuf::ServerList masterList;
-    sl->serialize(masterList, {WireFormat::MASTER_SERVICE});
+    sl->serialize(&masterList, {WireFormat::MASTER_SERVICE});
     EXPECT_TRUE(TestUtil::matchesPosixRegex(
                 "server { services: 25 server_id: 1 "
                 "service_locator: \"mock:host=master\" "
@@ -734,7 +734,7 @@ TEST_F(CoordinatorServerListTest,
                  masterList.ShortDebugString()));
 
     ProtoBuf::ServerList backupList;
-    sl->serialize(backupList, {WireFormat::BACKUP_SERVICE});
+    sl->serialize(&backupList, {WireFormat::BACKUP_SERVICE});
     EXPECT_EQ("server { services: 2 server_id: 2 "
               "service_locator: \"mock:host=backup\" "
               "expected_read_mbytes_per_sec: 0 status: 0 "
@@ -1016,7 +1016,7 @@ TEST_F(CoordinatorServerListTest, assignReplicationGroup) {
 
     // Check normal functionality.
     Lock lock(sl->mutex);
-    EXPECT_TRUE(sl->assignReplicationGroup(lock, 10U, serverIds));
+    EXPECT_TRUE(sl->assignReplicationGroup(lock, 10U, &serverIds));
     lock.unlock();
     EXPECT_EQ(10U, (*sl)[serverIds[0]].replicationId);
     EXPECT_EQ(10U, (*sl)[serverIds[1]].replicationId);
