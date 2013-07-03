@@ -86,8 +86,8 @@ class TableManager {
                                  uint64_t startKeyHash, uint64_t endKeyHash,
                                  uint64_t ctimeSegmentId,
                                  uint64_t ctimeSegmentOffset);
-    void serialize(AbstractServerList& serverList,
-                   ProtoBuf::Tablets& tablets) const;
+    void serialize(AbstractServerList* serverList,
+                   ProtoBuf::Tablets* tablets) const;
     void splitTablet(const char* name,
                      uint64_t splitKeyHash);
     void tabletRecovered(uint64_t tableId,

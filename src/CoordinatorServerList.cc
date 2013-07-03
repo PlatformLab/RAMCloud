@@ -262,13 +262,13 @@ CoordinatorServerList::recoveryCompleted(ServerId serverId)
  * to other servers.
  *
  * \param[out] protoBuf
- *      Reference to the ProtoBuf to fill.
+ *      The ProtoBuf to fill.
  * \param services
  *      If a server has *any* service included in \a services it will be
  *      included in the serialization; otherwise, it is skipped.
  */
 void
-CoordinatorServerList::serialize(ProtoBuf::ServerList& protoBuf,
+CoordinatorServerList::serialize(ProtoBuf::ServerList* protoBuf,
                                  ServiceMask services) const
 {
     Lock lock(mutex);
@@ -320,18 +320,19 @@ CoordinatorServerList::serverCrashed(ServerId serverId)
  *      at \a serverId. The information is opaque to the coordinator other
  *      than its master recovery routines, but, basically, this is used to
  *      prevent inconsistent open replicas from being used during recovery.
+ *      A copy is made of the contents of this structure
  * \return
  *      Whether the operation succeeded or not (i.e. if the serverId exists).
  */
 bool
 CoordinatorServerList::setMasterRecoveryInfo(
-    ServerId serverId, const ProtoBuf::MasterRecoveryInfo& recoveryInfo)
+    ServerId serverId, const ProtoBuf::MasterRecoveryInfo* recoveryInfo)
 {
     Lock lock(mutex);
     Entry* entry = getEntry(serverId);
 
     if (entry) {
-        entry->masterRecoveryInfo = recoveryInfo;
+        entry->masterRecoveryInfo = *recoveryInfo;
         ServerUpdate(*this, lock,
                      serverId, recoveryInfo,
                      entry->logIdServerUpdate).execute();
@@ -522,7 +523,7 @@ CoordinatorServerList::recoverServerUpdate(
     // If there are other update-able fields in the future, read them in from
     // ServerUpdate and update them all.
     ServerUpdate(*this, lock, ServerId(state->server_id()),
-                 state->master_recovery_info()).complete(logIdServerUpdate);
+                 &state->master_recovery_info()).complete(logIdServerUpdate);
 }
 
 /**
@@ -544,7 +545,7 @@ CoordinatorServerList::recoverServerReplicationUpdate(
     // If there are other update-able fields in the future, read them in from
     // ServerReplicationUpdate and update them all.
     ServerReplicationUpdate(*this, lock, ServerId(state->server_id()),
-                           state->master_recovery_info(),
+                           &state->master_recovery_info(),
                            state->replication_id(),
                            version + 1).complete(logIdServerReplicationUpdate);
 }
@@ -836,7 +837,7 @@ CoordinatorServerList::ServerRemoveUpdate::complete(EntryId entryId)
         serverId.toString().c_str());
 
     ProtoBuf::ServerList_Entry& protoBufEntry(*(csl.update).add_server());
-    entry->serialize(protoBufEntry);
+    entry->serialize(&protoBufEntry);
 
     foreach (ServerTrackerInterface* tracker, csl.trackers)
         tracker->enqueueChange(*entry, ServerChangeEvent::SERVER_REMOVED);
@@ -948,7 +949,7 @@ CoordinatorServerList::ServerReplicationUpdate::complete(EntryId entryId)
         if (csl.logIdServerReplicationUpUpdate != NO_ID) {
             ProtoBuf::ServerList_Entry& protoBufEntry(
                 *(csl.update).add_server());
-            entry->serialize(protoBufEntry);
+            entry->serialize(&protoBufEntry);
             csl.version = updateVersion;
             csl.pushUpdate(lock, updateVersion);
             csl.logIdServerReplicationUpUpdate = NO_ID;
@@ -1159,7 +1160,7 @@ CoordinatorServerList::add(Lock& lock,
 
     if (enqueueUpdate) {
         ProtoBuf::ServerList_Entry& protoBufEntry(*update.add_server());
-        pair.entry->serialize(protoBufEntry);
+        pair.entry->serialize(&protoBufEntry);
 
         foreach (ServerTrackerInterface* tracker, trackers)
             tracker->enqueueChange(*pair.entry,
@@ -1219,7 +1220,7 @@ CoordinatorServerList::crashed(const Lock& lock,
     entry->status = ServerStatus::CRASHED;
 
     ProtoBuf::ServerList_Entry& protoBufEntry(*update.add_server());
-    entry->serialize(protoBufEntry);
+    entry->serialize(&protoBufEntry);
 
     foreach (ServerTrackerInterface* tracker, trackers)
         tracker->enqueueChange(*entry, ServerChangeEvent::SERVER_CRASHED);
@@ -1280,11 +1281,11 @@ CoordinatorServerList::generateUniqueId(Lock& lock)
  *      Unused, but required to statically check that the caller is aware that
  *      a lock must be held on #mutex for this call to be safe.
  * \param[out] protoBuf
- *      Reference to the ProtoBuf to fill.
+ *      The ProtoBuf to fill.
  */
 void
 CoordinatorServerList::serialize(const Lock& lock,
-                                 ProtoBuf::ServerList& protoBuf) const
+                                 ProtoBuf::ServerList* protoBuf) const
 {
     serialize(lock, protoBuf, {WireFormat::MASTER_SERVICE,
         WireFormat::BACKUP_SERVICE});
@@ -1305,14 +1306,14 @@ CoordinatorServerList::serialize(const Lock& lock,
  *      Unused, but required to statically check that the caller is aware that
  *      a lock must be held on #mutex for this call to be safe.
  * \param[out] protoBuf
- *      Reference to the ProtoBuf to fill.
+ *      The ProtoBuf to fill.
  * \param services
  *      If a server has *any* service included in \a services it will be
  *      included in the serialization; otherwise, it is skipped.
  */
 void
 CoordinatorServerList::serialize(const Lock& lock,
-                                 ProtoBuf::ServerList& protoBuf,
+                                 ProtoBuf::ServerList* protoBuf,
                                  ServiceMask services) const
 {
     for (size_t i = 0; i < serverList.size(); i++) {
@@ -1326,13 +1327,13 @@ CoordinatorServerList::serialize(const Lock& lock,
             (entry.services.has(WireFormat::BACKUP_SERVICE) &&
              services.has(WireFormat::BACKUP_SERVICE)))
         {
-            ProtoBuf::ServerList_Entry& protoBufEntry(*protoBuf.add_server());
-            entry.serialize(protoBufEntry);
+            ProtoBuf::ServerList_Entry& protoBufEntry(*protoBuf->add_server());
+            entry.serialize(&protoBufEntry);
         }
     }
 
-    protoBuf.set_version_number(version);
-    protoBuf.set_type(ProtoBuf::ServerList_Type_FULL_LIST);
+    protoBuf->set_version_number(version);
+    protoBuf->set_type(ProtoBuf::ServerList_Type_FULL_LIST);
 }
 
 /**
@@ -1352,9 +1353,9 @@ CoordinatorServerList::serialize(const Lock& lock,
 bool
 CoordinatorServerList::assignReplicationGroup(
     Lock& lock, uint64_t replicationId,
-    const vector<ServerId>& replicationGroupIds)
+    const vector<ServerId>* replicationGroupIds)
 {
-    foreach (ServerId backupId, replicationGroupIds) {
+    foreach (ServerId backupId, *replicationGroupIds) {
         Entry* e = getEntry(backupId);
         if (!e) {
             return false;
@@ -1363,7 +1364,7 @@ CoordinatorServerList::assignReplicationGroup(
         if (e->status == ServerStatus::UP) {
             ServerReplicationUpUpdate(*this, lock).execute();
             ServerReplicationUpdate(*this, lock, e->serverId,
-                e->masterRecoveryInfo, replicationId, version + 1).execute();
+                &e->masterRecoveryInfo, replicationId, version + 1).execute();
         }
     }
     return true;
@@ -1407,7 +1408,7 @@ CoordinatorServerList::createReplicationGroup(Lock& lock)
             group.push_back(backupId);
             freeBackups.pop_back();
         }
-        assignReplicationGroup(lock, nextReplicationId, group);
+        assignReplicationGroup(lock, nextReplicationId, &group);
         nextReplicationId++;
     }
 }
@@ -1435,7 +1436,7 @@ CoordinatorServerList::removeReplicationGroup(Lock& lock, uint64_t groupId)
             group.push_back(serverList[i].entry->serverId);
         }
         if (group.size() != 0) {
-            assignReplicationGroup(lock, 0, group);
+            assignReplicationGroup(lock, 0, &group);
         }
     }
 }
@@ -1464,9 +1465,9 @@ CoordinatorServerList::pushUpdate(const Lock& lock, uint64_t updateVersion)
     update.set_type(ProtoBuf::ServerList_Type_UPDATE);
 
     // prepare full server list
-    serialize(lock, full);
+    serialize(lock, &full);
 
-    updates.emplace_back(update, full);
+    updates.emplace_back(&update, &full);
 
     // Link the previous tail with the new tail in the deque.
     if (updates.size() > 1)
@@ -2228,16 +2229,16 @@ CoordinatorServerList::Entry::Entry(ServerId serverId,
  * Serialize this entry into the given ProtoBuf.
  */
 void
-CoordinatorServerList::Entry::serialize(ProtoBuf::ServerList_Entry& dest) const
+CoordinatorServerList::Entry::serialize(ProtoBuf::ServerList_Entry* dest) const
 {
-    dest.set_services(services.serialize());
-    dest.set_server_id(serverId.getId());
-    dest.set_service_locator(serviceLocator);
-    dest.set_status(uint32_t(status));
+    dest->set_services(services.serialize());
+    dest->set_server_id(serverId.getId());
+    dest->set_service_locator(serviceLocator);
+    dest->set_status(uint32_t(status));
     if (isBackup())
-        dest.set_expected_read_mbytes_per_sec(expectedReadMBytesPerSec);
+        dest->set_expected_read_mbytes_per_sec(expectedReadMBytesPerSec);
     else
-        dest.set_expected_read_mbytes_per_sec(0); // Tests expect the field.
-    dest.set_replication_id(replicationId);
+        dest->set_expected_read_mbytes_per_sec(0); // Tests expect the field.
+    dest->set_replication_id(replicationId);
 }
 } // namespace RAMCloud

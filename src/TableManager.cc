@@ -227,15 +227,15 @@ TableManager::reassignTabletOwnership(
  *      the tablets in the tablet map.
  */
 void
-TableManager::serialize(AbstractServerList& serverList,
-                        ProtoBuf::Tablets& tablets) const
+TableManager::serialize(AbstractServerList* serverList,
+                        ProtoBuf::Tablets* tablets) const
 {
     Lock lock(mutex);
     foreach (const auto& tablet, map) {
-        ProtoBuf::Tablets::Tablet& entry(*tablets.add_tablet());
+        ProtoBuf::Tablets::Tablet& entry(*tablets->add_tablet());
         tablet.serialize(entry);
         try {
-            string locator = serverList.getLocator(tablet.serverId);
+            string locator = serverList->getLocator(tablet.serverId);
             entry.set_service_locator(locator);
         } catch (const Exception& e) {
             LOG(NOTICE, "Server id (%s) in tablet map no longer in server "

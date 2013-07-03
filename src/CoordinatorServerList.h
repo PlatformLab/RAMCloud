@@ -93,7 +93,7 @@ class CoordinatorServerList : public AbstractServerList{
               ServiceMask services);
         Entry(const Entry& other) = default;
         Entry& operator=(const Entry& other) = default;
-        void serialize(ProtoBuf::ServerList_Entry& dest) const;
+        void serialize(ProtoBuf::ServerList_Entry* dest) const;
 
         bool isMaster() const {
             return (status == ServerStatus::UP) &&
@@ -244,10 +244,10 @@ class CoordinatorServerList : public AbstractServerList{
     Entry operator[](ServerId serverId) const;
     Entry operator[](size_t index) const;
     void recoveryCompleted(ServerId serverId);
-    void serialize(ProtoBuf::ServerList& protobuf, ServiceMask services) const;
+    void serialize(ProtoBuf::ServerList* protobuf, ServiceMask services) const;
     void serverCrashed(ServerId serverId);
     bool setMasterRecoveryInfo(ServerId serverId,
-                const ProtoBuf::MasterRecoveryInfo& recoveryInfo);
+                const ProtoBuf::MasterRecoveryInfo* recoveryInfo);
 
     /// Functions for CoordinatorServerList Recovery.
     void recoverAliveServer(ProtoBuf::ServerInformation* state,
@@ -513,11 +513,11 @@ class CoordinatorServerList : public AbstractServerList{
             ServerUpdate(CoordinatorServerList &csl,
                          Lock& lock,
                          ServerId serverId,
-                         const ProtoBuf::MasterRecoveryInfo& recoveryInfo,
+                         const ProtoBuf::MasterRecoveryInfo* recoveryInfo,
                          EntryId oldServerUpdateEntryId = NO_ID)
                 : csl(csl), lock(lock),
                   serverId(serverId),
-                  recoveryInfo(recoveryInfo),
+                  recoveryInfo(*recoveryInfo),
                   oldServerUpdateEntryId(oldServerUpdateEntryId) {}
             void execute();
             void complete(EntryId entryId);
@@ -583,14 +583,14 @@ class CoordinatorServerList : public AbstractServerList{
                 CoordinatorServerList &csl,
                 Lock& lock,
                 ServerId serverId,
-                const ProtoBuf::MasterRecoveryInfo& recoveryInfo,
+                const ProtoBuf::MasterRecoveryInfo* recoveryInfo,
                 uint64_t replicationId,
                 uint64_t updateVersion,
                 EntryId oldServerReplicationUpdateEntryId = NO_ID)
                 : csl(csl),
                   lock(lock),
                   serverId(serverId),
-                  recoveryInfo(recoveryInfo),
+                  recoveryInfo(*recoveryInfo),
                   replicationId(replicationId),
                   updateVersion(updateVersion),
                   oldServerReplicationUpdateEntryId(
@@ -761,11 +761,11 @@ class CoordinatorServerList : public AbstractServerList{
          */
         ServerListUpdatePair* next;
 
-        ServerListUpdatePair(ProtoBuf::ServerList& incremental,
-                ProtoBuf::ServerList& full)
-                : version(incremental.version_number())
-                , incremental(incremental)
-                , full(full)
+        ServerListUpdatePair(ProtoBuf::ServerList* incremental,
+                ProtoBuf::ServerList* full)
+                : version(incremental->version_number())
+                , incremental(*incremental)
+                , full(*full)
                 , next(NULL)
         {}
 
@@ -839,13 +839,13 @@ class CoordinatorServerList : public AbstractServerList{
     CoordinatorServerList::Entry* getEntry(ServerId id) const;
     CoordinatorServerList::Entry* getEntry(size_t index) const;
     void recoveryCompleted(Lock& lock, ServerId serverId);
-    void serialize(const Lock& lock, ProtoBuf::ServerList& protoBuf) const;
-    void serialize(const Lock& lock, ProtoBuf::ServerList& protoBuf,
+    void serialize(const Lock& lock, ProtoBuf::ServerList* protoBuf) const;
+    void serialize(const Lock& lock, ProtoBuf::ServerList* protoBuf,
                    ServiceMask services) const;
 
     /// Functions related to replication groups.
     bool assignReplicationGroup(Lock& lock, uint64_t replicationId,
-                                const vector<ServerId>& replicationGroupIds);
+                                const vector<ServerId>* replicationGroupIds);
     void createReplicationGroup(Lock& lock);
     void removeReplicationGroup(Lock& lock, uint64_t groupId);
 
