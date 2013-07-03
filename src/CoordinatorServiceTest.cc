@@ -80,6 +80,12 @@ class CoordinatorServiceTest : public ::testing::Test {
     DISALLOW_COPY_AND_ASSIGN(CoordinatorServiceTest);
 };
 
+TEST_F(CoordinatorServiceTest, createTable_idempotence) {
+    EXPECT_EQ(1UL, ramcloud->createTable("duplicate", 1));
+    EXPECT_EQ(1UL, ramcloud->createTable("duplicate", 1));
+    EXPECT_EQ(2UL, ramcloud->createTable("another", 1));
+}
+
 TEST_F(CoordinatorServiceTest, getServerList) {
     ServerConfig master2Config = masterConfig;
     master2Config.localLocator = "mock:host=master2";

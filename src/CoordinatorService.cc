@@ -167,7 +167,7 @@ CoordinatorService::createTable(const WireFormat::CreateTable::Request* reqHdr,
         uint64_t tableId = tableManager->createTable(name, serverSpan);
         respHdr->tableId = tableId;
     } catch (TableManager::TableExists& e) {
-        return;
+        respHdr->tableId = tableManager->getTableId(name);
     }
 }
 
