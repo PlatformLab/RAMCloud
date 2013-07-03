@@ -194,8 +194,11 @@ class ServerDetails {
     ServerStatus status;
 
     /**
-     * Each segment's replicas are replicated on a set of backups, called
-     * a replication group. Each group has a unique Id. The default Id is 0.
+     * The replication Id identifies a replication group for this server.
+     * Each server belongs to a single replication group. With MinCopysets,
+     * the segment's replicas are deterministically replicated on the
+     * backups that are part of the server's replication group.
+     * Each group has a unique Id. The default Id is 0.
      */
     uint64_t replicationId;
 };
