@@ -129,6 +129,7 @@ class Log : public AbstractLog {
     friend class LogIterator;
     friend class SideLog;
     friend class CleanerCompactionBenchmark;
+    friend class ObjectManagerBenchmark;
 
     DISALLOW_COPY_AND_ASSIGN(Log);
 };

@@ -169,6 +169,7 @@ test: $(OBJDIR)/test \
       $(OBJDIR)/ClusterPerf \
       $(OBJDIR)/Echo \
       $(OBJDIR)/HashTableBenchmark \
+      $(OBJDIR)/ObjectManagerBenchmark \
       $(OBJDIR)/Perf \
       $(OBJDIR)/RecoverSegmentBenchmark
 	$(OBJDIR)/test
@@ -211,6 +212,10 @@ $(OBJDIR)/BackupStorageBenchmark: $(OBJDIR)/BackupStorageBenchmark.o $(SHARED_OB
 	$(CXX) -o $@ $^ $(LIBS)
 
 $(OBJDIR)/HintServerCrashed: $(OBJDIR)/HintServerCrashed.o $(SHARED_OBJFILES) $(CLIENT_OBJFILES)
+	@mkdir -p $(@D)
+	$(CXX) -o $@ $^ $(LIBS)
+
+$(OBJDIR)/ObjectManagerBenchmark: $(OBJDIR)/ObjectManagerBenchmark.o $(SHARED_OBJFILES) $(SERVER_OBJFILES)
 	@mkdir -p $(@D)
 	$(CXX) -o $@ $^ $(LIBS)
 
