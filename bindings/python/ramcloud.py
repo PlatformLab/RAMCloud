@@ -164,10 +164,10 @@ def load_so():
                                                   serviceLocator, ctypes.c_size_t]
     so.rc_testing_get_service_locator.restype  = status
 
-    so.rc_testing_set_runtime_option.argtypes = [client,
+    so.rc_set_runtime_option.argtypes = [client,
                                                  ctypes.c_char_p,
                                                  ctypes.c_char_p]
-    so.rc_testing_set_runtime_option.restype = status
+    so.rc_set_runtime_option.restype = status
 
     so.rc_testing_wait_for_all_tablets_normal.argtypes = [client, nanoseconds]
     so.rc_testing_wait_for_all_tablets_normal.restype = None
@@ -351,7 +351,7 @@ class RAMCloud(object):
         return buffer.value
 
     def testing_set_runtime_option(self, option, value):
-        so.rc_testing_set_runtime_option(self.client, option, value)
+        so.rc_set_runtime_option(self.client, option, value)
 
     def testing_wait_for_all_tablets_normal(self, timeoutNs=2**64 - 1):
         so.rc_testing_wait_for_all_tablets_normal(self.client, timeoutNs)

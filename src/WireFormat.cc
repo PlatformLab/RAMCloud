@@ -17,6 +17,7 @@
 #include "Buffer.h"
 
 namespace RAMCloud {
+
 namespace WireFormat {
 
 /**
@@ -94,6 +95,7 @@ opcodeSymbol(uint32_t opcode)
         case GET_SERVER_CONFIG:          return "GET_SERVER_CONFIG";
         case GET_LOG_METRICS:            return "GET_LOG_METRICS";
         case VERIFY_MEMBERSHIP:          return "VERIFY_MEMBERSHIP";
+        case GET_RUNTIME_OPTION:         return "GET_RUNTIME_OPTION";
         case ILLEGAL_RPC_TYPE:           return "ILLEGAL_RPC_TYPE";
     }
 

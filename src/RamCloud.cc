@@ -1315,6 +1315,68 @@ FillWithTestDataRpc::FillWithTestDataRpc(RamCloud* ramcloud,
 }
 
 /**
+ * Get a value of runtime option field previously set on the coordinator.
+ *
+ * \param option
+ *      String name corresponding to a member field in the RuntimeOptions
+ *      class (e.g. "failRecoveryMasters") whose value should be returned 
+ *      in value buffer.
+ * \param[out] value
+ *      After a successful return, this Buffer will hold the value of the desired
+ *      option.
+ */
+void
+RamCloud::getRuntimeOption(const char* option, Buffer* value){
+    GetRuntimeOptionRpc rpc(this, option, value);
+    rpc.wait();
+}
+
+/**
+ * Constructor for SetRuntimeOptionRpc: initiates an RPC in the same way as
+ * #RamCloud::dropTable and returns once the RPC has been initiated,
+ * without waiting for it to complete.
+ *
+ * \param ramcloud
+ *      The RAMCloud object that governs this RPC.
+ * \param option
+ *      String name corresponding to a member field in the RuntimeOptions
+ *      class (e.g. "failRecoveryMasters") whose value should be returned 
+ *      in value buffer.
+ * \param[out] value
+ *      After a successful return, this Buffer will hold the value of the desired
+ *      option.
+ */
+GetRuntimeOptionRpc::GetRuntimeOptionRpc(RamCloud* ramcloud, const char* option,
+                                         Buffer* value)
+    : CoordinatorRpcWrapper(ramcloud->clientContext,
+                            sizeof(WireFormat::GetRuntimeOption::Response),
+                            value)
+{
+    value->reset();
+    WireFormat::GetRuntimeOption::Request*
+            reqHdr(allocHeader<WireFormat::GetRuntimeOption>());
+    reqHdr->optionLength = downCast<uint32_t> (strlen(option) + 1);
+    request.append(option, reqHdr->optionLength);
+    send();
+}
+
+/**
+ * Wait for the RPC to complete, and return the same results as
+ * #RamCloud::read.
+ */
+void
+GetRuntimeOptionRpc::wait()
+{
+    waitInternal(context->dispatch);
+    const WireFormat::GetRuntimeOption::Response* respHdr(
+            getResponseHeader<WireFormat::GetRuntimeOption>());
+    response->truncateFront(sizeof(*respHdr));
+    assert(respHdr->valueLength == response->getTotalLength());
+    if (respHdr->common.status != STATUS_OK)
+        ClientException::throwException(HERE, respHdr->common.status);
+}
+
+/**
  * Return the server id of the server that owns the specified key.
  * Used in testing scripts to associate particular processes with
  * their internal RAMCloud server id.
@@ -1409,7 +1471,7 @@ KillRpc::KillRpc(RamCloud* ramcloud, uint64_t tableId,
  *      for more information.
  */
 void
-RamCloud::testingSetRuntimeOption(const char* option, const char* value)
+RamCloud::setRuntimeOption(const char* option, const char* value)
 {
     SetRuntimeOptionRpc rpc(this, option, value);
     rpc.wait();

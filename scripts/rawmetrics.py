@@ -344,6 +344,7 @@ rpc.metric('getServerConfigCount', 'number of invocations of GET_SERVER_CONFIG R
 rpc.metric('getLogMetricsCount', 'number of invocations of GET_LOG_METRICS RPC')
 rpc.metric('multiWriteCount', 'number of invocations of MULTI_WRITE RPC')
 rpc.metric('verifyMembershipCount', 'number of invocations of VERIFY_MEMBERSHIP RPC')
+rpc.metric('getRuntimeOptionCount', 'number of invocations of GET_RUNTIME_OPTION RPC')
 rpc.metric('illegalRpcCount', 'number of invocations of RPCs with illegal opcodes')
 
 rpc.metric('rpc0Ticks', 'time spent executing RPC 0 (undefined)')
@@ -403,6 +404,7 @@ rpc.metric('getServerConfigTicks', 'time spent executing GET_SERVER_CONFIG RPC')
 rpc.metric('getLogMetricsTicks', 'time spent executing GET_LOG_METRICS RPC')
 rpc.metric('multiWriteTicks', 'time spent executing MULTI_WRITE RPC')
 rpc.metric('verifyMembershipTicks', 'number of invocations of VERIFY_MEMBERSHIP')
+rpc.metric('getRuntimeOptionTicks', 'time spent executing GET_RUNTIME_OPTION RPC')
 rpc.metric('illegalRpcTicks', 'time spent executing RPCs with illegal opcodes')
 
 transmit = Group('Transmit', 'metrics related to transmitting messages')

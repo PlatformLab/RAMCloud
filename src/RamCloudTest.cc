@@ -283,6 +283,14 @@ TEST_F(RamCloudTest, testingFill) {
     EXPECT_EQ("0xcccccccc 0xcccccccc /xcc/xcc", TestUtil::toString(&value));
 }
 
+TEST_F(RamCloudTest, getRuntimeOption){
+    ramcloud->setRuntimeOption("failRecoveryMasters", "1 2 3");
+    Buffer value;
+    ramcloud->getRuntimeOption("failRecoveryMasters", &value);
+    EXPECT_STREQ("1 2 3", cluster.coordinator->getString(&value, 0,
+                                                   value.getTotalLength()));
+}
+
 TEST_F(RamCloudTest, testingKill) {
     TestLog::Enable _;
     cluster.servers[0]->ping->ignoreKill = true;
@@ -292,8 +300,8 @@ TEST_F(RamCloudTest, testingKill) {
     EXPECT_EQ("kill: Server remotely told to kill itself.", TestLog::get());
 }
 
-TEST_F(RamCloudTest, testingSetRuntimeOption) {
-    ramcloud->testingSetRuntimeOption("failRecoveryMasters", "103");
+TEST_F(RamCloudTest, setRuntimeOption) {
+    ramcloud->setRuntimeOption("failRecoveryMasters", "103");
     EXPECT_EQ(103U,
             cluster.coordinator->runtimeOptions.failRecoveryMasters.front());
 }

@@ -57,8 +57,6 @@ class CoordinatorClient {
     static void sendServerList(Context* context, ServerId destination);
     static void setMasterRecoveryInfo(Context* context, ServerId serverId,
             const ProtoBuf::MasterRecoveryInfo& recoveryInfo);
-    static void setRuntimeOption(Context* context, const char* option,
-            const char* value);
     static void verifyMembership(Context* context, ServerId serverId,
             bool suicideOnFailure = true);
 

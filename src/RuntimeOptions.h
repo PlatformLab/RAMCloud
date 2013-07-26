@@ -19,7 +19,7 @@
 #include <mutex>
 #include <queue>
 #include <unordered_map>
-
+#include <string>
 #include "Common.h"
 
 namespace RAMCloud {
@@ -42,6 +42,7 @@ class RuntimeOptions {
         ~RuntimeOptions();
 
         void set(const char* option, const char* value);
+        std::string get(const char* option);
         uint32_t popFailRecoveryMasters();
 
     PRIVATE:
@@ -54,6 +55,7 @@ class RuntimeOptions {
          */
         struct Parseable {
             virtual void parse(const char* args) = 0;
+            virtual std::string getValue() = 0;
             virtual ~Parseable() {}
         };
 

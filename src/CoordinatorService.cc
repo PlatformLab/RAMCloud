@@ -14,6 +14,7 @@
  */
 
 #include <memory>
+#include <string>
 
 #include "BackupClient.h"
 #include "CoordinatorService.h"
@@ -91,6 +92,10 @@ CoordinatorService::dispatch(WireFormat::Opcode opcode,
         case WireFormat::DropTable::opcode:
             callHandler<WireFormat::DropTable, CoordinatorService,
                         &CoordinatorService::dropTable>(rpc);
+            break;
+        case WireFormat::GetRuntimeOption::opcode:
+            callHandler<WireFormat::GetRuntimeOption, CoordinatorService,
+                        &CoordinatorService::getRuntimeOption>(rpc);
             break;
         case WireFormat::GetTableId::opcode:
             callHandler<WireFormat::GetTableId, CoordinatorService,
@@ -214,6 +219,29 @@ CoordinatorService::splitTablet(const WireFormat::SplitTablet::Request* reqHdr,
         return;
     } catch (TableManager::NoSuchTable& e) {
         respHdr->common.status = STATUS_TABLE_DOESNT_EXIST;
+        return;
+    }
+}
+
+/**
+ * Gets the value of a runtime option field that's been previously set
+ * using CoordinatorClient::setRuntimeOption().
+ * \copydetails Service::ping
+ */
+void
+CoordinatorService::getRuntimeOption(
+    const WireFormat::GetRuntimeOption::Request* reqHdr,
+    WireFormat::GetRuntimeOption::Response* respHdr,
+    Rpc* rpc)
+{
+    const char* option = getString(rpc->requestPayload, sizeof(*reqHdr),
+                                   reqHdr->optionLength);
+    try {
+        std::string value = runtimeOptions.get(option);
+        respHdr->valueLength = downCast<uint32_t>(value.size() + 1);
+        rpc->replyPayload->append(value.c_str(), respHdr->valueLength);
+    } catch (const std::out_of_range& e) {
+        respHdr->common.status = STATUS_OBJECT_DOESNT_EXIST;
         return;
     }
 }

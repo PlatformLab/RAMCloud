@@ -60,6 +60,9 @@ class CoordinatorService : public Service {
     void splitTablet(const WireFormat::SplitTablet::Request* reqHdr,
                    WireFormat::SplitTablet::Response* respHdr,
                    Rpc* rpc);
+    void getRuntimeOption(const WireFormat::GetRuntimeOption::Request* reqHdr,
+                    WireFormat::GetRuntimeOption::Response* respHdr,
+                    Rpc* rpc);
     void getTableId(const WireFormat::GetTableId::Request* reqHdr,
                     WireFormat::GetTableId::Response* respHdr,
                     Rpc* rpc);

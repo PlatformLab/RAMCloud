@@ -34,11 +34,12 @@ struct Parser;
  * to type T.
  * If istream_iterator cannot parse some token in the given string it
  * simply stop adding elements to the queue.
+ * optionValue string so that the get method can retreive the value later on.
  */
 template <typename T>
 struct Parser<std::queue<T>> : public RuntimeOptions::Parseable {
     explicit Parser(std::queue<T> & target)
-        : target(target)
+        : target(target), optionValue("")
     {}
 
     void
@@ -51,9 +52,17 @@ struct Parser<std::queue<T>> : public RuntimeOptions::Parseable {
         auto end = std::istream_iterator<T>();
         for (auto it = begin; it != end; ++it)
             target.push(*it);
+        optionValue = value;
     }
-
+    std::string
+    getValue(){
+        return optionValue;
+    }
+    // terget holds a parsed copy of value for the option.
     std::queue<T>& target;
+    // A copy of the value string is saved in optionValue.
+    std::string optionValue;
+
 };
 
 /// Helper function to make declaring a new option easier.
@@ -109,6 +118,20 @@ RuntimeOptions::set(const char* option, const char* value)
 {
     Lock _(mutex);
     parsers.at(option)->parse(value);
+}
+
+/**
+ * Gets the value of a runtime option field that has been previously set.
+ *
+ * \param option
+ *      String name which corresponds to a member field in this class (e.g.
+ *      "failRecoveryMasters") and an option name in the coordinator.
+ */
+std::string
+RuntimeOptions::get(const char* option){
+    Lock _(mutex);
+    std::string value = parsers.at(option)->getValue();
+    return value;
 }
 
 // - Option-specific methods -

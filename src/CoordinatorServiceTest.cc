@@ -122,6 +122,18 @@ TEST_F(CoordinatorServiceTest, getServerList_backups) {
             getLocators(list));
 }
 
+TEST_F(CoordinatorServiceTest, getRuntimeOption){
+    Buffer value;
+    ramcloud->setRuntimeOption("failRecoveryMasters", "1 2 3");
+    ASSERT_EQ(3u, service->runtimeOptions.failRecoveryMasters.size());
+    ramcloud->getRuntimeOption("failRecoveryMasters", &value);
+    EXPECT_STREQ("1 2 3", service->getString(&value, 0,
+                                            value.getTotalLength()));
+    EXPECT_THROW(ramcloud->getRuntimeOption("optionNotExisting",
+                                            &value),
+                 ObjectDoesntExistException);
+}
+
 TEST_F(CoordinatorServiceTest, getServerList_masters) {
     ServerConfig master2Config = masterConfig;
     master2Config.localLocator = "mock:host=master2";
@@ -153,13 +165,13 @@ TEST_F(CoordinatorServiceTest, getTabletMap) {
 }
 
 TEST_F(CoordinatorServiceTest, setRuntimeOption) {
-    ramcloud->testingSetRuntimeOption("failRecoveryMasters", "1 2 3");
+    ramcloud->setRuntimeOption("failRecoveryMasters", "1 2 3");
     ASSERT_EQ(3u, service->runtimeOptions.failRecoveryMasters.size());
     EXPECT_EQ(1u, service->runtimeOptions.popFailRecoveryMasters());
     EXPECT_EQ(2u, service->runtimeOptions.popFailRecoveryMasters());
     EXPECT_EQ(3u, service->runtimeOptions.popFailRecoveryMasters());
     EXPECT_EQ(0u, service->runtimeOptions.popFailRecoveryMasters());
-    EXPECT_THROW(ramcloud->testingSetRuntimeOption("BAD", "1 2 3"),
+    EXPECT_THROW(ramcloud->setRuntimeOption("BAD", "1 2 3"),
                  ObjectDoesntExistException);
 }
 

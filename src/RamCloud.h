@@ -75,12 +75,13 @@ class RamCloud {
     void splitTablet(const char* name, uint64_t splitKeyHash);
     void testingFill(uint64_t tableId, const void* key, uint16_t keyLength,
             uint32_t numObjects, uint32_t objectSize);
+    void getRuntimeOption(const char* option, Buffer* value);
     uint64_t testingGetServerId(uint64_t tableId, const void* key,
             uint16_t keyLength);
     string testingGetServiceLocator(uint64_t tableId, const void* key,
             uint16_t keyLength);
     void testingKill(uint64_t tableId, const void* key, uint16_t keyLength);
-    void testingSetRuntimeOption(const char* option, const char* value);
+    void setRuntimeOption(const char* option, const char* value);
     void testingWaitForAllTabletsNormal(uint64_t timeoutNs = ~0lu);
     void write(uint64_t tableId, const void* key, uint16_t keyLength,
             const void* buf, uint32_t length,
@@ -231,6 +232,20 @@ class GetMetricsLocatorRpc : public RpcWrapper {
   PRIVATE:
     RamCloud* ramcloud;
     DISALLOW_COPY_AND_ASSIGN(GetMetricsLocatorRpc);
+};
+
+/**
+ * Encapsulate the state of RamCloud:: getRuntimeOption operation
+ * allowing to execute asynchronously.
+ */
+class GetRuntimeOptionRpc : public CoordinatorRpcWrapper{
+    public:
+        GetRuntimeOptionRpc(RamCloud* ramcloud, const char* option,
+                         Buffer* value);
+        ~GetRuntimeOptionRpc(){}
+        void wait();
+    PRIVATE:
+        DISALLOW_COPY_AND_ASSIGN(GetRuntimeOptionRpc);
 };
 
 /**
@@ -586,7 +601,7 @@ class RemoveRpc : public ObjectRpcWrapper {
 };
 
 /**
- * Encapsulates the state of a RamCloud::testingSetRuntimeOption operation,
+ * Encapsulates the state of a RamCloud::setRuntimeOption operation,
  * allowing it to execute asynchronously.
  */
 class SetRuntimeOptionRpc : public CoordinatorRpcWrapper {

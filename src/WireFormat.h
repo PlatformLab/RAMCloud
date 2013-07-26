@@ -109,7 +109,8 @@ enum Opcode {
     GET_SERVER_CONFIG         = 52,
     GET_LOG_METRICS           = 53,
     VERIFY_MEMBERSHIP         = 55,
-    ILLEGAL_RPC_TYPE          = 56,  // 1 + the highest legitimate Opcode
+    GET_RUNTIME_OPTION        = 56,
+    ILLEGAL_RPC_TYPE          = 57,  // 1 + the highest legitimate Opcode
 };
 
 /**
@@ -550,6 +551,25 @@ struct GetMetrics {
                                    // header.
         // Variable-length byte string containing ProtoBuf::MetricList
         // follows.
+    } __attribute__((packed));
+};
+
+struct GetRuntimeOption {
+    static const Opcode opcode = GET_RUNTIME_OPTION;
+    static const ServiceType service = COORDINATOR_SERVICE;
+    struct Request {
+        RequestCommon common;
+        uint32_t optionLength; // Number of bytes in the name of the option
+                               // to read including terminating NULL character.
+                               // The actual bytes follow immediately after
+                               // this header structure.
+    } __attribute__((packed));
+    struct Response {
+        ResponseCommon common;
+        uint32_t valueLength;  // Number of bytes in string representing the
+                               // value of corresponding option including
+                               // terminating NULL character.  The actual
+                               // bytes follow immediately after this header.
     } __attribute__((packed));
 };
 

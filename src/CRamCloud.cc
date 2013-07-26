@@ -360,12 +360,12 @@ rc_testing_fill(struct rc_client* client, uint64_t tableId,
 }
 
 Status
-rc_testing_set_runtime_option(struct rc_client* client,
+rc_set_runtime_option(struct rc_client* client,
                               const char* option,
                               const char* value)
 {
     try {
-        client->client->testingSetRuntimeOption(option, value);
+        client->client->setRuntimeOption(option, value);
     } catch (const ClientException& e) {
         return e.status;
     }
