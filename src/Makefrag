@@ -43,8 +43,10 @@ SHARED_SRCFILES := \
 		   src/Cycles.cc \
 		   src/Dispatch.cc \
 		   src/Driver.cc \
+		   src/ZooStorage.cc \
 		   src/Enumeration.cc \
 		   src/EnumerationIterator.cc \
+		   src/ExternalStorage.cc \
 		   src/FailureDetector.cc \
 		   src/FailSession.cc \
 		   src/FastTransport.cc \
