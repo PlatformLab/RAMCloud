@@ -1261,7 +1261,7 @@ ObjectManager::removeTombstones()
 ObjectManager::RemoveTombstonePoller::RemoveTombstonePoller(
                                         ObjectManager* objectManager,
                                         HashTable* objectMap)
-    : Dispatch::Poller(*objectManager->context->dispatch, "TombstoneRemover")
+    : Dispatch::Poller(objectManager->context->dispatch, "TombstoneRemover")
     , currentBucket(0)
     , passes(0)
     , lastReplaySegmentCount(0)

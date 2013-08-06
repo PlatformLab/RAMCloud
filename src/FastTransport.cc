@@ -563,7 +563,7 @@ FastTransport::InboundMessage::processReceivedData(Driver::Received* received)
  *      when the timer trips.
  */
 FastTransport::InboundMessage::Timer::Timer(InboundMessage* const inboundMsg)
-    : Dispatch::Timer(*inboundMsg->transport->context->dispatch)
+    : Dispatch::Timer(inboundMsg->transport->context->dispatch)
     , inboundMsg(inboundMsg)
 {
 }
@@ -873,7 +873,7 @@ FastTransport::OutboundMessage::sendOneData(uint32_t fragNumber,
  *      when the timer trips.
  */
 FastTransport::OutboundMessage::Timer::Timer(OutboundMessage* const outboundMsg)
-    : Dispatch::Timer(*outboundMsg->transport->context->dispatch)
+    : Dispatch::Timer(outboundMsg->transport->context->dispatch)
     , outboundMsg(outboundMsg)
 {
 }
@@ -1710,7 +1710,7 @@ FastTransport::ClientSession::processSessionOpenResponse(
 
 // --- ClientSession::Timer ---
 FastTransport::ClientSession::Timer::Timer(ClientSession* session)
-    : Dispatch::Timer(*session->transport->context->dispatch)
+    : Dispatch::Timer(session->transport->context->dispatch)
     , session(session)
 {
 }

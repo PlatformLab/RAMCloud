@@ -188,7 +188,7 @@ TcpTransport::Socket::~Socket() {
  *      The TcpTransport that manages this socket.
  */
 TcpTransport::AcceptHandler::AcceptHandler(int fd, TcpTransport& transport)
-    : Dispatch::File(*transport.context->dispatch, fd,
+    : Dispatch::File(transport.context->dispatch, fd,
             Dispatch::FileEvent::READABLE)
     , transport(transport)
 {
@@ -269,7 +269,7 @@ TcpTransport::AcceptHandler::handleFileEvent(int events)
 TcpTransport::ServerSocketHandler::ServerSocketHandler(int fd,
                                                        TcpTransport& transport,
                                                        Socket* socket)
-    : Dispatch::File(*transport.context->dispatch, fd,
+    : Dispatch::File(transport.context->dispatch, fd,
                      Dispatch::FileEvent::READABLE)
     , fd(fd)
     , transport(transport)
@@ -796,7 +796,7 @@ TcpTransport::TcpSession::sendRequest(Buffer* request, Buffer* response,
  */
 TcpTransport::ClientSocketHandler::ClientSocketHandler(int fd,
         TcpSession& session)
-    : Dispatch::File(*session.transport.context->dispatch, fd,
+    : Dispatch::File(session.transport.context->dispatch, fd,
                      Dispatch::FileEvent::READABLE)
     , fd(fd)
     , session(session)

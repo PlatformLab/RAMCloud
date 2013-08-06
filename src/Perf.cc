@@ -757,7 +757,7 @@ double startStopTimer()
 {
     int count = 1000000;
     Dispatch dispatch(false);
-    Dispatch::Timer timer(dispatch);
+    Dispatch::Timer timer(&dispatch);
     uint64_t start = Cycles::rdtsc();
     for (int i = 0; i < count; i++) {
         timer.start(12345U);
