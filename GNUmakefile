@@ -24,6 +24,8 @@ OBJDIR	:= obj$(OBJSUFFIX)
 TOP	:= $(shell echo $${PWD-`pwd`})
 GTEST_DIR ?= $(TOP)/gtest
 LOGCABIN_DIR := $(TOP)/logcabin
+ZOOKEEPER_INCLUDE_DIR := $(TOP)/zookeeper/src/c/install/usr/local/include/zookeeper
+ZOOKEEPER_LIB := $(TOP)/zookeeper/src/c/install/usr/local/lib/libzookeeper_mt.a
 
 ifeq ($(DEBUG),yes)
 BASECFLAGS := -g
@@ -60,14 +62,16 @@ endif
 # Failed deconstructor inlines are generating noise
 # -Winline
 
-LIBS := $(EXTRALIBS) -lpcrecpp -lboost_program_options -lprotobuf -lrt \
-        -lboost_filesystem -lboost_system -lpthread -lssl -lcrypto
+LIBS := $(EXTRALIBS) $(ZOOKEEPER_LIB) -lpcrecpp -lboost_program_options \
+	-lprotobuf -lrt -lboost_filesystem -lboost_system \
+	-lpthread -lssl -lcrypto
 ifeq ($(DEBUG),yes)
 # -rdynamic generates more useful backtraces when you have debugging symbols
 LIBS += -rdynamic
 endif
 
-INCLUDES := -I$(TOP)/src -I$(TOP)/$(OBJDIR) -I$(GTEST_DIR)/include -I$(LOGCABIN_DIR)
+INCLUDES := -I$(TOP)/src -I$(TOP)/$(OBJDIR) -I$(GTEST_DIR)/include \
+	-I$(LOGCABIN_DIR) -I$(ZOOKEEPER_INCLUDE_DIR)
 
 CC ?= gcc
 CXX ?= g++
@@ -229,4 +233,23 @@ logcabin:
 	cd logcabin; \
 	scons
 
-.PHONY: all always clean check doc docs docs-clean tags tags-clean test tests logcabin
+zookeeper:
+	mkdir -p zookeeper/src/c/install
+	cd zookeeper/src/c; ./configure; make install DESTDIR=`pwd`/install
+	cd zookeeper/src/c; make doxygen-doc
+	mkdir -p zookeeper/data
+	echo "# This configuration file is intended for standalone testing." \
+	        > zookeeper/conf/zoo.cfg
+	echo tickTime=100 >> zookeeper/conf/zoo.cfg
+	echo dataDir=`pwd`/zookeeper/data >> zookeeper/conf/zoo.cfg
+	echo clientPort=2181 >> zookeeper/conf/zoo.cfg
+
+startZoo:
+	if [ ! -e zookeeper/data/zookeeper_server.pid ]; then \
+	        zookeeper/bin/zkServer.sh start; fi
+
+stopZoo:
+	zookeeper/bin/zkServer.sh stop
+
+.PHONY: all always clean check doc docs docs-clean tags tags-clean test tests \
+        logcabin zookeeper startZoo stopZoo

@@ -143,6 +143,21 @@ TESTS_OBJFILES := $(sort \
                $(CLIENT_OBJFILES) \
                $(BACKUP_OBJFILES))
 
+ZOO_TESTS_SRCFILES := \
+		  src/TestRunner.cc \
+		  src/TestUtil.cc \
+		  src/ZooStorageTest.cc
+ZOO_TESTS_OBJFILES := $(ZOO_TESTS_SRCFILES)
+ZOO_TESTS_OBJFILES := $(patsubst src/%.cc, $(OBJDIR)/%.o, $(ZOO_TESTS_OBJFILES))
+ZOO_TESTS_OBJFILES := $(patsubst $(OBJDIR)/%.cc, $(OBJDIR)/%.o, $(ZOO_TESTS_OBJFILES))
+ZOO_TESTS_OBJFILES := $(sort \
+               $(ZOO_TESTS_OBJFILES) \
+               $(SHARED_OBJFILES) \
+               $(SERVER_OBJFILES) \
+               $(COORDINATOR_OBJFILES) \
+               $(CLIENT_OBJFILES) \
+               $(BACKUP_OBJFILES))
+
 # begin google test rules
 GTEST_HEADERS = $(GTEST_DIR)/include/gtest/*.h \
                 $(GTEST_DIR)/include/gtest/internal/*.h
@@ -160,7 +175,11 @@ TESTS_LIB := -ldl $(LIBS)
 
 $(OBJDIR)/test: $(TESTS_OBJFILES) $(LOGCABIN_LIBS) $(OBJDIR)/gtest.a
 	@mkdir -p $(@D)
-	$(CXX)  $(LOGCABIN_DEPS) $(TESTS_LIB) -o $@ $^
+	$(CXX) -o $@ $^ $(LOGCABIN_DEPS) $(TESTS_LIB)
+
+$(OBJDIR)/zooTest: $(ZOO_TESTS_OBJFILES) $(LOGCABIN_LIBS) $(OBJDIR)/gtest.a
+	@mkdir -p $(@D)
+	$(CXX) -o $@ $^ $(LOGCABIN_DEPS) $(TESTS_LIB)
 
 # The unit tests don't actually call all of these programs, but
 # they are included here to make sure they continue to build.
@@ -177,6 +196,9 @@ all: $(OBJDIR)/Perf $(OBJDIR)/ClusterPerf
 
 ftest: $(OBJDIR)/test
 	scripts/forking_test_runner.py
+
+zooTest: $(OBJDIR)/zooTest
+	$(OBJDIR)/zooTest
 
 $(OBJDIR)/HashTableBenchmark: $(OBJDIR)/HashTableBenchmark.o $(SHARED_OBJFILES) $(SERVER_OBJFILES)
 	@mkdir -p $(@D)
@@ -221,6 +243,6 @@ $(OBJDIR)/StringKeys: $(OBJDIR)/StringKeys.o $(SHARED_OBJFILES) $(CLIENT_OBJFILE
 # Do not remove.
 tests-clean:
 
-.PHONY: test-smack
+.PHONY: test-smack zooTest
 test-smack: client $(OBJDIR)/server
 	scripts/smack
