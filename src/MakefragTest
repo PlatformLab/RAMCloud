@@ -192,6 +192,11 @@ test: $(OBJDIR)/test \
       $(OBJDIR)/RecoverSegmentBenchmark
 	$(OBJDIR)/test
 
+# This target is intended for running a subset of tests, such as those
+# from a single file.  Specify a test pattern name in the FILTER variable.
+filterTest: $(OBJDIR)/test
+	$(OBJDIR)/test --gtest_filter='$(FILTER)'
+
 all: $(OBJDIR)/Perf $(OBJDIR)/ClusterPerf
 
 ftest: $(OBJDIR)/test
