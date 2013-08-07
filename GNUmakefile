@@ -24,8 +24,8 @@ OBJDIR	:= obj$(OBJSUFFIX)
 TOP	:= $(shell echo $${PWD-`pwd`})
 GTEST_DIR ?= $(TOP)/gtest
 LOGCABIN_DIR := $(TOP)/logcabin
-ZOOKEEPER_INCLUDE_DIR := $(TOP)/zookeeper/src/c/install/usr/local/include/zookeeper
-ZOOKEEPER_LIB := $(TOP)/zookeeper/src/c/install/usr/local/lib/libzookeeper_mt.a
+ZOOKEEPER_LIB := /usr/local/lib/libzookeeper_mt.a
+ZOOKEEPER_DIR := /usr/local/zookeeper-3.4.5
 
 ifeq ($(DEBUG),yes)
 BASECFLAGS := -g
@@ -71,7 +71,7 @@ LIBS += -rdynamic
 endif
 
 INCLUDES := -I$(TOP)/src -I$(TOP)/$(OBJDIR) -I$(GTEST_DIR)/include \
-	-I$(LOGCABIN_DIR) -I$(ZOOKEEPER_INCLUDE_DIR)
+	-I$(LOGCABIN_DIR)
 
 CC ?= gcc
 CXX ?= g++
@@ -233,23 +233,12 @@ logcabin:
 	cd logcabin; \
 	scons
 
-zookeeper:
-	mkdir -p zookeeper/src/c/install
-	cd zookeeper/src/c; ./configure; make install DESTDIR=`pwd`/install
-	cd zookeeper/src/c; make doxygen-doc
-	mkdir -p zookeeper/data
-	echo "# This configuration file is intended for standalone testing." \
-	        > zookeeper/conf/zoo.cfg
-	echo tickTime=100 >> zookeeper/conf/zoo.cfg
-	echo dataDir=`pwd`/zookeeper/data >> zookeeper/conf/zoo.cfg
-	echo clientPort=2181 >> zookeeper/conf/zoo.cfg
-
 startZoo:
-	if [ ! -e zookeeper/data/zookeeper_server.pid ]; then \
-	        zookeeper/bin/zkServer.sh start; fi
+	if [ ! -e $(ZOOKEEPER_DIR)/data/zookeeper_server.pid ]; then \
+	        $(ZOOKEEPER_DIR)/bin/zkServer.sh start; fi
 
 stopZoo:
-	zookeeper/bin/zkServer.sh stop
+	$(ZOOKEEPER_DIR)/bin/zkServer.sh stop
 
 .PHONY: all always clean check doc docs docs-clean tags tags-clean test tests \
         logcabin zookeeper startZoo stopZoo

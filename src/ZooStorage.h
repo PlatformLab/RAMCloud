@@ -17,7 +17,7 @@
 #define RAMCLOUD_ZOOSTORAGE_H
 
 #include "ExternalStorage.h"
-#include "zookeeper.h"
+#include "zookeeper/zookeeper.h"
 
 namespace RAMCloud {
 
