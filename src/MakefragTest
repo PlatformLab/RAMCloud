@@ -128,6 +128,7 @@ TESTS_SRCFILES := \
 		  src/WindowTest.cc \
 		  src/WireFormatTest.cc \
 		  src/WorkerSessionTest.cc \
+		  src/WorkerTimerTest.cc \
 		  src/RamCloudTest.cc \
 		  $(INFINIBAND_SRCFILES) \
 		  $(OBJDIR)/ProtoBufTest.pb.cc

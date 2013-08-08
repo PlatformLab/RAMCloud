@@ -117,6 +117,7 @@ SHARED_SRCFILES := \
 		   src/WallTime.cc \
 		   src/WireFormat.cc \
 		   src/WorkerSession.cc \
+		   src/WorkerTimer.cc \
 		   $(INFINIBAND_SRCFILES) \
 		   $(OBJDIR)/EnumerationIterator.pb.cc \
 		   $(OBJDIR)/Histogram.pb.cc \
