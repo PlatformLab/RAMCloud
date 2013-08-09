@@ -34,6 +34,7 @@ class SegmentManagerTest : public ::testing::Test {
     ServerList serverList;
     ServerConfig serverConfig;
     ReplicaManager replicaManager;
+    MasterTableMetadata masterTableMetadata;
     SegletAllocator allocator;
     SegmentManager segmentManager;
 
@@ -43,9 +44,10 @@ class SegmentManagerTest : public ::testing::Test {
           serverList(&context),
           serverConfig(ServerConfig::forTesting()),
           replicaManager(&context, &serverId, 0, false),
+          masterTableMetadata(),
           allocator(&serverConfig),
           segmentManager(&context, &serverConfig, &serverId,
-                         allocator, replicaManager)
+                         allocator, replicaManager, &masterTableMetadata)
     {
     }
 
@@ -60,7 +62,8 @@ TEST_F(SegmentManagerTest, constructor)
                                 &serverConfig,
                                 &serverId,
                                 allocator,
-                                replicaManager),
+                                replicaManager,
+                                &masterTableMetadata),
                  SegmentManagerException);
 
     EXPECT_EQ(1U, segmentManager.nextSegmentId);
@@ -75,7 +78,7 @@ TEST_F(SegmentManagerTest, destructor) {
     SegletAllocator allocator2(&serverConfig);
     Tub<SegmentManager> mgr;
     mgr.construct(&context, &serverConfig, &serverId, allocator2,
-                  replicaManager);
+                  replicaManager, &masterTableMetadata);
     EXPECT_EQ(2U, allocator2.getFreeCount(SegletAllocator::EMERGENCY_HEAD));
     EXPECT_EQ(0U, allocator2.getFreeCount(SegletAllocator::CLEANER));
     EXPECT_EQ(254U, allocator2.getFreeCount(SegletAllocator::DEFAULT));

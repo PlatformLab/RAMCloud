@@ -304,8 +304,9 @@ TEST_F(ReplicaManagerTest, endToEndBackupRecovery) {
 
     ServerConfig serverConfig(ServerConfig::forTesting());
     SegletAllocator allocator(&serverConfig);
+    MasterTableMetadata mtm;
     SegmentManager segmentManager(&context, &serverConfig,
-                                  &serverId, allocator, *mgr);
+                                  &serverId, allocator, *mgr, &mtm);
     DoNothingHandlers entryHandlers;
     Log log(&context, &serverConfig, &entryHandlers, &segmentManager, &*mgr);
     log.sync();

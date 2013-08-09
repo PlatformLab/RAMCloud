@@ -1,6 +1,6 @@
 LOGCABIN_STATE_PROTOBUF_FILES := \
-                        src/EntryType.pb.cc \
-                        src/LargestTableId.pb.cc \
+			src/EntryType.pb.cc \
+			src/LargestTableId.pb.cc \
 			src/ServerCrashInfo.pb.cc \
 			src/ServerInformation.pb.cc \
 			src/ServerListVersion.pb.cc \

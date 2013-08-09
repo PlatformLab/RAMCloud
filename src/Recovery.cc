@@ -103,7 +103,7 @@ Recovery::~Recovery()
 void
 Recovery::partitionTablets(vector<Tablet> tablets)
 {
-    //TODO(syang0) A new partitioning scheme should be inserted here
+    //TODO(cstlee) Use tablet stats to create new partition scheme.
 
 
     // Figure out the number of partitions to be recovered and bucket tablets

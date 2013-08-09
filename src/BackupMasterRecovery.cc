@@ -470,7 +470,7 @@ BackupMasterRecovery::populateStartResponse(Buffer* responseBuffer,
             response->digestBytes);
     }
 
-    //TODO(syang0) Tablet Profiling information goes here
+    //TODO(cstlee) Pull tablet stats info out.
     char tabletMetrics[] = "";
     response->tabletMetricsLen = sizeof(tabletMetrics);
     if (response->tabletMetricsLen > 0) {

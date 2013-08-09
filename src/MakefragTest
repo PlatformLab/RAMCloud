@@ -55,6 +55,7 @@ TESTS_SRCFILES := \
 		  src/MacAddressTest.cc \
 		  src/MasterRecoveryManagerTest.cc \
 		  src/MasterServiceTest.cc \
+		  src/MasterTableMetadataTest.cc \
 		  src/MembershipServiceTest.cc \
 		  src/MinCopysetsBackupSelectorTest.cc \
 		  src/MockCluster.cc \
@@ -108,6 +109,7 @@ TESTS_SRCFILES := \
 		  src/StatusTest.cc \
 		  src/StringUtilTest.cc \
 		  src/TableEnumeratorTest.cc \
+		  src/TableStatsTest.cc \
 		  src/TabletTest.cc \
 		  src/TableManagerTest.cc \
 		  src/TabletManagerTest.cc \

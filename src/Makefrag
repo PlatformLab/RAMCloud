@@ -62,6 +62,7 @@ SHARED_SRCFILES := \
 		   src/MacAddress.cc \
 		   src/MasterClient.cc \
 		   src/MasterService.cc \
+		   src/MasterTableMetadata.cc \
 		   src/MembershipService.cc \
 		   src/Memory.cc \
 		   src/MinCopysetsBackupSelector.cc \
@@ -101,6 +102,7 @@ SHARED_SRCFILES := \
 		   src/Status.cc \
 		   src/StringUtil.cc \
 		   src/TableEnumerator.cc \
+		   src/TableStats.cc \
 		   src/Tablet.cc \
 		   src/TabletManager.cc \
 		   src/TaskQueue.cc \

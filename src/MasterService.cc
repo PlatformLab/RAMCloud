@@ -71,8 +71,13 @@ MasterService::MasterService(Context* context,
                              const ServerConfig* config)
     : context(context)
     , config(config)
+    , masterTableMetadata()
     , tabletManager()
-    , objectManager(context, &serverId, config, &tabletManager)
+    , objectManager(context,
+                    &serverId,
+                    config,
+                    &tabletManager,
+                    &masterTableMetadata)
     , initCalled(false)
     , maxMultiReadResponseSize(Transport::MAX_RPC_LEN)
     , disableCount(0)

@@ -32,6 +32,7 @@ class LogEntryRelocatorTest : public ::testing::Test {
     ServerList serverList;
     ServerConfig serverConfig;
     ReplicaManager replicaManager;
+    MasterTableMetadata masterTableMetadata;
     SegletAllocator allocator;
     SegmentManager segmentManager;
 
@@ -41,9 +42,10 @@ class LogEntryRelocatorTest : public ::testing::Test {
           serverList(&context),
           serverConfig(ServerConfig::forTesting()),
           replicaManager(&context, &serverId, 0, false),
+          masterTableMetadata(),
           allocator(&serverConfig),
           segmentManager(&context, &serverConfig, &serverId,
-                         allocator, replicaManager)
+                         allocator, replicaManager, &masterTableMetadata)
     {
     }
 

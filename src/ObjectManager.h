@@ -28,6 +28,7 @@
 #include "ServerConfig.h"
 #include "SpinLock.h"
 #include "TabletManager.h"
+#include "MasterTableMetadata.h"
 
 namespace RAMCloud {
 
@@ -49,7 +50,8 @@ class ObjectManager : public LogEntryHandlers {
     ObjectManager(Context* context,
                   ServerId* serverId,
                   const ServerConfig* config,
-                  TabletManager* tabletManager);
+                  TabletManager* tabletManager,
+                  MasterTableMetadata* masterTableMetadata);
     virtual ~ObjectManager();
     void initOnceEnlisted();
     Status readObject(Key& key,
@@ -109,7 +111,7 @@ class ObjectManager : public LogEntryHandlers {
          *
          * \param objectManager
          *      The ObjectManager that owns the hash table bucket to lock.
-         * \param key 
+         * \param key
          *      Key whose corresponding bucket in the hash table will be locked.
          */
         HashTableBucketLock(ObjectManager& objectManager, Key& key)
@@ -252,6 +254,11 @@ class ObjectManager : public LogEntryHandlers {
      * ownership is taken and after a tablet is dropped.
      */
     TabletManager* tabletManager;
+
+    /**
+     * Used to update table statistics.
+     */
+    MasterTableMetadata* masterTableMetadata;
 
     /**
      * Allocator used by the SegmentManager to obtain main memory for log

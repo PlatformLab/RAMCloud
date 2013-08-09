@@ -45,6 +45,7 @@ class LogTest : public ::testing::Test {
     ServerList serverList;
     ServerConfig serverConfig;
     ReplicaManager replicaManager;
+    MasterTableMetadata masterTableMetadata;
     SegletAllocator allocator;
     SegmentManager segmentManager;
     DoNothingHandlers entryHandlers;
@@ -56,9 +57,10 @@ class LogTest : public ::testing::Test {
           serverList(&context),
           serverConfig(ServerConfig::forTesting()),
           replicaManager(&context, &serverId, 0, false),
+          masterTableMetadata(),
           allocator(&serverConfig),
           segmentManager(&context, &serverConfig, &serverId,
-                         allocator, replicaManager),
+                         allocator, replicaManager, &masterTableMetadata),
           entryHandlers(),
           l(&context, &serverConfig, &entryHandlers,
             &segmentManager, &replicaManager)
@@ -73,7 +75,8 @@ class LogTest : public ::testing::Test {
 TEST_F(LogTest, constructor) {
     SegletAllocator allocator2(&serverConfig);
     SegmentManager segmentManager2(&context, &serverConfig, &serverId,
-                                   allocator2, replicaManager);
+                                   allocator2, replicaManager,
+                                   &masterTableMetadata);
     Log l2(&context, &serverConfig, &entryHandlers,
            &segmentManager2, &replicaManager);
     EXPECT_EQ(static_cast<LogSegment*>(NULL), l2.head);
@@ -84,7 +87,8 @@ TEST_F(LogTest, destructor) {
     // ensure that the cleaner is deleted
     SegletAllocator allocator2(&serverConfig);
     SegmentManager segmentManager2(&context, &serverConfig, &serverId,
-                                   allocator2, replicaManager);
+                                   allocator2, replicaManager,
+                                   &masterTableMetadata);
     Tub<Log> l2;
     l2.construct(&context, &serverConfig, &entryHandlers,
            &segmentManager2, &replicaManager);

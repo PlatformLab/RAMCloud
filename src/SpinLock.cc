@@ -92,8 +92,8 @@ SpinLock::lock()
 }
 
 /**
- * Acquire the SpinLock; blocks the thread (by continuously polling the lock)
- * until the lock has been acquired.
+ * Try to acquire the SpinLock; does not block the thread and returns
+ * immediately.
  *
  * \return
  *      True if the lock was successfully acquired, false if it was already

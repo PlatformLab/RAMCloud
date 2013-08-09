@@ -34,6 +34,7 @@
 #include "SpinLock.h"
 #include "TabletManager.h"
 #include "WireFormat.h"
+#include "MasterTableMetadata.h"
 
 namespace RAMCloud {
 
@@ -188,6 +189,11 @@ class MasterService : public Service {
     const ServerConfig* config;
 
   PRIVATE:
+    /**
+     * The MasterTableMetadata object keeps per table metadata.
+     */
+    MasterTableMetadata masterTableMetadata;
+
     /**
      * The TabletManager keeps track of ranges of tables that are assigned to
      * this server by the coordinator. Ranges are contiguous spans of the 64-bit
