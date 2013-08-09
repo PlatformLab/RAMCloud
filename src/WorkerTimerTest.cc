@@ -67,11 +67,33 @@ class WorkerTimerTest : public ::testing::Test {
 class DummyWorkerTimer : public WorkerTimer {
   public:
     explicit DummyWorkerTimer(const char *name, Dispatch* dispatch)
-            : WorkerTimer(dispatch), myName(name) { }
+        : WorkerTimer(dispatch)
+        , myName(name)
+        , sleepMicroseconds(0)
+        , restartTime(0)
+    { }
     void handleTimerEvent() {
         TEST_LOG("WorkerTimer %s invoked", myName);
+        if (sleepMicroseconds != 0) {
+            usleep(sleepMicroseconds);
+        }
+        if (restartTime != 0) {
+            start(restartTime);
+            restartTime = 0;
+            if (isRunning()) {
+                TEST_LOG("restarted");
+            }
+        }
     }
     const char *myName;
+
+    // If non-zero, then handler will delayed for this long before
+    // returning.
+    int sleepMicroseconds;
+
+    // If non-zero, then handler will restart the timer with this
+    // trigger time.
+    uint64_t restartTime;
   private:
     DISALLOW_COPY_AND_ASSIGN(DummyWorkerTimer);
 };
@@ -110,7 +132,7 @@ TEST_F(WorkerTimerTest, destructor) {
     EXPECT_EQ(0u, WorkerTimer::managers.size());
     EXPECT_EQ("workerThreadMain: exiting", TestLog::get());
 }
-TEST_F(WorkerTimerTest, destructor_timerRunning) {
+TEST_F(WorkerTimerTest, destructor_stopTimer) {
     WorkerTimer timer1(&dispatch);
     Tub<WorkerTimer> timer2;
     timer2.construct(&dispatch);
@@ -118,6 +140,28 @@ TEST_F(WorkerTimerTest, destructor_timerRunning) {
     timer2.destroy();
     EXPECT_EQ(1, timer1.manager->timerCount);
     EXPECT_EQ(0u, timer1.manager->activeTimers.size());
+}
+// Helper function for the following test and a few others: used to invoke
+// Dispatch::poll in a separate thread.
+static void testPoll(Dispatch* dispatch) {
+    dispatch->poll();
+}
+TEST_F(WorkerTimerTest, destructor_waitForHandlerToFinish) {
+    Tub<DummyWorkerTimer> timer;
+    timer.construct("timer1", &dispatch);
+    waitForWorkerProgress();               // Thread startup.
+    timer->start(1000);
+    timer->sleepMicroseconds = 10000;
+    Cycles::mockTscValue = 0;              // We need to measure real time!
+    uint64_t start = Cycles::rdtsc();
+    Cycles::mockTscValue = 2000;
+    std::thread thread(testPoll, &dispatch);
+    usleep(5000);
+    timer.destroy();
+    Cycles::mockTscValue = 0;              // We need to measure real time!
+    double elapsed = Cycles::toSeconds(Cycles::rdtsc() - start);
+    EXPECT_GE(elapsed, .01);
+    thread.join();
 }
 
 TEST_F(WorkerTimerTest, start) {
@@ -127,6 +171,31 @@ TEST_F(WorkerTimerTest, start) {
     EXPECT_TRUE(timer.isRunning());
     timer.stop();
     EXPECT_FALSE(timer.isRunning());
+}
+TEST_F(WorkerTimerTest, start_dontStartOnceDestructorInvoked) {
+    Tub<DummyWorkerTimer> timer;
+    timer.construct("t1", &dispatch);
+    waitForWorkerProgress();               // Thread startup.
+    timer->start(1000);
+    Cycles::mockTscValue = 2000;
+
+    // First, make sure that the timer can successfully restart itself.
+    timer->restartTime = 1000;
+    dispatch.poll();
+    waitForWorkerProgress();
+    EXPECT_TRUE(TestUtil::matchesPosixRegex("restarted", TestLog::get()));
+
+    // Now, make sure it doesn't restart itself if the destructor
+    // has been invoked.
+    TestLog::reset();               // Thread startup.
+    timer->start(1500);
+    timer->restartTime = 1500;
+    timer->sleepMicroseconds = 10000;
+    std::thread thread(testPoll, &dispatch);
+    usleep(5000);
+    timer.destroy();
+    EXPECT_TRUE(TestUtil::doesNotMatchPosixRegex("restarted", TestLog::get()));
+    thread.join();
 }
 
 TEST_F(WorkerTimerTest, start_addToActiveList) {
@@ -304,6 +373,23 @@ TEST_F(WorkerTimerTest, workerThreadMain_invokeHandler) {
     dispatch.poll();
     waitForWorkerProgress();
     EXPECT_EQ("handleTimerEvent: WorkerTimer t1 invoked", TestLog::get());
+}
+TEST_F(WorkerTimerTest, workerThreadMain_setHandlerRunningAndSignalFinished) {
+    Tub<DummyWorkerTimer> timer;
+    timer.construct("timer1", &dispatch);
+    waitForWorkerProgress();               // Thread startup.
+    timer->start(1000);
+    timer->sleepMicroseconds = 10000;
+    Cycles::mockTscValue = 0;              // We need to measure real time!
+    uint64_t start = Cycles::rdtsc();
+    Cycles::mockTscValue = 2000;
+    std::thread thread(testPoll, &dispatch);
+    usleep(5000);
+    timer.destroy();
+    Cycles::mockTscValue = 0;              // We need to measure real time!
+    double elapsed = Cycles::toSeconds(Cycles::rdtsc() - start);
+    EXPECT_GE(elapsed, .01);
+    thread.join();
 }
 
 

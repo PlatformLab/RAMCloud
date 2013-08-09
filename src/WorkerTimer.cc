@@ -37,6 +37,9 @@ WorkerTimer::WorkerTimer(Dispatch* dispatch)
     : manager(NULL)
     , triggerTime(0)
     , active(false)
+    , handlerRunning(false)
+    , handlerFinished()
+    , destroyed(false)
     , links()
 {
     Lock lock(mutex);
@@ -50,8 +53,13 @@ WorkerTimer::WorkerTimer(Dispatch* dispatch)
 WorkerTimer::~WorkerTimer()
 {
     Lock lock(mutex);
+    destroyed = true;
     if (active) {
         stopInternal(lock);
+    }
+    while (handlerRunning) {
+        TEST_LOG("waiting for handler");
+        handlerFinished.wait(lock);
     }
     manager->timerCount--;
     if (manager->timerCount == 0) {
@@ -88,6 +96,11 @@ bool WorkerTimer::isRunning()
 void WorkerTimer::start(uint64_t rdtscTime)
 {
     Lock _(mutex);
+    if (destroyed) {
+        // The destructor has been invoked, so we don't want to do
+        // anything that could cause the handler to be invoked again.
+        return;
+    }
     triggerTime = rdtscTime;
     if (!active) {
         manager->activeTimers.push_back(*this);
@@ -305,17 +318,13 @@ try {
             // Release the monitor lock while the timer handler runs; otherwise,
             // WorkerTimer::handleTimerEvent might hang on the lock for a long
             // time, effectively blocking the dispatch thread.
-            //
-            // WARNING: there is an ever-so-tiny window of vulnerability for
-            // races here.  If this thread gets stopped after the Unlock but
-            // before invoking the handler, some other thread could step in and
-            // delete this WorkerTimer. The memory could be recycled for some
-            // other purpose, which could leave timer corrupted and cause
-            // the timer indication to crash. I (JO) haven't been able to find a
-            // clean solution to this problem, and I don't think it's likely
-            // to occur in practice (famous last words).
-            Unlock<std::mutex> unlock(mutex);
-            timer->handleTimerEvent();
+            timer->handlerRunning = true;
+            {
+                Unlock<std::mutex> unlock(mutex);
+                timer->handleTimerEvent();
+            }
+            timer->handlerRunning = false;
+            timer->handlerFinished.notify_one();
         } else {
             workerThreadProgressCount++;
             timerExpired.wait(lock);
