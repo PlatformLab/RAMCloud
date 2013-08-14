@@ -22,19 +22,27 @@ namespace RAMCloud {
  * Construct an Object.
  *
  * \param name
- *      Name of the object; NULL-terminated string, malloc-ed by caller
- *      (will be freed here when object is deleted).
+ *      Name of the object; NULL-terminated string. A local copy will
+ *      be made in this Object.
  * \param value
- *      Value of the object, or NULL if none; malloc-ed by caller
- *      (will be freed here when object is deleted).
+ *      Value of the object, or NULL if none. A local copy will
+ *      be made in this Object.
  * \param length
  *      Length of value, in bytes.
  */
-ExternalStorage::Object::Object(char* name, char* value, int length)
-    : name(name)
-    , value(value)
-    , length(length)
+ExternalStorage::Object::Object(const char* name, const char* value, int length)
+    : name(NULL)
+    , value(NULL)
+    , length(0)
 {
+    size_t nameLength = strlen(name) + 1;
+    this->name = static_cast<char*>(malloc(nameLength));
+    memcpy(this->name, name, nameLength);
+    if ((value != NULL) && (length > 0)) {
+        this->value = static_cast<char*>(malloc(length));
+        memcpy(this->value, value, length);
+        this->length = length;
+    }
 }
 
 /**

@@ -191,15 +191,8 @@ ZooStorage::getChildren(const char* name, vector<Object>* children)
                     buffer = new char[bufferSize];
                     continue;
                 }
-                size_t childNameLength = childName.length() + 1;
-                char* nameCopy = static_cast<char*>(malloc(childNameLength));
-                memcpy(nameCopy, childName.c_str(), childNameLength);
-                char* value = NULL;
-                if (stat.dataLength > 0) {
-                    value = static_cast<char*>(malloc(stat.dataLength));
-                    memcpy(value, buffer, stat.dataLength);
-                }
-                children->emplace_back(nameCopy, value, stat.dataLength);
+                children->emplace_back(childName.c_str(), buffer,
+                        stat.dataLength);
                 break;
             }
         }
