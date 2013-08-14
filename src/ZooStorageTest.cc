@@ -20,27 +20,46 @@ namespace RAMCloud {
 class ZooStorageTest : public ::testing::Test {
   public:
     TestLog::Enable logEnabler;
-    static Tub<ZooStorage> zoo;
-    // FILE for /dev/null; ZooKeeper log output gets dumped here
-    // so it doesn't clutter the console output.
-    static FILE* devNull;
+    Dispatch dispatch;
+    Tub<ZooStorage> zoo;
+
+    // Send ZeroKeeper log output to /dev/null so it doesn't clutter the
+    // console output.
+    FILE* devNull;
 
     ZooStorageTest()
         : logEnabler()
+        , dispatch(false)
+        , zoo()
+        , devNull(NULL)
     {
+        devNull = fopen("/dev/null", "w");
+        zoo_set_log_stream(devNull);
+
         string info("localhost:2181");
-        if (devNull == NULL) {
-            devNull = fopen("/dev/null", "w");
-            zoo_set_log_stream(devNull);
-        }
-        if (!zoo) {
-            zoo.construct(&info);
-        }
+        zoo.construct(&info, &dispatch);
+
+        // For many tests it's convenient to invoke ZooKeeper without first
+        // becoming leader, so just pretend we're already leader.
+        zoo->leader = true;
+
+        // For most tests is easier if the lease renewer never runs.
+        zoo->renewLeaseIntervalCycles = 0;
+
         zoo->remove("/test");
-        zoo->leaderVersion = -1;
+        TestLog::reset();
     }
 
-    ~ZooStorageTest() { }
+    ~ZooStorageTest()
+    {
+        if (zoo) {
+            zoo->close();
+        }
+        zoo_set_log_stream(NULL);
+        if (devNull) {
+            fclose(devNull);
+        }
+    }
 
     struct CompareObjects {
         bool operator()(ZooStorage::Object const & a,
@@ -82,9 +101,6 @@ class ZooStorageTest : public ::testing::Test {
     DISALLOW_COPY_AND_ASSIGN(ZooStorageTest);
 };
 
-Tub<ZooStorage> ZooStorageTest::zoo;
-FILE* ZooStorageTest::devNull = NULL;
-
 TEST_F(ZooStorageTest, sanityCheck) {
     Buffer value;
     zoo->set(ExternalStorage::Hint::CREATE, "/test/var1", "value1");
@@ -100,12 +116,18 @@ TEST_F(ZooStorageTest, becomeLeader) {
     zoo->becomeLeader("/test/leader", &leaderInfo);
     double elapsed = Cycles::toSeconds(Cycles::rdtsc() - before);
     EXPECT_GT(elapsed, .200);
-    EXPECT_EQ("checkLeader: Becoming leader (old leader info "
+    EXPECT_EQ("checkLeader: Became leader (old leader info "
             "was \"locator:old\")", TestLog::get());
     zoo->get("/test/leader", &value);
     EXPECT_EQ("locator:new", TestUtil::toString(&value));
 }
 
+TEST_F(ZooStorageTest, get_notLeader) {
+    zoo->leader = false;
+    Buffer value;
+    EXPECT_THROW(zoo->get("/test/var1", &value),
+                ExternalStorage::NotLeaderException);
+}
 TEST_F(ZooStorageTest, get_noSuchObject) {
     Buffer value;
     value.fillFromString("abc");
@@ -137,6 +159,12 @@ TEST_F(ZooStorageTest, getChildren_basics) {
     sort(&children);
     EXPECT_EQ("/test/var1: value1, /test/var2: value2, /test/var3: value3",
             toString(&children));
+}
+TEST_F(ZooStorageTest, getChildren_notLeader) {
+    zoo->leader = false;
+    vector<ZooStorage::Object> children;
+    EXPECT_THROW(zoo->getChildren("/test", &children),
+                ExternalStorage::NotLeaderException);
 }
 TEST_F(ZooStorageTest, getChildren_noSuchObject) {
     vector<ZooStorage::Object> children;
@@ -176,6 +204,11 @@ TEST_F(ZooStorageTest, getChildren_weirdNodes) {
             toString(&children));
 }
 
+TEST_F(ZooStorageTest, remove_notLeader) {
+    zoo->leader = false;
+    EXPECT_THROW(zoo->remove("/test/var1"),
+                ExternalStorage::NotLeaderException);
+}
 TEST_F(ZooStorageTest, remove_singleObject) {
     Buffer value;
     zoo->set(ExternalStorage::Hint::CREATE, "/test/var1", "value1");
@@ -209,6 +242,11 @@ TEST_F(ZooStorageTest, remove_deeplyNested) {
     EXPECT_FALSE(zoo->get("/test", &value));
 }
 
+TEST_F(ZooStorageTest, set_notLeader) {
+    zoo->leader = false;
+    EXPECT_THROW(zoo->set(ExternalStorage::Hint::CREATE, "/test", "value1"),
+                ExternalStorage::NotLeaderException);
+}
 TEST_F(ZooStorageTest, set_createSucess) {
     Buffer value;
     zoo->set(ExternalStorage::Hint::CREATE, "/test", "value1");
@@ -262,15 +300,26 @@ TEST_F(ZooStorageTest, set_updateError) {
             TestLog::get());
 }
 
+TEST_F(ZooStorageTest, setLeaderInfo) {
+    string info("12345");
+    zoo->setLeaderInfo(&info);
+    EXPECT_EQ("12345", zoo->leaderInfo);
+    info = "new value";
+    zoo->setLeaderInfo(&info);
+    EXPECT_EQ("new value", zoo->leaderInfo);
+}
+
 TEST_F(ZooStorageTest, checkLeader_objectDoesntExist) {
     Buffer value;
     zoo->leaderObject = "/test";
     zoo->leaderInfo = "Leader Info";
+    zoo->renewLeaseIntervalCycles = Cycles::fromSeconds(1000.0);
     EXPECT_TRUE(zoo->checkLeader());
-    EXPECT_EQ("checkLeader: Becoming leader (no existing leader)",
+    EXPECT_EQ("checkLeader: Became leader (no existing leader)",
                 TestLog::get());
     zoo->get("/test", &value);
     EXPECT_EQ("Leader Info", TestUtil::toString(&value));
+    EXPECT_TRUE(zoo->leaseRenewer->isRunning());
 }
 TEST_F(ZooStorageTest, checkLeader_createParentNode) {
     Buffer value;
@@ -282,7 +331,7 @@ TEST_F(ZooStorageTest, checkLeader_createParentNode) {
 
     // Second attempt should succeed.
     EXPECT_TRUE(zoo->checkLeader());
-    EXPECT_EQ("checkLeader: Becoming leader (no existing leader)",
+    EXPECT_EQ("checkLeader: Became leader (no existing leader)",
                 TestLog::get());
     zoo->get("/test/leader", &value);
     EXPECT_EQ("Leader Info", TestUtil::toString(&value));
@@ -315,13 +364,15 @@ TEST_F(ZooStorageTest, checkLeader_oldLeaderInactive) {
     Buffer value;
     zoo->leaderObject = "/test/leader";
     zoo->leaderInfo = "Leader Info";
+    zoo->renewLeaseIntervalCycles = Cycles::fromSeconds(1000.0);
     zoo->set(ExternalStorage::Hint::CREATE, "/test/leader", "locator:old");
     EXPECT_FALSE(zoo->checkLeader());
     EXPECT_TRUE(zoo->checkLeader());
-    EXPECT_EQ("checkLeader: Becoming leader (old leader info "
+    EXPECT_EQ("checkLeader: Became leader (old leader info "
             "was \"locator:old\")", TestLog::get());
     zoo->get("/test/leader", &value);
     EXPECT_EQ("Leader Info", TestUtil::toString(&value));
+    EXPECT_TRUE(zoo->leaseRenewer->isRunning());
 }
 
 TEST_F(ZooStorageTest, close) {
@@ -392,6 +443,41 @@ TEST_F(ZooStorageTest, stateString) {
     EXPECT_STREQ("closed", zoo->stateString(0));
     EXPECT_STREQ("not connected", zoo->stateString(999));
     EXPECT_STREQ("unknown state", zoo->stateString(45));
+}
+
+TEST_F(ZooStorageTest, LeaseRenewer_handleTimerEvent_basics) {
+    zoo->renewLeaseIntervalCycles = Cycles::fromSeconds(1000.0);
+    string leaderInfo("Old leader info");
+    zoo->becomeLeader("/test/leader", &leaderInfo);
+    leaderInfo = "New leader info";
+    zoo->setLeaderInfo(&leaderInfo);
+    zoo->leaseRenewer->handleTimerEvent();
+    Buffer value;
+    zoo->get("/test/leader", &value);
+    EXPECT_EQ("New leader info", TestUtil::toString(&value));
+    zoo->leaseRenewer->handleTimerEvent();
+    EXPECT_EQ(2, zoo->leaderVersion);
+}
+TEST_F(ZooStorageTest, LeaseRenewer_handleTimerEvent_lostLease) {
+    zoo->renewLeaseIntervalCycles = Cycles::fromSeconds(1000.0);
+    string leaderInfo("Old leader info");
+    zoo->becomeLeader("/test/leader", &leaderInfo);
+
+    // Simulate another leader overwriting the leader object to take control.
+    zoo->set(ExternalStorage::Hint::UPDATE, "/test/leader", "New leader info");
+    zoo->leaseRenewer->handleTimerEvent();
+    EXPECT_FALSE(zoo->leader);
+    EXPECT_EQ(0, zoo->leaderVersion);
+}
+TEST_F(ZooStorageTest, LeaseRenewer_handleTimerEvent_otherError) {
+    zoo->renewLeaseIntervalCycles = Cycles::fromSeconds(1000.0);
+    string leaderInfo("Leader info");
+    zoo->becomeLeader("/test/leader", &leaderInfo);
+
+    // Delete the leader object to force an error.
+    zoo->remove("/test/leader");
+    EXPECT_THROW(zoo->leaseRenewer->handleTimerEvent(), FatalError);
+    EXPECT_TRUE(zoo->leader);
 }
 
 }  // namespace RAMCloud

@@ -15,6 +15,7 @@
 
 #include <vector>
 #include "Common.h"
+#include "Cycles.h"
 #include "Logger.h"
 #include "ZooStorage.h"
 
@@ -29,14 +30,33 @@ namespace RAMCloud {
  * \param serverInfo
  *      Describes where the ZooKeeper servers are running: comma-separated
  *      host:port pairs, such as "rc03:2109,rc04:2109".
+ * \param dispatch
+ *      Needed for scheduling lease renewal if we become leader. If
+ *      becomeLeader is never going to be invoked, then this can be
+ *      specified as NULL.
  */
-ZooStorage::ZooStorage(string* serverInfo)
+ZooStorage::ZooStorage(string* serverInfo, Dispatch* dispatch)
     : serverInfo(*serverInfo)
     , zoo(NULL)
+    , leader(false)
+    , connectionRetryMs(0)
+    , checkLeaderIntervalMs(0)
+    , renewLeaseIntervalCycles(0)
+    , renewLeaseRetryCycles(0)
+    , leaderVersion(-1)
     , leaderObject()
     , leaderInfo()
-    , leaderVersion(-1)
+    , leaseRenewer()
+    , dispatch(dispatch)
 {
+    // Compute all of the time constants; see the comments near the
+    // declarations for important information about the relationship
+    // between these numbers.
+    connectionRetryMs = 100;
+    checkLeaderIntervalMs = 200;
+    renewLeaseIntervalCycles = Cycles::fromSeconds(.100);
+    renewLeaseRetryCycles = Cycles::fromSeconds(.010);
+
     open();
 }
 
@@ -59,7 +79,7 @@ ZooStorage::becomeLeader(const char* name, const string* leaderInfo)
         if (checkLeader()) {
             return;
         }
-        usleep(CHECK_LEADER_INTERVAL_MS*1000);
+        usleep(checkLeaderIntervalMs*1000);
     }
 }
 
@@ -67,6 +87,10 @@ ZooStorage::becomeLeader(const char* name, const string* leaderInfo)
 bool
 ZooStorage::get(const char* name, Buffer* value)
 {
+    if (!leader) {
+        throw NotLeaderException(HERE);
+    }
+
     // Make an initial guess about how large the object is, in order to
     // provide a large enough buffer. If the guess is too small, use the
     // stat data to figure out exactly how much space is needed, then try
@@ -102,6 +126,10 @@ ZooStorage::getChildren(const char* name, vector<Object>* children)
 {
     int status;
     children->resize(0);
+
+    if (!leader) {
+        throw NotLeaderException(HERE);
+    }
 
     // First, retrieve the names of all of the children of the node.
     struct String_vector names;
@@ -182,6 +210,10 @@ ZooStorage::getChildren(const char* name, vector<Object>* children)
 void
 ZooStorage::remove(const char* name)
 {
+    if (!leader) {
+        throw NotLeaderException(HERE);
+    }
+
     while (1) {
         int status = zoo_delete(zoo, name, -1);
         if ((status == ZOK) || (status == ZNONODE)) {
@@ -221,6 +253,10 @@ void
 ZooStorage::set(Hint flavor, const char* name, const char* value,
         int valueLength)
 {
+    if (!leader) {
+        throw NotLeaderException(HERE);
+    }
+
     // The value != NULL check below is only needed to handle recursive
     // calls to create intermediate nodes.
     if ((valueLength < 0) && (value != NULL)) {
@@ -264,6 +300,12 @@ ZooStorage::set(Hint flavor, const char* name, const char* value,
     }
 }
 
+// See documentation for ExternalStorage::setLeaderInfo.
+void ZooStorage::setLeaderInfo(const string* leaderInfo)
+{
+    this->leaderInfo = *leaderInfo;
+}
+
 /**
  * This method makes a single attempt to become leader (it checks the
  * leader object, and if it doesn't exist, or its version hasn't changed
@@ -290,7 +332,13 @@ ZooStorage::checkLeader()
                 downCast<uint32_t>(leaderInfo.length()),
                 &ZOO_OPEN_ACL_UNSAFE, 0, NULL, 0);
         if (status == ZOK) {
-            RAMCLOUD_LOG(NOTICE, "Becoming leader (no existing leader)");
+            leader = true;
+            leaderVersion = 0;
+            if (renewLeaseIntervalCycles != 0) {
+                leaseRenewer.construct(this);
+                leaseRenewer->start(Cycles::rdtsc() + renewLeaseIntervalCycles);
+            }
+            RAMCLOUD_LOG(NOTICE, "Became leader (no existing leader)");
             return true;
         } else if (status == ZNONODE) {
             // Parent node hasn't been created; create it, then return
@@ -319,9 +367,14 @@ ZooStorage::checkLeader()
     status = zoo_set(zoo, leaderObject.c_str(), leaderInfo.c_str(),
             downCast<uint32_t>(leaderInfo.length()), leaderVersion);
     if (status == ZOK) {
-        buffer[sizeof(buffer)-1] = 0;
-        RAMCLOUD_LOG(NOTICE, "Becoming leader (old leader info was \"%s\")",
-                buffer);
+        leader = true;
+        leaderVersion++;
+        if (renewLeaseIntervalCycles != 0) {
+            leaseRenewer.construct(this);
+            leaseRenewer->start(Cycles::rdtsc() + renewLeaseIntervalCycles);
+        }
+        RAMCLOUD_LOG(NOTICE, "Became leader (old leader info was \"%.*s\")",
+                length, buffer);
         return true;
     }
     if (status != ZBADVERSION) {
@@ -378,6 +431,8 @@ ZooStorage::createParent(const char* childName)
  *      An error status value returned by ZooKeeper.
  *
  * \throws FatalError
+ *      Thrown if the error is due to misuse of ZooKeeper, as opposed to
+ *      a problem with the server or the connection.
  */
 void
 ZooStorage::handleError(int status)
@@ -409,8 +464,10 @@ ZooStorage::open()
         return;
     }
     while (1) {
-        zoo = zookeeper_init(serverInfo.c_str(), NULL, CONNECTION_RETRY_MS,
-                0, NULL, 0);
+        // The session timeout is set to a very large number (we don't
+        // need it for leader management and a small value interferes
+        // with debugging).
+        zoo = zookeeper_init(serverInfo.c_str(), NULL, 1000000, 0, NULL, 0);
         if (zoo == NULL) {
             RAMCLOUD_LOG(WARNING, "Couldn't open ZooKeeper connection: %s",
                     strerror(errno));
@@ -419,9 +476,10 @@ ZooStorage::open()
 
         // zookeeper_init doesn't actually wait for session connection
         // to complete, but it isn't safe to issue ZooKeeper commands
-        // until it does. The code below waits for the session to really
-        // truly become completely open and functional.
-        while (1) {
+        // until it does. The code below waits (a while, but nor forever)
+        // for the session to really truly become completely open and
+        // functional.
+        for (int i = 1; i < 100; i++) {
             int state = zoo_state(zoo);
             if (state == ZOO_CONNECTED_STATE) {
                 RAMCLOUD_LOG(WARNING, "ZooKeeper connection opened: %s",
@@ -438,8 +496,12 @@ ZooStorage::open()
             }
             usleep(10000);
         }
+        RAMCLOUD_LOG(WARNING, "ZooKeeper connection didn't reach open "
+                "state; retrying");
+        close();
+
         retry:
-        usleep(CONNECTION_RETRY_MS);
+        usleep(connectionRetryMs*1000);
     }
 }
 
@@ -467,6 +529,44 @@ ZooStorage::stateString(int state)
         return "not connected";
     } else {
         return "unknown state";
+    }
+}
+
+/**
+ * Constructor for LeaseRenewer.
+ *
+ * \param zooStorage
+ *      The ZooStorage object on whose behalf we are working. Info in
+ *      this record gets accessed in the timer handler.
+ */
+ZooStorage::LeaseRenewer::LeaseRenewer(ZooStorage* zooStorage)
+    : WorkerTimer(zooStorage->dispatch)
+    , zooStorage(zooStorage)
+{}
+
+/**
+ * This method is invoked when the leaseRenewer timer expires; its job is
+ * to update the leader object in order to renew our lease as leader.
+ */
+void ZooStorage::LeaseRenewer::handleTimerEvent()
+{
+    int status = zoo_set(zooStorage->zoo, zooStorage->leaderObject.c_str(),
+            zooStorage->leaderInfo.c_str(),
+            downCast<uint32_t>(zooStorage->leaderInfo.length()),
+            zooStorage->leaderVersion);
+    if (status == ZOK) {
+        zooStorage->leaderVersion++;
+        start(Cycles::rdtsc() + zooStorage->renewLeaseIntervalCycles);
+    } else if (status == ZBADVERSION) {
+        // Someone else has modified the leader object; this means we
+        // are no longer the leader. In this case, no need to restart the
+        // timer.
+        zooStorage->leader = false;
+    } else {
+        // Something went wrong (e.g. server crashed?). Perform standard error
+        // handling, then retry with a shorter timer.
+        zooStorage->handleError(status);
+        start(Cycles::rdtsc() + zooStorage->renewLeaseRetryCycles);
     }
 }
 

@@ -98,14 +98,15 @@ class ExternalStorage {
 
     /**
      * This exception is thrown if we lose leadership (i.e. some other
-     * server decided that we are dead, so it took over as coordinator).
+     * server decided that we are dead, so it took over as coordinator)
+     * or if operations are attempted before we ever became leader.
      * When this exception is thrown, the coordinator must either exit
      * or reset all of its state and do nothing until it becomes leader
      * again.
      */
-    struct LostLeadershipException : public Exception {
-        LostLeadershipException(const CodeLocation& where, std::string msg)
-            : Exception(where, msg) {}
+    struct NotLeaderException : public Exception {
+        explicit NotLeaderException(const CodeLocation& where)
+            : Exception(where) {}
     };
 
     /**
@@ -211,6 +212,21 @@ class ExternalStorage {
      */
     virtual void set(Hint flavor, const char* name, const char* value,
             int valueLength = -1) = 0;
+
+    /**
+     * This method is called to modified by the current leader to modified
+     * information about it that is kept in external storage (this is the
+     * same information that was originally set when becomeLeader was
+     * invoked). This information is not immediately propagated to the
+     * external server; it will be written to the server during the next
+     * operation that renews the leader's lease.
+     *
+     *  \param leaderInfo
+     *      Information about this server (e.g., service locator that clients
+     *      can use to connect), which will eventually be stored in the object
+     *      specified by the name argument to becomeLeader.
+     */
+    virtual void setLeaderInfo(const string* leaderInfo) = 0;
 
     DISALLOW_COPY_AND_ASSIGN(ExternalStorage);
 };
