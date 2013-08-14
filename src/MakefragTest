@@ -35,6 +35,7 @@ TESTS_SRCFILES := \
 		  src/Crc32CTest.cc \
 		  src/CyclesTest.cc \
 		  src/DispatchTest.cc \
+		  src/DataBlockTest.cc \
 		  src/FailSessionTest.cc \
 		  src/FailureDetectorTest.cc \
 		  src/FastTransportTest.cc \
