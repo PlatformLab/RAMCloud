@@ -36,7 +36,8 @@ namespace RAMCloud {
  *      specified as NULL.
  */
 ZooStorage::ZooStorage(string* serverInfo, Dispatch* dispatch)
-    : serverInfo(*serverInfo)
+    : mutex()
+    , serverInfo(*serverInfo)
     , zoo(NULL)
     , leader(false)
     , connectionRetryMs(0)
@@ -49,6 +50,8 @@ ZooStorage::ZooStorage(string* serverInfo, Dispatch* dispatch)
     , leaseRenewer()
     , dispatch(dispatch)
 {
+    Lock lock(mutex);
+
     // Compute all of the time constants; see the comments near the
     // declarations for important information about the relationship
     // between these numbers.
@@ -57,7 +60,7 @@ ZooStorage::ZooStorage(string* serverInfo, Dispatch* dispatch)
     renewLeaseIntervalCycles = Cycles::fromSeconds(.100);
     renewLeaseRetryCycles = Cycles::fromSeconds(.010);
 
-    open();
+    open(lock);
 }
 
 /**
@@ -65,7 +68,8 @@ ZooStorage::ZooStorage(string* serverInfo, Dispatch* dispatch)
  */
 ZooStorage::~ZooStorage()
 {
-    close();
+    Lock lock(mutex);
+    close(lock);
 }
 
 
@@ -73,10 +77,11 @@ ZooStorage::~ZooStorage()
 void
 ZooStorage::becomeLeader(const char* name, const string* leaderInfo)
 {
+    Lock lock(mutex);
     this->leaderObject = name;
     this->leaderInfo = *leaderInfo;
     while (1) {
-        if (checkLeader()) {
+        if (checkLeader(lock)) {
             return;
         }
         usleep(checkLeaderIntervalMs*1000);
@@ -87,6 +92,7 @@ ZooStorage::becomeLeader(const char* name, const string* leaderInfo)
 bool
 ZooStorage::get(const char* name, Buffer* value)
 {
+    Lock lock(mutex);
     if (!leader) {
         throw NotLeaderException(HERE);
     }
@@ -106,7 +112,7 @@ ZooStorage::get(const char* name, Buffer* value)
                 value->reset();
                 return false;
             }
-            handleError(status);
+            handleError(lock, status);
             continue;
         }
         // Warning: ZooKeeper returns -1 dataLength for empty nodes.
@@ -124,6 +130,7 @@ ZooStorage::get(const char* name, Buffer* value)
 void
 ZooStorage::getChildren(const char* name, vector<Object>* children)
 {
+    Lock lock(mutex);
     int status;
     children->resize(0);
 
@@ -137,7 +144,7 @@ ZooStorage::getChildren(const char* name, vector<Object>* children)
         if (status == ZNONODE) {
             return;
         }
-        handleError(status);
+        handleError(lock, status);
     }
 
     // This buffer is used for retrieving object values. The initial size
@@ -172,7 +179,7 @@ ZooStorage::getChildren(const char* name, vector<Object>* children)
                         // all of the child names; just ignore it.
                         break;
                     }
-                    handleError(status);
+                    handleError(lock, status);
                     continue;
                 }
                 // Warning: ZooKeeper returns -1 dataLength for empty nodes.
@@ -210,17 +217,33 @@ ZooStorage::getChildren(const char* name, vector<Object>* children)
 void
 ZooStorage::remove(const char* name)
 {
+    Lock lock(mutex);
     if (!leader) {
         throw NotLeaderException(HERE);
     }
+    removeInternal(lock, name);
+}
 
+/**
+ * This method does all of the work of the "remove" method. It needs to be
+ * separate because it's invoked recursively; thus we can't acquire the
+ * monitor lock in this method.
+ *
+ * \param lock
+ *      Ensures that caller has acquired mutex; not actually used here.
+ * \param name
+ *      Name of the object to remove.
+ */
+void
+ZooStorage::removeInternal(Lock& lock, const char* name)
+{
     while (1) {
         int status = zoo_delete(zoo, name, -1);
         if ((status == ZOK) || (status == ZNONODE)) {
             return;
         }
         if (status != ZNOTEMPTY) {
-            handleError(status);
+            handleError(lock, status);
             continue;
         }
 
@@ -228,7 +251,7 @@ ZooStorage::remove(const char* name)
         // all of the children, then try deleting the parent again.
         struct String_vector names;
         while ((status = zoo_get_children(zoo, name, 0, &names)) != ZOK) {
-            handleError(status);
+            handleError(lock, status);
         }
         std::string child(name);
         child.append("/");
@@ -237,7 +260,7 @@ ZooStorage::remove(const char* name)
             child.resize(baseLength);
             child.append(names.data[i]);
             try {
-                remove(child.c_str());
+                removeInternal(lock, child.c_str());
             }
             catch (...) {
                 deallocate_String_vector(&names);
@@ -253,12 +276,35 @@ void
 ZooStorage::set(Hint flavor, const char* name, const char* value,
         int valueLength)
 {
+    Lock lock(mutex);
     if (!leader) {
         throw NotLeaderException(HERE);
     }
+    setInternal(lock, flavor, name, value, valueLength);
+}
 
+/**
+ * This method does most of the work of the "set" method. It is separated
+ * so that it can be invoked by both "set" and "createParent" (createParent
+ * has already acquired the monitor lock, so it can't invoke set).
+ *
+ * \param lock
+ *      Ensures that caller has acquired mutex; not actually used here.
+ * \param flavor
+ *      Same as corresponding argument to set.
+ * \param name
+ *      Same as corresponding argument to set.
+ * \param value
+ *      Same as corresponding argument to set.
+ * \param valueLength
+ *      Same as corresponding argument to set.
+ */
+void
+ZooStorage::setInternal(Lock& lock, Hint flavor, const char* name,
+        const char* value, int valueLength)
+{
     // The value != NULL check below is only needed to handle recursive
-    // calls to create intermediate nodes.
+    // calls from createParent.
     if ((valueLength < 0) && (value != NULL)) {
         valueLength = downCast<int>(strlen(value));
     }
@@ -272,7 +318,7 @@ ZooStorage::set(Hint flavor, const char* name, const char* value,
             }
             if (status == ZNONODE) {
                 // The parent node doesn't exist; create it first.
-                createParent(name);
+                createParent(lock, name);
                 continue;
             } else if (status == ZNODEEXISTS) {
                 // The hint was incorrect: we'll have to use a "set"
@@ -296,13 +342,14 @@ ZooStorage::set(Hint flavor, const char* name, const char* value,
                 continue;
             }
         }
-        handleError(status);
+        handleError(lock, status);
     }
 }
 
 // See documentation for ExternalStorage::setLeaderInfo.
 void ZooStorage::setLeaderInfo(const string* leaderInfo)
 {
+    Lock lock(mutex);
     this->leaderInfo = *leaderInfo;
 }
 
@@ -314,11 +361,14 @@ void ZooStorage::setLeaderInfo(const string* leaderInfo)
  * leadership (this code is separate from becomeLeader in order to simplify
  * testing).
  *
+ * \param lock
+ *      Ensures that caller has acquired mutex; not actually used here.
+ *
  * \return
  *      True means we successfully acquired leadership; false means we didn't.
  */
 bool
-ZooStorage::checkLeader()
+ZooStorage::checkLeader(Lock& lock)
 {
     char buffer[1000];
     struct Stat stat;
@@ -343,14 +393,14 @@ ZooStorage::checkLeader()
         } else if (status == ZNONODE) {
             // Parent node hasn't been created; create it, then return
             // and let caller try again.
-            createParent(leaderObject.c_str());
+            createParent(lock, leaderObject.c_str());
         } else if (status != ZNODEEXISTS) {
-            handleError(status);
+            handleError(lock, status);
         }
         return false;
     }
     if (status != ZOK) {
-        handleError(status);
+        handleError(lock, status);
         return false;
     }
     if (stat.version != leaderVersion) {
@@ -378,16 +428,19 @@ ZooStorage::checkLeader()
         return true;
     }
     if (status != ZBADVERSION) {
-        handleError(status);
+        handleError(lock, status);
     }
     return false;
 }
 
 /**
  * Close the ZooKeeper connection, if it is open.
+ *
+ * \param lock
+ *      Ensures that caller has acquired mutex; not actually used here.
  */
 void
-ZooStorage::close()
+ZooStorage::close(Lock& lock)
 {
     if (zoo != NULL) {
         int status = zookeeper_close(zoo);
@@ -405,12 +458,14 @@ ZooStorage::close()
  * of a desired node doesn't exist. This method creates the parent (and its
  * parent, recursively, if needed).
  *
+ * \param lock
+ *      Ensures that caller has acquired mutex; not actually used here.
  * \param childName
  *      Name of the node whose parent seems to be missing: NULL-terminated
  *      hierarchical path.
  */
 void
-ZooStorage::createParent(const char* childName)
+ZooStorage::createParent(Lock& lock, const char* childName)
 {
     string parentName(childName);
     size_t lastSlash = parentName.rfind('/');
@@ -420,13 +475,15 @@ ZooStorage::createParent(const char* childName)
         throw FatalError(HERE);
     }
     parentName.resize(lastSlash);
-    set(Hint::CREATE, parentName.c_str(), 0, -1);
+    setInternal(lock, Hint::CREATE, parentName.c_str(), 0, -1);
 }
 
 /**
  * This method is invoked whenever a ZooKeeper operation returns an
  * error. It logs the error and reopens the connection, if needed.
  *
+ * \param lock
+ *      Ensures that caller has acquired mutex; not actually used here.
  * \param status
  *      An error status value returned by ZooKeeper.
  *
@@ -435,7 +492,7 @@ ZooStorage::createParent(const char* childName)
  *      a problem with the server or the connection.
  */
 void
-ZooStorage::handleError(int status)
+ZooStorage::handleError(Lock& lock, int status)
 {
     if (((status > ZAPIERROR) && (status != ZBADARGUMENTS))
             || (status == ZSESSIONEXPIRED)) {
@@ -443,8 +500,8 @@ ZooStorage::handleError(int status)
         // the ZooKeeper connection may fix it.
         RAMCLOUD_LOG(WARNING, "ZooKeeper error (%s): reopening connection",
                 zerror(status));
-        close();
-        open();
+        close(lock);
+        open(lock);
         return;
     }
 
@@ -456,9 +513,12 @@ ZooStorage::handleError(int status)
 /**
  * Open a ZooKeeper connection, if there isn't one already open. This
  * method will wait for a ZooKeeper server to come up, if needed.
+ *
+ * \param lock
+ *      Ensures that caller has acquired mutex; not actually used here.
  */
 void
-ZooStorage::open()
+ZooStorage::open(Lock& lock)
 {
     if (zoo != NULL) {
         return;
@@ -476,7 +536,7 @@ ZooStorage::open()
 
         // zookeeper_init doesn't actually wait for session connection
         // to complete, but it isn't safe to issue ZooKeeper commands
-        // until it does. The code below waits (a while, but nor forever)
+        // until it does. The code below waits (a while, but not forever)
         // for the session to really truly become completely open and
         // functional.
         for (int i = 1; i < 100; i++) {
@@ -491,14 +551,14 @@ ZooStorage::open()
                 RAMCLOUD_LOG(WARNING,
                         "ZooKeeper connection reached bad state (%s) "
                         "during open", stateString(state));
-                close();
+                close(lock);
                 goto retry;
             }
             usleep(10000);
         }
         RAMCLOUD_LOG(WARNING, "ZooKeeper connection didn't reach open "
                 "state; retrying");
-        close();
+        close(lock);
 
         retry:
         usleep(connectionRetryMs*1000);
@@ -550,6 +610,7 @@ ZooStorage::LeaseRenewer::LeaseRenewer(ZooStorage* zooStorage)
  */
 void ZooStorage::LeaseRenewer::handleTimerEvent()
 {
+    ZooStorage::Lock lock(zooStorage->mutex);
     int status = zoo_set(zooStorage->zoo, zooStorage->leaderObject.c_str(),
             zooStorage->leaderInfo.c_str(),
             downCast<uint32_t>(zooStorage->leaderInfo.length()),
@@ -565,7 +626,7 @@ void ZooStorage::LeaseRenewer::handleTimerEvent()
     } else {
         // Something went wrong (e.g. server crashed?). Perform standard error
         // handling, then retry with a shorter timer.
-        zooStorage->handleError(status);
+        zooStorage->handleError(lock, status);
         start(Cycles::rdtsc() + zooStorage->renewLeaseRetryCycles);
     }
 }

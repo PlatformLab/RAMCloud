@@ -25,7 +25,7 @@ namespace RAMCloud {
 /**
  * This class provides a wrapper around the ZooKeeper storage system to
  * implement the ExternalStorage interface. See ExternalStorage for API
- * documentation.
+ * documentation. This class is thread-safe.
  */
 class ZooStorage: public ExternalStorage {
   PUBLIC:
@@ -56,6 +56,15 @@ class ZooStorage: public ExternalStorage {
       private:
         DISALLOW_COPY_AND_ASSIGN(LeaseRenewer);
     };
+
+
+    /// Monitor-style lock: acquired by all externally visible methods. It's
+    /// not totally clear whether ZooKeeper itself is thread-safe, but even
+    /// if it were, this class does things like reopening the server
+    /// connection, which can't be done if other threads are using the
+    /// connection.
+    std::mutex mutex;
+    typedef std::unique_lock<std::mutex> Lock;
 
     /// Copy of serverInfo argument from constructor.
     string serverInfo;
@@ -114,13 +123,15 @@ class ZooStorage: public ExternalStorage {
     /// Used for scheduling leaseRenewer.
     Dispatch* dispatch;
 
-    bool checkLeader();
-    void close();
-    void createParent(const char* childName);
-    void handleError(int status);
-    void open();
+    bool checkLeader(Lock& lock);
+    void close(Lock& lock);
+    void createParent(Lock& lock, const char* childName);
+    void handleError(Lock& lock, int status);
+    void open(Lock& lock);
+    void removeInternal(Lock& lock, const char* name);
+    void setInternal(Lock& lock, Hint flavor, const char* name,
+            const char* value, int valueLength);
     const char* stateString(int state);
-    void updateLeaderObject();
 
     DISALLOW_COPY_AND_ASSIGN(ZooStorage);
 };

@@ -53,7 +53,8 @@ class ZooStorageTest : public ::testing::Test {
     ~ZooStorageTest()
     {
         if (zoo) {
-            zoo->close();
+            ZooStorage::Lock lock(zoo->mutex);
+            zoo->close(lock);
         }
         zoo_set_log_stream(NULL);
         if (devNull) {
@@ -209,23 +210,23 @@ TEST_F(ZooStorageTest, remove_notLeader) {
     EXPECT_THROW(zoo->remove("/test/var1"),
                 ExternalStorage::NotLeaderException);
 }
-TEST_F(ZooStorageTest, remove_singleObject) {
+TEST_F(ZooStorageTest, removeInternal_singleObject) {
     Buffer value;
     zoo->set(ExternalStorage::Hint::CREATE, "/test/var1", "value1");
     zoo->remove("/test/var1");
     EXPECT_FALSE(zoo->get("/test/var1", &value));
 }
-TEST_F(ZooStorageTest, remove_nonexistentObject) {
+TEST_F(ZooStorageTest, removeInternal_nonexistentObject) {
     Buffer value;
     zoo->remove("/test/var1");
     EXPECT_FALSE(zoo->get("/test/var1", &value));
 }
-TEST_F(ZooStorageTest, remove_unrecoverableError) {
+TEST_F(ZooStorageTest, removeInternal_unrecoverableError) {
     EXPECT_THROW(zoo->remove("bogus99"), FatalError);
     EXPECT_EQ("handleError: ZooKeeper API error: bad arguments",
             TestLog::get());
 }
-TEST_F(ZooStorageTest, remove_withChildren) {
+TEST_F(ZooStorageTest, removeInternal_withChildren) {
     Buffer value;
     zoo->set(ExternalStorage::Hint::CREATE, "/test/var1", "value1");
     zoo->set(ExternalStorage::Hint::CREATE, "/test/var2", "value2");
@@ -233,7 +234,7 @@ TEST_F(ZooStorageTest, remove_withChildren) {
     zoo->remove("/test");
     EXPECT_FALSE(zoo->get("/test", &value));
 }
-TEST_F(ZooStorageTest, remove_deeplyNested) {
+TEST_F(ZooStorageTest, removeInternal_deeplyNested) {
     Buffer value;
     zoo->set(ExternalStorage::Hint::CREATE, "/test/a/b/c/v1", "value1");
     zoo->set(ExternalStorage::Hint::CREATE, "/test/a/b/c/v2", "value2");
@@ -247,36 +248,36 @@ TEST_F(ZooStorageTest, set_notLeader) {
     EXPECT_THROW(zoo->set(ExternalStorage::Hint::CREATE, "/test", "value1"),
                 ExternalStorage::NotLeaderException);
 }
-TEST_F(ZooStorageTest, set_createSucess) {
+TEST_F(ZooStorageTest, setInternal_createSucess) {
     Buffer value;
     zoo->set(ExternalStorage::Hint::CREATE, "/test", "value1");
     EXPECT_TRUE(zoo->get("/test", &value));
     EXPECT_EQ("value1", TestUtil::toString(&value));
     EXPECT_EQ("", TestLog::get());
 }
-TEST_F(ZooStorageTest, set_createParent) {
+TEST_F(ZooStorageTest, setInternal_createParent) {
     Buffer value;
     zoo->set(ExternalStorage::Hint::CREATE, "/test/var1", "value1");
     EXPECT_TRUE(zoo->get("/test/var1", &value));
     EXPECT_EQ("value1", TestUtil::toString(&value));
 }
-TEST_F(ZooStorageTest, set_createHintIncorrect) {
+TEST_F(ZooStorageTest, setInternal_createHintIncorrect) {
     Buffer value;
     zoo->set(ExternalStorage::Hint::CREATE, "/test/var1", "value1");
     zoo->set(ExternalStorage::Hint::CREATE, "/test/var1", "value2");
     EXPECT_TRUE(zoo->get("/test/var1", &value));
     EXPECT_EQ("value2", TestUtil::toString(&value));
-    EXPECT_EQ("set: CREATE hint for \"/test/var1\" ZooKeeper object was "
-            "incorrect: object already exists",
+    EXPECT_EQ("setInternal: CREATE hint for \"/test/var1\" ZooKeeper object "
+            "was incorrect: object already exists",
             TestLog::get());
 }
-TEST_F(ZooStorageTest, set_createError) {
+TEST_F(ZooStorageTest, setInternal_createError) {
     EXPECT_THROW(zoo->set(ExternalStorage::Hint::CREATE, "bogusName",
             "value1"), FatalError);
     EXPECT_EQ("handleError: ZooKeeper API error: bad arguments",
             TestLog::get());
 }
-TEST_F(ZooStorageTest, set_updateSucess) {
+TEST_F(ZooStorageTest, setInternal_updateSucess) {
     Buffer value;
     zoo->set(ExternalStorage::Hint::CREATE, "/test", "value1");
     zoo->set(ExternalStorage::Hint::UPDATE, "/test", "value2");
@@ -284,16 +285,16 @@ TEST_F(ZooStorageTest, set_updateSucess) {
     EXPECT_EQ("value2", TestUtil::toString(&value));
     EXPECT_EQ("", TestLog::get());
 }
-TEST_F(ZooStorageTest, set_updateHintIncorrect) {
+TEST_F(ZooStorageTest, setInternal_updateHintIncorrect) {
     Buffer value;
     zoo->set(ExternalStorage::Hint::UPDATE, "/test/var1", "value1");
     EXPECT_TRUE(zoo->get("/test/var1", &value));
     EXPECT_EQ("value1", TestUtil::toString(&value));
-    EXPECT_EQ("set: UPDATE hint for \"/test/var1\" ZooKeeper object was "
-            "incorrect: object doesn't exist",
+    EXPECT_EQ("setInternal: UPDATE hint for \"/test/var1\" ZooKeeper object "
+            "was incorrect: object doesn't exist",
             TestLog::get());
 }
-TEST_F(ZooStorageTest, set_updateError) {
+TEST_F(ZooStorageTest, setInternal_updateError) {
     EXPECT_THROW(zoo->set(ExternalStorage::Hint::UPDATE, "bogusName",
             "value1"), FatalError);
     EXPECT_EQ("handleError: ZooKeeper API error: bad arguments",
@@ -314,7 +315,10 @@ TEST_F(ZooStorageTest, checkLeader_objectDoesntExist) {
     zoo->leaderObject = "/test";
     zoo->leaderInfo = "Leader Info";
     zoo->renewLeaseIntervalCycles = Cycles::fromSeconds(1000.0);
-    EXPECT_TRUE(zoo->checkLeader());
+    {
+        ZooStorage::Lock lock(zoo->mutex);
+        EXPECT_TRUE(zoo->checkLeader(lock));
+    }
     EXPECT_EQ("checkLeader: Became leader (no existing leader)",
                 TestLog::get());
     zoo->get("/test", &value);
@@ -326,20 +330,27 @@ TEST_F(ZooStorageTest, checkLeader_createParentNode) {
     zoo->leaderObject = "/test/leader";
     zoo->leaderInfo = "Leader Info";
     EXPECT_FALSE(zoo->get("/test", &value));
-    EXPECT_FALSE(zoo->checkLeader());
+    {
+        ZooStorage::Lock lock(zoo->mutex);
+        EXPECT_FALSE(zoo->checkLeader(lock));
+    }
     EXPECT_TRUE(zoo->get("/test", &value));
 
     // Second attempt should succeed.
-    EXPECT_TRUE(zoo->checkLeader());
+    {
+        ZooStorage::Lock lock(zoo->mutex);
+        EXPECT_TRUE(zoo->checkLeader(lock));
+    }
     EXPECT_EQ("checkLeader: Became leader (no existing leader)",
                 TestLog::get());
     zoo->get("/test/leader", &value);
     EXPECT_EQ("Leader Info", TestUtil::toString(&value));
 }
 TEST_F(ZooStorageTest, checkLeader_unrecoverableError) {
+    ZooStorage::Lock lock(zoo->mutex);
     zoo->leaderObject = "bogusName";
     zoo->leaderInfo = "Leader Info";
-    EXPECT_THROW(zoo->checkLeader(), FatalError);
+    EXPECT_THROW(zoo->checkLeader(lock), FatalError);
     EXPECT_EQ("handleError: ZooKeeper API error: bad arguments",
             TestLog::get());
 }
@@ -348,14 +359,20 @@ TEST_F(ZooStorageTest, checkLeader_leaderAlive) {
     zoo->leaderObject = "/test/leader";
     zoo->leaderInfo = "Leader Info";
     zoo->set(ExternalStorage::Hint::CREATE, "/test/leader", "old leader v1");
-    EXPECT_FALSE(zoo->checkLeader());
+    {
+        ZooStorage::Lock lock(zoo->mutex);
+        EXPECT_FALSE(zoo->checkLeader(lock));
+    }
     zoo->get("/test/leader", &value);
     EXPECT_EQ("old leader v1", TestUtil::toString(&value));
     int32_t oldVersion = zoo->leaderVersion;
 
     // Try again, after updating the leader object.
     zoo->set(ExternalStorage::Hint::CREATE, "/test/leader", "old leader v2");
-    EXPECT_FALSE(zoo->checkLeader());
+    {
+        ZooStorage::Lock lock(zoo->mutex);
+        EXPECT_FALSE(zoo->checkLeader(lock));
+    }
     EXPECT_NE(oldVersion, zoo->leaderVersion);
     zoo->get("/test/leader", &value);
     EXPECT_EQ("old leader v2", TestUtil::toString(&value));
@@ -366,8 +383,11 @@ TEST_F(ZooStorageTest, checkLeader_oldLeaderInactive) {
     zoo->leaderInfo = "Leader Info";
     zoo->renewLeaseIntervalCycles = Cycles::fromSeconds(1000.0);
     zoo->set(ExternalStorage::Hint::CREATE, "/test/leader", "locator:old");
-    EXPECT_FALSE(zoo->checkLeader());
-    EXPECT_TRUE(zoo->checkLeader());
+    {
+        ZooStorage::Lock lock(zoo->mutex);
+        EXPECT_FALSE(zoo->checkLeader(lock));
+        EXPECT_TRUE(zoo->checkLeader(lock));
+    }
     EXPECT_EQ("checkLeader: Became leader (old leader info "
             "was \"locator:old\")", TestLog::get());
     zoo->get("/test/leader", &value);
@@ -376,56 +396,66 @@ TEST_F(ZooStorageTest, checkLeader_oldLeaderInactive) {
 }
 
 TEST_F(ZooStorageTest, close) {
-    zoo->close();
-    EXPECT_TRUE(zoo->zoo == NULL);
-    EXPECT_EQ("close: ZooKeeper connection closed",
-            TestLog::get());
-    TestLog::reset();
-    zoo->close();
-    EXPECT_EQ("", TestLog::get());
+    {
+        ZooStorage::Lock lock(zoo->mutex);
+        zoo->close(lock);
+        EXPECT_TRUE(zoo->zoo == NULL);
+        EXPECT_EQ("close: ZooKeeper connection closed",
+                TestLog::get());
+        TestLog::reset();
+        zoo->close(lock);
+        EXPECT_EQ("", TestLog::get());
+    }
     zoo.destroy();
 }
 
 TEST_F(ZooStorageTest, createParent_severalLevels) {
     Buffer value;
-    zoo->createParent("/test/a/b/c");
+    {
+        ZooStorage::Lock lock(zoo->mutex);
+        zoo->createParent(lock, "/test/a/b/c");
+
+    }
     EXPECT_TRUE(zoo->get("/test/a", &value));
     EXPECT_TRUE(zoo->get("/test/a/b", &value));
     EXPECT_FALSE(zoo->get("/test/a/b/c", &value));
 }
 TEST_F(ZooStorageTest, createParent_bogusName) {
+    ZooStorage::Lock lock(zoo->mutex);
     Buffer value;
-    EXPECT_THROW(zoo->createParent("noSlashes"), FatalError);
+    EXPECT_THROW(zoo->createParent(lock, "noSlashes"), FatalError);
     EXPECT_EQ("createParent: ZooKeeper node name \"noSlashes\" "
             "contains no slashes",
             TestLog::get());
 }
 
 TEST_F(ZooStorageTest, handleError_reopenConnection) {
-    EXPECT_NO_THROW(zoo->handleError(ZINVALIDSTATE));
+    ZooStorage::Lock lock(zoo->mutex);
+    EXPECT_NO_THROW(zoo->handleError(lock, ZINVALIDSTATE));
     EXPECT_EQ("handleError: ZooKeeper error (invalid zhandle state): "
             "reopening connection | close: ZooKeeper connection closed | "
             "open: ZooKeeper connection opened: localhost:2181",
             TestLog::get());
     TestLog::reset();
-    EXPECT_NO_THROW(zoo->handleError(ZSYSTEMERROR));
+    EXPECT_NO_THROW(zoo->handleError(lock, ZSYSTEMERROR));
     EXPECT_EQ("handleError: ZooKeeper error (system error): "
             "reopening connection | close: ZooKeeper connection closed | "
             "open: ZooKeeper connection opened: localhost:2181",
             TestLog::get());
     TestLog::reset();
-    EXPECT_NO_THROW(zoo->handleError(ZSESSIONEXPIRED));
+    EXPECT_NO_THROW(zoo->handleError(lock, ZSESSIONEXPIRED));
     EXPECT_EQ("handleError: ZooKeeper error (session expired): "
             "reopening connection | close: ZooKeeper connection closed | "
             "open: ZooKeeper connection opened: localhost:2181",
             TestLog::get());
 }
 TEST_F(ZooStorageTest, handleError_throwError) {
-    EXPECT_THROW(zoo->handleError(ZBADARGUMENTS), FatalError);
+    ZooStorage::Lock lock(zoo->mutex);
+    EXPECT_THROW(zoo->handleError(lock, ZBADARGUMENTS), FatalError);
     EXPECT_EQ("handleError: ZooKeeper API error: bad arguments",
             TestLog::get());
     TestLog::reset();
-    EXPECT_THROW(zoo->handleError(ZNONODE), FatalError);
+    EXPECT_THROW(zoo->handleError(lock, ZNONODE), FatalError);
     EXPECT_EQ("handleError: ZooKeeper API error: no node",
             TestLog::get());
 }
