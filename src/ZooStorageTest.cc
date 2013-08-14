@@ -169,8 +169,7 @@ TEST_F(ZooStorageTest, getChildren_notLeader) {
 }
 TEST_F(ZooStorageTest, getChildren_noSuchObject) {
     vector<ZooStorage::Object> children;
-    char* null = NULL;
-    children.emplace_back(null, null, 0);
+    children.emplace_back("a", "b", 1);
     zoo->getChildren("/test/bogus", &children);
     EXPECT_EQ(0u, children.size());
 }

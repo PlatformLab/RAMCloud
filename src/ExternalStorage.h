@@ -64,7 +64,7 @@ class ExternalStorage {
         /// Length of value, in bytes.
         int length;
 
-        Object(char* name, char* value, int length);
+        Object(const char* name, const char* value, int length);
         ~Object();
 
         // The following constructors are provided so that Objects can
