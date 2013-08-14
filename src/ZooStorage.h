@@ -17,6 +17,7 @@
 #define RAMCLOUD_ZOOSTORAGE_H
 
 #include "ExternalStorage.h"
+#include "WorkerTimer.h"
 #include "zookeeper/zookeeper.h"
 
 namespace RAMCloud {
@@ -28,22 +29,72 @@ namespace RAMCloud {
  */
 class ZooStorage: public ExternalStorage {
   PUBLIC:
-    explicit ZooStorage(string* serverInfo);
+    explicit ZooStorage(string* serverInfo, Dispatch* dispatch);
     virtual ~ZooStorage();
-    virtual void becomeLeader(const char* name, const string* serverInfo);
+    virtual void becomeLeader(const char* name, const string* leaderInfo);
     virtual bool get(const char* name, Buffer* value);
     virtual void getChildren(const char* name, vector<Object>* children);
     virtual void remove(const char* name);
     virtual void set(Hint flavor, const char* name, const char* value,
             int valueLength = -1);
+    virtual void setLeaderInfo(const string* leaderInfo);
 
   PRIVATE:
+    /**
+     * This class is used to update the leader object in order to
+     * maintain the leader's legitimacy.
+     */
+    class LeaseRenewer: public WorkerTimer {
+      public:
+        explicit LeaseRenewer(ZooStorage* zooStorage);
+        virtual ~LeaseRenewer() {}
+        virtual void handleTimerEvent();
+
+        /// Copy of constructor argument:
+        ZooStorage* zooStorage;
+
+      private:
+        DISALLOW_COPY_AND_ASSIGN(LeaseRenewer);
+    };
+
     /// Copy of serverInfo argument from constructor.
     string serverInfo;
 
     /// Information about the current ZooKeeper connection, or NULL
     /// if none.
     zhandle_t* zoo;
+
+    /// Indicates whether we are currently acting as a valid leader.
+    bool leader;
+
+    /// If we are unable to connect to the ZooKeeper server, this variable
+    /// determines how often we retry (units: milliseconds).
+    int connectionRetryMs;
+
+    /// When a server is waiting to become a leader, it checks the leader
+    /// object this often (units: milliseconds); if the object hasn't changed
+    /// since the last check, the current server attempts to become leader.
+    int checkLeaderIntervalMs;
+
+    /// When a server is leader, it renews its lease this often (units: rdtsc
+    /// cycles). This value must be quite a bit less than
+    /// checkLeaderIntervalCycles.  A value of zero is used during testing;
+    /// it means "don't renew the lease or even start the timer".
+    uint64_t renewLeaseIntervalCycles;
+
+    /// If a problem of some sort prevents the lease from being renewed,
+    /// the leader tries again this often (units: rdtsc cycles). The goal
+    /// is to have enough time to retry several times (after an initial
+    /// delay of renewLeaseIntervalCycles) before checkLeaderIntervalCycles
+    /// elapses and we lose leadership.
+    uint64_t renewLeaseRetryCycles;
+
+    /// This variable holds the most recently seen version number of the
+    /// leader object; -1 means that we haven't yet read a version number.
+    /// During leader election, this allows us to tell if the current leader
+    /// has updated leader object. Once we become leader, it allows us to
+    /// detect if we lose leadership.
+    int32_t leaderVersion;
 
     /// Copy of name argument from becomeLeader: name of the object used
     /// for leader election and identification. The current leader renews
@@ -57,19 +108,11 @@ class ZooStorage: public ExternalStorage {
     /// has not been invoked yet.
     string leaderInfo;
 
-    /// This variable is used during leader election; it holds the version
-    /// number read previously from the leader object.  -1 means that we
-    /// haven't yet read a version number.
-    int32_t leaderVersion;
+    /// Used to update leaderObject.
+    Tub<LeaseRenewer> leaseRenewer;
 
-    /// If we are unable to connect to ZooKeeper server, this variable
-    /// determines how often we retry (units: milliseconds).
-    static const int CONNECTION_RETRY_MS = 1000;
-
-    /// When a server is waiting to become a leader, it checks the leader
-    /// object this often; if the object hasn't changed since the last check,
-    /// the current server attempts to become leader.
-    static const int CHECK_LEADER_INTERVAL_MS = 200;
+    /// Used for scheduling leaseRenewer.
+    Dispatch* dispatch;
 
     bool checkLeader();
     void close();
@@ -77,6 +120,7 @@ class ZooStorage: public ExternalStorage {
     void handleError(int status);
     void open();
     const char* stateString(int state);
+    void updateLeaderObject();
 
     DISALLOW_COPY_AND_ASSIGN(ZooStorage);
 };
