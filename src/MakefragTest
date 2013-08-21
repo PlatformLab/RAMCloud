@@ -32,6 +32,7 @@ TESTS_SRCFILES := \
 		  src/CoordinatorServiceRecoveryTest.cc \
 		  src/CoordinatorServiceTest.cc \
 		  src/CoordinatorSessionTest.cc \
+		  src/CoordinatorUpdateManagerTest.cc \
 		  src/Crc32CTest.cc \
 		  src/CyclesTest.cc \
 		  src/DispatchTest.cc \

@@ -96,7 +96,7 @@ TEST_F(MockExternalStorageTest, remove) {
 TEST_F(MockExternalStorageTest, set) {
     storage.set(ExternalStorage::CREATE, "/a/b/c", "xyzzy", 5);
     storage.set(ExternalStorage::UPDATE, "/x1", "99", 5);
-    EXPECT_EQ("set(CREATE, /a/b/c, xyzzy); set(UPDATE, /x1, 99)", storage.log);
+    EXPECT_EQ("set(CREATE, /a/b/c); set(UPDATE, /x1)", storage.log);
 }
 
 TEST_F(MockExternalStorageTest, setLeaderInfo) {
