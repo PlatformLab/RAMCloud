@@ -32,6 +32,7 @@ MockExternalStorage::MockExternalStorage(bool generateLog)
     , getResults()
     , getChildrenNames()
     , getChildrenValues()
+    , setData()
 {}
 
 /**
@@ -100,11 +101,10 @@ MockExternalStorage::set(Hint flavor, const char* name, const char* value,
         int valueLength)
 {
     if (generateLog) {
-        logAppend(format("set(%s, %s, %.*s)",
-                (flavor == Hint::CREATE) ? "CREATE" : "UPDATE", name,
-                (valueLength != 0) ? valueLength : downCast<int>(strlen(value)),
-                value));
+        logAppend(format("set(%s, %s)",
+                (flavor == Hint::CREATE) ? "CREATE" : "UPDATE", name));
     }
+    setData.assign(value, downCast<size_t>(valueLength));
 }
 
 // See documentation for ExternalStorage::setLeaderInfo.

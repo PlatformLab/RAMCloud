@@ -65,6 +65,9 @@ class MockExternalStorage: public ExternalStorage {
     std::queue<std::string> getChildrenNames;
     std::queue<std::string> getChildrenValues;
 
+    /// Holds the data from the last call to "set".
+    std::string setData;
+
     void logAppend(const std::string& record);
 
     DISALLOW_COPY_AND_ASSIGN(MockExternalStorage);

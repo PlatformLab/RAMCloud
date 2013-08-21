@@ -15,12 +15,14 @@ COORDINATOR_SRCFILES := \
 			src/CoordinatorServerList.cc \
 			src/CoordinatorService.cc \
 			src/CoordinatorServiceRecovery.cc \
+			src/CoordinatorUpdateManager.cc \
 			src/LogCabinHelper.cc \
 			src/MasterRecoveryManager.cc \
 			src/Tablet.cc \
 			src/TableManager.cc \
 			src/Recovery.cc \
 			src/RuntimeOptions.cc \
+			src/CoordinatorUpdateInfo.pb.cc \
 			$(LOGCABIN_STATE_PROTOBUF_FILES) \
 			$(NULL)
 
