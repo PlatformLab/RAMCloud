@@ -25,6 +25,7 @@ namespace RAMCloud {
 using namespace MasterRecoveryManagerInternal; // NOLINT
 
 struct MasterRecoveryManagerTest : public ::testing::Test {
+    TestLog::Enable logEnabler;
     Context context;
     MockCluster cluster;
     CoordinatorService* service;
@@ -36,7 +37,8 @@ struct MasterRecoveryManagerTest : public ::testing::Test {
     typedef std::unique_lock<std::mutex> Lock;
 
     MasterRecoveryManagerTest()
-        : context()
+        : logEnabler()
+        , context()
         , cluster(&context)
         , service()
         , serverList()

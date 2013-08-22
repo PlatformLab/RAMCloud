@@ -29,15 +29,14 @@ namespace RAMCloud {
  */
 class ZooStorage: public ExternalStorage {
   PUBLIC:
-    explicit ZooStorage(string* serverInfo, Dispatch* dispatch);
+    explicit ZooStorage(string& serverInfo, Dispatch* dispatch);
     virtual ~ZooStorage();
-    virtual void becomeLeader(const char* name, const string* leaderInfo);
+    virtual void becomeLeader(const char* name, const string& leaderInfo);
     virtual bool get(const char* name, Buffer* value);
     virtual void getChildren(const char* name, vector<Object>* children);
     virtual void remove(const char* name);
     virtual void set(Hint flavor, const char* name, const char* value,
             int valueLength = -1);
-    virtual void setLeaderInfo(const string* leaderInfo);
 
   PRIVATE:
     /**

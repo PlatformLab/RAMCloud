@@ -50,6 +50,7 @@ struct MockServerTracker : public ServerTracker<int> {
 
 class CoordinatorServerListTest : public ::testing::Test {
   public:
+    TestLog::Enable logEnabler;
     Context context;
     MockCluster cluster;
     Tub<RamCloud> ramcloud;
@@ -64,7 +65,8 @@ class CoordinatorServerListTest : public ::testing::Test {
     LogCabin::Client::Log* logCabinLog;
 
     CoordinatorServerListTest()
-        : context()
+        : logEnabler()
+        , context()
         , cluster(&context)
         , ramcloud()
         , master()

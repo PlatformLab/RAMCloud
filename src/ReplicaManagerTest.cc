@@ -24,6 +24,7 @@
 namespace RAMCloud {
 
 struct ReplicaManagerTest : public ::testing::Test {
+    TestLog::Enable logEnabler;
     Context context;
     ServerList serverList;
     MockCluster cluster;
@@ -34,7 +35,8 @@ struct ReplicaManagerTest : public ::testing::Test {
     ServerId backup2Id;
 
     ReplicaManagerTest()
-        : context()
+        : logEnabler()
+        , context()
         , serverList(&context)
         , cluster(&context)
         , segmentSize(1 << 16)

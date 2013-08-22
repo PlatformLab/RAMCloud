@@ -24,6 +24,7 @@ namespace RAMCloud {
 
 class RamCloudTest : public ::testing::Test {
   public:
+    TestLog::Enable logEnabler;
     Context context;
     MockCluster cluster;
     Tub<RamCloud> ramcloud;
@@ -33,7 +34,8 @@ class RamCloudTest : public ::testing::Test {
 
   public:
     RamCloudTest()
-        : context()
+        : logEnabler()
+        , context()
         , cluster(&context)
         , ramcloud()
         , tableId1(-1)
@@ -225,7 +227,6 @@ TEST_F(RamCloudTest, increment) {
 }
 
 TEST_F(RamCloudTest, quiesce) {
-    TestLog::Enable _;
     ServerConfig config = ServerConfig::forTesting();
     config.services = {WireFormat::BACKUP_SERVICE, WireFormat::PING_SERVICE};
     config.localLocator = "mock:host=backup1";
@@ -318,7 +319,7 @@ TEST_F(RamCloudTest, getRuntimeOption){
 }
 
 TEST_F(RamCloudTest, testingKill) {
-    TestLog::Enable _;
+    TestLog::reset();
     cluster.servers[0]->ping->ignoreKill = true;
     // Create the RPC object directly rather than calling testingKill
     // (testingKill would hang in objectFinder.waitForTabletDown).

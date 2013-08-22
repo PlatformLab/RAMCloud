@@ -26,12 +26,14 @@
 namespace RAMCloud {
 
 struct BackupSelectorTest : public ::testing::Test {
+    TestLog::Enable logEnabler;
     Context context;
     MockCluster cluster;
     BackupSelector* selector;
 
     BackupSelectorTest()
-        : context()
+        : logEnabler()
+        , context()
         , cluster(&context)
         , selector()
     {

@@ -121,7 +121,7 @@ TEST_F(CoordinatorUpdateManagerTest, nextSequenceNumber) {
     TestLog::reset();
     storage.log.clear();
     EXPECT_EQ(1000ul, manager.nextSequenceNumber());
-    EXPECT_EQ("set(UPDATE, coordinatorUpdateInfo)",
+    EXPECT_EQ("set(UPDATE, /coordinatorUpdateInfo)",
             storage.log);
     EXPECT_EQ("1000 -- F", toString());
 
@@ -165,7 +165,7 @@ TEST_F(CoordinatorUpdateManagerTest, uupdateFinished_sync) {
     manager.updateFinished(1001);
     EXPECT_EQ("", storage.log);
     manager.updateFinished(1002);
-    EXPECT_EQ("set(UPDATE, coordinatorUpdateInfo)", storage.log);
+    EXPECT_EQ("set(UPDATE, /coordinatorUpdateInfo)", storage.log);
     storage.log.clear();
     manager.updateFinished(1003);
     EXPECT_EQ("", storage.log);

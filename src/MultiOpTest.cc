@@ -28,6 +28,7 @@ namespace RAMCloud {
 // Tests that use MultiRead will be marked as so.
 class MultiOpTest : public ::testing::Test {
   public:
+    TestLog::Enable logEnabler;
     Context context;
     MockCluster cluster;
     Tub<RamCloud> ramcloud;
@@ -41,7 +42,8 @@ class MultiOpTest : public ::testing::Test {
 
   public:
     MultiOpTest()
-        : context()
+        : logEnabler()
+        , context()
         , cluster(&context)
         , ramcloud()
         , tableId1(-1)

@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2012 Stanford University
+/* Copyright (c) 2009-2013 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -25,6 +25,7 @@
 #include "ClientException.h"
 #include "CoordinatorServerList.h"
 #include "CoordinatorServiceRecovery.h"
+#include "CoordinatorUpdateManager.h"
 #include "LogCabinHelper.h"
 #include "MasterRecoveryManager.h"
 #include "RawMetrics.h"
@@ -148,6 +149,12 @@ class CoordinatorService : public Service {
      * Handles recovery of a coordinator.
      */
     CoordinatorServiceRecovery coordinatorRecovery;
+
+    /**
+     * Keeps track of incomplete operations, for use in recovery by
+     * our successor if we crash.
+     */
+    CoordinatorUpdateManager updateManager;
 
     /**
      * Handle to the cluster of LogCabin which provides reliable, consistent

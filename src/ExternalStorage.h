@@ -137,7 +137,7 @@ class ExternalStorage {
      *      can use to connect), which will be stored in the object given
      *      by "name" once we become leader.
      */
-    virtual void becomeLeader(const char* name, const string* leaderInfo) = 0;
+    virtual void becomeLeader(const char* name, const string& leaderInfo) = 0;
 
     /**
      * Read one object from external storage.
@@ -212,21 +212,6 @@ class ExternalStorage {
      */
     virtual void set(Hint flavor, const char* name, const char* value,
             int valueLength = -1) = 0;
-
-    /**
-     * This method is called to modified by the current leader to modified
-     * information about it that is kept in external storage (this is the
-     * same information that was originally set when becomeLeader was
-     * invoked). This information is not immediately propagated to the
-     * external server; it will be written to the server during the next
-     * operation that renews the leader's lease.
-     *
-     *  \param leaderInfo
-     *      Information about this server (e.g., service locator that clients
-     *      can use to connect), which will eventually be stored in the object
-     *      specified by the name argument to becomeLeader.
-     */
-    virtual void setLeaderInfo(const string* leaderInfo) = 0;
 
     DISALLOW_COPY_AND_ASSIGN(ExternalStorage);
 };

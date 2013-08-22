@@ -25,6 +25,7 @@ namespace RAMCloud {
 
 class MultiRemoveTest : public ::testing::Test {
   public:
+    TestLog::Enable logEnabler;
     Context context;
     MockCluster cluster;
     Tub<RamCloud> ramcloud;
@@ -38,7 +39,8 @@ class MultiRemoveTest : public ::testing::Test {
 
   public:
     MultiRemoveTest()
-        : context()
+        : logEnabler()
+        , context()
         , cluster(&context)
         , ramcloud()
         , tableId1(-1)

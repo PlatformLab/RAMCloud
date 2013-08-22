@@ -18,6 +18,7 @@ COORDINATOR_SRCFILES := \
 			src/CoordinatorUpdateManager.cc \
 			src/LogCabinHelper.cc \
 			src/MasterRecoveryManager.cc \
+			src/MockExternalStorage.cc \
 			src/Tablet.cc \
 			src/TableManager.cc \
 			src/Recovery.cc \

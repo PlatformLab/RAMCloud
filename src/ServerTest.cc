@@ -27,13 +27,15 @@ namespace RAMCloud {
 
 class ServerTest: public ::testing::Test {
   public:
+    TestLog::Enable logEnabler;
     Context context;
     MockCluster cluster;
     ServerConfig config;
     Tub<Server> server;
 
     ServerTest()
-        : context()
+        : logEnabler()
+        , context()
         , cluster(&context)
         , config(ServerConfig::forTesting())
         , server()
@@ -55,7 +57,6 @@ class ServerTest: public ::testing::Test {
 };
 
 TEST_F(ServerTest, startForTesting) {
-    TestLog::Enable _;
     server->startForTesting(cluster.transport);
     cluster.syncCoordinatorServerList();
     PingClient::ping(&context, server->serverId, ServerId());

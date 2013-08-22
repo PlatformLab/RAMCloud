@@ -70,6 +70,7 @@ class MasterServiceRefresher : public ObjectFinder::TabletMapFetcher {
 
 class MasterServiceTest : public ::testing::Test {
   public:
+    TestLog::Enable logEnabler;
     Context context;
     ServerList serverList;
     MockCluster cluster;
@@ -89,7 +90,8 @@ class MasterServiceTest : public ::testing::Test {
     // apparently template easily on that, we need to subclass this if we want
     // to provide a fixture with a different value.
     explicit MasterServiceTest(uint32_t segmentSize = 256 * 1024)
-        : context()
+        : logEnabler()
+        , context()
         , serverList(&context)
         , cluster(&context)
         , ramcloud()
@@ -1692,6 +1694,7 @@ TEST_F(MasterServiceFullSegmentSizeTest, write_maximumObjectSize) {
 
 class MasterRecoverTest : public ::testing::Test {
   public:
+    TestLog::Enable logEnabler;
     Context context;
     MockCluster cluster;
     const uint32_t segmentSize;
@@ -1701,7 +1704,8 @@ class MasterRecoverTest : public ::testing::Test {
 
     public:
     MasterRecoverTest()
-        : context()
+        : logEnabler()
+        , context()
         , cluster(&context)
         , segmentSize(1 << 16)  // Smaller than usual to make tests faster.
         , segmentFrames(30)     // Master's log uses one when constructed.

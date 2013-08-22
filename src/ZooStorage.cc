@@ -35,9 +35,9 @@ namespace RAMCloud {
  *      becomeLeader is never going to be invoked, then this can be
  *      specified as NULL.
  */
-ZooStorage::ZooStorage(string* serverInfo, Dispatch* dispatch)
+ZooStorage::ZooStorage(string& serverInfo, Dispatch* dispatch)
     : mutex()
-    , serverInfo(*serverInfo)
+    , serverInfo(serverInfo)
     , zoo(NULL)
     , leader(false)
     , connectionRetryMs(0)
@@ -75,11 +75,11 @@ ZooStorage::~ZooStorage()
 
 // See documentation for ExternalStorage::becomeLeader.
 void
-ZooStorage::becomeLeader(const char* name, const string* leaderInfo)
+ZooStorage::becomeLeader(const char* name, const string& leaderInfo)
 {
     Lock lock(mutex);
     this->leaderObject = name;
-    this->leaderInfo = *leaderInfo;
+    this->leaderInfo = leaderInfo;
     while (1) {
         if (checkLeader(lock)) {
             return;
@@ -337,13 +337,6 @@ ZooStorage::setInternal(Lock& lock, Hint flavor, const char* name,
         }
         handleError(lock, status);
     }
-}
-
-// See documentation for ExternalStorage::setLeaderInfo.
-void ZooStorage::setLeaderInfo(const string* leaderInfo)
-{
-    Lock lock(mutex);
-    this->leaderInfo = *leaderInfo;
 }
 
 /**
