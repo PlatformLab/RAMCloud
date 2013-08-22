@@ -59,7 +59,7 @@ uint64_t CoordinatorUpdateManager::init()
 {
     Lock lock(mutex);
     Buffer externalData;
-    if (!storage->get("coordinatorUpdateInfo", &externalData)) {
+    if (!storage->get("/coordinatorUpdateInfo", &externalData)) {
         RAMCLOUD_LOG(WARNING, "couldn't find \"coordinatorUpdateInfo\" object "
                 "in external storage; starting new cluster from scratch");
         externalLastFinished = 0;
@@ -159,7 +159,7 @@ CoordinatorUpdateManager::sync(Lock& lock)
 
     string str;
     info.SerializeToString(&str);
-    storage->set(ExternalStorage::UPDATE, "coordinatorUpdateInfo", str.c_str(),
+    storage->set(ExternalStorage::UPDATE, "/coordinatorUpdateInfo", str.c_str(),
             downCast<int>(str.length()));
 }
 

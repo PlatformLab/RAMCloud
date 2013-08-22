@@ -59,13 +59,15 @@ struct Refresher : public ObjectFinder::TabletMapFetcher {
 
 class ObjectFinderTest : public ::testing::Test {
   public:
+    TestLog::Enable logEnabler;
     Context context;
     MockCluster cluster;
     Tub<ObjectFinder> objectFinder;
     Refresher* refresher;
 
     ObjectFinderTest()
-        : context()
+        : logEnabler()
+        , context()
         , cluster(&context)
         , objectFinder()
         , refresher()

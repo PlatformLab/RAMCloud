@@ -54,8 +54,7 @@ class MockExternalStorageTest : public ::testing::Test {
 };
 
 TEST_F(MockExternalStorageTest, becomeLeader) {
-    string info("abcde");
-    storage.becomeLeader("leaderName", &info);
+    storage.becomeLeader("leaderName", "abcde");
     EXPECT_EQ("becomeLeader(leaderName, abcde)", storage.log);
 }
 
@@ -95,15 +94,9 @@ TEST_F(MockExternalStorageTest, remove) {
 
 TEST_F(MockExternalStorageTest, set) {
     storage.set(ExternalStorage::CREATE, "/a/b/c", "xyzzy", 5);
-    storage.set(ExternalStorage::UPDATE, "/x1", "99", 5);
+    storage.set(ExternalStorage::UPDATE, "/x1", "99");
     EXPECT_EQ("set(CREATE, /a/b/c); set(UPDATE, /x1)", storage.log);
-}
-
-TEST_F(MockExternalStorageTest, setLeaderInfo) {
-    string info("12345");
-    storage.setLeaderInfo(&info);
-    EXPECT_EQ("setLeaderInfo(12345)", storage.log);
-    EXPECT_EQ("12345", storage.leaderInfo);
+    EXPECT_EQ("99", storage.setData);
 }
 
 TEST_F(MockExternalStorageTest, logAppend) {

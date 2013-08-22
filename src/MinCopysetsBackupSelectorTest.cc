@@ -27,6 +27,7 @@
 namespace RAMCloud {
 
 struct MinCopysetsBackupSelectorTest : public ::testing::Test {
+    TestLog::Enable logEnabler;
     Context context;
     MockCluster cluster;
     MinCopysetsBackupSelector* selector;
@@ -34,7 +35,8 @@ struct MinCopysetsBackupSelectorTest : public ::testing::Test {
     std::vector<ServerId> ids;
 
     MinCopysetsBackupSelectorTest()
-        : context()
+        : logEnabler()
+        , context()
         , cluster(&context)
         , selector()
         , sl()

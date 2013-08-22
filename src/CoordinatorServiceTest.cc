@@ -28,6 +28,7 @@ namespace RAMCloud {
 
 class CoordinatorServiceTest : public ::testing::Test {
   public:
+    TestLog::Enable logEnabler;
     Context context;
     ServerConfig masterConfig;
     MockCluster cluster;
@@ -37,7 +38,8 @@ class CoordinatorServiceTest : public ::testing::Test {
     ServerId masterServerId;
 
     CoordinatorServiceTest()
-        : context()
+        : logEnabler()
+        , context()
         , masterConfig(ServerConfig::forTesting())
         , cluster(&context)
         , ramcloud()

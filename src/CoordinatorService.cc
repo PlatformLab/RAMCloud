@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2012 Stanford University
+/* Copyright (c) 2009-2013 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -28,9 +28,22 @@
 
 namespace RAMCloud {
 
+/*
+ * Construct a CoordinatorService.
+ *
+ * \param context
+ *      Overall information about the RAMCloud server.
+ * \param deadServerTimeout
+ *      Servers are presumed dead if they cannot respond to a ping request
+ *      in this many milliseconds.
+ * \param logCabinLocator
+ *      Information about how to connect to the LogCabin cluster.
+ * \param startRecoveryManager
+ *      True means we should start the thread that manages crash recovery.
+ */
 CoordinatorService::CoordinatorService(Context* context,
                                        uint32_t deadServerTimeout,
-                                       string LogCabinLocator,
+                                       string logCabinLocator,
                                        bool startRecoveryManager)
     : context(context)
     , serverList(context->coordinatorServerList)
@@ -39,19 +52,20 @@ CoordinatorService::CoordinatorService(Context* context,
     , runtimeOptions()
     , recoveryManager(context, *tableManager, &runtimeOptions)
     , coordinatorRecovery(*this)
+    , updateManager(context->externalStorage)
     , logCabinCluster()
     , logCabinLog()
     , logCabinHelper()
     , expectedEntryId(LogCabin::Client::NO_ID)
     , forceServerDownForTesting(false)
 {
-    if (strcmp(LogCabinLocator.c_str(), "testing") == 0) {
+    if (strcmp(logCabinLocator.c_str(), "testing") == 0) {
         LOG(NOTICE, "Connecting to mock LogCabin cluster for testing.");
         logCabinCluster.construct(LogCabin::Client::Cluster::FOR_TESTING);
     } else {
         LOG(NOTICE, "Connecting to LogCabin cluster at %s",
-                    LogCabinLocator.c_str());
-        logCabinCluster.construct(LogCabinLocator);
+                    logCabinLocator.c_str());
+        logCabinCluster.construct(logCabinLocator);
     }
     logCabinLog.construct(logCabinCluster->openLog("coordinator"));
     logCabinHelper.construct(*logCabinLog);
@@ -73,6 +87,8 @@ CoordinatorService::CoordinatorService(Context* context,
 
     // Replay the entire log (if any) before we start servicing the RPCs.
     coordinatorRecovery.replay();
+
+    updateManager.init();
 }
 
 CoordinatorService::~CoordinatorService()

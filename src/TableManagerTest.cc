@@ -25,6 +25,7 @@ namespace RAMCloud {
 
 class TableManagerTest : public ::testing::Test {
   public:
+    TestLog::Enable logEnabler;
     Context context;
     MockCluster cluster;
     MasterService* master; // Unit tests need to call enlistMaster()
@@ -43,7 +44,8 @@ class TableManagerTest : public ::testing::Test {
     typedef std::unique_lock<std::mutex> Lock;
 
     TableManagerTest()
-        : context()
+        : logEnabler()
+        , context()
         , cluster(&context)
         , master()
         , masterConfig(ServerConfig::forTesting())

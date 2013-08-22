@@ -20,6 +20,7 @@
 #include "CoordinatorService.h"
 #include "Log.h"
 #include "Logger.h"
+#include "MockExternalStorage.h"
 #include "Segment.h"
 #include "Server.h"
 #include "ServerList.h"
@@ -76,6 +77,9 @@ class MockCluster {
 
     /// Context that will be used for the cluster coordinator.
     Context coordinatorContext;
+
+    /// Dummy version for use in coordinatorContext.
+    MockExternalStorage externalStorage;
 
     /**
      * Transport the servers in the cluster use to communicate.  Unlike a

@@ -22,13 +22,15 @@ namespace RAMCloud {
 
 class LogCabinHelperTest : public ::testing::Test {
   public:
+    TestLog::Enable logEnabler;
     Context context;
     MockCluster cluster;
     LogCabinHelper* logCabinHelper;
     LogCabin::Client::Log* logCabinLog;
 
     LogCabinHelperTest()
-        : context()
+        : logEnabler()
+        , context()
         , cluster(&context)
         , logCabinHelper()
         , logCabinLog()

@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2012 Stanford University
+/* Copyright (c) 2010-2013 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -135,14 +135,18 @@ OptionParser::setup(int argc, char* argv[])
              po::value<vector<string> >(&logLevels),
              "One or more module-specific log levels, specified in the form "
              "moduleName=level")
-            ("local,L",
-             po::value<string>(&options.localLocator)->
-               default_value("fast+udp:host=0.0.0.0,port=12242"),
-             "Service locator to listen on")
             ("coordinator,C",
              po::value<string>(&options.coordinatorLocator)->
                default_value("fast+udp:host=0.0.0.0,port=12246"),
              "Service locator where the coordinator can be contacted")
+            ("externalStorage,x",
+             po::value<string>(&options.externalStorageLocator),
+             "Locator for external storage server containing cluster "
+             "configuration information")
+            ("local,L",
+             po::value<string>(&options.localLocator)->
+               default_value("fast+udp:host=0.0.0.0,port=12242"),
+             "Service locator to listen on")
             ("pcapFile",
              po::value<string>(&options.pcapFilePath)->
                default_value(""),

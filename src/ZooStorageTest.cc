@@ -37,7 +37,7 @@ class ZooStorageTest : public ::testing::Test {
         zoo_set_log_stream(devNull);
 
         string info("localhost:2181");
-        zoo.construct(&info, &dispatch);
+        zoo.construct(info, &dispatch);
 
         // For many tests it's convenient to invoke ZooKeeper without first
         // becoming leader, so just pretend we're already leader.
@@ -111,10 +111,9 @@ TEST_F(ZooStorageTest, sanityCheck) {
 
 TEST_F(ZooStorageTest, becomeLeader) {
     Buffer value;
-    string leaderInfo("locator:new");
     zoo->set(ExternalStorage::Hint::CREATE, "/test/leader", "locator:old");
     uint64_t before = Cycles::rdtsc();
-    zoo->becomeLeader("/test/leader", &leaderInfo);
+    zoo->becomeLeader("/test/leader", "locator:new");
     double elapsed = Cycles::toSeconds(Cycles::rdtsc() - before);
     EXPECT_GT(elapsed, .200);
     EXPECT_EQ("checkLeader: Became leader (old leader info "
@@ -300,15 +299,6 @@ TEST_F(ZooStorageTest, setInternal_updateError) {
             TestLog::get());
 }
 
-TEST_F(ZooStorageTest, setLeaderInfo) {
-    string info("12345");
-    zoo->setLeaderInfo(&info);
-    EXPECT_EQ("12345", zoo->leaderInfo);
-    info = "new value";
-    zoo->setLeaderInfo(&info);
-    EXPECT_EQ("new value", zoo->leaderInfo);
-}
-
 TEST_F(ZooStorageTest, checkLeader_objectDoesntExist) {
     Buffer value;
     zoo->leaderObject = "/test";
@@ -476,10 +466,8 @@ TEST_F(ZooStorageTest, stateString) {
 
 TEST_F(ZooStorageTest, LeaseRenewer_handleTimerEvent_basics) {
     zoo->renewLeaseIntervalCycles = Cycles::fromSeconds(1000.0);
-    string leaderInfo("Old leader info");
-    zoo->becomeLeader("/test/leader", &leaderInfo);
-    leaderInfo = "New leader info";
-    zoo->setLeaderInfo(&leaderInfo);
+    zoo->becomeLeader("/test/leader", "Old leader info");
+    zoo->leaderInfo = "New leader info";
     zoo->leaseRenewer->handleTimerEvent();
     Buffer value;
     zoo->get("/test/leader", &value);
@@ -489,8 +477,7 @@ TEST_F(ZooStorageTest, LeaseRenewer_handleTimerEvent_basics) {
 }
 TEST_F(ZooStorageTest, LeaseRenewer_handleTimerEvent_lostLease) {
     zoo->renewLeaseIntervalCycles = Cycles::fromSeconds(1000.0);
-    string leaderInfo("Old leader info");
-    zoo->becomeLeader("/test/leader", &leaderInfo);
+    zoo->becomeLeader("/test/leader", "Old leader info");
 
     // Simulate another leader overwriting the leader object to take control.
     zoo->set(ExternalStorage::Hint::UPDATE, "/test/leader", "New leader info");
@@ -500,8 +487,7 @@ TEST_F(ZooStorageTest, LeaseRenewer_handleTimerEvent_lostLease) {
 }
 TEST_F(ZooStorageTest, LeaseRenewer_handleTimerEvent_otherError) {
     zoo->renewLeaseIntervalCycles = Cycles::fromSeconds(1000.0);
-    string leaderInfo("Leader info");
-    zoo->becomeLeader("/test/leader", &leaderInfo);
+    zoo->becomeLeader("/test/leader", "Leader info");
 
     // Delete the leader object to force an error.
     zoo->remove("/test/leader");

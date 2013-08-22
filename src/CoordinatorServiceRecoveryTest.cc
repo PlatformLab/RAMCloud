@@ -22,13 +22,15 @@ namespace RAMCloud {
 
 class CoordinatorServiceRecoveryTest : public ::testing::Test {
   public:
+    TestLog::Enable logEnabler;
     Context context;
     MockCluster cluster;
     CoordinatorServiceRecovery* coordRecovery;
     LogCabinHelper* logCabinHelper;
 
     CoordinatorServiceRecoveryTest()
-        : context()
+        : logEnabler()
+        , context()
         , cluster(&context)
         , coordRecovery()
         , logCabinHelper()

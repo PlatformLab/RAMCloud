@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2011 Stanford University
+/* Copyright (c) 2010-2013 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -66,6 +66,7 @@ class OptionParser {
       public:
         Options()
             : coordinatorLocator()
+            , externalStorageLocator()
             , localLocator()
             , pcapFilePath()
             , transportTimeout(0)
@@ -88,6 +89,15 @@ class OptionParser {
         }
 
         /**
+         * Returns information about how to connect to an external storage
+         * server that holds coordinator configuration information.
+         */
+        const string& getExternalStorageLocator() const
+        {
+            return externalStorageLocator;
+        }
+
+        /**
          * Returns the locator the application should contact the coordinator
          * at, if any.
          */
@@ -107,6 +117,7 @@ class OptionParser {
 
       private:
         string coordinatorLocator;      ///< See getLocalLocator().
+        string externalStorageLocator;  ///< See getExternalStorageLocator().
         string localLocator;            ///< See getCoordinatorLocator().
         string pcapFilePath;            ///< Packet log file, "" to disable.
         uint32_t transportTimeout;      ///< See getTransportTimeout().

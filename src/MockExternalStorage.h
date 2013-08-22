@@ -32,13 +32,12 @@ class MockExternalStorage: public ExternalStorage {
   PUBLIC:
     explicit MockExternalStorage(bool enableLogging);
     virtual ~MockExternalStorage();
-    virtual void becomeLeader(const char* name, const string* leaderInfo);
+    virtual void becomeLeader(const char* name, const string& leaderInfo);
     virtual bool get(const char* name, Buffer* value);
     virtual void getChildren(const char* name, vector<Object>* children);
     virtual void remove(const char* name);
     virtual void set(Hint flavor, const char* name, const char* value,
             int valueLength = -1);
-    virtual void setLeaderInfo(const string* leaderInfo);
 
   PRIVATE:
     /// Copy of generateLog argument from constructor.

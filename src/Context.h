@@ -29,6 +29,7 @@ class CoordinatorServerList;
 class CoordinatorService;
 class CoordinatorSession;
 class Dispatch;
+class ExternalStorage;
 class LogCabinHelper;
 class Logger;
 class MasterRecoveryManager;
@@ -84,6 +85,7 @@ class Context {
     SessionAlarmTimer* sessionAlarmTimer;
     PortAlarmTimer*    portAlarmTimer;
     CoordinatorSession* coordinatorSession;
+    ExternalStorage* externalStorage;
 
     // Variables below this point are used only in servers.  They are
     // always NULL on clients.

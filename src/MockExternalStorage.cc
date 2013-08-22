@@ -44,11 +44,11 @@ MockExternalStorage::~MockExternalStorage()
 
 // See documentation for ExternalStorage::becomeLeader.
 void
-MockExternalStorage::becomeLeader(const char* name, const string* leaderInfo)
+MockExternalStorage::becomeLeader(const char* name, const string& leaderInfo)
 {
     if (generateLog) {
         logAppend(format("becomeLeader(%s, %s)", name,
-                leaderInfo->c_str()));
+                leaderInfo.c_str()));
     }
 }
 
@@ -104,16 +104,8 @@ MockExternalStorage::set(Hint flavor, const char* name, const char* value,
         logAppend(format("set(%s, %s)",
                 (flavor == Hint::CREATE) ? "CREATE" : "UPDATE", name));
     }
-    setData.assign(value, downCast<size_t>(valueLength));
-}
-
-// See documentation for ExternalStorage::setLeaderInfo.
-void MockExternalStorage::setLeaderInfo(const string* leaderInfo)
-{
-    if (generateLog) {
-        logAppend(format("setLeaderInfo(%s)", leaderInfo->c_str()));
-    }
-    this->leaderInfo = *leaderInfo;
+    setData.assign(value, (valueLength < 0) ? strlen(value)
+            : downCast<size_t>(valueLength));
 }
 
 /**

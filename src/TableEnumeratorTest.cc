@@ -21,6 +21,7 @@ namespace RAMCloud {
 
 class TableEnumeratorTest : public ::testing::Test {
   public:
+    TestLog::Enable logEnabler;
     Context context;
     MockCluster cluster;
     RamCloud ramcloud;
@@ -28,7 +29,8 @@ class TableEnumeratorTest : public ::testing::Test {
 
   public:
     TableEnumeratorTest()
-        : context()
+        : logEnabler()
+        , context()
         , cluster(&context)
         , ramcloud(&context, "mock:host=coordinator")
         , tableId1(-1)
