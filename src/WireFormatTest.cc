@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2012 Stanford University
+/* Copyright (c) 2010-2013 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -59,7 +59,7 @@ TEST_F(WireFormatTest, opcodeSymbol_integer) {
             WireFormat::ILLEGAL_RPC_TYPE));
 
     // Test out-of-range values.
-    EXPECT_STREQ("unknown(58)", WireFormat::opcodeSymbol(
+    EXPECT_STREQ("unknown(59)", WireFormat::opcodeSymbol(
             WireFormat::ILLEGAL_RPC_TYPE+1));
 
     // Make sure the next-to-last value is defined (this will fail if

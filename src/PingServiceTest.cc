@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2012 Stanford University
+/* Copyright (c) 2011-2013 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -13,6 +13,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include<fstream>
 #include "TestUtil.h"
 #include "BindTransport.h"
 #include "Common.h"
@@ -22,10 +23,50 @@
 #include "ServerMetrics.h"
 #include "TransportManager.h"
 #include "ServerList.h"
+#include "CoordinatorClient.h"
+#include "Key.h"
+#include "Tablets.pb.h"
+#include "Tub.h"
+#include "RamCloud.h"
 
 // Note: this file tests both PingService.cc and PingClient.cc.
 
 namespace RAMCloud {
+
+// This class is designed to substitute class TebletMapFetcher
+// in ObjectFinder so that the client can locate the proper server
+// that owns a table without the need of going through the
+// coordinator. We used this class, since we don't have cluster in
+// this test.
+class MockTabletMapFetcher : public ObjectFinder::TabletMapFetcher {
+  public:
+
+    /**
+    * Constructor.
+    *
+    * \param tableId
+    *      tableId that the server holds
+    * \param locator 
+    *      stringLocator of the server that holds the table  
+    */
+    explicit MockTabletMapFetcher(string locator, uint64_t tableId)
+        : locator(locator)
+        , tableId(tableId)
+    {}
+    void getTabletMap(ProtoBuf::Tablets& tabletMap) {
+        tabletMap.clear_tablet();
+        ProtoBuf::Tablets_Tablet& entry(*tabletMap.add_tablet());
+        entry.set_table_id(tableId);
+        entry.set_start_key_hash(0);
+        entry.set_end_key_hash(~0UL);
+        entry.set_state(ProtoBuf::Tablets_Tablet_State_NORMAL);
+        entry.set_service_locator(locator);
+    }
+    string locator;
+    uint64_t tableId;
+
+};
+
 
 class PingServiceTest : public ::testing::Test {
   public:
@@ -35,6 +76,7 @@ class PingServiceTest : public ::testing::Test {
     TransportManager::MockRegistrar mockRegistrar;
     PingService pingService;
     ServerId serverId;
+    Tub<RamCloud> ramcloud;
 
     PingServiceTest()
         : context()
@@ -43,16 +85,95 @@ class PingServiceTest : public ::testing::Test {
         , mockRegistrar(&context, transport)
         , pingService(&context)
         , serverId(1, 3)
+        , ramcloud()
     {
         transport.addService(pingService, "mock:host=ping",
                              WireFormat::PING_SERVICE);
         serverList.testingAdd({serverId, "mock:host=ping",
                                {WireFormat::PING_SERVICE}, 100,
                                ServerStatus::UP});
+        ramcloud.construct(&context, "mock:host=coordinator");
     }
 
     DISALLOW_COPY_AND_ASSIGN(PingServiceTest);
 };
+
+TEST_F(PingServiceTest, serverControl_DipatchProfilerBasics){
+    TestLog::Enable _;
+    uint64_t tableId = 1;
+    string locator = serverList.getLocator(serverId);
+
+    // We register an object of MockTabletMapFetcher that
+    // is suposed to replace the tabletMapFetcher for the
+    // Client.
+    ramcloud->objectFinder.tabletMapFetcher.reset(
+                            new MockTabletMapFetcher(locator, tableId));
+    string str = ramcloud->objectFinder.lookupTablet(tableId, 0)
+                                                .service_locator();
+    ASSERT_STREQ(str.c_str(), locator.c_str());
+    Buffer output;
+    uint64_t totalElements = 50000000;
+
+    // Testing basics of operation START_DISPATCH_PROFILER.
+    ASSERT_FALSE(pingService.context->dispatch->profilerFlag);
+    ramcloud->serverControl(tableId, "0", 1,
+                            WireFormat::START_DISPATCH_PROFILER,
+                            &totalElements, sizeof32(totalElements),
+                            &output);
+    ASSERT_TRUE(pingService.context->dispatch->profilerFlag);
+    ASSERT_EQ(totalElements,
+                pingService.context->dispatch->totalElements);
+
+    // Testing basics of operation STOP_DISPATCH_PROFILER.
+    ramcloud->serverControl(tableId, "0", 1,
+                            WireFormat::STOP_DISPATCH_PROFILER,
+                            " ", 1, &output);
+    ASSERT_FALSE(pingService.context->dispatch->profilerFlag);
+
+    // Testing basics of operation STOP_DISPATCH_PROFILER.
+    ramcloud->serverControl(tableId, "0", 1,
+                            WireFormat::DUMP_DISPATCH_PROFILE,
+                            "pollingTimesTestFile.txt", 25, &output);
+    std::ifstream stream("pollingTimesTestFile.txt");
+    EXPECT_FALSE(stream.fail());
+    stream.close();
+    remove("pollingTimesTestFile.txt");
+
+    // Testing unimplemented ControlOp.
+    EXPECT_THROW(ramcloud->serverControl(tableId, "0", 1,
+                                        WireFormat::ControlOp(0),
+                                        "File.txt", 9, &output)
+                 , UnimplementedRequestError);
+}
+
+TEST_F(PingServiceTest, serverControl_DispatchProfilerExceptions) {
+    TestLog::Enable _;
+    uint64_t tableId = 2;
+    string locator = serverList.getLocator(serverId);
+    ramcloud->objectFinder.tabletMapFetcher.reset(
+                            new MockTabletMapFetcher(locator, tableId));
+    Buffer output;
+    uint32_t totalElements = 10000000;
+
+    // Testing MessageTooShortError for ControlOp
+    // WireFormat::START_DISPATCH_PROFILER
+    EXPECT_THROW(ramcloud->serverControl(tableId, "0", 1,
+                            WireFormat::START_DISPATCH_PROFILER,
+                            &totalElements, sizeof32(totalElements),
+                            &output)
+                , MessageTooShortError);
+
+    // Testing RequestFormatError for ControlOp
+    // WireFormat::DUMP_DISPATCH_PROFILER
+    EXPECT_THROW(ramcloud->serverControl(tableId, "0", 1,
+                            WireFormat::DUMP_DISPATCH_PROFILE,
+                            "pollingTimesTestFile.txt", 24, &output)
+                , RequestFormatError);
+    EXPECT_THROW(ramcloud->serverControl(tableId, "0", 1,
+                            WireFormat::DUMP_DISPATCH_PROFILE,
+                            "FolderNotExisting/File.txt", 27, &output)
+                , RequestFormatError);
+}
 
 TEST_F(PingServiceTest, ping_basics) {
     TestLog::Enable _;

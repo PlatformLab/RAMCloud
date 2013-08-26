@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2012 Stanford University
+/* Copyright (c) 2011-2013 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -96,6 +96,7 @@ opcodeSymbol(uint32_t opcode)
         case GET_LOG_METRICS:            return "GET_LOG_METRICS";
         case VERIFY_MEMBERSHIP:          return "VERIFY_MEMBERSHIP";
         case GET_RUNTIME_OPTION:         return "GET_RUNTIME_OPTION";
+        case SERVER_CONTROL:             return "SERVER_CONTROL";
         case ILLEGAL_RPC_TYPE:           return "ILLEGAL_RPC_TYPE";
     }
 

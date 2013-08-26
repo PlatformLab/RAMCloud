@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2011 Stanford University
+/* Copyright (c) 2010-2013 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -110,7 +110,19 @@ enum Opcode {
     GET_LOG_METRICS           = 53,
     VERIFY_MEMBERSHIP         = 55,
     GET_RUNTIME_OPTION        = 56,
-    ILLEGAL_RPC_TYPE          = 57,  // 1 + the highest legitimate Opcode
+    SERVER_CONTROL            = 57,
+    ILLEGAL_RPC_TYPE          = 58,  // 1 + the highest legitimate Opcode
+};
+
+/**
+ * This enum defines the different types of control operations
+ * that could be used with SERVER_CONTROL RPC. Any new control
+ * op should be added here.
+ */
+enum ControlOp {
+    START_DISPATCH_PROFILER     = 1000,
+    STOP_DISPATCH_PROFILER      = 1001,
+    DUMP_DISPATCH_PROFILE       = 1002,
 };
 
 /**
@@ -1026,6 +1038,26 @@ struct Remove {
     struct Response {
         ResponseCommon common;
         uint64_t version;
+    } __attribute__((packed));
+};
+
+struct ServerControl {
+    static const Opcode opcode = Opcode::SERVER_CONTROL;
+    static const ServiceType service = PING_SERVICE;
+    struct Request {
+        RequestCommon common;
+        ControlOp controlOp;        // The control operation to be initiated
+                                    // in a server.
+        uint32_t inputLength;       // Length of the input data for the
+                                    // control operation, in bytes.
+                                    // The actual data follow immediately
+                                    // after this header.
+    } __attribute__((packed));
+    struct Response {
+        ResponseCommon common;
+        uint32_t outputLength;      // Length of the output data returning
+                                    // from the server, in bytes. The actual
+                                    // data follow immediately after the header.
     } __attribute__((packed));
 };
 

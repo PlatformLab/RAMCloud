@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2012 Stanford University
+/* Copyright (c) 2010-2013 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -1193,6 +1193,115 @@ RemoveRpc::wait(uint64_t* version)
     if (respHdr->common.status != STATUS_OK)
         ClientException::throwException(HERE, respHdr->common.status);
 }
+
+/**
+ * This RPC is used to invoke a variety of miscellaneous operations
+ * on a server, such as starting and stopping special timing 
+ * mechanisms, dumping metrics, and so on. Most of these operations
+ * are used only for testing. Each operation is defined by a specific
+ * opcode (controlOp) and an arbitrary chunk of input data.
+ * Not all operations require input data, and different operations
+ * use the input data in different ways. 
+ * Each operation can also return an optional result of arbitrary size. 
+ *
+ * \param tableId
+ *      Unique identifier for a particular table. Used to select the
+ *      server that will handle this operation.
+ * \param key
+ *      Variable-length key that uniquely identifies a particular 
+ *      object in tableId. The RPC will be sent to the server
+ *      that stores this object.
+ * \param keyLength
+ *      Size in bytes of the key. This is also used to locate that 
+ *      particular server.
+ * \param controlOp 
+ *      This defines the specific operation to be performed on the 
+ *      remote server.
+ * \param inputData
+ *      Input data, such as additional parameters, specific for the 
+ *      particular operation to be performed. Not all operations use
+ *      this information.
+ * \param inputLength
+ *      Size in bytes of the contents for the inputData.
+ * \param[out] outputData
+ *      A buffer that contains the return results, if any, from execution of the
+ *      control operation on the remote server.
+ */
+void
+RamCloud::serverControl(uint64_t tableId, const void* key, uint16_t keyLength,
+            WireFormat::ControlOp controlOp,
+            const void* inputData, uint32_t inputLength, Buffer* outputData){
+    ServerControlRpc rpc(this, tableId, key, keyLength, controlOp,
+            inputData, inputLength, outputData);
+    rpc.wait();
+}
+
+/**
+ * Constructor for ServerControlRpc: initiates an RPC in the same way as
+ * #RamCloud::serverControl, but returns once the RPC has been initiated,
+ * without waiting for it to complete.
+ *
+ * \param ramcloud
+ *      The RAMCloud object that governs this RPC.
+ * \param tableId
+ *      Unique identifier for a particular table. Used to select the
+ *      server that will handle this operation.
+ * \param key
+ *      Variable-length key that uniquely identifies a particular 
+ *      object in tableId. The RPC will be sent to the server
+ *      that stores this object.
+ * \param keyLength
+ *      Size in bytes of the key. This is also used to locate that 
+ *      particular server.
+ * \param controlOp 
+ *      This defines the specific operation to be performed on the 
+ *      remote server.
+ * \param inputData
+ *      Input data, such as additional parameters, specific for the 
+ *      particular operation to be performed. Not all operations use
+ *      this information.
+ * \param inputLength
+ *      Size in bytes of the contents for the inputData.
+ * \param[out] outputData
+ *      A buffer that contains the return results, if any, from execution of the
+ *      control operation on the remote server.
+ */
+ServerControlRpc::ServerControlRpc(RamCloud* ramcloud, uint64_t tableId,
+            const void* key, uint16_t keyLength,
+            WireFormat::ControlOp controlOp,
+            const void* inputData, uint32_t inputLength, Buffer* outputData)
+    : ObjectRpcWrapper(ramcloud, tableId, key, keyLength,
+            sizeof(WireFormat::ServerControl::Response), outputData)
+{
+    outputData->reset();
+    WireFormat::ServerControl::Request*
+                               reqHdr(allocHeader<WireFormat::ServerControl>());
+    reqHdr->inputLength = inputLength;
+    reqHdr->controlOp = controlOp;
+    request.append(inputData, inputLength);
+    send();
+}
+
+/**
+ * Waits for the RPC to complete, and returns the same results as
+ * #RamCloud::serverControl.
+ */
+void
+ServerControlRpc::wait()
+{
+    waitInternal(ramcloud->clientContext->dispatch);
+    const WireFormat::ServerControl::Response* respHdr(
+            getResponseHeader<WireFormat::ServerControl>());
+    // Truncate the response Buffer so that it consists of nothing
+    // but the object data.
+    response->truncateFront(sizeof(*respHdr));
+    assert(respHdr->outputLength == response->getTotalLength());
+
+    if (respHdr->common.status != STATUS_OK)
+        ClientException::throwException(HERE, respHdr->common.status);
+}
+
+
 
 /**
  * Divide a tablet into two separate tablets.

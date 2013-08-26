@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2012 Stanford University
+/* Copyright (c) 2010-2013 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -52,6 +52,7 @@ class RamCloud {
     ServerMetrics getMetrics(uint64_t tableId, const void* key,
             uint16_t keyLength);
     ServerMetrics getMetrics(const char* serviceLocator);
+    void getRuntimeOption(const char* option, Buffer* value);
     void getServerConfig(const char* serviceLocator,
             ProtoBuf::ServerConfig& serverConfig);
     void getServerStatistics(const char* serviceLocator,
@@ -72,10 +73,12 @@ class RamCloud {
             uint64_t* version = NULL);
     void remove(uint64_t tableId, const void* key, uint16_t keyLength,
             const RejectRules* rejectRules = NULL, uint64_t* version = NULL);
+    void serverControl(uint64_t tableId, const void* key, uint16_t keyLength,
+            WireFormat::ControlOp controlOp,
+            const void* inputData, uint32_t inputLength, Buffer* outputData);
     void splitTablet(const char* name, uint64_t splitKeyHash);
     void testingFill(uint64_t tableId, const void* key, uint16_t keyLength,
             uint32_t numObjects, uint32_t objectSize);
-    void getRuntimeOption(const char* option, Buffer* value);
     uint64_t testingGetServerId(uint64_t tableId, const void* key,
             uint16_t keyLength);
     string testingGetServiceLocator(uint64_t tableId, const void* key,
@@ -84,13 +87,12 @@ class RamCloud {
     void setRuntimeOption(const char* option, const char* value);
     void testingWaitForAllTabletsNormal(uint64_t timeoutNs = ~0lu);
     void write(uint64_t tableId, const void* key, uint16_t keyLength,
-            const void* buf, uint32_t length,
-            const RejectRules* rejectRules = NULL, uint64_t* version = NULL,
-            bool async = false);
+                const void* buf, uint32_t length,
+                const RejectRules* rejectRules = NULL, uint64_t* version = NULL,
+                bool async = false);
     void write(uint64_t tableId, const void* key, uint16_t keyLength,
             const char* value, const RejectRules* rejectRules = NULL,
             uint64_t* version = NULL, bool async = false);
-
     explicit RamCloud(const char* serviceLocator);
     RamCloud(Context* context, const char* serviceLocator);
     virtual ~RamCloud();
@@ -598,6 +600,21 @@ class RemoveRpc : public ObjectRpcWrapper {
 
   PRIVATE:
     DISALLOW_COPY_AND_ASSIGN(RemoveRpc);
+};
+
+/**
+ * Encapsulates the state of a RamCloud::serverControl operation,
+ * allowing it to execute asynchronously.
+ */
+class ServerControlRpc : public ObjectRpcWrapper {
+  public:
+    ServerControlRpc(RamCloud* ramcloud, uint64_t tableId,
+        const void* key, uint16_t keyLength, WireFormat::ControlOp controlOp,
+        const void* inputData, uint32_t inputLength, Buffer* outputData);
+    ~ServerControlRpc() {}
+    void wait();
+  PRIVATE:
+    DISALLOW_COPY_AND_ASSIGN(ServerControlRpc);
 };
 
 /**
