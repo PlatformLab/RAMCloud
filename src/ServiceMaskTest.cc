@@ -48,6 +48,30 @@ TEST_F(ServiceMaskTest, has) {
         WireFormat::INVALID_SERVICE)));
 }
 
+TEST_F(ServiceMaskTest, hasAll) {
+    ServiceMask master{WireFormat::MASTER_SERVICE};
+    ServiceMask backup{WireFormat::BACKUP_SERVICE};
+    ServiceMask both{WireFormat::MASTER_SERVICE, WireFormat::BACKUP_SERVICE};
+    ServiceMask none{};
+
+    EXPECT_FALSE(master.hasAll(both));
+    EXPECT_TRUE(both.hasAll(both));
+    EXPECT_TRUE(both.hasAll(master));
+    EXPECT_TRUE(master.hasAll(none));
+}
+
+TEST_F(ServiceMaskTest, hasAny) {
+    ServiceMask master{WireFormat::MASTER_SERVICE};
+    ServiceMask backup{WireFormat::BACKUP_SERVICE};
+    ServiceMask both{WireFormat::MASTER_SERVICE, WireFormat::BACKUP_SERVICE};
+    ServiceMask none{};
+
+    EXPECT_TRUE(master.hasAny(both));
+    EXPECT_TRUE(both.hasAny(both));
+    EXPECT_TRUE(both.hasAny(master));
+    EXPECT_FALSE(master.hasAny(none));
+}
+
 TEST_F(ServiceMaskTest, toString) {
     EXPECT_EQ("MASTER_SERVICE",
               ServiceMask{WireFormat::MASTER_SERVICE}.toString());

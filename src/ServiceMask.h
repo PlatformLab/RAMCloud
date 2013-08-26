@@ -68,6 +68,32 @@ class ServiceMask {
     }
 
     /**
+     * Returns true if this ServiceMask includes all of the services
+     * specified by the "services" argument, false otherwise.
+     *
+     * \param services
+     *      Specifies zero or more service types.  If this mask is empty,
+     *      then true is returned.
+     */
+    bool hasAll(ServiceMask services) const
+    {
+        return (mask & services.mask) == services.mask;
+    }
+
+    /**
+     * Returns true if this ServiceMask includes any of the services
+     * specified by the "services" argument, false otherwise.
+     *
+     * \param services
+     *      Specifies zero or more service types. If this mask is empty,
+     *      false is returned.
+     */
+    bool hasAny(ServiceMask services) const
+    {
+        return (mask & services.mask) != 0;
+    }
+
+    /**
      * Return a comma-separated, human-readable list of the services marked as
      * available in this ServiceMask.  Example output:
      * "MASTER_SERVICE, PING_SERVICE, MEMBERSHIP_SERVICE"
