@@ -70,13 +70,15 @@ class AbstractServerListSubClass : public AbstractServerList {
     }
 
     ServerId&
-    add(string locator, ServerStatus status) {
+    add(string locator, ServerStatus status,
+            ServiceMask services = ServiceMask{WireFormat::MASTER_SERVICE}) {
         ServerId* id = new ServerId(isize(), 0);
 
         ServerDetails sd;
         sd.serverId = *id;
         sd.status = status;
         sd.serviceLocator = locator;
+        sd.services = services;
         servers.push_back(sd);
         return *id;
     }
@@ -204,6 +206,48 @@ TEST_F(AbstractServerListTest, contains) {
     EXPECT_TRUE(sl.contains(id1));
     EXPECT_FALSE(sl.contains(ServerId(1, 2)));
     EXPECT_FALSE(sl.contains(ServerId(2, 0)));
+}
+
+TEST_F(AbstractServerListTest, nextServer) {
+    sl.add("mock::0", ServerStatus::UP,
+            {WireFormat::MASTER_SERVICE, WireFormat::BACKUP_SERVICE});
+    sl.add("mock::1", ServerStatus::UP,
+            {WireFormat::MASTER_SERVICE, WireFormat::BACKUP_SERVICE});
+    sl.add("mock::2", ServerStatus::CRASHED,
+            {WireFormat::MASTER_SERVICE, WireFormat::BACKUP_SERVICE});
+    sl.add("mock::3", ServerStatus::UP, {WireFormat::MASTER_SERVICE});
+    sl.add("mock::4", ServerStatus::UP, {WireFormat::MASTER_SERVICE});
+
+    bool end;
+    ServerId next;
+
+    // prev uninitialized
+    next = sl.nextServer(ServerId(5U, -1U), {WireFormat::MASTER_SERVICE}, &end);
+    EXPECT_EQ("0.0", next.toString());
+    EXPECT_FALSE(end);
+
+    // basics: advance circularly
+    next = sl.nextServer(ServerId(0, 0), {WireFormat::MASTER_SERVICE}, &end);
+    EXPECT_EQ("1.0", next.toString());
+    EXPECT_FALSE(end);
+
+    next = sl.nextServer(ServerId(3, 0), {WireFormat::MASTER_SERVICE}, &end);
+    EXPECT_EQ("4.0", next.toString());
+    EXPECT_FALSE(end);
+
+    next = sl.nextServer(ServerId(4, 0), {WireFormat::MASTER_SERVICE}, &end);
+    EXPECT_EQ("0.0", next.toString());
+    EXPECT_TRUE(end);
+
+    // skip down servers
+    next = sl.nextServer(ServerId(1, 0), {WireFormat::MASTER_SERVICE}, &end);
+    EXPECT_EQ("3.0", next.toString());
+    EXPECT_FALSE(end);
+
+    // skip servers without desired services
+    next = sl.nextServer(ServerId(2, 0), {WireFormat::BACKUP_SERVICE}, &end);
+    EXPECT_EQ("0.0", next.toString());
+    EXPECT_TRUE(end);
 }
 
 TEST_F(AbstractServerListTest, registerTracker) {
