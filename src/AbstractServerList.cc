@@ -169,6 +169,66 @@ AbstractServerList::contains(ServerId id) {
 }
 
 /**
+ * This method is used for iterating through the servers in the
+ * cluster. Given the id for a particular server, it returns the
+ * id for the next server that supports a given set of services.
+ * 
+ * \param prev
+ *      Return value from a previous indication of this method;
+ *      the current invocation will return the next server after
+ *      this one. If this is an invalid ServerId (e.g. constructed
+ *      with the default constructor), then this call will return
+ *      the id of the first matching server.
+ * \param services
+ *      Restricts the set of servers that will be returned: for a
+ *      server to be returned, it must support all of these services.
+ * \param end
+ *      If this pointer is non-NULL, then the value it references will
+ *      be set to true if we reached the end of the server list (in
+ *      which case we wrapped back to the beginning again); otherwise
+ *      it will be set to false.
+ * 
+ * \return
+ *      The return value is the ServerId for the next server after
+ *      prev in the server list that supports the given set of
+ *      services. If there are no servers with a given set of services,
+ *      then an invalid ServerId is returned.
+ */
+ServerId
+AbstractServerList::nextServer(ServerId prev, ServiceMask services, bool* end)
+{
+    Lock _(mutex);
+    uint32_t startIndex = prev.isValid() ? prev.indexNumber() : -1U;
+    uint32_t index = startIndex;
+    size_t size = isize();
+    if (end != NULL)
+        *end = false;
+
+    // Loop circularly through all of the servers currently known.
+    while (1) {
+        ++index;
+        if (index >= size) {
+            if (end != NULL)
+                *end = true;
+            index = 0;
+        }
+        if (index == startIndex) {
+            break;
+        }
+        ServerDetails* details = iget(index);
+        if ((details == NULL) || (details->status != ServerStatus::UP)
+                || !details->services.hasAll(services)) {
+            continue;
+        }
+        return details->serverId;
+    }
+
+    // Either the server list is empty, or it contains no server with
+    // the desired services.
+    return ServerId();
+}
+
+/**
  * Register a ServerTracker with this ServerList. Any updates to this
  * list (additions or removals) will be propagated to the tracker. The
  * current list of hosts will be pushed to the tracker immediately so

@@ -240,6 +240,7 @@ class AbstractServerList {
     uint64_t getVersion() const;
     bool isUp(ServerId id);
     size_t size() const;
+    ServerId nextServer(ServerId prev, ServiceMask services, bool* end = NULL);
 
     void registerTracker(ServerTrackerInterface& tracker);
     void unregisterTracker(ServerTrackerInterface& tracker);
