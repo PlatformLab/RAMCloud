@@ -160,6 +160,7 @@ ObjectManager::writeObject(Key& key,
         }
     }
 
+    objectMap.prefetchBucket(key);
     HashTableBucketLock lock(*this, key);
 
     // If the tablet doesn't exist in the NORMAL state, we must plead ignorance.
@@ -174,7 +175,19 @@ ObjectManager::writeObject(Key& key,
     Log::Reference currentReference;
     uint64_t currentVersion = VERSION_NONEXISTENT;
 
-    if (lookup(lock, key, currentType, currentBuffer, 0, &currentReference)) {
+    HashTable::Candidates currentHashTableEntry;
+
+static uint64_t spit = 0;
+spit++;
+extern uint64_t bufferAppendTicks;
+extern uint64_t bufferAppendCount;
+extern uint64_t bufferAppendSizes;
+bufferAppendTicks = bufferAppendCount = bufferAppendSizes = 0;
+CycleCounter<uint64_t> lookupTicks;
+bool lret = lookup(lock, key, currentType, currentBuffer, 0, &currentReference, &currentHashTableEntry);
+if ((spit & 2097151) == 0)
+  fprintf(stderr, "lookup took %lu ns, %lu buffer append ns, %lu appends, %lu bytes appended\n", Cycles::toNanoseconds(lookupTicks.stop()), Cycles::toNanoseconds(bufferAppendTicks), bufferAppendCount, bufferAppendSizes);
+    if (lret) {    
         if (currentType == LOG_ENTRY_TYPE_OBJTOMB) {
             removeIfTombstone(currentReference.toInteger(), this);
         } else {
@@ -237,9 +250,13 @@ ObjectManager::writeObject(Key& key,
         return STATUS_RETRY;
     }
 
-    replace(lock, key, appends[0].reference);
-    if (tombstone)
+    if (tombstone) {
+        currentHashTableEntry.setReference(appends[0].reference.toInteger());
         log.free(currentReference);
+    } else {
+        objectMap.insert(key, appends[0].reference.toInteger());
+    }
+
     if (outVersion != NULL)
         *outVersion = newObject.getVersion();
 
@@ -280,6 +297,7 @@ ObjectManager::readObject(Key& key,
                           RejectRules* rejectRules,
                           uint64_t* outVersion)
 {
+    objectMap.prefetchBucket(key);
     HashTableBucketLock lock(*this, key);
 
     // If the tablet doesn't exist in the NORMAL state, we must plead ignorance.
@@ -916,7 +934,8 @@ ObjectManager::relocateObject(Buffer& oldBuffer,
     // reference, so there's no need for a key comparison, and we
     // can easily avoid looping over the bucket twice this way for
     // live objects.
-    HashTable::Candidates candidates = objectMap.lookup(key);
+    HashTable::Candidates candidates;
+    objectMap.lookup(key, candidates);
     while (!candidates.isDone()) {
         if (candidates.getReference() != oldReference.toInteger()) {
             candidates.next();
@@ -1035,15 +1054,22 @@ ObjectManager::lookup(HashTableBucketLock& lock,
                       LogEntryType& outType,
                       Buffer& buffer,
                       uint64_t* outVersion,
-                      Log::Reference* outReference)
+                      Log::Reference* outReference,
+                      HashTable::Candidates* outCandidates)
 {
-    HashTable::Candidates candidates = objectMap.lookup(key);
+extern uint64_t bufferAppendTicks;
+extern uint64_t bufferAppendCount;
+    HashTable::Candidates candidates;
+    objectMap.lookup(key, candidates);
     while (!candidates.isDone()) {
+bufferAppendCount++;
         Buffer candidateBuffer;
         Log::Reference candidateRef(candidates.getReference());
         LogEntryType type = log.getEntry(candidateRef, candidateBuffer);
 
+CycleCounter<uint64_t> _(&bufferAppendTicks);
         Key candidateKey(type, candidateBuffer);
+_.stop();
         if (key == candidateKey) {
             outType = type;
             buffer.append(&candidateBuffer);
@@ -1058,6 +1084,8 @@ ObjectManager::lookup(HashTableBucketLock& lock,
             }
             if (outReference != NULL)
                 *outReference = candidateRef;
+            if (outCandidates != NULL)
+                *outCandidates = candidates;
             return true;
         }
 
@@ -1084,7 +1112,8 @@ ObjectManager::lookup(HashTableBucketLock& lock,
 bool
 ObjectManager::remove(HashTableBucketLock& lock, Key& key)
 {
-    HashTable::Candidates candidates = objectMap.lookup(key);
+    HashTable::Candidates candidates;
+    objectMap.lookup(key, candidates);
     while (!candidates.isDone()) {
         Buffer buffer;
         Log::Reference candidateRef(candidates.getReference());
@@ -1122,7 +1151,8 @@ ObjectManager::replace(HashTableBucketLock& lock,
                        Key& key,
                        Log::Reference reference)
 {
-    HashTable::Candidates candidates = objectMap.lookup(key);
+    HashTable::Candidates candidates;
+    objectMap.lookup(key, candidates);
     while (!candidates.isDone()) {
         Buffer buffer;
         Log::Reference candidateRef(candidates.getReference());

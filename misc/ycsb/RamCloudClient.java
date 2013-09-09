@@ -53,6 +53,8 @@ public class RamCloudClient extends DB {
     private HashMap<String, Long> tableIds;
 
     public static final String LOCATOR_PROPERTY = "ramcloud.coordinatorLocator";
+    public static final String TABLE_SERVER_SPAN_PROPERTY = "ramcloud.tableServerSpan";
+    public static final String DEBUG_PROPERTY = "ramcloud.debug";
 
     /// Success is always 0. 
     public static final int OK = 0;
@@ -60,6 +62,16 @@ public class RamCloudClient extends DB {
     /// YCSB interprets anything non-0 as an error, but doesn't interpret the
     /// specific value.
     public static final int ERROR = 1;
+
+    /// The number of servers each tablet should be split across (tables will
+    /// be split tablets into this many tablets). This is set via the
+    /// TABLE_SERVER_SPAN_PROPERTY, if given.
+    private int tableServerSpan = 1;
+
+    /// Value from the DEBUG_PROPERTY property. If true, print various
+    /// messages to stderr that give some minor insight into what's going
+    /// on.
+    private static boolean debug = false;
 
     /**
      * This method returns the 64-bit table identifier for the given table,
@@ -69,7 +81,7 @@ public class RamCloudClient extends DB {
     getTableId(String tableName)
     {
         if (!tableIds.containsKey(tableName))
-            tableIds.put(tableName, ramcloud.createTable(tableName));
+            tableIds.put(tableName, ramcloud.createTable(tableName, tableServerSpan));
         return tableIds.get(tableName);
     }
 
@@ -87,7 +99,8 @@ public class RamCloudClient extends DB {
             ObjectOutputStream objectStream = new ObjectOutputStream(byteStream);
             objectStream.writeObject(object);
         } catch (Exception e) {
-            System.err.println("RamCloudClient serialization failed: " + e);
+            if (debug)
+                System.err.println("RamCloudClient serialization failed: " + e);
         }
         return byteStream.toByteArray();
     }
@@ -106,7 +119,8 @@ public class RamCloudClient extends DB {
             ObjectInputStream objectStream = new ObjectInputStream(byteStream);
             object = objectStream.readObject();
         } catch (Exception e) {
-            System.err.println("RamCloudClient deserialization failed: " + e);
+            if (debug)
+                System.err.println("RamCloudClient deserialization failed: " + e);
         }
         HashMap<String, String> stringMap = (HashMap<String, String>)object;
         StringByteIterator.putAllAsByteIterators(into, stringMap);
@@ -202,7 +216,15 @@ public class RamCloudClient extends DB {
         if (locator == null)
             throw new DBException("Missing property " + LOCATOR_PROPERTY);
 
-        System.err.println("RamCloudClient connecting to " + locator + " ...");
+        String tableServerSpanString = props.getProperty(TABLE_SERVER_SPAN_PROPERTY);
+        if (tableServerSpanString != null)
+            tableServerSpan = new Integer(tableServerSpanString).intValue();
+
+        if (props.getProperty(DEBUG_PROPERTY) != null)
+            debug = true;
+
+        if (debug)
+            System.err.println("RamCloudClient connecting to " + locator + " ...");
         ramcloud = new JRamCloud(locator);
         tableIds = new HashMap<String, Long>();
     }
@@ -214,7 +236,8 @@ public class RamCloudClient extends DB {
     public void
     cleanup() throws DBException
     {
-        System.err.println("RamCloudClient disconnecting ...");
+        if (debug)
+            System.err.println("RamCloudClient disconnecting ...");
         ramcloud.disconnect();
         ramcloud = null; 
         tableIds = null;
@@ -233,7 +256,8 @@ public class RamCloudClient extends DB {
         try {
             ramcloud.remove(getTableId(table), key);
         } catch (Exception e) {
-            System.err.println("RamCloudClient delete threw: " + e);
+            if (debug)
+                System.err.println("RamCloudClient delete threw: " + e);
             return ERROR;
         }
         return OK;
@@ -257,7 +281,8 @@ public class RamCloudClient extends DB {
         try {
             ramcloud.write(getTableId(table), key, value);
         } catch (Exception e) {
-            System.err.println("RamCloudClient insert threw: " + e);
+            if (debug)
+                System.err.println("RamCloudClient insert threw: " + e);
             return ERROR;
         }
         return OK;
@@ -285,14 +310,16 @@ public class RamCloudClient extends DB {
         try {
             object = ramcloud.read(getTableId(table), key);
         } catch (Exception e) {
-            System.err.println("RamCloudClient read threw: " + e);
+            if (debug)
+                System.err.println("RamCloudClient read threw: " + e);
             return ERROR;
         }
 
         try {
             deserialize(object.value, map);
         } catch (DBException e) {
-            System.err.println("RamCloudClient deserializer threw: " + e);
+            if (debug)
+                System.err.println("RamCloudClient deserializer threw: " + e);
             return ERROR;
         }
 
@@ -329,7 +356,8 @@ public class RamCloudClient extends DB {
          Set<String> fields,
          Vector<HashMap<String, ByteIterator>> result)
     {
-        System.err.println("Warning: RAMCloud doesn't support range scans yet.");
+        if (debug)
+            System.err.println("Warning: RAMCloud doesn't support range scans yet.");
         return ERROR;
     }
 
@@ -337,6 +365,11 @@ public class RamCloudClient extends DB {
      * Update a record in the database. Any field/value pairs in the specified
      * values HashMap will be written into the record with the specified record
      * key, overwriting any existing values with the same field name.
+     *
+     * The YCSB documentation makes no explicit mention of this, but as far as
+     * I can gather an update here is akin to a SQL update. That is, we are
+     * expected to preserve the values that aren't being updated. For RAMCloud,
+     * this means having to do a read-modify-write.
      *
      * @param table The name of the table
      * @param key The record key of the record to write.
@@ -347,9 +380,11 @@ public class RamCloudClient extends DB {
     public int
     update(String table, String key, HashMap<String, ByteIterator> values)
     {
-        // XXX- not sure if the semantics are right here. are we supposed to preserve
-        //      any old fields not in values? presently we dump them.
-        return insert(table, key, values);
+        // XXX- Should we use conditional ops to ensure the RMW is atomic?
+        HashMap<String, ByteIterator> oldValues = new HashMap<String, ByteIterator>();
+        read(table, key, null, oldValues);
+        oldValues.putAll(values);
+        return insert(table, key, oldValues);
     }
 
     /***************************************************************************

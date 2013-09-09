@@ -71,17 +71,20 @@ message ServerConfig {
         /// in-memory and disk cleaning.
         required fixed32 cleaner_write_cost_threshold = 6;
 
+        /// LogCleaner::Balancer type used to schedule cleaning and compaction.
+        required string cleaner_balancer = 7;
+
         /// Maximum number of threads the cleaner will use.
-        required fixed32 cleaner_thread_count = 7;
+        required fixed32 cleaner_thread_count = 8;
 
         /// Max number of simultaneous threads that may run in MasterService.
-        required fixed32 master_service_thread_count = 8;
+        required fixed32 master_service_thread_count = 9;
 
         /// Number of replicas to keep per segment stored on backups.
-        required fixed32 num_replicas = 9;
+        required fixed32 num_replicas = 10;
 
         /// Specifies whether to use MinCopysets or random replication.
-        required bool use_mincopysets = 10;
+        required bool use_mincopysets = 11;
     }
     
     /// The server's MasterService configuration, if it is running one.

@@ -250,6 +250,11 @@ class SingleFileStorage : public BackupStorage {
     off_t offsetOfFrame(size_t frameIndex) const;
     off_t offsetOfMetadataFrame(size_t frameIndex) const;
     off_t offsetOfSuperblockFrame(size_t superblockIndex) const;
+    void unlockedRead(Frame::Lock& lock, void* buf, size_t count, off_t offset,
+                      bool usingDevNull) const;
+    void unlockedWrite(Frame::Lock& lock, void* buf, size_t count, off_t offset,
+                       void* metadataBuf, size_t metadataCount,
+                       off_t metadataOffset) const;
 
     void reserveSpace();
     Tub<Superblock> tryLoadSuperblock(uint32_t superblockFrame);

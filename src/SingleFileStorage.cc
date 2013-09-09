@@ -483,15 +483,14 @@ SingleFileStorage::Frame::open(bool sync)
     loadRequested = false;
 }
 
-namespace {
 /**
  * Wrapper for pread that releases \a lock during IO and DIEs on any problem.
  * If useDevNull is true, this method does not consider short reads to be a
  * "problem".
  */
 void
-unlockedRead(SingleFileStorage::Frame::Lock& lock,
-             int fd, void* buf, size_t count, off_t offset, bool usingDevNull)
+SingleFileStorage::unlockedRead(Frame::Lock& lock, void* buf, size_t count,
+                                off_t offset, bool usingDevNull) const
 {
     lock.unlock();
     ssize_t r;
@@ -520,10 +519,12 @@ unlockedRead(SingleFileStorage::Frame::Lock& lock,
  * another to write out the most recently appended metadata block.
  */
 void
-unlockedWrite(SingleFileStorage::Frame::Lock& lock,
-              int fd, void* buf, size_t count, off_t offset,
-              void* metadataBuf, size_t metadataCount, off_t metadataOffset)
+SingleFileStorage::unlockedWrite(Frame::Lock& lock, void* buf, size_t count,
+                                 off_t offset, void* metadataBuf,
+                                 size_t metadataCount,
+                                 off_t metadataOffset) const
 {
+    CycleCounter<RawMetric> writeTicks(&metrics->backup.storageWriteTicks);
     lock.unlock();
     ssize_t r = pwrite(fd, buf, count, offset);
     if (r == -1) {
@@ -545,9 +546,13 @@ unlockedWrite(SingleFileStorage::Frame::Lock& lock,
             "in file %lu, expected length %lu, actual write length %ld",
             metadataOffset, metadataCount, r);
     }
+    // Reduce our bandwidth (if so configured) by delaying this operation.
+    CycleCounter<RawMetric> _(&metrics->backup.storageWriteTicks);
+    sleepToThrottleWrites(count + metadataCount, writeTicks.stop());
     lock.lock();
 }
 
+namespace {
 /**
  * Round \a offset down to a block boundary.
  * Required due to IO alignment constraints for files/devices opened O_DIRECT.
@@ -592,7 +597,7 @@ SingleFileStorage::Frame::performRead(Lock& lock)
         ++metrics->backup.storageReadCount;
         metrics->backup.storageReadBytes += storage->segmentSize;
         // Lock released during this call; assume any field could have changed.
-        unlockedRead(lock, storage->fd, buffer.get(),
+        storage->unlockedRead(lock, buffer.get(),
                      storage->segmentSize, frameStart, storage->usingDevNull);
     }
 
@@ -638,18 +643,12 @@ SingleFileStorage::Frame::performWrite(Lock& lock)
                  startOfFirstDirtyBlock, dirtyLength,
                  frameStart + startOfFirstDirtyBlock, metadataStart);
     } else {
-        CycleCounter<RawMetric> writeTicks(&metrics->backup.storageWriteTicks);
         ++metrics->backup.storageWriteCount;
         metrics->backup.storageWriteBytes += dirtyLength;
         // Lock released during this call; assume any field could have changed.
-        unlockedWrite(lock, storage->fd,
-                      firstDirtyBlock, dirtyLength,
+        storage->unlockedWrite(lock, firstDirtyBlock, dirtyLength,
                       frameStart + startOfFirstDirtyBlock,
                       metadataBlock, METADATA_SIZE, metadataStart);
-        // Reduce our bandwidth if so configured by delaying this operation.
-        CycleCounter<RawMetric> _(&metrics->backup.storageWriteTicks);
-        storage->sleepToThrottleWrites(dirtyLength + METADATA_SIZE,
-                                       writeTicks.stop());
     }
 
     assert(buffer);

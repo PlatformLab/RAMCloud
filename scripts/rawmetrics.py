@@ -313,7 +313,7 @@ rpc.metric('recoveryMasterFinishedCount', 'number of invocations of RECOVERY_MAS
 rpc.metric('enumerateCount', 'number of invocations of ENUMERATE RPC')
 rpc.metric('setMasterRecoveryInfoCount', 'number of invocations of SET_MASTER_RECOVERY_INFO RPC')
 rpc.metric('fillWithTestDataCount', 'number of invocations of FILL_WITH_TEST_DATA RPC')
-rpc.metric('multiReadCount', 'number of invocations of MULTI_READ RPC')
+rpc.metric('multiOpCount', 'number of invocations of MULTI_OP_RPC')
 rpc.metric('getMetricsCount', 'number of invocations of GET_METRICS RPC')
 rpc.metric('rpc27Count', 'number of invocations of RPC 27 (undefined)')
 rpc.metric('backupFreeCount', 'number of invocations of BACKUP_FREE RPC')
@@ -342,7 +342,6 @@ rpc.metric('getServerStatisticsCount', 'number of invocations of GET_SERVER_STAT
 rpc.metric('setRuntimeOptionCount', 'number of invocations of SET_RUNTIME_OPTION RPC')
 rpc.metric('getServerConfigCount', 'number of invocations of GET_SERVER_CONFIG RPC')
 rpc.metric('getLogMetricsCount', 'number of invocations of GET_LOG_METRICS RPC')
-rpc.metric('multiWriteCount', 'number of invocations of MULTI_WRITE RPC')
 rpc.metric('verifyMembershipCount', 'number of invocations of VERIFY_MEMBERSHIP RPC')
 rpc.metric('illegalRpcCount', 'number of invocations of RPCs with illegal opcodes')
 
@@ -371,7 +370,7 @@ rpc.metric('recoveryMasterFinishedTicks', 'time spent executing RECOVERY_MASTER_
 rpc.metric('enumerateTicks', 'time spent executing ENUMERATE RPC')
 rpc.metric('setMasterRecoveryInfoTicks', 'time spent executing SET_MASTER_RECOVERY_INFO RPC')
 rpc.metric('fillWithTestDataTicks', 'time spent executing FILL_WITH_TEST_DATA RPC')
-rpc.metric('multiReadTicks', 'time spent executing MULTI_READ RPC')
+rpc.metric('multiOpTicks', 'time spent executing MULTI_OP RPC')
 rpc.metric('getMetricsTicks', 'time spent executing GET_METRICS RPC')
 rpc.metric('rpc27Ticks', 'time spent executing RPC 27 (undefined)')
 rpc.metric('backupFreeTicks', 'time spent executing BACKUP_FREE RPC')
@@ -401,7 +400,6 @@ rpc.metric('getServerStatisticsTicks', 'time spent executing GET_SERVER_STATISTI
 rpc.metric('setRuntimeOptionTicks', 'time spent executing SET_RUNTIME_OPTION RPC')
 rpc.metric('getServerConfigTicks', 'time spent executing GET_SERVER_CONFIG RPC')
 rpc.metric('getLogMetricsTicks', 'time spent executing GET_LOG_METRICS RPC')
-rpc.metric('multiWriteTicks', 'time spent executing MULTI_WRITE RPC')
 rpc.metric('verifyMembershipTicks', 'number of invocations of VERIFY_MEMBERSHIP')
 rpc.metric('illegalRpcTicks', 'time spent executing RPCs with illegal opcodes')
 
@@ -444,6 +442,9 @@ for i in range(10):
     temp.metric('ticks{0:}'.format(i),'amount of time for some undefined activity')
     temp.metric('count{0:}'.format(i),'number of occurrences of some undefined event')
 
+serviceManager = Group('ServiceManager', 'metrics for the ServiceManager subsystem')
+serviceManager.metric('workerIdleSpinTicks', 'time spent in worker threads spinning waiting for work')
+
 definitions = Group('RawMetrics', 'server metrics')
 definitions.group(coordinator);
 definitions.group(master);
@@ -451,10 +452,14 @@ definitions.group(backup);
 definitions.group(rpc);
 definitions.group(transport);
 definitions.group(temp);
+definitions.group(serviceManager);
 definitions.metric('serverId', 'server id assigned by coordinator')
 definitions.metric('pid', 'process ID on machine')
 definitions.metric('clockFrequency', 'cycles per second for the cpu')
 definitions.metric('segmentSize','size in bytes of segments')
+definitions.metric('processSystemTicks', 'time spent by the entire process in user code according to the kernel')
+definitions.metric('processUserTicks', 'time spent by the entire process in kernel code according to the kernel')
+definitions.metric('uptimeTicks', 'time elapsed since the process was started')
 
 def writeBuildFiles(definitions):
     counter = Counter()

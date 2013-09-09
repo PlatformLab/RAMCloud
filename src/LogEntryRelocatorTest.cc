@@ -88,14 +88,14 @@ TEST_F(LogEntryRelocatorTest, append) {
     LogEntryRelocator r(s, 50);
     Buffer buffer;
     buffer.append("!", 2);
-    uint32_t bytesBefore = s->liveBytes;
+    //uint32_t bytesBefore = s->liveBytes; XXXXX
     EXPECT_TRUE(r.append(LOG_ENTRY_TYPE_OBJ, buffer));
     EXPECT_TRUE(r.didAppend);
 
     // LogEntryRelocator no longer manages these statistics (the cleaner does
     // one atomic increment per segment to avoid an operaton for every entry
     // moved).
-    EXPECT_EQ(s->liveBytes, bytesBefore);
+    //EXPECT_EQ(s->liveBytes, bytesBefore); XXXXX
 }
 
 TEST_F(LogEntryRelocatorTest, getNewReference_noAppend) {

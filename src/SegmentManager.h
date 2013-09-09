@@ -16,6 +16,12 @@
 #ifndef RAMCLOUD_SEGMENTMANAGER_H
 #define RAMCLOUD_SEGMENTMANAGER_H
 
+#if __GNUC__ >= 4 && __GNUC_MINOR__ >= 5
+#include <atomic>
+#else
+#include <cstdatomic>
+#endif
+
 #include <stdint.h>
 #include <unordered_map>
 #include <vector>
@@ -125,6 +131,7 @@ class SegmentManager {
     int getSegmentUtilization();
     uint64_t allocateVersion();
     bool raiseSafeVersion(uint64_t minimum);
+    int getMemoryUtilization();
 
 #ifdef TESTING
     /// Used to mock the return value of getSegmentUtilization() when set to
@@ -399,7 +406,7 @@ class SegmentManager {
      * object's version number. See #RaiseSafeVersion.
      *
      **/
-    uint64_t safeVersion;
+    std::atomic_uint_fast64_t safeVersion;
 
     DISALLOW_COPY_AND_ASSIGN(SegmentManager);
 };

@@ -350,6 +350,7 @@ double hashTableLookup()
     uint64_t numBuckets = 16777216;       // 16M * 64 = 1GB
     uint32_t numLookups = 1000000;
     HashTable hashTable(numBuckets);
+    HashTable::Candidates candidates;
 
     // fill with some objects to look up (enough to blow caches)
     for (uint64_t i = 0; i < numLookups; i++) {
@@ -373,7 +374,7 @@ double hashTableLookup()
         }
 
         Key key(0, &i, downCast<uint16_t>(sizeof(i)));
-        HashTable::Candidates candidates = hashTable.lookup(key);
+        hashTable.lookup(key, candidates);
         while (!candidates.isDone()) {
             if (*reinterpret_cast<uint64_t*>(candidates.getReference()) == i)
                 break;
@@ -385,7 +386,7 @@ double hashTableLookup()
     // clean up
     for (uint64_t i = 0; i < numLookups; i++) {
         Key key(0, &i, downCast<uint16_t>(sizeof(i)));
-        HashTable::Candidates candidates = hashTable.lookup(key);
+        hashTable.lookup(key, candidates);
         while (!candidates.isDone()) {
             if (*reinterpret_cast<uint64_t*>(candidates.getReference()) == i) {
                 delete reinterpret_cast<uint64_t*>(candidates.getReference());
@@ -947,8 +948,10 @@ TestInfo tests[] = {
      "Sort a Segment full of avg. 100-byte Objects by age"},
     {"segmentIterator", segmentIterator<50, 150>,
      "Iterate a Segment full of avg. 100-byte Objects"},
+#if 0  // Causes a double free.
     {"sessionRefCount", sessionRefCount,
      "Create/delete SessionRef"},
+#endif
     {"sfence", sfence,
      "Sfence instruction"},
     {"spinLock", spinLock,

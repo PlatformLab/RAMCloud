@@ -46,6 +46,7 @@ class RawMetrics {
     void serialize(std::string& out);
   private:
     void init();
+    void sampleOnDemandMetrics();
 
     /**
      * This structure is used to return information about one metric

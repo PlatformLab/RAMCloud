@@ -54,7 +54,7 @@ Seglet::free()
  * Return a pointer to this seglet's contiguous memory block.
  */
 void*
-Seglet::get()
+Seglet::get() const
 {
     return buffer;
 }
@@ -63,7 +63,7 @@ Seglet::get()
  * Return the length of this seglet's contiguous memory block.
  */
 uint32_t
-Seglet::getLength()
+Seglet::getLength() const
 {
     return length;
 }
@@ -87,7 +87,7 @@ Seglet::setSourcePool(const vector<Seglet*>* newSourcePool)
  * it to when the seglet is freed.
  */
 const vector<Seglet*>*
-Seglet::getSourcePool()
+Seglet::getSourcePool() const
 {
     return sourcePool;
 }

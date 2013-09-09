@@ -14,7 +14,10 @@
  */
 
 #include "Common.h"
+#include "BitOps.h"
+#include "LogSegment.h"
 #include "SegletAllocator.h"
+#include "Segment.h"
 #include "ServerConfig.h"
 #include "ShortMacros.h"
 
@@ -32,17 +35,21 @@ namespace RAMCloud {
  */
 SegletAllocator::SegletAllocator(const ServerConfig* config)
     : segletSize(config->segletSize),
+      segletSizeShift(BitOps::findFirstSet(segletSize) - 1),
       lock("SegletAllocator::lock"),
       emergencyHeadPool(),
       emergencyHeadPoolReserve(0),
       cleanerPool(),
       cleanerPoolReserve(0),
       defaultPool(),
+      segletToSegmentTable(),
       block(config->master.logBytes)
 {
+    assert(BitOps::isPowerOfTwo(segletSize));
     uint8_t* segletBlock = block.get();
     for (size_t i = 0; i < (block.length / segletSize); i++) {
         Seglet* seglet = new Seglet(*this, segletBlock, segletSize);
+        segletToSegmentTable.push_back(NULL);
         defaultPool.push_back(seglet);
         segletBlock += segletSize;
     }
@@ -231,6 +238,9 @@ SegletAllocator::free(Seglet* seglet)
     // the default pool. New log heads can allocate from this to service new
     // log appends.
     defaultPool.push_back(seglet);
+
+    // This seglet no longer belongs to any segment, so update that fact.
+    setOwnerSegment(seglet, NULL);
 }
 
 /**
@@ -258,6 +268,17 @@ SegletAllocator::getFreeCount(AllocationType type)
         return cleanerPool.size();
     assert(type == DEFAULT);
     return defaultPool.size();
+}
+
+size_t
+SegletAllocator::getTotalCount(AllocationType type)
+{
+    if (type == EMERGENCY_HEAD)
+        return emergencyHeadPoolReserve;
+    if (type == CLEANER)
+        return cleanerPoolReserve;
+    assert(type == DEFAULT);
+    return getTotalCount() - emergencyHeadPoolReserve - cleanerPoolReserve;
 }
 
 /**
@@ -315,6 +336,33 @@ SegletAllocator::getMemoryUtilization()
                                 cleanerPoolReserve;
     return downCast<int>(100 * (maxDefaultPoolSize - defaultPool.size()) /
                          maxDefaultPoolSize);
+}
+
+/**
+ * XXX
+ */
+LogSegment*
+SegletAllocator::getOwnerSegment(const void* p)
+{
+    return segletToSegmentTable[getSegletIndex(p)];
+}
+
+void
+SegletAllocator::setOwnerSegment(Seglet* seglet, LogSegment* segment)
+{
+    size_t index = getSegletIndex(seglet->get());
+    assert(segment == NULL || segletToSegmentTable[index] == NULL);
+    segletToSegmentTable[index] = segment;
+    Fence::sfence();
+}
+
+size_t
+SegletAllocator::getSegletIndex(const void* p)
+{
+    uintptr_t i = reinterpret_cast<uintptr_t>(p);
+    uintptr_t blockBase = reinterpret_cast<uintptr_t>(block.get());
+    assert(i >= blockBase && i < blockBase + block.length);
+    return (i - blockBase) >> segletSizeShift;
 }
 
 /**

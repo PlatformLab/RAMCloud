@@ -60,13 +60,13 @@ class LogSegmentTest : public ::testing::Test {
 
 TEST_F(LogSegmentTest, getMemoryUtilization) {
     EXPECT_EQ(0, s->getMemoryUtilization());
-    s->liveBytes = s->segletSize / 2;
+    //s->liveBytes = s->segletSize / 2; XXXXX
     EXPECT_EQ(50, s->getMemoryUtilization());
 }
 
 TEST_F(LogSegmentTest, getDiskUtilization) {
     EXPECT_EQ(0, s->getDiskUtilization());
-    s->liveBytes = s->segmentSize / 2;
+    //s->liveBytes = s->segmentSize / 2; XXXXX
     EXPECT_EQ(50, s->getDiskUtilization());
 }
 

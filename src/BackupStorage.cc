@@ -100,10 +100,10 @@ BackupStorage::freeFrame(Frame* frame)
  * \param count
  *      The number of bytes written to storage in the last operation.
  * \param ticks
- *      The number of actual ticks required to write writeBytes to storage.
+ *      The number of actual ticks it took to write 'count' bytes to storage.
  */
 void
-BackupStorage::sleepToThrottleWrites(size_t count, uint64_t ticks)
+BackupStorage::sleepToThrottleWrites(size_t count, uint64_t ticks) const
 {
     if (writeRateLimit == 0)
         return;

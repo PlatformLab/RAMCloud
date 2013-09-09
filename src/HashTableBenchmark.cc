@@ -53,6 +53,7 @@ hashTableBenchmark(uint64_t nkeys, uint64_t nlines)
     uint64_t i;
     HashTable ht(nlines);
     TestObject** values = new TestObject*[nkeys];
+    assert(nlines == ht.numBuckets);
 
     printf("hash table keys: %lu\n", nkeys);
     printf("hash table lines: %lu\n", nlines);
@@ -75,12 +76,13 @@ hashTableBenchmark(uint64_t nkeys, uint64_t nlines)
 
     // don't use a CycleCounter, as we may want to run without PERF_COUNTERS
     uint64_t replaceCycles = Cycles::rdtsc();
+    HashTable::Candidates c;
     for (i = 0; i < nkeys; i++) {
         Key key(0, &i, sizeof(i));
         uint64_t reference(reinterpret_cast<uint64_t>(values[i]));
 
         bool success = false;
-        HashTable::Candidates c = ht.lookup(key);
+        ht.lookup(key, c);
         while (!c.isDone()) {
             TestObject* candidateObject =
                 reinterpret_cast<TestObject*>(c.getReference());
@@ -117,7 +119,7 @@ hashTableBenchmark(uint64_t nkeys, uint64_t nlines)
         uint64_t reference = 0;
         bool success = false;
 
-        HashTable::Candidates c = ht.lookup(key);
+        ht.lookup(key, c);
         while (!c.isDone()) {
             reference = c.getReference();
             TestObject* candidateObject =
@@ -206,6 +208,8 @@ main(int argc, char **argv)
 
     uint64_t numberOfCachelines = (hashTableMegs * 1024 * 1024) /
         HashTable::bytesPerCacheLine();
+    // HashTable will round to a power of two to avoid divides.
+    numberOfCachelines = BitOps::powerOfTwoLessOrEqual(numberOfCachelines);
 
     // If the user specified a load factor, auto-calculate the number of
     // keys based on the number of cachelines.

@@ -124,13 +124,12 @@ void
 AbstractLog::free(Reference reference)
 {
     TEST_LOG("free on reference %lu", reference.toInteger());
-    SegmentSlot slot = reference.getSlot(segmentSize);
-    uint32_t offset = reference.getOffset(segmentSize);
-    LogSegment& segment = (*segmentManager)[slot];
-    Buffer buffer;
+    LogSegment* segment = getSegment(reference);
     uint32_t lengthWithMetadata;
-    segment.getEntry(offset, buffer, &lengthWithMetadata);
-    segment.liveBytes -= lengthWithMetadata;
+    LogEntryType type = reference.getEntry(&segmentManager->getAllocator(),
+                                           NULL,
+                                           &lengthWithMetadata);
+    segment->trackDeadEntry(type, lengthWithMetadata);
 }
 
 /**
@@ -159,6 +158,11 @@ AbstractLog::getMetrics(ProtoBuf::LogMetrics& m)
  * This is the method to use to access something after it is appended to the
  * log.
  *
+ * In the common case (small entries, especially) this method is very fast as
+ * the reference already points to a contiguous entry. When this is not the
+ * case, we take a slower path to look up the subsequent discontiguous pieces
+ * of the entry, which typically incurs several additional cache misses.
+ *
  * \param reference
  *      Reference to the entry requested. This value is returned in the append
  *      method. If this reference is invalid behaviour is undefined. The log
@@ -172,9 +176,7 @@ AbstractLog::getMetrics(ProtoBuf::LogMetrics& m)
 LogEntryType
 AbstractLog::getEntry(Reference reference, Buffer& outBuffer)
 {
-    SegmentSlot slot = reference.getSlot(segmentSize);
-    uint32_t offset = reference.getOffset(segmentSize);
-    return (*segmentManager)[slot].getEntry(offset, outBuffer);
+    return reference.getEntry(&segmentManager->getAllocator(), &outBuffer);
 }
 
 /**
@@ -186,8 +188,7 @@ AbstractLog::getEntry(Reference reference, Buffer& outBuffer)
 uint64_t
 AbstractLog::getSegmentId(Reference reference)
 {
-    SegmentSlot slot = reference.getSlot(segmentSize);
-    return (*segmentManager)[slot].id;
+    return getSegment(reference)->id;
 }
 
 /**
@@ -212,6 +213,13 @@ AbstractLog::segmentExists(uint64_t segmentId)
 /******************************************************************************
  * PRIVATE METHODS
  ******************************************************************************/
+
+LogSegment*
+AbstractLog::getSegment(Reference reference)
+{
+    return segmentManager->getAllocator().getOwnerSegment(
+        reinterpret_cast<const void*>(reference.toInteger()));
+}
 
 /**
  * Append a typed entry to the log by copying in the data. Entries are binary
@@ -265,15 +273,15 @@ AbstractLog::append(Lock& appendLock,
     }
 
     // Try to append. If we can't, try to allocate a new head to get more space.
-    uint32_t segmentOffset;
+    Reference reference;
     uint32_t bytesUsedBefore = head->getAppendedLength();
-    bool enoughSpace = head->append(type, buffer, length, &segmentOffset);
+    bool enoughSpace = head->append(type, buffer, length, &reference);
     if (!enoughSpace) {
         if (!allocNewWritableHead())
             return false;
 
         bytesUsedBefore = head->getAppendedLength();
-        if (!head->append(type, buffer, length, &segmentOffset)) {
+        if (!head->append(type, buffer, length, &reference)) {
             // TODO(Steve): We should probably just permit up to 1/N'th of the
             // size of a segment in any single append. Say, 1/2th or 1/4th as
             // a ceiling. Then we could ensure that after opening a new head
@@ -285,13 +293,13 @@ AbstractLog::append(Lock& appendLock,
     }
 
     if (outReference != NULL)
-        *outReference = Reference(head->slot, segmentOffset, segmentSize);
+        *outReference = reference;
 
     uint32_t lengthWithMetadata = head->getAppendedLength() - bytesUsedBefore;
 
     // Update log statistics so that the cleaner can make intelligent decisions
     // when trying to reclaim memory.
-    head->liveBytes += lengthWithMetadata;
+    head->trackNewEntry(type, lengthWithMetadata);
 
     metrics.totalBytesAppended += length;
     metrics.totalMetadataBytesAppended += (lengthWithMetadata - length);

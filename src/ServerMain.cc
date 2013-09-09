@@ -54,6 +54,15 @@ main(int argc, char *argv[])
                default_value(RANDOM_REFINE_AVG),
              "0 random refine min, 1 random refine avg, 2 even distribution, "
              "3 uniform random")
+            ("cleanerBalancer",
+             ProgramOptions::value<string>(&config.master.cleanerBalancer)->
+                default_value("tombstoneRatio:0.25"),
+             "Which balancing algorithm to use to schedule cleaning on disk "
+             "and in-memory compaction, as well as how to orchestrate multiple "
+             "cleaner threads. You will almost certainly want to use the "
+             "default value. Currently the only other option is \"fixed:X\", "
+             "where 0 <= X <= 100 represents the percentage of CPU time the "
+             "disk cleaner will be limited to (the rest is for compaction).")
             ("disableLogCleaner,d",
              ProgramOptions::bool_switch(&config.master.disableLogCleaner),
              "Disable the log cleaner entirely. You will eventually run out "

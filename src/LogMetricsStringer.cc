@@ -117,6 +117,9 @@ LogMetricsStringer::getServerParameters()
     s += ls + format("  Cleaner Threads:               %u\n",
         serverConfig->master().cleaner_thread_count());
 
+    s += ls + format("  Cleaner Balancer:              %s\n",
+        serverConfig->master().cleaner_balancer().c_str());
+
     s += ls + format("===> LOG CONSTANTS:\n");
 
     s += ls + format("  Poll Interval:                 %d us\n",
@@ -219,6 +222,11 @@ LogMetricsStringer::getDiskCleanerMetrics()
         onDiskMetrics.total_memory_bytes_in_cleaned_segments();
     s += ls + format("  Avg Cleaned Seg Memory Util:   %.2f%%\n",
         100.0 * d(wrote) / d(memoryBytesInCleanedSegments));
+
+    uint64_t memoryUtilizationSum =
+        onDiskMetrics.memory_utilization_at_start_sum();
+    s += ls + format("  Avg Memory Util At Run Start:  %.2f%%\n",
+        d(memoryUtilizationSum) / d(totalRuns));
 
     uint64_t totalCleaned = onDiskMetrics.total_segments_cleaned();
     s += ls + format("  Total Segments Cleaned:        %lu (%.2f/s, "
@@ -385,12 +393,19 @@ LogMetricsStringer::getMemoryCompactorMetrics()
     s += ls + format("  Memory Write Cost:             %.3f\n",
         d(freed + wrote) / d(freed));
 
+    uint64_t segmentsCompacted = inMemoryMetrics.total_segments_compacted();
+    s += ls + format("  Total Segments Compacted:      %lu (%.2f/s, "
+        "%.2f/s active; %lu empty)\n",
+        segmentsCompacted,
+        d(segmentsCompacted) / elapsedTime,
+        d(segmentsCompacted) / cleanerTime,
+        inMemoryMetrics.total_empty_segments_compacted());
+
     uint64_t bytesInCompactedSegments =
         inMemoryMetrics.total_bytes_in_compacted_segments();
     s += ls + format("  Avg Seg Util Pre-Compaction:   %.2f%%\n",
         100.0 * d(wrote) / d(bytesInCompactedSegments));
 
-    uint64_t segmentsCompacted = inMemoryMetrics.total_segments_compacted();
     s += ls + format("  Avg Seglets Freed/Compaction:  %.2f\n",
         d(freed) / d(segmentsCompacted) / d(serverConfig->seglet_size()));
 

@@ -23,6 +23,7 @@ TESTS_SRCFILES := \
 		  src/BitOpsTest.cc \
 		  src/BoostIntrusiveTest.cc \
 		  src/BufferTest.cc \
+		  src/CleanableSegmentManagerTest.cc \
 		  src/ClientExceptionTest.cc \
 		  src/ClusterMetricsTest.cc \
 		  src/CommonTest.cc \

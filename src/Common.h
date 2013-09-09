@@ -38,6 +38,8 @@
 #define PUBLIC public
 #endif
 
+#include <sys/time.h>
+
 #define __STDC_LIMIT_MACROS
 #include <cstdint>
 
@@ -276,6 +278,16 @@ prefetch(const T* object)
 }
 
 void pinAllMemory();
+
+/**
+ * Convert the annoying unix timeval structure into a single 64-bit microsecond
+ * value.
+ */
+static inline uint64_t
+timevalToMicroseconds(struct timeval* tv)
+{
+    return static_cast<uint64_t>(tv->tv_sec) * 1000000 + tv->tv_usec;
+}
 
 /*
  * A macro that's always defined that indicates whether or not this is a debug

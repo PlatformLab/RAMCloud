@@ -36,7 +36,7 @@ LogEntryRelocator::LogEntryRelocator(LogSegment* segment,
                                      uint32_t maximumLength)
     : segment(segment),
       maximumLength(maximumLength),
-      offset(-1),
+      reference(),
       outOfSpace(false),
       didAppend(false),
       appendTicks(0),
@@ -78,7 +78,7 @@ LogEntryRelocator::append(LogEntryType type, Buffer& buffer)
     }
 
     uint32_t priorLength = segment->getAppendedLength();
-    if (!segment->append(type, buffer, &offset)) {
+    if (!segment->append(type, buffer, &reference)) {
         outOfSpace = true;
         return false;
     }
@@ -98,7 +98,7 @@ LogEntryRelocator::getNewReference()
 {
     if (!didAppend)
         throw FatalError(HERE, "No append operation succeeded.");
-    return Log::Reference(segment->slot, offset, segment->segmentSize);
+    return reference;
 }
 
 /**

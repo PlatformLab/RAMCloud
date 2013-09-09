@@ -40,11 +40,6 @@ class LogSegment;
 /// Avoid yet another circular dependency.
 class SegmentManager;
 
-/// Redeclare the typedef defined in SegmentManager.h to avoid a cyclical
-/// dependency. See SegmentManager.h's typedef comments for documentation on
-/// this type.
-typedef uint32_t SegmentSlot;
-
 /**
  * This class implements functionality common to the Log and SideLog subclasses.
  * The Log class is typically used when servers store individual entries such as
@@ -106,91 +101,9 @@ class AbstractLog {
         std::pair<uint64_t, uint32_t> pos;
     };
 
-    /**
-     * Data appended to the log is referenced by instances of this class.
-     * We simply pack the entry's segment slot and byte offset within the
-     * segment into a uint64_t that can go in the hash table. The slot is
-     * maintained by SegmentManager and is an index into an array of active
-     * segments in the system.
-     *
-     * Direct pointers are not used because log entries are not necessarily
-     * contiguous in memory. This indirection also makes it easy to find the
-     * segment metadata associated with a specific entry so that we can update
-     * state (for example, the free space counts in a Log::free() call). In
-     * the past we aligned segments in memory and ANDed off bits from the
-     * entry pointer to address the segment itself, but this was messy and
-     * convoluted.
-     */
-    class Reference {
-      public:
-        Reference()
-            : value(0)
-        {
-        }
-
-        Reference(SegmentSlot slot,
-                  uint32_t offset,
-                  uint32_t segmentSize)
-            : value(0)
-        {
-            assert(offset < segmentSize);
-            assert(BitOps::isPowerOfTwo(segmentSize));
-            int shift = BitOps::findFirstSet(segmentSize) - 1;
-            value = (static_cast<uint64_t>(slot) << shift) | offset;
-        }
-
-        explicit Reference(uint64_t value)
-            : value(value)
-        {
-        }
-
-        /**
-         * Obtain the 64-bit integer value of the reference. The upper 16 bits
-         * are guaranteed to be zero.
-         */
-        uint64_t
-        toInteger() const
-        {
-            return value;
-        }
-
-        /**
-         * Compare references for equality. Returns true if equal, else false.
-         */
-        bool
-        operator==(const Reference& other) const
-        {
-            return value == other.value;
-        }
-
-        /**
-         * Returns the exact opposite of operator==.
-         */
-        bool
-        operator!=(const Reference& other) const
-        {
-            return !operator==(other);
-        }
-
-        uint32_t
-        getSlot(uint32_t segmentSize) const
-        {
-            assert(BitOps::isPowerOfTwo(segmentSize));
-            int shift = BitOps::findFirstSet(segmentSize) - 1;
-            return downCast<uint32_t>(value >> shift);
-        }
-
-        uint32_t
-        getOffset(uint32_t segmentSize) const
-        {
-            assert(BitOps::isPowerOfTwo(segmentSize));
-            return downCast<uint32_t>(value & (segmentSize - 1));
-        }
-
-      PRIVATE:
-        /// The integer value of the reference.
-        uint64_t value;
-    };
+    /// Our append operations will return the same Segment::Reference. Since
+    /// callers shouldn't have to know about Segments, we'll alias it here.
+    typedef Segment::Reference Reference;
 
     /**
      * Structure used when appending multiple entries atomically. It is used to
@@ -207,7 +120,7 @@ class AbstractLog {
         AppendVector()
             : type(LOG_ENTRY_TYPE_INVALID),
               buffer(),
-              reference(0)
+              reference()
         {
         }
 
@@ -286,7 +199,10 @@ class AbstractLog {
                       &metrics.totalAppendTicks);
     }
 
+
   PROTECTED:
+    LogSegment* getSegment(Reference reference);
+
     /**
      * This virtual method is used to allocate the next segment to append
      * entries to when either there was no previous one (immediately following

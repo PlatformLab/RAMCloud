@@ -455,7 +455,7 @@ def run(
 
         if not coordinator_host:
             coordinator_host = hosts[0]
-        coordinator = cluster.start_coordinator(coordinator_host,
+        coordinator = cluster.start_coordinator(["rcmaster", "192.168.0.1", 1],
                                                 coordinator_args)
 
         if old_master_host:
@@ -473,7 +473,7 @@ def run(
                 backup = True
                 args += ' %s' % backup_args
                 backups_started += 1
-            cluster.start_server(host, args, backup=backup)
+            cluster.start_server(["rcmonster", "192.168.0.12", 2], args, backup=backup)
             masters_started += 1
 
         if backups_per_server == 2:

@@ -36,6 +36,7 @@ SHARED_SRCFILES := \
 		   src/BackupFailureMonitor.cc \
 		   src/BackupSelector.cc \
 		   src/Buffer.cc \
+                   src/CleanableSegmentManager.cc \
 		   src/ClientException.cc \
 		   src/ClusterMetrics.cc \
 		   src/CodeLocation.cc \
@@ -48,6 +49,7 @@ SHARED_SRCFILES := \
 		   src/FailureDetector.cc \
 		   src/FailSession.cc \
 		   src/FastTransport.cc \
+		   src/HashTable.cc \
 		   src/IpAddress.cc \
 		   src/Key.cc \
 		   src/LargeBlockOfMemory.cc \

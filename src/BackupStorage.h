@@ -288,7 +288,7 @@ class BackupStorage {
     virtual ~BackupStorage() {}
 
     virtual uint32_t benchmark(BackupStrategy backupStrategy);
-    void sleepToThrottleWrites(size_t count, uint64_t ticks);
+    void sleepToThrottleWrites(size_t count, uint64_t ticks) const;
 
     /**
      * Reference to a frame; when the reference drops to zero

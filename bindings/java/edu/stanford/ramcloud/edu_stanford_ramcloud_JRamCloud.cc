@@ -173,6 +173,8 @@ JNICALL Java_edu_stanford_ramcloud_JRamCloud_connect(JNIEnv *env,
     RamCloud* ramcloud = NULL;
     try {
         ramcloud = new RamCloud(locator.string);
+// XXX-- make this an option.
+ramcloud->clientContext->transportManager->setTimeout(10000);
     } EXCEPTION_CATCHER(NULL);
     return reinterpret_cast<jlong>(ramcloud);
 }

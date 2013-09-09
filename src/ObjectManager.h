@@ -226,7 +226,8 @@ class ObjectManager : public LogEntryHandlers {
                 LogEntryType& outType,
                 Buffer& buffer,
                 uint64_t* outVersion = NULL,
-                Log::Reference* outReference = NULL);
+                Log::Reference* outReference = NULL,
+                HashTable::Candidates* outCandidates = NULL);
     bool remove(HashTableBucketLock& lock, Key& key);
     bool replace(HashTableBucketLock& lock, Key& key, Log::Reference reference);
     static void removeIfOrphanedObject(uint64_t reference, void *cookie);
