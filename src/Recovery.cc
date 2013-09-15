@@ -84,6 +84,15 @@ Recovery::Recovery(Context* context,
     , testingBackupEndTaskSendCallback()
     , testingFailRecoveryMasters()
 {
+    // if the crashed master had no tablets, recovery is effectively done.
+    // When this recovery gets scheduled, it will call back into
+    // CoordinatorServerList to remove this server from the coordinator
+    // server list.
+    auto tablets = tableManager->markAllTabletsRecovering(crashedServerId);
+    if (tablets.size() == 0) {
+        status = DONE;
+    }
+
 }
 
 Recovery::~Recovery()
@@ -128,6 +137,19 @@ Recovery::partitionTablets(vector<Tablet> tablets)
 void
 Recovery::performTask()
 {
+    // set to DONE if there were no tablets in the crashed master when the
+    // constructor for this Recovery object was invoked
+    if (status == DONE) {
+        LOG(NOTICE, "No tablets in crashed server %s, removing it from"
+                    " coordinator server list",
+                     crashedServerId.toString().c_str());
+        if (owner) {
+            owner->recoveryFinished(this);
+            owner->destroyAndFreeRecovery(this);
+        }
+        return;
+    }
+
     metrics->coordinator.recoveryCount++;
     switch (status) {
     case START_RECOVERY_ON_BACKUPS:

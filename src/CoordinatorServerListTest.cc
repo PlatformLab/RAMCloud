@@ -345,7 +345,8 @@ TEST_F(CoordinatorServerListTest, enlistServer_ReplaceANonMaster) {
     EXPECT_EQ(ServerId(3, 0),
               sl->enlistServer(replacesId, {WireFormat::BACKUP_SERVICE},
                                0, "mock:host=backup2"));
-    EXPECT_EQ("startMasterRecovery: Server 2.0 crashed, but it had no tablets",
+    EXPECT_EQ("startMasterRecovery: Scheduling recovery of master 2.0 | "
+              "startMasterRecovery: Recovery crashedServerId: 2.0",
               TestLog::get());
     // Can't test this any more since the entry for server with id replacesId
     // will actually get removed from server list only once updates to cluster

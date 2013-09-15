@@ -120,8 +120,8 @@ TEST_F(MasterRecoveryManagerTest, startMasterRecoveryNoTablets) {
     auto crashedServerId = addMaster(lock);
     TestLog::Enable _;
     mgr->startMasterRecovery((*serverList)[crashedServerId]);
-    EXPECT_EQ("startMasterRecovery: Server 1.0 crashed, "
-              "but it had no tablets", TestLog::get());
+    EXPECT_EQ("startMasterRecovery: Scheduling recovery of master 1.0 | "
+              "schedule: scheduled", TestLog::get());
 }
 
 TEST_F(MasterRecoveryManagerTest, startMasterRecovery) {
@@ -207,8 +207,8 @@ TEST_F(MasterRecoveryManagerTest, recoveryFinishedUnsuccessful) {
     mgr->recoveryFinished(&recovery);
 
     // EnqueueRecoveryTask.
-    EXPECT_EQ(1lu, mgr->taskQueue.outstandingTasks());
-    EXPECT_EQ(1lu, serverList->version);
+    EXPECT_EQ(3lu, mgr->taskQueue.outstandingTasks());
+    EXPECT_EQ(2lu, serverList->version);
 }
 
 TEST_F(MasterRecoveryManagerTest, recoveryMasterFinishedNoSuchRecovery) {
