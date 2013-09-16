@@ -93,7 +93,7 @@ TransportManager::TransportManager(Context* context)
     , registeredBases()
     , registeredSizes()
     , mutex("TransportManager::mutex")
-    , timeoutMs(0)
+    , sessionTimeoutMs(0)
     , mockRegistrations(0)
 {
     transportFactories.push_back(&tcpTransportFactory);
@@ -341,7 +341,7 @@ TransportManager::openSessionInternal(const char* serviceLocator)
 
             try {
                 Transport::SessionRef session = transports[i]->getSession(
-                        locator, timeoutMs);
+                        locator, sessionTimeoutMs);
                 if (isServer) {
                     return new WorkerSession(context, session);
                 }
@@ -393,18 +393,18 @@ TransportManager::registerMemory(void* base, size_t bytes)
  * \param timeoutMs
  *      Timeout period (in ms) to pass to transports.
  */
-void TransportManager::setTimeout(uint32_t timeoutMs)
+void TransportManager::setSessionTimeout(uint32_t timeoutMs)
 {
-    this->timeoutMs = timeoutMs;
+    this->sessionTimeoutMs = timeoutMs;
 }
 
 /**
  * Return current timeout value (ms) for all server port created from now on.
  *
  */
-uint32_t TransportManager::getTimeout() const
+uint32_t TransportManager::getSessionTimeout() const
 {
-    return timeoutMs;
+    return sessionTimeoutMs;
 }
 
 /**

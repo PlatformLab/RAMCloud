@@ -54,8 +54,8 @@ class TransportManager {
     void registerMemory(void* base, size_t bytes);
     void dumpStats();
     void dumpTransportFactories();
-    void setTimeout(uint32_t timeoutMs);
-    uint32_t getTimeout() const;
+    void setSessionTimeout(uint32_t timeoutMs);
+    uint32_t getSessionTimeout() const;
 
 #if TESTING
     /**
@@ -164,9 +164,8 @@ class TransportManager {
      * Used for detecting dead servers: if we can't get any response out
      * a server in this many milliseconds, the session gets aborted.  0
      * means that each transport gets to pick its own default.
-     * Also used for detecting dead client for a server port.
      */
-    uint32_t timeoutMs;
+    uint32_t sessionTimeoutMs;
 
     /**
      * Counts the number of calls to registerMock (minus the number of calls

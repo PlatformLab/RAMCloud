@@ -150,10 +150,18 @@ OptionParser::setup(int argc, char* argv[])
              "Only works with InfUdDriver based transports for now; "
              "use tcpdump to capture kernel-based packet formats.")
             ("timeout",
-             ProgramOptions::value<uint32_t>(&options.transportTimeout)->
+             ProgramOptions::value<uint32_t>(&options.sessionTimeout)->
                 default_value(0),
              "How long transports should wait (ms) before declaring that a "
-             "connection is dead.  0 means use transport-specific default.");
+             "client connection for each rpc session is dead."
+             "0 means use transport-specific default.")
+            ("portTimeout",
+             ProgramOptions::value<int32_t>(&options.portTimeout)->
+                default_value(-1), // Overriding to the initial value.
+             "How long transports should wait (ms) before declaring that a "
+             "server connection for listening client requests is dead."
+             "0 means use transport-specific default."
+             "Negative number means disabling the timer.");
 
         // Do one pass with just help/config file options so we can get
         // the alternate config file location, if specified.  Then

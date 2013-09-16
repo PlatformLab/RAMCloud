@@ -68,7 +68,8 @@ class OptionParser {
             : coordinatorLocator()
             , localLocator()
             , pcapFilePath()
-            , transportTimeout(0)
+            , sessionTimeout(0)
+            , portTimeout(0)
         {
         }
 
@@ -100,16 +101,26 @@ class OptionParser {
          * Returns the time (in ms) after which transports should assume that
          * a connection has failed.  0 means use a transport-specific default.
          */
-        uint32_t getTransportTimeout() const
+        uint32_t getSessionTimeout() const
         {
-            return transportTimeout;
+            return sessionTimeout;
+        }
+
+        /**
+         * Returns the time (in ms) after which transports should assume that
+         * the client for the lisning port is dead.
+         */
+        int32_t getPortTimeout() const
+        {
+            return portTimeout;
         }
 
       private:
-        string coordinatorLocator;      ///< See getLocalLocator().
-        string localLocator;            ///< See getCoordinatorLocator().
+        string coordinatorLocator;      ///< See getCoordinatorLocator().
+        string localLocator;            ///< See getLocalLocator().
         string pcapFilePath;            ///< Packet log file, "" to disable.
-        uint32_t transportTimeout;      ///< See getTransportTimeout().
+        uint32_t sessionTimeout;        ///< See getSessionTimeout().
+        int32_t  portTimeout;           ///< See getSessionTimeout().
 
         friend class OptionParser;
     };

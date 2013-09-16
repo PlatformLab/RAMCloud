@@ -194,8 +194,8 @@ main(int argc, char *argv[])
 #if INFINIBAND
         InfRcTransport::setName(localLocator.c_str());
 #endif
-        context.transportManager->setTimeout(
-                optionParser.options.getTransportTimeout());
+        context.transportManager->setSessionTimeout(
+                optionParser.options.getSessionTimeout());
         context.transportManager->initialize(localLocator.c_str());
 
         config.coordinatorLocator =
@@ -214,6 +214,11 @@ main(int argc, char *argv[])
             LOG(NOTICE, "Using %u backups", config.master.numReplicas);
             config.setLogAndHashTableSize(masterTotalMemory, hashTableMemory);
         }
+
+        // Set PortTimeout and start portTimer
+        LOG(NOTICE, "PortTimeOut=%d", optionParser.options.getPortTimeout());
+        context.portAlarmTimer->setPortTimeout(
+            optionParser.options.getPortTimeout());
 
         Server server(&context, &config);
         server.run(); // Never returns except for exceptions.

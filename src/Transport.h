@@ -226,7 +226,6 @@ class Transport {
          * Shut down this session: abort any RPCs in progress and reject
          * any future calls to \c sendRequest. The caller is responsible
          * for logging the reason for the abort.
-         * For server port, shutdown and close listening port.
          */
         virtual void abort() {}
 
@@ -355,6 +354,20 @@ class Transport {
     /// in the poller of as much as 250ms.
     static const uint32_t DEFAULT_TIMEOUT_MS = 500;
 
+    /**
+     * One ServerPort instance is created for a lissen port 
+     * of the transport on the server.
+     * It keeps track the port liveness with watchdog timer,
+     *
+     * When associated client port is closed or the client crashes,
+     * the liveness watchdog cleans up the associated server port.
+     *
+     * Each serverPort instance is freed with 'delete self' at
+     * the watchdog timeout.
+     * So, severPort has to be dynamically instanciated to avoid
+     * 'double free' error.
+     *
+     **/
     class ServerPort {
       public:
         explicit ServerPort() {}
@@ -371,7 +384,7 @@ class Transport {
         }
       PRIVATE:
         DISALLOW_COPY_AND_ASSIGN(ServerPort);
-        };
+    };
 
   PRIVATE:
     DISALLOW_COPY_AND_ASSIGN(Transport);
