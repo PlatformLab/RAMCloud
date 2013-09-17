@@ -177,17 +177,7 @@ ObjectManager::writeObject(Key& key,
 
     HashTable::Candidates currentHashTableEntry;
 
-static uint64_t spit = 0;
-spit++;
-extern uint64_t bufferAppendTicks;
-extern uint64_t bufferAppendCount;
-extern uint64_t bufferAppendSizes;
-bufferAppendTicks = bufferAppendCount = bufferAppendSizes = 0;
-CycleCounter<uint64_t> lookupTicks;
-bool lret = lookup(lock, key, currentType, currentBuffer, 0, &currentReference, &currentHashTableEntry);
-if ((spit & 2097151) == 0)
-  fprintf(stderr, "lookup took %lu ns, %lu buffer append ns, %lu appends, %lu bytes appended\n", Cycles::toNanoseconds(lookupTicks.stop()), Cycles::toNanoseconds(bufferAppendTicks), bufferAppendCount, bufferAppendSizes);
-    if (lret) {    
+    if (lookup(lock, key, currentType, currentBuffer, 0, &currentReference, &currentHashTableEntry)) {
         if (currentType == LOG_ENTRY_TYPE_OBJTOMB) {
             removeIfTombstone(currentReference.toInteger(), this);
         } else {
@@ -946,6 +936,7 @@ ObjectManager::relocateObject(Buffer& oldBuffer,
         // cleaner will allocate more memory and retry.
         if (!relocator.append(LOG_ENTRY_TYPE_OBJ, oldBuffer))
             return;
+
         candidates.setReference(relocator.getNewReference().toInteger());
         return;
     }
@@ -1057,19 +1048,14 @@ ObjectManager::lookup(HashTableBucketLock& lock,
                       Log::Reference* outReference,
                       HashTable::Candidates* outCandidates)
 {
-extern uint64_t bufferAppendTicks;
-extern uint64_t bufferAppendCount;
     HashTable::Candidates candidates;
     objectMap.lookup(key, candidates);
     while (!candidates.isDone()) {
-bufferAppendCount++;
         Buffer candidateBuffer;
         Log::Reference candidateRef(candidates.getReference());
         LogEntryType type = log.getEntry(candidateRef, candidateBuffer);
 
-CycleCounter<uint64_t> _(&bufferAppendTicks);
         Key candidateKey(type, candidateBuffer);
-_.stop();
         if (key == candidateKey) {
             outType = type;
             buffer.append(&candidateBuffer);

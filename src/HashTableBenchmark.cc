@@ -24,6 +24,7 @@
 #include "Context.h"
 #include "Cycles.h"
 #include "HashTable.h"
+#include "LargeBlockOfMemory.h"
 #include "Memory.h"
 #include "OptionParser.h"
 #include "KeyUtil.h"
@@ -41,8 +42,6 @@ class TestObject {
     }
 
     uint64_t key;
-
-    DISALLOW_COPY_AND_ASSIGN(TestObject); // NOLINT
 } __attribute__((aligned(64)));
 
 } // anonymous namespace
@@ -52,7 +51,8 @@ hashTableBenchmark(uint64_t nkeys, uint64_t nlines)
 {
     uint64_t i;
     HashTable ht(nlines);
-    TestObject** values = new TestObject*[nkeys];
+    LargeBlockOfMemory<TestObject> block(nkeys * sizeof(TestObject));
+    TestObject* values = block.get();
     assert(nlines == ht.numBuckets);
 
     printf("hash table keys: %lu\n", nkeys);
@@ -65,12 +65,14 @@ hashTableBenchmark(uint64_t nkeys, uint64_t nlines)
     fflush(stdout);
     for (i = 0; i < nkeys; i++) {
         Key key(0, &i, sizeof(i));
-        values[i] = new TestObject(i);
-        uint64_t reference(reinterpret_cast<uint64_t>(values[i]));
+        values[i] = TestObject(i);
+        uint64_t reference(reinterpret_cast<uint64_t>(&values[i]));
         ht.insert(key, reference);
     }
     printf("done!\n");
 
+    printf("Starting replaces in 3 seconds (get your measurements ready!)\n");
+    sleep(3);
     printf("running replace measurements...");
     fflush(stdout);
 
@@ -79,7 +81,7 @@ hashTableBenchmark(uint64_t nkeys, uint64_t nlines)
     HashTable::Candidates c;
     for (i = 0; i < nkeys; i++) {
         Key key(0, &i, sizeof(i));
-        uint64_t reference(reinterpret_cast<uint64_t>(values[i]));
+        uint64_t reference(reinterpret_cast<uint64_t>(&values[i]));
 
         bool success = false;
         ht.lookup(key, c);
@@ -101,14 +103,15 @@ hashTableBenchmark(uint64_t nkeys, uint64_t nlines)
     i = Cycles::rdtsc() - replaceCycles;
     printf("done!\n");
 
-    delete[] values;
     values = NULL;
 
-    printf("== replace() ==\n");
+    printf("== replace() took %.3f s ==\n", Cycles::toSeconds(i));
 
     printf("    external avg: %lu ticks, %lu nsec\n",
            i / nkeys, Cycles::toNanoseconds(i / nkeys));
 
+    printf("Starting lookups in 3 seconds (get your measurements ready!)\n");
+    sleep(3);
     printf("running lookup measurements...");
     fflush(stdout);
 
@@ -139,7 +142,7 @@ hashTableBenchmark(uint64_t nkeys, uint64_t nlines)
     i = Cycles::rdtsc() - lookupCycles;
     printf("done!\n");
 
-    printf("== lookup() ==\n");
+    printf("== lookup() took %.3f s ==\n", Cycles::toSeconds(i));
 
     printf("    external avg: %lu ticks, %lu nsec\n", i / nkeys,
         Cycles::toNanoseconds(i / nkeys));

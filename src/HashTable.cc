@@ -95,7 +95,7 @@ HashTable::Entry::getChainPointer() const
 {
     UnpackedEntry ue;
     unpack(ue);
-    if (ue.chain)
+    if (!ue.chain)
         return NULL;
     return reinterpret_cast<CacheLine*>(ue.ptr);
 }
