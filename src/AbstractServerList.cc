@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2012 Stanford University
+/* Copyright (c) 2011-2013 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -205,26 +205,26 @@ AbstractServerList::nextServer(ServerId prev, ServiceMask services, bool* end)
         *end = false;
 
     // Loop circularly through all of the servers currently known.
-    while (1) {
+    for (size_t count = size; count > 0; count--) {
         ++index;
         if (index >= size) {
             if (end != NULL)
                 *end = true;
             index = 0;
-        }
-        if (index == startIndex) {
-            break;
+            if (size == 0)
+                break;
         }
         ServerDetails* details = iget(index);
-        if ((details == NULL) || (details->status != ServerStatus::UP)
-                || !details->services.hasAll(services)) {
-            continue;
+        if ((details != NULL) && (details->status == ServerStatus::UP)
+                && details->services.hasAll(services)) {
+            return details->serverId;
         }
-        return details->serverId;
     }
 
     // Either the server list is empty, or it contains no server with
     // the desired services.
+    if (end != NULL)
+        *end = true;
     return ServerId();
 }
 
