@@ -248,6 +248,27 @@ TEST_F(AbstractServerListTest, nextServer) {
     next = sl.nextServer(ServerId(2, 0), {WireFormat::BACKUP_SERVICE}, &end);
     EXPECT_EQ("0.0", next.toString());
     EXPECT_TRUE(end);
+
+    // nothing matches
+    next = sl.nextServer(ServerId(5U, -1U), {WireFormat::PING_SERVICE}, &end);
+    EXPECT_EQ("invalid", next.toString());
+    EXPECT_TRUE(end);
+}
+TEST_F(AbstractServerListTest, nextServer_onlyOneServerInCluster) {
+    sl.add("mock::0", ServerStatus::UP, {WireFormat::MASTER_SERVICE});
+
+    bool end;
+    ServerId next(5U, -1U);
+
+    next = sl.nextServer(next, {WireFormat::MASTER_SERVICE}, &end);
+    EXPECT_EQ("0.0", next.toString());
+    EXPECT_FALSE(end);
+    next = sl.nextServer(next, {WireFormat::MASTER_SERVICE}, &end);
+    EXPECT_EQ("0.0", next.toString());
+    EXPECT_TRUE(end);
+    next = sl.nextServer(next, {WireFormat::MASTER_SERVICE}, &end);
+    EXPECT_EQ("0.0", next.toString());
+    EXPECT_TRUE(end);
 }
 
 TEST_F(AbstractServerListTest, registerTracker) {
