@@ -110,6 +110,15 @@ class ExternalStorage {
     };
 
     /**
+     * This exception is thrown if an object cannot be parsed properly
+     * as a protocol buffer of the given type
+     */
+    struct FormatError : public Exception {
+        explicit FormatError(const CodeLocation& where, std::string msg)
+            : Exception(where, msg) {}
+    };
+
+    /**
      * This enum is passed as an argument to the "set" method as a hint
      * to indicate whether or not the object already exists.
      */
@@ -131,7 +140,7 @@ class ExternalStorage {
      *  \param name
      *      Name of an object to use for coordinating leadership: a
      *      NULL-terminated hierarchical path containing one or more path
-     *      elements separated by slashes, such as "foo" or "foo/bar".
+     *      elements separated by slashes, such as "/foo" or "/foo/bar".
      *  \param leaderInfo
      *      Information about this server (e.g., service locator that clients
      *      can use to connect), which will be stored in the object given
@@ -145,7 +154,7 @@ class ExternalStorage {
      * \param name
      *      Name of the desired object; NULL-terminated hierarchical path
      *      containing one or more path elements separated by slashes,
-     *      such as "foo" or "foo/bar".
+     *      such as "/foo" or "/foo/bar".
      * \param value
      *      The contents of the object are returned in this buffer.
      *
@@ -153,9 +162,45 @@ class ExternalStorage {
      *      If the specified object exists, then true is returned. If there
      *      is no such object, then false is returned and value is empty.
      *
-     * \throws LostLeadershipException
+     * \throws NotLeaderException
      */
     virtual bool get(const char* name, Buffer* value) = 0;
+
+    /**
+     * Read an object from external storage, and parse it as a protocol
+     * buffer of type ProtoBufType.
+     *
+     * \param name
+     *      Name of the desired object; NULL-terminated hierarchical path
+     *      containing one or more path elements separated by slashes,
+     *      such as "/foo" or "/foo/bar".
+     * \param value
+     *      A protocol buffer into which the object value is parsed.
+     *
+     * \return
+     *      If the specified object exists, then true is returned. If there
+     *      is no such object, then false is returned and value is empty.
+     *
+     * \throws NotLeaderException
+     * \throws FormatError
+     */
+    template<typename ProtoBufType>
+    bool
+    getProtoBuf(const char* name, ProtoBufType* value)
+    {
+        Buffer externalData;
+        if (!get(name, &externalData))
+            return false;
+        uint32_t length = externalData.getTotalLength();
+        string str(static_cast<const char*>(externalData.getRange(0, length)),
+                length);
+        if (!value->ParseFromString(str)) {
+            throw FormatError(HERE, format("couldn't parse '%s' "
+                "object in external storage as %s",
+                name, value->GetTypeName().c_str()));
+        }
+        return true;
+    }
 
     /**
      * Return information about all of the children of a node.
@@ -177,9 +222,9 @@ class ExternalStorage {
      * \param name
      *      Name of the object to remove; NULL-terminated hierarchical path
      *      containing one or more path elements separated by slashes,
-     *      such as "foo" or "foo/bar".
+     *      such as "/foo" or "/foo/bar".
      *
-     * \throws LostLeadershipException
+     * \throws NotLeaderException
      */
     virtual void remove(const char* name) = 0;
 
@@ -199,7 +244,7 @@ class ExternalStorage {
      * \param name
      *      Name of the desired object; NULL-terminated hierarchical path
      *      containing one or more path elements separated by slashes,
-     *      such as "foo" or "foo/bar".
+     *      such as "/foo" or "/foo/bar".
      * \param value
      *      Address of first byte of value to store for this object.
      * \param valueLength
@@ -208,7 +253,7 @@ class ExternalStorage {
      *      automatically to include all the characters in the string and
      *      the terminating NULL character.
      *
-     * \throws LostLeadershipException
+     * \throws NotLeaderException
      */
     virtual void set(Hint flavor, const char* name, const char* value,
             int valueLength = -1) = 0;
