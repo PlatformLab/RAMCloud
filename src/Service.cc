@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2011 Stanford University
+/* Copyright (c) 2010-2013 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -148,6 +148,9 @@ Service::handleRpc(Rpc* rpc) {
     uint64_t start = Cycles::rdtsc();
     try {
         dispatch(WireFormat::Opcode(header->opcode), rpc);
+    } catch (RetryException& e) {
+        prepareRetryResponse(rpc->replyPayload, e.minDelayMicros,
+                e.maxDelayMicros, e.message);
     } catch (ClientException& e) {
         prepareErrorResponse(rpc->replyPayload, e.status);
     }
@@ -179,6 +182,47 @@ Service::prepareErrorResponse(Buffer* replyPayload, Status status)
             new(replyPayload, APPEND) WireFormat::ResponseCommon;
     }
     responseCommon->status = status;
+}
+
+/**
+ * Fill in an RPC response buffer to indicate that the client should
+ * retry the request later.
+ *
+ * \param replyPayload
+ *      Buffer that should contain the response. Any existing information
+ *      in the buffer is deleted, and the buffers filled in with a
+ *      ReplyResponse containing the argument information.
+ * \param minDelayMicros
+ *     Lower-bound on how long the client should wait before retrying
+ *     the RPC, in microseconds.
+ * \param maxDelayMicros
+ *     Upper bound on the client delay, in microseconds: the client
+ *     should pick a random number between minDelayMicros and
+ *     maxDelayMicros and wait that many microseconds before retrying
+ *     the RPC.
+ * \param message
+ *     Human-readable message describing the reason for the retry; this
+ *     is likely to get logged on the client side. NULL means there is
+ *     no message.
+ */
+void
+Service::prepareRetryResponse(Buffer* replyPayload, uint32_t minDelayMicros,
+        uint32_t maxDelayMicros, const char* message)
+{
+    replyPayload->reset();
+    WireFormat::RetryResponse* response =
+            new(replyPayload, APPEND) WireFormat::RetryResponse;
+    response->common.status = STATUS_RETRY;
+    response->minDelayMicros = minDelayMicros;
+    response->maxDelayMicros = maxDelayMicros;
+    if (message != NULL) {
+        response->messageLength = downCast<uint32_t>(strlen(message) + 1);
+        char* responseMsg = new(replyPayload, APPEND) char[
+                response->messageLength];
+        memcpy(responseMsg, message, response->messageLength);
+    } else {
+        response->messageLength = 0;
+    }
 }
 
 /**

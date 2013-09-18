@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2012 Stanford University
+/* Copyright (c) 2010-2013 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -39,6 +39,15 @@ ClientException::ClientException(const ClientException& other)
         , whatCache()
 {
     // Constructor is empty.
+}
+
+ClientException&
+ClientException::operator=(const ClientException& other)
+{
+    status = other.status;
+    where = other.where;
+    whatCache.release();
+    return *this;
 }
 
 /**
