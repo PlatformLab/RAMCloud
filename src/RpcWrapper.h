@@ -1,4 +1,4 @@
-/* Copyright (c) 2012 Stanford University
+/* Copyright (c) 2012-2013 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -189,7 +189,7 @@ class RpcWrapper : public Transport::RpcNotifier {
     }
 
     virtual bool handleTransportError();
-    void retry(uint64_t microseconds);
+    void retry(uint32_t minDelayMicros, uint32_t maxDelayMicros);
     virtual void send();
     void simpleWait(Dispatch* dispatch);
     const char* stateString();
@@ -216,11 +216,6 @@ class RpcWrapper : public Transport::RpcNotifier {
 
     /// Retry the RPC when Cycles::rdtsc reaches this value.
     uint64_t retryTime;
-
-    /// Microseconds to wait before retrying an RPC after it receives
-    /// STATUS_RETRY from a server. Defaults to 100 us, but RPCs
-    /// may override it.
-    uint64_t usBetweenRetry;
 
     /// Expected size of the response header, in bytes.
     uint32_t responseHeaderLength;

@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2012 Stanford University
+/* Copyright (c) 2010-2013 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -118,6 +118,13 @@ TEST_F(ServiceTest, handleRpc_undefinedType) {
             TestUtil::getStatus(&response));
     EXPECT_EQ(1U, metrics->rpc.illegalRpcCount);
 }
+TEST_F(ServiceTest, handleRpc_retryException) {
+    MockService service;
+    request.fillFromString("1 2 54322 3 4");
+    service.handleRpc(&rpc);
+    EXPECT_EQ("17 100 200 18 server overloaded/0",
+            TestUtil::toString(&response));
+}
 TEST_F(ServiceTest, handleRpc_clientException) {
     MockService service;
     request.fillFromString("1 2 54321 3 4");
@@ -136,6 +143,17 @@ TEST_F(ServiceTest, prepareErrorResponse_bufferEmpty) {
     Service::prepareErrorResponse(&response, STATUS_WRONG_VERSION);
     EXPECT_EQ(sizeof(WireFormat::ResponseCommon), response.getTotalLength());
     EXPECT_STREQ("STATUS_WRONG_VERSION", TestUtil::getStatus(&response));
+}
+
+TEST_F(ServiceTest, prepareRetryResponse_withMessage) {
+    response.fillFromString("abcdef");
+    Service::prepareRetryResponse(&response, 1000, 2000, "test message");
+    EXPECT_EQ("17 1000 2000 13 test message/0", TestUtil::toString(&response));
+}
+TEST_F(ServiceTest, prepareRetryResponse_noMessage) {
+    response.fillFromString("abcdef");
+    Service::prepareRetryResponse(&response, 100, 200, NULL);
+    EXPECT_EQ("17 100 200 0", TestUtil::toString(&response));
 }
 
 TEST_F(ServiceTest, callHandler_messageTooShort) {

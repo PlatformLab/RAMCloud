@@ -1,4 +1,4 @@
-/* Copyright (c) 2012 Stanford University
+/* Copyright (c) 2012-2013 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -247,12 +247,12 @@ TEST_F(BackupMasterRecoveryTest, getRecoverySegment) {
     recovery->start(frames, NULL, NULL);
     recovery->setPartitionsAndSchedule(partitions);
 
-    Status status = recovery->getRecoverySegment(456, 89, 0, NULL, NULL);
-    EXPECT_EQ(STATUS_RETRY, status);
+    EXPECT_THROW(recovery->getRecoverySegment(456, 89, 0, NULL, NULL),
+                 RetryException);
 
     taskQueue.performTask();
 
-    status = recovery->getRecoverySegment(456, 88, 0, NULL, NULL);
+    Status status = recovery->getRecoverySegment(456, 88, 0, NULL, NULL);
     EXPECT_EQ(STATUS_OK, status);
     Buffer buffer;
     buffer.append("important", 10);

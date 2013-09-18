@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2011 Stanford University
+/* Copyright (c) 2010-2013 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -85,6 +85,10 @@ class Service {
     virtual void dispatch(WireFormat::Opcode opcode,
                           Rpc* rpc);
     static void prepareErrorResponse(Buffer* buffer, Status status);
+    static void prepareRetryResponse(Buffer* replyPayload,
+                                     uint32_t minDelayMicros,
+                                     uint32_t maxDelayMicros,
+                                     const char* message);
 
     static const char* getString(Buffer* buffer, uint32_t offset,
                                  uint32_t length);

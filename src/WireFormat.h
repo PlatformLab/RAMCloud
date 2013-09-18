@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2011 Stanford University
+/* Copyright (c) 2010-2013 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -141,6 +141,28 @@ struct RequestCommonWithId {
 struct ResponseCommon {
     Status status;                // Indicates whether the operation
                                   // succeeded; if not, it explains why.
+} __attribute__((packed));
+
+/**
+ * When the response status is STATUS_RETRY, the full response looks like
+ * this (it contains extra information for use by the requesting client).
+ */
+struct RetryResponse {
+    ResponseCommon common;
+    uint32_t minDelayMicros;      // Lower bound on client delay, in
+                                  // microseconds.
+    uint32_t maxDelayMicros;      // Upper bound on client delay, in
+                                  // microseconds. The client should choose
+                                  // a random number between minDelayMicros
+                                  // and maxDelayMicros, and wait that long
+                                  // before retrying the RPC.
+    uint32_t messageLength;       // Number of bytes in a message that
+                                  // describes the reason for the retry.
+                                  // 0 means there is no message.
+                                  // The message itself immediately follows
+                                  // this header, and it must include a
+                                  // terminating null character, which is
+                                  // included in messageLength.
 } __attribute__((packed));
 
 

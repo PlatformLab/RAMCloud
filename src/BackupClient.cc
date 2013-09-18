@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2012 Stanford University
+/* Copyright (c) 2009-2013 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -147,7 +147,6 @@ GetRecoveryDataRpc::GetRecoveryDataRpc(Context* context,
     : ServerIdRpcWrapper(context, backupId,
             sizeof(WireFormat::BackupGetRecoveryData::Response), response)
 {
-    usBetweenRetry = 1000;
     WireFormat::BackupGetRecoveryData::Request* reqHdr(
             allocHeader<WireFormat::BackupGetRecoveryData>(backupId));
     reqHdr->recoveryId = recoveryId;

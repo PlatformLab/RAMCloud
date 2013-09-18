@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2012 Stanford University
+/* Copyright (c) 2009-2013 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -313,7 +313,8 @@ BackupMasterRecovery::getRecoverySegment(uint64_t recoveryId,
     if (!replica->built) {
         LOG(DEBUG, "Deferring because <%s,%lu> not yet filtered",
             crashedMasterId.toString().c_str(), segmentId);
-        return STATUS_RETRY;
+        throw RetryException(HERE, 5000, 10000,
+                "desired segment not yet filtered");
     }
 
     if (replica->metadata->primary)
