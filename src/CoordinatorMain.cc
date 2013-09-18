@@ -40,7 +40,6 @@ main(int argc, char *argv[])
     string logCabinLocator("testing");
     Context context(true);
     CoordinatorServerList serverList(&context);
-    TableManager tableManager(&context);
     try {
         OptionsDescription coordinatorOptions("Coordinator");
         coordinatorOptions.add_options()

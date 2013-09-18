@@ -127,9 +127,15 @@ class CoordinatorService : public Service {
     uint32_t deadServerTimeout;
 
     /**
+     * Keeps track of incomplete operations, for use in recovery by
+     * our successor if we crash.
+     */
+    CoordinatorUpdateManager updateManager;
+
+    /**
      * Manages the tables and constituting tablets information on Coordinator.
      */
-    TableManager* tableManager;
+    TableManager tableManager;
 
   PRIVATE:
     /**
@@ -148,12 +154,6 @@ class CoordinatorService : public Service {
      * Handles recovery of a coordinator.
      */
     CoordinatorServiceRecovery coordinatorRecovery;
-
-    /**
-     * Keeps track of incomplete operations, for use in recovery by
-     * our successor if we crash.
-     */
-    CoordinatorUpdateManager updateManager;
 
     /**
      * Handle to the cluster of LogCabin which provides reliable, consistent
@@ -188,6 +188,7 @@ class CoordinatorService : public Service {
 
     friend class CoordinatorServiceRecovery;
     friend class CoordinatorServerList;
+    friend class MockCluster;
 
     DISALLOW_COPY_AND_ASSIGN(CoordinatorService);
 };

@@ -121,48 +121,6 @@ CoordinatorServiceRecovery::replay(bool testing)
             service.serverList->recoverServerReplicationUpUpdate(
                 &state, entryId);
 
-        } else if (entryType.compare("AliveTable") == 0) {
-
-            RAMCLOUD_LOG(DEBUG, "ServiceRecovery: AliveTable");
-            ProtoBuf::TableInformation state;
-            service.logCabinHelper->parseProtoBufFromEntry(*it, state);
-            service.tableManager->recoverAliveTable(&state, entryId);
-
-        } else if (entryType.compare("CreateTable") == 0) {
-
-            RAMCLOUD_LOG(DEBUG, "ServiceRecovery: CreateTable");
-            ProtoBuf::TableInformation state;
-            service.logCabinHelper->parseProtoBufFromEntry(*it, state);
-            service.tableManager->recoverCreateTable(&state, entryId);
-
-        } else if (entryType.compare("DropTable") == 0) {
-
-            RAMCLOUD_LOG(DEBUG, "ServiceRecovery: DropTable");
-            ProtoBuf::TableDrop state;
-            service.logCabinHelper->parseProtoBufFromEntry(*it, state);
-            service.tableManager->recoverDropTable(&state, entryId);
-
-        } else if (entryType.compare("SplitTablet") == 0) {
-
-            RAMCLOUD_LOG(DEBUG, "ServiceRecovery: SplitTablet");
-            ProtoBuf::SplitTablet state;
-            service.logCabinHelper->parseProtoBufFromEntry(*it, state);
-            service.tableManager->recoverSplitTablet(&state, entryId);
-
-        } else if (entryType.compare("LargestTableId") == 0) {
-
-            RAMCLOUD_LOG(DEBUG, "ServiceRecovery: LargestTableId");
-            ProtoBuf::LargestTableId state;
-            service.logCabinHelper->parseProtoBufFromEntry(*it, state);
-            service.tableManager->recoverLargestTableId(&state, entryId);
-
-        } else if (entryType.compare("TabletRecovered") == 0) {
-
-            RAMCLOUD_LOG(DEBUG, "ServiceRecovery: TabletRecovered");
-            ProtoBuf::TabletRecovered state;
-            service.logCabinHelper->parseProtoBufFromEntry(*it, state);
-            service.tableManager->recoverTabletRecovered(&state, entryId);
-
         } else {
 
             // Ignore, and continue.

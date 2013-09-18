@@ -1,15 +1,10 @@
 LOGCABIN_STATE_PROTOBUF_FILES := \
                         src/EntryType.pb.cc \
-                        src/LargestTableId.pb.cc \
 			src/ServerCrashInfo.pb.cc \
 			src/ServerInformation.pb.cc \
 			src/ServerListVersion.pb.cc \
 			src/ServerUpdate.pb.cc \
 			src/ServerReplicationUpdate.pb.cc \
-			src/SplitTablet.pb.cc \
-			src/TableDrop.pb.cc \
-			src/TableInformation.pb.cc \
-			src/TabletRecovered.pb.cc \
 
 COORDINATOR_SRCFILES := \
 			src/CoordinatorServerList.cc \
@@ -24,6 +19,8 @@ COORDINATOR_SRCFILES := \
 			src/Recovery.cc \
 			src/RuntimeOptions.cc \
 			src/CoordinatorUpdateInfo.pb.cc \
+			src/Table.pb.cc \
+			src/TableManager.pb.cc \
 			$(LOGCABIN_STATE_PROTOBUF_FILES) \
 			$(NULL)
 

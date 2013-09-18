@@ -59,6 +59,16 @@ struct Tablet {
      */
     Log::Position ctime;
 
+    Tablet(uint64_t tableId, uint64_t startKeyHash, uint64_t endKeyHash,
+            ServerId serverId, Status status, Log::Position ctime)
+        : tableId(tableId)
+        , startKeyHash(startKeyHash)
+        , endKeyHash(endKeyHash)
+        , serverId(serverId)
+        , status(status)
+        , ctime(ctime)
+    {}
+
     void serialize(ProtoBuf::Tablets::Tablet& entry) const;
 };
 
