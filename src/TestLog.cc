@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2012 Stanford University
+/* Copyright (c) 2010-2013 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -33,10 +33,17 @@ namespace TestLog {
         /// @endcond
 
         /**
-         * The current predicate which is used to select test log entries.
+         * The current predicate function used to select test log entries.
          * This symbol is not exported.
          */
         bool (*predicate)(string) = 0;
+
+        /**
+         * A predicate string: if non-empty, must match the function name
+         * in a log entry in order for the log entry to be recorded.  This
+         * symbol is not exported.
+         */
+        string predString;
 
         /**
          * Whether test log entries should be recorded.
@@ -64,7 +71,7 @@ namespace TestLog {
 
     /**
      * Reset the test log and quit recording test log entries and
-     * remove any predicate that was installed.
+     * remove any predicates that were installed.
      */
     void
     disable()
@@ -73,6 +80,7 @@ namespace TestLog {
         message = "";
         enabled = false;
         predicate = NULL;
+        predString.clear();
     }
 
     /// Reset the test log and begin recording test log entries.
@@ -154,6 +162,9 @@ namespace TestLog {
         if (!enabled || (predicate && !predicate(where.function)))
             return;
 
+        if (!predString.empty() && (predString != where.function))
+            return;
+
         if (message.length())
             message += " | ";
 
@@ -182,6 +193,20 @@ namespace TestLog {
         predicate = pred;
     }
 
+    /**
+     * Install a predicate string.
+     *
+     * \param[in] pred
+     *      Log entries will be recorded only if the value of
+     *      __PRETTY_FUNCTION__ from blog entry matches this.
+     */
+    void
+    setPredicate(string pred)
+    {
+        Lock _(mutex);
+        predString = pred;
+    }
+
     /// Reset and enable/disable the test log on construction/destruction.
     Enable::Enable()
     {
@@ -198,6 +223,21 @@ namespace TestLog {
      *      See setPredicate().
      */
     Enable::Enable(bool (*pred)(string))
+    {
+        Logger::get().saveLogLevels(savedLogLevels);
+        Logger::get().setLogLevels(SILENT_LOG_LEVEL);
+        setPredicate(pred);
+        enable();
+    }
+
+    /**
+     * Reset and enable/disable the test log on construction/destruction
+     * using a particular predicate string to filter test log entries.
+     *
+     * \param[in] pred
+     *      See setPredicate().
+     */
+    Enable::Enable(string pred)
     {
         Logger::get().saveLogLevels(savedLogLevels);
         Logger::get().setLogLevels(SILENT_LOG_LEVEL);
