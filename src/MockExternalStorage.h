@@ -39,6 +39,22 @@ class MockExternalStorage: public ExternalStorage {
     virtual void set(Hint flavor, const char* name, const char* value,
             int valueLength = -1);
 
+    /**
+     * This method treats the most recent value from a "set" call as a
+     * protocol buffer of a particular type and returns a human-readable
+     * string representing its contents.
+     */
+    template<typename ProtoBufType>
+    string
+    getPbValue()
+    {
+        ProtoBufType value;
+        if (!value.ParseFromString(setData)) {
+            return "format error";
+        }
+        return value.ShortDebugString();
+    }
+
   PRIVATE:
     /// Copy of generateLog argument from constructor.
     bool generateLog;
@@ -60,7 +76,8 @@ class MockExternalStorage: public ExternalStorage {
 
     /// The following queues hold names and values to be returned by the
     /// getChildren method. A unit test will typically push information here
-    /// before running a test.
+    /// before running a test. Note: if a value in getChildrenValues is an
+    /// empty string, NULL will be returned in the ExternalStorage::Object.
     std::queue<std::string> getChildrenNames;
     std::queue<std::string> getChildrenValues;
 

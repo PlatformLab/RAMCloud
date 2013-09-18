@@ -55,7 +55,8 @@ CoordinatorUpdateManager::~CoordinatorUpdateManager()
  *      Any updates more recent than this may still be in complete, and
  *      hence must be recovered.
  */
-uint64_t CoordinatorUpdateManager::init()
+uint64_t
+CoordinatorUpdateManager::init()
 {
     Lock lock(mutex);
     Buffer externalData;
@@ -123,7 +124,7 @@ CoordinatorUpdateManager::updateFinished(uint64_t sequenceNumber)
 
     // If the oldest update has now completed, flush it and the ones
     // after it, until we reach an update that hasn't yet finished.
-    while (activeUpdates.front()) {
+    while (!activeUpdates.empty() && activeUpdates.front()) {
         activeUpdates.pop_front();
         smallestUnfinished++;
     }

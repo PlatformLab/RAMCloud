@@ -45,12 +45,15 @@ class MockService : public Service {
         }
 
         // Create a response that increments each of the (integer) values
-        // in the request.  Throw an error if value 54321 appears.
+        // in the request.  Throw errors if certain values appear.
         for (uint32_t i = 0; i < rpc->requestPayload->getTotalLength()-3;
                 i += 4) {
             int32_t inputValue = *(rpc->requestPayload->getOffset<int32_t>(i));
             if (inputValue == 54321) {
                 throw ClientException(HERE, STATUS_REQUEST_FORMAT_ERROR);
+            }
+            if (inputValue == 54322) {
+                throw RetryException(HERE, 100, 200, "server overloaded");
             }
             *(new(rpc->replyPayload, APPEND) int32_t) = inputValue+1;
         }

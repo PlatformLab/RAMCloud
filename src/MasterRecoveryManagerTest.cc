@@ -130,14 +130,15 @@ TEST_F(MasterRecoveryManagerTest, startMasterRecovery) {
     Lock lock(mutex); // For calls to internal functions without real lock.
     auto crashedServerId = addMaster(lock);
     crashServer(lock, crashedServerId);
-    tableManager->addTablet(
-        lock, {0, 0, ~0lu, crashedServerId, Tablet::NORMAL, {2, 3}});
+    tableManager->testCreateTable("t0", 0);
+    tableManager->testAddTablet(
+            {0, 0, ~0lu, crashedServerId, Tablet::NORMAL, {2, 3}});
     TestLog::Enable _;
     mgr->startMasterRecovery((*serverList)[crashedServerId]);
     EXPECT_EQ("startMasterRecovery: Scheduling recovery of master 1.0 | "
               "schedule: scheduled",
               TestLog::get());
-    auto tablet = tableManager->getTablet(lock, 0, 0, ~0lu);
+    Tablet tablet = tableManager->getTablet(0, 0);
     EXPECT_EQ(tablet.status, Tablet::RECOVERING);
 
     EXPECT_EQ(1lu, mgr->taskQueue.outstandingTasks());
@@ -239,8 +240,8 @@ TEST_F(MasterRecoveryManagerTest, recoveryMasterFinishedNoSuchRecovery) {
 TEST_F(MasterRecoveryManagerTest, recoveryMasterFinished) {
     Lock lock(mutex); // For calls to internal functions without real lock.
     MockRandom __(1);
-    tableManager->tables["foo"] = 0;
-    tableManager->addTablet(lock, {0, 0, ~0lu, {1, 0}, Tablet::NORMAL, {2, 3}});
+    tableManager->testCreateTable("foo", 0);
+    tableManager->testAddTablet({0, 0, ~0lu, {1, 0}, Tablet::NORMAL, {2, 3}});
 
     EXPECT_EQ(0lu, serverList->version);
     auto crashedServerId = addMaster(lock);
@@ -259,24 +260,8 @@ TEST_F(MasterRecoveryManagerTest, recoveryMasterFinished) {
     ProtoBuf::Tablets recoveredTablets;
     TabletsBuilder{recoveredTablets}
         (0, 0, ~0lu, TabletsBuilder::RECOVERING, 0, {2, 0});
-    tableManager->addTablet(
-        lock, {0, 0, ~0lu, {1, 0}, Tablet::RECOVERING, {2, 3}});
-
-    // Add information about table to LogCabin, so t
-    ProtoBuf::TableInformation state;
-    state.set_entry_type("AliveTable");
-    state.set_name("foo");
-    state.set_table_id(0);
-    state.set_server_span(1);
-    ProtoBuf::TableInformation::TabletInfo& tablet(*state.add_tablet_info());
-    tablet.set_start_key_hash(0);
-    tablet.set_end_key_hash(~0lu);
-    tablet.set_master_id(ServerId(1, 0).getId());
-    tablet.set_ctime_log_head_id(2);
-    tablet.set_ctime_log_head_offset(3);
-    EntryId entryId = service->context->logCabinHelper->appendProtoBuf(
-            *service->context->expectedEntryId, state);
-    tableManager->setTableInfoLogId(lock, 0, entryId);
+    tableManager->testAddTablet(
+        {0, 0, ~0lu, {1, 0}, Tablet::RECOVERING, {2, 3}});
 
     EXPECT_EQ(3lu, serverList->version);
 
@@ -298,20 +283,19 @@ TEST_F(MasterRecoveryManagerTest, recoveryMasterFinished) {
         "schedule: scheduled | "
         "performTask: Modifying tablet map to set recovery master 2.0 as "
             "master for 0, 0, 18446744073709551615 | "
-        "execute: LogCabin: TabletRecovered entryId: 6 | "
-        "complete: LogCabin: AliveTable entryId: 7 | "
         "performTask: Coordinator tableManager after recovery master 2.0 "
             "finished: "
-        "Tablet { tableId: 0 startKeyHash: 0 endKeyHash: 18446744073709551615 "
-            "serverId: 2.0 status: NORMAL ctime: 0, 0 } "
-        "Tablet { tableId: 0 startKeyHash: 0 endKeyHash: 18446744073709551615 "
-            "serverId: 1.0 status: RECOVERING ctime: 2, 3 } | "
+        "Table { name: foo, id 0, "
+            "Tablet { startKeyHash: 0x0, endKeyHash: 0xffffffffffffffff, "
+            "serverId: 2.0, status: NORMAL, ctime: 0.0 } "
+            "Tablet { startKeyHash: 0x0, endKeyHash: 0xffffffffffffffff, "
+            "serverId: 1.0, status: RECOVERING, ctime: 2.3 } } | "
         "schedule: scheduled | "
         "recoveryFinished: Recovery 1 completed for master 1.0 | "
-        "execute: LogCabin: ServerRemoveUpdate entryId: 8 | "
+        "execute: LogCabin: ServerRemoveUpdate entryId: 5 | "
         "complete: Removing 1.0 from cluster/coordinator server list | "
         "schedule: scheduled | schedule: scheduled | "
-        "execute: LogCabin: ServerListVersion entryId: 9 | "
+        "execute: LogCabin: ServerListVersion entryId: 6 | "
         "recoveryMasterFinished: Notifying recovery master ok to serve tablets",
               TestLog::get());
 
@@ -328,7 +312,8 @@ TEST_F(MasterRecoveryManagerTest,
 {
     Lock lock(mutex); // For calls to internal functions without real lock.
     MockRandom __(1);
-    tableManager->addTablet(lock, {0, 0, ~0lu, {1, 0}, Tablet::NORMAL, {2, 3}});
+    tableManager->testCreateTable("foo", 0);
+    tableManager->testAddTablet({0, 0, ~0lu, {1, 0}, Tablet::NORMAL, {2, 3}});
 
     auto crashedServerId = addMaster(lock);
     crashServer(lock, crashedServerId);
@@ -345,8 +330,8 @@ TEST_F(MasterRecoveryManagerTest,
     ProtoBuf::Tablets recoveredTablets;
     TabletsBuilder{recoveredTablets}
         (0, 0, ~0lu, TabletsBuilder::RECOVERING, 0, {2, 0});
-    tableManager->addTablet(
-        lock, {0, 0, ~0lu, {1, 0}, Tablet::RECOVERING, {2, 3}});
+    tableManager->testAddTablet(
+        {0, 0, ~0lu, {1, 0}, Tablet::RECOVERING, {2, 3}});
 
     TestLog::Enable _;
     std::thread thread(&MasterRecoveryManager::recoveryMasterFinished,
@@ -393,9 +378,12 @@ TEST_F(MasterRecoveryManagerTest,
     // Damn straight. I always wanted to do that, man.
 
     Lock lock(mutex); // For calls to internal functions without real lock.
-    tableManager->addTablet(lock, {0, 0, ~0lu, {1, 0}, Tablet::NORMAL, {2, 3}});
-    tableManager->addTablet(lock, {1, 0, ~0lu, {2, 0}, Tablet::NORMAL, {2, 3}});
-    tableManager->addTablet(lock, {2, 0, ~0lu, {3, 0}, Tablet::NORMAL, {2, 3}});
+    tableManager->testCreateTable("t0", 0);
+    tableManager->testCreateTable("t1", 1);
+    tableManager->testCreateTable("t2", 2);
+    tableManager->testAddTablet({0, 0, ~0lu, {1, 0}, Tablet::NORMAL, {2, 3}});
+    tableManager->testAddTablet({1, 0, ~0lu, {2, 0}, Tablet::NORMAL, {2, 3}});
+    tableManager->testAddTablet({2, 0, ~0lu, {3, 0}, Tablet::NORMAL, {2, 3}});
 
     crashServer(lock, addMaster(lock));
     crashServer(lock, addMaster(lock));
@@ -432,9 +420,12 @@ TEST_F(MasterRecoveryManagerTest,
        MaybeStartRecoveryTaskServerAlreadyRecovering)
 {
     Lock lock(mutex); // For calls to internal functions without real lock.
-    tableManager->addTablet(lock, {0, 0, ~0lu, {1, 0}, Tablet::NORMAL, {2, 3}});
-    tableManager->addTablet(lock, {1, 0, ~0lu, {2, 0}, Tablet::NORMAL, {2, 3}});
-    tableManager->addTablet(lock, {2, 0, ~0lu, {3, 0}, Tablet::NORMAL, {2, 3}});
+    tableManager->testCreateTable("t0", 0);
+    tableManager->testCreateTable("t1", 1);
+    tableManager->testCreateTable("t2", 2);
+    tableManager->testAddTablet({0, 0, ~0lu, {1, 0}, Tablet::NORMAL, {2, 3}});
+    tableManager->testAddTablet({1, 0, ~0lu, {2, 0}, Tablet::NORMAL, {2, 3}});
+    tableManager->testAddTablet({2, 0, ~0lu, {3, 0}, Tablet::NORMAL, {2, 3}});
 
     auto crashedServerId = addMaster(lock);
     crashServer(lock, crashedServerId);

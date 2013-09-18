@@ -14,6 +14,7 @@
  */
 
 #include "MockExternalStorage.h"
+#include <google/protobuf/message.h>
 
 namespace RAMCloud {
 
@@ -78,6 +79,10 @@ MockExternalStorage::getChildren(const char* name, vector<Object>* children)
     }
     children->resize(0);
     while (!getChildrenNames.empty()) {
+        const char *value = getChildrenValues.front().c_str();
+        if (*value == 0) {
+            value = NULL;
+        }
         children->emplace_back(getChildrenNames.front().c_str(),
                 getChildrenValues.front().c_str(),
                 downCast<int>(getChildrenValues.front().length()));

@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2011 Stanford University
+/* Copyright (c) 2013 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -15,14 +15,10 @@
 
 package RAMCloud.ProtoBuf;
 
-// The information appended to LogCabin by the Coordinator
-// to store the largest table id that was in use if the table with that id
-// is being deleted.
-message LargestTableId {
+// This message is used to store overall state about the TableManager
+// class on external storage.
+message TableManager {
 
-  /// Entry type for this LogCabin entry.
-  required string entry_type = 1;
-
-  /// The table id of the table that was deleted that had a largest id assigned.
-  required uint64 table_id = 2;
+    /// The smallest table id that is guaranteed never to have been used.
+    required uint64 next_table_id = 1;
 }

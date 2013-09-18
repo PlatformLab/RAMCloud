@@ -48,11 +48,11 @@ CoordinatorService::CoordinatorService(Context* context,
     : context(context)
     , serverList(context->coordinatorServerList)
     , deadServerTimeout(deadServerTimeout)
-    , tableManager(context->tableManager)
-    , runtimeOptions()
-    , recoveryManager(context, *tableManager, &runtimeOptions)
-    , coordinatorRecovery(*this)
     , updateManager(context->externalStorage)
+    , tableManager(context, &updateManager)
+    , runtimeOptions()
+    , recoveryManager(context, tableManager, &runtimeOptions)
+    , coordinatorRecovery(*this)
     , logCabinCluster()
     , logCabinLog()
     , logCabinHelper()
@@ -88,7 +88,9 @@ CoordinatorService::CoordinatorService(Context* context,
     // Replay the entire log (if any) before we start servicing the RPCs.
     coordinatorRecovery.replay();
 
-    updateManager.init();
+    // Recover state (and incomplete operations) from external storage.
+    uint64_t lastCompletedUpdate = updateManager.init();
+    tableManager.recover(lastCompletedUpdate);
 }
 
 CoordinatorService::~CoordinatorService()
@@ -193,12 +195,7 @@ CoordinatorService::createTable(const WireFormat::CreateTable::Request* reqHdr,
                                  reqHdr->nameLength);
     uint32_t serverSpan = reqHdr->serverSpan;
 
-    try {
-        uint64_t tableId = tableManager->createTable(name, serverSpan);
-        respHdr->tableId = tableId;
-    } catch (TableManager::TableExists& e) {
-        respHdr->tableId = tableManager->getTableId(name);
-    }
+    respHdr->tableId = tableManager.createTable(name, serverSpan);
 }
 
 /**
@@ -212,7 +209,7 @@ CoordinatorService::dropTable(const WireFormat::DropTable::Request* reqHdr,
 {
     const char* name = getString(rpc->requestPayload, sizeof(*reqHdr),
                                  reqHdr->nameLength);
-    tableManager->dropTable(name);
+    tableManager.dropTable(name);
 }
 
 /**
@@ -231,7 +228,7 @@ CoordinatorService::splitTablet(const WireFormat::SplitTablet::Request* reqHdr,
     const char* name = getString(rpc->requestPayload, sizeof(*reqHdr),
                                  reqHdr->nameLength);
     try {
-        tableManager->splitTablet(
+        tableManager.splitTablet(
                 name, reqHdr->splitKeyHash);
         LOG(NOTICE,
             "In table '%s' I split the tablet at key %lu",
@@ -285,7 +282,7 @@ CoordinatorService::getTableId(
                                  reqHdr->nameLength);
 
     try {
-        uint64_t tableId = tableManager->getTableId(name);
+        uint64_t tableId = tableManager.getTableId(name);
         respHdr->tableId = tableId;
     } catch (TableManager::NoSuchTable& e) {
         respHdr->common.status = STATUS_TABLE_DOESNT_EXIST;
@@ -349,7 +346,7 @@ CoordinatorService::getTabletMap(
     Rpc* rpc)
 {
     ProtoBuf::Tablets tablets;
-    tableManager->serialize(serverList, &tablets);
+    tableManager.serialize(&tablets);
     respHdr->tabletMapLength = serializeToResponse(rpc->replyPayload,
                                                    &tablets);
 }
@@ -455,7 +452,7 @@ CoordinatorService::reassignTabletOwnership(
     }
 
     try {
-        tableManager->reassignTabletOwnership(
+        tableManager.reassignTabletOwnership(
                 newOwner, tableId, startKeyHash, endKeyHash,
                 reqHdr->ctimeSegmentId, reqHdr->ctimeSegmentOffset);
     } catch (const TableManager::NoSuchTablet& e) {

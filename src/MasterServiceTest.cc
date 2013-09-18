@@ -1420,9 +1420,8 @@ TEST_F(MasterServiceTest, migrateTablet_movingData) {
     Log::Position master2HeadPositionAfter = Log::Position(
         master2Log->head->id,
         master2Log->head->getAppendedLength());
-    Lock lock(mutex);   // Used to trick TableManager internal calls.
     Log::Position ctimeCoord =
-        cluster.coordinator->tableManager->getTablet(lock, tbl, 0, -1).ctime;
+        cluster.coordinator->tableManager.getTablet(tbl, 0).ctime;
     EXPECT_GT(ctimeCoord, master2HeadPositionBefore);
     EXPECT_LT(ctimeCoord, master2HeadPositionAfter);
 }

@@ -1,4 +1,4 @@
-/* Copyright (c) 2012 Stanford University
+/* Copyright (c) 2012-2013 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -19,21 +19,27 @@
 #include "MasterClient.h"
 #include "ShortMacros.h"
 #include "TableManager.h"
+#include "TableManager.pb.h"
 
 namespace RAMCloud {
 
 /**
  * Construct a TableManager.
+ *
+ * \param context
+ *      Overall information about the RAMCloud server.
+ * \param updateManager
+ *      Used for managing update information on external storage.
  */
-TableManager::TableManager(Context* context)
+TableManager::TableManager(Context* context,
+        CoordinatorUpdateManager* updateManager)
     : mutex()
     , context(context)
-    , logIdLargestTableId(NO_ID)
-    , map()
+    , updateManager(updateManager)
     , nextTableId(1)
-    , nextTableMasterIdx(0)
-    , tables()
-    , tablesLogIds()
+    , tabletMaster()
+    , directory()
+    , idMap()
 {
     context->tableManager = this;
 }
@@ -41,14 +47,22 @@ TableManager::TableManager(Context* context)
 /**
  * Destructor for TableManager.
  */
-TableManager::~TableManager(){}
+TableManager::~TableManager()
+{
+    // Must free all Table storage.
+    for (Directory::const_iterator it = directory.begin();
+            it != directory.end(); ++it) {
+        Table* table = it->second;
+        delete table;
+    }
+}
 
 //////////////////////////////////////////////////////////////////////
 // TableManager Public Methods
 //////////////////////////////////////////////////////////////////////
 
 /**
- * Create a table with the given name.
+ * Create a table with the given name, if it doesn't already exist.
  * 
  * \param name
  *      Name for the table to be created.
@@ -57,65 +71,171 @@ TableManager::~TableManager(){}
  *      creation.
  * 
  * \return
- *      tableId of the table created.
- * 
- * \throw TableExists
- *      If trying to create a table that already exists.
+ *      Table id of the new table. If a table already exists with the
+ *      given name, then its id is returned.
  */
 uint64_t
 TableManager::createTable(const char* name, uint32_t serverSpan)
 {
     Lock lock(mutex);
 
-    return CreateTable(*this, lock, name, uint64_t(), serverSpan).execute();
+    // See if the desired table already exists.
+    Directory::iterator it = directory.find(name);
+    if (it != directory.end())
+        return it->second->id;
+    uint64_t tableId = nextTableId;
+
+    ++nextTableId;
+    LOG(NOTICE, "Creating table '%s' with id %lu", name, tableId);
+
+    if (serverSpan == 0)
+        serverSpan = 1;
+
+    // Each iteration through the following loop assigns one tablet
+    // for the table to a master.
+    Table* table = new Table(name, tableId);
+    try {
+        uint64_t tabletRange = 1 + ~0UL / serverSpan;
+        for (uint32_t i = 0; i < serverSpan; i++) {
+            uint64_t startKeyHash = i * tabletRange;
+            uint64_t endKeyHash = startKeyHash + tabletRange - 1;
+            if (i == (serverSpan - 1))
+                endKeyHash = ~0UL;
+
+            // Assigned this tablet to the next master in order from the
+            // server list.
+            tabletMaster = context->coordinatorServerList->nextServer(
+                    tabletMaster, {WireFormat::MASTER_SERVICE});
+            if (!tabletMaster.isValid()) {
+                // The server list contains no functioning masters! Ask the
+                // client to retry, and hope that eventually a master joins
+                // the cluster.
+                throw RetryException(HERE, 5000000, 10000000,
+                        "no masters in cluster");
+            }
+
+            // For a new table, set the "creation time" to the beginning of the
+            // log. Technically, this is supposed to be the current log head on
+            // the master, but retrieving that would require an extra RPC and
+            // using (0,0) is safe because we know this is a new table: there
+            // can't be any existing information for this table stored on the
+            // master.
+            Log::Position ctime(0, 0);
+            table->tablets.emplace_back(tableId, startKeyHash,
+                    endKeyHash, tabletMaster, Tablet::NORMAL, ctime);
+        }
+    }
+    catch (...) {
+        delete table;
+        throw;
+    }
+    directory[name] = table;
+    idMap[tableId] = table;
+
+    // Create a record in external storage.  If we crash, this will be used
+    // by the next coordinator (a) so that it knows about the existence of
+    // the table and (b) so it can finish notifying the masters chosen
+    // for the tablets, if we crash before we do it.
+    ProtoBuf::Table externalInfo;
+    serializeTable(lock, table, &externalInfo);
+    externalInfo.set_sequence_number(updateManager->nextSequenceNumber());
+    externalInfo.set_created(true);
+    syncTable(lock, table, &externalInfo);
+
+    // Now notify all the masters about their new table assignments.
+    notifyCreate(lock, table);
+    updateManager->updateFinished(externalInfo.sequence_number());
+    return table->id;
 }
 
 /**
- * Returns a protocol-buffer-like debug string listing the details of each of
- * the tablets currently in the tablet map.
+ * Returns a human-readable string describing all of the tables currently
+ * in the tablet map. Used primarily for testing.
+ *
+ * \param shortForm
+ *      If true, the output is abbreviated to just essential information
+ *      (intended to minimize test breakage that occurs when someone changes
+ *      behavior unrelated to a particular test).
  */
 string
-TableManager::debugString() const
+TableManager::debugString(bool shortForm)
 {
     Lock lock(mutex);
-    std::stringstream result;
-    for (auto it = map.begin(); it != map.end(); ++it)  {
-        if (it != map.begin())
-            result << " ";
-        const auto& tablet = *it;
-        const char* status = "NORMAL";
-        if (tablet.status != Tablet::NORMAL)
-            status = "RECOVERING";
-        result << "Tablet { tableId: " << tablet.tableId
-               << " startKeyHash: " << tablet.startKeyHash
-               << " endKeyHash: " << tablet.endKeyHash
-               << " serverId: " << tablet.serverId.toString().c_str()
-               << " status: " << status
-               << " ctime: " << tablet.ctime.getSegmentId()
-               << ", " << tablet.ctime.getSegmentOffset() <<  " }";
+    string result;
+    for (uint64_t i = 0; i < nextTableId; ++i) {
+        IdMap::iterator it = idMap.find(i);
+        if (it == idMap.end()) {
+            continue;
+        }
+        Table* table = it-> second;
+        if (!result.empty()) {
+            result += " ";
+        }
+        if (shortForm) {
+            result += format("{ %s(id %lu):", table->name.c_str(), table->id);
+        } else {
+            result += format("Table { name: %s, id %lu,", table->name.c_str(),
+                    table->id);
+        }
+        foreach (Tablet& tablet, table->tablets) {
+            if (shortForm) {
+                result += format(" { 0x%lx-0x%lx on %s }",
+                        tablet.startKeyHash, tablet.endKeyHash,
+                        tablet.serverId.toString().c_str());
+            } else {
+                const char* status = "NORMAL";
+                if (tablet.status != Tablet::NORMAL)
+                    status = "RECOVERING";
+                result += format(" Tablet { startKeyHash: 0x%lx, "
+                        "endKeyHash: 0x%lx, serverId: %s, status: %s, "
+                        "ctime: %ld.%d }",
+                        tablet.startKeyHash, tablet.endKeyHash,
+                        tablet.serverId.toString().c_str(), status,
+                        tablet.ctime.getSegmentId(),
+                        tablet.ctime.getSegmentOffset());
+            }
+        }
+        result += " }";
     }
-    return result.str();
+    return result;
 }
 
 /**
- * Drop the table with the given name.
+ * Delete the table with the given name. All existing data for the table will
+ * be deleted, and the table's name will no longer exist in the directory
+ * of tables.
  * 
  * \param name
- *      Name to identify the table that is to be dropped.
- * 
- * \throw NoSuchTable
- *      If name does not identify a table currently in the tables.
+ *      Name of the table that is to be dropped.
  */
 void
 TableManager::dropTable(const char* name)
 {
     Lock lock(mutex);
 
-    return DropTable(*this, lock, name).execute();
+    // See if the desired table exists.
+    Directory::iterator it = directory.find(name);
+    if (it == directory.end())
+        return;
+    Table* table = it->second;
+
+    // Record our intention to delete this table.
+    ProtoBuf::Table externalInfo;
+    serializeTable(lock, table, &externalInfo);
+    externalInfo.set_sequence_number(updateManager->nextSequenceNumber());
+    externalInfo.set_deleted(true);
+    syncTable(lock, table, &externalInfo);
+
+    // Delete the table and notify the masters storing its tablets.
+    directory.erase(it);
+    idMap.erase(table->id);
+    delete table;
+    notifyDropTable(lock, &externalInfo);
+    updateManager->updateFinished(externalInfo.sequence_number());
 }
 
 /**
- * Get the tableId of the table with the given name.
+ * Return the tableId of the table with the given name.
  * 
  * \param name
  *      Name to identify the table.
@@ -124,48 +244,78 @@ TableManager::dropTable(const char* name)
  *      tableId of the table whose name is given.
  * 
  * \throw NoSuchTable
- *      If name does not identify a table currently in the tables.
+ *      If name does not identify an existing table.
  */
 uint64_t
 TableManager::getTableId(const char* name)
 {
     Lock lock(mutex);
-    Tables::iterator it(tables.find(name));
-    if (it == tables.end()) {
-        throw NoSuchTable(HERE);
-    }
-    return it->second;
+    Directory::iterator it = directory.find(name);
+    if (it != directory.end())
+        return it->second->id;
+    throw NoSuchTable(HERE);
+}
+
+/**
+ * Get the details of a Tablet in the tablet map. This method is used
+ * primarily for testing.
+ *
+ * \param tableId
+ *      Identifier of the table containing the desired tablet.
+ * \param keyHash
+ *      Of the desired tablet is the one containing this key hash.
+ * \return
+ *      A copy of the Tablet entry in the tablet map corresponding to
+ *      \a tableId and \a keyHash.
+ * \throw NoSuchTablet
+ *      If the arguments do not identify a tablet currently in the tablet map.
+ */
+Tablet
+TableManager::getTablet(uint64_t tableId, uint64_t keyHash)
+{
+    Lock lock(mutex);
+    IdMap::iterator it = idMap.find(tableId);
+    if (it == idMap.end())
+        throw NoSuchTablet(HERE);
+    Table* table = it->second;
+    return *findTablet(lock, table, keyHash);
 }
 
 /**
  * Update the status of all the Tablets in the tablet map that are on a
- * specific server as recovering.
- * Copies of the details about the affected Tablets are returned.
+ * specific server as recovering, and return information about all of the
+ * tablets.
  *
  * \param serverId
- *      Table id of the table whose tablets status should be changed to
- *      \a status.
+ *      Identifies the server whose tablets status should be marked as
+ *      recovering.
  * \return
- *      List of copies of all the Tablets in the tablet map which are owned
- *      by the server indicated by \a serverId.
+ *      Copies of all the Tablets that are owned by \a serverId.
  */
 vector<Tablet>
 TableManager::markAllTabletsRecovering(ServerId serverId)
 {
     Lock lock(mutex);
     vector<Tablet> results;
-    foreach (Tablet& tablet, map) {
-        if (tablet.serverId == serverId) {
-            tablet.status = Tablet::RECOVERING;
-            results.push_back(tablet);
+    for (Directory::iterator it = directory.begin(); it != directory.end();
+            ++it) {
+        Table* table = it->second;
+        foreach (Tablet& tablet, table->tablets) {
+            if (tablet.serverId == serverId) {
+                tablet.status = Tablet::RECOVERING;
+                results.push_back(tablet);
+            }
         }
     }
     return results;
 }
 
 /**
- * Switch ownership of the tablet and alert the new owner that it may
- * begin servicing requests on that tablet.
+ * Switch ownership of a tablet from one master to another and alert the new
+ * master that it should begin servicing requests on that tablet. This method
+ * does not actually transfer the contents of the tablet; the caller should
+ * already have taken care of that. This method is used to complete the
+ * migration of a tablet from one server to another.
  * 
  * \param newOwner
  *      ServerId of the server that will own this tablet at the end of
@@ -191,90 +341,210 @@ TableManager::reassignTabletOwnership(
         uint64_t ctimeSegmentId, uint64_t ctimeSegmentOffset)
 {
     Lock lock(mutex);
-    // Could throw TableManager::NoSuchTablet exception
-    Tablet tablet = getTablet(lock, tableId, startKeyHash, endKeyHash);
+    IdMap::iterator it = idMap.find(tableId);
+    if (it == idMap.end())
+        throw NoSuchTablet(HERE);
+    Table* table = it->second;
+    Tablet* tablet = findTablet(lock, table, startKeyHash);
+    if ((tablet->startKeyHash != startKeyHash)
+            || (tablet->endKeyHash != endKeyHash))
+        throw NoSuchTablet(HERE);
+
     LOG(NOTICE, "Reassigning tablet [0x%lx,0x%lx] in tableId %lu "
         "from %s to %s",
         startKeyHash, endKeyHash, tableId,
-        context->coordinatorServerList->toString(tablet.serverId).c_str(),
+        context->coordinatorServerList->toString(tablet->serverId).c_str(),
         context->coordinatorServerList->toString(newOwner).c_str());
 
     // Get current head of log to preclude all previous data in the log
     // from being considered part of this tablet.
     Log::Position headOfLogAtCreation(ctimeSegmentId,
                                       ctimeSegmentOffset);
+    tablet->ctime = headOfLogAtCreation;
+    tablet->serverId = newOwner;
+    tablet->status = Tablet::NORMAL;
 
-    // Could throw TableManager::NoSuchTablet exception
-    modifyTablet(lock, tableId, startKeyHash, endKeyHash,
-                 newOwner, Tablet::NORMAL, headOfLogAtCreation);
+    // Record information about the new assignment in external storage,
+    // in case we crash.
+    ProtoBuf::Table externalInfo;
+    serializeTable(lock, table, &externalInfo);
+    externalInfo.set_sequence_number(updateManager->nextSequenceNumber());
+    ProtoBuf::Table::Reassign* reassign = externalInfo.mutable_reassign();
+    reassign->set_server_id(newOwner.getId());
+    reassign->set_start_key_hash(startKeyHash);
+    reassign->set_end_key_hash(endKeyHash);
+    syncTable(lock, table, &externalInfo);
 
-    // TODO(rumble/slaughter) If we fail to alert the new owner we could
-    //      get stuck in limbo. What should we do? Retry? Fail the
-    //      server and recover it? Can't return to the old master if we
-    //      reply early...
-    MasterClient::takeTabletOwnership(context, newOwner, tableId,
-                                      startKeyHash, endKeyHash);
+    // Finish up by notifying the relevant master.
+    notifyReassignTablet(lock, &externalInfo);
+    updateManager->updateFinished(externalInfo.sequence_number());
 }
 
 /**
- * Copy the contents of the tablet map into a protocol buffer, \a tablets,
- * suitable for sending across the wire to servers.
- *
- * \param serverList
- *      The single instance of the AbstractServerList. Used to fill in
- *      the service_locator field of entries in \a tablets;
- * \param tablets
- *      Protocol buffer to which entries are added representing each of
- *      the tablets in the tablet map.
+ * This method is called shortly after the coordinator assumes leadership
+ * of the cluster; it recovers all of the table metadata from external
+ * storage, and it completes any operations that might not have finished
+ * at the time the previous coordinator crashed.
+ * 
+ * \param lastCompletedUpdate
+ *      Sequence number of the last update from the previous coordinator
+ *      that is known to have finished. Any updates after this may or may
+ *      not have finished, so we must do whatever is needed to complete
+ *      them.
  */
 void
-TableManager::serialize(AbstractServerList* serverList,
-                        ProtoBuf::Tablets* tablets) const
+TableManager::recover(uint64_t lastCompletedUpdate)
 {
     Lock lock(mutex);
-    foreach (const auto& tablet, map) {
-        ProtoBuf::Tablets::Tablet& entry(*tablets->add_tablet());
-        tablet.serialize(entry);
-        try {
-            string locator = serverList->getLocator(tablet.serverId);
-            entry.set_service_locator(locator);
-        } catch (const Exception& e) {
-            LOG(NOTICE, "Server id (%s) in tablet map no longer in server "
-                "list; sending empty locator for entry",
-                tablet.serverId.toString().c_str());
+
+    // Restore overall state information.
+    ProtoBuf::TableManager info;
+    if (context->externalStorage->getProtoBuf<ProtoBuf::TableManager>(
+            "/tableManager", &info)) {
+        nextTableId = info.next_table_id();
+        RAMCLOUD_LOG(NOTICE, "initializing TableManager: nextTableId = %lu",
+                nextTableId);
+    }
+
+    // Fetch all of the table-related information from external storage.
+    vector<ExternalStorage::Object> objects;
+    context->externalStorage->getChildren("/table", &objects);
+
+    // Each iteration through the following loop processes the metadata
+    // for one table.
+    foreach (ExternalStorage::Object& object, objects) {
+        // First, parse the protocol buffer containing the table's metadata
+        if (object.value == NULL)
+            continue;
+        ProtoBuf::Table info;
+        string str(object.value, object.length);
+        if (!info.ParseFromString(str)) {
+            throw FatalError(HERE, format(
+                    "couldn't parse protocol buffer in /tables/%s",
+                    object.name));
+        }
+
+        // Regenerate our internal information for the table, unless the
+        // table has been deleted.
+        Table* table = NULL;
+        if (!info.has_deleted()) {
+            table = recreateTable(lock, &info);
+        }
+
+        if (info.sequence_number() <= lastCompletedUpdate) {
+            // There is no additional cleanup to do for this table.
+            continue;
+        }
+
+        // The last metadata update for this table may not have completed.
+        // Check for each possible update and clean up appropriately.
+        if (info.has_created()) {
+            notifyCreate(lock, table);
+        }
+        if (info.has_deleted()) {
+            notifyDropTable(lock, &info);
+        }
+        if (info.has_split()) {
+            notifySplitTablet(lock, &info);
+        }
+        if (info.has_reassign()) {
+            notifyReassignTablet(lock, &info);
         }
     }
 }
 
 /**
- * Split a Tablet in the tablet map into two disjoint Tablets at a specific
- * key hash. Check if the split already exists, in which case, just return.
- * After a split, inform the master to split the tablet.
+ * Copy the contents of the tablet map into a protocol buffer, \a tablets,
+ * suitable for sending across the wire to servers.
+ * \param tablets
+ *      Protocol buffer to which entries are added representing each of
+ *      the tablets in the tablet map.
+ */
+void
+TableManager::serialize(ProtoBuf::Tablets* tablets) const
+{
+    Lock lock(mutex);
+    for (Directory::const_iterator it = directory.begin();
+            it != directory.end(); ++it) {
+        Table* table = it->second;
+        foreach (Tablet& tablet, table->tablets) {
+            ProtoBuf::Tablets::Tablet& entry(*tablets->add_tablet());
+            tablet.serialize(entry);
+            try {
+                string locator = context->serverList->getLocator(
+                        tablet.serverId);
+                entry.set_service_locator(locator);
+            } catch (const Exception& e) {
+                LOG(NOTICE, "Server id (%s) in tablet map no longer in server "
+                    "list; omitting locator for entry",
+                    tablet.serverId.toString().c_str());
+            }
+        }
+    }
+}
+
+/**
+ * Split a tablet into two disjoint tablets at a specific key hash. Check
+ * if the split already exists, in which case, just return. Also informs
+ * the master to split the tablet.
  * 
  * \param name
  *      Name of the table that contains the tablet to be split.
  * \param splitKeyHash
  *      Key hash to used to partition the tablet into two. Keys less than
- *      \a splitKeyHash belong to one Tablet, keys greater than or equal to
+ *      \a splitKeyHash belong to one tablet, keys greater than or equal to
  *      \a splitKeyHash belong to the other.
  * 
  * \throw NoSuchTable
  *      If name does not identify a table currently in the tables.
  */
 void
-TableManager::splitTablet(const char* name,
-                          uint64_t splitKeyHash)
+TableManager::splitTablet(const char* name, uint64_t splitKeyHash)
 {
     Lock lock(mutex);
-    SplitTablet(*this, lock, name, splitKeyHash).execute();
+    Directory::iterator it = directory.find(name);
+    if (it == directory.end())
+        throw NoSuchTable(HERE);
+    Table* table = it->second;
+    Tablet* tablet = findTablet(lock, table, splitKeyHash);
+    if (splitKeyHash == tablet->startKeyHash)
+        return;
+    if (tablet->status == Tablet::RECOVERING) {
+        // We can't process this request right now, because recovery may
+        // undo it. Try again when recovery is finished.
+        throw RetryException(HERE, 1000000, 2000000,
+                "can't split tablet now: recovery is underway");
+    }
+
+    // Perform the split on our in-memory structures.
+    Tablet newTablet = *tablet;
+    tablet->endKeyHash = splitKeyHash - 1;
+    newTablet.startKeyHash = splitKeyHash;
+    table->tablets.push_back(newTablet);
+
+    // Record information about the split in external storage, in case we
+    // crash.
+    ProtoBuf::Table externalInfo;
+    serializeTable(lock, table, &externalInfo);
+    externalInfo.set_sequence_number(updateManager->nextSequenceNumber());
+    ProtoBuf::Table::Split* split = externalInfo.mutable_split();
+    split->set_server_id(tablet->serverId.getId());
+    split->set_split_key_hash(splitKeyHash);
+    syncTable(lock, table, &externalInfo);
+
+    // Finish up by notifying the relevant master.
+    notifySplitTablet(lock, &externalInfo);
+    updateManager->updateFinished(externalInfo.sequence_number());
+
 }
 
 /**
- * Used by MasterRecoveryManager after recovery for a tablet has successfully
- * completed to inform coordinator about the new master for the tablet.
+ * Invoked by MasterRecoveryManager after recovery for a tablet has
+ * successfully completed to inform coordinator about the new master
+ * for the tablet.
  * 
  * \param tableId
- *      Table id of the tablet.
+ *      Id of table containing the tablet.
  * \param startKeyHash
  *      First key hash that is part of range of key hashes for the tablet.
  * \param endKeyHash
@@ -293,887 +563,386 @@ TableManager::tabletRecovered(
         ServerId serverId, Log::Position ctime)
 {
     Lock lock(mutex);
-    TabletRecovered(*this, lock, tableId, startKeyHash, endKeyHash,
-                    serverId, ctime).execute();
-}
 
-//////////////////////////////////////////////////////////////////////
-// TableManager Recovery Methods
-//////////////////////////////////////////////////////////////////////
-
-/**
- * During coordinator recovery, add local metadata for a table that had
- * already been successfully created.
- *
- * \param state
- *      The ProtoBuf that encapsulates the information about the table.
- * \param entryId
- *      The entry id of the LogCabin entry corresponding to the state.
- */
-void
-TableManager::recoverAliveTable(
-    ProtoBuf::TableInformation* state, EntryId entryId)
-{
-    Lock lock(mutex);
-    LOG(DEBUG, "TableManager::recoverCreateTable()");
-
-    nextTableId = state->table_id() + 1;
-
-    uint64_t tableId = state->table_id();
-    tables[state->name()] = tableId;
-    tablesLogIds[tableId].tableInfoLogId = entryId;
-
-    for (uint32_t i = 0; i < state->server_span(); i++) {
-        const ProtoBuf::TableInformation::TabletInfo* tabletInfo =
-                &state->tablet_info(i);
-
-        uint64_t firstKeyHash = tabletInfo->start_key_hash();
-        uint64_t lastKeyHash = tabletInfo->end_key_hash();
-        ServerId computedMasterId = ServerId(tabletInfo->master_id());
-        Log::Position headOfLog(tabletInfo->ctime_log_head_id(),
-                tabletInfo->ctime_log_head_id());
-
-        // Create tablet map entry.
-        addTablet(lock, {tableId, firstKeyHash, lastKeyHash,
-                         computedMasterId, Tablet::NORMAL, headOfLog});
+    // Find the desired table and tablet.
+    IdMap::iterator it = idMap.find(tableId);
+    if (it == idMap.end())
+        throw NoSuchTablet(HERE);
+    Table* table = it->second;
+    Tablet* tablet = findTablet(lock, table, startKeyHash);
+    if ((tablet->startKeyHash != startKeyHash) ||
+            (tablet->endKeyHash != endKeyHash)) {
+        throw NoSuchTablet(HERE);
     }
+
+    // Update in-memory data structures.
+    tablet->serverId = serverId;
+    tablet->status = Tablet::NORMAL;
+    tablet->ctime = ctime;
+
+    // Record this update in external storage, in case we crash.  For this
+    // operation there is nothing to "complete" after crash recovery other
+    // than restoring the table metadata, so the sequence number is set to
+    // zero. THIS IS A BUG: see RAM-548.
+    ProtoBuf::Table externalInfo;
+    serializeTable(lock, table, &externalInfo);
+    externalInfo.set_sequence_number(0);
+    syncTable(lock, table, &externalInfo);
 }
 
 /**
- * During coordinator recovery, complete a createTable operation that
- * had already been started.
+ * Find the tablet containing a particular key hash.
  *
- * \param state
- *      The ProtoBuf that encapsulates the information about table
- *      being created.
- * \param entryId
- *      The entry id of the LogCabin entry corresponding to the state.
- */
-void
-TableManager::recoverCreateTable(
-    ProtoBuf::TableInformation* state, EntryId entryId)
-{
-    Lock lock(mutex);
-    LOG(DEBUG, "TableManager::recoverCreateTable()");
-    nextTableId = state->table_id() + 1;
-    CreateTable(*this, lock,
-                state->name().c_str(),
-                state->table_id(),
-                state->server_span(),
-                *state).complete(entryId);
-}
-
-/**
- * During coordinator recovery, complete a dropTable operation that
- * had already been started.
+ * \param lock
+ *      Ensures that the caller holds the monitor lock; not actually used.
+ * \param table
+ *      Table in which to search for tablet.
+ * \param keyHash
+ *      The desired tablet stores this particular key hash.
  *
- * \param state
- *      The ProtoBuf that encapsulates the information about table
- *      being dropped.
- * \param entryId
- *      The entry id of the LogCabin entry corresponding to the state.
- */
-void
-TableManager::recoverDropTable(
-    ProtoBuf::TableDrop* state, EntryId entryId)
-{
-    Lock lock(mutex);
-    LOG(DEBUG, "TableManager::recoverDropTable()");
-    DropTable(*this, lock,
-              state->name().c_str()).complete(entryId);
-}
-
-/**
- * During coordinator recovery, recover information about largest table id.
- * This entry is encountered if the table with the largest table id was
- * deleted, and hence the largest table id would not be recoverable by simply
- * replaying the TableInformation protobuf corresponding to CreateTable
- * or AliveTable entry types.
- *
- * \param state
- *      The ProtoBuf that encapsulates the information about table
- *      being dropped.
- * \param entryId
- *      The entry id of the LogCabin entry corresponding to the state.
- */
-void
-TableManager::recoverLargestTableId(
-    ProtoBuf::LargestTableId* state, EntryId entryId)
-{
-    Lock lock(mutex);
-    LOG(DEBUG, "TableManager::recoverLargestTableId()");
-    nextTableId = state->table_id() + 1;
-    logIdLargestTableId = entryId;
-}
-
-/**
- * During coordinator recovery, complete a splitTablet operation that
- * had already been started.
- *
- * \param state
- *      The ProtoBuf that encapsulates the information about the tablet
- *      that was being split.
- * \param entryId
- *      The entry id of the LogCabin entry corresponding to the state.
- */
-void
-TableManager::recoverSplitTablet(
-    ProtoBuf::SplitTablet* state, EntryId entryId)
-{
-    Lock lock(mutex);
-    LOG(DEBUG, "TableManager::recoverSplitTablet()");
-    SplitTablet(*this, lock,
-                state->name().c_str(),
-                state->split_key_hash()).complete(entryId);
-}
-
-/**
- * During coordinator recovery, complete a tabletRecovered operation that
- * had already been started.
- *
- * \param state
- *      The ProtoBuf that encapsulates the information about the tablet
- *      that was recovered during a master recovery.
- * \param entryId
- *      The entry id of the LogCabin entry corresponding to the state.
- */
-void
-TableManager::recoverTabletRecovered(
-    ProtoBuf::TabletRecovered* state, EntryId entryId)
-{
-    Lock lock(mutex);
-    LOG(DEBUG, "TableManager::recoverTabletRecovered()");
-    TabletRecovered(*this, lock,
-                    state->table_id(),
-                    state->start_key_hash(),
-                    state->end_key_hash(),
-                    ServerId(state->server_id()),
-                    Log::Position(state->ctime_log_head_id(),
-                            state->ctime_log_head_offset())).complete(entryId);
-}
-
-/////////////////////////////////////////////////////////////////////////////
-// TableManager Private Methods
-/////////////////////////////////////////////////////////////////////////////
-
-/**
- * Do everything needed to execute the CreateTable operation.
- * Do any processing required before logging the state
- * in LogCabin, log the state in LogCabin, then call #complete().
- * 
  * \return
- *      The tableId assigned to the table created.
+ *      A pointer to the desired tablet.
  */
-uint64_t
-TableManager::CreateTable::execute()
+Tablet*
+TableManager::findTablet(const Lock& lock, Table* table, uint64_t keyHash)
 {
-    CoordinatorService *coordService = tm.context->coordinatorService;
-    RuntimeOptions *runtimeOptions = NULL;
-    // context->coordinatorService can be NULL in test mode
-    if (coordService) {
-        runtimeOptions = coordService->getRuntimeOptionsFromCoordinator();
-        runtimeOptions->checkAndCrashCoordinator("create_1");
-    }
-
-    if (tm.tables.find(name) != tm.tables.end())
-        throw TableExists(HERE);
-    tableId = tm.nextTableId++;
-
-    LOG(NOTICE, "Creating table '%s' with id %lu", name, tableId);
-
-    if (serverSpan == 0)
-        serverSpan = 1;
-
-    state.set_entry_type("CreateTable");
-    state.set_name(name);
-    state.set_table_id(tableId);
-    state.set_server_span(serverSpan);
-
-    for (uint32_t i = 0; i < serverSpan; i++) {
-        uint64_t firstKeyHash = i * (~0UL / serverSpan);
-        if (i != 0)
-            firstKeyHash++;
-        uint64_t lastKeyHash = (i + 1) * (~0UL / serverSpan);
-        if (i == serverSpan - 1)
-            lastKeyHash = ~0UL;
-
-        // Find the next master in the list.
-        CoordinatorServerList::Entry master;
-        while (true) {
-            size_t masterIdx = tm.nextTableMasterIdx++ %
-                               tm.context->coordinatorServerList->size();
-            CoordinatorServerList::Entry entry;
-            try {
-                entry = (*tm.context->coordinatorServerList)[masterIdx];
-                if (entry.isMaster()) {
-                    master = entry;
-                    break;
-                }
-            } catch (ServerListException& e) {
-                continue;
-            }
+    foreach (Tablet& tablet, table->tablets) {
+        if ((tablet.startKeyHash <= keyHash) &&
+                (tablet.endKeyHash >= keyHash)) {
+            return &tablet;
         }
-
-        // add to local tablet map
-
-        // headOfLog is actually supposed to be the current log head on master.
-        // Only entries >= this can be part of the tablet.
-        // For a new table that is being created, using a value of (0,0)
-        // suffices for safety, and reduces the number of calls to the masters.
-        Log::Position headOfLog(0, 0);
-
-        ProtoBuf::TableInformation::TabletInfo&
-                tablet(*state.add_tablet_info());
-        tablet.set_start_key_hash(firstKeyHash);
-        tablet.set_end_key_hash(lastKeyHash);
-        tablet.set_master_id(master.serverId.getId());
-        tablet.set_ctime_log_head_id(headOfLog.getSegmentId());
-        tablet.set_ctime_log_head_offset(headOfLog.getSegmentOffset());
     }
-
-    vector<EntryId> invalidates;
-
-    // If there was a LargestTableId log entry appended to LogCabin, invalidate
-    // it as it is no longer needed. The tableId for this table being created
-    // has to be strictly larger than the one indicated in the LargestTableId
-    // entry, hence there is no use for it anymore.
-    if (tm.logIdLargestTableId != NO_ID) {
-        invalidates.push_back(tm.logIdLargestTableId);
-        tm.logIdLargestTableId = NO_ID;
-    }
-
-    EntryId entryId =
-        tm.context->logCabinHelper->appendProtoBuf(
-            *tm.context->expectedEntryId, state, invalidates);
-    tm.setTableInfoLogId(lock, tableId, entryId);
-    LOG(DEBUG, "LogCabin: CreateTable entryId: %lu", entryId);
-
-    if (runtimeOptions)
-        runtimeOptions->checkAndCrashCoordinator("create_2");
-
-    return complete(entryId);
+    // Shouldn't ever get here:  this means there is some key hash in
+    // the table that is not covered by any tablet.
+    RAMCLOUD_DIE("Couldn't find tablet containing key hash 0x%lx in "
+            "table '%s' (id %lu)",
+            keyHash, table->name.c_str(), table->id);
 }
 
 /**
- * Complete the CreateTable operation after its state has been
- * logged in LogCabin.
- * This is called internally by #execute() in case of normal operation
- * (which is in turn called by #createTable()), and
- * directly for coordinator recovery (by #recoverCreateTable()).
- *
- * \param entryId
- *      The entry id of the LogCabin entry corresponding to the state
- *      of the operation to be completed.
+ * This method is invoked as part of creating a new table: it sends
+ * an RPC to each of the masters storing a tablet for this table, so they
+ * know that they are now responsible.
  * 
- * \return
- *      The tableId assigned to the table created.
+ * \param lock
+ *      Ensures that the caller holds the monitor lock; not actually used.
+ * \param table
+ *      Newly created table; notify the master for each tablet.
  */
-uint64_t
-TableManager::CreateTable::complete(EntryId entryId)
+void
+TableManager::notifyCreate(const Lock& lock, Table* table)
 {
-    tm.tables[name] = tableId;
-    tm.tablesLogIds[tableId].tableInfoLogId = entryId;
-
-    for (uint32_t i = 0; i < serverSpan; i++) {
-        const ProtoBuf::TableInformation::TabletInfo* tabletInfo =
-                &state.tablet_info(i);
-
-        uint64_t firstKeyHash = tabletInfo->start_key_hash();
-        uint64_t lastKeyHash = tabletInfo->end_key_hash();
-        ServerId computedMasterId = ServerId(tabletInfo->master_id());
-        Log::Position headOfLog(tabletInfo->ctime_log_head_id(),
-                tabletInfo->ctime_log_head_id());
-
-        // Create tablet map entry.
-        tm.addTablet(lock, {tableId, firstKeyHash, lastKeyHash,
-                            computedMasterId, Tablet::NORMAL, headOfLog});
-
+    foreach (Tablet& tablet, table->tablets) {
         try {
-            CoordinatorServerList::Entry computedMaster =
-                        (*tm.context->coordinatorServerList)[computedMasterId];
-            assert(computedMaster.isMaster());
-
-            // Inform the master if it is up.
-            MasterClient::takeTabletOwnership(tm.context, computedMasterId,
-                        tableId, firstKeyHash, lastKeyHash);
-        } catch (ServerListException& e) {
-            // If the computer master doesn't exist anymore, that means that
-            // it has crashed. Its recovery may or may not have been started
-            // yet.
-            // However, when the master recovery contacts the coordinator
-            // to get the tablet map, it will be stalled till the end of
-            // the create table completion since this operation is currently
-            // holding the TableManager lock.
-            // Thus, when we add the entry for the current tablet to the
-            // tablet map, it will be recovered as a part of the crashed master
-            // recovery, whenever that recovery contacts the coordinator.
-            LOG(NOTICE, "Master that was computed doesn't exist anymore.");
-        }
-
-        LOG(NOTICE,
-            "Assigned tablet [0x%lx,0x%lx] in table '%s' (id %lu) to %s",
-            firstKeyHash, lastKeyHash, name, tableId,
-            tm.context->coordinatorServerList->toString(
-                        computedMasterId).c_str());
-    }
-
-    CoordinatorService *coordService = tm.context->coordinatorService;
-    RuntimeOptions *runtimeOptions = NULL;
-    // context->coordinatorService can be NULL in test mode
-    if (coordService) {
-        runtimeOptions = coordService->getRuntimeOptionsFromCoordinator();
-        runtimeOptions->checkAndCrashCoordinator("create_3");
-    }
-
-    state.set_entry_type("AliveTable");
-    EntryId newEntryId = tm.context->logCabinHelper->appendProtoBuf(
-            *tm.context->expectedEntryId, state, vector<EntryId>({entryId}));
-    tm.setTableInfoLogId(lock, tableId, newEntryId);
-    LOG(DEBUG, "LogCabin: AliveTable entryId: %lu", newEntryId);
-
-    if (runtimeOptions)
-        runtimeOptions->checkAndCrashCoordinator("create_4");
-
-    return tableId;
-}
-
-void
-TableManager::DropTable::execute()
-{
-    Tables::iterator it = tm.tables.find(name);
-    if (it == tm.tables.end())
-        return;
-
-    ProtoBuf::TableDrop state;
-    state.set_entry_type("DropTable");
-    state.set_name(name);
-
-    CoordinatorService *coordService = tm.context->coordinatorService;
-    RuntimeOptions *runtimeOptions = NULL;
-    // context->coordinatorService can be NULL in test mode
-    if (coordService) {
-        runtimeOptions = coordService->getRuntimeOptionsFromCoordinator();
-        runtimeOptions->checkAndCrashCoordinator("drop_1");
-    }
-
-    EntryId entryId = tm.context->logCabinHelper->appendProtoBuf(
-            *tm.context->expectedEntryId, state);
-    LOG(DEBUG, "LogCabin: DropTable entryId: %lu", entryId);
-
-    if (runtimeOptions)
-        runtimeOptions->checkAndCrashCoordinator("drop_2");
-
-    return complete(entryId);
-}
-
-void
-TableManager::DropTable::complete(EntryId entryId)
-{
-    Tables::iterator it = tm.tables.find(name);
-    if (it == tm.tables.end())
-        return;
-    uint64_t tableId = it->second;
-    tm.tables.erase(it);
-
-    vector<Tablet> removed = tm.removeTabletsForTable(lock, tableId);
-    // If a master is down and never receives the dropTabletOwnership
-    // call, we don't care, since this tablet has been removed from
-    // coordinator's tablet mapping, and hence will not be recovered
-    // if / when the master recovers.
-    foreach (const auto& tablet, removed) {
-            MasterClient::dropTabletOwnership(tm.context,
-                                              tablet.serverId,
-                                              tableId,
-                                              tablet.startKeyHash,
-                                              tablet.endKeyHash);
-    }
-
-    LOG(NOTICE, "Dropped table '%s' (id %lu), %lu tablets left in map",
-        name, tableId, tm.size(lock));
-
-    EntryId tableInfoLogId = tm.getTableInfoLogId(lock, tableId);
-    vector<EntryId> invalidates {tableInfoLogId, entryId};
-
-    CoordinatorService *coordService = tm.context->coordinatorService;
-    RuntimeOptions *runtimeOptions = NULL;
-    // context->coordinatorService can be NULL in test mode
-    if (coordService) {
-        runtimeOptions = coordService->getRuntimeOptionsFromCoordinator();
-        runtimeOptions->checkAndCrashCoordinator("drop_3");
-    }
-
-    // If the table being deleted has the largest tableId, then persist
-    // the tableId information.
-    // This is done so that if the coordinator crashes before the next
-    // createTable() and recovers, it should know not to use this tableId
-    // again, and start servicing new createTable() rpcs with a higher
-    // tableId.
-    if (tableId == tm.nextTableId - 1) {
-        ProtoBuf::LargestTableId state;
-        state.set_entry_type("LargestTableId");
-        state.set_table_id(tableId);
-
-        tm.context->logCabinHelper->appendProtoBuf(
-                *tm.context->expectedEntryId, state, invalidates);
-    } else {
-        tm.context->logCabinHelper->invalidate(
-                *tm.context->expectedEntryId, invalidates);
-    }
-
-    if (runtimeOptions)
-        runtimeOptions->checkAndCrashCoordinator("drop_4");
-}
-
-void
-TableManager::SplitTablet::execute()
-{
-    ProtoBuf::SplitTablet state;
-    state.set_entry_type("SplitTablet");
-    state.set_name(name);
-    state.set_split_key_hash(splitKeyHash);
-
-    CoordinatorService *coordService = tm.context->coordinatorService;
-    RuntimeOptions *runtimeOptions = NULL;
-    // context->coordinatorService can be NULL in test mode
-    if (coordService) {
-        runtimeOptions = coordService->getRuntimeOptionsFromCoordinator();
-        runtimeOptions->checkAndCrashCoordinator("split_1");
-    }
-
-    EntryId entryId = tm.context->logCabinHelper->appendProtoBuf(
-            *tm.context->expectedEntryId, state);
-    LOG(DEBUG, "LogCabin: SplitTablet entryId: %lu", entryId);
-
-    if (runtimeOptions)
-        runtimeOptions->checkAndCrashCoordinator("split_2");
-
-    complete(entryId);
-}
-
-void
-TableManager::SplitTablet::complete(EntryId entryId)
-{
-    Tables::iterator it(tm.tables.find(name));
-    if (it == tm.tables.end()) {
-        throw NoSuchTable(HERE);
-    }
-    uint64_t tableId = it->second;
-
-    if (tm.splitExists(lock, tableId, splitKeyHash)) {
-        return;
-    } else {
-        Tablet& originalTablet = tm.getTabletSplit(lock, tableId, splitKeyHash);
-        Tablet newTablet = originalTablet;
-
-        originalTablet.endKeyHash = splitKeyHash - 1;
-        newTablet.startKeyHash = splitKeyHash;
-        tm.map.push_back(newTablet);
-
-        // Tell the master to split the tablet
-        MasterClient::splitMasterTablet(tm.context, originalTablet.serverId,
-                                        tableId, splitKeyHash);
-
-        // Now append the new table information to LogCabin and invalidate
-        // the older table information and split tablet operation information.
-        EntryId oldTableInfoEntryId = tm.getTableInfoLogId(lock, tableId);
-        vector<EntryId> invalidates {oldTableInfoEntryId, entryId};
-
-        ProtoBuf::TableInformation tableInfo;
-        tableInfo.set_entry_type("AliveTable");
-        tableInfo.set_name(name);
-        tableInfo.set_table_id(tableId);
-
-        // Since we have already split the tablet in local state, we can
-        // directly use the local state to populate protobuf reflecting
-        // current state of this table to be appended to LogCabin.
-        vector<Tablet> allTablets = tm.getTabletsForTable(lock, tableId);
-        tableInfo.set_server_span(uint32_t(allTablets.size()));
-        foreach (Tablet currentTablet, allTablets) {
-            ProtoBuf::TableInformation::TabletInfo&
-                        tablet(*tableInfo.add_tablet_info());
-            tablet.set_start_key_hash(currentTablet.startKeyHash);
-            tablet.set_end_key_hash(currentTablet.endKeyHash);
-            tablet.set_master_id(currentTablet.serverId.getId());
-            tablet.set_ctime_log_head_id(
-                        currentTablet.ctime.getSegmentId());
-            tablet.set_ctime_log_head_offset(
-                        currentTablet.ctime.getSegmentOffset());
-        }
-
-        EntryId newEntryId = tm.context->logCabinHelper->appendProtoBuf(
-                *tm.context->expectedEntryId, tableInfo, invalidates);
-        LOG(DEBUG, "LogCabin: AliveTable entryId: %lu", newEntryId);
-    }
-}
-
-void
-TableManager::TabletRecovered::execute()
-{
-    ProtoBuf::TabletRecovered state;
-    state.set_entry_type("TabletRecovered");
-    state.set_table_id(tableId);
-    state.set_start_key_hash(startKeyHash);
-    state.set_end_key_hash(endKeyHash);
-    state.set_server_id(serverId.getId());
-    state.set_ctime_log_head_id(ctime.getSegmentId());
-    state.set_ctime_log_head_offset(ctime.getSegmentOffset());
-
-    EntryId entryId = tm.context->logCabinHelper->appendProtoBuf(
-            *tm.context->expectedEntryId, state);
-    LOG(DEBUG, "LogCabin: TabletRecovered entryId: %lu", entryId);
-
-    complete(entryId);
-}
-
-void
-TableManager::TabletRecovered::complete(EntryId entryId)
-{
-    string name;
-    for (Tables::iterator it = tm.tables.begin(); it != tm.tables.end(); it++) {
-        if (it->second == tableId) {
-            name = it->first;
-            break;
+            MasterClient::takeTabletOwnership(context, tablet.serverId,
+                    tablet.tableId, tablet.startKeyHash, tablet.endKeyHash);
+            LOG(NOTICE, "Assigned table id %lu, key hashes 0x%lx-0x%lx, to "
+                    "master %s",
+                    table->id, tablet.startKeyHash, tablet.endKeyHash,
+                    tablet.serverId.toString().c_str());
+        } catch (ServerNotUpException& e) {
+            // The master is apparently crashed. In that case, we can just
+            // ignore this master; this tablet will be reinstated elsewhere
+            // as part of recovering the master.
+            LOG(NOTICE, "takeTabletOwnership skipped for master %s (table %lu, "
+                    "key hashes 0x%lx-0x%lx) because server isn't running",
+                    tablet.serverId.toString().c_str(), table->id,
+                    tablet.startKeyHash, tablet.endKeyHash);
         }
     }
-    // If name for this table doesn't exist, that means we're recovering a table
-    // that doesn't actually exist! Something is wrong.
-    if (name.empty()) {
-        throw NoSuchTable(HERE);
-    }
-
-    tm.modifyTablet(lock, tableId, startKeyHash, endKeyHash,
-                    serverId, Tablet::NORMAL, ctime);
-
-    // Now append the new table information to LogCabin and invalidate
-    // the older table information and tablet recovered operation information.
-    EntryId oldTableInfoEntryId = tm.getTableInfoLogId(lock, tableId);
-    vector<EntryId> invalidates {oldTableInfoEntryId, entryId};
-
-    ProtoBuf::TableInformation tableInfo;
-    tableInfo.set_entry_type("AliveTable");
-    tableInfo.set_name(name);
-    tableInfo.set_table_id(tableId);
-
-    // Since we have already changed the local state, we can
-    // directly use it to populate protobuf reflecting
-    // current state of this table to be appended to LogCabin.
-    vector<Tablet> allTablets = tm.getTabletsForTable(lock, tableId);
-    tableInfo.set_server_span(uint32_t(allTablets.size()));
-    foreach (Tablet currentTablet, allTablets) {
-        ProtoBuf::TableInformation::TabletInfo&
-                    tablet(*tableInfo.add_tablet_info());
-        tablet.set_start_key_hash(currentTablet.startKeyHash);
-        tablet.set_end_key_hash(currentTablet.endKeyHash);
-        tablet.set_master_id(currentTablet.serverId.getId());
-        tablet.set_ctime_log_head_id(
-                    currentTablet.ctime.getSegmentId());
-        tablet.set_ctime_log_head_offset(
-                    currentTablet.ctime.getSegmentOffset());
-    }
-
-    EntryId newEntryId = tm.context->logCabinHelper->appendProtoBuf(
-            *tm.context->expectedEntryId, tableInfo, invalidates);
-    LOG(DEBUG, "LogCabin: AliveTable entryId: %lu", newEntryId);
 }
 
 /**
- * Add a Tablet to the tablet map.
+ * This method is invoked as part of deleting a table: it sends an RPC
+ * to each of the masters storing a tablet for this table, so they
+ * can clean up all of their state related to the table. It also performs
+ * other cleanup that must be done after the masses have been notified,
+ * such as deleting the record for the table in external storage. This
+ * method is used both during normal table deletion, and during coordinator
+ * crash recovery.
+ * 
+ * \param lock
+ *      Ensures that the caller holds the monitor lock; not actually used.
+ * \param info
+ *      Contains information about all of the tablets in the table.
+ */
+void
+TableManager::notifyDropTable(const Lock& lock, ProtoBuf::Table* info)
+{
+    // Notify all of the masters storing tablets for the table.
+    int numTablets = info->tablet_size();
+    for (int i = 0; i < numTablets; i++) {
+        const ProtoBuf::Table::Tablet& tablet = info->tablet(i);
+        ServerId serverId(tablet.server_id());
+        try {
+            MasterClient::dropTabletOwnership(context, serverId,
+                    info->id(), tablet.start_key_hash(), tablet.end_key_hash());
+        } catch (ServerNotUpException& e) {
+            // The master has apparently crashed. This is benign (a dead
+            // master can't continue serving the tablet), but log a message
+            // anyway.
+            LOG(NOTICE, "dropTabletOwnership skipped for master %s (table %lu, "
+                    "key hashes 0x%lx-0x%lx) because server isn't running",
+                    serverId.toString().c_str(), info->id(),
+                    tablet.start_key_hash(), tablet.end_key_hash());
+        }
+    }
+
+    // If the deleted table's id is the largest one in use, we need
+    // to record this on external storage, so the id doesn't get reused
+    // if we crash now. Do this *before* removing the external storage record
+    // for the table (that record ensures that future coordinators know
+    // about its table id).
+    if (info->id() == (nextTableId-1)) {
+        sync(lock);
+    }
+
+    // Remove the table's record in external storage.
+    string objectName("/tables/");
+    objectName.append(info->name());
+    context->externalStorage->remove(objectName.c_str());
+}
+
+/**
+ * This method is invoked as part of reassigning a table: it sends an RPC
+ * to the new master to start serving requests for the tablet. This
+ * method is used both during normal tablet reassignment, and during
+ * coordinator crash recovery.
  *
- *  \param lock
- *      Explicity needs caller to hold a lock.
+ * \param lock
+ *      Ensures that the caller holds the monitor lock; not actually used.
+ * \param info
+ *      Contains information about all of the tablets in the table. Must
+ *      contain a "reassign" element.
+ */
+void
+TableManager::notifyReassignTablet(const Lock& lock, ProtoBuf::Table* info)
+{
+    const ProtoBuf::Table::Reassign& reassign = info->reassign();
+    ServerId serverId(reassign.server_id());
+    try {
+        MasterClient::takeTabletOwnership(context, serverId, info->id(),
+                reassign.start_key_hash(), reassign.end_key_hash());
+    } catch (ServerNotUpException& e) {
+        // The master has apparently crashed. This should be benign (we will
+        // eventually recover the tablet as part of recovering the master),
+        // but log a message anyway.
+        LOG(NOTICE, "takeTabletOwnership failed during tablet reassignment "
+                "for master %s (table %lu, key hashes 0x%lx-0x%lx) because "
+                "server isn't running",
+                serverId.toString().c_str(), info->id(),
+                reassign.start_key_hash(), reassign.end_key_hash());
+    }
+}
+
+/**
+ * This method is invoked as part of splitting a tablet: it sends an RPC
+ * to the master storing the tablet being split, so it can update its
+ * internal state.
+ *
+ * \param lock
+ *      Ensures that the caller holds the monitor lock; not actually used.
+ * \param info
+ *      Contains information about the table and the split operation.
+ */
+void
+TableManager::notifySplitTablet(const Lock& lock, ProtoBuf::Table* info)
+{
+    const ProtoBuf::Table::Split& split = info->split();
+    ServerId serverId(split.server_id());
+    try {
+        MasterClient::splitMasterTablet(context, serverId, info->id(),
+                split.split_key_hash());
+    } catch (ServerNotUpException& e) {
+        // The master has apparently crashed. This is benign (crash recovery
+        // will take care of splitting the tablet), but log a message
+        // anyway.
+        LOG(NOTICE, "splitMasterTablet skipped for master %s (table %lu, "
+                "split key hash 0x%lx) because server isn't running",
+                serverId.toString().c_str(), info->id(),
+                split.split_key_hash());
+    }
+}
+
+/**
+ * This method re-creates the internal data structures for a table, based
+ * on a protocol buffer read from external storage.
+ * 
+ * \param lock
+ *      Ensures that the caller holds the monitor lock; not actually used.
+ * \param info
+ *      Describes one table.
+ */
+TableManager::Table*
+TableManager::recreateTable(const Lock& lock, ProtoBuf::Table* info)
+{
+    const string& name(info->name());
+    uint64_t id = info->id();
+    Directory::iterator it = directory.find(name);
+    if (it != directory.end()) {
+        throw FatalError(HERE, format("can't recover table '%s' (id %lu): "
+                "already exists in directory",
+                name.c_str(), id));
+    }
+    if (idMap.count(id) != 0) {
+        throw FatalError(HERE,
+                format("can't recover table '%s' (id %lu): already "
+                "exists in idMap",
+                name.c_str(), id));
+    }
+
+    Table* table = new Table(name.c_str(), id);
+    if (id >= nextTableId)
+        nextTableId = id + 1;
+    int numTablets = info->tablet_size();
+    for (int i = 0; i < numTablets; i++) {
+        const ProtoBuf::Table::Tablet& tablet = info->tablet(i);
+        Log::Position ctime(tablet.ctime_log_head_id(),
+                tablet.ctime_log_head_offset());
+        Tablet::Status status;
+        if (tablet.state() == ProtoBuf::Table::Tablet::NORMAL)
+            status = Tablet::NORMAL;
+        else if (tablet.state() == ProtoBuf::Table::Tablet::RECOVERING)
+            status = Tablet::RECOVERING;
+        else
+            DIE("Unknown status for tablet");
+        table->tablets.emplace_back(id,
+                tablet.start_key_hash(),
+                tablet.end_key_hash(),
+                ServerId(tablet.server_id()),
+                status,
+                Log::Position(tablet.ctime_log_head_id(),
+                              tablet.ctime_log_head_offset()));
+    }
+    directory[name] = table;
+    idMap[id] = table;
+
+    LOG(NOTICE, "Recreated table '%s' with id %lu (%d tablets)", name.c_str(),
+            id, numTablets);
+    return table;
+}
+
+/**
+ * This method is used when recording information on external storage;
+ * it initializes a protocol buffer with the current state of a table.
+ * Typically, the caller will then put additional information in the
+ * protocol buffer describing operations in progress, for recovery
+ * purposes.
+ *
+ * \param lock
+ *      Ensures that the caller holds the monitor lock; not actually used.
+ * \param table
+ *      Table whose information should be serialized into the protocol buffer.
+ * \param externalInfo
+ *      Information gets serialized here; we assume that this is a
+ *      clean, freshly-allocated object.
+ */
+void
+TableManager::serializeTable(const Lock& lock, Table* table,
+                        ProtoBuf::Table* externalInfo)
+{
+    externalInfo->set_name(table->name);
+    externalInfo->set_id(table->id);
+    foreach (Tablet& tablet, table->tablets) {
+        ProtoBuf::Table::Tablet* externalTablet(externalInfo->add_tablet());
+        externalTablet->set_start_key_hash(tablet.startKeyHash);
+        externalTablet->set_end_key_hash(tablet.endKeyHash);
+        if (tablet.status == Tablet::NORMAL)
+            externalTablet->set_state(ProtoBuf::Table::Tablet::NORMAL);
+        else if (tablet.status == Tablet::RECOVERING)
+            externalTablet->set_state(ProtoBuf::Table::Tablet::RECOVERING);
+        else
+            DIE("Unknown status for tablet");
+        externalTablet->set_server_id(tablet.serverId.getId());
+        externalTablet->set_ctime_log_head_id(tablet.ctime.getSegmentId());
+        externalTablet->set_ctime_log_head_offset(
+                tablet.ctime.getSegmentOffset());
+    }
+}
+
+/**
+ * Update overall information on external storage related to this class
+ * (i.e., stuff that doesn't pertain to any particular table).
+ *
+ * \param lock
+ *      Ensures that the caller holds the monitor lock; not actually used.
+ */
+void
+TableManager::sync(const Lock& lock)
+{
+    ProtoBuf::TableManager info;
+    info.set_next_table_id(nextTableId);
+    string str;
+    info.SerializeToString(&str);
+    context->externalStorage->set(ExternalStorage::UPDATE,
+            "/tableManager", str.c_str(), downCast<int>(str.length()));
+}
+
+/**
+ * Write the latest information about a table to the appropriate place in
+ * external storage.
+ * 
+ * \param lock
+ *      Ensures that the caller holds the monitor lock; not actually used.
+ * \param table
+ *      Table whose description is in externalInfo.
+ * \param externalInfo
+ *      Information about the table that we want to save to external storage;
+ *      caller has filled this in.
+ */
+void
+TableManager::syncTable(const Lock& lock, Table* table,
+        ProtoBuf::Table* externalInfo)
+{
+    string objectName("/tables/");
+    objectName.append(table->name);
+    string str;
+    externalInfo->SerializeToString(&str);
+    context->externalStorage->set(ExternalStorage::UPDATE,
+            objectName.c_str(), str.c_str(),
+            downCast<int>(str.length()));
+}
+
+/**
+ * Add a new tablet to the information stored for particular table.
+ * This method is intended only for testing and is not safe to use
+ * iin any "real" context.
+ *
  * \param tablet
- *      Tablet entry which is copied into the tablet map.
+ *      Describes the new tablet to add to the TableManager data structures.
+ *      The associated table must already exist.
  */
 void
-TableManager::addTablet(const Lock& lock, const Tablet& tablet)
+TableManager::testAddTablet(const Tablet& tablet)
 {
-    map.push_back(tablet);
+    Lock lock(mutex);
+    IdMap::iterator it = idMap.find(tablet.tableId);
+    if (it == idMap.end())
+        throw FatalError(HERE, "table doesn't exist");
+    Table* table = it->second;
+    table->tablets.push_back(tablet);
 }
 
 /**
- * Get the details of a Tablet in the tablet map by reference. For internal
- * use only since returning a reference to an internal value is not
- * thread-safe.
+ * Create a new table with no tablets. This method is intended only for
+ * testing and is not safe to use in any "real" context.
  *
- *  \param lock
- *      Explicity needs caller to hold a lock.
- * \param tableId
- *      Table id of the tablet to return the details of.
- * \param startKeyHash
- *      First key hash that is part of the range of key hashes for the tablet
- *      to return the details of.
- * \param endKeyHash
- *      Last key hash that is part of the range of key hashes for the tablet
- *      to return the details of.
- * \return
- *      A copy of the Tablet entry in the tablet map corresponding to
- *      \a tableId, \a startKeyHash, \a endKeyHash.
- * \throw NoSuchTablet
- *      If the arguments do not identify a tablet currently in the tablet map.
- */
-Tablet&
-TableManager::find(const Lock& lock,
-                   uint64_t tableId,
-                   uint64_t startKeyHash,
-                   uint64_t endKeyHash)
-{
-    foreach (auto& tablet, map) {
-        if (tablet.tableId == tableId &&
-            tablet.startKeyHash == startKeyHash &&
-            tablet.endKeyHash == endKeyHash)
-            return tablet;
-    }
-    throw NoSuchTablet(HERE);
-}
-
-/// Const version of find().
-const Tablet&
-TableManager::cfind(const Lock& lock,
-                    uint64_t tableId,
-                    uint64_t startKeyHash,
-                    uint64_t endKeyHash) const
-{
-    return const_cast<TableManager*>(this)->find(lock, tableId,
-                                                 startKeyHash, endKeyHash);
-}
-
-/**
- * Check if a tablet has already been split at the given hash value.
- *
- * \param lock
- *      Explicity needs caller to hold a lock.
- * \param tableId
- *      Table id of the table containing the tablet to be split if it is not
- *      already split.
- * \param splitKeyHash
- *      Hash value at which the function checks whether there already exists
- *      a split.
- * \return
- *      true if the split already exists and false otherwise
- */
-
-bool
-TableManager::splitExists(const Lock& lock, uint64_t tableId,
-                           uint64_t splitKeyHash)
-{
-    int count = 0;
-    // check if splitKeyHash falls on the appropriate boundaries of two
-    // disjoint hash ranges
-    foreach (auto& tablet, map) {
-        if (tablet.tableId == tableId &&
-            tablet.startKeyHash == splitKeyHash)
-            count++;
-        else if (tablet.tableId == tableId &&
-            tablet.endKeyHash == splitKeyHash - 1)
-            count++;
-    }
-    if (count == 2) {
-        return true;
-    } else {
-        return false;
-    }
-}
-
-/**
- * Get the details of a Tablet in the tablet map by reference. For internal
- * use only since returning a reference to an internal value is not
- * thread-safe.
- *
- *  \param lock
- *      Explicity needs caller to hold a lock.
- * \param tableId
- *      Table id of the tablet to return the details of.
- * \param splitKeyHash
- *      Split key hash that is part of the range of key hashes for the tablet
- *      to return the details of.
- * \return
- *      A copy of the Tablet entry in the tablet map that contains
- *      \a splitKeyHash.
- */
-
-Tablet&
-TableManager::getTabletSplit(const Lock& lock,
-                               uint64_t tableId,
-                               uint64_t splitKeyHash)
-{
-    // the inner loop is guaranteed to break because splitKeyHash
-    // cannot fall outside the entire hash range
-    foreach (auto& tablet, map) {
-        if (tablet.tableId == tableId &&
-            tablet.startKeyHash < splitKeyHash - 1 &&
-            splitKeyHash < tablet.endKeyHash) {
-            return tablet;
-        }
-    }
-    DIE("could not fnid a containing tablet for splitKeyHash.Something"
-        "is terribly wrong in the tablet map");
-}
-
-/**
- * Get the LogCabin EntryId corresponding to the information about this table.
- *
- * \param lock
- *      Explicity needs caller to hold a lock.
- * \param tableId
- *      Table id of the table for which we want the LogCabin EntryId.
- *
- * \return
- *      LogCabin EntryId corresponding to the information about this table.
- * \throw NoSuchTable
- *      If the arguments do not identify a table currently in the tablesInfo.
- */
-EntryId
-TableManager::getTableInfoLogId(const Lock& lock, uint64_t tableId)
-{
-    TablesLogIds::iterator it(tablesLogIds.find(tableId));
-    if (it == tablesLogIds.end()) {
-        throw NoSuchTable(HERE);
-    }
-    return (it->second).tableInfoLogId;
-}
-
-/**
- * Get the details of a Tablet in the tablet map.
- *
- * \param lock
- *      Explicity needs caller to hold a lock.
- * \param tableId
- *      Table id of the tablet to return the details of.
- * \param startKeyHash
- *      First key hash that is part of the range of key hashes for the tablet
- *      to return the details of.
- * \param endKeyHash
- *      Last key hash that is part of the range of key hashes for the tablet
- *      to return the details of.
- * \return
- *      A copy of the Tablet entry in the tablet map corresponding to
- *      \a tableId, \a startKeyHash, \a endKeyHash.
- * \throw NoSuchTablet
- *      If the arguments do not identify a tablet currently in the tablet map.
- */
-Tablet
-TableManager::getTablet(const Lock& lock,
-                        uint64_t tableId,
-                        uint64_t startKeyHash,
-                        uint64_t endKeyHash) const
-{
-    return cfind(lock, tableId, startKeyHash, endKeyHash);
-}
-
-/**
- * Get the details of all the Tablets in the tablet map that are part of a
- * specific table.
- *
- * \param lock
- *      Explicity needs caller to hold a lock.
- * \param tableId
- *      Table id of the table whose tablets are to be returned.
- * \return
- *      List of copies of all the Tablets in the tablet map which are part
- *      of the table indicated by \a tableId.
- */
-vector<Tablet>
-TableManager::getTabletsForTable(const Lock& lock, uint64_t tableId) const
-{
-    vector<Tablet> results;
-    foreach (const auto& tablet, map) {
-        if (tablet.tableId == tableId)
-            results.push_back(tablet);
-    }
-    return results;
-}
-
-/**
- * Change the server id, status, or ctime of a Tablet in the tablet map.
- *
- * \param lock
- *      Explicity needs caller to hold a lock.
- * \param tableId
- *      Table id of the tablet to return the details of.
- * \param startKeyHash
- *      First key hash that is part of the range of key hashes for the tablet
- *      to return the details of.
- * \param endKeyHash
- *      Last key hash that is part of the range of key hashes for the tablet
- *      to return the details of.
- * \param serverId
- *      Tablet is updated to indicate that it is owned by \a serverId.
- * \param status
- *      Tablet is updated with this status (NORMAL or RECOVERING).
- * \param ctime
- *      Tablet is updated with this Log::Position indicating any object earlier
- *      than \a ctime in its log cannot contain objects belonging to it.
- * \throw NoSuchTablet
- *      If the arguments do not identify a tablet currently in the tablet map.
+ * \param name
+ *      Textual name for the new table. This name must not already be
+ *      in use.
+ * \param id
+ *      Identifier for the new table. This identifier must not already
+ *      be in use.
  */
 void
-TableManager::modifyTablet(const Lock& lock,
-                           uint64_t tableId,
-                           uint64_t startKeyHash,
-                           uint64_t endKeyHash,
-                           ServerId serverId,
-                           Tablet::Status status,
-                           Log::Position ctime)
+TableManager::testCreateTable(const char* name, uint64_t id)
 {
-    Tablet& tablet = find(lock, tableId, startKeyHash, endKeyHash);
-    tablet.serverId = serverId;
-    tablet.status = status;
-    tablet.ctime = ctime;
-}
-
-/**
- * Remove all the Tablets in the tablet map that are part of a specific table.
- * Copies of the details about the removed Tablets are returned.
- *
- * \param lock
- *      Explicity needs caller to hold a lock.
- * \param tableId
- *      Table id of the table whose tablets are removed.
- * \return
- *      List of copies of all the Tablets in the tablet map which were part
- *      of the table indicated by \a tableId (which have now been removed from
- *      the tablet map).
- */
-vector<Tablet>
-TableManager::removeTabletsForTable(const Lock& lock, uint64_t tableId)
-{
-    vector<Tablet> removed;
-    auto it = map.begin();
-    while (it != map.end()) {
-        if (it->tableId == tableId) {
-            removed.push_back(*it);
-            std::swap(*it, map.back());
-            map.pop_back();
-        } else {
-            ++it;
-        }
-    }
-    return removed;
-}
-
-/**
- * Add the LogCabin EntryId corresponding to the information about this table.
- *
- * \param lock
- *      Explicity needs caller to hold a lock.
- * \param tableId
- *      Table id of the table for which we are storing the LogCabin EntryId.
- *  \param entryId
- *      LogCabin EntryId corresponding to the information about this table.
- */
-void
-TableManager::setTableInfoLogId(const Lock& lock,
-                                uint64_t tableId,
-                                EntryId entryId)
-{
-    tablesLogIds[tableId].tableInfoLogId = entryId;
-}
-
-/// Return the number of Tablets in the tablet map.
-size_t
-TableManager::size(const Lock& lock) const
-{
-    return map.size();
+    Lock lock(mutex);
+    Table* table = new Table(name, id);
+    directory[name] = table;
+    idMap[id] = table;
+    if (nextTableId <= id)
+        nextTableId = id+1;
 }
 
 } // namespace RAMCloud
