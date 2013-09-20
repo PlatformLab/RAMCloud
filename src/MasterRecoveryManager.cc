@@ -395,17 +395,7 @@ MasterRecoveryManager::halt()
  * asynchronously.
  *
  * \param crashedServer
- *      The crashed server which is to be recovered. If the server did
- *      not own any tablets, we can't simply return from this function.
- *      We have to remove the server from the coordinator server list
- *      which we can't directly, by calling CoordinatorServerList::
- *      recoveryCompleted() because it will cause a deadlock. This is
- *      because startMasterRecovery is invoked with the CSL lock held
- *      and we can't call into CSL again. For this reason, we start
- *      the recovery for this master as well and handle this case at a
- *      lower layer of abstraction. Check Recovery::performTask for
- *      short-circuiting the recovery instead of going ahead till the
- *      end.
+ *      The crashed server which is to be recovered.
  */
 void
 MasterRecoveryManager::startMasterRecovery(
@@ -414,6 +404,18 @@ MasterRecoveryManager::startMasterRecovery(
     ServerId crashedServerId = crashedServer.serverId;
     auto tablets =
         tableManager.markAllTabletsRecovering(crashedServerId);
+
+    /**
+     * If the server did not own any tablets, we can't simply return
+     * from this function. We have to remove the server from the
+     * coordinator server list which we can't directly, by calling
+     * CoordinatorServerList::recoveryCompleted() because it will
+     * cause a deadlock. This is because startMasterRecovery is invoked
+     * with the CSL lock held and we can't call into CSL again. For this
+     * reason, we start the recovery for this master as well and handle
+     * this case at a lower layer of abstraction. Check Recovery::performTask
+     * for short-circuiting the recovery instead of going ahead till the end.
+     */      
 
     try {
         LOG(NOTICE, "Scheduling recovery of master %s",
