@@ -1,0 +1,14 @@
+#!/bin/bash
+# Usage: killcoord
+# Kills any coordinators that were restarted outside of the clusterperf
+# test. At any point, there should only be 1 running coordinator.
+
+pidfile_coord=/dev/shm/$USER.new_coord.pid
+if [ -f $pidfile_coord ];
+then
+    cat $pidfile_coord | while read pid_2
+    do
+        kill $pid_2 2>/dev/null
+    done
+    rm -f $pidfile_coord
+fi

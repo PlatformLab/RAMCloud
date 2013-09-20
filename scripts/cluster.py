@@ -25,6 +25,7 @@ from common import *
 import itertools
 import log
 import os
+import random
 import pprint
 import re
 import subprocess
@@ -149,7 +150,8 @@ class Cluster(object):
                    the context of this cluster is exited.
     """
 
-    def __init__(self, log_dir='logs'):
+    def __init__(self, log_dir='logs', log_exists=False,
+                    cluster_name_exists=False, enable_logcabin=False):
         """
         @param log_dir: Top-level directory in which to write log files.
                         A separate subdirectory will be created in this
@@ -157,12 +159,40 @@ class Cluster(object):
                         only be overridden by passing it to __init__() since
                         that method creates the subdirectory.
                         (default: logs)
+        @param log_exists:
+                        Indicates whether the log directory already exists.
+                        This will be true for cluster objects that are
+                        created after starting the clusterperf test.
+                        (default: False)
+        @param cluster_name_exists:
+                        Indicates whether a cluster name already exists as
+                        part of this test. Backups that are started/restarted
+                        using the same cluster name will read data from the
+                        replicas
+                        (default: False)
+        @param enable_logcabin:
+                        Flag to indicate whether or not to enable
+                        logcabin. Currently, only coordinator recovery
+                        test will use logcabin.
+                        (default: False)
         """
         self.log_level = 'NOTICE'
         self.verbose = False
         self.transport = 'infrc'
         self.replicas = 3
         self.disk = default_disk1
+        self.enable_logcabin = enable_logcabin
+
+        if cluster_name_exists: # do nothing if it exists
+            self.cluster_name = None
+            if self.verbose:
+                print ('Cluster name exists')
+        else:
+            self.cluster_name = 'cluster_' +  ''.join([chr(random.choice(
+                                 range(ord('a'), ord('z'))))
+                                    for c in range(20)])
+        if self.verbose:
+            print ('Cluster name is %s' % (self.cluster_name))
 
         self.coordinator = None
         self.next_server_id = 0
@@ -170,8 +200,36 @@ class Cluster(object):
         self.masters_started = 0
         self.backups_started = 0
 
-        self.log_subdir = log.createDir(log_dir)
-        self.sandbox = Sandbox()
+        self.coordinator_host= hosts[0]
+        self.coordinator_locator = coord_locator(self.transport,
+                                                 self.coordinator_host)
+        self.log_subdir = log.createDir(log_dir, log_exists)
+        if not log_exists:
+            self.sandbox = Sandbox()
+        else:
+            self.sandbox = Sandbox(cleanup=False)
+        # create the shm directory to store shared files
+        try:
+            os.mkdir('%s/logs/shm' % os.getcwd())
+            f = open('%s/logs/shm/README' % os.getcwd(), 'w+')
+            f.write('This directory contains files that correspond to'
+                    'different server processes that were started during'
+                    'the last run of clusterperf. Filename is\n'
+                    '"<hostname>_<pid>". Each of these files stores'
+                    'the service locator of the respective server which is'
+                    'used to give information to the client.\nThe existence'
+                    'of this file at the end of a clusterperf run  means'
+                    'that processes were not cleaned up properly the last'
+                    ' time. So one can use these pids during manual clean up')
+            if not cluster_name_exists:
+                # store the name of the cluster by creating an empty file with
+                # the appropriate file name in shm so that new backups when
+                # created using a different cluster object can use it to read
+                # data from their disks
+                f = open('%s/logs/shm/%s' % (os.getcwd(), self.cluster_name),
+                         'w+')
+        except:
+            pass
 
     def start_coordinator(self, host, args=''):
         """Start a coordinator on a node.
@@ -186,15 +244,38 @@ class Cluster(object):
         self.coordinator_host = host
         self.coordinator_locator = coord_locator(self.transport,
                                                  self.coordinator_host)
-        command = (
-            '%s %s -C %s -l %s --logFile %s/coordinator.%s.log %s' %
-            (valgrind_command,
-             coordinator_binary, self.coordinator_locator,
-             self.log_level, self.log_subdir,
-             self.coordinator_host[0], args))
+        if not self.enable_logcabin:
+            command = (
+                '%s %s -C %s -l %s --logFile %s/coordinator.%s.log %s' %
+                (valgrind_command,
+                 coordinator_binary, self.coordinator_locator,
+                 self.log_level, self.log_subdir,
+                 self.coordinator_host[0], args))
+        else:
+            # currently hardcoding logcabin server because ankita's logcabin
+            # scripts are not on git.
+            command = (
+                '%s %s -C %s -z logcabin21:61023 -l %s '
+                '--logFile %s/coordinator.%s.log %s' %
+                (valgrind_command,
+                 coordinator_binary, self.coordinator_locator,
+                 self.log_level, self.log_subdir,
+                 self.coordinator_host[0], args))
+
+            # invoke the script that restarts the coordinator if it dies
+            restart_command = ('%s/restart_coordinator %s/coordinator.%s.log'
+                               ' %s %s logcabin21:61023' %
+                                (scripts_path, self.log_subdir,
+                                 self.coordinator_host[0],
+                                 obj_path, self.coordinator_locator))
+
+            restarted_coord = self.sandbox.rsh(self.coordinator_host[0],
+                        restart_command, kill_on_exit=True, bg=True,
+                        stderr=subprocess.STDOUT)
 
         self.coordinator = self.sandbox.rsh(self.coordinator_host[0],
                     command, bg=True, stderr=subprocess.STDOUT)
+
 
         self.ensure_servers(0, 0)
         if self.verbose:
@@ -208,7 +289,8 @@ class Cluster(object):
                      master=True,
                      backup=True,
                      disk=None,
-                     port=server_port
+                     port=server_port,
+                     kill_on_exit=True
                      ):
         """Start a server on a node.
         @param host: (hostname, ip, id) tuple describing the node on which
@@ -224,6 +306,10 @@ class Cluster(object):
                      location. (default: self.disk)
         @param port: The port the server should listen on.
                      (default: see server_locator())
+        @param kill_on_exit:
+                     If False, this server process is not reaped at the end
+                     of the clusterperf test.
+                     (default: True)
         @return: Sandbox.Process representing the server process.
         """
         command = ('%s %s -C %s -L %s -r %d -l %s '
@@ -255,14 +341,53 @@ class Cluster(object):
         if master:
             self.masters_started += 1
 
-        server = self.sandbox.rsh(host[0], command, bg=True,
-                                  stderr=subprocess.STDOUT)
+        if not kill_on_exit:
+            server = self.sandbox.rsh(host[0], command, is_server=True,
+                                      locator=server_locator(self.transport,
+                                                             host, port),
+                                      kill_on_exit=False, bg=True,
+                                      stderr=subprocess.STDOUT)
+        else:
+            server = self.sandbox.rsh(host[0], command, is_server=True,
+                                      locator=server_locator(self.transport,
+                                                             host, port),
+                                      bg=True,
+                                      stderr=subprocess.STDOUT)
 
         if self.verbose:
             print('Server started on %s at %s: %s' %
                   (host[0],
                    server_locator(self.transport, host, port), command))
         return server
+
+    def kill_server(self, locator):
+        """Kill a running server.
+        @param locator: service locator for the server that needs to be
+                        killed.
+        """
+
+        path = '%s/logs/shm' % scripts_path
+        files = sorted([f for f in os.listdir(path)
+           if os.path.isfile( os.path.join(path, f) )])
+
+        for file in files:
+            f = open('%s/logs/shm/%s' % (os.getcwd(), file),'r')
+            service_locator = f.read()
+
+            if (locator in service_locator):
+                to_kill = '1'
+                mhost = file
+                subprocess.Popen(['ssh', mhost[:4],
+                                  '%s/killserver' % scripts_path,
+                                  to_kill, os.getcwd(), mhost])
+                f.close()
+            try:
+                os.remove('%s/logs/shm/%s' % (os.getcwd(), file))
+            except:
+                pass
+            else:
+                f.close()
+
 
     def ensure_servers(self, numMasters=None, numBackups=None, timeout=30):
         """Poll the coordinator and block until the specified number of

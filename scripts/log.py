@@ -24,7 +24,7 @@ import time
 
 __all__ = ['scan']
 
-def createDir(top):
+def createDir(top, log_exists=False):
     """
     Given a top-level log directory, create a subdirectory within that
     directory to use for log files for a particular run of an application,
@@ -36,6 +36,16 @@ def createDir(top):
         os.mkdir(top)
     except:
         pass
+
+    # when a new server is started after the clusterperf test is started,
+    # it uses a new cluster object but is still part of the overall
+    # test. It has to use the same log directory that was used by the
+    # original cluster so that the clusterperf.py is able to gather the
+    # log output from the 'latest' log directory (symbolic link)
+    if log_exists:
+        subdir = '%s/latest' % (top)
+        return subdir
+
     datetime = time.strftime('%Y%m%d%H%M%S')
     latest = '%s/latest' % top
     subdir = '%s/%s' % (top, datetime)
