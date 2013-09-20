@@ -471,17 +471,15 @@ InfRcTransport::InfRcSession::sendRequest(Buffer* request,
 }
 
 /**
- * Constrctor for ServerPort object, which maintains
- * QP and port watchdog information.
+ * Constrctor for ServerPort object
  **/
 InfRcTransport::InfRcServerPort::InfRcServerPort(
-    InfRcTransport *transport,  QueuePair* qp, uint32_t timeoutMs)
+    InfRcTransport *transport,  QueuePair* qp)
         : transport(transport)
         , qp(qp)
           // Use longer timeout for initial session acquisition in
           // coordinator, etc.
-        , portAlarm(transport->context->portAlarmTimer, this,
-                    ((timeoutMs != 0) ? timeoutMs : DEFAULT_TIMEOUT_MS) * 50)
+        , portAlarm(transport->context->portAlarmTimer, this)
 {
     // Inserts this alarm entry to portAlarmTimer.activeAlarms
     // and starts timer for this port
@@ -493,12 +491,12 @@ InfRcTransport::InfRcServerPort::~InfRcServerPort()
     if (qp)
         transport->deadQueuePairs.push_back(qp); // to delete qp
     qp = NULL;
-    portAlarm.stopPortTimer(); // Maybe redundant to portAlarm destructor.
 }
 
 /**
  * Close and shutdown the server listening port
  * QP is deleted by the destructor of InfRcServerPort
+ * Close is called, eg. at port watchdog timer at the timeout.
  **/
 void
 InfRcTransport::InfRcServerPort::close()
@@ -506,8 +504,9 @@ InfRcTransport::InfRcServerPort::close()
     // Remove unused hash entry from unorderd_map
     transport->serverPortMap.erase(qp->getLocalQpNumber());
 
-    // Maybe it is safe because it is dynamically allocated
-    // and pointed from unorderd maps.
+    // Deleting self.
+    // InfRcServerPort is must be dynamically allocated,
+    // no duplicated deletion happens.
     delete this;
 }
 
@@ -740,10 +739,11 @@ InfRcTransport::ServerConnectHandler::handleFileEvent(int events)
     // store some identifying client information
     qp->handshakeSin = sin;
 
-    // maintain the qpn -> qp mapping
+    // Dynamically instanciates a new InfRcServerPort associating
+    // the newly created queue pair.
+    // It is saved in serverPortMap with QpNumber a key.
     transport->serverPortMap[qp->getLocalQpNumber()] =
-            new InfRcServerPort(transport, qp,
-                      transport->context->transportManager->getTimeout());
+            new InfRcServerPort(transport, qp);
 }
 
 /**
@@ -958,10 +958,13 @@ InfRcTransport::ServerRpc::sendReply()
     t->infiniband->postSend(qp, bd, replyPayload.getTotalLength());
     replyPayload.truncateFront(sizeof(Header)); // for politeness
 
-    // Restart port watchdog for this reply port
-    uint32_t qpNum = qp->getLocalQpNumber();
+    // Restart port watchdog for this server port
+
+    uint32_t qpNum = qp->getLocalQpNumber(); // get QP number from qp instance
     if (t->serverPortMap.find(qpNum)
         == t->serverPortMap.end()) {
+        // Error because serverPortMap[qpNum] is not exist,
+        // which should be created at the qp instanciation.
         LOG(ERROR, "failed to find qp_num %ud in serverPortMap", qpNum);
     } else {
         InfRcServerPort *port = t->serverPortMap[qpNum];

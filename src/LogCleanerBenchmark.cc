@@ -1362,8 +1362,8 @@ try
     // has to do this separately (and if they don't, the argument just
     // silently has no effect). It gets even more confusing if there are
     // multiple contexts per process.
-    context.transportManager->setTimeout(
-        optionParser.options.getTransportTimeout());
+    context.transportManager->setSessionTimeout(
+        optionParser.options.getSessionTimeout());
 
     if (options.utilization < 1 || options.utilization > 100) {
         fprintf(stderr, "ERROR: Utilization must be between 1 and 100, "

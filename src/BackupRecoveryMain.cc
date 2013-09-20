@@ -58,8 +58,8 @@ try
          "Number of bytes to insert per object during insert phase.");
 
     OptionParser optionParser(clientOptions, argc, argv);
-    context.transportManager->setTimeout(
-            optionParser.options.getTransportTimeout());
+    context.transportManager->setSessionTimeout(
+            optionParser.options.getSessionTimeout());
 
     const string& coordinatorLocator =
         optionParser.options.getCoordinatorLocator();

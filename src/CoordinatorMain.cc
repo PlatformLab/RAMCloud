@@ -22,6 +22,7 @@
 #include "ServiceManager.h"
 #include "TableManager.h"
 #include "TransportManager.h"
+#include "PortAlarm.h"
 
 /**
  * \file
@@ -67,12 +68,18 @@ main(int argc, char *argv[])
 
         pinAllMemory();
         localLocator = optionParser.options.getCoordinatorLocator();
-        context.transportManager->setTimeout(
-                optionParser.options.getTransportTimeout());
+        context.transportManager->setSessionTimeout(
+                optionParser.options.getSessionTimeout());
         context.transportManager->initialize(localLocator.c_str());
         localLocator = context.transportManager->
                                 getListeningLocatorsString();
         LOG(NOTICE, "coordinator: Listening on %s", localLocator.c_str());
+        LOG(NOTICE, "PortTimeOut=%d", optionParser.options.getPortTimeout());
+
+        // Set PortTimeout and start portTimer
+        context.portAlarmTimer->setPortTimeout(
+                optionParser.options.getPortTimeout());
+
         CoordinatorService coordinatorService(&context,
                                               deadServerTimeout,
                                               logCabinLocator);

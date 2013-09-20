@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2012 Stanford University
+/* Copyright (c) 2011-2013 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -47,10 +47,9 @@ PortAlarmTimer PortAlarmTest::timer(&context);
 
 class AlarmPort : public Transport::ServerPort {
   public:
-    explicit AlarmPort(string name, int timeoutMs,
-                       AlarmPort** portPtr)
+    explicit AlarmPort(string name, AlarmPort** portPtr)
             : context(&PortAlarmTest::context)
-            , alarm(&PortAlarmTest::timer, this, timeoutMs)
+            , alarm(&PortAlarmTest::timer, this)
             , portName(name)
             , portPtr(portPtr)
     {
@@ -89,17 +88,16 @@ class AlarmPort : public Transport::ServerPort {
 std::string AlarmPort::log;
 
 TEST_F(PortAlarmTest, constructor_timeoutSet) {
-    // TIMER_INTERVAL_MS is 5 (ms)
-    // minimum timer value should be 2*3*TIMER_INTERVALMS,
-    // which is 2*3*5 = 30ms
-    // Otherwise closeMs is 2x timeoutMs
-    Transport::ServerPort port1, port2;
+    // Initial value is -1: PortTimer is disabled.
+    EXPECT_EQ(-1, PortAlarmTest::timer.portTimeoutMs);
 
-    PortAlarm alarm1(&timer, &port1, 10);
-    EXPECT_EQ(30, alarm1.closeMs);
+    // Set to Default
+    timer.setPortTimeout(0);
+    EXPECT_EQ(64000, timer.getPortTimeout()); // Testing getter.
 
-    PortAlarm alarm2(&timer, &port2, 40);
-    EXPECT_EQ(80, alarm2.closeMs);
+    // Set to Specific value
+    timer.setPortTimeout(50000);
+    EXPECT_EQ(50000, timer.getPortTimeout()); // Testing getter.
 }
 
 TEST_F(PortAlarmTest, basics) {
@@ -108,8 +106,9 @@ TEST_F(PortAlarmTest, basics) {
     // expect (scheduling glitches on the machine could cause timeouts
     // to occasionally take longer than this).
     TestLog::Enable _;
-    // default Alarm timeout is 30ms
-    AlarmPort* port = new AlarmPort("TestPort1", 0, &port);
+    // Set alarm timeout to 30ms
+    timer.setPortTimeout(30);
+    AlarmPort* port = new AlarmPort("TestPort1", &port);
     AlarmPort::log.clear();
 
     double elapsed = 0.0;
@@ -138,26 +137,28 @@ TEST_F(PortAlarmTest, basics) {
 }
 
 TEST_F(PortAlarmTest, requestArrived) {
-    AlarmPort* port = new AlarmPort("TestPort1", 0, &port);
+    // Inherit 30ms for PortTimeout
+    AlarmPort* port = new AlarmPort("TestPort1", &port);
     port->alarm.startPortTimer();
-    EXPECT_EQ(port->alarm.waitingForRequestMs, 0);
-    port->alarm.waitingForRequestMs = 80; // set to 80ms
-    EXPECT_EQ(port->alarm.waitingForRequestMs, 80);
+    EXPECT_EQ(port->alarm.idleMs, 0);
+    port->alarm.idleMs = 80; // set to 80ms
+    EXPECT_EQ(port->alarm.idleMs, 80);
 
     port->alarm.requestArrived();
-    EXPECT_EQ(port->alarm.waitingForRequestMs, 0);
+    EXPECT_EQ(port->alarm.idleMs, 0);
     delete port;
 }
 
 TEST_F(PortAlarmTest, triple_alarm) {
     TestLog::Enable _;
 
-    // 1st port   : timeout is 30ms (default)
-    AlarmPort* port1 = new AlarmPort("TestPort1", 0, &port1);
-    // 2nd port   : timeout is 30ms (default)
-    AlarmPort* port2 = new AlarmPort("TestPort2", 0, &port2);
-    // 3rd port   : timeout is 50ms (25ms x 2)
-    AlarmPort* port3 = new AlarmPort("TestPort3", 25, &port3);
+    // Inherit 30ms for PortTimeout
+    // 1st port
+    AlarmPort* port1 = new AlarmPort("TestPort1", &port1);
+    // 2nd port
+    AlarmPort* port2 = new AlarmPort("TestPort2", &port2);
+    // 3rd port
+    AlarmPort* port3 = new AlarmPort("TestPort3", &port3);
 
     port1->alarm.startPortTimer();
     EXPECT_EQ(1U, timer.activeAlarms.size());
@@ -166,13 +167,18 @@ TEST_F(PortAlarmTest, triple_alarm) {
     port3->alarm.startPortTimer();
     EXPECT_EQ(3U, timer.activeAlarms.size());
 
-    // alarm.requestArrived(); // Restart Watchdog
+    // Let port1 timeout 10ms earlier..
+    port1->alarm.idleMs = 10;
+    port2->alarm.idleMs = 0;
+    port3->alarm.idleMs = 0;
 
+    // alarm.requestArrived(); // Restart Watchdog
     double elapsed = 0.0;
     double desired = .065; // at least all of them timeouts.
     for (int i = 0; i < 10; i++) {
         AlarmPort::log.clear();
 
+        // reset elapsed time after each timer event orruerence.
         uint64_t start = Cycles::rdtsc();
         while (true) {
             elapsed = Cycles::toSeconds(Cycles::rdtsc() - start);
@@ -180,10 +186,6 @@ TEST_F(PortAlarmTest, triple_alarm) {
                 break; // watchdog timeout not occured in desired time.
             }
             context.dispatch->poll();
-
-            // Prevents alarm2 timeout in loop 0 and 1
-            if (i < 2 && elapsed > 0.02)
-                port2->alarm.requestArrived();
 
             // Any one of them timeout
             if (port1 == NULL || port2 == NULL || port3 == NULL)
@@ -194,28 +196,28 @@ TEST_F(PortAlarmTest, triple_alarm) {
             case 0:
                 EXPECT_TRUE(port1 == NULL && port2 && port3);
                 port1 = DONE;
-                EXPECT_TRUE(elapsed < 0.04);
+                EXPECT_TRUE(elapsed < 0.03); // in 30 - 10ms
                 EXPECT_EQ(2U, timer.activeAlarms.size());
                 EXPECT_EQ("PortClosed: TestPort1", AlarmPort::log);
-                // restart watchdog for alarm2, alarm3
-                port2->alarm.requestArrived();
-                port3->alarm.requestArrived();
+                port3->alarm.requestArrived(); // restart port3 timer.
                 break;
             case 1:
-                EXPECT_TRUE(port1 == DONE && port2 && port3 == NULL);
-                port3 = DONE;
+                EXPECT_TRUE(port1 == DONE && port2 == NULL && port3);
+                port2 = DONE;
                 EXPECT_EQ(1U, timer.activeAlarms.size());
-                EXPECT_TRUE(elapsed > 0.045);
-                EXPECT_TRUE(elapsed < 0.07);
-                EXPECT_EQ("PortClosed: TestPort3", AlarmPort::log);
-                port2->alarm.requestArrived();
+                EXPECT_TRUE(elapsed > 0.005); // in 10ms
+                EXPECT_TRUE(elapsed < 0.015);
+                port3->alarm.requestArrived(); // restart port3 timer.
+                EXPECT_EQ("PortClosed: TestPort2", AlarmPort::log);
                 break;
             case 2:
-                EXPECT_TRUE(port1 == DONE && port2 == NULL && port3 == DONE);
-                port2 = DONE;
+                EXPECT_TRUE(port1 == DONE && port2 == DONE && port3 == NULL);
+                port3 = DONE;
+
                 EXPECT_EQ(0U, timer.activeAlarms.size());
-                EXPECT_TRUE(elapsed < 0.04);
-                EXPECT_EQ("PortClosed: TestPort2", AlarmPort::log);
+                EXPECT_TRUE(elapsed < 0.035); // in 30ms
+                EXPECT_TRUE(elapsed > 0.020);
+                EXPECT_EQ("PortClosed: TestPort3", AlarmPort::log);
                 break;
             case 3:
                 EXPECT_TRUE(port1 == DONE && port2 == DONE && port3 == DONE);
@@ -235,10 +237,10 @@ TEST_F(PortAlarmTest, triple_alarm) {
     EXPECT_EQ("handleTimerEvent: Close server port TestPort1 after 35 ms"
               " (listening timeout) | "
               , TestLog::getUntil("handle", curPos, &curPos));
-    EXPECT_EQ("handleTimerEvent: Close server port TestPort3 after 55 ms"
+    EXPECT_EQ("handleTimerEvent: Close server port TestPort2 after 35 ms"
               " (listening timeout) | "
               , TestLog::getUntil("handle", curPos, &curPos));
-    EXPECT_EQ("handleTimerEvent: Close server port TestPort2 after 35 ms"
+    EXPECT_EQ("handleTimerEvent: Close server port TestPort3 after 35 ms"
               " (listening timeout)"
               , TestLog::getUntil("", curPos, &curPos)); // to the end
 }
@@ -247,7 +249,7 @@ TEST_F(PortAlarmTest, destructor_cleanupPorts) {
     // Basically tested in basic test in close() call.
     Tub<PortAlarm> alarm;
     Transport::ServerPort port;
-    PortAlarm* ap = alarm.construct(&timer, &port, 0);
+    PortAlarm* ap = alarm.construct(&timer, &port);
     ap->startPortTimer(); // Cleate alarm this entry in timer
     ap->startPortTimer(); // Appended to timer map only once.
     alarm.destroy(); // removes the entry from timer.
@@ -256,7 +258,7 @@ TEST_F(PortAlarmTest, destructor_cleanupPorts) {
 }
 
 TEST_F(PortAlarmTest, restart_portTimer) {
-    AlarmPort* port1 = new AlarmPort("TestPort1", 0, &port1);
+    AlarmPort* port1 = new AlarmPort("TestPort1", &port1);
     AlarmPort::log.clear();
 
     // Starts port1 timer
@@ -265,7 +267,7 @@ TEST_F(PortAlarmTest, restart_portTimer) {
     EXPECT_TRUE(port1->alarm.portTimerRunning);
 
     // Start another port timer
-    AlarmPort* port2 = new AlarmPort("TestPort2", 0, &port2);
+    AlarmPort* port2 = new AlarmPort("TestPort2", &port2);
 
     port2->alarm.startPortTimer();
     EXPECT_EQ(2U, timer.activeAlarms.size());
@@ -287,16 +289,16 @@ TEST_F(PortAlarmTest, restart_portTimer) {
     EXPECT_TRUE(port1); // watchdog timeout should not occur
     EXPECT_TRUE(port2); // watchdog timeout should not occur
     // waitingForRequestsMs is incremented every 5ms
-    EXPECT_EQ(port1->alarm.waitingForRequestMs, 10);
-    EXPECT_EQ(port2->alarm.waitingForRequestMs, 10);
+    EXPECT_EQ(port1->alarm.idleMs, 10);
+    EXPECT_EQ(port2->alarm.idleMs, 10);
 
     // Starts Port Timer Again: only the watchdog counter changes
     port1->alarm.startPortTimer();
     EXPECT_EQ(2U, timer.activeAlarms.size()); // should not change
     EXPECT_TRUE(port1->alarm.portTimerRunning);
-    EXPECT_EQ(port1->alarm.waitingForRequestMs, 0);
+    EXPECT_EQ(port1->alarm.idleMs, 0);
     // no change on alarm2
-    EXPECT_EQ(port2->alarm.waitingForRequestMs, 10);
+    EXPECT_EQ(port2->alarm.idleMs, 10);
 
     // Check the portname
     EXPECT_EQ(port1->portName, "TestPort1");
@@ -311,15 +313,15 @@ TEST_F(PortAlarmTest, restart_portTimer) {
 // If close occurs, test breaks.
 TEST_F(PortAlarmTest, handleTimerEvent_incrementResponseTime) {
     AlarmPort *ans1, *ans2;
-    AlarmPort port1("TestPort1", 0, &ans1);
-    AlarmPort port2("TestPort2", 0, &ans2);
+    AlarmPort port1("TestPort1", &ans1);
+    AlarmPort port2("TestPort2", &ans2);
     port1.alarm.startPortTimer();
     port2.alarm.startPortTimer();
-    port2.alarm.waitingForRequestMs = 5;
+    port2.alarm.idleMs = 5;
 
     timer.handleTimerEvent();
-    EXPECT_EQ(5, port1.alarm.waitingForRequestMs);
-    EXPECT_EQ(10, port2.alarm.waitingForRequestMs);
+    EXPECT_EQ(5,  port1.alarm.idleMs);
+    EXPECT_EQ(10, port2.alarm.idleMs);
     EXPECT_EQ(2U, timer.activeAlarms.size());
     port1.alarm.stopPortTimer();
     port2.alarm.stopPortTimer();
@@ -327,8 +329,9 @@ TEST_F(PortAlarmTest, handleTimerEvent_incrementResponseTime) {
 }
 
 TEST_F(PortAlarmTest, handleTimerEvent_restartTimer) {
-    AlarmPort* port = new AlarmPort("TestPort1", 10000, &port);
+    AlarmPort* port = new AlarmPort("TestPort1", &port);
     // set timeout to 20000 ms
+    timer.setPortTimeout(20000);
 
     // If mockTscValue is defined, rdtsc() returns the value
     // in unit test by reading the cpu cycle counter.
@@ -338,14 +341,14 @@ TEST_F(PortAlarmTest, handleTimerEvent_restartTimer) {
     timer.owner->currentTime = Cycles::mockTscValue;
     port->alarm.startPortTimer();
 
-    EXPECT_EQ(0, port->alarm.waitingForRequestMs);
+    EXPECT_EQ(0, port->alarm.idleMs);
     context.dispatch->poll();
 
     Cycles::mockTscValue = 2000;
     // context.dispatch->poll();
     context.dispatch->poll();
     EXPECT_TRUE(timer.isRunning()); // Inherited from Dispach
-    EXPECT_EQ(5, port->alarm.waitingForRequestMs);
+    EXPECT_EQ(5, port->alarm.idleMs);
 
     Cycles::mockTscValue = 3000;
     EXPECT_EQ(PortAlarmTest::timer.timerIntervalTicks, 100UL);

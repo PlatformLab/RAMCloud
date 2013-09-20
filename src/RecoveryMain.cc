@@ -204,8 +204,8 @@ try
          "Verify the contents of all objects after recovery completes.");
 
     OptionParser optionParser(clientOptions, argc, argv);
-    context.transportManager->setTimeout(
-            optionParser.options.getTransportTimeout());
+    context.transportManager->setSessionTimeout(
+            optionParser.options.getSessionTimeout());
 
     LOG(NOTICE, "client: Connecting to %s",
         optionParser.options.getCoordinatorLocator().c_str());

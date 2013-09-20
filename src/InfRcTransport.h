@@ -203,10 +203,23 @@ class InfRcTransport : public Transport {
         DISALLOW_COPY_AND_ASSIGN(InfRcSession);
     };
 
+    /**
+     * One ServerPort instance is created at queue pair generation to
+     * maintain the port liveness watchdog information.
+     *
+     * When associated client queue pair is destroyed, eg. through
+     * deletion of RamCloud instance, the other side of queue 
+     * pair on server and its resource need to be deleted.
+     * The liveness watchdog cleans up the server side queue pair.
+     *
+     * SeverPort has to be dynamically instanciated to avoid
+     * 'double free' error, since each instance is freed with
+     * 'delete self' at the watch dog timeout.
+     **/
     class InfRcServerPort : public ServerPort {
     public:
         explicit InfRcServerPort(InfRcTransport *transport,
-                                 QueuePair* qp, uint32_t timeoutMs);
+                                 QueuePair* qp);
         ~InfRcServerPort();
         void close(); // close and shutdown this port
         const string getPortName() const;
