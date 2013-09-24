@@ -241,4 +241,4 @@ stopZoo:
 	$(ZOOKEEPER_DIR)/bin/zkServer.sh stop
 
 .PHONY: all always clean check doc docs docs-clean tags tags-clean test tests \
-        logcabin zookeeper startZoo stopZoo
+        logcabin startZoo stopZoo

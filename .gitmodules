@@ -4,6 +4,3 @@
 [submodule "logcabin"]
 	path = logcabin
 	url = git://github.com/logcabin/logcabin.git
-[submodule "zookeeper"]
-	path = zookeeper
-	url = ../zookeeper

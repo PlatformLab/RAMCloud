@@ -16,6 +16,8 @@
 #ifndef RAMCLOUD_ZOOSTORAGE_H
 #define RAMCLOUD_ZOOSTORAGE_H
 
+#include <zookeeper/zookeeper.h>
+
 #include "ExternalStorage.h"
 #include "WorkerTimer.h"
 #include "zookeeper/zookeeper.h"
