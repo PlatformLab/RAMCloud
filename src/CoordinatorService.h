@@ -16,17 +16,13 @@
 #ifndef RAMCLOUD_COORDINATORSERVICE_H
 #define RAMCLOUD_COORDINATORSERVICE_H
 
-#include <Client/Client.h>
-
 #include "ServerList.pb.h"
 #include "Tablets.pb.h"
 
 #include "Common.h"
 #include "ClientException.h"
 #include "CoordinatorServerList.h"
-#include "CoordinatorServiceRecovery.h"
 #include "CoordinatorUpdateManager.h"
-#include "LogCabinHelper.h"
 #include "MasterRecoveryManager.h"
 #include "RawMetrics.h"
 #include "Recovery.h"
@@ -44,7 +40,6 @@ class CoordinatorService : public Service {
   public:
     explicit CoordinatorService(Context* context,
                                 uint32_t deadServerTimeout,
-                                string LogCabinLocator = "testing",
                                 bool startRecoveryManager = true);
     ~CoordinatorService();
     void dispatch(WireFormat::Opcode opcode,
@@ -149,36 +144,6 @@ class CoordinatorService : public Service {
      * Handles all master recovery details on behalf of the coordinator.
      */
     MasterRecoveryManager recoveryManager;
-
-    /**
-     * Handles recovery of a coordinator.
-     */
-    CoordinatorServiceRecovery coordinatorRecovery;
-
-    /**
-     * Handle to the cluster of LogCabin which provides reliable, consistent
-     * storage.
-     */
-    Tub<LogCabin::Client::Cluster> logCabinCluster;
-
-    /**
-     * Handle to the log interface provided by LogCabin.
-     */
-    Tub<LogCabin::Client::Log> logCabinLog;
-
-    /**
-     * Handle to a helper class that provides higher level abstractions
-     * to interact with LogCabin.
-     */
-    Tub<LogCabinHelper> logCabinHelper;
-
-    /**
-     * EntryId of the last entry appended to log by this instance of
-     * coordinator. This is used for safe appends, i.e., appends that are
-     * conditional on last entry being appended by this entry, that helps
-     * ensure leadership.
-     */
-    LogCabin::Client::EntryId expectedEntryId;
 
     /**
      * Used for testing only. If true, the HINT_SERVER_CRASHED handler will
