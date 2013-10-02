@@ -151,7 +151,7 @@ class Cluster(object):
     """
 
     def __init__(self, log_dir='logs', log_exists=False,
-                    cluster_name_exists=False, enable_logcabin=False):
+                    cluster_name_exists=False):
         """
         @param log_dir: Top-level directory in which to write log files.
                         A separate subdirectory will be created in this
@@ -170,18 +170,12 @@ class Cluster(object):
                         using the same cluster name will read data from the
                         replicas
                         (default: False)
-        @param enable_logcabin:
-                        Flag to indicate whether or not to enable
-                        logcabin. Currently, only coordinator recovery
-                        test will use logcabin.
-                        (default: False)
         """
         self.log_level = 'NOTICE'
         self.verbose = False
         self.transport = 'infrc'
         self.replicas = 3
         self.disk = default_disk1
-        self.enable_logcabin = enable_logcabin
 
         if cluster_name_exists: # do nothing if it exists
             self.cluster_name = None
@@ -381,10 +375,10 @@ class Cluster(object):
                                   '%s/killserver' % scripts_path,
                                   to_kill, os.getcwd(), mhost])
                 f.close()
-            try:
-                os.remove('%s/logs/shm/%s' % (os.getcwd(), file))
-            except:
-                pass
+                try:
+                    os.remove('%s/logs/shm/%s' % (os.getcwd(), file))
+                except:
+                    pass
             else:
                 f.close()
 
@@ -539,6 +533,7 @@ def run(
                                    # recoveries.
         old_master_args='',        # Additional arguments to run on the
                                    # old master (e.g. total RAM).
+        enable_logcabin=False,     # Do not enable logcabin.
         valgrind=False,		   # Do not run under valgrind
         valgrind_args='',	   # Additional arguments for valgrind
         coordinator_host=None
@@ -577,6 +572,7 @@ def run(
         cluster.replicas = replicas
         cluster.timeout = timeout
         cluster.disk = disk1
+        cluster.enable_logcabin = enable_logcabin
 
         if not coordinator_host:
             coordinator_host = hosts[0]

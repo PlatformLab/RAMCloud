@@ -50,7 +50,7 @@ def start_server(options):
         print ('%s' % (server_locator(new_cluster.transport, mhost, server_port)))
         # mhost is the correct host
         if cluster_name is not None:
-            new_cluster.start_server(mhost, args='-d --clusterName=%s' %(cluster_name),
+            new_cluster.start_server(mhost, args='-d --clusterName %s' %(cluster_name),
                                     backup=True, kill_on_exit=False)
         else:
             new_cluster.start_server(mhost, backup=True, kill_on_exit=False)
