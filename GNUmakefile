@@ -23,7 +23,6 @@ OBJDIR	:= obj$(OBJSUFFIX)
 
 TOP	:= $(shell echo $${PWD-`pwd`})
 GTEST_DIR ?= $(TOP)/gtest
-LOGCABIN_DIR := $(TOP)/logcabin
 ZOOKEEPER_LIB := /usr/local/lib/libzookeeper_mt.a
 ZOOKEEPER_DIR := /usr/local/zookeeper-3.4.5
 
@@ -70,8 +69,7 @@ ifeq ($(DEBUG),yes)
 LIBS += -rdynamic
 endif
 
-INCLUDES := -I$(TOP)/src -I$(TOP)/$(OBJDIR) -I$(GTEST_DIR)/include \
-	-I$(LOGCABIN_DIR)
+INCLUDES := -I$(TOP)/src -I$(TOP)/$(OBJDIR) -I$(GTEST_DIR)/include
 
 CC ?= gcc
 CXX ?= g++

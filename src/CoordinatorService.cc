@@ -36,14 +36,11 @@ namespace RAMCloud {
  * \param deadServerTimeout
  *      Servers are presumed dead if they cannot respond to a ping request
  *      in this many milliseconds.
- * \param logCabinLocator
- *      Information about how to connect to the LogCabin cluster.
  * \param startRecoveryManager
  *      True means we should start the thread that manages crash recovery.
  */
 CoordinatorService::CoordinatorService(Context* context,
                                        uint32_t deadServerTimeout,
-                                       string logCabinLocator,
                                        bool startRecoveryManager)
     : context(context)
     , serverList(context->coordinatorServerList)
@@ -52,41 +49,12 @@ CoordinatorService::CoordinatorService(Context* context,
     , tableManager(context, &updateManager)
     , runtimeOptions()
     , recoveryManager(context, tableManager, &runtimeOptions)
-    , coordinatorRecovery(*this)
-    , logCabinCluster()
-    , logCabinLog()
-    , logCabinHelper()
-    , expectedEntryId(LogCabin::Client::NO_ID)
     , forceServerDownForTesting(false)
 {
-    if (strcmp(logCabinLocator.c_str(), "testing") == 0) {
-        LOG(NOTICE, "Connecting to mock LogCabin cluster for testing.");
-        logCabinCluster.construct(LogCabin::Client::Cluster::FOR_TESTING);
-    } else {
-        LOG(NOTICE, "Connecting to LogCabin cluster at %s",
-                    logCabinLocator.c_str());
-        logCabinCluster.construct(logCabinLocator);
-    }
-    logCabinLog.construct(logCabinCluster->openLog("coordinator"));
-    logCabinHelper.construct(*logCabinLog);
-    LOG(NOTICE, "Connected to LogCabin cluster.");
-
-    if (logCabinLog.get()->getLastId() == LogCabin::Client::NO_ID)
-        expectedEntryId = 0;
-    else
-        expectedEntryId = logCabinLog.get()->getLastId();
-    LOG(DEBUG, "Expected EntryId is %lu", expectedEntryId);
-
     context->recoveryManager = &recoveryManager;
-    context->logCabinLog = logCabinLog.get();
-    context->logCabinHelper = logCabinHelper.get();
-    context->expectedEntryId = &expectedEntryId;
 
     if (startRecoveryManager)
         recoveryManager.start();
-
-    // Replay the entire log (if any) before we start servicing the RPCs.
-    coordinatorRecovery.replay();
 
     // Recover state (and incomplete operations) from external storage.
     uint64_t lastCompletedUpdate = updateManager.init();

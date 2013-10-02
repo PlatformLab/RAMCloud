@@ -61,8 +61,6 @@ class CoordinatorServerListTest : public ::testing::Test {
     CoordinatorService* service;
     CoordinatorServerList* sl;
     Tub<MockServerTracker> tr;
-    LogCabinHelper* logCabinHelper;
-    LogCabin::Client::Log* logCabinLog;
 
     CoordinatorServerListTest()
         : logEnabler()
@@ -74,16 +72,12 @@ class CoordinatorServerListTest : public ::testing::Test {
         , service()
         , sl()
         , tr()
-        , logCabinHelper()
-        , logCabinLog()
     {
         service = cluster.coordinator.get();
 
         ramcloud.construct(service->context, "mock:host=coordinator");
         sl = service->context->coordinatorServerList;
         tr.construct(service->context);
-        logCabinHelper = service->context->logCabinHelper;
-        logCabinLog = service->context->logCabinLog;
 
         sl->haltUpdater();
     }
@@ -151,24 +145,6 @@ class CoordinatorServerListTest : public ::testing::Test {
         master = masterServer->master.get();
         master->objectManager.log.sync();
         masterServerId = masterServer->serverId;
-    }
-
-    /**
-     * From the debug log messages, find the entry id specified immediately
-     * next to the given search string.
-     */
-    EntryId
-    findEntryId(string searchString) {
-        auto position = TestLog::get().find(searchString);
-        if (position == string::npos) {
-            throw "Search string not found";
-        } else {
-            size_t startPoint = TestLog::get().find(searchString) +
-                                searchString.length();
-            size_t endPoint = TestLog::get().find("|", startPoint);
-            string entryIdString = TestLog::get().substr(startPoint, endPoint);
-            return strtoul(entryIdString.c_str(), NULL, 0);
-        }
     }
 
     typedef std::unique_lock<std::mutex> Lock;
@@ -356,40 +332,6 @@ TEST_F(CoordinatorServerListTest, enlistServer_ReplaceANonMaster) {
     // EXPECT_FALSE(sl->contains(replacesId));
 }
 
-TEST_F(CoordinatorServerListTest, enlistServer_LogCabin) {
-    enlistMaster();
-    service->context->recoveryManager->doNotStartRecoveries = true;
-    ramcloud->createTable("foo");
-
-    TestLog::Enable _;
-    EXPECT_EQ(ServerId(2, 0),
-              sl->enlistServer(masterServerId, {WireFormat::BACKUP_SERVICE},
-                               0, "mock:host=backup"));
-
-    vector<Entry> entriesRead = logCabinLog->read(0);
-    string searchString;
-
-    ProtoBuf::EntryType readStateServerUpUpdate;
-    searchString = "execute: LogCabin: ServerUpUpdate entryId: ";
-    ASSERT_NO_THROW(findEntryId(searchString));
-    logCabinHelper->parseProtoBufFromEntry(
-            entriesRead[findEntryId(searchString)], readStateServerUpUpdate);
-    EXPECT_EQ("entry_type: \"ServerUpUpdate\"\n",
-               readStateServerUpUpdate.DebugString());
-
-    ProtoBuf::ServerInformation readStateServerUp;
-    searchString = "execute: LogCabin: ServerUp entryId: ";
-    ASSERT_NO_THROW(findEntryId(searchString));
-    logCabinHelper->parseProtoBufFromEntry(
-            entriesRead[findEntryId(searchString)], readStateServerUp);
-    EXPECT_EQ("entry_type: \"ServerUp\"\n"
-              "server_id: 2\nservice_mask: 2\n"
-              "read_speed: 0\n"
-              "service_locator: \"mock:host=backup\"\n"
-              "update_version: 3\n",
-               readStateServerUp.DebugString());
-}
-
 TEST_F(CoordinatorServerListTest, serialize) {
     {
         ProtoBuf::ServerList serverList;
@@ -480,280 +422,6 @@ TEST_F(CoordinatorServerListTest, serverCrashed_server) {
               "startMasterRecovery: Recovery crashedServerId: 1.0",
                TestLog::get());
     EXPECT_EQ(ServerStatus::CRASHED, (*sl)[master->serverId].status);
-}
-
-TEST_F(CoordinatorServerListTest, serverCrashed_LogCabin) {
-    enlistMaster();
-    service->context->recoveryManager->doNotStartRecoveries = true;
-
-    ramcloud->createTable("foo");
-    service->forceServerDownForTesting = true;
-
-    TestLog::Enable _;
-    sl->serverCrashed(masterServerId);
-
-    vector<Entry> entriesRead = logCabinLog->read(0);
-    string searchString = "execute: LogCabin: ServerCrashed entryId: ";
-    ASSERT_NO_THROW(findEntryId(searchString));
-    ProtoBuf::ServerCrashInfo readState;
-    logCabinHelper->parseProtoBufFromEntry(
-            entriesRead[findEntryId(searchString)], readState);
-
-    EXPECT_EQ("entry_type: \"ServerCrashed\"\nserver_id: 1\n"
-              "update_version: 2\n",
-              readState.DebugString());
-}
-
-TEST_F(CoordinatorServerListTest, setMasterRecoveryInfo) {
-    enlistMaster();
-    ProtoBuf::MasterRecoveryInfo info;
-    info.set_min_open_segment_id(10);
-    info.set_min_open_segment_epoch(1);
-    sl->setMasterRecoveryInfo(masterServerId, &info);
-    auto other = (*sl)[masterServerId].masterRecoveryInfo;
-    EXPECT_EQ(10lu, other.min_open_segment_id());
-    EXPECT_EQ(1lu, other.min_open_segment_epoch());
-    info.set_min_open_segment_id(9);
-    info.set_min_open_segment_epoch(0);
-    sl->setMasterRecoveryInfo(masterServerId, &info);
-    other = (*sl)[masterServerId].masterRecoveryInfo;
-    EXPECT_EQ(9lu, other.min_open_segment_id());
-    EXPECT_EQ(0lu, other.min_open_segment_epoch());
-}
-
-TEST_F(CoordinatorServerListTest, setMasterRecoveryInfo_execute) {
-    enlistMaster();
-    TestLog::Enable _;
-    ProtoBuf::MasterRecoveryInfo info;
-    info.set_min_open_segment_id(10);
-    info.set_min_open_segment_epoch(1);
-    sl->setMasterRecoveryInfo(masterServerId, &info);
-
-    vector<Entry> entriesRead = logCabinLog->read(0);
-    string searchString = "execute: LogCabin: ServerUpdate entryId: ";
-    ASSERT_NO_THROW(findEntryId(searchString));
-    ProtoBuf::ServerUpdate readUpdate;
-    logCabinHelper->parseProtoBufFromEntry(
-                entriesRead[findEntryId(searchString)], readUpdate);
-
-    EXPECT_EQ(10u, readUpdate.master_recovery_info().min_open_segment_id());
-    EXPECT_EQ(1u, readUpdate.master_recovery_info().min_open_segment_epoch());
-}
-
-TEST_F(CoordinatorServerListTest, setMasterRecoveryInfo_complete_noSuchServer) {
-    ProtoBuf::MasterRecoveryInfo info;
-    info.set_min_open_segment_id(10);
-    info.set_min_open_segment_epoch(1);
-    EXPECT_FALSE(sl->setMasterRecoveryInfo({2, 2}, &info));
-}
-
-//////////////////////////////////////////////////////////////////////
-// Unit Tests for CoordinatorServerList Recovery Methods
-//////////////////////////////////////////////////////////////////////
-
-TEST_F(CoordinatorServerListTest, recoverServerCrashed) {
-    enlistMaster();
-    service->context->recoveryManager->doNotStartRecoveries = true;
-
-    ramcloud->createTable("foo");
-    service->forceServerDownForTesting = true;
-    TestLog::Enable _(startMasterRecoveryFilter);
-
-    ProtoBuf::ServerCrashInfo state;
-    state.set_entry_type("ServerCrashed");
-    state.set_server_id(masterServerId.getId());
-    state.set_update_version(sl->version + 1);
-
-    EntryId entryId = logCabinHelper->appendProtoBuf(
-            *service->context->expectedEntryId, state);
-
-    sl->recoverServerCrashed(&state, entryId);
-
-    EXPECT_EQ("", TestLog::get());
-    EXPECT_EQ(ServerStatus::CRASHED, (*sl)[master->serverId].status);
-    EXPECT_EQ(2UL, sl->version);
-}
-
-TEST_F(CoordinatorServerListTest, recoverServerNeedsRecovery) {
-    enlistMaster();
-    service->context->recoveryManager->doNotStartRecoveries = true;
-
-    ramcloud->createTable("foo");
-    service->forceServerDownForTesting = true;
-    TestLog::Enable _(startMasterRecoveryFilter);
-
-    ProtoBuf::ServerCrashInfo state1;
-    state1.set_entry_type("ServerNeedsRecovery");
-    state1.set_server_id(masterServerId.getId());
-    EntryId entryId1 = logCabinHelper->appendProtoBuf(
-            *service->context->expectedEntryId, state1);
-
-    ProtoBuf::ServerCrashInfo state2;
-    state2.set_entry_type("ServerCrashed");
-    state2.set_server_id(masterServerId.getId());
-    state2.set_update_version(sl->version + 1);
-    EntryId entryId2 = logCabinHelper->appendProtoBuf(
-            *service->context->expectedEntryId, state2);
-
-    sl->recoverServerNeedsRecovery(&state1, entryId1);
-    sl->recoverServerCrashed(&state2, entryId2);
-
-    EXPECT_EQ("startMasterRecovery: Scheduling recovery of master 1.0 | "
-              "startMasterRecovery: Recovery crashedServerId: 1.0",
-               TestLog::get());
-    EXPECT_EQ(ServerStatus::CRASHED, (*sl)[master->serverId].status);
-}
-
-TEST_F(CoordinatorServerListTest, recoverServerRemoveUpdate) {
-    enlistMaster();
-    service->context->recoveryManager->doNotStartRecoveries = true;
-
-    ramcloud->createTable("foo");
-    service->forceServerDownForTesting = true;
-
-    // For this unit test we're skipping the recoverServerCrashed.
-
-    ProtoBuf::ServerCrashInfo state;
-    state.set_entry_type("ServerRemoveUpdate");
-    state.set_server_id(masterServerId.getId());
-    state.set_update_version(sl->version + 1);
-
-    EntryId entryId = logCabinHelper->appendProtoBuf(
-            *service->context->expectedEntryId, state);
-
-    sl->recoverServerRemoveUpdate(&state, entryId);
-
-    EXPECT_EQ(ServerStatus::REMOVE, (*sl)[master->serverId].status);
-    EXPECT_EQ(2UL, sl->version);
-}
-
-TEST_F(CoordinatorServerListTest, recoverServerUp) {
-    enlistMaster();
-    EXPECT_EQ(1U, master->serverId.getId());
-
-    ProtoBuf::ServerInformation stateServerUp;
-    stateServerUp.set_entry_type("ServerUp");
-    stateServerUp.set_server_id(ServerId(2, 0).getId());
-    stateServerUp.set_service_mask(
-            ServiceMask({WireFormat::BACKUP_SERVICE}).serialize());
-    stateServerUp.set_read_speed(0);
-    stateServerUp.set_service_locator("mock:host=backup");
-    stateServerUp.set_update_version(sl->version + 1);
-
-    EntryId entryId = logCabinHelper->appendProtoBuf(
-            *service->context->expectedEntryId, stateServerUp);
-
-    TestLog::Enable _(enlistServerFilter);
-    sl->recoverServerUp(&stateServerUp, entryId);
-
-    ProtoBuf::ServerList masterList;
-    sl->serialize(&masterList, {WireFormat::MASTER_SERVICE});
-    EXPECT_TRUE(TestUtil::matchesPosixRegex(
-                "server { services: 25 server_id: 1 "
-                "service_locator: \"mock:host=master\" "
-                "expected_read_mbytes_per_sec: [0-9]\\+ status: 0 "
-                "replication_id: 0 } "
-                "version_number: 1",
-                 masterList.ShortDebugString()));
-
-    ProtoBuf::ServerList backupList;
-    sl->serialize(&backupList, {WireFormat::BACKUP_SERVICE});
-    EXPECT_EQ("server { services: 2 server_id: 2 "
-              "service_locator: \"mock:host=backup\" "
-              "expected_read_mbytes_per_sec: 0 status: 0 "
-              "replication_id: 0 } "
-              "version_number: 1 type: FULL_LIST",
-               backupList.ShortDebugString());
-}
-
-TEST_F(CoordinatorServerListTest, recoverServerUpdate) {
-    enlistMaster();
-    ProtoBuf::ServerUpdate serverUpdate;
-    serverUpdate.set_entry_type("ServerUpdate");
-    serverUpdate.set_server_id(masterServerId.getId());
-    serverUpdate.mutable_master_recovery_info()->set_min_open_segment_id(10);
-    serverUpdate.mutable_master_recovery_info()->set_min_open_segment_epoch(1);
-    EntryId entryId = logCabinHelper->appendProtoBuf(
-            *service->context->expectedEntryId, serverUpdate);
-
-    sl->recoverServerUpdate(&serverUpdate, entryId);
-
-    EXPECT_EQ(10lu,
-            (*sl)[masterServerId].masterRecoveryInfo.min_open_segment_id());
-    EXPECT_EQ(1lu,
-            (*sl)[masterServerId].masterRecoveryInfo.min_open_segment_epoch());
-}
-
-TEST_F(CoordinatorServerListTest, recoverServerReplicationUpdate) {
-    enlistMaster();
-    ProtoBuf::ServerReplicationUpdate serverReplicationUpdate;
-    serverReplicationUpdate.set_entry_type("ServerReplicationUpdate");
-    serverReplicationUpdate.set_server_id(masterServerId.getId());
-    serverReplicationUpdate.set_replication_id(10lu);
-    EntryId entryId = logCabinHelper->appendProtoBuf(
-            *service->context->expectedEntryId, serverReplicationUpdate);
-    sl->logIdServerReplicationUpUpdate = entryId;
-
-    sl->recoverServerReplicationUpdate(&serverReplicationUpdate, entryId);
-    CoordinatorServerList::Entry* entry = sl->getEntry(masterServerId);
-    EXPECT_EQ(10lu, entry->replicationId);
-}
-
-TEST_F(CoordinatorServerListTest,
-        recoverServerUpUpdateAndServerUpAndReplicationUpUpdate) {
-    enlistMaster();
-    EXPECT_EQ(1U, master->serverId.getId());
-
-    ProtoBuf::EntryType stateServerUpUpdate;
-    stateServerUpUpdate.set_entry_type("ServerUpUpdate");
-    EntryId entryId = logCabinHelper->appendProtoBuf(
-            *service->context->expectedEntryId, stateServerUpUpdate);
-
-    sl->recoverServerUpUpdate(&stateServerUpUpdate, entryId);
-
-    ProtoBuf::ServerInformation stateServerUp;
-    stateServerUp.set_entry_type("ServerUp");
-    stateServerUp.set_server_id(ServerId(2, 0).getId());
-    stateServerUp.set_service_mask(
-            ServiceMask({WireFormat::BACKUP_SERVICE}).serialize());
-    stateServerUp.set_read_speed(0);
-    stateServerUp.set_service_locator("mock:host=backup");
-    stateServerUp.set_update_version(sl->version + 1);
-
-    entryId = logCabinHelper->appendProtoBuf(
-            *service->context->expectedEntryId, stateServerUp);
-
-    TestLog::Enable _(enlistServerFilter);
-    sl->recoverServerUp(&stateServerUp, entryId);
-
-    ProtoBuf::ServerList masterList;
-    sl->serialize(&masterList, {WireFormat::MASTER_SERVICE});
-    EXPECT_TRUE(TestUtil::matchesPosixRegex(
-                "server { services: 25 server_id: 1 "
-                "service_locator: \"mock:host=master\" "
-                "expected_read_mbytes_per_sec: [0-9]\\+ status: 0 "
-                "replication_id: 0 } "
-                "version_number: 2",
-                 masterList.ShortDebugString()));
-
-    ProtoBuf::ServerList backupList;
-    sl->serialize(&backupList, {WireFormat::BACKUP_SERVICE});
-    EXPECT_EQ("server { services: 2 server_id: 2 "
-              "service_locator: \"mock:host=backup\" "
-              "expected_read_mbytes_per_sec: 0 status: 0 "
-              "replication_id: 0 } "
-              "version_number: 2 type: FULL_LIST",
-               backupList.ShortDebugString());
-
-    EXPECT_EQ(NO_ID, sl->logIdServerReplicationUpUpdate);
-
-    ProtoBuf::EntryType stateServerReplication;
-    stateServerReplication.set_entry_type("ServerReplicationUpUpdate");
-    entryId = logCabinHelper->appendProtoBuf(
-            *service->context->expectedEntryId, stateServerReplication);
-
-    sl->recoverServerReplicationUpUpdate(&stateServerReplication, entryId);
-    EXPECT_EQ(entryId, sl->logIdServerReplicationUpUpdate);
 }
 
 //////////////////////////////////////////////////////////////////////
@@ -1301,8 +969,7 @@ TEST_F(CoordinatorServerListTest, updateLoop) {
     // Send Full List to server 4
     sl->sync();
     EXPECT_TRUE(sl->updates.empty());
-    EXPECT_EQ("workSuccess: ServerList Update Success: 4.0 update (0 => 1) | "
-              "execute: LogCabin: ServerListVersion entryId: 1",
+    EXPECT_EQ("workSuccess: ServerList Update Success: 4.0 update (0 => 1)",
                TestLog::get());
     EXPECT_EQ("sendRequest: 0x40023 4 0 11 273 0 /0 /x18/0",
                transport.outputLog);
@@ -1330,8 +997,7 @@ TEST_F(CoordinatorServerListTest, updateLoop) {
     sl->sync();
     EXPECT_TRUE(sl->updates.empty());
     EXPECT_EQ("workSuccess: ServerList Update Success: 4.0 update (1 => 2) | "
-              "workSuccess: ServerList Update Success: 1.1 update (0 => 2) | "
-              "execute: LogCabin: ServerListVersion entryId: 7",
+              "workSuccess: ServerList Update Success: 1.1 update (0 => 2)",
               TestLog::get());
 }
 
@@ -1353,8 +1019,7 @@ TEST_F(CoordinatorServerListTest, updateLoop_batches) {
             "workSuccess: ServerList Update Success: 2.0 update (0 => 5) | "
             "workSuccess: ServerList Update Success: 3.0 update (0 => 5) | "
             "workSuccess: ServerList Update Success: 4.0 update (0 => 5) | "
-            "workSuccess: ServerList Update Success: 5.0 update (0 => 5) | "
-            "execute: LogCabin: ServerListVersion entryId: 0",
+            "workSuccess: ServerList Update Success: 5.0 update (0 => 5)",
                TestLog::get());
 }
 

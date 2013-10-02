@@ -29,7 +29,6 @@ TESTS_SRCFILES := \
 		  src/ContextTest.cc \
 		  src/CoordinatorRpcWrapperTest.cc \
 		  src/CoordinatorServerListTest.cc \
-		  src/CoordinatorServiceRecoveryTest.cc \
 		  src/CoordinatorServiceTest.cc \
 		  src/CoordinatorSessionTest.cc \
 		  src/CoordinatorUpdateManagerTest.cc \
@@ -47,7 +46,6 @@ TESTS_SRCFILES := \
 		  src/InMemoryStorageTest.cc \
 		  src/IpAddressTest.cc \
 		  src/KeyTest.cc \
-		  src/LogCabinHelperTest.cc \
 		  src/LogCleanerTest.cc \
 		  src/LogDigestTest.cc \
 		  src/LogEntryRelocatorTest.cc \
@@ -181,13 +179,13 @@ $(OBJDIR)/gtest.a: $(OBJDIR)/gtest-all.o
 
 TESTS_LIB := -ldl $(LIBS)
 
-$(OBJDIR)/test: $(TESTS_OBJFILES) $(LOGCABIN_LIBS) $(OBJDIR)/gtest.a
+$(OBJDIR)/test: $(TESTS_OBJFILES) $(OBJDIR)/gtest.a
 	@mkdir -p $(@D)
-	$(CXX) -o $@ $^ $(LOGCABIN_DEPS) $(TESTS_LIB)
+	$(CXX) -o $@ $^ $(TESTS_LIB)
 
-$(OBJDIR)/zooTest: $(ZOO_TESTS_OBJFILES) $(LOGCABIN_LIBS) $(OBJDIR)/gtest.a
+$(OBJDIR)/zooTest: $(ZOO_TESTS_OBJFILES) $(OBJDIR)/gtest.a
 	@mkdir -p $(@D)
-	$(CXX) -o $@ $^ $(LOGCABIN_DEPS) $(TESTS_LIB)
+	$(CXX) -o $@ $^ $(TESTS_LIB)
 
 # The unit tests don't actually call all of these programs, but
 # they are included here to make sure they continue to build.
