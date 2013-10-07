@@ -245,6 +245,9 @@ class Cluster(object):
                  coordinator_binary, self.coordinator_locator,
                  self.log_level, self.log_subdir,
                  self.coordinator_host[0], args))
+
+            self.coordinator = self.sandbox.rsh(self.coordinator_host[0],
+                        command, bg=True, stderr=subprocess.STDOUT)
         else:
             # currently hardcoding logcabin server because ankita's logcabin
             # scripts are not on git.
@@ -256,6 +259,11 @@ class Cluster(object):
                  self.log_level, self.log_subdir,
                  self.coordinator_host[0], args))
 
+            self.coordinator = self.sandbox.rsh(self.coordinator_host[0],
+                        command, bg=True, stderr=subprocess.STDOUT)
+
+            # just wait for coordinator to start
+            time.sleep(1)
             # invoke the script that restarts the coordinator if it dies
             restart_command = ('%s/restart_coordinator %s/coordinator.%s.log'
                                ' %s %s logcabin21:61023' %
@@ -266,10 +274,6 @@ class Cluster(object):
             restarted_coord = self.sandbox.rsh(self.coordinator_host[0],
                         restart_command, kill_on_exit=True, bg=True,
                         stderr=subprocess.STDOUT)
-
-        self.coordinator = self.sandbox.rsh(self.coordinator_host[0],
-                    command, bg=True, stderr=subprocess.STDOUT)
-
 
         self.ensure_servers(0, 0)
         if self.verbose:

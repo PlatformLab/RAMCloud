@@ -172,7 +172,7 @@ class Sandbox(object):
 
                 # kill all the servers that are running
                 for mhost in files:
-                    if mhost != 'README':
+                    if mhost != 'README' and not mhost.startswith("cluster"):
                         to_kill = '1'
                         killers.append(subprocess.Popen(['ssh', mhost[:4],
                                             '%s/killserver' % scripts_path,
