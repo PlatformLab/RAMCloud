@@ -16,6 +16,7 @@
 #include <sstream>
 
 #include "RuntimeOptions.h"
+#include "ShortMacros.h"
 
 namespace RAMCloud {
 
@@ -27,6 +28,9 @@ namespace {
  */
 template <typename T>
 struct Parser;
+
+template <typename T>
+struct crashCoordParser;
 
 /**
  * Specialization which parses strings of form "a b c" to std::queue<T>
@@ -65,12 +69,52 @@ struct Parser<std::queue<T>> : public RuntimeOptions::Parseable {
 
 };
 
+/**
+ * Parser for coordinator crash point run time options.
+ * An option is just a string in this case and currently,
+ * only one active crash point is supported.
+ */
+template <typename T>
+struct crashCoordParser : public RuntimeOptions::Parseable {
+    explicit crashCoordParser(std::string & target)
+        : target(target), optionValue("")
+    {}
+
+    void
+    parse(const char* value)
+    {
+        // supporting just 1 active crash point at any time.
+        target.assign(value);
+        optionValue = value;
+    }
+    std::string
+    getValue()
+    {
+        return optionValue;
+    }
+
+    std::string& target;
+    // A copy of the value string is saved in optionValue.
+    std::string optionValue;
+};
+
 /// Helper function to make declaring a new option easier.
 template <typename T>
 Parser<T>*
 newParser(T& obj)
 {
     return new Parser<T>(obj);
+}
+
+/**
+ * Helper function to make declaring a new option that uses this parser
+ * easier.
+ */
+template <typename T>
+crashCoordParser<T>*
+newcrashCoordParser(T& obj)
+{
+    return new crashCoordParser<T>(obj);
 }
 }
 
@@ -85,10 +129,13 @@ RuntimeOptions::RuntimeOptions()
     : parsers()
     , mutex()
     , failRecoveryMasters()
+    , crashCoordinator()
 {
 #define REGISTER(field) registerOption(#field, newParser(field))
     REGISTER(failRecoveryMasters);
 #undef REGISTER
+    registerOption("crashCoordinator",
+            newcrashCoordParser(crashCoordinator));
 }
 
 /// Free all parsers created in the constructor.
@@ -150,6 +197,25 @@ RuntimeOptions::popFailRecoveryMasters()
         failRecoveryMasters.pop();
     }
     return result;
+}
+
+/**
+ * Check if the argument matches the currently active crash point
+ * and kills the coordinator if necessary
+ */
+void
+RuntimeOptions::checkAndCrashCoordinator(const char *crashPoint)
+{
+    Lock _(mutex);
+
+    if (!crashPoint || crashCoordinator.empty())
+        return;
+
+    if (!crashCoordinator.compare(crashPoint)) {
+        crashCoordinator.clear();
+        LOG(NOTICE, "Just before crashing at %s:", crashPoint);
+        DIE("New runtime option working - crashing coordinator");
+    }
 }
 
 // - private -

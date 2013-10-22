@@ -864,6 +864,11 @@ class CoordinatorServerList : public AbstractServerList{
     void workFailed(ServerId id);
     void waitForWork();
 
+    /**
+     * Shared RAMCloud information.
+     */
+    Context *context;
+
     /// Slots in the server list.
     std::vector<GenerationNumberEntryPair> serverList;
 

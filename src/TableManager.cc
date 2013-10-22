@@ -14,6 +14,7 @@
  */
 
 #include "CoordinatorServerList.h"
+#include "CoordinatorService.h"
 #include "Logger.h"
 #include "MasterClient.h"
 #include "ShortMacros.h"
@@ -466,6 +467,11 @@ TableManager::recoverTabletRecovered(
 uint64_t
 TableManager::CreateTable::execute()
 {
+    CoordinatorService *coordService = tm.context->coordinatorService;
+    RuntimeOptions *runtimeOptions =
+                    coordService->getRuntimeOptionsFromCoordinator();
+    runtimeOptions->checkAndCrashCoordinator("create_1");
+
     if (tm.tables.find(name) != tm.tables.end())
         throw TableExists(HERE);
     tableId = tm.nextTableId++;
@@ -539,6 +545,8 @@ TableManager::CreateTable::execute()
     tm.setTableInfoLogId(lock, tableId, entryId);
     LOG(DEBUG, "LogCabin: CreateTable entryId: %lu", entryId);
 
+    runtimeOptions->checkAndCrashCoordinator("create_2");
+
     return complete(entryId);
 }
 
@@ -605,11 +613,18 @@ TableManager::CreateTable::complete(EntryId entryId)
                         computedMasterId).c_str());
     }
 
+    CoordinatorService *coordService = tm.context->coordinatorService;
+    RuntimeOptions *runtimeOptions =
+                    coordService->getRuntimeOptionsFromCoordinator();
+    runtimeOptions->checkAndCrashCoordinator("create_3");
+
     state.set_entry_type("AliveTable");
     EntryId newEntryId = tm.context->logCabinHelper->appendProtoBuf(
             *tm.context->expectedEntryId, state, vector<EntryId>({entryId}));
     tm.setTableInfoLogId(lock, tableId, newEntryId);
     LOG(DEBUG, "LogCabin: AliveTable entryId: %lu", newEntryId);
+
+    runtimeOptions->checkAndCrashCoordinator("create_4");
 
     return tableId;
 }
@@ -625,9 +640,16 @@ TableManager::DropTable::execute()
     state.set_entry_type("DropTable");
     state.set_name(name);
 
+    CoordinatorService *coordService = tm.context->coordinatorService;
+    RuntimeOptions *runtimeOptions =
+                    coordService->getRuntimeOptionsFromCoordinator();
+    runtimeOptions->checkAndCrashCoordinator("drop_1");
+
     EntryId entryId = tm.context->logCabinHelper->appendProtoBuf(
             *tm.context->expectedEntryId, state);
     LOG(DEBUG, "LogCabin: DropTable entryId: %lu", entryId);
+
+    runtimeOptions->checkAndCrashCoordinator("drop_2");
 
     return complete(entryId);
 }
@@ -660,6 +682,11 @@ TableManager::DropTable::complete(EntryId entryId)
     EntryId tableInfoLogId = tm.getTableInfoLogId(lock, tableId);
     vector<EntryId> invalidates {tableInfoLogId, entryId};
 
+    CoordinatorService *coordService = tm.context->coordinatorService;
+    RuntimeOptions *runtimeOptions =
+                    coordService->getRuntimeOptionsFromCoordinator();
+    runtimeOptions->checkAndCrashCoordinator("drop_3");
+
     // If the table being deleted has the largest tableId, then persist
     // the tableId information.
     // This is done so that if the coordinator crashes before the next
@@ -677,6 +704,8 @@ TableManager::DropTable::complete(EntryId entryId)
         tm.context->logCabinHelper->invalidate(
                 *tm.context->expectedEntryId, invalidates);
     }
+
+    runtimeOptions->checkAndCrashCoordinator("drop_4");
 }
 
 void
@@ -687,9 +716,16 @@ TableManager::SplitTablet::execute()
     state.set_name(name);
     state.set_split_key_hash(splitKeyHash);
 
+    CoordinatorService *coordService = tm.context->coordinatorService;
+    RuntimeOptions *runtimeOptions =
+                    coordService->getRuntimeOptionsFromCoordinator();
+    runtimeOptions->checkAndCrashCoordinator("split_1");
+
     EntryId entryId = tm.context->logCabinHelper->appendProtoBuf(
             *tm.context->expectedEntryId, state);
     LOG(DEBUG, "LogCabin: SplitTablet entryId: %lu", entryId);
+
+    runtimeOptions->checkAndCrashCoordinator("split_2");
 
     complete(entryId);
 }

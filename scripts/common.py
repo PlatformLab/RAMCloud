@@ -172,7 +172,7 @@ class Sandbox(object):
 
                 # kill all the servers that are running
                 for mhost in files:
-                    if mhost != 'README':
+                    if mhost != 'README' and not mhost.startswith("cluster"):
                         to_kill = '1'
                         killers.append(subprocess.Popen(['ssh', mhost[:4],
                                             '%s/killserver' % scripts_path,
@@ -213,7 +213,10 @@ class Sandbox(object):
             if (p.ignoreFailures == False):
                 rc = p.proc.poll()
                 if rc is not None and rc != 0:
-                    raise subprocess.CalledProcessError(rc, p.command)
+                    # raise subprocess.CalledProcessError(rc, p.command)
+                    # don't raise exception because the test may involve intentional
+                    # crashing of the coordinator or master/backup servers
+                    pass
 
 @contextlib.contextmanager
 def delayedInterrupts():

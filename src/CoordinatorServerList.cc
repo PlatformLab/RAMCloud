@@ -18,6 +18,7 @@
 #include "Common.h"
 #include "ClientException.h"
 #include "CoordinatorServerList.h"
+#include "CoordinatorService.h"
 #include "Cycles.h"
 #include "LogCabinHelper.h"
 #include "MasterRecoveryManager.h"
@@ -38,6 +39,7 @@ namespace RAMCloud {
  */
 CoordinatorServerList::CoordinatorServerList(Context* context)
     : AbstractServerList(context)
+    , context(context)
     , serverList()
     , numberOfMasters(0)
     , numberOfBackups(0)
@@ -564,6 +566,11 @@ CoordinatorServerList::EnlistServer::execute()
 {
     newServerId = csl.generateUniqueId(lock);
 
+    CoordinatorService *coordService = csl.context->coordinatorService;
+    RuntimeOptions *runtimeOptions =
+            coordService->getRuntimeOptionsFromCoordinator();
+    runtimeOptions->checkAndCrashCoordinator("enlist_1");
+
     ProtoBuf::ServerInformation stateServerUp;
     stateServerUp.set_entry_type("ServerUp");
     stateServerUp.set_server_id(newServerId.getId());
@@ -576,6 +583,8 @@ CoordinatorServerList::EnlistServer::execute()
         csl.context->logCabinHelper->appendProtoBuf(
                 *csl.context->expectedEntryId, stateServerUp);
     LOG(DEBUG, "LogCabin: ServerUp entryId: %lu", logIdServerUp);
+
+    runtimeOptions->checkAndCrashCoordinator("enlist_2");
 
     return complete(logIdServerUp);
 }

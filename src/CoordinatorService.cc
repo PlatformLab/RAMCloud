@@ -151,6 +151,15 @@ CoordinatorService::dispatch(WireFormat::Opcode opcode,
 }
 
 /**
+ * Get a reference to the runtimeOptions in the Coordinator
+ */
+RuntimeOptions *
+CoordinatorService::getRuntimeOptionsFromCoordinator()
+{
+    return &runtimeOptions;
+}
+
+/**
  * Top-level server method to handle the CREATE_TABLE request.
  * \copydetails Service::ping
  */

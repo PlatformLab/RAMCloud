@@ -44,6 +44,7 @@ class RuntimeOptions {
         void set(const char* option, const char* value);
         std::string get(const char* option);
         uint32_t popFailRecoveryMasters();
+        void checkAndCrashCoordinator(const char *crashPoint);
 
     PRIVATE:
         /**
@@ -86,6 +87,12 @@ class RuntimeOptions {
          * masters are crashed.
          */
         std::queue<uint32_t> failRecoveryMasters;
+
+        /**
+         * Keeps track of the currently active crash point. Crashes the
+         * coordinator the next time this crash point is reached.
+         */
+        std::string crashCoordinator;
 
     DISALLOW_COPY_AND_ASSIGN(RuntimeOptions);
 };

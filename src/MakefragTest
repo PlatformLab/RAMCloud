@@ -169,13 +169,15 @@ $(OBJDIR)/test: $(TESTS_OBJFILES) $(LOGCABIN_LIBS) $(OBJDIR)/gtest.a
 test: $(OBJDIR)/test \
       $(OBJDIR)/CleanerCompactionBenchmark \
       $(OBJDIR)/ClusterPerf \
+      $(OBJDIR)/CoordinatorCrashRecovery \
       $(OBJDIR)/Echo \
       $(OBJDIR)/HashTableBenchmark \
       $(OBJDIR)/Perf \
       $(OBJDIR)/RecoverSegmentBenchmark
 	$(OBJDIR)/test
 
-all: $(OBJDIR)/Perf $(OBJDIR)/ClusterPerf
+all: $(OBJDIR)/Perf $(OBJDIR)/ClusterPerf \
+     $(OBJDIR)/CoordinatorCrashRecovery $(OBJDIR)/CoordinatorCrashRecovery \
 
 ftest: $(OBJDIR)/test
 	scripts/forking_test_runner.py
@@ -201,6 +203,10 @@ $(OBJDIR)/CleanerCompactionBenchmark: $(OBJDIR)/CleanerCompactionBenchmark.o $(S
 	$(CXX) -o $@ $^ $(LIBS)
 
 $(OBJDIR)/ClusterPerf: $(OBJDIR)/ClusterPerf.o $(OBJDIR)/libramcloud.a
+	@mkdir -p $(@D)
+	$(CXX) -o $@ $^ $(LIBS)
+
+$(OBJDIR)/CoordinatorCrashRecovery: $(OBJDIR)/CoordinatorCrashRecovery.o $(OBJDIR)/libramcloud.a
 	@mkdir -p $(@D)
 	$(CXX) -o $@ $^ $(LIBS)
 

@@ -39,11 +39,11 @@ def start_server(options):
             mhost = host
             break
         if host == hosts[len(hosts) - 1]: # end of list
-            mhost = '-1'
+            mhost = 'NOSERVER'
 
     # no masters are available, indicate this to the client
-    if mhost == '-1':
-        print ('%s' % str(-1))
+    if mhost == 'NOSERVER':
+        print ('%s' % 'NOSERVER')
     else:
         rchost = mhost[0] # rchost = rcxx
         host = rchost[2:] # host = xx, just the host number

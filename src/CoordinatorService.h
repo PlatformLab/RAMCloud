@@ -48,6 +48,7 @@ class CoordinatorService : public Service {
     ~CoordinatorService();
     void dispatch(WireFormat::Opcode opcode,
                   Rpc* rpc);
+    RuntimeOptions *getRuntimeOptionsFromCoordinator();
 
   PRIVATE:
     // - rpc handlers -
