@@ -107,7 +107,7 @@ LogCabinHelper::getEntryType(Entry& entryRead)
         parseProtoBufFromEntry(entryRead, message);
         return message.entry_type();
     } else {
-        return NULL;
+        return "";
     }
 }
 
