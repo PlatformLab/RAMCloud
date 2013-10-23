@@ -330,6 +330,8 @@ crashCoord(int id)
  *      RAMCloud object use to invoke RAMCloud operations.
  * \param locator
  *      The service locator of the server
+ * \param serverList
+ *      The server list obtained from the coordinator
  *
  * \return
  *      True, if the server is alive.
@@ -366,6 +368,8 @@ checkServerAlive(RamCloud *cluster, const char *locator,
  *      RAMCloud object use to invoke RAMCloud operations.
  * \param locator
  *      The service locator of the server
+ * \param serverList
+ *      The server list obtained from the coordinator
  *
  * \return
  *      True, if the server is not in the cluster.
@@ -548,7 +552,7 @@ createTable(RamCloud *cluster, struct localState *state)
  *
  * \param cluster
  *      RAMCloud object used to invoke RAMCloud operations.
- * \param state[out]
+ * \param[out] state
  *      Local state data maintained by this test.
  *
  * \return
@@ -887,6 +891,8 @@ checkDropTables(RamCloud *cluster, vector<string> droppedTables)
 /**
  * Check overall consistency for the coordinator recovery test
  *
+ * \param cluster
+ *      RAMCloud object used to invoke RAMCloud operations.
  * \param[out] state
  *      Local state data maintained by this test.
  *

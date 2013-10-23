@@ -567,9 +567,12 @@ CoordinatorServerList::EnlistServer::execute()
     newServerId = csl.generateUniqueId(lock);
 
     CoordinatorService *coordService = csl.context->coordinatorService;
-    RuntimeOptions *runtimeOptions =
-            coordService->getRuntimeOptionsFromCoordinator();
-    runtimeOptions->checkAndCrashCoordinator("enlist_1");
+    RuntimeOptions *runtimeOptions = NULL;
+    // context->coordinatorService can be NULL in test mode
+    if (coordService) {
+        runtimeOptions = coordService->getRuntimeOptionsFromCoordinator();
+        runtimeOptions->checkAndCrashCoordinator("enlist_1");
+    }
 
     ProtoBuf::ServerInformation stateServerUp;
     stateServerUp.set_entry_type("ServerUp");
@@ -584,7 +587,8 @@ CoordinatorServerList::EnlistServer::execute()
                 *csl.context->expectedEntryId, stateServerUp);
     LOG(DEBUG, "LogCabin: ServerUp entryId: %lu", logIdServerUp);
 
-    runtimeOptions->checkAndCrashCoordinator("enlist_2");
+    if (runtimeOptions)
+        runtimeOptions->checkAndCrashCoordinator("enlist_2");
 
     return complete(logIdServerUp);
 }
