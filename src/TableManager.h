@@ -91,6 +91,7 @@ class TableManager {
             , id(id)
             , tablets()
         {}
+        ~Table();
 
         /// Human-readable name for the table (unique among all tables).
         string name;
@@ -98,8 +99,9 @@ class TableManager {
         /// Identifier used to refer to the table in RPCs.
         uint64_t id;
 
-        /// Information about each of the tablets in the table.
-        vector<Tablet> tablets;
+        /// Information about each of the tablets in the table. The
+        /// entries are allocated and freed dynamically.
+        vector<Tablet*> tablets;
     };
 
     /**
