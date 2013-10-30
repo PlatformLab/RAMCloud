@@ -120,6 +120,7 @@ TEST_F(TableManagerTest, createTable_basics) {
     // tablet, and the second has 3 tablets.
     MasterService* master1 = cluster.addServer(masterConfig)->master.get();
     MasterService* master2 = cluster.addServer(masterConfig)->master.get();
+    updateManager->reset();
 
     EXPECT_EQ(1U, tableManager->createTable("foo", 1));
     EXPECT_EQ(1U, tableManager->directory["foo"]->id);
@@ -177,6 +178,7 @@ TEST_F(TableManagerTest, createTable_noMastersInCluster) {
 TEST_F(TableManagerTest, dropTable_basics) {
     MasterService* master1 = cluster.addServer(masterConfig)->master.get();
     MasterService* master2 = cluster.addServer(masterConfig)->master.get();
+    updateManager->reset();
 
     EXPECT_EQ(1U, tableManager->createTable("foo", 2));
     EXPECT_EQ(1U, master1->tabletManager.getCount());
@@ -257,6 +259,7 @@ TEST_F(TableManagerTest, markAllTabletsRecovering) {
 TEST_F(TableManagerTest, reassignTabletOwnership_basics) {
     cluster.addServer(masterConfig)->master.get();
     MasterService* master2 = cluster.addServer(masterConfig)->master.get();
+    updateManager->reset();
     tableManager->createTable("table1", 2);
     cluster.externalStorage.log.clear();
     TestLog::reset();
@@ -528,7 +531,7 @@ TEST_F(TableManagerTest, serialize) {
     TestLog::reset();
 
     // Arrange for one of the tablet servers not to exist.
-    tableManager->directory["table2"]->tablets[0].serverId = ServerId(4);
+    tableManager->directory["table2"]->tablets[0]->serverId = ServerId(4);
 
     ProtoBuf::Tablets tablets;
     tableManager->serialize(&tablets);
@@ -560,6 +563,7 @@ TEST_F(TableManagerTest, serialize) {
 TEST_F(TableManagerTest, splitTablet_basics) {
     MasterService* master1 = cluster.addServer(masterConfig)->master.get();
     MasterService* master2 = cluster.addServer(masterConfig)->master.get();
+    updateManager->reset();
     tableManager->createTable("foo", 2);
     cluster.externalStorage.log.clear();
 
@@ -597,7 +601,7 @@ TEST_F(TableManagerTest, splitTablet_splitAlreadyExists) {
 TEST_F(TableManagerTest, splitTablet_tabletRecovering) {
     cluster.addServer(masterConfig)->master.get();
     tableManager->createTable("foo", 2);
-    tableManager->directory["foo"]->tablets[1].status = Tablet::RECOVERING;
+    tableManager->directory["foo"]->tablets[1]->status = Tablet::RECOVERING;
     cluster.externalStorage.log.clear();
 
     EXPECT_THROW(tableManager->splitTablet("foo", 0xc000000000000000),
@@ -607,7 +611,7 @@ TEST_F(TableManagerTest, splitTablet_tabletRecovering) {
 TEST_F(TableManagerTest, tabletRecovered_basics) {
     cluster.addServer(masterConfig)->master.get();
     tableManager->createTable("foo", 2);
-    tableManager->directory["foo"]->tablets[1].status = Tablet::RECOVERING;
+    tableManager->directory["foo"]->tablets[1]->status = Tablet::RECOVERING;
     cluster.externalStorage.log.clear();
 
     ServerId serverId(5, 0);
@@ -627,7 +631,7 @@ TEST_F(TableManagerTest, tabletRecovered_basics) {
 TEST_F(TableManagerTest, tabletRecovered_noSuchTablet) {
     cluster.addServer(masterConfig)->master.get();
     tableManager->createTable("foo", 2);
-    tableManager->directory["foo"]->tablets[1].status = Tablet::RECOVERING;
+    tableManager->directory["foo"]->tablets[1]->status = Tablet::RECOVERING;
     cluster.externalStorage.log.clear();
 
     ServerId serverId(5, 0);
@@ -644,14 +648,14 @@ TEST_F(TableManagerTest, tabletRecovered_noSuchTablet) {
 
 TEST_F(TableManagerTest, findTablet) {
     TableManager::Table table("test", 111);
-    table.tablets.emplace_back(111, 0, 0x100, ServerId(1, 0),
-            Tablet::NORMAL, Log::Position(10, 20));
-    table.tablets.emplace_back(111, 0x101, 0x200, ServerId(2, 0),
-            Tablet::RECOVERING, Log::Position(30, 40));
-    table.tablets.emplace_back(111, 0x201, 0x300, ServerId(3, 0),
-            Tablet::NORMAL, Log::Position(50, 60));
-    table.tablets.emplace_back(111, 0x600, 0x700, ServerId(4, 0),
-            Tablet::NORMAL, Log::Position(70, 80));
+    table.tablets.push_back(new Tablet(111, 0, 0x100, ServerId(1, 0),
+            Tablet::NORMAL, Log::Position(10, 20)));
+    table.tablets.push_back(new Tablet(111, 0x101, 0x200, ServerId(2, 0),
+            Tablet::RECOVERING, Log::Position(30, 40)));
+    table.tablets.push_back(new Tablet(111, 0x201, 0x300, ServerId(3, 0),
+            Tablet::NORMAL, Log::Position(50, 60)));
+    table.tablets.push_back(new Tablet(111, 0x600, 0x700, ServerId(4, 0),
+            Tablet::NORMAL, Log::Position(70, 80)));
 
     Tablet* tablet;
     tablet = tableManager->findTablet(lock, &table, 0x200);
@@ -667,14 +671,14 @@ TEST_F(TableManagerTest, notifyCreate) {
     MasterService* master1 = cluster.addServer(masterConfig)->master.get();
     MasterService* master2 = cluster.addServer(masterConfig)->master.get();
     TableManager::Table table("test", 111);
-    table.tablets.emplace_back(111, 0, 0x100, ServerId(1, 0),
-            Tablet::NORMAL, Log::Position(10, 20));
-    table.tablets.emplace_back(111, 0x200, 0x300, ServerId(2, 0),
-            Tablet::RECOVERING, Log::Position(30, 40));
-    table.tablets.emplace_back(111, 0x400, 0x500, ServerId(6, 2),
-            Tablet::NORMAL, Log::Position(50, 60));
-    table.tablets.emplace_back(111, 0x600, 0x700, ServerId(2, 0),
-            Tablet::NORMAL, Log::Position(70, 80));
+    table.tablets.push_back(new Tablet(111, 0, 0x100, ServerId(1, 0),
+            Tablet::NORMAL, Log::Position(10, 20)));
+    table.tablets.push_back(new Tablet(111, 0x200, 0x300, ServerId(2, 0),
+            Tablet::RECOVERING, Log::Position(30, 40)));
+    table.tablets.push_back(new Tablet(111, 0x400, 0x500, ServerId(6, 2),
+            Tablet::NORMAL, Log::Position(50, 60)));
+    table.tablets.push_back(new Tablet(111, 0x600, 0x700, ServerId(2, 0),
+            Tablet::NORMAL, Log::Position(70, 80)));
 
     TestLog::Enable _("notifyCreate");
     TestLog::reset();
@@ -697,6 +701,7 @@ TEST_F(TableManagerTest, notifyDropTable_basics) {
     // Create a table with 2 tablets, using one real master and one
     // nonexistent master.
     cluster.addServer(masterConfig)->master.get();
+    cluster.externalStorage.log.clear();
     TestLog::reset();
     ProtoBuf::Table table;
     table.set_name("table1");
@@ -870,14 +875,14 @@ TEST_F(TableManagerTest, recreateTable_bogusState) {
 TEST_F(TableManagerTest, serializeTable) {
     // Create a table with 4 tablets.
     TableManager::Table table("test", 111);
-    table.tablets.emplace_back(111, 0, 0x100, ServerId(1, 0),
-            Tablet::NORMAL, Log::Position(10, 20));
-    table.tablets.emplace_back(111, 0x200, 0x300, ServerId(2, 0),
-            Tablet::RECOVERING, Log::Position(30, 40));
-    table.tablets.emplace_back(111, 0x400, 0x500, ServerId(6, 2),
-            Tablet::NORMAL, Log::Position(50, 60));
-    table.tablets.emplace_back(111, 0x600, 0x700, ServerId(2, 0),
-            Tablet::NORMAL, Log::Position(70, 80));
+    table.tablets.push_back(new Tablet(111, 0, 0x100, ServerId(1, 0),
+            Tablet::NORMAL, Log::Position(10, 20)));
+    table.tablets.push_back(new Tablet(111, 0x200, 0x300, ServerId(2, 0),
+            Tablet::RECOVERING, Log::Position(30, 40)));
+    table.tablets.push_back(new Tablet(111, 0x400, 0x500, ServerId(6, 2),
+            Tablet::NORMAL, Log::Position(50, 60)));
+    table.tablets.push_back(new Tablet(111, 0x600, 0x700, ServerId(2, 0),
+            Tablet::NORMAL, Log::Position(70, 80)));
 
     ProtoBuf::Table info;
     tableManager->serializeTable(lock, &table, &info);
@@ -907,6 +912,8 @@ TEST_F(TableManagerTest, syncTable) {
     // Create 2 tables in a cluster with 2 masters.
     cluster.addServer(masterConfig)->master.get();
     cluster.addServer(masterConfig)->master.get();
+    updateManager->reset();
+    cluster.externalStorage.log.clear();
 
     cluster.externalStorage.log.clear();
     tableManager->createTable("foo", 1);

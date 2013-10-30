@@ -56,6 +56,16 @@ TableManager::~TableManager()
     }
 }
 
+/**
+ * Destructor for Table: must free all the Tablet structures.
+ */
+TableManager::Table::~Table()
+{
+    foreach (Tablet* tablet, tablets) {
+        delete tablet;
+    }
+}
+
 //////////////////////////////////////////////////////////////////////
 // TableManager Public Methods
 //////////////////////////////////////////////////////////////////////
@@ -120,8 +130,8 @@ TableManager::createTable(const char* name, uint32_t serverSpan)
             // can't be any existing information for this table stored on the
             // master.
             Log::Position ctime(0, 0);
-            table->tablets.emplace_back(tableId, startKeyHash,
-                    endKeyHash, tabletMaster, Tablet::NORMAL, ctime);
+            table->tablets.push_back(new Tablet(tableId, startKeyHash,
+                    endKeyHash, tabletMaster, Tablet::NORMAL, ctime));
         }
     }
     catch (...) {
@@ -176,22 +186,22 @@ TableManager::debugString(bool shortForm)
             result += format("Table { name: %s, id %lu,", table->name.c_str(),
                     table->id);
         }
-        foreach (Tablet& tablet, table->tablets) {
+        foreach (Tablet* tablet, table->tablets) {
             if (shortForm) {
                 result += format(" { 0x%lx-0x%lx on %s }",
-                        tablet.startKeyHash, tablet.endKeyHash,
-                        tablet.serverId.toString().c_str());
+                        tablet->startKeyHash, tablet->endKeyHash,
+                        tablet->serverId.toString().c_str());
             } else {
                 const char* status = "NORMAL";
-                if (tablet.status != Tablet::NORMAL)
+                if (tablet->status != Tablet::NORMAL)
                     status = "RECOVERING";
                 result += format(" Tablet { startKeyHash: 0x%lx, "
                         "endKeyHash: 0x%lx, serverId: %s, status: %s, "
                         "ctime: %ld.%d }",
-                        tablet.startKeyHash, tablet.endKeyHash,
-                        tablet.serverId.toString().c_str(), status,
-                        tablet.ctime.getSegmentId(),
-                        tablet.ctime.getSegmentOffset());
+                        tablet->startKeyHash, tablet->endKeyHash,
+                        tablet->serverId.toString().c_str(), status,
+                        tablet->ctime.getSegmentId(),
+                        tablet->ctime.getSegmentOffset());
             }
         }
         result += " }";
@@ -299,10 +309,10 @@ TableManager::markAllTabletsRecovering(ServerId serverId)
     for (Directory::iterator it = directory.begin(); it != directory.end();
             ++it) {
         Table* table = it->second;
-        foreach (Tablet& tablet, table->tablets) {
-            if (tablet.serverId == serverId) {
-                tablet.status = Tablet::RECOVERING;
-                results.push_back(tablet);
+        foreach (Tablet* tablet, table->tablets) {
+            if (tablet->serverId == serverId) {
+                tablet->status = Tablet::RECOVERING;
+                results.push_back(*tablet);
             }
         }
     }
@@ -466,17 +476,17 @@ TableManager::serialize(ProtoBuf::Tablets* tablets) const
     for (Directory::const_iterator it = directory.begin();
             it != directory.end(); ++it) {
         Table* table = it->second;
-        foreach (Tablet& tablet, table->tablets) {
+        foreach (Tablet* tablet, table->tablets) {
             ProtoBuf::Tablets::Tablet& entry(*tablets->add_tablet());
-            tablet.serialize(entry);
+            tablet->serialize(entry);
             try {
                 string locator = context->serverList->getLocator(
-                        tablet.serverId);
+                        tablet->serverId);
                 entry.set_service_locator(locator);
             } catch (const Exception& e) {
                 LOG(NOTICE, "Server id (%s) in tablet map no longer in server "
                     "list; omitting locator for entry",
-                    tablet.serverId.toString().c_str());
+                    tablet->serverId.toString().c_str());
             }
         }
     }
@@ -516,10 +526,10 @@ TableManager::splitTablet(const char* name, uint64_t splitKeyHash)
     }
 
     // Perform the split on our in-memory structures.
-    Tablet newTablet = *tablet;
+    table->tablets.push_back(new Tablet(tablet->tableId, splitKeyHash,
+            tablet->endKeyHash, tablet->serverId, tablet->status,
+            tablet->ctime));
     tablet->endKeyHash = splitKeyHash - 1;
-    newTablet.startKeyHash = splitKeyHash;
-    table->tablets.push_back(newTablet);
 
     // Record information about the split in external storage, in case we
     // crash.
@@ -605,10 +615,10 @@ TableManager::tabletRecovered(
 Tablet*
 TableManager::findTablet(const Lock& lock, Table* table, uint64_t keyHash)
 {
-    foreach (Tablet& tablet, table->tablets) {
-        if ((tablet.startKeyHash <= keyHash) &&
-                (tablet.endKeyHash >= keyHash)) {
-            return &tablet;
+    foreach (Tablet* tablet, table->tablets) {
+        if ((tablet->startKeyHash <= keyHash) &&
+                (tablet->endKeyHash >= keyHash)) {
+            return tablet;
         }
     }
     // Shouldn't ever get here:  this means there is some key hash in
@@ -631,22 +641,22 @@ TableManager::findTablet(const Lock& lock, Table* table, uint64_t keyHash)
 void
 TableManager::notifyCreate(const Lock& lock, Table* table)
 {
-    foreach (Tablet& tablet, table->tablets) {
+    foreach (Tablet* tablet, table->tablets) {
         try {
-            MasterClient::takeTabletOwnership(context, tablet.serverId,
-                    tablet.tableId, tablet.startKeyHash, tablet.endKeyHash);
+            MasterClient::takeTabletOwnership(context, tablet->serverId,
+                    tablet->tableId, tablet->startKeyHash, tablet->endKeyHash);
             LOG(NOTICE, "Assigned table id %lu, key hashes 0x%lx-0x%lx, to "
                     "master %s",
-                    table->id, tablet.startKeyHash, tablet.endKeyHash,
-                    tablet.serverId.toString().c_str());
+                    table->id, tablet->startKeyHash, tablet->endKeyHash,
+                    tablet->serverId.toString().c_str());
         } catch (ServerNotUpException& e) {
             // The master is apparently crashed. In that case, we can just
             // ignore this master; this tablet will be reinstated elsewhere
             // as part of recovering the master.
             LOG(NOTICE, "takeTabletOwnership skipped for master %s (table %lu, "
                     "key hashes 0x%lx-0x%lx) because server isn't running",
-                    tablet.serverId.toString().c_str(), table->id,
-                    tablet.startKeyHash, tablet.endKeyHash);
+                    tablet->serverId.toString().c_str(), table->id,
+                    tablet->startKeyHash, tablet->endKeyHash);
         }
     }
 }
@@ -749,6 +759,10 @@ TableManager::notifySplitTablet(const Lock& lock, ProtoBuf::Table* info)
 {
     const ProtoBuf::Table::Split& split = info->split();
     ServerId serverId(split.server_id());
+    if (serverId.getId() == 0x7fffffffffffffffLU) {
+        printf("*** Error! looping\n");
+        while (1) {}
+    }
     try {
         MasterClient::splitMasterTablet(context, serverId, info->id(),
                 split.split_key_hash());
@@ -805,13 +819,13 @@ TableManager::recreateTable(const Lock& lock, ProtoBuf::Table* info)
             status = Tablet::RECOVERING;
         else
             DIE("Unknown status for tablet");
-        table->tablets.emplace_back(id,
+        table->tablets.push_back(new Tablet(id,
                 tablet.start_key_hash(),
                 tablet.end_key_hash(),
                 ServerId(tablet.server_id()),
                 status,
                 Log::Position(tablet.ctime_log_head_id(),
-                              tablet.ctime_log_head_offset()));
+                              tablet.ctime_log_head_offset())));
     }
     directory[name] = table;
     idMap[id] = table;
@@ -842,20 +856,20 @@ TableManager::serializeTable(const Lock& lock, Table* table,
 {
     externalInfo->set_name(table->name);
     externalInfo->set_id(table->id);
-    foreach (Tablet& tablet, table->tablets) {
+    foreach (Tablet* tablet, table->tablets) {
         ProtoBuf::Table::Tablet* externalTablet(externalInfo->add_tablet());
-        externalTablet->set_start_key_hash(tablet.startKeyHash);
-        externalTablet->set_end_key_hash(tablet.endKeyHash);
-        if (tablet.status == Tablet::NORMAL)
+        externalTablet->set_start_key_hash(tablet->startKeyHash);
+        externalTablet->set_end_key_hash(tablet->endKeyHash);
+        if (tablet->status == Tablet::NORMAL)
             externalTablet->set_state(ProtoBuf::Table::Tablet::NORMAL);
-        else if (tablet.status == Tablet::RECOVERING)
+        else if (tablet->status == Tablet::RECOVERING)
             externalTablet->set_state(ProtoBuf::Table::Tablet::RECOVERING);
         else
             DIE("Unknown status for tablet");
-        externalTablet->set_server_id(tablet.serverId.getId());
-        externalTablet->set_ctime_log_head_id(tablet.ctime.getSegmentId());
+        externalTablet->set_server_id(tablet->serverId.getId());
+        externalTablet->set_ctime_log_head_id(tablet->ctime.getSegmentId());
         externalTablet->set_ctime_log_head_offset(
-                tablet.ctime.getSegmentOffset());
+                tablet->ctime.getSegmentOffset());
     }
 }
 
@@ -919,7 +933,7 @@ TableManager::testAddTablet(const Tablet& tablet)
     if (it == idMap.end())
         throw FatalError(HERE, "table doesn't exist");
     Table* table = it->second;
-    table->tablets.push_back(tablet);
+    table->tablets.push_back(new Tablet(tablet));
 }
 
 /**
