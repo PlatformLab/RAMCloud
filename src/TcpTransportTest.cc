@@ -39,7 +39,7 @@ class TcpTransportTest : public ::testing::Test {
             , locator("tcp+ip:host=localhost,port=11000")
             , sys(NULL)
             , savedSyscall(NULL)
-            , logEnabler(NULL)
+            , logEnabler()
             , server(&context, &locator)
             , client(&context)
     {

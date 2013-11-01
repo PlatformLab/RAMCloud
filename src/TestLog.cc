@@ -39,11 +39,11 @@ namespace TestLog {
         bool (*predicate)(string) = 0;
 
         /**
-         * A predicate string: if non-empty, must match the function name
-         * in a log entry in order for the log entry to be recorded.  This
-         * symbol is not exported.
+         * One or more predicate strings. If non-empty, one of the strings
+         * must match the function name in a log entry in order for the
+         * log entry to be recorded.  This symbol is not exported.
          */
-        string predString;
+        std::vector<string> predStrings;
 
         /**
          * Whether test log entries should be recorded.
@@ -80,7 +80,7 @@ namespace TestLog {
         message = "";
         enabled = false;
         predicate = NULL;
-        predString.clear();
+        predStrings.clear();
     }
 
     /// Reset the test log and begin recording test log entries.
@@ -162,8 +162,17 @@ namespace TestLog {
         if (!enabled || (predicate && !predicate(where.function)))
             return;
 
-        if (!predString.empty() && (predString != where.function))
-            return;
+        if (!predStrings.empty()) {
+            bool found = false;
+            foreach (string& s, predStrings) {
+                if (s == where.function) {
+                    found = true;
+                    break;
+                }
+            }
+            if (!found)
+                return;
+        }
 
         if (message.length())
             message += " | ";
@@ -194,7 +203,8 @@ namespace TestLog {
     }
 
     /**
-     * Install a predicate string.
+     * Install a single predicate string, replacing any existing
+     * predicate strings.
      *
      * \param[in] pred
      *      Log entries will be recorded only if the value of
@@ -204,7 +214,8 @@ namespace TestLog {
     setPredicate(string pred)
     {
         Lock _(mutex);
-        predString = pred;
+        predStrings.clear();
+        predStrings.push_back(pred);
     }
 
     /// Reset and enable/disable the test log on construction/destruction.
@@ -242,6 +253,40 @@ namespace TestLog {
         Logger::get().saveLogLevels(savedLogLevels);
         Logger::get().setLogLevels(SILENT_LOG_LEVEL);
         setPredicate(pred);
+        enable();
+    }
+
+    /**
+     * Reset and enable/disable the test log on construction/destruction
+     * using a collection of predicate strings to filter log entries.
+     * A log entry will be recorded if and only if the value of its
+     * __PRETTY_FUNCTION__ is equal to one of the arguments to this
+     * constructor.
+     *
+     * \param[in] pred
+     *      First acceptable function name.
+     * \param[in] pred2
+     *      Next acceptable function name. Additional names may follow
+     *      this argument; the argument list must be terminated
+     *      by a NULL pointer.
+     */
+    Enable::Enable(const char* pred, const char* pred2, ...)
+    {
+        Logger::get().saveLogLevels(savedLogLevels);
+        Logger::get().setLogLevels(SILENT_LOG_LEVEL);
+        predStrings.clear();
+        predStrings.push_back(pred);
+        predStrings.push_back(pred2);
+        va_list ap;
+        va_start(ap, pred2);
+        while (1) {
+            const char* s = va_arg(ap, const char*);
+            if (s == NULL) {
+                break;
+            }
+            predStrings.push_back(s);
+        }
+        va_end(ap);
         enable();
     }
 

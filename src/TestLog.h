@@ -82,6 +82,7 @@ namespace TestLog {
         Enable();
         explicit Enable(bool (*pred)(string));
         explicit Enable(string pred);
+        Enable(const char* pred, const char* pred2, ...);
         ~Enable();
       private:
         LogLevel savedLogLevels[NUM_LOG_MODULES];
