@@ -24,11 +24,27 @@ namespace RAMCloud {
 
 /// See SpinLock.h for more details.
 namespace SpinLockInternal {
-    /// List of all SpinLocks.
-    SpinLockInternal::SpinLockList head;
+    /**
+     * List of all SpinLocks.
+     * 
+     * There is a function wrapper around this variable to force
+     * initialization before usage. This is relevant when SpinLock is
+     * initialized in the constructor of a statically declared object.
+     */
+    SpinLockInternal::SpinLockList* head() {
+        static SpinLockInternal::SpinLockList _;
+        return &_;
+    }
 
-    /// This mutex protects the list pointed to by "head".
-    std::mutex lock;
+    /** 
+     * This mutex protects the list pointed to by "head()".
+     * 
+     * See the comment above for why this is a function and not a variable.
+     */
+    std::mutex* lock() {
+        static std::mutex _;
+        return &_;
+    }
 } // namespace SpinLockList
 
 /**
@@ -44,8 +60,8 @@ SpinLock::SpinLock()
     , contendedTicks(0)
     , listHook()
 {
-    std::lock_guard<std::mutex> lock(SpinLockInternal::lock);
-    SpinLockInternal::head.push_back(*this);
+    std::lock_guard<std::mutex> lock(*SpinLockInternal::lock());
+    SpinLockInternal::head()->push_back(*this);
 }
 
 /**
@@ -59,14 +75,15 @@ SpinLock::SpinLock(string name)
     , contendedTicks(0)
     , listHook()
 {
-    std::lock_guard<std::mutex> lock(SpinLockInternal::lock);
-    SpinLockInternal::head.push_back(*this);
+    std::lock_guard<std::mutex> lock(*SpinLockInternal::lock());
+    SpinLockInternal::head()->push_back(*this);
 }
 
 SpinLock::~SpinLock()
 {
-    std::lock_guard<std::mutex> lock(SpinLockInternal::lock);
-    SpinLockInternal::head.erase(SpinLockInternal::head.iterator_to(*this));
+    std::lock_guard<std::mutex> lock(*SpinLockInternal::lock());
+    SpinLockInternal::head()->erase(
+            SpinLockInternal::head()->iterator_to(*this));
 }
 
 /**
@@ -144,10 +161,10 @@ SpinLock::setName(string name)
 void
 SpinLock::getStatistics(ProtoBuf::SpinLockStatistics* stats)
 {
-    std::lock_guard<std::mutex> lock(SpinLockInternal::lock);
+    std::lock_guard<std::mutex> lock(*SpinLockInternal::lock());
     SpinLockInternal::SpinLockList::iterator it =
-        SpinLockInternal::head.begin();
-    while (it != SpinLockInternal::head.end()) {
+        SpinLockInternal::head()->begin();
+    while (it != SpinLockInternal::head()->end()) {
         ProtoBuf::SpinLockStatistics_Lock* lock(stats->add_locks());
         lock->set_name(it->name);
         lock->set_acquisitions(it->acquisitions);

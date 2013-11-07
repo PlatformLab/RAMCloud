@@ -119,6 +119,8 @@ class ServiceManager : Dispatch::Poller {
  * nested classes.
  */
 class Worker {
+  typedef RAMCloud::Perf::ReadThreadingCost_MetricSet
+      ReadThreadingCost_MetricSet;
   public:
     void sendReply();
 
@@ -175,9 +177,14 @@ class Worker {
 
     explicit Worker(Context* context)
         : context(context), serviceInfo(NULL), thread(), rpc(NULL),
-          busyIndex(-1), state(POLLING), exited(false) {}
+          busyIndex(-1), state(POLLING), exited(false),
+          threadWork(&ReadThreadingCost_MetricSet::threadWork, false)
+        {}
     void exit();
     void handoff(Transport::ServerRpc* rpc);
+
+  public:
+    ReadThreadingCost_MetricSet::Interval threadWork;
 
   private:
     friend class ServiceManager;

@@ -14,8 +14,10 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <regex.h>
 #include "StringUtil.h"
+
+#include <regex.h>
+#include <sstream>
 
 namespace RAMCloud {
 namespace StringUtil {
@@ -127,6 +129,22 @@ binaryToString(const void* input, uint32_t length)
     }
 
     return s;
+}
+
+/**
+ * Split a std::string based on a character delimiter.
+ * \param s
+ *      String to be split.
+ * \param delim
+ *      Delimiter to split string on.
+ */
+std::vector<std::string> split(const std::string &s, char delim) {
+    std::vector<std::string> elems;
+    std::stringstream ss(s);
+    std::string item;
+    while (std::getline(ss, item, delim))
+        elems.push_back(item);
+    return elems;
 }
 
 } // namespace StringUtil

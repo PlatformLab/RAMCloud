@@ -77,7 +77,6 @@ class SpinLock {
  */
 namespace SpinLockInternal {
     INTRUSIVE_LIST_TYPEDEF(SpinLock, listHook) SpinLockList;
-    extern SpinLockList spinLockList;
 };
 
 } // end RAMCloud

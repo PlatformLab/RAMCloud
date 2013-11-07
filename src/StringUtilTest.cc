@@ -61,4 +61,9 @@ TEST(StringUtilTest, binaryToString) {
         binaryToString("there's binary\x13\tcrap in here", 28));
 }
 
+TEST(StringUtilTest, split) {
+    EXPECT_EQ("foo", split("foo bar", ' ')[0]);
+    EXPECT_EQ("bar", split("foo bar", ' ')[1]);
+}
+
 }  // namespace RAMCloud

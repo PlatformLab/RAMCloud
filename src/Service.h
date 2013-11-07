@@ -23,8 +23,10 @@
 #include "Buffer.h"
 #include "ServerId.h"
 #include "WireFormat.h"
+#include "PerfCounter.h"
 
 namespace RAMCloud {
+
 // There are cross-dependencies between this header file and ServiceManager.h;
 // the declaration below is used instead of #including ServiceManager.h to
 // break the circularity.
@@ -53,8 +55,7 @@ class Service {
         /**
          * Constructor for Rpc.
          */
-        Rpc(Worker* worker, Buffer* requestPayload,
-                Buffer* replyPayload)
+        Rpc(Worker* worker, Buffer* requestPayload, Buffer* replyPayload)
             : requestPayload(requestPayload)
             , replyPayload(replyPayload)
             , worker(worker)

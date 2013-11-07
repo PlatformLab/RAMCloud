@@ -39,6 +39,7 @@
 #include "Infiniband.h"
 #include "CycleCounter.h"
 #include "RawMetrics.h"
+#include "PerfCounter.h"
 
 #ifndef RAMCLOUD_INFRCTRANSPORT_H
 #define RAMCLOUD_INFRCTRANSPORT_H
@@ -49,6 +50,8 @@ namespace RAMCloud {
  * Transport mechanism that uses Infiniband reliable queue pairs.
  */
 class InfRcTransport : public Transport {
+    typedef RAMCloud::Perf::ReadRequestHandle_MetricSet
+        ReadRequestHandle_MetricSet;
     // forward declarations
   PRIVATE:
     class InfRcSession;
@@ -108,6 +111,7 @@ class InfRcTransport : public Transport {
                                uint64_t nonce);
             void sendReply();
             string getClientServiceLocator();
+            ReadRequestHandle_MetricSet::Interval rpcServiceTime;
         private:
             InfRcTransport* transport;
             QueuePair*      qp;

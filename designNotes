@@ -28,19 +28,18 @@ inconsistency can arise:
   may be lost (the new values may not be stored on the replacement servers
   and thus will not be returned by reads).
 
-RAMCloud uses two techniques to neutralize zombies. First, at the beginning
-of crash recovery the coordinator contacts every server in the cluster,
-notifying it of the crashed server. Once this happens, servers will reject
-backup requests from the crashed server with STATUS_CALLER_NOT_IN_CLUSTER
-errors. This prevents the zombie from writing new data. In addition, the
-zombie will then contact the coordinator to verify its cluster
-membership (just in case the backup's server list was out of date). If the
-coordinator confirms that the zombie is no longer part of the cluster, then
-the zombie commits suicide. If the coordinator believes that the server is
-still part of the cluster, then the server will retry its replication
-operation. Overall, this approach ensures that by the time replacement
-servers begin replaying log data from a crashed master, the master can no
-no longer complete new write operations.
+RAMCloud uses two techniques to neutralize zombies. First, at the beginning of
+crash recovery the coordinator contacts every server in the cluster, notifying
+it of the crashed server. Once this happens, servers will reject backup
+requests from the crashed server with STATUS_CALLER_NOT_IN_CLUSTER errors. This
+prevents the zombie from writing new data. In addition, the zombie will then
+contact the coordinator to verify its cluster membership (just in case the
+backup's server list was out of date). If the coordinator confirms that the
+zombie is no longer part of the cluster, then the zombie commits suicide. If
+the coordinator believes that the server is still part of the cluster, then the
+server will retry its replication operation. Overall, this approach ensures
+that by the time replacement servers begin replaying log data from a crashed
+master, the master can no longer complete new write operations.
 
 Potential weakness: if for some reason the coordinator does not contact all
 servers at the beginning of crash recovery, it's possible that the zombie
@@ -75,9 +74,9 @@ isn't a zombie, it will eventually serve the requests when they get retried.
 
 Potential weakness: if the coordinator is unable to contact all of the servers
 in the cluster to notify them of the crashed server's failure, then if the
-crashed server "gets lucky" and happens to ping the servers that weren't reached
-by the coordinator, it might continue servicing read requests. This problem
-is unlikely to occur in practice, because the zombie server will ping at least
-10 other servers before replacement servers accept any write requests; at
-least one of them is likely to know about the server's death. However, this
+crashed server "gets lucky" and happens to ping the servers that weren't
+reached by the coordinator, it might continue servicing read requests. This
+problem is unlikely to occur in practice, because the zombie server will ping
+at least 10 other servers before replacement servers accept any write requests;
+at least one of them is likely to know about the server's death. However, this
 is just a probabilistic argument: there is no guarantee.

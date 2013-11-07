@@ -84,6 +84,7 @@ SHARED_SRCFILES := \
 		   src/ObjectRpcWrapper.cc \
 		   src/OptionParser.cc \
 		   src/PcapFile.cc \
+		   src/PerfCounter.cc \
 		   src/PingClient.cc \
 		   src/PingService.cc \
 		   src/PortAlarm.cc \

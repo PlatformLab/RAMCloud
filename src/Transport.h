@@ -24,6 +24,7 @@
 #include "BoostIntrusive.h"
 #include "Buffer.h"
 #include "ServiceLocator.h"
+#include "PerfCounter.h"
 
 namespace RAMCloud {
 
@@ -52,6 +53,8 @@ struct TransportException : public Exception {
  * characteristics.
  */
 class Transport {
+  typedef RAMCloud::Perf::ReadThreadingCost_MetricSet
+      ReadThreadingCost_MetricSet;
   public:
     class RpcNotifier;
 
@@ -72,7 +75,14 @@ class Transport {
             : requestPayload(),
               replyPayload(),
               epoch(INVALID_EPOCH),
-              outstandingRpcListHook() {}
+              outstandingRpcListHook(),
+              enqueueThreadToStartWork(
+                      &ReadThreadingCost_MetricSet::enqueueThreadToStartWork,
+                      false),
+              returnToTransport(
+                      &ReadThreadingCost_MetricSet::returnToTransport,
+                      false)
+        {}
 
         /**
          * Default epoch value on construction. Used to ensure that the proper
@@ -143,6 +153,9 @@ class Transport {
          * constructed by ServerRpcPool and removed when they're destroyed.
          */
         IntrusiveListHook outstandingRpcListHook;
+        ReadThreadingCost_MetricSet::Interval enqueueThreadToStartWork;
+        ReadThreadingCost_MetricSet::Interval returnToTransport;
+      protected:
 
       PRIVATE:
         DISALLOW_COPY_AND_ASSIGN(ServerRpc);

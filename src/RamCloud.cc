@@ -1070,7 +1070,7 @@ RamCloud::lookupIndexKeys(uint64_t tableId, uint8_t indexId,
                           const void* lastKey, uint16_t lastKeyLength,
                           uint32_t* count, Buffer* pKHashes)
 {
-    uint32_t numIndexlets;
+    uint32_t numIndexlets = 0;
     Buffer indexletIds;
     // Get tableIds for all indexlets required for this request.
     indexletManager.lookup(tableId, indexId,

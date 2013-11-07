@@ -13,6 +13,7 @@
  * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include <new>
 #include "BitOps.h"
 #include "Cycles.h"
 #include "CycleCounter.h"
@@ -22,6 +23,8 @@
 #include "ShortMacros.h"
 #include "ServerRpcPool.h"
 #include "ServiceManager.h"
+#include "WireFormat.h"
+#include "PerfCounter.h"
 
 // If the following line is uncommented, trace records will be generated that
 // allow service times to be computed for all RPCs.
@@ -32,6 +35,7 @@
 // #define LOG_RPCS 1
 
 namespace RAMCloud {
+
 /**
  * Default object used to make system calls.
  */
@@ -168,6 +172,7 @@ ServiceManager::handleRpc(Transport::ServerRpc* rpc)
             rpc->requestPayload.getTotalLength());
 #endif
 
+    rpc->enqueueThreadToStartWork.start();
     // See if we have exceeded the concurrency limit for the service.
     if (serviceInfo->requestsRunning >= serviceInfo->maxThreads) {
         serviceInfo->waitingRpcs.push(rpc);
@@ -175,10 +180,15 @@ ServiceManager::handleRpc(Transport::ServerRpc* rpc)
     }
     // Temporary code to test how much faster things would be without threads.
 #if 0
-    if ((header->opcode == RpcOpcode::READ) &&
-            (header->service == MASTER_SERVICE)) {
-        Service::Rpc serviceRpc(NULL, rpc->requestPayload, rpc->replyPayload);
-        services[MASTER_SERVICE]->service.handleRpc(&serviceRpc);
+    if ((header->opcode == WireFormat::READ) &&
+            (header->service == WireFormat::MASTER_SERVICE)) {
+        rpc->enqueueThreadToStartWork.stop();
+        ReadThreadingCost_MetricSet::Interval  _(
+                &ReadThreadingCost_MetricSet::noThreadWork);
+        Service::Rpc serviceRpc(NULL, &rpc->requestPayload, &rpc->replyPayload);
+        services[WireFormat::MASTER_SERVICE]->service.handleRpc(&serviceRpc);
+        _.stop();
+        rpc->returnToTransport.start();
         rpc->sendReply();
         return;
     }
@@ -352,9 +362,23 @@ ServiceManager::workerMain(Worker* worker)
             if (worker->rpc == WORKER_EXIT)
                 break;
 
+            worker->rpc->enqueueThreadToStartWork.stop();
+
+            worker->threadWork.start();
             Service::Rpc rpc(worker, &worker->rpc->requestPayload,
                     &worker->rpc->replyPayload);
             worker->serviceInfo->service.handleRpc(&rpc);
+
+            worker->threadWork.stop();
+
+            // Certain RPC's, including the EnlistService RPC, will NULL out
+            // the Rpc object before handleRpc returns, usually because they
+            // want to return before postprocessing.
+            //
+            // This then causes a segfault here in the CoordinatorService if we
+            // do not explicitly check for NULL .
+            if (worker->rpc)
+                worker->rpc->returnToTransport.start();
 
             // Pass the RPC back to ServiceManager for completion.
             Fence::leave();

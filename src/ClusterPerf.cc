@@ -48,6 +48,7 @@ namespace po = boost::program_options;
 #include "CycleCounter.h"
 #include "Cycles.h"
 #include "KeyUtil.h"
+#include "PerfCounter.h"
 
 using namespace RAMCloud;
 

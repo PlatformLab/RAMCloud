@@ -34,6 +34,7 @@
 #include "Transport.h"
 #include "Tub.h"
 #include "WallTime.h"
+#include "PerfCounter.h"
 
 namespace RAMCloud {
 
@@ -1159,6 +1160,9 @@ MasterService::read(const WireFormat::Read::Request* reqHdr,
                     WireFormat::Read::Response* respHdr,
                     Rpc* rpc)
 {
+    using RAMCloud::Perf::ReadRPC_MetricSet;
+    ReadRPC_MetricSet::Interval _(&ReadRPC_MetricSet::readRpcTime);
+
     uint32_t reqOffset = sizeof32(*reqHdr);
     const void* stringKey = rpc->requestPayload->getRange(reqOffset,
                                                         reqHdr->keyLength);

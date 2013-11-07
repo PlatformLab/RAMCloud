@@ -91,6 +91,7 @@
 #include "ServiceLocator.h"
 #include "ServiceManager.h"
 #include "ShortMacros.h"
+#include "PerfCounter.h"
 
 #define check_error_null(x, s)                              \
     do {                                                    \
@@ -915,11 +916,11 @@ InfRcTransport::setName(const char* debugName)
 InfRcTransport::ServerRpc::ServerRpc(InfRcTransport* transport,
                                      QueuePair* qp,
                                      uint64_t nonce)
-    : transport(transport),
+    : rpcServiceTime(&ReadRequestHandle_MetricSet::rpcServiceTime, false),
+      transport(transport),
       qp(qp),
       nonce(nonce)
-{
-}
+{ }
 
 /**
  * Send a reply for an RPC.
@@ -930,6 +931,11 @@ InfRcTransport::ServerRpc::ServerRpc(InfRcTransport* transport,
 void
 InfRcTransport::ServerRpc::sendReply()
 {
+    this->rpcServiceTime.stop();
+    ReadRequestHandle_MetricSet::Interval interval(
+            &ReadRequestHandle_MetricSet::serviceReturnToPostSend);
+
+    Transport::ServerRpc::returnToTransport.stop();
     CycleCounter<RawMetric> _(&metrics->transport.transmit.ticks);
     ++metrics->transport.transmit.messageCount;
     ++metrics->transport.transmit.packetCount;
@@ -960,6 +966,8 @@ InfRcTransport::ServerRpc::sendReply()
         t->transmitCycleCounter.construct();
     }
     t->infiniband->postSend(qp, bd, replyPayload.getTotalLength());
+    interval.stop();
+
     replyPayload.truncateFront(sizeof(Header)); // for politeness
 
     // Restart port watchdog for this server port
@@ -1250,6 +1258,10 @@ InfRcTransport::Poller::poll()
     if (t->serverSetupSocket >= 0) {
         CycleCounter<RawMetric> receiveTicks;
         if (t->infiniband->pollCompletionQueue(t->serverRxCq, 1, &wc) >= 1) {
+            ReadRequestHandle_MetricSet::Interval interval
+                (&ReadRequestHandle_MetricSet::requestToHandleRpc);
+
+
             if (t->serverPortMap.find(wc.qp_num) == t->serverPortMap.end()) {
                 LOG(ERROR, "failed to find qp_num in map");
                 goto done;
@@ -1289,6 +1301,8 @@ InfRcTransport::Poller::poll()
             }
 
             port->portAlarm.requestArrived(); // Restarts the port watchdog
+            interval.stop();
+            r->rpcServiceTime.start();
             t->context->serviceManager->handleRpc(r);
             ++metrics->transport.receive.messageCount;
             ++metrics->transport.receive.packetCount;

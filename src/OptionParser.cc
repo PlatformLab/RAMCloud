@@ -24,6 +24,8 @@
 #include "OptionParser.h"
 #include "PcapFile.h"
 #include "ShortMacros.h"
+#include "PerfCounter.h"
+#include "StringUtil.h"
 
 namespace RAMCloud {
 
@@ -205,8 +207,28 @@ OptionParser::setup(int argc, char* argv[])
         if (vm.count("help"))
             usageAndExit();
 
-        if (logFile.size() != 0)
+        if (logFile.size() != 0) {
             Logger::get().setLogFile(logFile.c_str());
+
+            /**
+             * In the code below, we extracts the name of the current server
+             * and the log path prefix, and feed them to the Performance
+             * framework.
+             *
+             * We assume that logFile is a relative or absolute path
+             * containing at least one directory, followed by a filename
+             * consisting of the name of the server followed by the string
+             * ".log"
+             *
+             *      Here is a sample of a valid logFileName:
+             *      logs/20140206192029/server2.rc03.log
+             */
+            vector<std::string> a = StringUtil::split(logFile, '/');
+            std::string s = a.back();
+            std::string serverName = s.substr(0,  s.size() - 4);
+            std::string logPath = logFile.substr(0, logFile.size() - s.size());
+            Perf::setNameAndPath(serverName, logPath);
+        }
         Logger::get().setLogLevels(defaultLogLevel);
         foreach (auto moduleLevel, logLevels) {
             auto pos = moduleLevel.find("=");

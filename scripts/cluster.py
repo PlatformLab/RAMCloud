@@ -198,6 +198,9 @@ class Cluster(object):
         self.coordinator_locator = coord_locator(self.transport,
                                                  self.coordinator_host)
         self.log_subdir = log.createDir(log_dir, log_exists)
+
+        # Create a perfcounters directory under the log directory.
+        os.mkdir(self.log_subdir + '/perfcounters')
         if not log_exists:
             self.sandbox = Sandbox()
         else:
@@ -279,6 +282,8 @@ class Cluster(object):
         if self.verbose:
             print('Coordinator started on %s at %s' %
                    (self.coordinator_host[0], self.coordinator_locator))
+            print('Coordinator command line arguments %s' %
+                   (command))
         return self.coordinator
 
     def start_server(self,
@@ -310,14 +315,17 @@ class Cluster(object):
                      (default: True)
         @return: Sandbox.Process representing the server process.
         """
+        log_prefix = '%s/server%d.%s' % (
+                      self.log_subdir, self.next_server_id, host[0])
+                     
         command = ('%s %s -C %s -L %s -r %d -l %s --clusterName __unnamed__ '
-                   '--logFile %s/server%d.%s.log %s' %
+                   '--logFile %s.log %s' %
                    (valgrind_command,
                     server_binary, self.coordinator_locator,
                     server_locator(self.transport, host, port),
                     self.replicas,
-                    self.log_level, self.log_subdir,
-                    self.next_server_id, host[0], args))
+                    self.log_level, 
+                    log_prefix, args))
 
         self.next_server_id += 1
         if master and backup:
@@ -339,18 +347,23 @@ class Cluster(object):
         if master:
             self.masters_started += 1
 
+        # Adding redirection for stdout and stderr.
+        stdout = open(log_prefix + '.out', 'w')
+        stderr = open(log_prefix + '.err', 'w')
         if not kill_on_exit:
             server = self.sandbox.rsh(host[0], command, is_server=True,
                                       locator=server_locator(self.transport,
                                                              host, port),
                                       kill_on_exit=False, bg=True,
-                                      stderr=subprocess.STDOUT)
+                                      stdout=stdout,
+                                      stderr=stderr)
         else:
             server = self.sandbox.rsh(host[0], command, is_server=True,
                                       locator=server_locator(self.transport,
                                                              host, port),
                                       bg=True,
-                                      stderr=subprocess.STDOUT)
+                                      stdout=stdout,
+                                      stderr=stderr)
 
         if self.verbose:
             print('Server started on %s at %s: %s' %
@@ -409,11 +422,14 @@ class Cluster(object):
             numBackups = self.backups_started
         self.sandbox.checkFailures()
         try:
-            self.sandbox.rsh(self.coordinator_host[0],
-                             '%s -C %s -m %d -b %d -l 1 --wait %d '
+            ensureCommand = ('%s -C %s -m %d -b %d -l 1 --wait %d '
                              '--logFile %s/ensureServers.log' %
                              (ensure_servers_bin, self.coordinator_locator,
-                              numMasters, numBackups, timeout, self.log_subdir))
+                             numMasters, numBackups, timeout, 
+                             self.log_subdir))
+            self.sandbox.rsh(self.coordinator_host[0], ensureCommand)
+            if self.verbose:
+                print("ensureServers command: %s" % ensureCommand)
         except:
             # prefer exceptions from dead processes to timeout error
             self.sandbox.checkFailures()
