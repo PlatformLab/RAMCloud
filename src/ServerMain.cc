@@ -24,6 +24,7 @@
 #include "InfRcTransport.h"
 #endif
 #include "OptionParser.h"
+#include "PortAlarm.h"
 #include "Server.h"
 #include "ShortMacros.h"
 #include "TransportManager.h"
