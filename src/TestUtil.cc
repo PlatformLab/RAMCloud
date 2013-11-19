@@ -340,6 +340,27 @@ TestUtil::doesNotMatchPosixRegex(const string& pattern, const string& subject)
 }
 
 /**
+ * Fail a gtest test case if the given string doesn't contain a given
+ * substring.
+ * \param s
+ *      Test output.
+ * \param substring
+ *      Substring expected to appear somewhere in s.
+ * \return
+ *      A value that can be tested with EXPECT_TRUE.
+ */
+::testing::AssertionResult
+TestUtil::contains(const string& s, const string& substring)
+{
+    if (s.find(substring) == string::npos) {
+        string message(format("Substring '%s' not present in '%s'",
+                substring.c_str(), s.c_str()));
+        return ::testing::AssertionFailure() << message;
+    }
+    return ::testing::AssertionSuccess();
+}
+
+/**
  * This method fills a buffer with a given amount of data, in a form that
  * can be checked easily by #checkLargeBuffer. It's intended for testing
  * proper handling of large amounts of data.
