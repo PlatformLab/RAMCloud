@@ -49,6 +49,8 @@ class TestUtil {
     static string bufferToDebugString(Buffer* buffer);
     static string checkLargeBuffer(Buffer* buffer, int expectedLength);
     static void convertChar(char c, string *out);
+    static ::testing::AssertionResult contains(
+            const string& s, const string& substring);
     static ::testing::AssertionResult doesNotMatchPosixRegex(
             const string& pattern, const string& subject);
     static void fillPrintableRandom(void* buf, uint32_t size);
