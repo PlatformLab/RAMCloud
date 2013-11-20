@@ -227,6 +227,7 @@ TableManager::dropTable(const char* name)
     if (it == directory.end())
         return;
     Table* table = it->second;
+    LOG(NOTICE, "Dropping table '%s' with id %lu", name, table->id);
 
     // Record our intention to delete this table.
     ProtoBuf::Table externalInfo;
