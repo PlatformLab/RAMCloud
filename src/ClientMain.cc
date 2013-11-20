@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2012 Stanford University
+/* Copyright (c) 2009-2013 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -34,6 +34,106 @@ using namespace RAMCloud;
  */
 bool fillWithTestData = false;
 
+/**
+ * This method is used for testing coordinator crash recovery. It is
+ * normally invoked repeatedly. Each invocation runs a set of representative
+ * cluster operations, with some consistency checks mixed in.
+ * 
+ * \param client
+ *      Connection to the RAMCloud cluster.
+ */
+void
+exerciseCluster(RamCloud* client)
+{
+    // This method maintains a collection of tables with names of the
+    // form "tableX" where X is a number. At any given time a contiguous
+    // range of tables should exist, such as table2, table3, and table4.
+    // Over time, tables get created and deleted such that the existing
+    // range gradually moves up. Each table contains a single object
+    // named "tableName" whose value should be the same as the name of
+    // the table.
+
+    // Step 1: find the beginning of the range of existing tables.
+    char tableName[100];
+    int first, last;
+    uint64_t tableId = 0;
+    for (first = 1; first < 1000; first++) {
+        snprintf(tableName, sizeof(tableName), "table%d", first);
+        try {
+            tableId = client->getTableId(tableName);
+            break;
+        } catch (TableDoesntExistException& e) {
+            // This table doesn't exist; just go on to the next one.
+        }
+    }
+    if (tableId == 0) {
+        first = 1;
+        printf("Couldn't find existing tables; starting at table1\n");
+    }
+
+    // Step 2: scan all existing tables to make sure they have the expected
+    // objects.
+    for (last = first; ; last++) {
+        snprintf(tableName, sizeof(tableName), "table%d", last);
+        try {
+            tableId = client->getTableId(tableName);
+            Buffer value;
+            try {
+                client->read(tableId, "tableName", 9, &value);
+                const char* valueString = static_cast<const char*>(
+                        value.getRange(0, value.getTotalLength()));
+                if (strcmp(valueString, tableName) != 0) {
+                    printf("Bad value for tableName object in %s; "
+                            "expected \"%s\", got \"%s\"\n",
+                            tableName, tableName, valueString);
+                }
+            } catch (ClientException& e) {
+                printf("Error reading tableName object in %s: %s\n",
+                        tableName, e.toString());
+            }
+        } catch (TableDoesntExistException& e) {
+            // End this step when we reach a table that does not exist.
+            break;
+        }
+    }
+
+    // Step 3: if we already have a bunch of tables, delete the oldest
+    // table.
+    int numTables = last - first;
+    if (numTables > 0) {
+        printf("Found existing tables: table%d..table%d\n", first, last-1);
+    }
+    if (numTables >= 5) {
+        snprintf(tableName, sizeof(tableName), "table%d", first);
+        try {
+            client->dropTable(tableName);
+            printf("Dropped %s\n", tableName);
+        } catch (ClientException& e) {
+            printf("Error dropping %s: %s\n",
+                    tableName, e.toString());
+        }
+    }
+
+    // Step 4: unless we already have a lot of tables, make a new table.
+    if (numTables <= 5) {
+        snprintf(tableName, sizeof(tableName), "table%d", last);
+        try {
+            tableId = client->createTable(tableName, 1);
+            try {
+                client->write(tableId, "tableName", 9, &tableName,
+                        downCast<uint32_t>(strlen(tableName) + 1));
+            } catch (ClientException& e) {
+                printf("Error write tableName object in %s: %s\n",
+                        tableName, e.toString());
+            }
+            printf("Created new table %s\n", tableName);
+        } catch (ClientException& e) {
+            printf("Error creating %s: %s\n",
+                    tableName, e.toString());
+        }
+    }
+}
+
 int
 main(int argc, char *argv[])
 try
@@ -45,6 +145,7 @@ try
     uint64_t b;
     int clientIndex;
     int numClients;
+    bool exercise;
 
     // need external context to set log levels with OptionParser
     Context context(true);
@@ -85,7 +186,11 @@ try
         ("size,s",
          ProgramOptions::value<uint32_t>(&objectDataSize)->
             default_value(1024),
-         "Number of bytes to insert per object during insert phase.");
+         "Number of bytes to insert per object during insert phase.")
+        ("exercise",
+         ProgramOptions::bool_switch(&exercise),
+         "Call exerciseCluster repeatedly (intended for coordinator "
+         "crash testing).");
 
     OptionParser optionParser(clientOptions, argc, argv);
     context.transportManager->setSessionTimeout(
@@ -96,6 +201,13 @@ try
 
     RamCloud client(&context,
                     optionParser.options.getCoordinatorLocator().c_str());
+
+    if (exercise) {
+        while (1) {
+            exerciseCluster(&client);
+            usleep(5000000);
+        }
+    }
 
     b = Cycles::rdtsc();
     client.createTable("test");
