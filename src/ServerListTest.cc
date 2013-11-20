@@ -67,7 +67,46 @@ TEST_F(ServerListTest, indexOperator) {
     EXPECT_FALSE(sl[7572].isValid());
 }
 
-TEST_F(ServerListTest, applyServerList) {
+
+TEST_F(ServerListTest, applyServerList_doubleFullLists) {
+    // Apply Full List
+    ProtoBuf::ServerList wholeList;
+    ServerListBuilder{wholeList}
+        ({}, *ServerId{1, 0}, "mock:host=one", 101, 1);
+    wholeList.set_version_number(1);
+    wholeList.set_type(ProtoBuf::ServerList_Type_FULL_LIST);
+    ASSERT_NO_THROW(sl.applyServerList(wholeList));
+
+    // Apply Full List again
+    wholeList.set_version_number(2);
+    TestLog::Enable _;
+    EXPECT_EQ(1lu, sl.applyServerList(wholeList));
+    EXPECT_STREQ("applyServerList: Ignoring full server list with version "
+            "2 (server list already populated, version 1)",
+            TestLog::get().c_str());
+}
+
+TEST_F(ServerListTest, applyServerList_wrongVersion) {
+    ProtoBuf::ServerList update;
+    update.set_type(ProtoBuf::ServerList_Type_UPDATE);
+    update.set_version_number(9);
+    sl.version = 10;
+
+    TestLog::Enable _;
+    EXPECT_EQ(10lu, sl.applyServerList(update));
+    EXPECT_EQ("applyServerList: Ignoring out-of order server list update "
+            "with version 9 (local server list is at version 10)",
+            TestLog::get());
+
+    TestLog::reset();
+    update.set_version_number(13);
+    sl.applyServerList(update);
+    EXPECT_EQ("applyServerList: Ignoring out-of order server list update "
+            "with version 13 (local server list is at version 10)",
+            TestLog::get());
+}
+
+TEST_F(ServerListTest, applyServerList_success) {
     // Apply Full List
     ProtoBuf::ServerList wholeList;
     ServerListBuilder{wholeList}
@@ -129,83 +168,6 @@ TEST_F(ServerListTest, applyServerList) {
     EXPECT_EQ(ServerId(4, 2), change->server.serverId);
     EXPECT_EQ(ServerChangeEvent::SERVER_REMOVED, change->event);
     tr.changes.pop();
-}
-
-TEST_F(ServerListTest, applyServerList_doubleFullLists) {
-    // Apply Full List
-    ProtoBuf::ServerList wholeList;
-    ServerListBuilder{wholeList}
-        ({}, *ServerId{1, 0}, "mock:host=one", 101, 1);
-    wholeList.set_version_number(1);
-    wholeList.set_type(ProtoBuf::ServerList_Type_FULL_LIST);
-    ASSERT_NO_THROW(sl.applyServerList(wholeList));
-
-    // Apply Full List again
-    wholeList.set_version_number(2);
-    TestLog::Enable _;
-    EXPECT_ANY_THROW(sl.applyServerList(wholeList));
-    EXPECT_STREQ("applyServerList: Coordinator sent a full list to a server "
-            "whose serverlist was already populated. This is a bug and should "
-            "never happen unless the coordinator code is busted.",
-            TestLog::get().c_str());
-}
-
-TEST_F(ServerListTest, applyServerList_updateVersionTooHigh) {
-    // Apply Full List
-    ProtoBuf::ServerList wholeList;
-    ServerListBuilder{wholeList}
-        ({}, *ServerId{1, 0}, "mock:host=one", 101, 1);
-    wholeList.set_version_number(1);
-    wholeList.set_type(ProtoBuf::ServerList_Type_FULL_LIST);
-    ASSERT_NO_THROW(sl.applyServerList(wholeList));
-
-    // Apply Update too new
-    ProtoBuf::ServerList update;
-    ServerListBuilder{update}
-        ({}, *ServerId{1, 0}, "mock:host=one", 101, 1, ServerStatus::CRASHED);
-    update.set_version_number(sl.version + 2);
-    update.set_type(ProtoBuf::ServerList_Type_UPDATE);
-
-    TestLog::Enable _;
-    EXPECT_ANY_THROW(sl.applyServerList(update));
-    EXPECT_STREQ("applyServerList: Missed an update from the Coordinator. "
-            "This is a bug and should never happen unless the coordinator "
-            "code is busted.",
-            TestLog::get().c_str());
-
-}
-
-TEST_F(ServerListTest, applyServerList_updateBeforeFullList) {
-     // Apply an update w/o full list first.
-    ProtoBuf::ServerList update;
-    ServerListBuilder{update}
-        ({}, *ServerId{1, 0}, "mock:host=one", 101, 1, ServerStatus::CRASHED);
-    update.set_version_number(2000);
-    update.set_type(ProtoBuf::ServerList_Type_UPDATE);
-
-    TestLog::Enable _;
-    EXPECT_ANY_THROW(sl.applyServerList(update));
-    EXPECT_STREQ("applyServerList: Missed an update from the Coordinator. "
-            "This is a bug and should never happen unless the coordinator "
-            "code is busted.",
-            TestLog::get().c_str());
-}
-
-TEST_F(ServerListTest, applyServerList_oldVersion) {
-    ProtoBuf::ServerList update;
-    sl.version = 10;
-
-    TestLog::Enable _;
-    update.set_version_number(9);
-    sl.applyServerList(update);
-    EXPECT_EQ("applyServerList: A repeated/old update version 9 was "
-            "sent to a ServerList with version 10.", TestLog::get());
-
-    TestLog::reset();
-    update.set_version_number(10);
-    sl.applyServerList(update);
-    EXPECT_EQ("applyServerList: A repeated/old update version 10 was "
-            "sent to a ServerList with version 10.", TestLog::get());
 }
 
 }  // namespace RAMCloud

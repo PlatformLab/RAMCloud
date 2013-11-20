@@ -25,10 +25,9 @@
 #include <queue>
 
 #include "Common.h"
-#include "CoordinatorServerList.h"
+#include "AbstractServerList.h"
 #include "ServerId.h"
 #include "SpinLock.h"
-#include "ServerList.h"
 #include "Tub.h"
 #include "TransportManager.h"
 

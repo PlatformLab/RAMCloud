@@ -69,6 +69,16 @@ struct Tablet {
         , ctime(ctime)
     {}
 
+    Tablet(const Tablet& tablet)
+        : tableId(tablet.tableId)
+        , startKeyHash(tablet.startKeyHash)
+        , endKeyHash(tablet.endKeyHash)
+        , serverId(tablet.serverId)
+        , status(tablet.status)
+        , ctime(tablet.ctime)
+    {}
+
+
     void serialize(ProtoBuf::Tablets::Tablet& entry) const;
 };
 

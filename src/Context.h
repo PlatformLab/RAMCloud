@@ -82,10 +82,13 @@ class Context {
     SessionAlarmTimer* sessionAlarmTimer;
     PortAlarmTimer*    portAlarmTimer;
     CoordinatorSession* coordinatorSession;
-    ExternalStorage* externalStorage;
 
     // Variables below this point are used only in servers.  They are
     // always NULL on clients.
+
+    // Valid only on the coordinator; used to save coordinator state so it
+    // can be recovered after coordinator crashes.
+    ExternalStorage* externalStorage;
 
     // Master-related information for this server. NULL if this process
     // is not running a RAMCloud master. Owned elsewhere; not freed by this

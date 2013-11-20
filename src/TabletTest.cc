@@ -1,4 +1,4 @@
-/* Copyright (c) 2012 Stanford University
+/* Copyright (c) 2012-2013 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -39,10 +39,7 @@ class TabletTest : public ::testing::Test {
 
 TEST_F(TabletTest, serialize) {
     Lock lock(mutex);
-    CoordinatorServerList serverList(&context);
-    ServerId id1 = serverList.generateUniqueId(lock);
-    serverList.add(lock, id1, "mock:host=one", {WireFormat::MASTER_SERVICE}, 1);
-    Tablet tablet({0, 1, 6, id1, Tablet::NORMAL, {0, 5}});
+    Tablet tablet({0, 1, 6, ServerId(1, 0), Tablet::NORMAL, {0, 5}});
     ProtoBuf::Tablets::Tablet serializedTablet;
     tablet.serialize(serializedTablet);
     EXPECT_EQ("table_id: 0 start_key_hash: 1 end_key_hash: 6 "

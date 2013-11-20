@@ -52,7 +52,7 @@ CoordinatorUpdateManager::~CoordinatorUpdateManager()
  * \return
  *      The return value is the sequence number of the last update made
  *      by previous coordinators that is known to have completed successfully.
- *      Any updates more recent than this may still be in complete, and
+ *      Any updates more recent than this may still be incomplete, and
  *      hence must be recovered.
  */
 uint64_t
@@ -137,6 +137,21 @@ CoordinatorUpdateManager::updateFinished(uint64_t sequenceNumber)
     if (smallestUnfinished > (externalLastFinished + 100)) {
         sync(lock);
     }
+}
+
+/**
+ * Resets the state back to its initialized form. Used in unit tests to
+ * eliminate the effects of unrelated modules.
+ */
+void
+CoordinatorUpdateManager::reset()
+{
+    Lock lock(mutex);
+    activeUpdates.clear();
+    smallestUnfinished = 1;
+    lastAssigned = 0;
+    externalLastFinished = 0;
+    externalFirstAvailable = 0;
 }
 
 /**

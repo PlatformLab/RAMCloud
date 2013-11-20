@@ -1173,6 +1173,9 @@ struct UpdateServerList {
     struct Request {
         RequestCommonWithId common;
 
+        // Immediately following this header are one or more groups,
+        // where each group consists of a Part object (defined below)
+        // followed by a serialized ProtoBuf::ServerList.
         struct Part {
             uint32_t serverListLength; // Number of bytes in the server list.
                                        // The bytes of the server list follow
@@ -1182,6 +1185,9 @@ struct UpdateServerList {
     } __attribute__((packed));
     struct Response {
         ResponseCommon common;
+        uint64_t currentVersion;      // The server list version number of the
+                                      // RPC recipient, after processing this
+                                      // request.
     } __attribute__((packed));
 };
 

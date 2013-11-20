@@ -78,6 +78,7 @@ class CoordinatorUpdateManager {
     uint64_t externalLastFinished;
     uint64_t externalFirstAvailable;
 
+    void reset();
     void sync(Lock& lock);
 
     DISALLOW_COPY_AND_ASSIGN(CoordinatorUpdateManager);

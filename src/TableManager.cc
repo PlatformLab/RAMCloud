@@ -760,10 +760,6 @@ TableManager::notifySplitTablet(const Lock& lock, ProtoBuf::Table* info)
 {
     const ProtoBuf::Table::Split& split = info->split();
     ServerId serverId(split.server_id());
-    if (serverId.getId() == 0x7fffffffffffffffLU) {
-        printf("*** Error! looping\n");
-        while (1) {}
-    }
     try {
         MasterClient::splitMasterTablet(context, serverId, info->id(),
                 split.split_key_hash());

@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2012 Stanford University
+/* Copyright (c) 2011-2013 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -106,18 +106,14 @@ ServerList::operator[](uint32_t index)
  * entries in the updates themselves.
  *
  * The coordinator must (and should already) ensure:
- * 1) A full list is only sent to a server when it has received no other
- *    server list update yet. It is ok for a full list update to be resent
- *    due to rpc retries, but once it has been applied on a server no other
- *    full lists may be sent.
- * 2) Updates must not be sent to this server out-of-order. If the
+ * 1) Updates must not be sent to this server out-of-order. If the
  *    coordinator cannot confirm that an update has been applied it has no
  *    other option than to retry the update until acknowledgement.
- * 3) For enlisting server that "replace" and old server in the cluster
+ * 2) For enlisting server that "replace" an old server in the cluster
  *    (that is, a server re-enlisting with backup data written by a former
  *    cluster member process) the order the CRASHED/REMOVE event for the
  *    replaced server versus the UP event can affect correctness. Without
- *    care restarting backups may inadverently discard important segment
+ *    care restarting backups may inadvertently discard important segment
  *    replicas. The ordering is upheld by the current CoordinatorServerList
  *    implementation in two ways:
  *    a) Update lists are only single-entry only and dispatched in the order
@@ -139,7 +135,7 @@ ServerList::operator[](uint32_t index)
  *       to safety comes when backup generate isReplicaNeeded rpcs to masters
  *       that generated replicas they found on storage after restart the
  *       natural full list ordering is safe.
- * 4) That all servers are updated to CRASHED state before they are updated
+ * 3) That all servers are updated to CRASHED state before they are updated
  *    to REMOVE. This ensures that trackers see UP -> CRASHED -> REMOVE for
  *    each server and simplifies the use of trackers. (Trackers may see
  *    CRASHED -> REMOVE only for servers which were initially CRASHED in
@@ -148,34 +144,33 @@ ServerList::operator[](uint32_t index)
  *
  * \param list
  *      A snapshot of the coordinator's server list.
+ *
+ * \return
+ *      The current version number for the server list at the end of
+ *      this update (it may not have changed if the incoming information
+ *      was out of date and had to be ignored).
  */
-void
+uint64_t
 ServerList::applyServerList(const ProtoBuf::ServerList& list)
 {
-    // Ignore older updates; this check MUST go first.
-    if (list.version_number() <= version) {
-        LOG(NOTICE, "A repeated/old update version %lu was sent to "
-                "a ServerList with version %lu.",
-                list.version_number(), version);
-        return;
-    }
-
-    // This case will only trigger if the Coordinator sends double full lists
-    // that are of DIFFERENT versions. Duplicate full lists are caught
-    // by the first if statement above.
-    if (list.type() == ProtoBuf::ServerList::FULL_LIST && version) {
-        DIE("Coordinator sent a full list to a server whose serverlist was "
-                "already populated. This is a bug and should never happen "
-                "unless the coordinator code is busted.");
-    }
-
-    // This case will trigger if updates are somehow missed. This can't happen
-    // under normal circumstances; it would mean the Coordinator goofed or
-    // a false ACK was received. The latter should never be the case.
-    if (list.type() == ProtoBuf::ServerList::UPDATE &&
-            list.version_number() != version + 1) {
-        DIE("Missed an update from the Coordinator. This is a bug and "
-                "should never happen unless the coordinator code is busted.");
+    if (list.type() == ProtoBuf::ServerList::FULL_LIST) {
+        // Ignore a full list unless it is the very first update we have
+        // received (i.e. version == 0).
+        if (version != 0) {
+            LOG(NOTICE, "Ignoring full server list with version %lu "
+                    "(server list already populated, version %lu)",
+                    list.version_number(), version);
+            return version;
+        }
+    } else {
+        // Ignore an update unless its version number exactly follows
+        // the local version number.
+        if (list.version_number() != version + 1) {
+            LOG(NOTICE, "Ignoring out-of order server list update with "
+                    "version %lu (local server list is at version %lu)",
+                    list.version_number(), version);
+            return version;
+        }
     }
 
     LOG(DEBUG, "Server List from coordinator:\n%s",
@@ -205,13 +200,14 @@ ServerList::applyServerList(const ProtoBuf::ServerList& list)
             }
             entry.destroy();
         } else {
-            assert(false);
+            DIE("unknown ServerStatus %d", server.status());
         }
     }
 
     version = list.version_number();
     foreach (ServerTrackerInterface* tracker, trackers)
         tracker->fireCallback();
+    return version;
 }
 
 // - private -

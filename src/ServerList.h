@@ -32,7 +32,8 @@ namespace RAMCloud {
  * A ServerList maintains a mapping of coordinator-allocated ServerIds to
  * the service locators that address particular servers. Here a "server"
  * is not a physical machine, but rather a specific instance of a RAMCloud
- * server process.
+ * server process. This class is used by masters (the coordinator uses a
+ * CoordinatorServerList instead).
  *
  * This class is thread-safe (monitor- style lock) and supports ServerTrackers.
  * The tracker will be fed updates whenever servers come or go (add, crashed,
@@ -47,7 +48,7 @@ class ServerList : public AbstractServerList {
     ~ServerList();
 
     ServerId operator[](uint32_t indexNumber);
-    void applyServerList(const ProtoBuf::ServerList& list);
+    uint64_t applyServerList(const ProtoBuf::ServerList& list);
 
   PROTECTED:
     /// Internal Use Only - Does not grab locks
