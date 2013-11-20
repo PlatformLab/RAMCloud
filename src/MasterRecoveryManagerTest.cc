@@ -1,4 +1,4 @@
-/* Copyright (c) 2012 Stanford University
+/* Copyright (c) 2012-2013 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -63,19 +63,21 @@ struct MasterRecoveryManagerTest : public ::testing::Test {
      *
      * \param lock
      *      Explicity needs lock to be held by calling function.
+     * \param status
+     *      State for new server.  Defaults to ServerStatus::UP; typically
+     *      set to ServerStatus::CRASHED if a Recovery object is going to
+     *      be created without calling serverList->serverCrashed.
      * \return
      *      ServerId of the entry added to #serverList.
      */
-    ServerId addMaster(Lock& lock) {
-        ServerId serverId = serverList->generateUniqueId(lock);
-        serverList->add(lock, serverId, "fake-locator",
-            {WireFormat::MASTER_SERVICE}, 0);
-        serverList->version++;
-        serverList->pushUpdate(lock, serverList->version);
+    ServerId addMaster(Lock& lock, ServerStatus status = ServerStatus::UP) {
+        ServerId serverId = serverList->enlistServer(
+                {WireFormat::MASTER_SERVICE}, 0, "fake-locator");
         serverList->sync();
-        serverList->update.Clear(); // prevents cross contamination
         while (!mgr->taskQueue.isIdle())
             mgr->taskQueue.performTask();
+        CoordinatorServerList::Entry* entry = serverList->getEntry(serverId);
+        entry->status = status;
         return serverId;
     }
 
@@ -92,11 +94,8 @@ struct MasterRecoveryManagerTest : public ::testing::Test {
      *      Server to mark as crashed.
      */
     void crashServer(Lock& lock, ServerId crashedServerId) {
-        serverList->crashed(lock, crashedServerId);
-        serverList->version++;
-        serverList->pushUpdate(lock, serverList->version);
+        serverList->serverCrashed(crashedServerId);
         serverList->sync();
-        serverList->update.Clear(); // prevents cross contamination
         while (!mgr->taskQueue.isIdle())
             mgr->taskQueue.performTask();
     }
@@ -119,7 +118,7 @@ TEST_F(MasterRecoveryManagerTest, startAndHalt) {
 
 TEST_F(MasterRecoveryManagerTest, startMasterRecoveryNoTablets) {
     Lock lock(mutex); // For calls to internal functions without real lock.
-    auto crashedServerId = addMaster(lock);
+    auto crashedServerId = addMaster(lock, ServerStatus::CRASHED);
     TestLog::Enable _;
     mgr->startMasterRecovery((*serverList)[crashedServerId]);
     EXPECT_EQ("startMasterRecovery: Server 1.0 crashed, "
@@ -170,7 +169,7 @@ TEST_F(MasterRecoveryManagerTest, trackerChangesEnqueued) {
     // sure it gets informed if serverId crashes.
     std::unique_ptr<Recovery> recovery{
         new Recovery(&context, mgr->taskQueue, tableManager, &mgr->tracker, mgr,
-                     {1, 0},  {})};
+                     serverId, {})};
     recovery->numPartitions = 2;
     mgr->tracker[ServerId(1, 0)] = recovery.get();
 
@@ -183,10 +182,10 @@ TEST_F(MasterRecoveryManagerTest, trackerChangesEnqueued) {
 TEST_F(MasterRecoveryManagerTest, recoveryFinished) {
     Lock lock(mutex); // For calls to internal functions without real lock.
     EXPECT_EQ(0lu, serverList->version);
-    addMaster(lock);
+    ServerId serverId = addMaster(lock, ServerStatus::CRASHED);
     EXPECT_EQ(1lu, serverList->version);
     Recovery recovery(&context, mgr->taskQueue, tableManager, &mgr->tracker,
-                      NULL, {1, 0}, {});
+                      NULL, serverId, {});
     recovery.status = Recovery::BROADCAST_RECOVERY_COMPLETE;
     ASSERT_EQ(0lu, mgr->taskQueue.outstandingTasks());
     EXPECT_EQ(1lu, serverList->version);
@@ -194,17 +193,17 @@ TEST_F(MasterRecoveryManagerTest, recoveryFinished) {
 
     // ApplyTrackerChangesTask for crashed, one for remove, and the
     // MaybeStartRecoveryTask.
-    EXPECT_EQ(3lu, mgr->taskQueue.outstandingTasks());
+    EXPECT_EQ(2lu, mgr->taskQueue.outstandingTasks());
     EXPECT_EQ(2lu, serverList->version);
 }
 
 TEST_F(MasterRecoveryManagerTest, recoveryFinishedUnsuccessful) {
     Lock lock(mutex); // For calls to internal functions without real lock.
     EXPECT_EQ(0lu, serverList->version);
-    addMaster(lock);
+    ServerId serverId = addMaster(lock, ServerStatus::CRASHED);
     EXPECT_EQ(1lu, serverList->version);
     Recovery recovery(&context, mgr->taskQueue, tableManager, &mgr->tracker,
-                      NULL, {1, 0},  {});
+                      NULL, serverId,  {});
     ASSERT_EQ(0lu, mgr->taskQueue.outstandingTasks());
     EXPECT_EQ(1lu, serverList->version);
     mgr->recoveryFinished(&recovery);
@@ -216,12 +215,12 @@ TEST_F(MasterRecoveryManagerTest, recoveryFinishedUnsuccessful) {
 
 TEST_F(MasterRecoveryManagerTest, recoveryMasterFinishedNoSuchRecovery) {
     Lock lock(mutex); // For calls to internal functions without real lock.
-    addMaster(lock);
+    ServerId serverId = addMaster(lock, ServerStatus::CRASHED);
     const ProtoBuf::Tablets recoveredTablets;
     TestLog::Enable _;
     std::thread thread(&MasterRecoveryManager::recoveryMasterFinished,
                        std::ref(*mgr),
-                       0lu, ServerId{1, 0}, recoveredTablets, false);
+                       0lu, serverId, recoveredTablets, false);
     while (!mgr->taskQueue.performTask()); // Do RecoveryMasterFinishedTask.
     thread.join();
     EXPECT_EQ(
@@ -244,10 +243,9 @@ TEST_F(MasterRecoveryManagerTest, recoveryMasterFinished) {
     tableManager->testAddTablet({0, 0, ~0lu, {1, 0}, Tablet::NORMAL, {2, 3}});
 
     EXPECT_EQ(0lu, serverList->version);
-    auto crashedServerId = addMaster(lock);
-    crashServer(lock, crashedServerId);
+    auto crashedServerId = addMaster(lock, ServerStatus::CRASHED);
     addMaster(lock); // Recovery master.
-    EXPECT_EQ(3lu, serverList->version);
+    EXPECT_EQ(2lu, serverList->version);
 
     std::unique_ptr<Recovery> recovery{
         new Recovery(&context, mgr->taskQueue, tableManager, &mgr->tracker, mgr,
@@ -263,7 +261,7 @@ TEST_F(MasterRecoveryManagerTest, recoveryMasterFinished) {
     tableManager->testAddTablet(
         {0, 0, ~0lu, {1, 0}, Tablet::RECOVERING, {2, 3}});
 
-    EXPECT_EQ(3lu, serverList->version);
+    EXPECT_EQ(2lu, serverList->version);
 
     TestLog::Enable _;
     std::thread thread(&MasterRecoveryManager::recoveryMasterFinished,
@@ -292,10 +290,10 @@ TEST_F(MasterRecoveryManagerTest, recoveryMasterFinished) {
             "serverId: 1.0, status: RECOVERING, ctime: 2.3 } } | "
         "schedule: scheduled | "
         "recoveryFinished: Recovery 1 completed for master 1.0 | "
-        "execute: LogCabin: ServerRemoveUpdate entryId: 5 | "
-        "complete: Removing 1.0 from cluster/coordinator server list | "
+        "recoveryCompleted: Removing server 1.0 from cluster/coordinator "
+            "server list | "
+        "persistAndPropagate: Persisting 1.0 | "
         "schedule: scheduled | schedule: scheduled | "
-        "execute: LogCabin: ServerListVersion entryId: 6 | "
         "recoveryMasterFinished: Notifying recovery master ok to serve tablets",
               TestLog::get());
 
@@ -304,7 +302,7 @@ TEST_F(MasterRecoveryManagerTest, recoveryMasterFinished) {
     EXPECT_EQ(3lu, mgr->taskQueue.outstandingTasks());
 
     // Ensure server list broadcast happened.
-    EXPECT_EQ(4lu, serverList->version);
+    EXPECT_EQ(3lu, serverList->version);
 }
 
 TEST_F(MasterRecoveryManagerTest,
@@ -315,8 +313,7 @@ TEST_F(MasterRecoveryManagerTest,
     tableManager->testCreateTable("foo", 0);
     tableManager->testAddTablet({0, 0, ~0lu, {1, 0}, Tablet::NORMAL, {2, 3}});
 
-    auto crashedServerId = addMaster(lock);
-    crashServer(lock, crashedServerId);
+    auto crashedServerId = addMaster(lock, ServerStatus::CRASHED);
     addMaster(lock); // Recovery master.
 
     std::unique_ptr<Recovery> recovery{
@@ -385,13 +382,13 @@ TEST_F(MasterRecoveryManagerTest,
     tableManager->testAddTablet({1, 0, ~0lu, {2, 0}, Tablet::NORMAL, {2, 3}});
     tableManager->testAddTablet({2, 0, ~0lu, {3, 0}, Tablet::NORMAL, {2, 3}});
 
-    crashServer(lock, addMaster(lock));
-    crashServer(lock, addMaster(lock));
-    crashServer(lock, addMaster(lock));
+    ServerId id1 = addMaster(lock, ServerStatus::CRASHED);
+    ServerId id2 = addMaster(lock, ServerStatus::CRASHED);
+    ServerId id3 = addMaster(lock, ServerStatus::CRASHED);
 
-    mgr->startMasterRecovery((*serverList)[ServerId(1, 0)]);
-    mgr->startMasterRecovery((*serverList)[ServerId(2, 0)]);
-    mgr->startMasterRecovery((*serverList)[ServerId(3, 0)]);
+    mgr->startMasterRecovery((*serverList)[id1]);
+    mgr->startMasterRecovery((*serverList)[id2]);
+    mgr->startMasterRecovery((*serverList)[id3]);
     // Process each of the Enqueue tasks.
     mgr->taskQueue.performTask();
     mgr->taskQueue.performTask();
@@ -427,12 +424,11 @@ TEST_F(MasterRecoveryManagerTest,
     tableManager->testAddTablet({1, 0, ~0lu, {2, 0}, Tablet::NORMAL, {2, 3}});
     tableManager->testAddTablet({2, 0, ~0lu, {3, 0}, Tablet::NORMAL, {2, 3}});
 
-    auto crashedServerId = addMaster(lock);
-    crashServer(lock, crashedServerId);
+    auto crashedServerId = addMaster(lock, ServerStatus::CRASHED);
     EXPECT_EQ(ServerId(1, 0), crashedServerId);
 
-    mgr->startMasterRecovery((*serverList)[ServerId(1, 0)]);
-    mgr->startMasterRecovery((*serverList)[ServerId(1, 0)]);
+    mgr->startMasterRecovery((*serverList)[crashedServerId]);
+    mgr->startMasterRecovery((*serverList)[crashedServerId]);
     // Process each of the Enqueue tasks.
     mgr->taskQueue.performTask();
     mgr->taskQueue.performTask();

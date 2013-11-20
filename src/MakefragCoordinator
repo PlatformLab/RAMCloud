@@ -9,6 +9,7 @@ COORDINATOR_SRCFILES := \
 			src/Recovery.cc \
 			src/RuntimeOptions.cc \
 			src/CoordinatorUpdateInfo.pb.cc \
+			src/ServerListEntry.pb.cc \
 			src/Table.pb.cc \
 			src/TableManager.pb.cc \
 			$(NULL)

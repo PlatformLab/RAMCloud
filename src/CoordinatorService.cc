@@ -32,7 +32,8 @@ namespace RAMCloud {
  * Construct a CoordinatorService.
  *
  * \param context
- *      Overall information about the RAMCloud server.
+ *      Overall information about the RAMCloud server. A pointer to this
+ *      object will be stored at context->coordinatorService.
  * \param deadServerTimeout
  *      Servers are presumed dead if they cannot respond to a ping request
  *      in this many milliseconds.
@@ -52,13 +53,20 @@ CoordinatorService::CoordinatorService(Context* context,
     , forceServerDownForTesting(false)
 {
     context->recoveryManager = &recoveryManager;
+    context->coordinatorService = this;
 
     if (startRecoveryManager)
         recoveryManager.start();
 
     // Recover state (and incomplete operations) from external storage.
     uint64_t lastCompletedUpdate = updateManager.init();
+    serverList->recover(lastCompletedUpdate);
     tableManager.recover(lastCompletedUpdate);
+
+    // Don't enable server list updates until recovery is finished (before
+    // this point the server list may not contain all information needed
+    // for updating).
+    serverList->startUpdater();
 }
 
 CoordinatorService::~CoordinatorService()
@@ -265,14 +273,22 @@ CoordinatorService::enlistServer(
     const char* serviceLocator = getString(rpc->requestPayload, sizeof(*reqHdr),
                                            reqHdr->serviceLocatorLength);
 
-    LOG(NOTICE, "Starting enlistment for %s", serviceLocator);
-    ServerId newServerId = serverList->enlistServer(
-        replacesId, serviceMask, readSpeed, serviceLocator);
+    // If the new server is replacing an existing one, we must start
+    // crash recovery on the old server. Furthermore, we must initiate that
+    // right away, so that existing servers will be notified of the crash
+    // before finding out about the new server.
+    if (serverList->isUp(replacesId)) {
+        LOG(NOTICE, "enlisting server %s claims to replace server id "
+            "%s, which is still in the server list; taking its word "
+            "for it and assuming the old server has failed",
+            serviceLocator, replacesId.toString().c_str());
+        serverList->serverCrashed(replacesId);
+    }
+
+    ServerId newServerId = serverList->enlistServer(serviceMask, readSpeed,
+                                                    serviceLocator);
 
     respHdr->serverId = newServerId.getId();
-    rpc->sendReply();
-    LOG(NOTICE, "Replied to enlistment for %s with serverId %s",
-        serviceLocator, newServerId.toString().c_str());
 }
 
 /**

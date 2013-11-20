@@ -88,9 +88,7 @@ main(int argc, char *argv[])
         context.externalStorage->becomeLeader("/coordinator", localLocator);
 
         CoordinatorService coordinatorService(&context,
-                                              deadServerTimeout,
-                                              logCabinLocator);
-        context.coordinatorService = &coordinatorService;
+                                              deadServerTimeout);
         context.serviceManager->addService(coordinatorService,
                                            WireFormat::COORDINATOR_SERVICE);
         PingService pingService(&context);
