@@ -498,16 +498,16 @@ TableManager::serialize(ProtoBuf::Tablets* tablets) const
  * Split a tablet into two disjoint tablets at a specific key hash. Check
  * if the split already exists, in which case, just return. Also informs
  * the master to split the tablet.
- * 
+ *
  * \param name
  *      Name of the table that contains the tablet to be split.
  * \param splitKeyHash
  *      Key hash to used to partition the tablet into two. Keys less than
  *      \a splitKeyHash belong to one tablet, keys greater than or equal to
  *      \a splitKeyHash belong to the other.
- * 
+ *
  * \throw NoSuchTable
- *      If name does not identify a table currently in the tables.
+ *      If name does not correspond to an existing table.
  */
 void
 TableManager::splitTablet(const char* name, uint64_t splitKeyHash)
@@ -547,6 +547,52 @@ TableManager::splitTablet(const char* name, uint64_t splitKeyHash)
     notifySplitTablet(lock, &externalInfo);
     updateManager->updateFinished(externalInfo.sequence_number());
 
+}
+
+/**
+ * This method is similar to splitTablet, except that it is only
+ * invoked for a tablet owned by a master being recovered. This
+ * results in slightly different functionality (e.g., no need to
+ * notify the master).
+ *
+ * \param tableId
+ *      Id of the table that contains the tablet to be split.
+ * \param splitKeyHash
+ *      Key hash to used to partition the tablet into two. Keys less than
+ *      \a splitKeyHash belong to one tablet, keys greater than or equal to
+ *      \a splitKeyHash belong to the other.
+ *
+ * \throw NoSuchTable
+ *      If tableId does not specify an existing table.
+ */
+void
+TableManager::splitRecoveringTablet(uint64_t tableId, uint64_t splitKeyHash)
+{
+    Lock lock(mutex);
+    IdMap::iterator it = idMap.find(tableId);
+    if (it == idMap.end())
+        throw NoSuchTable(HERE);
+    Table* table = it->second;
+    Tablet* tablet = findTablet(lock, table, splitKeyHash);
+    if (splitKeyHash == tablet->startKeyHash)
+        return;
+    assert(tablet->status == Tablet::RECOVERING);
+
+    // Perform the split on our in-memory structures.
+    table->tablets.push_back(new Tablet(tablet->tableId, splitKeyHash,
+            tablet->endKeyHash, tablet->serverId, tablet->status,
+            tablet->ctime));
+    tablet->endKeyHash = splitKeyHash - 1;
+
+    // No need to record anything in external storage right now. If
+    // recovery completes successfully, the Table info will get written
+    // to external storage then, including the split information.
+    // If the coordinator crashes before completing recovery, it
+    // can restart with the old table structure (it will probably just
+    // split the tablet again).
+    //
+    // Also, no need to notify the tablet's current master, since it
+    // has crashed.
 }
 
 /**

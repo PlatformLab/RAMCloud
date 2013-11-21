@@ -72,7 +72,8 @@ message Table {
   /// recent update to the table's metadata, which may or may not have
   /// completed.
 
-  /// Sequence number for the most recent update.
+  /// Sequence number for the most recent update. 0 means the most
+  /// recent update does not have any recovery-related issues.
   required uint64 sequence_number = 4;
 
   /// If this value is present, it is true, indicating that the most

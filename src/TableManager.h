@@ -75,6 +75,7 @@ class TableManager {
     void serialize(ProtoBuf::Tablets* tablets) const;
     void splitTablet(const char* name,
                      uint64_t splitKeyHash);
+    void splitRecoveringTablet(uint64_t tableId, uint64_t splitKeyHash);
     void tabletRecovered(uint64_t tableId,
                          uint64_t startKeyHash,
                          uint64_t endKeyHash,

@@ -608,6 +608,34 @@ TEST_F(TableManagerTest, splitTablet_tabletRecovering) {
             RetryException);
 }
 
+TEST_F(TableManagerTest, splitRecoveringTablet_splitAlreadyExists) {
+    cluster.addServer(masterConfig)->master.get();
+    uint64_t tableId = tableManager->createTable("foo", 2);
+    tableManager->markAllTabletsRecovering(cluster.servers[0]->serverId);
+
+    tableManager->splitRecoveringTablet(tableId, 0x8000000000000000);
+    EXPECT_EQ("{ foo(id 1): "
+            "{ 0x0-0x7fffffffffffffff on 1.0 } "
+            "{ 0x8000000000000000-0xffffffffffffffff on 1.0 } }",
+            tableManager->debugString(true));
+}
+TEST_F(TableManagerTest, splitRecoveringTablet_badTableId) {
+    EXPECT_THROW(tableManager->splitRecoveringTablet(99LU, 0x800),
+            TableManager::NoSuchTable);
+}
+TEST_F(TableManagerTest, splitRecoveringTablet_success) {
+    cluster.addServer(masterConfig)->master.get();
+    cluster.addServer(masterConfig)->master.get();
+    uint64_t tableId = tableManager->createTable("foo", 2);
+    tableManager->markAllTabletsRecovering(cluster.servers[0]->serverId);
+
+    tableManager->splitRecoveringTablet(tableId, 0x1000);
+    EXPECT_EQ("{ foo(id 1): { 0x0-0xfff on 1.0 } "
+            "{ 0x8000000000000000-0xffffffffffffffff on 2.0 } "
+            "{ 0x1000-0x7fffffffffffffff on 1.0 } }",
+            tableManager->debugString(true));
+}
+
 TEST_F(TableManagerTest, tabletRecovered_basics) {
     cluster.addServer(masterConfig)->master.get();
     tableManager->createTable("foo", 2);
