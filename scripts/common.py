@@ -167,8 +167,12 @@ class Sandbox(object):
                                     '%s/killcoord' % scripts_path]))
 
                 path = '%s/logs/shm' % scripts_path
-                files = sorted([f for f in os.listdir(path)
-                   if os.path.isfile( os.path.join(path, f) )])
+                files = ""
+                try:
+                    files = sorted([f for f in os.listdir(path)
+                        if os.path.isfile( os.path.join(path, f) )])
+                except:
+                    pass
 
                 # kill all the servers that are running
                 for mhost in files:
