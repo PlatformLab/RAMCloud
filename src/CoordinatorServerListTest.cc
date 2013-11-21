@@ -746,7 +746,7 @@ TEST_F(CoordinatorServerListTest, serverCrashed_success) {
     EXPECT_TRUE(TestUtil::contains(TestLog::get(),
             "persistAndPropagate: Persisting 1.0"));
     EXPECT_TRUE(TestUtil::contains(TestLog::get(),
-            "startMasterRecovery: Server 1.0 crashed, but it had no tablets"));
+            "startMasterRecovery: Scheduling recovery of master 1.0"));
 
     // Crash a second server.
     sl->serverCrashed(id2);

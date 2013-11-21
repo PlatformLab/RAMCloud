@@ -20,7 +20,6 @@
 
 #include "ExternalStorage.h"
 #include "WorkerTimer.h"
-#include "zookeeper/zookeeper.h"
 
 namespace RAMCloud {
 
