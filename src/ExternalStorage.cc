@@ -17,7 +17,7 @@
 #include "ExternalStorage.h"
 
 namespace RAMCloud {
-    
+
 /**
  * Constructor for ExternalStorage objects.
  */
