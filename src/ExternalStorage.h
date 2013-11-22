@@ -127,7 +127,7 @@ class ExternalStorage {
         UPDATE                     // An existing object is being overwritten.
     };
 
-    ExternalStorage() {}
+    ExternalStorage();
     virtual ~ExternalStorage() {}
 
     /**
@@ -138,9 +138,10 @@ class ExternalStorage {
      * Once this method returns, the caller can begin acting as coordinator.
      *
      *  \param name
-     *      Name of an object to use for coordinating leadership: a
-     *      NULL-terminated hierarchical path containing one or more path
-     *      elements separated by slashes, such as "/foo" or "/foo/bar".
+     *      Name of the desired object; NULL-terminated hierarchical path
+     *      containing one or more path elements separated by slashes,
+     *      such as "foo" or "/foo/bar". Relative names (no leading slash)
+     *      are concatenated to the current workspace.
      *  \param leaderInfo
      *      Information about this server (e.g., service locator that clients
      *      can use to connect), which will be stored in the object given
@@ -154,7 +155,8 @@ class ExternalStorage {
      * \param name
      *      Name of the desired object; NULL-terminated hierarchical path
      *      containing one or more path elements separated by slashes,
-     *      such as "/foo" or "/foo/bar".
+     *      such as "foo" or "/foo/bar". Relative names (no leading slash)
+     *      are concatenated to the current workspace.
      * \param value
      *      The contents of the object are returned in this buffer.
      *
@@ -167,13 +169,29 @@ class ExternalStorage {
     virtual bool get(const char* name, Buffer* value) = 0;
 
     /**
+     * Return information about all of the children of a node.
+     *
+     * \param name
+     *      Name of the node whose children should be enumerated;
+     *      NULL-terminated hierarchical path containing one or more path
+     *      elements separated by slashes, such as "foo" or "/foo/bar".
+     *      Relative names (no leading slash) are concatenated to the
+     *      current workspace.
+     * \param children
+     *      This vector will be filled in with one entry for each child
+     *      of name. Any previous contents of the vector are discarded.
+     */
+    virtual void getChildren(const char* name, vector<Object>* children) = 0;
+
+    /**
      * Read an object from external storage, and parse it as a protocol
      * buffer of type ProtoBufType.
      *
      * \param name
      *      Name of the desired object; NULL-terminated hierarchical path
      *      containing one or more path elements separated by slashes,
-     *      such as "/foo" or "/foo/bar".
+     *      such as "foo" or "/foo/bar". Relative names (no leading slash)
+     *      are concatenated to the current workspace.
      * \param value
      *      A protocol buffer into which the object value is parsed.
      *
@@ -203,16 +221,10 @@ class ExternalStorage {
     }
 
     /**
-     * Return information about all of the children of a node.
-     *
-     * \param name
-     *      Name of the node whose children should be enumerated.
-     *      NULL-terminated hierarchical path.
-     * \param children
-     *      This vector will be filled in with one entry for each child
-     *      of name. Any previous contents of the vector are discarded.
+     * Return the last value passed to setWorkspace (i.e. the path prefix
+     * used for relative node names).
      */
-    virtual void getChildren(const char* name, vector<Object>* children) = 0;
+    virtual const char* getWorkspace();
 
     /**
      * Remove an object, if it exists. If it doesn't exist, do nothing.
@@ -220,9 +232,10 @@ class ExternalStorage {
      * followed by name.
      *
      * \param name
-     *      Name of the object to remove; NULL-terminated hierarchical path
+     *      Name of the desired object; NULL-terminated hierarchical path
      *      containing one or more path elements separated by slashes,
-     *      such as "/foo" or "/foo/bar".
+     *      such as "foo" or "/foo/bar". Relative names (no leading slash)
+     *      are concatenated to the current workspace.
      *
      * \throws NotLeaderException
      */
@@ -244,7 +257,8 @@ class ExternalStorage {
      * \param name
      *      Name of the desired object; NULL-terminated hierarchical path
      *      containing one or more path elements separated by slashes,
-     *      such as "/foo" or "/foo/bar".
+     *      such as "foo" or "/foo/bar". Relative names (no leading slash)
+     *      are concatenated to the current workspace.
      * \param value
      *      Address of first byte of value to store for this object.
      * \param valueLength
@@ -257,6 +271,36 @@ class ExternalStorage {
      */
     virtual void set(Hint flavor, const char* name, const char* value,
             int valueLength = -1) = 0;
+
+    /**
+     * Specify the current workspace for the application. This is
+     * equivalent to a working directory: if a node name specified to
+     * any other method does not begin with a slash, then the workspace
+     * is prepended to that name. For example, if the workspace is "/a/b/"
+     * then the node name "c/d" really refers to "/a/b/c/d".  If this
+     * method has not been called, then the workspace defaults to "/".
+     *
+     * \param pathPrefix
+     *      Top-level node in the workspace. Must start and end with "/".
+     */
+    virtual void setWorkspace(const char* pathPrefix);
+
+  PROTECTED:
+    const char* getFullName(const char* name);
+
+    /// Holds the current workspace prefix.
+    string workspace;
+
+    /// Used to create full node names by concatenating a relative node
+    /// name with the workspace. This object is retained in order to avoid
+    /// malloc costs for recreating it (but it has the limitation that only
+    /// one such name can be stored at a time). This string always contains
+    /// workspace as its first characters.
+    string fullName;
+
+    /// Used for testing only: if non-NULL, will be returned as the result
+    /// of getFullName.
+    const char* testName;
 
     DISALLOW_COPY_AND_ASSIGN(ExternalStorage);
 };

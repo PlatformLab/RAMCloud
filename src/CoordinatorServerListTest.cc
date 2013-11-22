@@ -423,7 +423,7 @@ TEST_F(CoordinatorServerListTest, recover_formatErrorInExternalData) {
     } catch (FatalError& e) {
         message = e.message;
     }
-    EXPECT_EQ("couldn't parse protocol buffer in /server/server1", message);
+    EXPECT_EQ("couldn't parse protocol buffer in servers/server1", message);
 }
 TEST_F(CoordinatorServerListTest, recover_repairReplicationGroups) {
     TestLog::Enable _("createReplicationGroups", "removeReplicationGroup",
@@ -471,7 +471,7 @@ TEST_F(CoordinatorServerListTest, recover_entryConflict) {
     } catch (FatalError& e) {
         message = e.message;
     }
-    EXPECT_EQ("couldn't process external data at /server/2a (server id 2.1): "
+    EXPECT_EQ("couldn't process external data at servers/2a (server id 2.1): "
             "server list slot 2 already occupied", message);
     EXPECT_EQ("nextGenerationNumber: 5, serverId: 2.4, "
             "services: MASTER_SERVICE, MEMBERSHIP_SERVICE, status: UP, "
@@ -591,7 +591,7 @@ TEST_F(CoordinatorServerListTest, recover_updateIncomplete) {
             "min_open_segment_id: 222 min_open_segment_epoch: 77 } "
             "version: 6",
             info.ShortDebugString());
-    EXPECT_TRUE(TestUtil::contains(storage->log, "set(UPDATE, /server/2)"));
+    EXPECT_TRUE(TestUtil::contains(storage->log, "set(UPDATE, servers/2)"));
 
     // Check proper recording in the update list.
     EXPECT_EQ(1lu, sl->updates.size());
@@ -786,7 +786,7 @@ TEST_F(CoordinatorServerListTest, setMasterRecoveryInfo_success) {
     recoveryInfo.set_min_open_segment_epoch(17);
     cluster.externalStorage.log.clear();
     EXPECT_TRUE(sl->setMasterRecoveryInfo(id1, &recoveryInfo));
-    EXPECT_EQ("set(UPDATE, /server/1)", cluster.externalStorage.log);
+    EXPECT_EQ("set(UPDATE, servers/1)", cluster.externalStorage.log);
     ProtoBuf::ServerListEntry entry;
     EXPECT_TRUE(entry.ParseFromString(cluster.externalStorage.setData));
     EXPECT_EQ("min_open_segment_id: 4 min_open_segment_epoch: 17",
@@ -862,7 +862,7 @@ TEST_F(CoordinatorServerListTest, persistAndPropagate) {
     sl->version = 50U;
     sl->persistAndPropagate(lock, entry, ServerChangeEvent::SERVER_CRASHED);
     EXPECT_TRUE(TestUtil::contains(cluster.externalStorage.log,
-                "set(UPDATE, /server/2"));
+                "set(UPDATE, servers/2"));
     ProtoBuf::ServerListEntry entryPb;
     EXPECT_TRUE(entryPb.ParseFromString(cluster.externalStorage.setData));
     EXPECT_EQ("services: 3 server_id: 12884901890 "
@@ -1673,7 +1673,7 @@ TEST_F(CoordinatorServerListTest, Entry_sync) {
     TestLog::reset();
     cluster.externalStorage.log.clear();
     entry->sync(&cluster.externalStorage);
-    EXPECT_EQ("set(UPDATE, /server/2)", cluster.externalStorage.log);
+    EXPECT_EQ("set(UPDATE, servers/2)", cluster.externalStorage.log);
     ProtoBuf::ServerListEntry entryPb;
     EXPECT_TRUE(entryPb.ParseFromString(cluster.externalStorage.setData));
     EXPECT_EQ("services: 3 server_id: 12884901890 "

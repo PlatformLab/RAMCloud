@@ -89,7 +89,7 @@ TEST_F(CoordinatorUpdateManagerTest, init_noInfoAvailable) {
     EXPECT_EQ(1ul, manager.externalFirstAvailable);
     EXPECT_EQ(1ul, manager.smallestUnfinished);
     EXPECT_EQ(0ul, manager.lastAssigned);
-    EXPECT_EQ("init: couldn't find \"coordinatorUpdateInfo\" object in "
+    EXPECT_EQ("init: couldn't find \"coordinatorUpdateManager\" object in "
             "external storage; starting new cluster from scratch",
             TestLog::get());
 }
@@ -102,7 +102,7 @@ TEST_F(CoordinatorUpdateManagerTest, init_formatError) {
     } catch (FatalError& e) {
         message = e.message;
     }
-    EXPECT_EQ("format error in \"coordinatorUpdateInfo\" object in "
+    EXPECT_EQ("format error in \"coordinatorUpdateManager\" object in "
             "external storage", message);
 }
 TEST_F(CoordinatorUpdateManagerTest, init_success) {
@@ -121,7 +121,7 @@ TEST_F(CoordinatorUpdateManagerTest, nextSequenceNumber) {
     TestLog::reset();
     storage.log.clear();
     EXPECT_EQ(1000ul, manager.nextSequenceNumber());
-    EXPECT_EQ("set(UPDATE, /coordinatorUpdateInfo)",
+    EXPECT_EQ("set(UPDATE, coordinatorUpdateManager)",
             storage.log);
     EXPECT_EQ("1000 -- F", toString());
 
@@ -165,7 +165,7 @@ TEST_F(CoordinatorUpdateManagerTest, uupdateFinished_sync) {
     manager.updateFinished(1001);
     EXPECT_EQ("", storage.log);
     manager.updateFinished(1002);
-    EXPECT_EQ("set(UPDATE, /coordinatorUpdateInfo)", storage.log);
+    EXPECT_EQ("set(UPDATE, coordinatorUpdateManager)", storage.log);
     storage.log.clear();
     manager.updateFinished(1003);
     EXPECT_EQ("", storage.log);

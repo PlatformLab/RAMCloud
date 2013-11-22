@@ -17,6 +17,64 @@
 #include "ExternalStorage.h"
 
 namespace RAMCloud {
+    
+/**
+ * Constructor for ExternalStorage objects.
+ */
+ExternalStorage::ExternalStorage()
+    : workspace("/")
+    , fullName(workspace)
+    , testName(NULL)
+{}
+
+// See header file for documentation.
+const char*
+ExternalStorage::getWorkspace()
+{
+    return workspace.c_str();
+}
+
+// See header file for documentation.
+void
+ExternalStorage::setWorkspace(const char* pathPrefix)
+{
+    workspace = pathPrefix;
+    fullName = pathPrefix;
+    assert(pathPrefix[0] == '/');
+    assert(pathPrefix[workspace.size()-1] == '/');
+}
+
+/**
+ * Return the absolute node name (i.e., one that begins with "/") that
+ * corresponds to the \c name argument. It is provided as a convenience for
+ * subclasses.
+ * 
+ * \param name
+ *      Name of a node; may be either relative or absolute.
+ * 
+ * \return
+ *      If \c name starts with "/", then it is returned. Otherwise, an
+ *      absolute node name is formed by concatenating the workspace name
+ *      with \c name, and this is returned. Note: the return value is stored
+ *      in a string in the ExternalStorage object, and will be overwritten
+ *      the next time this method is invoked. If you need the result to
+ *      last a long time, you better copy it. This method is not thread-safe:
+ *      it assumes the caller has acquired a lock, so that no one else can
+ *      invoke this method concurrently.
+ */
+const char*
+ExternalStorage::getFullName(const char* name)
+{
+    if (testName != NULL) {
+        return testName;
+    }
+    if (name[0] == '/') {
+        return name;
+    }
+    fullName.resize(workspace.size());
+    fullName.append(name);
+    return fullName.c_str();
+}
 
 /**
  * Construct an Object.

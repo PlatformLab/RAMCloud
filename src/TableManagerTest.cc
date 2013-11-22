@@ -204,7 +204,7 @@ TEST_F(TableManagerTest, dropTable_basics) {
             "sequence_number: 2 deleted: true",
             cluster.externalStorage.getPbValue<ProtoBuf::Table>());
     EXPECT_EQ(3U, updateManager->smallestUnfinished);
-    EXPECT_EQ("set(UPDATE, /tables/foo); remove(/tables/foo)",
+    EXPECT_EQ("set(UPDATE, tables/foo); remove(tables/foo)",
             cluster.externalStorage.log);
 }
 TEST_F(TableManagerTest, dropTable_tableDoesntExist) {
@@ -340,7 +340,7 @@ TEST_F(TableManagerTest, recover_basics) {
             "Tablet { startKeyHash: 0x400, endKeyHash: 0x500, "
             "serverId: 77.0, status: NORMAL, ctime: 21.22 } }",
             tableManager->debugString());
-    EXPECT_EQ("get(/tableManager); getChildren(/table)",
+    EXPECT_EQ("get(tableManager); getChildren(tables)",
             cluster.externalStorage.log);
 }
 TEST_F(TableManagerTest, recover_nextTableId) {
@@ -582,7 +582,7 @@ TEST_F(TableManagerTest, splitTablet_basics) {
     EXPECT_EQ("server_id: 1 split_key_hash: 4096",
             info.split().ShortDebugString());
     EXPECT_EQ(3U, updateManager->smallestUnfinished);
-    EXPECT_EQ("set(UPDATE, /tables/foo)",
+    EXPECT_EQ("set(UPDATE, tables/foo)",
             cluster.externalStorage.log);
 }
 TEST_F(TableManagerTest, splitTablet_splitAlreadyExists) {
@@ -747,7 +747,7 @@ TEST_F(TableManagerTest, notifyDropTable_basics) {
             "notifyDropTable: dropTabletOwnership skipped for master 99.0 "
             "(table 444, key hashes 0x800-0x900) because server isn't running",
             TestLog::get());
-    EXPECT_EQ("remove(/tables/table1)",
+    EXPECT_EQ("remove(tables/table1)",
             cluster.externalStorage.log);
 }
 TEST_F(TableManagerTest, notifyDropTable_syncNextTableId) {
@@ -761,7 +761,7 @@ TEST_F(TableManagerTest, notifyDropTable_syncNextTableId) {
 
     tableManager->nextTableId = 100;
     tableManager->notifyDropTable(lock, &table);
-    EXPECT_EQ("set(UPDATE, /tableManager); remove(/tables/table1)",
+    EXPECT_EQ("set(UPDATE, tableManager); remove(tables/table1)",
             cluster.externalStorage.log);
 }
 
@@ -930,7 +930,7 @@ TEST_F(TableManagerTest, serializeTable) {
 TEST_F(TableManagerTest, sync) {
     tableManager->nextTableId = 444u;
     tableManager->sync(lock);
-    EXPECT_EQ("set(UPDATE, /tableManager)",
+    EXPECT_EQ("set(UPDATE, tableManager)",
             cluster.externalStorage.log);
     EXPECT_EQ("next_table_id: 444",
             cluster.externalStorage.getPbValue<ProtoBuf::TableManager>());
@@ -945,7 +945,7 @@ TEST_F(TableManagerTest, syncTable) {
 
     cluster.externalStorage.log.clear();
     tableManager->createTable("foo", 1);
-    EXPECT_EQ("set(UPDATE, /coordinatorUpdateInfo); set(UPDATE, /tables/foo)",
+    EXPECT_EQ("set(UPDATE, coordinatorUpdateManager); set(UPDATE, tables/foo)",
             cluster.externalStorage.log);
     EXPECT_EQ("name: \"foo\" id: 1 tablet { "
             "start_key_hash: 0 end_key_hash: 18446744073709551615 "
@@ -955,7 +955,7 @@ TEST_F(TableManagerTest, syncTable) {
             cluster.externalStorage.getPbValue<ProtoBuf::Table>());
     cluster.externalStorage.log.clear();
     tableManager->createTable("bar", 1);
-    EXPECT_EQ("set(UPDATE, /tables/bar)", cluster.externalStorage.log);
+    EXPECT_EQ("set(UPDATE, tables/bar)", cluster.externalStorage.log);
 }
 
 }  // namespace RAMCloud

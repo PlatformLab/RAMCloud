@@ -174,7 +174,8 @@ TEST_F(ZooStorageTest, getChildren_noSuchObject) {
 }
 TEST_F(ZooStorageTest, getChildren_unrecoverableError) {
     vector<ZooStorage::Object> children;
-    EXPECT_THROW(zoo->getChildren("nameWithNoSlash", &children), FatalError);
+    zoo->testName = "nameWithNoSlash";
+    EXPECT_THROW(zoo->getChildren("ignored", &children), FatalError);
     EXPECT_EQ("handleError: ZooKeeper API error: bad arguments",
             TestLog::get());
 }
@@ -220,7 +221,8 @@ TEST_F(ZooStorageTest, removeInternal_nonexistentObject) {
     EXPECT_FALSE(zoo->get("/test/var1", &value));
 }
 TEST_F(ZooStorageTest, removeInternal_unrecoverableError) {
-    EXPECT_THROW(zoo->remove("bogus99"), FatalError);
+    zoo->testName = "nameWithNoSlash";
+    EXPECT_THROW(zoo->remove("ignored"), FatalError);
     EXPECT_EQ("handleError: ZooKeeper API error: bad arguments",
             TestLog::get());
 }
@@ -270,7 +272,8 @@ TEST_F(ZooStorageTest, setInternal_createHintIncorrect) {
             TestLog::get());
 }
 TEST_F(ZooStorageTest, setInternal_createError) {
-    EXPECT_THROW(zoo->set(ExternalStorage::Hint::CREATE, "bogusName",
+    zoo->testName = "nameWithNoSlash";
+    EXPECT_THROW(zoo->set(ExternalStorage::Hint::CREATE, "ignored",
             "value1"), FatalError);
     EXPECT_EQ("handleError: ZooKeeper API error: bad arguments",
             TestLog::get());
@@ -293,7 +296,8 @@ TEST_F(ZooStorageTest, setInternal_updateHintIncorrect) {
             TestLog::get());
 }
 TEST_F(ZooStorageTest, setInternal_updateError) {
-    EXPECT_THROW(zoo->set(ExternalStorage::Hint::UPDATE, "bogusName",
+    zoo->testName = "nameWithNoSlash";
+    EXPECT_THROW(zoo->set(ExternalStorage::Hint::UPDATE, "ignored",
             "value1"), FatalError);
     EXPECT_EQ("handleError: ZooKeeper API error: bad arguments",
             TestLog::get());

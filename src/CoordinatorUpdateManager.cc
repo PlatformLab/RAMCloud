@@ -60,9 +60,10 @@ CoordinatorUpdateManager::init()
 {
     Lock lock(mutex);
     Buffer externalData;
-    if (!storage->get("/coordinatorUpdateInfo", &externalData)) {
-        RAMCLOUD_LOG(WARNING, "couldn't find \"coordinatorUpdateInfo\" object "
-                "in external storage; starting new cluster from scratch");
+    if (!storage->get("coordinatorUpdateManager", &externalData)) {
+        RAMCLOUD_LOG(WARNING, "couldn't find \"coordinatorUpdateManager\" "
+                "object in external storage; starting new cluster from "
+                "scratch");
         externalLastFinished = 0;
         externalFirstAvailable = 1;
     } else {
@@ -71,8 +72,8 @@ CoordinatorUpdateManager::init()
         string str(static_cast<const char*>(externalData.getRange(0, length)),
                 length);
         if (!info.ParseFromString(str)) {
-            throw FatalError(HERE, "format error in \"coordinatorUpdateInfo\" "
-                "object in external storage");
+            throw FatalError(HERE, "format error in "
+                "\"coordinatorUpdateManager\" object in external storage");
         }
         externalLastFinished = info.lastfinished();
         externalFirstAvailable = info.firstavailable();
@@ -175,8 +176,8 @@ CoordinatorUpdateManager::sync(Lock& lock)
 
     string str;
     info.SerializeToString(&str);
-    storage->set(ExternalStorage::UPDATE, "/coordinatorUpdateInfo", str.c_str(),
-            downCast<int>(str.length()));
+    storage->set(ExternalStorage::UPDATE, "coordinatorUpdateManager",
+            str.c_str(), downCast<int>(str.length()));
 }
 
 } // namespace RAMCloud

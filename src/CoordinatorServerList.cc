@@ -232,7 +232,7 @@ CoordinatorServerList::recover(uint64_t lastCompletedUpdate)
 
     // Fetch all of the server list information from external storage.
     vector<ExternalStorage::Object> objects;
-    context->externalStorage->getChildren("/server", &objects);
+    context->externalStorage->getChildren("servers", &objects);
 
     // Each iteration through the following loop processes information
     // for one entry in the server list.
@@ -244,7 +244,7 @@ CoordinatorServerList::recover(uint64_t lastCompletedUpdate)
         string str(object.value, object.length);
         if (!info.ParseFromString(str)) {
             throw FatalError(HERE, format(
-                    "couldn't parse protocol buffer in /server/%s",
+                    "couldn't parse protocol buffer in servers/%s",
                     object.name));
         }
         ServerId id(info.server_id());
@@ -255,7 +255,7 @@ CoordinatorServerList::recover(uint64_t lastCompletedUpdate)
         GenerationNumberEntryPair* pair = &serverList[index];
         if (pair->entry) {
             throw FatalError(HERE, format(
-                    "couldn't process external data at /server/%s (server "
+                    "couldn't process external data at servers/%s (server "
                     "id %s): server list slot %u already occupied",
                     object.name, id.toString().c_str(), index));
         }
@@ -1507,7 +1507,7 @@ CoordinatorServerList::Entry::sync(ExternalStorage* externalStorage)
     // record the death, then be overwritten when a new server is allocated
     // the same slot in the server list.
     char objectName[30];
-    snprintf(objectName, sizeof(objectName), "/server/%d",
+    snprintf(objectName, sizeof(objectName), "servers/%d",
             serverId.indexNumber());
 
     string str;

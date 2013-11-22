@@ -33,6 +33,28 @@ class ExternalStorageTest : public ::testing::Test {
     DISALLOW_COPY_AND_ASSIGN(ExternalStorageTest);
 };
 
+TEST_F(ExternalStorageTest, getAndSetWorkspace) {
+    // Check initial value.
+    EXPECT_STREQ("/", storage.getWorkspace());
+    EXPECT_EQ("/", storage.fullName);
+
+    // Try changing the value.
+    storage.setWorkspace("/a/b/c/");
+    EXPECT_STREQ("/a/b/c/", storage.getWorkspace());
+    EXPECT_EQ("/a/b/c/", storage.fullName);
+}
+
+TEST_F(ExternalStorageTest, getFullName) {
+    EXPECT_STREQ("/abc", storage.getFullName("abc"));
+    EXPECT_STREQ("/first/second/third",
+            storage.getFullName("/first/second/third"));
+
+    storage.setWorkspace("/a/b/");
+    EXPECT_STREQ("/a/b/abc", storage.getFullName("abc"));
+    EXPECT_STREQ("/first/second/third",
+            storage.getFullName("/first/second/third"));
+}
+
 TEST_F(ExternalStorageTest, get_templated_basics) {
     ProtoBuf::TableManager info;
     info.set_next_table_id(123);

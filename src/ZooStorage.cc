@@ -78,7 +78,7 @@ void
 ZooStorage::becomeLeader(const char* name, const string& leaderInfo)
 {
     Lock lock(mutex);
-    this->leaderObject = name;
+    this->leaderObject = getFullName(name);
     this->leaderInfo = leaderInfo;
     while (1) {
         if (checkLeader(lock)) {
@@ -93,6 +93,7 @@ bool
 ZooStorage::get(const char* name, Buffer* value)
 {
     Lock lock(mutex);
+    const char* fullName = getFullName(name);
     if (!leader) {
         throw NotLeaderException(HERE);
     }
@@ -106,7 +107,7 @@ ZooStorage::get(const char* name, Buffer* value)
     while (1) {
         value->reset();
         char* buffer = new(value, APPEND) char[length];
-        int status = zoo_get(zoo, name, 0, buffer, &length, &stat);
+        int status = zoo_get(zoo, fullName, 0, buffer, &length, &stat);
         if (status != ZOK) {
             if (status == ZNONODE) {
                 value->reset();
@@ -133,6 +134,7 @@ ZooStorage::getChildren(const char* name, vector<Object>* children)
     Lock lock(mutex);
     int status;
     children->resize(0);
+    const char* fullName = getFullName(name);
 
     if (!leader) {
         throw NotLeaderException(HERE);
@@ -140,7 +142,7 @@ ZooStorage::getChildren(const char* name, vector<Object>* children)
 
     // First, retrieve the names of all of the children of the node.
     struct String_vector names;
-    while ((status = zoo_get_children(zoo, name, 0, &names)) != ZOK) {
+    while ((status = zoo_get_children(zoo, fullName, 0, &names)) != ZOK) {
         if (status == ZNONODE) {
             return;
         }
@@ -155,7 +157,7 @@ ZooStorage::getChildren(const char* name, vector<Object>* children)
     buffer = new char[bufferSize];
     try {
         int length;
-        std::string childName(name);
+        std::string childName(fullName);
         childName.append("/");
         size_t baseLength = childName.length();
         struct Stat stat;
@@ -214,7 +216,7 @@ ZooStorage::remove(const char* name)
     if (!leader) {
         throw NotLeaderException(HERE);
     }
-    removeInternal(lock, name);
+    removeInternal(lock, getFullName(name));
 }
 
 /**
@@ -224,14 +226,14 @@ ZooStorage::remove(const char* name)
  *
  * \param lock
  *      Ensures that caller has acquired mutex; not actually used here.
- * \param name
- *      Name of the object to remove.
+ * \param absName
+ *      Name of the object to remove. Must be an absolute name.
  */
 void
-ZooStorage::removeInternal(Lock& lock, const char* name)
+ZooStorage::removeInternal(Lock& lock, const char* absName)
 {
     while (1) {
-        int status = zoo_delete(zoo, name, -1);
+        int status = zoo_delete(zoo, absName, -1);
         if ((status == ZOK) || (status == ZNONODE)) {
             return;
         }
@@ -243,10 +245,10 @@ ZooStorage::removeInternal(Lock& lock, const char* name)
         // If we get here, it means that the node has children. Delete
         // all of the children, then try deleting the parent again.
         struct String_vector names;
-        while ((status = zoo_get_children(zoo, name, 0, &names)) != ZOK) {
+        while ((status = zoo_get_children(zoo, absName, 0, &names)) != ZOK) {
             handleError(lock, status);
         }
-        std::string child(name);
+        std::string child(absName);
         child.append("/");
         size_t baseLength = child.length();
         for (int i = 0; i < names.count; i++) {
@@ -273,7 +275,7 @@ ZooStorage::set(Hint flavor, const char* name, const char* value,
     if (!leader) {
         throw NotLeaderException(HERE);
     }
-    setInternal(lock, flavor, name, value, valueLength);
+    setInternal(lock, flavor, getFullName(name), value, valueLength);
 }
 
 /**
@@ -285,15 +287,16 @@ ZooStorage::set(Hint flavor, const char* name, const char* value,
  *      Ensures that caller has acquired mutex; not actually used here.
  * \param flavor
  *      Same as corresponding argument to set.
- * \param name
- *      Same as corresponding argument to set.
+ * \param absName
+ *      Name of the node whose value is to be changed; must be an
+ *      absolute name.
  * \param value
  *      Same as corresponding argument to set.
  * \param valueLength
  *      Same as corresponding argument to set.
  */
 void
-ZooStorage::setInternal(Lock& lock, Hint flavor, const char* name,
+ZooStorage::setInternal(Lock& lock, Hint flavor, const char* absName,
         const char* value, int valueLength)
 {
     // The value != NULL check below is only needed to handle recursive
@@ -304,25 +307,25 @@ ZooStorage::setInternal(Lock& lock, Hint flavor, const char* name,
     while (1) {
         int status;
         if (flavor == Hint::CREATE) {
-            status = zoo_create(zoo, name, static_cast<const char*>(value),
+            status = zoo_create(zoo, absName, static_cast<const char*>(value),
                     valueLength, &ZOO_OPEN_ACL_UNSAFE, 0, NULL, 0);
             if (status == ZOK) {
                 return;
             }
             if (status == ZNONODE) {
                 // The parent node doesn't exist; create it first.
-                createParent(lock, name);
+                createParent(lock, absName);
                 continue;
             } else if (status == ZNODEEXISTS) {
                 // The hint was incorrect: we'll have to use a "set"
                 // operation instead of "create".
                 RAMCLOUD_LOG(WARNING, "CREATE hint for \"%s\" ZooKeeper "
-                        "object was incorrect: object already exists", name);
+                        "object was incorrect: object already exists", absName);
                 flavor = Hint::UPDATE;
                 continue;
             }
         } else {
-            status = zoo_set(zoo, name, value, valueLength, -1);
+            status = zoo_set(zoo, absName, value, valueLength, -1);
             if (status == ZOK) {
                 return;
             }
@@ -330,7 +333,7 @@ ZooStorage::setInternal(Lock& lock, Hint flavor, const char* name,
                 // The hint was incorrect: we'll have to use a "create"
                 // operation instead of "set".
                 RAMCLOUD_LOG(WARNING, "UPDATE hint for \"%s\" ZooKeeper "
-                        "object was incorrect: object doesn't exist", name);
+                        "object was incorrect: object doesn't exist", absName);
                 flavor = Hint::CREATE;
                 continue;
             }
@@ -448,7 +451,7 @@ ZooStorage::close(Lock& lock)
  *      Ensures that caller has acquired mutex; not actually used here.
  * \param childName
  *      Name of the node whose parent seems to be missing: NULL-terminated
- *      hierarchical path.
+ *      hierarchical path.  Must be an absolute name.
  */
 void
 ZooStorage::createParent(Lock& lock, const char* childName)

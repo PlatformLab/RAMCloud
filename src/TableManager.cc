@@ -411,7 +411,7 @@ TableManager::recover(uint64_t lastCompletedUpdate)
     // Restore overall state information.
     ProtoBuf::TableManager info;
     if (context->externalStorage->getProtoBuf<ProtoBuf::TableManager>(
-            "/tableManager", &info)) {
+            "tableManager", &info)) {
         nextTableId = info.next_table_id();
         RAMCLOUD_LOG(NOTICE, "initializing TableManager: nextTableId = %lu",
                 nextTableId);
@@ -419,7 +419,7 @@ TableManager::recover(uint64_t lastCompletedUpdate)
 
     // Fetch all of the table-related information from external storage.
     vector<ExternalStorage::Object> objects;
-    context->externalStorage->getChildren("/table", &objects);
+    context->externalStorage->getChildren("tables", &objects);
 
     // Each iteration through the following loop processes the metadata
     // for one table.
@@ -755,7 +755,7 @@ TableManager::notifyDropTable(const Lock& lock, ProtoBuf::Table* info)
     }
 
     // Remove the table's record in external storage.
-    string objectName("/tables/");
+    string objectName("tables/");
     objectName.append(info->name());
     context->externalStorage->remove(objectName.c_str());
 }
@@ -932,7 +932,7 @@ TableManager::sync(const Lock& lock)
     string str;
     info.SerializeToString(&str);
     context->externalStorage->set(ExternalStorage::UPDATE,
-            "/tableManager", str.c_str(), downCast<int>(str.length()));
+            "tableManager", str.c_str(), downCast<int>(str.length()));
 }
 
 /**
@@ -951,7 +951,7 @@ void
 TableManager::syncTable(const Lock& lock, Table* table,
         ProtoBuf::Table* externalInfo)
 {
-    string objectName("/tables/");
+    string objectName("tables/");
     objectName.append(table->name);
     string str;
     externalInfo->SerializeToString(&str);
