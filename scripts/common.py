@@ -93,7 +93,7 @@ class Sandbox(object):
                 # Assumes scripts are at same path on remote machine
                 sh_command = ['ssh', host,
                               '%s/serverexec' % scripts_path,
-                              host, os.getcwd(), "'%s'" % locator,
+                              host, scripts_path, "'%s'" % locator,
                               "'%s'" % command]
             else:
                 # Assumes scripts are at same path on remote machine
@@ -151,7 +151,7 @@ class Sandbox(object):
                     to_kill = '0'
                     killers.append(subprocess.Popen(['ssh', p.host,
                                         '%s/killserver' % scripts_path,
-                                        to_kill, os.getcwd(), p.host]))
+                                        to_kill, scripts_path, p.host]))
                 # invoke killpid only for processes that are not servers.
                 # server processes will be killed by killserver outside this
                 # loop below.
@@ -178,11 +178,11 @@ class Sandbox(object):
                 for mhost in files:
                     if mhost != 'README' and not mhost.startswith("cluster"):
                         to_kill = '1'
-                        killers.append(subprocess.Popen(['ssh', mhost[:4],
+                        killers.append(subprocess.Popen(['ssh', mhost.split('_')[0],
                                             '%s/killserver' % scripts_path,
-                                            to_kill, os.getcwd(), mhost]))
+                                            to_kill, scripts_path, mhost]))
                 try:
-                    os.remove('%s/logs/shm/README' % os.getcwd())
+                    os.remove('%s/logs/shm/README' % scripts_path)
                     # remove the file that represents the name of the cluster.
                     # This is used so that new backups can be told whether
                     # or not to read data from their disks
@@ -202,14 +202,6 @@ class Sandbox(object):
             except:
                 pass
             p.proc.wait()
-
-        # remove the shm directory if any that used shared files for
-        # this test in clusterperf
-        if self.cleanup:
-            try:
-                os.rmdir('%s/logs/shm' % os.getcwd())
-            except:
-                pass
 
     def checkFailures(self):
         """Raise exception if any process has exited with a non-zero status."""

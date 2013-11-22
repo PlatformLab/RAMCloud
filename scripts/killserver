@@ -9,6 +9,11 @@ if [[ "$1" == "1" ]]; then
     # kill the server
     # extracting the pid as a substring of the file name - rcxx_pid
     pid=${file#*_}
-    kill $pid 2>/dev/null
     rm -rf logs/shm/$file
+
+    kill $pid 2>/dev/null || exit 0
+    while true; do
+        sleep .01
+        kill $pid 2>/dev/null || exit 0
+    done
 fi

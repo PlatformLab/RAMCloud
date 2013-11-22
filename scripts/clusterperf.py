@@ -322,7 +322,7 @@ if __name__ == '__main__':
     parser.add_option('--debug', action='store_true', default=False,
             help='Pause after starting servers but before running '
                  'clients to enable debugging setup')
-    parser.add_option('-d', '--logDir', default='logs', metavar='DIR',
+    parser.add_option('-d', '--logDir', default=''.join([scripts_path, '/logs']), metavar='DIR',
             dest='log_dir',
             help='Top level directory for log files; the files for '
                  'each invocation will go in a subdirectory.')

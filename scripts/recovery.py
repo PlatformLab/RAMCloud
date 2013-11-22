@@ -44,7 +44,7 @@ def recover(num_servers,
             num_removals=0,
             timeout=100,
             log_level='NOTICE',
-            log_dir='logs',
+            log_dir=''.join([scripts_path, '/logs']),
             transport='infrc',
             verbose=False,
             debug=False):
@@ -224,7 +224,8 @@ if __name__ == '__main__':
     parser.add_option('--debug', action='store_true', default=False,
             help='Pause after starting servers but before running '
                  'to enable debugging setup')
-    parser.add_option('-d', '--logDir', default='logs', metavar='DIR',
+    parser.add_option('-d', '--logDir', default=''.join([scripts_path, '/logs']),
+            metavar='DIR',
             dest='log_dir',
             help='Top level directory for log files; the files for '
                  'each invocation will go in a subdirectory.')
