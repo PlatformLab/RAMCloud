@@ -23,6 +23,7 @@
 
 #include <gtest/gtest.h>
 #include <regex.h>
+#include <sstream>
 
 // Arrange for private and protected structure members to be public so they
 // can easily be accessed by gtest tests (see Common.h for details).
@@ -63,6 +64,20 @@ class TestUtil {
     static string toString(const void* buf, uint32_t length);
     static string toString(Buffer* buffer, uint32_t offset, uint32_t length);
     static string toString(Buffer* buffer);
+
+    /**
+    * Return a string returned from the given object's stream operator.
+    * This is useful when you're dealing with strings, but the object you want to
+    * print only has a stream operator.
+    */
+    template<typename T>
+    static string
+    toString(const T& t)
+    {
+        std::stringstream ss;
+        ss << t;
+        return ss.str();
+    }
     static bool waitForRpc(Context* context, MockWrapper& rpc,
             int ms = 1000);
 };
