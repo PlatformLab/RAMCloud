@@ -298,10 +298,6 @@ class ExternalStorage {
     /// workspace as its first characters.
     string fullName;
 
-    /// Used for testing only: if non-NULL, will be returned as the result
-    /// of getFullName.
-    const char* testName;
-
     DISALLOW_COPY_AND_ASSIGN(ExternalStorage);
 };
 

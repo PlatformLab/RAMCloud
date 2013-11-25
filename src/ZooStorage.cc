@@ -14,6 +14,7 @@
  */
 
 #include <vector>
+#include "TestUtil.h"
 #include "Common.h"
 #include "Cycles.h"
 #include "Logger.h"
@@ -43,12 +44,13 @@ ZooStorage::ZooStorage(string& serverInfo, Dispatch* dispatch)
     , connectionRetryMs(0)
     , checkLeaderIntervalMs(0)
     , renewLeaseIntervalCycles(0)
-    , renewLeaseRetryCycles(0)
     , leaderVersion(-1)
     , leaderObject()
     , leaderInfo()
     , leaseRenewer()
     , dispatch(dispatch)
+    , testStatus1(0)
+    , testStatus2(0)
 {
     Lock lock(mutex);
 
@@ -56,9 +58,8 @@ ZooStorage::ZooStorage(string& serverInfo, Dispatch* dispatch)
     // declarations for important information about the relationship
     // between these numbers.
     connectionRetryMs = 100;
-    checkLeaderIntervalMs = 200;
-    renewLeaseIntervalCycles = Cycles::fromSeconds(.100);
-    renewLeaseRetryCycles = Cycles::fromSeconds(.010);
+    checkLeaderIntervalMs = 1000;
+    renewLeaseIntervalCycles = Cycles::fromSeconds(.500);
 
     open(lock);
 }
@@ -114,6 +115,8 @@ ZooStorage::get(const char* name, Buffer* value)
                 return false;
             }
             handleError(lock, status);
+            RAMCLOUD_LOG(WARNING, "Retrying after %s error reading %s",
+                    zerror(status), fullName);
             continue;
         }
         // Warning: ZooKeeper returns -1 dataLength for empty nodes.
@@ -142,11 +145,21 @@ ZooStorage::getChildren(const char* name, vector<Object>* children)
 
     // First, retrieve the names of all of the children of the node.
     struct String_vector names;
-    while ((status = zoo_get_children(zoo, fullName, 0, &names)) != ZOK) {
+    while (1) {
+        status = zoo_get_children(zoo, fullName, 0, &names);
+        if (testStatus1 != 0) {
+            status = testStatus1;
+            testStatus1 = 0;
+        }
+        if (status == ZOK) {
+            break;
+        }
         if (status == ZNONODE) {
             return;
         }
         handleError(lock, status);
+        RAMCLOUD_LOG(WARNING, "Retrying after %s error getting children of %s",
+                zerror(status), fullName);
     }
 
     // This buffer is used for retrieving object values. The initial size
@@ -163,7 +176,7 @@ ZooStorage::getChildren(const char* name, vector<Object>* children)
         struct Stat stat;
 
         // Each iteration through the following loop retrieves the value
-        // for one  object.
+        // for one object.
         for (int i = 0; i < names.count; i++) {
             // It may take a couple of attempts to read each child (e.g.
             // if we lose the ZooKeeper connection, or if we have to
@@ -175,6 +188,10 @@ ZooStorage::getChildren(const char* name, vector<Object>* children)
                 length = bufferSize;
                 int status = zoo_get(zoo, childName.c_str(), 0,
                         static_cast<char*>(buffer), &length, &stat);
+                if (testStatus2 != 0) {
+                    status = testStatus2;
+                    testStatus2 = 0;
+                }
                 if (status != ZOK) {
                     if (status == ZNONODE) {
                         // The object got deleted after we collected
@@ -182,6 +199,8 @@ ZooStorage::getChildren(const char* name, vector<Object>* children)
                         break;
                     }
                     handleError(lock, status);
+                    RAMCLOUD_LOG(WARNING, "Retrying after %s error reading "
+                            "child %s", zerror(status), childName.c_str());
                     continue;
                 }
                 // Warning: ZooKeeper returns -1 dataLength for empty nodes.
@@ -234,19 +253,35 @@ ZooStorage::removeInternal(Lock& lock, const char* absName)
 {
     while (1) {
         int status = zoo_delete(zoo, absName, -1);
+        if (testStatus1 != 0) {
+            status = testStatus1;
+            testStatus1 = 0;
+        }
         if ((status == ZOK) || (status == ZNONODE)) {
             return;
         }
         if (status != ZNOTEMPTY) {
             handleError(lock, status);
+            RAMCLOUD_LOG(WARNING, "Retrying after %s error deleting "
+                    "%s", zerror(status), absName);
             continue;
         }
 
         // If we get here, it means that the node has children. Delete
         // all of the children, then try deleting the parent again.
         struct String_vector names;
-        while ((status = zoo_get_children(zoo, absName, 0, &names)) != ZOK) {
+        while (1) {
+            status = zoo_get_children(zoo, absName, 0, &names);
+            if (testStatus2 != 0) {
+                status = testStatus2;
+                testStatus2 = 0;
+            }
+            if (status == ZOK) {
+                break;
+            }
             handleError(lock, status);
+            RAMCLOUD_LOG(WARNING, "Retrying after %s error reading "
+                    "children of %s for removal", zerror(status), absName);
         }
         std::string child(absName);
         child.append("/");
@@ -309,6 +344,10 @@ ZooStorage::setInternal(Lock& lock, Hint flavor, const char* absName,
         if (flavor == Hint::CREATE) {
             status = zoo_create(zoo, absName, static_cast<const char*>(value),
                     valueLength, &ZOO_OPEN_ACL_UNSAFE, 0, NULL, 0);
+            if (testStatus1 != 0) {
+                status = testStatus1;
+                testStatus1 = 0;
+            }
             if (status == ZOK) {
                 return;
             }
@@ -319,26 +358,32 @@ ZooStorage::setInternal(Lock& lock, Hint flavor, const char* absName,
             } else if (status == ZNODEEXISTS) {
                 // The hint was incorrect: we'll have to use a "set"
                 // operation instead of "create".
-                RAMCLOUD_LOG(WARNING, "CREATE hint for \"%s\" ZooKeeper "
-                        "object was incorrect: object already exists", absName);
+                RAMCLOUD_LOG(NOTICE, "Incorrect CREATE hint for \"%s\": "
+                        "object already exists", absName);
                 flavor = Hint::UPDATE;
                 continue;
             }
         } else {
             status = zoo_set(zoo, absName, value, valueLength, -1);
+            if (testStatus2 != 0) {
+                status = testStatus2;
+                testStatus2 = 0;
+            }
             if (status == ZOK) {
                 return;
             }
             if (status == ZNONODE) {
                 // The hint was incorrect: we'll have to use a "create"
                 // operation instead of "set".
-                RAMCLOUD_LOG(WARNING, "UPDATE hint for \"%s\" ZooKeeper "
-                        "object was incorrect: object doesn't exist", absName);
+                RAMCLOUD_LOG(NOTICE, "Incorrect UPDATE hint for \"%s\": "
+                        "object doesn't exist", absName);
                 flavor = Hint::CREATE;
                 continue;
             }
         }
         handleError(lock, status);
+        RAMCLOUD_LOG(WARNING, "Retrying after %s error writing %s",
+                zerror(status), absName);
     }
 }
 
@@ -385,11 +430,15 @@ ZooStorage::checkLeader(Lock& lock)
             createParent(lock, leaderObject.c_str());
         } else if (status != ZNODEEXISTS) {
             handleError(lock, status);
+            RAMCLOUD_LOG(WARNING, "Returning after %s error creating %s",
+                    zerror(status), leaderObject.c_str());
         }
         return false;
     }
     if (status != ZOK) {
         handleError(lock, status);
+        RAMCLOUD_LOG(WARNING, "Returning after %s error reading %s",
+                zerror(status), leaderObject.c_str());
         return false;
     }
     if (stat.version != leaderVersion) {
@@ -412,12 +461,14 @@ ZooStorage::checkLeader(Lock& lock)
             leaseRenewer.construct(this);
             leaseRenewer->start(Cycles::rdtsc() + renewLeaseIntervalCycles);
         }
-        RAMCLOUD_LOG(NOTICE, "Became leader (old leader info was \"%.*s\")",
-                length, buffer);
+        RAMCLOUD_LOG(NOTICE, "Became leader with version %u (old leader info "
+                "was \"%.*s\")", leaderVersion, length, buffer);
         return true;
     }
     if (status != ZBADVERSION) {
         handleError(lock, status);
+        RAMCLOUD_LOG(WARNING, "Returning after %s error setting %s",
+                zerror(status), leaderObject.c_str());
     }
     return false;
 }
@@ -531,7 +582,7 @@ ZooStorage::open(Lock& lock)
         for (int i = 1; i < 100; i++) {
             int state = zoo_state(zoo);
             if (state == ZOO_CONNECTED_STATE) {
-                RAMCLOUD_LOG(WARNING, "ZooKeeper connection opened: %s",
+                RAMCLOUD_LOG(NOTICE, "ZooKeeper connection opened with %s",
                         serverInfo.c_str());
                 return;
             }
@@ -552,6 +603,102 @@ ZooStorage::open(Lock& lock)
         retry:
         usleep(connectionRetryMs*1000);
     }
+}
+
+/**
+ * This method is invoked by LeaseRenewer at regular intervals. Its job
+ * is to rewrite the leader object with a new version, in order to
+ * preserve the lease.
+ *
+ * \param lock
+ *      Ensures that caller has acquired mutex; not actually used here.
+ *
+ * \return bool
+ *      True means that we did everything that could be done (either we renewed
+ *      the lease or we discovered that someone else has taken leadership
+ *      from us). False means we didn't finish the job (e.g., a transient
+ *      error occurred), so the caller should invoke us again. This may seem
+ *      like a strange API, but it's easier to test this method (especially
+ *      the handling of transient errors) if the while loop is in the caller,
+ *      rather than here.
+ */
+bool
+ZooStorage::renewLease(Lock& lock)
+{
+    struct Stat stat;
+    int status = zoo_set2(zoo, leaderObject.c_str(), leaderInfo.c_str(),
+            downCast<uint32_t>(leaderInfo.length()), leaderVersion, &stat);
+    if (testStatus1 != 0) {
+        status = testStatus1;
+    }
+    if (status == ZOK) {
+        leaderVersion++;
+        leaseRenewer->start(Cycles::rdtsc() + renewLeaseIntervalCycles);
+        return true;
+    } else if (status == ZBADVERSION) {
+        // The leader object does not have the version we expected. There
+        // are two possible reasons this might happen:
+        // * If the connection is lost in the middle of the zoo_set2
+        //   operation above from a previous call to this method, it's
+        //   possible that the operation actually succeeded, so the object's
+        //   version increased (but we didn't increase our version number).
+        //   To see if this happened, read the leader object; if it still
+        //   holds our data, then we are still leader and all is well.  Just
+        //   update our version to match the object.
+        // * We lost leadership. If this has happened, the leader object will
+        //   no longer hold our data.
+        char buffer[leaderInfo.size() + 500];
+        int length = downCast<int>(sizeof(buffer));
+        int status = zoo_get(zoo, leaderObject.c_str(), 0, buffer, &length,
+                &stat);
+        if (testStatus2 != 0) {
+            status = testStatus2;
+        }
+        if (status == ZOK) {
+            if ((length == downCast<int>(leaderInfo.size())) &&
+                    (memcmp(leaderInfo.c_str(), buffer, length) == 0)) {
+                // Looks like our info is still in the leader object, so all is
+                // well; update our version to match the object, and try
+                // again.
+                RAMCLOUD_LOG(NOTICE, "False positive for leadership loss; "
+                        "updating version from %u to %u",
+                        leaderVersion, stat.version);
+                leaderVersion = stat.version;
+                return false;
+            }
+
+            // We're no longer leader; print out information about the
+            // new leader.
+            RAMCLOUD_LOG(WARNING, "Lost ZooKeeper leadership; current "
+                    "leader info: %.*s, version: %u, our version: %u",
+                    length, buffer, stat.version,
+                    leaderVersion);
+            leader = false;
+            return true;
+        } else if (status == ZNONODE) {
+            // This issue is handled below; retry to make that happen.
+            return false;
+        } else {
+            handleError(lock, status);
+            RAMCLOUD_LOG(WARNING, "Retrying after %s error while reading %s",
+                    zerror(status), leaderObject.c_str());
+            return false;
+        }
+        leader = false;
+    } else if (status == ZNONODE) {
+        RAMCLOUD_LOG(WARNING, "renewLease: Lost ZooKeeper leadership; leader "
+                "object %s no longer exists",
+                leaderObject.c_str());
+        leader = false;
+        return true;
+    } else {
+        // Something went wrong (e.g. server crashed?). Perform standard error
+        // handling, then retry.
+        handleError(lock, status);
+        RAMCLOUD_LOG(WARNING, "Retrying after %s error while setting %s",
+                zerror(status), leaderObject.c_str());
+    }
+    return false;
 }
 
 /**
@@ -597,26 +744,18 @@ ZooStorage::LeaseRenewer::LeaseRenewer(ZooStorage* zooStorage)
  * This method is invoked when the leaseRenewer timer expires; its job is
  * to update the leader object in order to renew our lease as leader.
  */
-void ZooStorage::LeaseRenewer::handleTimerEvent()
+void
+ZooStorage::LeaseRenewer::handleTimerEvent()
 {
+    // All of the real work is done in ZooStorage::renewLease; it is split
+    // from this method for ease of testing.
+    //
+    // Note: it's important to hold the monitor lock across all calls
+    // to renewLease: this ensures that no other ZooKeeper operations can
+    // complete until we know for sure whether we are still leader.
     ZooStorage::Lock lock(zooStorage->mutex);
-    int status = zoo_set(zooStorage->zoo, zooStorage->leaderObject.c_str(),
-            zooStorage->leaderInfo.c_str(),
-            downCast<uint32_t>(zooStorage->leaderInfo.length()),
-            zooStorage->leaderVersion);
-    if (status == ZOK) {
-        zooStorage->leaderVersion++;
-        start(Cycles::rdtsc() + zooStorage->renewLeaseIntervalCycles);
-    } else if (status == ZBADVERSION) {
-        // Someone else has modified the leader object; this means we
-        // are no longer the leader. In this case, no need to restart the
-        // timer.
-        zooStorage->leader = false;
-    } else {
-        // Something went wrong (e.g. server crashed?). Perform standard error
-        // handling, then retry with a shorter timer.
-        zooStorage->handleError(lock, status);
-        start(Cycles::rdtsc() + zooStorage->renewLeaseRetryCycles);
+    while (!zooStorage->renewLease(lock)) {
+        // Empty loop body.
     }
 }
 

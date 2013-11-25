@@ -91,13 +91,6 @@ class ZooStorage: public ExternalStorage {
     /// it means "don't renew the lease or even start the timer".
     uint64_t renewLeaseIntervalCycles;
 
-    /// If a problem of some sort prevents the lease from being renewed,
-    /// the leader tries again this often (units: rdtsc cycles). The goal
-    /// is to have enough time to retry several times (after an initial
-    /// delay of renewLeaseIntervalCycles) before checkLeaderIntervalCycles
-    /// elapses and we lose leadership.
-    uint64_t renewLeaseRetryCycles;
-
     /// This variable holds the most recently seen version number of the
     /// leader object; -1 means that we haven't yet read a version number.
     /// During leader election, this allows us to tell if the current leader
@@ -123,12 +116,19 @@ class ZooStorage: public ExternalStorage {
     /// Used for scheduling leaseRenewer.
     Dispatch* dispatch;
 
+    /// Used to force errors during testing.  If a value is non-zero, it
+    /// is overrides the status returned by a ZooKeeper procedure. The
+    /// values are always 0 during normal operation.
+    int testStatus1;
+    int testStatus2;
+
     bool checkLeader(Lock& lock);
     void close(Lock& lock);
     void createParent(Lock& lock, const char* childName);
     void handleError(Lock& lock, int status);
     void open(Lock& lock);
     void removeInternal(Lock& lock, const char* name);
+    bool renewLease(Lock& lock);
     void setInternal(Lock& lock, Hint flavor, const char* name,
             const char* value, int valueLength);
     const char* stateString(int state);

@@ -116,7 +116,7 @@ TEST_F(ZooStorageTest, becomeLeader) {
     zoo->becomeLeader("/test/leader", "locator:new");
     double elapsed = Cycles::toSeconds(Cycles::rdtsc() - before);
     EXPECT_GT(elapsed, .200);
-    EXPECT_EQ("checkLeader: Became leader (old leader info "
+    EXPECT_EQ("checkLeader: Became leader with version 1 (old leader info "
             "was \"locator:old\")", TestLog::get());
     zoo->get("/test/leader", &value);
     EXPECT_EQ("locator:new", TestUtil::toString(&value));
@@ -172,12 +172,40 @@ TEST_F(ZooStorageTest, getChildren_noSuchObject) {
     zoo->getChildren("/test/bogus", &children);
     EXPECT_EQ(0u, children.size());
 }
-TEST_F(ZooStorageTest, getChildren_unrecoverableError) {
+TEST_F(ZooStorageTest, getChildren_recoverableErrorReadingNames) {
     vector<ZooStorage::Object> children;
-    zoo->testName = "nameWithNoSlash";
+    zoo->set(ExternalStorage::Hint::CREATE, "/test/var1", "value1");
+    zoo->set(ExternalStorage::Hint::CREATE, "/test/var2", "value2");
+    zoo->testStatus1 = ZINVALIDSTATE;
+    zoo->getChildren("/test", &children);
+    EXPECT_EQ(2u, children.size());
+    sort(&children);
+    EXPECT_EQ("/test/var1: value1, /test/var2: value2",
+            toString(&children));
+    EXPECT_TRUE(TestUtil::contains(TestLog::get(),
+            "getChildren: Retrying after invalid zhandle state error "
+            "getting children of /test"));
+}
+TEST_F(ZooStorageTest, getChildren_unrecoverableErrorReadingNames) {
+    vector<ZooStorage::Object> children;
+    zoo->testStatus1 = ZBADARGUMENTS;
     EXPECT_THROW(zoo->getChildren("ignored", &children), FatalError);
     EXPECT_EQ("handleError: ZooKeeper API error: bad arguments",
             TestLog::get());
+}
+TEST_F(ZooStorageTest, getChildren_recoverableErrorReadingValues) {
+    vector<ZooStorage::Object> children;
+    zoo->set(ExternalStorage::Hint::CREATE, "/test/var1", "value1");
+    zoo->set(ExternalStorage::Hint::CREATE, "/test/var2", "value2");
+    zoo->testStatus2 = ZOPERATIONTIMEOUT;
+    zoo->getChildren("/test", &children);
+    EXPECT_EQ(2u, children.size());
+    sort(&children);
+    EXPECT_EQ("/test/var1: value1, /test/var2: value2",
+            toString(&children));
+    EXPECT_TRUE(TestUtil::contains(TestLog::get(),
+            "getChildren: Retrying after operation timeout error "
+            "reading child /test/var1"));
 }
 TEST_F(ZooStorageTest, getChildren_mustGrowBuffer) {
     vector<ZooStorage::Object> children;
@@ -220,11 +248,25 @@ TEST_F(ZooStorageTest, removeInternal_nonexistentObject) {
     zoo->remove("/test/var1");
     EXPECT_FALSE(zoo->get("/test/var1", &value));
 }
-TEST_F(ZooStorageTest, removeInternal_unrecoverableError) {
-    zoo->testName = "nameWithNoSlash";
-    EXPECT_THROW(zoo->remove("ignored"), FatalError);
-    EXPECT_EQ("handleError: ZooKeeper API error: bad arguments",
-            TestLog::get());
+TEST_F(ZooStorageTest, removeInternal_recoverableErrorInDelete) {
+    Buffer value;
+    zoo->set(ExternalStorage::Hint::CREATE, "/test/var1", "value1");
+    zoo->testStatus1 = ZUNIMPLEMENTED;
+    zoo->remove("/test/var1");
+    EXPECT_FALSE(zoo->get("/test/var1", &value));
+    EXPECT_TRUE(TestUtil::contains(TestLog::get(),
+            "removeInternal: Retrying after unimplemented error "
+            "deleting /test/var1"));
+}
+TEST_F(ZooStorageTest, removeInternal_recoverableErrorReadingChildrenNames) {
+    Buffer value;
+    zoo->set(ExternalStorage::Hint::CREATE, "/test/var1", "value1");
+    zoo->testStatus2 = ZUNIMPLEMENTED;
+    zoo->remove("/test");
+    EXPECT_FALSE(zoo->get("/test", &value));
+    EXPECT_TRUE(TestUtil::contains(TestLog::get(),
+            "Retrying after unimplemented error reading children "
+            "of /test for removal"));
 }
 TEST_F(ZooStorageTest, removeInternal_withChildren) {
     Buffer value;
@@ -267,16 +309,19 @@ TEST_F(ZooStorageTest, setInternal_createHintIncorrect) {
     zoo->set(ExternalStorage::Hint::CREATE, "/test/var1", "value2");
     EXPECT_TRUE(zoo->get("/test/var1", &value));
     EXPECT_EQ("value2", TestUtil::toString(&value));
-    EXPECT_EQ("setInternal: CREATE hint for \"/test/var1\" ZooKeeper object "
-            "was incorrect: object already exists",
+    EXPECT_EQ("setInternal: Incorrect CREATE hint for \"/test/var1\": "
+            "object already exists",
             TestLog::get());
 }
-TEST_F(ZooStorageTest, setInternal_createError) {
-    zoo->testName = "nameWithNoSlash";
-    EXPECT_THROW(zoo->set(ExternalStorage::Hint::CREATE, "ignored",
-            "value1"), FatalError);
-    EXPECT_EQ("handleError: ZooKeeper API error: bad arguments",
-            TestLog::get());
+TEST_F(ZooStorageTest, setInternal_recoverableCreateError) {
+    Buffer value;
+    zoo->testStatus1 = ZOPERATIONTIMEOUT;
+    zoo->set(ExternalStorage::Hint::CREATE, "/test", "value1");
+    EXPECT_TRUE(zoo->get("/test", &value));
+    EXPECT_EQ("value1", TestUtil::toString(&value));
+    EXPECT_TRUE(TestUtil::contains(TestLog::get(),
+            "setInternal: Retrying after operation timeout error "
+            "writing /test"));
 }
 TEST_F(ZooStorageTest, setInternal_updateSucess) {
     Buffer value;
@@ -291,16 +336,20 @@ TEST_F(ZooStorageTest, setInternal_updateHintIncorrect) {
     zoo->set(ExternalStorage::Hint::UPDATE, "/test/var1", "value1");
     EXPECT_TRUE(zoo->get("/test/var1", &value));
     EXPECT_EQ("value1", TestUtil::toString(&value));
-    EXPECT_EQ("setInternal: UPDATE hint for \"/test/var1\" ZooKeeper object "
-            "was incorrect: object doesn't exist",
+    EXPECT_EQ("setInternal: Incorrect UPDATE hint for \"/test/var1\": "
+            "object doesn't exist",
             TestLog::get());
 }
-TEST_F(ZooStorageTest, setInternal_updateError) {
-    zoo->testName = "nameWithNoSlash";
-    EXPECT_THROW(zoo->set(ExternalStorage::Hint::UPDATE, "ignored",
-            "value1"), FatalError);
-    EXPECT_EQ("handleError: ZooKeeper API error: bad arguments",
-            TestLog::get());
+TEST_F(ZooStorageTest, setInternal_recoverableUpdateError) {
+    Buffer value;
+    zoo->set(ExternalStorage::Hint::CREATE, "/test", "value1");
+    zoo->testStatus2 = ZOPERATIONTIMEOUT;
+    zoo->set(ExternalStorage::Hint::UPDATE, "/test", "value2");
+    EXPECT_TRUE(zoo->get("/test", &value));
+    EXPECT_EQ("value2", TestUtil::toString(&value));
+    EXPECT_TRUE(TestUtil::contains(TestLog::get(),
+            "setInternal: Retrying after operation timeout error "
+            "writing /test"));
 }
 
 TEST_F(ZooStorageTest, checkLeader_objectDoesntExist) {
@@ -381,7 +430,7 @@ TEST_F(ZooStorageTest, checkLeader_oldLeaderInactive) {
         EXPECT_FALSE(zoo->checkLeader(lock));
         EXPECT_TRUE(zoo->checkLeader(lock));
     }
-    EXPECT_EQ("checkLeader: Became leader (old leader info "
+    EXPECT_EQ("checkLeader: Became leader with version 1 (old leader info "
             "was \"locator:old\")", TestLog::get());
     zoo->get("/test/leader", &value);
     EXPECT_EQ("Leader Info", TestUtil::toString(&value));
@@ -427,19 +476,19 @@ TEST_F(ZooStorageTest, handleError_reopenConnection) {
     EXPECT_NO_THROW(zoo->handleError(lock, ZINVALIDSTATE));
     EXPECT_EQ("handleError: ZooKeeper error (invalid zhandle state): "
             "reopening connection | close: ZooKeeper connection closed | "
-            "open: ZooKeeper connection opened: localhost:2181",
+            "open: ZooKeeper connection opened with localhost:2181",
             TestLog::get());
     TestLog::reset();
     EXPECT_NO_THROW(zoo->handleError(lock, ZSYSTEMERROR));
     EXPECT_EQ("handleError: ZooKeeper error (system error): "
             "reopening connection | close: ZooKeeper connection closed | "
-            "open: ZooKeeper connection opened: localhost:2181",
+            "open: ZooKeeper connection opened with localhost:2181",
             TestLog::get());
     TestLog::reset();
     EXPECT_NO_THROW(zoo->handleError(lock, ZSESSIONEXPIRED));
     EXPECT_EQ("handleError: ZooKeeper error (session expired): "
             "reopening connection | close: ZooKeeper connection closed | "
-            "open: ZooKeeper connection opened: localhost:2181",
+            "open: ZooKeeper connection opened with localhost:2181",
             TestLog::get());
 }
 TEST_F(ZooStorageTest, handleError_throwError) {
@@ -455,6 +504,106 @@ TEST_F(ZooStorageTest, handleError_throwError) {
 
 // No tests for open: I can't figure out how to test this method.
 
+TEST_F(ZooStorageTest, renewLease_basics) {
+    zoo->renewLeaseIntervalCycles = Cycles::fromSeconds(1000.0);
+    zoo->becomeLeader("/test/leader", "Old leader info");
+    zoo->leaderInfo = "New leader info";
+    {
+        ZooStorage::Lock lock(zoo->mutex);
+        EXPECT_TRUE(zoo->renewLease(lock));
+    }
+    Buffer value;
+    zoo->get("/test/leader", &value);
+    EXPECT_EQ("New leader info", TestUtil::toString(&value));
+    {
+        ZooStorage::Lock lock(zoo->mutex);
+        EXPECT_TRUE(zoo->renewLease(lock));
+    }
+    EXPECT_EQ(2, zoo->leaderVersion);
+}
+TEST_F(ZooStorageTest, renewLease_versionMismatchButDataUnchanged) {
+    zoo->renewLeaseIntervalCycles = Cycles::fromSeconds(1000.0);
+    zoo->becomeLeader("/test/leader", "Old leader info");
+    TestLog::reset();
+    zoo->set(ZooStorage::Hint::UPDATE, "/test/leader", "Old leader info", -1);
+    {
+        ZooStorage::Lock lock(zoo->mutex);
+        EXPECT_FALSE(zoo->renewLease(lock));
+    }
+    EXPECT_EQ("renewLease: False positive for leadership loss; updating "
+            "version from 0 to 1", TestLog::get());
+}
+TEST_F(ZooStorageTest, renewLease_versionMismatchAndDataChanged) {
+    zoo->renewLeaseIntervalCycles = Cycles::fromSeconds(1000.0);
+    zoo->becomeLeader("/test/leader", "Old leader info");
+    TestLog::reset();
+    zoo->set(ZooStorage::Hint::UPDATE, "/test/leader", "New leader info", -1);
+    {
+        ZooStorage::Lock lock(zoo->mutex);
+        EXPECT_TRUE(zoo->renewLease(lock));
+    }
+    EXPECT_EQ("renewLease: Lost ZooKeeper leadership; current leader info: "
+            "New leader info, version: 1, our version: 0",
+            TestLog::get());
+    EXPECT_FALSE(zoo->leader);
+}
+TEST_F(ZooStorageTest, renewLease_missingNodeWhileReading) {
+    zoo->renewLeaseIntervalCycles = Cycles::fromSeconds(1000.0);
+    zoo->becomeLeader("/test/leader", "Old leader info");
+    zoo->set(ZooStorage::Hint::UPDATE, "/test/leader", "New leader info", -1);
+    zoo->testStatus2 = ZNONODE;
+    TestLog::reset();
+    {
+        ZooStorage::Lock lock(zoo->mutex);
+        EXPECT_FALSE(zoo->renewLease(lock));
+    }
+    EXPECT_EQ("", TestLog::get());
+    EXPECT_TRUE(zoo->leader);
+}
+TEST_F(ZooStorageTest, renewLease_errorWhileReading) {
+    zoo->renewLeaseIntervalCycles = Cycles::fromSeconds(1000.0);
+    zoo->becomeLeader("/test/leader", "Old leader info");
+    zoo->set(ZooStorage::Hint::UPDATE, "/test/leader", "New leader info", -1);
+    zoo->testStatus2 = ZSESSIONEXPIRED;
+    TestLog::reset();
+    {
+        ZooStorage::Lock lock(zoo->mutex);
+        EXPECT_FALSE(zoo->renewLease(lock));
+    }
+    EXPECT_TRUE(TestUtil::contains(TestLog::get(),
+            "renewLease: Retrying after session expired error while "
+            "reading /test/leader"));
+    EXPECT_TRUE(zoo->leader);
+}
+TEST_F(ZooStorageTest, renewLease_leaderObjectDeleted) {
+    zoo->renewLeaseIntervalCycles = Cycles::fromSeconds(1000.0);
+    zoo->becomeLeader("/test/leader", "Old leader info");
+    TestLog::reset();
+    zoo->remove("/test/leader");
+    {
+        ZooStorage::Lock lock(zoo->mutex);
+        EXPECT_TRUE(zoo->renewLease(lock));
+    }
+    EXPECT_EQ("renewLease: renewLease: Lost ZooKeeper leadership; leader "
+            "object /test/leader no longer exists",
+            TestLog::get());
+    EXPECT_FALSE(zoo->leader);
+}
+TEST_F(ZooStorageTest, renewLease_errorDuringSetOperation) {
+    zoo->renewLeaseIntervalCycles = Cycles::fromSeconds(1000.0);
+    zoo->becomeLeader("/test/leader", "Old leader info");
+    zoo->testStatus1 = ZSESSIONEXPIRED;
+    TestLog::reset();
+    {
+        ZooStorage::Lock lock(zoo->mutex);
+        EXPECT_FALSE(zoo->renewLease(lock));
+    }
+    EXPECT_TRUE(TestUtil::contains(TestLog::get(),
+            "renewLease: Retrying after session expired error while "
+            "setting /test/leader"));
+    EXPECT_TRUE(zoo->leader);
+}
+
 TEST_F(ZooStorageTest, stateString) {
     EXPECT_STREQ("connected", zoo->stateString(ZOO_CONNECTED_STATE));
     EXPECT_STREQ("expired session", zoo->stateString(
@@ -468,35 +617,18 @@ TEST_F(ZooStorageTest, stateString) {
     EXPECT_STREQ("unknown state", zoo->stateString(45));
 }
 
-TEST_F(ZooStorageTest, LeaseRenewer_handleTimerEvent_basics) {
+TEST_F(ZooStorageTest, LeaseRenewer_handleTimerEvent) {
+    // This test ensures that renewLease gets called multiple times
+    // if needed (first time fixes the version mismatch, second time
+    // renews the lease).
     zoo->renewLeaseIntervalCycles = Cycles::fromSeconds(1000.0);
     zoo->becomeLeader("/test/leader", "Old leader info");
-    zoo->leaderInfo = "New leader info";
+    TestLog::reset();
+    zoo->set(ZooStorage::Hint::UPDATE, "/test/leader", "Old leader info", -1);
     zoo->leaseRenewer->handleTimerEvent();
-    Buffer value;
-    zoo->get("/test/leader", &value);
-    EXPECT_EQ("New leader info", TestUtil::toString(&value));
-    zoo->leaseRenewer->handleTimerEvent();
+    EXPECT_EQ("renewLease: False positive for leadership loss; updating "
+            "version from 0 to 1", TestLog::get());
     EXPECT_EQ(2, zoo->leaderVersion);
-}
-TEST_F(ZooStorageTest, LeaseRenewer_handleTimerEvent_lostLease) {
-    zoo->renewLeaseIntervalCycles = Cycles::fromSeconds(1000.0);
-    zoo->becomeLeader("/test/leader", "Old leader info");
-
-    // Simulate another leader overwriting the leader object to take control.
-    zoo->set(ExternalStorage::Hint::UPDATE, "/test/leader", "New leader info");
-    zoo->leaseRenewer->handleTimerEvent();
-    EXPECT_FALSE(zoo->leader);
-    EXPECT_EQ(0, zoo->leaderVersion);
-}
-TEST_F(ZooStorageTest, LeaseRenewer_handleTimerEvent_otherError) {
-    zoo->renewLeaseIntervalCycles = Cycles::fromSeconds(1000.0);
-    zoo->becomeLeader("/test/leader", "Leader info");
-
-    // Delete the leader object to force an error.
-    zoo->remove("/test/leader");
-    EXPECT_THROW(zoo->leaseRenewer->handleTimerEvent(), FatalError);
-    EXPECT_TRUE(zoo->leader);
 }
 
 }  // namespace RAMCloud

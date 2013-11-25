@@ -24,7 +24,6 @@ namespace RAMCloud {
 ExternalStorage::ExternalStorage()
     : workspace("/")
     , fullName(workspace)
-    , testName(NULL)
 {}
 
 // See header file for documentation.
@@ -65,9 +64,6 @@ ExternalStorage::setWorkspace(const char* pathPrefix)
 const char*
 ExternalStorage::getFullName(const char* name)
 {
-    if (testName != NULL) {
-        return testName;
-    }
     if (name[0] == '/') {
         return name;
     }
