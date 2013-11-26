@@ -73,8 +73,10 @@ class ZooStorage: public ExternalStorage {
     /// if none.
     zhandle_t* zoo;
 
-    /// Indicates whether we are currently acting as a valid leader.
-    bool leader;
+    /// True means that we once were leader, but at some point we lost
+    /// leadership. From this point on, no operations will be allowed;
+    /// the application should commit suicide.
+    bool lostLeadership;
 
     /// If we are unable to connect to the ZooKeeper server, this variable
     /// determines how often we retry (units: milliseconds).

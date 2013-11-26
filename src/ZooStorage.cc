@@ -40,7 +40,7 @@ ZooStorage::ZooStorage(string& serverInfo, Dispatch* dispatch)
     : mutex()
     , serverInfo(serverInfo)
     , zoo(NULL)
-    , leader(false)
+    , lostLeadership(false)
     , connectionRetryMs(0)
     , checkLeaderIntervalMs(0)
     , renewLeaseIntervalCycles(0)
@@ -95,8 +95,8 @@ ZooStorage::get(const char* name, Buffer* value)
 {
     Lock lock(mutex);
     const char* fullName = getFullName(name);
-    if (!leader) {
-        throw NotLeaderException(HERE);
+    if (lostLeadership) {
+        throw LostLeadershipException(HERE);
     }
 
     // Make an initial guess about how large the object is, in order to
@@ -139,8 +139,8 @@ ZooStorage::getChildren(const char* name, vector<Object>* children)
     children->resize(0);
     const char* fullName = getFullName(name);
 
-    if (!leader) {
-        throw NotLeaderException(HERE);
+    if (lostLeadership) {
+        throw LostLeadershipException(HERE);
     }
 
     // First, retrieve the names of all of the children of the node.
@@ -232,8 +232,8 @@ void
 ZooStorage::remove(const char* name)
 {
     Lock lock(mutex);
-    if (!leader) {
-        throw NotLeaderException(HERE);
+    if (lostLeadership) {
+        throw LostLeadershipException(HERE);
     }
     removeInternal(lock, getFullName(name));
 }
@@ -307,8 +307,8 @@ ZooStorage::set(Hint flavor, const char* name, const char* value,
         int valueLength)
 {
     Lock lock(mutex);
-    if (!leader) {
-        throw NotLeaderException(HERE);
+    if (lostLeadership) {
+        throw LostLeadershipException(HERE);
     }
     setInternal(lock, flavor, getFullName(name), value, valueLength);
 }
@@ -416,7 +416,6 @@ ZooStorage::checkLeader(Lock& lock)
                 downCast<uint32_t>(leaderInfo.length()),
                 &ZOO_OPEN_ACL_UNSAFE, 0, NULL, 0);
         if (status == ZOK) {
-            leader = true;
             leaderVersion = 0;
             if (renewLeaseIntervalCycles != 0) {
                 leaseRenewer.construct(this);
@@ -455,7 +454,6 @@ ZooStorage::checkLeader(Lock& lock)
     status = zoo_set(zoo, leaderObject.c_str(), leaderInfo.c_str(),
             downCast<uint32_t>(leaderInfo.length()), leaderVersion);
     if (status == ZOK) {
-        leader = true;
         leaderVersion++;
         if (renewLeaseIntervalCycles != 0) {
             leaseRenewer.construct(this);
@@ -673,7 +671,7 @@ ZooStorage::renewLease(Lock& lock)
                     "leader info: %.*s, version: %u, our version: %u",
                     length, buffer, stat.version,
                     leaderVersion);
-            leader = false;
+            lostLeadership = true;
             return true;
         } else if (status == ZNONODE) {
             // This issue is handled below; retry to make that happen.
@@ -684,12 +682,12 @@ ZooStorage::renewLease(Lock& lock)
                     zerror(status), leaderObject.c_str());
             return false;
         }
-        leader = false;
+        lostLeadership = true;
     } else if (status == ZNONODE) {
         RAMCLOUD_LOG(WARNING, "renewLease: Lost ZooKeeper leadership; leader "
                 "object %s no longer exists",
                 leaderObject.c_str());
-        leader = false;
+        lostLeadership = true;
         return true;
     } else {
         // Something went wrong (e.g. server crashed?). Perform standard error

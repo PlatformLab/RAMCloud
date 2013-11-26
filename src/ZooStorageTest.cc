@@ -39,11 +39,7 @@ class ZooStorageTest : public ::testing::Test {
         string info("localhost:2181");
         zoo.construct(info, &dispatch);
 
-        // For many tests it's convenient to invoke ZooKeeper without first
-        // becoming leader, so just pretend we're already leader.
-        zoo->leader = true;
-
-        // For most tests is easier if the lease renewer never runs.
+        // For most tests it's easier if the lease renewer never runs.
         zoo->renewLeaseIntervalCycles = 0;
 
         zoo->remove("/test");
@@ -122,11 +118,11 @@ TEST_F(ZooStorageTest, becomeLeader) {
     EXPECT_EQ("locator:new", TestUtil::toString(&value));
 }
 
-TEST_F(ZooStorageTest, get_notLeader) {
-    zoo->leader = false;
+TEST_F(ZooStorageTest, get_lostLeadership) {
+    zoo->lostLeadership = true;
     Buffer value;
     EXPECT_THROW(zoo->get("/test/var1", &value),
-                ExternalStorage::NotLeaderException);
+                ExternalStorage::LostLeadershipException);
 }
 TEST_F(ZooStorageTest, get_noSuchObject) {
     Buffer value;
@@ -160,11 +156,11 @@ TEST_F(ZooStorageTest, getChildren_basics) {
     EXPECT_EQ("/test/var1: value1, /test/var2: value2, /test/var3: value3",
             toString(&children));
 }
-TEST_F(ZooStorageTest, getChildren_notLeader) {
-    zoo->leader = false;
+TEST_F(ZooStorageTest, getChildren_lostLeadership) {
+    zoo->lostLeadership = true;
     vector<ZooStorage::Object> children;
     EXPECT_THROW(zoo->getChildren("/test", &children),
-                ExternalStorage::NotLeaderException);
+                ExternalStorage::LostLeadershipException);
 }
 TEST_F(ZooStorageTest, getChildren_noSuchObject) {
     vector<ZooStorage::Object> children;
@@ -232,10 +228,10 @@ TEST_F(ZooStorageTest, getChildren_weirdNodes) {
             toString(&children));
 }
 
-TEST_F(ZooStorageTest, remove_notLeader) {
-    zoo->leader = false;
+TEST_F(ZooStorageTest, remove_lostLeadership) {
+    zoo->lostLeadership = true;
     EXPECT_THROW(zoo->remove("/test/var1"),
-                ExternalStorage::NotLeaderException);
+                ExternalStorage::LostLeadershipException);
 }
 TEST_F(ZooStorageTest, removeInternal_singleObject) {
     Buffer value;
@@ -285,10 +281,10 @@ TEST_F(ZooStorageTest, removeInternal_deeplyNested) {
     EXPECT_FALSE(zoo->get("/test", &value));
 }
 
-TEST_F(ZooStorageTest, set_notLeader) {
-    zoo->leader = false;
+TEST_F(ZooStorageTest, set_lostLeadership) {
+    zoo->lostLeadership = true;
     EXPECT_THROW(zoo->set(ExternalStorage::Hint::CREATE, "/test", "value1"),
-                ExternalStorage::NotLeaderException);
+                ExternalStorage::LostLeadershipException);
 }
 TEST_F(ZooStorageTest, setInternal_createSucess) {
     Buffer value;
@@ -545,7 +541,7 @@ TEST_F(ZooStorageTest, renewLease_versionMismatchAndDataChanged) {
     EXPECT_EQ("renewLease: Lost ZooKeeper leadership; current leader info: "
             "New leader info, version: 1, our version: 0",
             TestLog::get());
-    EXPECT_FALSE(zoo->leader);
+    EXPECT_TRUE(zoo->lostLeadership);
 }
 TEST_F(ZooStorageTest, renewLease_missingNodeWhileReading) {
     zoo->renewLeaseIntervalCycles = Cycles::fromSeconds(1000.0);
@@ -558,7 +554,7 @@ TEST_F(ZooStorageTest, renewLease_missingNodeWhileReading) {
         EXPECT_FALSE(zoo->renewLease(lock));
     }
     EXPECT_EQ("", TestLog::get());
-    EXPECT_TRUE(zoo->leader);
+    EXPECT_FALSE(zoo->lostLeadership);
 }
 TEST_F(ZooStorageTest, renewLease_errorWhileReading) {
     zoo->renewLeaseIntervalCycles = Cycles::fromSeconds(1000.0);
@@ -573,7 +569,7 @@ TEST_F(ZooStorageTest, renewLease_errorWhileReading) {
     EXPECT_TRUE(TestUtil::contains(TestLog::get(),
             "renewLease: Retrying after session expired error while "
             "reading /test/leader"));
-    EXPECT_TRUE(zoo->leader);
+    EXPECT_FALSE(zoo->lostLeadership);
 }
 TEST_F(ZooStorageTest, renewLease_leaderObjectDeleted) {
     zoo->renewLeaseIntervalCycles = Cycles::fromSeconds(1000.0);
@@ -587,7 +583,7 @@ TEST_F(ZooStorageTest, renewLease_leaderObjectDeleted) {
     EXPECT_EQ("renewLease: renewLease: Lost ZooKeeper leadership; leader "
             "object /test/leader no longer exists",
             TestLog::get());
-    EXPECT_FALSE(zoo->leader);
+    EXPECT_TRUE(zoo->lostLeadership);
 }
 TEST_F(ZooStorageTest, renewLease_errorDuringSetOperation) {
     zoo->renewLeaseIntervalCycles = Cycles::fromSeconds(1000.0);
@@ -601,7 +597,7 @@ TEST_F(ZooStorageTest, renewLease_errorDuringSetOperation) {
     EXPECT_TRUE(TestUtil::contains(TestLog::get(),
             "renewLease: Retrying after session expired error while "
             "setting /test/leader"));
-    EXPECT_TRUE(zoo->leader);
+    EXPECT_FALSE(zoo->lostLeadership);
 }
 
 TEST_F(ZooStorageTest, stateString) {
@@ -629,6 +625,7 @@ TEST_F(ZooStorageTest, LeaseRenewer_handleTimerEvent) {
     EXPECT_EQ("renewLease: False positive for leadership loss; updating "
             "version from 0 to 1", TestLog::get());
     EXPECT_EQ(2, zoo->leaderVersion);
+    EXPECT_TRUE(zoo->leaseRenewer->isRunning());
 }
 
 }  // namespace RAMCloud

@@ -98,14 +98,16 @@ class ExternalStorage {
 
     /**
      * This exception is thrown if we lose leadership (i.e. some other
-     * server decided that we are dead, so it took over as coordinator)
-     * or if operations are attempted before we ever became leader.
+     * server decided that we are dead, so it took over as coordinator).
      * When this exception is thrown, the coordinator must either exit
      * or reset all of its state and do nothing until it becomes leader
-     * again.
+     * again. Note: it's OK to access external storage if we have never had
+     * leadership (presumably the caller knows how to do this safely, such
+     * as just read-only access), but once we have obtained leadership,
+     * we must always have it in the future.
      */
-    struct NotLeaderException : public Exception {
-        explicit NotLeaderException(const CodeLocation& where)
+    struct LostLeadershipException : public Exception {
+        explicit LostLeadershipException(const CodeLocation& where)
             : Exception(where) {}
     };
 
