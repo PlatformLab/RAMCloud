@@ -462,6 +462,7 @@ TableManager::recover(uint64_t lastCompletedUpdate)
             notifyReassignTablet(lock, &info);
         }
     }
+    LOG(NOTICE, "Table recovery complete: %lu table(s)", directory.size());
 }
 
 /**
@@ -853,29 +854,31 @@ TableManager::recreateTable(const Lock& lock, ProtoBuf::Table* info)
         nextTableId = id + 1;
     int numTablets = info->tablet_size();
     for (int i = 0; i < numTablets; i++) {
-        const ProtoBuf::Table::Tablet& tablet = info->tablet(i);
-        Log::Position ctime(tablet.ctime_log_head_id(),
-                tablet.ctime_log_head_offset());
+        const ProtoBuf::Table::Tablet& tabletInfo = info->tablet(i);
+        Log::Position ctime(tabletInfo.ctime_log_head_id(),
+                tabletInfo.ctime_log_head_offset());
         Tablet::Status status;
-        if (tablet.state() == ProtoBuf::Table::Tablet::NORMAL)
+        if (tabletInfo.state() == ProtoBuf::Table::Tablet::NORMAL)
             status = Tablet::NORMAL;
-        else if (tablet.state() == ProtoBuf::Table::Tablet::RECOVERING)
+        else if (tabletInfo.state() == ProtoBuf::Table::Tablet::RECOVERING)
             status = Tablet::RECOVERING;
         else
             DIE("Unknown status for tablet");
-        table->tablets.push_back(new Tablet(id,
-                tablet.start_key_hash(),
-                tablet.end_key_hash(),
-                ServerId(tablet.server_id()),
+        Tablet* tablet = new Tablet(id,
+                tabletInfo.start_key_hash(),
+                tabletInfo.end_key_hash(),
+                ServerId(tabletInfo.server_id()),
                 status,
-                Log::Position(tablet.ctime_log_head_id(),
-                              tablet.ctime_log_head_offset())));
+                Log::Position(tabletInfo.ctime_log_head_id(),
+                              tabletInfo.ctime_log_head_offset()));
+        table->tablets.push_back(tablet);
+        LOG(NOTICE, "Recovered tablet 0x%lx-0x%lx for table '%s' (id %lu) "
+                "on server %s", tablet->startKeyHash, tablet->endKeyHash,
+                name.c_str(), tablet->tableId,
+                tablet->serverId.toString().c_str());
     }
     directory[name] = table;
     idMap[id] = table;
-
-    LOG(NOTICE, "Recreated table '%s' with id %lu (%d tablets)", name.c_str(),
-            id, numTablets);
     return table;
 }
 

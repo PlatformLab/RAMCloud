@@ -352,7 +352,8 @@ TEST_F(TableManagerTest, recover_nextTableId) {
 
     tableManager->recover(100);
     EXPECT_EQ(1234u, tableManager->nextTableId);
-    EXPECT_EQ("recover: initializing TableManager: nextTableId = 1234",
+    EXPECT_EQ("recover: initializing TableManager: nextTableId = 1234 | "
+            "recover: Table recovery complete: 0 table(s)",
             TestLog::get());
 }
 TEST_F(TableManagerTest, recover_ignoreNullValue) {
@@ -475,7 +476,8 @@ TEST_F(TableManagerTest, recover_incompleteDelete) {
 
     tableManager->recover(88);
     EXPECT_EQ("notifyDropTable: dropTabletOwnership skipped for master 1.0 "
-            "(table 444, key hashes 0x800-0x900) because server isn't running",
+            "(table 444, key hashes 0x800-0x900) because server isn't "
+            "running | recover: Table recovery complete: 0 table(s)",
             TestLog::get());
 }
 TEST_F(TableManagerTest, recover_incompleteSplitTablet) {
@@ -846,8 +848,12 @@ TEST_F(TableManagerTest, recreateTable_basics) {
             tableManager->debugString());
     EXPECT_EQ(12345U, tableManager->directory["table1"]->id);
     EXPECT_EQ(12346U, tableManager->nextTableId);
-    EXPECT_EQ("recreateTable: Recreated table 'table1' with id "
-            "12345 (3 tablets)", TestLog::get());
+    EXPECT_EQ("recreateTable: Recovered tablet 0x100-0x200 for "
+            "table 'table1' (id 12345) on server 66.0 | "
+            "recreateTable: Recovered tablet 0x400-0x500 for "
+            "table 'table1' (id 12345) on server 77.0 | "
+            "recreateTable: Recovered tablet 0x800-0x900 for "
+            "table 'table1' (id 12345) on server 88.0", TestLog::get());
 }
 TEST_F(TableManagerTest, recreateTable_directoryEntryExists) {
     ProtoBuf::Table info;

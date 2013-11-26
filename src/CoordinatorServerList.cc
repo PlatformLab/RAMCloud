@@ -283,6 +283,11 @@ CoordinatorServerList::recover(uint64_t lastCompletedUpdate)
         entry->updateSequenceNumber = info.sequence_number();
         entry->masterRecoveryInfo = info.master_recovery_info();
         entry->version = info.version();
+        LOG(NOTICE, "Recreated server %s at %s with services %s, status %s",
+                entry->serverId.toString().c_str(),
+                entry->serviceLocator.c_str(),
+                entry->services.toString().c_str(),
+                toString(entry->status).c_str());
 
         if (entry->status == ServerStatus::UP) {
             if (entry->services.has(WireFormat::MASTER_SERVICE)) {
@@ -367,8 +372,6 @@ CoordinatorServerList::recover(uint64_t lastCompletedUpdate)
         }
     }
 
-    LOG(NOTICE, "Server list version after recovery: %lu", version);
-
     // Repair inconsistencies in the replication groups.
     repairReplicationGroups(lock);
 
@@ -401,6 +404,10 @@ CoordinatorServerList::recover(uint64_t lastCompletedUpdate)
     // Perform the second stage of tracker notification (firing callbacks).
     foreach (ServerTrackerInterface* tracker, trackers)
         tracker->fireCallback();
+
+    LOG(NOTICE, "CoordinatorServerList recovery completed: %u master(s), "
+            "%u backup(s), server list version is %lu", numberOfMasters,
+            numberOfBackups, version);
 }
 
 /**
