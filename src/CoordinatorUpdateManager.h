@@ -44,6 +44,7 @@ class CoordinatorUpdateManager {
 
     uint64_t init();
     uint64_t nextSequenceNumber();
+    void recoveryFinished();
     void updateFinished(uint64_t sequenceNumber);
 
   PRIVATE:
@@ -77,6 +78,11 @@ class CoordinatorUpdateManager {
     /// started and haven't yet read the existing values from external storage.
     uint64_t externalLastFinished;
     uint64_t externalFirstAvailable;
+
+    /// This flag is set when the recoveryFinished method is invoked; if
+    /// this flag is false, it's not safe to update externalLastFinished
+    /// (see note in the sync method).
+    bool recoveryComplete;
 
     void reset();
     void sync(Lock& lock);

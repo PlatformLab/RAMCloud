@@ -33,6 +33,7 @@ CoordinatorUpdateManager::CoordinatorUpdateManager(ExternalStorage* storage)
     , lastAssigned(0)
     , externalLastFinished(0)
     , externalFirstAvailable(0)
+    , recoveryComplete(false)
 {}
 
 /**
@@ -46,7 +47,7 @@ CoordinatorUpdateManager::~CoordinatorUpdateManager()
  * has assumed leadership. It reads the CoordinatorUpdateInfo record stored
  * externally and uses it to initialize the information in this object.
  * If the record doesn't exist, the object is initialize assuming we are
- * starting a new cluster from scratch. this method must be called before
+ * starting a new cluster from scratch. This method must be called before
  * either nextSequenceNumber or updateFinished is called.
  * 
  * \return
@@ -87,6 +88,23 @@ CoordinatorUpdateManager::init()
 }
 
 /**
+ * The coordinator must invoke this method once it has completed
+ * recovering its internal state after startup. This allows us to
+ * forget about any incomplete operations left over from the previous
+ * coordinator.
+ */
+void
+CoordinatorUpdateManager::recoveryFinished()
+{
+    Lock lock(mutex);
+    recoveryComplete = true;
+
+    // Update external storage to completely expunge any record of
+    // the old updates.
+    sync(lock);
+}
+
+/**
  * Returns a unique sequence number that the caller can associate with
  * an update. Sequence numbers are assigned using consecutive integer
  * values.
@@ -98,7 +116,7 @@ CoordinatorUpdateManager::nextSequenceNumber()
     lastAssigned++;
     if (lastAssigned >= externalFirstAvailable) {
         // We have used up all of the sequence numbers that we have
-        // "reserved"; update reservation, so that a future coordinator
+        // "reserved"; update the reservation, so that a future coordinator
         // won't reuse anything that we have already used.
         sync(lock);
     }
@@ -135,7 +153,8 @@ CoordinatorUpdateManager::updateFinished(uint64_t sequenceNumber)
     // but if it gets too old, it will lengthen coordinator recovery time
     // by increasing the number of updates that a new coordinator has to
     // retry).
-    if (smallestUnfinished > (externalLastFinished + 100)) {
+    if ((smallestUnfinished > (externalLastFinished + 100))
+            && recoveryComplete) {
         sync(lock);
     }
 }
@@ -166,7 +185,15 @@ void
 CoordinatorUpdateManager::sync(Lock& lock)
 {
     ProtoBuf::CoordinatorUpdateInfo info;
-    externalLastFinished = smallestUnfinished-1;
+
+    // Important note: we can't update externalLastFinished if recovery has
+    // not yet completed.  If we did, and the coordinator crashed a second
+    // time before completing recovery, we would no longer have a record
+    // of the incomplete work left over from the first crash, so that work
+    // might get lost.
+    if (recoveryComplete) {
+        externalLastFinished = smallestUnfinished-1;
+    }
     info.set_lastfinished(externalLastFinished);
 
     // Reserve the next 1000 sequence numbers (i.e. if we crash, the next

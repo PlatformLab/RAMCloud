@@ -30,6 +30,10 @@ class CoordinatorUpdateManagerTest : public ::testing::Test {
         , storage(true)
         , manager(&storage)
     {
+        // For most tests it's simplest to pretend recovery has already
+        // finished.
+        manager.recoveryFinished();
+
         // Load a configuration record into the external storage.
         ProtoBuf::CoordinatorUpdateInfo info;
         info.set_lastfinished(20);
@@ -116,6 +120,15 @@ TEST_F(CoordinatorUpdateManagerTest, init_success) {
             TestLog::get());
 }
 
+TEST_F(CoordinatorUpdateManagerTest, recoveryComplete) {
+    CoordinatorUpdateManager manager2(&storage);
+    EXPECT_FALSE(manager2.recoveryComplete);
+    manager2.init();
+    EXPECT_FALSE(manager2.recoveryComplete);
+    manager2.recoveryFinished();
+    EXPECT_TRUE(manager2.recoveryComplete);
+}
+
 TEST_F(CoordinatorUpdateManagerTest, nextSequenceNumber) {
     manager.init();
     TestLog::reset();
@@ -151,7 +164,7 @@ TEST_F(CoordinatorUpdateManagerTest, updateFinished_basics) {
     EXPECT_EQ("", storage.log);
     EXPECT_EQ("1002 -- FTTTFFFF", toString());
 }
-TEST_F(CoordinatorUpdateManagerTest, uupdateFinished_sync) {
+TEST_F(CoordinatorUpdateManagerTest, updateFinished_sync) {
     manager.init();
     for (int i = 0; i < 10; i++) {
         manager.nextSequenceNumber();
@@ -171,7 +184,7 @@ TEST_F(CoordinatorUpdateManagerTest, uupdateFinished_sync) {
     EXPECT_EQ("", storage.log);
 }
 
-TEST_F(CoordinatorUpdateManagerTest, sync) {
+TEST_F(CoordinatorUpdateManagerTest, sync_normal) {
     manager.init();
     manager.nextSequenceNumber();
     EXPECT_EQ("lastFinished: 999, firstAvailable: 2000", configString());
@@ -181,6 +194,20 @@ TEST_F(CoordinatorUpdateManagerTest, sync) {
     manager.lastAssigned = 2500;
     manager.sync(lock);
     EXPECT_EQ("lastFinished: 1999, firstAvailable: 3500", configString());
+}
+TEST_F(CoordinatorUpdateManagerTest, sync_recoveryNotFinished) {
+    manager.externalLastFinished = 100;
+    manager.externalFirstAvailable = 1000;
+    manager.smallestUnfinished = 800;
+    manager.lastAssigned = 900;
+    manager.recoveryComplete = false;
+    {
+        CoordinatorUpdateManager::Lock lock(manager.mutex);
+        manager.sync(lock);
+    }
+    EXPECT_EQ("lastFinished: 100, firstAvailable: 1900", configString());
+    manager.recoveryFinished();
+    EXPECT_EQ("lastFinished: 799, firstAvailable: 1900", configString());
 }
 
 }  // namespace RAMCloud

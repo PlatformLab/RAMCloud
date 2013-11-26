@@ -62,6 +62,9 @@ CoordinatorService::CoordinatorService(Context* context,
     uint64_t lastCompletedUpdate = updateManager.init();
     serverList->recover(lastCompletedUpdate);
     tableManager.recover(lastCompletedUpdate);
+    updateManager.recoveryFinished();
+    LOG(NOTICE, "Coordinator state has been recovered from external storage; "
+            "starting service");
 
     // Don't enable server list updates until recovery is finished (before
     // this point the server list may not contain all information needed
