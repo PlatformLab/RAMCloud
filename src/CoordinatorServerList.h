@@ -21,6 +21,7 @@
 #include <list>
 
 #include "MasterRecoveryInfo.pb.h"
+#include "ServerListEntry.pb.h"
 #include "ServerList.pb.h"
 
 #include "AbstractServerList.h"
@@ -98,15 +99,6 @@ class CoordinatorServerList : public AbstractServerList{
         // and are not transmitted to members' ServerLists.
 
         /**
-         * A sequence number assigned by CoordinatorUpdateManager whenever
-         * this entry changes in a way that requires notifying the rest of
-         * the cluster (e.g., server crashing, recovery completed, etc.).
-         * It's used to ensure that cluster updates are finished even if
-         * the coordinator crashes in the middle.
-         */
-        uint64_t updateSequenceNumber;
-
-        /**
          * Stores information about the server for use during recovery.
          * This information is completely opaque to the coordinator during
          * normal operation and is only used in master recovery. Basically,
@@ -115,13 +107,6 @@ class CoordinatorServerList : public AbstractServerList{
          * recovery.
          */
         ProtoBuf::MasterRecoveryInfo masterRecoveryInfo;
-
-        /**
-         * The CoordinatorServerList version number corresponding to the
-         * most recent change to this entry that must be propagated to the
-         * cluster.  Set by persistAndPropagate.
-         */
-        uint64_t version;
 
         /**
          * The two fields below, verifiedVersion and updateVersion,
@@ -163,6 +148,14 @@ class CoordinatorServerList : public AbstractServerList{
          * See comment block above verfiedVersion for more info.
          */
         uint64_t updateVersion;
+
+        /**
+         * Keeps track of updates to this entry that haven't yet been
+         * sent to all of the servers in the cluster. This information also
+         * gets recorded in external storage to ensure that the updates get
+         * completed if we crash partway through.
+         */
+        std::deque<ProtoBuf::ServerListEntry_Update> pendingUpdates;
     };
 
     explicit CoordinatorServerList(Context* context);
@@ -283,30 +276,23 @@ class CoordinatorServerList : public AbstractServerList{
         /// Server list version # that corresponds with this update
         uint64_t version;
 
-        /// Sequence number of the external storage update that corresponds
-        /// to this update; used to mark the external storage update as
-        /// "complete" once this update has been fully propagated.
-        uint64_t sequenceNumber;
-
-        /// Describes changes in the server list from version-1 to version.
+        /// Describes changes in the server list from previous version to
+        /// this version.
         ProtoBuf::ServerList incremental;
 
-        ServerListUpdate(uint64_t version, uint64_t sequenceNumber)
+        explicit ServerListUpdate(uint64_t version)
                 : version(version)
-                , sequenceNumber(sequenceNumber)
                 , incremental()
         {}
 
         ServerListUpdate(const ServerListUpdate& source)
                 : version(source.version)
-                , sequenceNumber(source.sequenceNumber)
                 , incremental(source.incremental)
         {}
 
         ServerListUpdate& operator=(const ServerListUpdate& source)
         {
             version = source.version;
-            sequenceNumber = source.sequenceNumber;
             incremental = source.incremental;
             return *this;
         }
@@ -337,6 +323,7 @@ class CoordinatorServerList : public AbstractServerList{
 
     /// Functions related to keeping the cluster up-to-date
     void pushUpdate(const Lock& lock, Entry* entry);
+    void insertUpdate(const Lock& lock, Entry* entry, uint64_t version);
     void updateLoop();
     void checkUpdates();
     void sync();

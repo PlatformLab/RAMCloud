@@ -44,7 +44,8 @@ message ServerList {
     required fixed64 replication_id = 7;
   }
 
-  /// List of servers.
+  /// List of servers. If type is UPDATE then this list should only have
+  /// a single entry.
   repeated Entry server = 1;
 
   /// Generation number of the Coordinator's list that corresponds to

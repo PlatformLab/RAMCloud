@@ -20,6 +20,19 @@ package RAMCloud.ProtoBuf;
 /// Used to save information on external storage in order to recover
 /// the CoordinatorServerList after a coordinator crash.
 message ServerListEntry {
+  /// Describes one update to this entry
+  message Update {
+    /// New status of the server, as of this update.  See ServerStatus enum
+    /// for legal values.
+    required fixed32 status = 1;
+
+    /// Server list version corresponding to this update.
+    required uint64 version = 2;
+
+    /// CoordinatorUpdateManager's sequence number for this update.
+    required uint64 sequence_number = 3;
+  }
+
   /// Which services this server is running.
   required fixed32 services = 1;
 
@@ -31,26 +44,22 @@ message ServerListEntry {
 
   /// Disk bandwidth of the backup server in MB/s, if this entry represents
   /// a server which is running a backup service.
-  required fixed32 expected_read_mbytes_per_sec = 5;
+  required fixed32 expected_read_mbytes_per_sec = 4;
 
   /// The current status of this server in terms of cluster membership.
   /// See ServerStatus enum in AbstractServerList.h for legal values.
-  required fixed32 status = 6;
+  required fixed32 status = 5;
 
   /// Identifies the replication group containing this server.
-  required fixed64 replication_id = 7;
-
-  /// Sequence number for the most recent update to this entry. Used during
-  /// crash recovery to determine whether notifications  need to be sent out
-  /// to the cluster for this entry
-  required uint64 sequence_number = 8;
+  required fixed64 replication_id = 6;
 
   /// Information needed for master recovery, which is managed outside
   /// CoordinatorServerList; we store it and recover it without knowing
   /// what it is or exactly how it's used.
-  required MasterRecoveryInfo master_recovery_info = 9;
+  required MasterRecoveryInfo master_recovery_info = 7;
 
-  /// The most recent CoordinatorServerList version number in which this entry
-  /// was modified.
-  required uint64 version = 10;
+  /// Updates that may not have been received by all of the servers
+  /// in the cluster yet. There will always be at least one element
+  /// in this list (the most recent update).
+  repeated Update update = 8;
 }

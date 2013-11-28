@@ -261,15 +261,12 @@ CoordinatorServerList::recover(uint64_t lastCompletedUpdate)
         }
         pair->nextGenerationNumber = id.generationNumber() + 1;
 
-        // Keep track of the highest version seen so far.
-        if (info.version() > version) {
-            version = info.version();
-        }
-
-        // Special case:  leave the entry uninitialized if the server had
+        // Special case: leave the entry uninitialized if the server had
         // been removed from the cluster and all notifications were completed.
         if ((ServerStatus(info.status()) == ServerStatus::REMOVE)
-                && (info.sequence_number() <= lastCompletedUpdate)) {
+                && ((info.update_size() == 0) ||
+                (info.update(info.update_size()-1).sequence_number()
+                <= lastCompletedUpdate))) {
             continue;
         }
 
@@ -280,9 +277,7 @@ CoordinatorServerList::recover(uint64_t lastCompletedUpdate)
         entry->expectedReadMBytesPerSec = info.expected_read_mbytes_per_sec();
         entry->status = ServerStatus(info.status());
         entry->replicationId = info.replication_id();
-        entry->updateSequenceNumber = info.sequence_number();
         entry->masterRecoveryInfo = info.master_recovery_info();
-        entry->version = info.version();
         LOG(NOTICE, "Recreated server %s at %s with services %s, status %s",
                 entry->serverId.toString().c_str(),
                 entry->serviceLocator.c_str(),
@@ -322,48 +317,51 @@ CoordinatorServerList::recover(uint64_t lastCompletedUpdate)
             }
         }
 
-        if (entry->updateSequenceNumber > lastCompletedUpdate) {
-            // This entry was not fully propagated to the cluster before the
-            // coordinator crashed. Create a new update to finish the
-            // propagation (with a fresh sequence number that we can track).
-            entry->updateSequenceNumber =
-                    context->coordinatorService->updateManager.
-                    nextSequenceNumber();
-            LOG(NOTICE, "Rescheduling update for server %s, version %lu, "
-                    "updateSequence %lu, status %s",
-                    entry->serverId.toString().c_str(),
-                    entry->version, entry->updateSequenceNumber,
-                    toString(entry-> status).c_str());
+        // Scan all the update information from external storage. For each
+        // update that was not fully propagated, start a new update.
+        bool incompleteUpdates = false;
+        for (int i = 0; i < info.update_size(); i++) {
+            const ProtoBuf::ServerListEntry_Update* updateInfo =
+                    &(info.update(i));
 
-            // Must save the new updateSequenceNumber to ExternalStorage
-            // (otherwise, another coordinator crash before the updates are
-            // completed could cause the updates never to be finished).
-            entry->sync(context->externalStorage);
-
-            // Server list entries get processed in any order here, but the
-            // updates deque must be sorted in order of version; find the
-            // right place to insert this entry.
-            std::deque<ServerListUpdate>::iterator it;
-            for (it = updates.begin(); it != updates.end(); it++) {
-                if (it->version == entry->version) {
-                    DIE("Duplicated CSL entry version %lu for servers %s "
-                            "and %s", entry->version,
-                            entry->serverId.toString().c_str(),
-                            ServerId(it->incremental.server(0).server_id())
-                            .toString().c_str());
-                }
-                if (it->version > entry->version) {
-                    break;
-                }
+            // Keep track of the highest version seen so far.
+            if (updateInfo->version() > version) {
+                version = updateInfo->version();
             }
 
-            // Note: "insert" is used instead of "emplace" below, because
-            // emplace doesn't appear to work in gcc 4.4.7 (as of 10/2013).
-            it = updates.insert(it, ServerListUpdate(entry->version,
-                    entry->updateSequenceNumber));
-            it->incremental.set_version_number(entry->version);
-            it->incremental.set_type(ProtoBuf::ServerList_Type_UPDATE);
-            entry->serialize(it->incremental.add_server());
+            if (updateInfo->sequence_number() > lastCompletedUpdate) {
+                // This entry was not fully propagated to the cluster before
+                // the coordinator crashed. Create a new update to finish the
+                // propagation (with a fresh sequence number that we can track).
+                incompleteUpdates = true;
+                uint64_t sequenceNumber = context->coordinatorService->
+                        updateManager.nextSequenceNumber();
+                uint64_t version = updateInfo->version();
+                ServerStatus status = ServerStatus(updateInfo->status());
+                LOG(NOTICE, "Rescheduling update for server %s, version %lu, "
+                        "updateSequence %lu, status %s",
+                        entry->serverId.toString().c_str(),
+                        version, sequenceNumber,
+                        toString(status).c_str());
+
+                // First, record the update in the entry itself.
+                entry->pendingUpdates.push_back(*updateInfo);
+                entry->pendingUpdates.back().set_sequence_number(
+                        sequenceNumber);
+
+                // Next, create an update to notify the rest of the cluster.
+                ServerStatus savedStatus = entry->status;
+                entry->status = status;
+                insertUpdate(lock, entry, version);
+                entry->status = savedStatus;
+            }
+        }
+        if (incompleteUpdates) {
+            // Must save the to ExternalStorage to guarantee durability
+            // of the new sequence numbers for updates (otherwise, another
+            // coordinator crash before the updates are completed could
+            // cause the updates never to be finished).
+            entry->sync(context->externalStorage);
         }
 
         // If this server had crashed, reinitiate crash recovery.
@@ -375,18 +373,13 @@ CoordinatorServerList::recover(uint64_t lastCompletedUpdate)
     // Repair inconsistencies in the replication groups.
     repairReplicationGroups(lock);
 
-    // Check the update list for consistency: must contain a contiguous
-    // range of version numbers, ending with the latest version.
-    if (!updates.empty()) {
-        uint64_t firstVersion = updates.front().incremental.version_number();
-        uint64_t lastVersion = updates.back().incremental.version_number();
-        if ((lastVersion != version) ||
-                ((lastVersion + 1 - firstVersion) != updates.size())) {
-            DIE("Updates list inconsistent after recovery: %lu entries, "
-                    "first version %lu, last version %lu",
-                    updates.size(), firstVersion, lastVersion);
-        }
-    }
+    // There used to be a consistency check here that scanned the
+    // update list to ensure that the version numbers formed a contiguous
+    // range. However we can't guarantee this property, since old versions
+    // that have been fully propagated get removed from external storage
+    // in a number to order.  If there are any holes in the update list,
+    // the updates preceding the holes are obsolete and have been
+    // fully propagated.
 
     // Mark all of the servers so that they will receive all updates
     // currently waiting to be propagated.
@@ -406,8 +399,9 @@ CoordinatorServerList::recover(uint64_t lastCompletedUpdate)
         tracker->fireCallback();
 
     LOG(NOTICE, "CoordinatorServerList recovery completed: %u master(s), "
-            "%u backup(s), server list version is %lu", numberOfMasters,
-            numberOfBackups, version);
+            "%u backup(s), %lu update(s) to disseminate, server list version "
+            "is %lu",
+            numberOfMasters, numberOfBackups, updates.size(), version);
 }
 
 /**
@@ -666,12 +660,16 @@ CoordinatorServerList::persistAndPropagate(const Lock& lock, Entry* entry,
 {
     TEST_LOG("Persisting %s", entry->serverId.toString().c_str());
 
-    // Write the entry to external storage, with a new sequence number
-    // to ensure that cluster notification is eventually completed, even in
-    // the presence of coordinator crashes.
-    entry->updateSequenceNumber =
-            context->coordinatorService->updateManager.nextSequenceNumber();
-    entry->version = version + 1;
+    // Add a new update to the list of those in progress for this entry,
+    // then write the entire entry to external storage to ensure that cluster
+    // notification completes eventually, even in the presence of
+    // coordinator crashes.
+    entry->pendingUpdates.emplace_back();
+    ProtoBuf::ServerListEntry_Update* update = &entry->pendingUpdates.back();
+    update->set_status(uint32_t(entry->status));
+    update->set_version(version + 1);
+    update->set_sequence_number(
+            context->coordinatorService->updateManager.nextSequenceNumber());
     entry->sync(context->externalStorage);
 
     // Notify local ServerTrackers about the change.
@@ -870,7 +868,7 @@ void
 CoordinatorServerList::pushUpdate(const Lock& lock, Entry* entry)
 {
     ++version;
-    updates.emplace_back(version, entry->updateSequenceNumber);
+    updates.emplace_back(version);
     ServerListUpdate* update = &(updates.back());
     update->incremental.set_version_number(version);
     update->incremental.set_type(ProtoBuf::ServerList_Type_UPDATE);
@@ -878,6 +876,45 @@ CoordinatorServerList::pushUpdate(const Lock& lock, Entry* entry)
 
     // Wake up the updater, if it was sleeping.
     hasUpdatesOrStop.notify_one();
+}
+
+/**
+ * This method is called during recovery to add a new update to the
+ * list. The twist here is that we may need to insert the update in the
+ * middle of the list, since the order in which updates are discovered
+ * is unpredictable. This method does not actually trigger the updater.
+ *
+ * \param lock
+ *      Explicitly needs CoordinatorServerList lock.
+ * \param entry
+ *      Server list entry to propagate to the cluster.
+ * \param version
+ *      Server list version number for this update.
+ */
+void
+CoordinatorServerList::insertUpdate(const Lock& lock, Entry* entry,
+        uint64_t version)
+{
+    // Find the right place to insert this entry.
+    std::deque<ServerListUpdate>::iterator it;
+    for (it = updates.begin(); it != updates.end(); it++) {
+        if (it->version == version) {
+            DIE("Duplicated CSL entry version %lu for servers %s and %s",
+                    version, entry->serverId.toString().c_str(),
+                    ServerId(it->incremental.server(0).server_id())
+                    .toString().c_str());
+        }
+        if (it->version > version) {
+            break;
+        }
+    }
+
+    // Note: "insert" is used instead of "emplace" below, because
+    // emplace doesn't appear to work in gcc 4.4.7 (as of 10/2013).
+    it = updates.insert(it, ServerListUpdate(version));
+    it->incremental.set_version_number(version);
+    it->incremental.set_type(ProtoBuf::ServerList_Type_UPDATE);
+    entry->serialize(it->incremental.add_server());
 }
 
 /**
@@ -959,42 +996,69 @@ CoordinatorServerList::pruneUpdates(const Lock& lock)
     }
 
     while (!updates.empty() && updates.front().version <= maxConfirmedVersion) {
-        ProtoBuf::ServerList currentUpdate = updates.front().incremental;
-        assert(currentUpdate.type() ==
+        // The oldest update has now been fully propagated, so we can
+        // remove it (after performing appropriate cleanups).
+        ProtoBuf::ServerList* currentUpdate = &updates.front().incremental;
+        assert(currentUpdate->type() ==
                 ProtoBuf::ServerList::Type::ServerList_Type_UPDATE);
+        assert(currentUpdate->server_size() == 1);
+        const ProtoBuf::ServerList_Entry* currentEntry =
+                &currentUpdate->server(0);
 
-        for (int i = 0; i < currentUpdate.server().size(); i++) {
-            ProtoBuf::ServerList::Entry currentEntry = currentUpdate.server(i);
-            ServerStatus updateStatus =
-                    ServerStatus(currentEntry.status());
+        // The oldest pending update in the ServerList entry should have the
+        // same version as the update that just completed, in which case we
+        // can delete the pending update.
+        ServerId serverId = ServerId(currentEntry->server_id());
+        Entry* entry = getEntry(serverId);
+        if (entry != NULL) {
+            while (1) {
+                ProtoBuf::ServerListEntry_Update* updateFromEntry =
+                        &entry->pendingUpdates.front();
+                uint64_t completed = currentUpdate->version_number();
+                uint64_t entryFirst = updateFromEntry->version();
+                if (completed >= entryFirst) {
+                    uint64_t sequenceNumber =
+                            updateFromEntry->sequence_number();
+                    // The following check is a convenience for tests; the
+                    // value should never be 0 in production.
+                    if (sequenceNumber != 0) {
+                        context->coordinatorService->updateManager.
+                                updateFinished(sequenceNumber);
+                    }
+                    entry->pendingUpdates.pop_front();
+                }
+                if (completed == entryFirst) {
+                    break;
+                }
 
-            if (updateStatus == ServerStatus::UP) {
-                // An enlistServer operation has successfully completed.
-
-            } else if (updateStatus == ServerStatus::CRASHED) {
-                // A serverCrashed operation has completed. The server that
-                // crashed may be still recovering.
-
-            } else if (updateStatus == ServerStatus::REMOVE) {
-                // This marks the final completion of serverCrashed() operation.
-                // i.e., If the crashed server was a master, then its recovery
-                // (sparked by a serverCrashed operation) has completed.
-                // If it was not a master, then the serverCrashed operation
-                // (which will not spark any recoveries) has completed.
-
-                ServerId serverId = ServerId(currentEntry.server_id());
-                Tub<Entry>& entry = serverList[serverId.indexNumber()].entry;
-
-                entry.destroy();
+                // We should never get here...
+                LOG(ERROR, "version number mismatch in update for server "
+                        "%s: completed update has version %lu, but first "
+                        "version from entry is %lu",
+                        serverId.toString().c_str(), completed, entryFirst);
+                if (entryFirst > completed) {
+                    break;
+                }
             }
         }
 
-        uint64_t sequenceNumber = updates.front().sequenceNumber;
-        // The following check is a convenience for tests; the value should
-        // never be 0 in production.
-        if (sequenceNumber != 0) {
-            context->coordinatorService->updateManager.updateFinished(
-                    sequenceNumber);
+        ServerStatus updateStatus =
+                ServerStatus(currentEntry->status());
+        if (updateStatus == ServerStatus::UP) {
+            // An enlistServer operation has successfully completed.
+
+        } else if (updateStatus == ServerStatus::CRASHED) {
+            // A serverCrashed operation has completed. The server that
+            // crashed may be still recovering.
+
+        } else if (updateStatus == ServerStatus::REMOVE) {
+            // This marks the final completion of serverCrashed() operation.
+            // i.e., If the crashed server was a master, then its recovery
+            // (sparked by a serverCrashed operation) has completed.
+            // If it was not a master, then the serverCrashed operation
+            // (which will not spark any recoveries) has completed.
+
+            serverList[serverId.indexNumber()].entry.destroy();
         }
         updates.pop_front();
     }
@@ -1430,11 +1494,10 @@ CoordinatorServerList::UpdateServerListRpc::appendServerList(
  */
 CoordinatorServerList::Entry::Entry()
     : ServerDetails()
-    , updateSequenceNumber(0)
     , masterRecoveryInfo()
-    , version(0)
     , verifiedVersion(UNINITIALIZED_VERSION)
     , updateVersion(UNINITIALIZED_VERSION)
+    , pendingUpdates()
 {
 }
 
@@ -1459,11 +1522,10 @@ CoordinatorServerList::Entry::Entry(ServerId serverId,
                     services,
                     0,
                     ServerStatus::UP)
-    , updateSequenceNumber(0)
     , masterRecoveryInfo()
-    , version(0)
     , verifiedVersion(UNINITIALIZED_VERSION)
     , updateVersion(UNINITIALIZED_VERSION)
+    , pendingUpdates()
 {
 }
 
@@ -1503,9 +1565,10 @@ CoordinatorServerList::Entry::sync(ExternalStorage* externalStorage)
     externalInfo.set_expected_read_mbytes_per_sec(expectedReadMBytesPerSec);
     externalInfo.set_status(uint32_t(status));
     externalInfo.set_replication_id(replicationId);
-    externalInfo.set_sequence_number(updateSequenceNumber);
     *externalInfo.mutable_master_recovery_info() = masterRecoveryInfo;
-    externalInfo.set_version(version);
+    foreach (ProtoBuf::ServerListEntry_Update& update, pendingUpdates) {
+        *(externalInfo.add_update()) = update;
+    }
 
     // Compute the name of the external storage object for this entry:
     // it is based on the index of the entry in the server list. This
