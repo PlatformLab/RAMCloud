@@ -182,9 +182,14 @@ BackupSelector::applyTrackerChanges()
                 server.replicationId, server.serverId));
         } else if (event == SERVER_REMOVED) {
             BackupStats* stats = tracker[server.serverId];
-            eraseReplicationId(stats->replicationId, server.serverId);
-            delete stats;
-            tracker[server.serverId] = NULL;
+            // Stats could be null if we joined the cluster at a point where
+            // the server was in crashed state (so we didn't see the
+            // SERVER_ADDED event).
+            if (stats != NULL) {
+                eraseReplicationId(stats->replicationId, server.serverId);
+                delete stats;
+                tracker[server.serverId] = NULL;
+            }
         }
     }
 }

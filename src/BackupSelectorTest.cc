@@ -280,6 +280,18 @@ TEST_F(BackupSelectorTest, applyTrackerChanges) {
     EXPECT_EQ(1u, selector->replicationIdMap.count(1u));
 }
 
+TEST_F(BackupSelectorTest, applyTrackerChanges_removeWithoutAdd) {
+    // All we care about for this test is that it doesn't crash.
+    ServerDetails entry;
+    entry.serverId = ServerId(2, 0);
+    entry.status = ServerStatus::CRASHED;
+    selector->tracker.enqueueChange(entry, ServerChangeEvent::SERVER_CRASHED);
+    entry.status = ServerStatus::REMOVE;
+    selector->tracker.enqueueChange(entry, ServerChangeEvent::SERVER_REMOVED);
+    selector->applyTrackerChanges();
+    EXPECT_EQ(1u, selector->replicationIdMap.size());
+}
+
 TEST_F(BackupSelectorTest, conflict) {
     ServerId backup(1, 0);
     const ServerId conflictingId(backup);
