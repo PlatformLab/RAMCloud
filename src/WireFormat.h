@@ -95,7 +95,6 @@ enum Opcode {
     BACKUP_STARTPARTITION     = 36,
     DROP_TABLET_OWNERSHIP     = 39,
     TAKE_TABLET_OWNERSHIP     = 40,
-    BACKUP_ASSIGN_GROUP       = 41,
     GET_HEAD_OF_LOG           = 42,
     INCREMENT                 = 43,
     PREP_FOR_MIGRATION        = 44,
@@ -195,23 +194,7 @@ struct RetryResponse {
 // All structs are packed so that they have a standard byte representation.
 // All fields are little endian.
 
-// The RPCs below are in alphabetical order.
-
-struct BackupAssignGroup {
-    static const Opcode opcode = BACKUP_ASSIGN_GROUP;
-    static const ServiceType service = BACKUP_SERVICE;
-    struct Request {
-        RequestCommonWithId common;
-        uint64_t replicationId; ///< The new replication group Id assigned to
-                                ///< the backup.
-        uint32_t numReplicas;   ///< Following this field, we append a list of
-                                ///< uint64_t ServerId's, which represent the
-                                ///< servers in the replication group.
-    } __attribute__((packed));
-    struct Response {
-        ResponseCommon common;
-    } __attribute__((packed));
-};
+// The RPCs below are in alphabetical order
 
 struct BackupFree {
     static const Opcode opcode = BACKUP_FREE;

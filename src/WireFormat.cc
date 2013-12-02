@@ -81,7 +81,6 @@ opcodeSymbol(uint32_t opcode)
         case SET_MASTER_RECOVERY_INFO:   return "SET_MASTER_RECOVERY_INFO";
         case DROP_TABLET_OWNERSHIP:      return "DROP_TABLET_OWNERSHIP";
         case TAKE_TABLET_OWNERSHIP:      return "TAKE_TABLET_OWNERSHIP";
-        case BACKUP_ASSIGN_GROUP:        return "BACKUP_ASSIGN_GROUP";
         case INCREMENT:                  return "INCREMENT";
         case GET_HEAD_OF_LOG:            return "GET_HEAD_OF_LOG";
         case PREP_FOR_MIGRATION:         return "PREP_FOR_MIGRATION";
