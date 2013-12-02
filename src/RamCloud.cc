@@ -195,6 +195,13 @@ DropTableRpc::DropTableRpc(RamCloud* ramcloud,
  * \param tableId
  *      The table being enumerated (return value from a previous call
  *      to getTableId) .
+ * \param keysOnly
+ *      False means that full objects are returned, containing both keys
+ *      and data. True means that the returned objects have
+ *      been truncated so that the object data (normally the last
+ *      field of the object) is omitted. Note: the size field in the
+ *      log record headers is unchanged, which means it does not
+ *      exist corresponding to the length of the log record.
  * \param tabletFirstHash
  *      Where to continue enumeration. The caller should provide zero
  *       the initial call. On subsequent calls, the caller should pass
@@ -222,10 +229,11 @@ DropTableRpc::DropTableRpc(RamCloud* ramcloud,
  *       means that enumeration has finished.
  */
 uint64_t
-RamCloud::enumerateTable(uint64_t tableId, uint64_t tabletFirstHash,
-        Buffer& state, Buffer& objects)
+RamCloud::enumerateTable(uint64_t tableId, bool keysOnly,
+                    uint64_t tabletFirstHash, Buffer& state, Buffer& objects)
 {
-    EnumerateTableRpc rpc(this, tableId, tabletFirstHash, state, objects);
+    EnumerateTableRpc rpc(this, tableId, keysOnly,
+                            tabletFirstHash, state, objects);
     return rpc.wait(state);
 }
 
@@ -239,6 +247,13 @@ RamCloud::enumerateTable(uint64_t tableId, uint64_t tabletFirstHash,
  * \param tableId
  *      The table being enumerated (return value from a previous call
  *      to getTableId) .
+ * \param keysOnly
+ *      False means that full objects are returned, containing both keys
+ *      and data. True means that the returned objects have
+ *      been truncated so that the object data (normally the last
+ *      field of the object) is omitted. Note: the size field in the
+ *      log record headers is unchanged, which means it does not
+ *      exist corresponding to the length of the log record.
  * \param tabletFirstHash
  *      Where to continue enumeration. The caller should provide zero
 *       the initial call. On subsequent calls, the caller should pass
@@ -253,13 +268,14 @@ RamCloud::enumerateTable(uint64_t tableId, uint64_t tabletFirstHash,
  *      more objects from the requested tablet.
  */
 EnumerateTableRpc::EnumerateTableRpc(RamCloud* ramcloud, uint64_t tableId,
-        uint64_t tabletFirstHash, Buffer& state, Buffer& objects)
+        bool keysOnly, uint64_t tabletFirstHash, Buffer& state, Buffer& objects)
     : ObjectRpcWrapper(ramcloud, tableId, tabletFirstHash,
             sizeof(WireFormat::Enumerate::Response), &objects)
 {
     WireFormat::Enumerate::Request* reqHdr(
             allocHeader<WireFormat::Enumerate>());
     reqHdr->tableId = tableId;
+    reqHdr->keysOnly = keysOnly;
     reqHdr->tabletFirstHash = tabletFirstHash;
     reqHdr->iteratorBytes = state.getTotalLength();
     for (Buffer::Iterator it(state); !it.isDone(); it.next())

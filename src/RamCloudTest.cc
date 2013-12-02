@@ -105,10 +105,11 @@ TEST_F(RamCloudTest, enumeration_basics) {
     ramcloud->write(tableId1, "5", 1, "efghij", 6);
     ramcloud->write(tableId2, "6", 1, "klmnop", 6);
 
-    TableEnumerator iter(*ramcloud, tableId3);
     uint32_t size = 0;
     const void* buffer = 0;
 
+    // Testing keys and data enumeration
+    TableEnumerator iter(*ramcloud, tableId3, false);
     EXPECT_TRUE(iter.hasNext());
     iter.next(&size, &buffer);
 
@@ -177,8 +178,87 @@ TEST_F(RamCloudTest, enumeration_basics) {
     EXPECT_FALSE(iter.hasNext());
 }
 
+TEST_F(RamCloudTest, enumeration_keys_only) {
+    uint64_t version0, version1, version2, version3, version4;
+    ramcloud->write(tableId3, "0", 1, "abcdef", 6, NULL, &version0);
+    ramcloud->write(tableId3, "1", 1, "ghijkl", 6, NULL, &version1);
+    ramcloud->write(tableId3, "2", 1, "mnopqr", 6, NULL, &version2);
+    ramcloud->write(tableId3, "3", 1, "stuvwx", 6, NULL, &version3);
+    ramcloud->write(tableId3, "4", 1, "yzabcd", 6, NULL, &version4);
+    // Write some objects into other tables to make sure they are not returned.
+    ramcloud->write(tableId1, "5", 1, "efghij", 6);
+    ramcloud->write(tableId2, "6", 1, "klmnop", 6);
+
+    uint32_t size = 0;
+    const void* buffer = 0;
+
+    // Testing keys only enumeration
+    TableEnumerator iter(*ramcloud, tableId3, true);
+    EXPECT_TRUE(iter.hasNext());
+    iter.next(&size, &buffer);
+
+    // First object.
+    Object object1(buffer, size);
+    EXPECT_EQ(27U, size);                                       // size
+    EXPECT_EQ(tableId3, object1.getTableId());                  // table ID
+    EXPECT_EQ(1U, object1.getKeyLength());                      // key length
+    EXPECT_EQ(version0, object1.getVersion());                  // version
+    EXPECT_EQ(0, memcmp("0", object1.getKey(), 1));             // key
+    EXPECT_EQ(0U, object1.dataLength);                           // data length
+
+    EXPECT_TRUE(iter.hasNext());
+    iter.next(&size, &buffer);
+
+    // Second object.
+    Object object2(buffer, size);
+    EXPECT_EQ(27U, size);                                       // size
+    EXPECT_EQ(tableId3, object2.getTableId());                  // table ID
+    EXPECT_EQ(1U, object2.getKeyLength());                      // key length
+    EXPECT_EQ(version1, object2.getVersion());                  // version
+    EXPECT_EQ(0, memcmp("1", object2.getKey(), 1));             // key
+    EXPECT_EQ(0U, object2.dataLength);                           // data length
+
+    EXPECT_TRUE(iter.hasNext());
+    iter.next(&size, &buffer);
+
+    // Third object.
+    Object object3(buffer, size);
+    EXPECT_EQ(27U, size);                                       // size
+    EXPECT_EQ(tableId3, object3.getTableId());                  // table ID
+    EXPECT_EQ(1U, object3.getKeyLength());                      // key length
+    EXPECT_EQ(version3, object3.getVersion());                  // version
+    EXPECT_EQ(0, memcmp("3", object3.getKey(), 1));             // key
+    EXPECT_EQ(0U, object3.dataLength);                           // data length
+
+    EXPECT_TRUE(iter.hasNext());
+    iter.next(&size, &buffer);
+
+    // Fourth object.
+    Object object4(buffer, size);
+    EXPECT_EQ(27U, size);                                       // size
+    EXPECT_EQ(tableId3, object4.getTableId());                  // table ID
+    EXPECT_EQ(1U, object4.getKeyLength());                      // key length
+    EXPECT_EQ(version2, object4.getVersion());                  // version
+    EXPECT_EQ(0, memcmp("2", object4.getKey(), 1));             // key
+    EXPECT_EQ(0U, object4.dataLength);                           // data length
+
+    EXPECT_TRUE(iter.hasNext());
+    iter.next(&size, &buffer);
+
+    // Fifth object.
+    Object object5(buffer, size);
+    EXPECT_EQ(27U, size);                                       // size
+    EXPECT_EQ(tableId3, object5.getTableId());                  // table ID
+    EXPECT_EQ(1U, object5.getKeyLength());                      // key length
+    EXPECT_EQ(version4, object5.getVersion());                  // version
+    EXPECT_EQ(0, memcmp("4", object5.getKey(), 1));             // key
+    EXPECT_EQ(0U, object5.dataLength);                           // data length
+
+    EXPECT_FALSE(iter.hasNext());
+}
+
 TEST_F(RamCloudTest, enumeration_badTable) {
-    TableEnumerator iter(*ramcloud, -1);
+    TableEnumerator iter(*ramcloud, -1, false);
     EXPECT_THROW(iter.hasNext(), TableDoesntExistException);
 }
 

@@ -244,7 +244,8 @@ MasterService::enumerate(const WireFormat::Enumerate::Request* reqHdr,
     uint32_t maxPayloadBytes =
             downCast<uint32_t>(Transport::MAX_RPC_LEN - sizeof(*respHdr)
                                - reqHdr->iteratorBytes);
-    Enumeration enumeration(reqHdr->tableId, reqHdr->tabletFirstHash,
+    Enumeration enumeration(reqHdr->tableId, reqHdr->keysOnly,
+                            reqHdr->tabletFirstHash,
                             actualTabletStartHash, actualTabletEndHash,
                             &respHdr->tabletFirstHash, iter,
                             *objectManager.getLog(),

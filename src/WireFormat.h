@@ -491,6 +491,12 @@ struct Enumerate {
     struct Request {
         RequestCommon common;
         uint64_t tableId;
+        bool keysOnly;              // False means that full objects are
+                                    // returned, containing both keys and data.
+                                    // True means that the returned objects have
+                                    // been truncated so that the object data
+                                    // (normally the last field of the object)
+                                    // is omitted.
         uint64_t tabletFirstHash;
         uint32_t iteratorBytes;     // Size of iterator in bytes. The
                                     // actual iterator follows
