@@ -36,14 +36,21 @@ main(int argc, char *argv[])
 {
     using namespace RAMCloud;
     Logger::installCrashBacktraceHandlers();
+    string clusterName;
     string localLocator("???");
     uint32_t deadServerTimeout;
-    string logCabinLocator("testing");
+    bool reset;
     Context context(true);
     CoordinatorServerList serverList(&context);
     try {
         OptionsDescription coordinatorOptions("Coordinator");
         coordinatorOptions.add_options()
+            ("clusterName",
+             ProgramOptions::value<string>(&clusterName)->
+                default_value("main"),
+             "Name of the cluster. Among other things, used as a prefix for "
+             "all names in external storage, so that different clusters can "
+             "coexist in the same storage server.")
             ("deadServerTimeout,d",
              ProgramOptions::value<uint32_t>(&deadServerTimeout)->
                 default_value(250),
@@ -52,9 +59,11 @@ main(int argc, char *argv[])
             "timeout, the slower real crashes are responded to. The shorter "
             "the timeout, the greater the chance is of falsely deciding a "
             "machine is down when it's not.")
-            ("logCabinLocator,z",
-             ProgramOptions::value<string>(&logCabinLocator),
-             "Locator where the LogCabin cluster can be contacted");
+            ("reset",
+             ProgramOptions::bool_switch(&reset),
+             "If specified, the coordinator will not attempt to recover "
+             "any existing cluster state; it will start a new cluster "
+             "from scratch.");
 
         OptionParser optionParser(coordinatorOptions, argc, argv);
 
@@ -81,6 +90,8 @@ main(int argc, char *argv[])
         context.portAlarmTimer->setPortTimeout(
                 optionParser.options.getPortTimeout());
 
+        // Connect with the external storage system, and then wait until
+        // we have successfully become the "coordinator in charge".
         string externalLocator =
                 optionParser.options.getExternalStorageLocator();
         if (externalLocator.find("zk:") == 0) {
@@ -92,7 +103,18 @@ main(int argc, char *argv[])
             // save any information to allow recovery if we crash).
             context.externalStorage = new MockExternalStorage(false);
         }
-        context.externalStorage->becomeLeader("/coordinator", localLocator);
+        string workspace("/ramcloud/");
+        workspace.append(clusterName);
+        if (reset) {
+            LOG(WARNING, "Reset requested: deleting external storage for "
+                    "workspace '%s'", workspace.c_str());
+            context.externalStorage->remove(workspace.c_str());
+        };
+        workspace.append("/");
+        LOG(NOTICE, "Cluster name is '%s', external storage workspace is '%s'",
+                clusterName.c_str(), workspace.c_str());
+        context.externalStorage->setWorkspace(workspace.c_str());
+        context.externalStorage->becomeLeader("coordinator", localLocator);
 
         CoordinatorService coordinatorService(&context,
                                               deadServerTimeout);
