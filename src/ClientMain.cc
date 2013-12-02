@@ -53,6 +53,9 @@ exerciseCluster(RamCloud* client)
     // named "tableName" whose value should be the same as the name of
     // the table.
 
+    // Index of the last table that we believe should exist (0 means "none").
+    static int expectedLast = 0;
+
     // Step 1: find the beginning of the range of existing tables.
     char tableName[100];
     int first, last;
@@ -97,12 +100,27 @@ exerciseCluster(RamCloud* client)
         }
     }
 
-    // Step 3: if we already have a bunch of tables, delete the oldest
-    // table.
+    // Step 3: verify that what we have is what we expected.
     int numTables = last - first;
+    last--;
+    printf("-------------------------------------------------\n");
     if (numTables > 0) {
-        printf("Found existing tables: table%d..table%d\n", first, last-1);
+        printf("Found existing tables: table%d..table%d\n", first, last);
     }
+    if (expectedLast > 0) {
+        int expectedFirst = expectedLast - 4;
+        if (expectedFirst < 1) {
+            expectedFirst = 1;
+        }
+        if ((last != expectedLast) || (first != expectedFirst)) {
+            printf("*** Error: expected table%d..table%d\n", expectedFirst,
+                    expectedLast);
+        }
+    }
+    printf("-------------------------------------------------\n");
+
+    // Step 4: if we already have a bunch of tables, delete the oldest
+    // table.
     if (numTables >= 5) {
         snprintf(tableName, sizeof(tableName), "table%d", first);
         try {
@@ -115,6 +133,7 @@ exerciseCluster(RamCloud* client)
     }
 
     // Step 4: unless we already have a lot of tables, make a new table.
+    last++;
     if (numTables <= 5) {
         snprintf(tableName, sizeof(tableName), "table%d", last);
         try {
@@ -132,6 +151,7 @@ exerciseCluster(RamCloud* client)
                     tableName, e.toString());
         }
     }
+    expectedLast = last;
 }
 
 int
