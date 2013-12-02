@@ -183,16 +183,25 @@ ServerList::applyServerList(const ProtoBuf::ServerList& list)
             serverList.resize(index + 1);
         auto& entry = serverList[index];
         if (status == ServerStatus::UP) {
+            LOG(NOTICE, "Server %s is up (server list version %lu)",
+                    ServerId{server.server_id()}.toString().c_str(),
+                    list.version_number());
             entry.construct(ServerDetails(server));
             foreach (ServerTrackerInterface* tracker, trackers)
                 tracker->enqueueChange(*entry, ServerChangeEvent::SERVER_ADDED);
         } else if (status == ServerStatus::CRASHED) {
+            LOG(NOTICE, "Server %s is crashed (server list version %lu)",
+                    ServerId{server.server_id()}.toString().c_str(),
+                    list.version_number());
             entry.construct(ServerDetails(server));
             foreach (ServerTrackerInterface* tracker, trackers) {
                 tracker->enqueueChange(*entry,
                                        ServerChangeEvent::SERVER_CRASHED);
             }
         } else if (status == ServerStatus::REMOVE) {
+            LOG(NOTICE, "Server %s is removed (server list version %lu)",
+                    ServerId{server.server_id()}.toString().c_str(),
+                    list.version_number());
             entry->status = ServerStatus::REMOVE;
             foreach (ServerTrackerInterface* tracker, trackers) {
                 tracker->enqueueChange(*entry,
