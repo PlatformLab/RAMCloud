@@ -326,6 +326,19 @@ class MasterServiceTest : public ::testing::Test {
     DISALLOW_COPY_AND_ASSIGN(MasterServiceTest);
 };
 
+TEST_F(MasterServiceTest, dispatch_initializationNotFinished) {
+    Buffer request, response;
+    Service::Rpc rpc(NULL, &request, &response);
+    string message("no exception");
+    try {
+        service->initCalled = false;
+        service->dispatch(WireFormat::Opcode::ILLEGAL_RPC_TYPE, &rpc);
+    } catch (RetryException& e) {
+        message = e.message;
+    }
+    EXPECT_EQ("master service not yet initialized", message);
+}
+
 TEST_F(MasterServiceTest, dispatch_disableCount) {
     Buffer request, response;
 

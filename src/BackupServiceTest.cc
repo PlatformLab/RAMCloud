@@ -204,6 +204,19 @@ TEST_F(BackupServiceTest, constructorReuseReplicas)
         , TestLog::get());
 }
 
+TEST_F(BackupServiceTest, dispatch_initializationNotFinished) {
+    Buffer request, response;
+    Service::Rpc rpc(NULL, &request, &response);
+    string message("no exception");
+    try {
+        backup->initCalled = false;
+        backup->dispatch(WireFormat::Opcode::ILLEGAL_RPC_TYPE, &rpc);
+    } catch (RetryException& e) {
+        message = e.message;
+    }
+    EXPECT_EQ("backup service not yet initialized", message);
+}
+
 TEST_F(BackupServiceTest, freeSegment) {
     openSegment({99, 0}, 88);
     closeSegment({99, 0}, 88);

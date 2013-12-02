@@ -182,7 +182,12 @@ BackupService::dispatch(WireFormat::Opcode opcode, Rpc* rpc)
 
     // This is a hack. We allow the AssignGroup Rpc to be processed before
     // initCalled is set to true, since it is sent during initialization.
-    assert(initCalled || opcode == WireFormat::BackupAssignGroup::opcode);
+    if (!initCalled) {
+        LOG(WARNING, "%s invoked before initialization complete; "
+                "returning STATUS_RETRY", WireFormat::opcodeSymbol(opcode));
+        throw RetryException(HERE, 100, 100,
+                "backup service not yet initialized");
+    }
     CycleCounter<RawMetric> serviceTicks(&metrics->backup.serviceTicks);
 
     switch (opcode) {

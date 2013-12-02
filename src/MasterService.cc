@@ -92,7 +92,12 @@ MasterService::~MasterService()
 void
 MasterService::dispatch(WireFormat::Opcode opcode, Rpc* rpc)
 {
-    assert(initCalled);
+    if (!initCalled) {
+        LOG(WARNING, "%s invoked before initialization complete; "
+                "returning STATUS_RETRY", WireFormat::opcodeSymbol(opcode));
+        throw RetryException(HERE, 100, 100,
+                "master service not yet initialized");
+    }
 
     if (disableCount > 0) {
         LOG(NOTICE, "requesting retry of %s request (master disable count %d)",
