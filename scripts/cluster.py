@@ -150,7 +150,7 @@ class Cluster(object):
                    the context of this cluster is exited.
     """
 
-    def __init__(self, log_dir=''.join([scripts_path, '/logs']), log_exists=False,
+    def __init__(self, log_dir='logs', log_exists=False,
                     cluster_name_exists=False):
         """
         @param log_dir: Top-level directory in which to write log files.
@@ -158,7 +158,7 @@ class Cluster(object):
                         directory for the log files from this run. This can
                         only be overridden by passing it to __init__() since
                         that method creates the subdirectory.
-                        (default: scripts/logs)
+                        (default: logs)
         @param log_exists:
                         Indicates whether the log directory already exists.
                         This will be true for cluster objects that are
@@ -204,10 +204,10 @@ class Cluster(object):
             self.sandbox = Sandbox(cleanup=False)
         # create the shm directory to store shared files
         try:
-            os.mkdir('%s/logs/shm' % scripts_path)
+            os.mkdir('%s/logs/shm' % os.getcwd())
         except:
             pass
-        f = open('%s/logs/shm/README' % scripts_path, 'w+')
+        f = open('%s/logs/shm/README' % os.getcwd(), 'w+')
         f.write('This directory contains files that correspond to'
                 'different server processes that were started during'
                 'the last run of clusterperf. Filename is\n'
@@ -222,7 +222,7 @@ class Cluster(object):
             # the appropriate file name in shm so that new backups when
             # created using a different cluster object can use it to read
             # data from their disks
-            f = open('%s/logs/shm/%s' % (scripts_path, self.cluster_name),
+            f = open('%s/logs/shm/%s' % (os.getcwd(), self.cluster_name),
                      'w+')
 
     def start_coordinator(self, host, args=''):
@@ -364,12 +364,12 @@ class Cluster(object):
                         killed.
         """
 
-        path = '%s/logs/shm' % scripts_path
+        path = '%s/logs/shm' % os.getcwd()
         files = sorted([f for f in os.listdir(path)
            if os.path.isfile( os.path.join(path, f) )])
 
         for file in files:
-            f = open('%s/logs/shm/%s' % (scripts_path, file),'r')
+            f = open('%s/logs/shm/%s' % (os.getcwd(), file),'r')
             service_locator = f.read()
 
             if (locator in service_locator):
@@ -380,7 +380,7 @@ class Cluster(object):
                                   to_kill, os.getcwd(), mhost])
                 f.close()
                 try:
-                    os.remove('%s/logs/shm/%s' % (scripts_path, file))
+                    os.remove('%s/logs/shm/%s' % (os.getcwd(), file))
                 except:
                     pass
             else:
@@ -503,9 +503,7 @@ def run(
         backup_args='',            # Additional arguments for each server
                                    # that runs a backup.
         log_level='NOTICE',        # Log level to use for all servers.
-        log_dir=''.join(
-          [scripts_path, '/logs']),
-                                   # Top-level directory in which to write
+        log_dir='logs',            # Top-level directory in which to write
                                    # log files.  A separate subdirectory
                                    # will be created in this directory
                                    # for the log files from this run.
@@ -669,7 +667,7 @@ if __name__ == '__main__':
             choices=['DEBUG', 'NOTICE', 'WARNING', 'ERROR', 'SILENT'],
             metavar='L', dest='log_level',
             help='Controls degree of logging in servers')
-    parser.add_option('-d', '--logDir', default=''.join([scripts_path, '/logs']),
+    parser.add_option('-d', '--logDir', default='logs',
             metavar='DIR',
             dest='log_dir',
             help='Top level directory for log files; the files for '
@@ -709,8 +707,7 @@ if __name__ == '__main__':
     try:
         run(**vars(options))
     finally:
-        logInfo = log.scan(''.join([scripts_path, "/logs/latest"]),
-                            ["WARNING", "ERROR"])
+        logInfo = log.scan("logs/latest", ["WARNING", "ERROR"])
         if len(logInfo) > 0:
             print(logInfo, file=sys.stderr)
             status = 1

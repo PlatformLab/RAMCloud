@@ -93,7 +93,7 @@ class Sandbox(object):
                 # Assumes scripts are at same path on remote machine
                 sh_command = ['ssh', host,
                               '%s/serverexec' % scripts_path,
-                              host, scripts_path, "'%s'" % locator,
+                              host, os.getcwd(), "'%s'" % locator,
                               "'%s'" % command]
             else:
                 # Assumes scripts are at same path on remote machine
@@ -151,7 +151,7 @@ class Sandbox(object):
                     to_kill = '0'
                     killers.append(subprocess.Popen(['ssh', p.host,
                                         '%s/killserver' % scripts_path,
-                                        to_kill, scripts_path, p.host]))
+                                        to_kill, os.getcwd(), p.host]))
                 # invoke killpid only for processes that are not servers.
                 # server processes will be killed by killserver outside this
                 # loop below.
@@ -166,7 +166,7 @@ class Sandbox(object):
                 killers.append(subprocess.Popen(['ssh', chost[0],
                                     '%s/killcoord' % scripts_path]))
 
-                path = '%s/logs/shm' % scripts_path
+                path = '%s/logs/shm' % os.getcwd()
                 files = ""
                 try:
                     files = sorted([f for f in os.listdir(path)
@@ -180,9 +180,9 @@ class Sandbox(object):
                         to_kill = '1'
                         killers.append(subprocess.Popen(['ssh', mhost.split('_')[0],
                                             '%s/killserver' % scripts_path,
-                                            to_kill, scripts_path, mhost]))
+                                            to_kill, os.getcwd(), mhost]))
                 try:
-                    os.remove('%s/logs/shm/README' % scripts_path)
+                    os.remove('%s/logs/shm/README' % os.getcwd())
                     # remove the file that represents the name of the cluster.
                     # This is used so that new backups can be told whether
                     # or not to read data from their disks
