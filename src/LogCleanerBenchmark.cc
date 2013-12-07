@@ -61,6 +61,7 @@ class Options {
           objectsPerRpc(0),
           writeCostConvergence(0),
           abortTimeout(0),
+          minimumBenchmarkSeconds(0),
           distributionName(),
           tableName(),
           outputFilesPrefix(),
@@ -77,6 +78,7 @@ class Options {
     int objectsPerRpc;
     int writeCostConvergence;
     unsigned abortTimeout;
+    unsigned minimumBenchmarkSeconds;
     string distributionName;
     string tableName;
     string outputFilesPrefix;
@@ -1130,6 +1132,12 @@ class Benchmark {
         if (Cycles::toSeconds(Cycles::rdtsc() - lastWriteCostCheck) < 3)
             return false;
 
+        // Never allow an experiment to run too quickly so we have time for
+        // sampled values to average out. 
+        double benchTime = Cycles::toSeconds(Cycles::rdtsc() - start);
+        if (benchTime < options.minimumBenchmarkSeconds)
+            return false;
+
         lastWriteCostCheck = Cycles::rdtsc();
 
         ProtoBuf::LogMetrics logMetrics;
@@ -1349,6 +1357,9 @@ Output::dumpParameters(FILE* fp,
 
     fprintf(fp, "  Abort Timeout:                 %u sec\n",
         options.abortTimeout);
+
+    fprintf(fp, "  Minimum Benchmark Time:        %u sec\n",
+        options.minimumBenchmarkSeconds);
 
     double elapsed = Cycles::toSeconds(benchmark.stop - benchmark.start);
     string s = LogMetricsStringer(&logMetrics,
@@ -1667,6 +1678,15 @@ try
            default_value("uniform"),
          "Object distribution; choose one of \"uniform\", "
          "\"hotAndCold\", or \"zipfian\"")
+        ("minimumBenchmarkSeconds,m",
+         ProgramOptions::value<unsigned>(&options.minimumBenchmarkSeconds)->
+            default_value(600),
+         "Even if the write cost has converged, don't terminate the benchmark "
+         "before it has run for this many seconds. Basically a kludge to avoid "
+         "rare cases in which the benchmark terminates early and the average "
+         "throughput is skewed too high. A real fix would be to reset counters "
+         "once we've converged, and then measure for another X seconds to take "
+         "whatever ``steady-state'' measurements we want.")
         ("outputFilesPrefix,O",
          ProgramOptions::value<string>(&options.outputFilesPrefix)->
            default_value(""),

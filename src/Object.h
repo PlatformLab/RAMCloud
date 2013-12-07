@@ -376,19 +376,16 @@ class Object {
                        uint64_t version,
                        uint32_t timestamp)
             : tableId(tableId),
-              keyLength(keyLength),
               version(version),
               timestamp(timestamp),
-              checksum(0)
+              checksum(0),
+              keyLength(keyLength)
         {
         }
 
         /// Table to which this object belongs. A (TableId, StringKey) tuple
         /// uniquely identifies a live object.
         uint64_t tableId;
-
-        /// Length of the binary string key in bytes.
-        uint16_t keyLength;
 
         /// Version of the object. Set to some initial value upon object
         /// creation and incremented by one for each modification. See
@@ -401,6 +398,9 @@ class Object {
         /// CRC32C checksum covering everything but this field, including the
         /// key and the data.
         uint32_t checksum;
+
+        /// Length of the binary string key in bytes.
+        uint16_t keyLength;
 
         /// Following this class will be the key and the data. This member is
         /// only here to denote this.
@@ -545,11 +545,11 @@ class ObjectTombstone {
      */
     ObjectTombstone(Object& object, uint64_t segmentId, uint32_t timestamp)
         : serializedForm(object.getTableId(),
-                         object.getKeyLength(),
                          segmentId,
                          object.getVersion(),
                          timestamp),
           key(object.getKey()),
+          keyLength(object.getKeyLength()),
           tombstoneBuffer()
     {
         serializedForm.checksum = computeChecksum();
@@ -569,6 +569,8 @@ class ObjectTombstone {
     explicit ObjectTombstone(Buffer& buffer)
         : serializedForm(*buffer.getStart<SerializedForm>()),
           key(),
+          keyLength(downCast<uint16_t>(buffer.getTotalLength() -
+                    sizeof32(SerializedForm))),
           tombstoneBuffer(&buffer)
     {
     }
@@ -641,7 +643,7 @@ class ObjectTombstone {
     uint16_t
     getKeyLength()
     {
-        return serializedForm.keyLength;
+        return keyLength;
     }
 
     uint64_t
@@ -704,8 +706,6 @@ class ObjectTombstone {
          *
          * \param tableId
          *      The 64-bit identifier for the table the dead object was in.
-         * \param keyLength
-         *      Length of the object's binary string key in bytes.
          * \param segmentId
          *      64-bit identifier of the log segment the dead object is in.
          * \param objectVersion
@@ -716,12 +716,10 @@ class ObjectTombstone {
          *      improve future cleaning performance.
          */
         SerializedForm(uint64_t tableId,
-                       uint16_t keyLength,
                        uint64_t segmentId,
                        uint64_t objectVersion,
                        uint32_t timestamp)
             : tableId(tableId),
-              keyLength(keyLength),
               segmentId(segmentId),
               objectVersion(objectVersion),
               timestamp(timestamp),
@@ -732,9 +730,6 @@ class ObjectTombstone {
         /// Table to which this object belongs. A (TableId, StringKey) tuple
         /// uniquely identifies a live object.
         uint64_t tableId;
-
-        /// Length of the binary string key in bytes.
-        uint16_t keyLength;
 
         /// The log segment that the dead object this tombstone refers to was
         /// in. Once this segment is no longer in the system, this tombstone
@@ -756,7 +751,7 @@ class ObjectTombstone {
         /// denote this.
         char key[0];
     } __attribute__((__packed__));
-    static_assert(sizeof(SerializedForm) == 34,
+    static_assert(sizeof(SerializedForm) == 32,
         "Unexpected serialized ObjectTombstone size");
 
     /**
@@ -788,6 +783,10 @@ class ObjectTombstone {
 
     /// Pointer to the binary string key for this object.
     Tub<const void*> key;
+
+    /// Length of the key corresponding to this tombstone. This isn't stored in
+    /// SerializedForm since it can be trivially computed as needed.
+    uint16_t keyLength;
 
     /// If a tombstone is being read from a serialized copy (for instance, from
     /// the log), this will point to the buffer that refers to the entire

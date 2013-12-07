@@ -56,7 +56,7 @@ main(int argc, char *argv[])
              "3 uniform random")
             ("cleanerBalancer",
              ProgramOptions::value<string>(&config.master.cleanerBalancer)->
-                default_value("tombstoneRatio:0.25"),
+                default_value("tombstoneRatio:0.40"),
              "Which balancing algorithm to use to schedule cleaning on disk "
              "and in-memory compaction, as well as how to orchestrate multiple "
              "cleaner threads. You will almost certainly want to use the "

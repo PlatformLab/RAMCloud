@@ -212,6 +212,9 @@ SegletAllocator::free(Seglet* seglet)
 
     std::lock_guard<SpinLock> guard(lock);
 
+    // This seglet no longer belongs to any segment, so update that fact first.
+    setOwnerSegment(seglet, NULL);
+
     // The emergency head pool is special. Seglets that came from it must be
     // returned to it. Futhermore, only segments that came from it should be
     // returned.
@@ -238,9 +241,6 @@ SegletAllocator::free(Seglet* seglet)
     // the default pool. New log heads can allocate from this to service new
     // log appends.
     defaultPool.push_back(seglet);
-
-    // This seglet no longer belongs to any segment, so update that fact.
-    setOwnerSegment(seglet, NULL);
 }
 
 /**
@@ -353,6 +353,18 @@ SegletAllocator::setOwnerSegment(Seglet* seglet, LogSegment* segment)
     size_t index = getSegletIndex(seglet->get());
     assert(segment == NULL || segletToSegmentTable[index] == NULL);
     segletToSegmentTable[index] = segment;
+
+    // segletToSegmentTable is not protected by any locks, but may be accessed
+    // by multiple threads. I believe this is safe because: 1) it is never
+    // resized, and 2) only one thread should be able to modify a particular
+    // index at any point in time (the thread that allocated or freed the
+    // seglet).
+    //
+    // This fence should ensure that other threads see the proper pointer (for
+    // example, threads servicing a read request on a discontiguous object that
+    // starts in this seglet). It may be an impossible race, but I want to make
+    // sure that the table is updated by the time anything is stored in this
+    // seglet.
     Fence::sfence();
 }
 

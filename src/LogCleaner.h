@@ -165,14 +165,22 @@ class LogCleaner {
       public:
         enum CleaningTask { COMPACT_MEMORY, CLEAN_DISK, SLEEP };
 
-        Balancer(LogCleaner* cleaner) : cleaner(cleaner) { }
+        Balancer(LogCleaner* cleaner)
+            : cleaner(cleaner)
+            , compactionFailures(0)
+            , compactionFailuresHandled(0)
+        {
+        }
         virtual ~Balancer() { }
         CleaningTask requestTask(CleanerThreadState* thread);
+        void compactionFailed();
 
       PROTECTED:
         bool isMemoryLow(CleanerThreadState* thread);
         virtual bool isDiskCleaningNeeded(CleanerThreadState* thread) = 0;
         LogCleaner* cleaner;
+        std::atomic<uint64_t> compactionFailures;
+        std::atomic<uint64_t> compactionFailuresHandled;
 
         DISALLOW_COPY_AND_ASSIGN(Balancer);
     };

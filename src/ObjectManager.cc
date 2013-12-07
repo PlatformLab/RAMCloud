@@ -439,7 +439,8 @@ ObjectManager::prefetchHashTableBucket(SegmentIterator* it)
     } else if (it->getType() == LOG_ENTRY_TYPE_OBJTOMB) {
         const ObjectTombstone::SerializedForm* tomb =
             it->getContiguous<ObjectTombstone::SerializedForm>(NULL, 0);
-        Key key(tomb->tableId, tomb->key, tomb->keyLength);
+        Key key(tomb->tableId, tomb->key,
+            downCast<uint16_t>(it->getLength() - sizeof32(*tomb)));
         objectMap.prefetchBucket(key);
     }
 }

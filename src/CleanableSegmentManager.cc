@@ -149,7 +149,6 @@ CleanableSegmentManager::computeCompactionCostBenefitScore(LogSegment* segment)
         return std::numeric_limits<uint64_t>::max();
     }
 
-
     return 1000 * unusedBytes / liveBytes;
 }
 

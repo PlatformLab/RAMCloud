@@ -359,6 +359,8 @@ LogCleaner::doMemoryCleaning()
 
     uint64_t freeSegletsGained = segment->getSegletsAllocated() -
                                  survivor->getSegletsAllocated();
+    if (freeSegletsGained == 0)
+        balancer->compactionFailed();
     uint64_t bytesFreed = freeSegletsGained * segletSize;
     localMetrics.totalBytesFreed += bytesFreed;
     localMetrics.totalBytesAppendedToSurvivors +=
@@ -737,6 +739,17 @@ if (foo++ % 1000 == 0) fprintf(stderr,":: T = %d, L = %d\n", T, L);
     return true;
 }
 
+/**
+ * This method is called by the memory compactor if it failed to free any memory
+ * after processing a segment. This is a pretty good signal that it might be
+ * time to run the disk cleaner.
+ */
+void
+LogCleaner::Balancer::compactionFailed()
+{
+    compactionFailures++;
+}
+
 LogCleaner::Balancer::CleaningTask
 LogCleaner::Balancer::requestTask(CleanerThreadState* thread)
 {
@@ -766,7 +779,7 @@ bool
 LogCleaner::TombstoneRatioBalancer::isDiskCleaningNeeded(CleanerThreadState* thread)
 {
 static int foo = 0;
-if (foo++ % 1000 == 0) fprintf(stderr, ":: DiskU = %d, TombU = %d, LiveU = %d\n", cleaner->segmentManager.getSegmentUtilization(), cleaner->cleanableSegments.getUndeadTombstoneUtilization(), cleaner->cleanableSegments.getLiveObjectUtilization());
+if (foo++ % 1000 == 0) fprintf(stderr, ":: DiskU = %d, TombU = %d (>= %d?), LiveU = %d\n", cleaner->segmentManager.getSegmentUtilization(), cleaner->cleanableSegments.getUndeadTombstoneUtilization(), (int)(ratio * (100 - cleaner->cleanableSegments.getLiveObjectUtilization())), cleaner->cleanableSegments.getLiveObjectUtilization());
 
     // Our disk cleaner is fast enough to chew up considerable backup bandwidth
     // with just one thread. If we're running with backups, then only permit
@@ -787,13 +800,21 @@ if (foo++ % 1000 == 0) fprintf(stderr, ":: DiskU = %d, TombU = %d, LiveU = %d\n"
     if (cleaner->disableInMemoryCleaning)
         return true;
 
+    // If the ratio is set high and the memory utilisation is also high, it's
+    // possible that we won't have a large enough percentage of tombstones to
+    // trigger disk cleaning, but will also not gain anything from compacting.
+    if (compactionFailures > compactionFailuresHandled) {
+        compactionFailuresHandled++;
+        return true;
+    }
+
     // We're low on memory and the compactor is enabled. We'll let the compactor
     // do its thing until tombstones start to pile up enough that running the
     // disk cleaner is needed to free some of them (by discarding the some of
     // the segments they refer to).
     //
     // The heuristic we'll use to determine when tombstones are piling up is
-    // as follows: if tombstones that may be alive account for at least 25% of
+    // as follows: if tombstones that may be alive account for at least X% of
     // the space not used by live objects (that is, space that is eventually
     // reclaimable), then we should run the disk cleaner to hopefully make some
     // of them dead.
@@ -835,6 +856,13 @@ LogCleaner::FixedBalancer::isDiskCleaningNeeded(CleanerThreadState* thread)
 
     if (!isMemoryLow(thread))
         return false;
+
+    // If the memory compactor has failed to free any space recent, it's a good
+    // sign that we need disk cleaning.
+    if (compactionFailures > compactionFailuresHandled) {
+        compactionFailuresHandled++;
+        return true;
+    }
 
     uint64_t diskTicks = thread->diskCleaningTicks;
     uint64_t memoryTicks = thread->memoryCompactionTicks;
