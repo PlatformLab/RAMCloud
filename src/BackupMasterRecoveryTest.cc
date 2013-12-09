@@ -76,15 +76,20 @@ struct BackupMasterRecoveryTest : public ::testing::Test {
 };
 
 namespace {
-bool mockExtractDigest(uint64_t segmentId, Buffer* digestBuffer) {
+bool mockExtractDigest(uint64_t segmentId, Buffer* digestBuffer,
+                       Buffer* tableStatsBuffer) {
     if (segmentId == 92lu) {
         digestBuffer->reset();
         digestBuffer->append("digest", 7);
+        tableStatsBuffer->reset();
+        tableStatsBuffer->append("tableStats", 11);
         return true;
     }
     if (segmentId == 93lu) {
         digestBuffer->reset();
         digestBuffer->append("not digest", 11);
+        tableStatsBuffer->reset();
+        tableStatsBuffer->append("not tableStats", 15);
         return true;
     }
     return false;
@@ -110,6 +115,7 @@ TEST_F(BackupMasterRecoveryTest, start) {
     EXPECT_EQ(7u, response->digestBytes);
     EXPECT_EQ(92lu, response->digestSegmentId);
     EXPECT_EQ(192u, response->digestSegmentEpoch);
+    EXPECT_EQ(11u, response->tableStatsBytes);
 
     buffer.truncateFront(sizeof32(BackupMasterRecovery::StartResponse));
     // Verify returned segment ids and lengths.
@@ -173,12 +179,14 @@ TEST_F(BackupMasterRecoveryTest, start) {
     EXPECT_EQ(2u, response->primaryReplicaCount);
     EXPECT_EQ(7u, response->digestBytes);
     EXPECT_EQ(92lu, response->digestSegmentId);
-    uint32_t tabletMetricsLen = response->tabletMetricsLen == (uint32_t)-1 ? 0 :
-        response->tabletMetricsLen;
     EXPECT_EQ(192u, response->digestSegmentEpoch);
+    EXPECT_EQ(11u, response->tableStatsBytes);
     EXPECT_STREQ("digest",
                  buffer.getOffset<char>(buffer.getTotalLength()
-                                        - tabletMetricsLen - 7));
+                                        - 11 - 7));
+    EXPECT_STREQ("tableStats",
+                 buffer.getOffset<char>(buffer.getTotalLength()
+                                        - 11));
 }
 
 TEST_F(BackupMasterRecoveryTest, setPartitionsAndSchedule) {

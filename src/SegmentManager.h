@@ -28,11 +28,12 @@
 #include "ServerId.h"
 #include "SpinLock.h"
 #include "Tub.h"
-#include "MasterTableMetadata.h"
 
 #include "LogMetrics.pb.h"
 
 namespace RAMCloud {
+// Forward declaration.
+class MasterTableMetadata;
 
 /**
  * Exception thrown when invalid arguments are passed to the constructor.

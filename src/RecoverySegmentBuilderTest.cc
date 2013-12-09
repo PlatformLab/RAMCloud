@@ -21,6 +21,7 @@
 #include "ServerConfig.h"
 #include "StringUtil.h"
 #include "TabletsBuilder.h"
+#include "MasterTableMetadata.h"
 
 namespace RAMCloud {
 
@@ -127,14 +128,15 @@ TEST_F(RecoverySegmentBuilderTest, extractDigest) {
     char buffer[serverConfig.segmentSize];
     ASSERT_TRUE(segment->copyOut(0, buffer, length));
     Buffer digestBuffer;
+    Buffer tableStatsBuffer;
     EXPECT_TRUE(extractDigest(buffer, sizeof32(buffer),
-                              certificate, &digestBuffer));
+                              certificate, &digestBuffer, &tableStatsBuffer));
     EXPECT_NE(0u, digestBuffer.getTotalLength());
 
     // Corrupt metadata.
     certificate.checksum = 0;
     EXPECT_FALSE(extractDigest(buffer, sizeof32(buffer),
-                              certificate, &digestBuffer));
+                              certificate, &digestBuffer, &tableStatsBuffer));
     // Should have left previously found digest in the buffer.
     EXPECT_NE(0u, digestBuffer.getTotalLength());
 
@@ -143,12 +145,12 @@ TEST_F(RecoverySegmentBuilderTest, extractDigest) {
 
     // No digest.
     EXPECT_FALSE(extractDigest(buffer, sizeof32(buffer),
-                              certificate, &digestBuffer));
+                              certificate, &digestBuffer, &tableStatsBuffer));
     // Should have left previously found digest in the buffer.
     EXPECT_NE(0u, digestBuffer.getTotalLength());
     digestBuffer.reset();
     EXPECT_FALSE(extractDigest(buffer, sizeof32(buffer),
-                              certificate, &digestBuffer));
+                              certificate, &digestBuffer, &tableStatsBuffer));
     EXPECT_EQ(0u, digestBuffer.getTotalLength());
 }
 

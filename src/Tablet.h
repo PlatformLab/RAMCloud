@@ -78,8 +78,8 @@ struct Tablet {
         , ctime(tablet.ctime)
     {}
 
-
     void serialize(ProtoBuf::Tablets::Tablet& entry) const;
+    string debugString(int verbose = 0) const;
 };
 
 } // namespace RAMCloud

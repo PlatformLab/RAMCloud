@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2012 Stanford University
+/* Copyright (c) 2010-2013 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -13,6 +13,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include <sstream>
 #include "TestUtil.h"
 #include "CoordinatorUpdateManager.h"
 #include "MockExternalStorage.h"
@@ -73,6 +74,7 @@ struct RecoveryTest : public ::testing::Test {
     }
 
     typedef std::unique_lock<std::mutex> Lock;
+
   private:
     DISALLOW_COPY_AND_ASSIGN(RecoveryTest);
 };
@@ -109,14 +111,378 @@ populateLogDigest(StartReadingDataRpc::Result& result,
 }
 } // namespace
 
-TEST_F(RecoveryTest, partitionTablets) {
+TEST_F(RecoveryTest, splitTablets_no_estimator) {
+    Lock lock(mutex);     // To trick TableManager internal calls.
+    Tub<Recovery> recovery;
+    Recovery::Owner* own = static_cast<Recovery::Owner*>(NULL);
+    tableManager.testCreateTable("t1", 1);
+    tableManager.testAddTablet({1,  0,  9, {99, 0}, Tablet::RECOVERING, {}});
+    recovery.construct(&context, taskQueue, &tableManager, &tracker, own,
+                       ServerId(99), recoveryInfo);
+    auto tablets = tableManager.markAllTabletsRecovering(ServerId(99));
+
+    EXPECT_EQ(1u, tablets.size());
+
+    recovery->splitTablets(&tablets, NULL);
+
+    Tablet* tablet = NULL;
+
+    EXPECT_EQ(1u, tablets.size());
+
+    EXPECT_EQ("{ 1: 0x0-0x9 }", tablets[0].debugString(1));
+    tablet = tableManager.testFindTablet(1u, 0u);
+    EXPECT_TRUE(tablet != NULL);
+    if (tablet != NULL) {
+        EXPECT_EQ("{ 1: 0x0-0x9 }", tablet->debugString(1));
+    }
+    tablet = NULL;
+}
+
+TEST_F(RecoveryTest, splitTablets_bad_estimator) {
+    Lock lock(mutex);     // To trick TableManager internal calls.
+    Tub<Recovery> recovery;
+    Recovery::Owner* own = static_cast<Recovery::Owner*>(NULL);
+    tableManager.testCreateTable("t1", 1);
+    tableManager.testAddTablet({1,  0,  9, {99, 0}, Tablet::RECOVERING, {}});
+    recovery.construct(&context, taskQueue, &tableManager, &tracker, own,
+                       ServerId(99), recoveryInfo);
+    auto tablets = tableManager.markAllTabletsRecovering(ServerId(99));
+
+    TableStats::Estimator e(NULL, &tablets);
+
+    EXPECT_FALSE(e.valid);
+
+    EXPECT_EQ(1u, tablets.size());
+
+    recovery->splitTablets(&tablets, &e);
+
+    Tablet* tablet = NULL;
+
+    EXPECT_EQ(1u, tablets.size());
+
+    EXPECT_EQ("{ 1: 0x0-0x9 }", tablets[0].debugString(1));
+    tablet = tableManager.testFindTablet(1u, 0u);
+    EXPECT_TRUE(tablet != NULL);
+    if (tablet != NULL) {
+        EXPECT_EQ("{ 1: 0x0-0x9 }", tablets[0].debugString(1));
+    }
+    tablet = NULL;
+}
+
+TEST_F(RecoveryTest, splitTablets_multi_tablet) {
+    // Case where there is more than one tablet.
+    Lock lock(mutex);     // To trick TableManager internal calls.
+    Tub<Recovery> recovery;
+    Recovery::Owner* own = static_cast<Recovery::Owner*>(NULL);
+    tableManager.testCreateTable("t1", 1);
+    tableManager.testAddTablet({1,  0,  9, {99, 0}, Tablet::RECOVERING, {}});
+    tableManager.testCreateTable("t2", 2);
+    tableManager.testAddTablet({2,  0,  19, {99, 0}, Tablet::RECOVERING, {}});
+    tableManager.testCreateTable("t3", 3);
+    tableManager.testAddTablet({3,  0,  29, {99, 0}, Tablet::RECOVERING, {}});
+    recovery.construct(&context, taskQueue, &tableManager, &tracker, own,
+                       ServerId(99), recoveryInfo);
+    auto tablets = tableManager.markAllTabletsRecovering(ServerId(99));
+
+    char buffer[sizeof(TableStats::DigestHeader) +
+                3 * sizeof(TableStats::DigestEntry)];
+    TableStats::Digest* digest = reinterpret_cast<TableStats::Digest*>(buffer);
+    digest->header.entryCount = 3;
+    digest->header.otherByteCount = 0;
+    digest->header.otherRecordCount = 0;
+    digest->entries[0].tableId = 1;
+    digest->entries[0].byteCount = 1 * 600*1024*1024;
+    digest->entries[0].recordCount = 1 * 3000000;
+
+    digest->entries[1].tableId = 2;
+    digest->entries[1].byteCount = 2 * 600*1024*1024;
+    digest->entries[1].recordCount = 2 * 3000000;
+
+    digest->entries[2].tableId = 3;
+    digest->entries[2].byteCount = 3 * 600*1024*1024;
+    digest->entries[2].recordCount = 3 * 3000000;
+
+    TableStats::Estimator e(digest, &tablets);
+
+    EXPECT_TRUE(e.valid);
+
+    EXPECT_EQ(3u, tablets.size());
+    recovery->splitTablets(&tablets, &e);
+    EXPECT_EQ(6u, tablets.size());
+}
+
+TEST_F(RecoveryTest, splitTablets_basic) {
+    // Tests that a basic split of a single tablet will execute and update the
+    // TableManager tablet information.
+    Lock lock(mutex);     // To trick TableManager internal calls.
+    Tub<Recovery> recovery;
+    Recovery::Owner* own = static_cast<Recovery::Owner*>(NULL);
+    tableManager.testCreateTable("t1", 1);
+    tableManager.testAddTablet({1,  0,  4, {99, 0}, Tablet::RECOVERING, {}});
+    recovery.construct(&context, taskQueue, &tableManager, &tracker, own,
+                       ServerId(99), recoveryInfo);
+    auto tablets = tableManager.markAllTabletsRecovering(ServerId(99));
+
+    char buffer[sizeof(TableStats::DigestHeader)];
+    TableStats::Digest* digest = reinterpret_cast<TableStats::Digest*>(buffer);
+    digest->header.entryCount = 0;
+    digest->header.otherByteCount = 3 * 600*1024*1024;
+    digest->header.otherRecordCount = 3 * 3000000;
+
+    TableStats::Estimator e(digest, &tablets);
+    EXPECT_TRUE(e.valid);
+
+    EXPECT_EQ(1u, tablets.size());
+
+    recovery->splitTablets(&tablets, &e);
+
+    Tablet* tablet = NULL;
+
+    EXPECT_EQ(3u, tablets.size());
+
+    // Check Tablet Contents
+    EXPECT_EQ("{ 1: 0x0-0x1 }", tablets[0].debugString(1));
+    tablet = tableManager.testFindTablet(1u, 0u);
+    EXPECT_TRUE(tablet != NULL);
+    if (tablet != NULL) {
+        EXPECT_EQ("{ 1: 0x0-0x1 }", tablets[0].debugString(1));
+    }
+    tablet = NULL;
+
+    // Check Tablet Contents
+    EXPECT_EQ("{ 1: 0x2-0x3 }", tablets[1].debugString(1));
+    tablet = tableManager.testFindTablet(1u, 0u);
+    EXPECT_TRUE(tablet != NULL);
+    if (tablet != NULL) {
+        EXPECT_EQ("{ 1: 0x2-0x3 }", tablets[1].debugString(1));
+    }
+    tablet = NULL;
+
+    // Check Tablet Contents
+    EXPECT_EQ("{ 1: 0x4-0x4 }", tablets[2].debugString(1));
+    tablet = tableManager.testFindTablet(1u, 0u);
+    EXPECT_TRUE(tablet != NULL);
+    if (tablet != NULL) {
+        EXPECT_EQ("{ 1: 0x4-0x4 }", tablets[2].debugString(1));
+    }
+    tablet = NULL;
+}
+
+TEST_F(RecoveryTest, splitTablets_byte_dominated) {
+    // Ensure the tablet count can be determined by the byte count.
+    Lock lock(mutex);     // To trick TableManager internal calls.
+    Tub<Recovery> recovery;
+    Recovery::Owner* own = static_cast<Recovery::Owner*>(NULL);
+    tableManager.testCreateTable("t1", 1);
+    tableManager.testAddTablet({1,  0, 999, {99, 0}, Tablet::RECOVERING, {}});
+    recovery.construct(&context, taskQueue, &tableManager, &tracker, own,
+                       ServerId(99), recoveryInfo);
+    auto tablets = tableManager.markAllTabletsRecovering(ServerId(99));
+
+    char buffer[sizeof(TableStats::DigestHeader)];
+    TableStats::Digest* digest = reinterpret_cast<TableStats::Digest*>(buffer);
+    digest->header.entryCount = 0;
+    digest->header.otherByteCount = 6l * 600*1024*1024;
+    digest->header.otherRecordCount = 2 * 3000000;
+
+    TableStats::Estimator e(digest, &tablets);
+    EXPECT_TRUE(e.valid);
+
+    EXPECT_EQ(1u, tablets.size());
+
+    recovery->splitTablets(&tablets, &e);
+
+    EXPECT_EQ(6u, tablets.size());
+}
+
+TEST_F(RecoveryTest, splitTablets_record_dominated) {
+    // Ensure the tablet count can be determined by the record count.
+    Lock lock(mutex);     // To trick TableManager internal calls.
+    Tub<Recovery> recovery;
+    Recovery::Owner* own = static_cast<Recovery::Owner*>(NULL);
+    tableManager.testCreateTable("t1", 1);
+    tableManager.testAddTablet({1,  0, 999, {99, 0}, Tablet::RECOVERING, {}});
+    recovery.construct(&context, taskQueue, &tableManager, &tracker, own,
+                       ServerId(99), recoveryInfo);
+    auto tablets = tableManager.markAllTabletsRecovering(ServerId(99));
+
+    char buffer[sizeof(TableStats::DigestHeader)];
+    TableStats::Digest* digest = reinterpret_cast<TableStats::Digest*>(buffer);
+    digest->header.entryCount = 0;
+    digest->header.otherByteCount = 2 * 600*1024*1024;
+    digest->header.otherRecordCount = 6l * 3000000;
+
+    TableStats::Estimator e(digest, &tablets);
+    EXPECT_TRUE(e.valid);
+
+    EXPECT_EQ(1u, tablets.size());
+
+    recovery->splitTablets(&tablets, &e);
+
+    EXPECT_EQ(6u, tablets.size());
+}
+
+TEST_F(RecoveryTest, splitTablets_key_limited) {
+    // Ensure the tablet count can be limited by the key range.
+    Lock lock(mutex);     // To trick TableManager internal calls.
+    Tub<Recovery> recovery;
+    Recovery::Owner* own = static_cast<Recovery::Owner*>(NULL);
+    tableManager.testCreateTable("t1", 1);
+    tableManager.testAddTablet({1,  0, 3, {99, 0}, Tablet::RECOVERING, {}});
+    recovery.construct(&context, taskQueue, &tableManager, &tracker, own,
+                       ServerId(99), recoveryInfo);
+    auto tablets = tableManager.markAllTabletsRecovering(ServerId(99));
+
+    char buffer[sizeof(TableStats::DigestHeader)];
+    TableStats::Digest* digest = reinterpret_cast<TableStats::Digest*>(buffer);
+    digest->header.entryCount = 0;
+    digest->header.otherByteCount = 2 * 600*1024*1024;
+    digest->header.otherRecordCount = 6l * 3000000;
+
+    TableStats::Estimator e(digest, &tablets);
+    EXPECT_TRUE(e.valid);
+
+    EXPECT_EQ(1u, tablets.size());
+
+    recovery->splitTablets(&tablets, &e);
+
+    EXPECT_EQ(4u, tablets.size());
+}
+
+TEST_F(RecoveryTest, splitTablets_no_splits) {
+    // Test case when no split needs to be performed.
+    Lock lock(mutex);     // To trick TableManager internal calls.
+    Tub<Recovery> recovery;
+    Recovery::Owner* own = static_cast<Recovery::Owner*>(NULL);
+    tableManager.testCreateTable("t1", 1);
+    tableManager.testAddTablet({1,  0, 999, {99, 0}, Tablet::RECOVERING, {}});
+    recovery.construct(&context, taskQueue, &tableManager, &tracker, own,
+                       ServerId(99), recoveryInfo);
+    auto tablets = tableManager.markAllTabletsRecovering(ServerId(99));
+
+    char buffer[sizeof(TableStats::DigestHeader) +
+                0 * sizeof(TableStats::DigestEntry)];
+    TableStats::Digest* digest = reinterpret_cast<TableStats::Digest*>(buffer);
+    digest->header.entryCount = 0;
+    digest->header.otherByteCount = 1 * 600*1024*1024;
+    digest->header.otherRecordCount = 1 * 3000000;
+
+    TableStats::Estimator e(digest, &tablets);
+    EXPECT_TRUE(e.valid);
+
+    EXPECT_EQ(1u, tablets.size());
+
+    recovery->splitTablets(&tablets, &e);
+
+    EXPECT_EQ(1u, tablets.size());
+}
+
+TEST_F(RecoveryTest, splitTablets_even_split) {
+    // Case where all resulting tablets should be equal and thus only executes
+    // the "keyRangeBig" loop. This also tests the only case where "keyRange" is
+    // zero (see comments in splitTablet for explanation of correct behavior).
+    Lock lock(mutex);     // To trick TableManager internal calls.
+    Tub<Recovery> recovery;
+    Recovery::Owner* own = static_cast<Recovery::Owner*>(NULL);
+    tableManager.testCreateTable("t1", 1);
+    tableManager.testAddTablet({1, 1, 4, {99, 0}, Tablet::RECOVERING, {}});
+    recovery.construct(&context, taskQueue, &tableManager, &tracker, own,
+                       ServerId(99), recoveryInfo);
+    auto tablets = tableManager.markAllTabletsRecovering(ServerId(99));
+
+    char buffer[sizeof(TableStats::DigestHeader)];
+    TableStats::Digest* digest = reinterpret_cast<TableStats::Digest*>(buffer);
+    digest->header.entryCount = 0;
+    digest->header.otherByteCount = 5l * 600*1024*1024;
+    digest->header.otherRecordCount = 5l * 3000000;
+
+    TableStats::Estimator e(digest, &tablets);
+    EXPECT_TRUE(e.valid);
+
+    EXPECT_EQ(1u, tablets.size());
+
+    recovery->splitTablets(&tablets, &e);
+
+    EXPECT_EQ(4u, tablets.size());
+    EXPECT_EQ("{ 1: 0x1-0x1 }", tablets[0].debugString(1));
+    EXPECT_EQ("{ 1: 0x2-0x2 }", tablets[1].debugString(1));
+    EXPECT_EQ("{ 1: 0x3-0x3 }", tablets[2].debugString(1));
+    EXPECT_EQ("{ 1: 0x4-0x4 }", tablets[3].debugString(1));
+}
+
+TEST_F(RecoveryTest, splitTablets_uneven_split) {
+    // Case where some tablets will will be big and some will be small.
+    Lock lock(mutex);     // To trick TableManager internal calls.
+    Tub<Recovery> recovery;
+    Recovery::Owner* own = static_cast<Recovery::Owner*>(NULL);
+    tableManager.testCreateTable("t1", 1);
+    tableManager.testAddTablet({1, 1, 8, {99, 0}, Tablet::RECOVERING, {}});
+    recovery.construct(&context, taskQueue, &tableManager, &tracker, own,
+                       ServerId(99), recoveryInfo);
+    auto tablets = tableManager.markAllTabletsRecovering(ServerId(99));
+
+    char buffer[sizeof(TableStats::DigestHeader)];
+    TableStats::Digest* digest = reinterpret_cast<TableStats::Digest*>(buffer);
+    digest->header.entryCount = 0;
+    digest->header.otherByteCount = 5l * 600*1024*1024;
+    digest->header.otherRecordCount = 5l * 3000000;
+
+    TableStats::Estimator e(digest, &tablets);
+    EXPECT_TRUE(e.valid);
+
+    EXPECT_EQ(1u, tablets.size());
+
+    recovery->splitTablets(&tablets, &e);
+
+    EXPECT_EQ(5u, tablets.size());
+    EXPECT_EQ("{ 1: 0x1-0x2 }", tablets[0].debugString(1));
+    EXPECT_EQ("{ 1: 0x3-0x4 }", tablets[1].debugString(1));
+    EXPECT_EQ("{ 1: 0x5-0x6 }", tablets[2].debugString(1));
+    EXPECT_EQ("{ 1: 0x7-0x7 }", tablets[3].debugString(1));
+    EXPECT_EQ("{ 1: 0x8-0x8 }", tablets[4].debugString(1));
+}
+
+TEST_F(RecoveryTest, splitTablets_full_table) {
+    // Case where there is full key range.
+    Lock lock(mutex);     // To trick TableManager internal calls.
+    Tub<Recovery> recovery;
+    Recovery::Owner* own = static_cast<Recovery::Owner*>(NULL);
+    tableManager.testCreateTable("t", 1);
+    tableManager.testAddTablet(
+        {1,  0,  0xFFFFFFFFFFFFFFFF, {99, 0}, Tablet::RECOVERING, {}});
+    recovery.construct(&context, taskQueue, &tableManager, &tracker, own,
+                       ServerId(99), recoveryInfo);
+    auto tablets = tableManager.markAllTabletsRecovering(ServerId(99));
+
+    char buffer[sizeof(TableStats::DigestHeader)];
+    TableStats::Digest* digest = reinterpret_cast<TableStats::Digest*>(buffer);
+    digest->header.entryCount = 0;
+    digest->header.otherByteCount = 2 * 600*1024*1024;
+    digest->header.otherRecordCount = 2 * 3000000;
+
+    TableStats::Estimator e(digest, &tablets);
+
+    EXPECT_TRUE(e.valid);
+
+    EXPECT_EQ(1u, tablets.size());
+
+    recovery->splitTablets(&tablets, &e);
+
+    EXPECT_EQ(2u, tablets.size());
+
+    EXPECT_EQ("{ 1: 0x0-0x7fffffffffffffff }", tablets[0].debugString(1));
+    EXPECT_EQ("{ 1: 0x8000000000000000-0xffffffffffffffff }",
+              tablets[1].debugString(1));
+}
+
+TEST_F(RecoveryTest, partitionTablets_no_estimator) {
     Lock lock(mutex);     // To trick TableManager internal calls.
     Tub<Recovery> recovery;
     Recovery::Owner* own = static_cast<Recovery::Owner*>(NULL);
     recovery.construct(&context, taskQueue, &tableManager, &tracker, own,
                        ServerId(99), recoveryInfo);
     auto tablets = tableManager.markAllTabletsRecovering(ServerId(99));
-    recovery->partitionTablets(tablets);
+    recovery->partitionTablets(tablets, NULL);
     EXPECT_EQ(0lu, recovery->numPartitions);
 
     tableManager.testCreateTable("t", 123);
@@ -125,16 +491,143 @@ TEST_F(RecoveryTest, partitionTablets) {
     recovery.construct(&context, taskQueue, &tableManager, &tracker, own,
                        ServerId(99), recoveryInfo);
     tablets = tableManager.markAllTabletsRecovering(ServerId(99));
-    recovery->partitionTablets(tablets);
+    recovery->partitionTablets(tablets, NULL);
     EXPECT_EQ(2lu, recovery->numPartitions);
 
     tableManager.testAddTablet({123, 10, 19, {99, 0}, Tablet::RECOVERING, {}});
     recovery.construct(&context, taskQueue, &tableManager, &tracker, own,
                        ServerId(99), recoveryInfo);
     tablets = tableManager.markAllTabletsRecovering(ServerId(99));
-    recovery->partitionTablets(tablets);
+    recovery->partitionTablets(tablets, NULL);
     EXPECT_EQ(3lu, recovery->numPartitions);
 }
+
+TEST_F(RecoveryTest, partitionTablets_splits) {
+    Lock lock(mutex);     // To trick TableManager internal calls.
+    Tub<Recovery> recovery;
+    Recovery::Owner* own = static_cast<Recovery::Owner*>(NULL);
+
+    tableManager.testCreateTable("t1", 1);
+    tableManager.testAddTablet({1,  0,  99, {99, 0}, Tablet::RECOVERING, {}});
+
+    tableManager.testCreateTable("t2", 2);
+    tableManager.testAddTablet({2,  0,  99, {99, 0}, Tablet::RECOVERING, {}});
+    recovery.construct(&context, taskQueue, &tableManager, &tracker, own,
+                       ServerId(99), recoveryInfo);
+    auto tablets = tableManager.markAllTabletsRecovering(ServerId(99));
+
+    char buffer[sizeof(TableStats::DigestHeader) +
+                2 * sizeof(TableStats::DigestEntry)];
+    TableStats::Digest* digest = reinterpret_cast<TableStats::Digest*>(buffer);
+    digest->header.entryCount = 2;
+    digest->header.otherByteCount = 0;
+    digest->header.otherRecordCount = 0;
+    digest->entries[0].tableId = 1;
+    digest->entries[0].byteCount = 10l * 600*1024*1024;
+    digest->entries[0].recordCount = 1 * 3000000;
+    digest->entries[1].tableId = 2;
+    digest->entries[1].byteCount = 1 * 600*1024*1024;
+    digest->entries[1].recordCount = 10l * 3000000;
+
+    TableStats::Estimator e(digest, &tablets);
+
+    recovery->partitionTablets(tablets, &e);
+    EXPECT_EQ(20lu, recovery->numPartitions);
+}
+
+TEST_F(RecoveryTest, partitionTablets_basic) {
+    // This covers the following cases:
+    //      (1) No partitions to choose from
+    //      (2) Single partiton to choose from
+    //      (3) Evicting a partition
+    Lock lock(mutex);     // To trick TableManager internal calls.
+    Tub<Recovery> recovery;
+    Recovery::Owner* own = static_cast<Recovery::Owner*>(NULL);
+    for (int i = 1; i <= 250; i++) {
+        tableManager.testCreateTable(TestUtil::toString(i).c_str(), i);
+        tableManager.testAddTablet(
+            {i,  0,  9, {99, 0}, Tablet::RECOVERING, {}});
+    }
+    recovery.construct(&context, taskQueue, &tableManager, &tracker, own,
+                       ServerId(99), recoveryInfo);
+    auto tablets = tableManager.markAllTabletsRecovering(ServerId(99));
+
+    char buffer[sizeof(TableStats::DigestHeader) +
+                0 * sizeof(TableStats::DigestEntry)];
+    TableStats::Digest* digest = reinterpret_cast<TableStats::Digest*>(buffer);
+    digest->header.entryCount = 0;
+    digest->header.otherByteCount = 250l * 6*1024*1024;
+    digest->header.otherRecordCount = 250l * 30000;
+
+    TableStats::Estimator e(digest, &tablets);
+
+    recovery->partitionTablets(tablets, &e);
+    EXPECT_EQ(3lu, recovery->numPartitions);
+}
+
+TEST_F(RecoveryTest, partitionTablets_all_partitions_open) {
+    // Covers the addtional case where no partitions are large enough to be
+    // evicted, there is more than one partition to choose from and none will
+    // fit.
+    Lock lock(mutex);     // To trick TableManager internal calls.
+    Tub<Recovery> recovery;
+    Recovery::Owner* own = static_cast<Recovery::Owner*>(NULL);
+    for (int i = 1; i <= 20; i++) {
+        tableManager.testCreateTable(TestUtil::toString(i).c_str(), i);
+        tableManager.testAddTablet(
+            {i,  0,  9, {99, 0}, Tablet::RECOVERING, {}});
+    }
+    recovery.construct(&context, taskQueue, &tableManager, &tracker, own,
+                       ServerId(99), recoveryInfo);
+    auto tablets = tableManager.markAllTabletsRecovering(ServerId(99));
+
+    char buffer[sizeof(TableStats::DigestHeader) +
+                0 * sizeof(TableStats::DigestEntry)];
+    TableStats::Digest* digest = reinterpret_cast<TableStats::Digest*>(buffer);
+    digest->header.entryCount = 0;
+    digest->header.otherByteCount = 21l * 300*1024*1024;
+    digest->header.otherRecordCount = 21l * 1500000;
+
+    TableStats::Estimator e(digest, &tablets);
+
+    recovery->partitionTablets(tablets, &e);
+    EXPECT_EQ(20lu, recovery->numPartitions);
+}
+
+TEST_F(RecoveryTest, partitionTablets_mixed) {
+    // Covers the addtional case where partitions will contain one large tablet
+    // and filled by many smaller ones.  Case covers selecting from multiple
+    // partitons and having a tablet fit.
+    Lock lock(mutex);     // To trick TableManager internal calls.
+    Tub<Recovery> recovery;
+    Recovery::Owner* own = static_cast<Recovery::Owner*>(NULL);
+    for (int i = 1; i <= 6; i++) {
+        tableManager.testCreateTable(TestUtil::toString(i).c_str(), i);
+        tableManager.testAddTablet(
+            {i,  0,  99, {99, 0}, Tablet::RECOVERING, {}});
+    }
+    for (int i = 1; i <= 250; i++) {
+        tableManager.testCreateTable(TestUtil::toString(i+100).c_str(), i+100);
+        tableManager.testAddTablet(
+            {i + 100,  0,  9, {99, 0}, Tablet::RECOVERING, {}});
+    }
+    recovery.construct(&context, taskQueue, &tableManager, &tracker, own,
+                       ServerId(99), recoveryInfo);
+    auto tablets = tableManager.markAllTabletsRecovering(ServerId(99));
+
+    char buffer[sizeof(TableStats::DigestHeader) +
+                0 * sizeof(TableStats::DigestEntry)];
+    TableStats::Digest* digest = reinterpret_cast<TableStats::Digest*>(buffer);
+    digest->header.entryCount = 0;
+    digest->header.otherByteCount = 500l * 6*1024*1024;
+    digest->header.otherRecordCount = 500l * 30000;
+
+    TableStats::Estimator e(digest, &tablets);
+
+    recovery->partitionTablets(tablets, &e);
+    EXPECT_EQ(6lu, recovery->numPartitions);
+}
+
 
 TEST_F(RecoveryTest, startBackups) {
     /**
@@ -379,15 +872,15 @@ TEST_F(RecoveryTest, findLogDigest) {
     // Two log digests, same segment id, keeps earlier of two.
     digest = findLogDigest(tasks, 2);
     ASSERT_TRUE(digest);
-    EXPECT_EQ(10lu, digest->first);
-    EXPECT_EQ(0u, digest->second[0]);
+    EXPECT_EQ(10lu, std::get<0>(*digest.get()));
+    EXPECT_EQ(0u, std::get<1>(*digest.get())[0]);
 
     result1.logDigestSegmentId = 9;
     // Two log digests, later one has a lower segment id.
     digest = findLogDigest(tasks, 2);
     ASSERT_TRUE(digest);
-    EXPECT_EQ(9lu, digest->first);
-    EXPECT_EQ(1u, digest->second[0]);
+    EXPECT_EQ(9lu, std::get<0>(*digest.get()));
+    EXPECT_EQ(1u, std::get<1>(*digest.get())[0]);
 }
 
 TEST_F(RecoveryTest, buildReplicaMap) {
@@ -499,7 +992,7 @@ TEST_F(RecoveryTest, startRecoveryMasters) {
     Recovery recovery(&context, taskQueue, &tableManager, &tracker, NULL,
                       {99, 0}, recoveryInfo);
     recovery.partitionTablets(
-                tableManager.markAllTabletsRecovering({99, 0}));
+                tableManager.markAllTabletsRecovering({99, 0}), NULL);
     // Hack 'tablets' to get the first two tablets on the same server.
     recovery.tabletsToRecover.mutable_tablet(1)->set_user_data(0);
     recovery.tabletsToRecover.mutable_tablet(2)->set_user_data(1);
@@ -550,7 +1043,7 @@ TEST_F(RecoveryTest, startRecoveryMasters_tooFewIdleMasters) {
     Recovery recovery(&context, taskQueue, &tableManager, &tracker, NULL,
                       {99, 0}, recoveryInfo);
     recovery.partitionTablets(
-                tableManager.markAllTabletsRecovering({99, 0}));
+                tableManager.markAllTabletsRecovering({99, 0}), NULL);
     // Hack 'tablets' to get the first two tablets on the same server.
     recovery.tabletsToRecover.mutable_tablet(1)->set_user_data(0);
     recovery.tabletsToRecover.mutable_tablet(2)->set_user_data(1);
@@ -595,7 +1088,7 @@ TEST_F(RecoveryTest, startRecoveryMasters_noIdleMasters) {
     Recovery recovery(&context, taskQueue, &tableManager, &tracker, &owner,
                       {99, 0}, recoveryInfo);
     recovery.partitionTablets(
-                tableManager.markAllTabletsRecovering({99, 0}));
+                tableManager.markAllTabletsRecovering({99, 0}), NULL);
 
     TestLog::Enable _;
     recovery.startRecoveryMasters();
@@ -629,7 +1122,7 @@ TEST_F(RecoveryTest, startRecoveryMasters_allFailDuringRecoverRpc) {
     Recovery recovery(&context, taskQueue, &tableManager, &tracker, NULL,
                       {99, 0}, recoveryInfo);
     recovery.partitionTablets(
-                tableManager.markAllTabletsRecovering({99, 0}));
+                tableManager.markAllTabletsRecovering({99, 0}), NULL);
     recovery.startRecoveryMasters();
 
     EXPECT_EQ(3u, recovery.numPartitions);

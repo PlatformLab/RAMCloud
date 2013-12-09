@@ -24,6 +24,7 @@
 #include "StringUtil.h"
 #include "TestLog.h"
 #include "Transport.h"
+#include "MasterTableMetadata.h"
 
 namespace RAMCloud {
 

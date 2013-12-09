@@ -149,6 +149,7 @@ class TableManager {
                    ProtoBuf::Table* externalInfo);
     void testAddTablet(const Tablet& tablet);
     void testCreateTable(const char* name, uint64_t id);
+    Tablet* testFindTablet(uint64_t tableId, uint64_t keyHash);
 
     DISALLOW_COPY_AND_ASSIGN(TableManager);
 };

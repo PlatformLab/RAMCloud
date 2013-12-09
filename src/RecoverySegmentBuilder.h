@@ -47,7 +47,7 @@ class RecoverySegmentBuilder {
                       Segment* recoverySegments);
     static bool extractDigest(const void* buffer, uint32_t length,
                               const Segment::Certificate& certificate,
-                              Buffer* digestBuffer);
+                              Buffer* digestBuffer, Buffer* tableStatsBuffer);
   PRIVATE:
     static bool isEntryAlive(const Log::Position& position,
                              const ProtoBuf::Tablets::Tablet* tablet);

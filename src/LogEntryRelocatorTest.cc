@@ -19,6 +19,7 @@
 #include "SegmentManager.h"
 #include "ReplicaManager.h"
 #include "LogEntryRelocator.h"
+#include "MasterTableMetadata.h"
 
 namespace RAMCloud {
 

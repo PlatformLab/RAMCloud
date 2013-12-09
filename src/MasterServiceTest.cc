@@ -781,10 +781,10 @@ TEST_F(MasterServiceTest, detectSegmentRecoveryFailure_failure) {
 }
 
 TEST_F(MasterServiceTest, getHeadOfLog) {
-    EXPECT_EQ(Log::Position(2, 62),
+    EXPECT_EQ(Log::Position(2, 88),
               MasterClient::getHeadOfLog(&context, masterServer->serverId));
     ramcloud->write(1, "0", 1, "abcdef", 6);
-    EXPECT_EQ(Log::Position(3, 70),
+    EXPECT_EQ(Log::Position(3, 96),
               MasterClient::getHeadOfLog(&context, masterServer->serverId));
 }
 
@@ -1036,12 +1036,12 @@ TEST_F(MasterServiceTest, recover_ctimeUpdateIssued) {
         , TestLog::getUntil("ctime_log_head_id:", curPos, &curPos));
     EXPECT_EQ(
         "ctime_log_head_id: 2 "
-        "ctime_log_head_offset: 62 } tablet { table_id: "
+        "ctime_log_head_offset: 88 } tablet { table_id: "
         "123 start_key_hash: 10 end_key_hash: 19 state: RECOVERING server_id: "
         "2 service_locator: \"mock:host=master\" user_data: 0 "
         , TestLog::getUntil("ctime_log_head_id", curPos, &curPos));
     EXPECT_EQ(
-        "ctime_log_head_id: 2 ctime_log_head_offset: 62 } tablet { table_id: "
+        "ctime_log_head_id: 2 ctime_log_head_offset: 88 } tablet { table_id: "
         "123 start_key_hash: 20 end_key_hash: 29 state: RECOVERING server_id: "
         "2 service_locator: \"mock:host=master\" user_data: 0 "
         , TestLog::getUntil("ctime_log_head_id", curPos, &curPos));
@@ -1085,8 +1085,8 @@ TEST_F(MasterServiceTest, remove_basics) {
     uint64_t version;
     ramcloud->remove(1, "key0", 4, NULL, &version);
     EXPECT_EQ(1U, version);
-    EXPECT_EQ("free: free on reference 3670070 | "
-              "sync: syncing segment 1 to offset 131 | "
+    EXPECT_EQ("free: free on reference 3670096 | "
+              "sync: syncing segment 1 to offset 157 | "
               "schedule: scheduled | "
               "performWrite: Sending write to backup 1.0 | "
               "schedule: scheduled | "
@@ -1509,7 +1509,7 @@ TEST_F(MasterServiceTest, write_basics) {
     ramcloud->write(1, "key0", 4, "item0", 5, NULL, &version);
     EXPECT_EQ(1U, version);
     EXPECT_EQ("writeObject: object: 35 bytes, version 1 | "
-              "sync: syncing segment 1 to offset 91 | "
+              "sync: syncing segment 1 to offset 117 | "
               "schedule: scheduled | "
               "performWrite: Sending write to backup 1.0 | "
               "schedule: scheduled | "

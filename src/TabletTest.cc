@@ -48,4 +48,23 @@ TEST_F(TabletTest, serialize) {
               serializedTablet.ShortDebugString());
 }
 
+TEST_F(TabletTest, debugString_default) {
+    Lock lock(mutex);
+    Tablet tablet({0, 1, 6, ServerId(1, 0), Tablet::NORMAL, {0, 5}});
+    EXPECT_EQ("Tablet { tableId: 0, startKeyHash: 0x1, "
+              "endKeyHash: 0x6, serverId: 1.0, status: NORMAL, "
+              "ctime: 0.5 }",
+              tablet.debugString());
+    EXPECT_EQ("Tablet { tableId: 0, startKeyHash: 0x1, "
+              "endKeyHash: 0x6, serverId: 1.0, status: NORMAL, "
+              "ctime: 0.5 }",
+              tablet.debugString(0));
+}
+
+TEST_F(TabletTest, debugString_1) {
+    Lock lock(mutex);
+    Tablet tablet({0, 1, 6, ServerId(1, 0), Tablet::NORMAL, {0, 5}});
+    EXPECT_EQ("{ 0: 0x1-0x6 }", tablet.debugString(1));
+}
+
 }  // namespace RAMCloud

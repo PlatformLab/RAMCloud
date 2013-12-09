@@ -352,7 +352,7 @@ StartReadingDataRpc::wait()
         result.logDigestBytes = respHdr->digestBytes;
         result.logDigestSegmentId = respHdr->digestSegmentId;
         result.logDigestSegmentEpoch = respHdr->digestSegmentEpoch;
-        result.tabletMetricsLen = respHdr->tabletMetricsLen;
+        result.tableStatsBytes = respHdr->tableStatsBytes;
         response->truncateFront(sizeof(*respHdr));
         // Remove header. Pointer now invalid.
     }
@@ -371,10 +371,10 @@ StartReadingDataRpc::wait()
     response->truncateFront(result.logDigestBytes);
 
     // Copy out tabletMetrics fields
-    if (result.tabletMetricsLen > 0) {
-        result.tabletMetricsBuffer.reset(new char[result.tabletMetricsLen]);
-        response->copy(0, result.tabletMetricsLen,
-                        result.tabletMetricsBuffer.get());
+    if (result.tableStatsBytes > 0) {
+        result.tableStatsBuffer.reset(new char[result.tableStatsBytes]);
+        response->copy(0, result.tableStatsBytes,
+                        result.tableStatsBuffer.get());
     }
 
     return result;
@@ -459,11 +459,11 @@ StartReadingDataRpc::Result::Result()
     : replicas()
     , primaryReplicaCount(0)
     , logDigestBuffer()
-    , tabletMetricsBuffer()
+    , tableStatsBuffer()
     , logDigestBytes(0)
     , logDigestSegmentId(-1)
     , logDigestSegmentEpoch(-1)
-    , tabletMetricsLen(-1)
+    , tableStatsBytes(-1)
 {
 }
 
@@ -471,11 +471,11 @@ StartReadingDataRpc::Result::Result(Result&& other)
     : replicas(std::move(other.replicas))
     , primaryReplicaCount(other.primaryReplicaCount)
     , logDigestBuffer(std::move(other.logDigestBuffer))
-    , tabletMetricsBuffer(std::move(other.tabletMetricsBuffer))
+    , tableStatsBuffer(std::move(other.tableStatsBuffer))
     , logDigestBytes(other.logDigestBytes)
     , logDigestSegmentId(other.logDigestSegmentId)
     , logDigestSegmentEpoch(other.logDigestSegmentEpoch)
-    , tabletMetricsLen(other.tabletMetricsLen)
+    , tableStatsBytes(other.tableStatsBytes)
 {
 }
 
@@ -485,10 +485,10 @@ StartReadingDataRpc::Result::operator=(Result&& other)
     replicas = std::move(other.replicas);
     primaryReplicaCount = other.primaryReplicaCount;
     logDigestBuffer = std::move(other.logDigestBuffer);
-    tabletMetricsBuffer = std::move(other.tabletMetricsBuffer);
+    tableStatsBuffer = std::move(other.tableStatsBuffer);
     logDigestBytes = other.logDigestBytes;
     logDigestSegmentId = other.logDigestSegmentId;
-    tabletMetricsLen = other.tabletMetricsLen;
+    tableStatsBytes = other.tableStatsBytes;
     logDigestSegmentEpoch = other.logDigestSegmentEpoch;
     return *this;
 }

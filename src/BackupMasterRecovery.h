@@ -265,6 +265,12 @@ class BackupMasterRecovery : public Task {
     uint64_t logDigestSegmentEpoch;
 
     /**
+     * Caches the table stats digest from the replicas for this crashed master,
+     * if any.
+     */
+    Buffer tableStatsDigest;
+
+    /**
      * Indicates whether start() should scan all the replicas to extract
      * information or whether the results are already cached.
      * Used by start() to ensure replica information is only extracted once.
@@ -302,7 +308,9 @@ class BackupMasterRecovery : public Task {
      * If set call this function instead of
      * RecoverySegmentBuilder::extractDigest() during start().
      */
-    bool (*testingExtractDigest)(uint64_t segmentId, Buffer* digestBuffer);
+    bool (*testingExtractDigest)(uint64_t segmentId,
+                                 Buffer* digestBuffer,
+                                 Buffer* tableStatsBuffer);
 
     /**
      * If true skip calls to RecoverySegmentBuilder::build() in

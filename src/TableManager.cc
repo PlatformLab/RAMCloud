@@ -1005,4 +1005,33 @@ TableManager::testCreateTable(const char* name, uint64_t id)
         nextTableId = id+1;
 }
 
+/**
+ * Find the tablet containing a particular keyHash for a given tableId. This
+ * method is used only in unit tests to check that a tablet exits and has the
+ * correct information.
+ *
+ * \param tableId
+ *      Id of table in which to search for tablet.
+ * \param keyHash
+ *      The desired tablet stores this particular key hash.
+ *
+ * \return
+ *      A pointer to the desired tablet.  NULL if no matching tablet found.
+ */
+Tablet*
+TableManager::testFindTablet(uint64_t tableId, uint64_t keyHash) {
+    Lock lock(mutex);
+    IdMap::iterator it = idMap.find(tableId);
+    if (it == idMap.end())
+        return NULL;
+    Table* table = it->second;
+    foreach (Tablet* tablet, table->tablets) {
+        if ((tablet->startKeyHash <= keyHash) &&
+                (tablet->endKeyHash >= keyHash)) {
+            return tablet;
+        }
+    }
+    return NULL;
+}
+
 } // namespace RAMCloud

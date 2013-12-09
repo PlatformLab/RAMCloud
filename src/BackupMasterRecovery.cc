@@ -68,6 +68,7 @@ BackupMasterRecovery::BackupMasterRecovery(TaskQueue& taskQueue,
     , logDigest()
     , logDigestSegmentId(~0lu)
     , logDigestSegmentEpoch()
+    , tableStatsDigest()
     , startCompleted()
     , freeQueued()
     , recoveryTicks()
@@ -180,12 +181,12 @@ BackupMasterRecovery::start(const std::vector<BackupStorage::FrameRef>& frames,
         if (testingExtractDigest) {
             foundDigest =
                 (*testingExtractDigest)(replica.metadata->segmentId,
-                                        &logDigest);
+                                        &logDigest, &tableStatsDigest);
         } else {
             foundDigest =
-                RecoverySegmentBuilder::extractDigest(
-                    replicaData, segmentSize,
-                    replica.metadata->certificate, &logDigest);
+                RecoverySegmentBuilder::extractDigest(replicaData, segmentSize,
+                    replica.metadata->certificate, &logDigest,
+                    &tableStatsDigest);
         }
         if (foundDigest) {
             logDigestSegmentId = replica.metadata->segmentId;
@@ -471,13 +472,13 @@ BackupMasterRecovery::populateStartResponse(Buffer* responseBuffer,
             response->digestBytes);
     }
 
-    //TODO(cstlee) Pull tablet stats info out.
-    char tabletMetrics[] = "";
-    response->tabletMetricsLen = sizeof(tabletMetrics);
-    if (response->tabletMetricsLen > 0) {
+    response->tableStatsBytes = tableStatsDigest.getTotalLength();
+    if (response->tableStatsBytes > 0) {
         void* out = new(responseBuffer, APPEND)
-                char[response->tabletMetricsLen];
-        memcpy(out, tabletMetrics, response->tabletMetricsLen);
+                char[response->tableStatsBytes];
+        memcpy(out,
+               tableStatsDigest.getRange(0, response->tableStatsBytes),
+               response->tableStatsBytes);
     }
 }
 

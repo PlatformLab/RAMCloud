@@ -23,6 +23,7 @@
 #include "ServerConfig.h"
 #include "ServerRpcPool.h"
 #include "TableStats.h"
+#include "MasterTableMetadata.h"
 
 namespace RAMCloud {
 
@@ -210,9 +211,8 @@ SegmentManager::allocHeadSegment(uint32_t flags)
         writeDigest(newHead, prevHead);
     else
         writeDigest(newHead, NULL);
+    writeTableStatsDigest(newHead);
     writeSafeVersion(newHead);
-    //TODO(cstlee) added Tablet Stats block to segment;
-    //writeTableStatsDigest(newHead);
 
     // Make the head immutable if it's an emergency head. This will prevent the
     // log from adding anything to it and let us reclaim it without cleaning
@@ -877,7 +877,7 @@ SegmentManager::writeTableStatsDigest(LogSegment* head)
     Buffer buffer;
     TableStats::serialize(&buffer, masterTableMetadata);
 
-    bool success = head->append(LOG_ENTRY_TYPE_SAFEVERSION, buffer);
+    bool success = head->append(LOG_ENTRY_TYPE_TABLESTATS, buffer);
     if (!success) {
         throw FatalError(HERE,
                  format("Could not append TableStats of %u bytes "

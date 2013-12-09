@@ -28,6 +28,7 @@
 #include "TableManager.h"
 #include "Tablets.pb.h"
 #include "TaskQueue.h"
+#include "TableStats.h"
 
 namespace RAMCloud {
 
@@ -98,7 +99,7 @@ class BackupStartPartitionTask {
 bool verifyLogComplete(Tub<BackupStartTask> tasks[],
                        size_t taskCount,
                        const LogDigest& digest);
-Tub<std::pair<uint64_t, LogDigest>>
+Tub<std::tuple<uint64_t, LogDigest, TableStats::Digest*>>
 findLogDigest(Tub<BackupStartTask> tasks[], size_t taskCount);
 vector<WireFormat::Recover::Replica> buildReplicaMap(
     Tub<BackupStartTask> tasks[], size_t taskCount,
@@ -175,7 +176,10 @@ class Recovery : public Task {
     const ProtoBuf::MasterRecoveryInfo masterRecoveryInfo;
 
   PRIVATE:
-    void partitionTablets(vector<Tablet> tablets);
+    void splitTablets(vector<Tablet> *tablets,
+                      TableStats::Estimator* estimator);
+    void partitionTablets(vector<Tablet> tablets,
+                          TableStats::Estimator* estimator);
     void startBackups();
     void startRecoveryMasters();
     void broadcastRecoveryComplete();

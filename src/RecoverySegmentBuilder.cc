@@ -170,8 +170,8 @@ RecoverySegmentBuilder::build(const void* buffer, uint32_t length,
 }
 
 /**
- * Scan \a buffer for a LogDigest, and, if it exists, replace the contents
- * of \a digestBuffer with it.
+ * Scan \a buffer for a LogDigest and a TableStats::Digest.  If either exists,
+ * replace the contents of \a digestBuffer with it.
  *
  * \param buffer
  *      Contiguous region of \a length bytes that contains the replica contents
@@ -186,18 +186,25 @@ RecoverySegmentBuilder::build(const void* buffer, uint32_t length,
  * \param[out] digestBuffer
  *      Buffer to replace the contents of with a log digest if found. If no
  *      log digest is found the buffer is left unchanged.
+ * \param[out] tableStatsBuffer
+ *      Buffer to replace the contents of with a table stats digest if found. If
+ *      no table stats digest is found the buffer is left unchanged.
  * \return
  *      True if the digest was found and placed in the given buffer, otherwise
- *      false.
+ *      false. The return value will not indicate whether a table stats digest
+ *      was found or returned.
  */
 bool
 RecoverySegmentBuilder::extractDigest(const void* buffer, uint32_t length,
                                       const Segment::Certificate& certificate,
-                                      Buffer* digestBuffer)
+                                      Buffer* digestBuffer,
+                                      Buffer* tableStatsBuffer)
 {
     // If the Segment is malformed somehow, just ignore it. The
     // coordinator will have to deal.
     SegmentIterator it(buffer, length, certificate);
+    bool foundDigest = false;
+    bool foundTableStats = false;
     try {
         it.checkMetadataIntegrity();
     } catch (SegmentIteratorException& e) {
@@ -209,11 +216,19 @@ RecoverySegmentBuilder::extractDigest(const void* buffer, uint32_t length,
         if (it.getType() == LOG_ENTRY_TYPE_LOGDIGEST) {
             digestBuffer->reset();
             it.appendToBuffer(*digestBuffer);
+            foundDigest = true;
+        }
+        if (it.getType() == LOG_ENTRY_TYPE_TABLESTATS) {
+            tableStatsBuffer->reset();
+            it.appendToBuffer(*tableStatsBuffer);
+            foundTableStats = true;
+        }
+        if (foundDigest && foundTableStats) {
             return true;
         }
         it.next();
     }
-    return false;
+    return foundDigest;
 }
 
 // - private -
@@ -236,7 +251,7 @@ RecoverySegmentBuilder::extractDigest(const void* buffer, uint32_t length,
  * from only segments before the head at the time of cleaning. To address
  * this, the master server will roll the log to a new head segment with the
  * largest existing segment identifier and record that as the tablet's minimum
- * offset. 
+ * offset.
  *
  * \param position
  *      Log::Position indicating where this entry occurred in the log. Used to

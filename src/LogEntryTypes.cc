@@ -38,6 +38,8 @@ toString(LogEntryType type)
         return "Log Digest";
     case LOG_ENTRY_TYPE_SAFEVERSION:
         return "Object Safe Version";
+    case LOG_ENTRY_TYPE_TABLESTATS:
+        return "Table Stats Digest";
     default:
         return "<<Unknown>>";
     }

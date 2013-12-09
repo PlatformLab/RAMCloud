@@ -446,7 +446,7 @@ TEST_F(ObjectManagerTest, removeObject) {
     EXPECT_EQ("found=true tableId=1 byteCount=99 recordCount=3"
               , verifyMetadata(1));
     EXPECT_EQ(93UL, version);
-    EXPECT_EQ("free: free on reference 31457334", TestLog::get());
+    EXPECT_EQ("free: free on reference 31457360", TestLog::get());
     Buffer buffer;
     EXPECT_EQ(STATUS_OBJECT_DOESNT_EXIST,
         objectManager.readObject(key, &buffer, 0, 0));
@@ -483,8 +483,8 @@ TEST_F(ObjectManagerTest, removeOrphanedObjects) {
         objectManager.readObject(key, &value, NULL, NULL));
 
     EXPECT_EQ(
-        "removeIfOrphanedObject: removing orphaned object at ref 31457334 | "
-        "free: free on reference 31457334",
+        "removeIfOrphanedObject: removing orphaned object at ref 31457360 | "
+        "free: free on reference 31457360",
         TestLog::get());
 }
 

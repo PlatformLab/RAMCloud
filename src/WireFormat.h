@@ -295,16 +295,14 @@ struct BackupStartReadingData {
                                        ///< inconsistent. If it might've been
                                        ///< this digest will be discarded
                                        ///< by the coordinator for safety.
-        uint32_t tabletMetricsLen;     ///< Byte length of TabletMetrics that
-                                       ///< go after the LogDigest
+        uint32_t tableStatsBytes;      ///< Byte length of TableStats::Digest
+                                       ///< that go after the LogDigest
         // An array of segmentIdCount replicas follows.
         // Each entry is a Replica (see below).
         //
         // If logDigestBytes != 0, then a serialised LogDigest follows
         // immediately after the replica list.
-
-        // TODO(syang0) TabletMetrics follows. The exact
-        // format has not been determined yet.
+        // If tableStatsBytes != 0, then a TableStats::Digest follows.
     } __attribute__((packed));
     /// Used in the Response to report which replicas the backup has.
     struct Replica {
