@@ -635,7 +635,7 @@ TEST_F(CoordinatorServerListTest, recover_incompleteUpdates) {
 }
 TEST_F(CoordinatorServerListTest, recover_repairReplicationGroups) {
     TestLog::Enable _("createReplicationGroups", "removeReplicationGroup",
-            "repairReplicationGroups");
+            "repairReplicationGroups", NULL);
     string server2 = createStorageEntry(ServerId(2, 4),
             {WireFormat::BACKUP_SERVICE});
     string server6 = createStorageEntry(ServerId(6, 1),
@@ -773,7 +773,8 @@ TEST_F(CoordinatorServerListTest, serverCrashed_success) {
     EXPECT_EQ(0U, sl->backupCount());
 }
 TEST_F(CoordinatorServerListTest, serverCrashed_fixReplicationGroups) {
-    TestLog::Enable _("createReplicationGroups", "removeReplicationGroup");
+    TestLog::Enable _("createReplicationGroups", "removeReplicationGroup",
+            NULL);
     for (int i = 0; i < 6; i++) {
         sl->enlistServer({WireFormat::BACKUP_SERVICE}, 140, "mock:host=foo");
     }
@@ -1000,7 +1001,7 @@ TEST_F(CoordinatorServerListTest, removeReplicationGroup) {
 
 TEST_F(CoordinatorServerListTest, repairReplicationGroups) {
     TestLog::Enable _("createReplicationGroups", "removeReplicationGroup",
-            "repairReplicationGroups");
+            "repairReplicationGroups", NULL);
     sl->serverList.resize(20);
     // Create enough servers for two full replication groups but not
     // quite a third. Create several other servers that aren't eligible
