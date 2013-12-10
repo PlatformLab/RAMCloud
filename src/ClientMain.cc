@@ -167,8 +167,12 @@ try
     int numClients;
     bool exercise;
 
+    // Set line buffering for stdout so that printf's and log messages
+    // interleave properly.
+    setvbuf(stdout, NULL, _IOLBF, 1024);
+
     // need external context to set log levels with OptionParser
-    Context context(true);
+    Context context(false);
 
     OptionsDescription clientOptions("Client");
     clientOptions.add_options()
