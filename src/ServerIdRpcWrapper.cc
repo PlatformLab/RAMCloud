@@ -54,6 +54,7 @@ ServerIdRpcWrapper::ServerIdRpcWrapper(Context* context, ServerId id,
     : RpcWrapper(responseHeaderLength, response)
     , context(context)
     , id(id)
+    , transportErrors(0)
     , serverCrashed(false)
 {
 }
@@ -104,7 +105,19 @@ ServerIdRpcWrapper::handleTransportError()
         serverCrashed = true;
         return true;
     }
-    send();
+
+    // If there are repeated failures, delay the retries to reduce log
+    // chatter and system load.
+    transportErrors++;
+    if (transportErrors < 3) {
+        // Retry immediately for the first couple of times.
+        send();
+    } else {
+        // The server is probably down.  Delay about a second for each
+        // subsequent retry; this should be enough time for the failure
+        // to be detected and propagated to us.
+        retry(500000, 1500000);
+    }
     return false;
 }
 

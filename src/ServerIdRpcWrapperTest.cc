@@ -121,6 +121,7 @@ TEST_F(ServerIdRpcWrapperTest, handleTransportError_serverUp) {
     EXPECT_EQ("flushSession: flushed session for id 1.0",
             TestLog::get());
     EXPECT_FALSE(wrapper.serverCrashed);
+    EXPECT_EQ(1, wrapper.transportErrors);
 }
 
 TEST_F(ServerIdRpcWrapperTest, handleTransportError_serverCrashed) {
@@ -145,6 +146,22 @@ TEST_F(ServerIdRpcWrapperTest, handleTransportError_nonexistentServer) {
     EXPECT_STREQ("NOT_STARTED", wrapper.stateString());
     EXPECT_EQ("", TestLog::get());
     EXPECT_TRUE(wrapper.serverCrashed);
+}
+
+TEST_F(ServerIdRpcWrapperTest, handleTransportError_slowRetry) {
+    TestLog::Enable _;
+    Cycles::mockTscValue = 1000;
+    ServerIdRpcWrapper wrapper(&context, id, 4);
+    wrapper.request.fillFromString("100");
+    wrapper.send();
+    wrapper.state = RpcWrapper::RpcState::FAILED;
+    wrapper.transportErrors = 2;
+    EXPECT_FALSE(wrapper.isReady());
+    EXPECT_STREQ("RETRY", wrapper.stateString());
+    double delay = Cycles::toSeconds(wrapper.retryTime - 1000);
+    EXPECT_LE(0.499, delay);
+    EXPECT_GE(1.501, delay);
+    EXPECT_EQ(3, wrapper.transportErrors);
 }
 
 TEST_F(ServerIdRpcWrapperTest, send) {
