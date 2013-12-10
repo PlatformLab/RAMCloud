@@ -692,12 +692,12 @@ TableManager::notifyCreate(const Lock& lock, Table* table)
 {
     foreach (Tablet* tablet, table->tablets) {
         try {
-            MasterClient::takeTabletOwnership(context, tablet->serverId,
-                    tablet->tableId, tablet->startKeyHash, tablet->endKeyHash);
-            LOG(NOTICE, "Assigned table id %lu, key hashes 0x%lx-0x%lx, to "
+            LOG(NOTICE, "Assigning table id %lu, key hashes 0x%lx-0x%lx, to "
                     "master %s",
                     table->id, tablet->startKeyHash, tablet->endKeyHash,
                     tablet->serverId.toString().c_str());
+            MasterClient::takeTabletOwnership(context, tablet->serverId,
+                    tablet->tableId, tablet->startKeyHash, tablet->endKeyHash);
         } catch (ServerNotUpException& e) {
             // The master is apparently crashed. In that case, we can just
             // ignore this master; this tablet will be reinstated elsewhere
@@ -733,6 +733,10 @@ TableManager::notifyDropTable(const Lock& lock, ProtoBuf::Table* info)
         const ProtoBuf::Table::Tablet& tablet = info->tablet(i);
         ServerId serverId(tablet.server_id());
         try {
+            LOG(NOTICE, "Requesting master %s to drop table id %lu, "
+                    "key hashes 0x%lx-0x%lx",
+                    serverId.toString().c_str(), info->id(),
+                    tablet.start_key_hash(), tablet.end_key_hash());
             MasterClient::dropTabletOwnership(context, serverId,
                     info->id(), tablet.start_key_hash(), tablet.end_key_hash());
         } catch (ServerNotUpException& e) {
@@ -779,6 +783,10 @@ TableManager::notifyReassignTablet(const Lock& lock, ProtoBuf::Table* info)
     const ProtoBuf::Table::Reassign& reassign = info->reassign();
     ServerId serverId(reassign.server_id());
     try {
+        LOG(NOTICE, "Reassigning table id %lu, key hashes 0x%lx-0x%lx "
+                "to master %s",
+                info->id(), reassign.start_key_hash(), reassign.end_key_hash(),
+                serverId.toString().c_str());
         MasterClient::takeTabletOwnership(context, serverId, info->id(),
                 reassign.start_key_hash(), reassign.end_key_hash());
     } catch (ServerNotUpException& e) {
@@ -809,6 +817,10 @@ TableManager::notifySplitTablet(const Lock& lock, ProtoBuf::Table* info)
     const ProtoBuf::Table::Split& split = info->split();
     ServerId serverId(split.server_id());
     try {
+        LOG(NOTICE, "Requesting master %s to split table id %lu "
+                "at key hash 0x%lx",
+                serverId.toString().c_str(), info->id(),
+                split.split_key_hash());
         MasterClient::splitMasterTablet(context, serverId, info->id(),
                 split.split_key_hash());
     } catch (ServerNotUpException& e) {

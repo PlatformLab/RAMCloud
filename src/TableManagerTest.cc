@@ -456,7 +456,7 @@ TEST_F(TableManagerTest, recover_incompleteCreate) {
             "Tablet { startKeyHash: 0x800, endKeyHash: 0x900, "
             "serverId: 1.0, status: NORMAL, ctime: 31.32 } }",
             tableManager->debugString());
-    EXPECT_EQ("notifyCreate: Assigned table id 444, "
+    EXPECT_EQ("notifyCreate: Assigning table id 444, "
             "key hashes 0x800-0x900, to master 1.0",
             TestLog::get());
     EXPECT_EQ(1U, master1->tabletManager.getCount());
@@ -475,7 +475,9 @@ TEST_F(TableManagerTest, recover_incompleteDelete) {
     cluster.externalStorage.getChildrenValues.push(str);
 
     tableManager->recover(88);
-    EXPECT_EQ("notifyDropTable: dropTabletOwnership skipped for master 1.0 "
+    EXPECT_EQ("notifyDropTable: Requesting master 1.0 to drop table id "
+            "444, key hashes 0x800-0x900 | "
+            "notifyDropTable: dropTabletOwnership skipped for master 1.0 "
             "(table 444, key hashes 0x800-0x900) because server isn't "
             "running | recover: Table recovery complete: 0 table(s)",
             TestLog::get());
@@ -497,7 +499,9 @@ TEST_F(TableManagerTest, recover_incompleteSplitTablet) {
 
     TestLog::Enable _("notifySplitTablet");
     tableManager->recover(88);
-    EXPECT_EQ("notifySplitTablet: splitMasterTablet skipped for master 2.0 "
+    EXPECT_EQ("notifySplitTablet: Requesting master 2.0 to split table "
+            "id 444 at key hash 0x1000 | "
+            "notifySplitTablet: splitMasterTablet skipped for master 2.0 "
             "(table 444, split key hash 0x1000) because server isn't running",
             TestLog::get());
 }
@@ -519,7 +523,9 @@ TEST_F(TableManagerTest, recover_incompleteReassignTablet) {
 
     TestLog::Enable _("notifyReassignTablet");
     tableManager->recover(88);
-    EXPECT_EQ("notifyReassignTablet: takeTabletOwnership failed during "
+    EXPECT_EQ("notifyReassignTablet: Reassigning table id 444, "
+            "key hashes 0x1000-0x2000 to master 2.0 | "
+            "notifyReassignTablet: takeTabletOwnership failed during "
             "tablet reassignment for master 2.0 (table 444, "
             "key hashes 0x1000-0x2000) because server isn't running",
             TestLog::get());
@@ -715,14 +721,16 @@ TEST_F(TableManagerTest, notifyCreate) {
     tableManager->notifyCreate(lock, &table);
     EXPECT_EQ(1U, master1->tabletManager.getCount());
     EXPECT_EQ(2U, master2->tabletManager.getCount());
-    EXPECT_EQ("notifyCreate: Assigned table id 111, "
+    EXPECT_EQ("notifyCreate: Assigning table id 111, "
             "key hashes 0x0-0x100, to master 1.0 | "
-            "notifyCreate: Assigned table id 111, "
+            "notifyCreate: Assigning table id 111, "
             "key hashes 0x200-0x300, to master 2.0 | "
+            "notifyCreate: Assigning table id 111, "
+            "key hashes 0x400-0x500, to master 6.2 | "
             "notifyCreate: takeTabletOwnership skipped for master 6.2 "
             "(table 111, key hashes 0x400-0x500) because server "
             "isn't running | "
-            "notifyCreate: Assigned table id 111, "
+            "notifyCreate: Assigning table id 111, "
             "key hashes 0x600-0x700, to master 2.0",
             TestLog::get());
 }
@@ -744,8 +752,12 @@ TEST_F(TableManagerTest, notifyDropTable_basics) {
             99, 41, 42);
 
     tableManager->notifyDropTable(lock, &table);
-    EXPECT_EQ("dropTabletOwnership: Could not drop ownership on unknown "
+    EXPECT_EQ("notifyDropTable: Requesting master 1.0 to drop "
+            "table id 444, key hashes 0x200-0x300 | "
+            "dropTabletOwnership: Could not drop ownership on unknown "
             "tablet [0x200,0x300] in tableId 444! | "
+            "notifyDropTable: Requesting master 99.0 to drop "
+            "table id 444, key hashes 0x800-0x900 | "
             "notifyDropTable: dropTabletOwnership skipped for master 99.0 "
             "(table 444, key hashes 0x800-0x900) because server isn't running",
             TestLog::get());
@@ -786,12 +798,16 @@ TEST_F(TableManagerTest, notifyReassignTablet) {
     EXPECT_EQ(0U, master1->tabletManager.getCount());
     tableManager->notifyReassignTablet(lock, &info);
     EXPECT_EQ(1U, master1->tabletManager.getCount());
-    EXPECT_EQ("", TestLog::get());
+    EXPECT_EQ("notifyReassignTablet: Reassigning table id 1, "
+            "key hashes 0x1000-0x2000 to master 1.0", TestLog::get());
+    TestLog::reset();
 
     // No such server.
     reassign->set_server_id(5);
     tableManager->notifyReassignTablet(lock, &info);
-    EXPECT_EQ("notifyReassignTablet: takeTabletOwnership failed during tablet "
+    EXPECT_EQ("notifyReassignTablet: Reassigning table id 1, "
+            "key hashes 0x1000-0x2000 to master 5.0 | "
+            "notifyReassignTablet: takeTabletOwnership failed during tablet "
             "reassignment for master 5.0 (table 1, key hashes 0x1000-0x2000) "
             "because server isn't running",
             TestLog::get());
@@ -816,12 +832,16 @@ TEST_F(TableManagerTest, notifySplitTablet) {
     EXPECT_EQ(1U, master1->tabletManager.getCount());
     tableManager->notifySplitTablet(lock, &info);
     EXPECT_EQ(2U, master1->tabletManager.getCount());
-    EXPECT_EQ("", TestLog::get());
+    EXPECT_EQ("notifySplitTablet: Requesting master 1.0 to split "
+            "table id 1 at key hash 0x1000", TestLog::get());
+    TestLog::reset();
 
     // No such server.
     split->set_server_id(5);
     tableManager->notifySplitTablet(lock, &info);
-    EXPECT_EQ("notifySplitTablet: splitMasterTablet skipped for master 5.0 "
+    EXPECT_EQ("notifySplitTablet: Requesting master 5.0 to split "
+            "table id 1 at key hash 0x1000 | "
+            "notifySplitTablet: splitMasterTablet skipped for master 5.0 "
             "(table 1, split key hash 0x1000) because server isn't running",
             TestLog::get());
 }
