@@ -655,8 +655,12 @@ InfRcTransport::clientTrySetupQueuePair(IpAddress& address)
         }
 
         if (!gotResponse) {
-            LOG(WARNING, "timed out waiting for response from %s; retrying",
-                address.toString().c_str());
+            // To avoid log clutter, only print a log message for the
+            // first retry.
+            if (i == 0) {
+                LOG(WARNING, "timed out waiting for response from %s; retrying",
+                    address.toString().c_str());
+            }
             ++metrics->transport.retrySessionOpenCount;
             continue;
         }
