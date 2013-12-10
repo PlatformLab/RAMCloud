@@ -39,6 +39,7 @@ namespace RAMCloud {
  *      in this many milliseconds.
  * \param startRecoveryManager
  *      True means we should start the thread that manages crash recovery.
+ *      False is typically used only during testing.
  */
 CoordinatorService::CoordinatorService(Context* context,
                                        uint32_t deadServerTimeout,
@@ -55,9 +56,6 @@ CoordinatorService::CoordinatorService(Context* context,
     context->recoveryManager = &recoveryManager;
     context->coordinatorService = this;
 
-    if (startRecoveryManager)
-        recoveryManager.start();
-
     // Recover state (and incomplete operations) from external storage.
     uint64_t lastCompletedUpdate = updateManager.init();
     serverList->recover(lastCompletedUpdate);
@@ -70,6 +68,14 @@ CoordinatorService::CoordinatorService(Context* context,
     // this point the server list may not contain all information needed
     // for updating).
     serverList->startUpdater();
+
+    // When the recovery manager starts up below, it will resume
+    // recovery for crashed nodes; it isn't safe to do that until
+    // after the server list and table manager have recovered (e.g.
+    // it will need accurate information about which tables are stored on
+    // a crashed server).
+    if (startRecoveryManager)
+        recoveryManager.start();
 }
 
 CoordinatorService::~CoordinatorService()

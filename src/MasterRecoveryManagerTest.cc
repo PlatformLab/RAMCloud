@@ -119,6 +119,18 @@ TEST_F(MasterRecoveryManagerTest, startAndHalt) {
     EXPECT_TRUE(mgr->thread);
 }
 
+TEST_F(MasterRecoveryManagerTest, start_recoverCrashedServers) {
+    Lock lock(mutex); // For calls to internal functions without  {real lock.
+    addMaster(lock, ServerStatus::UP);
+    addMaster(lock, ServerStatus::CRASHED);
+    addMaster(lock, ServerStatus::UP);
+    TestLog::reset();
+    TestLog::Enable _("startMasterRecovery");
+    mgr->start();
+    EXPECT_EQ("startMasterRecovery: Scheduling recovery of master 2.0",
+              TestLog::get());
+}
+
 TEST_F(MasterRecoveryManagerTest, startMasterRecoveryNoTablets) {
     Lock lock(mutex); // For calls to internal functions without real lock.
     auto crashedServerId = addMaster(lock, ServerStatus::CRASHED);

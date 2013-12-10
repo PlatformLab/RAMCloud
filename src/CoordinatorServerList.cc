@@ -363,11 +363,6 @@ CoordinatorServerList::recover(uint64_t lastCompletedUpdate)
             // cause the updates never to be finished).
             entry->sync(context->externalStorage);
         }
-
-        // If this server had crashed, reinitiate crash recovery.
-        if (entry->status  == ServerStatus::CRASHED) {
-            context->recoveryManager->startMasterRecovery(*entry);
-        }
     }
 
     // Repair inconsistencies in the replication groups.

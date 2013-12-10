@@ -1,4 +1,4 @@
-/* Copyright (c) 2012 Stanford University
+/* Copyright (c) 2012-2013 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -363,9 +363,12 @@ MasterRecoveryManager::~MasterRecoveryManager()
 }
 
 /**
- * Start thread for performing recoveries; this must be called before other
- * operations to ensure recoveries actually happen.
- * Calling start() on an instance that is already started has no effect.
+ * This method is invoked during server startup to enable the mechanism
+ * for recovering crashed masters. In addition to starting the thread that
+ * performs recoveries, this method scans the server list for servers already
+ * in the crashed state, and (re)starts recovery for them. This can occur
+ * when the coordinator is restarting after a crash, and there were recoveries
+ * in progress at the time of the crash. 
  * start() and halt() are not thread-safe.
  */
 void
@@ -373,6 +376,20 @@ MasterRecoveryManager::start()
 {
     if (!thread)
         thread.construct(&MasterRecoveryManager::main, this);
+
+    ServerId id;
+    while (1) {
+        bool end;
+        id = context->coordinatorServerList->nextServer(id,
+                ServiceMask({WireFormat::MASTER_SERVICE}), &end, true);
+        if (end) {
+            break;
+        }
+        if (context->coordinatorServerList->getStatus(id)
+                == ServerStatus::CRASHED) {
+            startMasterRecovery((*context->coordinatorServerList)[id]);
+        }
+    }
 }
 
 /**
@@ -410,7 +427,7 @@ MasterRecoveryManager::startMasterRecovery(
      * from this function. We have to remove the server from the
      * coordinator server list which we can't directly, by calling
      * CoordinatorServerList::recoveryCompleted() because it will
-     * cause a deadlock. This is because startMasterRecovery is invoked
+     * cause a deadlock. This is because startMasterRecovery may be invoked
      * with the CSL lock held and we can't call into CSL again. For this
      * reason, we start the recovery for this master as well and handle
      * this case at a lower layer of abstraction. Check Recovery::performTask
