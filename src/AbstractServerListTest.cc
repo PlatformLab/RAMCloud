@@ -69,18 +69,18 @@ class AbstractServerListSubClass : public AbstractServerList {
         return servers.size();
     }
 
-    ServerId&
+    ServerId
     add(string locator, ServerStatus status,
             ServiceMask services = ServiceMask{WireFormat::MASTER_SERVICE}) {
-        ServerId* id = new ServerId(isize(), 0);
+        ServerId id(isize(), 0);
 
         ServerDetails sd;
-        sd.serverId = *id;
+        sd.serverId = id;
         sd.status = status;
         sd.serviceLocator = locator;
         sd.services = services;
         servers.push_back(sd);
-        return *id;
+        return id;
     }
 
     void
@@ -143,15 +143,23 @@ TEST_F(AbstractServerListTest, destructor) {
 
 TEST_F(AbstractServerListTest, getLocator) {
     EXPECT_THROW(sl.getLocator(ServerId(1, 0)), ServerListException);
-    ServerId& id = sl.add("mock::1", ServerStatus::UP);
+    ServerId id = sl.add("mock::1", ServerStatus::UP);
     EXPECT_THROW(sl.getLocator(ServerId(2, 0)), ServerListException);
     EXPECT_STREQ("mock::1", sl.getLocator(id).c_str());
 }
 
+TEST_F(AbstractServerListTest, getStatus) {
+    ServerId id1 = sl.add("mock::1", ServerStatus::UP);
+    ServerId id2 = sl.add("mock::1", ServerStatus::CRASHED);
+    EXPECT_EQ(ServerStatus::UP, sl.getStatus(id1));
+    EXPECT_EQ(ServerStatus::CRASHED, sl.getStatus(id2));
+    EXPECT_EQ(ServerStatus::REMOVE, sl.getStatus(ServerId(99, 3)));
+}
+
 TEST_F(AbstractServerListTest, isUp) {
     EXPECT_FALSE(sl.isUp(ServerId(1, 0)));
-    ServerId& id1 = sl.add("mock::2", ServerStatus::UP);
-    ServerId& id2 = sl.add("mock::3", ServerStatus::REMOVE);
+    ServerId id1 = sl.add("mock::2", ServerStatus::UP);
+    ServerId id2 = sl.add("mock::3", ServerStatus::REMOVE);
     EXPECT_TRUE(sl.iget(id1) != NULL);
     EXPECT_TRUE(sl.iget(id2) != NULL);
     EXPECT_TRUE(sl.isUp(id1));
@@ -166,8 +174,8 @@ TEST_F(AbstractServerListTest, getSession_basics) {
     MockTransport transport(&context);
     context.transportManager->registerMock(&transport);
 
-    ServerId& id1 = sl.add("mock:id=1", ServerStatus::UP);
-    ServerId& id2 = sl.add("mock:id=2", ServerStatus::UP);
+    ServerId id1 = sl.add("mock:id=1", ServerStatus::UP);
+    ServerId id2 = sl.add("mock:id=2", ServerStatus::UP);
     Transport::SessionRef session1 = sl.getSession(id1);
     EXPECT_EQ("mock:id=1", session1->getServiceLocator());
     Transport::SessionRef session2 = sl.getSession(id2);
@@ -183,7 +191,7 @@ TEST_F(AbstractServerListTest, flushSession) {
     MockTransport transport(&context);
     context.transportManager->registerMock(&transport);
 
-    ServerId& id = sl.add("mock:id=1", ServerStatus::UP);
+    ServerId id = sl.add("mock:id=1", ServerStatus::UP);
     Transport::SessionRef session1 = sl.getSession(id);
     EXPECT_EQ("mock:id=1", session1->getServiceLocator());
     sl.flushSession({999, 999});
@@ -197,8 +205,8 @@ TEST_F(AbstractServerListTest, contains) {
     EXPECT_FALSE(sl.contains(ServerId(0, 0)));
     EXPECT_FALSE(sl.contains(ServerId(1, 0)));
 
-    ServerId& id1 = sl.add("mock::4", ServerStatus::REMOVE);
-    ServerId& id2 = sl.add("mock::5", ServerStatus::UP);
+    ServerId id1 = sl.add("mock::4", ServerStatus::REMOVE);
+    ServerId id2 = sl.add("mock::5", ServerStatus::UP);
 
     EXPECT_TRUE(sl.contains(id1));
     EXPECT_TRUE(sl.contains(id2));
@@ -242,6 +250,12 @@ TEST_F(AbstractServerListTest, nextServer) {
     // skip down servers
     next = sl.nextServer(ServerId(1, 0), {WireFormat::MASTER_SERVICE}, &end);
     EXPECT_EQ("3.0", next.toString());
+    EXPECT_FALSE(end);
+
+    // include down servers if explicitly requested
+    next = sl.nextServer(ServerId(1, 0), {WireFormat::MASTER_SERVICE}, &end,
+            true);
+    EXPECT_EQ("2.0", next.toString());
     EXPECT_FALSE(end);
 
     // skip servers without desired services
@@ -289,10 +303,10 @@ TEST_F(AbstractServerListTest, registerTracker_duringDestruction) {
 
 TEST_F(AbstractServerListTest, registerTracker_pushAdds) {
     sl.unregisterTracker(tr);
-    ServerId& id1 = sl.add("mock:", ServerStatus::UP);
-    ServerId& id2 = sl.add("mock:", ServerStatus::UP);
-    ServerId& id3 = sl.add("mock:", ServerStatus::UP);
-    ServerId& id4 = sl.add("mock:", ServerStatus::UP);
+    ServerId id1 = sl.add("mock:", ServerStatus::UP);
+    ServerId id2 = sl.add("mock:", ServerStatus::UP);
+    ServerId id3 = sl.add("mock:", ServerStatus::UP);
+    ServerId id4 = sl.add("mock:", ServerStatus::UP);
 
     sl.crashed(id4);
     sl.remove(id2);
@@ -354,7 +368,7 @@ TEST_F(AbstractServerListTest, size) {
 TEST_F(AbstractServerListTest, toString) {
     EXPECT_EQ("server 1.0 at (locator unavailable)",
               sl.toString(ServerId(1)));
-    ServerId& id = sl.add("mock:service=locator", ServerStatus::UP);
+    ServerId id = sl.add("mock:service=locator", ServerStatus::UP);
     EXPECT_EQ("server 0.0 at mock:service=locator",
               sl.toString(id));
 }

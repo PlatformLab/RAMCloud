@@ -235,12 +235,14 @@ class AbstractServerList {
 
     virtual bool contains(ServerId id);
     string getLocator(ServerId id);
+    ServerStatus getStatus(ServerId id);
     void flushSession(ServerId id);
     Transport::SessionRef getSession(ServerId id);
     uint64_t getVersion() const;
     bool isUp(ServerId id);
     size_t size() const;
-    ServerId nextServer(ServerId prev, ServiceMask services, bool* end = NULL);
+    ServerId nextServer(ServerId prev, ServiceMask services,
+            bool* end = NULL, bool includeCrashed = false);
 
     void registerTracker(ServerTrackerInterface& tracker);
     void unregisterTracker(ServerTrackerInterface& tracker);

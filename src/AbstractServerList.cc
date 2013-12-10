@@ -77,6 +77,30 @@ AbstractServerList::getLocator(ServerId id)
 }
 
 /**
+ * Returns the current status of a server in the cluster.
+ *
+ * \param id
+ *      Identifier for a particular server.
+ * \return
+ *      Returns ServerStatus::UP if the server given by id is currently
+ *      part of the cluster and believed to be operating normally.
+ *      ServerStatus::CRASHED is returned if the server is part of the
+ *      cluster but has crashed, and crash recovery has not completed yet.
+ *      ServerStatus::REMOVE is returned if there is no such server in
+ *      the cluster (or if there once was such a server, but it has crashed
+ *      and been fully recovered).
+ */
+ServerStatus
+AbstractServerList::getStatus(ServerId id) {
+    Lock _(mutex);
+    ServerDetails* details = iget(id);
+    if (details == NULL) {
+        return ServerStatus::REMOVE;
+    }
+    return details->status;
+}
+
+/**
  * Indicate whether a particular server is still believed to be
  * actively participating in the cluster.
  *
@@ -187,6 +211,11 @@ AbstractServerList::contains(ServerId id) {
  *      be set to true if we reached the end of the server list (in
  *      which case we wrapped back to the beginning again); otherwise
  *      it will be set to false.
+ * \param includeCrashed
+ *      Normally, only servers that are up will be returned; if this
+ *      parameter is true then crashed servers will also be returned
+ *      (as long as they have not been fully recovered, at which point
+ *      they cease to exist).
  * 
  * \return
  *      The return value is the ServerId for the next server after
@@ -195,7 +224,8 @@ AbstractServerList::contains(ServerId id) {
  *      then an invalid ServerId is returned.
  */
 ServerId
-AbstractServerList::nextServer(ServerId prev, ServiceMask services, bool* end)
+AbstractServerList::nextServer(ServerId prev, ServiceMask services,
+        bool* end, bool includeCrashed)
 {
     Lock _(mutex);
     uint32_t startIndex = prev.isValid() ? prev.indexNumber() : -1U;
@@ -215,7 +245,8 @@ AbstractServerList::nextServer(ServerId prev, ServiceMask services, bool* end)
                 break;
         }
         ServerDetails* details = iget(index);
-        if ((details != NULL) && (details->status == ServerStatus::UP)
+        if ((details != NULL)
+                && ((details->status == ServerStatus::UP) || includeCrashed)
                 && details->services.hasAll(services)) {
             return details->serverId;
         }
