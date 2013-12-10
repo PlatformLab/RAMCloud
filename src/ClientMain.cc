@@ -229,7 +229,7 @@ try
     if (exercise) {
         while (1) {
             exerciseCluster(&client);
-            usleep(5000000);
+            usleep(2000000);
         }
     }
 
