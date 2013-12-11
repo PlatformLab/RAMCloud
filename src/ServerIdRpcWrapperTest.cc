@@ -157,6 +157,7 @@ TEST_F(ServerIdRpcWrapperTest, handleTransportError_slowRetry) {
     wrapper.state = RpcWrapper::RpcState::FAILED;
     wrapper.transportErrors = 2;
     EXPECT_FALSE(wrapper.isReady());
+    Cycles::mockTscValue = 0;
     EXPECT_STREQ("RETRY", wrapper.stateString());
     double delay = Cycles::toSeconds(wrapper.retryTime - 1000);
     EXPECT_LE(0.499, delay);
