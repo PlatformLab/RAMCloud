@@ -171,7 +171,7 @@ class CoordinatorServerList : public AbstractServerList{
     void recover(uint64_t lastCompletedUpdate);
     void recoveryCompleted(ServerId serverId);
     void serialize(ProtoBuf::ServerList* protobuf, ServiceMask services) const;
-    void serverCrashed(ServerId serverId);
+    virtual void serverCrashed(ServerId serverId);
     bool setMasterRecoveryInfo(ServerId serverId,
                 const ProtoBuf::MasterRecoveryInfo* recoveryInfo);
     void startUpdater();

@@ -247,6 +247,15 @@ class AbstractServerList {
     void registerTracker(ServerTrackerInterface& tracker);
     void unregisterTracker(ServerTrackerInterface& tracker);
 
+    // The following method declaration is a hack that saves us from
+    // linking CoordinatorServerList (and its dependents) in applications
+    // other than the coordinator. The problem is that ServerIdRpcWrapper
+    // is linked everywhere and invokes the method (but only if it knows
+    // it's running on the coordinator). This method should never actually be
+    // invoked except on CoordinatorServerList objects (which have overrided
+    // this definition).
+    virtual void serverCrashed(ServerId serverId) { }
+
     string toString(ServerId serverId);
     static string toString(ServerStatus status);
     string toString();
