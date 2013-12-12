@@ -152,14 +152,14 @@ TEST_F(MasterRecoveryManagerTest, startMasterRecovery) {
     EXPECT_EQ("startMasterRecovery: Scheduling recovery of master 1.0 | "
               "schedule: scheduled",
               TestLog::get());
-    Tablet tablet = tableManager->getTablet(0, 0);
-    EXPECT_EQ(tablet.status, Tablet::RECOVERING);
 
     EXPECT_EQ(1lu, mgr->taskQueue.outstandingTasks());
     EXPECT_EQ(0lu, mgr->waitingRecoveries.size());
     mgr->taskQueue.performTask();
     EXPECT_EQ(1lu, mgr->taskQueue.outstandingTasks());
     EXPECT_EQ(1lu, mgr->waitingRecoveries.size());
+    Tablet tablet = tableManager->getTablet(0, 0);
+    EXPECT_EQ(tablet.status, Tablet::RECOVERING);
     mgr->taskQueue.performTask();
     EXPECT_EQ(1lu, mgr->taskQueue.outstandingTasks());
     EXPECT_EQ(0lu, mgr->waitingRecoveries.size());

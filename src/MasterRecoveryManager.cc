@@ -121,13 +121,9 @@ class EnqueueMasterRecoveryTask : public Task {
                               const ProtoBuf::MasterRecoveryInfo& recoveryInfo)
         : Task(recoveryManager.taskQueue)
         , mgr(recoveryManager)
-        , recovery()
+        , crashedServerId(crashedServerId)
         , masterRecoveryInfo(recoveryInfo)
-    {
-        recovery = new Recovery(recoveryManager.context, mgr.taskQueue,
-                                &mgr.tableManager, &mgr.tracker,
-                                &mgr, crashedServerId, masterRecoveryInfo);
-    }
+    { }
 
     /**
      * Called by #taskQueue which serializes it with other tasks; this makes
@@ -136,14 +132,16 @@ class EnqueueMasterRecoveryTask : public Task {
      */
     void performTask()
     {
-        mgr.waitingRecoveries.push(recovery);
+        mgr.waitingRecoveries.push(new Recovery(mgr.context, mgr.taskQueue,
+                                &mgr.tableManager, &mgr.tracker,
+                                &mgr, crashedServerId, masterRecoveryInfo));
         (new MaybeStartRecoveryTask(mgr))->schedule();
         delete this;
     }
 
   PRIVATE:
     MasterRecoveryManager& mgr;
-    Recovery* recovery;
+    ServerId crashedServerId;
     ProtoBuf::MasterRecoveryInfo masterRecoveryInfo;
     DISALLOW_COPY_AND_ASSIGN(EnqueueMasterRecoveryTask);
 };
@@ -419,47 +417,15 @@ MasterRecoveryManager::startMasterRecovery(
         CoordinatorServerList::Entry crashedServer)
 {
     ServerId crashedServerId = crashedServer.serverId;
-    auto tablets =
-        tableManager.markAllTabletsRecovering(crashedServerId);
-
-    /**
-     * If the server did not own any tablets, we can't simply return
-     * from this function. We have to remove the server from the
-     * coordinator server list which we can't directly, by calling
-     * CoordinatorServerList::recoveryCompleted() because it will
-     * cause a deadlock. This is because startMasterRecovery may be invoked
-     * with the CSL lock held and we can't call into CSL again. For this
-     * reason, we start the recovery for this master as well and handle
-     * this case at a lower layer of abstraction. Check Recovery::performTask
-     * for short-circuiting the recovery instead of going ahead till the end.
-     */      
-
-    try {
-        LOG(NOTICE, "Scheduling recovery of master %s",
-            crashedServerId.toString().c_str());
-
-        if (doNotStartRecoveries) {
-            TEST_LOG("Recovery crashedServerId: %s",
-                     crashedServerId.toString().c_str());
-            return;
-        }
-
-        (new EnqueueMasterRecoveryTask(*this, crashedServerId,
-                        crashedServer.masterRecoveryInfo))->schedule();
-    } catch (const Exception& e) {
-        // Check one last time just to sanity check the correctness of the
-        // recovery manager: make sure that if the server isn't in the
-        // server list anymore (presumably because a recovery completed on
-        // it since the time of the start of the call) that there really aren't
-        // any tablets left on it.
-        tablets = tableManager.markAllTabletsRecovering(crashedServerId);
-        if (!tablets.empty()) {
-            LOG(ERROR, "Tried to start recovery for crashed server %s which "
-                "has tablets in the tablet map but is no longer in the "
-                "coordinator server list. Cannot recover. Kiss your data "
-                "goodbye.", crashedServerId.toString().c_str());
-        }
+    LOG(NOTICE, "Scheduling recovery of master %s",
+        crashedServerId.toString().c_str());
+    if (doNotStartRecoveries) {
+        TEST_LOG("Recovery crashedServerId: %s",
+                 crashedServerId.toString().c_str());
+        return;
     }
+    (new EnqueueMasterRecoveryTask(*this, crashedServerId,
+                    crashedServer.masterRecoveryInfo))->schedule();
 }
 
 namespace MasterRecoveryManagerInternal {
@@ -621,7 +587,7 @@ MasterRecoveryManager::recoveryFinished(Recovery* recovery)
  *      recovery master now owns the recovered tablets and can safely
  *      begin servicing requests for the data. If \a successful is false
  *      then this always returns true (the recovery master should abort if
- *      the recovery wasn't succesful).
+ *      the recovery wasn't successful).
  */
 bool
 MasterRecoveryManager::recoveryMasterFinished(
