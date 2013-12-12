@@ -116,7 +116,7 @@ BackupMasterRecovery::start(const std::vector<BackupStorage::FrameRef>& frames,
     recoveryTicks.construct(&metrics->backup.recoveryTicks);
     metrics->backup.recoveryCount++;
 
-    LOG(DEBUG, "Backup preparing for recovery %lu of crashed server %s; "
+    LOG(NOTICE, "Backup preparing for recovery %lu of crashed server %s; "
                "loading replicas", recoveryId,
                ServerId(crashedMasterId).toString().c_str());
 
@@ -194,7 +194,7 @@ BackupMasterRecovery::start(const std::vector<BackupStorage::FrameRef>& frames,
         }
     }
     if (logDigestSegmentId != ~0lu) {
-        LOG(DEBUG, "Found log digest in replica for segment %lu",
+        LOG(NOTICE, "Found log digest in replica for segment %lu",
             logDigestSegmentId);
     }
 
