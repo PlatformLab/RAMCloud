@@ -45,8 +45,6 @@ struct ReplicaManagerTest : public ::testing::Test {
         , backup1Id()
         , backup2Id()
     {
-        Logger::get().setLogLevels(RAMCloud::SILENT_LOG_LEVEL);
-
         ServerConfig config = ServerConfig::forTesting();
         config.services = {WireFormat::BACKUP_SERVICE,
                            WireFormat::MEMBERSHIP_SERVICE};
@@ -85,21 +83,21 @@ TEST_F(ReplicaManagerTest, isReplicaNeeded) {
     // It'll try later when we've found out about it from the coordinator
     // or it'll die and the next backup server that comes up will take care
     // of it.
-    EXPECT_TRUE(mgr->isReplicaNeeded({2, 0}, 99));
+    EXPECT_TRUE(mgr->isReplicaNeeded({5, 0}, 99));
 
     // Is not needed if we know about the backup (and hence the crashes of any
     // of its predecessors and we have no record of this segment.
-    serverList.testingAdd({{2, 0}, "mock:host=backup1",
+    serverList.testingAdd({{5, 0}, "mock:host=backup1",
                            {WireFormat::BACKUP_SERVICE}, 100,
                            ServerStatus::UP});
     while (mgr->failureMonitor.tracker.getChange(server, event));
-    EXPECT_FALSE(mgr->isReplicaNeeded({2, 0}, 99));
+    EXPECT_FALSE(mgr->isReplicaNeeded({5, 0}, 99));
 
     // Is needed if we know the calling backup has crashed; the successor
     // backup will take care of garbage collection.
-    serverList.testingCrashed({2, 0});
+    serverList.testingCrashed({5, 0});
     while (mgr->failureMonitor.tracker.getChange(server, event));
-    EXPECT_TRUE(mgr->isReplicaNeeded({2, 0}, 99));
+    EXPECT_TRUE(mgr->isReplicaNeeded({5, 0}, 99));
 }
 
 TEST_F(ReplicaManagerTest, allocateHead) {

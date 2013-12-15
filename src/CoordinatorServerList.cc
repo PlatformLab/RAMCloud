@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2012 Stanford University
+/* Copyright (c) 2011-2013 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -293,28 +293,15 @@ CoordinatorServerList::recover(uint64_t lastCompletedUpdate)
             }
         }
 
-        // Notify local ServerTrackers about this entry. Notifications
-        // must be made in the order ADDED, CRASHED, then REMOVE (i.e.
-        // if the server is in REMOVE state, must notify ADDED, then CRASHED,
-        // then REMOVE).
-        ServerStatus savedStatus = entry->status;
-        entry->status = ServerStatus::UP;
+        // Notify local ServerTrackers about this entry.
+        ServerChangeEvent event = ServerChangeEvent::SERVER_ADDED;
+        if (entry->status == ServerStatus::CRASHED) {
+            event = ServerChangeEvent::SERVER_CRASHED;
+        } else if (entry->status == ServerStatus::REMOVE) {
+            event = ServerChangeEvent::SERVER_REMOVED;
+        }
         foreach (ServerTrackerInterface* tracker, trackers) {
-            tracker->enqueueChange(*entry, ServerChangeEvent::SERVER_ADDED);
-        }
-        if (savedStatus != ServerStatus::UP) {
-            entry->status = ServerStatus::CRASHED;
-            foreach (ServerTrackerInterface* tracker, trackers) {
-                tracker->enqueueChange(*entry,
-                        ServerChangeEvent::SERVER_CRASHED);
-            }
-        }
-        if (savedStatus == ServerStatus::REMOVE) {
-            entry->status = ServerStatus::REMOVE;
-            foreach (ServerTrackerInterface* tracker, trackers) {
-                tracker->enqueueChange(*entry,
-                        ServerChangeEvent::SERVER_REMOVED);
-            }
+            tracker->enqueueChange(*entry, event);
         }
 
         // Scan all the update information from external storage. For each

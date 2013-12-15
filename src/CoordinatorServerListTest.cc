@@ -522,7 +522,7 @@ TEST_F(CoordinatorServerListTest, recover_notifyTrackers) {
             {WireFormat::MEMBERSHIP_SERVICE}, ServerStatus::UP);
     string server2 = createStorageEntry(ServerId(2, 0),
             {WireFormat::MEMBERSHIP_SERVICE}, ServerStatus::CRASHED);
-    string server3 = createStorageEntry(ServerId(32, 0),
+    string server3 = createStorageEntry(ServerId(3, 0),
             {WireFormat::MEMBERSHIP_SERVICE}, ServerStatus::REMOVE, 10, 100);
     storage->getChildrenNames.push("a");
     storage->getChildrenValues.push(server1);
@@ -533,11 +533,8 @@ TEST_F(CoordinatorServerListTest, recover_notifyTrackers) {
     TestLog::reset();
     sl->recover(50);
     EXPECT_EQ("enqueueChange: pushing SERVER_ADDED event for 1.0 | "
-            "enqueueChange: pushing SERVER_ADDED event for 2.0 | "
             "enqueueChange: pushing SERVER_CRASHED event for 2.0 | "
-            "enqueueChange: pushing SERVER_ADDED event for 32.0 | "
-            "enqueueChange: pushing SERVER_CRASHED event for 32.0 | "
-            "enqueueChange: pushing SERVER_REMOVED event for 32.0 | "
+            "enqueueChange: pushing SERVER_REMOVED event for 3.0 | "
             "fireCallback: called",
             TestLog::get());
 }

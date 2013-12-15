@@ -106,10 +106,9 @@ ServerList::operator[](uint32_t index)
  * entries in the updates themselves.
  *
  * The coordinator must (and should already) ensure:
- * 1) Updates must not be sent to this server out-of-order. If the
- *    coordinator cannot confirm that an update has been applied it has no
- *    other option than to retry the update until acknowledgement.
- * 2) For enlisting server that "replace" an old server in the cluster
+ * 1) Updates should be sent to this server in order. Any out-of-order
+ *    updates will be discarded.
+ * 2) For an enlisting server that "replaces" an old server in the cluster
  *    (that is, a server re-enlisting with backup data written by a former
  *    cluster member process) the order the CRASHED/REMOVE event for the
  *    replaced server versus the UP event can affect correctness. Without
