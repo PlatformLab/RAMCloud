@@ -51,6 +51,7 @@ struct MasterRecoveryManagerTest : public ::testing::Test {
         serverList->haltUpdater();
         tableManager = service->context->tableManager;
         mgr = service->context->recoveryManager;
+        mgr->startRecoveriesEvenIfNoThread = true;
 
         Logger::get().setLogLevels(RAMCloud::SILENT_LOG_LEVEL);
     }
@@ -131,13 +132,15 @@ TEST_F(MasterRecoveryManagerTest, start_recoverCrashedServers) {
               TestLog::get());
 }
 
-TEST_F(MasterRecoveryManagerTest, startMasterRecoveryNoTablets) {
+TEST_F(MasterRecoveryManagerTest, startMasterRecovery_notYetEnabled) {
     Lock lock(mutex); // For calls to internal functions without real lock.
     auto crashedServerId = addMaster(lock, ServerStatus::CRASHED);
     TestLog::Enable _;
+    mgr->startRecoveriesEvenIfNoThread = false;
     mgr->startMasterRecovery((*serverList)[crashedServerId]);
-    EXPECT_EQ("startMasterRecovery: Scheduling recovery of master 1.0 | "
-              "schedule: scheduled", TestLog::get());
+    EXPECT_EQ("startMasterRecovery: Recovery requested for 1.0",
+            TestLog::get());
+    EXPECT_EQ(0LU, mgr->taskQueue.outstandingTasks());
 }
 
 TEST_F(MasterRecoveryManagerTest, startMasterRecovery) {

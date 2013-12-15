@@ -762,7 +762,7 @@ TEST_F(CoordinatorServerListTest, serverCrashed_success) {
     EXPECT_TRUE(TestUtil::contains(TestLog::get(),
             "persistAndPropagate: Persisting 1.0"));
     EXPECT_TRUE(TestUtil::contains(TestLog::get(),
-            "startMasterRecovery: Scheduling recovery of master 1.0"));
+            "startMasterRecovery: Recovery requested for 1.0"));
 
     // Crash a second server.
     sl->serverCrashed(id2);

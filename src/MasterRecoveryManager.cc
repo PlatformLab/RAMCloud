@@ -348,7 +348,8 @@ MasterRecoveryManager::MasterRecoveryManager(Context* context,
     , maxActiveRecoveries(1u)
     , taskQueue()
     , tracker(context, this)
-    , doNotStartRecoveries()
+    , doNotStartRecoveries(false)
+    , startRecoveriesEvenIfNoThread(false)
 {
 }
 
@@ -417,6 +418,14 @@ MasterRecoveryManager::startMasterRecovery(
         CoordinatorServerList::Entry crashedServer)
 {
     ServerId crashedServerId = crashedServer.serverId;
+    if (!thread && !startRecoveriesEvenIfNoThread) {
+        // Recovery has not yet been officially enabled, so don't do
+        // anything (when the start method is invoked, it will
+        // automatically start recovery of all servers in the crashed state).
+        TEST_LOG("Recovery requested for %s",
+                crashedServerId.toString().c_str());
+        return;
+    }
     LOG(NOTICE, "Scheduling recovery of master %s",
         crashedServerId.toString().c_str());
     if (doNotStartRecoveries) {

@@ -165,7 +165,7 @@ TEST_F(ServerIdRpcWrapperTest, handleTransportError_callServerCrashed) {
     EXPECT_TRUE(wrapper.isReady());
     EXPECT_STREQ("FAILED", wrapper.stateString());
     EXPECT_TRUE(wrapper.serverCrashed);
-    EXPECT_EQ("startMasterRecovery: Scheduling recovery of master 1.0",
+    EXPECT_EQ("startMasterRecovery: Recovery requested for 1.0",
             TestLog::get());
 }
 
