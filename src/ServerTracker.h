@@ -438,7 +438,7 @@ class ServerTracker : public ServerTrackerInterface {
             }
             RAMCLOUD_LOG(WARNING,
                          "Couldn't randomly find a suitable server with "
-                         "requested services; perhaps the will ServerList "
+                         "requested services; perhaps the ServerList will "
                          "get updated with new server entries, "
                          "or perhaps you might have just been unlucky, "
                          "and you should try again.");
