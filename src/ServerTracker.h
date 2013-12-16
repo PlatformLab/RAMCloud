@@ -407,7 +407,7 @@ class ServerTracker : public ServerTrackerInterface {
      * Internally, this method chooses an entry at random and checks to see
      * if it matches the criteria, if not it tries again.  Eventually it
      * gives up if it cannot find a matching server.  When the list is
-     * empty or possiblity just sparse this method will return an invalid id.
+     * empty or possibly just sparse this method will return an invalid id.
      * We should switch to something more efficient if this probabilistic
      * approach doesn't work well.
      *
@@ -436,12 +436,6 @@ class ServerTracker : public ServerTrackerInterface {
                     serverList[i].server.services.has(service))
                     return serverList[i].server.serverId;
             }
-            RAMCLOUD_LOG(WARNING,
-                         "Couldn't randomly find a suitable server with "
-                         "requested services; perhaps the ServerList will "
-                         "get updated with new server entries, "
-                         "or perhaps you might have just been unlucky, "
-                         "and you should try again.");
             return ServerId(/* invalid id */);
         }
 

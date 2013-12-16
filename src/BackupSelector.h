@@ -109,6 +109,15 @@ class BackupSelector : public BaseBackupSelector {
     typedef ReplicationIdMap::const_iterator replicationIter;
     ReplicationIdMap replicationIdMap;
 
+    /**
+     * Used to avoid redundant log messages. True means that a message
+     * should be logged the next time we can't find a suitable server;
+     * false means we've already reported a problem since last time
+     * selectSecondary return successfully, so there's no need to log
+     * again.
+     */
+    bool okToLogNextProblem;
+
   PRIVATE:
     bool conflict(const ServerId backupId,
                   const ServerId otherBackupId) const;
