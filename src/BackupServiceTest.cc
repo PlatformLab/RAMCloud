@@ -671,6 +671,7 @@ TEST_F(BackupServiceTest, GarbageCollectReplicaFoundOnStorageTask) {
     task->addSegmentId(10);
     task->addSegmentId(11);
     task->addSegmentId(12);
+    EXPECT_EQ(3, backup->oldReplicas);
     task->schedule();
     const_cast<ServerConfig*>(backup->config)->backup.gc = true;
 
@@ -688,6 +689,7 @@ TEST_F(BackupServiceTest, GarbageCollectReplicaFoundOnStorageTask) {
     EXPECT_EQ(backup->frames.end(), backup->frames.find({{13, 0}, 10}));
     EXPECT_NE(backup->frames.end(), backup->frames.find({{13, 0}, 11}));
     EXPECT_NE(backup->frames.end(), backup->frames.find({{13, 0}, 12}));
+    EXPECT_EQ(2, backup->oldReplicas);
 
     EXPECT_FALSE(task->rpc);
     backup->taskQueue.performTask(); // send rpc to probe 11
@@ -725,6 +727,7 @@ TEST_F(BackupServiceTest, GarbageCollectReplicaFoundOnStorageTask) {
         "tryToFreeReplica: Server has recovered from lost replica; "
             "freeing replica for <13.0,12>"));
     EXPECT_EQ(1lu, backup->taskQueue.outstandingTasks());
+    EXPECT_EQ(1, backup->oldReplicas);
 
     // Final perform finds no segments to free and just cleans up
     backup->taskQueue.performTask();

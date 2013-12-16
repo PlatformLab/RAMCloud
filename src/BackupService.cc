@@ -54,6 +54,7 @@ BackupService::BackupService(Context* context,
     , testingDoNotStartGcThread(false)
     , testingSkipCallerIdCheck(false)
     , taskQueue()
+    , oldReplicas(0)
 {
     if (config->backup.inMemory) {
         storage.reset(new InMemoryStorage(config->segmentSize,
@@ -407,7 +408,7 @@ BackupService::restartFromStorage()
             continue;
         }
         const ServerId masterId(metadata->logId);
-        LOG(DEBUG, "Found stored replica <%s,%lu> on backup storage in "
+        LOG(NOTICE, "Found stored replica <%s,%lu> on backup storage in "
                    "frame which was %s",
             masterId.toString().c_str(),
             metadata->segmentId, metadata->closed ? "closed" : "open");
@@ -738,6 +739,7 @@ BackupService::GarbageCollectReplicasFoundOnStorageTask::
     addSegmentId(uint64_t segmentId)
 {
     segmentIds.push_back(segmentId);
+    service.oldReplicas++;
 }
 
 /**
@@ -811,9 +813,11 @@ BackupService::GarbageCollectReplicasFoundOnStorageTask::
             }
             rpc.destroy();
             if (!needed) {
-                LOG(DEBUG, "Server has recovered from lost replica; "
-                    "freeing replica for <%s,%lu>",
-                    masterId.toString().c_str(), segmentId);
+                service.oldReplicas--;
+                LOG(NOTICE, "Server has recovered from lost replica; "
+                    "freeing replica for <%s,%lu> (%d more old replicas left)",
+                    masterId.toString().c_str(), segmentId,
+                    service.oldReplicas);
                 deleteReplica(segmentId);
                 return true;
             } else {
