@@ -1,4 +1,4 @@
-/* Copyright (c) 2012 Stanford University
+/* Copyright (c) 2012-2013 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -153,6 +153,7 @@ TEST_F(ServerIdRpcWrapperTest, handleTransportError_callServerCrashed) {
     MockExternalStorage storage(false);
     context.externalStorage = &storage;
     CoordinatorService coordinator(&context, 1000, false);
+    coordinator.waitForInit();
 
     id = serverList.enlistServer({WireFormat::MASTER_SERVICE}, 100, "mock:");
     ServerIdRpcWrapper wrapper(&context, id, 4);

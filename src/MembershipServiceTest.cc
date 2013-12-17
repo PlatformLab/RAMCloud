@@ -75,6 +75,7 @@ TEST_F(MembershipServiceTest, updateServerList_single) {
     CoordinatorServerList source(&context2);
     source.haltUpdater();
     CoordinatorService coordinatorService(&context2, 1000, false);
+    coordinatorService.waitForInit();
     ServerId id1 = source.enlistServer({WireFormat::MASTER_SERVICE,
             WireFormat::PING_SERVICE}, 100, "mock:host=55");
     ServerId id2 = source.enlistServer({WireFormat::MASTER_SERVICE,
@@ -107,6 +108,7 @@ TEST_F(MembershipServiceTest, updateServerList_multi) {
     CoordinatorServerList source(&context2);
     source.haltUpdater();
     CoordinatorService coordinatorService(&context2, 1000, false);
+    coordinatorService.waitForInit();
 
     // Full List v1
     ServerId id1 = source.enlistServer({WireFormat::MASTER_SERVICE,
