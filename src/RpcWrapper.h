@@ -142,6 +142,19 @@ class RpcWrapper : public Transport::RpcNotifier {
         return reqHdr;
     }
 
+    /**
+     * This method is limited by RpcWrapper subclasses and is invoked
+     * by RpcWrapper when an RPC response contains an error status other than
+     * the ones the RpcWrapper knows how to deal with. This method gives
+     * the subclass a chance to handle the status if it can (for example,
+     * ObjectRpcWrapper handles STATUS_UNKNOWN_TABLET by refreshing the
+     * configuration cache and retrying).
+     * \return
+     *      The return value from this method becomes the return value
+     *      from RpcWrapper::isReady: true means that the RPC is now
+     *      finished (for better or worse), false means it is still
+     *      being processed (e.g. a retry was initiated).
+     */
     virtual bool checkStatus();
 
     // The following declaration is a total dummy; it exists merely to
