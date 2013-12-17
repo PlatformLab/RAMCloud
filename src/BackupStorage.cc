@@ -113,7 +113,7 @@ BackupStorage::sleepToThrottleWrites(size_t count, uint64_t ticks)
     double actualTime = Cycles::toSeconds(ticks);
     if (actualTime < minAllowedTime) {
         double delaySec = minAllowedTime - actualTime;
-        useconds_t delayUsec = downCast<useconds_t>(delaySec * 1.0e6);
+        useconds_t delayUsec = (useconds_t) (delaySec * 1.0e6 + 0.5);
         usleep(delayUsec);
         TEST_LOG("delayed %u usec", delayUsec);
     }
