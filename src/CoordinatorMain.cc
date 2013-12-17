@@ -33,13 +33,6 @@
 
 using namespace RAMCloud;
 
-// Forward declaration.
-extern void finishInitialization(Context* context, string* localLocator);
-
-// Variables shared between main and finishInitialization.
-static Tub<CoordinatorService> coordinatorService;
-static uint32_t deadServerTimeout;
-
 /**
  * Main program for the RAMCloud cluster coordinator.
  *
@@ -57,6 +50,7 @@ main(int argc, char *argv[])
     Logger::installCrashBacktraceHandlers();
     string clusterName;
     string localLocator("???");
+    uint32_t deadServerTimeout;
     bool reset;
     Context context(true);
     CoordinatorServerList serverList(&context);
@@ -132,11 +126,15 @@ main(int argc, char *argv[])
         LOG(NOTICE, "Cluster name is '%s', external storage workspace is '%s'",
                 clusterName.c_str(), workspace.c_str());
         context.externalStorage->setWorkspace(workspace.c_str());
+        context.externalStorage->becomeLeader("coordinator", localLocator);
+
+        CoordinatorService coordinatorService(&context,
+                                              deadServerTimeout);
+        context.serviceManager->addService(coordinatorService,
+                                           WireFormat::COORDINATOR_SERVICE);
         PingService pingService(&context);
         context.serviceManager->addService(pingService,
                                            WireFormat::PING_SERVICE);
-
-        std::thread(finishInitialization, &context, &localLocator).detach();
 
         while (true) {
             context.dispatch->poll();
@@ -151,23 +149,4 @@ main(int argc, char *argv[])
             localLocator.c_str());
         return 1;
     }
-}
-
-/**
- * This method is invoked in a separate thread to perform the final
- * pieces of initialization. It must run in his own thread, because it
- * requires facilities provided by the dispatcher, which is run by
- * main.
- *
- * \param context
- *      Overall information about this server.
- * \param localLocator
- *      Locator that other machines can use to connect to this coordinator.
- */
-void
-finishInitialization(Context* context, string* localLocator) {
-    context->externalStorage->becomeLeader("coordinator", *localLocator);
-    coordinatorService.construct(context, deadServerTimeout);
-    context->serviceManager->addService(*coordinatorService,
-                                        WireFormat::COORDINATOR_SERVICE);
 }

@@ -82,6 +82,20 @@ class CoordinatorServiceTest : public ::testing::Test {
     DISALLOW_COPY_AND_ASSIGN(CoordinatorServiceTest);
 };
 
+TEST_F(CoordinatorServiceTest, dispatch_initNotFinished) {
+    EXPECT_TRUE(service->initFinished);
+    service->initFinished = false;
+    Buffer request, response;
+    Service::Rpc rpc(NULL, &request, &response);
+    string message("no exception");
+    try {
+        service->dispatch(WireFormat::Opcode::ILLEGAL_RPC_TYPE, &rpc);
+    } catch (RetryException& e) {
+        message = e.message;
+    }
+    EXPECT_EQ("coordinator service not yet initialized", message);
+}
+
 TEST_F(CoordinatorServiceTest, createTable_idempotence) {
     EXPECT_EQ(1UL, ramcloud->createTable("duplicate", 1));
     EXPECT_EQ(1UL, ramcloud->createTable("duplicate", 1));

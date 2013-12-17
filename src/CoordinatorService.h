@@ -99,7 +99,9 @@ class CoordinatorService : public Service {
         Rpc* rpc);
 
     // - helper methods -
+    static void init(CoordinatorService* service, bool startRecoveryManager);
     bool verifyServerFailure(ServerId serverId);
+    void waitForInit();
 
     /**
      * Shared RAMCloud information.
@@ -151,6 +153,11 @@ class CoordinatorService : public Service {
      * assume that the server has failed (rather than checking for itself).
      */
     bool forceServerDownForTesting;
+
+    /**
+     * True means that the init method has completed its initialization.
+     */
+    bool initFinished;
 
     friend class CoordinatorServiceRecovery;
     friend class CoordinatorServerList;

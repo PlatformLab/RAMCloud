@@ -52,30 +52,19 @@ CoordinatorService::CoordinatorService(Context* context,
     , runtimeOptions()
     , recoveryManager(context, tableManager, &runtimeOptions)
     , forceServerDownForTesting(false)
+    , initFinished(false)
 {
     context->recoveryManager = &recoveryManager;
     context->coordinatorService = this;
 
-    // Recover state (and incomplete operations) from external storage.
-    uint64_t lastCompletedUpdate = updateManager.init();
-    serverList->recover(lastCompletedUpdate);
-    tableManager.recover(lastCompletedUpdate);
-    updateManager.recoveryFinished();
-    LOG(NOTICE, "Coordinator state has been recovered from external storage; "
-            "starting service");
+    // Invoke the rest of initialization in a separate thread. This is
+    // needed because some of the recovery operations carried out during
+    // initialization require the dispatch thread running to be operating,
+    // and in normal operation the thread that calls this constructor also
+    // acts as dispatch thread once the constructor returns. Thus we
+    //can't perform recovery synchronously here.
 
-    // Don't enable server list updates until recovery is finished (before
-    // this point the server list may not contain all information needed
-    // for updating).
-    serverList->startUpdater();
-
-    // When the recovery manager starts up below, it will resume
-    // recovery for crashed nodes; it isn't safe to do that until
-    // after the server list and table manager have recovered (e.g.
-    // it will need accurate information about which tables are stored on
-    // a crashed server).
-    if (startRecoveryManager)
-        recoveryManager.start();
+    std::thread(init, this, startRecoveryManager).detach();
 }
 
 CoordinatorService::~CoordinatorService()
@@ -83,10 +72,76 @@ CoordinatorService::~CoordinatorService()
     recoveryManager.halt();
 }
 
+/**
+ * This method does most of the work of initializing a CoordinatorService.
+ * It is invoked by the constructor and runs in a separate thread (see
+ * explanation in the constructor).
+ * \param service
+ *      Coordinator service that is being constructed.
+ * \param startRecoveryManager
+ *      True means start the thread that handles master recoveries (this
+ *      should always be true, except during unit tests)
+ */
+void
+CoordinatorService::init(CoordinatorService* service,
+        bool startRecoveryManager)
+{
+    // This is the top-level method in a thread, so it must catch all
+    // exceptions.
+    try {
+        // Recover state (and incomplete operations) from external storage.
+        uint64_t lastCompletedUpdate = service->updateManager.init();
+        service->serverList->recover(lastCompletedUpdate);
+        service->tableManager.recover(lastCompletedUpdate);
+        service->updateManager.recoveryFinished();
+        LOG(NOTICE, "Coordinator state has been recovered from external "
+                "storage; starting service");
+
+        // Don't enable server list updates until recovery is finished (before
+        // this point the server list may not contain all information needed
+        // for updating).
+        service->serverList->startUpdater();
+
+        // When the recovery manager starts up below, it will resume
+        // recovery for crashed nodes; it isn't safe to do that until
+        // after the server list and table manager have recovered (e.g.
+        // it will need accurate information about which tables are stored on
+        // a crashed server).
+        if (startRecoveryManager)
+            service->recoveryManager.start();
+
+        service->initFinished = true;
+    } catch (std::exception& e) {
+        LOG(ERROR, "%s", e.what());
+        throw; // will likely call std::terminate()
+    } catch (...) {
+        LOG(ERROR, "unknown exception");
+        throw; // will likely call std::terminate()
+    }
+}
+
+/**
+ * This method waits until the init method has completed its initialization.
+ * It is intended for use in unit tests, where asynchronous initialization
+ * can cause problems.
+ */
+void
+CoordinatorService::waitForInit()
+{
+    while (!initFinished) {
+        usleep(1000);
+    }
+}
+
+// See Server::dispatch.
 void
 CoordinatorService::dispatch(WireFormat::Opcode opcode,
                              Rpc* rpc)
 {
+    if (!initFinished) {
+        throw RetryException(HERE, 1000000, 2000000,
+                "coordinator service not yet initialized");
+    }
     switch (opcode) {
         case WireFormat::CreateTable::opcode:
             callHandler<WireFormat::CreateTable, CoordinatorService,
