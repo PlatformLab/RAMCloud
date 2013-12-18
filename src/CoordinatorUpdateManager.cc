@@ -34,7 +34,6 @@ CoordinatorUpdateManager::CoordinatorUpdateManager(ExternalStorage* storage)
     , externalLastFinished(0)
     , externalFirstAvailable(0)
     , recoveryComplete(false)
-    , initComplete(false)
 {}
 
 /**
@@ -85,7 +84,6 @@ CoordinatorUpdateManager::init()
     }
     smallestUnfinished = externalFirstAvailable;
     lastAssigned = smallestUnfinished - 1;
-    initComplete = true;
     return externalLastFinished;
 }
 
@@ -115,12 +113,6 @@ uint64_t
 CoordinatorUpdateManager::nextSequenceNumber()
 {
     Lock lock(mutex);
-
-    // If the following assertion fails, the most likely cause is that
-    // a test created a CoordinatorService and didn't call
-    // CoordinatorService::waitForInit (which resulted in a race).
-    assert(initComplete);
-
     lastAssigned++;
     if (lastAssigned >= externalFirstAvailable) {
         // We have used up all of the sequence numbers that we have

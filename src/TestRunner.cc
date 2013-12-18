@@ -20,6 +20,7 @@
 
 #include "Common.h"
 #include "AbstractServerList.h"
+#include "CoordinatorService.h"
 #include "Tub.h"
 
 namespace {
@@ -156,6 +157,7 @@ main(int argc, char *argv[])
             // Common initialization for all tests:
             RAMCloud::Logger::get().setLogLevels(RAMCloud::WARNING);
             RAMCloud::AbstractServerList::skipServerIdCheck = true;
+            RAMCloud::CoordinatorService::forceSynchronousInit = true;
         }
         // this fires after each test fixture's destructor
         void OnTestEnd(const ::testing::TestInfo& testInfo) {

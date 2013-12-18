@@ -101,7 +101,6 @@ class CoordinatorService : public Service {
     // - helper methods -
     static void init(CoordinatorService* service, bool startRecoveryManager);
     bool verifyServerFailure(ServerId serverId);
-    void waitForInit();
 
     /**
      * Shared RAMCloud information.
@@ -158,6 +157,11 @@ class CoordinatorService : public Service {
      * True means that the init method has completed its initialization.
      */
     bool initFinished;
+
+    /**
+     * Used by unit tests to force synchronous completion of initialization.
+     */
+    static bool forceSynchronousInit;
 
     friend class CoordinatorServiceRecovery;
     friend class CoordinatorServerList;

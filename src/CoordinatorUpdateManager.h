@@ -84,9 +84,6 @@ class CoordinatorUpdateManager {
     /// (see note in the sync method).
     bool recoveryComplete;
 
-    /// Used to detect improper use without initialization.
-    bool initComplete;
-
     void reset();
     void sync(Lock& lock);
 

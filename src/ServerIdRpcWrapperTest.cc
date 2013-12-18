@@ -153,7 +153,6 @@ TEST_F(ServerIdRpcWrapperTest, handleTransportError_callServerCrashed) {
     MockExternalStorage storage(false);
     context.externalStorage = &storage;
     CoordinatorService coordinator(&context, 1000, false);
-    coordinator.waitForInit();
 
     id = serverList.enlistServer({WireFormat::MASTER_SERVICE}, 100, "mock:");
     ServerIdRpcWrapper wrapper(&context, id, 4);

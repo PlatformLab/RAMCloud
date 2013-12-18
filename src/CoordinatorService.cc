@@ -27,6 +27,7 @@
 #include "PingClient.h"
 
 namespace RAMCloud {
+bool CoordinatorService::forceSynchronousInit = false;
 
 /*
  * Construct a CoordinatorService.
@@ -57,14 +58,18 @@ CoordinatorService::CoordinatorService(Context* context,
     context->recoveryManager = &recoveryManager;
     context->coordinatorService = this;
 
-    // Invoke the rest of initialization in a separate thread. This is
-    // needed because some of the recovery operations carried out during
-    // initialization require the dispatch thread running to be operating,
-    // and in normal operation the thread that calls this constructor also
-    // acts as dispatch thread once the constructor returns. Thus we
-    //can't perform recovery synchronously here.
+    // Invoke the rest of initialization in a separate thread (except during
+    // unit tests). This is needed because some of the recovery operations
+    // carried out during initialization require the dispatch thread running
+    // to be operating, and in normal operation the thread that calls this
+    // constructor also acts as dispatch thread once the constructor returns.
+    // Thus we can't perform recovery synchronously here.
 
-    std::thread(init, this, startRecoveryManager).detach();
+    if (forceSynchronousInit) {
+        init(this, startRecoveryManager);
+    } else {
+        std::thread(init, this, startRecoveryManager).detach();
+    }
 }
 
 CoordinatorService::~CoordinatorService()
@@ -117,19 +122,6 @@ CoordinatorService::init(CoordinatorService* service,
     } catch (...) {
         LOG(ERROR, "unknown exception");
         throw; // will likely call std::terminate()
-    }
-}
-
-/**
- * This method waits until the init method has completed its initialization.
- * It is intended for use in unit tests, where asynchronous initialization
- * can cause problems.
- */
-void
-CoordinatorService::waitForInit()
-{
-    while (!initFinished) {
-        usleep(1000);
     }
 }
 
