@@ -17,7 +17,9 @@
 
 #include "TestUtil.h"       //Has to be first, compiler complains
 #include "AbstractServerList.h"
+#include "BindTransport.h"
 #include "FailSession.h"
+#include "PingService.h"
 #include "ServerTracker.h"
 #include "ShortMacros.h"
 
@@ -185,6 +187,25 @@ TEST_F(AbstractServerListTest, getSession_basics) {
 }
 TEST_F(AbstractServerListTest, getSession_bogusId) {
     EXPECT_EQ("fail:", sl.getSession({9999, 22})->getServiceLocator());
+}
+TEST_F(AbstractServerListTest, getSession_verifyServerId) {
+    AbstractServerList::skipServerIdCheck = false;
+    BindTransport transport(&context);
+    TransportManager::MockRegistrar mockRegistrar(&context, transport);
+    PingService pingService(&context);
+    transport.addService(pingService, "mock:host=ping",
+                WireFormat::PING_SERVICE);
+    ServerId id1 = sl.add("mock:host=ping", ServerStatus::UP,
+            {WireFormat::MASTER_SERVICE, WireFormat::PING_SERVICE});
+    pingService.setServerId(id1);
+    ServerId id2 = sl.add("mock:host=ping", ServerStatus::UP,
+            {WireFormat::MASTER_SERVICE, WireFormat::PING_SERVICE});
+    TestLog::Enable _;
+    EXPECT_EQ("mock:host=ping", sl.getSession(id1)->getServiceLocator());
+    EXPECT_EQ("", TestLog::get());
+    EXPECT_EQ("fail:", sl.getSession(id2)->getServiceLocator());
+    EXPECT_EQ("getSession: couldn't verify server id 1.0 for locator "
+            "mock:host=ping; discarding session", TestLog::get());
 }
 
 TEST_F(AbstractServerListTest, flushSession) {

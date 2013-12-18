@@ -16,10 +16,12 @@
 #include "TransportManager.h"
 
 #include "AbstractServerList.h"
+#include "PingClient.h"
 #include "FailSession.h"
 #include "ServerTracker.h"
 
 namespace RAMCloud {
+bool AbstractServerList::skipServerIdCheck = false;
 
 /**
  * Constructor for AbstractServerList.
@@ -147,6 +149,19 @@ AbstractServerList::getSession(ServerId id)
     // No cached session. Open a new session.
     Transport::SessionRef session =
             context->transportManager->openSession(locator.c_str());
+
+    // Verify that the server at the given locator is actually the
+    // server we want (it's possible that a different incarnation of
+    // the server uses the same locator, but has a different server id).
+    // See RAM-571 for more on this.
+    if (!skipServerIdCheck) {
+        if (!PingClient::verifyServerId(context, session, id)) {
+            RAMCLOUD_LOG(NOTICE, "couldn't verify server id %s for "
+                    "locator %s; discarding session",
+                    id.toString().c_str(), locator.c_str());
+            return FailSession::get();
+        }
+    }
 
     // We've successfully opened a session. Add it back back into the server
     // list, assuming this ServerId is still valid and no one else has put a

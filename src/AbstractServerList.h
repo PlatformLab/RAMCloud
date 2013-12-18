@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2012 Stanford University
+/* Copyright (c) 2011-2013 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -316,6 +316,13 @@ class AbstractServerList {
     mutable std::mutex mutex;
 
     typedef std::unique_lock<std::mutex> Lock;
+
+    /**
+     * The following variable is set to true during unit tests to skip
+     * the server id check in getSession.
+     */
+    static bool skipServerIdCheck;
+
     DISALLOW_COPY_AND_ASSIGN(AbstractServerList);
 };
 
