@@ -212,6 +212,12 @@ class MasterService : public Service {
     bool initCalled;
 
     /**
+     * Used by takeTabletOwnership to avoid sync-ing the log except for the
+     * first tablet accepted.
+     */
+    bool logEverSynced;
+
+    /**
      * Determines the maximum size of the response buffer for multiRead
      * operations. Normally MAX_RPC_LEN, but can be modified during tests
      * to simplify testing.

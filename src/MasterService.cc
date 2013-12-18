@@ -79,6 +79,7 @@ MasterService::MasterService(Context* context,
                     &tabletManager,
                     &masterTableMetadata)
     , initCalled(false)
+    , logEverSynced(false)
     , maxMultiReadResponseSize(Transport::MAX_RPC_LEN)
     , disableCount(0)
 {
@@ -760,15 +761,25 @@ MasterService::takeTabletOwnership(
     WireFormat::TakeTabletOwnership::Response* respHdr,
     Rpc* rpc)
 {
-    // Before any tablets can be assigned to this master it must have at
-    // least one segment on backups, otherwise it is impossible to
-    // distinguish between the loss of its entire log and the case where no
-    // data was ever written to it. The log's constructor does not create a
-    // head segment because doing so can lead to deadlock: the first master
-    // blocks, waiting to hear about enough backup servers, meanwhile the
-    // coordinator is trying to issue an RPC to the master, but it isn't
-    // even servicing transports yet!
-    objectManager.syncChanges();
+    // The code immediately below is tricky, for two reasons:
+    // * Before any tablets can be assigned to this master it must have at
+    //   least one segment on backups, otherwise it is impossible to
+    //   distinguish between the loss of its entire log and the case where
+    //   no data was ever written to it. The log's constructor does not
+    //   create a head segment because doing so can lead to deadlock: the
+    //   first master blocks, waiting to hear about enough backup servers,
+    //   meanwhile the coordinator is trying to issue an RPC to the master,
+    //   but it isn't even servicing transports yet!
+    // * Unfortunately, calling syncChanges can lead to deadlock during
+    //   coordinator restarts if the cluster doesn't have enough backups
+    //   to sync the log (see RAM-572). The code below is a partial solution:
+    //   only call syncChanges for the very first tablet accepted.  This
+    //   doesn't completely eliminate the deadlock, but makes it much less
+    //   likely.
+    if (!logEverSynced) {
+        objectManager.syncChanges();
+        logEverSynced = true;
+    }
 
     bool added = tabletManager.addTablet(reqHdr->tableId,
                                          reqHdr->firstKeyHash,
