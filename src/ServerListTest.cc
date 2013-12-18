@@ -113,12 +113,13 @@ TEST_F(ServerListTest, applyServerList_success) {
         ({}, *ServerId{1, 0}, "mock:host=one", 101, 1)
         ({}, *ServerId{2, 0}, "mock:host=two", 102, 1)
         ({}, *ServerId{3, 1}, "mock:host=two", 103, 2)
-        ({}, *ServerId{4, 2}, "mock:host=two", 104, 2, ServerStatus::CRASHED);
+        ({}, *ServerId{4, 2}, "mock:host=two", 104, 2, ServerStatus::CRASHED)
+        ({}, *ServerId{5, 0}, "mock:host=five", 104, 3, ServerStatus::REMOVE);
     wholeList.set_version_number(1);
     wholeList.set_type(ProtoBuf::ServerList_Type_FULL_LIST);
     sl.applyServerList(wholeList);
     EXPECT_EQ(1lu, sl.version);
-    ASSERT_EQ(5lu, sl.size());
+    ASSERT_EQ(6lu, sl.size());
     EXPECT_TRUE(sl.isUp({1, 0}));
     EXPECT_TRUE(sl.isUp({2, 0}));
     EXPECT_FALSE(sl.isUp({3, 0}));

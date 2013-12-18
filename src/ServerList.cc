@@ -201,12 +201,16 @@ ServerList::applyServerList(const ProtoBuf::ServerList& list)
             LOG(NOTICE, "Server %s is removed (server list version %lu)",
                     ServerId{server.server_id()}.toString().c_str(),
                     list.version_number());
-            entry->status = ServerStatus::REMOVE;
-            foreach (ServerTrackerInterface* tracker, trackers) {
-                tracker->enqueueChange(*entry,
-                                       ServerChangeEvent::SERVER_REMOVED);
+            // If we don't already have an entry for this server, no
+            // need to make one.
+            if (entry) {
+                entry->status = ServerStatus::REMOVE;
+                foreach (ServerTrackerInterface* tracker, trackers) {
+                    tracker->enqueueChange(*entry,
+                                           ServerChangeEvent::SERVER_REMOVED);
+                }
+                entry.destroy();
             }
-            entry.destroy();
         } else {
             DIE("unknown ServerStatus %d", server.status());
         }
