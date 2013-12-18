@@ -38,6 +38,9 @@ class PingService : public Service {
     void getMetrics(const WireFormat::GetMetrics::Request* reqHdr,
               WireFormat::GetMetrics::Response* respHdr,
               Rpc* rpc);
+    void getServerId(const WireFormat::GetServerId::Request* reqHdr,
+              WireFormat::GetServerId::Response* respHdr,
+              Rpc* rpc);
     void ping(const WireFormat::Ping::Request* reqHdr,
               WireFormat::Ping::Response* respHdr,
               Rpc* rpc);

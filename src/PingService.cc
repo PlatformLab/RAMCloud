@@ -17,6 +17,7 @@
 #include "Common.h"
 #include "CycleCounter.h"
 #include "Cycles.h"
+#include "MasterService.h"
 #include "RawMetrics.h"
 #include "ShortMacros.h"
 #include "PingClient.h"
@@ -54,6 +55,19 @@ PingService::getMetrics(const WireFormat::GetMetrics::Request* reqHdr,
     respHdr->messageLength = downCast<uint32_t>(serialized.length());
     memcpy(new(rpc->replyPayload, APPEND) uint8_t[respHdr->messageLength],
            serialized.c_str(), respHdr->messageLength);
+}
+
+/**
+ * Top-level service method to handle the GET_SERVER_ID request.
+ *
+ * \copydetails Service::ping
+ */
+void
+PingService::getServerId(const WireFormat::GetServerId::Request* reqHdr,
+             WireFormat::GetServerId::Response* respHdr,
+             Rpc* rpc)
+{
+    respHdr->serverId = serverId.getId();
 }
 
 /**
@@ -195,6 +209,10 @@ PingService::dispatch(WireFormat::Opcode opcode, Rpc* rpc)
         case WireFormat::GetMetrics::opcode:
             callHandler<WireFormat::GetMetrics, PingService,
                         &PingService::getMetrics>(rpc);
+            break;
+        case WireFormat::GetServerId::opcode:
+            callHandler<WireFormat::GetServerId, PingService,
+                        &PingService::getServerId>(rpc);
             break;
         case WireFormat::Ping::opcode:
             callHandler<WireFormat::Ping, PingService, &PingService::ping>(rpc);

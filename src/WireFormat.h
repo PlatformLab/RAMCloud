@@ -110,7 +110,8 @@ enum Opcode {
     VERIFY_MEMBERSHIP         = 55,
     GET_RUNTIME_OPTION        = 56,
     SERVER_CONTROL            = 57,
-    ILLEGAL_RPC_TYPE          = 58,  // 1 + the highest legitimate Opcode
+    GET_SERVER_ID             = 58,
+    ILLEGAL_RPC_TYPE          = 59,  // 1 + the highest legitimate Opcode
 };
 
 /**
@@ -605,6 +606,19 @@ struct GetServerConfig {
         uint32_t serverConfigLength;   // Number of bytes in the server config
                                        // protocol buffer immediately follow-
                                        // ing this header.
+    } __attribute__((packed));
+};
+
+struct GetServerId {
+    static const Opcode opcode = GET_SERVER_ID;
+    static const ServiceType service = PING_SERVICE;
+    struct Request {
+        RequestCommon common;
+    } __attribute__((packed));
+    struct Response {
+        ResponseCommon common;
+        uint64_t serverId;             // ServerId of the server that
+                                       // processed the request.
     } __attribute__((packed));
 };
 

@@ -96,6 +96,7 @@ opcodeSymbol(uint32_t opcode)
         case VERIFY_MEMBERSHIP:          return "VERIFY_MEMBERSHIP";
         case GET_RUNTIME_OPTION:         return "GET_RUNTIME_OPTION";
         case SERVER_CONTROL:             return "SERVER_CONTROL";
+        case GET_SERVER_ID:              return "GET_SERVER_ID";
         case ILLEGAL_RPC_TYPE:           return "ILLEGAL_RPC_TYPE";
     }
 
