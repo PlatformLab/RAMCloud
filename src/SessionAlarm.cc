@@ -186,7 +186,6 @@ SessionAlarmTimer::~SessionAlarmTimer()
 void
 SessionAlarmTimer::handleTimerEvent()
 {
-    uint64_t startTime = Cycles::rdtsc();
     foreach (SessionAlarm* alarm, activeAlarms) {
         alarm->waitingForResponseMs += TIMER_INTERVAL_MS;
         if (alarm->waitingForResponseMs < alarm->pingMs)
@@ -234,11 +233,6 @@ SessionAlarmTimer::handleTimerEvent()
     if (!activeAlarms.empty()) {
         // Reschedule this timer.
         start(owner->currentTime + timerIntervalTicks);
-    }
-    double elapsedSecs = Cycles::toSeconds(Cycles::rdtsc() - startTime);
-    if (elapsedSecs > .010) {
-        RAMCLOUD_LOG(NOTICE, "too long in one call: %.3f seconds",
-                elapsedSecs);
     }
 }
 
