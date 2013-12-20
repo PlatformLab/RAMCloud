@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2012 Stanford University
+/* Copyright (c) 2011-2013 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -63,8 +63,9 @@ class CoordinatorServerList : public AbstractServerList{
     static const uint64_t UNINITIALIZED_VERSION = ((uint64_t)0);
 
     /// Maximum number of server list incremental updates to batch
-    /// in one UpdaterWorkUnit
-    static const uint64_t MAX_UPDATES_PER_RPC = 100;
+    /// in one UPDATE_SERVER_LIST RPC (large enough to get effective
+    /// batching, small enough that we never overflow the RPC size limit).
+    static const int MAX_UPDATES_PER_RPC = 100;
 
     /**
      * This class represents one entry in the CoordinatorServerList. Each

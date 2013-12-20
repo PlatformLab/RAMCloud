@@ -1237,16 +1237,25 @@ CoordinatorServerList::getWork(Tub<UpdateServerListRpc>* rpc) {
                     rpc->construct(context, server->serverId, &fullList);
                     server->updateVersion = version;
                 } else {
-                    // Incremental update(s).
-                    uint64_t firstVersion = server->verifiedVersion + 1;
-                    size_t offset =  firstVersion - updates.front().version;
-                    size_t stop = std::min(updates.size(),
-                            offset + MAX_UPDATES_PER_RPC);
-                    server->updateVersion = firstVersion + (stop - offset - 1);
-                    rpc->construct(context, server->serverId,
-                            &updates[offset].incremental);
-                    for (offset += 1 ; offset < stop; offset++) {
-                        (*rpc)->appendServerList(&updates[offset].incremental);
+                    // Incremental update(s). Create an RPC containing all
+                    // the updates that this server hasn't yet seen.
+                    int updatesInRpc = 0;
+                    for (size_t i = 0; i < updates.size(); i++) {
+                        ServerListUpdate* update = &updates[i];
+                        if (update->version <= server->verifiedVersion) {
+                            continue;
+                        }
+                        if (updatesInRpc == 0) {
+                            rpc->construct(context, server->serverId,
+                                    &update->incremental);
+                        } else {
+                            (*rpc)->appendServerList(&update->incremental);
+                        }
+                        server->updateVersion = update->version;
+                        updatesInRpc++;
+                        if (updatesInRpc >= MAX_UPDATES_PER_RPC) {
+                            break;
+                        }
                     }
                 }
 

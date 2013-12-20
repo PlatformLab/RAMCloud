@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2012 Stanford University
+/* Copyright (c) 2011-2013 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -1515,6 +1515,33 @@ TEST_F(CoordinatorServerListTest, getWork_incrementalUpdates) {
     EXPECT_EQ(4lu, sl->lastScan.minVersion);
     CoordinatorServerList::Entry* e = sl->getEntry(id4);
     EXPECT_EQ(7lu, e->updateVersion);
+}
+
+TEST_F(CoordinatorServerListTest, getWork_skipEntriesAlreadySeen) {
+    // Create a bunch of servers.
+    ServerId id1 = sl->enlistServer({WireFormat::MEMBERSHIP_SERVICE}, 0,
+            "mock:host=server1");
+    sl->enlistServer({WireFormat::MASTER_SERVICE}, 0, "mock:host=server2");
+    sl->enlistServer({WireFormat::MASTER_SERVICE}, 0, "mock:host=server3");
+    sl->enlistServer({WireFormat::MASTER_SERVICE}, 0, "mock:host=server4");
+
+    // Pretend that id1 has already seen the first few updates.
+    CoordinatorServerList::Entry* e = sl->getEntry(id1);
+    e->updateVersion = e->verifiedVersion = 2;
+
+    // See whether getWork skips the entries already "seen".
+    EXPECT_TRUE(sl->getWork(&rpc));
+    EXPECT_EQ("opcode: UPDATE_SERVER_LIST, "
+            "protobuf: server { services: 1 server_id: 3 "
+            "service_locator: \"mock:host=server3\" "
+            "expected_read_mbytes_per_sec: 0 status: 0 replication_id: 0 } "
+            "version_number: 3 type: UPDATE, "
+            "protobuf: server { services: 1 server_id: 4 "
+            "service_locator: \"mock:host=server4\" "
+            "expected_read_mbytes_per_sec: 0 status: 0 replication_id: 0 } "
+            "version_number: 4 type: UPDATE",
+            parseUpdateRequest(&rpc->request));
+    EXPECT_EQ(4lu, e->updateVersion);
 }
 
 TEST_F(CoordinatorServerListTest, getWork_updateStatsAndPrune) {
