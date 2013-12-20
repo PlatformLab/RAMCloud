@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2012 Stanford University
+/* Copyright (c) 2009-2013 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -1623,10 +1623,12 @@ MasterService::recover(const WireFormat::Recover::Request* reqHdr,
                                              TabletManager::RECOVERING);
         if (!added) {
             throw Exception(HERE, format("Cannot recover tablet that overlaps "
-                "an already existing one (new tablet: %lu range [%lu,%lu])",
+                "an already existing one (tablet to recover: %lu "
+                "range [0x%lx,0x%lx], current tablet map: %s)",
                 newTablet.table_id(),
                 newTablet.start_key_hash(),
-                newTablet.end_key_hash()));
+                newTablet.end_key_hash(),
+                tabletManager.toString().c_str()));
         }
     }
 
