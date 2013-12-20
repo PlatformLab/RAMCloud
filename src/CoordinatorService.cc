@@ -44,7 +44,8 @@ bool CoordinatorService::forceSynchronousInit = false;
  */
 CoordinatorService::CoordinatorService(Context* context,
                                        uint32_t deadServerTimeout,
-                                       bool startRecoveryManager)
+                                       bool startRecoveryManager,
+                                       uint32_t maxThreads)
     : context(context)
     , serverList(context->coordinatorServerList)
     , deadServerTimeout(deadServerTimeout)
@@ -52,6 +53,7 @@ CoordinatorService::CoordinatorService(Context* context,
     , tableManager(context, &updateManager)
     , runtimeOptions()
     , recoveryManager(context, tableManager, &runtimeOptions)
+    , threadLimit(maxThreads)
     , forceServerDownForTesting(false)
     , initFinished(false)
 {

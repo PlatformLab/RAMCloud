@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2012 Stanford University
+/* Copyright (c) 2009-2013 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -142,7 +142,7 @@ main(int argc, char *argv[])
              "stable storage.")
             ("masterServiceThreads",
              ProgramOptions::value<uint32_t>(
-                &config.master.masterServiceThreadCount)->default_value(1),
+                &config.master.masterServiceThreadCount)->default_value(5),
              "The number of threads in MasterService determines the maximum "
              "number of client RPCs that may be processed in parallel. "
              "Increasing this value will use more cores and may improve client "

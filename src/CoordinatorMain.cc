@@ -51,6 +51,7 @@ main(int argc, char *argv[])
     string clusterName;
     string localLocator("???");
     uint32_t deadServerTimeout;
+    uint32_t numThreads;
     bool reset;
     Context context(true);
     CoordinatorServerList serverList(&context);
@@ -75,7 +76,11 @@ main(int argc, char *argv[])
              ProgramOptions::bool_switch(&reset),
              "If specified, the coordinator will not attempt to recover "
              "any existing cluster state; it will start a new cluster "
-             "from scratch.");
+             "from scratch.")
+            ("threads",
+             ProgramOptions::value<uint32_t>(&numThreads)->default_value(5),
+             "Maximum number of threads that can be handling separate"
+             "RPCs in the coordinator service at once.");
 
         OptionParser optionParser(coordinatorOptions, argc, argv);
 
@@ -129,7 +134,9 @@ main(int argc, char *argv[])
         context.externalStorage->becomeLeader("coordinator", localLocator);
 
         CoordinatorService coordinatorService(&context,
-                                              deadServerTimeout);
+                                              deadServerTimeout,
+                                              true,
+                                              numThreads);
         context.serviceManager->addService(coordinatorService,
                                            WireFormat::COORDINATOR_SERVICE);
         PingService pingService(&context);

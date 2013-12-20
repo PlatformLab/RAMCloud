@@ -40,11 +40,13 @@ class CoordinatorService : public Service {
   public:
     explicit CoordinatorService(Context* context,
                                 uint32_t deadServerTimeout,
-                                bool startRecoveryManager = true);
+                                bool startRecoveryManager = true,
+                                uint32_t maxThreads = 1);
     ~CoordinatorService();
     void dispatch(WireFormat::Opcode opcode,
                   Rpc* rpc);
     RuntimeOptions *getRuntimeOptionsFromCoordinator();
+    int maxThreads() { return threadLimit; }
 
   PRIVATE:
     // - rpc handlers -
@@ -146,6 +148,12 @@ class CoordinatorService : public Service {
      * Handles all master recovery details on behalf of the coordinator.
      */
     MasterRecoveryManager recoveryManager;
+
+    /**
+     * Maximum number of threads that are allowed to execute RPC handlers in
+     * service at one time.
+     */
+    uint32_t threadLimit;
 
     /**
      * Used for testing only. If true, the HINT_SERVER_CRASHED handler will
