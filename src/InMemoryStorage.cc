@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2012 Stanford University
+/* Copyright (c) 2010-2013 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -212,6 +212,14 @@ InMemoryStorage::Frame::close()
     }
     isOpen = false;
     isClosed = true;
+}
+
+// See BackupStorage.h for documentation.
+void
+InMemoryStorage::Frame::reopen(size_t length)
+{
+    // This method should never be invoked, since this subclass provides
+    // no persistent storage.
 }
 
 /**

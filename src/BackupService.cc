@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2012 Stanford University
+/* Copyright (c) 2009-2013 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -585,15 +585,13 @@ BackupService::writeSegment(const WireFormat::BackupWrite::Request* reqHdr,
 
     if (frame && !frame->wasAppendedToByCurrentProcess()) {
         if (reqHdr->open) {
-            // This can happen if a backup crashes, restarts, reloads a
+            // We get here if a backup crashes, restarts, reloads a
             // replica from disk, and then the master detects the crash and
-            // tries to re-replicate the segment which lost a replica on
-            // the restarted backup.
-            LOG(NOTICE, "Master tried to open replica for <%s,%lu> but "
-                "another replica was recovered from storage with the same id; "
-                "rejecting open request", masterId.toString().c_str(),
-                segmentId);
-            throw BackupOpenRejectedException(HERE);
+            // tries to re-replicate the segment that lost a replica on
+            // the restarted backup. Reopen the segment (see RAM-573).
+            const BackupReplicaMetadata* metadata =
+                static_cast<const BackupReplicaMetadata*>(frame->getMetadata());
+            frame->reopen(metadata->certificate.segmentLength);
         } else {
             // This should never happen.
             LOG(ERROR, "Master tried to write replica for <%s,%lu> but "
@@ -756,8 +754,10 @@ BackupService::GarbageCollectReplicasFoundOnStorageTask::performTask()
     }
     uint64_t segmentId = segmentIds.front();
     bool done = tryToFreeReplica(segmentId);
-    if (done)
+    if (done) {
         segmentIds.pop_front();
+        service.oldReplicas--;
+    }
     schedule();
 }
 
@@ -777,11 +777,26 @@ bool
 BackupService::GarbageCollectReplicasFoundOnStorageTask::
     tryToFreeReplica(uint64_t segmentId)
 {
+    // First, see if this replica still needs to be freed.
     {
         BackupService::Lock _(service.mutex);
         auto frameIt = service.frames.find({masterId, segmentId});
-        if (frameIt == service.frames.end())
+        if (frameIt == service.frames.end()) {
+            // Frame no longer exists; no need to free.
             return true;
+        }
+        if (frameIt->second->wasAppendedToByCurrentProcess()) {
+            // This frame has been called back into active service (e.g.
+            // its master decided to rereplicate that frame on this
+            // machine; see RAM-573). This means we need to retain
+            // the frame indefinitely.
+            LOG(NOTICE, "Old replica for <%s,%lu> has been called back "
+                    "into service, so won't garbage-collect it (%d more "
+                    "old replicas left)",
+                    masterId.toString().c_str(), segmentId,
+                    service.oldReplicas-1);
+            return true;
+        }
     }
 
     // Due to RAM-447 it is a bit tricky to decipher when a server is in
@@ -813,11 +828,10 @@ BackupService::GarbageCollectReplicasFoundOnStorageTask::
             }
             rpc.destroy();
             if (!needed) {
-                service.oldReplicas--;
                 LOG(NOTICE, "Server has recovered from lost replica; "
                     "freeing replica for <%s,%lu> (%d more old replicas left)",
                     masterId.toString().c_str(), segmentId,
-                    service.oldReplicas);
+                    service.oldReplicas-1);
                 deleteReplica(segmentId);
                 return true;
             } else {

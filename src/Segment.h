@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2012 Stanford University
+/* Copyright (c) 2009-2013 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -208,9 +208,10 @@ class Segment {
      * the certificate acts as a way to atomically commit segment data to
      * backups.
      *
-     * Absolutely no code outside of the Segment and SegmentIterator class
-     * need to understand the internals and shouldn't attempt to use
-     * certificates other than through the SegmentIterator or Segment code.
+     * Code outside of the Segment and SegmentIterator class should not
+     * need to understand the internals, except to retrieve the segmentLength
+     * field, and shouldn't attempt to use certificates other than through
+     * the SegmentIterator or Segment code.
      */
     class Certificate {
       public:
@@ -239,12 +240,13 @@ class Segment {
             return format("<%u, 0x%08x>", segmentLength, checksum);
         }
 
-      PRIVATE:
-        /// Bytes in the associated segment that #checksum covers. Determines
-        /// how much of the segment should be checked for integrity and how
-        /// much of a segment should be iterated over for SegmentIterator.
+        /// Number of valid bytes in the segment that #checksum covers.
+        /// Determines how much of the segment should be checked for integrity
+        /// and how much of the segment should be iterated over for
+        /// SegmentIterator.
         uint32_t segmentLength;
 
+      PRIVATE:
         /// Checksum covering all metadata in the segment: EntryHeaders and
         /// their corresponding variably-sized length fields, as well as fields
         /// above in this struct.
