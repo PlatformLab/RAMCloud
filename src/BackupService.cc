@@ -301,7 +301,8 @@ BackupService::getRecoveryData(
     Status status =
         recoveryIt->second->getRecoverySegment(reqHdr->recoveryId,
                                                reqHdr->segmentId,
-                                               reqHdr->partitionId,
+                                               downCast<int>(
+                                                   reqHdr->partitionId),
                                                rpc->replyPayload,
                                                &respHdr->certificate);
     if (status != STATUS_OK) {

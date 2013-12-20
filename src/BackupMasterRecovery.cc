@@ -225,10 +225,11 @@ BackupMasterRecovery::setPartitionsAndSchedule(ProtoBuf::Tablets partitions)
 
     for (int i = 0; i < partitions.tablet_size(); ++i) {
         numPartitions = std::max(numPartitions,
-                                 partitions.tablet(i).user_data() + 1);
+                                 downCast<int>(
+                                 partitions.tablet(i).user_data() + 1));
     }
 
-    LOG(NOTICE, "Recovery %lu building %lu recovery segments for each "
+    LOG(NOTICE, "Recovery %lu building %d recovery segments for each "
             "replica for crashed master %s and filtering them according to "
             "the following " "partitions:\n%s",
             recoveryId, numPartitions, crashedMasterId.toString().c_str(),
@@ -284,7 +285,7 @@ BackupMasterRecovery::setPartitionsAndSchedule(ProtoBuf::Tablets partitions)
 Status
 BackupMasterRecovery::getRecoverySegment(uint64_t recoveryId,
                                          uint64_t segmentId,
-                                         uint64_t partitionId,
+                                         int partitionId,
                                          Buffer* buffer,
                                          Segment::Certificate* certificate)
 {
@@ -330,8 +331,8 @@ BackupMasterRecovery::getRecoverySegment(uint64_t recoveryId,
     }
 
     if (partitionId >= numPartitions) {
-        LOG(WARNING, "Asked for recovery segment %lu from segment <%s,%lu> "
-                     "but there are only %lu partitions",
+        LOG(WARNING, "Asked for partition %d from segment <%s,%lu> "
+                     "but there are only %d partitions",
             partitionId, crashedMasterId.toString().c_str(), segmentId,
             numPartitions);
         throw BackupBadSegmentIdException(HERE);
@@ -537,6 +538,7 @@ BackupMasterRecovery::buildRecoverySegments(Replica& replica)
             assert(partitions);
             RecoverySegmentBuilder::build(replicaData, segmentSize,
                                           replica.metadata->certificate,
+                                          numPartitions,
                                           *partitions,
                                           recoverySegments.get());
         }

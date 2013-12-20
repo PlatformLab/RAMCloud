@@ -242,7 +242,7 @@ TEST_F(BackupMasterRecoveryTest, setPartitionsAndSchedule) {
             "schedule: scheduled",
               TestLog::get());
 
-    EXPECT_EQ(2UL, recovery->numPartitions);
+    EXPECT_EQ(2, recovery->numPartitions);
     EXPECT_EQ(&recovery->replicas.front(), &*recovery->nextToBuild);
     EXPECT_TRUE(recovery->isScheduled());
 }

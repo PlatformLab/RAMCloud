@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2012 Stanford University
+/* Copyright (c) 2010-2013 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -834,9 +834,6 @@ TEST_F(MasterServiceTest, recover_basics) {
 
     EXPECT_EQ(
         "replaySegment: SAFEVERSION 23 recovered | "
-        "replaySegment: SAFEVERSION 23 discarded | "
-        "replaySegment: SAFEVERSION 23 discarded | "
-        "replaySegment: SAFEVERSION 23 discarded | "
         "recover: Segment 87 replay complete | "
         , TestLog::getUntil(
             "recover: Checking server 1.0 at mock:host=backup1 "
