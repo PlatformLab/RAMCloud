@@ -233,6 +233,7 @@ class ObjectManager : public LogEntryHandlers {
     bool replace(HashTableBucketLock& lock, Key& key, Log::Reference reference);
     static void removeIfOrphanedObject(uint64_t reference, void *cookie);
     static void removeIfTombstone(uint64_t maybeTomb, void *cookie);
+    static string dumpSegment(Segment* segment);
 
     /**
      * Shared RAMCloud information.

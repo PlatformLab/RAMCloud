@@ -1307,4 +1307,56 @@ ObjectManager::RemoveTombstonePoller::poll()
     }
 }
 
+/**
+ * Produce a human-readable description of the contents of a segment.
+ * Intended primarily for use in unit tests.
+ *
+ * \param segment
+ *       Segment whose contents should be dumped.
+ *
+ * \result
+ *       A string describing the contents of the segment
+ */
+string
+ObjectManager::dumpSegment(Segment* segment)
+{
+    const char* separator = "";
+    string result;
+    SegmentIterator it(*segment);
+    while (!it.isDone()) {
+        LogEntryType type = it.getType();
+        if (type == LOG_ENTRY_TYPE_OBJ) {
+            Buffer buffer;
+            it.appendToBuffer(buffer);
+            Object object(buffer);
+            result += format("%sobject at offset %u, length %u with tableId "
+                    "%lu, key '%.*s'",
+                    separator, it.getOffset(), it.getLength(),
+                    object.getTableId(), object.getKeyLength(),
+                    static_cast<const char*>(object.getKey()));
+        } else if (type == LOG_ENTRY_TYPE_OBJTOMB) {
+            Buffer buffer;
+            it.appendToBuffer(buffer);
+            ObjectTombstone tombstone(buffer);
+            result += format("%stombstone at offset %u, length %u with tableId "
+                    "%lu, key '%.*s'",
+                    separator, it.getOffset(), it.getLength(),
+                    tombstone.getTableId(),
+                    tombstone.getKeyLength(),
+                    static_cast<const char*>(tombstone.getKey()));
+        } else if (type == LOG_ENTRY_TYPE_SAFEVERSION) {
+            Buffer buffer;
+            it.appendToBuffer(buffer);
+            ObjectSafeVersion safeVersion(buffer);
+            result += format("%ssafeVersion at offset %u, length %u with "
+                    "version %lu",
+                    separator, it.getOffset(), it.getLength(),
+                    safeVersion.getSafeVersion());
+        }
+        it.next();
+        separator = " | ";
+    }
+    return result;
+}
+
 } //enamespace RAMCloud
