@@ -786,18 +786,6 @@ BackupService::GarbageCollectReplicasFoundOnStorageTask::
             // Frame no longer exists; no need to free.
             return true;
         }
-        if (frameIt->second->wasAppendedToByCurrentProcess()) {
-            // This frame has been called back into active service (e.g.
-            // its master decided to rereplicate that frame on this
-            // machine; see RAM-573). This means we need to retain
-            // the frame indefinitely.
-            LOG(NOTICE, "Old replica for <%s,%lu> has been called back "
-                    "into service, so won't garbage-collect it (%d more "
-                    "old replicas left)",
-                    masterId.toString().c_str(), segmentId,
-                    service.oldReplicas-1);
-            return true;
-        }
     }
 
     // Due to RAM-447 it is a bit tricky to decipher when a server is in
@@ -860,6 +848,18 @@ BackupService::GarbageCollectReplicasFoundOnStorageTask::
     auto frameIt = service.frames.find({masterId, segmentId});
     if (frameIt == service.frames.end())
         return;
+    if (frameIt->second->wasAppendedToByCurrentProcess()) {
+        // This frame has been called back into active service (e.g.
+        // its master decided to rereplicate that frame on this
+        // machine; see RAM-573). This means we need to retain
+        // the frame indefinitely.
+        LOG(NOTICE, "Old replica for <%s,%lu> has been called back "
+                "into service, so won't garbage-collect it (%d more "
+                "old replicas left)",
+                masterId.toString().c_str(), segmentId,
+                service.oldReplicas-1);
+        return;
+    }
     service.frames.erase(frameIt);
 }
 

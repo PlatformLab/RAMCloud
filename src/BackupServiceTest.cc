@@ -765,26 +765,37 @@ TEST_F(BackupServiceTest,
 }
 
 TEST_F(BackupServiceTest,
-        GarbageCollectReplicaTask_tryToFreeReplica_replicaWritten) {
-    GcMockMasterService master;
-    cluster->transport.addService(master, "mock:host=m", MEMBERSHIP_SERVICE);
-    cluster->transport.addService(master, "mock:host=m", MASTER_SERVICE);
+        GarbageCollectReplicaTask_deleteReplica_replicaWritten) {
     ServerList* backupServerList = static_cast<ServerList*>(
         backup->context->serverList);
     backupServerList->testingAdd({{13, 0}, "mock:host=m", {}, 100,
                                   ServerStatus::UP});
 
+    // Create 2 replicas, of which one has been modified and one of which
+    // has not.
     openSegment({13, 0}, 10);
     closeSegment({13, 0}, 10);
+    openSegment({13, 0}, 20);
+    closeSegment({13, 0}, 20);
+    markNotWritten({13, 0}, 20);
     typedef BackupService::GarbageCollectReplicasFoundOnStorageTask Task;
     std::unique_ptr<Task> task(new Task(*backup, {13, 0}));
+
     backup->oldReplicas = 10;
     TestLog::reset();
-    EXPECT_TRUE(task->tryToFreeReplica(10));
-    EXPECT_FALSE(task->rpc);
-    EXPECT_EQ("tryToFreeReplica: Old replica for <13.0,10> has been "
+    task->deleteReplica(10);
+    EXPECT_EQ("deleteReplica: Old replica for <13.0,10> has been "
             "called back into service, so won't garbage-collect it "
             "(9 more old replicas left)", TestLog::get());
+    auto frameIt = backup->frames.find({ServerId(13, 0), 10LU});
+    EXPECT_FALSE(frameIt == backup->frames.end());
+
+    TestLog::reset();
+    task->deleteReplica(20);
+    EXPECT_EQ("", TestLog::get());
+    frameIt = backup->frames.find({ServerId(13, 0), 20LU});
+    EXPECT_TRUE(frameIt == backup->frames.end());
+
     task.release();
 }
 
