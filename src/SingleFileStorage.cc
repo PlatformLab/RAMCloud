@@ -484,12 +484,13 @@ SingleFileStorage::Frame::reopen(size_t length)
 void
 SingleFileStorage::Frame::open(bool sync)
 {
-    // Be careful, if this method throws an exception the storage layer
-    // above will leak the count of a non-volatile buffer.
     Lock _(storage->mutex);
     if (isOpen || isClosed)
         return;
     buffer = storage->allocateBuffer();
+
+    // Be careful, if this method throws an exception the storage layer
+    // above will leak the count of a non-volatile buffer.
     storage->nonVolatileBuffersInUse++;
     isOpen = true;
     isClosed = false;
