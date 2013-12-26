@@ -52,6 +52,7 @@ struct MasterRecoveryManagerTest : public ::testing::Test {
         tableManager = service->context->tableManager;
         mgr = service->context->recoveryManager;
         mgr->startRecoveriesEvenIfNoThread = true;
+        mgr->skipRescheduleDelay = true;
 
         Logger::get().setLogLevels(RAMCloud::SILENT_LOG_LEVEL);
     }

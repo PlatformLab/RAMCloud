@@ -350,6 +350,7 @@ MasterRecoveryManager::MasterRecoveryManager(Context* context,
     , tracker(context, this)
     , doNotStartRecoveries(false)
     , startRecoveriesEvenIfNoThread(false)
+    , skipRescheduleDelay(false)
 {
 }
 
@@ -559,6 +560,14 @@ MasterRecoveryManager::recoveryFinished(Recovery* recovery)
             "Recovery of server %s failed to recover some "
             "tablets, rescheduling another recovery",
             recovery->crashedServerId.toString().c_str());
+
+        // Delay a while before rescheduling; otherwise the coordinator
+        // will flood its log with recovery messages in situations
+        // were there aren't enough resources to recover.
+        if (!skipRescheduleDelay) {
+            usleep(2000000);
+        }
+
         // Enqueue will schedule a MaybeStartRecoveryTask.
         (new EnqueueMasterRecoveryTask(*this,
                                        recovery->crashedServerId,
