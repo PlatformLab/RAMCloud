@@ -152,6 +152,7 @@ ServerList::operator[](uint32_t index)
 uint64_t
 ServerList::applyServerList(const ProtoBuf::ServerList& list)
 {
+    Lock lock(mutex);
     if (list.type() == ProtoBuf::ServerList::FULL_LIST) {
         // Ignore a full list unless it is the very first update we have
         // received (i.e. version == 0).
