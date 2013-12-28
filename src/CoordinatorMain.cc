@@ -48,7 +48,6 @@ int
 main(int argc, char *argv[])
 {
     Logger::installCrashBacktraceHandlers();
-    string clusterName;
     string localLocator("???");
     uint32_t deadServerTimeout;
     uint32_t numThreads;
@@ -58,12 +57,6 @@ main(int argc, char *argv[])
     try {
         OptionsDescription coordinatorOptions("Coordinator");
         coordinatorOptions.add_options()
-            ("clusterName",
-             ProgramOptions::value<string>(&clusterName)->
-                default_value("main"),
-             "Name of the cluster. Among other things, used as a prefix for "
-             "all names in external storage, so that different clusters can "
-             "coexist in the same storage server.")
             ("deadServerTimeout,d",
              ProgramOptions::value<uint32_t>(&deadServerTimeout)->
                 default_value(250),
@@ -111,16 +104,17 @@ main(int argc, char *argv[])
         // we have successfully become the "coordinator in charge".
         string externalLocator =
                 optionParser.options.getExternalStorageLocator();
-        if (externalLocator.find("zk:") == 0) {
-            string zkInfo = externalLocator.substr(3);
-            context.externalStorage = new ZooStorage(zkInfo, context.dispatch);
-        } else {
+        context.externalStorage = ExternalStorage::open(externalLocator,
+                &context);
+        if (context.externalStorage  == NULL) {
             // Operate without external storage (among other things, this
             // means we won't do any recovery when we start up, and we won't
             // save any information to allow recovery if we crash).
             context.externalStorage = new MockExternalStorage(false);
         }
         string workspace("/ramcloud/");
+
+        string clusterName = optionParser.options.getClusterName();
         workspace.append(clusterName);
         if (reset) {
             LOG(WARNING, "Reset requested: deleting external storage for "

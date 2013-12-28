@@ -84,4 +84,10 @@ TEST_F(ExternalStorageTest, get_templated_formatError) {
             "RAMCloud.ProtoBuf.TableManager", message);
 }
 
+TEST_F(ExternalStorageTest, open_unknown) {
+    EXPECT_TRUE(ExternalStorage::open("bogus:", NULL) == NULL);
+}
+// Note: no tests for successful opens here; those tests are in the
+// test files for specific subclasses, such as ZooStorage.
+
 }  // namespace RAMCloud

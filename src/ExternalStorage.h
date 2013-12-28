@@ -140,10 +140,12 @@ class ExternalStorage {
      * Once this method returns, the caller can begin acting as coordinator.
      *
      *  \param name
-     *      Name of the desired object; NULL-terminated hierarchical path
-     *      containing one or more path elements separated by slashes,
-     *      such as "foo" or "/foo/bar". Relative names (no leading slash)
-     *      are concatenated to the current workspace.
+     *      Name of an object that is used to synchronize leader election
+     *      (and which will hold information identifying the current
+     *      leader); NULL-terminated hierarchical path containing one or
+     *      more path elements separated by slashes, such as "foo" or
+     *      "/foo/bar". Relative names (no leading slash) are concatenated
+     *      to the current workspace.
      *  \param leaderInfo
      *      Information about this server (e.g., service locator that clients
      *      can use to connect), which will be stored in the object given
@@ -166,7 +168,7 @@ class ExternalStorage {
      *      If the specified object exists, then true is returned. If there
      *      is no such object, then false is returned and value is empty.
      *
-     * \throws NotLeaderException
+     * \throws LostLeadershipException
      */
     virtual bool get(const char* name, Buffer* value) = 0;
 
@@ -182,6 +184,8 @@ class ExternalStorage {
      * \param children
      *      This vector will be filled in with one entry for each child
      *      of name. Any previous contents of the vector are discarded.
+     *
+     * \throws LostLeadershipException
      */
     virtual void getChildren(const char* name, vector<Object>* children) = 0;
 
@@ -201,7 +205,7 @@ class ExternalStorage {
      *      If the specified object exists, then true is returned. If there
      *      is no such object, then false is returned and value is empty.
      *
-     * \throws NotLeaderException
+     * \throws LostLeadershipException
      * \throws FormatError
      */
     template<typename ProtoBufType>
@@ -228,6 +232,8 @@ class ExternalStorage {
      */
     virtual const char* getWorkspace();
 
+    static ExternalStorage* open(string locator, Context* context);
+
     /**
      * Remove an object, if it exists. If it doesn't exist, do nothing.
      * If name has children, all of the children are removed recursively,
@@ -239,7 +245,7 @@ class ExternalStorage {
      *      such as "foo" or "/foo/bar". Relative names (no leading slash)
      *      are concatenated to the current workspace.
      *
-     * \throws NotLeaderException
+     * \throws LostLeadershipException
      */
     virtual void remove(const char* name) = 0;
 
@@ -269,7 +275,7 @@ class ExternalStorage {
      *      automatically to include all the characters in the string and
      *      the terminating NULL character.
      *
-     * \throws NotLeaderException
+     * \throws LostLeadershipException
      */
     virtual void set(Hint flavor, const char* name, const char* value,
             int valueLength = -1) = 0;
@@ -299,6 +305,10 @@ class ExternalStorage {
     /// one such name can be stored at a time). This string always contains
     /// workspace as its first characters.
     string fullName;
+
+    /// Used for unit testing: if non-NULL, then ZooStorage::open
+    /// ignores its arguments and returns this value instead.
+    static ExternalStorage* storageOverride;
 
     DISALLOW_COPY_AND_ASSIGN(ExternalStorage);
 };

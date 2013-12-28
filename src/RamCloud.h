@@ -93,8 +93,10 @@ class RamCloud {
     void write(uint64_t tableId, const void* key, uint16_t keyLength,
             const char* value, const RejectRules* rejectRules = NULL,
             uint64_t* version = NULL, bool async = false);
-    explicit RamCloud(const char* serviceLocator);
-    RamCloud(Context* context, const char* serviceLocator);
+    explicit RamCloud(const char* serviceLocator,
+            const char* clusterName = "main");
+    RamCloud(Context* context, const char* serviceLocator,
+            const char* clusterName = "main");
     virtual ~RamCloud();
 
   PRIVATE:

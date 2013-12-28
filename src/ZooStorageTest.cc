@@ -628,4 +628,19 @@ TEST_F(ZooStorageTest, LeaseRenewer_handleTimerEvent) {
     EXPECT_TRUE(zoo->leaseRenewer->isRunning());
 }
 
+// Test whether ExternalStorage::open works with ZooStorage; this
+// test logically belongs in ExternalStorageTest.cc, but it requires
+// a ZooKeeper server, which is only available when tests in this
+// file are run.
+TEST_F(ZooStorageTest, ExternalStorage_open) {
+    Context context;
+    Buffer value;
+    zoo->set(ExternalStorage::Hint::CREATE, "/test/var1", "value1");
+    ExternalStorage* storage = ExternalStorage::open(
+            "zk:localhost:2181", &context);
+    EXPECT_TRUE(storage->get("/test/var1", &value));
+    EXPECT_EQ("value1", TestUtil::toString(&value));
+    delete storage;
+}
+
 }  // namespace RAMCloud

@@ -310,7 +310,7 @@ class Cluster(object):
                      (default: True)
         @return: Sandbox.Process representing the server process.
         """
-        command = ('%s %s -C %s -L %s -r %d -l %s '
+        command = ('%s %s -C %s -L %s -r %d -l %s --clusterName __unnamed__ '
                    '--logFile %s/server%d.%s.log %s' %
                    (valgrind_command,
                     server_binary, self.coordinator_locator,

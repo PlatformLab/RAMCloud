@@ -71,6 +71,7 @@ class OptionParser {
             , pcapFilePath()
             , sessionTimeout(0)
             , portTimeout(0)
+            , clusterName()
         {
         }
 
@@ -96,6 +97,15 @@ class OptionParser {
         const string& getExternalStorageLocator() const
         {
             return externalStorageLocator;
+        }
+
+        /**
+         * Returns a name identifying the RAMCloud cluster to connect with.
+         * Allows multiple clusters to coexist without interference.
+         */
+        const string& getClusterName() const
+        {
+            return clusterName;
         }
 
         /**
@@ -132,6 +142,7 @@ class OptionParser {
         string pcapFilePath;            ///< Packet log file, "" to disable.
         uint32_t sessionTimeout;        ///< See getSessionTimeout().
         int32_t  portTimeout;           ///< See getSessionTimeout().
+        string clusterName;             ///< See getClusterName().
 
         friend class OptionParser;
     };

@@ -1,4 +1,4 @@
-/* Copyright (c) 2012 Stanford University
+/* Copyright (c) 2012-2013 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -34,7 +34,7 @@ class CoordinatorSession {
     void flush();
     string& getLocation();
     Transport::SessionRef getSession();
-    void setLocation(const char* location);
+    void setLocation(const char* location, const char* clusterName = "main");
 
   PROTECTED:
     /// Used in a monitor-style fashion for mutual exclusion.
@@ -43,9 +43,17 @@ class CoordinatorSession {
     /// Shared RAMCloud information.
     Context* context;
 
-    /// Describes how to find the coordinator. Currently this is a
-    /// service locator string.
+    /// Describes how to find the coordinator. Specifies either an
+    /// external storage system, or a direct connection to a coordinator.
     string coordinatorLocator;
+
+    /// Name of the current cluster: used to select a specific cluster
+    /// (and coordinator) if several different clusters are sharing the
+    /// same external storage service.
+    string clusterName;
+
+    /// Connection to an external storage system, or NULL.
+    ExternalStorage* storage;
 
     /// Used to communicate with the coordinator.  NULL means a session
     /// hasn't been opened yet, or it was flushed because of communication

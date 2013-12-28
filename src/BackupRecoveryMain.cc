@@ -61,10 +61,14 @@ try
     context.transportManager->setSessionTimeout(
             optionParser.options.getSessionTimeout());
 
-    const string& coordinatorLocator =
-        optionParser.options.getCoordinatorLocator();
+    string coordinatorLocator =
+            optionParser.options.getExternalStorageLocator();
+    if (coordinatorLocator.size() == 0) {
+        coordinatorLocator = optionParser.options.getCoordinatorLocator();
+    }
     LOG(NOTICE, "client: Connecting to %s", coordinatorLocator.c_str());
-    RamCloud client(&context, coordinatorLocator.c_str());
+    RamCloud client(&context, coordinatorLocator.c_str(),
+            optionParser.options.getClusterName().c_str());
 
     client.createTable("mainTable");
     uint64_t table = client.getTableId("mainTable");

@@ -207,11 +207,14 @@ try
     context.transportManager->setSessionTimeout(
             optionParser.options.getSessionTimeout());
 
-    LOG(NOTICE, "client: Connecting to %s",
-        optionParser.options.getCoordinatorLocator().c_str());
-
-    RamCloud client(&context,
-                    optionParser.options.getCoordinatorLocator().c_str());
+    string coordinatorLocator =
+            optionParser.options.getExternalStorageLocator();
+    if (coordinatorLocator.size() == 0) {
+        coordinatorLocator = optionParser.options.getCoordinatorLocator();
+    }
+    fprintf(stderr, "Connecting to %s\n", coordinatorLocator.c_str());
+    RamCloud client(&context, coordinatorLocator.c_str(),
+            optionParser.options.getClusterName().c_str());
 
     if (removeCount > count)
         DIE("cannot remove more objects than I create!");

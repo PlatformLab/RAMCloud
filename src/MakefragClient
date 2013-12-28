@@ -24,6 +24,7 @@ CLIENT_SRCFILES := \
 		   src/Cycles.cc \
 		   src/Dispatch.cc \
 		   src/Driver.cc \
+		   src/ExternalStorage.cc \
 		   src/FailSession.cc \
 		   src/FastTransport.cc \
 		   src/IpAddress.cc \
@@ -73,6 +74,8 @@ CLIENT_SRCFILES := \
 		   src/Util.cc \
 		   src/WireFormat.cc \
 		   src/WorkerSession.cc \
+		   src/WorkerTimer.cc \
+		   src/ZooStorage.cc \
 		   $(INFINIBAND_SRCFILES) \
 		   $(OBJDIR)/Histogram.pb.cc \
 		   $(OBJDIR)/LogMetrics.pb.cc \

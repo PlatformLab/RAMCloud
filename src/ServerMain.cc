@@ -113,20 +113,6 @@ main(int argc, char *argv[])
              ProgramOptions::value<bool>(&config.detectFailures)->
                 default_value(true),
              "Whether to use the randomized failure detector")
-            ("clusterName",
-             ProgramOptions::value<string>(&config.clusterName),
-             "Controls the reuse of replicas stored on this backup."
-             "'Tags' replicas created on the backup with this cluster name. "
-             "This has two effects. First, any replicas found in storage "
-             "are discarded unless they are tagged with an identical cluster "
-             "name. Second, any replicas created by the backup process will "
-             "only be reused by future backup processes if the cluster name "
-             "on the stored replica matches the cluster name of future"
-             "process. The name '__unnamed__' is special and never matches "
-             "any cluster name (even itself), so it guarantees all stored "
-             "replicas are discarded on start and that all replicas created "
-             "by this process are discarded by future backups. "
-             "This is convenient for testing.")
             ("writeCostThreshold,w",
              ProgramOptions::value<uint32_t>(
                 &config.master.cleanerWriteCostThreshold)->default_value(8),
@@ -198,18 +184,23 @@ main(int argc, char *argv[])
         context.transportManager->setSessionTimeout(
                 optionParser.options.getSessionTimeout());
         context.transportManager->initialize(localLocator.c_str());
-
-        config.coordinatorLocator =
-            optionParser.options.getCoordinatorLocator();
-        context.coordinatorSession->setLocation(
-                config.coordinatorLocator.c_str());
         // Transports may augment the local locator somewhat.
         // Make sure the server is aware of that augmented locator.
         config.localLocator =
             context.transportManager->getListeningLocatorsString();
-
         LOG(NOTICE, "%s: Listening on %s",
             config.services.toString().c_str(), config.localLocator.c_str());
+
+        config.coordinatorLocator =
+            optionParser.options.getExternalStorageLocator();
+        if (config.coordinatorLocator.size() == 0) {
+            config.coordinatorLocator =
+                optionParser.options.getCoordinatorLocator();
+        }
+        config.clusterName = optionParser.options.getClusterName();
+        context.coordinatorSession->setLocation(
+                config.coordinatorLocator.c_str(),
+                config.clusterName.c_str());
 
         if (!backupOnly) {
             LOG(NOTICE, "Using %u backups", config.master.numReplicas);

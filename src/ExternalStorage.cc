@@ -15,8 +15,11 @@
 
 #include "Common.h"
 #include "ExternalStorage.h"
+#include "ZooStorage.h"
 
 namespace RAMCloud {
+
+ExternalStorage* ExternalStorage::storageOverride = NULL;
 
 /**
  * Constructor for ExternalStorage objects.
@@ -70,6 +73,38 @@ ExternalStorage::getFullName(const char* name)
     fullName.resize(workspace.size());
     fullName.append(name);
     return fullName.c_str();
+}
+
+/**
+ * Given a locator string, see if there is an external storage system
+ * corresponding to the locator. If so, open a connection to that
+ * system.
+ *
+ * \param locator
+ *      Currently only one form of external storage is supported:
+ *      ZooKeeper. In this case the string starts with "zk:" and the
+ *      rest of the string contains a comma-separated list of host:port
+ *      pairs for the ZooKeeper servers, such as "rc03:2109,rc04:2109".
+ *      In the future, other forms of external storage may be supported;
+ *      each one will have its own distinctive prefix.
+ * \param context
+ *      Overal server information; needed by some forms of external storage.
+ * @return
+ *      If locator was recognized as an external storage locator, then
+ *      the return value refers to an open connection to that system.
+ *      Is locator was not recognized, then NULL is returned.
+ */
+ExternalStorage*
+ExternalStorage::open(string locator, Context* context)
+{
+    if (storageOverride != NULL) {
+        return storageOverride;
+    }
+    if (locator.find("zk:") == 0) {
+        string zkInfo = locator.substr(3);
+        return new ZooStorage(zkInfo, context->dispatch);
+    }
+    return NULL;
 }
 
 /**

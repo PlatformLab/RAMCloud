@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2012 Stanford University
+/* Copyright (c) 2011-2013 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -1435,9 +1435,14 @@ try
     signal(SIGALRM, timedOut);
     alarm(options.abortTimeout);
 
-    string coordinatorLocator = optionParser.options.getCoordinatorLocator();
+    string coordinatorLocator =
+            optionParser.options.getExternalStorageLocator();
+    if (coordinatorLocator.size() == 0) {
+        coordinatorLocator = optionParser.options.getCoordinatorLocator();
+    }
     fprintf(stderr, "Connecting to %s\n", coordinatorLocator.c_str());
-    RamCloud ramcloud(&context, coordinatorLocator.c_str());
+    RamCloud ramcloud(&context, coordinatorLocator.c_str(),
+            optionParser.options.getClusterName().c_str());
 
     // Get server parameters...
     // Perhaps this (and creating the distribution?) should be pushed into

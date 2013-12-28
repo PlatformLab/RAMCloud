@@ -32,20 +32,34 @@ static RejectRules defaultRejectRules;
 /**
  * Construct a RamCloud for a particular cluster.
  *
- * \param serviceLocator
- *      The service locator for the coordinator.
- *      See \ref ServiceLocatorStrings.
+ * \param locator
+ *      Describes how to locate the coordinator. It can have either of
+ *      two forms. The preferred form is a locator for external storage
+ *      that contains the cluster configuration information (such as a
+ *      string starting with "zk:", which will be passed to the ZooStorage
+ *      constructor). With this form, sessions can automatically be
+ *      redirected to a new coordinator if the current one crashes. The
+ *      second form is deprecated, but is retained for testing. In this
+ *      form, the location is specified as a RAMCloud service locator
+ *      for a specific coordinator. With this form it is not possible to
+ *      roll over to a different coordinator if a given one fails; we
+ *      will have to wait for the specified coordinator to restart.
+ * \param clusterName
+ *      Name of the current cluster. Used to allow independent operation
+ *      of several clusters sharing many of the same resources.
+ *
  * \exception CouldntConnectException
  *      Couldn't connect to the server.
  */
-RamCloud::RamCloud(const char* serviceLocator)
-    : coordinatorLocator(serviceLocator)
+RamCloud::RamCloud(const char* locator, const char* clusterName)
+    : coordinatorLocator(locator)
     , realClientContext()
     , clientContext(realClientContext.construct(false))
     , status(STATUS_OK)
     , objectFinder(clientContext)
 {
-    clientContext->coordinatorSession->setLocation(serviceLocator);
+    clientContext->coordinatorSession->setLocation(locator,
+            clusterName);
 }
 
 /**
@@ -53,14 +67,16 @@ RamCloud::RamCloud(const char* serviceLocator)
  * useful for testing and for client programs that mess with the context
  * (which should be discouraged).
  */
-RamCloud::RamCloud(Context* context, const char* serviceLocator)
-    : coordinatorLocator(serviceLocator)
+RamCloud::RamCloud(Context* context, const char* locator,
+        const char* clusterName)
+    : coordinatorLocator(locator)
     , realClientContext()
     , clientContext(context)
     , status(STATUS_OK)
     , objectFinder(clientContext)
 {
-    clientContext->coordinatorSession->setLocation(serviceLocator);
+    clientContext->coordinatorSession->setLocation(locator,
+            clusterName);
 }
 
 /**

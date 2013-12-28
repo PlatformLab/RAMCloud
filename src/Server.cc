@@ -1,4 +1,4 @@
-/* Copyright (c) 2012 Stanford University
+/* Copyright (c) 2012-2013 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -45,7 +45,7 @@ Server::Server(Context* context, const ServerConfig* config)
     , ping()
 {
     context->coordinatorSession->setLocation(
-            config->coordinatorLocator.c_str());
+            config->coordinatorLocator.c_str(), config->clusterName.c_str());
 }
 
 /**

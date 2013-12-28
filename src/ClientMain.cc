@@ -223,8 +223,12 @@ try
     LOG(NOTICE, "client: Connecting to %s",
         optionParser.options.getCoordinatorLocator().c_str());
 
-    RamCloud client(&context,
-                    optionParser.options.getCoordinatorLocator().c_str());
+    string locator = optionParser.options.getExternalStorageLocator();
+    if (locator.size() == 0) {
+        locator = optionParser.options.getCoordinatorLocator();
+    }
+    RamCloud client(&context, locator.c_str(),
+            optionParser.options.getClusterName().c_str());
 
     if (exercise) {
         while (1) {
