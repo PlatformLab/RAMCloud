@@ -121,4 +121,20 @@ TEST_F(ObjectFinderTest, lookup_hash) {
                 getServiceLocator());
 }
 
+TEST_F(ObjectFinderTest, flushSession) {
+    KeyHash keyHash = Key::getHash(1, "testKey", 7);
+    objectFinder->lookup(1, keyHash);
+    EXPECT_FALSE(context.transportManager->sessionCache.find(
+            "mock:host=server0")
+            == context.transportManager->sessionCache.end());
+    TestLog::reset();
+    objectFinder->flushSession(1, keyHash);
+    EXPECT_TRUE(context.transportManager->sessionCache.find(
+            "mock:host=server0")
+            == context.transportManager->sessionCache.end());
+    EXPECT_EQ("flushSession: flushing session for mock:host=server0",
+            TestLog::get());
+    objectFinder->flushSession(99, 0);
+}
+
 }  // namespace RAMCloud

@@ -99,6 +99,33 @@ ObjectFinder::lookup(uint64_t table, KeyHash keyHash)
 }
 
 /**
+ * Delete the session connecting to the master that owns a particular
+ * object, if such a session exists. This method is typically invoked after
+ * an unrecoverable error has occurred on the session, so that a new
+ * session will be created the next time someone wants to communicate
+ * with that master.
+ *
+ * \param tableId
+ *      The table containing the desired object (return value from a
+ *      previous call to getTableId).
+ * \param keyHash
+ *      Hash value corresponding to a particular object in table.
+ */
+void
+ObjectFinder::flushSession(uint64_t tableId, KeyHash keyHash)
+{
+    try {
+        const ProtoBuf::Tablets::Tablet& tablet =
+                lookupTablet(tableId, keyHash);
+        context-> transportManager->flushSession(
+                tablet.service_locator().c_str());
+    } catch (TableDoesntExistException& e) {
+        // We don't even store this tablet anymore, so there's nothing
+        // to worry about.
+    }
+}
+
+/**
  * Lookup the master for a particular key in a given table.
  * Only used internally in lookup() and for some crazy testing/debugging
  * routines.
