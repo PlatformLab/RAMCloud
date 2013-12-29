@@ -114,7 +114,7 @@ class CleanableSegmentManager {
     ///
     /// The current value 5 was experimentally found to be reasonable (good
     /// performance in a number of benchmarks, and relatively low overhead).
-    enum { SCAN_TOMBSTONES_EVERY_N_SEGMETS = 5 };
+    enum { SCAN_TOMBSTONES_EVERY_N_SEGMENTS = 5 };
 
     /// The SegmentManager responsible for allocating log segments. This is
     /// needed to query for newly cleanable segments.

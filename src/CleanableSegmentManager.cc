@@ -275,9 +275,9 @@ lastPrint = WallTime::secondsTimestamp();
 void
 CleanableSegmentManager::scanSegmentTombstones(Lock& guard)
 {
-    if (SCAN_TOMBSTONES_EVERY_N_SEGMETS == 0)
+    if (SCAN_TOMBSTONES_EVERY_N_SEGMENTS == 0)
         return;
-    if (tombstoneScans > (segmentsToCleaner / SCAN_TOMBSTONES_EVERY_N_SEGMETS))
+    if (tombstoneScans > (segmentsToCleaner / SCAN_TOMBSTONES_EVERY_N_SEGMENTS))
         return;
     if (tombstoneScanCandidates.empty())
         return;
