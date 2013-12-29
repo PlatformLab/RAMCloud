@@ -414,7 +414,13 @@ BackupService::restartFromStorage()
             masterId.toString().c_str(),
             metadata->segmentId, metadata->closed ? "closed" : "open");
 
-        frame->load();
+        if (!metadata->closed) {
+            // We could potentially skip loading the frame, but right
+            // now there's an assumption that open segments are always
+            // present in memory if needed for recovery.  Changing
+            // this would probably not damage think significantly...
+            frame->load();
+        }
         frames[MasterSegmentIdPair(masterId, metadata->segmentId)] =
             frame;
         if (gcTasks.find(masterId) == gcTasks.end()) {

@@ -378,6 +378,15 @@ TEST_F(BackupServiceTest, restartFromStorage)
         "restartFromStorage: Found stored replica <71.0,89> "
         "on backup storage in frame which was open"));
 
+    // Check that only open frames are loaded.
+    BackupStorage::FrameRef frame = backup->frames[
+            BackupService::MasterSegmentIdPair({70, 0}, 88)];
+    EXPECT_FALSE(frame->isLoaded());
+    frame = backup->frames[BackupService::MasterSegmentIdPair({70, 0}, 89)];
+    EXPECT_TRUE(frame->isLoaded());
+    frame = backup->frames[BackupService::MasterSegmentIdPair({71, 0}, 89)];
+    EXPECT_TRUE(frame->isLoaded());
+
     EXPECT_EQ(2lu, backup->taskQueue.outstandingTasks());
     // Because config.backup.gc is false these tasks delete themselves
     // immediately when performed.
