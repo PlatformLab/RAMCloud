@@ -38,6 +38,8 @@
 #include "LogMetrics.pb.h"
 
 namespace RAMCloud {
+// Forward declaration.
+class MasterTableMetadata;
 
 /**
  * Exception thrown when invalid arguments are passed to the constructor.
@@ -110,7 +112,8 @@ class SegmentManager {
                    const ServerConfig* config,
                    ServerId* logId,
                    SegletAllocator& allocator,
-                   ReplicaManager& replicaManager);
+                   ReplicaManager& replicaManager,
+                   MasterTableMetadata* masterTableMetadata);
     ~SegmentManager();
     void getMetrics(ProtoBuf::LogMetrics_SegmentMetrics& m);
     SegletAllocator& getAllocator() const;
@@ -257,6 +260,7 @@ class SegmentManager {
     void writeHeader(LogSegment* segment);
     void writeDigest(LogSegment* newHead, LogSegment* prevHead);
     void writeSafeVersion(LogSegment* head);
+    void writeTableStatsDigest(LogSegment* head);
     LogSegment* getHeadSegment();
     void changeState(LogSegment& s, State newState);
     void addToLists(LogSegment& s);
@@ -282,6 +286,11 @@ class SegmentManager {
     /// The ReplicaManager class instance that handles replication of our
     /// segments.
     ReplicaManager& replicaManager;
+
+    /// MasterTableMetadata container that holds this master's per table
+    /// metadata.  This is used to extract table stats information to be
+    /// serialized during log head rollover.
+    MasterTableMetadata* masterTableMetadata;
 
     /// The number of seglets in a full segment.
     const uint32_t segletsPerSegment;
@@ -387,16 +396,16 @@ class SegmentManager {
      * version number for any new object on the master. It is initialized to
      * a small integer when the log is created and is recoverable after crashes.
      *
-     * \li When an object is created, its new version number is set to 
+     * \li When an object is created, its new version number is set to
      * the safeVersion, and the safeVersion
      * is incremented. See #AllocateVersion.
      *
      * \li When an object is updated, its version number is incremented.
-     * Note that its incremented version number does not affect the safeVersion. 
+     * Note that its incremented version number does not affect the safeVersion.
      *
-     * \li SafeVersion might be behind the version number 
+     * \li SafeVersion might be behind the version number
      * of any particular object.
-     * As far as the object is not removed, its 
+     * As far as the object is not removed, its
      * version number has no influence of the safeVersion, because the
      * safeVersion is used to keep the monotonicitiy of the version number of
      * any recreated object.

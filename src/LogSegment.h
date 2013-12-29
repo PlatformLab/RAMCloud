@@ -197,7 +197,7 @@ class LogSegment : public Segment {
     }
 
     void
-    trackNewEntry(LogEntryType type, uint32_t lengthWithMetadata) 
+    trackNewEntry(LogEntryType type, uint32_t lengthWithMetadata)
     {
         trackNewEntries(type, 1, lengthWithMetadata);
     }
@@ -287,7 +287,7 @@ class LogSegment : public Segment {
     /// CleanableSegmentManager that tracks the best candidate segments for
     /// compaction based on the number of freeable seglets they have.
     IntrusiveSetHook cleanableCompactionEntries;
-    
+
     /// XXX
     IntrusiveSetHook tombstoneScanEntries;
 
@@ -341,7 +341,7 @@ class LogSegment : public Segment {
     /// entryLengths that are now dead (that is, the cleaner can reclaim the
     /// space they used). These values monotonically increase, and the
     /// difference between entryLengths[x] and deadEntryLengths[x] is the number
-    /// of bytes used by live entries of a particular type x. 
+    /// of bytes used by live entries of a particular type x.
     ///
     /// Note that for compacted segments these counts only include entries
     /// still in memory. They do not include ones on disk.

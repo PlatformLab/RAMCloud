@@ -25,6 +25,7 @@ namespace RAMCloud {
 
 class MultiWriteTest : public ::testing::Test {
   public:
+    TestLog::Enable logEnabler;
     Context context;
     MockCluster cluster;
     Tub<RamCloud> ramcloud;
@@ -39,7 +40,8 @@ class MultiWriteTest : public ::testing::Test {
 
   public:
     MultiWriteTest()
-        : context()
+        : logEnabler()
+        , context()
         , cluster(&context)
         , ramcloud()
         , tableId1(-1)

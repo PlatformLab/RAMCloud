@@ -23,6 +23,7 @@
 #include "ServerConfig.h"
 #include "StringUtil.h"
 #include "Transport.h"
+#include "MasterTableMetadata.h"
 
 namespace RAMCloud {
 
@@ -45,6 +46,7 @@ class SideLogTest : public ::testing::Test {
     ServerList serverList;
     ServerConfig serverConfig;
     ReplicaManager replicaManager;
+    MasterTableMetadata masterTableMetadata;
     SegletAllocator allocator;
     SegmentManager segmentManager;
     DoNothingHandlers entryHandlers;
@@ -56,9 +58,10 @@ class SideLogTest : public ::testing::Test {
           serverList(&context),
           serverConfig(ServerConfig::forTesting()),
           replicaManager(&context, &serverId, 0, false),
+          masterTableMetadata(),
           allocator(&serverConfig),
           segmentManager(&context, &serverConfig, &serverId,
-                         allocator, replicaManager),
+                         allocator, replicaManager, &masterTableMetadata),
           entryHandlers(),
           l(&context, &serverConfig, &entryHandlers,
             &segmentManager, &replicaManager)
@@ -126,8 +129,8 @@ TEST_F(SideLogTest, commit) {
         "schedule: zero replicas: nothing to schedule | "
         "close: 57.0, 1, 3 | "
         "schedule: zero replicas: nothing to schedule | "
-        "close: Segment 1 closed (length 54) | "
-        "sync: syncing segment 3 to offset 70",
+        "close: Segment 1 closed (length 80) | "
+        "sync: syncing segment 3 to offset 96",
         TestLog::get());
 
     // an empty sidelog still shouldn't alter the log

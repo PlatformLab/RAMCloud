@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2012 Stanford University
+/* Copyright (c) 2009-2013 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -16,7 +16,11 @@
 #include <gtest/gtest.h>
 #include <boost/program_options.hpp>
 
+#include "TestUtil.h"
+
 #include "Common.h"
+#include "AbstractServerList.h"
+#include "CoordinatorService.h"
 #include "Tub.h"
 
 namespace {
@@ -150,7 +154,10 @@ main(int argc, char *argv[])
         GTestSetupListener() {}
         // this fires before each test fixture's constructor
         void OnTestStart(const ::testing::TestInfo& testInfo) {
+            // Common initialization for all tests:
             RAMCloud::Logger::get().setLogLevels(RAMCloud::WARNING);
+            RAMCloud::AbstractServerList::skipServerIdCheck = true;
+            RAMCloud::CoordinatorService::forceSynchronousInit = true;
         }
         // this fires after each test fixture's destructor
         void OnTestEnd(const ::testing::TestInfo& testInfo) {

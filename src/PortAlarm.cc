@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2012 Stanford University
+/* Copyright (c) 2011-2013 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -29,31 +29,14 @@ namespace RAMCloud {
  * \param port
  *      The listening port to monitor in this alarm.
  *      Each watchdog timer is reset by PortAlarm::requestArrived().
- * \param timeoutMs
- *      If this many 2 x milliseconds elapse in with no request arriving
- *      to the port, then the port will be closed.
  */
-PortAlarm::PortAlarm(PortAlarmTimer* timer, Transport::ServerPort *port,
-                     int timeoutMs)
+PortAlarm::PortAlarm(PortAlarmTimer* timer, Transport::ServerPort *port)
         : timer(timer)
         , port(port)
         , timerIndex(0)
         , portTimerRunning(false)
-        , waitingForRequestMs(0)
-        , closeMs(timeoutMs*2)
+        , idleMs(0)
 {
-    // Because of estimation errors in PortAlarmTimer, we need to enforce
-    // a minimum threshold for closeMs.
-
-    //    closeMs suposed to be greater than  SessionAlarm::pingMs
-    //    a minimum threshold for these are
-    //    pingMs  = 3*SessionAlarmTimer::TIMER_INTERVAL_MS;
-    //    abortMs = 2*pingMs;
-
-    int minimumCloseMs = 2*3*PortAlarmTimer::TIMER_INTERVAL_MS;
-    if (closeMs < minimumCloseMs) {
-        closeMs = minimumCloseMs;
-    }
     // Needs to start the port timer explicitly
 }
 
@@ -66,8 +49,14 @@ PortAlarm::~PortAlarm()
 }
 
 /**
- * Starts Port Timer.
+ * Starts Port Timer:
  * Port Timer is not started at a PortAlarm instance creation.
+ * With delaying start-up of the port timer, we can avoid
+ * closing the port before corresponding client thread starts.
+ *
+ * In addition, we can intentionally start and stop porttimer
+ * with these method.
+ *
  **/
 void
 PortAlarm::startPortTimer()
@@ -94,11 +83,13 @@ PortAlarm::startPortTimer()
         portTimerRunning = true;
     }
     // reset watchdog timer count.
-    waitingForRequestMs = 0;
+    idleMs = 0;
 }
 
 /**
- * Helper Function to stop Port Timer.
+ * stopPortTimer:
+ *   Called in destructor.
+ *   We can start and stop port timer with these methods.
  **/
 void
 PortAlarm::stopPortTimer()
@@ -129,20 +120,19 @@ PortAlarm::stopPortTimer()
 void
 PortAlarm::requestArrived()
 {
-    // Disable the following assertion check,
-    // since portAlarm is temporally disabled.
     // assert(portTimerRunning);
-    waitingForRequestMs = 0;
+    idleMs = 0;
 }
 
 /**
  * Constructor for PortAlarmTimer objects.
  */
 PortAlarmTimer::PortAlarmTimer(Context* context)
-    : Dispatch::Timer(*context->dispatch)
+    : Dispatch::Timer(context->dispatch)
     , context(context)
     , activeAlarms()
     , timerIntervalTicks(Cycles::fromNanoseconds(TIMER_INTERVAL_MS * 1000000))
+    , portTimeoutMs(-1)  // portTimer disabled.
 {
 }
 
@@ -157,38 +147,60 @@ PortAlarmTimer::~PortAlarmTimer()
 }
 
 /**
+ * Use a unique port timeout value for all transports.
+ *
+ * \param timeoutMs
+ *      Timeout period (in ms) to pass to transports.
+ */
+void PortAlarmTimer::setPortTimeout(int32_t timeoutMs)
+{
+    this->portTimeoutMs = (timeoutMs == 0) ?
+            DEFAULT_PORT_TIMEOUT_MS : timeoutMs;
+    RAMCLOUD_LOG(NOTICE, "Set PortTimeout to %d (ms: -1 to disable.)",
+            this->portTimeoutMs);
+}
+
+/**
+ * Return current timeout value (ms) for all server ports.
+ *
+ */
+int32_t PortAlarmTimer::getPortTimeout() const
+{
+    return portTimeoutMs;
+}
+
+/**
  * This method is invoked by the dispatcher every TIMER_INTERVAL_MS when
  * there are any active ports. It scans all of the active ports of server,
  * checking whether each port receives at least one client request
- * within closeMs timeout.
+ * within PortAlarmTimer::portTimeoutMs.
  * If it does not, it destory the port.
  *
- * If the ping check is running on the client, the port will not be
- * closed even with smaller closeMs.
+ * While client RPC request is outstanding, pingRPC will be sent at
+ * sessionTimeout periodically. However, if client has nothing to send
+ * no request is sent by client.
  *
- * In some ports such as the port for establishing new connection,
- * however, ping is not runing on the client.
- * The closeMs timeout needs to be large enough for the ports.
  */
-
 void
 PortAlarmTimer::handleTimerEvent()
 {
+    if (portTimeoutMs < 0) {
+        return; // portAlarm disabled
+    }
     foreach (PortAlarm* alarm, activeAlarms) {
         if (alarm->portTimerRunning)
-            alarm->waitingForRequestMs += TIMER_INTERVAL_MS;
+            alarm->idleMs += TIMER_INTERVAL_MS;
         // Port listening Timeout
-        if (alarm->waitingForRequestMs  > alarm->closeMs) {
+        if (alarm->idleMs  > portTimeoutMs) {
             // fprintf(stderr, "alarm->port->getPortName() =%08l\n",
             //       const_cast<char *>(alarm->port->getPortName().c_str()));
             RAMCLOUD_LOG(WARNING,
                 "Close server port %s after %d ms "
                 "(listening timeout)",
                 alarm->port->getPortName().c_str(),
-                alarm->waitingForRequestMs);
+                alarm->idleMs);
             // Delete the port resources in close() function
             alarm->port->close();   // close this port
-            continue;
         }
     }
 

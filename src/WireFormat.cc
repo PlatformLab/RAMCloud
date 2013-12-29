@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2012 Stanford University
+/* Copyright (c) 2011-2013 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -17,6 +17,7 @@
 #include "Buffer.h"
 
 namespace RAMCloud {
+
 namespace WireFormat {
 
 /**
@@ -80,7 +81,6 @@ opcodeSymbol(uint32_t opcode)
         case SET_MASTER_RECOVERY_INFO:   return "SET_MASTER_RECOVERY_INFO";
         case DROP_TABLET_OWNERSHIP:      return "DROP_TABLET_OWNERSHIP";
         case TAKE_TABLET_OWNERSHIP:      return "TAKE_TABLET_OWNERSHIP";
-        case BACKUP_ASSIGN_GROUP:        return "BACKUP_ASSIGN_GROUP";
         case INCREMENT:                  return "INCREMENT";
         case GET_HEAD_OF_LOG:            return "GET_HEAD_OF_LOG";
         case PREP_FOR_MIGRATION:         return "PREP_FOR_MIGRATION";
@@ -94,6 +94,9 @@ opcodeSymbol(uint32_t opcode)
         case GET_SERVER_CONFIG:          return "GET_SERVER_CONFIG";
         case GET_LOG_METRICS:            return "GET_LOG_METRICS";
         case VERIFY_MEMBERSHIP:          return "VERIFY_MEMBERSHIP";
+        case GET_RUNTIME_OPTION:         return "GET_RUNTIME_OPTION";
+        case SERVER_CONTROL:             return "SERVER_CONTROL";
+        case GET_SERVER_ID:              return "GET_SERVER_ID";
         case ILLEGAL_RPC_TYPE:           return "ILLEGAL_RPC_TYPE";
     }
 

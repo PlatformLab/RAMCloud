@@ -1,4 +1,4 @@
-/* Copyright (c) 2012 Stanford University
+/* Copyright (c) 2012-2013 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -15,12 +15,14 @@
 
 #include "TestUtil.h"
 #include "Object.h"
+#include "ObjectManager.h"
 #include "RecoverySegmentBuilder.h"
 #include "SegmentIterator.h"
 #include "SegmentManager.h"
 #include "ServerConfig.h"
 #include "StringUtil.h"
 #include "TabletsBuilder.h"
+#include "MasterTableMetadata.h"
 
 namespace RAMCloud {
 
@@ -31,6 +33,7 @@ struct RecoverySegmentBuilderTest : public ::testing::Test {
     ServerList serverList;
     ServerConfig serverConfig;
     ReplicaManager replicaManager;
+    MasterTableMetadata masterTableMetadata;
     SegletAllocator allocator;
     SegmentManager segmentManager;
 
@@ -41,9 +44,10 @@ struct RecoverySegmentBuilderTest : public ::testing::Test {
         , serverList(&context)
         , serverConfig(ServerConfig::forTesting())
         , replicaManager(&context, &serverId, 0, false)
+        , masterTableMetadata()
         , allocator(&serverConfig)
         , segmentManager(&context, &serverConfig, &serverId,
-                         allocator, replicaManager)
+                         allocator, replicaManager, &masterTableMetadata)
     {
         Logger::get().setLogLevels(RAMCloud::SILENT_LOG_LEVEL);
         auto oneOneHash = Key::getHash(1, "1", 1);
@@ -105,16 +109,53 @@ TEST_F(RecoverySegmentBuilderTest, build) {
 
     std::unique_ptr<Segment[]> recoverySegments(new Segment[2]);
     TestLog::Enable _;
-    build(buf, length, certificate, partitions, recoverySegments.get());
+    build(buf, length, certificate, 2, partitions, recoverySegments.get());
     EXPECT_TRUE(StringUtil::contains(TestLog::get(),
         "Couldn't place object with <tableId, keyHash> of <10"));
     EXPECT_TRUE(StringUtil::contains(TestLog::get(),
         "Skipping object with <tableId, keyHash> of <2"));
+    EXPECT_EQ("safeVersion at offset 0, length 12 with version 1 | "
+            "object at offset 14, length 33 with tableId 1, key '2' | "
+            "tombstone at offset 49, length 35 with tableId 1, key '2'",
+            ObjectManager::dumpSegment(&recoverySegments[0]));
+    EXPECT_EQ("safeVersion at offset 0, length 12 with version 1 | "
+            "object at offset 14, length 33 with tableId 1, key '1' | "
+            "tombstone at offset 49, length 35 with tableId 1, key '1'",
+            ObjectManager::dumpSegment(&recoverySegments[1]));
 
     certificate.checksum = 0;
     EXPECT_THROW(
-        build(buf, length, certificate, partitions, recoverySegments.get()),
+        build(buf, length, certificate, 2, partitions, recoverySegments.get()),
         SegmentIteratorException);
+}
+
+TEST_F(RecoverySegmentBuilderTest, build_safeVersionEntries) {
+    auto build = RecoverySegmentBuilder::build;
+
+    // Create one replica containing a safeVersion record.
+    LogSegment* segment = segmentManager.allocHeadSegment();
+    ObjectSafeVersion safeVersion(99);
+    Buffer buffer;
+    safeVersion.serializeToBuffer(buffer);
+
+    ASSERT_TRUE(segment->append(LOG_ENTRY_TYPE_SAFEVERSION, buffer));
+    Segment::Certificate certificate;
+    uint32_t length = segment->getAppendedLength(&certificate);
+    char buf[serverConfig.segmentSize];
+    ASSERT_TRUE(segment->copyOut(0, buf, length));
+
+    std::unique_ptr<Segment[]> recoverySegments(new Segment[3]);
+    build(buf, length, certificate, 3, partitions, recoverySegments.get());
+
+    EXPECT_EQ("safeVersion at offset 0, length 12 with version 1 | "
+            "safeVersion at offset 14, length 12 with version 99",
+            ObjectManager::dumpSegment(&recoverySegments[0]));
+    EXPECT_EQ("safeVersion at offset 0, length 12 with version 1 | "
+            "safeVersion at offset 14, length 12 with version 99",
+            ObjectManager::dumpSegment(&recoverySegments[1]));
+    EXPECT_EQ("safeVersion at offset 0, length 12 with version 1 | "
+            "safeVersion at offset 14, length 12 with version 99",
+            ObjectManager::dumpSegment(&recoverySegments[2]));
 }
 
 TEST_F(RecoverySegmentBuilderTest, extractDigest) {
@@ -125,14 +166,15 @@ TEST_F(RecoverySegmentBuilderTest, extractDigest) {
     char buffer[serverConfig.segmentSize];
     ASSERT_TRUE(segment->copyOut(0, buffer, length));
     Buffer digestBuffer;
+    Buffer tableStatsBuffer;
     EXPECT_TRUE(extractDigest(buffer, sizeof32(buffer),
-                              certificate, &digestBuffer));
+                              certificate, &digestBuffer, &tableStatsBuffer));
     EXPECT_NE(0u, digestBuffer.getTotalLength());
 
     // Corrupt metadata.
     certificate.checksum = 0;
     EXPECT_FALSE(extractDigest(buffer, sizeof32(buffer),
-                              certificate, &digestBuffer));
+                              certificate, &digestBuffer, &tableStatsBuffer));
     // Should have left previously found digest in the buffer.
     EXPECT_NE(0u, digestBuffer.getTotalLength());
 
@@ -141,12 +183,12 @@ TEST_F(RecoverySegmentBuilderTest, extractDigest) {
 
     // No digest.
     EXPECT_FALSE(extractDigest(buffer, sizeof32(buffer),
-                              certificate, &digestBuffer));
+                              certificate, &digestBuffer, &tableStatsBuffer));
     // Should have left previously found digest in the buffer.
     EXPECT_NE(0u, digestBuffer.getTotalLength());
     digestBuffer.reset();
     EXPECT_FALSE(extractDigest(buffer, sizeof32(buffer),
-                              certificate, &digestBuffer));
+                              certificate, &digestBuffer, &tableStatsBuffer));
     EXPECT_EQ(0u, digestBuffer.getTotalLength());
 }
 

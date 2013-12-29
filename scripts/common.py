@@ -53,21 +53,31 @@ def captureSh(command, **kwargs):
 class Sandbox(object):
     """A context manager for launching and cleaning up remote processes."""
     class Process(object):
-        def __init__(self, host, command, kwargs, sonce, proc, ignoreFailures):
+        def __init__(self, host, command, kwargs, sonce, proc,
+                     ignoreFailures, kill_on_exit, server_process):
+
             self.host = host
             self.command = command
             self.kwargs = kwargs
             self.sonce = sonce
             self.proc = proc
             self.ignoreFailures = ignoreFailures
+            self.kill_on_exit = kill_on_exit
+            self.server_process = server_process
 
         def __repr__(self):
             return repr(self.__dict__)
 
-    def __init__(self):
+    def __init__(self, cleanup=True):
+        # cleanup indicates whether this this Sandbox needs to clean up
+        # processes that are currently running as part of this run of
+        # clusterperf or not.
         self.processes = []
+        self.cleanup = cleanup
 
-    def rsh(self, host, command, ignoreFailures=False, bg=False, **kwargs):
+    def rsh(self, host, command, locator=None, ignoreFailures=False,
+            is_server=False, kill_on_exit=True, bg=False, **kwargs):
+
         """Execute a remote command.
 
         @return: If bg is True then a Process corresponding to the command
@@ -76,13 +86,26 @@ class Sandbox(object):
         if bg:
             sonce = ''.join([chr(random.choice(range(ord('a'), ord('z'))))
                              for c in range(8)])
-            # Assumes scripts are at same path on remote machine
-            sh_command = ['ssh', host,
-                          '%s/regexec' % scripts_path, sonce,
-                          os.getcwd(), "'%s'" % command]
+
+            server_process = is_server
+
+            if is_server:
+                # Assumes scripts are at same path on remote machine
+                sh_command = ['ssh', host,
+                              '%s/serverexec' % scripts_path,
+                              host, os.getcwd(), "'%s'" % locator,
+                              "'%s'" % command]
+            else:
+                # Assumes scripts are at same path on remote machine
+                sh_command = ['ssh', host,
+                              '%s/regexec' % scripts_path, sonce,
+                              os.getcwd(), "'%s'" % command]
+
             p = subprocess.Popen(sh_command, **kwargs)
             process = self.Process(host, command, kwargs, sonce,
-                                   p, ignoreFailures)
+                                   p, ignoreFailures, kill_on_exit,
+                                   server_process)
+
             self.processes.append(process)
             return process
         else:
@@ -120,10 +143,56 @@ class Sandbox(object):
         with delayedInterrupts():
             killers = []
             for p in self.processes:
-                # Assumes scripts are at same path on remote machine
-                killers.append(subprocess.Popen(['ssh', p.host,
-                                                 '%s/killpid' % scripts_path,
-                                                 p.sonce]))
+                # If this sandbox does not require a cleanup of its processes
+                # now, don't do it. Currently only servers are started in the
+                # context of such objects. They will be reaped later by some
+                # object in whose context, this object was created.
+                if not self.cleanup:
+                    to_kill = '0'
+                    killers.append(subprocess.Popen(['ssh', p.host,
+                                        '%s/killserver' % scripts_path,
+                                        to_kill, os.getcwd(), p.host]))
+                # invoke killpid only for processes that are not servers.
+                # server processes will be killed by killserver outside this
+                # loop below.
+                elif not p.server_process:
+                    # Assumes scripts are at same path on remote machine
+                    killers.append(subprocess.Popen(['ssh', p.host,
+                                                     '%s/killpid' % scripts_path,
+                                                     p.sonce]))
+
+            if self.cleanup:
+                chost = hosts[0] # coordinator
+                killers.append(subprocess.Popen(['ssh', chost[0],
+                                    '%s/killcoord' % scripts_path]))
+
+                path = '%s/logs/shm' % os.getcwd()
+                files = ""
+                try:
+                    files = sorted([f for f in os.listdir(path)
+                        if os.path.isfile( os.path.join(path, f) )])
+                except:
+                    pass
+
+                # kill all the servers that are running
+                for mhost in files:
+                    if mhost != 'README' and not mhost.startswith("cluster"):
+                        to_kill = '1'
+                        killers.append(subprocess.Popen(['ssh', mhost.split('_')[0],
+                                            '%s/killserver' % scripts_path,
+                                            to_kill, os.getcwd(), mhost]))
+                try:
+                    os.remove('%s/logs/shm/README' % os.getcwd())
+                    # remove the file that represents the name of the cluster.
+                    # This is used so that new backups can be told whether
+                    # or not to read data from their disks
+
+                    for fname in os.listdir(path):
+                        if fname.startswith("cluster"):
+                            os.remove(os.path.join(path, fname))
+                except:
+                    pass
+
             for killer in killers:
                 killer.wait()
         # a half-assed attempt to clean up zombies
@@ -140,7 +209,10 @@ class Sandbox(object):
             if (p.ignoreFailures == False):
                 rc = p.proc.poll()
                 if rc is not None and rc != 0:
-                    raise subprocess.CalledProcessError(rc, p.command)
+                    # raise subprocess.CalledProcessError(rc, p.command)
+                    # don't raise exception because the test may involve intentional
+                    # crashing of the coordinator or master/backup servers
+                    pass
 
 @contextlib.contextmanager
 def delayedInterrupts():

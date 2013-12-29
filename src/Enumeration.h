@@ -37,6 +37,7 @@ namespace RAMCloud {
 class Enumeration {
   public:
     Enumeration(uint64_t tableId,
+                bool keysOnly,
                 uint64_t requestedTabletStartHash,
                 uint64_t actualTabletStartHash,
                 uint64_t actualTabletEndHash,
@@ -50,6 +51,12 @@ class Enumeration {
   PRIVATE:
     /// The table containing the tablet being enumerated.
     uint64_t tableId;
+
+    /// False means that full objects are returned, containing both keys
+    /// and data. True means that the returned objects have
+    /// been truncated so that the object data (normally the last
+    /// field of the object) is omitted.
+    bool keysOnly;
 
     /// The start hash of the tablet as requested by the client.
     uint64_t requestedTabletStartHash;

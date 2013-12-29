@@ -1,4 +1,4 @@
-/* Copyright (c) 2012 Stanford University
+/* Copyright (c) 2012-2013 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -76,15 +76,20 @@ struct BackupMasterRecoveryTest : public ::testing::Test {
 };
 
 namespace {
-bool mockExtractDigest(uint64_t segmentId, Buffer* digestBuffer) {
+bool mockExtractDigest(uint64_t segmentId, Buffer* digestBuffer,
+                       Buffer* tableStatsBuffer) {
     if (segmentId == 92lu) {
         digestBuffer->reset();
         digestBuffer->append("digest", 7);
+        tableStatsBuffer->reset();
+        tableStatsBuffer->append("tableStats", 11);
         return true;
     }
     if (segmentId == 93lu) {
         digestBuffer->reset();
         digestBuffer->append("not digest", 11);
+        tableStatsBuffer->reset();
+        tableStatsBuffer->append("not tableStats", 15);
         return true;
     }
     return false;
@@ -110,6 +115,7 @@ TEST_F(BackupMasterRecoveryTest, start) {
     EXPECT_EQ(7u, response->digestBytes);
     EXPECT_EQ(92lu, response->digestSegmentId);
     EXPECT_EQ(192u, response->digestSegmentEpoch);
+    EXPECT_EQ(11u, response->tableStatsBytes);
 
     buffer.truncateFront(sizeof32(BackupMasterRecovery::StartResponse));
     // Verify returned segment ids and lengths.
@@ -173,12 +179,14 @@ TEST_F(BackupMasterRecoveryTest, start) {
     EXPECT_EQ(2u, response->primaryReplicaCount);
     EXPECT_EQ(7u, response->digestBytes);
     EXPECT_EQ(92lu, response->digestSegmentId);
-    uint32_t tabletMetricsLen = response->tabletMetricsLen == (uint32_t)-1 ? 0 :
-        response->tabletMetricsLen;
     EXPECT_EQ(192u, response->digestSegmentEpoch);
+    EXPECT_EQ(11u, response->tableStatsBytes);
     EXPECT_STREQ("digest",
                  buffer.getOffset<char>(buffer.getTotalLength()
-                                        - tabletMetricsLen - 7));
+                                        - 11 - 7));
+    EXPECT_STREQ("tableStats",
+                 buffer.getOffset<char>(buffer.getTotalLength()
+                                        - 11));
 }
 
 TEST_F(BackupMasterRecoveryTest, setPartitionsAndSchedule) {
@@ -234,7 +242,7 @@ TEST_F(BackupMasterRecoveryTest, setPartitionsAndSchedule) {
             "schedule: scheduled",
               TestLog::get());
 
-    EXPECT_EQ(2UL, recovery->numPartitions);
+    EXPECT_EQ(2, recovery->numPartitions);
     EXPECT_EQ(&recovery->replicas.front(), &*recovery->nextToBuild);
     EXPECT_TRUE(recovery->isScheduled());
 }
@@ -247,12 +255,12 @@ TEST_F(BackupMasterRecoveryTest, getRecoverySegment) {
     recovery->start(frames, NULL, NULL);
     recovery->setPartitionsAndSchedule(partitions);
 
-    Status status = recovery->getRecoverySegment(456, 89, 0, NULL, NULL);
-    EXPECT_EQ(STATUS_RETRY, status);
+    EXPECT_THROW(recovery->getRecoverySegment(456, 89, 0, NULL, NULL),
+                 RetryException);
 
     taskQueue.performTask();
 
-    status = recovery->getRecoverySegment(456, 88, 0, NULL, NULL);
+    Status status = recovery->getRecoverySegment(456, 88, 0, NULL, NULL);
     EXPECT_EQ(STATUS_OK, status);
     Buffer buffer;
     buffer.append("important", 10);

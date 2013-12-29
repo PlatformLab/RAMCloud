@@ -1,0 +1,20 @@
+#!/bin/bash
+# Usage: restart_coordinator.sh coord_logfile obj_path coord_locator logcabin_server
+
+# the coordinator log file is passed as a cmd line argument so that the output
+# after restarting the coordinator each time can be appended to the same log
+
+# store pid of this script so that it gets killed along with other processes
+# started as part of clusterperf.
+
+while true; do
+    if ps aux | grep '[o]bj.master/coordinator' > /dev/null
+        then
+                echo 'Running' > /dev/null
+    else
+            echo 'Restarting coordinator, SUCESS' >> $1
+            sleep 2 # wait for old process to be cleaned up
+            $2/coordinator -C $3 -l NOTICE -z $4 >> $1 2>&1 &
+            echo $! > /dev/shm/$USER.new_coord.pid
+    fi
+done

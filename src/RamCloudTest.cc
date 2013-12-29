@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2012 Stanford University
+/* Copyright (c) 2011-2013 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -24,6 +24,7 @@ namespace RAMCloud {
 
 class RamCloudTest : public ::testing::Test {
   public:
+    TestLog::Enable logEnabler;
     Context context;
     MockCluster cluster;
     Tub<RamCloud> ramcloud;
@@ -33,7 +34,8 @@ class RamCloudTest : public ::testing::Test {
 
   public:
     RamCloudTest()
-        : context()
+        : logEnabler()
+        , context()
         , cluster(&context)
         , ramcloud()
         , tableId1(-1)
@@ -103,10 +105,11 @@ TEST_F(RamCloudTest, enumeration_basics) {
     ramcloud->write(tableId1, "5", 1, "efghij", 6);
     ramcloud->write(tableId2, "6", 1, "klmnop", 6);
 
-    TableEnumerator iter(*ramcloud, tableId3);
     uint32_t size = 0;
     const void* buffer = 0;
 
+    // Testing keys and data enumeration
+    TableEnumerator iter(*ramcloud, tableId3, false);
     EXPECT_TRUE(iter.hasNext());
     iter.next(&size, &buffer);
 
@@ -175,8 +178,87 @@ TEST_F(RamCloudTest, enumeration_basics) {
     EXPECT_FALSE(iter.hasNext());
 }
 
+TEST_F(RamCloudTest, enumeration_keys_only) {
+    uint64_t version0, version1, version2, version3, version4;
+    ramcloud->write(tableId3, "0", 1, "abcdef", 6, NULL, &version0);
+    ramcloud->write(tableId3, "1", 1, "ghijkl", 6, NULL, &version1);
+    ramcloud->write(tableId3, "2", 1, "mnopqr", 6, NULL, &version2);
+    ramcloud->write(tableId3, "3", 1, "stuvwx", 6, NULL, &version3);
+    ramcloud->write(tableId3, "4", 1, "yzabcd", 6, NULL, &version4);
+    // Write some objects into other tables to make sure they are not returned.
+    ramcloud->write(tableId1, "5", 1, "efghij", 6);
+    ramcloud->write(tableId2, "6", 1, "klmnop", 6);
+
+    uint32_t size = 0;
+    const void* buffer = 0;
+
+    // Testing keys only enumeration
+    TableEnumerator iter(*ramcloud, tableId3, true);
+    EXPECT_TRUE(iter.hasNext());
+    iter.next(&size, &buffer);
+
+    // First object.
+    Object object1(buffer, size);
+    EXPECT_EQ(27U, size);                                       // size
+    EXPECT_EQ(tableId3, object1.getTableId());                  // table ID
+    EXPECT_EQ(1U, object1.getKeyLength());                      // key length
+    EXPECT_EQ(version0, object1.getVersion());                  // version
+    EXPECT_EQ(0, memcmp("0", object1.getKey(), 1));             // key
+    EXPECT_EQ(0U, object1.dataLength);                           // data length
+
+    EXPECT_TRUE(iter.hasNext());
+    iter.next(&size, &buffer);
+
+    // Second object.
+    Object object2(buffer, size);
+    EXPECT_EQ(27U, size);                                       // size
+    EXPECT_EQ(tableId3, object2.getTableId());                  // table ID
+    EXPECT_EQ(1U, object2.getKeyLength());                      // key length
+    EXPECT_EQ(version1, object2.getVersion());                  // version
+    EXPECT_EQ(0, memcmp("1", object2.getKey(), 1));             // key
+    EXPECT_EQ(0U, object2.dataLength);                           // data length
+
+    EXPECT_TRUE(iter.hasNext());
+    iter.next(&size, &buffer);
+
+    // Third object.
+    Object object3(buffer, size);
+    EXPECT_EQ(27U, size);                                       // size
+    EXPECT_EQ(tableId3, object3.getTableId());                  // table ID
+    EXPECT_EQ(1U, object3.getKeyLength());                      // key length
+    EXPECT_EQ(version3, object3.getVersion());                  // version
+    EXPECT_EQ(0, memcmp("3", object3.getKey(), 1));             // key
+    EXPECT_EQ(0U, object3.dataLength);                           // data length
+
+    EXPECT_TRUE(iter.hasNext());
+    iter.next(&size, &buffer);
+
+    // Fourth object.
+    Object object4(buffer, size);
+    EXPECT_EQ(27U, size);                                       // size
+    EXPECT_EQ(tableId3, object4.getTableId());                  // table ID
+    EXPECT_EQ(1U, object4.getKeyLength());                      // key length
+    EXPECT_EQ(version2, object4.getVersion());                  // version
+    EXPECT_EQ(0, memcmp("2", object4.getKey(), 1));             // key
+    EXPECT_EQ(0U, object4.dataLength);                           // data length
+
+    EXPECT_TRUE(iter.hasNext());
+    iter.next(&size, &buffer);
+
+    // Fifth object.
+    Object object5(buffer, size);
+    EXPECT_EQ(27U, size);                                       // size
+    EXPECT_EQ(tableId3, object5.getTableId());                  // table ID
+    EXPECT_EQ(1U, object5.getKeyLength());                      // key length
+    EXPECT_EQ(version4, object5.getVersion());                  // version
+    EXPECT_EQ(0, memcmp("4", object5.getKey(), 1));             // key
+    EXPECT_EQ(0U, object5.dataLength);                           // data length
+
+    EXPECT_FALSE(iter.hasNext());
+}
+
 TEST_F(RamCloudTest, enumeration_badTable) {
-    TableEnumerator iter(*ramcloud, -1);
+    TableEnumerator iter(*ramcloud, -1, false);
     EXPECT_THROW(iter.hasNext(), TableDoesntExistException);
 }
 
@@ -225,7 +307,6 @@ TEST_F(RamCloudTest, increment) {
 }
 
 TEST_F(RamCloudTest, quiesce) {
-    TestLog::Enable _;
     ServerConfig config = ServerConfig::forTesting();
     config.services = {WireFormat::BACKUP_SERVICE, WireFormat::PING_SERVICE};
     config.localLocator = "mock:host=backup1";
@@ -262,6 +343,32 @@ TEST_F(RamCloudTest, remove) {
     EXPECT_EQ("STATUS_OBJECT_DOESNT_EXIST", message);
 }
 
+TEST_F(RamCloudTest, serverControl){
+    ramcloud->write(tableId1, "0", 1, "zfzfzf", 6);
+    string serverLocator = ramcloud->objectFinder.lookupTablet(tableId1
+                           , Key::getHash(tableId1, "0", 1)).service_locator();
+    Server* targetServer;
+    foreach (Server* server, cluster.servers) {
+        if (serverLocator.compare(server->config.localLocator) == 0)
+            targetServer = server;
+    }
+    ASSERT_FALSE(targetServer->context->dispatch->profilerFlag);
+    uint64_t totalElements = 100000;
+    Buffer output;
+    ramcloud->serverControl(tableId1, "0", 1,
+                            WireFormat::START_DISPATCH_PROFILER,
+                            &totalElements, sizeof32(totalElements), &output);
+    ASSERT_TRUE(targetServer->context->dispatch->profilerFlag);
+    ASSERT_EQ(totalElements, targetServer->context->dispatch->totalElements);
+    ramcloud->serverControl(tableId1, "0", 1,
+                            WireFormat::STOP_DISPATCH_PROFILER,
+                            " ", 1, &output);
+    ASSERT_FALSE(targetServer->context->dispatch->profilerFlag);
+    ramcloud->serverControl(tableId1, "0", 1,
+                            WireFormat::DUMP_DISPATCH_PROFILE,
+                            "pollingTimes.txt", 17, &output);
+}
+
 TEST_F(RamCloudTest, splitTablet) {
     string message("no exception");
     try {
@@ -283,8 +390,16 @@ TEST_F(RamCloudTest, testingFill) {
     EXPECT_EQ("0xcccccccc 0xcccccccc /xcc/xcc", TestUtil::toString(&value));
 }
 
+TEST_F(RamCloudTest, getRuntimeOption){
+    ramcloud->setRuntimeOption("failRecoveryMasters", "1 2 3");
+    Buffer value;
+    ramcloud->getRuntimeOption("failRecoveryMasters", &value);
+    EXPECT_STREQ("1 2 3", cluster.coordinator->getString(&value, 0,
+                                                   value.getTotalLength()));
+}
+
 TEST_F(RamCloudTest, testingKill) {
-    TestLog::Enable _;
+    TestLog::reset();
     cluster.servers[0]->ping->ignoreKill = true;
     // Create the RPC object directly rather than calling testingKill
     // (testingKill would hang in objectFinder.waitForTabletDown).
@@ -292,8 +407,8 @@ TEST_F(RamCloudTest, testingKill) {
     EXPECT_EQ("kill: Server remotely told to kill itself.", TestLog::get());
 }
 
-TEST_F(RamCloudTest, testingSetRuntimeOption) {
-    ramcloud->testingSetRuntimeOption("failRecoveryMasters", "103");
+TEST_F(RamCloudTest, setRuntimeOption) {
+    ramcloud->setRuntimeOption("failRecoveryMasters", "103");
     EXPECT_EQ(103U,
             cluster.coordinator->runtimeOptions.failRecoveryMasters.front());
 }

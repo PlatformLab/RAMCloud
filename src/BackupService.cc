@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2012 Stanford University
+/* Copyright (c) 2009-2013 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -54,6 +54,7 @@ BackupService::BackupService(Context* context,
     , testingDoNotStartGcThread(false)
     , testingSkipCallerIdCheck(false)
     , taskQueue()
+    , oldReplicas(0)
 {
     if (config->backup.inMemory) {
         storage.reset(new InMemoryStorage(config->segmentSize,
@@ -182,7 +183,12 @@ BackupService::dispatch(WireFormat::Opcode opcode, Rpc* rpc)
 
     // This is a hack. We allow the AssignGroup Rpc to be processed before
     // initCalled is set to true, since it is sent during initialization.
-    assert(initCalled || opcode == WireFormat::BackupAssignGroup::opcode);
+    if (!initCalled) {
+        LOG(WARNING, "%s invoked before initialization complete; "
+                "returning STATUS_RETRY", WireFormat::opcodeSymbol(opcode));
+        throw RetryException(HERE, 100, 100,
+                "backup service not yet initialized");
+    }
     CycleCounter<RawMetric> serviceTicks(&metrics->backup.serviceTicks);
 
     switch (opcode) {
@@ -295,7 +301,8 @@ BackupService::getRecoveryData(
     Status status =
         recoveryIt->second->getRecoverySegment(reqHdr->recoveryId,
                                                reqHdr->segmentId,
-                                               reqHdr->partitionId,
+                                               downCast<int>(
+                                                   reqHdr->partitionId),
                                                rpc->replyPayload,
                                                &respHdr->certificate);
     if (status != STATUS_OK) {
@@ -402,12 +409,18 @@ BackupService::restartFromStorage()
             continue;
         }
         const ServerId masterId(metadata->logId);
-        LOG(DEBUG, "Found stored replica <%s,%lu> on backup storage in "
+        LOG(NOTICE, "Found stored replica <%s,%lu> on backup storage in "
                    "frame which was %s",
             masterId.toString().c_str(),
             metadata->segmentId, metadata->closed ? "closed" : "open");
 
-        frame->load();
+        if (!metadata->closed) {
+            // We could potentially skip loading the frame, but right
+            // now there's an assumption that open segments are always
+            // present in memory if needed for recovery.  Changing
+            // this would probably not damage think significantly...
+            frame->load();
+        }
         frames[MasterSegmentIdPair(masterId, metadata->segmentId)] =
             frame;
         if (gcTasks.find(masterId) == gcTasks.end()) {
@@ -579,15 +592,13 @@ BackupService::writeSegment(const WireFormat::BackupWrite::Request* reqHdr,
 
     if (frame && !frame->wasAppendedToByCurrentProcess()) {
         if (reqHdr->open) {
-            // This can happen if a backup crashes, restarts, reloads a
+            // We get here if a backup crashes, restarts, reloads a
             // replica from disk, and then the master detects the crash and
-            // tries to re-replicate the segment which lost a replica on
-            // the restarted backup.
-            LOG(NOTICE, "Master tried to open replica for <%s,%lu> but "
-                "another replica was recovered from storage with the same id; "
-                "rejecting open request", masterId.toString().c_str(),
-                segmentId);
-            throw BackupOpenRejectedException(HERE);
+            // tries to re-replicate the segment that lost a replica on
+            // the restarted backup. Reopen the segment (see RAM-573).
+            const BackupReplicaMetadata* metadata =
+                static_cast<const BackupReplicaMetadata*>(frame->getMetadata());
+            frame->reopen(metadata->certificate.segmentLength);
         } else {
             // This should never happen.
             LOG(ERROR, "Master tried to write replica for <%s,%lu> but "
@@ -733,6 +744,7 @@ BackupService::GarbageCollectReplicasFoundOnStorageTask::
     addSegmentId(uint64_t segmentId)
 {
     segmentIds.push_back(segmentId);
+    service.oldReplicas++;
 }
 
 /**
@@ -749,8 +761,10 @@ BackupService::GarbageCollectReplicasFoundOnStorageTask::performTask()
     }
     uint64_t segmentId = segmentIds.front();
     bool done = tryToFreeReplica(segmentId);
-    if (done)
+    if (done) {
         segmentIds.pop_front();
+        service.oldReplicas--;
+    }
     schedule();
 }
 
@@ -770,11 +784,14 @@ bool
 BackupService::GarbageCollectReplicasFoundOnStorageTask::
     tryToFreeReplica(uint64_t segmentId)
 {
+    // First, see if this replica still needs to be freed.
     {
         BackupService::Lock _(service.mutex);
         auto frameIt = service.frames.find({masterId, segmentId});
-        if (frameIt == service.frames.end())
+        if (frameIt == service.frames.end()) {
+            // Frame no longer exists; no need to free.
             return true;
+        }
     }
 
     // Due to RAM-447 it is a bit tricky to decipher when a server is in
@@ -806,9 +823,10 @@ BackupService::GarbageCollectReplicasFoundOnStorageTask::
             }
             rpc.destroy();
             if (!needed) {
-                LOG(DEBUG, "Server has recovered from lost replica; "
-                    "freeing replica for <%s,%lu>",
-                    masterId.toString().c_str(), segmentId);
+                LOG(NOTICE, "Server has recovered from lost replica; "
+                    "freeing replica for <%s,%lu> (%d more old replicas left)",
+                    masterId.toString().c_str(), segmentId,
+                    service.oldReplicas-1);
                 deleteReplica(segmentId);
                 return true;
             } else {
@@ -836,6 +854,18 @@ BackupService::GarbageCollectReplicasFoundOnStorageTask::
     auto frameIt = service.frames.find({masterId, segmentId});
     if (frameIt == service.frames.end())
         return;
+    if (frameIt->second->wasAppendedToByCurrentProcess()) {
+        // This frame has been called back into active service (e.g.
+        // its master decided to rereplicate that frame on this
+        // machine; see RAM-573). This means we need to retain
+        // the frame indefinitely.
+        LOG(NOTICE, "Old replica for <%s,%lu> has been called back "
+                "into service, so won't garbage-collect it (%d more "
+                "old replicas left)",
+                masterId.toString().c_str(), segmentId,
+                service.oldReplicas-1);
+        return;
+    }
     service.frames.erase(frameIt);
 }
 

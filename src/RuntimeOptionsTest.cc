@@ -13,6 +13,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include <string>
 #include "TestUtil.h"
 #include "RuntimeOptions.h"
 
@@ -44,6 +45,16 @@ TEST_F(RuntimeOptionsTest, set) {
     ASSERT_EQ(0u, options.failRecoveryMasters.size());
     options.set("failRecoveryMasters", "1 foo 2 other 3");
     ASSERT_EQ(1u, options.failRecoveryMasters.size());
+}
+
+TEST_F(RuntimeOptionsTest, get){
+    options.set("failRecoveryMasters", "1 2 3");
+    ASSERT_EQ(3u, options.failRecoveryMasters.size());
+    ASSERT_STREQ("1 2 3", options.get("failRecoveryMasters").c_str());
+    options.popFailRecoveryMasters();
+    ASSERT_STREQ("1 2 3", options.get("failRecoveryMasters").c_str());
+    options.set("failRecoveryMasters", "black 1 white 2");
+    ASSERT_STREQ("black 1 white 2", options.get("failRecoveryMasters").c_str());
 }
 
 TEST_F(RuntimeOptionsTest, popFailRecoveryMasters) {

@@ -42,6 +42,7 @@ class ObjectFinder {
     Transport::SessionRef lookup(uint64_t table, KeyHash keyHash);
     const ProtoBuf::Tablets::Tablet& lookupTablet(uint64_t table,
                                                   KeyHash keyHash);
+    void flushSession(uint64_t tableId, KeyHash keyHash);
 
     /**
      * Jettison all tablet map entries forcing a fetch of fresh mappings

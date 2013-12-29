@@ -83,7 +83,8 @@ class LogMetricsStringer {
         foreach (uint64_t length, metrics->total_live_scanned_entry_lengths())
             totalLiveScannedEntryLengths += length;
 
-        // XXX-- want ls + format for "# " in front when using AllocatorBenchmark.
+        // TODO(rumble): Would be nice to prefix each line with '#' for
+        // AllocatorBenchmark.
         s += format("  Segment Entries Scanned:       %lu (%.2f/sec, "
             "%.2f/sec active)\n",
             totalEntriesScanned,

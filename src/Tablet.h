@@ -59,7 +59,27 @@ struct Tablet {
      */
     Log::Position ctime;
 
+    Tablet(uint64_t tableId, uint64_t startKeyHash, uint64_t endKeyHash,
+            ServerId serverId, Status status, Log::Position ctime)
+        : tableId(tableId)
+        , startKeyHash(startKeyHash)
+        , endKeyHash(endKeyHash)
+        , serverId(serverId)
+        , status(status)
+        , ctime(ctime)
+    {}
+
+    Tablet(const Tablet& tablet)
+        : tableId(tablet.tableId)
+        , startKeyHash(tablet.startKeyHash)
+        , endKeyHash(tablet.endKeyHash)
+        , serverId(tablet.serverId)
+        , status(tablet.status)
+        , ctime(tablet.ctime)
+    {}
+
     void serialize(ProtoBuf::Tablets::Tablet& entry) const;
+    string debugString(int verbose = 0) const;
 };
 
 } // namespace RAMCloud

@@ -171,7 +171,7 @@ class Distribution {
     /**
      * Our distributions often have similar locality for keys that are close
      * together. For example, HotAndCold separates the key space into two
-     * distinct pieces, and Zipfian chops it up into a thousand pieces of
+     * adjacent ranges, and Zipfian chops it up into a thousand pieces of
      * exponentially-increasing size. This means that simply iterating each
      * key during the prefill stage would segregate objects into different
      * locality classes from the get go since they'd be written sequentially
@@ -185,7 +185,7 @@ class Distribution {
      */
     class OutOfOrderSequence {
         public:
-            OutOfOrderSequence(uint64_t N)
+            explicit OutOfOrderSequence(uint64_t N)
                 : N(N)
                 , columns(N / 1000 + 1)
                 , i(0)
@@ -194,7 +194,7 @@ class Distribution {
             {
             }
 
-            uint64_t 
+            uint64_t
             next()
             {
                 if (count > N)
@@ -1133,7 +1133,7 @@ class Benchmark {
             return false;
 
         // Never allow an experiment to run too quickly so we have time for
-        // sampled values to average out. 
+        // sampled values to average out.
         double benchTime = Cycles::toSeconds(Cycles::rdtsc() - start);
         if (benchTime < options.minimumBenchmarkSeconds)
             return false;
@@ -1736,8 +1736,8 @@ try
     // has to do this separately (and if they don't, the argument just
     // silently has no effect). It gets even more confusing if there are
     // multiple contexts per process.
-    context.transportManager->setTimeout(
-        optionParser.options.getTransportTimeout());
+    context.transportManager->setSessionTimeout(
+        optionParser.options.getSessionTimeout());
 
     if (options.utilization < 1 || options.utilization > 100) {
         fprintf(stderr, "ERROR: Utilization must be between 1 and 100, "
@@ -1775,7 +1775,7 @@ try
     FILE* clusterMetricsBenchFile = NULL;
 
     if (options.outputFilesPrefix != "") {
-        string& outPrefix = options.outputFilesPrefix; 
+        string& outPrefix = options.outputFilesPrefix;
         string metricsFilename = outPrefix + "-m.txt";
         string latencyFilename = outPrefix + "-l.txt";
         string rawPrefillFilename = outPrefix + "-rp.txt";
@@ -1823,9 +1823,14 @@ try
     signal(SIGALRM, timedOut);
     alarm(options.abortTimeout);
 
-    string coordinatorLocator = optionParser.options.getCoordinatorLocator();
+    string coordinatorLocator =
+            optionParser.options.getExternalStorageLocator();
+    if (coordinatorLocator.size() == 0) {
+        coordinatorLocator = optionParser.options.getCoordinatorLocator();
+    }
     fprintf(stderr, "Connecting to %s\n", coordinatorLocator.c_str());
-    RamCloud ramcloud(&context, coordinatorLocator.c_str());
+    RamCloud ramcloud(&context, coordinatorLocator.c_str(),
+            optionParser.options.getClusterName().c_str());
 
     // Get server parameters...
     // Perhaps this (and creating the distribution?) should be pushed into
@@ -1943,8 +1948,8 @@ try
     }
 
     if (verifyObjects) {
-        // TODO(rumble): add something that reads all objects and verifies that we
-        // we stored what we expected
+        // TODO(rumble): add something that reads all objects and verifies that
+        // we we stored what we expected (i.e. the contents)
         uint64_t key = 0;
         uint64_t totalBytes = 0;
         while (1) {

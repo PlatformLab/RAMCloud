@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2012 Stanford University
+/* Copyright (c) 2010-2013 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -71,25 +71,25 @@ SingleFileStorage::Frame::Frame(SingleFileStorage* storage, size_t frameIndex)
     , storage(storage)
     , frameIndex(frameIndex)
     , buffer(NULL, storage->bufferDeleter)
-    , isOpen()
-    , isClosed()
-    , sync()
-    , appendedToByCurrentProcess()
-    , appendedLength()
-    , committedLength()
+    , isOpen(false)
+    , isClosed(false)
+    , sync(false)
+    , appendedToByCurrentProcess(false)
+    , appendedLength(0)
+    , committedLength(0)
     , appendedMetadata(Memory::xmemalign(HERE,
                                          BUFFER_ALIGNMENT,
                                          METADATA_SIZE),
                        std::free)
-    , appendedMetadataLength()
-    , appendedMetadataVersion()
-    , committedMetadataVersion()
-    , loadRequested()
-    , performingIo()
+    , appendedMetadataLength(0)
+    , appendedMetadataVersion(0)
+    , committedMetadataVersion(0)
+    , loadRequested(false)
+    , performingIo(false)
     , epoch(1)
     , scheduledInEpoch(0)
-    , testingHadToWaitForBufferOnLoad()
-    , testingHadToWaitForSyncOnLoad()
+    , testingHadToWaitForBufferOnLoad(false)
+    , testingHadToWaitForSyncOnLoad(false)
 {
     memset(appendedMetadata.get(), '\0', METADATA_SIZE);
 }
@@ -275,7 +275,7 @@ SingleFileStorage::Frame::unload()
  * or the master has crashed.
  *
  * \param source
- *      Buffer contained the data to be copied into the frame.
+ *      Buffer containing the data to be copied into the frame.
  * \param sourceOffset
  *      Offset into \a source where data should be copied from.
  * \param length
@@ -307,7 +307,7 @@ SingleFileStorage::Frame::append(Buffer& source,
     }
     if (loadRequested) {
         LOG(NOTICE, "Tried to append to a frame but it was already enqueued "
-            "for load for recovery; calling master is probabaly already dead");
+            "for load for recovery; calling master is probably already dead");
         throw BackupBadSegmentIdException(HERE);
     }
     // Three conditions because overflow is possible on addition.
@@ -331,7 +331,13 @@ SingleFileStorage::Frame::append(Buffer& source,
     source.copy(downCast<uint32_t>(sourceOffset),
                 downCast<uint32_t>(length),
                 static_cast<char*>(buffer.get()) + destinationOffset);
-    appendedLength = destinationOffset + length;
+
+    // Update appendedLength, but only if it would get larger (there are
+    // situations where older data could get rewritten, such as a delayed
+    // RPC or RAM-573).
+    if ((destinationOffset + length) > appendedLength) {
+        appendedLength = destinationOffset + length;
+    }
 
     if (metadata) {
         appendedMetadataLength = metadataLength;
@@ -443,6 +449,20 @@ SingleFileStorage::Frame::free()
     storage->freeMap[frameIndex] = 1;
 }
 
+// See BackupStorage.h for documentation.
+void
+SingleFileStorage::Frame::reopen(size_t length)
+{
+    assert(!isOpen && !isClosed);
+    load();
+
+    Lock _(storage->mutex);
+    appendedLength = length;
+    committedLength = length;
+    isOpen = true;
+    loadRequested = false;
+}
+
 // - private -
 
 /**
@@ -464,13 +484,14 @@ SingleFileStorage::Frame::free()
 void
 SingleFileStorage::Frame::open(bool sync)
 {
-    // Be careful, if this method throws an exception the storage layer
-    // above will leak the count of a non-volatile buffer.
     Lock _(storage->mutex);
     if (isOpen || isClosed)
         return;
     buffer = storage->allocateBuffer();
-    // nonVolatileBuffersInUse already incremented in caller.
+
+    // Be careful, if this method throws an exception the storage layer
+    // above will leak the count of a non-volatile buffer.
+    storage->nonVolatileBuffersInUse++;
     isOpen = true;
     isClosed = false;
     this->sync = sync;
@@ -587,8 +608,7 @@ SingleFileStorage::Frame::performRead(Lock& lock)
 {
     assert(loadRequested);
     BufferPtr buffer = storage->allocateBuffer();
-    // Don't increment nonVolatileBuffersInUse, this will eventually be from
-    // a normal, DRAM buffer. No need to read read-only data into NVRAM.
+    storage->nonVolatileBuffersInUse++;
     const size_t frameStart = storage->offsetOfFrame(frameIndex);
 
     if (testingSkipRealIo) {
@@ -766,7 +786,7 @@ SingleFileStorage::SingleFileStorage(size_t segmentSize,
     , fd(-1)
     , usingDevNull(filePath != NULL && string(filePath) == "/dev/null")
     , tempFilePath()
-    , nonVolatileBuffersInUse()
+    , nonVolatileBuffersInUse(0)
     , maxNonVolatileBuffers(maxNonVolatileBuffers)
     , bufferDeleter(this)
     , buffers()
@@ -903,7 +923,7 @@ SingleFileStorage::FrameRef
 SingleFileStorage::open(bool sync)
 {
     Lock lock(mutex);
-    if (nonVolatileBuffersInUse == maxNonVolatileBuffers) {
+    if (nonVolatileBuffersInUse >= maxNonVolatileBuffers) {
         // Force the master to find some place else and/or backoff.
         LOG(DEBUG, "Master tried to open a storage frame but too many "
             "frames already buffered to accept it; rejecting");
@@ -918,7 +938,6 @@ SingleFileStorage::open(bool sync)
             throw BackupOpenRejectedException(HERE);
         }
     }
-    ++nonVolatileBuffersInUse;
     lastAllocatedFrame = next;
     size_t frameIndex = next;
     assert(freeMap[frameIndex] == 1);

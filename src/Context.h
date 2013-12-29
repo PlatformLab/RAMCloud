@@ -16,8 +16,6 @@
 #ifndef RAMCLOUD_CONTEXT_H
 #define RAMCLOUD_CONTEXT_H
 
-#include <Client/Client.h>
-
 #include "Common.h"
 
 namespace RAMCloud {
@@ -29,7 +27,7 @@ class CoordinatorServerList;
 class CoordinatorService;
 class CoordinatorSession;
 class Dispatch;
-class LogCabinHelper;
+class ExternalStorage;
 class Logger;
 class MasterRecoveryManager;
 class MasterService;
@@ -88,6 +86,10 @@ class Context {
     // Variables below this point are used only in servers.  They are
     // always NULL on clients.
 
+    // Valid only on the coordinator; used to save coordinator state so it
+    // can be recovered after coordinator crashes.
+    ExternalStorage* externalStorage;
+
     // Master-related information for this server. NULL if this process
     // is not running a RAMCloud master. Owned elsewhere; not freed by this
     // class.
@@ -123,28 +125,6 @@ class Context {
     // NULL except on coordinators. Owned elsewhere;
     // not freed by this class.
     MasterRecoveryManager* recoveryManager;
-
-    // Handle to the log interface provided by LogCabin.
-    // NULL except on coordinators. Owned elsewhere;
-    // not freed by this class.
-    LogCabin::Client::Log* logCabinLog;
-
-    // Handle to a helper class that provides higher level abstractions
-    // to interact with LogCabin.
-    // NULL except on coordinators. Owned elsewhere;
-    // not freed by this class.
-    LogCabinHelper* logCabinHelper;
-
-    // EntryId of the last entry appended to log by an instance of
-    // coordinator. This is used for safe appends, i.e., appends that are
-    // conditional on last entry being appended by this entry, that helps
-    // ensure leadership.
-    // NULL except on coordinators. Owned elsewhere;
-    // not freed by this class.
-    // TODO(ankitak): This should not be here. I will have one per
-    // instance of coordinator, while if it is here, then it will
-    // be shared by all instances.
-    LogCabin::Client::EntryId* expectedEntryId;
 
   PRIVATE:
     void destroy();

@@ -90,7 +90,7 @@ CleanableSegmentManager::getSegmentToCompact()
 }
 
 void
-CleanableSegmentManager::getSegmentsToClean(LogSegmentVector& outSegmentsToClean)
+CleanableSegmentManager::getSegmentsToClean(LogSegmentVector& outSegsToClean)
 {
     Lock guard(lock);
     update(guard);
@@ -102,7 +102,8 @@ CleanableSegmentManager::getSegmentsToClean(LogSegmentVector& outSegmentsToClean
 
     uint32_t totalSeglets = 0;
     uint64_t totalLiveBytes = 0;
-    uint64_t maximumLiveBytes = LogCleaner::MAX_LIVE_SEGMENTS_PER_DISK_PASS * segmentSize;
+    uint64_t maximumLiveBytes = LogCleaner::MAX_LIVE_SEGMENTS_PER_DISK_PASS *
+                                segmentSize;
 
     foreach (LogSegment& candidate, costBenefitCandidates) {
         int utilization = candidate.getMemoryUtilization();
@@ -115,15 +116,15 @@ CleanableSegmentManager::getSegmentsToClean(LogSegmentVector& outSegmentsToClean
 
         totalLiveBytes += liveBytes;
         totalSeglets += candidate.getSegletsAllocated();
-        outSegmentsToClean.push_back(&candidate);
+        outSegsToClean.push_back(&candidate);
         segmentsToCleaner++;
     }
 
-    foreach (LogSegment* s, outSegmentsToClean)
+    foreach (LogSegment* s, outSegsToClean)
         eraseFromAll(s, guard);
 
     TEST_LOG("%lu segments selected with %u allocated segments",
-        outSegmentsToClean.size(), totalSeglets);
+        outSegsToClean.size(), totalSeglets);
 }
 
 uint64_t
@@ -135,13 +136,13 @@ CleanableSegmentManager::computeCompactionCostBenefitScore(LogSegment* segment)
     uint64_t unusedBytes = unusedSeglets * segletSize;
 
     if (liveBytes == 0) {
-        // A segment with no live data that has already been compacted will still
-        // retain one seglet to store the segment's header. That last seglet may
-        // only be freed by the disk cleaner, since recovery relies on information
-        // present in the header to figure out if it has found all log segments.
-        // If we were to ditch it, we could end up writing an empty segment in
-        // response to a backup failure, which would cause future master recovery
-        // to fail.
+        // A segment with no live data that has already been compacted will
+        // still retain one seglet to store the segment's header. That last
+        // seglet may only be freed by the disk cleaner, since recovery relies
+        // on information present in the header to figure out if it has found
+        // all log segments. If we were to ditch it, we could end up writing an
+        // empty segment in response to a backup failure, which would cause
+        // future master recovery to fail.
         assert(segment->getSegletsAllocated() > 0);
         if (segment->getSegletsAllocated() == 1)
             return 0;
@@ -204,7 +205,7 @@ CleanableSegmentManager::update(Lock& guard)
         uint64_t tombstoneScanScore = computeTombstoneScanScore(&segment);
         if (tombstoneScanScore != segment.cachedTombstoneScanScore) {
             erase(tombstoneScanCandidates, segment);
-            segment.cachedTombstoneScanScore = tombstoneScanScore; 
+            segment.cachedTombstoneScanScore = tombstoneScanScore;
             tombstoneScanCandidates.insert(segment);
         }
 
@@ -219,7 +220,7 @@ CleanableSegmentManager::update(Lock& guard)
 
     // Get new candidates from the SegmentManager and insert them into the
     // trees. Update our aggregate statistics as we go.
-    // 
+    //
     // TODO(Steve): It's probably cleaner for SegmentManager to instantiate this
     // class and push new candidates in. That'd simplify SM a little bit by
     // removing one of the segment states (NEWLY_CLEANABLE).
@@ -240,25 +241,6 @@ CleanableSegmentManager::update(Lock& guard)
     }
 
     assert(costBenefitCandidates.size() == compactionCandidates.size());
-
-#if 0
-static uint32_t lastPrint = 0;
-if (WallTime::secondsTimestamp() >= lastPrint + 20) {
-FILE* fp = fopen("/dev/shm/segments", "w");
-uint64_t totalTombBytes = 0;
-uint32_t i = 0;
-foreach (LogSegment& segment, compactionCandidates) {
-uint32_t c = segment.entryCounts[LOG_ENTRY_TYPE_OBJTOMB];
-uint32_t l = segment.entryLengths[LOG_ENTRY_TYPE_OBJTOMB];
-  fprintf(fp, "[%u, %u live, %d %% u, %.0f %% tomb, %u tombs, %.0f%% dead tombs]\n", i, segment.getLiveBytes(), segment.getMemoryUtilization(), 100.0 * (double)l / (segment.getSegletsAllocated() * segletSize), c, 100 * (double)segment.deadEntryLengths[LOG_ENTRY_TYPE_OBJTOMB] / (double)segment.entryLengths[LOG_ENTRY_TYPE_OBJTOMB]);
-totalTombBytes += segment.entryLengths[LOG_ENTRY_TYPE_OBJTOMB];
-i++;
-}
-fprintf(fp, "--> %lu tomb bytes, %.5f%% of memory\n", totalTombBytes, (double)totalTombBytes / (16UL*1024*1024*1024) * 100);
-fclose(fp);
-lastPrint = WallTime::secondsTimestamp();
-}
-#endif
 }
 
 /**
@@ -287,7 +269,7 @@ CleanableSegmentManager::scanSegmentTombstones(Lock& guard)
     // Choose a segment and remove it from the other candidate trees
     // temporarily so we don't have to worry about concurrency. This
     // lets us safely drop the monitor lock while we scan it.
-    LogSegment& s = *tombstoneScanCandidates.begin(); 
+    LogSegment& s = *tombstoneScanCandidates.begin();
     eraseFromAll(&s, guard);
     lock.unlock();
 
@@ -312,7 +294,10 @@ CleanableSegmentManager::scanSegmentTombstones(Lock& guard)
         ObjectTombstone tomb(buffer);
         if (!segmentManager.doesIdExist(tomb.getSegmentId())) {
             deadTombstones++;
-            deadTombstoneLengths += it.getLength() + 2; //XXXXX len in log
+            // TODO(rumble): Magic constant indicates the likely full length
+            // in the log. Should add a static method to Segment that computes
+            // this properly.
+            deadTombstoneLengths += it.getLength() + 2;
         }
     }
 

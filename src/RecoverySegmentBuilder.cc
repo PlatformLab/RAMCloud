@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2012 Stanford University
+/* Copyright (c) 2009-2013 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -27,8 +27,7 @@ namespace RAMCloud {
  * segment each should be a part of, and appends it to the segment.
  *
  * \param buffer
- *      Contiguous region of \a length bytes that contains the replica contents
- *      from which a log digest should be extracted, if one exists.
+ *      Contiguous region of \a length bytes that contains the replica contents.
  * \param length
  *      Bytes which contain replica data starting at \a buffer.
  * \param certificate
@@ -42,11 +41,13 @@ namespace RAMCloud {
  *      The partition ids inside each entry act as an index describing which
  *      recovery segment for a particular replica each object should be placed
  *      in.
+ * \param numPartitions
+ *      Total number of partitions that the replica data will be divided
+ *      among.
  * \param recoverySegments
  *      Array of Segments to which objects will be appended to construct
- *      recovery segments. Guaranteed to have the same number of elements
- *      as the number of partitions (NOT entries) in \a partitions. That is,
- *      there is one more than that highest partition id among \a partitions.
+ *      recovery segments. Guaranteed to have numPartitions elements
+ *      (not the same as the number of entries in \a partitions).
  * \throw SegmentIteratorException
  *      If the metadata of the replica doesn't match up with the certificate.
  *      Either the replica or the certificate is incorrect, corrupt, or
@@ -57,6 +58,7 @@ namespace RAMCloud {
 void
 RecoverySegmentBuilder::build(const void* buffer, uint32_t length,
                               const Segment::Certificate& certificate,
+                              int numPartitions,
                               const ProtoBuf::Tablets& partitions,
                               Segment* recoverySegments)
 {
@@ -92,28 +94,14 @@ RecoverySegmentBuilder::build(const void* buffer, uint32_t length,
             // Copy SAFEVERSION to all the partitions for
             // safeVersion recovery on all recovery masters
             Log::Position position(header->segmentId, it.getOffset());
-            LOG(DEBUG, "Copying SAFEVERSION ");
-            for (int i = 0; i < partitions.tablet_size(); i++) {
-                const ProtoBuf::Tablets::Tablet* partition =
-                        &partitions.tablet(i);
-
-                if (!isEntryAlive(position, partition)) {
-                    LOG(DEBUG, "Skipping SAFEVERSION for partition "
-                        "%u because it appears to have existed prior.",
-                        i);
-                    continue;
-                }
-
-                uint64_t partitionId = partition->user_data();
-                if (!recoverySegments[partitionId].append(type,
-                                                          entryBuffer)) {
+            for (int i = 0; i < numPartitions; i++) {
+                if (!recoverySegments[i].append(type, entryBuffer)) {
                     LOG(WARNING, "Failure appending to a recovery segment "
                         "for a replica of <%s,%lu>",
                         ServerId(header->logId).toString().c_str(),
                         header->segmentId);
                     throw SegmentRecoveryFailedException(HERE);
                 }
-                LOG(DEBUG, "To partition=%u", i);
             }
             continue;
         }
@@ -170,8 +158,8 @@ RecoverySegmentBuilder::build(const void* buffer, uint32_t length,
 }
 
 /**
- * Scan \a buffer for a LogDigest, and, if it exists, replace the contents
- * of \a digestBuffer with it.
+ * Scan \a buffer for a LogDigest and a TableStats::Digest.  If either exists,
+ * replace the contents of \a digestBuffer with it.
  *
  * \param buffer
  *      Contiguous region of \a length bytes that contains the replica contents
@@ -186,18 +174,25 @@ RecoverySegmentBuilder::build(const void* buffer, uint32_t length,
  * \param[out] digestBuffer
  *      Buffer to replace the contents of with a log digest if found. If no
  *      log digest is found the buffer is left unchanged.
+ * \param[out] tableStatsBuffer
+ *      Buffer to replace the contents of with a table stats digest if found. If
+ *      no table stats digest is found the buffer is left unchanged.
  * \return
  *      True if the digest was found and placed in the given buffer, otherwise
- *      false.
+ *      false. The return value will not indicate whether a table stats digest
+ *      was found or returned.
  */
 bool
 RecoverySegmentBuilder::extractDigest(const void* buffer, uint32_t length,
                                       const Segment::Certificate& certificate,
-                                      Buffer* digestBuffer)
+                                      Buffer* digestBuffer,
+                                      Buffer* tableStatsBuffer)
 {
     // If the Segment is malformed somehow, just ignore it. The
     // coordinator will have to deal.
     SegmentIterator it(buffer, length, certificate);
+    bool foundDigest = false;
+    bool foundTableStats = false;
     try {
         it.checkMetadataIntegrity();
     } catch (SegmentIteratorException& e) {
@@ -209,11 +204,19 @@ RecoverySegmentBuilder::extractDigest(const void* buffer, uint32_t length,
         if (it.getType() == LOG_ENTRY_TYPE_LOGDIGEST) {
             digestBuffer->reset();
             it.appendToBuffer(*digestBuffer);
+            foundDigest = true;
+        }
+        if (it.getType() == LOG_ENTRY_TYPE_TABLESTATS) {
+            tableStatsBuffer->reset();
+            it.appendToBuffer(*tableStatsBuffer);
+            foundTableStats = true;
+        }
+        if (foundDigest && foundTableStats) {
             return true;
         }
         it.next();
     }
-    return false;
+    return foundDigest;
 }
 
 // - private -
@@ -236,7 +239,7 @@ RecoverySegmentBuilder::extractDigest(const void* buffer, uint32_t length,
  * from only segments before the head at the time of cleaning. To address
  * this, the master server will roll the log to a new head segment with the
  * largest existing segment identifier and record that as the tablet's minimum
- * offset. 
+ * offset.
  *
  * \param position
  *      Log::Position indicating where this entry occurred in the log. Used to

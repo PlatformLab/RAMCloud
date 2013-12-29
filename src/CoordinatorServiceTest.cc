@@ -28,6 +28,7 @@ namespace RAMCloud {
 
 class CoordinatorServiceTest : public ::testing::Test {
   public:
+    TestLog::Enable logEnabler;
     Context context;
     ServerConfig masterConfig;
     MockCluster cluster;
@@ -37,7 +38,8 @@ class CoordinatorServiceTest : public ::testing::Test {
     ServerId masterServerId;
 
     CoordinatorServiceTest()
-        : context()
+        : logEnabler()
+        , context()
         , masterConfig(ServerConfig::forTesting())
         , cluster(&context)
         , ramcloud()
@@ -79,6 +81,20 @@ class CoordinatorServiceTest : public ::testing::Test {
 
     DISALLOW_COPY_AND_ASSIGN(CoordinatorServiceTest);
 };
+
+TEST_F(CoordinatorServiceTest, dispatch_initNotFinished) {
+    EXPECT_TRUE(service->initFinished);
+    service->initFinished = false;
+    Buffer request, response;
+    Service::Rpc rpc(NULL, &request, &response);
+    string message("no exception");
+    try {
+        service->dispatch(WireFormat::Opcode::ILLEGAL_RPC_TYPE, &rpc);
+    } catch (RetryException& e) {
+        message = e.message;
+    }
+    EXPECT_EQ("coordinator service not yet initialized", message);
+}
 
 TEST_F(CoordinatorServiceTest, createTable_idempotence) {
     EXPECT_EQ(1UL, ramcloud->createTable("duplicate", 1));
@@ -122,6 +138,18 @@ TEST_F(CoordinatorServiceTest, getServerList_backups) {
             getLocators(list));
 }
 
+TEST_F(CoordinatorServiceTest, getRuntimeOption){
+    Buffer value;
+    ramcloud->setRuntimeOption("failRecoveryMasters", "1 2 3");
+    ASSERT_EQ(3u, service->runtimeOptions.failRecoveryMasters.size());
+    ramcloud->getRuntimeOption("failRecoveryMasters", &value);
+    EXPECT_STREQ("1 2 3", service->getString(&value, 0,
+                                            value.getTotalLength()));
+    EXPECT_THROW(ramcloud->getRuntimeOption("optionNotExisting",
+                                            &value),
+                 ObjectDoesntExistException);
+}
+
 TEST_F(CoordinatorServiceTest, getServerList_masters) {
     ServerConfig master2Config = masterConfig;
     master2Config.localLocator = "mock:host=master2";
@@ -153,13 +181,13 @@ TEST_F(CoordinatorServiceTest, getTabletMap) {
 }
 
 TEST_F(CoordinatorServiceTest, setRuntimeOption) {
-    ramcloud->testingSetRuntimeOption("failRecoveryMasters", "1 2 3");
+    ramcloud->setRuntimeOption("failRecoveryMasters", "1 2 3");
     ASSERT_EQ(3u, service->runtimeOptions.failRecoveryMasters.size());
     EXPECT_EQ(1u, service->runtimeOptions.popFailRecoveryMasters());
     EXPECT_EQ(2u, service->runtimeOptions.popFailRecoveryMasters());
     EXPECT_EQ(3u, service->runtimeOptions.popFailRecoveryMasters());
     EXPECT_EQ(0u, service->runtimeOptions.popFailRecoveryMasters());
-    EXPECT_THROW(ramcloud->testingSetRuntimeOption("BAD", "1 2 3"),
+    EXPECT_THROW(ramcloud->setRuntimeOption("BAD", "1 2 3"),
                  ObjectDoesntExistException);
 }
 
@@ -200,8 +228,9 @@ TEST_F(CoordinatorServiceTest, verifyServerFailure) {
     // Case 2: server incommunicado.
     MockTransport mockTransport(&context);
     context.transportManager->registerMock(&mockTransport, "mock2");
+    service->serverList->haltUpdater();
     ServerId deadId = service->serverList->enlistServer(
-                {}, {WireFormat::PING_SERVICE}, 100, "mock2:");
+                {WireFormat::PING_SERVICE}, 100, "mock2:");
     EXPECT_TRUE(service->verifyServerFailure(deadId));
 }
 

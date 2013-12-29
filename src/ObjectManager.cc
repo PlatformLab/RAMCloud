@@ -48,20 +48,25 @@ namespace RAMCloud {
  *      from this ObjectManager. For example, if an object is written and its
  *      tablet is deleted before the object is removed, reads on that object
  *      will fail because the tablet is no longer owned by the master.
+ * \param masterTableMetadata
+ *      Pointer to the master's MasterTableMetadata instance.  This keeps track
+ *      of per table metadata located on this master.
  */
 ObjectManager::ObjectManager(Context* context,
                              ServerId* serverId,
                              const ServerConfig* config,
-                             TabletManager* tabletManager)
+                             TabletManager* tabletManager,
+                             MasterTableMetadata* masterTableMetadata)
     : context(context)
     , config(config)
     , tabletManager(tabletManager)
+    , masterTableMetadata(masterTableMetadata)
     , allocator(config)
     , replicaManager(context, serverId,
                      config->master.numReplicas,
                      config->master.useMinCopysets)
     , segmentManager(context, config, serverId,
-                     allocator, replicaManager)
+                     allocator, replicaManager, masterTableMetadata)
     , log(context, config, this, &segmentManager, &replicaManager)
     , objectMap(config->master.hashTableBytes / HashTable::bytesPerCacheLine())
     , anyWrites(false)
@@ -177,7 +182,8 @@ ObjectManager::writeObject(Key& key,
 
     HashTable::Candidates currentHashTableEntry;
 
-    if (lookup(lock, key, currentType, currentBuffer, 0, &currentReference, &currentHashTableEntry)) {
+    if (lookup(lock, key, currentType, currentBuffer, 0,
+               &currentReference, &currentHashTableEntry)) {
         if (currentType == LOG_ENTRY_TYPE_OBJTOMB) {
             removeIfTombstone(currentReference.toInteger(), this);
         } else {
@@ -254,9 +260,24 @@ ObjectManager::writeObject(Key& key,
 
     TEST_LOG("object: %u bytes, version %lu",
         appends[0].buffer.getTotalLength(), newObject.getVersion());
+
     if (tombstone) {
         TEST_LOG("tombstone: %u bytes, version %lu",
             appends[1].buffer.getTotalLength(), tombstone->getObjectVersion());
+    }
+
+    {
+        uint64_t byteCount = appends[0].buffer.getTotalLength();
+        uint64_t recordCount = 1;
+        if (tombstone) {
+            byteCount += appends[1].buffer.getTotalLength();
+            recordCount += 1;
+        }
+
+        TableStats::increment(masterTableMetadata,
+                              tablet.tableId,
+                              byteCount,
+                              recordCount);
     }
 
     return STATUS_OK;
@@ -396,6 +417,10 @@ ObjectManager::removeObject(Key& key,
         return STATUS_RETRY;
     }
 
+    TableStats::increment(masterTableMetadata,
+                          tablet.tableId,
+                          tombstoneBuffer.getTotalLength(),
+                          1);
     segmentManager.raiseSafeVersion(object.getVersion() + 1);
     log.free(reference);
     remove(lock, key);
@@ -479,7 +504,7 @@ class DelayedIncrementer {
 };
 
 /**
- * Replay the entries within a segment and store the appropriate objects. 
+ * Replay the entries within a segment and store the appropriate objects.
  * This method is used during recovery to replay a portion of a failed
  * master's log. It is also used during tablet migration to receive objects
  * from another master.
@@ -604,6 +629,10 @@ ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it)
                                     recoveryObj,
                                     it.getLength(),
                                     &newObjReference);
+                    TableStats::increment(masterTableMetadata,
+                                          key.getTableId(),
+                                          it.getLength(),
+                                          1);
                 }
 
                 // TODO(steve/ryan): what happens if the log is full? won't an
@@ -671,6 +700,10 @@ ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it)
                     sideLog->append(LOG_ENTRY_TYPE_OBJTOMB,
                                     buffer,
                                     &newTombReference);
+                    TableStats::increment(masterTableMetadata,
+                                          key.getTableId(),
+                                          buffer.getTotalLength(),
+                                          1);
                 }
 
                 // TODO(steve/ryan): append could fail here!
@@ -941,6 +974,13 @@ ObjectManager::relocateObject(Buffer& oldBuffer,
         candidates.setReference(relocator.getNewReference().toInteger());
         return;
     }
+
+    // No reference was found meaning object will be cleaned.  We should update
+    // the stats accordingly.
+    TableStats::decrement(masterTableMetadata,
+                          key.getTableId(),
+                          oldBuffer.getTotalLength(),
+                          1);
 }
 
 /**
@@ -995,6 +1035,12 @@ ObjectManager::relocateTombstone(Buffer& oldBuffer,
         // allocate more memory and retry.
         if (!relocator.append(LOG_ENTRY_TYPE_OBJTOMB, oldBuffer))
             return;
+    } else {
+        // Tombstone will be dropped/"cleaned" so stats should be updated.
+        TableStats::decrement(masterTableMetadata,
+                              tomb.getTableId(),
+                              oldBuffer.getTotalLength(),
+                              1);
     }
 }
 
@@ -1225,7 +1271,7 @@ ObjectManager::removeTombstones()
  * delete themselves when the #objectMap scan is completed which
  * automatically deregisters it from Dispatch.
  *
- * \param objectManager 
+ * \param objectManager
  *      The instance of ObjectManager which owns the #objectMap.
  * \param objectMap
  *      The HashTable which will be purged of tombstones.
@@ -1233,7 +1279,7 @@ ObjectManager::removeTombstones()
 ObjectManager::RemoveTombstonePoller::RemoveTombstonePoller(
                                         ObjectManager* objectManager,
                                         HashTable* objectMap)
-    : Dispatch::Poller(*objectManager->context->dispatch, "TombstoneRemover")
+    : Dispatch::Poller(objectManager->context->dispatch, "TombstoneRemover")
     , currentBucket(0)
     , passes(0)
     , lastReplaySegmentCount(0)
@@ -1277,6 +1323,58 @@ ObjectManager::RemoveTombstonePoller::poll()
         currentBucket = 0;
         passes++;
     }
+}
+
+/**
+ * Produce a human-readable description of the contents of a segment.
+ * Intended primarily for use in unit tests.
+ *
+ * \param segment
+ *       Segment whose contents should be dumped.
+ *
+ * \result
+ *       A string describing the contents of the segment
+ */
+string
+ObjectManager::dumpSegment(Segment* segment)
+{
+    const char* separator = "";
+    string result;
+    SegmentIterator it(*segment);
+    while (!it.isDone()) {
+        LogEntryType type = it.getType();
+        if (type == LOG_ENTRY_TYPE_OBJ) {
+            Buffer buffer;
+            it.appendToBuffer(buffer);
+            Object object(buffer);
+            result += format("%sobject at offset %u, length %u with tableId "
+                    "%lu, key '%.*s'",
+                    separator, it.getOffset(), it.getLength(),
+                    object.getTableId(), object.getKeyLength(),
+                    static_cast<const char*>(object.getKey()));
+        } else if (type == LOG_ENTRY_TYPE_OBJTOMB) {
+            Buffer buffer;
+            it.appendToBuffer(buffer);
+            ObjectTombstone tombstone(buffer);
+            result += format("%stombstone at offset %u, length %u with tableId "
+                    "%lu, key '%.*s'",
+                    separator, it.getOffset(), it.getLength(),
+                    tombstone.getTableId(),
+                    tombstone.getKeyLength(),
+                    static_cast<const char*>(tombstone.getKey()));
+        } else if (type == LOG_ENTRY_TYPE_SAFEVERSION) {
+            Buffer buffer;
+            it.appendToBuffer(buffer);
+            ObjectSafeVersion safeVersion(buffer);
+            result += format("%ssafeVersion at offset %u, length %u with "
+                    "version %lu",
+                    separator, it.getOffset(), it.getLength(),
+                    safeVersion.getSafeVersion());
+        }
+        it.next();
+        separator = " | ";
+    }
+    return result;
 }
 
 } //enamespace RAMCloud

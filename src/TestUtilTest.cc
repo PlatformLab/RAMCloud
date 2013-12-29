@@ -63,6 +63,10 @@ TEST_F(TestUtilTest, toString_stringNotTerminated) {
     EXPECT_EQ("abcde", TestUtil::toString(&b));
 }
 
+TEST(CoreStringUtilTest, toString_templated) {
+    EXPECT_EQ("3", TestUtil::toString(3));
+}
+
 TEST_F(TestUtilTest, bufferToDebugString) {
     Buffer b;
     b.append("abc\nxyz", 7);

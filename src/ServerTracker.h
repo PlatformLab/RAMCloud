@@ -1,4 +1,4 @@
-/* Copyright (c) 2012 Stanford University
+/* Copyright (c) 2012-2013 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -25,17 +25,16 @@
 #include <queue>
 
 #include "Common.h"
-#include "CoordinatorServerList.h"
+#include "AbstractServerList.h"
 #include "ServerId.h"
 #include "SpinLock.h"
-#include "ServerList.h"
 #include "Tub.h"
 #include "TransportManager.h"
 
 namespace RAMCloud {
 
 /**
- * The two possible events that could be associated with a
+ * The possible events that could be associated with a
  * ServerTracker<T>::ServerChange event object.
  */
 enum ServerChangeEvent {
@@ -94,22 +93,30 @@ class ServerTrackerInterface {
  * concurrency issues while providing a convenient way to associate information
  * with a ServerId that is (or was recently) active.
  *
- * Note that ServerTracker is <b>not</b> thread-safe. Either use a separate
- * tracker for each thread, or serialize access to the object with a lock or
- * other synchronization primitive.
+ * This class provides limited thread-safety. It is safe to invoke
+ * enqueueChanges in any number of threads and all the other methods in
+ * a single other thread. However, calls to methods such as getLocator are
+ * not safe in the presence of concurrent calls to getChanges.
  */
 template<typename T>
 class ServerTracker : public ServerTrackerInterface {
   PUBLIC:
     /**
-     * Interface of callbacks which can be invoked whenever there is an upcoming
-     * change to the list. trackerChangedEnqueued() will execute in the context of
-     * the ServerList that has fed us the event and should be extremely efficient
-     * so as to not hold up  delivery of the same or future events to other
-     * ServerTrackers.
+     * To use a ServerTracker, a client creates a subclass of this
+     * class, which is used to notify the client of changes to the
+     * server list.
      */
     class Callback {
       public:
+        /**
+         * This method is defined in a subclass corresponding to a
+         * ServerTracker client; it is invoked to indicate that there are
+         * one or more pending changes to the tracker (i.e., getChange will
+         * return true). This method executes in the context of the ServerList
+         * feeding us the event, so it must be extremely efficient so as not
+         * to hold up delivery of events to other Server Trackers (e.g., it
+         * must not invoke an RPC).
+         */
         virtual void trackerChangesEnqueued() = 0;
         virtual ~Callback() {};
     };
@@ -125,6 +132,7 @@ class ServerTracker : public ServerTrackerInterface {
      */
     explicit ServerTracker(Context* context)
         : ServerTrackerInterface()
+        , mutex()
         , context(context)
         , parent(NULL)
         , serverList()
@@ -155,6 +163,7 @@ class ServerTracker : public ServerTrackerInterface {
     explicit ServerTracker(Context* context,
                            Callback* eventCallback)
         : ServerTrackerInterface()
+        , mutex()
         , context(context)
         , parent(NULL)
         , serverList()
@@ -186,6 +195,8 @@ class ServerTracker : public ServerTrackerInterface {
     void
     enqueueChange(const ServerDetails& server, ServerChangeEvent event)
     {
+        Lock lock(mutex);
+
         // Make sure the server status is consistent with the event being
         // enqueued.
         assert((event == SERVER_ADDED &&
@@ -194,8 +205,7 @@ class ServerTracker : public ServerTrackerInterface {
                 server.status == ServerStatus::CRASHED) ||
                (event == SERVER_REMOVED &&
                 server.status == ServerStatus::REMOVE));
-
-        changes.addChange(server, event);
+        changes.push(ServerChange(server, event));
     }
 
     /**
@@ -208,7 +218,8 @@ class ServerTracker : public ServerTrackerInterface {
     void
     fireCallback()
     {
-        // Fire the callback to notify that the queue has a new entry.
+        // Fire the callback to notify that the queue has one or more
+        // new entries.
         if (eventCallback)
             eventCallback->trackerChangesEnqueued();
     }
@@ -220,7 +231,8 @@ class ServerTracker : public ServerTrackerInterface {
     bool
     hasChanges()
     {
-        return changes.hasChanges();
+        Lock lock(mutex);
+        return !changes.empty();
     }
 
     /**
@@ -251,28 +263,24 @@ class ServerTracker : public ServerTrackerInterface {
      *   }
      *
      * To use this method safely here are a few properties and warnings:
-     * 1) SERVER_ADDED can happen more than once for a single server; it
+     * 1) This method always reports events for a server in the order
+     *    SERVER_ADDED, SERVER_CRASHED, SERVER_REMOVED; each event
+     *    will be reported for server over its lifetime. SERVER_CRASHED and
+     *    SERVER_REMOVED will each be reported exactly once.
+     * 2) SERVER_ADDED can happen more than once for a single server; it
      *    is used to notify callers that some properties of the server has
      *    changed (for example, the replicationId has changed). This means
      *    that it is *important* that the pointer stored in the tracker
-     *    is changed before allocating space and storing the pointer in it.
+     *    is checked before allocating space and storing the pointer in it.
      *    Otherwise, if a server's details are modified, space leaks or
      *    worse may occur.
-     * 2) SERVER_CRASHED will *always* happen, exactly once, preceding a
-     *    SERVER_REMOVED. This means, for example, the pointer in the tracker
-     *    can be reliably freed on either event. It also means it is safe to
-     *    just listen to one or the other event if only one is of interest.
      * 3) There is one extremely subtle scenario which only impacts new
      *    server enlistment and server which "replace" others in the cluster.
      *    The are some complicated ordering constraints that must be enforced
      *    on events to ensure that backups don't accidentally discard replicas
      *    prematurely. See ServerList::applyServerList() for that sadness.
-     *
-     * Word of warning: these properties are actually *not* enforced by the
-     * tracker code or the server list code. These properties should hold as
-     * a result of careful construction of the coordinator and coordinator
-     * server list code. So, yeah... Hopefully by the time you read this the
-     * things I wrote will still be true.
+     *    This property is enforced by other code in RAMCloud, not this
+     *    class.
      *
      * \param[out] server
      *      Details about the server that was added, changed, crashed, removed
@@ -287,18 +295,17 @@ class ServerTracker : public ServerTrackerInterface {
     bool
     getChange(ServerDetails& server, ServerChangeEvent& event)
     {
+        Lock lock(mutex);
         if (lastRemovedIndex != static_cast<uint32_t>(-1)) {
-            if (serverList[lastRemovedIndex].pointer != NULL) {
+            if ((serverList[lastRemovedIndex].pointer != NULL)
+                    && !testing_avoidGetChangeAssertion) {
                 // If this trips, then you're not clearing the pointer you
                 // stored with the last ServerId that was removed. This
                 // exists solely to ensure that you aren't leaking anything.
-                RAMCLOUD_LOG(WARNING,
-                    "User of this ServerTracker did not NULL out "
-                    "previous pointer for index %u (ServerId %s)!",
-                    lastRemovedIndex,
+                RAMCLOUD_DIE("User of this ServerTracker did not NULL out "
+                    "previous pointer for server %s",
                     serverList[lastRemovedIndex].server.serverId.
                     toString().c_str());
-                assert(testing_avoidGetChangeAssertion);
             }
 
             // Blank out details about the server and it extra state.
@@ -307,35 +314,87 @@ class ServerTracker : public ServerTrackerInterface {
             lastRemovedIndex = -1;
         }
 
-        if (!changes.hasChanges())
-            return false;
+        // This loop processes one event in each iteration, and normally
+        // executes only one iteration; additional iterations are
+        // required only if there are remove events that we discard without
+        // returning.
+        while (1) {
+            if (changes.empty())
+                return false;
 
-        ServerChange change = changes.getChange();
-        uint32_t index = change.server.serverId.indexNumber();
+            ServerChange* change = &changes.front();
+            uint32_t index = change->server.serverId.indexNumber();
 
-        // Resizing may cause the vector to allocate new internal space,
-        // meaning that any references into it may be invalidated after
-        // this statement!
-        if (index >= serverList.size())
-            serverList.resize(index + 1);
+            // Resizing may cause the vector to allocate new internal space,
+            // meaning that any references into it may be invalidated after
+            // this statement!
+            if (index >= serverList.size())
+                serverList.resize(index + 1);
+            ServerDetailsWithTPtr* slot = &serverList[index];
+            event = change->event;
 
-        if (change.event == SERVER_ADDED) {
-            serverList[index].server = change.server;
-            numberOfServers++;
-        } else if (change.event == SERVER_CRASHED) {
-            serverList[index].server = change.server;
-        } else if (change.event == SERVER_REMOVED) {
-            lastRemovedIndex = index;
-            assert(numberOfServers > 0);
-            numberOfServers--;
-        } else {
-            assert(0);
+            // The code below must handle cases where a crashed or removed
+            // event arrives without the preceding event(s) (this can happen
+            // during cold starts, for example). The solution is to synthesize
+            // missing events.
+            if (event == SERVER_ADDED) {
+                if (slot->server.status == ServerStatus::CRASHED) {
+                    goto error;
+                }
+                slot->server = change->server;
+                changes.pop();
+                numberOfServers++;
+            } else if (event == SERVER_CRASHED) {
+                if (slot->server.status == ServerStatus::UP) {
+                    // This is the expected case.
+                    slot->server = change->server;
+                    changes.pop();
+                } else if (slot->server.status == ServerStatus::REMOVE) {
+                    // Synthesize a SERVER_ADDED event and retain the CRASHED
+                    // event for the next call.
+                    slot->server = change->server;
+                    slot->server.status = ServerStatus::UP;
+                    event = SERVER_ADDED;
+                    numberOfServers++;
+                } else {
+                    // Duplicate crash events shouldn't happen.
+                    goto error;
+                }
+            } else if (event == SERVER_REMOVED) {
+                if (slot->server.status == ServerStatus::UP) {
+                    // Synthesize a SERVER_CRASHED event and retain the REMOVED
+                    // event for the next call.
+                    slot->server = change->server;
+                    slot->server.status = ServerStatus::CRASHED;
+                    event = SERVER_CRASHED;
+                } else if (slot->server.status == ServerStatus::CRASHED) {
+                    // This is the normal case.
+                    slot->server = change->server;
+                    changes.pop();
+                    lastRemovedIndex = index;
+                    assert(numberOfServers > 0);
+                    numberOfServers--;
+                } else {
+                    // We have never seen anything about the server before, so
+                    // we can just ignore the remove event (no need to create
+                    // the server and then immediately delete it again).
+                    changes.pop();
+                    continue;
+                }
+            } else {
+                RAMCLOUD_DIE("Unknown event type %d", static_cast<int>(event));
+            }
+            server = slot->server;
+            return true;
+
+          error:
+            RAMCLOUD_DIE("Consistency error between event (server %s, "
+                    "status %s) and slot (server %s, status %s)",
+                    change->server.serverId.toString().c_str(),
+                    eventString(change->event),
+                    slot->server.serverId.toString().c_str(),
+                    AbstractServerList::toString(slot->server.status).c_str());
         }
-
-        server = change.server;
-        event = change.event;
-
-        return true;
     }
 
     /**
@@ -348,7 +407,7 @@ class ServerTracker : public ServerTrackerInterface {
      * Internally, this method chooses an entry at random and checks to see
      * if it matches the criteria, if not it tries again.  Eventually it
      * gives up if it cannot find a matching server.  When the list is
-     * empty or possiblity just sparse this method will return an invalid id.
+     * empty or possibly just sparse this method will return an invalid id.
      * We should switch to something more efficient if this probabilistic
      * approach doesn't work well.
      *
@@ -377,12 +436,6 @@ class ServerTracker : public ServerTrackerInterface {
                     serverList[i].server.services.has(service))
                     return serverList[i].server.serverId;
             }
-            RAMCLOUD_LOG(WARNING,
-                         "Couldn't randomly find a suitable server with "
-                         "requested services; perhaps the will ServerList "
-                         "get updated with new server entries, "
-                         "or perhaps you might have just been unlucky, "
-                         "and you should try again.");
             return ServerId(/* invalid id */);
         }
 
@@ -479,7 +532,7 @@ class ServerTracker : public ServerTrackerInterface {
 
     /**
      * Return a human-readable string representation of the contents of
-     * the tracker.
+     * the tracker. Useful for unit tests, among other things.
      *
      * \return
      *      The string representing the contents of the tracker.
@@ -526,6 +579,22 @@ class ServerTracker : public ServerTrackerInterface {
         return result;
     }
 
+    /**
+     * Returns a human-readable string describing the argument;
+     * intended for testing and logging.
+     * \param event
+     *     Event of interest.
+     */
+    static const char*
+    eventString(ServerChangeEvent event) {
+        switch (event) {
+            case SERVER_ADDED: return "SERVER_ADDED";
+            case SERVER_CRASHED: return "SERVER_CRASHED";
+            case SERVER_REMOVED: return "SERVER_REMOVED";
+        }
+        return "??";
+    }
+
   PRIVATE:
     /**
      * Method used by a parent AbstractServerList to  set the parent pointer
@@ -539,9 +608,7 @@ class ServerTracker : public ServerTrackerInterface {
         this->parent = parent;
     }
     /**
-     * A ServerChange represents a single addition or removal of a server
-     * in the system. It's only used to logically group ServerIds and
-     * ServerChangeEvents in the ChangeQueue (defined below).
+     * A ServerChange represents a single event.
      */
     class ServerChange {
       PUBLIC:
@@ -555,68 +622,8 @@ class ServerTracker : public ServerTrackerInterface {
         /// Details of the server which was added to or removed from the system.
         ServerDetails server;
 
-        /// Event type: either addition or removal.
+        /// Event type.
         ServerChangeEvent event;
-    };
-
-    /**
-     * A ChangeQueue is used to communicate additions and removals from a
-     * ServerList to some consumer. It is used by ServerTrackers to have
-     * changes propagated from the master ServerList.
-     *
-     * The queue is protected by a spinlock to allow concurrent access by
-     * the ServerList (producer) and client code (consumer).
-     */
-    class ChangeQueue {
-      PUBLIC:
-        ChangeQueue() : changes(), vectorLock() {}
-
-        /**
-         * Add the given change event for the given server to the queue.
-         */
-        void
-        addChange(const ServerDetails& server,
-                  ServerChangeEvent event)
-        {
-            std::lock_guard<SpinLock> lock(vectorLock);
-            changes.push(ServerChange(server, event));
-        }
-
-        /**
-         * Obtain the next change event from the queue.
-         *
-         * \throw Exception
-         *      An Exception is thrown if there are no more elements
-         *      on the queue.
-         */
-        ServerChange
-        getChange()
-        {
-            std::lock_guard<SpinLock> lock(vectorLock);
-            if (changes.empty())
-                throw Exception(HERE, "ChangeQueue is empty - cannot dequeue!");
-            ServerChange ret = changes.front();
-            changes.pop();
-            return ret;
-        }
-
-        /**
-         * Returns true if there are changes to be obtained via #getChange(),
-         * otherwise returns false is there are none.
-         */
-        bool
-        hasChanges()
-        {
-            std::lock_guard<SpinLock> lock(vectorLock);
-            return !changes.empty();
-        }
-
-      PRIVATE:
-        /// Fifo queue of changes to cluster membership.
-        std::queue<ServerChange> changes;
-
-        /// Lock to protect the queue from concurrent access.
-        SpinLock vectorLock;
     };
 
     /**
@@ -642,6 +649,11 @@ class ServerTracker : public ServerTrackerInterface {
         T* pointer;
     };
 
+    /// Used to synchronize calls to enqueueChange with calls to getChange.
+    /// Other methods of the class are unprotected and not thread-safe.
+    SpinLock mutex;
+    typedef std::lock_guard<SpinLock> Lock;
+
     /// Shared RAMCloud information.
     Context* context;
 
@@ -660,7 +672,7 @@ class ServerTracker : public ServerTrackerInterface {
     std::vector<ServerDetailsWithTPtr> serverList;
 
     /// Queue of list membership changes.
-    ChangeQueue changes;
+    std::queue<ServerChange> changes;
 
     /// Previous change index. This is set when a SERVER_REMOVE event is pulled
     /// via #getChange(). On the next #getChange() invocation, we check to see

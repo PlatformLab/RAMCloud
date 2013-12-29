@@ -119,23 +119,35 @@ enumerateBucket(uint64_t reference, void* cookie)
  *      The objects to append.
  * \param maxBytes
  *      The maximum number of bytes to append.
+ * \param keysOnly
+ *      False means that full objects are returned, containing both keys
+ *      and data. True means that the returned objects have
+ *      been truncated so that the object data (normally the last
+ *      field of the object) is omitted.       
  */
 static int64_t
 appendObjectsToBuffer(Log& log,
                       Buffer* buffer,
                       std::vector<Log::Reference>& references,
-                      uint32_t maxBytes)
+                      uint32_t maxBytes, bool keysOnly)
 {
     for (uint32_t index = 0; index < references.size(); index++) {
         Buffer objectBuffer;
         log.getEntry(references[index], objectBuffer);
+
+        Object object(objectBuffer);
         uint32_t length = objectBuffer.getTotalLength();
+        if (keysOnly) {
+            uint32_t dataLength = object.getDataLength();
+            length -= dataLength;
+        }
+
         if (buffer->getTotalLength() + sizeof(length) + length > maxBytes) {
             return index;
         }
 
         new(buffer, APPEND) uint32_t(length);
-        Buffer::Iterator it(objectBuffer, 0, objectBuffer.getTotalLength());
+        Buffer::Iterator it(objectBuffer, 0, length);
         while (!it.isDone()) {
             buffer->append(it.getData(), it.getLength());
             it.next();
@@ -202,6 +214,11 @@ class ObjectHashComparator {
  *
  * \param tableId
  *      The table containing the tablet being enumerated.
+ * \param keysOnly
+ *      False means that full objects are returned, containing both keys
+ *      and data. True means that the returned objects have
+ *      been truncated so that the object data (normally the last
+ *      field of the object) is omitted.
  * \param requestedTabletStartHash
  *      The start hash of the tablet as requested by the client.
  * \param actualTabletStartHash
@@ -223,6 +240,7 @@ class ObjectHashComparator {
  *      The maximum number of bytes of objects to be returned.
  */
 Enumeration::Enumeration(uint64_t tableId,
+                         bool keysOnly,
                          uint64_t requestedTabletStartHash,
                          uint64_t actualTabletStartHash,
                          uint64_t actualTabletEndHash,
@@ -232,6 +250,7 @@ Enumeration::Enumeration(uint64_t tableId,
                          HashTable& objectMap,
                          Buffer& payload, uint32_t maxPayloadBytes)
     : tableId(tableId)
+    , keysOnly(keysOnly)
     , requestedTabletStartHash(requestedTabletStartHash)
     , actualTabletStartHash(actualTabletStartHash)
     , actualTabletEndHash(actualTabletEndHash)
@@ -285,7 +304,7 @@ Enumeration::complete()
         bucketStart = payload.getTotalLength();
         objectMap.forEachInBucket(enumerateBucket, cookie, bucketIndex);
         int64_t overflow = appendObjectsToBuffer(log, &payload, objectRefs,
-                                                 maxPayloadBytes);
+                                                 maxPayloadBytes, keysOnly);
         payloadFull = overflow >= 0;
     }
 
@@ -301,7 +320,7 @@ Enumeration::complete()
             std::sort(objectRefs.begin(), objectRefs.end(), comparator);
 
             int64_t overflow = appendObjectsToBuffer(log, &payload, objectRefs,
-                                                     maxPayloadBytes);
+                                                     maxPayloadBytes, keysOnly);
             if (overflow >= 0) {
                 LogEntryType type;
                 Buffer buffer;

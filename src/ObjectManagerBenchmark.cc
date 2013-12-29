@@ -84,7 +84,7 @@ class ObjectManagerBenchmark {
         (*stopCount)++;
     }
 
-    double 
+    double
     run(uint32_t numSegments, uint32_t dataBytes, uint32_t numThreads)
     {
         tabletManager.addTablet(0, 0, ~0UL, TabletManager::NORMAL);
@@ -140,7 +140,8 @@ class ObjectManagerBenchmark {
             delete threads[i];
         }
 
-        return (double)numReads * numThreads / Cycles::toSeconds(stop - start);
+        return static_cast<double>(numReads * numThreads /
+                                   Cycles::toSeconds(stop - start));
     }
 
     DISALLOW_COPY_AND_ASSIGN(ObjectManagerBenchmark);

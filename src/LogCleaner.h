@@ -165,7 +165,7 @@ class LogCleaner {
       public:
         enum CleaningTask { COMPACT_MEMORY, CLEAN_DISK, SLEEP };
 
-        Balancer(LogCleaner* cleaner)
+        explicit Balancer(LogCleaner* cleaner)
             : cleaner(cleaner)
             , compactionFailures(0)
             , compactionFailuresHandled(0)
@@ -209,8 +209,8 @@ class LogCleaner {
     static void cleanerThreadEntry(LogCleaner* logCleaner, Context* context);
     int getLiveObjectUtilization();
     int getUndeadTombstoneUtilization();
-    bool checkIfCleaningNeeded(CleanerThreadState*);
-    bool checkIfDiskCleaningNeeded(CleanerThreadState*);
+    bool checkIfCleaningNeeded(CleanerThreadState* thread);
+    bool checkIfDiskCleaningNeeded(CleanerThreadState* thread);
     void doWork(CleanerThreadState* state);
     void doMemoryCleaning();
     void doDiskCleaning();

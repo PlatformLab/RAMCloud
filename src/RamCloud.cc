@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2012 Stanford University
+/* Copyright (c) 2010-2013 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -32,20 +32,34 @@ static RejectRules defaultRejectRules;
 /**
  * Construct a RamCloud for a particular cluster.
  *
- * \param serviceLocator
- *      The service locator for the coordinator.
- *      See \ref ServiceLocatorStrings.
+ * \param locator
+ *      Describes how to locate the coordinator. It can have either of
+ *      two forms. The preferred form is a locator for external storage
+ *      that contains the cluster configuration information (such as a
+ *      string starting with "zk:", which will be passed to the ZooStorage
+ *      constructor). With this form, sessions can automatically be
+ *      redirected to a new coordinator if the current one crashes. The
+ *      second form is deprecated, but is retained for testing. In this
+ *      form, the location is specified as a RAMCloud service locator
+ *      for a specific coordinator. With this form it is not possible to
+ *      roll over to a different coordinator if a given one fails; we
+ *      will have to wait for the specified coordinator to restart.
+ * \param clusterName
+ *      Name of the current cluster. Used to allow independent operation
+ *      of several clusters sharing many of the same resources.
+ *
  * \exception CouldntConnectException
  *      Couldn't connect to the server.
  */
-RamCloud::RamCloud(const char* serviceLocator)
-    : coordinatorLocator(serviceLocator)
+RamCloud::RamCloud(const char* locator, const char* clusterName)
+    : coordinatorLocator(locator)
     , realClientContext()
     , clientContext(realClientContext.construct(false))
     , status(STATUS_OK)
     , objectFinder(clientContext)
 {
-    clientContext->coordinatorSession->setLocation(serviceLocator);
+    clientContext->coordinatorSession->setLocation(locator,
+            clusterName);
 }
 
 /**
@@ -53,14 +67,16 @@ RamCloud::RamCloud(const char* serviceLocator)
  * useful for testing and for client programs that mess with the context
  * (which should be discouraged).
  */
-RamCloud::RamCloud(Context* context, const char* serviceLocator)
-    : coordinatorLocator(serviceLocator)
+RamCloud::RamCloud(Context* context, const char* locator,
+        const char* clusterName)
+    : coordinatorLocator(locator)
     , realClientContext()
     , clientContext(context)
     , status(STATUS_OK)
     , objectFinder(clientContext)
 {
-    clientContext->coordinatorSession->setLocation(serviceLocator);
+    clientContext->coordinatorSession->setLocation(locator,
+            clusterName);
 }
 
 /**
@@ -195,6 +211,13 @@ DropTableRpc::DropTableRpc(RamCloud* ramcloud,
  * \param tableId
  *      The table being enumerated (return value from a previous call
  *      to getTableId) .
+ * \param keysOnly
+ *      False means that full objects are returned, containing both keys
+ *      and data. True means that the returned objects have
+ *      been truncated so that the object data (normally the last
+ *      field of the object) is omitted. Note: the size field in the
+ *      log record headers is unchanged, which means it does not
+ *      exist corresponding to the length of the log record.
  * \param tabletFirstHash
  *      Where to continue enumeration. The caller should provide zero
  *       the initial call. On subsequent calls, the caller should pass
@@ -222,10 +245,11 @@ DropTableRpc::DropTableRpc(RamCloud* ramcloud,
  *       means that enumeration has finished.
  */
 uint64_t
-RamCloud::enumerateTable(uint64_t tableId, uint64_t tabletFirstHash,
-        Buffer& state, Buffer& objects)
+RamCloud::enumerateTable(uint64_t tableId, bool keysOnly,
+                    uint64_t tabletFirstHash, Buffer& state, Buffer& objects)
 {
-    EnumerateTableRpc rpc(this, tableId, tabletFirstHash, state, objects);
+    EnumerateTableRpc rpc(this, tableId, keysOnly,
+                            tabletFirstHash, state, objects);
     return rpc.wait(state);
 }
 
@@ -239,6 +263,13 @@ RamCloud::enumerateTable(uint64_t tableId, uint64_t tabletFirstHash,
  * \param tableId
  *      The table being enumerated (return value from a previous call
  *      to getTableId) .
+ * \param keysOnly
+ *      False means that full objects are returned, containing both keys
+ *      and data. True means that the returned objects have
+ *      been truncated so that the object data (normally the last
+ *      field of the object) is omitted. Note: the size field in the
+ *      log record headers is unchanged, which means it does not
+ *      exist corresponding to the length of the log record.
  * \param tabletFirstHash
  *      Where to continue enumeration. The caller should provide zero
 *       the initial call. On subsequent calls, the caller should pass
@@ -253,13 +284,14 @@ RamCloud::enumerateTable(uint64_t tableId, uint64_t tabletFirstHash,
  *      more objects from the requested tablet.
  */
 EnumerateTableRpc::EnumerateTableRpc(RamCloud* ramcloud, uint64_t tableId,
-        uint64_t tabletFirstHash, Buffer& state, Buffer& objects)
+        bool keysOnly, uint64_t tabletFirstHash, Buffer& state, Buffer& objects)
     : ObjectRpcWrapper(ramcloud, tableId, tabletFirstHash,
             sizeof(WireFormat::Enumerate::Response), &objects)
 {
     WireFormat::Enumerate::Request* reqHdr(
             allocHeader<WireFormat::Enumerate>());
     reqHdr->tableId = tableId;
+    reqHdr->keysOnly = keysOnly;
     reqHdr->tabletFirstHash = tabletFirstHash;
     reqHdr->iteratorBytes = state.getTotalLength();
     for (Buffer::Iterator it(state); !it.isDone(); it.next())
@@ -1195,6 +1227,115 @@ RemoveRpc::wait(uint64_t* version)
 }
 
 /**
+ * This RPC is used to invoke a variety of miscellaneous operations
+ * on a server, such as starting and stopping special timing 
+ * mechanisms, dumping metrics, and so on. Most of these operations
+ * are used only for testing. Each operation is defined by a specific
+ * opcode (controlOp) and an arbitrary chunk of input data.
+ * Not all operations require input data, and different operations
+ * use the input data in different ways. 
+ * Each operation can also return an optional result of arbitrary size. 
+ *
+ * \param tableId
+ *      Unique identifier for a particular table. Used to select the
+ *      server that will handle this operation.
+ * \param key
+ *      Variable-length key that uniquely identifies a particular 
+ *      object in tableId. The RPC will be sent to the server
+ *      that stores this object.
+ * \param keyLength
+ *      Size in bytes of the key. This is also used to locate that 
+ *      particular server.
+ * \param controlOp 
+ *      This defines the specific operation to be performed on the 
+ *      remote server.
+ * \param inputData
+ *      Input data, such as additional parameters, specific for the 
+ *      particular operation to be performed. Not all operations use
+ *      this information.
+ * \param inputLength
+ *      Size in bytes of the contents for the inputData.
+ * \param[out] outputData
+ *      A buffer that contains the return results, if any, from execution of the
+ *      control operation on the remote server.
+ */
+void
+RamCloud::serverControl(uint64_t tableId, const void* key, uint16_t keyLength,
+            WireFormat::ControlOp controlOp,
+            const void* inputData, uint32_t inputLength, Buffer* outputData){
+    ServerControlRpc rpc(this, tableId, key, keyLength, controlOp,
+            inputData, inputLength, outputData);
+    rpc.wait();
+}
+
+/**
+ * Constructor for ServerControlRpc: initiates an RPC in the same way as
+ * #RamCloud::serverControl, but returns once the RPC has been initiated,
+ * without waiting for it to complete.
+ *
+ * \param ramcloud
+ *      The RAMCloud object that governs this RPC.
+ * \param tableId
+ *      Unique identifier for a particular table. Used to select the
+ *      server that will handle this operation.
+ * \param key
+ *      Variable-length key that uniquely identifies a particular 
+ *      object in tableId. The RPC will be sent to the server
+ *      that stores this object.
+ * \param keyLength
+ *      Size in bytes of the key. This is also used to locate that 
+ *      particular server.
+ * \param controlOp 
+ *      This defines the specific operation to be performed on the 
+ *      remote server.
+ * \param inputData
+ *      Input data, such as additional parameters, specific for the 
+ *      particular operation to be performed. Not all operations use
+ *      this information.
+ * \param inputLength
+ *      Size in bytes of the contents for the inputData.
+ * \param[out] outputData
+ *      A buffer that contains the return results, if any, from execution of the
+ *      control operation on the remote server.
+ */
+ServerControlRpc::ServerControlRpc(RamCloud* ramcloud, uint64_t tableId,
+            const void* key, uint16_t keyLength,
+            WireFormat::ControlOp controlOp,
+            const void* inputData, uint32_t inputLength, Buffer* outputData)
+    : ObjectRpcWrapper(ramcloud, tableId, key, keyLength,
+            sizeof(WireFormat::ServerControl::Response), outputData)
+{
+    outputData->reset();
+    WireFormat::ServerControl::Request*
+                               reqHdr(allocHeader<WireFormat::ServerControl>());
+    reqHdr->inputLength = inputLength;
+    reqHdr->controlOp = controlOp;
+    request.append(inputData, inputLength);
+    send();
+}
+
+/**
+ * Waits for the RPC to complete, and returns the same results as
+ * #RamCloud::serverControl.
+ */
+void
+ServerControlRpc::wait()
+{
+    waitInternal(ramcloud->clientContext->dispatch);
+    const WireFormat::ServerControl::Response* respHdr(
+            getResponseHeader<WireFormat::ServerControl>());
+    // Truncate the response Buffer so that it consists of nothing
+    // but the object data.
+    response->truncateFront(sizeof(*respHdr));
+    assert(respHdr->outputLength == response->getTotalLength());
+
+    if (respHdr->common.status != STATUS_OK)
+        ClientException::throwException(HERE, respHdr->common.status);
+}
+
+
+
+/**
  * Divide a tablet into two separate tablets.
  *
  * \param name
@@ -1315,6 +1456,68 @@ FillWithTestDataRpc::FillWithTestDataRpc(RamCloud* ramcloud,
 }
 
 /**
+ * Get a value of runtime option field previously set on the coordinator.
+ *
+ * \param option
+ *      String name corresponding to a member field in the RuntimeOptions
+ *      class (e.g. "failRecoveryMasters") whose value should be returned 
+ *      in value buffer.
+ * \param[out] value
+ *      After a successful return, this Buffer will hold the value of the desired
+ *      option.
+ */
+void
+RamCloud::getRuntimeOption(const char* option, Buffer* value){
+    GetRuntimeOptionRpc rpc(this, option, value);
+    rpc.wait();
+}
+
+/**
+ * Constructor for SetRuntimeOptionRpc: initiates an RPC in the same way as
+ * #RamCloud::dropTable and returns once the RPC has been initiated,
+ * without waiting for it to complete.
+ *
+ * \param ramcloud
+ *      The RAMCloud object that governs this RPC.
+ * \param option
+ *      String name corresponding to a member field in the RuntimeOptions
+ *      class (e.g. "failRecoveryMasters") whose value should be returned 
+ *      in value buffer.
+ * \param[out] value
+ *      After a successful return, this Buffer will hold the value of the desired
+ *      option.
+ */
+GetRuntimeOptionRpc::GetRuntimeOptionRpc(RamCloud* ramcloud, const char* option,
+                                         Buffer* value)
+    : CoordinatorRpcWrapper(ramcloud->clientContext,
+                            sizeof(WireFormat::GetRuntimeOption::Response),
+                            value)
+{
+    value->reset();
+    WireFormat::GetRuntimeOption::Request*
+            reqHdr(allocHeader<WireFormat::GetRuntimeOption>());
+    reqHdr->optionLength = downCast<uint32_t> (strlen(option) + 1);
+    request.append(option, reqHdr->optionLength);
+    send();
+}
+
+/**
+ * Wait for the RPC to complete, and return the same results as
+ * #RamCloud::read.
+ */
+void
+GetRuntimeOptionRpc::wait()
+{
+    waitInternal(context->dispatch);
+    const WireFormat::GetRuntimeOption::Response* respHdr(
+            getResponseHeader<WireFormat::GetRuntimeOption>());
+    response->truncateFront(sizeof(*respHdr));
+    assert(respHdr->valueLength == response->getTotalLength());
+    if (respHdr->common.status != STATUS_OK)
+        ClientException::throwException(HERE, respHdr->common.status);
+}
+
+/**
  * Return the server id of the server that owns the specified key.
  * Used in testing scripts to associate particular processes with
  * their internal RAMCloud server id.
@@ -1409,7 +1612,7 @@ KillRpc::KillRpc(RamCloud* ramcloud, uint64_t tableId,
  *      for more information.
  */
 void
-RamCloud::testingSetRuntimeOption(const char* option, const char* value)
+RamCloud::setRuntimeOption(const char* option, const char* value)
 {
     SetRuntimeOptionRpc rpc(this, option, value);
     rpc.wait();

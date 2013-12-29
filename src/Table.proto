@@ -1,0 +1,109 @@
+/* Copyright (c) 2013 Stanford University
+ *
+ * Permission to use, copy, modify, and distribute this software for any
+ * purpose with or without fee is hereby granted, provided that the above
+ * copyright notice and this permission notice appear in all copies.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR(S) DISCLAIM ALL WARRANTIES
+ * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+ * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL AUTHORS BE LIABLE FOR
+ * ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+ * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+ * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+ */
+
+package RAMCloud.ProtoBuf;
+
+// For each table, the coordinator stores one of these messages in external
+// storage. The message contains two things: (a) the current state of the
+// table, and (b) information about operations in progress, which will
+// used to complete those operations if the current coordinator crashes.
+message Table {
+
+  // Each message of this type holds information about one tablet in the
+  // table.
+  message Tablet {
+    enum State {
+      /// The tablet is available.
+      NORMAL = 0;
+
+      /// The tablet is being recovered, so it's not available.
+      RECOVERING = 1;
+
+      /// Used only for testing.
+      BOGUS = 2;
+    }
+
+    /// The smallest hash value for a key that is in this tablet.
+    required uint64 start_key_hash = 1;
+
+    /// The largest hash value for a key that is in this tablet.
+    required uint64 end_key_hash = 2;
+
+    /// The state of the tablet, see above.
+    required State state = 3;
+
+    /// The ID of the master owning this tablet.
+    required fixed64 server_id = 4;
+
+    /// Id of the head segment in the log of server_id at the time the
+    /// tablet was assigned to the server. Any earlier segments in the
+    /// master's log cannot contain data belonging to this tablet.
+    required uint64 ctime_log_head_id = 5;
+
+    /// Offset in the head segment of server_id's log at the time it was
+    /// assigned this tablet. Any objects appearing earlier in that segment
+    /// cannot contain data belonging to this tablet.
+    required uint32 ctime_log_head_offset = 6;
+  }
+
+  /// The table's name, as specified in the createTable RPC that
+  /// created the table.
+  required string name = 1;
+
+  /// Identifier for the table (used in RPCs such as read and write).
+  required uint64 id = 2;
+
+  /// The tablets.
+  repeated Tablet tablet = 3;
+
+  /// Information below here is used for recovery. It describes the most
+  /// recent update to the table's metadata, which may or may not have
+  /// completed.
+
+  /// Sequence number for the most recent update. 0 means the most
+  /// recent update does not have any recovery-related issues.
+  required uint64 sequence_number = 4;
+
+  /// If this value is present, it is true, indicating that the most
+  /// recent update was to create the table.
+  optional bool created = 5;
+
+  /// If this value is present, it is true, indicating that the most
+  /// recent update was to delete the table.
+  optional bool deleted = 6;
+
+  /// A message of this type is present if the most recent update was
+  /// to split a tablet in the table.
+  message Split {
+    /// The ID of the master owning the tablet that was split.
+    required fixed64 server_id = 1;
+
+    /// Key hash value of the split point.
+    required uint64 split_key_hash = 2;
+  }
+  optional Split split = 7;
+
+  /// A message of this type is present if the most recent update was
+  /// to reassign a tablet.
+  message Reassign {
+    /// ID of the server to which the tablet was reassigned.
+    required fixed64 server_id = 1;
+
+    /// Key hash range for the reassigned tablet.
+    required uint64 start_key_hash = 2;
+    required uint64 end_key_hash = 3;
+  }
+  optional Reassign reassign = 8;
+}

@@ -27,6 +27,16 @@ class TabletManagerTest : public ::testing::Test {
     {
     }
 
+    string
+    toString(TabletManager::TabletMap::iterator it)
+    {
+        if (it == tm.tabletMap.end()) {
+            return "end";
+        }
+        TabletManager::Tablet* tablet = &it->second;
+        return format("tableId: %lu, start: %lu, end: %lu",
+                tablet->tableId, tablet->startKeyHash, tablet->endKeyHash);
+    }
     DISALLOW_COPY_AND_ASSIGN(TabletManagerTest);
 };
 
@@ -240,17 +250,57 @@ TEST_F(TabletManagerTest, lookup) {
     SpinLock lock;
     TabletManager::Lock fakeGuard(lock);
 
-    EXPECT_TRUE(tm.tabletMap.end() == tm.lookup(0, 75, fakeGuard));
-    EXPECT_TRUE(tm.addTablet(0, 50, 100, TabletManager::NORMAL));
-    EXPECT_TRUE(tm.tabletMap.end() == tm.lookup(0, 49, fakeGuard));
-    EXPECT_TRUE(tm.tabletMap.end() == tm.lookup(0, 101, fakeGuard));
-    EXPECT_FALSE(tm.tabletMap.end() == tm.lookup(0, 50, fakeGuard));
-    EXPECT_FALSE(tm.tabletMap.end() == tm.lookup(0, 75, fakeGuard));
-    EXPECT_FALSE(tm.tabletMap.end() == tm.lookup(0, 100, fakeGuard));
+    EXPECT_TRUE(tm.addTablet(1000, 50, 99, TabletManager::NORMAL));
+    EXPECT_TRUE(tm.addTablet(1000, 100, 199, TabletManager::NORMAL));
+    EXPECT_TRUE(tm.addTablet(2000, 500, 599, TabletManager::NORMAL));
+    EXPECT_TRUE(tm.addTablet(2000, 1000, 2499, TabletManager::NORMAL));
+    EXPECT_TRUE(tm.addTablet(3000, 2000, 2999, TabletManager::NORMAL));
+    EXPECT_TRUE(tm.addTablet(3000, 5000, 5999, TabletManager::NORMAL));
 
-    EXPECT_TRUE(tm.tabletMap.end() == tm.lookup(0, 101, fakeGuard));
-    EXPECT_TRUE(tm.addTablet(0, 101, 150, TabletManager::NORMAL));
-    EXPECT_FALSE(tm.tabletMap.end() == tm.lookup(0, 101, fakeGuard));
+    EXPECT_EQ("end", toString(tm.lookup(1000, 49, fakeGuard)));
+    EXPECT_EQ("tableId: 1000, start: 50, end: 99",
+        toString(tm.lookup(1000, 50, fakeGuard)));
+    EXPECT_EQ("tableId: 1000, start: 50, end: 99",
+        toString(tm.lookup(1000, 99, fakeGuard)));
+    EXPECT_EQ("tableId: 1000, start: 100, end: 199",
+        toString(tm.lookup(1000, 100, fakeGuard)));
+    EXPECT_EQ("end", toString(tm.lookup(1000, 200, fakeGuard)));
+    EXPECT_EQ("end", toString(tm.lookup(1000, 550, fakeGuard)));
+
+    EXPECT_EQ("end", toString(tm.lookup(2000, 60, fakeGuard)));
+    EXPECT_EQ("tableId: 2000, start: 500, end: 599",
+        toString(tm.lookup(2000, 500, fakeGuard)));
+    EXPECT_EQ("tableId: 2000, start: 500, end: 599",
+        toString(tm.lookup(2000, 599, fakeGuard)));
+    EXPECT_EQ("end", toString(tm.lookup(2000, 600, fakeGuard)));
+    EXPECT_EQ("end", toString(tm.lookup(2000, 999, fakeGuard)));
+    EXPECT_EQ("tableId: 2000, start: 1000, end: 2499",
+        toString(tm.lookup(2000, 1000, fakeGuard)));
+    EXPECT_EQ("tableId: 2000, start: 1000, end: 2499",
+        toString(tm.lookup(2000, 2499, fakeGuard)));
+    EXPECT_EQ("end", toString(tm.lookup(2000, 2500, fakeGuard)));
+
+    EXPECT_EQ("end", toString(tm.lookup(3000, 60, fakeGuard)));
+    EXPECT_EQ("end", toString(tm.lookup(3000, 550, fakeGuard)));
+    EXPECT_EQ("end", toString(tm.lookup(3000, 1999, fakeGuard)));
+    EXPECT_EQ("tableId: 3000, start: 2000, end: 2999",
+        toString(tm.lookup(3000, 2000, fakeGuard)));
+    EXPECT_EQ("tableId: 3000, start: 2000, end: 2999",
+        toString(tm.lookup(3000, 2999, fakeGuard)));
+    EXPECT_EQ("end", toString(tm.lookup(3000, 3000, fakeGuard)));
+    EXPECT_EQ("end", toString(tm.lookup(3000, 4999, fakeGuard)));
+    EXPECT_EQ("tableId: 3000, start: 5000, end: 5999",
+        toString(tm.lookup(3000, 5000, fakeGuard)));
+    EXPECT_EQ("tableId: 3000, start: 5000, end: 5999",
+        toString(tm.lookup(3000, 5999, fakeGuard)));
+    EXPECT_EQ("end", toString(tm.lookup(3000, 6000, fakeGuard)));
+
+    EXPECT_EQ("end", toString(tm.lookup(999, 70, fakeGuard)));
+    EXPECT_EQ("end", toString(tm.lookup(1001, 70, fakeGuard)));
+    EXPECT_EQ("end", toString(tm.lookup(1999, 2200, fakeGuard)));
+    EXPECT_EQ("end", toString(tm.lookup(2001, 2200, fakeGuard)));
+    EXPECT_EQ("end", toString(tm.lookup(2999, 2200, fakeGuard)));
+    EXPECT_EQ("end", toString(tm.lookup(3001, 2200, fakeGuard)));
 }
 
 }  // namespace RAMCloud

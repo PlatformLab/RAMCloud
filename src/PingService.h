@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2012 Stanford University
+/* Copyright (c) 2011-2013 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -38,12 +38,19 @@ class PingService : public Service {
     void getMetrics(const WireFormat::GetMetrics::Request* reqHdr,
               WireFormat::GetMetrics::Response* respHdr,
               Rpc* rpc);
+    void getServerId(const WireFormat::GetServerId::Request* reqHdr,
+              WireFormat::GetServerId::Response* respHdr,
+              Rpc* rpc);
     void ping(const WireFormat::Ping::Request* reqHdr,
               WireFormat::Ping::Response* respHdr,
               Rpc* rpc);
     void proxyPing(const WireFormat::ProxyPing::Request* reqHdr,
               WireFormat::ProxyPing::Response* respHdr,
               Rpc* rpc);
+    void serverControl(const WireFormat::ServerControl::Request* reqHdr,
+              WireFormat::ServerControl::Response* respHdr,
+              Rpc* rpc);
+
     void kill(const WireFormat::Kill::Request* reqHdr,
                WireFormat::Kill::Response* respHdr,
                Rpc* rpc);

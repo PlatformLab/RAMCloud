@@ -76,7 +76,7 @@ class CleanableSegmentManager {
     int getLiveObjectUtilization();
     int getUndeadTombstoneUtilization();
     LogSegment* getSegmentToCompact();
-    void getSegmentsToClean(LogSegmentVector& outSegmentsToClean);
+    void getSegmentsToClean(LogSegmentVector& outSegsToClean);
 
   PRIVATE:
     typedef std::lock_guard<SpinLock> Lock;
@@ -147,7 +147,7 @@ class CleanableSegmentManager {
     /**
      * Compare two segment's cached cost-benefit ratios for cleaning.
      */
-    class CleanerCostBenefitComparer { 
+    class CleanerCostBenefitComparer {
       public:
         bool
         operator()(const LogSegment& a, const LogSegment& b) const

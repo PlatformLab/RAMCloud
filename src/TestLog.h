@@ -1,4 +1,4 @@
-/* Copyright (c) 2010 Stanford University
+/* Copyright (c) 2010-2013 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -67,6 +67,7 @@ namespace TestLog {
     void log(const CodeLocation& where, const char* format, ...)
         __attribute__((format(gnu_printf, 2, 3)));
     void setPredicate(bool (*pred)(string));
+    void setPredicate(string pred);
     string getUntil(const string searchPattern,
                     const size_t fromPos, size_t* nextPos);
     /**
@@ -79,7 +80,9 @@ namespace TestLog {
     class Enable {
       public:
         Enable();
-        Enable(bool (*pred)(string));
+        explicit Enable(bool (*pred)(string));
+        explicit Enable(string pred);
+        Enable(const char* pred, const char* pred2, ...);
         ~Enable();
       private:
         LogLevel savedLogLevels[NUM_LOG_MODULES];

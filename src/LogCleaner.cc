@@ -75,7 +75,8 @@ LogCleaner::LogCleaner(Context* context,
                                                   SURVIVOR_SEGMENTS_TO_RESERVE))
         throw FatalError(HERE, "Could not reserve survivor segments");
 
-    // XXX- get rid of this.
+    // TODO(rumble): get rid of this. it doesn't exist anymore other than to
+    // support old scripts where wct = 0 implies single level cleaning
     if (writeCostThreshold == 0)
         disableInMemoryCleaning = true;
 
@@ -348,7 +349,7 @@ LogCleaner::doMemoryCleaning()
     for (size_t i = 0; i < TOTAL_LOG_ENTRY_TYPES; i++) {
         survivor->trackNewEntries(static_cast<LogEntryType>(i),
                     downCast<uint32_t>(localMetrics.totalLiveEntriesScanned[i]),
-                    liveScannedEntryTotalLengths[i]); 
+                    liveScannedEntryTotalLengths[i]);
     }
 
     survivor->close();
@@ -627,7 +628,8 @@ LogCleaner::relocateLiveEntries(EntryVector& entries,
                                               currentLiveEntryLengths[i]);
                 }
                 memset(currentLiveEntries, 0, sizeof(currentLiveEntries));
-                memset(currentLiveEntryLengths, 0, sizeof(currentLiveEntryLengths));
+                memset(currentLiveEntryLengths, 0,
+                       sizeof(currentLiveEntryLengths));
                 closeSurvivor(survivor);
             }
 
@@ -720,9 +722,6 @@ LogCleaner::Balancer::isMemoryLow(CleanerThreadState* thread)
     const int T = cleaner->segmentManager.getMemoryUtilization();
     const int L = cleaner->cleanableSegments.getLiveObjectUtilization();
 
-static int foo = 0;
-if (foo++ % 1000 == 0) fprintf(stderr,":: T = %d, L = %d\n", T, L);
-
     // We need to clean if memory is low and there's space that could be
     // reclaimed. It's not worth cleaning if almost everything is alive.
     int baseThreshold = std::max(90, (100 + L) / 2);
@@ -762,7 +761,8 @@ LogCleaner::Balancer::requestTask(CleanerThreadState* thread)
     return SLEEP;
 }
 
-LogCleaner::TombstoneRatioBalancer::TombstoneRatioBalancer(LogCleaner* cleaner, double ratio)
+LogCleaner::TombstoneRatioBalancer::TombstoneRatioBalancer(LogCleaner* cleaner,
+                                                           double ratio)
     : Balancer(cleaner)
     , ratio(ratio)
 {
@@ -776,11 +776,9 @@ LogCleaner::TombstoneRatioBalancer::~TombstoneRatioBalancer()
 }
 
 bool
-LogCleaner::TombstoneRatioBalancer::isDiskCleaningNeeded(CleanerThreadState* thread)
+LogCleaner::TombstoneRatioBalancer::isDiskCleaningNeeded(
+                                                    CleanerThreadState* thread)
 {
-static int foo = 0;
-if (foo++ % 1000 == 0) fprintf(stderr, ":: DiskU = %d, TombU = %d (>= %d?), LiveU = %d\n", cleaner->segmentManager.getSegmentUtilization(), cleaner->cleanableSegments.getUndeadTombstoneUtilization(), (int)(ratio * (100 - cleaner->cleanableSegments.getLiveObjectUtilization())), cleaner->cleanableSegments.getLiveObjectUtilization());
-
     // Our disk cleaner is fast enough to chew up considerable backup bandwidth
     // with just one thread. If we're running with backups, then only permit
     // one thread to clean on disk.
@@ -846,8 +844,8 @@ LogCleaner::FixedBalancer::~FixedBalancer()
 bool
 LogCleaner::FixedBalancer::isDiskCleaningNeeded(CleanerThreadState* thread)
 {
-    // See TombstoneRatioBalancer::isDiskCleaningNeeded for comments on this first
-    // handful of conditions.
+    // See TombstoneRatioBalancer::isDiskCleaningNeeded for comments on this
+    // first handful of conditions.
     if (thread->threadNumber != 0)
         return false;
 

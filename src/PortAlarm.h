@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2012 Stanford University
+/* Copyright (c) 2011-2013 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -42,7 +42,7 @@ class PortAlarmTimer;
  * A transport contains multiple ports, eg. QPs for InfRcTransport,
  * in order to listen  clients' requests.
  * One PortAlarm object keeps track of a port is alive,
- * if no activities are detected for long time, which goes beyond closeMs
+ * if no activities are detected for long time, which goes beyond timeoutMs
  * (ms) it close the port.
  * This feature is useful for server side to destroy orphan side of
  * removed queue pair.
@@ -50,7 +50,7 @@ class PortAlarmTimer;
 class PortAlarm {
   public:
     PortAlarm(PortAlarmTimer* timer,
-              Transport::ServerPort* port, int timeoutMs);
+              Transport::ServerPort* port);
     ~PortAlarm();
 
     // Update timer when a request arrives to the port or a reply
@@ -73,35 +73,35 @@ class PortAlarm {
     bool portTimerRunning;
 
     /// Time (ms) passed after the final request arrival.
-    int  waitingForRequestMs;
-
-    /// When \c no request comes after final activity on the sever,
-    /// the server closes the port. Usually multiple pings comes
-    /// before closing if the correponding client port is alive.
-    /// Note) this timeout is directly handled in infRcTransport.
-    int closeMs;
+    int  idleMs;
 
     friend class PortAlarmTimer;
     DISALLOW_COPY_AND_ASSIGN(PortAlarm);
 };
 
 /**
- * The following class manages a collection of PortAlarms (typically 
- * QPs for incoming request on a server.
- *  It keeps track of all of the active ports and wakes up periodically
- *  to check for the counter part of client is active.
+ *  PortAlarmTimer class manages a collection of PortAlarms
+ *  for liveness of the port (typically Queue Pairs with InfRc).
+ *
+ *  It updates the watchdog timer of each reception ports on server
+ *  and check if a request arrives within timeoutMs.
+ *  If the watchdog timeout is detected, it considers the corresponding
+ *  client port is not active anymore and closes the server port.
+ *
  */
 class PortAlarmTimer : public Dispatch::Timer {
   public:
     explicit PortAlarmTimer(Context* context);
     ~PortAlarmTimer();
     void handleTimerEvent();
+    void setPortTimeout(int32_t timeoutMs);
+    int32_t getPortTimeout() const;
 
   PRIVATE:
     /// Shared RAMCloud information.
     Context* context;
 
-    /// Holds all of the SessionAlarms with nonzero \c outstandingRpcs.
+    /// Holds all of the PortAlarms.
     /// The order of entries is irrelevant.
     std::vector<PortAlarm*> activeAlarms;
 
@@ -110,6 +110,13 @@ class PortAlarmTimer : public Dispatch::Timer {
 
     /// Timer interval in ticks (computed from TIMER_INTERVAL_MS).
     uint64_t timerIntervalTicks;
+
+    /// Default value for port TIMEOUT (ms).
+    static const int32_t DEFAULT_PORT_TIMEOUT_MS = 64000;
+
+    /// PortTimeout (ms): Uniq for all transports to detect
+    /// dead clients or listening port on servers.
+    int32_t portTimeoutMs;
 
     friend class PortAlarm;
     DISALLOW_COPY_AND_ASSIGN(PortAlarmTimer);

@@ -25,6 +25,7 @@ namespace RAMCloud {
 
 class MultiReadTest : public ::testing::Test {
   public:
+    TestLog::Enable logEnabler;
     Context context;
     MockCluster cluster;
     Tub<RamCloud> ramcloud;
@@ -39,7 +40,8 @@ class MultiReadTest : public ::testing::Test {
 
   public:
     MultiReadTest()
-        : context()
+        : logEnabler()
+        , context()
         , cluster(&context)
         , ramcloud()
         , tableId1(-1)
@@ -181,7 +183,7 @@ TEST_F(MultiReadTest, appendRequest) {
 TEST_F(MultiReadTest, readResponse_shortResponse) {
     // This test checks for proper handling of responses that are
     // too short.
-    TestLog::Enable _;
+    TestLog::reset();
     MultiReadObject* requests[] = {&objects[0], &objects[1]};
     session1->dontNotify = true;
     MultiRead request(ramcloud.get(), requests, 2);

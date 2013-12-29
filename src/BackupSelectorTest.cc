@@ -26,12 +26,14 @@
 namespace RAMCloud {
 
 struct BackupSelectorTest : public ::testing::Test {
+    TestLog::Enable logEnabler;
     Context context;
     MockCluster cluster;
     BackupSelector* selector;
 
     BackupSelectorTest()
-        : context()
+        : logEnabler()
+        , context()
         , cluster(&context)
         , selector()
     {
@@ -102,27 +104,8 @@ struct BackgroundEnlistBackup {
 };
 
 TEST_F(BackupSelectorTest, selectPrimaryNoHosts) {
-    Logger::get().setLogLevels(SILENT_LOG_LEVEL);
-    // Check to make sure the server waits on server list updates from the
-    // coordinator.
-    BackgroundEnlistBackup enlist(&context);
-    std::thread enlistThread(std::ref(enlist));
     ServerId id = selector->selectPrimary(0, NULL);
-    EXPECT_EQ(ServerId(2, 0), id);
-    enlistThread.join();
-}
-
-TEST_F(BackupSelectorTest, selectPrimaryAllConflict) {
-    MockRandom _(1);
-    std::vector<ServerId> ids;
-    addEqualHosts(ids);
-
-    BackgroundEnlistBackup enlist(&context);
-    std::thread enlistThread(std::ref(enlist));
-
-    ServerId id = selector->selectPrimary(9, &ids[0]);
-    EXPECT_EQ(ServerId(11, 0), id);
-    enlistThread.join();
+    EXPECT_EQ(ServerId(), id);
 }
 
 TEST_F(BackupSelectorTest, selectPrimaryAllEqual) {
@@ -225,6 +208,31 @@ TEST_F(BackupSelectorTest, selectSecondary) {
     EXPECT_EQ(ServerId(4, 0), id);
 }
 
+TEST_F(BackupSelectorTest, selectSecondary_logThrottling) {
+    // First problem: generate a log message.
+    TestLog::reset();
+    ServerId id = selector->selectSecondary(0, NULL);
+    EXPECT_EQ(ServerId(), id);
+    EXPECT_EQ("selectSecondary: BackupSelector could not find a suitable "
+            "server in 100 attempts; may need to wait for additional "
+            "servers to enlist",
+            TestLog::get());
+    EXPECT_FALSE(selector->okToLogNextProblem);
+
+    // Recurring problem: no new message.
+    TestLog::reset();
+    id = selector->selectSecondary(0, NULL);
+    EXPECT_EQ("", TestLog::get());
+
+    // Successful completion: messages reenabled.
+    MockRandom _(1);
+    std::vector<ServerId> ids;
+    addDifferentHosts(ids);
+    id = selector->selectSecondary(0, NULL);
+    EXPECT_EQ(ServerId(2, 0), id);
+    EXPECT_TRUE(selector->okToLogNextProblem);
+}
+
 TEST_F(BackupSelectorTest, signalFreedPrimary) {
     MockRandom _(1);
     // getRandomServerIdWithServer(BACKUP_SERVICE) returns backups in order
@@ -276,6 +284,18 @@ TEST_F(BackupSelectorTest, applyTrackerChanges) {
     EXPECT_EQ(1u, selector->replicationIdMap.size());
     EXPECT_EQ(0u, selector->replicationIdMap.count(0u));
     EXPECT_EQ(1u, selector->replicationIdMap.count(1u));
+}
+
+TEST_F(BackupSelectorTest, applyTrackerChanges_removeWithoutAdd) {
+    // All we care about for this test is that it doesn't crash.
+    ServerDetails entry;
+    entry.serverId = ServerId(2, 0);
+    entry.status = ServerStatus::CRASHED;
+    selector->tracker.enqueueChange(entry, ServerChangeEvent::SERVER_CRASHED);
+    entry.status = ServerStatus::REMOVE;
+    selector->tracker.enqueueChange(entry, ServerChangeEvent::SERVER_REMOVED);
+    selector->applyTrackerChanges();
+    EXPECT_EQ(1u, selector->replicationIdMap.size());
 }
 
 TEST_F(BackupSelectorTest, conflict) {

@@ -16,7 +16,10 @@
 #ifndef RAMCLOUD_BUFFER_H
 #define RAMCLOUD_BUFFER_H
 
+#include <cstdio>
+
 #include "Common.h"
+#include "Syscall.h"
 
 namespace RAMCloud {
 
@@ -563,6 +566,7 @@ class Buffer {
     }
 
     uint32_t copy(uint32_t offset, uint32_t length, void* dest); // NOLINT
+    uint32_t write(uint32_t offset, uint32_t length, FILE* f);
     void reset();
     void fillFromString(const char* s);
 
@@ -685,6 +689,8 @@ class Buffer {
      * allocation, per the algorithm in #newAllocation().
      */
     uint32_t nextAllocationSize;
+
+    static Syscall* sys;
 
     friend class Iterator;
 

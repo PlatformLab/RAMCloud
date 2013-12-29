@@ -22,6 +22,8 @@
 #include "SegmentManager.h"
 #include "ServerConfig.h"
 #include "ServerRpcPool.h"
+#include "TableStats.h"
+#include "MasterTableMetadata.h"
 
 namespace RAMCloud {
 
@@ -30,7 +32,7 @@ namespace RAMCloud {
  *
  * \param context
  *      The RAMCloud context this will run under.
- * \param config 
+ * \param config
  *      Server runtime configuration options, including the size of each segment
  *      and the disk expansion factor.
  * \param logId
@@ -42,17 +44,22 @@ namespace RAMCloud {
  * \param replicaManager
  *      The replica manager that will handle replication of segments this class
  *      allocates.
+ * \param masterTableMetadata
+ *      MasterTableMetadata container that contains the table stats information
+ *      to be serialized during log head rollover.
  */
 SegmentManager::SegmentManager(Context* context,
                                const ServerConfig* config,
                                ServerId* logId,
                                SegletAllocator& allocator,
-                               ReplicaManager& replicaManager)
+                               ReplicaManager& replicaManager,
+                               MasterTableMetadata* masterTableMetadata)
     : context(context),
       segmentSize(config->segmentSize),
       logId(logId),
       allocator(allocator),
       replicaManager(replicaManager),
+      masterTableMetadata(masterTableMetadata),
       segletsPerSegment(segmentSize / allocator.getSegletSize()),
       maxSegments(static_cast<uint32_t>(static_cast<double>(
         allocator.getTotalCount() / segletsPerSegment)
@@ -204,8 +211,8 @@ SegmentManager::allocHeadSegment(uint32_t flags)
         writeDigest(newHead, prevHead);
     else
         writeDigest(newHead, NULL);
+    writeTableStatsDigest(newHead);
     writeSafeVersion(newHead);
-    //TODO(syang0) writeWill(newHead);
 
     // Make the head immutable if it's an emergency head. This will prevent the
     // log from adding anything to it and let us reclaim it without cleaning
@@ -249,7 +256,7 @@ SegmentManager::allocHeadSegment(uint32_t flags)
  * This method is used both for allocating segments during disk cleaning, and
  * for allocating a segment during memory compaction.
  *
- * If ``replacing'' is NULL, a survivor for disk cleaning is allocated with a 
+ * If ``replacing'' is NULL, a survivor for disk cleaning is allocated with a
  * fresh segment id. If it is non-NULL, the survivor segment assumes the
  * identity of the given segment (a compacted segment is logically the same
  * segment, just with less dead data).
@@ -382,9 +389,9 @@ SegmentManager::cleaningComplete(LogSegmentVector& clean,
  * backup failure occurs that forces a copy of the new compacted segment to be
  * replicated.
  *
- * \param oldSegment 
+ * \param oldSegment
  *      The segment that was compacted and will be superceded by newSegment.
- * \param newSegment 
+ * \param newSegment
  *      The compacted version of oldSegment. It contains all of the same live
  *      data, but less dead data. This must be different from oldSegment.
  */
@@ -887,6 +894,28 @@ SegmentManager::writeSafeVersion(LogSegment* head)
 }
 
 /**
+ * Writes the table stats digest to the head segment so that it can be found
+ * and used during recovery.
+ *
+ * \param head
+ *      Pointer to the segment the TableStatsDigest should be written into.
+ *      Generally this is the new head segment.
+ */
+void
+SegmentManager::writeTableStatsDigest(LogSegment* head)
+{
+    Buffer buffer;
+    TableStats::serialize(&buffer, masterTableMetadata);
+
+    bool success = head->append(LOG_ENTRY_TYPE_TABLESTATS, buffer);
+    if (!success) {
+        throw FatalError(HERE,
+                 format("Could not append TableStats of %u bytes "
+                        "to head segment", buffer.getTotalLength()));
+    }
+}
+
+/**
  * Return a pointer to the current head segment. If there is no head segment
  * yet, NULL is returned.
  */
@@ -992,7 +1021,7 @@ SegmentManager::alloc(AllocPurpose purpose,
  * Allocate an unused segment slot. Returns -1 if there is no
  * slot available.
  *
- * \param purpose 
+ * \param purpose
  *      The purpose for which the segment slot is being allocated. Some slots
  *      are reserved for special purposes like cleaning and emergency head
  *      segments and can only be allocated if the appropriate purpose is given.

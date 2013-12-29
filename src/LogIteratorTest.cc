@@ -22,6 +22,7 @@
 #include "SegmentManager.h"
 #include "ServerConfig.h"
 #include "ServerList.h"
+#include "MasterTableMetadata.h"
 
 namespace RAMCloud {
 
@@ -44,6 +45,7 @@ class LogIteratorTest : public ::testing::Test {
     ServerList serverList;
     ServerConfig serverConfig;
     ReplicaManager replicaManager;
+    MasterTableMetadata masterTableMetadata;
     SegletAllocator allocator;
     SegmentManager segmentManager;
     DoNothingHandlers entryHandlers;
@@ -56,9 +58,10 @@ class LogIteratorTest : public ::testing::Test {
           serverList(&context),
           serverConfig(ServerConfig::forTesting()),
           replicaManager(&context, &serverId, 0, false),
+          masterTableMetadata(),
           allocator(&serverConfig),
           segmentManager(&context, &serverConfig, &serverId,
-                         allocator, replicaManager),
+                         allocator, replicaManager, &masterTableMetadata),
           entryHandlers(),
           l(&context, &serverConfig, &entryHandlers,
             &segmentManager, &replicaManager),
@@ -142,6 +145,10 @@ TEST_F(LogIteratorTest, isDone_simple) {
         i.next();
 
         EXPECT_FALSE(i.isDone());
+        EXPECT_EQ(LOG_ENTRY_TYPE_TABLESTATS, i.getType());
+        i.next();
+
+        EXPECT_FALSE(i.isDone());
         EXPECT_EQ(LOG_ENTRY_TYPE_SAFEVERSION, i.getType());
         i.next();
 
@@ -156,7 +163,7 @@ TEST_F(LogIteratorTest, isDone_simple) {
     int count;
     for (count = 0; !i.isDone(); count++)
         i.next();
-    EXPECT_EQ(4, count);
+    EXPECT_EQ(5, count);
 }
 
 #if 0
@@ -216,6 +223,10 @@ TEST_F(LogIteratorTest, next) {
         i.next();
         EXPECT_EQ(LOG_ENTRY_TYPE_LOGDIGEST, i.getType());
         EXPECT_EQ(lastSegment, i.currentIterator->segment);
+
+        i.next();
+        EXPECT_FALSE(i.isDone());
+        EXPECT_EQ(LOG_ENTRY_TYPE_TABLESTATS, i.getType());
 
         i.next();
         EXPECT_EQ(LOG_ENTRY_TYPE_SAFEVERSION, i.getType());

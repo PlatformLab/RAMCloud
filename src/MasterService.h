@@ -34,6 +34,7 @@
 #include "SpinLock.h"
 #include "TabletManager.h"
 #include "WireFormat.h"
+#include "MasterTableMetadata.h"
 
 namespace RAMCloud {
 
@@ -189,6 +190,11 @@ class MasterService : public Service {
 
   PRIVATE:
     /**
+     * The MasterTableMetadata object keeps per table metadata.
+     */
+    MasterTableMetadata masterTableMetadata;
+
+    /**
      * The TabletManager keeps track of ranges of tables that are assigned to
      * this server by the coordinator. Ranges are contiguous spans of the 64-bit
      * key hash space.
@@ -204,6 +210,12 @@ class MasterService : public Service {
      * Used to ensure that init() is invoked before the dispatcher runs.
      */
     bool initCalled;
+
+    /**
+     * Used by takeTabletOwnership to avoid sync-ing the log except for the
+     * first tablet accepted.
+     */
+    bool logEverSynced;
 
     /**
      * Determines the maximum size of the response buffer for multiRead

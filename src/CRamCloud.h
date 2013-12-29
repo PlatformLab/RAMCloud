@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2012 Stanford University
+/* Copyright (c) 2010-2013 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -34,6 +34,7 @@ struct rc_client;
 #endif
 
 Status    rc_connect(const char* serverLocator,
+                            const char* clusterName,
                             struct rc_client** newClient);
 Status    rc_connectWithClient(
                             struct RamCloud* existingClient,
@@ -79,7 +80,7 @@ Status    rc_testing_get_service_locator(struct rc_client* client,
 Status    rc_testing_fill(struct rc_client* client, uint64_t tableId,
                                     const void* key, uint16_t keyLength,
                                     uint32_t objectCount, uint32_t objectSize);
-Status    rc_testing_set_runtime_option(struct rc_client* client,
+Status    rc_set_runtime_option(struct rc_client* client,
                                                   const char* option,
                                                   const char* value);
 void rc_testing_wait_for_all_tablets_normal(struct rc_client* client,

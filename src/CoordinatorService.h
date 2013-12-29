@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2012 Stanford University
+/* Copyright (c) 2009-2013 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -16,16 +16,13 @@
 #ifndef RAMCLOUD_COORDINATORSERVICE_H
 #define RAMCLOUD_COORDINATORSERVICE_H
 
-#include <Client/Client.h>
-
 #include "ServerList.pb.h"
 #include "Tablets.pb.h"
 
 #include "Common.h"
 #include "ClientException.h"
 #include "CoordinatorServerList.h"
-#include "CoordinatorServiceRecovery.h"
-#include "LogCabinHelper.h"
+#include "CoordinatorUpdateManager.h"
 #include "MasterRecoveryManager.h"
 #include "RawMetrics.h"
 #include "Recovery.h"
@@ -43,11 +40,13 @@ class CoordinatorService : public Service {
   public:
     explicit CoordinatorService(Context* context,
                                 uint32_t deadServerTimeout,
-                                string LogCabinLocator = "testing",
-                                bool startRecoveryManager = true);
+                                bool startRecoveryManager = true,
+                                uint32_t maxThreads = 1);
     ~CoordinatorService();
     void dispatch(WireFormat::Opcode opcode,
                   Rpc* rpc);
+    RuntimeOptions *getRuntimeOptionsFromCoordinator();
+    int maxThreads() { return threadLimit; }
 
   PRIVATE:
     // - rpc handlers -
@@ -60,6 +59,9 @@ class CoordinatorService : public Service {
     void splitTablet(const WireFormat::SplitTablet::Request* reqHdr,
                    WireFormat::SplitTablet::Response* respHdr,
                    Rpc* rpc);
+    void getRuntimeOption(const WireFormat::GetRuntimeOption::Request* reqHdr,
+                    WireFormat::GetRuntimeOption::Response* respHdr,
+                    Rpc* rpc);
     void getTableId(const WireFormat::GetTableId::Request* reqHdr,
                     WireFormat::GetTableId::Response* respHdr,
                     Rpc* rpc);
@@ -99,6 +101,7 @@ class CoordinatorService : public Service {
         Rpc* rpc);
 
     // - helper methods -
+    static void init(CoordinatorService* service, bool startRecoveryManager);
     bool verifyServerFailure(ServerId serverId);
 
     /**
@@ -123,9 +126,15 @@ class CoordinatorService : public Service {
     uint32_t deadServerTimeout;
 
     /**
+     * Keeps track of incomplete operations, for use in recovery by
+     * our successor if we crash.
+     */
+    CoordinatorUpdateManager updateManager;
+
+    /**
      * Manages the tables and constituting tablets information on Coordinator.
      */
-    TableManager* tableManager;
+    TableManager tableManager;
 
   PRIVATE:
     /**
@@ -141,34 +150,10 @@ class CoordinatorService : public Service {
     MasterRecoveryManager recoveryManager;
 
     /**
-     * Handles recovery of a coordinator.
+     * Maximum number of threads that are allowed to execute RPC handlers in
+     * service at one time.
      */
-    CoordinatorServiceRecovery coordinatorRecovery;
-
-    /**
-     * Handle to the cluster of LogCabin which provides reliable, consistent
-     * storage.
-     */
-    Tub<LogCabin::Client::Cluster> logCabinCluster;
-
-    /**
-     * Handle to the log interface provided by LogCabin.
-     */
-    Tub<LogCabin::Client::Log> logCabinLog;
-
-    /**
-     * Handle to a helper class that provides higher level abstractions
-     * to interact with LogCabin.
-     */
-    Tub<LogCabinHelper> logCabinHelper;
-
-    /**
-     * EntryId of the last entry appended to log by this instance of
-     * coordinator. This is used for safe appends, i.e., appends that are
-     * conditional on last entry being appended by this entry, that helps
-     * ensure leadership.
-     */
-    LogCabin::Client::EntryId expectedEntryId;
+    uint32_t threadLimit;
 
     /**
      * Used for testing only. If true, the HINT_SERVER_CRASHED handler will
@@ -176,8 +161,19 @@ class CoordinatorService : public Service {
      */
     bool forceServerDownForTesting;
 
+    /**
+     * True means that the init method has completed its initialization.
+     */
+    bool initFinished;
+
+    /**
+     * Used by unit tests to force synchronous completion of initialization.
+     */
+    static bool forceSynchronousInit;
+
     friend class CoordinatorServiceRecovery;
     friend class CoordinatorServerList;
+    friend class MockCluster;
 
     DISALLOW_COPY_AND_ASSIGN(CoordinatorService);
 };

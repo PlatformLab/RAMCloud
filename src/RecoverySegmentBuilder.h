@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2012 Stanford University
+/* Copyright (c) 2009-2013 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -43,11 +43,12 @@ class RecoverySegmentBuilder {
   PUBLIC:
     static void build(const void* buffer, uint32_t length,
                       const Segment::Certificate& certificate,
+                      int numPartitions,
                       const ProtoBuf::Tablets& partitions,
                       Segment* recoverySegments);
     static bool extractDigest(const void* buffer, uint32_t length,
                               const Segment::Certificate& certificate,
-                              Buffer* digestBuffer);
+                              Buffer* digestBuffer, Buffer* tableStatsBuffer);
   PRIVATE:
     static bool isEntryAlive(const Log::Position& position,
                              const ProtoBuf::Tablets::Tablet* tablet);

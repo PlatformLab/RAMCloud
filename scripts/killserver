@@ -1,0 +1,19 @@
+#!/bin/bash
+# Usage: killserver kill_on_exit wd file
+# First change to the working directory.
+# If kill_on_exit == 1, only then clean up this server.
+
+cd $2
+file=$3
+if [[ "$1" == "1" ]]; then
+    # kill the server
+    # extracting the pid as a substring of the file name - rcxx_pid
+    pid=${file#*_}
+    rm -rf logs/shm/$file
+
+    kill $pid 2>/dev/null || exit 0
+    while true; do
+        sleep .01
+        kill $pid 2>/dev/null || exit 0
+    done
+fi

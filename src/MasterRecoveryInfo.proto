@@ -43,13 +43,17 @@ message MasterRecoveryInfo {
      * Minimum segment id which a replica must have to be a valid replica of
      * the log *IF* the replica is open (subject to the constraint of the
      * #min_open_segment_epoch below). Closed replicas are always valid.
+     * Note: making this optional with a default value avoids the need to
+     * explicitly initialize in CoordinatorServerList.cc, so it doesn't
+     * have to understand what's in these protobufs.
      */
-    required uint64 min_open_segment_id = 1;
+    optional uint64 min_open_segment_id = 1 [default = 0];
 
     /**
      * Minimum epoch a replica must have *IF* the replica is open *AND* the
-     * segment id is exactly the same as above.
+     * segment id is exactly the same as above.  See note above about
+     * optional/default.
      */
-    required uint64 min_open_segment_epoch = 2;
+    optional uint64 min_open_segment_epoch = 2 [default = 0];
 }
 

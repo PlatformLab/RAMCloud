@@ -34,10 +34,10 @@ namespace LogCleanerMetrics {
 
 /// Just in case using atomics for metrics becomes a performance problem, we
 /// will use this typedef to allow us to run in fast-and-loose mode with
-/// regular uint32_ts and uint64_ts, if needed. The clean
+/// regular uint32_ts and uint64_ts, if needed.
 typedef std::atomic_uint_fast64_t Atomic64BitType;
 
-/// Convenience typedef for CycleCounters of type CounterType.
+/// Convenience typedef for declaring atomic CycleCounters.
 typedef CycleCounter<Atomic64BitType> AtomicCycleCounter;
 
 /**
@@ -131,7 +131,7 @@ class InMemory {
         MERGE_FIELD(totalSegmentsCompacted);
         MERGE_FIELD(totalEmptySegmentsCompacted);
 
-        for (int i = 0; i < TOTAL_LOG_ENTRY_TYPES; i++) { 
+        for (int i = 0; i < TOTAL_LOG_ENTRY_TYPES; i++) {
             MERGE_FIELD(totalEntriesScanned[i]);
             MERGE_FIELD(totalLiveEntriesScanned[i]);
             MERGE_FIELD(totalScannedEntryLengths[i]);
@@ -353,7 +353,7 @@ class OnDisk {
         MERGE_FIELD(totalLowDiskSpaceRuns);
         MERGE_FIELD(memoryUtilizationAtStartSum);
 
-        for (int i = 0; i < TOTAL_LOG_ENTRY_TYPES; i++) { 
+        for (int i = 0; i < TOTAL_LOG_ENTRY_TYPES; i++) {
             MERGE_FIELD(totalEntriesScanned[i]);
             MERGE_FIELD(totalLiveEntriesScanned[i]);
             MERGE_FIELD(totalScannedEntryLengths[i]);

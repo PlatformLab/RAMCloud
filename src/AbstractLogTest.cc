@@ -24,6 +24,7 @@
 #include "StringUtil.h"
 #include "TestLog.h"
 #include "Transport.h"
+#include "MasterTableMetadata.h"
 
 namespace RAMCloud {
 
@@ -44,6 +45,7 @@ class AbstractLogTest : public ::testing::Test {
     ServerList serverList;
     ServerConfig serverConfig;
     ReplicaManager replicaManager;
+    MasterTableMetadata masterTableMetadata;
     SegletAllocator allocator;
     SegmentManager segmentManager;
     DoNothingHandlers entryHandlers;
@@ -55,9 +57,10 @@ class AbstractLogTest : public ::testing::Test {
           serverList(&context),
           serverConfig(ServerConfig::forTesting()),
           replicaManager(&context, &serverId, 0, false),
+          masterTableMetadata(),
           allocator(&serverConfig),
           segmentManager(&context, &serverConfig, &serverId,
-                         allocator, replicaManager),
+                         allocator, replicaManager, &masterTableMetadata),
           entryHandlers(),
           l(&context, &serverConfig, &entryHandlers,
             &segmentManager, &replicaManager)
@@ -72,7 +75,8 @@ class AbstractLogTest : public ::testing::Test {
 TEST_F(AbstractLogTest, constructor) {
     SegletAllocator allocator2(&serverConfig);
     SegmentManager segmentManager2(&context, &serverConfig, &serverId,
-                                   allocator2, replicaManager);
+                                   allocator2, replicaManager,
+                                   &masterTableMetadata);
     Log l2(&context, &serverConfig, &entryHandlers,
            &segmentManager2, &replicaManager);
     EXPECT_EQ(static_cast<LogSegment*>(NULL), l2.head);

@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2012 Stanford University
+/* Copyright (c) 2011-2013 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -15,6 +15,7 @@
 
 #include <sys/epoll.h>
 #include <sys/select.h>
+#include <fstream>
 
 #include "ShortMacros.h"
 #include "Common.h"
@@ -75,6 +76,10 @@ Dispatch::Dispatch(bool hasDedicatedThread)
     , locked(0)
     , hasDedicatedThread(hasDedicatedThread)
     , slowPollerCycles(Cycles::fromSeconds(.05))
+    , profilerFlag(false)
+    , totalElements(0)
+    , pollingTimes(NULL)
+    , nextInd(0)
 {
     exitPipeFds[0] = exitPipeFds[1] = -1;
 }
@@ -118,6 +123,7 @@ Dispatch::~Dispatch()
         t->stop();
         t->owner = NULL;
     }
+    cleanProfiler();
 }
 
 /**
@@ -133,6 +139,12 @@ Dispatch::poll()
     assert(isDispatchThread());
     uint64_t previous = currentTime;
     currentTime = Cycles::rdtsc();
+    // Dispatch::poll() execution time will be recorded if
+    // profilerFlag is set to true.
+    if (profilerFlag) {
+        pollingTimes[nextInd] = currentTime - previous;
+        nextInd = (nextInd + 1) % totalElements;
+    }
     if (((currentTime - previous) > slowPollerCycles) && hasDedicatedThread) {
         LOG(NOTICE, "Long gap in dispatcher: %.1f ms",
                 Cycles::toSeconds(currentTime - previous)*1e03);
@@ -265,6 +277,95 @@ Dispatch::poll()
 }
 
 /**
+ * Starts execution time profiling of Dispatch::poll() method. 
+ *
+ * \param totalElements 
+ *      size of circular array that keeps the 
+ *      profiling data. It's equal to the total
+ *      measurement data points that could be taken.
+ */
+void
+Dispatch::startProfiler(const uint64_t totalElements) {
+    // Initializes the circular array pollingTimes
+    // that keeps the taken profiling data points.
+    cleanProfiler();
+    this->totalElements = totalElements;
+    nextInd = 0;
+    pollingTimes = new uint64_t[totalElements];
+
+    // Last element in pollingTimes array acts as
+    // a sentinel to determine the range of valid
+    // data points saved in the array.
+    pollingTimes[totalElements - 1] = 0;
+    profilerFlag = true;
+}
+
+/**
+ * No more profiling data will be taken in
+ * Dispatch::poll() after this method is called.
+ */
+void
+Dispatch::stopProfiler() {
+    profilerFlag = false;
+}
+
+/**
+ * Dumps the profiling data points into a file.
+ * Throws an exception of type std::ofstream::failure
+ * if failure happens.
+ * The file is formated such that every data point
+ * will appear on a separate line in it.
+ *
+ * \param fileName
+ *      name of the file that will contain
+ *      the dumped data.
+ */
+void
+Dispatch::dumpProfile(const char* fileName){
+    std::ofstream outFile;
+    outFile.exceptions(std::ofstream::failbit | std::ofstream::badbit);
+    try {
+        outFile.open(fileName);
+        outFile.clear();
+
+        // The last element of the pollingTimes circular
+        // array, privously initialized to zero in
+        // startDispatchProfiler() method, acts as a sentinel
+        // to find the range of valid data points in the array.
+        // If the last element of the array still holds zero,
+        // then upto the nextInd index in the array are valid
+        // data points. Otherwise, all elemnts in the array
+        // are valid.
+        if (pollingTimes[totalElements - 1] == 0) {
+            for (uint64_t i = 0; i < nextInd; i++){
+                outFile << Cycles::toNanoseconds(pollingTimes[i])<< "\n";
+            }
+        } else {
+            for (uint64_t i = 0; i < totalElements; i++){
+                outFile << Cycles::toNanoseconds(
+                        pollingTimes[(nextInd+i) % totalElements]) << "\n";
+            }
+        }
+        outFile.close();
+        cleanProfiler();
+    }
+    catch(std::ofstream::failure& e) {
+        LOG(ERROR, "Error in dumpProfile: %s", e.what());
+        throw;
+    }
+}
+
+/**
+ * Releases allocated resources for dispatch profiling.
+ */
+void
+Dispatch::cleanProfiler() {
+    if (pollingTimes != NULL)
+        delete [] pollingTimes;
+        pollingTimes = NULL;
+}
+
+/**
  * Construct a Poller.
  *
  * \param dispatch
@@ -275,8 +376,8 @@ Dispatch::poll()
  *      about the poller. The name of the superclass is probably sufficient
  *      for most cases.
  */
-Dispatch::Poller::Poller(Dispatch& dispatch, const string& pollerName)
-    : owner(&dispatch)
+Dispatch::Poller::Poller(Dispatch* dispatch, const string& pollerName)
+    : owner(dispatch)
     , pollerName(pollerName)
     , slot(downCast<int>(owner->pollers.size()))
 {
@@ -323,8 +424,8 @@ Dispatch::Poller::~Poller()
  *      Dispatch object that will manage this file handler (defaults
  *      to the global #RAMCloud::dispatch object).
  */
-Dispatch::File::File(Dispatch& dispatch, int fd, int events)
-        : owner(&dispatch)
+Dispatch::File::File(Dispatch* dispatch, int fd, int events)
+        : owner(dispatch)
         , fd(fd)
         , events(0)
         , active(false)
@@ -538,8 +639,8 @@ Dispatch::fdIsReady(int fd)
  * \param dispatch
  *      Dispatch object that will manage this timer.
  */
-Dispatch::Timer::Timer(Dispatch& dispatch)
-    : owner(&dispatch), triggerTime(0), slot(-1)
+Dispatch::Timer::Timer(Dispatch* dispatch)
+    : owner(dispatch), triggerTime(0), slot(-1)
 {
 }
 
@@ -552,8 +653,8 @@ Dispatch::Timer::Timer(Dispatch& dispatch)
  *      Time at which the timer should trigger, measured in cycles (the units
  *      returned by #Cycles::rdtsc).
  */
-Dispatch::Timer::Timer(Dispatch& dispatch, uint64_t cycles)
-        : owner(&dispatch), triggerTime(0), slot(-1)
+Dispatch::Timer::Timer(Dispatch* dispatch, uint64_t cycles)
+        : owner(dispatch), triggerTime(0), slot(-1)
 {
     start(cycles);
 }

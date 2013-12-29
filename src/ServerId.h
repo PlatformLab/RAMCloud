@@ -198,9 +198,9 @@ class ServerId {
             return false;
         if (generationNumber() < other.generationNumber())
             return true;
-        if (indexNumber() < other.indexNumber())
-            return true;
-        return false;
+        if (generationNumber() > other.generationNumber())
+            return false;
+        return (indexNumber() < other.indexNumber());
     }
 
     /// Integer representing an invalid generation number. Any ServerId with

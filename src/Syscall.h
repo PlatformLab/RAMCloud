@@ -22,16 +22,18 @@
 #include <sys/syscall.h>
 #include <netinet/in.h>
 #include <fcntl.h>
+#include <cstdio>
 
 #include "Common.h"
 
 namespace RAMCloud {
 
 /**
- * This class provides a mechanism for invoking system calls that makes
- * it easy to intercept the calls with a mock class (e.g. MockSyscall)
- * for testing. When system calls are invoked through this base class
- * they have the same behavior as if they were invoked directly.
+ * This class provides a mechanism for invoking system calls and other
+ * library functions that makes it easy to intercept the calls with a
+ * mock class (e.g. MockSyscall) for testing. When system calls are
+ * invoked through this base class they have the same behavior as if
+ * they were invoked directly.
  *
  * The methods have the same names, arguments, and behavior as the
  * corresponding Linux/POSIX functions; see the man pages for details.
@@ -88,6 +90,10 @@ class Syscall {
     int futexWake(int *addr, int count) {
         return static_cast<int>(::syscall(SYS_futex, addr, FUTEX_WAKE,
                 count, NULL, NULL, 0));
+    }
+    VIRTUAL_FOR_TESTING
+    size_t fwrite(const void *src, size_t size, size_t count, FILE* f) {
+        return ::fwrite(src, size, count, f);
     }
     VIRTUAL_FOR_TESTING
     int listen(int sockfd, int backlog) {

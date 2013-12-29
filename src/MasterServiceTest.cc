@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2012 Stanford University
+/* Copyright (c) 2010-2013 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -70,6 +70,7 @@ class MasterServiceRefresher : public ObjectFinder::TabletMapFetcher {
 
 class MasterServiceTest : public ::testing::Test {
   public:
+    TestLog::Enable logEnabler;
     Context context;
     ServerList serverList;
     MockCluster cluster;
@@ -89,7 +90,8 @@ class MasterServiceTest : public ::testing::Test {
     // apparently template easily on that, we need to subclass this if we want
     // to provide a fixture with a different value.
     explicit MasterServiceTest(uint32_t segmentSize = 256 * 1024)
-        : context()
+        : logEnabler()
+        , context()
         , serverList(&context)
         , cluster(&context)
         , ramcloud()
@@ -288,13 +290,6 @@ class MasterServiceTest : public ::testing::Test {
         return safeVerScanned;
     }
 
-    static bool
-    recoveryFilter(string s)
-    {
-        return (s == "replaySegment" || s == "recover" ||
-                s == "recoveryMasterFinished");
-    }
-
     void
     appendTablet(ProtoBuf::Tablets& tablets,
                  uint64_t partitionId,
@@ -323,6 +318,19 @@ class MasterServiceTest : public ::testing::Test {
 
     DISALLOW_COPY_AND_ASSIGN(MasterServiceTest);
 };
+
+TEST_F(MasterServiceTest, dispatch_initializationNotFinished) {
+    Buffer request, response;
+    Service::Rpc rpc(NULL, &request, &response);
+    string message("no exception");
+    try {
+        service->initCalled = false;
+        service->dispatch(WireFormat::Opcode::ILLEGAL_RPC_TYPE, &rpc);
+    } catch (RetryException& e) {
+        message = e.message;
+    }
+    EXPECT_EQ("master service not yet initialized", message);
+}
 
 TEST_F(MasterServiceTest, dispatch_disableCount) {
     Buffer request, response;
@@ -354,7 +362,7 @@ TEST_F(MasterServiceTest, enumeration_basics) {
     ramcloud->write(1, "1", 1, "ghijkl", 6, NULL, &version1, false);
     Buffer iter, nextIter, finalIter, objects;
     uint64_t nextTabletStartHash;
-    EnumerateTableRpc rpc(ramcloud.get(), 1, 0, iter, objects);
+    EnumerateTableRpc rpc(ramcloud.get(), 1, false, 0, iter, objects);
     nextTabletStartHash = rpc.wait(nextIter);
     EXPECT_EQ(0U, nextTabletStartHash);
     EXPECT_EQ(74U, objects.getTotalLength());
@@ -387,8 +395,8 @@ TEST_F(MasterServiceTest, enumeration_basics) {
 
     // We don't actually care about the contents of the iterator as
     // long as we get back 0 objects on the second call.
-    EnumerateTableRpc rpc2(ramcloud.get(), 1, nextTabletStartHash, nextIter,
-                            objects);
+    EnumerateTableRpc rpc2(ramcloud.get(), 1, false, nextTabletStartHash,
+                            nextIter, objects);
     nextTabletStartHash = rpc2.wait(finalIter);
     EXPECT_EQ(0U, nextTabletStartHash);
     EXPECT_EQ(0U, objects.getTotalLength());
@@ -397,7 +405,7 @@ TEST_F(MasterServiceTest, enumeration_basics) {
 TEST_F(MasterServiceTest, enumeration_tabletNotOnServer) {
     TestLog::Enable _;
     Buffer iter, nextIter, objects;
-    EnumerateTableRpc rpc(ramcloud.get(), 99, 0, iter, objects);
+    EnumerateTableRpc rpc(ramcloud.get(), 99, false, 0, iter, objects);
     EXPECT_THROW(rpc.wait(nextIter), TableDoesntExistException);
     EXPECT_EQ("checkStatus: Server mock:host=master "
               "doesn't store <99, 0x0>; refreshing object map | "
@@ -428,7 +436,7 @@ TEST_F(MasterServiceTest, enumeration_mergeTablet) {
         service->objectManager.objectMap.getNumBuckets()*4/5, 0U);
     initialIter.push(preMergeConfiguration);
     initialIter.serialize(iter);
-    EnumerateTableRpc rpc(ramcloud.get(), 1, 0, iter, objects);
+    EnumerateTableRpc rpc(ramcloud.get(), 1, false, 0, iter, objects);
     nextTabletStartHash = rpc.wait(nextIter);
     EXPECT_EQ(0U, nextTabletStartHash);
     EXPECT_EQ(42U, objects.getTotalLength());
@@ -452,7 +460,7 @@ TEST_F(MasterServiceTest, enumeration_mergeTablet) {
 
     // We don't actually care about the contents of the iterator as
     // long as we get back 0 objects on the second call.
-    EnumerateTableRpc rpc2(ramcloud.get(), 1, 0, nextIter, objects);
+    EnumerateTableRpc rpc2(ramcloud.get(), 1, false, 0, nextIter, objects);
     rpc2.wait(finalIter);
     EXPECT_EQ(0U, nextTabletStartHash);
     EXPECT_EQ(0U, objects.getTotalLength());
@@ -766,10 +774,10 @@ TEST_F(MasterServiceTest, detectSegmentRecoveryFailure_failure) {
 }
 
 TEST_F(MasterServiceTest, getHeadOfLog) {
-    EXPECT_EQ(Log::Position(2, 62),
+    EXPECT_EQ(Log::Position(2, 88),
               MasterClient::getHeadOfLog(&context, masterServer->serverId));
     ramcloud->write(1, "0", 1, "abcdef", 6);
-    EXPECT_EQ(Log::Position(3, 70),
+    EXPECT_EQ(Log::Position(3, 96),
               MasterClient::getHeadOfLog(&context, masterServer->serverId));
 }
 
@@ -801,7 +809,8 @@ TEST_F(MasterServiceTest, recover_basics) {
         {backup1Id.getId(), 87},
     };
 
-    TestLog::Enable __(recoveryFilter);
+    TestLog::Enable __("replaySegment", "recover", "recoveryMasterFinished",
+                       NULL);
     MasterClient::recover(&context, masterServer->serverId, 10lu,
                           serverId, 0, &tablets, replicas,
                           arrayLength(replicas));
@@ -825,9 +834,6 @@ TEST_F(MasterServiceTest, recover_basics) {
 
     EXPECT_EQ(
         "replaySegment: SAFEVERSION 23 recovered | "
-        "replaySegment: SAFEVERSION 23 discarded | "
-        "replaySegment: SAFEVERSION 23 discarded | "
-        "replaySegment: SAFEVERSION 23 discarded | "
         "recover: Segment 87 replay complete | "
         , TestLog::getUntil(
             "recover: Checking server 1.0 at mock:host=backup1 "
@@ -995,15 +1001,9 @@ TEST_F(MasterServiceTest, recover) {
     EXPECT_EQ(State::FAILED, replicas.at(8).state);
 }
 
-static bool
-recoveryMasterFinishedFilter(string s)
-{
-    return (s == "recoveryMasterFinished");
-}
-
 TEST_F(MasterServiceTest, recover_ctimeUpdateIssued) {
     cluster.coordinator->recoveryManager.start();
-    TestLog::Enable _(recoveryMasterFinishedFilter);
+    TestLog::Enable _("recoveryMasterFinished");
     ramcloud->write(1, "0", 1, "abcdef", 6);
     ProtoBuf::Tablets tablets;
     createTabletList(tablets);
@@ -1021,26 +1021,20 @@ TEST_F(MasterServiceTest, recover_ctimeUpdateIssued) {
         , TestLog::getUntil("ctime_log_head_id:", curPos, &curPos));
     EXPECT_EQ(
         "ctime_log_head_id: 2 "
-        "ctime_log_head_offset: 62 } tablet { table_id: "
+        "ctime_log_head_offset: 88 } tablet { table_id: "
         "123 start_key_hash: 10 end_key_hash: 19 state: RECOVERING server_id: "
         "2 service_locator: \"mock:host=master\" user_data: 0 "
         , TestLog::getUntil("ctime_log_head_id", curPos, &curPos));
     EXPECT_EQ(
-        "ctime_log_head_id: 2 ctime_log_head_offset: 62 } tablet { table_id: "
+        "ctime_log_head_id: 2 ctime_log_head_offset: 88 } tablet { table_id: "
         "123 start_key_hash: 20 end_key_hash: 29 state: RECOVERING server_id: "
         "2 service_locator: \"mock:host=master\" user_data: 0 "
         , TestLog::getUntil("ctime_log_head_id", curPos, &curPos));
 }
 
-namespace {
-bool recoverFilter(string s) {
-    return s == "recover";
-}
-}
-
 TEST_F(MasterServiceTest, recover_unsuccessful) {
     cluster.coordinator->recoveryManager.start();
-    TestLog::Enable _(recoverFilter);
+    TestLog::Enable _("recover");
     ramcloud->write(1, "0", 1, "abcdef", 6);
     ProtoBuf::Tablets tablets;
     createTabletList(tablets);
@@ -1070,8 +1064,8 @@ TEST_F(MasterServiceTest, remove_basics) {
     uint64_t version;
     ramcloud->remove(1, "key0", 4, NULL, &version);
     EXPECT_EQ(1U, version);
-    EXPECT_EQ("free: free on reference 3670070 | "
-              "sync: syncing segment 1 to offset 131 | "
+    EXPECT_EQ("free: free on reference 3670096 | "
+              "sync: syncing segment 1 to offset 157 | "
               "schedule: scheduled | "
               "performWrite: Sending write to backup 1.0 | "
               "schedule: scheduled | "
@@ -1169,14 +1163,8 @@ TEST_F(MasterServiceTest, splitMasterTablet) {
         service->tabletManager.toString());
 }
 
-static bool
-dropTabletOwnership_filter(string s)
-{
-    return s == "dropTabletOwnership";
-}
-
 TEST_F(MasterServiceTest, dropTabletOwnership) {
-    TestLog::Enable _(dropTabletOwnership_filter);
+    TestLog::Enable _("dropTabletOwnership");
 
     MasterClient::dropTabletOwnership(&context,
         masterServer-> serverId, 2, 1, 1);
@@ -1193,14 +1181,27 @@ TEST_F(MasterServiceTest, dropTabletOwnership) {
         "in tableId 2", TestLog::get());
 }
 
-static bool
-takeTabletOwnership_filter(string s)
-{
-    return s == "takeTabletOwnership";
+TEST_F(MasterServiceTest, takeTabletOwnership_syncLog) {
+    TestLog::Enable _("takeTabletOwnership", "sync", NULL);
+
+    service->logEverSynced = false;
+    MasterClient::takeTabletOwnership(&context, masterServer->serverId,
+        2, 2, 3);
+    EXPECT_TRUE(service->logEverSynced);
+    EXPECT_EQ("sync: sync not needed: already fully replicated | "
+              "takeTabletOwnership: Took ownership of new tablet "
+              "[0x2,0x3] in tableId 2", TestLog::get());
+
+    TestLog::reset();
+    MasterClient::takeTabletOwnership(&context, masterServer->serverId,
+        2, 4, 5);
+    EXPECT_TRUE(service->logEverSynced);
+    EXPECT_EQ("takeTabletOwnership: Took ownership of new tablet "
+              "[0x4,0x5] in tableId 2", TestLog::get());
 }
 
 TEST_F(MasterServiceTest, takeTabletOwnership_newTablet) {
-    TestLog::Enable _(takeTabletOwnership_filter);
+    TestLog::Enable _("takeTabletOwnership");
 
     // Start empty.
     EXPECT_TRUE(service->tabletManager.deleteTablet(1, 0, ~0UL));
@@ -1274,7 +1275,7 @@ TEST_F(MasterServiceTest, takeTabletOwnership_newTablet) {
 }
 
 TEST_F(MasterServiceTest, takeTabletOwnership_migratingTablet) {
-    TestLog::Enable _(takeTabletOwnership_filter);
+    TestLog::Enable _("takeTabletOwnership");
 
     // Fake up a tablet in migration.
     service->tabletManager.addTablet(2, 0, 5, TabletManager::RECOVERING);
@@ -1287,16 +1288,10 @@ TEST_F(MasterServiceTest, takeTabletOwnership_migratingTablet) {
             "[0x0,0x5] in tableId 2 in RECOVERING state", TestLog::get());
 }
 
-static bool
-prepForMigrationFilter(string s)
-{
-    return s == "prepForMigration";
-}
-
 TEST_F(MasterServiceTest, prepForMigration) {
     service->tabletManager.addTablet(5, 27, 873, TabletManager::NORMAL);
 
-    TestLog::Enable _(prepForMigrationFilter);
+    TestLog::Enable _("prepForMigration");
 
     // Overlap
     EXPECT_THROW(MasterClient::prepForMigration(&context,
@@ -1327,12 +1322,6 @@ TEST_F(MasterServiceTest, prepForMigration) {
         "in tableId 5 from \"??\"", TestLog::get());
 }
 
-static bool
-migrateTabletFilter(string s)
-{
-    return s == "migrateTablet";
-}
-
 TEST_F(MasterServiceTest, migrateTablet_tabletNotOnServer) {
     TestLog::Enable _;
     EXPECT_THROW(ramcloud->migrateTablet(99, 0, -1, ServerId(0, 0)),
@@ -1347,7 +1336,7 @@ TEST_F(MasterServiceTest, migrateTablet_tabletNotOnServer) {
 TEST_F(MasterServiceTest, migrateTablet_firstKeyHashTooLow) {
     service->tabletManager.addTablet(99, 27, 873, TabletManager::NORMAL);
 
-    TestLog::Enable _(migrateTabletFilter);
+    TestLog::Enable _("migrateTablet");
 
     EXPECT_THROW(ramcloud->migrateTablet(99, 0, 26, ServerId(0, 0)),
         TableDoesntExistException);
@@ -1359,7 +1348,7 @@ TEST_F(MasterServiceTest, migrateTablet_firstKeyHashTooLow) {
 TEST_F(MasterServiceTest, migrateTablet_lastKeyHashTooHigh) {
     service->tabletManager.addTablet(99, 27, 873, TabletManager::NORMAL);
 
-    TestLog::Enable _(migrateTabletFilter);
+    TestLog::Enable _("migrateTablet");
 
     EXPECT_THROW(ramcloud->migrateTablet(99, 874, -1, ServerId(0, 0)),
         TableDoesntExistException);
@@ -1371,7 +1360,7 @@ TEST_F(MasterServiceTest, migrateTablet_lastKeyHashTooHigh) {
 TEST_F(MasterServiceTest, migrateTablet_migrateToSelf) {
     service->tabletManager.addTablet(99, 27, 873, TabletManager::NORMAL);
 
-    TestLog::Enable _(migrateTabletFilter);
+    TestLog::Enable _("migrateTablet");
 
     EXPECT_THROW(ramcloud->migrateTablet(99, 27, 873, masterServer->serverId),
         RequestFormatError);
@@ -1400,7 +1389,7 @@ TEST_F(MasterServiceTest, migrateTablet_movingData) {
     // update is asynchronous and the client calls a migrate before the CSL has
     // been propagated. The recipient servers basically don't know about each
     // other yet and can't perform a migrate.
-    TestLog::Enable _(migrateTabletFilter);
+    TestLog::Enable _("migrateTablet");
 
     ramcloud->migrateTablet(tbl, 0, -1, master2->serverId);
     EXPECT_EQ("migrateTablet: Migrating tablet [0x0,0xffffffffffffffff] "
@@ -1418,17 +1407,10 @@ TEST_F(MasterServiceTest, migrateTablet_movingData) {
     Log::Position master2HeadPositionAfter = Log::Position(
         master2Log->head->id,
         master2Log->head->getAppendedLength());
-    Lock lock(mutex);   // Used to trick TableManager internal calls.
     Log::Position ctimeCoord =
-        cluster.coordinator->tableManager->getTablet(lock, tbl, 0, -1).ctime;
+        cluster.coordinator->tableManager.getTablet(tbl, 0).ctime;
     EXPECT_GT(ctimeCoord, master2HeadPositionBefore);
     EXPECT_LT(ctimeCoord, master2HeadPositionAfter);
-}
-
-static bool
-receiveMigrationDataFilter(string s)
-{
-    return s == "receiveMigrationData";
 }
 
 TEST_F(MasterServiceTest, receiveMigrationData) {
@@ -1437,7 +1419,7 @@ TEST_F(MasterServiceTest, receiveMigrationData) {
     MasterClient::prepForMigration(&context, masterServer->serverId,
                                    5, 1, -1UL, 0, 0);
 
-    TestLog::Enable _(receiveMigrationDataFilter);
+    TestLog::Enable _("receiveMigrationData");
 
     EXPECT_THROW(MasterClient::receiveMigrationData(&context,
                                                     masterServer->serverId,
@@ -1495,7 +1477,7 @@ TEST_F(MasterServiceTest, write_basics) {
     ramcloud->write(1, "key0", 4, "item0", 5, NULL, &version);
     EXPECT_EQ(1U, version);
     EXPECT_EQ("writeObject: object: 35 bytes, version 1 | "
-              "sync: syncing segment 1 to offset 91 | "
+              "sync: syncing segment 1 to offset 117 | "
               "schedule: scheduled | "
               "performWrite: Sending write to backup 1.0 | "
               "schedule: scheduled | "
@@ -1692,6 +1674,7 @@ TEST_F(MasterServiceFullSegmentSizeTest, write_maximumObjectSize) {
 
 class MasterRecoverTest : public ::testing::Test {
   public:
+    TestLog::Enable logEnabler;
     Context context;
     MockCluster cluster;
     const uint32_t segmentSize;
@@ -1701,7 +1684,8 @@ class MasterRecoverTest : public ::testing::Test {
 
     public:
     MasterRecoverTest()
-        : context()
+        : logEnabler()
+        , context()
         , cluster(&context)
         , segmentSize(1 << 16)  // Smaller than usual to make tests faster.
         , segmentFrames(30)     // Master's log uses one when constructed.
@@ -1727,12 +1711,6 @@ class MasterRecoverTest : public ::testing::Test {
 
     ~MasterRecoverTest()
     { }
-
-    static bool
-    recoveryFilter(string s)
-    {
-        return (s == "replaySegment" || s == "recover");
-    }
 
     MasterService*
     createMasterService()
@@ -1813,7 +1791,7 @@ TEST_F(MasterRecoverTest, recover) {
     };
 
     MockRandom __(1); // triggers deterministic rand().
-    TestLog::Enable _(&recoveryFilter);
+    TestLog::Enable _("replaySegment", "recover", NULL);
     master->recover(456lu, ServerId(99, 0), 0, replicas);
     EXPECT_EQ(0U, TestLog::get().find(
         "recover: Recovering master 99.0, partition 0, 3 replicas "
@@ -1835,7 +1813,7 @@ TEST_F(MasterRecoverTest, failedToRecoverAll) {
     };
 
     MockRandom __(1); // triggers deterministic rand().
-    TestLog::Enable _(&recoveryFilter);
+    TestLog::Enable _("replaySegment", "recover", NULL);
     EXPECT_THROW(master->recover(456lu, ServerId(99, 0), 0, replicas),
                  SegmentRecoveryFailedException);
     string log = TestLog::get();

@@ -22,6 +22,7 @@ namespace RAMCloud {
 
 class UpdateReplicationEpochTaskTest : public ::testing::Test {
   public:
+    TestLog::Enable logEnabler;
     Context context;
     MockCluster cluster;
     CoordinatorService* service;
@@ -31,7 +32,8 @@ class UpdateReplicationEpochTaskTest : public ::testing::Test {
     CoordinatorServerList* serverList;
 
     UpdateReplicationEpochTaskTest()
-        : context()
+        : logEnabler()
+        , context()
         , cluster(&context)
         , service(cluster.coordinator.get())
         , serverId()

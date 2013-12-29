@@ -31,6 +31,7 @@ class ClusterMetricsTest : public ::testing::Test {
 };
 
 TEST_F(ClusterMetricsTest, load) {
+    TestLog::Enable logEnabler;
     Context context;
     MockCluster cluster(&context);
 

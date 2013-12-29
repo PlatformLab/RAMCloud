@@ -42,10 +42,13 @@ SHARED_SRCFILES := \
 		   src/CodeLocation.cc \
 		   src/Common.cc \
 		   src/Cycles.cc \
+		   src/DataBlock.cc \
 		   src/Dispatch.cc \
 		   src/Driver.cc \
+		   src/ZooStorage.cc \
 		   src/Enumeration.cc \
 		   src/EnumerationIterator.cc \
+		   src/ExternalStorage.cc \
 		   src/FailureDetector.cc \
 		   src/FailSession.cc \
 		   src/FastTransport.cc \
@@ -64,6 +67,7 @@ SHARED_SRCFILES := \
 		   src/MacAddress.cc \
 		   src/MasterClient.cc \
 		   src/MasterService.cc \
+		   src/MasterTableMetadata.cc \
 		   src/MembershipService.cc \
 		   src/Memory.cc \
 		   src/MinCopysetsBackupSelector.cc \
@@ -103,6 +107,7 @@ SHARED_SRCFILES := \
 		   src/Status.cc \
 		   src/StringUtil.cc \
 		   src/TableEnumerator.cc \
+		   src/TableStats.cc \
 		   src/Tablet.cc \
 		   src/TabletManager.cc \
 		   src/TaskQueue.cc \
@@ -117,6 +122,7 @@ SHARED_SRCFILES := \
 		   src/WallTime.cc \
 		   src/WireFormat.cc \
 		   src/WorkerSession.cc \
+		   src/WorkerTimer.cc \
 		   $(INFINIBAND_SRCFILES) \
 		   $(OBJDIR)/EnumerationIterator.pb.cc \
 		   $(OBJDIR)/Histogram.pb.cc \

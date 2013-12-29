@@ -115,19 +115,19 @@ TEST_F(CleanableSegmentManagerTest, update) {
     csm.update(guard);
     EXPECT_EQ("", csm.toString());
 
-    segmentManager.allocHeadSegment();   
+    segmentManager.allocHeadSegment();
     csm.update(guard);
     EXPECT_EQ("", csm.toString());
 
-    segmentManager.allocHeadSegment();   
-    segmentManager.allocHeadSegment();   
-    segmentManager.allocHeadSegment();   
+    segmentManager.allocHeadSegment();
+    segmentManager.allocHeadSegment();
+    segmentManager.allocHeadSegment();
     csm.update(guard);
     EXPECT_EQ("", csm.toString());
 
-    segmentManager.allocHeadSegment();   
-    segmentManager.allocHeadSegment();   
-    segmentManager.allocHeadSegment();   
+    segmentManager.allocHeadSegment();
+    segmentManager.allocHeadSegment();
+    segmentManager.allocHeadSegment();
     csm.update(guard);
     EXPECT_EQ("", csm.toString());
 }

@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2012 Stanford University
+/* Copyright (c) 2009-2013 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -71,9 +71,15 @@ MasterService::MasterService(Context* context,
                              const ServerConfig* config)
     : context(context)
     , config(config)
+    , masterTableMetadata()
     , tabletManager()
-    , objectManager(context, &serverId, config, &tabletManager)
+    , objectManager(context,
+                    &serverId,
+                    config,
+                    &tabletManager,
+                    &masterTableMetadata)
     , initCalled(false)
+    , logEverSynced(false)
     , maxMultiReadResponseSize(Transport::MAX_RPC_LEN)
     , disableCount(0)
 {
@@ -87,7 +93,12 @@ MasterService::~MasterService()
 void
 MasterService::dispatch(WireFormat::Opcode opcode, Rpc* rpc)
 {
-    assert(initCalled);
+    if (!initCalled) {
+        LOG(WARNING, "%s invoked before initialization complete; "
+                "returning STATUS_RETRY", WireFormat::opcodeSymbol(opcode));
+        throw RetryException(HERE, 100, 100,
+                "master service not yet initialized");
+    }
 
     if (disableCount > 0) {
         LOG(NOTICE, "requesting retry of %s request (master disable count %d)",
@@ -234,7 +245,8 @@ MasterService::enumerate(const WireFormat::Enumerate::Request* reqHdr,
     uint32_t maxPayloadBytes =
             downCast<uint32_t>(Transport::MAX_RPC_LEN - sizeof(*respHdr)
                                - reqHdr->iteratorBytes);
-    Enumeration enumeration(reqHdr->tableId, reqHdr->tabletFirstHash,
+    Enumeration enumeration(reqHdr->tableId, reqHdr->keysOnly,
+                            reqHdr->tabletFirstHash,
                             actualTabletStartHash, actualTabletEndHash,
                             &respHdr->tabletFirstHash, iter,
                             *objectManager.getLog(),
@@ -749,15 +761,25 @@ MasterService::takeTabletOwnership(
     WireFormat::TakeTabletOwnership::Response* respHdr,
     Rpc* rpc)
 {
-    // Before any tablets can be assigned to this master it must have at
-    // least one segment on backups, otherwise it is impossible to
-    // distinguish between the loss of its entire log and the case where no
-    // data was ever written to it. The log's constructor does not create a
-    // head segment because doing so can lead to deadlock: the first master
-    // blocks, waiting to hear about enough backup servers, meanwhile the
-    // coordinator is trying to issue an RPC to the master, but it isn't
-    // even servicing transports yet!
-    objectManager.syncChanges();
+    // The code immediately below is tricky, for two reasons:
+    // * Before any tablets can be assigned to this master it must have at
+    //   least one segment on backups, otherwise it is impossible to
+    //   distinguish between the loss of its entire log and the case where
+    //   no data was ever written to it. The log's constructor does not
+    //   create a head segment because doing so can lead to deadlock: the
+    //   first master blocks, waiting to hear about enough backup servers,
+    //   meanwhile the coordinator is trying to issue an RPC to the master,
+    //   but it isn't even servicing transports yet!
+    // * Unfortunately, calling syncChanges can lead to deadlock during
+    //   coordinator restarts if the cluster doesn't have enough backups
+    //   to sync the log (see RAM-572). The code below is a partial solution:
+    //   only call syncChanges for the very first tablet accepted.  This
+    //   doesn't completely eliminate the deadlock, but makes it much less
+    //   likely.
+    if (!logEverSynced) {
+        objectManager.syncChanges();
+        logEverSynced = true;
+    }
 
     bool added = tabletManager.addTablet(reqHdr->tableId,
                                          reqHdr->firstKeyHash,
@@ -1601,10 +1623,12 @@ MasterService::recover(const WireFormat::Recover::Request* reqHdr,
                                              TabletManager::RECOVERING);
         if (!added) {
             throw Exception(HERE, format("Cannot recover tablet that overlaps "
-                "an already existing one (new tablet: %lu range [%lu,%lu])",
+                "an already existing one (tablet to recover: %lu "
+                "range [0x%lx,0x%lx], current tablet map: %s)",
                 newTablet.table_id(),
                 newTablet.start_key_hash(),
-                newTablet.end_key_hash()));
+                newTablet.end_key_hash(),
+                tabletManager.toString().c_str()));
         }
     }
 

@@ -337,7 +337,9 @@ Segment::getEntry(uint32_t offset, Buffer* buffer, uint32_t* lengthWithMetadata)
 }
 
 LogEntryType
-Segment::getEntry(Reference reference, Buffer* buffer, uint32_t* lengthWithMetadata)
+Segment::getEntry(Reference reference,
+                  Buffer* buffer,
+                  uint32_t* lengthWithMetadata)
 {
     // Binary search our seglets to find out which one this entry starts in and
     // compute the offset in the segment.
@@ -666,7 +668,9 @@ Segment::getReference(uint32_t offset)
 }
 
 LogEntryType
-Segment::Reference::getEntry(SegletAllocator* allocator, Buffer* buffer, uint32_t* lengthWithMetadata)
+Segment::Reference::getEntry(SegletAllocator* allocator,
+                             Buffer* buffer,
+                             uint32_t* lengthWithMetadata)
 {
     uint32_t segletSize = allocator->getSegletSize();
 

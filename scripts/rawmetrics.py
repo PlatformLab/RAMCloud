@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-# Copyright (c) 2011 Stanford University
+# Copyright (c) 2011-2013 Stanford University
 #
 # Permission to use, copy, modify, and distribute this software for any
 # purpose with or without fee is hereby granted, provided that the above
@@ -343,6 +343,9 @@ rpc.metric('setRuntimeOptionCount', 'number of invocations of SET_RUNTIME_OPTION
 rpc.metric('getServerConfigCount', 'number of invocations of GET_SERVER_CONFIG RPC')
 rpc.metric('getLogMetricsCount', 'number of invocations of GET_LOG_METRICS RPC')
 rpc.metric('verifyMembershipCount', 'number of invocations of VERIFY_MEMBERSHIP RPC')
+rpc.metric('getRuntimeOptionCount', 'number of invocations of GET_RUNTIME_OPTION RPC')
+rpc.metric('serverControlCount', 'number of invocations of SERVER_CONTROL RPC')
+rpc.metric('getServerIdCount', 'number of invocations of GET_SERVER_ID')
 rpc.metric('illegalRpcCount', 'number of invocations of RPCs with illegal opcodes')
 
 rpc.metric('rpc0Ticks', 'time spent executing RPC 0 (undefined)')
@@ -401,6 +404,9 @@ rpc.metric('setRuntimeOptionTicks', 'time spent executing SET_RUNTIME_OPTION RPC
 rpc.metric('getServerConfigTicks', 'time spent executing GET_SERVER_CONFIG RPC')
 rpc.metric('getLogMetricsTicks', 'time spent executing GET_LOG_METRICS RPC')
 rpc.metric('verifyMembershipTicks', 'number of invocations of VERIFY_MEMBERSHIP')
+rpc.metric('getRuntimeOptionTicks', 'time spent executing GET_RUNTIME_OPTION RPC')
+rpc.metric('serverControlTicks', 'time spent executing SERVER_CONTROL')
+rpc.metric('getServerIdTicks', 'time spent executing GET_SERVER_ID')
 rpc.metric('illegalRpcTicks', 'time spent executing RPCs with illegal opcodes')
 
 transmit = Group('Transmit', 'metrics related to transmitting messages')

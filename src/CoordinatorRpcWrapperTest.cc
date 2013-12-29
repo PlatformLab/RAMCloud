@@ -1,4 +1,4 @@
-/* Copyright (c) 2012 Stanford University
+/* Copyright (c) 2012-2013 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -42,7 +42,7 @@ class CoordinatorRpcWrapperTest : public ::testing::Test {
 };
 
 TEST_F(CoordinatorRpcWrapperTest, handleTransportError) {
-    TestLog::Enable _;
+    TestLog::Enable _("flush");
     CoordinatorRpcWrapper wrapper(&context, 4);
     wrapper.request.fillFromString("100");
     wrapper.send();

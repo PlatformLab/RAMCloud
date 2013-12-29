@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2012 Stanford University
+/* Copyright (c) 2010-2013 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -68,6 +68,7 @@ class InMemoryStorage : public BackupStorage {
                     const void* metadata,
                     size_t metadataLength);
         void close();
+        void reopen(size_t length);
         void free();
 
         void performTask();

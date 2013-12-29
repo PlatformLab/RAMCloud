@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2012 Stanford University
+/* Copyright (c) 2011-2013 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -72,13 +72,19 @@ class Dispatch {
     /// waiting for RPCs to complete.
     volatile uint64_t currentTime;
 
+    void startProfiler(const uint64_t totalElements);
+
+    void stopProfiler();
+
+    void dumpProfile(const char* fileName);
+
     /**
      * A Poller object is invoked once each time through the dispatcher's
      * inner polling loop.
      */
     class Poller {
       public:
-        explicit Poller(Dispatch& dispatch, const string& pollerName);
+        explicit Poller(Dispatch* dispatch, const string& pollerName);
         virtual ~Poller();
 
         /**
@@ -125,7 +131,7 @@ class Dispatch {
      */
     class File {
       public:
-        explicit File(Dispatch& dispatch, int fd, int events = 0);
+        explicit File(Dispatch* dispatch, int fd, int events = 0);
         virtual ~File();
         void setEvents(int events);
 
@@ -176,8 +182,8 @@ class Dispatch {
      */
     class Timer {
       public:
-        explicit Timer(Dispatch& dispatch);
-        explicit Timer(Dispatch& dispatch, uint64_t cycles);
+        explicit Timer(Dispatch* dispatch);
+        explicit Timer(Dispatch* dispatch, uint64_t cycles);
         virtual ~Timer();
         virtual void handleTimerEvent();
         bool isRunning();
@@ -237,6 +243,7 @@ class Dispatch {
   PRIVATE:
     static void epollThreadMain(Dispatch* owner);
     static bool fdIsReady(int fd);
+    void cleanProfiler();
 
     // Keeps track of all of the pollers currently defined.  We don't
     // use an intrusive list here because it isn't reentrant: we need
@@ -321,6 +328,23 @@ class Dispatch {
      * an unusually long time. 
      */
     uint64_t slowPollerCycles;
+
+    // Dispatch profile data will be taken only if
+    // this flag is true.
+    bool profilerFlag;
+
+    // Determines size of the circular array that keeps dispatch's
+    // profile data.
+    uint64_t totalElements;
+
+    // Pointer to the circular array that keeps dispatch's
+    // profile data.
+    uint64_t *pollingTimes;
+
+    // Keeps track of a rotating index in the circular array
+    // pollingTimes. The index before this index is always the
+    // last valid data point that's been taken.
+    uint64_t nextInd;
 
     static Syscall *sys;
 

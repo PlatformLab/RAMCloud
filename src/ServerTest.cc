@@ -27,13 +27,15 @@ namespace RAMCloud {
 
 class ServerTest: public ::testing::Test {
   public:
+    TestLog::Enable logEnabler;
     Context context;
     MockCluster cluster;
     ServerConfig config;
     Tub<Server> server;
 
     ServerTest()
-        : context()
+        : logEnabler()
+        , context()
         , cluster(&context)
         , config(ServerConfig::forTesting())
         , server()
@@ -55,7 +57,6 @@ class ServerTest: public ::testing::Test {
 };
 
 TEST_F(ServerTest, startForTesting) {
-    TestLog::Enable _;
     server->startForTesting(cluster.transport);
     cluster.syncCoordinatorServerList();
     PingClient::ping(&context, server->serverId, ServerId());
@@ -86,25 +87,15 @@ TEST_F(ServerTest, createAndRegisterServices) {
         &services[WireFormat::PING_SERVICE]->service);
 }
 
-namespace {
-bool enlistServerFilter(string s) {
-    return s == "complete" || s == "enlistServer";
-}
-}
-
 TEST_F(ServerTest, enlist) {
     server->createAndRegisterServices(&cluster.transport);
-    TestLog::Enable _(enlistServerFilter);
+    TestLog::Enable _("serverCrashed", "enlistServer");
     server->enlist({128, 0});
     EXPECT_EQ(
-        "enlistServer: Starting enlistment for mock:host=server0 | "
-        "complete: Enlisting server at mock:host=server0 "
+        "enlistServer: Enlisting server at mock:host=server0 "
         "(server id 1.0) supporting services: MASTER_SERVICE, "
         "BACKUP_SERVICE, PING_SERVICE, MEMBERSHIP_SERVICE | "
-        "complete: Backup at id 1.0 has 100 MB/s read | "
-        "enlistServer: Newly enlisted server 1.0 replaces server 128.0 | "
-        "enlistServer: Replied to enlistment for mock:host=server0 with "
-        "serverId 1.0",
+        "enlistServer: Backup at id 1.0 has 100 MB/s read",
          TestLog::get());
     ASSERT_TRUE(server->master->serverId.isValid());
     EXPECT_TRUE(server->backup->serverId.isValid());

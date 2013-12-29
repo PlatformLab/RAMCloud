@@ -23,6 +23,7 @@
 #include "Seglet.h"
 #include "TabletManager.h"
 #include "Tablets.pb.h"
+#include "MasterTableMetadata.h"
 
 namespace RAMCloud {
 
@@ -33,6 +34,7 @@ class CleanerCompactionBenchmark {
     ServerConfig config;
     ServerList serverList;
     TabletManager tabletManager;
+    MasterTableMetadata masterTableMetadata;
     ServerId serverId;
     ObjectManager* objectManager;
 
@@ -42,6 +44,7 @@ class CleanerCompactionBenchmark {
         , config(ServerConfig::forTesting())
         , serverList(&context)
         , tabletManager()
+        , masterTableMetadata()
         , serverId(1, 1)
         , objectManager(NULL)
     {
@@ -57,7 +60,8 @@ class CleanerCompactionBenchmark {
         objectManager = new ObjectManager(&context,
                                           &serverId,
                                           &config,
-                                          &tabletManager);
+                                          &tabletManager,
+                                          &masterTableMetadata);
     }
 
     ~CleanerCompactionBenchmark()

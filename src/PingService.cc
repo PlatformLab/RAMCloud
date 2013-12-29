@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2012 Stanford University
+/* Copyright (c) 2011-2013 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -13,9 +13,11 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include<fstream>
 #include "Common.h"
 #include "CycleCounter.h"
 #include "Cycles.h"
+#include "MasterService.h"
 #include "RawMetrics.h"
 #include "ShortMacros.h"
 #include "PingClient.h"
@@ -53,6 +55,19 @@ PingService::getMetrics(const WireFormat::GetMetrics::Request* reqHdr,
     respHdr->messageLength = downCast<uint32_t>(serialized.length());
     memcpy(new(rpc->replyPayload, APPEND) uint8_t[respHdr->messageLength],
            serialized.c_str(), respHdr->messageLength);
+}
+
+/**
+ * Top-level service method to handle the GET_SERVER_ID request.
+ *
+ * \copydetails Service::ping
+ */
+void
+PingService::getServerId(const WireFormat::GetServerId::Request* reqHdr,
+             WireFormat::GetServerId::Response* respHdr,
+             Rpc* rpc)
+{
+    respHdr->serverId = serverId.getId();
 }
 
 /**
@@ -109,6 +124,65 @@ PingService::proxyPing(const WireFormat::ProxyPing::Request* reqHdr,
 }
 
 /**
+ * Top-level service method to handle the SERVER_CONTROL request.
+ *
+ * Based on the ControlOp field in the RPC header, this method decides
+ * a proper control action to be taken. Any new ControlOp and consequent 
+ * actions and method calls should be added as a new case item in the 
+ * switch-case statement below.
+ *
+ * \copydetails Service::ping
+ */
+void
+PingService::serverControl(const WireFormat::ServerControl::Request* reqHdr,
+                WireFormat::ServerControl::Response* respHdr,
+                Rpc* rpc)
+{
+    uint32_t reqOffset = sizeof32(*reqHdr);
+    const void* inputData = rpc->requestPayload->getRange(
+                            reqOffset, reqHdr->inputLength);
+    switch (reqHdr->controlOp) {
+        case WireFormat::START_DISPATCH_PROFILER:
+        {
+            if (rpc->requestPayload->getOffset<uint64_t>(reqOffset)
+                == NULL) {
+                respHdr->common.status = STATUS_MESSAGE_TOO_SHORT;
+                return;
+            }
+            const uint64_t* totalElements = (const uint64_t*) inputData;
+            context->dispatch->startProfiler(*totalElements);
+            break;
+        }
+        case WireFormat::STOP_DISPATCH_PROFILER:
+        {
+            context->dispatch->stopProfiler();
+            break;
+        }
+        case WireFormat::DUMP_DISPATCH_PROFILE:
+        {
+            const char* fileName = (const char*) inputData;
+            // Checks to see if the fileName is a properly formatted (zero
+            // ended) string.
+            if (*(fileName + (reqHdr->inputLength) - 1) != '\0') {
+                respHdr->common.status = STATUS_REQUEST_FORMAT_ERROR;
+                return;
+            }
+            try {
+                context->dispatch->dumpProfile(fileName);
+                break;
+            }
+            catch(std::ofstream::failure& e) {
+                respHdr->common.status = STATUS_REQUEST_FORMAT_ERROR;
+                return;
+            }
+        }
+        default:
+            respHdr->common.status = STATUS_UNIMPLEMENTED_REQUEST;
+            return;
+    }
+}
+
+/**
  * For debugging and testing this function tells the server to kill itself.
  * There will be no response to the RPC for this message, and the process
  * will exit with status code 0.
@@ -136,12 +210,20 @@ PingService::dispatch(WireFormat::Opcode opcode, Rpc* rpc)
             callHandler<WireFormat::GetMetrics, PingService,
                         &PingService::getMetrics>(rpc);
             break;
+        case WireFormat::GetServerId::opcode:
+            callHandler<WireFormat::GetServerId, PingService,
+                        &PingService::getServerId>(rpc);
+            break;
         case WireFormat::Ping::opcode:
             callHandler<WireFormat::Ping, PingService, &PingService::ping>(rpc);
             break;
         case WireFormat::ProxyPing::opcode:
             callHandler<WireFormat::ProxyPing, PingService,
                         &PingService::proxyPing>(rpc);
+            break;
+        case WireFormat::ServerControl::opcode:
+            callHandler<WireFormat::ServerControl, PingService,
+                        &PingService::serverControl>(rpc);
             break;
         case WireFormat::Kill::opcode:
             callHandler<WireFormat::Kill, PingService,

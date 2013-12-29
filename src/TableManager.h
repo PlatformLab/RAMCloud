@@ -1,4 +1,4 @@
-/* Copyright (c) 2012 Stanford University
+/* Copyright (c) 2012-2013 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -16,33 +16,21 @@
 #ifndef RAMCLOUD_TABLEMANAGER_H
 #define RAMCLOUD_TABLEMANAGER_H
 
-#include <Client/Client.h>
 #include <mutex>
 
-#include "LargestTableId.pb.h"
-#include "SplitTablet.pb.h"
-#include "TableDrop.pb.h"
-#include "TableInformation.pb.h"
-#include "TabletRecovered.pb.h"
-#include "Tablets.pb.h"
-
 #include "Common.h"
-#include "Log.h"
-#include "LogCabinHelper.h"
-#include "LogEntryTypes.h"
+#include "CoordinatorUpdateManager.h"
 #include "ServerId.h"
+#include "Table.pb.h"
 #include "Tablet.h"
+#include "Tablets.pb.h"
 
 namespace RAMCloud {
 
-using LogCabin::Client::Entry;
-using LogCabin::Client::EntryId;
-using LogCabin::Client::NO_ID;
-
 /**
- * Maps tablets to masters which serve requests for that tablet.
- * The tablet map is the definitive truth about tablet ownership in
- * a cluster.
+ * Used by the coordinator to map each tablet to the master that serves
+ * requests for that tablet. The TableMap is the definitive truth about
+ * tablet ownership in a cluster.
  *
  * Instances are locked for thread-safety, and methods return tablets
  * by-value to avoid inconsistencies due to concurrency.
@@ -54,11 +42,6 @@ class TableManager {
     struct NoSuchTable : public Exception {
         explicit NoSuchTable(const CodeLocation& where)
                 : Exception(where) {}
-    };
-
-    /// Thrown while trying to create a table that already exists.
-    struct TableExists : public Exception {
-        explicit TableExists(const CodeLocation& where) : Exception(where) {}
     };
 
     /// Thrown in response to invalid splitTablet() arguments.
@@ -74,40 +57,53 @@ class TableManager {
         explicit NoSuchTablet(const CodeLocation& where) : Exception(where) {}
     };
 
-    explicit TableManager(Context* context);
+    explicit TableManager(Context* context,
+            CoordinatorUpdateManager* updateManager);
     ~TableManager();
 
     uint64_t createTable(const char* name, uint32_t serverSpan);
-    string debugString() const;
+    string debugString(bool shortForm = false);
     void dropTable(const char* name);
     uint64_t getTableId(const char* name);
+    Tablet getTablet(uint64_t tableId, uint64_t keyHash);
     vector<Tablet> markAllTabletsRecovering(ServerId serverId);
     void reassignTabletOwnership(ServerId newOwner, uint64_t tableId,
                                  uint64_t startKeyHash, uint64_t endKeyHash,
                                  uint64_t ctimeSegmentId,
                                  uint64_t ctimeSegmentOffset);
-    void serialize(AbstractServerList* serverList,
-                   ProtoBuf::Tablets* tablets) const;
+    void recover(uint64_t lastCompletedUpdate);
+    void serialize(ProtoBuf::Tablets* tablets) const;
     void splitTablet(const char* name,
                      uint64_t splitKeyHash);
+    void splitRecoveringTablet(uint64_t tableId, uint64_t splitKeyHash);
     void tabletRecovered(uint64_t tableId,
                          uint64_t startKeyHash,
                          uint64_t endKeyHash,
                          ServerId serverId,
                          Log::Position ctime);
 
-    void recoverAliveTable(ProtoBuf::TableInformation* state,
-                           EntryId entryId);
-    void recoverCreateTable(ProtoBuf::TableInformation* state,
-                            EntryId entryId);
-    void recoverDropTable(ProtoBuf::TableDrop* state,
-                          EntryId entryId);
-    void recoverLargestTableId(ProtoBuf::LargestTableId* state,
-                               EntryId entryId);
-    void recoverSplitTablet(ProtoBuf::SplitTablet* state,
-                            EntryId entryId);
-    void recoverTabletRecovered(ProtoBuf::TabletRecovered* state,
-                                EntryId entryId);
+  PRIVATE:
+    /**
+     * The following class holds information about a single table.
+     */
+    struct Table {
+        Table(const char* name, uint64_t id)
+            : name(name)
+            , id(id)
+            , tablets()
+        {}
+        ~Table();
+
+        /// Human-readable name for the table (unique among all tables).
+        string name;
+
+        /// Identifier used to refer to the table in RPCs.
+        uint64_t id;
+
+        /// Information about each of the tablets in the table. The
+        /// entries are allocated and freed dynamically.
+        vector<Tablet*> tablets;
+    };
 
     /**
      * Provides monitor-style protection for all operations on the tablet map.
@@ -117,260 +113,43 @@ class TableManager {
     mutable std::mutex mutex;
     typedef std::unique_lock<std::mutex> Lock;
 
-  PRIVATE:
-
-    /**
-     * Defines methods and stores data to create a table.
-     */
-    class CreateTable {
-      public:
-        CreateTable(TableManager &tm,
-                    const Lock& lock,
-                    const char* name,
-                    uint64_t tableId,
-                    uint32_t serverSpan,
-                    ProtoBuf::TableInformation state =
-                                ProtoBuf::TableInformation())
-            : tm(tm), lock(lock),
-              name(name),
-              tableId(tableId),
-              serverSpan(serverSpan),
-              state(state) {}
-        uint64_t execute();
-        uint64_t complete(EntryId entryId);
-
-      private:
-        /**
-         * Reference to the instance of TableManager initializing this class.
-         */
-        TableManager &tm;
-        /**
-         * Explicitly needs a TableManager lock.
-         */
-        const Lock& lock;
-        /**
-         * Name for the table to be created.
-         */
-        const char* name;
-        /**
-         * tableId of the table created.
-         */
-        uint64_t tableId;
-        /**
-         * Number of servers across which this table should be split during
-         * creation.
-         */
-        uint32_t serverSpan;
-        /**
-         * State information for this operation that was logged to LogCabin.
-         * This is used to get the computed tablet to master mappings for
-         * each tablet in this table.
-         */
-        ProtoBuf::TableInformation state;
-        DISALLOW_COPY_AND_ASSIGN(CreateTable);
-    };
-
-    /**
-     * Defines methods and stores data to create a table.
-     */
-    class DropTable {
-      public:
-        DropTable(TableManager &tm,
-                  const Lock& lock,
-                  const char* name)
-            : tm(tm), lock(lock),
-              name(name) {}
-        void execute();
-        void complete(EntryId entryId);
-
-      private:
-        /**
-         * Reference to the instance of TableManager initializing this class.
-         */
-        TableManager &tm;
-        /**
-         * Explicitly needs a TableManager lock.
-         */
-        const Lock& lock;
-        /**
-         * Name for the table to be dropped.
-         */
-        const char* name;
-        DISALLOW_COPY_AND_ASSIGN(DropTable);
-    };
-
-    /**
-     * Defines methods and stores data to split a tablet in the tablet map.
-     */
-    class SplitTablet {
-      public:
-        SplitTablet(TableManager &tm,
-                    const Lock& lock,
-                    const char* name,
-                    uint64_t splitKeyHash)
-            : tm(tm), lock(lock),
-              name(name),
-              splitKeyHash(splitKeyHash) {}
-        void execute();
-        void complete(EntryId entryId);
-
-      private:
-        /**
-         * Reference to the instance of TableManager initializing this class.
-         */
-        TableManager &tm;
-        /**
-         * Explicitly needs a TableManager lock.
-         */
-        const Lock& lock;
-        /**
-         * Name for the table containing the tablet.
-         */
-        const char* name;
-        /**
-         * Key hash to used to partition the tablet into two. Keys less than
-         * \a splitKeyHash belong to one Tablet, keys greater than or equal to
-         * \a splitKeyHash belong to the other.
-         */
-        uint64_t splitKeyHash;
-        DISALLOW_COPY_AND_ASSIGN(SplitTablet);
-    };
-
-    /**
-     * Defines methods and stores data to record the new master of a tablet
-     * after it was recovered by MasterRecoveryManager.
-     */
-    class TabletRecovered {
-      public:
-        TabletRecovered(TableManager &tm,
-                        const Lock& lock,
-                        uint64_t tableId,
-                        uint64_t startKeyHash,
-                        uint64_t endKeyHash,
-                        ServerId serverId,
-                        Log::Position ctime)
-            : tm(tm), lock(lock),
-              tableId(tableId),
-              startKeyHash(startKeyHash),
-              endKeyHash(endKeyHash),
-              serverId(serverId),
-              ctime(ctime) {}
-        void execute();
-        void complete(EntryId entryId);
-
-      private:
-        /**
-         * Reference to the instance of TableManager initializing this class.
-         */
-        TableManager &tm;
-        /**
-         * Explicitly needs a TableManager lock.
-         */
-        const Lock& lock;
-        /**
-         * Table id of the tablet.
-         */
-        uint64_t tableId;
-        /**
-         * First key hash that is part of range of key hashes for the tablet.
-         */
-        uint64_t startKeyHash;
-        /**
-         * Last key hash that is part of range of key hashes for the tablet.
-         */
-        uint64_t endKeyHash;
-        /**
-         * Tablet is updated to indicate that it is owned by \a serverId.
-         */
-        ServerId serverId;
-        /**
-         * Tablet is updated with this ctime indicating any object earlier
-         * than \a ctime in its log cannot contain objects belonging to it.
-         */
-        Log::Position ctime;
-        DISALLOW_COPY_AND_ASSIGN(TabletRecovered);
-    };
-
-    void addTablet(const Lock& lock, const Tablet& tablet);
-    Tablet& find(const Lock& lock,
-                 uint64_t tableId,
-                 uint64_t startKeyHash,
-                 uint64_t endKeyHash);
-    const Tablet& cfind(const Lock& lock,
-                        uint64_t tableId,
-                        uint64_t startKeyHash,
-                        uint64_t endKeyHash) const;
-    bool splitExists(const Lock& lock,
-                     uint64_t tableId,
-                     uint64_t splitKeyHash);
-    Tablet& getTabletSplit(const Lock& lock,
-                            uint64_t tableId,
-                            uint64_t splitKeyHash);
-    EntryId getTableInfoLogId(const Lock& lock,
-                              uint64_t tableId);
-    Tablet getTablet(const Lock& lock,
-                     uint64_t tableId,
-                     uint64_t startKeyHash,
-                     uint64_t endKeyHash) const;
-    vector<Tablet> getTabletsForTable(const Lock& lock, uint64_t tableId) const;
-    void modifyTablet(const Lock& lock,
-                      uint64_t tableId,
-                      uint64_t startKeyHash,
-                      uint64_t endKeyHash,
-                      ServerId serverId,
-                      Tablet::Status status,
-                      Log::Position ctime);
-    vector<Tablet> removeTabletsForTable(const Lock& lock, uint64_t tableId);
-    void setTableInfoLogId(const Lock& lock,
-                           uint64_t tableId,
-                           EntryId entryId);
-    size_t size(const Lock& lock) const;
-
-    /**
-     * Shared RAMCloud information.
-     */
+    /// Shared information about the server.
     Context* context;
 
-    /**
-     * LogCabin EntryId corresponding to the LargestTableId entry.
-     */
-    EntryId logIdLargestTableId;
+    /// Used for keeping track of updates on external storage.
+    CoordinatorUpdateManager* updateManager;
 
-    /**
-     * List of tablets that make up the current set of tables in a cluster.
-     */
-    vector<Tablet> map;
-
-    /**
-     * The id of the next table to be created.
-     * These start at 0 and are never reused.
-     */
+    /// Id of the next table to be created.  Table ids are never reused.
     uint64_t nextTableId;
 
-    /**
-     * Used in #createTable() to assign new tables to masters.
-     * If you take this modulo the number of entries in #masterList, you get
-     * the index into #masterList of the master that should be assigned the
-     * next table.
-     */
-    uint32_t nextTableMasterIdx;
+    /// Identifies the master to which we assigned the most recent tablet;
+    /// used to rotate among the masters when assigning new tables.
+    ServerId tabletMaster;
 
-    typedef std::map<string, uint64_t> Tables;
-    /**
-     * Map from table name to table id.
-     */
-    Tables tables;
+    /// Maps from a table name to information about that table. The table
+    /// information is dynamically allocated (and shared with idMap).
+    typedef std::unordered_map<string, Table*> Directory;
+    Directory directory;
 
-    struct TableLogIds {
-        EntryId tableInfoLogId;
-        EntryId tableIncompleteOpLogId;
-    };
-    typedef std::map<uint64_t, TableLogIds> TablesLogIds;
-    /**
-     * Map from table id to LogCabin EntryId where the information corresponding
-     * to this table was logged.
-     */
-    TablesLogIds tablesLogIds;
+    /// Maps from a table id to information about that table. The table
+    /// information is dynamically allocated (and shared with directory).
+    typedef std::unordered_map<uint64_t, Table*> IdMap;
+    IdMap idMap;
+
+    Tablet* findTablet(const Lock& lock, Table* table, uint64_t keyHash);
+    void notifyCreate(const Lock& lock, Table* table);
+    void notifyDropTable(const Lock& lock, ProtoBuf::Table* info);
+    void notifySplitTablet(const Lock& lock, ProtoBuf::Table* info);
+    void notifyReassignTablet(const Lock& lock, ProtoBuf::Table* info);
+    Table* recreateTable(const Lock& lock, ProtoBuf::Table* info);
+    void serializeTable(const Lock& lock, Table* table,
+                        ProtoBuf::Table* externalInfo);
+    void sync(const Lock& lock);
+    void syncTable(const Lock& lock, Table* table,
+                   ProtoBuf::Table* externalInfo);
+    void testAddTablet(const Tablet& tablet);
+    void testCreateTable(const char* name, uint64_t id);
+    Tablet* testFindTablet(uint64_t tableId, uint64_t keyHash);
 
     DISALLOW_COPY_AND_ASSIGN(TableManager);
 };

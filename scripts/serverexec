@@ -1,0 +1,19 @@
+#!/bin/bash
+# Usage: serverexec host wd locator args
+#
+# Runs the command given by args, but it also changes the working directory
+# to wd. This script is invoked only for server processes. Create a file
+# 'rcxx_pid' in 'logs/shm' so that all servers that have been started are together
+# in 1 place. The pid can be extracted from the file name. The file will
+# just have the service locator for this server which can be used if the
+# client decides to kill this server by passing the service locator as an
+# argument.
+
+cd $2
+shared_file="$2/logs/shm/$1_$$"
+export LD_LIBRARY_PATH=~/bin:/usr/local/lib:$LD_LIBRARY_PATH
+echo $3 > $shared_file
+shift
+shift
+shift
+exec $*

@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2011 Stanford University
+/* Copyright (c) 2010-2013 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -95,7 +95,6 @@ enum Opcode {
     BACKUP_STARTPARTITION     = 36,
     DROP_TABLET_OWNERSHIP     = 39,
     TAKE_TABLET_OWNERSHIP     = 40,
-    BACKUP_ASSIGN_GROUP       = 41,
     GET_HEAD_OF_LOG           = 42,
     INCREMENT                 = 43,
     PREP_FOR_MIGRATION        = 44,
@@ -109,7 +108,21 @@ enum Opcode {
     GET_SERVER_CONFIG         = 52,
     GET_LOG_METRICS           = 53,
     VERIFY_MEMBERSHIP         = 55,
-    ILLEGAL_RPC_TYPE          = 56,  // 1 + the highest legitimate Opcode
+    GET_RUNTIME_OPTION        = 56,
+    SERVER_CONTROL            = 57,
+    GET_SERVER_ID             = 58,
+    ILLEGAL_RPC_TYPE          = 59,  // 1 + the highest legitimate Opcode
+};
+
+/**
+ * This enum defines the different types of control operations
+ * that could be used with SERVER_CONTROL RPC. Any new control
+ * op should be added here.
+ */
+enum ControlOp {
+    START_DISPATCH_PROFILER     = 1000,
+    STOP_DISPATCH_PROFILER      = 1001,
+    DUMP_DISPATCH_PROFILE       = 1002,
 };
 
 /**
@@ -142,6 +155,28 @@ struct ResponseCommon {
                                   // succeeded; if not, it explains why.
 } __attribute__((packed));
 
+/**
+ * When the response status is STATUS_RETRY, the full response looks like
+ * this (it contains extra information for use by the requesting client).
+ */
+struct RetryResponse {
+    ResponseCommon common;
+    uint32_t minDelayMicros;      // Lower bound on client delay, in
+                                  // microseconds.
+    uint32_t maxDelayMicros;      // Upper bound on client delay, in
+                                  // microseconds. The client should choose
+                                  // a random number between minDelayMicros
+                                  // and maxDelayMicros, and wait that long
+                                  // before retrying the RPC.
+    uint32_t messageLength;       // Number of bytes in a message that
+                                  // describes the reason for the retry.
+                                  // 0 means there is no message.
+                                  // The message itself immediately follows
+                                  // this header, and it must include a
+                                  // terminating null character, which is
+                                  // included in messageLength.
+} __attribute__((packed));
+
 
 // For each RPC there is a structure below, which contains the following:
 //   * A field "opcode" defining the Opcode used in requests.
@@ -160,23 +195,7 @@ struct ResponseCommon {
 // All structs are packed so that they have a standard byte representation.
 // All fields are little endian.
 
-// The RPCs below are in alphabetical order.
-
-struct BackupAssignGroup {
-    static const Opcode opcode = BACKUP_ASSIGN_GROUP;
-    static const ServiceType service = BACKUP_SERVICE;
-    struct Request {
-        RequestCommonWithId common;
-        uint64_t replicationId; ///< The new replication group Id assigned to
-                                ///< the backup.
-        uint32_t numReplicas;   ///< Following this field, we append a list of
-                                ///< uint64_t ServerId's, which represent the
-                                ///< servers in the replication group.
-    } __attribute__((packed));
-    struct Response {
-        ResponseCommon common;
-    } __attribute__((packed));
-};
+// The RPCs below are in alphabetical order
 
 struct BackupFree {
     static const Opcode opcode = BACKUP_FREE;
@@ -277,16 +296,14 @@ struct BackupStartReadingData {
                                        ///< inconsistent. If it might've been
                                        ///< this digest will be discarded
                                        ///< by the coordinator for safety.
-        uint32_t tabletMetricsLen;     ///< Byte length of TabletMetrics that
-                                       ///< go after the LogDigest
+        uint32_t tableStatsBytes;      ///< Byte length of TableStats::Digest
+                                       ///< that go after the LogDigest
         // An array of segmentIdCount replicas follows.
         // Each entry is a Replica (see below).
         //
         // If logDigestBytes != 0, then a serialised LogDigest follows
         // immediately after the replica list.
-
-        // TODO(syang0) TabletMetrics follows. The exact
-        // format has not been determined yet.
+        // If tableStatsBytes != 0, then a TableStats::Digest follows.
     } __attribute__((packed));
     /// Used in the Response to report which replicas the backup has.
     struct Replica {
@@ -473,6 +490,12 @@ struct Enumerate {
     struct Request {
         RequestCommon common;
         uint64_t tableId;
+        bool keysOnly;              // False means that full objects are
+                                    // returned, containing both keys and data.
+                                    // True means that the returned objects have
+                                    // been truncated so that the object data
+                                    // (normally the last field of the object)
+                                    // is omitted.
         uint64_t tabletFirstHash;
         uint32_t iteratorBytes;     // Size of iterator in bytes. The
                                     // actual iterator follows
@@ -553,6 +576,25 @@ struct GetMetrics {
     } __attribute__((packed));
 };
 
+struct GetRuntimeOption {
+    static const Opcode opcode = GET_RUNTIME_OPTION;
+    static const ServiceType service = COORDINATOR_SERVICE;
+    struct Request {
+        RequestCommon common;
+        uint32_t optionLength; // Number of bytes in the name of the option
+                               // to read including terminating NULL character.
+                               // The actual bytes follow immediately after
+                               // this header structure.
+    } __attribute__((packed));
+    struct Response {
+        ResponseCommon common;
+        uint32_t valueLength;  // Number of bytes in string representing the
+                               // value of corresponding option including
+                               // terminating NULL character.  The actual
+                               // bytes follow immediately after this header.
+    } __attribute__((packed));
+};
+
 struct GetServerConfig {
     static const Opcode opcode = GET_SERVER_CONFIG;
     static const ServiceType service = MEMBERSHIP_SERVICE;
@@ -564,6 +606,19 @@ struct GetServerConfig {
         uint32_t serverConfigLength;   // Number of bytes in the server config
                                        // protocol buffer immediately follow-
                                        // ing this header.
+    } __attribute__((packed));
+};
+
+struct GetServerId {
+    static const Opcode opcode = GET_SERVER_ID;
+    static const ServiceType service = PING_SERVICE;
+    struct Request {
+        RequestCommon common;
+    } __attribute__((packed));
+    struct Response {
+        ResponseCommon common;
+        uint64_t serverId;             // ServerId of the server that
+                                       // processed the request.
     } __attribute__((packed));
 };
 
@@ -1009,6 +1064,26 @@ struct Remove {
     } __attribute__((packed));
 };
 
+struct ServerControl {
+    static const Opcode opcode = Opcode::SERVER_CONTROL;
+    static const ServiceType service = PING_SERVICE;
+    struct Request {
+        RequestCommon common;
+        ControlOp controlOp;        // The control operation to be initiated
+                                    // in a server.
+        uint32_t inputLength;       // Length of the input data for the
+                                    // control operation, in bytes.
+                                    // The actual data follow immediately
+                                    // after this header.
+    } __attribute__((packed));
+    struct Response {
+        ResponseCommon common;
+        uint32_t outputLength;      // Length of the output data returning
+                                    // from the server, in bytes. The actual
+                                    // data follow immediately after the header.
+    } __attribute__((packed));
+};
+
 struct SetMasterRecoveryInfo {
     static const Opcode opcode = SET_MASTER_RECOVERY_INFO;
     static const ServiceType service = COORDINATOR_SERVICE;
@@ -1099,6 +1174,9 @@ struct UpdateServerList {
     struct Request {
         RequestCommonWithId common;
 
+        // Immediately following this header are one or more groups,
+        // where each group consists of a Part object (defined below)
+        // followed by a serialized ProtoBuf::ServerList.
         struct Part {
             uint32_t serverListLength; // Number of bytes in the server list.
                                        // The bytes of the server list follow
@@ -1108,6 +1186,9 @@ struct UpdateServerList {
     } __attribute__((packed));
     struct Response {
         ResponseCommon common;
+        uint64_t currentVersion;      // The server list version number of the
+                                      // RPC recipient, after processing this
+                                      // request.
     } __attribute__((packed));
 };
 

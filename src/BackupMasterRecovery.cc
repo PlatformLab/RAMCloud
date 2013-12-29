@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2012 Stanford University
+/* Copyright (c) 2009-2013 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -68,6 +68,7 @@ BackupMasterRecovery::BackupMasterRecovery(TaskQueue& taskQueue,
     , logDigest()
     , logDigestSegmentId(~0lu)
     , logDigestSegmentEpoch()
+    , tableStatsDigest()
     , startCompleted()
     , freeQueued()
     , recoveryTicks()
@@ -115,7 +116,7 @@ BackupMasterRecovery::start(const std::vector<BackupStorage::FrameRef>& frames,
     recoveryTicks.construct(&metrics->backup.recoveryTicks);
     metrics->backup.recoveryCount++;
 
-    LOG(DEBUG, "Backup preparing for recovery %lu of crashed server %s; "
+    LOG(NOTICE, "Backup preparing for recovery %lu of crashed server %s; "
                "loading replicas", recoveryId,
                ServerId(crashedMasterId).toString().c_str());
 
@@ -180,12 +181,12 @@ BackupMasterRecovery::start(const std::vector<BackupStorage::FrameRef>& frames,
         if (testingExtractDigest) {
             foundDigest =
                 (*testingExtractDigest)(replica.metadata->segmentId,
-                                        &logDigest);
+                                        &logDigest, &tableStatsDigest);
         } else {
             foundDigest =
-                RecoverySegmentBuilder::extractDigest(
-                    replicaData, segmentSize,
-                    replica.metadata->certificate, &logDigest);
+                RecoverySegmentBuilder::extractDigest(replicaData, segmentSize,
+                    replica.metadata->certificate, &logDigest,
+                    &tableStatsDigest);
         }
         if (foundDigest) {
             logDigestSegmentId = replica.metadata->segmentId;
@@ -193,7 +194,7 @@ BackupMasterRecovery::start(const std::vector<BackupStorage::FrameRef>& frames,
         }
     }
     if (logDigestSegmentId != ~0lu) {
-        LOG(DEBUG, "Found log digest in replica for segment %lu",
+        LOG(NOTICE, "Found log digest in replica for segment %lu",
             logDigestSegmentId);
     }
 
@@ -224,10 +225,11 @@ BackupMasterRecovery::setPartitionsAndSchedule(ProtoBuf::Tablets partitions)
 
     for (int i = 0; i < partitions.tablet_size(); ++i) {
         numPartitions = std::max(numPartitions,
-                                 partitions.tablet(i).user_data() + 1);
+                                 downCast<int>(
+                                 partitions.tablet(i).user_data() + 1));
     }
 
-    LOG(NOTICE, "Recovery %lu building %lu recovery segments for each "
+    LOG(NOTICE, "Recovery %lu building %d recovery segments for each "
             "replica for crashed master %s and filtering them according to "
             "the following " "partitions:\n%s",
             recoveryId, numPartitions, crashedMasterId.toString().c_str(),
@@ -283,7 +285,7 @@ BackupMasterRecovery::setPartitionsAndSchedule(ProtoBuf::Tablets partitions)
 Status
 BackupMasterRecovery::getRecoverySegment(uint64_t recoveryId,
                                          uint64_t segmentId,
-                                         uint64_t partitionId,
+                                         int partitionId,
                                          Buffer* buffer,
                                          Segment::Certificate* certificate)
 {
@@ -313,7 +315,8 @@ BackupMasterRecovery::getRecoverySegment(uint64_t recoveryId,
     if (!replica->built) {
         LOG(DEBUG, "Deferring because <%s,%lu> not yet filtered",
             crashedMasterId.toString().c_str(), segmentId);
-        return STATUS_RETRY;
+        throw RetryException(HERE, 5000, 10000,
+                "desired segment not yet filtered");
     }
 
     if (replica->metadata->primary)
@@ -328,8 +331,8 @@ BackupMasterRecovery::getRecoverySegment(uint64_t recoveryId,
     }
 
     if (partitionId >= numPartitions) {
-        LOG(WARNING, "Asked for recovery segment %lu from segment <%s,%lu> "
-                     "but there are only %lu partitions",
+        LOG(WARNING, "Asked for partition %d from segment <%s,%lu> "
+                     "but there are only %d partitions",
             partitionId, crashedMasterId.toString().c_str(), segmentId,
             numPartitions);
         throw BackupBadSegmentIdException(HERE);
@@ -470,13 +473,13 @@ BackupMasterRecovery::populateStartResponse(Buffer* responseBuffer,
             response->digestBytes);
     }
 
-    //TODO(syang0) Tablet Profiling information goes here
-    char tabletMetrics[] = "";
-    response->tabletMetricsLen = sizeof(tabletMetrics);
-    if (response->tabletMetricsLen > 0) {
+    response->tableStatsBytes = tableStatsDigest.getTotalLength();
+    if (response->tableStatsBytes > 0) {
         void* out = new(responseBuffer, APPEND)
-                char[response->tabletMetricsLen];
-        memcpy(out, tabletMetrics, response->tabletMetricsLen);
+                char[response->tableStatsBytes];
+        memcpy(out,
+               tableStatsDigest.getRange(0, response->tableStatsBytes),
+               response->tableStatsBytes);
     }
 }
 
@@ -535,6 +538,7 @@ BackupMasterRecovery::buildRecoverySegments(Replica& replica)
             assert(partitions);
             RecoverySegmentBuilder::build(replicaData, segmentSize,
                                           replica.metadata->certificate,
+                                          numPartitions,
                                           *partitions,
                                           recoverySegments.get());
         }
