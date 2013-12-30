@@ -214,7 +214,7 @@ struct ServerConfig {
             , disableLogCleaner(true)
             , disableInMemoryCleaning(true)
             , diskExpansionFactor(1.0)
-            , cleanerBalancer("default")
+            , cleanerBalancer("tombstoneRatio:0.40")
             , cleanerWriteCostThreshold(0)
             , cleanerThreadCount(1)
             , masterServiceThreadCount(1)

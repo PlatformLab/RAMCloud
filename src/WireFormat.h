@@ -60,7 +60,6 @@ static_assert(INVALID_SERVICE < (sizeof(SerializedServiceMask) * 8),
  * RAMCloud service implements a subset of these operations.  If you
  * change this table you must also reflect the changes in the following
  * locations:
- * - The definition of rpc in scripts/rawmetrics.py.
  * - The method opcodeSymbol in WireFormat.cc.
  * - WireFormatTest.cc's out-of-range test, if ILLEGAL_RPC_TYPE was changed.
  */

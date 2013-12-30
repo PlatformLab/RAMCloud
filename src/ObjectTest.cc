@@ -90,7 +90,7 @@ TEST_F(ObjectTest, constructor_fromVoidPointer)
     EXPECT_EQ(3U, object.serializedForm.keyLength);
     EXPECT_EQ(75U, object.serializedForm.version);
     EXPECT_EQ(723U, object.serializedForm.timestamp);
-    EXPECT_EQ(0x618b50b0U, object.serializedForm.checksum);
+    EXPECT_EQ(0x4b96e93eU, object.serializedForm.checksum);
 
     EXPECT_EQ(0, memcmp("hi", object.key, 3));
     EXPECT_EQ(4U, object.dataLength);
@@ -108,7 +108,7 @@ TEST_F(ObjectTest, constructor_dataFromBuffer)
     EXPECT_EQ(3U, object.serializedForm.keyLength);
     EXPECT_EQ(75U, object.serializedForm.version);
     EXPECT_EQ(723U, object.serializedForm.timestamp);
-    EXPECT_EQ(0x618b50b0U, object.serializedForm.checksum);
+    EXPECT_EQ(0x4b96e93eU, object.serializedForm.checksum);
 
     EXPECT_EQ(0, memcmp("hi", object.key, 3));
     EXPECT_EQ(4U, object.dataLength);
@@ -126,7 +126,7 @@ TEST_F(ObjectTest, constructor_entirelyFromBuffer)
     EXPECT_EQ(3U, object.serializedForm.keyLength);
     EXPECT_EQ(75U, object.serializedForm.version);
     EXPECT_EQ(723U, object.serializedForm.timestamp);
-    EXPECT_EQ(0x618b50b0U, object.serializedForm.checksum);
+    EXPECT_EQ(0x4b96e93eU, object.serializedForm.checksum);
 
     EXPECT_EQ(static_cast<const void*>(NULL), object.key);
     EXPECT_EQ(0, memcmp("hi", object.getKey(), 3));
@@ -145,7 +145,7 @@ TEST_F(ObjectTest, constructor_fromContiguousVoidPointer)
     EXPECT_EQ(3U, object.serializedForm.keyLength);
     EXPECT_EQ(75U, object.serializedForm.version);
     EXPECT_EQ(723U, object.serializedForm.timestamp);
-    EXPECT_EQ(0x618b50b0U, object.serializedForm.checksum);
+    EXPECT_EQ(0x4b96e93eU, object.serializedForm.checksum);
 
     EXPECT_EQ(0, memcmp("hi", object.key, 3));
     EXPECT_EQ(4U, object.dataLength);
@@ -169,7 +169,7 @@ TEST_F(ObjectTest, serializeToBuffer) {
         EXPECT_EQ(3U, header->keyLength);
         EXPECT_EQ(75U, header->version);
         EXPECT_EQ(723U, header->timestamp);
-        EXPECT_EQ(0x618b50b0U, header->checksum);
+        EXPECT_EQ(0x4b96e93eU, header->checksum);
 
         const void* key = buffer.getRange(sizeof(*header), 3);
         EXPECT_EQ(0, memcmp(key, "hi", 3));
@@ -332,11 +332,10 @@ TEST_F(ObjectTombstoneTest, constructor_fromObject) {
     ObjectTombstone& tombstone = *tombstones[0];
 
     EXPECT_EQ(572U, tombstone.serializedForm.tableId);
-    EXPECT_EQ(5U, tombstone.serializedForm.keyLength);
     EXPECT_EQ(925U, tombstone.serializedForm.segmentId);
     EXPECT_EQ(58U, tombstone.serializedForm.objectVersion);
     EXPECT_EQ(335U, tombstone.serializedForm.timestamp);
-    EXPECT_EQ(0x837de743U, tombstone.serializedForm.checksum);
+    EXPECT_EQ(0x5d60e8efU, tombstone.serializedForm.checksum);
 
     EXPECT_TRUE(tombstone.key);
     EXPECT_FALSE(tombstone.tombstoneBuffer);
@@ -347,11 +346,10 @@ TEST_F(ObjectTombstoneTest, constructor_fromBuffer) {
     ObjectTombstone& tombstone = *tombstones[1];
 
     EXPECT_EQ(572U, tombstone.serializedForm.tableId);
-    EXPECT_EQ(5U, tombstone.serializedForm.keyLength);
     EXPECT_EQ(925U, tombstone.serializedForm.segmentId);
     EXPECT_EQ(58U, tombstone.serializedForm.objectVersion);
     EXPECT_EQ(335U, tombstone.serializedForm.timestamp);
-    EXPECT_EQ(0x837de743U, tombstone.serializedForm.checksum);
+    EXPECT_EQ(0x5d60e8efU, tombstone.serializedForm.checksum);
 
     EXPECT_FALSE(tombstone.key);
     EXPECT_TRUE(tombstone.tombstoneBuffer);
@@ -373,11 +371,10 @@ TEST_F(ObjectTombstoneTest, serializeToBuffer) {
         EXPECT_EQ(sizeof(*header) + 5, buffer.getTotalLength());
 
         EXPECT_EQ(572U, header->tableId);
-        EXPECT_EQ(5U, header->keyLength);
         EXPECT_EQ(925U, header->segmentId);
         EXPECT_EQ(58U, header->objectVersion);
         EXPECT_EQ(335U, header->timestamp);
-        EXPECT_EQ(0x837de743U, header->checksum);
+        EXPECT_EQ(0x5d60e8efU, header->checksum);
 
         const void* key = buffer.getRange(sizeof(*header), 5);
         EXPECT_EQ(0, memcmp(key, "key!", 5));

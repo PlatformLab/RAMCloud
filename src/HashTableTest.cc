@@ -99,7 +99,7 @@ class HashTableEntryTest : public ::testing::Test {
         in.ptr = ptr;
 
         e.pack(in.hash, in.chain, in.ptr);
-        out = e.unpack();
+        e.unpack(out);
 
         return (in.hash == out.hash &&
                 in.chain == out.chain &&
@@ -132,7 +132,7 @@ TEST_F(HashTableEntryTest, clear) {
     e.value = 0xdeadbeefdeadbeefUL;
     e.clear();
     HashTable::Entry::UnpackedEntry out;
-    out = e.unpack();
+    e.unpack(out);
     EXPECT_EQ(0UL, out.hash);
     EXPECT_FALSE(out.chain);
     EXPECT_EQ(0UL, out.ptr);
@@ -153,7 +153,7 @@ TEST_F(HashTableEntryTest, setReference) {
     e.value = 0xdeadbeefdeadbeefUL;
     e.setReference(0xaaaaUL, 0x7fffffffffffUL);
     HashTable::Entry::UnpackedEntry out;
-    out = e.unpack();
+    e.unpack(out);
     EXPECT_EQ(0xaaaaUL, out.hash);
     EXPECT_FALSE(out.chain);
     EXPECT_EQ(0x7fffffffffffUL, out.ptr);
@@ -169,7 +169,7 @@ TEST_F(HashTableEntryTest, setChainPointer) {
         e.setChainPointer(cl);
     }
     HashTable::Entry::UnpackedEntry out;
-    out = e.unpack();
+    e.unpack(out);
     EXPECT_EQ(0UL, out.hash);
     EXPECT_TRUE(out.chain);
     EXPECT_EQ(0x7fffffffffffUL, out.ptr);
@@ -386,7 +386,8 @@ class HashTableTest : public ::testing::Test {
                                                uint16_t stringKeyLength)
     {
         Key key(tableId, stringKey, stringKeyLength);
-        HashTable::Candidates candidates = ht->lookup(key);
+        HashTable::Candidates candidates;
+        ht->lookup(key, candidates);
         while (!candidates.isDone()) {
             TestObject* obj = reinterpret_cast<TestObject*>(
                 candidates.getReference());
@@ -415,7 +416,8 @@ class HashTableTest : public ::testing::Test {
     bool
     lookup(HashTable* ht, Key& key, uint64_t& outRef)
     {
-        HashTable::Candidates candidates = ht->lookup(key);
+        HashTable::Candidates candidates;
+        ht->lookup(key, candidates);
         while (!candidates.isDone()) {
             TestObject* obj = reinterpret_cast<TestObject*>(
                 candidates.getReference());
@@ -448,7 +450,8 @@ class HashTableTest : public ::testing::Test {
     bool
     replace(HashTable* ht, Key& key, uint64_t ref)
     {
-        HashTable::Candidates candidates = ht->lookup(key);
+        HashTable::Candidates candidates;
+        ht->lookup(key, candidates);
         while (!candidates.isDone()) {
             TestObject* obj = reinterpret_cast<TestObject*>(
                 candidates.getReference());

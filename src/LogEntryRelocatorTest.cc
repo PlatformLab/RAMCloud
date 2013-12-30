@@ -57,7 +57,6 @@ TEST_F(LogEntryRelocatorTest, constructor) {
     LogEntryRelocator r(NULL, 50);
     EXPECT_EQ(static_cast<LogSegment*>(NULL), r.segment);
     EXPECT_EQ(50U, r.maximumLength);
-    EXPECT_EQ(-1U, r.offset);
     EXPECT_FALSE(r.outOfSpace);
     EXPECT_FALSE(r.didAppend);
     EXPECT_EQ(0U, r.appendTicks);

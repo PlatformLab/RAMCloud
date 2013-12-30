@@ -115,7 +115,7 @@ class HashTable {
             uint64_t ptr;
         };
 
-        inline void unpack(UnpackedEntry& ue) const;
+        void unpack(UnpackedEntry& ue) const;
     };
     static_assert(sizeof(Entry) == 8, "HashTable::Entry is not 8 bytes");
 
@@ -205,7 +205,6 @@ class HashTable {
 
     explicit HashTable(uint64_t numBuckets);
     ~HashTable();
-    Candidates lookup(Key& key);
     void lookup(Key& key, Candidates& candidates);
     void insert(Key& key, uint64_t reference);
     uint64_t forEachInBucket(void (*callback)(uint64_t, void *),

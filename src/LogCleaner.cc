@@ -237,18 +237,18 @@ LogCleaner::doWork(CleanerThreadState* state)
     bool goToSleep = false;
     switch (balancer->requestTask(state)) {
     case Balancer::CLEAN_DISK:
-    {
+      {
         CycleCounter<uint64_t> __(&state->diskCleaningTicks);
         doDiskCleaning();
         break;
-    }
+      }
 
     case Balancer::COMPACT_MEMORY:
-    {
+      {
         CycleCounter<uint64_t> __(&state->memoryCompactionTicks);
         doMemoryCleaning();
         break;
-    }
+      }
 
     case Balancer::SLEEP:
         goToSleep = true;
@@ -416,11 +416,7 @@ LogCleaner::doDiskCleaning()
     // counters and merge them into our global metrics afterwards to avoid
     // cache line ping-ponging in the hot path.
     LogSegmentVector survivors;
-    LogCleanerMetrics::OnDisk<uint64_t> localMetrics;
-    uint64_t entryBytesAppended = relocateLiveEntries(entries,
-                                                      survivors,
-                                                      localMetrics);
-    onDiskMetrics.merge(localMetrics);
+    uint64_t entryBytesAppended = relocateLiveEntries(entries, survivors);
 
     uint32_t segmentsAfter = downCast<uint32_t>(survivors.size());
     uint32_t segletsAfter = 0;
@@ -597,9 +593,11 @@ LogCleaner::getSortedEntries(LogSegmentVector& segmentsToClean,
  */
 uint64_t
 LogCleaner::relocateLiveEntries(EntryVector& entries,
-                            LogSegmentVector& outSurvivors,
-                            LogCleanerMetrics::OnDisk<uint64_t>& localMetrics)
+                            LogSegmentVector& outSurvivors)
 {
+    // We update metrics on the stack and then merge with the global counters
+    // once at the end in order to avoid contention between cleaner threads.
+    LogCleanerMetrics::OnDisk<uint64_t> localMetrics;
     CycleCounter<uint64_t> _(&localMetrics.relocateLiveEntriesTicks);
 
     LogSegment* survivor = NULL;
@@ -681,6 +679,8 @@ LogCleaner::relocateLiveEntries(EntryVector& entries,
         CycleCounter<uint64_t> __(&localMetrics.survivorSyncTicks);
         survivor->replicatedSegment->sync(survivor->getAppendedLength());
     }
+
+    onDiskMetrics.merge(localMetrics);
 
     return totalEntryBytesAppended;
 }

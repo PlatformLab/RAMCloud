@@ -223,8 +223,7 @@ class LogCleaner {
     void getSortedEntries(LogSegmentVector& segmentsToClean,
                           EntryVector& outEntries);
     uint64_t relocateLiveEntries(EntryVector& entries,
-                            LogSegmentVector& outSurvivors,
-                            LogCleanerMetrics::OnDisk<uint64_t>& localMetrics);
+                            LogSegmentVector& outSurvivors);
     void closeSurvivor(LogSegment* survivor);
     void waitForAvailableSurvivors(size_t count, uint64_t& outTicks);
 

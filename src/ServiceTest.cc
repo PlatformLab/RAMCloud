@@ -110,13 +110,13 @@ TEST_F(ServiceTest, handleRpc_messageTooShortForCommon) {
     EXPECT_STREQ("STATUS_MESSAGE_TOO_SHORT", TestUtil::getStatus(&response));
 }
 TEST_F(ServiceTest, handleRpc_undefinedType) {
-    metrics->rpc.illegalRpcCount = 0;
+    metrics->rpc.illegal_rpc_typeCount = 0;
     auto* header = new(&request, APPEND) WireFormat::RequestCommon;
     header->opcode = WireFormat::ILLEGAL_RPC_TYPE;
     service.handleRpc(&rpc);
     EXPECT_STREQ("STATUS_UNIMPLEMENTED_REQUEST",
             TestUtil::getStatus(&response));
-    EXPECT_EQ(1U, metrics->rpc.illegalRpcCount);
+    EXPECT_EQ(1U, metrics->rpc.illegal_rpc_typeCount);
 }
 TEST_F(ServiceTest, handleRpc_retryException) {
     MockService service;

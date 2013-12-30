@@ -156,7 +156,7 @@ HashTable::Entry::pack(uint64_t hash, bool chain, uint64_t ptr)
  * Note that this method used to return a UnpackedEntry, but that
  * was about 50 cycles slower than passing one in.
  */
-void
+inline void
 HashTable::Entry::unpack(UnpackedEntry& ue) const
 {
     ue.hash  = (this->value >> 48) & 0x000000000000ffffUL;

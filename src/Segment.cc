@@ -21,6 +21,7 @@
 #include "LogSegment.h"
 #include "ShortMacros.h"
 #include "LogEntryTypes.h"
+#include "TestLog.h"
 
 namespace RAMCloud {
 
@@ -159,9 +160,10 @@ Segment::hasSpaceFor(uint32_t* entryLengths, uint32_t numEntries)
  *      Pointer to the buffer containing the entry to be appended.
  * \param length
  *      Number of bytes to append from the provided buffer.
- * \param[out] outOffset
- *      If the append was successful, the segment offset of the new entry is
- *      returned here. This is used to address the entry within the segment.
+ * \param[out] outReference
+ *      If the append was successful, a Segment::Reference pointing to the new
+ *      entry is returned here. This is used to later access the entry within
+ *      segment (see getEntry).
  * \return
  *      True if the append succeeded, false if there was insufficient space to
  *      complete the operation.
@@ -207,9 +209,10 @@ Segment::append(LogEntryType type,
  *      Type of the entry. See LogEntryTypes.h.
  * \param buffer
  *      Buffer object describing the entry to be appended.
- * \param[out] outOffset
- *      If the append was successful, the segment offset of the new entry is
- *      returned here. This is used to address the entry within the segment.
+ * \param[out] outReference
+ *      If the append was successful, a Segment::Reference pointing to the new
+ *      entry is returned here. This is used to later access the entry within
+ *      segment (see getEntry).
  * \return
  *      True if the append succeeded, false if there was insufficient space to
  *      complete the operation.
@@ -294,9 +297,10 @@ Segment::appendToBuffer(Buffer& buffer)
 }
 
 /**
- * Get access to an entry stored in this segment after it has been appended.
- * This the main method used to access entries that have been appended to a
- * segment.
+ * Get access to an entry stored in this segment after it has been appended by
+ * specifying the logical offset of the entry in the Segment. This method is
+ * primarily used as a helper function when looking up entries by their
+ * Segment::Reference.
  *
  * \param offset
  *      Offset of the entry in the segment. This value must be the result of a
@@ -336,6 +340,24 @@ Segment::getEntry(uint32_t offset, Buffer* buffer, uint32_t* lengthWithMetadata)
     return header.getType();
 }
 
+/**
+ * Get access to an entry stored in this segment using a Segment::Reference
+ * pointing to the entry. This the main method used to access entries that have
+ * been appended to a segment.
+ *
+ * \param reference 
+ *      The Segment::Reference object pointing to the desired entry. This should
+ *      always have been a result of a previous call to Segment::getReference().
+ * \param buffer
+ *      Buffer to append the entry to.
+ * \param lengthWithMetadata
+ *      If non-NULL, return the total number of bytes this entry uses in the
+ *      segment here, including any internal segment metadata. This is used by
+ *      LogSegment to keep track of the exact amount of live data within a
+ *      segment.
+ * \return
+ *      The entry's type as specified when it was appended (LogEntryType).
+ */
 LogEntryType
 Segment::getEntry(Reference reference,
                   Buffer* buffer,
@@ -682,6 +704,7 @@ Segment::Reference::getEntry(SegletAllocator* allocator,
     if (expect_true(offset + fullHeaderLength <= segletSize)) {
         // Looks like the header fits. Now grab the length and see if
         // the whole entry fits.
+        TEST_LOG("Contiguous entry");
         uint32_t dataLength = 0;
         const uint64_t offsetOfLength = reference + sizeof(*header);
         switch (header->getLengthBytes()) {
@@ -715,6 +738,7 @@ Segment::Reference::getEntry(SegletAllocator* allocator,
     // Slow path for a discontiguous entry. Need to figure out which
     // Segment this belongs to so we can look up subsequent seglets.
     // This is likely to involve at least 3 additional cache misses.
+    TEST_LOG("Discontiguous entry");
     LogSegment* segment = allocator->getOwnerSegment(
         reinterpret_cast<void*>(reference));
     return segment->getEntry(*this, buffer, lengthWithMetadata);

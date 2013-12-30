@@ -112,14 +112,12 @@ class CleanerCompactionBenchmark {
         /*
          * Now compact each segment.
          */
-        objectManager->segmentManager.cleanableSegments(
-            objectManager->log.cleaner->candidates);
         uint64_t before = Cycles::rdtsc();
         for (uint32_t i = 0; i < numSegments; i++)
             objectManager->log.cleaner->doMemoryCleaning();
         uint64_t ticks = Cycles::rdtsc() - before;
 
-        LogCleanerMetrics::InMemory* metrics =
+        LogCleanerMetrics::InMemory<>* metrics =
             &objectManager->log.cleaner->inMemoryMetrics;
         printf("Compaction took %lu ms (%.2f%% in callbacks)\n",
             Cycles::toNanoseconds(ticks) / 1000 / 1000,

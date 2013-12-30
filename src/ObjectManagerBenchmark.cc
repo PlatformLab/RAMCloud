@@ -23,6 +23,7 @@
 #include "Seglet.h"
 #include "TabletManager.h"
 #include "Tablets.pb.h"
+#include "MasterTableMetadata.h"
 
 namespace RAMCloud {
 
@@ -32,6 +33,7 @@ class ObjectManagerBenchmark {
     ServerConfig config;
     ServerList serverList;
     TabletManager tabletManager;
+    MasterTableMetadata masterTableMetadata;
     ServerId serverId;
     ObjectManager* objectManager;
 
@@ -40,6 +42,7 @@ class ObjectManagerBenchmark {
         , config(ServerConfig::forTesting())
         , serverList(&context)
         , tabletManager()
+        , masterTableMetadata()
         , serverId(1, 1)
         , objectManager(NULL)
     {
@@ -55,7 +58,8 @@ class ObjectManagerBenchmark {
         objectManager = new ObjectManager(&context,
                                           &serverId,
                                           &config,
-                                          &tabletManager);
+                                          &tabletManager,
+                                          &masterTableMetadata);
     }
 
     ~ObjectManagerBenchmark()
@@ -153,7 +157,6 @@ int
 main()
 {
     uint32_t numSegments = 600 / 8; // = 72.
-    uint32_t dataBytes[] = { 100, 10000, 100000, 0 };
     uint32_t threads[] = { 1, 2, 3, 4, 6, 8, 12, 16, 20, 24, 28, 32, 0 };
 
     printf("============ 100-byte Objects ==============\n");

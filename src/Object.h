@@ -378,8 +378,8 @@ class Object {
             : tableId(tableId),
               version(version),
               timestamp(timestamp),
-              checksum(0),
-              keyLength(keyLength)
+              keyLength(keyLength),
+              checksum(0)
         {
         }
 
@@ -395,12 +395,12 @@ class Object {
         /// Object creation/modification timestamp. WallTime.cc is the clock.
         uint32_t timestamp;
 
+        /// Length of the binary string key in bytes.
+        uint16_t keyLength;
+
         /// CRC32C checksum covering everything but this field, including the
         /// key and the data.
         uint32_t checksum;
-
-        /// Length of the binary string key in bytes.
-        uint16_t keyLength;
 
         /// Following this class will be the key and the data. This member is
         /// only here to denote this.

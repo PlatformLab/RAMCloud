@@ -23,6 +23,12 @@
 
 namespace RAMCloud {
 
+static bool
+antiGetEntryFilter(string s)
+{
+    return s != "getEntry";
+}
+
 class MultiReadTest : public ::testing::Test {
   public:
     TestLog::Enable logEnabler;
@@ -40,7 +46,7 @@ class MultiReadTest : public ::testing::Test {
 
   public:
     MultiReadTest()
-        : logEnabler()
+        : logEnabler(antiGetEntryFilter)
         , context()
         , cluster(&context)
         , ramcloud()

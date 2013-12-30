@@ -1083,6 +1083,13 @@ ObjectManager::getTombstoneTimestamp(Buffer& buffer)
  * \param[out] outReference
  *      The log reference to the entry, if found, is stored in this optional
  *      parameter.
+ * \param[out] outCandidates
+ *      If this option parameter is specified and the key being looked up
+ *      is found, the HashTable::Candidates object provided will be set to
+ *      point to that key's entry in the hash table. This is useful when an
+ *      object is being updated. The caller may update the hash table's
+ *      reference directly, rather than having to first perform another
+ *      lookup after the new object is written to the log. 
  * \return
  *      True if an entry is found matching the given key, otherwise false.
  */

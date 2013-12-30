@@ -68,6 +68,10 @@ typedef boost::intrusive::set_member_hook<> IntrusiveSetHook;
  * \param hookName
  *      The name of the member of type IntrusiveSetHook that you want to use
  *      for this intrusive set.
+ * \param comparerType
+ *      The name of the class whose operator() is used to compare two instances
+ *      of entryTypes to figure out if one is greater than the other. This is
+ *      the functor used to sort elements in the set.
  * \return
  *      C++ code following which you should put a name for the type of your
  *      intrusive set and a semicolon.
@@ -87,6 +91,10 @@ typedef boost::intrusive::set_member_hook<> IntrusiveSetHook;
  * \param hookName
  *      The name of the member of type IntrusiveSetHook that you want to use
  *      for this intrusive multiset.
+ * \param comparerType
+ *      The name of the class whose operator() is used to compare two instances
+ *      of entryTypes to figure out if one is greater than the other. This is
+ *      the functor used to sort elements in the multiset.
  * \return
  *      C++ code following which you should put a name for the type of your
  *      intrusive multiset and a semicolon.
@@ -106,6 +114,10 @@ typedef boost::intrusive::set_member_hook<> IntrusiveSetHook;
  * \param hookName
  *      The name of the member of type IntrusiveSetHook that you want to use
  *      for this intrusive rbtree.
+ * \param comparerType
+ *      The name of the class whose operator() is used to compare two instances
+ *      of entryTypes to figure out if one is greater than the other. This is
+ *      the functor used to sort elements in the rbtree.
  * \return
  *      C++ code following which you should put a name for the type of your
  *      intrusive rbtree and a semicolon.

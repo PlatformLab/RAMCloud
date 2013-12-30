@@ -25,6 +25,7 @@
 #include "LogEntryTypes.h"
 #include "LogCleaner.h"
 #include "ReplicaManager.h"
+#include "MasterTableMetadata.h"
 
 namespace RAMCloud {
 
@@ -85,6 +86,7 @@ class CleanableSegmentManagerTest : public ::testing::Test {
     MyServerConfig serverConfig;
     ReplicaManager replicaManager;
     SegletAllocator allocator;
+    MasterTableMetadata masterTableMetadata;
     SegmentManager segmentManager;
     TestEntryHandlers entryHandlers;
     LogCleaner cleaner;
@@ -96,11 +98,12 @@ class CleanableSegmentManagerTest : public ::testing::Test {
           serverConfig(),
           replicaManager(&context, &serverId, 0, false),
           allocator(serverConfig()),
+          masterTableMetadata(),
           segmentManager(&context, serverConfig(), &serverId,
-          allocator, replicaManager),
+                         allocator, replicaManager, &masterTableMetadata),
           entryHandlers(),
           cleaner(&context, serverConfig(), segmentManager,
-          replicaManager, entryHandlers)
+                  replicaManager, entryHandlers)
     {
     }
 
@@ -113,23 +116,39 @@ TEST_F(CleanableSegmentManagerTest, update) {
     CleanableSegmentManager::Lock guard(csm.lock);
 
     csm.update(guard);
-    EXPECT_EQ("", csm.toString());
+    EXPECT_EQ("costBenefitCandidates [ ] compactionCandidates [ ] "
+              "tombstoneScanCandidates [ ]", csm.toString());
 
     segmentManager.allocHeadSegment();
     csm.update(guard);
-    EXPECT_EQ("", csm.toString());
-
-    segmentManager.allocHeadSegment();
-    segmentManager.allocHeadSegment();
-    segmentManager.allocHeadSegment();
-    csm.update(guard);
-    EXPECT_EQ("", csm.toString());
+    EXPECT_EQ("costBenefitCandidates [ ] compactionCandidates [ ] "
+              "tombstoneScanCandidates [ ]", csm.toString());
 
     segmentManager.allocHeadSegment();
     segmentManager.allocHeadSegment();
     segmentManager.allocHeadSegment();
     csm.update(guard);
-    EXPECT_EQ("", csm.toString());
+    EXPECT_EQ("costBenefitCandidates [ id=1,cb=18446744073709551615 "
+              "id=2,cb=18446744073709551615 id=3,cb=18446744073709551615 ] "
+              "compactionCandidates [ id=1,cb=18446744073709551615 "
+              "id=2,cb=18446744073709551615 id=3,cb=18446744073709551615 ] "
+              "tombstoneScanCandidates [ id=1,ss=0 id=2,ss=0 id=3,ss=0 ]",
+              csm.toString());
+
+    segmentManager.allocHeadSegment();
+    segmentManager.allocHeadSegment();
+    segmentManager.allocHeadSegment();
+    csm.update(guard);
+    EXPECT_EQ("costBenefitCandidates [ id=2,cb=18446744073709551615 "
+              "id=3,cb=18446744073709551615 id=1,cb=18446744073709551615 "
+              "id=4,cb=18446744073709551615 id=5,cb=18446744073709551615 "
+              "id=6,cb=18446744073709551615 ] "
+              "compactionCandidates [ id=4,cb=18446744073709551615 "
+              "id=5,cb=18446744073709551615 id=6,cb=18446744073709551615 "
+              "id=2,cb=4294967295 id=3,cb=4294967295 id=1,cb=4294967295 ] "
+              "tombstoneScanCandidates [ id=2,ss=0 id=3,ss=0 id=1,ss=0 "
+              "id=4,ss=0 id=5,ss=0 id=6,ss=0 ]",
+              csm.toString());
 }
 
 }  // namespace RAMCloud

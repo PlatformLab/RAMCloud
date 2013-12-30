@@ -1057,20 +1057,30 @@ TEST_F(MasterServiceTest, recover_unsuccessful) {
     }
 }
 
+static bool
+antiGetEntryFilter(string s)
+{
+    return s != "getEntry";
+}
+
 TEST_F(MasterServiceTest, remove_basics) {
     ramcloud->write(1, "key0", 4, "item0", 5);
 
-    TestLog::Enable _;
+    TestLog::Enable _(antiGetEntryFilter);
+    Key key(1, "key0", 4);
+    HashTable::Candidates c;
+    service->objectManager.objectMap.lookup(key, c);
+    uint64_t ref = c.getReference();
     uint64_t version;
     ramcloud->remove(1, "key0", 4, NULL, &version);
     EXPECT_EQ(1U, version);
-    EXPECT_EQ("free: free on reference 3670096 | "
-              "sync: syncing segment 1 to offset 157 | "
-              "schedule: scheduled | "
-              "performWrite: Sending write to backup 1.0 | "
-              "schedule: scheduled | "
-              "performWrite: Write RPC finished for replica slot 0 | "
-              "sync: log synced",
+    EXPECT_EQ(format("free: free on reference %lu | "
+                     "sync: syncing segment 1 to offset 155 | "
+                     "schedule: scheduled | "
+                     "performWrite: Sending write to backup 1.0 | "
+                     "schedule: scheduled | "
+                     "performWrite: Write RPC finished for replica slot 0 | "
+                     "sync: log synced", ref),
               TestLog::get());
 
     Buffer value;

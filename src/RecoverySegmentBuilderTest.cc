@@ -116,11 +116,11 @@ TEST_F(RecoverySegmentBuilderTest, build) {
         "Skipping object with <tableId, keyHash> of <2"));
     EXPECT_EQ("safeVersion at offset 0, length 12 with version 1 | "
             "object at offset 14, length 33 with tableId 1, key '2' | "
-            "tombstone at offset 49, length 35 with tableId 1, key '2'",
+            "tombstone at offset 49, length 33 with tableId 1, key '2'",
             ObjectManager::dumpSegment(&recoverySegments[0]));
     EXPECT_EQ("safeVersion at offset 0, length 12 with version 1 | "
             "object at offset 14, length 33 with tableId 1, key '1' | "
-            "tombstone at offset 49, length 35 with tableId 1, key '1'",
+            "tombstone at offset 49, length 33 with tableId 1, key '1'",
             ObjectManager::dumpSegment(&recoverySegments[1]));
 
     certificate.checksum = 0;

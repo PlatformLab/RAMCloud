@@ -142,8 +142,13 @@ Service::handleRpc(Rpc* rpc) {
     // The check below is needed to avoid out-of-range accesses to
     // rpcsHandled etc.
     uint32_t opcode = header->opcode;
-    if (opcode >= WireFormat::ILLEGAL_RPC_TYPE)
+    if (opcode >= WireFormat::ILLEGAL_RPC_TYPE) {
         opcode = WireFormat::ILLEGAL_RPC_TYPE;
+        // If the following assertion fails, then rawmetrics.py's list of RPCs
+        // is out of sync with WireFormat.h's definitions.
+        assert(&metrics->rpc.illegal_rpc_typeCount ==
+               &(&metrics->rpc.rpc0Count)[opcode]);
+    }
     (&metrics->rpc.rpc0Count)[opcode]++;
     uint64_t start = Cycles::rdtsc();
     try {
