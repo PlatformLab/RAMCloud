@@ -498,20 +498,20 @@ def makeReport(data):
         coord.coordinator.recoveryStartTicks / coord.clockFrequency,
         total=recoveryTime)
     coordSection.ms('Tablets recovered',
-        coord.rpc.recoveryMasterFinishedTicks / coord.clockFrequency,
+        coord.rpc.recovery_master_finishedTicks / coord.clockFrequency,
         total=recoveryTime)
     coordSection.ms('Completing recovery on backups',
         coord.coordinator.recoveryCompleteTicks / coord.clockFrequency,
         total=recoveryTime)
     coordSection.ms('Get tablet map',
-        coord.rpc.getTabletMapTicks / coord.clockFrequency,
+        coord.rpc.get_tablet_mapTicks / coord.clockFrequency,
         total=recoveryTime)
     coordSection.ms('Other',
         ((coord.coordinator.recoveryTicks -
           coord.coordinator.recoveryBuildReplicaMapTicks -
           coord.coordinator.recoveryStartTicks -
-          coord.rpc.getTabletMapTicks -
-          coord.rpc.recoveryMasterFinishedTicks) /
+          coord.rpc.get_tablet_mapTicks -
+          coord.rpc.recovery_master_finishedTicks) /
          coord.clockFrequency),
         total=recoveryTime)
     coordSection.ms('Receiving in transport',
@@ -768,23 +768,23 @@ def makeReport(data):
     backup_ticks('RPC service time',
                  'backup.serviceTicks')
     backup_ticks('startReadingData RPC',
-                 'rpc.backupStartReadingDataTicks')
+                 'rpc.backup_startreadingdataTicks')
     backup_ticks('write RPC',
-                 'rpc.backupWriteTicks')
+                 'rpc.backup_writeTicks')
     backup_ticks('Write copy',
                  'backup.writeCopyTicks')
     backupSection.ms('Other write RPC',
-        on_backups(lambda b: (b.rpc.backupWriteTicks -
+        on_backups(lambda b: (b.rpc.backup_writeTicks -
                               b.backup.writeCopyTicks) /
                              b.clockFrequency),
         total=recoveryTime)
     backup_ticks('getRecoveryData RPC',
-                 'rpc.backupGetRecoveryDataTicks')
+                 'rpc.backup_getrecoverydataTicks')
     backupSection.ms('Other',
         on_backups(lambda b: (b.backup.serviceTicks -
-                              b.rpc.backupStartReadingDataTicks -
-                              b.rpc.backupWriteTicks -
-                              b.rpc.backupGetRecoveryDataTicks) /
+                              b.rpc.backup_startreadingdataTicks -
+                              b.rpc.backup_writeTicks -
+                              b.rpc.backup_getrecoverydataTicks) /
                              b.clockFrequency),
         total=recoveryTime)
     backup_ticks('Transmitting in transport',
@@ -798,9 +798,9 @@ def makeReport(data):
     backupSection.line('getRecoveryData completions',
         on_backups(lambda b: b.backup.readCompletionCount))
     backupSection.line('getRecoveryData retry fraction',
-        on_backups(lambda b: (b.rpc.backupGetRecoveryDataCount -
+        on_backups(lambda b: (b.rpc.backup_getrecoverydataCount -
                               b.backup.readCompletionCount) /
-                   b.rpc.backupGetRecoveryDataCount))
+                   b.rpc.backup_getrecoverydataCount))
 
 
     efficiencySection = report.add(Section('Efficiency'))
@@ -813,11 +813,11 @@ def makeReport(data):
         unit='ms avg')
 
     efficiencySection.line('Writing a segment',
-        (sum([b.rpc.backupWriteTicks / b.clockFrequency
+        (sum([b.rpc.backup_writeTicks / b.clockFrequency
               for b in backups]) * 1000 /
         # Divide count by 2 since each segment does two writes:
         # one to open the segment and one to write the data.
-        sum([b.rpc.backupWriteCount / 2
+        sum([b.rpc.backup_writeCount / 2
              for b in backups])),
         unit='ms avg')
 

@@ -30,6 +30,7 @@ import os
 import random
 import re
 import sys
+import itertools
 
 from common import *
 
@@ -284,130 +285,50 @@ backup.metric('secondaryLoadCount', 'number of secondary segments requested')
 backup.metric('storageType', '1 = in-memory, 2 = on-disk')
 backup.metric('uncommittedFramesFreed', 'number of segment frames freed before being fully flushed to disk')
 
-# This class records basic statistics for RPCs (count & execution time):
+# This class records basic statistics for RPCs (count & execution time).
+# The order here must match WireFormat.h. In the old days we did it manually,
+# but that became a labourious timesink. We now autogenerate from the header
+# file. Note that Service.cc indexes into the Rpc metrics struct when
+# twiddling counters, so it relies not just on order, but on the counters being
+# sequential in memory.
 rpc = Group('Rpc', 'metrics for remote procedure calls')
-# The order of entries here, and for the "*Ticks" definitions below,
-# must be the same as the order in the RpcOpcode definition in Rpc.h.
-rpc.metric('rpc0Count', 'number of invocations of RPC 0 (undefined)')
-rpc.metric('rpc1Count', 'number of invocations of RPC 1 (undefined)')
-rpc.metric('rpc2Count', 'number of invocations of RPC 2 (undefined)')
-rpc.metric('rpc3Count', 'number of invocations of RPC 3 (undefined)')
-rpc.metric('rpc4Count', 'number of invocations of RPC 4 (undefined)')
-rpc.metric('rpc5Count', 'number of invocations of RPC 5 (undefined)')
-rpc.metric('rpc6Count', 'number of invocations of RPC 6 (undefined)')
-rpc.metric('pingCount', 'number of invocations of PING RPC')
-rpc.metric('proxyPingCount', 'number of invocations of PROXY_PING RPC')
-rpc.metric('killCount', 'number of invocations of KILL RPC')
-rpc.metric('createTableCount', 'number of invocations of CREATE_TABLE RPC')
-rpc.metric('getTableIdCount', 'number of invocations of GET_TABLE_ID RPC')
-rpc.metric('dropTableCount', 'number of invocations of DROP_TABLE RPC')
-rpc.metric('readCount', 'number of invocations of READ RPC')
-rpc.metric('writeCount', 'number of invocations of WRITE RPC')
-rpc.metric('removeCount', 'number of invocations of REMOVE RPC')
-rpc.metric('enlistServerCount', 'number of invocations of ENLIST_SERVER RPC')
-rpc.metric('getServerListCount', 'number of invocations of GET_SERVER_LIST RPC')
-rpc.metric('getTabletMapCount', 'number of invocations of GET_TABLET_MAP RPC')
-rpc.metric('recoverCount', 'number of invocations of RECOVER RPC')
-rpc.metric('hintServerDownCount', 'number of invocations of HINT_SERVER_DOWN RPC')
-rpc.metric('recoveryMasterFinishedCount', 'number of invocations of RECOVERY_MASTER_FINISHED RPC')
-rpc.metric('enumerateCount', 'number of invocations of ENUMERATE RPC')
-rpc.metric('setMasterRecoveryInfoCount', 'number of invocations of SET_MASTER_RECOVERY_INFO RPC')
-rpc.metric('fillWithTestDataCount', 'number of invocations of FILL_WITH_TEST_DATA RPC')
-rpc.metric('multiOpCount', 'number of invocations of MULTI_OP_RPC')
-rpc.metric('getMetricsCount', 'number of invocations of GET_METRICS RPC')
-rpc.metric('rpc27Count', 'number of invocations of RPC 27 (undefined)')
-rpc.metric('backupFreeCount', 'number of invocations of BACKUP_FREE RPC')
-rpc.metric('backupGetRecoveryDataCount', 'number of invocations of BACKUP_GETRECOVERYDATA RPC')
-rpc.metric('rpc30Count', 'number of invocations of RPC 30 (undefined)')
-rpc.metric('backupStartReadingDataCount', 'number of invocations of BACKUP_STARTREADINGDATA RPC')
-rpc.metric('backupWriteCount', 'number of invocations of BACKUP_WRITE RPC')
-rpc.metric('backupRecoveryCompleteCount', 'number of invocations of BACKUP_RECOVERYCOMPLETE RPC')
-rpc.metric('backupQuiesceCount', 'number of invocations of BACKUP_QUIESCE RPC')
-rpc.metric('updateServerListCount', 'number of invocations of UPDATE_SERVER_LIST RPC')
-rpc.metric('backupStartPartitionCount', 'time spent executing BACKUP_STARTPARTITION RPC')
-rpc.metric('rpc37Count', 'number of invocations of RPC 37 (undefined)')
-rpc.metric('rpc38Count', 'number of invocations of RPC 38 (undefined)')
-rpc.metric('dropTabletOwnershipCount', 'number of invocations of DROP_TABLET_OWNERSHIP RPC')
-rpc.metric('takeTabletOwnershipCount', 'number of invocations of TAKE_TABLET_OWNERSHIP RPC')
-rpc.metric('backupAssignGroupCount', 'number of invocations of BACKUP_ASSIGN_GROUP RPC')
-rpc.metric('getHeadOfLogCount', 'number of invocations of GET_HEAD_OF_LOG RPC')
-rpc.metric('incrementRpcCount', 'number of invocations of INCREMENT RPC')
-rpc.metric('prepForMigrationCount', 'number of invocations of PREP_FOR_MIGRATION RPC')
-rpc.metric('receiveMigrationDataCount', 'number of invocations of RECEIVE_MIGRATION_DATA RPC')
-rpc.metric('reassignTabletOwnershipCount', 'number of invocations of REASSIGN_TABLET_OWNERSHIP RPC')
-rpc.metric('migrateTabletCount', 'number of invocations of MIGRATE_TABLET RPC')
-rpc.metric('isReplicaNeededCount', 'number of invocations of IS_REPLICA_NEEDED RPC')
-rpc.metric('splitTabletCount', 'number of invocations of SPLIT_TABLET')
-rpc.metric('getServerStatisticsCount', 'number of invocations of GET_SERVER_STATISTICS RPC')
-rpc.metric('setRuntimeOptionCount', 'number of invocations of SET_RUNTIME_OPTION RPC')
-rpc.metric('getServerConfigCount', 'number of invocations of GET_SERVER_CONFIG RPC')
-rpc.metric('getLogMetricsCount', 'number of invocations of GET_LOG_METRICS RPC')
-rpc.metric('verifyMembershipCount', 'number of invocations of VERIFY_MEMBERSHIP RPC')
-rpc.metric('getRuntimeOptionCount', 'number of invocations of GET_RUNTIME_OPTION RPC')
-rpc.metric('serverControlCount', 'number of invocations of SERVER_CONTROL RPC')
-rpc.metric('getServerIdCount', 'number of invocations of GET_SERVER_ID')
-rpc.metric('illegalRpcCount', 'number of invocations of RPCs with illegal opcodes')
 
-rpc.metric('rpc0Ticks', 'time spent executing RPC 0 (undefined)')
-rpc.metric('rpc1Ticks', 'time spent executing RPC 1 (undefined)')
-rpc.metric('rpc2Ticks', 'time spent executing RPC 2 (undefined)')
-rpc.metric('rpc3Ticks', 'time spent executing RPC 3 (undefined)')
-rpc.metric('rpc4Ticks', 'time spent executing RPC 4 (undefined)')
-rpc.metric('rpc5Ticks', 'time spent executing RPC 5 (undefined)')
-rpc.metric('rpc6Ticks', 'time spent executing RPC 6 (undefined)')
-rpc.metric('pingTicks', 'time spent executing PING RPC')
-rpc.metric('proxyPingTicks', 'time spent executing PROXY_PING RPC')
-rpc.metric('killTicks', 'time spent executing KILL RPC')
-rpc.metric('createTableTicks', 'time spent executing CREATE_TABLE RPC')
-rpc.metric('getTableIdTicks', 'time spent executing GET_TABLE_ID RPC')
-rpc.metric('dropTableTicks', 'time spent executing DROP_TABLE RPC')
-rpc.metric('readTicks', 'time spent executing READ RPC')
-rpc.metric('writeTicks', 'time spent executing WRITE RPC')
-rpc.metric('removeTicks', 'time spent executing REMOVE RPC')
-rpc.metric('enlistServerTicks', 'time spent executing ENLIST_SERVER RPC')
-rpc.metric('getServerListTicks', 'time spent executing GET_SERVER_LIST RPC')
-rpc.metric('getTabletMapTicks', 'time spent executing GET_TABLET_MAP RPC')
-rpc.metric('recoverTicks', 'time spent executing RECOVER RPC')
-rpc.metric('hintServerDownTicks', 'time spent executing HINT_SERVER_DOWN RPC')
-rpc.metric('recoveryMasterFinishedTicks', 'time spent executing RECOVERY_MASTER_FINISHED RPC')
-rpc.metric('enumerateTicks', 'time spent executing ENUMERATE RPC')
-rpc.metric('setMasterRecoveryInfoTicks', 'time spent executing SET_MASTER_RECOVERY_INFO RPC')
-rpc.metric('fillWithTestDataTicks', 'time spent executing FILL_WITH_TEST_DATA RPC')
-rpc.metric('multiOpTicks', 'time spent executing MULTI_OP RPC')
-rpc.metric('getMetricsTicks', 'time spent executing GET_METRICS RPC')
-rpc.metric('rpc27Ticks', 'time spent executing RPC 27 (undefined)')
-rpc.metric('backupFreeTicks', 'time spent executing BACKUP_FREE RPC')
-rpc.metric('backupGetRecoveryDataTicks', 'time spent executing BACKUP_GETRECOVERYDATA RPC')
-rpc.metric('rpc30Ticks', 'time spent executing RPC 30 (undefined)')
-rpc.metric('backupStartReadingDataTicks', 'time spent executing BACKUP_STARTREADINGDATA RPC')
-rpc.metric('backupWriteTicks', 'time spent executing BACKUP_WRITE RPC')
-rpc.metric('backupRecoveryCompleteTicks', 'time spent executing BACKUP_RECOVERYCOMPLETE RPC')
-rpc.metric('backupQuiesceTicks', 'time spent executing BACKUP_QUIESCE RPC')
-rpc.metric('setServerListTicks', 'time spent executing SET_SERVER_LIST RPC')
-rpc.metric('updateServerListTicks', 'time spent executing BACKUP_STARTPARTITION RPC')
-rpc.metric('backupStartPartition', 'time spent executing RPC 4 (undefined)')
-rpc.metric('rpc37Ticks', 'time spent executing RPC 37 (undefined)')
-rpc.metric('rpc38Ticks', 'time spent executing RPC 38 (undefined)')
-rpc.metric('dropTabletOwnershipTicks', 'number of invocations of DROP_TABLET_OWNERSHIP RPC')
-rpc.metric('takeTabletOwnershipTicks', 'number of invocations of TAKE_TABLET_OWNERSHIP RPC')
-rpc.metric('backupAssignGroupTicks', 'time spent executing BACKUP_ASSIGN_GROUP RPC')
-rpc.metric('getHeadOfLogTicks', 'time spent executing GET_HEAD_OF_LOG RPC')
-rpc.metric('incrementTicks', 'time spent executing INCREMENT RPC')
-rpc.metric('prepForMigrationTicks', 'time spent executing PREP_FOR_MIGRATION RPC')
-rpc.metric('receiveMigrationDataTicks', 'time spent executing RECEIVE_MIGRATION_DATA RPC')
-rpc.metric('reassignTabletOwnershipTicks', 'time spent executing REASSIGN_TABLET_OWNERSHIP RPC')
-rpc.metric('migrateTabletTicks', 'time spent executing MIGRATE_TABLET RPC')
-rpc.metric('isReplicaNeededTicks', 'time spent executing IS_REPLICA_NEEDED_RPC')
-rpc.metric('splitTabletTicks', 'time spent executing SPLIT_TABLET RPC')
-rpc.metric('getServerStatisticsTicks', 'time spent executing GET_SERVER_STATISTICS RPC')
-rpc.metric('setRuntimeOptionTicks', 'time spent executing SET_RUNTIME_OPTION RPC')
-rpc.metric('getServerConfigTicks', 'time spent executing GET_SERVER_CONFIG RPC')
-rpc.metric('getLogMetricsTicks', 'time spent executing GET_LOG_METRICS RPC')
-rpc.metric('verifyMembershipTicks', 'number of invocations of VERIFY_MEMBERSHIP')
-rpc.metric('getRuntimeOptionTicks', 'time spent executing GET_RUNTIME_OPTION RPC')
-rpc.metric('serverControlTicks', 'time spent executing SERVER_CONTROL')
-rpc.metric('getServerIdTicks', 'time spent executing GET_SERVER_ID')
-rpc.metric('illegalRpcTicks', 'time spent executing RPCs with illegal opcodes')
+# Returns a dictionary where keys are opcode numbers and values are their
+# symbolic names. These are extracted directly from WireFormat.h.
+def getRpcOpcodes():
+    wf = open(top_path + "/src/WireFormat.h", "r")
+    rpcOpcodes = {}
+    inOpcodes = False
+    for line in wf:
+        if line.startswith("enum Opcode {"):
+            inOpcodes = True
+            continue
+        
+        if inOpcodes:
+            if line.startswith("};"): 
+                break
+            opName, opNumber = line.strip().split("=")
+            opName = opName.strip()
+            opNumber = int(opNumber.split(",")[0].split("/")[0].strip())
+            rpcOpcodes[opNumber] = opName
+    return rpcOpcodes
+
+for phase in ("counts", "ticks"):
+    rpcOpcodes = getRpcOpcodes()
+    for i in itertools.count(): 
+        if len(rpcOpcodes) == 0:
+            break
+        if i in rpcOpcodes:
+            if phase == "counts":
+                rpc.metric('%sCount' % rpcOpcodes[i].lower(), 'number of invocations of the %s RPC' % rpcOpcodes[i])
+            else:
+                rpc.metric('%sTicks' % rpcOpcodes[i].lower(), 'time spent executing the %s RPC' % rpcOpcodes[i])
+            del rpcOpcodes[i]
+        else:
+            if phase == "counts":
+                rpc.metric('rpc%dCount' % i, 'number of invocations of RPC %d (undefined)' % i)
+            else:
+                rpc.metric('rpc%dTicks' % i, 'time spent executing RPC %d (undefined)' % i)
 
 transmit = Group('Transmit', 'metrics related to transmitting messages')
 transmit.metric('ticks', 'elapsed time transmitting messages')
