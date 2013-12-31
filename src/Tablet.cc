@@ -44,4 +44,39 @@ Tablet::serialize(ProtoBuf::Tablets::Tablet& entry) const
     entry.set_ctime_log_head_offset(ctime.getSegmentOffset());
 }
 
+/**
+ * Returns a human-readable string describing the tablet. Used for testing.
+ *
+ * \param usecase
+ *      Each usecase has a predefined usecase number and corresponding string
+ *      format.  This allows different test cases to specify and use different
+ *      (possibly specialized) string representations.  Cases:
+ *          0   Fully verbose string (default)
+ *          1   Short tablet identifer "{ tableId: startKeyHash-endKeyHash }"
+ */
+string
+Tablet::debugString(int usecase) const
+{
+    string result;
+    switch (usecase)
+    {
+        case 1:
+            result = format("{ %lu: 0x%lx-0x%lx }",
+                            tableId, startKeyHash, endKeyHash);
+            break;
+        default:
+            const char* status_str = "NORMAL";
+            if (status != Tablet::NORMAL)
+                status_str = "RECOVERING";
+            result = format("Tablet { tableId: %lu, startKeyHash: 0x%lx, "
+                            "endKeyHash: 0x%lx, serverId: %s, status: %s, "
+                            "ctime: %ld.%d }",
+                            tableId, startKeyHash, endKeyHash,
+                            serverId.toString().c_str(), status_str,
+                            ctime.getSegmentId(), ctime.getSegmentOffset());
+            break;
+    }
+    return result;
+}
+
 } // namespace RAMCloud

@@ -18,6 +18,7 @@
 
 #include "TestUtil.h"
 #include "Buffer.h"
+#include "MockSyscall.h"
 
 namespace RAMCloud {
 
@@ -233,8 +234,12 @@ class BufferTest : public ::testing::Test {
     char pad4[50];
     char cmpBuf[30];    // To use for strcmp at the end of a test.
     Buffer *buf;
+    FILE *f;
+    char fileName[100];
 
-    BufferTest() : buf(NULL)
+    BufferTest()
+        : buf(NULL)
+        , f(NULL)
     {
         memcpy(testStr, "ABCDEFGHIJabcdefghijklmnopqrs\0", 30);
         memcpy(testStr1, "ABCDEFGHIJ", 10);
@@ -256,6 +261,17 @@ class BufferTest : public ::testing::Test {
     ~BufferTest()
     {
         delete buf;
+        if (f != NULL) {
+            fclose(f);
+            unlink(fileName);
+        }
+    }
+
+    void openFile() {
+        strncpy(fileName, "/tmp/ramcloud-buffer-test-delete-this-XXXXXX",
+                sizeof(fileName));
+        int fd = mkstemp(fileName);
+        f = fdopen(fd, "r+");
     }
 
     DISALLOW_COPY_AND_ASSIGN(BufferTest);
@@ -500,6 +516,38 @@ TEST_F(BufferTest, copy_normal) {
     strncpy(scratch, "012345678901234567890123456789", 31);
     EXPECT_EQ(6U, buf->copy(20, 6, scratch + 1));
     EXPECT_STREQ("0klmnop78901234567890123456789", scratch);
+}
+
+TEST_F(BufferTest, write_basics) {
+    openFile();
+    EXPECT_EQ(20u, buf->write(5, 20, f));
+    fflush(f);
+    EXPECT_EQ("FGHIJabcdefghijklmno", TestUtil::readFile(fileName));
+}
+
+TEST_F(BufferTest, write_offsetTooLarge) {
+    openFile();
+    EXPECT_EQ(0u, buf->write(30, 5, f));
+    fflush(f);
+    EXPECT_EQ("", TestUtil::readFile(fileName));
+}
+
+TEST_F(BufferTest, write_lengthLongerThanBuffer) {
+    openFile();
+    buf->truncateEnd(1);
+    EXPECT_EQ(4u, buf->write(25, 5, f));
+    fflush(f);
+    EXPECT_EQ("pqrs", TestUtil::readFile(fileName));
+}
+
+TEST_F(BufferTest, write_IoError) {
+    MockSyscall sys;
+    Syscall *savedSyscall = Buffer::sys;
+    Buffer::sys = &sys;
+    openFile();
+    sys.fwriteResult = 3;
+    EXPECT_EQ(3u, buf->write(5, 20, f));
+    Buffer::sys = savedSyscall;
 }
 
 TEST_F(BufferTest, fillFromString) {

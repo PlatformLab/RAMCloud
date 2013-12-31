@@ -24,6 +24,7 @@
 #include "StringUtil.h"
 #include "TestLog.h"
 #include "Transport.h"
+#include "MasterTableMetadata.h"
 
 namespace RAMCloud {
 
@@ -266,49 +267,6 @@ TEST_F(AbstractLogTest, allocNewWritableHead) {
 
     // Ensure mustNotFail was false in allocNextSegment()
     EXPECT_EQ("", TestLog::get());
-}
-
-TEST_F(AbstractLogTest, reference_constructors) {
-    Log::Reference empty;
-    EXPECT_EQ(0U, empty.value);
-
-    Log::Reference fromInt(2834238428234UL);
-    EXPECT_EQ(2834238428234UL, fromInt.value);
-
-    Log::Reference slotOffset(0, 0, 8*1024*1024);
-    EXPECT_EQ(0U, slotOffset.value);
-
-    Log::Reference slotOffset2(1, 0, 8*1024*1024);
-    EXPECT_EQ(1U << 23, slotOffset2.value);
-
-    Log::Reference slotOffset3(1, 1, 8*1024*1024);
-    EXPECT_EQ((1U << 23) | 1, slotOffset3.value);
-
-    Log::Reference slotOffset4(1, 1, 8);
-    EXPECT_EQ((1U << 3) | 1, slotOffset4.value);
-}
-
-TEST_F(AbstractLogTest, reference_getSlot) {
-    for (int i = 1; i < 32; i++) {
-        uint32_t segSize = 1U << i;
-        Log::Reference ref(15, segSize - 1, segSize);
-        EXPECT_EQ(15U, ref.getSlot(segSize));
-    }
-
-    Log::Reference ref(0xaaaaaaaa, 0x55555555, 1UL << 31);
-    EXPECT_EQ(0xaaaaaaaa, ref.getSlot(1UL << 31));
-}
-
-TEST_F(AbstractLogTest, reference_getOffset) {
-    for (int i = 1; i < 32; i++) {
-        uint32_t segSize = 1U << i;
-        Log::Reference ref(15, segSize - 1, segSize);
-        EXPECT_EQ(segSize - 1, ref.getOffset(segSize));
-    }
-
-    Log::Reference ref(0xaaaaaaaa, 0x55555555, 1UL << 31);
-    EXPECT_EQ(0x55555555U, ref.getOffset(1UL << 31));
-
 }
 
 } // namespace RAMCloud

@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2012 Stanford University
+/* Copyright (c) 2010-2013 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -266,6 +266,23 @@ class BackupStorage {
         virtual void close() = 0;
 
         /**
+         * This method is invoked on a frame that is currently closed and
+         * stored on disk; it brings the frame back into memory (if it wasn't\
+         * there already) and opens it so that it can be appended to like a
+         * new frame. This method is used when a backup has crashed and
+         * restarted, and a master tries to write to an old frame from the
+         * backup's previous incarnation (e.g., the master was trying to
+         * rereplicate a segment because of the crash of the earlier
+         * incarnation, and  just happened to choose the restarted backup
+         * for that replica; with this method, that situation is handled
+         * cleanly). This method is part of the solution to RAM-573.
+         *
+         * \param length
+         *      Number of bytes in the reclaimed replica that are valid.
+         */
+        virtual void reopen(size_t length) = 0;
+
+        /**
          * Do not call this; only called; called via BackupStorage::freeFrame()
          * which is called when the reference count associated with a frame
          * drops to zero.
@@ -288,7 +305,7 @@ class BackupStorage {
     virtual ~BackupStorage() {}
 
     virtual uint32_t benchmark(BackupStrategy backupStrategy);
-    void sleepToThrottleWrites(size_t count, uint64_t ticks);
+    void sleepToThrottleWrites(size_t count, uint64_t ticks) const;
 
     /**
      * Reference to a frame; when the reference drops to zero

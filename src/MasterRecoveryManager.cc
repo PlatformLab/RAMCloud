@@ -1,4 +1,4 @@
-/* Copyright (c) 2012 Stanford University
+/* Copyright (c) 2012-2013 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -121,13 +121,9 @@ class EnqueueMasterRecoveryTask : public Task {
                               const ProtoBuf::MasterRecoveryInfo& recoveryInfo)
         : Task(recoveryManager.taskQueue)
         , mgr(recoveryManager)
-        , recovery()
+        , crashedServerId(crashedServerId)
         , masterRecoveryInfo(recoveryInfo)
-    {
-        recovery = new Recovery(recoveryManager.context, mgr.taskQueue,
-                                &mgr.tableManager, &mgr.tracker,
-                                &mgr, crashedServerId, masterRecoveryInfo);
-    }
+    { }
 
     /**
      * Called by #taskQueue which serializes it with other tasks; this makes
@@ -136,14 +132,16 @@ class EnqueueMasterRecoveryTask : public Task {
      */
     void performTask()
     {
-        mgr.waitingRecoveries.push(recovery);
+        mgr.waitingRecoveries.push(new Recovery(mgr.context, mgr.taskQueue,
+                                &mgr.tableManager, &mgr.tracker,
+                                &mgr, crashedServerId, masterRecoveryInfo));
         (new MaybeStartRecoveryTask(mgr))->schedule();
         delete this;
     }
 
   PRIVATE:
     MasterRecoveryManager& mgr;
-    Recovery* recovery;
+    ServerId crashedServerId;
     ProtoBuf::MasterRecoveryInfo masterRecoveryInfo;
     DISALLOW_COPY_AND_ASSIGN(EnqueueMasterRecoveryTask);
 };
@@ -350,7 +348,9 @@ MasterRecoveryManager::MasterRecoveryManager(Context* context,
     , maxActiveRecoveries(1u)
     , taskQueue()
     , tracker(context, this)
-    , doNotStartRecoveries()
+    , doNotStartRecoveries(false)
+    , startRecoveriesEvenIfNoThread(false)
+    , skipRescheduleDelay(false)
 {
 }
 
@@ -363,9 +363,12 @@ MasterRecoveryManager::~MasterRecoveryManager()
 }
 
 /**
- * Start thread for performing recoveries; this must be called before other
- * operations to ensure recoveries actually happen.
- * Calling start() on an instance that is already started has no effect.
+ * This method is invoked during server startup to enable the mechanism
+ * for recovering crashed masters. In addition to starting the thread that
+ * performs recoveries, this method scans the server list for servers already
+ * in the crashed state, and (re)starts recovery for them. This can occur
+ * when the coordinator is restarting after a crash, and there were recoveries
+ * in progress at the time of the crash. 
  * start() and halt() are not thread-safe.
  */
 void
@@ -373,6 +376,20 @@ MasterRecoveryManager::start()
 {
     if (!thread)
         thread.construct(&MasterRecoveryManager::main, this);
+
+    ServerId id;
+    while (1) {
+        bool end;
+        id = context->coordinatorServerList->nextServer(id,
+                ServiceMask({WireFormat::MASTER_SERVICE}), &end, true);
+        if (end) {
+            break;
+        }
+        if (context->coordinatorServerList->getStatus(id)
+                == ServerStatus::CRASHED) {
+            startMasterRecovery((*context->coordinatorServerList)[id]);
+        }
+    }
 }
 
 /**
@@ -402,47 +419,23 @@ MasterRecoveryManager::startMasterRecovery(
         CoordinatorServerList::Entry crashedServer)
 {
     ServerId crashedServerId = crashedServer.serverId;
-    auto tablets =
-        tableManager.markAllTabletsRecovering(crashedServerId);
-
-    /**
-     * If the server did not own any tablets, we can't simply return
-     * from this function. We have to remove the server from the
-     * coordinator server list which we can't directly, by calling
-     * CoordinatorServerList::recoveryCompleted() because it will
-     * cause a deadlock. This is because startMasterRecovery is invoked
-     * with the CSL lock held and we can't call into CSL again. For this
-     * reason, we start the recovery for this master as well and handle
-     * this case at a lower layer of abstraction. Check Recovery::performTask
-     * for short-circuiting the recovery instead of going ahead till the end.
-     */      
-
-    try {
-        LOG(NOTICE, "Scheduling recovery of master %s",
-            crashedServerId.toString().c_str());
-
-        if (doNotStartRecoveries) {
-            TEST_LOG("Recovery crashedServerId: %s",
-                     crashedServerId.toString().c_str());
-            return;
-        }
-
-        (new EnqueueMasterRecoveryTask(*this, crashedServerId,
-                        crashedServer.masterRecoveryInfo))->schedule();
-    } catch (const Exception& e) {
-        // Check one last time just to sanity check the correctness of the
-        // recovery manager: make sure that if the server isn't in the
-        // server list anymore (presumably because a recovery completed on
-        // it since the time of the start of the call) that there really aren't
-        // any tablets left on it.
-        tablets = tableManager.markAllTabletsRecovering(crashedServerId);
-        if (!tablets.empty()) {
-            LOG(ERROR, "Tried to start recovery for crashed server %s which "
-                "has tablets in the tablet map but is no longer in the "
-                "coordinator server list. Cannot recover. Kiss your data "
-                "goodbye.", crashedServerId.toString().c_str());
-        }
+    if (!thread && !startRecoveriesEvenIfNoThread) {
+        // Recovery has not yet been officially enabled, so don't do
+        // anything (when the start method is invoked, it will
+        // automatically start recovery of all servers in the crashed state).
+        TEST_LOG("Recovery requested for %s",
+                crashedServerId.toString().c_str());
+        return;
     }
+    LOG(NOTICE, "Scheduling recovery of master %s",
+        crashedServerId.toString().c_str());
+    if (doNotStartRecoveries) {
+        TEST_LOG("Recovery crashedServerId: %s",
+                 crashedServerId.toString().c_str());
+        return;
+    }
+    (new EnqueueMasterRecoveryTask(*this, crashedServerId,
+                    crashedServer.masterRecoveryInfo))->schedule();
 }
 
 namespace MasterRecoveryManagerInternal {
@@ -567,6 +560,14 @@ MasterRecoveryManager::recoveryFinished(Recovery* recovery)
             "Recovery of server %s failed to recover some "
             "tablets, rescheduling another recovery",
             recovery->crashedServerId.toString().c_str());
+
+        // Delay a while before rescheduling; otherwise the coordinator
+        // will flood its log with recovery messages in situations
+        // were there aren't enough resources to recover.
+        if (!skipRescheduleDelay) {
+            usleep(2000000);
+        }
+
         // Enqueue will schedule a MaybeStartRecoveryTask.
         (new EnqueueMasterRecoveryTask(*this,
                                        recovery->crashedServerId,
@@ -604,7 +605,7 @@ MasterRecoveryManager::recoveryFinished(Recovery* recovery)
  *      recovery master now owns the recovered tablets and can safely
  *      begin servicing requests for the data. If \a successful is false
  *      then this always returns true (the recovery master should abort if
- *      the recovery wasn't succesful).
+ *      the recovery wasn't successful).
  */
 bool
 MasterRecoveryManager::recoveryMasterFinished(

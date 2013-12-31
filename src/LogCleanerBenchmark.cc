@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2012 Stanford University
+/* Copyright (c) 2011-2013 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -26,6 +26,7 @@
 #include "Common.h"
 
 #include "Context.h"
+#include "ClusterMetrics.h"
 #include "Histogram.h"
 #include "LogMetricsStringer.h"
 #include "MasterService.h"
@@ -60,6 +61,7 @@ class Options {
           objectsPerRpc(0),
           writeCostConvergence(0),
           abortTimeout(0),
+          minimumBenchmarkSeconds(0),
           distributionName(),
           tableName(),
           outputFilesPrefix(),
@@ -76,6 +78,7 @@ class Options {
     int objectsPerRpc;
     int writeCostConvergence;
     unsigned abortTimeout;
+    unsigned minimumBenchmarkSeconds;
     string distributionName;
     string tableName;
     string outputFilesPrefix;
@@ -154,6 +157,68 @@ class Distribution {
         assert(max >= min);
         return min + (generateRandom() % (max - min + 1));
     }
+
+    /**
+     * Return a uniform random number between 0 and 1 inclusive.
+     */
+    double
+    randomFloat()
+    {
+        return static_cast<double>(generateRandom()) /
+            static_cast<double>(std::numeric_limits<uint64_t>::max());
+    }
+
+    /**
+     * Our distributions often have similar locality for keys that are close
+     * together. For example, HotAndCold separates the key space into two
+     * adjacent ranges, and Zipfian chops it up into a thousand pieces of
+     * exponentially-increasing size. This means that simply iterating each
+     * key during the prefill stage would segregate objects into different
+     * locality classes from the get go since they'd be written sequentially
+     * to the log in that order.
+     *
+     * This class provides a way of iterating a sequence of numbers in [0, N]
+     * out of order, so we mix up the objects during the prefill stage. The
+     * technique is really simple: treat the 0...N space as a 2D array with
+     * N / 1000 columns, then enumerate by walking each column, rather than
+     * each row.
+     */
+    class OutOfOrderSequence {
+        public:
+            explicit OutOfOrderSequence(uint64_t N)
+                : N(N)
+                , columns(N / 1000 + 1)
+                , i(0)
+                , j(0)
+                , count(0)
+            {
+            }
+
+            uint64_t
+            next()
+            {
+                if (count > N)
+                    return -1;
+
+                while (true) {
+                    uint64_t n = j++ * columns + i;
+                    if (n > N) {
+                        j = 0;
+                        i++;
+                    } else {
+                        count++;
+                        return n;
+                    }
+                }
+            }
+
+        private:
+            const uint64_t N;
+            const uint64_t columns;
+            uint64_t i;
+            uint64_t j;
+            uint64_t count;
+    };
 };
 
 
@@ -271,7 +336,8 @@ class HotAndColdDistribution : public Distribution {
           objectLength(objectLength),
           maxObjectId(objectsNeeded(logSize, utilization, 8, objectLength)),
           objectCount(0),
-          key(0)
+          key(0),
+          prefiller(maxObjectId)
     {
     }
 
@@ -295,7 +361,7 @@ class HotAndColdDistribution : public Distribution {
                 key = randomInteger(maxHotObjectId, maxObjectId);
             }
         } else {
-            key++;
+            key = prefiller.next();
         }
 
         objectCount++;
@@ -344,8 +410,266 @@ class HotAndColdDistribution : public Distribution {
     uint64_t maxObjectId;
     uint64_t objectCount;
     uint64_t key;
+    OutOfOrderSequence prefiller;
 
     DISALLOW_COPY_AND_ASSIGN(HotAndColdDistribution);
+};
+
+/**
+ * The Zipfian distribution generates an access pattern of high locality where
+ * X% of accesses go to Y% of the data. Berk found that approximately 90% of
+ * accesses go to 15% of data in Facebook's workloads, but this class may take
+ * whatever numbers are desirable.
+ */
+class ZipfianDistribution : public Distribution {
+  private:
+    double
+    generalizedHarmonic(uint64_t N, double s)
+    {
+        static uint64_t lastN = -1;
+        static double lastS = 0;
+        static double cachedResult = 0;
+
+        if (N != lastN || s != lastS) {
+            lastN = N;
+            lastS = s;
+            cachedResult = 0;
+            for (uint64_t n = 1; n <= N; n++)
+                cachedResult += 1.0 / pow(static_cast<double>(n), s);
+        }
+
+        return cachedResult;
+    }
+
+    /*
+     * Zipfian frequency formula from wikipedia.
+     */
+    double
+    f(uint64_t k, double s, uint64_t N)
+    {
+        return 1.0 / pow(static_cast<double>(k), s) / generalizedHarmonic(N, s);
+    }
+
+    double
+    getHotDataPct(uint64_t N, double s, int hotAccessPct)
+    {
+        double sum = 0;
+        for (uint64_t i = 1; i <= N; i++) {
+            double p = f(i, s, N);
+            sum += 100.0 * p;
+            if (sum >= hotAccessPct)
+                return 100.0 * static_cast<double>(i) / static_cast<double>(N);
+        }
+        return 100;
+    }
+
+    /**
+     * Try to compute the proper skew value to get a Zipfian distribution
+     * over N keys where hotAccessPct of the requests go to hotDataPct of
+     * the data.
+     *
+     * This method simply does a binary search across a range of skew
+     * values until it finds something close. For large values of N this
+     * can take a while (a few minutes when N = 100e6). If there's a fast
+     * approximation of the generalizedHarmonic method above (which supposedly
+     * converges to the Riemann Zeta Function for large N), this could be
+     * significantly improved.
+     *
+     * But, it's good enough for current purposes.
+     */
+    double
+    calculateSkew(uint64_t N, int hotAccessPct, int hotDataPct)
+    {
+        double minS = 0.01;
+        double maxS = 10;
+
+        for (int i = 0; i < 100; i++) {
+            double s = (minS + maxS) / 2;
+            double r = getHotDataPct(N, s, hotAccessPct);
+            if (fabs(r - hotDataPct) < 0.5)
+                return s;
+            if (r > hotDataPct)
+                minS = s;
+            else
+                maxS = s;
+        }
+
+        // Bummer. We didn't find a good value. Just bail.
+        fprintf(stderr, "%s: Failed to calculate reasonable skew for "
+            "N = %lu, %d%% -> %d%%\n", __func__, N, hotAccessPct, hotDataPct);
+        exit(1);
+    }
+
+    /**
+     * Each of these entries represents a contiguous portion of the CDF curve
+     * of keys vs. frequency. We use these to sample keys out to fit an
+     * approximation of the Zipfian distribution. See generateTable for more
+     * details on what's going on here.
+     */
+    struct Group {
+        Group(uint64_t firstKey, uint64_t lastKey, double firstCdf)
+            : firstKey(firstKey)
+            , lastKey(lastKey)
+            , firstCdf(firstCdf)
+        {
+        }
+        uint64_t firstKey;
+        uint64_t lastKey;
+        double firstCdf;
+    };
+
+    std::vector<Group> groupsTable;
+
+    /**
+     * It'd require too much space and be too slow to generate a full histogram
+     * representing the frequency of each individual key when there are a large
+     * number of them. Instead, we divide the keys into a number of groups and
+     * choose a group based on the cumulative frequency of keys it contains. We
+     * then uniform-randomly select a key within the chosen group (see the
+     * chooseNextKey method).
+     *
+     * The number of groups is fixed (1000) and each contains 0.1% of the key
+     * frequency space. This means that groups tend to increase exponentially in
+     * the size of the range of keys they contain (unless the Zipfian distribution
+     * was skewed all the way to uniform). The result is that we are very accurate
+     * for the most popular keys (the most popular keys are singleton groups) and
+     * only lose accuracy for ones further out in the curve where it's much flatter
+     * anyway.
+     */
+    void
+    generateTable(const uint64_t N, const double s)
+    {
+        const double groupFrequencySpan = 0.001;
+
+        double cdf = 0;
+        double startCdf = 0;
+        uint64_t startI = 1;
+        for (uint64_t i = startI; i <= N; i++) {
+            double p = f(i, s, N);
+            cdf += p;
+            if ((cdf - startCdf) >= groupFrequencySpan || i == N) {
+                groupsTable.push_back({startI, i, startCdf});
+                startCdf = cdf;
+                startI = i + 1;
+            }
+        }
+    }
+
+    /**
+     * Obtain the next key fitting the Zipfian distribution described by the
+     * 'groupsTable' table.
+     *
+     * This method binary searches (logn complexity), but the groups table
+     * is small enough to fit in L2 cache, so it's quite fast (~6M keys
+     * per second -- more than sufficient for now).
+     */
+    uint64_t
+    chooseNextKey()
+    {
+        double p = randomFloat();
+        size_t min =  0;
+        size_t max = groupsTable.size() - 1;
+        while (true) {
+            size_t i = (min + max) / 2;
+            double start = groupsTable[i].firstCdf;
+            double end = 1.1;
+            if (i != groupsTable.size() - 1)
+                end = groupsTable[i + 1].firstCdf;
+            if (p < start) {
+                max = i - 1;
+            } else if (p >= end) {
+                min = i + 1;
+            } else {
+                return randomInteger(groupsTable[i].firstKey,
+                                     groupsTable[i].lastKey);
+            }
+        }
+    }
+
+  public:
+    ZipfianDistribution(uint64_t logSize,
+                        int utilization,
+                        uint32_t objectLength,
+                        int hotDataAccessPercentage,
+                        int hotDataSpacePercentage)
+        : groupsTable(),
+          objectLength(objectLength),
+          maxObjectId(objectsNeeded(logSize, utilization, 8, objectLength)),
+          objectCount(0),
+          key(0),
+          prefiller(maxObjectId)
+    {
+        fprintf(stderr, "%s: Calculating skew value (may take a while)...\n",
+            __func__);
+        double s = calculateSkew(maxObjectId,
+                                 hotDataAccessPercentage,
+                                 hotDataSpacePercentage);
+        fprintf(stderr, "%s: done.\n", __func__);
+        generateTable(maxObjectId, s);
+    }
+
+    bool
+    isPrefillDone()
+    {
+        return (objectCount >= maxObjectId);
+    }
+
+    void
+    advance()
+    {
+        if (isPrefillDone()) {
+            key = chooseNextKey();
+        } else {
+            key = prefiller.next();
+        }
+
+        objectCount++;
+    }
+
+    void
+    getKey(void* outKey)
+    {
+        *reinterpret_cast<uint64_t*>(outKey) = key;
+    }
+
+    uint16_t
+    getKeyLength()
+    {
+        return sizeof(key);
+    }
+
+    uint16_t
+    getMaximumKeyLength()
+    {
+        return sizeof(key);
+    }
+
+    void
+    getObject(void* outObject)
+    {
+        // Do nothing. Content doesn't matter.
+    }
+
+    uint32_t
+    getObjectLength()
+    {
+        return objectLength;
+    }
+
+    uint32_t
+    getMaximumObjectLength()
+    {
+        return objectLength;
+    }
+
+  PRIVATE:
+    uint32_t objectLength;
+    uint64_t maxObjectId;
+    uint64_t objectCount;
+    uint64_t key;
+    OutOfOrderSequence prefiller;
+
+    DISALLOW_COPY_AND_ASSIGN(ZipfianDistribution);
 };
 
 class Benchmark;
@@ -458,7 +782,9 @@ class Benchmark {
           lastWriteCostDiskCleanerTicks(0),
           lastWriteCostStart(0),
           prefillLogMetrics(),
-          finalLogMetrics()
+          finalLogMetrics(),
+          prefillClusterMetrics(),
+          benchmarkClusterMetrics()
     {
     }
 
@@ -475,6 +801,8 @@ class Benchmark {
         if (start != 0)
             return;
 
+        ClusterMetrics metricsBefore(&ramcloud);
+
         // Pre-fill up to the desired utilization before measuring.
         fprintf(stderr, "Prefilling...\n");
         prefillStart = Cycles::rdtsc();
@@ -485,6 +813,7 @@ class Benchmark {
         fprintf(stderr, "\n");
 
         ramcloud.getLogMetrics(serverLocator.c_str(), prefillLogMetrics);
+        ClusterMetrics metricsAfterPrefill(&ramcloud);
 
         // Now issue writes until we're done.
         fprintf(stderr, "Prefill complete. Running benchmark...\n");
@@ -496,18 +825,12 @@ class Benchmark {
         fprintf(stderr, "\n");
 
         ramcloud.getLogMetrics(serverLocator.c_str(), finalLogMetrics);
-    }
+        ClusterMetrics metricsAfterBenchmark(&ramcloud);
 
-    void
-    getPrefillLogMetrics(ProtoBuf::LogMetrics& out)
-    {
-        out = prefillLogMetrics;
-    }
-
-    void
-    getFinalLogMetrics(ProtoBuf::LogMetrics& out)
-    {
-        out = finalLogMetrics;
+        prefillClusterMetrics =
+            metricsAfterPrefill.difference(metricsBefore);
+        benchmarkClusterMetrics =
+            metricsAfterBenchmark.difference(metricsAfterPrefill);
     }
 
   PRIVATE:
@@ -809,6 +1132,12 @@ class Benchmark {
         if (Cycles::toSeconds(Cycles::rdtsc() - lastWriteCostCheck) < 3)
             return false;
 
+        // Never allow an experiment to run too quickly so we have time for
+        // sampled values to average out.
+        double benchTime = Cycles::toSeconds(Cycles::rdtsc() - start);
+        if (benchTime < options.minimumBenchmarkSeconds)
+            return false;
+
         lastWriteCostCheck = Cycles::rdtsc();
 
         ProtoBuf::LogMetrics logMetrics;
@@ -938,6 +1267,8 @@ class Benchmark {
     /// Cycle counter when lastWriteCost was updated.
     uint64_t lastWriteCostStart;
 
+  public:
+
     /// Log metrics from the benchmarked server immediately after pre-filling
     /// before the benchmark proper begins.
     ProtoBuf::LogMetrics prefillLogMetrics;
@@ -945,6 +1276,16 @@ class Benchmark {
     /// Log metrics from the benchmarked server immediately after the benchmark
     /// has completed.
     ProtoBuf::LogMetrics finalLogMetrics;
+
+    /// ClusterMetrics sampled after the prefill stage has completed.
+    /// This contains generic metrics data on all servers in the system.
+    ClusterMetrics prefillClusterMetrics;
+
+    /// ClusterMetrics sampled after the benchmark itself has completed.
+    /// This contains generic metrics data on all servers in the system.
+    ClusterMetrics benchmarkClusterMetrics;
+
+  PRIVATE:
 
     /// Let the output class poke around inside to extract what it needs.
     friend class Output;
@@ -1016,6 +1357,9 @@ Output::dumpParameters(FILE* fp,
 
     fprintf(fp, "  Abort Timeout:                 %u sec\n",
         options.abortTimeout);
+
+    fprintf(fp, "  Minimum Benchmark Time:        %u sec\n",
+        options.minimumBenchmarkSeconds);
 
     double elapsed = Cycles::toSeconds(benchmark.stop - benchmark.start);
     string s = LogMetricsStringer(&logMetrics,
@@ -1286,6 +1630,21 @@ sigIntHandler(int sig)
     interrupted = true;
 }
 
+void
+dumpClusterMetrics(ClusterMetrics* metrics, FILE* fp)
+{
+    for (ClusterMetrics::iterator serverIt = metrics->begin();
+            serverIt != metrics->end(); serverIt++) {
+        fprintf(fp, "Metrics: begin server %s\n", serverIt->first.c_str());
+        ServerMetrics &server = serverIt->second;
+        for (ServerMetrics::iterator metricIt = server.begin();
+            metricIt != server.end(); metricIt++) {
+            fprintf(fp, "Metrics: %s %lu\n", metricIt->first.c_str(),
+                metricIt->second);
+        }
+    }
+}
+
 int
 main(int argc, char *argv[])
 try
@@ -1293,6 +1652,7 @@ try
     Context context(true);
 
     Options options(argc, argv);
+    bool verifyObjects = false;
 
     OptionsDescription benchOptions("Bench");
     benchOptions.add_options()
@@ -1316,8 +1676,17 @@ try
         ("distribution,d",
          ProgramOptions::value<string>(&options.distributionName)->
            default_value("uniform"),
-         "Object distribution; choose one of \"uniform\" or "
-         "\"hotAndCold\"")
+         "Object distribution; choose one of \"uniform\", "
+         "\"hotAndCold\", or \"zipfian\"")
+        ("minimumBenchmarkSeconds,m",
+         ProgramOptions::value<unsigned>(&options.minimumBenchmarkSeconds)->
+            default_value(600),
+         "Even if the write cost has converged, don't terminate the benchmark "
+         "before it has run for this many seconds. Basically a kludge to avoid "
+         "rare cases in which the benchmark terminates early and the average "
+         "throughput is skewed too high. A real fix would be to reset counters "
+         "once we've converged, and then measure for another X seconds to take "
+         "whatever ``steady-state'' measurements we want.")
         ("outputFilesPrefix,O",
          ProgramOptions::value<string>(&options.outputFilesPrefix)->
            default_value(""),
@@ -1353,7 +1722,12 @@ try
          "This is useful when we want to measure performance/latency of "
          "object overwrite operations without the cleaner on. This lets us "
          "compare apples to apples (since there's a little overhead in writing "
-         "and object and a tombstone, rather than just an object alone).");
+         "and object and a tombstone, rather than just an object alone).")
+        ("verifyObjects",
+         ProgramOptions::bool_switch(&verifyObjects)->default_value(false),
+         "Verify that all objects stored are accessible after the experiment "
+         "completes. This is simple sanity check is disabled by default since "
+         "the naive implementation can take a while to complete.");
 
     OptionParser optionParser(benchOptions, argc, argv);
 
@@ -1371,9 +1745,10 @@ try
         exit(1);
     }
     if (options.distributionName != "uniform" &&
-      options.distributionName != "hotAndCold") {
-        fprintf(stderr, "ERROR: Distribution must be one of \"uniform\" or "
-            "\"hotAndCold\"\n");
+      options.distributionName != "hotAndCold" &&
+      options.distributionName != "zipfian") {
+        fprintf(stderr, "ERROR: Distribution must be one of \"uniform\", "
+            "\"hotAndCold\", or \"zipfian\"\n");
         exit(1);
     }
     if (options.objectSize < 1 || options.objectSize > MAX_OBJECT_SIZE) {
@@ -1396,30 +1771,39 @@ try
     FILE* rawBenchFile = NULL;
     FILE* diskHistCleanedFile = NULL;
     FILE* diskHistAllFile = NULL;
+    FILE* clusterMetricsPrefillFile = NULL;
+    FILE* clusterMetricsBenchFile = NULL;
 
     if (options.outputFilesPrefix != "") {
-        string metricsFilename = options.outputFilesPrefix + "-m.txt";
-        string latencyFilename = options.outputFilesPrefix + "-l.txt";
-        string rawPrefillFilename = options.outputFilesPrefix + "-rp.txt";
-        string rawBenchFilename = options.outputFilesPrefix + "-rb.txt";
-        string diskHistCleanedFilename = options.outputFilesPrefix + "-dhc.txt";
-        string diskHistAllFilename = options.outputFilesPrefix + "-dha.txt";
+        string& outPrefix = options.outputFilesPrefix;
+        string metricsFilename = outPrefix + "-m.txt";
+        string latencyFilename = outPrefix + "-l.txt";
+        string rawPrefillFilename = outPrefix + "-rp.txt";
+        string rawBenchFilename = outPrefix + "-rb.txt";
+        string diskHistCleanedFilename = outPrefix + "-dhc.txt";
+        string diskHistAllFilename = outPrefix + "-dha.txt";
+        string clusterMetricsPrefillFilename = outPrefix + "-cmp.txt";
+        string clusterMetricsBenchFilename = outPrefix + "-cmb.txt";
 
         if (fileExists(metricsFilename) ||
           fileExists(latencyFilename) ||
           fileExists(rawPrefillFilename) ||
           fileExists(rawBenchFilename) ||
           fileExists(diskHistCleanedFilename) ||
-          fileExists(diskHistAllFilename)) {
+          fileExists(diskHistAllFilename) ||
+          fileExists(clusterMetricsPrefillFilename) ||
+          fileExists(clusterMetricsBenchFilename)) {
             fprintf(stderr,
-                "One or more output files (%s, %s, %s, %s, %s, or %s) "
+                "One or more output files (%s, %s, %s, %s, %s, %s, %s or %s) "
                 "already exist!\n",
                 metricsFilename.c_str(),
                 latencyFilename.c_str(),
                 rawPrefillFilename.c_str(),
                 rawBenchFilename.c_str(),
                 diskHistCleanedFilename.c_str(),
-                diskHistAllFilename.c_str());
+                diskHistAllFilename.c_str(),
+                clusterMetricsPrefillFilename.c_str(),
+                clusterMetricsBenchFilename.c_str());
             exit(1);
         }
 
@@ -1429,15 +1813,24 @@ try
         rawBenchFile = fopen(rawBenchFilename.c_str(), "w");
         diskHistCleanedFile = fopen(diskHistCleanedFilename.c_str(), "w");
         diskHistAllFile = fopen(diskHistAllFilename.c_str(), "w");
+        clusterMetricsPrefillFile =
+            fopen(clusterMetricsPrefillFilename.c_str(), "w");
+        clusterMetricsBenchFile =
+            fopen(clusterMetricsBenchFilename.c_str(), "w");
     }
 
     // Set an alarm to abort this in case we can't connect.
     signal(SIGALRM, timedOut);
     alarm(options.abortTimeout);
 
-    string coordinatorLocator = optionParser.options.getCoordinatorLocator();
+    string coordinatorLocator =
+            optionParser.options.getExternalStorageLocator();
+    if (coordinatorLocator.size() == 0) {
+        coordinatorLocator = optionParser.options.getCoordinatorLocator();
+    }
     fprintf(stderr, "Connecting to %s\n", coordinatorLocator.c_str());
-    RamCloud ramcloud(&context, coordinatorLocator.c_str());
+    RamCloud ramcloud(&context, coordinatorLocator.c_str(),
+            optionParser.options.getClusterName().c_str());
 
     // Get server parameters...
     // Perhaps this (and creating the distribution?) should be pushed into
@@ -1461,11 +1854,22 @@ try
         distribution = new UniformDistribution(logSize,
                                                options.utilization,
                                                options.objectSize);
-    } else {
+    } else if (options.distributionName == "hotAndCold") {
         distribution = new HotAndColdDistribution(logSize,
                                                   options.utilization,
                                                   options.objectSize,
                                                   90, 10);
+    } else if (options.distributionName == "zipfian") {
+        // Since Zipfian can take a little while to compute the right
+        // distribution, disable the alarm temporarily.
+        alarm(0);
+        distribution = new ZipfianDistribution(logSize,
+                                               options.utilization,
+                                               options.objectSize,
+                                               90, 15);
+        alarm(options.abortTimeout);
+    } else {
+        assert(0);
     }
 
     Benchmark benchmark(ramcloud,
@@ -1509,47 +1913,57 @@ try
 
     if (rawPrefillFile != NULL) {
         fprintf(rawPrefillFile, "%s", serverConfig.DebugString().c_str());
-        benchmark.getPrefillLogMetrics(logMetrics);
-        fprintf(rawPrefillFile, "%s", logMetrics.DebugString().c_str());
+        fprintf(rawPrefillFile, "%s",
+            benchmark.prefillLogMetrics.DebugString().c_str());
     }
 
     if (rawBenchFile != NULL) {
         fprintf(rawBenchFile, "%s", serverConfig.DebugString().c_str());
-        benchmark.getFinalLogMetrics(logMetrics);
-        fprintf(rawBenchFile, "%s", logMetrics.DebugString().c_str());
+        fprintf(rawBenchFile, "%s",
+            benchmark.finalLogMetrics.DebugString().c_str());
     }
 
     if (diskHistCleanedFile != NULL) {
-        benchmark.getFinalLogMetrics(logMetrics);
         const ProtoBuf::LogMetrics_CleanerMetrics_OnDiskMetrics& onDiskMetrics =
-            logMetrics.cleaner_metrics().on_disk_metrics();
+            benchmark.finalLogMetrics.cleaner_metrics().on_disk_metrics();
         Histogram h(onDiskMetrics.cleaned_segment_disk_histogram());
         fprintf(diskHistCleanedFile, "%s", h.toString().c_str());
     }
 
     if (diskHistAllFile != NULL) {
-        benchmark.getFinalLogMetrics(logMetrics);
         const ProtoBuf::LogMetrics_CleanerMetrics_OnDiskMetrics& onDiskMetrics =
-            logMetrics.cleaner_metrics().on_disk_metrics();
+            benchmark.finalLogMetrics.cleaner_metrics().on_disk_metrics();
         Histogram h(onDiskMetrics.all_segments_disk_histogram());
         fprintf(diskHistAllFile, "%s", h.toString().c_str());
     }
 
-    // TODO(rumble): add something that reads all objects and verifies that we
-    // we stored what we expected
-    uint64_t key = 0;
-    uint64_t totalBytes = 0;
-    while (1) {
-        Buffer buffer;
-        try {
-            ramcloud.read(tableId, &key, sizeof(key), &buffer);
-        } catch (...) {
-            break;
-        }
-        totalBytes += buffer.getTotalLength();
-        key++;
+    if (clusterMetricsPrefillFile != NULL) {
+        dumpClusterMetrics(&benchmark.prefillClusterMetrics,
+                           clusterMetricsPrefillFile);
     }
-    fprintf(stderr, "%lu keys with %lu object bytes\n", key, totalBytes);
+
+    if (clusterMetricsBenchFile != NULL) {
+        dumpClusterMetrics(&benchmark.benchmarkClusterMetrics,
+                           clusterMetricsBenchFile);
+    }
+
+    if (verifyObjects) {
+        // TODO(rumble): add something that reads all objects and verifies that
+        // we we stored what we expected (i.e. the contents)
+        uint64_t key = 0;
+        uint64_t totalBytes = 0;
+        while (1) {
+            Buffer buffer;
+            try {
+                ramcloud.read(tableId, &key, sizeof(key), &buffer);
+            } catch (...) {
+                break;
+            }
+            totalBytes += buffer.getTotalLength();
+            key++;
+        }
+        fprintf(stderr, "%lu keys with %lu object bytes\n", key, totalBytes);
+    }
 
     return 0;
 } catch (ClientException& e) {

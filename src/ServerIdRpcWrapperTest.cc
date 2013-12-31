@@ -1,4 +1,4 @@
-/* Copyright (c) 2012 Stanford University
+/* Copyright (c) 2012-2013 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -15,7 +15,9 @@
 
 #include "TestUtil.h"
 #include "CoordinatorServerList.h"
+#include "CoordinatorService.h"
 #include "CoordinatorSession.h"
+#include "MockExternalStorage.h"
 #include "MockTransport.h"
 #include "ServerIdRpcWrapper.h"
 #include "TransportManager.h"
@@ -29,6 +31,7 @@ class ServerIdRpcWrapperTest : public ::testing::Test {
     MockTransport transport;
     ServerId id;
     ServerId coordId;
+    TestLog::Enable logSilencer;
 
     ServerIdRpcWrapperTest()
         : context()
@@ -36,6 +39,7 @@ class ServerIdRpcWrapperTest : public ::testing::Test {
         , transport(&context)
         , id(1, 0)
         , coordId()
+        , logSilencer()
     {
         context.transportManager->registerMock(&transport);
         serverList.testingAdd({{1, 0}, "mock:", {}, 100,
@@ -50,7 +54,6 @@ class ServerIdRpcWrapperTest : public ::testing::Test {
 };
 
 TEST_F(ServerIdRpcWrapperTest, checkStatus_serverUp) {
-    TestLog::Enable _;
     ServerIdRpcWrapper wrapper(&context, id,
                 sizeof(WireFormat::BackupFree::Response));
     wrapper.allocHeader<WireFormat::BackupFree>(id);
@@ -67,7 +70,6 @@ TEST_F(ServerIdRpcWrapperTest, checkStatus_serverUp) {
 }
 
 TEST_F(ServerIdRpcWrapperTest, checkStatus_serverCrashed) {
-    TestLog::Enable _;
     ServerIdRpcWrapper wrapper(&context, id,
                 sizeof(WireFormat::BackupFree::Response));
     wrapper.allocHeader<WireFormat::BackupFree>(id);
@@ -99,7 +101,6 @@ TEST_F(ServerIdRpcWrapperTest, checkStatus_unknownError) {
 }
 
 TEST_F(ServerIdRpcWrapperTest, handleTransportError_serverAlreadyDown) {
-    TestLog::Enable _;
     ServerIdRpcWrapper wrapper(&context, id, 4);
     wrapper.request.fillFromString("100");
     wrapper.send();
@@ -111,7 +112,6 @@ TEST_F(ServerIdRpcWrapperTest, handleTransportError_serverAlreadyDown) {
 }
 
 TEST_F(ServerIdRpcWrapperTest, handleTransportError_serverUp) {
-    TestLog::Enable _;
     ServerIdRpcWrapper wrapper(&context, id, 4);
     wrapper.request.fillFromString("100");
     wrapper.send();
@@ -121,10 +121,10 @@ TEST_F(ServerIdRpcWrapperTest, handleTransportError_serverUp) {
     EXPECT_EQ("flushSession: flushed session for id 1.0",
             TestLog::get());
     EXPECT_FALSE(wrapper.serverCrashed);
+    EXPECT_EQ(1, wrapper.transportErrors);
 }
 
 TEST_F(ServerIdRpcWrapperTest, handleTransportError_serverCrashed) {
-    TestLog::Enable _;
     ServerIdRpcWrapper wrapper(&context, id, 4);
     wrapper.request.fillFromString("100");
     wrapper.send();
@@ -138,13 +138,51 @@ TEST_F(ServerIdRpcWrapperTest, handleTransportError_serverCrashed) {
 }
 
 TEST_F(ServerIdRpcWrapperTest, handleTransportError_nonexistentServer) {
-    TestLog::Enable _;
     ServerIdRpcWrapper wrapper(&context, ServerId(10, 20), 4);
     wrapper.request.fillFromString("100");
     EXPECT_TRUE(wrapper.handleTransportError());
     EXPECT_STREQ("NOT_STARTED", wrapper.stateString());
     EXPECT_EQ("", TestLog::get());
     EXPECT_TRUE(wrapper.serverCrashed);
+}
+
+TEST_F(ServerIdRpcWrapperTest, handleTransportError_callServerCrashed) {
+    // Set up a CoordinatorServerList, which requires a CoordinatorService.
+    CoordinatorServerList serverList(&context);
+    context.serverList = &serverList;
+    MockExternalStorage storage(false);
+    context.externalStorage = &storage;
+    CoordinatorService coordinator(&context, 1000, false);
+
+    id = serverList.enlistServer({WireFormat::MASTER_SERVICE}, 100, "mock:");
+    ServerIdRpcWrapper wrapper(&context, id, 4);
+    wrapper.request.fillFromString("100");
+    wrapper.send();
+    wrapper.state = RpcWrapper::RpcState::FAILED;
+    wrapper.transportErrors = 2;
+    TestLog::reset();
+    TestLog::Enable _("startMasterRecovery");
+    EXPECT_TRUE(wrapper.isReady());
+    EXPECT_STREQ("FAILED", wrapper.stateString());
+    EXPECT_TRUE(wrapper.serverCrashed);
+    EXPECT_EQ("startMasterRecovery: Recovery requested for 1.0",
+            TestLog::get());
+}
+
+TEST_F(ServerIdRpcWrapperTest, handleTransportError_slowRetry) {
+    Cycles::mockTscValue = 1000;
+    ServerIdRpcWrapper wrapper(&context, id, 4);
+    wrapper.request.fillFromString("100");
+    wrapper.send();
+    wrapper.state = RpcWrapper::RpcState::FAILED;
+    wrapper.transportErrors = 2;
+    EXPECT_FALSE(wrapper.isReady());
+    Cycles::mockTscValue = 0;
+    EXPECT_STREQ("RETRY", wrapper.stateString());
+    double delay = Cycles::toSeconds(wrapper.retryTime - 1000);
+    EXPECT_LE(0.499, delay);
+    EXPECT_GE(1.501, delay);
+    EXPECT_EQ(3, wrapper.transportErrors);
 }
 
 TEST_F(ServerIdRpcWrapperTest, send) {
@@ -157,7 +195,6 @@ TEST_F(ServerIdRpcWrapperTest, send) {
 }
 
 TEST_F(ServerIdRpcWrapperTest, waitAndCheckErrors_success) {
-    TestLog::Enable _;
     ServerIdRpcWrapper wrapper(&context, ServerId(4, 0), 4);
     wrapper.request.fillFromString("100");
     wrapper.send();
@@ -168,7 +205,6 @@ TEST_F(ServerIdRpcWrapperTest, waitAndCheckErrors_success) {
 }
 
 TEST_F(ServerIdRpcWrapperTest, waitAndCheckErrors_serverDoesntExist) {
-    TestLog::Enable _;
     ServerIdRpcWrapper wrapper(&context, ServerId(4, 0), 4);
     wrapper.request.fillFromString("100");
     wrapper.send();
@@ -183,7 +219,6 @@ TEST_F(ServerIdRpcWrapperTest, waitAndCheckErrors_serverDoesntExist) {
 }
 
 TEST_F(ServerIdRpcWrapperTest, waitAndCheckErrors_errorStatus) {
-    TestLog::Enable _;
     ServerIdRpcWrapper wrapper(&context, ServerId(4, 0), 4);
     wrapper.request.fillFromString("100");
     wrapper.send();

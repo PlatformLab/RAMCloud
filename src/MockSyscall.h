@@ -37,7 +37,7 @@ class MockSyscall : public Syscall {
                     epollWaitCount(-1), epollWaitEvents(NULL),
                     epollWaitErrno(0), exitCount(0),
                     fcntlErrno(0), futexWaitErrno(0), futexWakeErrno(0),
-                    listenErrno(0),
+                    fwriteResult(~0LU), listenErrno(0),
                     pipeErrno(0), recvErrno(0), recvEof(false),
                     recvfromErrno(0), recvfromEof(false),
                     sendmsgErrno(0), sendmsgReturnCount(-1),
@@ -154,6 +154,16 @@ class MockSyscall : public Syscall {
         errno = futexWakeErrno;
         futexWakeErrno = 0;
         return -1;
+    }
+
+    size_t fwriteResult;
+    size_t fwrite(const void *src, size_t size, size_t count, FILE* f) {
+        if (fwriteResult == ~0LU) {
+            return ::fwrite(src, size, count, f);
+        }
+        size_t result = fwriteResult;
+        fwriteResult = ~0LU;
+        return result;
     }
 
     int listenErrno;

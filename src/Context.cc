@@ -1,5 +1,5 @@
 /* Copyright (c) 2011 Facebook
- * Copyright (c) 2011-2012 Stanford University
+ * Copyright (c) 2011-2013 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -70,6 +70,7 @@ Context::Context(bool hasDedicatedDispatchThread)
     , sessionAlarmTimer(NULL)
     , portAlarmTimer(NULL)
     , coordinatorSession(NULL)
+    , externalStorage(NULL)
     , masterService(NULL)
     , backupService(NULL)
     , coordinatorService(NULL)
@@ -77,9 +78,6 @@ Context::Context(bool hasDedicatedDispatchThread)
     , coordinatorServerList(NULL)
     , tableManager(NULL)
     , recoveryManager(NULL)
-    , logCabinLog(NULL)
-    , logCabinHelper(NULL)
-    , expectedEntryId(NULL)
 {
     try {
 #if TESTING

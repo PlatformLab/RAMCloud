@@ -137,6 +137,18 @@ class MasterRecoveryManager : public Recovery::Owner
      */
     bool doNotStartRecoveries;
 
+    /**
+     * Used during unit testing: disables the initial check in
+     * startMasterRecovery.
+     */
+    bool startRecoveriesEvenIfNoThread;
+
+    /**
+     * Used during unit testing: disables the delay when rescheduling
+     * a failed recovery.
+     */
+    bool skipRescheduleDelay;
+
     friend class MasterRecoveryManagerInternal::ApplyTrackerChangesTask;
     friend class MasterRecoveryManagerInternal::MaybeStartRecoveryTask;
     friend class MasterRecoveryManagerInternal::EnqueueMasterRecoveryTask;

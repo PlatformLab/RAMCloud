@@ -81,7 +81,7 @@ class UdpDriver : public Driver {
     class ReadHandler : public Dispatch::File {
       public:
         ReadHandler(int fd, UdpDriver* driver)
-            : Dispatch::File(*driver->context->dispatch,
+            : Dispatch::File(driver->context->dispatch,
                              fd, Dispatch::FileEvent::READABLE)
             , driver(driver)
         { }

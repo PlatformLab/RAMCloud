@@ -81,7 +81,6 @@ opcodeSymbol(uint32_t opcode)
         case SET_MASTER_RECOVERY_INFO:   return "SET_MASTER_RECOVERY_INFO";
         case DROP_TABLET_OWNERSHIP:      return "DROP_TABLET_OWNERSHIP";
         case TAKE_TABLET_OWNERSHIP:      return "TAKE_TABLET_OWNERSHIP";
-        case BACKUP_ASSIGN_GROUP:        return "BACKUP_ASSIGN_GROUP";
         case INCREMENT:                  return "INCREMENT";
         case GET_HEAD_OF_LOG:            return "GET_HEAD_OF_LOG";
         case PREP_FOR_MIGRATION:         return "PREP_FOR_MIGRATION";
@@ -97,6 +96,7 @@ opcodeSymbol(uint32_t opcode)
         case VERIFY_MEMBERSHIP:          return "VERIFY_MEMBERSHIP";
         case GET_RUNTIME_OPTION:         return "GET_RUNTIME_OPTION";
         case SERVER_CONTROL:             return "SERVER_CONTROL";
+        case GET_SERVER_ID:              return "GET_SERVER_ID";
         case READ_KEYS_AND_VALUE:        return "READ_KEYS_AND_VALUE";
         case ILLEGAL_RPC_TYPE:           return "ILLEGAL_RPC_TYPE";
     }

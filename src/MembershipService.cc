@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2012 Stanford University
+/* Copyright (c) 2011-2013 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -118,7 +118,7 @@ MembershipService::updateServerList(
         ProtoBuf::parseFromRequest(rpc->requestPayload, reqOffset,
                                    part->serverListLength, &list);
         reqOffset += part->serverListLength;
-        serverList->applyServerList(list);
+        respHdr->currentVersion = serverList->applyServerList(list);
     }
 }
 

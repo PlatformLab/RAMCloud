@@ -1,4 +1,4 @@
-# Copyright (c) 2009-2010 Stanford University
+# Copyright (c) 2009-2013 Stanford University
 #
 # Permission to use, copy, modify, and distribute this software for any
 # purpose with or without fee is hereby granted, provided that the above
@@ -119,7 +119,7 @@ def load_so():
     version             = ctypes.c_uint64
     serverId            = ctypes.c_uint64
 
-    so.rc_connect.argtypes = [address, POINTER(client)]
+    so.rc_connect.argtypes = [address, address, POINTER(client)]
     so.rc_connect.restype  = status
 
     so.rc_disconnect.argtypes = [client]
@@ -232,8 +232,10 @@ class RAMCloud(object):
             raise VersionError(reject_rules.given_version, actual_version)
         raise RCException(status)
 
-    def connect(self, serverLocator='fast+udp:host=127.0.0.1,port=12242'):
-        s = so.rc_connect(serverLocator, ctypes.byref(self.client))
+    def connect(self, serverLocator='fast+udp:host=127.0.0.1,port=12242',
+                clusterName='main'):
+        s = so.rc_connect(serverLocator, clusterName,
+                          ctypes.byref(self.client))
         self.handle_error(s)
 
     def create(self, table_id, id, data):

@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2012 Stanford University
+/* Copyright (c) 2011-2013 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -16,10 +16,12 @@
 #include "TransportManager.h"
 
 #include "AbstractServerList.h"
+#include "PingClient.h"
 #include "FailSession.h"
 #include "ServerTracker.h"
 
 namespace RAMCloud {
+bool AbstractServerList::skipServerIdCheck = false;
 
 /**
  * Constructor for AbstractServerList.
@@ -77,6 +79,30 @@ AbstractServerList::getLocator(ServerId id)
 }
 
 /**
+ * Returns the current status of a server in the cluster.
+ *
+ * \param id
+ *      Identifier for a particular server.
+ * \return
+ *      Returns ServerStatus::UP if the server given by id is currently
+ *      part of the cluster and believed to be operating normally.
+ *      ServerStatus::CRASHED is returned if the server is part of the
+ *      cluster but has crashed, and crash recovery has not completed yet.
+ *      ServerStatus::REMOVE is returned if there is no such server in
+ *      the cluster (or if there once was such a server, but it has crashed
+ *      and been fully recovered).
+ */
+ServerStatus
+AbstractServerList::getStatus(ServerId id) {
+    Lock _(mutex);
+    ServerDetails* details = iget(id);
+    if (details == NULL) {
+        return ServerStatus::REMOVE;
+    }
+    return details->status;
+}
+
+/**
  * Indicate whether a particular server is still believed to be
  * actively participating in the cluster.
  *
@@ -124,6 +150,19 @@ AbstractServerList::getSession(ServerId id)
     Transport::SessionRef session =
             context->transportManager->openSession(locator.c_str());
 
+    // Verify that the server at the given locator is actually the
+    // server we want (it's possible that a different incarnation of
+    // the server uses the same locator, but has a different server id).
+    // See RAM-571 for more on this.
+    if (!skipServerIdCheck) {
+        if (!PingClient::verifyServerId(context, session, id)) {
+            RAMCLOUD_LOG(NOTICE, "couldn't verify server id %s for "
+                    "locator %s; discarding session",
+                    id.toString().c_str(), locator.c_str());
+            return FailSession::get();
+        }
+    }
+
     // We've successfully opened a session. Add it back back into the server
     // list, assuming this ServerId is still valid and no one else has put a
     // session there first.
@@ -166,6 +205,73 @@ AbstractServerList::contains(ServerId id) {
     Lock _(mutex);
 
     return iget(id) != NULL;
+}
+
+/**
+ * This method is used for iterating through the servers in the
+ * cluster. Given the id for a particular server, it returns the
+ * id for the next server that supports a given set of services.
+ * 
+ * \param prev
+ *      Return value from a previous indication of this method;
+ *      the current invocation will return the next server after
+ *      this one. If this is an invalid ServerId (e.g. constructed
+ *      with the default constructor), then this call will return
+ *      the id of the first matching server.
+ * \param services
+ *      Restricts the set of servers that will be returned: for a
+ *      server to be returned, it must support all of these services.
+ * \param end
+ *      If this pointer is non-NULL, then the value it references will
+ *      be set to true if we reached the end of the server list (in
+ *      which case we wrapped back to the beginning again); otherwise
+ *      it will be set to false.
+ * \param includeCrashed
+ *      Normally, only servers that are up will be returned; if this
+ *      parameter is true then crashed servers will also be returned
+ *      (as long as they have not been fully recovered, at which point
+ *      they cease to exist).
+ * 
+ * \return
+ *      The return value is the ServerId for the next server after
+ *      prev in the server list that supports the given set of
+ *      services. If there are no servers with a given set of services,
+ *      then an invalid ServerId is returned.
+ */
+ServerId
+AbstractServerList::nextServer(ServerId prev, ServiceMask services,
+        bool* end, bool includeCrashed)
+{
+    Lock _(mutex);
+    uint32_t startIndex = prev.isValid() ? prev.indexNumber() : -1U;
+    uint32_t index = startIndex;
+    size_t size = isize();
+    if (end != NULL)
+        *end = false;
+
+    // Loop circularly through all of the servers currently known.
+    for (size_t count = size; count > 0; count--) {
+        ++index;
+        if (index >= size) {
+            if (end != NULL)
+                *end = true;
+            index = 0;
+            if (size == 0)
+                break;
+        }
+        ServerDetails* details = iget(index);
+        if ((details != NULL)
+                && ((details->status == ServerStatus::UP) || includeCrashed)
+                && details->services.hasAll(services)) {
+            return details->serverId;
+        }
+    }
+
+    // Either the server list is empty, or it contains no server with
+    // the desired services.
+    if (end != NULL)
+        *end = true;
+    return ServerId();
 }
 
 /**

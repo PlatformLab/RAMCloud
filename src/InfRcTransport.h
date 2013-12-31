@@ -370,7 +370,7 @@ class InfRcTransport : public Transport {
     class Poller : public Dispatch::Poller {
       public:
         explicit Poller(InfRcTransport* transport)
-            : Dispatch::Poller(*transport->context->dispatch,
+            : Dispatch::Poller(transport->context->dispatch,
                                "InfRcTransport::Poller")
             , transport(transport) {}
         virtual void poll();
@@ -389,7 +389,7 @@ class InfRcTransport : public Transport {
     class ServerConnectHandler : public Dispatch::File {
       public:
         ServerConnectHandler(int fd, InfRcTransport* transport)
-            : Dispatch::File(*transport->context->dispatch, fd,
+            : Dispatch::File(transport->context->dispatch, fd,
                              Dispatch::FileEvent::READABLE)
             , fd(fd)
             , transport(transport) { }

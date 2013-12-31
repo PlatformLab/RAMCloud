@@ -16,9 +16,12 @@
 #ifndef RAMCLOUD_TABLESTATS_H
 #define RAMCLOUD_TABLESTATS_H
 
+#include <unordered_map>
+
 #include "Common.h"
 #include "SpinLock.h"
 #include "Buffer.h"
+#include "Tablet.h"
 
 namespace RAMCloud {
 
@@ -140,6 +143,45 @@ struct Digest {
     ///last member struct.
     DigestEntry entries[0];
 } __attribute__((__packed__));
+
+/**
+ * Provides estimated tablet size and record count information.  Estimates are
+ * only used to inform the tablet partitioning algorithm on the coordinator
+ * during master crash recovery.
+ */
+class Estimator {
+  PUBLIC:
+    /**
+     * Represents the statistics information for a single tablet, a single
+     * table, or a collection of tables.  When representing a single table,
+     * the statistics represent the aggragate of all tablets of said table on
+     * the crashed master. When representing a collection of tables, the
+     * statistics represent the aggragate of all tablets of all collected tables
+     * on the crashed master.
+     */
+    struct Entry {
+        /// Sum of keyHash ranges for tablets associated with this entry. Uses
+        /// a floating point representation to avoid overflow.
+        double keyRange;
+        uint64_t byteCount;     //< Number of bytes of log data.
+        uint64_t recordCount;   //< Number of log records.
+    } __attribute__((__packed__));
+
+    /// Type defining map between tableId and Estimator::Entry
+    typedef std::unordered_map<uint64_t, Entry> StatsMap;
+
+    /// Contains Entry information for each table.
+    StatsMap tableStats;
+
+    /// Contains cumulative Entry information for tables below threshold.
+    Entry otherStats;
+
+    /// Flag indicating whether the estimator contains valid estimates
+    bool valid;
+
+    Estimator(const Digest* digest, vector<Tablet>* tablets);
+    Entry estimate(Tablet *tablet);
+};
 
 } // namespace TableStats
 

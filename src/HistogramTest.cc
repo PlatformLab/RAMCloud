@@ -122,8 +122,8 @@ TEST_F(HistogramTest, toString) {
     EXPECT_EQ("# Histogram: buckets = 100, bucket width = 1\n"
               "# 3 samples, 1 outliers, min = 23, max = 28343\n"
               "# median = 99, average = 9488\n"
-              "       23             1   33.333   33.333\n"
-              "       99             1   33.333   66.667\n",
+              "       23             1  33.333333333  33.333333333\n"
+              "       99             1  33.333333333  66.666666667\n",
         h.toString());
 
     Histogram h2(5, 1);
@@ -131,11 +131,11 @@ TEST_F(HistogramTest, toString) {
     EXPECT_EQ("# Histogram: buckets = 5, bucket width = 1\n"
               "# 1 samples, 0 outliers, min = 3, max = 3\n"
               "# median = 3, average = 3\n"
-              "        0             0    0.000    0.000\n"
-              "        1             0    0.000    0.000\n"
-              "        2             0    0.000    0.000\n"
-              "        3             1  100.000  100.000\n"
-              "        4             0    0.000  100.000\n",
+              "        0             0  0.000000000  0.000000000\n"
+              "        1             0  0.000000000  0.000000000\n"
+              "        2             0  0.000000000  0.000000000\n"
+              "        3             1  100.000000000  100.000000000\n"
+              "        4             0  0.000000000  100.000000000\n",
         h2.toString(0));
 }
 

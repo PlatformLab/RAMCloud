@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2012 Stanford University
+/* Copyright (c) 2011-2013 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -34,9 +34,30 @@ class PingClient {
             ServerId callerId = ServerId());
     static uint64_t proxyPing(Context* context, ServerId proxyId,
             ServerId targetId, uint64_t timeoutNanoseconds);
+    static bool verifyServerId(Context* context, Transport::SessionRef session,
+            ServerId expectedId);
 
   private:
     PingClient();
+};
+
+/**
+ * Encapsulates the state of a PingClient::getServerId request, allowing
+ * it to execute asynchronously. This RPC is unusual in that it's a subclass
+ * of RpcWrapper; this means that it doesn't retry if there are any problems
+ * (this is the correct behavior for its normal usage in verifyServerId).
+ */
+class GetServerIdRpc : public RpcWrapper {
+    public:
+    GetServerIdRpc(Context* context, Transport::SessionRef session);
+    ~GetServerIdRpc() {}
+    ServerId wait();
+
+    PRIVATE:
+    // Overall server information.
+    Context* context;
+
+    DISALLOW_COPY_AND_ASSIGN(GetServerIdRpc);
 };
 
 /**

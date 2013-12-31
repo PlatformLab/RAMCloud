@@ -45,10 +45,10 @@ class Seglet {
 
     Seglet(SegletAllocator& segletAllocator, void* buffer, uint32_t length);
     void free();
-    void* get();
-    uint32_t getLength();
+    void* get() const;
+    uint32_t getLength() const;
     void setSourcePool(const vector<Seglet*>* newSourcePool);
-    const vector<Seglet*>* getSourcePool();
+    const vector<Seglet*>* getSourcePool() const;
 
   PRIVATE:
     /// SegletAllocator to return this memory to when free() is called.

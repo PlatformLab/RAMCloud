@@ -1,4 +1,4 @@
-/* Copyright (c) 2012 Stanford University
+/* Copyright (c) 2012-2013 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -42,7 +42,6 @@ RpcWrapper::RpcWrapper(uint32_t responseHeaderLength, Buffer* response)
     , state(NOT_STARTED)
     , session(NULL)
     , retryTime(0)
-    , usBetweenRetry(100)
     , responseHeaderLength(responseHeaderLength)
     , responseHeader(NULL)
 {
@@ -169,27 +168,53 @@ RpcWrapper::isReady() {
         // We only get to here if something unusual happened. Work through
         // all of the special cases one at a time.
         if (responseHeader == NULL) {
-            // Not enough bytes in the response for a full; check to see
+            // Not enough bytes in the response for a full header; check to see
             // if there is at least a status value.
             responseHeader = static_cast<const WireFormat::ResponseCommon*>(
                     response->getRange(0, sizeof(WireFormat::ResponseCommon)));
             if ((responseHeader == NULL)
                     || (responseHeader->status == STATUS_OK)) {
-                LOG(WARNING, "Response from %s for %s RPC is too short "
+                LOG(ERROR, "Response from %s for %s RPC is too short "
                         "(needed at least %d bytes, got %d)",
                         session->getServiceLocator().c_str(),
                         WireFormat::opcodeSymbol(&request),
                         responseHeaderLength,
                         downCast<int>(response->getTotalLength()));
-                retry(1000000);
-                return false;
+                throw MessageTooShortError(HERE);
             }
         }
         if (responseHeader->status == STATUS_RETRY) {
-            LOG(DEBUG, "Server %s returned STATUS_RETRY from %s request",
-                    session->getServiceLocator().c_str(),
-                    WireFormat::opcodeSymbol(&request));
-            retry(usBetweenRetry);
+            // The server wants us to try again; typically this means that
+            // it is overloaded, or there is some reason why the operation
+            // can't complete right away and it's better for us to wait
+            // here, rather than occupy resources on the server by waiting
+            // there.
+            WireFormat::RetryResponse defaultResponse =
+                    {{STATUS_RETRY}, 100, 200, 0};
+            const WireFormat::RetryResponse* retryResponse =
+                    response->getStart<WireFormat::RetryResponse>();
+            if (retryResponse == NULL) {
+                retryResponse = &defaultResponse;
+            }
+            if (retryResponse->messageLength > 0) {
+                const char* message = static_cast<const char*>(
+                        response->getRange(sizeof32(WireFormat::RetryResponse),
+                        retryResponse->messageLength));
+                if (message == NULL) {
+                    message = "<response format error>";
+                }
+                LOG(WARNING,
+                        "Server %s returned STATUS_RETRY from %s request: %s",
+                        session->getServiceLocator().c_str(),
+                        WireFormat::opcodeSymbol(&request),
+                        message);
+            } else {
+                LOG(WARNING, "Server %s returned STATUS_RETRY from %s request",
+                        session->getServiceLocator().c_str(),
+                        WireFormat::opcodeSymbol(&request));
+            }
+            retry(retryResponse->minDelayMicros,
+                    retryResponse->maxDelayMicros);
             return false;
         }
 
@@ -220,9 +245,9 @@ RpcWrapper::isReady() {
         return handleTransportError();
     }
 
-    LOG(WARNING, "RpcWrapper::isReady found unknown state %d for "
+    LOG(ERROR, "RpcWrapper::isReady found unknown state %d for "
             "%s request", copyOfState, WireFormat::opcodeSymbol(&request));
-    retry(1000000);
+    throw InternalError(HERE, STATUS_INTERNAL_ERROR);
     return false;
 }
 
@@ -230,14 +255,20 @@ RpcWrapper::isReady() {
  * This method is invoked in situations where the RPC should be retried
  * after a time delay. This method sets up state for that delay; it doesn't
  * actually wait for the delay to complete.
- * \param microseconds
- *      How much time should elapse before the RPC is retried, in
- *      microseconds.
+ * \param minDelayMicros
+ *      Minimum time to wait, in microseconds.
+ * \param maxDelayMicros
+ *      Maximum time to wait, in microseconds. The actual delay time
+ *      will be chosen randomly between minDelayMicros and maxDelayMicros.
  */
 void
-RpcWrapper::retry(uint64_t microseconds)
+RpcWrapper::retry(uint32_t minDelayMicros, uint32_t maxDelayMicros)
 {
-    retryTime = Cycles::rdtsc() + Cycles::fromNanoseconds(1000*microseconds);
+    uint64_t delay = minDelayMicros;
+    if (minDelayMicros != maxDelayMicros) {
+        delay += randomNumberGenerator(maxDelayMicros + 1 - minDelayMicros);
+    }
+    retryTime = Cycles::rdtsc() + Cycles::fromNanoseconds(1000*delay);
     state = RETRY;
 }
 

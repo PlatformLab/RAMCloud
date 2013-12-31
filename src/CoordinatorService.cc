@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2012 Stanford University
+/* Copyright (c) 2009-2013 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -27,52 +27,51 @@
 #include "PingClient.h"
 
 namespace RAMCloud {
+bool CoordinatorService::forceSynchronousInit = false;
 
+/*
+ * Construct a CoordinatorService.
+ *
+ * \param context
+ *      Overall information about the RAMCloud server. A pointer to this
+ *      object will be stored at context->coordinatorService.
+ * \param deadServerTimeout
+ *      Servers are presumed dead if they cannot respond to a ping request
+ *      in this many milliseconds.
+ * \param startRecoveryManager
+ *      True means we should start the thread that manages crash recovery.
+ *      False is typically used only during testing.
+ */
 CoordinatorService::CoordinatorService(Context* context,
                                        uint32_t deadServerTimeout,
-                                       string LogCabinLocator,
-                                       bool startRecoveryManager)
+                                       bool startRecoveryManager,
+                                       uint32_t maxThreads)
     : context(context)
     , serverList(context->coordinatorServerList)
     , deadServerTimeout(deadServerTimeout)
-    , tableManager(context->tableManager)
+    , updateManager(context->externalStorage)
+    , tableManager(context, &updateManager)
     , runtimeOptions()
-    , recoveryManager(context, *tableManager, &runtimeOptions)
-    , coordinatorRecovery(*this)
-    , logCabinCluster()
-    , logCabinLog()
-    , logCabinHelper()
-    , expectedEntryId(LogCabin::Client::NO_ID)
+    , recoveryManager(context, tableManager, &runtimeOptions)
+    , threadLimit(maxThreads)
     , forceServerDownForTesting(false)
+    , initFinished(false)
 {
-    if (strcmp(LogCabinLocator.c_str(), "testing") == 0) {
-        LOG(NOTICE, "Connecting to mock LogCabin cluster for testing.");
-        logCabinCluster.construct(LogCabin::Client::Cluster::FOR_TESTING);
-    } else {
-        LOG(NOTICE, "Connecting to LogCabin cluster at %s",
-                    LogCabinLocator.c_str());
-        logCabinCluster.construct(LogCabinLocator);
-    }
-    logCabinLog.construct(logCabinCluster->openLog("coordinator"));
-    logCabinHelper.construct(*logCabinLog);
-    LOG(NOTICE, "Connected to LogCabin cluster.");
-
-    if (logCabinLog.get()->getLastId() == LogCabin::Client::NO_ID)
-        expectedEntryId = 0;
-    else
-        expectedEntryId = logCabinLog.get()->getLastId();
-    LOG(DEBUG, "Expected EntryId is %lu", expectedEntryId);
-
     context->recoveryManager = &recoveryManager;
-    context->logCabinLog = logCabinLog.get();
-    context->logCabinHelper = logCabinHelper.get();
-    context->expectedEntryId = &expectedEntryId;
+    context->coordinatorService = this;
 
-    if (startRecoveryManager)
-        recoveryManager.start();
+    // Invoke the rest of initialization in a separate thread (except during
+    // unit tests). This is needed because some of the recovery operations
+    // carried out during initialization require the dispatch thread running
+    // to be operating, and in normal operation the thread that calls this
+    // constructor also acts as dispatch thread once the constructor returns.
+    // Thus we can't perform recovery synchronously here.
 
-    // Replay the entire log (if any) before we start servicing the RPCs.
-    coordinatorRecovery.replay();
+    if (forceSynchronousInit) {
+        init(this, startRecoveryManager);
+    } else {
+        std::thread(init, this, startRecoveryManager).detach();
+    }
 }
 
 CoordinatorService::~CoordinatorService()
@@ -80,10 +79,63 @@ CoordinatorService::~CoordinatorService()
     recoveryManager.halt();
 }
 
+/**
+ * This method does most of the work of initializing a CoordinatorService.
+ * It is invoked by the constructor and runs in a separate thread (see
+ * explanation in the constructor).
+ * \param service
+ *      Coordinator service that is being constructed.
+ * \param startRecoveryManager
+ *      True means start the thread that handles master recoveries (this
+ *      should always be true, except during unit tests)
+ */
+void
+CoordinatorService::init(CoordinatorService* service,
+        bool startRecoveryManager)
+{
+    // This is the top-level method in a thread, so it must catch all
+    // exceptions.
+    try {
+        // Recover state (and incomplete operations) from external storage.
+        uint64_t lastCompletedUpdate = service->updateManager.init();
+        service->serverList->recover(lastCompletedUpdate);
+        service->tableManager.recover(lastCompletedUpdate);
+        service->updateManager.recoveryFinished();
+        LOG(NOTICE, "Coordinator state has been recovered from external "
+                "storage; starting service");
+
+        // Don't enable server list updates until recovery is finished (before
+        // this point the server list may not contain all information needed
+        // for updating).
+        service->serverList->startUpdater();
+
+        // When the recovery manager starts up below, it will resume
+        // recovery for crashed nodes; it isn't safe to do that until
+        // after the server list and table manager have recovered (e.g.
+        // it will need accurate information about which tables are stored on
+        // a crashed server).
+        if (startRecoveryManager)
+            service->recoveryManager.start();
+
+        service->initFinished = true;
+    } catch (std::exception& e) {
+        LOG(ERROR, "%s", e.what());
+        throw; // will likely call std::terminate()
+    } catch (...) {
+        LOG(ERROR, "unknown exception");
+        throw; // will likely call std::terminate()
+    }
+}
+
+// See Server::dispatch.
 void
 CoordinatorService::dispatch(WireFormat::Opcode opcode,
                              Rpc* rpc)
 {
+    if (!initFinished) {
+        throw RetryException(HERE, 1000000, 2000000,
+                "coordinator service not yet initialized");
+    }
     switch (opcode) {
         case WireFormat::CreateTable::opcode:
             callHandler<WireFormat::CreateTable, CoordinatorService,
@@ -177,12 +229,7 @@ CoordinatorService::createTable(const WireFormat::CreateTable::Request* reqHdr,
                                  reqHdr->nameLength);
     uint32_t serverSpan = reqHdr->serverSpan;
 
-    try {
-        uint64_t tableId = tableManager->createTable(name, serverSpan);
-        respHdr->tableId = tableId;
-    } catch (TableManager::TableExists& e) {
-        respHdr->tableId = tableManager->getTableId(name);
-    }
+    respHdr->tableId = tableManager.createTable(name, serverSpan);
 }
 
 /**
@@ -196,7 +243,7 @@ CoordinatorService::dropTable(const WireFormat::DropTable::Request* reqHdr,
 {
     const char* name = getString(rpc->requestPayload, sizeof(*reqHdr),
                                  reqHdr->nameLength);
-    tableManager->dropTable(name);
+    tableManager.dropTable(name);
 }
 
 /**
@@ -215,7 +262,7 @@ CoordinatorService::splitTablet(const WireFormat::SplitTablet::Request* reqHdr,
     const char* name = getString(rpc->requestPayload, sizeof(*reqHdr),
                                  reqHdr->nameLength);
     try {
-        tableManager->splitTablet(
+        tableManager.splitTablet(
                 name, reqHdr->splitKeyHash);
         LOG(NOTICE,
             "In table '%s' I split the tablet at key %lu",
@@ -269,7 +316,7 @@ CoordinatorService::getTableId(
                                  reqHdr->nameLength);
 
     try {
-        uint64_t tableId = tableManager->getTableId(name);
+        uint64_t tableId = tableManager.getTableId(name);
         respHdr->tableId = tableId;
     } catch (TableManager::NoSuchTable& e) {
         respHdr->common.status = STATUS_TABLE_DOESNT_EXIST;
@@ -293,14 +340,22 @@ CoordinatorService::enlistServer(
     const char* serviceLocator = getString(rpc->requestPayload, sizeof(*reqHdr),
                                            reqHdr->serviceLocatorLength);
 
-    LOG(NOTICE, "Starting enlistment for %s", serviceLocator);
-    ServerId newServerId = serverList->enlistServer(
-        replacesId, serviceMask, readSpeed, serviceLocator);
+    // If the new server is replacing an existing one, we must start
+    // crash recovery on the old server. Furthermore, we must initiate that
+    // right away, so that existing servers will be notified of the crash
+    // before finding out about the new server.
+    if (serverList->isUp(replacesId)) {
+        LOG(NOTICE, "enlisting server %s claims to replace server id "
+            "%s, which is still in the server list; taking its word "
+            "for it and assuming the old server has failed",
+            serviceLocator, replacesId.toString().c_str());
+        serverList->serverCrashed(replacesId);
+    }
+
+    ServerId newServerId = serverList->enlistServer(serviceMask, readSpeed,
+                                                    serviceLocator);
 
     respHdr->serverId = newServerId.getId();
-    rpc->sendReply();
-    LOG(NOTICE, "Replied to enlistment for %s with serverId %s",
-        serviceLocator, newServerId.toString().c_str());
 }
 
 /**
@@ -333,7 +388,7 @@ CoordinatorService::getTabletMap(
     Rpc* rpc)
 {
     ProtoBuf::Tablets tablets;
-    tableManager->serialize(serverList, &tablets);
+    tableManager.serialize(&tablets);
     respHdr->tabletMapLength = serializeToResponse(rpc->replyPayload,
                                                    &tablets);
 }
@@ -439,7 +494,7 @@ CoordinatorService::reassignTabletOwnership(
     }
 
     try {
-        tableManager->reassignTabletOwnership(
+        tableManager.reassignTabletOwnership(
                 newOwner, tableId, startKeyHash, endKeyHash,
                 reqHdr->ctimeSegmentId, reqHdr->ctimeSegmentOffset);
     } catch (const TableManager::NoSuchTablet& e) {

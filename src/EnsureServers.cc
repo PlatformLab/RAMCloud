@@ -78,16 +78,20 @@ try
         exit(1);
     }
 
-    LOG(NOTICE, "client: Connecting to %s",
-        optionParser.options.getCoordinatorLocator().c_str());
+    string coordinatorLocator =
+            optionParser.options.getExternalStorageLocator();
+    if (coordinatorLocator.size() == 0) {
+        coordinatorLocator = optionParser.options.getCoordinatorLocator();
+    }
+    LOG(NOTICE, "client: Connecting to %s", coordinatorLocator.c_str());
 
     uint64_t quitTime = Cycles::rdtsc() + Cycles::fromNanoseconds(
         1000000000UL * timeout);
     int actualMasters = -1;
     int actualBackups = -1;
     int actualServers = -1;
-    RamCloud ramcloud(&context,
-                      optionParser.options.getCoordinatorLocator().c_str());
+    RamCloud ramcloud(&context, coordinatorLocator.c_str(),
+            optionParser.options.getClusterName().c_str());
     do {
         ProtoBuf::ServerList serverList;
         CoordinatorClient::getServerList(&context, &serverList);

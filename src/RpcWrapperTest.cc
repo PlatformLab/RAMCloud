@@ -1,4 +1,4 @@
-/* Copyright (c) 2012 Stanford University
+/* Copyright (c) 2012-2013 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -16,6 +16,7 @@
 #include "TestUtil.h"
 #include "MockTransport.h"
 #include "RpcWrapper.h"
+#include "Service.h"
 #include "ShortMacros.h"
 
 namespace RAMCloud {
@@ -129,23 +130,56 @@ TEST_F(RpcWrapperTest, isReady_responseTooShort) {
     wrapper.state = RpcWrapper::RpcState::FINISHED;
     wrapper.session = session;
     setStatus(wrapper.response, Status::STATUS_OK);
-    EXPECT_FALSE(wrapper.isReady());
+    EXPECT_THROW(wrapper.isReady(), MessageTooShortError);
     EXPECT_EQ("isReady: Response from test:server=1 for null RPC "
             "is too short (needed at least 5 bytes, got 4)",
             TestLog::get());
-    EXPECT_STREQ("RETRY", wrapper.stateString());
 }
 
-TEST_F(RpcWrapperTest, isReady_retryStatus) {
+TEST_F(RpcWrapperTest, isReady_retryStatusDefault) {
     TestLog::Enable _;
     RpcWrapper wrapper(4);
     wrapper.session = session;
     setStatus(wrapper.response, Status::STATUS_RETRY);
     wrapper.state = RpcWrapper::RpcState::FINISHED;
+    Cycles::mockTscValue = 1000;
     EXPECT_FALSE(wrapper.isReady());
     EXPECT_EQ("isReady: Server test:server=1 returned STATUS_RETRY "
             "from null request", TestLog::get());
     EXPECT_STREQ("RETRY", wrapper.stateString());
+    uint64_t delay = wrapper.retryTime - 1000;
+    EXPECT_LE(Cycles::fromSeconds(100e-06), delay);
+    EXPECT_GE(Cycles::fromSeconds(200e-06), delay);
+    Cycles::mockTscValue = 0;
+}
+TEST_F(RpcWrapperTest, isReady_infoInResponse) {
+    TestLog::Enable _;
+    RpcWrapper wrapper(4);
+    wrapper.session = session;
+    Service::prepareRetryResponse(wrapper.response, 1000, 2000,
+            "sample message");
+    wrapper.state = RpcWrapper::RpcState::FINISHED;
+    Cycles::mockTscValue = 1000;
+    EXPECT_FALSE(wrapper.isReady());
+    EXPECT_EQ("isReady: Server test:server=1 returned STATUS_RETRY "
+            "from null request: sample message", TestLog::get());
+    EXPECT_STREQ("RETRY", wrapper.stateString());
+    uint64_t delay = wrapper.retryTime - 1000;
+    EXPECT_LE(Cycles::fromSeconds(1.0e-03), delay);
+    EXPECT_GE(Cycles::fromSeconds(2.0e-03), delay);
+    Cycles::mockTscValue = 1000;
+}
+TEST_F(RpcWrapperTest, isReady_retryResponseTooShort) {
+    TestLog::Enable _;
+    RpcWrapper wrapper(4);
+    wrapper.session = session;
+    Service::prepareRetryResponse(wrapper.response, 1000, 2000,
+            "sample message");
+    wrapper.response->truncateEnd(2);
+    wrapper.state = RpcWrapper::RpcState::FINISHED;
+    EXPECT_FALSE(wrapper.isReady());
+    EXPECT_EQ("isReady: Server test:server=1 returned STATUS_RETRY "
+            "from null request: <response format error>", TestLog::get());
 }
 
 TEST_F(RpcWrapperTest, isReady_callCheckStatus) {
@@ -208,21 +242,41 @@ TEST_F(RpcWrapperTest, isReady_unknownState) {
     wrapper.session = session;
     int bogus = 99;
     wrapper.state = RpcWrapper::RpcState(bogus);
-    EXPECT_FALSE(wrapper.isReady());
+    EXPECT_THROW(wrapper.isReady(), InternalError);
     EXPECT_EQ("isReady: RpcWrapper::isReady found unknown state 99 "
             "for null request", TestLog::get());
-    EXPECT_STREQ("RETRY", wrapper.stateString());
 }
 
 TEST_F(RpcWrapperTest, retry) {
     TestLog::Enable _;
     Cycles::mockTscValue = 1000;
     RpcWrapper wrapper(4);
-    wrapper.retry(100);
+    wrapper.retry(100, 100);
     EXPECT_STREQ("RETRY", wrapper.stateString());
     EXPECT_FALSE(wrapper.isReady());
     EXPECT_EQ(100, int(1e06*Cycles::toSeconds(wrapper.retryTime - 1000)
             + 0.5));
+    Cycles::mockTscValue = 0;
+}
+TEST_F(RpcWrapperTest, retry_randomization) {
+    TestLog::Enable _;
+    Cycles::mockTscValue = 1000;
+    RpcWrapper wrapper(4);
+    wrapper.retry(1000000, 2000000);
+    uint64_t time1 = wrapper.retryTime - 1000;
+    wrapper.retry(1000000, 2000000);
+    uint64_t time2 = wrapper.retryTime - 1000;
+    wrapper.retry(1000000, 2000000);
+    uint64_t time3 = wrapper.retryTime - 1000;
+    EXPECT_NE(time1, time2);
+    EXPECT_NE(time1, time3);
+    uint64_t oneSecond = Cycles::fromSeconds(1.0);
+    EXPECT_LE(oneSecond, time1);
+    EXPECT_GE(2*oneSecond, time1);
+    EXPECT_LE(oneSecond, time2);
+    EXPECT_GE(2*oneSecond, time2);
+    EXPECT_LE(oneSecond, time3);
+    EXPECT_GE(2*oneSecond, time3);
     Cycles::mockTscValue = 0;
 }
 

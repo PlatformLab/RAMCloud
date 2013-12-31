@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2012 Stanford University
+/* Copyright (c) 2010-2013 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -33,10 +33,17 @@ namespace TestLog {
         /// @endcond
 
         /**
-         * The current predicate which is used to select test log entries.
+         * The current predicate function used to select test log entries.
          * This symbol is not exported.
          */
         bool (*predicate)(string) = 0;
+
+        /**
+         * One or more predicate strings. If non-empty, one of the strings
+         * must match the function name in a log entry in order for the
+         * log entry to be recorded.  This symbol is not exported.
+         */
+        std::vector<string> predStrings;
 
         /**
          * Whether test log entries should be recorded.
@@ -64,7 +71,7 @@ namespace TestLog {
 
     /**
      * Reset the test log and quit recording test log entries and
-     * remove any predicate that was installed.
+     * remove any predicates that were installed.
      */
     void
     disable()
@@ -73,6 +80,7 @@ namespace TestLog {
         message = "";
         enabled = false;
         predicate = NULL;
+        predStrings.clear();
     }
 
     /// Reset the test log and begin recording test log entries.
@@ -154,6 +162,18 @@ namespace TestLog {
         if (!enabled || (predicate && !predicate(where.function)))
             return;
 
+        if (!predStrings.empty()) {
+            bool found = false;
+            foreach (string& s, predStrings) {
+                if (s == where.function) {
+                    found = true;
+                    break;
+                }
+            }
+            if (!found)
+                return;
+        }
+
         if (message.length())
             message += " | ";
 
@@ -182,6 +202,22 @@ namespace TestLog {
         predicate = pred;
     }
 
+    /**
+     * Install a single predicate string, replacing any existing
+     * predicate strings.
+     *
+     * \param[in] pred
+     *      Log entries will be recorded only if the value of
+     *      __PRETTY_FUNCTION__ from blog entry matches this.
+     */
+    void
+    setPredicate(string pred)
+    {
+        Lock _(mutex);
+        predStrings.clear();
+        predStrings.push_back(pred);
+    }
+
     /// Reset and enable/disable the test log on construction/destruction.
     Enable::Enable()
     {
@@ -202,6 +238,55 @@ namespace TestLog {
         Logger::get().saveLogLevels(savedLogLevels);
         Logger::get().setLogLevels(SILENT_LOG_LEVEL);
         setPredicate(pred);
+        enable();
+    }
+
+    /**
+     * Reset and enable/disable the test log on construction/destruction
+     * using a particular predicate string to filter test log entries.
+     *
+     * \param[in] pred
+     *      See setPredicate().
+     */
+    Enable::Enable(string pred)
+    {
+        Logger::get().saveLogLevels(savedLogLevels);
+        Logger::get().setLogLevels(SILENT_LOG_LEVEL);
+        setPredicate(pred);
+        enable();
+    }
+
+    /**
+     * Reset and enable/disable the test log on construction/destruction
+     * using a collection of predicate strings to filter log entries.
+     * A log entry will be recorded if and only if the value of its
+     * __PRETTY_FUNCTION__ is equal to one of the arguments to this
+     * constructor.
+     *
+     * \param[in] pred
+     *      First acceptable function name.
+     * \param[in] pred2
+     *      Next acceptable function name. Additional names may follow
+     *      this argument; the argument list must be terminated
+     *      by a NULL pointer.
+     */
+    Enable::Enable(const char* pred, const char* pred2, ...)
+    {
+        Logger::get().saveLogLevels(savedLogLevels);
+        Logger::get().setLogLevels(SILENT_LOG_LEVEL);
+        predStrings.clear();
+        predStrings.push_back(pred);
+        predStrings.push_back(pred2);
+        va_list ap;
+        va_start(ap, pred2);
+        while (1) {
+            const char* s = va_arg(ap, const char*);
+            if (s == NULL) {
+                break;
+            }
+            predStrings.push_back(s);
+        }
+        va_end(ap);
         enable();
     }
 

@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2011 Stanford University
+/* Copyright (c) 2013 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -13,15 +13,34 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-package RAMCloud.ProtoBuf;
+#ifndef RAMCLOUD_UNLOCK_H
+#define RAMCLOUD_UNLOCK_H
 
-// The information appended to LogCabin by the Coordinator
-// to store the latest coordinator server list version number.
-message ServerListVersion {
+namespace RAMCloud {
 
-    /// Entry type for this LogCabin entry.
-    required string entry_type = 1;
+/**
+ * This class is used to temporarily release lock in a safe fashion. Creating
+ * an object of this class will unlock its associated mutex; when the object
+ * is deleted, the mutex will be locked again. The template class T must be
+ * a mutex-like class that supports lock and unlock operations.
+ */
+template<typename MutexType>
+class Unlock {
+  PUBLIC:
+    explicit Unlock(MutexType& mutex) : mutex(mutex)
+    {
+        mutex.unlock();
+    }
+    ~Unlock() {
+        mutex.lock();
+    }
 
-    /// Server list version number.
-    required uint64 version = 2;
-}
+  PRIVATE:
+    MutexType& mutex;
+    DISALLOW_COPY_AND_ASSIGN(Unlock);
+};
+
+} // namespace RAMCloud
+
+#endif // RAMCLOUD_UNLOCK_H
+

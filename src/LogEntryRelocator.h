@@ -67,9 +67,8 @@ class LogEntryRelocator {
     /// no larger than the original (typically it is exactly the original).
     uint32_t maximumLength;
 
-    /// If an append was done, this points to the offset of the appended
-    /// entry in the segment.
-    uint32_t offset;
+    /// If an append was done this reference points to it.
+    Log::Reference reference;
 
     /// Set to true if the append operation fails. Used to notify the log
     /// cleaner that it must allocate a new survivor segment and try again.

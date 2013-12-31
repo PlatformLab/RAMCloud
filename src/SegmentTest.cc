@@ -118,11 +118,11 @@ TEST_P(SegmentTest, append_blackBox) {
 
     char buf[1000];
     for (uint32_t i = 0; i < 1000; i += 100) {
-        uint32_t offset;
-        EXPECT_TRUE(s.append(LOG_ENTRY_TYPE_OBJ, buf, i, &offset));
+        Segment::Reference ref;
+        EXPECT_TRUE(s.append(LOG_ENTRY_TYPE_OBJ, buf, i, &ref));
 
         Buffer buffer;
-        s.getEntry(offset, buffer);
+        s.getEntry(ref, &buffer);
         EXPECT_EQ(i, buffer.getTotalLength());
         EXPECT_EQ(0, memcmp(buf, buffer.getRange(0, i), i));
     }
@@ -149,10 +149,10 @@ TEST_P(SegmentTest, append_whiteBox) {
     SegmentAndAllocator segAndAlloc(GetParam());
     Segment& s = *segAndAlloc.segment;
 
-    uint32_t offset;
-    s.append(LOG_ENTRY_TYPE_OBJ, "hi", 2, &offset);
+    Segment::Reference ref;
+    s.append(LOG_ENTRY_TYPE_OBJ, "hi", 2, &ref);
 
-    EXPECT_EQ(0U, offset);
+    EXPECT_EQ(s.segletBlocks[0], reinterpret_cast<const void*>(ref.reference));
     Segment::Certificate certificate;
     EXPECT_EQ(4U, s.getAppendedLength(&certificate));
     EXPECT_EQ(4u, certificate.segmentLength);
@@ -236,14 +236,27 @@ TEST_P(SegmentTest, appendToBuffer_all) {
     EXPECT_EQ(5U, buffer.getTotalLength());
 }
 
-TEST_P(SegmentTest, getEntry) {
+TEST_P(SegmentTest, getEntry_byOffset) {
     SegmentAndAllocator segAndAlloc(GetParam());
     Segment& s = *segAndAlloc.segment;
-    uint32_t offset;
-    s.append(LOG_ENTRY_TYPE_OBJ, "this is only a test!", 21, &offset);
+    Segment::Reference ref;
+    s.append(LOG_ENTRY_TYPE_OBJ, "this is only a test!", 21, &ref);
 
     Buffer buffer;
-    EXPECT_EQ(LOG_ENTRY_TYPE_OBJ, s.getEntry(offset, buffer));
+    EXPECT_EQ(LOG_ENTRY_TYPE_OBJ, s.getEntry(0U, &buffer));
+    EXPECT_EQ(21U, buffer.getTotalLength());
+    EXPECT_STREQ("this is only a test!",
+        reinterpret_cast<const char*>(buffer.getRange(0, 21)));
+}
+
+TEST_P(SegmentTest, getEntry_byReference) {
+    SegmentAndAllocator segAndAlloc(GetParam());
+    Segment& s = *segAndAlloc.segment;
+    Segment::Reference ref;
+    s.append(LOG_ENTRY_TYPE_OBJ, "this is only a test!", 21, &ref);
+
+    Buffer buffer;
+    EXPECT_EQ(LOG_ENTRY_TYPE_OBJ, s.getEntry(ref, &buffer));
     EXPECT_EQ(21U, buffer.getTotalLength());
     EXPECT_STREQ("this is only a test!",
         reinterpret_cast<const char*>(buffer.getRange(0, 21)));
@@ -456,6 +469,31 @@ TEST_P(SegmentTest, checkMetadataIntegrity_badLength) {
     EXPECT_TRUE(StringUtil::startsWith(TestLog::get(),
         "checkMetadataIntegrity: segment corrupt: entries run off past "
         "allocated segment size"));
+}
+
+TEST_P(SegmentTest, reference_constructors) {
+    Log::Reference empty;
+    EXPECT_EQ(0U, empty.reference);
+
+    Log::Reference fromInt(2834238428234UL);
+    EXPECT_EQ(2834238428234UL, fromInt.reference);
+
+    SegmentAndAllocator segAndAlloc(GetParam());
+    Segment& s = *segAndAlloc.segment;
+    Segment::EntryHeader header(LOG_ENTRY_TYPE_OBJ, 32);
+    s.copyIn(0, &header, sizeof(header));
+    Log::Reference fromSegment(&s, 0);
+    const void* p = NULL;
+    EXPECT_EQ(s.segletSize, s.peek(0, &p));
+    EXPECT_EQ(fromSegment.reference, reinterpret_cast<uint64_t>(p));
+}
+
+TEST_P(SegmentTest, reference_getEntry_contiguous) {
+    // TODO(rumble): ...
+}
+
+TEST_P(SegmentTest, reference_getEntry_discontiguous) {
+    // TODO(rumble): ...
 }
 
 } // namespace RAMCloud

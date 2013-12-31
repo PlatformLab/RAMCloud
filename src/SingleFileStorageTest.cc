@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2012 Stanford University
+/* Copyright (c) 2010-2013 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -14,6 +14,7 @@
  */
 
 #include "TestUtil.h"
+#include "BackupMasterRecovery.h"
 #include "SingleFileStorage.h"
 #include "StringUtil.h"
 
@@ -55,6 +56,48 @@ class SingleFileStorageTest : public ::testing::Test {
     {
         Frame::testingSkipRealIo = false;
         umask(oldUmask);
+    }
+
+    /**
+     * This method will generate fake data for a segment replica and
+     * write it to the disk file used for storage. Metadata will also
+     * be written for the replica
+     * \param frameIndex
+     *      Index of the frame in which the replicas to be stored.
+     * \param length
+     *      Number of bytes of data in the replica (not including metadata).
+     * \param logId
+     *      Identifier for the log (master id).
+     * \param segmentId
+     *      Identifier for the segment within the log.
+     * \param closed
+     *      True means the replica had been closed.
+     * \param primary
+     *      True means the replica is the primary replica for its segment.
+     * @return
+     */
+    void
+    writeReplica(size_t frameIndex, int length, uint64_t logId,
+            uint64_t segmentId, bool closed, bool primary)
+    {
+        Buffer data;
+
+        // Write the replica data.
+        TestUtil::fillLargeBuffer(&data, length);
+        FILE *f = fopen(storage->tempFilePath, "r+");
+        off_t offset = storage->offsetOfFrame(frameIndex);
+        fseek(f, offset, SEEK_SET);
+        data.write(0, length, f);
+
+        // Next, write the corresponding metadata.
+        Segment::Certificate certificate;
+        certificate.segmentLength = length;
+        BackupReplicaMetadata metadata(certificate, logId, segmentId,
+                segmentSize, 0, closed, primary);
+        offset = storage->offsetOfMetadataFrame(frameIndex);
+        fseek(f, offset, SEEK_SET);
+        fwrite(&metadata, 1, sizeof(metadata), f);
+        fclose(f);
     }
 
     DISALLOW_COPY_AND_ASSIGN(SingleFileStorageTest);
@@ -152,6 +195,54 @@ TEST_F(SingleFileStorageTest, Frame_append) {
     EXPECT_STREQ(test, metadata);
 }
 
+TEST_F(SingleFileStorageTest, Frame_appendNotOpen) {
+    BackupStorage::FrameRef frameRef = storage->open(false);
+    Frame* frame = static_cast<Frame*>(frameRef.get());
+    frame->append(testSource, 0, 0, 0, NULL, 0);
+    frame->close();
+    EXPECT_THROW(frame->append(testSource, 0, 0, 0, NULL, 0),
+                 BackupBadSegmentIdException);
+}
+
+TEST_F(SingleFileStorageTest, Frame_appendLoading) {
+    BackupStorage::FrameRef frameRef = storage->open(false);
+    Frame* frame = static_cast<Frame*>(frameRef.get());
+    frame->append(testSource, 0, 0, 0, NULL, 0);
+    frame->load();
+    EXPECT_THROW(frame->append(testSource, 0, 0, 0, NULL, 0),
+                 BackupBadSegmentIdException);
+}
+
+TEST_F(SingleFileStorageTest, Frame_appendOutOfBounds) {
+    BackupStorage::FrameRef frameRef = storage->open(false);
+    Frame* frame = static_cast<Frame*>(frameRef.get());
+    frame->append(testSource, 0, 1, segmentSize - 1, NULL, 0);
+    EXPECT_THROW(frame->append(testSource, 0, 1, segmentSize, NULL, 0),
+                 BackupSegmentOverflowException);
+}
+
+TEST_F(SingleFileStorageTest, Frame_appendMetadataTooBig) {
+    BackupStorage::FrameRef frameRef = storage->open(false);
+    Frame* frame = static_cast<Frame*>(frameRef.get());
+    frame->append(testSource, 0, 0, 0 , NULL, SingleFileStorage::METADATA_SIZE);
+    EXPECT_THROW(frame->append(testSource, 0, 0, 0 ,
+                               NULL, SingleFileStorage::METADATA_SIZE + 1),
+                 BackupSegmentOverflowException);
+}
+
+TEST_F(SingleFileStorageTest, Frame_appendOrderIndependence) {
+    BackupStorage::FrameRef frameRef = storage->open(false);
+    Frame* frame = static_cast<Frame*>(frameRef.get());
+    storage->ioQueue.halt();
+    Buffer source;
+    source.append("0123456789", 10);
+    frame->append(source, 6, 4, 6, test, testLength + 1);
+    frame->append(source, 0, 6, 0, test, testLength + 1);
+    EXPECT_EQ(10LU, frame->appendedLength);
+    char* data = static_cast<char*>(frame->buffer.get());
+    EXPECT_STREQ("0123456789", data);
+}
+
 TEST_F(SingleFileStorageTest, Frame_appendSync) {
     Frame::testingSkipRealIo = false;
     BackupStorage::FrameRef frameRef = storage->open(true);
@@ -210,41 +301,6 @@ TEST_F(SingleFileStorageTest, Frame_appendIdempotence) {
     EXPECT_EQ(3lu, frame->appendedMetadataVersion);
 }
 
-TEST_F(SingleFileStorageTest, Frame_appendNotOpen) {
-    BackupStorage::FrameRef frameRef = storage->open(false);
-    Frame* frame = static_cast<Frame*>(frameRef.get());
-    frame->append(testSource, 0, 0, 0, NULL, 0);
-    frame->close();
-    EXPECT_THROW(frame->append(testSource, 0, 0, 0, NULL, 0),
-                 BackupBadSegmentIdException);
-}
-
-TEST_F(SingleFileStorageTest, Frame_appendLoading) {
-    BackupStorage::FrameRef frameRef = storage->open(false);
-    Frame* frame = static_cast<Frame*>(frameRef.get());
-    frame->append(testSource, 0, 0, 0, NULL, 0);
-    frame->load();
-    EXPECT_THROW(frame->append(testSource, 0, 0, 0, NULL, 0),
-                 BackupBadSegmentIdException);
-}
-
-TEST_F(SingleFileStorageTest, Frame_appendOutOfBounds) {
-    BackupStorage::FrameRef frameRef = storage->open(false);
-    Frame* frame = static_cast<Frame*>(frameRef.get());
-    frame->append(testSource, 0, 1, segmentSize - 1, NULL, 0);
-    EXPECT_THROW(frame->append(testSource, 0, 1, segmentSize, NULL, 0),
-                 BackupSegmentOverflowException);
-}
-
-TEST_F(SingleFileStorageTest, Frame_appendMetadataTooBig) {
-    BackupStorage::FrameRef frameRef = storage->open(false);
-    Frame* frame = static_cast<Frame*>(frameRef.get());
-    frame->append(testSource, 0, 0, 0 , NULL, SingleFileStorage::METADATA_SIZE);
-    EXPECT_THROW(frame->append(testSource, 0, 0, 0 ,
-                               NULL, SingleFileStorage::METADATA_SIZE + 1),
-                 BackupSegmentOverflowException);
-}
-
 TEST_F(SingleFileStorageTest, Frame_close) {
     BackupStorage::FrameRef frameRef = storage->open(false);
     Frame* frame = static_cast<Frame*>(frameRef.get());
@@ -282,6 +338,35 @@ TEST_F(SingleFileStorageTest, Frame_free) {
     EXPECT_FALSE(frame->loadRequested);
     EXPECT_FALSE(frame->buffer);
     EXPECT_EQ(1, storage->freeMap[0]);
+}
+
+TEST_F(SingleFileStorageTest, Frame_reopen) {
+    Frame::testingSkipRealIo = false;
+    writeReplica(2, 50, 99LU, 1000LU, false, true);
+    std::vector<BackupStorage::FrameRef> allFrames =
+            storage->loadAllMetadata();
+    Frame* frame = static_cast<Frame*>(allFrames[2].get());
+    const BackupReplicaMetadata* metadata =
+            static_cast<const BackupReplicaMetadata*>(frame->getMetadata());
+    frame->reopen(metadata->certificate.segmentLength);
+
+    EXPECT_EQ(50LU, frame->appendedLength);
+    EXPECT_EQ(50LU, frame->committedLength);
+    EXPECT_TRUE(frame->isOpen);
+    EXPECT_FALSE(frame->isClosed);
+    EXPECT_FALSE(frame->loadRequested);
+    EXPECT_TRUE(frame->buffer);
+    EXPECT_STREQ("word 1, word 2, word 3, word 4, word 5; word 6, wo",
+            static_cast<char*>(frame->buffer.get()));
+
+    // Make sure we can successfully append to this frame.
+    Buffer source;
+    source.append("0123456789", 10);
+    frame->append(source, 4, 6, 50, NULL, 0);
+    EXPECT_EQ(56LU, frame->appendedLength);
+    EXPECT_EQ(50LU, frame->committedLength);
+    EXPECT_STREQ("word 1, word 2, word 3, word 4, word 5; word 6, wo456789",
+            static_cast<char*>(frame->buffer.get()));
 }
 
 TEST_F(SingleFileStorageTest, Frame_open) {

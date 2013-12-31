@@ -21,6 +21,7 @@
 #include "LogMetadata.h"
 #include "ServerConfig.h"
 #include "ServerRpcPool.h"
+#include "MasterTableMetadata.h"
 
 namespace RAMCloud {
 
@@ -112,6 +113,10 @@ TEST_F(SegmentManagerTest, allocHead) {
     it.next();
     EXPECT_FALSE(it.isDone());
     EXPECT_EQ(LOG_ENTRY_TYPE_LOGDIGEST, it.getType());
+
+    it.next();
+    EXPECT_FALSE(it.isDone());
+    EXPECT_EQ(LOG_ENTRY_TYPE_TABLESTATS, it.getType());
 
     it.next();
     EXPECT_FALSE(it.isDone());

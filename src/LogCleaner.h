@@ -20,7 +20,7 @@
 #include <vector>
 
 #include "Common.h"
-#include "HashTable.h"
+#include "CleanableSegmentManager.h"
 #include "Segment.h"
 #include "LogCleanerMetrics.h"
 #include "LogEntryHandlers.h"
@@ -68,24 +68,24 @@ class LogCleaner {
     void stop();
     void getMetrics(ProtoBuf::LogMetrics_CleanerMetrics& m);
 
-  PRIVATE:
-    typedef LogCleanerMetrics::MetricCycleCounter MetricCycleCounter;
-    typedef std::lock_guard<SpinLock> Lock;
-
-    /// If no cleaning work had to be done the last time we checked, sleep for
-    /// this many microseconds before checking again.
-    enum { POLL_USEC = 10000 };
+    /// The maximum amount of live data we'll process in any single disk
+    /// cleaning pass. The units are full segments. The cleaner will multiply
+    /// this value by the number of bytes in a full segment and extract live
+    /// entries from candidate segments until it exceeds that product.
+    enum { MAX_LIVE_SEGMENTS_PER_DISK_PASS = 10 };
 
     /// The maximum in-memory segment utilization we will clean at. This upper
     /// limit, in conjunction with the number of seglets per segment, ensures
     /// that we can never consume more seglets in cleaning than we free.
     enum { MAX_CLEANABLE_MEMORY_UTILIZATION = 98 };
 
-    /// The maximum amount of live data we'll process in any single disk
-    /// cleaning pass. The units are full segments. The cleaner will multiply
-    /// this value by the number of bytes in a full segment and extract live
-    /// entries from candidate segments until it exceeds that product.
-    enum { MAX_LIVE_SEGMENTS_PER_DISK_PASS = 10 };
+  PRIVATE:
+    typedef LogCleanerMetrics::AtomicCycleCounter AtomicCycleCounter;
+    typedef std::lock_guard<SpinLock> Lock;
+
+    /// If no cleaning work had to be done the last time we checked, sleep for
+    /// this many microseconds before checking again.
+    enum { POLL_USEC = 10000 };
 
     /// The number of full survivor segments to reserve with the SegmentManager.
     /// Must be large enough to ensure that if we get the worst possible
@@ -100,18 +100,6 @@ class LogCleaner {
     /// The minimum amount of memory utilization we will begin cleaning at using
     /// the in-memory cleaner.
     enum { MIN_MEMORY_UTILIZATION = 90 };
-
-    /// Memory utilization at which we declare that the cleaner isn't able to
-    /// keep up with the incoming write rate. We'll then clean by whatever means
-    /// are most efficient at freeing memory, even if it means increasing backup
-    /// traffic by cleaning on disk (which may also reduce write throughput by
-    /// contending for the network).
-    ///
-    /// As long as our memory utilization is below this value, we'll prefer to
-    /// compact in memory. If compaction can keep up with the write rate, then
-    /// we'll not contend for network bandwidth, but if we fall behind, we'll
-    /// use this constant to permit more aggressive disk cleaning.
-    enum { MEMORY_DEPLETED_UTILIZATION = 99 };
 
     /// The minimum amount of backup disk utilization we will begin cleaning at
     /// using the disk cleaner. Note that the disk cleaner may also run if the
@@ -129,23 +117,20 @@ class LogCleaner {
      */
     class Entry {
       public:
-        Entry(LogSegment* segment, uint32_t offset, uint32_t timestamp)
-            : segment(segment),
-              offset(offset),
+        Entry(Segment::Reference reference, uint32_t timestamp)
+            : reference(reference),
               timestamp(timestamp)
         {
             static_assert(sizeof(Entry) == 16, "Entry isn't the expected size");
         }
 
-        /// Pointer to the segment this entry is in.
-        LogSegment* segment;
+        /// Reference to the entry. If the entry is a live object, this
+        /// reference will also be in the hash table.
+        Segment::Reference reference;
 
-        /// Offset of the entry within the segment.
-        uint32_t offset;
-
-        /// Timestamp of the entry (see WallTime).
+        /// Timestamp of the entry (see WallTime). Used to sort the entries.
         uint32_t timestamp;
-    } __attribute__((packed));
+    };
     typedef std::vector<Entry> EntryVector;
 
     /**
@@ -163,57 +148,82 @@ class LogCleaner {
         }
     };
 
-    /**
-     * Comparison functor used when sorting segments by best cost-benefit ratio.
-     * This is used when choosing disk segments to clean. All candidates are
-     * sorted by cost-benefit and then the list is walked in order.
-     */
-    class CostBenefitComparer {
-      public:
-        CostBenefitComparer();
-        uint64_t costBenefit(LogSegment* s);
-        bool operator()(LogSegment* a, LogSegment* b);
-
-      PRIVATE:
-        /// WallTime timestamp when this object was constructed.
-        uint64_t now;
-
-        /// Unique identifier for this comparer instance. The cost-benefit for a
-        /// particular LogSegment must not change within a comparer's lifetime,
-        /// otherwise weird things can happen, for example A < B, B < C, C < A).
-        uint64_t version;
-    };
-
     class CleanerThreadState {
       public:
         CleanerThreadState()
-            : lastDiskCleaningMemFreeRate(0)
-            , lastMemCompactionMemFreeRate(0)
-            , lastDiskCleaningTime(0)
-            , lastMemCompactionTime(0)
-            , threadNumber(0)
+            : threadNumber(0)
+            , diskCleaningTicks(0)
+            , memoryCompactionTicks(0)
         {
         }
-        uint64_t lastDiskCleaningMemFreeRate;
-        uint64_t lastMemCompactionMemFreeRate;
-        uint64_t lastDiskCleaningTime;
-        uint64_t lastMemCompactionTime;
         uint32_t threadNumber;
+        uint64_t diskCleaningTicks;
+        uint64_t memoryCompactionTicks;
+    };
+
+    class Balancer {
+      public:
+        enum CleaningTask { COMPACT_MEMORY, CLEAN_DISK, SLEEP };
+
+        explicit Balancer(LogCleaner* cleaner)
+            : cleaner(cleaner)
+            , compactionFailures(0)
+            , compactionFailuresHandled(0)
+        {
+        }
+        virtual ~Balancer() { }
+        CleaningTask requestTask(CleanerThreadState* thread);
+        void compactionFailed();
+
+      PROTECTED:
+        bool isMemoryLow(CleanerThreadState* thread);
+        virtual bool isDiskCleaningNeeded(CleanerThreadState* thread) = 0;
+        LogCleaner* cleaner;
+        std::atomic<uint64_t> compactionFailures;
+        std::atomic<uint64_t> compactionFailuresHandled;
+
+        DISALLOW_COPY_AND_ASSIGN(Balancer);
+    };
+
+    class TombstoneRatioBalancer : public Balancer {
+      public:
+        TombstoneRatioBalancer(LogCleaner* cleaner, double ratio);
+        ~TombstoneRatioBalancer();
+
+      PRIVATE:
+        bool isDiskCleaningNeeded(CleanerThreadState* thread);
+        double ratio;
+    };
+
+    class FixedBalancer: public Balancer {
+      public:
+        FixedBalancer(LogCleaner* cleaner, uint32_t cleaningPercentage);
+        ~FixedBalancer();
+
+      PRIVATE:
+        bool isDiskCleaningNeeded(CleanerThreadState* thread);
+
+        const uint32_t cleaningPercentage;
     };
 
     static void cleanerThreadEntry(LogCleaner* logCleaner, Context* context);
+    int getLiveObjectUtilization();
+    int getUndeadTombstoneUtilization();
+    bool checkIfCleaningNeeded(CleanerThreadState* thread);
+    bool checkIfDiskCleaningNeeded(CleanerThreadState* thread);
     void doWork(CleanerThreadState* state);
-    uint64_t doMemoryCleaning();
-    uint64_t doDiskCleaning(bool lowOnDiskSpace);
-    LogSegment* getSegmentToCompact(uint32_t& outFreeableSeglets);
+    void doMemoryCleaning();
+    void doDiskCleaning();
+    LogSegment* getSegmentToCompact();
     void sortSegmentsByCostBenefit(LogSegmentVector& segments);
     void debugDumpSegments(LogSegmentVector& segments);
     void getSegmentsToClean(LogSegmentVector& outSegmentsToClean);
+    uint32_t computeFreeableSeglets(LogSegment* survivor);
     void sortEntriesByTimestamp(EntryVector& entries);
     void getSortedEntries(LogSegmentVector& segmentsToClean,
                           EntryVector& outEntries);
     uint64_t relocateLiveEntries(EntryVector& entries,
-                                 LogSegmentVector& outSurvivors);
+                            LogSegmentVector& outSurvivors);
     void closeSurvivor(LogSegment* survivor);
     void waitForAvailableSurvivors(size_t count, uint64_t& outTicks);
 
@@ -260,11 +270,16 @@ class LogCleaner {
      *      relocation was tried.
      * \param metrics
      *      The appropriate metrics to update with relocation performance
-     *      statistics. This is an instance of LogCleanerMetrics::InMemory or
-     *      LogCleanerMetrics::OnDisk.
-     * \param bytesAppended
+     *      statistics. This should be a thread-local instance of
+     *      LogCleanerMetrics::InMemory or LogCleanerMetrics::OnDisk templated
+     *      on uint64_t, rather than the atomic uint64_t used for the global
+     *      set of metrics. The point is to keep counters thread-local and as
+     *      cheap as possible so as not to affect performance. Occasionally
+     *      these counters will be merged into the global set of metrics to
+     *      maintain aggregated statistics for all threads.
+     * \param outBytesAppended
      *      The total number of bytes appended during relocation (including any
-     *      metadata) is added to this counter. Must not be NULL.
+     *      metadata) is returned in this counter. Must not be NULL.
      * \return
      *      Returns true if the operation succeeded (the entry was successfully
      *      relocated or was not needed and no relocation was performed).
@@ -279,13 +294,14 @@ class LogCleaner {
                   Log::Reference reference,
                   LogSegment* survivor,
                   T& metrics,
-                  uint32_t* bytesAppended)
+                  uint32_t* outBytesAppended)
     {
         LogEntryRelocator relocator(survivor, buffer.getTotalLength());
+        *outBytesAppended = 0;
 
         {
             metrics.totalRelocationCallbacks++;
-            MetricCycleCounter _(&metrics.relocationCallbackTicks);
+            CycleCounter<uint64_t> _(&metrics.relocationCallbackTicks);
             entryHandlers.relocate(type, buffer, reference, relocator);
         }
 
@@ -293,8 +309,7 @@ class LogCleaner {
             return RELOCATION_FAILED;
 
         if (relocator.relocated()) {
-            uint32_t bytes = relocator.getTotalBytesAppended();
-            *bytesAppended += bytes;
+            *outBytesAppended = relocator.getTotalBytesAppended();
             metrics.totalRelocationAppends++;
             metrics.relocationAppendTicks += relocator.getAppendTicks();
             return RELOCATED;
@@ -320,6 +335,10 @@ class LogCleaner {
     /// (such as liveness), and to notify when an entry has been relocated.
     LogEntryHandlers& entryHandlers;
 
+    /// Instance of the class that keeps track of all of the segments available
+    /// for cleaning.
+    CleanableSegmentManager cleanableSegments;
+
     /// Threshold defining how much work the in-memory cleaner should do before
     /// forcing a disk cleaning pass. Necessary because in-memory cleaning does
     /// not free up tombstones and can become very expensive before we run out
@@ -335,17 +354,6 @@ class LogCleaner {
     /// keep up with higher write rates and memory utilizations.
     const int numThreads;
 
-    /// Closed log segments that are candidates for cleaning. Before each
-    /// cleaning pass this list will be updated from the SegmentManager with
-    /// newly closed segments. The most appropriate segments will then be
-    /// cleaned. This list is shared across all cleaning threads and must only
-    /// be accessed with the candidatesLock held.
-    LogSegmentVector candidates;
-
-    /// SpinLock protecting access to candidates. Needed because multiple
-    /// cleaning threads may need to access it simultaneously.
-    SpinLock candidatesLock;
-
     /// Size of each seglet in bytes. Used to calculate the best segment for in-
     /// memory cleaning.
     uint32_t segletSize;
@@ -355,17 +363,24 @@ class LogCleaner {
     uint32_t segmentSize;
 
     /// Number of cpu cycles spent in the doWork() routine.
-    LogCleanerMetrics::Metric64BitType doWorkTicks;
+    LogCleanerMetrics::Atomic64BitType doWorkTicks;
 
     /// Number of cpu cycles spent sleeping in the doWork() routine because
     /// memory was not low.
-    LogCleanerMetrics::Metric64BitType doWorkSleepTicks;
+    LogCleanerMetrics::Atomic64BitType doWorkSleepTicks;
 
     /// Metrics kept for measuring in-memory cleaning (compaction) performance.
-    LogCleanerMetrics::InMemory inMemoryMetrics;
+    /// Note that this instance uses the default template that uses atomic
+    /// operations. Be careful incrementing these counters in hot paths. It's
+    /// often better to aggregate in local variables and then apply updates to
+    /// this in batch. See LogCleanerMetrics::InMemory<>::merge().
+    LogCleanerMetrics::InMemory<> inMemoryMetrics;
 
-    /// Metrics kept for measuring on-disk cleaning performance.
-    LogCleanerMetrics::OnDisk onDiskMetrics;
+    /// Metrics kept for measuring on-disk cleaning performance. Be careful
+    /// incrementing these counters in hot paths. It's often better to aggregate
+    /// in local variables and then apply updates to this in batch. See
+    /// LogCleanerMetrics::OnDisk<>::merge().
+    LogCleanerMetrics::OnDisk<> onDiskMetrics;
 
     /// Metrics kept for measuring how many threads the cleaner is using.
     LogCleanerMetrics::Threads threadMetrics;
@@ -378,6 +393,10 @@ class LogCleaner {
     /// started, these threads are created. When stopped, they are deleted and
     /// the pointers in this vector are set to NULL.
     vector<std::thread*> threads;
+
+    /// Instance of the balancer module that decides when to clean on disk,
+    /// when to compact in memory, and how many of our threads to employ.
+    Balancer* balancer;
 
     friend class CleanerCompactionBenchmark;
 

@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2012 Stanford University
+/* Copyright (c) 2009-2013 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -41,6 +41,7 @@ class BackupServiceTest : public ::testing::Test {
     Server* server;
     BackupService* backup;
     ServerId backupId;
+    TestLog::Enable logSilencer;
 
     BackupServiceTest()
         : context()
@@ -49,6 +50,7 @@ class BackupServiceTest : public ::testing::Test {
         , server()
         , backup()
         , backupId()
+        , logSilencer()
     {
         Logger::get().setLogLevels(SILENT_LOG_LEVEL);
 
@@ -88,6 +90,14 @@ class BackupServiceTest : public ::testing::Test {
                                    true, false, primary);
     }
 
+    void
+    markNotWritten(ServerId masterId, uint64_t segmentId) {
+        InMemoryStorage::Frame* frame =
+                static_cast<InMemoryStorage::Frame*>(
+                backup->frames.find({masterId, segmentId})->second.get());
+        frame->appendedToByCurrentProcess = false;
+    }
+
     /**
      * Write a raw string to the segment on backup (including the nul-
      * terminator). The segment will not be properly formatted and so
@@ -119,13 +129,6 @@ class BackupServiceTest : public ::testing::Test {
     DISALLOW_COPY_AND_ASSIGN(BackupServiceTest);
 };
 
-
-namespace {
-bool constructFilter(string s) {
-    return s == "BackupService" || s == "initOnceEnlisted";
-}
-};
-
 TEST_F(BackupServiceTest, constructorNoReuseReplicas) {
     config.backup.inMemory = false;
     config.clusterName = "testing";
@@ -134,7 +137,7 @@ TEST_F(BackupServiceTest, constructorNoReuseReplicas) {
     cluster->addServer(config);
 
     config.clusterName = "__unnamed__";
-    TestLog::Enable _(constructFilter);
+    TestLog::Enable _("BackupService", "initOnceEnlisted", NULL);
     BackupService* backup = cluster->addServer(config)->backup.get();
     EXPECT_EQ(ServerId(), backup->getFormerServerId());
     EXPECT_EQ(
@@ -156,7 +159,7 @@ TEST_F(BackupServiceTest, constructorDestroyConfusingReplicas) {
     cluster->addServer(config);
 
     config.clusterName = "testing";
-    TestLog::Enable _(constructFilter);
+    TestLog::Enable _("BackupService", "initOnceEnlisted", NULL);
     BackupService* backup = cluster->addServer(config)->backup.get();
     EXPECT_EQ(ServerId(), backup->getFormerServerId());
     EXPECT_EQ(
@@ -187,7 +190,7 @@ TEST_F(BackupServiceTest, constructorReuseReplicas)
     // Will cause double unlink from file system. Meh.
     config.backup.file = string(storage->tempFilePath);
 
-    TestLog::Enable _(constructFilter);
+    TestLog::Enable _("BackupService", "initOnceEnlisted", NULL);
     cluster->addServer(config);
     EXPECT_EQ(
         "BackupService: Backup storing replicas with clusterName 'testing'. "
@@ -202,6 +205,19 @@ TEST_F(BackupServiceTest, constructorReuseReplicas)
         "initOnceEnlisted: Backup 3.0 will store replicas under cluster name "
             "'testing'"
         , TestLog::get());
+}
+
+TEST_F(BackupServiceTest, dispatch_initializationNotFinished) {
+    Buffer request, response;
+    Service::Rpc rpc(NULL, &request, &response);
+    string message("no exception");
+    try {
+        backup->initCalled = false;
+        backup->dispatch(WireFormat::Opcode::ILLEGAL_RPC_TYPE, &rpc);
+    } catch (RetryException& e) {
+        message = e.message;
+    }
+    EXPECT_EQ("backup service not yet initialized", message);
 }
 
 TEST_F(BackupServiceTest, freeSegment) {
@@ -321,9 +337,8 @@ TEST_F(BackupServiceTest, restartFromStorage)
     }
     { // bad segment capacity
         metadata.construct(certificate,
-                           70, 91, config.segmentSize, 0,
+                           70, 91, config.segmentSize+100, 0,
                            true, false);
-        metadata->checksum = 0;
         BackupStorage::FrameRef frame = storage->open(true);
         frames.push_back(frame);
         frame->append(empty, 0, 0, 0, &metadata, sizeof(metadata));
@@ -362,6 +377,15 @@ TEST_F(BackupServiceTest, restartFromStorage)
     EXPECT_TRUE(StringUtil::contains(TestLog::get(),
         "restartFromStorage: Found stored replica <71.0,89> "
         "on backup storage in frame which was open"));
+
+    // Check that only open frames are loaded.
+    BackupStorage::FrameRef frame = backup->frames[
+            BackupService::MasterSegmentIdPair({70, 0}, 88)];
+    EXPECT_FALSE(frame->isLoaded());
+    frame = backup->frames[BackupService::MasterSegmentIdPair({70, 0}, 89)];
+    EXPECT_TRUE(frame->isLoaded());
+    frame = backup->frames[BackupService::MasterSegmentIdPair({71, 0}, 89)];
+    EXPECT_TRUE(frame->isLoaded());
 
     EXPECT_EQ(2lu, backup->taskQueue.outstandingTasks());
     // Because config.backup.gc is false these tasks delete themselves
@@ -638,6 +662,7 @@ class GcMockMasterService : public Service {
 };
 
 TEST_F(BackupServiceTest, GarbageCollectReplicaFoundOnStorageTask) {
+    TestLog::Enable _("tryToFreeReplica");
     GcMockMasterService master;
     cluster->transport.addService(master, "mock:host=m", MEMBERSHIP_SERVICE);
     cluster->transport.addService(master, "mock:host=m", MASTER_SERVICE);
@@ -648,16 +673,20 @@ TEST_F(BackupServiceTest, GarbageCollectReplicaFoundOnStorageTask) {
 
     openSegment({13, 0}, 10);
     closeSegment({13, 0}, 10);
+    markNotWritten({13, 0}, 10);
     openSegment({13, 0}, 11);
     closeSegment({13, 0}, 11);
+    markNotWritten({13, 0}, 11);
     openSegment({13, 0}, 12);
     closeSegment({13, 0}, 12);
+    markNotWritten({13, 0}, 12);
 
     typedef BackupService::GarbageCollectReplicasFoundOnStorageTask Task;
-    std::unique_ptr<Task> task(new Task(*backup, {13, 0}));
+    Task* task = new Task(*backup, {13, 0});  // freed by performTask below
     task->addSegmentId(10);
     task->addSegmentId(11);
     task->addSegmentId(12);
+    EXPECT_EQ(3, backup->oldReplicas);
     task->schedule();
     const_cast<ServerConfig*>(backup->config)->backup.gc = true;
 
@@ -665,16 +694,16 @@ TEST_F(BackupServiceTest, GarbageCollectReplicaFoundOnStorageTask) {
     backup->taskQueue.performTask(); // send rpc to probe 10
     ASSERT_TRUE(task->rpc);
 
-    TestLog::Enable _;
     backup->taskQueue.performTask(); // get response - false for 10
     EXPECT_FALSE(task->rpc);
-    EXPECT_TRUE(StringUtil::contains(TestLog::get(),
-        "tryToFreeReplica: Server has recovered from lost replica; "
-        "freeing replica for <13.0,10>"));
+    EXPECT_EQ("tryToFreeReplica: Server has recovered from lost replica; "
+        "freeing replica for <13.0,10> (2 more old replicas left)",
+        TestLog::get());
     EXPECT_EQ(1lu, backup->taskQueue.outstandingTasks());
     EXPECT_EQ(backup->frames.end(), backup->frames.find({{13, 0}, 10}));
     EXPECT_NE(backup->frames.end(), backup->frames.find({{13, 0}, 11}));
     EXPECT_NE(backup->frames.end(), backup->frames.find({{13, 0}, 12}));
+    EXPECT_EQ(2, backup->oldReplicas);
 
     EXPECT_FALSE(task->rpc);
     backup->taskQueue.performTask(); // send rpc to probe 11
@@ -682,10 +711,10 @@ TEST_F(BackupServiceTest, GarbageCollectReplicaFoundOnStorageTask) {
 
     TestLog::reset();
     backup->taskQueue.performTask(); // get response - true for 11
-    EXPECT_TRUE(StringUtil::contains(TestLog::get(),
-        "tryToFreeReplica: Server has not recovered from lost replica; "
+    EXPECT_EQ("tryToFreeReplica: Server has not recovered from lost replica; "
         "retaining replica for <13.0,11>; "
-        "will probe replica status again later"));
+        "will probe replica status again later",
+        TestLog::get());
     EXPECT_EQ(1lu, backup->taskQueue.outstandingTasks());
 
     backupServerList->testingCrashed({13, 0});
@@ -693,10 +722,10 @@ TEST_F(BackupServiceTest, GarbageCollectReplicaFoundOnStorageTask) {
     TestLog::reset();
     EXPECT_FALSE(task->rpc);
     backup->taskQueue.performTask(); // find out server crashed
-    EXPECT_TRUE(StringUtil::contains(TestLog::get(),
-        "tryToFreeReplica: Server 13.0 marked crashed; "
+    EXPECT_EQ("tryToFreeReplica: Server 13.0 marked crashed; "
         "waiting for cluster to recover from its failure "
-        "before freeing <13.0,11>"));
+        "before freeing <13.0,11>",
+        TestLog::get());
     EXPECT_EQ(1lu, backup->taskQueue.outstandingTasks());
 
     backupServerList->testingRemove({13, 0});
@@ -706,17 +735,17 @@ TEST_F(BackupServiceTest, GarbageCollectReplicaFoundOnStorageTask) {
     backup->taskQueue.performTask(); // send rpc
     EXPECT_TRUE(task->rpc);
     backup->taskQueue.performTask(); // get response - server doesn't exist
-    EXPECT_TRUE(StringUtil::contains(TestLog::get(),
-        "tryToFreeReplica: Server 13.0 marked down; cluster has recovered from "
-            "its failure | "
+    EXPECT_EQ("tryToFreeReplica: Server 13.0 marked down; cluster has "
+            "recovered from its failure | "
         "tryToFreeReplica: Server has recovered from lost replica; "
-            "freeing replica for <13.0,12>"));
+            "freeing replica for <13.0,12> (0 more old replicas left)",
+        TestLog::get());
     EXPECT_EQ(1lu, backup->taskQueue.outstandingTasks());
+    EXPECT_EQ(0, backup->oldReplicas);
 
     // Final perform finds no segments to free and just cleans up
     backup->taskQueue.performTask();
     EXPECT_EQ(0lu, backup->taskQueue.outstandingTasks());
-    task.release();
 }
 
 static bool
@@ -725,20 +754,57 @@ taskScheduleFilter(string s)
     return s != "schedule";
 }
 
-TEST_F(BackupServiceTest, GarbageCollectReplicaFoundOnStorageTask_freedFirst) {
+TEST_F(BackupServiceTest,
+        GarbageCollectReplicaTask_tryToFreeReplica_freedFirst) {
     typedef BackupService::GarbageCollectReplicasFoundOnStorageTask Task;
-    std::unique_ptr<Task> task(new Task(*backup, {99, 0}));
+    Task* task = new Task(*backup, {99, 0});  // freed by performTask below
     task->addSegmentId(88);
     task->schedule();
     const_cast<ServerConfig*>(backup->config)->backup.gc = true;
+    backup->oldReplicas = 10;
 
     TestLog::Enable _(taskScheduleFilter);
     backup->taskQueue.performTask();
     EXPECT_EQ("", TestLog::get());
+    EXPECT_EQ(9, backup->oldReplicas);
 
     // Final perform finds no segments to free and just cleans up
     backup->taskQueue.performTask();
     EXPECT_EQ(0lu, backup->taskQueue.outstandingTasks());
+}
+
+TEST_F(BackupServiceTest,
+        GarbageCollectReplicaTask_deleteReplica_replicaWritten) {
+    ServerList* backupServerList = static_cast<ServerList*>(
+        backup->context->serverList);
+    backupServerList->testingAdd({{13, 0}, "mock:host=m", {}, 100,
+                                  ServerStatus::UP});
+
+    // Create 2 replicas, of which one has been modified and one of which
+    // has not.
+    openSegment({13, 0}, 10);
+    closeSegment({13, 0}, 10);
+    openSegment({13, 0}, 20);
+    closeSegment({13, 0}, 20);
+    markNotWritten({13, 0}, 20);
+    typedef BackupService::GarbageCollectReplicasFoundOnStorageTask Task;
+    std::unique_ptr<Task> task(new Task(*backup, {13, 0}));
+
+    backup->oldReplicas = 10;
+    TestLog::reset();
+    task->deleteReplica(10);
+    EXPECT_EQ("deleteReplica: Old replica for <13.0,10> has been "
+            "called back into service, so won't garbage-collect it "
+            "(9 more old replicas left)", TestLog::get());
+    auto frameIt = backup->frames.find({ServerId(13, 0), 10LU});
+    EXPECT_FALSE(frameIt == backup->frames.end());
+
+    TestLog::reset();
+    task->deleteReplica(20);
+    EXPECT_EQ("", TestLog::get());
+    frameIt = backup->frames.find({ServerId(13, 0), 20LU});
+    EXPECT_TRUE(frameIt == backup->frames.end());
+
     task.release();
 }
 

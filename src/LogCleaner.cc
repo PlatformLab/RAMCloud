@@ -56,11 +56,10 @@ LogCleaner::LogCleaner(Context* context,
       segmentManager(segmentManager),
       replicaManager(replicaManager),
       entryHandlers(entryHandlers),
+      cleanableSegments(segmentManager, config, onDiskMetrics),
       writeCostThreshold(config->master.cleanerWriteCostThreshold),
       disableInMemoryCleaning(config->master.disableInMemoryCleaning),
       numThreads(config->master.cleanerThreadCount),
-      candidates(),
-      candidatesLock("LogCleaner::candidatesLock"),
       segletSize(config->segletSize),
       segmentSize(config->segmentSize),
       doWorkTicks(0),
@@ -69,14 +68,35 @@ LogCleaner::LogCleaner(Context* context,
       onDiskMetrics(),
       threadMetrics(numThreads),
       threadsShouldExit(false),
-      threads()
+      threads(),
+      balancer(NULL)
 {
     if (!segmentManager.initializeSurvivorReserve(numThreads *
                                                   SURVIVOR_SEGMENTS_TO_RESERVE))
         throw FatalError(HERE, "Could not reserve survivor segments");
 
+    // TODO(rumble): get rid of this. it doesn't exist anymore other than to
+    // support old scripts where wct = 0 implies single level cleaning
     if (writeCostThreshold == 0)
         disableInMemoryCleaning = true;
+
+    // There's no point in doing compaction if we aren't replicating. It's
+    // more efficient to just perform "disk" cleaning.
+    if (config->master.numReplicas == 0) {
+        LOG(NOTICE, "Replication factor is 0; memory compaction disabled.");
+        disableInMemoryCleaning = true;
+    }
+
+    string balancerArg = config->master.cleanerBalancer;
+    if (balancerArg.compare(0, 6, "fixed:") == 0) {
+        string fixedPercentage = balancerArg.substr(6);
+        balancer = new FixedBalancer(this, atoi(fixedPercentage.c_str()));
+    } else if (balancerArg.compare(0, 15, "tombstoneRatio:") == 0) {
+        string ratio = balancerArg.substr(15);
+        balancer = new TombstoneRatioBalancer(this, atof(ratio.c_str()));
+    } else {
+        DIE("Unknown balancer specified: \"%s\"", balancerArg.c_str());
+    }
 
     for (int i = 0; i < numThreads; i++)
         threads.push_back(NULL);
@@ -88,6 +108,7 @@ LogCleaner::LogCleaner(Context* context,
 LogCleaner::~LogCleaner()
 {
     stop();
+    delete balancer;
     TEST_LOG("destroyed");
 }
 
@@ -131,6 +152,8 @@ LogCleaner::stop()
     }
 
     threadsShouldExit = false;
+
+    /// XXX- should set threadCnt to 0 so we can clean on disk again!
 }
 
 /**
@@ -186,6 +209,18 @@ LogCleaner::cleanerThreadEntry(LogCleaner* logCleaner, Context* context)
     LOG(NOTICE, "LogCleaner thread stopping");
 }
 
+int
+LogCleaner::getLiveObjectUtilization()
+{
+    return cleanableSegments.getLiveObjectUtilization();
+}
+
+int
+LogCleaner::getUndeadTombstoneUtilization()
+{
+    return cleanableSegments.getUndeadTombstoneUtilization();
+}
+
 /**
  * Main cleaning loop, constantly invoked via cleanerThreadEntry(). If there
  * is cleaning to be done, do it now return. If no work is to be done, sleep for
@@ -195,44 +230,35 @@ LogCleaner::cleanerThreadEntry(LogCleaner* logCleaner, Context* context)
 void
 LogCleaner::doWork(CleanerThreadState* state)
 {
-    MetricCycleCounter _(&doWorkTicks);
+    AtomicCycleCounter _(&doWorkTicks);
 
     threadMetrics.noteThreadStart();
 
-    // Update our list of candidates whether we need to clean or not (it's
-    // better not to put off work until we really need to clean).
-    candidatesLock.lock();
-    segmentManager.cleanableSegments(candidates);
-    candidatesLock.unlock();
+    bool goToSleep = false;
+    switch (balancer->requestTask(state)) {
+    case Balancer::CLEAN_DISK:
+      {
+        CycleCounter<uint64_t> __(&state->diskCleaningTicks);
+        doDiskCleaning();
+        break;
+      }
 
-    int memUtil = segmentManager.getAllocator().getMemoryUtilization();
-    bool lowOnMemory = (segmentManager.getAllocator().getMemoryUtilization() >=
-                        MIN_MEMORY_UTILIZATION);
-    bool notKeepingUp = (segmentManager.getAllocator().getMemoryUtilization() >=
-                         MEMORY_DEPLETED_UTILIZATION);
-    bool lowOnDiskSpace = (segmentManager.getSegmentUtilization() >=
-                           MIN_DISK_UTILIZATION);
-    bool haveWorkToDo = (lowOnMemory || lowOnDiskSpace);
+    case Balancer::COMPACT_MEMORY:
+      {
+        CycleCounter<uint64_t> __(&state->memoryCompactionTicks);
+        doMemoryCleaning();
+        break;
+      }
 
-    if (haveWorkToDo) {
-        if (state->threadNumber == 0) {
-            if (lowOnDiskSpace || notKeepingUp)
-                doDiskCleaning(lowOnDiskSpace);
-            else
-                doMemoryCleaning();
-        } else {
-            int threshold = 90 + 2 * static_cast<int>(state->threadNumber);
-            if (memUtil >= std::min(99, threshold))
-                doMemoryCleaning();
-            else
-                haveWorkToDo = false;
-        }
+    case Balancer::SLEEP:
+        goToSleep = true;
+        break;
     }
 
     threadMetrics.noteThreadStop();
 
-    if (!haveWorkToDo) {
-        MetricCycleCounter __(&doWorkSleepTicks);
+    if (goToSleep) {
+        AtomicCycleCounter __(&doWorkSleepTicks);
         // Jitter the sleep delay a little bit (up to 10%). It's not a big deal
         // if we don't, but it can make some locks look artificially contended
         // when there's no cleaning to be done and threads manage to caravan
@@ -247,99 +273,106 @@ LogCleaner::doWork(CleanerThreadState* state)
  * re-packing all live entries together sequentially, allowing us to reclaim
  * some of the dead space.
  */
-uint64_t
+void
 LogCleaner::doMemoryCleaning()
 {
     TEST_LOG("called");
-    MetricCycleCounter _(&inMemoryMetrics.totalTicks);
+    AtomicCycleCounter _(&inMemoryMetrics.totalTicks);
 
     if (disableInMemoryCleaning)
-        return 0;
+        return;
 
-    uint32_t freeableSeglets;
-    LogSegment* segment = getSegmentToCompact(freeableSeglets);
+    LogSegment* segment = getSegmentToCompact();
     if (segment == NULL)
-        return 0;
+        return;
+
+    LogCleanerMetrics::InMemory<uint64_t> localMetrics;
+
+    // If the segment happens to be empty then there's no data to move.
+    const bool empty = (segment->getLiveBytes() == 0);
+    if (empty)
+        localMetrics.totalEmptySegmentsCompacted++;
 
     // Allocate a survivor segment to write into. This call may block if one
     // is not available right now.
-    MetricCycleCounter waitTicks(&inMemoryMetrics.waitForFreeSurvivorTicks);
+    CycleCounter<uint64_t> waitTicks(&localMetrics.waitForFreeSurvivorTicks);
     LogSegment* survivor = segmentManager.allocSideSegment(
             SegmentManager::FOR_CLEANING | SegmentManager::MUST_NOT_FAIL,
             segment);
     assert(survivor != NULL);
     waitTicks.stop();
 
-    inMemoryMetrics.totalBytesInCompactedSegments +=
+    localMetrics.totalBytesInCompactedSegments +=
         segment->getSegletsAllocated() * segletSize;
-    uint64_t entriesScanned[TOTAL_LOG_ENTRY_TYPES] = { 0 };
-    uint64_t liveEntriesScanned[TOTAL_LOG_ENTRY_TYPES] = { 0 };
-    uint64_t scannedEntryLengths[TOTAL_LOG_ENTRY_TYPES] = { 0 };
-    uint64_t liveScannedEntryLengths[TOTAL_LOG_ENTRY_TYPES] = { 0 };
-    uint32_t bytesAppended = 0;
+    uint32_t liveScannedEntryTotalLengths[TOTAL_LOG_ENTRY_TYPES] = { 0 };
 
-    for (SegmentIterator it(*segment); !it.isDone(); it.next()) {
-        LogEntryType type = it.getType();
-        Buffer buffer;
-        it.appendToBuffer(buffer);
-        Log::Reference reference = segment->getReference(it.getOffset());
+    // Take two passes, writing out the tombstones first. This makes the
+    // dead tombstone scanner in CleanableSegmentManager more efficient
+    // since it will only need to scan the front of the segment.
+    for (int tombstonePass = 1; tombstonePass >= 0 && !empty; tombstonePass--) {
+        for (SegmentIterator it(*segment); !it.isDone(); it.next()) {
+            LogEntryType type = it.getType();
 
-        RelocStatus s = relocateEntry(type,
-                                      buffer,
-                                      reference,
-                                      survivor,
-                                      inMemoryMetrics,
-                                      &bytesAppended);
-        if (expect_false(s == RELOCATION_FAILED))
-            throw FatalError(HERE, "Entry didn't fit into survivor!");
+            if (tombstonePass && type != LOG_ENTRY_TYPE_OBJTOMB)
+                continue;
+            if (!tombstonePass && type == LOG_ENTRY_TYPE_OBJTOMB)
+                continue;
 
-        entriesScanned[type]++;
-        scannedEntryLengths[type] += buffer.getTotalLength();
-        if (expect_true(s == RELOCATED)) {
-            liveEntriesScanned[type]++;
-            liveScannedEntryLengths[type] += buffer.getTotalLength();
+            Buffer buffer;
+            it.appendToBuffer(buffer);
+            Log::Reference reference = segment->getReference(it.getOffset());
+            uint32_t bytesAppended = 0;
+            RelocStatus s = relocateEntry(type,
+                                          buffer,
+                                          reference,
+                                          survivor,
+                                          localMetrics,
+                                          &bytesAppended);
+            if (expect_false(s == RELOCATION_FAILED))
+                throw FatalError(HERE, "Entry didn't fit into survivor!");
+
+            localMetrics.totalEntriesScanned[type]++;
+            localMetrics.totalScannedEntryLengths[type] +=
+                buffer.getTotalLength();
+            if (expect_true(s == RELOCATED)) {
+                localMetrics.totalLiveEntriesScanned[type]++;
+                localMetrics.totalLiveScannedEntryLengths[type] +=
+                    buffer.getTotalLength();
+                liveScannedEntryTotalLengths[type] += bytesAppended;
+            }
         }
     }
 
     // Be sure to update the usage statistics for the new segment. This
     // is done once here, rather than for each relocated entry because
-    // it avoids the expense of atomically updating two separate fields.
-    survivor->liveBytes += bytesAppended;
-
+    // it avoids the expense of atomically updating those fields.
     for (size_t i = 0; i < TOTAL_LOG_ENTRY_TYPES; i++) {
-        inMemoryMetrics.totalEntriesScanned[i] += entriesScanned[i];
-        inMemoryMetrics.totalLiveEntriesScanned[i] += liveEntriesScanned[i];
-        inMemoryMetrics.totalScannedEntryLengths[i] += scannedEntryLengths[i];
-        inMemoryMetrics.totalLiveScannedEntryLengths[i] +=
-            liveScannedEntryLengths[i];
+        survivor->trackNewEntries(static_cast<LogEntryType>(i),
+                    downCast<uint32_t>(localMetrics.totalLiveEntriesScanned[i]),
+                    liveScannedEntryTotalLengths[i]);
     }
 
-    // The survivor segment has at least as many seglets allocated as the one
-    // we've compacted (it was freshly allocated, so it has the maximum number
-    // of seglets). We can therefore free the difference (which ensures a 0 net
-    // gain) plus the number extra seglets that getSegmentToCompact() told us
-    // we could free. That value was carefully calculated to ensure that future
-    // disk cleaning will make forward progress (not use more seglets after
-    // cleaning than before).
-    uint32_t segletsToFree = survivor->getSegletsAllocated() -
-                             segment->getSegletsAllocated() +
-                             freeableSeglets;
-
     survivor->close();
+    uint32_t segletsToFree = computeFreeableSeglets(survivor);
     bool r = survivor->freeUnusedSeglets(segletsToFree);
     assert(r);
+    assert(segment->getSegletsAllocated() >= survivor->getSegletsAllocated());
 
-    uint64_t bytesFreed = freeableSeglets * segletSize;
-    inMemoryMetrics.totalBytesFreed += bytesFreed;
-    inMemoryMetrics.totalBytesAppendedToSurvivors +=
+    uint64_t freeSegletsGained = segment->getSegletsAllocated() -
+                                 survivor->getSegletsAllocated();
+    if (freeSegletsGained == 0)
+        balancer->compactionFailed();
+    uint64_t bytesFreed = freeSegletsGained * segletSize;
+    localMetrics.totalBytesFreed += bytesFreed;
+    localMetrics.totalBytesAppendedToSurvivors +=
         survivor->getAppendedLength();
-    inMemoryMetrics.totalSegmentsCompacted++;
+    localMetrics.totalSegmentsCompacted++;
 
-    MetricCycleCounter __(&inMemoryMetrics.compactionCompleteTicks);
+    // Merge our local metrics into the global aggregate counters.
+    inMemoryMetrics.merge(localMetrics);
+
+    AtomicCycleCounter __(&inMemoryMetrics.compactionCompleteTicks);
     segmentManager.compactionComplete(segment, survivor);
-
-    return static_cast<uint64_t>(
-        static_cast<double>(bytesFreed) / Cycles::toSeconds(_.stop()));
 }
 
 /**
@@ -347,11 +380,11 @@ LogCleaner::doMemoryCleaning()
  * to clean, extracting entries from those segments, writing them out into new
  * "survivor" segments, and alerting the segment manager upon completion.
  */
-uint64_t
-LogCleaner::doDiskCleaning(bool lowOnDiskSpace)
+void
+LogCleaner::doDiskCleaning()
 {
     TEST_LOG("called");
-    MetricCycleCounter _(&onDiskMetrics.totalTicks);
+    AtomicCycleCounter _(&onDiskMetrics.totalTicks);
 
     // Obtain the segments we'll clean in this pass. We're guaranteed to have
     // the resources to clean what's returned.
@@ -359,7 +392,10 @@ LogCleaner::doDiskCleaning(bool lowOnDiskSpace)
     getSegmentsToClean(segmentsToClean);
 
     if (segmentsToClean.size() == 0)
-        return 0;
+        return;
+
+    onDiskMetrics.memoryUtilizationAtStartSum +=
+        segmentManager.getMemoryUtilization();
 
     // Extract the currently live entries of the segments we're cleaning and
     // sort them by age.
@@ -369,14 +405,16 @@ LogCleaner::doDiskCleaning(bool lowOnDiskSpace)
     uint64_t maxLiveBytes = 0;
     uint32_t segletsBefore = 0;
     foreach (LogSegment* segment, segmentsToClean) {
-        uint64_t liveBytes = segment->liveBytes;
+        uint64_t liveBytes = segment->getLiveBytes();
         if (liveBytes == 0)
             onDiskMetrics.totalEmptySegmentsCleaned++;
         maxLiveBytes += liveBytes;
         segletsBefore += segment->getSegletsAllocated();
     }
 
-    // Relocate the live entries to survivor segments.
+    // Relocate the live entries to survivor segments. Be sure to use local
+    // counters and merge them into our global metrics afterwards to avoid
+    // cache line ping-ponging in the hot path.
     LogSegmentVector survivors;
     uint64_t entryBytesAppended = relocateLiveEntries(entries, survivors);
 
@@ -403,14 +441,14 @@ LogCleaner::doDiskCleaning(bool lowOnDiskSpace)
     onDiskMetrics.totalSegmentsCleaned += segmentsToClean.size();
     onDiskMetrics.totalSurvivorsCreated += survivors.size();
     onDiskMetrics.totalRuns++;
-    if (lowOnDiskSpace)
+    onDiskMetrics.lastRunTimestamp = WallTime::secondsTimestamp();
+    if (segmentManager.getSegmentUtilization() >= MIN_DISK_UTILIZATION)
         onDiskMetrics.totalLowDiskSpaceRuns++;
 
-    MetricCycleCounter __(&onDiskMetrics.cleaningCompleteTicks);
+    AtomicCycleCounter __(&onDiskMetrics.cleaningCompleteTicks);
     segmentManager.cleaningComplete(segmentsToClean, survivors);
 
-    return static_cast<uint64_t>(
-        static_cast<double>(memoryBytesFreed) / Cycles::toSeconds(_.stop()));
+    return;
 }
 
 /**
@@ -419,109 +457,12 @@ LogCleaner::doDiskCleaning(bool lowOnDiskSpace)
  * number of freeable seglets that will keep the segment under our maximum
  * cleanable utilization after compaction. This ensures that we will always be
  * able to use the compacted version of this segment during disk cleaning.
- *
- * \param[out] outFreeableSeglets
- *      The maximum number of seglets the caller should free from this segment
- *      is returned here. Freeing any more may make it impossible to clean the
- *      resulting compacted segment on disk, which may deadlock the system if
- *      it prevents freeing up tombstones in other segments.
  */
 LogSegment*
-LogCleaner::getSegmentToCompact(uint32_t& outFreeableSeglets)
+LogCleaner::getSegmentToCompact()
 {
-    MetricCycleCounter _(&inMemoryMetrics.getSegmentToCompactTicks);
-    Lock guard(candidatesLock);
-
-    size_t bestIndex = -1;
-    uint32_t bestDelta = 0;
-    for (size_t i = 0; i < candidates.size(); i++) {
-        LogSegment* candidate = candidates[i];
-        uint32_t liveBytes = candidate->liveBytes;
-        uint32_t segletsNeeded = (100 * (liveBytes + segletSize - 1)) /
-                                 segletSize / MAX_CLEANABLE_MEMORY_UTILIZATION;
-        uint32_t segletsAllocated = candidate->getSegletsAllocated();
-        uint32_t delta = segletsAllocated - segletsNeeded;
-        if (segletsNeeded < segletsAllocated && delta > bestDelta) {
-            bestIndex = i;
-            bestDelta = delta;
-        }
-    }
-
-    // If we don't think any memory can be safely freed then either we're full
-    // up with live objects (in which case nothing's wrong and we can't actually
-    // do anything), or we have a lot of dead tombstones sitting around that is
-    // causing us to assume that we're full when we really aren't. This can
-    // happen because we don't (and can't easily) keep track of which tombstones
-    // are dead, so all are presumed to be alive. When objects are large and
-    // tombstones are relatively small, this accounting error is usually
-    // harmless. However, when storing very small objects, tombstones are
-    // relatively large and our percentage error can be significant. Also, one
-    // can imagine what'd happen if the cleaner somehow groups tombstones
-    // together into their own segments that always appear to have 100% live
-    // entries.
-    //
-    // So, to address this we'll try compacting the candidate segment with the
-    // most tombstones that has not been compacted in a while. Hopefully this
-    // will choose the one with the most dead tombstones and shake us out of
-    // any deadlock.
-    //
-    // It's entirely possible that we'd want to do this earlier (before we run
-    // out of candidates above, rather than as a last ditch effort). It's not
-    // clear to me, however, when we'd decide and what would give the best
-    // overall performance.
-    //
-    // Did I ever mention how much I hate tombstones?
-    if (bestIndex == static_cast<size_t>(-1)) {
-        __uint128_t bestGoodness = 0;
-        for (size_t i = 0; i < candidates.size(); i++) {
-            LogSegment* candidate = candidates[i];
-            uint32_t tombstoneCount =
-                candidate->getEntryCount(LOG_ENTRY_TYPE_OBJTOMB);
-            uint64_t timeSinceLastCompaction = WallTime::secondsTimestamp() -
-                                            candidate->lastCompactionTimestamp;
-            __uint128_t goodness =
-                (__uint128_t)tombstoneCount * timeSinceLastCompaction;
-            if (goodness > bestGoodness) {
-                bestIndex = i;
-                bestGoodness = goodness;
-            }
-        }
-
-        // Still no dice. Looks like we're just full of live data.
-        if (bestIndex == static_cast<size_t>(-1))
-            return NULL;
-
-        // It's not safe for the compactor to free any memory this time around
-        // (it could be that no tombstones were dead, or we will free too few to
-        // allow us to free seglets while still guaranteeing forward progress
-        // of the disk cleaner).
-        //
-        // If we do free enough memory, we'll get it back in a subsequent pass.
-        // The alternative would be to have a separate algorithm that just
-        // counts dead tombstones and updates the liveness counters. That is
-        // slightly more complicated. Perhaps if this becomes frequently enough
-        // we can optimise that case.
-        bestDelta = 0;
-    }
-
-    LogSegment* best = candidates[bestIndex];
-    candidates[bestIndex] = candidates.back();
-    candidates.pop_back();
-
-    outFreeableSeglets = bestDelta;
-    return best;
-}
-
-void
-LogCleaner::sortSegmentsByCostBenefit(LogSegmentVector& segments)
-{
-    MetricCycleCounter _(&onDiskMetrics.costBenefitSortTicks);
-
-    // Sort segments so that the best candidates are at the front of the vector.
-    // We could probably use a heap instead and go a little faster, but it's not
-    // easy to say how many top candidates we'd want to track in the heap since
-    // they could each have significantly different numbers of seglets.
-    std::sort(segments.begin(), segments.end(), CostBenefitComparer());
+    AtomicCycleCounter _(&inMemoryMetrics.getSegmentToCompactTicks);
+    return cleanableSegments.getSegmentToCompact();
 }
 
 /**
@@ -538,48 +479,34 @@ LogCleaner::sortSegmentsByCostBenefit(LogSegmentVector& segments)
 void
 LogCleaner::getSegmentsToClean(LogSegmentVector& outSegmentsToClean)
 {
-    MetricCycleCounter _(&onDiskMetrics.getSegmentsToCleanTicks);
-    Lock guard(candidatesLock);
+    AtomicCycleCounter _(&onDiskMetrics.getSegmentsToCleanTicks);
+    cleanableSegments.getSegmentsToClean(outSegmentsToClean);
+}
 
-    foreach (LogSegment* segment, candidates) {
-        onDiskMetrics.allSegmentsDiskHistogram.storeSample(
-            segment->getDiskUtilization());
-    }
+uint32_t
+LogCleaner::computeFreeableSeglets(LogSegment* survivor)
+{
+    uint32_t segletsAllocated = survivor->getSegletsAllocated();
+    assert(segletsAllocated == segmentSize / segletSize);
 
-    sortSegmentsByCostBenefit(candidates);
+    // The survivor segment has at least as many seglets allocated as the one we
+    // compacted since it was freshly allocated it has the maximum number of
+    // seglets. We can therefore free the difference, which ensures a
+    // 0 net gain, plus perhaps some extra seglets from space reclaimed from
+    // dead entries.
+    //
+    // We need to be careful not to free every seglet, however, as we must
+    // ensure that disk cleaning is guaranteed to make forward progress (recall
+    // that reordering of entries and segment boundaries can increase the amount
+    // of space occupied by live objects if we're unlucky).
+    uint32_t liveBytes = survivor->getLiveBytes();
+    uint32_t segletsNeeded = (100 * (liveBytes + segletSize)) /
+        segletSize / LogCleaner::MAX_CLEANABLE_MEMORY_UTILIZATION;
 
-    uint32_t totalSeglets = 0;
-    uint64_t totalLiveBytes = 0;
-    uint64_t maximumLiveBytes = MAX_LIVE_SEGMENTS_PER_DISK_PASS * segmentSize;
-    vector<size_t> chosenIndices;
+    if (segletsAllocated > segletsNeeded)
+        return segletsAllocated - segletsNeeded;
 
-    for (size_t i = 0; i < candidates.size(); i++) {
-        LogSegment* candidate = candidates[i];
-
-        int utilization = candidate->getMemoryUtilization();
-        if (utilization > MAX_CLEANABLE_MEMORY_UTILIZATION)
-            continue;
-
-        uint64_t liveBytes = candidate->liveBytes;
-        if ((totalLiveBytes + liveBytes) > maximumLiveBytes)
-            break;
-
-        totalLiveBytes += liveBytes;
-        totalSeglets += candidate->getSegletsAllocated();
-        outSegmentsToClean.push_back(candidate);
-        chosenIndices.push_back(i);
-    }
-
-    // Remove chosen segments from the list of candidates. At this point, we've
-    // committed to cleaning what we chose and have guaranteed that we have the
-    // necessary resources to complete the operation.
-    reverse_foreach(size_t i, chosenIndices) {
-        candidates[i] = candidates.back();
-        candidates.pop_back();
-    }
-
-    TEST_LOG("%lu segments selected with %u allocated segments",
-        chosenIndices.size(), totalSeglets);
+    return 0;
 }
 
 /**
@@ -597,7 +524,7 @@ LogCleaner::getSegmentsToClean(LogSegmentVector& outSegmentsToClean)
 void
 LogCleaner::sortEntriesByTimestamp(EntryVector& entries)
 {
-    MetricCycleCounter _(&onDiskMetrics.timestampSortTicks);
+    AtomicCycleCounter _(&onDiskMetrics.timestampSortTicks);
     std::sort(entries.begin(), entries.end(), TimestampComparer());
 }
 
@@ -614,7 +541,7 @@ void
 LogCleaner::getSortedEntries(LogSegmentVector& segmentsToClean,
                              EntryVector& outEntries)
 {
-    MetricCycleCounter _(&onDiskMetrics.getSortedEntriesTicks);
+    AtomicCycleCounter _(&onDiskMetrics.getSortedEntriesTicks);
 
     foreach (LogSegment* segment, segmentsToClean) {
         for (SegmentIterator it(*segment); !it.isDone(); it.next()) {
@@ -622,8 +549,8 @@ LogCleaner::getSortedEntries(LogSegmentVector& segmentsToClean,
             Buffer buffer;
             it.appendToBuffer(buffer);
             uint32_t timestamp = entryHandlers.getTimestamp(type, buffer);
-            outEntries.push_back(
-                Entry(segment, it.getOffset(), timestamp));
+            outEntries.push_back(Entry(segment->getReference(it.getOffset()),
+                                       timestamp));
         }
     }
 
@@ -666,94 +593,96 @@ LogCleaner::getSortedEntries(LogSegmentVector& segmentsToClean,
  */
 uint64_t
 LogCleaner::relocateLiveEntries(EntryVector& entries,
-                                LogSegmentVector& outSurvivors)
+                            LogSegmentVector& outSurvivors)
 {
-    MetricCycleCounter _(&onDiskMetrics.relocateLiveEntriesTicks);
+    // We update metrics on the stack and then merge with the global counters
+    // once at the end in order to avoid contention between cleaner threads.
+    LogCleanerMetrics::OnDisk<uint64_t> localMetrics;
+    CycleCounter<uint64_t> _(&localMetrics.relocateLiveEntriesTicks);
 
     LogSegment* survivor = NULL;
-    uint64_t currentSurvivorBytesAppended = 0;
-    uint64_t entryBytesAppended = 0;
-    uint64_t entriesScanned[TOTAL_LOG_ENTRY_TYPES] = { 0 };
-    uint64_t liveEntriesScanned[TOTAL_LOG_ENTRY_TYPES] = { 0 };
-    uint64_t scannedEntryLengths[TOTAL_LOG_ENTRY_TYPES] = { 0 };
-    uint64_t liveScannedEntryLengths[TOTAL_LOG_ENTRY_TYPES] = { 0 };
-    uint32_t bytesAppended = 0;
+    uint64_t totalEntryBytesAppended = 0;
+    uint32_t currentLiveEntries[TOTAL_LOG_ENTRY_TYPES] = { 0 };
+    uint32_t currentLiveEntryLengths[TOTAL_LOG_ENTRY_TYPES] = { 0 };
 
     foreach (Entry& entry, entries) {
         Buffer buffer;
-        LogEntryType type = entry.segment->getEntry(entry.offset, buffer);
-        Log::Reference reference = entry.segment->getReference(entry.offset);
-
+        LogEntryType type = entry.reference.getEntry(
+            &segmentManager.getAllocator(), &buffer);
+        Log::Reference reference = entry.reference;
+        uint32_t bytesAppended = 0;
         RelocStatus s = relocateEntry(type,
                                       buffer,
                                       reference,
                                       survivor,
-                                      onDiskMetrics,
+                                      localMetrics,
                                       &bytesAppended);
-        if (s == RELOCATION_FAILED) {
+
+        if (expect_false(s == RELOCATION_FAILED)) {
             if (survivor != NULL) {
-                survivor->liveBytes += bytesAppended;
-                bytesAppended = 0;
+                for (size_t i = 0; i < TOTAL_LOG_ENTRY_TYPES; i++) {
+                    survivor->trackNewEntries(static_cast<LogEntryType>(i),
+                                              currentLiveEntries[i],
+                                              currentLiveEntryLengths[i]);
+                }
+                memset(currentLiveEntries, 0, sizeof(currentLiveEntries));
+                memset(currentLiveEntryLengths, 0,
+                       sizeof(currentLiveEntryLengths));
                 closeSurvivor(survivor);
             }
 
             // Allocate a survivor segment to write into. This call may block if
             // one is not available right now.
-            MetricCycleCounter waitTicks(
-                &onDiskMetrics.waitForFreeSurvivorsTicks);
+            CycleCounter<uint64_t> waitTicks(
+                &localMetrics.waitForFreeSurvivorsTicks);
             survivor = segmentManager.allocSideSegment(
                 SegmentManager::FOR_CLEANING | SegmentManager::MUST_NOT_FAIL,
                 NULL);
             assert(survivor != NULL);
             waitTicks.stop();
             outSurvivors.push_back(survivor);
-            currentSurvivorBytesAppended = survivor->getAppendedLength();
 
             s = relocateEntry(type,
                               buffer,
                               reference,
                               survivor,
-                              onDiskMetrics,
+                              localMetrics,
                               &bytesAppended);
             if (s == RELOCATION_FAILED)
                 throw FatalError(HERE, "Entry didn't fit into empty survivor!");
         }
 
-        entriesScanned[type]++;
-        scannedEntryLengths[type] += buffer.getTotalLength();
-        if (s == RELOCATED) {
-            liveEntriesScanned[type]++;
-            liveScannedEntryLengths[type] += buffer.getTotalLength();
+        localMetrics.totalEntriesScanned[type]++;
+        localMetrics.totalScannedEntryLengths[type] += buffer.getTotalLength();
+        if (expect_true(s == RELOCATED)) {
+            localMetrics.totalLiveEntriesScanned[type]++;
+            localMetrics.totalLiveScannedEntryLengths[type] +=
+                buffer.getTotalLength();
+            currentLiveEntries[type]++;
+            currentLiveEntryLengths[type] += bytesAppended;
         }
 
-        if (survivor != NULL) {
-            uint32_t newSurvivorBytesAppended = survivor->getAppendedLength();
-            entryBytesAppended += (newSurvivorBytesAppended -
-                                   currentSurvivorBytesAppended);
-            currentSurvivorBytesAppended = newSurvivorBytesAppended;
-        }
+        totalEntryBytesAppended += bytesAppended;
     }
 
     if (survivor != NULL) {
-        survivor->liveBytes += bytesAppended;
+        for (size_t i = 0; i < TOTAL_LOG_ENTRY_TYPES; i++) {
+            survivor->trackNewEntries(static_cast<LogEntryType>(i),
+                                      currentLiveEntries[i],
+                                      currentLiveEntryLengths[i]);
+        }
         closeSurvivor(survivor);
     }
 
     // Ensure that the survivors have been synced to backups before proceeding.
     foreach (survivor, outSurvivors) {
-        MetricCycleCounter __(&onDiskMetrics.survivorSyncTicks);
+        CycleCounter<uint64_t> __(&localMetrics.survivorSyncTicks);
         survivor->replicatedSegment->sync(survivor->getAppendedLength());
     }
 
-    for (size_t i = 0; i < TOTAL_LOG_ENTRY_TYPES; i++) {
-        onDiskMetrics.totalEntriesScanned[i] += entriesScanned[i];
-        onDiskMetrics.totalLiveEntriesScanned[i] += liveEntriesScanned[i];
-        onDiskMetrics.totalScannedEntryLengths[i] += scannedEntryLengths[i];
-        onDiskMetrics.totalLiveScannedEntryLengths[i] +=
-            liveScannedEntryLengths[i];
-    }
+    onDiskMetrics.merge(localMetrics);
 
-    return entryBytesAppended;
+    return totalEntryBytesAppended;
 }
 
 /**
@@ -768,7 +697,7 @@ LogCleaner::relocateLiveEntries(EntryVector& entries,
 void
 LogCleaner::closeSurvivor(LogSegment* survivor)
 {
-    MetricCycleCounter _(&onDiskMetrics.closeSurvivorTicks);
+    AtomicCycleCounter _(&onDiskMetrics.closeSurvivorTicks);
     onDiskMetrics.totalBytesAppendedToSurvivors +=
         survivor->getAppendedLength();
 
@@ -785,69 +714,165 @@ LogCleaner::closeSurvivor(LogSegment* survivor)
     assert(r);
 }
 
-/******************************************************************************
- * LogCleaner::CostBenefitComparer inner class
- ******************************************************************************/
-
-/**
- * Construct a new comparison functor that compares segments by cost-benefit.
- * Used when selecting among candidate segments by first sorting them.
- */
-LogCleaner::CostBenefitComparer::CostBenefitComparer()
-    : now(WallTime::secondsTimestamp()),
-      version(Cycles::rdtsc())
-{
-}
-
-/**
- * Calculate the cost-benefit ratio (benefit/cost) for the given segment.
- */
-uint64_t
-LogCleaner::CostBenefitComparer::costBenefit(LogSegment* s)
-{
-    // If utilization is 0, cost-benefit is infinity.
-    uint64_t costBenefit = -1UL;
-
-    int utilization = s->getDiskUtilization();
-    if (utilization != 0) {
-        uint64_t timestamp = s->creationTimestamp;
-
-        // This generally shouldn't happen, but is possible due to:
-        //  1) Unsynchronized TSCs across cores (WallTime uses rdtsc).
-        //  2) Unsynchronized clocks and "newer" recovered data in the log.
-        if (timestamp > now) {
-            LOG(WARNING, "timestamp > now");
-            timestamp = now;
-        }
-
-        uint64_t age = now - timestamp;
-        costBenefit = ((100 - utilization) * age) / utilization;
-    }
-
-    return costBenefit;
-}
-
-/**
- * Compare two segment's cost-benefit ratios. Higher values (better cleaning
- * candidates) are better, so the less than comparison is inverted.
- */
 bool
-LogCleaner::CostBenefitComparer::operator()(LogSegment* a, LogSegment* b)
+LogCleaner::Balancer::isMemoryLow(CleanerThreadState* thread)
 {
-    // We must ensure that we maintain the weak strictly ordered constraint,
-    // otherwise surprising things may happen in the stl algorithms when
-    // segment statistics change and alter the computed cost-benefit of a
-    // segment from one comparison to the next during the same sort operation.
-    if (a->costBenefitVersion != version) {
-        a->costBenefit = costBenefit(a);
-        a->costBenefitVersion = version;
+    // T = Total % of memory in use (including tombstones, dead objects, etc).
+    // L = Total % of memory in use by live objects.
+    const int T = cleaner->segmentManager.getMemoryUtilization();
+    const int L = cleaner->cleanableSegments.getLiveObjectUtilization();
+
+    // We need to clean if memory is low and there's space that could be
+    // reclaimed. It's not worth cleaning if almost everything is alive.
+    int baseThreshold = std::max(90, (100 + L) / 2);
+    if (T < baseThreshold)
+        return false;
+
+    // Employ multiple threads only when we fail to keep up with fewer of them.
+    if (thread->threadNumber > 0) {
+        int thresh = baseThreshold + 2 * static_cast<int>(thread->threadNumber);
+        if (T < std::min(99, thresh))
+            return false;
     }
-    if (b->costBenefitVersion != version) {
-        b->costBenefit = costBenefit(b);
-        b->costBenefitVersion = version;
-    }
-    return a->costBenefit > b->costBenefit;
+
+    return true;
 }
 
+/**
+ * This method is called by the memory compactor if it failed to free any memory
+ * after processing a segment. This is a pretty good signal that it might be
+ * time to run the disk cleaner.
+ */
+void
+LogCleaner::Balancer::compactionFailed()
+{
+    compactionFailures++;
+}
+
+LogCleaner::Balancer::CleaningTask
+LogCleaner::Balancer::requestTask(CleanerThreadState* thread)
+{
+    if (isDiskCleaningNeeded(thread))
+        return CLEAN_DISK;
+
+    if (!cleaner->disableInMemoryCleaning && isMemoryLow(thread))
+        return COMPACT_MEMORY;
+
+    return SLEEP;
+}
+
+LogCleaner::TombstoneRatioBalancer::TombstoneRatioBalancer(LogCleaner* cleaner,
+                                                           double ratio)
+    : Balancer(cleaner)
+    , ratio(ratio)
+{
+    LOG(NOTICE, "Using tombstone ratio balancer with ratio = %f", ratio);
+    if (ratio < 0 || ratio > 1)
+        DIE("Invalid tombstoneRatio argument (%f). Must be in [0, 1].", ratio);
+}
+
+LogCleaner::TombstoneRatioBalancer::~TombstoneRatioBalancer()
+{
+}
+
+bool
+LogCleaner::TombstoneRatioBalancer::isDiskCleaningNeeded(
+                                                    CleanerThreadState* thread)
+{
+    // Our disk cleaner is fast enough to chew up considerable backup bandwidth
+    // with just one thread. If we're running with backups, then only permit
+    // one thread to clean on disk.
+    if (thread->threadNumber != 0 && !cleaner->disableInMemoryCleaning)
+        return false;
+
+    // If we're running out of disk space, we need to run the disk cleaner.
+    if (cleaner->segmentManager.getSegmentUtilization() >= MIN_DISK_UTILIZATION)
+        return true;
+
+    // If we're not low on memory then we need not clean. Note that this is
+    // purposefully checked after first seeing if we're low on disk space.
+    if (!isMemoryLow(thread))
+        return false;
+
+    // If we are low on memory, but the compactor is disabled, we must clean.
+    if (cleaner->disableInMemoryCleaning)
+        return true;
+
+    // If the ratio is set high and the memory utilisation is also high, it's
+    // possible that we won't have a large enough percentage of tombstones to
+    // trigger disk cleaning, but will also not gain anything from compacting.
+    if (compactionFailures > compactionFailuresHandled) {
+        compactionFailuresHandled++;
+        return true;
+    }
+
+    // We're low on memory and the compactor is enabled. We'll let the compactor
+    // do its thing until tombstones start to pile up enough that running the
+    // disk cleaner is needed to free some of them (by discarding the some of
+    // the segments they refer to).
+    //
+    // The heuristic we'll use to determine when tombstones are piling up is
+    // as follows: if tombstones that may be alive account for at least X% of
+    // the space not used by live objects (that is, space that is eventually
+    // reclaimable), then we should run the disk cleaner to hopefully make some
+    // of them dead.
+    const int U = cleaner->cleanableSegments.getUndeadTombstoneUtilization();
+    const int L = cleaner->cleanableSegments.getLiveObjectUtilization();
+    if (U >= static_cast<int>(ratio * (100 - L)))
+        return true;
+
+    return false;
+}
+
+LogCleaner::FixedBalancer::FixedBalancer(LogCleaner* cleaner,
+                                         uint32_t cleaningPercentage)
+    : Balancer(cleaner)
+    , cleaningPercentage(cleaningPercentage)
+{
+    if (cleaner->disableInMemoryCleaning && cleaningPercentage < 100) {
+        DIE("Memory compaction disabled, but wanted %d%% compaction!?",
+            100 - cleaningPercentage);
+    }
+    LOG(NOTICE, "Using fixed balancer with %u%% disk cleaning",
+        cleaningPercentage);
+}
+
+LogCleaner::FixedBalancer::~FixedBalancer()
+{
+}
+
+bool
+LogCleaner::FixedBalancer::isDiskCleaningNeeded(CleanerThreadState* thread)
+{
+    // See TombstoneRatioBalancer::isDiskCleaningNeeded for comments on this
+    // first handful of conditions.
+    if (thread->threadNumber != 0)
+        return false;
+
+    if (cleaner->segmentManager.getSegmentUtilization() >= MIN_DISK_UTILIZATION)
+        return true;
+
+    if (!isMemoryLow(thread))
+        return false;
+
+    // If the memory compactor has failed to free any space recent, it's a good
+    // sign that we need disk cleaning.
+    if (compactionFailures > compactionFailuresHandled) {
+        compactionFailuresHandled++;
+        return true;
+    }
+
+    uint64_t diskTicks = thread->diskCleaningTicks;
+    uint64_t memoryTicks = thread->memoryCompactionTicks;
+    uint64_t totalTicks = diskTicks + memoryTicks;
+
+    if (totalTicks == 0)
+        return true;
+
+    if (100 * diskTicks / totalTicks > cleaningPercentage)
+        return false;
+
+    return true;
+}
 
 } // namespace

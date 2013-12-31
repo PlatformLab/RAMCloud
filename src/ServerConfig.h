@@ -214,6 +214,7 @@ struct ServerConfig {
             , disableLogCleaner(true)
             , disableInMemoryCleaning(true)
             , diskExpansionFactor(1.0)
+            , cleanerBalancer("tombstoneRatio:0.40")
             , cleanerWriteCostThreshold(0)
             , cleanerThreadCount(1)
             , masterServiceThreadCount(1)
@@ -232,6 +233,7 @@ struct ServerConfig {
             , disableLogCleaner()
             , disableInMemoryCleaning()
             , diskExpansionFactor()
+            , cleanerBalancer()
             , cleanerWriteCostThreshold()
             , cleanerThreadCount()
             , masterServiceThreadCount()
@@ -250,6 +252,7 @@ struct ServerConfig {
             config.set_disable_log_cleaner(disableLogCleaner);
             config.set_disable_in_memory_cleaning(disableInMemoryCleaning);
             config.set_backup_disk_expansion_factor(diskExpansionFactor);
+            config.set_cleaner_balancer(cleanerBalancer);
             config.set_cleaner_write_cost_threshold(cleanerWriteCostThreshold);
             config.set_cleaner_thread_count(cleanerThreadCount);
             config.set_master_service_thread_count(masterServiceThreadCount);
@@ -275,6 +278,10 @@ struct ServerConfig {
         /// that for every full segment's worth of space in the server's memory,
         /// we may allocate two segments on backup disks.
         double diskExpansionFactor;
+
+        /// String specifying which LogCleaner::Balancer to use to schedule
+        /// disk cleaning and memory compaction.
+        string cleanerBalancer;
 
         /// If in-memory cleaning is enabled, this specifies the balance between
         /// in-memory and disk cleaning.

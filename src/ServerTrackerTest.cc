@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2012 Stanford University
+/* Copyright (c) 2011-2013 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -37,6 +37,7 @@ class ServerTrackerTest : public ::testing::Test {
         , sl(&context)
         , tr(&context)
         , trcb(&context, &callback)
+        , logSilencer()
     {
     }
 
@@ -45,18 +46,39 @@ class ServerTrackerTest : public ::testing::Test {
     ServerList sl;
     ServerTracker<int> tr;
     ServerTracker<int> trcb;
+    TestLog::Enable logSilencer;
+
+    // The next methods provide shortcuts for queueing events.
+    void upEvent(ServerId id)
+    {
+        tr.enqueueChange(ServerDetails(id, "mock:",
+                {WireFormat::BACKUP_SERVICE}, 100, ServerStatus::UP),
+                ServerChangeEvent::SERVER_ADDED);
+    }
+    void crashedEvent(ServerId id)
+    {
+        tr.enqueueChange(ServerDetails(id, "mock:",
+                {WireFormat::BACKUP_SERVICE}, 100, ServerStatus::CRASHED),
+                ServerChangeEvent::SERVER_CRASHED);
+    }
+    void removedEvent(ServerId id)
+    {
+        tr.enqueueChange(ServerDetails(id, "mock:",
+                {WireFormat::BACKUP_SERVICE}, 100, ServerStatus::REMOVE),
+                ServerChangeEvent::SERVER_REMOVED);
+    }
 
     DISALLOW_COPY_AND_ASSIGN(ServerTrackerTest);
 };
 
 TEST_F(ServerTrackerTest, constructors) {
     EXPECT_EQ(0U, tr.serverList.size());
-    EXPECT_FALSE(tr.changes.hasChanges());
+    EXPECT_FALSE(tr.hasChanges());
     EXPECT_FALSE(tr.eventCallback);
     EXPECT_EQ(static_cast<uint32_t>(-1), tr.lastRemovedIndex);
 
     EXPECT_EQ(0U, trcb.serverList.size());
-    EXPECT_FALSE(trcb.changes.hasChanges());
+    EXPECT_FALSE(trcb.hasChanges());
     EXPECT_TRUE(trcb.eventCallback);
     EXPECT_TRUE(&callback == trcb.eventCallback);
     EXPECT_EQ(static_cast<uint32_t>(-1), trcb.lastRemovedIndex);
@@ -72,11 +94,11 @@ TEST_F(ServerTrackerTest, destructor) {
 
 TEST_F(ServerTrackerTest, enqueueChange) {
     EXPECT_EQ(0U, tr.serverList.size());
-    EXPECT_EQ(0U, tr.changes.changes.size());
+    EXPECT_EQ(0U, tr.changes.size());
     tr.enqueueChange(ServerDetails(ServerId(2, 0), ServerStatus::UP),
                      ServerChangeEvent::SERVER_ADDED);
     EXPECT_EQ(0U, tr.serverList.size()); // No vector resize before getChange()!
-    EXPECT_EQ(1U, tr.changes.changes.size());
+    EXPECT_EQ(1U, tr.changes.size());
 
     // Ensure nothing was actually added to the lists.
     for (size_t i = 0; i < tr.serverList.size(); i++) {
@@ -128,11 +150,10 @@ TEST_F(ServerTrackerTest, fireCallback) {
 
     ProtoBuf::ServerList update;
     ServerListBuilder{update}
-        ({WireFormat::MASTER_SERVICE}, *ServerId(1, 5),
+        ({WireFormat::MASTER_SERVICE}, *ServerId(3, 0),
          "mock:host=oneBeta", 101);
     update.set_version_number(2);
     update.set_type(ProtoBuf::ServerList_Type_UPDATE);
-    TestLog::Enable _;
     sl.applyServerList(update);
     EXPECT_EQ(2, callback.callbacksFired);
 
@@ -152,7 +173,7 @@ TEST_F(ServerTrackerTest, fireCallback) {
     countCb.callbacksFired = 0;
     ProtoBuf::ServerList update2;
     ServerListBuilder{update2}
-        ({WireFormat::MASTER_SERVICE}, *ServerId(1, 6),
+        ({WireFormat::MASTER_SERVICE}, *ServerId(4, 0),
          "mock:host=oneBeta", 101);
     update2.set_version_number(3);
     update2.set_type(ProtoBuf::ServerList_Type_UPDATE);
@@ -172,63 +193,191 @@ TEST_F(ServerTrackerTest, hasChanges) {
     EXPECT_TRUE(tr.hasChanges());
 }
 
-static bool
-getChangeFilter(string s)
-{
-    return (s == "getChange");
+TEST_F(ServerTrackerTest, getChange_detectUnclearedPointer) {
+    ServerDetails server;
+    ServerChangeEvent event;
+    upEvent(ServerId(2, 0));
+    EXPECT_TRUE(tr.getChange(server, event));
+    tr[server.serverId] = reinterpret_cast<int*>(57);
+    removedEvent(ServerId(2, 0));
+    string message("no exception");
+    try {
+        while (tr.getChange(server, event)) {
+            // Empty loop body; simply read every event;
+        }
+    } catch (FatalError& e) {
+        message = e.message;
+    }
+    EXPECT_EQ("User of this ServerTracker did not NULL out previous "
+            "pointer for server 2.0", message);
 }
 
-TEST_F(ServerTrackerTest, getChange) {
-    TestLog::Enable _(&getChangeFilter);
+TEST_F(ServerTrackerTest, getChange_resetStateAfterRemove) {
+    ServerDetails server;
+    ServerChangeEvent event;
+    upEvent(ServerId(2, 0));
+    EXPECT_TRUE(tr.getChange(server, event));
+    tr[server.serverId] = reinterpret_cast<int*>(57);
+    removedEvent(ServerId(2, 0));
+    EXPECT_TRUE(tr.getChange(server, event));             // SERVER_CRASHED //
+    EXPECT_TRUE(tr.getChange(server, event));             // SERVER_REMOVED //
+    tr[server.serverId] = NULL;
+    EXPECT_FALSE(tr.getChange(server, event));            // reset state //
+    EXPECT_EQ(0xffffffff, tr.lastRemovedIndex);
+    EXPECT_EQ(ServerId(), tr.serverList[2].server.serverId);
+}
+
+TEST_F(ServerTrackerTest, getChange_emptyQueue) {
+    ServerDetails server;
+    ServerChangeEvent event;
+    EXPECT_FALSE(tr.getChange(server, event));
+}
+
+TEST_F(ServerTrackerTest, getChange_growList) {
+    ServerDetails server;
+    ServerChangeEvent event;
+    upEvent(ServerId(2, 0));
+    EXPECT_EQ(0u, tr.serverList.size());
+    EXPECT_TRUE(tr.getChange(server, event));
+    EXPECT_EQ(3u, tr.serverList.size());
+    upEvent(ServerId(5, 0));
+    EXPECT_TRUE(tr.getChange(server, event));
+    EXPECT_EQ(6u, tr.serverList.size());
+}
+
+TEST_F(ServerTrackerTest, getChange_add) {
     ServerDetails server;
     ServerChangeEvent event;
 
-    // Add
-    EXPECT_FALSE(tr.getChange(server, event));
-    EXPECT_EQ(0U, tr.serverList.size());
-    tr.enqueueChange(ServerDetails(ServerId(2, 0), "Prophylaxis",
-                                   {WireFormat::BACKUP_SERVICE}, 100,
-                                   ServerStatus::UP),
-                     ServerChangeEvent::SERVER_ADDED);
-    EXPECT_EQ(0U, tr.serverList.size());
+    // First add is normal.
+    upEvent(ServerId(2, 0));
     EXPECT_TRUE(tr.getChange(server, event));
-    EXPECT_EQ(3U, tr.serverList.size());
     EXPECT_EQ(ServerId(2, 0), server.serverId);
-    EXPECT_EQ("Prophylaxis", server.serviceLocator);
+    EXPECT_EQ("mock:", server.serviceLocator);
     EXPECT_TRUE(server.services.has(WireFormat::BACKUP_SERVICE));
     EXPECT_FALSE(server.services.has(WireFormat::MASTER_SERVICE));
-    EXPECT_EQ(ServerChangeEvent::SERVER_ADDED, event);
-    EXPECT_FALSE(tr.getChange(server, event));
-    EXPECT_EQ(ServerId(2, 0), tr.serverList[2].server.serverId);
-    EXPECT_TRUE(tr.serverList[2].pointer == NULL);
+    EXPECT_STREQ("SERVER_ADDED", ServerTracker<int>::eventString(event));
+    EXPECT_EQ(1u, tr.numberOfServers);
+    EXPECT_EQ(0u, tr.changes.size());
+    EXPECT_EQ("UP", AbstractServerList::toString(
+            tr.serverList[2].server.status));
 
-    // Crashed
-
-    tr.enqueueChange(ServerDetails(ServerId(2, 0), ServerStatus::CRASHED),
-                     ServerChangeEvent::SERVER_CRASHED);
+    // Try add after add: should be OK (e.g. updating replication group).
+    upEvent(ServerId(2, 0));
     EXPECT_TRUE(tr.getChange(server, event));
-    EXPECT_EQ(ServerId(2, 0), server.serverId);
-    EXPECT_EQ(ServerChangeEvent::SERVER_CRASHED, event);
-    EXPECT_EQ(ServerStatus::CRASHED, tr.getServerDetails({2, 0})->status);
+    EXPECT_STREQ("SERVER_ADDED", ServerTracker<int>::eventString(event));
 
-    // Remove
-    tr[ServerId(2, 0)] = reinterpret_cast<int*>(57);
-    tr.enqueueChange(ServerDetails(ServerId(2, 0), ServerStatus::REMOVE),
-                     ServerChangeEvent::SERVER_REMOVED);
-    EXPECT_EQ(reinterpret_cast<void*>(57), tr[ServerId(2, 0)]);
+    // Try add after crash: not allowed.
+    crashedEvent(ServerId(2, 0));
     EXPECT_TRUE(tr.getChange(server, event));
+    string message("no exception");
+    try {
+        upEvent(ServerId(2, 0));
+        tr.getChange(server, event);
+    } catch (FatalError& e) {
+        message = e.message;
+    }
+    EXPECT_EQ("Consistency error between event (server 2.0, status "
+            "SERVER_ADDED) and slot (server 2.0, status CRASHED)",
+            message);
+    EXPECT_EQ(1u, tr.changes.size());
+}
+
+TEST_F(ServerTrackerTest, getChange_normalCrashedEvent) {
+    ServerDetails server;
+    ServerChangeEvent event;
+    upEvent(ServerId(2, 0));
+    crashedEvent(ServerId(2, 0));
+    EXPECT_EQ(2u, tr.changes.size());
+    EXPECT_TRUE(tr.getChange(server, event));
+    EXPECT_EQ(1u, tr.changes.size());
+    EXPECT_TRUE(tr.getChange(server, event));
+    EXPECT_EQ("CRASHED", AbstractServerList::toString(
+            tr.serverList[2].server.status));
     EXPECT_EQ(ServerId(2, 0), server.serverId);
-    EXPECT_EQ(ServerChangeEvent::SERVER_REMOVED, event);
-    EXPECT_EQ(2U, tr.lastRemovedIndex);
-    tr.testing_avoidGetChangeAssertion = true;
+    EXPECT_EQ("CRASHED", AbstractServerList::toString(server.status));
+    EXPECT_STREQ("SERVER_CRASHED", ServerTracker<int>::eventString(event));
+    EXPECT_EQ(0u, tr.changes.size());
+}
+
+TEST_F(ServerTrackerTest, getChange_crashedWithAddMissing) {
+    ServerDetails server;
+    ServerChangeEvent event;
+    crashedEvent(ServerId(2, 0));
+    EXPECT_TRUE(tr.getChange(server, event));
+    EXPECT_EQ("UP", AbstractServerList::toString(
+            tr.serverList[2].server.status));
+    EXPECT_EQ(ServerId(2, 0), server.serverId);
+    EXPECT_EQ("UP", AbstractServerList::toString(server.status));
+    EXPECT_STREQ("SERVER_ADDED", ServerTracker<int>::eventString(event));
+    EXPECT_EQ(1u, tr.changes.size());
+    EXPECT_EQ(1u, tr.numberOfServers);
+}
+
+TEST_F(ServerTrackerTest, getChange_duplicateCrash) {
+    ServerDetails server;
+    ServerChangeEvent event;
+    upEvent(ServerId(2, 0));
+    crashedEvent(ServerId(2, 0));
+    EXPECT_TRUE(tr.getChange(server, event));
+    EXPECT_TRUE(tr.getChange(server, event));
+
+    crashedEvent(ServerId(2, 0));
+    string message("no exception");
+    try {
+        tr.getChange(server, event);
+    } catch (FatalError& e) {
+        message = e.message;
+    }
+    EXPECT_EQ("Consistency error between event (server 2.0, "
+            "status SERVER_CRASHED) and slot (server 2.0, status CRASHED)",
+            message);
+    EXPECT_EQ(1u, tr.changes.size());
+}
+
+TEST_F(ServerTrackerTest, getChange_removedWithCrashMissing) {
+    ServerDetails server;
+    ServerChangeEvent event;
+    upEvent(ServerId(2, 0));
+    EXPECT_TRUE(tr.getChange(server, event));
+    removedEvent(ServerId(2, 0));
+    EXPECT_TRUE(tr.getChange(server, event));
+    EXPECT_EQ("CRASHED", AbstractServerList::toString(
+            tr.serverList[2].server.status));
+    EXPECT_EQ(ServerId(2, 0), server.serverId);
+    EXPECT_EQ("CRASHED", AbstractServerList::toString(server.status));
+    EXPECT_STREQ("SERVER_CRASHED", ServerTracker<int>::eventString(event));
+    EXPECT_EQ(1u, tr.changes.size());
+    EXPECT_EQ(1u, tr.numberOfServers);
+}
+
+TEST_F(ServerTrackerTest, getChange_normalRemovedEvent) {
+    ServerDetails server;
+    ServerChangeEvent event;
+    upEvent(ServerId(2, 0));
+    crashedEvent(ServerId(2, 0));
+    removedEvent(ServerId(2, 0));
+    EXPECT_EQ(3u, tr.changes.size());
+    EXPECT_TRUE(tr.getChange(server, event));
+    EXPECT_TRUE(tr.getChange(server, event));
+    EXPECT_TRUE(tr.getChange(server, event));
+    EXPECT_EQ("REMOVE", AbstractServerList::toString(
+            tr.serverList[2].server.status));
+    EXPECT_EQ(ServerId(2, 0), server.serverId);
+    EXPECT_EQ("REMOVE", AbstractServerList::toString(server.status));
+    EXPECT_STREQ("SERVER_REMOVED", ServerTracker<int>::eventString(event));
+    EXPECT_EQ(0u, tr.changes.size());
+    EXPECT_EQ(0u, tr.numberOfServers);
+    EXPECT_EQ(2u, tr.lastRemovedIndex);
+}
+
+TEST_F(ServerTrackerTest, getChange_removedButServerNeverAdded) {
+    ServerDetails server;
+    ServerChangeEvent event;
+    removedEvent(ServerId(2, 0));
+    removedEvent(ServerId(3, 0));
     EXPECT_FALSE(tr.getChange(server, event));
-    EXPECT_EQ("getChange: User of this ServerTracker did not NULL out previous "
-        "pointer for index 2 (ServerId 2.0)!", TestLog::get());
-    EXPECT_FALSE(tr.serverList[2].server.serverId.isValid());
-    EXPECT_EQ("", tr.serverList[2].server.serviceLocator);
-    EXPECT_EQ(0u, tr.serverList[2].server.services.serialize());
-    EXPECT_TRUE(tr.serverList[2].pointer == NULL);
-    EXPECT_EQ(static_cast<uint32_t>(-1), tr.lastRemovedIndex);
+    EXPECT_EQ(0u, tr.changes.size());
 }
 
 TEST_F(ServerTrackerTest, getRandomServerIdWithService) {
@@ -238,53 +387,45 @@ TEST_F(ServerTrackerTest, getRandomServerIdWithService) {
     ServerChangeEvent event;
 
     EXPECT_FALSE(tr.getRandomServerIdWithService(
-        WireFormat::MASTER_SERVICE).isValid());
-    tr.enqueueChange(ServerDetails(ServerId(0, 1), "",
-                                   {WireFormat::MASTER_SERVICE}, 100,
-                                   ServerStatus::UP),
-                     ServerChangeEvent::SERVER_ADDED);
+        WireFormat::BACKUP_SERVICE).isValid());
+    upEvent(ServerId(1, 0));
     EXPECT_FALSE(tr.getRandomServerIdWithService(
-        WireFormat::MASTER_SERVICE).isValid());
+        WireFormat::BACKUP_SERVICE).isValid());
 
     EXPECT_TRUE(tr.getChange(server, event));
     for (int i = 0; i < 10; i++) {
         // Ensure asking for a specific service filters properly.
         // Should find one with low order bit set.
-        EXPECT_EQ(ServerId(0, 1),
-                  tr.getRandomServerIdWithService(WireFormat::MASTER_SERVICE));
+        EXPECT_EQ(ServerId(1, 0),
+                  tr.getRandomServerIdWithService(WireFormat::BACKUP_SERVICE));
         // No host available with this service bit set.
         EXPECT_EQ(ServerId(),
-                  tr.getRandomServerIdWithService(WireFormat::BACKUP_SERVICE));
+                  tr.getRandomServerIdWithService(WireFormat::MASTER_SERVICE));
     }
 
-    tr.enqueueChange(ServerDetails(ServerId(1, 1), "",
-                                   {WireFormat::MASTER_SERVICE}, 100,
-                                   ServerStatus::UP),
-                     ServerChangeEvent::SERVER_ADDED);
-
+    upEvent(ServerId(2, 0));
     EXPECT_TRUE(tr.getChange(server, event));
     bool firstSeen = false;
     bool secondSeen = false;
     for (int i = 0; i < 100; i++) {
         ServerId id = tr.getRandomServerIdWithService(
-            WireFormat::MASTER_SERVICE);
-        EXPECT_TRUE(id == ServerId(0, 1) ||
-                    id == ServerId(1, 1));
-        if (id == ServerId(0, 1)) firstSeen = true;
-        if (id == ServerId(1, 1)) secondSeen = true;
+            WireFormat::BACKUP_SERVICE);
+        EXPECT_TRUE(id == ServerId(1, 0) ||
+                    id == ServerId(2, 0));
+        if (id == ServerId(1, 0)) firstSeen = true;
+        if (id == ServerId(2, 0)) secondSeen = true;
     }
     EXPECT_TRUE(firstSeen);
     EXPECT_TRUE(secondSeen);
 
     // Ensure looping over empty list terminates.
-    tr.enqueueChange(ServerDetails(ServerId(0, 1), ServerStatus::REMOVE),
-                     ServerChangeEvent::SERVER_REMOVED);
-    tr.enqueueChange(ServerDetails(ServerId(1, 1), ServerStatus::REMOVE),
-                     ServerChangeEvent::SERVER_REMOVED);
-    EXPECT_TRUE(tr.getChange(server, event));
-    EXPECT_TRUE(tr.getChange(server, event));
+    removedEvent(ServerId(1, 0));
+    removedEvent(ServerId(2, 0));
+    while (tr.getChange(server, event)) {
+        // Do nothing; just process all events.
+    }
     EXPECT_FALSE(tr.getRandomServerIdWithService(
-        {WireFormat::MASTER_SERVICE}).isValid());
+        {WireFormat::BACKUP_SERVICE}).isValid());
 }
 
 TEST_F(ServerTrackerTest, getRandomServerIdWithService_evenDistribution) {
@@ -292,18 +433,9 @@ TEST_F(ServerTrackerTest, getRandomServerIdWithService_evenDistribution) {
 
     ServerDetails server;
     ServerChangeEvent event;
-    tr.enqueueChange(ServerDetails(ServerId(1, 0), "",
-                                   {WireFormat::BACKUP_SERVICE}, 100,
-                                   ServerStatus::UP),
-                     ServerChangeEvent::SERVER_ADDED);
-    tr.enqueueChange(ServerDetails(ServerId(2, 0), "",
-                                   {WireFormat::BACKUP_SERVICE}, 100,
-                                   ServerStatus::UP),
-                     ServerChangeEvent::SERVER_ADDED);
-    tr.enqueueChange(ServerDetails(ServerId(3, 0), "",
-                                   {WireFormat::BACKUP_SERVICE}, 100,
-                                   ServerStatus::UP),
-                     ServerChangeEvent::SERVER_ADDED);
+    upEvent(ServerId(1, 0));
+    upEvent(ServerId(2, 0));
+    upEvent(ServerId(3, 0));
     EXPECT_TRUE(tr.getChange(server, event));
     EXPECT_TRUE(tr.getChange(server, event));
     EXPECT_TRUE(tr.getChange(server, event));
@@ -361,7 +493,6 @@ TEST_F(ServerTrackerTest, getServerDetails) {
 }
 
 TEST_F(ServerTrackerTest, indexOperator) {
-    TestLog::Enable _; // suck up getChange WARNING
     ServerDetails server;
     ServerChangeEvent event;
 
@@ -377,6 +508,7 @@ TEST_F(ServerTrackerTest, indexOperator) {
 
     tr.enqueueChange(ServerDetails(ServerId(0, 0), ServerStatus::REMOVE),
                      ServerChangeEvent::SERVER_REMOVED);
+    EXPECT_TRUE(tr.getChange(server, event));
     EXPECT_TRUE(tr.getChange(server, event));
     EXPECT_NO_THROW(tr[ServerId(0, 0)]);
     EXPECT_NE(static_cast<int*>(NULL), tr.serverList[0].pointer);
@@ -400,6 +532,7 @@ TEST_F(ServerTrackerTest, size) {
     tr.enqueueChange(ServerDetails(ServerId(0, 0), ServerStatus::REMOVE),
                      ServerChangeEvent::SERVER_REMOVED);
     EXPECT_EQ(1U, tr.size());
+    tr.getChange(server, event);
     tr.getChange(server, event);
     EXPECT_EQ(0U, tr.size());
 }
@@ -442,32 +575,6 @@ TEST_F(ServerTrackerTest, getServersWithService) {
     servers = tr.getServersWithService(WireFormat::BACKUP_SERVICE);
     ASSERT_EQ(1lu, servers.size());
     EXPECT_EQ(ServerId(2, 0), servers[0]);
-}
-
-TEST_F(ServerTrackerTest, ChangeQueue_addChange) {
-    EXPECT_EQ(0U, tr.changes.changes.size());
-    auto details = ServerDetails(ServerId(5, 4), ServerStatus::UP);
-    tr.changes.addChange(details, ServerChangeEvent::SERVER_ADDED);
-    EXPECT_EQ(1U, tr.changes.changes.size());
-    EXPECT_EQ(ServerId(5, 4), tr.changes.changes.front().server.serverId);
-    EXPECT_EQ(ServerChangeEvent::SERVER_ADDED,
-        tr.changes.changes.front().event);
-}
-
-TEST_F(ServerTrackerTest, ChangeQueue_getChange) {
-    EXPECT_THROW(tr.changes.getChange(), Exception);
-
-    tr.changes.addChange(ServerDetails(ServerId(5, 4), ServerStatus::UP),
-                         ServerChangeEvent::SERVER_ADDED);
-    ServerTracker<int>::ServerChange change = tr.changes.getChange();
-    EXPECT_EQ(0U, tr.changes.changes.size());
-    EXPECT_EQ(ServerId(5, 4), change.server.serverId);
-    EXPECT_EQ(ServerChangeEvent::SERVER_ADDED, change.event);
-    EXPECT_THROW(tr.changes.getChange(), Exception);
-}
-
-TEST_F(ServerTrackerTest, ChangeQueue_hasChanges) {
-
 }
 
 TEST_F(ServerTrackerTest, setParent) {

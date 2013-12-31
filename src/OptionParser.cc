@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2012 Stanford University
+/* Copyright (c) 2010-2013 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -135,14 +135,31 @@ OptionParser::setup(int argc, char* argv[])
              po::value<vector<string> >(&logLevels),
              "One or more module-specific log levels, specified in the form "
              "moduleName=level")
+            ("coordinator,C",
+             po::value<string>(&options.coordinatorLocator)->
+               default_value("fast+udp:host=0.0.0.0,port=12246"),
+             "Service locator where the coordinator can be contacted; "
+             "Ignored if --externalStorage is specified.  Deprecated "
+             "and doesn't support rollover between coordinators; use "
+             "--externalStorage and --clusterName instead).")
+            ("externalStorage,x",
+             po::value<string>(&options.externalStorageLocator),
+             "Locator for external storage server containing cluster "
+             "configuration information")
+            ("clusterName",
+             ProgramOptions::value<string>(&options.clusterName)->
+                default_value("main"),
+             "Name of the cluster. Allows different cluster (such as one "
+             "for testing and one for production) to coexist.  On servers "
+             "running backups, the name '__unnamed__' is special and never "
+             "matches any existing cluster name (even itself), so it "
+             "guarantees all stored replicas are discarded on start; all "
+             "replicas created by this process are discarded by future "
+             "backups.")
             ("local,L",
              po::value<string>(&options.localLocator)->
                default_value("fast+udp:host=0.0.0.0,port=12242"),
              "Service locator to listen on")
-            ("coordinator,C",
-             po::value<string>(&options.coordinatorLocator)->
-               default_value("fast+udp:host=0.0.0.0,port=12246"),
-             "Service locator where the coordinator can be contacted")
             ("pcapFile",
              po::value<string>(&options.pcapFilePath)->
                default_value(""),

@@ -85,15 +85,63 @@ class LogSegment : public Segment {
           creationTimestamp(creationTimestamp),
           isEmergencyHead(isEmergencyHead),
           cleanedEpoch(0),
-          costBenefit(0),
-          costBenefitVersion(0),
+          cachedCleaningCostBenefitScore(0),
+          cachedCompactionCostBenefitScore(0),
+          cachedTombstoneScanScore(0),
           replicatedSegment(NULL),
           listEntries(),
           allListEntries(),
+          cleanableCostBenefitEntries(),
+          cleanableCompactionEntries(),
+          tombstoneScanEntries(),
           syncedLength(0),
           lastCompactionTimestamp(WallTime::secondsTimestamp()),
-          liveBytes(0)
+          lastTombstoneScanTimestamp(WallTime::secondsTimestamp()),
+          entryCounts(),
+          deadEntryCounts(),
+          entryLengths(),
+          deadEntryLengths()
     {
+        memset(entryCounts, 0, sizeof(entryCounts));
+        memset(deadEntryCounts, 0, sizeof(deadEntryCounts));
+        memset(entryLengths, 0, sizeof(entryLengths));
+        memset(deadEntryLengths, 0, sizeof(deadEntryLengths));
+    }
+
+    /**
+     * Return the number of entries of the given type that have been appended to
+     * this segment. There is no notion of dead or alive entries. Any that were
+     * ever appended are reflected in the result.
+     */
+    uint32_t
+    getEntryCount(LogEntryType type)
+    {
+        return entryCounts[type];
+    }
+
+    /*
+     * Return the number of bytes taken up by entries of the given type that have
+     * been appended to this segment. There is no notion of dead or alive entries.
+     * Any that were ever appended are reflected in the result.
+     *
+     * Note that this value includes the header overheads (type and length field)
+     * within the Segment.
+     */
+    uint32_t
+    getEntryLengths(LogEntryType type)
+    {
+        return entryLengths[type];
+    }
+
+    uint32_t
+    getLiveBytes()
+    {
+        uint32_t sum = 0;
+        for (size_t i = 0; i < TOTAL_LOG_ENTRY_TYPES; i++) {
+            assert(entryLengths[i] >= deadEntryLengths[i]);
+            sum += entryLengths[i] - deadEntryLengths[i];
+        }
+        return sum;
     }
 
     /**
@@ -106,11 +154,11 @@ class LogSegment : public Segment {
     {
         uint32_t bytesAllocated = getSegletsAllocated() * segletSize;
         if (bytesAllocated == 0) {
-            assert(liveBytes == 0);
+            assert(getLiveBytes() == 0);
             return 0;
         }
         return static_cast<int>(
-            (static_cast<uint64_t>(liveBytes) * 100) / bytesAllocated);
+            (static_cast<uint64_t>(getLiveBytes()) * 100) / bytesAllocated);
     }
 
     /**
@@ -124,7 +172,7 @@ class LogSegment : public Segment {
     {
         assert(segmentSize != 0);
         return static_cast<int>(
-            (static_cast<uint64_t>(liveBytes) * 100) / segmentSize);
+            (static_cast<uint64_t>(getLiveBytes()) * 100) / segmentSize);
     }
 
     /**
@@ -136,9 +184,29 @@ class LogSegment : public Segment {
     AbstractLog::Reference
     getReference(uint32_t offset)
     {
-        assert(offset < segmentSize);
-        assert(offset < (getSegletsAllocated() * segletSize));
-        return AbstractLog::Reference(slot, offset, segmentSize);
+        return AbstractLog::Reference(this, offset);
+    }
+
+    void
+    trackNewEntries(LogEntryType type,
+                    uint32_t numEntries,
+                    uint32_t lengthWithMetadata)
+    {
+        entryCounts[type] += numEntries;
+        entryLengths[type] += lengthWithMetadata;
+    }
+
+    void
+    trackNewEntry(LogEntryType type, uint32_t lengthWithMetadata)
+    {
+        trackNewEntries(type, 1, lengthWithMetadata);
+    }
+
+    void
+    trackDeadEntry(LogEntryType type, uint32_t lengthWithMetadata)
+    {
+        deadEntryCounts[type]++;
+        deadEntryLengths[type] += lengthWithMetadata;
     }
 
     /// Log-unique 64-bit identifier for this segment.
@@ -180,16 +248,23 @@ class LogSegment : public Segment {
     /// memory may be safely freed and reused.
     uint64_t cleanedEpoch;
 
-    /// Cached value of this segment's cost-benefit score as computed by the
-    /// cleaner. This value is really only of interest to the cleaner.
-    uint64_t costBenefit;
+    /// Cached value of this segment's cost-benefit score for cleaning as
+    /// computed by the CleanableSegmentManager. This value is only really
+    /// of interest to that module. It is cached to ensure the value does not
+    /// change and violate the weak strict ordering requirement.
+    uint64_t cachedCleaningCostBenefitScore;
 
-    /// Version of our cached costBenefit value. The cleaner uses this to check
-    /// when it must recompute and when it must use the cached value instead.
-    /// The point is that the costBenefit value must not change while std::sort
-    /// is in progress. This version ensures that the costBenefit calculation
-    /// is performed only once each time segments are evaluated for cleaning.
-    uint64_t costBenefitVersion;
+    /// Cached value of this segment's cost-benefit score for compaction as
+    /// computed by CleanableSegmentManager. This value is only really of
+    /// interest to that module. It is cached to ensure the value does not
+    /// change and violate the weak strict ordering requirement.
+    uint64_t cachedCompactionCostBenefitScore;
+
+    /// Cached value of this segment's cost-benefit score for scanning of dead
+    /// tombstones. This value is only really of interest to that module. It is
+    /// cached to ensure the value does not change and violate the weak strict
+    /// ordering requirement.
+    uint64_t cachedTombstoneScanScore;
 
     /// The ReplicatedSegment instance that is responsible for replicating and
     /// this segment to backups.
@@ -202,6 +277,19 @@ class LogSegment : public Segment {
     /// Hook used for linking this LogSegment into the single "allSegments"
     /// instrusive list in SegmentManager.
     IntrusiveListHook allListEntries;
+
+    /// Hook used for linking this LogSegment into an rbtree maintained by
+    /// CleanableSegmentManager that tracks cleanable segments by cost-benefit
+    /// score.
+    IntrusiveSetHook cleanableCostBenefitEntries;
+
+    /// Hook used for linking this LogSegment into a list maintained by
+    /// CleanableSegmentManager that tracks the best candidate segments for
+    /// compaction based on the number of freeable seglets they have.
+    IntrusiveSetHook cleanableCompactionEntries;
+
+    /// XXX
+    IntrusiveSetHook tombstoneScanEntries;
 
     /// Number of bytes in this segment that have been synced in Log::sync. This
     /// is used in Log::sync to avoid issuing a sync() call to ReplicatedSegment
@@ -218,9 +306,46 @@ class LogSegment : public Segment {
     /// such segments to reclaim any tombstones it can.
     const uint32_t lastCompactionTimestamp;
 
-    /// The current number of live bytes in the segment. Used by the cleaner to
-    /// choose segments for compaction or disk cleaning.
-    std::atomic<uint32_t> liveBytes;
+    /// XXX
+    uint32_t lastTombstoneScanTimestamp;
+
+    /// Counts of the number of each log entry type appended to this segment.
+    /// These values monotonically increase and therefore reflect the total
+    /// number of entries in the segment, not just the ones that are still
+    /// considered alive.
+    ///
+    /// Note that for compacted segments these counts only include entries
+    /// still in memory. They do not include ones on disk.
+    std::atomic<uint32_t> entryCounts[TOTAL_LOG_ENTRY_TYPES];
+
+    /// Counts of the number of each log entry previously recorded in
+    /// entryCounts that are now dead (that is, the cleaner can reclaim the
+    /// space they used). These values monotonically increase, and the
+    /// difference between entryCounts[x] and deadEntryCounts[x] is the number
+    /// of live entries of a particular type x.
+    ///
+    /// Note that for compacted segments these counts only include entries
+    /// still in memory. They do not include ones on disk.
+    std::atomic<uint32_t> deadEntryCounts[TOTAL_LOG_ENTRY_TYPES];
+
+    /// Counts of the number of bytes appended to this segment corresponding
+    /// to each log entry type. These values monotonically increase and
+    /// therefore reflect the total number of bytes in the segment, not just
+    /// the ones that are still considered alive.
+    ///
+    /// Note that for compacted segments these counts only include entries
+    /// still in memory. They do not include ones on disk.
+    std::atomic<uint32_t> entryLengths[TOTAL_LOG_ENTRY_TYPES];
+
+    /// Counts of the number of bytes from entries previously recorded in
+    /// entryLengths that are now dead (that is, the cleaner can reclaim the
+    /// space they used). These values monotonically increase, and the
+    /// difference between entryLengths[x] and deadEntryLengths[x] is the number
+    /// of bytes used by live entries of a particular type x.
+    ///
+    /// Note that for compacted segments these counts only include entries
+    /// still in memory. They do not include ones on disk.
+    std::atomic<uint32_t> deadEntryLengths[TOTAL_LOG_ENTRY_TYPES];
 
     DISALLOW_COPY_AND_ASSIGN(LogSegment);
 };

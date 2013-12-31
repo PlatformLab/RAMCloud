@@ -23,18 +23,21 @@ TESTS_SRCFILES := \
 		  src/BitOpsTest.cc \
 		  src/BoostIntrusiveTest.cc \
 		  src/BufferTest.cc \
+		  src/CleanableSegmentManagerTest.cc \
 		  src/ClientExceptionTest.cc \
 		  src/ClusterMetricsTest.cc \
 		  src/CommonTest.cc \
 		  src/ContextTest.cc \
 		  src/CoordinatorRpcWrapperTest.cc \
 		  src/CoordinatorServerListTest.cc \
-		  src/CoordinatorServiceRecoveryTest.cc \
 		  src/CoordinatorServiceTest.cc \
 		  src/CoordinatorSessionTest.cc \
+		  src/CoordinatorUpdateManagerTest.cc \
 		  src/Crc32CTest.cc \
 		  src/CyclesTest.cc \
 		  src/DispatchTest.cc \
+		  src/DataBlockTest.cc \
+		  src/ExternalStorageTest.cc \
 		  src/FailSessionTest.cc \
 		  src/FailureDetectorTest.cc \
 		  src/FastTransportTest.cc \
@@ -44,7 +47,6 @@ TESTS_SRCFILES := \
 		  src/InMemoryStorageTest.cc \
 		  src/IpAddressTest.cc \
 		  src/KeyTest.cc \
-		  src/LogCabinHelperTest.cc \
 		  src/LogCleanerTest.cc \
 		  src/LogDigestTest.cc \
 		  src/LogEntryRelocatorTest.cc \
@@ -61,6 +63,8 @@ TESTS_SRCFILES := \
 		  src/MockCluster.cc \
 		  src/MockClusterTest.cc \
 		  src/MockDriver.cc \
+		  src/MockExternalStorage.cc \
+		  src/MockExternalStorageTest.cc \
 		  src/MockTransport.cc \
 		  src/MultiOpTest.cc \
 		  src/MultiReadTest.cc \
@@ -131,6 +135,7 @@ TESTS_SRCFILES := \
 		  src/WindowTest.cc \
 		  src/WireFormatTest.cc \
 		  src/WorkerSessionTest.cc \
+		  src/WorkerTimerTest.cc \
 		  src/RamCloudTest.cc \
 		  $(INFINIBAND_SRCFILES) \
 		  $(OBJDIR)/ProtoBufTest.pb.cc
@@ -140,6 +145,21 @@ TESTS_OBJFILES := $(patsubst src/%.cc, $(OBJDIR)/%.o, $(TESTS_OBJFILES))
 TESTS_OBJFILES := $(patsubst $(OBJDIR)/%.cc, $(OBJDIR)/%.o, $(TESTS_OBJFILES))
 TESTS_OBJFILES := $(sort \
                $(TESTS_OBJFILES) \
+               $(SHARED_OBJFILES) \
+               $(SERVER_OBJFILES) \
+               $(COORDINATOR_OBJFILES) \
+               $(CLIENT_OBJFILES) \
+               $(BACKUP_OBJFILES))
+
+ZOO_TESTS_SRCFILES := \
+		  src/TestRunner.cc \
+		  src/TestUtil.cc \
+		  src/ZooStorageTest.cc
+ZOO_TESTS_OBJFILES := $(ZOO_TESTS_SRCFILES)
+ZOO_TESTS_OBJFILES := $(patsubst src/%.cc, $(OBJDIR)/%.o, $(ZOO_TESTS_OBJFILES))
+ZOO_TESTS_OBJFILES := $(patsubst $(OBJDIR)/%.cc, $(OBJDIR)/%.o, $(ZOO_TESTS_OBJFILES))
+ZOO_TESTS_OBJFILES := $(sort \
+               $(ZOO_TESTS_OBJFILES) \
                $(SHARED_OBJFILES) \
                $(SERVER_OBJFILES) \
                $(COORDINATOR_OBJFILES) \
@@ -161,9 +181,13 @@ $(OBJDIR)/gtest.a: $(OBJDIR)/gtest-all.o
 
 TESTS_LIB := -ldl $(LIBS)
 
-$(OBJDIR)/test: $(TESTS_OBJFILES) $(LOGCABIN_LIBS) $(OBJDIR)/gtest.a
+$(OBJDIR)/test: $(TESTS_OBJFILES) $(OBJDIR)/gtest.a
 	@mkdir -p $(@D)
-	$(CXX)  $(LOGCABIN_DEPS) $(TESTS_LIB) -o $@ $^
+	$(CXX) -o $@ $^ $(TESTS_LIB)
+
+$(OBJDIR)/zooTest: $(ZOO_TESTS_OBJFILES) $(OBJDIR)/gtest.a
+	@mkdir -p $(@D)
+	$(CXX) -o $@ $^ $(TESTS_LIB)
 
 # The unit tests don't actually call all of these programs, but
 # they are included here to make sure they continue to build.
@@ -173,15 +197,23 @@ test: $(OBJDIR)/test \
       $(OBJDIR)/CoordinatorCrashRecovery \
       $(OBJDIR)/Echo \
       $(OBJDIR)/HashTableBenchmark \
+      $(OBJDIR)/ObjectManagerBenchmark \
       $(OBJDIR)/Perf \
       $(OBJDIR)/RecoverSegmentBenchmark
 	$(OBJDIR)/test
 
-all: $(OBJDIR)/Perf $(OBJDIR)/ClusterPerf \
-     $(OBJDIR)/CoordinatorCrashRecovery $(OBJDIR)/CoordinatorCrashRecovery \
+# This target is intended for running a subset of tests, such as those
+# from a single file.  Specify a test pattern name in the FILTER variable.
+filterTest: $(OBJDIR)/test
+	$(OBJDIR)/test --gtest_filter='$(FILTER)'
+
+all: $(OBJDIR)/Perf $(OBJDIR)/ClusterPerf $(OBJDIR)/CoordinatorCrashRecovery
 
 ftest: $(OBJDIR)/test
 	scripts/forking_test_runner.py
+
+zooTest: $(OBJDIR)/zooTest
+	$(OBJDIR)/zooTest
 
 $(OBJDIR)/HashTableBenchmark: $(OBJDIR)/HashTableBenchmark.o $(SHARED_OBJFILES) $(SERVER_OBJFILES)
 	@mkdir -p $(@D)
@@ -223,6 +255,10 @@ $(OBJDIR)/HintServerCrashed: $(OBJDIR)/HintServerCrashed.o $(SHARED_OBJFILES) $(
 	@mkdir -p $(@D)
 	$(CXX) -o $@ $^ $(LIBS)
 
+$(OBJDIR)/ObjectManagerBenchmark: $(OBJDIR)/ObjectManagerBenchmark.o $(SHARED_OBJFILES) $(SERVER_OBJFILES)
+	@mkdir -p $(@D)
+	$(CXX) -o $@ $^ $(LIBS)
+
 $(OBJDIR)/StringKeys: $(OBJDIR)/StringKeys.o $(SHARED_OBJFILES) $(CLIENT_OBJFILES)
 	@mkdir -p $(@D)
 	$(CXX) -o $@ $^ $(LIBS)
@@ -230,6 +266,6 @@ $(OBJDIR)/StringKeys: $(OBJDIR)/StringKeys.o $(SHARED_OBJFILES) $(CLIENT_OBJFILE
 # Do not remove.
 tests-clean:
 
-.PHONY: test-smack
+.PHONY: test-smack zooTest
 test-smack: client $(OBJDIR)/server
 	scripts/smack

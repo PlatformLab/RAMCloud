@@ -1,4 +1,4 @@
-/* Copyright (c) 2010 Stanford University
+/* Copyright (c) 2010-2013 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -40,6 +40,7 @@ class ClientException : public std::exception {
   public:
     ClientException(const CodeLocation& where, Status status);
     ClientException(const ClientException& other);
+    ClientException& operator=(const ClientException& other);
     virtual ~ClientException() throw();
     static void throwException(const CodeLocation& where, Status status)
         __attribute__((noreturn));
@@ -88,6 +89,59 @@ class name : public superClass {                            \
   public:                                                   \
     explicit name(const CodeLocation& where)                \
         : superClass(where, status) { }                     \
+};
+
+/**
+ * This exception is used by the server to ask the client to retry an
+ * RPC at a later time; the exception should never be visible to client
+ * applications (it is handled in the RPC system).
+ */
+class RetryException : public ClientException {
+  public:
+    /**
+     * Construct a RetryException.
+     * \param where
+     *     Identifies the code location at which the exception was thrown.
+     * \param minDelayMicros
+     *     Lower-bound on how long the client should wait before retrying
+     *     the RPC, in microseconds.
+     * \param maxDelayMicros
+     *     Upper bound on the client delay, in microseconds: the client
+     *     should pick a random number between minDelayMicros and
+     *     maxDelayMicros and wait that many microseconds before retrying
+     *     the RPC.
+     * \param message
+     *     Human-readable message describing the reason for the exception;
+     *     this is likely to get logged on the client side. NULL means there
+     *     is no message.
+     */
+    RetryException(const CodeLocation& where, uint32_t minDelayMicros = 0,
+            uint32_t maxDelayMicros = 0, const char* message = NULL)
+        : ClientException(where, STATUS_RETRY)
+        , minDelayMicros(minDelayMicros)
+        , maxDelayMicros(maxDelayMicros)
+        , message(message)
+    {}
+
+    RetryException(const RetryException& other)
+        : ClientException(other)
+        , minDelayMicros(other.minDelayMicros)
+        , maxDelayMicros(other.maxDelayMicros)
+        , message(other.message)
+    {}
+    RetryException& operator=(const RetryException& other)
+    {
+        ClientException::operator=(other);
+        minDelayMicros = other.minDelayMicros;
+        maxDelayMicros = other.maxDelayMicros;
+        message= other.message;
+        return *this;
+    }
+
+    /// Copies of the constructor arguments.
+    uint32_t minDelayMicros;
+    uint32_t maxDelayMicros;
+    const char* message;
 };
 
 // Not clear that there should be an exception for successful
@@ -142,9 +196,6 @@ DEFINE_EXCEPTION(BackupMalformedSegmentException,
                  ClientException)
 DEFINE_EXCEPTION(SegmentRecoveryFailedException,
                  STATUS_SEGMENT_RECOVERY_FAILED,
-                 ClientException)
-DEFINE_EXCEPTION(RetryException,
-                 STATUS_RETRY,
                  ClientException)
 DEFINE_EXCEPTION(ServiceNotAvailableException,
                  STATUS_SERVICE_NOT_AVAILABLE,

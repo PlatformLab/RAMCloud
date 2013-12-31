@@ -19,6 +19,7 @@
 #include "SegmentManager.h"
 #include "ReplicaManager.h"
 #include "LogEntryRelocator.h"
+#include "MasterTableMetadata.h"
 
 namespace RAMCloud {
 
@@ -56,7 +57,6 @@ TEST_F(LogEntryRelocatorTest, constructor) {
     LogEntryRelocator r(NULL, 50);
     EXPECT_EQ(static_cast<LogSegment*>(NULL), r.segment);
     EXPECT_EQ(50U, r.maximumLength);
-    EXPECT_EQ(-1U, r.offset);
     EXPECT_FALSE(r.outOfSpace);
     EXPECT_FALSE(r.didAppend);
     EXPECT_EQ(0U, r.appendTicks);
@@ -90,14 +90,14 @@ TEST_F(LogEntryRelocatorTest, append) {
     LogEntryRelocator r(s, 50);
     Buffer buffer;
     buffer.append("!", 2);
-    uint32_t bytesBefore = s->liveBytes;
+    //uint32_t bytesBefore = s->liveBytes; XXXXX
     EXPECT_TRUE(r.append(LOG_ENTRY_TYPE_OBJ, buffer));
     EXPECT_TRUE(r.didAppend);
 
     // LogEntryRelocator no longer manages these statistics (the cleaner does
     // one atomic increment per segment to avoid an operaton for every entry
     // moved).
-    EXPECT_EQ(s->liveBytes, bytesBefore);
+    //EXPECT_EQ(s->liveBytes, bytesBefore); XXXXX
 }
 
 TEST_F(LogEntryRelocatorTest, getNewReference_noAppend) {

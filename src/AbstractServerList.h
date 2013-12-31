@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2012 Stanford University
+/* Copyright (c) 2011-2013 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -235,14 +235,26 @@ class AbstractServerList {
 
     virtual bool contains(ServerId id);
     string getLocator(ServerId id);
+    ServerStatus getStatus(ServerId id);
     void flushSession(ServerId id);
     Transport::SessionRef getSession(ServerId id);
     uint64_t getVersion() const;
     bool isUp(ServerId id);
     size_t size() const;
+    ServerId nextServer(ServerId prev, ServiceMask services,
+            bool* end = NULL, bool includeCrashed = false);
 
     void registerTracker(ServerTrackerInterface& tracker);
     void unregisterTracker(ServerTrackerInterface& tracker);
+
+    // The following method declaration is a hack that saves us from
+    // linking CoordinatorServerList (and its dependents) in applications
+    // other than the coordinator. The problem is that ServerIdRpcWrapper
+    // is linked everywhere and invokes the method (but only if it knows
+    // it's running on the coordinator). This method should never actually be
+    // invoked except on CoordinatorServerList objects (which have overrided
+    // this definition).
+    virtual void serverCrashed(ServerId serverId) { }
 
     string toString(ServerId serverId);
     static string toString(ServerStatus status);
@@ -304,6 +316,13 @@ class AbstractServerList {
     mutable std::mutex mutex;
 
     typedef std::unique_lock<std::mutex> Lock;
+
+    /**
+     * The following variable is set to true during unit tests to skip
+     * the server id check in getSession.
+     */
+    static bool skipServerIdCheck;
+
     DISALLOW_COPY_AND_ASSIGN(AbstractServerList);
 };
 

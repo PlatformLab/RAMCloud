@@ -57,6 +57,7 @@ BackupSelector::BackupSelector(Context* context, const ServerId* serverId,
     , serverId(serverId)
     , numReplicas(numReplicas)
     , replicationIdMap()
+    , okToLogNextProblem(true)
 {
 }
 
@@ -115,23 +116,24 @@ ServerId
 BackupSelector::selectSecondary(uint32_t numBackups,
                                 const ServerId backupIds[])
 {
-    uint64_t startTicks = Cycles::rdtsc();
-    while (true) {
+    int attempts;
+    for (attempts = 0; attempts < 100; attempts++) {
         applyTrackerChanges();
         ServerId id = tracker.getRandomServerIdWithService(
             WireFormat::BACKUP_SERVICE);
         if (id.isValid() &&
             !conflictWithAny(id, numBackups, backupIds)) {
+            okToLogNextProblem = true;
             return id;
         }
-        double waited = Cycles::toSeconds(Cycles::rdtsc() - startTicks);
-        if (waited > 0.02) {
-            LOG(WARNING, "BackupSelector could not find a suitable server in "
-                "the last 20ms; seems to be stuck; waiting for the coordinator "
-                "to notify this master of newly enlisted backups");
-            return ServerId(/* Invalid */);
-        }
     }
+    if (okToLogNextProblem) {
+        LOG(WARNING, "BackupSelector could not find a suitable server in "
+            "%d attempts; may need to wait for additional servers to enlist",
+            attempts);
+        okToLogNextProblem = false;
+    }
+    return ServerId(/* Invalid */);
 }
 
 /**
@@ -182,9 +184,14 @@ BackupSelector::applyTrackerChanges()
                 server.replicationId, server.serverId));
         } else if (event == SERVER_REMOVED) {
             BackupStats* stats = tracker[server.serverId];
-            eraseReplicationId(stats->replicationId, server.serverId);
-            delete stats;
-            tracker[server.serverId] = NULL;
+            // Stats could be null if we joined the cluster at a point where
+            // the server was in crashed state (so we didn't see the
+            // SERVER_ADDED event).
+            if (stats != NULL) {
+                eraseReplicationId(stats->replicationId, server.serverId);
+                delete stats;
+                tracker[server.serverId] = NULL;
+            }
         }
     }
 }

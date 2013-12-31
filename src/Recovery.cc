@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2012 Stanford University
+/* Copyright (c) 2010-2013 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -14,6 +14,8 @@
  */
 
 #include <unordered_set>
+#include <algorithm>
+#include <cmath>
 
 #include "Recovery.h"
 #include "BackupClient.h"
@@ -24,6 +26,11 @@
 #include "Tub.h"
 
 namespace RAMCloud {
+
+/// Defines max number of bytes a tablet partition should accommodate.
+const uint64_t PARTITION_MAX_BYTES = 600*1024*1024;
+/// Defines the max number of records a tablet partition should accommodate.
+const uint64_t PARTITION_MAX_RECORDS = 3000000;
 
 /**
  * Create a Recovery to manage the recovery of a crashed master.
@@ -100,29 +107,258 @@ Recovery::~Recovery()
 }
 
 /**
- * Finds out which tablets belonged to the crashed master and parititions
- * them into groups. Each of the groups is recovered later, one to each
- * recovery master. The result is left in #tabletsToRecover.
+ * Splits tablets to ensure all tablets are less than the byte and record count
+ * limits for a partition.  This will be called on the tablets to be recovered
+ * before they are partitioned.  If a tablet is split, the resulting tablets
+ * will be (best effort) the same "size" in both byte and record count.
  *
- * Right now this just naively puts each tablet from the crashed master
- * in its own group (and thus on its own recovery master). At some
- * point we'll need smart logic to group tablets based on their
- * expected recovery time.
+ * \param tablets
+ *      Pointer to vector of tablets to be split.  Modified to reflect any
+ *      tablet splits that occur.
+ * \param estimator
+ *      Pointer to tablet information estimator.  If estimator is NULL, the
+ *      "split" operation will not be performed.  This may occur if for some
+ *      reason the table stats digest information was not found in the head
+ *      segment.
  */
 void
-Recovery::partitionTablets(vector<Tablet> tablets)
+Recovery::splitTablets(vector<Tablet> *tablets,
+                       TableStats::Estimator* estimator)
 {
-    //TODO(cstlee) Use tablet stats to create new partition scheme.
+    if (estimator == NULL || !estimator->valid) {
+        return;
+    }
 
+    size_t size = tablets->size();
+    for (size_t i = 0; i < size; ++i) {
+        Tablet* tablet = &tablets->at(i);
 
-    // Figure out the number of partitions to be recovered and bucket tablets
-    // together for recovery on a single recovery master. Right now the
-    // bucketing is each tablet from the crashed master is recovered on a
-    // single recovery master.
-    foreach (auto& tablet, tablets) {
-        ProtoBuf::Tablets::Tablet& entry = *tabletsToRecover.add_tablet();
-        tablet.serialize(entry);
-        entry.set_user_data(numPartitions++);
+        TableStats::Estimator::Entry stats = estimator->estimate(tablet);
+
+        uint64_t startKeyHash = tablet->startKeyHash;
+        uint64_t endKeyHash = tablet->endKeyHash;
+
+        // Decide number of resulting tablets.
+        // Both byteTCount and recordTCount should be << 2^64 - 1.  As such,
+        // byteTCount, recordTCount, tabletCount will all also be << 2^64 - 1.
+        // For this reason, we do not code for the case in which these values
+        // will overflow.
+        uint64_t byteTCount = (stats.byteCount + PARTITION_MAX_BYTES - 1)
+                              / PARTITION_MAX_BYTES;
+        uint64_t recordTCount = (stats.recordCount + PARTITION_MAX_RECORDS - 1)
+                                / PARTITION_MAX_RECORDS;
+        uint64_t tabletCount = std::max(byteTCount, recordTCount);
+
+        // The number of splits should be one less than the number of resulting
+        // tablets but must also be less than then number of keys in the
+        // since the smallest tablet size has exactly one key. The "if" is
+        // needed so that tabletCount - 1 does not underflow.
+        uint64_t splits = 0;
+        if (tabletCount > 0) {
+             splits = std::min(endKeyHash - startKeyHash, tabletCount - 1);
+        }
+        // Recompute tabletCount in case it changed.
+        tabletCount = splits + 1;
+
+        if (tabletCount > 1) {
+            // Since the full key range is not always a multiple of the number
+            // of desired tablets, some tablets may be 1 key range larger than
+            // others.  We determine the number of "big" tablets needed by
+            // using a simple mod.
+
+            // Note that (endKeyHash - startKeyHash) is not inclusive when it
+            // should be.  This will be accounted for in the calculation of
+            // bigCount.  Also note that keyRange can only be zero when
+            // (endKeyHash - startKeyHash)  = tabletCount - 1.  In that case,
+            // the calulation of bigCount will be equal to tabletCount and thus
+            // keyRangeBig will be used exclusively.
+            uint64_t keyRange = (endKeyHash - startKeyHash) / tabletCount;
+            uint64_t keyRangeBig = keyRange + 1;
+
+            // This is the number of "big" tablets we will need.  We add 1 after
+            // the mod to account for the fact that the key range should be
+            // inclusive but incrementing (endKeyHash - startKeyHash) before
+            // the operation would risk overflow.  Note that if the inclusive
+            // key range (endKeyHash - startKeyHash + 1) is actually a multiple
+            // of tabletCount, bigCount would equal tabletCount thus accounting
+            // for the off-by-one cacluation performed for keyRange.
+            uint64_t bigCount = ((endKeyHash - startKeyHash) % tabletCount) + 1;
+
+            // Update first tablet in place.  There is always at least one "big"
+            // tablet so we can use keyRangeBig here.
+            tablet->endKeyHash = startKeyHash + (keyRangeBig - 1);
+            startKeyHash += keyRangeBig;
+            uint64_t tabletsComplete = 1;
+
+            // Create all "big" tablets.
+            for (; tabletsComplete < bigCount; tabletsComplete++) {
+                Tablet temp = tablets->at(i);
+                temp.startKeyHash = startKeyHash;
+                temp.endKeyHash = startKeyHash + (keyRangeBig - 1);
+                tableManager->splitRecoveringTablet(temp.tableId, startKeyHash);
+                tablets->push_back(temp);
+                startKeyHash += keyRangeBig;
+            }
+
+            // Create all remaining tablets.
+            for (; tabletsComplete < tabletCount; tabletsComplete++) {
+                Tablet temp = tablets->at(i);
+                temp.startKeyHash = startKeyHash;
+                temp.endKeyHash = startKeyHash + (keyRange - 1);
+                tableManager->splitRecoveringTablet(temp.tableId, startKeyHash);
+                tablets->push_back(temp);
+                startKeyHash += keyRange;
+            }
+        }
+    }
+}
+
+/// Anonymous namespace hiding structures for use in partitionTablets.
+namespace {
+/**
+ * Repesents a collection of tablets (a single recovery partition). This
+ * structure is used internal to the partitionTablets method and is not meant
+ * for use outside the method. This representation of a partition only keeps
+ * track of the cumulative byteCount and recordCount of tablets assigned to it.
+ */
+struct Partition {
+    uint64_t partitionId;    //< Id used to differentiate tablet partitions
+    uint64_t byteCount;      //< Number of bytes assigned to this partition.
+    uint64_t recordCount;    //< Number of records assigned to this partition.
+
+    /**
+     * Constructs a new partition with partitionId.
+     */
+    explicit Partition(uint64_t partitionId)
+        : partitionId(partitionId)
+        , byteCount(0)
+        , recordCount(0)
+    {}
+
+    /**
+     * Returns a number between scaled between 0.0 and 1.0 where 1.0 means the
+     * partition is completely full. The fullness is based on both the number of
+     * assigned bytes as well as the number of assigned records.
+     */
+    double usage() {
+        double byte2 = (double(byteCount) * double(byteCount))
+                       / (double(PARTITION_MAX_BYTES)
+                          * double(PARTITION_MAX_BYTES));
+        double record2 = (double(recordCount) * double(recordCount))
+                         / (double(PARTITION_MAX_RECORDS)
+                            * double(PARTITION_MAX_RECORDS));
+        return sqrt(byte2 + record2) / sqrt(2);
+    }
+
+    /**
+     * Given a tablet's estimator entry, returns true if the tablet would fit
+     * in the partition and false otherwise.
+     *
+     * \param estimate
+     *      Contains the tablet's estatmated stats information that is used to
+     *      determine if said tablet would fit in the partition.
+     */
+    bool fits(TableStats::Estimator::Entry estimate) {
+        if ((byteCount + estimate.byteCount) > PARTITION_MAX_BYTES)
+            return false;
+        if ((recordCount + estimate.recordCount) > PARTITION_MAX_RECORDS)
+            return false;
+        return true;
+    }
+
+    /**
+     * Assigns the tablet whose estimator entry is provided to the partition.
+     *
+     * \param estimate
+     *      Contains the estatmated stats information of the tablet that is to
+     *      be assigned.
+     */
+    void add(TableStats::Estimator::Entry estimate) {
+        byteCount += estimate.byteCount;
+        recordCount += estimate.recordCount;
+    }
+};
+}
+
+/**
+ * Divides the tablets belonging to a master into partitions, where the number
+ * of bytes and number of records in each partition is limited (to ensure fast
+ * crash recovery) and there are as few partitions as possible.
+ *
+ * Partitions are set by serializing the tablet entry into tabletsToRecover and
+ * setting partitionId in the entry's "user_data".
+ *
+ * \param tablets
+ *      Vector of tablets to be partitioned for recovery.
+ * \param estimator
+ *      Pointer to tablet information estimator.  If estimator is not valid,
+ *      we will naively place one tablet per partition.
+ */
+void
+Recovery::partitionTablets(vector<Tablet> tablets,
+                           TableStats::Estimator* estimator)
+{
+    numPartitions = 0;
+
+    // If no usable estimator is available, this method will perform a naive
+    // partition where each tablet will be placed in its own partition.  This
+    // may occur if for some reason the table stats digest information is not
+    // found in the head segment and thus no estimator could be generated.
+    // While this should never happend during normal operations, we would like
+    // recovery to still continue in this error case (albeit in a degrade mode).
+    if (estimator == NULL || !estimator->valid) {
+        LOG(ERROR,
+            "No valid TableStats Estimator; using naive partitioning.");
+        foreach (auto& tablet, tablets) {
+            ProtoBuf::Tablets::Tablet& entry = *tabletsToRecover.add_tablet();
+            tablet.serialize(entry);
+            entry.set_user_data(numPartitions++);
+        }
+        return;
+    }
+
+    splitTablets(&tablets, estimator);
+
+    // An "open" partition has been partially assigned to but is not full.
+    std::vector<Partition> openPartitions;
+    foreach (Tablet& tablet, tablets) {
+        bool done = false;
+        size_t numOpenPartitions = openPartitions.size();
+        // From a few ramdomly selected open partitions, assign the tablet to
+        // the first open partition that fits.  If none of these partitions fit,
+        // create a new partition.
+        for (size_t i = 0; i < std::min(numOpenPartitions, 5lu); i++) {
+            size_t j = generateRandom() % numOpenPartitions;
+            Partition& partition = openPartitions[j];
+            if (partition.fits(estimator->estimate(&tablet))) {
+                partition.add(estimator->estimate(&tablet));
+                ProtoBuf::Tablets::Tablet& entry =
+                                            *tabletsToRecover.add_tablet();
+                tablet.serialize(entry);
+                entry.set_user_data(partition.partitionId);
+                // If the partition is mostly full, remove the partition
+                if (partition.usage() > 0.9) {
+                    partition = openPartitions.back();
+                    openPartitions.pop_back();
+                }
+                done = true;
+                break;
+            }
+        }
+        if (!done) {
+            // This tablet did not fit in any of the open partitions we tried,
+            // so make a new partition.
+            Partition partition(numPartitions++);
+            partition.add(estimator->estimate(&tablet));
+            ProtoBuf::Tablets::Tablet& entry = *tabletsToRecover.add_tablet();
+            tablet.serialize(entry);
+            entry.set_user_data(partition.partitionId);
+            // If the partition still has room for more tablets, add it to the
+            // available set of partitions.
+            if (partition.usage() <= 0.9) {
+                openPartitions.push_back(partition);
+            }
+        }
     }
 }
 
@@ -428,7 +664,7 @@ verifyLogComplete(Tub<BackupStartTask> tasks[],
 }
 
 /**
- * Extract log digest from all the startReadingData results.
+ * Extract log digest and table stats from all the startReadingData results.
  * If multiple log digests are found the one from the replica with the
  * lowest segment id is used. When there are multiple replicas for an open
  * segment the first one that is encountered is returned; it make no
@@ -444,15 +680,17 @@ verifyLogComplete(Tub<BackupStartTask> tasks[],
  * \param taskCount
  *      Number of elements in #tasks.
  * \return
- *      Pair of segment id of the replica from which the log digest was
- *      taken and the log digest itself. Empty if no log digest is found.
+ *      Triple of segment id of the replica from which the log digest was
+ *      taken, the log digest itself, and a pointer to the table stats buffer.
+ *      Empty if no log digest is found.
  */
-Tub<std::pair<uint64_t, LogDigest>>
+Tub<std::tuple<uint64_t, LogDigest, TableStats::Digest*>>
 findLogDigest(Tub<BackupStartTask> tasks[], size_t taskCount)
 {
     uint64_t headId = ~0ul;
     void* headBuffer = NULL;
     uint32_t headBufferLength = 0;
+    TableStats::Digest* tableStatsBuffer = NULL;
 
     for (size_t i = 0; i < taskCount; ++i) {
         const auto& result = tasks[i]->result;
@@ -462,12 +700,21 @@ findLogDigest(Tub<BackupStartTask> tasks[], size_t taskCount)
             headBuffer = result.logDigestBuffer.get();
             headBufferLength = result.logDigestBytes;
             headId = result.logDigestSegmentId;
+            if (result.tableStatsBytes >= sizeof(TableStats::Digest)) {
+                // The buffer is returned as a pointer into an object inside
+                // "tasks".  This task object should live throughout the scope
+                // of this method's caller.
+                tableStatsBuffer = reinterpret_cast<TableStats::Digest*>
+                                            (result.tableStatsBuffer.get());
+            }
         }
     }
 
     if (headId == ~(0lu))
         return {};
-    return {std::make_pair(headId, LogDigest(headBuffer, headBufferLength))};
+    return {std::make_tuple(headId,
+                            LogDigest(headBuffer, headBufferLength),
+                            tableStatsBuffer)};
 }
 
 /// Used in buildReplicaMap().
@@ -622,8 +869,13 @@ Recovery::startBackups()
         }
         return;
     }
-    uint64_t headId = digestInfo->first;
-    LogDigest digest = digestInfo->second;
+    uint64_t headId = std::get<0>(*digestInfo.get());
+    LogDigest digest = std::get<1>(*digestInfo.get());
+    // This tableStats digest is a pointer into an object inside
+    // backupStartTasks.  Thus it is only valid as long as backupStartTasks
+    // is live.  backupStartTasks is on this methods stack and is live for
+    // the scope for this method.
+    TableStats::Digest* tableStats = std::get<2>(*digestInfo.get());
 
     LOG(NOTICE, "Segment %lu is the head of the log", headId);
 
@@ -640,7 +892,10 @@ Recovery::startBackups()
     }
 
     /* Broadcast 2: partition replicas into tablets for recovery masters */
-    partitionTablets(tablets);
+    TableStats::Estimator estimator(tableStats, &tablets);
+    partitionTablets(tablets, &estimator);
+    LOG(NOTICE, "Partition Scheme for Recovery:\n%s",
+                tabletsToRecover.DebugString().c_str());
 
     parallelRun(backupPartitionTasks.get(), backups.size(),
             maxActiveBackupHosts);

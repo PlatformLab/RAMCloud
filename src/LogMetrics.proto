@@ -62,19 +62,20 @@ message LogMetrics {
             required fixed64 total_bytes_in_compacted_segments = 4;
             required fixed64 total_bytes_appended_to_survivors = 5;
             required fixed64 total_segments_compacted = 6;
+            required fixed64 total_empty_segments_compacted = 7;
 
             /// The index of each count corresponds to the LogEntryType enum.
-            repeated fixed64 total_entries_scanned = 7;
-            repeated fixed64 total_live_entries_scanned = 8;
-            repeated fixed64 total_scanned_entry_lengths = 9;
-            repeated fixed64 total_live_scanned_entry_lengths = 10;
+            repeated fixed64 total_entries_scanned = 8;
+            repeated fixed64 total_live_entries_scanned = 9;
+            repeated fixed64 total_scanned_entry_lengths = 10;
+            repeated fixed64 total_live_scanned_entry_lengths = 11;
 
-            required fixed64 total_ticks = 11;
-            required fixed64 get_segment_to_compact_ticks = 12;
-            required fixed64 wait_for_free_survivor_ticks = 13;
-            required fixed64 relocation_callback_ticks = 14;
-            required fixed64 relocation_append_ticks = 15;
-            required fixed64 compaction_complete_ticks = 16;
+            required fixed64 total_ticks = 12;
+            required fixed64 get_segment_to_compact_ticks = 13;
+            required fixed64 wait_for_free_survivor_ticks = 14;
+            required fixed64 relocation_callback_ticks = 15;
+            required fixed64 relocation_append_ticks = 16;
+            required fixed64 compaction_complete_ticks = 17;
         }
         required InMemoryMetrics in_memory_metrics = 9;
 
@@ -93,28 +94,29 @@ message LogMetrics {
             required fixed64 total_survivors_created = 10;
             required fixed64 total_runs = 11;
             required fixed64 total_low_disk_space_runs = 12;
+	    required fixed64 memory_utilization_at_start_sum = 13;	
 
             /// The index of each count corresponds to the LogEntryType enum.
-            repeated fixed64 total_entries_scanned = 13;
-            repeated fixed64 total_live_entries_scanned = 14;
-            repeated fixed64 total_scanned_entry_lengths = 15;
-            repeated fixed64 total_live_scanned_entry_lengths = 16;
+            repeated fixed64 total_entries_scanned = 14;
+            repeated fixed64 total_live_entries_scanned = 15;
+            repeated fixed64 total_scanned_entry_lengths = 16;
+            repeated fixed64 total_live_scanned_entry_lengths = 17;
 
-            required fixed64 total_ticks = 17;
-            required fixed64 get_segments_to_clean_ticks = 18;
-            required fixed64 cost_benefit_sort_ticks = 19;
-            required fixed64 get_sorted_entries_ticks = 20;
-            required fixed64 timestamp_sort_ticks = 21;
-            required fixed64 relocate_live_entries_ticks = 22;
-            required fixed64 wait_for_free_survivors_ticks = 23;
-            required fixed64 cleaning_complete_ticks = 24;
-            required fixed64 relocation_callback_ticks = 25;
-            required fixed64 relocation_append_ticks = 26;
-            required fixed64 close_survivor_ticks = 27;
-            required fixed64 survivor_sync_ticks = 28;
-            required Histogram cleaned_segment_memory_histogram = 29;
-            required Histogram cleaned_segment_disk_histogram = 30;
-            required Histogram all_segments_disk_histogram = 31;
+            required fixed64 total_ticks = 18;
+            required fixed64 get_segments_to_clean_ticks = 19;
+            required fixed64 cost_benefit_sort_ticks = 20;
+            required fixed64 get_sorted_entries_ticks = 21;
+            required fixed64 timestamp_sort_ticks = 22;
+            required fixed64 relocate_live_entries_ticks = 23;
+            required fixed64 wait_for_free_survivors_ticks = 24;
+            required fixed64 cleaning_complete_ticks = 25;
+            required fixed64 relocation_callback_ticks = 26;
+            required fixed64 relocation_append_ticks = 27;
+            required fixed64 close_survivor_ticks = 28;
+            required fixed64 survivor_sync_ticks = 29;
+            required Histogram cleaned_segment_memory_histogram = 30;
+            required Histogram cleaned_segment_disk_histogram = 31;
+            required Histogram all_segments_disk_histogram = 32;
         }
         required OnDiskMetrics on_disk_metrics = 10;
 

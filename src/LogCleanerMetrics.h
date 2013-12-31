@@ -34,15 +34,16 @@ namespace LogCleanerMetrics {
 
 /// Just in case using atomics for metrics becomes a performance problem, we
 /// will use this typedef to allow us to run in fast-and-loose mode with
-/// regular uint64_ts, if needed.
-typedef std::atomic_uint_fast64_t Metric64BitType;
+/// regular uint32_ts and uint64_ts, if needed.
+typedef std::atomic_uint_fast64_t Atomic64BitType;
 
-/// Convenience typedef for CycleCounters of type Metric64BitType.
-typedef CycleCounter<Metric64BitType> MetricCycleCounter;
+/// Convenience typedef for declaring atomic CycleCounters.
+typedef CycleCounter<Atomic64BitType> AtomicCycleCounter;
 
 /**
  * Metrics for in-memory cleaning.
  */
+template<typename CounterType = Atomic64BitType>
 class InMemory {
   public:
     /**
@@ -55,6 +56,7 @@ class InMemory {
           totalBytesInCompactedSegments(0),
           totalBytesAppendedToSurvivors(0),
           totalSegmentsCompacted(0),
+          totalEmptySegmentsCompacted(0),
           totalEntriesScanned(),
           totalLiveEntriesScanned(),
           totalScannedEntryLengths(),
@@ -89,6 +91,7 @@ class InMemory {
         m.set_total_bytes_in_compacted_segments(totalBytesInCompactedSegments);
         m.set_total_bytes_appended_to_survivors(totalBytesAppendedToSurvivors);
         m.set_total_segments_compacted(totalSegmentsCompacted);
+        m.set_total_empty_segments_compacted(totalEmptySegmentsCompacted);
 
         foreach (uint64_t count, totalEntriesScanned)
             m.add_total_entries_scanned(count);
@@ -107,41 +110,81 @@ class InMemory {
         m.set_compaction_complete_ticks(compactionCompleteTicks);
     }
 
+    /**
+     * Merge counters from ``other'' into this InMemory instance. This is
+     * typically used to merge thread-local counts into global metrics,
+     * where the thread-local counters are backed by simple uint64_ts,
+     * rather than atomic integers. This allows us to maintain fine-grained
+     * metrics without horribly impacting performance by aggregating them
+     * less frequently.
+     */
+    template<typename T>
+    void
+    merge(InMemory<T>& other)
+    {
+#define MERGE_FIELD(_x) _x += other._x;
+        MERGE_FIELD(totalRelocationCallbacks);
+        MERGE_FIELD(totalRelocationAppends);
+        MERGE_FIELD(totalBytesFreed);
+        MERGE_FIELD(totalBytesInCompactedSegments);
+        MERGE_FIELD(totalBytesAppendedToSurvivors);
+        MERGE_FIELD(totalSegmentsCompacted);
+        MERGE_FIELD(totalEmptySegmentsCompacted);
+
+        for (int i = 0; i < TOTAL_LOG_ENTRY_TYPES; i++) {
+            MERGE_FIELD(totalEntriesScanned[i]);
+            MERGE_FIELD(totalLiveEntriesScanned[i]);
+            MERGE_FIELD(totalScannedEntryLengths[i]);
+            MERGE_FIELD(totalLiveScannedEntryLengths[i]);
+        }
+
+        MERGE_FIELD(totalTicks);
+        MERGE_FIELD(getSegmentToCompactTicks);
+        MERGE_FIELD(waitForFreeSurvivorTicks);
+        MERGE_FIELD(relocationCallbackTicks);
+        MERGE_FIELD(relocationAppendTicks);
+        MERGE_FIELD(compactionCompleteTicks);
+#undef MERGE_FIELD
+    }
+
     /// Total number of times the entry relocation handler was called.
-    Metric64BitType totalRelocationCallbacks;
+    CounterType totalRelocationCallbacks;
 
     /// Total number of successful appends done in relocating a live object.
     /// Appends that weren't successful due to insufficient space would have
     /// bailed quickly and been retried after allocating a new survivor segment.
-    Metric64BitType totalRelocationAppends;
+    CounterType totalRelocationAppends;
 
     /// Total number of bytes freed by compacting segments in memory. This will
     /// be a multiple of the seglets size.
-    Metric64BitType totalBytesFreed;
+    CounterType totalBytesFreed;
 
     /// Total number of bytes originally allocated to segments before they were
     /// compacted in memory. This will be a multiple of the seglet size.
-    Metric64BitType totalBytesInCompactedSegments;
+    CounterType totalBytesInCompactedSegments;
 
     /// Total number of bytes appended to survivor segments during compaction.
     /// In other words, the amount of live data.
-    Metric64BitType totalBytesAppendedToSurvivors;
+    CounterType totalBytesAppendedToSurvivors;
 
     /// Total number of times a segment has been compacted. Since the
     /// doMemoryCleaning() method processes one segment per call, this also
     /// implies the number of times it was called and did work.
-    Metric64BitType totalSegmentsCompacted;
+    CounterType totalSegmentsCompacted;
+
+    /// Number of segments compacted that were empty (no live data whatsoever).
+    CounterType totalEmptySegmentsCompacted;
 
     /// Total number of each log entry the in-memory cleaner has encountered
     /// while compacting segments. These counts include both dead and alive
     /// entries.
-    Metric64BitType totalEntriesScanned[TOTAL_LOG_ENTRY_TYPES];
+    CounterType totalEntriesScanned[TOTAL_LOG_ENTRY_TYPES];
 
     /// Total number of each log entry the in-memory cleaner has encountered
     /// while compacting segments. These counts only include live entries that
     /// were relocated. Take the difference from totalEntriesScanned to get the
     /// dead entry count.
-    Metric64BitType totalLiveEntriesScanned[TOTAL_LOG_ENTRY_TYPES];
+    CounterType totalLiveEntriesScanned[TOTAL_LOG_ENTRY_TYPES];
 
     /// Total number of bytes in each log entry the in-memory cleaner has
     /// encountered while compacting segments. This includes both dead and
@@ -149,37 +192,38 @@ class InMemory {
     /// the entry's corresponding length is added here. This way we can compute
     /// both the percentage of total entries of each type we see, as well as the
     /// ratio of total bytes they correspond to.
-    Metric64BitType totalScannedEntryLengths[TOTAL_LOG_ENTRY_TYPES];
+    CounterType totalScannedEntryLengths[TOTAL_LOG_ENTRY_TYPES];
 
     /// The analogue of totalScannedEntryLengths, but only for live objects.
     /// This corresponds to the totalLiveEntriesScanned. Each live entry
     /// recorded there will have its length reflected here.
-    Metric64BitType totalLiveScannedEntryLengths[TOTAL_LOG_ENTRY_TYPES];
+    CounterType totalLiveScannedEntryLengths[TOTAL_LOG_ENTRY_TYPES];
 
     /// Total number of cpu cycles spent in doMemoryCleaning().
-    Metric64BitType totalTicks;
+    CounterType totalTicks;
 
     /// Total number of cpu cycles spent choosing a segment to compact.
-    Metric64BitType getSegmentToCompactTicks;
+    CounterType getSegmentToCompactTicks;
 
     /// Total number of cpu cycles spent waiting for a free survivor segment.
-    Metric64BitType waitForFreeSurvivorTicks;
+    CounterType waitForFreeSurvivorTicks;
 
     /// Total number of cpu cycles spent in the relocation callback. Note that
     /// this will include time spent appending to the survivor segment if the
     /// entry needed to be relocated.
-    Metric64BitType relocationCallbackTicks;
+    CounterType relocationCallbackTicks;
 
     /// Total number of cpu cycles spent appending relocated entries.
-    Metric64BitType relocationAppendTicks;
+    CounterType relocationAppendTicks;
 
     /// Total number of cpu cycles spent in SegmentManager::compactionComplete.
-    Metric64BitType compactionCompleteTicks;
+    CounterType compactionCompleteTicks;
 };
 
 /**
  * Metrics for on-disk cleaning.
  */
+template<typename CounterType = Atomic64BitType>
 class OnDisk {
   public:
     /**
@@ -198,6 +242,7 @@ class OnDisk {
           totalSurvivorsCreated(0),
           totalRuns(0),
           totalLowDiskSpaceRuns(0),
+          memoryUtilizationAtStartSum(0),
           totalEntriesScanned(),
           totalLiveEntriesScanned(),
           totalScannedEntryLengths(),
@@ -214,6 +259,7 @@ class OnDisk {
           relocationAppendTicks(0),
           closeSurvivorTicks(0),
           survivorSyncTicks(0),
+          lastRunTimestamp(0),
           cleanedSegmentMemoryHistogram(101, 1),
           cleanedSegmentDiskHistogram(101, 1),
           allSegmentsDiskHistogram(101, 1)
@@ -249,6 +295,7 @@ class OnDisk {
         m.set_total_survivors_created(totalSurvivorsCreated);
         m.set_total_runs(totalRuns);
         m.set_total_low_disk_space_runs(totalLowDiskSpaceRuns);
+        m.set_memory_utilization_at_start_sum(memoryUtilizationAtStartSum);
 
         foreach (uint64_t count, totalEntriesScanned)
             m.add_total_entries_scanned(count);
@@ -277,6 +324,55 @@ class OnDisk {
             *m.mutable_cleaned_segment_disk_histogram());
         allSegmentsDiskHistogram.serialize(
             *m.mutable_all_segments_disk_histogram());
+    }
+
+    /**
+     * Merge counters from ``other'' into this OnDisk instance. This is
+     * typically used to merge thread-local counts into global metrics,
+     * where the thread-local counters are backed by simple uint64_ts,
+     * rather than atomic integers. This allows us to maintain fine-grained
+     * metrics without horribly impacting performance by aggregating them
+     * less frequently.
+     */
+    template<typename T>
+    void
+    merge(OnDisk<T>& other)
+    {
+#define MERGE_FIELD(_x) _x += other._x;
+        MERGE_FIELD(totalBytesAppendedToSurvivors);
+        MERGE_FIELD(totalMemoryBytesFreed);
+        MERGE_FIELD(totalDiskBytesFreed);
+        MERGE_FIELD(totalMemoryBytesInCleanedSegments);
+        MERGE_FIELD(totalDiskBytesInCleanedSegments);
+        MERGE_FIELD(totalRelocationCallbacks);
+        MERGE_FIELD(totalRelocationAppends);
+        MERGE_FIELD(totalSegmentsCleaned);
+        MERGE_FIELD(totalEmptySegmentsCleaned);
+        MERGE_FIELD(totalSurvivorsCreated);
+        MERGE_FIELD(totalRuns);
+        MERGE_FIELD(totalLowDiskSpaceRuns);
+        MERGE_FIELD(memoryUtilizationAtStartSum);
+
+        for (int i = 0; i < TOTAL_LOG_ENTRY_TYPES; i++) {
+            MERGE_FIELD(totalEntriesScanned[i]);
+            MERGE_FIELD(totalLiveEntriesScanned[i]);
+            MERGE_FIELD(totalScannedEntryLengths[i]);
+            MERGE_FIELD(totalLiveScannedEntryLengths[i]);
+        }
+
+        MERGE_FIELD(totalTicks);
+        MERGE_FIELD(getSegmentsToCleanTicks);
+        MERGE_FIELD(costBenefitSortTicks);
+        MERGE_FIELD(getSortedEntriesTicks);
+        MERGE_FIELD(timestampSortTicks);
+        MERGE_FIELD(relocateLiveEntriesTicks);
+        MERGE_FIELD(waitForFreeSurvivorsTicks);
+        MERGE_FIELD(cleaningCompleteTicks);
+        MERGE_FIELD(relocationCallbackTicks);
+        MERGE_FIELD(relocationAppendTicks);
+        MERGE_FIELD(closeSurvivorTicks);
+        MERGE_FIELD(survivorSyncTicks);
+#undef MERGE_FIELD
     }
 
     double
@@ -308,58 +404,65 @@ class OnDisk {
     }
 
     /// Total number of bytes appended to survivor segments.
-    Metric64BitType totalBytesAppendedToSurvivors;
+    CounterType totalBytesAppendedToSurvivors;
 
     /// Total number of bytes freed in RAM by cleaning (net gain).
-    Metric64BitType totalMemoryBytesFreed;
+    CounterType totalMemoryBytesFreed;
 
     /// Total number of bytes freed on disk by cleaning (net gain).
-    Metric64BitType totalDiskBytesFreed;
+    CounterType totalDiskBytesFreed;
 
     /// Total number of bytes allocated to segments that were cleaned. This is
     /// the amount of space in memory only.
-    Metric64BitType totalMemoryBytesInCleanedSegments;
+    CounterType totalMemoryBytesInCleanedSegments;
 
     /// Total number of bytes on disk for segments that were cleaned. This is
     /// equal to the number of segments cleaned times the segment size.
-    Metric64BitType totalDiskBytesInCleanedSegments;
+    CounterType totalDiskBytesInCleanedSegments;
 
     /// Total number of times the entry relocation handler was called.
-    Metric64BitType totalRelocationCallbacks;
+    CounterType totalRelocationCallbacks;
 
     /// Total number of successful appends done in relocating a live object.
     /// Appends that weren't successful due to insufficient space would have
     /// bailed quickly and been retried after allocating a new survivor segment.
-    Metric64BitType totalRelocationAppends;
+    CounterType totalRelocationAppends;
 
     /// Total number of segments the disk cleaner has cleaned.
-    Metric64BitType totalSegmentsCleaned;
+    CounterType totalSegmentsCleaned;
 
     /// Total number of segments the disk cleaner has cleaned that contained
     /// no live data at all.
-    Metric64BitType totalEmptySegmentsCleaned;
+    CounterType totalEmptySegmentsCleaned;
 
     /// Total number of survivor segments created to relocate live data into.
-    Metric64BitType totalSurvivorsCreated;
+    CounterType totalSurvivorsCreated;
 
     /// Total number of disk cleaner runs. That is, the number of times the
     /// disk cleaner did some work (chose some segments and relocated their
     /// live data to survivors).
-    Metric64BitType totalRuns;
+    CounterType totalRuns;
 
     /// Total number of disk cleaner runs that were initiated because we ran
     /// out of disk space (rather than ran out of memory).
-    Metric64BitType totalLowDiskSpaceRuns;
+    CounterType totalLowDiskSpaceRuns;
+
+    /// Sum of the integer % of memory (0 to 100) utilized at the start of
+    /// each disk cleaning pass. Divide by totalRuns to get the average. This
+    /// helps disambiguate cases where the cleaner is keeping up at cleaning
+    /// just at the threshold and cases where it is not keeping up and cleaning
+    /// at near 100% (the latter is more efficient, but stalls clients more).
+    CounterType memoryUtilizationAtStartSum;
 
     /// Total number of each log entry the disk cleaner has encountered while
     /// cleaning segments. These counts include both dead and alive entries.
-    Metric64BitType totalEntriesScanned[TOTAL_LOG_ENTRY_TYPES];
+    CounterType totalEntriesScanned[TOTAL_LOG_ENTRY_TYPES];
 
     /// Total number of each log entry the disk cleaner has encountered while
     /// cleaning segments. These counts only include live entries that were
     /// relocated. Take the difference from totalEntriesScanned to get the
     /// dead entry count.
-    Metric64BitType totalLiveEntriesScanned[TOTAL_LOG_ENTRY_TYPES];
+    CounterType totalLiveEntriesScanned[TOTAL_LOG_ENTRY_TYPES];
 
     /// Total number of bytes in each log entry the disk cleaner has encountered
     /// while cleaning segments. This includes both dead and alive entries.
@@ -367,54 +470,57 @@ class OnDisk {
     /// corresponding length is added here. This way we can compute both the
     /// percentage of total entries of each type we see, as well as the ratio of
     /// total bytes they correspond to.
-    Metric64BitType totalScannedEntryLengths[TOTAL_LOG_ENTRY_TYPES];
+    CounterType totalScannedEntryLengths[TOTAL_LOG_ENTRY_TYPES];
 
     /// The analogue of totalScannedEntryLengths, but only for live objects.
     /// This corresponds to the totalLiveEntriesScanned. Each live entry
     /// recorded there will have its length reflected here.
-    Metric64BitType totalLiveScannedEntryLengths[TOTAL_LOG_ENTRY_TYPES];
+    CounterType totalLiveScannedEntryLengths[TOTAL_LOG_ENTRY_TYPES];
 
     /// Total number of cpu cycles spent in doDiskCleaning().
-    Metric64BitType totalTicks;
+    CounterType totalTicks;
 
     /// Total number of cpu cycles spent in getSegmentsToClean().
-    Metric64BitType getSegmentsToCleanTicks;
+    CounterType getSegmentsToCleanTicks;
 
     /// Total number of cpu cycles spent sorting candidate segments by best
     /// cost-benefit.
-    Metric64BitType costBenefitSortTicks;
+    CounterType costBenefitSortTicks;
 
     /// Total number of cpu cycles spent in getSortedEntries().
-    Metric64BitType getSortedEntriesTicks;
+    CounterType getSortedEntriesTicks;
 
     /// Total number of cpu cycles spent sorting entries from segments being
     /// cleaned according to their timestamp.
-    Metric64BitType timestampSortTicks;
+    CounterType timestampSortTicks;
 
     /// Total number of cpu cycles spent in relocateLiveEntries().
-    Metric64BitType relocateLiveEntriesTicks;
+    CounterType relocateLiveEntriesTicks;
 
     /// Total number of cpu cycles waiting for sufficient survivor segments.
-    Metric64BitType waitForFreeSurvivorsTicks;
+    CounterType waitForFreeSurvivorsTicks;
 
     /// Total number of cpu cycles spent in SegmentManager::cleaningComplete().
-    Metric64BitType cleaningCompleteTicks;
+    CounterType cleaningCompleteTicks;
 
     /// Total number of cpu cycles spent in the relocation callback. Note that
     /// this will include time spent appending to the survivor segment if the
     /// entry needed to be relocated.
-    Metric64BitType relocationCallbackTicks;
+    CounterType relocationCallbackTicks;
 
     /// Total number of cpu cycles spent appending relocated entries.
-    Metric64BitType relocationAppendTicks;
+    CounterType relocationAppendTicks;
 
     /// Total number of cpu cycles spent in the closeSurvivor() method, which
     /// closes both the Segment and ReplicatedSegment (and initiates transfer
     /// to backups).
-    Metric64BitType closeSurvivorTicks;
+    CounterType closeSurvivorTicks;
 
     /// Total number of cpu cycles spent syncing survivor segments to backups.
-    Metric64BitType survivorSyncTicks;
+    CounterType survivorSyncTicks;
+
+    /// WallTime timestamp when the disk cleaner last completed a run.
+    CounterType lastRunTimestamp;
 
     /// Histogram of memory utilizations for segments cleaned on disk.
     /// This lets us see how frequency we clean segments with varying amounts
@@ -510,7 +616,7 @@ class Threads {
     uint32_t activeThreads;
 
     /// Number of cycles expended since the last change to 'activeThreads'.
-    Tub<MetricCycleCounter> cycleCounter;
+    Tub<CycleCounter<uint64_t>> cycleCounter;
 };
 
 } // namespace LogCleanerMetrics

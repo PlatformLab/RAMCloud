@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2012 Stanford University
+/* Copyright (c) 2009-2013 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -208,9 +208,10 @@ class Segment {
      * the certificate acts as a way to atomically commit segment data to
      * backups.
      *
-     * Absolutely no code outside of the Segment and SegmentIterator class
-     * need to understand the internals and shouldn't attempt to use
-     * certificates other than through the SegmentIterator or Segment code.
+     * Code outside of the Segment and SegmentIterator class should not
+     * need to understand the internals, except to retrieve the segmentLength
+     * field, and shouldn't attempt to use certificates other than through
+     * the SegmentIterator or Segment code.
      */
     class Certificate {
       public:
@@ -239,12 +240,13 @@ class Segment {
             return format("<%u, 0x%08x>", segmentLength, checksum);
         }
 
-      PRIVATE:
-        /// Bytes in the associated segment that #checksum covers. Determines
-        /// how much of the segment should be checked for integrity and how
-        /// much of a segment should be iterated over for SegmentIterator.
+        /// Number of valid bytes in the segment that #checksum covers.
+        /// Determines how much of the segment should be checked for integrity
+        /// and how much of the segment should be iterated over for
+        /// SegmentIterator.
         uint32_t segmentLength;
 
+      PRIVATE:
         /// Checksum covering all metadata in the segment: EntryHeaders and
         /// their corresponding variably-sized length fields, as well as fields
         /// above in this struct.
@@ -256,34 +258,107 @@ class Segment {
     static_assert(sizeof(Certificate) == 8,
                   "Unexpected padding in Segment::Certificate");
 
+    /**
+     * Segment References are handles used to access entries that have been
+     * appended to a Segment. Since segments may be discontiguous, we cannot
+     * simply return pointers to the start of an entry. However, since entries
+     * are often contiguous, especially when they're small, we would like to
+     * be able to access them directly when possible for efficiency's sake.
+     *
+     * This class simply wraps a direct pointer to the start of an entry in a
+     * segment and allows callers to fill in a Buffer so that they can access
+     * the appended data. In the common case where the entry is contiguous,
+     * filling the Buffer in is very fast. If the entry spans multiple seglets,
+     * a slower path is taken through the Segment code to look up all of the
+     * constituent seglets.
+     */
+    class Reference {
+      public:
+        Reference()
+            : reference(0)
+        {
+        }
+
+        explicit Reference(uint64_t reference)
+            : reference(reference)
+        {
+        }
+
+        Reference(Segment* segment, uint32_t offset)
+            : reference(0)
+        {
+            const void* p = NULL;
+            uint32_t contigBytes = segment->peek(offset, &p);
+            assert(contigBytes > 0);
+            reference = reinterpret_cast<uint64_t>(p);
+        }
+
+        /**
+         * Obtain the 64-bit integer value of the reference. The upper 16 bits
+         * are guaranteed to be zero.
+         */
+        uint64_t
+        toInteger() const
+        {
+            return reference;
+        }
+
+        LogEntryType getEntry(SegletAllocator* allocator,
+                              Buffer* buffer,
+                              uint32_t* lengthWithMetadata = NULL);
+
+        /**
+         * Compare references for equality. Returns true if equal, else false.
+         */
+        bool
+        operator==(const Reference& other) const
+        {
+            return reference == other.reference;
+        }
+
+        /**
+         * Returns the exact opposite of operator==.
+         */
+        bool
+        operator!=(const Reference& other) const
+        {
+            return !operator==(other);
+        }
+
+      PRIVATE:
+        uint64_t reference;
+    };
+
     Segment();
-    Segment(vector<Seglet*>& seglets, uint32_t segletSize);
+    Segment(const vector<Seglet*>& seglets, uint32_t segletSize);
     Segment(const void* buffer, uint32_t length);
     virtual ~Segment();
     bool hasSpaceFor(uint32_t* entryLengths, uint32_t numEntries);
     bool append(LogEntryType type,
                 const void* data,
                 uint32_t length,
-                uint32_t* outOffset = NULL);
+                Reference* outReference = NULL);
     bool append(LogEntryType type,
                 Buffer& buffer,
-                uint32_t* outOffset = NULL);
+                Reference* outReference = NULL);
     void close();
     void appendToBuffer(Buffer& buffer,
                         uint32_t offset,
                         uint32_t length) const;
     uint32_t appendToBuffer(Buffer& buffer);
     LogEntryType getEntry(uint32_t offset,
-                          Buffer& buffer,
+                          Buffer* buffer,
                           uint32_t* lengthWithMetadata = NULL);
-    uint32_t getEntryCount(LogEntryType type);
-    uint32_t getEntryLengths(LogEntryType type);
+    LogEntryType getEntry(Reference reference,
+                          Buffer* buffer,
+                          uint32_t* lengthWithMetadata = NULL);
     uint32_t getAppendedLength(Certificate* certificate = NULL) const;
     uint32_t getSegletsAllocated();
     uint32_t getSegletsInUse();
     bool freeUnusedSeglets(uint32_t count);
     bool checkMetadataIntegrity(const Certificate& certificate);
     uint32_t copyOut(uint32_t offset, void* buffer, uint32_t length) const;
+    Reference getReference(uint32_t offset);
 
     /**
      * 'Peek' into the segment by specifying a logical byte offset and getting
@@ -303,6 +378,13 @@ class Segment {
     uint32_t
     peek(uint32_t offset, const void** outAddress) const
     {
+        // TODO(rumble): This method will not work properly if we compile with
+        // -fstrict-aliasing (the default in -O2 and higher). It can lead to
+        // especially surprising behaviour in getEntryHeader. The issue is that
+        // we return a void* in outAddress and end up casting it to some other
+        // type. GCC's optimiser will happily speed up that invocation by
+        // leaving the pointer's original value alone.
+
         if (expect_false(offset >= (segletSize * segletBlocks.size())))
             return 0;
 
@@ -383,18 +465,6 @@ class Segment {
     /// Any user data that is stored in the Segment is unprotected. Integrity
     /// is their responsibility. Used to generate Segment::Certificates.
     Crc32C checksum;
-
-    /// Counts of the number of each log entry type appended to this segment.
-    /// These values monotonically increase and therefore reflect the total
-    /// number of entries in the segment, not just the ones that are still
-    /// considered alive.
-    uint32_t entryCounts[TOTAL_LOG_ENTRY_TYPES];
-
-    /// Counts of the number of bytes appended to this segment corresponding
-    /// to each log entry type. These values monotonically increase and
-    /// therefore reflect the total number of bytes in the segment, not just
-    /// the ones that are still considered alive.
-    uint32_t entryLengths[TOTAL_LOG_ENTRY_TYPES];
 
     friend class SegmentIterator;
 

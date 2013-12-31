@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2012 Stanford University
+/* Copyright (c) 2011-2013 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -102,6 +102,7 @@ TEST_F(FailureDetectorTest, pingRandomServer_pingSuccess) {
 }
 
 TEST_F(FailureDetectorTest, pingRandomServer_pingFailure) {
+    TestLog::Enable logSilencer("pingRandomServer", "wait", NULL);
     MockRandom _(1);
     addServer(ServerId(1, 0), "mock:");
     coordTransport.setInput("0");
@@ -112,6 +113,8 @@ TEST_F(FailureDetectorTest, pingRandomServer_pingFailure) {
 }
 
 TEST_F(FailureDetectorTest, pingRandomServer_notInCluster) {
+    TestLog::Enable logSilencer("pingRandomServer", "Disabler",
+            "VerifyMembershipRpc", NULL);
     MockRandom _(1);
     addServer(ServerId(1, 0), "mock:");
     string input = format("%d", STATUS_CALLER_NOT_IN_CLUSTER);
@@ -125,6 +128,8 @@ TEST_F(FailureDetectorTest, pingRandomServer_notInCluster) {
 }
 
 TEST_F(FailureDetectorTest, pingRandomServer_tooManyFailedProbes) {
+    TestLog::Enable logSilencer("pingRandomServer", "wait", "Disabler",
+            "VerifyMembershipRpc", NULL);
     MockRandom _(1);
     addServer(ServerId(1, 0), "mock:");
     fd->probesWithoutResponse = FailureDetector::MAX_FAILED_PROBES-2;

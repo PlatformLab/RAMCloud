@@ -399,12 +399,12 @@ TabletManager::toString()
 TabletManager::TabletMap::iterator
 TabletManager::lookup(uint64_t tableId, uint64_t keyHash, Lock& lock)
 {
-    TabletMap::iterator it = tabletMap.find(tableId);
-    while (it != tabletMap.end()) {
+    auto range = tabletMap.equal_range(tableId);
+    TabletMap::iterator end = range.second;
+    for (TabletMap::iterator it = range.first; it != end; it++) {
         Tablet* t = &it->second;
         if (keyHash >= t->startKeyHash && keyHash <= t->endKeyHash)
             return it;
-        ++it;
     }
 
     return tabletMap.end();

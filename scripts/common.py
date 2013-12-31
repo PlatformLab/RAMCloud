@@ -166,15 +166,19 @@ class Sandbox(object):
                 killers.append(subprocess.Popen(['ssh', chost[0],
                                     '%s/killcoord' % scripts_path]))
 
-                path = '%s/logs/shm' % scripts_path
-                files = sorted([f for f in os.listdir(path)
-                   if os.path.isfile( os.path.join(path, f) )])
+                path = '%s/logs/shm' % os.getcwd()
+                files = ""
+                try:
+                    files = sorted([f for f in os.listdir(path)
+                        if os.path.isfile( os.path.join(path, f) )])
+                except:
+                    pass
 
                 # kill all the servers that are running
                 for mhost in files:
                     if mhost != 'README' and not mhost.startswith("cluster"):
                         to_kill = '1'
-                        killers.append(subprocess.Popen(['ssh', mhost[:4],
+                        killers.append(subprocess.Popen(['ssh', mhost.split('_')[0],
                                             '%s/killserver' % scripts_path,
                                             to_kill, os.getcwd(), mhost]))
                 try:
@@ -198,14 +202,6 @@ class Sandbox(object):
             except:
                 pass
             p.proc.wait()
-
-        # remove the shm directory if any that used shared files for
-        # this test in clusterperf
-        if self.cleanup:
-            try:
-                os.rmdir('%s/logs/shm' % os.getcwd())
-            except:
-                pass
 
     def checkFailures(self):
         """Raise exception if any process has exited with a non-zero status."""

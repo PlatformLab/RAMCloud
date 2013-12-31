@@ -28,7 +28,7 @@ static string *localLog;
 class DummyPoller : public Dispatch::Poller {
   public:
     DummyPoller(const char *name, int callsUntilTrue, Dispatch *dispatch)
-        : Dispatch::Poller(*dispatch, "DummyPoller"), myName(name),
+        : Dispatch::Poller(dispatch, "DummyPoller"), myName(name),
         callsUntilTrue(callsUntilTrue), pollersToDelete() { }
     void poll() {
         bool deleteThis = false;
@@ -71,7 +71,7 @@ class DummyPoller : public Dispatch::Poller {
 class CountPoller : public Dispatch::Poller {
   public:
     explicit CountPoller(Dispatch* dispatch)
-            : Dispatch::Poller(*dispatch, "CountPoller"), count(0) { }
+            : Dispatch::Poller(dispatch, "CountPoller"), count(0) { }
     void poll() {
         count++;
     }
@@ -85,9 +85,9 @@ class CountPoller : public Dispatch::Poller {
 class DummyTimer : public Dispatch::Timer {
   public:
     explicit DummyTimer(const char *name, Dispatch* dispatch)
-            : Dispatch::Timer(*dispatch), myName(name), timersToDelete() { }
+            : Dispatch::Timer(dispatch), myName(name), timersToDelete() { }
     DummyTimer(const char *name, uint64_t cycles, Dispatch* dispatch)
-            : Dispatch::Timer(*dispatch, cycles), myName(name),
+            : Dispatch::Timer(dispatch, cycles), myName(name),
             timersToDelete() { }
     void handleTimerEvent() {
         bool deleteThis = false;
@@ -127,12 +127,12 @@ class DummyFile : public Dispatch::File {
   public:
     explicit DummyFile(const char *name, bool readData, int fd,
             int events, Dispatch* dispatch)
-            : Dispatch::File(*dispatch, fd, events), myName(name),
+            : Dispatch::File(dispatch, fd, events), myName(name),
             readData(readData), lastInvocationId(0), deleteThis(false),
             eventInfo() { }
     explicit DummyFile(const char *name, bool readData, int fd,
             Dispatch* dispatch)
-            : Dispatch::File(*dispatch, fd, 0),
+            : Dispatch::File(dispatch, fd, 0),
             myName(name), readData(readData), lastInvocationId(0),
             deleteThis(false), eventInfo() { }
     void handleFileEvent(int events) {

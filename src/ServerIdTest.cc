@@ -110,4 +110,13 @@ TEST_F(ServerIdTest, assignmentOperator) {
     EXPECT_EQ(a.serverId, b.serverId);
 }
 
+TEST_F(ServerIdTest, operatorLess) {
+    EXPECT_TRUE(ServerId(4, 2) < ServerId(3, 4));
+    EXPECT_FALSE(ServerId(4, 2) < ServerId(5, 1));
+    EXPECT_FALSE(ServerId(4, 2) < ServerId(3, 2));
+    EXPECT_TRUE(ServerId(3, 2) < ServerId(4, 2));
+    EXPECT_FALSE(ServerId(3, 2) < ServerId(3, 2));
+
+}
+
 }  // namespace RAMCloud

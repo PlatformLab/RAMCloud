@@ -106,11 +106,8 @@ ObjectRpcWrapper::handleTransportError()
     // There was a transport-level failure. Flush cached state related
     // to this session, and related to the object mapping for our object.
     // Then retry.
-    if (session.get() != NULL) {
-        ramcloud->clientContext->transportManager->flushSession(
-                session->getServiceLocator().c_str());
-        session = NULL;
-    }
+    ramcloud->objectFinder.flushSession(tableId, keyHash);
+    session = NULL;
     ramcloud->objectFinder.flush();
     send();
     return false;

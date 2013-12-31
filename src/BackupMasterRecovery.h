@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2012 Stanford University
+/* Copyright (c) 2009-2013 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -83,7 +83,7 @@ class BackupMasterRecovery : public Task {
     void setPartitionsAndSchedule(ProtoBuf::Tablets partitions);
     Status getRecoverySegment(uint64_t recoveryId,
                               uint64_t segmentId,
-                              uint64_t partitionId,
+                              int partitionId,
                               Buffer* buffer,
                               Segment::Certificate* certificate);
     void free();
@@ -136,7 +136,7 @@ class BackupMasterRecovery : public Task {
      * in #partitions may have the same partition id. One more than the
      * largest id found among the partitions.
      */
-    size_t numPartitions;
+    int numPartitions;
 
     /**
      * Keeps all state for each replica that is part of this master recovery.
@@ -265,6 +265,12 @@ class BackupMasterRecovery : public Task {
     uint64_t logDigestSegmentEpoch;
 
     /**
+     * Caches the table stats digest from the replicas for this crashed master,
+     * if any.
+     */
+    Buffer tableStatsDigest;
+
+    /**
      * Indicates whether start() should scan all the replicas to extract
      * information or whether the results are already cached.
      * Used by start() to ensure replica information is only extracted once.
@@ -302,7 +308,9 @@ class BackupMasterRecovery : public Task {
      * If set call this function instead of
      * RecoverySegmentBuilder::extractDigest() during start().
      */
-    bool (*testingExtractDigest)(uint64_t segmentId, Buffer* digestBuffer);
+    bool (*testingExtractDigest)(uint64_t segmentId,
+                                 Buffer* digestBuffer,
+                                 Buffer* tableStatsBuffer);
 
     /**
      * If true skip calls to RecoverySegmentBuilder::build() in

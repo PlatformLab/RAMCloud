@@ -28,6 +28,7 @@ namespace RAMCloud {
 
 class CoordinatorServiceTest : public ::testing::Test {
   public:
+    TestLog::Enable logEnabler;
     Context context;
     ServerConfig masterConfig;
     MockCluster cluster;
@@ -37,7 +38,8 @@ class CoordinatorServiceTest : public ::testing::Test {
     ServerId masterServerId;
 
     CoordinatorServiceTest()
-        : context()
+        : logEnabler()
+        , context()
         , masterConfig(ServerConfig::forTesting())
         , cluster(&context)
         , ramcloud()
@@ -79,6 +81,20 @@ class CoordinatorServiceTest : public ::testing::Test {
 
     DISALLOW_COPY_AND_ASSIGN(CoordinatorServiceTest);
 };
+
+TEST_F(CoordinatorServiceTest, dispatch_initNotFinished) {
+    EXPECT_TRUE(service->initFinished);
+    service->initFinished = false;
+    Buffer request, response;
+    Service::Rpc rpc(NULL, &request, &response);
+    string message("no exception");
+    try {
+        service->dispatch(WireFormat::Opcode::ILLEGAL_RPC_TYPE, &rpc);
+    } catch (RetryException& e) {
+        message = e.message;
+    }
+    EXPECT_EQ("coordinator service not yet initialized", message);
+}
 
 TEST_F(CoordinatorServiceTest, createTable_idempotence) {
     EXPECT_EQ(1UL, ramcloud->createTable("duplicate", 1));
@@ -212,8 +228,9 @@ TEST_F(CoordinatorServiceTest, verifyServerFailure) {
     // Case 2: server incommunicado.
     MockTransport mockTransport(&context);
     context.transportManager->registerMock(&mockTransport, "mock2");
+    service->serverList->haltUpdater();
     ServerId deadId = service->serverList->enlistServer(
-                {}, {WireFormat::PING_SERVICE}, 100, "mock2:");
+                {WireFormat::PING_SERVICE}, 100, "mock2:");
     EXPECT_TRUE(service->verifyServerFailure(deadId));
 }
 

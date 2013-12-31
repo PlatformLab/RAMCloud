@@ -227,11 +227,13 @@ class ObjectManager : public LogEntryHandlers {
                 LogEntryType& outType,
                 Buffer& buffer,
                 uint64_t* outVersion = NULL,
-                Log::Reference* outReference = NULL);
+                Log::Reference* outReference = NULL,
+                HashTable::Candidates* outCandidates = NULL);
     bool remove(HashTableBucketLock& lock, Key& key);
     bool replace(HashTableBucketLock& lock, Key& key, Log::Reference reference);
     static void removeIfOrphanedObject(uint64_t reference, void *cookie);
     static void removeIfTombstone(uint64_t maybeTomb, void *cookie);
+    static string dumpSegment(Segment* segment);
 
     /**
      * Shared RAMCloud information.
@@ -344,6 +346,7 @@ class ObjectManager : public LogEntryHandlers {
     void removeTombstones();
 
     friend class CleanerCompactionBenchmark;
+    friend class ObjectManagerBenchmark;
 
     DISALLOW_COPY_AND_ASSIGN(ObjectManager);
 };

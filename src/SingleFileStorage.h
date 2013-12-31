@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2012 Stanford University
+/* Copyright (c) 2010-2013 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -86,6 +86,7 @@ class SingleFileStorage : public BackupStorage {
                     const void* metadata,
                     size_t metadataLength);
         void close();
+        void reopen(size_t length);
         void free();
 
         void performTask();
@@ -250,6 +251,11 @@ class SingleFileStorage : public BackupStorage {
     off_t offsetOfFrame(size_t frameIndex) const;
     off_t offsetOfMetadataFrame(size_t frameIndex) const;
     off_t offsetOfSuperblockFrame(size_t superblockIndex) const;
+    void unlockedRead(Frame::Lock& lock, void* buf, size_t count, off_t offset,
+                      bool usingDevNull) const;
+    void unlockedWrite(Frame::Lock& lock, void* buf, size_t count, off_t offset,
+                       void* metadataBuf, size_t metadataCount,
+                       off_t metadataOffset) const;
 
     void reserveSpace();
     Tub<Superblock> tryLoadSuperblock(uint32_t superblockFrame);

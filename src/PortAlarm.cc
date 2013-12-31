@@ -128,7 +128,7 @@ PortAlarm::requestArrived()
  * Constructor for PortAlarmTimer objects.
  */
 PortAlarmTimer::PortAlarmTimer(Context* context)
-    : Dispatch::Timer(*context->dispatch)
+    : Dispatch::Timer(context->dispatch)
     , context(context)
     , activeAlarms()
     , timerIntervalTicks(Cycles::fromNanoseconds(TIMER_INTERVAL_MS * 1000000))

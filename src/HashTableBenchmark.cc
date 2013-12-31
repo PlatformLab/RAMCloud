@@ -24,6 +24,7 @@
 #include "Context.h"
 #include "Cycles.h"
 #include "HashTable.h"
+#include "LargeBlockOfMemory.h"
 #include "Memory.h"
 #include "OptionParser.h"
 #include "KeyUtil.h"
@@ -41,8 +42,6 @@ class TestObject {
     }
 
     uint64_t key;
-
-    DISALLOW_COPY_AND_ASSIGN(TestObject); // NOLINT
 } __attribute__((aligned(64)));
 
 } // anonymous namespace
@@ -52,7 +51,9 @@ hashTableBenchmark(uint64_t nkeys, uint64_t nlines)
 {
     uint64_t i;
     HashTable ht(nlines);
-    TestObject** values = new TestObject*[nkeys];
+    LargeBlockOfMemory<TestObject> block(nkeys * sizeof(TestObject));
+    TestObject* values = block.get();
+    assert(nlines == ht.numBuckets);
 
     printf("hash table keys: %lu\n", nkeys);
     printf("hash table lines: %lu\n", nlines);
@@ -64,23 +65,26 @@ hashTableBenchmark(uint64_t nkeys, uint64_t nlines)
     fflush(stdout);
     for (i = 0; i < nkeys; i++) {
         Key key(0, &i, sizeof(i));
-        values[i] = new TestObject(i);
-        uint64_t reference(reinterpret_cast<uint64_t>(values[i]));
+        values[i] = TestObject(i);
+        uint64_t reference(reinterpret_cast<uint64_t>(&values[i]));
         ht.insert(key, reference);
     }
     printf("done!\n");
 
+    printf("Starting replaces in 3 seconds (get your measurements ready!)\n");
+    sleep(3);
     printf("running replace measurements...");
     fflush(stdout);
 
     // don't use a CycleCounter, as we may want to run without PERF_COUNTERS
     uint64_t replaceCycles = Cycles::rdtsc();
+    HashTable::Candidates c;
     for (i = 0; i < nkeys; i++) {
         Key key(0, &i, sizeof(i));
-        uint64_t reference(reinterpret_cast<uint64_t>(values[i]));
+        uint64_t reference(reinterpret_cast<uint64_t>(&values[i]));
 
         bool success = false;
-        HashTable::Candidates c = ht.lookup(key);
+        ht.lookup(key, c);
         while (!c.isDone()) {
             TestObject* candidateObject =
                 reinterpret_cast<TestObject*>(c.getReference());
@@ -99,14 +103,15 @@ hashTableBenchmark(uint64_t nkeys, uint64_t nlines)
     i = Cycles::rdtsc() - replaceCycles;
     printf("done!\n");
 
-    delete[] values;
     values = NULL;
 
-    printf("== replace() ==\n");
+    printf("== replace() took %.3f s ==\n", Cycles::toSeconds(i));
 
     printf("    external avg: %lu ticks, %lu nsec\n",
            i / nkeys, Cycles::toNanoseconds(i / nkeys));
 
+    printf("Starting lookups in 3 seconds (get your measurements ready!)\n");
+    sleep(3);
     printf("running lookup measurements...");
     fflush(stdout);
 
@@ -117,7 +122,7 @@ hashTableBenchmark(uint64_t nkeys, uint64_t nlines)
         uint64_t reference = 0;
         bool success = false;
 
-        HashTable::Candidates c = ht.lookup(key);
+        ht.lookup(key, c);
         while (!c.isDone()) {
             reference = c.getReference();
             TestObject* candidateObject =
@@ -137,7 +142,7 @@ hashTableBenchmark(uint64_t nkeys, uint64_t nlines)
     i = Cycles::rdtsc() - lookupCycles;
     printf("done!\n");
 
-    printf("== lookup() ==\n");
+    printf("== lookup() took %.3f s ==\n", Cycles::toSeconds(i));
 
     printf("    external avg: %lu ticks, %lu nsec\n", i / nkeys,
         Cycles::toNanoseconds(i / nkeys));
@@ -206,6 +211,8 @@ main(int argc, char **argv)
 
     uint64_t numberOfCachelines = (hashTableMegs * 1024 * 1024) /
         HashTable::bytesPerCacheLine();
+    // HashTable will round to a power of two to avoid divides.
+    numberOfCachelines = BitOps::powerOfTwoLessOrEqual(numberOfCachelines);
 
     // If the user specified a load factor, auto-calculate the number of
     // keys based on the number of cachelines.

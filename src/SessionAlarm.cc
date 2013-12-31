@@ -156,7 +156,7 @@ SessionAlarmTimer::PingRpc::succeeded()
  * Constructor for SessionAlarmTimer objects.
  */
 SessionAlarmTimer::SessionAlarmTimer(Context* context)
-    : Dispatch::Timer(*context->dispatch)
+    : Dispatch::Timer(context->dispatch)
     , context(context)
     , activeAlarms()
     , timerIntervalTicks(Cycles::fromNanoseconds(TIMER_INTERVAL_MS * 1000000))

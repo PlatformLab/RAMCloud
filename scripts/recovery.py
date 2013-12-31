@@ -224,7 +224,8 @@ if __name__ == '__main__':
     parser.add_option('--debug', action='store_true', default=False,
             help='Pause after starting servers but before running '
                  'to enable debugging setup')
-    parser.add_option('-d', '--logDir', default='logs', metavar='DIR',
+    parser.add_option('-d', '--logDir', default='logs',
+            metavar='DIR',
             dest='log_dir',
             help='Top level directory for log files; the files for '
                  'each invocation will go in a subdirectory.')
@@ -249,7 +250,7 @@ if __name__ == '__main__':
     parser.add_option('-s', '--size', type=int, default=1024,
             help='Object size in bytes')
     parser.add_option('-n', '--numObjects', type=int,
-            metavar='N', dest='num_objects', default=592950,
+            metavar='N', dest='num_objects', default=2964750,
             help='Number of objects per partition')
     parser.add_option('-t', '--timeout', type=int, default=100,
             metavar='SECS',
@@ -259,10 +260,9 @@ if __name__ == '__main__':
             help='Transport to use for communication with servers')
     parser.add_option('-v', '--verbose', action='store_true', default=False,
             help='Print progress messages')
-    parser.add_option('-p', '--partitions', type=int, default=5,
+    parser.add_option('-p', '--partitions', type=int, default=1,
             metavar='N', dest='num_partitions',
-            help=('Number of partitions on the old master '
-                  '(also number of recovery masters part of recovery)'))
+            help=('Number of partitions on the old master'))
     parser.add_option('--masterRam', type=int,
             metavar='N', dest='master_ram',
             help='Megabytes to allocate for the log per recovery master')

@@ -662,11 +662,10 @@ TEST_F(ObjectTombstoneTest, constructor_fromObject) {
     ObjectTombstone& tombstone = *tombstones[0];
 
     EXPECT_EQ(572U, tombstone.header.tableId);
-    EXPECT_EQ(5U, tombstone.header.keyLength);
     EXPECT_EQ(925U, tombstone.header.segmentId);
     EXPECT_EQ(58U, tombstone.header.objectVersion);
     EXPECT_EQ(335U, tombstone.header.timestamp);
-    EXPECT_EQ(0x837de743U, tombstone.header.checksum);
+    EXPECT_EQ(0x5D60E8EFU, tombstone.header.checksum);
 
     EXPECT_TRUE(tombstone.key);
     EXPECT_FALSE(tombstone.tombstoneBuffer);
@@ -677,11 +676,10 @@ TEST_F(ObjectTombstoneTest, constructor_fromBuffer) {
     ObjectTombstone& tombstone = *tombstones[1];
 
     EXPECT_EQ(572U, tombstone.header.tableId);
-    EXPECT_EQ(5U, tombstone.header.keyLength);
     EXPECT_EQ(925U, tombstone.header.segmentId);
     EXPECT_EQ(58U, tombstone.header.objectVersion);
     EXPECT_EQ(335U, tombstone.header.timestamp);
-    EXPECT_EQ(0x837de743U, tombstone.header.checksum);
+    EXPECT_EQ(0x5D60E8EFU, tombstone.header.checksum);
 
     EXPECT_FALSE(tombstone.key);
     EXPECT_TRUE(tombstone.tombstoneBuffer);
@@ -703,11 +701,10 @@ TEST_F(ObjectTombstoneTest, assembleForLog) {
         EXPECT_EQ(sizeof(*header) + 5, buffer.getTotalLength());
 
         EXPECT_EQ(572U, header->tableId);
-        EXPECT_EQ(5U, header->keyLength);
         EXPECT_EQ(925U, header->segmentId);
         EXPECT_EQ(58U, header->objectVersion);
         EXPECT_EQ(335U, header->timestamp);
-        EXPECT_EQ(0x837de743U, header->checksum);
+        EXPECT_EQ(0x5d60e8efU, header->checksum);
 
         const void* key = buffer.getRange(sizeof(*header), 5);
         EXPECT_EQ(0, memcmp(key, "key!", 5));

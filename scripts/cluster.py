@@ -205,25 +205,25 @@ class Cluster(object):
         # create the shm directory to store shared files
         try:
             os.mkdir('%s/logs/shm' % os.getcwd())
-            f = open('%s/logs/shm/README' % os.getcwd(), 'w+')
-            f.write('This directory contains files that correspond to'
-                    'different server processes that were started during'
-                    'the last run of clusterperf. Filename is\n'
-                    '"<hostname>_<pid>". Each of these files stores'
-                    'the service locator of the respective server which is'
-                    'used to give information to the client.\nThe existence'
-                    'of this file at the end of a clusterperf run  means'
-                    'that processes were not cleaned up properly the last'
-                    ' time. So one can use these pids during manual clean up')
-            if not cluster_name_exists:
-                # store the name of the cluster by creating an empty file with
-                # the appropriate file name in shm so that new backups when
-                # created using a different cluster object can use it to read
-                # data from their disks
-                f = open('%s/logs/shm/%s' % (os.getcwd(), self.cluster_name),
-                         'w+')
         except:
             pass
+        f = open('%s/logs/shm/README' % os.getcwd(), 'w+')
+        f.write('This directory contains files that correspond to'
+                'different server processes that were started during'
+                'the last run of clusterperf. Filename is\n'
+                '"<hostname>_<pid>". Each of these files stores'
+                'the service locator of the respective server which is'
+                'used to give information to the client.\nThe existence'
+                'of this file at the end of a clusterperf run  means'
+                'that processes were not cleaned up properly the last'
+                ' time. So one can use these pids during manual clean up')
+        if not cluster_name_exists:
+            # store the name of the cluster by creating an empty file with
+            # the appropriate file name in shm so that new backups when
+            # created using a different cluster object can use it to read
+            # data from their disks
+            f = open('%s/logs/shm/%s' % (os.getcwd(), self.cluster_name),
+                     'w+')
 
     def start_coordinator(self, host, args=''):
         """Start a coordinator on a node.
@@ -310,7 +310,7 @@ class Cluster(object):
                      (default: True)
         @return: Sandbox.Process representing the server process.
         """
-        command = ('%s %s -C %s -L %s -r %d -l %s '
+        command = ('%s %s -C %s -L %s -r %d -l %s --clusterName __unnamed__ '
                    '--logFile %s/server%d.%s.log %s' %
                    (valgrind_command,
                     server_binary, self.coordinator_locator,
@@ -364,7 +364,7 @@ class Cluster(object):
                         killed.
         """
 
-        path = '%s/logs/shm' % scripts_path
+        path = '%s/logs/shm' % os.getcwd()
         files = sorted([f for f in os.listdir(path)
            if os.path.isfile( os.path.join(path, f) )])
 
@@ -375,7 +375,7 @@ class Cluster(object):
             if (locator in service_locator):
                 to_kill = '1'
                 mhost = file
-                subprocess.Popen(['ssh', mhost[:4],
+                subprocess.Popen(['ssh', mhost.split('_')[0],
                                   '%s/killserver' % scripts_path,
                                   to_kill, os.getcwd(), mhost])
                 f.close()
@@ -667,7 +667,8 @@ if __name__ == '__main__':
             choices=['DEBUG', 'NOTICE', 'WARNING', 'ERROR', 'SILENT'],
             metavar='L', dest='log_level',
             help='Controls degree of logging in servers')
-    parser.add_option('-d', '--logDir', default='logs', metavar='DIR',
+    parser.add_option('-d', '--logDir', default='logs',
+            metavar='DIR',
             dest='log_dir',
             help='Top level directory for log files; the files for '
                  'each invocation will go in a subdirectory.')

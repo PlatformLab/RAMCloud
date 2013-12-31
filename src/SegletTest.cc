@@ -29,55 +29,67 @@ class SegletTest : public ::testing::Test {
     SegletTest()
         : serverConfig(ServerConfig::forTesting()),
           allocator(&serverConfig),
-          buf(new char[serverConfig.segletSize]),
-          s(allocator, buf, sizeof(buf))
+          buf(NULL),
+          s(NULL)
     {
+        vector<Seglet*> v;
+        allocator.alloc(SegletAllocator::DEFAULT, 1, v);
+        EXPECT_FALSE(v.empty());
+        s = v[0];
+        buf = s->buffer;
     }
 
     ~SegletTest()
     {
-        delete[] buf;
+        if (s != NULL)
+            s->free();
     }
 
     ServerConfig serverConfig;
     SegletAllocator allocator;
-    char* buf;
-    Seglet s;
+    void* buf;
+    Seglet* s;
 
     DISALLOW_COPY_AND_ASSIGN(SegletTest);
 };
 
 TEST_F(SegletTest, constructor) {
-    EXPECT_EQ(&allocator, &s.segletAllocator);
-    EXPECT_EQ(buf, s.buffer);
-    EXPECT_EQ(sizeof(buf), s.length);
-    EXPECT_EQ(static_cast<const vector<Seglet*>*>(NULL), s.sourcePool);
+    char buf[50];
+    Seglet seglet(allocator, buf, sizeof(buf));
+    EXPECT_EQ(&allocator, &seglet.segletAllocator);
+    EXPECT_EQ(buf, seglet.buffer);
+    EXPECT_EQ(sizeof(buf), seglet.length);
+    EXPECT_EQ(static_cast<const vector<Seglet*>*>(NULL), seglet.sourcePool);
 }
 
 TEST_F(SegletTest, free) {
-    s.free();
-    EXPECT_EQ(allocator.defaultPool.back(), &s);
-    allocator.defaultPool.pop_back();
+    s->free();
+    EXPECT_EQ(allocator.defaultPool.back(), s);
+    s = NULL;
 }
 
 TEST_F(SegletTest, get) {
-    EXPECT_EQ(buf, s.get());
+    EXPECT_EQ(buf, s->get());
 }
 
 TEST_F(SegletTest, getLength) {
-    EXPECT_EQ(sizeof(buf), s.getLength());
+    EXPECT_EQ(serverConfig.segletSize, s->getLength());
 }
 
 TEST_F(SegletTest, setSourcePool) {
+    const vector<Seglet*>* realPool = s->sourcePool;
     const vector<Seglet*>* p = reinterpret_cast<const vector<Seglet*>*>(83);
-    s.setSourcePool(p);
-    EXPECT_EQ(p, s.sourcePool);
+    s->setSourcePool(p);
+    EXPECT_EQ(p, s->sourcePool);
+    s->setSourcePool(realPool);
 }
 
 TEST_F(SegletTest, getSourcePool) {
+    const vector<Seglet*>* realPool = s->sourcePool;
     const vector<Seglet*>* p = reinterpret_cast<const vector<Seglet*>*>(83);
-    s.setSourcePool(p);
-    EXPECT_EQ(p, s.getSourcePool());
+    s->setSourcePool(p);
+    EXPECT_EQ(p, s->getSourcePool());
+    s->setSourcePool(realPool);
 }
 
 } // namespace RAMCloud

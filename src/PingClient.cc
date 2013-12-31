@@ -197,4 +197,70 @@ ProxyPingRpc::wait()
     return respHdr->replyNanoseconds;
 }
 
+/**
+ * Verify that a particular session connects to a server with a particular
+ * id. This method is used primarily by AbstractServerList when opening a
+ * connection to a particular server id; it is intended to detect situations
+ * where a new incarnation of a server (with a new ServerId) uses the same
+ * service locator as its predecessor.
+ *
+ * \param context
+ *      Overall information about this RAMCloud server.
+ * \param session
+ *      Open connection to another server.
+ * \param expectedId
+ *      Verify that the server at the other end of session has this id.
+ *
+ * \result
+ *      True is returned if a getServerId RPC returns confirmation that
+ *      the server is the expected one. False is returned if we find out
+ *      that the server is *not* the expected one, or if we are unable
+ *      to communicate with the server for any reason.
+ */
+bool
+PingClient::verifyServerId(Context* context, Transport::SessionRef session,
+        ServerId expectedId)
+{
+    GetServerIdRpc rpc(context, session);
+    ServerId id = rpc.wait();
+    return (id == expectedId);
+}
+
+/**
+ * Constructor for GetServerIdRpc: initiates an RPC and returns once the
+ * RPC has been initiated, without waiting for it to complete.
+ *
+ * \param context
+ *      Overall information about this RAMCloud server.
+ * \param session
+ *      Session over which the RPC should be sent.
+ */
+GetServerIdRpc::GetServerIdRpc(Context* context, Transport::SessionRef session)
+    : RpcWrapper(sizeof(WireFormat::GetServerId::Response))
+    , context(context)
+{
+    allocHeader<WireFormat::GetServerId>();
+    this->session = session;
+    send();
+}
+
+/**
+ * Wait for a getServerId RPC to complete.
+ *
+ * \return
+ *      Returns the ServerId for the server, or an invalid ServerId if
+ *      a transport-level problem prevented the RPC from completing.
+ */
+ServerId
+GetServerIdRpc::wait()
+{
+    waitInternal(context->dispatch);
+    if (getState() != FINISHED) {
+        return ServerId();
+    }
+    const WireFormat::GetServerId::Response* respHdr(
+            getResponseHeader<WireFormat::GetServerId>());
+    return ServerId(respHdr->serverId);
+}
+
 }  // namespace RAMCloud

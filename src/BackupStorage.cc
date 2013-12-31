@@ -100,10 +100,10 @@ BackupStorage::freeFrame(Frame* frame)
  * \param count
  *      The number of bytes written to storage in the last operation.
  * \param ticks
- *      The number of actual ticks required to write writeBytes to storage.
+ *      The number of actual ticks it took to write 'count' bytes to storage.
  */
 void
-BackupStorage::sleepToThrottleWrites(size_t count, uint64_t ticks)
+BackupStorage::sleepToThrottleWrites(size_t count, uint64_t ticks) const
 {
     if (writeRateLimit == 0)
         return;
@@ -113,7 +113,7 @@ BackupStorage::sleepToThrottleWrites(size_t count, uint64_t ticks)
     double actualTime = Cycles::toSeconds(ticks);
     if (actualTime < minAllowedTime) {
         double delaySec = minAllowedTime - actualTime;
-        useconds_t delayUsec = downCast<useconds_t>(delaySec * 1.0e6);
+        useconds_t delayUsec = (useconds_t) (delaySec * 1.0e6 + 0.5);
         usleep(delayUsec);
         TEST_LOG("delayed %u usec", delayUsec);
     }

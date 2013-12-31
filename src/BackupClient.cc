@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2012 Stanford University
+/* Copyright (c) 2009-2013 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -147,7 +147,6 @@ GetRecoveryDataRpc::GetRecoveryDataRpc(Context* context,
     : ServerIdRpcWrapper(context, backupId,
             sizeof(WireFormat::BackupGetRecoveryData::Response), response)
 {
-    usBetweenRetry = 1000;
     WireFormat::BackupGetRecoveryData::Request* reqHdr(
             allocHeader<WireFormat::BackupGetRecoveryData>(backupId));
     reqHdr->recoveryId = recoveryId;
@@ -353,7 +352,7 @@ StartReadingDataRpc::wait()
         result.logDigestBytes = respHdr->digestBytes;
         result.logDigestSegmentId = respHdr->digestSegmentId;
         result.logDigestSegmentEpoch = respHdr->digestSegmentEpoch;
-        result.tabletMetricsLen = respHdr->tabletMetricsLen;
+        result.tableStatsBytes = respHdr->tableStatsBytes;
         response->truncateFront(sizeof(*respHdr));
         // Remove header. Pointer now invalid.
     }
@@ -372,10 +371,10 @@ StartReadingDataRpc::wait()
     response->truncateFront(result.logDigestBytes);
 
     // Copy out tabletMetrics fields
-    if (result.tabletMetricsLen > 0) {
-        result.tabletMetricsBuffer.reset(new char[result.tabletMetricsLen]);
-        response->copy(0, result.tabletMetricsLen,
-                        result.tabletMetricsBuffer.get());
+    if (result.tableStatsBytes > 0) {
+        result.tableStatsBuffer.reset(new char[result.tableStatsBytes]);
+        response->copy(0, result.tableStatsBytes,
+                        result.tableStatsBuffer.get());
     }
 
     return result;
@@ -460,11 +459,11 @@ StartReadingDataRpc::Result::Result()
     : replicas()
     , primaryReplicaCount(0)
     , logDigestBuffer()
-    , tabletMetricsBuffer()
+    , tableStatsBuffer()
     , logDigestBytes(0)
     , logDigestSegmentId(-1)
     , logDigestSegmentEpoch(-1)
-    , tabletMetricsLen(-1)
+    , tableStatsBytes(-1)
 {
 }
 
@@ -472,11 +471,11 @@ StartReadingDataRpc::Result::Result(Result&& other)
     : replicas(std::move(other.replicas))
     , primaryReplicaCount(other.primaryReplicaCount)
     , logDigestBuffer(std::move(other.logDigestBuffer))
-    , tabletMetricsBuffer(std::move(other.tabletMetricsBuffer))
+    , tableStatsBuffer(std::move(other.tableStatsBuffer))
     , logDigestBytes(other.logDigestBytes)
     , logDigestSegmentId(other.logDigestSegmentId)
     , logDigestSegmentEpoch(other.logDigestSegmentEpoch)
-    , tabletMetricsLen(other.tabletMetricsLen)
+    , tableStatsBytes(other.tableStatsBytes)
 {
 }
 
@@ -486,10 +485,10 @@ StartReadingDataRpc::Result::operator=(Result&& other)
     replicas = std::move(other.replicas);
     primaryReplicaCount = other.primaryReplicaCount;
     logDigestBuffer = std::move(other.logDigestBuffer);
-    tabletMetricsBuffer = std::move(other.tabletMetricsBuffer);
+    tableStatsBuffer = std::move(other.tableStatsBuffer);
     logDigestBytes = other.logDigestBytes;
     logDigestSegmentId = other.logDigestSegmentId;
-    tabletMetricsLen = other.tabletMetricsLen;
+    tableStatsBytes = other.tableStatsBytes;
     logDigestSegmentEpoch = other.logDigestSegmentEpoch;
     return *this;
 }

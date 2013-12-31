@@ -26,6 +26,7 @@
 namespace RAMCloud {
 
 class ServerConfig;
+class LogSegment;
 
 /**
  * This class manages the allocation of all seglets in a server. For more
@@ -79,11 +80,14 @@ class SegletAllocator {
     bool initializeCleanerReserve(uint32_t numSeglets);
     void free(Seglet* seglet);
     size_t getTotalCount();
+    size_t getTotalCount(AllocationType type);
     size_t getFreeCount(AllocationType type);
     uint32_t getSegletSize();
     const void* getBaseAddress();
     uint64_t getTotalBytes();
     int getMemoryUtilization();
+    LogSegment* getOwnerSegment(const void* p);
+    void setOwnerSegment(Seglet* seglet, LogSegment* segment);
 
 #if TESTING
     /// Allow the reported memory utilization (from getMemoryUtilization) to be
@@ -91,13 +95,18 @@ class SegletAllocator {
     static int mockMemoryUtilization;
 #endif
 
-//  PRIVATE:
+  PRIVATE:
+    size_t getSegletIndex(const void* p);
     bool allocFromPool(vector<Seglet*>& pool,
                        uint32_t count,
                        vector<Seglet*>& outSeglets);
 
     /// Size of each seglet in bytes.
     const uint32_t segletSize;
+
+    /// Log2(segletSize). Allows us to quickly find the index of a seglet
+    /// (see getSegletIndex()).
+    const uint32_t segletSizeShift;
 
     /// Monitor-style lock protecting the mutable class members. This allocator
     /// is mostly invoked under the SegmentManager's monitor lock, but the
@@ -136,6 +145,11 @@ class SegletAllocator {
 
     /// Pool holding all other seglets not otherwise reserved.
     vector<Seglet*> defaultPool;
+
+    /// Table mapping blocks of memory backing Seglets to their owner LogSegment
+    /// objects. This allows getOwnerSegment() to look up a LogSegment object
+    /// based on a pointer anywhere into ``block'' below.
+    vector<LogSegment*> segletToSegmentTable;
 
     /// Single contiguous block of memory backing all of our seglets.
     LargeBlockOfMemory<uint8_t> block;

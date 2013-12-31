@@ -51,6 +51,10 @@ class ServerIdRpcWrapper : public RpcWrapper {
     /// Target server.
     ServerId id;
 
+    /// Counts the number of times that transport-level errors have
+    /// occurred for this RPC; used to pick increasingly large retry times.
+    int transportErrors;
+
     /// This flag is set to true if we discover that the target server is
     /// no longer up; the wait method in wrapper classes should then return
     /// an error.

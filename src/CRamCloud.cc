@@ -1,4 +1,4 @@
-/* Copyright (c) 2010 Stanford University
+/* Copyright (c) 2010-2013 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -35,8 +35,11 @@ struct rc_client {
 /**
  * Create a new client connection to a RAMCloud cluster.
  *
- * \param serverLocator
- *      A service locator string for the desired server host.
+ * \param locator
+ *      Information about how to connect to the cluster coordinator;
+ *      see the constructor for RamCloud for details.
+ * \param clusterName
+ *      Name of the cluster.
  * \param[out] newClient
  *      A pointer to the new client connection is returned here
  *      if the return value is STATUS_OK.  This pointer is passed
@@ -45,11 +48,12 @@ struct rc_client {
  * \return
  *      STATUS_OK or STATUS_COULDNT_CONNECT or STATUS_INTERNAL_ERROR.
  */
-Status rc_connect(const char* serverLocator, struct rc_client** newClient)
+Status rc_connect(const char* locator, const char* clusterName,
+        struct rc_client** newClient)
 {
     struct rc_client* client = new rc_client;
     try {
-        client->client = new RamCloud(serverLocator);
+        client->client = new RamCloud(locator, clusterName);
     } catch (CouldntConnectException& e) {
         delete client;
         *newClient = NULL;

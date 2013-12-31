@@ -376,8 +376,8 @@ Dispatch::cleanProfiler() {
  *      about the poller. The name of the superclass is probably sufficient
  *      for most cases.
  */
-Dispatch::Poller::Poller(Dispatch& dispatch, const string& pollerName)
-    : owner(&dispatch)
+Dispatch::Poller::Poller(Dispatch* dispatch, const string& pollerName)
+    : owner(dispatch)
     , pollerName(pollerName)
     , slot(downCast<int>(owner->pollers.size()))
 {
@@ -424,8 +424,8 @@ Dispatch::Poller::~Poller()
  *      Dispatch object that will manage this file handler (defaults
  *      to the global #RAMCloud::dispatch object).
  */
-Dispatch::File::File(Dispatch& dispatch, int fd, int events)
-        : owner(&dispatch)
+Dispatch::File::File(Dispatch* dispatch, int fd, int events)
+        : owner(dispatch)
         , fd(fd)
         , events(0)
         , active(false)
@@ -639,8 +639,8 @@ Dispatch::fdIsReady(int fd)
  * \param dispatch
  *      Dispatch object that will manage this timer.
  */
-Dispatch::Timer::Timer(Dispatch& dispatch)
-    : owner(&dispatch), triggerTime(0), slot(-1)
+Dispatch::Timer::Timer(Dispatch* dispatch)
+    : owner(dispatch), triggerTime(0), slot(-1)
 {
 }
 
@@ -653,8 +653,8 @@ Dispatch::Timer::Timer(Dispatch& dispatch)
  *      Time at which the timer should trigger, measured in cycles (the units
  *      returned by #Cycles::rdtsc).
  */
-Dispatch::Timer::Timer(Dispatch& dispatch, uint64_t cycles)
-        : owner(&dispatch), triggerTime(0), slot(-1)
+Dispatch::Timer::Timer(Dispatch* dispatch, uint64_t cycles)
+        : owner(dispatch), triggerTime(0), slot(-1)
 {
     start(cycles);
 }

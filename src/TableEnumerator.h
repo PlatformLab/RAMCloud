@@ -17,6 +17,7 @@
 #define RAMCLOUD_TABLEENUMERATOR_H
 
 #include "RamCloud.h"
+#include "Object.h"
 
 namespace RAMCloud {
 
@@ -27,9 +28,11 @@ namespace RAMCloud {
  */
 class TableEnumerator {
   public:
-    TableEnumerator(RamCloud& ramCloud, uint64_t tableId);
+    TableEnumerator(RamCloud& ramCloud, uint64_t tableId, bool keysOnly);
     bool hasNext();
     void next(uint32_t* size, const void** object);
+    void nextKeyAndData(uint32_t* keyLength, const void** key,
+                        uint32_t* dataLength, const void** data);
   private:
     void requestMoreObjects();
 
@@ -38,6 +41,12 @@ class TableEnumerator {
 
     /// The table containing the tablet being enumerated.
     uint64_t tableId;
+
+    /// False means that full objects are returned, containing both keys
+    /// and data. True means that the returned objects have
+    /// been truncated so that the object data (normally the last
+    /// field of the object) is omitted.
+    bool keysOnly;
 
     /// The start hash of the tablet being enumerated.
     uint64_t tabletStartHash;

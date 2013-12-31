@@ -1,4 +1,4 @@
-/* Copyright (c) 2012 Stanford University
+/* Copyright (c) 2012-2013 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -142,6 +142,19 @@ class RpcWrapper : public Transport::RpcNotifier {
         return reqHdr;
     }
 
+    /**
+     * This method is limited by RpcWrapper subclasses and is invoked
+     * by RpcWrapper when an RPC response contains an error status other than
+     * the ones the RpcWrapper knows how to deal with. This method gives
+     * the subclass a chance to handle the status if it can (for example,
+     * ObjectRpcWrapper handles STATUS_UNKNOWN_TABLET by refreshing the
+     * configuration cache and retrying).
+     * \return
+     *      The return value from this method becomes the return value
+     *      from RpcWrapper::isReady: true means that the RPC is now
+     *      finished (for better or worse), false means it is still
+     *      being processed (e.g. a retry was initiated).
+     */
     virtual bool checkStatus();
 
     // The following declaration is a total dummy; it exists merely to
@@ -189,7 +202,7 @@ class RpcWrapper : public Transport::RpcNotifier {
     }
 
     virtual bool handleTransportError();
-    void retry(uint64_t microseconds);
+    void retry(uint32_t minDelayMicros, uint32_t maxDelayMicros);
     virtual void send();
     void simpleWait(Dispatch* dispatch);
     const char* stateString();
@@ -216,11 +229,6 @@ class RpcWrapper : public Transport::RpcNotifier {
 
     /// Retry the RPC when Cycles::rdtsc reaches this value.
     uint64_t retryTime;
-
-    /// Microseconds to wait before retrying an RPC after it receives
-    /// STATUS_RETRY from a server. Defaults to 100 us, but RPCs
-    /// may override it.
-    uint64_t usBetweenRetry;
 
     /// Expected size of the response header, in bytes.
     uint32_t responseHeaderLength;

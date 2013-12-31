@@ -23,6 +23,7 @@
 #include "ServerConfig.h"
 #include "StringUtil.h"
 #include "Transport.h"
+#include "MasterTableMetadata.h"
 
 namespace RAMCloud {
 
@@ -140,7 +141,7 @@ TEST_F(LogTest, sync) {
     l.append(LOG_ENTRY_TYPE_OBJ, "hi", 2);
     EXPECT_NE(l.head->syncedLength, l.head->getAppendedLength());
     l.sync();
-    EXPECT_EQ("sync: syncing segment 1 to offset 58 | sync: log synced",
+    EXPECT_EQ("sync: syncing segment 1 to offset 84 | sync: log synced",
         TestLog::get());
     EXPECT_EQ(l.head->syncedLength, l.head->getAppendedLength());
 

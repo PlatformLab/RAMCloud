@@ -16,11 +16,20 @@
 #include "Common.h"
 #include "BitOps.h"
 #include "Crc32C.h"
+#include "CycleCounter.h"
 #include "Segment.h"
+#include "LogSegment.h"
 #include "ShortMacros.h"
 #include "LogEntryTypes.h"
+#include "TestLog.h"
 
 namespace RAMCloud {
+
+static bool
+segletLessThan(const Seglet* a, const Seglet* b)
+{
+    return a->get() < b->get();
+}
 
 /**
  * Construct a segment using Segment::DEFAULT_SEGMENT_SIZE bytes dynamically
@@ -35,22 +44,18 @@ Segment::Segment()
       closed(false),
       mustFreeBlocks(true),
       head(0),
-      checksum(),
-      entryCounts(),
-      entryLengths()
+      checksum()
 {
     segletBlocks.push_back(new uint8_t[segletSize]);
-    memset(entryCounts, 0, sizeof(entryCounts));
-    memset(entryLengths, 0, sizeof(entryLengths));
 }
 
 /**
  * Construct a segment using the provided seglets of the specified size.
  */
-Segment::Segment(vector<Seglet*>& seglets, uint32_t segletSize)
+Segment::Segment(const vector<Seglet*>& allocatedSeglets, uint32_t segletSize)
     : segletSize(segletSize),
       segletSizeShift(BitOps::findFirstSet(segletSize) - 1),
-      seglets(seglets),
+      seglets(allocatedSeglets),
       segletBlocks(),
       closed(false),
       mustFreeBlocks(false),
@@ -58,9 +63,14 @@ Segment::Segment(vector<Seglet*>& seglets, uint32_t segletSize)
       checksum()
 {
     assert(BitOps::isPowerOfTwo(segletSize));
+
+    // Sort our seglets by increasing address. This allows us to binary
+    // search for the seglet that a pointer into this segment begins in.
+    std::sort(seglets.begin(), seglets.end(), segletLessThan);
+
     foreach (Seglet* seglet, seglets) {
-        segletBlocks.push_back(seglet->get());
         assert(seglet->getLength() == segletSize);
+        segletBlocks.push_back(seglet->get());
     }
 }
 
@@ -150,9 +160,10 @@ Segment::hasSpaceFor(uint32_t* entryLengths, uint32_t numEntries)
  *      Pointer to the buffer containing the entry to be appended.
  * \param length
  *      Number of bytes to append from the provided buffer.
- * \param[out] outOffset
- *      If the append was successful, the segment offset of the new entry is
- *      returned here. This is used to address the entry within the segment.
+ * \param[out] outReference
+ *      If the append was successful, a Segment::Reference pointing to the new
+ *      entry is returned here. This is used to later access the entry within
+ *      segment (see getEntry).
  * \return
  *      True if the append succeeded, false if there was insufficient space to
  *      complete the operation.
@@ -161,7 +172,7 @@ bool
 Segment::append(LogEntryType type,
                 const void* buffer,
                 uint32_t length,
-                uint32_t* outOffset)
+                Reference* outReference)
 {
     EntryHeader entryHeader(type, length);
 
@@ -184,13 +195,8 @@ Segment::append(LogEntryType type,
     copyIn(head, buffer, length);
     head += length;
 
-    if (outOffset != NULL)
-        *outOffset = startOffset;
-
-    entryCounts[type]++;
-    entryLengths[type] += length +
-                          downCast<uint32_t>(sizeof(entryHeader)) +
-                          entryHeader.getLengthBytes();
+    if (outReference != NULL)
+        *outReference = Reference(this, startOffset);
 
     return true;
 }
@@ -203,9 +209,10 @@ Segment::append(LogEntryType type,
  *      Type of the entry. See LogEntryTypes.h.
  * \param buffer
  *      Buffer object describing the entry to be appended.
- * \param[out] outOffset
- *      If the append was successful, the segment offset of the new entry is
- *      returned here. This is used to address the entry within the segment.
+ * \param[out] outReference
+ *      If the append was successful, a Segment::Reference pointing to the new
+ *      entry is returned here. This is used to later access the entry within
+ *      segment (see getEntry).
  * \return
  *      True if the append succeeded, false if there was insufficient space to
  *      complete the operation.
@@ -213,10 +220,10 @@ Segment::append(LogEntryType type,
 bool
 Segment::append(LogEntryType type,
                 Buffer& buffer,
-                uint32_t* outOffset)
+                Reference* outReference)
 {
     uint32_t length = buffer.getTotalLength();
-    return append(type, buffer.getRange(0, length), length, outOffset);
+    return append(type, buffer.getRange(0, length), length, outReference);
 }
 
 /**
@@ -232,6 +239,10 @@ Segment::close()
 {
     closed = true;
 }
+
+uint64_t bufferAppendTicks;
+uint64_t bufferAppendSizes;
+uint64_t bufferAppendCount;
 
 /**
  * Append contents of the segment to a provided buffer.
@@ -286,9 +297,10 @@ Segment::appendToBuffer(Buffer& buffer)
 }
 
 /**
- * Get access to an entry stored in this segment after it has been appended.
- * This the main method used to access entries that have been appended to a
- * segment.
+ * Get access to an entry stored in this segment after it has been appended by
+ * specifying the logical offset of the entry in the Segment. This method is
+ * primarily used as a helper function when looking up entries by their
+ * Segment::Reference.
  *
  * \param offset
  *      Offset of the entry in the segment. This value must be the result of a
@@ -305,7 +317,7 @@ Segment::appendToBuffer(Buffer& buffer)
  *      The entry's type as specified when it was appended (LogEntryType).
  */
 LogEntryType
-Segment::getEntry(uint32_t offset, Buffer& buffer, uint32_t* lengthWithMetadata)
+Segment::getEntry(uint32_t offset, Buffer* buffer, uint32_t* lengthWithMetadata)
 {
     EntryHeader header = getEntryHeader(offset);
     uint32_t entryDataOffset = offset +
@@ -316,38 +328,60 @@ Segment::getEntry(uint32_t offset, Buffer& buffer, uint32_t* lengthWithMetadata)
     copyOut(offset + sizeof32(header), &entryDataLength,
         header.getLengthBytes());
 
-    appendToBuffer(buffer, entryDataOffset, entryDataLength);
+    if (buffer != NULL)
+        appendToBuffer(*buffer, entryDataOffset, entryDataLength);
+
     if (lengthWithMetadata != NULL) {
         *lengthWithMetadata = entryDataLength +
                               sizeof32(header) +
                               header.getLengthBytes();
     }
+
     return header.getType();
 }
 
 /**
- * Return the number of entries of the given type that have been appended to
- * this segment. There is no notion of dead or alive entries. Any that were
- * ever appended are reflected in the result.
- */
-uint32_t
-Segment::getEntryCount(LogEntryType type)
-{
-    return entryCounts[type];
-}
-
-/*
- * Return the number of bytes taken up by entries of the given type that have
- * been appended to this segment. There is no notion of dead or alive entries.
- * Any that were ever appended are reflected in the result.
+ * Get access to an entry stored in this segment using a Segment::Reference
+ * pointing to the entry. This the main method used to access entries that have
+ * been appended to a segment.
  *
- * Note that this value includes the header overheads (type and length field)
- * within the Segment.
+ * \param reference 
+ *      The Segment::Reference object pointing to the desired entry. This should
+ *      always have been a result of a previous call to Segment::getReference().
+ * \param buffer
+ *      Buffer to append the entry to.
+ * \param lengthWithMetadata
+ *      If non-NULL, return the total number of bytes this entry uses in the
+ *      segment here, including any internal segment metadata. This is used by
+ *      LogSegment to keep track of the exact amount of live data within a
+ *      segment.
+ * \return
+ *      The entry's type as specified when it was appended (LogEntryType).
  */
-uint32_t
-Segment::getEntryLengths(LogEntryType type)
+LogEntryType
+Segment::getEntry(Reference reference,
+                  Buffer* buffer,
+                  uint32_t* lengthWithMetadata)
 {
-    return entryLengths[type];
+    // Binary search our seglets to find out which one this entry starts in and
+    // compute the offset in the segment.
+    void* p = reinterpret_cast<void*>(reference.toInteger());
+    vector<void*>::iterator it = std::lower_bound(segletBlocks.begin(),
+                                                  segletBlocks.end(), p);
+
+    // If 'p' points to the first byte of a seglet, 'it' will point to the
+    // seglet base address that we want. Otherwise, it will point one higher,
+    // so we need to adjust.
+    if (it > segletBlocks.begin() && p != *(it - 1))
+        it--;
+
+    assert(it != segletBlocks.end());
+    uint64_t segletOffset = reinterpret_cast<uintptr_t>(p) -
+                            reinterpret_cast<uintptr_t>(*it);
+    assert(segletOffset < segletSize);
+    uint64_t offset = (it - segletBlocks.begin()) << segletSizeShift;
+    offset += segletOffset;
+    return getEntry(downCast<uint32_t>(offset), buffer, lengthWithMetadata);
 }
 
 /**
@@ -645,6 +679,69 @@ Segment::copyInFromBuffer(uint32_t segmentOffset,
     }
 
     return bytesCopied;
+}
+
+Segment::Reference
+Segment::getReference(uint32_t offset)
+{
+    const void* p = NULL;
+    peek(offset, &p);
+    return Reference(reinterpret_cast<uint64_t>(p));
+}
+
+LogEntryType
+Segment::Reference::getEntry(SegletAllocator* allocator,
+                             Buffer* buffer,
+                             uint32_t* lengthWithMetadata)
+{
+    uint32_t segletSize = allocator->getSegletSize();
+
+    // See if we can take the fast path for contiguous entries.
+    EntryHeader* header = reinterpret_cast<EntryHeader*>(reference);
+    uint32_t offset = downCast<uint32_t>(reference & (segletSize - 1));
+    uint32_t fullHeaderLength = sizeof32(*header) +
+                                header->getLengthBytes();
+    if (expect_true(offset + fullHeaderLength <= segletSize)) {
+        // Looks like the header fits. Now grab the length and see if
+        // the whole entry fits.
+        TEST_LOG("Contiguous entry");
+        uint32_t dataLength = 0;
+        const uint64_t offsetOfLength = reference + sizeof(*header);
+        switch (header->getLengthBytes()) {
+        case 1:
+            dataLength = *reinterpret_cast<uint8_t*>(offsetOfLength);
+            break;
+        case 2:
+            dataLength = *reinterpret_cast<uint16_t*>(offsetOfLength);
+            break;
+        default:
+            // Note that this assumes little endian byte order.
+            memcpy(&dataLength,
+                   reinterpret_cast<uint16_t*>(offsetOfLength),
+                   header->getLengthBytes());
+        }
+
+        uint32_t fullLength = fullHeaderLength + dataLength;
+        if (expect_true(offset + fullLength <= segletSize)) {
+            // The entry is contiguous.
+            if (buffer != NULL) {
+                buffer->append(
+                    reinterpret_cast<void*>(reference + fullHeaderLength),
+                    dataLength);
+            }
+            if (lengthWithMetadata != NULL)
+                *lengthWithMetadata = fullLength;
+            return header->getType();
+        }
+    }
+
+    // Slow path for a discontiguous entry. Need to figure out which
+    // Segment this belongs to so we can look up subsequent seglets.
+    // This is likely to involve at least 3 additional cache misses.
+    TEST_LOG("Discontiguous entry");
+    LogSegment* segment = allocator->getOwnerSegment(
+        reinterpret_cast<void*>(reference));
+    return segment->getEntry(*this, buffer, lengthWithMetadata);
 }
 
 } // namespace

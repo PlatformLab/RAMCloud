@@ -60,13 +60,14 @@ class LogSegmentTest : public ::testing::Test {
 
 TEST_F(LogSegmentTest, getMemoryUtilization) {
     EXPECT_EQ(0, s->getMemoryUtilization());
-    s->liveBytes = s->segletSize / 2;
+    s->entryLengths[LOG_ENTRY_TYPE_OBJ] =  3 * s->segletSize / 4;
+    s->deadEntryLengths[LOG_ENTRY_TYPE_OBJ] = s->segletSize / 4;
     EXPECT_EQ(50, s->getMemoryUtilization());
 }
 
 TEST_F(LogSegmentTest, getDiskUtilization) {
     EXPECT_EQ(0, s->getDiskUtilization());
-    s->liveBytes = s->segmentSize / 2;
+    s->entryLengths[LOG_ENTRY_TYPE_OBJ] = serverConfig.segmentSize / 2;
     EXPECT_EQ(50, s->getDiskUtilization());
 }
 

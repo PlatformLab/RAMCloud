@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2011 Stanford University
+/* Copyright (c) 2013 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -13,24 +13,12 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-import "MasterRecoveryInfo.proto";
-
 package RAMCloud.ProtoBuf;
 
-// The information appended to LogCabin by the Coordinator
-// to store replication updates for each server.
-message ServerReplicationUpdate {
+// This message is used to store overall state about the TableManager
+// class on external storage.
+message TableManager {
 
-    /// Entry type for this LogCabin entry.
-    required string entry_type = 1;
-
-	/// The server id of the server.
-    required fixed64 server_id = 2;
-
-    /// Information stored in the server list which is used during master
-    /// recovery to prevent stale/lost replicas from being used.
-    required MasterRecoveryInfo master_recovery_info = 3;
-
-    /// The new replication id of the server.
-    required fixed64 replication_id = 4;
+    /// The smallest table id that is guaranteed never to have been used.
+    required uint64 next_table_id = 1;
 }

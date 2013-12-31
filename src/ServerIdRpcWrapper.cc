@@ -54,6 +54,7 @@ ServerIdRpcWrapper::ServerIdRpcWrapper(Context* context, ServerId id,
     : RpcWrapper(responseHeaderLength, response)
     , context(context)
     , id(id)
+    , transportErrors(0)
     , serverCrashed(false)
 {
 }
@@ -104,7 +105,44 @@ ServerIdRpcWrapper::handleTransportError()
         serverCrashed = true;
         return true;
     }
-    send();
+
+    // If there are repeated failures, delay the retries to reduce log
+    // chatter and system load.
+    transportErrors++;
+    if (transportErrors < 3) {
+        // Retry immediately for the first couple of times.
+        send();
+    } else {
+        // The server is probably down. If we are running in the
+        // coordinator, start crash recovery.  This is needed to handle
+        // the following situation:
+        // * The coordinator crashes; while it is down, a master crashes.
+        // * When the coordinator restarts, it attempts to communicate
+        //   with the crashed master during startup (e.g. to make sure it
+        //   knows about tablet ownership).
+        // * The master is still listed as "up" in the coordinator's
+        //   recovered server list, but in fact it is down, so it cannot
+        //   reply.
+        // * Normally, the failure detection mechanism would eventually
+        //   cause the master to become marked as "down", but this requires
+        //   the coordinator to process hintServerCrashed RPCS. It can't
+        //   do this until it finishes initializing itself, which it can't
+        //   do until the RPC completes or terminates because the target
+        //   has crashed.
+        // * Result: deadlock.
+        // The solution is to mark the server is crashed here, rather than
+        // depending on the normal failure detection mechanism.
+        if (context->coordinatorServerList != NULL) {
+            context->coordinatorServerList->serverCrashed(id);
+            serverCrashed = true;
+            return true;
+        }
+
+        // We're not running in the coordinator. Delay a while before retrying;
+        // this should be enough time for the failure to be detected and
+        // propagated to us.
+        retry(500000, 1500000);
+    }
     return false;
 }
 

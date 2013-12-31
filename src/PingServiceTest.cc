@@ -17,6 +17,7 @@
 #include "TestUtil.h"
 #include "BindTransport.h"
 #include "Common.h"
+#include "FailSession.h"
 #include "PingClient.h"
 #include "PingService.h"
 #include "RawMetrics.h"
@@ -36,7 +37,7 @@ namespace RAMCloud {
 // This class is designed to substitute class TebletMapFetcher
 // in ObjectFinder so that the client can locate the proper server
 // that owns a table without the need of going through the
-// coordinator. We used this class, since we don't have cluster in
+// coordinator. We use this class, since we don't have cluster in
 // this test.
 class MockTabletMapFetcher : public ObjectFinder::TabletMapFetcher {
   public:
@@ -77,6 +78,7 @@ class PingServiceTest : public ::testing::Test {
     PingService pingService;
     ServerId serverId;
     Tub<RamCloud> ramcloud;
+    TestLog::Enable logSilencer;
 
     PingServiceTest()
         : context()
@@ -86,6 +88,7 @@ class PingServiceTest : public ::testing::Test {
         , pingService(&context)
         , serverId(1, 3)
         , ramcloud()
+        , logSilencer()
     {
         transport.addService(pingService, "mock:host=ping",
                              WireFormat::PING_SERVICE);
@@ -98,8 +101,122 @@ class PingServiceTest : public ::testing::Test {
     DISALLOW_COPY_AND_ASSIGN(PingServiceTest);
 };
 
+TEST_F(PingServiceTest, getServerId) {
+    pingService.setServerId(ServerId(3, 5));
+    Transport::SessionRef session =
+            context.transportManager->openSession("mock:host=ping");
+    GetServerIdRpc rpc(&context, session);
+    ServerId id = rpc.wait();
+    EXPECT_EQ("3.5", id.toString());
+}
+
+TEST_F(PingServiceTest, getServerId_transportError) {
+    GetServerIdRpc rpc(&context, FailSession::get());
+    ServerId id = rpc.wait();
+    EXPECT_EQ("invalid", id.toString());
+}
+
+TEST_F(PingServiceTest, verifyServerId) {
+    Transport::SessionRef session =
+            context.transportManager->openSession("mock:host=ping");
+    pingService.setServerId(ServerId(3, 5));
+    EXPECT_TRUE(PingClient::verifyServerId(&context, session,
+            ServerId(3, 5)));
+    EXPECT_FALSE(PingClient::verifyServerId(&context, session,
+            ServerId(2, 5)));
+}
+
+TEST_F(PingServiceTest, ping_basics) {
+    PingClient::ping(&context, serverId);
+    EXPECT_EQ("", TestLog::get());
+    TestLog::reset();
+    PingClient::ping(&context, serverId, serverId);
+    EXPECT_EQ("ping: Received ping request from server 1.3", TestLog::get());
+    TestLog::reset();
+    EXPECT_THROW(PingClient::ping(&context, serverId, ServerId(99)),
+                CallerNotInClusterException);
+    EXPECT_EQ("ping: Received ping request from server 99.0",
+              TestLog::get());
+}
+
+TEST_F(PingServiceTest, ping_wait_timeout) {
+    ServerId serverId2(2, 3);
+    MockTransport mockTransport(&context);
+    context.transportManager->registerMock(&mockTransport, "mock2");
+    serverList.testingAdd({serverId2, "mock2:", {WireFormat::PING_SERVICE}, 100,
+                           ServerStatus::UP});
+    PingRpc rpc(&context, serverId2);
+    uint64_t start = Cycles::rdtsc();
+    EXPECT_FALSE(rpc.wait(1000000));
+    EXPECT_EQ("wait: timeout", TestLog::get());
+    double elapsedMicros = 1e06* Cycles::toSeconds(Cycles::rdtsc() - start);
+    EXPECT_GE(elapsedMicros, 1000.0);
+    EXPECT_LE(elapsedMicros, 2000.0);
+}
+
+// Helper function that runs in a separate thread for the following test.
+static void pingThread(PingRpc* rpc, bool* result) {
+    *result = rpc->wait(100000000);
+}
+
+TEST_F(PingServiceTest, ping_wait_serverGoesAway) {
+    ServerId serverId2(2, 3);
+    MockTransport mockTransport(&context);
+    context.transportManager->registerMock(&mockTransport, "mock2");
+    serverList.testingAdd({serverId2, "mock2:", {WireFormat::PING_SERVICE}, 100,
+                           ServerStatus::UP});
+    bool result = 0;
+    PingRpc rpc(&context, serverId2);
+    std::thread thread(pingThread, &rpc, &result);
+    usleep(100);
+    EXPECT_EQ(0LU, result);
+
+    // Delete the server, then fail the ping RPC so that there is a retry
+    // that discovers that targetId is gone.
+    serverList.testingRemove(serverId2);
+    mockTransport.lastNotifier->failed();
+
+    // Give the other thread a chance to finish.
+    for (int i = 0; (result == 0) && (i < 1000); i++) {
+        usleep(100);
+    }
+
+    EXPECT_FALSE(result);
+    EXPECT_EQ("wait: server doesn't exist", TestLog::get());
+    thread.join();
+}
+
+TEST_F(PingServiceTest, ping_wait_exception) {
+    PingRpc rpc(&context, serverId, ServerId(99));
+    EXPECT_THROW(rpc.wait(100000), CallerNotInClusterException);
+}
+
+TEST_F(PingServiceTest, ping_wait_success) {
+    PingRpc rpc(&context, serverId);
+    EXPECT_TRUE(rpc.wait(100000));
+}
+
+TEST_F(PingServiceTest, proxyPing_basics) {
+    uint64_t ns = PingClient::proxyPing(&context, serverId, serverId, 100000);
+    EXPECT_NE(-1U, ns);
+    EXPECT_LT(10U, ns);
+}
+TEST_F(PingServiceTest, proxyPing_timeout) {
+    // Test the situation where the target times out.
+    ServerId targetId(2, 3);
+    MockTransport mockTransport(&context);
+    context.transportManager->registerMock(&mockTransport, "mock2");
+    serverList.testingAdd({targetId, "mock2:", {WireFormat::PING_SERVICE}, 100,
+                           ServerStatus::UP});
+    uint64_t start = Cycles::rdtsc();
+    EXPECT_EQ(0xffffffffffffffffU,
+              PingClient::proxyPing(&context, serverId, targetId, 1000000));
+    double elapsedMicros = 1e06* Cycles::toSeconds(Cycles::rdtsc() - start);
+    EXPECT_GE(elapsedMicros, 1000.0);
+    EXPECT_LE(elapsedMicros, 2000.0);
+}
+
 TEST_F(PingServiceTest, serverControl_DipatchProfilerBasics){
-    TestLog::Enable _;
     uint64_t tableId = 1;
     string locator = serverList.getLocator(serverId);
 
@@ -147,7 +264,6 @@ TEST_F(PingServiceTest, serverControl_DipatchProfilerBasics){
 }
 
 TEST_F(PingServiceTest, serverControl_DispatchProfilerExceptions) {
-    TestLog::Enable _;
     uint64_t tableId = 2;
     string locator = serverList.getLocator(serverId);
     ramcloud->objectFinder.tabletMapFetcher.reset(
@@ -173,101 +289,6 @@ TEST_F(PingServiceTest, serverControl_DispatchProfilerExceptions) {
                             WireFormat::DUMP_DISPATCH_PROFILE,
                             "FolderNotExisting/File.txt", 27, &output)
                 , RequestFormatError);
-}
-
-TEST_F(PingServiceTest, ping_basics) {
-    TestLog::Enable _;
-    PingClient::ping(&context, serverId);
-    EXPECT_EQ("", TestLog::get());
-    TestLog::reset();
-    PingClient::ping(&context, serverId, serverId);
-    EXPECT_EQ("ping: Received ping request from server 1.3", TestLog::get());
-    TestLog::reset();
-    EXPECT_THROW(PingClient::ping(&context, serverId, ServerId(99)),
-                CallerNotInClusterException);
-    EXPECT_EQ("ping: Received ping request from server 99.0",
-              TestLog::get());
-}
-
-TEST_F(PingServiceTest, ping_wait_timeout) {
-    TestLog::Enable _;
-    ServerId serverId2(2, 3);
-    MockTransport mockTransport(&context);
-    context.transportManager->registerMock(&mockTransport, "mock2");
-    serverList.testingAdd({serverId2, "mock2:", {WireFormat::PING_SERVICE}, 100,
-                           ServerStatus::UP});
-    PingRpc rpc(&context, serverId2);
-    uint64_t start = Cycles::rdtsc();
-    EXPECT_FALSE(rpc.wait(1000000));
-    EXPECT_EQ("wait: timeout", TestLog::get());
-    double elapsedMicros = 1e06* Cycles::toSeconds(Cycles::rdtsc() - start);
-    EXPECT_GE(elapsedMicros, 1000.0);
-    EXPECT_LE(elapsedMicros, 2000.0);
-}
-
-// Helper function that runs in a separate thread for the following test.
-static void pingThread(PingRpc* rpc, bool* result) {
-    *result = rpc->wait(100000000);
-}
-
-TEST_F(PingServiceTest, ping_wait_serverGoesAway) {
-    TestLog::Enable _;
-    ServerId serverId2(2, 3);
-    MockTransport mockTransport(&context);
-    context.transportManager->registerMock(&mockTransport, "mock2");
-    serverList.testingAdd({serverId2, "mock2:", {WireFormat::PING_SERVICE}, 100,
-                           ServerStatus::UP});
-    bool result = 0;
-    PingRpc rpc(&context, serverId2);
-    std::thread thread(pingThread, &rpc, &result);
-    usleep(100);
-    EXPECT_EQ(0LU, result);
-
-    // Delete the server, then fail the ping RPC so that there is a retry
-    // that discovers that targetId is gone.
-    serverList.testingRemove(serverId2);
-    mockTransport.lastNotifier->failed();
-
-    // Give the other thread a chance to finish.
-    for (int i = 0; (result == 0) && (i < 1000); i++) {
-        usleep(100);
-    }
-
-    EXPECT_FALSE(result);
-    EXPECT_EQ("wait: server doesn't exist", TestLog::get());
-    thread.join();
-}
-
-TEST_F(PingServiceTest, ping_wait_exception) {
-    TestLog::Enable _;
-    PingRpc rpc(&context, serverId, ServerId(99));
-    EXPECT_THROW(rpc.wait(100000), CallerNotInClusterException);
-}
-
-TEST_F(PingServiceTest, ping_wait_success) {
-    TestLog::Enable _;
-    PingRpc rpc(&context, serverId);
-    EXPECT_TRUE(rpc.wait(100000));
-}
-
-TEST_F(PingServiceTest, proxyPing_basics) {
-    uint64_t ns = PingClient::proxyPing(&context, serverId, serverId, 100000);
-    EXPECT_NE(-1U, ns);
-    EXPECT_LT(10U, ns);
-}
-TEST_F(PingServiceTest, proxyPing_timeout) {
-    // Test the situation where the target times out.
-    ServerId targetId(2, 3);
-    MockTransport mockTransport(&context);
-    context.transportManager->registerMock(&mockTransport, "mock2");
-    serverList.testingAdd({targetId, "mock2:", {WireFormat::PING_SERVICE}, 100,
-                           ServerStatus::UP});
-    uint64_t start = Cycles::rdtsc();
-    EXPECT_EQ(0xffffffffffffffffU,
-              PingClient::proxyPing(&context, serverId, targetId, 1000000));
-    double elapsedMicros = 1e06* Cycles::toSeconds(Cycles::rdtsc() - start);
-    EXPECT_GE(elapsedMicros, 1000.0);
-    EXPECT_LE(elapsedMicros, 2000.0);
 }
 
 } // namespace RAMCloud

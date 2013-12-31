@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2012 Stanford University
+/* Copyright (c) 2010-2013 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -14,32 +14,46 @@
  */
 
 #include "Common.h"
-#include "CoordinatorService.h"
 #include "ShortMacros.h"
+#include "CoordinatorService.h"
+#include "MockExternalStorage.h"
 #include "OptionParser.h"
 #include "PingService.h"
+#include "PortAlarm.h"
 #include "ServerId.h"
 #include "ServiceManager.h"
 #include "TableManager.h"
 #include "TransportManager.h"
-#include "PortAlarm.h"
+#include "ZooStorage.h"
 
 /**
  * \file
  * This file provides the main program for the RAMCloud cluster coordinator.
  */
 
+using namespace RAMCloud;
+
+/**
+ * Main program for the RAMCloud cluster coordinator.
+ *
+ * \param argc
+ *      Count of command-line arguments
+ * \param argv
+ *      Values of commandline arguments
+ * \return
+ *      Standard return value for an application:  zero mean success,
+ *      nonzero means an error occurred.
+ */
 int
 main(int argc, char *argv[])
 {
-    using namespace RAMCloud;
     Logger::installCrashBacktraceHandlers();
     string localLocator("???");
     uint32_t deadServerTimeout;
-    string logCabinLocator("testing");
+    uint32_t numThreads;
+    bool reset;
     Context context(true);
     CoordinatorServerList serverList(&context);
-    TableManager tableManager(&context);
     try {
         OptionsDescription coordinatorOptions("Coordinator");
         coordinatorOptions.add_options()
@@ -51,9 +65,15 @@ main(int argc, char *argv[])
             "timeout, the slower real crashes are responded to. The shorter "
             "the timeout, the greater the chance is of falsely deciding a "
             "machine is down when it's not.")
-            ("logCabinLocator,z",
-             ProgramOptions::value<string>(&logCabinLocator),
-             "Locator where the LogCabin cluster can be contacted");
+            ("reset",
+             ProgramOptions::bool_switch(&reset),
+             "If specified, the coordinator will not attempt to recover "
+             "any existing cluster state; it will start a new cluster "
+             "from scratch.")
+            ("threads",
+             ProgramOptions::value<uint32_t>(&numThreads)->default_value(5),
+             "Maximum number of threads that can be handling separate"
+             "RPCs in the coordinator service at once.");
 
         OptionParser optionParser(coordinatorOptions, argc, argv);
 
@@ -74,25 +94,51 @@ main(int argc, char *argv[])
         localLocator = context.transportManager->
                                 getListeningLocatorsString();
         LOG(NOTICE, "coordinator: Listening on %s", localLocator.c_str());
-        LOG(NOTICE, "PortTimeOut=%d", optionParser.options.getPortTimeout());
 
         // Set PortTimeout and start portTimer
+        LOG(NOTICE, "PortTimeOut=%d", optionParser.options.getPortTimeout());
         context.portAlarmTimer->setPortTimeout(
                 optionParser.options.getPortTimeout());
 
+        // Connect with the external storage system, and then wait until
+        // we have successfully become the "coordinator in charge".
+        string externalLocator =
+                optionParser.options.getExternalStorageLocator();
+        context.externalStorage = ExternalStorage::open(externalLocator,
+                &context);
+        if (context.externalStorage  == NULL) {
+            // Operate without external storage (among other things, this
+            // means we won't do any recovery when we start up, and we won't
+            // save any information to allow recovery if we crash).
+            context.externalStorage = new MockExternalStorage(false);
+        }
+        string workspace("/ramcloud/");
+
+        string clusterName = optionParser.options.getClusterName();
+        workspace.append(clusterName);
+        if (reset) {
+            LOG(WARNING, "Reset requested: deleting external storage for "
+                    "workspace '%s'", workspace.c_str());
+            context.externalStorage->remove(workspace.c_str());
+        };
+        workspace.append("/");
+        LOG(NOTICE, "Cluster name is '%s', external storage workspace is '%s'",
+                clusterName.c_str(), workspace.c_str());
+        context.externalStorage->setWorkspace(workspace.c_str());
+        context.externalStorage->becomeLeader("coordinator", localLocator);
+
         CoordinatorService coordinatorService(&context,
                                               deadServerTimeout,
-                                              logCabinLocator);
-        context.coordinatorService = &coordinatorService;
+                                              true,
+                                              numThreads);
         context.serviceManager->addService(coordinatorService,
                                            WireFormat::COORDINATOR_SERVICE);
         PingService pingService(&context);
         context.serviceManager->addService(pingService,
                                            WireFormat::PING_SERVICE);
 
-        Dispatch& dispatch = *context.dispatch;
         while (true) {
-            dispatch.poll();
+            context.dispatch->poll();
         }
         return 0;
     } catch (const std::exception& e) {

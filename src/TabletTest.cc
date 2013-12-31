@@ -1,4 +1,4 @@
-/* Copyright (c) 2012 Stanford University
+/* Copyright (c) 2012-2013 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -39,16 +39,32 @@ class TabletTest : public ::testing::Test {
 
 TEST_F(TabletTest, serialize) {
     Lock lock(mutex);
-    CoordinatorServerList serverList(&context);
-    ServerId id1 = serverList.generateUniqueId(lock);
-    serverList.add(lock, id1, "mock:host=one", {WireFormat::MASTER_SERVICE}, 1);
-    Tablet tablet({0, 1, 6, id1, Tablet::NORMAL, {0, 5}});
+    Tablet tablet({0, 1, 6, ServerId(1, 0), Tablet::NORMAL, {0, 5}});
     ProtoBuf::Tablets::Tablet serializedTablet;
     tablet.serialize(serializedTablet);
     EXPECT_EQ("table_id: 0 start_key_hash: 1 end_key_hash: 6 "
               "state: NORMAL server_id: 1 "
               "ctime_log_head_id: 0 ctime_log_head_offset: 5",
               serializedTablet.ShortDebugString());
+}
+
+TEST_F(TabletTest, debugString_default) {
+    Lock lock(mutex);
+    Tablet tablet({0, 1, 6, ServerId(1, 0), Tablet::NORMAL, {0, 5}});
+    EXPECT_EQ("Tablet { tableId: 0, startKeyHash: 0x1, "
+              "endKeyHash: 0x6, serverId: 1.0, status: NORMAL, "
+              "ctime: 0.5 }",
+              tablet.debugString());
+    EXPECT_EQ("Tablet { tableId: 0, startKeyHash: 0x1, "
+              "endKeyHash: 0x6, serverId: 1.0, status: NORMAL, "
+              "ctime: 0.5 }",
+              tablet.debugString(0));
+}
+
+TEST_F(TabletTest, debugString_1) {
+    Lock lock(mutex);
+    Tablet tablet({0, 1, 6, ServerId(1, 0), Tablet::NORMAL, {0, 5}});
+    EXPECT_EQ("{ 0: 0x1-0x6 }", tablet.debugString(1));
 }
 
 }  // namespace RAMCloud

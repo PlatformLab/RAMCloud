@@ -162,7 +162,7 @@ class Histogram {
             if (count >= minIncludedCount) {
                 // Try to keep the format easily parsable by scripts (for
                 // example, numbers only and in fixed columns).
-                s += format("%9u  %12lu  %7.3f  %7.3f\n", i, count,
+                s += format("%9u  %12lu  %3.9f  %3.9f\n", i, count,
                     static_cast<double>(count) /
                       static_cast<double>(totalSamples) * 100,
                     static_cast<double>(sum) /

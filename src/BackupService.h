@@ -182,6 +182,13 @@ class BackupService : public Service
     TaskQueue taskQueue;
 
     /**
+     * Counts old replicas (those that existed at startup) that have
+     * not yet been freed by the garbage collector. This value should
+     * become zero pretty soon after startup.
+     */
+    int oldReplicas;
+
+    /**
      * Try to garbage collect replicas from a particular master found on disk
      * until it is finally removed. Usually replicas are freed explicitly by
      * masters, but this doesn't work for cases where the replica was found on

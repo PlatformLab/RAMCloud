@@ -1,43 +1,26 @@
-LOGCABIN_STATE_PROTOBUF_FILES := \
-			src/EntryType.pb.cc \
-			src/LargestTableId.pb.cc \
-			src/ServerCrashInfo.pb.cc \
-			src/ServerInformation.pb.cc \
-			src/ServerListVersion.pb.cc \
-			src/ServerUpdate.pb.cc \
-			src/ServerReplicationUpdate.pb.cc \
-			src/SplitTablet.pb.cc \
-			src/TableDrop.pb.cc \
-			src/TableInformation.pb.cc \
-			src/TabletRecovered.pb.cc \
-
 COORDINATOR_SRCFILES := \
 			src/CoordinatorServerList.cc \
 			src/CoordinatorService.cc \
-			src/CoordinatorServiceRecovery.cc \
-			src/LogCabinHelper.cc \
+			src/CoordinatorUpdateManager.cc \
 			src/MasterRecoveryManager.cc \
+			src/MockExternalStorage.cc \
 			src/Tablet.cc \
 			src/TableManager.cc \
 			src/Recovery.cc \
 			src/RuntimeOptions.cc \
-			$(LOGCABIN_STATE_PROTOBUF_FILES) \
+			src/CoordinatorUpdateInfo.pb.cc \
+			src/ServerListEntry.pb.cc \
+			src/Table.pb.cc \
+			src/TableManager.pb.cc \
 			$(NULL)
 
 COORDINATOR_OBJFILES := $(COORDINATOR_SRCFILES)
 COORDINATOR_OBJFILES := $(patsubst src/%.cc, $(OBJDIR)/%.o, $(COORDINATOR_OBJFILES))
 COORDINATOR_OBJFILES := $(COORDINATOR_OBJFILES) $(SHARED_OBJFILES)
 
-LOGCABIN_LIBS := $(LOGCABIN_DIR)/build/liblogcabin.a
-
-LOGCABIN_DEPS := -L/usr/local/lib/ \
-                 -lpthread -lprotobuf -lrt -lcryptopp \
-                 -levent_core -levent_pthreads
-
 $(OBJDIR)/coordinator: $(COORDINATOR_OBJFILES) \
-                       $(LOGCABIN_LIBS) \
                        $(OBJDIR)/CoordinatorMain.o
 	@mkdir -p $(@D)
-	$(CXX) -o $@ $^ $(LOGCABIN_DEPS) $(LIBS)
+	$(CXX) -o $@ $^ $(LIBS)
 
 all: $(OBJDIR)/coordinator

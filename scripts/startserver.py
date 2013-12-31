@@ -30,7 +30,7 @@ def start_server(options):
             cluster_name = file
             continue
         else:
-            hosts_used.append(file[:4])
+            hosts_used.append(file.split('_')[0])
 
     mhost = hosts[0] # just default value
     for host in hosts:
@@ -46,11 +46,11 @@ def start_server(options):
         print ('%s' % 'NOSERVER')
     else:
         rchost = mhost[0] # rchost = rcxx
-        host = rchost[2:] # host = xx, just the host number
+        host = rchost.split('_')[1] # host = xx, just the host number
         print ('%s' % (server_locator(new_cluster.transport, mhost, server_port)))
         # mhost is the correct host
         if cluster_name is not None:
-            new_cluster.start_server(mhost, args='-d --clusterName %s' %(cluster_name),
+            new_cluster.start_server(mhost, args='-d --clusterName=%s' %(cluster_name),
                                     backup=True, kill_on_exit=False)
         else:
             new_cluster.start_server(mhost, backup=True, kill_on_exit=False)

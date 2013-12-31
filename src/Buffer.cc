@@ -22,6 +22,18 @@
 namespace RAMCloud {
 
 /**
+ * Default object used to make system calls.
+ */
+static Syscall defaultSyscall;
+
+/**
+ * Used by this class to make all system calls.  In normal production
+ * use it points to defaultSyscall; for testing it points to a mock
+ * object.
+ */
+Syscall* Buffer::sys = &defaultSyscall;
+
+/**
  * Malloc and construct an Allocation.
  * \param[in] prependSize
  *      See constructor.
@@ -473,6 +485,59 @@ uint32_t Buffer::copy(uint32_t offset, uint32_t length,
     }
 
     copyChunks(current, offset, length, dest);
+    return length;
+}
+
+/**
+ * Writes a contiguous block of data from a buffer to a FILE.
+ *
+ * \param offset
+ *      The offset in the Buffer of the first byte to write.
+ * \param length
+ *      The number of bytes to write to the file. If this is larger
+ *      then the number of bytes in the buffer after offset, then
+ *      all of the remaining bytes of the buffer are written.
+ * \param f
+ *      File into which the requested bytes are written.
+ * 
+ * \return
+ *      The actual number of bytes written. This will be less than
+ *      length if the requested range of bytes overshoots the end of
+ *      the Buffer, or if an I/O error occurred (ferror can be used
+ *      to determine whether an error occurred). The return value
+ *      will be 0 if offset is outside the range of the Buffer.
+ */
+uint32_t
+Buffer::write(uint32_t offset, uint32_t length, FILE* f) {
+    if (offset >= totalLength)
+        return 0;
+
+    if (offset + length > totalLength)
+        length = totalLength - offset;
+
+    Chunk* current = chunks;
+    while (offset >= current->length) {
+        offset -= current->length;
+        current = current->next;
+    }
+
+    // offset is the physical offset from 'current' at which to start copying.
+    // This may be non-zero for the first Chunk but will be 0 for every
+    // subsequent Chunk.
+    size_t bytesRemaining = length;
+    while (bytesRemaining > 0) {
+        size_t bytesFromCurrent = current->length - offset;
+        bytesFromCurrent = std::min(bytesFromCurrent, bytesRemaining);
+        size_t written = sys->fwrite(
+                static_cast<const char*>(current->data) + offset,
+                1, bytesFromCurrent, f);
+        bytesRemaining -= written;
+        if (written != bytesFromCurrent) {
+            return length - downCast<uint32_t>(bytesRemaining);
+        }
+        offset = 0;
+        current = current->next;
+    }
     return length;
 }
 

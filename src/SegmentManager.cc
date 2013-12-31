@@ -23,6 +23,7 @@
 #include "ServerConfig.h"
 #include "ServerRpcPool.h"
 #include "TableStats.h"
+#include "MasterTableMetadata.h"
 
 namespace RAMCloud {
 
@@ -140,7 +141,7 @@ SegmentManager::getMetrics(ProtoBuf::LogMetrics_SegmentMetrics& m)
     // or alive).
     uint64_t entryCounts[TOTAL_LOG_ENTRY_TYPES] = { 0 };
     uint64_t entryLengths[TOTAL_LOG_ENTRY_TYPES] = { 0 };
-    foreach (Segment& s, allSegments) {
+    foreach (LogSegment& s, allSegments) {
         for (int i = 0; i < TOTAL_LOG_ENTRY_TYPES; i++) {
             entryCounts[i] += s.getEntryCount(static_cast<LogEntryType>(i));
             entryLengths[i] += s.getEntryLengths(static_cast<LogEntryType>(i));
@@ -210,9 +211,8 @@ SegmentManager::allocHeadSegment(uint32_t flags)
         writeDigest(newHead, prevHead);
     else
         writeDigest(newHead, NULL);
+    writeTableStatsDigest(newHead);
     writeSafeVersion(newHead);
-    //TODO(cstlee) added Tablet Stats block to segment;
-    //writeTableStatsDigest(newHead);
 
     // Make the head immutable if it's an emergency head. This will prevent the
     // log from adding anything to it and let us reclaim it without cleaning
@@ -393,7 +393,7 @@ SegmentManager::cleaningComplete(LogSegmentVector& clean,
  *      The segment that was compacted and will be superceded by newSegment.
  * \param newSegment
  *      The compacted version of oldSegment. It contains all of the same live
- *      data, but less dead data.
+ *      data, but less dead data. This must be different from oldSegment.
  */
 void
 SegmentManager::compactionComplete(LogSegment* oldSegment,
@@ -641,6 +641,36 @@ SegmentManager::getSegmentUtilization()
         maxUsableSegments);
 }
 
+int
+SegmentManager::getMemoryUtilization()
+{
+    Lock guard(lock);
+
+    size_t freeSeglets = allocator.getFreeCount(SegletAllocator::DEFAULT);
+    size_t totalSeglets = allocator.getTotalCount(SegletAllocator::DEFAULT);
+
+    // Count seglets that will soon be freed as free. This is important when
+    // the server is run with a small amount of memory and these segments are
+    // a non-trivial percentage of total space. If we don't include them in
+    // such cases, we may run the cleaner earlier than we otherwise should and
+    // can clean at substantially higher utilizations (and consequently with
+    // much higher overhead).
+    //
+    // It's perfectly reasonable to count these as free, since they'll be
+    // available shortly after the next head segment is created. The more the
+    // system needs the memory, the faster the log head will roll.
+    State freeableStates[2] = {
+        FREEABLE_PENDING_DIGEST_AND_REFERENCES,
+        FREEABLE_PENDING_REFERENCES
+    };
+    foreach (State state, freeableStates) {
+        foreach (LogSegment& s, segmentsByState[state])
+            freeSeglets += s.getSegletsAllocated();
+    }
+
+    return downCast<int>(100 * (totalSeglets - freeSeglets) / totalSeglets);
+}
+
 /**
  * Return safeVersion for newly allocated object and increment safeVersion for
  * next assignment. \see #safeVersion
@@ -877,7 +907,7 @@ SegmentManager::writeTableStatsDigest(LogSegment* head)
     Buffer buffer;
     TableStats::serialize(&buffer, masterTableMetadata);
 
-    bool success = head->append(LOG_ENTRY_TYPE_SAFEVERSION, buffer);
+    bool success = head->append(LOG_ENTRY_TYPE_TABLESTATS, buffer);
     if (!success) {
         throw FatalError(HERE,
                  format("Could not append TableStats of %u bytes "
@@ -974,6 +1004,10 @@ SegmentManager::alloc(AllocPurpose purpose,
                              slot,
                              creationTimestamp,
                              (purpose == ALLOC_EMERGENCY_HEAD));
+
+    foreach (Seglet* seglet, seglets)
+        allocator.setOwnerSegment(seglet, segments[slot].get());
+
     states[slot] = state;
     idToSlotMap[segmentId] = slot;
 

@@ -84,7 +84,7 @@ class Dispatch {
      */
     class Poller {
       public:
-        explicit Poller(Dispatch& dispatch, const string& pollerName);
+        explicit Poller(Dispatch* dispatch, const string& pollerName);
         virtual ~Poller();
 
         /**
@@ -131,7 +131,7 @@ class Dispatch {
      */
     class File {
       public:
-        explicit File(Dispatch& dispatch, int fd, int events = 0);
+        explicit File(Dispatch* dispatch, int fd, int events = 0);
         virtual ~File();
         void setEvents(int events);
 
@@ -182,8 +182,8 @@ class Dispatch {
      */
     class Timer {
       public:
-        explicit Timer(Dispatch& dispatch);
-        explicit Timer(Dispatch& dispatch, uint64_t cycles);
+        explicit Timer(Dispatch* dispatch);
+        explicit Timer(Dispatch* dispatch, uint64_t cycles);
         virtual ~Timer();
         virtual void handleTimerEvent();
         bool isRunning();

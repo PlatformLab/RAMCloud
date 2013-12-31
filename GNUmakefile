@@ -23,7 +23,8 @@ OBJDIR	:= obj$(OBJSUFFIX)
 
 TOP	:= $(shell echo $${PWD-`pwd`})
 GTEST_DIR ?= $(TOP)/gtest
-LOGCABIN_DIR := $(TOP)/logcabin
+ZOOKEEPER_LIB := /usr/local/lib/libzookeeper_mt.a
+ZOOKEEPER_DIR := /usr/local/zookeeper-3.4.5
 
 ifeq ($(DEBUG),yes)
 BASECFLAGS := -g
@@ -60,14 +61,15 @@ endif
 # Failed deconstructor inlines are generating noise
 # -Winline
 
-LIBS := $(EXTRALIBS) -lpcrecpp -lboost_program_options -lprotobuf -lrt \
-        -lboost_filesystem -lboost_system -lpthread -lssl -lcrypto
+LIBS := $(EXTRALIBS) $(ZOOKEEPER_LIB) -lpcrecpp -lboost_program_options \
+	-lprotobuf -lrt -lboost_filesystem -lboost_system \
+	-lpthread -lssl -lcrypto
 ifeq ($(DEBUG),yes)
 # -rdynamic generates more useful backtraces when you have debugging symbols
 LIBS += -rdynamic
 endif
 
-INCLUDES := -I$(TOP)/src -I$(TOP)/$(OBJDIR) -I$(GTEST_DIR)/include -I$(LOGCABIN_DIR)
+INCLUDES := -I$(TOP)/src -I$(TOP)/$(OBJDIR) -I$(GTEST_DIR)/include
 
 CC ?= gcc
 CXX ?= g++
@@ -229,4 +231,12 @@ logcabin:
 	cd logcabin; \
 	scons
 
-.PHONY: all always clean check doc docs docs-clean tags tags-clean test tests logcabin
+startZoo:
+	if [ ! -e $(ZOOKEEPER_DIR)/data/zookeeper_server.pid ]; then \
+	        $(ZOOKEEPER_DIR)/bin/zkServer.sh start; fi
+
+stopZoo:
+	$(ZOOKEEPER_DIR)/bin/zkServer.sh stop
+
+.PHONY: all always clean check doc docs docs-clean tags tags-clean test tests \
+        logcabin startZoo stopZoo

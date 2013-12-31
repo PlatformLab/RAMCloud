@@ -1,4 +1,4 @@
-/* Copyright (c) 2012 Stanford University
+/* Copyright (c) 2012-2013 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -14,6 +14,8 @@
  */
 
 #include "CoordinatorSession.h"
+#include "ExternalStorage.h"
+#include "FailSession.h"
 #include "ShortMacros.h"
 
 namespace RAMCloud {
@@ -25,6 +27,8 @@ CoordinatorSession::CoordinatorSession(Context* context)
     : mutex()
     , context(context)
     , coordinatorLocator()
+    , clusterName()
+    , storage(NULL)
     , session(NULL)
 {}
 
@@ -32,7 +36,9 @@ CoordinatorSession::CoordinatorSession(Context* context)
  * Destructor for CoordinatorSession.
  */
 CoordinatorSession::~CoordinatorSession()
-{}
+{
+    delete storage;
+}
 
 /**
  * Close any existing coordinator session, so that a new session will be
@@ -77,8 +83,27 @@ CoordinatorSession::getSession()
         throw FatalError(HERE,
                 "CoordinatorSession::setLocation never invoked");
     }
-    session = context->transportManager->openSession(
-        coordinatorLocator.c_str());
+
+    // If an external storage system is available, lookup the current
+    // coordinator there.
+    string locator;
+    if (storage != NULL) {
+        Buffer value;
+        if (!storage->get("coordinator", &value)) {
+            LOG(WARNING, "Couldn't read coordinator object for cluster %s "
+                    "from storage at '%s'",
+                    clusterName.c_str(), coordinatorLocator.c_str());
+            return FailSession::get();
+        }
+        locator.append(value.getStart<char>(), value.getTotalLength());
+    } else {
+        // This is an old-style "direct" locator.
+        locator = coordinatorLocator;
+    }
+    session = context->transportManager->openSession(locator.c_str());
+    if (session->getServiceLocator() != "fail:") {
+        LOG(NOTICE, "Opened session with coordinator at %s", locator.c_str());
+    }
     return session;
 }
 
@@ -87,15 +112,28 @@ CoordinatorSession::getSession()
  * Any previous coordinator session is discarded.
  *
  * \param location
- *      Describes which coordinator to use. Currently this is a service
- *      locator; eventually it will change to a description of how to
- *      find a coordinator through LogCabin.
+ *      Describes how to locate the coordinator. For details, see the
+ *      documentation for the same argument to the RamCloud constructor.
+ *  \param clusterName
+ *      Name of the current cluster; defaults to "main".
  */
 void
-CoordinatorSession::setLocation(const char* location)
+CoordinatorSession::setLocation(const char* location, const char* clusterName)
 {
     std::lock_guard<SpinLock> lock(mutex);
     coordinatorLocator = location;
+    this->clusterName = clusterName;
+
+    // See if we can connect to an external storage system (close any
+    // existing connection).
+    delete storage;
+    storage = ExternalStorage::open(coordinatorLocator, context);
+    if (storage != NULL) {
+        string workspace("/ramcloud/");
+        workspace.append(clusterName);
+        workspace.append("/");
+        storage->setWorkspace(workspace.c_str());
+    }
     session = NULL;
 }
 

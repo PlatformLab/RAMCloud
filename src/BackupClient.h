@@ -135,12 +135,12 @@ class StartReadingDataRpc : public ServerIdRpcWrapper {
         std::unique_ptr<char[]> logDigestBuffer;
 
         /**
-         * A buffer containing the tabletMetrics gathered from the
+         * A buffer containing the table stats gathered from the
          * newest open segment replica found on this master, if one exists.
          * These metrics may not be completely up-to-date as the metrics
          * are updated only when a new log head is created.
          */
-        std::unique_ptr<char[]> tabletMetricsBuffer;
+        std::unique_ptr<char[]> tableStatsBuffer;
 
         /**
           * The number of bytes that make up logDigestBuffer.
@@ -166,7 +166,7 @@ class StartReadingDataRpc : public ServerIdRpcWrapper {
          * The number of bytes making up the TabletMetrics.
          * This will be -1 if no metrics were found.
          */
-        uint32_t tabletMetricsLen;
+        uint32_t tableStatsBytes;
 
         DISALLOW_COPY_AND_ASSIGN(Result);
     };
