@@ -164,7 +164,7 @@ ObjectManager::writeObject(Object& newObject,
         }
     }
 
-    uint16_t keyLength;
+    uint16_t keyLength = 0;
     const void *keyString = newObject.getKey(0, &keyLength);
     Key key(newObject.getTableId(), keyString, keyLength);
 
@@ -452,7 +452,7 @@ ObjectManager::prefetchHashTableBucket(SegmentIterator* it)
             it->getContiguous<Object::Header>(NULL, 0);
 
         Object prefetchObj(obj, it->getLength());
-        KeyLength primaryKeyLen;
+        KeyLength primaryKeyLen = 0;
         const void *primaryKey = prefetchObj.getKey(0, &primaryKeyLen);
 
         Key key(obj->tableId, primaryKey, primaryKeyLen);
@@ -579,7 +579,7 @@ ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it)
                 it.getContiguous<Object::Header>(NULL, 0);
 
             Object replayObj(recoveryObj, it.getLength());
-            KeyLength primaryKeyLen;
+            KeyLength primaryKeyLen = 0;
             const void *primaryKey = replayObj.getKey(0, &primaryKeyLen);
 
             Key key(recoveryObj->tableId, primaryKey, primaryKeyLen);
