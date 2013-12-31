@@ -73,10 +73,13 @@ class ObjectManagerTest : public ::testing::Test {
     {
         Segment s;
         uint32_t dataLength = downCast<uint32_t>(objContents.length()) + 1;
-        Object newObject(key, objContents.c_str(), dataLength, version, 0);
+
+        Buffer dataBuffer;
+        Object newObject(key, objContents.c_str(), dataLength, version, 0,
+                            dataBuffer);
 
         Buffer newObjectBuffer;
-        newObject.serializeToBuffer(newObjectBuffer);
+        newObject.assembleForLog(newObjectBuffer);
         bool success = s.append(LOG_ENTRY_TYPE_OBJ, newObjectBuffer);
         EXPECT_TRUE(success);
         s.close();
@@ -102,7 +105,7 @@ class ObjectManagerTest : public ::testing::Test {
     {
         Segment s;
         Buffer newTombstoneBuffer;
-        tomb.serializeToBuffer(newTombstoneBuffer);
+        tomb.assembleForLog(newTombstoneBuffer);
         bool success = s.append(LOG_ENTRY_TYPE_OBJTOMB, newTombstoneBuffer);
         EXPECT_TRUE(success);
         s.close();
@@ -128,7 +131,7 @@ class ObjectManagerTest : public ::testing::Test {
     {
         Segment s;
         Buffer newSafeVerBuffer;
-        safeVer.serializeToBuffer(newSafeVerBuffer);
+        safeVer.assembleForLog(newSafeVerBuffer);
         bool success = s.append(LOG_ENTRY_TYPE_SAFEVERSION,
                                 newSafeVerBuffer);
         EXPECT_TRUE(success);
@@ -149,10 +152,12 @@ class ObjectManagerTest : public ::testing::Test {
     Log::Reference
     storeObject(Key& key, string value, uint64_t version = 0)
     {
-        Object o(key, value.c_str(),
-            downCast<uint32_t>(value.size()), version, 0);
+        Buffer dataBuffer;
+        Object o(key, value.c_str(), downCast<uint32_t>(value.size()),
+                    version, 0, dataBuffer);
+
         Buffer buffer;
-        o.serializeToBuffer(buffer);
+        o.assembleForLog(buffer);
         Log::Reference reference;
         objectManager.log.append(LOG_ENTRY_TYPE_OBJ, buffer, &reference);
         {
@@ -172,10 +177,11 @@ class ObjectManagerTest : public ::testing::Test {
     Log::Reference
     storeTombstone(Key& key, uint64_t version = 0)
     {
-        Object o(key, NULL, 0, version, 0);
+        Buffer dataBuffer;
+        Object o(key, NULL, 0, version, 0, dataBuffer);
         ObjectTombstone t(o, 0, 0);
         Buffer buffer;
-        t.serializeToBuffer(buffer);
+        t.assembleForLog(buffer);
         Log::Reference reference;
         objectManager.log.append(LOG_ENTRY_TYPE_OBJTOMB, buffer, &reference);
         {
@@ -196,10 +202,10 @@ class ObjectManagerTest : public ::testing::Test {
     void
     verifyRecoveryObject(Key& key, string contents)
     {
-        Buffer value;
+        ObjectBuffer value;
         EXPECT_EQ(STATUS_OK, objectManager.readObject(key, &value, NULL, NULL));
         const char *s = reinterpret_cast<const char *>(
-            value.getRange(0, value.getTotalLength()));
+            value.getValue());
         EXPECT_EQ(0, strcmp(s, contents.c_str()));
     }
 
@@ -223,8 +229,8 @@ class ObjectManagerTest : public ::testing::Test {
                 Buffer buf;
                 it.setBufferTo(buf);
                 ObjectSafeVersion safeVerDest(buf);
-                if (safeVerSrc->serializedForm.safeVersion
-                    == safeVerDest.serializedForm.safeVersion) {
+                if (safeVerSrc->header.safeVersion
+                    == safeVerDest.header.safeVersion) {
                     safeVerFound = true;
                 }
             }
@@ -314,17 +320,19 @@ writeObjectFilter(string s)
 TEST_F(ObjectManagerTest, writeObject) {
     Key key(1, "1", 1);
     Buffer buffer;
-    buffer.append("value", 5);
+    // create an object just so that buffer will be populated with the key
+    // and the value. This keeps the abstractions intact
+    Object obj(key, "value", 5, 0, 0, buffer);
 
     // no tablet, no dice.
     EXPECT_EQ(STATUS_UNKNOWN_TABLET,
-        objectManager.writeObject(key, buffer, 0, 0));
+        objectManager.writeObject(obj, 0, 0));
     EXPECT_EQ("found=false tableId=1", verifyMetadata(1));
 
     // non-NORMAL tablet state, no dice.
     tabletManager.addTablet(1, 0, ~0UL, TabletManager::RECOVERING);
     EXPECT_EQ(STATUS_UNKNOWN_TABLET,
-        objectManager.writeObject(key, buffer, 0, 0));
+        objectManager.writeObject(obj, 0, 0));
     EXPECT_EQ("found=false tableId=1", verifyMetadata(1));
 
     TestLog::Enable _(writeObjectFilter);
@@ -332,17 +340,17 @@ TEST_F(ObjectManagerTest, writeObject) {
     // new object (no tombstone needed)
     tabletManager.changeState(1, 0, ~0UL, TabletManager::RECOVERING,
                                           TabletManager::NORMAL);
-    EXPECT_EQ(STATUS_OK, objectManager.writeObject(key, buffer, 0, 0));
-    EXPECT_EQ("writeObject: object: 32 bytes, version 1", TestLog::get());
-    EXPECT_EQ("found=true tableId=1 byteCount=32 recordCount=1"
+    EXPECT_EQ(STATUS_OK, objectManager.writeObject(obj, 0, 0));
+    EXPECT_EQ("writeObject: object: 33 bytes, version 1", TestLog::get());
+    EXPECT_EQ("found=true tableId=1 byteCount=33 recordCount=1"
               , verifyMetadata(1));
 
     // object overwrite (tombstone needed)
     TestLog::reset();
-    EXPECT_EQ(STATUS_OK, objectManager.writeObject(key, buffer, 0, 0));
-    EXPECT_EQ("writeObject: object: 32 bytes, version 2 | "
+    EXPECT_EQ(STATUS_OK, objectManager.writeObject(obj, 0, 0));
+    EXPECT_EQ("writeObject: object: 33 bytes, version 2 | "
               "writeObject: tombstone: 35 bytes, version 1", TestLog::get());
-    EXPECT_EQ("found=true tableId=1 byteCount=99 recordCount=3"
+    EXPECT_EQ("found=true tableId=1 byteCount=101 recordCount=3"
               , verifyMetadata(1));
 }
 
@@ -350,7 +358,7 @@ TEST_F(ObjectManagerTest, readObject) {
     Buffer buffer;
     Key key(1, "1", 1);
     storeObject(key, "hi", 93);
-    EXPECT_EQ("found=true tableId=1 byteCount=29 recordCount=1"
+    EXPECT_EQ("found=true tableId=1 byteCount=30 recordCount=1"
               , verifyMetadata(1));
 
     // no tablet, no dice
@@ -398,18 +406,18 @@ TEST_F(ObjectManagerTest, readObject) {
 TEST_F(ObjectManagerTest, removeObject) {
     Key key(1, "1", 1);
     storeObject(key, "hi", 93);
-    EXPECT_EQ("found=true tableId=1 byteCount=29 recordCount=1"
+    EXPECT_EQ("found=true tableId=1 byteCount=30 recordCount=1"
               , verifyMetadata(1));
 
     // no tablet, no dice
     EXPECT_EQ(STATUS_UNKNOWN_TABLET, objectManager.removeObject(key, 0, 0));
-    EXPECT_EQ("found=true tableId=1 byteCount=29 recordCount=1"
+    EXPECT_EQ("found=true tableId=1 byteCount=30 recordCount=1"
               , verifyMetadata(1));
 
     // non-normal tablet, no dice
     tabletManager.addTablet(1, 0, ~0UL, TabletManager::RECOVERING);
     EXPECT_EQ(STATUS_UNKNOWN_TABLET, objectManager.removeObject(key, 0, 0));
-    EXPECT_EQ("found=true tableId=1 byteCount=29 recordCount=1"
+    EXPECT_EQ("found=true tableId=1 byteCount=30 recordCount=1"
               , verifyMetadata(1));
 
     // (now make the tablet acceptable for handling removes)
@@ -419,15 +427,15 @@ TEST_F(ObjectManagerTest, removeObject) {
     // not found, not an error
     Key key2(1, "2", 1);
     EXPECT_EQ(STATUS_OK, objectManager.removeObject(key2, 0, 0));
-    EXPECT_EQ("found=true tableId=1 byteCount=29 recordCount=1"
+    EXPECT_EQ("found=true tableId=1 byteCount=30 recordCount=1"
               , verifyMetadata(1));
 
     // non-object, not an error
     storeTombstone(key2);
-    EXPECT_EQ("found=true tableId=1 byteCount=64 recordCount=2"
+    EXPECT_EQ("found=true tableId=1 byteCount=65 recordCount=2"
               , verifyMetadata(1));
     EXPECT_EQ(STATUS_OK, objectManager.removeObject(key2, 0, 0));
-    EXPECT_EQ("found=true tableId=1 byteCount=64 recordCount=2"
+    EXPECT_EQ("found=true tableId=1 byteCount=65 recordCount=2"
               , verifyMetadata(1));
 
     // ensure reject rules are applied
@@ -436,14 +444,14 @@ TEST_F(ObjectManagerTest, removeObject) {
     rules.exists = 1;
     EXPECT_EQ(STATUS_OBJECT_EXISTS,
         objectManager.removeObject(key, &rules, 0));
-    EXPECT_EQ("found=true tableId=1 byteCount=64 recordCount=2"
+    EXPECT_EQ("found=true tableId=1 byteCount=65 recordCount=2"
               , verifyMetadata(1));
 
     // let's finally try a case that should work...
     TestLog::Enable _;
     uint64_t version;
     EXPECT_EQ(STATUS_OK, objectManager.removeObject(key, 0, &version));
-    EXPECT_EQ("found=true tableId=1 byteCount=99 recordCount=3"
+    EXPECT_EQ("found=true tableId=1 byteCount=100 recordCount=3"
               , verifyMetadata(1));
     EXPECT_EQ(93UL, version);
     EXPECT_EQ("free: free on reference 31457334", TestLog::get());
@@ -461,8 +469,9 @@ TEST_F(ObjectManagerTest, removeOrphanedObjects) {
     Key key(97, "1", 1);
 
     Buffer value;
-    value.append("hi", 2);
-    EXPECT_EQ(STATUS_OK, objectManager.writeObject(key, value, NULL, NULL));
+    Object obj(key, "hi", 2, 0, 0, value);
+
+    EXPECT_EQ(STATUS_OK, objectManager.writeObject(obj, NULL, NULL));
 
     EXPECT_TRUE(tabletManager.getTablet(key, NULL));
     EXPECT_EQ(STATUS_OK, objectManager.readObject(key, &value, NULL, NULL));
@@ -473,6 +482,7 @@ TEST_F(ObjectManagerTest, removeOrphanedObjects) {
     tabletManager.deleteTablet(97, 0, ~0UL);
     EXPECT_FALSE(tabletManager.getTablet(key, NULL));
 
+    value.reset();
     TestLog::Enable _;
     objectManager.removeOrphanedObjects();
     EXPECT_EQ(STATUS_UNKNOWN_TABLET,
@@ -523,13 +533,13 @@ TEST_F(ObjectManagerTest, replaySegment) {
     it.construct(&seg[0], len, certificate);
     objectManager.replaySegment(&sl, *it);
     verifyRecoveryObject(key0, "newer guy");
-    EXPECT_EQ("found=true tableId=0 byteCount=40 recordCount=1"
+    EXPECT_EQ("found=true tableId=0 byteCount=41 recordCount=1"
               , verifyMetadata(0));
     len = buildRecoverySegment(seg, segLen, key0, 0, "older guy", &certificate);
     it.construct(&seg[0], len, certificate);
     objectManager.replaySegment(&sl, *it);
     verifyRecoveryObject(key0, "newer guy");
-    EXPECT_EQ("found=true tableId=0 byteCount=40 recordCount=1"
+    EXPECT_EQ("found=true tableId=0 byteCount=41 recordCount=1"
               , verifyMetadata(0));
 
     // Case 1b: Older object already there; replace object.
@@ -538,21 +548,23 @@ TEST_F(ObjectManagerTest, replaySegment) {
     it.construct(&seg[0], len, certificate);
     objectManager.replaySegment(&sl, *it);
     verifyRecoveryObject(key1, "older guy");
-    EXPECT_EQ("found=true tableId=0 byteCount=80 recordCount=2"
+    EXPECT_EQ("found=true tableId=0 byteCount=82 recordCount=2"
               , verifyMetadata(0)); // Object added.
     len = buildRecoverySegment(seg, segLen, key1, 1, "newer guy", &certificate);
     it.construct(&seg[0], len, certificate);
     objectManager.replaySegment(&sl, *it);
     verifyRecoveryObject(key1, "newer guy");
-    EXPECT_EQ("found=true tableId=0 byteCount=120 recordCount=3"
+    EXPECT_EQ("found=true tableId=0 byteCount=123 recordCount=3"
               , verifyMetadata(0));
 
     // Case 2a: Equal/newer tombstone already there; ignore object.
     Key key2(0, "key2", 4);
-    Object o1(key2, NULL, 0, 1, 0);
+    Buffer dataBuffer;
+    Object o1(key2, NULL, 0, 1, 0, dataBuffer);
+
     ObjectTombstone t1(o1, 0, 0);
     buffer.reset();
-    t1.serializeToBuffer(buffer);
+    t1.assembleForLog(buffer);
     objectManager.log.append(LOG_ENTRY_TYPE_OBJTOMB, buffer, &logTomb1Ref);
     objectManager.log.sync();
     {
@@ -563,7 +575,7 @@ TEST_F(ObjectManagerTest, replaySegment) {
     len = buildRecoverySegment(seg, segLen, key2, 1, "equal guy", &certificate);
     it.construct(&seg[0], len, certificate);
     objectManager.replaySegment(&sl, *it);
-    EXPECT_EQ("found=true tableId=0 byteCount=120 recordCount=3"
+    EXPECT_EQ("found=true tableId=0 byteCount=123 recordCount=3"
               , verifyMetadata(0));
     len = buildRecoverySegment(seg, segLen, key2, 0, "older guy", &certificate);
     it.construct(&seg[0], len, certificate);
@@ -575,10 +587,13 @@ TEST_F(ObjectManagerTest, replaySegment) {
 
     // Case 2b: Lesser tombstone already there; add object, remove tomb.
     Key key3(0, "key3", 4);
-    Object o2(key3, NULL, 0, 10, 0);
+
+    dataBuffer.reset();
+    Object o2(key3, NULL, 0, 10, 0, dataBuffer);
+
     ObjectTombstone t2(o2, 0, 0);
     buffer.reset();
-    t2.serializeToBuffer(buffer);
+    t2.assembleForLog(buffer);
     ret = objectManager.log.append(
         LOG_ENTRY_TYPE_OBJTOMB, buffer, &logTomb2Ref);
     objectManager.log.sync();
@@ -592,7 +607,7 @@ TEST_F(ObjectManagerTest, replaySegment) {
                                &certificate);
     it.construct(&seg[0], len, certificate);
     objectManager.replaySegment(&sl, *it);
-    EXPECT_EQ("found=true tableId=0 byteCount=160 recordCount=4"
+    EXPECT_EQ("found=true tableId=0 byteCount=164 recordCount=4"
               , verifyMetadata(0));
     verifyRecoveryObject(key3, "newer guy");
     EXPECT_TRUE(lookup(key3, &reference));
@@ -606,7 +621,7 @@ TEST_F(ObjectManagerTest, replaySegment) {
     len = buildRecoverySegment(seg, segLen, key4, 0, "only guy", &certificate);
     it.construct(&seg[0], len, certificate);
     objectManager.replaySegment(&sl, *it);
-    EXPECT_EQ("found=true tableId=0 byteCount=199 recordCount=5"
+    EXPECT_EQ("found=true tableId=0 byteCount=204 recordCount=5"
               , verifyMetadata(0));
     verifyRecoveryObject(key4, "only guy");
 
@@ -630,13 +645,15 @@ TEST_F(ObjectManagerTest, replaySegment) {
     len = buildRecoverySegment(seg, segLen, key5, 1, "newer guy", &certificate);
     it.construct(&seg[0], len, certificate);
     objectManager.replaySegment(&sl, *it);
-    EXPECT_EQ("found=true tableId=0 byteCount=239 recordCount=6"
+    EXPECT_EQ("found=true tableId=0 byteCount=245 recordCount=6"
               , verifyMetadata(0));
-    Object o3(key5, NULL, 0, 0, 0);
+    dataBuffer.reset();
+    Object o3(key5, NULL, 0, 0, 0, dataBuffer);
+
     ObjectTombstone t3(o3, 0, 0);
     len = buildRecoverySegment(seg, segLen, t3, &certificate);
     objectManager.replaySegment(&sl, *it);
-    EXPECT_EQ("found=true tableId=0 byteCount=239 recordCount=6"
+    EXPECT_EQ("found=true tableId=0 byteCount=245 recordCount=6"
               , verifyMetadata(0));
     verifyRecoveryObject(key5, "newer guy");
 
@@ -645,16 +662,19 @@ TEST_F(ObjectManagerTest, replaySegment) {
     len = buildRecoverySegment(seg, segLen, key6, 0, "equal guy", &certificate);
     it.construct(&seg[0], len, certificate);
     objectManager.replaySegment(&sl, *it);
-    EXPECT_EQ("found=true tableId=0 byteCount=279 recordCount=7"
+    EXPECT_EQ("found=true tableId=0 byteCount=286 recordCount=7"
               , verifyMetadata(0));
     verifyRecoveryObject(key6, "equal guy");
-    Object o4(key6, NULL, 0, 0, 0);
+
+    dataBuffer.reset();
+    Object o4(key6, NULL, 0, 0, 0, dataBuffer);
+
     ObjectTombstone t4(o4, 0, 0);
     len = buildRecoverySegment(seg, segLen, t4, &certificate);
     it.construct(&seg[0], len, certificate);
     objectManager.replaySegment(&sl, *it);
     objectManager.removeTombstones();
-    EXPECT_EQ("found=true tableId=0 byteCount=317 recordCount=8"
+    EXPECT_EQ("found=true tableId=0 byteCount=324 recordCount=8"
               , verifyMetadata(0));
     EXPECT_FALSE(lookup(key6, &reference));
     EXPECT_EQ(STATUS_OBJECT_DOESNT_EXIST, getObjectStatus(0, "key6", 4));
@@ -663,23 +683,27 @@ TEST_F(ObjectManagerTest, replaySegment) {
     len = buildRecoverySegment(seg, segLen, key7, 0, "older guy", &certificate);
     it.construct(&seg[0], len, certificate);
     objectManager.replaySegment(&sl, *it);
-    EXPECT_EQ("found=true tableId=0 byteCount=357 recordCount=9"
+    EXPECT_EQ("found=true tableId=0 byteCount=365 recordCount=9"
               , verifyMetadata(0));
     verifyRecoveryObject(key7, "older guy");
-    Object o5(key7, NULL, 0, 1, 0);
+    dataBuffer.reset();
+    Object o5(key7, NULL, 0, 1, 0, dataBuffer);
+
     ObjectTombstone t5(o5, 0, 0);
     len = buildRecoverySegment(seg, segLen, t5, &certificate);
     it.construct(&seg[0], len, certificate);
     objectManager.replaySegment(&sl, *it);
     objectManager.removeTombstones();
-    EXPECT_EQ("found=true tableId=0 byteCount=395 recordCount=10"
+    EXPECT_EQ("found=true tableId=0 byteCount=403 recordCount=10"
               , verifyMetadata(0));
     EXPECT_FALSE(lookup(key7, &reference));
     EXPECT_EQ(STATUS_OBJECT_DOESNT_EXIST, getObjectStatus(0, "key7", 4));
 
     // Case 2a: Newer tombstone already there; ignore.
     Key key8(0, "key8", 4);
-    Object o6(key8, NULL, 0, 1, 0);
+    dataBuffer.reset();
+    Object o6(key8, NULL, 0, 1, 0, dataBuffer);
+
     ObjectTombstone t6(o6, 0, 0);
     len = buildRecoverySegment(seg, segLen, t6, &certificate);
     it.construct(&seg[0], len, certificate);
@@ -689,15 +713,15 @@ TEST_F(ObjectManagerTest, replaySegment) {
         ObjectManager::HashTableBucketLock lock(objectManager, key8);
         ret = objectManager.lookup(lock, key8, type, buffer);
     }
-    EXPECT_EQ("found=true tableId=0 byteCount=433 recordCount=11"
+    EXPECT_EQ("found=true tableId=0 byteCount=441 recordCount=11"
               , verifyMetadata(0));
     EXPECT_TRUE(ret);
     EXPECT_EQ(LOG_ENTRY_TYPE_OBJTOMB, type);
     ObjectTombstone t6InLog(buffer);
     EXPECT_EQ(1U, t6InLog.getObjectVersion());
     ObjectTombstone t7(o6, 0, 0);
-    t7.serializedForm.objectVersion = 0;
-    t7.serializedForm.checksum = t7.computeChecksum();
+    t7.header.objectVersion = 0;
+    t7.header.checksum = t7.computeChecksum();
     len = buildRecoverySegment(seg, segLen, t7, &certificate);
     it.construct(&seg[0], len, certificate);
     objectManager.replaySegment(&sl, *it);
@@ -707,14 +731,16 @@ TEST_F(ObjectManagerTest, replaySegment) {
         ObjectManager::HashTableBucketLock lock(objectManager, key8);
         ret = objectManager.lookup(lock, key8, type, buffer);
     }
-    EXPECT_EQ("found=true tableId=0 byteCount=433 recordCount=11"
+    EXPECT_EQ("found=true tableId=0 byteCount=441 recordCount=11"
               , verifyMetadata(0));
     EXPECT_TRUE(ret);
     EXPECT_EQ(t6LogPtr, buffer.getStart<uint8_t>());
 
     // Case 2b: Older tombstone already there; replace.
     Key key9(0, "key9", 4);
-    Object o8(key9, NULL, 0, 0, 0);
+    dataBuffer.reset();
+    Object o8(key9, NULL, 0, 0, 0, dataBuffer);
+
     ObjectTombstone t8(o8, 0, 0);
     len = buildRecoverySegment(seg, segLen, t8, &certificate);
     it.construct(&seg[0], len, certificate);
@@ -724,13 +750,15 @@ TEST_F(ObjectManagerTest, replaySegment) {
         ObjectManager::HashTableBucketLock lock(objectManager, key9);
         ret = objectManager.lookup(lock, key9, type, buffer);
     }
-    EXPECT_EQ("found=true tableId=0 byteCount=471 recordCount=12"
+    EXPECT_EQ("found=true tableId=0 byteCount=479 recordCount=12"
               , verifyMetadata(0));
     EXPECT_TRUE(ret);
     ObjectTombstone t8InLog(buffer);
     EXPECT_EQ(0U, t8InLog.getObjectVersion());
 
-    Object o9(key9, NULL, 0, 1, 0);
+    dataBuffer.reset();
+    Object o9(key9, NULL, 0, 1, 0, dataBuffer);
+
     ObjectTombstone t9(o9, 0, 0);
     len = buildRecoverySegment(seg, segLen, t9, &certificate);
     it.construct(&seg[0], len, certificate);
@@ -740,7 +768,7 @@ TEST_F(ObjectManagerTest, replaySegment) {
         ObjectManager::HashTableBucketLock lock(objectManager, key9);
         ret = objectManager.lookup(lock, key9, type, buffer);
     }
-    EXPECT_EQ("found=true tableId=0 byteCount=509 recordCount=13"
+    EXPECT_EQ("found=true tableId=0 byteCount=517 recordCount=13"
               , verifyMetadata(0));
     EXPECT_TRUE(ret);
     EXPECT_EQ(LOG_ENTRY_TYPE_OBJTOMB, type);
@@ -750,7 +778,9 @@ TEST_F(ObjectManagerTest, replaySegment) {
     // Case 3: No tombstone, no object. Recovered tombstone always added.
     Key key10(0, "key10", 5);
     EXPECT_FALSE(lookup(key10, &reference));
-    Object o10(key10, NULL, 0, 0, 0);
+    dataBuffer.reset();
+    Object o10(key10, NULL, 0, 0, 0, dataBuffer);
+
     ObjectTombstone t10(o10, 0, 0);
     len = buildRecoverySegment(seg, segLen, t10, &certificate);
     it.construct(&seg[0], len, certificate);
@@ -760,11 +790,11 @@ TEST_F(ObjectManagerTest, replaySegment) {
         ObjectManager::HashTableBucketLock lock(objectManager, key10);
         EXPECT_TRUE(objectManager.lookup(lock, key10, type, buffer));
     }
-    EXPECT_EQ("found=true tableId=0 byteCount=548 recordCount=14"
+    EXPECT_EQ("found=true tableId=0 byteCount=556 recordCount=14"
               , verifyMetadata(0));
     EXPECT_EQ(LOG_ENTRY_TYPE_OBJTOMB, type);
     Buffer t10Buffer;
-    t10.serializeToBuffer(t10Buffer);
+    t10.assembleForLog(t10Buffer);
     EXPECT_EQ(0, memcmp(t10Buffer.getRange(0, t10Buffer.getTotalLength()),
                         buffer.getRange(0, buffer.getTotalLength()),
                         buffer.getTotalLength()));
@@ -855,9 +885,9 @@ TEST_F(ObjectManagerTest, objectRelocationCallback_objectAlive) {
     Key key(0, "key0", 4);
 
     Buffer value;
-    value.append("item0", 5);
-    objectManager.writeObject(key, value, NULL, NULL);
-    EXPECT_EQ("found=true tableId=0 byteCount=35 recordCount=1"
+    Object obj(key, "item0", 5, 0, 0, value);
+    objectManager.writeObject(obj, NULL, NULL);
+    EXPECT_EQ("found=true tableId=0 byteCount=36 recordCount=1"
               , verifyMetadata(0));
 
     LogEntryType oldType;
@@ -897,7 +927,7 @@ TEST_F(ObjectManagerTest, objectRelocationCallback_objectAlive) {
     objectManager.relocate(LOG_ENTRY_TYPE_OBJ, oldBuffer,
                            oldReference, relocator);
     EXPECT_TRUE(relocator.didAppend);
-    EXPECT_EQ("found=true tableId=0 byteCount=35 recordCount=1"
+    EXPECT_EQ("found=true tableId=0 byteCount=36 recordCount=1"
               , verifyMetadata(0));
 
     LogEntryType newType2;
@@ -910,11 +940,11 @@ TEST_F(ObjectManagerTest, objectRelocationCallback_objectAlive) {
     }
     EXPECT_TRUE(relocator.didAppend);
     EXPECT_EQ(newType, newType2);
-    EXPECT_EQ(newReference.toInteger() + 37, newReference2.toInteger());
+    EXPECT_EQ(newReference.toInteger() + 38, newReference2.toInteger());
     EXPECT_NE(oldReference, newReference);
     EXPECT_NE(newBuffer.getStart<uint8_t>(),
               oldBuffer.getStart<uint8_t>());
-    EXPECT_EQ(newBuffer.getStart<uint8_t>() + 37,
+    EXPECT_EQ(newBuffer.getStart<uint8_t>() + 38,
               newBuffer2.getStart<uint8_t>());
 }
 
@@ -922,9 +952,9 @@ TEST_F(ObjectManagerTest, objectRelocationCallback_objectDeleted) {
     Key key(0, "key0", 4);
 
     Buffer value;
-    value.append("item0", 5);
-    objectManager.writeObject(key, value, NULL, NULL);
-    EXPECT_EQ("found=true tableId=0 byteCount=35 recordCount=1"
+    Object obj(key, "item0", 5, 0, 0, value);
+    objectManager.writeObject(obj, NULL, NULL);
+    EXPECT_EQ("found=true tableId=0 byteCount=36 recordCount=1"
               , verifyMetadata(0));
 
     LogEntryType type;
@@ -938,7 +968,7 @@ TEST_F(ObjectManagerTest, objectRelocationCallback_objectDeleted) {
     EXPECT_TRUE(success);
 
     objectManager.removeObject(key, NULL, NULL);
-    EXPECT_EQ("found=true tableId=0 byteCount=73 recordCount=2"
+    EXPECT_EQ("found=true tableId=0 byteCount=74 recordCount=2"
               , verifyMetadata(0));
 
     LogEntryRelocator relocator(
@@ -955,9 +985,9 @@ TEST_F(ObjectManagerTest, objectRelocationCallback_objectModified) {
     Key key(0, "key0", 4);
 
     Buffer value;
-    value.append("item0", 5);
-    objectManager.writeObject(key, value, NULL, NULL);
-    EXPECT_EQ("found=true tableId=0 byteCount=35 recordCount=1"
+    Object obj(key, "item0", 5, 0, 0, value);
+    objectManager.writeObject(obj, NULL, NULL);
+    EXPECT_EQ("found=true tableId=0 byteCount=36 recordCount=1"
               , verifyMetadata(0));
 
     LogEntryType type;
@@ -969,9 +999,10 @@ TEST_F(ObjectManagerTest, objectRelocationCallback_objectModified) {
     }
 
     value.reset();
-    value.append("item0-v2", 8);
-    objectManager.writeObject(key, value, NULL, NULL);
-    EXPECT_EQ("found=true tableId=0 byteCount=111 recordCount=3"
+
+    Object object(key, "item0-v2", 8, 0, 0, value);
+    objectManager.writeObject(object, NULL, NULL);
+    EXPECT_EQ("found=true tableId=0 byteCount=113 recordCount=3"
               , verifyMetadata(0));
 
     Log::Reference dummyReference;
@@ -982,7 +1013,7 @@ TEST_F(ObjectManagerTest, objectRelocationCallback_objectModified) {
     EXPECT_FALSE(relocator.didAppend);
     // Only the object was relocated so the stats should only reflect the
     // contents of the tombstone and the new object.
-    EXPECT_EQ("found=true tableId=0 byteCount=76 recordCount=2"
+    EXPECT_EQ("found=true tableId=0 byteCount=77 recordCount=2"
               , verifyMetadata(0));
 }
 
@@ -997,9 +1028,9 @@ TEST_F(ObjectManagerTest, tombstoneRelocationCallback_basics) {
     Key key(0, "key0", 4);
 
     Buffer value;
-    value.append("item0", 5);
-    objectManager.writeObject(key, value, NULL, NULL);
-    EXPECT_EQ("found=true tableId=0 byteCount=35 recordCount=1"
+    Object obj(key, "item0", 5, 0, 0, value);
+    objectManager.writeObject(obj, NULL, NULL);
+    EXPECT_EQ("found=true tableId=0 byteCount=36 recordCount=1"
               , verifyMetadata(0));
 
     LogEntryType type;
@@ -1019,7 +1050,7 @@ TEST_F(ObjectManagerTest, tombstoneRelocationCallback_basics) {
                               0);
 
     Buffer tombstoneBuffer;
-    tombstone.serializeToBuffer(tombstoneBuffer);
+    tombstone.assembleForLog(tombstoneBuffer);
 
     Log::Reference oldTombstoneReference;
     success = objectManager.log.append(
@@ -1031,7 +1062,7 @@ TEST_F(ObjectManagerTest, tombstoneRelocationCallback_basics) {
                           tombstone.getTableId(),
                           tombstoneBuffer.getTotalLength(),
                           1);
-    EXPECT_EQ("found=true tableId=0 byteCount=73 recordCount=2"
+    EXPECT_EQ("found=true tableId=0 byteCount=74 recordCount=2"
               , verifyMetadata(0));
 
     Log::Reference newTombstoneReference;
@@ -1044,7 +1075,7 @@ TEST_F(ObjectManagerTest, tombstoneRelocationCallback_basics) {
                           tombstone.getTableId(),
                           tombstoneBuffer.getTotalLength(),
                           1);
-    EXPECT_EQ("found=true tableId=0 byteCount=111 recordCount=3"
+    EXPECT_EQ("found=true tableId=0 byteCount=112 recordCount=3"
               , verifyMetadata(0));
 
 
@@ -1062,7 +1093,7 @@ TEST_F(ObjectManagerTest, tombstoneRelocationCallback_basics) {
     EXPECT_TRUE(relocator.didAppend);
     // Relocator should not drop the old tombstone.  The stats should still
     // reflect the existence of the object and both tombstones.
-    EXPECT_EQ("found=true tableId=0 byteCount=111 recordCount=3"
+    EXPECT_EQ("found=true tableId=0 byteCount=112 recordCount=3"
               , verifyMetadata(0));
 
     // Check that tombstoneRelocationCallback() is checking the liveness
@@ -1076,13 +1107,14 @@ TEST_F(ObjectManagerTest, tombstoneRelocationCallback_cleanTombstone) {
 //    TestLog::Enable _(&segmentExists);
     // Testing that cleaning a tombstone will update table metadata.
     Key key(0, "key0", 4);
+    Buffer dataBuffer;
+    Object o(key, "hi", 2, 0, 0, dataBuffer);
 
-    Object o(key, "hi", 2, 0, 0);
     // Create tombstone will "bad" segmentId so it will be cleaned.
     ObjectTombstone tombstone(o, 0xBAD, 0);
 
     Buffer tombstoneBuffer;
-    tombstone.serializeToBuffer(tombstoneBuffer);
+    tombstone.assembleForLog(tombstoneBuffer);
 
     Log::Reference oldTombstoneReference;
     bool success = objectManager.log.append(
@@ -1133,7 +1165,9 @@ TEST_F(ObjectManagerTest, lookup_object) {
     Object o(buffer);
     EXPECT_EQ(LOG_ENTRY_TYPE_OBJ, type);
     EXPECT_EQ(0, memcmp("1", o.getKey(), 1));
-    EXPECT_EQ(0, memcmp("value", o.getData(), 5));
+    const void *dataBlob = reinterpret_cast<const void *>(
+                            reinterpret_cast<const uint8_t*>(o.getValue()));
+    EXPECT_EQ(0, memcmp("value", dataBlob, 5));
 
     uint64_t v;
     Log::Reference r;

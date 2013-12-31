@@ -37,8 +37,11 @@ TEST_F(KeyTest, constructor_fromLog)
 {
     Buffer buffer;
     Key key(12, "blah", 5);
-    Object object(key, NULL, 0, 0, 0);
-    object.serializeToBuffer(buffer);
+
+    Buffer dataBuffer;
+    Object object(key, NULL, 0, 0, 0, dataBuffer);
+
+    object.assembleForLog(buffer);
     Key key2(LOG_ENTRY_TYPE_OBJ, buffer);
     EXPECT_EQ(12U, key2.getTableId());
     EXPECT_STREQ("blah", reinterpret_cast<const char*>(key2.getStringKey()));
@@ -46,7 +49,7 @@ TEST_F(KeyTest, constructor_fromLog)
 
     ObjectTombstone tombstone(object, 5, 0);
     buffer.reset();
-    tombstone.serializeToBuffer(buffer);
+    tombstone.assembleForLog(buffer);
     Key key3(LOG_ENTRY_TYPE_OBJTOMB, buffer);
     EXPECT_EQ(12U, key3.getTableId());
     EXPECT_STREQ("blah", reinterpret_cast<const char*>(key3.getStringKey()));

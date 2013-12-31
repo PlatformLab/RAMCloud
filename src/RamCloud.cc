@@ -20,6 +20,7 @@
 #include "MultiRead.h"
 #include "MultiRemove.h"
 #include "MultiWrite.h"
+#include "Object.h"
 #include "ProtoBuf.h"
 #include "ShortMacros.h"
 
@@ -1029,7 +1030,7 @@ QuiesceRpc::QuiesceRpc(RamCloud* ramcloud)
  *      Size in bytes of the key.
  * \param[out] value
  *      After a successful return, this Buffer will hold the
- *      contents of the desired object.
+ *      contents of the desired object - only the value portion of the object.
  * \param rejectRules
  *      If non-NULL, specifies conditions under which the read
  *      should be aborted with an error.
@@ -1042,6 +1043,37 @@ RamCloud::read(uint64_t tableId, const void* key, uint16_t keyLength,
                    uint64_t* version)
 {
     ReadRpc rpc(this, tableId, key, keyLength, value, rejectRules);
+    rpc.wait(version);
+}
+
+/**
+ * Read the current contents of an object.
+ *
+ * \param tableId
+ *      The table containing the desired object (return value from
+ *      a previous call to getTableId).
+ * \param key
+ *      Variable length key that uniquely identifies the object within tableId.
+ *      It does not necessarily have to be null terminated.  The caller must
+ *      ensure that the storage for this key is unchanged through the life of
+ *      the RPC.
+ * \param keyLength
+ *      Size in bytes of the key.
+ * \param[out] value
+ *      After a successful return, this ObjectBuffer will hold the
+ *      contents of the desired object including the keys and the value.
+ * \param rejectRules
+ *      If non-NULL, specifies conditions under which the read
+ *      should be aborted with an error.
+ * \param[out] version
+ *      If non-NULL, the version number of the object is returned here.
+ */
+void
+RamCloud::read(uint64_t tableId, const void* key, uint16_t keyLength,
+                   ObjectBuffer* value, const RejectRules* rejectRules,
+                   uint64_t* version)
+{
+    ReadKeysAndValueRpc rpc(this, tableId, key, keyLength, value, rejectRules);
     rpc.wait(version);
 }
 
@@ -1097,6 +1129,72 @@ ReadRpc::wait(uint64_t* version)
     waitInternal(ramcloud->clientContext->dispatch);
     const WireFormat::Read::Response* respHdr(
             getResponseHeader<WireFormat::Read>());
+    if (version != NULL)
+        *version = respHdr->version;
+
+    // Truncate the response Buffer so that it consists of nothing
+    // but the object data.
+    response->truncateFront(sizeof(*respHdr));
+    assert(respHdr->length == response->getTotalLength());
+
+    if (respHdr->common.status != STATUS_OK)
+        ClientException::throwException(HERE, respHdr->common.status);
+}
+
+/**
+ * Constructor for ReadKeysAndValueRpc: initiates an RPC in the same way as
+ * #RamCloud::read, but returns once the RPC has been initiated, without
+ * waiting for it to complete.
+ *
+ * \param ramcloud
+ *      The RAMCloud object that governs this RPC.
+ * \param tableId
+ *      The table containing the desired object (return value from
+ *      a previous call to getTableId).
+ * \param key
+ *      Variable length key that uniquely identifies the object within tableId.
+ *      It does not necessarily have to be null terminated.  The caller must
+ *      ensure that the storage for this key is unchanged through the life of
+ *      the RPC.
+ * \param keyLength
+ *      Size in bytes of the key.
+ * \param[out] value
+ *      After a successful return, this Buffer will hold the
+ *      contents of the desired object consistring of all the keys and the
+ *      value.
+ * \param rejectRules
+ *      If non-NULL, specifies conditions under which the read
+ *      should be aborted with an error.
+ */
+ReadKeysAndValueRpc::ReadKeysAndValueRpc(RamCloud* ramcloud, uint64_t tableId,
+        const void* key, uint16_t keyLength, ObjectBuffer* value,
+        const RejectRules* rejectRules)
+    : ObjectRpcWrapper(ramcloud, tableId, key, keyLength,
+            sizeof(WireFormat::ReadKeysAndValue::Response), value)
+{
+    value->reset();
+    WireFormat::ReadKeysAndValue::Request* reqHdr(allocHeader<
+                            WireFormat::ReadKeysAndValue>());
+    reqHdr->tableId = tableId;
+    reqHdr->keyLength = keyLength;
+    reqHdr->rejectRules = rejectRules ? *rejectRules : defaultRejectRules;
+    request.append(key, keyLength);
+    send();
+}
+
+/**
+ * Wait for the RPC to complete, and return the same results as
+ * #RamCloud::read.
+ *
+ * \param[out] version
+ *      If non-NULL, the version number of the object is returned here.
+ */
+void
+ReadKeysAndValueRpc::wait(uint64_t* version)
+{
+    waitInternal(ramcloud->clientContext->dispatch);
+    const WireFormat::ReadKeysAndValue::Response* respHdr(
+            getResponseHeader<WireFormat::ReadKeysAndValue>());
     if (version != NULL)
         *version = respHdr->version;
 
@@ -1659,16 +1757,28 @@ RamCloud::testingWaitForAllTabletsNormal(uint64_t timeoutNs)
  * \param async
  *      If true, the new object will not be immediately replicated to backups.
  *      Data loss may occur!
+ * \param numKeys
+ *      Number of keys in the object. Defaults to 1 corresponding to the
+ *      primary key. If is not >= 1, then behavior is undefined.
+ * \param keyList
+ *      List of keys and corresponding key lengths. The first entry should
+ *      correspond to the primary key and its length. If the number of keys
+ *      is > 1, this SHOULD NOT be NULL. Defaults to NULL in which case this
+ *      object has only the primary key. RamCloud currently uses a dense
+ *      representation of key lengths. If a client does not want to write
+ *      key_i in an object, keyList[i]->key should be NULL. The library also
+ *      expects that if keyList[j]->key exists and keyList[j]->keyLength
+ *      is 0, then key string is NULL terminated and the length is computed.
  *
  * \exception RejectRulesException
  */
 void
 RamCloud::write(uint64_t tableId, const void* key, uint16_t keyLength,
         const void* buf, uint32_t length, const RejectRules* rejectRules,
-        uint64_t* version, bool async)
+        uint64_t* version, bool async, uint8_t numKeys, KeyInfo* keyList)
 {
     WriteRpc rpc(this, tableId, key, keyLength, buf, length, rejectRules,
-            async);
+            async, numKeys, keyList);
     rpc.wait(version);
 }
 
@@ -1701,16 +1811,25 @@ RamCloud::write(uint64_t tableId, const void* key, uint16_t keyLength,
  * \param async
  *      If true, the new object will not be immediately replicated to backups.
  *      Data loss may occur!
+ * \param numKeys
+ *      Number of keys in the object. Defaults to 1 corresponding to the
+ *      primary key. If is not >= 1, then behavior is undefined.
+ * \param keyList
+ *      List of keys and corresponding key lengths. The first entry should
+ *      correspond to the primary key and its length. If the number of keys
+ *      is > 1, this SHOULD NOT be NULL. Defaults to NULL in which case this
+ *      object has only the primary key.
  *
  * \exception RejectRulesException
  */
 void
 RamCloud::write(uint64_t tableId, const void* key, uint16_t keyLength,
         const char* value, const RejectRules* rejectRules, uint64_t* version,
-        bool async)
+        bool async, uint8_t numKeys, KeyInfo *keyList)
 {
     WriteRpc rpc(this, tableId, key, keyLength, value,
-            downCast<uint32_t>(strlen(value)), rejectRules, async);
+            downCast<uint32_t>(strlen(value)), rejectRules, async,
+            numKeys, keyList);
     rpc.wait(version);
 }
 
@@ -1730,7 +1849,7 @@ RamCloud::write(uint64_t tableId, const void* key, uint16_t keyLength,
  *      ensure that the storage for this key is unchanged through the life of
  *      the RPC.
  * \param keyLength
- *      Size in bytes of the key.
+ *      Length of primary key in bytes
  * \param buf
  *      Address of the first byte of the new contents for the object;
  *      must contain at least length bytes.
@@ -1742,21 +1861,47 @@ RamCloud::write(uint64_t tableId, const void* key, uint16_t keyLength,
  * \param async
  *      If true, the new object will not be immediately replicated to backups.
  *      Data loss may occur!
+ * \param numKeys
+ *      Number of keys in the object. Defaults to 1 corresponding to the
+ *      primary key. If is not >= 1, then behavior is undefined.
+ * \param keyList
+ *      List of keys and corresponding key lengths. The first entry should
+ *      correspond to the primary key and its length. If the number of keys
+ *      is > 1, this SHOULD NOT be NULL. Defaults to NULL in which case this
+ *      object has only the primary key.
  */
 WriteRpc::WriteRpc(RamCloud* ramcloud, uint64_t tableId,
         const void* key, uint16_t keyLength, const void* buf, uint32_t length,
-        const RejectRules* rejectRules, bool async)
+        const RejectRules* rejectRules, bool async, uint8_t numKeys,
+        KeyInfo *keyList)
     : ObjectRpcWrapper(ramcloud, tableId, key, keyLength,
             sizeof(WireFormat::Write::Response))
 {
     WireFormat::Write::Request* reqHdr(allocHeader<WireFormat::Write>());
     reqHdr->tableId = tableId;
-    reqHdr->keyLength = keyLength;
-    reqHdr->length = length;
+
+    uint32_t totalLength = 0;
+    uint16_t currentKeyLength = 0;
+    if (numKeys == 1) {
+        if (keyLength)
+            currentKeyLength = keyLength;
+        else
+            currentKeyLength = static_cast<uint16_t>(strlen(
+                               static_cast<const char *>(key)));
+
+        Key primaryKey(tableId, key, currentKeyLength);
+        Object object(primaryKey, buf, length, 0, 0, request, &totalLength);
+        totalLength = sizeof32(numKeys) + currentKeyLength +
+                        numKeys * sizeof32(keyLength) + length;
+    } else {
+        // invoke the Object constructor and append keysAndValue to the
+        // request buffer
+        Object object(numKeys, tableId, keyList, buf, length, 0, 0, request,
+                    &totalLength);
+    }
     reqHdr->rejectRules = rejectRules ? *rejectRules : defaultRejectRules;
     reqHdr->async = async;
-    request.append(key, keyLength);
-    request.append(buf, length);
+    reqHdr->length = totalLength;
     send();
 }
 

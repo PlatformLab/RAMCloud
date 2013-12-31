@@ -34,7 +34,7 @@ class MultiReadTest : public ::testing::Test {
     BindTransport::BindSession* session1;
     BindTransport::BindSession* session2;
     BindTransport::BindSession* session3;
-    Tub<Buffer> values[6];
+    Tub<ObjectBuffer> values[6];
     MultiReadObject objects[6];
 
   public:
@@ -128,12 +128,12 @@ class MultiReadTest : public ::testing::Test {
         return result;
     }
 
-    string
-    bufferString(Tub<Buffer>& buffer)
+    const void *
+    bufferString(Tub<ObjectBuffer>& buffer)
     {
         if (!buffer)
             return "uninitialized";
-        return TestUtil::toString(buffer.get());
+        return buffer.get()->getValue();
     }
 
     DISALLOW_COPY_AND_ASSIGN(MultiReadTest);
@@ -146,18 +146,18 @@ TEST_F(MultiReadTest, basics_end_to_end) {
     request.wait();
     ASSERT_TRUE(request.isReady());
     EXPECT_STREQ("STATUS_OK", statusToSymbol(objects[0].status));
-    EXPECT_EQ("value:1-1", bufferString(values[0]));
+    EXPECT_EQ(0, memcmp("value:1-1", bufferString(values[0]), 9));
     EXPECT_STREQ("STATUS_OK", statusToSymbol(objects[1].status));
-    EXPECT_EQ("value:1-2", bufferString(values[1]));
+    EXPECT_EQ(0, memcmp("value:1-2", bufferString(values[1]), 9));
     EXPECT_STREQ("STATUS_OK", statusToSymbol(objects[2].status));
-    EXPECT_EQ("value:1-3", bufferString(values[2]));
+    EXPECT_EQ(0, memcmp("value:1-3", bufferString(values[2]), 9));
     EXPECT_STREQ("STATUS_OK", statusToSymbol(objects[3].status));
-    EXPECT_EQ("value:2-1", bufferString(values[3]));
+    EXPECT_EQ(0, memcmp("value:2-1", bufferString(values[3]), 9));
     EXPECT_STREQ("STATUS_OK", statusToSymbol(objects[4].status));
-    EXPECT_EQ("value:3-1", bufferString(values[4]));
+    EXPECT_EQ(0, memcmp("value:3-1", bufferString(values[4]), 9));
     EXPECT_STREQ("STATUS_OBJECT_DOESNT_EXIST",
             statusToSymbol(objects[5].status));
-    EXPECT_EQ("uninitialized", bufferString(values[5]));
+    EXPECT_EQ(0, memcmp("uninitialized", bufferString(values[5]), 13));
 }
 
 TEST_F(MultiReadTest, appendRequest) {
@@ -217,7 +217,7 @@ TEST_F(MultiReadTest, readResponse_shortResponse) {
     // Let the request finally succeed.
     session1->lastNotifier->completed();
     EXPECT_TRUE(request.isReady());
-    EXPECT_EQ("value:1-1", bufferString(values[0]));
-    EXPECT_EQ("value:1-2", bufferString(values[1]));
+    EXPECT_EQ(0, memcmp("value:1-1", bufferString(values[0]), 9));
+    EXPECT_EQ(0, memcmp("value:1-2", bufferString(values[1]), 9));
 }
 }  // namespace RAMCloud

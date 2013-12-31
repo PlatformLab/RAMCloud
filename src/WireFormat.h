@@ -111,7 +111,8 @@ enum Opcode {
     VERIFY_MEMBERSHIP         = 55,
     GET_RUNTIME_OPTION        = 56,
     SERVER_CONTROL            = 57,
-    ILLEGAL_RPC_TYPE          = 58,  // 1 + the highest legitimate Opcode
+    READ_KEYS_AND_VALUE       = 58,
+    ILLEGAL_RPC_TYPE          = 59,  // 1 + the highest legitimate Opcode
 };
 
 /**
@@ -779,6 +780,7 @@ struct MultiOp {
             }
         } __attribute__((packed));
 
+// TODO(arjung): change this
         struct WritePart {
             uint64_t tableId;
             uint16_t keyLength;
@@ -902,6 +904,26 @@ struct ProxyPing {
 
 struct Read {
     static const Opcode opcode = READ;
+    static const ServiceType service = MASTER_SERVICE;
+    struct Request {
+        RequestCommon common;
+        uint64_t tableId;
+        uint16_t keyLength;           // Length of the key in bytes.
+                                      // The actual key follows
+                                      // immediately after this header.
+        RejectRules rejectRules;
+    } __attribute__((packed));
+    struct Response {
+        ResponseCommon common;
+        uint64_t version;
+        uint32_t length;              // Length of the object's value in bytes.
+                                      // The actual bytes of the object follow
+                                      // immediately after this header.
+    } __attribute__((packed));
+};
+
+struct ReadKeysAndValue {
+    static const Opcode opcode = READ_KEYS_AND_VALUE;
     static const ServiceType service = MASTER_SERVICE;
     struct Request {
         RequestCommon common;
@@ -1181,12 +1203,9 @@ struct Write {
     struct Request {
         RequestCommon common;
         uint64_t tableId;
-        uint16_t keyLength;           // Length of the key in bytes.
-                                      // The actual bytes of the key follow
-                                      // immediately after this header.
-        uint32_t length;              // Length of the object's value in bytes.
-                                      // The actual bytes of the object follow
-                                      // immediately after the key.
+        uint32_t length;              // Includes the total size of the
+                                      // keysAndValue blob in bytes.These
+                                      // follow immediately after this header
         RejectRules rejectRules;
         uint8_t async;
     } __attribute__((packed));

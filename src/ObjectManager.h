@@ -58,8 +58,7 @@ class ObjectManager : public LogEntryHandlers {
                       Buffer* outBuffer,
                       RejectRules* rejectRules,
                       uint64_t* outVersion);
-    Status writeObject(Key& key,
-                       Buffer& value,
+    Status writeObject(Object& newObject,
                        RejectRules* rejectRules,
                        uint64_t* outVersion);
     Status removeObject(Key& key,

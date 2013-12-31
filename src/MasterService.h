@@ -142,6 +142,9 @@ class MasterService : public Service {
     void read(const WireFormat::Read::Request* reqHdr,
               WireFormat::Read::Response* respHdr,
               Rpc* rpc);
+    void readKeysAndValue(const WireFormat::ReadKeysAndValue::Request* reqHdr,
+              WireFormat::ReadKeysAndValue::Response* respHdr,
+              Rpc* rpc);
     void getServerStatistics(
         const WireFormat::GetServerStatistics::Request* reqHdr,
         WireFormat::GetServerStatistics::Response* respHdr,

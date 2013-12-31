@@ -1046,7 +1046,7 @@ doMultiRead(int dataLength, uint16_t keyLength,
 
     MultiReadObject requestObjects[numMasters][objsPerMaster];
     MultiReadObject* requests[numMasters][objsPerMaster];
-    Tub<Buffer> values[numMasters][objsPerMaster];
+    Tub<ObjectBuffer> values[numMasters][objsPerMaster];
     char keys[numMasters][objsPerMaster][keyLength];
 
     uint64_t* tableIds = createTables(numMasters, dataLength, "0", 1);

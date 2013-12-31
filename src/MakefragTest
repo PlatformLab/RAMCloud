@@ -66,11 +66,12 @@ TESTS_SRCFILES := \
 		  src/MultiReadTest.cc \
 		  src/MultiRemoveTest.cc \
 		  src/MultiWriteTest.cc \
+		  src/ObjectBufferTest.cc \
 		  src/ObjectFinderTest.cc \
 		  src/ObjectManagerTest.cc \
 		  src/ObjectPoolTest.cc \
-		  src/ObjectTest.cc \
 		  src/ObjectRpcWrapperTest.cc \
+		  src/ObjectTest.cc \
 		  src/OptionParserTest.cc \
 		  src/PingServiceTest.cc \
 		  src/PortAlarm.cc \

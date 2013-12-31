@@ -65,38 +65,44 @@ TEST_F(RecoverySegmentBuilderTest, build) {
 
     { // Object and tombstone should go in partition 1.
         Key key(1, "1", 1);
-        Object object(key, "hello", 6, 0, 0);
+
+        Buffer dataBuffer;
+        Object object(key, "hello", 6, 0, 0, dataBuffer);
+
         Buffer buffer;
-        object.serializeToBuffer(buffer);
+        object.assembleForLog(buffer);
         ASSERT_TRUE(segment->append(LOG_ENTRY_TYPE_OBJ, buffer));
         ObjectTombstone tombstone(object, 0, 0);
         buffer.reset();
-        tombstone.serializeToBuffer(buffer);
+        tombstone.assembleForLog(buffer);
         ASSERT_TRUE(segment->append(LOG_ENTRY_TYPE_OBJTOMB, buffer));
 
     }{ // Object and tombstone should go in partition 0.
         Key key(1, "2", 1);
-        Object object(key, "abcde", 6, 0, 0);
+        Buffer dataBuffer;
+        Object object(key, "abcde", 6, 0, 0, dataBuffer);
         Buffer buffer;
-        object.serializeToBuffer(buffer);
+        object.assembleForLog(buffer);
         ASSERT_TRUE(segment->append(LOG_ENTRY_TYPE_OBJ, buffer));
         ObjectTombstone tombstone(object, 0, 0);
         buffer.reset();
-        tombstone.serializeToBuffer(buffer);
+        tombstone.assembleForLog(buffer);
         ASSERT_TRUE(segment->append(LOG_ENTRY_TYPE_OBJTOMB, buffer));
 
     }{ // Object not in any partition.
         Key key(10, "1", 1);
-        Object object(key, "abcde", 6, 0, 0);
+        Buffer dataBuffer;
+        Object object(key, "abcde", 6, 0, 0, dataBuffer);
         Buffer buffer;
-        object.serializeToBuffer(buffer);
+        object.assembleForLog(buffer);
         ASSERT_TRUE(segment->append(LOG_ENTRY_TYPE_OBJ, buffer));
 
     }{ // Object not written before the tablet existed.
         Key key(2, "1", 1);
-        Object object(key, "abcde", 6, 0, 0);
+        Buffer dataBuffer;
+        Object object(key, "abcde", 6, 0, 0, dataBuffer);
         Buffer buffer;
-        object.serializeToBuffer(buffer);
+        object.assembleForLog(buffer);
         ASSERT_TRUE(segment->append(LOG_ENTRY_TYPE_OBJ, buffer));
     }
 

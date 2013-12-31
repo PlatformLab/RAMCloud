@@ -399,7 +399,7 @@ TEST_F(BufferTest, prepend) {
 
 TEST_F(BufferTest, append) {
     Buffer b;
-    b.append(NULL, 0);
+    b.append((const void *)NULL, 0);
     EXPECT_TRUE(NULL == b.chunksTail->data);
     b.append(testStr1, 10);
     b.append(testStr2, 10);

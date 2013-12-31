@@ -57,11 +57,11 @@ class RecoverSegmentBenchmark {
     }
 
     void
-    run(int numSegments, int dataBytes)
+    run(int numSegments, int dataLen)
     {
         /*
          * Allocate numSegments Segments and fill them up with objects of
-         * size dataBytes. These will be the Segments that we recover.
+         * size dataLen. These will be the Segments that we recover.
          */
         uint64_t numObjects = 0;
         uint64_t nextKeyVal = 0;
@@ -71,10 +71,13 @@ class RecoverSegmentBenchmark {
             while (1) {
                 Key key(0, &nextKeyVal, sizeof(nextKeyVal));
 
-                char objectData[dataBytes];
-                Object object(key, objectData, dataBytes, 0, 0);
+                char objectData[dataLen];
+
+                Buffer dataBuffer;
+                Object object(key, objectData, dataLen, 0, 0, dataBuffer);
+
                 Buffer buffer;
-                object.serializeToBuffer(buffer);
+                object.assembleForLog(buffer);
                 if (!segments[i]->append(LOG_ENTRY_TYPE_OBJ, buffer))
                     break;
                 nextKeyVal++;
@@ -125,12 +128,12 @@ class RecoverSegmentBenchmark {
         }
         uint64_t ticks = Cycles::rdtsc() - before;
 
-        uint64_t totalObjectBytes = numObjects * dataBytes;
+        uint64_t totalObjectBytes = numObjects * dataLen;
         uint64_t totalSegmentBytes = numSegments *
                                      Segment::DEFAULT_SEGMENT_SIZE;
         printf("Recovery of %d %dKB Segments with %d byte Objects took %lu "
             "ms\n", numSegments, Segment::DEFAULT_SEGMENT_SIZE / 1024,
-            dataBytes, RAMCloud::Cycles::toNanoseconds(ticks) / 1000 / 1000);
+            dataLen, RAMCloud::Cycles::toNanoseconds(ticks) / 1000 / 1000);
         printf("Actual total object count: %lu (%lu bytes in Objects, %.2f%% "
             "overhead)\n", numObjects, totalObjectBytes,
             100.0 *
@@ -195,12 +198,12 @@ int
 main()
 {
     int numSegments = 600 / 8; // = 72.
-    int dataBytes[] = { 64, 128, 256, 512, 1024, 2048, 8192, 0 };
+    int dataLen[] = { 64, 128, 256, 512, 1024, 2048, 8192, 0 };
 
-    for (int i = 0; dataBytes[i] != 0; i++) {
+    for (int i = 0; dataLen[i] != 0; i++) {
         printf("==========================\n");
         RAMCloud::RecoverSegmentBenchmark rsb("2048", "10%", numSegments);
-        rsb.run(numSegments, dataBytes[i]);
+        rsb.run(numSegments, dataLen[i]);
     }
 
     return 0;

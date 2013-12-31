@@ -70,24 +70,30 @@ class CleanerCompactionBenchmark {
     }
 
     void
-    run(uint32_t numSegments, uint32_t dataBytes)
+    run(uint32_t numSegments, uint32_t dataLen)
     {
         tabletManager.addTablet(0, 0, ~0UL, TabletManager::NORMAL);
 
         /*
          * Fill up 'numSegments' worth of segments in the log with objects of
-         * size 'dataBytes'. These will be the Segments that we will clean.
+         * size 'dataLen'. These will be the Segments that we will clean.
          */
         uint64_t numObjects = 0;
         uint64_t nextKeyVal = 0;
         do {
             Key key(0, &nextKeyVal, sizeof(nextKeyVal));
 
-            char objectData[dataBytes];
-            Object object(key, objectData, dataBytes, 0, 0);
+            char objectData[dataLen];
+
+            Buffer dataBuffer;
+            Object object(key, objectData, dataLen, 0, 0, dataBuffer);
+
             Buffer buffer;
-            object.serializeToBuffer(buffer);
-            Status status = objectManager->writeObject(key, buffer, NULL, NULL);
+            object.assembleForLog(buffer);
+
+            // create an object with an invalid version and timestamp for now.
+            Object newObject(0, 0, 0, buffer);
+            Status status = objectManager->writeObject(newObject, NULL, NULL);
             if (status != STATUS_OK) {
                 fprintf(stderr, "Failed to write object! Out of memory?\n");
                 exit(1);

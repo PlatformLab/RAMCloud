@@ -615,9 +615,12 @@ double segmentEntrySort()
         uint32_t size = timestamp % (2 * avgObjectSize);
 
         Key key(0, &count, sizeof(count));
-        Object object(key, data, size, 0, timestamp);
+
+        Buffer dataBuffer;
+        Object object(key, data, size, 0, timestamp, dataBuffer);
+
         Buffer buffer;
-        object.serializeToBuffer(buffer);
+        object.assembleForLog(buffer);
         if (!s.append(LOG_ENTRY_TYPE_OBJ, buffer))
             break;
     }
@@ -666,10 +669,13 @@ double segmentIterator()
         }
         string stringKey = format("%lu", nextKeyVal++);
         Key key(0, stringKey.c_str(), downCast<uint16_t>(stringKey.length()));
+
         char data[size];
-        Object object(key, data, size, 0, 0);
+        Buffer dataBuffer;
+        Object object(key, data, size, 0, 0, dataBuffer);
+
         Buffer buffer;
-        object.serializeToBuffer(buffer);
+        object.assembleForLog(buffer);
         if (!segment.append(LOG_ENTRY_TYPE_OBJ, buffer))
             break;
         numObjects++;

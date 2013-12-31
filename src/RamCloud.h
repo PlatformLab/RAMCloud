@@ -19,6 +19,7 @@
 #include "Common.h"
 #include "CoordinatorClient.h"
 #include "MasterClient.h"
+#include "ObjectBuffer.h"
 #include "ObjectFinder.h"
 #include "ObjectRpcWrapper.h"
 #include "ServerMetrics.h"
@@ -30,6 +31,17 @@ namespace RAMCloud {
 class MultiReadObject;
 class MultiRemoveObject;
 class MultiWriteObject;
+
+/**
+ * This structure describes a key (primary or secondary) and its length.
+ * This will be used by clients issuing write RPCs to specify possibly
+ * many secondary keys to be included in the objects to be written.
+ */
+struct KeyInfo
+{
+    const void *key;        // pimary or secondary key
+    uint16_t keyLength;     // length of the corresponding key
+};
 
 /**
  * The RamCloud class provides the primary interface used by applications to
@@ -71,6 +83,9 @@ class RamCloud {
     void read(uint64_t tableId, const void* key, uint16_t keyLength,
             Buffer* value, const RejectRules* rejectRules = NULL,
             uint64_t* version = NULL);
+    void read(uint64_t tableId, const void* key, uint16_t keyLength,
+            ObjectBuffer* value, const RejectRules* rejectRules = NULL,
+            uint64_t* version = NULL);
     void remove(uint64_t tableId, const void* key, uint16_t keyLength,
             const RejectRules* rejectRules = NULL, uint64_t* version = NULL);
     void serverControl(uint64_t tableId, const void* key, uint16_t keyLength,
@@ -89,10 +104,11 @@ class RamCloud {
     void write(uint64_t tableId, const void* key, uint16_t keyLength,
                 const void* buf, uint32_t length,
                 const RejectRules* rejectRules = NULL, uint64_t* version = NULL,
-                bool async = false);
+                bool async = false, uint8_t numKeys = 1, KeyInfo *keys = NULL);
     void write(uint64_t tableId, const void* key, uint16_t keyLength,
             const char* value, const RejectRules* rejectRules = NULL,
-            uint64_t* version = NULL, bool async = false);
+            uint64_t* version = NULL, bool async = false, uint8_t numKeys = 1,
+             KeyInfo *keys = NULL);
     explicit RamCloud(const char* serviceLocator);
     RamCloud(Context* context, const char* serviceLocator);
     virtual ~RamCloud();
@@ -416,11 +432,11 @@ struct MultiOpObject {
  */
 struct MultiReadObject : public MultiOpObject {
     /**
-     * If the read for this object was successful, the Tub<Buffer>
+     * If the read for this object was successful, the Tub<ObjectBuffer>
      * will hold the contents of the desired object. If not, it will
      * not be initialized, giving "false" when the buffer is tested.
      */
-    Tub<Buffer>* value;
+    Tub<ObjectBuffer>* value;
 
     /**
      * The version number of the object is returned here.
@@ -428,7 +444,7 @@ struct MultiReadObject : public MultiOpObject {
     uint64_t version;
 
     MultiReadObject(uint64_t tableId, const void* key, uint16_t keyLength,
-            Tub<Buffer>* value)
+            Tub<ObjectBuffer>* value)
         : MultiOpObject(tableId, key, keyLength)
         , value(value)
         , version()
@@ -588,6 +604,23 @@ class ReadRpc : public ObjectRpcWrapper {
 };
 
 /**
+ * Encapsulates the state of a RamCloud::read operation,
+ * allowing it to execute asynchronously. The difference from 
+ * ReadRpc is in the contents of the returned buffer.
+ */
+class ReadKeysAndValueRpc : public ObjectRpcWrapper {
+  public:
+    ReadKeysAndValueRpc(RamCloud* ramcloud, uint64_t tableId, const void* key,
+            uint16_t keyLength, ObjectBuffer* value,
+            const RejectRules* rejectRules = NULL);
+    ~ReadKeysAndValueRpc() {}
+    void wait(uint64_t* version = NULL);
+
+  PRIVATE:
+    DISALLOW_COPY_AND_ASSIGN(ReadKeysAndValueRpc);
+};
+
+/**
  * Encapsulates the state of a RamCloud::remove operation,
  * allowing it to execute asynchronously.
  */
@@ -657,7 +690,8 @@ class WriteRpc : public ObjectRpcWrapper {
   public:
     WriteRpc(RamCloud* ramcloud, uint64_t tableId, const void* key,
             uint16_t keyLength, const void* buf, uint32_t length,
-            const RejectRules* rejectRules = NULL, bool async = false);
+            const RejectRules* rejectRules = NULL, bool async = false,
+            uint8_t numKeys = 1, KeyInfo *keys = NULL);
     ~WriteRpc() {}
     void wait(uint64_t* version = NULL);
 
