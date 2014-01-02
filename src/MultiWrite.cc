@@ -14,6 +14,7 @@
  */
 
 #include "MultiWrite.h"
+#include "Object.h"
 #include "ShortMacros.h"
 
 namespace RAMCloud {
@@ -62,15 +63,27 @@ MultiWrite::appendRequest(MultiOpObject* request, Buffer* buf)
 
     // Add the current object to the list of those being
     // written by this RPC.
-    new(buf, APPEND)
-        WireFormat::MultiOp::Request::WritePart(
-            req->tableId, req->keyLength,
-            req->valueLength,
-            req->rejectRules ? *req->rejectRules :
-                                  defaultRejectRules);
 
-    buf->append(req->key, req->keyLength);
-    buf->append(req->value, req->valueLength);
+    uint32_t keysAndValueLength = 0;
+    // assign the length value in the header to be 0 initially
+    WireFormat::MultiOp::Request::WritePart* writeHdr =
+        reinterpret_cast<WireFormat::MultiOp::Request::WritePart *>(
+            new(buf, APPEND)
+                WireFormat::MultiOp::Request::WritePart(
+                req->tableId,
+                keysAndValueLength,
+                req->rejectRules ? *req->rejectRules :
+                                  defaultRejectRules));
+    if (req->numKeys == 1) {
+        Key primaryKey(req->tableId, req->key, req->keyLength);
+        Object object(primaryKey, req->value, req->valueLength, 0, 0, *buf,
+                        &keysAndValueLength);
+    } else {
+        Object object(req->numKeys, req->tableId, req->keyInfo, req->value,
+                    req->valueLength, 0, 0, *buf, &keysAndValueLength);
+    }
+    // update the length value in the header
+    writeHdr->length = keysAndValueLength;
 }
 
 /**

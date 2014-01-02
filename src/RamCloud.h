@@ -529,6 +529,15 @@ struct MultiWriteObject : public MultiOpObject {
     uint32_t valueLength;
 
     /**
+    * Number of keys in this multiWrite object
+    */
+    uint8_t numKeys;
+
+    /**
+     * List of keys and their lengths part of this multiWrite object
+     */
+    KeyInfo *keyInfo;
+    /**
      * The RejectRules specify when conditional writes should be aborted.
      */
     const RejectRules* rejectRules;
@@ -544,6 +553,24 @@ struct MultiWriteObject : public MultiOpObject {
         : MultiOpObject(tableId, key, keyLength)
         , value(value)
         , valueLength(valueLength)
+        , numKeys(1)
+        , keyInfo(NULL)
+        , rejectRules(rejectRules)
+        , version()
+    {}
+
+    // typically used when each object has multiple keys. Primary key
+    // and primary key length will be the first entry in keyInfo.
+    // if keyInfo is NULL, behavior is undefined.
+    MultiWriteObject(uint64_t tableId,
+                 const void* value, uint32_t valueLength,
+                 uint8_t numKeys, KeyInfo *keyInfo,
+                 const RejectRules* rejectRules = NULL)
+        : MultiOpObject(tableId, key, keyLength)
+        , value(value)
+        , valueLength(valueLength)
+        , numKeys(numKeys)
+        , keyInfo(keyInfo)
         , rejectRules(rejectRules)
         , version()
     {}
@@ -552,6 +579,8 @@ struct MultiWriteObject : public MultiOpObject {
         : MultiOpObject()
         , value()
         , valueLength()
+        , numKeys()
+        , keyInfo()
         , rejectRules()
         , version()
     {}
@@ -560,6 +589,8 @@ struct MultiWriteObject : public MultiOpObject {
         : MultiOpObject(other)
         , value(other.value)
         , valueLength(other.valueLength)
+        , numKeys(other.numKeys)
+        , keyInfo(other.keyInfo)
         , rejectRules(other.rejectRules)
         , version(other.version)
     {}
@@ -568,6 +599,9 @@ struct MultiWriteObject : public MultiOpObject {
         MultiOpObject::operator =(other);
         value = other.value;
         valueLength = other.valueLength;
+        numKeys = other.numKeys;
+        // shallow copy should be good enough
+        keyInfo = other.keyInfo;
         rejectRules = other.rejectRules;
         version = other.version;
         return *this;

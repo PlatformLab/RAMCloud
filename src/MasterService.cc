@@ -612,44 +612,24 @@ MasterService::multiWrite(const WireFormat::MultiOp::Request* reqHdr,
         }
 
         reqOffset += sizeof32(WireFormat::MultiOp::Request::WritePart);
-        const void* stringKey = rpc->requestPayload->getRange(
-            reqOffset, currentReq->keyLength);
-        reqOffset += currentReq->keyLength;
-        const void* value = rpc->requestPayload->getRange(
-            reqOffset, currentReq->valueLength);
-        reqOffset += currentReq->valueLength;
 
-        if (stringKey == NULL || value == NULL) {
-            respHdr->common.status = STATUS_REQUEST_FORMAT_ERROR;
-            break;
-        }
-
-        Key key(currentReq->tableId, stringKey, currentReq->keyLength);
-        Buffer buffer;
-
-        uint8_t numKeys = 1;
-        uint16_t keyLength = currentReq->keyLength;
-        uint16_t endKeyOffset = static_cast<uint16_t>(keyLength - 1);
-
-        buffer.append(&numKeys, sizeof32(numKeys));
-        buffer.append(&endKeyOffset, sizeof32(endKeyOffset));
-        buffer.append(stringKey, keyLength);
-
-        buffer.append(value, currentReq->valueLength);
-
+        // We do not check for different kinds of malformed requests here.
+        // The length field in the header must exactly reflect the
+        // keysAndValue portion that follows the header. Trying to catch
+        // these errors in the Object class creates unnecessary complications
+        // and makes things messy
         WireFormat::MultiOp::Response::WritePart* currentResp =
             new(rpc->replyPayload, APPEND)
                 WireFormat::MultiOp::Response::WritePart();
 
         RejectRules rejectRules = currentReq->rejectRules;
-        // TODO(arjung): call same constructor as in write(). But just
-        // starting offset in buffer is not enough. Object::assembleForLog()
-        // needs to be fixed. Buffer::itertor as well ?? need an end point
-        // for each object as we iterate through the list of objects here
-        Object object(currentReq->tableId, 0, 0, buffer);
+
+        Object object(currentReq->tableId, 0, 0, *(rpc->requestPayload),
+                        reqOffset, reqOffset + currentReq->length - 1);
         currentResp->status = objectManager.writeObject(object,
                                                    &rejectRules,
                                                    &currentResp->version);
+        reqOffset += currentReq->length;
     }
 
     // By design, our response will be shorter than the request. This ensures

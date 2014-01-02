@@ -714,7 +714,9 @@ TEST_F(MasterServiceTest, multiWrite_malformedRequests) {
     // fields not match what's in the buffer.
     WireFormat::MultiOp::Request reqHdr;
     WireFormat::MultiOp::Response respHdr;
-    WireFormat::MultiOp::Request::WritePart part(0, 10, 10, RejectRules());
+    WireFormat::MultiOp::Request::WritePart part(0, 23, RejectRules());
+    // 23 includes a key of length 10, a value of length 10, 1 byte for
+    // numKeys and 2 bytes for keyOffset
 
     reqHdr.common.opcode = downCast<uint16_t>(WireFormat::MULTI_OP);
     reqHdr.common.service = downCast<uint16_t>(WireFormat::MASTER_SERVICE);
@@ -737,19 +739,15 @@ TEST_F(MasterServiceTest, multiWrite_malformedRequests) {
     requestPayload.truncateEnd(sizeof(part) - 1);
     requestPayload.append(&part, sizeof(part));
 
-    // both key and value length fields are bogus.
-    respHdr.common.status = STATUS_OK;
-    service->multiWrite(&reqHdr, &respHdr, &rpc);
-    EXPECT_EQ(STATUS_REQUEST_FORMAT_ERROR, respHdr.common.status);
-
-    // only the value length field is bogus.
-    requestPayload.append("tenchars!!", 10);
-    respHdr.common.status = STATUS_OK;
-    service->multiWrite(&reqHdr, &respHdr, &rpc);
-    EXPECT_EQ(STATUS_REQUEST_FORMAT_ERROR, respHdr.common.status);
+    // Malformed requests with both the key and the value length fields
+    // as bogus and requests with only the value length field bogus will
+    // not be caught. It will seg fault. So, it is up to the client
+    // to make sure the requests are formatted well. See comment in
+    // the multiWrite handler in MasterService for reasons
 
     // sanity check: should work with 10 bytes of key and 10 of value
-    requestPayload.append("tenmorechars", 10);
+    Key key(0, "tenchars!!", 10);
+    Object object(key, "tenmorechars", 10, 0, 0, requestPayload);
     respHdr.common.status = STATUS_OK;
     service->multiWrite(&reqHdr, &respHdr, &rpc);
     EXPECT_EQ(STATUS_OK, respHdr.common.status);

@@ -183,6 +183,8 @@ TEST_F(MultiWriteTest, appendRequest) {
     dif = buf.getTotalLength() - before;
 
     uint32_t expected_size = sizeof32(WireFormat::MultiOp::Request::WritePart) +
+                    sizeof32(requests[0]->keyLength) +
+                    sizeof32(requests[0]->numKeys) +
                     requests[0]->keyLength + requests[0]->valueLength;
     EXPECT_EQ(expected_size, dif);
 }

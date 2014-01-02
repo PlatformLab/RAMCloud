@@ -802,20 +802,16 @@ struct MultiOp {
             }
         } __attribute__((packed));
 
-// TODO(arjung): change this
         struct WritePart {
             uint64_t tableId;
-            uint16_t keyLength;
-            uint32_t valueLength;
+            uint32_t length;        // length of keysAndValue
             RejectRules rejectRules;
 
-            // In buffer: The actual key and data for this part
-            // follow immediately after this.
-            WritePart(uint64_t tableId, uint16_t keyLength,
-                      uint32_t valueLength, RejectRules rejectRules)
+            // In buffer: KeysAndValue follow immediately after this
+            WritePart(uint64_t tableId, uint32_t length,
+                        RejectRules rejectRules)
                 : tableId(tableId)
-                , keyLength(keyLength)
-                , valueLength(valueLength)
+                , length(length)
                 , rejectRules(rejectRules)
             {
             }

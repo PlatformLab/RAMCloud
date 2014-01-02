@@ -99,23 +99,36 @@ class Object {
      * \param dataBuffer
      *      Buffer containing all chunks that will comprise this object's
      *      number of keys, key lengths, keys and value.
-     * \param dataOffset
+     * \param startDataOffset
      *      Byte offset in the buffer where keysAndValue start
+     * \param endDataOffset
+     *      Byte offset in the buffer where keysAndValue ends. This is
+     *      primarily used by the multiWrite RPC in MasterService
      */
     Object(uint64_t tableId,
            uint64_t version,
            uint32_t timestamp,
            Buffer& dataBuffer,
-           uint32_t dataOffset = 0)
+           uint32_t startDataOffset = 0,
+           uint32_t endDataOffset = 0)
+           // The default value for endDataOffset should be the end of the
+           // buffer. Since we can't calculate this up front, we assign a
+           // default of 0 and then recompute it in the body of the
+           // constructor
         : header(tableId,
                  timestamp,
                  version),
           keysAndValueLength(),
           data(),
           dataBuffer(&dataBuffer),
-          dataOffset(dataOffset)
+          dataOffset(startDataOffset)
     {
-        keysAndValueLength = dataBuffer.getTotalLength() - dataOffset;
+        // compute the actual default value
+        if (endDataOffset == 0)
+            endDataOffset = this->dataBuffer->getTotalLength() - 1;
+
+        //keysAndValueLength = dataBuffer.getTotalLength() - dataOffset;
+        keysAndValueLength = endDataOffset - dataOffset + 1;
         // Don't compute the checksum now. Invocation of this constructor
         // happens during the write RPC. ObjectManager.writeObject() will
         // update the checksum after updating the version and the timestamp
