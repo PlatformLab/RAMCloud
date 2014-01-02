@@ -100,8 +100,8 @@ class MultiReadTest : public ::testing::Test {
         keyList[2].keyLength = 8;
         keyList[2].key = "otherkey";
 
-        ramcloud->write(tableId2, "object2-1", 9, "value:2-1", NULL, NULL,
-                            false, numKeys, keyList);
+        ramcloud->write(tableId2, numKeys, keyList, "value:2-1",
+                            NULL, NULL, false);
 
         tableId3 = ramcloud->createTable("table3");
         ramcloud->write(tableId3, "object3-1", 9, "value:3-1");

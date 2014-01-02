@@ -350,8 +350,8 @@ TEST_F(RamCloudTest, read) {
     keyList[2].keyLength = 2;
     keyList[2].key = "ho";
 
-    ramcloud->write(tableId1, "ha", 2, "new value", NULL, NULL, false, numKeys,
-                    keyList);
+    ramcloud->write(tableId1, numKeys, keyList, "new value",
+                        NULL, NULL, false);
     ramcloud->read(tableId1, "ha", 2, &keysAndValue);
     EXPECT_EQ(0, memcmp("new value", keysAndValue.getValue(), 9));
 
@@ -477,8 +477,8 @@ TEST_F(RamCloudTest, write) {
     keyList[2].keyLength = 2;
     keyList[2].key = "ho";
 
-    ramcloud->write(tableId1, "ha", 2, "data value", NULL, NULL, false,
-                    numKeys, keyList);
+    ramcloud->write(tableId1, numKeys, keyList, "data value",
+                        NULL, NULL, false);
     ramcloud->read(tableId1, "ha", 2, &value);
     EXPECT_EQ(0, memcmp("data value", value.getValue(), 10));
 }
