@@ -38,15 +38,20 @@ static RejectRules defaultRejectRules;
  *      that contains the cluster configuration information (such as a
  *      string starting with "zk:", which will be passed to the ZooStorage
  *      constructor). With this form, sessions can automatically be
- *      redirected to a new coordinator if the current one crashes. The
- *      second form is deprecated, but is retained for testing. In this
- *      form, the location is specified as a RAMCloud service locator
- *      for a specific coordinator. With this form it is not possible to
- *      roll over to a different coordinator if a given one fails; we
- *      will have to wait for the specified coordinator to restart.
+ *      redirected to a new coordinator if the current one crashes.
+ *      Typically the value for this argument will be the same as the
+ *      value of the "-x" command-line option given to the coordinator
+ *      when it started. The second form is deprecated, but is retained
+ *      for testing. In this form, the location is specified as a RAMCloud
+ *      service locator for a specific coordinator. With this form it is
+ *      not possible to roll over to a different coordinator if a given
+ *      one fails; we will have to wait for the specified coordinator to
+ *      restart.
  * \param clusterName
  *      Name of the current cluster. Used to allow independent operation
- *      of several clusters sharing many of the same resources.
+ *      of several clusters sharing many of the same resources. This is
+ *      typically the same as the value of the "--clusterName" command-line
+ *      option given to the coordinator when it started.
  *
  * \exception CouldntConnectException
  *      Couldn't connect to the server.
