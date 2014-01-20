@@ -217,7 +217,7 @@ fillBuffer(Buffer& buffer, uint32_t size, uint64_t tableId,
             "| %d: tableId 0x%lx, key %.*s, keyLength 0x%x %s",
             position, tableId, keyLength, reinterpret_cast<const char*>(key),
             keyLength, "0123456789");
-        uint32_t chunkLength = sizeof(chunk) - 1;
+        uint32_t chunkLength = static_cast<uint32_t>(sizeof(chunk) - 1);
         if (chunkLength > bytesLeft) {
             chunkLength = bytesLeft;
         }

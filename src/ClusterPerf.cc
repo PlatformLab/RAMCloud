@@ -433,7 +433,7 @@ fillBuffer(Buffer& buffer, uint32_t size, uint64_t tableId,
             "| %d: tableId 0x%lx, key %.*s, keyLength 0x%x %s",
             position, tableId, keyLength, reinterpret_cast<const char*>(key),
             keyLength, "0123456789");
-        uint32_t chunkLength = sizeof(chunk) - 1;
+        uint32_t chunkLength = static_cast<uint32_t>(sizeof(chunk) - 1);
         if (chunkLength > bytesLeft) {
             chunkLength = bytesLeft;
         }
@@ -821,7 +821,7 @@ getMetrics(ClientMetrics& metrics, int clientCount)
                 NULL, metricsBuffer);
         const double* clientMetrics = static_cast<const double*>(
                 metricsBuffer.getRange(0,
-                MAX_METRICS*sizeof(double)));      // NOLINT
+                MAX_METRICS*sizeof32(double)));  // NOLINT
         for (int i = 0; i < MAX_METRICS; i++) {
             metrics[i][client] = clientMetrics[i];
         }
@@ -1896,8 +1896,9 @@ writeAsyncSync()
     const uint32_t count = 100;
     const uint32_t syncObjectSize = 100;
     const uint32_t asyncObjectSizes[] = { 100, 1000, 10000, 100000, 1000000 };
-    const uint32_t arrayElts = sizeof(asyncObjectSizes) /
-                               sizeof(asyncObjectSizes[0]);
+    const uint32_t arrayElts = static_cast<uint32_t>
+                               (sizeof32(asyncObjectSizes) /
+                               sizeof32(asyncObjectSizes[0]));
 
     uint32_t maxSize = syncObjectSize;
     for (uint32_t j = 0; j < arrayElts; ++j)

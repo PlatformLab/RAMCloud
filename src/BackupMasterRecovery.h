@@ -352,8 +352,8 @@ class BackupReplicaMetadata {
         , checksum()
     {
         Crc32C calculatedChecksum;
-        calculatedChecksum.update(this,
-                                  sizeof(*this) - sizeof(checksum));
+        calculatedChecksum.update(this, static_cast<unsigned>
+                                  (sizeof(*this) - sizeof(checksum)));
         checksum = calculatedChecksum.getResult();
     }
 
@@ -366,8 +366,8 @@ class BackupReplicaMetadata {
      */
     bool checkIntegrity() const {
         Crc32C calculatedChecksum;
-        calculatedChecksum.update(this,
-                                  sizeof(*this) - sizeof(checksum));
+        calculatedChecksum.update(this, static_cast<unsigned>
+                                  (sizeof(*this) - sizeof(checksum)));
         return calculatedChecksum.getResult() == checksum;
     }
 

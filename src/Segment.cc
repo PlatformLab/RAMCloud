@@ -411,7 +411,8 @@ Segment::getAppendedLength(Certificate* certificate) const
         certificate->segmentLength = head;
         Crc32C certificateChecksum = checksum;
         certificateChecksum.update(
-            certificate, sizeof(*certificate) - sizeof(certificate->checksum));
+            certificate, static_cast<unsigned>
+            (sizeof(*certificate) - sizeof(certificate->checksum)));
         certificate->checksum = certificateChecksum.getResult();
     }
     return head;
@@ -524,8 +525,8 @@ Segment::checkMetadataIntegrity(const Certificate& certificate)
         return false;
     }
 
-    currentChecksum.update(&certificate,
-                           sizeof(certificate) - sizeof(certificate.checksum));
+    currentChecksum.update(&certificate, static_cast<unsigned>
+                           (sizeof(certificate)-sizeof(certificate.checksum)));
 
     if (certificate.checksum != currentChecksum.getResult()) {
         LOG(WARNING, "segment corrupt: bad checksum (expected 0x%08x, "

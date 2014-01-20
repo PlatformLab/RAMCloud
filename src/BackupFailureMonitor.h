@@ -16,6 +16,7 @@
 #ifndef RAMCLOUD_BACKUPFAILUREMONITOR_H
 #define RAMCLOUD_BACKUPFAILUREMONITOR_H
 
+#include <condition_variable>
 #include <thread>
 
 #include "ServerTracker.h"
