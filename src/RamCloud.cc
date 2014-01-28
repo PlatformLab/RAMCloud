@@ -94,6 +94,24 @@ RamCloud::~RamCloud()
 }
 
 /**
+ * Give polling-based operations (such as those checking for incoming network 
+ * packets) a chance to execute. This method is typically invoked during loops
+ * that wait for asynchronous RPCs to complete by calling isReady repeatedly.
+ * In general, an asynchronous RPC will not make progress unless either 
+ * this method is invoked or the "wait" method is invoked on the RPC. 
+ * This method will not block; it checks for interesting events that may have
+ * occurred, but doesn't wait for them to occur.
+ */
+void
+RamCloud::poll()
+{
+    // If we're not running in the dispatch thread, there's no need to do
+    // anything (the dispatch thread will be polling continuously).
+    if (clientContext->dispatch->isDispatchThread())
+        clientContext->dispatch->poll();
+}
+
+/**
  * Create a new table.
  *
  * \param name
