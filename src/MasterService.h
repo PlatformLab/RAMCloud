@@ -21,20 +21,20 @@
 #include "Log.h"
 #include "LogCleaner.h"
 #include "HashTable.h"
+#include "MasterTableMetadata.h"
 #include "Object.h"
 #include "ObjectManager.h"
+#include "ReplicaManager.h"
 #include "SegmentIterator.h"
 #include "SegmentManager.h"
-#include "ReplicaManager.h"
+#include "ServerConfig.h"
 #include "ServerList.h"
 #include "ServerStatistics.pb.h"
 #include "Service.h"
-#include "ServerConfig.h"
 #include "SideLog.h"
 #include "SpinLock.h"
 #include "TabletManager.h"
 #include "WireFormat.h"
-#include "MasterTableMetadata.h"
 
 namespace RAMCloud {
 
@@ -53,6 +53,7 @@ class MasterService : public Service {
     MasterService(Context* context,
                   const ServerConfig* config);
     virtual ~MasterService();
+
     void dispatch(WireFormat::Opcode opcode,
                   Rpc* rpc);
     int maxThreads() { return config->master.masterServiceThreadCount; }
@@ -77,7 +78,126 @@ class MasterService : public Service {
         DISALLOW_COPY_AND_ASSIGN(Disabler);
     };
 
+    /// Shared RAMCloud information.
+    Context* context;
+
+    const ServerConfig* config;
+
   PRIVATE:
+    void dropTabletOwnership(
+                const WireFormat::DropTabletOwnership::Request* reqHdr,
+                WireFormat::DropTabletOwnership::Response* respHdr,
+                Rpc* rpc);
+    void enumerate(const WireFormat::Enumerate::Request* reqHdr,
+                WireFormat::Enumerate::Response* respHdr,
+                Rpc* rpc);
+    void getHeadOfLog(const WireFormat::GetHeadOfLog::Request* reqHdr,
+                WireFormat::GetHeadOfLog::Response* respHdr,
+                Rpc* rpc);
+    void getLogMetrics(const WireFormat::GetLogMetrics::Request* reqHdr,
+                WireFormat::GetLogMetrics::Response* respHdr,
+                Rpc* rpc);
+    void getServerStatistics(
+                const WireFormat::GetServerStatistics::Request* reqHdr,
+                WireFormat::GetServerStatistics::Response* respHdr,
+                Rpc* rpc);
+    void fillWithTestData(const WireFormat::FillWithTestData::Request* reqHdr,
+                WireFormat::FillWithTestData::Response* respHdr,
+                Rpc* rpc);
+    void increment(const WireFormat::Increment::Request* reqHdr,
+                WireFormat::Increment::Response* respHdr,
+                Rpc* rpc);
+    void initOnceEnlisted();
+    void isReplicaNeeded(const WireFormat::IsReplicaNeeded::Request* reqHdr,
+                WireFormat::IsReplicaNeeded::Response* respHdr,
+                Rpc* rpc);
+    void migrateTablet(const WireFormat::MigrateTablet::Request* reqHdr,
+                WireFormat::MigrateTablet::Response* respHdr,
+                Rpc* rpc);
+    void multiOp(const WireFormat::MultiOp::Request* reqHdr,
+                WireFormat::MultiOp::Response* respHdr,
+                Rpc* rpc);
+    void multiRead(const WireFormat::MultiOp::Request* reqHdr,
+                WireFormat::MultiOp::Response* respHdr,
+                Rpc* rpc);
+    void multiRemove(const WireFormat::MultiOp::Request* reqHdr,
+                WireFormat::MultiOp::Response* respHdr,
+                Rpc* rpc);
+    void multiWrite(const WireFormat::MultiOp::Request* reqHdr,
+                WireFormat::MultiOp::Response* respHdr,
+                Rpc* rpc);
+    void prepForMigration(const WireFormat::PrepForMigration::Request* reqHdr,
+                WireFormat::PrepForMigration::Response* respHdr,
+                Rpc* rpc);
+    void read(const WireFormat::Read::Request* reqHdr,
+                WireFormat::Read::Response* respHdr,
+                Rpc* rpc);
+    void receiveMigrationData(
+                const WireFormat::ReceiveMigrationData::Request* reqHdr,
+                WireFormat::ReceiveMigrationData::Response* respHdr,
+                Rpc* rpc);
+    void remove(const WireFormat::Remove::Request* reqHdr,
+                WireFormat::Remove::Response* respHdr,
+                Rpc* rpc);
+    void splitMasterTablet(const WireFormat::SplitMasterTablet::Request* reqHdr,
+                WireFormat::SplitMasterTablet::Response* respHdr,
+                Rpc* rpc);
+    void takeTabletOwnership(
+                const WireFormat::TakeTabletOwnership::Request* reqHdr,
+                WireFormat::TakeTabletOwnership::Response* respHdr,
+                Rpc* rpc);
+    void write(const WireFormat::Write::Request* reqHdr,
+                WireFormat::Write::Response* respHdr,
+                Rpc* rpc);
+
+    /**
+     * Counts the number of times disable has been called, minus the number
+     * of times enable has been called; a value > 0 means that the service
+     * is disabled and should return STATUS_RETRY for all requests. This
+     * can happen, for example, if the server is no longer certain that it
+     * is a valid member of the cluster (see "Zombies" in designNotes).
+     */
+    Atomic<int> disableCount;
+
+    /**
+     * Used to ensure that init() is invoked before the dispatcher runs.
+     */
+    bool initCalled;
+
+    /**
+     * Used by takeTabletOwnership to avoid sync-ing the log except for the
+     * first tablet accepted.
+     */
+    bool logEverSynced;
+
+    /**
+     * The MasterTableMetadata object keeps per table metadata.
+     */
+    MasterTableMetadata masterTableMetadata;
+
+    /**
+     * Determines the maximum size of the response buffer for multiRead
+     * operations. Normally MAX_RPC_LEN, but can be modified during tests
+     * to simplify testing.
+     */
+    uint32_t maxMultiReadResponseSize;
+
+    /**
+     * The ObjectManager class that is responsible for object storage.
+     */
+    ObjectManager objectManager;
+
+    /**
+     * The TabletManager keeps track of ranges of tables that are assigned to
+     * this server by the coordinator. Ranges are contiguous spans of the 64-bit
+     * key hash space.
+     */
+    TabletManager tabletManager;
+
+///////////////////////////////////////////////////////////////////////////////
+/////Recovery related code. This should eventually move into its own file./////
+///////////////////////////////////////////////////////////////////////////////
+
     /**
      * Represents a known segment replica during recovery and the state
      * of fetching it from backups.
@@ -109,141 +229,21 @@ class MasterService : public Service {
         State state;
     };
 
-    void enumerate(const WireFormat::Enumerate::Request* reqHdr,
-                   WireFormat::Enumerate::Response* respHdr,
-                   Rpc* rpc);
-    void getLogMetrics(const WireFormat::GetLogMetrics::Request* reqHdr,
-                       WireFormat::GetLogMetrics::Response* respHdr,
-                       Rpc* rpc);
-    void fillWithTestData(const WireFormat::FillWithTestData::Request* reqHdr,
-                          WireFormat::FillWithTestData::Response* respHdr,
-                          Rpc* rpc);
-    void increment(const WireFormat::Increment::Request* reqHdr,
-                 WireFormat::Increment::Response* respHdr,
-                 Rpc* rpc);
-    void isReplicaNeeded(const WireFormat::IsReplicaNeeded::Request* reqHdr,
-                         WireFormat::IsReplicaNeeded::Response* respHdr,
-                         Rpc* rpc);
-    void getHeadOfLog(const WireFormat::GetHeadOfLog::Request* reqHdr,
-                      WireFormat::GetHeadOfLog::Response* respHdr,
-                      Rpc* rpc);
-    void multiOp(const WireFormat::MultiOp::Request* reqHdr,
-                   WireFormat::MultiOp::Response* respHdr,
-                   Rpc* rpc);
-    void multiRead(const WireFormat::MultiOp::Request* reqHdr,
-                   WireFormat::MultiOp::Response* respHdr,
-                   Rpc* rpc);
-    void multiRemove(const WireFormat::MultiOp::Request* reqHdr,
-                     WireFormat::MultiOp::Response* respHdr,
-                     Rpc* rpc);
-    void multiWrite(const WireFormat::MultiOp::Request* reqHdr,
-                   WireFormat::MultiOp::Response* respHdr,
-                   Rpc* rpc);
-    void read(const WireFormat::Read::Request* reqHdr,
-              WireFormat::Read::Response* respHdr,
-              Rpc* rpc);
-    void getServerStatistics(
-        const WireFormat::GetServerStatistics::Request* reqHdr,
-        WireFormat::GetServerStatistics::Response* respHdr,
-        Rpc* rpc);
-    void dropTabletOwnership(
-        const WireFormat::DropTabletOwnership::Request* reqHdr,
-        WireFormat::DropTabletOwnership::Response* respHdr,
-        Rpc* rpc);
-    void takeTabletOwnership(
-            const WireFormat::TakeTabletOwnership::Request* reqHdr,
-            WireFormat::TakeTabletOwnership::Response* respHdr,
-            Rpc* rpc);
-    void prepForMigration(const WireFormat::PrepForMigration::Request* reqHdr,
-                          WireFormat::PrepForMigration::Response* respHdr,
-                          Rpc* rpc);
-    void migrateTablet(const WireFormat::MigrateTablet::Request* reqHdr,
-                       WireFormat::MigrateTablet::Response* respHdr,
-                       Rpc* rpc);
-    void receiveMigrationData(
-        const WireFormat::ReceiveMigrationData::Request* reqHdr,
-        WireFormat::ReceiveMigrationData::Response* respHdr,
-        Rpc* rpc);
-    void purgeObjectsFromUnknownTablets();
+    static void detectSegmentRecoveryFailure(
+                const ServerId masterId,
+                const uint64_t partitionId,
+                const vector<MasterService::Replica>& replicas);
     void recover(const WireFormat::Recover::Request* reqHdr,
-                 WireFormat::Recover::Response* respHdr,
-                 Rpc* rpc);
+                WireFormat::Recover::Response* respHdr,
+                Rpc* rpc);
     void recover(uint64_t recoveryId,
-                 ServerId masterId,
-                 uint64_t partitionId,
-                 vector<Replica>& replicas);
-    void remove(const WireFormat::Remove::Request* reqHdr,
-                WireFormat::Remove::Response* respHdr,
-                Rpc* rpc);
-    void splitMasterTablet(const WireFormat::SplitMasterTablet::Request* reqHdr,
-                WireFormat::SplitMasterTablet::Response* respHdr,
-                Rpc* rpc);
-    void write(const WireFormat::Write::Request* reqHdr,
-               WireFormat::Write::Response* respHdr,
-               Rpc* rpc);
+                ServerId masterId,
+                uint64_t partitionId,
+                vector<Replica>& replicas);
 
-  public:
-    /// Shared RAMCloud information.
-    Context* context;
-
-    const ServerConfig* config;
-
-  PRIVATE:
-    /**
-     * The MasterTableMetadata object keeps per table metadata.
-     */
-    MasterTableMetadata masterTableMetadata;
-
-    /**
-     * The TabletManager keeps track of ranges of tables that are assigned to
-     * this server by the coordinator. Ranges are contiguous spans of the 64-bit
-     * key hash space.
-     */
-    TabletManager tabletManager;
-
-    /**
-     * The ObjectManager class that is responsible for object storage.
-     */
-    ObjectManager objectManager;
-
-    /**
-     * Used to ensure that init() is invoked before the dispatcher runs.
-     */
-    bool initCalled;
-
-    /**
-     * Used by takeTabletOwnership to avoid sync-ing the log except for the
-     * first tablet accepted.
-     */
-    bool logEverSynced;
-
-    /**
-     * Determines the maximum size of the response buffer for multiRead
-     * operations. Normally MAX_RPC_LEN, but can be modified during tests
-     * to simplify testing.
-     */
-    uint32_t maxMultiReadResponseSize;
-
-    /**
-     * Counts the number of times disable has been called, minus the number
-     * of times enable has been called; a value > 0 means that the service
-     * is disabled and should return STATUS_RETRY for all requests. This
-     * can happen, for example, if the server is no longer certain that it
-     * is a valid member of the cluster (see "Zombies" in designNotes).
-     */
-    Atomic<int> disableCount;
-
-    /* Tombstone cleanup method used after recovery. */
-    void removeTombstones();
-
-  PRIVATE:
-    void initOnceEnlisted();
-
-    static void
-    detectSegmentRecoveryFailure(
-                        const ServerId masterId,
-                        const uint64_t partitionId,
-                        const vector<MasterService::Replica>& replicas);
+///////////////////////////////////////////////////////////////////////////////
+/////////////////////////End of Recovery related code./////////////////////////
+///////////////////////////////////////////////////////////////////////////////
 
     friend void recoveryCleanup(uint64_t maybeTomb, void *cookie);
     friend void removeObjectIfFromUnknownTablet(uint64_t reference,

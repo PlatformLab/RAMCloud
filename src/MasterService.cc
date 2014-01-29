@@ -23,15 +23,15 @@
 #include "Enumeration.h"
 #include "EnumerationIterator.h"
 #include "LogIterator.h"
-#include "ShortMacros.h"
 #include "MasterClient.h"
 #include "MasterService.h"
-#include "RawMetrics.h"
-#include "Tub.h"
 #include "ProtoBuf.h"
+#include "RawMetrics.h"
 #include "Segment.h"
 #include "ServiceManager.h"
+#include "ShortMacros.h"
 #include "Transport.h"
+#include "Tub.h"
 #include "WallTime.h"
 
 namespace RAMCloud {
@@ -71,17 +71,17 @@ MasterService::MasterService(Context* context,
                              const ServerConfig* config)
     : context(context)
     , config(config)
+    , disableCount(0)
+    , initCalled(false)
+    , logEverSynced(false)
     , masterTableMetadata()
-    , tabletManager()
+    , maxMultiReadResponseSize(Transport::MAX_RPC_LEN)
     , objectManager(context,
                     &serverId,
                     config,
                     &tabletManager,
                     &masterTableMetadata)
-    , initCalled(false)
-    , logEverSynced(false)
-    , maxMultiReadResponseSize(Transport::MAX_RPC_LEN)
-    , disableCount(0)
+    , tabletManager()
 {
 }
 
@@ -117,13 +117,21 @@ MasterService::dispatch(WireFormat::Opcode opcode, Rpc* rpc)
             callHandler<WireFormat::Enumerate, MasterService,
                         &MasterService::enumerate>(rpc);
             break;
-        case WireFormat::FillWithTestData::opcode:
-            callHandler<WireFormat::FillWithTestData, MasterService,
-                        &MasterService::fillWithTestData>(rpc);
+        case WireFormat::GetHeadOfLog::opcode:
+            callHandler<WireFormat::GetHeadOfLog, MasterService,
+                        &MasterService::getHeadOfLog>(rpc);
             break;
         case WireFormat::GetLogMetrics::opcode:
             callHandler<WireFormat::GetLogMetrics, MasterService,
                         &MasterService::getLogMetrics>(rpc);
+            break;
+        case WireFormat::GetServerStatistics::opcode:
+            callHandler<WireFormat::GetServerStatistics, MasterService,
+                        &MasterService::getServerStatistics>(rpc);
+            break;
+        case WireFormat::FillWithTestData::opcode:
+            callHandler<WireFormat::FillWithTestData, MasterService,
+                        &MasterService::fillWithTestData>(rpc);
             break;
         case WireFormat::Increment::opcode:
             callHandler<WireFormat::Increment, MasterService,
@@ -132,14 +140,6 @@ MasterService::dispatch(WireFormat::Opcode opcode, Rpc* rpc)
         case WireFormat::IsReplicaNeeded::opcode:
             callHandler<WireFormat::IsReplicaNeeded, MasterService,
                         &MasterService::isReplicaNeeded>(rpc);
-            break;
-        case WireFormat::GetServerStatistics::opcode:
-            callHandler<WireFormat::GetServerStatistics, MasterService,
-                        &MasterService::getServerStatistics>(rpc);
-            break;
-        case WireFormat::GetHeadOfLog::opcode:
-            callHandler<WireFormat::GetHeadOfLog, MasterService,
-                        &MasterService::getHeadOfLog>(rpc);
             break;
         case WireFormat::MigrateTablet::opcode:
             callHandler<WireFormat::MigrateTablet, MasterService,
@@ -161,10 +161,6 @@ MasterService::dispatch(WireFormat::Opcode opcode, Rpc* rpc)
             callHandler<WireFormat::ReceiveMigrationData, MasterService,
                         &MasterService::receiveMigrationData>(rpc);
             break;
-        case WireFormat::Recover::opcode:
-            callHandler<WireFormat::Recover, MasterService,
-                        &MasterService::recover>(rpc);
-            break;
         case WireFormat::Remove::opcode:
             callHandler<WireFormat::Remove, MasterService,
                         &MasterService::remove>(rpc);
@@ -181,30 +177,84 @@ MasterService::dispatch(WireFormat::Opcode opcode, Rpc* rpc)
             callHandler<WireFormat::Write, MasterService,
                         &MasterService::write>(rpc);
             break;
+        // Recovery. Should eventually move away with other recovery code.
+        case WireFormat::Recover::opcode:
+            callHandler<WireFormat::Recover, MasterService,
+                        &MasterService::recover>(rpc);
+            break;
         default:
             prepareErrorResponse(rpc->replyPayload,
                                  STATUS_UNIMPLEMENTED_REQUEST);
     }
 }
 
+/**
+ * Construct a Disabler object (disable the associated master).
+ *
+ * \param service
+ *      The MasterService that should be disabled.  If NULL, then no
+ *      service is disabled.
+ */
+MasterService::Disabler::Disabler(MasterService* service)
+    : service(service)
+{
+    if (service != NULL) {
+        service->disableCount++;
+    }
+    TEST_LOG("master service disabled");
+}
+/**
+ * Destroy a Disabler object (reenable the associated master).
+ */
+MasterService::Disabler::~Disabler()
+{
+    reenable();
+}
 
 /**
- * Perform once-only initialization for the master service after having
- * enlisted the process with the coordinator.
- *
- * Any actions performed here must not block the process or dispatch thread,
- * otherwise the server may be timed out and declared failed by the coordinator.
+ * Reenable request servicing on the associated MasterService.
  */
 void
-MasterService::initOnceEnlisted()
+MasterService::Disabler::reenable()
 {
-    assert(!initCalled);
+    if (service != NULL) {
+        service->disableCount--;
+        service = NULL;
+    }
+}
 
-    LOG(NOTICE, "My server ID is %s", serverId.toString().c_str());
-    metrics->serverId = serverId.getId();
-    objectManager.initOnceEnlisted();
+/**
+ * Top-level server method to handle the DROP_TABLET_OWNERSHIP request.
+ *
+ * This RPC is issued by the coordinator when a table is dropped and all
+ * tablets are being destroyed. This is not currently used in migration,
+ * since the source master knows that it no longer owns the tablet when
+ * the coordinator has responded to its REASSIGN_TABLET_OWNERSHIP rpc.
+ *
+ * \copydetails Service::ping
+ */
+void
+MasterService::dropTabletOwnership(
+        const WireFormat::DropTabletOwnership::Request* reqHdr,
+        WireFormat::DropTabletOwnership::Response* respHdr,
+        Rpc* rpc)
+{
+    bool deleted = tabletManager.deleteTablet(reqHdr->tableId,
+                                              reqHdr->firstKeyHash,
+                                              reqHdr->lastKeyHash);
+    if (deleted) {
+        // Ensure that the ObjectManager never returns objects from this deleted
+        // tablet again.
+        objectManager.removeOrphanedObjects();
+        LOG(NOTICE, "Dropped ownership of tablet [0x%lx,0x%lx] in tableId %lu",
+            reqHdr->firstKeyHash, reqHdr->lastKeyHash, reqHdr->tableId);
+    } else {
+        // to make this operation idempotent, don't return bad status.
 
-    initCalled = true;
+        LOG(WARNING, "Could not drop ownership on unknown tablet [0x%lx,0x%lx]"
+            " in tableId %lu!", reqHdr->firstKeyHash, reqHdr->lastKeyHash,
+            reqHdr->tableId);
+    }
 }
 
 /**
@@ -262,6 +312,19 @@ MasterService::enumerate(const WireFormat::Enumerate::Request* reqHdr,
 }
 
 /**
+ * Top-level server method to handle the GET_HEAD_OF_LOG request.
+ */
+void
+MasterService::getHeadOfLog(const WireFormat::GetHeadOfLog::Request* reqHdr,
+                            WireFormat::GetHeadOfLog::Response* respHdr,
+                            Rpc* rpc)
+{
+    Log::Position head = objectManager.getLog()->rollHeadOver();
+    respHdr->headSegmentId = head.getSegmentId();
+    respHdr->headSegmentOffset = head.getSegmentOffset();
+}
+
+/**
  * Obtain various metrics from the log and return to the caller. Used to
  * remotely monitor the log's utilization and performance.
  *
@@ -269,14 +332,30 @@ MasterService::enumerate(const WireFormat::Enumerate::Request* reqHdr,
  */
 void
 MasterService::getLogMetrics(
-    const WireFormat::GetLogMetrics::Request* reqHdr,
-    WireFormat::GetLogMetrics::Response* respHdr,
-    Rpc* rpc)
+        const WireFormat::GetLogMetrics::Request* reqHdr,
+        WireFormat::GetLogMetrics::Response* respHdr,
+        Rpc* rpc)
 {
     ProtoBuf::LogMetrics logMetrics;
     objectManager.getLog()->getMetrics(logMetrics);
     respHdr->logMetricsLength = ProtoBuf::serializeToResponse(rpc->replyPayload,
-                                                             &logMetrics);
+                                                              &logMetrics);
+}
+
+/**
+ * Top-level server method to handle the GET_SERVER_STATISTICS request.
+ */
+void
+MasterService::getServerStatistics(
+        const WireFormat::GetServerStatistics::Request* reqHdr,
+        WireFormat::GetServerStatistics::Response* respHdr,
+        Rpc* rpc)
+{
+    ProtoBuf::ServerStatistics serverStats;
+    tabletManager.getStatistics(&serverStats);
+    SpinLock::getStatistics(serverStats.mutable_spin_lock_stats());
+    respHdr->serverStatsLength = serializeToResponse(rpc->replyPayload,
+                                                     &serverStats);
 }
 
 /**
@@ -295,9 +374,9 @@ MasterService::getLogMetrics(
  */
 void
 MasterService::fillWithTestData(
-    const WireFormat::FillWithTestData::Request* reqHdr,
-    WireFormat::FillWithTestData::Response* respHdr,
-    Rpc* rpc)
+        const WireFormat::FillWithTestData::Request* reqHdr,
+        WireFormat::FillWithTestData::Response* respHdr,
+        Rpc* rpc)
 {
     vector<TabletManager::Tablet> tablets;
     tabletManager.getTablets(&tablets);
@@ -365,33 +444,249 @@ MasterService::fillWithTestData(
     LOG(NOTICE, "Done writing objects.");
 }
 
+
 /**
- * Top-level server method to handle the GET_HEAD_OF_LOG request.
+ * Top-level server method to handle the INCREMENT request.
+ *
+ * \copydetails MasterService::read
  */
 void
-MasterService::getHeadOfLog(const WireFormat::GetHeadOfLog::Request* reqHdr,
-                            WireFormat::GetHeadOfLog::Response* respHdr,
-                            Rpc* rpc)
+MasterService::increment(const WireFormat::Increment::Request* reqHdr,
+                         WireFormat::Increment::Response* respHdr,
+                         Rpc* rpc)
 {
-    Log::Position head = objectManager.getLog()->rollHeadOver();
-    respHdr->headSegmentId = head.getSegmentId();
-    respHdr->headSegmentOffset = head.getSegmentOffset();
+    // Read the current value of the object and add the increment value
+    Key key(reqHdr->tableId, *rpc->requestPayload, sizeof32(*reqHdr),
+            reqHdr->keyLength);
+
+    Status *status = &respHdr->common.status;
+
+    Buffer value;
+    RejectRules rejectRules = reqHdr->rejectRules;
+    *status = objectManager.readObject(key, &value, &rejectRules, NULL);
+    if (*status != STATUS_OK)
+        return;
+
+    if (value.getTotalLength() != sizeof(int64_t)) {
+        *status = STATUS_INVALID_OBJECT;
+        return;
+    }
+
+    const int64_t oldValue = *value.getOffset<int64_t>(0);
+    int64_t newValue = oldValue + reqHdr->incrementValue;
+
+    // Write the new value back
+    Buffer newValueBuffer;
+    newValueBuffer.append(&newValue, sizeof(int64_t));
+
+    *status = objectManager.writeObject(key, newValueBuffer,
+        &rejectRules, &respHdr->version);
+    if (*status != STATUS_OK)
+        return;
+    objectManager.syncChanges();
+
+    // Return new value
+    respHdr->newValue = newValue;
 }
 
 /**
- * Top-level server method to handle the GET_SERVER_STATISTICS request.
+ * Perform once-only initialization for the master service after having
+ * enlisted the process with the coordinator.
+ *
+ * Any actions performed here must not block the process or dispatch thread,
+ * otherwise the server may be timed out and declared failed by the coordinator.
  */
 void
-MasterService::getServerStatistics(
-    const WireFormat::GetServerStatistics::Request* reqHdr,
-    WireFormat::GetServerStatistics::Response* respHdr,
-    Rpc* rpc)
+MasterService::initOnceEnlisted()
 {
-    ProtoBuf::ServerStatistics serverStats;
-    tabletManager.getStatistics(&serverStats);
-    SpinLock::getStatistics(serverStats.mutable_spin_lock_stats());
-    respHdr->serverStatsLength = serializeToResponse(rpc->replyPayload,
-                                                    &serverStats);
+    assert(!initCalled);
+
+    LOG(NOTICE, "My server ID is %s", serverId.toString().c_str());
+    metrics->serverId = serverId.getId();
+    objectManager.initOnceEnlisted();
+
+    initCalled = true;
+}
+
+/**
+ * RPC handler for IS_REPLICA_NEEDED; indicates to backup servers whether
+ * a replica for a particular segment that this master generated is needed
+ * for durability or that it can be safely discarded.
+ */
+void
+MasterService::isReplicaNeeded(
+        const WireFormat::IsReplicaNeeded::Request* reqHdr,
+        WireFormat::IsReplicaNeeded::Response* respHdr,
+        Rpc* rpc)
+{
+    ServerId backupServerId = ServerId(reqHdr->backupServerId);
+    respHdr->needed = objectManager.getReplicaManager()->isReplicaNeeded(
+        backupServerId, reqHdr->segmentId);
+}
+
+/**
+ * Top-level server method to handle the MIGRATE_TABLET request.
+ *
+ * This is used to manually initiate the migration of a tablet (or piece of a
+ * tablet) that this master owns to another master.
+ *
+ * \copydetails Service::ping
+ */
+void
+MasterService::migrateTablet(const WireFormat::MigrateTablet::Request* reqHdr,
+                             WireFormat::MigrateTablet::Response* respHdr,
+                             Rpc* rpc)
+{
+    uint64_t tableId = reqHdr->tableId;
+    uint64_t firstKeyHash = reqHdr->firstKeyHash;
+    uint64_t lastKeyHash = reqHdr->lastKeyHash;
+    ServerId newOwnerMasterId(reqHdr->newOwnerMasterId);
+
+    // Find the tablet we're trying to move. We only support migration
+    // when the tablet to be migrated consists of a range within a single,
+    // contiguous tablet of ours.
+    bool found = tabletManager.getTablet(tableId, firstKeyHash, lastKeyHash, 0);
+    if (!found) {
+        LOG(WARNING, "Migration request for tablet this master does not own: "
+            "tablet [0x%lx,0x%lx] in tableId %lu", firstKeyHash, lastKeyHash,
+            tableId);
+        respHdr->common.status = STATUS_UNKNOWN_TABLET;
+        return;
+    }
+
+    if (newOwnerMasterId == serverId) {
+        LOG(WARNING, "Migrating to myself doesn't make much sense");
+        respHdr->common.status = STATUS_REQUEST_FORMAT_ERROR;
+        return;
+    }
+
+    // TODO(rumble/slaughter) what if we end up splitting?!?
+
+    // TODO(rumble/slaughter) add method to query for # objs, # bytes in a
+    // range in order for this to really work, we'll need to split on a bucket
+    // boundary. Otherwise we can't tell where bytes are in the chosen range.
+    MasterClient::prepForMigration(context, newOwnerMasterId, tableId,
+                                   firstKeyHash, lastKeyHash, 0, 0);
+    Log::Position newOwnerLogHead = MasterClient::getHeadOfLog(context,
+                                                              newOwnerMasterId);
+
+    LOG(NOTICE, "Migrating tablet [0x%lx,0x%lx] in tableId %lu to %s",
+        firstKeyHash, lastKeyHash, tableId,
+        context->serverList->toString(newOwnerMasterId).c_str());
+
+    // We'll send over objects in Segment containers for better network
+    // efficiency and convenience.
+    Tub<Segment> transferSeg;
+
+    // TODO(rumble/slaughter): These should probably be metrics.
+    uint64_t totalObjects = 0;
+    uint64_t totalTombstones = 0;
+    uint64_t totalBytes = 0;
+
+    // Hold on to the iterator since it locks the head Segment, avoiding any
+    // additional appends once we've finished iterating.
+    LogIterator it(*objectManager.getLog());
+    for (; !it.isDone(); it.next()) {
+        LogEntryType type = it.getType();
+        if (type != LOG_ENTRY_TYPE_OBJ && type != LOG_ENTRY_TYPE_OBJTOMB) {
+            // We aren't interested in any other types.
+            continue;
+        }
+
+        Buffer buffer;
+        it.appendToBuffer(buffer);
+        Key key(type, buffer);
+
+        // Skip if not applicable.
+        if (key.getTableId() != tableId)
+            continue;
+
+        if (key.getHash() < firstKeyHash || key.getHash() > lastKeyHash)
+            continue;
+
+        if (type == LOG_ENTRY_TYPE_OBJ) {
+            // Only send objects when they're currently in the hash table.
+            // Otherwise they're dead.
+            Buffer currentBuffer;
+            uint64_t currentVersion;
+            if (objectManager.readObject(
+              key, &currentBuffer, 0, &currentVersion) != STATUS_OK) {
+                continue;
+            }
+
+            // Skip objects older than what is currently in the hash table.
+            Object iteratorObject(buffer);
+            if (iteratorObject.getVersion() < currentVersion)
+                continue;
+
+            totalObjects++;
+        } else {
+            // We must always send tombstones, since an object we may have sent
+            // could have been deleted more recently. We could be smarter and
+            // more selective here, but that'd require keeping extra state to
+            // know what we've already sent.
+            //
+            // TODO(rumble/slaughter) Actually, we can do better. The stupid way
+            //      is to track each object or tombstone we've sent. The smarter
+            //      way is to just record the Log::Position when we started
+            //      iterating and only send newer tombstones.
+
+            totalTombstones++;
+        }
+
+        totalBytes += buffer.getTotalLength();
+
+        if (!transferSeg)
+            transferSeg.construct();
+
+        // If we can't fit it, send the current buffer and retry.
+        if (!transferSeg->append(type, buffer)) {
+            transferSeg->close();
+            LOG(DEBUG, "Sending migration segment");
+            MasterClient::receiveMigrationData(context, newOwnerMasterId,
+                tableId, firstKeyHash, transferSeg.get());
+
+            transferSeg.destroy();
+            transferSeg.construct();
+
+            // If it doesn't fit this time, we're in trouble.
+            if (!transferSeg->append(type, buffer)) {
+                LOG(ERROR, "Tablet migration failed: could not fit object "
+                    "into empty segment (obj bytes %u)",
+                    buffer.getTotalLength());
+                respHdr->common.status = STATUS_INTERNAL_ERROR;
+                return;
+            }
+        }
+    }
+
+    if (transferSeg) {
+        transferSeg->close();
+        LOG(DEBUG, "Sending last migration segment");
+        MasterClient::receiveMigrationData(context, newOwnerMasterId,
+            tableId, firstKeyHash, transferSeg.get());
+        transferSeg.destroy();
+    }
+
+    // Now that all data has been transferred, we can reassign ownership of
+    // the tablet. If this succeeds, we are free to drop the tablet. The
+    // data is all on the other machine and the coordinator knows to use it
+    // for any recoveries.
+    CoordinatorClient::reassignTabletOwnership(context,
+        tableId, firstKeyHash, lastKeyHash, newOwnerMasterId,
+        newOwnerLogHead.getSegmentId(), newOwnerLogHead.getSegmentOffset());
+
+    LOG(NOTICE, "Migration succeeded for tablet [0x%lx,0x%lx] in "
+        "tableId %lu; sent %lu objects and %lu tombstones to %s, "
+        "%lu bytes in total",
+        firstKeyHash, lastKeyHash, tableId, totalObjects, totalTombstones,
+        context->serverList->toString(newOwnerMasterId).c_str(), totalBytes);
+
+    tabletManager.deleteTablet(tableId, firstKeyHash, lastKeyHash);
+
+    // Ensure that the ObjectManager never returns objects from this deleted
+    // tablet again.
+    objectManager.removeOrphanedObjects();
 }
 
 /**
@@ -399,8 +694,8 @@ MasterService::getServerStatistics(
  */
 void
 MasterService::multiOp(const WireFormat::MultiOp::Request* reqHdr,
-                         WireFormat::MultiOp::Response* respHdr,
-                         Rpc* rpc)
+                       WireFormat::MultiOp::Response* respHdr,
+                       Rpc* rpc)
 {
     switch (reqHdr->type) {
         case WireFormat::MultiOp::OpType::READ:
@@ -643,6 +938,59 @@ MasterService::multiWrite(const WireFormat::MultiOp::Request* reqHdr,
 }
 
 /**
+ * Top-level server method to handle the PREP_FOR_MIGRATION request.
+ *
+ * This is used during tablet migration to request that a destination
+ * master take on a tablet from the current owner. The receiver may
+ * accept or refuse.
+ *
+ * \copydetails Service::ping
+ */
+void
+MasterService::prepForMigration(
+        const WireFormat::PrepForMigration::Request* reqHdr,
+        WireFormat::PrepForMigration::Response* respHdr,
+        Rpc* rpc)
+{
+    // TODO(anyone): Decide if we want to decline this request.
+
+    // Try to add the tablet. If it fails, there's some overlapping tablet.
+    bool added = tabletManager.addTablet(reqHdr->tableId,
+                                         reqHdr->firstKeyHash,
+                                         reqHdr->lastKeyHash,
+                                         TabletManager::RECOVERING);
+    if (added) {
+        // TODO(rumble) would be nice to have a method to get a SL from an Rpc
+        // object.
+        LOG(NOTICE, "Ready to receive tablet [0x%lx,0x%lx] in tableId %lu from "
+            "\"??\"", reqHdr->firstKeyHash, reqHdr->lastKeyHash,
+            reqHdr->tableId);
+    } else {
+        TabletManager::Tablet tablet;
+        if (!tabletManager.getTablet(reqHdr->tableId,
+                                     reqHdr->firstKeyHash,
+                                     &tablet)) {
+            if (!tabletManager.getTablet(reqHdr->tableId,
+                                         reqHdr->lastKeyHash,
+                                         &tablet)) {
+                LOG(NOTICE, "Failed to add tablet [0x%lx,0x%lx] in tableId %lu "
+                    ", but no overlap found. Assuming innocuous race and "
+                    "sending STATUS_RETRY.", reqHdr->firstKeyHash,
+                    reqHdr->lastKeyHash, reqHdr->tableId);
+                respHdr->common.status = STATUS_RETRY;
+                return;
+            }
+        }
+        LOG(WARNING, "Already have tablet [0x%lx,0x%lx] in tableId %lu, "
+            "cannot add [0x%lx,0x%lx]",
+            tablet.startKeyHash, tablet.endKeyHash, tablet.tableId,
+            reqHdr->firstKeyHash, reqHdr->lastKeyHash);
+        respHdr->common.status = STATUS_OBJECT_EXISTS;
+        return;
+    }
+}
+
+/**
  * Top-level server method to handle the READ request.
  *
  * \param reqHdr
@@ -683,37 +1031,94 @@ MasterService::read(const WireFormat::Read::Request* reqHdr,
 }
 
 /**
- * Top-level server method to handle the DROP_TABLET_OWNERSHIP request.
+ * Top-level server method to handle the RECEIVE_MIGRATION_DATA request.
  *
- * This RPC is issued by the coordinator when a table is dropped and all
- * tablets are being destroyed. This is not currently used in migration,
- * since the source master knows that it no longer owns the tablet when
- * the coordinator has responded to its REASSIGN_TABLET_OWNERSHIP rpc.
+ * This RPC delivers tablet data to be added to a master during migration.
+ * It must have been preceeded by an appropriate PREP_FOR_MIGRATION rpc.
  *
  * \copydetails Service::ping
  */
 void
-MasterService::dropTabletOwnership(
-    const WireFormat::DropTabletOwnership::Request* reqHdr,
-    WireFormat::DropTabletOwnership::Response* respHdr,
-    Rpc* rpc)
+MasterService::receiveMigrationData(
+        const WireFormat::ReceiveMigrationData::Request* reqHdr,
+        WireFormat::ReceiveMigrationData::Response* respHdr,
+        Rpc* rpc)
 {
-    bool deleted = tabletManager.deleteTablet(reqHdr->tableId,
-                                              reqHdr->firstKeyHash,
-                                              reqHdr->lastKeyHash);
-    if (deleted) {
-        // Ensure that the ObjectManager never returns objects from this deleted
-        // tablet again.
-        objectManager.removeOrphanedObjects();
-        LOG(NOTICE, "Dropped ownership of tablet [0x%lx,0x%lx] in tableId %lu",
-            reqHdr->firstKeyHash, reqHdr->lastKeyHash, reqHdr->tableId);
-    } else {
-        // to make this operation idempotent, don't return bad status.
+    uint64_t tableId = reqHdr->tableId;
+    uint64_t firstKeyHash = reqHdr->firstKeyHash;
+    uint32_t segmentBytes = reqHdr->segmentBytes;
 
-        LOG(WARNING, "Could not drop ownership on unknown tablet [0x%lx,0x%lx]"
-            " in tableId %lu!", reqHdr->firstKeyHash, reqHdr->lastKeyHash,
-            reqHdr->tableId);
+    LOG(NOTICE, "Receiving %u bytes of migration data for tablet [0x%lx,??] "
+        "in tableId %lu", segmentBytes, firstKeyHash, tableId);
+
+    // TODO(rumble/slaughter) need to make sure we already have a table
+    // created that was previously prepped for migration.
+    TabletManager::Tablet tablet;
+    bool found = tabletManager.getTablet(tableId,
+                                         firstKeyHash,
+                                         &tablet);
+    if (!found) {
+        LOG(WARNING, "migration data received for unknown tablet [0x%lx,??] "
+            "in tableId %lu", firstKeyHash, tableId);
+        respHdr->common.status = STATUS_UNKNOWN_TABLET;
+        return;
     }
+
+    if (tablet.state != TabletManager::RECOVERING) {
+        LOG(WARNING, "migration data received for tablet not in the "
+            "RECOVERING state (state = %d)!",
+            static_cast<int>(tablet.state));
+        // TODO(rumble/slaughter): better error code here?
+        respHdr->common.status = STATUS_INTERNAL_ERROR;
+        return;
+    }
+
+    Segment::Certificate certificate = reqHdr->certificate;
+    rpc->requestPayload->truncateFront(sizeof(*reqHdr));
+    if (rpc->requestPayload->getTotalLength() != segmentBytes) {
+        LOG(ERROR, "RPC size (%u) does not match advertised length (%u)",
+            rpc->requestPayload->getTotalLength(),
+            segmentBytes);
+        respHdr->common.status = STATUS_REQUEST_FORMAT_ERROR;
+        return;
+    }
+    const void* segmentMemory = rpc->requestPayload->getStart<const void*>();
+    SegmentIterator it(segmentMemory, segmentBytes, certificate);
+    it.checkMetadataIntegrity();
+    SideLog sideLog(objectManager.getLog());
+    objectManager.replaySegment(&sideLog, it);
+    sideLog.commit();
+
+    // TODO(rumble/slaughter) what about tablet version numbers?
+    //          - need to be made per-server now, no? then take max of two?
+    //            but this needs to happen at the end (after head on orig.
+    //            master is locked)
+    //    - what about autoincremented keys?
+    //    - what if we didn't send a whole tablet, but rather split one?!
+    //      how does this affect autoincr. keys and the version number(s),
+    //      if at all?
+}
+
+/**
+ * Top-level server method to handle the REMOVE request.
+ *
+ * \copydetails MasterService::read
+ */
+void
+MasterService::remove(const WireFormat::Remove::Request* reqHdr,
+                      WireFormat::Remove::Response* respHdr,
+                      Rpc* rpc)
+{
+    const void* stringKey = rpc->requestPayload->getRange(sizeof32(*reqHdr),
+                                                        reqHdr->keyLength);
+    Key key(reqHdr->tableId, stringKey, reqHdr->keyLength);
+
+    RejectRules rejectRules = reqHdr->rejectRules;
+    respHdr->common.status = objectManager.removeObject(key,
+                                                        &rejectRules,
+                                                        &respHdr->version);
+    if (respHdr->common.status == STATUS_OK)
+        objectManager.syncChanges();
 }
 
 /**
@@ -727,9 +1132,9 @@ MasterService::dropTabletOwnership(
  */
 void
 MasterService::splitMasterTablet(
-    const WireFormat::SplitMasterTablet::Request* reqHdr,
-    WireFormat::SplitMasterTablet::Response* respHdr,
-    Rpc* rpc)
+        const WireFormat::SplitMasterTablet::Request* reqHdr,
+        WireFormat::SplitMasterTablet::Response* respHdr,
+        Rpc* rpc)
 {
     bool split = tabletManager.splitTablet(reqHdr->tableId,
                                            reqHdr->splitKeyHash);
@@ -757,9 +1162,9 @@ MasterService::splitMasterTablet(
  */
 void
 MasterService::takeTabletOwnership(
-    const WireFormat::TakeTabletOwnership::Request* reqHdr,
-    WireFormat::TakeTabletOwnership::Response* respHdr,
-    Rpc* rpc)
+        const WireFormat::TakeTabletOwnership::Request* reqHdr,
+        WireFormat::TakeTabletOwnership::Response* respHdr,
+        Rpc* rpc)
 {
     // The code immediately below is tricky, for two reasons:
     // * Before any tablets can be assigned to this master it must have at
@@ -826,291 +1231,35 @@ MasterService::takeTabletOwnership(
 }
 
 /**
- * Top-level server method to handle the PREP_FOR_MIGRATION request.
+ * Top-level server method to handle the WRITE request.
  *
- * This is used during tablet migration to request that a destination
- * master take on a tablet from the current owner. The receiver may
- * accept or refuse.
- *
- * \copydetails Service::ping
+ * \copydetails MasterService::read
  */
 void
-MasterService::prepForMigration(
-    const WireFormat::PrepForMigration::Request* reqHdr,
-    WireFormat::PrepForMigration::Response* respHdr,
-    Rpc* rpc)
+MasterService::write(const WireFormat::Write::Request* reqHdr,
+                     WireFormat::Write::Response* respHdr,
+                     Rpc* rpc)
 {
-    // TODO(anyone): Decide if we want to decline this request.
+    Buffer buffer;
+    const void* objectData = rpc->requestPayload->getRange(
+        sizeof32(*reqHdr) + reqHdr->keyLength, reqHdr->length);
+    buffer.append(objectData, reqHdr->length);
 
-    // Try to add the tablet. If it fails, there's some overlapping tablet.
-    bool added = tabletManager.addTablet(reqHdr->tableId,
-                                         reqHdr->firstKeyHash,
-                                         reqHdr->lastKeyHash,
-                                         TabletManager::RECOVERING);
-    if (added) {
-        // TODO(rumble) would be nice to have a method to get a SL from an Rpc
-        // object.
-        LOG(NOTICE, "Ready to receive tablet [0x%lx,0x%lx] in tableId %lu from "
-            "\"??\"", reqHdr->firstKeyHash, reqHdr->lastKeyHash,
-            reqHdr->tableId);
-    } else {
-        TabletManager::Tablet tablet;
-        if (!tabletManager.getTablet(reqHdr->tableId,
-                                     reqHdr->firstKeyHash,
-                                     &tablet)) {
-            if (!tabletManager.getTablet(reqHdr->tableId,
-                                         reqHdr->lastKeyHash,
-                                         &tablet)) {
-                LOG(NOTICE, "Failed to add tablet [0x%lx,0x%lx] in tableId %lu "
-                    ", but no overlap found. Assuming innocuous race and "
-                    "sending STATUS_RETRY.", reqHdr->firstKeyHash,
-                    reqHdr->lastKeyHash, reqHdr->tableId);
-                respHdr->common.status = STATUS_RETRY;
-                return;
-            }
-        }
-        LOG(WARNING, "Already have tablet [0x%lx,0x%lx] in tableId %lu, "
-            "cannot add [0x%lx,0x%lx]",
-            tablet.startKeyHash, tablet.endKeyHash, tablet.tableId,
-            reqHdr->firstKeyHash, reqHdr->lastKeyHash);
-        respHdr->common.status = STATUS_OBJECT_EXISTS;
-        return;
-    }
+    Key key(reqHdr->tableId,
+            *rpc->requestPayload,
+            sizeof32(*reqHdr),
+            reqHdr->keyLength);
+
+    RejectRules rejectRules = reqHdr->rejectRules;
+    respHdr->common.status = objectManager.writeObject(key,
+        buffer, &rejectRules, &respHdr->version);
+    if (respHdr->common.status == STATUS_OK)
+        objectManager.syncChanges();
 }
 
-/**
- * Top-level server method to handle the MIGRATE_TABLET request.
- *
- * This is used to manually initiate the migration of a tablet (or piece of a
- * tablet) that this master owns to another master.
- *
- * \copydetails Service::ping
- */
-void
-MasterService::migrateTablet(const WireFormat::MigrateTablet::Request* reqHdr,
-                             WireFormat::MigrateTablet::Response* respHdr,
-                             Rpc* rpc)
-{
-    uint64_t tableId = reqHdr->tableId;
-    uint64_t firstKeyHash = reqHdr->firstKeyHash;
-    uint64_t lastKeyHash = reqHdr->lastKeyHash;
-    ServerId newOwnerMasterId(reqHdr->newOwnerMasterId);
-
-    // Find the tablet we're trying to move. We only support migration
-    // when the tablet to be migrated consists of a range within a single,
-    // contiguous tablet of ours.
-    bool found = tabletManager.getTablet(tableId, firstKeyHash, lastKeyHash, 0);
-    if (!found) {
-        LOG(WARNING, "Migration request for tablet this master does not own: "
-            "tablet [0x%lx,0x%lx] in tableId %lu", firstKeyHash, lastKeyHash,
-            tableId);
-        respHdr->common.status = STATUS_UNKNOWN_TABLET;
-        return;
-    }
-
-    if (newOwnerMasterId == serverId) {
-        LOG(WARNING, "Migrating to myself doesn't make much sense");
-        respHdr->common.status = STATUS_REQUEST_FORMAT_ERROR;
-        return;
-    }
-
-    // TODO(rumble/slaughter) what if we end up splitting?!?
-
-    // TODO(rumble/slaughter) add method to query for # objs, # bytes in a
-    // range in order for this to really work, we'll need to split on a bucket
-    // boundary. Otherwise we can't tell where bytes are in the chosen range.
-    MasterClient::prepForMigration(context, newOwnerMasterId, tableId,
-                                   firstKeyHash, lastKeyHash, 0, 0);
-    Log::Position newOwnerLogHead = MasterClient::getHeadOfLog(context,
-                                                              newOwnerMasterId);
-
-    LOG(NOTICE, "Migrating tablet [0x%lx,0x%lx] in tableId %lu to %s",
-        firstKeyHash, lastKeyHash, tableId,
-        context->serverList->toString(newOwnerMasterId).c_str());
-
-    // We'll send over objects in Segment containers for better network
-    // efficiency and convenience.
-    Tub<Segment> transferSeg;
-
-    // TODO(rumble/slaughter): These should probably be metrics.
-    uint64_t totalObjects = 0;
-    uint64_t totalTombstones = 0;
-    uint64_t totalBytes = 0;
-
-    // Hold on to the iterator since it locks the head Segment, avoiding any
-    // additional appends once we've finished iterating.
-    LogIterator it(*objectManager.getLog());
-    for (; !it.isDone(); it.next()) {
-        LogEntryType type = it.getType();
-        if (type != LOG_ENTRY_TYPE_OBJ && type != LOG_ENTRY_TYPE_OBJTOMB) {
-            // We aren't interested in any other types.
-            continue;
-        }
-
-        Buffer buffer;
-        it.appendToBuffer(buffer);
-        Key key(type, buffer);
-
-        // Skip if not applicable.
-        if (key.getTableId() != tableId)
-            continue;
-
-        if (key.getHash() < firstKeyHash || key.getHash() > lastKeyHash)
-            continue;
-
-        if (type == LOG_ENTRY_TYPE_OBJ) {
-            // Only send objects when they're currently in the hash table.
-            // Otherwise they're dead.
-            Buffer currentBuffer;
-            uint64_t currentVersion;
-            if (objectManager.readObject(
-              key, &currentBuffer, 0, &currentVersion) != STATUS_OK) {
-                continue;
-            }
-
-            // Skip objects older than what is currently in the hash table.
-            Object iteratorObject(buffer);
-            if (iteratorObject.getVersion() < currentVersion)
-                continue;
-
-            totalObjects++;
-        } else {
-            // We must always send tombstones, since an object we may have sent
-            // could have been deleted more recently. We could be smarter and
-            // more selective here, but that'd require keeping extra state to
-            // know what we've already sent.
-            //
-            // TODO(rumble/slaughter) Actually, we can do better. The stupid way
-            //      is to track each object or tombstone we've sent. The smarter
-            //      way is to just record the Log::Position when we started
-            //      iterating and only send newer tombstones.
-
-            totalTombstones++;
-        }
-
-        totalBytes += buffer.getTotalLength();
-
-        if (!transferSeg)
-            transferSeg.construct();
-
-        // If we can't fit it, send the current buffer and retry.
-        if (!transferSeg->append(type, buffer)) {
-            transferSeg->close();
-            LOG(DEBUG, "Sending migration segment");
-            MasterClient::receiveMigrationData(context, newOwnerMasterId,
-                tableId, firstKeyHash, transferSeg.get());
-
-            transferSeg.destroy();
-            transferSeg.construct();
-
-            // If it doesn't fit this time, we're in trouble.
-            if (!transferSeg->append(type, buffer)) {
-                LOG(ERROR, "Tablet migration failed: could not fit object "
-                    "into empty segment (obj bytes %u)",
-                    buffer.getTotalLength());
-                respHdr->common.status = STATUS_INTERNAL_ERROR;
-                return;
-            }
-        }
-    }
-
-    if (transferSeg) {
-        transferSeg->close();
-        LOG(DEBUG, "Sending last migration segment");
-        MasterClient::receiveMigrationData(context, newOwnerMasterId,
-            tableId, firstKeyHash, transferSeg.get());
-        transferSeg.destroy();
-    }
-
-    // Now that all data has been transferred, we can reassign ownership of
-    // the tablet. If this succeeds, we are free to drop the tablet. The
-    // data is all on the other machine and the coordinator knows to use it
-    // for any recoveries.
-    CoordinatorClient::reassignTabletOwnership(context,
-        tableId, firstKeyHash, lastKeyHash, newOwnerMasterId,
-        newOwnerLogHead.getSegmentId(), newOwnerLogHead.getSegmentOffset());
-
-    LOG(NOTICE, "Migration succeeded for tablet [0x%lx,0x%lx] in "
-        "tableId %lu; sent %lu objects and %lu tombstones to %s, "
-        "%lu bytes in total",
-        firstKeyHash, lastKeyHash, tableId, totalObjects, totalTombstones,
-        context->serverList->toString(newOwnerMasterId).c_str(), totalBytes);
-
-    tabletManager.deleteTablet(tableId, firstKeyHash, lastKeyHash);
-
-    // Ensure that the ObjectManager never returns objects from this deleted
-    // tablet again.
-    objectManager.removeOrphanedObjects();
-}
-
-/**
- * Top-level server method to handle the RECEIVE_MIGRATION_DATA request.
- *
- * This RPC delivers tablet data to be added to a master during migration.
- * It must have been preceeded by an appropriate PREP_FOR_MIGRATION rpc.
- *
- * \copydetails Service::ping
- */
-void
-MasterService::receiveMigrationData(
-    const WireFormat::ReceiveMigrationData::Request* reqHdr,
-    WireFormat::ReceiveMigrationData::Response* respHdr,
-    Rpc* rpc)
-{
-    uint64_t tableId = reqHdr->tableId;
-    uint64_t firstKeyHash = reqHdr->firstKeyHash;
-    uint32_t segmentBytes = reqHdr->segmentBytes;
-
-    LOG(NOTICE, "Receiving %u bytes of migration data for tablet [0x%lx,??] "
-        "in tableId %lu", segmentBytes, firstKeyHash, tableId);
-
-    // TODO(rumble/slaughter) need to make sure we already have a table
-    // created that was previously prepped for migration.
-    TabletManager::Tablet tablet;
-    bool found = tabletManager.getTablet(tableId,
-                                         firstKeyHash,
-                                         &tablet);
-    if (!found) {
-        LOG(WARNING, "migration data received for unknown tablet [0x%lx,??] "
-            "in tableId %lu", firstKeyHash, tableId);
-        respHdr->common.status = STATUS_UNKNOWN_TABLET;
-        return;
-    }
-
-    if (tablet.state != TabletManager::RECOVERING) {
-        LOG(WARNING, "migration data received for tablet not in the "
-            "RECOVERING state (state = %d)!",
-            static_cast<int>(tablet.state));
-        // TODO(rumble/slaughter): better error code here?
-        respHdr->common.status = STATUS_INTERNAL_ERROR;
-        return;
-    }
-
-    Segment::Certificate certificate = reqHdr->certificate;
-    rpc->requestPayload->truncateFront(sizeof(*reqHdr));
-    if (rpc->requestPayload->getTotalLength() != segmentBytes) {
-        LOG(ERROR, "RPC size (%u) does not match advertised length (%u)",
-            rpc->requestPayload->getTotalLength(),
-            segmentBytes);
-        respHdr->common.status = STATUS_REQUEST_FORMAT_ERROR;
-        return;
-    }
-    const void* segmentMemory = rpc->requestPayload->getStart<const void*>();
-    SegmentIterator it(segmentMemory, segmentBytes, certificate);
-    it.checkMetadataIntegrity();
-    SideLog sideLog(objectManager.getLog());
-    objectManager.replaySegment(&sideLog, it);
-    sideLog.commit();
-
-    // TODO(rumble/slaughter) what about tablet version numbers?
-    //          - need to be made per-server now, no? then take max of two?
-    //            but this needs to happen at the end (after head on orig.
-    //            master is locked)
-    //    - what about autoincremented keys?
-    //    - what if we didn't send a whole tablet, but rather split one?!
-    //      how does this affect autoincr. keys and the version number(s),
-    //      if at all?
-}
+///////////////////////////////////////////////////////////////////////////////
+/////Recovery related code. This should eventually move into its own file./////
+///////////////////////////////////////////////////////////////////////////////
 
 namespace MasterServiceInternal {
 /**
@@ -1163,6 +1312,7 @@ class RecoveryTask {
     DISALLOW_COPY_AND_ASSIGN(RecoveryTask);
 };
 } // namespace MasterServiceInternal
+
 using namespace MasterServiceInternal; // NOLINT
 
 /**
@@ -1560,7 +1710,7 @@ MasterService::recover(uint64_t recoveryId,
 
 /**
  * Thrown during recovery in recoverSegment when a log append fails. Caught
- * by recover() which aborts the recovery cleanly and notifies the coordiantor
+ * by recover() which aborts the recovery cleanly and notifies the coordinator
  * that this master could not recover the partition.
  */
 struct OutOfSpaceException : public Exception {
@@ -1708,150 +1858,6 @@ MasterService::recover(const WireFormat::Recover::Request* reqHdr,
             }
         }
         objectManager.removeOrphanedObjects();
-    }
-}
-
-/**
- * Top-level server method to handle the REMOVE request.
- *
- * \copydetails MasterService::read
- */
-void
-MasterService::remove(const WireFormat::Remove::Request* reqHdr,
-                      WireFormat::Remove::Response* respHdr,
-                      Rpc* rpc)
-{
-    const void* stringKey = rpc->requestPayload->getRange(sizeof32(*reqHdr),
-                                                        reqHdr->keyLength);
-    Key key(reqHdr->tableId, stringKey, reqHdr->keyLength);
-
-    RejectRules rejectRules = reqHdr->rejectRules;
-    respHdr->common.status = objectManager.removeObject(key,
-                                                        &rejectRules,
-                                                        &respHdr->version);
-    if (respHdr->common.status == STATUS_OK)
-        objectManager.syncChanges();
-}
-
-/**
- * Top-level server method to handle the INCREMENT request.
- *
- * \copydetails MasterService::read
- */
-void
-MasterService::increment(const WireFormat::Increment::Request* reqHdr,
-                     WireFormat::Increment::Response* respHdr,
-                     Rpc* rpc)
-{
-    // Read the current value of the object and add the increment value
-    Key key(reqHdr->tableId, *rpc->requestPayload, sizeof32(*reqHdr),
-            reqHdr->keyLength);
-
-    Status *status = &respHdr->common.status;
-
-    Buffer value;
-    RejectRules rejectRules = reqHdr->rejectRules;
-    *status = objectManager.readObject(key, &value, &rejectRules, NULL);
-    if (*status != STATUS_OK)
-        return;
-
-    if (value.getTotalLength() != sizeof(int64_t)) {
-        *status = STATUS_INVALID_OBJECT;
-        return;
-    }
-
-    const int64_t oldValue = *value.getOffset<int64_t>(0);
-    int64_t newValue = oldValue + reqHdr->incrementValue;
-
-    // Write the new value back
-    Buffer newValueBuffer;
-    newValueBuffer.append(&newValue, sizeof(int64_t));
-
-    *status = objectManager.writeObject(key, newValueBuffer,
-        &rejectRules, &respHdr->version);
-    if (*status != STATUS_OK)
-        return;
-    objectManager.syncChanges();
-
-    // Return new value
-    respHdr->newValue = newValue;
-}
-
-/**
- * RPC handler for IS_REPLICA_NEEDED; indicates to backup servers whether
- * a replica for a particular segment that this master generated is needed
- * for durability or that it can be safely discarded.
- */
-void
-MasterService::isReplicaNeeded(
-    const WireFormat::IsReplicaNeeded::Request* reqHdr,
-    WireFormat::IsReplicaNeeded::Response* respHdr,
-    Rpc* rpc)
-{
-    ServerId backupServerId = ServerId(reqHdr->backupServerId);
-    respHdr->needed = objectManager.getReplicaManager()->isReplicaNeeded(
-        backupServerId, reqHdr->segmentId);
-}
-
-/**
- * Top-level server method to handle the WRITE request.
- *
- * \copydetails MasterService::read
- */
-void
-MasterService::write(const WireFormat::Write::Request* reqHdr,
-                     WireFormat::Write::Response* respHdr,
-                     Rpc* rpc)
-{
-    Buffer buffer;
-    const void* objectData = rpc->requestPayload->getRange(
-        sizeof32(*reqHdr) + reqHdr->keyLength, reqHdr->length);
-    buffer.append(objectData, reqHdr->length);
-
-    Key key(reqHdr->tableId,
-            *rpc->requestPayload,
-            sizeof32(*reqHdr),
-            reqHdr->keyLength);
-
-    RejectRules rejectRules = reqHdr->rejectRules;
-    respHdr->common.status = objectManager.writeObject(key,
-        buffer, &rejectRules, &respHdr->version);
-    if (respHdr->common.status == STATUS_OK)
-        objectManager.syncChanges();
-}
-
-/**
- * Construct a Disabler object (disable the associated master).
- *
- * \param service
- *      The MasterService that should be disabled.  If NULL, then no
- *      service is disabled.
- */
-MasterService::Disabler::Disabler(MasterService* service)
-    : service(service)
-{
-    if (service != NULL) {
-        service->disableCount++;
-    }
-    TEST_LOG("master service disabled");
-}
-/**
- * Destroy a Disabler object (reenable the associated master).
- */
-MasterService::Disabler::~Disabler()
-{
-    reenable();
-}
-
-/**
- * Reenable request servicing on the associated MasterService.
- */
-void
-MasterService::Disabler::reenable()
-{
-    if (service != NULL) {
-        service->disableCount--;
-        service = NULL;
     }
 }
 
