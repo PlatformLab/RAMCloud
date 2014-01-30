@@ -298,6 +298,9 @@ ObjectManager::writeObject(Object& newObject,
  *      If non-NULL and the object is found, the version is returned here. If
  *      the reject rules failed the read, the current object's version is still
  *      returned.
+ * \param valueOnly
+ *      If true, then only the value portion of the object is written to
+ *      outBuffer. Otherwise, keys and value are written to outBuffer.
  * \return
  *      Returns STATUS_OK if the lookup succeeded and the reject rules did not
  *      preclude this read. Other status values indicate different failures
@@ -307,7 +310,8 @@ Status
 ObjectManager::readObject(Key& key,
                           Buffer* outBuffer,
                           RejectRules* rejectRules,
-                          uint64_t* outVersion)
+                          uint64_t* outVersion,
+                          bool valueOnly)
 {
     objectMap.prefetchBucket(key);
     HashTableBucketLock lock(*this, key);
@@ -335,8 +339,15 @@ ObjectManager::readObject(Key& key,
         if (status != STATUS_OK)
             return status;
     }
+
     Object object(buffer);
-    object.appendKeysAndValueToBuffer(*outBuffer);
+    if (valueOnly) {
+        uint32_t valueLength = 0;
+        const void* objectValue = object.getValue(&valueLength);
+        outBuffer->append(objectValue, valueLength);
+    } else {
+        object.appendKeysAndValueToBuffer(*outBuffer);
+    }
 
     tabletManager->incrementReadCount(key);
 

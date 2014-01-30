@@ -39,8 +39,13 @@ class MultiWriteObject;
  */
 struct KeyInfo
 {
-    const void *key;        // pimary or secondary key
-    uint16_t keyLength;     // length of the corresponding key
+    const void *key;        // pimary or secondary key. A NULL value here
+                            // indicates absence of a key. Note that this
+                            // cannot be true for primary key.
+    uint16_t keyLength;     // length of the corresponding key. A 0 value
+                            // here means that key is a NULL terminated
+                            // string and the actual length is computed
+                            // on demand.
 };
 
 /**
@@ -83,7 +88,7 @@ class RamCloud {
     void read(uint64_t tableId, const void* key, uint16_t keyLength,
             Buffer* value, const RejectRules* rejectRules = NULL,
             uint64_t* version = NULL);
-    void read(uint64_t tableId, const void* key, uint16_t keyLength,
+    void readKeysAndValue(uint64_t tableId, const void* key, uint16_t keyLength,
             ObjectBuffer* value, const RejectRules* rejectRules = NULL,
             uint64_t* version = NULL);
     void remove(uint64_t tableId, const void* key, uint16_t keyLength,
@@ -108,7 +113,6 @@ class RamCloud {
     void write(uint64_t tableId, const void* key, uint16_t keyLength,
             const char* value, const RejectRules* rejectRules = NULL,
             uint64_t* version = NULL, bool async = false);
-    // the following 2 APIs are for multikey object writes
     void write(uint64_t tableId, uint8_t numKeys, KeyInfo *keyInfo,
                 const void* buf, uint32_t length,
                 const RejectRules* rejectRules = NULL, uint64_t* version = NULL,
@@ -542,7 +546,8 @@ struct MultiWriteObject : public MultiOpObject {
     uint8_t numKeys;
 
     /**
-     * List of keys and their lengths part of this multiWrite object
+     * List of keys and their lengths part of this multiWrite object.
+     * This will be NULL for single key multiwrite objects
      */
     KeyInfo *keyInfo;
     /**
@@ -555,6 +560,28 @@ struct MultiWriteObject : public MultiOpObject {
      */
     uint64_t version;
 
+    /**
+     * Typically used when each object has a single key.
+     *
+     * \param tableId
+     *      The table containing the desired object (return value from
+     *      a previous call to getTableId).
+     * \param key
+     *      Variable length key that uniquely identifies the object within tableId.
+     *      It does not necessarily have to be null terminated.  The caller must
+     *      ensure that the storage for this key is unchanged through the life of
+     *      the RPC.
+     * \param keyLength
+     *      Size in bytes of the key.
+     * \param value
+     *      Address of the first byte of the new contents for the object;
+     *      must contain at least length bytes.
+     * \param valueLength
+     *      Size in bytes of the value of the object.
+     * \param rejectRules
+     *      If non-NULL, specifies conditions under which the write
+     *      should be aborted with an error.
+     */
     MultiWriteObject(uint64_t tableId, const void* key, uint16_t keyLength,
                  const void* value, uint32_t valueLength,
                  const RejectRules* rejectRules = NULL)
@@ -567,14 +594,37 @@ struct MultiWriteObject : public MultiOpObject {
         , version()
     {}
 
-    // typically used when each object has multiple keys. Primary key
-    // and primary key length will be the first entry in keyInfo.
-    // if keyInfo is NULL, behavior is undefined.
+    /**
+     * Typically used when each object has multiple keys.
+     * \param tableId
+     *      The table containing the desired object (return value from
+     *      a previous call to getTableId).
+     * \param value
+     *      Address of the first byte of the new contents for the object;
+     *      must contain at least length bytes.
+     * \param valueLength
+     *      Size in bytes of the value of the object.
+     * \param numKeys
+     *      Number of keys in the object.  If is not >= 1, then behavior
+     *      is undefined. A value of 1 indicates the presence of only the
+     *      primary key
+     * \param keyInfo 
+     *      List of keys and corresponding key lengths. The first entry should
+     *      correspond to the primary key and its length. If this argument is
+     *      NULL, then behavior is undefined. RamCloud currently uses a dense
+     *      representation of key lengths. If a client does not want to write
+     *      key_i in an object, keyInfo[i]->key should be NULL. The library also
+     *      expects that if keyInfo[j]->key exists and keyInfo[j]->keyLength
+     *      is 0, then key string is NULL terminated and the length is computed.
+     * \param rejectRules
+     *      If non-NULL, specifies conditions under which the write
+     *      should be aborted with an error.
+     */
     MultiWriteObject(uint64_t tableId,
                  const void* value, uint32_t valueLength,
                  uint8_t numKeys, KeyInfo *keyInfo,
                  const RejectRules* rejectRules = NULL)
-        : MultiOpObject(tableId, key, keyLength)
+        : MultiOpObject(tableId, NULL, 0)
         , value(value)
         , valueLength(valueLength)
         , numKeys(numKeys)

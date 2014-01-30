@@ -1,4 +1,4 @@
-/* Copyright (c) 2012 Stanford University
+/* Copyright (c) 2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -27,7 +27,7 @@ class ObjectBufferTest : public ::testing::Test {
         : stringKeys(),
           dataBlob(),
           numKeys(3),
-          endKeyOffsets(),
+          cumulativeKeyLengths(),
           buffer()
     {
         snprintf(stringKeys[0], sizeof(stringKeys[0]), "ha");
@@ -37,10 +37,10 @@ class ObjectBufferTest : public ::testing::Test {
 
         buffer.append(&numKeys, sizeof(numKeys));
 
-        endKeyOffsets[0] = 2;
-        endKeyOffsets[1] = 5;
-        endKeyOffsets[2] = 8;
-        buffer.append(endKeyOffsets, 3 *sizeof(uint16_t));
+        cumulativeKeyLengths[0] = 3;
+        cumulativeKeyLengths[1] = 6;
+        cumulativeKeyLengths[2] = 9;
+        buffer.append(cumulativeKeyLengths, 3 *sizeof(KeyLength));
 
         // append keys here.
         buffer.append(&stringKeys[0], sizeof(stringKeys[0]));
@@ -60,12 +60,17 @@ class ObjectBufferTest : public ::testing::Test {
     // memory and we can't mutate to test checksumming.
     char stringKeys[3][3];
     char dataBlob[4];
-    uint8_t numKeys;
-    uint16_t endKeyOffsets[3];
+    KeyCount numKeys;
+    CumulativeKeyLength cumulativeKeyLengths[3];
     ObjectBuffer buffer;
 
     DISALLOW_COPY_AND_ASSIGN(ObjectBufferTest);
 };
+
+TEST_F(ObjectBufferTest, constructor)
+{
+    EXPECT_FALSE((buffer.object));
+}
 
 TEST_F(ObjectBufferTest, getNumKeys)
 {
@@ -74,9 +79,12 @@ TEST_F(ObjectBufferTest, getNumKeys)
 
 TEST_F(ObjectBufferTest, getKey)
 {
-    EXPECT_EQ(0, memcmp("ha", buffer.getKey(0), 3));
-    EXPECT_EQ(0, memcmp("hi", buffer.getKey(1), 3));
-    EXPECT_EQ(0, memcmp("ho", buffer.getKey(2), 3));
+    EXPECT_EQ("ha", string(reinterpret_cast<const char*>(
+                    buffer.getKey(0))));
+    EXPECT_EQ("hi", string(reinterpret_cast<const char*>(
+                    buffer.getKey(1))));
+    EXPECT_EQ("ho", string(reinterpret_cast<const char*>(
+                    buffer.getKey(2))));
     EXPECT_STREQ(NULL, (const char *)buffer.getKey(3));
 }
 
@@ -91,13 +99,21 @@ TEST_F(ObjectBufferTest, getKeyLength)
 TEST_F(ObjectBufferTest, getValue)
 {
     uint32_t dataLen;
-    EXPECT_EQ(0, memcmp("YO!", buffer.getValue(&dataLen), 4));
+    EXPECT_EQ("YO!", string(reinterpret_cast<const char*>(
+                    buffer.getValue(&dataLen))));
     EXPECT_EQ(4U, dataLen);
 }
 
 TEST_F(ObjectBufferTest, getValueOffset)
 {
-    EXPECT_EQ(16U, buffer.getValueOffset());
+    uint16_t valueOffset;
+    EXPECT_TRUE(buffer.getValueOffset(&valueOffset));
+    EXPECT_EQ(16U, valueOffset);
 }
 
+TEST_F(ObjectBufferTest, reset)
+{
+    buffer.reset();
+    EXPECT_FALSE((buffer.object));
+}
 } // namespace

@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2013 Stanford University
+/* Copyright (c) 2011-2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -119,7 +119,8 @@ TEST_F(RamCloudTest, enumeration_basics) {
     EXPECT_EQ(tableId3, object1.getTableId());                  // table ID
     EXPECT_EQ(1U, object1.getKeyLength());                      // key length
     EXPECT_EQ(version0, object1.getVersion());                  // version
-    EXPECT_EQ(0, memcmp("0", object1.getKey(), 1));             // key
+    EXPECT_EQ("0", string(reinterpret_cast<const char*>(
+                   object1.getKey()), 1));                         // key
     EXPECT_EQ("abcdef", string(reinterpret_cast<const char*>    // value
         (object1.getValue()), 6));
 
@@ -132,7 +133,8 @@ TEST_F(RamCloudTest, enumeration_basics) {
     EXPECT_EQ(tableId3, object2.getTableId());                  // table ID
     EXPECT_EQ(1U, object2.getKeyLength());                      // key length
     EXPECT_EQ(version1, object2.getVersion());                  // version
-    EXPECT_EQ(0, memcmp("1", object2.getKey(), 1));             // key
+    EXPECT_EQ("1", string(reinterpret_cast<const char*>(
+                   object2.getKey()), 1));                         // key
     EXPECT_EQ("ghijkl", string(reinterpret_cast<const char*>    // value
         (object2.getValue()), 6));
 
@@ -145,7 +147,8 @@ TEST_F(RamCloudTest, enumeration_basics) {
     EXPECT_EQ(tableId3, object3.getTableId());                  // table ID
     EXPECT_EQ(1U, object3.getKeyLength());                      // key length
     EXPECT_EQ(version3, object3.getVersion());                  // version
-    EXPECT_EQ(0, memcmp("3", object3.getKey(), 1));             // key
+    EXPECT_EQ("3", string(reinterpret_cast<const char*>(
+                   object3.getKey()), 1));                         // key
     EXPECT_EQ("stuvwx", string(reinterpret_cast<const char*>    // value
         (object3.getValue()), 6));
 
@@ -158,7 +161,8 @@ TEST_F(RamCloudTest, enumeration_basics) {
     EXPECT_EQ(tableId3, object4.getTableId());                  // table ID
     EXPECT_EQ(1U, object4.getKeyLength());                      // key length
     EXPECT_EQ(version2, object4.getVersion());                  // version
-    EXPECT_EQ(0, memcmp("2", object4.getKey(), 1));             // key
+    EXPECT_EQ("2", string(reinterpret_cast<const char*>(
+                   object4.getKey()), 1));                         // key
     EXPECT_EQ("mnopqr", string(reinterpret_cast<const char*>    // value
         (object4.getValue()), 6));
 
@@ -171,7 +175,8 @@ TEST_F(RamCloudTest, enumeration_basics) {
     EXPECT_EQ(tableId3, object5.getTableId());                  // table ID
     EXPECT_EQ(1U, object5.getKeyLength());                      // key length
     EXPECT_EQ(version4, object5.getVersion());                  // version
-    EXPECT_EQ(0, memcmp("4", object5.getKey(), 1));             // key
+    EXPECT_EQ("4", string(reinterpret_cast<const char*>(
+                   object5.getKey()), 1));                         // key
     EXPECT_EQ("yzabcd", string(reinterpret_cast<const char*>    // value
         (object5.getValue()), 6));
 
@@ -203,7 +208,8 @@ TEST_F(RamCloudTest, enumeration_keys_only) {
     EXPECT_EQ(tableId3, object1.getTableId());                  // table ID
     EXPECT_EQ(1U, object1.getKeyLength());                      // key length
     EXPECT_EQ(version0, object1.getVersion());                  // version
-    EXPECT_EQ(0, memcmp("0", object1.getKey(), 1));             // key
+    EXPECT_EQ("0", string(reinterpret_cast<const char*>(
+                   object1.getKey()), 1));                         // key
     uint32_t dataLength;
     object1.getValue(&dataLength);
     EXPECT_EQ(0U, dataLength);                           // data length
@@ -217,7 +223,8 @@ TEST_F(RamCloudTest, enumeration_keys_only) {
     EXPECT_EQ(tableId3, object2.getTableId());                  // table ID
     EXPECT_EQ(1U, object2.getKeyLength());                      // key length
     EXPECT_EQ(version1, object2.getVersion());                  // version
-    EXPECT_EQ(0, memcmp("1", object2.getKey(), 1));             // key
+    EXPECT_EQ("1", string(reinterpret_cast<const char*>(
+                   object2.getKey()), 1));                         // key
     object2.getValue(&dataLength);
     EXPECT_EQ(0U, dataLength);                           // data length
 
@@ -230,7 +237,8 @@ TEST_F(RamCloudTest, enumeration_keys_only) {
     EXPECT_EQ(tableId3, object3.getTableId());                  // table ID
     EXPECT_EQ(1U, object3.getKeyLength());                      // key length
     EXPECT_EQ(version3, object3.getVersion());                  // version
-    EXPECT_EQ(0, memcmp("3", object3.getKey(), 1));             // key
+    EXPECT_EQ("3", string(reinterpret_cast<const char*>(
+                   object3.getKey()), 1));                         // key
     object3.getValue(&dataLength);
     EXPECT_EQ(0U, dataLength);                           // data length
 
@@ -243,7 +251,8 @@ TEST_F(RamCloudTest, enumeration_keys_only) {
     EXPECT_EQ(tableId3, object4.getTableId());                  // table ID
     EXPECT_EQ(1U, object4.getKeyLength());                      // key length
     EXPECT_EQ(version2, object4.getVersion());                  // version
-    EXPECT_EQ(0, memcmp("2", object4.getKey(), 1));             // key
+    EXPECT_EQ("2", string(reinterpret_cast<const char*>(
+                   object4.getKey()), 1));                         // key
     object4.getValue(&dataLength);
     EXPECT_EQ(0U, dataLength);                           // data length
 
@@ -256,7 +265,8 @@ TEST_F(RamCloudTest, enumeration_keys_only) {
     EXPECT_EQ(tableId3, object5.getTableId());                  // table ID
     EXPECT_EQ(1U, object5.getKeyLength());                      // key length
     EXPECT_EQ(version4, object5.getVersion());                  // version
-    EXPECT_EQ(0, memcmp("4", object5.getKey(), 1));             // key
+    EXPECT_EQ("4", string(reinterpret_cast<const char*>(
+                   object5.getKey()), 1));                         // key
     object5.getValue(&dataLength);
     EXPECT_EQ(0U, dataLength);                           // data length
 
@@ -329,15 +339,19 @@ TEST_F(RamCloudTest, read) {
     ObjectBuffer keysAndValue;
     Buffer value;
     uint64_t version, versionValue;
-    ramcloud->read(tableId1, "0", 1, &keysAndValue, NULL, &version);
+    ramcloud->readKeysAndValue(tableId1, "0", 1, &keysAndValue, NULL, &version);
     EXPECT_EQ(1U, version);
-    EXPECT_EQ(0, memcmp("abcdef", keysAndValue.getValue(), 6));
-    EXPECT_EQ(0, memcmp(keysAndValue.getKey(0), "0", 1));
+    EXPECT_EQ("abcdef", string(reinterpret_cast<const char*>(
+                        keysAndValue.getValue()), 6));
+    EXPECT_EQ("0", string(reinterpret_cast<const char*>(
+                        keysAndValue.getKey(0)), 1));
     // test if the value-only return read RPC works fine
     ramcloud->read(tableId1, "0", 1, &value, NULL, &versionValue);
-    EXPECT_EQ(0, memcmp("abcdef", value.getRange(0, value.getTotalLength()),
-                                    value.getTotalLength()));
+    EXPECT_EQ("abcdef", string(reinterpret_cast<const char*>(
+                        value.getRange(0, value.getTotalLength())),
+                        value.getTotalLength()));
 
+    // test multikey object
     value.reset();
     keysAndValue.reset();
     uint8_t numKeys = 3;
@@ -352,16 +366,24 @@ TEST_F(RamCloudTest, read) {
 
     ramcloud->write(tableId1, numKeys, keyList, "new value",
                         NULL, NULL, false);
-    ramcloud->read(tableId1, "ha", 2, &keysAndValue);
-    EXPECT_EQ(0, memcmp("new value", keysAndValue.getValue(), 9));
+    ramcloud->readKeysAndValue(tableId1, "ha", 2, &keysAndValue);
+    EXPECT_EQ("new value", string(reinterpret_cast<const char*>(
+                        keysAndValue.getValue()), 9));
 
-    EXPECT_STREQ((const char *)NULL, (const char *)keysAndValue.getKey(1));
+    EXPECT_EQ("ha", string(reinterpret_cast<const char *>(
+                    keysAndValue.getKey(0)), 2));
+    EXPECT_EQ(2U, keysAndValue.getKeyLength(0));
+    EXPECT_EQ((const char*)NULL, keysAndValue.getKey(1));
     EXPECT_EQ(0U, keysAndValue.getKeyLength(1));
+    EXPECT_EQ("ho", string(reinterpret_cast<const char *>(
+                    keysAndValue.getKey(2)), 2));
+    EXPECT_EQ(2U, keysAndValue.getKeyLength(2));
 
     // again test if the value-return only version of read RPC works fine
     ramcloud->read(tableId1, "ha", 2, &value);
-    EXPECT_EQ(0, memcmp("new value", value.getRange(0, value.getTotalLength()),
-                                        value.getTotalLength()));
+    EXPECT_EQ("new value", string(reinterpret_cast<const char*>(
+                        value.getRange(0, value.getTotalLength())),
+                        value.getTotalLength()));
 }
 
 TEST_F(RamCloudTest, remove) {
@@ -421,14 +443,10 @@ TEST_F(RamCloudTest, testingFill) {
     ramcloud->testingFill(tableId2, "0", 1, 10, 10);
     Buffer value;
     ramcloud->read(tableId2, "0", 1, &value);
-//    EXPECT_EQ("0xcccccccc 0xcccccccc /xcc/xcc", TestUtil::toString(&value, 4,
-//               10));
     EXPECT_EQ("0xcccccccc 0xcccccccc /xcc/xcc", TestUtil::toString(&value));
     value.reset();
     ramcloud->read(tableId2, "99", 1, &value);
     EXPECT_EQ("0xcccccccc 0xcccccccc /xcc/xcc", TestUtil::toString(&value));
-//    EXPECT_EQ("0xcccccccc 0xcccccccc /xcc/xcc", TestUtil::toString(&value, 4,
-//              10));
 }
 
 TEST_F(RamCloudTest, getRuntimeOption){
@@ -461,11 +479,13 @@ TEST_F(RamCloudTest, write) {
     ramcloud->write(tableId1, "0", 1, "xyzzy", 5, NULL, &version);
     EXPECT_EQ(2U, version);
     ObjectBuffer value;
-    ramcloud->read(tableId1, "0", 1, &value);
-    EXPECT_EQ(0, memcmp("xyzzy", value.getValue(), 5));
+    ramcloud->readKeysAndValue(tableId1, "0", 1, &value);
+    EXPECT_EQ("xyzzy", string(reinterpret_cast<const char*>(
+                        value.getValue()), 5));
     ramcloud->write(tableId1, "0", 1, "new value");
-    ramcloud->read(tableId1, "0", 1, &value);
-    EXPECT_EQ(0, memcmp("new value", value.getValue(), 9));
+    ramcloud->readKeysAndValue(tableId1, "0", 1, &value);
+    EXPECT_EQ("new value", string(reinterpret_cast<const char*>(
+                        value.getValue()), 9));
 
     value.reset();
     uint8_t numKeys = 3;
@@ -479,8 +499,9 @@ TEST_F(RamCloudTest, write) {
 
     ramcloud->write(tableId1, numKeys, keyList, "data value",
                         NULL, NULL, false);
-    ramcloud->read(tableId1, "ha", 2, &value);
-    EXPECT_EQ(0, memcmp("data value", value.getValue(), 10));
+    ramcloud->readKeysAndValue(tableId1, "ha", 2, &value);
+    EXPECT_EQ("data value", string(reinterpret_cast<const char*>(
+                        value.getValue()), 10));
 }
 
 }  // namespace RAMCloud

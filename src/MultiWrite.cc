@@ -46,7 +46,7 @@ MultiWrite::MultiWrite(RamCloud* ramcloud,
 }
 
 /**
- * Append a given MultiReadObject to a buffer.
+ * Append a given MultiWriteObject to a buffer.
  *
  * It is the responsibility of the caller to ensure that the
  * MultiOpObject passed in is actually a MultiWriteObject.
@@ -65,22 +65,24 @@ MultiWrite::appendRequest(MultiOpObject* request, Buffer* buf)
     // written by this RPC.
 
     uint32_t keysAndValueLength = 0;
-    // assign the length value in the header to be 0 initially
     WireFormat::MultiOp::Request::WritePart* writeHdr =
-        reinterpret_cast<WireFormat::MultiOp::Request::WritePart *>(
             new(buf, APPEND)
                 WireFormat::MultiOp::Request::WritePart(
                 req->tableId,
                 keysAndValueLength,
                 req->rejectRules ? *req->rejectRules :
-                                  defaultRejectRules));
+                                  defaultRejectRules);
     if (req->numKeys == 1) {
         Key primaryKey(req->tableId, req->key, req->keyLength);
-        Object object(primaryKey, req->value, req->valueLength, 0, 0, *buf,
-                        &keysAndValueLength);
+        Object::appendKeysAndValueToBuffer(primaryKey, req->value,
+                                           req->valueLength, *buf,
+                                           &keysAndValueLength);
     } else {
-        Object object(req->numKeys, req->tableId, req->keyInfo, req->value,
-                    req->valueLength, 0, 0, *buf, &keysAndValueLength);
+        // req->key will be NULL in this case. THe primary key will instead
+        // be the first entry in req->keyInfo.
+        Object::appendKeysAndValueToBuffer(req->tableId, req->numKeys,
+                    req->keyInfo, req->value, req->valueLength, *buf,
+                    &keysAndValueLength);
     }
     // update the length value in the header
     writeHdr->length = keysAndValueLength;

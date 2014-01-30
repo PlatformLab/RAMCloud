@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2013 Stanford University
+/* Copyright (c) 2010-2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -380,8 +380,10 @@ TEST_F(MasterServiceTest, enumeration_basics) {
     EXPECT_EQ(1U, object1.getTableId());                        // table ID
     EXPECT_EQ(1U, object1.getKeyLength());                      // key length
     EXPECT_EQ(version0, object1.getVersion());                  // version
-    EXPECT_EQ(0, memcmp("0", object1.getKey(), 1));             // key
-    EXPECT_EQ(0, memcmp("abcdef", object1.getValue(), 6));
+    EXPECT_EQ("0", string(reinterpret_cast<const char*>(
+                   object1.getKey()), 1));                      // key
+    EXPECT_EQ("abcdef", string(reinterpret_cast<const char*>(
+                        object1.getValue()), 6));
 
     // Second object.
     EXPECT_EQ(34U, *objects.getOffset<uint32_t>(38));           // size
@@ -392,8 +394,10 @@ TEST_F(MasterServiceTest, enumeration_basics) {
     EXPECT_EQ(1U, object2.getTableId());                        // table ID
     EXPECT_EQ(1U, object2.getKeyLength());                      // key length
     EXPECT_EQ(version1, object2.getVersion());                  // version
-    EXPECT_EQ(0, memcmp("1", object2.getKey(), 1));             // key
-    EXPECT_EQ(0, memcmp("ghijkl", object2.getValue(), 6));
+    EXPECT_EQ("1", string(reinterpret_cast<const char*>(
+                   object2.getKey()), 1));                      // key
+    EXPECT_EQ("ghijkl", string(reinterpret_cast<const char*>(
+                        object2.getValue()), 6));
 
     // We don't actually care about the contents of the iterator as
     // long as we get back 0 objects on the second call.
@@ -452,8 +456,10 @@ TEST_F(MasterServiceTest, enumeration_mergeTablet) {
     EXPECT_EQ(1U, object1.getTableId());                        // table ID
     EXPECT_EQ(6U, object1.getKeyLength());                      // key length
     EXPECT_EQ(version1, object1.getVersion());                  // version
-    EXPECT_EQ(0, memcmp("678910", object1.getKey(), 6));        // key
-    EXPECT_EQ(0, memcmp("ghijkl", object1.getValue(), 6));
+    EXPECT_EQ("678910", string(reinterpret_cast<const char*>(
+                        object1.getKey()), 6))         ;        // key
+    EXPECT_EQ("ghijkl", string(reinterpret_cast<const char*>(
+                        object1.getValue()), 6));
 
     // The second object is not returned because it would have lived
     // on the part of the pre-merge tablet that we (pretended to have)
@@ -469,11 +475,42 @@ TEST_F(MasterServiceTest, enumeration_mergeTablet) {
 
 TEST_F(MasterServiceTest, read_basics) {
     ramcloud->write(1, "0", 1, "abcdef", 6);
-    ObjectBuffer value;
+    Buffer value;
     uint64_t version;
     ramcloud->read(1, "0", 1, &value, NULL, &version);
     EXPECT_EQ(1U, version);
-    EXPECT_EQ(0, memcmp("abcdef", value.getValue(), 6));
+    EXPECT_EQ("abcdef", string(reinterpret_cast<const char*>(
+                        value.getRange(0, value.getTotalLength())),
+                        6));
+}
+
+TEST_F(MasterServiceTest, readKeysAndValue_basics) {
+    uint64_t tableId1 = 1;
+    ObjectBuffer keysAndValue;
+    uint8_t numKeys = 3;
+    KeyInfo keyList[3];
+    keyList[0].keyLength = 2;
+    keyList[0].key = "ha";
+    keyList[1].keyLength = 2;
+    keyList[1].key = "hi";
+    keyList[2].keyLength = 2;
+    keyList[2].key = "ho";
+
+    ramcloud->write(tableId1, numKeys, keyList, "data value",
+                        NULL, NULL, false);
+    ramcloud->readKeysAndValue(tableId1, "ha", 2, &keysAndValue);
+    EXPECT_EQ("data value", string(reinterpret_cast<const char*>(
+                            keysAndValue.getValue()), 10));
+
+    EXPECT_EQ("ha", string(reinterpret_cast<const char *>(
+                    keysAndValue.getKey(0)), 2));
+    EXPECT_EQ(2U, keysAndValue.getKeyLength(0));
+    EXPECT_EQ("hi", string(reinterpret_cast<const char *>(
+                    keysAndValue.getKey(1)), 2));
+    EXPECT_EQ(2U, keysAndValue.getKeyLength(1));
+    EXPECT_EQ("ho", string(reinterpret_cast<const char *>(
+                    keysAndValue.getKey(2)), 2));
+    EXPECT_EQ(2U, keysAndValue.getKeyLength(2));
 }
 
 TEST_F(MasterServiceTest, read_tableNotOnServer) {
@@ -519,10 +556,12 @@ TEST_F(MasterServiceTest, multiRead_basics) {
 
     EXPECT_STREQ("STATUS_OK", statusToSymbol(request1.status));
     EXPECT_EQ(1U, request1.version);
-    EXPECT_EQ(0, memcmp("firstVal", value1.get()->getValue(), 8));
+    EXPECT_EQ("firstVal", string(reinterpret_cast<const char*>(
+                          value1.get()->getValue()), 8));
     EXPECT_STREQ("STATUS_OK", statusToSymbol(request2.status));
     EXPECT_EQ(2U, request2.version);
-    EXPECT_EQ(0, memcmp("secondVal", value2.get()->getValue(), 9));
+    EXPECT_EQ("secondVal", string(reinterpret_cast<const char*>(
+                          value2.get()->getValue()), 9));
 }
 
 TEST_F(MasterServiceTest, multiRead_bufferSizeExceeded) {
@@ -554,10 +593,12 @@ TEST_F(MasterServiceTest, multiRead_bufferSizeExceeded) {
     EXPECT_TRUE(request.isReady());
     EXPECT_TRUE(value1);
     EXPECT_TRUE(value2);
-    EXPECT_EQ(0, memcmp("chunk1:12 chunk2:12 chunk3:12 chunk4:12 chunk5:12 ",
-            value1.get()->getValue(), 50));
-    EXPECT_EQ(0, memcmp("chunk6:12 chunk7:12 chunk8:12 chunk9:12 chunk10:12",
-            value2.get()->getValue(), 50));
+    EXPECT_EQ("chunk1:12 chunk2:12 chunk3:12 chunk4:12 chunk5:12 ",
+            string(reinterpret_cast<const char*>(value1.get()->getValue()),
+            50));
+    EXPECT_EQ("chunk6:12 chunk7:12 chunk8:12 chunk9:12 chunk10:12",
+            string(reinterpret_cast<const char*>(value2.get()->getValue()),
+            50));
 }
 
 TEST_F(MasterServiceTest, multiRead_unknownTable) {
@@ -667,11 +708,13 @@ TEST_F(MasterServiceTest, multiWrite_basics) {
     ObjectBuffer value;
     uint64_t version;
 
-    ramcloud->read(tableId1, "0", 1, &value, NULL, &version);
-    EXPECT_EQ(0, memcmp("firstVal", value.getValue(), 8));
+    ramcloud->readKeysAndValue(tableId1, "0", 1, &value, NULL, &version);
+    EXPECT_EQ("firstVal", string(reinterpret_cast<const char*>(
+                          value.getValue()), 8));
     EXPECT_EQ(2U, request1.version);
-    ramcloud->read(tableId1, "1", 1, &value, NULL, &version);
-    EXPECT_EQ(0, memcmp("secondVal", value.getValue(), 9));
+    ramcloud->readKeysAndValue(tableId1, "1", 1, &value, NULL, &version);
+    EXPECT_EQ("secondVal", string(reinterpret_cast<const char*>(
+                          value.getValue()), 9));
     EXPECT_EQ(2U, request2.version);
 }
 
@@ -747,7 +790,8 @@ TEST_F(MasterServiceTest, multiWrite_malformedRequests) {
 
     // sanity check: should work with 10 bytes of key and 10 of value
     Key key(0, "tenchars!!", 10);
-    Object object(key, "tenmorechars", 10, 0, 0, requestPayload);
+    Object::appendKeysAndValueToBuffer(key, "tenmorechars", 10,
+                                       requestPayload);
     respHdr.common.status = STATUS_OK;
     service->multiWrite(&reqHdr, &respHdr, &rpc);
     EXPECT_EQ(STATUS_OK, respHdr.common.status);
@@ -1479,8 +1523,8 @@ TEST_F(MasterServiceTest, receiveMigrationData) {
         TabletManager::NORMAL);
     status = service->objectManager.readObject(key, &logBuffer, 0, 0);
     EXPECT_EQ(STATUS_OK, status);
-    EXPECT_EQ(0, memcmp(logBuffer.getValue(),
-                        "watch out for the migrant object", 32));
+    EXPECT_EQ(string(reinterpret_cast<const char*>(logBuffer.getValue()), 32),
+                        "watch out for the migrant object");
 }
 
 TEST_F(MasterServiceTest, write_basics) {
@@ -1498,20 +1542,23 @@ TEST_F(MasterServiceTest, write_basics) {
               "performWrite: Write RPC finished for replica slot 0 | "
               "sync: log synced",
               TestLog::get());
-    ramcloud->read(1, "key0", 4, &value);
-    EXPECT_EQ(0, memcmp("item0", value.getValue(), 5));
+    ramcloud->readKeysAndValue(1, "key0", 4, &value);
+    EXPECT_EQ("item0", string(reinterpret_cast<const char*>(
+                       value.getValue()), 5));
     EXPECT_EQ(1U, version);
 
     ramcloud->write(1, "key0", 4, "item0-v2", 8, NULL, &version);
     EXPECT_EQ(2U, version);
-    ramcloud->read(1, "key0", 4, &value);
-    EXPECT_EQ(0, memcmp("item0-v2", value.getValue(), 8));
+    ramcloud->readKeysAndValue(1, "key0", 4, &value);
+    EXPECT_EQ("item0-v2", string(reinterpret_cast<const char*>(
+                       value.getValue()), 8));
     EXPECT_EQ(2U, version);
 
     ramcloud->write(1, "key0", 4, "item0-v3", 8, NULL, &version);
     EXPECT_EQ(3U, version);
-    ramcloud->read(1, "key0", 4, &value);
-    EXPECT_EQ(0, memcmp("item0-v3", value.getValue(), 8));
+    ramcloud->readKeysAndValue(1, "key0", 4, &value);
+    EXPECT_EQ("item0-v3", string(reinterpret_cast<const char*>(
+                       value.getValue()), 8));
     EXPECT_EQ(3U, version);
 }
 
@@ -1525,16 +1572,18 @@ TEST_F(MasterServiceTest, safeVersionNumberUpdate) {
     //         Table, Key, KeyLen, Data, Len, rejectRule, Version
     ramcloud->write(1, "k0", 2, "value0", 6, NULL, &version);
     EXPECT_EQ(1U, version); // safeVersion++ is given
-    ramcloud->read(1,  "k0", 2, &value);
-    EXPECT_EQ(0, memcmp("value0", value.getValue(), 6));
+    ramcloud->readKeysAndValue(1,  "k0", 2, &value);
+    EXPECT_EQ("value0", string(reinterpret_cast<const char*>(
+                       value.getValue()), 6));
     EXPECT_EQ(1U, version); // current object version returned
     EXPECT_EQ(2U, segmentManager->safeVersion); // incremented
 
     // original key to original table
     ramcloud->write(1, "k0", 2, "value1", 6, NULL, &version);
     EXPECT_EQ(2U, version); // object version incremented
-    ramcloud->read(1,  "k0", 2, &value);
-    EXPECT_EQ(0, memcmp("value1", value.getValue(), 6));
+    ramcloud->readKeysAndValue(1,  "k0", 2, &value);
+    EXPECT_EQ("value1", string(reinterpret_cast<const char*>(
+                       value.getValue()), 6));
     EXPECT_EQ(2U, version); // current object version returned
     EXPECT_EQ(2U, segmentManager->safeVersion); // unchanged
 
@@ -1542,16 +1591,18 @@ TEST_F(MasterServiceTest, safeVersionNumberUpdate) {
     // different key to original table
     ramcloud->write(1, "k1", 2, "value3", 6, NULL, &version);
     EXPECT_EQ(29U, version);  // safeVersion++ is given
-    ramcloud->read(1, "k1", 2, &value);
-    EXPECT_EQ(0, memcmp("value3", value.getValue(), 6));
+    ramcloud->readKeysAndValue(1, "k1", 2, &value);
+    EXPECT_EQ("value3", string(reinterpret_cast<const char*>(
+                       value.getValue()), 6));
     EXPECT_EQ(29U, version);  // current object version returned
     EXPECT_EQ(30U, segmentManager->safeVersion); // incremented
 
     // original key to original table
     ramcloud->write(1, "k0", 2, "value4", 6, NULL, &version);
     EXPECT_EQ(3U, version); // object version incremented
-    ramcloud->read(1,  "k0", 2, &value);
-    EXPECT_EQ(0, memcmp("value4", value.getValue(), 6));
+    ramcloud->readKeysAndValue(1,  "k0", 2, &value);
+    EXPECT_EQ("value4", string(reinterpret_cast<const char*>(
+                       value.getValue()), 6));
     EXPECT_EQ(3U, version); // current object version returned
     EXPECT_EQ(30U, segmentManager->safeVersion); // unchanged
 }
@@ -1580,7 +1631,7 @@ TEST_F(MasterServiceTest, increment) {
     EXPECT_EQ(2U, version);
     EXPECT_EQ(21, newValue);
 
-    ramcloud->read(1, "key0", 4, &buffer);
+    ramcloud->readKeysAndValue(1, "key0", 4, &buffer);
     readResult = *(reinterpret_cast<const int64_t *>(
                     buffer.getValue()));
     EXPECT_EQ(newValue, readResult);
@@ -1589,7 +1640,7 @@ TEST_F(MasterServiceTest, increment) {
     newValue = ramcloud->increment(1, "key1", 4, -32, NULL, &version);
     EXPECT_EQ(-16, newValue);
 
-    ramcloud->read(1, "key1", 4, &buffer);
+    ramcloud->readKeysAndValue(1, "key1", 4, &buffer);
     readResult = *(reinterpret_cast<const int64_t *>(
                     buffer.getValue()));
     EXPECT_EQ(newValue, readResult);
@@ -1651,10 +1702,11 @@ TEST_F(MasterServiceTest, write_varyingKeyLength) {
         ramcloud->write(1, key, keyLength, writeVal.c_str(),
                       downCast<uint16_t>(writeVal.length()),
                       NULL, &version);
-        ramcloud->read(1, key, keyLength, &value);
+        ramcloud->readKeysAndValue(1, key, keyLength, &value);
 
-        EXPECT_EQ(0, memcmp(writeVal.c_str(), value.getValue(),
-                        downCast<uint16_t>(writeVal.length())));
+        EXPECT_EQ(writeVal.c_str(), string(reinterpret_cast<const char*>(
+                                    value.getValue()),
+                                    downCast<uint16_t>(writeVal.length())));
     }
 }
 

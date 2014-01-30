@@ -569,7 +569,7 @@ class Buffer {
 
     uint32_t copy(uint32_t offset, uint32_t length, void* dest); // NOLINT
     uint32_t write(uint32_t offset, uint32_t length, FILE* f);
-    void reset();
+    virtual void reset();
     void fillFromString(const char* s);
 
     void truncateFront(uint32_t length);

@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2013 Stanford University
+/* Copyright (c) 2010-2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -954,7 +954,8 @@ struct ReadKeysAndValue {
     struct Response {
         ResponseCommon common;
         uint64_t version;
-        uint32_t length;              // Length of the object's value in bytes.
+        uint32_t length;              // Length of the object's keys and value
+                                      // as defined in Object.h in bytes.
                                       // The actual bytes of the object follow
                                       // immediately after this header.
     } __attribute__((packed));

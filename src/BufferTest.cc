@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2011 Stanford University
+/* Copyright (c) 2010-2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -423,6 +423,21 @@ TEST_F(BufferTest, append) {
     EXPECT_EQ(testStr3, b.chunksTail->data);
     EXPECT_EQ("ABCDEFGHIJ | abcdefghij | klmnopqrs/0",
             TestUtil::bufferToDebugString(&b));
+}
+
+TEST_F(BufferTest, appendFromBuffer) {
+    Buffer b;
+    b.append(testStr1, 10);
+    b.append(testStr2, 10);
+    b.append(testStr3, 10);
+
+    Buffer b1, b2;
+    b1.append(&b, 0);
+    EXPECT_EQ("ABCDEFGHIJ | abcdefghij | klmnopqrs/0",
+            TestUtil::bufferToDebugString(&b));
+    b2.append(&b, 10);
+    EXPECT_EQ("abcdefghij | klmnopqrs/0",
+            TestUtil::bufferToDebugString(&b2));
 }
 
 TEST_F(BufferTest, peek_normal) {

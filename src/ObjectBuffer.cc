@@ -1,4 +1,4 @@
-/* Copyright (c) 2013 Stanford University 
+/* Copyright (c) 2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -19,8 +19,7 @@
 namespace RAMCloud {
 
 /**
- * Returns the number of keys present in this buffer where the buffer represents
- * an object as returned by a read RPC
+ * Returns the number of keys present in this buffer
 
  * \return
  *      The number of keys in the buffer
@@ -33,9 +32,8 @@ ObjectBuffer::getNumKeys()
 
 /**
  * Returns a pointer to one of the keys for the current object. The key will be
- * contiguous in memory. If keyIndex is not < numkeys, then behavior is
- * undefined.
-
+ * contiguous in memory.
+ *
  * \param[in] keyIndex
  *      Identifies the desired key (o means first key)
  * \return
@@ -43,17 +41,17 @@ ObjectBuffer::getNumKeys()
  *      the given index position
  */
 const void*
-ObjectBuffer::getKey(KeyCount keyIndex)
+ObjectBuffer::getKey(KeyIndex keyIndex)
 {
     // create a dummy object just so that we can invoke methods from
     // the object class rather than redoing it in this class.
-    Object object(1, 0, 0, *this);
-    return object.getKey(keyIndex);
+    if (!object)
+        object.construct(1, 0, 0, *this);
+    return object.get()->getKey(keyIndex);
 }
 
 /**
  * Obtain the length of a key in the object buffer.
- * If keyIndex is not < numkeys, then behavior is undefined.
 
  * \param[in] keyIndex
  *      Identifies the desired key (o means first key)
@@ -61,15 +59,18 @@ ObjectBuffer::getKey(KeyCount keyIndex)
  *      Length of a key
  */
 KeyLength
-ObjectBuffer::getKeyLength(KeyCount keyIndex)
+ObjectBuffer::getKeyLength(KeyIndex keyIndex)
 {
-    Object object(1, 0, 0, *this);
-    return object.getKeyLength(keyIndex);
+    if (!object)
+        object.construct(1, 0, 0, *this);
+    return object.get()->getKeyLength(keyIndex);
 }
 
 /**
- * Obtain a pointer to a contiguous copy of the data blob. Note
- * that if the data is not already contiguous, it will be copied.
+ * Obtain a pointer to a contiguous copy of the object's value. Note
+ * that if the value is not already contiguous, it will be copied.
+ * NOTE: if the value of the object is large, this function will
+ * be expensive as it may involve copying the data.
 
  * \param[out] valueLength
  *      The length of the data blob in this object buffer
@@ -79,8 +80,9 @@ ObjectBuffer::getKeyLength(KeyCount keyIndex)
 const void *
 ObjectBuffer::getValue(uint32_t *valueLength)
 {
-    Object object(1, 0, 0, *this);
-    return object.getValue(valueLength);
+    if (!object)
+        object.construct(1, 0, 0, *this);
+    return object.get()->getValue(valueLength);
 }
 
 /**
@@ -89,12 +91,22 @@ ObjectBuffer::getValue(uint32_t *valueLength)
  * \return
  *      The offset of the value portion of the object
  */
-uint32_t
-ObjectBuffer::getValueOffset()
+bool
+ObjectBuffer::getValueOffset(uint16_t *offset)
 {
-
-    Object object(1, 0, 0, *this);
-    return object.getValueOffset();
+    if (!object)
+        object.construct(1, 0, 0, *this);
+    return object.get()->getValueOffset(offset);
 }
 
+/**
+ * Overrides Buffer::reset(). Frees the object that is encapsulated
+ * within this ObjectBuffer.
+ */
+void
+ObjectBuffer::reset()
+{
+    object.destroy();
+    Buffer::reset();
+}
 } // namespace

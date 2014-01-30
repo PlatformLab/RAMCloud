@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2013 Stanford University
+/* Copyright (c) 2010-2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -1079,13 +1079,13 @@ RamCloud::read(uint64_t tableId, const void* key, uint16_t keyLength,
 }
 
 /**
- * Read the current contents of an object.
+ * Read the current contents of an object including the keys and the value.
  *
  * \param tableId
  *      The table containing the desired object (return value from
  *      a previous call to getTableId).
  * \param key
- *      Variable length key that uniquely identifies the object within tableId.
+ *      Primary key for the object within tableId.
  *      It does not necessarily have to be null terminated.  The caller must
  *      ensure that the storage for this key is unchanged through the life of
  *      the RPC.
@@ -1101,9 +1101,9 @@ RamCloud::read(uint64_t tableId, const void* key, uint16_t keyLength,
  *      If non-NULL, the version number of the object is returned here.
  */
 void
-RamCloud::read(uint64_t tableId, const void* key, uint16_t keyLength,
-                   ObjectBuffer* value, const RejectRules* rejectRules,
-                   uint64_t* version)
+RamCloud::readKeysAndValue(uint64_t tableId, const void* key,
+                    uint16_t keyLength, ObjectBuffer* value,
+                    const RejectRules* rejectRules, uint64_t* version)
 {
     ReadKeysAndValueRpc rpc(this, tableId, key, keyLength, value, rejectRules);
     rpc.wait(version);
@@ -1184,7 +1184,7 @@ ReadRpc::wait(uint64_t* version)
  *      The table containing the desired object (return value from
  *      a previous call to getTableId).
  * \param key
- *      Variable length key that uniquely identifies the object within tableId.
+ *      Primary key for the object within tableId.
  *      It does not necessarily have to be null terminated.  The caller must
  *      ensure that the storage for this key is unchanged through the life of
  *      the RPC.
@@ -1846,7 +1846,8 @@ RamCloud::write(uint64_t tableId, const void* key, uint16_t keyLength,
 
 /**
  * Replace the value of a given object, or create a new object if none
- * previously existed.
+ * previously existed. This form of the method allows multiple keys to be
+ * specified for the object
  *
  * \param tableId
  *      The table containing the desired object (return value from
@@ -1861,7 +1862,7 @@ RamCloud::write(uint64_t tableId, const void* key, uint16_t keyLength,
  *      NULL, then behavior is undefined. RamCloud currently uses a dense
  *      representation of key lengths. If a client does not want to write
  *      key_i in an object, keyList[i]->key should be NULL. The library also
- *      expects that if keyList[j]->key exists and keyList[j]->keyLength
+ *      expects that if keyList[j]->key is NOT NULL and keyList[j]->keyLength
  *      is 0, then key string is NULL terminated and the length is computed.
  * \param buf
  *      Address of the first byte of the new contents for the object;
@@ -1944,7 +1945,8 @@ RamCloud::write(uint64_t tableId, uint8_t numKeys, KeyInfo *keyList,
 /**
  * Constructor for WriteRpc: initiates an RPC in the same way as
  * #RamCloud::write, but returns once the RPC has been initiated, without
- * waiting for it to complete.
+ * waiting for it to complete. This for the constructor is used when only
+ * the primary key is being specified.
  *
  * \param ramcloud
  *      The RAMCloud object that governs this RPC.
@@ -1988,7 +1990,8 @@ WriteRpc::WriteRpc(RamCloud* ramcloud, uint64_t tableId,
                                static_cast<const char *>(key)));
 
     Key primaryKey(tableId, key, currentKeyLength);
-    Object object(primaryKey, buf, length, 0, 0, request, &totalLength);
+    Object::appendKeysAndValueToBuffer(primaryKey, buf, length,
+                                       request, &totalLength);
 
     reqHdr->rejectRules = rejectRules ? *rejectRules : defaultRejectRules;
     reqHdr->async = async;
@@ -1999,7 +2002,8 @@ WriteRpc::WriteRpc(RamCloud* ramcloud, uint64_t tableId,
 /**
  * Constructor for WriteRpc: initiates an RPC in the same way as
  * #RamCloud::write, but returns once the RPC has been initiated, without
- * waiting for it to complete.
+ * waiting for it to complete. This form of the constructor supports
+ * multiple keys.
  *
  * \param ramcloud
  *      The RAMCloud object that governs this RPC.
@@ -2039,8 +2043,8 @@ WriteRpc::WriteRpc(RamCloud* ramcloud, uint64_t tableId,
     uint32_t totalLength = 0;
     // invoke the Object constructor and append keysAndValue to the
     // request buffer
-    Object object(numKeys, tableId, keyList, buf, length, 0, 0, request,
-                &totalLength);
+    Object::appendKeysAndValueToBuffer(tableId, numKeys, keyList,
+                    buf, length, request, &totalLength);
     reqHdr->rejectRules = rejectRules ? *rejectRules : defaultRejectRules;
     reqHdr->async = async;
     reqHdr->length = totalLength;

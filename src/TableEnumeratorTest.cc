@@ -71,7 +71,8 @@ TEST_F(TableEnumeratorTest, basics) {
     EXPECT_EQ(tableId1, object1.getTableId());                  // table ID
     EXPECT_EQ(1U, object1.getKeyLength());                      // key length
     EXPECT_EQ(version0, object1.getVersion());                  // version
-    EXPECT_EQ(0, memcmp("0", object1.getKey(), 1));             // key
+    EXPECT_EQ("0", string(reinterpret_cast<const char*>(
+                   object1.getKey()), 1));                      // key
     EXPECT_EQ("abcdef", string(reinterpret_cast<const char*>    // value
         (object1.getValue()), 6));
 
@@ -84,7 +85,8 @@ TEST_F(TableEnumeratorTest, basics) {
     EXPECT_EQ(tableId1, object2.getTableId());                  // table ID
     EXPECT_EQ(1U, object2.getKeyLength());                      // key length
     EXPECT_EQ(version4, object2.getVersion());                  // version
-    EXPECT_EQ(0, memcmp("4", object2.getKey(), 1));             // key
+    EXPECT_EQ("4", string(reinterpret_cast<const char*>(
+                   object2.getKey()), 1));                      // key
     EXPECT_EQ("yzabcd", string(reinterpret_cast<const char*>    // value
         (object2.getValue()), 6));
 
@@ -97,7 +99,8 @@ TEST_F(TableEnumeratorTest, basics) {
     EXPECT_EQ(tableId1, object3.getTableId());                  // table ID
     EXPECT_EQ(1U, object3.getKeyLength());                      // key length
     EXPECT_EQ(version2, object3.getVersion());                  // version
-    EXPECT_EQ(0, memcmp("2", object3.getKey(), 1));             // key
+    EXPECT_EQ("2", string(reinterpret_cast<const char*>(
+                   object3.getKey()), 1));                      // key
     EXPECT_EQ("mnopqr", string(reinterpret_cast<const char*>    // value
         (object3.getValue()), 6));
 
@@ -110,7 +113,8 @@ TEST_F(TableEnumeratorTest, basics) {
     EXPECT_EQ(tableId1, object4.getTableId());                  // table ID
     EXPECT_EQ(1U, object4.getKeyLength());                      // key length
     EXPECT_EQ(version1, object4.getVersion());                  // version
-    EXPECT_EQ(0, memcmp("1", object4.getKey(), 1));             // key
+    EXPECT_EQ("1", string(reinterpret_cast<const char*>(
+                   object4.getKey()), 1));                      // key
     EXPECT_EQ("ghijkl", string(reinterpret_cast<const char*>    // value
         (object4.getValue()), 6));
 
@@ -123,7 +127,8 @@ TEST_F(TableEnumeratorTest, basics) {
     EXPECT_EQ(tableId1, object5.getTableId());                  // table ID
     EXPECT_EQ(1U, object5.getKeyLength());                      // key length
     EXPECT_EQ(version3, object5.getVersion());                  // version
-    EXPECT_EQ(0, memcmp("3", object5.getKey(), 1));             // key
+    EXPECT_EQ("3", string(reinterpret_cast<const char*>(
+                   object5.getKey()), 1));                      // key
     EXPECT_EQ("stuvwx", string(reinterpret_cast<const char*>    // value
         (object5.getValue()), 6));
 
@@ -150,7 +155,8 @@ TEST_F(TableEnumeratorTest, keysOnly) {
     EXPECT_EQ(tableId1, object1.getTableId());                  // table ID
     EXPECT_EQ(1U, object1.getKeyLength());                      // key length
     EXPECT_EQ(version0, object1.getVersion());                  // version
-    EXPECT_EQ(0, memcmp("0", object1.getKey(), 1));             // key
+    EXPECT_EQ("0", string(reinterpret_cast<const char*>(
+                   object1.getKey()), 1));                      // key
     uint32_t dataLength;
     object1.getValue(&dataLength);
     EXPECT_EQ(0U, dataLength);                           // data length
@@ -164,7 +170,8 @@ TEST_F(TableEnumeratorTest, keysOnly) {
     EXPECT_EQ(tableId1, object2.getTableId());                  // table ID
     EXPECT_EQ(1U, object2.getKeyLength());                      // key length
     EXPECT_EQ(version4, object2.getVersion());                  // version
-    EXPECT_EQ(0, memcmp("4", object2.getKey(), 1));             // key
+    EXPECT_EQ("4", string(reinterpret_cast<const char*>(
+                   object2.getKey()), 1));                      // key
     object2.getValue(&dataLength);
     EXPECT_EQ(0U, dataLength);                           // data length
 
@@ -177,7 +184,8 @@ TEST_F(TableEnumeratorTest, keysOnly) {
     EXPECT_EQ(tableId1, object3.getTableId());                  // table ID
     EXPECT_EQ(1U, object3.getKeyLength());                      // key length
     EXPECT_EQ(version2, object3.getVersion());                  // version
-    EXPECT_EQ(0, memcmp("2", object3.getKey(), 1));             // key
+    EXPECT_EQ("2", string(reinterpret_cast<const char*>(
+                   object3.getKey()), 1));                      // key
     object3.getValue(&dataLength);
     EXPECT_EQ(0U, dataLength);                           // data length
 
@@ -190,7 +198,8 @@ TEST_F(TableEnumeratorTest, keysOnly) {
     EXPECT_EQ(tableId1, object4.getTableId());                  // table ID
     EXPECT_EQ(1U, object4.getKeyLength());                      // key length
     EXPECT_EQ(version1, object4.getVersion());                  // version
-    EXPECT_EQ(0, memcmp("1", object4.getKey(), 1));             // key
+    EXPECT_EQ("1", string(reinterpret_cast<const char*>(
+                   object4.getKey()), 1));                      // key
     object4.getValue(&dataLength);
     EXPECT_EQ(0U, dataLength);                           // data length
 
@@ -203,7 +212,8 @@ TEST_F(TableEnumeratorTest, keysOnly) {
     EXPECT_EQ(tableId1, object5.getTableId());                  // table ID
     EXPECT_EQ(1U, object5.getKeyLength());                      // key length
     EXPECT_EQ(version3, object5.getVersion());                  // version
-    EXPECT_EQ(0, memcmp("3", object5.getKey(), 1));             // key
+    EXPECT_EQ("3", string(reinterpret_cast<const char*>(
+                   object5.getKey()), 1));                      // key
     object5.getValue(&dataLength);
     EXPECT_EQ(0U, dataLength);                           // data length
 
@@ -228,7 +238,8 @@ TEST_F(TableEnumeratorTest, nextKeyData) {
     iter.nextKeyAndData(&keyLength, &keyBuffer, &dataLength, &dataBuffer);
 
     // First object.
-    EXPECT_EQ(0, memcmp("0", keyBuffer, keyLength));             // key
+    EXPECT_EQ("0", string(reinterpret_cast<const char*>(
+                   keyBuffer), keyLength));                      // key
     EXPECT_EQ("abcdef", string(reinterpret_cast<const char*>     // data
         (dataBuffer), dataLength));
 
@@ -236,7 +247,8 @@ TEST_F(TableEnumeratorTest, nextKeyData) {
     iter.nextKeyAndData(&keyLength, &keyBuffer, &dataLength, &dataBuffer);
 
     // Second object.
-    EXPECT_EQ(0, memcmp("4", keyBuffer, keyLength));             // key
+    EXPECT_EQ("4", string(reinterpret_cast<const char*>(
+                   keyBuffer), keyLength));                      // key
     EXPECT_EQ("yzabcd", string(reinterpret_cast<const char*>     // data
         (dataBuffer), dataLength));
 
@@ -244,7 +256,8 @@ TEST_F(TableEnumeratorTest, nextKeyData) {
     iter.nextKeyAndData(&keyLength, &keyBuffer, &dataLength, &dataBuffer);
 
     // Third object.
-    EXPECT_EQ(0, memcmp("2", keyBuffer, keyLength));             // key
+    EXPECT_EQ("2", string(reinterpret_cast<const char*>(
+                   keyBuffer), keyLength));                      // key
     EXPECT_EQ("mnopqr", string(reinterpret_cast<const char*>     // data
         (dataBuffer), dataLength));
 
@@ -252,7 +265,8 @@ TEST_F(TableEnumeratorTest, nextKeyData) {
     iter.nextKeyAndData(&keyLength, &keyBuffer, &dataLength, &dataBuffer);
 
     // Fourth object.
-    EXPECT_EQ(0, memcmp("1", keyBuffer, keyLength));             // key
+    EXPECT_EQ("1", string(reinterpret_cast<const char*>(
+                   keyBuffer), keyLength));                      // key
     EXPECT_EQ("ghijkl", string(reinterpret_cast<const char*>     // data
         (dataBuffer), dataLength));
 
@@ -260,7 +274,8 @@ TEST_F(TableEnumeratorTest, nextKeyData) {
     iter.nextKeyAndData(&keyLength, &keyBuffer, &dataLength, &dataBuffer);
 
     // Fifth object.
-    EXPECT_EQ(0, memcmp("3", keyBuffer, keyLength));             // key
+    EXPECT_EQ("3", string(reinterpret_cast<const char*>(
+                   keyBuffer), keyLength));                      // key
     EXPECT_EQ("stuvwx", string(reinterpret_cast<const char*>     // data
         (dataBuffer), dataLength));
 

@@ -37,6 +37,8 @@ class MultiWriteTest : public ::testing::Test {
     BindTransport::BindSession* session2;
     BindTransport::BindSession* session3;
     Tub<MultiWriteObject> objects[6];
+    Tub<MultiWriteObject> multikeyObject;
+    KeyInfo keyList[3];
 
   public:
     MultiWriteTest()
@@ -52,6 +54,8 @@ class MultiWriteTest : public ::testing::Test {
         , session2(NULL)
         , session3(NULL)
         , objects()
+        , multikeyObject()
+        , keyList()
     {
         Logger::get().setLogLevels(RAMCloud::SILENT_LOG_LEVEL);
 
@@ -100,6 +104,18 @@ class MultiWriteTest : public ::testing::Test {
         objects[3].construct(tableId2, "object2-1", keyLen9, "value:2-1", 9);
         objects[4].construct(tableId3, "object3-1", keyLen9, "value:3-1", 9);
         objects[5].construct(bogusTableId, "bogus", keyLen5, "value:bogus", 11);
+        // create a multikey object
+        uint8_t numKeys = 3;
+        // keyList is allocated on the heap because otherwise it will go out
+        // of scope and then the pointer inside MultiWriteObject will no longer
+        // be valid
+        keyList[0].keyLength = 2;
+        keyList[0].key = "ha";
+        keyList[1].keyLength = 2;
+        keyList[1].key = "hi";
+        keyList[2].keyLength = 2;
+        keyList[2].key = "ho";
+        multikeyObject.construct(tableId1, "multivalue", 10, numKeys, keyList);
     }
 
     // Returns a string describing the status of the RPCs for request.
@@ -152,9 +168,10 @@ testLogFilter(string s)
 TEST_F(MultiWriteTest, basics_end_to_end) {
     MultiWriteObject* requests[] = {
         objects[0].get(), objects[1].get(), objects[2].get(),
-        objects[3].get(), objects[4].get(), objects[5].get()
+        objects[3].get(), objects[4].get(), objects[5].get(),
+        multikeyObject.get()
     };
-    ramcloud->multiWrite(requests, 6);
+    ramcloud->multiWrite(requests, 7);
     EXPECT_EQ(STATUS_OK, objects[0]->status);
     EXPECT_EQ(1U, objects[0]->version);
     EXPECT_EQ(STATUS_OK, objects[1]->status);
@@ -167,6 +184,9 @@ TEST_F(MultiWriteTest, basics_end_to_end) {
     EXPECT_EQ(1U, objects[4]->version);
     EXPECT_EQ(STATUS_TABLE_DOESNT_EXIST, objects[5]->status);
     // object[5].version is undefined when tablet doesn't exist
+
+    EXPECT_EQ(STATUS_OK, multikeyObject->status);
+    EXPECT_EQ(4U, multikeyObject.get()->version);
 }
 
 TEST_F(MultiWriteTest, appendRequest) {
@@ -186,6 +206,29 @@ TEST_F(MultiWriteTest, appendRequest) {
                     sizeof32(requests[0]->keyLength) +
                     sizeof32(requests[0]->numKeys) +
                     requests[0]->keyLength + requests[0]->valueLength;
+    EXPECT_EQ(expected_size, dif);
+}
+
+TEST_F(MultiWriteTest, appendRequestMultipleKeys) {
+    MultiWriteObject* requests[] = {multikeyObject.get()};
+    uint32_t dif, before;
+    Buffer buf;
+
+    // Create a non-operating multi write
+    MultiWrite request(ramcloud.get(), requests, 0);
+    request.wait();
+
+    before = buf.getTotalLength();
+    request.appendRequest(requests[0], &buf);
+    dif = buf.getTotalLength() - before;
+
+    uint32_t expected_size = sizeof32(WireFormat::MultiOp::Request::WritePart) +
+                    sizeof32(requests[0]->numKeys) +
+                    3 * sizeof32(requests[0]->keyLength) +
+                    requests[0]->keyInfo[0].keyLength +
+                    requests[0]->keyInfo[1].keyLength +
+                    requests[0]->keyInfo[2].keyLength +
+                    requests[0]->valueLength;
     EXPECT_EQ(expected_size, dif);
 }
 

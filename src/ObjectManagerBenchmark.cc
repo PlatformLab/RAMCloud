@@ -104,10 +104,7 @@ class ObjectManagerBenchmark {
             char objectData[dataBytes];
             Buffer dataBuffer;
             Object object(key, objectData, dataBytes, 0, 0, dataBuffer);
-            Buffer buffer;
-            object.assembleForLog(buffer);
-            Object tempObject(0, 0, 0, buffer);
-            Status status = objectManager->writeObject(tempObject, NULL, NULL);
+            Status status = objectManager->writeObject(object, NULL, NULL);
             if (status != STATUS_OK) {
                 fprintf(stderr, "Failed to write object! Out of memory?\n");
                 exit(1);

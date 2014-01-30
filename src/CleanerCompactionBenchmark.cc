@@ -88,12 +88,7 @@ class CleanerCompactionBenchmark {
             Buffer dataBuffer;
             Object object(key, objectData, dataLen, 0, 0, dataBuffer);
 
-            Buffer buffer;
-            object.assembleForLog(buffer);
-
-            // create an object with an invalid version and timestamp for now.
-            Object newObject(0, 0, 0, buffer);
-            Status status = objectManager->writeObject(newObject, NULL, NULL);
+            Status status = objectManager->writeObject(object, NULL, NULL);
             if (status != STATUS_OK) {
                 fprintf(stderr, "Failed to write object! Out of memory?\n");
                 exit(1);

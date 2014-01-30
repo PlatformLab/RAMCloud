@@ -1,4 +1,4 @@
-/* Copyright (c) 2013 Stanford University
+/* Copyright (c) 2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -17,44 +17,50 @@
 #define RAMCLOUD_OBJECTBUFFER_H
 
 #include "Buffer.h"
+#include "Object.h"
 
 namespace RAMCloud {
 
 /**
  * This class provides additional methods for managing buffers that contain
- * object keys and values returned by RPCs such as read, multi-read, and
- * enumerate. It makes it easy to read individual keys, plus the object value.
+ * object keys and values returned typically by the readKeysAndValue RPC.
+ * It makes it easy to read individual keys, plus the object value.
  * All of the methods in this class assume that the first bytes in the buffer
  * contain the keys and value for an object in the standard representation
- * used throughout RAMCloud. This class invokes methods from the Object class
- * and hence creates dummy objects.
+ * used throughout RAMCloud.
  */
-
-// Cannot include Object.h here because there will be a circular dependency of
-// header files otherwise - RamCloud.h, Object.h and ObjectBuffer.h. So,
-// typedefine the following here again in addition to Object.h.
-// IMPORTANT: this should match the definition in Object.h
-
-typedef uint8_t KeyCount; // the number of keys in an object
-typedef uint16_t KeyLength; // the length of a key in an object
 
 class ObjectBuffer : public Buffer {
   public:
 
     ObjectBuffer()
-    {
-    }
-    ~ObjectBuffer()
+    : object()
     {
     }
 
+    ~ObjectBuffer()
+    {
+        reset();
+    }
+
     KeyCount getNumKeys();
-    const void *getKey(KeyCount keyIndex = 0);
-    KeyLength getKeyLength(KeyCount keyIndex = 0);
-    // callers can pass a valid reference as argument if they want the length
-    // of the value
+    const void *getKey(KeyIndex keyIndex = 0);
+    KeyLength getKeyLength(KeyIndex keyIndex = 0);
     const void *getValue(uint32_t *dataLength = NULL);
-    uint32_t getValueOffset();
+
+    /**
+     * Convenience for getValue.
+     * \return
+     *      An appropriately casted pointer to the object's value
+     */
+    template<typename T> const T* get(uint32_t *dataLength = NULL) {
+        return reinterpret_cast<const T*>(getValue(dataLength));
+    }
+
+    bool getValueOffset(uint16_t *offset);
+    void reset();
+
+    Tub<Object> object;
 
     DISALLOW_COPY_AND_ASSIGN(ObjectBuffer);
 };

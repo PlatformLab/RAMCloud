@@ -807,9 +807,12 @@ TEST_F(ObjectManagerTest, replaySegment) {
     EXPECT_EQ(LOG_ENTRY_TYPE_OBJTOMB, type);
     Buffer t10Buffer;
     t10.assembleForLog(t10Buffer);
-    EXPECT_EQ(0, memcmp(t10Buffer.getRange(0, t10Buffer.getTotalLength()),
-                        buffer.getRange(0, buffer.getTotalLength()),
-                        buffer.getTotalLength()));
+    EXPECT_EQ(string(reinterpret_cast<const char*>(
+                     t10Buffer.getRange(0, t10Buffer.getTotalLength())),
+                     buffer.getTotalLength()),
+              string(reinterpret_cast<const char*>(
+                     buffer.getRange(0, buffer.getTotalLength())),
+                     buffer.getTotalLength()));
     ////////////////////////////////////////////////////////////////////
     //
     //  For safeVersion recovery from OBJECT_SAFEVERSION entry
@@ -1176,10 +1179,12 @@ TEST_F(ObjectManagerTest, lookup_object) {
     }
     Object o(buffer);
     EXPECT_EQ(LOG_ENTRY_TYPE_OBJ, type);
-    EXPECT_EQ(0, memcmp("1", o.getKey(), 1));
+    EXPECT_EQ("1", string(reinterpret_cast<const char*>(
+                   o.getKey()), 1));
     const void *dataBlob = reinterpret_cast<const void *>(
                             reinterpret_cast<const uint8_t*>(o.getValue()));
-    EXPECT_EQ(0, memcmp("value", dataBlob, 5));
+    EXPECT_EQ("value", string(reinterpret_cast<const char*>(
+                   dataBlob), 5));
 
     uint64_t v;
     Log::Reference r;
@@ -1202,7 +1207,8 @@ TEST_F(ObjectManagerTest, lookup_tombstone) {
     }
     ObjectTombstone t(buffer);
     EXPECT_EQ(LOG_ENTRY_TYPE_OBJTOMB, type);
-    EXPECT_EQ(0, memcmp("1", t.getKey(), 1));
+    EXPECT_EQ("1", string(reinterpret_cast<const char*>(
+                   t.getKey()), 1));
     EXPECT_EQ(15U, t.getObjectVersion());
 
     uint64_t v;
