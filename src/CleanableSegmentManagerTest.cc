@@ -143,11 +143,12 @@ TEST_F(CleanableSegmentManagerTest, update) {
               "id=3,cb=18446744073709551615 id=1,cb=18446744073709551615 "
               "id=4,cb=18446744073709551615 id=5,cb=18446744073709551615 "
               "id=6,cb=18446744073709551615 ] "
-              "compactionCandidates [ id=4,cb=18446744073709551615 "
-              "id=5,cb=18446744073709551615 id=6,cb=18446744073709551615 "
-              "id=2,cb=4294967295 id=3,cb=4294967295 id=1,cb=4294967295 ] "
-              "tombstoneScanCandidates [ id=2,ss=0 id=3,ss=0 id=1,ss=0 "
-              "id=4,ss=0 id=5,ss=0 id=6,ss=0 ]",
+              "compactionCandidates [ id=2,cb=18446744073709551615 "
+              "id=3,cb=18446744073709551615 id=1,cb=18446744073709551615 "
+              "id=4,cb=18446744073709551615 id=5,cb=18446744073709551615 "
+              "id=6,cb=18446744073709551615 ] "
+              "tombstoneScanCandidates [ id=2,ss=0 id=3,ss=0 id=1,ss=0 id=4,"
+              "ss=0 id=5,ss=0 id=6,ss=0 ]",
               csm.toString());
 }
 

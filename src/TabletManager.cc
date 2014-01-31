@@ -55,7 +55,8 @@ TabletManager::addTablet(uint64_t tableId,
         return false;
     }
 
-    tabletMap.emplace(tableId, tableId, startKeyHash, endKeyHash, state);
+    tabletMap.emplace(tableId,
+                      Tablet(tableId, startKeyHash, endKeyHash, state));
     return true;
 }
 
@@ -234,8 +235,8 @@ TabletManager::splitTablet(uint64_t tableId,
     // So to make it idempotent, check for this condition before you
     // decide to do the split
     if (splitKeyHash != t->startKeyHash) {
-        tabletMap.emplace(tableId,
-                          tableId, splitKeyHash, t->endKeyHash, t->state);
+        tabletMap.emplace(tableId, Tablet
+                          (tableId, splitKeyHash, t->endKeyHash, t->state));
         t->endKeyHash = splitKeyHash - 1;
 
         // It's unclear what to do with the counts when splitting. The old

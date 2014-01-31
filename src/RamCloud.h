@@ -121,6 +121,7 @@ class RamCloud {
             const char* value, const RejectRules* rejectRules = NULL,
             uint64_t* version = NULL, bool async = false);
 
+    void poll();
     explicit RamCloud(const char* serviceLocator,
             const char* clusterName = "main");
     RamCloud(Context* context, const char* serviceLocator,

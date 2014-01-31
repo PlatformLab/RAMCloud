@@ -67,6 +67,40 @@ class RamCloudTest : public ::testing::Test {
     DISALLOW_COPY_AND_ASSIGN(RamCloudTest);
 };
 
+static void pollTestThread(RamCloud* ramcloud) {
+    //Calling poll() from other thread should not invoke poller.
+    for (int i = 0; i < 10; ++i) {
+        ramcloud->poll();
+    }
+}
+
+TEST(RamCloudSimpleTest, poll) {
+    class CountPoller : public Dispatch::Poller {
+      public:
+        explicit CountPoller(Dispatch* dispatch)
+                : Dispatch::Poller(dispatch, "CountPoller"), count(0) { }
+        void poll() {
+            count++;
+        }
+        volatile int count;
+      private:
+        DISALLOW_COPY_AND_ASSIGN(CountPoller);
+    };
+
+    Context context(true);
+    CountPoller poller(context.dispatch);
+    RamCloud ramcloud(&context, "mock:host=coordinator");
+
+    for (int i = 0; i < 100; ++i) {
+        ramcloud.poll();
+    }
+    EXPECT_EQ(100, poller.count);
+
+    std::thread thread(pollTestThread, &ramcloud);
+    thread.join();
+    EXPECT_EQ(100, poller.count);
+}
+
 TEST_F(RamCloudTest, createTable) {
     string message("no exception");
     try {
@@ -92,6 +126,53 @@ TEST_F(RamCloudTest, dropTable) {
         message = e.toSymbol();
     }
     EXPECT_EQ("STATUS_TABLE_DOESNT_EXIST", message);
+}
+
+TEST_F(RamCloudTest, concurrentAsyncRpc) {
+    string message1("no exception");
+    try {
+        ramcloud->getTableId("newTable");
+    }
+    catch (ClientException& e) {
+        message1 = e.toSymbol();
+    }
+    EXPECT_EQ("STATUS_TABLE_DOESNT_EXIST", message1);
+
+    //Dispatches async RPCs.
+    CreateTableRpc ct_rpc(ramcloud.get(), "newTable");
+    DropTableRpc dt_rpc(ramcloud.get(), "table1");
+
+    //Waits for either rpc.
+    uint64_t id;
+    bool ct_done = false;
+    bool dt_done = false;
+    while (!ct_done || !dt_done) {
+        if (!ct_done && ct_rpc.isReady()) {
+            id = ct_rpc.wait();
+            EXPECT_EQ(4UL, id);
+            ct_done = true;
+        } else if (!dt_done && dt_rpc.isReady()) {
+            dt_rpc.wait();
+            dt_done = true;
+        }
+        ramcloud->poll();
+    }
+
+    EXPECT_EQ(true, ct_done && dt_done);
+
+    //Extra checks for CreateTableRpc.
+    uint64_t id2 = ramcloud->getTableId("newTable");
+    EXPECT_EQ(id, id2);
+
+    //Extra checks for DropTableRpc.
+    string message2("no exception");
+    try {
+        ramcloud->getTableId("table1");
+    }
+    catch (ClientException& e) {
+        message2 = e.toSymbol();
+    }
+    EXPECT_EQ("STATUS_TABLE_DOESNT_EXIST", message2);
 }
 
 TEST_F(RamCloudTest, enumeration_basics) {

@@ -195,7 +195,7 @@ CleanableSegmentManager::update(Lock& guard)
             costBenefitCandidates.insert(segment);
         }
 
-        uint32_t compactionScore = computeCompactionCostBenefitScore(&segment);
+        uint64_t compactionScore = computeCompactionCostBenefitScore(&segment);
         if (compactionScore != segment.cachedCompactionCostBenefitScore) {
             erase(compactionCandidates, segment);
             segment.cachedCompactionCostBenefitScore = compactionScore;
