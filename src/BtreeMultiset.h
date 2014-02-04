@@ -34,7 +34,7 @@
 #ifndef _STX_BTREE_MULTISET_H_
 #define _STX_BTREE_MULTISET_H_
 
-#include <stx/btree.h>
+#include "Btree.h"
 
 namespace stx {
 

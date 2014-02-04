@@ -1,4 +1,4 @@
-/** \file btree_multimap.h
+/**
  * Contains the specialized B+ tree template class btree_multimap
  */
 
@@ -33,8 +33,8 @@
 
 #ifndef _STX_BTREE_MULTIMAP_H_
 #define _STX_BTREE_MULTIMAP_H_
-
-#include <stx/btree.h>
+ 
+#include "Btree.h"
 
 namespace stx {
 

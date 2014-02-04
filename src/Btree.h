@@ -1,5 +1,4 @@
 /**
- * \file include/stx/btree.h
  * Contains the main B+ tree implementation template class btree.
  */
 
@@ -77,6 +76,9 @@
 #define BTREE_FRIENDS           friend class btree_friend;
 #endif
 
+// Disable Third Party warnings
+#pragma GCC system_header
+
 /// STX - Some Template Extensions namespace
 namespace stx {
 
@@ -108,6 +110,9 @@ struct btree_default_set_traits
     /// than this threshold. See notes at
     /// http://panthema.net/2013/0504-STX-B+Tree-Binary-vs-Linear-Search
     static const size_t binsearch_threshold = 256;
+
+    virtual ~btree_default_set_traits()
+    {}
 };
 
 /** Generates default traits for a B+ tree used as a map. It estimates leaf and
@@ -3923,6 +3928,7 @@ private:
     /// serialization.
     node* restore_node(std::istream &is)
     {
+        // TODO(ashgup): GCC VERSION non-POD type not allowed inside union
         union {
             node        top;
             leaf_node   leaf;
