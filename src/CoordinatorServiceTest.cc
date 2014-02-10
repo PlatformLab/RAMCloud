@@ -168,16 +168,27 @@ TEST_F(CoordinatorServiceTest, getServerList_masters) {
             getLocators(list));
 }
 
-TEST_F(CoordinatorServiceTest, getTabletMap) {
+TEST_F(CoordinatorServiceTest, getTableConfig) {
     ramcloud->createTable("foo");
-    ProtoBuf::Tablets tabletMapProtoBuf;
-    CoordinatorClient::getTabletMap(&context, &tabletMapProtoBuf);
+    ProtoBuf::Tablets tableConfigProtoBuf;
+    CoordinatorClient::getTableConfig(&context, 1, &tableConfigProtoBuf);
     EXPECT_EQ("tablet { table_id: 1 start_key_hash: 0 "
               "end_key_hash: 18446744073709551615 "
               "state: NORMAL server_id: 1 "
               "service_locator: \"mock:host=master\" "
               "ctime_log_head_id: 0 ctime_log_head_offset: 0 }",
-              tabletMapProtoBuf.ShortDebugString());
+              tableConfigProtoBuf.ShortDebugString());
+    // test case to make sure that a nonexistent table id
+    // returns a ProtoBuf with no entries
+    CoordinatorClient::getTableConfig(&context, 10, &tableConfigProtoBuf);
+    EXPECT_EQ("", tableConfigProtoBuf.ShortDebugString());
+}
+
+TEST_F(CoordinatorServiceTest, getInvalidTableConfig) {
+    ramcloud->createTable("bar");
+    ProtoBuf::Tablets tableConfig;
+    CoordinatorClient::getTableConfig(&context, 123, &tableConfig);
+    EXPECT_EQ("", tableConfig.ShortDebugString());
 }
 
 TEST_F(CoordinatorServiceTest, setRuntimeOption) {

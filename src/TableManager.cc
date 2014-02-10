@@ -466,31 +466,34 @@ TableManager::recover(uint64_t lastCompletedUpdate)
 }
 
 /**
- * Copy the contents of the tablet map into a protocol buffer, \a tablets,
- * suitable for sending across the wire to servers.
+ * Copy the tablets corresponding to tableId into a protocol buffer,
+ *  \a tablets, suitable for sending across the wire to servers.
  * \param tablets
  *      Protocol buffer to which entries are added representing each of
  *      the tablets in the tablet map.
+ * \param tableId
+ *      The id of the table whose tablet configuration will be fetched. If
+ *      the table doesn't exist, then the protocol buffer ends up empty.
  */
 void
-TableManager::serialize(ProtoBuf::Tablets* tablets) const
+TableManager::serializeTableConfig(ProtoBuf::Tablets* tablets, uint64_t tableId)
 {
     Lock lock(mutex);
-    for (Directory::const_iterator it = directory.begin();
-            it != directory.end(); ++it) {
-        Table* table = it->second;
-        foreach (Tablet* tablet, table->tablets) {
-            ProtoBuf::Tablets::Tablet& entry(*tablets->add_tablet());
-            tablet->serialize(entry);
-            try {
-                string locator = context->serverList->getLocator(
-                        tablet->serverId);
-                entry.set_service_locator(locator);
-            } catch (const Exception& e) {
-                LOG(NOTICE, "Server id (%s) in tablet map no longer in server "
-                    "list; omitting locator for entry",
-                    tablet->serverId.toString().c_str());
-            }
+    IdMap::iterator it = idMap.find(tableId);
+    if (it == idMap.end())
+        return;
+    Table* table = it->second;
+    foreach (Tablet* tablet, table->tablets) {
+        ProtoBuf::Tablets::Tablet& entry(*tablets->add_tablet());
+        tablet->serialize(entry);
+        try {
+            string locator = context->serverList->getLocator(
+                    tablet->serverId);
+            entry.set_service_locator(locator);
+        } catch (const Exception& e) {
+            LOG(NOTICE, "Server id (%s) in tablet map no longer in server "
+                "list; omitting locator for entry",
+                tablet->serverId.toString().c_str());
         }
     }
 }

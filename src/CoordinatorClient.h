@@ -46,7 +46,8 @@ class CoordinatorClient {
             ProtoBuf::ServerList* serverList);
     static void getServerList(Context* context,
             ProtoBuf::ServerList* serverList);
-    static void getTabletMap(Context* context, ProtoBuf::Tablets* tabletMap);
+    static void getTableConfig(Context* context,
+            uint64_t tableId, ProtoBuf::Tablets* tableConfig);
     static void hintServerCrashed(Context* context, ServerId serverId);
     static void reassignTabletOwnership(Context* context, uint64_t tableId,
             uint64_t firstKey, uint64_t lastKey, ServerId newOwnerId,
@@ -95,17 +96,17 @@ class GetServerListRpc : public CoordinatorRpcWrapper {
 };
 
 /**
- * Encapsulates the state of a CoordinatorClient::getTabletMap
+ * Encapsulates the state of a CoordinatorClient::getTableConfig
  * request, allowing it to execute asynchronously.
  */
-class GetTabletMapRpc : public CoordinatorRpcWrapper {
+class GetTableConfigRpc : public CoordinatorRpcWrapper {
     public:
-    explicit GetTabletMapRpc(Context* context);
-    ~GetTabletMapRpc() {}
-    void wait(ProtoBuf::Tablets* tabletMap);
+    explicit GetTableConfigRpc(Context* context, uint64_t tableId);
+    ~GetTableConfigRpc() {}
+    void wait(ProtoBuf::Tablets* tableConfig);
 
     PRIVATE:
-    DISALLOW_COPY_AND_ASSIGN(GetTabletMapRpc);
+    DISALLOW_COPY_AND_ASSIGN(GetTableConfigRpc);
 };
 
 /**

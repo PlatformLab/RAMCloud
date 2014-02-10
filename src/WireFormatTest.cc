@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2013 Stanford University
+/* Copyright (c) 2010-2012 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -53,8 +53,8 @@ TEST_F(WireFormatTest, getStatus) {
 TEST_F(WireFormatTest, opcodeSymbol_integer) {
     // Sample a few opcode values.
     EXPECT_STREQ("PING", WireFormat::opcodeSymbol(WireFormat::PING));
-    EXPECT_STREQ("GET_TABLET_MAP", WireFormat::opcodeSymbol(
-            WireFormat::GET_TABLET_MAP));
+    EXPECT_STREQ("GET_TABLE_CONFIG", WireFormat::opcodeSymbol(
+            WireFormat::GET_TABLE_CONFIG));
     EXPECT_STREQ("ILLEGAL_RPC_TYPE", WireFormat::opcodeSymbol(
             WireFormat::ILLEGAL_RPC_TYPE));
 

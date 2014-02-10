@@ -62,7 +62,7 @@ opcodeSymbol(uint32_t opcode)
         case REMOVE:                     return "REMOVE";
         case ENLIST_SERVER:              return "ENLIST_SERVER";
         case GET_SERVER_LIST:            return "GET_SERVER_LIST";
-        case GET_TABLET_MAP:             return "GET_TABLET_MAP";
+        case GET_TABLE_CONFIG:           return "GET_TABLE_CONFIG";
         case RECOVER:                    return "RECOVER";
         case HINT_SERVER_CRASHED:        return "HINT_SERVER_CRASHED";
         case RECOVERY_MASTER_FINISHED:   return "RECOVERY_MASTER_FINISHED";

@@ -1,4 +1,4 @@
-/* Copyright (c) 2012 Stanford University
+/* Copyright (c) 2013 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -362,7 +362,7 @@ MultiOp::finishRpc(MultiOp::PartRpc* rpc) {
                         reinterpret_cast<const char*>(request->key));
                 messageLogged = true;
             }
-            ramcloud->objectFinder.flush();
+            ramcloud->objectFinder.flush(request->tableId);
             request->status = STATUS_RETRY;
         }
 
@@ -476,7 +476,9 @@ MultiOp::PartRpc::handleTransportError()
                 session->getServiceLocator().c_str());
         session = NULL;
     }
-    ramcloud->objectFinder.flush();
+    for (uint32_t i = 0; i < reqHdr->count; i++) {
+        ramcloud->objectFinder.flush(requests[i]->tableId);
+    }
     return true;
 }
 

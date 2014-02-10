@@ -1,4 +1,4 @@
-/* Copyright (c) 2012 Stanford University
+/* Copyright (c) 2013 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -22,21 +22,24 @@ namespace RAMCloud {
 
 // This class provides tablet map info to ObjectFinder, with a
 // different locator each time it is invoked.
-class ObjRpcWrapperRefresher : public ObjectFinder::TabletMapFetcher {
+class ObjRpcWrapperRefresher : public ObjectFinder::TableConfigFetcher {
   public:
     ObjRpcWrapperRefresher() : called(0) {}
-    void getTabletMap(ProtoBuf::Tablets& tabletMap) {
+    void getTableConfig(
+        uint64_t tableId,
+        std::map<TabletKey, TabletProtoBuffer>* tableMap) {
+
         called++;
         char buffer[100];
         snprintf(buffer, sizeof(buffer), "mock:refresh=%d", called);
 
-        tabletMap.clear_tablet();
-        ProtoBuf::Tablets_Tablet& entry(*tabletMap.add_tablet());
-        entry.set_table_id(10);
-        entry.set_start_key_hash(0);
-        entry.set_end_key_hash(~0UL);
-        entry.set_state(ProtoBuf::Tablets_Tablet_State_NORMAL);
-        entry.set_service_locator(buffer);
+        tableMap->clear();
+        Tablet rawEntry({10, 0, ~0, ServerId(),
+                    Tablet::NORMAL, Log::Position()});
+        TabletProtoBuffer entry(rawEntry, buffer);
+
+        TabletKey key {entry.tablet.tableId, entry.tablet.startKeyHash};
+        tableMap->insert(std::make_pair(key, entry));
     }
     uint32_t called;
 };
@@ -50,7 +53,7 @@ class ObjectRpcWrapperTest : public ::testing::Test {
         : ramcloud("mock:")
         , transport(ramcloud.clientContext)
     {
-        ramcloud.objectFinder.tabletMapFetcher.reset(
+        ramcloud.objectFinder.tableConfigFetcher.reset(
                 new ObjRpcWrapperRefresher);
         ramcloud.clientContext->transportManager->registerMock(&transport);
     }

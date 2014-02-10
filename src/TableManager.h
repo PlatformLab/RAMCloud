@@ -72,7 +72,7 @@ class TableManager {
                                  uint64_t ctimeSegmentId,
                                  uint64_t ctimeSegmentOffset);
     void recover(uint64_t lastCompletedUpdate);
-    void serialize(ProtoBuf::Tablets* tablets) const;
+    void serializeTableConfig(ProtoBuf::Tablets* tablets, uint64_t tableId);
     void splitTablet(const char* name,
                      uint64_t splitKeyHash);
     void splitRecoveringTablet(uint64_t tableId, uint64_t splitKeyHash);

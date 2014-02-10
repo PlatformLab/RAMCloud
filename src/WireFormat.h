@@ -75,7 +75,7 @@ enum Opcode {
     REMOVE                    = 15,
     ENLIST_SERVER             = 16,
     GET_SERVER_LIST           = 17,
-    GET_TABLET_MAP            = 18,
+    GET_TABLE_CONFIG          = 18,
     RECOVER                   = 19,
     HINT_SERVER_CRASHED       = 20,
     RECOVERY_MASTER_FINISHED  = 21,
@@ -670,15 +670,16 @@ struct GetTableId {
     } __attribute__((packed));
 };
 
-struct GetTabletMap {
-    static const Opcode opcode = GET_TABLET_MAP;
+struct GetTableConfig {
+    static const Opcode opcode = GET_TABLE_CONFIG;
     static const ServiceType service = COORDINATOR_SERVICE;
     struct Request {
         RequestCommon common;
+        uint64_t tableId;
     } __attribute__((packed));
     struct Response {
         ResponseCommon common;
-        uint32_t tabletMapLength;  // Number of bytes in the tablet map.
+        uint32_t tableConfigLength;  // Number of bytes in the tablet map.
                                    // The bytes of the tablet map follow
                                    // immediately after this header. See
                                    // ProtoBuf::Tablets.

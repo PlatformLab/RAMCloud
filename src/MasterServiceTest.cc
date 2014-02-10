@@ -37,27 +37,29 @@ namespace RAMCloud {
 // This class provides tablet map info to ObjectFinder, so we
 // can control which server handles which object.  It maps tables
 // 0 and 99 to "mock:host=master".
-class MasterServiceRefresher : public ObjectFinder::TabletMapFetcher {
+class MasterServiceRefresher : public ObjectFinder::TableConfigFetcher {
   public:
     MasterServiceRefresher() : refreshCount(1) {}
-    void getTabletMap(ProtoBuf::Tablets& tabletMap) {
-        char buffer[100];
-        snprintf(buffer, sizeof(buffer), "mock:host=master");
+    void getTableConfig(
+         uint64_t tableId,
+         std::map<TabletKey, TabletProtoBuffer>* tableMap) {
+        tableMap->clear();
 
-        tabletMap.clear_tablet();
-        ProtoBuf::Tablets_Tablet& entry(*tabletMap.add_tablet());
-        entry.set_table_id(1);
-        entry.set_start_key_hash(0);
-        entry.set_end_key_hash(~0UL);
-        entry.set_state(ProtoBuf::Tablets_Tablet_State_NORMAL);
-        entry.set_service_locator(buffer);
+        Tablet rawEntry({1, 0, ~0, ServerId(),
+                            Tablet::NORMAL, Log::Position()});
+        TabletProtoBuffer entry(rawEntry, "mock:host=master");
+
+        TabletKey key {entry.tablet.tableId, entry.tablet.startKeyHash};
+        tableMap->insert(std::make_pair(key, entry));
+
         if (refreshCount > 0) {
-            ProtoBuf::Tablets_Tablet& entry2(*tabletMap.add_tablet());
-            entry2.set_table_id(99);
-            entry2.set_start_key_hash(0);
-            entry2.set_end_key_hash(~0UL);
-            entry2.set_state(ProtoBuf::Tablets_Tablet_State_NORMAL);
-            entry2.set_service_locator(buffer);
+            Tablet rawEntry2({99, 0, ~0, ServerId(),
+                                    Tablet::NORMAL, Log::Position()});
+            TabletProtoBuffer entry2(rawEntry2, "mock:host=master");
+
+            TabletKey key2 {entry2.tablet.tableId, entry2.tablet.startKeyHash};
+            tableMap->insert(std::make_pair(key2, entry2));
+
         }
         refreshCount--;
     }
@@ -125,7 +127,7 @@ class MasterServiceTest : public ::testing::Test {
         service->objectManager.log.sync();
 
         ramcloud.construct(&context, "mock:host=coordinator");
-        ramcloud->objectFinder.tabletMapFetcher.reset(
+        ramcloud->objectFinder.tableConfigFetcher.reset(
                 new MasterServiceRefresher);
 
         service->tabletManager.addTablet(1, 0, ~0UL, TabletManager::NORMAL);

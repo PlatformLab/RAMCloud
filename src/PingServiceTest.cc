@@ -39,7 +39,7 @@ namespace RAMCloud {
 // that owns a table without the need of going through the
 // coordinator. We use this class, since we don't have cluster in
 // this test.
-class MockTabletMapFetcher : public ObjectFinder::TabletMapFetcher {
+class MockTableConfigFetcher : public ObjectFinder::TableConfigFetcher {
   public:
 
     /**
@@ -50,18 +50,21 @@ class MockTabletMapFetcher : public ObjectFinder::TabletMapFetcher {
     * \param locator 
     *      stringLocator of the server that holds the table  
     */
-    explicit MockTabletMapFetcher(string locator, uint64_t tableId)
+    explicit MockTableConfigFetcher(string locator, uint64_t tableId)
         : locator(locator)
         , tableId(tableId)
     {}
-    void getTabletMap(ProtoBuf::Tablets& tabletMap) {
-        tabletMap.clear_tablet();
-        ProtoBuf::Tablets_Tablet& entry(*tabletMap.add_tablet());
-        entry.set_table_id(tableId);
-        entry.set_start_key_hash(0);
-        entry.set_end_key_hash(~0UL);
-        entry.set_state(ProtoBuf::Tablets_Tablet_State_NORMAL);
-        entry.set_service_locator(locator);
+    void getTableConfig(
+        uint64_t tableId,
+        std::map<TabletKey, TabletProtoBuffer>* tableMap) {
+
+        tableMap->clear();
+        Tablet rawEntry({tableId, 0, ~0, ServerId(),
+                    Tablet::NORMAL, Log::Position()});
+        TabletProtoBuffer entry(rawEntry, locator);
+
+        TabletKey key {entry.tablet.tableId, entry.tablet.startKeyHash};
+        tableMap->insert(std::make_pair(key, entry));
     }
     string locator;
     uint64_t tableId;
@@ -223,10 +226,10 @@ TEST_F(PingServiceTest, serverControl_DipatchProfilerBasics){
     // We register an object of MockTabletMapFetcher that
     // is suposed to replace the tabletMapFetcher for the
     // Client.
-    ramcloud->objectFinder.tabletMapFetcher.reset(
-                            new MockTabletMapFetcher(locator, tableId));
-    string str = ramcloud->objectFinder.lookupTablet(tableId, 0)
-                                                .service_locator();
+    ramcloud->objectFinder.tableConfigFetcher.reset(
+                            new MockTableConfigFetcher(locator, tableId));
+    string str = ramcloud->objectFinder.lookupTablet(
+                                            tableId, 0)->serviceLocator;
     ASSERT_STREQ(str.c_str(), locator.c_str());
     Buffer output;
     uint64_t totalElements = 50000000;
@@ -266,8 +269,8 @@ TEST_F(PingServiceTest, serverControl_DipatchProfilerBasics){
 TEST_F(PingServiceTest, serverControl_DispatchProfilerExceptions) {
     uint64_t tableId = 2;
     string locator = serverList.getLocator(serverId);
-    ramcloud->objectFinder.tabletMapFetcher.reset(
-                            new MockTabletMapFetcher(locator, tableId));
+    ramcloud->objectFinder.tableConfigFetcher.reset(
+                            new MockTableConfigFetcher(locator, tableId));
     Buffer output;
     uint32_t totalElements = 10000000;
 

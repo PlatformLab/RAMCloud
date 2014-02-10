@@ -778,24 +778,22 @@ bool
 checkSplitTablets(RamCloud *cluster,
                   boost::unordered_multimap<uint64_t, uint64_t> splitPoints)
 {
-    ProtoBuf::Tablets tabletMap;
-    CoordinatorClient::getTabletMap(cluster->clientContext, &tabletMap);
-
     RAMCLOUD_LOG(NOTICE, "Checking for Split tablets");
     bool ret = true;
     int count = 0;
     boost::unordered_multimap<uint64_t, uint64_t>::iterator it;
     for (it = splitPoints.begin(); it != splitPoints.end(); ++it) {
+        ProtoBuf::Tablets tableConfig;
+        CoordinatorClient::getTableConfig(cluster->clientContext,
+                                                  it->first, &tableConfig);
         count = 0;
         RAMCLOUD_LOG(NOTICE, "Printing TabletMap\n");
         foreach (const ProtoBuf::Tablets::Tablet& tablet,
-                                                tabletMap.tablet()) {
+                                                tableConfig.tablet()) {
 
-            if (it->first == (uint64_t)tablet.table_id() &&
-                it->second == tablet.end_key_hash() + 1)
+            if (it->second == tablet.end_key_hash() + 1)
                 count++;
-            else if (it->first == (uint64_t)tablet.table_id() &&
-                it->second == tablet.start_key_hash())
+            else if (it->second == tablet.start_key_hash())
                 count++;
 
             RAMCLOUD_LOG(NOTICE, "Table ID %lu, start key hash %lu,"

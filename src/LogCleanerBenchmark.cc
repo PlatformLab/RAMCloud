@@ -1839,7 +1839,7 @@ try
     uint64_t tableId = ramcloud.getTableId(options.tableName.c_str());
 
     string locator =
-        ramcloud.objectFinder.lookupTablet(tableId, 0).service_locator();
+        ramcloud.objectFinder.lookupTablet(tableId, 0)->serviceLocator;
 
     ProtoBuf::ServerConfig serverConfig;
     ramcloud.getServerConfig(locator.c_str(), serverConfig);

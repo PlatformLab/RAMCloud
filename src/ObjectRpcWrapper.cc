@@ -92,7 +92,7 @@ ObjectRpcWrapper::checkStatus()
                 "refreshing object map",
                 session->getServiceLocator().c_str(),
                 tableId, keyHash);
-        ramcloud->objectFinder.flush();
+        ramcloud->objectFinder.flush(tableId);
         send();
         return false;
     }
@@ -108,7 +108,7 @@ ObjectRpcWrapper::handleTransportError()
     // Then retry.
     ramcloud->objectFinder.flushSession(tableId, keyHash);
     session = NULL;
-    ramcloud->objectFinder.flush();
+    ramcloud->objectFinder.flush(tableId);
     send();
     return false;
 }

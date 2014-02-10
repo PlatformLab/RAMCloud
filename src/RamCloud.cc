@@ -1651,7 +1651,7 @@ RamCloud::testingGetServerId(uint64_t tableId,
                              const void* key, uint16_t keyLength)
 {
     KeyHash keyHash = Key::getHash(tableId, key, keyLength);
-    return objectFinder.lookupTablet(tableId, keyHash).server_id();
+    return objectFinder.lookupTablet(tableId, keyHash)->tablet.serverId.getId();
 }
 
 /**
@@ -1667,7 +1667,7 @@ RamCloud::testingGetServiceLocator(uint64_t tableId,
                                    const void* key, uint16_t keyLength)
 {
     KeyHash keyHash = Key::getHash(tableId, key, keyLength);
-    return objectFinder.lookupTablet(tableId, keyHash).service_locator();
+    return objectFinder.lookupTablet(tableId, keyHash)->serviceLocator;
 }
 
 /**
@@ -1688,7 +1688,7 @@ void
 RamCloud::testingKill(uint64_t tableId, const void* key, uint16_t keyLength)
 {
     KillRpc rpc(this, tableId, key, keyLength);
-    objectFinder.waitForTabletDown();
+    objectFinder.waitForTabletDown(tableId);
 }
 
 /**
@@ -1776,9 +1776,9 @@ SetRuntimeOptionRpc::SetRuntimeOptionRpc(RamCloud* ramcloud,
  * (that is, no tablet is under recovery).
  */
 void
-RamCloud::testingWaitForAllTabletsNormal(uint64_t timeoutNs)
+RamCloud::testingWaitForAllTabletsNormal(uint64_t tableId, uint64_t timeoutNs)
 {
-    objectFinder.waitForAllTabletsNormal(timeoutNs);
+    objectFinder.waitForAllTabletsNormal(tableId, timeoutNs);
 }
 
 /**
