@@ -30,10 +30,11 @@ namespace RAMCloud {
 typedef uint64_t KeyHash;
 
 /**
- * RAMCloud objects are named using a 2-tuple consisting of a 64-bit table
- * identifier and a binary string key. This class represents that tuple,
- * and allows us to pass Key references around, rather than a 64-bit tableId,
- * void pointer, and a length.
+ * RAMCloud objects can contain multiple keys in addition to the primary key.
+ * However, this class is used only for the primary key which is a 2-tuple
+ * consisting of a 64-bit table identifier and a binary string key. This
+ * class represents that tuple, and allows us to pass Key references around,
+ * rather than a 64-bit tableId, void pointer, and a length.
  *
  * This class also caches the hash value of the key, avoiding recomputation
  * when the hash is needed in various layers of the system.

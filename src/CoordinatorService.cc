@@ -161,9 +161,9 @@ CoordinatorService::dispatch(WireFormat::Opcode opcode,
             callHandler<WireFormat::GetServerList, CoordinatorService,
                         &CoordinatorService::getServerList>(rpc);
             break;
-        case WireFormat::GetTabletMap::opcode:
-            callHandler<WireFormat::GetTabletMap, CoordinatorService,
-                        &CoordinatorService::getTabletMap>(rpc);
+        case WireFormat::GetTableConfig::opcode:
+            callHandler<WireFormat::GetTableConfig, CoordinatorService,
+                        &CoordinatorService::getTableConfig>(rpc);
             break;
         case WireFormat::HintServerCrashed::opcode:
             callHandler<WireFormat::HintServerCrashed, CoordinatorService,
@@ -378,19 +378,19 @@ CoordinatorService::getServerList(
 }
 
 /**
- * Handle the GET_TABLET_MAP RPC.
+ * Handle the GET_TABLE_CONFIG RPC.
  * \copydetails Service::ping
  */
 void
-CoordinatorService::getTabletMap(
-    const WireFormat::GetTabletMap::Request* reqHdr,
-    WireFormat::GetTabletMap::Response* respHdr,
+CoordinatorService::getTableConfig(
+    const WireFormat::GetTableConfig::Request* reqHdr,
+    WireFormat::GetTableConfig::Response* respHdr,
     Rpc* rpc)
 {
     ProtoBuf::Tablets tablets;
-    tableManager.serialize(&tablets);
-    respHdr->tabletMapLength = serializeToResponse(rpc->replyPayload,
-                                                   &tablets);
+    tableManager.serializeTableConfig(&tablets, reqHdr->tableId);
+    respHdr->tableConfigLength = serializeToResponse(rpc->replyPayload,
+                                                     &tablets);
 }
 
 /**

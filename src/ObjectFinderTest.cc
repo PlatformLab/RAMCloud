@@ -18,40 +18,73 @@
 #include "ObjectFinder.h"
 
 namespace RAMCloud {
-struct Refresher : public ObjectFinder::TabletMapFetcher {
+struct Refresher : public ObjectFinder::TableConfigFetcher {
     Refresher() : called(0) {}
-    void getTabletMap(ProtoBuf::Tablets& tabletMap) {
-        ProtoBuf::Tablets_Tablet tablet1;
-        tablet1.set_table_id(0);
-        tablet1.set_start_key_hash(0);
-        tablet1.set_end_key_hash(~0UL);
-        tablet1.set_state(ProtoBuf::Tablets_Tablet_State_NORMAL);
-        tablet1.set_service_locator("mock:host=fail");
+    void getTableConfig(
+         uint64_t tableId,
+         std::map<TabletKey, TabletProtoBuffer>* tableMap) {
 
-        ProtoBuf::Tablets_Tablet tablet2;
-        tablet2.set_table_id(1);
-        tablet2.set_start_key_hash(0);
-        tablet2.set_end_key_hash(~0UL);
-        tablet2.set_state(ProtoBuf::Tablets_Tablet_State_NORMAL);
-        tablet2.set_service_locator("mock:host=server0");
+        tableMap->clear();
+        Tablet rawTablet2({1, 0, ~0, ServerId(),
+                                Tablet::NORMAL, Log::Position()});
+        TabletProtoBuffer tablet2(rawTablet2, "mock:host=server1");
 
-        ProtoBuf::Tablets_Tablet tablet3;
-        tablet3.set_table_id(2);
-        tablet3.set_start_key_hash(0);
-        tablet3.set_end_key_hash(~0UL);
-        tablet3.set_state(ProtoBuf::Tablets_Tablet_State_NORMAL);
-        tablet3.set_service_locator("mock:host=server1");
+        Tablet rawTablet3({2, 0, 1000, ServerId(),
+                                Tablet::NORMAL, Log::Position()});
+        TabletProtoBuffer tablet3(rawTablet3, "mock:host=server2");
 
-        tabletMap.clear_tablet();
+        Tablet rawTablet4({2, 1000, ~0, ServerId(),
+                                Tablet::NORMAL, Log::Position()});
+        TabletProtoBuffer tablet4(rawTablet4, "mock:host=server6");
+
+        Tablet rawTablet5({3, 0, 1000, ServerId(),
+                                Tablet::NORMAL, Log::Position()});
+        TabletProtoBuffer tablet5(rawTablet5, "mock:host=server3");
+
+        Tablet rawTablet8({3, 10000, ~0, ServerId(),
+                                Tablet::NORMAL, Log::Position()});
+        TabletProtoBuffer tablet8(rawTablet8, "mock:host=server3");
+
+        Tablet rawTablet6({4, 0, ~0, ServerId(),
+                                Tablet::NORMAL, Log::Position()});
+        TabletProtoBuffer tablet6(rawTablet6, "mock:host=server4");
+
+        Tablet rawTablet7({5, 13274077256558369931LLU, 18303021482201187663LLU,
+                            ServerId(), Tablet::NORMAL, Log::Position()});
+        TabletProtoBuffer tablet7(rawTablet7, "mock:host=server5");
 
         switch (++called) {
             case 1:
             case 2:
-                tablet2.set_state(ProtoBuf::Tablets_Tablet_State_RECOVERING);
-            case 3:
-                *tabletMap.add_tablet() = tablet1;
-                *tabletMap.add_tablet() = tablet2;
-                *tabletMap.add_tablet() = tablet3;
+                tablet2.tablet.status = Tablet::RECOVERING;
+            default:
+                TabletKey key2 {tablet2.tablet.tableId,
+                                            tablet2.tablet.startKeyHash};
+                tableMap->insert(std::make_pair(key2, tablet2));
+
+                TabletKey key3 {tablet3.tablet.tableId,
+                                            tablet3.tablet.startKeyHash};
+                tableMap->insert(std::make_pair(key3, tablet3));
+
+                TabletKey key4 {tablet4.tablet.tableId,
+                                            tablet4.tablet.startKeyHash};
+                tableMap->insert(std::make_pair(key4, tablet4));
+
+                TabletKey key5 {tablet5.tablet.tableId,
+                                            tablet5.tablet.startKeyHash};
+                tableMap->insert(std::make_pair(key5, tablet5));
+
+                TabletKey key8 {tablet8.tablet.tableId,
+                                            tablet8.tablet.startKeyHash};
+                tableMap->insert(std::make_pair(key8, tablet8));
+
+                TabletKey key6 {tablet6.tablet.tableId,
+                                            tablet6.tablet.startKeyHash};
+                tableMap->insert(std::make_pair(key6, tablet6));
+
+                TabletKey key7 {tablet7.tablet.tableId,
+                                            tablet7.tablet.startKeyHash};
+                tableMap->insert(std::make_pair(key7, tablet7));
         }
     }
     uint32_t called;
@@ -78,9 +111,14 @@ class ObjectFinderTest : public ::testing::Test {
         config.services = {WireFormat::MASTER_SERVICE};
         cluster.addServer(config);
         cluster.addServer(config);
+        cluster.addServer(config);
+        cluster.addServer(config);
+        cluster.addServer(config);
+        cluster.addServer(config);
+        cluster.addServer(config);
 
         refresher = new Refresher();
-        objectFinder->tabletMapFetcher.reset(refresher);
+        objectFinder->tableConfigFetcher.reset(refresher);
     }
 
     ~ObjectFinderTest() {
@@ -90,51 +128,156 @@ class ObjectFinderTest : public ::testing::Test {
     DISALLOW_COPY_AND_ASSIGN(ObjectFinderTest);
 };
 
-TEST_F(ObjectFinderTest, lookup_key) {
-    Transport::SessionRef session(objectFinder->lookup(1, "testKey", 7));
-    // first tablet map is empty, throws TableDoesntExistException
-    // get a new tablet map
-    // find tablet in recovery
-    // get a new tablet map
-    // find tablet in recovery
-    // get a new tablet map
-    // find tablet in operation
-    EXPECT_EQ(3U, refresher->called);
-    EXPECT_EQ("mock:host=server0",
-        static_cast<BindTransport::BindSession*>(session.get())->
-                getServiceLocator());
-}
+TEST_F(ObjectFinderTest, flush) {
+    // expect nothing to be there before refreshing the coordinator
+    EXPECT_EQ(objectFinder->debugString(), "");
 
-TEST_F(ObjectFinderTest, lookup_hash) {
-    KeyHash keyHash = Key::getHash(1, "testKey", 7);
-    Transport::SessionRef session(objectFinder->lookup(1, keyHash));
-    // first tablet map is empty, throws TableDoesntExistException
-    // get a new tablet map
-    // find tablet in recovery
-    // get a new tablet map
-    // find tablet in recovery
-    // get a new tablet map
-    // find tablet in operation
-    EXPECT_EQ(3U, refresher->called);
-    EXPECT_EQ("mock:host=server0",
-        static_cast<BindTransport::BindSession*>(session.get())->
-                getServiceLocator());
+    // fetch the tableMap
+    EXPECT_THROW(Transport::SessionRef session1(
+                    objectFinder->lookup(10, "testKey", 7)),
+                 TableDoesntExistException);
+    EXPECT_EQ(objectFinder->debugString(),
+               "{{tableId : 1, keyHash : 0}, {start_key_hash : 0,"
+               " end_key_hash : 18446744073709551615, state : 1}},"
+               " {{tableId : 2, keyHash : 0}, {start_key_hash : 0,"
+               " end_key_hash : 1000, state : 0}},"
+               " {{tableId : 2, keyHash : 1000}, {start_key_hash : 1000,"
+               " end_key_hash : 18446744073709551615, state : 0}},"
+               " {{tableId : 3, keyHash : 0}, {start_key_hash : 0,"
+               " end_key_hash : 1000, state : 0}},"
+               " {{tableId : 3, keyHash : 10000}, {start_key_hash : 10000,"
+               " end_key_hash : 18446744073709551615, state : 0}},"
+               " {{tableId : 4, keyHash : 0}, {start_key_hash : 0,"
+               " end_key_hash : 18446744073709551615, state : 0}},"
+               " {{tableId : 5, keyHash : 13274077256558369931},"
+               " {start_key_hash : 13274077256558369931,"
+               " end_key_hash : 18303021482201187663, state : 0}}");
+
+    // flush multiple tables in the middle
+    for (uint64_t i = 3; i <= 5; i++) {
+        objectFinder->flush(i);
+    }
+    EXPECT_EQ(objectFinder->debugString(),
+                "{{tableId : 1, keyHash : 0}, {start_key_hash : 0,"
+                " end_key_hash : 18446744073709551615, state : 1}},"
+                " {{tableId : 2, keyHash : 0}, {start_key_hash : 0,"
+                " end_key_hash : 1000, state : 0}},"
+                " {{tableId : 2, keyHash : 1000}, {start_key_hash : 1000,"
+                " end_key_hash : 18446744073709551615, state : 0}}");
+
+    // try to flush a removed table
+    objectFinder->flush(5);
+    EXPECT_EQ(objectFinder->debugString(),
+                "{{tableId : 1, keyHash : 0}, {start_key_hash : 0,"
+                " end_key_hash : 18446744073709551615, state : 1}},"
+                " {{tableId : 2, keyHash : 0}, {start_key_hash : 0,"
+                " end_key_hash : 1000, state : 0}},"
+                " {{tableId : 2, keyHash : 1000}, {start_key_hash : 1000,"
+                " end_key_hash : 18446744073709551615, state : 0}}");
+
+    // try to flush an entry that never existed.
+    objectFinder->flush(10);
+    EXPECT_EQ(objectFinder->debugString(),
+                "{{tableId : 1, keyHash : 0}, {start_key_hash : 0,"
+                " end_key_hash : 18446744073709551615, state : 1}},"
+                " {{tableId : 2, keyHash : 0}, {start_key_hash : 0,"
+                " end_key_hash : 1000, state : 0}},"
+                " {{tableId : 2, keyHash : 1000}, {start_key_hash : 1000,"
+                " end_key_hash : 18446744073709551615, state : 0}}");
+
+    // flush a table with multiple tablets. Also the end tablet
+    objectFinder->flush(2);
+    EXPECT_EQ(objectFinder->debugString(),
+                "{{tableId : 1, keyHash : 0}, {start_key_hash : 0,"
+                " end_key_hash : 18446744073709551615, state : 1}}");
+
+    //flush the table in the beginning
+    objectFinder->flush(1);
+    EXPECT_EQ(objectFinder->debugString(), "");
 }
 
 TEST_F(ObjectFinderTest, flushSession) {
     KeyHash keyHash = Key::getHash(1, "testKey", 7);
     objectFinder->lookup(1, keyHash);
     EXPECT_FALSE(context.transportManager->sessionCache.find(
-            "mock:host=server0")
+            "mock:host=server1")
             == context.transportManager->sessionCache.end());
     TestLog::reset();
     objectFinder->flushSession(1, keyHash);
     EXPECT_TRUE(context.transportManager->sessionCache.find(
-            "mock:host=server0")
+            "mock:host=server1")
             == context.transportManager->sessionCache.end());
-    EXPECT_EQ("flushSession: flushing session for mock:host=server0",
+    EXPECT_EQ("flushSession: flushing session for mock:host=server1",
             TestLog::get());
     objectFinder->flushSession(99, 0);
+}
+
+TEST_F(ObjectFinderTest, lookupTablet) {
+
+    // expect nothing to be there before refreshing the coordinator
+    EXPECT_EQ(objectFinder->debugString(), "");
+
+    // testing recovery
+    EXPECT_EQ(0U, refresher->called);
+    Transport::SessionRef session9(objectFinder->lookup(1, "testKey", 7));
+    EXPECT_EQ(3U, refresher->called);
+    // first tablet map is empty, throws TableDoesntExistException
+    // get a new tablet map
+    // find tablet in recovery
+    // get a new tablet map
+    // find tablet in recovery
+    // get a new tablet map
+    // find tablet in operation
+    EXPECT_EQ("mock:host=server1",
+        static_cast<BindTransport::BindSession*>(session9.get())->
+                getServiceLocator());
+
+    // Looking up non-existant tablet, throws TableDoesntExistException
+    EXPECT_THROW(Transport::SessionRef session1(
+                    objectFinder->lookup(10, "testKey", 7)),
+                TableDoesntExistException);
+
+    // Lookup key before the first tablet
+    EXPECT_THROW(Transport::SessionRef session2(
+                    objectFinder->lookup(0, "testKey", 7)),
+                TableDoesntExistException);
+
+    // looking up key in the first tablet
+    Transport::SessionRef session3(objectFinder->lookup(1, "testKey", 7));
+    EXPECT_EQ("mock:host=server1",
+        static_cast<BindTransport::BindSession*>(session3.get())->
+                getServiceLocator());
+
+    // looking up key in the middle tablet
+    Transport::SessionRef session4(objectFinder->lookup(2, "testKey", 7));
+    EXPECT_EQ("mock:host=server6",
+        static_cast<BindTransport::BindSession*>(session4.get())->
+                getServiceLocator());
+
+    // looking up key in the middle of two tablets
+    // Ensuring tableMap iterates in the correct range for a tableId.
+    // ("testKey",7) hashes to 14083349934329982302, which is not present.
+    EXPECT_THROW(Transport::SessionRef session5(
+                    objectFinder->lookup(5, "bogus", 5)),
+                 TableDoesntExistException);
+
+    // looking up key in the last tablet
+    Transport::SessionRef session6(objectFinder->lookup(5, "testKey", 7));
+    EXPECT_EQ("mock:host=server5",
+        static_cast<BindTransport::BindSession*>(session6.get())->
+                getServiceLocator());
+
+    // looking up key after the last tablet
+    EXPECT_THROW(Transport::SessionRef session7(
+                    objectFinder->lookup(5, "testKeyCheck", 12)),
+                 TableDoesntExistException);
+
+    // expect to stay consistent with the coordinator
+    objectFinder->flush(2);
+    Transport::SessionRef session8(objectFinder->lookup(2, "testKey", 7));
+    EXPECT_EQ("mock:host=server6",
+            static_cast<BindTransport::BindSession*>(session8.get())->
+                    getServiceLocator());
 }
 
 }  // namespace RAMCloud

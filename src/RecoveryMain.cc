@@ -205,7 +205,7 @@ try
 
     OptionParser optionParser(clientOptions, argc, argv);
     context.transportManager->setSessionTimeout(
-            optionParser.options.getSessionTimeout());
+        optionParser.options.getSessionTimeout());
 
     string coordinatorLocator =
             optionParser.options.getExternalStorageLocator();
@@ -354,7 +354,10 @@ try
     LOG(NOTICE, "tablet down");
 
     // Wait for recovery to complete
-    client.objectFinder.waitForAllTabletsNormal();
+    for (uint32_t t = 0; t < tableCount; t++) {
+        uint64_t tableId = tables[t];
+        client.objectFinder.waitForAllTabletsNormal(tableId);
+    }
     LOG(NOTICE, "all tablets now normal");
 
     Buffer nb;

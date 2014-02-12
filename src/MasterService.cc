@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2013 Stanford University
+/* Copyright (c) 2009-2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -25,6 +25,7 @@
 #include "LogIterator.h"
 #include "MasterClient.h"
 #include "MasterService.h"
+#include "ObjectBuffer.h"
 #include "ProtoBuf.h"
 #include "RawMetrics.h"
 #include "Segment.h"
@@ -156,6 +157,10 @@ MasterService::dispatch(WireFormat::Opcode opcode, Rpc* rpc)
         case WireFormat::Read::opcode:
             callHandler<WireFormat::Read, MasterService,
                         &MasterService::read>(rpc);
+            break;
+        case WireFormat::ReadKeysAndValue::opcode:
+            callHandler<WireFormat::ReadKeysAndValue, MasterService,
+                        &MasterService::readKeysAndValue>(rpc);
             break;
         case WireFormat::ReceiveMigrationData::opcode:
             callHandler<WireFormat::ReceiveMigrationData, MasterService,
@@ -409,16 +414,18 @@ MasterService::fillWithTestData(
         // safe? doubtful. simple? you bet.
         uint8_t data[reqHdr->objectSize];
         memset(data, 0xcc, reqHdr->objectSize);
-        buffer.append(data, reqHdr->objectSize);
 
         string keyString = format("%lu", objects / tablets.size());
         Key key(tablets[t].tableId,
                 keyString.c_str(),
                 downCast<uint16_t>(keyString.length()));
 
+        Object::appendKeysAndValueToBuffer(key, data, reqHdr->objectSize,
+                                           buffer);
+
         uint64_t newVersion;
-        Status status = objectManager.writeObject(key,
-                                                   buffer,
+        Object object(tablets[t].tableId, 0, 0, buffer);
+        Status status = objectManager.writeObject(object,
                                                    &rejectRules,
                                                    &newVersion);
         if (status == STATUS_RETRY) {
@@ -444,7 +451,6 @@ MasterService::fillWithTestData(
     LOG(NOTICE, "Done writing objects.");
 }
 
-
 /**
  * Top-level server method to handle the INCREMENT request.
  *
@@ -452,8 +458,8 @@ MasterService::fillWithTestData(
  */
 void
 MasterService::increment(const WireFormat::Increment::Request* reqHdr,
-                         WireFormat::Increment::Response* respHdr,
-                         Rpc* rpc)
+                     WireFormat::Increment::Response* respHdr,
+                     Rpc* rpc)
 {
     // Read the current value of the object and add the increment value
     Key key(reqHdr->tableId, *rpc->requestPayload, sizeof32(*reqHdr),
@@ -461,26 +467,32 @@ MasterService::increment(const WireFormat::Increment::Request* reqHdr,
 
     Status *status = &respHdr->common.status;
 
-    Buffer value;
+    ObjectBuffer value;
     RejectRules rejectRules = reqHdr->rejectRules;
     *status = objectManager.readObject(key, &value, &rejectRules, NULL);
     if (*status != STATUS_OK)
         return;
 
-    if (value.getTotalLength() != sizeof(int64_t)) {
+    uint32_t dataLen;
+    const int64_t oldValue = *value.get<int64_t>(&dataLen);
+
+    if (dataLen != sizeof(int64_t)) {
         *status = STATUS_INVALID_OBJECT;
         return;
     }
 
-    const int64_t oldValue = *value.getOffset<int64_t>(0);
     int64_t newValue = oldValue + reqHdr->incrementValue;
 
     // Write the new value back
     Buffer newValueBuffer;
-    newValueBuffer.append(&newValue, sizeof(int64_t));
 
-    *status = objectManager.writeObject(key, newValueBuffer,
-        &rejectRules, &respHdr->version);
+    // create object to populate newValueBuffer.
+    Object::appendKeysAndValueToBuffer(key, &newValue, sizeof(int64_t),
+                                       newValueBuffer);
+
+    Object newObject(reqHdr->tableId, 0, 0, newValueBuffer);
+    *status = objectManager.writeObject(newObject, &rejectRules,
+                                         &respHdr->version);
     if (*status != STATUS_OK)
         return;
     objectManager.syncChanges();
@@ -781,17 +793,17 @@ MasterService::multiRead(const WireFormat::MultiOp::Request* reqHdr,
                    new(rpc->replyPayload, APPEND)
                        WireFormat::MultiOp::Response::ReadPart();
 
-        Buffer buffer;
+        uint32_t initialLength = rpc->replyPayload->getTotalLength();
         currentResp->status = objectManager.readObject(key,
-                                                        &buffer,
+                                                        rpc->replyPayload,
                                                         NULL,
                                                         &currentResp->version);
 
         if (currentResp->status != STATUS_OK)
             continue;
 
-        currentResp->length = buffer.getTotalLength();
-        rpc->replyPayload->append(&buffer);
+        currentResp->length = rpc->replyPayload->getTotalLength() -
+                                initialLength;
     }
 }
 
@@ -901,31 +913,24 @@ MasterService::multiWrite(const WireFormat::MultiOp::Request* reqHdr,
         }
 
         reqOffset += sizeof32(WireFormat::MultiOp::Request::WritePart);
-        const void* stringKey = rpc->requestPayload->getRange(
-            reqOffset, currentReq->keyLength);
-        reqOffset += currentReq->keyLength;
-        const void* value = rpc->requestPayload->getRange(
-            reqOffset, currentReq->valueLength);
-        reqOffset += currentReq->valueLength;
 
-        if (stringKey == NULL || value == NULL) {
+        if (rpc->requestPayload->getTotalLength() <
+                reqOffset + currentReq->length) {
             respHdr->common.status = STATUS_REQUEST_FORMAT_ERROR;
             break;
         }
-
-        Key key(currentReq->tableId, stringKey, currentReq->keyLength);
-        Buffer buffer;
-        buffer.append(value, currentReq->valueLength);
-
         WireFormat::MultiOp::Response::WritePart* currentResp =
             new(rpc->replyPayload, APPEND)
                 WireFormat::MultiOp::Response::WritePart();
 
         RejectRules rejectRules = currentReq->rejectRules;
-        currentResp->status = objectManager.writeObject(key,
-                                                         buffer,
-                                                         &rejectRules,
-                                                         &currentResp->version);
+
+        Object object(currentReq->tableId, 0, 0, *(rpc->requestPayload),
+                        reqOffset, currentReq->length);
+        currentResp->status = objectManager.writeObject(object,
+                                                   &rejectRules,
+                                                   &currentResp->version);
+        reqOffset += currentReq->length;
     }
 
     // By design, our response will be shorter than the request. This ensures
@@ -1018,16 +1023,57 @@ MasterService::read(const WireFormat::Read::Request* reqHdr,
     Key key(reqHdr->tableId, stringKey, reqHdr->keyLength);
 
     RejectRules rejectRules = reqHdr->rejectRules;
-    Buffer buffer;
+    bool valueOnly = true;
+    uint32_t initialLength = rpc->replyPayload->getTotalLength();
     respHdr->common.status = objectManager.readObject(key,
-                                                       &buffer,
+                                                       rpc->replyPayload,
+                                                       &rejectRules,
+                                                       &respHdr->version,
+                                                       valueOnly);
+    if (respHdr->common.status != STATUS_OK)
+        return;
+
+    respHdr->length = rpc->replyPayload->getTotalLength() - initialLength;
+}
+
+/**
+ * Top-level server method to handle the READ_KEYS_AND_VALUE request.
+ *
+ * \param reqHdr
+ *      Header from the incoming RPC request; contains all the
+ *      parameters for this operation except the key of the object.
+ * \param[out] respHdr
+ *      Header for the response that will be returned to the client.
+ *      The caller has pre-allocated the right amount of space in the
+ *      response buffer for this type of request, and has zeroed out
+ *      its contents (so, for example, status is already zero).
+ * \param[out] rpc
+ *      Complete information about the remote procedure call.
+ *      It contains the key for the object. It can also be used to
+ *      read additional information beyond the request header and/or
+ *      append additional information to the response buffer.
+ */
+void
+MasterService::readKeysAndValue(const WireFormat::ReadKeysAndValue::Request*
+                    reqHdr,
+                    WireFormat::ReadKeysAndValue::Response* respHdr,
+                    Rpc* rpc)
+{
+    uint32_t reqOffset = sizeof32(*reqHdr);
+    const void* stringKey = rpc->requestPayload->getRange(reqOffset,
+                                                        reqHdr->keyLength);
+    Key key(reqHdr->tableId, stringKey, reqHdr->keyLength);
+
+    RejectRules rejectRules = reqHdr->rejectRules;
+    uint32_t initialLength = rpc->replyPayload->getTotalLength();
+    respHdr->common.status = objectManager.readObject(key,
+                                                       rpc->replyPayload,
                                                        &rejectRules,
                                                        &respHdr->version);
     if (respHdr->common.status != STATUS_OK)
         return;
 
-    respHdr->length = buffer.getTotalLength();
-    rpc->replyPayload->append(&buffer);
+    respHdr->length = rpc->replyPayload->getTotalLength() - initialLength;
 }
 
 /**
@@ -1240,19 +1286,17 @@ MasterService::write(const WireFormat::Write::Request* reqHdr,
                      WireFormat::Write::Response* respHdr,
                      Rpc* rpc)
 {
-    Buffer buffer;
-    const void* objectData = rpc->requestPayload->getRange(
-        sizeof32(*reqHdr) + reqHdr->keyLength, reqHdr->length);
-    buffer.append(objectData, reqHdr->length);
-
-    Key key(reqHdr->tableId,
-            *rpc->requestPayload,
-            sizeof32(*reqHdr),
-            reqHdr->keyLength);
+    // this is a temporary object that has an invalid version and timestamp.
+    // An object is created to make here sure the object format does not leak
+    // outside the object class. ObjectManager will update the version,
+    // timestamp and the checksum
+    Object object(reqHdr->tableId, 0, 0, *(rpc->requestPayload),
+                    sizeof32(*reqHdr));
 
     RejectRules rejectRules = reqHdr->rejectRules;
-    respHdr->common.status = objectManager.writeObject(key,
-        buffer, &rejectRules, &respHdr->version);
+    respHdr->common.status = objectManager.writeObject(object, &rejectRules,
+                                                        &respHdr->version);
+
     if (respHdr->common.status == STATUS_OK)
         objectManager.syncChanges();
 }

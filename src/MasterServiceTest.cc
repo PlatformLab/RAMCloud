@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2013 Stanford University
+/* Copyright (c) 2010-2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -26,6 +26,7 @@
 #include "MultiRead.h"
 #include "MultiRemove.h"
 #include "MultiWrite.h"
+#include "ObjectBuffer.h"
 #include "RamCloud.h"
 #include "ShortMacros.h"
 #include "StringUtil.h"
@@ -36,27 +37,29 @@ namespace RAMCloud {
 // This class provides tablet map info to ObjectFinder, so we
 // can control which server handles which object.  It maps tables
 // 0 and 99 to "mock:host=master".
-class MasterServiceRefresher : public ObjectFinder::TabletMapFetcher {
+class MasterServiceRefresher : public ObjectFinder::TableConfigFetcher {
   public:
     MasterServiceRefresher() : refreshCount(1) {}
-    void getTabletMap(ProtoBuf::Tablets& tabletMap) {
-        char buffer[100];
-        snprintf(buffer, sizeof(buffer), "mock:host=master");
+    void getTableConfig(
+         uint64_t tableId,
+         std::map<TabletKey, TabletProtoBuffer>* tableMap) {
+        tableMap->clear();
 
-        tabletMap.clear_tablet();
-        ProtoBuf::Tablets_Tablet& entry(*tabletMap.add_tablet());
-        entry.set_table_id(1);
-        entry.set_start_key_hash(0);
-        entry.set_end_key_hash(~0UL);
-        entry.set_state(ProtoBuf::Tablets_Tablet_State_NORMAL);
-        entry.set_service_locator(buffer);
+        Tablet rawEntry({1, 0, ~0, ServerId(),
+                            Tablet::NORMAL, Log::Position()});
+        TabletProtoBuffer entry(rawEntry, "mock:host=master");
+
+        TabletKey key {entry.tablet.tableId, entry.tablet.startKeyHash};
+        tableMap->insert(std::make_pair(key, entry));
+
         if (refreshCount > 0) {
-            ProtoBuf::Tablets_Tablet& entry2(*tabletMap.add_tablet());
-            entry2.set_table_id(99);
-            entry2.set_start_key_hash(0);
-            entry2.set_end_key_hash(~0UL);
-            entry2.set_state(ProtoBuf::Tablets_Tablet_State_NORMAL);
-            entry2.set_service_locator(buffer);
+            Tablet rawEntry2({99, 0, ~0, ServerId(),
+                                    Tablet::NORMAL, Log::Position()});
+            TabletProtoBuffer entry2(rawEntry2, "mock:host=master");
+
+            TabletKey key2 {entry2.tablet.tableId, entry2.tablet.startKeyHash};
+            tableMap->insert(std::make_pair(key2, entry2));
+
         }
         refreshCount--;
     }
@@ -124,7 +127,7 @@ class MasterServiceTest : public ::testing::Test {
         service->objectManager.log.sync();
 
         ramcloud.construct(&context, "mock:host=coordinator");
-        ramcloud->objectFinder.tabletMapFetcher.reset(
+        ramcloud->objectFinder.tableConfigFetcher.reset(
                 new MasterServiceRefresher);
 
         service->tabletManager.addTablet(1, 0, ~0UL, TabletManager::NORMAL);
@@ -139,10 +142,13 @@ class MasterServiceTest : public ::testing::Test {
     {
         Segment s;
         uint32_t dataLength = downCast<uint32_t>(objContents.length()) + 1;
-        Object newObject(key, objContents.c_str(), dataLength, version, 0);
+
+        Buffer dataBuffer;
+        Object newObject(key, objContents.c_str(), dataLength,
+                            version, 0, dataBuffer);
 
         Buffer newObjectBuffer;
-        newObject.serializeToBuffer(newObjectBuffer);
+        newObject.assembleForLog(newObjectBuffer);
         bool success = s.append(LOG_ENTRY_TYPE_OBJ, newObjectBuffer);
         EXPECT_TRUE(success);
         s.close();
@@ -165,7 +171,7 @@ class MasterServiceTest : public ::testing::Test {
     {
         Segment s;
         Buffer newTombstoneBuffer;
-        tomb.serializeToBuffer(newTombstoneBuffer);
+        tomb.assembleForLog(newTombstoneBuffer);
         bool success = s.append(LOG_ENTRY_TYPE_OBJTOMB, newTombstoneBuffer);
         EXPECT_TRUE(success);
         s.close();
@@ -189,7 +195,7 @@ class MasterServiceTest : public ::testing::Test {
     {
         Segment s;
         Buffer newSafeVerBuffer;
-        safeVer.serializeToBuffer(newSafeVerBuffer);
+        safeVer.assembleForLog(newSafeVerBuffer);
         bool success = s.append(LOG_ENTRY_TYPE_SAFEVERSION,
                                 newSafeVerBuffer);
         EXPECT_TRUE(success);
@@ -278,8 +284,8 @@ class MasterServiceTest : public ::testing::Test {
                 Buffer buf;
                 it.setBufferTo(buf);
                 ObjectSafeVersion safeVerDest(buf);
-                if (safeVerSrc->serializedForm.safeVersion
-                    == safeVerDest.serializedForm.safeVersion) {
+                if (safeVerSrc->header.safeVersion
+                    == safeVerDest.header.safeVersion) {
                     safeVerFound = true;
                 }
             }
@@ -395,10 +401,10 @@ TEST_F(MasterServiceTest, enumerate_basics) {
     EnumerateTableRpc rpc(ramcloud.get(), 1, false, 0, iter, objects);
     nextTabletStartHash = rpc.wait(nextIter);
     EXPECT_EQ(0U, nextTabletStartHash);
-    EXPECT_EQ(74U, objects.getTotalLength());
+    EXPECT_EQ(76U, objects.getTotalLength());
 
     // First object.
-    EXPECT_EQ(33U, *objects.getOffset<uint32_t>(0));            // size
+    EXPECT_EQ(34U, *objects.getOffset<uint32_t>(0));            // size
     Buffer buffer1;
     buffer1.append(objects.getRange(4, objects.getTotalLength() - 4),
                      objects.getTotalLength() - 4);
@@ -406,22 +412,24 @@ TEST_F(MasterServiceTest, enumerate_basics) {
     EXPECT_EQ(1U, object1.getTableId());                        // table ID
     EXPECT_EQ(1U, object1.getKeyLength());                      // key length
     EXPECT_EQ(version0, object1.getVersion());                  // version
-    EXPECT_EQ(0, memcmp("0", object1.getKey(), 1));             // key
-    EXPECT_EQ("abcdef", string(reinterpret_cast<const char*>    // value
-                               (object1.getData()), 6));
+    EXPECT_EQ("0", string(reinterpret_cast<const char*>(
+                   object1.getKey()), 1));                      // key
+    EXPECT_EQ("abcdef", string(reinterpret_cast<const char*>(
+                        object1.getValue()), 6));
 
     // Second object.
-    EXPECT_EQ(33U, *objects.getOffset<uint32_t>(37));           // size
+    EXPECT_EQ(34U, *objects.getOffset<uint32_t>(38));           // size
     Buffer buffer2;
-    buffer2.append(objects.getRange(41, objects.getTotalLength() - 41),
-                     objects.getTotalLength() - 41);
+    buffer2.append(objects.getRange(42, objects.getTotalLength() - 42),
+                     objects.getTotalLength() - 42);
     Object object2(buffer2);
     EXPECT_EQ(1U, object2.getTableId());                        // table ID
     EXPECT_EQ(1U, object2.getKeyLength());                      // key length
     EXPECT_EQ(version1, object2.getVersion());                  // version
-    EXPECT_EQ(0, memcmp("1", object2.getKey(), 1));             // key
-    EXPECT_EQ("ghijkl", string(reinterpret_cast<const char*>    // value
-                               (object2.getData()), 6));
+    EXPECT_EQ("1", string(reinterpret_cast<const char*>(
+                   object2.getKey()), 1));                      // key
+    EXPECT_EQ("ghijkl", string(reinterpret_cast<const char*>(
+                        object2.getValue()), 6));
 
     // We don't actually care about the contents of the iterator as
     // long as we get back 0 objects on the second call.
@@ -469,10 +477,10 @@ TEST_F(MasterServiceTest, enumerate_mergeTablet) {
     EnumerateTableRpc rpc(ramcloud.get(), 1, false, 0, iter, objects);
     nextTabletStartHash = rpc.wait(nextIter);
     EXPECT_EQ(0U, nextTabletStartHash);
-    EXPECT_EQ(42U, objects.getTotalLength());
+    EXPECT_EQ(43U, objects.getTotalLength());
 
     // Object coresponding to key "678910"
-    EXPECT_EQ(38U, *objects.getOffset<uint32_t>(0));            // size
+    EXPECT_EQ(39U, *objects.getOffset<uint32_t>(0));            // size
     Buffer buffer1;
     buffer1.append(objects.getRange(4, objects.getTotalLength() - 4),
                      objects.getTotalLength() - 4);
@@ -480,9 +488,10 @@ TEST_F(MasterServiceTest, enumerate_mergeTablet) {
     EXPECT_EQ(1U, object1.getTableId());                        // table ID
     EXPECT_EQ(6U, object1.getKeyLength());                      // key length
     EXPECT_EQ(version1, object1.getVersion());                  // version
-    EXPECT_EQ(0, memcmp("678910", object1.getKey(), 6));        // key
+    EXPECT_EQ("678910", string(reinterpret_cast<const char*>(
+                        object1.getKey()), 6))         ;        // key
     EXPECT_EQ("ghijkl", string(reinterpret_cast<const char*>(
-                               object1.getData()), 6));         // value
+                        object1.getValue()), 6));
 
     // The second object is not returned because it would have lived
     // on the part of the pre-merge tablet that we (pretended to have)
@@ -652,7 +661,7 @@ TEST_F(MasterServiceTest, migrateTablet_movingData) {
         "migrateTablet: Sending last migration segment | "
         "migrateTablet: Migration succeeded for tablet "
         "[0x0,0xffffffffffffffff] in tableId 1; sent 1 objects and "
-        "0 tombstones to server 3.0 at mock:host=master2, 35 bytes in total",
+        "0 tombstones to server 3.0 at mock:host=master2, 36 bytes in total",
         TestLog::get());
 
     // Ensure that the tablet ``creation'' time on the new master is
@@ -672,7 +681,7 @@ TEST_F(MasterServiceTest, multiRead_basics) {
     uint64_t tableId1 = ramcloud->createTable("table1");
     ramcloud->write(tableId1, "0", 1, "firstVal", 8);
     ramcloud->write(tableId1, "1", 1, "secondVal", 9);
-    Tub<Buffer> value1, value2;
+    Tub<ObjectBuffer> value1, value2;
     MultiReadObject request1(tableId1, "0", 1, &value1);
     MultiReadObject request2(tableId1, "1", 1, &value2);
     MultiReadObject* requests[] = {&request1, &request2};
@@ -680,22 +689,28 @@ TEST_F(MasterServiceTest, multiRead_basics) {
 
     EXPECT_STREQ("STATUS_OK", statusToSymbol(request1.status));
     EXPECT_EQ(1U, request1.version);
-    EXPECT_EQ("firstVal", TestUtil::toString(value1.get()));
+    EXPECT_EQ("firstVal", string(reinterpret_cast<const char*>(
+                          value1.get()->getValue()), 8));
     EXPECT_STREQ("STATUS_OK", statusToSymbol(request2.status));
     EXPECT_EQ(2U, request2.version);
-    EXPECT_EQ("secondVal", TestUtil::toString(value2.get()));
+    EXPECT_EQ("secondVal", string(reinterpret_cast<const char*>(
+                          value2.get()->getValue()), 9));
 }
 
 TEST_F(MasterServiceTest, multiRead_bufferSizeExceeded) {
     uint64_t tableId1 = ramcloud->createTable("table1");
-    service->maxMultiReadResponseSize = 75;
+    service->maxMultiReadResponseSize = 78;
+    // We want to test such that the first object is returned
+    // in the first try and the second object is returned on
+    // the second try. For the first object to be returned,
+    // the maxMultiReadResponseSize has to be >= 78
     ramcloud->write(tableId1, "0", 1,
             "chunk1:12 chunk2:12 chunk3:12 chunk4:12 chunk5:12 ",
             50);
     ramcloud->write(tableId1, "1", 1,
             "chunk6:12 chunk7:12 chunk8:12 chunk9:12 chunk10:12",
             50);
-    Tub<Buffer> value1, value2;
+    Tub<ObjectBuffer> value1, value2;
     MultiReadObject object1(tableId1, "0", 1, &value1);
     MultiReadObject object2(tableId1, "1", 1, &value2);
     MultiReadObject* requests[] = {&object1, &object2};
@@ -712,15 +727,17 @@ TEST_F(MasterServiceTest, multiRead_bufferSizeExceeded) {
     EXPECT_TRUE(value1);
     EXPECT_TRUE(value2);
     EXPECT_EQ("chunk1:12 chunk2:12 chunk3:12 chunk4:12 chunk5:12 ",
-            TestUtil::toString(value1.get()));
+            string(reinterpret_cast<const char*>(value1.get()->getValue()),
+            50));
     EXPECT_EQ("chunk6:12 chunk7:12 chunk8:12 chunk9:12 chunk10:12",
-        TestUtil::toString(value2.get()));
+            string(reinterpret_cast<const char*>(value2.get()->getValue()),
+            50));
 }
 
 TEST_F(MasterServiceTest, multiRead_unknownTable) {
     // Table 99 will be directed to the server, but the server
     // doesn't know about it.
-    Tub<Buffer> value;
+    Tub<ObjectBuffer> value;
     MultiReadObject request(99, "bogus", 5, &value);
     MultiReadObject* requests[] = {&request};
     MultiRead op(ramcloud.get(), requests, 1);
@@ -742,7 +759,7 @@ TEST_F(MasterServiceTest, multiRead_unknownTable) {
 
 TEST_F(MasterServiceTest, multiRead_noSuchObject) {
     uint64_t tableId1 = ramcloud->createTable("table1");
-    Tub<Buffer> value;
+    Tub<ObjectBuffer> value;
     MultiReadObject request(tableId1, "bogus", 5, &value);
     MultiReadObject* requests[] = {&request};
     ramcloud->multiRead(requests, 1);
@@ -821,14 +838,16 @@ TEST_F(MasterServiceTest, multiWrite_basics) {
     EXPECT_STREQ("STATUS_OK", statusToSymbol(request2.status));
     EXPECT_EQ(2U, request2.version);
 
-    Buffer value;
+    ObjectBuffer value;
     uint64_t version;
 
-    ramcloud->read(tableId1, "0", 1, &value, NULL, &version);
-    EXPECT_EQ("firstVal", TestUtil::toString(&value));
+    ramcloud->readKeysAndValue(tableId1, "0", 1, &value, NULL, &version);
+    EXPECT_EQ("firstVal", string(reinterpret_cast<const char*>(
+                          value.getValue()), 8));
     EXPECT_EQ(2U, request1.version);
-    ramcloud->read(tableId1, "1", 1, &value, NULL, &version);
-    EXPECT_EQ("secondVal", TestUtil::toString(&value));
+    ramcloud->readKeysAndValue(tableId1, "1", 1, &value, NULL, &version);
+    EXPECT_EQ("secondVal", string(reinterpret_cast<const char*>(
+                          value.getValue()), 9));
     EXPECT_EQ(2U, request2.version);
 }
 
@@ -871,7 +890,9 @@ TEST_F(MasterServiceTest, multiWrite_malformedRequests) {
     // fields not match what's in the buffer.
     WireFormat::MultiOp::Request reqHdr;
     WireFormat::MultiOp::Response respHdr;
-    WireFormat::MultiOp::Request::WritePart part(0, 10, 10, RejectRules());
+    WireFormat::MultiOp::Request::WritePart part(0, 23, RejectRules());
+    // 23 includes a key of length 10, a value of length 10, 1 byte for
+    // numKeys and 2 bytes for keyOffset
 
     reqHdr.common.opcode = downCast<uint16_t>(WireFormat::MULTI_OP);
     reqHdr.common.service = downCast<uint16_t>(WireFormat::MASTER_SERVICE);
@@ -894,19 +915,16 @@ TEST_F(MasterServiceTest, multiWrite_malformedRequests) {
     requestPayload.truncateEnd(sizeof(part) - 1);
     requestPayload.append(&part, sizeof(part));
 
-    // both key and value length fields are bogus.
-    respHdr.common.status = STATUS_OK;
-    service->multiWrite(&reqHdr, &respHdr, &rpc);
-    EXPECT_EQ(STATUS_REQUEST_FORMAT_ERROR, respHdr.common.status);
-
-    // only the value length field is bogus.
-    requestPayload.append("tenchars!!", 10);
-    respHdr.common.status = STATUS_OK;
-    service->multiWrite(&reqHdr, &respHdr, &rpc);
-    EXPECT_EQ(STATUS_REQUEST_FORMAT_ERROR, respHdr.common.status);
+    // Malformed requests with both the key and the value length fields
+    // as bogus and requests with only the value length field bogus will
+    // not be caught. It will seg fault. So, it is up to the client
+    // to make sure the requests are formatted well. See comment in
+    // the multiWrite handler in MasterService for reasons
 
     // sanity check: should work with 10 bytes of key and 10 of value
-    requestPayload.append("tenmorechars", 10);
+    Key key(0, "tenchars!!", 10);
+    Object::appendKeysAndValueToBuffer(key, "tenmorechars", 10,
+                                       requestPayload);
     respHdr.common.status = STATUS_OK;
     service->multiWrite(&reqHdr, &respHdr, &rpc);
     EXPECT_EQ(STATUS_OK, respHdr.common.status);
@@ -953,6 +971,35 @@ TEST_F(MasterServiceTest, read_basics) {
     ramcloud->read(1, "0", 1, &value, NULL, &version);
     EXPECT_EQ(1U, version);
     EXPECT_EQ("abcdef", TestUtil::toString(&value));
+}
+
+TEST_F(MasterServiceTest, readKeysAndValue_basics) {
+    uint64_t tableId1 = 1;
+    ObjectBuffer keysAndValue;
+    uint8_t numKeys = 3;
+    KeyInfo keyList[3];
+    keyList[0].keyLength = 2;
+    keyList[0].key = "ha";
+    keyList[1].keyLength = 2;
+    keyList[1].key = "hi";
+    keyList[2].keyLength = 2;
+    keyList[2].key = "ho";
+
+    ramcloud->write(tableId1, numKeys, keyList, "data value",
+                        NULL, NULL, false);
+    ramcloud->readKeysAndValue(tableId1, "ha", 2, &keysAndValue);
+    EXPECT_EQ("data value", string(reinterpret_cast<const char*>(
+                            keysAndValue.getValue()), 10));
+
+    EXPECT_EQ("ha", string(reinterpret_cast<const char *>(
+                    keysAndValue.getKey(0)), 2));
+    EXPECT_EQ(2U, keysAndValue.getKeyLength(0));
+    EXPECT_EQ("hi", string(reinterpret_cast<const char *>(
+                    keysAndValue.getKey(1)), 2));
+    EXPECT_EQ(2U, keysAndValue.getKeyLength(1));
+    EXPECT_EQ("ho", string(reinterpret_cast<const char *>(
+                    keysAndValue.getKey(2)), 2));
+    EXPECT_EQ(2U, keysAndValue.getKeyLength(2));
 }
 
 TEST_F(MasterServiceTest, read_tableNotOnServer) {
@@ -1018,10 +1065,11 @@ TEST_F(MasterServiceTest, receiveMigrationData) {
         TestLog::get());
 
     Key key(5, "wee!", 4);
-    Object o(key, "watch out for the migrant object", 32, 0, 0);
+    Buffer dataBuffer;
+    Object o(key, "watch out for the migrant object", 32, 0, 0, dataBuffer);
 
     Buffer buffer;
-    o.serializeToBuffer(buffer);
+    o.assembleForLog(buffer);
 
     s.append(LOG_ENTRY_TYPE_OBJ, buffer);
     s.close();
@@ -1029,7 +1077,7 @@ TEST_F(MasterServiceTest, receiveMigrationData) {
     MasterClient::receiveMigrationData(&context, masterServer->serverId,
                                        5, 1, &s);
 
-    Buffer logBuffer;
+    ObjectBuffer logBuffer;
     Status status = service->objectManager.readObject(key, &logBuffer, 0, 0);
     EXPECT_NE(STATUS_OK, status);
     // Need to mark the tablet as NORMAL before we can read from it.
@@ -1037,9 +1085,8 @@ TEST_F(MasterServiceTest, receiveMigrationData) {
         TabletManager::NORMAL);
     status = service->objectManager.readObject(key, &logBuffer, 0, 0);
     EXPECT_EQ(STATUS_OK, status);
-    EXPECT_EQ(0, memcmp(logBuffer.getRange(0, logBuffer.getTotalLength()),
-                        "watch out for the migrant object",
-                        32));
+    EXPECT_EQ(string(reinterpret_cast<const char*>(logBuffer.getValue()), 32),
+                        "watch out for the migrant object");
 }
 
 static bool
@@ -1060,7 +1107,7 @@ TEST_F(MasterServiceTest, remove_basics) {
     ramcloud->remove(1, "key0", 4, NULL, &version);
     EXPECT_EQ(1U, version);
     EXPECT_EQ(format("free: free on reference %lu | "
-                     "sync: syncing segment 1 to offset 155 | "
+                     "sync: syncing segment 1 to offset 156 | "
                      "schedule: scheduled | "
                      "performWrite: Sending write to backup 1.0 | "
                      "schedule: scheduled | "
@@ -1236,39 +1283,42 @@ TEST_F(MasterServiceTest, takeTabletOwnership_migratingTablet) {
 }
 
 TEST_F(MasterServiceTest, write_basics) {
-    Buffer value;
+    ObjectBuffer value;
     uint64_t version;
 
     TestLog::Enable _;
     ramcloud->write(1, "key0", 4, "item0", 5, NULL, &version);
     EXPECT_EQ(1U, version);
-    EXPECT_EQ("writeObject: object: 35 bytes, version 1 | "
-              "sync: syncing segment 1 to offset 117 | "
+    EXPECT_EQ("writeObject: object: 36 bytes, version 1 | "
+              "sync: syncing segment 1 to offset 118 | "
               "schedule: scheduled | "
               "performWrite: Sending write to backup 1.0 | "
               "schedule: scheduled | "
               "performWrite: Write RPC finished for replica slot 0 | "
               "sync: log synced",
               TestLog::get());
-    ramcloud->read(1, "key0", 4, &value);
-    EXPECT_EQ("item0", TestUtil::toString(&value));
+    ramcloud->readKeysAndValue(1, "key0", 4, &value);
+    EXPECT_EQ("item0", string(reinterpret_cast<const char*>(
+                       value.getValue()), 5));
     EXPECT_EQ(1U, version);
 
     ramcloud->write(1, "key0", 4, "item0-v2", 8, NULL, &version);
     EXPECT_EQ(2U, version);
-    ramcloud->read(1, "key0", 4, &value);
-    EXPECT_EQ("item0-v2", TestUtil::toString(&value));
+    ramcloud->readKeysAndValue(1, "key0", 4, &value);
+    EXPECT_EQ("item0-v2", string(reinterpret_cast<const char*>(
+                       value.getValue()), 8));
     EXPECT_EQ(2U, version);
 
     ramcloud->write(1, "key0", 4, "item0-v3", 8, NULL, &version);
     EXPECT_EQ(3U, version);
-    ramcloud->read(1, "key0", 4, &value);
-    EXPECT_EQ("item0-v3", TestUtil::toString(&value));
+    ramcloud->readKeysAndValue(1, "key0", 4, &value);
+    EXPECT_EQ("item0-v3", string(reinterpret_cast<const char*>(
+                       value.getValue()), 8));
     EXPECT_EQ(3U, version);
 }
 
 TEST_F(MasterServiceTest, write_safeVersionNumberUpdate) {
-    Buffer value;
+    ObjectBuffer value;
     uint64_t version;
 
     SegmentManager* segmentManager = &service->objectManager.segmentManager;
@@ -1277,16 +1327,18 @@ TEST_F(MasterServiceTest, write_safeVersionNumberUpdate) {
     //         Table, Key, KeyLen, Data, Len, rejectRule, Version
     ramcloud->write(1, "k0", 2, "value0", 6, NULL, &version);
     EXPECT_EQ(1U, version); // safeVersion++ is given
-    ramcloud->read(1,  "k0", 2, &value);
-    EXPECT_EQ("value0", TestUtil::toString(&value));
+    ramcloud->readKeysAndValue(1,  "k0", 2, &value);
+    EXPECT_EQ("value0", string(reinterpret_cast<const char*>(
+                       value.getValue()), 6));
     EXPECT_EQ(1U, version); // current object version returned
     EXPECT_EQ(2U, segmentManager->safeVersion); // incremented
 
     // original key to original table
     ramcloud->write(1, "k0", 2, "value1", 6, NULL, &version);
     EXPECT_EQ(2U, version); // object version incremented
-    ramcloud->read(1,  "k0", 2, &value);
-    EXPECT_EQ("value1", TestUtil::toString(&value));
+    ramcloud->readKeysAndValue(1,  "k0", 2, &value);
+    EXPECT_EQ("value1", string(reinterpret_cast<const char*>(
+                       value.getValue()), 6));
     EXPECT_EQ(2U, version); // current object version returned
     EXPECT_EQ(2U, segmentManager->safeVersion); // unchanged
 
@@ -1294,16 +1346,18 @@ TEST_F(MasterServiceTest, write_safeVersionNumberUpdate) {
     // different key to original table
     ramcloud->write(1, "k1", 2, "value3", 6, NULL, &version);
     EXPECT_EQ(29U, version);  // safeVersion++ is given
-    ramcloud->read(1, "k1", 2, &value);
-    EXPECT_EQ("value3", TestUtil::toString(&value));
+    ramcloud->readKeysAndValue(1, "k1", 2, &value);
+    EXPECT_EQ("value3", string(reinterpret_cast<const char*>(
+                       value.getValue()), 6));
     EXPECT_EQ(29U, version);  // current object version returned
     EXPECT_EQ(30U, segmentManager->safeVersion); // incremented
 
     // original key to original table
     ramcloud->write(1, "k0", 2, "value4", 6, NULL, &version);
     EXPECT_EQ(3U, version); // object version incremented
-    ramcloud->read(1,  "k0", 2, &value);
-    EXPECT_EQ("value4", TestUtil::toString(&value));
+    ramcloud->readKeysAndValue(1,  "k0", 2, &value);
+    EXPECT_EQ("value4", string(reinterpret_cast<const char*>(
+                       value.getValue()), 6));
     EXPECT_EQ(3U, version); // current object version returned
     EXPECT_EQ(30U, segmentManager->safeVersion); // unchanged
 }
@@ -1345,21 +1399,21 @@ TEST_F(MasterServiceTest, write_varyingKeyLength) {
          2000, 3000, 4000, 5000, 6000, 7000, 8000, 9000, 10000,
          20000, 30000, 40000, 50000, 60000
     };
-
     foreach (uint16_t keyLength, keyLengths) {
         char key[keyLength];
         genRandomString(key, keyLength);
-
         string writeVal = format("objectValue%u", keyLength);
-        Buffer value;
+        ObjectBuffer value;
         uint64_t version;
 
         ramcloud->write(1, key, keyLength, writeVal.c_str(),
                       downCast<uint16_t>(writeVal.length()),
                       NULL, &version);
-        ramcloud->read(1, key, keyLength, &value);
+        ramcloud->readKeysAndValue(1, key, keyLength, &value);
 
-        EXPECT_EQ(writeVal, TestUtil::toString(&value));
+        EXPECT_EQ(writeVal.c_str(), string(reinterpret_cast<const char*>(
+                                    value.getValue()),
+                                    downCast<uint16_t>(writeVal.length())));
     }
 }
 

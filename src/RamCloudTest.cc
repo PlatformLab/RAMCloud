@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2013 Stanford University
+/* Copyright (c) 2011-2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -67,6 +67,40 @@ class RamCloudTest : public ::testing::Test {
     DISALLOW_COPY_AND_ASSIGN(RamCloudTest);
 };
 
+static void pollTestThread(RamCloud* ramcloud) {
+    //Calling poll() from other thread should not invoke poller.
+    for (int i = 0; i < 10; ++i) {
+        ramcloud->poll();
+    }
+}
+
+TEST(RamCloudSimpleTest, poll) {
+    class CountPoller : public Dispatch::Poller {
+      public:
+        explicit CountPoller(Dispatch* dispatch)
+                : Dispatch::Poller(dispatch, "CountPoller"), count(0) { }
+        void poll() {
+            count++;
+        }
+        volatile int count;
+      private:
+        DISALLOW_COPY_AND_ASSIGN(CountPoller);
+    };
+
+    Context context(true);
+    CountPoller poller(context.dispatch);
+    RamCloud ramcloud(&context, "mock:host=coordinator");
+
+    for (int i = 0; i < 100; ++i) {
+        ramcloud.poll();
+    }
+    EXPECT_EQ(100, poller.count);
+
+    std::thread thread(pollTestThread, &ramcloud);
+    thread.join();
+    EXPECT_EQ(100, poller.count);
+}
+
 TEST_F(RamCloudTest, createTable) {
     string message("no exception");
     try {
@@ -94,6 +128,53 @@ TEST_F(RamCloudTest, dropTable) {
     EXPECT_EQ("STATUS_TABLE_DOESNT_EXIST", message);
 }
 
+TEST_F(RamCloudTest, concurrentAsyncRpc) {
+    string message1("no exception");
+    try {
+        ramcloud->getTableId("newTable");
+    }
+    catch (ClientException& e) {
+        message1 = e.toSymbol();
+    }
+    EXPECT_EQ("STATUS_TABLE_DOESNT_EXIST", message1);
+
+    //Dispatches async RPCs.
+    CreateTableRpc ct_rpc(ramcloud.get(), "newTable");
+    DropTableRpc dt_rpc(ramcloud.get(), "table1");
+
+    //Waits for either rpc.
+    uint64_t id;
+    bool ct_done = false;
+    bool dt_done = false;
+    while (!ct_done || !dt_done) {
+        if (!ct_done && ct_rpc.isReady()) {
+            id = ct_rpc.wait();
+            EXPECT_EQ(4UL, id);
+            ct_done = true;
+        } else if (!dt_done && dt_rpc.isReady()) {
+            dt_rpc.wait();
+            dt_done = true;
+        }
+        ramcloud->poll();
+    }
+
+    EXPECT_EQ(true, ct_done && dt_done);
+
+    //Extra checks for CreateTableRpc.
+    uint64_t id2 = ramcloud->getTableId("newTable");
+    EXPECT_EQ(id, id2);
+
+    //Extra checks for DropTableRpc.
+    string message2("no exception");
+    try {
+        ramcloud->getTableId("table1");
+    }
+    catch (ClientException& e) {
+        message2 = e.toSymbol();
+    }
+    EXPECT_EQ("STATUS_TABLE_DOESNT_EXIST", message2);
+}
+
 TEST_F(RamCloudTest, enumeration_basics) {
     uint64_t version0, version1, version2, version3, version4;
     ramcloud->write(tableId3, "0", 1, "abcdef", 6, NULL, &version0);
@@ -115,65 +196,70 @@ TEST_F(RamCloudTest, enumeration_basics) {
 
     // First object.
     Object object1(buffer, size);
-    EXPECT_EQ(33U, size);                                       // size
+    EXPECT_EQ(34U, size);                                       // size
     EXPECT_EQ(tableId3, object1.getTableId());                  // table ID
     EXPECT_EQ(1U, object1.getKeyLength());                      // key length
     EXPECT_EQ(version0, object1.getVersion());                  // version
-    EXPECT_EQ(0, memcmp("0", object1.getKey(), 1));             // key
+    EXPECT_EQ("0", string(reinterpret_cast<const char*>(
+                   object1.getKey()), 1));                         // key
     EXPECT_EQ("abcdef", string(reinterpret_cast<const char*>    // value
-        (object1.getData()), 6));
+        (object1.getValue()), 6));
 
     EXPECT_TRUE(iter.hasNext());
     iter.next(&size, &buffer);
 
     // Second object.
     Object object2(buffer, size);
-    EXPECT_EQ(33U, size);                                       // size
+    EXPECT_EQ(34U, size);                                       // size
     EXPECT_EQ(tableId3, object2.getTableId());                  // table ID
     EXPECT_EQ(1U, object2.getKeyLength());                      // key length
     EXPECT_EQ(version1, object2.getVersion());                  // version
-    EXPECT_EQ(0, memcmp("1", object2.getKey(), 1));             // key
+    EXPECT_EQ("1", string(reinterpret_cast<const char*>(
+                   object2.getKey()), 1));                         // key
     EXPECT_EQ("ghijkl", string(reinterpret_cast<const char*>    // value
-        (object2.getData()), 6));
+        (object2.getValue()), 6));
 
     EXPECT_TRUE(iter.hasNext());
     iter.next(&size, &buffer);
 
     // Third object.
     Object object3(buffer, size);
-    EXPECT_EQ(33U, size);                                       // size
+    EXPECT_EQ(34U, size);                                       // size
     EXPECT_EQ(tableId3, object3.getTableId());                  // table ID
     EXPECT_EQ(1U, object3.getKeyLength());                      // key length
     EXPECT_EQ(version3, object3.getVersion());                  // version
-    EXPECT_EQ(0, memcmp("3", object3.getKey(), 1));             // key
+    EXPECT_EQ("3", string(reinterpret_cast<const char*>(
+                   object3.getKey()), 1));                         // key
     EXPECT_EQ("stuvwx", string(reinterpret_cast<const char*>    // value
-        (object3.getData()), 6));
+        (object3.getValue()), 6));
 
     EXPECT_TRUE(iter.hasNext());
     iter.next(&size, &buffer);
 
     // Fourth object.
     Object object4(buffer, size);
-    EXPECT_EQ(33U, size);                                       // size
+    EXPECT_EQ(34U, size);                                       // size
     EXPECT_EQ(tableId3, object4.getTableId());                  // table ID
     EXPECT_EQ(1U, object4.getKeyLength());                      // key length
     EXPECT_EQ(version2, object4.getVersion());                  // version
-    EXPECT_EQ(0, memcmp("2", object4.getKey(), 1));             // key
+    EXPECT_EQ("2", string(reinterpret_cast<const char*>(
+                   object4.getKey()), 1));                         // key
     EXPECT_EQ("mnopqr", string(reinterpret_cast<const char*>    // value
-        (object4.getData()), 6));
+        (object4.getValue()), 6));
 
     EXPECT_TRUE(iter.hasNext());
     iter.next(&size, &buffer);
 
     // Fifth object.
     Object object5(buffer, size);
-    EXPECT_EQ(33U, size);                                       // size
+    EXPECT_EQ(34U, size);                                       // size
     EXPECT_EQ(tableId3, object5.getTableId());                  // table ID
     EXPECT_EQ(1U, object5.getKeyLength());                      // key length
     EXPECT_EQ(version4, object5.getVersion());                  // version
-    EXPECT_EQ(0, memcmp("4", object5.getKey(), 1));             // key
+    EXPECT_EQ("4", string(reinterpret_cast<const char*>(
+                   object5.getKey()), 1));                         // key
     EXPECT_EQ("yzabcd", string(reinterpret_cast<const char*>    // value
-        (object5.getData()), 6));
+        (object5.getValue()), 6));
 
     EXPECT_FALSE(iter.hasNext());
 }
@@ -199,60 +285,71 @@ TEST_F(RamCloudTest, enumeration_keys_only) {
 
     // First object.
     Object object1(buffer, size);
-    EXPECT_EQ(27U, size);                                       // size
+    EXPECT_EQ(28U, size);                                       // size
     EXPECT_EQ(tableId3, object1.getTableId());                  // table ID
     EXPECT_EQ(1U, object1.getKeyLength());                      // key length
     EXPECT_EQ(version0, object1.getVersion());                  // version
-    EXPECT_EQ(0, memcmp("0", object1.getKey(), 1));             // key
-    EXPECT_EQ(0U, object1.dataLength);                           // data length
+    EXPECT_EQ("0", string(reinterpret_cast<const char*>(
+                   object1.getKey()), 1));                         // key
+    uint32_t dataLength;
+    object1.getValue(&dataLength);
+    EXPECT_EQ(0U, dataLength);                           // data length
 
     EXPECT_TRUE(iter.hasNext());
     iter.next(&size, &buffer);
 
     // Second object.
     Object object2(buffer, size);
-    EXPECT_EQ(27U, size);                                       // size
+    EXPECT_EQ(28U, size);                                       // size
     EXPECT_EQ(tableId3, object2.getTableId());                  // table ID
     EXPECT_EQ(1U, object2.getKeyLength());                      // key length
     EXPECT_EQ(version1, object2.getVersion());                  // version
-    EXPECT_EQ(0, memcmp("1", object2.getKey(), 1));             // key
-    EXPECT_EQ(0U, object2.dataLength);                           // data length
+    EXPECT_EQ("1", string(reinterpret_cast<const char*>(
+                   object2.getKey()), 1));                         // key
+    object2.getValue(&dataLength);
+    EXPECT_EQ(0U, dataLength);                           // data length
 
     EXPECT_TRUE(iter.hasNext());
     iter.next(&size, &buffer);
 
     // Third object.
     Object object3(buffer, size);
-    EXPECT_EQ(27U, size);                                       // size
+    EXPECT_EQ(28U, size);                                       // size
     EXPECT_EQ(tableId3, object3.getTableId());                  // table ID
     EXPECT_EQ(1U, object3.getKeyLength());                      // key length
     EXPECT_EQ(version3, object3.getVersion());                  // version
-    EXPECT_EQ(0, memcmp("3", object3.getKey(), 1));             // key
-    EXPECT_EQ(0U, object3.dataLength);                           // data length
+    EXPECT_EQ("3", string(reinterpret_cast<const char*>(
+                   object3.getKey()), 1));                         // key
+    object3.getValue(&dataLength);
+    EXPECT_EQ(0U, dataLength);                           // data length
 
     EXPECT_TRUE(iter.hasNext());
     iter.next(&size, &buffer);
 
     // Fourth object.
     Object object4(buffer, size);
-    EXPECT_EQ(27U, size);                                       // size
+    EXPECT_EQ(28U, size);                                       // size
     EXPECT_EQ(tableId3, object4.getTableId());                  // table ID
     EXPECT_EQ(1U, object4.getKeyLength());                      // key length
     EXPECT_EQ(version2, object4.getVersion());                  // version
-    EXPECT_EQ(0, memcmp("2", object4.getKey(), 1));             // key
-    EXPECT_EQ(0U, object4.dataLength);                           // data length
+    EXPECT_EQ("2", string(reinterpret_cast<const char*>(
+                   object4.getKey()), 1));                         // key
+    object4.getValue(&dataLength);
+    EXPECT_EQ(0U, dataLength);                           // data length
 
     EXPECT_TRUE(iter.hasNext());
     iter.next(&size, &buffer);
 
     // Fifth object.
     Object object5(buffer, size);
-    EXPECT_EQ(27U, size);                                       // size
+    EXPECT_EQ(28U, size);                                       // size
     EXPECT_EQ(tableId3, object5.getTableId());                  // table ID
     EXPECT_EQ(1U, object5.getKeyLength());                      // key length
     EXPECT_EQ(version4, object5.getVersion());                  // version
-    EXPECT_EQ(0, memcmp("4", object5.getKey(), 1));             // key
-    EXPECT_EQ(0U, object5.dataLength);                           // data length
+    EXPECT_EQ("4", string(reinterpret_cast<const char*>(
+                   object5.getKey()), 1));                         // key
+    object5.getValue(&dataLength);
+    EXPECT_EQ(0U, dataLength);                           // data length
 
     EXPECT_FALSE(iter.hasNext());
 }
@@ -320,11 +417,54 @@ TEST_F(RamCloudTest, quiesce) {
 
 TEST_F(RamCloudTest, read) {
     ramcloud->write(tableId1, "0", 1, "abcdef", 6);
+    ObjectBuffer keysAndValue;
     Buffer value;
-    uint64_t version;
-    ramcloud->read(tableId1, "0", 1, &value, NULL, &version);
+    uint64_t version, versionValue;
+    ramcloud->readKeysAndValue(tableId1, "0", 1, &keysAndValue, NULL, &version);
     EXPECT_EQ(1U, version);
-    EXPECT_EQ("abcdef", TestUtil::toString(&value));
+    EXPECT_EQ("abcdef", string(reinterpret_cast<const char*>(
+                        keysAndValue.getValue()), 6));
+    EXPECT_EQ("0", string(reinterpret_cast<const char*>(
+                        keysAndValue.getKey(0)), 1));
+    // test if the value-only return read RPC works fine
+    ramcloud->read(tableId1, "0", 1, &value, NULL, &versionValue);
+    EXPECT_EQ("abcdef", string(reinterpret_cast<const char*>(
+                        value.getRange(0, value.getTotalLength())),
+                        value.getTotalLength()));
+
+    // test multikey object
+    value.reset();
+    keysAndValue.reset();
+    uint8_t numKeys = 3;
+    KeyInfo keyList[3];
+    keyList[0].keyLength = 2;
+    keyList[0].key = "ha";
+    // Key 1 does not exist
+    keyList[1].keyLength = 0;
+    keyList[1].key = NULL;
+    keyList[2].keyLength = 2;
+    keyList[2].key = "ho";
+
+    ramcloud->write(tableId1, numKeys, keyList, "new value",
+                        NULL, NULL, false);
+    ramcloud->readKeysAndValue(tableId1, "ha", 2, &keysAndValue);
+    EXPECT_EQ("new value", string(reinterpret_cast<const char*>(
+                        keysAndValue.getValue()), 9));
+
+    EXPECT_EQ("ha", string(reinterpret_cast<const char *>(
+                    keysAndValue.getKey(0)), 2));
+    EXPECT_EQ(2U, keysAndValue.getKeyLength(0));
+    EXPECT_EQ((const char*)NULL, keysAndValue.getKey(1));
+    EXPECT_EQ(0U, keysAndValue.getKeyLength(1));
+    EXPECT_EQ("ho", string(reinterpret_cast<const char *>(
+                    keysAndValue.getKey(2)), 2));
+    EXPECT_EQ(2U, keysAndValue.getKeyLength(2));
+
+    // again test if the value-return only version of read RPC works fine
+    ramcloud->read(tableId1, "ha", 2, &value);
+    EXPECT_EQ("new value", string(reinterpret_cast<const char*>(
+                        value.getRange(0, value.getTotalLength())),
+                        value.getTotalLength()));
 }
 
 TEST_F(RamCloudTest, remove) {
@@ -346,7 +486,7 @@ TEST_F(RamCloudTest, remove) {
 TEST_F(RamCloudTest, serverControl){
     ramcloud->write(tableId1, "0", 1, "zfzfzf", 6);
     string serverLocator = ramcloud->objectFinder.lookupTablet(tableId1
-                           , Key::getHash(tableId1, "0", 1)).service_locator();
+                           , Key::getHash(tableId1, "0", 1))->serviceLocator;
     Server* targetServer;
     foreach (Server* server, cluster.servers) {
         if (serverLocator.compare(server->config.localLocator) == 0)
@@ -419,12 +559,30 @@ TEST_F(RamCloudTest, write) {
     EXPECT_EQ(1U, version);
     ramcloud->write(tableId1, "0", 1, "xyzzy", 5, NULL, &version);
     EXPECT_EQ(2U, version);
-    Buffer value;
-    ramcloud->read(tableId1, "0", 1, &value);
-    EXPECT_EQ("xyzzy", TestUtil::toString(&value));
+    ObjectBuffer value;
+    ramcloud->readKeysAndValue(tableId1, "0", 1, &value);
+    EXPECT_EQ("xyzzy", string(reinterpret_cast<const char*>(
+                        value.getValue()), 5));
     ramcloud->write(tableId1, "0", 1, "new value");
-    ramcloud->read(tableId1, "0", 1, &value);
-    EXPECT_EQ("new value", TestUtil::toString(&value));
+    ramcloud->readKeysAndValue(tableId1, "0", 1, &value);
+    EXPECT_EQ("new value", string(reinterpret_cast<const char*>(
+                        value.getValue()), 9));
+
+    value.reset();
+    uint8_t numKeys = 3;
+    KeyInfo keyList[3];
+    keyList[0].keyLength = 2;
+    keyList[0].key = "ha";
+    keyList[1].keyLength = 2;
+    keyList[1].key = "hi";
+    keyList[2].keyLength = 2;
+    keyList[2].key = "ho";
+
+    ramcloud->write(tableId1, numKeys, keyList, "data value",
+                        NULL, NULL, false);
+    ramcloud->readKeysAndValue(tableId1, "ha", 2, &value);
+    EXPECT_EQ("data value", string(reinterpret_cast<const char*>(
+                        value.getValue()), 10));
 }
 
 }  // namespace RAMCloud

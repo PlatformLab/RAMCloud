@@ -19,6 +19,7 @@
 #include "Common.h"
 #include "CoordinatorClient.h"
 #include "MasterClient.h"
+#include "ObjectBuffer.h"
 #include "ObjectFinder.h"
 #include "ObjectRpcWrapper.h"
 #include "ServerMetrics.h"
@@ -30,6 +31,22 @@ namespace RAMCloud {
 class MultiReadObject;
 class MultiRemoveObject;
 class MultiWriteObject;
+
+/**
+ * This structure describes a key (primary or secondary) and its length.
+ * This will be used by clients issuing write RPCs to specify possibly
+ * many secondary keys to be included in the objects to be written.
+ */
+struct KeyInfo
+{
+    const void *key;        // pimary or secondary key. A NULL value here
+                            // indicates absence of a key. Note that this
+                            // cannot be true for primary key.
+    uint16_t keyLength;     // length of the corresponding key. A 0 value
+                            // here means that key is a NULL terminated
+                            // string and the actual length is computed
+                            // on demand.
+};
 
 /**
  * The RamCloud class provides the primary interface used by applications to
@@ -71,6 +88,9 @@ class RamCloud {
     void read(uint64_t tableId, const void* key, uint16_t keyLength,
             Buffer* value, const RejectRules* rejectRules = NULL,
             uint64_t* version = NULL);
+    void readKeysAndValue(uint64_t tableId, const void* key, uint16_t keyLength,
+            ObjectBuffer* value, const RejectRules* rejectRules = NULL,
+            uint64_t* version = NULL);
     void remove(uint64_t tableId, const void* key, uint16_t keyLength,
             const RejectRules* rejectRules = NULL, uint64_t* version = NULL);
     void serverControl(uint64_t tableId, const void* key, uint16_t keyLength,
@@ -85,7 +105,8 @@ class RamCloud {
             uint16_t keyLength);
     void testingKill(uint64_t tableId, const void* key, uint16_t keyLength);
     void setRuntimeOption(const char* option, const char* value);
-    void testingWaitForAllTabletsNormal(uint64_t timeoutNs = ~0lu);
+    void testingWaitForAllTabletsNormal(uint64_t tableId,
+                                        uint64_t timeoutNs = ~0lu);
     void write(uint64_t tableId, const void* key, uint16_t keyLength,
                 const void* buf, uint32_t length,
                 const RejectRules* rejectRules = NULL, uint64_t* version = NULL,
@@ -93,6 +114,15 @@ class RamCloud {
     void write(uint64_t tableId, const void* key, uint16_t keyLength,
             const char* value, const RejectRules* rejectRules = NULL,
             uint64_t* version = NULL, bool async = false);
+    void write(uint64_t tableId, uint8_t numKeys, KeyInfo *keyInfo,
+                const void* buf, uint32_t length,
+                const RejectRules* rejectRules = NULL, uint64_t* version = NULL,
+                bool async = false);
+    void write(uint64_t tableId, uint8_t numKeys, KeyInfo *keyInfo,
+            const char* value, const RejectRules* rejectRules = NULL,
+            uint64_t* version = NULL, bool async = false);
+
+    void poll();
     explicit RamCloud(const char* serviceLocator,
             const char* clusterName = "main");
     RamCloud(Context* context, const char* serviceLocator,
@@ -418,11 +448,11 @@ struct MultiOpObject {
  */
 struct MultiReadObject : public MultiOpObject {
     /**
-     * If the read for this object was successful, the Tub<Buffer>
+     * If the read for this object was successful, the Tub<ObjectBuffer>
      * will hold the contents of the desired object. If not, it will
      * not be initialized, giving "false" when the buffer is tested.
      */
-    Tub<Buffer>* value;
+    Tub<ObjectBuffer>* value;
 
     /**
      * The version number of the object is returned here.
@@ -430,7 +460,7 @@ struct MultiReadObject : public MultiOpObject {
     uint64_t version;
 
     MultiReadObject(uint64_t tableId, const void* key, uint16_t keyLength,
-            Tub<Buffer>* value)
+            Tub<ObjectBuffer>* value)
         : MultiOpObject(tableId, key, keyLength)
         , value(value)
         , version()
@@ -513,6 +543,16 @@ struct MultiWriteObject : public MultiOpObject {
     uint32_t valueLength;
 
     /**
+    * Number of keys in this multiWrite object
+    */
+    uint8_t numKeys;
+
+    /**
+     * List of keys and their lengths part of this multiWrite object.
+     * This will be NULL for single key multiwrite objects
+     */
+    KeyInfo *keyInfo;
+    /**
      * The RejectRules specify when conditional writes should be aborted.
      */
     const RejectRules* rejectRules;
@@ -522,12 +562,75 @@ struct MultiWriteObject : public MultiOpObject {
      */
     uint64_t version;
 
+    /**
+     * Typically used when each object has a single key.
+     *
+     * \param tableId
+     *      The table containing the desired object (return value from
+     *      a previous call to getTableId).
+     * \param key
+     *      Variable length key that uniquely identifies the object within tableId.
+     *      It does not necessarily have to be null terminated.  The caller must
+     *      ensure that the storage for this key is unchanged through the life of
+     *      the RPC.
+     * \param keyLength
+     *      Size in bytes of the key.
+     * \param value
+     *      Address of the first byte of the new contents for the object;
+     *      must contain at least length bytes.
+     * \param valueLength
+     *      Size in bytes of the value of the object.
+     * \param rejectRules
+     *      If non-NULL, specifies conditions under which the write
+     *      should be aborted with an error.
+     */
     MultiWriteObject(uint64_t tableId, const void* key, uint16_t keyLength,
                  const void* value, uint32_t valueLength,
                  const RejectRules* rejectRules = NULL)
         : MultiOpObject(tableId, key, keyLength)
         , value(value)
         , valueLength(valueLength)
+        , numKeys(1)
+        , keyInfo(NULL)
+        , rejectRules(rejectRules)
+        , version()
+    {}
+
+    /**
+     * Typically used when each object has multiple keys.
+     * \param tableId
+     *      The table containing the desired object (return value from
+     *      a previous call to getTableId).
+     * \param value
+     *      Address of the first byte of the new contents for the object;
+     *      must contain at least length bytes.
+     * \param valueLength
+     *      Size in bytes of the value of the object.
+     * \param numKeys
+     *      Number of keys in the object.  If is not >= 1, then behavior
+     *      is undefined. A value of 1 indicates the presence of only the
+     *      primary key
+     * \param keyInfo 
+     *      List of keys and corresponding key lengths. The first entry should
+     *      correspond to the primary key and its length. If this argument is
+     *      NULL, then behavior is undefined. RamCloud currently uses a dense
+     *      representation of key lengths. If a client does not want to write
+     *      key_i in an object, keyInfo[i]->key should be NULL. The library also
+     *      expects that if keyInfo[j]->key exists and keyInfo[j]->keyLength
+     *      is 0, then key string is NULL terminated and the length is computed.
+     * \param rejectRules
+     *      If non-NULL, specifies conditions under which the write
+     *      should be aborted with an error.
+     */
+    MultiWriteObject(uint64_t tableId,
+                 const void* value, uint32_t valueLength,
+                 uint8_t numKeys, KeyInfo *keyInfo,
+                 const RejectRules* rejectRules = NULL)
+        : MultiOpObject(tableId, NULL, 0)
+        , value(value)
+        , valueLength(valueLength)
+        , numKeys(numKeys)
+        , keyInfo(keyInfo)
         , rejectRules(rejectRules)
         , version()
     {}
@@ -536,6 +639,8 @@ struct MultiWriteObject : public MultiOpObject {
         : MultiOpObject()
         , value()
         , valueLength()
+        , numKeys()
+        , keyInfo()
         , rejectRules()
         , version()
     {}
@@ -544,6 +649,8 @@ struct MultiWriteObject : public MultiOpObject {
         : MultiOpObject(other)
         , value(other.value)
         , valueLength(other.valueLength)
+        , numKeys(other.numKeys)
+        , keyInfo(other.keyInfo)
         , rejectRules(other.rejectRules)
         , version(other.version)
     {}
@@ -552,6 +659,9 @@ struct MultiWriteObject : public MultiOpObject {
         MultiOpObject::operator =(other);
         value = other.value;
         valueLength = other.valueLength;
+        numKeys = other.numKeys;
+        // shallow copy should be good enough
+        keyInfo = other.keyInfo;
         rejectRules = other.rejectRules;
         version = other.version;
         return *this;
@@ -587,6 +697,23 @@ class ReadRpc : public ObjectRpcWrapper {
 
   PRIVATE:
     DISALLOW_COPY_AND_ASSIGN(ReadRpc);
+};
+
+/**
+ * Encapsulates the state of a RamCloud::read operation,
+ * allowing it to execute asynchronously. The difference from 
+ * ReadRpc is in the contents of the returned buffer.
+ */
+class ReadKeysAndValueRpc : public ObjectRpcWrapper {
+  public:
+    ReadKeysAndValueRpc(RamCloud* ramcloud, uint64_t tableId, const void* key,
+            uint16_t keyLength, ObjectBuffer* value,
+            const RejectRules* rejectRules = NULL);
+    ~ReadKeysAndValueRpc() {}
+    void wait(uint64_t* version = NULL);
+
+  PRIVATE:
+    DISALLOW_COPY_AND_ASSIGN(ReadKeysAndValueRpc);
 };
 
 /**
@@ -659,6 +786,11 @@ class WriteRpc : public ObjectRpcWrapper {
   public:
     WriteRpc(RamCloud* ramcloud, uint64_t tableId, const void* key,
             uint16_t keyLength, const void* buf, uint32_t length,
+            const RejectRules* rejectRules = NULL, bool async = false);
+    // this constructor will be used when the object has multiple keys
+    WriteRpc(RamCloud* ramcloud, uint64_t tableId,
+            uint8_t numKeys, KeyInfo *keyInfo,
+            const void* buf, uint32_t length,
             const RejectRules* rejectRules = NULL, bool async = false);
     ~WriteRpc() {}
     void wait(uint64_t* version = NULL);

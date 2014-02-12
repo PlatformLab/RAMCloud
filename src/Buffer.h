@@ -496,7 +496,7 @@ class Buffer {
     };
 
     Buffer();
-    ~Buffer();
+    virtual ~Buffer();
 
     /**
      * Convenience function that invokes Buffer::Chunk::appendToBuffer
@@ -514,11 +514,13 @@ class Buffer {
      *
      * \param[in] src
      *      The buffer whose data will be appended to this Buffer.
+     * \param[in] offset
+     *      The offset in the source buffer from where data has to be copied.
      */
     void
-    append(Buffer* src)
+    append(Buffer* src, uint32_t offset = 0)
     {
-        Buffer::Chunk::appendToBuffer(this, src, 0, src->getTotalLength());
+        Buffer::Chunk::appendToBuffer(this, src, offset, src->getTotalLength());
     }
 
     /**
@@ -567,7 +569,7 @@ class Buffer {
 
     uint32_t copy(uint32_t offset, uint32_t length, void* dest); // NOLINT
     uint32_t write(uint32_t offset, uint32_t length, FILE* f);
-    void reset();
+    virtual void reset();
     void fillFromString(const char* s);
 
     void truncateFront(uint32_t length);

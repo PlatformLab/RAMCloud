@@ -41,7 +41,7 @@ class MultiReadTest : public ::testing::Test {
     BindTransport::BindSession* session1;
     BindTransport::BindSession* session2;
     BindTransport::BindSession* session3;
-    Tub<Buffer> values[6];
+    Tub<ObjectBuffer> values[6];
     MultiReadObject objects[6];
 
   public:
@@ -86,7 +86,23 @@ class MultiReadTest : public ::testing::Test {
         ramcloud->write(tableId1, "object1-2", 9, "value:1-2");
         ramcloud->write(tableId1, "object1-3", 9, "value:1-3");
         tableId2 = ramcloud->createTable("table2");
-        ramcloud->write(tableId2, "object2-1", 9, "value:2-1");
+        //ramcloud->write(tableId2, "object2-1", 9, "value:2-1");
+
+        // write a multi-key object:
+        uint8_t numKeys = 3;
+        KeyInfo keyList[3];
+        // primary key
+        keyList[0].keyLength = 9;
+        keyList[0].key = "object2-1";
+        // Key 1 does not exist
+        keyList[1].keyLength = 0;
+        keyList[1].key = NULL;
+        keyList[2].keyLength = 8;
+        keyList[2].key = "otherkey";
+
+        ramcloud->write(tableId2, numKeys, keyList, "value:2-1",
+                            NULL, NULL, false);
+
         tableId3 = ramcloud->createTable("table3");
         ramcloud->write(tableId3, "object3-1", 9, "value:3-1");
         ramcloud->write(tableId3, "object3-2", 9, "value:3-2");
@@ -136,12 +152,12 @@ class MultiReadTest : public ::testing::Test {
         return result;
     }
 
-    string
-    bufferString(Tub<Buffer>& buffer)
+    const void *
+    bufferString(Tub<ObjectBuffer>& buffer)
     {
         if (!buffer)
             return "uninitialized";
-        return TestUtil::toString(buffer.get());
+        return buffer.get()->getValue();
     }
 
     DISALLOW_COPY_AND_ASSIGN(MultiReadTest);
@@ -154,18 +170,42 @@ TEST_F(MultiReadTest, basics_end_to_end) {
     request.wait();
     ASSERT_TRUE(request.isReady());
     EXPECT_STREQ("STATUS_OK", statusToSymbol(objects[0].status));
-    EXPECT_EQ("value:1-1", bufferString(values[0]));
+    EXPECT_EQ("value:1-1", string(reinterpret_cast<const char*>(
+                           bufferString(values[0])), 9));
+    EXPECT_EQ("object1-1", string(reinterpret_cast<const char*>(
+                           values[0].get()->getKey()), 9));
+
     EXPECT_STREQ("STATUS_OK", statusToSymbol(objects[1].status));
-    EXPECT_EQ("value:1-2", bufferString(values[1]));
+    EXPECT_EQ("value:1-2", string(reinterpret_cast<const char*>(
+                           bufferString(values[1])), 9));
+    EXPECT_EQ("object1-2", string(reinterpret_cast<const char*>(
+                           values[1].get()->getKey()), 9));
+
     EXPECT_STREQ("STATUS_OK", statusToSymbol(objects[2].status));
-    EXPECT_EQ("value:1-3", bufferString(values[2]));
+    EXPECT_EQ("value:1-3", string(reinterpret_cast<const char*>(
+                           bufferString(values[2])), 9));
+    EXPECT_EQ("object1-3", string(reinterpret_cast<const char*>(
+                           values[2].get()->getKey()), 9));
+
     EXPECT_STREQ("STATUS_OK", statusToSymbol(objects[3].status));
-    EXPECT_EQ("value:2-1", bufferString(values[3]));
+    EXPECT_EQ("value:2-1", string(reinterpret_cast<const char*>(
+                           bufferString(values[3])), 9));
+    EXPECT_EQ("object2-1", string(reinterpret_cast<const char*>(
+                           values[3].get()->getKey()), 9));
+    EXPECT_STREQ((const char *)NULL, (const char *)values[3].get()->getKey(1));
+    EXPECT_EQ("otherkey", string(reinterpret_cast<const char*>(
+                           values[3].get()->getKey(2)), 8));
+
     EXPECT_STREQ("STATUS_OK", statusToSymbol(objects[4].status));
-    EXPECT_EQ("value:3-1", bufferString(values[4]));
+    EXPECT_EQ("value:3-1", string(reinterpret_cast<const char*>(
+                           bufferString(values[4])), 9));
+    EXPECT_EQ("object3-1", string(reinterpret_cast<const char*>(
+                           values[4].get()->getKey()), 9));
+
     EXPECT_STREQ("STATUS_OBJECT_DOESNT_EXIST",
             statusToSymbol(objects[5].status));
-    EXPECT_EQ("uninitialized", bufferString(values[5]));
+    EXPECT_EQ("uninitialized", string(reinterpret_cast<const char*>(
+                               bufferString(values[5])), 13));
 }
 
 TEST_F(MultiReadTest, appendRequest) {
@@ -225,7 +265,9 @@ TEST_F(MultiReadTest, readResponse_shortResponse) {
     // Let the request finally succeed.
     session1->lastNotifier->completed();
     EXPECT_TRUE(request.isReady());
-    EXPECT_EQ("value:1-1", bufferString(values[0]));
-    EXPECT_EQ("value:1-2", bufferString(values[1]));
+    EXPECT_EQ("value:1-1", string(reinterpret_cast<const char*>(
+                           bufferString(values[0])), 9));
+    EXPECT_EQ("value:1-2", string(reinterpret_cast<const char*>(
+                           bufferString(values[1])), 9));
 }
 }  // namespace RAMCloud

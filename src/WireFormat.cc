@@ -62,7 +62,7 @@ opcodeSymbol(uint32_t opcode)
         case REMOVE:                     return "REMOVE";
         case ENLIST_SERVER:              return "ENLIST_SERVER";
         case GET_SERVER_LIST:            return "GET_SERVER_LIST";
-        case GET_TABLET_MAP:             return "GET_TABLET_MAP";
+        case GET_TABLE_CONFIG:           return "GET_TABLE_CONFIG";
         case RECOVER:                    return "RECOVER";
         case HINT_SERVER_CRASHED:        return "HINT_SERVER_CRASHED";
         case RECOVERY_MASTER_FINISHED:   return "RECOVERY_MASTER_FINISHED";
@@ -97,6 +97,7 @@ opcodeSymbol(uint32_t opcode)
         case GET_RUNTIME_OPTION:         return "GET_RUNTIME_OPTION";
         case SERVER_CONTROL:             return "SERVER_CONTROL";
         case GET_SERVER_ID:              return "GET_SERVER_ID";
+        case READ_KEYS_AND_VALUE:        return "READ_KEYS_AND_VALUE";
         case ILLEGAL_RPC_TYPE:           return "ILLEGAL_RPC_TYPE";
     }
 

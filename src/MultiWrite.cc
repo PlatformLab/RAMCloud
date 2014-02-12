@@ -14,6 +14,7 @@
  */
 
 #include "MultiWrite.h"
+#include "Object.h"
 #include "ShortMacros.h"
 
 namespace RAMCloud {
@@ -45,7 +46,7 @@ MultiWrite::MultiWrite(RamCloud* ramcloud,
 }
 
 /**
- * Append a given MultiReadObject to a buffer.
+ * Append a given MultiWriteObject to a buffer.
  *
  * It is the responsibility of the caller to ensure that the
  * MultiOpObject passed in is actually a MultiWriteObject.
@@ -62,15 +63,29 @@ MultiWrite::appendRequest(MultiOpObject* request, Buffer* buf)
 
     // Add the current object to the list of those being
     // written by this RPC.
-    new(buf, APPEND)
-        WireFormat::MultiOp::Request::WritePart(
-            req->tableId, req->keyLength,
-            req->valueLength,
-            req->rejectRules ? *req->rejectRules :
-                                  defaultRejectRules);
 
-    buf->append(req->key, req->keyLength);
-    buf->append(req->value, req->valueLength);
+    uint32_t keysAndValueLength = 0;
+    WireFormat::MultiOp::Request::WritePart* writeHdr =
+            new(buf, APPEND)
+                WireFormat::MultiOp::Request::WritePart(
+                req->tableId,
+                keysAndValueLength,
+                req->rejectRules ? *req->rejectRules :
+                                  defaultRejectRules);
+    if (req->numKeys == 1) {
+        Key primaryKey(req->tableId, req->key, req->keyLength);
+        Object::appendKeysAndValueToBuffer(primaryKey, req->value,
+                                           req->valueLength, *buf,
+                                           &keysAndValueLength);
+    } else {
+        // req->key will be NULL in this case. THe primary key will instead
+        // be the first entry in req->keyInfo.
+        Object::appendKeysAndValueToBuffer(req->tableId, req->numKeys,
+                    req->keyInfo, req->value, req->valueLength, *buf,
+                    &keysAndValueLength);
+    }
+    // update the length value in the header
+    writeHdr->length = keysAndValueLength;
 }
 
 /**

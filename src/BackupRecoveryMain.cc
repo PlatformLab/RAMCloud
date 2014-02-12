@@ -59,7 +59,7 @@ try
 
     OptionParser optionParser(clientOptions, argc, argv);
     context.transportManager->setSessionTimeout(
-            optionParser.options.getSessionTimeout());
+        optionParser.options.getSessionTimeout());
 
     string coordinatorLocator =
             optionParser.options.getExternalStorageLocator();
@@ -117,8 +117,8 @@ try
     KillRpc killOp(&client, lastBackupTable, "0", 1);
 
     // Ensure recovery of the master portion completed.
-    client.objectFinder.waitForTabletDown();
-    client.objectFinder.waitForAllTabletsNormal();
+    client.objectFinder.waitForTabletDown(lastBackupTable);
+    client.objectFinder.waitForAllTabletsNormal(lastBackupTable);
 
     // Wait for backup recovery to finish.
     // The way this is detected is a bit weird since it isn't usually

@@ -67,65 +67,70 @@ TEST_F(TableEnumeratorTest, basics) {
 
     // First object.
     Object object1(buffer, size);
-    EXPECT_EQ(33U, size);                                       // size
+    EXPECT_EQ(34U, size);                                       // size
     EXPECT_EQ(tableId1, object1.getTableId());                  // table ID
     EXPECT_EQ(1U, object1.getKeyLength());                      // key length
     EXPECT_EQ(version0, object1.getVersion());                  // version
-    EXPECT_EQ(0, memcmp("0", object1.getKey(), 1));             // key
+    EXPECT_EQ("0", string(reinterpret_cast<const char*>(
+                   object1.getKey()), 1));                      // key
     EXPECT_EQ("abcdef", string(reinterpret_cast<const char*>    // value
-        (object1.getData()), 6));
+        (object1.getValue()), 6));
 
     EXPECT_TRUE(iter.hasNext());
     iter.next(&size, &buffer);
 
     // Second object.
     Object object2(buffer, size);
-    EXPECT_EQ(33U, size);                                       // size
+    EXPECT_EQ(34U, size);                                       // size
     EXPECT_EQ(tableId1, object2.getTableId());                  // table ID
     EXPECT_EQ(1U, object2.getKeyLength());                      // key length
     EXPECT_EQ(version4, object2.getVersion());                  // version
-    EXPECT_EQ(0, memcmp("4", object2.getKey(), 1));             // key
+    EXPECT_EQ("4", string(reinterpret_cast<const char*>(
+                   object2.getKey()), 1));                      // key
     EXPECT_EQ("yzabcd", string(reinterpret_cast<const char*>    // value
-        (object2.getData()), 6));
+        (object2.getValue()), 6));
 
     EXPECT_TRUE(iter.hasNext());
     iter.next(&size, &buffer);
 
     // Third object.
     Object object3(buffer, size);
-    EXPECT_EQ(33U, size);                                       // size
+    EXPECT_EQ(34U, size);                                       // size
     EXPECT_EQ(tableId1, object3.getTableId());                  // table ID
     EXPECT_EQ(1U, object3.getKeyLength());                      // key length
     EXPECT_EQ(version2, object3.getVersion());                  // version
-    EXPECT_EQ(0, memcmp("2", object3.getKey(), 1));             // key
+    EXPECT_EQ("2", string(reinterpret_cast<const char*>(
+                   object3.getKey()), 1));                      // key
     EXPECT_EQ("mnopqr", string(reinterpret_cast<const char*>    // value
-        (object3.getData()), 6));
+        (object3.getValue()), 6));
 
     EXPECT_TRUE(iter.hasNext());
     iter.next(&size, &buffer);
 
     // Fourth object.
     Object object4(buffer, size);
-    EXPECT_EQ(33U, size);                                       // size
+    EXPECT_EQ(34U, size);                                       // size
     EXPECT_EQ(tableId1, object4.getTableId());                  // table ID
     EXPECT_EQ(1U, object4.getKeyLength());                      // key length
     EXPECT_EQ(version1, object4.getVersion());                  // version
-    EXPECT_EQ(0, memcmp("1", object4.getKey(), 1));             // key
+    EXPECT_EQ("1", string(reinterpret_cast<const char*>(
+                   object4.getKey()), 1));                      // key
     EXPECT_EQ("ghijkl", string(reinterpret_cast<const char*>    // value
-        (object4.getData()), 6));
+        (object4.getValue()), 6));
 
     EXPECT_TRUE(iter.hasNext());
     iter.next(&size, &buffer);
 
     // Fifth object.
     Object object5(buffer, size);
-    EXPECT_EQ(33U, size);                                       // size
+    EXPECT_EQ(34U, size);                                       // size
     EXPECT_EQ(tableId1, object5.getTableId());                  // table ID
     EXPECT_EQ(1U, object5.getKeyLength());                      // key length
     EXPECT_EQ(version3, object5.getVersion());                  // version
-    EXPECT_EQ(0, memcmp("3", object5.getKey(), 1));             // key
+    EXPECT_EQ("3", string(reinterpret_cast<const char*>(
+                   object5.getKey()), 1));                      // key
     EXPECT_EQ("stuvwx", string(reinterpret_cast<const char*>    // value
-        (object5.getData()), 6));
+        (object5.getValue()), 6));
 
     EXPECT_FALSE(iter.hasNext());
 }
@@ -146,60 +151,71 @@ TEST_F(TableEnumeratorTest, keysOnly) {
 
     // First object.
     Object object1(buffer, size);
-    EXPECT_EQ(27U, size);                                       // size
+    EXPECT_EQ(28U, size);                                       // size
     EXPECT_EQ(tableId1, object1.getTableId());                  // table ID
     EXPECT_EQ(1U, object1.getKeyLength());                      // key length
     EXPECT_EQ(version0, object1.getVersion());                  // version
-    EXPECT_EQ(0, memcmp("0", object1.getKey(), 1));             // key
-    EXPECT_EQ(0U, object1.dataLength);                           // data length
+    EXPECT_EQ("0", string(reinterpret_cast<const char*>(
+                   object1.getKey()), 1));                      // key
+    uint32_t dataLength;
+    object1.getValue(&dataLength);
+    EXPECT_EQ(0U, dataLength);                           // data length
 
     EXPECT_TRUE(iter.hasNext());
     iter.next(&size, &buffer);
 
     // Second object.
     Object object2(buffer, size);
-    EXPECT_EQ(27U, size);                                       // size
+    EXPECT_EQ(28U, size);                                       // size
     EXPECT_EQ(tableId1, object2.getTableId());                  // table ID
     EXPECT_EQ(1U, object2.getKeyLength());                      // key length
     EXPECT_EQ(version4, object2.getVersion());                  // version
-    EXPECT_EQ(0, memcmp("4", object2.getKey(), 1));             // key
-    EXPECT_EQ(0U, object2.dataLength);                           // data length
+    EXPECT_EQ("4", string(reinterpret_cast<const char*>(
+                   object2.getKey()), 1));                      // key
+    object2.getValue(&dataLength);
+    EXPECT_EQ(0U, dataLength);                           // data length
 
     EXPECT_TRUE(iter.hasNext());
     iter.next(&size, &buffer);
 
     // Third object.
     Object object3(buffer, size);
-    EXPECT_EQ(27U, size);                                       // size
+    EXPECT_EQ(28U, size);                                       // size
     EXPECT_EQ(tableId1, object3.getTableId());                  // table ID
     EXPECT_EQ(1U, object3.getKeyLength());                      // key length
     EXPECT_EQ(version2, object3.getVersion());                  // version
-    EXPECT_EQ(0, memcmp("2", object3.getKey(), 1));             // key
-    EXPECT_EQ(0U, object3.dataLength);                           // data length
+    EXPECT_EQ("2", string(reinterpret_cast<const char*>(
+                   object3.getKey()), 1));                      // key
+    object3.getValue(&dataLength);
+    EXPECT_EQ(0U, dataLength);                           // data length
 
     EXPECT_TRUE(iter.hasNext());
     iter.next(&size, &buffer);
 
     // Fourth object.
     Object object4(buffer, size);
-    EXPECT_EQ(27U, size);                                       // size
+    EXPECT_EQ(28U, size);                                       // size
     EXPECT_EQ(tableId1, object4.getTableId());                  // table ID
     EXPECT_EQ(1U, object4.getKeyLength());                      // key length
     EXPECT_EQ(version1, object4.getVersion());                  // version
-    EXPECT_EQ(0, memcmp("1", object4.getKey(), 1));             // key
-    EXPECT_EQ(0U, object4.dataLength);                           // data length
+    EXPECT_EQ("1", string(reinterpret_cast<const char*>(
+                   object4.getKey()), 1));                      // key
+    object4.getValue(&dataLength);
+    EXPECT_EQ(0U, dataLength);                           // data length
 
     EXPECT_TRUE(iter.hasNext());
     iter.next(&size, &buffer);
 
     // Fifth object.
     Object object5(buffer, size);
-    EXPECT_EQ(27U, size);                                       // size
+    EXPECT_EQ(28U, size);                                       // size
     EXPECT_EQ(tableId1, object5.getTableId());                  // table ID
     EXPECT_EQ(1U, object5.getKeyLength());                      // key length
     EXPECT_EQ(version3, object5.getVersion());                  // version
-    EXPECT_EQ(0, memcmp("3", object5.getKey(), 1));             // key
-    EXPECT_EQ(0U, object5.dataLength);                           // data length
+    EXPECT_EQ("3", string(reinterpret_cast<const char*>(
+                   object5.getKey()), 1));                      // key
+    object5.getValue(&dataLength);
+    EXPECT_EQ(0U, dataLength);                           // data length
 
     EXPECT_FALSE(iter.hasNext());
 }
@@ -222,7 +238,8 @@ TEST_F(TableEnumeratorTest, nextKeyData) {
     iter.nextKeyAndData(&keyLength, &keyBuffer, &dataLength, &dataBuffer);
 
     // First object.
-    EXPECT_EQ(0, memcmp("0", keyBuffer, keyLength));             // key
+    EXPECT_EQ("0", string(reinterpret_cast<const char*>(
+                   keyBuffer), keyLength));                      // key
     EXPECT_EQ("abcdef", string(reinterpret_cast<const char*>     // data
         (dataBuffer), dataLength));
 
@@ -230,7 +247,8 @@ TEST_F(TableEnumeratorTest, nextKeyData) {
     iter.nextKeyAndData(&keyLength, &keyBuffer, &dataLength, &dataBuffer);
 
     // Second object.
-    EXPECT_EQ(0, memcmp("4", keyBuffer, keyLength));             // key
+    EXPECT_EQ("4", string(reinterpret_cast<const char*>(
+                   keyBuffer), keyLength));                      // key
     EXPECT_EQ("yzabcd", string(reinterpret_cast<const char*>     // data
         (dataBuffer), dataLength));
 
@@ -238,7 +256,8 @@ TEST_F(TableEnumeratorTest, nextKeyData) {
     iter.nextKeyAndData(&keyLength, &keyBuffer, &dataLength, &dataBuffer);
 
     // Third object.
-    EXPECT_EQ(0, memcmp("2", keyBuffer, keyLength));             // key
+    EXPECT_EQ("2", string(reinterpret_cast<const char*>(
+                   keyBuffer), keyLength));                      // key
     EXPECT_EQ("mnopqr", string(reinterpret_cast<const char*>     // data
         (dataBuffer), dataLength));
 
@@ -246,7 +265,8 @@ TEST_F(TableEnumeratorTest, nextKeyData) {
     iter.nextKeyAndData(&keyLength, &keyBuffer, &dataLength, &dataBuffer);
 
     // Fourth object.
-    EXPECT_EQ(0, memcmp("1", keyBuffer, keyLength));             // key
+    EXPECT_EQ("1", string(reinterpret_cast<const char*>(
+                   keyBuffer), keyLength));                      // key
     EXPECT_EQ("ghijkl", string(reinterpret_cast<const char*>     // data
         (dataBuffer), dataLength));
 
@@ -254,7 +274,8 @@ TEST_F(TableEnumeratorTest, nextKeyData) {
     iter.nextKeyAndData(&keyLength, &keyBuffer, &dataLength, &dataBuffer);
 
     // Fifth object.
-    EXPECT_EQ(0, memcmp("3", keyBuffer, keyLength));             // key
+    EXPECT_EQ("3", string(reinterpret_cast<const char*>(
+                   keyBuffer), keyLength));                      // key
     EXPECT_EQ("stuvwx", string(reinterpret_cast<const char*>     // data
         (dataBuffer), dataLength));
 

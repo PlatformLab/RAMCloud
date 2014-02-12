@@ -134,8 +134,7 @@ TableEnumerator::nextKeyAndData(uint32_t* keyLength, const void** key,
     *key = object.getKey();
 
     if (!keysOnly) {
-        *dataLength = object.dataLength;
-        *data = object.getData();
+        *data = object.getValue(dataLength);
     }
 }
 

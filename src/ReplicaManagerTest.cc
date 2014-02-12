@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2012 Stanford University
+/* Copyright (c) 2009-2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -73,6 +73,7 @@ struct ReplicaManagerTest : public ::testing::Test {
                                ServerStatus::UP});
         return server->serverId;
     }
+
 };
 
 TEST_F(ReplicaManagerTest, isReplicaNeeded) {
@@ -154,9 +155,11 @@ TEST_F(ReplicaManagerTest, writeSegment) {
     s.append(LOG_ENTRY_TYPE_SEGHEADER, buffer);
 
     Key key(123, "10", 2);
-    Object object(key, NULL, 0, 0, 0);
+    Buffer dataBuffer;
+    Object object(key, NULL, 0, 0, 0, dataBuffer);
+
     buffer.reset();
-    object.serializeToBuffer(buffer);
+    object.assembleForLog(buffer);
     s.append(LOG_ENTRY_TYPE_OBJ, buffer);
     s.close();
 
@@ -194,7 +197,6 @@ TEST_F(ReplicaManagerTest, writeSegment) {
                                resp.getTotalLength(), certificate);
             EXPECT_FALSE(it.isDone());
             EXPECT_EQ(LOG_ENTRY_TYPE_OBJ, it.getType());
-            EXPECT_EQ(Object::getSerializedLength(2, 0), it.getLength());
 
             Buffer buffer;
             it.appendToBuffer(buffer);

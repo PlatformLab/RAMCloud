@@ -124,14 +124,17 @@ class MasterService : public Service {
                 WireFormat::MultiOp::Response* respHdr,
                 Rpc* rpc);
     void multiWrite(const WireFormat::MultiOp::Request* reqHdr,
-                WireFormat::MultiOp::Response* respHdr,
-                Rpc* rpc);
+                   WireFormat::MultiOp::Response* respHdr,
+                   Rpc* rpc);
     void prepForMigration(const WireFormat::PrepForMigration::Request* reqHdr,
                 WireFormat::PrepForMigration::Response* respHdr,
                 Rpc* rpc);
     void read(const WireFormat::Read::Request* reqHdr,
                 WireFormat::Read::Response* respHdr,
                 Rpc* rpc);
+    void readKeysAndValue(const WireFormat::ReadKeysAndValue::Request* reqHdr,
+              WireFormat::ReadKeysAndValue::Response* respHdr,
+              Rpc* rpc);
     void receiveMigrationData(
                 const WireFormat::ReceiveMigrationData::Request* reqHdr,
                 WireFormat::ReceiveMigrationData::Response* respHdr,

@@ -20,6 +20,7 @@
 #include "EnumerationIterator.h"
 #include "LogEntryRelocator.h"
 #include "ObjectManager.h"
+#include "Object.h"
 #include "ShortMacros.h"
 #include "RawMetrics.h"
 #include "Tub.h"
@@ -121,11 +122,10 @@ ObjectManager::initOnceEnlisted()
  * batch, rather than for each object. If this method returns anything other
  * than STATUS_OK, there were no changes made and the caller need not sync.
  *
- * \param key
- *      Key that will refer to the object being stored.
- * \param value
- *      The value portion of the key-value pair that a stored object represents.
- *      This is an uninterpreted sequence of bytes.
+ * \param newObject
+ *      The new object to be written to the log. The object does not have
+ *      a valid version and timestamp. So this function will update the version,
+ *      timestamp and the checksum of the object before writing to the log.
  * \param rejectRules
  *      Specifies conditions under which the write should be aborted with an
  *      error. May be NULL if no special reject conditions are desired.
@@ -141,8 +141,7 @@ ObjectManager::initOnceEnlisted()
  *      STATUS_UKNOWN_TABLE may be returned.
  */
 Status
-ObjectManager::writeObject(Key& key,
-                           Buffer& value,
+ObjectManager::writeObject(Object& newObject,
                            RejectRules* rejectRules,
                            uint64_t* outVersion)
 {
@@ -164,6 +163,10 @@ ObjectManager::writeObject(Key& key,
                 transportManager.getSession(backup.service_locator().c_str());
         }
     }
+
+    uint16_t keyLength = 0;
+    const void *keyString = newObject.getKey(0, &keyLength);
+    Key key(newObject.getTableId(), keyString, keyLength);
 
     objectMap.prefetchBucket(key);
     HashTableBucketLock lock(*this, key);
@@ -206,10 +209,8 @@ ObjectManager::writeObject(Key& key,
     uint64_t newObjectVersion = (currentVersion == VERSION_NONEXISTENT) ?
             segmentManager.allocateVersion() : currentVersion + 1;
 
-    Object newObject(key,
-                     value,
-                     newObjectVersion,
-                     WallTime::secondsTimestamp());
+    newObject.setVersion(newObjectVersion);
+    newObject.setTimestamp(WallTime::secondsTimestamp());
 
     assert(currentVersion == VERSION_NONEXISTENT ||
            newObject.getVersion() > currentVersion);
@@ -231,11 +232,11 @@ ObjectManager::writeObject(Key& key,
     // for the old deleted version. Both cases lead to consistency problems.
     Log::AppendVector appends[2];
 
-    newObject.serializeToBuffer(appends[0].buffer);
+    newObject.assembleForLog(appends[0].buffer);
     appends[0].type = LOG_ENTRY_TYPE_OBJ;
 
     if (tombstone) {
-        tombstone->serializeToBuffer(appends[1].buffer);
+        tombstone->assembleForLog(appends[1].buffer);
         appends[1].type = LOG_ENTRY_TYPE_OBJTOMB;
     }
 
@@ -297,6 +298,9 @@ ObjectManager::writeObject(Key& key,
  *      If non-NULL and the object is found, the version is returned here. If
  *      the reject rules failed the read, the current object's version is still
  *      returned.
+ * \param valueOnly
+ *      If true, then only the value portion of the object is written to
+ *      outBuffer. Otherwise, keys and value are written to outBuffer.
  * \return
  *      Returns STATUS_OK if the lookup succeeded and the reject rules did not
  *      preclude this read. Other status values indicate different failures
@@ -306,7 +310,8 @@ Status
 ObjectManager::readObject(Key& key,
                           Buffer* outBuffer,
                           RejectRules* rejectRules,
-                          uint64_t* outVersion)
+                          uint64_t* outVersion,
+                          bool valueOnly)
 {
     objectMap.prefetchBucket(key);
     HashTableBucketLock lock(*this, key);
@@ -336,7 +341,13 @@ ObjectManager::readObject(Key& key,
     }
 
     Object object(buffer);
-    object.appendDataToBuffer(*outBuffer);
+    if (valueOnly) {
+        uint32_t valueLength = 0;
+        const void* objectValue = object.getValue(&valueLength);
+        outBuffer->append(objectValue, valueLength);
+    } else {
+        object.appendKeysAndValueToBuffer(*outBuffer);
+    }
 
     tabletManager->incrementReadCount(key);
 
@@ -406,7 +417,7 @@ ObjectManager::removeObject(Key& key,
                               log.getSegmentId(reference),
                               WallTime::secondsTimestamp());
     Buffer tombstoneBuffer;
-    tombstone.serializeToBuffer(tombstoneBuffer);
+    tombstone.assembleForLog(tombstoneBuffer);
 
     // Write the tombstone into the Log, increment the tablet version
     // number, and remove from the hash table.
@@ -457,13 +468,18 @@ ObjectManager::prefetchHashTableBucket(SegmentIterator* it)
         return;
 
     if (expect_true(it->getType() == LOG_ENTRY_TYPE_OBJ)) {
-        const Object::SerializedForm* obj =
-            it->getContiguous<Object::SerializedForm>(NULL, 0);
-        Key key(obj->tableId, obj->keyAndData, obj->keyLength);
+        const Object::Header* obj =
+            it->getContiguous<Object::Header>(NULL, 0);
+
+        Object prefetchObj(obj, it->getLength());
+        KeyLength primaryKeyLen = 0;
+        const void *primaryKey = prefetchObj.getKey(0, &primaryKeyLen);
+
+        Key key(obj->tableId, primaryKey, primaryKeyLen);
         objectMap.prefetchBucket(key);
     } else if (it->getType() == LOG_ENTRY_TYPE_OBJTOMB) {
-        const ObjectTombstone::SerializedForm* tomb =
-            it->getContiguous<ObjectTombstone::SerializedForm>(NULL, 0);
+        const ObjectTombstone::Header* tomb =
+            it->getContiguous<ObjectTombstone::Header>(NULL, 0);
         Key key(tomb->tableId, tomb->key,
             downCast<uint16_t>(it->getLength() - sizeof32(*tomb)));
         objectMap.prefetchBucket(key);
@@ -579,11 +595,15 @@ ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it)
         if (expect_true(type == LOG_ENTRY_TYPE_OBJ)) {
             // The recovery segment is guaranteed to be contiguous, so we need
             // not provide a copyout buffer.
-            const Object::SerializedForm* recoveryObj =
-                it.getContiguous<Object::SerializedForm>(NULL, 0);
-            Key key(recoveryObj->tableId,
-                    recoveryObj->keyAndData,
-                    recoveryObj->keyLength);
+
+            const Object::Header* recoveryObj =
+                it.getContiguous<Object::Header>(NULL, 0);
+
+            Object replayObj(recoveryObj, it.getLength());
+            KeyLength primaryKeyLen = 0;
+            const void *primaryKey = replayObj.getKey(0, &primaryKeyLen);
+
+            Key key(recoveryObj->tableId, primaryKey, primaryKeyLen);
 
             bool checksumIsValid = ({
                 CycleCounter<uint64_t> c(&verifyChecksumTicks);

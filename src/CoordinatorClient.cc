@@ -203,57 +203,65 @@ GetServerListRpc::wait(ProtoBuf::ServerList* serverList)
 
 /**
  * Retrieve tablet configuration information, which indicates the master
- * server that stores each object in the system.  Clients use this to direct
- * requests to the appropriate server.
+ * server that stores each object in the given table. Clients use this to 
+ * direct requests to the appropriate server.
  *
  * \param context
  *      Overall information about this RAMCloud server or client.
- * \param[out] tabletMap
- *      Will be filled in with information about all tablets that currently
- *      exist.
+ * \param tableId
+ *      The id of a table.    
+ * \param[out] tableConfig
+ *      Will be filled in with location of every tablet in 
+ *      the table. If the table does not exist, then the result 
+ *      will contain no tablets.
  */
 void
-CoordinatorClient::getTabletMap(Context* context,
-        ProtoBuf::Tablets* tabletMap)
+CoordinatorClient::getTableConfig(Context* context,
+        uint64_t tableId, ProtoBuf::Tablets* tableConfig)
 {
-    GetTabletMapRpc rpc(context);
-    rpc.wait(tabletMap);
+    GetTableConfigRpc rpc(context, tableId);
+    rpc.wait(tableConfig);
 }
 
 /**
- * Constructor for GetTabletMapRpc: initiates an RPC in the same way as
- * #CoordinatorClient::getTabletMap, but returns once the RPC has been
+ * Constructor for GetTableConfigRpc: initiates an RPC in the same way as
+ * #CoordinatorClient::getTableConfig, but returns once the RPC has been
  * initiated, without waiting for it to complete.
  *
  * \param context
  *      Overall information about this RAMCloud server or client.
+ * \param tableId
+ *      The id of a table whose tablet configuration is to be fetched.
  */
-GetTabletMapRpc::GetTabletMapRpc(Context* context)
+GetTableConfigRpc::GetTableConfigRpc(Context* context, uint64_t tableId)
     : CoordinatorRpcWrapper(context,
-            sizeof(WireFormat::GetTabletMap::Response))
+            sizeof(WireFormat::GetTableConfig::Response))
 {
-    allocHeader<WireFormat::GetTabletMap>();
+    WireFormat::GetTableConfig::Request* reqHdr(
+            allocHeader<WireFormat::GetTableConfig>());
+    reqHdr->tableId = tableId;
     send();
 }
 
 /**
- * Wait for a getTabletMap RPC to complete, and return the same results as
- * #CoordinatorClient::getTabletMap.
+ * Wait for a getTableConfig RPC to complete, and return the 
+ * same results as #CoordinatorClient::getTableConfig.
  *
- * \param[out] tabletMap
- *      Will be filled in with information about all tablets that currently
- *      exist.
+ * \param[out] tableConfig
+ *      Will be filled in with the location of every tablet 
+ *      in the table given by tableId argument passed to the constructor.
+ *      If the table does not exist, then the result will contain no tablets.
  */
 void
-GetTabletMapRpc::wait(ProtoBuf::Tablets* tabletMap)
+GetTableConfigRpc::wait(ProtoBuf::Tablets* tableConfig)
 {
     waitInternal(context->dispatch);
-    const WireFormat::GetTabletMap::Response* respHdr(
-            getResponseHeader<WireFormat::GetTabletMap>());
+    const WireFormat::GetTableConfig::Response* respHdr(
+            getResponseHeader<WireFormat::GetTableConfig>());
     if (respHdr->common.status != STATUS_OK)
         ClientException::throwException(HERE, respHdr->common.status);
     ProtoBuf::parseFromResponse(response, sizeof(*respHdr),
-                                respHdr->tabletMapLength, tabletMap);
+                                respHdr->tableConfigLength, tableConfig);
 }
 
 /**

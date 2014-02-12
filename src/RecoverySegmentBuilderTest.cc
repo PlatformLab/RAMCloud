@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2013 Stanford University
+/* Copyright (c) 2012-2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -67,38 +67,44 @@ TEST_F(RecoverySegmentBuilderTest, build) {
 
     { // Object and tombstone should go in partition 1.
         Key key(1, "1", 1);
-        Object object(key, "hello", 6, 0, 0);
+
+        Buffer dataBuffer;
+        Object object(key, "hello", 6, 0, 0, dataBuffer);
+
         Buffer buffer;
-        object.serializeToBuffer(buffer);
+        object.assembleForLog(buffer);
         ASSERT_TRUE(segment->append(LOG_ENTRY_TYPE_OBJ, buffer));
         ObjectTombstone tombstone(object, 0, 0);
         buffer.reset();
-        tombstone.serializeToBuffer(buffer);
+        tombstone.assembleForLog(buffer);
         ASSERT_TRUE(segment->append(LOG_ENTRY_TYPE_OBJTOMB, buffer));
 
     }{ // Object and tombstone should go in partition 0.
         Key key(1, "2", 1);
-        Object object(key, "abcde", 6, 0, 0);
+        Buffer dataBuffer;
+        Object object(key, "abcde", 6, 0, 0, dataBuffer);
         Buffer buffer;
-        object.serializeToBuffer(buffer);
+        object.assembleForLog(buffer);
         ASSERT_TRUE(segment->append(LOG_ENTRY_TYPE_OBJ, buffer));
         ObjectTombstone tombstone(object, 0, 0);
         buffer.reset();
-        tombstone.serializeToBuffer(buffer);
+        tombstone.assembleForLog(buffer);
         ASSERT_TRUE(segment->append(LOG_ENTRY_TYPE_OBJTOMB, buffer));
 
     }{ // Object not in any partition.
         Key key(10, "1", 1);
-        Object object(key, "abcde", 6, 0, 0);
+        Buffer dataBuffer;
+        Object object(key, "abcde", 6, 0, 0, dataBuffer);
         Buffer buffer;
-        object.serializeToBuffer(buffer);
+        object.assembleForLog(buffer);
         ASSERT_TRUE(segment->append(LOG_ENTRY_TYPE_OBJ, buffer));
 
     }{ // Object not written before the tablet existed.
         Key key(2, "1", 1);
-        Object object(key, "abcde", 6, 0, 0);
+        Buffer dataBuffer;
+        Object object(key, "abcde", 6, 0, 0, dataBuffer);
         Buffer buffer;
-        object.serializeToBuffer(buffer);
+        object.assembleForLog(buffer);
         ASSERT_TRUE(segment->append(LOG_ENTRY_TYPE_OBJ, buffer));
     }
 
@@ -115,12 +121,12 @@ TEST_F(RecoverySegmentBuilderTest, build) {
     EXPECT_TRUE(StringUtil::contains(TestLog::get(),
         "Skipping object with <tableId, keyHash> of <2"));
     EXPECT_EQ("safeVersion at offset 0, length 12 with version 1 | "
-            "object at offset 14, length 33 with tableId 1, key '2' | "
-            "tombstone at offset 49, length 33 with tableId 1, key '2'",
+            "object at offset 14, length 34 with tableId 1, key '2' | "
+            "tombstone at offset 50, length 33 with tableId 1, key '2'",
             ObjectManager::dumpSegment(&recoverySegments[0]));
     EXPECT_EQ("safeVersion at offset 0, length 12 with version 1 | "
-            "object at offset 14, length 33 with tableId 1, key '1' | "
-            "tombstone at offset 49, length 33 with tableId 1, key '1'",
+            "object at offset 14, length 34 with tableId 1, key '1' | "
+            "tombstone at offset 50, length 33 with tableId 1, key '1'",
             ObjectManager::dumpSegment(&recoverySegments[1]));
 
     certificate.checksum = 0;
@@ -136,7 +142,7 @@ TEST_F(RecoverySegmentBuilderTest, build_safeVersionEntries) {
     LogSegment* segment = segmentManager.allocHeadSegment();
     ObjectSafeVersion safeVersion(99);
     Buffer buffer;
-    safeVersion.serializeToBuffer(buffer);
+    safeVersion.assembleForLog(buffer);
 
     ASSERT_TRUE(segment->append(LOG_ENTRY_TYPE_SAFEVERSION, buffer));
     Segment::Certificate certificate;

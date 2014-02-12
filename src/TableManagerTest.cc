@@ -531,7 +531,7 @@ TEST_F(TableManagerTest, recover_incompleteReassignTablet) {
             TestLog::get());
 }
 
-TEST_F(TableManagerTest, serialize) {
+TEST_F(TableManagerTest, serializeTableConfig) {
     cluster.addServer(masterConfig)->master.get();
     cluster.addServer(masterConfig)->master.get();
     tableManager->createTable("table1", 1);
@@ -542,7 +542,7 @@ TEST_F(TableManagerTest, serialize) {
     tableManager->directory["table2"]->tablets[0]->serverId = ServerId(4);
 
     ProtoBuf::Tablets tablets;
-    tableManager->serialize(&tablets);
+    tableManager->serializeTableConfig(&tablets, 2);
     EXPECT_EQ("tablet { table_id: 2 start_key_hash: 0 "
             "end_key_hash: 4611686018427387903 state: NORMAL "
             "server_id: 4 ctime_log_head_id: 0 ctime_log_head_offset: 0 } "
@@ -557,13 +557,9 @@ TEST_F(TableManagerTest, serialize) {
             "tablet { table_id: 2 start_key_hash: 13835058055282163712 "
             "end_key_hash: 18446744073709551615 state: NORMAL "
             "server_id: 1 service_locator: \"mock:host=server0\" "
-            "ctime_log_head_id: 0 ctime_log_head_offset: 0 } "
-            "tablet { table_id: 1 start_key_hash: 0 "
-            "end_key_hash: 18446744073709551615 state: NORMAL "
-            "server_id: 1 service_locator: \"mock:host=server0\" "
             "ctime_log_head_id: 0 ctime_log_head_offset: 0 }",
             tablets.ShortDebugString());
-    EXPECT_EQ("serialize: Server id (4.0) in tablet map no longer "
+    EXPECT_EQ("serializeTableConfig: Server id (4.0) in tablet map no longer "
             "in server list; omitting locator for entry",
             TestLog::get());
 }

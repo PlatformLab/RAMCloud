@@ -41,6 +41,8 @@ CLIENT_SRCFILES := \
 		   src/MultiRemove.cc \
 		   src/MultiWrite.cc \
 		   src/MurmurHash3.cc \
+		   src/Object.cc \
+		   src/ObjectBuffer.cc \
 		   src/ObjectFinder.cc \
 		   src/ObjectRpcWrapper.cc \
 		   src/PcapFile.cc \

@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2013 Stanford University
+/* Copyright (c) 2010-2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -75,7 +75,7 @@ enum Opcode {
     REMOVE                    = 15,
     ENLIST_SERVER             = 16,
     GET_SERVER_LIST           = 17,
-    GET_TABLET_MAP            = 18,
+    GET_TABLE_CONFIG          = 18,
     RECOVER                   = 19,
     HINT_SERVER_CRASHED       = 20,
     RECOVERY_MASTER_FINISHED  = 21,
@@ -110,7 +110,8 @@ enum Opcode {
     GET_RUNTIME_OPTION        = 56,
     SERVER_CONTROL            = 57,
     GET_SERVER_ID             = 58,
-    ILLEGAL_RPC_TYPE          = 59,  // 1 + the highest legitimate Opcode
+    READ_KEYS_AND_VALUE       = 59,
+    ILLEGAL_RPC_TYPE          = 60,  // 1 + the highest legitimate Opcode
 };
 
 /**
@@ -669,15 +670,16 @@ struct GetTableId {
     } __attribute__((packed));
 };
 
-struct GetTabletMap {
-    static const Opcode opcode = GET_TABLET_MAP;
+struct GetTableConfig {
+    static const Opcode opcode = GET_TABLE_CONFIG;
     static const ServiceType service = COORDINATOR_SERVICE;
     struct Request {
         RequestCommon common;
+        uint64_t tableId;
     } __attribute__((packed));
     struct Response {
         ResponseCommon common;
-        uint32_t tabletMapLength;  // Number of bytes in the tablet map.
+        uint32_t tableConfigLength;  // Number of bytes in the tablet map.
                                    // The bytes of the tablet map follow
                                    // immediately after this header. See
                                    // ProtoBuf::Tablets.
@@ -803,17 +805,14 @@ struct MultiOp {
 
         struct WritePart {
             uint64_t tableId;
-            uint16_t keyLength;
-            uint32_t valueLength;
+            uint32_t length;        // length of keysAndValue
             RejectRules rejectRules;
 
-            // In buffer: The actual key and data for this part
-            // follow immediately after this.
-            WritePart(uint64_t tableId, uint16_t keyLength,
-                      uint32_t valueLength, RejectRules rejectRules)
+            // In buffer: KeysAndValue follow immediately after this
+            WritePart(uint64_t tableId, uint32_t length,
+                        RejectRules rejectRules)
                 : tableId(tableId)
-                , keyLength(keyLength)
-                , valueLength(valueLength)
+                , length(length)
                 , rejectRules(rejectRules)
             {
             }
@@ -937,6 +936,27 @@ struct Read {
         ResponseCommon common;
         uint64_t version;
         uint32_t length;              // Length of the object's value in bytes.
+                                      // The actual bytes of the object follow
+                                      // immediately after this header.
+    } __attribute__((packed));
+};
+
+struct ReadKeysAndValue {
+    static const Opcode opcode = READ_KEYS_AND_VALUE;
+    static const ServiceType service = MASTER_SERVICE;
+    struct Request {
+        RequestCommon common;
+        uint64_t tableId;
+        uint16_t keyLength;           // Length of the key in bytes.
+                                      // The actual key follows
+                                      // immediately after this header.
+        RejectRules rejectRules;
+    } __attribute__((packed));
+    struct Response {
+        ResponseCommon common;
+        uint64_t version;
+        uint32_t length;              // Length of the object's keys and value
+                                      // as defined in Object.h in bytes.
                                       // The actual bytes of the object follow
                                       // immediately after this header.
     } __attribute__((packed));
@@ -1209,12 +1229,9 @@ struct Write {
     struct Request {
         RequestCommon common;
         uint64_t tableId;
-        uint16_t keyLength;           // Length of the key in bytes.
-                                      // The actual bytes of the key follow
-                                      // immediately after this header.
-        uint32_t length;              // Length of the object's value in bytes.
-                                      // The actual bytes of the object follow
-                                      // immediately after the key.
+        uint32_t length;              // Includes the total size of the
+                                      // keysAndValue blob in bytes.These
+                                      // follow immediately after this header
         RejectRules rejectRules;
         uint8_t async;
     } __attribute__((packed));

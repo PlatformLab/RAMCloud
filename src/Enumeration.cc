@@ -138,7 +138,7 @@ appendObjectsToBuffer(Log& log,
         Object object(objectBuffer);
         uint32_t length = objectBuffer.getTotalLength();
         if (keysOnly) {
-            uint32_t dataLength = object.getDataLength();
+            uint32_t dataLength = object.getValueLength();
             length -= dataLength;
         }
 

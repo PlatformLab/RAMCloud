@@ -71,8 +71,8 @@ class CoordinatorService : public Service {
     void getServerList(const WireFormat::GetServerList::Request* reqHdr,
                        WireFormat::GetServerList::Response* respHdr,
                        Rpc* rpc);
-    void getTabletMap(const WireFormat::GetTabletMap::Request* reqHdr,
-                      WireFormat::GetTabletMap::Response* respHdr,
+    void getTableConfig(const WireFormat::GetTableConfig::Request* reqHdr,
+                      WireFormat::GetTableConfig::Response* respHdr,
                       Rpc* rpc);
     void hintServerCrashed(const WireFormat::HintServerCrashed::Request* reqHdr,
                         WireFormat::HintServerCrashed::Response* respHdr,

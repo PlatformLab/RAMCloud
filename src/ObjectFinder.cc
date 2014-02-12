@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2012 Stanford University
+/* Copyright (c) 2010-2013 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -19,29 +19,54 @@
 #include "Key.h"
 
 namespace RAMCloud {
-
-namespace {
-
 /**
- * The implementation of ObjectFinder::TabletMapFetcher that is used for normal
- * execution. Simply forwards getTabletMap to the coordinator client.
+ * The implementation of ObjectFinder::TableConfigFetcher that is used for
+ * normal execution. Simply invokes CoordinatorClient::getTableConfig
  */
-class RealTabletMapFetcher : public ObjectFinder::TabletMapFetcher {
+class RealTableConfigFetcher : public ObjectFinder::TableConfigFetcher {
   public:
-    explicit RealTabletMapFetcher(Context* context)
+    explicit RealTableConfigFetcher(Context* context)
         : context(context)
     {
     }
-    void getTabletMap(ProtoBuf::Tablets& tabletMap) {
-        CoordinatorClient::getTabletMap(context, &tabletMap);
+    void getTableConfig(
+          uint64_t tableId,
+          std::map<TabletKey, TabletProtoBuffer>* tableMap) {
+
+        tableMap->clear();
+        ProtoBuf::Tablets tableConfig;
+        CoordinatorClient::getTableConfig(context, tableId, &tableConfig);
+
+        foreach (const ProtoBuf::Tablets::Tablet& tablet,
+                 tableConfig.tablet()) {
+
+            uint64_t tableId = tablet.table_id();
+            uint64_t startKeyHash = tablet.start_key_hash();
+            uint64_t endKeyHash = tablet.end_key_hash();
+            ServerId serverId(tablet.server_id());
+            Tablet::Status state = Tablet::Status::RECOVERING;
+            if (tablet.state() == ProtoBuf::Tablets_Tablet_State_NORMAL) {
+                state = Tablet::NORMAL;
+            }
+            Log::Position ctime(tablet.ctime_log_head_id(),
+                                            tablet.ctime_log_head_offset());
+            Tablet rawTablet(tableId, startKeyHash, endKeyHash,
+                                            serverId, state, ctime);
+            string serviceLocator = tablet.service_locator();
+
+            TabletKey key{tablet.table_id(),
+                          tablet.start_key_hash()};
+            TabletProtoBuffer tabletProtoBuffer(rawTablet, serviceLocator);
+
+            std::map<TabletKey, TabletProtoBuffer>::iterator it
+                                                        = tableMap->find(key);
+            tableMap->insert(std::make_pair(key, tabletProtoBuffer));
+        }
     }
   private:
     Context* context;
-
-    DISALLOW_COPY_AND_ASSIGN(RealTabletMapFetcher);
+    DISALLOW_COPY_AND_ASSIGN(RealTableConfigFetcher);
 };
-
-} // anonymous namespace
 
 /**
  * Constructor.
@@ -50,31 +75,73 @@ class RealTabletMapFetcher : public ObjectFinder::TabletMapFetcher {
  */
 ObjectFinder::ObjectFinder(Context* context)
     : context(context)
-    , tabletMap()
-    , tabletMapFetcher(new RealTabletMapFetcher(context))
+    , tableMap()
+    , tableConfigFetcher(new RealTableConfigFetcher(context))
 {
 }
 
 /**
- * Lookup the master for a particular key in a given table.
+ * The method flush(tableId) removes all the entries in the tableMap
+ * that contains tableId.
+ * \param tableId
+ *      the id of the table to be flushed.
+ */
+void
+ObjectFinder::flush(uint64_t tableId) {
+    RAMCLOUD_TEST_LOG("flushing object map");
+    TabletKey start {tableId, 0U};
+    TabletKey end {tableId, std::numeric_limits<KeyHash>::max()};
+    TabletIter lower = tableMap.lower_bound(start);
+    TabletIter upper = tableMap.upper_bound(end);
+    tableMap.erase(lower, upper);
+}
+
+/**
+ * Return a string representation of all the table id's presented
+ * at the tableMap at any given momement. Used mainly for debugging.
  *
- * \param table
- *      The table containing the desired object (return value from a
- *      previous call to getTableId).
+ * \return 
+ *      string
+ */
+string
+ObjectFinder::debugString() const {
+    std::map<TabletKey, TabletProtoBuffer>::const_iterator it;
+    std::stringstream result;
+    for (it = tableMap.begin(); it != tableMap.end(); it++) {
+           if (it != tableMap.begin()) {
+                result << ", ";
+           }
+           result << "{{tableId : " << it->first.tableId
+                  << ", keyHash : " << it->first.keyHash
+                  << "}, "
+                  << "{start_key_hash : " << it->second.tablet.startKeyHash
+                  << ", end_key_hash : " << it->second.tablet.endKeyHash
+                  << ", state : " << it->second.tablet.status
+                  << "}}";
+    }
+    return result.str();
+}
+
+/**
+ * Find information about the tablet containing a key in a given table.
+ *
+ * \param tableId
+ *      The table containing the desired object
  * \param key
  *      Variable length key that uniquely identifies the object within tableId.
  *      It does not necessarily have to be null terminated like a string.
  * \param keyLength
  *      Size in bytes of the key.
+ * \return 
+ *      Session for communication with the server who holds the tablet
  *
  * \throw TableDoesntExistException
  *      The coordinator has no record of the table.
  */
 Transport::SessionRef
-ObjectFinder::lookup(uint64_t table, const void* key, uint16_t keyLength) {
-    KeyHash keyHash = Key::getHash(table, key, keyLength);
-
-    return lookup(table, keyHash);
+ObjectFinder::lookup(uint64_t tableId, const void* key, uint16_t keyLength) {
+    KeyHash keyHash = Key::getHash(tableId, key, keyLength);
+    return lookup(tableId, keyHash);
 }
 
 /**
@@ -82,20 +149,21 @@ ObjectFinder::lookup(uint64_t table, const void* key, uint16_t keyLength) {
  * looking up a key hash range in the table when you do not have a
  * specific key.
  *
- * \param table
- *      The table containing the desired object (return value from a
- *      previous call to getTableId).
+ * \param tableId
+ *      The table containing the desired object.
  * \param keyHash
  *      A hash value in the space of key hashes.
+* \return 
+ *      Session for communication with the server who holds the tablet
  *
  * \throw TableDoesntExistException
  *      The coordinator has no record of the table.
  */
 Transport::SessionRef
-ObjectFinder::lookup(uint64_t table, KeyHash keyHash)
+ObjectFinder::lookup(uint64_t tableId, KeyHash keyHash)
 {
     return context->transportManager->getSession(
-                lookupTablet(table, keyHash).service_locator().c_str());
+                lookupTablet(tableId, keyHash)->serviceLocator.c_str());
 }
 
 /**
@@ -115,10 +183,10 @@ void
 ObjectFinder::flushSession(uint64_t tableId, KeyHash keyHash)
 {
     try {
-        const ProtoBuf::Tablets::Tablet& tablet =
-                lookupTablet(tableId, keyHash);
-        context-> transportManager->flushSession(
-                tablet.service_locator().c_str());
+        const TabletProtoBuffer* tabletProtoBuff = lookupTablet(tableId,
+                                                                    keyHash);
+        context->transportManager->flushSession(
+                                    tabletProtoBuff->serviceLocator.c_str());
     } catch (TableDoesntExistException& e) {
         // We don't even store this tablet anymore, so there's nothing
         // to worry about.
@@ -127,10 +195,9 @@ ObjectFinder::flushSession(uint64_t tableId, KeyHash keyHash)
 
 /**
  * Lookup the master for a particular key in a given table.
- * Only used internally in lookup() and for some crazy testing/debugging
- * routines.
+ * Only used internally in lookup() and for testing/debugging routines.
  *
- * \param table
+ * \param tableId
  *      The table containing the desired object (return value from a
  *      previous call to getTableId).
  * \param keyHash
@@ -143,40 +210,32 @@ ObjectFinder::flushSession(uint64_t tableId, KeyHash keyHash)
  * \throw TableDoesntExistException
  *      The coordinator has no record of the table.
  */
-const ProtoBuf::Tablets::Tablet&
-ObjectFinder::lookupTablet(uint64_t table, KeyHash keyHash)
+const TabletProtoBuffer*
+ObjectFinder::lookupTablet(uint64_t tableId, KeyHash keyHash)
 {
-    /*
-    * The control flow in here is a bit tricky:
-    * Since tabletMap is a cache of the coordinator's tablet map, we can only
-    * throw TableDoesntExistException if the table doesn't exist after
-    * refreshing that cache.
-    * Moreover, if the tablet turns out to be in a state of recovery, we have
-    * to spin until it is recovered.
-    */
     bool haveRefreshed = false;
+    TabletKey key{tableId, keyHash};
+    TabletIter iter;
     while (true) {
-        foreach (const ProtoBuf::Tablets::Tablet& tablet, tabletMap.tablet()) {
-            if (tablet.table_id() == table &&
-                tablet.start_key_hash() <= keyHash &&
-                keyHash <= tablet.end_key_hash()) {
-                if (tablet.state() == ProtoBuf::Tablets_Tablet_State_NORMAL) {
-                    // TODO(ongaro): add cache
-                    return tablet;
+        iter = tableMap.upper_bound(key);
+        if (!tableMap.empty() && iter != tableMap.begin()) {
+            const TabletProtoBuffer* tabletProtoBuffer = &((--iter)->second);
+            if (tabletProtoBuffer->tablet.tableId == tableId &&
+              tabletProtoBuffer->tablet.startKeyHash <= keyHash &&
+              keyHash <= tabletProtoBuffer->tablet.endKeyHash) {
+
+                if (tabletProtoBuffer->tablet.status != Tablet::NORMAL) {
+                    if (haveRefreshed) usleep(10000);
+                    haveRefreshed = false;
                 } else {
-                    // tablet is recovering or something, try again
-                    if (haveRefreshed)
-                        usleep(10000);
-                    goto refresh_and_retry;
+                    return tabletProtoBuffer;
                 }
             }
         }
-        // tablet not found in local tablet map cache
         if (haveRefreshed) {
-            throw TableDoesntExistException(HERE);
+          throw TableDoesntExistException(HERE);
         }
-        refresh_and_retry:
-        tabletMapFetcher->getTabletMap(tabletMap);
+        tableConfigFetcher->getTableConfig(tableId, &tableMap);
         haveRefreshed = true;
     }
 }
@@ -189,46 +248,53 @@ ObjectFinder::lookupTablet(uint64_t table, KeyHash keyHash)
  * coordinator.
  */
 void
-ObjectFinder::waitForTabletDown()
+ObjectFinder::waitForTabletDown(uint64_t tableId)
 {
-    flush();
-
+    flush(tableId);
     for (;;) {
-        foreach (const ProtoBuf::Tablets::Tablet& tablet, tabletMap.tablet()) {
-            if (tablet.state() != ProtoBuf::Tablets_Tablet_State_NORMAL) {
+        tableConfigFetcher->getTableConfig(tableId, &tableMap);
+        TabletKey start {tableId, 0U};
+        TabletKey end {tableId, std::numeric_limits<KeyHash>::max()};
+        TabletIter lower = tableMap.lower_bound(start);
+        TabletIter upper = tableMap.upper_bound(end);
+        for (; lower != upper; ++lower) {
+            const TabletProtoBuffer& tabletProtoBuffer = lower->second;
+            if (tabletProtoBuffer.tablet.status != Tablet::NORMAL) {
                 return;
             }
         }
         usleep(200);
-        tabletMapFetcher->getTabletMap(tabletMap);
     }
 }
 
-
 /**
- * Flush the tablet map and refresh it until it is non-empty and all of
- * the tablets have normal status.
+ * Flush information for a given table and refresh it until it is non-empty
+ * and all of its tablets have normal status.
  *
  * Used for testing to detect when the recovery is complete.
  */
 void
-ObjectFinder::waitForAllTabletsNormal(uint64_t timeoutNs)
+ObjectFinder::waitForAllTabletsNormal(uint64_t tableId, uint64_t timeoutNs)
 {
-    flush();
-
     uint64_t start = Cycles::rdtsc();
+    flush(tableId);
     while (Cycles::toNanoseconds(Cycles::rdtsc() - start) < timeoutNs) {
         bool allNormal = true;
-        foreach (const ProtoBuf::Tablets::Tablet& tablet, tabletMap.tablet()) {
-            if (tablet.state() != ProtoBuf::Tablets_Tablet_State_NORMAL) {
+        tableConfigFetcher->getTableConfig(tableId, &tableMap);
+        TabletKey start {tableId, 0U};
+        TabletKey end {tableId, std::numeric_limits<KeyHash>::max()};
+        TabletIter lower = tableMap.lower_bound(start);
+        TabletIter upper = tableMap.upper_bound(end);
+        for (; lower != upper; ++lower) {
+            const TabletProtoBuffer& tabletProtoBuffer = lower->second;
+            if (tabletProtoBuffer.tablet.status != Tablet::NORMAL) {
                 allNormal = false;
                 break;
             }
         }
-        if (allNormal && tabletMap.tablet_size() > 0)
+        if (allNormal && tableMap.size() > 0)
             return;
         usleep(200);
-        tabletMapFetcher->getTabletMap(tabletMap);
     }
 }
 

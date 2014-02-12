@@ -37,8 +37,11 @@ TEST_F(KeyTest, constructor_fromLog)
 {
     Buffer buffer;
     Key key(12, "blah", 5);
-    Object object(key, NULL, 0, 0, 0);
-    object.serializeToBuffer(buffer);
+
+    Buffer dataBuffer;
+    Object object(key, NULL, 0, 0, 0, dataBuffer);
+
+    object.assembleForLog(buffer);
     Key key2(LOG_ENTRY_TYPE_OBJ, buffer);
     EXPECT_EQ(12U, key2.getTableId());
     EXPECT_STREQ("blah", reinterpret_cast<const char*>(key2.getStringKey()));
@@ -46,7 +49,7 @@ TEST_F(KeyTest, constructor_fromLog)
 
     ObjectTombstone tombstone(object, 5, 0);
     buffer.reset();
-    tombstone.serializeToBuffer(buffer);
+    tombstone.assembleForLog(buffer);
     Key key3(LOG_ENTRY_TYPE_OBJTOMB, buffer);
     EXPECT_EQ(12U, key3.getTableId());
     EXPECT_STREQ("blah", reinterpret_cast<const char*>(key3.getStringKey()));
@@ -66,12 +69,14 @@ TEST_F(KeyTest, constructor_fromBuffer)
 
     Key key(48, buffer, 0, 6);
     EXPECT_EQ(48U, key.getTableId());
-    EXPECT_EQ(0, memcmp("woops", key.getStringKey(), 6));
+    EXPECT_EQ("woops", string(reinterpret_cast<const char*>(
+                       key.getStringKey())));
     EXPECT_EQ(6U, key.getStringKeyLength());
 
     Key key2(59, buffer, 1, 3);
     EXPECT_EQ(59U, key2.getTableId());
-    EXPECT_EQ(0, memcmp("oop", key2.getStringKey(), 3));
+    EXPECT_EQ("oop", string(reinterpret_cast<const char*>(
+                            key2.getStringKey()), 3));
     EXPECT_EQ(3U, key2.getStringKeyLength());
 
     EXPECT_FALSE(key.hash);
@@ -81,7 +86,8 @@ TEST_F(KeyTest, constructor_fromBuffer)
 TEST_F(KeyTest, constructor_fromVoidPointer) {
     Key key(74, "na-na-na-na", 13);
     EXPECT_EQ(74U, key.getTableId());
-    EXPECT_EQ(0, memcmp("na-na-na-na", key.getStringKey(), 13));
+    EXPECT_EQ("na-na-na-na", string(reinterpret_cast<const char*>(
+                             key.getStringKey())));
     EXPECT_EQ(13U, key.getStringKeyLength());
     EXPECT_FALSE(key.hash);
 }
@@ -138,7 +144,9 @@ TEST_F(KeyTest, getTableId) {
 }
 
 TEST_F(KeyTest, getStringKey) {
-    EXPECT_EQ(0, memcmp("hi", Key(8274, "hi", 3).getStringKey(), 3));
+    const char *keyString = reinterpret_cast<const char*>(
+                            Key(8274, "hi", 3).getStringKey());
+    EXPECT_EQ("hi", string(keyString));
 }
 
 TEST_F(KeyTest, getStringKeyLength) {
