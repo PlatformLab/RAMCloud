@@ -152,7 +152,9 @@ $(OBJDIR)/%.o: $(OBJDIR)/%.cc $(AUTO_GEN_HEADERS)
 	@mkdir -p $(@D)
 	$(call run-cxx,$@,$<, -fPIC)
 
-$(OBJDIR)/RawMetrics.in.cc  $(OBJDIR)/RawMetrics.in.h: $(TOP)/scripts/rawmetrics.py
+# rawmetrics.py needs to be run whenever it changes, or any of its input
+# files change (currently only WireFormat.h).
+$(OBJDIR)/RawMetrics.in.cc  $(OBJDIR)/RawMetrics.in.h: $(TOP)/scripts/rawmetrics.py $(TOP)/src/WireFormat.h
 	$(TOP)/scripts/rawmetrics.py
 
 all:
