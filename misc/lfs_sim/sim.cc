@@ -1009,20 +1009,21 @@ void
 usage()
 {
     fprintf(stderr, "valid parameters include:\n");
-    fprintf(stderr, "  -a                                   (make cost-benefit use average age, not min)\n");
-    fprintf(stderr, "  -A                                   (make cost-benefit use segment, not object, age)\n");
-    fprintf(stderr, "  -d hotAndCold|uniform|exponential    (the access distribution)\n");
-    fprintf(stderr, "  -D                                   (use segment decay rate in cost-benefit strategy)\n");
-    fprintf(stderr, "  -o scriptFile                        (dump the full list of object ids written here)\n");
-    fprintf(stderr, "  -i scriptFile                        (replay the given script of object writes)\n");
-    fprintf(stderr, "  -l                                   (if replaying from script, use actual object lifetimes in cleaning)\n");
-    fprintf(stderr, "  -L base                              (if using cost-benefit, take the log of age with given base)\n");
-    fprintf(stderr, "  -r                                   (do not reorder live objects by age when cleaning)\n");
-    fprintf(stderr, "  -R                                   (use RAMCloud equation for the costBenefit strategy)\n");
-    fprintf(stderr, "  -s greedy|costBenefit                (the segment selection strategy)\n");
-    fprintf(stderr, "  -S exponent                          (if using cost-benefit, take the root of age with given exponent)\n");
-    fprintf(stderr, "  -t                                   (reset object timestamps when moved during cleaning)\n");
-    fprintf(stderr, "  -u utilisation                       (%% of memory utilisation; 1-99%%)\n");
+    fprintf(stderr, "  -a                        (make cost-benefit use average age, not min)\n");
+    fprintf(stderr, "  -A                        (make cost-benefit use segment, not object, age)\n");
+    fprintf(stderr, "  -d hotAndCold|uniform|    (the access distribution)\n");
+    fprintf(stderr, "       exponential|zipfian\n");
+    fprintf(stderr, "  -D                        (use segment decay rate in cost-benefit strategy)\n");
+    fprintf(stderr, "  -o scriptFile             (dump the full list of object ids written here)\n");
+    fprintf(stderr, "  -i scriptFile             (replay the given script of object writes)\n");
+    fprintf(stderr, "  -l                        (if replaying from script, use actual object lifetimes in cleaning)\n");
+    fprintf(stderr, "  -L base                   (if using cost-benefit, take the log of age with given base)\n");
+    fprintf(stderr, "  -r                        (do not reorder live objects by age when cleaning)\n");
+    fprintf(stderr, "  -R                        (use RAMCloud equation for the costBenefit strategy)\n");
+    fprintf(stderr, "  -s greedy|costBenefit     (the segment selection strategy)\n");
+    fprintf(stderr, "  -S exponent               (if using cost-benefit, take the root of age with given exponent)\n");
+    fprintf(stderr, "  -t                        (reset object timestamps when moved during cleaning)\n");
+    fprintf(stderr, "  -u utilisation            (%% of memory utilisation; 1-99%%)\n");
     exit(1);
 }
 
