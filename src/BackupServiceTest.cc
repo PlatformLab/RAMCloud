@@ -109,7 +109,7 @@ class BackupServiceTest : public ::testing::Test {
                    bool close = false, uint64_t epoch = 0)
     {
         Segment segment;
-        segment.copyIn(offset, s.c_str(), downCast<uint32_t>(s.length()));
+        segment.copyIn(offset, s.c_str(), downCast<uint32_t>(s.length()) + 1);
         Segment::Certificate certificate;
         BackupClient::writeSegment(&context, backupId, masterId,
                                    segmentId, epoch,
