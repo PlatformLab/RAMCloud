@@ -98,6 +98,8 @@ opcodeSymbol(uint32_t opcode)
         case SERVER_CONTROL:             return "SERVER_CONTROL";
         case GET_SERVER_ID:              return "GET_SERVER_ID";
         case READ_KEYS_AND_VALUE:        return "READ_KEYS_AND_VALUE";
+        case LOOKUP_INDEX_KEYS:          return "LOOKUP_INDEX_KEYS";
+        case INDEXED_READ:               return "INDEXED_READ";
         case ILLEGAL_RPC_TYPE:           return "ILLEGAL_RPC_TYPE";
     }
 

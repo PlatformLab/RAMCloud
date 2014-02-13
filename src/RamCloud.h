@@ -18,6 +18,7 @@
 
 #include "Common.h"
 #include "CoordinatorClient.h"
+#include "IndexletManager.h"
 #include "MasterClient.h"
 #include "ObjectBuffer.h"
 #include "ObjectFinder.h"
@@ -79,6 +80,15 @@ class RamCloud {
     int64_t increment(uint64_t tableId, const void* key, uint16_t keyLength,
             int64_t incrementValue, const RejectRules* rejectRules = NULL,
             uint64_t* version = NULL);
+    void indexedRead(uint64_t tableId, uint32_t count,
+            Buffer* pKHashes, uint8_t indexId,
+            const void* firstKey, uint16_t firstKeyLength,
+            const void* lastKey, uint16_t lastKeyLength,
+            MultiReadObject* responses[]);
+    void lookupIndexKeys(uint64_t tableId, uint8_t indexId,
+            const void* firstKey, uint16_t firstKeyLength,
+            const void* lastKey, uint16_t lastKeyLength,
+            uint32_t* count, Buffer* pKHashes);
     void migrateTablet(uint64_t tableId, uint64_t firstKeyHash,
             uint64_t lastKeyHash, ServerId newOwnerMasterId);
     void multiRead(MultiReadObject* requests[], uint32_t numRequests);
@@ -157,6 +167,8 @@ class RamCloud {
 
   public: // public for now to make administrative calls from clients
     ObjectFinder objectFinder;
+
+    IndexletManager indexletManager;
 
   private:
     DISALLOW_COPY_AND_ASSIGN(RamCloud);
@@ -343,6 +355,24 @@ class IncrementRpc : public ObjectRpcWrapper {
 };
 
 /**
+ * Encapsulates the state of a RamCloud::indexedRead operation,
+ * allowing it to execute asynchronously.
+ */
+class IndexedReadRpc : public ObjectRpcWrapper {
+  public:
+    IndexedReadRpc(RamCloud* ramcloud, uint64_t tableId,
+                   uint32_t count, Buffer* pKHashes, uint8_t indexId,
+                   const void* firstKey, uint16_t firstKeyLength,
+                   const void* lastKey, uint16_t lastKeyLength);
+    ~IndexedReadRpc() {}
+    /// \copydoc RpcWrapper::docForWait
+    void wait(MultiReadObject* responses[]);
+
+  PRIVATE:
+    DISALLOW_COPY_AND_ASSIGN(IndexedReadRpc);
+};
+
+/**
  * Encapsulates the state of a RamCloud::testingKill operation.  This
  * RPC should never be waited for!!  If you do, it will track the object
  * around the cluster, killing the server currently holding the object,
@@ -359,6 +389,25 @@ class KillRpc : public ObjectRpcWrapper {
 
   PRIVATE:
     DISALLOW_COPY_AND_ASSIGN(KillRpc);
+};
+
+
+
+/**
+ * Encapsulates the state of a RamCloud::lookupIndexKeys operation,
+ * allowing it to execute asynchronously.
+ */
+class LookupIndexKeysRpc : public ObjectRpcWrapper {
+  public:
+    LookupIndexKeysRpc(RamCloud* ramcloud, uint64_t indexletTableId,
+                       const void* firstKey, uint16_t firstKeyLength,
+                       const void* lastKey, uint16_t lastKeyLength);
+    ~LookupIndexKeysRpc() {}
+    /// \copydoc RpcWrapper::docForWait
+    void wait(uint32_t* count, Buffer* pKHashes);
+
+  PRIVATE:
+    DISALLOW_COPY_AND_ASSIGN(LookupIndexKeysRpc);
 };
 
 /**

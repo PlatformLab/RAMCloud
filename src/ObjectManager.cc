@@ -355,6 +355,33 @@ ObjectManager::readObject(Key& key,
 }
 
 /**
+ * Read an object previously written to this ObjectManager.
+ *
+ * \param tableId
+ *      Table Id of the table containing the object to be read.
+ * \param keyHash
+ *      Key hash of the (primary) key of the object being read.
+ * \param outBuffer
+ *      Buffer to populate with the value of the object, if found.
+ * \param outVersion
+ *      If non-NULL and the object is found, the version is returned here. If
+ *      the reject rules failed the read, the current object's version is still
+ *      returned.
+ * \return
+ *      Returns STATUS_OK if the lookup succeeded.
+ *      Other status values indicate different failures.
+ */
+Status
+ObjectManager::readObject(uint64_t tableId,
+                          uint64_t keyHash,
+                          Buffer* outBuffer,
+                          uint64_t* outVersion)
+{
+    // Currently a stub. Return STATUS_OK. TODO(ankitak)
+    return Status(0);
+}
+
+/**
  * Remove an object previously written to this ObjectManager.
  *
  * Note that just like writeObject(), this operation will not be stably commited

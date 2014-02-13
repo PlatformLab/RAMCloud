@@ -111,7 +111,9 @@ enum Opcode {
     SERVER_CONTROL            = 57,
     GET_SERVER_ID             = 58,
     READ_KEYS_AND_VALUE       = 59,
-    ILLEGAL_RPC_TYPE          = 60,  // 1 + the highest legitimate Opcode
+    LOOKUP_INDEX_KEYS         = 60,
+    INDEXED_READ              = 61,
+    ILLEGAL_RPC_TYPE          = 62,  // 1 + the highest legitimate Opcode
 };
 
 /**
@@ -719,6 +721,45 @@ struct Increment {
     } __attribute__((packed));
 };
 
+struct IndexedRead {
+    static const Opcode opcode = INDEXED_READ;
+    static const ServiceType service = MASTER_SERVICE;
+
+    struct Request {
+        RequestCommon common;
+        // Read objects with primary key hash matching one of the key hashes
+        // and index key in the range [first key, last key].
+        // No value for last key indicates this is a point query and
+        // not a range query.
+        uint64_t tableId;
+        uint32_t count;                 // Number of objects to be read.
+        uint8_t indexId;                // Id of the index for lookup.
+        uint16_t firstKeyLength;        // Length of first key in bytes.
+        uint16_t lastKeyLength;         // Length of last key in bytes.
+        // In buffer: The actual first key and last key go here.
+        // In buffer: Key hashes for primary key for objects to be read go here.
+    } __attribute__((packed));
+
+    struct Response {
+        // RpcResponseCommon contains a status field. But it is not used
+        // here since there is a separate status for each object returned.
+        // Included here to fulfill requirements in common code.
+        ResponseCommon common;
+        uint32_t count;                 // Number of objects read, which is
+                                        // the number of parts.
+                                        // Same as reqHdr count.
+        struct Part {
+            Status status;
+            /// Version of the object.
+            uint64_t version;
+            /// Length of the object data following this struct.
+            uint32_t length;
+            // In buffer: Object data goes here. Object data is
+            // a variable number of bytes (depending on data size.)
+        } __attribute__((packed));
+    } __attribute__((packed));
+};
+
 /**
  * Used by backups to determine if a particular replica is still needed
  * by a master.  This is only used in the case the backup has crashed, and
@@ -747,6 +788,31 @@ struct Kill {
     } __attribute__((packed));
     struct Response {
         ResponseCommon common;
+    } __attribute__((packed));
+};
+
+struct LookupIndexKeys {
+    static const Opcode opcode = LOOKUP_INDEX_KEYS;
+    static const ServiceType service = MASTER_SERVICE;
+
+    struct Request {
+        RequestCommon common;
+        uint64_t tableId;
+        uint8_t indexId;                // Id of the index for lookup.
+        // Lookup objects with index key in the range [first key, last key].
+        // No value for last key indicates this is a point query and
+        // not a range query.
+        uint16_t firstKeyLength;        // Length of first key in bytes.
+        uint16_t lastKeyLength;         // Length of last key in bytes.
+        // In buffer: The actual first key and last key go here.
+    } __attribute__((packed));
+
+    struct Response {
+        ResponseCommon common;
+        uint32_t count;                 // Number of objects that match the
+                                        // lookup query.
+        // In buffer: The key hashes for the primary key of the matching objects
+        // go here.
     } __attribute__((packed));
 };
 

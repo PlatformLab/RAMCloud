@@ -21,6 +21,7 @@
 #include "Log.h"
 #include "LogCleaner.h"
 #include "HashTable.h"
+#include "IndexManager.h"
 #include "MasterTableMetadata.h"
 #include "Object.h"
 #include "ObjectManager.h"
@@ -107,9 +108,16 @@ class MasterService : public Service {
     void increment(const WireFormat::Increment::Request* reqHdr,
                 WireFormat::Increment::Response* respHdr,
                 Rpc* rpc);
+    void indexedRead(
+                const WireFormat::IndexedRead::Request* reqHdr,
+                WireFormat::IndexedRead::Response* respHdr,
+                Rpc* rpc);
     void initOnceEnlisted();
     void isReplicaNeeded(const WireFormat::IsReplicaNeeded::Request* reqHdr,
                 WireFormat::IsReplicaNeeded::Response* respHdr,
+                Rpc* rpc);
+    void lookupIndexKeys(const WireFormat::LookupIndexKeys::Request* reqHdr,
+                WireFormat::LookupIndexKeys::Response* respHdr,
                 Rpc* rpc);
     void migrateTablet(const WireFormat::MigrateTablet::Request* reqHdr,
                 WireFormat::MigrateTablet::Response* respHdr,
@@ -161,6 +169,11 @@ class MasterService : public Service {
      * is a valid member of the cluster (see "Zombies" in designNotes).
      */
     Atomic<int> disableCount;
+
+    /**
+     * The IndexManger class that is responsible for index storage.
+     */
+    IndexManager indexManager;
 
     /**
      * Used to ensure that init() is invoked before the dispatcher runs.

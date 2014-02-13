@@ -59,6 +59,10 @@ class ObjectManager : public LogEntryHandlers {
                       RejectRules* rejectRules,
                       uint64_t* outVersion,
                       bool valueOnly = false);
+    Status readObject(uint64_t tableId,
+                      uint64_t keyHash,
+                      Buffer* outBuffer,
+                      uint64_t* outVersion);
     Status writeObject(Object& newObject,
                        RejectRules* rejectRules,
                        uint64_t* outVersion);

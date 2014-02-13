@@ -63,6 +63,7 @@ RamCloud::RamCloud(const char* locator, const char* clusterName)
     , clientContext(realClientContext.construct(false))
     , status(STATUS_OK)
     , objectFinder(clientContext)
+    , indexletManager(clientContext)
 {
     clientContext->coordinatorSession->setLocation(locator,
             clusterName);
@@ -80,6 +81,7 @@ RamCloud::RamCloud(Context* context, const char* locator,
     , clientContext(context)
     , status(STATUS_OK)
     , objectFinder(clientContext)
+    , indexletManager(clientContext)
 {
     clientContext->coordinatorSession->setLocation(locator,
             clusterName);
@@ -917,6 +919,251 @@ IncrementRpc::wait(uint64_t* version)
     if (respHdr->common.status != STATUS_OK)
         ClientException::throwException(HERE, respHdr->common.status);
     return respHdr->newValue;
+}
+
+/**
+ * Read objects in a table with given primary key hashes, and check
+ * index key (index indicated by indexId) to ensure it falls in the allowed
+ * range (firstKey to lastKey).
+ * 
+ * \param tableId
+ *      Id of the table in which indexed read is to be done.
+ * \param count
+ *      Number of primary key hashes being provided for the indexed read.
+ * \param pKHashes
+ *      Buffer containing all the primary key hashes for which an indexed
+ *      read is to be done.
+ * \param indexId
+ *      Id of the index for which keys have to be compared.
+ * \param firstKey
+ *      Starting key for the key range in which keys are to be matched.
+ *      The key range includes the firstKey.
+ *      If it is a point lookup instead of range search, the keys will
+ *      only be matched on the firstKey.
+ *      It does not necessarily have to be null terminated.  The caller must
+ *      ensure that the storage for this key is unchanged through the life of
+ *      the RPC.
+ * \param firstKeyLength
+ *      Length in bytes of the firstKey.
+ * \param lastKey
+ *      Ending key for the key range in which keys are to be matched.
+ *      The key range includes the lastKey.
+ *      If NULL, then it is a point lookup instead of range search.
+ *      It does not necessarily have to be null terminated.  The caller must
+ *      ensure that the storage for this key is unchanged through the life of
+ *      the RPC.
+ * \param lastKeyLength
+ *      Length in byes of the lastKey.
+ * 
+ * \param[out] responses
+ *      Return all the objects matching the index lookup (range or point).
+ */
+void
+RamCloud::indexedRead(uint64_t tableId, uint32_t count, Buffer* pKHashes,
+                      uint8_t indexId,
+                      const void* firstKey, uint16_t firstKeyLength,
+                      const void* lastKey, uint16_t lastKeyLength,
+                      MultiReadObject* responses[])
+{
+    // TODO(ankitak)
+}
+
+/**
+ * Constructor for IndexedReadRpc: initiates an RPC in the same way as
+ * #RamCloud::IndexedReadRpc, but returns once the RPC has been initiated,
+ * without waiting for it to complete.
+ *
+ * \param ramcloud
+ *      The RAMCloud object that governs this RPC.
+ * \param tableId
+ *      Id of the table in which indexed read is to be done.
+ * \param count
+ *      Number of primary key hashes being provided for the indexed read.
+ * \param pKHashes
+ *      Buffer containing all the primary key hashes for which an indexed
+ *      read is to be done.
+ * \param indexId
+ *      Id of the index for which keys have to be compared.
+ * \param firstKey
+ *      Starting key for the key range in which keys are to be matched.
+ *      The key range includes the firstKey.
+ *      If it is a point lookup instead of range search, the keys will
+ *      only be matched on the firstKey.
+ *      It does not necessarily have to be null terminated.  The caller must
+ *      ensure that the storage for this key is unchanged through the life of
+ *      the RPC.
+ * \param firstKeyLength
+ *      Length in bytes of the firstKey.
+ * \param lastKey
+ *      Ending key for the key range in which keys are to be matched.
+ *      The key range includes the lastKey.
+ *      If NULL, then it is a point lookup instead of range search.
+ *      It does not necessarily have to be null terminated.  The caller must
+ *      ensure that the storage for this key is unchanged through the life of
+ *      the RPC.
+ * \param lastKeyLength
+ *      Length in byes of the lastKey.
+ */
+IndexedReadRpc::IndexedReadRpc(RamCloud* ramcloud, uint64_t tableId,
+                               uint32_t count, Buffer* pKHashes,
+                               uint8_t indexId,
+                               const void* firstKey, uint16_t firstKeyLength,
+                               const void* lastKey, uint16_t lastKeyLength)
+    : ObjectRpcWrapper(ramcloud, tableId,
+                       0 /*TODO(ankitak): Provide one from pkHashes*/,
+                       sizeof(WireFormat::IndexedRead::Response))
+{
+    // TODO(ankitak)
+}
+
+/**
+ * Wait for the RPC to complete, and return the same results as
+ * #RamCloud::IndexedReadRpc.
+ *
+ * \param[out] responses
+ *      Return all the objects matching the index lookup (range or point).
+ */
+void
+IndexedReadRpc::wait(MultiReadObject* responses[])
+{
+    // TODO(ankitak)
+}
+
+/**
+ * Lookup objects with index keys corresponding to indexId in the
+ * specified range or point.
+ * 
+ * \param tableId
+ *      Id of the table in which lookup is to be done.
+ * \param indexId
+ *      Id of the index for which keys have to be compared.
+ * \param firstKey
+ *      Starting key for the key range in which keys are to be matched.
+ *      The key range includes the firstKey.
+ *      If it is a point lookup instead of range search, the keys will
+ *      only be matched on the firstKey.
+ *      It does not necessarily have to be null terminated.  The caller must
+ *      ensure that the storage for this key is unchanged through the life of
+ *      the RPC.
+ * \param firstKeyLength
+ *      Length in bytes of the firstKey.
+ * \param lastKey
+ *      Ending key for the key range in which keys are to be matched.
+ *      The key range includes the lastKey.
+ *      If NULL, then it is a point lookup instead of range search.
+ *      It does not necessarily have to be null terminated.  The caller must
+ *      ensure that the storage for this key is unchanged through the life of
+ *      the RPC.
+ * \param lastKeyLength
+ *      Length in byes of the lastKey.
+ * 
+ * \param[out] count
+ *      Return the number of objects that matched the lookup, for which
+ *      the primary key hashes are being returned here.
+ * \param[out] pKHashes
+ *      Return the key hashes of the primary keys of all the objects
+ *      that match the lookup query.
+ */
+void
+RamCloud::lookupIndexKeys(uint64_t tableId, uint8_t indexId,
+                          const void* firstKey, uint16_t firstKeyLength,
+                          const void* lastKey, uint16_t lastKeyLength,
+                          uint32_t* count, Buffer* pKHashes)
+{
+    uint32_t numIndexlets;
+    Buffer indexletTableIds;
+    // Get tableIds for all indexlets required for this request.
+    indexletManager.lookup(tableId, indexId,
+                           firstKey, firstKeyLength,
+                           lastKey, lastKeyLength,
+                           &numIndexlets, &indexletTableIds);
+
+    Tub<LookupIndexKeysRpc> rpcs[numIndexlets];
+
+    // Initiate a separate RPC for each indexlet.
+    uint32_t offset = 0;
+    for (uint32_t i = 0; i < numIndexlets; i++) {
+        uint64_t indexletTableId;
+        indexletTableIds.copy(offset, 8, &indexletTableId);
+        offset += 8;
+        Tub<LookupIndexKeysRpc>& rpc = rpcs[i];
+        rpc.construct(this, indexletTableId,
+                      firstKey, firstKeyLength,
+                      lastKey, lastKeyLength);
+    }
+
+    // Wait for all the responses.
+    count = 0;
+    Buffer pKHashesIndexlets[numIndexlets];
+    for (uint32_t i = 0; i < numIndexlets; i++) {
+        Tub<LookupIndexKeysRpc>& rpc = rpcs[i];
+        uint32_t countForIndexlet;
+        rpc->wait(&countForIndexlet, &pKHashesIndexlets[i]);
+        count += countForIndexlet;
+        // TODO(ankitak): Find a more efficient way to do this.
+        pKHashes->append(&pKHashesIndexlets[i],
+                         countForIndexlet*8);
+    }
+}
+
+/**
+ * Constructor for LookupIndexKeysRpc: initiates an RPC in the same way as
+ * #RamCloud::LookupIndexKeysRpc, but returns once the RPC has been initiated,
+ * without waiting for it to complete.
+ *
+ * \param ramcloud
+ *      The RAMCloud object that governs this RPC.
+ * \param indexletTableId
+ *      Table Id corresponding to the table storing the index partition
+ *      being searched. This table stores index entries for a given table,
+ *      for a given indexId, for some index key range.
+ *      The [firstKey, lastKey] range may cover more keys than contained
+ *      in this indexlet table.
+ * \param firstKey
+ *      Starting key for the key range in which keys are to be matched.
+ *      The key range includes the firstKey.
+ *      If it is a point lookup instead of range search, the keys will
+ *      only be matched on the firstKey.
+ *      It does not necessarily have to be null terminated.  The caller must
+ *      ensure that the storage for this key is unchanged through the life of
+ *      the RPC.
+ * \param firstKeyLength
+ *      Length in bytes of the firstKey.
+ * \param lastKey
+ *      Ending key for the key range in which keys are to be matched.
+ *      The key range includes the lastKey.
+ *      If NULL, then it is a point lookup instead of range search.
+ *      It does not necessarily have to be null terminated.  The caller must
+ *      ensure that the storage for this key is unchanged through the life of
+ *      the RPC.
+ * \param lastKeyLength
+ *      Length in byes of the lastKey.
+ */
+LookupIndexKeysRpc::LookupIndexKeysRpc(
+        RamCloud* ramcloud, uint64_t indexletTableId,
+        const void* firstKey, uint16_t firstKeyLength,
+        const void* lastKey, uint16_t lastKeyLength)
+    : ObjectRpcWrapper(ramcloud, indexletTableId, 0 /*keyHash*/,
+            sizeof(WireFormat::LookupIndexKeys::Response))
+{
+    // TODO(ankitak)
+}
+
+/**
+ * Wait for the RPC to complete, and return the same results as
+ * #RamCloud::LookupIndexKeysRpc.
+ *
+ * \param[out] count
+ *      Return the number of objects that matched the lookup, for which
+ *      the primary key hashes are being returned here.
+ * \param[out] pKHashes
+ *      Return the key hashes of the primary keys of all the objects
+ *      that match the lookup query.
+ */
+void
+LookupIndexKeysRpc::wait(uint32_t* count, Buffer* pKHashes)
+{
+    // TODO(ankitak)
 }
 
 /**

@@ -73,6 +73,7 @@ MasterService::MasterService(Context* context,
     : context(context)
     , config(config)
     , disableCount(0)
+    , indexManager(context)
     , initCalled(false)
     , logEverSynced(false)
     , masterTableMetadata()
@@ -142,9 +143,17 @@ MasterService::dispatch(WireFormat::Opcode opcode, Rpc* rpc)
             callHandler<WireFormat::IsReplicaNeeded, MasterService,
                         &MasterService::isReplicaNeeded>(rpc);
             break;
+        case WireFormat::LookupIndexKeys::opcode:
+            callHandler<WireFormat::LookupIndexKeys, MasterService,
+                        &MasterService::lookupIndexKeys>(rpc);
+            break;
         case WireFormat::MigrateTablet::opcode:
             callHandler<WireFormat::MigrateTablet, MasterService,
                         &MasterService::migrateTablet>(rpc);
+            break;
+        case WireFormat::IndexedRead::opcode:
+            callHandler<WireFormat::IndexedRead, MasterService,
+                        &MasterService::indexedRead>(rpc);
             break;
         case WireFormat::MultiOp::opcode:
             callHandler<WireFormat::MultiOp, MasterService,
@@ -208,6 +217,7 @@ MasterService::Disabler::Disabler(MasterService* service)
     }
     TEST_LOG("master service disabled");
 }
+
 /**
  * Destroy a Disabler object (reenable the associated master).
  */
@@ -502,6 +512,92 @@ MasterService::increment(const WireFormat::Increment::Request* reqHdr,
 }
 
 /**
+ * Top-level server method to handle the MULTI_READ_FOR_LOOKUP request.
+ * 
+ * \param reqHdr
+ *      Header from the incoming RPC request; contains all the
+ *      parameters for this operation except the keyhashes for objects
+ *      and the lookup key or key range.
+ * \param[out] respHdr
+ *      Header for the response that will be returned to the client.
+ *      The caller has pre-allocated the right amount of space in the
+ *      response buffer for this type of request, and has zeroed out
+ *      its contents (so, for example, status is already zero).
+ * \param[out] rpc
+ *      Complete information about the remote procedure call.
+ *      It contains the keyhashes for objects and the lookup key or key range.
+ *      It can also be used to read additional information beyond the request
+ *      header and/or append additional information to the response buffer.
+ */
+void
+MasterService::indexedRead(
+    const WireFormat::IndexedRead::Request* reqHdr,
+    WireFormat::IndexedRead::Response* respHdr,
+    Rpc* rpc)
+{
+    uint32_t numRequests = reqHdr->count;
+    uint32_t reqOffset = sizeof32(*reqHdr);
+
+    const void* firstStringKey = rpc->requestPayload->getRange(
+                                 reqOffset, reqHdr->firstKeyLength);
+    Key firstKey(reqHdr->tableId, firstStringKey, reqHdr->firstKeyLength);
+    reqOffset+=reqHdr->firstKeyLength;
+
+    const void* lastStringKey = rpc->requestPayload->getRange(
+                                reqOffset, reqHdr->lastKeyLength);
+    Key lastKey(reqHdr->tableId, lastStringKey, reqHdr->lastKeyLength);
+    reqOffset+=reqHdr->lastKeyLength;
+
+    respHdr->count = numRequests;
+    uint32_t oldResponseLength = rpc->replyPayload->getTotalLength();
+
+    // Each iteration extracts one request from request rpc, finds the
+    // corresponding object, and appends the response to the response rpc.
+    for (uint32_t i = 0; ; i++) {
+        // If the RPC response has exceeded the legal limit, truncate it
+        // to the last object that fits below the limit (the client will
+        // retry the objects we don't return).
+        // TODO(ankitak): Do we need to implement selective retry in client?
+        uint32_t newLength = rpc->replyPayload->getTotalLength();
+        if (newLength > maxMultiReadResponseSize) {
+            rpc->replyPayload->truncateEnd(newLength - oldResponseLength);
+            respHdr->count = i-1;
+            break;
+        } else {
+            oldResponseLength = newLength;
+        }
+        if (i >= numRequests) {
+            // The loop-termination check is done here rather than in the
+            // "for" statement above so that we have a chance to do the
+            // size check above even for every object inserted, including
+            // the last object and those with STATUS_OBJECT_DOESNT_EXIST.
+            break;
+        }
+
+        uint64_t currentKeyHash;
+        rpc->requestPayload->copy(reqOffset, 8, &currentKeyHash);
+        reqOffset += 8;
+
+        WireFormat::IndexedRead::Response::Part* currentResp =
+                   new(rpc->replyPayload, APPEND)
+                       WireFormat::IndexedRead::Response::Part();
+
+        Buffer buffer;
+        currentResp->status =
+                indexManager.indexedRead(reqHdr->tableId, currentKeyHash,
+                                         reqHdr->indexId,
+                                         firstKey, lastKey,
+                                         &buffer, &currentResp->version);
+
+        if (currentResp->status != STATUS_OK)
+            continue;
+
+        currentResp->length = buffer.getTotalLength();
+        rpc->replyPayload->append(&buffer);
+    }
+}
+
+/**
  * Perform once-only initialization for the master service after having
  * enlisted the process with the coordinator.
  *
@@ -534,6 +630,52 @@ MasterService::isReplicaNeeded(
     ServerId backupServerId = ServerId(reqHdr->backupServerId);
     respHdr->needed = objectManager.getReplicaManager()->isReplicaNeeded(
         backupServerId, reqHdr->segmentId);
+}
+
+/**
+ * Top-level server method to handle the LOOKUP request.
+ * 
+ * \param reqHdr
+ *      Header from the incoming RPC request; contains all the
+ *      parameters for this operation except the lookup key or key range.
+ * \param[out] respHdr
+ *      Header for the response that will be returned to the client.
+ *      The caller has pre-allocated the right amount of space in the
+ *      response buffer for this type of request, and has zeroed out
+ *      its contents (so, for example, status is already zero).
+ * \param[out] rpc
+ *      Complete information about the remote procedure call.
+ *      It contains the lookup key or key range. It can also be used to
+ *      read additional information beyond the request header and/or
+ *      append additional information to the response buffer.
+ */
+void
+MasterService::lookupIndexKeys(
+    const WireFormat::LookupIndexKeys::Request* reqHdr,
+    WireFormat::LookupIndexKeys::Response* respHdr,
+    Rpc* rpc)
+{
+    uint32_t reqOffset = sizeof32(*reqHdr);
+
+    const void* firstStringKey = rpc->requestPayload->getRange(
+                                 reqOffset, reqHdr->firstKeyLength);
+    Key firstKey(reqHdr->tableId, firstStringKey, reqHdr->firstKeyLength);
+    reqOffset+=reqHdr->firstKeyLength;
+
+    const void* lastStringKey = rpc->requestPayload->getRange(
+                                reqOffset, reqHdr->lastKeyLength);
+    Key lastKey(reqHdr->tableId, lastStringKey, reqHdr->lastKeyLength);
+
+    uint32_t count;
+    Buffer buffer;
+    respHdr->common.status =
+            indexManager.lookupIndexKeys(reqHdr->tableId, reqHdr->indexId,
+                                         firstKey, lastKey, &count, &buffer);
+    if (respHdr->common.status != STATUS_OK)
+        return;
+
+    respHdr->count = count;
+    rpc->replyPayload->append(&buffer);
 }
 
 /**
