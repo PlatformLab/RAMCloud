@@ -27,6 +27,49 @@ IndexManager::~IndexManager()
 }
 
 /**
+ * Create an index partition (indexlet) on this index server.
+ * 
+ * \param tableId
+ *      Id of the table for which an indexlet is to be created.
+ * \param indexId
+ *      Id of the index to which the indexlet belongs.
+ * \param firstKey
+ *      Starting value for the indexed key range for this indexlet.
+ * \param lastKey
+ *      Last value for the indexed key range for this indexlet.
+ * \return
+ *      Returns STATUS_OK if the read succeeded. Other status values indicate
+ *      different failures.
+ */
+Status
+IndexManager::createIndexlet(uint64_t tableId, uint8_t indexId,
+                             Key& firstKey, Key& lastKey)
+{
+    // Currently a stub. Return STATUS_OK. ankitak: TODO(ashgup).
+    // Note: Will be called by takeIndexletOwnership, I think.
+    return Status(0);
+}
+
+/**
+ * Drop an index partition (indexlet) on this index server.
+ * 
+ * \param tableId
+ *      Id of the table for which an indexlet is to be dropped.
+ * \param indexId
+ *      Id of the index to which the indexlet belongs.
+ * \return
+ *      Returns STATUS_OK if the index drop succeeded. Other status values
+ *      indicate different failures.
+ */
+Status
+IndexManager::dropIndexlet(uint64_t tableId, uint8_t indexId)
+{
+    // Currently a stub. Return STATUS_OK. ankitak: TODO(ashgup).
+    // Note: Will be called by dropIndexletOwnership, I think.
+    return Status(0);
+}
+
+/**
  * Read an object matching the given parameters.
  *  
  * \param tableId
@@ -68,6 +111,30 @@ IndexManager::indexedRead(uint64_t tableId, uint64_t pKHash,
 }
 
 /**
+ * Insert index entries for an object.
+ * 
+ * \param tableId
+ *      tableId of the table of the object.
+ * \param pKHash
+ *      Hash of the primary key of the object.
+ * \param indexEntries
+ *      Buffer containing information about id, length and values of all
+ *      the index entries to be inserted for this object.
+ *      The buffer will be in the same format as the object buffer, but contain
+ *      only the relevant information.
+ * \return
+ *      Returns STATUS_OK if the inserts succeeded. Other status values
+ *      indicate different failures.
+ */
+Status
+IndexManager::insertEntries(uint64_t tableId, uint64_t pKHash,
+                            Buffer& indexEntries)
+{
+    // Currently a stub. Return STATUS_OK. TODO(ankitak)
+    return Status(0);
+}
+
+/**
  * Lookup objects with index keys corresponding to indexId in the
  * specified range or point.
  * 
@@ -100,6 +167,29 @@ IndexManager::lookupIndexKeys(uint64_t tableId, uint8_t indexId,
 {
     // Currently a stub. Return STATUS_OK. TODO(ankitak)
     return Status(0);
+}
+
+/**
+ * Remove index entries for an object for given index id or for all indexes.
+ * 
+ * \param tableId
+ *      tableId of the table of the object.
+ * \param pKHash
+ *      Hash of the primary key of the object.
+ * \param indexId
+ *      Id of the index for which the entry is to be removed.
+ *      If NULL, then remove entries for all indexes for this object.
+ * \return
+ *      Returns STATUS_OK if the inserts succeeded. Other status values
+ *      indicate different failures.
+ */
+Status
+IndexManager::removeEntries(uint64_t tableId, uint64_t pKHash,
+                            uint8_t indexId)
+{
+    // Currently a stub. Return STATUS_OK. TODO(ankitak)
+    return Status(0);
+    // TODO(ankitak): Later: Careful GC if multiple objs have the same pKHash.
 }
 
 } // end namespace

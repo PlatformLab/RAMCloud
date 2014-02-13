@@ -23,13 +23,16 @@ namespace RAMCloud {
 /**
  * This class maps from an data table (uniquely identified by a tableId)
  * and an index on that table (identified by indexId) and key range of that
- * index (firstKey - lastKey) to a unique table Id for that Index Partition.
- * An index partition is called an Indexlet.
+ * index (firstKey - lastKey) to a unique table Id for that indexlet
+ * (index partition).
  * 
  * This IndexletTableId can then be used to get get a session using
  * objectFinder (in the same way as for data tables).
  *
  * It retrieves configuration information from the coordinator and caches it.
+ * 
+ * This class has no information about the actual entries in the index
+ * (and does not interface with ObjectManager or index tree code).
  */
 class IndexletManager {
   public:

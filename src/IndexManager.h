@@ -25,9 +25,12 @@ namespace RAMCloud {
 
 /**
  * The IndexManager class is responsible for storing index entries in an
- * index server. Every master server is also an index server for some partition
+ * index server. This partition is called an indexlet.
+ * This class interfaces with ObjectManager and index tree code to manage
+ * index entries.
+ * 
+ * Note: Every master server is also an index server for some partition
  * of some index (independent from data partition located on that master).
- * This partition is called an indexlet.
  */
 
 class IndexManager {
@@ -36,12 +39,19 @@ class IndexManager {
     explicit IndexManager(Context* context);
     virtual ~IndexManager();
 
+    Status createIndexlet(uint64_t tableId, uint8_t indexId,
+                          Key& firstKey, Key& lastKey);
+    Status dropIndexlet(uint64_t tableId, uint8_t indexId);
     Status indexedRead(uint64_t tableId, uint64_t pKHash,
                        uint8_t indexId, Key& firstKey, Key& lastKey,
                        Buffer* outBuffer, uint64_t* outVersion);
+    Status insertEntries(uint64_t tableId, uint64_t pKHash,
+                         Buffer& indexEntries);
     Status lookupIndexKeys(uint64_t tableId, uint8_t indexId,
                            Key& firstKey, Key& lastKey,
                            uint32_t* count, Buffer* outBuffer);
+    Status removeEntries(uint64_t tableId, uint64_t pKHash,
+                         uint8_t indexId);
 
 
   private:
