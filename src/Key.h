@@ -28,6 +28,10 @@ namespace RAMCloud {
  * The type of the hash for the key of an object.
  */
 typedef uint64_t KeyHash;
+/*
+ * The length of a key in an object.
+ */
+typedef uint16_t KeyLength;
 
 /**
  * RAMCloud objects can contain multiple keys in addition to the primary key.
@@ -52,28 +56,28 @@ class Key {
   public:
     Key(LogEntryType type, Buffer& buffer);
     Key(uint64_t tableId, Buffer& buffer,
-        uint32_t stringKeyOffset, uint16_t stringKeyLength);
-    Key(uint64_t tableId, const void* stringKey, uint16_t stringKeyLength);
+        uint32_t keyOffset, KeyLength keyLength);
+    Key(uint64_t tableId, const void* key, KeyLength keyLength);
     KeyHash getHash();
     bool operator==(const Key& other) const;
     bool operator!=(const Key& other) const;
     uint64_t getTableId() const;
     const void* getStringKey() const;
-    uint16_t getStringKeyLength() const;
+    KeyLength getStringKeyLength() const;
     string toString() const;
     static KeyHash getHash(uint64_t tableId,
-                           const void* stringKey,
-                           uint16_t stringKeyLength);
+                           const void* key,
+                           KeyLength keyLength);
 
   PRIVATE:
     /// The 64-bit table identifier.
     uint64_t tableId;
 
     /// Pointer to the binary string key.
-    const void* stringKey;
+    const void* key;
 
     /// Length of the binary string key in bytes.
-    uint16_t stringKeyLength;
+    KeyLength keyLength;
 
     /// Cache for this key's hash. Initially empty and filled on demand when
     /// getHash() is called. Used to avoid recalculation in subsequent calls.

@@ -154,12 +154,12 @@ TEST_F(KeyTest, getStringKeyLength) {
 }
 
 TEST_F(KeyTest, toString) {
-    EXPECT_EQ("<tableId: 27, stringKey: \"ascii key\", "
-              "stringKeyLength: 9, hash: 0xe415add6e960d438>",
+    EXPECT_EQ("<tableId: 27, key: \"ascii key\", "
+              "keyLength: 9, hash: 0xe415add6e960d438>",
               Key(27, "ascii key", 9).toString());
 
-    EXPECT_EQ("<tableId: 814, stringKey: \"binary key\\xaa\\x0a\", "
-              "stringKeyLength: 12, hash: 0xe972fd5603c67b0e>",
+    EXPECT_EQ("<tableId: 814, key: \"binary key\\xaa\\x0a\", "
+              "keyLength: 12, hash: 0xe972fd5603c67b0e>",
               Key(814, "binary key\xaa\x0a", 12).toString());
 }
 

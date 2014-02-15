@@ -60,7 +60,6 @@ namespace RAMCloud {
 
 typedef uint8_t KeyCount;   // the number of keys in an object
 typedef KeyCount KeyIndex;  // the position of this key: 0 to KeyCount - 1
-typedef uint16_t KeyLength; // the length of a key in an object
 typedef KeyLength CumulativeKeyLength;
 
 // A convenience macro to get to the starting of the first key in an object

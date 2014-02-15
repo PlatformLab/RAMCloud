@@ -38,21 +38,21 @@ namespace RAMCloud {
  */
 Key::Key(LogEntryType type, Buffer& buffer)
     : tableId(-1),
-      stringKey(NULL),
-      stringKeyLength(0),
+      key(NULL),
+      keyLength(0),
       hash()
 {
     if (type == LOG_ENTRY_TYPE_OBJ) {
         Object object(buffer);
         tableId = object.getTableId();
-        stringKeyLength = object.getKeyLength();
-        stringKey = object.getKey();
+        keyLength = object.getKeyLength();
+        key = object.getKey();
 
     } else if (type == LOG_ENTRY_TYPE_OBJTOMB) {
         ObjectTombstone tomb(buffer);
         tableId = tomb.getTableId();
-        stringKeyLength = tomb.getKeyLength();
-        stringKey = tomb.getKey();
+        keyLength = tomb.getKeyLength();
+        key = tomb.getKey();
 
     } else {
         throw FatalError(HERE, "unknown Log::Entry type");
@@ -70,16 +70,16 @@ Key::Key(LogEntryType type, Buffer& buffer)
  *      64-bit table identifier portion of this key.
  * \param buffer
  *      Buffer containing the binary string key somewhere inside.
- * \param stringKeyOffset
+ * \param keyOffset
  *      Byte offset of the binary string key in the buffer.
- * \param stringKeyLength
+ * \param keyLength
  *      Length of the binary string key in bytes.
  */
 Key::Key(uint64_t tableId, Buffer& buffer,
-         uint32_t stringKeyOffset, uint16_t stringKeyLength)
+         uint32_t keyOffset, KeyLength keyLength)
     : tableId(tableId),
-      stringKey(buffer.getRange(stringKeyOffset, stringKeyLength)),
-      stringKeyLength(stringKeyLength),
+      key(buffer.getRange(keyOffset, keyLength)),
+      keyLength(keyLength),
       hash()
 {
     // TODO(anyone): We could instead delay calling getRange() until absolutely
@@ -95,15 +95,15 @@ Key::Key(uint64_t tableId, Buffer& buffer,
  *
  * \param tableId
  *      64-bit table identifier portion of this key.
- * \param stringKey
+ * \param key
  *      Pointer to the binary string key.
- * \param stringKeyLength
+ * \param keyLength
  *      Length of the binary string key in bytes.
  */
-Key::Key(uint64_t tableId, const void* stringKey, uint16_t stringKeyLength)
+Key::Key(uint64_t tableId, const void* key, KeyLength keyLength)
     : tableId(tableId),
-      stringKey(stringKey),
-      stringKeyLength(stringKeyLength),
+      key(key),
+      keyLength(keyLength),
       hash()
 {
 }
@@ -117,7 +117,7 @@ uint64_t
 Key::getHash()
 {
     if (expect_false(!hash))
-        hash.construct(getHash(tableId, stringKey, stringKeyLength));
+        hash.construct(getHash(tableId, key, keyLength));
 
     return *hash;
 }
@@ -137,13 +137,13 @@ Key::operator==(const Key& other) const
         return false;
     if (tableId != other.tableId)
         return false;
-    if (stringKeyLength != other.stringKeyLength)
+    if (keyLength != other.keyLength)
         return false;
 
     // bcmp is used here because it's about 20-25ns faster than memcmp with
     // 8-byte strings. The problem with memcmp appears to be that GCC emits
     // an "optimization" (repz cmpsb) that is much slower than glibc's memcmp.
-    return (bcmp(stringKey, other.stringKey, stringKeyLength) == 0);
+    return (bcmp(key, other.key, keyLength) == 0);
 }
 
 /**
@@ -172,16 +172,16 @@ Key::getTableId() const
 const void*
 Key::getStringKey() const
 {
-    return stringKey;
+    return key;
 }
 
 /**
  * Return the binary string key's length in bytes.
  */
-uint16_t
+KeyLength
 Key::getStringKeyLength() const
 {
-    return stringKeyLength;
+    return keyLength;
 }
 
 /**
@@ -197,10 +197,10 @@ Key::getStringKeyLength() const
 string
 Key::toString() const
 {
-    string printable = StringUtil::binaryToString(stringKey, stringKeyLength);
-    string s = format("<tableId: %lu, stringKey: \"%s\", stringKeyLength: %hu, "
-        "hash: 0x%lx>", tableId, printable.c_str(), stringKeyLength,
-        getHash(tableId, stringKey, stringKeyLength));
+    string printable = StringUtil::binaryToString(key, keyLength);
+    string s = format("<tableId: %lu, key: \"%s\", keyLength: %hu, "
+        "hash: 0x%lx>", tableId, printable.c_str(), keyLength,
+        getHash(tableId, key, keyLength));
     return s;
 }
 
@@ -209,17 +209,17 @@ Key::toString() const
  *
  * \param tableId
  *      64-bit identifier of the table this key is in.
- * \param stringKey
+ * \param key
  *      Variable length binary string that uniquely identifies the object
  *      within tableId. It does not necessarily have to be nul-terminated
  *      like a C-style string.
- * \param stringKeyLength
- *      Size stringKey in bytes.
+ * \param keyLength
+ *      Size key in bytes.
  * \return
  *      Hash value of the Key that these arguments represent.
  */
 KeyHash
-Key::getHash(uint64_t tableId, const void* stringKey, uint16_t stringKeyLength)
+Key::getHash(uint64_t tableId, const void* key, KeyLength keyLength)
 {
     // It would be nice if MurmurHash3 took a 64-bit seed so we could cheaply
     // include the full tableId. For now just cast down to 32-bits and hope for
@@ -227,7 +227,7 @@ Key::getHash(uint64_t tableId, const void* stringKey, uint16_t stringKeyLength)
     // added too much additional latency to hash table lookups.
     uint32_t tableIdSeed = static_cast<uint32_t>(tableId);
     uint64_t out[2];
-    MurmurHash3_x64_128(stringKey, stringKeyLength, tableIdSeed, &out);
+    MurmurHash3_x64_128(key, keyLength, tableIdSeed, &out);
     return out[0];
 }
 
