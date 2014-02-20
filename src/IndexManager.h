@@ -39,19 +39,18 @@ class IndexManager {
     explicit IndexManager(Context* context);
     virtual ~IndexManager();
 
-    Status createIndexlet(uint64_t tableId, uint8_t indexId,
+    Status createIndexlet(uint64_t indexletId,
                           Key& firstKey, Key& lastKey);
-    Status dropIndexlet(uint64_t tableId, uint8_t indexId);
+    Status dropIndexlet(uint64_t indexletId);
     Status indexedRead(uint64_t tableId, uint64_t pKHash,
-                       uint8_t indexId, Key& firstKey, Key& lastKey,
+                       uint8_t indexletId, Key& firstKey, Key& lastKey,
                        Buffer* outBuffer, uint64_t* outVersion);
-    Status insertEntries(uint64_t tableId, uint64_t pKHash,
-                         Buffer& indexEntries);
-    Status lookupIndexKeys(uint64_t tableId, uint8_t indexId,
+    Status insertEntry(uint64_t indexletId,
+                       Key indexKey, uint64_t pKHash);
+    Status lookupIndexKeys(uint64_t indexletId,
                            Key& firstKey, Key& lastKey,
                            uint32_t* count, Buffer* outBuffer);
-    Status removeEntries(uint64_t tableId, uint64_t pKHash,
-                         uint8_t indexId);
+    Status removeEntry(uint64_t indexletId, Key indexKey);
 
 
   private:

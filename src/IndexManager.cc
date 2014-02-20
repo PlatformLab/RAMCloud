@@ -29,10 +29,8 @@ IndexManager::~IndexManager()
 /**
  * Create an index partition (indexlet) on this index server.
  * 
- * \param tableId
- *      Id of the table for which an indexlet is to be created.
- * \param indexId
- *      Id of the index to which the indexlet belongs.
+ * \param indexletId
+ *      Id of the indexlet to be created.
  * \param firstKey
  *      Starting value for the indexed key range for this indexlet.
  * \param lastKey
@@ -42,7 +40,7 @@ IndexManager::~IndexManager()
  *      different failures.
  */
 Status
-IndexManager::createIndexlet(uint64_t tableId, uint8_t indexId,
+IndexManager::createIndexlet(uint64_t indexletId,
                              Key& firstKey, Key& lastKey)
 {
     // Currently a stub. Return STATUS_OK. ankitak: TODO(ashgup).
@@ -53,16 +51,14 @@ IndexManager::createIndexlet(uint64_t tableId, uint8_t indexId,
 /**
  * Drop an index partition (indexlet) on this index server.
  * 
- * \param tableId
- *      Id of the table for which an indexlet is to be dropped.
- * \param indexId
- *      Id of the index to which the indexlet belongs.
+ * \param indexletId
+ *      Id of the indexlet to be dropped.
  * \return
  *      Returns STATUS_OK if the index drop succeeded. Other status values
  *      indicate different failures.
  */
 Status
-IndexManager::dropIndexlet(uint64_t tableId, uint8_t indexId)
+IndexManager::dropIndexlet(uint64_t indexletId)
 {
     // Currently a stub. Return STATUS_OK. ankitak: TODO(ashgup).
     // Note: Will be called by dropIndexletOwnership, I think.
@@ -76,8 +72,8 @@ IndexManager::dropIndexlet(uint64_t tableId, uint8_t indexId)
  *      Table id of the table containing the object.
  * \param pKHash
  *      Key hash of the primary key of the object.
- * \param indexId
- *      Index Id for the index on which key comparison is to be done.
+ * \param indexletId
+ *      Id for the indexlet on which key comparison is to be done.
  * \param firstKey
  *      Starting value for the acceptable range for indexed key.
  * \param lastKey
@@ -99,7 +95,7 @@ IndexManager::dropIndexlet(uint64_t tableId, uint8_t indexId)
  */
 Status
 IndexManager::indexedRead(uint64_t tableId, uint64_t pKHash,
-                          uint8_t indexId, Key& firstKey, Key& lastKey,
+                          uint8_t indexletId, Key& firstKey, Key& lastKey,
                           Buffer* outBuffer, uint64_t* outVersion)
 {
     // Currently a stub. Return STATUS_OK. TODO(ankitak)
@@ -113,22 +109,18 @@ IndexManager::indexedRead(uint64_t tableId, uint64_t pKHash,
 /**
  * Insert index entries for an object.
  * 
- * \param tableId
- *      tableId of the table of the object.
+ * \param indexletId
+ *      Id of the indexlet in which index entries are to be created.
+ * \param indexKey
+ *      Index key to be inserted.
  * \param pKHash
  *      Hash of the primary key of the object.
- * \param indexEntries
- *      Buffer containing information about id, length and values of all
- *      the index entries to be inserted for this object.
- *      The buffer will be in the same format as the object buffer, but contain
- *      only the relevant information.
  * \return
  *      Returns STATUS_OK if the inserts succeeded. Other status values
  *      indicate different failures.
  */
 Status
-IndexManager::insertEntries(uint64_t tableId, uint64_t pKHash,
-                            Buffer& indexEntries)
+IndexManager::insertEntry(uint64_t indexletId, Key indexKey, uint64_t pKHash)
 {
     // Currently a stub. Return STATUS_OK. TODO(ankitak)
     return Status(0);
@@ -138,10 +130,8 @@ IndexManager::insertEntries(uint64_t tableId, uint64_t pKHash,
  * Lookup objects with index keys corresponding to indexId in the
  * specified range or point.
  * 
- * \param tableId
- *      Id of the table in which lookup is to be done.
- * \param indexId
- *      Id of the index for which keys have to be compared.
+ * \param indexletId
+ *      Id of the indexlet in which lookup is to be done.
  * \param firstKey
  *      Starting key for the key range in which keys are to be matched.
  *      The key range includes the firstKey.
@@ -161,7 +151,7 @@ IndexManager::insertEntries(uint64_t tableId, uint64_t pKHash,
  *      indicate different failures.
  */
 Status
-IndexManager::lookupIndexKeys(uint64_t tableId, uint8_t indexId,
+IndexManager::lookupIndexKeys(uint64_t indexletId,
                               Key& firstKey, Key& lastKey,
                               uint32_t* count, Buffer* outBuffer)
 {
@@ -172,20 +162,16 @@ IndexManager::lookupIndexKeys(uint64_t tableId, uint8_t indexId,
 /**
  * Remove index entries for an object for given index id or for all indexes.
  * 
- * \param tableId
- *      tableId of the table of the object.
- * \param pKHash
- *      Hash of the primary key of the object.
- * \param indexId
- *      Id of the index for which the entry is to be removed.
- *      If NULL, then remove entries for all indexes for this object.
+ * \param indexletId
+ *      Id of the indexlet from which entry is to be removed.
+ * \param indexKey
+ *      Index key for which entry is to be removed.
  * \return
  *      Returns STATUS_OK if the inserts succeeded. Other status values
  *      indicate different failures.
  */
 Status
-IndexManager::removeEntries(uint64_t tableId, uint64_t pKHash,
-                            uint8_t indexId)
+IndexManager::removeEntry(uint64_t indexletId, Key indexKey)
 {
     // Currently a stub. Return STATUS_OK. TODO(ankitak)
     return Status(0);

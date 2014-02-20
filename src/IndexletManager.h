@@ -26,7 +26,7 @@ namespace RAMCloud {
  * index (firstKey - lastKey) to a unique table Id for that indexlet
  * (index partition).
  * 
- * This IndexletTableId can then be used to get get a session using
+ * This indexletId can then be used to get get a session using
  * objectFinder (in the same way as for data tables).
  *
  * It retrieves configuration information from the coordinator and caches it.
@@ -42,7 +42,7 @@ class IndexletManager {
     void lookup(uint64_t tableId, uint8_t indexId,
                 const void* firstKey, uint16_t firstKeyLength,
                 const void* lastKey, uint16_t lastKeyLength,
-                uint32_t* numIndexlets, Buffer* indexletTableIds)
+                uint32_t* numIndexlets, Buffer* indexletId)
     {}
 
   PRIVATE:

@@ -1071,23 +1071,23 @@ RamCloud::lookupIndexKeys(uint64_t tableId, uint8_t indexId,
                           uint32_t* count, Buffer* pKHashes)
 {
     uint32_t numIndexlets;
-    Buffer indexletTableIds;
+    Buffer indexletIds;
     // Get tableIds for all indexlets required for this request.
     indexletManager.lookup(tableId, indexId,
                            firstKey, firstKeyLength,
                            lastKey, lastKeyLength,
-                           &numIndexlets, &indexletTableIds);
+                           &numIndexlets, &indexletIds);
 
     Tub<LookupIndexKeysRpc> rpcs[numIndexlets];
 
     // Initiate a separate RPC for each indexlet.
     uint32_t offset = 0;
     for (uint32_t i = 0; i < numIndexlets; i++) {
-        uint64_t indexletTableId;
-        indexletTableIds.copy(offset, 8, &indexletTableId);
+        uint64_t indexletId;
+        indexletIds.copy(offset, 8, &indexletId);
         offset += 8;
         Tub<LookupIndexKeysRpc>& rpc = rpcs[i];
-        rpc.construct(this, indexletTableId,
+        rpc.construct(this, indexletId,
                       firstKey, firstKeyLength,
                       lastKey, lastKeyLength);
     }
@@ -1113,7 +1113,7 @@ RamCloud::lookupIndexKeys(uint64_t tableId, uint8_t indexId,
  *
  * \param ramcloud
  *      The RAMCloud object that governs this RPC.
- * \param indexletTableId
+ * \param indexletId
  *      Table Id corresponding to the table storing the index partition
  *      being searched. This table stores index entries for a given table,
  *      for a given indexId, for some index key range.
@@ -1140,10 +1140,10 @@ RamCloud::lookupIndexKeys(uint64_t tableId, uint8_t indexId,
  *      Length in byes of the lastKey.
  */
 LookupIndexKeysRpc::LookupIndexKeysRpc(
-        RamCloud* ramcloud, uint64_t indexletTableId,
+        RamCloud* ramcloud, uint64_t indexletId,
         const void* firstKey, uint16_t firstKeyLength,
         const void* lastKey, uint16_t lastKeyLength)
-    : ObjectRpcWrapper(ramcloud, indexletTableId, 0 /*keyHash*/,
+    : ObjectRpcWrapper(ramcloud, indexletId, 0 /*keyHash*/,
             sizeof(WireFormat::LookupIndexKeys::Response))
 {
     // TODO(ankitak)

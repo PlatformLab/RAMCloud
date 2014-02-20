@@ -399,7 +399,7 @@ class KillRpc : public ObjectRpcWrapper {
  */
 class LookupIndexKeysRpc : public ObjectRpcWrapper {
   public:
-    LookupIndexKeysRpc(RamCloud* ramcloud, uint64_t indexletTableId,
+    LookupIndexKeysRpc(RamCloud* ramcloud, uint64_t indexletId,
                        const void* firstKey, uint16_t firstKeyLength,
                        const void* lastKey, uint16_t lastKeyLength);
     ~LookupIndexKeysRpc() {}

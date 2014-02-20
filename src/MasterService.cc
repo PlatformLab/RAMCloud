@@ -538,13 +538,13 @@ MasterService::indexedRead(
     uint32_t numRequests = reqHdr->count;
     uint32_t reqOffset = sizeof32(*reqHdr);
 
-    const void* firstStringKey = rpc->requestPayload->getRange(
-                                 reqOffset, reqHdr->firstKeyLength);
+    const void* firstStringKey =
+            rpc->requestPayload->getRange(reqOffset, reqHdr->firstKeyLength);
     Key firstKey(reqHdr->tableId, firstStringKey, reqHdr->firstKeyLength);
     reqOffset+=reqHdr->firstKeyLength;
 
-    const void* lastStringKey = rpc->requestPayload->getRange(
-                                reqOffset, reqHdr->lastKeyLength);
+    const void* lastStringKey =
+            rpc->requestPayload->getRange(reqOffset, reqHdr->lastKeyLength);
     Key lastKey(reqHdr->tableId, lastStringKey, reqHdr->lastKeyLength);
     reqOffset+=reqHdr->lastKeyLength;
 
@@ -585,7 +585,7 @@ MasterService::indexedRead(
         Buffer buffer;
         currentResp->status =
                 indexManager.indexedRead(reqHdr->tableId, currentKeyHash,
-                                         reqHdr->indexId,
+                                         reqHdr->indexletId,
                                          firstKey, lastKey,
                                          &buffer, &currentResp->version);
 
@@ -657,20 +657,20 @@ MasterService::lookupIndexKeys(
 {
     uint32_t reqOffset = sizeof32(*reqHdr);
 
-    const void* firstStringKey = rpc->requestPayload->getRange(
-                                 reqOffset, reqHdr->firstKeyLength);
-    Key firstKey(reqHdr->tableId, firstStringKey, reqHdr->firstKeyLength);
+    const void* firstStringKey =
+            rpc->requestPayload->getRange(reqOffset, reqHdr->firstKeyLength);
+    Key firstKey(reqHdr->indexletId, firstStringKey, reqHdr->firstKeyLength);
     reqOffset+=reqHdr->firstKeyLength;
 
-    const void* lastStringKey = rpc->requestPayload->getRange(
-                                reqOffset, reqHdr->lastKeyLength);
-    Key lastKey(reqHdr->tableId, lastStringKey, reqHdr->lastKeyLength);
+    const void* lastStringKey =
+            rpc->requestPayload->getRange(reqOffset, reqHdr->lastKeyLength);
+    Key lastKey(reqHdr->indexletId, lastStringKey, reqHdr->lastKeyLength);
 
     uint32_t count;
     Buffer buffer;
     respHdr->common.status =
-            indexManager.lookupIndexKeys(reqHdr->tableId, reqHdr->indexId,
-                                         firstKey, lastKey, &count, &buffer);
+            indexManager.lookupIndexKeys(reqHdr->indexletId, firstKey, lastKey,
+                                         &count, &buffer);
     if (respHdr->common.status != STATUS_OK)
         return;
 
