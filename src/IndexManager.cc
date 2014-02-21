@@ -44,7 +44,8 @@ IndexManager::createIndexlet(uint64_t indexletId,
                              Key& firstKey, Key& lastKey)
 {
     // Currently a stub. Return STATUS_OK. ankitak: TODO(ashgup).
-    // Note: Will be called by takeIndexletOwnership, I think.
+    // Note: Will be called by takeIndexletOwnership, to initialize tree.
+    // Might not be needed. TBD.
     return Status(0);
 }
 
@@ -61,7 +62,7 @@ Status
 IndexManager::dropIndexlet(uint64_t indexletId)
 {
     // Currently a stub. Return STATUS_OK. ankitak: TODO(ashgup).
-    // Note: Will be called by dropIndexletOwnership, I think.
+    // Note: Will be called by dropIndexletOwnership, to delete all entries.
     return Status(0);
 }
 

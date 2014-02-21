@@ -18,7 +18,6 @@
 
 #include "Common.h"
 #include "CoordinatorClient.h"
-#include "IndexletManager.h"
 #include "MasterClient.h"
 #include "ObjectBuffer.h"
 #include "ObjectFinder.h"
@@ -167,8 +166,6 @@ class RamCloud {
 
   public: // public for now to make administrative calls from clients
     ObjectFinder objectFinder;
-
-    IndexletManager indexletManager;
 
   private:
     DISALLOW_COPY_AND_ASSIGN(RamCloud);

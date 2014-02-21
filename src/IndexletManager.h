@@ -18,18 +18,16 @@
 
 #include "Common.h"
 
+// TODO(ashgup)
+
 namespace RAMCloud {
 
 /**
- * This class maps from an data table (uniquely identified by a tableId)
- * and an index on that table (identified by indexId) and key range of that
- * index (firstKey - lastKey) to a unique table Id for that indexlet
- * (index partition).
- * 
- * This indexletId can then be used to get get a session using
- * objectFinder (in the same way as for data tables).
+ * This class is on every index server.
+ * It manages and stores the metadata regarding indexlets (index partitions)
+ * stored on this server.
  *
- * It retrieves configuration information from the coordinator and caches it.
+ * The coordinator invokes most of these functions to manage the metadata.
  * 
  * This class has no information about the actual entries in the index
  * (and does not interface with ObjectManager or index tree code).
@@ -39,17 +37,21 @@ class IndexletManager {
     explicit IndexletManager(Context* context)
         : context(context) {};
 
-    void lookup(uint64_t tableId, uint8_t indexId,
-                const void* firstKey, uint16_t firstKeyLength,
-                const void* lastKey, uint16_t lastKeyLength,
-                uint32_t* numIndexlets, Buffer* indexletId)
-    {}
+    // Modify function signature as required. This is just an approximation.
+    void takeIndexletOwnership(uint64_t tableId, uint8_t indexId,
+                               const void* firstKey, uint16_t firstKeyLength,
+                               const void* lastKey, uint16_t lastKeyLength);
+    void dropIndexletOwnership(uint64_t tableId, uint8_t indexId,
+                               const void* firstKey, uint16_t firstKeyLength,
+                               const void* lastKey, uint16_t lastKeyLength);
 
   PRIVATE:
     /**
      * Shared RAMCloud information.
      */
     Context* context;
+
+    // Keep information about indexlets owned by this server here.
 
     DISALLOW_COPY_AND_ASSIGN(IndexletManager);
 };

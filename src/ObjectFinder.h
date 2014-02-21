@@ -75,6 +75,10 @@ class ObjectFinder {
     Transport::SessionRef lookup(uint64_t table, KeyHash keyHash);
     const TabletProtoBuffer* lookupTablet(uint64_t table, KeyHash keyHash);
 
+    // TODO(ashgup/ankitak): Implement this function.
+    Transport::SessionRef lookup(uint64_t table, uint8_t indexId,
+                                 const void* key, uint16_t keyLength);
+
     void flush(uint64_t tableId);
     void flushSession(uint64_t tableId, KeyHash keyHash);
     void waitForTabletDown(uint64_t tableId);
@@ -85,11 +89,13 @@ class ObjectFinder {
      * representation of the tablets stored in tableMap
      */
     string debugString() const;
+
   PRIVATE:
     /**
      * Shared RAMCloud information.
      */
     Context* context;
+
     /**
      * tableMap provides a fast lookup for the current tablets being used.
      * It stores the tablets, so they can be fast accessed by having the 
@@ -97,6 +103,10 @@ class ObjectFinder {
      */
     std::map<TabletKey, TabletProtoBuffer> tableMap;
     typedef std::map<TabletKey, TabletProtoBuffer>::iterator TabletIter;
+
+    // TODO(ashgup): Store similar mapping for indexlet information by
+    // fetching from coordinator.
+
     /**
      * Update the local tablet map cache. Usually, calling
      * tableConfigFetcher.getTableConfig() is the same as calling
@@ -104,6 +114,7 @@ class ObjectFinder {
      * this is swapped out with a mock implementation.
      */
     std::unique_ptr<ObjectFinder::TableConfigFetcher> tableConfigFetcher;
+
     DISALLOW_COPY_AND_ASSIGN(ObjectFinder);
 };
 

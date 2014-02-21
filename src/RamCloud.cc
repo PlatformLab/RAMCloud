@@ -63,7 +63,6 @@ RamCloud::RamCloud(const char* locator, const char* clusterName)
     , clientContext(realClientContext.construct(false))
     , status(STATUS_OK)
     , objectFinder(clientContext)
-    , indexletManager(clientContext)
 {
     clientContext->coordinatorSession->setLocation(locator,
             clusterName);
@@ -81,7 +80,6 @@ RamCloud::RamCloud(Context* context, const char* locator,
     , clientContext(context)
     , status(STATUS_OK)
     , objectFinder(clientContext)
-    , indexletManager(clientContext)
 {
     clientContext->coordinatorSession->setLocation(locator,
             clusterName);
@@ -1070,40 +1068,8 @@ RamCloud::lookupIndexKeys(uint64_t tableId, uint8_t indexId,
                           const void* lastKey, uint16_t lastKeyLength,
                           uint32_t* count, Buffer* pKHashes)
 {
-    uint32_t numIndexlets = 0;
-    Buffer indexletIds;
-    // Get tableIds for all indexlets required for this request.
-    indexletManager.lookup(tableId, indexId,
-                           firstKey, firstKeyLength,
-                           lastKey, lastKeyLength,
-                           &numIndexlets, &indexletIds);
-
-    Tub<LookupIndexKeysRpc> rpcs[numIndexlets];
-
-    // Initiate a separate RPC for each indexlet.
-    uint32_t offset = 0;
-    for (uint32_t i = 0; i < numIndexlets; i++) {
-        uint64_t indexletId;
-        indexletIds.copy(offset, 8, &indexletId);
-        offset += 8;
-        Tub<LookupIndexKeysRpc>& rpc = rpcs[i];
-        rpc.construct(this, indexletId,
-                      firstKey, firstKeyLength,
-                      lastKey, lastKeyLength);
-    }
-
-    // Wait for all the responses.
-    count = 0;
-    Buffer pKHashesIndexlets[numIndexlets];
-    for (uint32_t i = 0; i < numIndexlets; i++) {
-        Tub<LookupIndexKeysRpc>& rpc = rpcs[i];
-        uint32_t countForIndexlet;
-        rpc->wait(&countForIndexlet, &pKHashesIndexlets[i]);
-        count += countForIndexlet;
-        // TODO(ankitak): Find a more efficient way to do this.
-        pKHashes->append(&pKHashesIndexlets[i],
-                         countForIndexlet*8);
-    }
+    // TODO(ankitak)
+    // I think this will use mechanism similar to MultiOp.
 }
 
 /**
