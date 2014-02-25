@@ -963,7 +963,7 @@ RamCloud::indexedRead(uint64_t tableId, uint32_t count, Buffer* pKHashes,
                       const void* lastKey, uint16_t lastKeyLength,
                       MultiReadObject* responses[])
 {
-    // TODO(ankitak)
+    // TODO(ankitak): Currently a stub. Implement.
 }
 
 /**
@@ -1011,7 +1011,7 @@ IndexedReadRpc::IndexedReadRpc(RamCloud* ramcloud, uint64_t tableId,
                        0 /*TODO(ankitak): Provide one from pkHashes*/,
                        sizeof(WireFormat::IndexedRead::Response))
 {
-    // TODO(ankitak)
+    // TODO(ankitak): Currently a stub. Implement.
 }
 
 /**
@@ -1024,7 +1024,7 @@ IndexedReadRpc::IndexedReadRpc(RamCloud* ramcloud, uint64_t tableId,
 void
 IndexedReadRpc::wait(MultiReadObject* responses[])
 {
-    // TODO(ankitak)
+    // TODO(ankitak): Currently a stub. Implement.
 }
 
 /**
@@ -1068,7 +1068,7 @@ RamCloud::lookupIndexKeys(uint64_t tableId, uint8_t indexId,
                           const void* lastKey, uint16_t lastKeyLength,
                           uint32_t* count, Buffer* pKHashes)
 {
-    // TODO(ankitak)
+    // TODO(ankitak): Currently a stub. Implement.
     // I think this will use mechanism similar to MultiOp.
 }
 
@@ -1112,7 +1112,7 @@ LookupIndexKeysRpc::LookupIndexKeysRpc(
     : ObjectRpcWrapper(ramcloud, indexletId, 0 /*keyHash*/,
             sizeof(WireFormat::LookupIndexKeys::Response))
 {
-    // TODO(ankitak)
+    // TODO(ankitak): Currently a stub. Implement.
 }
 
 /**
@@ -1129,7 +1129,7 @@ LookupIndexKeysRpc::LookupIndexKeysRpc(
 void
 LookupIndexKeysRpc::wait(uint32_t* count, Buffer* pKHashes)
 {
-    // TODO(ankitak)
+    // TODO(ankitak): Currently a stub. Implement.
 }
 
 /**

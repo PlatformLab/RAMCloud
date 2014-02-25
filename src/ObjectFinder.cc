@@ -241,6 +241,41 @@ ObjectFinder::lookupTablet(uint64_t tableId, KeyHash keyHash)
 }
 
 /**
+ * Lookup the masters for a range of index keys in a given table.
+ * Useful for clients to lookup masters to communicate with to lookup
+ * index keys.
+ *
+ * \param tableId
+ *      The table containing the desired objects.
+ * \param indexId
+ *      Id of the index for which keys are to be compared.
+ * \param firstKey
+ *      Blob corresponding to the key that defines the start of the key range.
+ * \param firstKeyLength
+ *      Length of firstKey.
+ * \param lastKey
+ *      Blob corresponding to the key that defines the end of the key range.
+ * \param lastKeyLength
+ *      Length of the lastKey.
+ * \return
+ *      Vector of sessions for communication with the servers that 
+ *      hold the indexlets.
+ * 
+ * TODO(ashgup): Add doc about exception that this can throw.
+ */
+vector<Transport::SessionRef>
+ObjectFinder::lookup(uint64_t tableId, uint8_t indexId,
+                     const void* firstKey, uint16_t firstKeyLength,
+                     const void* lastKey, uint16_t lastKeyLength)
+{
+    // TODO(ashgup): Implement. Currently a stub.
+    // While implementing, use vector's reserve function to reduce space
+    // allocation overheads.
+    vector<Transport::SessionRef> sessions;
+    return sessions;
+}
+
+/**
  * Flush the tablet map and refresh it until we detect that at least one tablet
  * has a state set to something other than normal.
  *

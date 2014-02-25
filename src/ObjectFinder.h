@@ -70,14 +70,11 @@ class ObjectFinder {
 
     explicit ObjectFinder(Context* context);
 
-    Transport::SessionRef lookup(uint64_t table, const void* key,
+    Transport::SessionRef lookup(uint64_t tableId, const void* key,
                                  uint16_t keyLength);
-    Transport::SessionRef lookup(uint64_t table, KeyHash keyHash);
+    Transport::SessionRef lookup(uint64_t tableId, KeyHash keyHash);
     const TabletProtoBuffer* lookupTablet(uint64_t table, KeyHash keyHash);
 
-    // TODO(ashgup/ankitak): Implement this function.
-    // While implementing, use vector's reserve function to reduce space
-    // allocation overheads.
     vector<Transport::SessionRef> lookup(
                 uint64_t table, uint8_t indexId,
                 const void* firstKey, uint16_t firstKeyLength,
