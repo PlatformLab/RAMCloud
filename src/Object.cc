@@ -497,6 +497,19 @@ Object::getKeysAndValue()
 }
 
 /**
+ * Get number of keys in this object.
+ * \return
+ *      Number of keys in this object.
+ */
+KeyCount
+Object::getKeyCount()
+{
+    if (!fillKeyOffsets())
+        return 0;
+    return keyOffsets->numKeys;
+}
+
+/**
  * Obtain a pointer to a contiguous copy of this object's value.
  * This will not contain the number of keys, the key lengths and the keys.
  * This function is primarily used by unit tests

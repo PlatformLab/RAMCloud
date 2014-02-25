@@ -150,6 +150,49 @@ GetHeadOfLogRpc::wait()
 }
 
 /**
+ * This RPC is sent to an index server to request that it insert an index
+ * entry in an indexlet it holds.
+
+ * \param context
+ *      Overall information about this RAMCloud server or client.
+ * \param serverId
+ *      Identifier for the index server.
+ * \param indexKeyStr
+ *      Blob of index key for which the entry is to be inserted.
+ * \param indexKeyLength
+ *      Length of index key.
+ * \param primaryKeyHash
+ *      Key hash of the primary key for the object that this index entry
+ *      maps to.
+ */
+void
+MasterClient::insertIndexEntry(Context* context, ServerId serverId,
+        const void* indexKeyStr, KeyLength indexKeyLength,
+        uint64_t primaryKeyHash)
+{
+    InsertIndexEntryRpc rpc(context, serverId,
+        indexKeyStr, indexKeyLength, primaryKeyHash);
+    rpc.wait();
+}
+
+/**
+ * Constructor for InsertIndexEntryRpc: initiates an RPC in the same way as
+ * #MasterClient::insertIndexEntryRpc, but returns once the RPC has been
+ * initiated, without waiting for it to complete.
+ *
+ * \copydetails MasterClient::insertIndexEntry
+ */
+InsertIndexEntryRpc::InsertIndexEntryRpc(
+        Context* context, ServerId serverId,
+        const void* indexKeyStr, KeyLength indexKeyLength,
+        uint64_t primaryKeyHash)
+    : ServerIdRpcWrapper(context, serverId,
+                         sizeof(WireFormat::InsertIndexEntry::Response))
+{
+        // TODO(ankitak): Currently a stub. Implement.
+}
+
+/**
  * Return whether a replica for a segment created by a given master may still
  * be needed for recovery. Backups use this when restarting after a failure
  * to determine if replicas found in persistent storage must be retained.
@@ -446,6 +489,49 @@ RecoverRpc::RecoverRpc(Context* context, ServerId serverId,
     request.append(replicas,
             downCast<uint32_t>(sizeof(replicas[0])) * numReplicas);
     send();
+}
+
+/**
+ * This RPC is sent to an index server to request that it remove an index
+ * entry from an indexlet it holds.
+
+ * \param context
+ *      Overall information about this RAMCloud server or client.
+ * \param serverId
+ *      Identifier for the index server.
+ * \param indexKeyStr
+ *      Blob of index key for which the entry is to be removed.
+ * \param indexKeyLength
+ *      Length of index key.
+ * \param primaryKeyHash
+ *      Key hash of the primary key for the object that this index entry
+ *      maps to.
+ */
+void
+MasterClient::removeIndexEntry(Context* context, ServerId serverId,
+        const void* indexKeyStr, KeyLength indexKeyLength,
+        uint64_t primaryKeyHash)
+{
+    RemoveIndexEntryRpc rpc(context, serverId, indexKeyStr, indexKeyLength,
+                            primaryKeyHash);
+    rpc.wait();
+}
+
+/**
+ * Constructor for RemoveIndexEntryRpc: initiates an RPC in the same way as
+ * #MasterClient::removeIndexEntryRpc, but returns once the RPC has been
+ * initiated, without waiting for it to complete.
+ *
+ * \copydetails MasterClient::removeIndexEntry
+ */
+RemoveIndexEntryRpc::RemoveIndexEntryRpc(
+        Context* context, ServerId serverId,
+        const void* indexKeyStr, KeyLength indexKeyLength,
+        uint64_t primaryKeyHash)
+    : ServerIdRpcWrapper(context, serverId,
+                sizeof(WireFormat::RemoveIndexEntry::Response))
+{
+    // TODO(ankitak): Currently a stub. Implement.
 }
 
 /**

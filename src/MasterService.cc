@@ -79,6 +79,7 @@ MasterService::MasterService(Context* context,
     , logEverSynced(false)
     , masterTableMetadata()
     , maxMultiReadResponseSize(Transport::MAX_RPC_LEN)
+    , objectFinder(context)
     , objectManager(context,
                     &serverId,
                     config,
@@ -140,6 +141,9 @@ MasterService::dispatch(WireFormat::Opcode opcode, Rpc* rpc)
             callHandler<WireFormat::Increment, MasterService,
                         &MasterService::increment>(rpc);
             break;
+        case WireFormat::InsertIndexEntry::opcode:
+            callHandler<WireFormat::InsertIndexEntry, MasterService,
+                        &MasterService::insertIndexEntry>(rpc);
         case WireFormat::IsReplicaNeeded::opcode:
             callHandler<WireFormat::IsReplicaNeeded, MasterService,
                         &MasterService::isReplicaNeeded>(rpc);
@@ -180,6 +184,9 @@ MasterService::dispatch(WireFormat::Opcode opcode, Rpc* rpc)
             callHandler<WireFormat::Remove, MasterService,
                         &MasterService::remove>(rpc);
             break;
+        case WireFormat::RemoveIndexEntry::opcode:
+            callHandler<WireFormat::RemoveIndexEntry, MasterService,
+                        &MasterService::removeIndexEntry>(rpc);
         case WireFormat::SplitMasterTablet::opcode:
             callHandler<WireFormat::SplitMasterTablet, MasterService,
                         &MasterService::splitMasterTablet>(rpc);
@@ -615,6 +622,22 @@ MasterService::initOnceEnlisted()
     objectManager.initOnceEnlisted();
 
     initCalled = true;
+}
+
+/**
+ * RPC handler for INSERT_INDEX_ENTRY;
+ * As an index server, this process inserts an index entry. The RPC is
+ * typically initiated by a data master that was writing data that this index
+ * entry corresponds to.
+ */
+void
+MasterService::insertIndexEntry(
+        const WireFormat::InsertIndexEntry::Request* reqHdr,
+        WireFormat::InsertIndexEntry::Response* respHdr,
+        Rpc* rpc)
+{
+    // TODO(ankitak): Currently a stub. Implement.
+    // Will invoke indexManager.insertEntry();
 }
 
 /**
@@ -1302,8 +1325,15 @@ MasterService::remove(const WireFormat::Remove::Request* reqHdr,
                       Rpc* rpc)
 {
     const void* stringKey = rpc->requestPayload->getRange(sizeof32(*reqHdr),
-                                                        reqHdr->keyLength);
+                                                          reqHdr->keyLength);
     Key key(reqHdr->tableId, stringKey, reqHdr->keyLength);
+
+    // Read object before removing so we can delete index entries later.
+    // TODO(ankitak): Good indep project: Have a version of removeObject
+    // return the object being removed. That eliminates this extra step.
+    Buffer oldBuffer;
+    Status oldObjectStatus =
+            objectManager.readObject(key, &oldBuffer, NULL, NULL, false);
 
     RejectRules rejectRules = reqHdr->rejectRules;
     respHdr->common.status = objectManager.removeObject(key,
@@ -1311,6 +1341,26 @@ MasterService::remove(const WireFormat::Remove::Request* reqHdr,
                                                         &respHdr->version);
     if (respHdr->common.status == STATUS_OK)
         objectManager.syncChanges();
+
+    if (oldObjectStatus == STATUS_OK) {
+        requestRemoveIndexEntries(oldBuffer, reqHdr->tableId, key.getHash());
+    }
+}
+
+/**
+ * RPC handler for REMOVE_INDEX_ENTRY;
+ * As an index server, this process removes an index entry. The RPC is
+ * typically initiated by a data master that was removing data that this index
+ * entry corresponds to.
+ */
+void
+MasterService::removeIndexEntry(
+        const WireFormat::RemoveIndexEntry::Request* reqHdr,
+        WireFormat::RemoveIndexEntry::Response* respHdr,
+        Rpc* rpc)
+{
+    // TODO(ankitak): Currently a stub. Implement.
+    // Will invoke indexManager.removeEntry();
 }
 
 /**
@@ -1432,19 +1482,131 @@ MasterService::write(const WireFormat::Write::Request* reqHdr,
                      WireFormat::Write::Response* respHdr,
                      Rpc* rpc)
 {
-    // this is a temporary object that has an invalid version and timestamp.
+    // This is a temporary object that has an invalid version and timestamp.
     // An object is created to make here sure the object format does not leak
     // outside the object class. ObjectManager will update the version,
     // timestamp and the checksum
+    // This is also used to get key information to update indexes as needed.
     Object object(reqHdr->tableId, 0, 0, *(rpc->requestPayload),
-                    sizeof32(*reqHdr));
+                  sizeof32(*reqHdr));
 
+    // Fetch old object so that we can delete old index entries later.
+    // TODO(ankitak): Good indep task: Implement new writeObject that returns
+    // old object. Then that can be used to get old index information if any.
+    KeyLength primaryKeyLength;
+    const void* primaryKeyStr = object.getKey(0, &primaryKeyLength);
+    Key primaryKey(reqHdr->tableId, primaryKeyStr, primaryKeyLength);
+    Buffer oldObjectBuffer;
+    Status oldObjectStatus =
+            objectManager.readObject(primaryKey, &oldObjectBuffer,
+                                     NULL, NULL, false);
+
+    // Insert new index entries, if any.
+    requestInsertIndexEntries(object, reqHdr->tableId, primaryKey.getHash());
+
+    // Write the object.
     RejectRules rejectRules = reqHdr->rejectRules;
     respHdr->common.status = objectManager.writeObject(object, &rejectRules,
-                                                        &respHdr->version);
+                                                       &respHdr->version);
 
     if (respHdr->common.status == STATUS_OK)
         objectManager.syncChanges();
+
+    // If this is a overwrite, delete old index entries if any.
+    if (oldObjectStatus == STATUS_OK) {
+        requestRemoveIndexEntries(oldObjectBuffer, reqHdr->tableId,
+                                  primaryKey.getHash());
+    }
+}
+
+/**
+ * TODO(ankitak): For both request insert and request remove:
+ * 
+ * 1. Send rpcs through MasterClient asynchronously so we can first send for all
+ * then receive for all.
+ * 
+ * 2. Currently assuming that all keys are in contiguous keyIndexes.
+ * So, in the code below, I'm currently generating keyIndex directly from
+ * keyCount. This assumption will not be true if object schema changes.
+ * Will need to change this code + code in Object accordingly.
+ * 
+ * 3. Currently supporting index writes only in regular write and remove,
+ * not in multi writes and removes. Add functionality in multi ops.
+ * 
+ * 4. Calling functions currently read entire object and then call insert
+ * or remove. They only need to read the keys. Can optimize by modifying that,
+ * the functions called to read, and the functions below.
+ */
+
+/**
+ * Helper function to be used by write methods in this class to send request
+ * for inserting corresponding index entries to index servers.
+ * \param object
+ *      Object for which index entries are to be inserted.
+ * \param tableId
+ *      Table id of the object.
+ * \param primaryKeyHash
+ *      Key hash of the primary key of the object.
+ */
+void
+MasterService::requestInsertIndexEntries(
+        Object& object, uint64_t tableId, KeyHash primaryKeyHash)
+{
+    KeyCount keyCount = object.getKeyCount();
+
+    if (keyCount > 1) {
+        KeyLength keyLengths[keyCount];
+        const void* keyStrs[keyCount];
+        ServerId indexletServerIds[keyCount];
+
+        for (KeyCount keyIndex = 1; keyIndex <= keyCount; keyIndex++) {
+            keyStrs[keyIndex] = object.getKey(keyIndex, &keyLengths[keyIndex]);
+            indexletServerIds[keyIndex] = objectFinder.lookupServerId(
+                    tableId, keyIndex, keyStrs[keyIndex], keyLengths[keyIndex]);
+            // TODO(ankitak): Uncomment this after implementation done.
+//            MasterClient::insertIndexEntry(
+//                    context, indexletServerIds[keyIndex],
+//                    keyStrs[keyIndex], keyLengths[keyIndex],
+//                    primaryKeyHash);
+        }
+    }
+}
+
+// TODO(ankitak): Implement smarter GC if >1 objs have same pkhash & index key.
+/**
+ * Helper function to be used by remove methods in this class to send request
+ * for removing corresponding index entries to index servers.
+ * \param objectBuffer
+ *      Buffer containing keys and value of the object for which
+ *      index entries are to be deleted.
+ * \param tableId
+ *      Table id of the object.
+ * \param primaryKeyHash
+ *      Key hash of the primary key of the object.
+ */
+void
+MasterService::requestRemoveIndexEntries(
+        Buffer& objectBuffer, uint64_t tableId, KeyHash primaryKeyHash)
+{
+    Object object(tableId, 0, 0, objectBuffer);
+    KeyCount keyCount = object.getKeyCount();
+
+    if (keyCount > 1) {
+        KeyLength keyLengths[keyCount];
+        const void* keyStrs[keyCount];
+        ServerId indexletServerIds[keyCount];
+
+        for (KeyCount keyIndex = 1; keyIndex <= keyCount; keyIndex++) {
+            keyStrs[keyIndex] = object.getKey(keyIndex, &keyLengths[keyIndex]);
+            indexletServerIds[keyIndex] = objectFinder.lookupServerId(
+                    tableId, keyIndex, keyStrs[keyIndex], keyLengths[keyIndex]);
+            // TODO(ankitak): Uncomment this after implementation done.
+//            MasterClient::removeIndexEntry(
+//                    context, indexletServerIds[keyIndex],
+//                    keyStrs[keyIndex], keyLengths[keyIndex],
+//                    primaryKeyHash);
+        }
+    }
 }
 
 ///////////////////////////////////////////////////////////////////////////////

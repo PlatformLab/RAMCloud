@@ -16,16 +16,17 @@
 #ifndef RAMCLOUD_MASTERCLIENT_H
 #define RAMCLOUD_MASTERCLIENT_H
 
+#include "Buffer.h"
 #include "Common.h"
 #include "CoordinatorClient.h"
-#include "Transport.h"
-#include "Buffer.h"
+#include "Key.h"
+#include "Log.h"
 #include "Segment.h"
 #include "ServerId.h"
 #include "ServerIdRpcWrapper.h"
 #include "ServerStatistics.pb.h"
+#include "Transport.h"
 #include "Tub.h"
-#include "Log.h"
 
 namespace RAMCloud {
 
@@ -41,6 +42,9 @@ class MasterClient {
     static void dropTabletOwnership(Context* context, ServerId serverId,
             uint64_t tableId, uint64_t firstKeyHash, uint64_t lastKeyHash);
     static Log::Position getHeadOfLog(Context* context, ServerId serverId);
+    static void insertIndexEntry(Context* context, ServerId serverId,
+            const void* indexKeyStr, KeyLength indexKeyLength,
+            uint64_t primaryKeyHash);
     static bool isReplicaNeeded(Context* context, ServerId serverId,
             ServerId backupServerId, uint64_t segmentId);
     static void prepForMigration(Context* context, ServerId serverId,
@@ -53,6 +57,9 @@ class MasterClient {
             uint32_t numReplicas);
     static void receiveMigrationData(Context* context, ServerId serverId,
             uint64_t tableId, uint64_t firstKeyHash, Segment* segment);
+    static void removeIndexEntry(Context* context, ServerId serverId,
+            const void* indexKeyStr, KeyLength indexKeyLength,
+            uint64_t primaryKeyHash);
     static void splitMasterTablet(Context* context, ServerId serverId,
             uint64_t tableId, uint64_t splitKeyHash);
     static void takeTabletOwnership(Context* context, ServerId id,
@@ -90,6 +97,22 @@ class GetHeadOfLogRpc : public ServerIdRpcWrapper {
 
   PRIVATE:
     DISALLOW_COPY_AND_ASSIGN(GetHeadOfLogRpc);
+};
+
+/**
+ * Encapsulates the state of a MasterClient::insertIndexEntry
+ * request, allowing it to execute asynchronously.
+ */
+class InsertIndexEntryRpc : public ServerIdRpcWrapper {
+  public:
+    InsertIndexEntryRpc(Context* context, ServerId serverId,
+                        const void* indexKeyStr, KeyLength indexKeyLength,
+                        uint64_t primaryKeyHash);
+    ~InsertIndexEntryRpc() {}
+    void wait() {waitAndCheckErrors();}
+
+  PRIVATE:
+    DISALLOW_COPY_AND_ASSIGN(InsertIndexEntryRpc);
 };
 
 /**
@@ -157,6 +180,22 @@ class RecoverRpc : public ServerIdRpcWrapper {
 
   PRIVATE:
     DISALLOW_COPY_AND_ASSIGN(RecoverRpc);
+};
+
+/**
+ * Encapsulates the state of a MasterClient::removeIndexEntry
+ * request, allowing it to execute asynchronously.
+ */
+class RemoveIndexEntryRpc : public ServerIdRpcWrapper {
+  public:
+    RemoveIndexEntryRpc(Context* context, ServerId serverId,
+                        const void* indexKeyStr, KeyLength indexKeyLength,
+                        uint64_t primaryKeyHash);
+    ~RemoveIndexEntryRpc() {}
+    void wait() {waitAndCheckErrors();}
+
+  PRIVATE:
+    DISALLOW_COPY_AND_ASSIGN(RemoveIndexEntryRpc);
 };
 
 /**

@@ -113,7 +113,9 @@ enum Opcode {
     READ_KEYS_AND_VALUE       = 59,
     LOOKUP_INDEX_KEYS         = 60,
     INDEXED_READ              = 61,
-    ILLEGAL_RPC_TYPE          = 62,  // 1 + the highest legitimate Opcode
+    INSERT_INDEX_ENTRY        = 62,
+    REMOVE_INDEX_ENTRY        = 63,
+    ILLEGAL_RPC_TYPE          = 64,  // 1 + the highest legitimate Opcode
 };
 
 /**
@@ -761,6 +763,22 @@ struct IndexedRead {
 };
 
 /**
+ * Used by a master to ask an index server to insert an index entry
+ * for the data this master is currently writing.
+ */
+// TODO(ankitak): Currently a stub. Implement.
+struct InsertIndexEntry {
+    static const Opcode opcode = INSERT_INDEX_ENTRY;
+    static const ServiceType service = MASTER_SERVICE;
+    struct Request {
+        RequestCommon common;
+    } __attribute__((packed));
+    struct Response {
+        ResponseCommon common;
+    } __attribute__((packed));
+};
+
+/**
  * Used by backups to determine if a particular replica is still needed
  * by a master.  This is only used in the case the backup has crashed, and
  * has since restarted.
@@ -1145,6 +1163,22 @@ struct Remove {
     struct Response {
         ResponseCommon common;
         uint64_t version;
+    } __attribute__((packed));
+};
+
+/**
+ * Used by a master to ask an index server to remove an index entry
+ * for the data this master is removing (or has removed in the past).
+ */
+// TODO(ankitak): Currently a stub. Implement.
+struct RemoveIndexEntry {
+    static const Opcode opcode = REMOVE_INDEX_ENTRY;
+    static const ServiceType service = MASTER_SERVICE;
+    struct Request {
+        RequestCommon common;
+    } __attribute__((packed));
+    struct Response {
+        ResponseCommon common;
     } __attribute__((packed));
 };
 

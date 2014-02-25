@@ -24,6 +24,7 @@
 #include "IndexManager.h"
 #include "MasterTableMetadata.h"
 #include "Object.h"
+#include "ObjectFinder.h"
 #include "ObjectManager.h"
 #include "ReplicaManager.h"
 #include "SegmentIterator.h"
@@ -113,6 +114,9 @@ class MasterService : public Service {
                 WireFormat::IndexedRead::Response* respHdr,
                 Rpc* rpc);
     void initOnceEnlisted();
+    void insertIndexEntry(const WireFormat::InsertIndexEntry::Request* reqHdr,
+                WireFormat::InsertIndexEntry::Response* respHdr,
+                Rpc* rpc);
     void isReplicaNeeded(const WireFormat::IsReplicaNeeded::Request* reqHdr,
                 WireFormat::IsReplicaNeeded::Response* respHdr,
                 Rpc* rpc);
@@ -150,6 +154,13 @@ class MasterService : public Service {
     void remove(const WireFormat::Remove::Request* reqHdr,
                 WireFormat::Remove::Response* respHdr,
                 Rpc* rpc);
+    void removeIndexEntry(const WireFormat::RemoveIndexEntry::Request* reqHdr,
+                WireFormat::RemoveIndexEntry::Response* respHdr,
+                Rpc* rpc);
+    void requestInsertIndexEntries(Object& object, uint64_t tableId,
+                KeyHash primaryKeyHash);
+    void requestRemoveIndexEntries(Buffer& objectBuffer, uint64_t tableId,
+                KeyHash primaryKeyHash);
     void splitMasterTablet(const WireFormat::SplitMasterTablet::Request* reqHdr,
                 WireFormat::SplitMasterTablet::Response* respHdr,
                 Rpc* rpc);
@@ -197,6 +208,12 @@ class MasterService : public Service {
      * to simplify testing.
      */
     uint32_t maxMultiReadResponseSize;
+
+    /**
+     * The ObjectFinder class that is used to locate servers containing
+     * indexlets for data that this server may own.
+     */
+    ObjectFinder objectFinder;
 
     /**
      * The ObjectManager class that is responsible for object storage.

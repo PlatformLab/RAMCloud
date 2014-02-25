@@ -104,6 +104,7 @@ class Object {
     const void* getKey(KeyIndex keyIndex = 0, KeyLength *keyLength = NULL);
     KeyLength getKeyLength(KeyIndex keyIndex = 0);
     const void* getKeysAndValue();
+    KeyCount getKeyCount();
     const void* getValue(uint32_t *valueLength = NULL);
     bool getValueOffset(uint16_t *offset);
     uint32_t getValueLength();

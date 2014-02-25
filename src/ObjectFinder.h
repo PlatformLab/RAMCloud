@@ -80,6 +80,9 @@ class ObjectFinder {
                 const void* firstKey, uint16_t firstKeyLength,
                 const void* lastKey, uint16_t lastKeyLength);
 
+    ServerId lookupServerId(uint64_t tableId, uint8_t indexId,
+                            const void* key, uint16_t keyLength);
+
     void flush(uint64_t tableId);
     void flushSession(uint64_t tableId, KeyHash keyHash);
     void waitForTabletDown(uint64_t tableId);

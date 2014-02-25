@@ -276,6 +276,32 @@ ObjectFinder::lookup(uint64_t tableId, uint8_t indexId,
 }
 
 /**
+ * Lookup the master for an index key in a given table.
+ * Useful for a data master to lookup index master to communicate with
+ * to modify an index entry corresponding to the data being modified.
+ *
+ * \param tableId
+ *      The table containing the desired object.
+ * \param indexId
+ *      Id of the index for which they key is to be compared.
+ * \param key
+ *      Blob corresponding to the key.
+ * \param keyLength
+ *      Length of key.
+ * \return
+ *      ServerId of the server holding the indexlet containing this index key.
+ * 
+ * TODO(ashgup): Add doc about exception that this can throw.
+ */
+ServerId
+ObjectFinder::lookupServerId(uint64_t tableId, uint8_t indexId,
+                             const void* key, uint16_t keyLength)
+{
+    // TODO(ashgup): Implement. Currently a stub.
+    return ServerId(0, 0);
+}
+
+/**
  * Flush the tablet map and refresh it until we detect that at least one tablet
  * has a state set to something other than normal.
  *

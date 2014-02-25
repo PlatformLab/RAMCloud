@@ -204,8 +204,7 @@ class ObjectManagerTest : public ::testing::Test {
     {
         ObjectBuffer value;
         EXPECT_EQ(STATUS_OK, objectManager.readObject(key, &value, NULL, NULL));
-        const char *s = reinterpret_cast<const char *>(
-            value.getValue());
+        const char *s = reinterpret_cast<const char *>(value.getValue());
         EXPECT_EQ(0, strcmp(s, contents.c_str()));
     }
 
