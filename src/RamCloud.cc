@@ -1079,12 +1079,10 @@ RamCloud::lookupIndexKeys(uint64_t tableId, uint8_t indexId,
  *
  * \param ramcloud
  *      The RAMCloud object that governs this RPC.
- * \param indexletId
- *      Table Id corresponding to the table storing the index partition
- *      being searched. This table stores index entries for a given table,
- *      for a given indexId, for some index key range.
- *      The [firstKey, lastKey] range may cover more keys than contained
- *      in this indexlet table.
+ * \param tableId
+ *      Id of the table in which lookup is to be done.
+ * \param indexId
+ *      Id of the index for which keys have to be compared.
  * \param firstKey
  *      Starting key for the key range in which keys are to be matched.
  *      The key range includes the firstKey.
@@ -1106,11 +1104,11 @@ RamCloud::lookupIndexKeys(uint64_t tableId, uint8_t indexId,
  *      Length in byes of the lastKey.
  */
 LookupIndexKeysRpc::LookupIndexKeysRpc(
-        RamCloud* ramcloud, uint64_t indexletId,
+        RamCloud* ramcloud, uint64_t tableId, uint8_t indexId,
         const void* firstKey, uint16_t firstKeyLength,
         const void* lastKey, uint16_t lastKeyLength)
-    : ObjectRpcWrapper(ramcloud, indexletId, 0 /*keyHash*/,
-            sizeof(WireFormat::LookupIndexKeys::Response))
+    /* TODO(ankitak): Construct some rpc wrapper. Will have to implement
+                      an appropriate one.*/
 {
     // TODO(ankitak): Currently a stub. Implement.
 }

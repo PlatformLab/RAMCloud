@@ -734,8 +734,8 @@ struct IndexedRead {
         // No value for last key indicates this is a point query and
         // not a range query.
         uint64_t tableId;
+        uint8_t indexId;                // Id of the index for lookup.
         uint32_t count;                 // Number of objects to be read.
-        uint8_t indexletId;             // Id of the indexlet for lookup.
         uint16_t firstKeyLength;        // Length of first key in bytes.
         uint16_t lastKeyLength;         // Length of last key in bytes.
         // In buffer: The actual first key and last key go here.
@@ -815,7 +815,8 @@ struct LookupIndexKeys {
 
     struct Request {
         RequestCommon common;
-        uint64_t indexletId;    // Id of indexlet in which lookup is to be done.
+        uint64_t tableId;       // Id of the table containing the objects.
+        uint8_t indexId;        // Id of index in which lookup is to be done.
         // Lookup objects with index key in the range [first key, last key].
         // No value for last key indicates this is a point query and
         // not a range query.

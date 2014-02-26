@@ -546,14 +546,12 @@ MasterService::indexedRead(
     uint32_t numRequests = reqHdr->count;
     uint32_t reqOffset = sizeof32(*reqHdr);
 
-    const void* firstStringKey =
+    const void* firstKeyStr =
             rpc->requestPayload->getRange(reqOffset, reqHdr->firstKeyLength);
-    Key firstKey(reqHdr->tableId, firstStringKey, reqHdr->firstKeyLength);
     reqOffset+=reqHdr->firstKeyLength;
 
-    const void* lastStringKey =
+    const void* lastKeyStr =
             rpc->requestPayload->getRange(reqOffset, reqHdr->lastKeyLength);
-    Key lastKey(reqHdr->tableId, lastStringKey, reqHdr->lastKeyLength);
     reqOffset+=reqHdr->lastKeyLength;
 
     respHdr->count = numRequests;
@@ -592,9 +590,10 @@ MasterService::indexedRead(
 
         Buffer buffer;
         currentResp->status =
-                indexManager.indexedRead(reqHdr->tableId, currentKeyHash,
-                                         reqHdr->indexletId,
-                                         firstKey, lastKey,
+                indexManager.indexedRead(reqHdr->tableId, reqHdr->indexId,
+                                         currentKeyHash,
+                                         firstKeyStr, reqHdr->firstKeyLength,
+                                         lastKeyStr, reqHdr->lastKeyLength,
                                          &buffer, &currentResp->version);
 
         if (currentResp->status != STATUS_OK)
@@ -681,19 +680,19 @@ MasterService::lookupIndexKeys(
 {
     uint32_t reqOffset = sizeof32(*reqHdr);
 
-    const void* firstStringKey =
+    const void* firstKeyStr =
             rpc->requestPayload->getRange(reqOffset, reqHdr->firstKeyLength);
-    Key firstKey(reqHdr->indexletId, firstStringKey, reqHdr->firstKeyLength);
     reqOffset+=reqHdr->firstKeyLength;
 
-    const void* lastStringKey =
+    const void* lastKeyStr =
             rpc->requestPayload->getRange(reqOffset, reqHdr->lastKeyLength);
-    Key lastKey(reqHdr->indexletId, lastStringKey, reqHdr->lastKeyLength);
 
     uint32_t count;
     Buffer buffer;
     respHdr->common.status =
-            indexManager.lookupIndexKeys(reqHdr->indexletId, firstKey, lastKey,
+            indexManager.lookupIndexKeys(reqHdr->tableId, reqHdr->indexId,
+                                         firstKeyStr, reqHdr->firstKeyLength,
+                                         lastKeyStr, reqHdr->lastKeyLength,
                                          &count, &buffer);
     if (respHdr->common.status != STATUS_OK)
         return;

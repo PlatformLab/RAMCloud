@@ -39,18 +39,24 @@ class IndexManager {
     explicit IndexManager(Context* context);
     virtual ~IndexManager();
 
-    Status createIndexlet(uint64_t indexletId,
-                          Key& firstKey, Key& lastKey);
-    Status dropIndexlet(uint64_t indexletId);
-    Status indexedRead(uint64_t tableId, uint64_t pKHash,
-                       uint8_t indexletId, Key& firstKey, Key& lastKey,
+    Status initIndexlet(uint64_t tableId, uint8_t indexId,
+                        const void* firstKeyStr, KeyLength firstKeyLength,
+                        const void* lastKeyStr, KeyLength lastKeyLength);
+    Status dropIndexlet(uint64_t tableId, uint8_t indexId);
+    Status indexedRead(uint64_t tableId, uint8_t indexId, uint64_t pKHash,
+                       const void* firstKeyStr, KeyLength firstKeyLength,
+                       const void* lastKeyStr, KeyLength lastKeyLength,
                        Buffer* outBuffer, uint64_t* outVersion);
-    Status insertEntry(uint64_t indexletId,
-                       Key indexKey, uint64_t pKHash);
-    Status lookupIndexKeys(uint64_t indexletId,
-                           Key& firstKey, Key& lastKey,
+    Status insertEntry(uint64_t tableId, uint8_t indexId,
+                       const void* keyStr, KeyLength keyLength,
+                       uint64_t pKHash);
+    Status lookupIndexKeys(uint64_t tableId, uint8_t indexId,
+                           const void* firstKeyStr, KeyLength firstKeyLength,
+                           const void* lastKeyStr, KeyLength lastKeyLength,
                            uint32_t* count, Buffer* outBuffer);
-    Status removeEntry(uint64_t indexletId, Key indexKey);
+    Status removeEntry(uint64_t tableId, uint8_t indexId,
+                       const void* keyStr, KeyLength keyLength,
+                       uint64_t pKHash);
 
 
   private:

@@ -394,9 +394,10 @@ class KillRpc : public ObjectRpcWrapper {
  * Encapsulates the state of a RamCloud::lookupIndexKeys operation,
  * allowing it to execute asynchronously.
  */
-class LookupIndexKeysRpc : public ObjectRpcWrapper {
+// TODO(ankitak): Uncomment rpc wrapper after implementing an appropriate one.
+class LookupIndexKeysRpc /*: public ObjectRpcWrapper*/ {
   public:
-    LookupIndexKeysRpc(RamCloud* ramcloud, uint64_t indexletId,
+    LookupIndexKeysRpc(RamCloud* ramcloud, uint64_t tableId, uint8_t indexId,
                        const void* firstKey, uint16_t firstKeyLength,
                        const void* lastKey, uint16_t lastKeyLength);
     ~LookupIndexKeysRpc() {}

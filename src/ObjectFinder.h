@@ -76,7 +76,7 @@ class ObjectFinder {
     const TabletProtoBuffer* lookupTablet(uint64_t table, KeyHash keyHash);
 
     vector<Transport::SessionRef> lookup(
-                uint64_t table, uint8_t indexId,
+                uint64_t tableId, uint8_t indexId,
                 const void* firstKey, uint16_t firstKeyLength,
                 const void* lastKey, uint16_t lastKeyLength);
 
