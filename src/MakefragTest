@@ -22,7 +22,7 @@ TESTS_SRCFILES := \
 		  src/BackupStorageTest.cc \
 		  src/BitOpsTest.cc \
 		  src/BoostIntrusiveTest.cc \
-		  src/BtreeTest.cc \
+		  src/btree/BtreeTest.cc \
 		  src/BufferTest.cc \
 		  src/CleanableSegmentManagerTest.cc \
 		  src/ClientExceptionTest.cc \

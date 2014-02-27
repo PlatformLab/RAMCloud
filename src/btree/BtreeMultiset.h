@@ -1,4 +1,4 @@
-/** \file btree_multiset.h
+/**
  * Contains the specialized B+ tree template class btree_multiset
  */
 
