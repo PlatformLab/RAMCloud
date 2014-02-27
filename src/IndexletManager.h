@@ -16,9 +16,11 @@
 #ifndef RAMCLOUD_INDEXLETMANAGER_H
 #define RAMCLOUD_INDEXLETMANAGER_H
 
-#include "Common.h"
+#include <boost/unordered_map.hpp>
 
-// TODO(ashgup)
+#include "Common.h"
+#include "HashTable.h"
+#include "SpinLock.h"
 
 namespace RAMCloud {
 
@@ -33,25 +35,71 @@ namespace RAMCloud {
  * (and does not interface with ObjectManager or index tree code).
  */
 class IndexletManager {
-  public:
-    explicit IndexletManager(Context* context)
-        : context(context) {};
+  PUBLIC:
+
+    class Indexlet {
+      PUBLIC:
+        Indexlet()
+            : firstKeyLength(-1)
+            , firstKey(NULL)
+            , lastKeyLength(-1)
+            , lastKey(NULL)
+        {}
+
+        Indexlet(uint16_t firstKeyLength, const void *firstKey,
+                 uint16_t lastKeyLength, const void *lastKey)
+            : firstKeyLength(firstKeyLength)
+            , firstKey(firstKey)
+            , lastKeyLength(lastKeyLength)
+            , lastKey(lastKey)
+        {}
+
+        //TODO(ashgup): need to have indexlet id for rpcs
+
+        /// The smallest value for a key that is in this indexlet.
+        uint16_t firstKeyLength;
+        const void *firstKey; //TODO(ashgup): change this to buffer
+
+        /// The largest value for a key that is in this indexlet.
+        uint16_t lastKeyLength;
+        const void *lastKey; //TODO(ashgup): change this to buffer
+    };
+
+    IndexletManager();
 
     // Modify function signature as required. This is just an approximation.
-    void takeIndexletOwnership(uint64_t tableId, uint8_t indexId,
-                               const void* firstKey, uint16_t firstKeyLength,
-                               const void* lastKey, uint16_t lastKeyLength);
-    void dropIndexletOwnership(uint64_t tableId, uint8_t indexId,
-                               const void* firstKey, uint16_t firstKeyLength,
-                               const void* lastKey, uint16_t lastKeyLength);
+    bool addIndexlet(uint64_t tableId, uint8_t indexId,
+                     uint16_t firstKeyLength, const void *firstKey,
+                     uint16_t lastKeyLength, const void *lastKey);
+
+    bool deleteIndexlet(uint64_t tableId, uint8_t indexId,
+                        uint16_t firstKeyLength, const void *firstKey,
+                        uint16_t lastKeyLength, const void *lastKey);
+
+    bool getIndexlet(uint64_t tableId, uint8_t indexId,
+                     uint16_t firstKeyLength, const void *firstKey,
+                     uint16_t lastKeyLength, const void *lastKey,
+                     Indexlet* outIndexlet = NULL);
 
   PRIVATE:
     /**
      * Shared RAMCloud information.
      */
-    Context* context;
+    typedef boost::unordered_multimap< std::pair<uint64_t, uint8_t>,
+                                       Indexlet> IndexletMap;
 
-    // Keep information about indexlets owned by this server here.
+    /// Lock guard type used to hold the monitor spinlock and automatically
+    /// release it.
+    typedef std::lock_guard<SpinLock> Lock;
+
+
+    IndexletMap::iterator lookup(uint64_t tableId, uint8_t indexId,
+                               uint16_t keyLength, const void *key, Lock& lock);
+    /// This unordered_multimap is used to store and access all tablet data.
+    IndexletMap indexletMap;
+
+    /// Monitor spinlock used to protect the tabletMap from concurrent access.
+    SpinLock lock;
 
     DISALLOW_COPY_AND_ASSIGN(IndexletManager);
 };
