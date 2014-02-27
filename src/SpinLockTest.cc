@@ -1,4 +1,4 @@
-/* Copyright (c) 2011 Stanford University
+/* Copyright (c) 2011-2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -60,6 +60,7 @@ TEST(SpinLockTest, threadBlocks) {
 
     // Make sure that the child thread eventually completes once we
     // release the lock.
+    // See "Timing-Dependent Tests" in designNotes.
     lock.unlock();
     for (int i = 0; !done && i < 1000; i++) {
         usleep(100);
@@ -76,6 +77,7 @@ static void contentionChild(SpinLock* lock, volatile bool* ready,
         // Wait for all of the threads to get started to ensure that
         // there is contention for the lock.
     }
+    // See "Timing-Dependent Tests" in designNotes.
     for (int i = 0; i < 1000; i++) {
         lock->lock();
         (*value)++;

@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2012 Stanford University
+/* Copyright (c) 2011-2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -236,13 +236,22 @@ class DispatchTest : public ::testing::Test {
 
     // Utility method: create a DummyFile for a particular file descriptor
     // and see if it gets invoked.
-    string checkReady(int fd, int events) {
+    string checkReady(int fd, int events, const char* desired) {
         // Flush any stale events.
         for (int i = 0; i < 100; i++) dispatch.poll();
         DummyFile f("f1", false, fd, events, &dispatch);
-        usleep(5000);
-        dispatch.poll();
-        return f.eventInfo;
+
+        // See "Timing-Dependent Tests" in designNotes.
+        string result;
+        for (int i = 0; i < 1000; i++) {
+            usleep(1000);
+            dispatch.poll();
+            result = f.eventInfo;
+            if (result.compare(desired) == 0) {
+                break;
+            }
+        }
+        return result;
     }
   private:
     DISALLOW_COPY_AND_ASSIGN(DispatchTest);
@@ -307,6 +316,7 @@ TEST_F(DispatchTest, poll_locking) {
     std::thread thread(lockTestThread, &dispatch, &flag, &counter);
 
     // Wait for the child thread to start up and enter its polling loop.
+    // See "Timing-Dependent Tests" in designNotes.
     for (int i = 0; i < 1000; i++) {
         if ((counter != NULL) && (counter->count >= 10))
             break;
@@ -624,16 +634,17 @@ TEST_F(DispatchTest, File_setEvents_variousEvents) {
         }
         EXPECT_LT(i, 100);
     }
-    EXPECT_EQ("", checkReady(readable[0], 0));
+    EXPECT_EQ("", checkReady(readable[0], 0, ""));
     EXPECT_EQ("READABLE", checkReady(readable[0],
-        Dispatch::FileEvent::READABLE));
+        Dispatch::FileEvent::READABLE, "READABLE"));
     EXPECT_EQ("READABLE", checkReady(readable[0],
-        Dispatch::FileEvent::READABLE | Dispatch::FileEvent::WRITABLE));
-    EXPECT_EQ("", checkReady(readable[1], 0));
+        Dispatch::FileEvent::READABLE | Dispatch::FileEvent::WRITABLE,
+        "READABLE"));
+    EXPECT_EQ("", checkReady(readable[1], 0, ""));
     EXPECT_EQ("", checkReady(readable[1],
-        Dispatch::FileEvent::WRITABLE));
+        Dispatch::FileEvent::WRITABLE, ""));
     EXPECT_EQ("", checkReady(readable[1],
-        Dispatch::FileEvent::READABLE | Dispatch::FileEvent::WRITABLE));
+        Dispatch::FileEvent::READABLE | Dispatch::FileEvent::WRITABLE, ""));
     close(readable[0]);
     close(readable[1]);
 
@@ -641,16 +652,17 @@ TEST_F(DispatchTest, File_setEvents_variousEvents) {
     // and make sure all the correct events fire.
     int writable[2];
     EXPECT_EQ(0, pipe(writable));
-    EXPECT_EQ("", checkReady(writable[0], 0));
+    EXPECT_EQ("", checkReady(writable[0], 0, ""));
     EXPECT_EQ("", checkReady(writable[0],
-        Dispatch::FileEvent::READABLE));
+        Dispatch::FileEvent::READABLE, ""));
     EXPECT_EQ("", checkReady(writable[0],
-        Dispatch::FileEvent::READABLE | Dispatch::FileEvent::WRITABLE));
-    EXPECT_EQ("", checkReady(writable[1], 0));
+        Dispatch::FileEvent::READABLE | Dispatch::FileEvent::WRITABLE, ""));
+    EXPECT_EQ("", checkReady(writable[1], 0, ""));
     EXPECT_EQ("WRITABLE", checkReady(writable[1],
-        Dispatch::FileEvent::WRITABLE));
+        Dispatch::FileEvent::WRITABLE, "WRITABLE"));
     EXPECT_EQ("WRITABLE", checkReady(writable[1],
-        Dispatch::FileEvent::READABLE | Dispatch::FileEvent::WRITABLE));
+        Dispatch::FileEvent::READABLE | Dispatch::FileEvent::WRITABLE,
+        "WRITABLE"));
     close(writable[0]);
     close(writable[1]);
 }
@@ -683,12 +695,25 @@ TEST_F(DispatchTest, epollThreadMain_exitIgnoringFd) {
     sys->write(pipeFds[1], "blah", 4);
     DummyFile f1("f1", false, pipeFds[0],
             Dispatch::FileEvent::READABLE, &dispatch);
-    //Dispatch::epollThreadMain(dispatch);
-    usleep(5000);
+
+    // See "Timing-Dependent Tests" in designNotes.
+    for (int i = 0; i < 1000; i++) {
+        if (dispatch.readyFd != -1) {
+            break;
+        }
+        usleep(1000);
+    }
     EXPECT_EQ("", TestLog::get());
     EXPECT_NE(-1, dispatch.readyFd);
     sys->write(dispatch.exitPipeFds[1], "x", 1);
-    usleep(5000);
+
+    // See "Timing-Dependent Tests" in designNotes.
+    for (int i = 0; i < 1000; i++) {
+        if (TestLog::get().size() > 0) {
+            break;
+        }
+        usleep(1000);
+    }
     EXPECT_EQ("epollThreadMain: done", TestLog::get());
 }
 
@@ -843,6 +868,7 @@ static void testRecursionThread(Dispatch** dispatch) {
 TEST_F(DispatchTest, Lock_recursiveLocks) {
     Dispatch *dispatch = NULL;
     std::thread thread(testRecursionThread, &dispatch);
+    // See "Timing-Dependent Tests" in designNotes.
     for (int i = 0; i < 1000; i++) {
         if (dispatch != NULL)
             break;

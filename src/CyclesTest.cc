@@ -36,17 +36,11 @@ class CyclesTest : public ::testing::Test {
 TEST_F(CyclesTest, basics) {
     uint64_t start;
     double elapsed;
-    // Run some simple tests of elapsed time (but try it several
-    // times in case a context switch delays any one run).
-    for (int i = 0; i < 100; i++) {
-        start = Cycles::rdtsc();
-        usleep(1000);
-        elapsed = Cycles::toSeconds(Cycles::rdtsc() - start);
-        ASSERT_LE(.001, elapsed);
-        ASSERT_GT(.0040, elapsed)
-          << "Your system slept longer than it should have. "
-             "There's probably nothing wrong -- this test is dubious.";
-    }
+    // Make sure that time advances.
+    start = Cycles::rdtsc();
+    usleep(1000);
+    elapsed = Cycles::toSeconds(Cycles::rdtsc() - start);
+    ASSERT_LE(.0009, elapsed);
 }
 
 TEST_F(CyclesTest, perSecond_sanity) {

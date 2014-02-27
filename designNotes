@@ -80,3 +80,31 @@ problem is unlikely to occur in practice, because the zombie server will ping
 at least 10 other servers before replacement servers accept any write requests;
 at least one of them is likely to know about the server's death. However, this
 is just a probabilistic argument: there is no guarantee.
+
+Timing-Dependent Tests
+----------------------
+Several unit tests have timing dependencies. For example, they execute an
+action with the expectation that this will cause some other result a short
+time later (e.g., if a network packet is sent, it should arrive at its
+destination soon). In the normal case, the results should appear quickly,
+so it's tempting to simply wait a short amount of time (e.g., usleep(1000))
+and then check for the result. This will usually work fine, but sometimes
+tests can be artificially delayed (for example, if the test machine becomes
+heavily loaded). Thus, to be safe, the sleep time would have to be made much
+longer, say one second. However, this would make the tests run slowly.
+
+As a result, many tests use a construct like this:
+
+for (int i = 0; i < 1000; i++) {
+    if (/* desired result has occurred */) {
+        break;
+    }
+    usleep(1000);
+}
+EXPECT_EQ(... check for desired result ...);
+
+In the normal case the test will complete quickly. If there are timing
+glitches, the test will wait longer, but it will eventually complete.
+If there is a real problem (e.g. a bug prevents the desired result from
+ever occurring) the loop will eventually terminate and the following
+assertions will fail.

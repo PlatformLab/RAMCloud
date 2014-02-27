@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2013 Stanford University
+/* Copyright (c) 2012-2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -352,6 +352,7 @@ TEST_F(RpcWrapperTest, waitInternal_delayedCompletion) {
     wrapper.completed();
 
     // Give the waiting thread a chance to finish.
+    // See "Timing-Dependent Tests" in designNotes.
     for (int i = 0; i < 1000; i++) {
         if (TestLog::get().size() != 0)
             break;

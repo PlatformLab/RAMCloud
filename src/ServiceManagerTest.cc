@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2012 Stanford University
+/* Copyright (c) 2011-2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -268,6 +268,7 @@ TEST_F(ServiceManagerTest, poll_postprocessing) {
 
     // Now allow the worker to finish.
     service.gate = 0;
+    // See "Timing-Dependent Tests" in designNotes.
     for (int i = 0; i < 1000; i++) {
         manager->poll();
         if (!manager->idleThreads.empty())
@@ -292,6 +293,7 @@ TEST_F(ServiceManagerTest, workerMain_goToSleep) {
     // Update dispatch->currentTime. When the worker sees this it should
     // go to sleep.
     context.dispatch->currentTime = Cycles::rdtsc();
+    // See "Timing-Dependent Tests" in designNotes.
     for (int i = 0; i < 1000; i++) {
         usleep(100);
         if (worker->state.load() == Worker::SLEEPING) {
@@ -325,6 +327,7 @@ TEST_F(ServiceManagerTest, workerMain_futexError) {
     // an error message.
     usleep(20000);
     context.dispatch->currentTime = Cycles::rdtsc();
+    // See "Timing-Dependent Tests" in designNotes.
     for (int i = 0; i < 1000; i++) {
         usleep(100);
         if (worker->state.load() == Worker::SLEEPING) {
@@ -372,6 +375,7 @@ TEST_F(ServiceManagerTest, Worker_handoff_dontCallFutex) {
 
 TEST_F(ServiceManagerTest, Worker_handoff_callFutex) {
     // Wait for all the workers to go to sleep.
+    // See "Timing-Dependent Tests" in designNotes.
     const char *message = "workers didn't go to sleep";
     for (int i = 0; i < 1000; i++) {
         if ((manager->idleThreads[0]->state.load() == Worker::SLEEPING)

@@ -1,4 +1,4 @@
-/* Copyright (c) 2012 Stanford University
+/* Copyright (c) 2012-2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -107,6 +107,7 @@ TEST_F(WorkerSessionTest, sendRequest_syncWithDispatchThread) {
     std::thread child(testDispatchSync, &context, &rpc, &session);
 
     // Make sure the child hangs in sendRequest until we invoke the dispatcher.
+    // See "Timing-Dependent Tests" in designNotes.
     usleep(1000);
     EXPECT_STREQ("", transport.outputLog.c_str());
     for (int i = 0; i < 1000; i++) {

@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2012 Stanford University
+/* Copyright (c) 2010-2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -94,6 +94,7 @@ class TcpTransportTest : public ::testing::Test {
     // if a session has been opened.
     bool waitForSession(TcpTransport& transport)
     {
+        // See "Timing-Dependent Tests" in designNotes.
         for (int i = 0; i < 1000; i++) {
             context.dispatch->poll();
             if (transport.sockets.size() > 0)
