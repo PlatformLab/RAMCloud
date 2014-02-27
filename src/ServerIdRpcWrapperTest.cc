@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2013 Stanford University
+/* Copyright (c) 2012-2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -17,6 +17,7 @@
 #include "CoordinatorServerList.h"
 #include "CoordinatorService.h"
 #include "CoordinatorSession.h"
+#include "MasterRecoveryManager.h"
 #include "MockExternalStorage.h"
 #include "MockTransport.h"
 #include "ServerIdRpcWrapper.h"
@@ -153,6 +154,11 @@ TEST_F(ServerIdRpcWrapperTest, handleTransportError_callServerCrashed) {
     MockExternalStorage storage(false);
     context.externalStorage = &storage;
     CoordinatorService coordinator(&context, 1000, false);
+    coordinator.recoveryManager.doNotStartRecoveries = true;
+
+    // Don't let the server list updater run; can cause timing-dependent
+    // crashes due to order dependencies among destructors.
+    serverList.haltUpdater();
 
     id = serverList.enlistServer({WireFormat::MASTER_SERVICE}, 100, "mock:");
     ServerIdRpcWrapper wrapper(&context, id, 4);

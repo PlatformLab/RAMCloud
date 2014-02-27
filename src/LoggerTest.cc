@@ -299,6 +299,7 @@ TEST_F(LoggerTest, logMessage_collapseDuplicates) {
     Logger& logger = Logger::get();
     logger.setLogFile("__test.log");
     logger.collapseIntervalMs = 2;
+    uint64_t start = Cycles::rdtsc();
 
     // Log a message several times; only the first should be printed.
     for (int i = 0; i < 5; i++) {
@@ -317,6 +318,13 @@ TEST_F(LoggerTest, logMessage_collapseDuplicates) {
             CodeLocation("file", 99, "func", "pretty"), "second ");
     string output2 = StringUtil::regsub(TestUtil::readFile("__test.log"),
             timeOrPidPattern, "");
+
+    // If there were unexpected delays in the code above, it will mess up
+    // the timing and could generate spurious error messages; if this
+    // happens, just skip the rest of the test.
+    if (Cycles::toSeconds(Cycles::rdtsc() - start) >= .002) {
+        return;
+    }
 
     // Wait a while and log the original message; one more copy should appear.
     usleep(3000);

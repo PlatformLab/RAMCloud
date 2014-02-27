@@ -239,8 +239,8 @@ TEST_F(SingleFileStorageTest, Frame_appendOrderIndependence) {
     frame->append(source, 6, 4, 6, test, testLength + 1);
     frame->append(source, 0, 6, 0, test, testLength + 1);
     EXPECT_EQ(10LU, frame->appendedLength);
-    char* data = static_cast<char*>(frame->buffer.get());
-    EXPECT_STREQ("0123456789", data);
+    string data(static_cast<char*>(frame->buffer.get()), 10);
+    EXPECT_EQ("0123456789", data);
 }
 
 TEST_F(SingleFileStorageTest, Frame_appendSync) {
