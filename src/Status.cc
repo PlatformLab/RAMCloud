@@ -51,6 +51,8 @@ static const char* messages[] = {
     "invoking server does not appear to be in the cluster",
                                                  // STATUS_CALLER_NOT_IN_CLUSTER
     "request is too large",                      // STATUS_REQUEST_TOO_LARGE
+    "some data returned, send another request for more",
+                                                 // STATUS_FETCH_MORE
 };
 
 // The following table maps from a Status value to the internal name
@@ -84,6 +86,7 @@ static const char* symbols[] = {
     "STATUS_WRONG_SERVER",
     "STATUS_CALLER_NOT_IN_CLUSTER",
     "STATUS_REQUEST_TOO_LARGE",
+    "STATUS_FETCH_MORE",
 };
 
 /**

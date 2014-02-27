@@ -65,11 +65,12 @@ TEST_F(ClientExceptionTest, throwException_basics) {
         EXPECT_EQ(expected, got);
     }
     EXPECT_EQ("STATUS_OBJECT_DOESNT_EXIST "
-            "STATUS_OBJECT_EXISTS STATUS_WRONG_VERSION", reject);
+              "STATUS_OBJECT_EXISTS STATUS_WRONG_VERSION", reject);
     EXPECT_EQ("STATUS_MESSAGE_TOO_SHORT "
-            "STATUS_UNIMPLEMENTED_REQUEST STATUS_REQUEST_FORMAT_ERROR "
-            "STATUS_RESPONSE_FORMAT_ERROR STATUS_INTERNAL_ERROR",
-            internal);
+              "STATUS_UNIMPLEMENTED_REQUEST STATUS_REQUEST_FORMAT_ERROR "
+              "STATUS_RESPONSE_FORMAT_ERROR STATUS_INTERNAL_ERROR "
+              "STATUS_FETCH_MORE",
+              internal);
 }
 TEST_F(ClientExceptionTest, throwException_useSubclass) {
     // Make sure that a specific subclass is used, for at least one

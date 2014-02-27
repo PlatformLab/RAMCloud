@@ -18,6 +18,7 @@
 
 #include "Common.h"
 #include "CoordinatorClient.h"
+#include "IndexRpcWrapper.h"
 #include "MasterClient.h"
 #include "ObjectBuffer.h"
 #include "ObjectFinder.h"
@@ -394,15 +395,15 @@ class KillRpc : public ObjectRpcWrapper {
  * Encapsulates the state of a RamCloud::lookupIndexKeys operation,
  * allowing it to execute asynchronously.
  */
-// TODO(ankitak): Uncomment rpc wrapper after implementing an appropriate one.
-class LookupIndexKeysRpc /*: public ObjectRpcWrapper*/ {
+class LookupIndexKeysRpc : public IndexRpcWrapper {
   public:
     LookupIndexKeysRpc(RamCloud* ramcloud, uint64_t tableId, uint8_t indexId,
                        const void* firstKey, uint16_t firstKeyLength,
-                       const void* lastKey, uint16_t lastKeyLength);
+                       const void* lastKey, uint16_t lastKeyLength,
+                       uint32_t* count, Buffer* pkHashes);
     ~LookupIndexKeysRpc() {}
     /// \copydoc RpcWrapper::docForWait
-    void wait(uint32_t* count, Buffer* pKHashes);
+    void wait() {simpleWait(ramcloud->clientContext->dispatch);}
 
   PRIVATE:
     DISALLOW_COPY_AND_ASSIGN(LookupIndexKeysRpc);

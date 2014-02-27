@@ -817,9 +817,6 @@ struct LookupIndexKeys {
         RequestCommon common;
         uint64_t tableId;       // Id of the table containing the objects.
         uint8_t indexId;        // Id of index in which lookup is to be done.
-        // Lookup objects with index key in the range [first key, last key].
-        // No value for last key indicates this is a point query and
-        // not a range query.
         uint16_t firstKeyLength;        // Length of first key in bytes.
         uint16_t lastKeyLength;         // Length of last key in bytes.
         // In buffer: The actual first key and last key go here.
@@ -827,10 +824,12 @@ struct LookupIndexKeys {
 
     struct Response {
         ResponseCommon common;
-        uint32_t count;                 // Number of objects that match the
-                                        // lookup query.
-        // In buffer: The key hashes for the primary key of the matching objects
-        // go here.
+        uint32_t count;         // Number of objects for which primary key
+                                // hashes are being returned in this response.
+        uint16_t nextKeyLength;
+        // In buffer: Actual bytes for the next key (if any) for which
+        // the client should send another lookup request goes here.
+        // In buffer: Key hashes of primary keys for matching objects go here.
     } __attribute__((packed));
 };
 

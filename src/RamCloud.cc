@@ -1069,7 +1069,11 @@ RamCloud::lookupIndexKeys(uint64_t tableId, uint8_t indexId,
                           uint32_t* count, Buffer* pKHashes)
 {
     // TODO(ankitak): Currently a stub. Implement.
-    // I think this will use mechanism similar to MultiOp.
+    LookupIndexKeysRpc rpc(this, tableId, indexId,
+                           firstKey, firstKeyLength,
+                           lastKey, lastKeyLength,
+                           count, pKHashes);
+    rpc.wait();
 }
 
 /**
@@ -1102,21 +1106,7 @@ RamCloud::lookupIndexKeys(uint64_t tableId, uint8_t indexId,
  *      the RPC.
  * \param lastKeyLength
  *      Length in byes of the lastKey.
- */
-LookupIndexKeysRpc::LookupIndexKeysRpc(
-        RamCloud* ramcloud, uint64_t tableId, uint8_t indexId,
-        const void* firstKey, uint16_t firstKeyLength,
-        const void* lastKey, uint16_t lastKeyLength)
-    /* TODO(ankitak): Construct some rpc wrapper. Will have to implement
-                      an appropriate one.*/
-{
-    // TODO(ankitak): Currently a stub. Implement.
-}
-
-/**
- * Wait for the RPC to complete, and return the same results as
- * #RamCloud::LookupIndexKeysRpc.
- *
+ * 
  * \param[out] count
  *      Return the number of objects that matched the lookup, for which
  *      the primary key hashes are being returned here.
@@ -1124,10 +1114,26 @@ LookupIndexKeysRpc::LookupIndexKeysRpc(
  *      Return the key hashes of the primary keys of all the objects
  *      that match the lookup query.
  */
-void
-LookupIndexKeysRpc::wait(uint32_t* count, Buffer* pKHashes)
+LookupIndexKeysRpc::LookupIndexKeysRpc(
+        RamCloud* ramcloud, uint64_t tableId, uint8_t indexId,
+        const void* firstKey, uint16_t firstKeyLength,
+        const void* lastKey, uint16_t lastKeyLength,
+        uint32_t* count, Buffer* pKHashes)
+    : IndexRpcWrapper(ramcloud, tableId, indexId,
+                      firstKey, firstKeyLength, lastKey, lastKeyLength,
+                      sizeof(WireFormat::LookupIndexKeys::Response),
+                      count, pKHashes)
 {
     // TODO(ankitak): Currently a stub. Implement.
+    WireFormat::LookupIndexKeys::Request* reqHdr(
+            allocHeader<WireFormat::LookupIndexKeys>());
+    reqHdr->tableId = tableId;
+    reqHdr->indexId = indexId;
+    reqHdr->firstKeyLength = firstKeyLength;
+    reqHdr->lastKeyLength = lastKeyLength;
+    request.append(firstKey, firstKeyLength);
+    request.append(lastKey, lastKeyLength);
+    send();
 }
 
 /**

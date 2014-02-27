@@ -27,6 +27,7 @@ CLIENT_SRCFILES := \
 		   src/ExternalStorage.cc \
 		   src/FailSession.cc \
 		   src/FastTransport.cc \
+		   src/IndexRpcWrapper.cc \
 		   src/IpAddress.cc \
 		   src/Key.cc \
 		   src/LogEntryTypes.cc \

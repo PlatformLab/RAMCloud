@@ -86,6 +86,9 @@ ObjectFinder::ObjectFinder(Context* context)
  * \param tableId
  *      the id of the table to be flushed.
  */
+// TODO(ashgup): This should also flush the index related info for this table.
+// If you'd rather create a different function to do so, that's okay too,
+// just update the code in IndexRpcWrapper::handleTransportError() accordingly.
 void
 ObjectFinder::flush(uint64_t tableId) {
     RAMCLOUD_TEST_LOG("flushing object map");
@@ -184,7 +187,7 @@ ObjectFinder::flushSession(uint64_t tableId, KeyHash keyHash)
 {
     try {
         const TabletProtoBuffer* tabletProtoBuff = lookupTablet(tableId,
-                                                                    keyHash);
+                                                                keyHash);
         context->transportManager->flushSession(
                                     tabletProtoBuff->serviceLocator.c_str());
     } catch (TableDoesntExistException& e) {
@@ -241,38 +244,32 @@ ObjectFinder::lookupTablet(uint64_t tableId, KeyHash keyHash)
 }
 
 /**
- * Lookup the masters for a range of index keys in a given table.
- * Useful for clients to lookup masters to communicate with to lookup
+ * Lookup the master containing indexlet with the given key.
+ * Useful for clients to get masters they need to communicate with to lookup
  * index keys.
  *
  * \param tableId
- *      The table containing the desired objects.
+ *      The table containing the desired object.
  * \param indexId
  *      Id of the index for which keys are to be compared.
- * \param firstKey
- *      Blob corresponding to the key that defines the start of the key range.
- * \param firstKeyLength
- *      Length of firstKey.
- * \param lastKey
- *      Blob corresponding to the key that defines the end of the key range.
- * \param lastKeyLength
- *      Length of the lastKey.
+ * \param key
+ *      Blob corresponding to the key.
+ * \param keyLength
+ *      Length of key.
  * \return
- *      Vector of sessions for communication with the servers that 
- *      hold the indexlets.
+ *      Session for communication with the server that has the indexlet.
  * 
  * TODO(ashgup): Add doc about exception that this can throw.
  */
-vector<Transport::SessionRef>
+Transport::SessionRef
 ObjectFinder::lookup(uint64_t tableId, uint8_t indexId,
-                     const void* firstKey, uint16_t firstKeyLength,
-                     const void* lastKey, uint16_t lastKeyLength)
+                     const void* key, uint16_t keyLength)
 {
     // TODO(ashgup): Implement. Currently a stub.
     // While implementing, use vector's reserve function to reduce space
     // allocation overheads.
-    vector<Transport::SessionRef> sessions;
-    return sessions;
+    Transport::SessionRef session;
+    return session;
 }
 
 /**

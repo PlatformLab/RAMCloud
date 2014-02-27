@@ -75,11 +75,8 @@ class ObjectFinder {
     Transport::SessionRef lookup(uint64_t tableId, KeyHash keyHash);
     const TabletProtoBuffer* lookupTablet(uint64_t table, KeyHash keyHash);
 
-    vector<Transport::SessionRef> lookup(
-                uint64_t tableId, uint8_t indexId,
-                const void* firstKey, uint16_t firstKeyLength,
-                const void* lastKey, uint16_t lastKeyLength);
-
+    Transport::SessionRef lookup(uint64_t tableId, uint8_t indexId,
+                                 const void* key, uint16_t keyLength);
     ServerId lookupServerId(uint64_t tableId, uint8_t indexId,
                             const void* key, uint16_t keyLength);
 
