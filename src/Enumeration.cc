@@ -87,7 +87,7 @@ enumerateBucket(uint64_t reference, void* cookie)
 
             uint64_t secondaryHash = 0;
             uint64_t bucketIndex = HashTable::findBucketIndex(
-                frame.numBuckets, key, &secondaryHash);
+                frame.numBuckets, keyHash, &secondaryHash);
 
             if (bucketIndex < frame.bucketIndex ||
                 (bucketIndex == frame.bucketIndex &&

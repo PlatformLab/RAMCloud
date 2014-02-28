@@ -123,7 +123,8 @@ class ObjectManager : public LogEntryHandlers {
         {
             uint64_t unused;
             uint64_t bucket = HashTable::findBucketIndex(
-                objectManager.objectMap.getNumBuckets(), key, &unused);
+                                        objectManager.objectMap.getNumBuckets(),
+                                        key.getHash(), &unused);
             takeBucketLock(objectManager, bucket);
         }
 

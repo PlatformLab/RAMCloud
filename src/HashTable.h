@@ -205,18 +205,18 @@ class HashTable {
 
     explicit HashTable(uint64_t numBuckets);
     ~HashTable();
-    void lookup(Key& key, Candidates& candidates);
-    void insert(Key& key, uint64_t reference);
+    void lookup(KeyHash keyHash, Candidates& candidates);
+    void insert(KeyHash keyHash, uint64_t reference);
     uint64_t forEachInBucket(void (*callback)(uint64_t, void *),
                              void *cookie,
                              uint64_t bucket);
     uint64_t forEach(void (*callback)(uint64_t, void *), void *cookie);
-    void prefetchBucket(Key& key);
+    void prefetchBucket(KeyHash keyHash);
     static uint32_t bytesPerCacheLine();
     static uint32_t entriesPerCacheLine();
     uint64_t getNumBuckets() const;
     static uint64_t findBucketIndex(uint64_t numBuckets,
-                                    Key& key,
+                                    KeyHash keyHash,
                                     uint64_t *secondaryHash);
 
   PRIVATE:
@@ -225,7 +225,7 @@ class HashTable {
     class Entry;
     struct CacheLine;
 
-    CacheLine * findBucket(Key& key, uint64_t *secondaryHash);
+    CacheLine * findBucket(KeyHash keyHash, uint64_t *secondaryHash);
 
     /**
      * The number of buckets allocated to the table.

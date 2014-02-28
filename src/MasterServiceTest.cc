@@ -1101,7 +1101,7 @@ TEST_F(MasterServiceTest, remove_basics) {
     TestLog::Enable _(antiGetEntryFilter);
     Key key(1, "key0", 4);
     HashTable::Candidates c;
-    service->objectManager.objectMap.lookup(key, c);
+    service->objectManager.objectMap.lookup(key.getHash(), c);
     uint64_t ref = c.getReference();
     uint64_t version;
     ramcloud->remove(1, "key0", 4, NULL, &version);

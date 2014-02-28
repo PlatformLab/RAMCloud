@@ -305,21 +305,21 @@ HashTable::~HashTable()
  * possible matches, if there are any. It is up to the caller to check
  * whether or not each candidate matches the key they're looking for.
  *
- * \param[in] key
- *      Key representing the element to look up.
+ * \param[in] keyHash
+ *      Hash of the key representing the element to look up.
  * \param[out] candidates
  *      A HashTable::Candidates object to initialize so that it can be
  *      used to iterate over all potential matches in order to find the
  *      desired element.
  */
 void
-HashTable::lookup(Key& key, Candidates& candidates)
+HashTable::lookup(KeyHash keyHash, Candidates& candidates)
 {
     // Find the bucket using 64 bit hash of the key. Any collisions
     // arising out of this hashing will be detected / resolved by the
     // caller as it examines possible candidates.
     uint64_t secondaryHash;
-    CacheLine *bucket = findBucket(key, &secondaryHash);
+    CacheLine *bucket = findBucket(keyHash, &secondaryHash);
     candidates.init(bucket, secondaryHash);
 }
 
@@ -330,16 +330,16 @@ HashTable::lookup(Key& key, Candidates& candidates)
  * exist (in other words, it will not replace a key). It is up to the caller
  * to ensure that the key was first removed, if necessary.
  *
- * \param[in] key
- *      Key naming the element to insert.
+ * \param[in] keyHash
+ *      Hash of the key naming the element to insert.
  * \param[in] reference
  *      Reference to the new element to insert into the hash table.
  */
 void
-HashTable::insert(Key& key, uint64_t reference)
+HashTable::insert(KeyHash keyHash, uint64_t reference)
 {
     uint64_t secondaryHash;
-    CacheLine* bucket = findBucket(key, &secondaryHash);
+    CacheLine* bucket = findBucket(keyHash, &secondaryHash);
     while (true) {
         Entry* entry = bucket->entries;
         for (size_t i = 0; i < ENTRIES_PER_CACHE_LINE; i++) {
@@ -425,13 +425,13 @@ HashTable::forEach(void (*callback)(uint64_t, void *), void *cookie)
 }
 
 /**
- * Prefetch the cacheline associated with the given key.
+ * Prefetch the cacheline associated with the given key hash.
  */
 void
-HashTable::prefetchBucket(Key& key)
+HashTable::prefetchBucket(KeyHash keyHash)
 {
     uint64_t dummy;
-    prefetch(findBucket(key, &dummy));
+    prefetch(findBucket(keyHash, &dummy));
 }
 
 /**
@@ -469,8 +469,8 @@ HashTable::getNumBuckets() const
  * \param[in] numBuckets
  *      The number of buckets in the HashTable as reported by
  *      #getNumBuckets().
- * \param[in] key
- *      Key object representing the element we're looking for. 
+ * \param[in] keyHash
+ *      Hash of the key representing the element we're looking for. 
  * \param[out] secondaryHash
  *      The secondary hash bits (16 bits).
  * \return
@@ -478,12 +478,11 @@ HashTable::getNumBuckets() const
  */
 uint64_t
 HashTable::findBucketIndex(uint64_t numBuckets,
-                           Key& key,
+                           KeyHash keyHash,
                            uint64_t *secondaryHash)
 {
-    uint64_t hashValue = key.getHash();
-    uint64_t bucketHash = hashValue & 0x0000ffffffffffffUL;
-    *secondaryHash = hashValue >> 48;
+    uint64_t bucketHash = keyHash & 0x0000ffffffffffffUL;
+    *secondaryHash = keyHash >> 48;
     return (bucketHash & (numBuckets - 1));
     // This is equivalent to:
     //     &buckets.get()[bucketHash % numBuckets]
@@ -495,17 +494,17 @@ HashTable::findBucketIndex(uint64_t numBuckets,
  * Find the bucket corresponding to a particular key.
  * This also calculates the secondary hash bits used to disambiguate entries
  * in the same bucket.
- * \param[in] key
- *      Key object representing the element we're looking for. 
+ * \param[in] keyHash
+ *      Hash of key representing the element we're looking for. 
  * \param[out] secondaryHash
  *      The secondary hash bits (16 bits).
  * \return
  *      The bucket corresponding to the given key.
  */
 HashTable::CacheLine*
-HashTable::findBucket(Key& key, uint64_t *secondaryHash) //const
+HashTable::findBucket(KeyHash keyHash, uint64_t *secondaryHash) //const
 {
-    uint64_t bucketIndex = findBucketIndex(numBuckets, key, secondaryHash);
+    uint64_t bucketIndex = findBucketIndex(numBuckets, keyHash, secondaryHash);
     return &buckets.get()[bucketIndex];
 }
 

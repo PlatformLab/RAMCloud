@@ -168,7 +168,7 @@ ObjectManager::writeObject(Object& newObject,
     const void *keyString = newObject.getKey(0, &keyLength);
     Key key(newObject.getTableId(), keyString, keyLength);
 
-    objectMap.prefetchBucket(key);
+    objectMap.prefetchBucket(key.getHash());
     HashTableBucketLock lock(*this, key);
 
     // If the tablet doesn't exist in the NORMAL state, we must plead ignorance.
@@ -251,7 +251,7 @@ ObjectManager::writeObject(Object& newObject,
         currentHashTableEntry.setReference(appends[0].reference.toInteger());
         log.free(currentReference);
     } else {
-        objectMap.insert(key, appends[0].reference.toInteger());
+        objectMap.insert(key.getHash(), appends[0].reference.toInteger());
     }
 
     if (outVersion != NULL)
@@ -313,7 +313,7 @@ ObjectManager::readObject(Key& key,
                           uint64_t* outVersion,
                           bool valueOnly)
 {
-    objectMap.prefetchBucket(key);
+    objectMap.prefetchBucket(key.getHash());
     HashTableBucketLock lock(*this, key);
 
     // If the tablet doesn't exist in the NORMAL state, we must plead ignorance.
@@ -378,7 +378,7 @@ ObjectManager::readObject(uint64_t tableId,
                           uint64_t* outVersion)
 {
     // Currently a stub. Return STATUS_OK. TODO(ankitak)
-    return Status(0);
+    return STATUS_OK;
 }
 
 /**
@@ -503,13 +503,13 @@ ObjectManager::prefetchHashTableBucket(SegmentIterator* it)
         const void *primaryKey = prefetchObj.getKey(0, &primaryKeyLen);
 
         Key key(obj->tableId, primaryKey, primaryKeyLen);
-        objectMap.prefetchBucket(key);
+        objectMap.prefetchBucket(key.getHash());
     } else if (it->getType() == LOG_ENTRY_TYPE_OBJTOMB) {
         const ObjectTombstone::Header* tomb =
             it->getContiguous<ObjectTombstone::Header>(NULL, 0);
         Key key(tomb->tableId, tomb->key,
             downCast<uint16_t>(it->getLength() - sizeof32(*tomb)));
-        objectMap.prefetchBucket(key);
+        objectMap.prefetchBucket(key.getHash());
     }
 }
 
@@ -1006,7 +1006,7 @@ ObjectManager::relocateObject(Buffer& oldBuffer,
     // can easily avoid looping over the bucket twice this way for
     // live objects.
     HashTable::Candidates candidates;
-    objectMap.lookup(key, candidates);
+    objectMap.lookup(key.getHash(), candidates);
     while (!candidates.isDone()) {
         if (candidates.getReference() != oldReference.toInteger()) {
             candidates.next();
@@ -1150,7 +1150,7 @@ ObjectManager::lookup(HashTableBucketLock& lock,
                       HashTable::Candidates* outCandidates)
 {
     HashTable::Candidates candidates;
-    objectMap.lookup(key, candidates);
+    objectMap.lookup(key.getHash(), candidates);
     while (!candidates.isDone()) {
         Buffer candidateBuffer;
         Log::Reference candidateRef(candidates.getReference());
@@ -1200,7 +1200,7 @@ bool
 ObjectManager::remove(HashTableBucketLock& lock, Key& key)
 {
     HashTable::Candidates candidates;
-    objectMap.lookup(key, candidates);
+    objectMap.lookup(key.getHash(), candidates);
     while (!candidates.isDone()) {
         Buffer buffer;
         Log::Reference candidateRef(candidates.getReference());
@@ -1239,7 +1239,7 @@ ObjectManager::replace(HashTableBucketLock& lock,
                        Log::Reference reference)
 {
     HashTable::Candidates candidates;
-    objectMap.lookup(key, candidates);
+    objectMap.lookup(key.getHash(), candidates);
     while (!candidates.isDone()) {
         Buffer buffer;
         Log::Reference candidateRef(candidates.getReference());
@@ -1252,7 +1252,7 @@ ObjectManager::replace(HashTableBucketLock& lock,
         candidates.next();
     }
 
-    objectMap.insert(key, reference.toInteger());
+    objectMap.insert(key.getHash(), reference.toInteger());
     return false;
 }
 

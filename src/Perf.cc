@@ -357,7 +357,7 @@ double hashTableLookup()
         uint64_t* object = new uint64_t(i);
         uint64_t reference = reinterpret_cast<uint64_t>(object);
         Key key(0, object, downCast<uint16_t>(sizeof(*object)));
-        hashTable.insert(key, reference);
+        hashTable.insert(key.getHash(), reference);
     }
 
     PerfHelper::flushCache();
@@ -369,12 +369,12 @@ double hashTableLookup()
             if (i + prefetchBucketAhead < numLookups) {
                 uint64_t object = i + prefetchBucketAhead;
                 Key key(0, &object, downCast<uint16_t>(sizeof(object)));
-                hashTable.prefetchBucket(key);
+                hashTable.prefetchBucket(key.getHash());
             }
         }
 
         Key key(0, &i, downCast<uint16_t>(sizeof(i)));
-        hashTable.lookup(key, candidates);
+        hashTable.lookup(key.getHash(), candidates);
         while (!candidates.isDone()) {
             if (*reinterpret_cast<uint64_t*>(candidates.getReference()) == i)
                 break;
@@ -386,7 +386,7 @@ double hashTableLookup()
     // clean up
     for (uint64_t i = 0; i < numLookups; i++) {
         Key key(0, &i, downCast<uint16_t>(sizeof(i)));
-        hashTable.lookup(key, candidates);
+        hashTable.lookup(key.getHash(), candidates);
         while (!candidates.isDone()) {
             if (*reinterpret_cast<uint64_t*>(candidates.getReference()) == i) {
                 delete reinterpret_cast<uint64_t*>(candidates.getReference());

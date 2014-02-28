@@ -455,7 +455,7 @@ TEST_F(ObjectManagerTest, removeObject) {
     // let's finally try a case that should work...
     TestLog::Enable _(antiGetEntryFilter);
     HashTable::Candidates c;
-    objectManager.objectMap.lookup(key, c);
+    objectManager.objectMap.lookup(key.getHash(), c);
     uint64_t ref = c.getReference();
     uint64_t version;
     EXPECT_EQ(STATUS_OK, objectManager.removeObject(key, 0, &version));
@@ -493,7 +493,7 @@ TEST_F(ObjectManagerTest, removeOrphanedObjects) {
     value.reset();
     TestLog::Enable _(antiGetEntryFilter);
     HashTable::Candidates c;
-    objectManager.objectMap.lookup(key, c);
+    objectManager.objectMap.lookup(key.getHash(), c);
     uint64_t ref = c.getReference();
     objectManager.removeOrphanedObjects();
     EXPECT_EQ(STATUS_UNKNOWN_TABLET,
@@ -1245,12 +1245,12 @@ TEST_F(ObjectManagerTest, replace_noPriorVersion) {
 
     ObjectManager::HashTableBucketLock lock(objectManager, key);
     HashTable::Candidates c;
-    objectManager.objectMap.lookup(key, c);
+    objectManager.objectMap.lookup(key.getHash(), c);
     EXPECT_TRUE(c.isDone());
 
     Log::Reference reference(0xdeadbeef);
     EXPECT_FALSE(objectManager.replace(lock, key, reference));
-    objectManager.objectMap.lookup(key, c);
+    objectManager.objectMap.lookup(key.getHash(), c);
     EXPECT_FALSE(c.isDone());
     EXPECT_EQ(reference.toInteger(), c.getReference());
 }
@@ -1271,7 +1271,7 @@ TEST_F(ObjectManagerTest, replace_priorVersion) {
     }
 
     HashTable::Candidates c;
-    objectManager.objectMap.lookup(key, c);
+    objectManager.objectMap.lookup(key.getHash(), c);
     EXPECT_FALSE(c.isDone());
     EXPECT_EQ(secondRef.toInteger(), c.getReference());
 }

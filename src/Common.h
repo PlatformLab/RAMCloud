@@ -247,7 +247,7 @@ get(const Map& map, const typename Map::key_type& key)
  * Prefetch the cache lines containing [object, object + numBytes) into the
  * processor's caches.
  * The best docs for this are in the Intel instruction set reference under
- * PREFETCHh.
+ * PREFETCH.
  * \param object
  *      The start of the region of memory to prefetch.
  * \param numBytes

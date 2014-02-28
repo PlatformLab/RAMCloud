@@ -319,7 +319,7 @@ class HashTableTest : public ::testing::Test {
                     values[i]->stringKeyLength);
 
             uint64_t littleHash;
-            (void) ht->findBucket(key, &littleHash);
+            (void) ht->findBucket(key.getHash(), &littleHash);
 
             HashTable::Entry *entry;
             if (0 < i && i == numEnt - 1 && i % seven == 0)
@@ -373,7 +373,7 @@ class HashTableTest : public ::testing::Test {
                 ptr->stringKeyPtr,
                 ptr->stringKeyLength);
         uint64_t littleHash;
-        (void) ht->findBucket(key, &littleHash);
+        (void) ht->findBucket(key.getHash(), &littleHash);
 
         HashTable::Entry& entry = entryAt(ht, x, y);
         EXPECT_TRUE(entry.hashMatches(littleHash));
@@ -387,7 +387,7 @@ class HashTableTest : public ::testing::Test {
     {
         Key key(tableId, stringKey, stringKeyLength);
         HashTable::Candidates candidates;
-        ht->lookup(key, candidates);
+        ht->lookup(key.getHash(), candidates);
         while (!candidates.isDone()) {
             TestObject* obj = reinterpret_cast<TestObject*>(
                 candidates.getReference());
@@ -417,7 +417,7 @@ class HashTableTest : public ::testing::Test {
     lookup(HashTable* ht, Key& key, uint64_t& outRef)
     {
         HashTable::Candidates candidates;
-        ht->lookup(key, candidates);
+        ht->lookup(key.getHash(), candidates);
         while (!candidates.isDone()) {
             TestObject* obj = reinterpret_cast<TestObject*>(
                 candidates.getReference());
@@ -451,7 +451,7 @@ class HashTableTest : public ::testing::Test {
     replace(HashTable* ht, Key& key, uint64_t ref)
     {
         HashTable::Candidates candidates;
-        ht->lookup(key, candidates);
+        ht->lookup(key.getHash(), candidates);
         while (!candidates.isDone()) {
             TestObject* obj = reinterpret_cast<TestObject*>(
                 candidates.getReference());
@@ -464,7 +464,7 @@ class HashTableTest : public ::testing::Test {
             }
             candidates.next();
         }
-        ht->insert(key, ref);
+        ht->insert(key.getHash(), ref);
         return false;
     }
 
@@ -560,8 +560,8 @@ TEST_F(HashTableTest, findBucket) {
     uint64_t secondaryHash;
 
     Key key(0, "4327", 4);
-    bucket = ht.findBucket(key, &secondaryHash);
     hashValue = key.getHash();
+    bucket = ht.findBucket(hashValue, &secondaryHash);
 
     uint64_t actualBucketIdx = static_cast<uint64_t>(bucket - ht.buckets.get());
     uint64_t expectedBucketIdx = (hashValue & 0x0000ffffffffffffffffUL) % 1024;
@@ -694,18 +694,18 @@ TEST_F(HashTableTest, replace_normal) {
     // key is identical for both
     Key key(v->tableId, v->stringKeyPtr, v->stringKeyLength);
 
-    EXPECT_FALSE(ht.replace(key, vRef));
+    EXPECT_FALSE(ht.replace(key.getHash(), vRef));
 
     uint64_t outRef;
 
     EXPECT_TRUE(lookup(&ht, key, outRef));
     EXPECT_EQ(vRef, outRef);
 
-    EXPECT_TRUE(ht.replace(key, vRef));
+    EXPECT_TRUE(ht.replace(key.getHash(), vRef));
     EXPECT_TRUE(lookup(&ht, key, outRef));
     EXPECT_EQ(vRef, outRef);
 
-    EXPECT_TRUE(ht.replace(key, wRef));
+    EXPECT_TRUE(ht.replace(key.getHash(), wRef));
     EXPECT_TRUE(lookup(&ht, key, outRef));
     EXPECT_EQ(wRef, outRef);
 
@@ -722,7 +722,7 @@ TEST_F(HashTableTest, replace_cacheLine0Entry0) {
     TestObject v(0, "newKey");
     Key vKey(v.tableId, v.stringKeyPtr, v.stringKeyLength);
     uint64_t vRef = v.u64Address();
-    ht.replace(vKey, vRef);
+    ht.replace(vKey.getHash(), vRef);
     assertEntryIs(&ht, 0, 0, &v);
 }
 
@@ -735,7 +735,7 @@ TEST_F(HashTableTest, replace_cacheLine0Entry7) {
     TestObject v(0, "newKey");
     Key vKey(v.tableId, v.stringKeyPtr, v.stringKeyLength);
     uint64_t vRef = v.u64Address();
-    ht.replace(vKey, vRef);
+    ht.replace(vKey.getHash(), vRef);
     assertEntryIs(&ht, 0, seven, &v);
 }
 
@@ -751,7 +751,7 @@ TEST_F(HashTableTest, replace_cacheLine2Entry0) {
     TestObject v(0, "newKey");
     Key vKey(v.tableId, v.stringKeyPtr, v.stringKeyLength);
     uint64_t vRef = v.u64Address();
-    ht.replace(vKey, vRef);
+    ht.replace(vKey.getHash(), vRef);
     assertEntryIs(&ht, 2, 0, &v);
 }
 
@@ -765,7 +765,7 @@ TEST_F(HashTableTest, replace_cacheLineFull) {
     TestObject v(0,  "newKey");
     Key vKey(v.tableId, v.stringKeyPtr, v.stringKeyLength);
     uint64_t vRef = v.u64Address();
-    ht.replace(vKey, vRef);
+    ht.replace(vKey.getHash(), vRef);
     EXPECT_TRUE(entryAt(&ht, 0, seven).getChainPointer() != NULL);
     EXPECT_TRUE(entryAt(&ht, 0, seven).getChainPointer() !=
                 &ht.buckets.get()[1]);

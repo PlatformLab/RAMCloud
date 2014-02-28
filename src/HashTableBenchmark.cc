@@ -67,7 +67,7 @@ hashTableBenchmark(uint64_t nkeys, uint64_t nlines)
         Key key(0, &i, sizeof(i));
         values[i] = TestObject(i);
         uint64_t reference(reinterpret_cast<uint64_t>(&values[i]));
-        ht.insert(key, reference);
+        ht.insert(key.getHash(), reference);
     }
     printf("done!\n");
 
@@ -84,7 +84,7 @@ hashTableBenchmark(uint64_t nkeys, uint64_t nlines)
         uint64_t reference(reinterpret_cast<uint64_t>(&values[i]));
 
         bool success = false;
-        ht.lookup(key, c);
+        ht.lookup(key.getHash(), c);
         while (!c.isDone()) {
             TestObject* candidateObject =
                 reinterpret_cast<TestObject*>(c.getReference());
@@ -122,7 +122,7 @@ hashTableBenchmark(uint64_t nkeys, uint64_t nlines)
         uint64_t reference = 0;
         bool success = false;
 
-        ht.lookup(key, c);
+        ht.lookup(key.getHash(), c);
         while (!c.isDone()) {
             reference = c.getReference();
             TestObject* candidateObject =
