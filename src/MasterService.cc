@@ -74,7 +74,8 @@ MasterService::MasterService(Context* context,
     : context(context)
     , config(config)
     , disableCount(0)
-    , indexManager(context)
+    , indexManager(context,
+                   &objectManager)
     , initCalled(false)
     , logEverSynced(false)
     , masterTableMetadata()
@@ -539,11 +540,11 @@ MasterService::increment(const WireFormat::Increment::Request* reqHdr,
  */
 void
 MasterService::indexedRead(
-    const WireFormat::IndexedRead::Request* reqHdr,
-    WireFormat::IndexedRead::Response* respHdr,
-    Rpc* rpc)
+        const WireFormat::IndexedRead::Request* reqHdr,
+        WireFormat::IndexedRead::Response* respHdr,
+        Rpc* rpc)
 {
-    uint32_t numRequests = reqHdr->count;
+    uint32_t numRequests = reqHdr->numHashes;
     uint32_t reqOffset = sizeof32(*reqHdr);
 
     const void* firstKeyStr =
@@ -554,53 +555,70 @@ MasterService::indexedRead(
             rpc->requestPayload->getRange(reqOffset, reqHdr->lastKeyLength);
     reqOffset+=reqHdr->lastKeyLength;
 
-    respHdr->count = numRequests;
+    respHdr->numObjects = 0;
     uint32_t oldResponseLength = rpc->replyPayload->getTotalLength();
+    uint32_t currentLength = oldResponseLength;
 
     // Each iteration extracts one request from request rpc, finds the
-    // corresponding object, and appends the response to the response rpc.
-    for (uint32_t i = 0; ; i++) {
-        // If the RPC response has exceeded the legal limit, truncate it
-        // to the last object that fits below the limit (the client will
-        // retry the objects we don't return).
-        // TODO(ankitak): Do we need to implement selective retry in client?
-        uint32_t newLength = rpc->replyPayload->getTotalLength();
-        if (newLength > maxMultiReadResponseSize) {
-            rpc->replyPayload->truncateEnd(newLength - oldResponseLength);
-            respHdr->count = i-1;
-            break;
-        } else {
-            oldResponseLength = newLength;
-        }
-        if (i >= numRequests) {
-            // The loop-termination check is done here rather than in the
-            // "for" statement above so that we have a chance to do the
-            // size check above even for every object inserted, including
-            // the last object and those with STATUS_OBJECT_DOESNT_EXIST.
-            break;
-        }
-
+    // corresponding object(s), and appends the response to the response rpc.
+    for (uint32_t i = 0; i < numRequests; i++) {
         uint64_t currentKeyHash;
         rpc->requestPayload->copy(reqOffset, 8, &currentKeyHash);
         reqOffset += 8;
 
-        WireFormat::IndexedRead::Response::Part* currentResp =
+        uint32_t partNumObjects;
+        Buffer objsBuffer;
+        vector<uint32_t> lengths;
+        vector<uint64_t> versions;
+        bool isOkayToContinue = indexManager.indexedRead(
+                        reqHdr->tableId, reqHdr->indexId, currentKeyHash,
+                        firstKeyStr, reqHdr->firstKeyLength,
+                        lastKeyStr, reqHdr->lastKeyLength,
+                        &partNumObjects, &objsBuffer, &lengths, &versions);
+
+        if (isOkayToContinue != true) {
+            // This server doesn't own this primary key hash. Return whatever
+            // response we have as of now to the client. Client can retry
+            // with new masters.
+            break;
+        }
+
+        // TODO(ankitak): Later: Handle the second case below too.
+        // Assumption: 1. It is highly unlikely that we'll have multiple objects
+        // such that they have the same primary key hash and their secondary
+        // key fall in the correct range. We'll still handle this case.
+        // 2. It is further unlikely that all of these objects put together
+        // will be too large to fit in a single 8MB response rpc.
+        // So, if all objects matched for a keyhash don't fit in an rpc, don't
+        // return any; Client will retry and the response rpc to the new request
+        // will contain all the matched objects for the keyhash.
+
+        uint32_t newLength =
+                currentLength +
+                (sizeof32(WireFormat::IndexedRead::Response::Part*) *
+                    partNumObjects) +
+                objsBuffer.getTotalLength();
+        // TODO(ankitak): Do we need to define another max size?
+        // TODO(ankitak): Check how the client retry works and see if it needs
+        // any changes.
+        if (newLength > maxMultiReadResponseSize) {
+            break;
+        } else {
+            currentLength = newLength;
+            respHdr->numObjects += partNumObjects;
+        }
+
+        uint32_t bufferOffset = 0;
+        for (uint32_t j = 0; j < partNumObjects; j++) {
+            WireFormat::IndexedRead::Response::Part* currentResp =
                    new(rpc->replyPayload, APPEND)
                        WireFormat::IndexedRead::Response::Part();
-
-        Buffer buffer;
-        currentResp->status =
-                indexManager.indexedRead(reqHdr->tableId, reqHdr->indexId,
-                                         currentKeyHash,
-                                         firstKeyStr, reqHdr->firstKeyLength,
-                                         lastKeyStr, reqHdr->lastKeyLength,
-                                         &buffer, &currentResp->version);
-
-        if (currentResp->status != STATUS_OK)
-            continue;
-
-        currentResp->length = buffer.getTotalLength();
-        rpc->replyPayload->append(&buffer);
+            currentResp->length = lengths[j];
+            currentResp->version = versions[j];
+            rpc->replyPayload->append(objsBuffer.getRange(
+                        bufferOffset, lengths[j]), lengths[j]);
+            bufferOffset += lengths[j];
+        }
     }
 }
 
@@ -687,17 +705,17 @@ MasterService::lookupIndexKeys(
     const void* lastKeyStr =
             rpc->requestPayload->getRange(reqOffset, reqHdr->lastKeyLength);
 
-    uint32_t count;
+    uint32_t numHashes;
     Buffer buffer;
     respHdr->common.status =
             indexManager.lookupIndexKeys(reqHdr->tableId, reqHdr->indexId,
                                          firstKeyStr, reqHdr->firstKeyLength,
                                          lastKeyStr, reqHdr->lastKeyLength,
-                                         &count, &buffer);
+                                         &numHashes, &buffer);
     if (respHdr->common.status != STATUS_OK)
         return;
 
-    respHdr->count = count;
+    respHdr->numHashes = numHashes;
     rpc->replyPayload->append(&buffer);
 }
 

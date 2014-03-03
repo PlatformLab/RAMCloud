@@ -355,30 +355,93 @@ ObjectManager::readObject(Key& key,
 }
 
 /**
- * Read an object previously written to this ObjectManager.
- *
+ * Read object(s) previously written by ObjectManager,
+ * matching the given parameters.
+ * We'd typically expect only one object to match the parameters, but it is
+ * possible that multiple will.
+ *  
  * \param tableId
- *      Table Id of the table containing the object to be read.
- * \param keyHash
- *      Key hash of the (primary) key of the object being read.
- * \param outBuffer
- *      Buffer to populate with the value of the object, if found.
- * \param outVersion
- *      If non-NULL and the object is found, the version is returned here. If
- *      the reject rules failed the read, the current object's version is still
- *      returned.
+ *      Id of the table containing the object(s).
+ * \param indexId
+ *      Id of the index to which these index keys to be matched belong.
+ * \param pKHash
+ *      Key hash of the primary key of the object(s).
+ * \param firstKeyStr
+ *      Key blob marking the start of the acceptable range for indexed key.
+ * \param firstKeyLength
+ *      Length of firstKey.
+ * \param lastKeyStr
+ *      Key blob marking the end of the acceptable range for indexed key.
+ * \param lastKeyLength
+ *      Length of lastKey.
+ * \param[out] numObjects
+ *      Num of objects being returned.
+ * \param[out] outBuffer
+ *      Actual object(s) matching the parameters will be returned here.
+ * \param[out] lengths
+ *      Length(s) of the object(s) returned in outBuffer.
+ * \param[out] versions
+ *      Version(s) of the object(s) returned.
  * \return
- *      Returns STATUS_OK if the lookup succeeded.
- *      Other status values indicate different failures.
+ *      Value of false if this server does not own the tablet, or if the tablet
+ *      is not in NORMAL state, true otherwise.
  */
-Status
-ObjectManager::readObject(uint64_t tableId,
-                          uint64_t keyHash,
-                          Buffer* outBuffer,
-                          uint64_t* outVersion)
+bool
+ObjectManager::readObjectsByHash(
+                uint64_t tableId, uint8_t indexId, uint64_t pKHash,
+                const void* firstKeyStr, KeyLength firstKeyLength,
+                const void* lastKeyStr, KeyLength lastKeyLength,
+                uint32_t* numObjects, Buffer* outBuffer,
+                vector<uint32_t>* lengths, vector<uint64_t>* versions)
 {
-    // Currently a stub. Return STATUS_OK. TODO(ankitak)
-    return STATUS_OK;
+    objectMap.prefetchBucket(pKHash);
+    HashTableBucketLock lock(*this, pKHash);
+
+    // If the tablet doesn't exist in the NORMAL state, we must plead ignorance.
+    TabletManager::Tablet tablet;
+    if (!tabletManager->getTablet(tableId, pKHash, &tablet))
+        return false;
+    if (tablet.state != TabletManager::NORMAL)
+        return false;
+
+    HashTable::Candidates candidates;
+    *numObjects = 0;
+    objectMap.lookup(pKHash, candidates);
+
+    while (!candidates.isDone()) {
+        Buffer candidateBuffer;
+        Log::Reference candidateRef(candidates.getReference());
+        LogEntryType type = log.getEntry(candidateRef, candidateBuffer);
+
+        if (type != LOG_ENTRY_TYPE_OBJ)
+            continue;
+
+        Object object(candidateBuffer);
+        uint16_t keyLength;
+        const void* keyStr = object.getKey(indexId, &keyLength);
+
+        // TODO(ankitak): May have to resort to memcmp if bcmp doesn't work.
+        int firstKeyCmp =
+                bcmp(firstKeyStr, keyStr, std::min(firstKeyLength, keyLength));
+        int lastKeyCmp =
+                bcmp(lastKeyStr, keyStr, std::min(lastKeyLength, keyLength));
+        if ((firstKeyCmp < 0 ||
+                (firstKeyCmp == 0 && firstKeyLength <= keyLength)) &&
+             (lastKeyCmp > 0 ||
+                (lastKeyCmp == 0 && lastKeyLength >= keyLength))) {
+            *numObjects += 1;
+            object.appendKeysAndValueToBuffer(*outBuffer);
+            lengths->push_back(object.getKeysAndValueLength());
+            versions->push_back(object.getVersion());
+        }
+
+        candidates.next();
+    }
+
+    // TODO(ankitak): Later: Figure out whether / how to do this.
+    // tabletManager->incrementReadCount(key);
+
+    return true;
 }
 
 /**
@@ -1126,7 +1189,7 @@ ObjectManager::getTombstoneTimestamp(Buffer& buffer)
  *      alive by comparing the pointer in the hash table (see #relocateObject).
  * \param[out] outVersion
  *      The version of the object or tombstone, when one is found, stored in
- *      this optional patameter.
+ *      this optional parameter.
  * \param[out] outReference
  *      The log reference to the entry, if found, is stored in this optional
  *      parameter.

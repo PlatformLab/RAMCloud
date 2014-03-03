@@ -54,7 +54,7 @@ namespace RAMCloud {
  *      will be stored in the responseHeader for the use of wrapper
  *      subclasses.
  * 
- * \param[out] totalCount
+ * \param[out] totalNumHashes
  *      Number of key hashes being returned in totalResponse.
  * \param[out] totalResponse
  *      Client-supplied buffer to use to return all the keyHashes.
@@ -65,7 +65,7 @@ IndexRpcWrapper::IndexRpcWrapper(
             const void* firstKey, uint16_t firstKeyLength,
             const void* lastKey, uint16_t lastKeyLength,
             uint32_t responseHeaderLength,
-            uint32_t* totalCount, Buffer* totalResponse)
+            uint32_t* totalNumHashes, Buffer* totalResponse)
     : RpcWrapper(responseHeaderLength) // Use defaultResponse buffer for
                                       // individual rpcs to the masters.
     , ramcloud(ramcloud)
@@ -75,10 +75,10 @@ IndexRpcWrapper::IndexRpcWrapper(
     , nextKeyLength(firstKeyLength)
     , lastKey(lastKey)
     , lastKeyLength(lastKeyLength)
-    , totalCount(totalCount)
+    , totalNumHashes(totalNumHashes)
     , totalResponse(totalResponse)
 {
-    totalCount = 0;
+    totalNumHashes = 0;
 }
 
 // See RpcWrapper for documentation.
@@ -107,14 +107,14 @@ IndexRpcWrapper::checkStatus()
         const WireFormat::LookupIndexKeys::Response* indexRespHdr =
                 static_cast<const WireFormat::LookupIndexKeys::Response*>(
                         response->getRange(0, responseHeaderLength));
-        uint32_t currentCount = indexRespHdr->count;
-        totalCount += currentCount;
+        uint32_t currentNumHashes = indexRespHdr->numHashes;
+        totalNumHashes += currentNumHashes;
         nextKeyLength = indexRespHdr->nextKeyLength;
         uint32_t respOffset = responseHeaderLength;
         nextKey = response->getRange(respOffset, nextKeyLength);
         respOffset += nextKeyLength;
-        memcpy(new(totalResponse, APPEND) char[currentCount*8],
-               response, sizeof32(currentCount*8));
+        memcpy(new(totalResponse, APPEND) char[currentNumHashes*8],
+               response, sizeof32(currentNumHashes*8));
         send();
         return false;
     }

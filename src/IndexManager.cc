@@ -17,8 +17,9 @@
 
 namespace RAMCloud {
 
-IndexManager::IndexManager(Context* context)
+IndexManager::IndexManager(Context* context, ObjectManager* objectManager)
         : context(context)
+        , objectManager(objectManager)
 {
 }
 
@@ -78,14 +79,16 @@ IndexManager::dropIndexlet(uint64_t tableId, uint8_t indexId)
 }
 
 /**
- * Read an object matching the given parameters.
+ * Read object(s) matching the given parameters.
+ * We'd typically expect only one object to match the parameters, but it is
+ * possible that multiple will.
  *  
  * \param tableId
- *      Id of the table containing the object.
+ *      Id of the table containing the object(s).
  * \param indexId
  *      Id of the index to which these index keys to be matched belong.
  * \param pKHash
- *      Key hash of the primary key of the object.
+ *      Key hash of the primary key of the object(s).
  * \param firstKeyStr
  *      Key blob marking the start of the acceptable range for indexed key.
  * \param firstKeyLength
@@ -94,33 +97,33 @@ IndexManager::dropIndexlet(uint64_t tableId, uint8_t indexId)
  *      Key blob marking the end of the acceptable range for indexed key.
  * \param lastKeyLength
  *      Length of lastKey.
+ * \param[out] numObjects
+ *      Num of objects being returned.
  * \param[out] outBuffer
- *      Actual object matching the parameters will be returned here.
- * \param[out] outVersion
- *      Version of the object will be returned here.
+ *      Actual object(s) matching the parameters will be returned here.
+ * \param[out] lengths
+ *      Length(s) of the object(s) returned in outBuffer.
+ * \param[out] versions
+ *      Version(s) of the object(s) returned.
  * \return
- *      Returns STATUS_OK if the read succeeded. Other status values indicate
- *      different failures.
+ *      Value of false if this server does not own the tablet, or if the tablet
+ *      is not in NORMAL state, true otherwise.
  */
-/* We'd normally expect the parameters to match only one object,
- * but it is possible they match multiple objects. In that case multiple objects
- * have to returned.
- * Currently we're assuming that only one object will match / be returned.
- * TODO(ankitak): LATER: Implement multi return for this. Will be reflected in
- * ObjectManager code as well.
- */
-Status
+bool
 IndexManager::indexedRead(uint64_t tableId, uint8_t indexId, uint64_t pKHash,
                           const void* firstKeyStr, KeyLength firstKeyLength,
                           const void* lastKeyStr, KeyLength lastKeyLength,
-                          Buffer* outBuffer, uint64_t* outVersion)
+                          uint32_t* numObjects, Buffer* outBuffer,
+                          vector<uint32_t>* lengths, vector<uint64_t>* versions)
 {
-    // Currently a stub. Return STATUS_OK. TODO(ankitak)
-    return Status(0);
-    // Calls:
-    // objectManager.readObject(tableId, pKHash, outBuffer, ourVersion)
-    // Then compare key from returned value with index keys to check bounds.
-    // Return value if okay.
+    // TODO(ankitak): Figure out if we want IndexManager to do key comparison.
+    // If not, then maybe MasterService should directly call into ObjectManager.
+    bool isOkayToContinue = objectManager->readObjectsByHash(
+            tableId, indexId, pKHash,
+            firstKeyStr, firstKeyLength, lastKeyStr, lastKeyLength,
+            numObjects, outBuffer, lengths, versions);
+
+    return isOkayToContinue;
 }
 
 /**

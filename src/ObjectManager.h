@@ -59,10 +59,12 @@ class ObjectManager : public LogEntryHandlers {
                       RejectRules* rejectRules,
                       uint64_t* outVersion,
                       bool valueOnly = false);
-    Status readObject(uint64_t tableId,
-                      uint64_t keyHash,
-                      Buffer* outBuffer,
-                      uint64_t* outVersion);
+    bool readObjectsByHash(uint64_t tableId, uint8_t indexId, uint64_t pKHash,
+                           const void* firstKeyStr, KeyLength firstKeyLength,
+                           const void* lastKeyStr, KeyLength lastKeyLength,
+                           uint32_t* numObjects, Buffer* outBuffer,
+                           vector<uint32_t>* lengths,
+                           vector<uint64_t>* versions);
     Status writeObject(Object& newObject,
                        RejectRules* rejectRules,
                        uint64_t* outVersion);

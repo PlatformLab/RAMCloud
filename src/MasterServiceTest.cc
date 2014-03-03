@@ -964,6 +964,106 @@ TEST_F(MasterServiceTest, prepForMigration) {
         "in tableId 5 from \"??\"", TestLog::get());
 }
 
+TEST_F(MasterServiceTest, indexedRead) {
+    // TODO(ankitak): This probably needs to be split up into tests for
+    // MasterService (after implementing client side in RamCloud), and
+    // IndexManager/ObjectManager.
+
+    // TODO(ankitak): Later: Also need to test the case where multiple objs
+    // have same pkhash and their search key falls in the provided range.
+
+    uint64_t tableId = 1;
+    uint8_t numKeys = 2;
+
+    KeyInfo keyList0[3];
+    keyList0[0].keyLength = 8;
+    keyList0[0].key = "obj0key0";
+    keyList0[1].keyLength = 8;
+    keyList0[1].key = "obj0key1";
+    keyList0[2].keyLength = 8;
+    keyList0[2].key = "obj0key2";
+
+    KeyInfo keyList1[3];
+    keyList1[0].keyLength = 8;
+    keyList1[0].key = "obj1key0";
+    keyList1[1].keyLength = 8;
+    keyList1[1].key = "obj1key1";
+    keyList1[2].keyLength = 8;
+    keyList1[2].key = "obj1key2";
+
+    ramcloud->write(tableId, numKeys, keyList0, "obj0value",
+                        NULL, NULL, false);
+    ramcloud->write(tableId, numKeys, keyList1, "obj1value",
+                        NULL, NULL, false);
+
+    uint32_t numObjects;
+    Buffer outBuffer;
+    vector<uint32_t> lengths;
+    vector<uint64_t> versions;
+
+    // Indexed read on key1 of obj0, with firstKey > desired key
+    service->objectManager.readObjectsByHash(
+                tableId, 1, Key::getHash(tableId, "obj0key0", 8),
+                "obj0key2", 8, "obj0key2", 8,
+                &numObjects, &outBuffer, &lengths, &versions);
+    EXPECT_EQ(0U, numObjects);
+
+    // Indexed read on key1 of obj0, with lastKey < desired key
+    service->objectManager.readObjectsByHash(
+                tableId, 1, Key::getHash(tableId, "obj0key0", 8),
+                "obj0key0", 8, "obj0key0", 8,
+                &numObjects, &outBuffer, &lengths, &versions);
+    EXPECT_EQ(0U, numObjects);
+
+    // Indexed read on key1 of obj0, with firstKey > desired key,
+    // and first key > key1 of obj1 > last key.
+    service->objectManager.readObjectsByHash(
+                tableId, 1, Key::getHash(tableId, "obj0key0", 8),
+                "obj1key0", 8, "obj1key2", 8,
+                &numObjects, &outBuffer, &lengths, &versions);
+    EXPECT_EQ(0U, numObjects);
+
+    // Indexed read on key1 of obj0, with firstKey < key < lastKey
+    service->objectManager.readObjectsByHash(
+                tableId, 1, Key::getHash(tableId, "obj0key0", 8),
+                "obj0key0", 8, "obj0key2", 8,
+                &numObjects, &outBuffer, &lengths, &versions);
+
+    EXPECT_EQ(1U, numObjects);
+    EXPECT_EQ(1U, versions[0]);
+    ObjectBuffer objRead0;
+    objRead0.append(outBuffer.getRange(0, lengths[0]), lengths[0]);
+    EXPECT_EQ("obj0value", string(reinterpret_cast<const char*>(
+                            objRead0.getValue()), 9));
+
+    // Indexed read on key1 of obj0, with firstKey = key = lastKey.
+    service->objectManager.readObjectsByHash(
+                tableId, 1, Key::getHash(tableId, "obj0key0", 8),
+                "obj0key1", 8, "obj0key1", 8,
+                &numObjects, &outBuffer, &lengths, &versions);
+
+    EXPECT_EQ(1U, numObjects);
+    EXPECT_EQ(1U, versions[1]);
+    ObjectBuffer objRead1;
+    objRead1.append(outBuffer.getRange(lengths[0], lengths[1]), lengths[1]);
+    EXPECT_EQ("obj0value", string(reinterpret_cast<const char*>(
+                            objRead1.getValue()), 9));
+
+    // Indexed read on key1 of obj0, with firstKey < key < lastKey,
+    // with corner case string patterns for firstKey and lastKey.
+    service->objectManager.readObjectsByHash(
+                tableId, 1, Key::getHash(tableId, "obj0key0", 8),
+                "obj0", 8, "obj0key1111", 8,
+                &numObjects, &outBuffer, &lengths, &versions);
+
+    EXPECT_EQ(1U, numObjects);
+    EXPECT_EQ(1U, versions[2]);
+    ObjectBuffer objRead2;
+    objRead2.append(outBuffer.getRange(lengths[1], lengths[2]), lengths[2]);
+    EXPECT_EQ("obj0value", string(reinterpret_cast<const char*>(
+                            objRead2.getValue()), 9));
+}
+
 TEST_F(MasterServiceTest, read_basics) {
     ramcloud->write(1, "0", 1, "abcdef", 6);
     Buffer value;

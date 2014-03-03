@@ -18,8 +18,7 @@
 
 #include "Buffer.h"
 #include "Common.h"
-#include "Key.h"
-#include "Status.h"
+#include "ObjectManager.h"
 
 namespace RAMCloud {
 
@@ -36,17 +35,18 @@ namespace RAMCloud {
 class IndexManager {
 
   public:
-    explicit IndexManager(Context* context);
+    explicit IndexManager(Context* context, ObjectManager* objectManager);
     virtual ~IndexManager();
 
     Status initIndexlet(uint64_t tableId, uint8_t indexId,
                         const void* firstKeyStr, KeyLength firstKeyLength,
                         const void* lastKeyStr, KeyLength lastKeyLength);
     Status dropIndexlet(uint64_t tableId, uint8_t indexId);
-    Status indexedRead(uint64_t tableId, uint8_t indexId, uint64_t pKHash,
-                       const void* firstKeyStr, KeyLength firstKeyLength,
-                       const void* lastKeyStr, KeyLength lastKeyLength,
-                       Buffer* outBuffer, uint64_t* outVersion);
+    bool indexedRead(uint64_t tableId, uint8_t indexId, uint64_t pKHash,
+                     const void* firstKeyStr, KeyLength firstKeyLength,
+                     const void* lastKeyStr, KeyLength lastKeyLength,
+                     uint32_t* numObjects, Buffer* outBuffer,
+                     vector<uint32_t>* lengths, vector<uint64_t>* versions);
     Status insertEntry(uint64_t tableId, uint8_t indexId,
                        const void* keyStr, KeyLength keyLength,
                        uint64_t pKHash);
@@ -62,6 +62,12 @@ class IndexManager {
   private:
     /// Shared RAMCloud information.
     Context* context;
+
+    /**
+     * The ObjectManager class that is responsible for object storage for this
+     * master server.
+     */
+    ObjectManager* objectManager;
 
     DISALLOW_COPY_AND_ASSIGN(IndexManager);
 };

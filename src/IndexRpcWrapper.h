@@ -41,7 +41,7 @@ class IndexRpcWrapper : public RpcWrapper {
             const void* firstKey, uint16_t firstKeyLength,
             const void* lastKey, uint16_t lastKeyLength,
             uint32_t responseHeaderLength,
-            uint32_t* totalCount, Buffer* totalResponse);
+            uint32_t* totalNumHashes, Buffer* totalResponse);
 
     /**
      * Destructor for IndexRpcWrapper.
@@ -65,7 +65,7 @@ class IndexRpcWrapper : public RpcWrapper {
     uint16_t nextKeyLength;
     const void* lastKey;
     uint16_t lastKeyLength;
-    uint32_t* totalCount;
+    uint32_t* totalNumHashes;
     Buffer* totalResponse;
 
 

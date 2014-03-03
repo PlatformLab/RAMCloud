@@ -735,9 +735,10 @@ struct IndexedRead {
         // not a range query.
         uint64_t tableId;
         uint8_t indexId;                // Id of the index for lookup.
-        uint32_t count;                 // Number of objects to be read.
         uint16_t firstKeyLength;        // Length of first key in bytes.
         uint16_t lastKeyLength;         // Length of last key in bytes.
+        uint32_t numHashes;             // Number of key hashes being sent
+                                        // to be read.
         // In buffer: The actual first key and last key go here.
         // In buffer: Key hashes for primary key for objects to be read go here.
     } __attribute__((packed));
@@ -747,16 +748,15 @@ struct IndexedRead {
         // here since there is a separate status for each object returned.
         // Included here to fulfill requirements in common code.
         ResponseCommon common;
-        uint32_t count;                 // Number of objects read, which is
+        uint32_t numObjects;            // Number of objects read, which is
                                         // the number of parts.
                                         // Same as reqHdr count.
         struct Part {
-            Status status;
             /// Version of the object.
             uint64_t version;
             /// Length of the object data following this struct.
             uint32_t length;
-            // In buffer: Object data goes here. Object data is
+            // In buffer: Object keys and value goes here. This is
             // a variable number of bytes (depending on data size.)
         } __attribute__((packed));
     } __attribute__((packed));
@@ -824,8 +824,7 @@ struct LookupIndexKeys {
 
     struct Response {
         ResponseCommon common;
-        uint32_t count;         // Number of objects for which primary key
-                                // hashes are being returned in this response.
+        uint32_t numHashes;     // Number of primary key hashes being returned.
         uint16_t nextKeyLength;
         // In buffer: Actual bytes for the next key (if any) for which
         // the client should send another lookup request goes here.
