@@ -21,7 +21,7 @@
 #include "Log.h"
 #include "LogCleaner.h"
 #include "HashTable.h"
-#include "IndexManager.h"
+#include "IndexletManager.h"
 #include "MasterTableMetadata.h"
 #include "Object.h"
 #include "ObjectFinder.h"
@@ -182,9 +182,9 @@ class MasterService : public Service {
     Atomic<int> disableCount;
 
     /**
-     * The IndexManger class that is responsible for index storage.
+     * The IndexletManger class that is responsible for index storage.
      */
-    IndexManager indexManager;
+    IndexletManager indexletManager;
 
     /**
      * Used to ensure that init() is invoked before the dispatcher runs.

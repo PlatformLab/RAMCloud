@@ -20,6 +20,7 @@
 
 #include "Common.h"
 #include "HashTable.h"
+#include "ObjectManager.h"
 #include "SpinLock.h"
 
 namespace RAMCloud {
@@ -31,9 +32,15 @@ namespace RAMCloud {
  *
  * The coordinator invokes most of these functions to manage the metadata.
  * 
- * This class has no information about the actual entries in the index
- * (and does not interface with ObjectManager or index tree code).
+ * It is responsible for storing index entries in an index server for each
+ * indexlet it owns.
+ * This class interfaces with ObjectManager and index tree code to manage
+ * index entries.
+ * 
+ * Note: Every master server is also an index server for some partition
+ * of some index (independent from data partition located on that master).
  */
+
 class IndexletManager {
   PUBLIC:
 
@@ -65,8 +72,10 @@ class IndexletManager {
         const void *lastKey; //TODO(ashgup): change this to buffer
     };
 
-    IndexletManager();
+    IndexletManager(Context* context, ObjectManager* objectManager);
+    virtual ~IndexletManager();
 
+    /////////////////////////// Meta-data related functions //////////////////
     // Modify function signature as required. This is just an approximation.
     bool addIndexlet(uint64_t tableId, uint8_t indexId,
                      uint16_t firstKeyLength, const void *firstKey,
@@ -81,10 +90,41 @@ class IndexletManager {
                      uint16_t lastKeyLength, const void *lastKey,
                      Indexlet* outIndexlet = NULL);
 
+    /////////////////////////// Index data related functions //////////////////
+
+    void initIndexlet(uint64_t tableId, uint8_t indexId,
+                      const void* firstKeyStr, KeyLength firstKeyLength,
+                      const void* lastKeyStr, KeyLength lastKeyLength);
+    void deleteIndexletEntries(uint64_t tableId, uint8_t indexId);
+
+    bool indexedRead(uint64_t tableId, uint8_t indexId, uint64_t pKHash,
+                     const void* firstKeyStr, KeyLength firstKeyLength,
+                     const void* lastKeyStr, KeyLength lastKeyLength,
+                     uint32_t* numObjects, Buffer* outBuffer,
+                     vector<uint32_t>* lengths, vector<uint64_t>* versions);
+    Status insertEntry(uint64_t tableId, uint8_t indexId,
+                       const void* keyStr, KeyLength keyLength,
+                       uint64_t pKHash);
+    Status lookupIndexKeys(uint64_t tableId, uint8_t indexId,
+                           const void* firstKeyStr, KeyLength firstKeyLength,
+                           const void* lastKeyStr, KeyLength lastKeyLength,
+                           uint32_t* count, Buffer* outBuffer);
+    Status removeEntry(uint64_t tableId, uint8_t indexId,
+                       const void* keyStr, KeyLength keyLength,
+                       uint64_t pKHash);
+
   PRIVATE:
     /**
      * Shared RAMCloud information.
      */
+    Context* context;
+
+    /**
+     * The ObjectManager class that is responsible for object storage for this
+     * master server.
+     */
+    ObjectManager* objectManager;
+
     typedef boost::unordered_multimap< std::pair<uint64_t, uint8_t>,
                                        Indexlet> IndexletMap;
 

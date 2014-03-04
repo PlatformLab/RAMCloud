@@ -967,7 +967,7 @@ TEST_F(MasterServiceTest, prepForMigration) {
 TEST_F(MasterServiceTest, indexedRead) {
     // TODO(ankitak): This probably needs to be split up into tests for
     // MasterService (after implementing client side in RamCloud), and
-    // IndexManager/ObjectManager.
+    // IndexletManager/ObjectManager.
 
     // TODO(ankitak): Later: Also need to test the case where multiple objs
     // have same pkhash and their search key falls in the provided range.

@@ -74,8 +74,8 @@ MasterService::MasterService(Context* context,
     : context(context)
     , config(config)
     , disableCount(0)
-    , indexManager(context,
-                   &objectManager)
+    , indexletManager(context,
+                      &objectManager)
     , initCalled(false)
     , logEverSynced(false)
     , masterTableMetadata()
@@ -570,7 +570,7 @@ MasterService::indexedRead(
         Buffer objsBuffer;
         vector<uint32_t> lengths;
         vector<uint64_t> versions;
-        bool isOkayToContinue = indexManager.indexedRead(
+        bool isOkayToContinue = indexletManager.indexedRead(
                         reqHdr->tableId, reqHdr->indexId, currentKeyHash,
                         firstKeyStr, reqHdr->firstKeyLength,
                         lastKeyStr, reqHdr->lastKeyLength,
@@ -654,7 +654,7 @@ MasterService::insertIndexEntry(
         Rpc* rpc)
 {
     // TODO(ankitak): Currently a stub. Implement.
-    // Will invoke indexManager.insertEntry();
+    // Will invoke indexletManager.insertEntry();
 }
 
 /**
@@ -708,10 +708,10 @@ MasterService::lookupIndexKeys(
     uint32_t numHashes;
     Buffer buffer;
     respHdr->common.status =
-            indexManager.lookupIndexKeys(reqHdr->tableId, reqHdr->indexId,
-                                         firstKeyStr, reqHdr->firstKeyLength,
-                                         lastKeyStr, reqHdr->lastKeyLength,
-                                         &numHashes, &buffer);
+            indexletManager.lookupIndexKeys(reqHdr->tableId, reqHdr->indexId,
+                                            firstKeyStr, reqHdr->firstKeyLength,
+                                            lastKeyStr, reqHdr->lastKeyLength,
+                                            &numHashes, &buffer);
     if (respHdr->common.status != STATUS_OK)
         return;
 
@@ -1440,7 +1440,7 @@ MasterService::removeIndexEntry(
         Rpc* rpc)
 {
     // TODO(ankitak): Currently a stub. Implement.
-    // Will invoke indexManager.removeEntry();
+    // Will invoke indexletManager.removeEntry();
 }
 
 /**
