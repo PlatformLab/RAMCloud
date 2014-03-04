@@ -653,8 +653,12 @@ MasterService::insertIndexEntry(
         WireFormat::InsertIndexEntry::Response* respHdr,
         Rpc* rpc)
 {
-    // TODO(ankitak): Currently a stub. Implement.
-    // Will invoke indexletManager.insertEntry();
+    uint32_t reqOffset = sizeof32(*reqHdr);
+    const void* indexKeyStr =
+            rpc->requestPayload->getRange(reqOffset, reqHdr->indexKeyLength);
+    indexletManager.insertEntry(reqHdr->tableId, reqHdr->indexId,
+                                indexKeyStr, reqHdr->indexKeyLength,
+                                reqHdr->primaryKeyHash);
 }
 
 /**
@@ -1439,8 +1443,12 @@ MasterService::removeIndexEntry(
         WireFormat::RemoveIndexEntry::Response* respHdr,
         Rpc* rpc)
 {
-    // TODO(ankitak): Currently a stub. Implement.
-    // Will invoke indexletManager.removeEntry();
+    uint32_t reqOffset = sizeof32(*reqHdr);
+    const void* indexKeyStr =
+            rpc->requestPayload->getRange(reqOffset, reqHdr->indexKeyLength);
+    indexletManager.removeEntry(reqHdr->tableId, reqHdr->indexId,
+                                indexKeyStr, reqHdr->indexKeyLength,
+                                reqHdr->primaryKeyHash);
 }
 
 /**
@@ -1645,6 +1653,7 @@ MasterService::requestInsertIndexEntries(
             // TODO(ankitak): Uncomment this after implementation done.
 //            MasterClient::insertIndexEntry(
 //                    context, indexletServerIds[keyIndex],
+//                    tableId, keyIndex,
 //                    keyStrs[keyIndex], keyLengths[keyIndex],
 //                    primaryKeyHash);
         }
@@ -1682,6 +1691,7 @@ MasterService::requestRemoveIndexEntries(
             // TODO(ankitak): Uncomment this after implementation done.
 //            MasterClient::removeIndexEntry(
 //                    context, indexletServerIds[keyIndex],
+//                    tableId, keyIndex,
 //                    keyStrs[keyIndex], keyLengths[keyIndex],
 //                    primaryKeyHash);
         }

@@ -766,12 +766,16 @@ struct IndexedRead {
  * Used by a master to ask an index server to insert an index entry
  * for the data this master is currently writing.
  */
-// TODO(ankitak): Currently a stub. Implement.
 struct InsertIndexEntry {
     static const Opcode opcode = INSERT_INDEX_ENTRY;
     static const ServiceType service = MASTER_SERVICE;
     struct Request {
-        RequestCommon common;
+        RequestCommonWithId common;
+        uint64_t tableId;
+        uint8_t indexId;
+        uint16_t indexKeyLength;
+        uint64_t primaryKeyHash;
+        // In buffer: Actual bytes of the index key goes here.
     } __attribute__((packed));
     struct Response {
         ResponseCommon common;
@@ -1169,12 +1173,16 @@ struct Remove {
  * Used by a master to ask an index server to remove an index entry
  * for the data this master is removing (or has removed in the past).
  */
-// TODO(ankitak): Currently a stub. Implement.
 struct RemoveIndexEntry {
     static const Opcode opcode = REMOVE_INDEX_ENTRY;
     static const ServiceType service = MASTER_SERVICE;
     struct Request {
-        RequestCommon common;
+        RequestCommonWithId common;
+        uint64_t tableId;
+        uint8_t indexId;
+        uint16_t indexKeyLength;
+        uint64_t primaryKeyHash;
+        // In buffer: Actual bytes of the index key go here.
     } __attribute__((packed));
     struct Response {
         ResponseCommon common;

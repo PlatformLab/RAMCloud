@@ -43,6 +43,7 @@ class MasterClient {
             uint64_t tableId, uint64_t firstKeyHash, uint64_t lastKeyHash);
     static Log::Position getHeadOfLog(Context* context, ServerId serverId);
     static void insertIndexEntry(Context* context, ServerId serverId,
+            uint64_t tableId, uint8_t indexId,
             const void* indexKeyStr, KeyLength indexKeyLength,
             uint64_t primaryKeyHash);
     static bool isReplicaNeeded(Context* context, ServerId serverId,
@@ -58,6 +59,7 @@ class MasterClient {
     static void receiveMigrationData(Context* context, ServerId serverId,
             uint64_t tableId, uint64_t firstKeyHash, Segment* segment);
     static void removeIndexEntry(Context* context, ServerId serverId,
+            uint64_t tableId, uint8_t indexId,
             const void* indexKeyStr, KeyLength indexKeyLength,
             uint64_t primaryKeyHash);
     static void splitMasterTablet(Context* context, ServerId serverId,
@@ -106,6 +108,7 @@ class GetHeadOfLogRpc : public ServerIdRpcWrapper {
 class InsertIndexEntryRpc : public ServerIdRpcWrapper {
   public:
     InsertIndexEntryRpc(Context* context, ServerId serverId,
+                        uint64_t tableId, uint8_t indexId,
                         const void* indexKeyStr, KeyLength indexKeyLength,
                         uint64_t primaryKeyHash);
     ~InsertIndexEntryRpc() {}
@@ -189,6 +192,7 @@ class RecoverRpc : public ServerIdRpcWrapper {
 class RemoveIndexEntryRpc : public ServerIdRpcWrapper {
   public:
     RemoveIndexEntryRpc(Context* context, ServerId serverId,
+                        uint64_t tableId, uint8_t indexId,
                         const void* indexKeyStr, KeyLength indexKeyLength,
                         uint64_t primaryKeyHash);
     ~RemoveIndexEntryRpc() {}

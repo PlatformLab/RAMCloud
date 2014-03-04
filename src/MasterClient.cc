@@ -157,6 +157,10 @@ GetHeadOfLogRpc::wait()
  *      Overall information about this RAMCloud server or client.
  * \param serverId
  *      Identifier for the index server.
+ * \param tableId
+ *      Id of the table containing the object that the index entry points to.
+ * \param indexId
+ *      Id of the index to which this index key belongs to.
  * \param indexKeyStr
  *      Blob of index key for which the entry is to be inserted.
  * \param indexKeyLength
@@ -166,11 +170,13 @@ GetHeadOfLogRpc::wait()
  *      maps to.
  */
 void
-MasterClient::insertIndexEntry(Context* context, ServerId serverId,
+MasterClient::insertIndexEntry(
+        Context* context, ServerId serverId,
+        uint64_t tableId, uint8_t indexId,
         const void* indexKeyStr, KeyLength indexKeyLength,
         uint64_t primaryKeyHash)
 {
-    InsertIndexEntryRpc rpc(context, serverId,
+    InsertIndexEntryRpc rpc(context, serverId, tableId, indexId,
         indexKeyStr, indexKeyLength, primaryKeyHash);
     rpc.wait();
 }
@@ -184,12 +190,20 @@ MasterClient::insertIndexEntry(Context* context, ServerId serverId,
  */
 InsertIndexEntryRpc::InsertIndexEntryRpc(
         Context* context, ServerId serverId,
+        uint64_t tableId, uint8_t indexId,
         const void* indexKeyStr, KeyLength indexKeyLength,
         uint64_t primaryKeyHash)
     : ServerIdRpcWrapper(context, serverId,
                          sizeof(WireFormat::InsertIndexEntry::Response))
 {
-        // TODO(ankitak): Currently a stub. Implement.
+    WireFormat::InsertIndexEntry::Request* reqHdr(
+            allocHeader<WireFormat::InsertIndexEntry>(serverId));
+    reqHdr->tableId = tableId;
+    reqHdr->indexId = indexId;
+    reqHdr->indexKeyLength = indexKeyLength;
+    reqHdr->primaryKeyHash = primaryKeyHash;
+    request.append(indexKeyStr, indexKeyLength);
+    send();
 }
 
 /**
@@ -499,6 +513,10 @@ RecoverRpc::RecoverRpc(Context* context, ServerId serverId,
  *      Overall information about this RAMCloud server or client.
  * \param serverId
  *      Identifier for the index server.
+ * \param tableId
+ *      Id of the table containing the object that the index entry points to.
+ * \param indexId
+ *      Id of the index to which this index key belongs to.
  * \param indexKeyStr
  *      Blob of index key for which the entry is to be removed.
  * \param indexKeyLength
@@ -509,11 +527,12 @@ RecoverRpc::RecoverRpc(Context* context, ServerId serverId,
  */
 void
 MasterClient::removeIndexEntry(Context* context, ServerId serverId,
+        uint64_t tableId, uint8_t indexId,
         const void* indexKeyStr, KeyLength indexKeyLength,
         uint64_t primaryKeyHash)
 {
-    RemoveIndexEntryRpc rpc(context, serverId, indexKeyStr, indexKeyLength,
-                            primaryKeyHash);
+    RemoveIndexEntryRpc rpc(context, serverId, tableId, indexId,
+                            indexKeyStr, indexKeyLength, primaryKeyHash);
     rpc.wait();
 }
 
@@ -526,12 +545,20 @@ MasterClient::removeIndexEntry(Context* context, ServerId serverId,
  */
 RemoveIndexEntryRpc::RemoveIndexEntryRpc(
         Context* context, ServerId serverId,
+        uint64_t tableId, uint8_t indexId,
         const void* indexKeyStr, KeyLength indexKeyLength,
         uint64_t primaryKeyHash)
     : ServerIdRpcWrapper(context, serverId,
                 sizeof(WireFormat::RemoveIndexEntry::Response))
 {
-    // TODO(ankitak): Currently a stub. Implement.
+    WireFormat::RemoveIndexEntry::Request* reqHdr(
+            allocHeader<WireFormat::RemoveIndexEntry>(serverId));
+    reqHdr->tableId = tableId;
+    reqHdr->indexId = indexId;
+    reqHdr->indexKeyLength = indexKeyLength;
+    reqHdr->primaryKeyHash = primaryKeyHash;
+    request.append(indexKeyStr, indexKeyLength);
+    send();
 }
 
 /**
