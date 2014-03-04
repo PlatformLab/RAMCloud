@@ -22,6 +22,8 @@
 namespace RAMCloud {
 class RamCloud;
 
+// TODO(ankitak): This class needs unit testing!
+
 /**
  * IndexRpcWrapper manages the client side of RPCs that must be sent to
  * server or servers that store a particular index key or index key range.

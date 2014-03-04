@@ -420,7 +420,6 @@ ObjectManager::readObjectsByHash(
         uint16_t keyLength;
         const void* keyStr = object.getKey(indexId, &keyLength);
 
-        // TODO(ankitak): May have to resort to memcmp if bcmp doesn't work.
         int firstKeyCmp =
                 bcmp(firstKeyStr, keyStr, std::min(firstKeyLength, keyLength));
         int lastKeyCmp =

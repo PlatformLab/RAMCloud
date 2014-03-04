@@ -285,17 +285,23 @@ ObjectFinder::lookup(uint64_t tableId, uint8_t indexId,
  *      Blob corresponding to the key.
  * \param keyLength
  *      Length of key.
+ * 
+ * \param[out] serverId
+ *      Return the ServerId of the server holding the indexlet
+ *      containing this index key.
  * \return
- *      ServerId of the server holding the indexlet containing this index key.
+ *      Value of true indicates that this indexlet was found and the server id
+ *      of the server owning it is being returned. False otherwise.
  * 
  * TODO(ashgup): Add doc about exception that this can throw.
  */
-ServerId
+bool
 ObjectFinder::lookupServerId(uint64_t tableId, uint8_t indexId,
-                             const void* key, uint16_t keyLength)
+                             const void* key, uint16_t keyLength,
+                             ServerId* serverId)
 {
     // TODO(ashgup): Implement. Currently a stub.
-    return ServerId(0, 0);
+    return false;
 }
 
 /**

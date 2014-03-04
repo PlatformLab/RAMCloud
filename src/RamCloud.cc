@@ -1068,7 +1068,6 @@ RamCloud::lookupIndexKeys(uint64_t tableId, uint8_t indexId,
                           const void* lastKey, uint16_t lastKeyLength,
                           uint32_t* count, Buffer* pKHashes)
 {
-    // TODO(ankitak): Currently a stub. Implement.
     LookupIndexKeysRpc rpc(this, tableId, indexId,
                            firstKey, firstKeyLength,
                            lastKey, lastKeyLength,
@@ -1077,9 +1076,9 @@ RamCloud::lookupIndexKeys(uint64_t tableId, uint8_t indexId,
 }
 
 /**
- * Constructor for LookupIndexKeysRpc: initiates an RPC in the same way as
- * #RamCloud::LookupIndexKeysRpc, but returns once the RPC has been initiated,
- * without waiting for it to complete.
+ * Constructor for LookupIndexKeysRpc: initiates RPCs in the same way as
+ * #RamCloud::LookupIndexKeysRpc, but returns once the first RPC has been
+ * initiated, without waiting for all to complete.
  *
  * \param ramcloud
  *      The RAMCloud object that governs this RPC.
@@ -1124,7 +1123,6 @@ LookupIndexKeysRpc::LookupIndexKeysRpc(
                       sizeof(WireFormat::LookupIndexKeys::Response),
                       count, pKHashes)
 {
-    // TODO(ankitak): Currently a stub. Implement.
     WireFormat::LookupIndexKeys::Request* reqHdr(
             allocHeader<WireFormat::LookupIndexKeys>());
     reqHdr->tableId = tableId;

@@ -77,8 +77,9 @@ class ObjectFinder {
 
     Transport::SessionRef lookup(uint64_t tableId, uint8_t indexId,
                                  const void* key, uint16_t keyLength);
-    ServerId lookupServerId(uint64_t tableId, uint8_t indexId,
-                            const void* key, uint16_t keyLength);
+    bool lookupServerId(uint64_t tableId, uint8_t indexId,
+                        const void* key, uint16_t keyLength,
+                        ServerId* serverId);
 
     void flush(uint64_t tableId);
     void flushSession(uint64_t tableId, KeyHash keyHash);

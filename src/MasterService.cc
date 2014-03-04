@@ -656,7 +656,8 @@ MasterService::insertIndexEntry(
     uint32_t reqOffset = sizeof32(*reqHdr);
     const void* indexKeyStr =
             rpc->requestPayload->getRange(reqOffset, reqHdr->indexKeyLength);
-    indexletManager.insertEntry(reqHdr->tableId, reqHdr->indexId,
+    respHdr->common.status = indexletManager.insertEntry(
+                                reqHdr->tableId, reqHdr->indexId,
                                 indexKeyStr, reqHdr->indexKeyLength,
                                 reqHdr->primaryKeyHash);
 }
@@ -1446,7 +1447,8 @@ MasterService::removeIndexEntry(
     uint32_t reqOffset = sizeof32(*reqHdr);
     const void* indexKeyStr =
             rpc->requestPayload->getRange(reqOffset, reqHdr->indexKeyLength);
-    indexletManager.removeEntry(reqHdr->tableId, reqHdr->indexId,
+    respHdr->common.status = indexletManager.removeEntry(
+                                reqHdr->tableId, reqHdr->indexId,
                                 indexKeyStr, reqHdr->indexKeyLength,
                                 reqHdr->primaryKeyHash);
 }
@@ -1648,19 +1650,20 @@ MasterService::requestInsertIndexEntries(
 
         for (KeyCount keyIndex = 1; keyIndex <= keyCount; keyIndex++) {
             keyStrs[keyIndex] = object.getKey(keyIndex, &keyLengths[keyIndex]);
-            indexletServerIds[keyIndex] = objectFinder.lookupServerId(
-                    tableId, keyIndex, keyStrs[keyIndex], keyLengths[keyIndex]);
-            // TODO(ankitak): Uncomment this after implementation done.
-//            MasterClient::insertIndexEntry(
-//                    context, indexletServerIds[keyIndex],
-//                    tableId, keyIndex,
-//                    keyStrs[keyIndex], keyLengths[keyIndex],
-//                    primaryKeyHash);
+            bool indexletExists = objectFinder.lookupServerId(
+                    tableId, keyIndex, keyStrs[keyIndex], keyLengths[keyIndex],
+                    &indexletServerIds[keyIndex]);
+            if (indexletExists) {
+                MasterClient::insertIndexEntry(
+                        context, indexletServerIds[keyIndex],
+                        tableId, keyIndex,
+                        keyStrs[keyIndex], keyLengths[keyIndex],
+                        primaryKeyHash);
+            }
         }
     }
 }
 
-// TODO(ankitak): Implement smarter GC if >1 objs have same pkhash & index key.
 /**
  * Helper function to be used by remove methods in this class to send request
  * for removing corresponding index entries to index servers.
@@ -1686,14 +1689,16 @@ MasterService::requestRemoveIndexEntries(
 
         for (KeyCount keyIndex = 1; keyIndex <= keyCount; keyIndex++) {
             keyStrs[keyIndex] = object.getKey(keyIndex, &keyLengths[keyIndex]);
-            indexletServerIds[keyIndex] = objectFinder.lookupServerId(
-                    tableId, keyIndex, keyStrs[keyIndex], keyLengths[keyIndex]);
-            // TODO(ankitak): Uncomment this after implementation done.
-//            MasterClient::removeIndexEntry(
-//                    context, indexletServerIds[keyIndex],
-//                    tableId, keyIndex,
-//                    keyStrs[keyIndex], keyLengths[keyIndex],
-//                    primaryKeyHash);
+            bool indexletExists = objectFinder.lookupServerId(
+                    tableId, keyIndex, keyStrs[keyIndex], keyLengths[keyIndex],
+                    &indexletServerIds[keyIndex]);
+            if (indexletExists) {
+                MasterClient::removeIndexEntry(
+                        context, indexletServerIds[keyIndex],
+                        tableId, keyIndex,
+                        keyStrs[keyIndex], keyLengths[keyIndex],
+                        primaryKeyHash);
+            }
         }
     }
 }

@@ -67,7 +67,7 @@ IndexRpcWrapper::IndexRpcWrapper(
             uint32_t responseHeaderLength,
             uint32_t* totalNumHashes, Buffer* totalResponse)
     : RpcWrapper(responseHeaderLength) // Use defaultResponse buffer for
-                                      // individual rpcs to the masters.
+                                       // individual rpcs to the masters.
     , ramcloud(ramcloud)
     , tableId(tableId)
     , indexId(indexId)
