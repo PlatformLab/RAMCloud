@@ -544,7 +544,7 @@ MasterService::indexedRead(
         WireFormat::IndexedRead::Response* respHdr,
         Rpc* rpc)
 {
-    uint32_t numRequests = reqHdr->numHashes;
+    uint32_t numHashesRequest = reqHdr->numHashes;
     uint32_t reqOffset = sizeof32(*reqHdr);
 
     const void* firstKeyStr =
@@ -555,15 +555,16 @@ MasterService::indexedRead(
             rpc->requestPayload->getRange(reqOffset, reqHdr->lastKeyLength);
     reqOffset+=reqHdr->lastKeyLength;
 
+    respHdr->numHashes = 0;
     respHdr->numObjects = 0;
     uint32_t oldResponseLength = rpc->replyPayload->getTotalLength();
     uint32_t currentLength = oldResponseLength;
 
     // Each iteration extracts one request from request rpc, finds the
     // corresponding object(s), and appends the response to the response rpc.
-    for (uint32_t i = 0; i < numRequests; i++) {
-        uint64_t currentKeyHash;
-        rpc->requestPayload->copy(reqOffset, 8, &currentKeyHash);
+    for (uint32_t i = 0; i < numHashesRequest; i++) {
+        uint64_t currentKeyHash =
+                *rpc->requestPayload->getOffset<uint64_t>(reqOffset);
         reqOffset += 8;
 
         uint32_t partNumObjects;
@@ -605,6 +606,7 @@ MasterService::indexedRead(
             break;
         } else {
             currentLength = newLength;
+            respHdr->numHashes += 1;
             respHdr->numObjects += partNumObjects;
         }
 

@@ -748,9 +748,11 @@ struct IndexedRead {
         // here since there is a separate status for each object returned.
         // Included here to fulfill requirements in common code.
         ResponseCommon common;
-        uint32_t numObjects;            // Number of objects read, which is
-                                        // the number of parts.
-                                        // Same as reqHdr count.
+        uint32_t numHashes;             // Number of key hashes for which
+                                        // objects are being returned or
+                                        // do not exist.
+        uint32_t numObjects;            // Number of objects being returned.
+
         struct Part {
             /// Version of the object.
             uint64_t version;

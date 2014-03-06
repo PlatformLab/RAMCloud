@@ -80,11 +80,11 @@ class RamCloud {
     int64_t increment(uint64_t tableId, const void* key, uint16_t keyLength,
             int64_t incrementValue, const RejectRules* rejectRules = NULL,
             uint64_t* version = NULL);
-    void indexedRead(uint64_t tableId, uint32_t count,
+    uint32_t indexedRead(uint64_t tableId, uint32_t numHashes,
             Buffer* pKHashes, uint8_t indexId,
             const void* firstKey, uint16_t firstKeyLength,
             const void* lastKey, uint16_t lastKeyLength,
-            MultiReadObject* responses[]);
+            Buffer* response);
     void lookupIndexKeys(uint64_t tableId, uint8_t indexId,
             const void* firstKey, uint16_t firstKeyLength,
             const void* lastKey, uint16_t lastKeyLength,
@@ -359,12 +359,13 @@ class IncrementRpc : public ObjectRpcWrapper {
 class IndexedReadRpc : public ObjectRpcWrapper {
   public:
     IndexedReadRpc(RamCloud* ramcloud, uint64_t tableId,
-                   uint32_t count, Buffer* pKHashes, uint8_t indexId,
+                   uint32_t numHashes, Buffer* pKHashes, uint8_t indexId,
                    const void* firstKey, uint16_t firstKeyLength,
-                   const void* lastKey, uint16_t lastKeyLength);
+                   const void* lastKey, uint16_t lastKeyLength,
+                   Buffer* response);
     ~IndexedReadRpc() {}
     /// \copydoc RpcWrapper::docForWait
-    void wait(MultiReadObject* responses[]);
+    uint32_t wait();
 
   PRIVATE:
     DISALLOW_COPY_AND_ASSIGN(IndexedReadRpc);

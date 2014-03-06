@@ -31,8 +31,6 @@ namespace RAMCloud {
  * \param firstKey
  *      Starting key for the key range in which keys are to be matched.
  *      The key range includes the firstKey.
- *      If it is a point lookup instead of range search, the keys will
- *      only be matched on the firstKey.
  *      It does not necessarily have to be null terminated.  The caller must
  *      ensure that the storage for this key is unchanged through the life of
  *      the RPC.
@@ -41,7 +39,6 @@ namespace RAMCloud {
  * \param lastKey
  *      Ending key for the key range in which keys are to be matched.
  *      The key range includes the lastKey.
- *      If NULL, then it is a point lookup instead of range search.
  *      It does not necessarily have to be null terminated.  The caller must
  *      ensure that the storage for this key is unchanged through the life of
  *      the RPC.

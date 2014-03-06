@@ -246,14 +246,11 @@ IndexletManager::insertEntry(uint64_t tableId, uint8_t indexId,
  * \param firstKeyStr
  *      Starting key blob for the key range in which keys are to be matched.
  *      The key range includes the firstKey.
- *      If it is a point lookup instead of range search, the keys will
- *      only be matched on the firstKey.
  * \param firstKeyLength
  *      Length of firstKeyStr.
  * \param lastKeyStr
  *      Ending key for the key range in which keys are to be matched.
  *      The key range includes the lastKey.
- *      If NULL, then it is a point lookup instead of range search.
  * \param lastKeyLength
  *      Length of lastKeyStr.
  * \param[out] count
