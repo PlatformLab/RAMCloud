@@ -953,7 +953,6 @@ TEST_F(OutboundMessageTest, send_nothingToSend) {
 }
 
 TEST_F(OutboundMessageTest, send_dueToTimeout) {
-    msg->useTimer = true;
     // this will get resent due to timeout
     msg->sentTimes[0] = tsc - msg->session->timeoutCycles - 1;
     // note that though this is ready to send it will not go out
@@ -1017,7 +1016,7 @@ TEST_F(OutboundMessageTest, processReceivedAck_noSendBuffer) {
 }
 
 TEST_F(OutboundMessageTest, processReceivedAck_packetTooShort) {
-    TestLog::Enable _;
+    TestLog::Enable _("processReceivedAck");
     msg->send();
     FastTransport::AckResponse ackResp(0, 0);
     MockReceived recvd(0, msg->totalFrags, &ackResp,
@@ -1030,7 +1029,7 @@ TEST_F(OutboundMessageTest, processReceivedAck_packetTooShort) {
 }
 
 TEST_F(OutboundMessageTest, processReceivedAck_ackPastMessageEnd) {
-    TestLog::Enable _;
+    TestLog::Enable _("processReceivedAck");
     msg->send();
     FastTransport::AckResponse ackResp(0, 0);
     ackResp.firstMissingFrag = 3;
@@ -1044,7 +1043,7 @@ TEST_F(OutboundMessageTest, processReceivedAck_ackPastMessageEnd) {
 }
 
 TEST_F(OutboundMessageTest, processReceivedAck_ackPastWindowEnd) {
-    TestLog::Enable _;
+    TestLog::Enable _("processReceivedAck");
     msg->send();
     msg->totalFrags = 50;
     FastTransport::AckResponse ackResp(0, 0);
@@ -1143,7 +1142,7 @@ TEST_F(OutboundMessageTest, sendOneData_requestAck) {
 }
 
 TEST_F(OutboundMessageTest, handleTimerEvent) {
-    TestLog::Enable _;
+    TestLog::Enable _("handleTimerEvent");
     // First call should just resend a packet.
     msg->useTimer = true;
     msg->sentTimes[0] = tsc - msg->session->timeoutCycles - 1;

@@ -471,7 +471,6 @@ FastTransport::InboundMessage::processReceivedData(Driver::Received* received)
     silentIntervals = 0;
     assert(received->len >= sizeof(Header));
     Header *header = reinterpret_cast<Header*>(received->payload);
-
     if (header->totalFrags != totalFrags) {
         // If the fragment header disagrees on the total length of the message
         // with the value set on init() the packet is ignored.
@@ -581,13 +580,14 @@ FastTransport::InboundMessage::Timer::handleTimerEvent()
     inboundMsg->silentIntervals++;
     if (inboundMsg->silentIntervals > MAX_SILENT_INTERVALS) {
         LOG(WARNING, "timeout waiting for response from server at %s",
-                inboundMsg->session->getServiceLocator().c_str());
+            inboundMsg->session->getServiceLocator().c_str());
         inboundMsg->session->abort();
     } else {
         // Note: silentIntervals == 1 isn't cause for concern, since we could
         // have received the latest packet just before this timer fired.
-        if (inboundMsg->silentIntervals > 1)
+        if (inboundMsg->silentIntervals > 1) {
             inboundMsg->sendAck();
+        }
         start(inboundMsg->transport->context->dispatch->currentTime +
               inboundMsg->session->timeoutCycles);
     }
@@ -731,18 +731,28 @@ FastTransport::OutboundMessage::send()
     for (uint32_t fragNumber = firstMissingFrag; fragNumber < stop;
             fragNumber++) {
         uint64_t sentTime = sentTimes[fragNumber];
-        // skip if ACKED or if already sent but not yet timed out
-        if ((sentTime == ACKED) ||
-            ((sentTime != 0) &&
-             (!useTimer || (sentTime + session->timeoutCycles >= now))))
+        // skip if ACKED
+        if (sentTime == ACKED)
             continue;
+        // if already sent but not yet timed out, we don't need to
+        // retransmit, so we continue to the next fragment.
+        if (sentTime != 0 && sentTime + session->timeoutCycles >= now)
+            continue;
+
         // isRetransmit if already sent and timed out (guaranteed by if above)
         bool isRetransmit = sentTime != 0;
         // requestAck if retransmit or haven't asked for ack in awhile
+        if (isRetransmit)
+            LOG(DEBUG,
+                "Retransmitting fragNumber %u, token: 0x%lx, channelId: %u"
+                , fragNumber, session->getToken(), channelId);
         bool requestAck = isRetransmit ||
             (packetsSinceAckReq == REQ_ACK_AFTER - 1);
         sendOneData(fragNumber, requestAck);
         sentTimes[fragNumber] = now;
+        if (!useTimer)
+            LOG(DEBUG, "Sending fragNumber %u, on channelId: %u, token: 0x%lx"
+                      , fragNumber, channelId, session->getToken());
         if (isRetransmit)
             break;
     }
@@ -795,8 +805,10 @@ bool
 FastTransport::OutboundMessage::processReceivedAck(Driver::Received* received)
 {
     silentIntervals = 0;
-    if (!sendBuffer)
+    if (!sendBuffer) {
+        LOG(NOTICE, "ack received but no data available to send");
         return false;
+    }
 
     if (received->len < sizeof(Header) + sizeof(AckResponse)) {
         LOG(WARNING, "ACK packet too short (%d bytes)", received->len);
@@ -817,6 +829,12 @@ FastTransport::OutboundMessage::processReceivedAck(Driver::Received* received)
             "of window %d)", ack->firstMissingFrag,
             firstMissingFrag + sentTimes.getLength());
     } else {
+        LOG(DEBUG, "Received ack on session: 0x%lx, channel: %u,"
+                    "firstMissingFrag: %u, sentTimes window advances for:"
+                    "%u",
+            session->getToken(), channelId, ack->firstMissingFrag,
+            ack->firstMissingFrag - firstMissingFrag);
+
         sentTimes.advance(ack->firstMissingFrag - firstMissingFrag);
         firstMissingFrag = ack->firstMissingFrag;
         numAcked = ack->firstMissingFrag;
@@ -824,6 +842,8 @@ FastTransport::OutboundMessage::processReceivedAck(Driver::Received* received)
             bool acked = (ack->stagingVector >> i) & 1;
             if (acked) {
                 sentTimes[firstMissingFrag + i + 1] = ACKED;
+                LOG(DEBUG, "Fragment %u acked after firstMissingFrag(%u)",
+                firstMissingFrag + i + 1, firstMissingFrag);
                 numAcked++;
             }
         }
@@ -857,10 +877,14 @@ FastTransport::OutboundMessage::sendOneData(uint32_t fragNumber,
                           dataPerFragment);
     transport->sendPacket(session->getAddress(), &header, &iter);
 
-    if (requestAck)
+    if (requestAck) {
+        LOG(DEBUG, "Server asking for an ack for packet fragNumber:"
+                   " %u, session token: 0x%lx "
+                  , fragNumber, session->getToken());
         packetsSinceAckReq = 0;
-    else
+    } else {
         packetsSinceAckReq++;
+    }
 }
 
 // -- OutboundMessage::Timer ---
@@ -923,6 +947,9 @@ FastTransport::ServerSession::ServerSession(FastTransport* transport,
 {
     for (uint32_t i = 0; i < NUM_CHANNELS_PER_SESSION; i++)
         channels[i].setup(transport, this, i);
+    timeoutCycles = Cycles::fromNanoseconds(1000000) * DEFAULT_TIMEOUT_MS/
+            MAX_SILENT_INTERVALS;
+
 }
 
 FastTransport::ServerSession::~ServerSession()
