@@ -93,20 +93,19 @@ IndexRpcWrapper::checkStatus()
         send();
         return false;
     }
-    // TODO(ankitak): In lookup code in index server, make sure that
-    // we return STATUS_OK when done, STATUS_FETCH_MORE along with next key
-    // to fetch, if there's more to fetch.
-    if (responseHeader->status == STATUS_FETCH_MORE) {
+
+    const WireFormat::LookupIndexKeys::Response* indexRespHdr =
+        static_cast<const WireFormat::LookupIndexKeys::Response*>(
+                response->getRange(0, responseHeaderLength));
+    nextKeyLength = indexRespHdr->nextKeyLength;
+
+    if (nextKeyLength != 0) {
         // The current rpc has successfully fetched values, but there are more
         // that need to be fetched.
         // Append received key hashes to the totalResponse, and
         // send the next rpc with the next key to fetch.
-        const WireFormat::LookupIndexKeys::Response* indexRespHdr =
-                static_cast<const WireFormat::LookupIndexKeys::Response*>(
-                        response->getRange(0, responseHeaderLength));
         uint32_t currentNumHashes = indexRespHdr->numHashes;
         totalNumHashes += currentNumHashes;
-        nextKeyLength = indexRespHdr->nextKeyLength;
         uint32_t respOffset = responseHeaderLength;
         nextKey = response->getRange(respOffset, nextKeyLength);
         respOffset += nextKeyLength;
@@ -137,6 +136,13 @@ IndexRpcWrapper::send()
 {
     session = ramcloud->objectFinder.lookup(tableId, indexId,
                                             nextKey, nextKeyLength);
+    if (session == NULL) {
+        // This index doesn't exist.
+        // We don't want to send or wait to receive response to this rpc.
+        // TODO(ankitak): Check callers to see if this will work.
+        state = CANCELED;
+        return;
+    }
     state = IN_PROGRESS;
     session->sendRequest(&request, response, this);
 }

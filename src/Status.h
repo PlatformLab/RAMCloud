@@ -114,11 +114,7 @@ typedef enum Status {
     /// thus could not be sent/carried out.
     STATUS_REQUEST_TOO_LARGE            = 27,
 
-    /// Indicates that the current rpc has been returned with valid response,
-    /// but this does not complete the request. The caller may have to send
-    /// another request to the same or another callee to fetch more data.
-    STATUS_FETCH_MORE                   = 28,
-    STATUS_MAX_VALUE                    = 28,
+    STATUS_MAX_VALUE                    = 27,
 
     // Note: if you add a new status value you must make the following
     // additional updates:

@@ -261,10 +261,10 @@ IndexletManager::lookup(uint64_t tableId, uint8_t indexId,
  */
 Status
 IndexletManager::insertEntry(uint64_t tableId, uint8_t indexId,
-                          const void* keyStr, KeyLength keyLength,
-                          uint64_t pKHash)
+                             const void* keyStr, KeyLength keyLength,
+                             uint64_t pKHash)
 {
-    // Currently a stub. Return STATUS_OK. TODO(ankitak)
+    // TODO(ankitak): Implement. Currently a stub.
     // look at BtreeTest to find the other variants. one example:
     // indexlet->bt.insert2("temp", 100);
     return Status(0);
@@ -299,12 +299,13 @@ IndexletManager::insertEntry(uint64_t tableId, uint8_t indexId,
  *      indicate different failures.
  */
 Status
-IndexletManager::lookupIndexKeys(uint64_t tableId, uint8_t indexId,
-                              const void* firstKeyStr, KeyLength firstKeyLength,
-                              const void* lastKeyStr, KeyLength lastKeyLength,
-                              uint32_t* count, Buffer* outBuffer)
+IndexletManager::lookupIndexKeys(
+            uint64_t tableId, uint8_t indexId,
+            const void* firstKeyStr, KeyLength firstKeyLength,
+            const void* lastKeyStr, KeyLength lastKeyLength,
+            uint32_t* count, Buffer* outBuffer)
 {
-    // Currently a stub. Return STATUS_OK. TODO(ankitak)
+    // TODO(ankitak): Implement. Currently a stub.
     return Status(0);
 }
 
@@ -327,19 +328,22 @@ IndexletManager::lookupIndexKeys(uint64_t tableId, uint8_t indexId,
  */
 Status
 IndexletManager::removeEntry(uint64_t tableId, uint8_t indexId,
-                          const void* keyStr, KeyLength keyLength,
-                          uint64_t pKHash)
+                             const void* keyStr, KeyLength keyLength,
+                             uint64_t pKHash)
 {
-    // Currently a stub. Return STATUS_OK. TODO(ankitak)
+    // TODO(ankitak): Implement. Currently a stub.
+
     // look at btree tests for other variants of erase
     // indexlet->bt.erase_one("temp");
     // printf("confirming erase...btree size:%d\n\n", indexlet->bt.size());
+    
+    // TODO(ankitak): Do careful GC if multiple objs have the same pKHash.
+
     return Status(0);
-    // TODO(ankitak): Later: Careful GC if multiple objs have the same pKHash.
 }
 
 /**
- * Compare the key corresponding to index id specified in keyRange
+ * Compare the object's key corresponding to index id specified in keyRange
  * with the first and last keys in keyRange.
  *
  * \param object

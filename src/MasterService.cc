@@ -739,6 +739,11 @@ MasterService::lookupIndexKeys(
     const void* lastKeyStr =
             rpc->requestPayload->getRange(reqOffset, reqHdr->lastKeyLength);
 
+    // TODO(ankitak): If there are more keys to fetch (maybe this server
+    // cannot fit everything in this rpc, or maybe this server doesn't
+    // own the rest), then also return next key to fetch.
+    // If there are no more to fetch, then set nextKeyLength to be 0.
+
     uint32_t numHashes;
     Buffer buffer;
     respHdr->common.status =
@@ -1085,8 +1090,6 @@ MasterService::multiRemove(const WireFormat::MultiOp::Request* reqHdr,
         Key key(currentReq->tableId, stringKey, currentReq->keyLength);
 
         // Fetch old object so that we can delete old index entries later.
-        // TODO(ankitak): Good indep task: Implement removeObject that returns
-        // old object. Then this additional step will not be needed.
         statuses[i] =
             objectManager.readObject(key, &objectBuffers[i], NULL, NULL, false);
         tableIds[i] = currentReq->tableId;
@@ -1106,7 +1109,6 @@ MasterService::multiRemove(const WireFormat::MultiOp::Request* reqHdr,
     // them to backups before returning to the caller.
     objectManager.syncChanges();
 
-    // TODO(ankitak): This should happen after returning to the client.
     // If any of the write parts overwrites, delete old index entries if any.
     for (uint32_t i = 0; i < numRequests; i++) {
         if (statuses[i] == STATUS_OK) {
@@ -1186,8 +1188,6 @@ MasterService::multiWrite(const WireFormat::MultiOp::Request* reqHdr,
         requestInsertIndexEntries(object, currentReq->tableId, key.getHash());
 
         // Fetch old object so that we can delete old index entries later.
-        // TODO(ankitak): Good indep task: Implement writeObject that returns
-        // old object. Then this additional step will not be needed.
         Status oldStatus =
                 objectManager.readObject(key, &oldObjectBuffers[i],
                                          NULL, NULL, false);
@@ -1211,7 +1211,6 @@ MasterService::multiWrite(const WireFormat::MultiOp::Request* reqHdr,
     // now to propagate them in bulk to backups.
     objectManager.syncChanges();
 
-    // TODO(ankitak): This should happen after returning to the client.
     // If any of the write parts overwrites, delete old index entries if any.
     for (uint32_t i = 0; i < numRequests; i++) {
         if (toRemove[i]) {
@@ -1442,8 +1441,6 @@ MasterService::remove(const WireFormat::Remove::Request* reqHdr,
     Key key(reqHdr->tableId, stringKey, reqHdr->keyLength);
 
     // Read object before removing so we can delete index entries later.
-    // TODO(ankitak): Good indep project: Have a version of removeObject
-    // return the object being removed. That eliminates this extra step.
     Buffer oldBuffer;
     Status oldObjectStatus =
             objectManager.readObject(key, &oldBuffer, NULL, NULL, false);
@@ -1455,7 +1452,6 @@ MasterService::remove(const WireFormat::Remove::Request* reqHdr,
     if (respHdr->common.status == STATUS_OK)
         objectManager.syncChanges();
 
-    // TODO(ankitak): This should happen after returning to the client.
     if (oldObjectStatus == STATUS_OK) {
         requestRemoveIndexEntries(oldBuffer, reqHdr->tableId, key.getHash());
     }
@@ -1664,8 +1660,6 @@ MasterService::write(const WireFormat::Write::Request* reqHdr,
                   sizeof32(*reqHdr));
 
     // Fetch old object so that we can delete old index entries later.
-    // TODO(ankitak): Good indep task: Implement new writeObject that returns
-    // old object. Then that can be used to get old index information if any.
     KeyLength primaryKeyLength;
     const void* primaryKeyStr = object.getKey(0, &primaryKeyLength);
     Key primaryKey(reqHdr->tableId, primaryKeyStr, primaryKeyLength);
@@ -1674,7 +1668,6 @@ MasterService::write(const WireFormat::Write::Request* reqHdr,
             objectManager.readObject(primaryKey, &oldObjectBuffer,
                                      NULL, NULL, false);
 
-    // TODO(ankitak): This should happen after returning to the client.
     // Insert new index entries, if any, before writing object.
     requestInsertIndexEntries(object, reqHdr->tableId, primaryKey.getHash());
 
@@ -1686,7 +1679,6 @@ MasterService::write(const WireFormat::Write::Request* reqHdr,
     if (respHdr->common.status == STATUS_OK)
         objectManager.syncChanges();
 
-    // TODO(ankitak): This should happen after returning to the client.
     // If this is a overwrite, delete old index entries if any.
     if (oldObjectStatus == STATUS_OK) {
         requestRemoveIndexEntries(oldObjectBuffer, reqHdr->tableId,
@@ -1694,7 +1686,7 @@ MasterService::write(const WireFormat::Write::Request* reqHdr,
     }
 }
 
-/**
+/*
  * TODO(ankitak): For both request insert and request remove:
  *
  * 1. Send rpcs through MasterClient asynchronously so we can first send for all
@@ -1708,6 +1700,11 @@ MasterService::write(const WireFormat::Write::Request* reqHdr,
  * 3. Calling functions currently read entire object and then call insert
  * or remove. They only need to read the keys. Can optimize by modifying that,
  * the functions called to read, and the functions below.
+ * 
+ * 4. In calling functions (write, remove, multiwrite, multiremove),
+ * use a different writeObject / removeObject that returns old object (that is
+ * being overwritten or removed), if any. This will simplify the calling
+ * functions by eliminating the extra step of reading the object first.
  */
 
 /**
@@ -1746,6 +1743,11 @@ MasterService::requestInsertIndexEntries(
         }
     }
 }
+
+/*
+ * TODO(ankitak): Calls to requestRemoveIndexEntries (from write, multiwrite,
+ * remove, multiremove) should happen after returning to the client.
+ */
 
 /**
  * Helper function to be used by remove methods in this class to send request

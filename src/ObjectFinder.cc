@@ -101,7 +101,7 @@ ObjectFinder::flush(uint64_t tableId) {
 
 /**
  * Return a string representation of all the table id's presented
- * at the tableMap at any given momement. Used mainly for debugging.
+ * at the tableMap at any given moment. Used mainly for debugging.
  *
  * \return 
  *      string
@@ -258,20 +258,25 @@ ObjectFinder::lookupTablet(uint64_t tableId, KeyHash keyHash)
  *      Length of key.
  * \return
  *      Session for communication with the server that has the indexlet.
- * 
- * TODO(ashgup): Add doc about exception that this can throw.
  */
 Transport::SessionRef
 ObjectFinder::lookup(uint64_t tableId, uint8_t indexId,
                      const void* key, uint16_t keyLength)
 {
     // TODO(ashgup): Implement. Currently a stub.
-    // While implementing, use vector's reserve function to reduce space
-    // allocation overheads.
+    /* Notes for ashgup by ankitak:
+     * 1. While implementing, use vector's reserve function to reduce space
+     * allocation overheads.
+     * 2. Say lookup doesn’t find any matching indexlet (and hence session).
+     * Flush the cache (as in normal tablet lookup). If still not found,
+     * then indelet doesn't exist. Now, don't throw exception.
+     * Instead, return NULL session to the caller.
+     */
     Transport::SessionRef session;
     return session;
 }
 
+// This will go away within the next few commits.
 /**
  * Lookup the master for an index key in a given table.
  * Useful for a data master to lookup index master to communicate with
@@ -292,15 +297,12 @@ ObjectFinder::lookup(uint64_t tableId, uint8_t indexId,
  * \return
  *      Value of true indicates that this indexlet was found and the server id
  *      of the server owning it is being returned. False otherwise.
- * 
- * TODO(ashgup): Add doc about exception that this can throw.
  */
 bool
 ObjectFinder::lookupServerId(uint64_t tableId, uint8_t indexId,
                              const void* key, uint16_t keyLength,
                              ServerId* serverId)
 {
-    // TODO(ashgup): Implement. Currently a stub.
     return false;
 }
 
