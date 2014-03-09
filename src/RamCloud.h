@@ -84,7 +84,7 @@ class RamCloud {
             Buffer* pKHashes, uint8_t indexId,
             const void* firstKey, uint16_t firstKeyLength,
             const void* lastKey, uint16_t lastKeyLength,
-            Buffer* response);
+            Buffer* response, uint32_t* numObjects);
     void lookupIndexKeys(uint64_t tableId, uint8_t indexId,
             const void* firstKey, uint16_t firstKeyLength,
             const void* lastKey, uint16_t lastKeyLength,
@@ -365,7 +365,7 @@ class IndexedReadRpc : public ObjectRpcWrapper {
                    Buffer* response);
     ~IndexedReadRpc() {}
     /// \copydoc RpcWrapper::docForWait
-    uint32_t wait();
+    uint32_t wait(uint32_t* numObjects);
 
   PRIVATE:
     DISALLOW_COPY_AND_ASSIGN(IndexedReadRpc);

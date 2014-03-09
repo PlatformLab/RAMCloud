@@ -954,6 +954,8 @@ IncrementRpc::wait(uint64_t* version)
  *      Return all the objects matching the index lookup (range or point)
  *      along with their versions, in the format specified by
  *      WireFormat::IndexedRead::Response.
+ * \param[out] numObjects
+ *      Number of objects that are being returned.
  * \return
  *      Number of key hashes for which corresponding objects are being
  *      returned, or for which no matching objects were found.
@@ -963,12 +965,12 @@ RamCloud::indexedRead(uint64_t tableId, uint32_t numHashes, Buffer* pKHashes,
                       uint8_t indexId,
                       const void* firstKey, uint16_t firstKeyLength,
                       const void* lastKey, uint16_t lastKeyLength,
-                      Buffer* response)
+                      Buffer* response, uint32_t* numObjects)
 {
     IndexedReadRpc rpc(this, tableId, numHashes, pKHashes, indexId,
                        firstKey, firstKeyLength,
                        lastKey, lastKeyLength, response);
-    return rpc.wait();
+    return rpc.wait(numObjects);
 }
 
 /**
@@ -1055,16 +1057,19 @@ IndexedReadRpc::IndexedReadRpc(RamCloud* ramcloud, uint64_t tableId,
  * Wait for the RPCs to complete, and return the same results as
  * #RamCloud::IndexedReadRpc.
  *
+ * \param[out] numObjects
+ *      Number of objects that are being returned.
  * \return
  *      Number of key hashes for which corresponding objects are being
  *      returned, or for which no matching objects were found.
  */
 uint32_t
-IndexedReadRpc::wait()
+IndexedReadRpc::wait(uint32_t* numObjects)
 {
     simpleWait(ramcloud->clientContext->dispatch);
     const WireFormat::IndexedRead::Response* respHdr(
             getResponseHeader<WireFormat::IndexedRead>());
+    *numObjects = respHdr->numObjects;
     return respHdr->numHashes;
 }
 

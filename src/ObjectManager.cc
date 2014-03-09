@@ -109,6 +109,114 @@ ObjectManager::initOnceEnlisted()
 }
 
 /**
+ * An instance of this class can be used to iteratively read object(s)
+ * previously written by ObjectManager, matching the given parameters.
+ * 
+ * \param objectManager
+ *      Pointer to the instance of ObjectManager class that previously
+ *      wrote the objects.
+ * \param tableId
+ *      Id of the table containing the object(s).
+ * \param pKHashes
+ *      Key hashes of the primary keys of the object(s).
+ * \param initialPKHashesOffset
+ *      Offset indicating location of first key hash in the pKHashes buffer.
+ * \param keyRange
+ *      KeyRange that will be used to compare the object's key
+ *      to determine a match.
+ * 
+ * \param[out] response
+ *      Buffer to which response for each object will be appended in the
+ *      readNext() method.
+ */
+ObjectManager::IndexedRead::IndexedRead(
+                ObjectManager* objectManager,
+                uint64_t tableId,
+                Buffer* pKHashes, uint32_t initialPKHashesOffset,
+                IndexletManager::KeyRange* keyRange,
+                Buffer* response)
+    : objectManager(objectManager)
+    , tableId(tableId)
+    , pKHashes(pKHashes)
+    , pKHashesOffset(initialPKHashesOffset)
+    , keyRange(keyRange)
+    , response(response)
+{
+}
+
+/**
+ * Read object(s) corresponding to a single primary key hash matching
+ * the parameters given during the construction of the IndexedRead object.
+ * The version, length and object data (keys and value) read are appended
+ * to the response buffer provided during creation of the IndexedRead object.
+ * 
+ * We'd typically expect only one object to match the parameters, but it is
+ * possible that multiple will.
+ * 
+ * \param[out] numObjects
+ *      Num of objects being returned.
+ * \param[out] length
+ *      Total length appended to the response buffer.
+ * \return
+ *      Value of false if this server does not own the tablet, or if the tablet
+ *      is not in NORMAL state, true otherwise.
+ */
+bool
+ObjectManager::IndexedRead::readNext(uint32_t* numObjects, uint32_t* length)
+{
+    uint64_t pKHash = *(pKHashes->getOffset<uint64_t>(pKHashesOffset));
+    pKHashesOffset += 8;
+    objectManager->objectMap.prefetchBucket(pKHash);
+    ObjectManager::HashTableBucketLock lock(*objectManager, pKHash);
+    // TODO(ankitak): Instead of calling a private lookup function,
+    // as in a normal read, I'm doing the work here directly.
+    // Should I do that instead?
+
+    // If the tablet doesn't exist in the NORMAL state, we must plead ignorance.
+    TabletManager::Tablet tablet;
+    if (!objectManager->tabletManager->getTablet(tableId, pKHash, &tablet))
+        return false;
+    if (tablet.state != TabletManager::NORMAL)
+        return false;
+
+    HashTable::Candidates candidates;
+    *numObjects = 0;
+    uint32_t initialResponseLength = response->getTotalLength();
+
+    objectManager->objectMap.lookup(pKHash, candidates);
+
+    while (!candidates.isDone()) {
+        Buffer candidateBuffer;
+        Log::Reference candidateRef(candidates.getReference());
+        LogEntryType type =
+                objectManager->log.getEntry(candidateRef, candidateBuffer);
+
+        if (type != LOG_ENTRY_TYPE_OBJ)
+            continue;
+
+        Object object(candidateBuffer);
+        bool isInRange = IndexletManager::compareKey(&object, keyRange);
+
+        if (isInRange == true) {
+            *numObjects += 1;
+            new(response, APPEND) uint64_t(object.getVersion());
+            new(response, APPEND) uint32_t(object.getKeysAndValueLength());
+            // TODO(ankitak): Will this be okay after lifetime of object?
+            object.appendKeysAndValueToBuffer(*response);
+        }
+
+        candidates.next();
+    }
+
+    *length = response->getTotalLength() - initialResponseLength;
+
+    // TODO(ankitak): Later: Figure out whether / how to do this.
+    // tabletManager->incrementReadCount(key);
+
+    return true;
+}
+
+/**
  * Write an object to this ObjectManager, replacing a previous one if necessary.
  *
  * This method will do everything needed to store an object associated with
@@ -352,95 +460,6 @@ ObjectManager::readObject(Key& key,
     tabletManager->incrementReadCount(key);
 
     return STATUS_OK;
-}
-
-/**
- * Read object(s) previously written by ObjectManager,
- * matching the given parameters.
- * We'd typically expect only one object to match the parameters, but it is
- * possible that multiple will.
- *  
- * \param tableId
- *      Id of the table containing the object(s).
- * \param indexId
- *      Id of the index to which these index keys to be matched belong.
- * \param pKHash
- *      Key hash of the primary key of the object(s).
- * \param firstKeyStr
- *      Key blob marking the start of the acceptable range for indexed key.
- * \param firstKeyLength
- *      Length of firstKey.
- * \param lastKeyStr
- *      Key blob marking the end of the acceptable range for indexed key.
- * \param lastKeyLength
- *      Length of lastKey.
- * \param[out] numObjects
- *      Num of objects being returned.
- * \param[out] outBuffer
- *      Actual object(s) matching the parameters will be returned here.
- * \param[out] lengths
- *      Length(s) of the object(s) returned in outBuffer.
- * \param[out] versions
- *      Version(s) of the object(s) returned.
- * \return
- *      Value of false if this server does not own the tablet, or if the tablet
- *      is not in NORMAL state, true otherwise.
- */
-bool
-ObjectManager::readObjectsByHash(
-                uint64_t tableId, uint8_t indexId, uint64_t pKHash,
-                const void* firstKeyStr, KeyLength firstKeyLength,
-                const void* lastKeyStr, KeyLength lastKeyLength,
-                uint32_t* numObjects, Buffer* outBuffer,
-                vector<uint32_t>* lengths, vector<uint64_t>* versions)
-{
-    objectMap.prefetchBucket(pKHash);
-    HashTableBucketLock lock(*this, pKHash);
-
-    // If the tablet doesn't exist in the NORMAL state, we must plead ignorance.
-    TabletManager::Tablet tablet;
-    if (!tabletManager->getTablet(tableId, pKHash, &tablet))
-        return false;
-    if (tablet.state != TabletManager::NORMAL)
-        return false;
-
-    HashTable::Candidates candidates;
-    *numObjects = 0;
-    objectMap.lookup(pKHash, candidates);
-
-    while (!candidates.isDone()) {
-        Buffer candidateBuffer;
-        Log::Reference candidateRef(candidates.getReference());
-        LogEntryType type = log.getEntry(candidateRef, candidateBuffer);
-
-        if (type != LOG_ENTRY_TYPE_OBJ)
-            continue;
-
-        Object object(candidateBuffer);
-        uint16_t keyLength;
-        const void* keyStr = object.getKey(indexId, &keyLength);
-
-        int firstKeyCmp =
-                bcmp(firstKeyStr, keyStr, std::min(firstKeyLength, keyLength));
-        int lastKeyCmp =
-                bcmp(lastKeyStr, keyStr, std::min(lastKeyLength, keyLength));
-        if ((firstKeyCmp < 0 ||
-                (firstKeyCmp == 0 && firstKeyLength <= keyLength)) &&
-             (lastKeyCmp > 0 ||
-                (lastKeyCmp == 0 && lastKeyLength >= keyLength))) {
-            *numObjects += 1;
-            object.appendKeysAndValueToBuffer(*outBuffer);
-            lengths->push_back(object.getKeysAndValueLength());
-            versions->push_back(object.getVersion());
-        }
-
-        candidates.next();
-    }
-
-    // TODO(ankitak): Later: Figure out whether / how to do this.
-    // tabletManager->incrementReadCount(key);
-
-    return true;
 }
 
 /**

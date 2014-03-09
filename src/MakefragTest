@@ -43,6 +43,7 @@ TESTS_SRCFILES := \
 		  src/FastTransportTest.cc \
 		  src/HashTableTest.cc \
 		  src/HistogramTest.cc \
+		  src/IndexletManagerTest.cc \
 		  src/InitializeTest.cc \
 		  src/InMemoryStorageTest.cc \
 		  src/IpAddressTest.cc \

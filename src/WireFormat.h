@@ -753,14 +753,10 @@ struct IndexedRead {
                                         // do not exist.
         uint32_t numObjects;            // Number of objects being returned.
 
-        struct Part {
-            /// Version of the object.
-            uint64_t version;
-            /// Length of the object data following this struct.
-            uint32_t length;
-            // In buffer: Object keys and value goes here. This is
-            // a variable number of bytes (depending on data size.)
-        } __attribute__((packed));
+        // In buffer: For each object being returned,
+        // uint64_t version, uint32_t length and the actual object bytes
+        // (all the keys and value) go here. The actual object bytes is
+        // of variable length, indicated by the length.
     } __attribute__((packed));
 };
 

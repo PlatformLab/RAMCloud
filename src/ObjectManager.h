@@ -21,6 +21,7 @@
 #include "SideLog.h"
 #include "LogEntryHandlers.h"
 #include "HashTable.h"
+#include "IndexletManager.h"
 #include "Object.h"
 #include "SegmentManager.h"
 #include "SegmentIterator.h"
@@ -47,6 +48,44 @@ namespace RAMCloud {
  */
 class ObjectManager : public LogEntryHandlers {
   public:
+
+    // TODO(ankitak): Later: Maybe this can be a private class, invoked by
+    // a public method in ObjectManager. Issue: Who manages the lifetime
+    // of an IndexedRead object now?
+    /**
+     * An instance of this class can be used to iteratively read object(s)
+     * previously written by ObjectManager, matching the given parameters.
+     */
+    class IndexedRead {
+      public:
+        IndexedRead(ObjectManager* objectManager,
+                    const uint64_t tableId,
+                    Buffer* pKHashes, uint32_t initialPKHashesOffset,
+                    IndexletManager::KeyRange* keyRange,
+                    Buffer* response);
+        virtual ~IndexedRead() {}
+        bool readNext(uint32_t* numObjects, uint32_t* length);
+
+      private:
+        /// Pointer to the instance of ObjectManager class that previously
+        /// wrote the objects.
+        ObjectManager* objectManager;
+        /// Id of the table containing the object(s).
+        const uint64_t tableId;
+        /// Key hashes of the primary keys of the object(s).
+        Buffer* pKHashes;
+        /// The offset into pKHashes buffer that indicates the location
+        /// of the next key hash to be read.
+        uint32_t pKHashesOffset;
+        /// KeyRange that will be used to compare the object's key
+        /// to determine a match.
+        IndexletManager::KeyRange* keyRange;
+        /// Buffer to which response for each object will be appended.
+        Buffer* response;
+
+        DISALLOW_COPY_AND_ASSIGN(IndexedRead);
+    };
+
     ObjectManager(Context* context,
                   ServerId* serverId,
                   const ServerConfig* config,
@@ -59,12 +98,6 @@ class ObjectManager : public LogEntryHandlers {
                       RejectRules* rejectRules,
                       uint64_t* outVersion,
                       bool valueOnly = false);
-    bool readObjectsByHash(uint64_t tableId, uint8_t indexId, uint64_t pKHash,
-                           const void* firstKeyStr, KeyLength firstKeyLength,
-                           const void* lastKeyStr, KeyLength lastKeyLength,
-                           uint32_t* numObjects, Buffer* outBuffer,
-                           vector<uint32_t>* lengths,
-                           vector<uint64_t>* versions);
     Status writeObject(Object& newObject,
                        RejectRules* rejectRules,
                        uint64_t* outVersion);

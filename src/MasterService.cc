@@ -74,8 +74,7 @@ MasterService::MasterService(Context* context,
     : context(context)
     , config(config)
     , disableCount(0)
-    , indexletManager(context,
-                      &objectManager)
+    , indexletManager(context)
     , initCalled(false)
     , logEverSynced(false)
     , masterTableMetadata()
@@ -544,7 +543,6 @@ MasterService::indexedRead(
         WireFormat::IndexedRead::Response* respHdr,
         Rpc* rpc)
 {
-    uint32_t numHashesRequest = reqHdr->numHashes;
     uint32_t reqOffset = sizeof32(*reqHdr);
 
     const void* firstKeyStr =
@@ -555,27 +553,33 @@ MasterService::indexedRead(
             rpc->requestPayload->getRange(reqOffset, reqHdr->lastKeyLength);
     reqOffset+=reqHdr->lastKeyLength;
 
+    IndexletManager::KeyRange keyRange = {reqHdr->indexId,
+                                          firstKeyStr, reqHdr->firstKeyLength,
+                                          lastKeyStr, reqHdr->lastKeyLength};
+
+    ObjectManager::IndexedRead readIter(
+            &objectManager, reqHdr->tableId,
+            rpc->requestPayload, reqOffset, &keyRange,
+            rpc->replyPayload);
+
+    // TODO(ankitak): Later: Handle the second case below too.
+    // Assumption: 1. It is highly unlikely that we'll have multiple objects
+    // such that they have the same primary key hash and their secondary
+    // key fall in the correct range. We'll still handle this case.
+    // 2. It is further unlikely that all of these objects put together
+    // will be too large to fit in a single 8MB response rpc.
+    // So, if all objects matched for a keyhash don't fit in an rpc, don't
+    // return any; Client will retry and the response rpc to the new request
+    // will contain all the matched objects for the keyhash.
+
     respHdr->numHashes = 0;
     respHdr->numObjects = 0;
-    uint32_t oldResponseLength = rpc->replyPayload->getTotalLength();
-    uint32_t currentLength = oldResponseLength;
+    uint32_t currentLength = sizeof32(*reqHdr);
 
-    // Each iteration extracts one request from request rpc, finds the
-    // corresponding object(s), and appends the response to the response rpc.
-    for (uint32_t i = 0; i < numHashesRequest; i++) {
-        uint64_t currentKeyHash =
-                *rpc->requestPayload->getOffset<uint64_t>(reqOffset);
-        reqOffset += 8;
-
+    for (uint32_t i = 0; i < reqHdr->numHashes; i++) {
         uint32_t partNumObjects;
-        Buffer objsBuffer;
-        vector<uint32_t> lengths;
-        vector<uint64_t> versions;
-        bool isOkayToContinue = indexletManager.indexedRead(
-                        reqHdr->tableId, reqHdr->indexId, currentKeyHash,
-                        firstKeyStr, reqHdr->firstKeyLength,
-                        lastKeyStr, reqHdr->lastKeyLength,
-                        &partNumObjects, &objsBuffer, &lengths, &versions);
+        uint32_t partLength;
+        bool isOkayToContinue = readIter.readNext(&partNumObjects, &partLength);
 
         if (isOkayToContinue != true) {
             // This server doesn't own this primary key hash. Return whatever
@@ -584,42 +588,17 @@ MasterService::indexedRead(
             break;
         }
 
-        // TODO(ankitak): Later: Handle the second case below too.
-        // Assumption: 1. It is highly unlikely that we'll have multiple objects
-        // such that they have the same primary key hash and their secondary
-        // key fall in the correct range. We'll still handle this case.
-        // 2. It is further unlikely that all of these objects put together
-        // will be too large to fit in a single 8MB response rpc.
-        // So, if all objects matched for a keyhash don't fit in an rpc, don't
-        // return any; Client will retry and the response rpc to the new request
-        // will contain all the matched objects for the keyhash.
-
-        uint32_t newLength =
-                currentLength +
-                (sizeof32(WireFormat::IndexedRead::Response::Part*) *
-                    partNumObjects) +
-                objsBuffer.getTotalLength();
+        currentLength += partLength;
         // TODO(ankitak): Do we need to define another max size?
-        // TODO(ankitak): Check how the client retry works and see if it needs
-        // any changes.
-        if (newLength > maxMultiReadResponseSize) {
+        // TODO(ankitak): If we're okay with leaking length to objectManager,
+        // we can simplify the code there (IndexedRead class + readNext()
+        // can simply be a single function).
+        if (currentLength > maxMultiReadResponseSize) {
+            rpc->replyPayload->truncateEnd(currentLength);
             break;
         } else {
-            currentLength = newLength;
             respHdr->numHashes += 1;
             respHdr->numObjects += partNumObjects;
-        }
-
-        uint32_t bufferOffset = 0;
-        for (uint32_t j = 0; j < partNumObjects; j++) {
-            WireFormat::IndexedRead::Response::Part* currentResp =
-                   new(rpc->replyPayload, APPEND)
-                       WireFormat::IndexedRead::Response::Part();
-            currentResp->length = lengths[j];
-            currentResp->version = versions[j];
-            rpc->replyPayload->append(objsBuffer.getRange(
-                        bufferOffset, lengths[j]), lengths[j]);
-            bufferOffset += lengths[j];
         }
     }
 }

@@ -93,7 +93,7 @@ IndexRpcWrapper::checkStatus()
         send();
         return false;
     }
-    // TODO(anktiak): In lookup code in index server, make sure that
+    // TODO(ankitak): In lookup code in index server, make sure that
     // we return STATUS_OK when done, STATUS_FETCH_MORE along with next key
     // to fetch, if there's more to fetch.
     if (responseHeader->status == STATUS_FETCH_MORE) {

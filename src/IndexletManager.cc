@@ -18,9 +18,8 @@
 
 namespace RAMCloud {
 
-IndexletManager::IndexletManager(Context* context, ObjectManager* objectManager)
+IndexletManager::IndexletManager(Context* context)
     : context(context)
-    , objectManager(objectManager)
     , indexletMap()
     , lock("IndexletManager::lock")
 {
@@ -161,54 +160,6 @@ IndexletManager::deleteIndexletEntries(uint64_t tableId, uint8_t indexId)
 }
 
 /**
- * Read object(s) matching the given parameters.
- * We'd typically expect only one object to match the parameters, but it is
- * possible that multiple will.
- *  
- * \param tableId
- *      Id of the table containing the object(s).
- * \param indexId
- *      Id of the index to which these index keys to be matched belong.
- * \param pKHash
- *      Key hash of the primary key of the object(s).
- * \param firstKeyStr
- *      Key blob marking the start of the acceptable range for indexed key.
- * \param firstKeyLength
- *      Length of firstKey.
- * \param lastKeyStr
- *      Key blob marking the end of the acceptable range for indexed key.
- * \param lastKeyLength
- *      Length of lastKey.
- * \param[out] numObjects
- *      Num of objects being returned.
- * \param[out] outBuffer
- *      Actual object(s) matching the parameters will be returned here.
- * \param[out] lengths
- *      Length(s) of the object(s) returned in outBuffer.
- * \param[out] versions
- *      Version(s) of the object(s) returned.
- * \return
- *      Value of false if this server does not own the tablet, or if the tablet
- *      is not in NORMAL state, true otherwise.
- */
-bool
-IndexletManager::indexedRead(uint64_t tableId, uint8_t indexId, uint64_t pKHash,
-                          const void* firstKeyStr, KeyLength firstKeyLength,
-                          const void* lastKeyStr, KeyLength lastKeyLength,
-                          uint32_t* numObjects, Buffer* outBuffer,
-                          vector<uint32_t>* lengths, vector<uint64_t>* versions)
-{
-    // TODO(ankitak): Do we want IndexletManager to do key comparison?
-    // If not, then maybe MasterService should directly call into ObjectManager.
-    bool isOkayToContinue = objectManager->readObjectsByHash(
-            tableId, indexId, pKHash,
-            firstKeyStr, firstKeyLength, lastKeyStr, lastKeyLength,
-            numObjects, outBuffer, lengths, versions);
-
-    return isOkayToContinue;
-}
-
-/**
  * Insert index entry for an object for a given index id.
  * 
  * \param tableId
@@ -297,6 +248,41 @@ IndexletManager::removeEntry(uint64_t tableId, uint8_t indexId,
     // Currently a stub. Return STATUS_OK. TODO(ankitak)
     return Status(0);
     // TODO(ankitak): Later: Careful GC if multiple objs have the same pKHash.
+}
+
+/**
+ * Compare the key corresponding to index id specified in keyRange
+ * with the first and last keys in keyRange.
+ * 
+ * \param object
+ *      Object for which the key is to be compared.
+ * \param keyRange
+ *      KeyRange specifying the parameters of comparison.
+ * 
+ * \return
+ *      Value of true if key corresponding to index id specified in keyRange,
+ *      say k, is such that lexicographically it falls in the range
+ *      specified by [first key, last key] in keyRange, including end points.
+ */
+bool
+IndexletManager::compareKey(Object* object, KeyRange* keyRange)
+{
+    uint16_t keyLength;
+    const void* key = object->getKey(keyRange->indexId, &keyLength);
+
+    int firstKeyCmp = bcmp(keyRange->firstKey, key,
+                           std::min(keyRange->firstKeyLength, keyLength));
+    int lastKeyCmp = bcmp(keyRange->lastKey, key,
+                          std::min(keyRange->lastKeyLength, keyLength));
+
+    if ((firstKeyCmp < 0 ||
+            (firstKeyCmp == 0 && keyRange->firstKeyLength <= keyLength)) &&
+         (lastKeyCmp > 0 ||
+            (lastKeyCmp == 0 && keyRange->lastKeyLength >= keyLength))) {
+        return true;
+    } else {
+        return false;
+    }
 }
 
 } //namespace

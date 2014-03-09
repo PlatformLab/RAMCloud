@@ -20,7 +20,7 @@
 
 #include "Common.h"
 #include "HashTable.h"
-#include "ObjectManager.h"
+#include "Object.h"
 #include "SpinLock.h"
 
 namespace RAMCloud {
@@ -43,6 +43,19 @@ namespace RAMCloud {
 
 class IndexletManager {
   PUBLIC:
+
+    struct KeyRange {
+        /// Id of the index to which these index keys to be matched belong.
+        const uint8_t indexId;
+        /// Key blob marking the start of the acceptable range for indexed key.
+        const void* firstKey;
+        /// Length of firstKey.
+        const uint16_t firstKeyLength;
+        /// Key blob marking the end of the acceptable range for indexed key.
+        const void* lastKey;
+        /// Length of lastKey.
+        const uint16_t lastKeyLength;
+    };
 
     class Indexlet {
       PUBLIC:
@@ -72,7 +85,7 @@ class IndexletManager {
         const void *lastKey; //TODO(ashgup): change this to buffer
     };
 
-    IndexletManager(Context* context, ObjectManager* objectManager);
+    explicit IndexletManager(Context* context);
     virtual ~IndexletManager();
 
     /////////////////////////// Meta-data related functions //////////////////
@@ -97,11 +110,6 @@ class IndexletManager {
                       const void* lastKeyStr, KeyLength lastKeyLength);
     void deleteIndexletEntries(uint64_t tableId, uint8_t indexId);
 
-    bool indexedRead(uint64_t tableId, uint8_t indexId, uint64_t pKHash,
-                     const void* firstKeyStr, KeyLength firstKeyLength,
-                     const void* lastKeyStr, KeyLength lastKeyLength,
-                     uint32_t* numObjects, Buffer* outBuffer,
-                     vector<uint32_t>* lengths, vector<uint64_t>* versions);
     Status insertEntry(uint64_t tableId, uint8_t indexId,
                        const void* keyStr, KeyLength keyLength,
                        uint64_t pKHash);
@@ -113,17 +121,14 @@ class IndexletManager {
                        const void* keyStr, KeyLength keyLength,
                        uint64_t pKHash);
 
+    //////////////// Static function related to indexing info /////////////////
+    static bool compareKey(Object* object, KeyRange* keyRange);
+
   PRIVATE:
     /**
      * Shared RAMCloud information.
      */
     Context* context;
-
-    /**
-     * The ObjectManager class that is responsible for object storage for this
-     * master server.
-     */
-    ObjectManager* objectManager;
 
     typedef boost::unordered_multimap< std::pair<uint64_t, uint8_t>,
                                        Indexlet> IndexletMap;

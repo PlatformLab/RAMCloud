@@ -995,16 +995,15 @@ TEST_F(MasterServiceTest, indexedRead) {
 
     // indexedRead such that both objects are read.
     Buffer responseBuffer;
+    uint32_t numObjectsResponse;
     uint32_t numHashesResponse = ramcloud->indexedRead(
                 tableId, 2, &pKHashes, 1, "obj0key1", 8, "obj1key1", 8,
-                &responseBuffer);
+                &responseBuffer, &numObjectsResponse);
 
-    // numHashes
+    // numHashes and numObjects
     EXPECT_EQ(2U, numHashesResponse);
-    uint32_t respOffset = sizeof32(WireFormat::ResponseCommon) + 4;
-    // numObjects
-    EXPECT_EQ(2U, *responseBuffer.getOffset<uint32_t>(respOffset));
-    respOffset += 4;
+    EXPECT_EQ(2U, numObjectsResponse);
+    uint32_t respOffset = sizeof32(WireFormat::IndexedRead::Response);
 
     // version of object0
     EXPECT_EQ(1U, *responseBuffer.getOffset<uint64_t>(respOffset));
