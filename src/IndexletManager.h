@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2014 Stanford University
+/* Copyright (c) 2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -20,27 +20,23 @@
 
 #include "Common.h"
 #include "HashTable.h"
-#include "Object.h"
 #include "SpinLock.h"
+#include "Object.h"
 
 namespace RAMCloud {
 
 /**
- * This class is on every index server.
- * It manages and stores the metadata regarding indexlets (index partitions)
- * stored on this server.
+ * This class is on every index server. It manages and stores the metadata
+ * regarding indexlets (index partitions) stored on this server.
  *
  * The coordinator invokes most of these functions to manage the metadata.
- * 
  * It is responsible for storing index entries in an index server for each
- * indexlet it owns.
- * This class interfaces with ObjectManager and index tree code to manage
- * index entries.
- * 
+ * indexlet it owns. This class interfaces with ObjectManager and index tree
+ * code to manage index entries.
+ *
  * Note: Every master server is also an index server for some partition
  * of some index (independent from data partition located on that master).
  */
-
 class IndexletManager {
   PUBLIC:
 
@@ -57,58 +53,61 @@ class IndexletManager {
         const uint16_t lastKeyLength;
     };
 
+    /**
+     * Each indexlet owned by a master is described by fields in this class.
+     * Indexlets describe contiguous ranges of secondary key space for a
+     * particular index for a given table.
+     */
     class Indexlet {
       PUBLIC:
         Indexlet()
-            : firstKeyLength(-1)
-            , firstKey(NULL)
-            , lastKeyLength(-1)
-            , lastKey(NULL)
+            : firstKey(NULL)
+            , firstKeyLength(-1)
+            , firstNotOwnedKey(NULL)
+            , firstNotOwnedKeyLength(-1)
         {}
 
-        Indexlet(uint16_t firstKeyLength, const void *firstKey,
-                 uint16_t lastKeyLength, const void *lastKey)
-            : firstKeyLength(firstKeyLength)
-            , firstKey(firstKey)
-            , lastKeyLength(lastKeyLength)
-            , lastKey(lastKey)
+        Indexlet(const void *firstKey, uint16_t firstKeyLength,
+                 const void *firstNotOwnedKey, uint16_t firstNotOwnedKeyLength)
+            : firstKey(firstKey)
+            , firstKeyLength(firstKeyLength)
+            , firstNotOwnedKey(firstNotOwnedKey)
+            , firstNotOwnedKeyLength(firstNotOwnedKeyLength)
         {}
 
-        //TODO(ashgup): need to have indexlet id for rpcs
+        /// Blob for the smallest key that is in this indexlet. The key is
+        /// malloced during creation of index on coordinator, and is freed by
+        /// the coordinator when the index is deleted.
+        const void *firstKey;
 
-        /// The smallest value for a key that is in this indexlet.
+        /// Length of the firstKey.
         uint16_t firstKeyLength;
-        const void *firstKey; //TODO(ashgup): change this to buffer
 
-        /// The largest value for a key that is in this indexlet.
-        uint16_t lastKeyLength;
-        const void *lastKey; //TODO(ashgup): change this to buffer
+        /// Blob for the first key in the key space for the owning index, which
+        /// is not present in this indexlet. Storage same as firstKey.
+        const void *firstNotOwnedKey;
+
+        /// Length of the firstNotOwnedKey.
+        uint16_t firstNotOwnedKeyLength;
     };
 
+
     explicit IndexletManager(Context* context);
-    virtual ~IndexletManager();
 
     /////////////////////////// Meta-data related functions //////////////////
-    // Modify function signature as required. This is just an approximation.
+
     bool addIndexlet(uint64_t tableId, uint8_t indexId,
-                     uint16_t firstKeyLength, const void *firstKey,
-                     uint16_t lastKeyLength, const void *lastKey);
-
+                 const void *firstKey, uint16_t firstKeyLength,
+                 const void *firstNotOwnedKey, uint16_t firstNotOwnedKeyLength);
     bool deleteIndexlet(uint64_t tableId, uint8_t indexId,
-                        uint16_t firstKeyLength, const void *firstKey,
-                        uint16_t lastKeyLength, const void *lastKey);
-
-    bool getIndexlet(uint64_t tableId, uint8_t indexId,
-                     uint16_t firstKeyLength, const void *firstKey,
-                     uint16_t lastKeyLength, const void *lastKey,
-                     Indexlet* outIndexlet = NULL);
+                const void *firstKey, uint16_t firstKeyLength,
+                const void *firstNotOwnedKey, uint16_t firstNotOwnedKeyLength);
+    struct Indexlet* getIndexlet(uint64_t tableId, uint8_t indexId,
+                 const void *firstKey, uint16_t firstKeyLength,
+                 const void *firstNotOwnedKey, uint16_t firstNotOwnedKeyLength);
+    size_t getCount();
 
     /////////////////////////// Index data related functions //////////////////
-
-    void initIndexlet(uint64_t tableId, uint8_t indexId,
-                      const void* firstKeyStr, KeyLength firstKeyLength,
-                      const void* lastKeyStr, KeyLength lastKeyLength);
-    void deleteIndexletEntries(uint64_t tableId, uint8_t indexId);
 
     Status insertEntry(uint64_t tableId, uint8_t indexId,
                        const void* keyStr, KeyLength keyLength,
@@ -130,6 +129,7 @@ class IndexletManager {
      */
     Context* context;
 
+    /// This unordered_multimap is used to store and access all indexlet data.
     typedef boost::unordered_multimap< std::pair<uint64_t, uint8_t>,
                                        Indexlet> IndexletMap;
 
@@ -137,13 +137,12 @@ class IndexletManager {
     /// release it.
     typedef std::lock_guard<SpinLock> Lock;
 
-
     IndexletMap::iterator lookup(uint64_t tableId, uint8_t indexId,
-                               uint16_t keyLength, const void *key, Lock& lock);
-    /// This unordered_multimap is used to store and access all tablet data.
+                              const void *key, uint16_t keyLength, Lock& lock);
+
     IndexletMap indexletMap;
 
-    /// Monitor spinlock used to protect the tabletMap from concurrent access.
+    /// Monitor spinlock used to protect the indexletMap from concurrent access.
     SpinLock lock;
 
     DISALLOW_COPY_AND_ASSIGN(IndexletManager);

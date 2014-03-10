@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2013 Stanford University
+/* Copyright (c) 2012-2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -61,8 +61,10 @@ class TableManager {
             CoordinatorUpdateManager* updateManager);
     ~TableManager();
 
+    bool createIndex(uint64_t tableId, uint8_t indexId, uint8_t indexType);
     uint64_t createTable(const char* name, uint32_t serverSpan);
     string debugString(bool shortForm = false);
+    bool dropIndex(uint64_t tableId, uint8_t indexId);
     void dropTable(const char* name);
     uint64_t getTableId(const char* name);
     Tablet getTablet(uint64_t tableId, uint64_t keyHash);
@@ -84,14 +86,95 @@ class TableManager {
 
   PRIVATE:
     /**
-     * The following class holds information about a single table.
+     * Each indexlet owned by a master is described by fields in this structure.
+     * Indexlets describe contiguous ranges of secondary key space for a
+     * particular index for a given table.
      */
+    struct Indexlet {
+        Indexlet(void *firstKey, uint16_t firstKeyLength,
+                 void *firstNotOwnedKey, uint16_t firstNotOwnedKeyLength,
+                 ServerId serverId)
+            : firstKey(firstKey)
+            , firstKeyLength(firstKeyLength)
+            , firstNotOwnedKey(firstNotOwnedKey)
+            , firstNotOwnedKeyLength(firstNotOwnedKeyLength)
+            , serverId(serverId)
+        {}
+
+        Indexlet(const Indexlet& indexlet)
+            : firstKey(indexlet.firstKey)
+            , firstKeyLength(indexlet.firstKeyLength)
+            , firstNotOwnedKey(indexlet.firstNotOwnedKey)
+            , firstNotOwnedKeyLength(indexlet.firstNotOwnedKeyLength)
+            , serverId(indexlet.serverId)
+        {}
+
+        Indexlet& operator =(const Indexlet& indexlet)
+        {
+            this->firstKeyLength = indexlet.firstKeyLength;
+            this->firstKey = indexlet.firstKey;
+            this->firstNotOwnedKeyLength = indexlet.firstNotOwnedKeyLength;
+            this->firstNotOwnedKey = indexlet.firstNotOwnedKey;
+            this->serverId = indexlet.serverId;
+            return *this;
+        }
+        ~Indexlet();
+
+        /// Blob for the smallest key that is in this indexlet. The key is
+        /// malloced during initialization of the index (structure below) and
+        /// freed on calling the destructor.
+        void *firstKey;
+
+        /// Length of the firstKey
+        uint16_t firstKeyLength;
+
+        /// Blob for the smallest key greater than all the keys belonging to
+        /// this indexlet. Storage same as firstKey.
+        void *firstNotOwnedKey;
+        uint16_t firstNotOwnedKeyLength;
+
+        /// The server id of the master owning this indexlet.
+        ServerId serverId;
+    };
+
+    /**
+     * The following class holds information about a single index of a table.
+     */
+    struct Index {
+        Index(uint64_t tableId, uint8_t indexId, uint8_t indexType)
+            : tableId(tableId)
+            , indexId(indexId)
+            , indexType(indexType)
+            , indexlets()
+        {}
+        ~Index();
+
+        /// The id of the containing table.
+        uint64_t tableId;
+
+        /// Identifier used to refer to index within a table.
+        uint8_t indexId;
+
+        /// Type of the index.
+        uint8_t indexType;
+
+        /// Information about each of the indexlets of index in the table. The
+        /// entries are allocated and freed dynamically.
+        vector<Indexlet*> indexlets;
+    };
+
     struct Table {
         Table(const char* name, uint64_t id)
             : name(name)
             , id(id)
             , tablets()
-        {}
+            , indexMap()
+        {
+                int i = 0;
+                for (; i < 256; i++) {
+                    indexMap.push_back(NULL);
+                }
+        }
         ~Table();
 
         /// Human-readable name for the table (unique among all tables).
@@ -103,6 +186,11 @@ class TableManager {
         /// Information about each of the tablets in the table. The
         /// entries are allocated and freed dynamically.
         vector<Tablet*> tablets;
+
+        /// Information about each of the indexes in the table. The
+        /// entries are allocated and freed dynamically.
+        //TODO(ashgup): convert back to map
+        vector<Index*> indexMap;
     };
 
     /**
@@ -138,7 +226,9 @@ class TableManager {
 
     Tablet* findTablet(const Lock& lock, Table* table, uint64_t keyHash);
     void notifyCreate(const Lock& lock, Table* table);
+    void notifyCreateIndex(const Lock& lock, Index* index);
     void notifyDropTable(const Lock& lock, ProtoBuf::Table* info);
+    void notifyDropIndex(const Lock& lock, Index* index);
     void notifySplitTablet(const Lock& lock, ProtoBuf::Table* info);
     void notifyReassignTablet(const Lock& lock, ProtoBuf::Table* info);
     Table* recreateTable(const Lock& lock, ProtoBuf::Table* info);

@@ -55,6 +55,7 @@ SHARED_SRCFILES := \
 		   src/HashTable.cc \
 		   src/IndexletManager.cc \
 		   src/IndexRpcWrapper.cc \
+		   src/IndexletManager.cc \
 		   src/IpAddress.cc \
 		   src/Key.cc \
 		   src/LargeBlockOfMemory.cc \

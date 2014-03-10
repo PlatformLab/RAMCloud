@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2013 Stanford University
+/* Copyright (c) 2009-2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -145,6 +145,14 @@ CoordinatorService::dispatch(WireFormat::Opcode opcode,
             callHandler<WireFormat::DropTable, CoordinatorService,
                         &CoordinatorService::dropTable>(rpc);
             break;
+        case WireFormat::CreateIndex::opcode:
+            callHandler<WireFormat::CreateIndex, CoordinatorService,
+                        &CoordinatorService::createIndex>(rpc);
+            break;
+        case WireFormat::DropIndex::opcode:
+            callHandler<WireFormat::DropIndex, CoordinatorService,
+                        &CoordinatorService::dropIndex>(rpc);
+            break;
         case WireFormat::GetRuntimeOption::opcode:
             callHandler<WireFormat::GetRuntimeOption, CoordinatorService,
                         &CoordinatorService::getRuntimeOption>(rpc);
@@ -244,6 +252,35 @@ CoordinatorService::dropTable(const WireFormat::DropTable::Request* reqHdr,
     const char* name = getString(rpc->requestPayload, sizeof(*reqHdr),
                                  reqHdr->nameLength);
     tableManager.dropTable(name);
+}
+
+/**
+ * Top-level server method to handle the CREATE_INDEX request.
+ * \copydetails Service::ping
+ */
+void
+CoordinatorService::createIndex(const WireFormat::CreateIndex::Request* reqHdr,
+                                WireFormat::CreateIndex::Response* respHdr,
+                                Rpc* rpc)
+{
+    uint64_t tableId = reqHdr->tableId;
+    uint8_t indexId = reqHdr->indexId;
+    uint8_t indexType = reqHdr->indexType;
+    tableManager.createIndex(tableId, indexId, indexType);
+}
+
+/**
+ * Top-level server method to handle the DROP_INDEX request.
+ * \copydetails Service::ping
+ */
+void
+CoordinatorService::dropIndex(const WireFormat::DropIndex::Request* reqHdr,
+                              WireFormat::DropIndex::Response* respHdr,
+                              Rpc* rpc)
+{
+    uint64_t tableId = reqHdr->tableId;
+    uint8_t indexId = reqHdr->indexId;
+    tableManager.dropIndex(tableId, indexId);
 }
 
 /**

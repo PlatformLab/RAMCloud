@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2012 Stanford University
+/* Copyright (c) 2010-2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -49,8 +49,8 @@ void
 MasterClient::dropTabletOwnership(Context* context, ServerId serverId,
         uint64_t tableId, uint64_t firstKeyHash, uint64_t lastKeyHash)
 {
-    DropTabletOwnershipRpc rpc(context, serverId, tableId, firstKeyHash,
-            lastKeyHash);
+    DropTabletOwnershipRpc rpc(context, serverId, tableId,
+                                            firstKeyHash, lastKeyHash);
     rpc.wait();
 }
 
@@ -83,6 +83,84 @@ DropTabletOwnershipRpc::DropTabletOwnershipRpc(Context* context,
     reqHdr->tableId = tableId;
     reqHdr->firstKeyHash = firstKeyHash;
     reqHdr->lastKeyHash = lastKeyHash;
+    send();
+}
+
+/**
+ * Instruct the master that it must no longer serve requests for the indexlet
+ * specified. The server may reclaim all memory previously allocated to that
+ * tablet.
+ *
+ * \param context
+ *      Overall information about this RAMCloud server or client.
+ * \param serverId
+ *      Identifier for the target server.
+ * \param tableId
+ *      Identifier for the table containing the tablet.
+ * \param indexId
+ *      Identifier for the index for the given table.
+ * \param firstKey
+ *      Blob of the smallest key in the index key space for the index of table
+ *      belonging to the indexlet.
+ * \param firstKeyLength
+ *      Length of the firstKey.
+ * \param firstNotOwnedKey
+ *      Blob of the first not owned key in the index key space for the index of
+ *      table belonging to the indexlet.
+ * \param firstNotOwnedKeyLength
+ *      Length of the firstNotOwnedKey.
+ */
+void
+MasterClient::dropIndexletOwnership(Context* context, ServerId serverId,
+                      uint64_t tableId, uint8_t indexId, const void *firstKey,
+                      uint16_t firstKeyLength, const void *firstNotOwnedKey,
+                      uint16_t firstNotOwnedKeyLength)
+{
+    DropIndexletOwnershipRpc rpc(context, serverId, tableId, indexId,
+            firstKey, firstKeyLength, firstNotOwnedKey, firstNotOwnedKeyLength);
+    rpc.wait();
+}
+
+/**
+ * Constructor for DropIndexletOwnershipRpc: initiates an RPC in the same way as
+ * #MasterClient::dropIndexletOwnership, but returns once the RPC has been
+ * initiated, without waiting for it to complete.
+ *
+ * \param context
+ *      Overall information about this RAMCloud server or client.
+ * \param serverId
+ *      Identifier for the target server.
+ * \param tableId
+ *      Identifier for the table containing the tablet.
+ * \param indexId
+ *      Identifier for the index for the given table.
+ * \param firstKey
+ *      Blob of the smallest key in the index key space for the index of table
+ *      belonging to the indexlet.
+ * \param firstKeyLength
+ *      Length of the firstKey.
+ * \param firstNotOwnedKey
+ *      Blob of the first not owned key in the index key space for the index of
+ *      table belonging to the indexlet.
+ * \param firstNotOwnedKeyLength
+ *      Length of the firstNotOwnedKey.
+ */
+DropIndexletOwnershipRpc::DropIndexletOwnershipRpc(Context* context,
+        ServerId serverId, uint64_t tableId, uint8_t indexId,
+        const void *firstKey, uint16_t firstKeyLength,
+        const void *firstNotOwnedKey, uint16_t firstNotOwnedKeyLength)
+    : ServerIdRpcWrapper(context, serverId,
+            sizeof(WireFormat::DropIndexletOwnership::Response))
+{
+    WireFormat::DropIndexletOwnership::Request* reqHdr(
+            allocHeader<WireFormat::DropIndexletOwnership>(serverId));
+    reqHdr->tableId = tableId;
+    reqHdr->indexId = indexId;
+    reqHdr->firstKeyLength = firstKeyLength;
+    reqHdr->firstNotOwnedKeyLength = firstNotOwnedKeyLength;
+    // TODO(ashgup): allocate new memory maybe
+    request.append(firstKey, firstKeyLength);
+    request.append(firstNotOwnedKey, firstNotOwnedKeyLength);
     send();
 }
 
@@ -668,6 +746,84 @@ TakeTabletOwnershipRpc::TakeTabletOwnershipRpc(
     reqHdr->tableId = tableId;
     reqHdr->firstKeyHash = firstKeyHash;
     reqHdr->lastKeyHash = lastKeyHash;
+    send();
+}
+
+/**
+ * Instruct a master that it should begin serving requests for a particular
+ * indexlet. If the master does not already store this indexlet, then it will
+ * create a new indexlet.
+ *
+ * \param context
+ *      Overall information about this RAMCloud server or client.
+ * \param serverId
+ *      Identifier for the target server.
+ * \param tableId
+ *      Identifier for the table containing the indexlet.
+ * \param indexId
+ *      Identifier for the index for the given table.
+ * \param firstKey
+ *      Blob of the smallest key in the index key space for the index of table
+ *      belonging to the indexlet.
+ * \param firstKeyLength
+ *      Length of the firstKey.
+ * \param firstNotOwnedKey
+ *      Blob of the first not owned key in the index key space for the index of
+ *      table belonging to the indexlet.
+ * \param firstNotOwnedKeyLength
+ *      Length of the firstNotOwnedKey.
+ */
+void
+MasterClient::takeIndexletOwnership(Context* context, ServerId serverId,
+                        uint64_t tableId, uint8_t indexId, const void *firstKey,
+                        uint16_t firstKeyLength, const void *firstNotOwnedKey,
+                        uint16_t firstNotOwnedKeyLength)
+{
+    TakeIndexletOwnershipRpc rpc(context, serverId, tableId, indexId,
+            firstKey, firstKeyLength, firstNotOwnedKey, firstNotOwnedKeyLength);
+    rpc.wait();
+}
+
+/**
+ * Constructor for TakeIndexletOwnershipRpc: initiates an RPC in the same way as
+ * #MasterClient::takeIndexletOwnership, but returns once the RPC has been
+ * initiated, without waiting for it to complete.
+ *
+ * \param context
+ *      Overall information about this RAMCloud server or client.
+ * \param serverId
+ *      Identifier for the target server.
+ * \param tableId
+ *      Identifier for the table containing the tablet.
+ * \param indexId
+ *      Identifier for the index for the given table.
+ * \param firstKey
+ *      Blob of the smallest key in the index key space for the index of table
+ *      belonging to the indexlet.
+ * \param firstKeyLength
+ *      Length of the firstKey.
+ * \param firstNotOwnedKey
+ *      Blob of the first not owned key in the index key space for the index of
+ *      table belonging to the indexlet.
+ * \param firstNotOwnedKeyLength
+ *      Length of the firstNotOwnedKey.
+ */
+TakeIndexletOwnershipRpc::TakeIndexletOwnershipRpc(
+        Context* context, ServerId serverId, uint64_t tableId, uint8_t indexId,
+        const void *firstKey, uint16_t firstKeyLength,
+        const void *firstNotOwnedKey, uint16_t firstNotOwnedKeyLength)
+    : ServerIdRpcWrapper(context, serverId,
+            sizeof(WireFormat::TakeIndexletOwnership::Response))
+{
+    WireFormat::TakeIndexletOwnership::Request* reqHdr(
+            allocHeader<WireFormat::TakeIndexletOwnership>(serverId));
+    reqHdr->tableId = tableId;
+    reqHdr->indexId = indexId;
+    reqHdr->firstKeyLength = firstKeyLength;
+    reqHdr->firstNotOwnedKeyLength = firstNotOwnedKeyLength;
+    // TODO(ashgup): allocate new memory maybe
+    request.append(firstKey, firstKeyLength);
+    request.append(firstNotOwnedKey, firstNotOwnedKeyLength);
     send();
 }
 

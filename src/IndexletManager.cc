@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2014 Stanford University
+/* Copyright (c) 2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -15,6 +15,7 @@
 
 #include "Common.h"
 #include "IndexletManager.h"
+#include "StringUtil.h"
 
 namespace RAMCloud {
 
@@ -25,143 +26,225 @@ IndexletManager::IndexletManager(Context* context)
 {
 }
 
-IndexletManager::~IndexletManager()
-{
-}
-
 ///////////////////////////////////////////////////////////////////////////////
 /////////////////////////// Meta-data related functions ///////////////////////
 ///////////////////////////////////////////////////////////////////////////////
 
+/**
+ * Add and initialize an index partition (indexlet) on this index server.
+ *
+ * \param tableId
+ *      Id of the data table for which this indexlet stores some
+ *      index information.
+ * \param indexId
+ *      Id of the index key for which this indexlet stores some information.
+ * \param firstKey
+ *      Key blob marking the start of the indexed key range for this indexlet.
+ * \param firstKeyLength
+ *      Length of firstKeyStr.
+ * \param firstNotOwnedKey
+ *      Key blob marking the first not owned key of the key space
+ *      for this indexlet.
+ * \param firstNotOwnedKeyLength
+ *      Length of firstNotOwnedKey.
+ * \return
+ *      Returns true if successfully added, false if the indexlet cannot be
+ *      added because it overlaps with one or more existing indexlets.
+ */
 bool
 IndexletManager::addIndexlet(uint64_t tableId, uint8_t indexId,
-                             uint16_t firstKeyLength, const void *firstKey,
-                             uint16_t lastKeyLength, const void *lastKey)
+                 const void *firstKey, uint16_t firstKeyLength,
+                 const void *firstNotOwnedKey, uint16_t firstNotOwnedKeyLength)
 {
     Lock guard(lock);
 
-    // If an existing tablet overlaps this range at all, fail.
-    if (lookup(tableId, indexId, firstKeyLength, firstKey, guard)
-            != indexletMap.end() ||
-        lookup(tableId, indexId, lastKeyLength, lastKey, guard)
+    if (lookup(tableId, indexId, firstKey, firstKeyLength, guard)
             != indexletMap.end()) {
         return false;
     }
 
-    indexletMap.emplace(std::make_pair(tableId, indexId),
-                    Indexlet(firstKeyLength, firstKey, lastKeyLength, lastKey));
+    //TODO(ashgup): allocate mem and copy keys from buffer
+    indexletMap.emplace(std::make_pair(tableId, indexId), Indexlet(firstKey,
+                    firstKeyLength, firstNotOwnedKey, firstNotOwnedKeyLength));
     return true;
 }
 
+/**
+ * Delete entries for an index partition (indexlet) on this index server. We can
+ * have multiple indexlets for a table and an index stored on the same server.
+ *
+ * \param tableId
+ *      Id of the data table for which this indexlet stores some
+ *      index information.
+ * \param indexId
+ *      Id of the index key for which this indexlet stores some information.
+ * \param firstKey
+ *      Key blob marking the start of the indexed key range for this indexlet.
+ * \param firstKeyLength
+ *      Length of firstKeyStr.
+ * \param firstNotOwnedKey
+ *      Key blob marking the first not owned key of the key space
+ *      for this indexlet.
+ * \param firstNotOwnedKeyLength
+ *      Length of firstNotOwnedKey.
+ * \return
+ *      True if indexlet was deleted. Failed if indexlet did not exist.
+ */
 bool
 IndexletManager::deleteIndexlet(uint64_t tableId, uint8_t indexId,
-                                uint16_t firstKeyLength, const void *firstKey,
-                                    uint16_t lastKeyLength, const void *lastKey)
+                const void *firstKey, uint16_t firstKeyLength,
+                const void *firstNotOwnedKey, uint16_t firstNotOwnedKeyLength)
 {
     Lock guard(lock);
 
     IndexletMap::iterator it =
-            lookup(tableId, indexId, firstKeyLength, firstKey, guard);
-    if (it == indexletMap.end())
+            lookup(tableId, indexId, firstKey, firstKeyLength, guard);
+    if (it == indexletMap.end()){
         return false;
+    }
 
     Indexlet* t = &it->second;
-    //TODO(ashgup): compare the two keys
-    if (t->firstKeyLength != firstKeyLength || t->lastKeyLength!= lastKeyLength)
+    //TODO(ashgup): convert every string operation to char* and strcmp
+    string givenFirstKey = StringUtil::binaryToString(
+                                firstKey, firstKeyLength);
+    string tFirstKey = StringUtil::binaryToString(
+                                t->firstKey, t->firstKeyLength);
+    if (tFirstKey.compare(givenFirstKey) != 0){
         return false;
+    }
+
+    if (firstNotOwnedKey != NULL){
+        string givenfirstNotOwnedKey = StringUtil::binaryToString(
+                                    firstNotOwnedKey, firstNotOwnedKeyLength);
+        string tfirstNotOwnedKey = StringUtil::binaryToString(
+                                    t->firstNotOwnedKey,
+                                    t->firstNotOwnedKeyLength);
+        if (tfirstNotOwnedKey.compare(givenfirstNotOwnedKey) != 0)
+            return false;
+    } else {
+        // found indexlet firstNotOwnedKey should be NULL
+        if (t->firstNotOwnedKey != NULL)
+            return false;
+    }
 
     indexletMap.erase(it);
+    //TODO(ashgup): free allocated memort and in destructor
     return true;
 }
 
-bool
+/**
+ * Given the exact specification of a indexlet's range , obtain the current data
+ * associated with that indexlet, if it exists. Note that the data returned is a
+ * snapshot. The IndexletManager's data may be modified at any time by other
+ * threads.
+ *
+ * \param tableId
+ *      Id of the data table for which this indexlet stores some
+ *      index information.
+ * \param indexId
+ *      Id of the index key for which this indexlet stores some information.
+ * \param firstKey
+ *      Key blob marking the start of the indexed key range for this indexlet.
+ * \param firstKeyLength
+ *      Length of firstKeyStr.
+ * \param firstNotOwnedKey
+ *      Key blob marking the first not owned key of the key space
+ *      for this indexlet.
+ * \param firstNotOwnedKeyLength
+ *      Length of firstNotOwnedKey.
+ * \return
+ *      True if a indexlet was found, otherwise false.
+ */
+IndexletManager::Indexlet*
 IndexletManager::getIndexlet(uint64_t tableId, uint8_t indexId,
-                    uint16_t firstKeyLength, const void *firstKey,
-                    uint16_t lastKeyLength, const void *lastKey,
-                    Indexlet* outIndexlet)
+                const void *firstKey, uint16_t firstKeyLength,
+                const void *firstNotOwnedKey, uint16_t firstNotOwnedKeyLength)
 {
     Lock guard(lock);
 
     IndexletMap::iterator it =
-        lookup(tableId, indexId, firstKeyLength, firstKey, guard);
+        lookup(tableId, indexId, firstKey, firstKeyLength, guard);
     if (it == indexletMap.end())
-        return false;
+        return NULL;
 
     Indexlet* t = &it->second;
-    //TODO(ashgup): compare the two keys
-    if (t->firstKeyLength != firstKeyLength || t->lastKeyLength!= lastKeyLength)
-        return false;
+    string tFirstKey = StringUtil::binaryToString(
+                                t->firstKey, t->firstKeyLength);
+    string givenFirstKey = StringUtil::binaryToString(
+                                firstKey, firstKeyLength);
+    if ( tFirstKey.compare(givenFirstKey) !=0 )
+        return NULL;
 
-    if (outIndexlet != NULL)
-        *outIndexlet = *t;
-    return true;
+    if (firstNotOwnedKey != NULL){
+        string givenfirstNotOwnedKey = StringUtil::binaryToString(
+                                    firstNotOwnedKey, firstNotOwnedKeyLength);
+        string tfirstNotOwnedKey = StringUtil::binaryToString(
+                                    t->firstNotOwnedKey,
+                                    t->firstNotOwnedKeyLength);
+        if (tfirstNotOwnedKey.compare(givenfirstNotOwnedKey) != 0)
+            return NULL;
+    } else {
+        // found indexlet firstNotOwnedKey should be NULL
+        if (t->firstNotOwnedKey != NULL)
+            return NULL;
+    }
+
+    return t;
 }
 
+/**
+ * Helper for the public methods that need to look up a indexlet. This method
+ * iterates over all candidates in the multimap.
+ *
+ * \param tableId
+ *      Id of the data table for which this indexlet stores some
+ *      index information.
+ * \param indexId
+ *      Id of the index key for which this indexlet stores some information.
+ * \param key
+ *      Key blob marking the start of the indexed key range for this indexlet.
+ * \param keyLength
+ *      Length of firstKeyStr.
+ * \param lock
+ *      Lock from parent function to protect the indexletMap
+ *      from concurrent access.
+ * \return
+ *      A IndexletMap::iterator is returned. If no indexlet was found, it will be
+ *      equal to indexletMap.end(). Otherwise, it will refer to the desired
+ *      indexlet.
+ *
+ *      An iterator, rather than a Indexlet pointer is returned to facilitate
+ *      efficient deletion.
+ */
 IndexletManager::IndexletMap::iterator
 IndexletManager::lookup(uint64_t tableId, uint8_t indexId,
-                               uint16_t keyLength, const void *key, Lock& lock)
+                               const void *key, uint16_t keyLength, Lock& lock)
 {
     auto range = indexletMap.equal_range(std::make_pair(tableId, indexId));
     IndexletMap::iterator end = range.second;
+    string givenKey = StringUtil::binaryToString(key, keyLength);
     for (IndexletMap::iterator it = range.first; it != end; it++) {
+
         Indexlet* t = &it->second;
-        //TODO(ashgup): compare the key
-        if (keyLength >= t->firstKeyLength && keyLength <= t->lastKeyLength)
-            return it;
+        string firstKey = StringUtil::binaryToString(
+                                t->firstKey, t->firstKeyLength);
+        if ( givenKey.compare(firstKey) < 0)
+            continue;
+
+        if (t->firstNotOwnedKey != NULL){
+            string firstNotOwnedKey = StringUtil::binaryToString(
+                                t->firstNotOwnedKey, t->firstNotOwnedKeyLength);
+            if (givenKey.compare(firstNotOwnedKey) >= 0)
+                continue;
+        }
+        return it;
     }
     return indexletMap.end();
 }
 
-///////////////////////////////////////////////////////////////////////////////
-/////////////////////////// Index data related functions //////////////////////
-///////////////////////////////////////////////////////////////////////////////
-
-/**
- * Initialize an index partition (indexlet) on this index server.
- * 
- * \param tableId
- *      Id of the data table for which this indexlet stores some
- *      index information.
- * \param indexId
- *      Id of the index key for which this indexlet stores some information.
- * \param firstKeyStr
- *      Key blob marking the start of the indexed key range for this indexlet.
- * \param firstKeyLength
- *      Length of firstKeyStr.
- * \param lastKeyStr
- *      Key blob marking the end of the indexed key range for this indexlet.
- * \param lastKeyLength
- *      Length of lastKeyStr.
- */
-void
-IndexletManager::initIndexlet(uint64_t tableId, uint8_t indexId,
-                           const void* firstKeyStr, KeyLength firstKeyLength,
-                           const void* lastKeyStr, KeyLength lastKeyLength)
-{
-    // Currently a stub. TODO(ashgup).
-    // Note: Will be called by takeIndexletOwnership, to the initialize tree.
-    // Might not be needed. TBD.
-}
-
-/**
- * Delete entries for an index partition (indexlet) on this index server.
- * 
- * \param tableId
- *      Id of the data table for which this indexlet stores some
- *      index information.
- * \param indexId
- *      Id of the index key for which this indexlet stores some information.
- */
-void
-IndexletManager::deleteIndexletEntries(uint64_t tableId, uint8_t indexId)
-{
-    // Currently a stub. TODO(ashgup).
-    // Note: Will be called by dropIndexletOwnership, to delete all entries.
-}
-
 /**
  * Insert index entry for an object for a given index id.
- * 
+ *
  * \param tableId
  *      Id of the table containing the object corresponding to this index entry.
  * \param indexId
@@ -188,7 +271,7 @@ IndexletManager::insertEntry(uint64_t tableId, uint8_t indexId,
 /**
  * Lookup objects with index keys corresponding to indexId in the
  * specified range or point.
- * 
+ *
  * \param tableId
  *      Id of the table containing the objects corresponding to these
  *      index keys.
@@ -225,7 +308,7 @@ IndexletManager::lookupIndexKeys(uint64_t tableId, uint8_t indexId,
 
 /**
  * Remove index entry for an object for a given index id.
- * 
+ *
  * \param tableId
  *      Id of the table containing the object corresponding to this index entry.
  * \param indexId
@@ -253,12 +336,12 @@ IndexletManager::removeEntry(uint64_t tableId, uint8_t indexId,
 /**
  * Compare the key corresponding to index id specified in keyRange
  * with the first and last keys in keyRange.
- * 
+ *
  * \param object
  *      Object for which the key is to be compared.
  * \param keyRange
  *      KeyRange specifying the parameters of comparison.
- * 
+ *
  * \return
  *      Value of true if key corresponding to index id specified in keyRange,
  *      say k, is such that lexicographically it falls in the range
@@ -283,6 +366,15 @@ IndexletManager::compareKey(Object* object, KeyRange* keyRange)
     } else {
         return false;
     }
+}
+
+ /* Obtain the total number of indexlets this object is managing.
+ */
+size_t
+IndexletManager::getCount()
+{
+    Lock guard(lock);
+    return indexletMap.size();
 }
 
 } //namespace

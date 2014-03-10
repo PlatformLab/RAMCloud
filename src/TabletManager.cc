@@ -1,4 +1,4 @@
-/* Copyright (c) 2012 Stanford University
+/* Copyright (c) 2012-2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -120,7 +120,7 @@ TabletManager::getTablet(uint64_t tableId, uint64_t keyHash, Tablet* outTablet)
  *      The table identifier of the tablet we're looking up.
  * \param startKeyHash
  *      Key hash value at which the desired tablet begins.
- * \param endKeyHash 
+ * \param endKeyHash
  *      Key hash value at which the desired tablet ends.
  * \param outTablet
  *      Optional pointer to a Tablet object that will be filled with the current
@@ -177,7 +177,7 @@ TabletManager::getTablets(vector<Tablet>* outTablets)
  *      The table identifier of the tablet we're deleting.
  * \param startKeyHash
  *      Key hash value at which the to-be-deleted tablet begins.
- * \param endKeyHash 
+ * \param endKeyHash
  *      Key hash value at which the to-be-deleted tablet ends.
  * \return
  *      True if the tablet was deleted. False if no such tablet existed.

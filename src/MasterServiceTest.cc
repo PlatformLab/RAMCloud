@@ -392,6 +392,73 @@ TEST_F(MasterServiceTest, dropTabletOwnership) {
         "in tableId 2", TestLog::get());
 }
 
+TEST_F(MasterServiceTest, dropIndexletOwnership) {
+    TestLog::Enable _("dropIndexletOwnership");
+
+    string key1 = "a";
+    string key2 = "c";
+    MasterClient::dropIndexletOwnership(&context, masterServer->serverId,
+                            2, 1, reinterpret_cast<const void*>(key1.c_str()),
+                            (uint16_t)key1.length(),
+                            reinterpret_cast<const void*>(key2.c_str()),
+                            (uint16_t)key2.length());
+    EXPECT_EQ("dropIndexletOwnership: Could not drop ownership "
+              "on unknown indexlet for tableId 2 indexId 1!", TestLog::get());
+
+    TestLog::reset();
+    MasterClient::takeIndexletOwnership(&context, masterServer->serverId,
+                            2, 1, reinterpret_cast<const void*>(key1.c_str()),
+                            (uint16_t)key1.length(),
+                            reinterpret_cast<const void*>(key2.c_str()),
+                            (uint16_t)key2.length());
+    MasterClient::dropIndexletOwnership(&context, masterServer->serverId,
+                            2, 1, reinterpret_cast<const void*>(key1.c_str()),
+                            (uint16_t)key1.length(),
+                            reinterpret_cast<const void*>(key2.c_str()),
+                            (uint16_t)key2.length());
+    EXPECT_EQ("dropIndexletOwnership: Dropped ownership of indexlet "
+        "in tableId 2 indexId 1", TestLog::get());
+}
+
+
+TEST_F(MasterServiceTest, takeIndexletOwnership) {
+
+    TestLog::Enable _("takeIndexletOwnership");
+
+    string key1 = "a";
+    string key2 = "c";
+    string key3 = "b";
+    MasterClient::takeIndexletOwnership(&context, masterServer->serverId, 2,
+        1, reinterpret_cast<const void *>(key1.c_str()),
+        (uint16_t)key1.length(),
+        reinterpret_cast<const void *>(key2.c_str()),
+        (uint16_t)key2.length());
+    EXPECT_EQ("takeIndexletOwnership: Took ownership of indexlet "
+        "in tableId 2 indexId 1", TestLog::get());
+
+    TestLog::reset();
+    MasterClient::takeIndexletOwnership(&context, masterServer->serverId, 2,
+        1, reinterpret_cast<const void *>(key1.c_str()),
+        (uint16_t)key1.length(),
+        reinterpret_cast<const void *>(key2.c_str()),
+        (uint16_t)key2.length());
+    EXPECT_EQ("takeIndexletOwnership: Told to take ownership of indexlet "
+        "in tableId 2 indexId 1, but already own. Returning "
+        "success.", TestLog::get());
+
+    TestLog::reset();
+    // Test partially overlapping sanity check.
+    EXPECT_THROW(
+        MasterClient::takeIndexletOwnership(&context, masterServer->serverId, 2,
+            1, reinterpret_cast<const void *>(key1.c_str()),
+            (uint16_t)key1.length(),
+            reinterpret_cast<const void *>(key3.c_str()),
+            (uint16_t)key3.length()), ClientException);
+    EXPECT_EQ("takeIndexletOwnership: Could not take ownership of indexlet "
+        "in tableId 2 indexId 1 overlaps with one or more different "
+        "ranges.", TestLog::get());
+}
+
 TEST_F(MasterServiceTest, enumerate_basics) {
     uint64_t version0, version1;
     ramcloud->write(1, "0", 1, "abcdef", 6, NULL, &version0, false);

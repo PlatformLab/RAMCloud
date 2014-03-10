@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2013 Stanford University
+/* Copyright (c) 2012-2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -65,6 +65,29 @@ TableManager::Table::~Table()
     foreach (Tablet* tablet, tablets) {
         delete tablet;
     }
+
+    foreach (Index* index, indexMap) {
+        delete index;
+    }
+}
+
+/**
+ * Destructor for Index: must free all the Indexlets structures.
+ */
+TableManager::Index::~Index()
+{
+    foreach (Indexlet* indexlet, indexlets) {
+        delete indexlet;
+    }
+}
+
+/**
+ * Destructor for Index: must free the dynamically allocated keys.
+ */
+TableManager::Indexlet::~Indexlet()
+{
+    delete reinterpret_cast<uint64_t *>(firstKey);
+    delete reinterpret_cast<uint64_t *>(firstNotOwnedKey);
 }
 
 //////////////////////////////////////////////////////////////////////
@@ -73,13 +96,13 @@ TableManager::Table::~Table()
 
 /**
  * Create a table with the given name, if it doesn't already exist.
- * 
+ *
  * \param name
  *      Name for the table to be created.
  * \param serverSpan
  *      Number of servers across which this table should be split during
  *      creation.
- * 
+ *
  * \return
  *      Table id of the new table. If a table already exists with the
  *      given name, then its id is returned.
@@ -159,6 +182,69 @@ TableManager::createTable(const char* name, uint32_t serverSpan)
 }
 
 /**
+ * Create an index for table, if it doesn't already exist.
+ *
+ * \param tableId
+ *      Id of the table to which the index belongs
+ * \param indexId
+ *      Id of the secondary key on which the index is being built
+ * \param indexType
+ *      Type of the index.
+ *
+ * \return
+ *      True if the index was created.
+ *      False if it already exist or cannot find the table.
+ */
+bool
+TableManager::createIndex(uint64_t tableId, uint8_t indexId, uint8_t indexType)
+{
+    Lock lock(mutex);
+
+    IdMap::iterator it = idMap.find(tableId);
+    if (it == idMap.end()) {
+        //TODO(ashgup): convert log to test log messages, in dropIndex too
+        //TODO(ashgup): throe TableDoesntExistException
+        LOG(NOTICE, "Cannot find table '%lu'", tableId);
+        return false;
+    }
+
+    Table* table = it->second;
+    //search if the index already exists for the table
+    if (table->indexMap[indexId]){
+        LOG(NOTICE, "Index %u already exists for table '%lu'",
+                                                    indexId, tableId);
+        return false;
+    }
+
+    LOG(NOTICE, "Creating table '%lu' index '%u'", tableId, indexId);
+    Index* index = new Index(tableId, indexId, indexType);
+
+    try{
+        tabletMaster = context->coordinatorServerList->nextServer(
+                tabletMaster, {WireFormat::MASTER_SERVICE});
+        if (!tabletMaster.isValid()) {
+            throw RetryException(HERE, 5000000, 10000000,
+                    "no masters in cluster");
+        }
+
+        char *firstKey = new char(0);
+        char *firstNotOwnedKey = new char(127);
+        Indexlet *indexlet = new Indexlet(reinterpret_cast<void *>(firstKey), 1,
+                                reinterpret_cast<void *>(firstNotOwnedKey), 1,
+                                tabletMaster);
+        index->indexlets.push_back(indexlet);
+    }
+    catch (...) {
+        delete index;
+        throw;
+    }
+
+    table->indexMap[indexId] = index;
+    notifyCreateIndex(lock, index);
+    return true;
+}
+
+/**
  * Returns a human-readable string describing all of the tables currently
  * in the tablet map. Used primarily for testing.
  *
@@ -214,7 +300,7 @@ TableManager::debugString(bool shortForm)
  * Delete the table with the given name. All existing data for the table will
  * be deleted, and the table's name will no longer exist in the directory
  * of tables.
- * 
+ *
  * \param name
  *      Name of the table that is to be dropped.
  */
@@ -246,14 +332,50 @@ TableManager::dropTable(const char* name)
 }
 
 /**
+ * All existing index data for the index will be deleted, but key values will
+ * remain in objects of the table.
+ *
+ * \param tableId
+ *      Id of the table to which the index belongs
+ * \param indexId
+ *      Id of the secondary key on which the index is being built
+* \return
+ *      True if the index was dropped. False if cannot find the table or index.
+ */
+bool
+TableManager::dropIndex(uint64_t tableId, uint8_t indexId)
+{
+    Lock lock(mutex);
+
+    IdMap::iterator it = idMap.find(tableId);
+    if (it == idMap.end()){
+        LOG(NOTICE, "Cannot find table '%lu'", tableId);
+        return false;
+    }
+    Table* table = it->second;
+
+    if (!table->indexMap[indexId]){
+        LOG(NOTICE, "Cannot find index '%u' for table '%lu'", indexId, tableId);
+        return false;
+    }
+    Index* index = table->indexMap[indexId];
+
+    LOG(NOTICE, "Dropping table '%lu' index '%u'", tableId, indexId);
+    table->indexMap[indexId] = NULL;
+    notifyDropIndex(lock, index);
+    delete index;
+    return true;
+}
+
+/**
  * Return the tableId of the table with the given name.
- * 
+ *
  * \param name
  *      Name to identify the table.
- * 
+ *
  * \return
  *      tableId of the table whose name is given.
- * 
+ *
  * \throw NoSuchTable
  *      If name does not identify an existing table.
  */
@@ -327,7 +449,7 @@ TableManager::markAllTabletsRecovering(ServerId serverId)
  * does not actually transfer the contents of the tablet; the caller should
  * already have taken care of that. This method is used to complete the
  * migration of a tablet from one server to another.
- * 
+ *
  * \param newOwner
  *      ServerId of the server that will own this tablet at the end of
  *      the operation.
@@ -341,7 +463,7 @@ TableManager::markAllTabletsRecovering(ServerId serverId)
  *      ServerId of the log head before migration.
  * \param ctimeSegmentOffset
  *      Offset in log head before migration.
- * 
+ *
  * \throw NoSuchTablet
  *      If the arguments do not identify a tablet currently in the tablet map.
  */
@@ -396,7 +518,7 @@ TableManager::reassignTabletOwnership(
  * of the cluster; it recovers all of the table metadata from external
  * storage, and it completes any operations that might not have finished
  * at the time the previous coordinator crashed.
- * 
+ *
  * \param lastCompletedUpdate
  *      Sequence number of the last update from the previous coordinator
  *      that is known to have finished. Any updates after this may or may
@@ -603,7 +725,7 @@ TableManager::splitRecoveringTablet(uint64_t tableId, uint64_t splitKeyHash)
  * Invoked by MasterRecoveryManager after recovery for a tablet has
  * successfully completed to inform coordinator about the new master
  * for the tablet.
- * 
+ *
  * \param tableId
  *      Id of table containing the tablet.
  * \param startKeyHash
@@ -684,7 +806,7 @@ TableManager::findTablet(const Lock& lock, Table* table, uint64_t keyHash)
  * This method is invoked as part of creating a new table: it sends
  * an RPC to each of the masters storing a tablet for this table, so they
  * know that they are now responsible.
- * 
+ *
  * \param lock
  *      Ensures that the caller holds the monitor lock; not actually used.
  * \param table
@@ -714,6 +836,37 @@ TableManager::notifyCreate(const Lock& lock, Table* table)
 }
 
 /**
+ * This method is invoked as part of creating a new index: it sends
+ * an RPC to each of the masters storing an indexlet for this index, so they
+ * know that they are now responsible.
+ *
+ * \param lock
+ *      Ensures that the caller holds the monitor lock; not actually used.
+ * \param index
+ *      Newly created index; notify the master for each indexlet.
+ */
+void
+TableManager::notifyCreateIndex(const Lock& lock, Index* index)
+{
+    foreach (Indexlet* indexlet, index->indexlets) {
+        try {
+            LOG(NOTICE, "Assigning table id %lu index id %u, "
+                        "to master %s", index->tableId, index->indexId,
+                        indexlet->serverId.toString().c_str());
+            MasterClient::takeIndexletOwnership(context, indexlet->serverId,
+                index->tableId, index->indexId,
+                indexlet->firstKey, indexlet->firstKeyLength,
+                indexlet->firstNotOwnedKey, indexlet->firstNotOwnedKeyLength);
+        } catch (ServerNotUpException& e) {
+            LOG(NOTICE, "takeIndexletOwnership skipped for master %s (table %lu"
+            ", index %u) because server isn't running",
+                    indexlet->serverId.toString().c_str(),
+                    index->tableId, index->indexId);
+        }
+    }
+}
+
+/**
  * This method is invoked as part of deleting a table: it sends an RPC
  * to each of the masters storing a tablet for this table, so they
  * can clean up all of their state related to the table. It also performs
@@ -721,7 +874,7 @@ TableManager::notifyCreate(const Lock& lock, Table* table)
  * such as deleting the record for the table in external storage. This
  * method is used both during normal table deletion, and during coordinator
  * crash recovery.
- * 
+ *
  * \param lock
  *      Ensures that the caller holds the monitor lock; not actually used.
  * \param info
@@ -766,6 +919,41 @@ TableManager::notifyDropTable(const Lock& lock, ProtoBuf::Table* info)
     string objectName("tables/");
     objectName.append(info->name());
     context->externalStorage->remove(objectName.c_str());
+}
+
+/**
+ * This method is invoked as part of deleting an index: it sends an RPC
+ * to each of the masters storing a indexlet for this index, so they
+ * can clean up all of their state related to the index.
+ *
+ * \param lock
+ *      Ensures that the caller holds the monitor lock; not actually used.
+ * \param index
+ *      Index object corresponding to the index being deleted.
+ */
+void
+TableManager::notifyDropIndex(const Lock& lock, Index* index)
+{
+    foreach (Indexlet* indexlet, index->indexlets) {
+        try {
+            LOG(NOTICE, "Requesting master %s to drop table id %lu indexId %u",
+                        indexlet->serverId.toString().c_str(), index->tableId,
+                        index->indexId);
+            MasterClient::dropIndexletOwnership(context, indexlet->serverId,
+                index->tableId, index->indexId,
+                indexlet->firstKey, indexlet->firstKeyLength,
+                indexlet->firstNotOwnedKey, indexlet->firstNotOwnedKeyLength);
+        } catch (ServerNotUpException& e) {
+
+            // The master has apparently crashed. This is benign (a dead
+            // master can't continue serving the tablet), but log a message
+            // anyway.
+            LOG(NOTICE, "dropTabletOwnership skipped for master %s (table %lu, "
+                    "index %u) because server isn't running",
+                    indexlet->serverId.toString().c_str(), index->tableId,
+                    index->indexId);
+        }
+    }
 }
 
 /**
@@ -840,7 +1028,7 @@ TableManager::notifySplitTablet(const Lock& lock, ProtoBuf::Table* info)
 /**
  * This method re-creates the internal data structures for a table, based
  * on a protocol buffer read from external storage.
- * 
+ *
  * \param lock
  *      Ensures that the caller holds the monitor lock; not actually used.
  * \param info
@@ -956,7 +1144,7 @@ TableManager::sync(const Lock& lock)
 /**
  * Write the latest information about a table to the appropriate place in
  * external storage.
- * 
+ *
  * \param lock
  *      Ensures that the caller holds the monitor lock; not actually used.
  * \param table

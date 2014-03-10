@@ -115,7 +115,11 @@ enum Opcode {
     INDEXED_READ              = 61,
     INSERT_INDEX_ENTRY        = 62,
     REMOVE_INDEX_ENTRY        = 63,
-    ILLEGAL_RPC_TYPE          = 64,  // 1 + the highest legitimate Opcode
+    CREATE_INDEX              = 64,
+    DROP_INDEX                = 65,
+    DROP_INDEXLET_OWNERSHIP   = 66,
+    TAKE_INDEXLET_OWNERSHIP   = 67,
+    ILLEGAL_RPC_TYPE          = 68,  // 1 + the highest legitimate Opcode
 };
 
 /**
@@ -444,6 +448,49 @@ struct DropTable {
                                       // including terminating NULL
                                       // character. The bytes of the name
                                       // follow immediately after this header.
+    } __attribute__((packed));
+    struct Response {
+        ResponseCommon common;
+    } __attribute__((packed));
+};
+
+struct CreateIndex {
+    static const Opcode opcode = CREATE_INDEX;
+    static const ServiceType service = COORDINATOR_SERVICE;
+    struct Request {
+        RequestCommon common;
+        uint64_t tableId;
+        uint8_t indexType;
+        uint8_t indexId;
+    } __attribute__((packed));
+    struct Response {
+        ResponseCommon common;
+    } __attribute__((packed));
+};
+
+struct DropIndex {
+    static const Opcode opcode = DROP_INDEX;
+    static const ServiceType service = COORDINATOR_SERVICE;
+    struct Request {
+        RequestCommon common;
+        uint64_t tableId;
+        uint8_t indexId;
+    } __attribute__((packed));
+    struct Response {
+        ResponseCommon common;
+    } __attribute__((packed));
+};
+
+struct DropIndexletOwnership {
+    static const Opcode opcode = DROP_INDEXLET_OWNERSHIP;
+    static const ServiceType service = MASTER_SERVICE;
+    struct Request {
+        RequestCommonWithId common;
+        uint64_t tableId;
+        uint8_t indexId;
+        uint16_t firstKeyLength;
+        uint16_t firstNotOwnedKeyLength;
+        // In buffer: The actual first key and last key go here.
     } __attribute__((packed));
     struct Response {
         ResponseCommon common;
@@ -1290,6 +1337,23 @@ struct TakeTabletOwnership {
         ResponseCommon common;
     } __attribute__((packed));
 };
+
+struct TakeIndexletOwnership {
+    static const Opcode opcode = TAKE_INDEXLET_OWNERSHIP;
+    static const ServiceType service = MASTER_SERVICE;
+    struct Request {
+        RequestCommonWithId common;
+        uint64_t tableId;
+        uint8_t indexId;
+        uint16_t firstKeyLength;
+        uint16_t firstNotOwnedKeyLength;
+        // In buffer: The actual first key and last key go here.
+    } __attribute__((packed));
+    struct Response {
+        ResponseCommon common;
+    } __attribute__((packed));
+};
+
 
 struct UpdateServerList {
     static const Opcode opcode = UPDATE_SERVER_LIST;

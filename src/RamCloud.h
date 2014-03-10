@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2013 Stanford University
+/* Copyright (c) 2010-2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -63,6 +63,8 @@ class RamCloud {
   public:
     uint64_t createTable(const char* name, uint32_t serverSpan = 1);
     void dropTable(const char* name);
+    void createIndex(uint64_t tableId, uint8_t indexId, uint8_t indexType);
+    void dropIndex(uint64_t tableId, uint8_t indexId);
     uint64_t enumerateTable(uint64_t tableId, bool keysOnly,
          uint64_t tabletFirstHash, Buffer& state, Buffer& objects);
     void getLogMetrics(const char* serviceLocator,
@@ -200,6 +202,36 @@ class DropTableRpc : public CoordinatorRpcWrapper {
 
   PRIVATE:
     DISALLOW_COPY_AND_ASSIGN(DropTableRpc);
+};
+
+/**
+ * Encapsulates the state of a RamCloud::createIndex operation,
+ * allowing it to execute asynchronously.
+ */
+class CreateIndexRpc : public CoordinatorRpcWrapper {
+  public:
+    //TODO(ashgup): convert indexType to enum
+    CreateIndexRpc(RamCloud* ramcloud, uint64_t tableId, uint8_t indexId,
+              uint8_t indexType);
+    ~CreateIndexRpc() {}
+    void wait() {simpleWait(context->dispatch);}
+
+  PRIVATE:
+    DISALLOW_COPY_AND_ASSIGN(CreateIndexRpc);
+};
+
+/**
+ * Encapsulates the state of a RamCloud::dropIndex operation,
+ * allowing it to execute asynchronously.
+ */
+class DropIndexRpc : public CoordinatorRpcWrapper {
+  public:
+    DropIndexRpc(RamCloud* ramcloud, uint64_t tableId, uint8_t indexId);
+    ~DropIndexRpc() {}
+    void wait() {simpleWait(context->dispatch);}
+
+  PRIVATE:
+    DISALLOW_COPY_AND_ASSIGN(DropIndexRpc);
 };
 
 /**
@@ -659,7 +691,7 @@ struct MultiWriteObject : public MultiOpObject {
      *      Number of keys in the object.  If is not >= 1, then behavior
      *      is undefined. A value of 1 indicates the presence of only the
      *      primary key
-     * \param keyInfo 
+     * \param keyInfo
      *      List of keys and corresponding key lengths. The first entry should
      *      correspond to the primary key and its length. If this argument is
      *      NULL, then behavior is undefined. RamCloud currently uses a dense
@@ -750,7 +782,7 @@ class ReadRpc : public ObjectRpcWrapper {
 
 /**
  * Encapsulates the state of a RamCloud::read operation,
- * allowing it to execute asynchronously. The difference from 
+ * allowing it to execute asynchronously. The difference from
  * ReadRpc is in the contents of the returned buffer.
  */
 class ReadKeysAndValueRpc : public ObjectRpcWrapper {

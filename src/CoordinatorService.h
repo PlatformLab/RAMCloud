@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2013 Stanford University
+/* Copyright (c) 2009-2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -55,6 +55,12 @@ class CoordinatorService : public Service {
                      Rpc* rpc);
     void dropTable(const WireFormat::DropTable::Request* reqHdr,
                    WireFormat::DropTable::Response* respHdr,
+                   Rpc* rpc);
+    void createIndex(const WireFormat::CreateIndex::Request* reqHdr,
+                     WireFormat::CreateIndex::Response* respHdr,
+                     Rpc* rpc);
+    void dropIndex(const WireFormat::DropIndex::Request* reqHdr,
+                   WireFormat::DropIndex::Response* respHdr,
                    Rpc* rpc);
     void splitTablet(const WireFormat::SplitTablet::Request* reqHdr,
                    WireFormat::SplitTablet::Response* respHdr,

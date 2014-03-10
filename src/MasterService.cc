@@ -74,7 +74,6 @@ MasterService::MasterService(Context* context,
     : context(context)
     , config(config)
     , disableCount(0)
-    , indexletManager(context)
     , initCalled(false)
     , logEverSynced(false)
     , masterTableMetadata()
@@ -86,6 +85,7 @@ MasterService::MasterService(Context* context,
                     &tabletManager,
                     &masterTableMetadata)
     , tabletManager()
+    , indexletManager(context)
 {
 }
 
@@ -116,6 +116,10 @@ MasterService::dispatch(WireFormat::Opcode opcode, Rpc* rpc)
         case WireFormat::DropTabletOwnership::opcode:
             callHandler<WireFormat::DropTabletOwnership, MasterService,
                         &MasterService::dropTabletOwnership>(rpc);
+            break;
+        case WireFormat::DropIndexletOwnership::opcode:
+            callHandler<WireFormat::DropIndexletOwnership, MasterService,
+                        &MasterService::dropIndexletOwnership>(rpc);
             break;
         case WireFormat::Enumerate::opcode:
             callHandler<WireFormat::Enumerate, MasterService,
@@ -194,6 +198,10 @@ MasterService::dispatch(WireFormat::Opcode opcode, Rpc* rpc)
         case WireFormat::TakeTabletOwnership::opcode:
             callHandler<WireFormat::TakeTabletOwnership, MasterService,
                         &MasterService::takeTabletOwnership>(rpc);
+            break;
+        case WireFormat::TakeIndexletOwnership::opcode:
+            callHandler<WireFormat::TakeIndexletOwnership, MasterService,
+                        &MasterService::takeIndexletOwnership>(rpc);
             break;
         case WireFormat::Write::opcode:
             callHandler<WireFormat::Write, MasterService,
@@ -277,6 +285,46 @@ MasterService::dropTabletOwnership(
         LOG(WARNING, "Could not drop ownership on unknown tablet [0x%lx,0x%lx]"
             " in tableId %lu!", reqHdr->firstKeyHash, reqHdr->lastKeyHash,
             reqHdr->tableId);
+    }
+}
+
+/**
+ * Top-level server method to handle the DROP_INDEXLET_OWNERSHIP request.
+ *
+ * This RPC is issued by the coordinator when an index is dropped and all
+ * indexlets are being destroyed.
+ *
+ * \copydetails Service::ping
+ */
+void
+MasterService::dropIndexletOwnership(
+        const WireFormat::DropIndexletOwnership::Request* reqHdr,
+        WireFormat::DropIndexletOwnership::Response* respHdr,
+        Rpc* rpc)
+{
+    uint32_t reqOffset = sizeof32(*reqHdr);
+    const void* firstKey =
+        rpc->requestPayload->getRange(reqOffset, reqHdr->firstKeyLength);
+    reqOffset+=reqHdr->firstKeyLength;
+    const void* firstNotOwnedKey =
+      rpc->requestPayload->getRange(reqOffset, reqHdr->firstNotOwnedKeyLength);
+
+    // TODO(ashgup): What if RPC isn't long enough to hold
+    // all of the required data?
+
+    bool deleted = indexletManager.deleteIndexlet(reqHdr->tableId,
+                                              reqHdr->indexId,
+                                              firstKey,
+                                              reqHdr->firstKeyLength,
+                                              firstNotOwnedKey,
+                                              reqHdr->firstNotOwnedKeyLength);
+    if (deleted) {
+        LOG(NOTICE, "Dropped ownership of indexlet in tableId %lu"
+            " indexId %u", reqHdr->tableId, reqHdr->indexId);
+    } else {
+        // to make this operation idempotent, don't return bad status.
+        LOG(WARNING, "Could not drop ownership on unknown indexlet "
+            "for tableId %lu indexId %u!", reqHdr->tableId, reqHdr->indexId);
     }
 }
 
@@ -521,7 +569,7 @@ MasterService::increment(const WireFormat::Increment::Request* reqHdr,
 
 /**
  * Top-level server method to handle the MULTI_READ_FOR_LOOKUP request.
- * 
+ *
  * \param reqHdr
  *      Header from the incoming RPC request; contains all the
  *      parameters for this operation except the keyhashes for objects
@@ -661,7 +709,7 @@ MasterService::isReplicaNeeded(
 
 /**
  * Top-level server method to handle the LOOKUP request.
- * 
+ *
  * \param reqHdr
  *      Header from the incoming RPC request; contains all the
  *      parameters for this operation except the lookup key or key range.
@@ -1544,6 +1592,60 @@ MasterService::takeTabletOwnership(
 }
 
 /**
+ * Top-level server method to handle the TAKE_INDEXLET_OWNERSHIP request.
+ *
+ * This RPC is issued by the coordinator when assigning ownership of a
+ * indexlet. As far as the coordinator is concerned, the master
+ * receiving this rpc owns the indexlet specified and all requests for it
+ * will be directed here from now on.
+ *
+ * \copydetails Service::ping
+ */
+void
+MasterService::takeIndexletOwnership(
+        const WireFormat::TakeIndexletOwnership::Request* reqHdr,
+        WireFormat::TakeIndexletOwnership::Response* respHdr,
+        Rpc* rpc)
+{
+    uint32_t reqOffset = sizeof32(*reqHdr);
+    const void* firstKey =
+        rpc->requestPayload->getRange(reqOffset, reqHdr->firstKeyLength);
+    reqOffset+=reqHdr->firstKeyLength;
+    const void* firstNotOwnedKey =
+        rpc->requestPayload->getRange(
+                reqOffset, reqHdr->firstNotOwnedKeyLength);
+
+    // TODO(ashgup): What if RPC isn't long enough to hold
+    // all of the required data?
+
+    bool added = indexletManager.addIndexlet(reqHdr->tableId,
+                             reqHdr->indexId,
+                             firstKey, reqHdr->firstKeyLength,
+                             firstNotOwnedKey, reqHdr->firstNotOwnedKeyLength);
+    if (added) {
+        LOG(NOTICE, "Took ownership of indexlet in tableId "
+            "%lu indexId %u", reqHdr->tableId, reqHdr->indexId);
+    } else {
+        if (indexletManager.getIndexlet(reqHdr->tableId,
+                            reqHdr->indexId,
+                            firstKey, reqHdr->firstKeyLength,
+                            firstNotOwnedKey, reqHdr->firstNotOwnedKeyLength)
+            != NULL) {
+            LOG(NOTICE, "Told to take ownership of indexlet "
+                        "in tableId %lu indexId %u, but already own. "
+                        "Returning success.", reqHdr->tableId, reqHdr->indexId);
+            return;
+        } else {
+            LOG(WARNING, "Could not take ownership of indexlet in "
+                "tableId %lu indexId %u overlaps with one or more different "
+                "ranges.", reqHdr->tableId, reqHdr->indexId);
+            // TODO(anybody): Do we want a more meaningful error code?
+            respHdr->common.status = STATUS_INTERNAL_ERROR;
+        }
+    }
+}
+
+/**
  * Top-level server method to handle the WRITE request.
  *
  * \copydetails MasterService::read
@@ -1594,15 +1696,15 @@ MasterService::write(const WireFormat::Write::Request* reqHdr,
 
 /**
  * TODO(ankitak): For both request insert and request remove:
- * 
+ *
  * 1. Send rpcs through MasterClient asynchronously so we can first send for all
  * then receive for all.
- * 
+ *
  * 2. Currently assuming that all keys are in contiguous keyIndexes.
  * So, in the code below, I'm currently generating keyIndex directly from
  * keyCount. This assumption will not be true if object schema changes.
  * Will need to change this code + code in Object accordingly.
- * 
+ *
  * 3. Calling functions currently read entire object and then call insert
  * or remove. They only need to read the keys. Can optimize by modifying that,
  * the functions called to read, and the functions below.

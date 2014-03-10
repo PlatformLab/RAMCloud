@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2013 Stanford University
+/* Copyright (c) 2012-2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -113,6 +113,49 @@ class TableManagerTest : public ::testing::Test {
     }
 
     DISALLOW_COPY_AND_ASSIGN(TableManagerTest);
+};
+
+TEST_F(TableManagerTest, createIndex) {
+    MasterService* master1 = cluster.addServer(masterConfig)->master.get();
+    MasterService* master2 = cluster.addServer(masterConfig)->master.get();
+    updateManager->reset();
+
+    EXPECT_FALSE(tableManager->createIndex(1, 0, 0));
+    EXPECT_EQ(1U, tableManager->createTable("foo", 1));
+
+    EXPECT_FALSE(tableManager->createIndex(2, 0, 0));
+    EXPECT_TRUE(tableManager->createIndex(1, 0, 0));
+    EXPECT_EQ(0U, master1->indexletManager.getCount());
+    EXPECT_EQ(1U, master2->indexletManager.getCount());
+
+    EXPECT_TRUE(tableManager->createIndex(1, 1, 0));
+    EXPECT_EQ(1U, master1->indexletManager.getCount());
+    EXPECT_EQ(1U, master2->indexletManager.getCount());
+
+    // duplicate index already exists
+    EXPECT_FALSE(tableManager->createIndex(1, 0, 0));
+};
+
+TEST_F(TableManagerTest, dropIndex) {
+    MasterService* master1 = cluster.addServer(masterConfig)->master.get();
+    MasterService* master2 = cluster.addServer(masterConfig)->master.get();
+    updateManager->reset();
+
+    EXPECT_EQ(1U, tableManager->createTable("foo", 1));
+    EXPECT_TRUE(tableManager->createIndex(1, 0, 0));
+    EXPECT_EQ(0U, master1->indexletManager.getCount());
+    EXPECT_EQ(1U, master2->indexletManager.getCount());
+
+    EXPECT_TRUE(tableManager->createIndex(1, 1, 0));
+    EXPECT_EQ(1U, master1->indexletManager.getCount());
+    EXPECT_EQ(1U, master2->indexletManager.getCount());
+
+    EXPECT_FALSE(tableManager->dropIndex(2, 1));
+    EXPECT_FALSE(tableManager->dropIndex(1, 2));
+    EXPECT_TRUE(tableManager->dropIndex(1, 1));
+    EXPECT_EQ(0U, master1->indexletManager.getCount());
+    EXPECT_EQ(1U, master2->indexletManager.getCount());
+    //TODO(ashgup): Need tests for notifyCreateIndex and notifyDropIndex.
 };
 
 TEST_F(TableManagerTest, createTable_basics) {

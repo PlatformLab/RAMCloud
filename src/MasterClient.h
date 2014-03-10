@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2012 Stanford University
+/* Copyright (c) 2010-2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -66,6 +66,14 @@ class MasterClient {
             uint64_t tableId, uint64_t splitKeyHash);
     static void takeTabletOwnership(Context* context, ServerId id,
             uint64_t tableId, uint64_t firstKeyHash, uint64_t lastKeyHash);
+    static void takeIndexletOwnership(Context* context, ServerId id,
+                      uint64_t tableId, uint8_t indexId, const void *firstKey,
+                      uint16_t firstKeyLength, const void *firstNotOwnedKey,
+                      uint16_t firstNotOwnedKeyLength);
+    static void dropIndexletOwnership(Context* context, ServerId id,
+                      uint64_t tableId, uint8_t indexId, const void *firstKey,
+                      uint16_t firstKeyLength, const void *firstNotOwnedKey,
+                      uint16_t firstNotOwnedKeyLength);
 
   private:
     MasterClient();
@@ -78,13 +86,31 @@ class MasterClient {
 class DropTabletOwnershipRpc : public ServerIdRpcWrapper {
   public:
     DropTabletOwnershipRpc(Context* context, ServerId serverId,
-            uint64_t tableId, uint64_t firstKey, uint64_t lastKey);
+            uint64_t tableId, uint64_t firstKey, uint64_t firstNotOwnedKey);
     ~DropTabletOwnershipRpc() {}
     /// \copydoc ServerIdRpcWrapper::waitAndCheckErrors
     void wait() {waitAndCheckErrors();}
 
   PRIVATE:
     DISALLOW_COPY_AND_ASSIGN(DropTabletOwnershipRpc);
+};
+
+/**
+ * Encapsulates the state of a MasterClient::dropIndexletOwnership
+ * request, allowing it to execute asynchronously.
+ */
+class DropIndexletOwnershipRpc : public ServerIdRpcWrapper {
+  public:
+    DropIndexletOwnershipRpc(Context* context, ServerId serverId,
+        uint64_t tableId, uint8_t indexId, const void *firstKey,
+        uint16_t firstKeyLength, const void *firstNotOwnedKey,
+        uint16_t firstNotOwnedKeyLength);
+    ~DropIndexletOwnershipRpc() {}
+    /// \copydoc ServerIdRpcWrapper::waitAndCheckErrors
+    void wait() {waitAndCheckErrors();}
+
+  PRIVATE:
+    DISALLOW_COPY_AND_ASSIGN(DropIndexletOwnershipRpc);
 };
 
 /**
@@ -232,6 +258,24 @@ class TakeTabletOwnershipRpc : public ServerIdRpcWrapper {
 
   PRIVATE:
     DISALLOW_COPY_AND_ASSIGN(TakeTabletOwnershipRpc);
+};
+
+/**
+ * Encapsulates the state of a MasterClient::takeIndexletOwnership
+ * request, allowing it to execute asynchronously.
+ */
+class TakeIndexletOwnershipRpc : public ServerIdRpcWrapper {
+  public:
+    TakeIndexletOwnershipRpc(Context* context, ServerId id, uint64_t tableId,
+                  uint8_t indexId, const void *firstKey,
+                  uint16_t firstKeyLength, const void *firstNotOwnedKey,
+                  uint16_t firstNotOwnedKeyLength);
+    ~TakeIndexletOwnershipRpc() {}
+    /// \copydoc ServerIdRpcWrapper::waitAndCheckErrors
+    void wait() {waitAndCheckErrors();}
+
+  PRIVATE:
+    DISALLOW_COPY_AND_ASSIGN(TakeIndexletOwnershipRpc);
 };
 
 } // namespace RAMCloud

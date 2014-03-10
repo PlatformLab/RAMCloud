@@ -95,11 +95,11 @@ RamCloud::~RamCloud()
 }
 
 /**
- * Give polling-based operations (such as those checking for incoming network 
+ * Give polling-based operations (such as those checking for incoming network
  * packets) a chance to execute. This method is typically invoked during loops
  * that wait for asynchronous RPCs to complete by calling isReady repeatedly.
- * In general, an asynchronous RPC will not make progress unless either 
- * this method is invoked or the "wait" method is invoked on the RPC. 
+ * In general, an asynchronous RPC will not make progress unless either
+ * this method is invoked or the "wait" method is invoked on the RPC.
  * This method will not block; it checks for interesting events that may have
  * occurred, but doesn't wait for them to occur.
  */
@@ -219,6 +219,94 @@ DropTableRpc::DropTableRpc(RamCloud* ramcloud,
             allocHeader<WireFormat::DropTable>());
     reqHdr->nameLength = length;
     memcpy(new(&request, APPEND) char[length], name, length);
+    send();
+}
+
+/**
+ * Create a new index.
+ *
+ * \param tableId
+ *      Id of the table to which the index belongs
+ * \param indexId
+ *      Id of the secondary key on which the index is being built
+ * \param indexType
+ *      Type of the index. Currently only supporting string type.
+ */
+void
+RamCloud::createIndex(uint64_t tableId, uint8_t indexId, uint8_t indexType)
+{
+    CreateIndexRpc rpc(this, tableId, indexId, indexType);
+    rpc.wait();
+}
+
+/**
+ * Constructor for CreateIndexRpc: initiates an RPC in the same way as
+ * #RamCloud::createIndex, but returns once the RPC has been initiated,
+ * without waiting for it to complete.
+ *
+ * \param ramcloud
+ *      The RAMCloud object that governs this RPC.
+ * \param tableId
+ *      Id of the table to which the index belongs
+ * \param indexId
+ *      Id of the secondary key on which the index is being built
+ * \param indexType
+ *      Type of the index. Currently only supporting string type.
+ */
+CreateIndexRpc::CreateIndexRpc(RamCloud* ramcloud, uint64_t tableId,
+                        uint8_t indexId, uint8_t indexType)
+    : CoordinatorRpcWrapper(ramcloud->clientContext,
+            sizeof(WireFormat::CreateIndex::Response))
+{
+    WireFormat::CreateIndex::Request* reqHdr(
+            allocHeader<WireFormat::CreateIndex>());
+    reqHdr->tableId = tableId;
+    reqHdr->indexId = indexId;
+    reqHdr->indexType = indexType;
+    send();
+}
+
+/**
+ * Delete an index.
+ *
+ * All indexlets in the index are implicitly deleted, along with any
+ * other information associated with the index.  If the index does
+ * not currently exist then the operation returns successfully without
+ * actually doing anything.
+ *
+ * \param tableId
+ *      Id of the table to which the index belongs
+ * \param indexId
+ *      Id of the secondary key on which the index is being built
+ */
+void
+RamCloud::dropIndex(uint64_t tableId, uint8_t indexId)
+{
+    DropIndexRpc rpc(this, tableId, indexId);
+    rpc.wait();
+}
+
+/**
+ * Constructor for DropIndexRpc: initiates an RPC in the same way as
+ * #RamCloud::dropIndex, but returns once the RPC has been initiated,
+ * without waiting for it to complete.
+ *
+ * \param ramcloud
+ *      The RAMCloud object that governs this RPC.
+ * \param tableId
+ *      Id of the table to which the index belongs
+ * \param indexId
+ *      Id of the secondary key on which the index is being built
+ */
+DropIndexRpc::DropIndexRpc(RamCloud* ramcloud,
+                        uint64_t tableId, uint8_t indexId)
+    : CoordinatorRpcWrapper(ramcloud->clientContext,
+            sizeof(WireFormat::DropIndex::Response))
+{
+    WireFormat::DropIndex::Request* reqHdr(
+            allocHeader<WireFormat::DropIndex>());
+    reqHdr->tableId = tableId;
+    reqHdr->indexId = indexId;
     send();
 }
 
@@ -788,7 +876,7 @@ RamCloud::getTableId(const char* name)
 GetTableIdRpc::GetTableIdRpc(RamCloud* ramcloud,
         const char* name)
     : CoordinatorRpcWrapper(ramcloud->clientContext,
-            sizeof(WireFormat::CreateTable::Response))
+            sizeof(WireFormat::GetTableId::Response))
 {
     uint32_t length = downCast<uint32_t>(strlen(name) + 1);
     WireFormat::GetTableId::Request* reqHdr(
@@ -923,7 +1011,7 @@ IncrementRpc::wait(uint64_t* version)
  * Read objects in a table with given primary key hashes, and check
  * index key (index indicated by indexId) to ensure it falls in the allowed
  * range (firstKey to lastKey).
- * 
+ *
  * \param tableId
  *      Id of the table in which indexed read is to be done.
  * \param numHashes
@@ -949,7 +1037,7 @@ IncrementRpc::wait(uint64_t* version)
  *      the RPC.
  * \param lastKeyLength
  *      Length in byes of the lastKey.
- * 
+ *
  * \param[out] response
  *      Return all the objects matching the index lookup (range or point)
  *      along with their versions, in the format specified by
@@ -977,7 +1065,7 @@ RamCloud::indexedRead(uint64_t tableId, uint32_t numHashes, Buffer* pKHashes,
  * Constructor for IndexedReadRpc: initiates RPC(s) in the same way as
  * #RamCloud::IndexedReadRpc, but returns once first RPC has been initiated,
  * without waiting for any to complete.
- * 
+ *
  * An RPC will be to a single server S1 with all key hashes. S1 returns
  * the objects corresponding to the key hashes it can, along with an
  * indication for the next key hash that has to be fetched.
@@ -989,7 +1077,7 @@ RamCloud::indexedRead(uint64_t tableId, uint32_t numHashes, Buffer* pKHashes,
  * This could be S1 in case it couldn't fit all the objects in a single RPC
  * the first time it sent the response, or a different server S2 in case S1
  * didn't own these other objects.
- * 
+ *
  * TODO(later):
  * An alternate mechanism would be for the caller of indexedRead to initiate
  * multiple of these requests in parallel, with different set of key hashes,
@@ -1024,7 +1112,7 @@ RamCloud::indexedRead(uint64_t tableId, uint32_t numHashes, Buffer* pKHashes,
  *      the RPC.
  * \param lastKeyLength
  *      Length in byes of the lastKey.
- * 
+ *
  * \param[out] response
  *      Return all the objects matching the index lookup (range or point)
  *      along with their versions, in the format specified by
@@ -1076,7 +1164,7 @@ IndexedReadRpc::wait(uint32_t* numObjects)
 /**
  * Lookup objects with index keys corresponding to indexId in the
  * specified range or point.
- * 
+ *
  * \param tableId
  *      Id of the table in which lookup is to be done.
  * \param indexId
@@ -1097,7 +1185,7 @@ IndexedReadRpc::wait(uint32_t* numObjects)
  *      the RPC.
  * \param lastKeyLength
  *      Length in byes of the lastKey.
- * 
+ *
  * \param[out] count
  *      Return the number of objects that matched the lookup, for which
  *      the primary key hashes are being returned here.
@@ -1145,7 +1233,7 @@ RamCloud::lookupIndexKeys(uint64_t tableId, uint8_t indexId,
  *      the RPC.
  * \param lastKeyLength
  *      Length in byes of the lastKey.
- * 
+ *
  * \param[out] count
  *      Return the number of objects that matched the lookup, for which
  *      the primary key hashes are being returned here.
@@ -1604,29 +1692,29 @@ RemoveRpc::wait(uint64_t* version)
 
 /**
  * This RPC is used to invoke a variety of miscellaneous operations
- * on a server, such as starting and stopping special timing 
+ * on a server, such as starting and stopping special timing
  * mechanisms, dumping metrics, and so on. Most of these operations
  * are used only for testing. Each operation is defined by a specific
  * opcode (controlOp) and an arbitrary chunk of input data.
  * Not all operations require input data, and different operations
- * use the input data in different ways. 
- * Each operation can also return an optional result of arbitrary size. 
+ * use the input data in different ways.
+ * Each operation can also return an optional result of arbitrary size.
  *
  * \param tableId
  *      Unique identifier for a particular table. Used to select the
  *      server that will handle this operation.
  * \param key
- *      Variable-length key that uniquely identifies a particular 
+ *      Variable-length key that uniquely identifies a particular
  *      object in tableId. The RPC will be sent to the server
  *      that stores this object.
  * \param keyLength
- *      Size in bytes of the key. This is also used to locate that 
+ *      Size in bytes of the key. This is also used to locate that
  *      particular server.
- * \param controlOp 
- *      This defines the specific operation to be performed on the 
+ * \param controlOp
+ *      This defines the specific operation to be performed on the
  *      remote server.
  * \param inputData
- *      Input data, such as additional parameters, specific for the 
+ *      Input data, such as additional parameters, specific for the
  *      particular operation to be performed. Not all operations use
  *      this information.
  * \param inputLength
@@ -1655,17 +1743,17 @@ RamCloud::serverControl(uint64_t tableId, const void* key, uint16_t keyLength,
  *      Unique identifier for a particular table. Used to select the
  *      server that will handle this operation.
  * \param key
- *      Variable-length key that uniquely identifies a particular 
+ *      Variable-length key that uniquely identifies a particular
  *      object in tableId. The RPC will be sent to the server
  *      that stores this object.
  * \param keyLength
- *      Size in bytes of the key. This is also used to locate that 
+ *      Size in bytes of the key. This is also used to locate that
  *      particular server.
- * \param controlOp 
- *      This defines the specific operation to be performed on the 
+ * \param controlOp
+ *      This defines the specific operation to be performed on the
  *      remote server.
  * \param inputData
- *      Input data, such as additional parameters, specific for the 
+ *      Input data, such as additional parameters, specific for the
  *      particular operation to be performed. Not all operations use
  *      this information.
  * \param inputLength
@@ -1836,7 +1924,7 @@ FillWithTestDataRpc::FillWithTestDataRpc(RamCloud* ramcloud,
  *
  * \param option
  *      String name corresponding to a member field in the RuntimeOptions
- *      class (e.g. "failRecoveryMasters") whose value should be returned 
+ *      class (e.g. "failRecoveryMasters") whose value should be returned
  *      in value buffer.
  * \param[out] value
  *      After a successful return, this Buffer will hold the value of the desired
@@ -1857,7 +1945,7 @@ RamCloud::getRuntimeOption(const char* option, Buffer* value){
  *      The RAMCloud object that governs this RPC.
  * \param option
  *      String name corresponding to a member field in the RuntimeOptions
- *      class (e.g. "failRecoveryMasters") whose value should be returned 
+ *      class (e.g. "failRecoveryMasters") whose value should be returned
  *      in value buffer.
  * \param[out] value
  *      After a successful return, this Buffer will hold the value of the desired

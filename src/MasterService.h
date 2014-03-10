@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2012 Stanford University
+/* Copyright (c) 2009-2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -21,7 +21,6 @@
 #include "Log.h"
 #include "LogCleaner.h"
 #include "HashTable.h"
-#include "IndexletManager.h"
 #include "MasterTableMetadata.h"
 #include "Object.h"
 #include "ObjectFinder.h"
@@ -36,6 +35,7 @@
 #include "SideLog.h"
 #include "SpinLock.h"
 #include "TabletManager.h"
+#include "IndexletManager.h"
 #include "WireFormat.h"
 
 namespace RAMCloud {
@@ -89,6 +89,10 @@ class MasterService : public Service {
     void dropTabletOwnership(
                 const WireFormat::DropTabletOwnership::Request* reqHdr,
                 WireFormat::DropTabletOwnership::Response* respHdr,
+                Rpc* rpc);
+    void dropIndexletOwnership(
+                const WireFormat::DropIndexletOwnership::Request* reqHdr,
+                WireFormat::DropIndexletOwnership::Response* respHdr,
                 Rpc* rpc);
     void enumerate(const WireFormat::Enumerate::Request* reqHdr,
                 WireFormat::Enumerate::Response* respHdr,
@@ -168,6 +172,10 @@ class MasterService : public Service {
                 const WireFormat::TakeTabletOwnership::Request* reqHdr,
                 WireFormat::TakeTabletOwnership::Response* respHdr,
                 Rpc* rpc);
+    void takeIndexletOwnership(
+                const WireFormat::TakeIndexletOwnership::Request* reqHdr,
+                WireFormat::TakeIndexletOwnership::Response* respHdr,
+                Rpc* rpc);
     void write(const WireFormat::Write::Request* reqHdr,
                 WireFormat::Write::Response* respHdr,
                 Rpc* rpc);
@@ -180,11 +188,6 @@ class MasterService : public Service {
      * is a valid member of the cluster (see "Zombies" in designNotes).
      */
     Atomic<int> disableCount;
-
-    /**
-     * The IndexletManger class that is responsible for index storage.
-     */
-    IndexletManager indexletManager;
 
     /**
      * Used to ensure that init() is invoked before the dispatcher runs.
@@ -211,7 +214,7 @@ class MasterService : public Service {
 
     /**
      * The ObjectFinder class that is used to locate servers containing
-     * indexlets for data that this server may own.
+     * tablets for data that this server may own.
      */
     ObjectFinder objectFinder;
 
@@ -226,6 +229,11 @@ class MasterService : public Service {
      * key hash space.
      */
     TabletManager tabletManager;
+
+    /**
+     * The IndexletManger class that is responsible for index storage.
+     */
+    IndexletManager indexletManager;
 
 ///////////////////////////////////////////////////////////////////////////////
 /////Recovery related code. This should eventually move into its own file./////

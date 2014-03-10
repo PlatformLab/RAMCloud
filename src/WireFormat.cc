@@ -57,6 +57,8 @@ opcodeSymbol(uint32_t opcode)
         case CREATE_TABLE:               return "CREATE_TABLE";
         case GET_TABLE_ID:               return "GET_TABLE_ID";
         case DROP_TABLE:                 return "DROP_TABLE";
+        case CREATE_INDEX:               return "CREATE_INDEX";
+        case DROP_INDEX:                 return "DROP_INDEX";
         case READ:                       return "READ";
         case WRITE:                      return "WRITE";
         case REMOVE:                     return "REMOVE";
@@ -81,6 +83,8 @@ opcodeSymbol(uint32_t opcode)
         case SET_MASTER_RECOVERY_INFO:   return "SET_MASTER_RECOVERY_INFO";
         case DROP_TABLET_OWNERSHIP:      return "DROP_TABLET_OWNERSHIP";
         case TAKE_TABLET_OWNERSHIP:      return "TAKE_TABLET_OWNERSHIP";
+        case DROP_INDEXLET_OWNERSHIP:    return "DROP_INDEXLET_OWNERSHIP";
+        case TAKE_INDEXLET_OWNERSHIP:    return "TAKE_INDEXLET_OWNERSHIP";
         case INCREMENT:                  return "INCREMENT";
         case GET_HEAD_OF_LOG:            return "GET_HEAD_OF_LOG";
         case PREP_FOR_MIGRATION:         return "PREP_FOR_MIGRATION";

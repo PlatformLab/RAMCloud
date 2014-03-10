@@ -128,6 +128,28 @@ TEST_F(RamCloudTest, dropTable) {
     EXPECT_EQ("STATUS_TABLE_DOESNT_EXIST", message);
 }
 
+TEST_F(RamCloudTest, createIndex) {
+    TestLog::Enable _("createIndex");
+    ramcloud->createIndex(10, 1, 0);
+    EXPECT_EQ("createIndex: Cannot find table '10'", TestLog::get());
+    TestLog::reset();
+    ramcloud->createIndex(tableId1, 1, 0);
+    EXPECT_EQ("createIndex: Creating table '1' index '1'", TestLog::get());
+}
+
+TEST_F(RamCloudTest, dropIndex) {
+    TestLog::Enable _("dropIndex");
+    ramcloud->createIndex(tableId1, 1, 0);
+    ramcloud->dropIndex(10, 1);
+    EXPECT_EQ("dropIndex: Cannot find table '10'", TestLog::get());
+    TestLog::reset();
+    ramcloud->dropIndex(tableId1, 2);
+    EXPECT_EQ("dropIndex: Cannot find index '2' for table '1'", TestLog::get());
+    TestLog::reset();
+    ramcloud->dropIndex(tableId1, 1);
+    EXPECT_EQ("dropIndex: Dropping table '1' index '1'", TestLog::get());
+}
+
 TEST_F(RamCloudTest, concurrentAsyncRpc) {
     string message1("no exception");
     try {
