@@ -15,6 +15,7 @@
 
 #include "TestUtil.h"
 #include "IndexletManager.h"
+#include "RamCloud.h"
 #include "StringUtil.h"
 
 namespace RAMCloud {
@@ -154,6 +155,80 @@ TEST_F(IndexletManagerTest, deleteIndexlet) {
 
     EXPECT_FALSE(im.deleteIndexlet(0, 0, key1.c_str(),
         (uint16_t)key1.length(), key4.c_str(), (uint16_t)key4.length()));
+}
+
+TEST_F(IndexletManagerTest, compareKey)
+{
+    // Construct Object obj.
+    uint64_t tableId = 1;
+    uint8_t numKeys = 3;
+
+    KeyInfo keyList[3];
+    keyList[0].keyLength = 8;
+    keyList[0].key = "objkey0";
+    keyList[1].keyLength = 8;
+    keyList[1].key = "objkey1";
+    keyList[2].keyLength = 8;
+    keyList[2].key = "objkey2";
+
+    const void* value = "objvalue";
+    uint32_t valueLength = 9;
+
+    Buffer keysAndValueBuffer;
+    Object::appendKeysAndValueToBuffer(tableId, numKeys, keyList,
+                                       value, valueLength, keysAndValueBuffer);
+
+    Object obj(tableId, 1, 0, keysAndValueBuffer);
+
+    // Compare key for key index 1 of obj (called: "key") for different cases.
+
+    // Case0: firstKeyLength = keyLength = lastKeyLength and
+    // firstKey > key < lastKey
+    IndexletManager::KeyRange testRange0 = {1, "objkey2", 8, "objkey2", 8};
+    bool isInRange0 = IndexletManager::compareKey(&obj, &testRange0);
+    EXPECT_FALSE(isInRange0);
+
+    // Case1: firstKeyLength = keyLength = lastKeyLength and
+    // firstKey < key > lastKey
+    IndexletManager::KeyRange testRange1 = {1, "objkey0", 8, "objkey0", 8};
+    bool isInRange1 = IndexletManager::compareKey(&obj, &testRange1);
+    EXPECT_FALSE(isInRange1);
+
+    // Case2: firstKeyLength = keyLength = lastKeyLength and
+    // firstKey > key > lastKey
+    IndexletManager::KeyRange testRange2 = {1, "objkey2", 8, "objkey0", 8};
+    bool isInRange2 = IndexletManager::compareKey(&obj, &testRange2);
+    EXPECT_FALSE(isInRange2);
+
+    // Case3: firstKeyLength = keyLength = lastKeyLength and
+    // firstKey < key < lastKey
+    IndexletManager::KeyRange testRange3 = {1, "objkey0", 8, "objkey2", 8};
+    bool isInRange3 = IndexletManager::compareKey(&obj, &testRange3);
+    EXPECT_TRUE(isInRange3);
+
+    // Case4: firstKeyLength = keyLength = lastKeyLength and
+    // firstKey = key = lastKey
+    IndexletManager::KeyRange testRange4 = {1, "objkey1", 8, "objkey1", 8};
+    bool isInRange4 = IndexletManager::compareKey(&obj, &testRange4);
+    EXPECT_TRUE(isInRange4);
+
+    // Case5: firstKeyLength < keyLength < lastKeyLength and
+    // firstKey = key substring and key = lastKey substring
+    IndexletManager::KeyRange testRange5 = {1, "obj", 4, "objkey11", 9};
+    bool isInRange5 = IndexletManager::compareKey(&obj, &testRange5);
+    EXPECT_TRUE(isInRange5);
+
+    // Case6: firstKeyLength > keyLength < lastKeyLength and
+    // firstKey substring = key = lastKey substring
+    IndexletManager::KeyRange testRange6 = {1, "objkey11", 9, "objkey11", 9};
+    bool isInRange6 = IndexletManager::compareKey(&obj, &testRange6);
+    EXPECT_FALSE(isInRange6);
+
+    // Case7: firstKeyLength < keyLength > lastKeyLength and
+    // firstKey = key substring = lastKey
+    IndexletManager::KeyRange testRange7 = {1, "obj", 4, "obj", 4};
+    bool isInRange7 = IndexletManager::compareKey(&obj, &testRange7);
+    EXPECT_FALSE(isInRange7);
 }
 
 }  // namespace RAMCloud
