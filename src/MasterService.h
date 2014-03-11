@@ -85,6 +85,12 @@ class MasterService : public Service {
 
     const ServerConfig* config;
 
+    /**
+     * The ObjectFinder class that is used to locate servers containing
+     * indexlets for data that this server may own.
+     */
+    ObjectFinder objectFinder;
+
   PRIVATE:
     void dropTabletOwnership(
                 const WireFormat::DropTabletOwnership::Request* reqHdr,
@@ -211,12 +217,6 @@ class MasterService : public Service {
      * to simplify testing.
      */
     uint32_t maxMultiReadResponseSize;
-
-    /**
-     * The ObjectFinder class that is used to locate servers containing
-     * tablets for data that this server may own.
-     */
-    ObjectFinder objectFinder;
 
     /**
      * The ObjectManager class that is responsible for object storage.

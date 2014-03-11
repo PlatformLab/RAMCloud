@@ -73,12 +73,12 @@ MasterService::MasterService(Context* context,
                              const ServerConfig* config)
     : context(context)
     , config(config)
+    , objectFinder(context)
     , disableCount(0)
     , initCalled(false)
     , logEverSynced(false)
     , masterTableMetadata()
     , maxMultiReadResponseSize(Transport::MAX_RPC_LEN)
-    , objectFinder(context)
     , objectManager(context,
                     &serverId,
                     config,
@@ -1718,28 +1718,21 @@ MasterService::write(const WireFormat::Write::Request* reqHdr,
  *      Key hash of the primary key of the object.
  */
 void
-MasterService::requestInsertIndexEntries(
-        Object& object, uint64_t tableId, KeyHash primaryKeyHash)
+MasterService::requestInsertIndexEntries(Object& object, uint64_t tableId,
+                                         KeyHash primaryKeyHash)
 {
     KeyCount keyCount = object.getKeyCount();
 
     if (keyCount > 1) {
         KeyLength keyLengths[keyCount];
         const void* keyStrs[keyCount];
-        ServerId indexletServerIds[keyCount];
 
         for (KeyCount keyIndex = 1; keyIndex <= keyCount; keyIndex++) {
             keyStrs[keyIndex] = object.getKey(keyIndex, &keyLengths[keyIndex]);
-            bool indexletExists = objectFinder.lookupServerId(
-                    tableId, keyIndex, keyStrs[keyIndex], keyLengths[keyIndex],
-                    &indexletServerIds[keyIndex]);
-            if (indexletExists) {
-                MasterClient::insertIndexEntry(
-                        context, indexletServerIds[keyIndex],
-                        tableId, keyIndex,
-                        keyStrs[keyIndex], keyLengths[keyIndex],
-                        primaryKeyHash);
-            }
+            // TODO(ankitak): Uncomment after this is implemented.
+//            MasterClient::insertIndexEntry(
+//                    this, tableId, keyIndex,
+//                    keyStrs[keyIndex], keyLengths[keyIndex], primaryKeyHash);
         }
     }
 }
@@ -1770,20 +1763,14 @@ MasterService::requestRemoveIndexEntries(
     if (keyCount > 1) {
         KeyLength keyLengths[keyCount];
         const void* keyStrs[keyCount];
-        ServerId indexletServerIds[keyCount];
 
         for (KeyCount keyIndex = 1; keyIndex <= keyCount; keyIndex++) {
             keyStrs[keyIndex] = object.getKey(keyIndex, &keyLengths[keyIndex]);
-            bool indexletExists = objectFinder.lookupServerId(
-                    tableId, keyIndex, keyStrs[keyIndex], keyLengths[keyIndex],
-                    &indexletServerIds[keyIndex]);
-            if (indexletExists) {
-                MasterClient::removeIndexEntry(
-                        context, indexletServerIds[keyIndex],
-                        tableId, keyIndex,
-                        keyStrs[keyIndex], keyLengths[keyIndex],
-                        primaryKeyHash);
-            }
+            // TODO(ankitak): Uncomment after this is implemented.
+//            MasterClient::removeIndexEntry(
+//                    this, tableId, keyIndex,
+//                    keyStrs[keyIndex], keyLengths[keyIndex],
+//                    primaryKeyHash);
         }
     }
 }

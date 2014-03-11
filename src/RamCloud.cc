@@ -1200,8 +1200,7 @@ RamCloud::lookupIndexKeys(uint64_t tableId, uint8_t indexId,
                           uint32_t* count, Buffer* pKHashes)
 {
     LookupIndexKeysRpc rpc(this, tableId, indexId,
-                           firstKey, firstKeyLength,
-                           lastKey, lastKeyLength,
+                           firstKey, firstKeyLength, lastKey, lastKeyLength,
                            count, pKHashes);
     rpc.wait();
 }
@@ -1247,7 +1246,7 @@ LookupIndexKeysRpc::LookupIndexKeysRpc(
         const void* lastKey, uint16_t lastKeyLength,
         uint32_t* count, Buffer* pKHashes)
     : IndexRpcWrapper(ramcloud, tableId, indexId,
-                      firstKey, firstKeyLength, lastKey, lastKeyLength,
+                      firstKey, firstKeyLength,
                       sizeof(WireFormat::LookupIndexKeys::Response),
                       count, pKHashes)
 {

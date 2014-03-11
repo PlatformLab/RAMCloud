@@ -815,7 +815,7 @@ struct InsertIndexEntry {
     static const Opcode opcode = INSERT_INDEX_ENTRY;
     static const ServiceType service = MASTER_SERVICE;
     struct Request {
-        RequestCommonWithId common;
+        RequestCommon common;
         uint64_t tableId;
         uint8_t indexId;
         uint16_t indexKeyLength;
@@ -1222,7 +1222,7 @@ struct RemoveIndexEntry {
     static const Opcode opcode = REMOVE_INDEX_ENTRY;
     static const ServiceType service = MASTER_SERVICE;
     struct Request {
-        RequestCommonWithId common;
+        RequestCommon common;
         uint64_t tableId;
         uint8_t indexId;
         uint16_t indexKeyLength;

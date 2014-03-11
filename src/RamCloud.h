@@ -27,6 +27,7 @@
 
 #include "LogMetrics.pb.h"
 #include "ServerConfig.pb.h"
+#include "ServerStatistics.pb.h"
 
 namespace RAMCloud {
 class MultiReadObject;
@@ -436,7 +437,7 @@ class LookupIndexKeysRpc : public IndexRpcWrapper {
                        uint32_t* count, Buffer* pkHashes);
     ~LookupIndexKeysRpc() {}
     /// \copydoc RpcWrapper::docForWait
-    void wait() {simpleWait(ramcloud->clientContext->dispatch);}
+    void wait() {simpleWait(context->dispatch);}
 
   PRIVATE:
     DISALLOW_COPY_AND_ASSIGN(LookupIndexKeysRpc);

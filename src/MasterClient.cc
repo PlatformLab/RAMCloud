@@ -231,15 +231,13 @@ GetHeadOfLogRpc::wait()
  * This RPC is sent to an index server to request that it insert an index
  * entry in an indexlet it holds.
 
- * \param context
- *      Overall information about this RAMCloud server or client.
- * \param serverId
- *      Identifier for the index server.
+ * \param master
+ *      Overall information about this RAMCloud server.
  * \param tableId
  *      Id of the table containing the object that the index entry points to.
  * \param indexId
  *      Id of the index to which this index key belongs to.
- * \param indexKeyStr
+ * \param indexKey
  *      Blob of index key for which the entry is to be inserted.
  * \param indexKeyLength
  *      Length of index key.
@@ -249,13 +247,12 @@ GetHeadOfLogRpc::wait()
  */
 void
 MasterClient::insertIndexEntry(
-        Context* context, ServerId serverId,
-        uint64_t tableId, uint8_t indexId,
-        const void* indexKeyStr, KeyLength indexKeyLength,
+        MasterService* master, uint64_t tableId, uint8_t indexId,
+        const void* indexKey, KeyLength indexKeyLength,
         uint64_t primaryKeyHash)
 {
-    InsertIndexEntryRpc rpc(context, serverId, tableId, indexId,
-        indexKeyStr, indexKeyLength, primaryKeyHash);
+    InsertIndexEntryRpc rpc(master, tableId, indexId,
+                            indexKey, indexKeyLength, primaryKeyHash);
     rpc.wait();
 }
 
@@ -267,20 +264,20 @@ MasterClient::insertIndexEntry(
  * \copydetails MasterClient::insertIndexEntry
  */
 InsertIndexEntryRpc::InsertIndexEntryRpc(
-        Context* context, ServerId serverId,
-        uint64_t tableId, uint8_t indexId,
-        const void* indexKeyStr, KeyLength indexKeyLength,
+        MasterService* master, uint64_t tableId, uint8_t indexId,
+        const void* indexKey, KeyLength indexKeyLength,
         uint64_t primaryKeyHash)
-    : ServerIdRpcWrapper(context, serverId,
-                         sizeof(WireFormat::InsertIndexEntry::Response))
+    : IndexRpcWrapper(master, tableId, indexId,
+                      indexKey, indexKeyLength,
+                      sizeof(WireFormat::InsertIndexEntry::Response))
 {
     WireFormat::InsertIndexEntry::Request* reqHdr(
-            allocHeader<WireFormat::InsertIndexEntry>(serverId));
+            allocHeader<WireFormat::InsertIndexEntry>());
     reqHdr->tableId = tableId;
     reqHdr->indexId = indexId;
     reqHdr->indexKeyLength = indexKeyLength;
     reqHdr->primaryKeyHash = primaryKeyHash;
-    request.append(indexKeyStr, indexKeyLength);
+    request.append(indexKey, indexKeyLength);
     send();
 }
 
@@ -587,15 +584,13 @@ RecoverRpc::RecoverRpc(Context* context, ServerId serverId,
  * This RPC is sent to an index server to request that it remove an index
  * entry from an indexlet it holds.
 
- * \param context
- *      Overall information about this RAMCloud server or client.
- * \param serverId
- *      Identifier for the index server.
+ * \param master
+ *      Overall information about this RAMCloud server.
  * \param tableId
  *      Id of the table containing the object that the index entry points to.
  * \param indexId
  *      Id of the index to which this index key belongs to.
- * \param indexKeyStr
+ * \param indexKey
  *      Blob of index key for which the entry is to be removed.
  * \param indexKeyLength
  *      Length of index key.
@@ -604,13 +599,13 @@ RecoverRpc::RecoverRpc(Context* context, ServerId serverId,
  *      maps to.
  */
 void
-MasterClient::removeIndexEntry(Context* context, ServerId serverId,
-        uint64_t tableId, uint8_t indexId,
-        const void* indexKeyStr, KeyLength indexKeyLength,
+MasterClient::removeIndexEntry(
+        MasterService* master, uint64_t tableId, uint8_t indexId,
+        const void* indexKey, KeyLength indexKeyLength,
         uint64_t primaryKeyHash)
 {
-    RemoveIndexEntryRpc rpc(context, serverId, tableId, indexId,
-                            indexKeyStr, indexKeyLength, primaryKeyHash);
+    RemoveIndexEntryRpc rpc(master, tableId, indexId,
+                            indexKey, indexKeyLength, primaryKeyHash);
     rpc.wait();
 }
 
@@ -622,20 +617,20 @@ MasterClient::removeIndexEntry(Context* context, ServerId serverId,
  * \copydetails MasterClient::removeIndexEntry
  */
 RemoveIndexEntryRpc::RemoveIndexEntryRpc(
-        Context* context, ServerId serverId,
-        uint64_t tableId, uint8_t indexId,
-        const void* indexKeyStr, KeyLength indexKeyLength,
+        MasterService* master, uint64_t tableId, uint8_t indexId,
+        const void* indexKey, KeyLength indexKeyLength,
         uint64_t primaryKeyHash)
-    : ServerIdRpcWrapper(context, serverId,
-                sizeof(WireFormat::RemoveIndexEntry::Response))
+    : IndexRpcWrapper(master, tableId, indexId,
+                      indexKey, indexKeyLength,
+                      sizeof(WireFormat::RemoveIndexEntry::Response))
 {
     WireFormat::RemoveIndexEntry::Request* reqHdr(
-            allocHeader<WireFormat::RemoveIndexEntry>(serverId));
+            allocHeader<WireFormat::RemoveIndexEntry>());
     reqHdr->tableId = tableId;
     reqHdr->indexId = indexId;
     reqHdr->indexKeyLength = indexKeyLength;
     reqHdr->primaryKeyHash = primaryKeyHash;
-    request.append(indexKeyStr, indexKeyLength);
+    request.append(indexKey, indexKeyLength);
     send();
 }
 

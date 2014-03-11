@@ -13,10 +13,11 @@
  * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "ShortMacros.h"
-#include "Logger.h"
 #include "IndexRpcWrapper.h"
+#include "Logger.h"
+#include "MasterService.h"
 #include "RamCloud.h"
+#include "ShortMacros.h"
 
 namespace RAMCloud {
 
@@ -28,22 +29,13 @@ namespace RAMCloud {
  *      The table containing the desired object.
  * \param indexId
  *      Id of the index for which keys have to be compared.
- * \param firstKey
- *      Starting key for the key range in which keys are to be matched.
- *      The key range includes the firstKey.
+ * \param key
+ *      The location of key determines which server this rpc will be sent to.
  *      It does not necessarily have to be null terminated.  The caller must
  *      ensure that the storage for this key is unchanged through the life of
  *      the RPC.
- * \param firstKeyLength
- *      Length in bytes of the firstKey.
- * \param lastKey
- *      Ending key for the key range in which keys are to be matched.
- *      The key range includes the lastKey.
- *      It does not necessarily have to be null terminated.  The caller must
- *      ensure that the storage for this key is unchanged through the life of
- *      the RPC.
- * \param lastKeyLength
- *      Length in byes of the lastKey.
+ * \param keyLength
+ *      Length in bytes of the key.
  * \param responseHeaderLength
  *      The size of header expected in the response for this RPC;
  *      incoming responses will be checked here to ensure that they
@@ -59,19 +51,58 @@ namespace RAMCloud {
  */
 IndexRpcWrapper::IndexRpcWrapper(
             RamCloud* ramcloud, uint64_t tableId, uint8_t indexId,
-            const void* firstKey, uint16_t firstKeyLength,
-            const void* lastKey, uint16_t lastKeyLength,
+            const void* key, uint16_t keyLength,
             uint32_t responseHeaderLength,
             uint32_t* totalNumHashes, Buffer* totalResponse)
     : RpcWrapper(responseHeaderLength) // Use defaultResponse buffer for
                                        // individual rpcs to the masters.
-    , ramcloud(ramcloud)
+    , context(ramcloud->clientContext)
+    , objectFinder(&ramcloud->objectFinder)
     , tableId(tableId)
     , indexId(indexId)
-    , nextKey(firstKey)
-    , nextKeyLength(firstKeyLength)
-    , lastKey(lastKey)
-    , lastKeyLength(lastKeyLength)
+    , nextKey(key)
+    , nextKeyLength(keyLength)
+    , totalNumHashes(totalNumHashes)
+    , totalResponse(totalResponse)
+{
+    totalNumHashes = 0;
+}
+
+/**
+ * Constructor for IndexRpcWrapper objects.
+ * 
+ * \param master
+ *      The master that governs this RPC.
+ * \param tableId
+ *      The table containing the desired object.
+ * \param indexId
+ *      Id of the index for which keys have to be compared.
+ * \param key
+ *      The location of key determines which server this rpc will be sent to.
+ *      It does not necessarily have to be null terminated.  The caller must
+ *      ensure that the storage for this key is unchanged through the life of
+ *      the RPC.
+ * \param keyLength
+ *      Length in bytes of the key.
+ * \param responseHeaderLength
+ *      The size of header expected in the response for this RPC;
+ *      incoming responses will be checked here to ensure that they
+ *      contain at least this much data, and a pointer to the header
+ *      will be stored in the responseHeader for the use of wrapper
+ *      subclasses.
+ */
+IndexRpcWrapper::IndexRpcWrapper(
+            MasterService* master, uint64_t tableId, uint8_t indexId,
+            const void* key, uint16_t keyLength,
+            uint32_t responseHeaderLength)
+    : RpcWrapper(responseHeaderLength) // Use defaultResponse buffer for
+                                       // individual rpcs to the masters.
+    , context(master->context)
+    , objectFinder(&master->objectFinder)
+    , tableId(tableId)
+    , indexId(indexId)
+    , nextKey(key)
+    , nextKeyLength(keyLength)
     , totalNumHashes(totalNumHashes)
     , totalResponse(totalResponse)
 {
@@ -89,7 +120,7 @@ IndexRpcWrapper::checkStatus()
             "Server %s doesn't store given secondary key"
                 "for table %lu, index id %u; refreshing object map",
             session->getServiceLocator().c_str(), tableId, indexId);
-        ramcloud->objectFinder.flush(tableId);
+        objectFinder->flush(tableId);
         send();
         return false;
     }
@@ -125,7 +156,7 @@ IndexRpcWrapper::handleTransportError()
     // to this session, and related to the object mapping for our object.
     // Then retry.
     session = NULL;
-    ramcloud->objectFinder.flush(tableId);
+    objectFinder->flush(tableId);
     send();
     return false;
 }
@@ -134,12 +165,12 @@ IndexRpcWrapper::handleTransportError()
 void
 IndexRpcWrapper::send()
 {
-    session = ramcloud->objectFinder.lookup(tableId, indexId,
-                                            nextKey, nextKeyLength);
+    session = objectFinder->lookup(tableId, indexId, nextKey, nextKeyLength);
     if (session == NULL) {
         // This index doesn't exist.
         // We don't want to send or wait to receive response to this rpc.
-        // TODO(ankitak): Check callers to see if this will work.
+        // TODO(ankitak): This currently triggers an exception at the caller.
+        // We want to simply ignore.
         state = CANCELED;
         return;
     }

@@ -23,7 +23,6 @@
 #include "CoordinatorClient.h"
 #include "Key.h"
 #include "Transport.h"
-#include "MasterClient.h"
 #include "Tablet.h"
 
 namespace RAMCloud {

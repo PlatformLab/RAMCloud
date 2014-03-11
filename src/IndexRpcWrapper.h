@@ -13,14 +13,18 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "RamCloud.h"
+#include "Context.h"
+#include "ObjectFinder.h"
 #include "RpcWrapper.h"
 
 #ifndef RAMCLOUD_INDEXRPCWRAPPER_H
 #define RAMCLOUD_INDEXRPCWRAPPER_H
 
 namespace RAMCloud {
+
+// Forward declarations
 class RamCloud;
+class MasterService;
 
 // TODO(ankitak): This class needs unit testing!
 
@@ -40,10 +44,14 @@ class IndexRpcWrapper : public RpcWrapper {
   public:
     explicit IndexRpcWrapper(
             RamCloud* ramcloud, uint64_t tableId, uint8_t indexId,
-            const void* firstKey, uint16_t firstKeyLength,
-            const void* lastKey, uint16_t lastKeyLength,
+            const void* key, uint16_t keyLength,
             uint32_t responseHeaderLength,
-            uint32_t* totalNumHashes, Buffer* totalResponse);
+            uint32_t* totalNumHashes = NULL, Buffer* totalResponse = NULL);
+
+    explicit IndexRpcWrapper(
+            MasterService* master, uint64_t tableId, uint8_t indexId,
+            const void* key, uint16_t keyLength,
+            uint32_t responseHeaderLength);
 
     /**
      * Destructor for IndexRpcWrapper.
@@ -55,18 +63,20 @@ class IndexRpcWrapper : public RpcWrapper {
     virtual bool handleTransportError();
     virtual void send();
 
-    /// Overall client state information.
-    RamCloud* ramcloud;
+    /// Overall information about the calling process.
+    Context* context;
 
-    /// Information about key range that determines which servers the requests
-    /// are sent to; we must save this information for use in retries or
+    /// ObjectFinder corresponding to either the client or the server
+    /// invoking this rpc; used to find the server to send the rpc to.
+    ObjectFinder* objectFinder;
+
+    /// Information about next key that determines which server the request
+    /// is sent to; we have to save this information for use in retries or
     /// multi-server requests.
     uint64_t tableId;
     uint8_t indexId;
     const void* nextKey;
     uint16_t nextKeyLength;
-    const void* lastKey;
-    uint16_t lastKeyLength;
     uint32_t* totalNumHashes;
     Buffer* totalResponse;
 
