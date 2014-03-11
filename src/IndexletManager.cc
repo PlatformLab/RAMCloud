@@ -265,6 +265,8 @@ IndexletManager::insertEntry(uint64_t tableId, uint8_t indexId,
                           uint64_t pKHash)
 {
     // Currently a stub. Return STATUS_OK. TODO(ankitak)
+    // look at BtreeTest to find the other variants. one example:
+    // indexlet->bt.insert2("temp", 100);
     return Status(0);
 }
 
@@ -329,6 +331,9 @@ IndexletManager::removeEntry(uint64_t tableId, uint8_t indexId,
                           uint64_t pKHash)
 {
     // Currently a stub. Return STATUS_OK. TODO(ankitak)
+    // look at btree tests for other variants of erase
+    // indexlet->bt.erase_one("temp");
+    // printf("confirming erase...btree size:%d\n\n", indexlet->bt.size());
     return Status(0);
     // TODO(ankitak): Later: Careful GC if multiple objs have the same pKHash.
 }

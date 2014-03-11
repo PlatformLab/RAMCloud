@@ -22,6 +22,7 @@
 #include "HashTable.h"
 #include "SpinLock.h"
 #include "Object.h"
+#include "btree/BtreeMultimap.h"
 
 namespace RAMCloud {
 
@@ -60,24 +61,60 @@ class IndexletManager {
      */
     class Indexlet {
       PUBLIC:
-        Indexlet()
-            : firstKey(NULL)
-            , firstKeyLength(-1)
-            , firstNotOwnedKey(NULL)
-            , firstNotOwnedKeyLength(-1)
-        {}
-
         Indexlet(const void *firstKey, uint16_t firstKeyLength,
                  const void *firstNotOwnedKey, uint16_t firstNotOwnedKeyLength)
             : firstKey(firstKey)
             , firstKeyLength(firstKeyLength)
             , firstNotOwnedKey(firstNotOwnedKey)
             , firstNotOwnedKeyLength(firstNotOwnedKeyLength)
+            , bt()
         {}
 
-        /// Blob for the smallest key that is in this indexlet. The key is
-        /// malloced during creation of index on coordinator, and is freed by
-        /// the coordinator when the index is deleted.
+        Indexlet(const Indexlet& indexlet)
+            : firstKey(indexlet.firstKey)
+            , firstKeyLength(indexlet.firstKeyLength)
+            , firstNotOwnedKey(indexlet.firstNotOwnedKey)
+            , firstNotOwnedKeyLength(indexlet.firstNotOwnedKeyLength)
+            , bt(indexlet.bt)
+        {}
+
+        Indexlet& operator =(const Indexlet& indexlet)
+        {
+            this->firstKey = indexlet.firstKey;
+            this->firstKeyLength = indexlet.firstKeyLength;
+            this->firstNotOwnedKey = indexlet.firstNotOwnedKey;
+            this->firstNotOwnedKeyLength = indexlet.firstNotOwnedKeyLength;
+            this->bt = indexlet.bt;
+            return *this;
+        }
+
+        // String comparison function
+        struct stringCompare
+        {
+            public:
+            bool operator()(const std::string x, const std::string y) const
+            {
+                return x.compare(y) < 0;
+            }
+        };
+
+        // Attributes of the b+ tree used for holding the indexes
+        template <typename KeyType>
+        struct traits_nodebug : stx::btree_default_set_traits<KeyType>
+        {
+            static const bool selfverify = false;
+            static const bool debug = false;
+
+            static const int leafslots = 8;
+            static const int innerslots = 8;
+        };
+
+        // B+ tree holding key: string, value: primary key hash
+        typedef stx::btree_multimap<std::string, uint64_t,
+                stringCompare, traits_nodebug<std::string> > btree_type;
+
+        /// Blob for the smallest key that is in this indexlet. Keys is
+        /// allocated during adding indexlet and freed while deleting.
         const void *firstKey;
 
         /// Length of the firstKey.
@@ -89,6 +126,9 @@ class IndexletManager {
 
         /// Length of the firstNotOwnedKey.
         uint16_t firstNotOwnedKeyLength;
+
+        /// Instance of the B+ tree used to hold the indexes
+        btree_type bt;
     };
 
 

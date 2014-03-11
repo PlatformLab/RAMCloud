@@ -127,6 +127,7 @@ TEST_F(IndexletManagerTest, deleteIndexlet) {
     string key4 = "k";
     string key5 = "u";
 
+    //TODO(ashgup): add comments on each individual test
     EXPECT_FALSE(im.getIndexlet(0, 0, key2.c_str(),
         (uint16_t)key2.length(), key4.c_str(), (uint16_t)key4.length()));
 
