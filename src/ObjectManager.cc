@@ -195,7 +195,7 @@ ObjectManager::IndexedRead::readNext(uint32_t* numObjects, uint32_t* length)
             continue;
 
         Object object(candidateBuffer);
-        bool isInRange = IndexletManager::compareKey(&object, keyRange);
+        bool isInRange = IndexletManager::isKeyInRange(&object, keyRange);
 
         if (isInRange == true) {
             *numObjects += 1;

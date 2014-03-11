@@ -165,7 +165,10 @@ class IndexletManager {
 
     //////////////// Static function related to indexing info /////////////////
 
-    static bool compareKey(Object* object, KeyRange* keyRange);
+    static bool isKeyInRange(Object* object, KeyRange* keyRange);
+
+    static int keyCompare(const void* key1, uint16_t keyLength1,
+                          const void* key2, uint16_t keyLength2);
 
   PRIVATE:
     /**

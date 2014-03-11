@@ -242,6 +242,19 @@ IndexletManager::lookup(uint64_t tableId, uint8_t indexId,
     return indexletMap.end();
 }
 
+ /**
+  * Obtain the total number of indexlets this object is managing.
+  * 
+  * \return
+  *     Total number of inxelets this object is managing.
+  */
+size_t
+IndexletManager::getCount()
+{
+    Lock guard(lock);
+    return indexletMap.size();
+}
+
 /**
  * Insert index entry for an object for a given index id.
  *
@@ -336,7 +349,7 @@ IndexletManager::removeEntry(uint64_t tableId, uint8_t indexId,
     // look at btree tests for other variants of erase
     // indexlet->bt.erase_one("temp");
     // printf("confirming erase...btree size:%d\n\n", indexlet->bt.size());
-    
+
     // TODO(ankitak): Do careful GC if multiple objs have the same pKHash.
 
     return Status(0);
@@ -344,7 +357,8 @@ IndexletManager::removeEntry(uint64_t tableId, uint8_t indexId,
 
 /**
  * Compare the object's key corresponding to index id specified in keyRange
- * with the first and last keys in keyRange.
+ * with the first and last keys in keyRange to determine if the key falls
+ * in the keyRange, including the end points.
  *
  * \param object
  *      Object for which the key is to be compared.
@@ -357,7 +371,7 @@ IndexletManager::removeEntry(uint64_t tableId, uint8_t indexId,
  *      specified by [first key, last key] in keyRange, including end points.
  */
 bool
-IndexletManager::compareKey(Object* object, KeyRange* keyRange)
+IndexletManager::isKeyInRange(Object* object, KeyRange* keyRange)
 {
     uint16_t keyLength;
     const void* key = object->getKey(keyRange->indexId, &keyLength);
@@ -377,13 +391,34 @@ IndexletManager::compareKey(Object* object, KeyRange* keyRange)
     }
 }
 
- /* Obtain the total number of indexlets this object is managing.
+/**
+ * Compare the keys and return their comparison.
+ *
+ * \param key1
+ *      Actual bytes of first key to compare.
+ * \param keyLength1
+ *      Length of key1.
+ * \param key2
+ *      Actual bytes of second key to compare.
+ * \param keyLength2
+ *      Length of key2.
+ *
+ * \return
+ *      Value of 0 if the keys are equal,
+ *      negative value if key1 is lexicographically < key2,
+ *      positive value if key1 is lexicographically > key2.
  */
-size_t
-IndexletManager::getCount()
+int
+IndexletManager::keyCompare(const void* key1, uint16_t keyLength1,
+                            const void* key2, uint16_t keyLength2)
 {
-    Lock guard(lock);
-    return indexletMap.size();
+    int keyCmp = bcmp(key1, key2, std::min(keyLength1, keyLength2));
+
+    if (keyCmp != 0) {
+        return keyCmp;
+    } else {
+        return keyLength1 - keyLength2;
+    }
 }
 
 } //namespace
