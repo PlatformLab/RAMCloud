@@ -43,29 +43,24 @@ namespace RAMCloud {
  *      will be stored in the responseHeader for the use of wrapper
  *      subclasses.
  * 
- * \param[out] totalNumHashes
- *      Number of key hashes being returned in totalResponse.
- * \param[out] totalResponse
+ * \param[out] responseBuffer
  *      Client-supplied buffer to use to return all the keyHashes.
  *      This may include result from multiple RPC's, if required.
  */
 IndexRpcWrapper::IndexRpcWrapper(
             RamCloud* ramcloud, uint64_t tableId, uint8_t indexId,
             const void* key, uint16_t keyLength,
-            uint32_t responseHeaderLength,
-            uint32_t* totalNumHashes, Buffer* totalResponse)
+            uint32_t responseHeaderLength, Buffer* responseBuffer)
     : RpcWrapper(responseHeaderLength) // Use defaultResponse buffer for
                                        // individual rpcs to the masters.
     , context(ramcloud->clientContext)
     , objectFinder(&ramcloud->objectFinder)
     , tableId(tableId)
     , indexId(indexId)
-    , nextKey(key)
-    , nextKeyLength(keyLength)
-    , totalNumHashes(totalNumHashes)
-    , totalResponse(totalResponse)
+    , key(key)
+    , keyLength(keyLength)
+    , responseBuffer(responseBuffer)
 {
-    totalNumHashes = 0;
 }
 
 /**
@@ -101,19 +96,19 @@ IndexRpcWrapper::IndexRpcWrapper(
     , objectFinder(&master->objectFinder)
     , tableId(tableId)
     , indexId(indexId)
-    , nextKey(key)
-    , nextKeyLength(keyLength)
-    , totalNumHashes(totalNumHashes)
-    , totalResponse(totalResponse)
+    , key(key)
+    , keyLength(keyLength)
+    , responseBuffer(responseBuffer)
 {
-    totalNumHashes = 0;
 }
 
 // See RpcWrapper for documentation.
 bool
 IndexRpcWrapper::checkStatus()
 {
-    if (responseHeader->status == STATUS_UNKNOWN_TABLET) {
+    // TODO(ankitak): I've defined a new status STATUS_UNKNOWN_INDEXLET,
+    // but not corresponding ClientException. Is that needed?
+    if (responseHeader->status == STATUS_UNKNOWN_INDEXLET) {
         // The object isn't where we thought it should be. Refresh our
         // configuration cache and try again.
         LOG(NOTICE,
@@ -121,27 +116,6 @@ IndexRpcWrapper::checkStatus()
                 "for table %lu, index id %u; refreshing object map",
             session->getServiceLocator().c_str(), tableId, indexId);
         objectFinder->flush(tableId);
-        send();
-        return false;
-    }
-
-    const WireFormat::LookupIndexKeys::Response* indexRespHdr =
-        static_cast<const WireFormat::LookupIndexKeys::Response*>(
-                response->getRange(0, responseHeaderLength));
-    nextKeyLength = indexRespHdr->nextKeyLength;
-
-    if (nextKeyLength != 0) {
-        // The current rpc has successfully fetched values, but there are more
-        // that need to be fetched.
-        // Append received key hashes to the totalResponse, and
-        // send the next rpc with the next key to fetch.
-        uint32_t currentNumHashes = indexRespHdr->numHashes;
-        totalNumHashes += currentNumHashes;
-        uint32_t respOffset = responseHeaderLength;
-        nextKey = response->getRange(respOffset, nextKeyLength);
-        respOffset += nextKeyLength;
-        memcpy(new(totalResponse, APPEND) char[currentNumHashes*8],
-               response, sizeof32(currentNumHashes*8));
         send();
         return false;
     }
@@ -165,7 +139,7 @@ IndexRpcWrapper::handleTransportError()
 void
 IndexRpcWrapper::send()
 {
-    session = objectFinder->lookup(tableId, indexId, nextKey, nextKeyLength);
+    session = objectFinder->lookup(tableId, indexId, key, keyLength);
     if (session == NULL) {
         // This index doesn't exist.
         // We don't want to send or wait to receive response to this rpc.

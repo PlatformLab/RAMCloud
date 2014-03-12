@@ -30,23 +30,22 @@ class MasterService;
 
 /**
  * IndexRpcWrapper manages the client side of RPCs that must be sent to
- * server or servers that store a particular index key or index key range.
- * If any server becomes unavailable or if it doesn't actually store the
+ * the server that store a particular the first index key of a key range.
+ * If the server becomes unavailable or if it doesn't actually store the
  * desired key, then this class will retry the RPC with a different server
  * until it eventually succeeds.
- * If a key range is distributed across multiple servers, this class will
- * sequentially send requests and collect responses from each of those servers.
  * 
  * RPCs using this wrapper will never fail to complete, though they may loop
  * forever. This wrapper is used for index lookup operation in RamCloud.
+ * 
+ * 
  */
 class IndexRpcWrapper : public RpcWrapper {
   public:
     explicit IndexRpcWrapper(
             RamCloud* ramcloud, uint64_t tableId, uint8_t indexId,
             const void* key, uint16_t keyLength,
-            uint32_t responseHeaderLength,
-            uint32_t* totalNumHashes = NULL, Buffer* totalResponse = NULL);
+            uint32_t responseHeaderLength, Buffer* responseBuffer);
 
     explicit IndexRpcWrapper(
             MasterService* master, uint64_t tableId, uint8_t indexId,
@@ -71,15 +70,12 @@ class IndexRpcWrapper : public RpcWrapper {
     ObjectFinder* objectFinder;
 
     /// Information about next key that determines which server the request
-    /// is sent to; we have to save this information for use in retries or
-    /// multi-server requests.
+    /// is sent to; we have to save this information for use in retries.
     uint64_t tableId;
     uint8_t indexId;
-    const void* nextKey;
-    uint16_t nextKeyLength;
-    uint32_t* totalNumHashes;
-    Buffer* totalResponse;
-
+    const void* key;
+    uint16_t keyLength;
+    Buffer* responseBuffer;
 
     DISALLOW_COPY_AND_ASSIGN(IndexRpcWrapper);
 };

@@ -262,10 +262,10 @@ IndexletManager::getCount()
  *      Id of the table containing the object corresponding to this index entry.
  * \param indexId
  *      Id of the index to which this index key belongs.
- * \param keyStr
+ * \param key
  *      Key blob for for the index entry.
  * \param keyLength
- *      Length of keyStr
+ *      Length of key.
  * \param pKHash
  *      Hash of the primary key of the object.
  * \return
@@ -274,7 +274,7 @@ IndexletManager::getCount()
  */
 Status
 IndexletManager::insertEntry(uint64_t tableId, uint8_t indexId,
-                             const void* keyStr, KeyLength keyLength,
+                             const void* key, KeyLength keyLength,
                              uint64_t pKHash)
 {
     // TODO(ankitak): Implement. Currently a stub.
@@ -292,21 +292,35 @@ IndexletManager::insertEntry(uint64_t tableId, uint8_t indexId,
  *      index keys.
  * \param indexId
  *      Id of the index to which these index keys belongs.
- * \param firstKeyStr
+ * \param firstKey
  *      Starting key blob for the key range in which keys are to be matched.
  *      The key range includes the firstKey.
  * \param firstKeyLength
- *      Length of firstKeyStr.
- * \param lastKeyStr
+ *      Length of firstKey.
+ * \param firstAllowedKeyHash
+ *      Smallest primary key hash value allowed for firstKey.
+ * \param lastKey
  *      Ending key for the key range in which keys are to be matched.
  *      The key range includes the lastKey.
  * \param lastKeyLength
- *      Length of lastKeyStr.
- * \param[out] count
- *      Num of key hashes being returned.
- * \param[out] outBuffer
- *      Return the key hashes of the primary keys of all the objects
- *      that match the lookup query.
+ *      Length of lastKey.
+ * 
+ * \param[out] responseBuffer
+ *      Return buffer containing:
+ *      1. Actual bytes of the next key to fetch, if any. Results starting at
+ *      nextKey + nextKeyHash couldn't be returned right now.
+ *      Client can send another request according to this.
+ *      This is the first nextKeyLength bytes of responseBuffer.
+ *      2. The key hashes of the primary keys of all the objects
+ *      that match the lookup query and can be returned in this response.
+ * \param[out] numHashes
+ *      Return the number of objects that matched the lookup, for which
+ *      the primary key hashes are being returned here.
+ * \param[out] nextKeyLength
+ *      Length of nextKey in bytes.
+ * \param[out] nextKeyHash
+ *      Results starting at nextKey + nextKeyHash couldn't be returned.
+ *      Client can send another request according to this.
  * \return
  *      Returns STATUS_OK if the lookup succeeded. Other status values
  *      indicate different failures.
@@ -314,12 +328,17 @@ IndexletManager::insertEntry(uint64_t tableId, uint8_t indexId,
 Status
 IndexletManager::lookupIndexKeys(
             uint64_t tableId, uint8_t indexId,
-            const void* firstKeyStr, KeyLength firstKeyLength,
-            const void* lastKeyStr, KeyLength lastKeyLength,
-            uint32_t* count, Buffer* outBuffer)
+            const void* firstKey, KeyLength firstKeyLength,
+            uint64_t firstAllowedKeyHash,
+            const void* lastKey, uint16_t lastKeyLength,
+            Buffer* responseBuffer,
+            uint32_t* numHashes, uint16_t* nextKeyLength,
+            uint64_t* nextKeyHash)
 {
     // TODO(ankitak): Implement. Currently a stub.
-    return Status(0);
+    // Return STATUS_UNKNOWN_INDEXLET if this server doesn't own the
+    // indexlet anymore.
+    return STATUS_OK;
 }
 
 /**
@@ -329,10 +348,10 @@ IndexletManager::lookupIndexKeys(
  *      Id of the table containing the object corresponding to this index entry.
  * \param indexId
  *      Id of the index to which this index key belongs.
- * \param keyStr
+ * \param key
  *      Key blob for for the index entry.
  * \param keyLength
- *      Length of keyStr
+ *      Length of key.
  * \param pKHash
  *      Hash of the primary key of the object.
  * \return
@@ -341,7 +360,7 @@ IndexletManager::lookupIndexKeys(
  */
 Status
 IndexletManager::removeEntry(uint64_t tableId, uint8_t indexId,
-                             const void* keyStr, KeyLength keyLength,
+                             const void* key, KeyLength keyLength,
                              uint64_t pKHash)
 {
     // TODO(ankitak): Implement. Currently a stub.

@@ -68,7 +68,8 @@ TEST_F(ClientExceptionTest, throwException_basics) {
               "STATUS_OBJECT_EXISTS STATUS_WRONG_VERSION", reject);
     EXPECT_EQ("STATUS_MESSAGE_TOO_SHORT "
               "STATUS_UNIMPLEMENTED_REQUEST STATUS_REQUEST_FORMAT_ERROR "
-              "STATUS_RESPONSE_FORMAT_ERROR STATUS_INTERNAL_ERROR",
+              "STATUS_RESPONSE_FORMAT_ERROR STATUS_INTERNAL_ERROR "
+              "STATUS_UNKNOWN_INDEXLET",
               internal);
 }
 TEST_F(ClientExceptionTest, throwException_useSubclass) {

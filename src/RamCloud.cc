@@ -1066,24 +1066,19 @@ RamCloud::indexedRead(uint64_t tableId, uint32_t numHashes, Buffer* pKHashes,
  * #RamCloud::IndexedReadRpc, but returns once first RPC has been initiated,
  * without waiting for any to complete.
  *
- * An RPC will be to a single server S1 with all key hashes. S1 returns
- * the objects corresponding to the key hashes it can, along with an
- * indication for the next key hash that has to be fetched.
- * (Indication: Number of hashes for which objects are being returned
- * or were not found.)
- * This next RPC would be initiated by the client by trimming the key hash
- * list according to this indication.
- * This rpc would get sent to the server owning that first key hash.
+ * An RPC will be sent to a single server S1. This request RPC will contain
+ * all the key hashes, even though S1 may not be able to service them all.
+ * S1 returns the objects corresponding to the key hashes it can, along with an
+ * indication that can be used to calculate the next key hash to be fetched.
+ * The indication is the number of hashes for which objects are being returned
+ * or were not found.
+ * 
+ * The next RPC would be initiated by the client by trimming the key hash
+ * list according to the previous response.
+ * This rpc will get sent to the server owning the new first key hash.
  * This could be S1 in case it couldn't fit all the objects in a single RPC
  * the first time it sent the response, or a different server S2 in case S1
  * didn't own these other objects.
- *
- * TODO(later):
- * An alternate mechanism would be for the caller of indexedRead to initiate
- * multiple of these requests in parallel, with different set of key hashes,
- * presumably binned by the server that owns them at the time.
- * In case the objects move, the retry mechanism (same as right now) will
- * handle that, but we get some level of parallelism where we can.
  *
  * \param ramcloud
  *      The RAMCloud object that governs this RPC.
@@ -1177,6 +1172,8 @@ IndexedReadRpc::wait(uint32_t* numObjects)
  *      the RPC.
  * \param firstKeyLength
  *      Length in bytes of the firstKey.
+ * \param firstAllowedKeyHash
+ *      Smallest primary key hash value allowed for firstKey.
  * \param lastKey
  *      Ending key for the key range in which keys are to be matched.
  *      The key range includes the lastKey.
@@ -1186,30 +1183,62 @@ IndexedReadRpc::wait(uint32_t* numObjects)
  * \param lastKeyLength
  *      Length in byes of the lastKey.
  *
- * \param[out] count
+ * \param[out] responseBuffer
+ *      Return buffer containing:
+ *      1. Actual bytes of the next key to fetch, if any. Results starting at
+ *      nextKey + nextKeyHash couldn't be returned right now.
+ *      Client can send another request according to this.
+ *      This is the first nextKeyLength bytes of responseBuffer.
+ *      2. The key hashes of the primary keys of all the objects
+ *      that match the lookup query and can be returned in this response.
+ * \param[out] numHashes
  *      Return the number of objects that matched the lookup, for which
  *      the primary key hashes are being returned here.
- * \param[out] pKHashes
- *      Return the key hashes of the primary keys of all the objects
- *      that match the lookup query.
+ * \param[out] nextKeyLength
+ *      Length of nextKey in bytes.
+ * \param[out] nextKeyHash
+ *      Results starting at nextKey + nextKeyHash couldn't be returned.
+ *      Client can send another request according to this.
  */
 void
 RamCloud::lookupIndexKeys(uint64_t tableId, uint8_t indexId,
                           const void* firstKey, uint16_t firstKeyLength,
+                          uint64_t firstAllowedKeyHash,
                           const void* lastKey, uint16_t lastKeyLength,
-                          uint32_t* count, Buffer* pKHashes)
+                          Buffer* responseBuffer,
+                          uint32_t* numHashes, uint16_t* nextKeyLength,
+                          uint64_t* nextKeyHash)
 {
     LookupIndexKeysRpc rpc(this, tableId, indexId,
-                           firstKey, firstKeyLength, lastKey, lastKeyLength,
-                           count, pKHashes);
-    rpc.wait();
+                           firstKey, firstKeyLength, firstAllowedKeyHash,
+                           lastKey, lastKeyLength, responseBuffer);
+    rpc.wait(numHashes, nextKeyLength, nextKeyHash);
 }
 
 /**
- * Constructor for LookupIndexKeysRpc: initiates RPCs in the same way as
- * #RamCloud::LookupIndexKeysRpc, but returns once the first RPC has been
+ * Constructor for LookupIndexKeysRpc: initiates an RPC in the same way as
+ * #RamCloud::LookupIndexKeysRpc, but returns once the RPC has been
  * initiated, without waiting for all to complete.
- *
+ * 
+ * An RPC will be sent to a single server S1. S1 returns
+ * the primary key hashes for the secondary key range that it can,
+ * along with the next secondary key + key hash that has to be fetched.
+ * 
+ * The next RPC, if needed, would be initiated by the client by modifying
+ * the first key and key hash value according to the previous response.
+ * This rpc would get sent to the server owning that first key.
+ * This could be S1 in case it couldn't fit all the key hashes in a single RPC
+ * the first time it sent the response, or a different server S2 in case S1
+ * didn't own the new key range.
+ * 
+ * Seen another way,
+ * If a previous request resulted in a response such that the server
+ * couldn't fit all the key hashes for a particular secondary key (say sk)
+ * in a single rpc, then it would respond with nextKey (to fetch) = sk
+ * and nextKeyHash = last key hash being returned + 1.
+ * The new request (i.e., this one) will use that nextKey to set firstKey
+ * and nextKeyHash to set firstAllowedKeyHash.
+ * 
  * \param ramcloud
  *      The RAMCloud object that governs this RPC.
  * \param tableId
@@ -1224,6 +1253,8 @@ RamCloud::lookupIndexKeys(uint64_t tableId, uint8_t indexId,
  *      the RPC.
  * \param firstKeyLength
  *      Length in bytes of the firstKey.
+ * \param firstAllowedKeyHash
+ *      Smallest primary key hash value allowed for firstKey.
  * \param lastKey
  *      Ending key for the key range in which keys are to be matched.
  *      The key range includes the lastKey.
@@ -1232,33 +1263,62 @@ RamCloud::lookupIndexKeys(uint64_t tableId, uint8_t indexId,
  *      the RPC.
  * \param lastKeyLength
  *      Length in byes of the lastKey.
- *
- * \param[out] count
- *      Return the number of objects that matched the lookup, for which
- *      the primary key hashes are being returned here.
- * \param[out] pKHashes
- *      Return the key hashes of the primary keys of all the objects
- *      that match the lookup query.
+ * 
+ * \param[out] responseBuffer
+ *      Return buffer containing:
+ *      1. Actual bytes of the next key to fetch, if any. Results starting at
+ *      nextKey + nextKeyHash couldn't be returned right now.
+ *      Client can send another request according to this.
+ *      This is the first nextKeyLength bytes of responseBuffer.
+ *      2. The key hashes of the primary keys of all the objects
+ *      that match the lookup query and can be returned in this response.
  */
 LookupIndexKeysRpc::LookupIndexKeysRpc(
         RamCloud* ramcloud, uint64_t tableId, uint8_t indexId,
         const void* firstKey, uint16_t firstKeyLength,
+        uint64_t firstAllowedKeyHash,
         const void* lastKey, uint16_t lastKeyLength,
-        uint32_t* count, Buffer* pKHashes)
+        Buffer* responseBuffer)
     : IndexRpcWrapper(ramcloud, tableId, indexId,
                       firstKey, firstKeyLength,
                       sizeof(WireFormat::LookupIndexKeys::Response),
-                      count, pKHashes)
+                      responseBuffer)
 {
     WireFormat::LookupIndexKeys::Request* reqHdr(
             allocHeader<WireFormat::LookupIndexKeys>());
     reqHdr->tableId = tableId;
     reqHdr->indexId = indexId;
+    reqHdr->firstAllowedKeyHash = firstAllowedKeyHash;
     reqHdr->firstKeyLength = firstKeyLength;
     reqHdr->lastKeyLength = lastKeyLength;
     request.append(firstKey, firstKeyLength);
     request.append(lastKey, lastKeyLength);
     send();
+}
+
+/**
+ * Wait for a lookupIndexKeys RPC to complete, and return the same results as
+ * #RamCloud::lookupIndexKeys.
+ * 
+ * \param[out] numHashes
+ *      Return the number of objects that matched the lookup, for which
+ *      the primary key hashes are being returned here.
+ * \param[out] nextKeyLength
+ *      Length of nextKey in bytes.
+ * \param[out] nextKeyHash
+ *      Results starting at nextKey + nextKeyHash couldn't be returned.
+ *      Client can send another request according to this.
+ */
+void
+LookupIndexKeysRpc::wait(uint32_t* numHashes, uint16_t* nextKeyLength,
+                         uint64_t* nextKeyHash)
+{
+    waitInternal(context->dispatch);
+    const WireFormat::LookupIndexKeys::Response* respHdr(
+            getResponseHeader<WireFormat::LookupIndexKeys>());
+    *numHashes = respHdr->numHashes;
+    *nextKeyLength = respHdr->nextKeyLength;
+    *nextKeyHash = respHdr->nextKeyHash;
 }
 
 /**

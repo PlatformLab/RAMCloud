@@ -153,14 +153,17 @@ class IndexletManager {
     /////////////////////////// Index data related functions //////////////////
 
     Status insertEntry(uint64_t tableId, uint8_t indexId,
-                       const void* keyStr, KeyLength keyLength,
+                       const void* key, KeyLength keyLength,
                        uint64_t pKHash);
     Status lookupIndexKeys(uint64_t tableId, uint8_t indexId,
-                           const void* firstKeyStr, KeyLength firstKeyLength,
-                           const void* lastKeyStr, KeyLength lastKeyLength,
-                           uint32_t* count, Buffer* outBuffer);
+                           const void* firstKey, KeyLength firstKeyLength,
+                           uint64_t firstAllowedKeyHash,
+                           const void* lastKey, uint16_t lastKeyLength,
+                           Buffer* responseBuffer,
+                           uint32_t* numHashes, uint16_t* nextKeyLength,
+                           uint64_t* nextKeyHash);
     Status removeEntry(uint64_t tableId, uint8_t indexId,
-                       const void* keyStr, KeyLength keyLength,
+                       const void* key, KeyLength keyLength,
                        uint64_t pKHash);
 
     //////////////// Static function related to indexing info /////////////////

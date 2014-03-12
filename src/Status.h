@@ -114,7 +114,11 @@ typedef enum Status {
     /// thus could not be sent/carried out.
     STATUS_REQUEST_TOO_LARGE            = 27,
 
-    STATUS_MAX_VALUE                    = 27,
+    /// Indicates that the server does not know about (and is not responsible
+    /// for) a given indexlet, but that it may exist elsewhere in the system.
+    STATUS_UNKNOWN_INDEXLET             = 28,
+
+    STATUS_MAX_VALUE                    = 28,
 
     // Note: if you add a new status value you must make the following
     // additional updates:

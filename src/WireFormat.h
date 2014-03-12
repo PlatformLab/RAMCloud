@@ -866,6 +866,8 @@ struct LookupIndexKeys {
         RequestCommon common;
         uint64_t tableId;       // Id of the table containing the objects.
         uint8_t indexId;        // Id of index in which lookup is to be done.
+        uint64_t firstAllowedKeyHash;   // Smallest primary key hash value
+                                        // allowed for firstKey.
         uint16_t firstKeyLength;        // Length of first key in bytes.
         uint16_t lastKeyLength;         // Length of last key in bytes.
         // In buffer: The actual first key and last key go here.
@@ -874,7 +876,9 @@ struct LookupIndexKeys {
     struct Response {
         ResponseCommon common;
         uint32_t numHashes;     // Number of primary key hashes being returned.
-        uint16_t nextKeyLength;
+        uint16_t nextKeyLength; // Length of next key to fetch.
+        uint64_t nextKeyHash;   // Minimum allowed hash corresponding to
+                                // next key to be fetched next.
         // In buffer: Actual bytes for the next key (if any) for which
         // the client should send another lookup request goes here.
         // In buffer: Key hashes of primary keys for matching objects go here.

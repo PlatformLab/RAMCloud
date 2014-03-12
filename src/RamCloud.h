@@ -90,8 +90,11 @@ class RamCloud {
             Buffer* response, uint32_t* numObjects);
     void lookupIndexKeys(uint64_t tableId, uint8_t indexId,
             const void* firstKey, uint16_t firstKeyLength,
+            uint64_t firstAllowedKeyHash,
             const void* lastKey, uint16_t lastKeyLength,
-            uint32_t* count, Buffer* pKHashes);
+            Buffer* responseBuffer,
+            uint32_t* numHashes, uint16_t* nextKeyLength,
+            uint64_t* nextKeyHash);
     void migrateTablet(uint64_t tableId, uint64_t firstKeyHash,
             uint64_t lastKeyHash, ServerId newOwnerMasterId);
     void multiRead(MultiReadObject* requests[], uint32_t numRequests);
@@ -433,11 +436,13 @@ class LookupIndexKeysRpc : public IndexRpcWrapper {
   public:
     LookupIndexKeysRpc(RamCloud* ramcloud, uint64_t tableId, uint8_t indexId,
                        const void* firstKey, uint16_t firstKeyLength,
+                       uint64_t firstAllowedKeyHash,
                        const void* lastKey, uint16_t lastKeyLength,
-                       uint32_t* count, Buffer* pkHashes);
+                       Buffer* responseBuffer);
     ~LookupIndexKeysRpc() {}
-    /// \copydoc RpcWrapper::docForWait
-    void wait() {simpleWait(context->dispatch);}
+
+    void wait(uint32_t* numHashes, uint16_t* nextKeyLength,
+              uint64_t* nextKeyHash);
 
   PRIVATE:
     DISALLOW_COPY_AND_ASSIGN(LookupIndexKeysRpc);

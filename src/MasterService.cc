@@ -739,23 +739,13 @@ MasterService::lookupIndexKeys(
     const void* lastKeyStr =
             rpc->requestPayload->getRange(reqOffset, reqHdr->lastKeyLength);
 
-    // TODO(ankitak): If there are more keys to fetch (maybe this server
-    // cannot fit everything in this rpc, or maybe this server doesn't
-    // own the rest), then also return next key to fetch.
-    // If there are no more to fetch, then set nextKeyLength to be 0.
-
-    uint32_t numHashes;
-    Buffer buffer;
-    respHdr->common.status =
-            indexletManager.lookupIndexKeys(reqHdr->tableId, reqHdr->indexId,
-                                            firstKeyStr, reqHdr->firstKeyLength,
-                                            lastKeyStr, reqHdr->lastKeyLength,
-                                            &numHashes, &buffer);
-    if (respHdr->common.status != STATUS_OK)
-        return;
-
-    respHdr->numHashes = numHashes;
-    rpc->replyPayload->append(&buffer);
+    respHdr->common.status = indexletManager.lookupIndexKeys(
+                    reqHdr->tableId, reqHdr->indexId,
+                    firstKeyStr, reqHdr->firstKeyLength,
+                    reqHdr->firstAllowedKeyHash,
+                    lastKeyStr, reqHdr->lastKeyLength,
+                    rpc->replyPayload, &respHdr->numHashes,
+                    &respHdr->nextKeyLength, &respHdr->nextKeyHash);
 }
 
 /**
