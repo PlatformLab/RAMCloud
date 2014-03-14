@@ -212,11 +212,11 @@ class MasterService : public Service {
     MasterTableMetadata masterTableMetadata;
 
     /**
-     * Determines the maximum size of the response buffer for multiRead
+     * Determines the maximum size of the response buffer for
      * operations. Normally MAX_RPC_LEN, but can be modified during tests
      * to simplify testing.
      */
-    uint32_t maxMultiReadResponseSize;
+    uint32_t maxResponseRpcLen;
 
     /**
      * The ObjectManager class that is responsible for object storage.

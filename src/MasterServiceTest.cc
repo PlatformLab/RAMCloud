@@ -766,11 +766,11 @@ TEST_F(MasterServiceTest, multiRead_basics) {
 
 TEST_F(MasterServiceTest, multiRead_bufferSizeExceeded) {
     uint64_t tableId1 = ramcloud->createTable("table1");
-    service->maxMultiReadResponseSize = 78;
+    service->maxResponseRpcLen = 78;
     // We want to test such that the first object is returned
     // in the first try and the second object is returned on
     // the second try. For the first object to be returned,
-    // the maxMultiReadResponseSize has to be >= 78
+    // the maxResponseRpcLen has to be >= 78
     ramcloud->write(tableId1, "0", 1,
             "chunk1:12 chunk2:12 chunk3:12 chunk4:12 chunk5:12 ",
             50);

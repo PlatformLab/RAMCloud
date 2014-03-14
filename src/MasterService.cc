@@ -78,7 +78,7 @@ MasterService::MasterService(Context* context,
     , initCalled(false)
     , logEverSynced(false)
     , masterTableMetadata()
-    , maxMultiReadResponseSize(Transport::MAX_RPC_LEN)
+    , maxResponseRpcLen(Transport::MAX_RPC_LEN)
     , objectManager(context,
                     &serverId,
                     config,
@@ -637,11 +637,10 @@ MasterService::indexedRead(
         }
 
         currentLength += partLength;
-        // TODO(ankitak): Do we need to define another max size?
         // TODO(ankitak): If we're okay with leaking length to objectManager,
         // we can simplify the code there (IndexedRead class + readNext()
         // can simply be a single function).
-        if (currentLength > maxMultiReadResponseSize) {
+        if (currentLength > maxResponseRpcLen) {
             rpc->replyPayload->truncateEnd(currentLength);
             break;
         } else {
@@ -977,7 +976,7 @@ MasterService::multiRead(const WireFormat::MultiOp::Request* reqHdr,
         // to the last object that fits below the limit (the client will
         // retry the objects we don't return).
         uint32_t newLength = rpc->replyPayload->getTotalLength();
-        if (newLength > maxMultiReadResponseSize) {
+        if (newLength > maxResponseRpcLen) {
             rpc->replyPayload->truncateEnd(newLength - oldResponseLength);
             respHdr->count = i-1;
             break;
