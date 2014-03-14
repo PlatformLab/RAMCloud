@@ -157,6 +157,209 @@ TEST_F(IndexletManagerTest, deleteIndexlet) {
         (uint16_t)key1.length(), key4.c_str(), (uint16_t)key4.length()));
 }
 
+TEST_F(IndexletManagerTest, insertIndexEntry) {
+    im.addIndexlet(0, 0, "a", 1, "k", 1);
+
+    // Check that insertions don't work for indexlets that this server doesn't
+    // own and works for indexlets that it does.
+    Status insertStatus1 = im.insertEntry(0, 0, "water", 5, 1234);
+    EXPECT_EQ(STATUS_UNKNOWN_INDEXLET, insertStatus1);
+
+    Status insertStatus2 = im.insertEntry(0, 0, "air", 3, 5678);
+    EXPECT_EQ(STATUS_OK, insertStatus2);
+    Status insertStatus3 = im.insertEntry(0, 0, "earth", 5, 9876);
+    EXPECT_EQ(STATUS_OK, insertStatus3);
+
+    // Check that data written is correct.
+    Buffer responseBuffer;
+    uint32_t numHashes;
+    uint16_t nextKeyLength;
+    uint64_t nextKeyHash;
+
+    responseBuffer.reset();
+    im.lookupIndexKeys(0, 0, "air", 3, 0, "air", 3, 100,
+                       &responseBuffer, &numHashes,
+                       &nextKeyLength, &nextKeyHash);
+    EXPECT_EQ(5678U, *responseBuffer.getStart<uint64_t>());
+}
+
+TEST_F(IndexletManagerTest, lookupIndexKeys_unknownIndexlet) {
+    Buffer responseBuffer;
+    uint32_t numHashes;
+    uint16_t nextKeyLength;
+    uint64_t nextKeyHash;
+
+    Status lookupStatus = im.lookupIndexKeys(0, 0, "water", 5, 0, "water", 5,
+                                             100, &responseBuffer, &numHashes,
+                                             &nextKeyLength, &nextKeyHash);
+    EXPECT_EQ(STATUS_UNKNOWN_INDEXLET, lookupStatus);
+}
+
+TEST_F(IndexletManagerTest, lookupIndexKeys_keyNotFound) {
+    im.addIndexlet(0, 0, "a", 1, "k", 1);
+
+    Buffer responseBuffer;
+    uint32_t numHashes;
+    uint16_t nextKeyLength;
+    uint64_t nextKeyHash;
+    Status lookupStatus;
+
+    // Lookup a key when indexlet doesn't have any data.
+    lookupStatus = im.lookupIndexKeys(0, 0, "air", 3, 0, "air", 3, 100,
+                                      &responseBuffer, &numHashes,
+                                      &nextKeyLength, &nextKeyHash);
+    EXPECT_EQ(STATUS_OK, lookupStatus);
+    EXPECT_EQ(0U, numHashes);
+
+    // Lookup a key k1 when indexlet doesn't have k1 but has k2.
+    im.insertEntry(0, 0, "earth", 5, 9876);
+
+    lookupStatus = im.lookupIndexKeys(0, 0, "air", 3, 0, "air", 3, 100,
+                                      &responseBuffer, &numHashes,
+                                      &nextKeyLength, &nextKeyHash);
+    EXPECT_EQ(STATUS_OK, lookupStatus);
+    EXPECT_EQ(0U, numHashes);
+}
+
+TEST_F(IndexletManagerTest, lookupIndexKeys_single) {
+    im.addIndexlet(0, 0, "a", 1, "k", 1);
+
+    Buffer responseBuffer;
+    uint32_t numHashes;
+    uint16_t nextKeyLength;
+    uint64_t nextKeyHash;
+    Status lookupStatus;
+
+    // Lookup such that the result should be a single object when only
+    // one object exists in the indexlet.
+    im.insertEntry(0, 0, "air", 3, 5678);
+
+    // First key = key = last key
+    responseBuffer.reset();
+    lookupStatus = im.lookupIndexKeys(0, 0, "air", 3, 0, "air", 3, 100,
+                                      &responseBuffer, &numHashes,
+                                      &nextKeyLength, &nextKeyHash);
+    EXPECT_EQ(STATUS_OK, lookupStatus);
+    EXPECT_EQ(1U, numHashes);
+    EXPECT_EQ(5678U, *responseBuffer.getStart<uint64_t>());
+
+    // First key < key < last key
+    responseBuffer.reset();
+    lookupStatus = im.lookupIndexKeys(0, 0, "a", 1, 0, "c", 1, 100,
+                                      &responseBuffer, &numHashes,
+                                      &nextKeyLength, &nextKeyHash);
+    EXPECT_EQ(STATUS_OK, lookupStatus);
+    EXPECT_EQ(1U, numHashes);
+    EXPECT_EQ(5678U, *responseBuffer.getStart<uint64_t>());
+
+
+    // Lookup such that the result should be a single object when
+    // multiple objects exist in the indexlet.
+    im.insertEntry(0, 0, "earth", 5, 9876);
+
+    responseBuffer.reset();
+    lookupStatus = im.lookupIndexKeys(0, 0, "a", 1, 0, "c", 1, 100,
+                                      &responseBuffer, &numHashes,
+                                      &nextKeyLength, &nextKeyHash);
+    EXPECT_EQ(STATUS_OK, lookupStatus);
+    EXPECT_EQ(1U, numHashes);
+    EXPECT_EQ(5678U, *responseBuffer.getStart<uint64_t>());
+}
+
+TEST_F(IndexletManagerTest, lookupIndexKeys_multiple) {
+    im.addIndexlet(0, 0, "a", 1, "k", 1);
+
+    im.insertEntry(0, 0, "air", 3, 5678);
+    im.insertEntry(0, 0, "earth", 5, 9876);
+    im.insertEntry(0, 0, "fire", 4, 5432);
+
+    Buffer responseBuffer;
+    uint32_t numHashes;
+    uint16_t nextKeyLength;
+    uint64_t nextKeyHash;
+    Status lookupStatus;
+
+    // first key = lowest expected key < highest expected key = last key
+    responseBuffer.reset();
+    lookupStatus = im.lookupIndexKeys(0, 0, "air", 3, 0, "fire", 4, 100,
+                                      &responseBuffer, &numHashes,
+                                      &nextKeyLength, &nextKeyHash);
+    EXPECT_EQ(STATUS_OK, lookupStatus);
+    EXPECT_EQ(3U, numHashes);
+    EXPECT_EQ(5678U, *responseBuffer.getOffset<uint64_t>(0));
+    EXPECT_EQ(9876U, *responseBuffer.getOffset<uint64_t>(8));
+    EXPECT_EQ(5432U, *responseBuffer.getOffset<uint64_t>(16));
+
+    // first key < lowest expected key < highest expected key < last key
+    responseBuffer.reset();
+    lookupStatus = im.lookupIndexKeys(0, 0, "a", 1, 0, "g", 1, 100,
+                                      &responseBuffer, &numHashes,
+                                      &nextKeyLength, &nextKeyHash);
+    EXPECT_EQ(STATUS_OK, lookupStatus);
+    EXPECT_EQ(3U, numHashes);
+    EXPECT_EQ(5678U, *responseBuffer.getOffset<uint64_t>(0));
+    EXPECT_EQ(9876U, *responseBuffer.getOffset<uint64_t>(8));
+    EXPECT_EQ(5432U, *responseBuffer.getOffset<uint64_t>(16));
+}
+
+TEST_F(IndexletManagerTest, lookupIndexKeys_largerRange) {
+    // Lookup such that the range of keys in the lookup request is larger than
+    // the range of keys owned by this indexlet.
+
+    im.addIndexlet(0, 0, "a", 1, "kext", 4);
+
+    im.insertEntry(0, 0, "air", 3, 5678);
+
+    Buffer responseBuffer;
+    uint32_t numHashes;
+    uint16_t nextKeyLength;
+    uint64_t nextKeyHash;
+
+    responseBuffer.reset();
+    Status lookupStatus = im.lookupIndexKeys(0, 0, "a", 1, 0, "z", 1, 100,
+                                             &responseBuffer, &numHashes,
+                                             &nextKeyLength, &nextKeyHash);
+    EXPECT_EQ(STATUS_OK, lookupStatus);
+    EXPECT_EQ(1U, numHashes);
+    EXPECT_EQ(5678U, *responseBuffer.getStart<uint64_t>());
+    EXPECT_EQ(4U, nextKeyLength);
+    EXPECT_EQ("kext", string(reinterpret_cast<const char*>(
+            responseBuffer.getRange(8, nextKeyLength)), nextKeyLength));
+    EXPECT_EQ(0U, nextKeyHash);
+}
+
+TEST_F(IndexletManagerTest, lookupIndexKeys_largerThanMax) {
+    // Lookup such that the number of key hashes that would be returned
+    // is larger than the maximum allowed.
+    // We can set the max to be a small number here; In real operation, it
+    // will typically be the maximum that can fit in an RPC, and will
+    // be set by the MasterService.
+
+    im.addIndexlet(0, 0, "a", 1, "k", 1);
+
+    im.insertEntry(0, 0, "air", 3, 5678);
+    im.insertEntry(0, 0, "earth", 5, 9876);
+    im.insertEntry(0, 0, "fire", 4, 5432);
+
+    Buffer responseBuffer;
+    uint32_t numHashes;
+    uint16_t nextKeyLength;
+    uint64_t nextKeyHash;
+
+    responseBuffer.reset();
+    Status lookupStatus = im.lookupIndexKeys(0, 0, "a", 1, 0, "g", 1, 2,
+                                             &responseBuffer, &numHashes,
+                                             &nextKeyLength, &nextKeyHash);
+    EXPECT_EQ(STATUS_OK, lookupStatus);
+    EXPECT_EQ(2U, numHashes);
+    EXPECT_EQ(5678U, *responseBuffer.getOffset<uint64_t>(0));
+    EXPECT_EQ(9876U, *responseBuffer.getOffset<uint64_t>(8));
+    EXPECT_EQ(4U, nextKeyLength);
+    EXPECT_EQ("fire", string(reinterpret_cast<const char*>(
+            responseBuffer.getRange(16, nextKeyLength)), nextKeyLength));
+    EXPECT_EQ(5432U, nextKeyHash);
+}
+
 TEST_F(IndexletManagerTest, isKeyInRange)
 {
     // Construct Object obj.

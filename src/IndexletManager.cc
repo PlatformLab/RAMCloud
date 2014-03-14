@@ -277,10 +277,15 @@ IndexletManager::insertEntry(uint64_t tableId, uint8_t indexId,
                              const void* key, KeyLength keyLength,
                              uint64_t pKHash)
 {
-    // TODO(ankitak): Implement. Currently a stub.
-    // look at BtreeTest to find the other variants. one example:
-    // indexlet->bt.insert2("temp", 100);
-    return Status(0);
+    Lock guard(lock);
+    IndexletMap::iterator it = lookup(tableId, indexId, key, keyLength, guard);
+    if (it == indexletMap.end())
+        return STATUS_UNKNOWN_INDEXLET;
+    Indexlet* indexlet = &it->second;
+    string keyStr(static_cast<const char*>(key), keyLength);
+    // TODO(ankitak): Why not use insert instead of insert2?
+    indexlet->bt.insert2(keyStr, pKHash);
+    return STATUS_OK;
 }
 
 /**
@@ -304,6 +309,10 @@ IndexletManager::insertEntry(uint64_t tableId, uint8_t indexId,
  *      The key range includes the lastKey.
  * \param lastKeyLength
  *      Length of lastKey.
+ * \param maxNumHashes
+ *      Maximum number of key hashes that can be returned as a response here.
+ *      If there are more hashes to be returned than maxNumHashes, then
+ *      information about the next key + keyHash to be fetched is also returned.
  * 
  * \param[out] responseBuffer
  *      Return buffer containing:
@@ -331,13 +340,73 @@ IndexletManager::lookupIndexKeys(
             const void* firstKey, KeyLength firstKeyLength,
             uint64_t firstAllowedKeyHash,
             const void* lastKey, uint16_t lastKeyLength,
-            Buffer* responseBuffer,
-            uint32_t* numHashes, uint16_t* nextKeyLength,
-            uint64_t* nextKeyHash)
+            uint32_t maxNumHashes,
+            Buffer* responseBuffer, uint32_t* numHashes,
+            uint16_t* nextKeyLength, uint64_t* nextKeyHash)
 {
-    // TODO(ankitak): Implement. Currently a stub.
-    // Return STATUS_UNKNOWN_INDEXLET if this server doesn't own the
-    // indexlet anymore.
+    // TODO(ankitak): The tree is storing a string rather than const void*.
+    // Is that okay? If so, then we should probably change our operations
+    // to take strings as well, because right now we're converting back and
+    // forth many times.
+    Lock guard(lock);
+    IndexletMap::iterator mapIter =
+            lookup(tableId, indexId, firstKey, firstKeyLength, guard);
+    if (mapIter == indexletMap.end())
+        return STATUS_UNKNOWN_INDEXLET;
+    Indexlet* indexlet = &mapIter->second;
+
+    *numHashes = 0;
+    *nextKeyLength = 0;
+
+    // If there are no values in this indexlet's tree, return right away.
+    if (indexlet->bt.empty()) {
+        return STATUS_OK;
+    }
+
+    string firstKeyStr(static_cast<const char*>(firstKey), firstKeyLength);
+    string lastKeyStr(static_cast<const char*>(lastKey), lastKeyLength);
+
+    // We want to use lower_bound() instead of find() because the firstKey
+    // may not correspond to a key in the indexlet.
+    auto iter = indexlet->bt.lower_bound(firstKeyStr);
+    auto iterEnd = indexlet->bt.end();
+    bool rpcMaxedOut = false;
+
+    // If the iterator is currently at the end, then it stays at the
+    // same point if we try to advance (i.e., increment) the iterator.
+    // This can result this loop looping forever if:
+    // end of the tree is <= lastKey given by client.
+    // So the second condition ensures that we break if iterator is at the end.
+    while (!rpcMaxedOut && lastKeyStr.compare(iter.key()) >= 0
+                        && iter != iterEnd) {
+
+        if (*numHashes < maxNumHashes) {
+            new(responseBuffer, APPEND) uint64_t(iter.data());
+            *numHashes += 1;
+            ++iter;
+        } else {
+            rpcMaxedOut = true;
+        }
+    }
+
+    if (rpcMaxedOut) {
+
+        *nextKeyLength = uint16_t(iter.key().length());
+        *nextKeyHash = iter.data();
+        // TODO(ankitak): Is this ok or do i need to allocate space in buffer?
+        responseBuffer->append(iter.key().c_str(),
+                               uint32_t(iter.key().length()));
+
+    } else if (keyCompare(lastKey, lastKeyLength, indexlet->firstNotOwnedKey,
+                          indexlet->firstNotOwnedKeyLength) > 0) {
+
+        *nextKeyLength = indexlet->firstNotOwnedKeyLength;
+        *nextKeyHash = 0;
+        // TODO(ankitak): Is this ok or do i need to allocate space in buffer?
+        responseBuffer->append(indexlet->firstNotOwnedKey,
+                               indexlet->firstNotOwnedKeyLength);
+    }
+
     return STATUS_OK;
 }
 

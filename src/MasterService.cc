@@ -738,11 +738,16 @@ MasterService::lookupIndexKeys(
     const void* lastKeyStr =
             rpc->requestPayload->getRange(reqOffset, reqHdr->lastKeyLength);
 
+    // TODO(ankitak): Confirm that this is a reasonable calculation.
+    uint32_t maxNumHashes =
+            (maxResponseRpcLen - sizeof32(respHdr)) / 8 /*size of a key hash*/;
+
     respHdr->common.status = indexletManager.lookupIndexKeys(
                     reqHdr->tableId, reqHdr->indexId,
                     firstKeyStr, reqHdr->firstKeyLength,
                     reqHdr->firstAllowedKeyHash,
                     lastKeyStr, reqHdr->lastKeyLength,
+                    maxNumHashes,
                     rpc->replyPayload, &respHdr->numHashes,
                     &respHdr->nextKeyLength, &respHdr->nextKeyHash);
 }
