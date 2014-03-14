@@ -114,7 +114,7 @@ class IndexletManager {
 
         // B+ tree holding key: string, value: primary key hash
         typedef stx::btree_multimap<std::string, uint64_t,
-                stringCompare, traits_nodebug<std::string> > btree_type;
+                stringCompare, traits_nodebug<std::string> > Btree;
 
         /// Blob for the smallest key that is in this indexlet. Keys is
         /// allocated during adding indexlet and freed while deleting.
@@ -131,7 +131,7 @@ class IndexletManager {
         uint16_t firstNotOwnedKeyLength;
 
         /// Instance of the B+ tree used to hold the indexes
-        btree_type bt;
+        Btree bt;
     };
 
 
@@ -140,38 +140,38 @@ class IndexletManager {
     /////////////////////////// Meta-data related functions //////////////////
 
     bool addIndexlet(uint64_t tableId, uint8_t indexId,
-                 const void *firstKey, uint16_t firstKeyLength,
-                 const void *firstNotOwnedKey, uint16_t firstNotOwnedKeyLength);
+                const void *firstKey, uint16_t firstKeyLength,
+                const void *firstNotOwnedKey, uint16_t firstNotOwnedKeyLength);
     bool deleteIndexlet(uint64_t tableId, uint8_t indexId,
                 const void *firstKey, uint16_t firstKeyLength,
                 const void *firstNotOwnedKey, uint16_t firstNotOwnedKeyLength);
     struct Indexlet* getIndexlet(uint64_t tableId, uint8_t indexId,
-                 const void *firstKey, uint16_t firstKeyLength,
-                 const void *firstNotOwnedKey, uint16_t firstNotOwnedKeyLength);
+                const void *firstKey, uint16_t firstKeyLength,
+                const void *firstNotOwnedKey, uint16_t firstNotOwnedKeyLength);
     size_t getCount();
 
     /////////////////////////// Index data related functions //////////////////
 
     Status insertEntry(uint64_t tableId, uint8_t indexId,
-                       const void* key, KeyLength keyLength,
-                       uint64_t pKHash);
+                const void* key, KeyLength keyLength,
+                uint64_t pKHash);
     Status lookupIndexKeys(uint64_t tableId, uint8_t indexId,
-                       const void* firstKey, KeyLength firstKeyLength,
-                       uint64_t firstAllowedKeyHash,
-                       const void* lastKey, uint16_t lastKeyLength,
-                       uint32_t maxNumHashes,
-                       Buffer* responseBuffer, uint32_t* numHashes,
-                       uint16_t* nextKeyLength, uint64_t* nextKeyHash);
+                const void* firstKey, KeyLength firstKeyLength,
+                uint64_t firstAllowedKeyHash,
+                const void* lastKey, uint16_t lastKeyLength,
+                uint32_t maxNumHashes,
+                Buffer* responseBuffer, uint32_t* numHashes,
+                uint16_t* nextKeyLength, uint64_t* nextKeyHash);
     Status removeEntry(uint64_t tableId, uint8_t indexId,
-                       const void* key, KeyLength keyLength,
-                       uint64_t pKHash);
+                const void* key, KeyLength keyLength,
+                uint64_t pKHash);
 
     //////////////// Static function related to indexing info /////////////////
 
     static bool isKeyInRange(Object* object, KeyRange* keyRange);
 
     static int keyCompare(const void* key1, uint16_t keyLength1,
-                          const void* key2, uint16_t keyLength2);
+                const void* key2, uint16_t keyLength2);
 
   PRIVATE:
     /**
@@ -187,8 +187,8 @@ class IndexletManager {
     /// release it.
     typedef std::lock_guard<SpinLock> Lock;
 
-    IndexletMap::iterator lookup(uint64_t tableId, uint8_t indexId,
-                              const void *key, uint16_t keyLength, Lock& lock);
+    IndexletMap::iterator lookupIndexlet(uint64_t tableId, uint8_t indexId,
+                const void *key, uint16_t keyLength, Lock& lock);
 
     IndexletMap indexletMap;
 

@@ -60,7 +60,7 @@ TEST_F(IndexletManagerTest, addIndexlet) {
 
     SpinLock lock;
     IndexletManager::Lock fakeGuard(lock);
-    IndexletManager::Indexlet* indexlet = &im.lookup(0, 0, key2.c_str(),
+    IndexletManager::Indexlet* indexlet = &im.lookupIndexlet(0, 0, key2.c_str(),
         (uint16_t)key2.length(), fakeGuard)->second;
     string firstKey = StringUtil::binaryToString(
                         indexlet->firstKey, indexlet->firstKeyLength);
@@ -160,27 +160,38 @@ TEST_F(IndexletManagerTest, deleteIndexlet) {
 TEST_F(IndexletManagerTest, insertIndexEntry) {
     im.addIndexlet(0, 0, "a", 1, "k", 1);
 
-    // Check that insertions don't work for indexlets that this server doesn't
-    // own and works for indexlets that it does.
-    Status insertStatus1 = im.insertEntry(0, 0, "water", 5, 1234);
-    EXPECT_EQ(STATUS_UNKNOWN_INDEXLET, insertStatus1);
-
-    Status insertStatus2 = im.insertEntry(0, 0, "air", 3, 5678);
+    Status insertStatus1 = im.insertEntry(0, 0, "air", 3, 5678);
+    EXPECT_EQ(STATUS_OK, insertStatus1);
+    Status insertStatus2 = im.insertEntry(0, 0, "earth", 5, 9876);
     EXPECT_EQ(STATUS_OK, insertStatus2);
-    Status insertStatus3 = im.insertEntry(0, 0, "earth", 5, 9876);
-    EXPECT_EQ(STATUS_OK, insertStatus3);
 
-    // Check that data written is correct.
     Buffer responseBuffer;
     uint32_t numHashes;
     uint16_t nextKeyLength;
     uint64_t nextKeyHash;
 
-    responseBuffer.reset();
     im.lookupIndexKeys(0, 0, "air", 3, 0, "air", 3, 100,
                        &responseBuffer, &numHashes,
                        &nextKeyLength, &nextKeyHash);
     EXPECT_EQ(5678U, *responseBuffer.getStart<uint64_t>());
+}
+
+TEST_F(IndexletManagerTest, insertIndexEntry_unknownIndexlet) {
+    im.addIndexlet(0, 0, "a", 1, "k", 1);
+
+    Status insertStatus = im.insertEntry(0, 0, "water", 5, 1234);
+    EXPECT_EQ(STATUS_UNKNOWN_INDEXLET, insertStatus);
+}
+
+TEST_F(IndexletManagerTest, insertIndexEntry_duplicate) {
+    im.addIndexlet(0, 0, "a", 1, "k", 1);
+
+    Status insertStatus1 = im.insertEntry(0, 0, "air", 3, 1234);
+    EXPECT_EQ(STATUS_OK, insertStatus1);
+    Status insertStatus2 = im.insertEntry(0, 0, "air", 3, 5678);
+    EXPECT_EQ(STATUS_OK, insertStatus2);
+
+    // Lookup for duplicates is tested in lookIndexKeys_duplicate.
 }
 
 TEST_F(IndexletManagerTest, lookupIndexKeys_unknownIndexlet) {
@@ -235,7 +246,6 @@ TEST_F(IndexletManagerTest, lookupIndexKeys_single) {
     im.insertEntry(0, 0, "air", 3, 5678);
 
     // First key = key = last key
-    responseBuffer.reset();
     lookupStatus = im.lookupIndexKeys(0, 0, "air", 3, 0, "air", 3, 100,
                                       &responseBuffer, &numHashes,
                                       &nextKeyLength, &nextKeyHash);
@@ -280,7 +290,6 @@ TEST_F(IndexletManagerTest, lookupIndexKeys_multiple) {
     Status lookupStatus;
 
     // first key = lowest expected key < highest expected key = last key
-    responseBuffer.reset();
     lookupStatus = im.lookupIndexKeys(0, 0, "air", 3, 0, "fire", 4, 100,
                                       &responseBuffer, &numHashes,
                                       &nextKeyLength, &nextKeyHash);
@@ -302,6 +311,30 @@ TEST_F(IndexletManagerTest, lookupIndexKeys_multiple) {
     EXPECT_EQ(5432U, *responseBuffer.getOffset<uint64_t>(16));
 }
 
+TEST_F(IndexletManagerTest, lookupIndexKeys_duplicate) {
+    im.addIndexlet(0, 0, "a", 1, "k", 1);
+
+    Status insertStatus1 = im.insertEntry(0, 0, "air", 3, 1234);
+    EXPECT_EQ(STATUS_OK, insertStatus1);
+    Status insertStatus2 = im.insertEntry(0, 0, "air", 3, 5678);
+    EXPECT_EQ(STATUS_OK, insertStatus2);
+
+    // Check that data written is correct.
+    Buffer responseBuffer;
+    uint32_t numHashes;
+    uint16_t nextKeyLength;
+    uint64_t nextKeyHash;
+
+    Status lookupStatus = im.lookupIndexKeys(0, 0, "air", 3, 0, "fire", 4, 100,
+                                             &responseBuffer, &numHashes,
+                                             &nextKeyLength, &nextKeyHash);
+    EXPECT_EQ(STATUS_OK, lookupStatus);
+    EXPECT_EQ(2U, numHashes);
+    // This should get flipped once tree implementation does the sort.
+    EXPECT_EQ(5678U, *responseBuffer.getOffset<uint64_t>(0));
+    EXPECT_EQ(1234U, *responseBuffer.getOffset<uint64_t>(8));
+}
+
 TEST_F(IndexletManagerTest, lookupIndexKeys_largerRange) {
     // Lookup such that the range of keys in the lookup request is larger than
     // the range of keys owned by this indexlet.
@@ -315,7 +348,6 @@ TEST_F(IndexletManagerTest, lookupIndexKeys_largerRange) {
     uint16_t nextKeyLength;
     uint64_t nextKeyHash;
 
-    responseBuffer.reset();
     Status lookupStatus = im.lookupIndexKeys(0, 0, "a", 1, 0, "z", 1, 100,
                                              &responseBuffer, &numHashes,
                                              &nextKeyLength, &nextKeyHash);
@@ -346,7 +378,6 @@ TEST_F(IndexletManagerTest, lookupIndexKeys_largerThanMax) {
     uint16_t nextKeyLength;
     uint64_t nextKeyHash;
 
-    responseBuffer.reset();
     Status lookupStatus = im.lookupIndexKeys(0, 0, "a", 1, 0, "g", 1, 2,
                                              &responseBuffer, &numHashes,
                                              &nextKeyLength, &nextKeyHash);

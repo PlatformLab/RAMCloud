@@ -52,13 +52,14 @@ IndexletManager::IndexletManager(Context* context)
  *      added because it overlaps with one or more existing indexlets.
  */
 bool
-IndexletManager::addIndexlet(uint64_t tableId, uint8_t indexId,
+IndexletManager::addIndexlet(
+                 uint64_t tableId, uint8_t indexId,
                  const void *firstKey, uint16_t firstKeyLength,
                  const void *firstNotOwnedKey, uint16_t firstNotOwnedKeyLength)
 {
     Lock guard(lock);
 
-    if (lookup(tableId, indexId, firstKey, firstKeyLength, guard)
+    if (lookupIndexlet(tableId, indexId, firstKey, firstKeyLength, guard)
             != indexletMap.end()) {
         return false;
     }
@@ -91,44 +92,44 @@ IndexletManager::addIndexlet(uint64_t tableId, uint8_t indexId,
  *      True if indexlet was deleted. Failed if indexlet did not exist.
  */
 bool
-IndexletManager::deleteIndexlet(uint64_t tableId, uint8_t indexId,
+IndexletManager::deleteIndexlet(
+                uint64_t tableId, uint8_t indexId,
                 const void *firstKey, uint16_t firstKeyLength,
                 const void *firstNotOwnedKey, uint16_t firstNotOwnedKeyLength)
 {
     Lock guard(lock);
 
     IndexletMap::iterator it =
-            lookup(tableId, indexId, firstKey, firstKeyLength, guard);
+            lookupIndexlet(tableId, indexId, firstKey, firstKeyLength, guard);
     if (it == indexletMap.end()){
         return false;
     }
 
-    Indexlet* t = &it->second;
+    Indexlet* indexlet = &it->second;
     //TODO(ashgup): convert every string operation to char* and strcmp
-    string givenFirstKey = StringUtil::binaryToString(
-                                firstKey, firstKeyLength);
-    string tFirstKey = StringUtil::binaryToString(
-                                t->firstKey, t->firstKeyLength);
-    if (tFirstKey.compare(givenFirstKey) != 0){
+    string givenFirstKey = StringUtil::binaryToString(firstKey, firstKeyLength);
+    string indexletFirstKey = StringUtil::binaryToString(
+                                indexlet->firstKey, indexlet->firstKeyLength);
+    if (indexletFirstKey.compare(givenFirstKey) != 0){
         return false;
     }
 
     if (firstNotOwnedKey != NULL){
-        string givenfirstNotOwnedKey = StringUtil::binaryToString(
+        string givenFirstNotOwnedKey = StringUtil::binaryToString(
                                     firstNotOwnedKey, firstNotOwnedKeyLength);
-        string tfirstNotOwnedKey = StringUtil::binaryToString(
-                                    t->firstNotOwnedKey,
-                                    t->firstNotOwnedKeyLength);
-        if (tfirstNotOwnedKey.compare(givenfirstNotOwnedKey) != 0)
+        string indexletFirstNotOwnedKey = StringUtil::binaryToString(
+                                    indexlet->firstNotOwnedKey,
+                                    indexlet->firstNotOwnedKeyLength);
+        if (indexletFirstNotOwnedKey.compare(givenFirstNotOwnedKey) != 0)
             return false;
     } else {
-        // found indexlet firstNotOwnedKey should be NULL
-        if (t->firstNotOwnedKey != NULL)
+        // found indexlet's firstNotOwnedKey should be NULL
+        if (indexlet->firstNotOwnedKey != NULL)
             return false;
     }
 
     indexletMap.erase(it);
-    //TODO(ashgup): free allocated memort and in destructor
+    //TODO(ashgup): free allocated memory and in destructor
     return true;
 }
 
@@ -156,40 +157,41 @@ IndexletManager::deleteIndexlet(uint64_t tableId, uint8_t indexId,
  *      True if a indexlet was found, otherwise false.
  */
 IndexletManager::Indexlet*
-IndexletManager::getIndexlet(uint64_t tableId, uint8_t indexId,
+IndexletManager::getIndexlet(
+                uint64_t tableId, uint8_t indexId,
                 const void *firstKey, uint16_t firstKeyLength,
                 const void *firstNotOwnedKey, uint16_t firstNotOwnedKeyLength)
 {
     Lock guard(lock);
 
     IndexletMap::iterator it =
-        lookup(tableId, indexId, firstKey, firstKeyLength, guard);
+        lookupIndexlet(tableId, indexId, firstKey, firstKeyLength, guard);
     if (it == indexletMap.end())
         return NULL;
 
-    Indexlet* t = &it->second;
-    string tFirstKey = StringUtil::binaryToString(
-                                t->firstKey, t->firstKeyLength);
+    Indexlet* indexlet = &it->second;
+    string indexletFirstKey = StringUtil::binaryToString(
+                                indexlet->firstKey, indexlet->firstKeyLength);
     string givenFirstKey = StringUtil::binaryToString(
                                 firstKey, firstKeyLength);
-    if ( tFirstKey.compare(givenFirstKey) !=0 )
+    if (indexletFirstKey.compare(givenFirstKey) !=0 )
         return NULL;
 
     if (firstNotOwnedKey != NULL){
-        string givenfirstNotOwnedKey = StringUtil::binaryToString(
+        string givenFirstNotOwnedKey = StringUtil::binaryToString(
                                     firstNotOwnedKey, firstNotOwnedKeyLength);
-        string tfirstNotOwnedKey = StringUtil::binaryToString(
-                                    t->firstNotOwnedKey,
-                                    t->firstNotOwnedKeyLength);
-        if (tfirstNotOwnedKey.compare(givenfirstNotOwnedKey) != 0)
+        string indexletFirstNotOwnedKey = StringUtil::binaryToString(
+                                    indexlet->firstNotOwnedKey,
+                                    indexlet->firstNotOwnedKeyLength);
+        if (indexletFirstNotOwnedKey.compare(givenFirstNotOwnedKey) != 0)
             return NULL;
     } else {
-        // found indexlet firstNotOwnedKey should be NULL
-        if (t->firstNotOwnedKey != NULL)
+        // found indexlet's firstNotOwnedKey should be NULL
+        if (indexlet->firstNotOwnedKey != NULL)
             return NULL;
     }
 
-    return t;
+    return indexlet;
 }
 
 /**
@@ -217,23 +219,23 @@ IndexletManager::getIndexlet(uint64_t tableId, uint8_t indexId,
  *      efficient deletion.
  */
 IndexletManager::IndexletMap::iterator
-IndexletManager::lookup(uint64_t tableId, uint8_t indexId,
-                               const void *key, uint16_t keyLength, Lock& lock)
+IndexletManager::lookupIndexlet(uint64_t tableId, uint8_t indexId,
+                                const void *key, uint16_t keyLength, Lock& lock)
 {
     auto range = indexletMap.equal_range(std::make_pair(tableId, indexId));
     IndexletMap::iterator end = range.second;
     string givenKey = StringUtil::binaryToString(key, keyLength);
     for (IndexletMap::iterator it = range.first; it != end; it++) {
 
-        Indexlet* t = &it->second;
+        Indexlet* indexlet = &it->second;
         string firstKey = StringUtil::binaryToString(
-                                t->firstKey, t->firstKeyLength);
-        if ( givenKey.compare(firstKey) < 0)
+                                indexlet->firstKey, indexlet->firstKeyLength);
+        if (givenKey.compare(firstKey) < 0)
             continue;
 
-        if (t->firstNotOwnedKey != NULL){
+        if (indexlet->firstNotOwnedKey != NULL){
             string firstNotOwnedKey = StringUtil::binaryToString(
-                                t->firstNotOwnedKey, t->firstNotOwnedKeyLength);
+                indexlet->firstNotOwnedKey, indexlet->firstNotOwnedKeyLength);
             if (givenKey.compare(firstNotOwnedKey) >= 0)
                 continue;
         }
@@ -278,13 +280,13 @@ IndexletManager::insertEntry(uint64_t tableId, uint8_t indexId,
                              uint64_t pKHash)
 {
     Lock guard(lock);
-    IndexletMap::iterator it = lookup(tableId, indexId, key, keyLength, guard);
+    IndexletMap::iterator it =
+            lookupIndexlet(tableId, indexId, key, keyLength, guard);
     if (it == indexletMap.end())
         return STATUS_UNKNOWN_INDEXLET;
     Indexlet* indexlet = &it->second;
     string keyStr(static_cast<const char*>(key), keyLength);
-    // TODO(ankitak): Why not use insert instead of insert2?
-    indexlet->bt.insert2(keyStr, pKHash);
+    indexlet->bt.insert(keyStr, pKHash);
     return STATUS_OK;
 }
 
@@ -335,14 +337,13 @@ IndexletManager::insertEntry(uint64_t tableId, uint8_t indexId,
  *      indicate different failures.
  */
 Status
-IndexletManager::lookupIndexKeys(
-            uint64_t tableId, uint8_t indexId,
-            const void* firstKey, KeyLength firstKeyLength,
-            uint64_t firstAllowedKeyHash,
-            const void* lastKey, uint16_t lastKeyLength,
-            uint32_t maxNumHashes,
-            Buffer* responseBuffer, uint32_t* numHashes,
-            uint16_t* nextKeyLength, uint64_t* nextKeyHash)
+IndexletManager::lookupIndexKeys(uint64_t tableId, uint8_t indexId,
+                                 const void* firstKey, KeyLength firstKeyLength,
+                                 uint64_t firstAllowedKeyHash,
+                                 const void* lastKey, uint16_t lastKeyLength,
+                                 uint32_t maxNumHashes,
+                                 Buffer* responseBuffer, uint32_t* numHashes,
+                                 uint16_t* nextKeyLength, uint64_t* nextKeyHash)
 {
     // TODO(ankitak): The tree is storing a string rather than const void*.
     // Is that okay? If so, then we should probably change our operations
@@ -350,7 +351,7 @@ IndexletManager::lookupIndexKeys(
     // forth many times.
     Lock guard(lock);
     IndexletMap::iterator mapIter =
-            lookup(tableId, indexId, firstKey, firstKeyLength, guard);
+            lookupIndexlet(tableId, indexId, firstKey, firstKeyLength, guard);
     if (mapIter == indexletMap.end())
         return STATUS_UNKNOWN_INDEXLET;
     Indexlet* indexlet = &mapIter->second;
