@@ -1732,8 +1732,16 @@ MasterService::requestInsertIndexEntries(Object& object, uint64_t tableId,
 }
 
 /*
- * TODO(ankitak): Calls to requestRemoveIndexEntries (from write, multiwrite,
+ * TODO(ankitak):
+ * 
+ * 1. Calls to requestRemoveIndexEntries (from write, multiwrite,
  * remove, multiremove) should happen after returning to the client.
+ * 
+ * 2. Smart index entry deletion in case two objs with same pkHash also have
+ * same key: Check here if another object has the same key hash.
+ * If yes, look up those objects and see if they have the same index keys.
+ * Only for index entries that don’t need to be kept around for another object,
+ * send removeIndexEntries to index server.
  */
 
 /**

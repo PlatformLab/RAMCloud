@@ -391,6 +391,93 @@ TEST_F(IndexletManagerTest, lookupIndexKeys_largerThanMax) {
     EXPECT_EQ(5432U, nextKeyHash);
 }
 
+TEST_F(IndexletManagerTest, removeEntry_single) {
+    im.addIndexlet(0, 0, "a", 1, "k", 1);
+
+    im.insertEntry(0, 0, "air", 3, 5678);
+
+    Status removeStatus = im.removeEntry(0, 0, "air", 3, 5678);
+    EXPECT_EQ(STATUS_OK, removeStatus);
+
+    Buffer responseBuffer;
+    uint32_t numHashes;
+    uint16_t nextKeyLength;
+    uint64_t nextKeyHash;
+    im.lookupIndexKeys(0, 0, "air", 3, 0, "air", 3, 100,
+                       &responseBuffer, &numHashes,
+                       &nextKeyLength, &nextKeyHash);
+    EXPECT_EQ(0U, numHashes);
+}
+
+TEST_F(IndexletManagerTest, removeEntry_multiple) {
+    im.addIndexlet(0, 0, "a", 1, "k", 1);
+
+    Buffer responseBuffer;
+    uint32_t numHashes;
+    uint16_t nextKeyLength;
+    uint64_t nextKeyHash;
+
+    im.insertEntry(0, 0, "air", 3, 5678);
+    im.insertEntry(0, 0, "earth", 5, 9876);
+    im.insertEntry(0, 0, "fire", 4, 5432);
+
+    Status removeStatus1 = im.removeEntry(0, 0, "air", 3, 5678);
+    Status removeStatus2 = im.removeEntry(0, 0, "fire", 4, 5432);
+    EXPECT_EQ(STATUS_OK, removeStatus1);
+    EXPECT_EQ(STATUS_OK, removeStatus2);
+
+    responseBuffer.reset();
+    im.lookupIndexKeys(0, 0, "a", 1, 0, "h", 1, 100,
+                       &responseBuffer, &numHashes,
+                       &nextKeyLength, &nextKeyHash);
+    EXPECT_EQ(1U, numHashes);
+    EXPECT_EQ(9876U, *responseBuffer.getOffset<uint64_t>(0));
+}
+
+TEST_F(IndexletManagerTest, removeEntry_duplicate) {
+    im.addIndexlet(0, 0, "a", 1, "k", 1);
+
+    im.insertEntry(0, 0, "air", 3, 1234);
+    im.insertEntry(0, 0, "air", 3, 5678);
+    im.insertEntry(0, 0, "air", 3, 9012);
+
+    Status removeStatus = im.removeEntry(0, 0, "air", 3, 5678);
+    EXPECT_EQ(STATUS_OK, removeStatus);
+
+    Buffer responseBuffer;
+    uint32_t numHashes;
+    uint16_t nextKeyLength;
+    uint64_t nextKeyHash;
+    Status lookupStatus = im.lookupIndexKeys(0, 0, "air", 3, 0, "air", 3, 100,
+                                             &responseBuffer, &numHashes,
+                                             &nextKeyLength, &nextKeyHash);
+    EXPECT_EQ(STATUS_OK, lookupStatus);
+    EXPECT_EQ(2U, numHashes);
+    // This should get flipped once tree implementation does the sort.
+    EXPECT_EQ(9012U, *responseBuffer.getOffset<uint64_t>(0));
+    EXPECT_EQ(1234U, *responseBuffer.getOffset<uint64_t>(8));
+}
+
+TEST_F(IndexletManagerTest, removeEntry_unknownIndexlet) {
+    Status removeStatus = im.removeEntry(0, 0, "air", 3, 5678);
+    EXPECT_EQ(STATUS_UNKNOWN_INDEXLET, removeStatus);
+}
+
+TEST_F(IndexletManagerTest, removeEntry_keyNotFound) {
+    im.addIndexlet(0, 0, "a", 1, "k", 1);
+
+    Status removeStatus;
+
+    // Remove a key when indexlet doesn't have any data.
+    removeStatus = im.removeEntry(0, 0, "air", 3, 5678);
+    EXPECT_EQ(STATUS_OK, removeStatus);
+
+    // Remove key k1 when indexlet only contains k2.
+    im.insertEntry(0, 0, "earth", 5, 9876);
+    removeStatus = im.removeEntry(0, 0, "air", 3, 5678);
+    EXPECT_EQ(STATUS_OK, removeStatus);
+}
+
 TEST_F(IndexletManagerTest, isKeyInRange)
 {
     // Construct Object obj.

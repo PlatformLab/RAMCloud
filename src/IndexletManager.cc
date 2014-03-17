@@ -433,15 +433,29 @@ IndexletManager::removeEntry(uint64_t tableId, uint8_t indexId,
                              const void* key, KeyLength keyLength,
                              uint64_t pKHash)
 {
-    // TODO(ankitak): Implement. Currently a stub.
+    Lock guard(lock);
+    IndexletMap::iterator it =
+            lookupIndexlet(tableId, indexId, key, keyLength, guard);
+    if (it == indexletMap.end())
+        return STATUS_UNKNOWN_INDEXLET;
 
-    // look at btree tests for other variants of erase
-    // indexlet->bt.erase_one("temp");
-    // printf("confirming erase...btree size:%d\n\n", indexlet->bt.size());
+    Indexlet* indexlet = &it->second;
+    string keyStr(static_cast<const char*>(key), keyLength);
 
-    // TODO(ankitak): Do careful GC if multiple objs have the same pKHash.
+    auto iter = indexlet->bt.find(keyStr);
 
-    return Status(0);
+    if (iter == indexlet->bt.end())
+        return STATUS_OK;
+
+    while (keyStr.compare(iter.key()) == 0) {
+        if (iter.data() == pKHash) {
+            indexlet->bt.erase(iter);
+            break;
+        }
+        ++iter;
+    }
+
+    return STATUS_OK;
 }
 
 /**
