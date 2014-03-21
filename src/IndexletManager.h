@@ -41,6 +41,19 @@ namespace RAMCloud {
 class IndexletManager {
   PUBLIC:
 
+    /// Structure used as the key for key-value pairs in the indexlet tree.
+    struct KeyAndHash {
+        /// Actual bytes of the index key.
+        const void* key;
+        /// Length of index key.
+        uint16_t keyLength;
+        /// Primary key hash of the object the index key points to.
+        /// This is currently being stored as a part of the tree key to enable
+        /// sorting on the key hash if there are multiple index keys with the
+        /// same value of key and keyLength.
+        uint64_t pKHash;
+    };
+
     /// Structure used to define a range of keys [first key, last key]
     /// for a particular index id, that can be used to compare a given
     /// object to determine if its corresponding key falls in this range.
@@ -91,13 +104,17 @@ class IndexletManager {
             return *this;
         }
 
-        // String comparison function
-        struct stringCompare
+        struct KeyAndHashCompare
         {
-            public:
-            bool operator()(const std::string x, const std::string y) const
+          public:
+            bool operator()(const KeyAndHash x, const KeyAndHash y) const
             {
-                return x.compare(y) < 0;
+                int keyComparison = keyCompare(x.key, x.keyLength,
+                                               y.key, y.keyLength);
+                if (keyComparison == 0) {
+                    return (x.pKHash < y.pKHash);
+                }
+                return keyComparison < 0;
             }
         };
 
@@ -113,8 +130,9 @@ class IndexletManager {
         };
 
         // B+ tree holding key: string, value: primary key hash
-        typedef stx::btree_multimap<std::string, uint64_t,
-                stringCompare, traits_nodebug<std::string> > Btree;
+        // TODO(ashgup): Do we need to define traits?
+        typedef stx::btree_multimap<KeyAndHash, uint64_t,
+                KeyAndHashCompare> Btree;
 
         /// Blob for the smallest key that is in this indexlet. Keys is
         /// allocated during adding indexlet and freed while deleting.

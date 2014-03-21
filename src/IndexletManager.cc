@@ -67,6 +67,17 @@ IndexletManager::addIndexlet(
     //TODO(ashgup): allocate mem and copy keys from buffer
     indexletMap.emplace(std::make_pair(tableId, indexId), Indexlet(firstKey,
                     firstKeyLength, firstNotOwnedKey, firstNotOwnedKeyLength));
+
+    for (auto it = indexletMap.begin(); it != indexletMap.end(); it++) {
+        Indexlet* indexlet = &it->second;
+        string firstKeyStr = StringUtil::binaryToString(
+                indexlet->firstKey, indexlet->firstKeyLength);
+        firstKeyStr += "";
+        string firstNotOwnedKeyStr = StringUtil::binaryToString(
+                indexlet->firstNotOwnedKey, indexlet->firstNotOwnedKeyLength);
+        firstNotOwnedKeyStr += "";
+    }
+
     return true;
 }
 
@@ -99,33 +110,25 @@ IndexletManager::deleteIndexlet(
 {
     Lock guard(lock);
 
+    // TODO(ashgup): This function can be simplified by using getIndexlet.
+    // However, you'll still need to take the lock here and pass it on --
+    // this may call for another lower level version of getIndexlet that takes
+    // in a lock. The higher level getIndexlet() and this function can use that.
+
     IndexletMap::iterator it =
             lookupIndexlet(tableId, indexId, firstKey, firstKeyLength, guard);
-    if (it == indexletMap.end()){
+    if (it == indexletMap.end()) {
         return false;
     }
 
     Indexlet* indexlet = &it->second;
-    //TODO(ashgup): convert every string operation to char* and strcmp
-    string givenFirstKey = StringUtil::binaryToString(firstKey, firstKeyLength);
-    string indexletFirstKey = StringUtil::binaryToString(
-                                indexlet->firstKey, indexlet->firstKeyLength);
-    if (indexletFirstKey.compare(givenFirstKey) != 0){
-        return false;
-    }
 
-    if (firstNotOwnedKey != NULL){
-        string givenFirstNotOwnedKey = StringUtil::binaryToString(
-                                    firstNotOwnedKey, firstNotOwnedKeyLength);
-        string indexletFirstNotOwnedKey = StringUtil::binaryToString(
-                                    indexlet->firstNotOwnedKey,
-                                    indexlet->firstNotOwnedKeyLength);
-        if (indexletFirstNotOwnedKey.compare(givenFirstNotOwnedKey) != 0)
-            return false;
-    } else {
-        // found indexlet's firstNotOwnedKey should be NULL
-        if (indexlet->firstNotOwnedKey != NULL)
-            return false;
+    if (keyCompare(indexlet->firstKey, indexlet->firstKeyLength,
+                   firstKey, firstKeyLength) != 0  ||
+        keyCompare(indexlet->firstNotOwnedKey,
+                   indexlet->firstNotOwnedKeyLength,
+                   firstNotOwnedKey, firstNotOwnedKeyLength) != 0) {
+        return false;
     }
 
     indexletMap.erase(it);
@@ -164,31 +167,25 @@ IndexletManager::getIndexlet(
 {
     Lock guard(lock);
 
+    // TODO(ashgup): This function seems somewhat inefficient because
+    // lookupIndexlet() does comparisons on first and firstNotOwned keys
+    // and then we do it again here. Instead you can iterate over all the
+    // indexlets and do the comparison directly here instead of calling into
+    // lookupIndexlet().
+
     IndexletMap::iterator it =
         lookupIndexlet(tableId, indexId, firstKey, firstKeyLength, guard);
     if (it == indexletMap.end())
         return NULL;
 
     Indexlet* indexlet = &it->second;
-    string indexletFirstKey = StringUtil::binaryToString(
-                                indexlet->firstKey, indexlet->firstKeyLength);
-    string givenFirstKey = StringUtil::binaryToString(
-                                firstKey, firstKeyLength);
-    if (indexletFirstKey.compare(givenFirstKey) !=0 )
-        return NULL;
 
-    if (firstNotOwnedKey != NULL){
-        string givenFirstNotOwnedKey = StringUtil::binaryToString(
-                                    firstNotOwnedKey, firstNotOwnedKeyLength);
-        string indexletFirstNotOwnedKey = StringUtil::binaryToString(
-                                    indexlet->firstNotOwnedKey,
-                                    indexlet->firstNotOwnedKeyLength);
-        if (indexletFirstNotOwnedKey.compare(givenFirstNotOwnedKey) != 0)
-            return NULL;
-    } else {
-        // found indexlet's firstNotOwnedKey should be NULL
-        if (indexlet->firstNotOwnedKey != NULL)
-            return NULL;
+    if (keyCompare(indexlet->firstKey, indexlet->firstKeyLength,
+                   firstKey, firstKeyLength) != 0  ||
+        keyCompare(indexlet->firstNotOwnedKey,
+                   indexlet->firstNotOwnedKeyLength,
+                   firstNotOwnedKey, firstNotOwnedKeyLength) != 0) {
+        return NULL;
     }
 
     return indexlet;
@@ -211,8 +208,8 @@ IndexletManager::getIndexlet(
  *      Lock from parent function to protect the indexletMap
  *      from concurrent access.
  * \return
- *      A IndexletMap::iterator is returned. If no indexlet was found, it will be
- *      equal to indexletMap.end(). Otherwise, it will refer to the desired
+ *      A IndexletMap::iterator is returned. If no indexlet was found, it will
+ *      be equal to indexletMap.end(). Otherwise, it will refer to the desired
  *      indexlet.
  *
  *      An iterator, rather than a Indexlet pointer is returned to facilitate
@@ -224,20 +221,21 @@ IndexletManager::lookupIndexlet(uint64_t tableId, uint8_t indexId,
 {
     auto range = indexletMap.equal_range(std::make_pair(tableId, indexId));
     IndexletMap::iterator end = range.second;
-    string givenKey = StringUtil::binaryToString(key, keyLength);
+
     for (IndexletMap::iterator it = range.first; it != end; it++) {
 
         Indexlet* indexlet = &it->second;
-        string firstKey = StringUtil::binaryToString(
-                                indexlet->firstKey, indexlet->firstKeyLength);
-        if (givenKey.compare(firstKey) < 0)
+        if (keyCompare(key, keyLength,
+                       indexlet->firstKey, indexlet->firstKeyLength) < 0) {
             continue;
+        }
 
-        if (indexlet->firstNotOwnedKey != NULL){
-            string firstNotOwnedKey = StringUtil::binaryToString(
-                indexlet->firstNotOwnedKey, indexlet->firstNotOwnedKeyLength);
-            if (givenKey.compare(firstNotOwnedKey) >= 0)
+        if (indexlet->firstNotOwnedKey != NULL) {
+            if (keyCompare(key, keyLength,
+                           indexlet->firstNotOwnedKey,
+                           indexlet->firstNotOwnedKeyLength) >= 0) {
                 continue;
+            }
         }
         return it;
     }
@@ -248,7 +246,7 @@ IndexletManager::lookupIndexlet(uint64_t tableId, uint8_t indexId,
   * Obtain the total number of indexlets this object is managing.
   * 
   * \return
-  *     Total number of inxelets this object is managing.
+  *     Total number of indexlets this object is managing.
   */
 size_t
 IndexletManager::getCount()
@@ -285,8 +283,10 @@ IndexletManager::insertEntry(uint64_t tableId, uint8_t indexId,
     if (it == indexletMap.end())
         return STATUS_UNKNOWN_INDEXLET;
     Indexlet* indexlet = &it->second;
-    string keyStr(static_cast<const char*>(key), keyLength);
-    indexlet->bt.insert(keyStr, pKHash);
+
+    KeyAndHash keyAndHash = {key, keyLength, pKHash};
+    indexlet->bt.insert(keyAndHash, pKHash);
+
     return STATUS_OK;
 }
 
@@ -345,10 +345,6 @@ IndexletManager::lookupIndexKeys(uint64_t tableId, uint8_t indexId,
                                  Buffer* responseBuffer, uint32_t* numHashes,
                                  uint16_t* nextKeyLength, uint64_t* nextKeyHash)
 {
-    // TODO(ankitak): The tree is storing a string rather than const void*.
-    // Is that okay? If so, then we should probably change our operations
-    // to take strings as well, because right now we're converting back and
-    // forth many times.
     Lock guard(lock);
     IndexletMap::iterator mapIter =
             lookupIndexlet(tableId, indexId, firstKey, firstKeyLength, guard);
@@ -364,12 +360,10 @@ IndexletManager::lookupIndexKeys(uint64_t tableId, uint8_t indexId,
         return STATUS_OK;
     }
 
-    string firstKeyStr(static_cast<const char*>(firstKey), firstKeyLength);
-    string lastKeyStr(static_cast<const char*>(lastKey), lastKeyLength);
-
     // We want to use lower_bound() instead of find() because the firstKey
     // may not correspond to a key in the indexlet.
-    auto iter = indexlet->bt.lower_bound(firstKeyStr);
+    auto iter = indexlet->bt.lower_bound(
+                KeyAndHash {firstKey, firstKeyLength, firstAllowedKeyHash});
     auto iterEnd = indexlet->bt.end();
     bool rpcMaxedOut = false;
 
@@ -378,8 +372,10 @@ IndexletManager::lookupIndexKeys(uint64_t tableId, uint8_t indexId,
     // This can result this loop looping forever if:
     // end of the tree is <= lastKey given by client.
     // So the second condition ensures that we break if iterator is at the end.
-    while (!rpcMaxedOut && lastKeyStr.compare(iter.key()) >= 0
-                        && iter != iterEnd) {
+    while (!rpcMaxedOut &&
+           keyCompare(lastKey, lastKeyLength,
+                      iter.key().key, iter.key().keyLength) >= 0 &&
+           iter != iterEnd) {
 
         if (*numHashes < maxNumHashes) {
             new(responseBuffer, APPEND) uint64_t(iter.data());
@@ -392,11 +388,11 @@ IndexletManager::lookupIndexKeys(uint64_t tableId, uint8_t indexId,
 
     if (rpcMaxedOut) {
 
-        *nextKeyLength = uint16_t(iter.key().length());
+        *nextKeyLength = uint16_t(iter.key().keyLength);
         *nextKeyHash = iter.data();
         // TODO(ankitak): Is this ok or do i need to allocate space in buffer?
-        responseBuffer->append(iter.key().c_str(),
-                               uint32_t(iter.key().length()));
+        responseBuffer->append(iter.key().key,
+                               uint32_t(iter.key().keyLength));
 
     } else if (keyCompare(lastKey, lastKeyLength, indexlet->firstNotOwnedKey,
                           indexlet->firstNotOwnedKeyLength) > 0) {
@@ -440,20 +436,16 @@ IndexletManager::removeEntry(uint64_t tableId, uint8_t indexId,
         return STATUS_UNKNOWN_INDEXLET;
 
     Indexlet* indexlet = &it->second;
-    string keyStr(static_cast<const char*>(key), keyLength);
 
-    auto iter = indexlet->bt.find(keyStr);
+    auto iter = indexlet->bt.find(KeyAndHash {key, keyLength, pKHash});
 
     if (iter == indexlet->bt.end())
         return STATUS_OK;
 
-    while (keyStr.compare(iter.key()) == 0) {
-        if (iter.data() == pKHash) {
-            indexlet->bt.erase(iter);
-            break;
-        }
-        ++iter;
-    }
+    // Note that we don't have to explicitly compare the key hash in value
+    // since it is also a part of the key that gets compared while doing
+    // bt.find().
+    indexlet->bt.erase(iter);
 
     return STATUS_OK;
 }
@@ -479,15 +471,10 @@ IndexletManager::isKeyInRange(Object* object, KeyRange* keyRange)
     uint16_t keyLength;
     const void* key = object->getKey(keyRange->indexId, &keyLength);
 
-    int firstKeyCmp = bcmp(keyRange->firstKey, key,
-                           std::min(keyRange->firstKeyLength, keyLength));
-    int lastKeyCmp = bcmp(keyRange->lastKey, key,
-                          std::min(keyRange->lastKeyLength, keyLength));
-
-    if ((firstKeyCmp < 0 ||
-            (firstKeyCmp == 0 && keyRange->firstKeyLength <= keyLength)) &&
-         (lastKeyCmp > 0 ||
-            (lastKeyCmp == 0 && keyRange->lastKeyLength >= keyLength))) {
+    if (keyCompare(keyRange->firstKey, keyRange->firstKeyLength,
+                   key, keyLength) <= 0 &&
+        keyCompare(keyRange->lastKey, keyRange->lastKeyLength,
+                   key, keyLength) >= 0) {
         return true;
     } else {
         return false;

@@ -78,6 +78,7 @@ TEST_F(IndexletManagerTest, getIndexlet) {
     string key4 = "k";
     string key5 = "u";
 
+    //TODO(ashgup): add comments on each individual test
     EXPECT_FALSE(im.getIndexlet(0, 0, key2.c_str(),
         (uint16_t)key2.length(), key4.c_str(), (uint16_t)key4.length()));
 
@@ -156,6 +157,9 @@ TEST_F(IndexletManagerTest, deleteIndexlet) {
     EXPECT_FALSE(im.deleteIndexlet(0, 0, key1.c_str(),
         (uint16_t)key1.length(), key4.c_str(), (uint16_t)key4.length()));
 }
+
+// TODO(ashgup): Add unit tests for functions that currently don't have them:
+// getCount, lookupIndexlet.
 
 TEST_F(IndexletManagerTest, insertIndexEntry) {
     im.addIndexlet(0, 0, "a", 1, "k", 1);
@@ -314,25 +318,58 @@ TEST_F(IndexletManagerTest, lookupIndexKeys_multiple) {
 TEST_F(IndexletManagerTest, lookupIndexKeys_duplicate) {
     im.addIndexlet(0, 0, "a", 1, "k", 1);
 
-    Status insertStatus1 = im.insertEntry(0, 0, "air", 3, 1234);
-    EXPECT_EQ(STATUS_OK, insertStatus1);
-    Status insertStatus2 = im.insertEntry(0, 0, "air", 3, 5678);
-    EXPECT_EQ(STATUS_OK, insertStatus2);
+    im.insertEntry(0, 0, "air", 3, 1234);
+    im.insertEntry(0, 0, "air", 3, 5678);
 
-    // Check that data written is correct.
     Buffer responseBuffer;
     uint32_t numHashes;
     uint16_t nextKeyLength;
     uint64_t nextKeyHash;
 
-    Status lookupStatus = im.lookupIndexKeys(0, 0, "air", 3, 0, "fire", 4, 100,
+    Status lookupStatus = im.lookupIndexKeys(0, 0, "air", 3, 0, "air", 3, 100,
                                              &responseBuffer, &numHashes,
                                              &nextKeyLength, &nextKeyHash);
     EXPECT_EQ(STATUS_OK, lookupStatus);
     EXPECT_EQ(2U, numHashes);
-    // This should get flipped once tree implementation does the sort.
+    EXPECT_EQ(1234U, *responseBuffer.getOffset<uint64_t>(0));
+    EXPECT_EQ(5678U, *responseBuffer.getOffset<uint64_t>(8));
+}
+
+TEST_F(IndexletManagerTest, lookupIndexKeys_firstAllowedKeyHash) {
+    im.addIndexlet(0, 0, "a", 1, "k", 1);
+
+    im.insertEntry(0, 0, "air", 3, 1234);
+    im.insertEntry(0, 0, "air", 3, 5678);
+    im.insertEntry(0, 0, "air", 3, 9012);
+
+    Buffer responseBuffer;
+    uint32_t numHashes;
+    uint16_t nextKeyLength;
+    uint64_t nextKeyHash;
+    Status lookupStatus;
+
+    // firstAllowedKeyHash is between the key hashes.
+    lookupStatus = im.lookupIndexKeys(0, 0, "air", 3,
+                                      2000 /*firstAllowedKeyHash*/,
+                                      "air", 3, 100,
+                                      &responseBuffer, &numHashes,
+                                      &nextKeyLength, &nextKeyHash);
+    EXPECT_EQ(STATUS_OK, lookupStatus);
+    EXPECT_EQ(2U, numHashes);
     EXPECT_EQ(5678U, *responseBuffer.getOffset<uint64_t>(0));
-    EXPECT_EQ(1234U, *responseBuffer.getOffset<uint64_t>(8));
+    EXPECT_EQ(9012U, *responseBuffer.getOffset<uint64_t>(8));
+
+    // firstAllowedKeyHash is equal to one of the key hashes.
+    responseBuffer.reset();
+    lookupStatus = im.lookupIndexKeys(0, 0, "air", 3,
+                                      5678 /*firstAllowedKeyHash*/,
+                                      "air", 3, 100,
+                                      &responseBuffer, &numHashes,
+                                      &nextKeyLength, &nextKeyHash);
+    EXPECT_EQ(STATUS_OK, lookupStatus);
+    EXPECT_EQ(2U, numHashes);
+    EXPECT_EQ(5678U, *responseBuffer.getOffset<uint64_t>(0));
+    EXPECT_EQ(9012U, *responseBuffer.getOffset<uint64_t>(8));
 }
 
 TEST_F(IndexletManagerTest, lookupIndexKeys_largerRange) {
@@ -453,9 +490,8 @@ TEST_F(IndexletManagerTest, removeEntry_duplicate) {
                                              &nextKeyLength, &nextKeyHash);
     EXPECT_EQ(STATUS_OK, lookupStatus);
     EXPECT_EQ(2U, numHashes);
-    // This should get flipped once tree implementation does the sort.
-    EXPECT_EQ(9012U, *responseBuffer.getOffset<uint64_t>(0));
-    EXPECT_EQ(1234U, *responseBuffer.getOffset<uint64_t>(8));
+    EXPECT_EQ(1234U, *responseBuffer.getOffset<uint64_t>(0));
+    EXPECT_EQ(9012U, *responseBuffer.getOffset<uint64_t>(8));
 }
 
 TEST_F(IndexletManagerTest, removeEntry_unknownIndexlet) {
@@ -501,55 +537,33 @@ TEST_F(IndexletManagerTest, isKeyInRange)
 
     Object obj(tableId, 1, 0, keysAndValueBuffer);
 
-    // Compare key for key index 1 of obj (called: "key") for different cases.
+    // Note: If isKeyInRange() didn't use keyCompare() then we'd have to
+    // test many more cases here.
 
-    // Case0: firstKeyLength = keyLength = lastKeyLength and
-    // firstKey > key < lastKey
+    // Case0: firstKey > key < lastKey
     IndexletManager::KeyRange testRange0 = {1, "objkey2", 8, "objkey2", 8};
     bool isInRange0 = IndexletManager::isKeyInRange(&obj, &testRange0);
     EXPECT_FALSE(isInRange0);
 
-    // Case1: firstKeyLength = keyLength = lastKeyLength and
-    // firstKey < key > lastKey
+    // Case1: firstKey < key > lastKey
     IndexletManager::KeyRange testRange1 = {1, "objkey0", 8, "objkey0", 8};
     bool isInRange1 = IndexletManager::isKeyInRange(&obj, &testRange1);
     EXPECT_FALSE(isInRange1);
 
-    // Case2: firstKeyLength = keyLength = lastKeyLength and
-    // firstKey > key > lastKey
+    // Case2: firstKey > key > lastKey
     IndexletManager::KeyRange testRange2 = {1, "objkey2", 8, "objkey0", 8};
     bool isInRange2 = IndexletManager::isKeyInRange(&obj, &testRange2);
     EXPECT_FALSE(isInRange2);
 
-    // Case3: firstKeyLength = keyLength = lastKeyLength and
-    // firstKey < key < lastKey
+    // Case3: firstKey < key < lastKey
     IndexletManager::KeyRange testRange3 = {1, "objkey0", 8, "objkey2", 8};
     bool isInRange3 = IndexletManager::isKeyInRange(&obj, &testRange3);
     EXPECT_TRUE(isInRange3);
 
-    // Case4: firstKeyLength = keyLength = lastKeyLength and
-    // firstKey = key = lastKey
+    // Case4: firstKey = key = lastKey
     IndexletManager::KeyRange testRange4 = {1, "objkey1", 8, "objkey1", 8};
     bool isInRange4 = IndexletManager::isKeyInRange(&obj, &testRange4);
     EXPECT_TRUE(isInRange4);
-
-    // Case5: firstKeyLength < keyLength < lastKeyLength and
-    // firstKey = key substring and key = lastKey substring
-    IndexletManager::KeyRange testRange5 = {1, "obj", 4, "objkey11", 9};
-    bool isInRange5 = IndexletManager::isKeyInRange(&obj, &testRange5);
-    EXPECT_TRUE(isInRange5);
-
-    // Case6: firstKeyLength > keyLength < lastKeyLength and
-    // firstKey substring = key = lastKey substring
-    IndexletManager::KeyRange testRange6 = {1, "objkey11", 9, "objkey11", 9};
-    bool isInRange6 = IndexletManager::isKeyInRange(&obj, &testRange6);
-    EXPECT_FALSE(isInRange6);
-
-    // Case7: firstKeyLength < keyLength > lastKeyLength and
-    // firstKey = key substring = lastKey
-    IndexletManager::KeyRange testRange7 = {1, "obj", 4, "obj", 4};
-    bool isInRange7 = IndexletManager::isKeyInRange(&obj, &testRange7);
-    EXPECT_FALSE(isInRange7);
 }
 
 TEST_F(IndexletManagerTest, keyCompare)
@@ -561,6 +575,8 @@ TEST_F(IndexletManagerTest, keyCompare)
     EXPECT_LT(0, IndexletManager::keyCompare("abcd", 4, "abc", 3));
     EXPECT_GT(0, IndexletManager::keyCompare("abbc", 4, "abc", 3));
     EXPECT_LT(0, IndexletManager::keyCompare("ac", 2, "abc", 3));
+    EXPECT_GT(0, IndexletManager::keyCompare("", 0, "abc", 3));
+    EXPECT_LT(0, IndexletManager::keyCompare("abc", 3, "", 0));
 }
 
 }  // namespace RAMCloud
