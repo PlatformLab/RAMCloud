@@ -103,7 +103,8 @@ class ObjectManager : public LogEntryHandlers {
                        uint64_t* outVersion);
     Status removeObject(Key& key,
                         RejectRules* rejectRules,
-                        uint64_t* outVersion);
+                        uint64_t* outVersion,
+                        Buffer* removedObjKeys = NULL);
     void syncChanges();
     void prefetchHashTableBucket(SegmentIterator* it);
     void replaySegment(SideLog* sideLog, SegmentIterator& it);

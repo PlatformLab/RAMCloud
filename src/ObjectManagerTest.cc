@@ -509,6 +509,46 @@ TEST_F(ObjectManagerTest, removeOrphanedObjects) {
         TestLog::get());
 }
 
+TEST_F(ObjectManagerTest, removeObject_returnRemovedObjKeys) {
+    Key key(1, "a", 1);
+    storeObject(key, "hi", 93);
+    EXPECT_EQ("found=true tableId=1 byteCount=30 recordCount=1"
+              , verifyMetadata(1));
+
+    tabletManager.addTablet(1, 0, ~0UL, TabletManager::NORMAL);
+
+    TestLog::Enable _(antiGetEntryFilter);
+    HashTable::Candidates c;
+    objectManager.objectMap.lookup(key.getHash(), c);
+    uint64_t ref = c.getReference();
+    uint64_t version;
+    Buffer removedObjKeys;
+    EXPECT_EQ(STATUS_OK, objectManager.removeObject(key, 0, &version,
+                                                    &removedObjKeys));
+
+    EXPECT_EQ("found=true tableId=1 byteCount=63 recordCount=2"
+              , verifyMetadata(1));
+    EXPECT_EQ(93UL, version);
+
+    Object reconstructObj(1, 0, 0, removedObjKeys);
+    EXPECT_EQ(1U, reconstructObj.getKeyCount());
+    KeyLength reconstructKeyLength;
+    const void* reconstructKey =
+                reconstructObj.getKey(0, &reconstructKeyLength);
+    EXPECT_EQ("a", string(reinterpret_cast<const char*>(reconstructKey),
+                          reconstructKeyLength));
+
+    EXPECT_EQ(format("free: free on reference %lu", ref), TestLog::get());
+
+    Buffer buffer;
+    EXPECT_EQ(STATUS_OBJECT_DOESNT_EXIST,
+        objectManager.readObject(key, &buffer, 0, 0));
+    EXPECT_EQ(94UL, objectManager.segmentManager.safeVersion);
+    LogEntryType type;
+    ObjectManager::HashTableBucketLock lock(objectManager, key);
+    EXPECT_FALSE(objectManager.lookup(lock, key, type, buffer, 0, 0));
+}
+
 TEST_F(ObjectManagerTest, replaySegment) {
     uint32_t segLen = 8192;
     char seg[segLen];

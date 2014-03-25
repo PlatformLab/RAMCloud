@@ -476,11 +476,15 @@ ObjectManager::readObject(Key& key,
  * \param rejectRules
  *      If non-NULL, use the specified rules to perform a conditional remove.
  *      See the RejectRules class documentation for more details.
- * \param outVersion
+ * 
+ * \param[out] outVersion
  *      If non-NULL, the version of the current object version is returned here.
  *      Unless rejectRules prevented the operation, this object will have been
  *      deleted. If the rejectRules did prevent removal, the current object's
  *      version is still returned.
+ * \param[out] removedObjKeys
+ *      If non-NULL, the buffer containing the keys of the object removed
+ *      is returned.
  * \return
  *      Returns STATUS_OK if the remove succeeded. Other status values indicate
  *      different failures (tablet doesn't exist, reject rules applied, etc).
@@ -488,7 +492,8 @@ ObjectManager::readObject(Key& key,
 Status
 ObjectManager::removeObject(Key& key,
                             RejectRules* rejectRules,
-                            uint64_t* outVersion)
+                            uint64_t* outVersion,
+                            Buffer* removedObjKeys)
 {
     HashTableBucketLock lock(*this, key);
 
@@ -519,6 +524,11 @@ ObjectManager::removeObject(Key& key,
         Status status = rejectOperation(rejectRules, object.getVersion());
         if (status != STATUS_OK)
             return status;
+    }
+
+    // Return the keys of the object being removed.
+    if (removedObjKeys != NULL) {
+        object.appendKeysToBuffer(*removedObjKeys);
     }
 
     ObjectTombstone tombstone(object,

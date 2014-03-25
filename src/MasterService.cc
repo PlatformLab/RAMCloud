@@ -1329,10 +1329,10 @@ MasterService::read(const WireFormat::Read::Request* reqHdr,
  *      append additional information to the response buffer.
  */
 void
-MasterService::readKeysAndValue(const WireFormat::ReadKeysAndValue::Request*
-                    reqHdr,
-                    WireFormat::ReadKeysAndValue::Response* respHdr,
-                    Rpc* rpc)
+MasterService::readKeysAndValue(
+                const WireFormat::ReadKeysAndValue::Request* reqHdr,
+                WireFormat::ReadKeysAndValue::Response* respHdr,
+                Rpc* rpc)
 {
     uint32_t reqOffset = sizeof32(*reqHdr);
     const void* stringKey = rpc->requestPayload->getRange(reqOffset,
