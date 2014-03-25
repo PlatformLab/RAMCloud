@@ -574,7 +574,7 @@ TEST_F(TableManagerTest, recover_incompleteReassignTablet) {
             TestLog::get());
 }
 
-TEST_F(TableManagerTest, serializeTableConfig) {
+TEST_F(TableManagerTest, serializeTabletConfig) {
     cluster.addServer(masterConfig)->master.get();
     cluster.addServer(masterConfig)->master.get();
     tableManager->createTable("table1", 1);
@@ -584,8 +584,8 @@ TEST_F(TableManagerTest, serializeTableConfig) {
     // Arrange for one of the tablet servers not to exist.
     tableManager->directory["table2"]->tablets[0]->serverId = ServerId(4);
 
-    ProtoBuf::Tablets tablets;
-    tableManager->serializeTableConfig(&tablets, 2);
+    ProtoBuf::TableConfig tableConfig;
+    tableManager->serializeTableConfig(&tableConfig, 2);
     EXPECT_EQ("tablet { table_id: 2 start_key_hash: 0 "
             "end_key_hash: 4611686018427387903 state: NORMAL "
             "server_id: 4 ctime_log_head_id: 0 ctime_log_head_offset: 0 } "
@@ -601,10 +601,35 @@ TEST_F(TableManagerTest, serializeTableConfig) {
             "end_key_hash: 18446744073709551615 state: NORMAL "
             "server_id: 1 service_locator: \"mock:host=server0\" "
             "ctime_log_head_id: 0 ctime_log_head_offset: 0 }",
-            tablets.ShortDebugString());
+            tableConfig.ShortDebugString());
     EXPECT_EQ("serializeTableConfig: Server id (4.0) in tablet map no longer "
             "in server list; omitting locator for entry",
             TestLog::get());
+}
+
+TEST_F(TableManagerTest, serializeIndexConfig) {
+    cluster.addServer(masterConfig)->master.get();
+    cluster.addServer(masterConfig)->master.get();
+
+    EXPECT_EQ(1U, tableManager->createTable("foo", 1));
+    EXPECT_EQ(2U, tableManager->createTable("bar", 1));
+    EXPECT_TRUE(tableManager->createIndex(2, 1, 0));
+
+    ProtoBuf::TableConfig tableConfig;
+    tableManager->serializeTableConfig(&tableConfig, 2);
+    foreach (const ProtoBuf::TableConfig::Index& index, tableConfig.index()) {
+        EXPECT_EQ(1U, index.index_id());
+        EXPECT_EQ(0U, index.index_type());
+        foreach (const ProtoBuf::TableConfig::Index::Indexlet& indexlet,
+                                                        index.indexlet()) {
+            EXPECT_EQ(0U, (uint8_t)*indexlet.start_key().c_str());
+            EXPECT_EQ(1U, indexlet.start_key().length());
+            EXPECT_EQ(127U, (uint8_t)*indexlet.end_key().c_str());
+            EXPECT_EQ(1U, indexlet.end_key().length());
+            EXPECT_EQ(1U, indexlet.server_id());
+            EXPECT_EQ("mock:host=server0", indexlet.service_locator());
+        }
+    }
 }
 
 TEST_F(TableManagerTest, splitTablet_basics) {

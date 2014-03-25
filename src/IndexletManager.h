@@ -79,29 +79,67 @@ class IndexletManager {
       PUBLIC:
         Indexlet(const void *firstKey, uint16_t firstKeyLength,
                  const void *firstNotOwnedKey, uint16_t firstNotOwnedKeyLength)
-            : firstKey(firstKey)
+            : firstKey(NULL)
             , firstKeyLength(firstKeyLength)
-            , firstNotOwnedKey(firstNotOwnedKey)
+            , firstNotOwnedKey(NULL)
             , firstNotOwnedKeyLength(firstNotOwnedKeyLength)
             , bt()
-        {}
+        {
+            if (firstKeyLength != 0){
+                this->firstKey = malloc(firstKeyLength);
+                memcpy(this->firstKey, firstKey, firstKeyLength);
+            }
+            if (firstNotOwnedKeyLength != 0){
+                this->firstNotOwnedKey = malloc(firstNotOwnedKeyLength);
+                memcpy(this->firstNotOwnedKey, firstNotOwnedKey,
+                                                        firstNotOwnedKeyLength);
+            }
+        }
 
         Indexlet(const Indexlet& indexlet)
-            : firstKey(indexlet.firstKey)
+            : firstKey(NULL)
             , firstKeyLength(indexlet.firstKeyLength)
-            , firstNotOwnedKey(indexlet.firstNotOwnedKey)
+            , firstNotOwnedKey(NULL)
             , firstNotOwnedKeyLength(indexlet.firstNotOwnedKeyLength)
             , bt(indexlet.bt)
-        {}
+        {
+            if (firstKeyLength != 0){
+                this->firstKey = malloc(firstKeyLength);
+                memcpy(this->firstKey, indexlet.firstKey, firstKeyLength);
+            }
+            if (firstNotOwnedKeyLength != 0){
+                this->firstNotOwnedKey = malloc(firstNotOwnedKeyLength);
+                memcpy(this->firstNotOwnedKey, indexlet.firstNotOwnedKey,
+                                                        firstNotOwnedKeyLength);
+            }
+        }
 
         Indexlet& operator =(const Indexlet& indexlet)
         {
-            this->firstKey = indexlet.firstKey;
+            this->firstKey = NULL;
             this->firstKeyLength = indexlet.firstKeyLength;
-            this->firstNotOwnedKey = indexlet.firstNotOwnedKey;
+            this->firstNotOwnedKey = NULL;
             this->firstNotOwnedKeyLength = indexlet.firstNotOwnedKeyLength;
             this->bt = indexlet.bt;
+
+            if (firstKeyLength != 0){
+                this->firstKey = malloc(firstKeyLength);
+                memcpy(this->firstKey, indexlet.firstKey, firstKeyLength);
+            }
+            if (firstNotOwnedKeyLength != 0){
+                this->firstNotOwnedKey = malloc(firstNotOwnedKeyLength);
+                memcpy(this->firstNotOwnedKey, indexlet.firstNotOwnedKey,
+                                                        firstNotOwnedKeyLength);
+            }
             return *this;
+        }
+
+        ~Indexlet()
+        {
+            if (firstKeyLength != 0)
+                free(firstKey);
+            if (firstNotOwnedKeyLength != 0)
+                free(firstNotOwnedKey);
         }
 
         struct KeyAndHashCompare
@@ -136,14 +174,14 @@ class IndexletManager {
 
         /// Blob for the smallest key that is in this indexlet. Keys is
         /// allocated during adding indexlet and freed while deleting.
-        const void *firstKey;
+        void *firstKey;
 
         /// Length of the firstKey.
         uint16_t firstKeyLength;
 
         /// Blob for the first key in the key space for the owning index, which
         /// is not present in this indexlet. Storage same as firstKey.
-        const void *firstNotOwnedKey;
+        void *firstNotOwnedKey;
 
         /// Length of the firstNotOwnedKey.
         uint16_t firstNotOwnedKeyLength;

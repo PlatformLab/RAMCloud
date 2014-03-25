@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2013 Stanford University
+/* Copyright (c) 2010-2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -17,8 +17,10 @@
 #include "ObjectFinder.h"
 #include "ShortMacros.h"
 #include "Key.h"
+#include "FailSession.h"
 
 namespace RAMCloud {
+
 /**
  * The implementation of ObjectFinder::TableConfigFetcher that is used for
  * normal execution. Simply invokes CoordinatorClient::getTableConfig
@@ -29,15 +31,18 @@ class RealTableConfigFetcher : public ObjectFinder::TableConfigFetcher {
         : context(context)
     {
     }
+
     void getTableConfig(
           uint64_t tableId,
-          std::map<TabletKey, TabletProtoBuffer>* tableMap) {
+          std::map<TabletKey, TabletWithLocator>* tableMap,
+          std::multimap< std::pair<uint64_t, uint8_t>,
+                                    Indexlet>* tableIndexMap) {
 
-        tableMap->clear();
-        ProtoBuf::Tablets tableConfig;
+        tableMap->clear(); //TODO(ashgup): Replace with flush tableid
+        ProtoBuf::TableConfig tableConfig;
         CoordinatorClient::getTableConfig(context, tableId, &tableConfig);
 
-        foreach (const ProtoBuf::Tablets::Tablet& tablet,
+        foreach (const ProtoBuf::TableConfig::Tablet& tablet,
                  tableConfig.tablet()) {
 
             uint64_t tableId = tablet.table_id();
@@ -45,24 +50,67 @@ class RealTableConfigFetcher : public ObjectFinder::TableConfigFetcher {
             uint64_t endKeyHash = tablet.end_key_hash();
             ServerId serverId(tablet.server_id());
             Tablet::Status state = Tablet::Status::RECOVERING;
-            if (tablet.state() == ProtoBuf::Tablets_Tablet_State_NORMAL) {
+            if (tablet.state() == ProtoBuf::TableConfig_Tablet_State_NORMAL) {
                 state = Tablet::NORMAL;
             }
             Log::Position ctime(tablet.ctime_log_head_id(),
                                             tablet.ctime_log_head_offset());
+
             Tablet rawTablet(tableId, startKeyHash, endKeyHash,
                                             serverId, state, ctime);
             string serviceLocator = tablet.service_locator();
 
             TabletKey key{tablet.table_id(),
                           tablet.start_key_hash()};
-            TabletProtoBuffer tabletProtoBuffer(rawTablet, serviceLocator);
+            TabletWithLocator tabletWithLocator(rawTablet, serviceLocator);
 
-            std::map<TabletKey, TabletProtoBuffer>::iterator it
+            std::map<TabletKey, TabletWithLocator>::iterator it
                                                         = tableMap->find(key);
-            tableMap->insert(std::make_pair(key, tabletProtoBuffer));
+            tableMap->insert(std::make_pair(key, tabletWithLocator));
         }
+
+        foreach (const ProtoBuf::TableConfig::Index& index,
+                                                    tableConfig.index()) {
+
+            uint64_t indexId = index.index_id();
+            foreach (const ProtoBuf::TableConfig::Index::Indexlet& indexlet,
+                                                            index.indexlet()) {
+                void* firstKey;
+                uint16_t firstKeyLength;
+                void* firstNotOwnedKey;
+                uint16_t firstNotOwnedKeyLength;
+
+                //TODO(ashgup): while converting string, null delimiter handled
+                if (indexlet.start_key().compare("") == 0) {
+                    firstKey = const_cast<char *>(indexlet.start_key().c_str());
+                    firstKeyLength = (uint16_t)indexlet.start_key().length();
+                } else {
+                    firstKey = NULL;
+                    firstKeyLength = 0;
+                }
+
+                if (indexlet.end_key().compare("") == 0) {
+                    firstNotOwnedKey = const_cast<char *>
+                                                (indexlet.end_key().c_str());
+                    firstNotOwnedKeyLength =
+                                    (uint16_t)indexlet.end_key().length();
+                } else {
+                    firstNotOwnedKey = NULL;
+                    firstNotOwnedKeyLength = 0;
+                }
+
+                ServerId serverId(indexlet.server_id());
+                string serviceLocator = indexlet.service_locator();
+                Indexlet indexlet(firstKey, firstKeyLength, firstNotOwnedKey,
+                            firstNotOwnedKeyLength, serverId, serviceLocator);
+
+                tableIndexMap->insert(std::make_pair(
+                        std::make_pair(tableId, indexId), indexlet));
+            }
+        }
+
     }
+
   private:
     Context* context;
     DISALLOW_COPY_AND_ASSIGN(RealTableConfigFetcher);
@@ -76,6 +124,7 @@ class RealTableConfigFetcher : public ObjectFinder::TableConfigFetcher {
 ObjectFinder::ObjectFinder(Context* context)
     : context(context)
     , tableMap()
+    , tableIndexMap()
     , tableConfigFetcher(new RealTableConfigFetcher(context))
 {
 }
@@ -86,9 +135,6 @@ ObjectFinder::ObjectFinder(Context* context)
  * \param tableId
  *      the id of the table to be flushed.
  */
-// TODO(ashgup): This should also flush the index related info for this table.
-// If you'd rather create a different function to do so, that's okay too,
-// just update the code in IndexRpcWrapper::handleTransportError() accordingly.
 void
 ObjectFinder::flush(uint64_t tableId) {
     RAMCLOUD_TEST_LOG("flushing object map");
@@ -97,6 +143,12 @@ ObjectFinder::flush(uint64_t tableId) {
     TabletIter lower = tableMap.lower_bound(start);
     TabletIter upper = tableMap.upper_bound(end);
     tableMap.erase(lower, upper);
+
+    IndexletIter indexLower = tableIndexMap.lower_bound
+                                    (std::make_pair(tableId, 0));
+    IndexletIter indexUpper = tableIndexMap.upper_bound(
+                std::make_pair(tableId, std::numeric_limits<uint8_t>::max()));
+    tableIndexMap.erase(indexLower, indexUpper);
 }
 
 /**
@@ -108,7 +160,7 @@ ObjectFinder::flush(uint64_t tableId) {
  */
 string
 ObjectFinder::debugString() const {
-    std::map<TabletKey, TabletProtoBuffer>::const_iterator it;
+    std::map<TabletKey, TabletWithLocator>::const_iterator it;
     std::stringstream result;
     for (it = tableMap.begin(); it != tableMap.end(); it++) {
            if (it != tableMap.begin()) {
@@ -186,10 +238,10 @@ void
 ObjectFinder::flushSession(uint64_t tableId, KeyHash keyHash)
 {
     try {
-        const TabletProtoBuffer* tabletProtoBuff = lookupTablet(tableId,
+        const TabletWithLocator* tabletWithLocator = lookupTablet(tableId,
                                                                 keyHash);
         context->transportManager->flushSession(
-                                    tabletProtoBuff->serviceLocator.c_str());
+                                    tabletWithLocator->serviceLocator.c_str());
     } catch (TableDoesntExistException& e) {
         // We don't even store this tablet anymore, so there's nothing
         // to worry about.
@@ -213,7 +265,7 @@ ObjectFinder::flushSession(uint64_t tableId, KeyHash keyHash)
  * \throw TableDoesntExistException
  *      The coordinator has no record of the table.
  */
-const TabletProtoBuffer*
+const TabletWithLocator*
 ObjectFinder::lookupTablet(uint64_t tableId, KeyHash keyHash)
 {
     bool haveRefreshed = false;
@@ -222,24 +274,37 @@ ObjectFinder::lookupTablet(uint64_t tableId, KeyHash keyHash)
     while (true) {
         iter = tableMap.upper_bound(key);
         if (!tableMap.empty() && iter != tableMap.begin()) {
-            const TabletProtoBuffer* tabletProtoBuffer = &((--iter)->second);
-            if (tabletProtoBuffer->tablet.tableId == tableId &&
-              tabletProtoBuffer->tablet.startKeyHash <= keyHash &&
-              keyHash <= tabletProtoBuffer->tablet.endKeyHash) {
+            const TabletWithLocator* tabletWithLocator = &((--iter)->second);
+            if (tabletWithLocator->tablet.tableId == tableId &&
+              tabletWithLocator->tablet.startKeyHash <= keyHash &&
+              keyHash <= tabletWithLocator->tablet.endKeyHash) {
 
-                if (tabletProtoBuffer->tablet.status != Tablet::NORMAL) {
+                if (tabletWithLocator->tablet.status != Tablet::NORMAL) {
                     if (haveRefreshed) usleep(10000);
                     haveRefreshed = false;
                 } else {
-                    return tabletProtoBuffer;
+                    return tabletWithLocator;
                 }
             }
         }
         if (haveRefreshed) {
           throw TableDoesntExistException(HERE);
         }
-        tableConfigFetcher->getTableConfig(tableId, &tableMap);
+        tableConfigFetcher->getTableConfig(tableId, &tableMap, &tableIndexMap);
         haveRefreshed = true;
+    }
+}
+
+int
+ObjectFinder::keyCompare(const void* key1, uint16_t keyLength1,
+                            const void* key2, uint16_t keyLength2)
+{
+    int keyCmp = bcmp(key1, key2, std::min(keyLength1, keyLength2));
+
+    if (keyCmp != 0) {
+        return keyCmp;
+    } else {
+        return keyLength1 - keyLength2;
     }
 }
 
@@ -263,17 +328,44 @@ Transport::SessionRef
 ObjectFinder::lookup(uint64_t tableId, uint8_t indexId,
                      const void* key, uint16_t keyLength)
 {
-    // TODO(ashgup): Implement. Currently a stub.
-    /* Notes for ashgup by ankitak:
-     * 1. While implementing, use vector's reserve function to reduce space
-     * allocation overheads.
-     * 2. Say lookup doesn’t find any matching indexlet (and hence session).
-     * Flush the cache (as in normal tablet lookup). If still not found,
-     * then indelet doesn't exist. Now, don't throw exception.
-     * Instead, return NULL session to the caller.
-     */
-    Transport::SessionRef session;
-    return session;
+    std::pair<uint64_t, uint8_t> indexKey = std::make_pair(tableId, indexId);
+    IndexletIter iter;
+
+    for (int count = 0; count < 2; count++) {
+
+        std::pair < std::multimap< std::pair<uint64_t, uint8_t>,
+                                                    Indexlet>::iterator,
+                    std::multimap< std::pair<uint64_t, uint8_t>,
+                                                    Indexlet>::iterator> range;
+        range = tableIndexMap.equal_range(indexKey);
+        for (iter = range.first; iter != range.second; iter++){
+
+            Indexlet* indexlet = &iter->second;
+            if (indexlet->firstKey != NULL) {
+                if (keyCompare(key, keyLength,
+                           indexlet->firstKey, indexlet->firstKeyLength) < 0) {
+                    continue;
+                }
+            }
+
+            if (indexlet->firstNotOwnedKey != NULL) {
+                if (keyCompare(key, keyLength,
+                               indexlet->firstNotOwnedKey,
+                               indexlet->firstNotOwnedKeyLength) >= 0) {
+                    continue;
+                }
+            }
+
+            return context->transportManager->getSession(
+                                        indexlet->serviceLocator.c_str());
+        }
+
+        if (count == 0)
+            tableConfigFetcher->getTableConfig(tableId, &tableMap,
+                                                            &tableIndexMap);
+    }
+    // TODO(ankitak): verify if we want a null session or fail session
+    return FailSession::get();
 }
 
 // This will go away within the next few commits.
@@ -318,14 +410,14 @@ ObjectFinder::waitForTabletDown(uint64_t tableId)
 {
     flush(tableId);
     for (;;) {
-        tableConfigFetcher->getTableConfig(tableId, &tableMap);
+        tableConfigFetcher->getTableConfig(tableId, &tableMap, &tableIndexMap);
         TabletKey start {tableId, 0U};
         TabletKey end {tableId, std::numeric_limits<KeyHash>::max()};
         TabletIter lower = tableMap.lower_bound(start);
         TabletIter upper = tableMap.upper_bound(end);
         for (; lower != upper; ++lower) {
-            const TabletProtoBuffer& tabletProtoBuffer = lower->second;
-            if (tabletProtoBuffer.tablet.status != Tablet::NORMAL) {
+            const TabletWithLocator& tabletWithLocator = lower->second;
+            if (tabletWithLocator.tablet.status != Tablet::NORMAL) {
                 return;
             }
         }
@@ -346,14 +438,14 @@ ObjectFinder::waitForAllTabletsNormal(uint64_t tableId, uint64_t timeoutNs)
     flush(tableId);
     while (Cycles::toNanoseconds(Cycles::rdtsc() - start) < timeoutNs) {
         bool allNormal = true;
-        tableConfigFetcher->getTableConfig(tableId, &tableMap);
+        tableConfigFetcher->getTableConfig(tableId, &tableMap, &tableIndexMap);
         TabletKey start {tableId, 0U};
         TabletKey end {tableId, std::numeric_limits<KeyHash>::max()};
         TabletIter lower = tableMap.lower_bound(start);
         TabletIter upper = tableMap.upper_bound(end);
         for (; lower != upper; ++lower) {
-            const TabletProtoBuffer& tabletProtoBuffer = lower->second;
-            if (tabletProtoBuffer.tablet.status != Tablet::NORMAL) {
+            const TabletWithLocator& tabletWithLocator = lower->second;
+            if (tabletWithLocator.tablet.status != Tablet::NORMAL) {
                 allNormal = false;
                 break;
             }

@@ -23,7 +23,8 @@
 #include "ServerId.h"
 #include "Table.pb.h"
 #include "Tablet.h"
-#include "Tablets.pb.h"
+#include "TableConfig.pb.h"
+#include "Indexlet.h"
 
 namespace RAMCloud {
 
@@ -74,7 +75,8 @@ class TableManager {
                                  uint64_t ctimeSegmentId,
                                  uint64_t ctimeSegmentOffset);
     void recover(uint64_t lastCompletedUpdate);
-    void serializeTableConfig(ProtoBuf::Tablets* tablets, uint64_t tableId);
+    void serializeTableConfig(ProtoBuf::TableConfig* tableConfig,
+                                                    uint64_t tableId);
     void splitTablet(const char* name,
                      uint64_t splitKeyHash);
     void splitRecoveringTablet(uint64_t tableId, uint64_t splitKeyHash);
@@ -85,58 +87,6 @@ class TableManager {
                          Log::Position ctime);
 
   PRIVATE:
-    /**
-     * Each indexlet owned by a master is described by fields in this structure.
-     * Indexlets describe contiguous ranges of secondary key space for a
-     * particular index for a given table.
-     */
-    struct Indexlet {
-        Indexlet(void *firstKey, uint16_t firstKeyLength,
-                 void *firstNotOwnedKey, uint16_t firstNotOwnedKeyLength,
-                 ServerId serverId)
-            : firstKey(firstKey)
-            , firstKeyLength(firstKeyLength)
-            , firstNotOwnedKey(firstNotOwnedKey)
-            , firstNotOwnedKeyLength(firstNotOwnedKeyLength)
-            , serverId(serverId)
-        {}
-
-        Indexlet(const Indexlet& indexlet)
-            : firstKey(indexlet.firstKey)
-            , firstKeyLength(indexlet.firstKeyLength)
-            , firstNotOwnedKey(indexlet.firstNotOwnedKey)
-            , firstNotOwnedKeyLength(indexlet.firstNotOwnedKeyLength)
-            , serverId(indexlet.serverId)
-        {}
-
-        Indexlet& operator =(const Indexlet& indexlet)
-        {
-            this->firstKeyLength = indexlet.firstKeyLength;
-            this->firstKey = indexlet.firstKey;
-            this->firstNotOwnedKeyLength = indexlet.firstNotOwnedKeyLength;
-            this->firstNotOwnedKey = indexlet.firstNotOwnedKey;
-            this->serverId = indexlet.serverId;
-            return *this;
-        }
-        ~Indexlet();
-
-        /// Blob for the smallest key that is in this indexlet. The key is
-        /// malloced during initialization of the index (structure below) and
-        /// freed on calling the destructor.
-        void *firstKey;
-
-        /// Length of the firstKey
-        uint16_t firstKeyLength;
-
-        /// Blob for the smallest key greater than all the keys belonging to
-        /// this indexlet. Storage same as firstKey.
-        void *firstNotOwnedKey;
-        uint16_t firstNotOwnedKeyLength;
-
-        /// The server id of the master owning this indexlet.
-        ServerId serverId;
-    };
-
     /**
      * The following class holds information about a single index of a table.
      */

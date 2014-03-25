@@ -81,15 +81,6 @@ TableManager::Index::~Index()
     }
 }
 
-/**
- * Destructor for Index: must free the dynamically allocated keys.
- */
-TableManager::Indexlet::~Indexlet()
-{
-    delete reinterpret_cast<uint64_t *>(firstKey);
-    delete reinterpret_cast<uint64_t *>(firstNotOwnedKey);
-}
-
 //////////////////////////////////////////////////////////////////////
 // TableManager Public Methods
 //////////////////////////////////////////////////////////////////////
@@ -227,11 +218,11 @@ TableManager::createIndex(uint64_t tableId, uint8_t indexId, uint8_t indexType)
                     "no masters in cluster");
         }
 
-        char *firstKey = new char(0);
-        char *firstNotOwnedKey = new char(127);
-        Indexlet *indexlet = new Indexlet(reinterpret_cast<void *>(firstKey), 1,
-                                reinterpret_cast<void *>(firstNotOwnedKey), 1,
-                                tabletMaster);
+        char firstKey = 0;
+        char firstNotOwnedKey = 127;
+        Indexlet *indexlet = new Indexlet(reinterpret_cast<void *>(&firstKey),
+                            1, reinterpret_cast<void *>(&firstNotOwnedKey), 1,
+                            tabletMaster);
         index->indexlets.push_back(indexlet);
     }
     catch (...) {
@@ -588,34 +579,76 @@ TableManager::recover(uint64_t lastCompletedUpdate)
 }
 
 /**
- * Copy the tablets corresponding to tableId into a protocol buffer,
- *  \a tablets, suitable for sending across the wire to servers.
- * \param tablets
+ * Fills in a protocol buffer with information describing which masters store
+ * which pieces of data for a given table (including both tablets and indexes).
+ * \param tableConfig
  *      Protocol buffer to which entries are added representing each of
- *      the tablets in the tablet map.
+ *      the tablets and indexes for a given table.
  * \param tableId
- *      The id of the table whose tablet configuration will be fetched. If
+ *      The id of the table whose configuration will be fetched. If
  *      the table doesn't exist, then the protocol buffer ends up empty.
  */
 void
-TableManager::serializeTableConfig(ProtoBuf::Tablets* tablets, uint64_t tableId)
+TableManager::serializeTableConfig(ProtoBuf::TableConfig* tableConfig,
+                                   uint64_t tableId)
 {
     Lock lock(mutex);
     IdMap::iterator it = idMap.find(tableId);
     if (it == idMap.end())
         return;
     Table* table = it->second;
+
+    // filling tablets
     foreach (Tablet* tablet, table->tablets) {
-        ProtoBuf::Tablets::Tablet& entry(*tablets->add_tablet());
-        tablet->serialize(entry);
+        ProtoBuf::TableConfig::Tablet& entry(*tableConfig->add_tablet());
+        tablet->serialize((ProtoBuf::Tablets::Tablet&)entry);
         try {
             string locator = context->serverList->getLocator(
                     tablet->serverId);
             entry.set_service_locator(locator);
-        } catch (const Exception& e) {
+        } catch (const ServerListException& e) {
             LOG(NOTICE, "Server id (%s) in tablet map no longer in server "
                 "list; omitting locator for entry",
                 tablet->serverId.toString().c_str());
+        }
+    }
+
+    // filling indexes
+    foreach (Index* index, table->indexMap) {
+        if (index == NULL) continue;
+        ProtoBuf::TableConfig::Index& index_entry(*tableConfig->add_index());
+        index_entry.set_index_id(index->indexId);
+        index_entry.set_index_type(index->indexType);
+
+        // filling indexlets
+        foreach (Indexlet* indexlet, index->indexlets) {
+            ProtoBuf::TableConfig::Index::Indexlet&
+                                        entry(*index_entry.add_indexlet());
+            if (indexlet->firstKey != NULL)
+                entry.set_start_key(string(
+                                    reinterpret_cast<char*>(indexlet->firstKey),
+                                    indexlet->firstKeyLength));
+            else
+                entry.set_start_key("");
+
+            if (indexlet->firstNotOwnedKey != NULL)
+                entry.set_end_key(string(
+                            reinterpret_cast<char*>(indexlet->firstNotOwnedKey),
+                            indexlet->firstNotOwnedKeyLength));
+            else
+                entry.set_end_key("");
+
+            entry.set_server_id(indexlet->serverId.getId());
+            try {
+                string locator = context->serverList->getLocator(
+                        indexlet->serverId);
+                entry.set_service_locator(locator);
+            } catch (const ServerListException& e) {
+                //TODO(ashgup): should not reach, throw a verbose error here
+                LOG(NOTICE, "Server id (%s) in index map no longer in server "
+                    "list; omitting locator for entry",
+                    indexlet->serverId.toString().c_str());
+            }
         }
     }
 }

@@ -424,10 +424,10 @@ CoordinatorService::getTableConfig(
     WireFormat::GetTableConfig::Response* respHdr,
     Rpc* rpc)
 {
-    ProtoBuf::Tablets tablets;
-    tableManager.serializeTableConfig(&tablets, reqHdr->tableId);
+    ProtoBuf::TableConfig tableConfig;
+    tableManager.serializeTableConfig(&tableConfig, reqHdr->tableId);
     respHdr->tableConfigLength = serializeToResponse(rpc->replyPayload,
-                                                     &tablets);
+                                                     &tableConfig);
 }
 
 /**

@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2012 Stanford University
+/* Copyright (c) 2010-2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -211,13 +211,13 @@ GetServerListRpc::wait(ProtoBuf::ServerList* serverList)
  * \param tableId
  *      The id of a table.    
  * \param[out] tableConfig
- *      Will be filled in with location of every tablet in 
+ *      Will be filled in with location of every tablet and index in 
  *      the table. If the table does not exist, then the result 
- *      will contain no tablets.
+ *      will contain no tablets and indexes.
  */
 void
 CoordinatorClient::getTableConfig(Context* context,
-        uint64_t tableId, ProtoBuf::Tablets* tableConfig)
+        uint64_t tableId, ProtoBuf::TableConfig* tableConfig)
 {
     GetTableConfigRpc rpc(context, tableId);
     rpc.wait(tableConfig);
@@ -248,12 +248,13 @@ GetTableConfigRpc::GetTableConfigRpc(Context* context, uint64_t tableId)
  * same results as #CoordinatorClient::getTableConfig.
  *
  * \param[out] tableConfig
- *      Will be filled in with the location of every tablet 
+ *      Will be filled in with the location of every tablet and index
  *      in the table given by tableId argument passed to the constructor.
- *      If the table does not exist, then the result will contain no tablets.
+ *      If the table does not exist, then the result will contain no tablets
+ *      and indexes.
  */
 void
-GetTableConfigRpc::wait(ProtoBuf::Tablets* tableConfig)
+GetTableConfigRpc::wait(ProtoBuf::TableConfig* tableConfig)
 {
     waitInternal(context->dispatch);
     const WireFormat::GetTableConfig::Response* respHdr(

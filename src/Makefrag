@@ -140,6 +140,7 @@ SHARED_SRCFILES := \
 		   $(OBJDIR)/ServerStatistics.pb.cc \
 		   $(OBJDIR)/SpinLockStatistics.pb.cc \
 		   $(OBJDIR)/Tablets.pb.cc \
+		   $(OBJDIR)/TableConfig.pb.cc \
 		   $(NULL)
 
 SHARED_OBJFILES := $(SHARED_SRCFILES)

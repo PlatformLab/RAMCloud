@@ -1,0 +1,95 @@
+/* Copyright (c) 2014 Stanford University
+ *
+ * Permission to use, copy, modify, and distribute this software for any
+ * purpose with or without fee is hereby granted, provided that the above
+ * copyright notice and this permission notice appear in all copies.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR(S) DISCLAIM ALL WARRANTIES
+ * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+ * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL AUTHORS BE LIABLE FOR
+ * ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+ * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+ * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+ */
+package RAMCloud.ProtoBuf;
+
+/* Message used for encoding tablet and index information for a particular
+ * table id. Used by the object finder to fetch information from coordinator.
+ */
+message TableConfig {
+
+  message Tablet {
+    enum State {
+      /// The tablet is available.
+      NORMAL = 0;
+
+      /// The tablet is being recovered, so it's not available.
+      RECOVERING = 1;
+    }
+
+    /// The id of the containing table.
+    required uint64 table_id = 1;
+
+    /// The smallest hash value for a key that is in this tablet.
+    required uint64 start_key_hash = 2;
+
+    /// The largest hash value for a key that is in this tablet.
+    required uint64 end_key_hash = 3;
+
+    /// The state of the tablet, see above.
+    required State state = 4;
+
+    /// The ID of the master owning this tablet.
+    optional fixed64 server_id = 5;
+
+    /// The service locator for the master owning this tablet.
+    optional string service_locator = 6;
+
+    /// An opaque field which happens to be large enough for a pointer.
+    optional fixed64 user_data = 7;
+
+    /// Id of the the log head belonging to the master that owns this
+    /// tablet when it was assigned to the server. Any earlier segments
+    /// cannot contain data belonging to this tablet.
+    required uint64 ctime_log_head_id = 8;
+
+    /// Offset in the log head segment belonging to the master that owns this
+    /// tablet when it was assigned to the server. Any objects appearing
+    /// earlier in that segment cannot contain data belonging to this tablet.
+    required uint32 ctime_log_head_offset = 9;
+  }
+
+  message Index {
+
+    message Indexlet {
+
+      ///The first (smallest) key that is part of this indexlet.
+      required bytes start_key = 1;
+
+      ///The smallest key greater than all the keys managed by this indexlet.
+      required bytes end_key = 2;
+
+      /// The ID of the master owning this indexlet.
+      required fixed64 server_id = 3;
+
+      /// The service locator for the master owning this indexlet.
+      required string service_locator = 4;
+    }
+
+    /// The id of the index.
+    required uint32 index_id = 1;
+
+    /// The type of the index.
+    required uint32 index_type = 2;
+
+    /// The indexlets for each index.
+    repeated Indexlet indexlet = 3;
+  }
+
+  /// The tablets.
+  repeated Tablet tablet = 1;
+
+  /// The indexes.
+  repeated Index index = 2;
+}

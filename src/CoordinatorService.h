@@ -18,6 +18,7 @@
 
 #include "ServerList.pb.h"
 #include "Tablets.pb.h"
+#include "TableConfig.pb.h"
 
 #include "Common.h"
 #include "ClientException.h"

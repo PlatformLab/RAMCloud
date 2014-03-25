@@ -42,12 +42,14 @@ class MasterServiceRefresher : public ObjectFinder::TableConfigFetcher {
     MasterServiceRefresher() : refreshCount(1) {}
     void getTableConfig(
          uint64_t tableId,
-         std::map<TabletKey, TabletProtoBuffer>* tableMap) {
+         std::map<TabletKey, TabletWithLocator>* tableMap,
+         std::multimap< std::pair<uint64_t, uint8_t>,
+                                    Indexlet>* tableIndexMap) {
         tableMap->clear();
 
         Tablet rawEntry({1, 0, ~0, ServerId(),
                             Tablet::NORMAL, Log::Position()});
-        TabletProtoBuffer entry(rawEntry, "mock:host=master");
+        TabletWithLocator entry(rawEntry, "mock:host=master");
 
         TabletKey key {entry.tablet.tableId, entry.tablet.startKeyHash};
         tableMap->insert(std::make_pair(key, entry));
@@ -55,7 +57,7 @@ class MasterServiceRefresher : public ObjectFinder::TableConfigFetcher {
         if (refreshCount > 0) {
             Tablet rawEntry2({99, 0, ~0, ServerId(),
                                     Tablet::NORMAL, Log::Position()});
-            TabletProtoBuffer entry2(rawEntry2, "mock:host=master");
+            TabletWithLocator entry2(rawEntry2, "mock:host=master");
 
             TabletKey key2 {entry2.tablet.tableId, entry2.tablet.startKeyHash};
             tableMap->insert(std::make_pair(key2, entry2));

@@ -64,7 +64,6 @@ IndexletManager::addIndexlet(
         return false;
     }
 
-    //TODO(ashgup): allocate mem and copy keys from buffer
     indexletMap.emplace(std::make_pair(tableId, indexId), Indexlet(firstKey,
                     firstKeyLength, firstNotOwnedKey, firstNotOwnedKeyLength));
 
@@ -132,7 +131,6 @@ IndexletManager::deleteIndexlet(
     }
 
     indexletMap.erase(it);
-    //TODO(ashgup): free allocated memory and in destructor
     return true;
 }
 

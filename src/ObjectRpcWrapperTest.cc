@@ -27,7 +27,9 @@ class ObjRpcWrapperRefresher : public ObjectFinder::TableConfigFetcher {
     ObjRpcWrapperRefresher() : called(0) {}
     void getTableConfig(
         uint64_t tableId,
-        std::map<TabletKey, TabletProtoBuffer>* tableMap) {
+        std::map<TabletKey, TabletWithLocator>* tableMap,
+        std::multimap< std::pair<uint64_t, uint8_t>,
+                                    Indexlet>* tableIndexMap) {
 
         called++;
         char buffer[100];
@@ -36,7 +38,7 @@ class ObjRpcWrapperRefresher : public ObjectFinder::TableConfigFetcher {
         tableMap->clear();
         Tablet rawEntry({10, 0, ~0, ServerId(),
                     Tablet::NORMAL, Log::Position()});
-        TabletProtoBuffer entry(rawEntry, buffer);
+        TabletWithLocator entry(rawEntry, buffer);
 
         TabletKey key {entry.tablet.tableId, entry.tablet.startKeyHash};
         tableMap->insert(std::make_pair(key, entry));

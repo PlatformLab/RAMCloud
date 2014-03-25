@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2013 Stanford University
+/* Copyright (c) 2010-2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -24,6 +24,7 @@
 #include "Key.h"
 #include "Transport.h"
 #include "Tablet.h"
+#include "Indexlet.h"
 
 namespace RAMCloud {
 
@@ -47,15 +48,15 @@ struct TabletKey {
 /**
  * Structure to extract and store information from Tablet ProtoBuffer.
  */
-struct TabletProtoBuffer {
+struct TabletWithLocator {
     Tablet tablet;
+    //TODO(ashgup): Embed serviceLocator in tablet.h
     string serviceLocator;
 
-    TabletProtoBuffer(Tablet tablet, string serviceLocator)
+    TabletWithLocator(Tablet tablet, string serviceLocator)
         : tablet(tablet)
         , serviceLocator(serviceLocator)
     {}
-
 };
 
 /**
@@ -72,7 +73,7 @@ class ObjectFinder {
     Transport::SessionRef lookup(uint64_t tableId, const void* key,
                                  uint16_t keyLength);
     Transport::SessionRef lookup(uint64_t tableId, KeyHash keyHash);
-    const TabletProtoBuffer* lookupTablet(uint64_t table, KeyHash keyHash);
+    const TabletWithLocator* lookupTablet(uint64_t table, KeyHash keyHash);
 
     Transport::SessionRef lookup(uint64_t tableId, uint8_t indexId,
                                  const void* key, uint16_t keyLength);
@@ -84,6 +85,8 @@ class ObjectFinder {
     void flushSession(uint64_t tableId, KeyHash keyHash);
     void waitForTabletDown(uint64_t tableId);
     void waitForAllTabletsNormal(uint64_t tableId, uint64_t timeoutNs = ~0lu);
+    static int keyCompare(const void* key1, uint16_t keyLength1,
+                                        const void* key2, uint16_t keyLength2);
 
     /*
      * Used only for debug purposes. This function created a string
@@ -100,13 +103,22 @@ class ObjectFinder {
     /**
      * tableMap provides a fast lookup for the current tablets being used.
      * It stores the tablets, so they can be fast accessed by having the 
-     * TabletKey value <tableId, start_key_hash>.  
+     * TabletKey value <tableId, start_key_hash>.
      */
-    std::map<TabletKey, TabletProtoBuffer> tableMap;
-    typedef std::map<TabletKey, TabletProtoBuffer>::iterator TabletIter;
+    std::map<TabletKey, TabletWithLocator> tableMap;
+    typedef std::map<TabletKey, TabletWithLocator>::iterator TabletIter;
 
-    // TODO(ashgup): Store similar mapping for indexlet information by
-    // fetching from coordinator.
+    //TODO(ashgup): later explore tuple including index key
+
+    /**
+     * tableIndexMap provides a fast lookup for the current indexes being used.
+     * It stores the indexlets, so they can be fast accessed by having the 
+     * index id and table id.
+     */
+    //TODO(ashgup): replace std::pair with custom structure
+    std::multimap< std::pair<uint64_t, uint8_t>, Indexlet> tableIndexMap;
+    typedef std::multimap< std::pair<uint64_t, uint8_t>,
+                                    Indexlet>::iterator IndexletIter;
 
     /**
      * Update the local tablet map cache. Usually, calling
@@ -129,7 +141,9 @@ class ObjectFinder::TableConfigFetcher {
     /// See CoordinatorClient::getTableConfig.
     virtual void getTableConfig(
                uint64_t tableId,
-               std::map<TabletKey, TabletProtoBuffer>* tableMap) = 0;
+               std::map<TabletKey, TabletWithLocator>* tableMap,
+               std::multimap< std::pair<uint64_t, uint8_t>,
+                                Indexlet>* tableIndexMap) = 0;
 };
 
 } // end RAMCloud

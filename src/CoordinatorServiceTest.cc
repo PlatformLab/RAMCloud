@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2012 Stanford University
+/* Copyright (c) 2010-2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -168,9 +168,9 @@ TEST_F(CoordinatorServiceTest, getServerList_masters) {
             getLocators(list));
 }
 
-TEST_F(CoordinatorServiceTest, getTableConfig) {
+TEST_F(CoordinatorServiceTest, getTabletConfig_tabletInfo) {
     ramcloud->createTable("foo");
-    ProtoBuf::Tablets tableConfigProtoBuf;
+    ProtoBuf::TableConfig tableConfigProtoBuf;
     CoordinatorClient::getTableConfig(&context, 1, &tableConfigProtoBuf);
     EXPECT_EQ("tablet { table_id: 1 start_key_hash: 0 "
               "end_key_hash: 18446744073709551615 "
@@ -184,9 +184,36 @@ TEST_F(CoordinatorServiceTest, getTableConfig) {
     EXPECT_EQ("", tableConfigProtoBuf.ShortDebugString());
 }
 
+TEST_F(CoordinatorServiceTest, getTabletConfig_indexInfo) {
+    ramcloud->createTable("foo");
+    ramcloud->createIndex(1, 2, 1);
+
+    ProtoBuf::TableConfig tableConfigProtoBuf;
+    CoordinatorClient::getTableConfig(&context, 1, &tableConfigProtoBuf);
+
+    foreach (const ProtoBuf::TableConfig::Index& index,
+                                            tableConfigProtoBuf.index()) {
+        EXPECT_EQ(2U, index.index_id());
+        EXPECT_EQ(1U, index.index_type());
+        foreach (const ProtoBuf::TableConfig::Index::Indexlet& indexlet,
+                                                        index.indexlet()) {
+            EXPECT_EQ(0U, (uint8_t)*indexlet.start_key().c_str());
+            EXPECT_EQ(1U, indexlet.start_key().length());
+            EXPECT_EQ(127U, (uint8_t)*indexlet.end_key().c_str());
+            EXPECT_EQ(1U, indexlet.end_key().length());
+            EXPECT_EQ(1U, indexlet.server_id());
+            EXPECT_EQ("mock:host=master", indexlet.service_locator());
+        }
+    }
+    // test case to make sure that a nonexistent table id
+    // returns a ProtoBuf with no entries
+    CoordinatorClient::getTableConfig(&context, 10, &tableConfigProtoBuf);
+    EXPECT_EQ("", tableConfigProtoBuf.ShortDebugString());
+}
+
 TEST_F(CoordinatorServiceTest, getInvalidTableConfig) {
     ramcloud->createTable("bar");
-    ProtoBuf::Tablets tableConfig;
+    ProtoBuf::TableConfig tableConfig;
     CoordinatorClient::getTableConfig(&context, 123, &tableConfig);
     EXPECT_EQ("", tableConfig.ShortDebugString());
 }

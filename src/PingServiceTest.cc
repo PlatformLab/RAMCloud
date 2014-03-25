@@ -56,12 +56,14 @@ class MockTableConfigFetcher : public ObjectFinder::TableConfigFetcher {
     {}
     void getTableConfig(
         uint64_t tableId,
-        std::map<TabletKey, TabletProtoBuffer>* tableMap) {
+        std::map<TabletKey, TabletWithLocator>* tableMap,
+        std::multimap< std::pair<uint64_t, uint8_t>,
+                                    Indexlet>* tableIndexMap) {
 
         tableMap->clear();
         Tablet rawEntry({tableId, 0, ~0, ServerId(),
                     Tablet::NORMAL, Log::Position()});
-        TabletProtoBuffer entry(rawEntry, locator);
+        TabletWithLocator entry(rawEntry, locator);
 
         TabletKey key {entry.tablet.tableId, entry.tablet.startKeyHash};
         tableMap->insert(std::make_pair(key, entry));

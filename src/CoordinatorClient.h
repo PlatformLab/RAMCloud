@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2012 Stanford University
+/* Copyright (c) 2010-2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -19,6 +19,7 @@
 #include "MasterRecoveryInfo.pb.h"
 #include "ServerList.pb.h"
 #include "Tablets.pb.h"
+#include "TableConfig.pb.h"
 
 #include "Common.h"
 #include "ClientException.h"
@@ -47,7 +48,7 @@ class CoordinatorClient {
     static void getServerList(Context* context,
             ProtoBuf::ServerList* serverList);
     static void getTableConfig(Context* context,
-            uint64_t tableId, ProtoBuf::Tablets* tableConfig);
+            uint64_t tableId, ProtoBuf::TableConfig* tableConfig);
     static void hintServerCrashed(Context* context, ServerId serverId);
     static void reassignTabletOwnership(Context* context, uint64_t tableId,
             uint64_t firstKey, uint64_t lastKey, ServerId newOwnerId,
@@ -103,7 +104,7 @@ class GetTableConfigRpc : public CoordinatorRpcWrapper {
     public:
     explicit GetTableConfigRpc(Context* context, uint64_t tableId);
     ~GetTableConfigRpc() {}
-    void wait(ProtoBuf::Tablets* tableConfig);
+    void wait(ProtoBuf::TableConfig* tableConfig);
 
     PRIVATE:
     DISALLOW_COPY_AND_ASSIGN(GetTableConfigRpc);
