@@ -24,7 +24,7 @@ struct Refresher : public ObjectFinder::TableConfigFetcher {
          uint64_t tableId,
          std::map<TabletKey, TabletWithLocator>* tableMap,
          std::multimap< std::pair<uint64_t, uint8_t>,
-                                    Indexlet>* tableIndexMap) {
+                                ObjectFinder::Indexlet>* tableIndexMap) {
 
         tableMap->clear();
         Tablet rawTablet2({1, 0, ~0, ServerId(),
@@ -95,14 +95,14 @@ struct Refresher : public ObjectFinder::TableConfigFetcher {
             char* l = new char('l');
             char* w = new char('w');
 
-            Indexlet indexlet0(reinterpret_cast<void*>(b), 1,
+            ObjectFinder::Indexlet indexlet0(reinterpret_cast<void*>(b), 1,
                 reinterpret_cast<void*>(l), 1, ServerId(), "mock:host=server0");
-            Indexlet indexlet1(reinterpret_cast<void*>(l), 1,
+            ObjectFinder::Indexlet indexlet1(reinterpret_cast<void*>(l), 1,
                 reinterpret_cast<void*>(w), 1, ServerId(), "mock:host=server1");
-            Indexlet indexlet2(NULL, 0, reinterpret_cast<void*>(l), 1,
-                                            ServerId(), "mock:host=server2");
-            Indexlet indexlet3(reinterpret_cast<void*>(l), 1, NULL, 0,
-                                            ServerId(), "mock:host=server3");
+            ObjectFinder::Indexlet indexlet2(NULL, 0, reinterpret_cast<void*>(l)
+                                         , 1, ServerId(), "mock:host=server2");
+            ObjectFinder::Indexlet indexlet3(reinterpret_cast<void*>(l), 1, NULL
+                                         , 0, ServerId(), "mock:host=server3");
 
             tableIndexMap->insert(std::make_pair(
                                             std::make_pair(1, 0), indexlet0));

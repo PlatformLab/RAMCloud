@@ -26,39 +26,15 @@ namespace RAMCloud {
  * Indexlets describe contiguous ranges of secondary key space for a
  * particular index for a given table.
  */
-struct Indexlet {
-
+class Indexlet {
+    public:
     //TODO(ashgup): move allocation to indexlet.cc
-    Indexlet(void *firstKey, uint16_t firstKeyLength,
-             void *firstNotOwnedKey, uint16_t firstNotOwnedKeyLength,
-             ServerId serverId, string serviceLocator)
+    Indexlet(const void *firstKey, uint16_t firstKeyLength,
+             const void *firstNotOwnedKey, uint16_t firstNotOwnedKeyLength)
         : firstKey(NULL)
         , firstKeyLength(firstKeyLength)
         , firstNotOwnedKey(NULL)
         , firstNotOwnedKeyLength(firstNotOwnedKeyLength)
-        , serverId(serverId)
-        , serviceLocator(serviceLocator)
-    {
-        if (firstKeyLength != 0){
-            this->firstKey = malloc(firstKeyLength);
-            memcpy(this->firstKey, firstKey, firstKeyLength);
-        }
-        if (firstNotOwnedKeyLength != 0){
-            this->firstNotOwnedKey = malloc(firstNotOwnedKeyLength);
-            memcpy(this->firstNotOwnedKey, firstNotOwnedKey,
-                                                    firstNotOwnedKeyLength);
-        }
-    }
-
-    Indexlet(void *firstKey, uint16_t firstKeyLength,
-             void *firstNotOwnedKey, uint16_t firstNotOwnedKeyLength,
-             ServerId serverId)
-        : firstKey(NULL)
-        , firstKeyLength(firstKeyLength)
-        , firstNotOwnedKey(NULL)
-        , firstNotOwnedKeyLength(firstNotOwnedKeyLength)
-        , serverId(serverId)
-        , serviceLocator()
     {
         if (firstKeyLength != 0){
             this->firstKey = malloc(firstKeyLength);
@@ -76,8 +52,6 @@ struct Indexlet {
         , firstKeyLength(indexlet.firstKeyLength)
         , firstNotOwnedKey(NULL)
         , firstNotOwnedKeyLength(indexlet.firstNotOwnedKeyLength)
-        , serverId(indexlet.serverId)
-        , serviceLocator(indexlet.serviceLocator)
     {
         if (firstKeyLength != 0){
             this->firstKey = malloc(firstKeyLength);
@@ -96,8 +70,6 @@ struct Indexlet {
         this->firstKeyLength = indexlet.firstKeyLength;
         this->firstNotOwnedKey = NULL;
         this->firstNotOwnedKeyLength = indexlet.firstNotOwnedKeyLength;
-        this->serverId = indexlet.serverId;
-        this->serviceLocator = indexlet.serviceLocator;
 
         if (firstKeyLength != 0){
             this->firstKey = malloc(firstKeyLength);
@@ -111,7 +83,7 @@ struct Indexlet {
         return *this;
     }
 
-    ~Indexlet()
+    virtual ~Indexlet()
     {
         if (firstKeyLength != 0)
             free(firstKey);
@@ -133,12 +105,6 @@ struct Indexlet {
 
     /// Length of the firstNotOwnedKey
     uint16_t firstNotOwnedKeyLength;
-
-    /// The server id of the master owning this indexlet.
-    ServerId serverId;
-
-    /// Service locator for the indexlet to be used by the coordinator.
-    string serviceLocator;
 };
 
 } // namespace RAMCloud

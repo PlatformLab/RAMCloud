@@ -58,7 +58,7 @@ class MockTableConfigFetcher : public ObjectFinder::TableConfigFetcher {
         uint64_t tableId,
         std::map<TabletKey, TabletWithLocator>* tableMap,
         std::multimap< std::pair<uint64_t, uint8_t>,
-                                    Indexlet>* tableIndexMap) {
+                                    ObjectFinder::Indexlet>* tableIndexMap) {
 
         tableMap->clear();
         Tablet rawEntry({tableId, 0, ~0, ServerId(),

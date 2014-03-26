@@ -44,7 +44,7 @@ class MasterServiceRefresher : public ObjectFinder::TableConfigFetcher {
          uint64_t tableId,
          std::map<TabletKey, TabletWithLocator>* tableMap,
          std::multimap< std::pair<uint64_t, uint8_t>,
-                                    Indexlet>* tableIndexMap) {
+                                    ObjectFinder::Indexlet>* tableIndexMap) {
         tableMap->clear();
 
         Tablet rawEntry({1, 0, ~0, ServerId(),

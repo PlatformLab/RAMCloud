@@ -29,7 +29,7 @@ class ObjRpcWrapperRefresher : public ObjectFinder::TableConfigFetcher {
         uint64_t tableId,
         std::map<TabletKey, TabletWithLocator>* tableMap,
         std::multimap< std::pair<uint64_t, uint8_t>,
-                                    Indexlet>* tableIndexMap) {
+                                    ObjectFinder::Indexlet>* tableIndexMap) {
 
         called++;
         char buffer[100];

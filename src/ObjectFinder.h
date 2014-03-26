@@ -66,6 +66,7 @@ struct TabletWithLocator {
  */
 class ObjectFinder {
   public:
+    class Indexlet; // forward declaration, see full declaration below
     class TableConfigFetcher; // forward declaration, see full declaration below
 
     explicit ObjectFinder(Context* context);
@@ -129,6 +130,34 @@ class ObjectFinder {
     std::unique_ptr<ObjectFinder::TableConfigFetcher> tableConfigFetcher;
 
     DISALLOW_COPY_AND_ASSIGN(ObjectFinder);
+};
+
+/**
+ * The following class holds information about a single indexlet of a given index
+ * on a table.
+ */
+class ObjectFinder::Indexlet : public RAMCloud::Indexlet {
+    public:
+    Indexlet(const void *firstKey, uint16_t firstKeyLength,
+             const void *firstNotOwnedKey, uint16_t firstNotOwnedKeyLength,
+             ServerId serverId, string serviceLocator)
+        : RAMCloud::Indexlet(firstKey, firstKeyLength, firstNotOwnedKey,
+                   firstNotOwnedKeyLength)
+        , serverId(serverId)
+        , serviceLocator(serviceLocator)
+    {}
+
+    Indexlet(const Indexlet& indexlet)
+        : RAMCloud::Indexlet(indexlet)
+        , serverId(indexlet.serverId)
+        , serviceLocator(indexlet.serviceLocator)
+    {}
+
+    /// The server id of the master owning this indexlet.
+    ServerId serverId;
+
+    /// The service locator for this indexlet.
+    string serviceLocator;
 };
 
 /**

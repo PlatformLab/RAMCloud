@@ -36,7 +36,7 @@ class RealTableConfigFetcher : public ObjectFinder::TableConfigFetcher {
           uint64_t tableId,
           std::map<TabletKey, TabletWithLocator>* tableMap,
           std::multimap< std::pair<uint64_t, uint8_t>,
-                                    Indexlet>* tableIndexMap) {
+                                   ObjectFinder::Indexlet>* tableIndexMap) {
 
         tableMap->clear(); //TODO(ashgup): Replace with flush tableid
         ProtoBuf::TableConfig tableConfig;
@@ -101,8 +101,9 @@ class RealTableConfigFetcher : public ObjectFinder::TableConfigFetcher {
 
                 ServerId serverId(indexlet.server_id());
                 string serviceLocator = indexlet.service_locator();
-                Indexlet indexlet(firstKey, firstKeyLength, firstNotOwnedKey,
-                            firstNotOwnedKeyLength, serverId, serviceLocator);
+                ObjectFinder::Indexlet indexlet(firstKey, firstKeyLength,
+                                    firstNotOwnedKey, firstNotOwnedKeyLength,
+                                    serverId, serviceLocator);
 
                 tableIndexMap->insert(std::make_pair(
                         std::make_pair(tableId, indexId), indexlet));
@@ -334,9 +335,9 @@ ObjectFinder::lookup(uint64_t tableId, uint8_t indexId,
     for (int count = 0; count < 2; count++) {
 
         std::pair < std::multimap< std::pair<uint64_t, uint8_t>,
-                                                    Indexlet>::iterator,
+                                                Indexlet>::iterator,
                     std::multimap< std::pair<uint64_t, uint8_t>,
-                                                    Indexlet>::iterator> range;
+                                        Indexlet>::iterator> range;
         range = tableIndexMap.equal_range(indexKey);
         for (iter = range.first; iter != range.second; iter++){
 
