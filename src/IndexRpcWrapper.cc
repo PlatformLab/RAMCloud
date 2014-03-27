@@ -42,23 +42,21 @@ namespace RAMCloud {
  *      will be stored in the responseHeader for the use of wrapper
  *      subclasses.
  * 
- * \param[out] responseBuffer
- *      Client-supplied buffer to use to return all the keyHashes.
- *      This may include result from multiple RPC's, if required.
+ * \param responseBuffer
+ *      Optional client-supplied buffer to use for the RPC's response;
+ *      if NULL then we use a built-in buffer.
  */
 IndexRpcWrapper::IndexRpcWrapper(
             RamCloud* ramcloud, uint64_t tableId, uint8_t indexId,
             const void* key, uint16_t keyLength,
             uint32_t responseHeaderLength, Buffer* responseBuffer)
-    : RpcWrapper(responseHeaderLength) // Use defaultResponse buffer for
-                                       // individual rpcs to the masters.
+    : RpcWrapper(responseHeaderLength, responseBuffer)
     , context(ramcloud->clientContext)
     , objectFinder(&ramcloud->objectFinder)
     , tableId(tableId)
     , indexId(indexId)
     , key(key)
     , keyLength(keyLength)
-    , responseBuffer(responseBuffer)
 {
 }
 
@@ -84,20 +82,22 @@ IndexRpcWrapper::IndexRpcWrapper(
  *      contain at least this much data, and a pointer to the header
  *      will be stored in the responseHeader for the use of wrapper
  *      subclasses.
+ * 
+ * \param responseBuffer
+ *      Optional client-supplied buffer to use for the RPC's response;
+ *      if NULL then we use a built-in buffer.
  */
 IndexRpcWrapper::IndexRpcWrapper(
             MasterService* master, uint64_t tableId, uint8_t indexId,
             const void* key, uint16_t keyLength,
-            uint32_t responseHeaderLength)
-    : RpcWrapper(responseHeaderLength) // Use defaultResponse buffer for
-                                       // individual rpcs to the masters.
+            uint32_t responseHeaderLength, Buffer* responseBuffer)
+    : RpcWrapper(responseHeaderLength, responseBuffer)
     , context(master->context)
     , objectFinder(&master->objectFinder)
     , tableId(tableId)
     , indexId(indexId)
     , key(key)
     , keyLength(keyLength)
-    , responseBuffer(responseBuffer)
 {
 }
 
@@ -149,12 +149,16 @@ IndexRpcWrapper::send()
     session->sendRequest(&request, response, this);
 }
 
-// See RpcWrapper for documentation.
+/**
+ * This method provides a simple implementation of \c wait that
+ * doesn't do any processing of the result; it just waits for completion
+ * and checks for errors.
+ */
 void
-IndexRpcWrapper::simpleWait(Dispatch* dispatch)
+IndexRpcWrapper::simpleWait()
 {
     try {
-        RpcWrapper::simpleWait(dispatch);
+        RpcWrapper::simpleWait(context->dispatch);
     } catch (RAMCloud::RpcCanceledException& e) {
         // This index doesn't exist. No need to take any action.
         // Other exceptions can get propagated.
