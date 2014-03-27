@@ -223,30 +223,91 @@ ObjectFinder::lookup(uint64_t tableId, KeyHash keyHash)
 }
 
 /**
- * Delete the session connecting to the master that owns a particular
- * object, if such a session exists. This method is typically invoked after
- * an unrecoverable error has occurred on the session, so that a new
- * session will be created the next time someone wants to communicate
- * with that master.
+ * Lookup the master holding the indexlet containing the given key.
  *
  * \param tableId
- *      The table containing the desired object (return value from a
- *      previous call to getTableId).
- * \param keyHash
- *      Hash value corresponding to a particular object in table.
+ *      The table containing the desired object.
+ * \param indexId
+ *      Id of the index for which keys are to be compared.
+ * \param key
+ *      Blob corresponding to the key.
+ * \param keyLength
+ *      Length of key.
+ * 
+ * \return
+ *      Session for communication with the server who holds the indexlet.
+ *      If the indexlet doesn't exist, return NULL.
  */
-void
-ObjectFinder::flushSession(uint64_t tableId, KeyHash keyHash)
+Transport::SessionRef
+ObjectFinder::lookup(uint64_t tableId, uint8_t indexId,
+                     const void* key, uint16_t keyLength)
 {
-    try {
-        const TabletWithLocator* tabletWithLocator = lookupTablet(tableId,
-                                                                keyHash);
-        context->transportManager->flushSession(
-                                    tabletWithLocator->serviceLocator.c_str());
-    } catch (TableDoesntExistException& e) {
-        // We don't even store this tablet anymore, so there's nothing
-        // to worry about.
+    const Indexlet* indexlet = lookupIndexlet(tableId, indexId, key, keyLength);
+    // If indexlet doesn't exist, don't throw an exception.
+    if (indexlet == NULL) {
+        return NULL;
     }
+    return context->transportManager->getSession(
+                        indexlet->serviceLocator.c_str());
+}
+
+/**
+ * Lookup the indexlet containing the given key.
+ *
+ * \param tableId
+ *      The table containing the desired object.
+ * \param indexId
+ *      Id of the index for which keys are to be compared.
+ * \param key
+ *      Blob corresponding to the key.
+ * \param keyLength
+ *      Length of key.
+ * 
+ * \return
+ *      Reference to Indexlet with the details of the server that owns
+ *      the specified key. This reference may be invalidated by any future
+ *      calls to the ObjectFinder.
+ */
+const ObjectFinder::Indexlet*
+ObjectFinder::lookupIndexlet(uint64_t tableId, uint8_t indexId,
+                             const void* key, uint16_t keyLength)
+{
+    std::pair<uint64_t, uint8_t> indexKey = std::make_pair(tableId, indexId);
+    IndexletIter iter;
+
+    for (int count = 0; count < 2; count++) {
+
+        std::pair < std::multimap< std::pair<uint64_t, uint8_t>,
+                                                Indexlet>::iterator,
+                    std::multimap< std::pair<uint64_t, uint8_t>,
+                                        Indexlet>::iterator> range;
+        range = tableIndexMap.equal_range(indexKey);
+        for (iter = range.first; iter != range.second; iter++){
+
+            Indexlet* indexlet = &iter->second;
+            if (indexlet->firstKey != NULL) {
+                if (keyCompare(key, keyLength,
+                           indexlet->firstKey, indexlet->firstKeyLength) < 0) {
+                    continue;
+                }
+            }
+
+            if (indexlet->firstNotOwnedKey != NULL) {
+                if (keyCompare(key, keyLength,
+                               indexlet->firstNotOwnedKey,
+                               indexlet->firstNotOwnedKeyLength) >= 0) {
+                    continue;
+                }
+            }
+
+            return indexlet;
+        }
+
+        if (count == 0)
+            tableConfigFetcher->getTableConfig(tableId, &tableMap,
+                                                            &tableIndexMap);
+    }
+    return NULL;
 }
 
 /**
@@ -296,6 +357,61 @@ ObjectFinder::lookupTablet(uint64_t tableId, KeyHash keyHash)
     }
 }
 
+/**
+ * Delete the session connecting to the master that owns a particular
+ * object, if such a session exists. This method is typically invoked after
+ * an unrecoverable error has occurred on the session, so that a new
+ * session will be created the next time someone wants to communicate
+ * with that master.
+ *
+ * \param tableId
+ *      The table containing the desired object (return value from a
+ *      previous call to getTableId).
+ * \param keyHash
+ *      Hash value corresponding to a particular object in table.
+ */
+void
+ObjectFinder::flushSession(uint64_t tableId, KeyHash keyHash)
+{
+    try {
+        const TabletWithLocator* tabletWithLocator = lookupTablet(tableId,
+                                                                keyHash);
+        context->transportManager->flushSession(
+                                    tabletWithLocator->serviceLocator.c_str());
+    } catch (TableDoesntExistException& e) {
+        // We don't even store this tablet anymore, so there's nothing
+        // to worry about.
+    }
+}
+
+/**
+ * Delete the session connecting to the master that owns a particular
+ * index entry, if such a session exists. This method is typically invoked after
+ * an unrecoverable error has occurred on the session, so that a new
+ * session will be created the next time someone wants to communicate
+ * with that master.
+ *
+ * \param tableId
+ *      The table containing the desired object.
+ * \param indexId
+ *      Id of the index for which keys are to be compared.
+ * \param key
+ *      Blob corresponding to the key.
+ * \param keyLength
+ *      Length of key.
+ */
+void
+ObjectFinder::flushSession(uint64_t tableId, uint8_t indexId,
+                           const void* key, uint16_t keyLength)
+{
+    const Indexlet* indexlet = lookupIndexlet(tableId, indexId,
+                                              key, keyLength);
+    if (indexlet != NULL) {
+        context->transportManager->flushSession(
+                        indexlet->serviceLocator.c_str());
+    }
+}
+
 int
 ObjectFinder::keyCompare(const void* key1, uint16_t keyLength1,
                             const void* key2, uint16_t keyLength2)
@@ -307,96 +423,6 @@ ObjectFinder::keyCompare(const void* key1, uint16_t keyLength1,
     } else {
         return keyLength1 - keyLength2;
     }
-}
-
-/**
- * Lookup the master containing indexlet with the given key.
- * Useful for clients to get masters they need to communicate with to lookup
- * index keys.
- *
- * \param tableId
- *      The table containing the desired object.
- * \param indexId
- *      Id of the index for which keys are to be compared.
- * \param key
- *      Blob corresponding to the key.
- * \param keyLength
- *      Length of key.
- * \return
- *      Session for communication with the server that has the indexlet.
- */
-Transport::SessionRef
-ObjectFinder::lookup(uint64_t tableId, uint8_t indexId,
-                     const void* key, uint16_t keyLength)
-{
-    std::pair<uint64_t, uint8_t> indexKey = std::make_pair(tableId, indexId);
-    IndexletIter iter;
-
-    for (int count = 0; count < 2; count++) {
-
-        std::pair < std::multimap< std::pair<uint64_t, uint8_t>,
-                                                Indexlet>::iterator,
-                    std::multimap< std::pair<uint64_t, uint8_t>,
-                                        Indexlet>::iterator> range;
-        range = tableIndexMap.equal_range(indexKey);
-        for (iter = range.first; iter != range.second; iter++){
-
-            Indexlet* indexlet = &iter->second;
-            if (indexlet->firstKey != NULL) {
-                if (keyCompare(key, keyLength,
-                           indexlet->firstKey, indexlet->firstKeyLength) < 0) {
-                    continue;
-                }
-            }
-
-            if (indexlet->firstNotOwnedKey != NULL) {
-                if (keyCompare(key, keyLength,
-                               indexlet->firstNotOwnedKey,
-                               indexlet->firstNotOwnedKeyLength) >= 0) {
-                    continue;
-                }
-            }
-
-            return context->transportManager->getSession(
-                                        indexlet->serviceLocator.c_str());
-        }
-
-        if (count == 0)
-            tableConfigFetcher->getTableConfig(tableId, &tableMap,
-                                                            &tableIndexMap);
-    }
-    // TODO(ankitak): verify if we want a null session or fail session
-    return FailSession::get();
-}
-
-// This will go away within the next few commits.
-/**
- * Lookup the master for an index key in a given table.
- * Useful for a data master to lookup index master to communicate with
- * to modify an index entry corresponding to the data being modified.
- *
- * \param tableId
- *      The table containing the desired object.
- * \param indexId
- *      Id of the index for which they key is to be compared.
- * \param key
- *      Blob corresponding to the key.
- * \param keyLength
- *      Length of key.
- * 
- * \param[out] serverId
- *      Return the ServerId of the server holding the indexlet
- *      containing this index key.
- * \return
- *      Value of true indicates that this indexlet was found and the server id
- *      of the server owning it is being returned. False otherwise.
- */
-bool
-ObjectFinder::lookupServerId(uint64_t tableId, uint8_t indexId,
-                             const void* key, uint16_t keyLength,
-                             ServerId* serverId)
-{
-    return false;
 }
 
 /**

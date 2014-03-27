@@ -252,9 +252,7 @@ TEST_F(ObjectFinderTest, lookupIndexlet) {
     // before any of the valid indexlets
     Transport::SessionRef session0(objectFinder->lookup(1, 0,
                                             reinterpret_cast<void*>(&a), 1));
-    EXPECT_EQ("fail:",
-        static_cast<BindTransport::BindSession*>(session0.get())->
-                getServiceLocator());
+    EXPECT_EQ(Transport::SessionRef(), session0);
 
     // start of the first indexlet
     Transport::SessionRef session1(objectFinder->lookup(1, 0,
@@ -280,16 +278,12 @@ TEST_F(ObjectFinderTest, lookupIndexlet) {
     // end of the second or last indexlet
     Transport::SessionRef session4(objectFinder->lookup(1, 0,
                                             reinterpret_cast<void*>(&w), 1));
-    EXPECT_EQ("fail:",
-        static_cast<BindTransport::BindSession*>(session4.get())->
-                getServiceLocator());
+    EXPECT_EQ(Transport::SessionRef(), session4);
 
     // beyond the last indexlet
     Transport::SessionRef session5(objectFinder->lookup(1, 0,
                                             reinterpret_cast<void*>(&z), 1));
-    EXPECT_EQ("fail:",
-        static_cast<BindTransport::BindSession*>(session5.get())->
-                getServiceLocator());
+    EXPECT_EQ(Transport::SessionRef(), session5);
 
     // where first key is NULL
     Transport::SessionRef session6(objectFinder->lookup(1, 1,

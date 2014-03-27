@@ -16,7 +16,6 @@
 #include "IndexRpcWrapper.h"
 #include "Logger.h"
 #include "MasterService.h"
-#include "RamCloud.h"
 #include "ShortMacros.h"
 
 namespace RAMCloud {
@@ -109,10 +108,10 @@ IndexRpcWrapper::checkStatus()
     // TODO(ankitak): I've defined a new status STATUS_UNKNOWN_INDEXLET,
     // but not corresponding ClientException. Is that needed?
     if (responseHeader->status == STATUS_UNKNOWN_INDEXLET) {
-        // The object isn't where we thought it should be. Refresh our
+        // The index entry isn't where we thought it should be. Refresh our
         // configuration cache and try again.
         LOG(NOTICE,
-            "Server %s doesn't store given secondary key"
+            "Server %s doesn't store given secondary key "
                 "for table %lu, index id %u; refreshing object map",
             session->getServiceLocator().c_str(), tableId, indexId);
         objectFinder->flush(tableId);
@@ -129,6 +128,7 @@ IndexRpcWrapper::handleTransportError()
     // There was a transport-level failure. Flush cached state related
     // to this session, and related to the object mapping for our object.
     // Then retry.
+    objectFinder->flushSession(tableId, indexId, key, keyLength);
     session = NULL;
     objectFinder->flush(tableId);
     send();
@@ -140,12 +140,9 @@ void
 IndexRpcWrapper::send()
 {
     session = objectFinder->lookup(tableId, indexId, key, keyLength);
-    if (session == NULL) {
-        // This index doesn't exist.
-        // We don't want to send or wait to receive response to this rpc.
-        // TODO(ankitak): This currently triggers an exception at the caller.
-        // We want to simply ignore.
-        state = CANCELED;
+    if (session == Transport::SessionRef()) {
+        // This index doesn't exist. No need to take any action.
+        state = FINISHED;
         return;
     }
     state = IN_PROGRESS;

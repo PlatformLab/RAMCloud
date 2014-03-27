@@ -15,6 +15,7 @@
 
 #include "Context.h"
 #include "ObjectFinder.h"
+#include "RamCloud.h"
 #include "RpcWrapper.h"
 
 #ifndef RAMCLOUD_INDEXRPCWRAPPER_H

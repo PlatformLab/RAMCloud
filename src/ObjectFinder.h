@@ -74,18 +74,21 @@ class ObjectFinder {
     Transport::SessionRef lookup(uint64_t tableId, const void* key,
                                  uint16_t keyLength);
     Transport::SessionRef lookup(uint64_t tableId, KeyHash keyHash);
-    const TabletWithLocator* lookupTablet(uint64_t table, KeyHash keyHash);
-
     Transport::SessionRef lookup(uint64_t tableId, uint8_t indexId,
                                  const void* key, uint16_t keyLength);
-    bool lookupServerId(uint64_t tableId, uint8_t indexId,
-                        const void* key, uint16_t keyLength,
-                        ServerId* serverId);
+
+    const Indexlet* lookupIndexlet(uint64_t tableId, uint8_t indexId,
+                                   const void* key, uint16_t keyLength);
+    const TabletWithLocator* lookupTablet(uint64_t table, KeyHash keyHash);
 
     void flush(uint64_t tableId);
     void flushSession(uint64_t tableId, KeyHash keyHash);
+    void flushSession(uint64_t tableId, uint8_t indexId,
+                      const void* key, uint16_t keyLength);
     void waitForTabletDown(uint64_t tableId);
     void waitForAllTabletsNormal(uint64_t tableId, uint64_t timeoutNs = ~0lu);
+
+    // TODO(ashgup): This is duplicated from Indexlet. Try to use that directly.
     static int keyCompare(const void* key1, uint16_t keyLength1,
                                         const void* key2, uint16_t keyLength2);
 
