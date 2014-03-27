@@ -1723,10 +1723,9 @@ MasterService::requestInsertIndexEntries(Object& object, uint64_t tableId,
 
         for (KeyCount keyIndex = 1; keyIndex <= keyCount; keyIndex++) {
             keyStrs[keyIndex] = object.getKey(keyIndex, &keyLengths[keyIndex]);
-            // TODO(ankitak): Uncomment after this is implemented.
-//            MasterClient::insertIndexEntry(
-//                    this, tableId, keyIndex,
-//                    keyStrs[keyIndex], keyLengths[keyIndex], primaryKeyHash);
+            MasterClient::insertIndexEntry(
+                    this, tableId, keyIndex,
+                    keyStrs[keyIndex], keyLengths[keyIndex], primaryKeyHash);
         }
     }
 }
@@ -1768,11 +1767,10 @@ MasterService::requestRemoveIndexEntries(
 
         for (KeyCount keyIndex = 1; keyIndex <= keyCount; keyIndex++) {
             keyStrs[keyIndex] = object.getKey(keyIndex, &keyLengths[keyIndex]);
-            // TODO(ankitak): Uncomment after this is implemented.
-//            MasterClient::removeIndexEntry(
-//                    this, tableId, keyIndex,
-//                    keyStrs[keyIndex], keyLengths[keyIndex],
-//                    primaryKeyHash);
+            MasterClient::removeIndexEntry(
+                    this, tableId, keyIndex,
+                    keyStrs[keyIndex], keyLengths[keyIndex],
+                    primaryKeyHash);
         }
     }
 }

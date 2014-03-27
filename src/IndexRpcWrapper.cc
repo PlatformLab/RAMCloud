@@ -142,11 +142,23 @@ IndexRpcWrapper::send()
     session = objectFinder->lookup(tableId, indexId, key, keyLength);
     if (session == Transport::SessionRef()) {
         // This index doesn't exist. No need to take any action.
-        state = FINISHED;
+        state = CANCELED;
         return;
     }
     state = IN_PROGRESS;
     session->sendRequest(&request, response, this);
+}
+
+// See RpcWrapper for documentation.
+void
+IndexRpcWrapper::simpleWait(Dispatch* dispatch)
+{
+    try {
+        RpcWrapper::simpleWait(dispatch);
+    } catch (RAMCloud::RpcCanceledException& e) {
+        // This index doesn't exist. No need to take any action.
+        // Other exceptions can get propagated.
+    }
 }
 
 } // namespace RAMCloud

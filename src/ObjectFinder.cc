@@ -236,7 +236,7 @@ ObjectFinder::lookup(uint64_t tableId, KeyHash keyHash)
  * 
  * \return
  *      Session for communication with the server who holds the indexlet.
- *      If the indexlet doesn't exist, return NULL.
+ *      If the indexlet doesn't exist, return a NULL session.
  */
 Transport::SessionRef
 ObjectFinder::lookup(uint64_t tableId, uint8_t indexId,
@@ -245,7 +245,7 @@ ObjectFinder::lookup(uint64_t tableId, uint8_t indexId,
     const Indexlet* indexlet = lookupIndexlet(tableId, indexId, key, keyLength);
     // If indexlet doesn't exist, don't throw an exception.
     if (indexlet == NULL) {
-        return NULL;
+        return Transport::SessionRef();
     }
     return context->transportManager->getSession(
                         indexlet->serviceLocator.c_str());
