@@ -132,6 +132,7 @@ class Cluster(object):
     @ivar replicas: Replication factor to use for each log segment. (default: 3)
     @ivar disk: Server args for specifying the storage device to use for
                 backups (default: default_disk1 taken from {,local}config.py).
+    @ivar disjunct: Disjunct (not collocate) entities on each server.
 
     === Other Stuff ===
     @ivar coordinator: None until start_coordinator() is run, then a
@@ -176,6 +177,7 @@ class Cluster(object):
         self.transport = 'infrc'
         self.replicas = 3
         self.disk = default_disk1
+        self.disjunct = False
 
         if cluster_name_exists: # do nothing if it exists
             self.cluster_name = None
@@ -556,6 +558,7 @@ def run(
         enable_logcabin=False,     # Do not enable logcabin.
         valgrind=False,		   # Do not run under valgrind
         valgrind_args='',	   # Additional arguments for valgrind
+        disjunct=False,            # Disjunct entities on a server
         coordinator_host=None
         ):       
     """
@@ -568,9 +571,20 @@ def run(
         raise Exception('You must specify a client binary to run '
                         '(try obj.master/client)')
 
-    if num_servers > len(hosts):
-        raise Exception('num_servers (%d) exceeds the available hosts (%d)'
-                        % (num_servers, len(hosts)))
+    if verbose:
+        print('num_servers=(%d), available hosts=(%d) defined in config.py'
+              % (num_servers, len(hosts)))
+        print ('disjunct=', disjunct)
+
+# When disjunct=True, disjuncts Coordinator and Clients on Server nodes.
+    if disjunct:
+        if num_servers + num_clients + 1 > len(hosts):
+            raise Exception('num_servers (%d)+num_clients (%d)+1(coord) exceeds the available hosts (%d)'
+                            % (num_servers, num_clients, len(hosts)))
+    else:
+        if num_servers > len(hosts):
+            raise Exception('num_servers (%d) exceeds the available hosts (%d)'
+                            % (num_servers, len(hosts)))
 
     if not share_hosts and not client_hosts:
         if (len(hosts) - num_servers) < 1:
@@ -593,11 +607,15 @@ def run(
         cluster.timeout = timeout
         cluster.disk = disk1
         cluster.enable_logcabin = enable_logcabin
+        cluster.disjunct = disjunct
+        cluster.hosts = hosts
 
         if not coordinator_host:
-            coordinator_host = hosts[0]
+            coordinator_host = cluster.hosts[0]
         coordinator = cluster.start_coordinator(coordinator_host,
                                                 coordinator_args)
+        if disjunct:
+            cluster.hosts.pop(0)
 
         if old_master_host:
             oldMaster = cluster.start_server(old_master_host,
@@ -607,7 +625,7 @@ def run(
             masters_started += 1
             cluster.ensure_servers(timeout=60)
 
-        for host in hosts[:num_servers]:
+        for host in cluster.hosts[:num_servers]:
             backup = False
             args = master_args
             if backups_per_server > 0:
@@ -617,12 +635,17 @@ def run(
             cluster.start_server(host, args, backup=backup)
             masters_started += 1
 
+        if disjunct:
+            cluster.hosts = cluster.hosts[num_servers:]
+
         if backups_per_server == 2:
-            for host in hosts[:num_servers]:
+            for host in cluster.hosts[:num_servers]:
                 cluster.start_server(host, backup_args,
                                      master=False,
                                      disk=disk2, port=second_backup_port)
                 backups_started += 1
+            if disjunct:
+                cluster.hosts = cluster.hosts[num_servers:]
 
         if debug:
             print('Servers started; pausing for debug setup.')
@@ -636,9 +659,13 @@ def run(
             # Note: even if it's OK to share hosts between clients and servers,
             # don't do it unless necessary.
             if not client_hosts:
-                host_list = hosts[num_servers:]
-                if share_hosts:
-                    host_list.extend(hosts[:num_servers])
+                if disjunct:
+                    host_list = cluster.hosts[:]
+                else:
+                    host_list = cluster.hosts[num_servers:]
+                    if share_hosts:
+                        host_list.extend(cluster.hosts[:num_servers])
+
                 client_hosts = [host_list[i % len(host_list)]
                                 for i in range(num_clients)]
             assert(len(client_hosts) == num_clients)
@@ -717,6 +744,9 @@ if __name__ == '__main__':
     parser.add_option('--valgrindArgs', metavar='ARGS', default='',
             dest='valgrind_args',
             help='Arguments to pass to valgrind')
+    parser.add_option('--disjunct', action='store_true', default=False,
+            help='Disjunct entities (disable collocation) on each server')
+
     (options, args) = parser.parse_args()
 
     status = 0

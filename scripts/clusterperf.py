@@ -149,6 +149,7 @@ def run_test(
         'share_hosts': True,
         'transport':   options.transport,
         'replicas':    options.replicas,
+        'disjunct':    options.disjunct,
         'verbose':     options.verbose
     }
     client_args = {}
@@ -321,6 +322,9 @@ if __name__ == '__main__':
     parser.add_option('-c', '--count', type=int,
             metavar='N', dest='count',
             help='Number of times to perform the operation')
+    parser.add_option('--disjunct', action='store_true', default=False,
+            metavar='True/False',
+            help='Disjunct (not collocate) entities on a server')
     parser.add_option('--debug', action='store_true', default=False,
             help='Pause after starting servers but before running '
                  'clients to enable debugging setup')
