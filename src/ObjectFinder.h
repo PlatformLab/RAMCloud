@@ -66,6 +66,7 @@ struct TabletWithLocator {
  */
 class ObjectFinder {
   public:
+    class Indexlet; // forward declaration, see full declaration below
     class TableConfigFetcher; // forward declaration, see full declaration below
 
     explicit ObjectFinder(Context* context);
@@ -73,18 +74,21 @@ class ObjectFinder {
     Transport::SessionRef lookup(uint64_t tableId, const void* key,
                                  uint16_t keyLength);
     Transport::SessionRef lookup(uint64_t tableId, KeyHash keyHash);
-    const TabletWithLocator* lookupTablet(uint64_t table, KeyHash keyHash);
-
     Transport::SessionRef lookup(uint64_t tableId, uint8_t indexId,
                                  const void* key, uint16_t keyLength);
-    bool lookupServerId(uint64_t tableId, uint8_t indexId,
-                        const void* key, uint16_t keyLength,
-                        ServerId* serverId);
+
+    const Indexlet* lookupIndexlet(uint64_t tableId, uint8_t indexId,
+                                   const void* key, uint16_t keyLength);
+    const TabletWithLocator* lookupTablet(uint64_t table, KeyHash keyHash);
 
     void flush(uint64_t tableId);
     void flushSession(uint64_t tableId, KeyHash keyHash);
+    void flushSession(uint64_t tableId, uint8_t indexId,
+                      const void* key, uint16_t keyLength);
     void waitForTabletDown(uint64_t tableId);
     void waitForAllTabletsNormal(uint64_t tableId, uint64_t timeoutNs = ~0lu);
+
+    // TODO(ashgup): This is duplicated from Indexlet. Try to use that directly.
     static int keyCompare(const void* key1, uint16_t keyLength1,
                                         const void* key2, uint16_t keyLength2);
 
@@ -129,6 +133,34 @@ class ObjectFinder {
     std::unique_ptr<ObjectFinder::TableConfigFetcher> tableConfigFetcher;
 
     DISALLOW_COPY_AND_ASSIGN(ObjectFinder);
+};
+
+/**
+ * The following class holds information about a single indexlet of a given index
+ * on a table.
+ */
+class ObjectFinder::Indexlet : public RAMCloud::Indexlet {
+    public:
+    Indexlet(const void *firstKey, uint16_t firstKeyLength,
+             const void *firstNotOwnedKey, uint16_t firstNotOwnedKeyLength,
+             ServerId serverId, string serviceLocator)
+        : RAMCloud::Indexlet(firstKey, firstKeyLength, firstNotOwnedKey,
+                   firstNotOwnedKeyLength)
+        , serverId(serverId)
+        , serviceLocator(serviceLocator)
+    {}
+
+    Indexlet(const Indexlet& indexlet)
+        : RAMCloud::Indexlet(indexlet)
+        , serverId(indexlet.serverId)
+        , serviceLocator(indexlet.serviceLocator)
+    {}
+
+    /// The server id of the master owning this indexlet.
+    ServerId serverId;
+
+    /// The service locator for this indexlet.
+    string serviceLocator;
 };
 
 /**

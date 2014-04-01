@@ -24,7 +24,7 @@ struct Refresher : public ObjectFinder::TableConfigFetcher {
          uint64_t tableId,
          std::map<TabletKey, TabletWithLocator>* tableMap,
          std::multimap< std::pair<uint64_t, uint8_t>,
-                                    Indexlet>* tableIndexMap) {
+                                ObjectFinder::Indexlet>* tableIndexMap) {
 
         tableMap->clear();
         Tablet rawTablet2({1, 0, ~0, ServerId(),
@@ -95,14 +95,14 @@ struct Refresher : public ObjectFinder::TableConfigFetcher {
             char* l = new char('l');
             char* w = new char('w');
 
-            Indexlet indexlet0(reinterpret_cast<void*>(b), 1,
+            ObjectFinder::Indexlet indexlet0(reinterpret_cast<void*>(b), 1,
                 reinterpret_cast<void*>(l), 1, ServerId(), "mock:host=server0");
-            Indexlet indexlet1(reinterpret_cast<void*>(l), 1,
+            ObjectFinder::Indexlet indexlet1(reinterpret_cast<void*>(l), 1,
                 reinterpret_cast<void*>(w), 1, ServerId(), "mock:host=server1");
-            Indexlet indexlet2(NULL, 0, reinterpret_cast<void*>(l), 1,
-                                            ServerId(), "mock:host=server2");
-            Indexlet indexlet3(reinterpret_cast<void*>(l), 1, NULL, 0,
-                                            ServerId(), "mock:host=server3");
+            ObjectFinder::Indexlet indexlet2(NULL, 0, reinterpret_cast<void*>(l)
+                                         , 1, ServerId(), "mock:host=server2");
+            ObjectFinder::Indexlet indexlet3(reinterpret_cast<void*>(l), 1, NULL
+                                         , 0, ServerId(), "mock:host=server3");
 
             tableIndexMap->insert(std::make_pair(
                                             std::make_pair(1, 0), indexlet0));
@@ -252,9 +252,7 @@ TEST_F(ObjectFinderTest, lookupIndexlet) {
     // before any of the valid indexlets
     Transport::SessionRef session0(objectFinder->lookup(1, 0,
                                             reinterpret_cast<void*>(&a), 1));
-    EXPECT_EQ("fail:",
-        static_cast<BindTransport::BindSession*>(session0.get())->
-                getServiceLocator());
+    EXPECT_EQ(Transport::SessionRef(), session0);
 
     // start of the first indexlet
     Transport::SessionRef session1(objectFinder->lookup(1, 0,
@@ -280,16 +278,12 @@ TEST_F(ObjectFinderTest, lookupIndexlet) {
     // end of the second or last indexlet
     Transport::SessionRef session4(objectFinder->lookup(1, 0,
                                             reinterpret_cast<void*>(&w), 1));
-    EXPECT_EQ("fail:",
-        static_cast<BindTransport::BindSession*>(session4.get())->
-                getServiceLocator());
+    EXPECT_EQ(Transport::SessionRef(), session4);
 
     // beyond the last indexlet
     Transport::SessionRef session5(objectFinder->lookup(1, 0,
                                             reinterpret_cast<void*>(&z), 1));
-    EXPECT_EQ("fail:",
-        static_cast<BindTransport::BindSession*>(session5.get())->
-                getServiceLocator());
+    EXPECT_EQ(Transport::SessionRef(), session5);
 
     // where first key is NULL
     Transport::SessionRef session6(objectFinder->lookup(1, 1,

@@ -405,6 +405,49 @@ TEST_F(ObjectTest, assembleForLog) {
                          data)));
 }
 
+TEST_F(ObjectTest, appendKeysToBuffer_singleKey) {
+    Object& object = *singleKeyObject;
+    Buffer buffer;
+    object.appendKeysToBuffer(buffer);
+    EXPECT_EQ(6U, buffer.getTotalLength());
+
+    const KeyCount numKeys= *buffer.getOffset<KeyCount>(0);
+    EXPECT_EQ(1U, numKeys);
+    EXPECT_EQ(3, *buffer.getOffset<CumulativeKeyLength>(sizeof(KeyCount)));
+    EXPECT_EQ("ha", string(reinterpret_cast<const char*>(
+                    buffer.getRange(3, 3))));
+
+    Object reconstructObj(1, 0, 0, buffer);
+    EXPECT_EQ(1U, reconstructObj.getKeyCount());
+    EXPECT_EQ("ha", string(reinterpret_cast<const char*>(
+                        reconstructObj.getKey(0))));
+}
+
+TEST_F(ObjectTest, appendKeysToBuffer_multipleKeys) {
+    for (uint32_t i = 0; i < arrayLength(objects); i++) {
+        Object& object = *objects[i];
+        Buffer buffer;
+        object.appendKeysToBuffer(buffer);
+        EXPECT_EQ(16U, buffer.getTotalLength());
+
+        const KeyCount numKeys= *buffer.getOffset<KeyCount>(0);
+        EXPECT_EQ(3U, numKeys);
+
+        EXPECT_EQ(3, *buffer.getOffset<CumulativeKeyLength>(sizeof(KeyCount)));
+        EXPECT_EQ(6, *buffer.getOffset<CumulativeKeyLength>(sizeof(KeyCount) +
+                                sizeof(CumulativeKeyLength)));
+        EXPECT_EQ(9, *buffer.getOffset<CumulativeKeyLength>(sizeof(KeyCount) +
+                                2*sizeof(CumulativeKeyLength)));
+
+        EXPECT_EQ("ha", string(reinterpret_cast<const char*>(
+                                buffer.getRange(7, 3))));
+        EXPECT_EQ("hi", string(reinterpret_cast<const char*>(
+                                buffer.getRange(10, 3))));
+        EXPECT_EQ("ho", string(reinterpret_cast<const char*>(
+                                buffer.getRange(13, 3))));
+    }
+}
+
 TEST_F(ObjectTest, appendKeysAndValueToBuffer) {
     for (uint32_t i = 0; i < arrayLength(objects); i++) {
         Object& object = *objects[i];
@@ -485,7 +528,7 @@ TEST_F(ObjectTest, appendKeysAndValueToBuffer_writeMultipleKeys) {
                     buffer.getRange(16, 4))));
 }
 
-TEST_F(ObjectTest, appendKeysAndValueToBuffer_writeSingleleKey) {
+TEST_F(ObjectTest, appendKeysAndValueToBuffer_writeSingleKey) {
     Buffer buffer;
     Key key(57, "ha", 3);
 

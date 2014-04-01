@@ -1,4 +1,4 @@
-/* Copyright (c) 2013 Stanford University
+/* Copyright (c) 2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -15,79 +15,89 @@
 
 #include "TestUtil.h"
 #include "MockTransport.h"
-#include "ObjectRpcWrapper.h"
+#include "IndexRpcWrapper.h"
 #include "ShortMacros.h"
 
 namespace RAMCloud {
 
 // This class provides tablet map info to ObjectFinder, with a
 // different locator each time it is invoked.
-class ObjRpcWrapperRefresher : public ObjectFinder::TableConfigFetcher {
+class IndexRpcWrapperRefresher : public ObjectFinder::TableConfigFetcher {
   public:
-    ObjRpcWrapperRefresher() : called(0) {}
-    void getTableConfig(
-        uint64_t tableId,
-        std::map<TabletKey, TabletWithLocator>* tableMap,
-        std::multimap< std::pair<uint64_t, uint8_t>,
-                                    ObjectFinder::Indexlet>* tableIndexMap) {
+    IndexRpcWrapperRefresher() : called(0) {}
+    void getTableConfig(uint64_t tableId,
+                        std::map<TabletKey, TabletWithLocator>* tableMap,
+                        std::multimap<std::pair<uint64_t, uint8_t>,
+                                      ObjectFinder::Indexlet>* tableIndexMap) {
 
         called++;
         char buffer[100];
         snprintf(buffer, sizeof(buffer), "mock:refresh=%d", called);
 
-        tableMap->clear();
-        Tablet rawEntry({10, 0, ~0, ServerId(),
-                    Tablet::NORMAL, Log::Position()});
-        TabletWithLocator entry(rawEntry, buffer);
+        // TODO(ankitak): Remove if not needed.
+//        tableMap->clear();
+//        Tablet rawEntry({10, 0, ~0, ServerId(),
+//                    Tablet::NORMAL, Log::Position()});
+//        TabletWithLocator entry(rawEntry, buffer);
+//        TabletKey key {entry.tablet.tableId, entry.tablet.startKeyHash};
+//        tableMap->insert(std::make_pair(key, entry));
 
-        TabletKey key {entry.tablet.tableId, entry.tablet.startKeyHash};
-        tableMap->insert(std::make_pair(key, entry));
+        tableIndexMap->clear();
+        auto id = std::make_pair(10, 1); // Pair of table id and index id.
+        // TODO(ankitak): Make it hold everything.
+        ObjectFinder::Indexlet indexlet("a", 1, "z", 1, ServerId(), buffer);
+        tableIndexMap->insert(std::make_pair(id, indexlet));
     }
     uint32_t called;
 };
 
-class ObjectRpcWrapperTest : public ::testing::Test {
+class IndexRpcWrapperTest : public ::testing::Test {
   public:
     RamCloud ramcloud;
     MockTransport transport;
 
-    ObjectRpcWrapperTest()
+    IndexRpcWrapperTest()
         : ramcloud("mock:")
         , transport(ramcloud.clientContext)
     {
         ramcloud.objectFinder.tableConfigFetcher.reset(
-                new ObjRpcWrapperRefresher);
+                new IndexRpcWrapperRefresher);
         ramcloud.clientContext->transportManager->registerMock(&transport);
     }
 
-    ~ObjectRpcWrapperTest()
+    ~IndexRpcWrapperTest()
     {
     }
 
-    DISALLOW_COPY_AND_ASSIGN(ObjectRpcWrapperTest);
+    DISALLOW_COPY_AND_ASSIGN(IndexRpcWrapperTest);
 };
 
-TEST_F(ObjectRpcWrapperTest, checkStatus_unknownTablet) {
+TEST_F(IndexRpcWrapperTest, checkStatus_unknownIndexlet) {
     TestLog::Enable _;
-    ObjectRpcWrapper wrapper(&ramcloud, 10, "abc", 3, 4);
+    Buffer responseBuffer;
+    IndexRpcWrapper wrapper(&ramcloud, 10, 1, "abc", 3, 4, &responseBuffer);
     wrapper.request.fillFromString("100");
     wrapper.send();
     EXPECT_EQ("mock:refresh=1", wrapper.session->getServiceLocator());
     (new(wrapper.response, APPEND) WireFormat::ResponseCommon)->status =
-            STATUS_UNKNOWN_TABLET;
+            STATUS_UNKNOWN_INDEXLET;
     wrapper.state = RpcWrapper::RpcState::FINISHED;
     EXPECT_FALSE(wrapper.isReady());
     EXPECT_STREQ("IN_PROGRESS", wrapper.stateString());
     EXPECT_EQ("checkStatus: Server mock:refresh=1 doesn't store "
-            "<10, 0xac94bec52029fa02>; refreshing object map | "
+            "given secondary key for table 10, index id 1; "
+            "refreshing object map | "
             "flush: flushing object map",
             TestLog::get());
     EXPECT_EQ("mock:refresh=2", wrapper.session->getServiceLocator());
 }
 
-TEST_F(ObjectRpcWrapperTest, checkStatus_otherError) {
+// TODO(ankitak): Continue from here.
+
+TEST_F(IndexRpcWrapperTest, checkStatus_otherError) {
     TestLog::Enable _;
-    ObjectRpcWrapper wrapper(&ramcloud, 10, "abc", 3, 4);
+    Buffer responseBuffer;
+    IndexRpcWrapper wrapper(&ramcloud, 10, 1, "abc", 3, 4, &responseBuffer);
     wrapper.request.fillFromString("100");
     wrapper.send();
     (new(wrapper.response, APPEND) WireFormat::ResponseCommon)->status =
@@ -99,9 +109,10 @@ TEST_F(ObjectRpcWrapperTest, checkStatus_otherError) {
     EXPECT_EQ("mock:refresh=1", wrapper.session->getServiceLocator());
 }
 
-TEST_F(ObjectRpcWrapperTest, handleTransportError) {
+TEST_F(IndexRpcWrapperTest, handleTransportError) {
     TestLog::Enable _;
-    ObjectRpcWrapper wrapper(&ramcloud, 10, "abc", 3, 4);
+    Buffer responseBuffer;
+    IndexRpcWrapper wrapper(&ramcloud, 10, 1, "abc", 3, 4, &responseBuffer);
     wrapper.request.fillFromString("100");
     wrapper.send();
     EXPECT_EQ("mock:refresh=1", wrapper.session->getServiceLocator());
@@ -113,8 +124,9 @@ TEST_F(ObjectRpcWrapperTest, handleTransportError) {
     EXPECT_EQ("mock:refresh=2", wrapper.session->getServiceLocator());
 }
 
-TEST_F(ObjectRpcWrapperTest, send) {
-    ObjectRpcWrapper wrapper(&ramcloud, 10, "abc", 3, 4);
+TEST_F(IndexRpcWrapperTest, send) {
+    Buffer responseBuffer;
+    IndexRpcWrapper wrapper(&ramcloud, 10, 1, "abc", 3, 4, &responseBuffer);
     wrapper.request.fillFromString("100");
     wrapper.send();
     EXPECT_STREQ("IN_PROGRESS", wrapper.stateString());

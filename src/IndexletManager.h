@@ -22,6 +22,7 @@
 #include "HashTable.h"
 #include "SpinLock.h"
 #include "Object.h"
+#include "Indexlet.h"
 #include "btree/BtreeMultimap.h"
 
 namespace RAMCloud {
@@ -75,73 +76,21 @@ class IndexletManager {
      * Indexlets describe contiguous ranges of secondary key space for a
      * particular index for a given table.
      */
-    class Indexlet {
-      PUBLIC:
+    class Indexlet : public RAMCloud::Indexlet {
+        public:
         Indexlet(const void *firstKey, uint16_t firstKeyLength,
-                 const void *firstNotOwnedKey, uint16_t firstNotOwnedKeyLength)
-            : firstKey(NULL)
-            , firstKeyLength(firstKeyLength)
-            , firstNotOwnedKey(NULL)
-            , firstNotOwnedKeyLength(firstNotOwnedKeyLength)
+                  const void *firstNotOwnedKey, uint16_t firstNotOwnedKeyLength)
+            : RAMCloud::Indexlet(firstKey, firstKeyLength, firstNotOwnedKey,
+                       firstNotOwnedKeyLength)
             , bt()
-        {
-            if (firstKeyLength != 0){
-                this->firstKey = malloc(firstKeyLength);
-                memcpy(this->firstKey, firstKey, firstKeyLength);
-            }
-            if (firstNotOwnedKeyLength != 0){
-                this->firstNotOwnedKey = malloc(firstNotOwnedKeyLength);
-                memcpy(this->firstNotOwnedKey, firstNotOwnedKey,
-                                                        firstNotOwnedKeyLength);
-            }
-        }
+        {}
 
         Indexlet(const Indexlet& indexlet)
-            : firstKey(NULL)
-            , firstKeyLength(indexlet.firstKeyLength)
-            , firstNotOwnedKey(NULL)
-            , firstNotOwnedKeyLength(indexlet.firstNotOwnedKeyLength)
+            : RAMCloud::Indexlet(indexlet)
             , bt(indexlet.bt)
-        {
-            if (firstKeyLength != 0){
-                this->firstKey = malloc(firstKeyLength);
-                memcpy(this->firstKey, indexlet.firstKey, firstKeyLength);
-            }
-            if (firstNotOwnedKeyLength != 0){
-                this->firstNotOwnedKey = malloc(firstNotOwnedKeyLength);
-                memcpy(this->firstNotOwnedKey, indexlet.firstNotOwnedKey,
-                                                        firstNotOwnedKeyLength);
-            }
-        }
+        {}
 
-        Indexlet& operator =(const Indexlet& indexlet)
-        {
-            this->firstKey = NULL;
-            this->firstKeyLength = indexlet.firstKeyLength;
-            this->firstNotOwnedKey = NULL;
-            this->firstNotOwnedKeyLength = indexlet.firstNotOwnedKeyLength;
-            this->bt = indexlet.bt;
-
-            if (firstKeyLength != 0){
-                this->firstKey = malloc(firstKeyLength);
-                memcpy(this->firstKey, indexlet.firstKey, firstKeyLength);
-            }
-            if (firstNotOwnedKeyLength != 0){
-                this->firstNotOwnedKey = malloc(firstNotOwnedKeyLength);
-                memcpy(this->firstNotOwnedKey, indexlet.firstNotOwnedKey,
-                                                        firstNotOwnedKeyLength);
-            }
-            return *this;
-        }
-
-        ~Indexlet()
-        {
-            if (firstKeyLength != 0)
-                free(firstKey);
-            if (firstNotOwnedKeyLength != 0)
-                free(firstNotOwnedKey);
-        }
-
+        // Btree key compare function
         struct KeyAndHashCompare
         {
           public:
@@ -172,24 +121,8 @@ class IndexletManager {
         typedef stx::btree_multimap<KeyAndHash, uint64_t,
                 KeyAndHashCompare> Btree;
 
-        /// Blob for the smallest key that is in this indexlet. Keys is
-        /// allocated during adding indexlet and freed while deleting.
-        void *firstKey;
-
-        /// Length of the firstKey.
-        uint16_t firstKeyLength;
-
-        /// Blob for the first key in the key space for the owning index, which
-        /// is not present in this indexlet. Storage same as firstKey.
-        void *firstNotOwnedKey;
-
-        /// Length of the firstNotOwnedKey.
-        uint16_t firstNotOwnedKeyLength;
-
-        /// Instance of the B+ tree used to hold the indexes
         Btree bt;
     };
-
 
     explicit IndexletManager(Context* context);
 

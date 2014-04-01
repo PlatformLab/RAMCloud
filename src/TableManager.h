@@ -88,6 +88,28 @@ class TableManager {
 
   PRIVATE:
     /**
+     * The following structure holds information about a indexlet of an index.
+     */
+    struct Indexlet : public RAMCloud::Indexlet {
+        public:
+        Indexlet(const void *firstKey, uint16_t firstKeyLength,
+                 const void *firstNotOwnedKey, uint16_t firstNotOwnedKeyLength,
+                 ServerId serverId)
+            : RAMCloud::Indexlet(firstKey, firstKeyLength, firstNotOwnedKey,
+                       firstNotOwnedKeyLength)
+            , serverId(serverId)
+        {}
+
+        Indexlet(const Indexlet& indexlet)
+            : RAMCloud::Indexlet(indexlet)
+            , serverId(indexlet.serverId)
+        {}
+
+        /// The server id of the master owning this indexlet.
+        ServerId serverId;
+    };
+
+    /**
      * The following class holds information about a single index of a table.
      */
     struct Index {

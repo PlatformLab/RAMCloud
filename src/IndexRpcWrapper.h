@@ -15,6 +15,7 @@
 
 #include "Context.h"
 #include "ObjectFinder.h"
+#include "RamCloud.h"
 #include "RpcWrapper.h"
 
 #ifndef RAMCLOUD_INDEXRPCWRAPPER_H
@@ -26,8 +27,6 @@ namespace RAMCloud {
 class RamCloud;
 class MasterService;
 
-// TODO(ankitak): This class needs unit testing!
-
 /**
  * IndexRpcWrapper manages the client side of RPCs that must be sent to
  * the server that store a particular the first index key of a key range.
@@ -37,20 +36,18 @@ class MasterService;
  * 
  * RPCs using this wrapper will never fail to complete, though they may loop
  * forever. This wrapper is used for index lookup operation in RamCloud.
- * 
- * 
  */
 class IndexRpcWrapper : public RpcWrapper {
   public:
     explicit IndexRpcWrapper(
             RamCloud* ramcloud, uint64_t tableId, uint8_t indexId,
             const void* key, uint16_t keyLength,
-            uint32_t responseHeaderLength, Buffer* responseBuffer);
+            uint32_t responseHeaderLength, Buffer* responseBuffer = NULL);
 
     explicit IndexRpcWrapper(
             MasterService* master, uint64_t tableId, uint8_t indexId,
             const void* key, uint16_t keyLength,
-            uint32_t responseHeaderLength);
+            uint32_t responseHeaderLength, Buffer* responseBuffer = NULL);
 
     /**
      * Destructor for IndexRpcWrapper.
@@ -61,6 +58,7 @@ class IndexRpcWrapper : public RpcWrapper {
     virtual bool checkStatus();
     virtual bool handleTransportError();
     virtual void send();
+    void simpleWait();
 
     /// Overall information about the calling process.
     Context* context;
@@ -75,7 +73,6 @@ class IndexRpcWrapper : public RpcWrapper {
     uint8_t indexId;
     const void* key;
     uint16_t keyLength;
-    Buffer* responseBuffer;
 
     DISALLOW_COPY_AND_ASSIGN(IndexRpcWrapper);
 };
