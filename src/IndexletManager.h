@@ -45,7 +45,7 @@ class IndexletManager {
     /// Structure used as the key for key-value pairs in the indexlet tree.
     struct KeyAndHash {
         /// Actual bytes of the index key.
-        const void* key;
+        void* key;
         /// Length of index key.
         uint16_t keyLength;
         /// Primary key hash of the object the index key points to.
@@ -53,6 +53,54 @@ class IndexletManager {
         /// sorting on the key hash if there are multiple index keys with the
         /// same value of key and keyLength.
         uint64_t pKHash;
+
+        // btree code uses  empty constructor for keys
+        KeyAndHash()
+        : key()
+        , keyLength()
+        , pKHash()
+        {}
+
+        KeyAndHash(const void *key, uint16_t keyLength, uint64_t pKHash)
+        : key(NULL)
+        , keyLength(keyLength)
+        , pKHash(pKHash)
+        {
+            if (keyLength != 0){
+                this->key = malloc(keyLength);
+                memcpy(this->key, key, keyLength);
+            }
+        }
+
+        KeyAndHash(const KeyAndHash& keyAndHash)
+        : key(NULL)
+        , keyLength(keyAndHash.keyLength)
+        , pKHash(keyAndHash.pKHash)
+        {
+            if (keyLength != 0){
+                this->key = malloc(keyLength);
+                memcpy(this->key, keyAndHash.key, keyLength);
+            }
+        }
+
+        KeyAndHash& operator =(const KeyAndHash& keyAndHash)
+        {
+            this->key = NULL;
+            this->keyLength = keyAndHash.keyLength;
+            this->pKHash = keyAndHash.pKHash;
+
+            if (keyLength != 0){
+                this->key = malloc(keyLength);
+                memcpy(this->key, keyAndHash.key, keyLength);
+            }
+            return *this;
+        }
+
+        ~KeyAndHash()
+        {
+            if (keyLength != 0)
+                free(key);
+        }
     };
 
     /// Structure used to define a range of keys [first key, last key]

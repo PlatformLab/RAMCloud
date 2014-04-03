@@ -26,6 +26,7 @@
 #include "MasterClient.h"
 #include "MasterService.h"
 #include "ObjectBuffer.h"
+#include "PerfCounter.h"
 #include "ProtoBuf.h"
 #include "RawMetrics.h"
 #include "Segment.h"
@@ -34,7 +35,6 @@
 #include "Transport.h"
 #include "Tub.h"
 #include "WallTime.h"
-#include "PerfCounter.h"
 
 namespace RAMCloud {
 
@@ -148,6 +148,7 @@ MasterService::dispatch(WireFormat::Opcode opcode, Rpc* rpc)
         case WireFormat::InsertIndexEntry::opcode:
             callHandler<WireFormat::InsertIndexEntry, MasterService,
                         &MasterService::insertIndexEntry>(rpc);
+            break;
         case WireFormat::IsReplicaNeeded::opcode:
             callHandler<WireFormat::IsReplicaNeeded, MasterService,
                         &MasterService::isReplicaNeeded>(rpc);
@@ -191,6 +192,7 @@ MasterService::dispatch(WireFormat::Opcode opcode, Rpc* rpc)
         case WireFormat::RemoveIndexEntry::opcode:
             callHandler<WireFormat::RemoveIndexEntry, MasterService,
                         &MasterService::removeIndexEntry>(rpc);
+            break;
         case WireFormat::SplitMasterTablet::opcode:
             callHandler<WireFormat::SplitMasterTablet, MasterService,
                         &MasterService::splitMasterTablet>(rpc);
@@ -1050,7 +1052,6 @@ MasterService::multiRemove(const WireFormat::MultiOp::Request* reqHdr,
 
     // Store info about objects being removed so that we can later
     // remove index entries corresponding to them.
-    // TODO(ankitak): Are we okay with allocating this much space temporarily?
     Status statuses[numRequests];
     uint64_t tableIds[numRequests];
     KeyHash keyHashes[numRequests];
@@ -1138,7 +1139,6 @@ MasterService::multiWrite(const WireFormat::MultiOp::Request* reqHdr,
 
     // Store info about objects being written and removed (overwritten)
     // so that we can later add and remove index entries corresponding to them.
-    // TODO(ankitak): Are we okay with allocating this much space temporarily?
     uint64_t tableIds[numRequests];
     KeyHash keyHashes[numRequests];
     bool toRemove[numRequests];
@@ -1717,16 +1717,19 @@ MasterService::requestInsertIndexEntries(Object& object, uint64_t tableId,
 {
     KeyCount keyCount = object.getKeyCount();
 
-    if (keyCount > 1) {
-        KeyLength keyLengths[keyCount];
-        const void* keyStrs[keyCount];
+    for (KeyCount keyIndex = 1; keyIndex <= keyCount - 1; keyIndex++) {
+        KeyLength keyLength;
+        const void* key = object.getKey(keyIndex, &keyLength);
 
-        for (KeyCount keyIndex = 1; keyIndex <= keyCount; keyIndex++) {
-            keyStrs[keyIndex] = object.getKey(keyIndex, &keyLengths[keyIndex]);
-            MasterClient::insertIndexEntry(
-                    this, tableId, keyIndex,
-                    keyStrs[keyIndex], keyLengths[keyIndex], primaryKeyHash);
-        }
+        RAMCLOUD_LOG(DEBUG, "Inserting index entry for tableId %lu, "
+                            "keyIndex %u, key %s, primaryKeyHash %lu",
+                            tableId, keyIndex,
+                            string(reinterpret_cast<const char*>(key),
+                                   keyLength).c_str(),
+                            primaryKeyHash);
+
+        MasterClient::insertIndexEntry(this, tableId, keyIndex,
+                                       key, keyLength, primaryKeyHash);
     }
 }
 
@@ -1761,17 +1764,19 @@ MasterService::requestRemoveIndexEntries(
     Object object(tableId, 0, 0, objectBuffer);
     KeyCount keyCount = object.getKeyCount();
 
-    if (keyCount > 1) {
-        KeyLength keyLengths[keyCount];
-        const void* keyStrs[keyCount];
+    for (KeyCount keyIndex = 1; keyIndex <= keyCount - 1; keyIndex++) {
+        KeyLength keyLength;
+        const void* key = object.getKey(keyIndex, &keyLength);
 
-        for (KeyCount keyIndex = 1; keyIndex <= keyCount; keyIndex++) {
-            keyStrs[keyIndex] = object.getKey(keyIndex, &keyLengths[keyIndex]);
-            MasterClient::removeIndexEntry(
-                    this, tableId, keyIndex,
-                    keyStrs[keyIndex], keyLengths[keyIndex],
-                    primaryKeyHash);
-        }
+        RAMCLOUD_LOG(DEBUG, "Removing index entry for tableId %lu, "
+                            "keyIndex %u, key %s, primaryKeyHash %lu",
+                            tableId, keyIndex,
+                            string(reinterpret_cast<const char*>(key),
+                                   keyLength).c_str(),
+                            primaryKeyHash);
+
+        MasterClient::removeIndexEntry(this, tableId, keyIndex,
+                                       key, keyLength, primaryKeyHash);
     }
 }
 

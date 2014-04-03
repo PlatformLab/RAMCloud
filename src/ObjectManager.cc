@@ -201,7 +201,6 @@ ObjectManager::IndexedRead::readNext(uint32_t* numObjects, uint32_t* length)
             *numObjects += 1;
             new(response, APPEND) uint64_t(object.getVersion());
             new(response, APPEND) uint32_t(object.getKeysAndValueLength());
-            // TODO(ankitak): Will this be okay after lifetime of object?
             object.appendKeysAndValueToBuffer(*response);
         }
 

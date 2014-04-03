@@ -16,6 +16,7 @@
 #include "Common.h"
 #include "IndexletManager.h"
 #include "StringUtil.h"
+#include "Util.h"
 
 namespace RAMCloud {
 
@@ -276,6 +277,12 @@ IndexletManager::insertEntry(uint64_t tableId, uint8_t indexId,
                              uint64_t pKHash)
 {
     Lock guard(lock);
+
+    RAMCLOUD_LOG(DEBUG, "Inserting: tableId %lu, indexId %u, hash %lu,\n"
+                        "key: %s",
+                        tableId, indexId, pKHash,
+                        Util::hexDump(key, keyLength).c_str());
+
     IndexletMap::iterator it =
             lookupIndexlet(tableId, indexId, key, keyLength, guard);
     if (it == indexletMap.end())
@@ -344,6 +351,14 @@ IndexletManager::lookupIndexKeys(uint64_t tableId, uint8_t indexId,
                                  uint16_t* nextKeyLength, uint64_t* nextKeyHash)
 {
     Lock guard(lock);
+
+    RAMCLOUD_LOG(DEBUG, "Looking up: tableId %lu, indexId %u.\n"
+                        "first key: %s\n"
+                        "last  key: %s\n",
+                        tableId, indexId,
+                        Util::hexDump(firstKey, firstKeyLength).c_str(),
+                        Util::hexDump(lastKey, lastKeyLength).c_str());
+
     IndexletMap::iterator mapIter =
             lookupIndexlet(tableId, indexId, firstKey, firstKeyLength, guard);
     if (mapIter == indexletMap.end())
@@ -376,7 +391,10 @@ IndexletManager::lookupIndexKeys(uint64_t tableId, uint8_t indexId,
            iter != iterEnd) {
 
         if (*numHashes < maxNumHashes) {
-            new(responseBuffer, APPEND) uint64_t(iter.data());
+            // Can alternatively use iter.data() instead of iter.key().pKHash,
+            // but we might want to make data NULL in the future, so might
+            // as well use the pKHash from key right away.
+            new(responseBuffer, APPEND) uint64_t(iter.key().pKHash);
             *numHashes += 1;
             ++iter;
         } else {
@@ -388,7 +406,6 @@ IndexletManager::lookupIndexKeys(uint64_t tableId, uint8_t indexId,
 
         *nextKeyLength = uint16_t(iter.key().keyLength);
         *nextKeyHash = iter.data();
-        // TODO(ankitak): Is this ok or do i need to allocate space in buffer?
         responseBuffer->append(iter.key().key,
                                uint32_t(iter.key().keyLength));
 
@@ -397,9 +414,8 @@ IndexletManager::lookupIndexKeys(uint64_t tableId, uint8_t indexId,
 
         *nextKeyLength = indexlet->firstNotOwnedKeyLength;
         *nextKeyHash = 0;
-        // TODO(ankitak): Is this ok or do i need to allocate space in buffer?
         responseBuffer->append(indexlet->firstNotOwnedKey,
-                               indexlet->firstNotOwnedKeyLength);
+                indexlet->firstNotOwnedKeyLength);
     }
 
     return STATUS_OK;
@@ -428,6 +444,12 @@ IndexletManager::removeEntry(uint64_t tableId, uint8_t indexId,
                              uint64_t pKHash)
 {
     Lock guard(lock);
+
+    RAMCLOUD_LOG(DEBUG, "Removing: tableId %lu, indexId %u, hash %lu,\n"
+                        "key: %s",
+                        tableId, indexId, pKHash,
+                        Util::hexDump(key, keyLength).c_str());
+
     IndexletMap::iterator it =
             lookupIndexlet(tableId, indexId, key, keyLength, guard);
     if (it == indexletMap.end())
@@ -500,6 +522,10 @@ int
 IndexletManager::keyCompare(const void* key1, uint16_t keyLength1,
                             const void* key2, uint16_t keyLength2)
 {
+    RAMCLOUD_LOG(DEBUG, "Comparing keys: %s vs %s",
+            string(reinterpret_cast<const char*>(key1), keyLength1).c_str(),
+            string(reinterpret_cast<const char*>(key2), keyLength2).c_str());
+
     int keyCmp = bcmp(key1, key2, std::min(keyLength1, keyLength2));
 
     if (keyCmp != 0) {

@@ -230,7 +230,7 @@ GetHeadOfLogRpc::wait()
 /**
  * This RPC is sent to an index server to request that it insert an index
  * entry in an indexlet it holds.
-
+ * 
  * \param master
  *      Overall information about this RAMCloud server.
  * \param tableId

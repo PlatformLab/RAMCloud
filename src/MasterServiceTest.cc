@@ -1505,6 +1505,90 @@ TEST_F(MasterServiceTest, write_rejectRules) {
     EXPECT_EQ(VERSION_NONEXISTENT, version);
 }
 
+TEST_F(MasterServiceTest, requestInsertIndexEntries_noIndexEntries) {
+    TestLog::Enable _;
+    uint64_t tableId = 1;
+    Key key(tableId, "key0", 4);
+    Buffer objBuffer;
+    Object obj(key, "value", 5, 1, 0, objBuffer);
+    service->requestInsertIndexEntries(obj, tableId, key.getHash());
+    EXPECT_EQ("", TestLog::get());
+}
+
+TEST_F(MasterServiceTest, requestInsertIndexEntries_basics) {
+    TestLog::Enable _;
+
+    uint64_t tableId = 1;
+    uint8_t numKeys = 3;
+
+    KeyInfo keyList[3];
+    keyList[0].keyLength = 4;
+    keyList[0].key = "key0";
+    keyList[1].keyLength = 4;
+    keyList[1].key = "key1";
+    keyList[2].keyLength = 4;
+    keyList[2].key = "key2";
+
+    Buffer keysAndValBuffer;
+    Object::appendKeysAndValueToBuffer(tableId, numKeys, keyList,
+                                       "value", 5, keysAndValBuffer);
+    Object obj(tableId, 1, 0, keysAndValBuffer);
+    Key key(tableId, keyList[0].key, keyList[0].keyLength);
+
+    service->requestInsertIndexEntries(obj, tableId, key.getHash());
+    EXPECT_EQ(format("requestInsertIndexEntries: "
+                     "Inserting index entry for tableId 1, keyIndex 1, "
+                     "key key1, primaryKeyHash %lu | "
+                     "requestInsertIndexEntries: "
+                     "Inserting index entry for tableId 1, keyIndex 2, "
+                     "key key2, primaryKeyHash %lu" ,
+                     key.getHash(), key.getHash()),
+              TestLog::get());
+}
+
+TEST_F(MasterServiceTest, requestRemoveIndexEntries_noIndexEntries) {
+    TestLog::Enable _;
+    uint64_t tableId = 1;
+    Key key(tableId, "key0", 4);
+    Buffer keysAndValBuffer;
+    Object::appendKeysAndValueToBuffer(key, "value", 5, keysAndValBuffer);
+
+    service->requestRemoveIndexEntries(keysAndValBuffer,
+                                       tableId, key.getHash());
+    EXPECT_EQ("", TestLog::get());
+}
+
+TEST_F(MasterServiceTest, requestRemoveIndexEntries_basics) {
+    TestLog::Enable _;
+
+    uint64_t tableId = 1;
+    uint8_t numKeys = 3;
+
+    KeyInfo keyList[3];
+    keyList[0].keyLength = 4;
+    keyList[0].key = "key0";
+    keyList[1].keyLength = 4;
+    keyList[1].key = "key1";
+    keyList[2].keyLength = 4;
+    keyList[2].key = "key2";
+
+    Buffer keysAndValBuffer;
+    Object::appendKeysAndValueToBuffer(tableId, numKeys, keyList,
+                                       "value", 5, keysAndValBuffer);
+    Key key(tableId, keyList[0].key, keyList[0].keyLength);
+
+    service->requestRemoveIndexEntries(keysAndValBuffer, tableId,
+                                       key.getHash());
+    EXPECT_EQ(format("requestRemoveIndexEntries: "
+                     "Removing index entry for tableId 1, keyIndex 1, "
+                     "key key1, primaryKeyHash %lu | "
+                     "requestRemoveIndexEntries: "
+                     "Removing index entry for tableId 1, keyIndex 2, "
+                     "key key2, primaryKeyHash %lu" ,
+                     key.getHash(), key.getHash()),
+              TestLog::get());
+}
+
 /**
  * Generate a random string.
  *

@@ -194,7 +194,7 @@ TableManager::createIndex(uint64_t tableId, uint8_t indexId, uint8_t indexType)
     IdMap::iterator it = idMap.find(tableId);
     if (it == idMap.end()) {
         //TODO(ashgup): convert log to test log messages, in dropIndex too
-        //TODO(ashgup): throe TableDoesntExistException
+        //TODO(ashgup): throw TableDoesntExistException
         LOG(NOTICE, "Cannot find table '%lu'", tableId);
         return false;
     }

@@ -293,7 +293,36 @@ TEST_F(IndexletManagerTest, lookupIndexKeys_multiple) {
     uint64_t nextKeyHash;
     Status lookupStatus;
 
+    // Point lookup only for first entry.
+    responseBuffer.reset();
+    lookupStatus = im.lookupIndexKeys(0, 0, "air", 3, 0, "air", 3, 100,
+                                      &responseBuffer, &numHashes,
+                                      &nextKeyLength, &nextKeyHash);
+    EXPECT_EQ(STATUS_OK, lookupStatus);
+    EXPECT_EQ(1U, numHashes);
+    EXPECT_EQ(5678U, *responseBuffer.getOffset<uint64_t>(0));
+
+    // Point lookup only for second entry.
+    responseBuffer.reset();
+    lookupStatus = im.lookupIndexKeys(0, 0, "earth", 5, 0, "earth", 5, 100,
+                                      &responseBuffer, &numHashes,
+                                      &nextKeyLength, &nextKeyHash);
+    EXPECT_EQ(STATUS_OK, lookupStatus);
+    EXPECT_EQ(1U, numHashes);
+    EXPECT_EQ(9876U, *responseBuffer.getOffset<uint64_t>(0));
+
+    // Point lookup only for third entry.
+    responseBuffer.reset();
+    lookupStatus = im.lookupIndexKeys(0, 0, "fire", 4, 0, "fire", 4, 100,
+                                      &responseBuffer, &numHashes,
+                                      &nextKeyLength, &nextKeyHash);
+    EXPECT_EQ(STATUS_OK, lookupStatus);
+    EXPECT_EQ(1U, numHashes);
+    EXPECT_EQ(5432U, *responseBuffer.getOffset<uint64_t>(0));
+
+    // Range lookup for all entries such that:
     // first key = lowest expected key < highest expected key = last key
+    responseBuffer.reset();
     lookupStatus = im.lookupIndexKeys(0, 0, "air", 3, 0, "fire", 4, 100,
                                       &responseBuffer, &numHashes,
                                       &nextKeyLength, &nextKeyHash);
@@ -303,6 +332,7 @@ TEST_F(IndexletManagerTest, lookupIndexKeys_multiple) {
     EXPECT_EQ(9876U, *responseBuffer.getOffset<uint64_t>(8));
     EXPECT_EQ(5432U, *responseBuffer.getOffset<uint64_t>(16));
 
+    // Range lookup for all entries such that:
     // first key < lowest expected key < highest expected key < last key
     responseBuffer.reset();
     lookupStatus = im.lookupIndexKeys(0, 0, "a", 1, 0, "g", 1, 100,
@@ -446,7 +476,7 @@ TEST_F(IndexletManagerTest, removeEntry_single) {
     EXPECT_EQ(0U, numHashes);
 }
 
-TEST_F(IndexletManagerTest, removeEntry_multiple) {
+TEST_F(IndexletManagerTest, removeEntry_multipleEntries) {
     im.addIndexlet(0, 0, "a", 1, "k", 1);
 
     Buffer responseBuffer;
@@ -469,6 +499,75 @@ TEST_F(IndexletManagerTest, removeEntry_multiple) {
                        &nextKeyLength, &nextKeyHash);
     EXPECT_EQ(1U, numHashes);
     EXPECT_EQ(9876U, *responseBuffer.getOffset<uint64_t>(0));
+}
+
+TEST_F(IndexletManagerTest, removeEntry_multipleIndexlets) {
+    uint64_t tableId = 4;
+    im.addIndexlet(tableId, 1, "", 0, "", 0);
+    im.addIndexlet(tableId, 2, "", 0, "", 0);
+
+    KeyInfo keyListA[3];
+    keyListA[0].keyLength = 5;
+    keyListA[0].key = "keyA0";
+    keyListA[1].keyLength = 5;
+    keyListA[1].key = "keyA1";
+    keyListA[2].keyLength = 5;
+    keyListA[2].key = "keyA2";
+
+    KeyInfo keyListB[3];
+    keyListB[0].keyLength = 5;
+    keyListB[0].key = "keyB0";
+    keyListB[1].keyLength = 5;
+    keyListB[1].key = "keyB1";
+    keyListB[2].keyLength = 5;
+    keyListB[2].key = "keyB2";
+
+    Key primaryKeyA(tableId, keyListA[0].key, keyListA[0].keyLength);
+    Key primaryKeyB(tableId, keyListB[0].key, keyListB[0].keyLength);
+
+    im.insertEntry(tableId, 1, keyListA[1].key, keyListA[1].keyLength,
+                           primaryKeyA.getHash());
+    im.insertEntry(tableId, 2, keyListA[2].key, keyListA[2].keyLength,
+                           primaryKeyA.getHash());
+    im.insertEntry(tableId, 1, keyListB[1].key, keyListB[1].keyLength,
+                           primaryKeyB.getHash());
+    im.insertEntry(tableId, 2, keyListB[2].key, keyListB[2].keyLength,
+                           primaryKeyB.getHash());
+
+    Status removeStatus1 =
+            im.removeEntry(tableId, 1, keyListA[1].key, keyListA[1].keyLength,
+                           primaryKeyA.getHash());
+    Status removeStatus2 =
+            im.removeEntry(tableId, 2, keyListA[2].key, keyListA[2].keyLength,
+                           primaryKeyA.getHash());
+    Status removeStatus3 =
+            im.removeEntry(tableId, 1, keyListB[1].key, keyListB[1].keyLength,
+                           primaryKeyB.getHash());
+    Status removeStatus4 =
+            im.removeEntry(tableId, 2, keyListB[2].key, keyListB[2].keyLength,
+                           primaryKeyB.getHash());
+
+    EXPECT_EQ(STATUS_OK, removeStatus1);
+    EXPECT_EQ(STATUS_OK, removeStatus2);
+    EXPECT_EQ(STATUS_OK, removeStatus3);
+    EXPECT_EQ(STATUS_OK, removeStatus4);
+
+    Buffer responseBuffer;
+    uint32_t numHashes;
+    uint16_t nextKeyLength;
+    uint64_t nextKeyHash;
+
+    responseBuffer.reset();
+    im.lookupIndexKeys(tableId, 1, "a", 1, 0, "z", 1, 100,
+                       &responseBuffer, &numHashes,
+                       &nextKeyLength, &nextKeyHash);
+    EXPECT_EQ(0U, numHashes);
+
+    responseBuffer.reset();
+    im.lookupIndexKeys(tableId, 2, "a", 1, 0, "z", 1, 100,
+                       &responseBuffer, &numHashes,
+                       &nextKeyLength, &nextKeyHash);
+    EXPECT_EQ(0U, numHashes);
 }
 
 TEST_F(IndexletManagerTest, removeEntry_duplicate) {

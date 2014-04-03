@@ -1313,12 +1313,18 @@ void
 LookupIndexKeysRpc::wait(uint32_t* numHashes, uint16_t* nextKeyLength,
                          uint64_t* nextKeyHash)
 {
-    waitInternal(context->dispatch);
-    const WireFormat::LookupIndexKeys::Response* respHdr(
-            getResponseHeader<WireFormat::LookupIndexKeys>());
-    *numHashes = respHdr->numHashes;
-    *nextKeyLength = respHdr->nextKeyLength;
-    *nextKeyHash = respHdr->nextKeyHash;
+    bool succeeded = waitForIndexRpc();
+    if (succeeded == true) {
+        const WireFormat::LookupIndexKeys::Response* respHdr(
+                getResponseHeader<WireFormat::LookupIndexKeys>());
+        *numHashes = respHdr->numHashes;
+        *nextKeyLength = respHdr->nextKeyLength;
+        *nextKeyHash = respHdr->nextKeyHash;
+    } else {
+        *numHashes = 0;
+        *nextKeyLength = 0;
+        *nextKeyHash = 0;
+    }
 }
 
 /**

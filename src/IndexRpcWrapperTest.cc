@@ -34,18 +34,10 @@ class IndexRpcWrapperRefresher : public ObjectFinder::TableConfigFetcher {
         char buffer[100];
         snprintf(buffer, sizeof(buffer), "mock:refresh=%d", called);
 
-        // TODO(ankitak): Remove if not needed.
-//        tableMap->clear();
-//        Tablet rawEntry({10, 0, ~0, ServerId(),
-//                    Tablet::NORMAL, Log::Position()});
-//        TabletWithLocator entry(rawEntry, buffer);
-//        TabletKey key {entry.tablet.tableId, entry.tablet.startKeyHash};
-//        tableMap->insert(std::make_pair(key, entry));
-
         tableIndexMap->clear();
         auto id = std::make_pair(10, 1); // Pair of table id and index id.
-        // TODO(ankitak): Make it hold everything.
-        ObjectFinder::Indexlet indexlet("a", 1, "z", 1, ServerId(), buffer);
+
+        ObjectFinder::Indexlet indexlet("", 0, "", 0, ServerId(), buffer);
         tableIndexMap->insert(std::make_pair(id, indexlet));
     }
     uint32_t called;
@@ -91,8 +83,6 @@ TEST_F(IndexRpcWrapperTest, checkStatus_unknownIndexlet) {
             TestLog::get());
     EXPECT_EQ("mock:refresh=2", wrapper.session->getServiceLocator());
 }
-
-// TODO(ankitak): Continue from here.
 
 TEST_F(IndexRpcWrapperTest, checkStatus_otherError) {
     TestLog::Enable _;

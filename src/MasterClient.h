@@ -142,7 +142,7 @@ class InsertIndexEntryRpc : public IndexRpcWrapper {
                         const void* indexKey, KeyLength indexKeyLength,
                         uint64_t primaryKeyHash);
     ~InsertIndexEntryRpc() {}
-    void wait() {simpleWait();}
+    void wait() {waitForIndexRpc();}
 
   PRIVATE:
     DISALLOW_COPY_AND_ASSIGN(InsertIndexEntryRpc);
@@ -226,7 +226,7 @@ class RemoveIndexEntryRpc : public IndexRpcWrapper {
                         const void* indexKey, KeyLength indexKeyLength,
                         uint64_t primaryKeyHash);
     ~RemoveIndexEntryRpc() {}
-    void wait() {simpleWait();}
+    void wait() {waitForIndexRpc();}
 
   PRIVATE:
     DISALLOW_COPY_AND_ASSIGN(RemoveIndexEntryRpc);

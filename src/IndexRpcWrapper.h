@@ -58,7 +58,7 @@ class IndexRpcWrapper : public RpcWrapper {
     virtual bool checkStatus();
     virtual bool handleTransportError();
     virtual void send();
-    void simpleWait();
+    bool waitForIndexRpc();
 
     /// Overall information about the calling process.
     Context* context;

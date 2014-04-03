@@ -153,16 +153,21 @@ IndexRpcWrapper::send()
  * This method provides a simple implementation of \c wait that
  * doesn't do any processing of the result; it just waits for completion
  * and checks for errors.
+ * 
+ * \return
+ *      Boolean value false if the rpc was canceled, true otherwise.
  */
-void
-IndexRpcWrapper::simpleWait()
+bool
+IndexRpcWrapper::waitForIndexRpc()
 {
     try {
         RpcWrapper::simpleWait(context->dispatch);
     } catch (RAMCloud::RpcCanceledException& e) {
         // This index doesn't exist. No need to take any action.
         // Other exceptions can get propagated.
+        return false;
     }
+    return true;
 }
 
 } // namespace RAMCloud
