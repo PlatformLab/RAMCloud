@@ -97,7 +97,6 @@ class Object {
     static void appendKeysAndValueToBuffer(
             Key& key, const void* value, uint32_t valueLength,
             Buffer& buffer, uint32_t *length = NULL);
-    void appendKeysToBuffer(Buffer& buffer);
     void appendKeysAndValueToBuffer(Buffer& buffer);
 
     bool fillKeyOffsets();

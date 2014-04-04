@@ -236,13 +236,17 @@ ObjectManager::IndexedRead::readNext(uint32_t* numObjects, uint32_t* length)
  * \param rejectRules
  *      Specifies conditions under which the write should be aborted with an
  *      error. May be NULL if no special reject conditions are desired.
- * \param outVersion
+ * 
+ * \param[out] outVersion
  *      If non-NULL, the version number of the new object is returned here. If
  *      the operation was successful this will be the new version for the
  *      object; if this object has ever existed previously the new version is
  *      guaranteed to be greater than any previous version of the object. If the
  *      operation failed then the version number returned is the current version
  *      of the object, or VERSION_NONEXISTENT if the object does not exist.
+ * \param[out] removedObjBuffer
+ *      If non-NULL, pointer to the buffer in log for the object being removed
+ *      is returned.
  * \return
  *      STATUS_OK if the object was written. Otherwise, for example,
  *      STATUS_UKNOWN_TABLE may be returned.
@@ -250,7 +254,8 @@ ObjectManager::IndexedRead::readNext(uint32_t* numObjects, uint32_t* length)
 Status
 ObjectManager::writeObject(Object& newObject,
                            RejectRules* rejectRules,
-                           uint64_t* outVersion)
+                           uint64_t* outVersion,
+                           Buffer* removedObjBuffer)
 {
     if (!anyWrites) {
         // This is the first write; use this as a trigger to update the
@@ -299,6 +304,14 @@ ObjectManager::writeObject(Object& newObject,
         } else {
             Object currentObject(currentBuffer);
             currentVersion = currentObject.getVersion();
+            // Return a pointer to the buffer in log for the object being
+            // overwritten.
+            if (removedObjBuffer != NULL) {
+                // Make sure that the buffer doesn't currently contain junk.
+                // TODO(ankitak): Is this needed?
+                removedObjBuffer->reset();
+                removedObjBuffer->append(&currentBuffer);
+            }
         }
     }
 
@@ -481,8 +494,8 @@ ObjectManager::readObject(Key& key,
  *      Unless rejectRules prevented the operation, this object will have been
  *      deleted. If the rejectRules did prevent removal, the current object's
  *      version is still returned.
- * \param[out] removedObjKeys
- *      If non-NULL, the buffer containing the keys of the object removed
+ * \param[out] removedObjBuffer
+ *      If non-NULL, pointer to the buffer in log for the object being removed
  *      is returned.
  * \return
  *      Returns STATUS_OK if the remove succeeded. Other status values indicate
@@ -492,7 +505,7 @@ Status
 ObjectManager::removeObject(Key& key,
                             RejectRules* rejectRules,
                             uint64_t* outVersion,
-                            Buffer* removedObjKeys)
+                            Buffer* removedObjBuffer)
 {
     HashTableBucketLock lock(*this, key);
 
@@ -525,9 +538,12 @@ ObjectManager::removeObject(Key& key,
             return status;
     }
 
-    // Return the keys of the object being removed.
-    if (removedObjKeys != NULL) {
-        object.appendKeysToBuffer(*removedObjKeys);
+    // Return a pointer to the buffer in log for the object being removed.
+    if (removedObjBuffer != NULL) {
+        // Make sure that the buffer doesn't currently contain junk.
+        // TODO(ankitak): Is this needed?
+        removedObjBuffer->reset();
+        removedObjBuffer->append(&buffer);
     }
 
     ObjectTombstone tombstone(object,

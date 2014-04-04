@@ -359,6 +359,42 @@ TEST_F(ObjectManagerTest, writeObject) {
               , verifyMetadata(1));
 }
 
+TEST_F(ObjectManagerTest, writeObject_returnRemovedObj) {
+    tabletManager.addTablet(1, 0, ~0UL, TabletManager::NORMAL);
+    Key key(1, "a", 1);
+
+    // New object.
+    Buffer writeBuffer;
+    Object obj1(key, "originalValue", 13, 0, 0, writeBuffer);
+    EXPECT_EQ(STATUS_OK, objectManager.writeObject(obj1, 0, 0));
+
+    // Object overwrite. This is what we're testing in this unit test.
+    writeBuffer.reset();
+    Object obj2(key, "newValue", 8, 0, 0, writeBuffer);
+
+    TestLog::Enable _(writeObjectFilter);
+    Buffer removedObjBuffer;
+    EXPECT_EQ(STATUS_OK,
+              objectManager.writeObject(obj2, 0, 0, &removedObjBuffer));
+
+    // Check that the object got overwritten correctly.
+    EXPECT_EQ("writeObject: object: 36 bytes, version 2 | "
+              "writeObject: tombstone: 33 bytes, version 1", TestLog::get());
+    EXPECT_EQ("found=true tableId=1 byteCount=110 recordCount=3"
+              , verifyMetadata(1));
+
+    // Check that the buffer returned corresponds to the object overwritten.
+    Object oldObj(removedObjBuffer);
+    EXPECT_EQ(1U, oldObj.getKeyCount());
+    KeyLength oldKeyLength;
+    const void* oldKey = oldObj.getKey(0, &oldKeyLength);
+    EXPECT_EQ("a", string(reinterpret_cast<const char*>(oldKey), oldKeyLength));
+    uint32_t oldValueLength;
+    const void* oldValue = oldObj.getValue(&oldValueLength);
+    EXPECT_EQ("originalValue", string(reinterpret_cast<const char*>(oldValue),
+                                      oldValueLength));
+}
+
 TEST_F(ObjectManagerTest, readObject) {
     Buffer buffer;
     Key key(1, "1", 1);
@@ -509,7 +545,7 @@ TEST_F(ObjectManagerTest, removeOrphanedObjects) {
         TestLog::get());
 }
 
-TEST_F(ObjectManagerTest, removeObject_returnRemovedObjKeys) {
+TEST_F(ObjectManagerTest, removeObject_returnRemovedObj) {
     Key key(1, "a", 1);
     storeObject(key, "hi", 93);
     EXPECT_EQ("found=true tableId=1 byteCount=30 recordCount=1"
@@ -522,23 +558,14 @@ TEST_F(ObjectManagerTest, removeObject_returnRemovedObjKeys) {
     objectManager.objectMap.lookup(key.getHash(), c);
     uint64_t ref = c.getReference();
     uint64_t version;
-    Buffer removedObjKeys;
-    EXPECT_EQ(STATUS_OK, objectManager.removeObject(key, 0, &version,
-                                                    &removedObjKeys));
+    Buffer removedObjBuffer;
+    EXPECT_EQ(STATUS_OK,
+              objectManager.removeObject(key, 0, &version, &removedObjBuffer));
 
-    EXPECT_EQ("found=true tableId=1 byteCount=63 recordCount=2"
-              , verifyMetadata(1));
+    // Check that the remove succeeded and the object doesn't exist.
+    EXPECT_EQ("found=true tableId=1 byteCount=63 recordCount=2",
+              verifyMetadata(1));
     EXPECT_EQ(93UL, version);
-
-    Object reconstructObj(1, 0, 0, removedObjKeys);
-    EXPECT_EQ(1U, reconstructObj.getKeyCount());
-    KeyLength reconstructKeyLength;
-    const void* reconstructKey =
-                reconstructObj.getKey(0, &reconstructKeyLength);
-    EXPECT_EQ("a", string(reinterpret_cast<const char*>(reconstructKey),
-                          reconstructKeyLength));
-
-    EXPECT_EQ(format("free: free on reference %lu", ref), TestLog::get());
 
     Buffer buffer;
     EXPECT_EQ(STATUS_OBJECT_DOESNT_EXIST,
@@ -547,6 +574,18 @@ TEST_F(ObjectManagerTest, removeObject_returnRemovedObjKeys) {
     LogEntryType type;
     ObjectManager::HashTableBucketLock lock(objectManager, key);
     EXPECT_FALSE(objectManager.lookup(lock, key, type, buffer, 0, 0));
+    EXPECT_EQ(format("free: free on reference %lu", ref), TestLog::get());
+
+    // Check that the buffer returned corresponds to the object removed.
+    Object oldObj(removedObjBuffer);
+    EXPECT_EQ(1U, oldObj.getKeyCount());
+    KeyLength oldKeyLength;
+    const void* oldKey = oldObj.getKey(0, &oldKeyLength);
+    EXPECT_EQ("a", string(reinterpret_cast<const char*>(oldKey), oldKeyLength));
+    uint32_t oldValueLength;
+    const void* oldValue = oldObj.getValue(&oldValueLength);
+    EXPECT_EQ("hi", string(reinterpret_cast<const char*>(oldValue),
+                           oldValueLength));
 }
 
 TEST_F(ObjectManagerTest, replaySegment) {

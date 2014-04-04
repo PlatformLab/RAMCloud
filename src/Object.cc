@@ -196,39 +196,6 @@ Object::assembleForLog(Buffer& buffer)
 }
 
 /**
- * Append the cumulative key lengths and the keys associated with
- * this object to a provided buffer.
- *
- * \param buffer
- *      The buffer to append the keys to.
- */
-void
-Object::appendKeysToBuffer(Buffer& buffer)
-{
-    // Append data only till valueOffset rather than keyAndValueLength.
-    // valueOffset marks the beginning of value, so it indicates the length
-    // of keys.
-    uint16_t valueOffset;
-    if (!getValueOffset(&valueOffset))
-        return;
-
-    if (keysAndValue) {
-        buffer.append(keysAndValue, valueOffset);
-        return;
-    }
-
-    // keysAndValueBuffer contains keyLengths, keys and value starting
-    // at keysAndValueOffset
-    Buffer* sourceBuffer = keysAndValueBuffer;
-
-    Buffer::Iterator it(*sourceBuffer, keysAndValueOffset, valueOffset);
-    while (!it.isDone()) {
-        buffer.append(it.getData(), it.getLength());
-        it.next();
-    }
-}
-
-/**
  * Append the cumulative key lengths, the keys and the value associated with
  * this object to a provided buffer.
  *

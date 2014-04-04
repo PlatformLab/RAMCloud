@@ -100,11 +100,12 @@ class ObjectManager : public LogEntryHandlers {
                       bool valueOnly = false);
     Status writeObject(Object& newObject,
                        RejectRules* rejectRules,
-                       uint64_t* outVersion);
+                       uint64_t* outVersion,
+                       Buffer* removedObjBuffer = NULL);
     Status removeObject(Key& key,
                         RejectRules* rejectRules,
                         uint64_t* outVersion,
-                        Buffer* removedObjKeys = NULL);
+                        Buffer* removedObjBuffer = NULL);
     void syncChanges();
     void prefetchHashTableBucket(SegmentIterator* it);
     void replaySegment(SideLog* sideLog, SegmentIterator& it);
