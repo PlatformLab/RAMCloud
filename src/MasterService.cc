@@ -1670,23 +1670,8 @@ MasterService::write(const WireFormat::Write::Request* reqHdr,
 
 /*
  * TODO(ankitak): For both request insert and request remove:
- *
- * 1. Send rpcs through MasterClient asynchronously so we can first send for all
+ * Send rpcs through MasterClient asynchronously so we can first send for all
  * then receive for all.
- *
- * 2. Currently assuming that all keys are in contiguous keyIndexes.
- * So, in the code below, I'm currently generating keyIndex directly from
- * keyCount. This assumption will not be true if object schema changes.
- * Will need to change this code + code in Object accordingly.
- *
- * 3. Calling functions currently read entire object and then call insert
- * or remove. They only need to read the keys. Can optimize by modifying that,
- * the functions called to read, and the functions below.
- * 
- * 4. In calling functions (write, remove, multiwrite, multiremove),
- * use a different writeObject / removeObject that returns old object (that is
- * being overwritten or removed), if any. This will simplify the calling
- * functions by eliminating the extra step of reading the object first.
  */
 
 /**
