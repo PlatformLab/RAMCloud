@@ -1052,8 +1052,6 @@ MasterService::multiRemove(const WireFormat::MultiOp::Request* reqHdr,
 
     // Store info about objects being removed so that we can later
     // remove index entries corresponding to them.
-    uint64_t tableIds[numRequests];
-    KeyHash keyHashes[numRequests];
     Buffer objectBuffers[numRequests];
 
     respHdr->count = numRequests;
@@ -1083,9 +1081,6 @@ MasterService::multiRemove(const WireFormat::MultiOp::Request* reqHdr,
 
         Key key(currentReq->tableId, stringKey, currentReq->keyLength);
 
-        tableIds[i] = currentReq->tableId;
-        keyHashes[i] = key.getHash();
-
         WireFormat::MultiOp::Response::RemovePart* currentResp =
             new(rpc->replyPayload, APPEND)
                 WireFormat::MultiOp::Response::RemovePart();
@@ -1100,11 +1095,15 @@ MasterService::multiRemove(const WireFormat::MultiOp::Request* reqHdr,
     // them to backups before returning to the caller.
     objectManager.syncChanges();
 
+    // Respond to the client RPC now. Removing old index entries can be
+    // done asynchronously while maintaining strong consistency.
+    rpc->sendReply();
+    // reqHdr, respHdr, and rpc are off-limits now!
+
     // If any of the write parts overwrites, delete old index entries if any.
     for (uint32_t i = 0; i < numRequests; i++) {
         if (objectBuffers[i].getTotalLength() > 0) {
-            requestRemoveIndexEntries(objectBuffers[i],
-                                      tableIds[i], keyHashes[i]);
+            requestRemoveIndexEntries(objectBuffers[i]);
         }
     }
 }
@@ -1132,14 +1131,11 @@ MasterService::multiWrite(const WireFormat::MultiOp::Request* reqHdr,
 {
     uint32_t numRequests = reqHdr->count;
     uint32_t reqOffset = sizeof32(*reqHdr);
+    respHdr->count = numRequests;
 
     // Store info about objects being removed (overwritten)
     // so that we can later remove index entries corresponding to them.
-    uint64_t tableIds[numRequests];
-    KeyHash keyHashes[numRequests];
     Buffer oldObjectBuffers[numRequests];
-
-    respHdr->count = numRequests;
 
     // Each iteration extracts one request from the rpc, writes the object
     // if possible, and appends a status and version to the response buffer.
@@ -1164,20 +1160,15 @@ MasterService::multiWrite(const WireFormat::MultiOp::Request* reqHdr,
             new(rpc->replyPayload, APPEND)
                 WireFormat::MultiOp::Response::WritePart();
 
-        RejectRules rejectRules = currentReq->rejectRules;
-
         Object object(currentReq->tableId, 0, 0, *(rpc->requestPayload),
                       reqOffset, currentReq->length);
 
-        // Insert new index entries before, if any, writing object.
-        uint16_t keyLength;
-        const void* keyStr = object.getKey(0, &keyLength);
-        Key key(currentReq->tableId, keyStr, keyLength);
-        requestInsertIndexEntries(object, currentReq->tableId, key.getHash());
+        // Insert new index entries, if any, before writing object (for strong
+        // consistency).
+        requestInsertIndexEntries(object);
 
-        tableIds[i] = currentReq->tableId;
-        keyHashes[i] = key.getHash();
-
+        // Write the object.
+        RejectRules rejectRules = currentReq->rejectRules;
         currentResp->status = objectManager.writeObject(object, &rejectRules,
                                                         &currentResp->version,
                                                         &oldObjectBuffers[i]);
@@ -1192,11 +1183,15 @@ MasterService::multiWrite(const WireFormat::MultiOp::Request* reqHdr,
     // now to propagate them in bulk to backups.
     objectManager.syncChanges();
 
+    // Respond to the client RPC now. Removing old index entries can be
+    // done asynchronously while maintaining strong consistency.
+    rpc->sendReply();
+    // reqHdr, respHdr, and rpc are off-limits now!
+
     // If any of the write parts overwrites, delete old index entries if any.
     for (uint32_t i = 0; i < numRequests; i++) {
         if (oldObjectBuffers[i].getTotalLength() > 0) {
-            requestRemoveIndexEntries(oldObjectBuffers[i],
-                                      tableIds[i], keyHashes[i]);
+            requestRemoveIndexEntries(oldObjectBuffers[i]);
         }
     }
 }
@@ -1425,6 +1420,7 @@ MasterService::remove(const WireFormat::Remove::Request* reqHdr,
     // index entries later.
     Buffer oldBuffer;
 
+    // Remove the object.
     RejectRules rejectRules = reqHdr->rejectRules;
     respHdr->common.status = objectManager.removeObject(key, &rejectRules,
                                                         &respHdr->version,
@@ -1432,9 +1428,14 @@ MasterService::remove(const WireFormat::Remove::Request* reqHdr,
     if (respHdr->common.status == STATUS_OK)
         objectManager.syncChanges();
 
+    // Respond to the client RPC now. Removing old index entries can be
+    // done asynchronously while maintaining strong consistency.
+    rpc->sendReply();
+    // reqHdr, respHdr, and rpc are off-limits now!
+
     // Remove index entries corresponding to old object, if any.
     if (oldBuffer.getTotalLength() > 0) {
-        requestRemoveIndexEntries(oldBuffer, reqHdr->tableId, key.getHash());
+        requestRemoveIndexEntries(oldBuffer);
     }
 }
 
@@ -1640,16 +1641,12 @@ MasterService::write(const WireFormat::Write::Request* reqHdr,
     Object object(reqHdr->tableId, 0, 0, *(rpc->requestPayload),
                   sizeof32(*reqHdr));
 
+    // Insert new index entries, if any, before writing object.
+    requestInsertIndexEntries(object);
+
     // Buffer for object being overwritten, so we can remove corresponding
     // index entries later.
     Buffer oldObjectBuffer;
-
-    KeyLength primaryKeyLength;
-    const void* primaryKeyStr = object.getKey(0, &primaryKeyLength);
-    Key primaryKey(reqHdr->tableId, primaryKeyStr, primaryKeyLength);
-
-    // Insert new index entries, if any, before writing object.
-    requestInsertIndexEntries(object, reqHdr->tableId, primaryKey.getHash());
 
     // Write the object.
     RejectRules rejectRules = reqHdr->rejectRules;
@@ -1660,10 +1657,14 @@ MasterService::write(const WireFormat::Write::Request* reqHdr,
     if (respHdr->common.status == STATUS_OK)
         objectManager.syncChanges();
 
+    // Respond to the client RPC now. Removing old index entries can be
+    // done asynchronously while maintaining strong consistency.
+    rpc->sendReply();
+    // reqHdr, respHdr, and rpc are off-limits now!
+
     // If this is a overwrite, delete old index entries if any.
     if (oldObjectBuffer.getTotalLength() > 0) {
-        requestRemoveIndexEntries(oldObjectBuffer, reqHdr->tableId,
-                                  primaryKey.getHash());
+        requestRemoveIndexEntries(oldObjectBuffer);
     }
 }
 
@@ -1693,16 +1694,19 @@ MasterService::write(const WireFormat::Write::Request* reqHdr,
  * for inserting corresponding index entries to index servers.
  * \param object
  *      Object for which index entries are to be inserted.
- * \param tableId
- *      Table id of the object.
- * \param primaryKeyHash
- *      Key hash of the primary key of the object.
  */
 void
-MasterService::requestInsertIndexEntries(Object& object, uint64_t tableId,
-                                         KeyHash primaryKeyHash)
+MasterService::requestInsertIndexEntries(Object& object)
 {
     KeyCount keyCount = object.getKeyCount();
+    if (keyCount <= 1)
+        return;
+
+    uint64_t tableId = object.getTableId();
+    KeyLength primaryKeyLength;
+    const void* primaryKey = object.getKey(0, &primaryKeyLength);
+    KeyHash primaryKeyHash =
+            Key(tableId, primaryKey, primaryKeyLength).getHash();
 
     for (KeyCount keyIndex = 1; keyIndex <= keyCount - 1; keyIndex++) {
         KeyLength keyLength;
@@ -1723,13 +1727,8 @@ MasterService::requestInsertIndexEntries(Object& object, uint64_t tableId,
 }
 
 /*
- * TODO(ankitak):
- * 
- * 1. Calls to requestRemoveIndexEntries (from write, multiwrite,
- * remove, multiremove) should happen after returning to the client.
- * 
- * 2. Smart index entry deletion in case two objs with same pkHash also have
- * same key: Check here if another object has the same key hash.
+ * TODO(ankitak): Smart index entry deletion in case two objs with same pkHash 
+ * also have same key: Check here if another object has the same key hash.
  * If yes, look up those objects and see if they have the same index keys.
  * Only for index entries that don’t need to be kept around for another object,
  * send removeIndexEntries to index server.
@@ -1741,17 +1740,21 @@ MasterService::requestInsertIndexEntries(Object& object, uint64_t tableId,
  * \param objectBuffer
  *      Buffer containing keys and value of the object for which
  *      index entries are to be deleted.
- * \param tableId
- *      Table id of the object.
- * \param primaryKeyHash
- *      Key hash of the primary key of the object.
  */
 void
-MasterService::requestRemoveIndexEntries(
-        Buffer& objectBuffer, uint64_t tableId, KeyHash primaryKeyHash)
+MasterService::requestRemoveIndexEntries(Buffer& objectBuffer)
 {
     Object object(objectBuffer);
+
     KeyCount keyCount = object.getKeyCount();
+    if (keyCount <= 1)
+        return;
+
+    uint64_t tableId = object.getTableId();
+    KeyLength primaryKeyLength;
+    const void* primaryKey = object.getKey(0, &primaryKeyLength);
+    KeyHash primaryKeyHash =
+            Key(tableId, primaryKey, primaryKeyLength).getHash();
 
     for (KeyCount keyIndex = 1; keyIndex <= keyCount - 1; keyIndex++) {
         KeyLength keyLength;

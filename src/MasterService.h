@@ -167,10 +167,8 @@ class MasterService : public Service {
     void removeIndexEntry(const WireFormat::RemoveIndexEntry::Request* reqHdr,
                 WireFormat::RemoveIndexEntry::Response* respHdr,
                 Rpc* rpc);
-    void requestInsertIndexEntries(Object& object, uint64_t tableId,
-                KeyHash primaryKeyHash);
-    void requestRemoveIndexEntries(Buffer& objectBuffer, uint64_t tableId,
-                KeyHash primaryKeyHash);
+    void requestInsertIndexEntries(Object& object);
+    void requestRemoveIndexEntries(Buffer& objectBuffer);
     void splitMasterTablet(const WireFormat::SplitMasterTablet::Request* reqHdr,
                 WireFormat::SplitMasterTablet::Response* respHdr,
                 Rpc* rpc);
