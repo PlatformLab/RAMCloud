@@ -1052,7 +1052,6 @@ MasterService::multiRemove(const WireFormat::MultiOp::Request* reqHdr,
 
     // Store info about objects being removed so that we can later
     // remove index entries corresponding to them.
-    Status statuses[numRequests];
     uint64_t tableIds[numRequests];
     KeyHash keyHashes[numRequests];
     Buffer objectBuffers[numRequests];
@@ -1084,9 +1083,6 @@ MasterService::multiRemove(const WireFormat::MultiOp::Request* reqHdr,
 
         Key key(currentReq->tableId, stringKey, currentReq->keyLength);
 
-        // Fetch old object so that we can delete old index entries later.
-        statuses[i] =
-            objectManager.readObject(key, &objectBuffers[i], NULL, NULL, false);
         tableIds[i] = currentReq->tableId;
         keyHashes[i] = key.getHash();
 
@@ -1095,9 +1091,9 @@ MasterService::multiRemove(const WireFormat::MultiOp::Request* reqHdr,
                 WireFormat::MultiOp::Response::RemovePart();
 
         RejectRules rejectRules = currentReq->rejectRules;
-        currentResp->status = objectManager.removeObject(key,
-                                                         &rejectRules,
-                                                         &currentResp->version);
+        currentResp->status = objectManager.removeObject(key, &rejectRules,
+                                                         &currentResp->version,
+                                                         &objectBuffers[i]);
     }
 
     // All of the individual removes were done asynchronously. We must sync
@@ -1106,7 +1102,7 @@ MasterService::multiRemove(const WireFormat::MultiOp::Request* reqHdr,
 
     // If any of the write parts overwrites, delete old index entries if any.
     for (uint32_t i = 0; i < numRequests; i++) {
-        if (statuses[i] == STATUS_OK) {
+        if (objectBuffers[i].getTotalLength() > 0) {
             requestRemoveIndexEntries(objectBuffers[i],
                                       tableIds[i], keyHashes[i]);
         }
@@ -1137,12 +1133,10 @@ MasterService::multiWrite(const WireFormat::MultiOp::Request* reqHdr,
     uint32_t numRequests = reqHdr->count;
     uint32_t reqOffset = sizeof32(*reqHdr);
 
-    // Store info about objects being written and removed (overwritten)
-    // so that we can later add and remove index entries corresponding to them.
+    // Store info about objects being removed (overwritten)
+    // so that we can later remove index entries corresponding to them.
     uint64_t tableIds[numRequests];
     KeyHash keyHashes[numRequests];
-    bool toRemove[numRequests];
-    memset(toRemove, false, numRequests);
     Buffer oldObjectBuffers[numRequests];
 
     respHdr->count = numRequests;
@@ -1181,19 +1175,12 @@ MasterService::multiWrite(const WireFormat::MultiOp::Request* reqHdr,
         Key key(currentReq->tableId, keyStr, keyLength);
         requestInsertIndexEntries(object, currentReq->tableId, key.getHash());
 
-        // Fetch old object so that we can delete old index entries later.
-        Status oldStatus =
-                objectManager.readObject(key, &oldObjectBuffers[i],
-                                         NULL, NULL, false);
-        if (oldStatus == STATUS_OK) {
-            toRemove[i] = true;
-        }
         tableIds[i] = currentReq->tableId;
         keyHashes[i] = key.getHash();
 
-        currentResp->status = objectManager.writeObject(object,
-                                                        &rejectRules,
-                                                        &currentResp->version);
+        currentResp->status = objectManager.writeObject(object, &rejectRules,
+                                                        &currentResp->version,
+                                                        &oldObjectBuffers[i]);
         reqOffset += currentReq->length;
     }
 
@@ -1207,7 +1194,7 @@ MasterService::multiWrite(const WireFormat::MultiOp::Request* reqHdr,
 
     // If any of the write parts overwrites, delete old index entries if any.
     for (uint32_t i = 0; i < numRequests; i++) {
-        if (toRemove[i]) {
+        if (oldObjectBuffers[i].getTotalLength() > 0) {
             requestRemoveIndexEntries(oldObjectBuffers[i],
                                       tableIds[i], keyHashes[i]);
         }
@@ -1434,19 +1421,19 @@ MasterService::remove(const WireFormat::Remove::Request* reqHdr,
                                                           reqHdr->keyLength);
     Key key(reqHdr->tableId, stringKey, reqHdr->keyLength);
 
-    // Read object before removing so we can delete index entries later.
+    // Buffer for object being removed, so we can remove corresponding
+    // index entries later.
     Buffer oldBuffer;
-    Status oldObjectStatus =
-            objectManager.readObject(key, &oldBuffer, NULL, NULL, false);
 
     RejectRules rejectRules = reqHdr->rejectRules;
-    respHdr->common.status = objectManager.removeObject(key,
-                                                        &rejectRules,
-                                                        &respHdr->version);
+    respHdr->common.status = objectManager.removeObject(key, &rejectRules,
+                                                        &respHdr->version,
+                                                        &oldBuffer);
     if (respHdr->common.status == STATUS_OK)
         objectManager.syncChanges();
 
-    if (oldObjectStatus == STATUS_OK) {
+    // Remove index entries corresponding to old object, if any.
+    if (oldBuffer.getTotalLength() > 0) {
         requestRemoveIndexEntries(oldBuffer, reqHdr->tableId, key.getHash());
     }
 }
@@ -1653,14 +1640,13 @@ MasterService::write(const WireFormat::Write::Request* reqHdr,
     Object object(reqHdr->tableId, 0, 0, *(rpc->requestPayload),
                   sizeof32(*reqHdr));
 
-    // Fetch old object so that we can delete old index entries later.
+    // Buffer for object being overwritten, so we can remove corresponding
+    // index entries later.
+    Buffer oldObjectBuffer;
+
     KeyLength primaryKeyLength;
     const void* primaryKeyStr = object.getKey(0, &primaryKeyLength);
     Key primaryKey(reqHdr->tableId, primaryKeyStr, primaryKeyLength);
-    Buffer oldObjectBuffer;
-    Status oldObjectStatus =
-            objectManager.readObject(primaryKey, &oldObjectBuffer,
-                                     NULL, NULL, false);
 
     // Insert new index entries, if any, before writing object.
     requestInsertIndexEntries(object, reqHdr->tableId, primaryKey.getHash());
@@ -1668,13 +1654,14 @@ MasterService::write(const WireFormat::Write::Request* reqHdr,
     // Write the object.
     RejectRules rejectRules = reqHdr->rejectRules;
     respHdr->common.status = objectManager.writeObject(object, &rejectRules,
-                                                       &respHdr->version);
+                                                       &respHdr->version,
+                                                       &oldObjectBuffer);
 
     if (respHdr->common.status == STATUS_OK)
         objectManager.syncChanges();
 
     // If this is a overwrite, delete old index entries if any.
-    if (oldObjectStatus == STATUS_OK) {
+    if (oldObjectBuffer.getTotalLength() > 0) {
         requestRemoveIndexEntries(oldObjectBuffer, reqHdr->tableId,
                                   primaryKey.getHash());
     }
@@ -1721,15 +1708,17 @@ MasterService::requestInsertIndexEntries(Object& object, uint64_t tableId,
         KeyLength keyLength;
         const void* key = object.getKey(keyIndex, &keyLength);
 
-        RAMCLOUD_LOG(DEBUG, "Inserting index entry for tableId %lu, "
-                            "keyIndex %u, key %s, primaryKeyHash %lu",
-                            tableId, keyIndex,
-                            string(reinterpret_cast<const char*>(key),
-                                   keyLength).c_str(),
-                            primaryKeyHash);
+        if (key != NULL && keyLength > 0) {
+            RAMCLOUD_LOG(DEBUG, "Inserting index entry for tableId %lu, "
+                                "keyIndex %u, key %s, primaryKeyHash %lu",
+                                tableId, keyIndex,
+                                string(reinterpret_cast<const char*>(key),
+                                       keyLength).c_str(),
+                                primaryKeyHash);
 
-        MasterClient::insertIndexEntry(this, tableId, keyIndex,
-                                       key, keyLength, primaryKeyHash);
+            MasterClient::insertIndexEntry(this, tableId, keyIndex,
+                                           key, keyLength, primaryKeyHash);
+        }
     }
 }
 
@@ -1761,22 +1750,24 @@ void
 MasterService::requestRemoveIndexEntries(
         Buffer& objectBuffer, uint64_t tableId, KeyHash primaryKeyHash)
 {
-    Object object(tableId, 0, 0, objectBuffer);
+    Object object(objectBuffer);
     KeyCount keyCount = object.getKeyCount();
 
     for (KeyCount keyIndex = 1; keyIndex <= keyCount - 1; keyIndex++) {
         KeyLength keyLength;
         const void* key = object.getKey(keyIndex, &keyLength);
 
-        RAMCLOUD_LOG(DEBUG, "Removing index entry for tableId %lu, "
-                            "keyIndex %u, key %s, primaryKeyHash %lu",
-                            tableId, keyIndex,
-                            string(reinterpret_cast<const char*>(key),
-                                   keyLength).c_str(),
-                            primaryKeyHash);
+        if (key != NULL && keyLength > 0) {
+            RAMCLOUD_LOG(DEBUG, "Removing index entry for tableId %lu, "
+                                "keyIndex %u, key %s, primaryKeyHash %lu",
+                                tableId, keyIndex,
+                                string(reinterpret_cast<const char*>(key),
+                                       keyLength).c_str(),
+                                primaryKeyHash);
 
-        MasterClient::removeIndexEntry(this, tableId, keyIndex,
-                                       key, keyLength, primaryKeyHash);
+            MasterClient::removeIndexEntry(this, tableId, keyIndex,
+                                           key, keyLength, primaryKeyHash);
+        }
     }
 }
 
