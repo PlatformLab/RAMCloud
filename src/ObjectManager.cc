@@ -109,110 +109,113 @@ ObjectManager::initOnceEnlisted()
 }
 
 /**
- * An instance of this class can be used to iteratively read object(s)
- * previously written by ObjectManager, matching the given parameters.
+ * Read object(s) matching the given parameters, previously written by
+ * ObjectManager.
  * 
- * \param objectManager
- *      Pointer to the instance of ObjectManager class that previously
- *      wrote the objects.
+ * We'd typically expect one object to match one primary key hash, but it is
+ * possible that zero (if that object was removed after client did
+ * lookupIndexKeys() preceding this call), one, or multiple (if there are
+ * multiple objects with the same primary key hash that also have index
+ * keys in the current read range) objects match.
+ * 
+ * TODO(ankitak): Later: Handle this case too.
+ * If multiple objects do match, it is highly unlikely that these objects
+ * put together will be too large to fit in a single 8MB response rpc.
+ * So, if all objects matched for a key hash don't fit in an rpc, we will not
+ * return any of them; Client can retry and the response rpc to the new request
+ * will contain all the matched objects for the keyhash.
+ * 
  * \param tableId
  *      Id of the table containing the object(s).
+ * \param reqNumHashes
+ *      Number of key hashes (see pKHashes) in the request.
  * \param pKHashes
  *      Key hashes of the primary keys of the object(s).
  * \param initialPKHashesOffset
  *      Offset indicating location of first key hash in the pKHashes buffer.
  * \param keyRange
- *      KeyRange that will be used to compare the object's key
- *      to determine a match.
+ *      KeyRange that will be used to compare the object's index key
+ *      to determine whether it is a match.
+ * \param maxLength
+ *      Maximum length of response that can be appended to the response
+ *      buffer.
  * 
  * \param[out] response
  *      Buffer to which response for each object will be appended in the
  *      readNext() method.
- */
-ObjectManager::IndexedRead::IndexedRead(
-                ObjectManager* objectManager,
-                uint64_t tableId,
-                Buffer* pKHashes, uint32_t initialPKHashesOffset,
-                IndexletManager::KeyRange* keyRange,
-                Buffer* response)
-    : objectManager(objectManager)
-    , tableId(tableId)
-    , pKHashes(pKHashes)
-    , pKHashesOffset(initialPKHashesOffset)
-    , keyRange(keyRange)
-    , response(response)
-{
-}
-
-/**
- * Read object(s) corresponding to a single primary key hash matching
- * the parameters given during the construction of the IndexedRead object.
- * The version, length and object data (keys and value) read are appended
- * to the response buffer provided during creation of the IndexedRead object.
- * 
- * We'd typically expect only one object to match the parameters, but it is
- * possible that multiple will.
- * 
+ * \param[out] respNumHashes
+ *      Num of hashes corresponding to which objects are being returned.
  * \param[out] numObjects
  *      Num of objects being returned.
- * \param[out] length
- *      Total length appended to the response buffer.
- * \return
- *      Value of false if this server does not own the tablet, or if the tablet
- *      is not in NORMAL state, true otherwise.
  */
-bool
-ObjectManager::IndexedRead::readNext(uint32_t* numObjects, uint32_t* length)
+void
+ObjectManager::indexedRead(const uint64_t tableId, uint32_t reqNumHashes,
+            Buffer* pKHashes, uint32_t initialPKHashesOffset,
+            IndexletManager::KeyRange* keyRange, uint32_t maxLength,
+            Buffer* response, uint32_t* respNumHashes, uint32_t* numObjects)
 {
-    uint64_t pKHash = *(pKHashes->getOffset<uint64_t>(pKHashesOffset));
-    pKHashesOffset += 8;
-    objectManager->objectMap.prefetchBucket(pKHash);
-    ObjectManager::HashTableBucketLock lock(*objectManager, pKHash);
-    // TODO(ankitak): Instead of calling a private lookup function,
-    // as in a normal read, I'm doing the work here directly.
-    // Should I do that instead?
-
-    // If the tablet doesn't exist in the NORMAL state, we must plead ignorance.
-    TabletManager::Tablet tablet;
-    if (!objectManager->tabletManager->getTablet(tableId, pKHash, &tablet))
-        return false;
-    if (tablet.state != TabletManager::NORMAL)
-        return false;
-
-    HashTable::Candidates candidates;
+    uint32_t currentLength = 0;
+    uint32_t partLength = 0;
+    uint32_t pKHashesOffset = initialPKHashesOffset;
+    uint64_t pKHash;
+    *respNumHashes = 0;
     *numObjects = 0;
-    uint32_t initialResponseLength = response->getTotalLength();
 
-    objectManager->objectMap.lookup(pKHash, candidates);
+    for (; *respNumHashes < reqNumHashes; *respNumHashes += 1) {
+        if (currentLength > maxLength) {
+            response->truncateEnd(partLength);
+            break;
+        }
+        currentLength += partLength;
 
-    while (!candidates.isDone()) {
-        Buffer candidateBuffer;
-        Log::Reference candidateRef(candidates.getReference());
-        LogEntryType type =
-                objectManager->log.getEntry(candidateRef, candidateBuffer);
+        pKHash = *(pKHashes->getOffset<uint64_t>(pKHashesOffset));
+        pKHashesOffset += 8;
 
-        if (type != LOG_ENTRY_TYPE_OBJ)
-            continue;
+        // Instead of calling a private lookup function as in a "normal" read,
+        // doing the work here directly, since the abstraction breaks down
+        // as multiple objects having the same primary key hash may match
+        // the index key range.
+        objectMap.prefetchBucket(pKHash);
+        HashTableBucketLock lock(*this, pKHash);
 
-        Object object(candidateBuffer);
-        bool isInRange = IndexletManager::isKeyInRange(&object, keyRange);
+        // If the tablet doesn't exist in the NORMAL state,
+        // we must plead ignorance.
+        // Client can refresh it's tablet information and retry.
+        TabletManager::Tablet tablet;
+        if (!tabletManager->getTablet(tableId, pKHash, &tablet))
+            return;
+        if (tablet.state != TabletManager::NORMAL)
+            return;
 
-        if (isInRange == true) {
-            *numObjects += 1;
-            new(response, APPEND) uint64_t(object.getVersion());
-            new(response, APPEND) uint32_t(object.getKeysAndValueLength());
-            object.appendKeysAndValueToBuffer(*response);
+        HashTable::Candidates candidates;
+        objectMap.lookup(pKHash, candidates);
+
+        while (!candidates.isDone()) {
+            Buffer candidateBuffer;
+            Log::Reference candidateRef(candidates.getReference());
+            LogEntryType type = log.getEntry(candidateRef, candidateBuffer);
+
+            if (type != LOG_ENTRY_TYPE_OBJ)
+                continue;
+
+            Object object(candidateBuffer);
+            bool isInRange = IndexletManager::isKeyInRange(&object, keyRange);
+
+            if (isInRange == true) {
+                *numObjects += 1;
+                new(response, APPEND) uint64_t(object.getVersion());
+                new(response, APPEND) uint32_t(object.getKeysAndValueLength());
+                object.appendKeysAndValueToBuffer(*response);
+            }
+
+            candidates.next();
         }
 
-        candidates.next();
+        partLength = response->getTotalLength() - currentLength;
+
+        // TODO(ankitak): Later: Figure out whether / how to do this.
+        // tabletManager->incrementReadCount(key);
     }
-
-    *length = response->getTotalLength() - initialResponseLength;
-
-    // TODO(ankitak): Later: Figure out whether / how to do this.
-    // tabletManager->incrementReadCount(key);
-
-    return true;
 }
 
 /**
@@ -307,9 +310,6 @@ ObjectManager::writeObject(Object& newObject,
             // Return a pointer to the buffer in log for the object being
             // overwritten.
             if (removedObjBuffer != NULL) {
-                // Make sure that the buffer doesn't currently contain junk.
-                // TODO(ankitak): Is this needed?
-                removedObjBuffer->reset();
                 removedObjBuffer->append(&currentBuffer);
             }
         }
@@ -540,9 +540,6 @@ ObjectManager::removeObject(Key& key,
 
     // Return a pointer to the buffer in log for the object being removed.
     if (removedObjBuffer != NULL) {
-        // Make sure that the buffer doesn't currently contain junk.
-        // TODO(ankitak): Is this needed?
-        removedObjBuffer->reset();
         removedObjBuffer->append(&buffer);
     }
 

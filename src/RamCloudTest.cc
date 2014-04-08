@@ -608,8 +608,6 @@ TEST_F(RamCloudTest, write) {
 }
 
 TEST_F(RamCloudTest, index_endToEnd) {
-    // TODO(ankitak): Also need to do end to end tests with indexed multi ops.
-
     uint64_t tableId = ramcloud->createTable("table");
     ramcloud->createIndex(tableId, 1, 0);
     ramcloud->createIndex(tableId, 2, 0);

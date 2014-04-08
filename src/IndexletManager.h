@@ -127,15 +127,17 @@ class IndexletManager {
     class Indexlet : public RAMCloud::Indexlet {
         public:
         Indexlet(const void *firstKey, uint16_t firstKeyLength,
-                  const void *firstNotOwnedKey, uint16_t firstNotOwnedKeyLength)
+                 const void *firstNotOwnedKey, uint16_t firstNotOwnedKeyLength)
             : RAMCloud::Indexlet(firstKey, firstKeyLength, firstNotOwnedKey,
-                       firstNotOwnedKeyLength)
+                                 firstNotOwnedKeyLength)
             , bt()
+            , indexletMutex()
         {}
 
         Indexlet(const Indexlet& indexlet)
             : RAMCloud::Indexlet(indexlet)
             , bt(indexlet.bt)
+            , indexletMutex()
         {}
 
         // Btree key compare function
@@ -167,9 +169,14 @@ class IndexletManager {
         // B+ tree holding key: string, value: primary key hash
         // TODO(ashgup): Do we need to define traits?
         typedef stx::btree_multimap<KeyAndHash, uint64_t,
-                KeyAndHashCompare> Btree;
+                                    KeyAndHashCompare> Btree;
 
         Btree bt;
+
+        /// Mutex to protect the indexlet from concurrent access.
+        /// A lock for this mutex MUST be held to read or modify any state in
+        /// the indexlet.
+        mutable std::mutex indexletMutex;
     };
 
     explicit IndexletManager(Context* context);
@@ -210,27 +217,33 @@ class IndexletManager {
     static int keyCompare(const void* key1, uint16_t keyLength1,
                 const void* key2, uint16_t keyLength2);
 
+  PROTECTED:
+    // Note: I'm using unique_lock (instead of lock_guard) with mutex because
+    // this allows me to explictly release the lock anywhere. I'm not sure
+    // if this will perform as well as lock_guard.
+    /// Lock type used to hold the mutex.
+    /// This lock can be released explicitly in the code, but will be
+    /// automatically released at the end of a function if not done explicitly.
+    typedef std::unique_lock<std::mutex> Lock;
+
   PRIVATE:
-    /**
-     * Shared RAMCloud information.
-     */
+    /// Shared RAMCloud information.
     Context* context;
 
     /// This unordered_multimap is used to store and access all indexlet data.
-    typedef boost::unordered_multimap< std::pair<uint64_t, uint8_t>,
-                                       Indexlet> IndexletMap;
+    typedef boost::unordered_multimap<std::pair<uint64_t, uint8_t>,
+                                      Indexlet> IndexletMap;
 
-    /// Lock guard type used to hold the monitor spinlock and automatically
-    /// release it.
-    typedef std::lock_guard<SpinLock> Lock;
-
-    IndexletMap::iterator lookupIndexlet(uint64_t tableId, uint8_t indexId,
-                const void *key, uint16_t keyLength, Lock& lock);
-
+    /// Indexlet map instance storing indexlet mapping for this index server.
     IndexletMap indexletMap;
 
-    /// Monitor spinlock used to protect the indexletMap from concurrent access.
-    SpinLock lock;
+    /// Mutex to protect the indexletMap from concurrent access.
+    /// A lock for this mutex MUST be held to read or modify any state in
+    /// the indexletMap.
+    mutable std::mutex indexletMapMutex;
+
+    IndexletMap::iterator lookupIndexlet(uint64_t tableId, uint8_t indexId,
+                const void *key, uint16_t keyLength, Lock& indexletMapMutex);
 
     DISALLOW_COPY_AND_ASSIGN(IndexletManager);
 };

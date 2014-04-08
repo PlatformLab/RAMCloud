@@ -23,7 +23,7 @@ namespace RAMCloud {
 IndexletManager::IndexletManager(Context* context)
     : context(context)
     , indexletMap()
-    , lock("IndexletManager::lock")
+    , indexletMapMutex()
 {
 }
 
@@ -58,10 +58,10 @@ IndexletManager::addIndexlet(
                  const void *firstKey, uint16_t firstKeyLength,
                  const void *firstNotOwnedKey, uint16_t firstNotOwnedKeyLength)
 {
-    Lock guard(lock);
+    Lock indexletMapLock(indexletMapMutex);
 
-    if (lookupIndexlet(tableId, indexId, firstKey, firstKeyLength, guard)
-            != indexletMap.end()) {
+    if (lookupIndexlet(tableId, indexId, firstKey, firstKeyLength,
+                       indexletMapLock) != indexletMap.end()) {
         return false;
     }
 
@@ -108,15 +108,16 @@ IndexletManager::deleteIndexlet(
                 const void *firstKey, uint16_t firstKeyLength,
                 const void *firstNotOwnedKey, uint16_t firstNotOwnedKeyLength)
 {
-    Lock guard(lock);
+    Lock indexletMapLock(indexletMapMutex);
 
     // TODO(ashgup): This function can be simplified by using getIndexlet.
     // However, you'll still need to take the lock here and pass it on --
     // this may call for another lower level version of getIndexlet that takes
     // in a lock. The higher level getIndexlet() and this function can use that.
 
-    IndexletMap::iterator it =
-            lookupIndexlet(tableId, indexId, firstKey, firstKeyLength, guard);
+    IndexletMap::iterator it = lookupIndexlet(tableId, indexId,
+                                              firstKey, firstKeyLength,
+                                              indexletMapLock);
     if (it == indexletMap.end()) {
         return false;
     }
@@ -164,7 +165,7 @@ IndexletManager::getIndexlet(
                 const void *firstKey, uint16_t firstKeyLength,
                 const void *firstNotOwnedKey, uint16_t firstNotOwnedKeyLength)
 {
-    Lock guard(lock);
+    Lock indexletMapLock(indexletMapMutex);
 
     // TODO(ashgup): This function seems somewhat inefficient because
     // lookupIndexlet() does comparisons on first and firstNotOwned keys
@@ -172,8 +173,9 @@ IndexletManager::getIndexlet(
     // indexlets and do the comparison directly here instead of calling into
     // lookupIndexlet().
 
-    IndexletMap::iterator it =
-        lookupIndexlet(tableId, indexId, firstKey, firstKeyLength, guard);
+    IndexletMap::iterator it = lookupIndexlet(tableId, indexId,
+                                              firstKey, firstKeyLength,
+                                              indexletMapLock);
     if (it == indexletMap.end())
         return NULL;
 
@@ -203,7 +205,7 @@ IndexletManager::getIndexlet(
  *      Key blob marking the start of the indexed key range for this indexlet.
  * \param keyLength
  *      Length of firstKeyStr.
- * \param lock
+ * \param indexletMapMutex
  *      Lock from parent function to protect the indexletMap
  *      from concurrent access.
  * \return
@@ -216,7 +218,8 @@ IndexletManager::getIndexlet(
  */
 IndexletManager::IndexletMap::iterator
 IndexletManager::lookupIndexlet(uint64_t tableId, uint8_t indexId,
-                                const void *key, uint16_t keyLength, Lock& lock)
+                                const void *key, uint16_t keyLength,
+                                Lock& indexletMapMutex)
 {
     auto range = indexletMap.equal_range(std::make_pair(tableId, indexId));
     IndexletMap::iterator end = range.second;
@@ -250,7 +253,7 @@ IndexletManager::lookupIndexlet(uint64_t tableId, uint8_t indexId,
 size_t
 IndexletManager::getCount()
 {
-    Lock guard(lock);
+    Lock indexletMapLock(indexletMapMutex);
     return indexletMap.size();
 }
 
@@ -276,7 +279,7 @@ IndexletManager::insertEntry(uint64_t tableId, uint8_t indexId,
                              const void* key, KeyLength keyLength,
                              uint64_t pKHash)
 {
-    Lock guard(lock);
+    Lock indexletMapLock(indexletMapMutex);
 
     RAMCLOUD_LOG(DEBUG, "Inserting: tableId %lu, indexId %u, hash %lu,\n"
                         "key: %s",
@@ -284,10 +287,13 @@ IndexletManager::insertEntry(uint64_t tableId, uint8_t indexId,
                         Util::hexDump(key, keyLength).c_str());
 
     IndexletMap::iterator it =
-            lookupIndexlet(tableId, indexId, key, keyLength, guard);
+            lookupIndexlet(tableId, indexId, key, keyLength, indexletMapLock);
     if (it == indexletMap.end())
         return STATUS_UNKNOWN_INDEXLET;
     Indexlet* indexlet = &it->second;
+
+    indexletMapLock.unlock();
+    Lock indexletLock(indexlet->indexletMutex);
 
     KeyAndHash keyAndHash = {key, keyLength, pKHash};
     indexlet->bt.insert(keyAndHash, pKHash);
@@ -322,13 +328,17 @@ IndexletManager::insertEntry(uint64_t tableId, uint8_t indexId,
  *      information about the next key + keyHash to be fetched is also returned.
  * 
  * \param[out] responseBuffer
- *      Return buffer containing:
- *      1. Actual bytes of the next key to fetch, if any. Results starting at
- *      nextKey + nextKeyHash couldn't be returned right now.
- *      Client can send another request according to this.
- *      This is the first nextKeyLength bytes of responseBuffer.
+ *      Return buffer containing the following:
+ *      1. Actual bytes of the next key to fetch (nextKey), if any.
+ *      Indicates that results for index keys starting at nextKey + nextKeyHash
+ *      couldn't be returned right now, possibly because we ran out of space
+ *      in the response rpc.
+ *      Client can send another request to get results starting at nexKey +
+ *      nextKeyHash.
+ *      This part occupies the first nextKeyLength bytes of responseBuffer.
  *      2. The key hashes of the primary keys of all the objects
  *      that match the lookup query and can be returned in this response.
+ *      This part occupies numHashes * sizeof(KeyHash) bytes of responseBuffer.
  * \param[out] numHashes
  *      Return the number of objects that matched the lookup, for which
  *      the primary key hashes are being returned here.
@@ -350,7 +360,7 @@ IndexletManager::lookupIndexKeys(uint64_t tableId, uint8_t indexId,
                                  Buffer* responseBuffer, uint32_t* numHashes,
                                  uint16_t* nextKeyLength, uint64_t* nextKeyHash)
 {
-    Lock guard(lock);
+    Lock indexletMapLock(indexletMapMutex);
 
     RAMCLOUD_LOG(DEBUG, "Looking up: tableId %lu, indexId %u.\n"
                         "first key: %s\n"
@@ -360,13 +370,17 @@ IndexletManager::lookupIndexKeys(uint64_t tableId, uint8_t indexId,
                         Util::hexDump(lastKey, lastKeyLength).c_str());
 
     IndexletMap::iterator mapIter =
-            lookupIndexlet(tableId, indexId, firstKey, firstKeyLength, guard);
+            lookupIndexlet(tableId, indexId, firstKey, firstKeyLength,
+                           indexletMapLock);
     if (mapIter == indexletMap.end())
         return STATUS_UNKNOWN_INDEXLET;
     Indexlet* indexlet = &mapIter->second;
 
     *numHashes = 0;
     *nextKeyLength = 0;
+
+    indexletMapLock.unlock();
+    Lock indexletLock(indexlet->indexletMutex);
 
     // If there are no values in this indexlet's tree, return right away.
     if (indexlet->bt.empty()) {
@@ -443,7 +457,7 @@ IndexletManager::removeEntry(uint64_t tableId, uint8_t indexId,
                              const void* key, KeyLength keyLength,
                              uint64_t pKHash)
 {
-    Lock guard(lock);
+    Lock indexletMapLock(indexletMapMutex);
 
     RAMCLOUD_LOG(DEBUG, "Removing: tableId %lu, indexId %u, hash %lu,\n"
                         "key: %s",
@@ -451,11 +465,14 @@ IndexletManager::removeEntry(uint64_t tableId, uint8_t indexId,
                         Util::hexDump(key, keyLength).c_str());
 
     IndexletMap::iterator it =
-            lookupIndexlet(tableId, indexId, key, keyLength, guard);
+            lookupIndexlet(tableId, indexId, key, keyLength, indexletMapLock);
     if (it == indexletMap.end())
         return STATUS_UNKNOWN_INDEXLET;
 
     Indexlet* indexlet = &it->second;
+
+    indexletMapLock.unlock();
+    Lock indexletLock(indexlet->indexletMutex);
 
     auto iter = indexlet->bt.find(KeyAndHash {key, keyLength, pKHash});
 
