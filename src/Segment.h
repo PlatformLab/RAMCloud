@@ -334,6 +334,7 @@ class Segment {
     Segment(const void* buffer, uint32_t length);
     virtual ~Segment();
     bool hasSpaceFor(uint32_t* entryLengths, uint32_t numEntries);
+    bool hasSpaceFor(uint32_t length);
     bool append(LogEntryType type,
                 const void* data,
                 uint32_t length,
@@ -341,6 +342,13 @@ class Segment {
     bool append(LogEntryType type,
                 Buffer& buffer,
                 Reference* outReference = NULL);
+    bool append(const void* buffer,
+                uint32_t* entryDataLength = NULL,
+                LogEntryType *type = NULL,
+                Reference* outReference = NULL);
+    static void appendLogHeader(LogEntryType type,
+                                uint32_t objectSize,
+                                Buffer *logBuffer);
     void close();
     void appendToBuffer(Buffer& buffer,
                         uint32_t offset,
@@ -352,6 +360,13 @@ class Segment {
     LogEntryType getEntry(Reference reference,
                           Buffer* buffer,
                           uint32_t* lengthWithMetadata = NULL);
+    static LogEntryType getEntry(const void* buffer,
+                                 uint32_t* entryDataLength = NULL,
+                                 uint32_t* lengthWithMetadata = NULL);
+    static LogEntryType getEntry(Buffer* buffer,
+                                 uint32_t offset,
+                                 uint32_t* entryDataLength = NULL,
+                                 uint32_t* lengthWithMetadata = NULL);
     uint32_t getAppendedLength(Certificate* certificate = NULL) const;
     uint32_t getSegletsAllocated();
     uint32_t getSegletsInUse();

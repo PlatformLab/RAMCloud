@@ -163,6 +163,36 @@ TEST_P(SegmentTest, append_whiteBox) {
     EXPECT_EQ(0, memcmp("hi", buffer.getRange(2, 2), 2));
 }
 
+TEST_P(SegmentTest, append_fullLogEntry) {
+    SegmentAndAllocator segAndAlloc(GetParam());
+    Segment& s = *segAndAlloc.segment;
+
+    Segment::Reference ref;
+    Buffer dataBuffer;
+    char data[] = "hi";
+
+    Segment::appendLogHeader(LOG_ENTRY_TYPE_OBJ, 2, &dataBuffer);
+    dataBuffer.append(data, 2);
+
+    LogEntryType type;
+    uint32_t entryDataLength = 0;
+    s.append(dataBuffer.getRange(0, dataBuffer.getTotalLength()),
+             &entryDataLength, &type, &ref);
+
+    EXPECT_EQ(entryDataLength, 2U);
+    EXPECT_EQ(type, LOG_ENTRY_TYPE_OBJ);
+
+    EXPECT_EQ(s.segletBlocks[0], reinterpret_cast<const void*>(ref.reference));
+    Segment::Certificate certificate;
+    EXPECT_EQ(4U, s.getAppendedLength(&certificate));
+    EXPECT_EQ(4u, certificate.segmentLength);
+    EXPECT_EQ(0x87a632e2u, certificate.checksum);
+
+    Buffer buffer;
+    s.appendToBuffer(buffer);
+    EXPECT_EQ(0, memcmp("hi", buffer.getRange(2, 2), 2));
+}
+
 TEST_P(SegmentTest, append_differentLengthBytes) {
     uint32_t oneByteLengths[] = { 0, 255 };
     uint32_t twoByteLengths[] = { 256, 65535 };
@@ -199,6 +229,35 @@ TEST_P(SegmentTest, append_differentLengthBytes) {
             EXPECT_EQ(tests[i].expectedLengthBytes,
                       entryHeader->getLengthBytes());
         }
+    }
+}
+
+TEST_F(SegmentTest, appendLogHeader) {
+    Buffer buffer;
+    // Range of values for the entry length
+    // oneByteLengths = { 0, 255 }
+    // twoByteLengths = { 256, 65535 }
+    // threeByteLengths = { 65536 }
+    uint32_t lengths[] = {250, 65530, 65536};
+    uint32_t expectedLengthBytes[] = {1, 2, 3};
+
+    for (uint32_t i = 0; i < 3; i++) {
+
+        buffer.reset();
+
+        Segment::appendLogHeader(LOG_ENTRY_TYPE_OBJTOMB, lengths[i], &buffer);
+        const Segment::EntryHeader* entryHeader = NULL;
+        entryHeader = buffer.getStart<Segment::EntryHeader>();
+        EXPECT_EQ(LOG_ENTRY_TYPE_OBJTOMB, entryHeader->getType());
+        EXPECT_EQ(expectedLengthBytes[i], entryHeader->getLengthBytes());
+
+        buffer.reset();
+
+        Segment::appendLogHeader(LOG_ENTRY_TYPE_OBJ, lengths[i], &buffer);
+        entryHeader = NULL;
+        entryHeader = buffer.getStart<Segment::EntryHeader>();
+        EXPECT_EQ(LOG_ENTRY_TYPE_OBJ, entryHeader->getType());
+        EXPECT_EQ(expectedLengthBytes[i], entryHeader->getLengthBytes());
     }
 }
 
@@ -260,6 +319,45 @@ TEST_P(SegmentTest, getEntry_byReference) {
     EXPECT_EQ(21U, buffer.getTotalLength());
     EXPECT_STREQ("this is only a test!",
         reinterpret_cast<const char*>(buffer.getRange(0, 21)));
+}
+
+TEST_P(SegmentTest, getEntry_contigMem) {
+    Buffer dataBuffer;
+    char data[] = "this is only a test!";
+
+    // Still a 2 byte header only
+    Segment::appendLogHeader(LOG_ENTRY_TYPE_OBJ, 21, &dataBuffer);
+    dataBuffer.append(data, 21);
+
+    LogEntryType type;
+    uint32_t entryDataLength = 0, lengthWithMetadata = 0;
+    type = Segment::getEntry(dataBuffer.getRange(0,
+                             dataBuffer.getTotalLength()),
+                             &entryDataLength, &lengthWithMetadata);
+
+    EXPECT_EQ(entryDataLength, 21U);
+    EXPECT_EQ(lengthWithMetadata, 23U);
+    EXPECT_EQ(type, LOG_ENTRY_TYPE_OBJ);
+}
+
+TEST_P(SegmentTest, getEntry_buffer) {
+    Buffer dataBuffer;
+    char data[] = "this is only a test!";
+    char garbage[] = "garbage";
+    dataBuffer.append(garbage, 7);
+
+    // Still a 2 byte header only
+    Segment::appendLogHeader(LOG_ENTRY_TYPE_OBJ, 21, &dataBuffer);
+    dataBuffer.append(data, 21);
+
+    LogEntryType type;
+    uint32_t entryDataLength = 0, lengthWithMetadata = 0;
+    type = Segment::getEntry(&dataBuffer, 7,
+                             &entryDataLength, &lengthWithMetadata);
+
+    EXPECT_EQ(entryDataLength, 21U);
+    EXPECT_EQ(lengthWithMetadata, 23U);
+    EXPECT_EQ(type, LOG_ENTRY_TYPE_OBJ);
 }
 
 TEST_P(SegmentTest, getAppendedLength) {
@@ -357,6 +455,33 @@ TEST_P(SegmentTest, hasSpaceFor) {
     lengths[0] = lengths[1] = lengths[2] = 20;
     lengths[3] = 999999999;
     EXPECT_TRUE(s.hasSpaceFor(lengths, 3));
+}
+
+TEST_P(SegmentTest, hasSpaceFor_fullLogEntry) {
+    SegmentAndAllocator segAndAlloc(GetParam());
+    Segment& s = *segAndAlloc.segment;
+
+    EXPECT_TRUE(s.hasSpaceFor(0));
+
+    // the length includes the length of complete
+    // log entries
+    uint32_t length;
+
+    s.closed = true;
+    length = 0;
+    EXPECT_TRUE(s.hasSpaceFor(length));
+
+    s.closed = false;
+    EXPECT_TRUE(s.hasSpaceFor(length));
+
+    uint32_t totalFreeBytes = s.getSegletsAllocated() * s.segletSize - s.head;
+
+    length = totalFreeBytes;
+    EXPECT_TRUE(s.hasSpaceFor(length));
+
+    EXPECT_TRUE(s.hasSpaceFor(length - 1));
+
+    EXPECT_FALSE(s.hasSpaceFor(length + 1));
 }
 
 TEST_P(SegmentTest, copyOut) {

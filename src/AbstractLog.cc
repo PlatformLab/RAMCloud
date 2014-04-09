@@ -109,6 +109,66 @@ AbstractLog::append(AppendVector* appends, uint32_t numAppends)
 }
 
 /**
+ * Flushes all the log entries from the given buffer to the log
+ * atomically.
+ *
+ * \param logBuffer
+ *      The buffer which contains various log entries
+ * \param[out] references
+ *      This will hold the reference for each log entry that
+ *      is written to the log. The caller must have allocated
+ *      memory for this
+ * \param numEntries
+ *      Number of log entries in the buffer
+ */
+bool
+AbstractLog::append(Buffer *logBuffer, Reference *references,
+                    uint32_t numEntries)
+{
+    CycleCounter<uint64_t> _(&metrics.totalAppendTicks);
+    Lock lock(appendLock);
+    metrics.totalAppendCalls++;
+
+    if (head == NULL || !head->hasSpaceFor(logBuffer->getTotalLength())) {
+        if (!allocNewWritableHead())
+            return false;
+    }
+
+    if (head->isEmergencyHead)
+        return false;
+
+    if (!head->hasSpaceFor(logBuffer->getTotalLength()))
+        throw FatalError(HERE, "too much data to append to one segment");
+
+    LogSegment* headBefore = head;
+
+    // Makes sense to call getRange on the entire logBuffer here because
+    // everything n the buffer has to be written out before this function
+    // can return
+    const uint8_t* buffer = reinterpret_cast<const uint8_t*>(logBuffer->
+                                getRange(0, logBuffer->getTotalLength()));
+    if (!buffer) {
+        throw FatalError(HERE, "Ill-formed log entries in the buffer");
+    }
+
+    uint32_t entryLength = 0;
+    uint32_t offset = 0;
+    for (uint32_t i = 0; i < numEntries; i++) {
+        bool enoughSpace = append(lock,
+                                  buffer + offset,
+                                  &entryLength,
+                                  &references[i]);
+        if (!enoughSpace)
+            throw FatalError(HERE, "Guaranteed append managed to fail");
+        offset+= entryLength;
+    }
+
+    assert(head == headBefore);
+
+    return true;
+}
+
+/**
  * This method is invoked when a log entry is no longer needed (for example, an
  * object that has been deleted). This method does not change anything in the
  * log itself, but it is used to keep track of free space in segments to help
@@ -303,6 +363,96 @@ AbstractLog::append(Lock& appendLock,
 
     metrics.totalBytesAppended += length;
     metrics.totalMetadataBytesAppended += (lengthWithMetadata - length);
+
+    return true;
+}
+
+/**
+ * Append a a complete log entry to the log by copying in the data.
+ *
+ * Note that the append operation is not synchronous with respect to backups.
+ * To ensure that the data appended has been safely written to backups, the
+ * sync() method must be invoked after appending. Until sync() is called, the
+ * data may or may not have been made durable.
+ *
+ * \param appendLock
+ *      The append lock must have already been acquired before entering this
+ *      method. This parameter exists in the hopes that you don't forget to
+ *      do that.
+ * \param buffer
+ *      Pointer to buffer containing the entry to be appended.
+ * \param[out] entryLength
+ *      Size of the entry including the entry header information which
+ *      starts at the location pointer to by #buffer
+ * \param[out] outReference
+ *      If the append succeeds, a reference to the created entry is returned
+ *      here. This reference may be used to access the appended entry via the
+ *      lookup method. It may also be inserted into a HashTable.
+ * \param[out] outTickCounter
+ *      If non-NULL, store the number of processor ticks spent executing this
+ *      method.
+ * \return
+ *      True if the append succeeded, false if there was insufficient space
+ *      to complete the operation.
+ */
+bool
+AbstractLog::append(Lock& appendLock,
+            const void* buffer,
+            uint32_t *entryLength,
+            Reference* outReference,
+            uint64_t* outTickCounter)
+{
+    CycleCounter<uint64_t> _(outTickCounter);
+
+    // Note that we do not increment metrics.totalAppendCalls here, but rather
+    // in the public methods that invoke this. The reason is that we consider
+    // a single append of multiple entries (which invokes this method several
+    // times) to be a single call.
+
+    // This is only possible once after construction.
+    if (head == NULL) {
+        if (!allocNewWritableHead())
+            throw FatalError(HERE, "Could not allocate initial head segment");
+    }
+
+    // Try to append. If we can't, try to allocate a new head to get more space.
+    Reference reference;
+    LogEntryType type;
+    uint32_t entryDataLength = 0;
+    uint32_t bytesUsedBefore = head->getAppendedLength();
+    bool enoughSpace = head->append(buffer, &entryDataLength,
+                                    &type, &reference);
+    if (!enoughSpace) {
+        if (!allocNewWritableHead())
+            return false;
+
+        bytesUsedBefore = head->getAppendedLength();
+        if (!head->append(buffer, &entryDataLength, &type, &reference)) {
+            // TODO(Steve): We should probably just permit up to 1/N'th of the
+            // size of a segment in any single append. Say, 1/2th or 1/4th as
+            // a ceiling. Then we could ensure that after opening a new head
+            // we have at least as much space, or else throw a fatal error.
+            LOG(ERROR, "Entry too big to append to log: %u bytes of type %d",
+                entryDataLength, static_cast<int>(type));
+            throw FatalError(HERE, "Entry too big to append to log");
+        }
+    }
+
+    if (outReference != NULL)
+        *outReference = reference;
+
+    uint32_t lengthWithMetadata = head->getAppendedLength() - bytesUsedBefore;
+
+    if (entryLength)
+        *entryLength = lengthWithMetadata;
+
+    // Update log statistics so that the cleaner can make intelligent decisions
+    // when trying to reclaim memory.
+    head->trackNewEntry(type, lengthWithMetadata);
+
+    metrics.totalBytesAppended += entryDataLength;
+    metrics.totalMetadataBytesAppended +=
+                            (lengthWithMetadata - entryDataLength);
 
     return true;
 }

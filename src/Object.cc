@@ -145,16 +145,25 @@ Object::Object(Key& key,
  *      caller's responsibility to make sure that the buffer passed in
  *      actually contains a full object. If it does not, then behavior
  *      is undefined.
+ * \param offset
+ *      Starting offset in the buffer where the object begins.
+ * \param length
+ *      Total length of the object in bytes.
  */
-Object::Object(Buffer& buffer)
-    : header(*buffer.getStart<Header>()),
-      keysAndValueLength(buffer.getTotalLength() -
-                         sizeof32(header)),
+Object::Object(Buffer& buffer, uint32_t offset, uint32_t length)
+    : header(*buffer.getOffset<Header>(offset)),
+      keysAndValueLength(),
       keysAndValue(),
       keysAndValueBuffer(&buffer),
-      keysAndValueOffset(sizeof32(header)),
+      keysAndValueOffset(offset + sizeof32(header)),
       keyOffsets(NULL)
 {
+    // If length is not specified, compute the length of keysAndValue
+    if (length == 0)
+        keysAndValueLength = buffer.getTotalLength() - offset -
+                             sizeof32(header);
+    else
+        keysAndValueLength = length - sizeof32(header);
 }
 
 /**
@@ -193,6 +202,27 @@ Object::assembleForLog(Buffer& buffer)
     header.checksum = computeChecksum();
     buffer.append(&header, sizeof32(header));
     appendKeysAndValueToBuffer(buffer);
+}
+
+/**
+ * Copy the full object, including header, keys and value exactly as it
+ * should be stored in the log. This is used when the memory for an object
+ * needs to be allocated in a buffer as opposed to being logically stored
+ * in a buffer.
+ *
+ * \param buffer
+ *      Destination to copy a serialized version of this object to.
+ *      The caller must ensure that sufficient memory is allocated for the
+ *      complete serialized object to be stored
+ */
+void
+Object::assembleForLog(void* buffer)
+{
+    uint8_t *dst = reinterpret_cast<uint8_t*>(buffer);
+    header.checksum = computeChecksum();
+
+    memcpy(dst, &header, sizeof32(header));
+    memcpy(dst + sizeof32(header), getKeysAndValue(), keysAndValueLength);
 }
 
 /**
@@ -621,6 +651,15 @@ Object::getTimestamp()
 }
 
 /**
+ * Obtain the total size of the object including the object header
+ */
+uint32_t
+Object::getSerializedLength()
+{
+    return sizeof32(header) + keysAndValueLength;
+}
+
+/**
  * Compute a checksum on the object and determine whether or not it matches
  * what is stored in the object. Returns true if the checksum looks ok,
  * otherwise returns false.
@@ -726,7 +765,8 @@ ObjectTombstone::ObjectTombstone(Object& object, uint64_t segmentId,
              timestamp),
       key(object.getKey()),
       keyLength(object.getKeyLength()),
-      tombstoneBuffer()
+      tombstoneBuffer(),
+      keyOffset(0)
 {
     header.checksum = computeChecksum();
 }
@@ -741,14 +781,24 @@ ObjectTombstone::ObjectTombstone(Object& object, uint64_t segmentId,
  *      caller's responsibility to make sure that the buffer passed in
  *      actually contains a full tombstone. If it does not, then behavior
  *      is undefined.
+ * \param offset
+ *      Starting offset in the buffer where the tombstone begins.
+ * \param length
+ *      Total length of the tombstone in bytes.
  */
-ObjectTombstone::ObjectTombstone(Buffer& buffer)
-    : header(*buffer.getStart<Header>()),
+ObjectTombstone::ObjectTombstone(Buffer& buffer, uint32_t offset,
+                                 uint32_t length)
+    : header(*buffer.getOffset<Header>(offset)),
       key(),
-      keyLength(downCast<uint16_t>(buffer.getTotalLength() -
-                sizeof32(Header))),
-      tombstoneBuffer(&buffer)
+      keyLength(),
+      tombstoneBuffer(&buffer),
+      keyOffset(sizeof32(header) + offset)
 {
+    if (length == 0)
+        keyLength = downCast<uint16_t>(buffer.getTotalLength() -
+                  offset - sizeof32(Header));
+    else
+        keyLength = downCast<uint16_t>(length - sizeof32(Header));
 }
 
 /**
@@ -766,6 +816,25 @@ ObjectTombstone::assembleForLog(Buffer& buffer)
 }
 
 /**
+ * Copy the full serialized tombstone including header and the primary key
+ * as it will be stored in the log. This is used when the memory for a
+ * tombstone needs to be allocated in a buffer as opposed to being logically
+ * stored in a buffer.
+ *
+ * \param buffer
+ *      Destination to copy a serialized version of this tombstone to.
+ *      The caller must ensure that enough memory is allocated for the
+ *      complete serialized tombstone to be stored
+ */
+void
+ObjectTombstone::assembleForLog(void* buffer)
+{
+    uint8_t *dst = reinterpret_cast<uint8_t*>(buffer);
+    memcpy(dst, &header, sizeof32(header));
+    memcpy(dst + sizeof32(header), getKey(), getKeyLength());
+}
+
+/**
  * Append the primary key portion of this tombstone to a provided
  * buffer. This is only the key blob and does not contain the table
  * identifier.
@@ -777,12 +846,12 @@ void
 ObjectTombstone::appendKeyToBuffer(Buffer& buffer)
 {
     if (key) {
-        buffer.append(getKey(), getKeyLength());
+        buffer.append(key, getKeyLength());
         return;
     }
 
     Buffer::Iterator it(*tombstoneBuffer,
-                        sizeof32(header),
+                        keyOffset,
                         getKeyLength());
     while (!it.isDone()) {
         buffer.append(it.getData(), it.getLength());
@@ -809,8 +878,7 @@ ObjectTombstone::getKey()
     if (key)
         return key;
 
-    return (tombstoneBuffer)->getRange(
-        sizeof(header), getKeyLength());
+    return (tombstoneBuffer)->getRange(keyOffset, getKeyLength());
 }
 
 /**
@@ -870,6 +938,15 @@ ObjectTombstone::getSerializedLength(uint32_t keyLength)
 }
 
 /**
+ * Compute the total length of a serialized tombstone
+ */
+uint32_t
+ObjectTombstone::getSerializedLength()
+{
+    return sizeof32(Header) + getKeyLength();
+}
+
+/**
  * Compute the tombstone's checksum and return it.
  */
 uint32_t
@@ -886,7 +963,7 @@ ObjectTombstone::computeChecksum()
         crc.update(key, getKeyLength());
     } else {
         crc.update(*tombstoneBuffer,
-                   sizeof(header),
+                   keyOffset,
                    getKeyLength());
     }
 

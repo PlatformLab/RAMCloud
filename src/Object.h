@@ -86,10 +86,11 @@ class Object {
            uint32_t length = 0);
     Object(Key& key, const void* value, uint32_t valueLength, uint64_t version,
            uint32_t timestamp, Buffer& buffer, uint32_t *length = NULL);
-    explicit Object(Buffer& buffer);
+    explicit Object(Buffer& buffer, uint32_t offset = 0, uint32_t length = 0);
     explicit Object(const void* buffer, uint32_t length);
 
     void assembleForLog(Buffer& buffer);
+    void assembleForLog(void* buffer);
     static void appendKeysAndValueToBuffer(uint64_t tableId, KeyCount numKeys,
                                       KeyInfo *keyList, const void* value,
                                       uint32_t valueLength, Buffer& request,
@@ -112,6 +113,7 @@ class Object {
     uint32_t getKeysAndValueLength();
     uint64_t getVersion();
     uint32_t getTimestamp();
+    uint32_t getSerializedLength();
 
     bool checkIntegrity();
     void setVersion(uint64_t version);
@@ -242,9 +244,11 @@ class Object {
 class ObjectTombstone {
   public:
     ObjectTombstone(Object& object, uint64_t segmentId, uint32_t timestamp);
-    explicit ObjectTombstone(Buffer& buffer);
+    explicit ObjectTombstone(Buffer& buffer, uint32_t offset = 0,
+                             uint32_t length = 0);
 
     void assembleForLog(Buffer& buffer);
+    void assembleForLog(void* buffer);
     void appendKeyToBuffer(Buffer& buffer);
 
     uint64_t getTableId();
@@ -256,6 +260,7 @@ class ObjectTombstone {
 
     bool checkIntegrity();
     static uint32_t getSerializedLength(uint32_t keyLength);
+    uint32_t getSerializedLength();
     uint32_t computeChecksum();
 
   //PRIVATE:
@@ -333,6 +338,9 @@ class ObjectTombstone {
     /// the log), this will point to the buffer that refers to the entire
     /// tombstone. This is NULL for a new tombstone that is being constructed.
     Buffer* tombstoneBuffer;
+
+    /// Stores the offset of the key in #tombstoneBuffer
+    uint32_t keyOffset;
 
     DISALLOW_COPY_AND_ASSIGN(ObjectTombstone);
 };

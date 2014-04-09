@@ -151,6 +151,29 @@ Segment::hasSpaceFor(uint32_t* entryLengths, uint32_t numEntries)
 }
 
 /**
+ * Check whether or not the segment has sufficient space to append a
+ * given number of bytes. This method is used when the caller already
+ * has all the bytes required for one or many log entries.
+ *
+ * \param length
+ *      Number of bytes that need to be appended to this segment
+ * \return
+ *      True if the segment has enough space to fit 'length' number of bytes,,
+ *      false otherwise.
+ */
+bool
+Segment::hasSpaceFor(uint32_t length)
+{
+    uint32_t bytesLeft = 0;
+    if (!closed) {
+        uint32_t capacity = getSegletsAllocated() * segletSize;
+        bytesLeft = capacity - head;
+    }
+
+    return length <= bytesLeft;
+}
+
+/**
  * Append a typed entry to this segment. Entries are binary blobs. The segment
  * records metadata identifying their type and length.
  *
@@ -224,6 +247,103 @@ Segment::append(LogEntryType type,
 {
     uint32_t length = buffer.getTotalLength();
     return append(type, buffer.getRange(0, length), length, outReference);
+}
+
+/**
+ * Append a complete log entry to this segment. This function is called
+ * when the log entry header information is already part of the
+ * function input. Entries are binary blobs. The segment
+ * records metadata identifying their type and length.
+ *
+ * \param buffer
+ *      Pointer to the buffer containing the log entry to be appended.
+ *      This points to the start of the entry header
+ * \param[out] entryDataLength
+ *      Number of bytes that belong to the current entry's contents.
+ *      This does not include the log entry header information
+ * \param[out] type
+ *      Type of the entry. See LogEntryTypes.h.
+ * \param[out] outReference
+ *      If the append was successful, a Segment::Reference pointing to the new
+ *      entry is returned here. This is used to later access the entry within
+ *      segment (see getEntry).
+ * \return
+ *      True if the append succeeded, false if there was insufficient space to
+ *      complete the operation.
+ */
+bool
+Segment::append(const void* buffer,
+                uint32_t* entryDataLength,
+                LogEntryType *type,
+                Reference* outReference)
+{
+    const EntryHeader* entryHeader = reinterpret_cast<
+                                     const EntryHeader*>(buffer);
+
+    uint32_t lengthWithoutMetadata = 0, lengthWithMetadata = 0;
+    LogEntryType entryType = getEntry(buffer, &lengthWithoutMetadata,
+                                      &lengthWithMetadata);
+
+    if (!hasSpaceFor(lengthWithMetadata))
+        return false;
+
+    uint32_t startOffset = head;
+
+    copyIn(head, entryHeader, sizeof(*entryHeader));
+    checksum.update(entryHeader, sizeof(*entryHeader));
+    head += sizeof32(*entryHeader);
+
+    // Note that this assumes a little-endian byte order. I think this is
+    // justified considering how widely we have assume byte order (if not
+    // x86 in particular).
+    copyIn(head, &lengthWithoutMetadata, entryHeader->getLengthBytes());
+    checksum.update(&lengthWithoutMetadata, entryHeader->getLengthBytes());
+    head += entryHeader->getLengthBytes();
+
+    const uint8_t* contigPointer = reinterpret_cast<const uint8_t*>(buffer);
+    const uint8_t* entryContents = contigPointer + head - startOffset;
+    copyIn(head, entryContents, lengthWithoutMetadata);
+    head += lengthWithoutMetadata;
+
+    if (entryDataLength)
+        *entryDataLength = lengthWithoutMetadata;
+
+    if (type)
+        *type = entryType;
+
+    if (outReference != NULL)
+        *outReference = Reference(this, startOffset);
+
+    return true;
+}
+
+/**
+ * Adds a log entry header to a buffer. The size of the header is
+ * determined by the object size for which this header is to be
+ * constructed.
+ *
+ * \param type
+ *      Type of the entry. See LogEntryTypes.h.
+ * \param objectSize
+ *      Size of the object for which the entry header is to be
+ *      constructed
+ * \param[out] logBuffer
+ *      The buffer to which the log entry header will be appended
+ */
+void
+Segment::appendLogHeader(LogEntryType type,
+                         uint32_t objectSize,
+                         Buffer *logBuffer)
+{
+    EntryHeader entryHeader(type, objectSize);
+
+    // Allocate memory in the buffer for the entry header and the number
+    // of length bytes required
+    EntryHeader *header = reinterpret_cast<EntryHeader *>(
+                            new(logBuffer, APPEND) uint8_t[sizeof(EntryHeader) +
+                            entryHeader.getLengthBytes()]);
+    *header = entryHeader;
+    memcpy(header + 1, &objectSize, entryHeader.getLengthBytes());
 }
 
 /**
@@ -382,6 +502,124 @@ Segment::getEntry(Reference reference,
     uint64_t offset = (it - segletBlocks.begin()) << segletSizeShift;
     offset += segletOffset;
     return getEntry(downCast<uint32_t>(offset), buffer, lengthWithMetadata);
+}
+
+/**
+ * Get access to an entry present at a given memory location.
+ * This function is primarily used when flushing a series of
+ * well-formed log entries into the log atomically
+ *
+ * \param buffer
+ *      Points to the starting of the entry.
+ * \param entryDataLength
+ *      If non-NULL, return the total number of bytes this entry uses
+ *      excluding any internal segment metadata.
+ * \param lengthWithMetadata
+ *      If non-NULL, return the total number of bytes this entry uses in the
+ *      segment here, including any internal segment metadata.
+ * \return
+ *      The entry's type as specified when it was appended (LogEntryType).
+ */
+LogEntryType
+Segment::getEntry(const void* buffer, uint32_t* entryDataLength,
+                  uint32_t* lengthWithMetadata)
+{
+    const EntryHeader *entryHeader =
+                            reinterpret_cast<const EntryHeader*>(buffer);
+
+    if (entryDataLength) {
+        const uint8_t* contigPointer = reinterpret_cast<const uint8_t*>(buffer);
+        uint8_t *contentsLengthPtr = reinterpret_cast<uint8_t *>(
+                                                        entryDataLength);
+
+        // Yes, this ugliness actually provides a small improvement when
+        // pulling out the header length field.
+        switch (entryHeader->getLengthBytes()) {
+            case sizeof(uint8_t):
+                *contentsLengthPtr =
+                    *reinterpret_cast<const uint8_t*>(contigPointer +
+                    sizeof(*entryHeader));
+                break;
+            case sizeof(uint16_t):
+                *reinterpret_cast<uint16_t*>(contentsLengthPtr) =
+                    *reinterpret_cast<const uint16_t*>(contigPointer +
+                    sizeof(*entryHeader));
+                break;
+            default:
+                memcpy(contentsLengthPtr,
+                       contigPointer + sizeof(*entryHeader),
+                       entryHeader->getLengthBytes());
+        }
+
+        if (lengthWithMetadata != NULL) {
+            *lengthWithMetadata = sizeof32(*entryHeader) +
+                                  entryHeader->getLengthBytes() +
+                                  *entryDataLength;
+        }
+    }
+
+    return entryHeader->getType();
+}
+
+/**
+ * Get access to an entry stored in a buffer at a given offset.
+ * This function is primarily when updating the hash table for
+ * a series of log entries that were flushed atomically.
+ *
+ * \param buffer
+ *      Buffer containing the entry.
+ * \param offset
+ *      Starting offset in the buffer for the entry.
+ * \param entryDataLength
+ *      If non-NULL, return the total number of bytes this entry uses
+ *      excluding any internal segment metadata.
+ * \param lengthWithMetadata
+ *      If non-NULL, return the total number of bytes this entry uses in the
+ *      segment here, including any internal segment metadata.
+ * \return
+ *      The entry's type as specified when it was appended (LogEntryType).
+ */
+LogEntryType
+Segment::getEntry(Buffer* buffer, uint32_t offset,
+                  uint32_t* entryDataLength, uint32_t* lengthWithMetadata)
+{
+    const EntryHeader *entryHeader = buffer->getOffset<EntryHeader>(offset);
+    assert(entryHeader != NULL);
+
+    if (entryDataLength) {
+        // clear the value before we go about copying specific bytes.
+        *entryDataLength = 0;
+        uint8_t *contentsLengthPtr = reinterpret_cast<uint8_t *>(
+                                                    entryDataLength);
+
+        // Yes, this ugliness actually provides a small improvement when
+        // pulling out the header length field.
+        switch (entryHeader->getLengthBytes()) {
+            case sizeof(uint8_t):
+                *contentsLengthPtr =
+                    *buffer->getOffset<uint8_t>(offset +
+                                                sizeof32(*entryHeader));
+                break;
+            case sizeof(uint16_t):
+                *reinterpret_cast<uint16_t*>(contentsLengthPtr) =
+                    *buffer->getOffset<uint16_t>(offset +
+                                                 sizeof32(*entryHeader));
+                break;
+            default:
+                memcpy(contentsLengthPtr,
+                       buffer->getRange(offset + sizeof32(*entryHeader),
+                                        entryHeader->getLengthBytes()),
+                       entryHeader->getLengthBytes());
+        }
+
+        if (lengthWithMetadata != NULL) {
+            *lengthWithMetadata = sizeof32(*entryHeader) +
+                                  entryHeader->getLengthBytes() +
+                                  *entryDataLength;
+        }
+    }
+
+    return entryHeader->getType();
 }
 
 /**

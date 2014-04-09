@@ -143,6 +143,7 @@ class AbstractLog {
     virtual ~AbstractLog() { }
 
     bool append(AppendVector* appends, uint32_t numAppends);
+    bool append(Buffer* logBuffer, Reference *references, uint32_t numEntries);
     void free(Reference reference);
     void getMetrics(ProtoBuf::LogMetrics& m);
     LogEntryType getEntry(Reference reference,
@@ -229,6 +230,11 @@ class AbstractLog {
                 LogEntryType type,
                 const void* data,
                 uint32_t length,
+                Reference* outReference = NULL,
+                uint64_t* outTickCounter = NULL);
+    bool append(Lock& lock,
+                const void* data,
+                uint32_t *entryLength = NULL,
                 Reference* outReference = NULL,
                 uint64_t* outTickCounter = NULL);
     bool append(Lock& lock,
