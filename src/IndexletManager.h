@@ -23,6 +23,8 @@
 #include "SpinLock.h"
 #include "Object.h"
 #include "Indexlet.h"
+#include "IndexKey.h"
+#include "ObjectManager.h"
 #include "btree/BtreeMultimap.h"
 
 namespace RAMCloud {
@@ -103,21 +105,25 @@ class IndexletManager {
         }
     };
 
-    /// Structure used to define a range of keys [first key, last key]
-    /// for a particular index id, that can be used to compare a given
-    /// object to determine if its corresponding key falls in this range.
-    struct KeyRange {
-        /// Id of the index to which these index keys belong.
-        const uint8_t indexId;
-        /// Key blob marking the start of the key range.
-        const void* firstKey;
-        /// Length of firstKey.
-        const uint16_t firstKeyLength;
-        /// Key blob marking the end of the key range.
-        const void* lastKey;
-        /// Length of lastKey.
-        const uint16_t lastKeyLength;
+    // Btree key compare function
+    struct KeyAndHashCompare
+    {
+      public:
+        bool operator()(const KeyAndHash x, const KeyAndHash y) const
+        {
+            int keyComparison = keyCompare(x.key, x.keyLength,
+                                           y.key, y.keyLength);
+            if (keyComparison == 0) {
+                return (x.pKHash < y.pKHash);
+            }
+            return keyComparison < 0;
+        }
     };
+
+
+    // B+ tree holding key: string, value: primary key hash
+    // TODO(ashgup): Do we need to define traits?
+    typedef stx::btree_multimap<KeyAndHash, uint64_t, KeyAndHashCompare> Btree;
 
     /**
      * Each indexlet owned by a master is described by fields in this class.
@@ -127,12 +133,14 @@ class IndexletManager {
     class Indexlet : public RAMCloud::Indexlet {
         public:
         Indexlet(const void *firstKey, uint16_t firstKeyLength,
-                 const void *firstNotOwnedKey, uint16_t firstNotOwnedKeyLength)
+                 const void *firstNotOwnedKey, uint16_t firstNotOwnedKeyLength,
+                 Btree *bt)
             : RAMCloud::Indexlet(firstKey, firstKeyLength, firstNotOwnedKey,
                                  firstNotOwnedKeyLength)
-            , bt()
+            , bt(bt)
             , indexletMutex()
-        {}
+        {
+        }
 
         Indexlet(const Indexlet& indexlet)
             : RAMCloud::Indexlet(indexlet)
@@ -140,20 +148,26 @@ class IndexletManager {
             , indexletMutex()
         {}
 
-        // Btree key compare function
-        struct KeyAndHashCompare
+        Indexlet& operator =(const Indexlet& indexlet)
         {
-          public:
-            bool operator()(const KeyAndHash x, const KeyAndHash y) const
-            {
-                int keyComparison = keyCompare(x.key, x.keyLength,
-                                               y.key, y.keyLength);
-                if (keyComparison == 0) {
-                    return (x.pKHash < y.pKHash);
-                }
-                return keyComparison < 0;
+            this->firstKey = NULL;
+            this->firstKeyLength = indexlet.firstKeyLength;
+            this->firstNotOwnedKey = NULL;
+            this->firstNotOwnedKeyLength = indexlet.firstNotOwnedKeyLength;
+
+            if (firstKeyLength != 0){
+                this->firstKey = malloc(firstKeyLength);
+                memcpy(this->firstKey, indexlet.firstKey, firstKeyLength);
             }
-        };
+            if (firstNotOwnedKeyLength != 0){
+                this->firstNotOwnedKey = malloc(firstNotOwnedKeyLength);
+                memcpy(this->firstNotOwnedKey, indexlet.firstNotOwnedKey,
+                                                        firstNotOwnedKeyLength);
+            }
+
+            this->bt = indexlet.bt;
+            return *this;
+        }
 
         // Attributes of the b+ tree used for holding the indexes
         template <typename KeyType>
@@ -166,12 +180,7 @@ class IndexletManager {
             static const int innerslots = 8;
         };
 
-        // B+ tree holding key: string, value: primary key hash
-        // TODO(ashgup): Do we need to define traits?
-        typedef stx::btree_multimap<KeyAndHash, uint64_t,
-                                    KeyAndHashCompare> Btree;
-
-        Btree bt;
+        Btree *bt;
 
         /// Mutex to protect the indexlet from concurrent access.
         /// A lock for this mutex MUST be held to read or modify any state in
@@ -179,7 +188,7 @@ class IndexletManager {
         mutable std::mutex indexletMutex;
     };
 
-    explicit IndexletManager(Context* context);
+    explicit IndexletManager(Context* context, ObjectManager* objectManager);
 
     /////////////////////////// Meta-data related functions //////////////////
 
@@ -212,7 +221,7 @@ class IndexletManager {
 
     //////////////// Static function related to indexing info /////////////////
 
-    static bool isKeyInRange(Object* object, KeyRange* keyRange);
+    static bool isKeyInRange(Object* object, IndexKeyRange* keyRange);
 
     static int keyCompare(const void* key1, uint16_t keyLength1,
                 const void* key2, uint16_t keyLength2);
@@ -241,6 +250,9 @@ class IndexletManager {
     /// A lock for this mutex MUST be held to read or modify any state in
     /// the indexletMap.
     mutable std::mutex indexletMapMutex;
+
+    /// Object Manager to handle mapping of index as objects
+    ObjectManager* objectManager;
 
     IndexletMap::iterator lookupIndexlet(uint64_t tableId, uint8_t indexId,
                 const void *key, uint16_t keyLength, Lock& indexletMapMutex);

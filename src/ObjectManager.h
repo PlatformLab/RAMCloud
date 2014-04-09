@@ -21,7 +21,7 @@
 #include "SideLog.h"
 #include "LogEntryHandlers.h"
 #include "HashTable.h"
-#include "IndexletManager.h"
+#include "IndexKey.h"
 #include "Object.h"
 #include "SegmentManager.h"
 #include "SegmentIterator.h"
@@ -59,7 +59,7 @@ class ObjectManager : public LogEntryHandlers {
 
     void indexedRead(const uint64_t tableId, uint32_t reqNumHashes,
                      Buffer* pKHashes, uint32_t initialPKHashesOffset,
-                     IndexletManager::KeyRange* keyRange, uint32_t maxLength,
+                     IndexKeyRange* keyRange, uint32_t maxLength,
                      Buffer* response, uint32_t* respNumHashes,
                      uint32_t* numObjects);
     Status readObject(Key& key,

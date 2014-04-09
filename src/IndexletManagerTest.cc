@@ -15,6 +15,7 @@
 
 #include "TestUtil.h"
 #include "IndexletManager.h"
+#include "IndexKey.h"
 #include "RamCloud.h"
 #include "StringUtil.h"
 
@@ -23,11 +24,27 @@ namespace RAMCloud {
 class IndexletManagerTest : public ::testing::Test {
   public:
     Context context;
+    ServerId serverId;
+    ServerList serverList;
+    ServerConfig masterConfig;
+    TabletManager tabletManager;
+    MasterTableMetadata masterTableMetadata;
+    ObjectManager objectManager;
     IndexletManager im;
 
     IndexletManagerTest()
         : context()
-        , im(&context)
+        , serverId(5)
+        , serverList(&context)
+        , masterConfig(ServerConfig::forTesting())
+        , tabletManager()
+        , masterTableMetadata()
+        , objectManager(&context,
+                        &serverId,
+                        &masterConfig,
+                        &tabletManager,
+                        &masterTableMetadata)
+        , im(&context, &objectManager)
     {
     }
     DISALLOW_COPY_AND_ASSIGN(IndexletManagerTest);
@@ -640,27 +657,27 @@ TEST_F(IndexletManagerTest, isKeyInRange)
     // test many more cases here.
 
     // Case0: firstKey > key < lastKey
-    IndexletManager::KeyRange testRange0 = {1, "objkey2", 8, "objkey2", 8};
+    IndexKeyRange testRange0 = {1, "objkey2", 8, "objkey2", 8};
     bool isInRange0 = IndexletManager::isKeyInRange(&obj, &testRange0);
     EXPECT_FALSE(isInRange0);
 
     // Case1: firstKey < key > lastKey
-    IndexletManager::KeyRange testRange1 = {1, "objkey0", 8, "objkey0", 8};
+    IndexKeyRange testRange1 = {1, "objkey0", 8, "objkey0", 8};
     bool isInRange1 = IndexletManager::isKeyInRange(&obj, &testRange1);
     EXPECT_FALSE(isInRange1);
 
     // Case2: firstKey > key > lastKey
-    IndexletManager::KeyRange testRange2 = {1, "objkey2", 8, "objkey0", 8};
+    IndexKeyRange testRange2 = {1, "objkey2", 8, "objkey0", 8};
     bool isInRange2 = IndexletManager::isKeyInRange(&obj, &testRange2);
     EXPECT_FALSE(isInRange2);
 
     // Case3: firstKey < key < lastKey
-    IndexletManager::KeyRange testRange3 = {1, "objkey0", 8, "objkey2", 8};
+    IndexKeyRange testRange3 = {1, "objkey0", 8, "objkey2", 8};
     bool isInRange3 = IndexletManager::isKeyInRange(&obj, &testRange3);
     EXPECT_TRUE(isInRange3);
 
     // Case4: firstKey = key = lastKey
-    IndexletManager::KeyRange testRange4 = {1, "objkey1", 8, "objkey1", 8};
+    IndexKeyRange testRange4 = {1, "objkey1", 8, "objkey1", 8};
     bool isInRange4 = IndexletManager::isKeyInRange(&obj, &testRange4);
     EXPECT_TRUE(isInRange4);
 }

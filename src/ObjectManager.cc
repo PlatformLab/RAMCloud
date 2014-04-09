@@ -18,6 +18,7 @@
 #include "Dispatch.h"
 #include "Enumeration.h"
 #include "EnumerationIterator.h"
+#include "IndexletManager.h"
 #include "LogEntryRelocator.h"
 #include "ObjectManager.h"
 #include "Object.h"
@@ -134,7 +135,7 @@ ObjectManager::initOnceEnlisted()
  * \param initialPKHashesOffset
  *      Offset indicating location of first key hash in the pKHashes buffer.
  * \param keyRange
- *      KeyRange that will be used to compare the object's index key
+ *      IndexKeyRange that will be used to compare the object's index key
  *      to determine whether it is a match.
  * \param maxLength
  *      Maximum length of response that can be appended to the response
@@ -151,7 +152,7 @@ ObjectManager::initOnceEnlisted()
 void
 ObjectManager::indexedRead(const uint64_t tableId, uint32_t reqNumHashes,
             Buffer* pKHashes, uint32_t initialPKHashesOffset,
-            IndexletManager::KeyRange* keyRange, uint32_t maxLength,
+            IndexKeyRange* keyRange, uint32_t maxLength,
             Buffer* response, uint32_t* respNumHashes, uint32_t* numObjects)
 {
     uint32_t currentLength = 0;

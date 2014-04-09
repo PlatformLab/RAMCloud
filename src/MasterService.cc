@@ -22,6 +22,7 @@
 #include "Dispatch.h"
 #include "Enumeration.h"
 #include "EnumerationIterator.h"
+#include "IndexKey.h"
 #include "LogIterator.h"
 #include "MasterClient.h"
 #include "MasterService.h"
@@ -85,7 +86,7 @@ MasterService::MasterService(Context* context,
                     &tabletManager,
                     &masterTableMetadata)
     , tabletManager()
-    , indexletManager(context)
+    , indexletManager(context, &objectManager)
 {
 }
 
@@ -603,7 +604,7 @@ MasterService::indexedRead(
             rpc->requestPayload->getRange(reqOffset, reqHdr->lastKeyLength);
     reqOffset+=reqHdr->lastKeyLength;
 
-    IndexletManager::KeyRange keyRange = {reqHdr->indexId,
+    IndexKeyRange keyRange = {reqHdr->indexId,
                                           firstKeyStr, reqHdr->firstKeyLength,
                                           lastKeyStr, reqHdr->lastKeyLength};
 

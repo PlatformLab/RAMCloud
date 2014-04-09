@@ -20,10 +20,11 @@
 
 namespace RAMCloud {
 
-IndexletManager::IndexletManager(Context* context)
+IndexletManager::IndexletManager(Context* context, ObjectManager* objectManager)
     : context(context)
     , indexletMap()
     , indexletMapMutex()
+    , objectManager(objectManager)
 {
 }
 
@@ -65,8 +66,9 @@ IndexletManager::addIndexlet(
         return false;
     }
 
+    Btree* bt = new Btree();
     indexletMap.emplace(std::make_pair(tableId, indexId), Indexlet(firstKey,
-                    firstKeyLength, firstNotOwnedKey, firstNotOwnedKeyLength));
+                firstKeyLength, firstNotOwnedKey, firstNotOwnedKeyLength, bt));
 
     for (auto it = indexletMap.begin(); it != indexletMap.end(); it++) {
         Indexlet* indexlet = &it->second;
@@ -132,7 +134,9 @@ IndexletManager::deleteIndexlet(
         return false;
     }
 
+    delete indexlet->bt;
     indexletMap.erase(it);
+
     return true;
 }
 
@@ -296,7 +300,7 @@ IndexletManager::insertEntry(uint64_t tableId, uint8_t indexId,
     Lock indexletLock(indexlet->indexletMutex);
 
     KeyAndHash keyAndHash = {key, keyLength, pKHash};
-    indexlet->bt.insert(keyAndHash, pKHash);
+    indexlet->bt->insert(keyAndHash, pKHash);
 
     return STATUS_OK;
 }
@@ -383,15 +387,15 @@ IndexletManager::lookupIndexKeys(uint64_t tableId, uint8_t indexId,
     Lock indexletLock(indexlet->indexletMutex);
 
     // If there are no values in this indexlet's tree, return right away.
-    if (indexlet->bt.empty()) {
+    if (indexlet->bt->empty()) {
         return STATUS_OK;
     }
 
     // We want to use lower_bound() instead of find() because the firstKey
     // may not correspond to a key in the indexlet.
-    auto iter = indexlet->bt.lower_bound(
+    auto iter = indexlet->bt->lower_bound(
                 KeyAndHash {firstKey, firstKeyLength, firstAllowedKeyHash});
-    auto iterEnd = indexlet->bt.end();
+    auto iterEnd = indexlet->bt->end();
     bool rpcMaxedOut = false;
 
     // If the iterator is currently at the end, then it stays at the
@@ -474,15 +478,15 @@ IndexletManager::removeEntry(uint64_t tableId, uint8_t indexId,
     indexletMapLock.unlock();
     Lock indexletLock(indexlet->indexletMutex);
 
-    auto iter = indexlet->bt.find(KeyAndHash {key, keyLength, pKHash});
+    auto iter = indexlet->bt->find(KeyAndHash {key, keyLength, pKHash});
 
-    if (iter == indexlet->bt.end())
+    if (iter == indexlet->bt->end())
         return STATUS_OK;
 
     // Note that we don't have to explicitly compare the key hash in value
     // since it is also a part of the key that gets compared while doing
-    // bt.find().
-    indexlet->bt.erase(iter);
+    // bt->find().
+    indexlet->bt->erase(iter);
 
     return STATUS_OK;
 }
@@ -495,7 +499,7 @@ IndexletManager::removeEntry(uint64_t tableId, uint8_t indexId,
  * \param object
  *      Object for which the key is to be compared.
  * \param keyRange
- *      KeyRange specifying the parameters of comparison.
+ *      IndexKeyRange specifying the parameters of comparison.
  *
  * \return
  *      Value of true if key corresponding to index id specified in keyRange,
@@ -503,7 +507,7 @@ IndexletManager::removeEntry(uint64_t tableId, uint8_t indexId,
  *      specified by [first key, last key] in keyRange, including end points.
  */
 bool
-IndexletManager::isKeyInRange(Object* object, KeyRange* keyRange)
+IndexletManager::isKeyInRange(Object* object, IndexKeyRange* keyRange)
 {
     uint16_t keyLength;
     const void* key = object->getKey(keyRange->indexId, &keyLength);
