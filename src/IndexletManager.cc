@@ -478,15 +478,10 @@ IndexletManager::removeEntry(uint64_t tableId, uint8_t indexId,
     indexletMapLock.unlock();
     Lock indexletLock(indexlet->indexletMutex);
 
-    auto iter = indexlet->bt->find(KeyAndHash {key, keyLength, pKHash});
-
-    if (iter == indexlet->bt->end())
-        return STATUS_OK;
-
     // Note that we don't have to explicitly compare the key hash in value
-    // since it is also a part of the key that gets compared while doing
-    // bt->find().
-    indexlet->bt->erase(iter);
+    // since it is also a part of the key that gets compared in the tree
+    // module
+    indexlet->bt->erase_one(KeyAndHash {key, keyLength, pKHash});
 
     return STATUS_OK;
 }
