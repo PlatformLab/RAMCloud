@@ -1,4 +1,4 @@
-/* Copyright (c) 2012 Stanford University
+/* Copyright (c) 2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -79,6 +79,29 @@ class ObjectManager : public LogEntryHandlers {
     void prefetchHashTableBucket(SegmentIterator* it);
     void replaySegment(SideLog* sideLog, SegmentIterator& it);
     void removeOrphanedObjects();
+
+    /// The following three methods are used when multiple log entries
+    /// need to be committed to the log atomically
+
+    /**
+     * This method is currently used by the Btree module to prepare a buffer
+     * for the log. The idea is that eventually, each of the log entries in
+     * the buffer can be flushed atomically by the log.
+     * It is general enough to be used by any other module
+     */
+    Status prepareForLog(Object& newObject, Buffer *logBuffer,
+                         uint32_t* offset, bool *tombstoneAdded);
+
+    /**
+     * Write a tombstone including the corresponding log entry header
+     * into a buffer based on the primary key of the object
+     */
+    Status writeTombstone(Key& key, Buffer *logBuffer);
+
+    /**
+     * Flushes all log entries from a buffer to the log atomically.
+     */
+    bool flushEntriesToLog(Buffer *logBuffer, uint32_t& numEntries);
 
     /**
      * The following two methods are used by the log cleaner. They aren't

@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2012 Stanford University
+/* Copyright (c) 2010-2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -143,6 +143,35 @@ TEST_F(AbstractLogTest, append_multiple_basics) {
         EXPECT_EQ(dataLen, buffer.getTotalLength());
         buffer.reset();
         EXPECT_EQ(LOG_ENTRY_TYPE_OBJTOMB, l.getEntry(v[1].reference, buffer));
+        EXPECT_EQ(dataLen - 1, buffer.getTotalLength());
+        appends++;
+    }
+    // This depends on ServerConfig's number of bytes allocated to the log.
+    EXPECT_EQ(239, appends);
+
+    delete[] data;
+}
+
+TEST_F(AbstractLogTest, append_multipleLogEntries) {
+    Log::Reference references[2];
+    Buffer logBuffer;
+
+    uint32_t dataLen = serverConfig.segmentSize / 3;
+    char* data = new char[dataLen];
+
+    Segment::appendLogHeader(LOG_ENTRY_TYPE_OBJ, dataLen, &logBuffer);
+    logBuffer.append(data, dataLen);
+
+    Segment::appendLogHeader(LOG_ENTRY_TYPE_OBJTOMB, dataLen - 1, &logBuffer);
+    logBuffer.append(data, dataLen - 1);
+
+    int appends = 0;
+    while (l.append(&logBuffer, references, 2)) {
+        Buffer buffer;
+        EXPECT_EQ(LOG_ENTRY_TYPE_OBJ, l.getEntry(references[0], buffer));
+        EXPECT_EQ(dataLen, buffer.getTotalLength());
+        buffer.reset();
+        EXPECT_EQ(LOG_ENTRY_TYPE_OBJTOMB, l.getEntry(references[1], buffer));
         EXPECT_EQ(dataLen - 1, buffer.getTotalLength());
         appends++;
     }
