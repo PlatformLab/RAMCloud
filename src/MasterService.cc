@@ -1561,6 +1561,7 @@ MasterService::takeIndexletOwnership(
 
     bool added = indexletManager.addIndexlet(reqHdr->tableId,
                              reqHdr->indexId,
+                             reqHdr->indexletTableId,
                              firstKey, reqHdr->firstKeyLength,
                              firstNotOwnedKey, reqHdr->firstNotOwnedKeyLength);
     if (added) {

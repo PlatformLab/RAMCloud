@@ -40,6 +40,8 @@ IndexletManager::IndexletManager(Context* context, ObjectManager* objectManager)
  *      index information.
  * \param indexId
  *      Id of the index key for which this indexlet stores some information.
+ * \param indexletTableId
+ *      Id of the table that will hold objects for this indexlet
  * \param firstKey
  *      Key blob marking the start of the indexed key range for this indexlet.
  * \param firstKeyLength
@@ -55,7 +57,7 @@ IndexletManager::IndexletManager(Context* context, ObjectManager* objectManager)
  */
 bool
 IndexletManager::addIndexlet(
-                 uint64_t tableId, uint8_t indexId,
+                 uint64_t tableId, uint8_t indexId, uint64_t indexletTableId,
                  const void *firstKey, uint16_t firstKeyLength,
                  const void *firstNotOwnedKey, uint16_t firstNotOwnedKeyLength)
 {
@@ -66,6 +68,7 @@ IndexletManager::addIndexlet(
         return false;
     }
 
+    //Btree* bt = new Btree(indexletTableId, objectManager);
     Btree* bt = new Btree();
     indexletMap.emplace(std::make_pair(tableId, indexId), Indexlet(firstKey,
                 firstKeyLength, firstNotOwnedKey, firstNotOwnedKeyLength, bt));

@@ -193,8 +193,9 @@ class IndexletManager {
     /////////////////////////// Meta-data related functions //////////////////
 
     bool addIndexlet(uint64_t tableId, uint8_t indexId,
-                const void *firstKey, uint16_t firstKeyLength,
-                const void *firstNotOwnedKey, uint16_t firstNotOwnedKeyLength);
+                uint64_t indexletTableId, const void *firstKey,
+                uint16_t firstKeyLength, const void *firstNotOwnedKey,
+                uint16_t firstNotOwnedKeyLength);
     bool deleteIndexlet(uint64_t tableId, uint8_t indexId,
                 const void *firstKey, uint16_t firstKeyLength,
                 const void *firstNotOwnedKey, uint16_t firstNotOwnedKeyLength);

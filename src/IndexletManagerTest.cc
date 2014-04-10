@@ -61,18 +61,18 @@ TEST_F(IndexletManagerTest, addIndexlet) {
     string key4 = "k";
     string key5 = "u";
 
-    EXPECT_TRUE(im.addIndexlet(0, 0, key2.c_str(),
+    EXPECT_TRUE(im.addIndexlet(0, 0, 0, key2.c_str(),
         (uint16_t)key2.length(), key4.c_str(), (uint16_t)key4.length()));
-    EXPECT_FALSE(im.addIndexlet(0, 0, key2.c_str(),
+    EXPECT_FALSE(im.addIndexlet(0, 0, 0, key2.c_str(),
         (uint16_t)key2.length(), key4.c_str(), (uint16_t)key4.length()));
 
-    EXPECT_TRUE(im.addIndexlet(0, 0, key1.c_str(),
+    EXPECT_TRUE(im.addIndexlet(0, 0, 0, key1.c_str(),
         (uint16_t)key1.length(), key2.c_str(), (uint16_t)key2.length()));
 
-    EXPECT_TRUE(im.addIndexlet(0, 0, key4.c_str(),
+    EXPECT_TRUE(im.addIndexlet(0, 0, 0, key4.c_str(),
         (uint16_t)key4.length(), key5.c_str(), (uint16_t)key5.length()));
 
-    EXPECT_FALSE(im.addIndexlet(0, 0, key1.c_str(),
+    EXPECT_FALSE(im.addIndexlet(0, 0, 0, key1.c_str(),
         (uint16_t)key1.length(), key3.c_str(), (uint16_t)key3.length()));
 
     std::mutex indexletMapMutex;
@@ -99,7 +99,7 @@ TEST_F(IndexletManagerTest, getIndexlet) {
     EXPECT_FALSE(im.getIndexlet(0, 0, key2.c_str(),
         (uint16_t)key2.length(), key4.c_str(), (uint16_t)key4.length()));
 
-    im.addIndexlet(0, 0, key2.c_str(),
+    im.addIndexlet(0, 0, 0, key2.c_str(),
         (uint16_t)key2.length(), key4.c_str(), (uint16_t)key4.length());
 
     EXPECT_TRUE(im.getIndexlet(0, 0, key2.c_str(),
@@ -150,7 +150,7 @@ TEST_F(IndexletManagerTest, deleteIndexlet) {
     EXPECT_FALSE(im.getIndexlet(0, 0, key2.c_str(),
         (uint16_t)key2.length(), key4.c_str(), (uint16_t)key4.length()));
 
-    im.addIndexlet(0, 0, key2.c_str(),
+    im.addIndexlet(0, 0, 0, key2.c_str(),
         (uint16_t)key2.length(), key4.c_str(), (uint16_t)key4.length());
 
     EXPECT_TRUE(im.getIndexlet(0, 0, key2.c_str(),
@@ -165,7 +165,7 @@ TEST_F(IndexletManagerTest, deleteIndexlet) {
     EXPECT_FALSE(im.deleteIndexlet(0, 0, key2.c_str(),
         (uint16_t)key2.length(), key4.c_str(), (uint16_t)key4.length()));
 
-    im.addIndexlet(0, 0, key2.c_str(),
+    im.addIndexlet(0, 0, 0, key2.c_str(),
         (uint16_t)key2.length(), key4.c_str(), (uint16_t)key4.length());
 
     EXPECT_FALSE(im.deleteIndexlet(0, 0, key2.c_str(),
@@ -179,7 +179,7 @@ TEST_F(IndexletManagerTest, deleteIndexlet) {
 // getCount, lookupIndexlet.
 
 TEST_F(IndexletManagerTest, insertIndexEntry) {
-    im.addIndexlet(0, 0, "a", 1, "k", 1);
+    im.addIndexlet(0, 0, 0, "a", 1, "k", 1);
 
     Status insertStatus1 = im.insertEntry(0, 0, "air", 3, 5678);
     EXPECT_EQ(STATUS_OK, insertStatus1);
@@ -198,14 +198,14 @@ TEST_F(IndexletManagerTest, insertIndexEntry) {
 }
 
 TEST_F(IndexletManagerTest, insertIndexEntry_unknownIndexlet) {
-    im.addIndexlet(0, 0, "a", 1, "k", 1);
+    im.addIndexlet(0, 0, 0, "a", 1, "k", 1);
 
     Status insertStatus = im.insertEntry(0, 0, "water", 5, 1234);
     EXPECT_EQ(STATUS_UNKNOWN_INDEXLET, insertStatus);
 }
 
 TEST_F(IndexletManagerTest, insertIndexEntry_duplicate) {
-    im.addIndexlet(0, 0, "a", 1, "k", 1);
+    im.addIndexlet(0, 0, 0, "a", 1, "k", 1);
 
     Status insertStatus1 = im.insertEntry(0, 0, "air", 3, 1234);
     EXPECT_EQ(STATUS_OK, insertStatus1);
@@ -228,7 +228,7 @@ TEST_F(IndexletManagerTest, lookupIndexKeys_unknownIndexlet) {
 }
 
 TEST_F(IndexletManagerTest, lookupIndexKeys_keyNotFound) {
-    im.addIndexlet(0, 0, "a", 1, "k", 1);
+    im.addIndexlet(0, 0, 0, "a", 1, "k", 1);
 
     Buffer responseBuffer;
     uint32_t numHashes;
@@ -254,7 +254,7 @@ TEST_F(IndexletManagerTest, lookupIndexKeys_keyNotFound) {
 }
 
 TEST_F(IndexletManagerTest, lookupIndexKeys_single) {
-    im.addIndexlet(0, 0, "a", 1, "k", 1);
+    im.addIndexlet(0, 0, 0, "a", 1, "k", 1);
 
     Buffer responseBuffer;
     uint32_t numHashes;
@@ -298,7 +298,7 @@ TEST_F(IndexletManagerTest, lookupIndexKeys_single) {
 }
 
 TEST_F(IndexletManagerTest, lookupIndexKeys_multiple) {
-    im.addIndexlet(0, 0, "a", 1, "k", 1);
+    im.addIndexlet(0, 0, 0, "a", 1, "k", 1);
 
     im.insertEntry(0, 0, "air", 3, 5678);
     im.insertEntry(0, 0, "earth", 5, 9876);
@@ -363,7 +363,7 @@ TEST_F(IndexletManagerTest, lookupIndexKeys_multiple) {
 }
 
 TEST_F(IndexletManagerTest, lookupIndexKeys_duplicate) {
-    im.addIndexlet(0, 0, "a", 1, "k", 1);
+    im.addIndexlet(0, 0, 0, "a", 1, "k", 1);
 
     im.insertEntry(0, 0, "air", 3, 1234);
     im.insertEntry(0, 0, "air", 3, 5678);
@@ -383,7 +383,7 @@ TEST_F(IndexletManagerTest, lookupIndexKeys_duplicate) {
 }
 
 TEST_F(IndexletManagerTest, lookupIndexKeys_firstAllowedKeyHash) {
-    im.addIndexlet(0, 0, "a", 1, "k", 1);
+    im.addIndexlet(0, 0, 0, "a", 1, "k", 1);
 
     im.insertEntry(0, 0, "air", 3, 1234);
     im.insertEntry(0, 0, "air", 3, 5678);
@@ -423,7 +423,7 @@ TEST_F(IndexletManagerTest, lookupIndexKeys_largerRange) {
     // Lookup such that the range of keys in the lookup request is larger than
     // the range of keys owned by this indexlet.
 
-    im.addIndexlet(0, 0, "a", 1, "kext", 4);
+    im.addIndexlet(0, 0, 0, "a", 1, "kext", 4);
 
     im.insertEntry(0, 0, "air", 3, 5678);
 
@@ -451,7 +451,7 @@ TEST_F(IndexletManagerTest, lookupIndexKeys_largerThanMax) {
     // will typically be the maximum that can fit in an RPC, and will
     // be set by the MasterService.
 
-    im.addIndexlet(0, 0, "a", 1, "k", 1);
+    im.addIndexlet(0, 0, 0, "a", 1, "k", 1);
 
     im.insertEntry(0, 0, "air", 3, 5678);
     im.insertEntry(0, 0, "earth", 5, 9876);
@@ -476,7 +476,7 @@ TEST_F(IndexletManagerTest, lookupIndexKeys_largerThanMax) {
 }
 
 TEST_F(IndexletManagerTest, removeEntry_single) {
-    im.addIndexlet(0, 0, "a", 1, "k", 1);
+    im.addIndexlet(0, 0, 0, "a", 1, "k", 1);
 
     im.insertEntry(0, 0, "air", 3, 5678);
 
@@ -494,7 +494,7 @@ TEST_F(IndexletManagerTest, removeEntry_single) {
 }
 
 TEST_F(IndexletManagerTest, removeEntry_multipleEntries) {
-    im.addIndexlet(0, 0, "a", 1, "k", 1);
+    im.addIndexlet(0, 0, 0, "a", 1, "k", 1);
 
     Buffer responseBuffer;
     uint32_t numHashes;
@@ -520,8 +520,8 @@ TEST_F(IndexletManagerTest, removeEntry_multipleEntries) {
 
 TEST_F(IndexletManagerTest, removeEntry_multipleIndexlets) {
     uint64_t tableId = 4;
-    im.addIndexlet(tableId, 1, "", 0, "", 0);
-    im.addIndexlet(tableId, 2, "", 0, "", 0);
+    im.addIndexlet(tableId, 1, 0, "", 0, "", 0);
+    im.addIndexlet(tableId, 2, 0, "", 0, "", 0);
 
     KeyInfo keyListA[3];
     keyListA[0].keyLength = 5;
@@ -588,7 +588,7 @@ TEST_F(IndexletManagerTest, removeEntry_multipleIndexlets) {
 }
 
 TEST_F(IndexletManagerTest, removeEntry_duplicate) {
-    im.addIndexlet(0, 0, "a", 1, "k", 1);
+    im.addIndexlet(0, 0, 0, "a", 1, "k", 1);
 
     im.insertEntry(0, 0, "air", 3, 1234);
     im.insertEntry(0, 0, "air", 3, 5678);
@@ -616,7 +616,7 @@ TEST_F(IndexletManagerTest, removeEntry_unknownIndexlet) {
 }
 
 TEST_F(IndexletManagerTest, removeEntry_keyNotFound) {
-    im.addIndexlet(0, 0, "a", 1, "k", 1);
+    im.addIndexlet(0, 0, 0, "a", 1, "k", 1);
 
     Status removeStatus;
 
