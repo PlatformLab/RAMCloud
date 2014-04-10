@@ -757,6 +757,8 @@ TakeTabletOwnershipRpc::TakeTabletOwnershipRpc(
  *      Identifier for the table containing the indexlet.
  * \param indexId
  *      Identifier for the index for the given table.
+ * \param indexletTableId
+ *      Id of the table that will hold objects for this indexlet
  * \param firstKey
  *      Blob of the smallest key in the index key space for the index of table
  *      belonging to the indexlet.
@@ -770,12 +772,13 @@ TakeTabletOwnershipRpc::TakeTabletOwnershipRpc(
  */
 void
 MasterClient::takeIndexletOwnership(Context* context, ServerId serverId,
-                        uint64_t tableId, uint8_t indexId, const void *firstKey,
-                        uint16_t firstKeyLength, const void *firstNotOwnedKey,
-                        uint16_t firstNotOwnedKeyLength)
+                uint64_t tableId, uint8_t indexId, uint64_t indexletTableId,
+                const void *firstKey, uint16_t firstKeyLength,
+                const void *firstNotOwnedKey, uint16_t firstNotOwnedKeyLength)
 {
     TakeIndexletOwnershipRpc rpc(context, serverId, tableId, indexId,
-            firstKey, firstKeyLength, firstNotOwnedKey, firstNotOwnedKeyLength);
+                                    indexletTableId, firstKey, firstKeyLength,
+                                    firstNotOwnedKey, firstNotOwnedKeyLength);
     rpc.wait();
 }
 
@@ -792,6 +795,8 @@ MasterClient::takeIndexletOwnership(Context* context, ServerId serverId,
  *      Identifier for the table containing the tablet.
  * \param indexId
  *      Identifier for the index for the given table.
+ * \param indexletTableId
+ *      Id of the table that will hold objects for this indexlet
  * \param firstKey
  *      Blob of the smallest key in the index key space for the index of table
  *      belonging to the indexlet.
@@ -804,7 +809,8 @@ MasterClient::takeIndexletOwnership(Context* context, ServerId serverId,
  *      Length of the firstNotOwnedKey.
  */
 TakeIndexletOwnershipRpc::TakeIndexletOwnershipRpc(
-        Context* context, ServerId serverId, uint64_t tableId, uint8_t indexId,
+        Context* context, ServerId serverId, uint64_t tableId,
+        uint8_t indexId, uint64_t indexletTableId,
         const void *firstKey, uint16_t firstKeyLength,
         const void *firstNotOwnedKey, uint16_t firstNotOwnedKeyLength)
     : ServerIdRpcWrapper(context, serverId,
@@ -814,6 +820,7 @@ TakeIndexletOwnershipRpc::TakeIndexletOwnershipRpc(
             allocHeader<WireFormat::TakeIndexletOwnership>(serverId));
     reqHdr->tableId = tableId;
     reqHdr->indexId = indexId;
+    reqHdr->indexletTableId = indexletTableId;
     reqHdr->firstKeyLength = firstKeyLength;
     reqHdr->firstNotOwnedKeyLength = firstNotOwnedKeyLength;
     // TODO(ashgup): allocate new memory maybe

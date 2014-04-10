@@ -120,20 +120,22 @@ TEST_F(TableManagerTest, createIndex) {
     MasterService* master2 = cluster.addServer(masterConfig)->master.get();
     updateManager->reset();
 
-    EXPECT_FALSE(tableManager->createIndex(1, 0, 0));
+    EXPECT_FALSE(tableManager->createIndex(1, 0, 0, 0));
     EXPECT_EQ(1U, tableManager->createTable("foo", 1));
 
-    EXPECT_FALSE(tableManager->createIndex(2, 0, 0));
-    EXPECT_TRUE(tableManager->createIndex(1, 0, 0));
+    EXPECT_EQ(2U, tableManager->createTable("indexTable:1:0", 1));
+    EXPECT_FALSE(tableManager->createIndex(3, 0, 0, 2));
+    EXPECT_TRUE(tableManager->createIndex(1, 0, 0, 2));
     EXPECT_EQ(0U, master1->indexletManager.getCount());
     EXPECT_EQ(1U, master2->indexletManager.getCount());
 
-    EXPECT_TRUE(tableManager->createIndex(1, 1, 0));
+    EXPECT_EQ(3U, tableManager->createTable("indexTable:1:1", 1));
+    EXPECT_TRUE(tableManager->createIndex(1, 1, 0, 3));
     EXPECT_EQ(1U, master1->indexletManager.getCount());
     EXPECT_EQ(1U, master2->indexletManager.getCount());
 
     // duplicate index already exists
-    EXPECT_FALSE(tableManager->createIndex(1, 0, 0));
+    EXPECT_FALSE(tableManager->createIndex(1, 0, 0, 2));
 };
 
 TEST_F(TableManagerTest, dropIndex) {
@@ -142,11 +144,14 @@ TEST_F(TableManagerTest, dropIndex) {
     updateManager->reset();
 
     EXPECT_EQ(1U, tableManager->createTable("foo", 1));
-    EXPECT_TRUE(tableManager->createIndex(1, 0, 0));
+
+    EXPECT_EQ(2U, tableManager->createTable("indexTable:1:0", 1));
+    EXPECT_TRUE(tableManager->createIndex(1, 0, 0, 2));
     EXPECT_EQ(0U, master1->indexletManager.getCount());
     EXPECT_EQ(1U, master2->indexletManager.getCount());
 
-    EXPECT_TRUE(tableManager->createIndex(1, 1, 0));
+    EXPECT_EQ(3U, tableManager->createTable("indexTable:1:1", 1));
+    EXPECT_TRUE(tableManager->createIndex(1, 1, 0, 3));
     EXPECT_EQ(1U, master1->indexletManager.getCount());
     EXPECT_EQ(1U, master2->indexletManager.getCount());
 
@@ -613,7 +618,9 @@ TEST_F(TableManagerTest, serializeIndexConfig) {
 
     EXPECT_EQ(1U, tableManager->createTable("foo", 1));
     EXPECT_EQ(2U, tableManager->createTable("bar", 1));
-    EXPECT_TRUE(tableManager->createIndex(2, 1, 0));
+
+    EXPECT_EQ(3U, tableManager->createTable("indexTable:2:1", 1));
+    EXPECT_TRUE(tableManager->createIndex(2, 1, 0, 3));
 
     ProtoBuf::TableConfig tableConfig;
     tableManager->serializeTableConfig(&tableConfig, 2);

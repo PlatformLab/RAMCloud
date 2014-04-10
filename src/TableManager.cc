@@ -181,13 +181,16 @@ TableManager::createTable(const char* name, uint32_t serverSpan)
  *      Id of the secondary key on which the index is being built
  * \param indexType
  *      Type of the index.
+ * \param indexTableId
+ *      Id of the table that will hold objects for this index (indexlet)
  *
  * \return
  *      True if the index was created.
  *      False if it already exist or cannot find the table.
  */
 bool
-TableManager::createIndex(uint64_t tableId, uint8_t indexId, uint8_t indexType)
+TableManager::createIndex(uint64_t tableId, uint8_t indexId, uint8_t indexType,
+                          uint64_t indexTableId)
 {
     Lock lock(mutex);
 
@@ -211,8 +214,19 @@ TableManager::createIndex(uint64_t tableId, uint8_t indexId, uint8_t indexType)
     Index* index = new Index(tableId, indexId, indexType);
 
     try{
-        tabletMaster = context->coordinatorServerList->nextServer(
-                tabletMaster, {WireFormat::MASTER_SERVICE});
+        //use the indexTable serverId to assign the indexlet
+        it = idMap.find(indexTableId);
+        if (it == idMap.end()) {
+            LOG(NOTICE, "Cannot find index table '%lu'", indexTableId);
+            return false;
+        }
+
+        Tablet* indexTablet = findTablet(lock, it->second, 0UL);
+        if ((indexTablet->startKeyHash != 0UL)
+             || (indexTablet->endKeyHash != ~0UL))
+            throw NoSuchTablet(HERE);
+        tabletMaster = indexTablet->serverId;
+
         if (!tabletMaster.isValid()) {
             throw RetryException(HERE, 5000000, 10000000,
                     "no masters in cluster");
@@ -220,9 +234,10 @@ TableManager::createIndex(uint64_t tableId, uint8_t indexId, uint8_t indexType)
 
         char firstKey = 0;
         char firstNotOwnedKey = 127;
+        uint64_t indexletTableId = indexTableId; //we have only one indexlet
         Indexlet *indexlet = new Indexlet(reinterpret_cast<void *>(&firstKey),
                             1, reinterpret_cast<void *>(&firstNotOwnedKey), 1,
-                            tabletMaster);
+                            tabletMaster, indexletTableId);
         index->indexlets.push_back(indexlet);
     }
     catch (...) {
@@ -887,7 +902,7 @@ TableManager::notifyCreateIndex(const Lock& lock, Index* index)
                         "to master %s", index->tableId, index->indexId,
                         indexlet->serverId.toString().c_str());
             MasterClient::takeIndexletOwnership(context, indexlet->serverId,
-                index->tableId, index->indexId,
+                index->tableId, index->indexId, indexlet->indexletTableId,
                 indexlet->firstKey, indexlet->firstKeyLength,
                 indexlet->firstNotOwnedKey, indexlet->firstNotOwnedKeyLength);
         } catch (ServerNotUpException& e) {

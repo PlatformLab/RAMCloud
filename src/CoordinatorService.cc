@@ -266,7 +266,13 @@ CoordinatorService::createIndex(const WireFormat::CreateIndex::Request* reqHdr,
     uint64_t tableId = reqHdr->tableId;
     uint8_t indexId = reqHdr->indexId;
     uint8_t indexType = reqHdr->indexType;
-    tableManager.createIndex(tableId, indexId, indexType);
+
+    string indexTableName;
+    indexTableName.append(format("__indexTable:%lu:%d", tableId, indexId));
+    uint64_t indexTableId  =
+                    tableManager.createTable(indexTableName.c_str(), 1);
+
+    tableManager.createIndex(tableId, indexId, indexType, indexTableId);
 }
 
 /**
@@ -280,6 +286,11 @@ CoordinatorService::dropIndex(const WireFormat::DropIndex::Request* reqHdr,
 {
     uint64_t tableId = reqHdr->tableId;
     uint8_t indexId = reqHdr->indexId;
+
+    string indexTableName;
+    indexTableName.append(format("__indexTable:%lu:%d", tableId, indexId));
+    tableManager.dropTable(indexTableName.c_str());
+
     tableManager.dropIndex(tableId, indexId);
 }
 

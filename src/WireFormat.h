@@ -1349,6 +1349,7 @@ struct TakeIndexletOwnership {
         RequestCommonWithId common;
         uint64_t tableId;
         uint8_t indexId;
+        uint64_t indexletTableId;
         uint16_t firstKeyLength;
         uint16_t firstNotOwnedKeyLength;
         // In buffer: The actual first key and last key go here.

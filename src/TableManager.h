@@ -62,7 +62,8 @@ class TableManager {
             CoordinatorUpdateManager* updateManager);
     ~TableManager();
 
-    bool createIndex(uint64_t tableId, uint8_t indexId, uint8_t indexType);
+    bool createIndex(uint64_t tableId, uint8_t indexId, uint8_t indexType,
+                     uint64_t indexTableId);
     uint64_t createTable(const char* name, uint32_t serverSpan);
     string debugString(bool shortForm = false);
     bool dropIndex(uint64_t tableId, uint8_t indexId);
@@ -94,19 +95,24 @@ class TableManager {
         public:
         Indexlet(const void *firstKey, uint16_t firstKeyLength,
                  const void *firstNotOwnedKey, uint16_t firstNotOwnedKeyLength,
-                 ServerId serverId)
+                 ServerId serverId, uint64_t indexletTableId)
             : RAMCloud::Indexlet(firstKey, firstKeyLength, firstNotOwnedKey,
                        firstNotOwnedKeyLength)
             , serverId(serverId)
+            , indexletTableId(indexletTableId)
         {}
 
         Indexlet(const Indexlet& indexlet)
             : RAMCloud::Indexlet(indexlet)
             , serverId(indexlet.serverId)
+            , indexletTableId(indexlet.indexletTableId)
         {}
 
         /// The server id of the master owning this indexlet.
         ServerId serverId;
+
+        /// The id of the table on serverId holding the index content
+        uint64_t indexletTableId;
     };
 
     /**
