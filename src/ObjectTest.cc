@@ -85,11 +85,17 @@ class ObjectTest : public ::testing::Test {
 
         objectDataFromBuffer->assembleForLog(buffer2);
 
-        objectFromBuffer.construct(buffer2);
-
         objectFromContiguousVoidPointer.construct(
             buffer2.getRange(0, buffer2.getTotalLength()),
             buffer2.getTotalLength());
+
+        // prepend some garbage to buffer2 so that we can test the constructor
+        // with a non-zero offset
+        buffer2.prepend(&stringKeys[0], sizeof(stringKeys[0]));
+
+        objectFromBuffer.construct(buffer2, sizeof32(stringKeys[0]),
+                                   buffer2.getTotalLength() -
+                                   sizeof32(stringKeys[0]));
 
         // this object will only contain one key
         objectFromVoidPointer.construct(key, dataBlob, 4, 75, 723, buffer3);
@@ -405,6 +411,42 @@ TEST_F(ObjectTest, assembleForLog) {
                          data)));
 }
 
+TEST_F(ObjectTest, assembleForLog_contigMemory) {
+    Object& object = *singleKeyObject;
+    Buffer buffer;
+    uint8_t *target = new(&buffer, APPEND)
+                      uint8_t[object.getSerializedLength()];
+
+    object.assembleForLog(target);
+    Object::Header* header = reinterpret_cast<Object::Header *>(target);
+
+    EXPECT_EQ(sizeof(*header) + sizeof(KeyCount) + sizeof(KeyLength)
+                    + 3 + 4, object.getSerializedLength());
+
+    EXPECT_EQ(57U, header->tableId);
+    EXPECT_EQ(75U, header->version);
+    EXPECT_EQ(723U, header->timestamp);
+    EXPECT_EQ(0xE86291D1, object.header.checksum);
+
+    const KeyCount numKeys= *(target + sizeof32(*header));
+    EXPECT_EQ(1U, numKeys);
+
+    const CumulativeKeyLength cumulativeKeyLengthOne = *(target +
+                                                       sizeof(*header) +
+                                                       sizeof(KeyCount));
+
+    EXPECT_EQ(3U, cumulativeKeyLengthOne);
+    EXPECT_EQ("ha", string(reinterpret_cast<const char *>(target +
+                                                          sizeof32(*header)
+                                                          + 3)));
+
+    const void* data = target +sizeof(*header) + sizeof(KeyCount) +
+                       sizeof(CumulativeKeyLength) + 3;
+    EXPECT_EQ("YO!", string(reinterpret_cast<const char*>(
+                         data)));
+
+}
+
 TEST_F(ObjectTest, appendKeysAndValueToBuffer) {
     for (uint32_t i = 0; i < arrayLength(objects); i++) {
         Object& object = *objects[i];
@@ -641,6 +683,12 @@ TEST_F(ObjectTest, getTimestamp) {
         EXPECT_EQ(723U, objects[i]->getTimestamp());
 }
 
+TEST_F(ObjectTest, getSerializedLength) {
+    EXPECT_EQ(44U, objects[0]->getSerializedLength());
+    EXPECT_EQ(44U, objects[1]->getSerializedLength());
+    EXPECT_EQ(44U, objects[2]->getSerializedLength());
+}
+
 TEST_F(ObjectTest, checkIntegrity) {
     for (uint32_t i = 0; i < arrayLength(objects); i++) {
         Object& object = *objects[i];
@@ -720,7 +768,14 @@ class ObjectTombstoneTest : public ::testing::Test {
 
         buffer.reset();
         tombstoneFromObject->assembleForLog(buffer);
-        tombstoneFromBuffer.construct(buffer);
+
+        // prepend some garbage into the buffer so that we
+        // can test the constructor with a non-zero starting
+        // offset
+        buffer.prepend(stringKey, sizeof32(stringKey));
+        tombstoneFromBuffer.construct(buffer, sizeof32(stringKey),
+                                      buffer.getTotalLength() -
+                                      sizeof32(stringKey));
 
         tombstones[0] = &*tombstoneFromObject;
         tombstones[1] = &*tombstoneFromBuffer;
@@ -774,11 +829,11 @@ TEST_F(ObjectTombstoneTest, constructor_fromBuffer) {
 
     EXPECT_FALSE(tombstone.key);
     EXPECT_TRUE(tombstone.tombstoneBuffer);
-    EXPECT_EQ(sizeof(ObjectTombstone::Header) + 5,
+    EXPECT_EQ(5 + sizeof(ObjectTombstone::Header) + 5,
         (tombstone.tombstoneBuffer)->getTotalLength());
     EXPECT_EQ("key!", string(reinterpret_cast<const char*>(
         (tombstone.tombstoneBuffer)->getRange(sizeof(
-            ObjectTombstone::Header), 5))));
+            ObjectTombstone::Header) + 5, 5))));
 }
 
 TEST_F(ObjectTombstoneTest, assembleForLog) {
@@ -798,6 +853,30 @@ TEST_F(ObjectTombstoneTest, assembleForLog) {
         EXPECT_EQ(0x5d60e8efU, header->checksum);
 
         const void* key = buffer.getRange(sizeof(*header), 5);
+        EXPECT_EQ(string(reinterpret_cast<const char*>(key)), "key!");
+    }
+}
+
+TEST_F(ObjectTombstoneTest, assembleForLog_contigMemory) {
+    for (uint32_t i = 0; i < arrayLength(tombstones); i++) {
+        ObjectTombstone& tombstone = *tombstones[i];
+        Buffer buffer;
+        uint8_t *target = new(&buffer, APPEND)
+                          uint8_t[tombstone.getSerializedLength()];
+
+        tombstone.assembleForLog(target);
+        ObjectTombstone::Header* header = reinterpret_cast<
+                                          ObjectTombstone::Header *>(target);
+
+        EXPECT_EQ(sizeof(*header) + 5, tombstone.getSerializedLength());
+
+        EXPECT_EQ(572U, header->tableId);
+        EXPECT_EQ(925U, header->segmentId);
+        EXPECT_EQ(58U, header->objectVersion);
+        EXPECT_EQ(335U, header->timestamp);
+        EXPECT_EQ(0x5d60e8efU, header->checksum);
+
+        const void* key = target + sizeof(*header);
         EXPECT_EQ(string(reinterpret_cast<const char*>(key)), "key!");
     }
 }
@@ -870,11 +949,16 @@ TEST_F(ObjectTombstoneTest, checkIntegrity) {
     }
 }
 
-TEST_F(ObjectTombstoneTest, getSerializedLength) {
+TEST_F(ObjectTombstoneTest, getProspectiveSerializedLength) {
     EXPECT_EQ(sizeof(ObjectTombstone::Header),
               ObjectTombstone::getSerializedLength(0));
     EXPECT_EQ(sizeof(ObjectTombstone::Header) + 7,
               ObjectTombstone::getSerializedLength(7));
+}
+
+TEST_F(ObjectTombstoneTest, getActualSerializedLength) {
+    for (uint32_t i = 0; i < arrayLength(tombstones); i++)
+        EXPECT_EQ(37U, tombstones[i]->getSerializedLength());
 }
 
 } // namespace RAMCloud

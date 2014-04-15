@@ -15,6 +15,7 @@
 
 #include "TestUtil.h"
 #include "IndexletManager.h"
+#include "IndexKey.h"
 #include "RamCloud.h"
 #include "StringUtil.h"
 
@@ -23,12 +24,32 @@ namespace RAMCloud {
 class IndexletManagerTest : public ::testing::Test {
   public:
     Context context;
+    ServerId serverId;
+    ServerList serverList;
+    ServerConfig masterConfig;
+    TabletManager tabletManager;
+    MasterTableMetadata masterTableMetadata;
+    ObjectManager objectManager;
     IndexletManager im;
+
+    uint64_t indexletTableId;
 
     IndexletManagerTest()
         : context()
-        , im(&context)
+        , serverId(5)
+        , serverList(&context)
+        , masterConfig(ServerConfig::forTesting())
+        , tabletManager()
+        , masterTableMetadata()
+        , objectManager(&context,
+                        &serverId,
+                        &masterConfig,
+                        &tabletManager,
+                        &masterTableMetadata)
+        , im(&context, &objectManager)
+        , indexletTableId(100)
     {
+        tabletManager.addTablet(100, 0, ~0UL, TabletManager::NORMAL);
     }
     DISALLOW_COPY_AND_ASSIGN(IndexletManagerTest);
 };
@@ -44,22 +65,46 @@ TEST_F(IndexletManagerTest, addIndexlet) {
     string key4 = "k";
     string key5 = "u";
 
-    EXPECT_TRUE(im.addIndexlet(0, 0, key2.c_str(),
-        (uint16_t)key2.length(), key4.c_str(), (uint16_t)key4.length()));
-    EXPECT_FALSE(im.addIndexlet(0, 0, key2.c_str(),
+    EXPECT_TRUE(im.addIndexlet(0, 0, indexletTableId, key2.c_str(),
         (uint16_t)key2.length(), key4.c_str(), (uint16_t)key4.length()));
 
-    EXPECT_TRUE(im.addIndexlet(0, 0, key1.c_str(),
+    // we need to create the table corresponding to each indexlet
+    // (b-tree). There is one indexlet that is created as part
+    // of the constructor of IndexletManagerTest
+    tabletManager.addTablet(indexletTableId + 1, 0, ~0UL,
+                            TabletManager::NORMAL);
+    EXPECT_FALSE(im.addIndexlet(0, 0, indexletTableId + 1, key2.c_str(),
+        (uint16_t)key2.length(), key4.c_str(), (uint16_t)key4.length()));
+
+
+    // we need to create the table corresponding to each indexlet
+    // (b-tree). There is one indexlet that is created as part
+    // of the constructor of IndexletManagerTest
+    tabletManager.addTablet(indexletTableId + 2, 0, ~0UL,
+                            TabletManager::NORMAL);
+    EXPECT_TRUE(im.addIndexlet(0, 0, indexletTableId + 2, key1.c_str(),
         (uint16_t)key1.length(), key2.c_str(), (uint16_t)key2.length()));
 
-    EXPECT_TRUE(im.addIndexlet(0, 0, key4.c_str(),
+
+    // we need to create the table corresponding to each indexlet
+    // (b-tree). There is one indexlet that is created as part
+    // of the constructor of IndexletManagerTest
+    tabletManager.addTablet(indexletTableId + 3, 0, ~0UL,
+                            TabletManager::NORMAL);
+    EXPECT_TRUE(im.addIndexlet(0, 0, indexletTableId + 3, key4.c_str(),
         (uint16_t)key4.length(), key5.c_str(), (uint16_t)key5.length()));
 
-    EXPECT_FALSE(im.addIndexlet(0, 0, key1.c_str(),
+
+    // we need to create the table corresponding to each indexlet
+    // (b-tree). There is one indexlet that is created as part
+    // of the constructor of IndexletManagerTest
+    tabletManager.addTablet(indexletTableId + 4, 0, ~0UL,
+                            TabletManager::NORMAL);
+    EXPECT_FALSE(im.addIndexlet(0, 0, indexletTableId + 4, key1.c_str(),
         (uint16_t)key1.length(), key3.c_str(), (uint16_t)key3.length()));
 
-    SpinLock lock;
-    IndexletManager::Lock fakeGuard(lock);
+    std::mutex indexletMapMutex;
+    IndexletManager::Lock fakeGuard(indexletMapMutex);
     IndexletManager::Indexlet* indexlet = &im.lookupIndexlet(0, 0, key2.c_str(),
         (uint16_t)key2.length(), fakeGuard)->second;
     string firstKey = StringUtil::binaryToString(
@@ -82,7 +127,7 @@ TEST_F(IndexletManagerTest, getIndexlet) {
     EXPECT_FALSE(im.getIndexlet(0, 0, key2.c_str(),
         (uint16_t)key2.length(), key4.c_str(), (uint16_t)key4.length()));
 
-    im.addIndexlet(0, 0, key2.c_str(),
+    im.addIndexlet(0, 0, indexletTableId, key2.c_str(),
         (uint16_t)key2.length(), key4.c_str(), (uint16_t)key4.length());
 
     EXPECT_TRUE(im.getIndexlet(0, 0, key2.c_str(),
@@ -133,7 +178,7 @@ TEST_F(IndexletManagerTest, deleteIndexlet) {
     EXPECT_FALSE(im.getIndexlet(0, 0, key2.c_str(),
         (uint16_t)key2.length(), key4.c_str(), (uint16_t)key4.length()));
 
-    im.addIndexlet(0, 0, key2.c_str(),
+    im.addIndexlet(0, 0, indexletTableId, key2.c_str(),
         (uint16_t)key2.length(), key4.c_str(), (uint16_t)key4.length());
 
     EXPECT_TRUE(im.getIndexlet(0, 0, key2.c_str(),
@@ -148,7 +193,12 @@ TEST_F(IndexletManagerTest, deleteIndexlet) {
     EXPECT_FALSE(im.deleteIndexlet(0, 0, key2.c_str(),
         (uint16_t)key2.length(), key4.c_str(), (uint16_t)key4.length()));
 
-    im.addIndexlet(0, 0, key2.c_str(),
+    // we need to create the table corresponding to each indexlet
+    // (b-tree). There is one indexlet that is created as part
+    // of the constructor of IndexletManagerTest
+    tabletManager.addTablet(indexletTableId + 1, 0, ~0UL,
+                            TabletManager::NORMAL);
+    im.addIndexlet(0, 0, indexletTableId, key2.c_str(),
         (uint16_t)key2.length(), key4.c_str(), (uint16_t)key4.length());
 
     EXPECT_FALSE(im.deleteIndexlet(0, 0, key2.c_str(),
@@ -162,7 +212,7 @@ TEST_F(IndexletManagerTest, deleteIndexlet) {
 // getCount, lookupIndexlet.
 
 TEST_F(IndexletManagerTest, insertIndexEntry) {
-    im.addIndexlet(0, 0, "a", 1, "k", 1);
+    im.addIndexlet(0, 0, indexletTableId, "a", 1, "k", 1);
 
     Status insertStatus1 = im.insertEntry(0, 0, "air", 3, 5678);
     EXPECT_EQ(STATUS_OK, insertStatus1);
@@ -181,14 +231,14 @@ TEST_F(IndexletManagerTest, insertIndexEntry) {
 }
 
 TEST_F(IndexletManagerTest, insertIndexEntry_unknownIndexlet) {
-    im.addIndexlet(0, 0, "a", 1, "k", 1);
+    im.addIndexlet(0, 0, indexletTableId, "a", 1, "k", 1);
 
     Status insertStatus = im.insertEntry(0, 0, "water", 5, 1234);
     EXPECT_EQ(STATUS_UNKNOWN_INDEXLET, insertStatus);
 }
 
 TEST_F(IndexletManagerTest, insertIndexEntry_duplicate) {
-    im.addIndexlet(0, 0, "a", 1, "k", 1);
+    im.addIndexlet(0, 0, indexletTableId, "a", 1, "k", 1);
 
     Status insertStatus1 = im.insertEntry(0, 0, "air", 3, 1234);
     EXPECT_EQ(STATUS_OK, insertStatus1);
@@ -211,7 +261,7 @@ TEST_F(IndexletManagerTest, lookupIndexKeys_unknownIndexlet) {
 }
 
 TEST_F(IndexletManagerTest, lookupIndexKeys_keyNotFound) {
-    im.addIndexlet(0, 0, "a", 1, "k", 1);
+    im.addIndexlet(0, 0, indexletTableId, "a", 1, "k", 1);
 
     Buffer responseBuffer;
     uint32_t numHashes;
@@ -237,7 +287,7 @@ TEST_F(IndexletManagerTest, lookupIndexKeys_keyNotFound) {
 }
 
 TEST_F(IndexletManagerTest, lookupIndexKeys_single) {
-    im.addIndexlet(0, 0, "a", 1, "k", 1);
+    im.addIndexlet(0, 0, indexletTableId, "a", 1, "k", 1);
 
     Buffer responseBuffer;
     uint32_t numHashes;
@@ -281,7 +331,7 @@ TEST_F(IndexletManagerTest, lookupIndexKeys_single) {
 }
 
 TEST_F(IndexletManagerTest, lookupIndexKeys_multiple) {
-    im.addIndexlet(0, 0, "a", 1, "k", 1);
+    im.addIndexlet(0, 0, indexletTableId, "a", 1, "k", 1);
 
     im.insertEntry(0, 0, "air", 3, 5678);
     im.insertEntry(0, 0, "earth", 5, 9876);
@@ -346,7 +396,7 @@ TEST_F(IndexletManagerTest, lookupIndexKeys_multiple) {
 }
 
 TEST_F(IndexletManagerTest, lookupIndexKeys_duplicate) {
-    im.addIndexlet(0, 0, "a", 1, "k", 1);
+    im.addIndexlet(0, 0, indexletTableId, "a", 1, "k", 1);
 
     im.insertEntry(0, 0, "air", 3, 1234);
     im.insertEntry(0, 0, "air", 3, 5678);
@@ -366,7 +416,7 @@ TEST_F(IndexletManagerTest, lookupIndexKeys_duplicate) {
 }
 
 TEST_F(IndexletManagerTest, lookupIndexKeys_firstAllowedKeyHash) {
-    im.addIndexlet(0, 0, "a", 1, "k", 1);
+    im.addIndexlet(0, 0, indexletTableId, "a", 1, "k", 1);
 
     im.insertEntry(0, 0, "air", 3, 1234);
     im.insertEntry(0, 0, "air", 3, 5678);
@@ -406,7 +456,7 @@ TEST_F(IndexletManagerTest, lookupIndexKeys_largerRange) {
     // Lookup such that the range of keys in the lookup request is larger than
     // the range of keys owned by this indexlet.
 
-    im.addIndexlet(0, 0, "a", 1, "kext", 4);
+    im.addIndexlet(0, 0, indexletTableId, "a", 1, "kext", 4);
 
     im.insertEntry(0, 0, "air", 3, 5678);
 
@@ -434,7 +484,7 @@ TEST_F(IndexletManagerTest, lookupIndexKeys_largerThanMax) {
     // will typically be the maximum that can fit in an RPC, and will
     // be set by the MasterService.
 
-    im.addIndexlet(0, 0, "a", 1, "k", 1);
+    im.addIndexlet(0, 0, indexletTableId, "a", 1, "k", 1);
 
     im.insertEntry(0, 0, "air", 3, 5678);
     im.insertEntry(0, 0, "earth", 5, 9876);
@@ -459,7 +509,7 @@ TEST_F(IndexletManagerTest, lookupIndexKeys_largerThanMax) {
 }
 
 TEST_F(IndexletManagerTest, removeEntry_single) {
-    im.addIndexlet(0, 0, "a", 1, "k", 1);
+    im.addIndexlet(0, 0, indexletTableId, "a", 1, "k", 1);
 
     im.insertEntry(0, 0, "air", 3, 5678);
 
@@ -477,7 +527,7 @@ TEST_F(IndexletManagerTest, removeEntry_single) {
 }
 
 TEST_F(IndexletManagerTest, removeEntry_multipleEntries) {
-    im.addIndexlet(0, 0, "a", 1, "k", 1);
+    im.addIndexlet(0, 0, indexletTableId, "a", 1, "k", 1);
 
     Buffer responseBuffer;
     uint32_t numHashes;
@@ -503,8 +553,14 @@ TEST_F(IndexletManagerTest, removeEntry_multipleEntries) {
 
 TEST_F(IndexletManagerTest, removeEntry_multipleIndexlets) {
     uint64_t tableId = 4;
-    im.addIndexlet(tableId, 1, "", 0, "", 0);
-    im.addIndexlet(tableId, 2, "", 0, "", 0);
+    im.addIndexlet(tableId, 1, indexletTableId, "", 0, "", 0);
+
+    // we need to create the table corresponding to each indexlet
+    // (b-tree). There is one indexlet that is created as part
+    // of the constructor of IndexletManagerTest
+    tabletManager.addTablet(indexletTableId + 1, 0, ~0UL,
+                            TabletManager::NORMAL);
+    im.addIndexlet(tableId, 2, indexletTableId + 1, "", 0, "", 0);
 
     KeyInfo keyListA[3];
     keyListA[0].keyLength = 5;
@@ -571,7 +627,7 @@ TEST_F(IndexletManagerTest, removeEntry_multipleIndexlets) {
 }
 
 TEST_F(IndexletManagerTest, removeEntry_duplicate) {
-    im.addIndexlet(0, 0, "a", 1, "k", 1);
+    im.addIndexlet(0, 0, indexletTableId, "a", 1, "k", 1);
 
     im.insertEntry(0, 0, "air", 3, 1234);
     im.insertEntry(0, 0, "air", 3, 5678);
@@ -599,7 +655,7 @@ TEST_F(IndexletManagerTest, removeEntry_unknownIndexlet) {
 }
 
 TEST_F(IndexletManagerTest, removeEntry_keyNotFound) {
-    im.addIndexlet(0, 0, "a", 1, "k", 1);
+    im.addIndexlet(0, 0, indexletTableId, "a", 1, "k", 1);
 
     Status removeStatus;
 
@@ -640,27 +696,27 @@ TEST_F(IndexletManagerTest, isKeyInRange)
     // test many more cases here.
 
     // Case0: firstKey > key < lastKey
-    IndexletManager::KeyRange testRange0 = {1, "objkey2", 8, "objkey2", 8};
+    IndexKeyRange testRange0 = {1, "objkey2", 8, "objkey2", 8};
     bool isInRange0 = IndexletManager::isKeyInRange(&obj, &testRange0);
     EXPECT_FALSE(isInRange0);
 
     // Case1: firstKey < key > lastKey
-    IndexletManager::KeyRange testRange1 = {1, "objkey0", 8, "objkey0", 8};
+    IndexKeyRange testRange1 = {1, "objkey0", 8, "objkey0", 8};
     bool isInRange1 = IndexletManager::isKeyInRange(&obj, &testRange1);
     EXPECT_FALSE(isInRange1);
 
     // Case2: firstKey > key > lastKey
-    IndexletManager::KeyRange testRange2 = {1, "objkey2", 8, "objkey0", 8};
+    IndexKeyRange testRange2 = {1, "objkey2", 8, "objkey0", 8};
     bool isInRange2 = IndexletManager::isKeyInRange(&obj, &testRange2);
     EXPECT_FALSE(isInRange2);
 
     // Case3: firstKey < key < lastKey
-    IndexletManager::KeyRange testRange3 = {1, "objkey0", 8, "objkey2", 8};
+    IndexKeyRange testRange3 = {1, "objkey0", 8, "objkey2", 8};
     bool isInRange3 = IndexletManager::isKeyInRange(&obj, &testRange3);
     EXPECT_TRUE(isInRange3);
 
     // Case4: firstKey = key = lastKey
-    IndexletManager::KeyRange testRange4 = {1, "objkey1", 8, "objkey1", 8};
+    IndexKeyRange testRange4 = {1, "objkey1", 8, "objkey1", 8};
     bool isInRange4 = IndexletManager::isKeyInRange(&obj, &testRange4);
     EXPECT_TRUE(isInRange4);
 }

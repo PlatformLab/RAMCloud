@@ -22,6 +22,7 @@
 #include "Dispatch.h"
 #include "Enumeration.h"
 #include "EnumerationIterator.h"
+#include "IndexKey.h"
 #include "LogIterator.h"
 #include "MasterClient.h"
 #include "MasterService.h"
@@ -85,7 +86,7 @@ MasterService::MasterService(Context* context,
                     &tabletManager,
                     &masterTableMetadata)
     , tabletManager()
-    , indexletManager(context)
+    , indexletManager(context, &objectManager)
 {
 }
 
@@ -603,53 +604,15 @@ MasterService::indexedRead(
             rpc->requestPayload->getRange(reqOffset, reqHdr->lastKeyLength);
     reqOffset+=reqHdr->lastKeyLength;
 
-    IndexletManager::KeyRange keyRange = {reqHdr->indexId,
+    IndexKeyRange keyRange = {reqHdr->indexId,
                                           firstKeyStr, reqHdr->firstKeyLength,
                                           lastKeyStr, reqHdr->lastKeyLength};
 
-    ObjectManager::IndexedRead readIter(
-            &objectManager, reqHdr->tableId,
-            rpc->requestPayload, reqOffset, &keyRange,
-            rpc->replyPayload);
-
-    // TODO(ankitak): Later: Handle the second case below too.
-    // Assumption: 1. It is highly unlikely that we'll have multiple objects
-    // such that they have the same primary key hash and their secondary
-    // key fall in the correct range. We'll still handle this case.
-    // 2. It is further unlikely that all of these objects put together
-    // will be too large to fit in a single 8MB response rpc.
-    // So, if all objects matched for a keyhash don't fit in an rpc, don't
-    // return any; Client will retry and the response rpc to the new request
-    // will contain all the matched objects for the keyhash.
-
-    respHdr->numHashes = 0;
-    respHdr->numObjects = 0;
-    uint32_t currentLength = sizeof32(*reqHdr);
-
-    for (uint32_t i = 0; i < reqHdr->numHashes; i++) {
-        uint32_t partNumObjects;
-        uint32_t partLength;
-        bool isOkayToContinue = readIter.readNext(&partNumObjects, &partLength);
-
-        if (isOkayToContinue != true) {
-            // This server doesn't own this primary key hash. Return whatever
-            // response we have as of now to the client. Client can retry
-            // with new masters.
-            break;
-        }
-
-        currentLength += partLength;
-        // TODO(ankitak): If we're okay with leaking length to objectManager,
-        // we can simplify the code there (IndexedRead class + readNext()
-        // can simply be a single function).
-        if (currentLength > maxResponseRpcLen) {
-            rpc->replyPayload->truncateEnd(currentLength);
-            break;
-        } else {
-            respHdr->numHashes += 1;
-            respHdr->numObjects += partNumObjects;
-        }
-    }
+    objectManager.indexedRead(reqHdr->tableId, reqHdr->numHashes,
+                              rpc->requestPayload, reqOffset, &keyRange,
+                              maxResponseRpcLen - sizeof32(*reqHdr),
+                              rpc->replyPayload, &respHdr->numHashes,
+                              &respHdr->numObjects);
 }
 
 /**
@@ -1598,6 +1561,7 @@ MasterService::takeIndexletOwnership(
 
     bool added = indexletManager.addIndexlet(reqHdr->tableId,
                              reqHdr->indexId,
+                             reqHdr->indexletTableId,
                              firstKey, reqHdr->firstKeyLength,
                              firstNotOwnedKey, reqHdr->firstNotOwnedKeyLength);
     if (added) {
@@ -1668,12 +1632,6 @@ MasterService::write(const WireFormat::Write::Request* reqHdr,
     }
 }
 
-/*
- * TODO(ankitak): For both request insert and request remove:
- * Send rpcs through MasterClient asynchronously so we can first send for all
- * then receive for all.
- */
-
 /**
  * Helper function to be used by write methods in this class to send request
  * for inserting corresponding index entries to index servers.
@@ -1693,6 +1651,8 @@ MasterService::requestInsertIndexEntries(Object& object)
     KeyHash primaryKeyHash =
             Key(tableId, primaryKey, primaryKeyLength).getHash();
 
+    Tub<InsertIndexEntryRpc> rpcs[keyCount-1];
+
     for (KeyCount keyIndex = 1; keyIndex <= keyCount - 1; keyIndex++) {
         KeyLength keyLength;
         const void* key = object.getKey(keyIndex, &keyLength);
@@ -1705,15 +1665,21 @@ MasterService::requestInsertIndexEntries(Object& object)
                                        keyLength).c_str(),
                                 primaryKeyHash);
 
-            MasterClient::insertIndexEntry(this, tableId, keyIndex,
-                                           key, keyLength, primaryKeyHash);
+            rpcs[keyIndex-1].construct(this, tableId, keyIndex,
+                                       key, keyLength, primaryKeyHash);
         }
+    }
+
+    for (KeyCount keyIndex = 1; keyIndex <= keyCount - 1; keyIndex++) {
+        if (rpcs[keyIndex-1])
+            rpcs[keyIndex-1]->wait();
     }
 }
 
 /*
- * TODO(ankitak): Smart index entry deletion in case two objs with same pkHash 
- * also have same key: Check here if another object has the same key hash.
+ * TODO(ankitak): Later: Smart index entry deletion in case two objs with
+ * same pkHash also have same key:
+ * Check here if another object has the same key hash.
  * If yes, look up those objects and see if they have the same index keys.
  * Only for index entries that don’t need to be kept around for another object,
  * send removeIndexEntries to index server.
@@ -1741,6 +1707,8 @@ MasterService::requestRemoveIndexEntries(Buffer& objectBuffer)
     KeyHash primaryKeyHash =
             Key(tableId, primaryKey, primaryKeyLength).getHash();
 
+    Tub<RemoveIndexEntryRpc> rpcs[keyCount-1];
+
     for (KeyCount keyIndex = 1; keyIndex <= keyCount - 1; keyIndex++) {
         KeyLength keyLength;
         const void* key = object.getKey(keyIndex, &keyLength);
@@ -1753,9 +1721,14 @@ MasterService::requestRemoveIndexEntries(Buffer& objectBuffer)
                                        keyLength).c_str(),
                                 primaryKeyHash);
 
-            MasterClient::removeIndexEntry(this, tableId, keyIndex,
-                                           key, keyLength, primaryKeyHash);
+            rpcs[keyIndex-1].construct(this, tableId, keyIndex,
+                                       key, keyLength, primaryKeyHash);
         }
+    }
+
+    for (KeyCount keyIndex = 1; keyIndex <= keyCount - 1; keyIndex++) {
+        if (rpcs[keyIndex-1])
+            rpcs[keyIndex-1]->wait();
     }
 }
 

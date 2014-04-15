@@ -74,7 +74,7 @@ TEST_F(SegletAllocatorTest, alloc) {
     EXPECT_EQ(0U, allocator.cleanerPool.size());
     EXPECT_FALSE(allocator.alloc(SegletAllocator::CLEANER, 1, seglets));
 
-    EXPECT_EQ(254U, allocator.defaultPool.size());
+    EXPECT_EQ(318U, allocator.defaultPool.size());
     EXPECT_TRUE(allocator.alloc(SegletAllocator::DEFAULT, 254, seglets));
     EXPECT_EQ(0U, allocator.cleanerPool.size());
 

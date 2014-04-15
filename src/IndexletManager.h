@@ -23,7 +23,9 @@
 #include "SpinLock.h"
 #include "Object.h"
 #include "Indexlet.h"
-#include "btree/BtreeMultimap.h"
+#include "IndexKey.h"
+#include "ObjectManager.h"
+#include "btreeRamCloud/BtreeMultimap.h"
 
 namespace RAMCloud {
 
@@ -103,21 +105,25 @@ class IndexletManager {
         }
     };
 
-    /// Structure used to define a range of keys [first key, last key]
-    /// for a particular index id, that can be used to compare a given
-    /// object to determine if its corresponding key falls in this range.
-    struct KeyRange {
-        /// Id of the index to which these index keys belong.
-        const uint8_t indexId;
-        /// Key blob marking the start of the key range.
-        const void* firstKey;
-        /// Length of firstKey.
-        const uint16_t firstKeyLength;
-        /// Key blob marking the end of the key range.
-        const void* lastKey;
-        /// Length of lastKey.
-        const uint16_t lastKeyLength;
+    // Btree key compare function
+    struct KeyAndHashCompare
+    {
+      public:
+        bool operator()(const KeyAndHash x, const KeyAndHash y) const
+        {
+            int keyComparison = keyCompare(x.key, x.keyLength,
+                                           y.key, y.keyLength);
+            if (keyComparison == 0) {
+                return (x.pKHash < y.pKHash);
+            }
+            return keyComparison < 0;
+        }
     };
+
+
+    // B+ tree holding key: string, value: primary key hash
+    // TODO(ashgup): Do we need to define traits?
+    typedef str::btree_multimap<KeyAndHash, uint64_t, KeyAndHashCompare> Btree;
 
     /**
      * Each indexlet owned by a master is described by fields in this class.
@@ -127,35 +133,45 @@ class IndexletManager {
     class Indexlet : public RAMCloud::Indexlet {
         public:
         Indexlet(const void *firstKey, uint16_t firstKeyLength,
-                  const void *firstNotOwnedKey, uint16_t firstNotOwnedKeyLength)
+                 const void *firstNotOwnedKey, uint16_t firstNotOwnedKeyLength,
+                 Btree *bt)
             : RAMCloud::Indexlet(firstKey, firstKeyLength, firstNotOwnedKey,
-                       firstNotOwnedKeyLength)
-            , bt()
-        {}
+                                 firstNotOwnedKeyLength)
+            , bt(bt)
+            , indexletMutex()
+        {
+        }
 
         Indexlet(const Indexlet& indexlet)
             : RAMCloud::Indexlet(indexlet)
             , bt(indexlet.bt)
+            , indexletMutex()
         {}
 
-        // Btree key compare function
-        struct KeyAndHashCompare
+        Indexlet& operator =(const Indexlet& indexlet)
         {
-          public:
-            bool operator()(const KeyAndHash x, const KeyAndHash y) const
-            {
-                int keyComparison = keyCompare(x.key, x.keyLength,
-                                               y.key, y.keyLength);
-                if (keyComparison == 0) {
-                    return (x.pKHash < y.pKHash);
-                }
-                return keyComparison < 0;
+            this->firstKey = NULL;
+            this->firstKeyLength = indexlet.firstKeyLength;
+            this->firstNotOwnedKey = NULL;
+            this->firstNotOwnedKeyLength = indexlet.firstNotOwnedKeyLength;
+
+            if (firstKeyLength != 0){
+                this->firstKey = malloc(firstKeyLength);
+                memcpy(this->firstKey, indexlet.firstKey, firstKeyLength);
             }
-        };
+            if (firstNotOwnedKeyLength != 0){
+                this->firstNotOwnedKey = malloc(firstNotOwnedKeyLength);
+                memcpy(this->firstNotOwnedKey, indexlet.firstNotOwnedKey,
+                                                        firstNotOwnedKeyLength);
+            }
+
+            this->bt = indexlet.bt;
+            return *this;
+        }
 
         // Attributes of the b+ tree used for holding the indexes
         template <typename KeyType>
-        struct traits_nodebug : stx::btree_default_set_traits<KeyType>
+        struct traits_nodebug : str::btree_default_set_traits<KeyType>
         {
             static const bool selfverify = false;
             static const bool debug = false;
@@ -164,21 +180,22 @@ class IndexletManager {
             static const int innerslots = 8;
         };
 
-        // B+ tree holding key: string, value: primary key hash
-        // TODO(ashgup): Do we need to define traits?
-        typedef stx::btree_multimap<KeyAndHash, uint64_t,
-                KeyAndHashCompare> Btree;
+        Btree *bt;
 
-        Btree bt;
+        /// Mutex to protect the indexlet from concurrent access.
+        /// A lock for this mutex MUST be held to read or modify any state in
+        /// the indexlet.
+        mutable std::mutex indexletMutex;
     };
 
-    explicit IndexletManager(Context* context);
+    explicit IndexletManager(Context* context, ObjectManager* objectManager);
 
     /////////////////////////// Meta-data related functions //////////////////
 
     bool addIndexlet(uint64_t tableId, uint8_t indexId,
-                const void *firstKey, uint16_t firstKeyLength,
-                const void *firstNotOwnedKey, uint16_t firstNotOwnedKeyLength);
+                uint64_t indexletTableId, const void *firstKey,
+                uint16_t firstKeyLength, const void *firstNotOwnedKey,
+                uint16_t firstNotOwnedKeyLength);
     bool deleteIndexlet(uint64_t tableId, uint8_t indexId,
                 const void *firstKey, uint16_t firstKeyLength,
                 const void *firstNotOwnedKey, uint16_t firstNotOwnedKeyLength);
@@ -205,15 +222,22 @@ class IndexletManager {
 
     //////////////// Static function related to indexing info /////////////////
 
-    static bool isKeyInRange(Object* object, KeyRange* keyRange);
+    static bool isKeyInRange(Object* object, IndexKeyRange* keyRange);
 
     static int keyCompare(const void* key1, uint16_t keyLength1,
                 const void* key2, uint16_t keyLength2);
 
+  PROTECTED:
+    // Note: I'm using unique_lock (instead of lock_guard) with mutex because
+    // this allows me to explictly release the lock anywhere. I'm not sure
+    // if this will perform as well as lock_guard.
+    /// Lock type used to hold the mutex.
+    /// This lock can be released explicitly in the code, but will be
+    /// automatically released at the end of a function if not done explicitly.
+    typedef std::unique_lock<std::mutex> Lock;
+
   PRIVATE:
-    /**
-     * Shared RAMCloud information.
-     */
+    /// Shared RAMCloud information.
     Context* context;
 
     /// Table/key pair hash struct for unordered_multimap below
@@ -230,17 +254,19 @@ class IndexletManager {
     typedef std::unordered_multimap< std::pair<uint64_t, uint8_t>,
                                      Indexlet, tableKeyHash> IndexletMap;
 
-    /// Lock guard type used to hold the monitor spinlock and automatically
-    /// release it.
-    typedef std::lock_guard<SpinLock> Lock;
-
-    IndexletMap::iterator lookupIndexlet(uint64_t tableId, uint8_t indexId,
-                const void *key, uint16_t keyLength, Lock& lock);
-
+    /// Indexlet map instance storing indexlet mapping for this index server.
     IndexletMap indexletMap;
 
-    /// Monitor spinlock used to protect the indexletMap from concurrent access.
-    SpinLock lock;
+    /// Mutex to protect the indexletMap from concurrent access.
+    /// A lock for this mutex MUST be held to read or modify any state in
+    /// the indexletMap.
+    mutable std::mutex indexletMapMutex;
+
+    /// Object Manager to handle mapping of index as objects
+    ObjectManager* objectManager;
+
+    IndexletMap::iterator lookupIndexlet(uint64_t tableId, uint8_t indexId,
+                const void *key, uint16_t keyLength, Lock& indexletMapMutex);
 
     DISALLOW_COPY_AND_ASSIGN(IndexletManager);
 };

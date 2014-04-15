@@ -1,4 +1,4 @@
-/* Copyright (c) 2012 Stanford University
+/* Copyright (c) 2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -21,7 +21,7 @@
 #include "SideLog.h"
 #include "LogEntryHandlers.h"
 #include "HashTable.h"
-#include "IndexletManager.h"
+#include "IndexKey.h"
 #include "Object.h"
 #include "SegmentManager.h"
 #include "SegmentIterator.h"
@@ -49,43 +49,6 @@ namespace RAMCloud {
 class ObjectManager : public LogEntryHandlers {
   public:
 
-    // TODO(ankitak): Later: Maybe this can be a private class, invoked by
-    // a public method in ObjectManager. Issue: Who manages the lifetime
-    // of an IndexedRead object now?
-    /**
-     * An instance of this class can be used to iteratively read object(s)
-     * previously written by ObjectManager, matching the given parameters.
-     */
-    class IndexedRead {
-      public:
-        IndexedRead(ObjectManager* objectManager,
-                    const uint64_t tableId,
-                    Buffer* pKHashes, uint32_t initialPKHashesOffset,
-                    IndexletManager::KeyRange* keyRange,
-                    Buffer* response);
-        virtual ~IndexedRead() {}
-        bool readNext(uint32_t* numObjects, uint32_t* length);
-
-      private:
-        /// Pointer to the instance of ObjectManager class that previously
-        /// wrote the objects.
-        ObjectManager* objectManager;
-        /// Id of the table containing the object(s).
-        const uint64_t tableId;
-        /// Key hashes of the primary keys of the object(s).
-        Buffer* pKHashes;
-        /// The offset into pKHashes buffer that indicates the location
-        /// of the next key hash to be read.
-        uint32_t pKHashesOffset;
-        /// KeyRange that will be used to compare the object's key
-        /// to determine a match.
-        IndexletManager::KeyRange* keyRange;
-        /// Buffer to which response for each object will be appended.
-        Buffer* response;
-
-        DISALLOW_COPY_AND_ASSIGN(IndexedRead);
-    };
-
     ObjectManager(Context* context,
                   ServerId* serverId,
                   const ServerConfig* config,
@@ -93,6 +56,12 @@ class ObjectManager : public LogEntryHandlers {
                   MasterTableMetadata* masterTableMetadata);
     virtual ~ObjectManager();
     void initOnceEnlisted();
+
+    void indexedRead(const uint64_t tableId, uint32_t reqNumHashes,
+                     Buffer* pKHashes, uint32_t initialPKHashesOffset,
+                     IndexKeyRange* keyRange, uint32_t maxLength,
+                     Buffer* response, uint32_t* respNumHashes,
+                     uint32_t* numObjects);
     Status readObject(Key& key,
                       Buffer* outBuffer,
                       RejectRules* rejectRules,
@@ -110,6 +79,29 @@ class ObjectManager : public LogEntryHandlers {
     void prefetchHashTableBucket(SegmentIterator* it);
     void replaySegment(SideLog* sideLog, SegmentIterator& it);
     void removeOrphanedObjects();
+
+    /// The following three methods are used when multiple log entries
+    /// need to be committed to the log atomically
+
+    /**
+     * This method is currently used by the Btree module to prepare a buffer
+     * for the log. The idea is that eventually, each of the log entries in
+     * the buffer can be flushed atomically by the log.
+     * It is general enough to be used by any other module
+     */
+    Status prepareForLog(Object& newObject, Buffer *logBuffer,
+                         uint32_t* offset, bool *tombstoneAdded);
+
+    /**
+     * Write a tombstone including the corresponding log entry header
+     * into a buffer based on the primary key of the object
+     */
+    Status writeTombstone(Key& key, Buffer *logBuffer);
+
+    /**
+     * Flushes all log entries from a buffer to the log atomically.
+     */
+    bool flushEntriesToLog(Buffer *logBuffer, uint32_t& numEntries);
 
     /**
      * The following two methods are used by the log cleaner. They aren't

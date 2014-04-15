@@ -224,6 +224,9 @@ DEFINE_EXCEPTION(CallerNotInClusterException,
 DEFINE_EXCEPTION(RequestTooLargeException,
                  STATUS_REQUEST_TOO_LARGE,
                  ClientException)
+DEFINE_EXCEPTION(UnknownIndexletException,
+                 STATUS_UNKNOWN_INDEXLET,
+                 ClientException)
 
 } // namespace RAMCloud
 

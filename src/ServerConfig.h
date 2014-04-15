@@ -209,7 +209,7 @@ struct ServerConfig {
          * unit tests.
          */
         Master(Testing) // NOLINT
-            : logBytes(32 * 1024 * 1024)
+            : logBytes(40 * 1024 * 1024)
             , hashTableBytes(1 * 1024 * 1024)
             , disableLogCleaner(true)
             , disableInMemoryCleaning(true)

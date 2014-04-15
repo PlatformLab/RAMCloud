@@ -105,8 +105,6 @@ IndexRpcWrapper::IndexRpcWrapper(
 bool
 IndexRpcWrapper::checkStatus()
 {
-    // TODO(ankitak): I've defined a new status STATUS_UNKNOWN_INDEXLET,
-    // but not corresponding ClientException. Is that needed?
     if (responseHeader->status == STATUS_UNKNOWN_INDEXLET) {
         // The index entry isn't where we thought it should be. Refresh our
         // configuration cache and try again.

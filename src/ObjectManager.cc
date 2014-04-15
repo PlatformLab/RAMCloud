@@ -1,4 +1,4 @@
-/* Copyright (c) 2012 Stanford University
+/* Copyright (c) 2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -18,6 +18,7 @@
 #include "Dispatch.h"
 #include "Enumeration.h"
 #include "EnumerationIterator.h"
+#include "IndexletManager.h"
 #include "LogEntryRelocator.h"
 #include "ObjectManager.h"
 #include "Object.h"
@@ -109,110 +110,113 @@ ObjectManager::initOnceEnlisted()
 }
 
 /**
- * An instance of this class can be used to iteratively read object(s)
- * previously written by ObjectManager, matching the given parameters.
+ * Read object(s) matching the given parameters, previously written by
+ * ObjectManager.
  * 
- * \param objectManager
- *      Pointer to the instance of ObjectManager class that previously
- *      wrote the objects.
+ * We'd typically expect one object to match one primary key hash, but it is
+ * possible that zero (if that object was removed after client did
+ * lookupIndexKeys() preceding this call), one, or multiple (if there are
+ * multiple objects with the same primary key hash that also have index
+ * keys in the current read range) objects match.
+ * 
+ * TODO(ankitak): Later: Handle this case too.
+ * If multiple objects do match, it is highly unlikely that these objects
+ * put together will be too large to fit in a single 8MB response rpc.
+ * So, if all objects matched for a key hash don't fit in an rpc, we will not
+ * return any of them; Client can retry and the response rpc to the new request
+ * will contain all the matched objects for the keyhash.
+ * 
  * \param tableId
  *      Id of the table containing the object(s).
+ * \param reqNumHashes
+ *      Number of key hashes (see pKHashes) in the request.
  * \param pKHashes
  *      Key hashes of the primary keys of the object(s).
  * \param initialPKHashesOffset
  *      Offset indicating location of first key hash in the pKHashes buffer.
  * \param keyRange
- *      KeyRange that will be used to compare the object's key
- *      to determine a match.
+ *      IndexKeyRange that will be used to compare the object's index key
+ *      to determine whether it is a match.
+ * \param maxLength
+ *      Maximum length of response that can be appended to the response
+ *      buffer.
  * 
  * \param[out] response
  *      Buffer to which response for each object will be appended in the
  *      readNext() method.
- */
-ObjectManager::IndexedRead::IndexedRead(
-                ObjectManager* objectManager,
-                uint64_t tableId,
-                Buffer* pKHashes, uint32_t initialPKHashesOffset,
-                IndexletManager::KeyRange* keyRange,
-                Buffer* response)
-    : objectManager(objectManager)
-    , tableId(tableId)
-    , pKHashes(pKHashes)
-    , pKHashesOffset(initialPKHashesOffset)
-    , keyRange(keyRange)
-    , response(response)
-{
-}
-
-/**
- * Read object(s) corresponding to a single primary key hash matching
- * the parameters given during the construction of the IndexedRead object.
- * The version, length and object data (keys and value) read are appended
- * to the response buffer provided during creation of the IndexedRead object.
- * 
- * We'd typically expect only one object to match the parameters, but it is
- * possible that multiple will.
- * 
+ * \param[out] respNumHashes
+ *      Num of hashes corresponding to which objects are being returned.
  * \param[out] numObjects
  *      Num of objects being returned.
- * \param[out] length
- *      Total length appended to the response buffer.
- * \return
- *      Value of false if this server does not own the tablet, or if the tablet
- *      is not in NORMAL state, true otherwise.
  */
-bool
-ObjectManager::IndexedRead::readNext(uint32_t* numObjects, uint32_t* length)
+void
+ObjectManager::indexedRead(const uint64_t tableId, uint32_t reqNumHashes,
+            Buffer* pKHashes, uint32_t initialPKHashesOffset,
+            IndexKeyRange* keyRange, uint32_t maxLength,
+            Buffer* response, uint32_t* respNumHashes, uint32_t* numObjects)
 {
-    uint64_t pKHash = *(pKHashes->getOffset<uint64_t>(pKHashesOffset));
-    pKHashesOffset += 8;
-    objectManager->objectMap.prefetchBucket(pKHash);
-    ObjectManager::HashTableBucketLock lock(*objectManager, pKHash);
-    // TODO(ankitak): Instead of calling a private lookup function,
-    // as in a normal read, I'm doing the work here directly.
-    // Should I do that instead?
-
-    // If the tablet doesn't exist in the NORMAL state, we must plead ignorance.
-    TabletManager::Tablet tablet;
-    if (!objectManager->tabletManager->getTablet(tableId, pKHash, &tablet))
-        return false;
-    if (tablet.state != TabletManager::NORMAL)
-        return false;
-
-    HashTable::Candidates candidates;
+    uint32_t currentLength = 0;
+    uint32_t partLength = 0;
+    uint32_t pKHashesOffset = initialPKHashesOffset;
+    uint64_t pKHash;
+    *respNumHashes = 0;
     *numObjects = 0;
-    uint32_t initialResponseLength = response->getTotalLength();
 
-    objectManager->objectMap.lookup(pKHash, candidates);
+    for (; *respNumHashes < reqNumHashes; *respNumHashes += 1) {
+        if (currentLength > maxLength) {
+            response->truncateEnd(partLength);
+            break;
+        }
+        currentLength += partLength;
 
-    while (!candidates.isDone()) {
-        Buffer candidateBuffer;
-        Log::Reference candidateRef(candidates.getReference());
-        LogEntryType type =
-                objectManager->log.getEntry(candidateRef, candidateBuffer);
+        pKHash = *(pKHashes->getOffset<uint64_t>(pKHashesOffset));
+        pKHashesOffset += 8;
 
-        if (type != LOG_ENTRY_TYPE_OBJ)
-            continue;
+        // Instead of calling a private lookup function as in a "normal" read,
+        // doing the work here directly, since the abstraction breaks down
+        // as multiple objects having the same primary key hash may match
+        // the index key range.
+        objectMap.prefetchBucket(pKHash);
+        HashTableBucketLock lock(*this, pKHash);
 
-        Object object(candidateBuffer);
-        bool isInRange = IndexletManager::isKeyInRange(&object, keyRange);
+        // If the tablet doesn't exist in the NORMAL state,
+        // we must plead ignorance.
+        // Client can refresh it's tablet information and retry.
+        TabletManager::Tablet tablet;
+        if (!tabletManager->getTablet(tableId, pKHash, &tablet))
+            return;
+        if (tablet.state != TabletManager::NORMAL)
+            return;
 
-        if (isInRange == true) {
-            *numObjects += 1;
-            new(response, APPEND) uint64_t(object.getVersion());
-            new(response, APPEND) uint32_t(object.getKeysAndValueLength());
-            object.appendKeysAndValueToBuffer(*response);
+        HashTable::Candidates candidates;
+        objectMap.lookup(pKHash, candidates);
+
+        while (!candidates.isDone()) {
+            Buffer candidateBuffer;
+            Log::Reference candidateRef(candidates.getReference());
+            LogEntryType type = log.getEntry(candidateRef, candidateBuffer);
+
+            if (type != LOG_ENTRY_TYPE_OBJ)
+                continue;
+
+            Object object(candidateBuffer);
+            bool isInRange = IndexletManager::isKeyInRange(&object, keyRange);
+
+            if (isInRange == true) {
+                *numObjects += 1;
+                new(response, APPEND) uint64_t(object.getVersion());
+                new(response, APPEND) uint32_t(object.getKeysAndValueLength());
+                object.appendKeysAndValueToBuffer(*response);
+            }
+
+            candidates.next();
         }
 
-        candidates.next();
+        partLength = response->getTotalLength() - currentLength;
+
+        // TODO(ankitak): Later: Figure out whether / how to do this.
+        // tabletManager->incrementReadCount(key);
     }
-
-    *length = response->getTotalLength() - initialResponseLength;
-
-    // TODO(ankitak): Later: Figure out whether / how to do this.
-    // tabletManager->incrementReadCount(key);
-
-    return true;
 }
 
 /**
@@ -307,9 +311,6 @@ ObjectManager::writeObject(Object& newObject,
             // Return a pointer to the buffer in log for the object being
             // overwritten.
             if (removedObjBuffer != NULL) {
-                // Make sure that the buffer doesn't currently contain junk.
-                // TODO(ankitak): Is this needed?
-                removedObjBuffer->reset();
                 removedObjBuffer->append(&currentBuffer);
             }
         }
@@ -540,9 +541,6 @@ ObjectManager::removeObject(Key& key,
 
     // Return a pointer to the buffer in log for the object being removed.
     if (removedObjBuffer != NULL) {
-        // Make sure that the buffer doesn't currently contain junk.
-        // TODO(ankitak): Is this needed?
-        removedObjBuffer->reset();
         removedObjBuffer->append(&buffer);
     }
 
@@ -980,6 +978,308 @@ ObjectManager::removeOrphanedObjects()
         CleanupParameters params = { this , &lock };
         objectMap.forEachInBucket(removeIfOrphanedObject, &params, i);
     }
+}
+
+/**
+ * Adds a log entry header, an object header and the object contents
+ * to a buffer. This is preparatory work so that eventually, all the
+ * entries in the buffer can be flushed to the log atomically.
+ *
+ * \param newObject
+ *      The object for which the object header and the log entry
+ *      header need to be constructed.
+ * \param logBuffer
+ *      The buffer to which the log entry header, the object
+ *      header and the object contents will be appended (in that
+ *      order)
+ * \param [out] offset
+ *      offset of the new object's value in #logBuffer
+ * \param [out] tombstoneAdded
+ *      true if an older version of this object exists, false
+ *      otherwise
+ * \return
+ *      the status of the operation. As long as the table is in
+ *      the proper state, this should return STATUS_OK
+ */
+Status
+ObjectManager::prepareForLog(Object& newObject, Buffer *logBuffer,
+                             uint32_t* offset, bool *tombstoneAdded)
+{
+    uint16_t keyLength = 0;
+    const void *keyString = newObject.getKey(0, &keyLength);
+    Key key(newObject.getTableId(), keyString, keyLength);
+
+    objectMap.prefetchBucket(key.getHash());
+    HashTableBucketLock lock(*this, key);
+
+    // If the tablet doesn't exist in the NORMAL state, we must plead
+    // ignorance.
+    TabletManager::Tablet tablet;
+    if (!tabletManager->getTablet(key, &tablet))
+        return STATUS_UNKNOWN_TABLET;
+    if (tablet.state != TabletManager::NORMAL)
+        return STATUS_UNKNOWN_TABLET;
+
+    LogEntryType currentType = LOG_ENTRY_TYPE_INVALID;
+    Buffer currentBuffer;
+    Log::Reference currentReference;
+    uint64_t currentVersion = VERSION_NONEXISTENT;
+
+    HashTable::Candidates currentHashTableEntry;
+
+    if (lookup(lock, key, currentType, currentBuffer, 0,
+               &currentReference, &currentHashTableEntry)) {
+
+        if (currentType != LOG_ENTRY_TYPE_OBJTOMB) {
+            Object currentObject(currentBuffer);
+            currentVersion = currentObject.getVersion();
+        }
+    }
+
+    // Existing objects get a bump in version, new objects start from
+    // the next version allocated in the table.
+    uint64_t newObjectVersion = (currentVersion == VERSION_NONEXISTENT) ?
+            segmentManager.allocateVersion() : currentVersion + 1;
+
+    newObject.setVersion(newObjectVersion);
+    newObject.setTimestamp(WallTime::secondsTimestamp());
+
+    assert(currentVersion == VERSION_NONEXISTENT ||
+           newObject.getVersion() > currentVersion);
+
+    Tub<ObjectTombstone> tombstone;
+    if (currentVersion != VERSION_NONEXISTENT &&
+      currentType == LOG_ENTRY_TYPE_OBJ) {
+        Object object(currentBuffer);
+        tombstone.construct(object,
+                            log.getSegmentId(currentReference),
+                            WallTime::secondsTimestamp());
+    }
+
+    Segment::appendLogHeader(LOG_ENTRY_TYPE_OBJ,
+                             newObject.getSerializedLength(),
+                             logBuffer);
+
+    uint32_t objectOffset = 0;
+    uint32_t lengthBefore = logBuffer->getTotalLength();
+    uint16_t valueOffset = 0;
+
+    newObject.getValueOffset(&valueOffset);
+    objectOffset = lengthBefore + sizeof32(Object::Header) + valueOffset;
+
+    uint8_t *target = new(logBuffer, APPEND)
+                      uint8_t[newObject.getSerializedLength()];
+    newObject.assembleForLog(target);
+
+    // tombstone goes after the new object
+    if (tombstone) {
+        Segment::appendLogHeader(LOG_ENTRY_TYPE_OBJTOMB,
+                                 tombstone->getSerializedLength(),
+                                 logBuffer);
+        uint8_t *target = new(logBuffer, APPEND)
+                          uint8_t[tombstone->getSerializedLength()];
+        tombstone->assembleForLog(target);
+        *tombstoneAdded = true;
+    }
+
+    // TODO(arjung):
+    // When do we update this ? Now or later when flushing to the log
+    // If later, how would we do it ?
+#if 0
+    tabletManager->incrementWriteCount(key);
+    uint64_t byteCount = appends[0].buffer.getTotalLength();
+    uint64_t recordCount = 1;
+    if (tombstone) {
+        byteCount += appends[1].buffer.getTotalLength();
+        recordCount += 1;
+    }
+
+    TableStats::increment(masterTableMetadata,
+                          tablet.tableId,
+                          byteCount,
+                          recordCount);
+#endif
+
+    if (offset)
+        *offset = objectOffset;
+
+    return STATUS_OK;
+}
+
+/**
+ * Write a tombstone including the corresponding log entry header
+ * into a buffer based on the primary key of the object
+ *
+ * \param key
+ *      Key of the object for which a tombstone needs to be written
+ * \param [out] logBuffer
+ *      Buffer that will contain the newly written tombstone entry
+ * \return
+ *      the status of the operation. If the tablet is in the NORMAL
+ *      state, it returns STATUS_OK
+ */
+Status
+ObjectManager::writeTombstone(Key& key, Buffer *logBuffer)
+{
+    HashTableBucketLock lock(*this, key);
+
+    // If the tablet doesn't exist in the NORMAL state, we must plead
+    // ignorance.
+    TabletManager::Tablet tablet;
+    if (!tabletManager->getTablet(key, &tablet))
+        return STATUS_UNKNOWN_TABLET;
+    if (tablet.state != TabletManager::NORMAL)
+        return STATUS_UNKNOWN_TABLET;
+
+    LogEntryType type;
+    Buffer buffer;
+    Log::Reference reference;
+    if (!lookup(lock, key, type, buffer, NULL, &reference) ||
+            type != LOG_ENTRY_TYPE_OBJ) {
+        return STATUS_OK;
+    }
+
+    Object object(buffer);
+
+    ObjectTombstone tombstone(object,
+                              log.getSegmentId(reference),
+                              WallTime::secondsTimestamp());
+
+    Segment::appendLogHeader(LOG_ENTRY_TYPE_OBJTOMB,
+                             tombstone.getSerializedLength(),
+                             logBuffer);
+    uint8_t *target = new(logBuffer, APPEND)
+                      uint8_t[tombstone.getSerializedLength()];
+    tombstone.assembleForLog(target);
+
+// TODO(arjung):
+// When do we update this ? Now or later when flushing to the log
+// If later, how would we do it ?
+#if 0
+    TableStats::increment(masterTableMetadata,
+                          tablet.tableId,
+                          tombstoneBuffer.getTotalLength(),
+                          1);
+#endif
+    return STATUS_OK;
+}
+
+/**
+ * Flushes all the log entries from the given buffer to the log
+ * atomically and updates the hash table with the corresponding
+ * log reference for each entry
+ *
+ * \param logBuffer
+ *      The buffer which contains various log entries
+ * \param numEntries
+ *      Number of log entries in the buffer
+ * \return
+ *      True, if successful, false otherwise.
+ */
+bool
+ObjectManager::flushEntriesToLog(Buffer *logBuffer, uint32_t& numEntries)
+{
+    if (numEntries == 0)
+        return true;
+
+    // This array will hold the references of all the entries
+    // that get written to the log. This will be used
+    // subsequently to update the hash table
+    Log::Reference references[numEntries];
+
+    // atomically flush all the entries to the log
+    if (!log.append(logBuffer, references, numEntries)) {
+        return false;
+        // TODO(arjung): how to propagate this error
+        // into the tree code and then back to the caller
+        // of the tree code ??
+    }
+
+    LogEntryType type;
+
+    // keeps track of the current log entry header in the logBuffer
+    uint32_t offset = 0;
+    uint32_t entryLength = 0;
+    // marks the starting offset of a serialized object in the logBuffer
+    uint32_t objectOffset;
+    uint32_t serializedObjectLength = 0;
+
+    // update hash table for each entry that was written to the log
+    for (uint32_t i = 0; i < numEntries; i++) {
+        serializedObjectLength = 0;
+        // Don't call getRange on logBuffer because we only need the
+        // key for each object/tombstone
+        type = Segment::getEntry(logBuffer, offset,
+                                 &serializedObjectLength, &entryLength);
+        objectOffset = offset + entryLength - serializedObjectLength;
+
+        LogEntryType currentType = LOG_ENTRY_TYPE_INVALID;
+        Buffer currentBuffer;
+        Log::Reference currentReference;
+        uint64_t currentVersion = VERSION_NONEXISTENT;
+
+        HashTable::Candidates currentHashTableEntry;
+
+        if (type == LOG_ENTRY_TYPE_OBJ) {
+
+            Object object(*logBuffer, objectOffset, serializedObjectLength);
+            KeyLength keyLength;
+            const void* keyString = object.getKey(0, &keyLength);
+
+            Key key(object.getTableId(), keyString, keyLength);
+
+            objectMap.prefetchBucket(key.getHash());
+            HashTableBucketLock lock(*this, key);
+
+            if (lookup(lock, key, currentType, currentBuffer, &currentVersion,
+                       &currentReference, &currentHashTableEntry)) {
+
+                if (currentType == LOG_ENTRY_TYPE_OBJTOMB) {
+                    removeIfTombstone(currentReference.toInteger(), this);
+                    objectMap.insert(key.getHash(), references[i].toInteger());
+                }
+
+                if (currentType == LOG_ENTRY_TYPE_OBJ) {
+                    currentHashTableEntry.setReference(
+                                    references[i].toInteger());
+                    log.free(currentReference);
+                }
+            } else {
+                objectMap.insert(key.getHash(), references[i].toInteger());
+            }
+        } else if (type == LOG_ENTRY_TYPE_OBJTOMB) {
+
+            ObjectTombstone tombstone(*logBuffer, objectOffset,
+                                      serializedObjectLength);
+
+            KeyLength keyLength = tombstone.getKeyLength();
+            const void* keyString = tombstone.getKey();
+
+            Key key(tombstone.getTableId(), keyString, keyLength);
+
+            objectMap.prefetchBucket(key.getHash());
+            HashTableBucketLock lock(*this, key);
+
+            uint64_t currentVersion = 0;
+            if (lookup(lock, key, currentType, currentBuffer, &currentVersion,
+                       &currentReference, &currentHashTableEntry)) {
+
+                // this is a tombstone for the most recent version of
+                // the object so far in the log
+                if (currentVersion == tombstone.getObjectVersion()) {
+                    remove(lock, key);
+                    log.free(currentReference);
+                    segmentManager.raiseSafeVersion(currentVersion + 1);
+                }
+            }
+        }
+        offset = offset + entryLength;
+    }
+    // sync to backups
+    syncChanges();
+    logBuffer->reset();
+    numEntries = 0;
+    return true;
 }
 
 /**
