@@ -1359,10 +1359,10 @@ TEST_F(MasterServiceTest, takeTabletOwnership_newTablet) {
                 "endKeyHash: 1 state: 0 reads: 0 writes: 0 }\n"
             "{ tableId: 2 startKeyHash: 0 "
                 "endKeyHash: 1 state: 0 reads: 0 writes: 0 }\n"
-            "{ tableId: 2 startKeyHash: 2 "
-                "endKeyHash: 3 state: 0 reads: 0 writes: 0 }\n"
             "{ tableId: 2 startKeyHash: 4 "
                 "endKeyHash: 5 state: 0 reads: 0 writes: 0 }\n"
+            "{ tableId: 2 startKeyHash: 2 "
+                "endKeyHash: 3 state: 0 reads: 0 writes: 0 }\n"
             "{ tableId: 3 startKeyHash: 0 "
                 "endKeyHash: 1 state: 0 reads: 0 writes: 0 }",
             service->tabletManager.toString());

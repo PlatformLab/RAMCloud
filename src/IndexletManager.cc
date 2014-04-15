@@ -65,8 +65,9 @@ IndexletManager::addIndexlet(
         return false;
     }
 
-    indexletMap.emplace(std::make_pair(tableId, indexId), Indexlet(firstKey,
-                    firstKeyLength, firstNotOwnedKey, firstNotOwnedKeyLength));
+    indexletMap.insert(std::make_pair(std::make_pair(tableId, indexId),
+                       Indexlet(firstKey, firstKeyLength, firstNotOwnedKey,
+                                firstNotOwnedKeyLength)));
 
     for (auto it = indexletMap.begin(); it != indexletMap.end(); it++) {
         Indexlet* indexlet = &it->second;

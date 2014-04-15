@@ -21,7 +21,7 @@
 #include <thread>
 #include <boost/program_options.hpp>
 #include <boost/version.hpp>
-#include <boost/unordered_map.hpp>
+#include <unordered_map>
 #include <iostream>
 namespace po = boost::program_options;
 
@@ -146,7 +146,7 @@ struct localState
     /**
      * A map between table ID and the split key hashes.
      */
-    boost::unordered_multimap<uint64_t, uint64_t> splitPoints;
+    std::unordered_multimap<uint64_t, uint64_t> splitPoints;
 
     /**
      * The list of objects that were created during the coordinator recovery
@@ -689,7 +689,8 @@ splitTablet(RamCloud *cluster, struct localState *state)
 
     // splitPoints can have duplicates for same tableID.
     // Not a correctness issue though since splitTablet is idempotent
-    state->splitPoints.emplace(cluster->getTableId(tableName), splitPoint);
+    state->splitPoints.insert(std::make_pair(cluster->getTableId(tableName),
+                                             splitPoint));
     RAMCLOUD_LOG(NOTICE, "split point for %lu at %lu",
                  cluster->getTableId(tableName), splitPoint);
     return ret;
@@ -776,12 +777,12 @@ dropTable(RamCloud *cluster, struct localState *state)
  */
 bool
 checkSplitTablets(RamCloud *cluster,
-                  boost::unordered_multimap<uint64_t, uint64_t> splitPoints)
+                  std::unordered_multimap<uint64_t, uint64_t> splitPoints)
 {
     RAMCLOUD_LOG(NOTICE, "Checking for Split tablets");
     bool ret = true;
     int count = 0;
-    boost::unordered_multimap<uint64_t, uint64_t>::iterator it;
+    std::unordered_multimap<uint64_t, uint64_t>::iterator it;
     for (it = splitPoints.begin(); it != splitPoints.end(); ++it) {
         ProtoBuf::TableConfig tableConfig;
         CoordinatorClient::getTableConfig(cluster->clientContext,

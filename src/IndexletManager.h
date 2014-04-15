@@ -16,7 +16,7 @@
 #ifndef RAMCLOUD_INDEXLETMANAGER_H
 #define RAMCLOUD_INDEXLETMANAGER_H
 
-#include <boost/unordered_map.hpp>
+#include <unordered_map>
 
 #include "Common.h"
 #include "HashTable.h"
@@ -216,9 +216,19 @@ class IndexletManager {
      */
     Context* context;
 
+    /// Table/key pair hash struct for unordered_multimap below
+    struct tableKeyHash
+    {
+        size_t operator()(const std::pair<uint64_t, uint8_t> tableKey) const
+        {
+            return std::hash<uint64_t>()(tableKey.first)
+                    ^std::hash<uint8_t>()(tableKey.second);
+        }
+    };
+
     /// This unordered_multimap is used to store and access all indexlet data.
-    typedef boost::unordered_multimap< std::pair<uint64_t, uint8_t>,
-                                       Indexlet> IndexletMap;
+    typedef std::unordered_multimap< std::pair<uint64_t, uint8_t>,
+                                     Indexlet, tableKeyHash> IndexletMap;
 
     /// Lock guard type used to hold the monitor spinlock and automatically
     /// release it.

@@ -16,7 +16,7 @@
 #ifndef RAMCLOUD_TABLETMANAGER_H
 #define RAMCLOUD_TABLETMANAGER_H
 
-#include <boost/unordered_map.hpp>
+#include <unordered_map>
 
 #include "Common.h"
 #include "Object.h"
@@ -148,10 +148,7 @@ class TabletManager {
     /// Tablets are stored in a multimap that is indexed by table identifier.
     /// The assumption is that we are likely to have many tablets, but
     /// relatively few for the same table.
-    ///
-    /// We use the boost version, rather than std::'s, because gcc 4.4.4's
-    /// libstdc++ does not implement the emplace() method.
-    typedef boost::unordered_multimap<uint64_t, Tablet> TabletMap;
+    typedef std::unordered_multimap<uint64_t, Tablet> TabletMap;
 
     /// Lock guard type used to hold the monitor spinlock and automatically
     /// release it.
