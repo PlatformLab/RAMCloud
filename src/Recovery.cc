@@ -133,6 +133,14 @@ Recovery::splitTablets(vector<Tablet> *tablets,
     for (size_t i = 0; i < size; ++i) {
         Tablet* tablet = &tablets->at(i);
 
+        // Currently we didn't support split operation for index tablets.
+        // Therefore, if we found a tablet is an index tablet, we just skip
+        // the following operations.
+        // TODO(zhihao): maybe in the future we should consider spliting
+        // large index tablets.
+        if (tableManager->isIndexletTable(tablet->tableId))
+            continue;
+
         TableStats::Estimator::Entry stats = estimator->estimate(tablet);
 
         uint64_t startKeyHash = tablet->startKeyHash;
@@ -1038,8 +1046,9 @@ Recovery::startRecoveryMasters()
     // depending on which partition it was in.
     foreach (auto& tablet, tabletsToRecover.tablet()) {
         auto& task = recoverTasks[tablet.user_data()];
-        if (task)
+        if (task) {
             *task->tabletsToRecover.add_tablet() = tablet;
+        }
     }
 
     // Tell the recovery masters to begin recovery.

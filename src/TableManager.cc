@@ -40,6 +40,7 @@ TableManager::TableManager(Context* context,
     , tabletMaster()
     , directory()
     , idMap()
+    , indexletTableMap()
 {
     context->tableManager = this;
 }
@@ -239,6 +240,13 @@ TableManager::createIndex(uint64_t tableId, uint8_t indexId, uint8_t indexType,
                             1, reinterpret_cast<void *>(&firstNotOwnedKey), 1,
                             tabletMaster, indexletTableId);
         index->indexlets.push_back(indexlet);
+
+        // Now we add tableIndexId<->indexlet into indexletTableMap
+        IndexletInfo indexletInfo;
+        indexletInfo.indexlet = indexlet;
+        indexletInfo.tableId = tableId;
+        indexletInfo.indexId = indexId;
+        indexletTableMap.insert(std::make_pair(indexTableId, indexletInfo));
     }
     catch (...) {
         delete index;
@@ -365,6 +373,9 @@ TableManager::dropIndex(uint64_t tableId, uint8_t indexId)
         return false;
     }
     Index* index = table->indexMap[indexId];
+    foreach (Indexlet* indexlet, index->indexlets) {
+    	indexletTableMap.erase(indexlet->indexletTableId);
+    }
 
     LOG(NOTICE, "Dropping table '%lu' index '%u'", tableId, indexId);
     table->indexMap[indexId] = NULL;
@@ -418,6 +429,47 @@ TableManager::getTablet(uint64_t tableId, uint64_t keyHash)
         throw NoSuchTablet(HERE);
     Table* table = it->second;
     return *findTablet(lock, table, keyHash);
+}
+
+/**
+ * Return information about a indexlet (e.g., its key, tableId, indexId,
+ * ServerId, and indexletTableId), when given a indexletTableId
+ *
+ * \param indexletTableId
+ *      Identifier of the table
+ * \param indexletInfo
+ *      Indexlet information structure to populate
+ * \return
+ *      True if the querying table is an indexlet table.
+ *      Otherwise, return false.
+ */
+bool
+TableManager::getIndexletInfoByIndexletTableId(uint64_t indexletTableId,
+                                               IndexletInfo& indexletInfo)
+{
+    Lock lock(mutex);
+    IndexletTableMap::iterator it = indexletTableMap.find(indexletTableId);
+    if (it == indexletTableMap.end())
+        return false;
+    indexletInfo.indexlet = it->second.indexlet;
+    indexletInfo.tableId = it->second.tableId;
+    indexletInfo.indexId = it->second.indexId;
+    return true;
+}
+
+/**
+ * Return if a table is indexlet table or not
+ *
+ * \param tableId
+ *      Identifier of the table
+ * \return
+ *      True if the querying table is an index table. Otherwise, return false.
+ */
+bool
+TableManager::isIndexletTable(uint64_t tableId)
+{
+    Lock lock(mutex);
+    return indexletTableMap.find(tableId) != indexletTableMap.end();
 }
 
 /**

@@ -58,38 +58,23 @@ class TableManager {
         explicit NoSuchTablet(const CodeLocation& where) : Exception(where) {}
     };
 
-    explicit TableManager(Context* context,
-            CoordinatorUpdateManager* updateManager);
-    ~TableManager();
+    /**
+     * Information about an indexlet, which includes a pointer to Indexlet,
+     * tableId, and indexId.
+     * TODO(zhihao): make sure the lifetime of RAMCloud::Indexlet is at least
+     * as long as IndexletInfo
+     */
+    struct IndexletInfo {
+        Indexlet *indexlet;
+        uint64_t tableId;
+        uint8_t indexId;
+    };
 
-    bool createIndex(uint64_t tableId, uint8_t indexId, uint8_t indexType,
-                     uint64_t indexTableId);
-    uint64_t createTable(const char* name, uint32_t serverSpan);
-    string debugString(bool shortForm = false);
-    bool dropIndex(uint64_t tableId, uint8_t indexId);
-    void dropTable(const char* name);
-    uint64_t getTableId(const char* name);
-    Tablet getTablet(uint64_t tableId, uint64_t keyHash);
-    vector<Tablet> markAllTabletsRecovering(ServerId serverId);
-    void reassignTabletOwnership(ServerId newOwner, uint64_t tableId,
-                                 uint64_t startKeyHash, uint64_t endKeyHash,
-                                 uint64_t ctimeSegmentId,
-                                 uint64_t ctimeSegmentOffset);
-    void recover(uint64_t lastCompletedUpdate);
-    void serializeTableConfig(ProtoBuf::TableConfig* tableConfig,
-                                                    uint64_t tableId);
-    void splitTablet(const char* name,
-                     uint64_t splitKeyHash);
-    void splitRecoveringTablet(uint64_t tableId, uint64_t splitKeyHash);
-    void tabletRecovered(uint64_t tableId,
-                         uint64_t startKeyHash,
-                         uint64_t endKeyHash,
-                         ServerId serverId,
-                         Log::Position ctime);
-
-  PRIVATE:
     /**
      * The following structure holds information about a indexlet of an index.
+     * TODO(zhihao): currently move Indexlet from private to public, since
+     * Recovery need to see this struct. Need to consider the scope of it
+     * in the future.
      */
     struct Indexlet : public RAMCloud::Indexlet {
         public:
@@ -114,6 +99,40 @@ class TableManager {
         /// The id of the table on serverId holding the index content
         uint64_t indexletTableId;
     };
+
+    explicit TableManager(Context* context,
+            CoordinatorUpdateManager* updateManager);
+    ~TableManager();
+
+    bool createIndex(uint64_t tableId, uint8_t indexId, uint8_t indexType,
+                     uint64_t indexTableId);
+    uint64_t createTable(const char* name, uint32_t serverSpan);
+    string debugString(bool shortForm = false);
+    bool dropIndex(uint64_t tableId, uint8_t indexId);
+    void dropTable(const char* name);
+    uint64_t getTableId(const char* name);
+    Tablet getTablet(uint64_t tableId, uint64_t keyHash);
+    bool getIndexletInfoByIndexletTableId(uint64_t indexletTableId,
+                                          IndexletInfo& indexletInfo);
+    bool isIndexletTable(uint64_t tableId);
+    vector<Tablet> markAllTabletsRecovering(ServerId serverId);
+    void reassignTabletOwnership(ServerId newOwner, uint64_t tableId,
+                                 uint64_t startKeyHash, uint64_t endKeyHash,
+                                 uint64_t ctimeSegmentId,
+                                 uint64_t ctimeSegmentOffset);
+    void recover(uint64_t lastCompletedUpdate);
+    void serializeTableConfig(ProtoBuf::TableConfig* tableConfig,
+                                                    uint64_t tableId);
+    void splitTablet(const char* name,
+                     uint64_t splitKeyHash);
+    void splitRecoveringTablet(uint64_t tableId, uint64_t splitKeyHash);
+    void tabletRecovered(uint64_t tableId,
+                         uint64_t startKeyHash,
+                         uint64_t endKeyHash,
+                         ServerId serverId,
+                         Log::Position ctime);
+
+  PRIVATE:
 
     /**
      * The following class holds information about a single index of a table.
@@ -201,6 +220,12 @@ class TableManager {
     /// information is dynamically allocated (and shared with directory).
     typedef std::unordered_map<uint64_t, Table*> IdMap;
     IdMap idMap;
+
+    /// Maps from indexletTable id to indexletInfo.
+    /// This is a map since every indexletTable can have at most one
+    /// containing indexlet
+    typedef std::unordered_map<uint64_t, IndexletInfo> IndexletTableMap;
+    IndexletTableMap indexletTableMap;
 
     Tablet* findTablet(const Lock& lock, Table* table, uint64_t keyHash);
     void notifyCreate(const Lock& lock, Table* table);
