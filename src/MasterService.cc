@@ -2380,6 +2380,45 @@ MasterService::recover(const WireFormat::Recover::Request* reqHdr,
                         tablet.end_key_hash()));
             }
         }
+        foreach (const ProtoBuf::Tablets::Indexlet& indexlet,
+                 recoveryTablets.indexlet()) {
+            void* firstKey;
+            uint16_t firstKeyLength;
+            void* firstNotOwnedKey;
+            uint16_t firstNotOwnedKeyLength;
+
+            //TODO(ashgup): while converting string, null delimiter handled
+            if (indexlet.start_key().compare("") == 0) {
+                firstKey = const_cast<char *>(indexlet.start_key().c_str());
+                firstKeyLength = (uint16_t)indexlet.start_key().length();
+            } else {
+                firstKey = NULL;
+                firstKeyLength = 0;
+            }
+
+            if (indexlet.end_key().compare("") == 0) {
+                firstNotOwnedKey = const_cast<char *>
+                                            (indexlet.end_key().c_str());
+                firstNotOwnedKeyLength =
+                                (uint16_t)indexlet.end_key().length();
+            } else {
+                firstNotOwnedKey = NULL;
+                firstNotOwnedKeyLength = 0;
+            }
+
+        	bool deleted =
+                indexletManager.deleteIndexlet(indexlet.table_id(),
+                		                       (uint8_t)indexlet.index_id(),
+                		                       firstKey, firstKeyLength,
+                		                       firstNotOwnedKey,
+                		                       firstNotOwnedKeyLength);
+            if (!deleted) {
+                throw FatalError(HERE, format("Could not delete recovery "
+                    "indexlet (%lu, %u). It disappeared!?",
+                        indexlet.table_id(),
+                        indexlet.index_id()));
+            }
+        }
         objectManager.removeOrphanedObjects();
     }
 }
