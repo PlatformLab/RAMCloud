@@ -1049,6 +1049,31 @@ Recovery::startRecoveryMasters()
         if (task) {
             *task->tabletsToRecover.add_tablet() = tablet;
         }
+        TableManager::IndexletInfo indexletInfo;
+        if (tableManager->getIndexletInfoByIndexletTableId(tablet.table_id(),
+                                                           indexletInfo)) {
+        	ProtoBuf::Tablets::Indexlet& entry =
+                *tabletsToRecover.add_indexlet();
+            if (indexletInfo.indexlet->firstKey != NULL)
+                entry.set_start_key(string(
+                                    reinterpret_cast<char*>(
+                                    indexletInfo.indexlet->firstKey),
+                                    indexletInfo.indexlet->firstKeyLength));
+            else
+                entry.set_start_key("");
+
+            if (indexletInfo.indexlet->firstNotOwnedKey != NULL)
+                entry.set_end_key(string(
+                            reinterpret_cast<char*>(
+                            indexletInfo.indexlet->firstNotOwnedKey),
+                            indexletInfo.indexlet->firstNotOwnedKeyLength));
+            else
+                entry.set_end_key("");
+            entry.set_table_id(indexletInfo.tableId);
+            entry.set_index_id(indexletInfo.indexId);
+            entry.set_indexlettable_id(indexletInfo.indexlet->indexletTableId);
+            entry.set_server_id(indexletInfo.indexlet->serverId.getId());
+        }
     }
 
     // Tell the recovery masters to begin recovery.

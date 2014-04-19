@@ -58,6 +58,33 @@ message Tablets {
     required uint32 ctime_log_head_offset = 9;
   }
 
+  message Indexlet {
+
+    ///The id of the containing table
+    required uint64 table_id = 1;
+
+    ///The id of the index
+    required uint32 index_id = 2;
+
+    ///The id of the indexletTable
+    required uint64 indexletTable_id = 3;
+
+    ///The first (smallest) key that is part of this indexlet.
+    optional bytes start_key = 4;
+
+    ///The smallest key greater than all the keys managed by this indexlet.
+    optional bytes end_key = 5;
+
+    /// The ID of the master owning this indexlet.
+    optional fixed64 server_id = 6;
+
+    /// The service locator for the master owning this indexlet.
+    optional string service_locator = 7;
+  }
+
   /// The tablets.
   repeated Tablet tablet = 1;
+
+  /// The indexlets.
+  repeated Indexlet indexlet = 2;
 }

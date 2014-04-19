@@ -59,18 +59,6 @@ class TableManager {
     };
 
     /**
-     * Information about an indexlet, which includes a pointer to Indexlet,
-     * tableId, and indexId.
-     * TODO(zhihao): make sure the lifetime of RAMCloud::Indexlet is at least
-     * as long as IndexletInfo
-     */
-    struct IndexletInfo {
-        Indexlet *indexlet;
-        uint64_t tableId;
-        uint8_t indexId;
-    };
-
-    /**
      * The following structure holds information about a indexlet of an index.
      * TODO(zhihao): currently move Indexlet from private to public, since
      * Recovery need to see this struct. Need to consider the scope of it
@@ -98,6 +86,18 @@ class TableManager {
 
         /// The id of the table on serverId holding the index content
         uint64_t indexletTableId;
+    };
+
+    /**
+     * Information about an indexlet, which includes a pointer to Indexlet,
+     * tableId, and indexId.
+     * TODO(zhihao): make sure the lifetime of RAMCloud::Indexlet is at least
+     * as long as IndexletInfo
+     */
+    struct IndexletInfo {
+        Indexlet *indexlet;
+        uint64_t tableId;
+        uint8_t indexId;
     };
 
     explicit TableManager(Context* context,
