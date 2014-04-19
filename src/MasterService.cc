@@ -2271,6 +2271,45 @@ MasterService::recover(const WireFormat::Recover::Request* reqHdr,
         // Recovery wasn't successful.
     }
 
+    // Install tablets we are recovering
+    foreach (const ProtoBuf::Tablets::Indexlet& newIndexlet,
+             recoveryTablets.indexlet()) {
+        void* firstKey;
+        uint16_t firstKeyLength;
+        void* firstNotOwnedKey;
+        uint16_t firstNotOwnedKeyLength;
+
+        //TODO(ashgup): while converting string, null delimiter handled
+        if (newIndexlet.start_key().compare("") == 0) {
+            firstKey = const_cast<char *>(newIndexlet.start_key().c_str());
+            firstKeyLength = (uint16_t)newIndexlet.start_key().length();
+        } else {
+            firstKey = NULL;
+            firstKeyLength = 0;
+        }
+
+        if (newIndexlet.end_key().compare("") == 0) {
+            firstNotOwnedKey = const_cast<char *>
+                                        (newIndexlet.end_key().c_str());
+            firstNotOwnedKeyLength =
+                            (uint16_t)newIndexlet.end_key().length();
+        } else {
+            firstNotOwnedKey = NULL;
+            firstNotOwnedKeyLength = 0;
+        }
+
+        bool added =
+            indexletManager.addIndexlet(newIndexlet.table_id(),
+                                        (uint8_t)newIndexlet.index_id(),
+                                        newIndexlet.indexlettable_id(),
+                                        firstKey, firstKeyLength,
+                                        firstNotOwnedKey,
+                                        firstNotOwnedKeyLength);
+        if (!added) {
+            throw Exception(HERE, format("Cannot recover indexlet."));
+        }
+    }
+
     // Once the coordinator and the recovery master agree that the
     // master has taken over for the tablets it can update its tables
     // and begin serving requests.
@@ -2291,6 +2330,15 @@ MasterService::recover(const WireFormat::Recover::Request* reqHdr,
         tablet.set_ctime_log_head_id(headOfLog.getSegmentId());
         tablet.set_ctime_log_head_offset(headOfLog.getSegmentOffset());
     }
+    foreach (ProtoBuf::Tablets::Indexlet& indexlet,
+             *recoveryTablets.mutable_indexlet()) {
+        LOG(NOTICE, "set indexlet %lu to locator %s, id %s",
+                 indexlet.table_id(), config->localLocator.c_str(),
+                 serverId.toString().c_str());
+        indexlet.set_service_locator(config->localLocator);
+        indexlet.set_server_id(serverId.getId());
+    }
+
     LOG(NOTICE, "Reporting completion of recovery %lu", reqHdr->recoveryId);
     bool cancelRecovery =
         CoordinatorClient::recoveryMasterFinished(context, recoveryId,
