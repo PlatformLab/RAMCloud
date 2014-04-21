@@ -374,7 +374,7 @@ TableManager::dropIndex(uint64_t tableId, uint8_t indexId)
     }
     Index* index = table->indexMap[indexId];
     foreach (Indexlet* indexlet, index->indexlets) {
-    	indexletTableMap.erase(indexlet->indexletTableId);
+        indexletTableMap.erase(indexlet->indexletTableId);
     }
 
     LOG(NOTICE, "Dropping table '%lu' index '%u'", tableId, indexId);
@@ -455,6 +455,43 @@ TableManager::getIndexletInfoByIndexletTableId(uint64_t indexletTableId,
     indexletInfo.tableId = it->second.tableId;
     indexletInfo.indexId = it->second.indexId;
     return true;
+}
+
+void
+TableManager::indexletRecovered(
+        uint64_t tableId, uint8_t indexId, void* firstKey,
+        uint16_t firstKeyLength, void* firstNotOwnedKey,
+        uint16_t firstNotOwnedKeyLength, ServerId serverId,
+        uint64_t indexletTableId)
+{
+    Lock lock(mutex);
+
+    // Find the desired table and indexlet.
+    IdMap::iterator it = idMap.find(tableId);
+    if (it == idMap.end())
+        throw NoSuchTablet(HERE);
+    Table* table = it->second;
+    if (!table->indexMap[indexId]){
+        throw NoSuchIndexlet(HERE);
+    }
+    Index* index = table->indexMap[indexId];
+
+    bool foundIndexlet = 0;
+    foreach (Indexlet* indexlet, index->indexlets) {
+        if ((indexlet->firstKeyLength == firstKeyLength)
+           &&(indexlet->firstNotOwnedKeyLength == firstNotOwnedKeyLength)
+           &&(bcmp(indexlet->firstKey, firstKey, firstKeyLength) == 0)
+           &&(bcmp(indexlet->firstNotOwnedKey, firstNotOwnedKey,
+                   firstNotOwnedKeyLength) == 0))
+        {
+            indexlet->serverId = serverId;
+            indexlet->indexletTableId = indexletTableId;
+            foundIndexlet = 1;
+        }
+    }
+
+    // TODO(zhihao): Currently, we didn't record this update in external
+    // storage. Will implement this in the future.
 }
 
 /**

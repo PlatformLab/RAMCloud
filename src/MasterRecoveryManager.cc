@@ -249,6 +249,49 @@ class RecoveryMasterFinishedTask : public Task {
                         "we need to handle this sensibly");
                 }
             }
+
+            foreach (const auto& indexlet, recoveredTablets.indexlet()) {
+                try{
+                    LOG(DEBUG, "Modifying indexlet map to set recovery master"
+                        "%s as master for %lu, %u, %lu",
+                        ServerId(indexlet.server_id()).toString().c_str(),
+                        indexlet.table_id(), indexlet.index_id(),
+                        indexlet.indexlettable_id());
+                    void* firstKey;
+                    uint16_t firstKeyLength;
+                    void* firstNotOwnedKey;
+                    uint16_t firstNotOwnedKeyLength;
+
+                    //TODO(ashgup): while converting string, null delimiter handled
+                    if (indexlet.start_key().compare("") == 0) {
+                        firstKey = const_cast<char *>(indexlet.start_key().c_str());
+                        firstKeyLength = (uint16_t)indexlet.start_key().length();
+                    } else {
+                        firstKey = NULL;
+                        firstKeyLength = 0;
+                    }
+
+                    if (indexlet.end_key().compare("") == 0) {
+                        firstNotOwnedKey = const_cast<char *>
+                                                    (indexlet.end_key().c_str());
+                        firstNotOwnedKeyLength =
+                                        (uint16_t)indexlet.end_key().length();
+                    } else {
+                        firstNotOwnedKey = NULL;
+                        firstNotOwnedKeyLength = 0;
+                    }
+                    mgr.tableManager.indexletRecovered(
+                        indexlet.table_id(), (uint8_t) indexlet.index_id(),
+                        firstKey, firstKeyLength,
+                        firstNotOwnedKey, firstNotOwnedKeyLength,
+                        ServerId(indexlet.server_id()),
+                        indexlet.indexlettable_id());
+                } catch (const Exception& e) {
+                	// TODO(zhihao): What should we do here?
+                    DIE("Entry wasn't in the list anymore; "
+                        "we need to handle this sensibly.");
+                }
+            }
             LOG(DEBUG, "Coordinator tableManager after recovery master %s "
                 "finished: %s",
                 recoveryMasterId.toString().c_str(),

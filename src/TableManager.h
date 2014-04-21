@@ -59,6 +59,14 @@ class TableManager {
     };
 
     /**
+     * Thrown from methods when the arguments indicate a indexlet that is
+     * not present in the indexlet map.
+     */
+    struct NoSuchIndexlet : public Exception {
+        explicit NoSuchIndexlet(const CodeLocation& where) : Exception(where) {}
+    };
+
+    /**
      * The following structure holds information about a indexlet of an index.
      * TODO(zhihao): currently move Indexlet from private to public, since
      * Recovery need to see this struct. Need to consider the scope of it
@@ -114,6 +122,14 @@ class TableManager {
     Tablet getTablet(uint64_t tableId, uint64_t keyHash);
     bool getIndexletInfoByIndexletTableId(uint64_t indexletTableId,
                                           IndexletInfo& indexletInfo);
+    void indexletRecovered(uint64_t tableId,
+    		               uint8_t indexId,
+    		               void* firstKey,
+    		               uint16_t firstKeyLength,
+    		               void* firstNotOwnedKey,
+    		               uint16_t firstNotOwnedKeyLength,
+    		               ServerId serverId,
+    		               uint64_t indexletTableId);
     bool isIndexletTable(uint64_t tableId);
     vector<Tablet> markAllTabletsRecovering(ServerId serverId);
     void reassignTabletOwnership(ServerId newOwner, uint64_t tableId,
