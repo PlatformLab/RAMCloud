@@ -81,7 +81,7 @@ class RealTableConfigFetcher : public ObjectFinder::TableConfigFetcher {
                 uint16_t firstNotOwnedKeyLength;
 
                 //TODO(ashgup): while converting string, null delimiter handled
-                if (indexlet.start_key().compare("") == 0) {
+                if (indexlet.start_key().compare("") != 0) {
                     firstKey = const_cast<char *>(indexlet.start_key().c_str());
                     firstKeyLength = (uint16_t)indexlet.start_key().length();
                 } else {
@@ -89,7 +89,7 @@ class RealTableConfigFetcher : public ObjectFinder::TableConfigFetcher {
                     firstKeyLength = 0;
                 }
 
-                if (indexlet.end_key().compare("") == 0) {
+                if (indexlet.end_key().compare("") != 0) {
                     firstNotOwnedKey = const_cast<char *>
                                                 (indexlet.end_key().c_str());
                     firstNotOwnedKeyLength =
@@ -303,9 +303,10 @@ ObjectFinder::lookupIndexlet(uint64_t tableId, uint8_t indexId,
             return indexlet;
         }
 
-        if (count == 0)
+        if (count == 0){
             tableConfigFetcher->getTableConfig(tableId, &tableMap,
                                                             &tableIndexMap);
+        }
     }
     return NULL;
 }
