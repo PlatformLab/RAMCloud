@@ -25,7 +25,8 @@
 #include "Indexlet.h"
 #include "IndexKey.h"
 #include "ObjectManager.h"
-#include "btreeRamCloud/BtreeMultimap.h"
+#include "btree/BtreeMultimap.h"
+//#include "btreeRamCloud/BtreeMultimap.h"
 
 namespace RAMCloud {
 
@@ -123,7 +124,7 @@ class IndexletManager {
 
     // B+ tree holding key: string, value: primary key hash
     // TODO(ashgup): Do we need to define traits?
-    typedef str::btree_multimap<KeyAndHash, uint64_t, KeyAndHashCompare> Btree;
+    typedef stx::btree_multimap<KeyAndHash, uint64_t, KeyAndHashCompare> Btree;
 
     /**
      * Each indexlet owned by a master is described by fields in this class.
@@ -171,13 +172,13 @@ class IndexletManager {
 
         // Attributes of the b+ tree used for holding the indexes
         template <typename KeyType>
-        struct traits_nodebug : str::btree_default_set_traits<KeyType>
+        struct traits_nodebug : stx::btree_default_set_traits<KeyType>
         {
             static const bool selfverify = false;
             static const bool debug = false;
 
-            static const int leafslots = 8;
-            static const int innerslots = 8;
+            static const int leafslots = 128;
+            static const int innerslots = 128;
         };
 
         Btree *bt;

@@ -68,7 +68,8 @@ IndexletManager::addIndexlet(
         return false;
     }
 
-    Btree* bt = new Btree(indexletTableId, objectManager);
+    //Btree* bt = new Btree(indexletTableId, objectManager);
+    Btree* bt = new Btree();
     indexletMap.emplace(std::make_pair(tableId, indexId), Indexlet(firstKey,
                 firstKeyLength, firstNotOwnedKey, firstNotOwnedKeyLength, bt));
 
