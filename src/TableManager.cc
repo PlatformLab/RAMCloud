@@ -190,7 +190,7 @@ TableManager::createTable(const char* name, uint32_t serverSpan)
  */
 bool
 TableManager::createIndex(uint64_t tableId, uint8_t indexId, uint8_t indexType,
-                          uint64_t indexTableId)
+                          uint8_t numIndexlets)
 {
     Lock lock(mutex);
 
@@ -214,31 +214,53 @@ TableManager::createIndex(uint64_t tableId, uint8_t indexId, uint8_t indexType,
     Index* index = new Index(tableId, indexId, indexType);
 
     try{
-        //use the indexTable serverId to assign the indexlet
-        it = idMap.find(indexTableId);
-        if (it == idMap.end()) {
-            LOG(NOTICE, "Cannot find index table '%lu'", indexTableId);
-            return false;
+        for (uint8_t i=0; i<numIndexlets; i++){
+            string indexTableName;
+            indexTableName.append(
+                format("__indexTable:%lu:%d:%d", tableId, indexId, i));
+            Directory::iterator itd = directory.find(indexTableName);
+            assert(itd != directory.end());
+            uint64_t indexletTableId = itd->second->id;
+
+            //use the indexTable serverId to assign the indexlet
+            it = idMap.find(indexletTableId);
+            if (it == idMap.end()) {
+                LOG(NOTICE, "Cannot find index table '%lu'", indexletTableId);
+                return false;
+            }
+
+            Tablet* indexletTablet = findTablet(lock, it->second, 0UL);
+            if ((indexletTablet->startKeyHash != 0UL)
+                 || (indexletTablet->endKeyHash != ~0UL))
+                throw NoSuchTablet(HERE);
+            tabletMaster = indexletTablet->serverId;
+
+            if (!tabletMaster.isValid()) {
+                throw RetryException(HERE, 5000000, 10000000,
+                        "no masters in cluster");
+            }
+
+            Indexlet *indexlet;
+            if (numIndexlets==1){
+                char firstKey = 0;
+                char firstNotOwnedKey = 127;
+                indexlet = new Indexlet(
+                            reinterpret_cast<void *>(&firstKey),
+                            1, reinterpret_cast<void *>(&firstNotOwnedKey),
+                            1, tabletMaster, indexletTableId);
+            }
+            else{
+                //TODO(slik): for first and last index, have null
+
+                char firstKey = (char)('a'+i);
+                char firstNotOwnedKey = (char)('b'+i);
+                indexlet = new Indexlet(
+                            reinterpret_cast<void *>(&firstKey),
+                            1, reinterpret_cast<void *>(&firstNotOwnedKey),
+                            1, tabletMaster, indexletTableId);
+            }
+            index->indexlets.push_back(indexlet);
         }
-
-        Tablet* indexTablet = findTablet(lock, it->second, 0UL);
-        if ((indexTablet->startKeyHash != 0UL)
-             || (indexTablet->endKeyHash != ~0UL))
-            throw NoSuchTablet(HERE);
-        tabletMaster = indexTablet->serverId;
-
-        if (!tabletMaster.isValid()) {
-            throw RetryException(HERE, 5000000, 10000000,
-                    "no masters in cluster");
-        }
-
-        char firstKey = 0;
-        char firstNotOwnedKey = 127;
-        uint64_t indexletTableId = indexTableId; //we have only one indexlet
-        Indexlet *indexlet = new Indexlet(reinterpret_cast<void *>(&firstKey),
-                            1, reinterpret_cast<void *>(&firstNotOwnedKey), 1,
-                            tabletMaster, indexletTableId);
-        index->indexlets.push_back(indexlet);
     }
     catch (...) {
         delete index;
@@ -348,7 +370,7 @@ TableManager::dropTable(const char* name)
 * \return
  *      True if the index was dropped. False if cannot find the table or index.
  */
-bool
+uint8_t
 TableManager::dropIndex(uint64_t tableId, uint8_t indexId)
 {
     Lock lock(mutex);
@@ -356,21 +378,22 @@ TableManager::dropIndex(uint64_t tableId, uint8_t indexId)
     IdMap::iterator it = idMap.find(tableId);
     if (it == idMap.end()){
         LOG(NOTICE, "Cannot find table '%lu'", tableId);
-        return false;
+        return 0;
     }
     Table* table = it->second;
 
     if (!table->indexMap[indexId]){
         LOG(NOTICE, "Cannot find index '%u' for table '%lu'", indexId, tableId);
-        return false;
+        return 0;
     }
     Index* index = table->indexMap[indexId];
+    uint8_t numIndexlets = (uint8_t)index->indexlets.size();
 
     LOG(NOTICE, "Dropping table '%lu' index '%u'", tableId, indexId);
     table->indexMap[indexId] = NULL;
     notifyDropIndex(lock, index);
     delete index;
-    return true;
+    return numIndexlets;
 }
 
 /**
@@ -639,19 +662,23 @@ TableManager::serializeTableConfig(ProtoBuf::TableConfig* tableConfig,
         foreach (Indexlet* indexlet, index->indexlets) {
             ProtoBuf::TableConfig::Index::Indexlet&
                                         entry(*index_entry.add_indexlet());
-            if (indexlet->firstKey != NULL)
+            if (indexlet->firstKey != NULL){
                 entry.set_start_key(string(
                                     reinterpret_cast<char*>(indexlet->firstKey),
                                     indexlet->firstKeyLength));
-            else
+            }
+            else{
                 entry.set_start_key("");
+            }
 
-            if (indexlet->firstNotOwnedKey != NULL)
+            if (indexlet->firstNotOwnedKey != NULL){
                 entry.set_end_key(string(
-                            reinterpret_cast<char*>(indexlet->firstNotOwnedKey),
-                            indexlet->firstNotOwnedKeyLength));
-            else
+                        reinterpret_cast<char*>(indexlet->firstNotOwnedKey),
+                        indexlet->firstNotOwnedKeyLength));
+            }
+            else{
                 entry.set_end_key("");
+            }
 
             entry.set_server_id(indexlet->serverId.getId());
             try {

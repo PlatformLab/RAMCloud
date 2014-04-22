@@ -266,13 +266,16 @@ CoordinatorService::createIndex(const WireFormat::CreateIndex::Request* reqHdr,
     uint64_t tableId = reqHdr->tableId;
     uint8_t indexId = reqHdr->indexId;
     uint8_t indexType = reqHdr->indexType;
+    uint8_t numIndexlets = reqHdr->numIndexlets;
 
-    string indexTableName;
-    indexTableName.append(format("__indexTable:%lu:%d", tableId, indexId));
-    uint64_t indexTableId  =
-                    tableManager.createTable(indexTableName.c_str(), 1);
+    for (uint8_t i=0; i<numIndexlets; i++){
+        string indexTableName;
+        indexTableName.append(
+            format("__indexTable:%lu:%d:%d", tableId, indexId, i));
+        tableManager.createTable(indexTableName.c_str(), 1);
+    }
 
-    tableManager.createIndex(tableId, indexId, indexType, indexTableId);
+    tableManager.createIndex(tableId, indexId, indexType, numIndexlets);
 }
 
 /**
@@ -287,11 +290,14 @@ CoordinatorService::dropIndex(const WireFormat::DropIndex::Request* reqHdr,
     uint64_t tableId = reqHdr->tableId;
     uint8_t indexId = reqHdr->indexId;
 
-    string indexTableName;
-    indexTableName.append(format("__indexTable:%lu:%d", tableId, indexId));
-    tableManager.dropTable(indexTableName.c_str());
+    uint8_t numIndexlets = tableManager.dropIndex(tableId, indexId);
 
-    tableManager.dropIndex(tableId, indexId);
+    for (uint8_t i=0; i<numIndexlets; i++){
+        string indexTableName;
+        indexTableName.append(
+            format("__indexTable:%lu:%d:%d", tableId, indexId, i));
+        tableManager.dropTable(indexTableName.c_str());
+    }
 }
 
 /**

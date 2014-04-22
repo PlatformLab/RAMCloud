@@ -233,9 +233,10 @@ DropTableRpc::DropTableRpc(RamCloud* ramcloud,
  *      Type of the index. Currently only supporting string type.
  */
 void
-RamCloud::createIndex(uint64_t tableId, uint8_t indexId, uint8_t indexType)
+RamCloud::createIndex(uint64_t tableId, uint8_t indexId, uint8_t indexType,
+                                                           uint8_t numIndexlets)
 {
-    CreateIndexRpc rpc(this, tableId, indexId, indexType);
+    CreateIndexRpc rpc(this, tableId, indexId, indexType, numIndexlets);
     rpc.wait();
 }
 
@@ -254,7 +255,7 @@ RamCloud::createIndex(uint64_t tableId, uint8_t indexId, uint8_t indexType)
  *      Type of the index. Currently only supporting string type.
  */
 CreateIndexRpc::CreateIndexRpc(RamCloud* ramcloud, uint64_t tableId,
-                        uint8_t indexId, uint8_t indexType)
+                    uint8_t indexId, uint8_t indexType, uint8_t numIndexlets)
     : CoordinatorRpcWrapper(ramcloud->clientContext,
             sizeof(WireFormat::CreateIndex::Response))
 {
@@ -263,6 +264,7 @@ CreateIndexRpc::CreateIndexRpc(RamCloud* ramcloud, uint64_t tableId,
     reqHdr->tableId = tableId;
     reqHdr->indexId = indexId;
     reqHdr->indexType = indexType;
+    reqHdr->numIndexlets =  numIndexlets;
     send();
 }
 

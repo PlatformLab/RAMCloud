@@ -64,7 +64,8 @@ class RamCloud {
   public:
     uint64_t createTable(const char* name, uint32_t serverSpan = 1);
     void dropTable(const char* name);
-    void createIndex(uint64_t tableId, uint8_t indexId, uint8_t indexType);
+    void createIndex(uint64_t tableId, uint8_t indexId, uint8_t indexType,
+                                                      uint8_t numIndexlets = 1);
     void dropIndex(uint64_t tableId, uint8_t indexId);
     uint64_t enumerateTable(uint64_t tableId, bool keysOnly,
          uint64_t tabletFirstHash, Buffer& state, Buffer& objects);
@@ -216,7 +217,7 @@ class CreateIndexRpc : public CoordinatorRpcWrapper {
   public:
     //TODO(ashgup): convert indexType to enum
     CreateIndexRpc(RamCloud* ramcloud, uint64_t tableId, uint8_t indexId,
-              uint8_t indexType);
+              uint8_t indexType, uint8_t numIndexlets = 1);
     ~CreateIndexRpc() {}
     void wait() {simpleWait(context->dispatch);}
 
