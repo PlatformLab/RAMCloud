@@ -230,6 +230,33 @@ TEST_F(IndexletManagerTest, insertIndexEntry) {
     EXPECT_EQ(5678U, *responseBuffer.getStart<uint64_t>());
 }
 
+TEST_F(IndexletManagerTest, insertIndexEntry_stress) {
+    im.addIndexlet(0, 0, indexletTableId, "a", 1, "z", 1);
+    for (int i=0; i<35000; i++){
+
+        char primaryKey[30];
+        snprintf(primaryKey, sizeof(primaryKey), "%dp%0*d", i, 30, 0);
+
+        char secondaryKey[30];
+        snprintf(secondaryKey, sizeof(secondaryKey), "b%ds%0*d", i, 30, 0);
+        Key pk(0, primaryKey, 30);
+
+        Status insertStatus1 = im.insertEntry(0, 0, secondaryKey, 
+                                                30, pk.getHash());
+        EXPECT_EQ(STATUS_OK, insertStatus1);
+
+        Buffer lookupResp;
+        uint32_t numHashes;
+        uint16_t nextKeyLength;
+        uint64_t nextKeyHash;
+        im.lookupIndexKeys(0, 0, secondaryKey, 30, 0, secondaryKey, 30, 100,
+            &lookupResp, &numHashes, &nextKeyLength, &nextKeyHash);
+
+        EXPECT_EQ(numHashes, 1U);
+        EXPECT_EQ(pk.getHash(), *lookupResp.getStart<uint64_t>());
+    }
+}
+
 TEST_F(IndexletManagerTest, insertIndexEntry_unknownIndexlet) {
     im.addIndexlet(0, 0, indexletTableId, "a", 1, "k", 1);
 
