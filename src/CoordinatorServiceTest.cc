@@ -197,9 +197,9 @@ TEST_F(CoordinatorServiceTest, getTabletConfig_indexInfo) {
         EXPECT_EQ(1U, index.index_type());
         foreach (const ProtoBuf::TableConfig::Index::Indexlet& indexlet,
                                                         index.indexlet()) {
-            EXPECT_EQ(0U, (uint8_t)*indexlet.start_key().c_str());
+            EXPECT_EQ('a', (uint8_t)*indexlet.start_key().c_str());
             EXPECT_EQ(1U, indexlet.start_key().length());
-            EXPECT_EQ(127U, (uint8_t)*indexlet.end_key().c_str());
+            EXPECT_EQ('z', (uint8_t)*indexlet.end_key().c_str());
             EXPECT_EQ(1U, indexlet.end_key().length());
             EXPECT_EQ(1U, indexlet.server_id());
             EXPECT_EQ("mock:host=master", indexlet.service_locator());

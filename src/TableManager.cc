@@ -242,8 +242,8 @@ TableManager::createIndex(uint64_t tableId, uint8_t indexId, uint8_t indexType,
 
             Indexlet *indexlet;
             if (numIndexlets==1){
-                char firstKey = 0;
-                char firstNotOwnedKey = 127;
+                char firstKey = 'a';
+                char firstNotOwnedKey = 'z';
                 indexlet = new Indexlet(
                             reinterpret_cast<void *>(&firstKey),
                             1, reinterpret_cast<void *>(&firstNotOwnedKey),
