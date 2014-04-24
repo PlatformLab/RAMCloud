@@ -275,6 +275,18 @@ def readRandom(name, options, cluster_args, client_args):
             (obj_path, flatten_args(client_args), name), master_args='--masterServiceThreads 4', **cluster_args)
     print(get_client_log(), end='')
 
+
+def indexExp(name, options, cluster_args, client_args):
+    cluster_args['timeout'] = 100000
+    cluster_args['num_servers'] = 20;
+
+    # if 'num_clients' not in cluster_args:
+    #     cluster_args['num_clients'] = 20
+    cluster.run(client='%s/ClusterPerf %s %s' %
+            (obj_path, flatten_args(client_args), name), master_args='-d', **cluster_args)
+
+    print(get_client_log(), end='')
+
 #-------------------------------------------------------------------
 #  End of driver functions.
 #-------------------------------------------------------------------
@@ -293,6 +305,9 @@ simple_tests = [
     Test("readAllToAll", readAllToAll),
     Test("readNotFound", default),
     Test("writeAsyncSync", default),
+    Test("indexExp1", indexExp),
+    Test("indexExp2", indexExp),
+    Test("indexExp3", indexExp),
 ]
 
 graph_tests = [
