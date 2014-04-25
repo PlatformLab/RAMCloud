@@ -457,6 +457,29 @@ TableManager::getIndexletInfoByIndexletTableId(uint64_t indexletTableId,
     return true;
 }
 
+/**
+ * Invoked by MasterRecoveryManager after recovery for a indexlet has
+ * successfully completed to inform coordinator about the new master
+ * for the indexlet.
+ *
+ * \param tableId
+ *      Id of table containing the tablet.
+ * \param indexId
+ *      Id of the index key for which this indexlet stores some information.
+ * \param firstKey
+ *      Key blob marking the start of the indexed key range for this indexlet.
+ * \param firstKeyLength
+ *      Length of firstKeyStr.
+ * \param firstNotOwnedKey
+ *      Key blob marking the first not owned key of the key space
+ *      for this indexlet.
+ * \param firstNotOwnedKeyLength
+ *      Length of firstNotOwnedKey.
+ * \param serverId
+ *      Indexlet is updated to indicate that it is owned by \a serverId.
+ * \param indexletTableId
+ *      Id of table which store B+tree of this indexlet.
+ */
 void
 TableManager::indexletRecovered(
         uint64_t tableId, uint8_t indexId, void* firstKey,

@@ -2271,16 +2271,18 @@ MasterService::recover(const WireFormat::Recover::Request* reqHdr,
         // Recovery wasn't successful.
     }
 
-    // Install tablets we are recovering
+    // Install indexlets we are recovering
     foreach (const ProtoBuf::Tablets::Indexlet& newIndexlet,
              recoveryTablets.indexlet()) {
+        LOG(NOTICE, "Starting recovery %lu for crashed indexlet %d",
+            recoveryId, newIndexlet.index_id());
         void* firstKey;
         uint16_t firstKeyLength;
         void* firstNotOwnedKey;
         uint16_t firstNotOwnedKeyLength;
 
         //TODO(ashgup): while converting string, null delimiter handled
-        if (newIndexlet.start_key().compare("") == 0) {
+        if (newIndexlet.start_key().length() != 0) {
             firstKey = const_cast<char *>(newIndexlet.start_key().c_str());
             firstKeyLength = (uint16_t)newIndexlet.start_key().length();
         } else {
@@ -2288,7 +2290,7 @@ MasterService::recover(const WireFormat::Recover::Request* reqHdr,
             firstKeyLength = 0;
         }
 
-        if (newIndexlet.end_key().compare("") == 0) {
+        if (newIndexlet.end_key().length() != 0) {
             firstNotOwnedKey = const_cast<char *>
                                         (newIndexlet.end_key().c_str());
             firstNotOwnedKeyLength =
@@ -2388,7 +2390,7 @@ MasterService::recover(const WireFormat::Recover::Request* reqHdr,
             uint16_t firstNotOwnedKeyLength;
 
             //TODO(ashgup): while converting string, null delimiter handled
-            if (indexlet.start_key().compare("") == 0) {
+            if (indexlet.start_key().length() != 0) {
                 firstKey = const_cast<char *>(indexlet.start_key().c_str());
                 firstKeyLength = (uint16_t)indexlet.start_key().length();
             } else {
@@ -2396,7 +2398,7 @@ MasterService::recover(const WireFormat::Recover::Request* reqHdr,
                 firstKeyLength = 0;
             }
 
-            if (indexlet.end_key().compare("") == 0) {
+            if (indexlet.end_key().length() != 0) {
                 firstNotOwnedKey = const_cast<char *>
                                             (indexlet.end_key().c_str());
                 firstNotOwnedKeyLength =

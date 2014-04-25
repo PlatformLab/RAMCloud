@@ -275,6 +275,17 @@ def readRandom(name, options, cluster_args, client_args):
             (obj_path, flatten_args(client_args), name), master_args='--masterServiceThreads 4', **cluster_args)
     print(get_client_log(), end='')
 
+def recoveryIndexlet(name, options, cluster_args, client_args):
+    cluster.run(client='%s/ClusterPerf %s %s' %
+            (obj_path, flatten_args(client_args), name), master_args='-d',
+            **cluster_args)
+    print(" Run recoveryIndexlet test")
+
+def recoveryIndexletCheck(name, options, cluster_args, client_args):
+    cluster.run(client='%s/ClusterPerf %s %s' %
+            (obj_path, flatten_args(client_args), name), master_args='-d',
+            **cluster_args)
+    print("Run recoveryIndexletCheck test")
 #-------------------------------------------------------------------
 #  End of driver functions.
 #-------------------------------------------------------------------
@@ -305,7 +316,9 @@ graph_tests = [
     Test("readVaryingKeyLength", default),
     Test("writeVaryingKeyLength", default),
     Test("readLoaded", readLoaded),
-    Test("readRandom", readRandom)
+    Test("readRandom", readRandom),
+    Test("recoveryIndexlet", recoveryIndexlet),
+    Test("recoveryIndexletCheck", recoveryIndexletCheck)
 ]
 
 if __name__ == '__main__':

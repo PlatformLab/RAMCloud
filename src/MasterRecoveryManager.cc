@@ -252,7 +252,7 @@ class RecoveryMasterFinishedTask : public Task {
 
             foreach (const auto& indexlet, recoveredTablets.indexlet()) {
                 try{
-                    LOG(DEBUG, "Modifying indexlet map to set recovery master"
+                    LOG(NOTICE, "Modifying indexlet map to set recovery master"
                         "%s as master for %lu, %u, %lu",
                         ServerId(indexlet.server_id()).toString().c_str(),
                         indexlet.table_id(), indexlet.index_id(),
@@ -263,7 +263,7 @@ class RecoveryMasterFinishedTask : public Task {
                     uint16_t firstNotOwnedKeyLength;
 
                     //TODO(ashgup): while converting string, null delimiter handled
-                    if (indexlet.start_key().compare("") == 0) {
+                    if (indexlet.start_key().length() != 0) {
                         firstKey = const_cast<char *>(indexlet.start_key().c_str());
                         firstKeyLength = (uint16_t)indexlet.start_key().length();
                     } else {
@@ -271,7 +271,7 @@ class RecoveryMasterFinishedTask : public Task {
                         firstKeyLength = 0;
                     }
 
-                    if (indexlet.end_key().compare("") == 0) {
+                    if (indexlet.end_key().length() != 0) {
                         firstNotOwnedKey = const_cast<char *>
                                                     (indexlet.end_key().c_str());
                         firstNotOwnedKeyLength =
@@ -657,8 +657,9 @@ MasterRecoveryManager::recoveryMasterFinished(
     const ProtoBuf::Tablets& recoveredTablets,
     bool successful)
 {
-    LOG(NOTICE, "Called by masterId %s with %u tablets",
-        recoveryMasterId.toString().c_str(), recoveredTablets.tablet_size());
+    LOG(NOTICE, "Called by masterId %s with %u tablets and %u indexlets",
+        recoveryMasterId.toString().c_str(), recoveredTablets.tablet_size(),
+        recoveredTablets.indexlet_size());
 
     TEST_LOG("Recovered tablets");
     TEST_LOG("%s", recoveredTablets.ShortDebugString().c_str());
