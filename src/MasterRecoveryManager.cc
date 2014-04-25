@@ -262,20 +262,23 @@ class RecoveryMasterFinishedTask : public Task {
                     void* firstNotOwnedKey;
                     uint16_t firstNotOwnedKeyLength;
 
-                    //TODO(ashgup): while converting string, null delimiter handled
+                    //TODO(ashgup): while converting string, and null
+                    // delimiter handled
                     if (indexlet.start_key().length() != 0) {
-                        firstKey = const_cast<char *>(indexlet.start_key().c_str());
-                        firstKeyLength = (uint16_t)indexlet.start_key().length();
+                        firstKey =
+                            const_cast<char *>(indexlet.start_key().c_str());
+                        firstKeyLength =
+                            (uint16_t)indexlet.start_key().length();
                     } else {
                         firstKey = NULL;
                         firstKeyLength = 0;
                     }
 
                     if (indexlet.end_key().length() != 0) {
-                        firstNotOwnedKey = const_cast<char *>
-                                                    (indexlet.end_key().c_str());
+                        firstNotOwnedKey =
+                            const_cast<char *> (indexlet.end_key().c_str());
                         firstNotOwnedKeyLength =
-                                        (uint16_t)indexlet.end_key().length();
+                             (uint16_t)indexlet.end_key().length();
                     } else {
                         firstNotOwnedKey = NULL;
                         firstNotOwnedKeyLength = 0;
@@ -287,7 +290,7 @@ class RecoveryMasterFinishedTask : public Task {
                         ServerId(indexlet.server_id()),
                         indexlet.indexlettable_id());
                 } catch (const Exception& e) {
-                	// TODO(zhihao): What should we do here?
+                    // TODO(zhihao): What should we do here?
                     DIE("Entry wasn't in the list anymore; "
                         "we need to handle this sensibly.");
                 }

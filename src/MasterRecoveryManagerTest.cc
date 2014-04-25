@@ -243,7 +243,8 @@ TEST_F(MasterRecoveryManagerTest, recoveryMasterFinishedNoSuchRecovery) {
     while (!mgr->taskQueue.performTask()); // Do RecoveryMasterFinishedTask.
     thread.join();
     EXPECT_EQ(
-        "recoveryMasterFinished: Called by masterId 1.0 with 0 tablets | "
+        "recoveryMasterFinished: Called by masterId 1.0 with 0 tablets "
+        "and 0 indexlets | "
         "recoveryMasterFinished: Recovered tablets | "
         "recoveryMasterFinished:  | "
         "schedule: scheduled | "
@@ -291,7 +292,8 @@ TEST_F(MasterRecoveryManagerTest, recoveryMasterFinished) {
     thread.join();
     serverList->sync();
     EXPECT_EQ(
-        "recoveryMasterFinished: Called by masterId 2.0 with 1 tablets | "
+        "recoveryMasterFinished: Called by masterId 2.0 with 1 tablets "
+        "and 0 indexlets | "
         "recoveryMasterFinished: Recovered tablets | "
         "recoveryMasterFinished: tablet { "
             "table_id: 0 start_key_hash: 0 end_key_hash: 18446744073709551615 "
@@ -357,7 +359,8 @@ TEST_F(MasterRecoveryManagerTest,
     while (!mgr->taskQueue.performTask());
     thread.join();
     EXPECT_EQ(
-        "recoveryMasterFinished: Called by masterId 2.0 with 1 tablets | "
+        "recoveryMasterFinished: Called by masterId 2.0 with 1 tablets "
+        "and 0 indexlets | "
         "recoveryMasterFinished: Recovered tablets | "
         "recoveryMasterFinished: tablet { table_id: 0 start_key_hash: 0 "
         "end_key_hash: 18446744073709551615 state: RECOVERING server_id: 2 "

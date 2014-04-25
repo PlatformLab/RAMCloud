@@ -1860,9 +1860,13 @@ recoveryIndexlet()
         key0 = format("key0_%d", num);
         key1 = format("key1_%d", num);
         keyList[0].key = key0.c_str();
-        keyList[0].keyLength = downCast<uint16_t>(strlen((char*)keyList[0].key));
+        keyList[0].keyLength =
+            downCast<uint16_t>(strlen(reinterpret_cast<const char*>(
+                keyList[0].key)));
         keyList[1].key = key1.c_str();
-        keyList[1].keyLength = downCast<uint16_t>(strlen((char*)keyList[1].key));
+        keyList[1].keyLength =
+            downCast<uint16_t>(strlen(reinterpret_cast<const char*>(
+                keyList[1].key)));
         if (num % 10000 == 0)
         {
             printf("%d\n", num);
@@ -1876,7 +1880,9 @@ recoveryIndexlet()
     //checkBuffer(&value, objectSize, dataTable, val, valLength);
 
     keyList[0].key = format("key0_0").c_str();
-    keyList[0].keyLength = downCast<uint16_t>(strlen((char*)keyList[0].key));
+    keyList[0].keyLength =
+        downCast<uint16_t>(strlen(reinterpret_cast<const char*>(
+            keyList[0].key)));
     Key pKey(dataTable, keyList[0].key, keyList[0].keyLength);
     Buffer pKHashes, readResp;
     uint32_t numObjects;
@@ -1908,7 +1914,9 @@ recoveryIndexletCheck()
 {
     KeyInfo keyList[2];
     keyList[0].key = format("key0_0").c_str();
-    keyList[0].keyLength = downCast<uint16_t>(strlen((char*)keyList[0].key));
+    keyList[0].keyLength =
+        downCast<uint16_t>(strlen(reinterpret_cast<const char*>(
+            keyList[0].key)));
     Key pKey(dataTable, keyList[0].key, keyList[0].keyLength);
     Buffer pKHashes, readResp;
     uint32_t numObjects;
@@ -1917,6 +1925,17 @@ recoveryIndexletCheck()
     cluster->indexedRead(dataTable, 1, &pKHashes, 1, "a", 1,
                          "z", 1, &readResp, &numObjects);
     printf("numObjects = %u.\n", numObjects);
+    uint32_t readOffset = sizeof32(WireFormat::IndexedRead::Response);
+    uint64_t version = *readResp.getOffset<uint64_t>(readOffset);
+    printf("version = %llu\n", version);
+    readOffset += sizeof32(uint64_t);
+    uint32_t length = *readResp.getOffset<uint32_t>(readOffset);
+    readOffset += sizeof32(uint32_t);
+    Object obj(dataTable, version, 0, readResp, readOffset, length);
+    readOffset += length;
+    uint32_t valueLength;
+    printf("key0 = %s, key1 = %s, val = %s\n", obj.getKey(0), obj.getKey(1),
+           obj.getValue(&valueLength));
 }
 
 // Write times for 100B objects with string keys of different lengths.

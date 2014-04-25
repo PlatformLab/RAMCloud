@@ -2408,12 +2408,12 @@ MasterService::recover(const WireFormat::Recover::Request* reqHdr,
                 firstNotOwnedKeyLength = 0;
             }
 
-        	bool deleted =
+            bool deleted =
                 indexletManager.deleteIndexlet(indexlet.table_id(),
-                		                       (uint8_t)indexlet.index_id(),
-                		                       firstKey, firstKeyLength,
-                		                       firstNotOwnedKey,
-                		                       firstNotOwnedKeyLength);
+                                               (uint8_t)indexlet.index_id(),
+                                               firstKey, firstKeyLength,
+                                               firstNotOwnedKey,
+                                               firstNotOwnedKeyLength);
             if (!deleted) {
                 throw FatalError(HERE, format("Could not delete recovery "
                     "indexlet (%lu, %u). It disappeared!?",

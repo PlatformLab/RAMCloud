@@ -1049,8 +1049,8 @@ Recovery::startRecoveryMasters()
         if (task) {
             *task->tabletsToRecover.add_tablet() = tablet;
             TableManager::IndexletInfo indexletInfo;
-            if (tableManager->getIndexletInfoByIndexletTableId(tablet.table_id(),
-                                                               indexletInfo)) {
+            if (tableManager->getIndexletInfoByIndexletTableId(
+                                  tablet.table_id(), indexletInfo)) {
                 LOG(NOTICE, "Starting recovery %lu for crashed server %s with "
                     "index %d", recoveryId, crashedServerId.toString().c_str(),
                     indexletInfo.indexId);
@@ -1073,7 +1073,8 @@ Recovery::startRecoveryMasters()
                     entry.set_end_key("");
                 entry.set_table_id(indexletInfo.tableId);
                 entry.set_index_id(indexletInfo.indexId);
-                entry.set_indexlettable_id(indexletInfo.indexlet->indexletTableId);
+                entry.set_indexlettable_id(
+                          indexletInfo.indexlet->indexletTableId);
                 entry.set_server_id(indexletInfo.indexlet->serverId.getId());
             }
         }

@@ -123,13 +123,13 @@ class TableManager {
     bool getIndexletInfoByIndexletTableId(uint64_t indexletTableId,
                                           IndexletInfo& indexletInfo);
     void indexletRecovered(uint64_t tableId,
-    		               uint8_t indexId,
-    		               void* firstKey,
-    		               uint16_t firstKeyLength,
-    		               void* firstNotOwnedKey,
-    		               uint16_t firstNotOwnedKeyLength,
-    		               ServerId serverId,
-    		               uint64_t indexletTableId);
+                           uint8_t indexId,
+                           void* firstKey,
+                           uint16_t firstKeyLength,
+                           void* firstNotOwnedKey,
+                           uint16_t firstNotOwnedKeyLength,
+                           ServerId serverId,
+                           uint64_t indexletTableId);
     bool isIndexletTable(uint64_t tableId);
     vector<Tablet> markAllTabletsRecovering(ServerId serverId);
     void reassignTabletOwnership(ServerId newOwner, uint64_t tableId,

@@ -1776,7 +1776,8 @@ TEST_F(MasterServiceTest, recover_basics) {
         "recover: set tablet 124 20 100 to locator mock:host=master, "
         "id 2.0 | "
         "recover: Reporting completion of recovery 10 | "
-        "recoveryMasterFinished: Called by masterId 2.0 with 4 tablets | "
+        "recoveryMasterFinished: Called by masterId 2.0 with 4 tablets "
+        "and 0 indexlets | "
         , TestLog::getUntil(
             "recoveryMasterFinished: Recovered tablets | "
             ,  curPos, &curPos));
@@ -1929,7 +1930,8 @@ TEST_F(MasterServiceTest, recover_ctimeUpdateIssued) {
 
     size_t curPos = 0; // Current Pos: given to getUntil() as 2nd arg, and
     EXPECT_EQ(
-        "recoveryMasterFinished: Called by masterId 2.0 with 4 tablets | "
+        "recoveryMasterFinished: Called by masterId 2.0 with 4 tablets "
+        "and 0 indexlets | "
         "recoveryMasterFinished: Recovered tablets | "
         "recoveryMasterFinished: tablet { "
         "table_id: 123 start_key_hash: 0 end_key_hash: 9 state: RECOVERING "
