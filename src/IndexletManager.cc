@@ -298,8 +298,8 @@ IndexletManager::insertEntry(uint64_t tableId, uint8_t indexId,
         return STATUS_UNKNOWN_INDEXLET;
     Indexlet* indexlet = &it->second;
 
-    indexletMapLock.unlock();
     Lock indexletLock(indexlet->indexletMutex);
+    indexletMapLock.unlock();
 
     KeyAndHash keyAndHash = {key, keyLength, pKHash};
     indexlet->bt->insert(keyAndHash, pKHash);
@@ -385,8 +385,8 @@ IndexletManager::lookupIndexKeys(uint64_t tableId, uint8_t indexId,
     *numHashes = 0;
     *nextKeyLength = 0;
 
-    indexletMapLock.unlock();
     Lock indexletLock(indexlet->indexletMutex);
+    indexletMapLock.unlock();
 
     // If there are no values in this indexlet's tree, return right away.
     if (indexlet->bt->empty()) {
@@ -496,8 +496,8 @@ IndexletManager::removeEntry(uint64_t tableId, uint8_t indexId,
 
     Indexlet* indexlet = &it->second;
 
-    indexletMapLock.unlock();
     Lock indexletLock(indexlet->indexletMutex);
+    indexletMapLock.unlock();
 
     // Note that we don't have to explicitly compare the key hash in value
     // since it is also a part of the key that gets compared in the tree

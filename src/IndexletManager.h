@@ -47,7 +47,7 @@ class IndexletManager {
     /// Structure used as the key for key-value pairs in the indexlet tree.
     struct KeyAndHash {
         /// Actual bytes of the index key.
-        void* key;
+        char key[40];
         /// Length of index key.
         uint16_t keyLength;
         /// Primary key hash of the object the index key points to.
@@ -64,44 +64,27 @@ class IndexletManager {
         {}
 
         KeyAndHash(const void *key, uint16_t keyLength, uint64_t pKHash)
-        : key(NULL)
+        : key()
         , keyLength(keyLength)
         , pKHash(pKHash)
         {
-            if (keyLength != 0){
-                this->key = malloc(keyLength);
-                memcpy(this->key, key, keyLength);
-            }
+            memcpy(this->key, key, keyLength);
         }
 
         KeyAndHash(const KeyAndHash& keyAndHash)
-        : key(NULL)
+        : key()
         , keyLength(keyAndHash.keyLength)
         , pKHash(keyAndHash.pKHash)
         {
-            if (keyLength != 0){
-                this->key = malloc(keyLength);
-                memcpy(this->key, keyAndHash.key, keyLength);
-            }
+            memcpy(this->key, keyAndHash.key, keyLength);
         }
 
         KeyAndHash& operator =(const KeyAndHash& keyAndHash)
         {
-            this->key = NULL;
             this->keyLength = keyAndHash.keyLength;
             this->pKHash = keyAndHash.pKHash;
-
-            if (keyLength != 0){
-                this->key = malloc(keyLength);
-                memcpy(this->key, keyAndHash.key, keyLength);
-            }
+            memcpy(this->key, keyAndHash.key, keyLength);
             return *this;
-        }
-
-        ~KeyAndHash()
-        {
-            if (keyLength != 0)
-                free(key);
         }
     };
 
