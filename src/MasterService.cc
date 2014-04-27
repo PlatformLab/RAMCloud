@@ -2306,7 +2306,8 @@ MasterService::recover(const WireFormat::Recover::Request* reqHdr,
                                         newIndexlet.indexlettable_id(),
                                         firstKey, firstKeyLength,
                                         firstNotOwnedKey,
-                                        firstNotOwnedKeyLength);
+                                        firstNotOwnedKeyLength,
+                                       1000000);
         if (!added) {
             throw Exception(HERE, format("Cannot recover indexlet."));
         }

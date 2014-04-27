@@ -59,7 +59,8 @@ bool
 IndexletManager::addIndexlet(
                  uint64_t tableId, uint8_t indexId, uint64_t indexletTableId,
                  const void *firstKey, uint16_t firstKeyLength,
-                 const void *firstNotOwnedKey, uint16_t firstNotOwnedKeyLength)
+                 const void *firstNotOwnedKey, uint16_t firstNotOwnedKeyLength,
+                 uint64_t higestUsedId)
 {
     Lock indexletMapLock(indexletMapMutex);
 
@@ -68,7 +69,7 @@ IndexletManager::addIndexlet(
         return false;
     }
 
-    Btree* bt = new Btree(indexletTableId, objectManager);
+    Btree* bt = new Btree(indexletTableId, objectManager, higestUsedId);
     indexletMap.insert(std::make_pair(std::make_pair(tableId, indexId),
                        Indexlet(firstKey, firstKeyLength, firstNotOwnedKey,
                                 firstNotOwnedKeyLength, bt)));
@@ -391,7 +392,7 @@ IndexletManager::lookupIndexKeys(uint64_t tableId, uint8_t indexId,
 
     // If there are no values in this indexlet's tree, return right away.
     if (indexlet->bt->empty()) {
-        return STATUS_OK;
+        //return STATUS_OK;
     }
 
     // We want to use lower_bound() instead of find() because the firstKey

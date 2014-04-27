@@ -1057,6 +1057,17 @@ public:
     {
     }
 
+    /// Default constructor recovering an existing B+ tree with the standard key
+    /// comparison function
+    explicit inline btree(uint64_t tableId, ObjectManager *objMgr,
+                          uint64_t highestUsedId,
+                          const allocator_type &alloc = allocator_type())
+    : m_headleafId(INVALID_NODEID), m_allocator(alloc),
+      treeTableId(tableId), objMgr(objMgr), nextNodeId(highestUsedId + 1),
+      m_rootId(ROOT_ID), logBuffer(), numEntries(0), cache()
+    {
+    }
+
     /// Constructor initializing an empty B+ tree with a special key
     /// comparison object
     explicit inline btree(uint64_t tableId, ObjectManager* objMgr,

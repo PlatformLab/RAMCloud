@@ -510,6 +510,11 @@ TableManager::indexletRecovered(
             indexlet->serverId = serverId;
             indexlet->indexletTableId = indexletTableId;
             foundIndexlet = 1;
+            LOG(NOTICE, "found indexlet and changed its server id to %s",
+                serverId.toString().c_str());
+        }
+        if (!foundIndexlet) {
+            LOG(NOTICE, "not found indexlet, which is an error");
         }
     }
 

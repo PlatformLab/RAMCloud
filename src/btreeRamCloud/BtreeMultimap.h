@@ -171,6 +171,15 @@ public:
     {
     }
 
+    /// Default constructor recovering an existing B+ tree with the standard key
+    /// comparison function
+    explicit inline btree_multimap(uint64_t tableId,
+                                   ObjectManager* objectManager,
+                                   uint64_t highestUsedId,
+                                   const allocator_type &alloc = allocator_type())
+        : tree(tableId, objectManager, highestUsedId, alloc)
+    {
+    }
     /// Constructor initializing an empty B+ tree with a special key
     /// comparison object
     explicit inline btree_multimap(uint64_t tableId,
