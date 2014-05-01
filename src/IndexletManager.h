@@ -166,10 +166,11 @@ class IndexletManager {
 
         Btree *bt;
 
+        /// TODO(SLIK): rename this
         /// Mutex to protect the indexlet from concurrent access.
         /// A lock for this mutex MUST be held to read or modify any state in
         /// the indexlet.
-        mutable std::mutex indexletMutex;
+        SpinLock indexletMutex;
     };
 
     explicit IndexletManager(Context* context, ObjectManager* objectManager);
@@ -218,7 +219,7 @@ class IndexletManager {
     /// Lock type used to hold the mutex.
     /// This lock can be released explicitly in the code, but will be
     /// automatically released at the end of a function if not done explicitly.
-    typedef std::unique_lock<std::mutex> Lock;
+    typedef std::unique_lock<SpinLock> Lock;
 
   PRIVATE:
     /// Shared RAMCloud information.
@@ -234,7 +235,7 @@ class IndexletManager {
     /// Mutex to protect the indexletMap from concurrent access.
     /// A lock for this mutex MUST be held to read or modify any state in
     /// the indexletMap.
-    mutable std::mutex indexletMapMutex;
+    SpinLock indexletMapMutex;
 
     /// Object Manager to handle mapping of index as objects
     ObjectManager* objectManager;
