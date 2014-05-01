@@ -459,7 +459,7 @@ startServer(struct localState *state)
                 " -d ./logs/shm &", "r");
     if (!fp) {
         RAMCLOUD_LOG(ERROR,
-                     "Couldn't open file startserver.py: %s",
+                     "Couldn't open ../scripts/startserver.py: %s",
                      strerror(errno));
         return;
     }
@@ -468,6 +468,7 @@ startServer(struct localState *state)
             "Couldn't find service locator string in script startserver.py");
         return;
     }
+    // Try to find the last locator value in startserver.py.
     while (!feof(fp)) {
         if (fscanf(fp, "%s", locator) < 0)
             break;
