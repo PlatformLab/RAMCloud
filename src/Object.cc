@@ -226,6 +226,32 @@ Object::assembleForLog(void* buffer)
 }
 
 /**
+ * Append the the value associated with this object to a provided buffer.
+ *
+ * \param buffer
+ *      The buffer to append the value to.
+ * \param valueOffset
+ *      Offset of the value in the keysAndValue portion of the object
+ */
+void
+Object::appendValueToBuffer(Buffer& buffer, uint32_t valueOffset)
+{
+    if (keysAndValue) {
+        const uint8_t *ptr = reinterpret_cast<const uint8_t *>(keysAndValue);
+        buffer.append(ptr + valueOffset, getValueLength());
+        return;
+    }
+
+    Buffer* sourceBuffer = keysAndValueBuffer;
+
+    Buffer::Iterator it(*sourceBuffer, keysAndValueOffset + valueOffset, getValueLength());
+    while (!it.isDone()) {
+        buffer.append(it.getData(), it.getLength());
+        it.next();
+    }
+}
+
+/**
  * Append the cumulative key lengths, the keys and the value associated with
  * this object to a provided buffer.
  *

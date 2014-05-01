@@ -463,9 +463,9 @@ ObjectManager::readObject(Key& key,
 
     Object object(buffer);
     if (valueOnly) {
-        uint32_t valueLength = 0;
-        const void* objectValue = object.getValue(&valueLength);
-        outBuffer->append(objectValue, valueLength);
+        uint16_t valueOffset = 0;
+        object.getValueOffset(&valueOffset);
+        object.appendValueToBuffer(*outBuffer, valueOffset);
     } else {
         object.appendKeysAndValueToBuffer(*outBuffer);
     }
@@ -1235,6 +1235,7 @@ ObjectManager::flushEntriesToLog(Buffer *logBuffer, uint32_t& numEntries)
                        &currentReference, &currentHashTableEntry)) {
 
                 if (currentType == LOG_ENTRY_TYPE_OBJTOMB) {
+RAMCLOUD_LOG(ERROR, "Removing if tombstone in B-tree");
                     removeIfTombstone(currentReference.toInteger(), this);
                     objectMap.insert(key.getHash(), references[i].toInteger());
                 }

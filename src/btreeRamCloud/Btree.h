@@ -521,13 +521,14 @@ public:
 
         /// Implement the = operator to avoid invocation of the operator=
         /// method on the Buffer class which does not exist
-        inline operator=(const iterator &it)
+        inline iterator& operator=(const iterator &it)
         {
             parentBtree = it.parentBtree;
             currentNodeId = it.currentNodeId;
             currslot = it.currslot;
             buffer.reset();
             currnode = NULL;
+            return *this;
         }
 
         /// Releases memory allocated in the buffer
@@ -1262,6 +1263,7 @@ private:
         keyString = ss.str();
         Key key(treeTableId, keyString.c_str(), keyString.length());
         Status status = objMgr->writeTombstone(key, &logBuffer);
+        assert(status == STATUS_OK);
         numEntries++;
         if (nodeId == m_rootId)
             resetNextNodeId();
@@ -1329,10 +1331,13 @@ private:
         keyString = ss.str();
         Key key(treeTableId, keyString.c_str(), keyString.length());
         Status status = objMgr->readObject(key, outBuffer, NULL, NULL, true);
-        assert(status == STATUS_OK);
+        if (status != STATUS_OK) {
+            RAMCLOUD_LOG(ERROR, "Cant read NodeId %u", nodeId);
+            assert(status == STATUS_OK);
+        }
+        RAMCLOUD_LOG(DEBUG, "Read object from log, nodeId = %d, size = %d",
+                     nodeId, outBuffer->getTotalLength());
         return outBuffer->getRange(0, outBuffer->getTotalLength());
-        // If we fail, are we doomed ? Should we even check for status ?
-        // TODO(arjung)
     }
 
     /**
@@ -1370,6 +1375,10 @@ private:
         ss << nodeIdUsed;
         keyString = ss.str();
         Key key(treeTableId, keyString.c_str(), keyString.length());
+
+        RAMCLOUD_LOG(DEBUG, "Writing key(nodeId) is %s, size of node = %d",
+                     keyString.c_str(), size);
+
         Buffer buffer;
         // Avoid version 0 to avoid confusion
         Object object(key, node, size, 1, 0, buffer);
@@ -1441,8 +1450,15 @@ public:
 
             m_stats = tree_stats();
 
-            bool status = objMgr->flushEntriesToLog(&logBuffer, numEntries);
-            assert(status == true);
+            // TODO(arjung)
+            // in indexExp1 for OSDI '14, when there are millions of entries in
+            // the tree, we will try to write tombstones for all of them in
+            // the same log segment if we try to do an atomic commit. Instead,
+            // we should remove the objects from the hash table in a higher
+            // level like MasterService. Refer to dropTabletOwnership
+            //
+//            bool status = objMgr->flushEntriesToLog(&logBuffer, numEntries);
+//            assert(status == true);
             cache.clear();
         }
 
@@ -1785,8 +1801,8 @@ public:
             {
                 slot = 0;
 
-                leafBuffer.reset();
                 currentLeafId = leaf->nextleaf;
+                leafBuffer.reset();
 
                 if (currentLeafId == INVALID_NODEID)
                     break;
@@ -2106,7 +2122,7 @@ private:
         bool treeWasEmpty = false, newChildForRoot = false;
 
         Buffer rootBuffer;
-        node *root;
+        node *root = NULL;
         // empty tree
         if (nextNodeId <= ROOT_ID) {
             treeWasEmpty = true;
@@ -2120,25 +2136,18 @@ private:
         // when tree is empty, the (new) root is not written before a call
         // to insert_descend(). But insert_descend() attempts to read the
         // corresponding object from the log. So, distinguish these cases.
-        // But this function calls getPointerToObject() - additional default arguments ? 
-        //
-        // FIXME try to find a cleaner approach later
-        std::pair<iterator, bool> r;
-        if (treeWasEmpty)
-            r = insert_descend(m_rootId, &rootInfo, key, value, &newkey,
-                               &newChildCreated, &childInfo, true, root);
-        else
-            r = insert_descend(m_rootId, &rootInfo, key, value, &newkey,
-                               &newChildCreated, &childInfo);
+        std::pair<iterator, bool> r =
+                                insert_descend(m_rootId, &rootInfo, key,
+                                               value, &newkey,&newChildCreated,
+                                               &childInfo, treeWasEmpty, root);
 
         if (newChildCreated)
         {
             Buffer buffer;
             // read root object to get the level.
-            Buffer rootBuffer;
             unsigned short rootLevel = (static_cast<node *>(rootInfo.data))->level;
             inner_node *newroot = allocate_inner_buffer(rootLevel + 1,
-                                                        rootBuffer);
+                                                        buffer);
             newroot->slotkey[0] = newkey;
 
             newroot->childid[0] = rootInfo.nodeId;
@@ -2167,6 +2176,41 @@ private:
         return r;
     }
 
+    /* Debug functions to print inner and leaf nodes */
+
+    void printInnerNodeKeys(const inner_node *innernode) const
+    {
+        RAMCLOUD_LOG(DEBUG, "Printing inner node keys");
+        for (unsigned short slot = 0; slot < innernode->slotuse; ++slot)
+        {
+            RAMCLOUD_LOG(DEBUG,
+                         " ( %s ) ", std::string((const char *)&innernode->slotkey[slot], 40).c_str());
+        }
+    }
+
+    void printInnerNode(const inner_node *innernode) const
+    {
+        RAMCLOUD_LOG(DEBUG, "Printing inner node");
+        for (unsigned short slot = 0; slot < innernode->slotuse; ++slot)
+        {
+            RAMCLOUD_LOG(DEBUG,
+                         " ( %d ) %s ", innernode->childid[slot],
+                         std::string((const char *)&innernode->slotkey[slot], 40).c_str());
+        }
+        RAMCLOUD_LOG(DEBUG, "( %d )", innernode->childid[innernode->slotuse]);
+    }
+
+    void printLeafNode(const leaf_node *leafnode) const
+    {
+        RAMCLOUD_LOG(DEBUG, "Printing leaf node");
+        RAMCLOUD_LOG(DEBUG, "%d <- -> %d", leafnode->prevleaf, leafnode->nextleaf);
+        for (unsigned short slot = 0; slot < leafnode->slotuse; ++slot)
+        {
+            RAMCLOUD_LOG(ERROR,
+                         " %s ", std::string((const char *)&leafnode->slotkey[slot], 40).c_str());
+        }
+    }
+
     /**
      * @brief Insert an item into the B+ tree.
      *
@@ -2180,6 +2224,9 @@ private:
                                              NodeObjectInfo* newSplitNodeInfo,
                                              bool treeEmpty = false, const node *root = NULL)
     {
+        RAMCLOUD_LOG(DEBUG, "NodeId %lu Entered insert_descend() function", currentId);
+        RAMCLOUD_LOG(DEBUG, "Printing key = %s", std::string((const char*)&key, 40).c_str());
+
         // if treeEmpty is true, then the 'root' argument can NOT be NULL
         // FIXME add documentation for at least the default arguments
         Buffer currentBuffer;
@@ -2189,6 +2236,8 @@ private:
         else
             n = static_cast<const node *>(getPointerToObject(currentId, &currentBuffer));
         bool reuseNodeId = false;
+        // TODO(arjung) Use a better name for this variable and the
+        // corresponding code sequence
         bool reusingCode = false;
         if (!n->isleafnode())
         {
@@ -2202,6 +2251,8 @@ private:
 
             BTREE_PRINT("btree::insert_descend into " << constInner->childid[slot]);
 
+            RAMCLOUD_LOG(DEBUG, "btree::insert_descend into nodeId %lu", constInner->childid[slot]);
+
             std::pair<iterator, bool> r = insert_descend(constInner->childid[slot], &updatedInnerChildInfo,
                                                          key, value, &newkey, &newChildCreated, &newChildInfo);
 
@@ -2210,18 +2261,30 @@ private:
                 BTREE_PRINT("btree::insert_descend newchild with key " << newkey << " node " << newChildInfo.data <<
                             " at slot " << slot);
 
+#if 0
                 // allocate a new inner node, make a copy of inner and update the new node as follows
                 NodeObjectInfo updatedInnerInfo;
                 createMutableInner(constInner, &updatedInnerInfo);
                 inner_node *inner = static_cast<inner_node*>(updatedInnerInfo.data);
                 // inner is now a mutable pointer
                 inner->childid[slot] = updatedInnerChildInfo.nodeId;
-                // Note: modifying inner may be possible further but it will not be consistent
-                // with the contents of updatedInnerInfo.buffer but that is okay since the buffer
-                // won't be explicitly used again.
+#endif
+                // allocate a new inner node, make a copy of inner and
+                // update the new node as follows
+                createMutableInner(constInner, newNodeObjectInfo);
+                inner_node *inner = static_cast<inner_node*>(
+                                        newNodeObjectInfo->data);
+                // inner is now a mutable pointer
+
+                // The below statement is not required because we know for a
+                // fact that the child at 'slot' would have been written with
+                // the same nodeId it previously had
+
+                // inner->childid[slot] = updatedInnerChildInfo.nodeId;
 
                 if (inner->isfull())
                 {
+                    RAMCLOUD_LOG(DEBUG, "Splitting Inner node");
                     split_inner_node(inner, newNodeObjectInfo, splitkey, newSplitNodeInfo, slot);
                     node* splitnode = static_cast<node *>(newSplitNodeInfo->data);
                     *newSplitCreated = true;
@@ -2340,9 +2403,7 @@ private:
                 {
                     newSplitNodeInfo->data = inner;
                     newSplitNodeInfo->nodeId = writeNode(inner,
-                                                         sizeof(inner_node),
-                                                         currentId,
-                                                         !reuseNodeId);
+                                                         sizeof(inner_node));
                 }
             }
 
@@ -2354,7 +2415,8 @@ private:
 
             int slot = find_lower(constLeaf, key);
 
-            if (!allow_duplicates && slot < constLeaf->slotuse && key_equal(key, constLeaf->slotkey[slot])) {
+            if (!allow_duplicates && slot < constLeaf->slotuse &&
+                key_equal(key, constLeaf->slotkey[slot])) {
                 return std::pair<iterator, bool>(iterator(this, currentId, slot), false);
             }
 
@@ -2365,6 +2427,7 @@ private:
 
             if (leaf->isfull())
             {
+                RAMCLOUD_LOG(DEBUG, "Splitting leaf node");
                 split_leaf_node(leaf, splitkey, newSplitNodeInfo);
                 // leaf is now a mutable pointer
                 node* splitnode = static_cast<node *>(newSplitNodeInfo->data);
@@ -2378,6 +2441,9 @@ private:
                     newLeafId = currentId;
 
                 splitNodeId = nextNodeId++;
+
+                RAMCLOUD_LOG(DEBUG, "newleaf ID = %d, splitNodeId = %d",
+                                    newLeafId, splitNodeId);
 
                 // adjust the nextleaf and the prevleaf nodeId values for
                 // the relevant nodes
@@ -2404,6 +2470,9 @@ private:
                 leaf->nextleaf = splitNodeId;
                 newleaf->prevleaf = newLeafId;
 
+                RAMCLOUD_LOG(DEBUG, "Checking if insert slot is in the split"
+                                    "sibling node, slot = %d,"
+                                    "leaf->slotuse = %d", slot, leaf->slotuse);
                 // check if insert slot is in the split sibling node
                 if (slot >= leaf->slotuse)
                 {
@@ -2419,7 +2488,9 @@ private:
                 else
                 {
                     // write splitnode here
-                    newSplitNodeInfo->nodeId = writeNode(splitnode,
+                    // newleaf is the new node created after a split
+                    // splitnode also points to this node
+                    newSplitNodeInfo->nodeId = writeNode(newleaf,
                                                          sizeof(leaf_node),
                                                          splitNodeId, false);
                 }
@@ -2472,7 +2543,7 @@ private:
                        iterator(this, newSplitNodeInfo->nodeId, slot), true);
             else
                 return std::pair<iterator, bool>(
-                       iterator(this, currentId, slot), true);
+                       iterator(this, newLeafId, slot), true);
         }
     }
 

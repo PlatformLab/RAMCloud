@@ -246,14 +246,8 @@ IndexletManager::lookupIndexlet(uint64_t tableId, uint8_t indexId,
                 continue;
             }
         }
-        // RAMCLOUD_LOG(DEBUG, "lookup indexlet key:%s, indexlet firstkey:%s, indexlet lastkey:%s\n",
-        //     string((char*)key, keyLength).c_str(),
-        //     string((char*)indexlet->firstKey, indexlet->firstKeyLength).c_str(),
-        //     string((char*)indexlet->firstNotOwnedKey, indexlet->firstNotOwnedKeyLength).c_str());
         return it;
     }
-    // RAMCLOUD_LOG(DEBUG, "could not find lookup indexlet key:%s\n",
-    //         string((char*)key, keyLength).c_str());
     return indexletMap.end();
 }
 
@@ -296,30 +290,22 @@ IndexletManager::insertEntry(uint64_t tableId, uint8_t indexId,
 
     IndexletMap::iterator it =
             lookupIndexlet(tableId, indexId, key, keyLength, indexletMapLock);
-    if (it == indexletMap.end()){
-        RAMCLOUD_LOG(ERROR, "unknown indexlet\n");
+    if (it == indexletMap.end()) {
+        RAMCLOUD_LOG(DEBUG, "unknown indexlet\n");
         return STATUS_UNKNOWN_INDEXLET;
     }
     Indexlet* indexlet = &it->second;
-    
 
     Lock indexletLock(indexlet->indexletMutex);
     indexletMapLock.unlock();
 
     KeyAndHash keyAndHash = {key, keyLength, pKHash};
 
-    RAMCLOUD_LOG(ERROR, "Inserting: tableId %lu, indexId %u, key: %s, count:%lu",
+    RAMCLOUD_LOG(DEBUG, "Inserting: tableId %lu, indexId %u, key: %s",
                         tableId, indexId,
-                        string((char*)key, keyLength).c_str(),
-                        indexlet->bt->count(keyAndHash));
+                        string((char*)key, keyLength).c_str());
 
     indexlet->bt->insert(keyAndHash, pKHash);
-    if(!indexlet->bt->exists(keyAndHash)){
-        RAMCLOUD_LOG(ERROR, "failed insert, count:%lu\n", indexlet->bt->count(keyAndHash));
-        return STATUS_UNKNOWN_INDEXLET;
-    }
-
-    RAMCLOUD_LOG(ERROR, "insert success, count:%lu\n", indexlet->bt->count(keyAndHash));
     return STATUS_OK;
 }
 
@@ -384,7 +370,7 @@ IndexletManager::lookupIndexKeys(uint64_t tableId, uint8_t indexId,
 {
     Lock indexletMapLock(indexletMapMutex);
 
-    RAMCLOUD_LOG(ERROR, "Looking up: tableId %lu, indexId %u.\n"
+    RAMCLOUD_LOG(DEBUG, "Looking up: tableId %lu, indexId %u.\n"
                         "first key: %s\n"
                         "last  key: %s\n",
                         tableId, indexId,
@@ -500,7 +486,6 @@ IndexletManager::removeEntry(uint64_t tableId, uint8_t indexId,
 {
     Lock indexletMapLock(indexletMapMutex);
 
-   
     IndexletMap::iterator it =
             lookupIndexlet(tableId, indexId, key, keyLength, indexletMapLock);
     if (it == indexletMap.end())
@@ -508,11 +493,9 @@ IndexletManager::removeEntry(uint64_t tableId, uint8_t indexId,
 
     Indexlet* indexlet = &it->second;
 
-    RAMCLOUD_LOG(ERROR, "Removing: tableId %lu, indexId %u, key: %s, count:%lu\n",
+    RAMCLOUD_LOG(DEBUG, "Removing: tableId %lu, indexId %u, key: %s",
                         tableId, indexId,
-                        string((char*)key, keyLength).c_str(),
-                        indexlet->bt->count(KeyAndHash {key, keyLength, pKHash}));
-
+                        string((char*)key, keyLength).c_str());
 
     Lock indexletLock(indexlet->indexletMutex);
     indexletMapLock.unlock();
@@ -521,18 +504,18 @@ IndexletManager::removeEntry(uint64_t tableId, uint8_t indexId,
     // since it is also a part of the key that gets compared in the tree
     // module
     if(indexlet->bt->erase_one(KeyAndHash {key, keyLength, pKHash})){
-        RAMCLOUD_LOG(ERROR, "remove succeed: tableId %lu, indexId %u, key: %s, count:%lu\n",
+        RAMCLOUD_LOG(DEBUG, "remove succeed: tableId %lu, indexId %u, key: %s",
                         tableId, indexId,
-                        string((char*)key, keyLength).c_str(),
-                        indexlet->bt->count(KeyAndHash {key, keyLength, pKHash}));
+                        string((char*)key, keyLength).c_str());
 
         return STATUS_OK;
     }
 
-    RAMCLOUD_LOG(ERROR, "remove failed: tableId %lu, indexId %u, key: %s, count:%lu\n",
+    // code should not reach here ideally but if it does, we ignore it because we allow
+    // for garbage in the indexlet
+    RAMCLOUD_LOG(DEBUG, "remove failed: tableId %lu, indexId %u, key: %s",
                         tableId, indexId,
-                        string((char*)key, keyLength).c_str(),
-                        indexlet->bt->count(KeyAndHash {key, keyLength, pKHash}));
+                        string((char*)key, keyLength).c_str());
 
     return STATUS_OK;
 }
