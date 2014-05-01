@@ -96,7 +96,7 @@ TEST_F(AbstractLogTest, append_basic) {
         oldHead = l.head;
     }
     // This depends on ServerConfig's number of bytes allocated to the log.
-    EXPECT_EQ(239, appends);
+    EXPECT_EQ(303, appends);
 
     // getEntry()'s test ensures actual data gets there.
 
@@ -147,7 +147,7 @@ TEST_F(AbstractLogTest, append_multiple_basics) {
         appends++;
     }
     // This depends on ServerConfig's number of bytes allocated to the log.
-    EXPECT_EQ(239, appends);
+    EXPECT_EQ(303, appends);
 
     delete[] data;
 }
@@ -176,7 +176,7 @@ TEST_F(AbstractLogTest, append_multipleLogEntries) {
         appends++;
     }
     // This depends on ServerConfig's number of bytes allocated to the log.
-    EXPECT_EQ(239, appends);
+    EXPECT_EQ(303, appends);
 
     delete[] data;
 }

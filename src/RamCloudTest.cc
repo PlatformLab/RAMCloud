@@ -634,6 +634,12 @@ TEST_F(RamCloudTest, index_endToEnd) {
     ////////// Write the objects, which inserts index entries. /////////////
     ////////////////////////////////////////////////////////////////////////
 
+    // NOTE: Since this write will first involve writing of
+    // the corresponding index entries, the version for this
+    // data object will be 2 and increases then on for every
+    // new object. This is because, indexlets are implemented
+    // using RamCloud objects and when an entry is first added,
+    // it gets allocated a version of 1.
     ramcloud->write(tableId, numKeys, keyListA, "valueA");
     ramcloud->write(tableId, numKeys, keyListB, "valueB");
 
@@ -700,7 +706,7 @@ TEST_F(RamCloudTest, index_endToEnd) {
     readOffset = sizeof32(WireFormat::IndexedRead::Response);
 
     uint64_t versionA1 = *readResp.getOffset<uint64_t>(readOffset);
-    EXPECT_EQ(1U, versionA1);
+    EXPECT_EQ(2U, versionA1);
     readOffset += sizeof32(uint64_t);
     uint32_t lengthA1 = *readResp.getOffset<uint32_t>(readOffset);
     readOffset += sizeof32(uint32_t);
@@ -712,7 +718,7 @@ TEST_F(RamCloudTest, index_endToEnd) {
                                valueLengthA1));
 
     uint64_t versionB1 = *readResp.getOffset<uint64_t>(readOffset);
-    EXPECT_EQ(2U, versionB1);
+    EXPECT_EQ(3U, versionB1);
     readOffset += sizeof32(uint64_t);
     uint32_t lengthB1 = *readResp.getOffset<uint32_t>(readOffset);
     readOffset += sizeof32(uint32_t);
@@ -732,7 +738,7 @@ TEST_F(RamCloudTest, index_endToEnd) {
     readOffset = sizeof32(WireFormat::IndexedRead::Response);
 
     uint64_t versionA2 = *readResp.getOffset<uint64_t>(readOffset);
-    EXPECT_EQ(1U, versionA2);
+    EXPECT_EQ(2U, versionA2);
     readOffset += sizeof32(uint64_t);
     uint32_t lengthA2 = *readResp.getOffset<uint32_t>(readOffset);
     readOffset += sizeof32(uint32_t);
@@ -744,7 +750,7 @@ TEST_F(RamCloudTest, index_endToEnd) {
                                valueLengthA2));
 
     uint64_t versionB2 = *readResp.getOffset<uint64_t>(readOffset);
-    EXPECT_EQ(2U, versionB2);
+    EXPECT_EQ(3U, versionB2);
     readOffset += sizeof32(uint64_t);
     uint32_t lengthB2 = *readResp.getOffset<uint32_t>(readOffset);
     readOffset += sizeof32(uint32_t);

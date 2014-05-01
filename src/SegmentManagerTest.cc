@@ -69,7 +69,7 @@ TEST_F(SegmentManagerTest, constructor)
 
     EXPECT_EQ(1U, segmentManager.nextSegmentId);
     EXPECT_EQ(0, segmentManager.logIteratorCount);
-    EXPECT_EQ(256U, segmentManager.maxSegments);
+    EXPECT_EQ(320U, segmentManager.maxSegments);
     EXPECT_EQ(segmentManager.maxSegments - 2,
               segmentManager.freeSlots.size());
     EXPECT_EQ(2U, allocator.getFreeCount(SegletAllocator::EMERGENCY_HEAD));
@@ -82,13 +82,13 @@ TEST_F(SegmentManagerTest, destructor) {
                   replicaManager, &masterTableMetadata);
     EXPECT_EQ(2U, allocator2.getFreeCount(SegletAllocator::EMERGENCY_HEAD));
     EXPECT_EQ(0U, allocator2.getFreeCount(SegletAllocator::CLEANER));
-    EXPECT_EQ(254U, allocator2.getFreeCount(SegletAllocator::DEFAULT));
+    EXPECT_EQ(318U, allocator2.getFreeCount(SegletAllocator::DEFAULT));
     mgr->allocHeadSegment();
     mgr->allocHeadSegment();
-    EXPECT_EQ(252U, allocator2.getFreeCount(SegletAllocator::DEFAULT));
+    EXPECT_EQ(316U, allocator2.getFreeCount(SegletAllocator::DEFAULT));
 
     mgr.destroy();
-    EXPECT_EQ(254U, allocator2.getFreeCount(SegletAllocator::DEFAULT));
+    EXPECT_EQ(318U, allocator2.getFreeCount(SegletAllocator::DEFAULT));
 }
 
 static bool
@@ -137,8 +137,8 @@ TEST_F(SegmentManagerTest, allocHead) {
     int successes = 0;
     while (segmentManager.allocHeadSegment() != NULL)
         successes++;
-    EXPECT_EQ(252, successes);
-    EXPECT_EQ(253U,
+    EXPECT_EQ(316, successes);
+    EXPECT_EQ(317U,
         segmentManager.segmentsByState[SegmentManager::NEWLY_CLEANABLE].size());
 }
 
@@ -548,7 +548,7 @@ TEST_F(SegmentManagerTest, freeSlot) {
 TEST_F(SegmentManagerTest, free) {
     LogSegment* s = segmentManager.allocHeadSegment();
 
-    EXPECT_EQ(253U, segmentManager.freeSlots.size());
+    EXPECT_EQ(317U, segmentManager.freeSlots.size());
     EXPECT_TRUE(contains(segmentManager.idToSlotMap, s->id));
     EXPECT_EQ(1U, segmentManager.segmentsByState[SegmentManager::HEAD].size());
     EXPECT_EQ(1U, segmentManager.allSegments.size());
@@ -564,7 +564,7 @@ TEST_F(SegmentManagerTest, free) {
     SegmentSlot slot = s->slot;
 
     segmentManager.free(s);
-    EXPECT_EQ(254U, segmentManager.freeSlots.size());
+    EXPECT_EQ(318U, segmentManager.freeSlots.size());
     EXPECT_FALSE(contains(segmentManager.idToSlotMap, id));
     EXPECT_EQ(0U, segmentManager.segmentsByState[SegmentManager::HEAD].size());
     EXPECT_EQ(0U, segmentManager.allSegments.size());

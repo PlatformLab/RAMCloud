@@ -25,7 +25,7 @@
 #include "Indexlet.h"
 #include "IndexKey.h"
 #include "ObjectManager.h"
-#include "btree/BtreeMultimap.h"
+#include "btreeRamCloud/BtreeMultimap.h"
 
 namespace RAMCloud {
 
@@ -47,7 +47,7 @@ class IndexletManager {
     /// Structure used as the key for key-value pairs in the indexlet tree.
     struct KeyAndHash {
         /// Actual bytes of the index key.
-        void* key;
+        char key[40];
         /// Length of index key.
         uint16_t keyLength;
         /// Primary key hash of the object the index key points to.
@@ -64,44 +64,27 @@ class IndexletManager {
         {}
 
         KeyAndHash(const void *key, uint16_t keyLength, uint64_t pKHash)
-        : key(NULL)
+        : key()
         , keyLength(keyLength)
         , pKHash(pKHash)
         {
-            if (keyLength != 0){
-                this->key = malloc(keyLength);
-                memcpy(this->key, key, keyLength);
-            }
+            memcpy(this->key, key, keyLength);
         }
 
         KeyAndHash(const KeyAndHash& keyAndHash)
-        : key(NULL)
+        : key()
         , keyLength(keyAndHash.keyLength)
         , pKHash(keyAndHash.pKHash)
         {
-            if (keyLength != 0){
-                this->key = malloc(keyLength);
-                memcpy(this->key, keyAndHash.key, keyLength);
-            }
+            memcpy(this->key, keyAndHash.key, keyLength);
         }
 
         KeyAndHash& operator =(const KeyAndHash& keyAndHash)
         {
-            this->key = NULL;
             this->keyLength = keyAndHash.keyLength;
             this->pKHash = keyAndHash.pKHash;
-
-            if (keyLength != 0){
-                this->key = malloc(keyLength);
-                memcpy(this->key, keyAndHash.key, keyLength);
-            }
+            memcpy(this->key, keyAndHash.key, keyLength);
             return *this;
-        }
-
-        ~KeyAndHash()
-        {
-            if (keyLength != 0)
-                free(key);
         }
     };
 
@@ -123,7 +106,7 @@ class IndexletManager {
 
     // B+ tree holding key: string, value: primary key hash
     // TODO(ashgup): Do we need to define traits?
-    typedef stx::btree_multimap<KeyAndHash, uint64_t, KeyAndHashCompare> Btree;
+    typedef str::btree_multimap<KeyAndHash, uint64_t, KeyAndHashCompare> Btree;
 
     /**
      * Each indexlet owned by a master is described by fields in this class.
@@ -171,7 +154,7 @@ class IndexletManager {
 
         // Attributes of the b+ tree used for holding the indexes
         template <typename KeyType>
-        struct traits_nodebug : stx::btree_default_set_traits<KeyType>
+        struct traits_nodebug : str::btree_default_set_traits<KeyType>
         {
             static const bool selfverify = false;
             static const bool debug = false;

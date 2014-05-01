@@ -187,7 +187,7 @@ clean: tests-clean docs-clean tags-clean
 	rm -rf $(OBJDIR)/.deps $(OBJDIR)/*
 
 check:
-	$(LINT) $$(./pragmas.py -f CPPLINT:5 $$(find $(TOP)/src '(' -name '*.cc' -or -name '*.h' -or -name '*.c' ')' -not -path '$(TOP)/src/btree/*'))
+	$(LINT) $$(./pragmas.py -f CPPLINT:5 $$(find $(TOP)/src '(' -name '*.cc' -or -name '*.h' -or -name '*.c' ')' -not -path '$(TOP)/src/btree/*' -not -path '$(TOP)/src/btreeRamCloud/*'))
 
 # This magic automatically generates makefile dependencies
 # for header files included from C source files we compile,

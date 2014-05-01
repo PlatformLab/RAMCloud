@@ -68,8 +68,7 @@ IndexletManager::addIndexlet(
         return false;
     }
 
-    //Btree* bt = new Btree(indexletTableId, objectManager);
-    Btree* bt = new Btree();
+    Btree* bt = new Btree(indexletTableId, objectManager);
     indexletMap.emplace(std::make_pair(tableId, indexId), Indexlet(firstKey,
                 firstKeyLength, firstNotOwnedKey, firstNotOwnedKeyLength, bt));
 
@@ -299,8 +298,8 @@ IndexletManager::insertEntry(uint64_t tableId, uint8_t indexId,
         return STATUS_UNKNOWN_INDEXLET;
     Indexlet* indexlet = &it->second;
 
-    indexletMapLock.unlock();
     Lock indexletLock(indexlet->indexletMutex);
+    indexletMapLock.unlock();
 
     KeyAndHash keyAndHash = {key, keyLength, pKHash};
     indexlet->bt->insert(keyAndHash, pKHash);
@@ -386,8 +385,8 @@ IndexletManager::lookupIndexKeys(uint64_t tableId, uint8_t indexId,
     *numHashes = 0;
     *nextKeyLength = 0;
 
-    indexletMapLock.unlock();
     Lock indexletLock(indexlet->indexletMutex);
+    indexletMapLock.unlock();
 
     // If there are no values in this indexlet's tree, return right away.
     if (indexlet->bt->empty()) {
@@ -401,15 +400,23 @@ IndexletManager::lookupIndexKeys(uint64_t tableId, uint8_t indexId,
     auto iterEnd = indexlet->bt->end();
     bool rpcMaxedOut = false;
 
+    // At the end of the below while loop, iterLast will point to
+    // the last valid key in a leaf
+    auto iterLast = iter;
+
     // If the iterator is currently at the end, then it stays at the
     // same point if we try to advance (i.e., increment) the iterator.
     // This can result this loop looping forever if:
     // end of the tree is <= lastKey given by client.
     // So the second condition ensures that we break if iterator is at the end.
+
+    // If iter == iterEnd, calling iter.key() is wrong because we will
+    // then try to read an object that definitely does not exist.
+    // This will cause a crash in the tree module
     while (!rpcMaxedOut &&
+           iter != iterEnd &&
            keyCompare(lastKey, lastKeyLength,
-                      iter.key().key, iter.key().keyLength) >= 0 &&
-           iter != iterEnd) {
+                      iter.key().key, iter.key().keyLength) >= 0) {
 
         if (*numHashes < maxNumHashes) {
             // Can alternatively use iter.data() instead of iter.key().pKHash,
@@ -417,6 +424,11 @@ IndexletManager::lookupIndexKeys(uint64_t tableId, uint8_t indexId,
             // as well use the pKHash from key right away.
             new(responseBuffer, APPEND) uint64_t(iter.key().pKHash);
             *numHashes += 1;
+            // save the state of iter before advancing because we need
+            // access to the last valid entry in the b-tree before we reach
+            // the end. This is because iterator::end() effectively points
+            // to an invalid entry
+            iterLast = iter;
             ++iter;
         } else {
             rpcMaxedOut = true;
@@ -425,10 +437,16 @@ IndexletManager::lookupIndexKeys(uint64_t tableId, uint8_t indexId,
 
     if (rpcMaxedOut) {
 
-        *nextKeyLength = uint16_t(iter.key().keyLength);
-        *nextKeyHash = iter.data();
-        responseBuffer->append(iter.key().key,
-                               uint32_t(iter.key().keyLength));
+        // check if the while loop terminated because we reached the end
+        // of the iterator sequence
+        auto currIter = iterLast;
+        if (iter != iterEnd)
+            currIter = iter;
+
+        *nextKeyLength = uint16_t(currIter.key().keyLength);
+        *nextKeyHash = currIter.data();
+        responseBuffer->append(currIter.key().key,
+                               uint32_t(currIter.key().keyLength));
 
     } else if (keyCompare(lastKey, lastKeyLength, indexlet->firstNotOwnedKey,
                           indexlet->firstNotOwnedKeyLength) > 0) {
@@ -478,8 +496,8 @@ IndexletManager::removeEntry(uint64_t tableId, uint8_t indexId,
 
     Indexlet* indexlet = &it->second;
 
-    indexletMapLock.unlock();
     Lock indexletLock(indexlet->indexletMutex);
+    indexletMapLock.unlock();
 
     // Note that we don't have to explicitly compare the key hash in value
     // since it is also a part of the key that gets compared in the tree
