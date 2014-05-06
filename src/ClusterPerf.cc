@@ -1853,12 +1853,138 @@ recoveryIndexlet()
         return;
     cluster->createIndex(dataTable, 1, 0);
     KeyInfo keyList[2];
-    string key0, key1;
+    string key0, key1, value;
     for (int num = 0; num < totalNum; num++)
     {
         if (num % 1000 == 0) printf(".");
         key0 = format("key0_%.5d", num);
         key1 = format("key1_%.5d", num);
+        value = format("value_%.5d", num);
+        keyList[0].key = key0.c_str();
+        keyList[0].keyLength =
+            downCast<uint16_t>(strlen(reinterpret_cast<const char*>(
+                keyList[0].key)));
+        keyList[1].key = key1.c_str();
+        keyList[1].keyLength =
+            downCast<uint16_t>(strlen(reinterpret_cast<const char*>(
+                keyList[1].key)));
+        if (num % 10000 == 0)
+        {
+            printf("%d\n", num);
+            printf("key0 = %s, key1 = %s", keyList[0].key, keyList[1].key);
+        }
+        cluster->write(dataTable, 2, keyList, value.c_str());
+        //Key key(dataTable, keyList[0].key, keyList[0].keyLength);
+        //printf("write:PKHash[%d] = %lu\n", num, key.getHash());
+    }
+    //Buffer input, value;
+    //Buffer value;
+    //fillBuffer(input, objectSize, dataTable, val, valLength);
+    //checkBuffer(&value, objectSize, dataTable, val, valLength);
+
+    Buffer lookupResp, pKHashes, readResp;
+    uint32_t numHashes, numObjects;
+    uint16_t nextKeyLength;
+    uint64_t nextKeyHash;
+    uint32_t lookupOffset, readOffset;
+    lookupResp.reset();
+    pKHashes.reset();
+    cluster->lookupIndexKeys(dataTable, 1, "key1_10000", 10,
+                             0, "key1_10010", 10,
+                             &lookupResp, &numHashes, &nextKeyLength,
+                             &nextKeyHash);
+    lookupOffset = sizeof32(WireFormat::LookupIndexKeys::Response);
+    for (unsigned int i = 0; i < numHashes; i++) {
+        printf("PKHash[%u] = %lu\n", i,
+               *lookupResp.getOffset<uint64_t>(lookupOffset));
+        new(&pKHashes, APPEND) uint64_t(
+                    *lookupResp.getOffset<uint64_t>(lookupOffset));
+        lookupOffset += sizeof32(uint64_t);
+    }
+
+    readResp.reset();
+    cluster->indexedRead(dataTable, numHashes, &pKHashes, 1, "key1_10000",
+                         10, "key1_10010", 10,
+                         &readResp, &numObjects);
+    readOffset = sizeof32(WireFormat::IndexedRead::Response);
+    for (unsigned int i = 0; i < numObjects; i++) {
+    	uint64_t version = *readResp.getOffset<uint64_t>(readOffset);
+        readOffset += sizeof32(uint64_t);
+        uint32_t length = *readResp.getOffset<uint32_t>(readOffset);
+        readOffset += sizeof32(uint32_t);
+        Object obj(dataTable, version, 0, readResp, readOffset, length);
+        readOffset += length;
+        string objKey0((char*)obj.getKey(0), obj.getKeyLength(0));
+        string objKey1((char*)obj.getKey(1), obj.getKeyLength(1));
+        string objValue((char*)obj.getValue(), obj.getValueLength());
+        printf("key0 = %s, key1 = %s, val = %s\n", objKey0.c_str(),
+               objKey1.c_str(), objValue.c_str());
+    }
+
+
+    /*
+    keyList[0].key = format("key0_0").c_str();
+    keyList[0].keyLength =
+        downCast<uint16_t>(strlen(reinterpret_cast<const char*>(
+            keyList[0].key)));
+    Key pKey(dataTable, keyList[0].key, keyList[0].keyLength);
+    new(&pKHashes, APPEND) uint64_t(pKey.getHash());
+    cluster->indexedRead(dataTable, 1, &pKHashes, 1, "a", 1,
+                         "z", 1, &readResp, &numObjects);
+    printf("numObjects = %u.\n", numObjects);
+    */
+
+    usleep(10 * 1000 * 1000);
+    readResp.reset();
+
+    lookupResp.reset();
+    pKHashes.reset();
+    cluster->lookupIndexKeys(dataTable, 1, "key1_10000", 10,
+                             0, "key1_10010", 10,
+                             &lookupResp, &numHashes, &nextKeyLength,
+                             &nextKeyHash);
+    lookupOffset = sizeof32(WireFormat::LookupIndexKeys::Response);
+    for (unsigned int i = 0; i < numHashes; i++) {
+        printf("PKHash[%u] = %lu\n", i,
+               *lookupResp.getOffset<uint64_t>(lookupOffset));
+        new(&pKHashes, APPEND) uint64_t(
+                    *lookupResp.getOffset<uint64_t>(lookupOffset));
+        lookupOffset += sizeof32(uint64_t);
+    }
+
+    readResp.reset();
+    cluster->indexedRead(dataTable, numHashes, &pKHashes, 1, "key1_10000",
+                         10, "key1_10010", 10,
+                         &readResp, &numObjects);
+    readOffset = sizeof32(WireFormat::IndexedRead::Response);
+    for (unsigned int i = 0; i < numObjects; i++) {
+    	uint64_t version = *readResp.getOffset<uint64_t>(readOffset);
+        readOffset += sizeof32(uint64_t);
+        uint32_t length = *readResp.getOffset<uint32_t>(readOffset);
+        readOffset += sizeof32(uint32_t);
+        Object obj(dataTable, version, 0, readResp, readOffset, length);
+        readOffset += length;
+        string objKey0((char*)obj.getKey(0), obj.getKeyLength(0));
+        string objKey1((char*)obj.getKey(1), obj.getKeyLength(1));
+        string objValue((char*)obj.getValue(), obj.getValueLength());
+        printf("key0 = %s, key1 = %s, val = %s\n", objKey0.c_str(),
+               objKey1.c_str(), objValue.c_str());
+    }
+}
+
+void
+recoveryIndexletCheck()
+{
+    int totalNum = 1000;
+    if (clientIndex != 0)
+        return;
+    KeyInfo keyList[2];
+    string key0, key1;
+    for (int num = 0; num < totalNum; num++)
+    {
+        if (num % 1000 == 0) printf(".");
+        key0 = format("key0_%.5d", 20000 + num);
+        key1 = format("key1_%.5d", 20000 + num);
         keyList[0].key = key0.c_str();
         keyList[0].keyLength =
             downCast<uint16_t>(strlen(reinterpret_cast<const char*>(
@@ -1874,50 +2000,16 @@ recoveryIndexlet()
         }
         cluster->write(dataTable, 2, keyList, "BruceBruce");
         Key key(dataTable, keyList[0].key, keyList[0].keyLength);
-        //printf("write:PKHash[%d] = %lu\n", num, key.getHash());
     }
-    //Buffer input, value;
-    Buffer value;
-    //fillBuffer(input, objectSize, dataTable, val, valLength);
-    //checkBuffer(&value, objectSize, dataTable, val, valLength);
 
-    Buffer lookupResp;
-    uint32_t numHashes;
+    Buffer lookupResp, pKHashes, readResp;
+    uint32_t numHashes, numObjects;
     uint16_t nextKeyLength;
     uint64_t nextKeyHash;
-    uint32_t lookupOffset;
+    uint32_t lookupOffset, readOffset;
     lookupResp.reset();
-    cluster->lookupIndexKeys(dataTable, 1, "key1_10000", 10,
-                             0, "key1_10010", 10,
-                             &lookupResp, &numHashes, &nextKeyLength,
-                             &nextKeyHash);
-    lookupOffset = sizeof32(WireFormat::LookupIndexKeys::Response);
-    for (unsigned int i = 0; i < numHashes; i++) {
-        printf("PKHash[%u] = %lu\n", i,
-               *lookupResp.getOffset<uint64_t>(lookupOffset));
-        lookupOffset += sizeof32(uint64_t);
-    }
-
-    /*
-    keyList[0].key = format("key0_0").c_str();
-    keyList[0].keyLength =
-        downCast<uint16_t>(strlen(reinterpret_cast<const char*>(
-            keyList[0].key)));
-    Key pKey(dataTable, keyList[0].key, keyList[0].keyLength);
-    new(&pKHashes, APPEND) uint64_t(pKey.getHash());
-    cluster->indexedRead(dataTable, 1, &pKHashes, 1, "a", 1,
-                         "z", 1, &readResp, &numObjects);
-    printf("numObjects = %u.\n", numObjects);
-    */
-
-    usleep(10 * 1000 * 1000);
-    Buffer pKHashes, readResp;
-    uint32_t numObjects;
-    readResp.reset();
-
-    lookupResp.reset();
-    cluster->lookupIndexKeys(dataTable, 1, "key1_10000", 10,
-                             0, "key1_10010", 10,
+    cluster->lookupIndexKeys(dataTable, 1, "key1_19995", 10,
+                             0, "key1_20005", 10,
                              &lookupResp, &numHashes, &nextKeyLength,
                              &nextKeyHash);
     lookupOffset = sizeof32(WireFormat::LookupIndexKeys::Response);
@@ -1925,44 +2017,27 @@ recoveryIndexlet()
         printf("PKHash[%u] = %lu\n", i,
                *lookupResp.getOffset<uint64_t>(lookupOffset));
         new(&pKHashes, APPEND) uint64_t(
-            *lookupResp.getOffset<uint64_t>(lookupOffset));
+                    *lookupResp.getOffset<uint64_t>(lookupOffset));
         lookupOffset += sizeof32(uint64_t);
     }
 
-    cluster->indexedRead(dataTable, 1, &pKHashes, 1, "key1_10000",
-                         10, "key1_10010", 10,
+    readResp.reset();
+    cluster->indexedRead(dataTable, numHashes, &pKHashes, 1, "key1_19995",
+                         10, "key1_20005", 10,
                          &readResp, &numObjects);
-    printf("numObjects = %u.\n", numObjects);
-    uint32_t readOffset = sizeof32(WireFormat::IndexedRead::Response);
-    uint64_t version = *readResp.getOffset<uint64_t>(readOffset);
-    printf("version = %llu\n", version);
-    readOffset += sizeof32(uint64_t);
-    uint32_t length = *readResp.getOffset<uint32_t>(readOffset);
-    readOffset += sizeof32(uint32_t);
-    Object obj(dataTable, version, 0, readResp, readOffset, length);
-    readOffset += length;
-    uint32_t valueLength;
-    printf("key0 = %s, key1 = %s, val = %s\n", obj.getKey(0), obj.getKey(1),
-           obj.getValue(&valueLength));
-}
-
-void
-recoveryIndexletCheck()
-{
-    Buffer lookupResp;
-    uint32_t numHashes;
-    uint16_t nextKeyLength;
-    uint64_t nextKeyHash;
-    uint32_t lookupOffset;
-    lookupResp.reset();
-    cluster->lookupIndexKeys(dataTable, 1, "key1_10", 7, 0, "key1_20", 7,
-                             &lookupResp, &numHashes, &nextKeyLength,
-                             &nextKeyHash);
-    lookupOffset = sizeof32(WireFormat::LookupIndexKeys::Response);
-    for (unsigned int i = 0; i < numHashes; i++) {
-        printf("PKHash[%u] = %lu\n", i,
-               *lookupResp.getOffset<uint64_t>(lookupOffset));
-        lookupOffset += sizeof32(uint64_t);
+    readOffset = sizeof32(WireFormat::IndexedRead::Response);
+    for (unsigned int i = 0; i < numObjects; i++) {
+    	uint64_t version = *readResp.getOffset<uint64_t>(readOffset);
+        readOffset += sizeof32(uint64_t);
+        uint32_t length = *readResp.getOffset<uint32_t>(readOffset);
+        readOffset += sizeof32(uint32_t);
+        Object obj(dataTable, version, 0, readResp, readOffset, length);
+        readOffset += length;
+        string objKey0((char*)obj.getKey(0), obj.getKeyLength(0));
+        string objKey1((char*)obj.getKey(1), obj.getKeyLength(1));
+        string objValue((char*)obj.getValue(), obj.getValueLength());
+        printf("key0 = %s, key1 = %s, val = %s\n", objKey0.c_str(),
+               objKey1.c_str(), objValue.c_str());
     }
 }
 

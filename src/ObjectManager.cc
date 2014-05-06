@@ -736,6 +736,26 @@ ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it)
 
             Key key(recoveryObj->tableId, primaryKey, primaryKeyLen);
 
+            // check if this key is numeric. If true, update highestBTreeId
+            // of its table. TODO(zhihao): need a better way to check if the
+            // table is a indexle table.
+            {
+                const char *bTreeKey = (char*) primaryKey;
+                bool isNumeric = true;
+                uint64_t bTreeId = 0;
+                for (int i = 0; i < primaryKeyLen; i++) {
+           	        if (('0' <= bTreeKey[i]) && (bTreeKey[i] <= '9')) {
+           	            bTreeId = bTreeId * 10 + bTreeKey[i] - '0';
+           	        }
+           	        else {
+           	            isNumeric = false;
+           	            break;
+           	        }
+                }
+                if (isNumeric)
+                    tabletManager->setHighestBTreeId(recoveryObj->tableId, bTreeId);
+            }
+
             bool checksumIsValid = ({
                 CycleCounter<uint64_t> c(&verifyChecksumTicks);
                 Object::computeChecksum(recoveryObj, it.getLength()) ==
@@ -811,6 +831,28 @@ ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it)
             Buffer buffer;
             it.appendToBuffer(buffer);
             Key key(type, buffer);
+
+            // check if this key is numeric. If true, update highestBTreeId
+            // of its table. TODO(zhihao): need a better way to check if the
+            // table is a indexle table.
+            {
+            	const char *bTreeKey = (char*) key.getStringKey();
+            	KeyLength keyLength = key.getStringKeyLength();
+                bool isNumeric = true;
+                uint64_t bTreeId = 0;
+                for (int i = 0; i < keyLength; i++) {
+           	        if (('0' <= bTreeKey[i]) && (bTreeKey[i] <= '9')) {
+           	            bTreeId = bTreeId * 10 + bTreeKey[i] - '0';
+           	        }
+           	        else {
+           	            isNumeric = false;
+           	            break;
+           	        }
+                }
+                if (isNumeric)
+                    tabletManager->setHighestBTreeId(key.getTableId(), bTreeId);
+            }
+
 
             ObjectTombstone recoverTomb(buffer);
             bool checksumIsValid = ({

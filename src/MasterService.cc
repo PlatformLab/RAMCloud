@@ -2300,6 +2300,8 @@ MasterService::recover(const WireFormat::Recover::Request* reqHdr,
             firstNotOwnedKeyLength = 0;
         }
 
+        LOG (NOTICE, "highestBTreeId = %lu",
+             tabletManager.getHighestBTreeId(newIndexlet.indexlettable_id()));
         bool added =
             indexletManager.addIndexlet(newIndexlet.table_id(),
                                         (uint8_t)newIndexlet.index_id(),
@@ -2307,7 +2309,8 @@ MasterService::recover(const WireFormat::Recover::Request* reqHdr,
                                         firstKey, firstKeyLength,
                                         firstNotOwnedKey,
                                         firstNotOwnedKeyLength,
-                                       1000000);
+                                        tabletManager.getHighestBTreeId(
+                                            newIndexlet.indexlettable_id()));
         if (!added) {
             throw Exception(HERE, format("Cannot recover indexlet."));
         }
