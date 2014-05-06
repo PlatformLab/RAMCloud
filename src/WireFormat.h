@@ -462,6 +462,7 @@ struct CreateIndex {
         uint64_t tableId;
         uint8_t indexType;
         uint8_t indexId;
+        uint8_t numIndexlets;
     } __attribute__((packed));
     struct Response {
         ResponseCommon common;
