@@ -244,7 +244,8 @@ Object::appendValueToBuffer(Buffer& buffer, uint32_t valueOffset)
 
     Buffer* sourceBuffer = keysAndValueBuffer;
 
-    Buffer::Iterator it(*sourceBuffer, keysAndValueOffset + valueOffset, getValueLength());
+    Buffer::Iterator it(*sourceBuffer, keysAndValueOffset + valueOffset,
+                        getValueLength());
     while (!it.isDone()) {
         buffer.append(it.getData(), it.getLength());
         it.next();

@@ -181,8 +181,9 @@ TableManager::createTable(const char* name, uint32_t serverSpan)
  *      Id of the secondary key on which the index is being built
  * \param indexType
  *      Type of the index.
- * \param indexTableId
- *      Id of the table that will hold objects for this index (indexlet)
+ * \param numIndexlets
+ *      Number of indexlets for the given index. Used to retrieve the indexlet
+ *      table which are already initialized.
  *
  * \return
  *      True if the index was created.
@@ -196,16 +197,15 @@ TableManager::createIndex(uint64_t tableId, uint8_t indexId, uint8_t indexType,
 
     IdMap::iterator it = idMap.find(tableId);
     if (it == idMap.end()) {
-        //TODO(ashgup): convert log to test log messages, in dropIndex too
         //TODO(ashgup): throw TableDoesntExistException
-        LOG(NOTICE, "Cannot find table '%lu'", tableId);
+        RAMCLOUD_LOG(NOTICE, "Cannot find table '%lu'", tableId);
         return false;
     }
 
     Table* table = it->second;
     //search if the index already exists for the table
     if (table->indexMap[indexId]){
-        LOG(NOTICE, "Index %u already exists for table '%lu'",
+        RAMCLOUD_LOG(NOTICE, "Index %u already exists for table '%lu'",
                                                     indexId, tableId);
         return false;
     }
@@ -214,7 +214,7 @@ TableManager::createIndex(uint64_t tableId, uint8_t indexId, uint8_t indexType,
     Index* index = new Index(tableId, indexId, indexType);
 
     try{
-        for (uint8_t i=0; i<numIndexlets; i++){
+        for (uint8_t i = 0; i < numIndexlets; i++){
             string indexTableName;
             indexTableName.append(
                 format("__indexTable:%lu:%d:%d", tableId, indexId, i));
@@ -241,19 +241,17 @@ TableManager::createIndex(uint64_t tableId, uint8_t indexId, uint8_t indexType,
             }
 
             Indexlet *indexlet;
-            if (numIndexlets==1){
-                char firstKey = 'a';
-                char firstNotOwnedKey = 'z';
+            if (numIndexlets == 1){
+                char firstKey = 33; // character -> (!)
+                char firstNotOwnedKey = 126; // character -> (~)
                 indexlet = new Indexlet(
                             reinterpret_cast<void *>(&firstKey),
                             1, reinterpret_cast<void *>(&firstNotOwnedKey),
                             1, tabletMaster, indexletTableId);
-            }
-            else{
-                //TODO(slik): for first and last index, have null
-
-                char firstKey = (char)('a'+i);
-                char firstNotOwnedKey = (char)('b'+i);
+            } else {
+                //TODO(ashgup): harcoded index key space, generalize
+                char firstKey = static_cast<char>('a'+i);
+                char firstNotOwnedKey = static_cast<char>('b'+i);
                 indexlet = new Indexlet(
                             reinterpret_cast<void *>(&firstKey),
                             1, reinterpret_cast<void *>(&firstNotOwnedKey),
@@ -367,8 +365,9 @@ TableManager::dropTable(const char* name)
  *      Id of the table to which the index belongs
  * \param indexId
  *      Id of the secondary key on which the index is being built
-* \return
- *      True if the index was dropped. False if cannot find the table or index.
+ * \return
+ *      Returns the number of indexlets which exist corresponding to the
+ *      dropped index. If index or table doesn't exist, return 0.
  */
 uint8_t
 TableManager::dropIndex(uint64_t tableId, uint8_t indexId)
@@ -377,13 +376,14 @@ TableManager::dropIndex(uint64_t tableId, uint8_t indexId)
 
     IdMap::iterator it = idMap.find(tableId);
     if (it == idMap.end()){
-        LOG(NOTICE, "Cannot find table '%lu'", tableId);
+        RAMCLOUD_LOG(NOTICE, "Cannot find table '%lu'", tableId);
         return 0;
     }
     Table* table = it->second;
 
     if (!table->indexMap[indexId]){
-        LOG(NOTICE, "Cannot find index '%u' for table '%lu'", indexId, tableId);
+        RAMCLOUD_LOG(NOTICE, "Cannot find index '%u' for table '%lu'",
+                    indexId, tableId);
         return 0;
     }
     Index* index = table->indexMap[indexId];
@@ -666,8 +666,7 @@ TableManager::serializeTableConfig(ProtoBuf::TableConfig* tableConfig,
                 entry.set_start_key(string(
                                     reinterpret_cast<char*>(indexlet->firstKey),
                                     indexlet->firstKeyLength));
-            }
-            else{
+            } else {
                 entry.set_start_key("");
             }
 
@@ -675,8 +674,7 @@ TableManager::serializeTableConfig(ProtoBuf::TableConfig* tableConfig,
                 entry.set_end_key(string(
                         reinterpret_cast<char*>(indexlet->firstNotOwnedKey),
                         indexlet->firstNotOwnedKeyLength));
-            }
-            else{
+            } else {
                 entry.set_end_key("");
             }
 

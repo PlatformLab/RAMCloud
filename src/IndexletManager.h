@@ -25,7 +25,6 @@
 #include "Indexlet.h"
 #include "IndexKey.h"
 #include "ObjectManager.h"
-//#include "btree/BtreeMultimap.h"
 #include "btreeRamCloud/BtreeMultimap.h"
 
 namespace RAMCloud {
@@ -153,20 +152,20 @@ class IndexletManager {
             return *this;
         }
 
-        // Attributes of the b+ tree used for holding the indexes
+        // Attributes of the b+ tree used for holding the indexes.
+        // Note: traits are not currently used during btree initialization.
         template <typename KeyType>
         struct traits_nodebug : str::btree_default_set_traits<KeyType>
         {
             static const bool selfverify = false;
             static const bool debug = false;
 
-            static const int leafslots = 128;
-            static const int innerslots = 128;
+            static const int leafslots = 8;
+            static const int innerslots = 8;
         };
 
         Btree *bt;
 
-        /// TODO(SLIK): rename this
         /// Mutex to protect the indexlet from concurrent access.
         /// A lock for this mutex MUST be held to read or modify any state in
         /// the indexlet.

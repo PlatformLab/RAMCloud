@@ -1235,7 +1235,6 @@ ObjectManager::flushEntriesToLog(Buffer *logBuffer, uint32_t& numEntries)
                        &currentReference, &currentHashTableEntry)) {
 
                 if (currentType == LOG_ENTRY_TYPE_OBJTOMB) {
-RAMCLOUD_LOG(ERROR, "Removing if tombstone in B-tree");
                     removeIfTombstone(currentReference.toInteger(), this);
                     objectMap.insert(key.getHash(), references[i].toInteger());
                 }

@@ -69,7 +69,7 @@ IndexletManager::addIndexlet(
     }
 
     Btree* bt = new Btree(indexletTableId, objectManager);
-    //Btree* bt = new Btree();
+
     indexletMap.emplace(std::make_pair(tableId, indexId), Indexlet(firstKey,
                 firstKeyLength, firstNotOwnedKey, firstNotOwnedKeyLength, bt));
 
@@ -288,6 +288,10 @@ IndexletManager::insertEntry(uint64_t tableId, uint8_t indexId,
 {
     Lock indexletMapLock(indexletMapMutex);
 
+    RAMCLOUD_LOG(DEBUG, "Inserting: tableId %lu, indexId %u, hash %lu,\n"
+                        "key: %s", tableId, indexId, pKHash,
+                        Util::hexDump(key, keyLength).c_str());
+
     IndexletMap::iterator it =
             lookupIndexlet(tableId, indexId, key, keyLength, indexletMapLock);
     if (it == indexletMap.end()) {
@@ -300,12 +304,8 @@ IndexletManager::insertEntry(uint64_t tableId, uint8_t indexId,
     indexletMapLock.unlock();
 
     KeyAndHash keyAndHash = {key, keyLength, pKHash};
-
-    RAMCLOUD_LOG(DEBUG, "Inserting: tableId %lu, indexId %u, key: %s",
-                        tableId, indexId,
-                        string((char*)key, keyLength).c_str());
-
     indexlet->bt->insert(keyAndHash, pKHash);
+
     return STATUS_OK;
 }
 
@@ -486,6 +486,10 @@ IndexletManager::removeEntry(uint64_t tableId, uint8_t indexId,
 {
     Lock indexletMapLock(indexletMapMutex);
 
+    RAMCLOUD_LOG(DEBUG, "Removing: tableId %lu, indexId %u, hash %lu,\n"
+                        "key: %s", tableId, indexId, pKHash,
+                        Util::hexDump(key, keyLength).c_str());
+
     IndexletMap::iterator it =
             lookupIndexlet(tableId, indexId, key, keyLength, indexletMapLock);
     if (it == indexletMap.end())
@@ -493,29 +497,23 @@ IndexletManager::removeEntry(uint64_t tableId, uint8_t indexId,
 
     Indexlet* indexlet = &it->second;
 
-    RAMCLOUD_LOG(DEBUG, "Removing: tableId %lu, indexId %u, key: %s",
-                        tableId, indexId,
-                        string((char*)key, keyLength).c_str());
-
     Lock indexletLock(indexlet->indexletMutex);
     indexletMapLock.unlock();
 
     // Note that we don't have to explicitly compare the key hash in value
     // since it is also a part of the key that gets compared in the tree
     // module
-    if(indexlet->bt->erase_one(KeyAndHash {key, keyLength, pKHash})){
+    if (indexlet->bt->erase_one(KeyAndHash {key, keyLength, pKHash})) {
         RAMCLOUD_LOG(DEBUG, "remove succeed: tableId %lu, indexId %u, key: %s",
-                        tableId, indexId,
-                        string((char*)key, keyLength).c_str());
+                    tableId, indexId, Util::hexDump(key, keyLength).c_str());
 
         return STATUS_OK;
     }
 
-    // code should not reach here ideally but if it does, we ignore it because we allow
-    // for garbage in the indexlet
+    // code should not reach here ideally but if it does, we ignore it because
+    // we allow for garbage in the indexlet
     RAMCLOUD_LOG(DEBUG, "remove failed: tableId %lu, indexId %u, key: %s",
-                        tableId, indexId,
-                        string((char*)key, keyLength).c_str());
+                    tableId, indexId, Util::hexDump(key, keyLength).c_str());
 
     return STATUS_OK;
 }
