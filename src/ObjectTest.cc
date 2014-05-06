@@ -447,6 +447,21 @@ TEST_F(ObjectTest, assembleForLog_contigMemory) {
 
 }
 
+TEST_F(ObjectTest, appendValueToBuffer) {
+    for (uint32_t i = 0; i < arrayLength(objects); i++) {
+        Object& object = *objects[i];
+        Buffer buffer;
+        uint16_t valueOffset = 0;
+        object.getValueOffset(&valueOffset);
+        EXPECT_EQ(16U, valueOffset);
+
+        object.appendValueToBuffer(buffer, valueOffset);
+        EXPECT_EQ(4U, buffer.getTotalLength());
+        EXPECT_EQ("YO!", string(reinterpret_cast<const char*>(
+                        buffer.getRange(0, 4))));
+    }
+}
+
 TEST_F(ObjectTest, appendKeysAndValueToBuffer) {
     for (uint32_t i = 0; i < arrayLength(objects); i++) {
         Object& object = *objects[i];

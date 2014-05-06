@@ -47,7 +47,7 @@ class IndexletManager {
     /// Structure used as the key for key-value pairs in the indexlet tree.
     struct KeyAndHash {
         /// Actual bytes of the index key.
-        void* key;
+        char key[40];
         /// Length of index key.
         uint16_t keyLength;
         /// Primary key hash of the object the index key points to.
@@ -64,44 +64,27 @@ class IndexletManager {
         {}
 
         KeyAndHash(const void *key, uint16_t keyLength, uint64_t pKHash)
-        : key(NULL)
+        : key()
         , keyLength(keyLength)
         , pKHash(pKHash)
         {
-            if (keyLength != 0){
-                this->key = malloc(keyLength);
-                memcpy(this->key, key, keyLength);
-            }
+            memcpy(this->key, key, keyLength);
         }
 
         KeyAndHash(const KeyAndHash& keyAndHash)
-        : key(NULL)
+        : key()
         , keyLength(keyAndHash.keyLength)
         , pKHash(keyAndHash.pKHash)
         {
-            if (keyLength != 0){
-                this->key = malloc(keyLength);
-                memcpy(this->key, keyAndHash.key, keyLength);
-            }
+            memcpy(this->key, keyAndHash.key, keyLength);
         }
 
         KeyAndHash& operator =(const KeyAndHash& keyAndHash)
         {
-            this->key = NULL;
             this->keyLength = keyAndHash.keyLength;
             this->pKHash = keyAndHash.pKHash;
-
-            if (keyLength != 0){
-                this->key = malloc(keyLength);
-                memcpy(this->key, keyAndHash.key, keyLength);
-            }
+            memcpy(this->key, keyAndHash.key, keyLength);
             return *this;
-        }
-
-        ~KeyAndHash()
-        {
-            if (keyLength != 0)
-                free(key);
         }
     };
 
@@ -169,7 +152,8 @@ class IndexletManager {
             return *this;
         }
 
-        // Attributes of the b+ tree used for holding the indexes
+        // Attributes of the b+ tree used for holding the indexes.
+        // Note: traits are not currently used during btree initialization.
         template <typename KeyType>
         struct traits_nodebug : str::btree_default_set_traits<KeyType>
         {
@@ -185,7 +169,7 @@ class IndexletManager {
         /// Mutex to protect the indexlet from concurrent access.
         /// A lock for this mutex MUST be held to read or modify any state in
         /// the indexlet.
-        mutable std::mutex indexletMutex;
+        SpinLock indexletMutex;
     };
 
     explicit IndexletManager(Context* context, ObjectManager* objectManager);
@@ -234,7 +218,7 @@ class IndexletManager {
     /// Lock type used to hold the mutex.
     /// This lock can be released explicitly in the code, but will be
     /// automatically released at the end of a function if not done explicitly.
-    typedef std::unique_lock<std::mutex> Lock;
+    typedef std::unique_lock<SpinLock> Lock;
 
   PRIVATE:
     /// Shared RAMCloud information.
@@ -260,7 +244,7 @@ class IndexletManager {
     /// Mutex to protect the indexletMap from concurrent access.
     /// A lock for this mutex MUST be held to read or modify any state in
     /// the indexletMap.
-    mutable std::mutex indexletMapMutex;
+    SpinLock indexletMapMutex;
 
     /// Object Manager to handle mapping of index as objects
     ObjectManager* objectManager;
