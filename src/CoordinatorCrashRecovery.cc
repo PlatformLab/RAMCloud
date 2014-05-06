@@ -458,12 +458,21 @@ startServer(struct localState *state)
     FILE *fp = popen((const char *) "python ../scripts/startserver.py"
                 " -d ./logs/shm &", "r");
     if (!fp) {
-        RAMCLOUD_LOG(ERROR, "Error in runnings script startserver.py");
+        RAMCLOUD_LOG(ERROR,
+                     "Couldn't open ../scripts/startserver.py: %s",
+                     strerror(errno));
         return;
     }
-    fscanf(fp, "%s", locator);
-    while (!feof(fp))
-        fscanf(fp, "%s", locator);
+    if (fscanf(fp, "%s", locator) < 0) {
+        RAMCLOUD_LOG(ERROR,
+            "Couldn't find service locator string in script startserver.py");
+        return;
+    }
+    // Try to find the last locator value in startserver.py.
+    while (!feof(fp)) {
+        if (fscanf(fp, "%s", locator) < 0)
+            break;
+    }
     pclose(fp);
     //if (strlen(locator) > 5) {
     if (strcmp(locator, "NOSERVER")) {
