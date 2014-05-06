@@ -69,6 +69,7 @@ IndexletManager::addIndexlet(
     }
 
     Btree* bt = new Btree(indexletTableId, objectManager);
+
     indexletMap.emplace(std::make_pair(tableId, indexId), Indexlet(firstKey,
                 firstKeyLength, firstNotOwnedKey, firstNotOwnedKeyLength, bt));
 
@@ -288,14 +289,15 @@ IndexletManager::insertEntry(uint64_t tableId, uint8_t indexId,
     Lock indexletMapLock(indexletMapMutex);
 
     RAMCLOUD_LOG(DEBUG, "Inserting: tableId %lu, indexId %u, hash %lu,\n"
-                        "key: %s",
-                        tableId, indexId, pKHash,
+                        "key: %s", tableId, indexId, pKHash,
                         Util::hexDump(key, keyLength).c_str());
 
     IndexletMap::iterator it =
             lookupIndexlet(tableId, indexId, key, keyLength, indexletMapLock);
-    if (it == indexletMap.end())
+    if (it == indexletMap.end()) {
+        RAMCLOUD_LOG(DEBUG, "unknown indexlet\n");
         return STATUS_UNKNOWN_INDEXLET;
+    }
     Indexlet* indexlet = &it->second;
 
     Lock indexletLock(indexlet->indexletMutex);
@@ -485,8 +487,7 @@ IndexletManager::removeEntry(uint64_t tableId, uint8_t indexId,
     Lock indexletMapLock(indexletMapMutex);
 
     RAMCLOUD_LOG(DEBUG, "Removing: tableId %lu, indexId %u, hash %lu,\n"
-                        "key: %s",
-                        tableId, indexId, pKHash,
+                        "key: %s", tableId, indexId, pKHash,
                         Util::hexDump(key, keyLength).c_str());
 
     IndexletMap::iterator it =
@@ -502,7 +503,17 @@ IndexletManager::removeEntry(uint64_t tableId, uint8_t indexId,
     // Note that we don't have to explicitly compare the key hash in value
     // since it is also a part of the key that gets compared in the tree
     // module
-    indexlet->bt->erase_one(KeyAndHash {key, keyLength, pKHash});
+    if (indexlet->bt->erase_one(KeyAndHash {key, keyLength, pKHash})) {
+        RAMCLOUD_LOG(DEBUG, "remove succeed: tableId %lu, indexId %u, key: %s",
+                    tableId, indexId, Util::hexDump(key, keyLength).c_str());
+
+        return STATUS_OK;
+    }
+
+    // code should not reach here ideally but if it does, we ignore it because
+    // we allow for garbage in the indexlet
+    RAMCLOUD_LOG(DEBUG, "remove failed: tableId %lu, indexId %u, key: %s",
+                    tableId, indexId, Util::hexDump(key, keyLength).c_str());
 
     return STATUS_OK;
 }

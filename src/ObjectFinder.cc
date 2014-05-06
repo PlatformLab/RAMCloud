@@ -303,9 +303,10 @@ ObjectFinder::lookupIndexlet(uint64_t tableId, uint8_t indexId,
             return indexlet;
         }
 
-        if (count == 0)
+        if (count == 0){
             tableConfigFetcher->getTableConfig(tableId, &tableMap,
                                                             &tableIndexMap);
+        }
     }
     return NULL;
 }

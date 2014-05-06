@@ -103,7 +103,7 @@ TEST_F(IndexletManagerTest, addIndexlet) {
     EXPECT_FALSE(im.addIndexlet(0, 0, indexletTableId + 4, key1.c_str(),
         (uint16_t)key1.length(), key3.c_str(), (uint16_t)key3.length()));
 
-    std::mutex indexletMapMutex;
+    SpinLock indexletMapMutex;
     IndexletManager::Lock fakeGuard(indexletMapMutex);
     IndexletManager::Indexlet* indexlet = &im.lookupIndexlet(0, 0, key2.c_str(),
         (uint16_t)key2.length(), fakeGuard)->second;
