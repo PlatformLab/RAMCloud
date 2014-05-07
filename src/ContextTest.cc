@@ -1,4 +1,5 @@
 /* Copyright (c) 2011 Facebook
+ * Copyright (c) 2011-2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -28,6 +29,7 @@ TEST(Context, constructor) {
     EXPECT_TRUE(context.transportManager != NULL);
     EXPECT_TRUE(context.serviceManager != NULL);
     EXPECT_TRUE(context.coordinatorSession != NULL);
+    EXPECT_TRUE(context.timeTrace != NULL);
     mockContextMemberThrowException = 2;
     TestLog::reset();
     EXPECT_THROW(Context inner(false), Exception);

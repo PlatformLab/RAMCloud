@@ -89,6 +89,10 @@ class RamCloud {
             const void* firstKey, uint16_t firstKeyLength,
             const void* lastKey, uint16_t lastKeyLength,
             Buffer* response, uint32_t* numObjects);
+    void indexServerControl(uint64_t tableId, uint8_t indexId,
+            const void* key, uint16_t keyLength,
+            WireFormat::ControlOp controlOp,
+            const void* inputData, uint32_t inputLength, Buffer* outputData);
     void lookupIndexKeys(uint64_t tableId, uint8_t indexId,
             const void* firstKey, uint16_t firstKeyLength,
             uint64_t firstAllowedKeyHash,
@@ -406,6 +410,21 @@ class IndexedReadRpc : public ObjectRpcWrapper {
 
   PRIVATE:
     DISALLOW_COPY_AND_ASSIGN(IndexedReadRpc);
+};
+
+/**
+ * Encapsulates the state of a RamCloud::indexServerControl operation,
+ * allowing it to execute asynchronously.
+ */
+class IndexServerControlRpc : public IndexRpcWrapper {
+  public:
+    IndexServerControlRpc(RamCloud* ramcloud, uint64_t tableId, uint8_t indexId,
+        const void* key, uint16_t keyLength, WireFormat::ControlOp controlOp,
+        const void* inputData, uint32_t inputLength, Buffer* outputData);
+    ~IndexServerControlRpc() {}
+    void wait();
+  PRIVATE:
+    DISALLOW_COPY_AND_ASSIGN(IndexServerControlRpc);
 };
 
 /**

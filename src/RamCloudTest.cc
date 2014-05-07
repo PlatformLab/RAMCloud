@@ -425,6 +425,16 @@ TEST_F(RamCloudTest, increment) {
     EXPECT_EQ("STATUS_INVALID_OBJECT", message);
 }
 
+TEST_F(RamCloudTest, indexServerControl) {
+    Buffer output;
+    TestLog::Enable _("createIndex");
+    ramcloud->createIndex(tableId1, 2, 0);
+    EXPECT_EQ("createIndex: Creating table '1' index '2'", TestLog::get());
+    ramcloud->indexServerControl(tableId1, 2, "0", 1,
+            WireFormat::GET_TIME_TRACE, "abc", 3, &output);
+    EXPECT_EQ("No events to print", TestUtil::toString(&output));
+}
+
 TEST_F(RamCloudTest, quiesce) {
     ServerConfig config = ServerConfig::forTesting();
     config.services = {WireFormat::BACKUP_SERVICE, WireFormat::PING_SERVICE};

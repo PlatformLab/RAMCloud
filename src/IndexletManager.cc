@@ -70,6 +70,7 @@ IndexletManager::addIndexlet(
     }
 
     Btree* bt = new Btree(indexletTableId, objectManager, higestUsedId);
+
     indexletMap.insert(std::make_pair(std::make_pair(tableId, indexId),
                        Indexlet(firstKey, firstKeyLength, firstNotOwnedKey,
                                 firstNotOwnedKeyLength, bt)));
