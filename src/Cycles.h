@@ -1,4 +1,4 @@
-/* Copyright (c) 2011 Stanford University
+/* Copyright (c) 2011-2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -63,6 +63,26 @@ class Cycles {
     /// Used for testing: if nonzero then this will be returned as the result
     /// of the next call to rdtsc().
     static uint64_t mockTscValue;
+
+    /// Used for testing: if nonzero, then this is used to convert from
+    /// cycles to seconds, instead of cyclesPerSec above.
+    static double mockCyclesPerSec;
+
+    /**
+     * Returns the conversion factor between cycles in seconds, using
+     * a mock value for testing when appropriate.
+     */
+    static __inline __attribute__((always_inline))
+    double
+    getCyclesPerSec()
+    {
+#if TESTING
+        if (mockCyclesPerSec != 0.0) {
+            return mockCyclesPerSec;
+        }
+#endif
+        return cyclesPerSec;
+    }
 };
 
 } // end RAMCloud
