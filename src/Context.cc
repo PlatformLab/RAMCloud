@@ -1,5 +1,5 @@
 /* Copyright (c) 2011 Facebook
- * Copyright (c) 2011-2013 Stanford University
+ * Copyright (c) 2011-2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -23,6 +23,7 @@
 #include "SessionAlarm.h"
 #include "PortAlarm.h"
 #include "TableManager.h"
+#include "TimeTrace.h"
 #include "TransportManager.h"
 
 namespace RAMCloud {
@@ -70,6 +71,7 @@ Context::Context(bool hasDedicatedDispatchThread)
     , sessionAlarmTimer(NULL)
     , portAlarmTimer(NULL)
     , coordinatorSession(NULL)
+    , timeTrace(NULL)
     , externalStorage(NULL)
     , masterService(NULL)
     , backupService(NULL)
@@ -83,6 +85,7 @@ Context::Context(bool hasDedicatedDispatchThread)
 #if TESTING
         mockContextMember1 = new MockContextMember(1);
 #endif
+        timeTrace = new TimeTrace();
         dispatch = new Dispatch(hasDedicatedDispatchThread);
 #if TESTING
         mockContextMember2 = new MockContextMember(2);
@@ -141,6 +144,9 @@ Context::destroy()
 
     delete dispatch;
     dispatch = NULL;
+
+    delete timeTrace;
+    timeTrace = NULL;
 
 #if TESTING
     delete mockContextMember1;

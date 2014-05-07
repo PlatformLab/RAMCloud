@@ -23,6 +23,7 @@
 #include "Object.h"
 #include "ProtoBuf.h"
 #include "ShortMacros.h"
+#include "TimeTrace.h"
 
 namespace RAMCloud {
 
@@ -1171,6 +1172,116 @@ IndexedReadRpc::wait(uint32_t* numObjects)
 }
 
 /**
+ * This RPC is similar to serverControl, except it directs the request
+ * at the server storing a particular indexlet.  This RPC is used to
+ * invoke a variety of miscellaneous operations on a server, such as
+ * starting and stopping special timing mechanisms, dumping metrics,
+ * and so on. Most of these operations are used only for testing. Each
+ * operation is defined by a specific opcode (controlOp) and an arbitrary
+ * chunk of input data. Not all operations require input data, and
+ * different operations use the input data in different ways.
+ * Each operation can also return an optional result of arbitrary size.
+ *
+ * \param tableId
+ *      Unique identifier for a particular table. Used to select the
+ *      server that will handle this operation.
+ * \param indexId
+ *      Id of an index within tableId.
+ * \param key
+ *      Secondary key within the index given by tableId and indexId. The
+ *      request will be sent to the server responsible for this key in the
+ *      selected index.
+ * \param keyLength
+ *      Length in bytes of key.
+ * \param controlOp
+ *      This defines the specific operation to be performed on the
+ *      remote server.
+ * \param inputData
+ *      Input data, such as additional parameters, specific for the
+ *      particular operation to be performed. Not all operations use
+ *      this information.
+ * \param inputLength
+ *      Size in bytes of the contents for the inputData.
+ * \param[out] outputData
+ *      A buffer that contains the return results, if any, from execution of the
+ *      control operation on the remote server.
+ */
+void
+RamCloud::indexServerControl(uint64_t tableId, uint8_t indexId,
+        const void* key, uint16_t keyLength, WireFormat::ControlOp controlOp,
+        const void* inputData, uint32_t inputLength, Buffer* outputData){
+    IndexServerControlRpc rpc(this, tableId, indexId, key, keyLength,
+            controlOp, inputData, inputLength, outputData);
+    rpc.wait();
+}
+
+/**
+ * Constructor for IndexServerControlRpc: initiates an RPC in the same way as
+ * #RamCloud::indexServerControl, but returns once the RPC has been initiated,
+ * without waiting for it to complete.
+ *
+ * \param ramcloud
+ *      The RAMCloud object that governs this RPC.
+ * \param tableId
+ *      Unique identifier for a particular table. Used to select the
+ *      server that will handle this operation.
+ * \param indexId
+ *      Id of an index within tableId.
+ * \param key
+ *      Secondary key within the index given by tableId and indexId. The
+ *      request will be sent to the server responsible for this key in the
+ *      selected index.
+ * \param keyLength
+ *      Length in bytes of key.
+ * \param controlOp
+ *      This defines the specific operation to be performed on the
+ *      remote server.
+ * \param inputData
+ *      Input data, such as additional parameters, specific for the
+ *      particular operation to be performed. Not all operations use
+ *      this information.
+ * \param inputLength
+ *      Size in bytes of the contents for the inputData.
+ * \param[out] outputData
+ *      A buffer that contains the return results, if any, from execution of the
+ *      control operation on the remote server.
+ */
+IndexServerControlRpc::IndexServerControlRpc(RamCloud* ramcloud,
+        uint64_t tableId, uint8_t indexId, const void* key, uint16_t keyLength,
+        WireFormat::ControlOp controlOp, const void* inputData,
+        uint32_t inputLength, Buffer* outputData)
+    : IndexRpcWrapper(ramcloud, tableId, indexId, key, keyLength,
+            sizeof(WireFormat::ServerControl::Response), outputData)
+{
+    outputData->reset();
+    WireFormat::ServerControl::Request* reqHdr(
+            allocHeader<WireFormat::ServerControl>());
+    reqHdr->inputLength = inputLength;
+    reqHdr->controlOp = controlOp;
+    request.append(inputData, inputLength);
+    send();
+}
+
+/**
+ * Waits for the RPC to complete, and returns the same results as
+ * #RamCloud::indexServerControl.
+ */
+void
+IndexServerControlRpc::wait()
+{
+    waitInternal(context->dispatch);
+    const WireFormat::ServerControl::Response* respHdr(
+            getResponseHeader<WireFormat::ServerControl>());
+    // Truncate the response Buffer so that it consists of nothing
+    // but the object data.
+    response->truncateFront(sizeof(*respHdr));
+    assert(respHdr->outputLength == response->getTotalLength());
+
+    if (respHdr->common.status != STATUS_OK)
+        ClientException::throwException(HERE, respHdr->common.status);
+}
+
+/**
  * Lookup objects with index keys corresponding to indexId in the
  * specified range or point.
  *
@@ -1875,8 +1986,6 @@ ServerControlRpc::wait()
     if (respHdr->common.status != STATUS_OK)
         ClientException::throwException(HERE, respHdr->common.status);
 }
-
-
 
 /**
  * Divide a tablet into two separate tablets.

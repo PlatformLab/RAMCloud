@@ -1,4 +1,4 @@
-/* Copyright (c) 2011 Stanford University
+/* Copyright (c) 2011-2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -25,6 +25,7 @@ namespace RAMCloud {
 
 double Cycles::cyclesPerSec = 0;
 uint64_t Cycles::mockTscValue = 0;
+double Cycles::mockCyclesPerSec = 0;
 static Initialize _(Cycles::init);
 
 /**
@@ -88,7 +89,7 @@ Cycles::init() {
 double
 Cycles::perSecond()
 {
-    return cyclesPerSec;
+    return getCyclesPerSec();
 }
 
 /**
@@ -108,7 +109,7 @@ double
 Cycles::toSeconds(uint64_t cycles, double cyclesPerSec)
 {
     if (cyclesPerSec == 0)
-        cyclesPerSec = Cycles::cyclesPerSec;
+        cyclesPerSec = getCyclesPerSec();
     return static_cast<double>(cycles)/cyclesPerSec;
 }
 
@@ -129,7 +130,7 @@ uint64_t
 Cycles::fromSeconds(double seconds, double cyclesPerSec)
 {
     if (cyclesPerSec == 0)
-        cyclesPerSec = Cycles::cyclesPerSec;
+        cyclesPerSec = getCyclesPerSec();
     return (uint64_t) (seconds*cyclesPerSec + 0.5);
 }
 
@@ -171,7 +172,7 @@ uint64_t
 Cycles::toNanoseconds(uint64_t cycles, double cyclesPerSec)
 {
     if (cyclesPerSec == 0)
-        cyclesPerSec = Cycles::cyclesPerSec;
+        cyclesPerSec = getCyclesPerSec();
     return (uint64_t) (1e09*static_cast<double>(cycles)/cyclesPerSec + 0.5);
 }
 
@@ -192,7 +193,7 @@ uint64_t
 Cycles::fromNanoseconds(uint64_t ns, double cyclesPerSec)
 {
     if (cyclesPerSec == 0)
-        cyclesPerSec = Cycles::cyclesPerSec;
+        cyclesPerSec = getCyclesPerSec();
     return (uint64_t) (static_cast<double>(ns)*cyclesPerSec/1e09 + 0.5);
 }
 

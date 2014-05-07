@@ -72,6 +72,7 @@ CLIENT_SRCFILES := \
 		   src/TestLog.cc \
 		   src/ThreadId.cc \
 		   src/TimeCounter.cc \
+		   src/TimeTrace.cc \
 		   src/Transport.cc \
 		   src/TransportManager.cc \
 		   src/UdpDriver.cc \

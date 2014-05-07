@@ -1,4 +1,5 @@
 /* Copyright (c) 2011 Facebook
+ * Copyright (c) 2011-2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -36,6 +37,7 @@ class ServiceManager;
 class SessionAlarmTimer;
 class PortAlarmTimer;
 class TableManager;
+class TimeTrace;
 class TransportManager;
 
 /**
@@ -82,6 +84,7 @@ class Context {
     SessionAlarmTimer* sessionAlarmTimer;
     PortAlarmTimer*    portAlarmTimer;
     CoordinatorSession* coordinatorSession;
+    TimeTrace* timeTrace;
 
     // Variables below this point are used only in servers.  They are
     // always NULL on clients.
