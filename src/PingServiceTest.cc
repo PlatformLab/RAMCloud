@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2013 Stanford University
+/* Copyright (c) 2011-2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -29,6 +29,7 @@
 #include "Tablets.pb.h"
 #include "Tub.h"
 #include "RamCloud.h"
+#include "TimeTrace.h"
 
 // Note: this file tests both PingService.cc and PingClient.cc.
 
@@ -294,6 +295,34 @@ TEST_F(PingServiceTest, serverControl_DispatchProfilerExceptions) {
                             WireFormat::DUMP_DISPATCH_PROFILE,
                             "FolderNotExisting/File.txt", 27, &output)
                 , RequestFormatError);
+}
+
+TEST_F(PingServiceTest, serverControl_getTimeTrace) {
+    uint64_t tableId = 2;
+    string locator = serverList.getLocator(serverId);
+    ramcloud->objectFinder.tableConfigFetcher.reset(
+                            new MockTableConfigFetcher(locator, tableId));
+    Buffer output;
+
+    context.timeTrace->record("sample");
+    ramcloud->serverControl(tableId, "0", 1, WireFormat::GET_TIME_TRACE,
+            "abc", 3, &output);
+    EXPECT_EQ("     0.0 ns (+   0.0 ns): sample",
+            TestUtil::toString(&output));
+}
+
+TEST_F(PingServiceTest, serverControl_logTimeTrace) {
+    uint64_t tableId = 2;
+    string locator = serverList.getLocator(serverId);
+    ramcloud->objectFinder.tableConfigFetcher.reset(
+                            new MockTableConfigFetcher(locator, tableId));
+    Buffer output;
+
+    context.timeTrace->record("sample");
+    ramcloud->serverControl(tableId, "0", 1, WireFormat::LOG_TIME_TRACE,
+                "abc", 3, &output);
+    EXPECT_EQ("printInternal:      0.0 ns (+   0.0 ns): sample",
+            TestLog::get());
 }
 
 } // namespace RAMCloud

@@ -131,6 +131,8 @@ enum ControlOp {
     START_DISPATCH_PROFILER     = 1000,
     STOP_DISPATCH_PROFILER      = 1001,
     DUMP_DISPATCH_PROFILE       = 1002,
+    GET_TIME_TRACE              = 1003,
+    LOG_TIME_TRACE              = 1004,
 };
 
 /**

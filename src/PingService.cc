@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2013 Stanford University
+/* Copyright (c) 2011-2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -23,6 +23,7 @@
 #include "PingClient.h"
 #include "PingService.h"
 #include "ServerList.h"
+#include "TimeTrace.h"
 
 namespace RAMCloud {
 
@@ -175,6 +176,20 @@ PingService::serverControl(const WireFormat::ServerControl::Request* reqHdr,
                 respHdr->common.status = STATUS_REQUEST_FORMAT_ERROR;
                 return;
             }
+        }
+        case WireFormat::GET_TIME_TRACE:
+        {
+            string s = context->timeTrace->getTrace();
+            size_t length = s.length();
+            memcpy(new(rpc->replyPayload, APPEND) char[length], s.c_str(),
+                    length);
+            respHdr->outputLength = downCast<uint32_t>(length);
+            break;
+        }
+        case WireFormat::LOG_TIME_TRACE:
+        {
+            context->timeTrace->printToLog();
+            break;
         }
         default:
             respHdr->common.status = STATUS_UNIMPLEMENTED_REQUEST;
