@@ -1,4 +1,4 @@
-/* Copyright (c) 2010 Stanford University
+/* Copyright (c) 2010-2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -499,29 +499,75 @@ class Buffer {
     virtual ~Buffer();
 
     /**
-     * Convenience function that invokes Buffer::Chunk::appendToBuffer
-     * on this Buffer object.
+     * Appends a block of data to the buffer. The data is not copied;
+     * the buffer will refer to the source block, so the caller must
+     * ensure that the source of data remains intact for the lifetime
+     * of the buffer.
+     *
+     * \param data
+     *      Address of first byte of data to append to the buffer.
+     * \param length
+     *      Number of bytes of data to append.
+     * \return
+     *      The Chunk containing the new data.
      */
-    Chunk*
+    inline Chunk*
     append(const void* data, uint32_t length)
     {
         return Buffer::Chunk::appendToBuffer(this, data, length);
     }
 
     /**
-     * Convenience method that invokes Buffer::Chunk::appendToBuffer.
-     * on this Buffer object, appending the entire given buffer to it.
+     * Append the contents of another buffer to this buffer. This is a virtual
+     * append, in that the data is not copied; this buffer will store
+     * references to the data in src. The caller must ensure that the data
+     * in src remains stable for the lifetime of this buffer.
      *
      * \param[in] src
-     *      The buffer whose data will be appended to this Buffer.
+     *      The buffer whose data will be appended to the local buffer.
      * \param[in] offset
-     *      The offset in the source buffer from where data has to be copied.
+     *      The offset of the first byte in src to be appended. All data
+     *      from this offset to the end of src will be appended.
      */
-    void
+    inline void
     append(Buffer* src, uint32_t offset = 0)
     {
         Buffer::Chunk::appendToBuffer(this, src, offset, src->getTotalLength());
     }
+
+    /**
+     * Makes a copy of a block of data and appends that copy to the
+     * end of the buffer. The copy is stored as part of the buffer structure;
+     * any additional storage needed for it will be reclaimed when the
+     * buffer is destroyed.
+     *
+     * \param data
+     *      Address of first byte of data to append to the buffer.
+     * \param length
+     *      Number of bytes of data to append.
+     */
+    inline void
+    appendCopy(const void* data, uint32_t length)
+    {
+        char* copy = new(this, APPEND) char[length];
+        memcpy(copy, data, length);
+    }
+
+    /**
+     * Makes a copy of an object and appends that copy to the end of the
+     * buffer. The copy is stored as part of the buffer structure;
+     * any additional storage needed for it will be reclaimed when the
+     * buffer is destroyed.
+     *
+     * \param  object
+     *      An object to append to the buffer..
+     */
+    template<typename T> inline void
+    appendCopy(const T* object)
+    {
+        memcpy(new(this, APPEND) T, object, sizeof(T));
+    }
+
 
     /**
      * Convenience method that invokes Buffer::Chunk::prependToBuffer
