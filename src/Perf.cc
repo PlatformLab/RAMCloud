@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2012 Stanford University
+/* Copyright (c) 2011-2014 Stanford University
  * Copyright (c) 2011 Facebook
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -69,6 +69,21 @@ void bindThreadToCpu(int cpu)
     CPU_ZERO(&set);
     CPU_SET(cpu, &set);
     sched_setaffinity((pid_t)syscall(SYS_gettid), sizeof(set), &set);
+}
+
+/*
+ * This function just discards its argument. It's used to make it
+ * appear that data is used,  so that the compiler won't optimize
+ * away the code we're trying to measure.
+ *
+ * \param value
+ *      Pointer to arbitrary value; it's discarded.
+ */
+void discard(void* value) {
+    int x = *reinterpret_cast<int*>(value);
+    if (x == 0x43924776) {
+        printf("Value was 0x%x\n", x);
+    }
 }
 
 //----------------------------------------------------------------------
@@ -157,6 +172,77 @@ double bMutexNoBlock()
     for (int i = 0; i < count; i++) {
         m.lock();
         m.unlock();
+    }
+    uint64_t stop = Cycles::rdtsc();
+    return Cycles::toSeconds(stop - start)/count;
+}
+
+// Measure the cost of allocating and deallocating a buffer, plus
+// appending (virtually) one block.
+double bufferAppend1()
+{
+    int count = 1000000;
+    uint64_t start = Cycles::rdtsc();
+    for (int i = 0; i < count; i++) {
+        Buffer b;
+        b.append("abcdefg", 5);
+    }
+    uint64_t stop = Cycles::rdtsc();
+    return Cycles::toSeconds(stop - start)/count;
+}
+
+// Measure the cost of allocating and deallocating a buffer, plus
+// appending (virtually) 10 blocks.
+double bufferAppend10()
+{
+    int count = 1000000;
+    uint64_t start = Cycles::rdtsc();
+    for (int i = 0; i < count; i++) {
+        Buffer b;
+        b.append("1", 1);
+        b.append("2", 1);
+        b.append("3", 1);
+        b.append("4", 1);
+        b.append("5", 1);
+        b.append("6", 1);
+        b.append("7", 1);
+        b.append("8", 1);
+        b.append("9", 1);
+        b.append("10", 2);
+    }
+    uint64_t stop = Cycles::rdtsc();
+    return Cycles::toSeconds(stop - start)/count;
+}
+
+// Measure the cost of copying small chunks of data into a buffer.
+double bufferCopy()
+{
+    int count1 = 100;
+    int count2 = 1000;
+    Buffer b;
+    uint64_t total = 0;
+    for (int i = 0; i < count2; i++) {
+        b.reset();
+        uint64_t start = Cycles::rdtsc();
+        for (int j = 0; j < count1; j++) {
+            b.appendCopy("12345", 5);
+        }
+        total += Cycles::rdtsc() - start;
+    }
+    return Cycles::toSeconds(total)/(count2*count1);
+}
+
+// Measure the cost of retrieving an object from the beginning of a buffer.
+double bufferGetStart()
+{
+    int count = 1000000;
+    int value = 11;
+    Buffer b;
+    b.appendCopy(&value);
+    int sum = 0;
+    uint64_t start = Cycles::rdtsc();
+    for (int i = 0; i < count; i++) {
+        sum += *b.getStart<int>();
     }
     uint64_t stop = Cycles::rdtsc();
     return Cycles::toSeconds(stop - start)/count;
@@ -459,6 +545,26 @@ double lockNonDispThrd()
     uint64_t stop = Cycles::rdtsc();
     flag = 0;
     thread.join();
+    return Cycles::toSeconds(stop - start)/count;
+}
+
+// Measure the cost of copying 1000 bytes with memcpy.
+double memcpy1000()
+{
+    int count = 1000000;
+    char src[1000], dst[1000];
+    src[0] = src[999] = 5;
+
+    // The following variable is used to prevent the compiler from
+    // optimizing away the entire loop.
+    int sum = 0;
+    uint64_t start = Cycles::rdtsc();
+    for (int i = 0; i < count; i++) {
+        memcpy(dst, src, 1000);
+        sum += dst[999];
+    }
+    uint64_t stop = Cycles::rdtsc();
+    discard(&sum);
     return Cycles::toSeconds(stop - start)/count;
 }
 
@@ -908,6 +1014,14 @@ TestInfo tests[] = {
      "Atomic<int>::exchange"},
     {"bMutexNoBlock", bMutexNoBlock,
      "std::mutex lock/unlock (no blocking)"},
+    {"bufferAppend1", bufferAppend1,
+     "buffer alloc, virtual append"},
+    {"bufferAppend10", bufferAppend10,
+     "buffer alloc, 10 virtual appends"},
+    {"bufferCopy", bufferCopy,
+     "Buffer::appendCopy('abcde', 5)"},
+    {"bufferGetStart", bufferGetStart,
+     "Buffer::getStart"},
     {"condPingPong", condPingPong,
      "std::condition_variable round-trip"},
     {"cppAtomicExchg", cppAtomicExchange,
@@ -938,6 +1052,8 @@ TestInfo tests[] = {
      "Acquire/release Dispatch::Lock (in dispatch thread)"},
     {"lockNonDispThrd", lockNonDispThrd,
      "Acquire/release Dispatch::Lock (non-dispatch thread)"},
+    {"memcpy1000", memcpy1000,
+     "Copy 1000 bytes with memcpy"},
     {"murmur3", murmur3<1>,
      "128-bit MurmurHash3 (64-bit optimised) on 1 byte of data"},
     {"murmur3", murmur3<256>,
