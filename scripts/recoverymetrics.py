@@ -503,14 +503,14 @@ def makeReport(data):
     coordSection.ms('Completing recovery on backups',
         coord.coordinator.recoveryCompleteTicks / coord.clockFrequency,
         total=recoveryTime)
-    coordSection.ms('Get tablet map',
-        coord.rpc.get_tablet_mapTicks / coord.clockFrequency,
+    coordSection.ms('Get table config',
+        coord.rpc.get_table_configTicks / coord.clockFrequency,
         total=recoveryTime)
     coordSection.ms('Other',
         ((coord.coordinator.recoveryTicks -
           coord.coordinator.recoveryBuildReplicaMapTicks -
           coord.coordinator.recoveryStartTicks -
-          coord.rpc.get_tablet_mapTicks -
+          coord.rpc.get_table_configTicks -
           coord.rpc.recovery_master_finishedTicks) /
          coord.clockFrequency),
         total=recoveryTime)
