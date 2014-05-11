@@ -548,24 +548,32 @@ double lockNonDispThrd()
     return Cycles::toSeconds(stop - start)/count;
 }
 
-// Measure the cost of copying 1000 bytes with memcpy.
-double memcpy1000()
+// Measure the cost of copying a given number of bytes with memcpy.
+double memcpyShared(size_t size)
 {
     int count = 1000000;
-    char src[1000], dst[1000];
-    src[0] = src[999] = 5;
-
-    // The following variable is used to prevent the compiler from
-    // optimizing away the entire loop.
-    int sum = 0;
+    char src[size], dst[size];
     uint64_t start = Cycles::rdtsc();
     for (int i = 0; i < count; i++) {
-        memcpy(dst, src, 1000);
-        sum += dst[999];
+        memcpy(dst, src, size);
     }
     uint64_t stop = Cycles::rdtsc();
-    discard(&sum);
     return Cycles::toSeconds(stop - start)/count;
+}
+
+double memcpy100()
+{
+    return memcpyShared(100);
+}
+
+double memcpy1000()
+{
+    return memcpyShared(1000);
+}
+
+double memcpy10000()
+{
+    return memcpyShared(10000);
 }
 
 // Benchmark MurmurHash3 hashing performance on cached data.
@@ -1052,8 +1060,12 @@ TestInfo tests[] = {
      "Acquire/release Dispatch::Lock (in dispatch thread)"},
     {"lockNonDispThrd", lockNonDispThrd,
      "Acquire/release Dispatch::Lock (non-dispatch thread)"},
+    {"memcpy100", memcpy100,
+     "Copy 100 bytes with memcpy"},
     {"memcpy1000", memcpy1000,
      "Copy 1000 bytes with memcpy"},
+    {"memcpy10000", memcpy10000,
+     "Copy 10000 bytes with memcpy"},
     {"murmur3", murmur3<1>,
      "128-bit MurmurHash3 (64-bit optimised) on 1 byte of data"},
     {"murmur3", murmur3<256>,
