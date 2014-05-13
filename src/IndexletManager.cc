@@ -51,6 +51,9 @@ IndexletManager::IndexletManager(Context* context, ObjectManager* objectManager)
  *      for this indexlet.
  * \param firstNotOwnedKeyLength
  *      Length of firstNotOwnedKey.
+ * \param highestUsedId
+ *      The highest BTree Id that has been used in the indexletTable, which
+ *      is a BTree.
  * \return
  *      Returns true if successfully added, false if the indexlet cannot be
  *      added because it overlaps with one or more existing indexlets.
@@ -60,7 +63,7 @@ IndexletManager::addIndexlet(
                  uint64_t tableId, uint8_t indexId, uint64_t indexletTableId,
                  const void *firstKey, uint16_t firstKeyLength,
                  const void *firstNotOwnedKey, uint16_t firstNotOwnedKeyLength,
-                 uint64_t higestUsedId)
+                 uint64_t highestUsedId)
 {
     Lock indexletMapLock(indexletMapMutex);
 
@@ -69,7 +72,7 @@ IndexletManager::addIndexlet(
         return false;
     }
 
-    Btree* bt = new Btree(indexletTableId, objectManager, higestUsedId);
+    Btree* bt = new Btree(indexletTableId, objectManager, highestUsedId);
 
     indexletMap.insert(std::make_pair(std::make_pair(tableId, indexId),
                        Indexlet(firstKey, firstKeyLength, firstNotOwnedKey,

@@ -2213,9 +2213,9 @@ MasterService::recover(const WireFormat::Recover::Request* reqHdr,
     if (partitionId == ~0u)
         DIE("Recovery master %s got super secret partition id; killing self.",
             serverId.toString().c_str());
-    ProtoBuf::Tablets recoveryTablets;
+    ProtoBuf::RecoveryMsg recoveryMsg;
     ProtoBuf::parseFromResponse(rpc->requestPayload, sizeof(*reqHdr),
-                                reqHdr->tabletsLength, &recoveryTablets);
+                                reqHdr->tabletsLength, &recoveryMsg);
 
     uint32_t offset = sizeof32(*reqHdr) + reqHdr->tabletsLength;
     vector<Replica> replicas;
@@ -2233,7 +2233,7 @@ MasterService::recover(const WireFormat::Recover::Request* reqHdr,
         "recovering partition %lu (see user_data) of the following "
         "partitions:\n%s",
         recoveryId, crashedServerId.toString().c_str(), partitionId,
-        recoveryTablets.DebugString().c_str());
+        recoveryMsg.DebugString().c_str());
     rpc->sendReply();
 
     // reqHdr, respHdr, and rpc are off-limits now
@@ -2241,7 +2241,7 @@ MasterService::recover(const WireFormat::Recover::Request* reqHdr,
     // Install tablets we are recovering and mark them as such (we don't
     // own them yet).
     foreach (const ProtoBuf::Tablets::Tablet& newTablet,
-             recoveryTablets.tablet()) {
+             recoveryMsg.tablet()) {
         bool added = tabletManager.addTablet(newTablet.table_id(),
                                              newTablet.start_key_hash(),
                                              newTablet.end_key_hash(),
@@ -2272,8 +2272,8 @@ MasterService::recover(const WireFormat::Recover::Request* reqHdr,
     }
 
     // Install indexlets we are recovering
-    foreach (const ProtoBuf::Tablets::Indexlet& newIndexlet,
-             recoveryTablets.indexlet()) {
+    foreach (const ProtoBuf::Indexlets::Indexlet& newIndexlet,
+             recoveryMsg.indexlet()) {
         LOG(NOTICE, "Starting recovery %lu for crashed indexlet %d",
             recoveryId, newIndexlet.index_id());
         void* firstKey;
@@ -2300,8 +2300,8 @@ MasterService::recover(const WireFormat::Recover::Request* reqHdr,
             firstNotOwnedKeyLength = 0;
         }
 
-        LOG (NOTICE, "highestBTreeId = %lu",
-             tabletManager.getHighestBTreeId(newIndexlet.indexlettable_id()));
+        LOG(NOTICE, "highestBTreeId = %lu",
+            tabletManager.getHighestBTreeId(newIndexlet.indexlettable_id()));
         bool added =
             indexletManager.addIndexlet(newIndexlet.table_id(),
                                         (uint8_t)newIndexlet.index_id(),
@@ -2326,7 +2326,7 @@ MasterService::recover(const WireFormat::Recover::Request* reqHdr,
     // we'll only be owners if the call succeeds. It could fail if the
     // coordinator decided to recover these tablets elsewhere instead).
     foreach (ProtoBuf::Tablets::Tablet& tablet,
-             *recoveryTablets.mutable_tablet()) {
+             *recoveryMsg.mutable_tablet()) {
         LOG(NOTICE, "set tablet %lu %lu %lu to locator %s, id %s",
                  tablet.table_id(), tablet.start_key_hash(),
                  tablet.end_key_hash(), config->localLocator.c_str(),
@@ -2336,8 +2336,8 @@ MasterService::recover(const WireFormat::Recover::Request* reqHdr,
         tablet.set_ctime_log_head_id(headOfLog.getSegmentId());
         tablet.set_ctime_log_head_offset(headOfLog.getSegmentOffset());
     }
-    foreach (ProtoBuf::Tablets::Indexlet& indexlet,
-             *recoveryTablets.mutable_indexlet()) {
+    foreach (ProtoBuf::Indexlets::Indexlet& indexlet,
+             *recoveryMsg.mutable_indexlet()) {
         LOG(NOTICE, "set indexlet %lu to locator %s, id %s",
                  indexlet.table_id(), config->localLocator.c_str(),
                  serverId.toString().c_str());
@@ -2348,13 +2348,13 @@ MasterService::recover(const WireFormat::Recover::Request* reqHdr,
     LOG(NOTICE, "Reporting completion of recovery %lu", reqHdr->recoveryId);
     bool cancelRecovery =
         CoordinatorClient::recoveryMasterFinished(context, recoveryId,
-                                                  serverId, &recoveryTablets,
+                                                  serverId, &recoveryMsg,
                                                   successful);
     if (!cancelRecovery) {
         // Ok - we're expected to be serving now. Mark recovered tablets
         // as normal so we can handle clients.
         foreach (const ProtoBuf::Tablets::Tablet& tablet,
-                     recoveryTablets.tablet()) {
+                     recoveryMsg.tablet()) {
             bool changed = tabletManager.changeState(tablet.table_id(),
                                                      tablet.start_key_hash(),
                                                      tablet.end_key_hash(),
@@ -2374,7 +2374,7 @@ MasterService::recover(const WireFormat::Recover::Request* reqHdr,
         // If recovery failed then clean up all objects written by
         // recovery before starting to serve requests again.
         foreach (const ProtoBuf::Tablets::Tablet& tablet,
-                 recoveryTablets.tablet()) {
+                 recoveryMsg.tablet()) {
             bool deleted = tabletManager.deleteTablet(tablet.table_id(),
                                                       tablet.start_key_hash(),
                                                       tablet.end_key_hash());
@@ -2386,8 +2386,8 @@ MasterService::recover(const WireFormat::Recover::Request* reqHdr,
                         tablet.end_key_hash()));
             }
         }
-        foreach (const ProtoBuf::Tablets::Indexlet& indexlet,
-                 recoveryTablets.indexlet()) {
+        foreach (const ProtoBuf::Indexlets::Indexlet& indexlet,
+                 recoveryMsg.indexlet()) {
             void* firstKey;
             uint16_t firstKeyLength;
             void* firstNotOwnedKey;

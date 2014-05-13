@@ -408,7 +408,7 @@ BackupClient::StartPartitioningReplicas(Context* context,
                                ServerId backupId,
                                uint64_t recoveryId,
                                ServerId masterId,
-                               const ProtoBuf::Tablets* partitions)
+                               const ProtoBuf::RecoveryMsg* partitions)
 {
     StartPartitioningRpc rpc(context, backupId, recoveryId,
                             masterId, partitions);
@@ -438,11 +438,12 @@ BackupClient::StartPartitioningReplicas(Context* context,
  *      recovery segment for a particular replica each object should be placed
  *      in.
  */
-StartPartitioningRpc::StartPartitioningRpc(Context* context,
-                                         ServerId backupId,
-                                         uint64_t recoveryId,
-                                         ServerId masterId,
-                                         const ProtoBuf::Tablets* partitions)
+StartPartitioningRpc::StartPartitioningRpc(
+    Context* context,
+    ServerId backupId,
+    uint64_t recoveryId,
+    ServerId masterId,
+    const ProtoBuf::RecoveryMsg* partitions)
     : ServerIdRpcWrapper(context, backupId,
             sizeof(WireFormat::BackupStartPartitioningReplicas::Response))
 {

@@ -1908,15 +1908,18 @@ recoveryIndexlet()
                          &readResp, &numObjects);
     readOffset = sizeof32(WireFormat::IndexedRead::Response);
     for (unsigned int i = 0; i < numObjects; i++) {
-    	uint64_t version = *readResp.getOffset<uint64_t>(readOffset);
+        uint64_t version = *readResp.getOffset<uint64_t>(readOffset);
         readOffset += sizeof32(uint64_t);
         uint32_t length = *readResp.getOffset<uint32_t>(readOffset);
         readOffset += sizeof32(uint32_t);
         Object obj(dataTable, version, 0, readResp, readOffset, length);
         readOffset += length;
-        string objKey0((char*)obj.getKey(0), obj.getKeyLength(0));
-        string objKey1((char*)obj.getKey(1), obj.getKeyLength(1));
-        string objValue((char*)obj.getValue(), obj.getValueLength());
+        string objKey0(reinterpret_cast<const char*>(obj.getKey(0)),
+                       obj.getKeyLength(0));
+        string objKey1(reinterpret_cast<const char*>(obj.getKey(1)),
+                       obj.getKeyLength(1));
+        string objValue(reinterpret_cast<const char*>(obj.getValue()),
+                        obj.getValueLength());
         printf("key0 = %s, key1 = %s, val = %s\n", objKey0.c_str(),
                objKey1.c_str(), objValue.c_str());
     }
@@ -1958,15 +1961,18 @@ recoveryIndexlet()
                          &readResp, &numObjects);
     readOffset = sizeof32(WireFormat::IndexedRead::Response);
     for (unsigned int i = 0; i < numObjects; i++) {
-    	uint64_t version = *readResp.getOffset<uint64_t>(readOffset);
+        uint64_t version = *readResp.getOffset<uint64_t>(readOffset);
         readOffset += sizeof32(uint64_t);
         uint32_t length = *readResp.getOffset<uint32_t>(readOffset);
         readOffset += sizeof32(uint32_t);
         Object obj(dataTable, version, 0, readResp, readOffset, length);
         readOffset += length;
-        string objKey0((char*)obj.getKey(0), obj.getKeyLength(0));
-        string objKey1((char*)obj.getKey(1), obj.getKeyLength(1));
-        string objValue((char*)obj.getValue(), obj.getValueLength());
+        string objKey0(reinterpret_cast<const char*>(obj.getKey(0)),
+                       obj.getKeyLength(0));
+        string objKey1(reinterpret_cast<const char*>(obj.getKey(1)),
+                       obj.getKeyLength(1));
+        string objValue(reinterpret_cast<const char*>(obj.getValue()),
+                        obj.getValueLength());
         printf("key0 = %s, key1 = %s, val = %s\n", objKey0.c_str(),
                objKey1.c_str(), objValue.c_str());
     }
@@ -2027,15 +2033,18 @@ recoveryIndexletCheck()
                          &readResp, &numObjects);
     readOffset = sizeof32(WireFormat::IndexedRead::Response);
     for (unsigned int i = 0; i < numObjects; i++) {
-    	uint64_t version = *readResp.getOffset<uint64_t>(readOffset);
+        uint64_t version = *readResp.getOffset<uint64_t>(readOffset);
         readOffset += sizeof32(uint64_t);
         uint32_t length = *readResp.getOffset<uint32_t>(readOffset);
         readOffset += sizeof32(uint32_t);
         Object obj(dataTable, version, 0, readResp, readOffset, length);
         readOffset += length;
-        string objKey0((char*)obj.getKey(0), obj.getKeyLength(0));
-        string objKey1((char*)obj.getKey(1), obj.getKeyLength(1));
-        string objValue((char*)obj.getValue(), obj.getValueLength());
+        string objKey0(reinterpret_cast<const char*>(obj.getKey(0)),
+                       obj.getKeyLength(0));
+        string objKey1(reinterpret_cast<const char*>(obj.getKey(1)),
+                       obj.getKeyLength(1));
+        string objValue(reinterpret_cast<const char*>(obj.getValue()),
+                        obj.getValueLength());
         printf("key0 = %s, key1 = %s, val = %s\n", objKey0.c_str(),
                objKey1.c_str(), objValue.c_str());
     }

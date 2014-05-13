@@ -396,8 +396,8 @@ ReassignTabletOwnershipRpc::ReassignTabletOwnershipRpc(Context* context,
  *      be returned as given by the coordinator.
  * \param recoveryMasterId
  *      ServerId of the server invoking this method.
- * \param tablets
- *      The tablets in the partition that was recovered.
+ * \param recoveryMsg
+ *      The tablets and indexlets in the partition that was recovered.
  * \param successful
  *      Indicates to the coordinator whether this recovery master succeeded
  *      in recovering its partition of the crashed master. If false the
@@ -410,11 +410,11 @@ ReassignTabletOwnershipRpc::ReassignTabletOwnershipRpc(Context* context,
  */
 bool
 CoordinatorClient::recoveryMasterFinished(Context* context, uint64_t recoveryId,
-        ServerId recoveryMasterId, const ProtoBuf::Tablets* tablets,
+        ServerId recoveryMasterId, const ProtoBuf::RecoveryMsg* recoveryMsg,
         bool successful)
 {
     RecoveryMasterFinishedRpc rpc(context, recoveryId, recoveryMasterId,
-            tablets, successful);
+            recoveryMsg, successful);
     return rpc.wait();
 }
 
@@ -431,8 +431,8 @@ CoordinatorClient::recoveryMasterFinished(Context* context, uint64_t recoveryId,
  *      be returned as given by the coordinator.
  * \param recoveryMasterId
  *      ServerId of the server invoking this method.
- * \param tablets
- *      The tablets in the partition that was recovered.
+ * \param recoveryMsg
+ *      The tablets and indexlets in the partition that was recovered.
  * \param successful
  *      Indicates to the coordinator whether this recovery master succeeded
  *      in recovering its partition of the crashed master. If false the
@@ -441,7 +441,7 @@ CoordinatorClient::recoveryMasterFinished(Context* context, uint64_t recoveryId,
  */
 RecoveryMasterFinishedRpc::RecoveryMasterFinishedRpc(Context* context,
         uint64_t recoveryId, ServerId recoveryMasterId,
-        const ProtoBuf::Tablets* tablets, bool successful)
+        const ProtoBuf::RecoveryMsg* recoveryMsg, bool successful)
     : CoordinatorRpcWrapper(context,
             sizeof(WireFormat::RecoveryMasterFinished::Response))
 {
@@ -449,7 +449,7 @@ RecoveryMasterFinishedRpc::RecoveryMasterFinishedRpc(Context* context,
             allocHeader<WireFormat::RecoveryMasterFinished>());
     reqHdr->recoveryId = recoveryId;
     reqHdr->recoveryMasterId = recoveryMasterId.getId();
-    reqHdr->tabletsLength = serializeToRequest(&request, tablets);
+    reqHdr->tabletsLength = serializeToRequest(&request, recoveryMsg);
     reqHdr->successful = successful;
     send();
 }

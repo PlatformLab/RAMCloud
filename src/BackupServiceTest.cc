@@ -276,8 +276,13 @@ TEST_F(BackupServiceTest, getRecoveryData) {
         (1, 0, ~0lu, TabletsBuilder::RECOVERING, 0);
     auto results = BackupClient::startReadingData(&context, backupId,
                                                   456lu, {99, 0});
+    ProtoBuf::RecoveryMsg recoveryMsg;
+    for (int i = 0; i < tablets.tablet_size(); i++) {
+        ProtoBuf::Tablets::Tablet& tablet(*recoveryMsg.add_tablet());
+        tablet = tablets.tablet(i);
+    }
     BackupClient::StartPartitioningReplicas(&context, backupId,
-                                                  456lu, {99, 0}, &tablets);
+                                                  456lu, {99, 0}, &recoveryMsg);
     EXPECT_EQ(1lu, results.replicas.size());
     EXPECT_EQ(1lu, backup->recoveries.size());
 
@@ -401,7 +406,7 @@ TEST_F(BackupServiceTest, startReadingData) {
     openSegment({99, 0}, 89);
     closeSegment({99, 0}, 89);
 
-    ProtoBuf::Tablets tablets;
+    ProtoBuf::RecoveryMsg recoveryMsg;
     auto results = BackupClient::startReadingData(&context, backupId,
                                                   456lu, {99, 0});
     EXPECT_EQ(2lu, results.replicas.size());
@@ -416,7 +421,7 @@ TEST_F(BackupServiceTest, startReadingData) {
     results = BackupClient::startReadingData(&context, backupId,
                                              457lu, {99, 0});
     BackupClient::StartPartitioningReplicas(&context, backupId,
-                                             457lu, {99, 0}, &tablets);
+                                             457lu, {99, 0}, &recoveryMsg);
     EXPECT_EQ(2lu, results.replicas.size());
     EXPECT_EQ(1lu, backup->recoveries.size());
     EXPECT_EQ(

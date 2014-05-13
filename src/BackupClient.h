@@ -24,7 +24,7 @@
 #include "ServerId.h"
 #include "ServerIdRpcWrapper.h"
 #include "ServerList.pb.h"
-#include "Tablets.pb.h"
+#include "RecoveryMsg.pb.h"
 #include "Transport.h"
 
 namespace RAMCloud {
@@ -188,7 +188,7 @@ class StartPartitioningRpc : public ServerIdRpcWrapper {
   public:
     StartPartitioningRpc(Context* context, ServerId backupId,
                         uint64_t recoveryId, ServerId masterId,
-                        const ProtoBuf::Tablets* partitions);
+                        const ProtoBuf::RecoveryMsg* partitions);
     ~StartPartitioningRpc() {}
     /// \copydoc ServerIdRpcWrapper::waitAndCheckErrors
     void wait() {waitAndCheckErrors();}
@@ -242,7 +242,7 @@ class BackupClient {
             ServerId backupId, uint64_t recoveryId, ServerId masterId);
     static void StartPartitioningReplicas(Context* context, ServerId backupId,
             uint64_t recoveryId, ServerId masterId,
-            const ProtoBuf::Tablets* partitions);
+            const ProtoBuf::RecoveryMsg* partitions);
     static void writeSegment(Context* context, ServerId backupId,
             ServerId masterId, uint64_t segmentId, uint64_t segmentEpoch,
             const Segment* segment, uint32_t offset, uint32_t length,

@@ -489,16 +489,16 @@ CoordinatorService::recoveryMasterFinished(
     WireFormat::RecoveryMasterFinished::Response* respHdr,
     Rpc* rpc)
 {
-    ProtoBuf::Tablets recoveredTablets;
+    ProtoBuf::RecoveryMsg recoveryMsg;
     ProtoBuf::parseFromRequest(rpc->requestPayload,
                                sizeof32(*reqHdr),
-                               reqHdr->tabletsLength, &recoveredTablets);
+                               reqHdr->tabletsLength, &recoveryMsg);
 
     ServerId serverId = ServerId(reqHdr->recoveryMasterId);
     respHdr->cancelRecovery =
         recoveryManager.recoveryMasterFinished(reqHdr->recoveryId,
                                                serverId,
-                                               recoveredTablets,
+                                               recoveryMsg,
                                                reqHdr->successful);
 }
 

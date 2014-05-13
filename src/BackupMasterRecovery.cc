@@ -211,7 +211,7 @@ BackupMasterRecovery::start(const std::vector<BackupStorage::FrameRef>& frames,
  *       The partitioning scheme by which the replicas should be split
  */
 void
-BackupMasterRecovery::setPartitionsAndSchedule(ProtoBuf::Tablets partitions)
+BackupMasterRecovery::setPartitionsAndSchedule(ProtoBuf::RecoveryMsg partitions)
 {
     assert(startCompleted);
 

@@ -28,7 +28,7 @@ namespace RAMCloud {
 
 struct RecoverySegmentBuilderTest : public ::testing::Test {
     Context context;
-    ProtoBuf::Tablets partitions;
+    ProtoBuf::RecoveryMsg partitions;
     ServerId serverId;
     ServerList serverList;
     ServerConfig serverConfig;
@@ -51,11 +51,16 @@ struct RecoverySegmentBuilderTest : public ::testing::Test {
     {
         Logger::get().setLogLevels(RAMCloud::SILENT_LOG_LEVEL);
         auto oneOneHash = Key::getHash(1, "1", 1);
-        TabletsBuilder{partitions}
+        ProtoBuf::Tablets tablets;
+        TabletsBuilder{tablets}
             (1, 0lu, oneOneHash - 1, TabletsBuilder::NORMAL, 0lu)    // part 0
             (1, oneOneHash, ~0lu, TabletsBuilder::NORMAL, 1lu)       // part 1
             (2, 0lu, ~0lu, TabletsBuilder::NORMAL, 0lu, {}, {2, 0})  // part 0
             (3, 0lu, 1lu, TabletsBuilder::NORMAL, 0lu, {});          // part 0
+        for (int i = 0; i < tablets.tablet_size(); i++) {
+            ProtoBuf::Tablets::Tablet& tablet(*partitions.add_tablet());
+            tablet = tablets.tablet(i);
+        }
     }
 
     DISALLOW_COPY_AND_ASSIGN(RecoverySegmentBuilderTest);

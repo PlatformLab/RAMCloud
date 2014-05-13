@@ -168,7 +168,7 @@ TEST_F(ReplicaManagerTest, writeSegment) {
     rs->sync(s.head);
 
     EXPECT_EQ(1U, mgr->replicatedSegmentList.size());
-    ProtoBuf::Tablets will;
+    ProtoBuf::RecoveryMsg will;
     ProtoBuf::Tablets::Tablet& tablet(*will.add_tablet());
     tablet.set_table_id(123);
     KeyHash keyHash = Key::getHash(123, "10", 2);

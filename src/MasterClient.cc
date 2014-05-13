@@ -517,9 +517,9 @@ ReceiveMigrationDataRpc::ReceiveMigrationDataRpc(Context* context,
  *      The ServerId of the crashed master whose data is to be recovered.
  * \param partitionId
  *      The partition id of #tablets inside the crashed master's will.
- * \param tablets
- *      A set of tables with key ranges describing which poritions of which
- *      tables the recovery Master should take over for.
+ * \param recoveryMsg
+ *      A set of tablets and indexlets with key ranges describing which poritions 
+ *      of which tables and indexlets the recovery Master should take over for.
  * \param replicas
  *      An array describing where to find replicas of each segment.
  * \param numReplicas
@@ -528,11 +528,11 @@ ReceiveMigrationDataRpc::ReceiveMigrationDataRpc(Context* context,
 void
 MasterClient::recover(Context* context, ServerId serverId,
         uint64_t recoveryId, ServerId crashedServerId,
-        uint64_t partitionId, const ProtoBuf::Tablets* tablets,
+        uint64_t partitionId, const ProtoBuf::RecoveryMsg* recoveryMsg,
         const WireFormat::Recover::Replica* replicas, uint32_t numReplicas)
 {
     RecoverRpc rpc(context, serverId, recoveryId, crashedServerId,
-            partitionId, tablets, replicas, numReplicas);
+            partitionId, recoveryMsg, replicas, numReplicas);
     rpc.wait();
 }
 
@@ -552,9 +552,9 @@ MasterClient::recover(Context* context, ServerId serverId,
  *      The ServerId of the crashed master whose data is to be recovered.
  * \param partitionId
  *      The partition id of #tablets inside the crashed master's will.
- * \param tablets
- *      A set of tables with key ranges describing which poritions of which
- *      tables the recovery Master should take over for.
+ * \param  recoveryMsg
+ *      A set of tablets and indexlets with key ranges describing which poritions
+ *      of which tablets and indexlets the recovery Master should take over for.
  * \param replicas
  *      An array describing where to find replicas of each segment.
  * \param numReplicas
@@ -562,7 +562,7 @@ MasterClient::recover(Context* context, ServerId serverId,
  */
 RecoverRpc::RecoverRpc(Context* context, ServerId serverId,
         uint64_t recoveryId, ServerId crashedServerId, uint64_t partitionId,
-        const ProtoBuf::Tablets* tablets,
+        const ProtoBuf::RecoveryMsg* recoveryMsg,
         const WireFormat::Recover::Replica* replicas,
         uint32_t numReplicas)
     : ServerIdRpcWrapper(context, serverId,
@@ -573,7 +573,7 @@ RecoverRpc::RecoverRpc(Context* context, ServerId serverId,
     reqHdr->recoveryId = recoveryId;
     reqHdr->crashedServerId = crashedServerId.getId();
     reqHdr->partitionId = partitionId;
-    reqHdr->tabletsLength = serializeToRequest(&request, tablets);
+    reqHdr->tabletsLength = serializeToRequest(&request, recoveryMsg);
     reqHdr->numReplicas = numReplicas;
     request.append(replicas,
             downCast<uint32_t>(sizeof(replicas[0])) * numReplicas);

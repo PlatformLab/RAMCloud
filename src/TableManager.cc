@@ -265,7 +265,8 @@ TableManager::createIndex(uint64_t tableId, uint8_t indexId, uint8_t indexType,
             indexletInfo.indexlet = indexlet;
             indexletInfo.tableId = tableId;
             indexletInfo.indexId = indexId;
-            indexletTableMap.insert(std::make_pair(indexTableId, indexletInfo));
+            indexletTableMap.insert(
+                std::make_pair(indexletTableId, indexletInfo));
         }
     }
     catch (...) {

@@ -80,7 +80,7 @@ class BackupMasterRecovery : public Task {
     void start(const std::vector<BackupStorage::FrameRef>& frames,
                Buffer* buffer,
                StartResponse* response);
-    void setPartitionsAndSchedule(ProtoBuf::Tablets partitions);
+    void setPartitionsAndSchedule(ProtoBuf::RecoveryMsg partitions);
     Status getRecoverySegment(uint64_t recoveryId,
                               uint64_t segmentId,
                               int partitionId,
@@ -121,7 +121,7 @@ class BackupMasterRecovery : public Task {
      * recovery segment for a particular replica each object should be placed
      * in.
      */
-    Tub<ProtoBuf::Tablets> partitions;
+    Tub<ProtoBuf::RecoveryMsg> partitions;
 
     /**
      * Size of the replicas on storage. Needed for bounds-checking on the

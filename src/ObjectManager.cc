@@ -740,20 +740,21 @@ ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it)
             // of its table. TODO(zhihao): need a better way to check if the
             // table is a indexle table.
             {
-                const char *bTreeKey = (char*) primaryKey;
+                const char *bTreeKey =
+                    reinterpret_cast<const char*>(primaryKey);
                 bool isNumeric = true;
                 uint64_t bTreeId = 0;
                 for (int i = 0; i < primaryKeyLen; i++) {
-           	        if (('0' <= bTreeKey[i]) && (bTreeKey[i] <= '9')) {
-           	            bTreeId = bTreeId * 10 + bTreeKey[i] - '0';
-           	        }
-           	        else {
-           	            isNumeric = false;
-           	            break;
-           	        }
+                     if (('0' <= bTreeKey[i]) && (bTreeKey[i] <= '9')) {
+                         bTreeId = bTreeId * 10 + bTreeKey[i] - '0';
+                     } else {
+                        isNumeric = false;
+                        break;
+                     }
                 }
                 if (isNumeric)
-                    tabletManager->setHighestBTreeId(recoveryObj->tableId, bTreeId);
+                    tabletManager->setHighestBTreeId(recoveryObj->tableId,
+                                                     bTreeId);
             }
 
             bool checksumIsValid = ({
@@ -836,18 +837,18 @@ ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it)
             // of its table. TODO(zhihao): need a better way to check if the
             // table is a indexle table.
             {
-            	const char *bTreeKey = (char*) key.getStringKey();
-            	KeyLength keyLength = key.getStringKeyLength();
+                const char *bTreeKey =
+                    reinterpret_cast<const char*>(key.getStringKey());
+                KeyLength keyLength = key.getStringKeyLength();
                 bool isNumeric = true;
                 uint64_t bTreeId = 0;
                 for (int i = 0; i < keyLength; i++) {
-           	        if (('0' <= bTreeKey[i]) && (bTreeKey[i] <= '9')) {
-           	            bTreeId = bTreeId * 10 + bTreeKey[i] - '0';
-           	        }
-           	        else {
-           	            isNumeric = false;
-           	            break;
-           	        }
+                       if (('0' <= bTreeKey[i]) && (bTreeKey[i] <= '9')) {
+                           bTreeId = bTreeId * 10 + bTreeKey[i] - '0';
+                       } else {
+                           isNumeric = false;
+                           break;
+                       }
                 }
                 if (isNumeric)
                     tabletManager->setHighestBTreeId(key.getTableId(), bTreeId);

@@ -28,7 +28,7 @@ namespace RAMCloud {
 
 struct BackupMasterRecoveryTest : public ::testing::Test {
     TaskQueue taskQueue;
-    ProtoBuf::Tablets partitions;
+    ProtoBuf::RecoveryMsg partitions;
     uint32_t segmentSize;
     InMemoryStorage storage;
     std::vector<BackupStorage::FrameRef> frames;
@@ -47,12 +47,17 @@ struct BackupMasterRecoveryTest : public ::testing::Test {
         , recovery()
     {
         Logger::get().setLogLevels(RAMCloud::SILENT_LOG_LEVEL);
-        TabletsBuilder{partitions}
+        ProtoBuf::Tablets tablets;
+        TabletsBuilder{tablets}
             (1, 0lu, 10lu, TabletsBuilder::NORMAL, 0lu)  // partition 0
             (1, 11lu, ~0lu, TabletsBuilder::NORMAL, 1lu)  // partition 1
             (2, 0lu, ~0lu, TabletsBuilder::NORMAL, 0lu)  // partition 0
             (3, 0lu, ~0lu, TabletsBuilder::NORMAL, 0lu); // partition 0
         source.append("test", 5);
+        for (int i = 0; i < tablets.tablet_size(); i++) {
+            ProtoBuf::Tablets::Tablet& tablet(*partitions.add_tablet());
+            tablet = tablets.tablet(i);
+        }
         recovery.construct(taskQueue, 456lu, ServerId{99, 0}, segmentSize);
     }
 

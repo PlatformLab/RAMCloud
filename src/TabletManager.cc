@@ -241,11 +241,11 @@ TabletManager::setHighestBTreeId(uint64_t tableId,
 {
     Lock guard(lock);
     if (highestBTreeIdMap.find(tableId) == highestBTreeIdMap.end()) {
-    	highestBTreeIdMap[tableId] = bTreeId;
+        highestBTreeIdMap[tableId] = bTreeId;
         return;
     }
     if (highestBTreeIdMap[tableId] < bTreeId)
-    	highestBTreeIdMap[tableId] = bTreeId;
+        highestBTreeIdMap[tableId] = bTreeId;
 }
 
 /**
