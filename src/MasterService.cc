@@ -2264,56 +2264,24 @@ MasterService::recover(const WireFormat::Recover::Request* reqHdr,
     bool successful = false;
     try {
         recover(recoveryId, crashedServerId, partitionId, replicas);
+        // Install indexlets we are recovering
+        foreach (const ProtoBuf::Indexlets::Indexlet& newIndexlet,
+                 recoveryMsg.indexlet()) {
+            LOG(NOTICE, "Starting recovery %lu for crashed indexlet %d",
+                recoveryId, newIndexlet.index_id());
+            bool added =
+                indexletManager.addIndexlet(newIndexlet,
+                                            tabletManager.getHighestBTreeId(
+                                            newIndexlet.indexlettable_id()));
+            if (!added) {
+                throw Exception(HERE, format("Indexlet already exists."));
+            }
+        }
         successful = true;
     } catch (const SegmentRecoveryFailedException& e) {
         // Recovery wasn't successful.
     } catch (const OutOfSpaceException& e) {
         // Recovery wasn't successful.
-    }
-
-    // Install indexlets we are recovering
-    foreach (const ProtoBuf::Indexlets::Indexlet& newIndexlet,
-             recoveryMsg.indexlet()) {
-        LOG(NOTICE, "Starting recovery %lu for crashed indexlet %d",
-            recoveryId, newIndexlet.index_id());
-        void* firstKey;
-        uint16_t firstKeyLength;
-        void* firstNotOwnedKey;
-        uint16_t firstNotOwnedKeyLength;
-
-        //TODO(ashgup): while converting string, null delimiter handled
-        if (newIndexlet.start_key().length() != 0) {
-            firstKey = const_cast<char *>(newIndexlet.start_key().c_str());
-            firstKeyLength = (uint16_t)newIndexlet.start_key().length();
-        } else {
-            firstKey = NULL;
-            firstKeyLength = 0;
-        }
-
-        if (newIndexlet.end_key().length() != 0) {
-            firstNotOwnedKey = const_cast<char *>
-                                        (newIndexlet.end_key().c_str());
-            firstNotOwnedKeyLength =
-                            (uint16_t)newIndexlet.end_key().length();
-        } else {
-            firstNotOwnedKey = NULL;
-            firstNotOwnedKeyLength = 0;
-        }
-
-        LOG(NOTICE, "highestBTreeId = %lu",
-            tabletManager.getHighestBTreeId(newIndexlet.indexlettable_id()));
-        bool added =
-            indexletManager.addIndexlet(newIndexlet.table_id(),
-                                        (uint8_t)newIndexlet.index_id(),
-                                        newIndexlet.indexlettable_id(),
-                                        firstKey, firstKeyLength,
-                                        firstNotOwnedKey,
-                                        firstNotOwnedKeyLength,
-                                        tabletManager.getHighestBTreeId(
-                                            newIndexlet.indexlettable_id()));
-        if (!added) {
-            throw Exception(HERE, format("Cannot recover indexlet."));
-        }
     }
 
     // Once the coordinator and the recovery master agree that the
@@ -2388,36 +2356,7 @@ MasterService::recover(const WireFormat::Recover::Request* reqHdr,
         }
         foreach (const ProtoBuf::Indexlets::Indexlet& indexlet,
                  recoveryMsg.indexlet()) {
-            void* firstKey;
-            uint16_t firstKeyLength;
-            void* firstNotOwnedKey;
-            uint16_t firstNotOwnedKeyLength;
-
-            //TODO(ashgup): while converting string, null delimiter handled
-            if (indexlet.start_key().length() != 0) {
-                firstKey = const_cast<char *>(indexlet.start_key().c_str());
-                firstKeyLength = (uint16_t)indexlet.start_key().length();
-            } else {
-                firstKey = NULL;
-                firstKeyLength = 0;
-            }
-
-            if (indexlet.end_key().length() != 0) {
-                firstNotOwnedKey = const_cast<char *>
-                                            (indexlet.end_key().c_str());
-                firstNotOwnedKeyLength =
-                                (uint16_t)indexlet.end_key().length();
-            } else {
-                firstNotOwnedKey = NULL;
-                firstNotOwnedKeyLength = 0;
-            }
-
-            bool deleted =
-                indexletManager.deleteIndexlet(indexlet.table_id(),
-                                               (uint8_t)indexlet.index_id(),
-                                               firstKey, firstKeyLength,
-                                               firstNotOwnedKey,
-                                               firstNotOwnedKeyLength);
+            bool deleted = indexletManager.deleteIndexlet(indexlet);
             if (!deleted) {
                 throw FatalError(HERE, format("Could not delete recovery "
                     "indexlet (%lu, %u). It disappeared!?",

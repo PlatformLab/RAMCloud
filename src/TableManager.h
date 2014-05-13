@@ -95,7 +95,6 @@ class TableManager {
         /// The id of the table on serverId holding the index content
         uint64_t indexletTableId;
     };
-
     /**
      * Information about an indexlet, which includes a pointer to Indexlet,
      * tableId, and indexId.
@@ -121,7 +120,7 @@ class TableManager {
     uint64_t getTableId(const char* name);
     Tablet getTablet(uint64_t tableId, uint64_t keyHash);
     bool getIndexletInfoByIndexletTableId(uint64_t indexletTableId,
-                                          IndexletInfo& indexletInfo);
+             ProtoBuf::Indexlets::Indexlet& indexletInfo);
     void indexletRecovered(uint64_t tableId,
                            uint8_t indexId,
                            void* firstKey,
@@ -237,7 +236,7 @@ class TableManager {
     typedef std::unordered_map<uint64_t, Table*> IdMap;
     IdMap idMap;
 
-    /// Maps from indexletTable id to indexletInfo.
+    /// Maps from indexletTable id to indexlet.
     /// This is a map since every indexletTable can have at most one
     /// containing indexlet
     typedef std::unordered_map<uint64_t, IndexletInfo> IndexletTableMap;

@@ -92,6 +92,49 @@ IndexletManager::addIndexlet(
 }
 
 /**
+ * Add and initialize an index partition (indexlet) on this index server.
+ *
+ * \param indexlet
+ *      Protocol buffer contains necessary indexlet information to construct
+ *      a new indexlet.
+ * \param highestUsedId
+ *      The highest BTree Id that has been used in the indexletTable, which
+ *      is a BTree.
+ * \return
+ *      Returns true if successfully added, false if the indexlet cannot be
+ *      added because it overlaps with one or more existing indexlets.
+ */
+bool
+IndexletManager::addIndexlet(ProtoBuf::Indexlets::Indexlet indexlet,
+                             uint64_t highestUsedId)
+{
+    uint64_t tableId = indexlet.table_id();
+    uint8_t indexId = (uint8_t) indexlet.index_id();
+    uint64_t indexletTableId = indexlet.indexlettable_id();
+    void *firstKey, *firstNotOwnedKey;
+    uint16_t firstKeyLength, firstNotOwnedKeyLength;
+    //TODO(ashgup): while converting string, null delimiter handled
+    if (indexlet.start_key().length() != 0) {
+        firstKey = const_cast<char *>(indexlet.start_key().c_str());
+        firstKeyLength = (uint16_t)indexlet.start_key().length();
+    } else {
+        firstKey = NULL;
+        firstKeyLength = 0;
+    }
+    if (indexlet.end_key().length() != 0) {
+        firstNotOwnedKey = const_cast<char *>(indexlet.end_key().c_str());
+        firstNotOwnedKeyLength = (uint16_t)indexlet.end_key().length();
+    } else {
+        firstNotOwnedKey = NULL;
+        firstNotOwnedKeyLength = 0;
+    }
+    return addIndexlet(tableId, indexId, indexletTableId,
+                       firstKey, firstKeyLength,
+                       firstNotOwnedKey, firstNotOwnedKeyLength,
+                       highestUsedId);
+}
+
+/**
  * Delete entries for an index partition (indexlet) on this index server. We can
  * have multiple indexlets for a table and an index stored on the same server.
  *
@@ -146,6 +189,42 @@ IndexletManager::deleteIndexlet(
     indexletMap.erase(it);
 
     return true;
+}
+
+/**
+ * Delete entries for an index partition (indexlet) on this index server. We can
+ * have multiple indexlets for a table and an index stored on the same server.
+ *
+ * \param indexlet
+ *      Protocol buffer contains information of an indexlet that is to be
+ *      deleted.
+ * \return
+ *      True if indexlet was deleted. Failed if indexlet did not exist.
+ */
+bool
+IndexletManager::deleteIndexlet(ProtoBuf::Indexlets::Indexlet indexlet)
+{
+    uint64_t tableId = indexlet.table_id();
+    uint8_t indexId = (uint8_t) indexlet.index_id();
+    void *firstKey, *firstNotOwnedKey;
+    uint16_t firstKeyLength, firstNotOwnedKeyLength;
+    //TODO(ashgup): while converting string, null delimiter handled
+    if (indexlet.start_key().length() != 0) {
+        firstKey = const_cast<char *>(indexlet.start_key().c_str());
+        firstKeyLength = (uint16_t)indexlet.start_key().length();
+    } else {
+        firstKey = NULL;
+        firstKeyLength = 0;
+    }
+    if (indexlet.end_key().length() != 0) {
+        firstNotOwnedKey = const_cast<char *>(indexlet.end_key().c_str());
+        firstNotOwnedKeyLength = (uint16_t)indexlet.end_key().length();
+    } else {
+        firstNotOwnedKey = NULL;
+        firstNotOwnedKeyLength = 0;
+    }
+    return deleteIndexlet(tableId, indexId, firstKey, firstKeyLength,
+                          firstNotOwnedKey, firstNotOwnedKeyLength);
 }
 
 /**

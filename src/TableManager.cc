@@ -462,7 +462,7 @@ TableManager::getTablet(uint64_t tableId, uint64_t keyHash)
  *
  * \param indexletTableId
  *      Identifier of the table
- * \param indexletInfo
+ * \param indexlet
  *      Indexlet information structure to populate
  * \return
  *      True if the querying table is an indexlet table.
@@ -470,15 +470,30 @@ TableManager::getTablet(uint64_t tableId, uint64_t keyHash)
  */
 bool
 TableManager::getIndexletInfoByIndexletTableId(uint64_t indexletTableId,
-                                               IndexletInfo& indexletInfo)
+                  ProtoBuf::Indexlets::Indexlet& indexlet)
 {
     Lock lock(mutex);
     IndexletTableMap::iterator it = indexletTableMap.find(indexletTableId);
     if (it == indexletTableMap.end())
         return false;
-    indexletInfo.indexlet = it->second.indexlet;
-    indexletInfo.tableId = it->second.tableId;
-    indexletInfo.indexId = it->second.indexId;
+
+    if (it->second.indexlet->firstKey != NULL)
+        indexlet.set_start_key(string(reinterpret_cast<char*>(
+                               it->second.indexlet->firstKey),
+                               it->second.indexlet->firstKeyLength));
+    else
+        indexlet.set_start_key("");
+
+    if (it->second.indexlet->firstNotOwnedKey != NULL)
+        indexlet.set_end_key(string(reinterpret_cast<char*>(
+                             it->second.indexlet->firstNotOwnedKey),
+                             it->second.indexlet->firstNotOwnedKeyLength));
+    else
+        indexlet.set_end_key("");
+    indexlet.set_table_id(it->second.tableId);
+    indexlet.set_index_id(it->second.indexId);
+    indexlet.set_indexlettable_id(it->second.indexlet->indexletTableId);
+    indexlet.set_server_id(it->second.indexlet->serverId.getId());
     return true;
 }
 
