@@ -260,6 +260,29 @@ TEST_F(TableManagerTest, dropTable_tableDoesntExist) {
     EXPECT_EQ(1U, updateManager->smallestUnfinished);
 }
 
+TEST_F(TableManagerTest, dropTable_index) {
+    MasterService* master1 = cluster.addServer(masterConfig)->master.get();
+    MasterService* master2 = cluster.addServer(masterConfig)->master.get();
+    updateManager->reset();
+
+    EXPECT_EQ(1U, tableManager->createTable("foo", 1));
+
+    EXPECT_EQ(2U, tableManager->createTable("__indexTable:1:0:0", 1));
+    EXPECT_TRUE(tableManager->createIndex(1, 0, 0, 1));
+    EXPECT_EQ(0U, master1->indexletManager.getCount());
+    EXPECT_EQ(1U, master2->indexletManager.getCount());
+
+    EXPECT_EQ(3U, tableManager->createTable("__indexTable:1:1:0", 1));
+    EXPECT_TRUE(tableManager->createIndex(1, 1, 0, 1));
+    EXPECT_EQ(1U, master1->indexletManager.getCount());
+    EXPECT_EQ(1U, master2->indexletManager.getCount());
+
+    tableManager->dropTable("foo");
+    EXPECT_EQ(0U, master1->indexletManager.getCount());
+    EXPECT_EQ(0U, master2->indexletManager.getCount());
+}
+
+
 TEST_F(TableManagerTest, getTableId) {
     cluster.addServer(masterConfig)->master.get();
 

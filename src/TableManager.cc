@@ -329,18 +329,37 @@ TableManager::debugString(bool shortForm)
  *
  * \param name
  *      Name of the table that is to be dropped.
+ * \return
+ *      Returns pairs of indexlet and number of indexlets
+ *      corresponding to the indexid for indexlet table cleanup
  */
-void
+vector<pair<uint8_t, uint8_t>>
 TableManager::dropTable(const char* name)
 {
     Lock lock(mutex);
+    vector<pair<uint8_t, uint8_t>> indexIndexlet;
 
     // See if the desired table exists.
     Directory::iterator it = directory.find(name);
     if (it == directory.end())
-        return;
+        return indexIndexlet;
     Table* table = it->second;
     LOG(NOTICE, "Dropping table '%s' with id %lu", name, table->id);
+
+    //Drop all indexes
+    for (int i = 0; i < 256; i++) {
+        if (!table->indexMap[i])
+            continue;
+
+        Index* index = table->indexMap[i];
+        uint8_t numIndexlets = (uint8_t)index->indexlets.size();
+        indexIndexlet.push_back(std::make_pair((uint8_t)i, numIndexlets));
+
+        LOG(NOTICE, "Dropping table '%lu' index '%u'", table->id, i);
+        table->indexMap[i] = NULL;
+        notifyDropIndex(lock, index);
+        delete index;
+    }
 
     // Record our intention to delete this table.
     ProtoBuf::Table externalInfo;
@@ -355,6 +374,8 @@ TableManager::dropTable(const char* name)
     delete table;
     notifyDropTable(lock, &externalInfo);
     updateManager->updateFinished(externalInfo.sequence_number());
+
+    return indexIndexlet;
 }
 
 /**

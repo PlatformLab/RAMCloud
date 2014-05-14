@@ -67,7 +67,7 @@ class TableManager {
     uint64_t createTable(const char* name, uint32_t serverSpan);
     string debugString(bool shortForm = false);
     uint8_t dropIndex(uint64_t tableId, uint8_t indexId);
-    void dropTable(const char* name);
+    vector<pair<uint8_t, uint8_t>>  dropTable(const char* name);
     uint64_t getTableId(const char* name);
     Tablet getTablet(uint64_t tableId, uint64_t keyHash);
     vector<Tablet> markAllTabletsRecovering(ServerId serverId);
