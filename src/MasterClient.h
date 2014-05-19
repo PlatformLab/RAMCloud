@@ -57,7 +57,7 @@ class MasterClient {
             uint64_t expectedObjects, uint64_t expectedBytes);
     static void recover(Context* context, ServerId serverId,
             uint64_t recoveryId, ServerId crashedServerId,
-            uint64_t partitionId, const ProtoBuf::RecoveryMsg* recoveryMsg,
+            uint64_t partitionId, const ProtoBuf::RecoveryPartition* recoveryPartition,
             const WireFormat::Recover::Replica* replicas,
             uint32_t numReplicas);
     static void receiveMigrationData(Context* context, ServerId serverId,
@@ -204,7 +204,7 @@ class RecoverRpc : public ServerIdRpcWrapper {
   public:
     RecoverRpc(Context* context, ServerId serverId, uint64_t recoveryId,
             ServerId crashedServerId, uint64_t partitionId,
-            const ProtoBuf::RecoveryMsg* recoverMsg,
+            const ProtoBuf::RecoveryPartition* recoverMsg,
             const WireFormat::Recover::Replica* replicas,
             uint32_t numReplicas);
     ~RecoverRpc() {}

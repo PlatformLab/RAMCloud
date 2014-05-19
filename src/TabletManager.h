@@ -118,7 +118,6 @@ class TabletManager {
                    uint64_t startKeyHash,
                    uint64_t endKeyHash,
                    TabletState state);
-    uint64_t getHighestBTreeId(uint64_t tableId);
     bool getTablet(Key& key,
                    Tablet* outTablet = NULL);
     bool getTablet(uint64_t tableId,
@@ -132,8 +131,6 @@ class TabletManager {
     bool deleteTablet(uint64_t tableId,
                       uint64_t startKeyHash,
                       uint64_t endKeyHash);
-    void setHighestBTreeId(uint64_t tableId,
-                           uint64_t bTreeId);
     bool splitTablet(uint64_t tableId,
                      uint64_t splitKeyHash);
     bool changeState(uint64_t tableId,
@@ -161,10 +158,6 @@ class TabletManager {
 
     /// This unordered_multimap is used to store and access all tablet data.
     TabletMap tabletMap;
-
-    /// This unordered_map is used to keep track of the highest BTree id in
-    /// every indexlet table
-    std::unordered_map<uint64_t, uint64_t> highestBTreeIdMap;
 
     /// Monitor spinlock used to protect the tabletMap from concurrent access.
     SpinLock lock;

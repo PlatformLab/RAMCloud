@@ -990,21 +990,21 @@ TEST_F(RecoveryTest, startRecoveryMasters) {
         Cb() : callCount() {}
         void masterStartTaskSend(uint64_t recoveryId,
             ServerId crashedServerId, uint32_t partitionId,
-            const ProtoBuf::RecoveryMsg& recoveryMsg,
+            const ProtoBuf::RecoveryPartition& recoveryPartition,
             const WireFormat::Recover::Replica replicaMap[],
             size_t replicaMapSize)
         {
             if (callCount == 0) {
                 EXPECT_EQ(1lu, recoveryId);
                 EXPECT_EQ(ServerId(99, 0), crashedServerId);
-                ASSERT_EQ(2, recoveryMsg.tablet_size());
-                const auto* tablet = &recoveryMsg.tablet(0);
+                ASSERT_EQ(2, recoveryPartition.tablet_size());
+                const auto* tablet = &recoveryPartition.tablet(0);
                 EXPECT_EQ(123lu, tablet->table_id());
                 EXPECT_EQ(0lu, tablet->start_key_hash());
                 EXPECT_EQ(9lu, tablet->end_key_hash());
                 EXPECT_EQ(TabletsBuilder::Tablet::RECOVERING, tablet->state());
                 EXPECT_EQ(0lu, tablet->user_data());
-                tablet = &recoveryMsg.tablet(1);
+                tablet = &recoveryPartition.tablet(1);
                 EXPECT_EQ(123lu, tablet->table_id());
                 EXPECT_EQ(20lu, tablet->start_key_hash());
                 EXPECT_EQ(29lu, tablet->end_key_hash());
@@ -1013,8 +1013,8 @@ TEST_F(RecoveryTest, startRecoveryMasters) {
             } else if (callCount == 1) {
                 EXPECT_EQ(1lu, recoveryId);
                 EXPECT_EQ(ServerId(99, 0), crashedServerId);
-                ASSERT_EQ(1, recoveryMsg.tablet_size());
-                const auto* tablet = &recoveryMsg.tablet(0);
+                ASSERT_EQ(1, recoveryPartition.tablet_size());
+                const auto* tablet = &recoveryPartition.tablet(0);
                 EXPECT_EQ(123lu, tablet->table_id());
                 EXPECT_EQ(10lu, tablet->start_key_hash());
                 EXPECT_EQ(19lu, tablet->end_key_hash());
@@ -1062,14 +1062,14 @@ TEST_F(RecoveryTest, startRecoveryMasters_tooFewIdleMasters) {
         Cb() : callCount() {}
         void masterStartTaskSend(uint64_t recoveryId,
             ServerId crashedServerId, uint32_t partitionId,
-            const ProtoBuf::RecoveryMsg& recoveryMsg,
+            const ProtoBuf::RecoveryPartition& recoveryPartition,
             const WireFormat::Recover::Replica replicaMap[],
             size_t replicaMapSize)
         {
             if (callCount == 0) {
                 EXPECT_EQ(1lu, recoveryId);
                 EXPECT_EQ(ServerId(99, 0), crashedServerId);
-                ASSERT_EQ(2, recoveryMsg.tablet_size());
+                ASSERT_EQ(2, recoveryPartition.tablet_size());
             } else {
                 FAIL();
             }

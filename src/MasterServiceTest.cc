@@ -297,14 +297,14 @@ class MasterServiceTest : public ::testing::Test {
     }
 
     void
-    appendRecoveryMsg(ProtoBuf::RecoveryMsg& recoveryMsg,
+    appendRecoveryPartition(ProtoBuf::RecoveryPartition& recoveryPartition,
                       uint64_t partitionId,
                       uint64_t tableId,
                       uint64_t start, uint64_t end,
                       uint64_t ctimeHeadSegmentId,
                       uint32_t ctimeHeadSegmentOffset)
     {
-        ProtoBuf::Tablets::Tablet& tablet(*recoveryMsg.add_tablet());
+        ProtoBuf::Tablets::Tablet& tablet(*recoveryPartition.add_tablet());
         tablet.set_table_id(tableId);
         tablet.set_start_key_hash(start);
         tablet.set_end_key_hash(end);
@@ -315,12 +315,12 @@ class MasterServiceTest : public ::testing::Test {
     }
 
     void
-    createRecoveryMsg(ProtoBuf::RecoveryMsg& recoveryMsg)
+    createRecoveryPartition(ProtoBuf::RecoveryPartition& recoveryPartition)
     {
-        appendRecoveryMsg(recoveryMsg, 0, 123, 0, 9, 0, 0);
-        appendRecoveryMsg(recoveryMsg, 0, 123, 10, 19, 0, 0);
-        appendRecoveryMsg(recoveryMsg, 0, 123, 20, 29, 0, 0);
-        appendRecoveryMsg(recoveryMsg, 0, 124, 20, 100, 0, 0);
+        appendRecoveryPartition(recoveryPartition, 0, 123, 0, 9, 0, 0);
+        appendRecoveryPartition(recoveryPartition, 0, 123, 10, 19, 0, 0);
+        appendRecoveryPartition(recoveryPartition, 0, 123, 20, 29, 0, 0);
+        appendRecoveryPartition(recoveryPartition, 0, 124, 20, 100, 0, 0);
     }
 
     DISALLOW_COPY_AND_ASSIGN(MasterServiceTest);
@@ -1707,13 +1707,13 @@ TEST_F(MasterServiceTest, recover_basics) {
     writeRecoverableSegment(&context, mgr, serverId, serverId.getId(),
                             87, 23U);
 
-    ProtoBuf::RecoveryMsg recoveryMsg;
-    createRecoveryMsg(recoveryMsg);
+    ProtoBuf::RecoveryPartition recoveryPartition;
+    createRecoveryPartition(recoveryPartition);
     auto result = BackupClient::startReadingData(&context, backup1Id,
                                                  10lu, serverId);
     BackupClient::StartPartitioningReplicas(&context, backup1Id,
                                             10lu, serverId,
-                                            &recoveryMsg);
+                                            &recoveryPartition);
     ASSERT_EQ(1lu, result.replicas.size());
     ASSERT_EQ(87lu, result.replicas.at(0).segmentId);
 
@@ -1729,7 +1729,7 @@ TEST_F(MasterServiceTest, recover_basics) {
     TestLog::Enable __("replaySegment", "recover", "recoveryMasterFinished",
                        NULL);
     MasterClient::recover(&context, masterServer->serverId, 10lu,
-                          serverId, 0, &recoveryMsg, replicas,
+                          serverId, 0, &recoveryPartition, replicas,
                           arrayLength(replicas));
     // safeVersion Recovered
     EXPECT_EQ(23U, segmentManager->safeVersion);
@@ -1807,12 +1807,12 @@ TEST_F(MasterServiceTest, recover) {
     backup2Config.localLocator = "mock:host=backup2";
     ServerId backup2Id = cluster.addServer(backup2Config)->serverId;
 
-    ProtoBuf::RecoveryMsg recoveryMsg;
-    createRecoveryMsg(recoveryMsg);
+    ProtoBuf::RecoveryPartition recoveryPartition;
+    createRecoveryPartition(recoveryPartition);
     BackupClient::startReadingData(&context, backup1Id, 456lu, serverId);
 
     BackupClient::StartPartitioningReplicas(&context, backup1Id, 456lu,
-                                   serverId, &recoveryMsg);
+                                   serverId, &recoveryPartition);
 
     vector<MasterService::Replica> replicas {
         // Started in initial round of RPCs - eventually fails
@@ -1837,7 +1837,9 @@ TEST_F(MasterServiceTest, recover) {
     };
 
     TestLog::Enable _;
-    EXPECT_THROW(service->recover(456lu, serverId, 0, replicas),
+    std::unordered_map<uint64_t, uint64_t> highestBTreeIdMap;
+    EXPECT_THROW(service->recover(456lu, serverId, 0, replicas,
+                                  highestBTreeIdMap),
                  SegmentRecoveryFailedException);
     // 1,2,3) 87 was requested from the first server list entry.
     EXPECT_TRUE(TestUtil::matchesPosixRegex(
@@ -1923,11 +1925,11 @@ TEST_F(MasterServiceTest, recover_ctimeUpdateIssued) {
     cluster.coordinator->recoveryManager.start();
     TestLog::Enable _("recoveryMasterFinished");
     ramcloud->write(1, "0", 1, "abcdef", 6);
-    ProtoBuf::RecoveryMsg recoveryMsg;
-    createRecoveryMsg(recoveryMsg);
+    ProtoBuf::RecoveryPartition recoveryPartition;
+    createRecoveryPartition(recoveryPartition);
     WireFormat::Recover::Replica replicas[] = {};
     MasterClient::recover(&context, masterServer->serverId, 10lu,
-                          ServerId(123), 0, &recoveryMsg, replicas, 0);
+                          ServerId(123), 0, &recoveryPartition, replicas, 0);
 
     size_t curPos = 0; // Current Pos: given to getUntil() as 2nd arg, and
     EXPECT_EQ(
@@ -1955,21 +1957,21 @@ TEST_F(MasterServiceTest, recover_unsuccessful) {
     cluster.coordinator->recoveryManager.start();
     TestLog::Enable _("recover");
     ramcloud->write(1, "0", 1, "abcdef", 6);
-    ProtoBuf::RecoveryMsg recoveryMsg;
-    createRecoveryMsg(recoveryMsg);
+    ProtoBuf::RecoveryPartition recoveryPartition;
+    createRecoveryPartition(recoveryPartition);
     WireFormat::Recover::Replica replicas[] = {
         // Bad ServerId, should cause recovery to fail.
         {1004, 92},
     };
     MasterClient::recover(&context, masterServer->serverId, 10lu, {123, 0},
-                          0, &recoveryMsg, replicas, 1);
+                          0, &recoveryPartition, replicas, 1);
 
     string log = TestLog::get();
     log = log.substr(log.rfind("recover:"));
     EXPECT_EQ("recover: Failed to recover partition for recovery 10; "
               "aborting recovery on this recovery master", log);
 
-    foreach (const auto& tablet, recoveryMsg.tablet()) {
+    foreach (const auto& tablet, recoveryPartition.tablet()) {
         EXPECT_FALSE(service->tabletManager.getTablet(tablet.table_id(),
                                                       tablet.start_key_hash(),
                                                       tablet.end_key_hash()));
@@ -2028,14 +2030,14 @@ class MasterRecoverTest : public ::testing::Test {
     }
 
     void
-    appendRecoveryMsg(ProtoBuf::RecoveryMsg& recoveryMsg,
+    appendRecoveryPartition(ProtoBuf::RecoveryPartition& recoveryPartition,
                       uint64_t partitionId,
                       uint64_t tableId,
                       uint64_t start, uint64_t end,
                       uint64_t ctimeHeadSegmentId,
                       uint32_t ctimeHeadSegmentOffset)
     {
-        ProtoBuf::Tablets::Tablet& tablet(*recoveryMsg.add_tablet());
+        ProtoBuf::Tablets::Tablet& tablet(*recoveryPartition.add_tablet());
         tablet.set_table_id(tableId);
         tablet.set_start_key_hash(start);
         tablet.set_end_key_hash(end);
@@ -2046,12 +2048,12 @@ class MasterRecoverTest : public ::testing::Test {
     }
 
     void
-    createRecoveryMsg(ProtoBuf::RecoveryMsg& recoveryMsg)
+    createRecoveryPartition(ProtoBuf::RecoveryPartition& recoveryPartition)
     {
-        appendRecoveryMsg(recoveryMsg, 0, 123, 0, 9, 0, 0);
-        appendRecoveryMsg(recoveryMsg, 0, 123, 10, 19, 0, 0);
-        appendRecoveryMsg(recoveryMsg, 0, 123, 20, 29, 0, 0);
-        appendRecoveryMsg(recoveryMsg, 0, 124, 20, 100, 0, 0);
+        appendRecoveryPartition(recoveryPartition, 0, 123, 0, 9, 0, 0);
+        appendRecoveryPartition(recoveryPartition, 0, 123, 10, 19, 0, 0);
+        appendRecoveryPartition(recoveryPartition, 0, 123, 20, 29, 0, 0);
+        appendRecoveryPartition(recoveryPartition, 0, 124, 20, 100, 0, 0);
     }
     DISALLOW_COPY_AND_ASSIGN(MasterRecoverTest);
 };
@@ -2074,19 +2076,19 @@ TEST_F(MasterRecoverTest, recover) {
     MasterServiceTest::writeRecoverableSegment(&context, mgr, serverId, 99, 88);
 
     // Now run recovery, as if the fake server failed.
-    ProtoBuf::RecoveryMsg recoveryMsg;
-    createRecoveryMsg(recoveryMsg);
+    ProtoBuf::RecoveryPartition recoveryPartition;
+    createRecoveryPartition(recoveryPartition);
     {
         BackupClient::startReadingData(&context, backup1Id, 456lu,
                                        ServerId(99));
         BackupClient::StartPartitioningReplicas(&context, backup1Id, 456lu,
-                                       ServerId(99), &recoveryMsg);
+                                       ServerId(99), &recoveryPartition);
     }
     {
         BackupClient::startReadingData(&context, backup2Id, 456lu,
                                        ServerId(99));
         BackupClient::StartPartitioningReplicas(&context, backup2Id, 456lu,
-                                       ServerId(99), &recoveryMsg);
+                                       ServerId(99), &recoveryPartition);
     }
 
     vector<MasterService::Replica> replicas {
@@ -2097,7 +2099,8 @@ TEST_F(MasterRecoverTest, recover) {
 
     MockRandom __(1); // triggers deterministic rand().
     TestLog::Enable _("replaySegment", "recover", NULL);
-    master->recover(456lu, ServerId(99, 0), 0, replicas);
+    std::unordered_map<uint64_t, uint64_t> highestBTreeIdMap;
+    master->recover(456lu, ServerId(99, 0), 0, replicas, highestBTreeIdMap);
     EXPECT_EQ(0U, TestLog::get().find(
         "recover: Recovering master 99.0, partition 0, 3 replicas "
         "available"));
@@ -2110,7 +2113,7 @@ TEST_F(MasterRecoverTest, recover) {
 TEST_F(MasterRecoverTest, failedToRecoverAll) {
     MasterService* master = createMasterService();
 
-    ProtoBuf::RecoveryMsg recoveryMsg;
+    ProtoBuf::RecoveryPartition recoveryPartition;
     ProtoBuf::ServerList backups;
     vector<MasterService::Replica> replicas {
         { backup1Id.getId(), 87 },
@@ -2119,7 +2122,9 @@ TEST_F(MasterRecoverTest, failedToRecoverAll) {
 
     MockRandom __(1); // triggers deterministic rand().
     TestLog::Enable _("replaySegment", "recover", NULL);
-    EXPECT_THROW(master->recover(456lu, ServerId(99, 0), 0, replicas),
+    std::unordered_map<uint64_t, uint64_t> highestBTreeIdMap;
+    EXPECT_THROW(master->recover(456lu, ServerId(99, 0), 0, replicas,
+                                 highestBTreeIdMap),
                  SegmentRecoveryFailedException);
     string log = TestLog::get();
     EXPECT_TRUE(TestUtil::matchesPosixRegex(

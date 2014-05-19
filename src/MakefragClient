@@ -92,7 +92,7 @@ CLIENT_SRCFILES := \
 		   $(OBJDIR)/SpinLockStatistics.pb.cc \
 		   $(OBJDIR)/Tablets.pb.cc \
 		   $(OBJDIR)/Indexlets.pb.cc \
-		   $(OBJDIR)/RecoveryMsg.pb.cc \
+		   $(OBJDIR)/RecoveryPartition.pb.cc \
 		   $(OBJDIR)/TableConfig.pb.cc \
 		   $(NULL)
 

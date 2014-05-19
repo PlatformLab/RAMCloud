@@ -987,7 +987,7 @@ struct MasterStartTask {
 
     const vector<WireFormat::Recover::Replica>& replicaMap;
     const uint32_t partitionId;
-    ProtoBuf::RecoveryMsg dataToRecover;
+    ProtoBuf::RecoveryPartition dataToRecover;
     Tub<RecoverRpc> rpc;
     bool done;
     MasterStartTaskTestingCallback* testingCallback;

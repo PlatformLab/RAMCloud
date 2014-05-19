@@ -20,7 +20,6 @@ namespace RAMCloud {
 
 TabletManager::TabletManager()
     : tabletMap()
-    , highestBTreeIdMap()
     , lock("TabletManager::lock")
 {
 }
@@ -59,27 +58,6 @@ TabletManager::addTablet(uint64_t tableId,
     tabletMap.insert(std::make_pair(tableId,
                      Tablet(tableId, startKeyHash, endKeyHash, state)));
     return true;
-}
-
-/**
- * Given a tableId, obtain the highest BTree Id in that indexlet table.
- * Make sure to call this function after recovery master has replayed all
- * segments for this table.
- *
- * \param tableId
- *      The table identifier of the tablet we're looking up.
- * \return
- *      If the given tableId refers to a indexlet table, return the highest
- *      BTree Id we have replayed in ObjectManager::replay_segment. Otherwise
- *      return 0.
- */
-uint64_t
-TabletManager::getHighestBTreeId(uint64_t tableId)
-{
-    Lock guard(lock);
-    if (highestBTreeIdMap.find(tableId) == highestBTreeIdMap.end())
-        return 0;
-    return highestBTreeIdMap[tableId];
 }
 
 /**
@@ -221,31 +199,6 @@ TabletManager::deleteTablet(uint64_t tableId,
 
     tabletMap.erase(it);
     return true;
-}
-
-/**
- * Notify tablet manager that we have found an object with particular
- * btree id during ObjectManager's replay_segment. If this btree id is
- * higher then the current highestBTreeId, update highestBTreeId, otherwise,
- * ignore this btree id
- *
- * \param tableId
- *      The table identifier of the object
- * \param bTreeId
- *      The btree identifier of the object
- */
-
-void
-TabletManager::setHighestBTreeId(uint64_t tableId,
-                                 uint64_t bTreeId)
-{
-    Lock guard(lock);
-    if (highestBTreeIdMap.find(tableId) == highestBTreeIdMap.end()) {
-        highestBTreeIdMap[tableId] = bTreeId;
-        return;
-    }
-    if (highestBTreeIdMap[tableId] < bTreeId)
-        highestBTreeIdMap[tableId] = bTreeId;
 }
 
 /**

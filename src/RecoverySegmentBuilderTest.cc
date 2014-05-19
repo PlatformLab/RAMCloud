@@ -28,7 +28,7 @@ namespace RAMCloud {
 
 struct RecoverySegmentBuilderTest : public ::testing::Test {
     Context context;
-    ProtoBuf::RecoveryMsg partitions;
+    ProtoBuf::RecoveryPartition partitions;
     ServerId serverId;
     ServerList serverList;
     ServerConfig serverConfig;

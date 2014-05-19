@@ -651,6 +651,22 @@ class DelayedIncrementer {
 };
 
 /**
+ * A wrapper function for replaySegment
+ *
+ * \param sideLog
+ *      Pointer to the SideLog in which replayed data will be stored.
+ * \param it
+ *       SegmentIterator which is pointing to the start of the recovery segment
+ *       to be replayed into the log.
+ */
+void
+ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it)
+{
+  std::unordered_map<uint64_t, uint64_t> highestBTreeIdMap;
+  replaySegment(sideLog, it, highestBTreeIdMap);
+} 
+
+/**
  * Replay the entries within a segment and store the appropriate objects.
  * This method is used during recovery to replay a portion of a failed
  * master's log. It is also used during tablet migration to receive objects
@@ -676,7 +692,8 @@ class DelayedIncrementer {
  *       to be replayed into the log.
  */
 void
-ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it)
+ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it,
+    std::unordered_map<uint64_t, uint64_t>& highestBTreeIdMap)
 {
     uint64_t startReplicationTicks = metrics->master.replicaManagerTicks;
     uint64_t startReplicationPostingWriteRpcTicks =
@@ -736,25 +753,20 @@ ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it)
 
             Key key(recoveryObj->tableId, primaryKey, primaryKeyLen);
 
-            // check if this key is numeric. If true, update highestBTreeId
-            // of its table. TODO(zhihao): need a better way to check if the
-            // table is a indexle table.
-            {
+            // If table is an BTree table,i.e., tableId exists in
+            // highestBTreeIdMap, update highestBTreeId of its table. 
+            std::unordered_map<uint64_t, uint64_t>::iterator iter
+                = highestBTreeIdMap.find(recoveryObj->tableId);
+            if (iter != highestBTreeIdMap.end()) {
                 const char *bTreeKey =
                     reinterpret_cast<const char*>(primaryKey);
-                bool isNumeric = true;
                 uint64_t bTreeId = 0;
                 for (int i = 0; i < primaryKeyLen; i++) {
-                     if (('0' <= bTreeKey[i]) && (bTreeKey[i] <= '9')) {
-                         bTreeId = bTreeId * 10 + bTreeKey[i] - '0';
-                     } else {
-                        isNumeric = false;
-                        break;
-                     }
+                    assert(('0' <= bTreeKey[i]) && (bTreeKey[i] <= '9'));
+                    bTreeId = bTreeId * 10 + bTreeKey[i] - '0';
                 }
-                if (isNumeric)
-                    tabletManager->setHighestBTreeId(recoveryObj->tableId,
-                                                     bTreeId);
+                if (bTreeId > iter->second)
+                    iter->second = bTreeId;
             }
 
             bool checksumIsValid = ({
@@ -832,28 +844,23 @@ ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it)
             Buffer buffer;
             it.appendToBuffer(buffer);
             Key key(type, buffer);
-
-            // check if this key is numeric. If true, update highestBTreeId
-            // of its table. TODO(zhihao): need a better way to check if the
-            // table is a indexle table.
-            {
+            
+            // If table is an BTree table,i.e., tableId exists in
+            // highestBTreeIdMap, update highestBTreeId of its table. 
+            std::unordered_map<uint64_t, uint64_t>::iterator iter
+                = highestBTreeIdMap.find(key.getTableId());
+            if (iter != highestBTreeIdMap.end()) {
                 const char *bTreeKey =
                     reinterpret_cast<const char*>(key.getStringKey());
                 KeyLength keyLength = key.getStringKeyLength();
-                bool isNumeric = true;
                 uint64_t bTreeId = 0;
                 for (int i = 0; i < keyLength; i++) {
-                       if (('0' <= bTreeKey[i]) && (bTreeKey[i] <= '9')) {
-                           bTreeId = bTreeId * 10 + bTreeKey[i] - '0';
-                       } else {
-                           isNumeric = false;
-                           break;
-                       }
+                     assert(('0' <= bTreeKey[i]) && (bTreeKey[i] <= '9'));
+                     bTreeId = bTreeId * 10 + bTreeKey[i] - '0';
                 }
-                if (isNumeric)
-                    tabletManager->setHighestBTreeId(key.getTableId(), bTreeId);
+                if (bTreeId > iter->second)
+                    iter->second = bTreeId;
             }
-
 
             ObjectTombstone recoverTomb(buffer);
             bool checksumIsValid = ({

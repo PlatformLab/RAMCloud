@@ -26,7 +26,7 @@
 #include "RawMetrics.h"
 #include "ServerTracker.h"
 #include "TableManager.h"
-#include "RecoveryMsg.pb.h"
+#include "RecoveryPartition.pb.h"
 #include "TaskQueue.h"
 #include "TableStats.h"
 
@@ -109,7 +109,7 @@ struct MasterStartTask;
 struct MasterStartTaskTestingCallback {
     virtual void masterStartTaskSend(uint64_t recoveryId,
         ServerId crashedServerId, uint32_t partitionId,
-        const ProtoBuf::RecoveryMsg& dataToRecover,
+        const ProtoBuf::RecoveryPartition& dataToRecover,
         const WireFormat::Recover::Replica replicaMap[],
         size_t replicaMapSize) {}
     virtual ~MasterStartTaskTestingCallback() {}
@@ -194,7 +194,7 @@ class Recovery : public Task {
      * This is because the recovery recovers partitions up but excluding the
      * first with no entries.
      */
-    ProtoBuf::RecoveryMsg dataToRecover;
+    ProtoBuf::RecoveryPartition dataToRecover;
 
     /**
      * Coordinator's authoritative information about tablets and their mapping

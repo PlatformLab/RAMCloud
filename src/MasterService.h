@@ -278,7 +278,8 @@ class MasterService : public Service {
     void recover(uint64_t recoveryId,
                 ServerId masterId,
                 uint64_t partitionId,
-                vector<Replica>& replicas);
+                vector<Replica>& replicas,
+                std::unordered_map<uint64_t, uint64_t>& highestBTreeIdMap);
 
 ///////////////////////////////////////////////////////////////////////////////
 /////////////////////////End of Recovery related code./////////////////////////

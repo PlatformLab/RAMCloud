@@ -18,7 +18,7 @@
 #include "MasterRecoveryManager.h"
 #include "MockCluster.h"
 #include "ShortMacros.h"
-#include "RecoveryMsg.pb.h"
+#include "RecoveryPartition.pb.h"
 #include "TabletsBuilder.h"
 
 namespace RAMCloud {
@@ -236,11 +236,11 @@ TEST_F(MasterRecoveryManagerTest, recoveryFinishedUnsuccessful) {
 TEST_F(MasterRecoveryManagerTest, recoveryMasterFinishedNoSuchRecovery) {
     Lock lock(mutex); // For calls to internal functions without real lock.
     ServerId serverId = addMaster(lock, ServerStatus::CRASHED);
-    const ProtoBuf::RecoveryMsg recoveryMsg;
+    const ProtoBuf::RecoveryPartition recoveryPartition;
     TestLog::Enable _;
     std::thread thread(&MasterRecoveryManager::recoveryMasterFinished,
                        std::ref(*mgr),
-                       0lu, serverId, recoveryMsg, false);
+                       0lu, serverId, recoveryPartition, false);
     while (!mgr->taskQueue.performTask()); // Do RecoveryMasterFinishedTask.
     thread.join();
     EXPECT_EQ(
@@ -276,12 +276,12 @@ TEST_F(MasterRecoveryManagerTest, recoveryMasterFinished) {
     // Register {2, 0} as a recovery master for this recovery.
     mgr->tracker[ServerId(2, 0)] = recovery.get();
 
-    ProtoBuf::RecoveryMsg recoveryMsg;
+    ProtoBuf::RecoveryPartition recoveryPartition;
     ProtoBuf::Tablets recoveredTablets;
     TabletsBuilder{recoveredTablets}
         (0, 0, ~0lu, TabletsBuilder::RECOVERING, 0, {2, 0});
     for (int i = 0; i < recoveredTablets.tablet_size(); i++) {
-        ProtoBuf::Tablets::Tablet& tablet(*recoveryMsg.add_tablet());
+        ProtoBuf::Tablets::Tablet& tablet(*recoveryPartition.add_tablet());
         tablet = recoveredTablets.tablet(i);
     }
 
@@ -294,7 +294,7 @@ TEST_F(MasterRecoveryManagerTest, recoveryMasterFinished) {
     std::thread thread(&MasterRecoveryManager::recoveryMasterFinished,
                        std::ref(*mgr),
                        recovery->recoveryId,
-                       ServerId{2, 0}, recoveryMsg, true);
+                       ServerId{2, 0}, recoveryPartition, true);
     while (!mgr->taskQueue.performTask()); // Do RecoveryMasterFinishedTask.
     thread.join();
     serverList->sync();
@@ -352,12 +352,12 @@ TEST_F(MasterRecoveryManagerTest,
     // Register {2, 0} as a recovery master for this recovery.
     mgr->tracker[ServerId(2, 0)] = recovery.get();
 
-    ProtoBuf::RecoveryMsg recoveryMsg;
+    ProtoBuf::RecoveryPartition recoveryPartition;
     ProtoBuf::Tablets recoveredTablets;
     TabletsBuilder{recoveredTablets}
         (0, 0, ~0lu, TabletsBuilder::RECOVERING, 0, {2, 0});
     for (int i = 0; i < recoveredTablets.tablet_size(); i++) {
-        ProtoBuf::Tablets::Tablet& tablet(*recoveryMsg.add_tablet());
+        ProtoBuf::Tablets::Tablet& tablet(*recoveryPartition.add_tablet());
         tablet = recoveredTablets.tablet(i);
     }
 
@@ -368,7 +368,7 @@ TEST_F(MasterRecoveryManagerTest,
     std::thread thread(&MasterRecoveryManager::recoveryMasterFinished,
                        std::ref(*mgr),
                        recovery->recoveryId,
-                       ServerId{2, 0}, recoveryMsg, false);
+                       ServerId{2, 0}, recoveryPartition, false);
     while (!mgr->taskQueue.performTask());
     thread.join();
     EXPECT_EQ(

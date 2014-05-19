@@ -28,7 +28,7 @@ namespace RAMCloud {
 
 struct BackupMasterRecoveryTest : public ::testing::Test {
     TaskQueue taskQueue;
-    ProtoBuf::RecoveryMsg partitions;
+    ProtoBuf::RecoveryPartition partitions;
     uint32_t segmentSize;
     InMemoryStorage storage;
     std::vector<BackupStorage::FrameRef> frames;

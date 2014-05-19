@@ -408,7 +408,7 @@ BackupClient::StartPartitioningReplicas(Context* context,
                                ServerId backupId,
                                uint64_t recoveryId,
                                ServerId masterId,
-                               const ProtoBuf::RecoveryMsg* partitions)
+                               const ProtoBuf::RecoveryPartition* partitions)
 {
     StartPartitioningRpc rpc(context, backupId, recoveryId,
                             masterId, partitions);
@@ -443,7 +443,7 @@ StartPartitioningRpc::StartPartitioningRpc(
     ServerId backupId,
     uint64_t recoveryId,
     ServerId masterId,
-    const ProtoBuf::RecoveryMsg* partitions)
+    const ProtoBuf::RecoveryPartition* partitions)
     : ServerIdRpcWrapper(context, backupId,
             sizeof(WireFormat::BackupStartPartitioningReplicas::Response))
 {
