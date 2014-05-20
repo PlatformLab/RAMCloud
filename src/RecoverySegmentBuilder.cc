@@ -285,7 +285,7 @@ RecoverySegmentBuilder::isEntryAlive(const Log::Position& position,
  */
 const ProtoBuf::Tablets::Tablet*
 RecoverySegmentBuilder::whichPartition(uint64_t tableId, KeyHash keyHash,
-                                       const ProtoBuf::RecoveryPartition& partitions)
+                            const ProtoBuf::RecoveryPartition& partitions)
 {
     for (int i = 0; i < partitions.tablet_size(); i++) {
         const ProtoBuf::Tablets::Tablet& tablet(partitions.tablet(i));

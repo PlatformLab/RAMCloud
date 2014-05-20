@@ -757,6 +757,29 @@ TEST_F(ObjectManagerTest, removeObject_returnRemovedObj) {
                            oldValueLength));
 }
 
+TEST_F(ObjectManagerTest, replaySegment_highestBTreeIdMap) {
+    uint32_t segLen = 8192;
+    char seg[segLen];
+    uint32_t len; // number of bytes in a recovery segment
+    Buffer buffer;
+    Log::Reference reference;
+    Log::Reference logTomb1Ref;
+    Log::Reference logTomb2Ref;
+    SideLog sl(&objectManager.log);
+
+    Key key0(0, "12345", 5);
+    Segment::Certificate certificate;
+    len = buildRecoverySegment(seg, segLen, key0, 1, "newer guy", &certificate);
+    Tub<SegmentIterator> it;
+    it.construct(&seg[0], len, certificate);
+    std::unordered_map<uint64_t, uint64_t> highestBTreeIdMap;
+    highestBTreeIdMap[0] = 0;
+    objectManager.replaySegment(&sl, *it, highestBTreeIdMap);
+    EXPECT_EQ(12345U, highestBTreeIdMap[0]);
+    EXPECT_EQ("found=true tableId=0 byteCount=42 recordCount=1"
+              , verifyMetadata(0));
+}
+
 TEST_F(ObjectManagerTest, replaySegment) {
     uint32_t segLen = 8192;
     char seg[segLen];

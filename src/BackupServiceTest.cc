@@ -282,7 +282,7 @@ TEST_F(BackupServiceTest, getRecoveryData) {
         tablet = tablets.tablet(i);
     }
     BackupClient::StartPartitioningReplicas(&context, backupId,
-                                                  456lu, {99, 0}, &recoveryPartition);
+                                          456lu, {99, 0}, &recoveryPartition);
     EXPECT_EQ(1lu, results.replicas.size());
     EXPECT_EQ(1lu, backup->recoveries.size());
 
@@ -421,7 +421,7 @@ TEST_F(BackupServiceTest, startReadingData) {
     results = BackupClient::startReadingData(&context, backupId,
                                              457lu, {99, 0});
     BackupClient::StartPartitioningReplicas(&context, backupId,
-                                             457lu, {99, 0}, &recoveryPartition);
+                                          457lu, {99, 0}, &recoveryPartition);
     EXPECT_EQ(2lu, results.replicas.size());
     EXPECT_EQ(1lu, backup->recoveries.size());
     EXPECT_EQ(

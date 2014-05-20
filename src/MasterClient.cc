@@ -528,7 +528,8 @@ ReceiveMigrationDataRpc::ReceiveMigrationDataRpc(Context* context,
 void
 MasterClient::recover(Context* context, ServerId serverId,
         uint64_t recoveryId, ServerId crashedServerId,
-        uint64_t partitionId, const ProtoBuf::RecoveryPartition* recoveryPartition,
+        uint64_t partitionId,
+        const ProtoBuf::RecoveryPartition* recoveryPartition,
         const WireFormat::Recover::Replica* replicas, uint32_t numReplicas)
 {
     RecoverRpc rpc(context, serverId, recoveryId, crashedServerId,

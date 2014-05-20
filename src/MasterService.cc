@@ -1856,6 +1856,9 @@ MasterService::detectSegmentRecoveryFailure(
  *      A list specifying for each segmentId a backup who can provide a
  *      filtered recovery data segment. A particular segment may be listed more
  *      than once if it has multiple viable backups.
+ * \param highestBTreeIdMap
+ *      A unordered map that keeps track of the highest used BTree ID in
+ *      each indexlet table.
  * \throw SegmentRecoveryFailedException
  *      If some segment was not recovered and the recovery master is not
  *      a valid replacement for the crashed master.
@@ -1865,7 +1868,8 @@ MasterService::recover(uint64_t recoveryId,
                        ServerId masterId,
                        uint64_t partitionId,
                        vector<Replica>& replicas,
-                       std::unordered_map<uint64_t, uint64_t>& highestBTreeIdMap)
+                       std::unordered_map<uint64_t, uint64_t>&
+                           highestBTreeIdMap)
 {
     /* Overview of the internals of this method and its structures.
      *
@@ -2280,9 +2284,9 @@ MasterService::recover(const WireFormat::Recover::Request* reqHdr,
                 recoveryId, newIndexlet.index_id());
             bool added;
             if (highestBTreeIdMap[newIndexlet.indexlettable_id()] == 0)
-                added = 
+                added =
                 indexletManager.addIndexlet(newIndexlet);
-            else 
+            else
                 added =
                 indexletManager.addIndexlet(newIndexlet,
                     highestBTreeIdMap[newIndexlet.indexlettable_id()]);
@@ -2372,9 +2376,11 @@ MasterService::recover(const WireFormat::Recover::Request* reqHdr,
             bool deleted = indexletManager.deleteIndexlet(indexlet);
             if (!deleted) {
                 throw FatalError(HERE, format("Could not delete recovery "
-                    "indexlet (%lu, %u). It disappeared!?",
+                    "indexlet (%lu, %u, %s, %s). It disappeared!?",
                         indexlet.table_id(),
-                        indexlet.index_id()));
+                        indexlet.index_id(),
+                        indexlet.start_key().c_str(),
+                        indexlet.end_key().c_str()));
             }
         }
         objectManager.removeOrphanedObjects();

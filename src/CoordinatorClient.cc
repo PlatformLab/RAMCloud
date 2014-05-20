@@ -410,7 +410,8 @@ ReassignTabletOwnershipRpc::ReassignTabletOwnershipRpc(Context* context,
  */
 bool
 CoordinatorClient::recoveryMasterFinished(Context* context, uint64_t recoveryId,
-        ServerId recoveryMasterId, const ProtoBuf::RecoveryPartition* recoveryPartition,
+        ServerId recoveryMasterId,
+        const ProtoBuf::RecoveryPartition* recoveryPartition,
         bool successful)
 {
     RecoveryMasterFinishedRpc rpc(context, recoveryId, recoveryMasterId,

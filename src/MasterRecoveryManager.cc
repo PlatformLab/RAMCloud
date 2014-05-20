@@ -184,7 +184,8 @@ class RecoveryMasterFinishedTask : public Task {
     RecoveryMasterFinishedTask(MasterRecoveryManager& recoveryManager,
                                uint64_t recoveryId,
                                ServerId recoveryMasterId,
-                               const ProtoBuf::RecoveryPartition& recoveryPartition,
+                               const ProtoBuf::RecoveryPartition&
+                                     recoveryPartition,
                                bool successful)
         : Task(recoveryManager.taskQueue)
         , mgr(recoveryManager)

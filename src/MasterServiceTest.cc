@@ -1784,6 +1784,100 @@ TEST_F(MasterServiceTest, recover_basics) {
             ,  curPos, &curPos));
 }
 
+TEST_F(MasterServiceTest, recover_basic_indexlet) {
+    cluster.coordinator->recoveryManager.start();
+    ServerId serverId(123, 0);
+    ReplicaManager mgr(&context, &serverId, 1, false);
+
+    // Create a segment with objectSafeVersion 23
+    writeRecoverableSegment(&context, mgr, serverId, serverId.getId(),
+                            87, 23U);
+
+    ProtoBuf::RecoveryPartition recoveryPartition;
+    createRecoveryPartition(recoveryPartition);
+    ProtoBuf::Indexlets::Indexlet& entry = *recoveryPartition.add_indexlet();
+    entry.set_table_id(123);
+    entry.set_index_id(4);
+    entry.set_indexlettable_id(0);
+    string key0 = "a", key1 = "z";
+    entry.set_start_key(key0);
+    entry.set_end_key(key1);
+    auto result = BackupClient::startReadingData(&context, backup1Id,
+                                                 10lu, serverId);
+    BackupClient::StartPartitioningReplicas(&context, backup1Id,
+                                            10lu, serverId,
+                                            &recoveryPartition);
+    ASSERT_EQ(1lu, result.replicas.size());
+    ASSERT_EQ(87lu, result.replicas.at(0).segmentId);
+
+    SegmentManager* segmentManager = &service->objectManager.segmentManager;
+    segmentManager->safeVersion = 1U; // reset safeVersion
+    EXPECT_EQ(1U, segmentManager->safeVersion); // check safeVersion
+
+    ProtoBuf::ServerList backups;
+    WireFormat::Recover::Replica replicas[] = {
+        {backup1Id.getId(), 87},
+    };
+
+    TestLog::Enable __("replaySegment", "recover", "recoveryMasterFinished",
+                       NULL);
+    MasterClient::recover(&context, masterServer->serverId, 10lu,
+                          serverId, 0, &recoveryPartition, replicas,
+                          arrayLength(replicas));
+    // safeVersion Recovered
+    EXPECT_EQ(23U, segmentManager->safeVersion);
+
+    size_t curPos = 0; // Current Pos: given to getUntil()
+    TestLog::getUntil("recover: Recovering master 123.0"
+                      , curPos, &curPos); // Proceed read pointer
+
+    EXPECT_EQ(
+        "recover: Recovering master 123.0, partition 0, 1 replicas available | "
+        "recover: Starting getRecoveryData from server 1.0 at "
+        "mock:host=backup1 for "
+        "segment 87 on channel 0 (initial round of RPCs) | "
+        "recover: Waiting on recovery data for segment 87 from "
+        "server 1.0 at mock:host=backup1 | "
+        , TestLog::getUntil(
+            "replaySegment: SAFEVERSION 23 recovered"
+            , curPos, &curPos));
+
+    EXPECT_EQ(
+        "replaySegment: SAFEVERSION 23 recovered | "
+        "recover: Segment 87 replay complete | "
+        , TestLog::getUntil(
+            "recover: Checking server 1.0 at mock:host=backup1 "
+            ,  curPos, &curPos));
+
+    EXPECT_EQ(
+        "recover: Checking server 1.0 at mock:host=backup1 "
+        "off the list for 87 | "
+        "recover: Checking server 1.0 at mock:host=backup1 "
+        "off the list for 87 | "
+        , TestLog::getUntil(
+            "recover: Committing the SideLog... | "
+            ,  curPos, &curPos));
+
+    TestLog::getUntil(
+            "recover: set tablet 123 0 9 to "
+            , curPos, &curPos); // Proceed read pointer
+
+                //    EXPECT_TRUE(TestUtil::matchesPosixRegex(
+    EXPECT_EQ(
+        "recover: set tablet 123 0 9 to locator mock:host=master, id 2.0 | "
+        "recover: set tablet 123 10 19 to locator mock:host=master, id 2.0 | "
+        "recover: set tablet 123 20 29 to locator mock:host=master, id 2.0 | "
+        "recover: set tablet 124 20 100 to locator mock:host=master, "
+        "id 2.0 | "
+        "recover: set indexlet 123 to locator mock:host=master, id 2.0 | "
+        "recover: Reporting completion of recovery 10 | "
+        "recoveryMasterFinished: Called by masterId 2.0 with 4 tablets "
+        "and 1 indexlets | "
+        , TestLog::getUntil(
+            "recoveryMasterFinished: Recovered tablets | "
+            ,  curPos, &curPos));
+}
+
 /**
   * Properties checked:
   * 1) At most length of tasks number of RPCs are started initially

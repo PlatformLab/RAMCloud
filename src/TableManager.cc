@@ -248,7 +248,8 @@ TableManager::createIndex(uint64_t tableId, uint8_t indexId, uint8_t indexType,
                 indexlet = new Indexlet(
                             reinterpret_cast<void *>(&firstKey),
                             1, reinterpret_cast<void *>(&firstNotOwnedKey),
-                            1, tabletMaster, indexletTableId);
+                            1, tabletMaster, indexletTableId,
+                            tableId, indexId);
             } else {
                 //TODO(ashgup): harcoded index key space, generalize
                 char firstKey = static_cast<char>('a'+i);
@@ -256,17 +257,14 @@ TableManager::createIndex(uint64_t tableId, uint8_t indexId, uint8_t indexType,
                 indexlet = new Indexlet(
                             reinterpret_cast<void *>(&firstKey),
                             1, reinterpret_cast<void *>(&firstNotOwnedKey),
-                            1, tabletMaster, indexletTableId);
+                            1, tabletMaster, indexletTableId,
+                            tableId, indexId);
             }
             index->indexlets.push_back(indexlet);
 
             // Now we add tableIndexId<->indexlet into indexletTableMap
-            IndexletInfo indexletInfo;
-            indexletInfo.indexlet = indexlet;
-            indexletInfo.tableId = tableId;
-            indexletInfo.indexId = indexId;
             indexletTableMap.insert(
-                std::make_pair(indexletTableId, indexletInfo));
+                std::make_pair(indexletTableId, indexlet));
         }
     }
     catch (...) {
@@ -477,23 +475,23 @@ TableManager::getIndexletInfoByIndexletTableId(uint64_t indexletTableId,
     if (it == indexletTableMap.end())
         return false;
 
-    if (it->second.indexlet->firstKey != NULL)
+    if (it->second->firstKey != NULL)
         indexlet.set_start_key(string(reinterpret_cast<char*>(
-                               it->second.indexlet->firstKey),
-                               it->second.indexlet->firstKeyLength));
+                               it->second->firstKey),
+                               it->second->firstKeyLength));
     else
         indexlet.set_start_key("");
 
-    if (it->second.indexlet->firstNotOwnedKey != NULL)
+    if (it->second->firstNotOwnedKey != NULL)
         indexlet.set_end_key(string(reinterpret_cast<char*>(
-                             it->second.indexlet->firstNotOwnedKey),
-                             it->second.indexlet->firstNotOwnedKeyLength));
+                             it->second->firstNotOwnedKey),
+                             it->second->firstNotOwnedKeyLength));
     else
         indexlet.set_end_key("");
-    indexlet.set_table_id(it->second.tableId);
-    indexlet.set_index_id(it->second.indexId);
-    indexlet.set_indexlettable_id(it->second.indexlet->indexletTableId);
-    indexlet.set_server_id(it->second.indexlet->serverId.getId());
+    indexlet.set_table_id(it->second->tableId);
+    indexlet.set_index_id(it->second->indexId);
+    indexlet.set_indexlettable_id(it->second->indexletTableId);
+    indexlet.set_server_id(it->second->serverId.getId());
     return true;
 }
 
@@ -553,11 +551,10 @@ TableManager::indexletRecovered(
             LOG(NOTICE, "found indexlet and changed its server id to %s",
                 serverId.toString().c_str());
         }
-        if (!foundIndexlet) {
-            LOG(NOTICE, "not found indexlet, which is an error");
-        }
     }
-
+    if (!foundIndexlet) {
+        LOG(NOTICE, "not found indexlet, which is an error");
+    }
     // TODO(zhihao): Currently, we didn't record this update in external
     // storage. Will implement this in the future.
 }

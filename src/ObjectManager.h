@@ -78,7 +78,8 @@ class ObjectManager : public LogEntryHandlers {
     void syncChanges();
     void prefetchHashTableBucket(SegmentIterator* it);
     void replaySegment(SideLog* sideLog, SegmentIterator& it,
-                       std::unordered_map<uint64_t, uint64_t>& highestBTreeIdMap);
+                       std::unordered_map<uint64_t, uint64_t>&
+                           highestBTreeIdMap);
     void replaySegment(SideLog* sideLog, SegmentIterator& it);
     void removeOrphanedObjects();
 

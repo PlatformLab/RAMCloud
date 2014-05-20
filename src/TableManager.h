@@ -66,47 +66,6 @@ class TableManager {
         explicit NoSuchIndexlet(const CodeLocation& where) : Exception(where) {}
     };
 
-    /**
-     * The following structure holds information about a indexlet of an index.
-     * TODO(zhihao): currently move Indexlet from private to public, since
-     * Recovery need to see this struct. Need to consider the scope of it
-     * in the future.
-     */
-    struct Indexlet : public RAMCloud::Indexlet {
-        public:
-        Indexlet(const void *firstKey, uint16_t firstKeyLength,
-                 const void *firstNotOwnedKey, uint16_t firstNotOwnedKeyLength,
-                 ServerId serverId, uint64_t indexletTableId)
-            : RAMCloud::Indexlet(firstKey, firstKeyLength, firstNotOwnedKey,
-                       firstNotOwnedKeyLength)
-            , serverId(serverId)
-            , indexletTableId(indexletTableId)
-        {}
-
-        Indexlet(const Indexlet& indexlet)
-            : RAMCloud::Indexlet(indexlet)
-            , serverId(indexlet.serverId)
-            , indexletTableId(indexlet.indexletTableId)
-        {}
-
-        /// The server id of the master owning this indexlet.
-        ServerId serverId;
-
-        /// The id of the table on serverId holding the index content
-        uint64_t indexletTableId;
-    };
-    /**
-     * Information about an indexlet, which includes a pointer to Indexlet,
-     * tableId, and indexId.
-     * TODO(zhihao): make sure the lifetime of RAMCloud::Indexlet is at least
-     * as long as IndexletInfo
-     */
-    struct IndexletInfo {
-        Indexlet *indexlet;
-        uint64_t tableId;
-        uint8_t indexId;
-    };
-
     explicit TableManager(Context* context,
             CoordinatorUpdateManager* updateManager);
     ~TableManager();
@@ -148,6 +107,46 @@ class TableManager {
                          Log::Position ctime);
 
   PRIVATE:
+    /**
+     * The following structure holds information about a indexlet of an index.
+     * TODO(zhihao): currently move Indexlet from private to public, since
+     * Recovery need to see this struct. Need to consider the scope of it
+     * in the future.
+     */
+    struct Indexlet : public RAMCloud::Indexlet {
+        public:
+        Indexlet(const void *firstKey, uint16_t firstKeyLength,
+                 const void *firstNotOwnedKey, uint16_t firstNotOwnedKeyLength,
+                 ServerId serverId, uint64_t indexletTableId,
+                 uint64_t tableId, uint8_t indexId)
+            : RAMCloud::Indexlet(firstKey, firstKeyLength, firstNotOwnedKey,
+                       firstNotOwnedKeyLength)
+            , serverId(serverId)
+            , indexletTableId(indexletTableId)
+            , tableId(tableId)
+            , indexId(indexId)
+        {}
+
+        Indexlet(const Indexlet& indexlet)
+            : RAMCloud::Indexlet(indexlet)
+            , serverId(indexlet.serverId)
+            , indexletTableId(indexlet.indexletTableId)
+            , tableId(indexlet.tableId)
+            , indexId(indexlet.indexId)
+        {}
+
+        /// The server id of the master owning this indexlet.
+        ServerId serverId;
+
+        /// The id of the table on serverId holding the index content
+        uint64_t indexletTableId;
+
+        /// The id of the owning table
+        uint64_t tableId;
+
+        /// The id of the owning index
+        uint8_t indexId;
+    };
 
     /**
      * The following class holds information about a single index of a table.
@@ -239,7 +238,7 @@ class TableManager {
     /// Maps from indexletTable id to indexlet.
     /// This is a map since every indexletTable can have at most one
     /// containing indexlet
-    typedef std::unordered_map<uint64_t, IndexletInfo> IndexletTableMap;
+    typedef std::unordered_map<uint64_t, Indexlet*> IndexletTableMap;
     IndexletTableMap indexletTableMap;
 
     Tablet* findTablet(const Lock& lock, Table* table, uint64_t keyHash);

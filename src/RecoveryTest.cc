@@ -1179,14 +1179,14 @@ TEST_F(RecoveryTest, startRecoveryMasters_allFailDuringRecoverRpc) {
 
 TEST_F(RecoveryTest, startRecoveryMasters_indexlet) {
     Lock lock(mutex);     // To trick TableManager internal calls.
-    addServersToTracker(2, {WireFormat::MASTER_SERVICE});
+    addServersToTracker(4, {WireFormat::MASTER_SERVICE});
     tableManager.testCreateTable("t", 123);
     tableManager.testAddTablet({123,  0,  9, {99, 0}, Tablet::RECOVERING, {}});
     tableManager.testAddTablet({123, 20, 29, {99, 0}, Tablet::RECOVERING, {}});
     tableManager.testAddTablet({123, 10, 19, {99, 0}, Tablet::RECOVERING, {}});
-    tableManager.testCreateTable("__indexTable:1:0:0", 3);
+    tableManager.testCreateTable("__indexTable:123:0:0", 3);
     tableManager.testAddTablet({3,  0,  ~0UL, {99, 0}, Tablet::RECOVERING, {}});
-    tableManager.createIndex(1, 0, 0, 1);
+    tableManager.createIndex(123, 0, 0, 1);
     Recovery recovery(&context, taskQueue, &tableManager, &tracker, NULL,
                       {99, 0}, recoveryInfo);
     recovery.partitionTablets(
@@ -1194,7 +1194,7 @@ TEST_F(RecoveryTest, startRecoveryMasters_indexlet) {
     recovery.startRecoveryMasters();
 
     EXPECT_EQ(4u, recovery.numPartitions);
-    EXPECT_EQ(1, recovery.dataToRecover.indexlet_size());
+    EXPECT_EQ(4, recovery.dataToRecover.tablet_size());
 }
 
 TEST_F(RecoveryTest, recoveryMasterFinished) {
