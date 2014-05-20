@@ -1700,7 +1700,7 @@ TEST_F(MasterServiceTest, detectSegmentRecoveryFailure_failure) {
 TEST_F(MasterServiceTest, recover_basics) {
     cluster.coordinator->recoveryManager.start();
     ServerId serverId(123, 0);
-    ReplicaManager mgr(&context, &serverId, 1, false);
+    ReplicaManager mgr(&context, &serverId, 1, false, false);
 
     // Create a segment with objectSafeVersion 23
     writeRecoverableSegment(&context, mgr, serverId, serverId.getId(),
@@ -1798,7 +1798,7 @@ TEST_F(MasterServiceTest, recover_basics) {
 TEST_F(MasterServiceTest, recover) {
     ServerId serverId(123, 0);
 
-    ReplicaManager mgr(&context, &serverId, 1, false);
+    ReplicaManager mgr(&context, &serverId, 1, false, false);
     writeRecoverableSegment(&context, mgr, serverId, serverId.getId(), 88);
 
     ServerConfig backup2Config = backup1Config;
@@ -2065,7 +2065,7 @@ TEST_F(MasterRecoverTest, recover) {
                              WireFormat::MEMBERSHIP_SERVICE},
                             100, ServerStatus::UP});
     ServerId serverId(99, 0);
-    ReplicaManager mgr(&context2, &serverId, 1, false);
+    ReplicaManager mgr(&context2, &serverId, 1, false, false);
     MasterServiceTest::writeRecoverableSegment(&context, mgr, serverId, 99, 87);
     MasterServiceTest::writeRecoverableSegment(&context, mgr, serverId, 99, 88);
 

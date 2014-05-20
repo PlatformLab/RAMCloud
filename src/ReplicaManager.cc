@@ -39,11 +39,14 @@ namespace RAMCloud {
  * \param useMinCopysets
  *      Specifies whether to use the MinCopysets replication scheme or random
  *      replication.
+ * \param allowLocalBackup
+ *      Specifies whether to allow replication to the local backup.
  */
 ReplicaManager::ReplicaManager(Context* context,
                                const ServerId* masterId,
                                uint32_t numReplicas,
-                               bool useMinCopysets)
+                               bool useMinCopysets,
+                               bool allowLocalBackup)
     : context(context)
     , numReplicas(numReplicas)
     , backupSelector()
@@ -57,13 +60,15 @@ ReplicaManager::ReplicaManager(Context* context,
     , failureMonitor(context, this)
     , replicationCounter()
     , useMinCopysets(useMinCopysets)
+    , allowLocalBackup(allowLocalBackup)
 {
     if (useMinCopysets) {
         backupSelector.reset(new MinCopysetsBackupSelector(context, masterId,
-                                                           numReplicas));
+                                                           numReplicas,
+                                                           allowLocalBackup));
     } else {
         backupSelector.reset(new BackupSelector(context, masterId,
-                                                numReplicas));
+                                                numReplicas, allowLocalBackup));
     }
     replicationEpoch.construct(context, &taskQueue, masterId);
 }

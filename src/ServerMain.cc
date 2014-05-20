@@ -107,6 +107,9 @@ main(int argc, char *argv[])
              ProgramOptions::value<bool>(&config.master.useMinCopysets)->
                 default_value(false),
              "Whether to use MinCopysets or random replication")
+            ("allowLocalBackup",
+             ProgramOptions::bool_switch(&config.master.allowLocalBackup),
+             "Allow replication to local backup")
             ("segmentFrames",
              ProgramOptions::value<uint32_t>(&config.backup.numSegmentFrames)->
                 default_value(512),

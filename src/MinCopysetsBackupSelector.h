@@ -29,7 +29,8 @@ class MinCopysetsBackupSelector : public BackupSelector {
   PUBLIC:
     explicit MinCopysetsBackupSelector(Context* context,
                                        const ServerId* serverId,
-                                       uint32_t numReplicas);
+                                       uint32_t numReplicas,
+                                       bool allowLocalBackup);
     ServerId selectSecondary(uint32_t numBackups, const ServerId backupIds[]);
 
   PRIVATE:
