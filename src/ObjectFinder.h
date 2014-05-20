@@ -50,7 +50,6 @@ struct TabletKey {
  */
 struct TabletWithLocator {
     Tablet tablet;
-    //TODO(ashgup): Embed serviceLocator in tablet.h
     string serviceLocator;
 
     TabletWithLocator(Tablet tablet, string serviceLocator)
@@ -88,7 +87,6 @@ class ObjectFinder {
     void waitForTabletDown(uint64_t tableId);
     void waitForAllTabletsNormal(uint64_t tableId, uint64_t timeoutNs = ~0lu);
 
-    // TODO(ashgup): This is duplicated from Indexlet. Try to use that directly.
     static int keyCompare(const void* key1, uint16_t keyLength1,
                                         const void* key2, uint16_t keyLength2);
 
@@ -112,14 +110,11 @@ class ObjectFinder {
     std::map<TabletKey, TabletWithLocator> tableMap;
     typedef std::map<TabletKey, TabletWithLocator>::iterator TabletIter;
 
-    //TODO(ashgup): later explore tuple including index key
-
     /**
      * tableIndexMap provides a fast lookup for the current indexes being used.
      * It stores the indexlets, so they can be fast accessed by having the 
      * index id and table id.
      */
-    //TODO(ashgup): replace std::pair with custom structure
     std::multimap< std::pair<uint64_t, uint8_t>, Indexlet> tableIndexMap;
     typedef std::multimap< std::pair<uint64_t, uint8_t>,
                                     Indexlet>::iterator IndexletIter;

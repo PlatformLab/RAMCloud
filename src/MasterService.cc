@@ -312,9 +312,6 @@ MasterService::dropIndexletOwnership(
     const void* firstNotOwnedKey =
       rpc->requestPayload->getRange(reqOffset, reqHdr->firstNotOwnedKeyLength);
 
-    // TODO(ashgup): What if RPC isn't long enough to hold
-    // all of the required data?
-
     bool deleted = indexletManager.deleteIndexlet(reqHdr->tableId,
                                               reqHdr->indexId,
                                               firstKey,
@@ -1555,9 +1552,6 @@ MasterService::takeIndexletOwnership(
     const void* firstNotOwnedKey =
         rpc->requestPayload->getRange(
                 reqOffset, reqHdr->firstNotOwnedKeyLength);
-
-    // TODO(ashgup): What if RPC isn't long enough to hold
-    // all of the required data?
 
     bool added = indexletManager.addIndexlet(reqHdr->tableId,
                              reqHdr->indexId,

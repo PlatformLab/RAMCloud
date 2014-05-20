@@ -130,7 +130,7 @@ TEST_F(RamCloudTest, dropTable) {
 
 TEST_F(RamCloudTest, createIndex) {
     TestLog::Enable _("createIndex");
-    ramcloud->createIndex(10, 1, 0);
+    EXPECT_THROW(ramcloud->createIndex(10, 1, 0), TableManager::NoSuchTable);
     EXPECT_EQ("createIndex: Cannot find table '10'", TestLog::get());
     TestLog::reset();
     ramcloud->createIndex(tableId1, 1, 0);

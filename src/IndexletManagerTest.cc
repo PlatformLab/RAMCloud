@@ -123,34 +123,43 @@ TEST_F(IndexletManagerTest, getIndexlet) {
     string key4 = "k";
     string key5 = "u";
 
-    //TODO(ashgup): add comments on each individual test
+    // check if indexlet exist corresponding to [c, k)
     EXPECT_FALSE(im.getIndexlet(0, 0, key2.c_str(),
         (uint16_t)key2.length(), key4.c_str(), (uint16_t)key4.length()));
 
+    // add indexlet exist corresponding to [c, k)
     im.addIndexlet(0, 0, indexletTableId, key2.c_str(),
         (uint16_t)key2.length(), key4.c_str(), (uint16_t)key4.length());
 
+    // check if indexlet exist corresponding to [c, k)
     EXPECT_TRUE(im.getIndexlet(0, 0, key2.c_str(),
         (uint16_t)key2.length(), key4.c_str(), (uint16_t)key4.length()));
 
+    // different table id
     EXPECT_FALSE(im.getIndexlet(1, 0, key2.c_str(),
         (uint16_t)key2.length(), key4.c_str(), (uint16_t)key4.length()));
 
+    // different index id
     EXPECT_FALSE(im.getIndexlet(0, 1, key2.c_str(),
         (uint16_t)key2.length(), key4.c_str(), (uint16_t)key4.length()));
 
+    // last key is within the range of indexlet
     EXPECT_FALSE(im.getIndexlet(0, 0, key2.c_str(),
         (uint16_t)key2.length(), key3.c_str(), (uint16_t)key3.length()));
 
+    // first key is within the range of indexlet
     EXPECT_FALSE(im.getIndexlet(0, 0, key3.c_str(),
         (uint16_t)key3.length(), key4.c_str(), (uint16_t)key4.length()));
 
+    // first key is before the range of indexlet
     EXPECT_FALSE(im.getIndexlet(0, 0, key1.c_str(),
         (uint16_t)key1.length(), key4.c_str(), (uint16_t)key4.length()));
 
+    // last key is after the range of indexlet
     EXPECT_FALSE(im.getIndexlet(0, 1, key2.c_str(),
         (uint16_t)key2.length(), key5.c_str(), (uint16_t)key5.length()));
 
+    // first and last key are beyond the range of indexlet
     EXPECT_FALSE(im.getIndexlet(0, 1, key1.c_str(),
         (uint16_t)key1.length(), key5.c_str(), (uint16_t)key5.length()));
 
@@ -174,7 +183,6 @@ TEST_F(IndexletManagerTest, deleteIndexlet) {
     string key4 = "k";
     string key5 = "u";
 
-    //TODO(ashgup): add comments on each individual test
     EXPECT_FALSE(im.getIndexlet(0, 0, key2.c_str(),
         (uint16_t)key2.length(), key4.c_str(), (uint16_t)key4.length()));
 

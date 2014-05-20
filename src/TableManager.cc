@@ -66,7 +66,9 @@ TableManager::Table::~Table()
         delete tablet;
     }
 
-    foreach (Index* index, indexMap) {
+    for (IndexMap::const_iterator it = indexMap.begin();
+            it != indexMap.end(); ++it){
+        Index* index = it->second;
         delete index;
     }
 }
@@ -197,14 +199,15 @@ TableManager::createIndex(uint64_t tableId, uint8_t indexId, uint8_t indexType,
 
     IdMap::iterator it = idMap.find(tableId);
     if (it == idMap.end()) {
-        //TODO(ashgup): throw TableDoesntExistException
         RAMCLOUD_LOG(NOTICE, "Cannot find table '%lu'", tableId);
-        return false;
+        throw NoSuchTable(HERE);
     }
 
     Table* table = it->second;
+
     //search if the index already exists for the table
-    if (table->indexMap[indexId]){
+    IndexMap::iterator iit = table->indexMap.find(indexId);
+    if (iit != table->indexMap.end()) {
         RAMCLOUD_LOG(NOTICE, "Index %u already exists for table '%lu'",
                                                     indexId, tableId);
         return false;
@@ -249,7 +252,6 @@ TableManager::createIndex(uint64_t tableId, uint8_t indexId, uint8_t indexType,
                             1, reinterpret_cast<void *>(&firstNotOwnedKey),
                             1, tabletMaster, indexletTableId);
             } else {
-                //TODO(ashgup): harcoded index key space, generalize
                 char firstKey = static_cast<char>('a'+i);
                 char firstNotOwnedKey = static_cast<char>('b'+i);
                 indexlet = new Indexlet(
@@ -346,27 +348,27 @@ TableManager::dropTable(const char* name)
     Table* table = it->second;
     LOG(NOTICE, "Dropping table '%s' with id %lu", name, table->id);
 
-    //Drop all indexes
-    for (int i = 0; i < 256; i++) {
-        if (!table->indexMap[i])
-            continue;
-
-        Index* index = table->indexMap[i];
-        uint8_t numIndexlets = (uint8_t)index->indexlets.size();
-        indexIndexlet.push_back(std::make_pair((uint8_t)i, numIndexlets));
-
-        LOG(NOTICE, "Dropping table '%lu' index '%u'", table->id, i);
-        table->indexMap[i] = NULL;
-        notifyDropIndex(lock, index);
-        delete index;
-    }
-
     // Record our intention to delete this table.
     ProtoBuf::Table externalInfo;
     serializeTable(lock, table, &externalInfo);
     externalInfo.set_sequence_number(updateManager->nextSequenceNumber());
     externalInfo.set_deleted(true);
     syncTable(lock, table, &externalInfo);
+
+    //Drop all indexes
+    IndexMap::const_iterator iit = table->indexMap.begin();
+    while (iit != table->indexMap.end()) {
+        Index* index = iit->second;
+        uint8_t numIndexlets = (uint8_t)index->indexlets.size();
+        indexIndexlet.push_back(std::make_pair(
+                        (uint8_t)index->indexId, numIndexlets));
+
+        LOG(NOTICE, "Dropping table '%lu' index '%u'", table->id,
+                                                index->indexId);
+        table->indexMap.erase(iit++);
+        notifyDropIndex(lock, index);
+        delete index;
+    }
 
     // Delete the table and notify the masters storing its tablets.
     directory.erase(it);
@@ -402,16 +404,19 @@ TableManager::dropIndex(uint64_t tableId, uint8_t indexId)
     }
     Table* table = it->second;
 
-    if (!table->indexMap[indexId]){
+
+    IndexMap::iterator iit = table->indexMap.find(indexId);
+    if (iit == table->indexMap.end()) {
         RAMCLOUD_LOG(NOTICE, "Cannot find index '%u' for table '%lu'",
                     indexId, tableId);
         return 0;
     }
+
     Index* index = table->indexMap[indexId];
     uint8_t numIndexlets = (uint8_t)index->indexlets.size();
 
     LOG(NOTICE, "Dropping table '%lu' index '%u'", tableId, indexId);
-    table->indexMap[indexId] = NULL;
+    table->indexMap.erase(indexId);
     notifyDropIndex(lock, index);
     delete index;
     return numIndexlets;
@@ -673,7 +678,9 @@ TableManager::serializeTableConfig(ProtoBuf::TableConfig* tableConfig,
     }
 
     // filling indexes
-    foreach (Index* index, table->indexMap) {
+    for (IndexMap::const_iterator iit = table->indexMap.begin();
+            iit != table->indexMap.end(); ++iit){
+        Index* index = iit->second;
         if (index == NULL) continue;
         ProtoBuf::TableConfig::Index& index_entry(*tableConfig->add_index());
         index_entry.set_index_id(index->indexId);
@@ -705,9 +712,8 @@ TableManager::serializeTableConfig(ProtoBuf::TableConfig* tableConfig,
                         indexlet->serverId);
                 entry.set_service_locator(locator);
             } catch (const ServerListException& e) {
-                //TODO(ashgup): should not reach, throw a verbose error here
-                LOG(NOTICE, "Server id (%s) in index map no longer in server "
-                    "list; omitting locator for entry",
+                RAMCLOUD_LOG(ERROR, "Server id (%s) in index map no longer in "
+                    "server list; omitting locator for entry",
                     indexlet->serverId.toString().c_str());
             }
         }

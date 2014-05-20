@@ -120,11 +120,13 @@ TEST_F(TableManagerTest, createIndex) {
     MasterService* master2 = cluster.addServer(masterConfig)->master.get();
     updateManager->reset();
 
-    EXPECT_FALSE(tableManager->createIndex(1, 0, 0, 0));
+    EXPECT_THROW(tableManager->createIndex(1, 0, 0, 0),
+                                                    TableManager::NoSuchTable);
     EXPECT_EQ(1U, tableManager->createTable("foo", 1));
 
     EXPECT_EQ(2U, tableManager->createTable("__indexTable:1:0:0", 1));
-    EXPECT_FALSE(tableManager->createIndex(3, 0, 0, 1));
+    EXPECT_THROW(tableManager->createIndex(3, 0, 0, 1),
+                                                    TableManager::NoSuchTable);
     EXPECT_TRUE(tableManager->createIndex(1, 0, 0, 1));
     EXPECT_EQ(0U, master1->indexletManager.getCount());
     EXPECT_EQ(1U, master2->indexletManager.getCount());

@@ -141,6 +141,8 @@ class TableManager {
         vector<Indexlet*> indexlets;
     };
 
+    typedef std::unordered_map<uint8_t, Index*> IndexMap;
+
     struct Table {
         Table(const char* name, uint64_t id)
             : name(name)
@@ -148,10 +150,10 @@ class TableManager {
             , tablets()
             , indexMap()
         {
-                int i = 0;
-                for (; i < 256; i++) {
-                    indexMap.push_back(NULL);
-                }
+                // int i = 0;
+                // for (; i < 256; i++) {
+                //     indexMap.push_back(NULL);
+                // }
         }
         ~Table();
 
@@ -167,8 +169,8 @@ class TableManager {
 
         /// Information about each of the indexes in the table. The
         /// entries are allocated and freed dynamically.
-        //TODO(ashgup): convert back to map
-        vector<Index*> indexMap;
+        //vector<Index*> indexMap;
+        IndexMap indexMap;
     };
 
     /**

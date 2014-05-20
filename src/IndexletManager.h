@@ -105,7 +105,6 @@ class IndexletManager {
 
 
     // B+ tree holding key: string, value: primary key hash
-    // TODO(ashgup): Do we need to define traits?
     typedef str::btree_multimap<KeyAndHash, uint64_t, KeyAndHashCompare> Btree;
 
     /**

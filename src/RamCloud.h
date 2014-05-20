@@ -219,7 +219,6 @@ class DropTableRpc : public CoordinatorRpcWrapper {
  */
 class CreateIndexRpc : public CoordinatorRpcWrapper {
   public:
-    //TODO(ashgup): convert indexType to enum
     CreateIndexRpc(RamCloud* ramcloud, uint64_t tableId, uint8_t indexId,
               uint8_t indexType, uint8_t numIndexlets = 1);
     ~CreateIndexRpc() {}

@@ -158,7 +158,6 @@ DropIndexletOwnershipRpc::DropIndexletOwnershipRpc(Context* context,
     reqHdr->indexId = indexId;
     reqHdr->firstKeyLength = firstKeyLength;
     reqHdr->firstNotOwnedKeyLength = firstNotOwnedKeyLength;
-    // TODO(ashgup): allocate new memory maybe
     request.append(firstKey, firstKeyLength);
     request.append(firstNotOwnedKey, firstNotOwnedKeyLength);
     send();
@@ -823,7 +822,6 @@ TakeIndexletOwnershipRpc::TakeIndexletOwnershipRpc(
     reqHdr->indexletTableId = indexletTableId;
     reqHdr->firstKeyLength = firstKeyLength;
     reqHdr->firstNotOwnedKeyLength = firstNotOwnedKeyLength;
-    // TODO(ashgup): allocate new memory maybe
     request.append(firstKey, firstKeyLength);
     request.append(firstNotOwnedKey, firstNotOwnedKeyLength);
     send();
