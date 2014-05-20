@@ -1,0 +1,32 @@
+/* Copyright (c) 2014 Stanford University
+ *
+ * Permission to use, copy, modify, and distribute this software for any
+ * purpose with or without fee is hereby granted, provided that the above
+ * copyright notice and this permission notice appear in all copies.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR(S) DISCLAIM ALL WARRANTIES
+ * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+ * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL AUTHORS BE LIABLE FOR
+ * ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+ * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+ * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+ */
+
+package RAMCloud.ProtoBuf;
+import "Tablets.proto";
+import "Indexlets.proto";
+
+// Message used by coordinator and recoveryMaster during recovery.
+// At the beginning of a recovery, coordinator send a recoveryPartition
+// to each recoveryMaster. When recoveryMaster finishes its job, it fills
+// in some fields of recoveryPartition, and sends it back to coordinator.
+// Same message goes both directions during a recovery.
+message RecoveryPartition {
+
+  /// The tablets.
+  repeated Tablets.Tablet tablet = 1;
+
+  /// The indexlets.
+  repeated Indexlets.Indexlet indexlet = 2;
+}
