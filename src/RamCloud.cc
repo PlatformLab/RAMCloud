@@ -1145,8 +1145,8 @@ IndexedReadRpc::IndexedReadRpc(RamCloud* ramcloud, uint64_t tableId,
     reqHdr->firstKeyLength = firstKeyLength;
     reqHdr->lastKeyLength = lastKeyLength;
     reqHdr->numHashes = numHashes;
-    request.append(firstKey, firstKeyLength);
-    request.append(lastKey, lastKeyLength);
+    request.appendCopy(firstKey, firstKeyLength);
+    request.appendCopy(lastKey, lastKeyLength);
     request.append(pKHashes, 0);
     send();
 }
@@ -1416,8 +1416,8 @@ LookupIndexKeysRpc::LookupIndexKeysRpc(
     reqHdr->firstAllowedKeyHash = firstAllowedKeyHash;
     reqHdr->firstKeyLength = firstKeyLength;
     reqHdr->lastKeyLength = lastKeyLength;
-    request.append(firstKey, firstKeyLength);
-    request.append(lastKey, lastKeyLength);
+    request.appendCopy(firstKey, firstKeyLength);
+    request.appendCopy(lastKey, lastKeyLength);
     send();
 }
 
