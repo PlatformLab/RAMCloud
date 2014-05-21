@@ -159,10 +159,6 @@ public:
     /// specific slot number in a leaf.
     typedef typename btree_impl::iterator               iterator;
 
-    /// STL-like iterator object for B+ tree items. The iterator points to a
-    /// specific slot number in a leaf.
-    typedef typename btree_impl::const_iterator         const_iterator;
-
 private:
     // *** Tree Implementation Object
 
@@ -276,20 +272,6 @@ public:
         return tree.end();
     }
 
-    /// Constructs a read-only constant iterator that points to the first slot
-    /// in the first leaf of the B+ tree.
-    inline const_iterator begin() const
-    {
-        return tree.begin();
-    }
-
-    /// Constructs a read-only constant iterator that points to the first
-    /// invalid slot in the last leaf of the B+ tree.
-    inline const_iterator end() const
-    {
-        return tree.end();
-    }
-
 public:
     // *** Access Functions to the Item Count
 
@@ -335,13 +317,6 @@ public:
         return tree.find(key);
     }
 
-    /// Tries to locate a key in the B+ tree and returns an constant iterator
-    /// to the key slot if found. If unsuccessful it returns end().
-    const_iterator find(const key_type &key) const
-    {
-        return tree.find(key);
-    }
-
     /// Tries to locate a key in the B+ tree and returns the number of
     /// identical key entries found.
     size_type count(const key_type &key) const
@@ -356,14 +331,6 @@ public:
         return tree.lower_bound(key);
     }
 
-    /// Searches the B+ tree and returns a constant iterator to the
-    /// first pair equal to or greater than key, or end() if all keys
-    /// are smaller.
-    const_iterator lower_bound(const key_type& key) const
-    {
-        return tree.lower_bound(key);
-    }
-
     /// Searches the B+ tree and returns an iterator to the first pair
     /// greater than key, or end() if all keys are smaller or equal.
     iterator upper_bound(const key_type& key)
@@ -371,22 +338,8 @@ public:
         return tree.upper_bound(key);
     }
 
-    /// Searches the B+ tree and returns a constant iterator to the
-    /// first pair greater than key, or end() if all keys are smaller
-    /// or equal.
-    const_iterator upper_bound(const key_type& key) const
-    {
-        return tree.upper_bound(key);
-    }
-
     /// Searches the B+ tree and returns both lower_bound() and upper_bound().
     inline std::pair<iterator, iterator> equal_range(const key_type& key)
-    {
-        return tree.equal_range(key);
-    }
-
-    /// Searches the B+ tree and returns both lower_bound() and upper_bound().
-    inline std::pair<const_iterator, const_iterator> equal_range(const key_type& key) const
     {
         return tree.equal_range(key);
     }

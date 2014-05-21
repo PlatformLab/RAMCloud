@@ -412,10 +412,6 @@ private:
         inline value_type operator()(pair_type p) const {
             return p;
         }
-        /// Identity "convert" a real pair type to just the first component
-        //inline value_type operator()(const pair_type p) const {
-        //    return p;
-        //}
     };
 
     /// Using template specialization select the correct converter used by the
@@ -426,7 +422,6 @@ public:
     // *** Iterators and Reverse Iterators
 
     class iterator;
-    class const_iterator;
 
     /// STL-like iterator object for B+ tree items. The iterator points to a
     /// specific slot number in a leaf.
@@ -479,10 +474,6 @@ public:
 
         /// Pointer to a contiguous copy of the currently referenced leaf node
         const leaf_node*        currnode;
-
-        /// Friendly to the const_iterator, so it may access the two data items
-        /// directly.
-        friend class const_iterator;
 
         /// Also friendly to the base btree class, because erase_iter() needs
         /// to read the currnode and currslot values directly.
@@ -706,257 +697,6 @@ public:
         }
     };
 
-    /// STL-like read-only iterator object for B+ tree items. The iterator
-    /// points to a specific slot number in a leaf.
-    class const_iterator
-    {
-    public:
-        // *** Types
-
-        /// The key type of the btree. Returned by key().
-        typedef typename btree::key_type                key_type;
-
-        /// The data type of the btree. Returned by data().
-        typedef typename btree::data_type               data_type;
-
-        /// The value type of the btree. Returned by operator*().
-        typedef typename btree::value_type              value_type;
-
-        /// The pair type of the btree.
-        typedef typename btree::pair_type               pair_type;
-
-        /// Reference to the value_type. STL required.
-        typedef const value_type&               reference;
-
-        /// Pointer to the value_type. STL required.
-        typedef const value_type*               pointer;
-
-        /// STL-magic iterator category
-        typedef std::bidirectional_iterator_tag         iterator_category;
-
-        /// STL-magic
-        typedef ptrdiff_t               difference_type;
-
-        /// Our own type
-        typedef const_iterator          self;
-
-    private:
-        // *** Members
-
-        /// Reference to the btree that this iterator
-        /// corresponds to
-        btree_self*               parentBtree;
-
-        // FIXME CONST ITERATOR
-        /// The currently referenced leaf node of the tree
-        //const typename btree::leaf_node*        currnode;
-
-        /// The nodeId of the currently referenced leaf node of the tree
-        NodeId                          currentNodeId;
-
-        /// Current key/data slot referenced
-        unsigned short                  currslot;
-
-        /// Buffer to hold the contents of the currently referenced
-        /// leaf
-        Buffer *buffer;
-        //Tub<Buffer> buffer;
-
-        /// Evil! A temporary value_type to STL-correctly deliver operator* and
-        /// operator->
-        mutable value_type              temp_value;
-
-        // The macro BTREE_FRIENDS can be used by outside class to access the B+
-        // tree internals. This was added for wxBTreeDemo to be able to draw the
-        // tree.
-        BTREE_FRIENDS
-
-    public:
-        // *** Methods
-
-        /// Default-Constructor of a const iterator
-        inline const_iterator(btree_self* tree = NULL)
-        //    : currnode(NULL), currslot(0)
-        // FIXME CONST ITERATOR
-              : parentBtree(tree), currentNodeId(INVALID_NODEID), currslot(0),
-              //: parentBtree(tree), currentNodeId(ROOT_ID), currslot(0),
-                buffer(new Buffer())
-                //buffer()
-        { }
-
-        /// Initializing-Constructor of a const iterator
-        // FIXME CONST ITERATOR
-        //inline const_iterator(const typename btree::leaf_node *l, unsigned short s)
-        //    : currnode(l), currslot(s)
-        inline const_iterator(btree_self* tree, const NodeId nodeId, unsigned short s)
-            : parentBtree(tree), currentNodeId(nodeId), currslot(s), buffer(new Buffer())
-            //: parentBtree(tree), currentNodeId(nodeId), currslot(s), buffer()
-        { }
-
-        /// Copy-constructor from a mutable iterator
-        // FIXME CONST ITERATOR
-        //inline const_iterator(const iterator &it)
-        //   : currnode(it.currnode), currslot(it.currslot)
-        inline const_iterator(const iterator &it)
-            : parentBtree(it.parentBtree),
-              currentNodeId(it.currentNodeId),
-              currslot(it.currslot),
-              buffer(new Buffer())
-              //buffer(it.buffer)
-              //buffer()
-        { }
-
-        /// Releases memory allocated in the buffer
-        inline ~const_iterator()
-        {
-            if (buffer) {
-                delete buffer;
-                buffer = NULL;
-            }
-            //buffer.destroy();
-        }
-
-        /// Dereference the iterator. Do not use this if possible, use key()
-        /// and data() instead. The B+ tree does not stored key and data
-        /// together.
-        inline reference operator*() const
-        {
-            temp_value = pair_to_value_type()( pair_type(key(),data()) );
-            return temp_value;
-        }
-
-        /// Dereference the iterator. Do not use this if possible, use key()
-        /// and data() instead. The B+ tree does not stored key and data
-        /// together.
-        inline pointer operator->() const
-        {
-            temp_value = pair_to_value_type()( pair_type(key(),data()) );
-            return &temp_value;
-        }
-
-        /// Key of the current slot
-        // FIXME REFERENCE ITERATOR
-        inline const key_type& key() const
-        //inline const key_type key() const
-        {
-            //return currnode->slotkey[currslot];
-            // FIXME CONST ITERATOR
-            //Buffer buffer;
-            const leaf_node *leaf = static_cast<const leaf_node *>(
-                                    parentBtree->getPointerToObject(currentNodeId,
-                                                                    buffer));
-            return leaf->slotkey[currslot];
-        }
-
-        /// Read-only reference to the current data object
-        // FIXME REFERENCE ITERATOR
-        inline const data_type& data() const
-        //inline const data_type data() const
-        {
-            //return currnode->slotdata[used_as_set ? 0 : currslot];
-            // FIXME CONST ITERATOR
-            //Buffer buffer;
-            const leaf_node *leaf = static_cast<const leaf_node *>(
-                                    parentBtree->getPointerToObject(currentNodeId,
-                                                                    buffer));
-            return leaf->slotdata[used_as_set ? 0 : currslot];
-        }
-
-#if 0
-        /// Prefix++ advance the iterator to the next slot
-        inline self& operator++()
-        {
-            if (currslot + 1 < currnode->slotuse) {
-                ++currslot;
-            }
-            else if (currnode->nextleaf != NULL) {
-                currnode = currnode->nextleaf;
-                currslot = 0;
-            }
-            else {
-                // this is end()
-                currslot = currnode->slotuse;
-            }
-
-            return *this;
-        }
-
-        /// Postfix++ advance the iterator to the next slot
-        inline self operator++(int)
-        {
-            self tmp = *this;   // copy ourselves
-
-            if (currslot + 1 < currnode->slotuse) {
-                ++currslot;
-            }
-            else if (currnode->nextleaf != NULL) {
-                currnode = currnode->nextleaf;
-                currslot = 0;
-            }
-            else {
-                // this is end()
-                currslot = currnode->slotuse;
-            }
-
-            return tmp;
-        }
-
-        /// Prefix-- backstep the iterator to the last slot
-        inline self& operator--()
-        {
-            if (currslot > 0) {
-                --currslot;
-            }
-            else if (currnode->prevleaf != NULL) {
-                currnode = currnode->prevleaf;
-                currslot = currnode->slotuse - 1;
-            }
-            else {
-                // this is begin()
-                currslot = 0;
-            }
-
-            return *this;
-        }
-
-        /// Postfix-- backstep the iterator to the last slot
-        inline self operator--(int)
-        {
-            self tmp = *this;   // copy ourselves
-
-            if (currslot > 0) {
-                --currslot;
-            }
-            else if (currnode->prevleaf != NULL) {
-                currnode = currnode->prevleaf;
-                currslot = currnode->slotuse - 1;
-            }
-            else {
-                // this is begin()
-                currslot = 0;
-            }
-
-            return tmp;
-        }
-#endif
-
-        /// Equality of iterators
-        inline bool operator==(const self& x) const
-        {
-            // FIXME ITERATOR
-            //return (x.currnode == currnode) && (x.currslot == currslot);
-            return (x.currentNodeId == currentNodeId) && (x.currslot == currslot);
-        }
-
-        /// Inequality of iterators
-        inline bool operator!=(const self& x) const
-        {
-            // FIXME ITERATOR
-            //return (x.currnode != currnode) || (x.currslot != currslot);
-            return (x.currentNodeId != currentNodeId) || (x.currslot != currslot);
-        }
-    };
-
 public:
     // *** Small Statistics Structure
 
@@ -1023,7 +763,8 @@ private:
     ObjectManager* objMgr;
 
     /// this acts as the primary key for the objects representing the nodes
-    /// of the tree.
+    /// of the tree. In particular, it represents the next nodeId that can
+    /// be used to create a new node/RamCloud object
     uint64_t nextNodeId;
 
     /// NodeId corresponding to the root of the tree. This corresponds to the
@@ -1042,7 +783,8 @@ private:
     /// Map between nodeId and offset in #logBuffer. This is useful when the
     /// parent needs to occassionally read its child before its child has been
     /// written to the log. Since, the object would have only been written to
-    /// #logBuffer, we need to know the offset in it 
+    /// #logBuffer, we need to know the offset in it. This is currently only
+    /// used during an erase sequence
     std::map<NodeId, uint32_t> cache;
 
 public:
@@ -1102,18 +844,6 @@ public:
     inline ~btree()
     {
         clear();
-    }
-
-    /// Fast swapping of two identical B+ tree objects.
-    void swap(btree_self& from)
-    {
-// FIXME
-        //std::swap(m_root, from.m_root);
-        //std::swap(m_headleaf, from.m_headleaf);
-        //std::swap(m_tailleaf, from.m_tailleaf);
-        std::swap(m_stats, from.m_stats);
-        std::swap(m_key_less, from.m_key_less);
-        std::swap(m_allocator, from.m_allocator);
     }
 
 public:
@@ -1233,35 +963,11 @@ private:
         return n;
     }
 
- // FIXME remove allocate_leaf_and allocate_inner
-    /// Allocate and initialize a leaf node
-    inline leaf_node* allocate_leaf()
-    {
-        leaf_node *n = new (leaf_node_allocator().allocate(1)) leaf_node();
-        n->initialize();
-        m_stats.leaves++;
-        return n;
-    }
-
-    /// Allocate and initialize an inner node
-    inline inner_node* allocate_inner(unsigned short level)
-    {
-        inner_node *n = new (inner_node_allocator().allocate(1)) inner_node();
-        n->initialize(level);
-        m_stats.innernodes++;
-        return n;
-    }
-
-    /// Destroys all contained key and value objects. In particular,
-    /// write a tombstone in logBuffer for the object corresponding
+    /// Write a tombstone in logBuffer for the object corresponding
     /// to the tree node that needs to be deleted
     inline void free_node(NodeId nodeId)
     {
-        std::string keyString;
-        std::stringstream ss;
-        ss << nodeId;
-        keyString = ss.str();
-        Key key(treeTableId, keyString.c_str(), keyString.length());
+        Key key(treeTableId, &nodeId, sizeof(NodeId));
         Status status = objMgr->writeTombstone(key, &logBuffer);
         assert(status == STATUS_OK);
         numEntries++;
@@ -1325,11 +1031,7 @@ private:
      */ 
     const void* getPointerToObject(NodeId nodeId, Buffer* outBuffer) const
     {
-        std::string keyString;
-        std::stringstream ss;
-        ss << nodeId;
-        keyString = ss.str();
-        Key key(treeTableId, keyString.c_str(), keyString.length());
+        Key key(treeTableId, &nodeId, sizeof(NodeId));
         Status status = objMgr->readObject(key, outBuffer, NULL, NULL, true);
         if (status != STATUS_OK) {
             RAMCLOUD_LOG(ERROR, "Cant read NodeId %u", nodeId);
@@ -1364,20 +1066,16 @@ private:
                      NodeId nodeId = 0, bool useGlobalNodeId = true)
     {
         NodeId nodeIdUsed;
-        std::string keyString;
-        std::stringstream ss;
 
         if (useGlobalNodeId)
             nodeIdUsed = nextNodeId++;
         else
             nodeIdUsed = nodeId;
 
-        ss << nodeIdUsed;
-        keyString = ss.str();
-        Key key(treeTableId, keyString.c_str(), keyString.length());
+        Key key(treeTableId, &nodeIdUsed, sizeof(NodeId));
 
-        RAMCLOUD_LOG(DEBUG, "Writing key(nodeId) is %s, size of node = %d",
-                     keyString.c_str(), size);
+        RAMCLOUD_LOG(DEBUG, "Writing key(nodeId) is %d, size of node = %d",
+                     nodeIdUsed, size);
 
         Buffer buffer;
         // Avoid version 0 to avoid confusion
@@ -1439,29 +1137,16 @@ public:
     // *** Fast Destruction of the B+ Tree
 
     /// Frees all key/data pairs and all nodes of the tree
+    /// Resets metadata about the tree. The actual nodes (RamCloud objects)
+    /// corresponding to the treeTable will get deleted when Frees all key/data pairs and all nodes of the tree
     void clear()
     {
         if (nextNodeId > ROOT_ID)
         {
-            clear_recursive(m_rootId);
-            free_node(m_rootId);
-
             nextNodeId = ROOT_ID;
-
             m_stats = tree_stats();
-
-            // TODO(arjung)
-            // in indexExp1 for OSDI '14, when there are millions of entries in
-            // the tree, we will try to write tombstones for all of them in
-            // the same log segment if we try to do an atomic commit. Instead,
-            // we should remove the objects from the hash table in a higher
-            // level like MasterService. Refer to dropTabletOwnership
-            //
-//            bool status = objMgr->flushEntriesToLog(&logBuffer, numEntries);
-//            assert(status == true);
             cache.clear();
         }
-
         BTREE_ASSERT(m_stats.itemcount == 0);
     }
 
@@ -1528,20 +1213,6 @@ public:
     inline iterator end()
     {
         return iterator(this, INVALID_NODEID, 0);
-    }
-
-    /// Constructs a read-only constant iterator that points to the first slot
-    /// in the first leaf of the B+ tree.
-    inline const_iterator begin() const
-    {
-        return const_iterator(this, m_headleafId, 0);
-    }
-
-    /// Constructs a read-only constant iterator that points to the first
-    /// invalid slot in the last leaf of the B+ tree.
-    inline const_iterator end() const
-    {
-        return const_iterator(this, m_headleafId, 0);
     }
 
 private:
@@ -1736,35 +1407,6 @@ public:
             ? iterator(this, childId, slot) : end();
     }
 
-    /// Tries to locate a key in the B+ tree and returns an constant iterator
-    /// to the key/data slot if found. If unsuccessful it returns end().
-    const_iterator find(const key_type &key) const
-    {
-        if (nextNodeId <= ROOT_ID)
-            return end();
-
-        Buffer rootBuffer;
-        const node *n = static_cast<const node *>(getPointerToObject(m_rootId, &rootBuffer));
-        Buffer nodeBuffer;
-        NodeId childId = m_rootId;
-        while(!n->isleafnode())
-        {
-            const inner_node *inner = static_cast<const inner_node*>(n);
-            int slot = find_lower(inner, key);
-
-            childId = inner->childid[slot];
-            nodeBuffer.reset();
-            n = static_cast<const node*>(getPointerToObject(childId, &nodeBuffer));
-        }
-
-        assert (childId >= ROOT_ID);
-        const leaf_node *leaf = static_cast<const leaf_node*>(n);
-
-        int slot = find_lower(leaf, key);
-        return (slot < leaf->slotuse && key_equal(key, leaf->slotkey[slot]))
-            ? const_iterator(this, childId, slot) : end();
-    }
-
     /// Tries to locate a key in the B+ tree and returns the number of
     /// identical key entries found.
     size_type count(const key_type &key) const
@@ -1848,40 +1490,6 @@ public:
             return iterator(this, childId, slot);
     }
 
-    /// Searches the B+ tree and returns a constant iterator to the
-    /// first pair equal to or greater than key, or end() if all keys
-    /// are smaller.
-    const_iterator lower_bound(const key_type& key) const
-    {
-        if (nextNodeId <= ROOT_ID)
-            return end();
-
-        Buffer rootBuffer;
-        const node *n = static_cast<const node *>(getPointerToObject(m_rootId, &rootBuffer));
-        Buffer nodeBuffer;
-        NodeId childId = m_rootId;
-        while(!n->isleafnode())
-        {
-            const inner_node *inner = static_cast<const inner_node*>(n);
-            int slot = find_lower(inner, key);
-
-            childId = inner->childid[slot];
-            nodeBuffer.reset();
-            n = static_cast<const node*>(getPointerToObject(childId, &nodeBuffer));
-        }
-
-        const leaf_node *leaf = static_cast<const leaf_node*>(n);
-
-        int slot = find_lower(leaf, key);
-
-        // If the slot returned by find_upper() is beyond the last element
-        // in use, return end()
-        if (slot >= leaf->slotuse)
-            return end();
-        else
-            return const_iterator(this, childId, slot);
-    }
-
     /// Searches the B+ tree and returns an iterator to the first pair
     /// greater than key, or end() if all keys are smaller or equal.
     iterator upper_bound(const key_type& key)
@@ -1915,50 +1523,10 @@ public:
             return iterator(this, childId, slot);
     }
 
-    /// Searches the B+ tree and returns a constant iterator to the
-    /// first pair greater than key, or end() if all keys are smaller
-    /// or equal.
-    const_iterator upper_bound(const key_type& key) const
-    {
-        if (nextNodeId <= ROOT_ID)
-            return end();
-
-        Buffer rootBuffer;
-        const node *n = static_cast<const node *>(getPointerToObject(m_rootId, &rootBuffer));
-        Buffer nodeBuffer;
-        NodeId childId = m_rootId;
-        while(!n->isleafnode())
-        {
-            const inner_node *inner = static_cast<const inner_node*>(n);
-            int slot = find_upper(inner, key);
-
-            NodeId childId = inner->childid[slot];
-            nodeBuffer.reset();
-            n = static_cast<const node*>(getPointerToObject(childId, &nodeBuffer));
-        }
-
-        const leaf_node *leaf = static_cast<const leaf_node*>(n);
-
-        int slot = find_upper(leaf, key);
-
-        // If the slot returned by find_upper() is beyond the last element
-        // in use, return end()
-        if (slot >= leaf->slotuse)
-            return end();
-        else
-            return const_iterator(this, childId, slot);
-    }
-
     /// Searches the B+ tree and returns both lower_bound() and upper_bound().
     inline std::pair<iterator, iterator> equal_range(const key_type& key)
     {
         return std::pair<iterator, iterator>(lower_bound(key), upper_bound(key));
-    }
-
-    /// Searches the B+ tree and returns both lower_bound() and upper_bound().
-    inline std::pair<const_iterator, const_iterator> equal_range(const key_type& key) const
-    {
-        return std::pair<const_iterator, const_iterator>(lower_bound(key), upper_bound(key));
     }
 
 public:
@@ -2001,57 +1569,6 @@ public:
     inline bool operator>=(const btree_self &other) const
     {
         return !(*this < other);
-    }
-
-public:
-    /// *** Fast Copy: Assign Operator and Copy Constructors
-
-    /// Assignment operator. All the key/data pairs are copied
-    inline btree_self& operator= (const btree_self &other)
-    {
-// FIXME
-#if 0
-        if (this != &other)
-        {
-            clear();
-
-            m_key_less = other.key_comp();
-            m_allocator = other.get_allocator();
-
-            if (other.size() != 0)
-            {
-                m_stats.leaves = m_stats.innernodes = 0;
-                if (other.m_root) {
-                    m_root = copy_recursive(other.m_root);
-                }
-                m_stats = other.m_stats;
-            }
-
-            if (selfverify) verify();
-        }
-        return *this;
-#endif
-    }
-
-    /// Copy constructor. The newly initialized B+ tree object will contain a
-    /// copy of all key/data pairs.
-    inline btree(const btree_self &other)
-        : m_headleafId(INVALID_NODEID), m_stats(other.m_stats),
-          m_key_less(other.key_comp()), m_allocator(other.get_allocator()),
-          treeTableId(other.treeTableId), objMgr(other.objMgr), nextNodeId(ROOT_ID),
-          m_rootId(ROOT_ID), logBuffer(), numEntries(0), cache()
-    {
-// FIXME
-#if 0
-        if (size() > 0)
-        {
-            m_stats.leaves = m_stats.innernodes = 0;
-            if (other.m_root) {
-                m_root = copy_recursive(other.m_root);
-            }
-            if (selfverify) verify();
-        }
-#endif
     }
 
 public:
@@ -2161,10 +1678,6 @@ private:
         // increment itemcount if the item was inserted
         if (r.second) ++m_stats.itemcount;
 
-#ifdef BTREE_DEBUG
-        if (debug) print(std::cout);
-#endif
-
         if (selfverify) {
             verify();
             BTREE_ASSERT(exists(key));
@@ -2174,41 +1687,6 @@ private:
         assert(status == true);
         cache.clear();
         return r;
-    }
-
-    /* Debug functions to print inner and leaf nodes */
-
-    void printInnerNodeKeys(const inner_node *innernode) const
-    {
-        RAMCLOUD_LOG(DEBUG, "Printing inner node keys");
-        for (unsigned short slot = 0; slot < innernode->slotuse; ++slot)
-        {
-            RAMCLOUD_LOG(DEBUG,
-                         " ( %s ) ", std::string((const char *)&innernode->slotkey[slot], 40).c_str());
-        }
-    }
-
-    void printInnerNode(const inner_node *innernode) const
-    {
-        RAMCLOUD_LOG(DEBUG, "Printing inner node");
-        for (unsigned short slot = 0; slot < innernode->slotuse; ++slot)
-        {
-            RAMCLOUD_LOG(DEBUG,
-                         " ( %d ) %s ", innernode->childid[slot],
-                         std::string((const char *)&innernode->slotkey[slot], 40).c_str());
-        }
-        RAMCLOUD_LOG(DEBUG, "( %d )", innernode->childid[innernode->slotuse]);
-    }
-
-    void printLeafNode(const leaf_node *leafnode) const
-    {
-        RAMCLOUD_LOG(DEBUG, "Printing leaf node");
-        RAMCLOUD_LOG(DEBUG, "%d <- -> %d", leafnode->prevleaf, leafnode->nextleaf);
-        for (unsigned short slot = 0; slot < leafnode->slotuse; ++slot)
-        {
-            RAMCLOUD_LOG(ERROR,
-                         " %s ", std::string((const char *)&leafnode->slotkey[slot], 40).c_str());
-        }
     }
 
     /**
@@ -2228,17 +1706,14 @@ private:
         RAMCLOUD_LOG(DEBUG, "Printing key = %s", std::string((const char*)&key, 40).c_str());
 
         // if treeEmpty is true, then the 'root' argument can NOT be NULL
-        // FIXME add documentation for at least the default arguments
+        // We expect memory for root to have been allocated by the caller
         Buffer currentBuffer;
         const node *n;
         if (treeEmpty)
             n = root;
         else
             n = static_cast<const node *>(getPointerToObject(currentId, &currentBuffer));
-        bool reuseNodeId = false;
-        // TODO(arjung) Use a better name for this variable and the
-        // corresponding code sequence
-        bool reusingCode = false;
+        bool insertionAtSplitNode = false;
         if (!n->isleafnode())
         {
             const inner_node *constInner = static_cast<const inner_node*>(n);
@@ -2261,14 +1736,6 @@ private:
                 BTREE_PRINT("btree::insert_descend newchild with key " << newkey << " node " << newChildInfo.data <<
                             " at slot " << slot);
 
-#if 0
-                // allocate a new inner node, make a copy of inner and update the new node as follows
-                NodeObjectInfo updatedInnerInfo;
-                createMutableInner(constInner, &updatedInnerInfo);
-                inner_node *inner = static_cast<inner_node*>(updatedInnerInfo.data);
-                // inner is now a mutable pointer
-                inner->childid[slot] = updatedInnerChildInfo.nodeId;
-#endif
                 // allocate a new inner node, make a copy of inner and
                 // update the new node as follows
                 createMutableInner(constInner, newNodeObjectInfo);
@@ -2292,14 +1759,6 @@ private:
                     
                     BTREE_PRINT("btree::insert_descend done split_inner: putslot: " << slot << " putkey: " << newkey << " upkey: " << *splitkey);
 
-#ifdef BTREE_DEBUG
-                    if (debug)
-                    {
-                        print_node(std::cout, inner);
-                        print_node(std::cout, splitnode);
-                    }
-#endif
-
                     // check if insert slot is in the split sibling node
                     BTREE_PRINT("btree::insert_descend switch: " << slot << " > " << inner->slotuse+1);
 
@@ -2319,7 +1778,6 @@ private:
                         inner->slotuse++;
 
                         // set new split key and move corresponding datum into right node
-                        //splitinner->childid[0] = newchild;
                         splitinner->childid[0] = newChildInfo.nodeId;
 
                         // If root gets split, don't reuse nodeId for current root
@@ -2343,7 +1801,7 @@ private:
                         // in case the insert slot is in the newly create split
                         // node, we reuse the code below.
 
-                        reusingCode = true;
+                        insertionAtSplitNode = true;
                         slot -= inner->slotuse+1;
 
                         // If root gets split, don't reuse id for current root
@@ -2371,7 +1829,6 @@ private:
                 else
                 {
                     *newSplitCreated = false;
-                    reuseNodeId = true;
                 }
 
                 // move items and put pointer to child node into correct slot
@@ -2386,7 +1843,7 @@ private:
                 inner->childid[slot + 1] = newChildInfo.nodeId;
                 inner->slotuse++;
 
-                if (!reusingCode)
+                if (!insertionAtSplitNode)
                 {
                     // If root gets split, don't reuse id for current root
                     if (*newSplitCreated && currentId == m_rootId)
@@ -2476,7 +1933,7 @@ private:
                 // check if insert slot is in the split sibling node
                 if (slot >= leaf->slotuse)
                 {
-                    reusingCode = true;
+                    insertionAtSplitNode = true;
                     slot -= leaf->slotuse;
                     // write out leaf object here
                     newNodeObjectInfo->nodeId =
@@ -2497,7 +1954,6 @@ private:
             }
             else
             {
-                reuseNodeId = true;
                 *newSplitCreated = false;
             }
 
@@ -2514,7 +1970,7 @@ private:
             leaf->slotuse++;
 
             // write out leaf
-            if (!reusingCode)
+            if (!insertionAtSplitNode)
             {
                 newNodeObjectInfo->nodeId =
                                 writeNode(leaf, sizeof(leaf_node),
@@ -2530,7 +1986,7 @@ private:
                                                      splitNodeId, false);
             }
 
-            if (*newSplitCreated && !reusingCode && slot == leaf->slotuse-1)
+            if (*newSplitCreated && !insertionAtSplitNode && slot == leaf->slotuse-1)
             {
                 // special case: the node was split, and the insert is at the
                 // last slot of the old node. then the splitkey must be
@@ -2538,7 +1994,7 @@ private:
                 *splitkey = key;
             }
 
-            if (reusingCode)
+            if (insertionAtSplitNode)
                 return std::pair<iterator, bool>(
                        iterator(this, newSplitNodeInfo->nodeId, slot), true);
             else
@@ -2702,9 +2158,6 @@ public:
         if (!result.has(btree_not_found))
             --m_stats.itemcount;
 
-#ifdef BTREE_DEBUG
-        if (debug) print(std::cout);
-#endif
         if (selfverify) verify();
 
         bool status = objMgr->flushEntriesToLog(&logBuffer, numEntries);
@@ -2764,11 +2217,9 @@ private:
                                unsigned int parentslot,
                                NodeObjectInfo* newParentInfo)
     {
-        // newParentInfo is used when there are
-        // updates to the parent that need to be
-        // recorded in a new object.
-        // If parent is not NULL, then newParentInfo will also
-        // be not NULL
+        // newParentInfo is used when there are updates to the parent that
+        // need to be recorded in a new object. If parent is not NULL,
+        // then newParentInfo will also be not NULL
         Buffer currentBuffer, parentBuffer;
         const node *curr = static_cast<const node *>(getPointerToObject(currentId,
                                                                         &currentBuffer));
@@ -3636,84 +3087,41 @@ private:
                                                     rightNodeId, false);
     }
 
-#ifdef BTREE_DEBUG
-public:
-    // *** Debug Printing
-
-    /// Print out the B+ tree structure with keys onto the given ostream. This
-    /// function requires that the header is compiled with BTREE_DEBUG and that
-    /// key_type is printable via std::ostream.
-    void print(std::ostream &os) const
-    {
-// FIXME
-#if 0
-        if (m_root) {
-            print_node(os, m_root, 0, true);
-        }
-#endif 
-    }
-
-    /// Print out only the leaves via the double linked list.
-    void print_leaves(std::ostream &os) const
-    {
-        os << "leaves:" << std::endl;
-
-        //const leaf_node *n = m_headleaf;
-
-        while(n)
-        {
-            os << "  " << n << std::endl;
-
-            n = n->nextleaf;
-        }
-    }
-
 private:
+    /* Debug functions to print inner and leaf nodes */
 
-    /// Recursively descend down the tree and print out nodes.
-    static void print_node(std::ostream &os, const node* node, unsigned int depth=0, bool recursive=false)
+    void printInnerNodeKeys(const inner_node *innernode) const
     {
-        for(unsigned int i = 0; i < depth; i++) os << "  ";
-
-        os << "node " << node << " level " << node->level << " slotuse " << node->slotuse << std::endl;
-
-        if (node->isleafnode())
+        RAMCLOUD_LOG(DEBUG, "Printing inner node keys");
+        for (unsigned short slot = 0; slot < innernode->slotuse; ++slot)
         {
-            const leaf_node *leafnode = static_cast<const leaf_node*>(node);
-
-            for(unsigned int i = 0; i < depth; i++) os << "  ";
-            os << "  leaf prev " << leafnode->prevleaf << " next " << leafnode->nextleaf << std::endl;
-
-            for(unsigned int i = 0; i < depth; i++) os << "  ";
-
-            for (unsigned int slot = 0; slot < leafnode->slotuse; ++slot)
-            {
-                os << leafnode->slotkey[slot] << "  "; // << "(data: " << leafnode->slotdata[slot] << ") ";
-            }
-            os << std::endl;
-        }
-        else
-        {
-            const inner_node *innernode = static_cast<const inner_node*>(node);
-
-            for(unsigned int i = 0; i < depth; i++) os << "  ";
-
-            for (unsigned short slot = 0; slot < innernode->slotuse; ++slot)
-            {
-                os << "(" << innernode->childid[slot] << ") " << innernode->slotkey[slot] << " ";
-            }
-            os << "(" << innernode->childid[innernode->slotuse] << ")" << std::endl;
-
-            if (recursive)
-            {
-                for (unsigned short slot = 0; slot < innernode->slotuse + 1; ++slot)
-                {
-                    print_node(os, innernode->childid[slot], depth + 1, recursive);
-                }
-            }
+            RAMCLOUD_LOG(DEBUG,
+                         " ( %s ) ", std::string((const char *)&innernode->slotkey[slot], 40).c_str());
         }
     }
-#endif
+
+    void printInnerNode(const inner_node *innernode) const
+    {
+        RAMCLOUD_LOG(DEBUG, "Printing inner node");
+        for (unsigned short slot = 0; slot < innernode->slotuse; ++slot)
+        {
+            RAMCLOUD_LOG(DEBUG,
+                         " ( %d ) %s ", innernode->childid[slot],
+                         std::string((const char *)&innernode->slotkey[slot], 40).c_str());
+        }
+        RAMCLOUD_LOG(DEBUG, "( %d )", innernode->childid[innernode->slotuse]);
+    }
+
+    void printLeafNode(const leaf_node *leafnode) const
+    {
+        RAMCLOUD_LOG(DEBUG, "Printing leaf node");
+        RAMCLOUD_LOG(DEBUG, "%d <- -> %d", leafnode->prevleaf, leafnode->nextleaf);
+        for (unsigned short slot = 0; slot < leafnode->slotuse; ++slot)
+        {
+            RAMCLOUD_LOG(ERROR,
+                         " %s ", std::string((const char *)&leafnode->slotkey[slot], 40).c_str());
+        }
+    }
 
 public:
     // *** Verification of B+ Tree Invariants
@@ -3733,6 +3141,8 @@ public:
             assert( vstats.leaves == m_stats.leaves );
             assert( vstats.innernodes == m_stats.innernodes );
 
+            // verify_leaflinks won't work. if this
+            // is not required, remove it.
             //verify_leaflinks();
         }
     }
@@ -3815,12 +3225,6 @@ private:
                                                     getPointerToObject(
                                                     inner->childid[slot + 1], &secondBuffer));
 
-                    //assert(leafa->nextleaf == leafb);
-                    //assert(leafa == leafb->prevleaf);
-
-                    // FIXME after changing to nodeId
-                    //assert(leafa->nextleaf == inner->childid[slot+1]);
-                    //assert(inner->childid[slot] == leafb->prevleaf);
                     (void)leafa; (void)leafb;
                 }
                 if (inner->level == 2 && slot < inner->slotuse)
@@ -3841,12 +3245,6 @@ private:
                                                     getPointerToObject(
                                                     parentb->childid[0], &fourthBuffer));
 
-                    //assert(leafa->nextleaf == leafb);
-                    //assert(leafa == leafb->prevleaf);
-
-                    // FIXME after changing to nodeId
-                    //assert(leafa->nextleaf == parentb->childid[0]);
-                    //assert(parenta->childid[parenta->slotuse] == leafb->prevleaf);
                     (void)leafa; (void)leafb;
                 }
             }
@@ -3856,9 +3254,6 @@ private:
     /// Verify the double linked list of leaves.
     void verify_leaflinks() const
     {
-        // FIXME: BUFFER
-        //const leaf_node *n = m_headleaf;
-
         // empty tree
         if (nextNodeId <= ROOT_ID)
             return;
