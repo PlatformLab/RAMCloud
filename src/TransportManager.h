@@ -145,7 +145,7 @@ class TransportManager {
      * This is used as a cache so that the same SessionRef is used if
      * #getSession() is called on an existing service locator string.
      */
-    std::map<string, Transport::SessionRef> sessionCache;
+    std::unordered_map<string, Transport::SessionRef> sessionCache;
 
     /**
      * The following variables record the parameters for all previous calls
