@@ -169,7 +169,10 @@ RpcWrapper::isReady() {
         // all of the special cases one at a time.
         if (responseHeader == NULL) {
             // Not enough bytes in the response for a full header; check to see
-            // if there is at least a status value.
+            // if there is at least a status value. Note: we're asking for
+            // fewer bytes here than in the getRange above (just enough for
+            // the status info instead of the entire response header that
+            // higher level wrapper will want).
             responseHeader = static_cast<const WireFormat::ResponseCommon*>(
                     response->getRange(0, sizeof(WireFormat::ResponseCommon)));
             if ((responseHeader == NULL)
