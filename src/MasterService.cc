@@ -312,12 +312,11 @@ MasterService::dropIndexletOwnership(
     const void* firstNotOwnedKey =
       rpc->requestPayload->getRange(reqOffset, reqHdr->firstNotOwnedKeyLength);
 
-    bool deleted = indexletManager.deleteIndexlet(reqHdr->tableId,
-                                              reqHdr->indexId,
-                                              firstKey,
-                                              reqHdr->firstKeyLength,
-                                              firstNotOwnedKey,
-                                              reqHdr->firstNotOwnedKeyLength);
+    bool deleted = indexletManager.deleteIndexlet(
+                            reqHdr->tableId, reqHdr->indexId,
+                            firstKey, reqHdr->firstKeyLength,
+                            firstNotOwnedKey, reqHdr->firstNotOwnedKeyLength);
+
     if (deleted) {
         LOG(NOTICE, "Dropped ownership of indexlet in tableId %lu"
             " indexId %u", reqHdr->tableId, reqHdr->indexId);
@@ -568,7 +567,7 @@ MasterService::increment(const WireFormat::Increment::Request* reqHdr,
 }
 
 /**
- * Top-level server method to handle the MULTI_READ_FOR_LOOKUP request.
+ * Top-level server method to handle the INDEXED_READ request.
  *
  * \param reqHdr
  *      Header from the incoming RPC request; contains all the
@@ -581,9 +580,7 @@ MasterService::increment(const WireFormat::Increment::Request* reqHdr,
  *      its contents (so, for example, status is already zero).
  * \param[out] rpc
  *      Complete information about the remote procedure call.
- *      It contains the keyhashes for objects and the lookup key or key range.
- *      It can also be used to read additional information beyond the request
- *      header and/or append additional information to the response buffer.
+ *      It contains the keyhashes for objects and the lookup key range.
  */
 void
 MasterService::indexedRead(
@@ -602,8 +599,8 @@ MasterService::indexedRead(
     reqOffset+=reqHdr->lastKeyLength;
 
     IndexKeyRange keyRange = {reqHdr->indexId,
-                                          firstKeyStr, reqHdr->firstKeyLength,
-                                          lastKeyStr, reqHdr->lastKeyLength};
+                              firstKeyStr, reqHdr->firstKeyLength,
+                              lastKeyStr, reqHdr->lastKeyLength};
 
     objectManager.indexedRead(reqHdr->tableId, reqHdr->numHashes,
                               rpc->requestPayload, reqOffset, &keyRange,
@@ -632,10 +629,10 @@ MasterService::initOnceEnlisted()
 }
 
 /**
- * RPC handler for INSERT_INDEX_ENTRY;
- * As an index server, this process inserts an index entry. The RPC is
- * typically initiated by a data master that was writing data that this index
- * entry corresponds to.
+ * Top-level server method to handle the INSERT_INDEX_ENTRY request;
+ * As an index server, this function inserts an entry to an index.
+ * The RPC requesting this is typically initiated by a data master
+ * that was writing the object that this index entry corresponds to.
  */
 void
 MasterService::insertIndexEntry(
@@ -669,7 +666,7 @@ MasterService::isReplicaNeeded(
 }
 
 /**
- * Top-level server method to handle the LOOKUP request.
+ * Top-level server method to handle the LOOKUP_INDEX_KEYS request.
  *
  * \param reqHdr
  *      Header from the incoming RPC request; contains all the
@@ -681,9 +678,7 @@ MasterService::isReplicaNeeded(
  *      its contents (so, for example, status is already zero).
  * \param[out] rpc
  *      Complete information about the remote procedure call.
- *      It contains the lookup key or key range. It can also be used to
- *      read additional information beyond the request header and/or
- *      append additional information to the response buffer.
+ *      It contains the lookup key or key range.
  */
 void
 MasterService::lookupIndexKeys(
@@ -700,9 +695,9 @@ MasterService::lookupIndexKeys(
     const void* lastKeyStr =
             rpc->requestPayload->getRange(reqOffset, reqHdr->lastKeyLength);
 
-    // TODO(ankitak): Confirm that this is a reasonable calculation.
-    uint32_t maxNumHashes =
-            (maxResponseRpcLen - sizeof32(respHdr)) / 8 /*size of a key hash*/;
+    // We're hard-coding a number that we think is this is enough bulk to
+    // amortize all the fixed costs per RPC.
+    uint32_t maxNumHashes = 1000;
 
     respHdr->common.status = indexletManager.lookupIndexKeys(
                     reqHdr->tableId, reqHdr->indexId,
@@ -1549,35 +1544,31 @@ MasterService::takeIndexletOwnership(
     const void* firstKey =
         rpc->requestPayload->getRange(reqOffset, reqHdr->firstKeyLength);
     reqOffset+=reqHdr->firstKeyLength;
-    const void* firstNotOwnedKey =
-        rpc->requestPayload->getRange(
+    const void* firstNotOwnedKey = rpc->requestPayload->getRange(
                 reqOffset, reqHdr->firstNotOwnedKeyLength);
 
-    bool added = indexletManager.addIndexlet(reqHdr->tableId,
-                             reqHdr->indexId,
+    bool added = indexletManager.addIndexlet(
+                             reqHdr->tableId, reqHdr->indexId,
                              reqHdr->indexletTableId,
                              firstKey, reqHdr->firstKeyLength,
                              firstNotOwnedKey, reqHdr->firstNotOwnedKeyLength);
     if (added) {
         LOG(NOTICE, "Took ownership of indexlet in tableId "
             "%lu indexId %u", reqHdr->tableId, reqHdr->indexId);
-    } else {
-        if (indexletManager.getIndexlet(reqHdr->tableId,
-                            reqHdr->indexId,
-                            firstKey, reqHdr->firstKeyLength,
-                            firstNotOwnedKey, reqHdr->firstNotOwnedKeyLength)
-            != NULL) {
+    } else if (indexletManager.getIndexlet(
+                reqHdr->tableId, reqHdr->indexId,
+                firstKey, reqHdr->firstKeyLength,
+                firstNotOwnedKey, reqHdr->firstNotOwnedKeyLength) != NULL) {
             LOG(NOTICE, "Told to take ownership of indexlet "
                         "in tableId %lu indexId %u, but already own. "
                         "Returning success.", reqHdr->tableId, reqHdr->indexId);
             return;
-        } else {
-            LOG(WARNING, "Could not take ownership of indexlet in "
-                "tableId %lu indexId %u overlaps with one or more different "
-                "ranges.", reqHdr->tableId, reqHdr->indexId);
-            // TODO(anybody): Do we want a more meaningful error code?
-            respHdr->common.status = STATUS_INTERNAL_ERROR;
-        }
+    } else {
+        LOG(WARNING, "Could not take ownership of indexlet in "
+            "tableId %lu indexId %u overlaps with one or more different "
+            "ranges.", reqHdr->tableId, reqHdr->indexId);
+        // TODO(ouster): Do we want a more meaningful error code?
+        respHdr->common.status = STATUS_INTERNAL_ERROR;
     }
 }
 
@@ -1627,8 +1618,9 @@ MasterService::write(const WireFormat::Write::Request* reqHdr,
 }
 
 /**
- * Helper function to be used by write methods in this class to send request
- * for inserting corresponding index entries to index servers.
+ * Helper function used by write methods in this class to send request
+ * for inserting index entries (corresponding to the object being written)
+ * to the index servers.
  * \param object
  *      Object for which index entries are to be inserted.
  */
@@ -1647,6 +1639,7 @@ MasterService::requestInsertIndexEntries(Object& object)
 
     Tub<InsertIndexEntryRpc> rpcs[keyCount-1];
 
+    // Send rpcs to all index servers involved.
     for (KeyCount keyIndex = 1; keyIndex <= keyCount - 1; keyIndex++) {
         KeyLength keyLength;
         const void* key = object.getKey(keyIndex, &keyLength);
@@ -1664,26 +1657,20 @@ MasterService::requestInsertIndexEntries(Object& object)
         }
     }
 
+    // Wait to receive response to all rpcs.
     for (KeyCount keyIndex = 1; keyIndex <= keyCount - 1; keyIndex++) {
-        if (rpcs[keyIndex-1])
+        if (rpcs[keyIndex-1]) {
             rpcs[keyIndex-1]->wait();
+        }
     }
 }
 
-/*
- * TODO(ankitak): Later: Smart index entry deletion in case two objs with
- * same pkHash also have same key:
- * Check here if another object has the same key hash.
- * If yes, look up those objects and see if they have the same index keys.
- * Only for index entries that don’t need to be kept around for another object,
- * send removeIndexEntries to index server.
- */
-
 /**
- * Helper function to be used by remove methods in this class to send request
- * for removing corresponding index entries to index servers.
+ * Helper function used by remove methods in this class to send request
+ * for removing index entries (corresponding to the object being removed)
+ * to the index servers.
  * \param objectBuffer
- *      Buffer containing keys and value of the object for which
+ *      Pointer to the buffer in log for the object for which
  *      index entries are to be deleted.
  */
 void
@@ -1703,6 +1690,7 @@ MasterService::requestRemoveIndexEntries(Buffer& objectBuffer)
 
     Tub<RemoveIndexEntryRpc> rpcs[keyCount-1];
 
+    // Send rpcs to all index servers involved.
     for (KeyCount keyIndex = 1; keyIndex <= keyCount - 1; keyIndex++) {
         KeyLength keyLength;
         const void* key = object.getKey(keyIndex, &keyLength);
@@ -1720,9 +1708,11 @@ MasterService::requestRemoveIndexEntries(Buffer& objectBuffer)
         }
     }
 
+    // Wait to receive response to all rpcs.
     for (KeyCount keyIndex = 1; keyIndex <= keyCount - 1; keyIndex++) {
-        if (rpcs[keyIndex-1])
+        if (rpcs[keyIndex-1]) {
             rpcs[keyIndex-1]->wait();
+        }
     }
 }
 

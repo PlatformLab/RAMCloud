@@ -22,15 +22,16 @@ namespace RAMCloud {
 
 /**
  * Constructor for IndexRpcWrapper objects.
+ * 
  * \param ramcloud
  *      The RAMCloud object that governs this RPC.
  * \param tableId
  *      The table containing the desired object.
  * \param indexId
- *      Id of the index for which keys have to be compared.
+ *      Id of the index key for which this RPC is being sent.
  * \param key
  *      The location of key determines which server this rpc will be sent to.
- *      It does not necessarily have to be null terminated.  The caller must
+ *      It does not necessarily have to be null terminated. The caller must
  *      ensure that the storage for this key is unchanged through the life of
  *      the RPC.
  * \param keyLength
@@ -57,6 +58,7 @@ IndexRpcWrapper::IndexRpcWrapper(
     , indexId(indexId)
     , key(key)
     , keyLength(keyLength)
+    , foundIndex(true)
 {
 }
 
@@ -68,7 +70,7 @@ IndexRpcWrapper::IndexRpcWrapper(
  * \param tableId
  *      The table containing the desired object.
  * \param indexId
- *      Id of the index for which keys have to be compared.
+ *      Id of the index key for which this RPC is being sent.
  * \param key
  *      The location of key determines which server this rpc will be sent to.
  *      It does not necessarily have to be null terminated.  The caller must
@@ -98,6 +100,7 @@ IndexRpcWrapper::IndexRpcWrapper(
     , indexId(indexId)
     , key(key)
     , keyLength(keyLength)
+    , foundIndex(true)
 {
 }
 
@@ -138,34 +141,22 @@ void
 IndexRpcWrapper::send()
 {
     session = objectFinder->lookup(tableId, indexId, key, keyLength);
+
+    // This index doesn't exist. No need to send an rpc or throw an
+    // exception. Instead, lets fake a valid response with no data!
     if (session == Transport::SessionRef()) {
-        // This index doesn't exist. No need to take any action.
-        state = CANCELED;
+        foundIndex = false;
+
+        WireFormat::ResponseCommon* respHdr =
+                new(response, APPEND) WireFormat::ResponseCommon;
+        respHdr->status = STATUS_OK;
+
+        completed();
         return;
     }
+
     state = IN_PROGRESS;
     session->sendRequest(&request, response, this);
-}
-
-/**
- * This method provides a simple implementation of \c wait that
- * doesn't do any processing of the result; it just waits for completion
- * and checks for errors.
- * 
- * \return
- *      Boolean value false if the rpc was canceled, true otherwise.
- */
-bool
-IndexRpcWrapper::waitForIndexRpc()
-{
-    try {
-        RpcWrapper::simpleWait(context->dispatch);
-    } catch (RAMCloud::RpcCanceledException& e) {
-        // This index doesn't exist. No need to take any action.
-        // Other exceptions can get propagated.
-        return false;
-    }
-    return true;
 }
 
 } // namespace RAMCloud
