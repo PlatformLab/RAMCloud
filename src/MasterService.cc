@@ -2282,14 +2282,8 @@ MasterService::recover(const WireFormat::Recover::Request* reqHdr,
                  recoveryPartition.indexlet()) {
             LOG(NOTICE, "Starting recovery %lu for crashed indexlet %d",
                 recoveryId, newIndexlet.index_id());
-            bool added;
-            if (highestBTreeIdMap[newIndexlet.indexlettable_id()] == 0)
-                added =
-                indexletManager.addIndexlet(newIndexlet);
-            else
-                added =
-                indexletManager.addIndexlet(newIndexlet,
-                    highestBTreeIdMap[newIndexlet.indexlettable_id()]);
+            bool added = indexletManager.addIndexlet(newIndexlet,
+                         highestBTreeIdMap[newIndexlet.indexlettable_id()]);
             if (!added) {
                 throw Exception(HERE, format("Indexlet already exists."));
             }

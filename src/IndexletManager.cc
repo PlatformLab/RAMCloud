@@ -54,6 +54,8 @@ IndexletManager::IndexletManager(Context* context, ObjectManager* objectManager)
  * \param highestUsedId
  *      The highest BTree Id that has been used in the indexletTable, which
  *      is a BTree.
+ *      If highestUsedId equals zero, it means the Btree should be an empty
+ *      new tree.
  * \return
  *      Returns true if successfully added, false if the indexlet cannot be
  *      added because it overlaps with one or more existing indexlets.
@@ -72,7 +74,11 @@ IndexletManager::addIndexlet(
         return false;
     }
 
-    Btree* bt = new Btree(indexletTableId, objectManager, highestUsedId);
+    Btree *bt;
+    if (highestUsedId == 0)
+        bt = new Btree(indexletTableId, objectManager);
+    else
+        bt = new Btree(indexletTableId, objectManager, highestUsedId);
 
     indexletMap.insert(std::make_pair(std::make_pair(tableId, indexId),
                        Indexlet(firstKey, firstKeyLength, firstNotOwnedKey,

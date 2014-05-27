@@ -180,9 +180,9 @@ class IndexletManager {
                 uint64_t indexletTableId, const void *firstKey,
                 uint16_t firstKeyLength, const void *firstNotOwnedKey,
                 uint16_t firstNotOwnedKeyLength,
-                uint64_t highestUsedID = ROOT_ID - 1);
+                uint64_t highestUsedID = 0);
     bool addIndexlet(ProtoBuf::Indexlets::Indexlet indexlet,
-                     uint64_t highestUsedID = ROOT_ID - 1);
+                     uint64_t highestUsedID = 0);
     bool deleteIndexlet(uint64_t tableId, uint8_t indexId,
                 const void *firstKey, uint16_t firstKeyLength,
                 const void *firstNotOwnedKey, uint16_t firstNotOwnedKeyLength);
