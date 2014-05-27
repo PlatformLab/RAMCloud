@@ -54,6 +54,7 @@ SHARED_SRCFILES := \
 		   src/FastTransport.cc \
 		   src/HashTable.cc \
 		   src/IndexletManager.cc \
+		   src/IndexLookup.cc \
 		   src/IndexRpcWrapper.cc \
 		   src/IndexletManager.cc \
 		   src/IpAddress.cc \
