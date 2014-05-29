@@ -78,8 +78,7 @@ TEST_F(IndexRpcWrapperTest, checkStatus_unknownIndexlet) {
     EXPECT_STREQ("IN_PROGRESS", wrapper.stateString());
     EXPECT_EQ("checkStatus: Server mock:refresh=1 doesn't store "
             "given secondary key for table 10, index id 1; "
-            "refreshing object map | "
-            "flush: flushing object map",
+            "refreshing object map",
             TestLog::get());
     EXPECT_EQ("mock:refresh=2", wrapper.session->getServiceLocator());
 }
@@ -109,8 +108,8 @@ TEST_F(IndexRpcWrapperTest, handleTransportError) {
     wrapper.state = RpcWrapper::RpcState::FAILED;
     EXPECT_FALSE(wrapper.isReady());
     EXPECT_STREQ("IN_PROGRESS", wrapper.stateString());
-    EXPECT_EQ("flushSession: flushing session for mock:refresh=1 "
-            "| flush: flushing object map", TestLog::get());
+    EXPECT_EQ("flushSession: flushing session for mock:refresh=1",
+                TestLog::get());
     EXPECT_EQ("mock:refresh=2", wrapper.session->getServiceLocator());
 }
 

@@ -38,7 +38,6 @@ class RealTableConfigFetcher : public ObjectFinder::TableConfigFetcher {
           std::multimap< std::pair<uint64_t, uint8_t>,
                                    ObjectFinder::Indexlet>* tableIndexMap) {
 
-        tableMap->clear(); //TODO(ashgup): Replace with flush tableid
         ProtoBuf::TableConfig tableConfig;
         CoordinatorClient::getTableConfig(context, tableId, &tableConfig);
 
@@ -109,7 +108,6 @@ class RealTableConfigFetcher : public ObjectFinder::TableConfigFetcher {
                         std::make_pair(tableId, indexId), rawIndexlet));
             }
         }
-
     }
 
   private:
@@ -138,7 +136,6 @@ ObjectFinder::ObjectFinder(Context* context)
  */
 void
 ObjectFinder::flush(uint64_t tableId) {
-    RAMCLOUD_TEST_LOG("flushing object map");
     TabletKey start {tableId, 0U};
     TabletKey end {tableId, std::numeric_limits<KeyHash>::max()};
     TabletIter lower = tableMap.lower_bound(start);
@@ -277,11 +274,9 @@ ObjectFinder::lookupIndexlet(uint64_t tableId, uint8_t indexId,
 
     for (int count = 0; count < 2; count++) {
 
-        std::pair < std::multimap< std::pair<uint64_t, uint8_t>,
-                                                Indexlet>::iterator,
-                    std::multimap< std::pair<uint64_t, uint8_t>,
-                                        Indexlet>::iterator> range;
+        std::pair <IndexletIter, IndexletIter> range;
         range = tableIndexMap.equal_range(indexKey);
+
         for (iter = range.first; iter != range.second; iter++){
 
             Indexlet* indexlet = &iter->second;
@@ -291,7 +286,6 @@ ObjectFinder::lookupIndexlet(uint64_t tableId, uint8_t indexId,
                     continue;
                 }
             }
-
             if (indexlet->firstNotOwnedKey != NULL) {
                 if (keyCompare(key, keyLength,
                                indexlet->firstNotOwnedKey,
@@ -299,11 +293,11 @@ ObjectFinder::lookupIndexlet(uint64_t tableId, uint8_t indexId,
                     continue;
                 }
             }
-
             return indexlet;
         }
 
         if (count == 0){
+            flush(tableId);
             tableConfigFetcher->getTableConfig(tableId, &tableMap,
                                                             &tableIndexMap);
         }
@@ -353,6 +347,7 @@ ObjectFinder::lookupTablet(uint64_t tableId, KeyHash keyHash)
         if (haveRefreshed) {
           throw TableDoesntExistException(HERE);
         }
+        flush(tableId);
         tableConfigFetcher->getTableConfig(tableId, &tableMap, &tableIndexMap);
         haveRefreshed = true;
     }
@@ -436,6 +431,7 @@ ObjectFinder::keyCompare(const void* key1, uint16_t keyLength1,
 void
 ObjectFinder::waitForTabletDown(uint64_t tableId)
 {
+    RAMCLOUD_TEST_LOG("flushing object map");
     flush(tableId);
     for (;;) {
         tableConfigFetcher->getTableConfig(tableId, &tableMap, &tableIndexMap);
@@ -463,6 +459,7 @@ void
 ObjectFinder::waitForAllTabletsNormal(uint64_t tableId, uint64_t timeoutNs)
 {
     uint64_t start = Cycles::rdtsc();
+    RAMCLOUD_TEST_LOG("flushing object map");
     flush(tableId);
     while (Cycles::toNanoseconds(Cycles::rdtsc() - start) < timeoutNs) {
         bool allNormal = true;
