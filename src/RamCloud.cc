@@ -233,11 +233,9 @@ DropTableRpc::DropTableRpc(RamCloud* ramcloud,
  * \param indexType
  *      Type of the index. Currently only supporting string type.
  * \param numIndexlets
- *      Num of indexlets to partition the index key space. If numIndexlet = 1,
- *      a single indexlet spans keys in ASCII range [33, 126). For numIndexlet
- *      < 26, each indexlets span keys starting from a different character. For
- *      ex. numIndexlet=3, three indexlets are created with range [a,b), [b,c),
- *      [c,d).
+ *      Number of indexlets to partition the index key space. Currently supports
+ *      a single indexlet which spans all keys. Multiple indexlets with custom
+ *      key span are being developed.
  */
 void
 RamCloud::createIndex(uint64_t tableId, uint8_t indexId, uint8_t indexType,
@@ -261,11 +259,9 @@ RamCloud::createIndex(uint64_t tableId, uint8_t indexId, uint8_t indexType,
  * \param indexType
  *      Type of the index. Currently only supporting string type.
  * \param numIndexlets
- *      Num of indexlets to partition the index key space. If numIndexlet = 1,
- *      a single indexlet spans keys in ASCII range [33, 126). For numIndexlet
- *      < 26, each indexlets span keys starting from a different character. For
- *      ex. numIndexlet=3, three indexlets are created with range [a,b), [b,c),
- *      [c,d).
+ *      Number of indexlets to partition the index key space. Currently supports
+ *      a single indexlet which spans all keys. Multiple indexlets with custom
+ *      key span are being developed.
  */
 CreateIndexRpc::CreateIndexRpc(RamCloud* ramcloud, uint64_t tableId,
                     uint8_t indexId, uint8_t indexType, uint8_t numIndexlets)
