@@ -168,6 +168,8 @@ def run_test(
         client_args['--size'] = options.size
     if options.warmup != None:
         client_args['--warmup'] = options.warmup
+    if options.numIndexlet != None:
+        client_args['--numIndexlet'] = options.numIndexlet
     test.function(test.name, options, cluster_args, client_args)
 
 #-------------------------------------------------------------------
@@ -275,6 +277,14 @@ def readRandom(name, options, cluster_args, client_args):
             (obj_path, flatten_args(client_args), name), master_args='--masterServiceThreads 4', **cluster_args)
     print(get_client_log(), end='')
 
+def indexScalability(name, options, cluster_args, client_args):
+    cluster_args['timeout'] = 100000
+    cluster_args['backups_per_server'] = 0
+    cluster_args['replicas'] = 0
+    cluster.run(client='%s/ClusterPerf %s %s' %
+            (obj_path, flatten_args(client_args), name), master_args='-d --masterServiceThreads 2', **cluster_args)
+    print(get_client_log(), end='')
+
 #-------------------------------------------------------------------
 #  End of driver functions.
 #-------------------------------------------------------------------
@@ -293,6 +303,7 @@ simple_tests = [
     Test("readAllToAll", readAllToAll),
     Test("readNotFound", default),
     Test("writeAsyncSync", default),
+    Test("indexScalability", indexScalability),
 ]
 
 graph_tests = [
@@ -359,6 +370,8 @@ if __name__ == '__main__':
     parser.add_option('-w', '--warmup', type=int,
             help='Number of times to execute operating before '
             'starting measurements')
+    parser.add_option('-i', '--numIndexlet', type=int,
+            help='Number of indexlets for measuring index scalability ')
     (options, args) = parser.parse_args()
 
     # Invoke the requested tests (run all of them if no tests were specified)

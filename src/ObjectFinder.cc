@@ -79,7 +79,6 @@ class RealTableConfigFetcher : public ObjectFinder::TableConfigFetcher {
                 void* firstNotOwnedKey;
                 uint16_t firstNotOwnedKeyLength;
 
-                //TODO(ashgup): while converting string, null delimiter handled
                 if (indexlet.start_key().compare("") != 0) {
                     firstKey = const_cast<char *>(indexlet.start_key().c_str());
                     firstKeyLength = (uint16_t)indexlet.start_key().length();
