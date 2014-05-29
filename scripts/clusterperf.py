@@ -275,6 +275,22 @@ def readRandom(name, options, cluster_args, client_args):
             (obj_path, flatten_args(client_args), name), master_args='--masterServiceThreads 4', **cluster_args)
     print(get_client_log(), end='')
 
+def indexBasic(name, options, cluster_args, client_args):
+    cluster_args['timeout'] = 100
+    cluster_args['num_servers'] = 5
+    # using 20GB for servers so that we don't run out of memory when inserting
+    # 10 million objects/index entries
+    cluster.run(client='%s/ClusterPerf %s %s' %
+            (obj_path, flatten_args(client_args), name), master_args='--masterServiceThreads 1', **cluster_args)
+    print(get_client_log(), end='')
+
+def indexMultiple(name, options, cluster_args, client_args):
+    cluster_args['timeout'] = 100
+    cluster_args['num_servers'] = 15 # for numkeys(1-20) in indexMultiple
+    cluster.run(client='%s/ClusterPerf %s %s' %
+            (obj_path, flatten_args(client_args), name), master_args='--masterServiceThreads 1', **cluster_args)
+    print(get_client_log(), end='')
+
 #-------------------------------------------------------------------
 #  End of driver functions.
 #-------------------------------------------------------------------
@@ -293,6 +309,8 @@ simple_tests = [
     Test("readAllToAll", readAllToAll),
     Test("readNotFound", default),
     Test("writeAsyncSync", default),
+    Test("indexBasic", indexBasic),
+    Test("indexMultiple", indexMultiple),
 ]
 
 graph_tests = [
