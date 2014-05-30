@@ -558,8 +558,7 @@ TEST_F(MultiOpTest, PartRpc_unknownTable) {
     session1->lastNotifier->completed();
     EXPECT_FALSE(request.isReady());
     EXPECT_EQ("finishRpc: Server mock:host=master1 doesn't store "
-            "<1, object1-1>; refreshing object map | "
-            "flush: flushing object map | flush: flushing object map",
+            "<1, object1-1>; refreshing object map",
             TestLog::get());
     EXPECT_EQ("mock:host=master1(2) -", rpcStatus(request));
 
@@ -578,7 +577,7 @@ TEST_F(MultiOpTest, PartRpc_handleTransportError) {
     EXPECT_EQ("mock:host=master1(1) -", rpcStatus(request));
     session1->lastNotifier->failed();
     request.wait();
-    EXPECT_EQ("flushSession: flushing session for mock:host=master1 "
-            "| flush: flushing object map", TestLog::get());
+    EXPECT_EQ("flushSession: flushing session for mock:host=master1",
+            TestLog::get());
 }
 }

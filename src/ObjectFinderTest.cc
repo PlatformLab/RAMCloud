@@ -26,7 +26,7 @@ struct Refresher : public ObjectFinder::TableConfigFetcher {
          std::multimap< std::pair<uint64_t, uint8_t>,
                                 ObjectFinder::Indexlet>* tableIndexMap) {
 
-        tableMap->clear();
+        called++;
         Tablet rawTablet2({1, 0, ~0, ServerId(),
                                 Tablet::NORMAL, Log::Position()});
         TabletWithLocator tablet2(rawTablet2, "mock:host=server1");
@@ -55,64 +55,61 @@ struct Refresher : public ObjectFinder::TableConfigFetcher {
                             ServerId(), Tablet::NORMAL, Log::Position()});
         TabletWithLocator tablet7(rawTablet7, "mock:host=server5");
 
-        switch (++called) {
-            case 1:
-            case 2:
-                tablet2.tablet.status = Tablet::RECOVERING;
-            default:
-                TabletKey key2 {tablet2.tablet.tableId,
+        if (called <= 2) {
+            tablet2.tablet.status = Tablet::RECOVERING;
+        }
+
+        TabletKey key2 {tablet2.tablet.tableId,
                                             tablet2.tablet.startKeyHash};
-                tableMap->insert(std::make_pair(key2, tablet2));
+        tableMap->insert(std::make_pair(key2, tablet2));
 
-                TabletKey key3 {tablet3.tablet.tableId,
-                                            tablet3.tablet.startKeyHash};
-                tableMap->insert(std::make_pair(key3, tablet3));
+        TabletKey key3 {tablet3.tablet.tableId,
+                                    tablet3.tablet.startKeyHash};
+        tableMap->insert(std::make_pair(key3, tablet3));
 
-                TabletKey key4 {tablet4.tablet.tableId,
-                                            tablet4.tablet.startKeyHash};
-                tableMap->insert(std::make_pair(key4, tablet4));
+        TabletKey key4 {tablet4.tablet.tableId,
+                                    tablet4.tablet.startKeyHash};
+        tableMap->insert(std::make_pair(key4, tablet4));
 
-                TabletKey key5 {tablet5.tablet.tableId,
-                                            tablet5.tablet.startKeyHash};
-                tableMap->insert(std::make_pair(key5, tablet5));
+        TabletKey key5 {tablet5.tablet.tableId,
+                                    tablet5.tablet.startKeyHash};
+        tableMap->insert(std::make_pair(key5, tablet5));
 
-                TabletKey key8 {tablet8.tablet.tableId,
-                                            tablet8.tablet.startKeyHash};
-                tableMap->insert(std::make_pair(key8, tablet8));
+        TabletKey key8 {tablet8.tablet.tableId,
+                                    tablet8.tablet.startKeyHash};
+        tableMap->insert(std::make_pair(key8, tablet8));
 
-                TabletKey key6 {tablet6.tablet.tableId,
-                                            tablet6.tablet.startKeyHash};
-                tableMap->insert(std::make_pair(key6, tablet6));
+        TabletKey key6 {tablet6.tablet.tableId,
+                                    tablet6.tablet.startKeyHash};
+        tableMap->insert(std::make_pair(key6, tablet6));
 
-                TabletKey key7 {tablet7.tablet.tableId,
-                                            tablet7.tablet.startKeyHash};
-                tableMap->insert(std::make_pair(key7, tablet7));
-        }
+        TabletKey key7 {tablet7.tablet.tableId,
+                                    tablet7.tablet.startKeyHash};
+        tableMap->insert(std::make_pair(key7, tablet7));
 
-        if (called == 1){
 
-            char* b = new char('b');
-            char* l = new char('l');
-            char* w = new char('w');
+        char* b = new char('b');
+        char* l = new char('l');
+        char* w = new char('w');
 
-            ObjectFinder::Indexlet indexlet0(reinterpret_cast<void*>(b), 1,
-                reinterpret_cast<void*>(l), 1, ServerId(), "mock:host=server0");
-            ObjectFinder::Indexlet indexlet1(reinterpret_cast<void*>(l), 1,
-                reinterpret_cast<void*>(w), 1, ServerId(), "mock:host=server1");
-            ObjectFinder::Indexlet indexlet2(NULL, 0, reinterpret_cast<void*>(l)
-                                         , 1, ServerId(), "mock:host=server2");
-            ObjectFinder::Indexlet indexlet3(reinterpret_cast<void*>(l), 1, NULL
-                                         , 0, ServerId(), "mock:host=server3");
+        ObjectFinder::Indexlet indexlet0(reinterpret_cast<void*>(b), 1,
+            reinterpret_cast<void*>(l), 1, ServerId(), "mock:host=server0");
+        ObjectFinder::Indexlet indexlet1(reinterpret_cast<void*>(l), 1,
+            reinterpret_cast<void*>(w), 1, ServerId(), "mock:host=server1");
+        ObjectFinder::Indexlet indexlet2(NULL, 0, reinterpret_cast<void*>(l)
+                                     , 1, ServerId(), "mock:host=server2");
+        ObjectFinder::Indexlet indexlet3(reinterpret_cast<void*>(l), 1, NULL
+                                     , 0, ServerId(), "mock:host=server3");
 
-            tableIndexMap->insert(std::make_pair(
-                                            std::make_pair(1, 0), indexlet0));
-            tableIndexMap->insert(std::make_pair(
-                                            std::make_pair(1, 0), indexlet1));
-            tableIndexMap->insert(std::make_pair(
-                                            std::make_pair(1, 1), indexlet2));
-            tableIndexMap->insert(std::make_pair(
-                                            std::make_pair(1, 1), indexlet3));
-        }
+        tableIndexMap->insert(std::make_pair(
+                                        std::make_pair(1, 0), indexlet0));
+        tableIndexMap->insert(std::make_pair(
+                                        std::make_pair(1, 0), indexlet1));
+        tableIndexMap->insert(std::make_pair(
+                                        std::make_pair(1, 1), indexlet2));
+        tableIndexMap->insert(std::make_pair(
+                                        std::make_pair(1, 1), indexlet3));
+
     }
     uint32_t called;
 };

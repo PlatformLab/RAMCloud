@@ -654,9 +654,9 @@ TEST_F(TableManagerTest, serializeIndexConfig) {
         EXPECT_EQ(0U, index.index_type());
         foreach (const ProtoBuf::TableConfig::Index::Indexlet& indexlet,
                                                         index.indexlet()) {
-            EXPECT_EQ('!', (uint8_t)*indexlet.start_key().c_str());
+            EXPECT_EQ(0, (uint8_t)*indexlet.start_key().c_str());
             EXPECT_EQ(1U, indexlet.start_key().length());
-            EXPECT_EQ('~', (uint8_t)*indexlet.end_key().c_str());
+            EXPECT_EQ(127, (uint8_t)*indexlet.end_key().c_str());
             EXPECT_EQ(1U, indexlet.end_key().length());
             EXPECT_EQ(1U, indexlet.server_id());
             EXPECT_EQ("mock:host=server0", indexlet.service_locator());

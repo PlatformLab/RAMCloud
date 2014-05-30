@@ -119,14 +119,7 @@ ObjectManager::initOnceEnlisted()
  * lookupIndexKeys() preceding this call), one, or multiple (if there are
  * multiple objects with the same primary key hash that also have index
  * keys in the current read range) objects match.
- *
- * TODO(ankitak): Later: Handle this case too.
- * If multiple objects do match, it is highly unlikely that these objects
- * put together will be too large to fit in a single 8MB response rpc.
- * So, if all objects matched for a key hash don't fit in an rpc, we will not
- * return any of them; Client can retry and the response rpc to the new request
- * will contain all the matched objects for the keyhash.
- *
+ * 
  * \param tableId
  *      Id of the table containing the object(s).
  * \param reqNumHashes
@@ -208,15 +201,17 @@ ObjectManager::indexedRead(const uint64_t tableId, uint32_t reqNumHashes,
                 new(response, APPEND) uint64_t(object.getVersion());
                 new(response, APPEND) uint32_t(object.getKeysAndValueLength());
                 object.appendKeysAndValueToBuffer(*response);
+
+                KeyLength pKLength;
+                const void* pKString = object.getKey(1, &pKLength);
+                Key pK(tableId, pKString, pKLength);
+                tabletManager->incrementReadCount(pK);
             }
 
             candidates.next();
         }
 
         partLength = response->getTotalLength() - currentLength;
-
-        // TODO(ankitak): Later: Figure out whether / how to do this.
-        // tabletManager->incrementReadCount(key);
     }
 }
 

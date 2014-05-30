@@ -773,30 +773,27 @@ struct Increment {
     } __attribute__((packed));
 };
 
+/**
+ * Used by a client to request objects from a master for which the
+ * primary key hash matching one of the key hashes
+ * and specified index key is in the range [first key, last key].
+ */
 struct IndexedRead {
     static const Opcode opcode = INDEXED_READ;
     static const ServiceType service = MASTER_SERVICE;
 
     struct Request {
         RequestCommon common;
-        // Read objects with primary key hash matching one of the key hashes
-        // and index key in the range [first key, last key].
-        // No value for last key indicates this is a point query and
-        // not a range query.
-        uint64_t tableId;
-        uint8_t indexId;                // Id of the index for lookup.
+        uint64_t tableId;               // Id of the table for the lookup.
+        uint8_t indexId;                // Id of the index for the lookup.
         uint16_t firstKeyLength;        // Length of first key in bytes.
         uint16_t lastKeyLength;         // Length of last key in bytes.
-        uint32_t numHashes;             // Number of key hashes being sent
-                                        // to be read.
+        uint32_t numHashes;             // Number of key hashes to be looked up.
         // In buffer: The actual first key and last key go here.
         // In buffer: Key hashes for primary key for objects to be read go here.
     } __attribute__((packed));
 
     struct Response {
-        // RpcResponseCommon contains a status field. But it is not used
-        // here since there is a separate status for each object returned.
-        // Included here to fulfill requirements in common code.
         ResponseCommon common;
         uint32_t numHashes;             // Number of key hashes for which
                                         // objects are being returned or
@@ -812,7 +809,7 @@ struct IndexedRead {
 
 /**
  * Used by a master to ask an index server to insert an index entry
- * for the data this master is currently writing.
+ * for the object this master is currently writing.
  */
 struct InsertIndexEntry {
     static const Opcode opcode = INSERT_INDEX_ENTRY;
@@ -861,6 +858,10 @@ struct Kill {
     } __attribute__((packed));
 };
 
+/**
+ * Used by a client to request an index server to lookup primary key hashes for
+ * objects having specified index key in the range [first key, last key].
+ */
 struct LookupIndexKeys {
     static const Opcode opcode = LOOKUP_INDEX_KEYS;
     static const ServiceType service = MASTER_SERVICE;
@@ -881,9 +882,9 @@ struct LookupIndexKeys {
         uint32_t numHashes;     // Number of primary key hashes being returned.
         uint16_t nextKeyLength; // Length of next key to fetch.
         uint64_t nextKeyHash;   // Minimum allowed hash corresponding to
-                                // next key to be fetched next.
-        // In buffer: Actual bytes for the next key (if any) for which
-        // the client should send another lookup request goes here.
+                                // next key to be fetched.
+        // In buffer: Actual bytes for the next key for which
+        // the client should send another lookup request (if any) goes here.
         // In buffer: Key hashes of primary keys for matching objects go here.
     } __attribute__((packed));
 };
@@ -1361,7 +1362,6 @@ struct TakeIndexletOwnership {
         ResponseCommon common;
     } __attribute__((packed));
 };
-
 
 struct UpdateServerList {
     static const Opcode opcode = UPDATE_SERVER_LIST;

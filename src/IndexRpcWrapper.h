@@ -29,13 +29,16 @@ class MasterService;
 
 /**
  * IndexRpcWrapper manages the client side of RPCs that must be sent to
- * the server that store a particular the first index key of a key range.
+ * the server that stores the first index key of a key range.
  * If the server becomes unavailable or if it doesn't actually store the
  * desired key, then this class will retry the RPC with a different server
  * until it eventually succeeds.
  * 
  * RPCs using this wrapper will never fail to complete, though they may loop
- * forever. This wrapper is used for index lookup operation in RamCloud.
+ * forever.
+ * 
+ * This wrapper may be used by RAMCloud clients (to lookup index keys),
+ * or by data masters (to modify index keys).
  */
 class IndexRpcWrapper : public RpcWrapper {
   public:
@@ -58,7 +61,6 @@ class IndexRpcWrapper : public RpcWrapper {
     virtual bool checkStatus();
     virtual bool handleTransportError();
     virtual void send();
-    bool waitForIndexRpc();
 
     /// Overall information about the calling process.
     Context* context;
@@ -67,12 +69,14 @@ class IndexRpcWrapper : public RpcWrapper {
     /// invoking this rpc; used to find the server to send the rpc to.
     ObjectFinder* objectFinder;
 
-    /// Information about next key that determines which server the request
+    /// Information about key that determines which server the request
     /// is sent to; we have to save this information for use in retries.
     uint64_t tableId;
     uint8_t indexId;
     const void* key;
     uint16_t keyLength;
+
+    bool foundIndex;
 
     DISALLOW_COPY_AND_ASSIGN(IndexRpcWrapper);
 };

@@ -233,11 +233,9 @@ DropTableRpc::DropTableRpc(RamCloud* ramcloud,
  * \param indexType
  *      Type of the index. Currently only supporting string type.
  * \param numIndexlets
- *      Number of indexlets to partition the index key space. If numIndelet = 1,
- *      a single indexlet spans keys in ascii range [33, 126). For numIndexlet
- *      < 26, each indexlets span keys starting from a different character. For
- *      ex. numIndexlet=3, three indexlets are created with range [a,b), [b,c),
- *      [c,d).
+ *      Number of indexlets to partition the index key space. Currently supports
+ *      a single indexlet which spans all keys. Multiple indexlets with custom
+ *      key span are being developed.
  */
 void
 RamCloud::createIndex(uint64_t tableId, uint8_t indexId, uint8_t indexType,
@@ -261,11 +259,9 @@ RamCloud::createIndex(uint64_t tableId, uint8_t indexId, uint8_t indexType,
  * \param indexType
  *      Type of the index. Currently only supporting string type.
  * \param numIndexlets
- *      Number of indexlets to partition the index key space. If numIndelet = 1,
- *      a single indexlet spans keys in ascii range [33, 126). For numIndexlet
- *      < 26, each indexlets span keys starting from a different character. For
- *      ex. numIndexlet=3, three indexlets are created with range [a,b), [b,c),
- *      [c,d).
+ *      Number of indexlets to partition the index key space. Currently supports
+ *      a single indexlet which spans all keys. Multiple indexlets with custom
+ *      key span are being developed.
  */
 CreateIndexRpc::CreateIndexRpc(RamCloud* ramcloud, uint64_t tableId,
                     uint8_t indexId, uint8_t indexType, uint8_t numIndexlets)
@@ -284,10 +280,10 @@ CreateIndexRpc::CreateIndexRpc(RamCloud* ramcloud, uint64_t tableId,
 /**
  * Delete an index.
  *
- * All indexlets in the index are implicitly deleted, along with any
+ * All indexlets in the index are deleted, along with any
  * other information associated with the index.  If the index does
- * not currently exist then the operation returns successfully without
- * actually doing anything.
+ * not currently exist, then the operation returns successfully without
+ * doing anything.
  *
  * \param tableId
  *      Id of the table to which the index belongs
@@ -1025,7 +1021,7 @@ IncrementRpc::wait(uint64_t* version)
 /**
  * Read objects in a table with given primary key hashes, and check
  * index key (index indicated by indexId) to ensure it falls in the allowed
- * range (firstKey to lastKey).
+ * range [firstKey to lastKey].
  *
  * \param tableId
  *      Id of the table in which indexed read is to be done.
@@ -1283,7 +1279,7 @@ IndexServerControlRpc::wait()
 
 /**
  * Lookup objects with index keys corresponding to indexId in the
- * specified range or point.
+ * specified range.
  *
  * \param tableId
  *      Id of the table in which lookup is to be done.
@@ -1310,10 +1306,10 @@ IndexServerControlRpc::wait()
  *
  * \param[out] responseBuffer
  *      Return buffer containing:
- *      1. Actual bytes of the next key to fetch, if any. Results starting at
- *      nextKey + nextKeyHash couldn't be returned right now.
- *      Client can send another request according to this.
+ *      1. Actual bytes of the next key to fetch, if any.
  *      This is the first nextKeyLength bytes of responseBuffer.
+ *      (Results starting at nextKey + nextKeyHash couldn't be returned
+ *      right now.)
  *      2. The key hashes of the primary keys of all the objects
  *      that match the lookup query and can be returned in this response.
  * \param[out] numHashes
@@ -1357,12 +1353,8 @@ RamCloud::lookupIndexKeys(uint64_t tableId, uint8_t indexId,
  * didn't own the new key range.
  * 
  * Seen another way,
- * If a previous request resulted in a response such that the server
- * couldn't fit all the key hashes for a particular secondary key (say sk)
- * in a single rpc, then it would respond with nextKey (to fetch) = sk
- * and nextKeyHash = last key hash being returned + 1.
- * The new request (i.e., this one) will use that nextKey to set firstKey
- * and nextKeyHash to set firstAllowedKeyHash.
+ * The firstKey in new request = nextKey from previous response, AND
+ * firstAllowedKeyHash in new request = (nextKeyHash from previous resp) + 1.
  * 
  * \param ramcloud
  *      The RAMCloud object that governs this RPC.
@@ -1391,10 +1383,10 @@ RamCloud::lookupIndexKeys(uint64_t tableId, uint8_t indexId,
  * 
  * \param[out] responseBuffer
  *      Return buffer containing:
- *      1. Actual bytes of the next key to fetch, if any. Results starting at
- *      nextKey + nextKeyHash couldn't be returned right now.
- *      Client can send another request according to this.
+ *      1. Actual bytes of the next key to fetch, if any.
  *      This is the first nextKeyLength bytes of responseBuffer.
+ *      (Results starting at nextKey + nextKeyHash couldn't be returned
+ *      right now.)
  *      2. The key hashes of the primary keys of all the objects
  *      that match the lookup query and can be returned in this response.
  */
@@ -1438,8 +1430,9 @@ void
 LookupIndexKeysRpc::wait(uint32_t* numHashes, uint16_t* nextKeyLength,
                          uint64_t* nextKeyHash)
 {
-    bool succeeded = waitForIndexRpc();
-    if (succeeded == true) {
+    // TODO(ouster): (By ankitak:) This seems hack-y. Better solution?
+    simpleWait(context->dispatch);
+    if (foundIndex == true) {
         const WireFormat::LookupIndexKeys::Response* respHdr(
                 getResponseHeader<WireFormat::LookupIndexKeys>());
         *numHashes = respHdr->numHashes;
