@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2012 Stanford University
+/* Copyright (c) 2011-2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -236,8 +236,7 @@ TEST_F(MultiReadTest, readResponse_shortResponse) {
     EXPECT_EQ("mock:host=master1(2) -", rpcStatus(request));
 
     // Can't read status from response.
-    session1->lastResponse->truncateEnd(
-        session1->lastResponse->getTotalLength() - 11);
+    session1->lastResponse->truncate(11);
     session1->lastNotifier->completed();
     EXPECT_FALSE(request.isReady());
     EXPECT_EQ("readResponse: missing Response::Part", TestLog::get());
@@ -245,8 +244,7 @@ TEST_F(MultiReadTest, readResponse_shortResponse) {
     EXPECT_EQ("mock:host=master1(2) -", rpcStatus(request));
 
     // Can't read Response::Part from response.
-    session1->lastResponse->truncateEnd(
-        session1->lastResponse->getTotalLength() - 18);
+    session1->lastResponse->truncate(18);
     session1->lastNotifier->completed();
     EXPECT_FALSE(request.isReady());
     EXPECT_EQ("readResponse: missing Response::Part", TestLog::get());
@@ -255,7 +253,7 @@ TEST_F(MultiReadTest, readResponse_shortResponse) {
 
     // Can't read object data from response (first object complete,
     // this happens during the second object).
-    session1->lastResponse->truncateEnd(1);
+    session1->lastResponse->truncate(session1->lastResponse->size() - 1);
     session1->lastNotifier->completed();
     EXPECT_FALSE(request.isReady());
     EXPECT_EQ("readResponse: missing object data", TestLog::get());

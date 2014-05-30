@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2012 Stanford University
+/* Copyright (c) 2010-2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -1059,7 +1059,7 @@ InfRcTransport::ClientRpc::sendZeroCopy(Buffer* request)
     BufferDescriptor* bd = t->getTransmitBuffer();
     char* unaddedStart = bd->buffer;
     char* unaddedEnd = bd->buffer;
-    Buffer::Iterator it(*request);
+    Buffer::Iterator it(request);
     while (!it.isDone()) {
         const uintptr_t addr = reinterpret_cast<const uintptr_t>(it.getData());
         if (allowZeroCopy &&
@@ -1348,9 +1348,9 @@ InfRcTransport::PayloadChunk::prependToBuffer(Buffer* buffer,
                                              ibv_srq* srq,
                                              BufferDescriptor* bd)
 {
-    PayloadChunk* chunk =
-        new(buffer, CHUNK) PayloadChunk(data, dataLength, transport, srq, bd);
-    Buffer::Chunk::prependChunkToBuffer(buffer, chunk);
+    PayloadChunk* chunk = buffer->allocAux<PayloadChunk>(data, dataLength,
+            transport, srq, bd);
+    buffer->prependChunk(chunk);
     return chunk;
 }
 
@@ -1380,9 +1380,9 @@ InfRcTransport::PayloadChunk::appendToBuffer(Buffer* buffer,
                                             ibv_srq* srq,
                                             BufferDescriptor* bd)
 {
-    PayloadChunk* chunk =
-        new(buffer, CHUNK) PayloadChunk(data, dataLength, transport, srq, bd);
-    Buffer::Chunk::appendChunkToBuffer(buffer, chunk);
+    PayloadChunk* chunk = buffer->allocAux<PayloadChunk>(data, dataLength,
+            transport, srq, bd);
+    buffer->appendChunk(chunk);
     return chunk;
 }
 

@@ -20,7 +20,9 @@
 
 #include "Common.h"
 #include "Syscall.h"
+#include "Tub.h"
 
+// Temporary: eliminate once the old placement-new operations have been removed.
 namespace RAMCloud {
 
 /**
@@ -35,18 +37,6 @@ enum PREPEND_T { PREPEND };
  */
 enum APPEND_T { APPEND };
 
-/**
- * A dummy type for distinguishing the different operator new calls the Buffer
- * provides.
- */
-enum CHUNK_T { CHUNK };
-
-/**
- * A dummy type for distinguishing the different operator new calls the Buffer
- * provides.
- */
-enum MISC_T { MISC };
-
 class Buffer;
 
 }
@@ -59,711 +49,460 @@ void* operator new(size_t numBytes, RAMCloud::Buffer* buffer,
                    RAMCloud::APPEND_T append);
 void* operator new[](size_t numBytes, RAMCloud::Buffer* buffer,
                      RAMCloud::APPEND_T append);
-void* operator new(size_t numBytes, RAMCloud::Buffer* buffer,
-                   RAMCloud::CHUNK_T chunk);
-void* operator new[](size_t numBytes, RAMCloud::Buffer* buffer,
-                     RAMCloud::CHUNK_T chunk);
-void* operator new(size_t numBytes, RAMCloud::Buffer* buffer,
-                   RAMCloud::MISC_T misc);
-void* operator new[](size_t numBytes, RAMCloud::Buffer* buffer,
-                     RAMCloud::MISC_T misc);
 
 namespace RAMCloud {
 
-
 /**
- * This class manages a logically linear array of bytes, which is implemented as
- * discontiguous chunks in memory. This class exists so that we can avoid copies
- * between the multiple layers of the RAMCloud system, by passing the Buffer
- * associated with memory regions instead of copying the regions themselves. It
- * also lets us build up a logical byte array piecewise so that multiple layers
- * can contribute chunks without copies.
+ * A Buffer represents a logically linear array of bytes, but allows the
+ * array to be stored as a collection of discontiguous chunks of memory.
+ * Its purpose is to allow information to be assembled and passed around
+ * without having to make copies to maintain contiguity. For example, an
+ * incoming network message might be represented with a Buffer, where each
+ * chunk holds one packet of the message. This class contains several
+ * optimizations to minimize the number of chunks in the Buffer, since these
+ * introduce overhead. In many simple cases a Buffer will only contain a
+ * single contiguous chunk, which is most efficient.
  *
- * Buffers also provide a special-purpose memory allocator for memory that is
- * freed at the time of the Buffer's destruction. This is useful because
- * functions that add chunks to Buffers often return before the Buffer is
- * destroyed, so they need to allocate the memory for these chunks somewhere
- * other than their stacks, and they need to ensure that memory is later freed.
- * The Buffer's memory allocator provides a convenient way to handle this.
+ * In some cases, the storage for chunks is managed internally by the
+ * buffer (about 1KB of storage is available automatically, and additional
+ * storage will be malloc-ed if needed). Methods such as alloc, allocAux,
+ * emplaceAppend, emplacePrepend, and appendCopy use internal storage.
  *
- * There are two ways to add data to a Buffer:
- *  - To store the data inside the Buffer, use
- *    <tt>MyStruct* m = new(buffer, PREPEND) MyStruct;</tt> or
- *    <tt>MyStruct* m = new(buffer, APPEND) MyStruct;</tt>.
- *    This memory will be deallocated at the time the buffer is destroyed.
- *  - To reference data that is external to the Buffer, use
- *    #Buffer::Chunk::prependToBuffer(), #Buffer::Chunk::appendToBuffer(), or
- *    similar methods of a derivative class.
+ * In other cases, the storage for chunks is provided from outside the
+ * Buffer (e.g., network packets). Methods such as append incorporate
+ * external storage into the Buffer. The Buffer class will notify outside
+ * agents when their storage is no longer needed for the Buffer.
  */
-// TODO(ongaro): Describe remaining interface to the memory allocator.
 class Buffer {
-  PRIVATE:
+  PUBLIC:
+    class Chunk;                // Forward declaration.
+
+    Buffer();
+    virtual ~Buffer();
+
+    void* alloc(size_t numBytes);
+    void* allocAux(size_t numBytes);
 
     /**
-     * A block of memory used by the Buffer's special-purpose memory allocator.
-     * This class hides the complex layout that minimizes the number of Chunks
-     * required to make up a Buffer.
+     * Allocate memory for an object of type T from the storage managed by
+     * the buffer, and construct an object in it. The object will *not* be
+     * part of the logical buffer. This method is intended primarily for
+     * internal use by the Buffer class (e.g. for allocating Chunk objects),
+     * but it is available externally as well.
      *
-     * A particular instance of this class uses a fixed amount of space. To
-     * manage a variable amount of space, see the wrappers
-     * #RAMCloud::Buffer::allocateChunk(),
-     * #RAMCloud::Buffer::allocatePrepend(), and
-     * #RAMCloud::Buffer::allocateAppend().
+     * \param args
+     *      Arguments to pass to T's constructor.
      *
-     * See also #allocations.
-     *
-     * Three kinds of data can be stored in an Allocation:
-     *  - Chunk instances.
-     *  - Prepend data is data that is added to the beginning of the Buffer.
-     *  - Append data is data that is added to the end of the Buffer.
-     *
-     * The Allocation object's memory is laid out as follows, where the arrows
-     * represent stacks growing:
-     * <pre>
-     *  +---------------+-------------------------------+
-     *  |    <--prepend | append-->            <--chunk |
-     *  +---------------+-------------------------------+
-     *  0          prependSize                      totalSize
-     * </pre>
+     * \return
+     *      The return value is a pointer to an object of type T. The
+     *      storage for this object will exist only until the next time the
+     *      buffer is reset or destroyed. Note: the destructor for the
+     *      object will not be invoked automatically by the Buffer class
+     *      when the storage is recycled.
      */
-    class Allocation {
-        /**
-         * An integer that indexes into #data.
-         * This type is used for the tops of the prepend, append, and chunk
-         * stacks.
-         */
-        typedef uint32_t DataIndex;
+    template<typename T, typename... Args>
+    T* allocAux(Args&&... args) {
+        void* allocation = allocAux(sizeof(T));
+        new(allocation) T(static_cast<Args&&>(args)...);
+        return static_cast<T*>(allocation);
+    }
 
-      public:
+    void* allocPrepend(size_t numBytes);
 
-        /**
-         * A pointer to the next Allocation in the Buffer's #allocations list.
-         */
-        Allocation* next;
+    /**
+     * Extend tthe buffer with a block of external data. The data is not
+     * copied; the buffer will refer to the source block, so the caller must
+     * ensure that the source data remains intact for the lifetime of the
+     * buffer.
+     *
+     * \param data
+     *      Address of first byte of data to append to the buffer.
+     * \param numBytes
+     *      Number of bytes of data to append.
+     */
+    inline void
+    append(const void* data, uint32_t numBytes)
+    {
+        appendChunk(allocAux<Chunk>(data, numBytes));
+    }
 
-      PRIVATE:
+    void append(Buffer* src, uint32_t offset = 0, uint32_t length = ~0);
+    void appendChunk(Chunk* chunk);
 
-        /**
-         * The byte with the smallest index of #data in use by the prepend
-         * stack.
-         * The prepend stack grows down from prependSize to 0.
-         */
-        DataIndex prependTop;
+    /**
+     * Makes a copy of a block of data in internal storage managed by the
+     * buffer, and appends that copy to the end of the buffer.
+     *
+     * \param data
+     *      Address of first byte of data to append to the buffer. Need
+     *      not persist once this method returns.
+     * \param numBytes
+     *      Number of bytes of data to append.
+     */
+    inline void
+    appendCopy(const void* data, uint32_t numBytes)
+    {
+        memcpy(alloc(numBytes), data, numBytes);
+    }
 
-        /**
-         * The byte with the largest index of #data in use by the append stack.
-         * The append stack grows up from prependSize to the top of chunk
-         * stack.
-         */
-        DataIndex appendTop;
+    /**
+     * Makes a copy of an object in buffer-managed storage and appends that
+     * copy to the end of the buffer.
+     *
+     * \param  object
+     *      An object to append to the buffer. Need not persist once this
+     *      method returns.
+     */
+    template<typename T>
+    inline void
+    appendCopy(const T* object)
+    {
+        memcpy(alloc(sizeof(T)), object, sizeof(T));
+    }
 
-        /**
-         * The byte with the smallest index of #data in use by the chunk stack.
-         * The chunk stack grows down from totalSize to the top of the append
-         * stack.
-         */
-        DataIndex chunkTop;
+    uint32_t copy(uint32_t offset, uint32_t length, void* dest); // NOLINT
 
-      public:
-        static Allocation* newAllocation(uint32_t prependSize,
-                                         uint32_t totalSize);
-        Allocation(uint32_t prependSize, uint32_t totalSize);
-        ~Allocation();
+    /**
+     * Extend the buffer with enough space for an object of type T, and
+     * construct an object in that space. The object becomes part of the
+     * logical buffer.
+     *
+     * \param args
+     *      Arguments to pass to T's constructor.
+     *
+     * \return
+     *      The return value is a new object of type T, which now occupies
+     *      the last bytes in the buffer. The object is stored in memory
+     *      managed by the buffer, which will exist until the buffer is
+     *      reset or destroyed. Note: the destructor for the object will
+     *      not be invoked automatically by the Buffer class when the
+     *      storage is recycled.
+     */
+    template<typename T, typename... Args>
+    inline T*
+    emplaceAppend(Args&&... args) {
+        void* allocation = alloc(sizeof(T));
+        new(allocation) T(static_cast<Args&&>(args)...);
+        return static_cast<T*>(allocation);
+    }
 
-        void* allocatePrepend(uint32_t size);
-        void* allocateAppend(uint32_t size);
-        void* allocateChunk(uint32_t size);
-        void reset(uint32_t prependSize, uint32_t totalSize);
+    /**
+     * Construct a new object of type T (using storage managed by the
+     * buffer) and prepend the object at the beginning of the buffer.
+     *
+     * \param args
+     *      Arguments to pass to T's constructor.
+     *
+     * \return
+     *      The return value is a new object of type T, which now occupies
+     *      the first bytes in the buffer. The storage for this object will
+     *      exist only until the buffer is reset or destroyed. Note: the
+     *      destructor for the object will not be invoked automatically by
+     *      the Buffer class when the storage is recycled.
+     */
+    template<typename T, typename... Args>
+    inline T*
+    emplacePrepend(Args&&... args) {
+        void* allocation = allocPrepend(sizeof(T));
+        new(allocation) T(static_cast<Args&&>(args)...);
+        return static_cast<T*>(allocation);
+    }
 
-      PRIVATE:
+    void fillFromString(const char* s);
+    uint32_t getNumberChunks();
 
-        /**
-         * Structure padding so that \a data is 8-byte aligned within an
-         * Allocation.
-         */
-        char padding[4];
+    /**
+     * Returns a pointer to an object of a particular type, stored
+     * at a particular location in the buffer. If the object is not
+     * currently stored contiguously, is copied to make it contiguous.
+     * 
+     * \param offset
+     *      Number of bytes in the buffer preceding the desired object.
+     * \return
+     *      sizeof(\a T) bytes starting at \a offset, or NULL if the
+     *      buffer isn't long enough to hold the requested object.
+     */
+    template<typename T>
+    inline T*
+    getOffset(uint32_t offset) {
+        return static_cast<T*>(getRange(offset, sizeof(T)));
+    }
 
-        /**
-         * The memory from which portions are returned by the allocate methods
-         * starts here.
-         */
-        char data[0];
+    void* getRange(uint32_t offset, uint32_t length);
 
-        DISALLOW_COPY_AND_ASSIGN(Allocation);
-    };
+    /**
+     * Returns a pointer to an object of a particular type, stored
+     * at the beginning of the buffer. If the object is not
+     * currently stored contiguously, it is copied to make it contiguous.
+     * \return
+     *      sizeof(\a T) bytes at the beginning of the Buffer.  If the
+     *      Buffer does not contain sizeof(\a T) bytes then NULL is
+     *      returned.
+     */
+    template<typename T>
+    inline T*
+    getStart() {
+        return getOffset<T>(0);
+    }
 
-  public:
+    uint32_t peek(uint32_t offset, void** returnPtr);
+    void prependChunk(Chunk* chunk);
+    virtual void reset();
+
+    /**
+     * Returns the total amount of data stored in the Buffer,
+     * in bytes.
+     */
+    inline uint32_t
+    size() const {
+        return totalLength;
+    }
+    inline uint32_t getTotalLength() const {
+        return totalLength;
+    }
+
+    void truncate(uint32_t newLength);
+    void truncateFront(uint32_t bytesToDelete);
+
+    uint32_t write(uint32_t offset, uint32_t length, FILE* f);
+
+  PRIVATE:
+    char* getNewAllocation(uint32_t bytesNeeded, uint32_t* bytesAllocated);
+
+    /**
+     * This method implements both the destructor and the reset method.
+     * For highest performance, the destructor skips parts of this code.
+     * Putting this method here as an in-line allows the compiler to
+     * optimize out the parts not needed for the destructor.
+     * 
+     * \param isReset
+     *      True means implement the full reset functionality; false means
+     *      implement only the functionality need for the destructor.
+     */
+    inline void
+    resetInternal(bool isReset)
+    {
+        // Free the chunks.
+        Chunk* current = firstChunk;
+        while (current != NULL) {
+            Chunk* next = current->next;
+            current->~Chunk();
+            current = next;
+        }
+
+        // Free any malloc-ed memory.
+        if (allocations) {
+            for (uint32_t i = 0; i < allocations->size(); i++) {
+                free((*allocations)[i]);
+            }
+            if (isReset) {
+                allocations->clear();
+            }
+        }
+
+        // Reset state.
+        if (isReset) {
+            totalLength = 0;
+            firstChunk = lastChunk = cursorChunk = NULL;
+            cursorOffset = ~0;
+            extraAppendBytes = 0;
+            availableLength = sizeof(internalAllocation) - PREPEND_SPACE;
+            firstAvailable = reinterpret_cast<char*>(internalAllocation)
+                    + PREPEND_SPACE;
+        }
+    }
+
+    /// Number of bytes currently stored in the buffer (total across
+    /// all chunks).
+    uint32_t totalLength;
+
+    /// First in list of Chunks for the buffer, or NULL if no Chunks yet.
+    Chunk* firstChunk;
+
+    /// Last in list of Chunks for the buffer, or NULL if no Chunks yet.
+    Chunk* lastChunk;
+
+    /// The following variables keep a "cursor" into the buffer (info about
+    /// a recently-accessed chunk). This information improves performance
+    /// by avoiding the need to scan all of the buffer chunks from the
+    /// beginning for each request. It works best when the buffer is
+    /// scanned sequentially.
+    /// during c.
+    Chunk* cursorChunk;              // Recently accessed chunk.
+    uint32_t cursorOffset;           // Offset within the buffer of the first
+                                     // byte in cursorChunk; all ones means
+                                     // no cursorChunk.
+
+    /// The last Chunk may have been overallocated, leaving extra space
+    /// that allows us to satisfy more "new" requests that will be
+    /// contiguous to the existing Chunk. If so, this variable
+    /// indicates how many bytes are available; if not, this is 0.
+    uint32_t extraAppendBytes;
+
+    /// The variables below describe the storage managed internally as
+    /// part of the buffer, e.g. to service alloc and allocAux requests.
+
+    /// If we must dynamically allocate space, this variable keeps
+    /// track of all the allocations so they can be freed by reset. This is
+    /// a Tub so that we don't have to construct and destroy the vector
+    /// unless it is actually used (which is fairly rare).
+    Tub<std::vector<void*>> allocations;
+
+    /// In some situations we have extra storage space available that
+    /// isn't part of a Chunk. When this happens, the variables below
+    /// keep track of that space. The space may be used for future
+    /// Chunks.
+    uint32_t availableLength;        // Total bytes available.
+    char* firstAvailable;            // Address of first available byte.
+
+    /// Keeps track of the total amount of extra memory that has been
+    /// allocated for this buffer; used for testing and also for
+    /// detecting problem situations where too much memory gets
+    /// allocated.
+    uint32_t totalAllocatedBytes;
+
+    /// The following variable is used so we can log situations where
+    /// excessive allocations occur. If totalAllocatedBytes reaches
+    /// this value for a Buffer, a log message gets printed and this
+    /// value gets doubled.
+    static uint32_t allocationLogThreshold;
+
+    /// This variable provides some initial storage for the Buffer's use;
+    /// by including this directly as part of the Buffer, we can usually
+    /// get by without having to call malloc, which is expensive. The first
+    /// few bytes of this are reserved to allow a bit of additional data
+    /// to be prepended to the buffer later (e.g., network packet headers);
+    /// if all goes well, this data will be adjacent to the first chunk,
+    /// so the prepend won't introduce any additional chunks.
+    ///
+    /// Note: the type char* is used here in order to force 8-byte alignment
+    /// of the array.
+    char* internalAllocation[1000/sizeof(char*)]; // NOLINT
+
+    /// How much space to reserve for prepending. This should be
+    /// at least large enough for Ethernet, IP, and UDP headers.
+    static const int PREPEND_SPACE  = 100;
+
+  PUBLIC:
 
     /**
      * A Chunk represents a contiguous subrange of bytes within a Buffer.
-     *
-     * The Chunk class refers to memory whose lifetime is at least as great as
-     * that of the Buffer and does not release this memory. More intelligent
-     * derivatives of the Chunk class know how to release the memory they point
-     * to and do so as part of the Buffer's destruction.
-     *
-     * Derived classes must:
-     *  - Not declare any public constructors to ensure that all Chunk
-     *    instances are allocated with the Buffer's allocator.
-     *  - Implement static prependToBuffer() and appendToBuffer() methods that
-     *    allocate a new instance with <tt>new(buffer, CHUNK) MyChunkType</tt>
-     *    and then call #prependChunkToBuffer or #appendChunkToBuffer.
+     * There are two different kinds of chunks:
+     * 
+     * - Some chunks are allocated by the Buffer to hold the results of
+     *   the alloc and emplaceAppend methods.
+     * - Some chunks are provided externally (e.g. network packets from a
+     *   NIC may be appended to a Buffer using this kind of chunk). The
+     *   caller must guarantee that these chunks are stable for the
+     *   lifetime of the Buffer.  If external code wishes to be notified
+     *   when the Chunk is no longer part of the buffer (e.g. so a network
+     *   buffer can be returned to the NIC), it should subclass this class
+     *   and define a destructor, which will be invoked when the Chunk is
+     *   removed from the buffer.
      */
     class Chunk {
-      friend class Buffer;
-      friend void* ::operator new(size_t numBytes, Buffer* buffer,
-                                  RAMCloud::PREPEND_T prepend);
-      friend void* ::operator new(size_t numBytes, Buffer* buffer,
-                                  RAMCloud::APPEND_T append);
-      friend void* ::operator new(size_t numBytes, Buffer* buffer,
-                                  RAMCloud::CHUNK_T chunk);
-      friend void* ::operator new(size_t numBytes, Buffer* buffer,
-                                  RAMCloud::MISC_T misc);
-
-      PROTECTED:
-        /**
-         * Add a chunk to the front of a buffer.
-         * This is the same as Buffer's #prependChunk but is accessible from all
-         * Chunk derivatives.
-         * \param[in] buffer
-         *      The buffer to which to add \a chunk.
-         * \param[in] chunk
-         *      A pointer to a Chunk or a subclass of Chunk that will be added
-         *      to the front of \a buffer.
-         */
-        static void prependChunkToBuffer(Buffer *buffer, Chunk *chunk) {
-            buffer->prependChunk(chunk);
-        }
-
-        /**
-         * Add a chunk to the end of a buffer.
-         * This is the same as Buffer's #appendChunk but is accessible from all
-         * Chunk derivatives.
-         * \param[in] buffer
-         *      The buffer to which to add \a chunk.
-         * \param[in] chunk
-         *      A pointer to a Chunk or a subclass of Chunk that will be added
-         *      to the end of \a buffer.
-         */
-        static void appendChunkToBuffer(Buffer *buffer, Chunk *chunk) {
-            buffer->appendChunk(chunk);
-        }
-
       public:
-        /**
-         * Add a new, unmanaged memory chunk to front of a Buffer.
-         * The Chunk itself will be deallocated automatically in the Buffer's
-         * destructor, but the memory region is not deallocated.
-         *
-         * \param[in] buffer
-         *      The buffer to which to prepend the new chunk.
-         * \param[in] data
-         *      The start of the memory region to which the new chunk refers.
-         *      This memory must have a lifetime at least as great as
-         *      \a buffer.
-         * \param[in] length
-         *      The number of bytes \a data points to.
-         * \return
-         *      A pointer to the newly constructed Chunk.
-         */
-        static Chunk* prependToBuffer(Buffer* buffer,
-                                      const void* data, uint32_t length) {
-            Chunk* chunk = new(buffer, CHUNK) Chunk(data, length);
-            Chunk::prependChunkToBuffer(buffer, chunk);
-            return chunk;
-        }
-
-        /**
-         * Add a new, unmanaged memory chunk to end of a Buffer.
-         * See #prependToBuffer(), which is analogous.
-         */
-        static Chunk* appendToBuffer(Buffer* buffer,
-                                     const void* data, uint32_t length) {
-            Chunk* chunk = new(buffer, CHUNK) Chunk(data, length);
-            Chunk::appendChunkToBuffer(buffer, chunk);
-            return chunk;
-        }
-
-        /**
-         * Prepend unmanaged memory chunks from one Buffer to another.
-         * This is effectively a means of copying data from one Buffer to
-         * another, without actually moving the underlying bytes.
-         *
-         * This method should only be called on Buffers that contain
-         * unmanaged memory (this class will not ensure that memory
-         * prepended to the destination Buffer will remain valid if the
-         * source Buffer owned it and was destroyed).
-         *
-         * \param[out] destination
-         *      Buffer to prepend unmanaged memory to.
-         * \param[in] source
-         *      Buffer containing the memory we wish to prepend to the
-         *      destination.
-         * \param[in] offset
-         *      Byte offset within the source Buffer to begin prepend
-         *      memory from.
-         * \param[in] length
-         *      Number of bytes to prepend from the source Buffer.
-         */
-        static void prependToBuffer(Buffer* destination,
-                                    Buffer* source,
-                                    uint32_t offset,
-                                    uint32_t length)
-        {
-            Buffer::Iterator it(*source, offset, length);
-            uint32_t sourceChunks = it.getNumberChunks();
-
-            // We need to prepend chunks in reverse order, otherwise if we
-            // prepend <A, B, C>, we'll end up with <C, B, A>.
-            struct {
-                const void* data;
-                uint32_t length;
-            } sourceData[sourceChunks];
-
-            for (uint32_t i = 0; i < sourceChunks; i++) {
-                sourceData[i].data = it.getData();
-                sourceData[i].length = it.getLength();
-                it.next();
-            }
-
-            for (uint32_t i = 0; i < sourceChunks; i++) {
-                destination->prepend(sourceData[sourceChunks - 1 - i].data,
-                                     sourceData[sourceChunks - 1 - i].length);
-            }
-        }
-
-        /**
-         * Append unmanaged memory chunks from one Buffer to another.
-         * This is effectively a means of copying data from one Buffer to
-         * another, without actually moving the underlying bytes.
-         *
-         * This method should only be called on Buffers that contain
-         * unmanaged memory (this class will not ensure that memory
-         * appended to the destination Buffer will remain valid if the
-         * source Buffer owned it and was destroyed).
-         *
-         * \param[out] destination
-         *      Buffer to append unmanaged memory to.
-         * \param[in] source
-         *      Buffer containing the memory we wish to append to the
-         *      destination.
-         * \param[in] offset
-         *      Byte offset within the source Buffer to begin append 
-         *      memory from.
-         * \param[in] length
-         *      Number of bytes to append from the source Buffer.
-         */
-        static void appendToBuffer(Buffer* destination,
-                                   Buffer* source,
-                                   uint32_t offset,
-                                   uint32_t length)
-        {
-            Buffer::Iterator it(*source, offset, length);
-            while (!it.isDone()) {
-                destination->append(it.getData(), it.getLength());
-                it.next();
-            }
-        }
-
-      PROTECTED:
-        /**
-         * Construct a chunk that does not release the memory it points to.
-         * \param[in] data
-         *      The start of the memory region to which the new chunk refers.
-         * \param[in] length
-         *      The number of bytes \a data points to.
-         */
         Chunk(const void* data, uint32_t length)
-            : data(data), length(length), next(NULL) {}
+            : data(const_cast<char*>(static_cast<const char*>(data)))
+            , length(length)
+            , next(NULL)
+        { }
 
-      public:
-        /**
-         * Destructor that does not release any memory.
-         */
-        virtual ~Chunk() {
-        }
+        virtual ~Chunk() {}
 
-        /**
-         * Return whether this instance is of the Chunk type as opposed to some
-         * derivative. This is useful in prepending and appending data onto
-         * existing chunks, which is safe for instances of class Chunk that
-         * have a trivial destructor.
-         * \return See above.
-         */
-        bool isRawChunk() const __attribute__((noinline)) {
-            static const Buffer::Chunk rawChunk(NULL, 0);
+        /// First byte of valid data in this Chunk.
+        char* data;
 
-            // no hacks here, move along...
-            // works with g++
-            return (this->_vptr == rawChunk._vptr);
-        }
-
-      PROTECTED:
-        /**
-         * The first byte of data referenced by this Chunk.
-         * \warning
-         *      This may change during the lifetime of the chunk. Derivative
-         *      classes should store a local copy of the original pointer if
-         *      they will need it (e.g., in the destructor).
-         */
-        const void* data;
-
-        /**
-         * The number of bytes starting at #data for this Chunk.
-         * \warning
-         *      This may change during the lifetime of the chunk. Derivative
-         *      classes should store a local copy of the original length if
-         *      they will need it (e.g., in the destructor).
-         */
+        /// The number of valid bytes currently stored in the Chunk.
         uint32_t length;
 
-      PRIVATE:
-        /**
-         * The next Chunk in the list. This is for Buffer's use.
-         */
+        /// Next Chunk in Buffer, or NULL if this is the last Chunk.
         Chunk* next;
 
+      PRIVATE:
         DISALLOW_COPY_AND_ASSIGN(Chunk);
     };
 
     /**
      * This class provides a way to iterate over the chunks of a Buffer.
-     * This should only be used by the low-level networking code, as Buffer
-     * provides more convenient methods to access the Buffer for higher-level
-     * code.
+     * This is intended for callers that need to know the precise chunk
+     * structure of the buffer, such as a network drivers that feed the
+     * Buffer chunks to a NIC in pieces.
      *
      * \warning
      * The Buffer must not be modified during the lifetime of the iterator.
-     *
-     * It also provides a constructor for easy iteration across the chunks
-     * corresponding to a subrange of a Buffer.
      */
     class Iterator {
       public:
-        explicit Iterator(const Buffer& buffer);
-        Iterator(const Buffer& buffer, uint32_t offset, uint32_t length);
+        explicit Iterator(const Buffer* buffer);
+        Iterator(const Buffer* buffer, uint32_t offset, uint32_t length);
         Iterator(const Iterator& other);
         ~Iterator();
         Iterator& operator=(const Iterator& other);
-        bool isDone() const;
+
+        /**
+         * Return a pointer to the first byte of the data that is available
+         * contiguously at the current iterator position, or NULL if the
+         * iteration is complete.
+         */
+        const void*
+        getData() const
+        {
+            return currentData;
+        }
+
+        /**
+         * Return the number of bytes of contiguous data available at the
+         * current position (and part of the iterator's range), or zero if
+         * the iteration is complete.
+         */
+        uint32_t
+        getLength() const
+        {
+            return currentLength;
+        }
+
+        uint32_t getNumberChunks();
+
+        /**
+         * Indicate whether the entire range has been iterated.
+         * \return
+         *      True means there are no more bytes left in the range, and
+         *      #next(), #getData(), and #getLength should not be called again.
+         *      False means there are more bytes left.
+         */
+        inline bool
+        isDone() const
+        {
+            return currentLength == 0;
+        }
+
         void next();
-        const void* getData() const;
-        uint32_t getLength() const;
-        uint32_t getTotalLength() const;
-        uint32_t getNumberChunks() const;
+
+        uint32_t getTotalLength() {return bytesLeft;}
 
       PRIVATE:
-        /**
-         * The current chunk over which we're iterating.
-         * This starts out as #chunks and ends up at \c NULL.
-         */
+        /// The current chunk over which we're iterating.  May be NULL.
         Chunk* current;
 
-        /**
-         * The offset into the buffer of the the first byte of current.
-         */
-        uint32_t currentOffset;
+        /// The first byte of data available at the current iterator
+        /// position (NULL means no more bytes are available).
+        char* currentData;
 
-        /**
-         * The number of bytes starting from offset that should be iterated
-         * over before this isDone().  If this value is initialized to a
-         * length that together with offset indicates a range that is out
-         * bounds then the length will be trimmed so that offset + length
-         * extends precisely to the end of the Buffer.
-         */
-        uint32_t length;
+        /// The number of bytes of data available at the current
+        /// iterator position. 0 means that iteration has finished.
+        uint32_t currentLength;
 
-        /**
-         * The index in bytes into the buffer that the first call
-         * to getData() should return.  If this value is initialized
-         * to an offset that is out of range in the constructor then
-         * it will be trimmed to match the length of the Buffer.
-         */
-        uint32_t offset;
-
-        /**
-         * An upper bound on the number of chunks the iterator will
-         * iterate over.  Calculated lazily in the case of an Iterator
-         * that only covers a subrange, see getNumberChunks.
-         */
-        uint32_t numberChunks;
-
-        /**
-         * Used by getNumberChunks to determine if numberChunks needs to
-         * be computed still or not.
-         */
-        uint32_t numberChunksIsValid;
+        /// The number of bytes left to iterate, including those at the
+        /// current iterator position.
+        uint32_t bytesLeft;
     };
-
-    Buffer();
-    virtual ~Buffer();
-
-    /**
-     * Appends a block of data to the buffer. The data is not copied;
-     * the buffer will refer to the source block, so the caller must
-     * ensure that the source of data remains intact for the lifetime
-     * of the buffer.
-     *
-     * \param data
-     *      Address of first byte of data to append to the buffer.
-     * \param length
-     *      Number of bytes of data to append.
-     * \return
-     *      The Chunk containing the new data.
-     */
-    inline Chunk*
-    append(const void* data, uint32_t length)
-    {
-        return Buffer::Chunk::appendToBuffer(this, data, length);
-    }
-
-    /**
-     * Append the contents of another buffer to this buffer. This is a virtual
-     * append, in that the data is not copied; this buffer will store
-     * references to the data in src. The caller must ensure that the data
-     * in src remains stable for the lifetime of this buffer.
-     *
-     * \param[in] src
-     *      The buffer whose data will be appended to the local buffer.
-     * \param[in] offset
-     *      The offset of the first byte in src to be appended. All data
-     *      from this offset to the end of src will be appended.
-     */
-    inline void
-    append(Buffer* src, uint32_t offset = 0)
-    {
-        Buffer::Chunk::appendToBuffer(this, src, offset, src->getTotalLength());
-    }
-
-    /**
-     * Makes a copy of a block of data and appends that copy to the
-     * end of the buffer. The copy is stored as part of the buffer structure;
-     * any additional storage needed for it will be reclaimed when the
-     * buffer is destroyed.
-     *
-     * \param data
-     *      Address of first byte of data to append to the buffer.
-     * \param length
-     *      Number of bytes of data to append.
-     */
-    inline void
-    appendCopy(const void* data, uint32_t length)
-    {
-        char* copy = new(this, APPEND) char[length];
-        memcpy(copy, data, length);
-    }
-
-    /**
-     * Makes a copy of an object and appends that copy to the end of the
-     * buffer. The copy is stored as part of the buffer structure;
-     * any additional storage needed for it will be reclaimed when the
-     * buffer is destroyed.
-     *
-     * \param  object
-     *      An object to append to the buffer..
-     */
-    template<typename T> inline void
-    appendCopy(const T* object)
-    {
-        memcpy(new(this, APPEND) T, object, sizeof(T));
-    }
-
-
-    /**
-     * Convenience method that invokes Buffer::Chunk::prependToBuffer
-     * on this Buffer object.
-     */
-    Chunk*
-    prepend(const void* data, uint32_t length)
-    {
-        return Buffer::Chunk::prependToBuffer(this, data, length);
-    }
-
-    /**
-     * Convenience method that invokes Buffer::Chunk::prependToBuffer
-     * on this Buffer object, prepending the entire given buffer to it.
-     *
-     * \param[in] src
-     *      The buffer whose data will be prepended to this Buffer.
-     */
-    void
-    prepend(Buffer* src)
-    {
-        Buffer::Chunk::prependToBuffer(this, src, 0, src->getTotalLength());
-    }
-
-    uint32_t peek(uint32_t offset, const void** returnPtr);
-    const void* getRange(uint32_t offset, uint32_t length);
-
-    /**
-     * Convenience for getRange.
-     * \return
-     *      sizeof(\a T) bytes starting at \a offset.
-     */
-    template<typename T> const T* getOffset(uint32_t offset) {
-        return static_cast<const T*>(getRange(offset, sizeof(T)));
-    }
-
-    /**
-     * Convenience for getRange.
-     * \return
-     *      sizeof(\a T) bytes at the beginning of the Buffer.
-     */
-    template<typename T> const T* getStart() {
-        return getOffset<T>(0);
-    }
-
-    uint32_t copy(uint32_t offset, uint32_t length, void* dest); // NOLINT
-    uint32_t write(uint32_t offset, uint32_t length, FILE* f);
-    virtual void reset();
-    void fillFromString(const char* s);
-
-    void truncateFront(uint32_t length);
-    void truncateEnd(uint32_t length);
-
-    /**
-     * Returns the sum of the individual sizes of all the chunks composing this
-     * Buffer.
-     * \return See above.
-     */
-    uint32_t getTotalLength() const { return totalLength; }
-
-    /**
-     * Return the number of chunks composing this Buffer.
-     * Along with #Iterator, this is useful for networking code that is trying
-     * to export the Buffer into a different format.
-     * \return See above.
-     */
-    uint32_t getNumberChunks() const { return numberChunks; }
-
-  PRIVATE:
-    void convertChar(char c, string *out);
-
-    /* For operator new's use only. */
-    void* allocateChunk(uint32_t size);
-    void* allocatePrepend(uint32_t size);
-    void* allocateAppend(uint32_t size);
-    friend void* ::operator new(size_t numBytes, Buffer* buffer,
-                                RAMCloud::PREPEND_T prepend);
-    friend void* ::operator new(size_t numBytes, Buffer* buffer,
-                                RAMCloud::APPEND_T append);
-    friend void* ::operator new(size_t numBytes, Buffer* buffer,
-                                RAMCloud::CHUNK_T chunk);
-    friend void* ::operator new(size_t numBytes, Buffer* buffer,
-                                RAMCloud::MISC_T misc);
-
-    /* For Chunk's use only. */
-    void prependChunk(Chunk* newChunk);
-    void appendChunk(Chunk* newChunk);
-
-    Allocation* newAllocation(uint32_t minPrependSize, uint32_t minAppendSize);
-    void copyChunks(const Chunk* current, uint32_t offset,  // NOLINT
-                    uint32_t length, void* dest) const;
-
-    /**
-     * The total number of bytes in the logical array represented by this
-     * Buffer.
-     */
-    uint32_t totalLength;
-
-    /**
-     * The number of chunks in the chunks list.
-     */
-    uint32_t numberChunks;
-
-    /**
-     * The linked list of chunks that make up this Buffer.
-     */
-    Chunk* chunks;
-
-    /**
-     * Pointer to the last chunk in the linked list starting at #chunks.
-     * Used for fast appends. NULL if #chunks is empty.
-     */
-    Chunk* chunksTail;
-
-    enum {
-        /**
-         * The minimum size in bytes of the first Allocation instance to be
-         * allocated. Must be a power of two.
-         */
-        INITIAL_ALLOCATION_SIZE = 2048,
-    };
-    static_assert((INITIAL_ALLOCATION_SIZE &
-                   (INITIAL_ALLOCATION_SIZE - 1)) == 0,
-                  "INITIAL_ALLOCATION_SIZE must be a power of two");
-    static_assert((INITIAL_ALLOCATION_SIZE >> 3) != 0,
-                  "INITIAL_ALLOCATION_SIZE must be greater than 8");
-
-    /**
-     * A container for an Allocation that is allocated along with the Buffer.
-     * 
-     * Since any Buffer is going to need some storage space (at least for its
-     * Chunk instances), it makes sense for a Buffer to come with some of that
-     * space already. This avoids a malloc call the first time data is
-     * prepended or appended to the Buffer.
-     *
-     * This container is needed to provide the Allocation with some space to
-     * manage directly following it.
-     */
-    struct InitialAllocationContainer {
-        InitialAllocationContainer() : allocation(INITIAL_ALLOCATION_SIZE >> 3,
-                                                  INITIAL_ALLOCATION_SIZE) {}
-        void reset()
-        {
-            allocation.reset(INITIAL_ALLOCATION_SIZE >> 3,
-                              INITIAL_ALLOCATION_SIZE);
-        }
-        Allocation allocation;
-      PRIVATE:
-        // At least INITIAL_ALLOCATION_SIZE bytes of usable space must directly
-        // follow the above Allocation.
-        char allocationManagedSpace[INITIAL_ALLOCATION_SIZE];
-    } initialAllocationContainer;
-    static_assert(sizeof(InitialAllocationContainer) ==
-                  sizeof(Allocation) + INITIAL_ALLOCATION_SIZE,
-                  "InitialAllocationContainer size mistmatch");
-
-    /**
-     * A singly-linked list of Allocation objects used by #allocateChunk(),
-     * #allocatePrepend(), and #allocateAppend(). Allocation objects are each
-     * of a fixed size, and more are created and added to this list as needed.
-     */
-    Allocation* allocations;
-
-    /**
-     * The minimum size in bytes of the next Allocation instance to be
-     * allocated. Must be a power of two. This is doubled for each subsequent
-     * allocation, per the algorithm in #newAllocation().
-     */
-    uint32_t nextAllocationSize;
 
     static Syscall* sys;
 
     friend class Iterator;
-
     DISALLOW_COPY_AND_ASSIGN(Buffer);
 };
-
-bool operator==(Buffer::Iterator left, Buffer::Iterator right);
-
-/// See equals.
-inline bool operator!=(Buffer::Iterator left, Buffer::Iterator right) {
-    return !(left == right);
-}
-
-/**
- * Two Buffers are equal if they contain the same logical array of bytes,
- * regardless of their internal representation.
- */
-inline bool operator==(const Buffer& left, const Buffer& right) {
-    return Buffer::Iterator(left) == Buffer::Iterator(right);
-}
-
-/// See equals.
-inline bool operator!=(const Buffer& left, const Buffer& right) {
-    return !(left == right);
-}
 
 }  // namespace RAMCloud
 

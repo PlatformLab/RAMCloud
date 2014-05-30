@@ -981,7 +981,7 @@ TEST_F(MasterServiceTest, multiWrite_malformedRequests) {
     service->multiWrite(&reqHdr, &respHdr, &rpc);
     EXPECT_EQ(STATUS_REQUEST_FORMAT_ERROR, respHdr.common.status);
 
-    requestPayload.truncateEnd(sizeof(part) - 1);
+    requestPayload.truncate(requestPayload.size() - (sizeof32(part) - 1));
     requestPayload.append(&part, sizeof(part));
 
     // Malformed requests with both the key and the value length fields

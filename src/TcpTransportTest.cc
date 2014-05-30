@@ -243,6 +243,8 @@ TEST_F(TcpTransportTest, Socket_destructor_deleteRpc) {
 }
 
 TEST_F(TcpTransportTest, Socket_destructor_clearRpcsWaitingToReply) {
+    TestLog::Enable _("~TcpServerRpc");
+
     // Send several requests to the server; respond to all of them,
     // but make the first response large enough that it backs up
     // the others.
@@ -550,6 +552,7 @@ TEST_F(TcpTransportTest, IncomingMessage_readMessage_receiveHeaderInPieces) {
 }
 
 TEST_F(TcpTransportTest, IncomingMessage_readMessage_messageTooLong) {
+    TestLog::Enable filter("readMessage");
     int fd = connectToServer(locator);
     server.acceptHandler->handleFileEvent(Dispatch::FileEvent::READABLE);
     int serverFd = downCast<unsigned>(server.sockets.size()) - 1;
@@ -772,7 +775,7 @@ TEST_F(TcpTransportTest, TcpSession_cancelRequest_responsePartiallyReceived) {
     // The second part of the buffer is uninitialized, so store
     // something predictable there to simplify assertion checking.
     void *garbage;
-    rpc.response.peek(10, const_cast<const void**>(&garbage));
+    rpc.response.peek(10, &garbage);
     memcpy(garbage, "-------------", 11);
     EXPECT_EQ("First part-----------", TestUtil::toString(&rpc.response));
     session->cancelRequest(&rpc);

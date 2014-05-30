@@ -91,7 +91,8 @@ class ObjectTest : public ::testing::Test {
 
         // prepend some garbage to buffer2 so that we can test the constructor
         // with a non-zero offset
-        buffer2.prepend(&stringKeys[0], sizeof(stringKeys[0]));
+        memcpy(buffer2.allocPrepend(sizeof(stringKeys[0])), &stringKeys[0],
+                sizeof(stringKeys[0]));
 
         objectFromBuffer.construct(buffer2, sizeof32(stringKeys[0]),
                                    buffer2.getTotalLength() -
@@ -787,7 +788,8 @@ class ObjectTombstoneTest : public ::testing::Test {
         // prepend some garbage into the buffer so that we
         // can test the constructor with a non-zero starting
         // offset
-        buffer.prepend(stringKey, sizeof32(stringKey));
+        memcpy(buffer.allocPrepend(sizeof32(stringKey)), stringKey,
+                sizeof32(stringKey));
         tombstoneFromBuffer.construct(buffer, sizeof32(stringKey),
                                       buffer.getTotalLength() -
                                       sizeof32(stringKey));

@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2012 Stanford University
+/* Copyright (c) 2010-2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -247,9 +247,9 @@ TestUtil::bufferToDebugString(Buffer* buffer)
     string s;
 
     for (uint32_t offset = 0; ; offset += chunkLength) {
-        const char *chunk;
+        char *chunk;
         chunkLength = buffer->peek(offset,
-                                   reinterpret_cast<const void **>(&chunk));
+                                   reinterpret_cast<void **>(&chunk));
         if (chunkLength == 0)
             break;
         s.append(separator);

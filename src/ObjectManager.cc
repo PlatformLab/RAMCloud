@@ -158,7 +158,7 @@ ObjectManager::indexedRead(const uint64_t tableId, uint32_t reqNumHashes,
 
     for (; *respNumHashes < reqNumHashes; *respNumHashes += 1) {
         if (currentLength > maxLength) {
-            response->truncateEnd(partLength);
+            response->truncate(response->size() - partLength);
             break;
         }
         currentLength += partLength;

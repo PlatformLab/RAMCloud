@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2012 Stanford University
+/* Copyright (c) 2010-2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -45,8 +45,9 @@ serializeToBuffer(Buffer* buffer, M* message)
     }
     string str(ostream.str());
     uint32_t length = downCast<uint32_t>(str.length());
-    memcpy(new(buffer, APPEND) uint8_t[length],
-           str.c_str(), length);
+    if (length > 0) {
+        memcpy(new(buffer, APPEND) uint8_t[length], str.c_str(), length);
+    }
     return length;
 }
 

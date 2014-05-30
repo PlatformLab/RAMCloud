@@ -175,7 +175,7 @@ TEST_F(RpcWrapperTest, isReady_retryResponseTooShort) {
     wrapper.session = session;
     Service::prepareRetryResponse(wrapper.response, 1000, 2000,
             "sample message");
-    wrapper.response->truncateEnd(2);
+    wrapper.response->truncate(wrapper.response->size() - 2);
     wrapper.state = RpcWrapper::RpcState::FINISHED;
     EXPECT_FALSE(wrapper.isReady());
     EXPECT_EQ("isReady: Server test:server=1 returned STATUS_RETRY "

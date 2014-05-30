@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2012 Stanford University
+/* Copyright (c) 2010-2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -389,7 +389,7 @@ TcpTransport::sendMessage(int fd, uint64_t nonce, Buffer* payload,
         iovecIndex = 0;
         offset = alreadySent - downCast<int>(sizeof(header));
     }
-    Buffer::Iterator iter(*payload, offset, header.len - offset);
+    Buffer::Iterator iter(payload, offset, header.len - offset);
     while (!iter.isDone()) {
         iov[iovecIndex].iov_base = const_cast<void*>(iter.getData());
         iov[iovecIndex].iov_len = iter.getLength();
@@ -538,8 +538,7 @@ TcpTransport::IncomingMessage::readMessage(int fd) {
         if (buffer->getTotalLength() == 0) {
             dest = new(buffer, APPEND) char[messageLength];
         } else {
-            buffer->peek(messageBytesReceived,
-                    const_cast<const void**>(&dest));
+            buffer->peek(messageBytesReceived, &dest);
         }
         ssize_t len = TcpTransport::recvCarefully(fd, dest,
                 messageLength - messageBytesReceived);

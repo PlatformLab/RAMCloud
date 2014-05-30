@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2012 Stanford University
+/* Copyright (c) 2010-2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -127,12 +127,9 @@ Driver::PayloadChunk::prependToBuffer(Buffer* buffer,
                                              Driver* driver,
                                              char* payload)
 {
-    PayloadChunk* chunk =
-        new(buffer, CHUNK) PayloadChunk(data,
-                                        dataLength,
-                                        driver,
-                                        payload);
-    Buffer::Chunk::prependChunkToBuffer(buffer, chunk);
+    PayloadChunk* chunk = buffer->allocAux<PayloadChunk>(data,
+            dataLength, driver, payload);
+    buffer->prependChunk(chunk);
     return chunk;
 }
 
@@ -163,12 +160,9 @@ Driver::PayloadChunk::appendToBuffer(Buffer* buffer,
                                             Driver* driver,
                                             char* payload)
 {
-    PayloadChunk* chunk =
-        new(buffer, CHUNK) PayloadChunk(data,
-                                        dataLength,
-                                        driver,
-                                        payload);
-    Buffer::Chunk::appendChunkToBuffer(buffer, chunk);
+    PayloadChunk* chunk = buffer->allocAux<PayloadChunk>(data,
+            dataLength, driver, payload);
+    buffer->appendChunk(chunk);
     return chunk;
 }
 

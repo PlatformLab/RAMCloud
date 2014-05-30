@@ -1,4 +1,4 @@
-/* Copyright (c) 2010 Stanford University
+/* Copyright (c) 2010-2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -219,7 +219,7 @@ class Crc32C {
     Crc32C&
     update(Buffer& buffer, uint32_t offset, uint32_t bytes)
     {
-        Buffer::Iterator it(buffer, offset, bytes);
+        Buffer::Iterator it(&buffer, offset, bytes);
         while (!it.isDone()) {
             update(it.getData(), it.getLength());
             it.next();

@@ -939,7 +939,7 @@ MasterService::multiRead(const WireFormat::MultiOp::Request* reqHdr,
         // retry the objects we don't return).
         uint32_t newLength = rpc->replyPayload->getTotalLength();
         if (newLength > maxResponseRpcLen) {
-            rpc->replyPayload->truncateEnd(newLength - oldResponseLength);
+            rpc->replyPayload->truncate(oldResponseLength);
             respHdr->count = i-1;
             break;
         } else {

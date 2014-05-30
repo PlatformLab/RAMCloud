@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2012 Stanford University
+/* Copyright (c) 2010-2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -83,7 +83,7 @@ class UdpDriverTest : public ::testing::Test {
             const char *header, const char *payload) {
         Buffer message;
         message.append(payload, downCast<uint32_t>(strlen(payload)));
-        Buffer::Iterator iterator(message);
+        Buffer::Iterator iterator(&message);
         driver->sendPacket(address, header, downCast<uint32_t>(strlen(header)),
                            &iterator);
     }
@@ -115,7 +115,7 @@ TEST_F(UdpDriverTest, basics) {
     Buffer message;
     const char *testString = "This is a sample message";
     message.append(testString, downCast<uint32_t>(strlen(testString)));
-    Buffer::Iterator iterator(message);
+    Buffer::Iterator iterator(&message);
     client->sendPacket(serverAddress, "header:", 7, &iterator);
     EXPECT_STREQ("header:This is a sample message",
             receivePacket(serverTransport));
@@ -123,7 +123,7 @@ TEST_F(UdpDriverTest, basics) {
     // Send a response back in the other direction.
     message.reset();
     message.append("response", 8);
-    Buffer::Iterator iterator2(message);
+    Buffer::Iterator iterator2(&message);
     server->sendPacket(serverTransport->sender, "h:", 2, &iterator2);
     EXPECT_STREQ("h:response", receivePacket(clientTransport));
 }
@@ -186,7 +186,7 @@ TEST_F(UdpDriverTest, sendPacket_alreadyClosed) {
     sys->sendmsgErrno = EPERM;
     Buffer message;
     message.append("xyzzy", 5);
-    Buffer::Iterator iterator(message);
+    Buffer::Iterator iterator(&message);
     client->close();
     client->sendPacket(serverAddress, "header:", 7, &iterator);
     EXPECT_EQ("", TestLog::get());
@@ -195,7 +195,7 @@ TEST_F(UdpDriverTest, sendPacket_alreadyClosed) {
 TEST_F(UdpDriverTest, sendPacket_headerEmpty) {
     Buffer message;
     message.append("xyzzy", 5);
-    Buffer::Iterator iterator(message);
+    Buffer::Iterator iterator(&message);
     client->sendPacket(serverAddress, "", 0, &iterator);
     EXPECT_STREQ("xyzzy", receivePacket(serverTransport));
 }
@@ -203,7 +203,7 @@ TEST_F(UdpDriverTest, sendPacket_headerEmpty) {
 TEST_F(UdpDriverTest, sendPacket_payloadEmpty) {
     Buffer message;
     message.append("xyzzy", 5);
-    Buffer::Iterator iterator(message);
+    Buffer::Iterator iterator(&message);
     client->sendPacket(serverAddress, "header:", 7, &iterator);
     EXPECT_STREQ("header:xyzzy", receivePacket(serverTransport));
 }
@@ -213,7 +213,7 @@ TEST_F(UdpDriverTest, sendPacket_multipleChunks) {
     message.append("xyzzy", 5);
     message.append("0123456789", 10);
     message.append("abc", 3);
-    Buffer::Iterator iterator(message, 1, 23);
+    Buffer::Iterator iterator(&message, 1, 23);
     client->sendPacket(serverAddress, "header:", 7, &iterator);
     EXPECT_STREQ("header:yzzy0123456789abc",
             receivePacket(serverTransport));
@@ -223,7 +223,7 @@ TEST_F(UdpDriverTest, sendPacket_errorInSend) {
     sys->sendmsgErrno = EPERM;
     Buffer message;
     message.append("xyzzy", 5);
-    Buffer::Iterator iterator(message);
+    Buffer::Iterator iterator(&message);
     client->sendPacket(serverAddress, "header:", 7, &iterator);
     EXPECT_EQ("sendPacket: UdpDriver error sending to socket: "
             "Operation not permitted", TestLog::get());

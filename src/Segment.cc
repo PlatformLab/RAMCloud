@@ -905,7 +905,7 @@ Segment::copyInFromBuffer(uint32_t segmentOffset,
                           uint32_t length)
 {
     uint32_t bytesCopied = 0;
-    Buffer::Iterator it(buffer, bufferOffset, length);
+    Buffer::Iterator it(&buffer, bufferOffset, length);
     while (!it.isDone()) {
         uint32_t bytes = copyIn(segmentOffset, it.getData(), it.getLength());
 

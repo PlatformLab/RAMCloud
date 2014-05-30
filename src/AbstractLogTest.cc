@@ -155,6 +155,7 @@ TEST_F(AbstractLogTest, append_multiple_basics) {
 TEST_F(AbstractLogTest, append_multipleLogEntries) {
     Log::Reference references[2];
     Buffer logBuffer;
+    TestLog::Enable _;
 
     uint32_t dataLen = serverConfig.segmentSize / 3;
     char* data = new char[dataLen];

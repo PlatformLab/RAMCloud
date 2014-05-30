@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2012 Stanford University
+/* Copyright (c) 2010-2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -55,16 +55,10 @@ try
         Transport::ServerRpc* rpc = context.serviceManager->waitForRpc(1);
         if (rpc == NULL)
             continue;
-        Buffer::Iterator iter(rpc->requestPayload);
-        while (!iter.isDone()) {
-            Buffer::Chunk::appendToBuffer(&rpc->replyPayload,
-                                          iter.getData(),
-                                          iter.getLength());
-            // TODO(ongaro): This is unsafe if the Transport discards the
-            // received buffer before it is done with the response buffer.
-            // I can't think of any real RPCs where this will come up.
-            iter.next();
-        }
+        // TODO(ongaro): This is unsafe if the Transport discards the
+        // received buffer before it is done with the response buffer.
+        // I can't think of any real RPCs where this will come up.
+        rpc->replyPayload.append(&rpc->requestPayload);
         rpc->sendReply();
     }
     return 0;

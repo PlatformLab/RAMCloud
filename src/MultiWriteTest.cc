@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2012 Stanford University
+/* Copyright (c) 2011-2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -243,8 +243,8 @@ TEST_F(MultiWriteTest, readResponse_shortResponses) {
     // Initial order of requests is object 0, object 1.
 
     // Can't read second Response::Part from both responses.
-    session1->lastResponse->truncateEnd(
-        sizeof(WireFormat::MultiOp::Response::WritePart) + 1);
+    session1->lastResponse->truncate(session1->lastResponse->size()
+        - (sizeof32(WireFormat::MultiOp::Response::WritePart) + 1));
     session1->lastNotifier->completed();
     EXPECT_FALSE(request.isReady());
     EXPECT_EQ("readResponse: missing Response::Part", TestLog::get());
@@ -253,7 +253,7 @@ TEST_F(MultiWriteTest, readResponse_shortResponses) {
     // MultiWrite retries requests in the order object 1, object 0.
 
     // Can't read second Response::Part from response, retries object 0.
-    session1->lastResponse->truncateEnd(1);
+    session1->lastResponse->truncate(session1->lastResponse->size() - 1);
     session1->lastNotifier->completed();
     EXPECT_FALSE(request.isReady());
     EXPECT_EQ("readResponse: missing Response::Part", TestLog::get());
@@ -261,7 +261,7 @@ TEST_F(MultiWriteTest, readResponse_shortResponses) {
     EXPECT_EQ("mock:host=master1(1) -", rpcStatus(request));
 
     // Can't read Response::Part from response again, retries object 0.
-    session1->lastResponse->truncateEnd(1);
+    session1->lastResponse->truncate(session1->lastResponse->size() - 1);
     session1->lastNotifier->completed();
     EXPECT_FALSE(request.isReady());
     EXPECT_EQ("readResponse: missing Response::Part", TestLog::get());

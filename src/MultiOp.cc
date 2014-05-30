@@ -1,4 +1,4 @@
-/* Copyright (c) 2013 Stanford University
+/* Copyright (c) 2013-2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -230,7 +230,7 @@ MultiOp::startRpcs()
 
                     // Check that request isn't too big in general
                     if (lengthAfter - lengthBefore > maxRequestSize) {
-                        rpc->request.truncateEnd(lengthAfter - lengthBefore);
+                        rpc->request.truncate(lengthBefore);
                         request->status = STATUS_REQUEST_TOO_LARGE;
                         removeRequestAt(i);
                         break;
@@ -238,7 +238,7 @@ MultiOp::startRpcs()
 
                     // Check for full rpc, remove + retry
                     if (lengthAfter > maxRequestSize) {
-                        rpc->request.truncateEnd(lengthAfter - lengthBefore);
+                        rpc->request.truncate(lengthBefore);
                         activeRpcCnt++;
                         rpc->send();
                         continue;

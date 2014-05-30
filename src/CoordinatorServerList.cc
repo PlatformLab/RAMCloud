@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2013 Stanford University
+/* Copyright (c) 2011-2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -1468,7 +1468,7 @@ CoordinatorServerList::UpdateServerListRpc::appendServerList(
 
     uint32_t sizeAfter = request.getTotalLength();
     if (sizeAfter > Transport::MAX_RPC_LEN) {
-        request.truncateEnd(sizeAfter - sizeBefore);
+        request.truncate(sizeBefore);
         return false;
     }
 

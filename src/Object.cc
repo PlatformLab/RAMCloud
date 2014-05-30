@@ -244,7 +244,7 @@ Object::appendValueToBuffer(Buffer& buffer, uint32_t valueOffset)
 
     Buffer* sourceBuffer = keysAndValueBuffer;
 
-    Buffer::Iterator it(*sourceBuffer, keysAndValueOffset + valueOffset,
+    Buffer::Iterator it(sourceBuffer, keysAndValueOffset + valueOffset,
                         getValueLength());
     while (!it.isDone()) {
         buffer.append(it.getData(), it.getLength());
@@ -271,7 +271,7 @@ Object::appendKeysAndValueToBuffer(Buffer& buffer)
     // at keysAndValueOffset
     Buffer* sourceBuffer = keysAndValueBuffer;
 
-    Buffer::Iterator it(*sourceBuffer, keysAndValueOffset, keysAndValueLength);
+    Buffer::Iterator it(sourceBuffer, keysAndValueOffset, keysAndValueLength);
     while (!it.isDone()) {
         buffer.append(it.getData(), it.getLength());
         it.next();
@@ -877,7 +877,7 @@ ObjectTombstone::appendKeyToBuffer(Buffer& buffer)
         return;
     }
 
-    Buffer::Iterator it(*tombstoneBuffer,
+    Buffer::Iterator it(tombstoneBuffer,
                         keyOffset,
                         getKeyLength());
     while (!it.isDone()) {

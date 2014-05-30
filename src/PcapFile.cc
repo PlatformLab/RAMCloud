@@ -83,7 +83,7 @@ PcapFile::append(const Buffer& rawPacket)
                         static_cast<uint32_t>(timeStamp.tv_usec),
                         savedLength, length};
     file.write(reinterpret_cast<const char*>(&header), sizeof(header));
-    Buffer::Iterator it(rawPacket);
+    Buffer::Iterator it(&rawPacket);
     uint32_t toTake = savedLength;
     while (toTake && !it.isDone()) {
         const uint32_t fromThisChunk =

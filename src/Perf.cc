@@ -179,7 +179,7 @@ double bMutexNoBlock()
 
 // Measure the cost of allocating and deallocating a buffer, plus
 // appending (virtually) one block.
-double bufferAppend1()
+double bufferBasic()
 {
     int count = 1000000;
     uint64_t start = Cycles::rdtsc();
@@ -191,45 +191,78 @@ double bufferAppend1()
     return Cycles::toSeconds(stop - start)/count;
 }
 
+struct dummyBlock {
+    int a, b, c, d;
+};
+
 // Measure the cost of allocating and deallocating a buffer, plus
-// appending (virtually) 10 blocks.
-double bufferAppend10()
+// allocating space for one chunk.
+double bufferBasicAlloc()
 {
     int count = 1000000;
     uint64_t start = Cycles::rdtsc();
     for (int i = 0; i < count; i++) {
         Buffer b;
-        b.append("1", 1);
-        b.append("2", 1);
-        b.append("3", 1);
-        b.append("4", 1);
-        b.append("5", 1);
-        b.append("6", 1);
-        b.append("7", 1);
-        b.append("8", 1);
-        b.append("9", 1);
-        b.append("10", 2);
+        b.emplaceAppend<dummyBlock>();
     }
     uint64_t stop = Cycles::rdtsc();
     return Cycles::toSeconds(stop - start)/count;
 }
 
-// Measure the cost of copying small chunks of data into a buffer.
+// Measure the cost of allocating and deallocating a buffer, plus
+// copying in a small block.
+double bufferBasicCopy()
+{
+    int count = 1000000;
+    uint64_t start = Cycles::rdtsc();
+    for (int i = 0; i < count; i++) {
+        Buffer b;
+        b.appendCopy("abcdefg", 6);
+    }
+    uint64_t stop = Cycles::rdtsc();
+    return Cycles::toSeconds(stop - start)/count;
+}
+
+// Measure the cost of making a copy of parts of two chunks.
 double bufferCopy()
 {
-    int count1 = 100;
-    int count2 = 1000;
+    int count = 1000000;
     Buffer b;
-    uint64_t total = 0;
-    for (int i = 0; i < count2; i++) {
-        b.reset();
-        uint64_t start = Cycles::rdtsc();
-        for (int j = 0; j < count1; j++) {
-            b.appendCopy("12345", 5);
-        }
-        total += Cycles::rdtsc() - start;
+    b.append("abcde", 5);
+    b.append("01234", 5);
+    char copy[10];
+    uint64_t start = Cycles::rdtsc();
+    for (int i = 0; i < count; i++) {
+        b.copy(2, 6, copy);
     }
-    return Cycles::toSeconds(total)/(count2*count1);
+    uint64_t stop = Cycles::rdtsc();
+    return Cycles::toSeconds(stop - start)/count;
+}
+
+// Measure the cost of allocating new space by extending the
+// last chunk.
+double bufferExtendChunk()
+{
+    int count = 100000;
+    uint64_t total = 0;
+    for (int i = 0; i < count; i++) {
+        Buffer b;
+        b.emplaceAppend<dummyBlock>();
+        uint64_t start = Cycles::rdtsc();
+        b.emplaceAppend<dummyBlock>();
+        b.emplaceAppend<dummyBlock>();
+        b.emplaceAppend<dummyBlock>();
+        b.emplaceAppend<dummyBlock>();
+        b.emplaceAppend<dummyBlock>();
+        b.emplaceAppend<dummyBlock>();
+        b.emplaceAppend<dummyBlock>();
+        b.emplaceAppend<dummyBlock>();
+        b.emplaceAppend<dummyBlock>();
+        b.emplaceAppend<dummyBlock>();
+        total += Cycles::rdtsc() - start;
+        b.reset();
+    }
+    return Cycles::toSeconds(total)/(count*10);
 }
 
 // Measure the cost of retrieving an object from the beginning of a buffer.
@@ -245,6 +278,30 @@ double bufferGetStart()
         sum += *b.getStart<int>();
     }
     uint64_t stop = Cycles::rdtsc();
+    return Cycles::toSeconds(stop - start)/count;
+}
+
+// Measure the cost of creating an iterator and iterating over 10
+// chunks in a buffer.
+double bufferIterator()
+{
+    Buffer b;
+    const char* p = "abcdefghijklmnopqrstuvwxyz";
+    for (int i = 0; i < 5; i++) {
+        b.append(p+i, 5);
+    }
+    int count = 100000;
+    int sum = 0;
+    uint64_t start = Cycles::rdtsc();
+    for (int i = 0; i < count; i++) {
+        Buffer::Iterator it(&b);
+        while (!it.isDone()) {
+            sum += (static_cast<const char*>(it.getData()))[it.getLength()-1];
+            it.next();
+        }
+    }
+    uint64_t stop = Cycles::rdtsc();
+    discard(&sum);
     return Cycles::toSeconds(stop - start)/count;
 }
 
@@ -1022,14 +1079,20 @@ TestInfo tests[] = {
      "Atomic<int>::exchange"},
     {"bMutexNoBlock", bMutexNoBlock,
      "std::mutex lock/unlock (no blocking)"},
-    {"bufferAppend1", bufferAppend1,
-     "buffer alloc, virtual append"},
-    {"bufferAppend10", bufferAppend10,
-     "buffer alloc, 10 virtual appends"},
+    {"bufferBasic", bufferBasic,
+     "buffer create, add one chunk, delete"},
+    {"bufferBasicAlloc", bufferBasicAlloc,
+     "buffer create, alloc block in chunk, delete"},
+    {"bufferBasicCopy", bufferBasicCopy,
+     "buffer create, copy small block, delete"},
     {"bufferCopy", bufferCopy,
-     "Buffer::appendCopy('abcde', 5)"},
+     "copy out 2 small chunks from buffer"},
+    {"bufferExtendChunk", bufferExtendChunk,
+     "buffer add onto existing chunk"},
     {"bufferGetStart", bufferGetStart,
      "Buffer::getStart"},
+    {"bufferIterator", bufferIterator,
+     "iterate over buffer with 5 chunks"},
     {"condPingPong", condPingPong,
      "std::condition_variable round-trip"},
     {"cppAtomicExchg", cppAtomicExchange,

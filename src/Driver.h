@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2012 Stanford University
+/* Copyright (c) 2010-2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -139,6 +139,7 @@ class Driver {
         /// The memory backing the chunk and which is to be returned.
         char* const payload;
 
+        friend class Buffer;      // allocAux must call private constructor.
         DISALLOW_COPY_AND_ASSIGN(PayloadChunk);
     };
 

@@ -18,253 +18,63 @@
 
 #include "TestUtil.h"
 #include "Buffer.h"
+#include "Logger.h"
 #include "MockSyscall.h"
 
 namespace RAMCloud {
 
-class NotARawChunk : public Buffer::Chunk {
+// Convenience for accessing the internalAllocation member as char*
+#define INTERNAL_ALLOC (reinterpret_cast<char*>(buffer.internalAllocation))
+
+class BufferTest: public ::testing::Test {
   public:
-    static NotARawChunk* prependToBuffer(Buffer* buffer,
-                                         void* data, uint32_t length) {
-        NotARawChunk* chunk = new(buffer, CHUNK) NotARawChunk(data, length);
-        Chunk::prependChunkToBuffer(buffer, chunk);
-        return chunk;
-    }
-    static NotARawChunk* appendToBuffer(Buffer* buffer,
-                                        void* data, uint32_t length) {
-        NotARawChunk* chunk = new(buffer, CHUNK) NotARawChunk(data, length);
-        Chunk::appendChunkToBuffer(buffer, chunk);
-        return chunk;
-    }
-    bool destructed;
-  private:
-    NotARawChunk(void* data, uint32_t length)
-        : Chunk(data, length), destructed(false) {}
-  public:
-    ~NotARawChunk() {
-        destructed = true;
-    }
-};
-
-
-class BufferAllocationTest : public ::testing::Test {
-  public:
-    Buffer::Allocation* a;
-
-    BufferAllocationTest() : a(NULL)
-    {
-        a = Buffer::Allocation::newAllocation(256, 2048);
-    }
-
-    ~BufferAllocationTest() {
-        if (a != NULL)
-            free(a);
-        a = NULL;
-    }
-  private:
-    DISALLOW_COPY_AND_ASSIGN(BufferAllocationTest);
-};
-
-TEST_F(BufferAllocationTest, constructor) {
-
-    // make sure Allocation::padding is set correctly.
-    EXPECT_EQ(0U, reinterpret_cast<uint64_t>(a->data) & 0x7);
-
-    EXPECT_TRUE(a->next == NULL);
-    EXPECT_EQ(256U, a->prependTop);
-    EXPECT_EQ(256U, a->appendTop);
-    EXPECT_EQ(2048U, a->chunkTop);
-}
-
-TEST_F(BufferAllocationTest, destructor) {
-}
-
-TEST_F(BufferAllocationTest, reset) {
-    a->allocateChunk(32);
-    a->allocatePrepend(16);
-    a->allocateAppend(64);
-    a->next = a;
-    a->reset(32, 256);
-
-    EXPECT_TRUE(a->next == NULL);
-    EXPECT_EQ(32U, a->prependTop);
-    EXPECT_EQ(32U, a->appendTop);
-    EXPECT_EQ(256U, a->chunkTop);
-}
-
-TEST_F(BufferAllocationTest, allocateChunk) {
-    uint32_t size = 2048 - 256;
-    a->allocateChunk(0);
-    EXPECT_EQ(&a->data[256 + 16],
-                            a->allocateChunk(size - 16));
-    EXPECT_EQ(&a->data[256],
-                            a->allocateChunk(16));
-    EXPECT_TRUE(NULL == a->allocateChunk(1));
-    EXPECT_TRUE(NULL == a->allocateAppend(1));
-}
-
-TEST_F(BufferAllocationTest, allocatePrepend) {
-    uint32_t size = 256;
-    a->allocatePrepend(0);
-    EXPECT_EQ(&a->data[10], a->allocatePrepend(size - 10));
-    EXPECT_EQ(&a->data[0], a->allocatePrepend(10));
-    EXPECT_TRUE(NULL == a->allocatePrepend(1));
-}
-
-TEST_F(BufferAllocationTest, allocateAppend) {
-    uint32_t size = 2048 - 256;
-    a->allocateAppend(0);
-    EXPECT_EQ(&a->data[256],
-                    a->allocateAppend(size - 10));
-    EXPECT_EQ(&a->data[2048 - 10],
-                    a->allocateAppend(10));
-    EXPECT_TRUE(NULL == a->allocateAppend(1));
-    EXPECT_TRUE(NULL == a->allocateChunk(1));
-}
-
-class BufferChunkTest : public ::testing::Test {
-  public:
-      BufferChunkTest() {}
-      ~BufferChunkTest() {}
-
-    DISALLOW_COPY_AND_ASSIGN(BufferChunkTest);
-};
-
-TEST_F(BufferChunkTest, Chunk) {
-    Buffer buf;
-    char data;
-    Buffer::Chunk* c;
-    c = buf.prepend(&data, sizeof(data));
-    EXPECT_EQ(&data, c->data);
-    EXPECT_EQ(sizeof(data), c->length);
-    EXPECT_TRUE(NULL == c->next);
-    EXPECT_TRUE(c->isRawChunk());
-}
-
-TEST_F(BufferChunkTest, ChunkDerivative) {
-    Buffer buf;
-    char data;
-    NotARawChunk* c;
-    c = NotARawChunk::prependToBuffer(&buf, &data, sizeof(data));
-    EXPECT_TRUE(!c->isRawChunk());
-    ((Buffer::Chunk*) c)->~Chunk();
-    EXPECT_TRUE(c->destructed);
-}
-
-TEST_F(BufferChunkTest, prependToBuffer_fromBuffer) {
-    const char* firstChunk = "!!";
-    const char* secondChunk = "@@@";
-    Buffer source;
-    source.append(firstChunk, 2);
-    source.append(secondChunk, 3);
-
-    const char* thirdChunk = "<<>>";
-    Buffer dest;
-    dest.append(thirdChunk, 4);
-    Buffer::Chunk::prependToBuffer(&dest, &source, 0, 5);
-    Buffer::Iterator it(dest);
-    EXPECT_EQ(3U, it.getNumberChunks());
-    EXPECT_FALSE(it.isDone());
-    EXPECT_EQ(firstChunk, it.getData());
-    it.next();
-    EXPECT_EQ(secondChunk, it.getData());
-    it.next();
-    EXPECT_EQ(thirdChunk, it.getData());
-    it.next();
-    EXPECT_TRUE(it.isDone());
-
-    // test a partial append
-    const char* newFirstChunk = "!@#$%^&*()";
-    source.prepend(newFirstChunk, 10);
-    Buffer::Chunk::prependToBuffer(&dest, &source, 3, 6);
-    Buffer::Iterator it2(dest);
-    EXPECT_EQ(4U, it2.getNumberChunks());
-    EXPECT_EQ(newFirstChunk + 3, it2.getData());
-    EXPECT_EQ(6U, it2.getLength());
-}
-
-TEST_F(BufferChunkTest, appendToBuffer_fromBuffer) {
-    const char* firstChunk = "<<>>";
-    Buffer dest;
-    dest.append(firstChunk, 4);
-
-    const char* secondChunk = "!!";
-    const char* thirdChunk = "@@@";
-    Buffer source;
-    source.append(secondChunk, 2);
-    source.append(thirdChunk, 3);
-
-    Buffer::Chunk::appendToBuffer(&dest, &source, 0, 5);
-    Buffer::Iterator it(dest);
-    EXPECT_EQ(3U, it.getNumberChunks());
-    EXPECT_FALSE(it.isDone());
-    EXPECT_EQ(firstChunk, it.getData());
-    it.next();
-    EXPECT_EQ(secondChunk, it.getData());
-    it.next();
-    EXPECT_EQ(thirdChunk, it.getData());
-    it.next();
-    EXPECT_TRUE(it.isDone());
-
-    // test a partial append
-    const char* newLastChunk = "!@#$%^&*()";
-    source.prepend(newLastChunk, 10);
-    Buffer::Chunk::appendToBuffer(&dest, &source, 3, 6);
-    Buffer::Iterator it2(dest);
-    EXPECT_EQ(4U, it2.getNumberChunks());
-    it2.next();
-    it2.next();
-    it2.next();
-    EXPECT_EQ(newLastChunk + 3, it2.getData());
-    EXPECT_EQ(6U, it2.getLength());
-}
-
-class BufferTest : public ::testing::Test {
-  public:
-
-    // I've inserted padding in between these arrays so that we don't get lucky
-    // by going past end of testStr1 and hitting testStr2, etc.
-    char testStr[30];
-    char pad1[50];
-    char testStr1[10];
-    char pad2[50];
-    char testStr2[10];
-    char pad3[50];
-    char testStr3[10];
-    char pad4[50];
-    char cmpBuf[30];    // To use for strcmp at the end of a test.
-    Buffer *buf;
+    char bigData[2000];
+    TestLog::Enable logEnabler;
     FILE *f;
     char fileName[100];
 
     BufferTest()
-        : buf(NULL)
+        : bigData()
+        , logEnabler()
         , f(NULL)
     {
-        memcpy(testStr, "ABCDEFGHIJabcdefghijklmnopqrs\0", 30);
-        memcpy(testStr1, "ABCDEFGHIJ", 10);
-        memcpy(testStr2, "abcdefghij", 10);
-        memcpy(testStr3, "klmnopqrs\0", 10);
-        memset(pad1, 0xcc, sizeof(pad1));
-        memset(pad2, 0xdd, sizeof(pad1));
-        memset(pad3, 0xee, sizeof(pad1));
-        memset(pad4, 0xff, sizeof(pad1));
-
-        // This uses prepend, so the tests for prepend
-        // probably shouldn't use this.
-        buf = new Buffer();
-        buf->prepend(testStr3, 10);
-        buf->prepend(testStr2, 10);
-        buf->prepend(testStr1, 10);
+        bigData[0] = 0;
     }
 
     ~BufferTest()
     {
-        delete buf;
         if (f != NULL) {
             fclose(f);
             unlink(fileName);
         }
+    }
+
+    /*
+     * Fill a buffer with some predefined data.
+     */
+    void
+    fillBuffer(Buffer* buffer)
+    {
+        buffer->append("ABCDEFGHIJ", 10);
+        buffer->append("abcdefghij", 10);
+        buffer->append("klmnopqrs\0", 10);
+    }
+
+    /**
+     * Returns a pointer to a large chunk of static data useful for
+     * putting in a buffer. The caller should not modify this.
+     */
+    const char*
+    getBigData()
+    {
+        // Initialize bigData, if that hasn't already been done before,
+        // and return it.
+        if (bigData[0] == 0) {
+            for (uint32_t i = 0; i < sizeof(bigData); i++) {
+                bigData[i] = downCast<char>('a' + (i%20));
+            }
+        }
+        return bigData;
     }
 
     void openFile() {
@@ -274,295 +84,342 @@ class BufferTest : public ::testing::Test {
         f = fdopen(fd, "r+");
     }
 
+    /**
+     * Generate a string describing the contents of the buffer in a way
+     * that displays its internal chunk structure.
+     *
+     * \return A string that describes the contents of the buffer. It
+     *         consists of the contents of the various chunks separated
+     *         by " | ", with long chunks abbreviated and non-printing
+     *         characters converted to something printable.
+     */
+    string
+    showChunks(Buffer* buffer)
+    {
+        // The following declaration defines the maximum number of characters
+        // to display from each chunk.
+        static const uint32_t CHUNK_LIMIT = 20;
+        const char *separator = "";
+        string s;
+        uint32_t actualLength = 0;
+
+        for (Buffer::Chunk* chunk = buffer->firstChunk; chunk != NULL;
+                chunk = chunk->next) {
+            const char* data = static_cast<const char*>(chunk->data);
+            actualLength += chunk->length;
+            s.append(separator);
+            separator = " | ";
+            for (uint32_t i = 0; i < chunk->length; i++) {
+                if (i >= CHUNK_LIMIT) {
+                    // This chunk is too big to print in its entirety;
+                    // just print a count of the remaining characters.
+                    s.append(format("(+%d chars)", chunk->length-i));
+                    break;
+                }
+                TestUtil::convertChar(data[i], &s);
+            }
+        }
+        if (actualLength != buffer->totalLength) {
+            s.append(separator);
+            s.append(format("totalLength is %u, but actual is %u",
+                    buffer->totalLength, actualLength));
+        }
+        return s;
+    }
+
+    /*
+     * This chunk class generates a log message when it is destroyed.
+     */
+    class TestChunk: public Buffer::Chunk {
+      public:
+        TestChunk(const void* data, uint32_t length)
+            : Chunk(data, length)
+        {}
+
+        ~TestChunk()
+        {
+            TEST_LOG("Destroyed chunk containing '%.*s'", length, data);
+            data = NULL;
+            length = 0;
+            next = NULL;
+        }
+    };
+
+    // Simple class for use in testing methods such as alloc.
+    struct TestObject
+    {
+        int a;
+        int b;
+        char c;
+        TestObject(int a, int b, char c)
+            : a(a)
+            , b(b)
+            , c(c)
+        {}
+    };
+
+  private:
     DISALLOW_COPY_AND_ASSIGN(BufferTest);
 };
 
-TEST_F(BufferTest, constructor) {
-    // Basic sanity checks for the constructor.
-    Buffer b;
-    EXPECT_EQ(0U, b.totalLength);
-    EXPECT_EQ(0U, b.numberChunks);
-    EXPECT_TRUE(NULL == b.chunks);
-    EXPECT_EQ(&b.initialAllocationContainer.allocation,
-                            b.allocations);
-    EXPECT_TRUE(NULL == b.allocations->next);
+TEST_F(BufferTest, alloc_basics) {
+    Buffer buffer;
+    char* p = static_cast<char*>(buffer.alloc(6));
+    memcpy(p, "abcdef", 6);
+    EXPECT_EQ(894u, buffer.extraAppendBytes + sizeof(Buffer::Chunk));
+    buffer.emplaceAppend<int>(0x30313233);
+    p = static_cast<char*>(buffer.alloc(4));
+    memcpy(p, "0123456789", 4);
+    EXPECT_EQ("abcdef32100123", showChunks(&buffer));
+    EXPECT_EQ(14u, buffer.totalLength);
+    EXPECT_EQ(886u, buffer.extraAppendBytes + sizeof(Buffer::Chunk));
+}
+TEST_F(BufferTest, alloc_useInternalSpace) {
+    Buffer buffer;
+    buffer.alloc(60);
+    EXPECT_GE(buffer.firstChunk->data, INTERNAL_ALLOC);
+    EXPECT_LT(buffer.firstChunk->data,
+            INTERNAL_ALLOC+sizeof(buffer.internalAllocation));
+}
+TEST_F(BufferTest, alloc_allocateNewSpace) {
+    Buffer buffer;
+    Buffer::Chunk chunk("abcdef", 5);
+    buffer.appendChunk(&chunk);
+    buffer.availableLength = 200;
+    buffer.alloc(400 - sizeof32(Buffer::Chunk));
+    EXPECT_EQ(1000u, buffer.extraAppendBytes);
+    EXPECT_TRUE(buffer.allocations);
+    EXPECT_EQ(1u, buffer.allocations->size());
+}
+TEST_F(BufferTest, alloc_checkChunkLinks) {
+    // Allocate three chunks: 1st and 3rd with new, 2nd with appendChunk.
+    Buffer buffer;
+    buffer.appendCopy("01234", 5);
+    Buffer::Chunk chunk("abcdef", 5);
+    buffer.appendChunk(&chunk);
+    buffer.appendCopy("9876", 4);
+    EXPECT_EQ("01234 | abcde | 9876", showChunks(&buffer));
+    EXPECT_EQ('9', buffer.lastChunk->data[0]);
 }
 
-TEST_F(BufferTest, destructor) {
-    // I don't know how I'd test this anymore.
+TEST_F(BufferTest, allocAux_alignLength) {
+    Buffer buffer;
+    uint64_t value = reinterpret_cast<uint64_t>(buffer.allocAux(3));
+    EXPECT_EQ(0u, value & 0x7);
+}
+TEST_F(BufferTest, allocAux_useAvailableSpace) {
+    Buffer buffer;
+    char* p = static_cast<char*>(buffer.allocAux(16));
+    EXPECT_EQ(INTERNAL_ALLOC + 984, p);
+    EXPECT_EQ(884u, buffer.availableLength);
+}
+TEST_F(BufferTest, allocAux_useSpaceInChunk) {
+    Buffer buffer;
+
+    // Create an initial chunk that doesn't come from managed storage,
+    // so we can make sure that allocAux is taking extra space from the
+    // *last* chunk, not the first chunk.
+    TestChunk chunk("abcdefg", 6);
+    buffer.appendChunk(&chunk);
+
+    // Now create a second chunk with a bunch of extra space.
+    buffer.alloc(300 - sizeof32(Buffer::Chunk));
+
+    // Finally, do the allocation we care about.
+    char* p = static_cast<char*>(buffer.allocAux(16));
+    EXPECT_EQ(INTERNAL_ALLOC + sizeof32(buffer.internalAllocation)
+            - sizeof32(Buffer::Chunk) - 16, p);
+    EXPECT_EQ(584u, buffer.extraAppendBytes);
+}
+TEST_F(BufferTest, allocAux_getNewAllocation) {
+    Buffer buffer;
+    buffer.availableLength = 0;
+    char* p = static_cast<char*>(buffer.allocAux(400));
+    EXPECT_EQ(1400u, buffer.totalAllocatedBytes);
+    EXPECT_EQ(1000u, p - buffer.firstAvailable);
+    EXPECT_EQ(1000u, buffer.availableLength);
 }
 
-TEST_F(BufferTest, reset) {
-    // Create a Chunk subclass that records when it is destructed.
-    static int numChunkDeletes = 0;
-    class TChunk : public Buffer::Chunk {
-        public:
-        TChunk(const void* data, uint32_t length)
-                : Chunk(data, length) {}
-        virtual ~TChunk() {
-            numChunkDeletes++;
-        }
-        static TChunk* appendToBuffer(Buffer* buffer, const char* s) {
-            TChunk* chunk = new(buffer, CHUNK)
-                                TChunk(s, downCast<uint32_t>(strlen(s)));
-            buffer->appendChunk(chunk);
-            return chunk;
-        }
-    };
-    Buffer b;
-    TChunk::appendToBuffer(&b, "abcd");
-    TChunk::appendToBuffer(&b, "12345");
-    EXPECT_EQ("abcd12345", TestUtil::toString(&b));
-    b.reset();
-    EXPECT_EQ(2, numChunkDeletes);
-    EXPECT_EQ(0U, b.totalLength);
-    EXPECT_EQ(0U, b.numberChunks);
-    EXPECT_TRUE(NULL == b.chunks);
-    EXPECT_TRUE(NULL == b.chunksTail);
-    EXPECT_EQ(&b.initialAllocationContainer.allocation,
-                            b.allocations);
-    EXPECT_EQ(2048U, b.allocations->chunkTop);
+TEST_F(BufferTest, allocPrepend_bufferEmpty) {
+    Buffer buffer;
+    char* p = static_cast<char*>(buffer.allocPrepend(6));
+    EXPECT_EQ(p, buffer.firstChunk->data);
+    EXPECT_EQ(6u, buffer.firstChunk->length);
+    EXPECT_EQ(6u, buffer.totalLength);
+}
+TEST_F(BufferTest, allocPrepend_fastPath) {
+    Buffer buffer;
+    buffer.appendCopy("abcdef", 6);
+    char* p = static_cast<char*>(buffer.allocPrepend(8));
+    memcpy(p, "0123456789", 8);
+    p = static_cast<char*>(buffer.allocPrepend(4));
+    memcpy(p, "ABCD", 4);
+    EXPECT_EQ("ABCD01234567abcdef", showChunks(&buffer));
+}
+TEST_F(BufferTest, allocPrepend_notEnoughSpaceForFastPath) {
+    Buffer buffer;
+    buffer.appendCopy("abcdef", 6);
+    EXPECT_EQ(1u, buffer.getNumberChunks());
+    buffer.allocPrepend(Buffer::PREPEND_SPACE);
+    EXPECT_EQ(1u, buffer.getNumberChunks());
+    buffer.allocPrepend(1);
+    EXPECT_EQ(2u, buffer.getNumberChunks());
+}
+TEST_F(BufferTest, allocPrepend_createNewChunk) {
+    Buffer buffer;
+    buffer.append("abcdef", 6);
+    char* p = static_cast<char*>(buffer.allocPrepend(8));
+    memcpy(p, "0123456789", 8);
+    p = static_cast<char*>(buffer.allocPrepend(4));
+    memcpy(p, "ABCD", 4);
+    EXPECT_EQ("ABCD | 01234567 | abcdef", showChunks(&buffer));
+}
+TEST_F(BufferTest, allocPrepend_invalidateCursor) {
+    Buffer buffer;
+    buffer.append("abcdef", 6);
+    buffer.getRange(2, 1);
+    EXPECT_EQ(0u, buffer.cursorOffset);
+    buffer.allocPrepend(8);
+    EXPECT_EQ(~0u, buffer.cursorOffset);
 }
 
-TEST_F(BufferTest, newAllocation) {
-    Buffer b;
-    uint32_t s;
-
-    s = Buffer::INITIAL_ALLOCATION_SIZE * 2;
-    Buffer::Allocation* a3 = b.newAllocation(s + 16, 0);
-    EXPECT_EQ(s + 16, a3->prependTop);
-    EXPECT_EQ(s + 16, a3->chunkTop);
-
-    s *= 2;
-    Buffer::Allocation* a2 = b.newAllocation(0, s + 16);
-    EXPECT_EQ(0U, a2->prependTop);
-    EXPECT_EQ(s + 16, a2->chunkTop);
-
-    s *= 2;
-    Buffer::Allocation* a1 = b.newAllocation(0, 0);
-    EXPECT_EQ(s / 8, a1->prependTop);
-    EXPECT_EQ(s, a1->chunkTop);
-
-    EXPECT_EQ(a1, b.allocations);
-    EXPECT_EQ(a2, a1->next);
-    EXPECT_EQ(a3, a2->next);
-    EXPECT_EQ(&b.initialAllocationContainer.allocation,
-                            a3->next);
+TEST_F(BufferTest, append_fromOtherBuffer) {
+    Buffer buffer;
+    buffer.appendCopy("abcdef", 6);
+    Buffer buffer2;
+    buffer2.append("01234", 5);
+    buffer2.append("ABCDEFGH", 8);
+    buffer.append(&buffer2, 3, 8);
+    EXPECT_EQ("abcdef | 34 | ABCDEF", showChunks(&buffer));
 }
 
-TEST_F(BufferTest, allocateChunk) {
-    Buffer b;
+TEST_F(BufferTest, appendChunk) {
+    // First chunk in buffer.
+    Buffer buffer;
+    Buffer::Chunk chunk("abcdef", 5);
+    Buffer::Chunk chunk2("01234567", 6);
+    buffer.appendChunk(&chunk);
+    EXPECT_EQ("abcde", showChunks(&buffer));
+    EXPECT_EQ(&chunk, buffer.firstChunk);
+    EXPECT_EQ(&chunk, buffer.lastChunk);
 
-    // fill up the initial allocation to get it out of the way
-    b.allocations->chunkTop = b.allocations->appendTop;
+    // Second chunk.
+    buffer.appendChunk(&chunk2);
+    EXPECT_EQ("abcde | 012345", showChunks(&buffer));
+    EXPECT_EQ(&chunk, buffer.firstChunk);
+    EXPECT_EQ(&chunk2, buffer.lastChunk);
+}
+TEST_F(BufferTest, appendChunk_saveExtraSpace) {
+    // Create a virtual chunk, then a copied chunk.
+    Buffer buffer;
+    Buffer::Chunk chunk("abcdef", 5);
+    buffer.appendChunk(&chunk);
+    buffer.appendCopy("012345", 6);
+    EXPECT_EQ(0u, buffer.availableLength);
+    uint32_t extra = buffer.extraAppendBytes;
 
-    // allocates new Allocation
-    b.allocateChunk(1);
-    EXPECT_EQ(&b.initialAllocationContainer.allocation,
-                            b.allocations->next);
+    // Store a special character to mark what should be the first
+    // byte of extra space.
+    char *p = const_cast<char*>(static_cast<const char*>(
+            buffer.lastChunk->data));
+    p[buffer.lastChunk->length] = 'x';
 
-    // uses existing Allocation
-    b.allocateChunk(1);
-    EXPECT_EQ(&b.initialAllocationContainer.allocation,
-                            b.allocations->next);
+    // Now create a virtual chunk and make sure that the extra space
+    // was saved correctly.
+    Buffer::Chunk chunk2("ABCDE", 4);
+    buffer.appendChunk(&chunk2);
+    EXPECT_EQ(0u, buffer.extraAppendBytes);
+    EXPECT_EQ(extra, buffer.availableLength);
+    EXPECT_EQ('x', *(static_cast<const char*>(buffer.firstAvailable)));
+}
+TEST_F(BufferTest, appendChunk_saveExtraSpace_tooSmall) {
+    // In this test, the existing saved space is larger than the
+    // extra bytes.
+    Buffer buffer;
+    buffer.extraAppendBytes = 100;
+    Buffer::Chunk chunk("abcdef", 5);
+    buffer.appendChunk(&chunk);
+    EXPECT_EQ(sizeof(buffer.internalAllocation) - Buffer::PREPEND_SPACE,
+            buffer.availableLength);
+    EXPECT_EQ(INTERNAL_ALLOC + Buffer::PREPEND_SPACE,
+            buffer.firstAvailable);
 }
 
-TEST_F(BufferTest, allocatePrepend) {
-    Buffer b;
-
-    // fill up the initial allocation to get it out of the way
-    b.allocations->prependTop = 0;
-
-    // allocates new Allocation
-    b.allocatePrepend(1);
-    EXPECT_EQ(&b.initialAllocationContainer.allocation,
-                            b.allocations->next);
-
-    // uses existing Allocation
-    b.allocatePrepend(1);
-    EXPECT_EQ(&b.initialAllocationContainer.allocation,
-                            b.allocations->next);
+TEST_F(BufferTest, copy_outOfRange) {
+    Buffer buffer;
+    char copy[10];
+    buffer.append("abcde", 5);
+    copy[0] = 'x';
+    EXPECT_EQ(0u, buffer.copy(5, 1, copy));
+    EXPECT_EQ('x', copy[0]);
 }
-
-TEST_F(BufferTest, allocateAppend) {
-    Buffer b;
-
-    // fill up the initial allocation to get it out of the way
-    b.allocations->appendTop = b.allocations->chunkTop;
-
-    // allocates new Allocation
-    b.allocateAppend(1);
-    EXPECT_EQ(&b.initialAllocationContainer.allocation,
-                            b.allocations->next);
-
-    // uses existing Allocation
-    b.allocateAppend(1);
-    EXPECT_EQ(&b.initialAllocationContainer.allocation,
-                            b.allocations->next);
+TEST_F(BufferTest, copy_clipLength) {
+    Buffer buffer;
+    char copy[10];
+    buffer.append("abcde", 5);
+    uint32_t length = buffer.copy(1, 5, copy);
+    EXPECT_EQ("bcde", string(copy, length));
 }
-
-TEST_F(BufferTest, prepend) {
-    Buffer b;
-    b.prepend(NULL, 0);
-    EXPECT_TRUE(NULL == b.chunksTail->data);
-    b.prepend(testStr3, 10);
-    b.prepend(testStr2, 10);
-    b.prepend(testStr1, 10);
-    EXPECT_TRUE(NULL == b.chunksTail->data);
-    EXPECT_EQ("ABCDEFGHIJ | abcdefghij | klmnopqrs/0",
-            TestUtil::bufferToDebugString(&b));
+TEST_F(BufferTest, copy_zeroLength) {
+    Buffer buffer;
+    char copy[10];
+    buffer.append("abcde", 5);
+    copy[0] = 'x';
+    EXPECT_EQ(0u, buffer.copy(2, 0, copy));
+    EXPECT_EQ('x', copy[0]);
 }
-
-TEST_F(BufferTest, append) {
-    Buffer b;
-    b.append((const void *)NULL, 0);
-    EXPECT_TRUE(NULL == b.chunksTail->data);
-    b.append(testStr1, 10);
-    b.append(testStr2, 10);
-    b.append(testStr3, 10);
-    EXPECT_EQ(testStr3, b.chunksTail->data);
-    EXPECT_EQ("ABCDEFGHIJ | abcdefghij | klmnopqrs/0",
-            TestUtil::bufferToDebugString(&b));
+TEST_F(BufferTest, copy_resetCurrentChunk) {
+    Buffer buffer;
+    char copy[10];
+    buffer.append("abcde", 5);
+    buffer.append("0123", 4);
+    buffer.cursorOffset = 5;
+    buffer.cursorChunk = buffer.firstChunk->next;
+    uint32_t length = buffer.copy(2, 2, copy);
+    EXPECT_EQ("cd", string(copy, length));
 }
+TEST_F(BufferTest, copy_useCurrentChunk) {
+    Buffer buffer;
+    char copy[10];
+    buffer.append("abcde", 5);
+    buffer.append("0123", 4);
+    buffer.append("ABCDEFG", 7);
 
-TEST_F(BufferTest, appendFromBuffer) {
-    Buffer b;
-    b.append(testStr1, 10);
-    b.append(testStr2, 10);
-    b.append(testStr3, 10);
-
-    Buffer b1, b2;
-    b1.append(&b, 0);
-    EXPECT_EQ("ABCDEFGHIJ | abcdefghij | klmnopqrs/0",
-            TestUtil::bufferToDebugString(&b));
-    b2.append(&b, 10);
-    EXPECT_EQ("abcdefghij | klmnopqrs/0",
-            TestUtil::bufferToDebugString(&b2));
+    // This test intentionally puts a bogus value in cursorOffset:
+    // that way the test results will be different if the method
+    // resets cursorChunk rather than using that information.
+    buffer.cursorOffset = 4;
+    buffer.cursorChunk = buffer.firstChunk->next;
+    uint32_t length = buffer.copy(8, 3, copy);
+    EXPECT_EQ("ABC", string(copy, length));
 }
-
-TEST_F(BufferTest, peek_normal) {
-    const void *retVal;
-    EXPECT_EQ(10U, buf->peek(0, &retVal));
-    EXPECT_EQ(testStr1, retVal);
-    EXPECT_EQ(1U, buf->peek(9, &retVal));
-    EXPECT_EQ(testStr1 + 9, retVal);
-    EXPECT_EQ(10U, buf->peek(10, &retVal));
-    EXPECT_EQ(testStr2, retVal);
-    EXPECT_EQ(5U, buf->peek(25, &retVal));
-    EXPECT_EQ(testStr3 + 5, retVal);
+TEST_F(BufferTest, copy_startAndEndInSameChunk) {
+    Buffer buffer;
+    char copy[10];
+    buffer.append("abcde", 5);
+    buffer.append("01234567", 8);
+    uint32_t length = buffer.copy(7, 4, copy);
+    EXPECT_EQ("2345", string(copy, length));
 }
-
-TEST_F(BufferTest, peek_offsetGreaterThanTotalLength) {
-    const void *retVal;
-    EXPECT_EQ(0U, buf->peek(30, &retVal));
-    EXPECT_TRUE(NULL == retVal);
-    EXPECT_EQ(0U, buf->peek(31, &retVal));
-    EXPECT_TRUE(NULL == retVal);
+TEST_F(BufferTest, copy_blockSpansChunks) {
+    Buffer buffer;
+    char copy[10];
+    buffer.append("abcde", 5);
+    buffer.append("01234567", 8);
+    buffer.append("ABC", 3);
+    uint32_t length = buffer.copy(4, 10, copy);
+    EXPECT_EQ("e01234567A", string(copy, length));
+    EXPECT_EQ(13u, buffer.cursorOffset);
+    EXPECT_EQ(buffer.lastChunk, buffer.cursorChunk);
 }
-
-TEST_F(BufferTest, copyChunks) {
-    Buffer b;
-    char scratch[50];
-
-    // skip while loop
-    strncpy(scratch, "0123456789", 11);
-    buf->copyChunks(buf->chunks, 0, 0, scratch + 1);
-    EXPECT_STREQ("0123456789", scratch);
-
-    // nonzero offset in first chunk, partial chunk
-    strncpy(scratch, "01234567890123456789", 21);
-    buf->copyChunks(buf->chunks, 5, 3, scratch + 1);
-    EXPECT_STREQ("0FGH4567890123456789", scratch);
-
-    // spans chunks, ends at exactly the end of the buffer
-    strncpy(scratch, "0123456789012345678901234567890123456789", 41);
-    buf->copyChunks(buf->chunks, 0, 30, scratch + 1);
-    // The data contains a null character, so check it in two
-    // pieces (one up through the null, one after).
-    EXPECT_STREQ("0ABCDEFGHIJabcdefghijklmnopqrs", scratch);
-    EXPECT_STREQ("123456789", scratch+31);
-}
-
-TEST_F(BufferTest, getRange_inputEdgeCases) {
-    EXPECT_TRUE(NULL == buf->getRange(0, 0));
-    EXPECT_TRUE(NULL == buf->getRange(30, 1));
-    EXPECT_TRUE(NULL == buf->getRange(29, 2));
-}
-
-TEST_F(BufferTest, getRange_peek) {
-    EXPECT_STREQ(testStr1, static_cast<const char*>(buf->getRange(0, 10)));
-    EXPECT_STREQ(testStr1 + 3, static_cast<const char*>(buf->getRange(3, 2)));
-    EXPECT_STREQ(testStr2, static_cast<const char*>(buf->getRange(10, 10)));
-    EXPECT_STREQ(testStr2 + 1,
-                 static_cast<const char*>(buf->getRange(11, 5)));
-    EXPECT_STREQ(testStr3, static_cast<const char*>(buf->getRange(20, 1)));
-    EXPECT_STREQ(testStr3 + 9, static_cast<const char*>(buf->getRange(29, 1)));
-}
-
-TEST_F(BufferTest, getRange_copy) {
-    char out[10];
-    strncpy(out, static_cast<const char*>(buf->getRange(9, 2)), 2);
-    out[2] = 0;
-    EXPECT_STREQ("Ja", out);
-}
-
-TEST_F(BufferTest, copy_noop) {
-    Buffer b;
-    EXPECT_EQ(0U, b.copy(0, 0, cmpBuf));
-    EXPECT_EQ(0U, b.copy(1, 0, cmpBuf));
-    EXPECT_EQ(0U, b.copy(1, 1, cmpBuf));
-    EXPECT_EQ(0U, buf->copy(30, 0, cmpBuf));
-    EXPECT_EQ(0U, buf->copy(30, 1, cmpBuf));
-    EXPECT_EQ(0U, buf->copy(31, 1, cmpBuf));
-}
-
-TEST_F(BufferTest, copy_normal) {
-    char scratch[50];
-
-    // truncate transfer length
-    EXPECT_EQ(5U, buf->copy(25U, 6, scratch + 1));
-
-    // skip while loop (start in first chunk)
-    strncpy(scratch, "01234567890123456789", 21);
-    EXPECT_EQ(5U, buf->copy(0, 5, scratch + 1));
-    EXPECT_STREQ("0ABCDE67890123456789", scratch);
-
-    // starting point not in first chunk
-    strncpy(scratch, "012345678901234567890123456789", 31);
-    EXPECT_EQ(6U, buf->copy(20, 6, scratch + 1));
-    EXPECT_STREQ("0klmnop78901234567890123456789", scratch);
-}
-
-TEST_F(BufferTest, write_basics) {
-    openFile();
-    EXPECT_EQ(20u, buf->write(5, 20, f));
-    fflush(f);
-    EXPECT_EQ("FGHIJabcdefghijklmno", TestUtil::readFile(fileName));
-}
-
-TEST_F(BufferTest, write_offsetTooLarge) {
-    openFile();
-    EXPECT_EQ(0u, buf->write(30, 5, f));
-    fflush(f);
-    EXPECT_EQ("", TestUtil::readFile(fileName));
-}
-
-TEST_F(BufferTest, write_lengthLongerThanBuffer) {
-    openFile();
-    buf->truncateEnd(1);
-    EXPECT_EQ(4u, buf->write(25, 5, f));
-    fflush(f);
-    EXPECT_EQ("pqrs", TestUtil::readFile(fileName));
-}
-
-TEST_F(BufferTest, write_IoError) {
-    MockSyscall sys;
-    Syscall *savedSyscall = Buffer::sys;
-    Buffer::sys = &sys;
-    openFile();
-    sys.fwriteResult = 3;
-    EXPECT_EQ(3u, buf->write(5, 20, f));
-    Buffer::sys = savedSyscall;
+TEST_F(BufferTest, copy_entireBuffer) {
+    Buffer buffer;
+    char copy[20];
+    buffer.append("abcde", 5);
+    buffer.append("01234567", 8);
+    buffer.append("ABC", 3);
+    uint32_t length = buffer.copy(0, 16, copy);
+    EXPECT_EQ("abcde01234567ABC", string(copy, length));
 }
 
 TEST_F(BufferTest, fillFromString) {
@@ -583,295 +440,557 @@ TEST_F(BufferTest, fillFromString) {
     EXPECT_EQ("abc/0 def/0", TestUtil::toString(&b));
 }
 
-TEST_F(BufferTest, truncateFront) {
-    Buffer b;
-    b.truncateFront(0);
-    b.truncateFront(10);
-    b.append("abc", 3);
-    b.append("def", 3);
-    b.append("ghi", 3);
-    b.truncateFront(0);
-    EXPECT_EQ("abc | def | ghi", TestUtil::bufferToDebugString(&b));
-    EXPECT_EQ(9U, b.getTotalLength());
-    b.truncateFront(4);
-    EXPECT_EQ("ef | ghi", TestUtil::bufferToDebugString(&b));
-    EXPECT_EQ(5U, b.getTotalLength());
-    b.truncateFront(2);
-    EXPECT_EQ("ghi", TestUtil::bufferToDebugString(&b));
-    EXPECT_EQ(3U, b.getTotalLength());
-    b.truncateFront(5);
-    EXPECT_EQ("", TestUtil::bufferToDebugString(&b));
-    EXPECT_EQ(0U, b.getTotalLength());
-}
-
-TEST_F(BufferTest, truncateEnd) {
-    Buffer b;
-    b.truncateEnd(0);
-    b.truncateEnd(10);
-    b.append("abc", 3);
-    b.append("def", 3);
-    b.append("ghi", 3);
-    b.truncateEnd(0);
-    EXPECT_EQ("abc | def | ghi", TestUtil::bufferToDebugString(&b));
-    EXPECT_EQ(9U, b.getTotalLength());
-    b.truncateEnd(4);
-    EXPECT_EQ("abc | de", TestUtil::bufferToDebugString(&b));
-    EXPECT_EQ(5U, b.getTotalLength());
-    b.truncateEnd(2);
-    EXPECT_EQ("abc", TestUtil::bufferToDebugString(&b));
-    EXPECT_EQ(3U, b.getTotalLength());
-    b.truncateEnd(5);
-    EXPECT_EQ("", TestUtil::bufferToDebugString(&b));
-    EXPECT_EQ(0U, b.getTotalLength());
-}
-
-TEST_F(BufferTest, eq) {
-    Buffer a;
-    Buffer b;
-    Buffer c;
-    Buffer d;
-    EXPECT_TRUE(a == b);
-    EXPECT_TRUE(b == a);
-    a.append("abc", 3);
-    a.append("def", 3);
-    EXPECT_TRUE(a != b);
-    EXPECT_TRUE(b != a);
-    b.append("a", 1);
-    b.append("bcd", 3);
-    b.append("", 0);
-    b.append("ef", 2);
-    c.append("x", 1);
-    c.append("", 0);
-    c.append("bcdef", 5);
-    d.append("yz", 2);
-    d.append("bcde", 4);
-    EXPECT_TRUE(a == a);
-    EXPECT_TRUE(b == b);
-    EXPECT_TRUE(a == b);
-    EXPECT_TRUE(b == a);
-    EXPECT_TRUE(b != c);
-    EXPECT_TRUE(c != b);
-    EXPECT_TRUE(c != d);
-    EXPECT_TRUE(d != c);
-}
-
-class BufferIteratorTest : public ::testing::Test {
-  public:
-    Buffer* oneChunk;
-    Buffer* twoChunks;
-    Buffer::Iterator* oneIter;
-    Buffer::Iterator* twoIter;
-    char x[30];
-
-    BufferIteratorTest()
-        : oneChunk(NULL)
-        , twoChunks(NULL)
-        , oneIter(NULL)
-        , twoIter(NULL)
-    {
-        memset(x, 'A', sizeof(x) - 1);
-        x[sizeof(x) - 1] = '\0';
-        oneChunk = new Buffer();
-        twoChunks = new Buffer();
-
-        oneChunk->append(&x[0], 10);
-
-        twoChunks->append(&x[0], 10);
-        twoChunks->append(&x[10], 20);
-
-        oneIter = new Buffer::Iterator(*oneChunk);
-        twoIter = new Buffer::Iterator(*twoChunks);
-    }
-
-    ~BufferIteratorTest()
-    {
-        delete twoIter;
-        delete oneIter;
-        delete twoChunks;
-        delete oneChunk;
-    }
-
-    DISALLOW_COPY_AND_ASSIGN(BufferIteratorTest);
-};
-
-TEST_F(BufferIteratorTest, constructor_subrange) {
-    Buffer::Iterator iter(*twoChunks, 12, 15);
-    EXPECT_EQ(iter.current, twoChunks->chunks->next);
-    EXPECT_EQ(12U, iter.offset);
-    EXPECT_EQ(15U, iter.length);
-}
-
-TEST_F(BufferIteratorTest, constructor_lengthOutOfBounds) {
-    Buffer::Iterator iter(*twoChunks, 12, 100000);
-    EXPECT_EQ(18U, iter.length);
-}
-
-TEST_F(BufferIteratorTest, constructor_offsetOutOfBounds) {
-    Buffer::Iterator iter(*twoChunks, 100000, 1);
-    EXPECT_EQ(30U, iter.offset);
-}
-
-TEST_F(BufferIteratorTest, isDone) {
-    Buffer zeroChunks;
-    Buffer::Iterator iter(zeroChunks);
-    EXPECT_TRUE(iter.isDone());
-
-    EXPECT_TRUE(!twoIter->isDone());
-    twoIter->next();
-    EXPECT_TRUE(!twoIter->isDone());
-    twoIter->next();
-    EXPECT_TRUE(twoIter->isDone());
-}
-
-TEST_F(BufferIteratorTest, next) {
-    // Pointing at the chunk.
-    EXPECT_EQ(oneIter->current, oneChunk->chunks);
-
-    oneIter->next();
-    // Pointing beyond the chunk.
-    EXPECT_EQ(oneIter->current, oneChunk->chunks->next);
-    EXPECT_TRUE(oneIter->isDone());
-
-    oneIter->next();
-    // Nothing should've changed since we were already done.
-    EXPECT_EQ(oneIter->current, oneChunk->chunks->next);
-}
-
-TEST_F(BufferIteratorTest, getData) {
-    // Trivial case; no subrange adjustments.
-    EXPECT_EQ(static_cast<const char *>(oneIter->getData()),
-                            &x[0]);
-}
-
-TEST_F(BufferIteratorTest, getData_onChunkBoundary) {
-    // Start right on chunk boundary.
-    Buffer::Iterator iter(*twoChunks, 10, 15);
-    EXPECT_EQ(&x[10], iter.getData());
-}
-
-TEST_F(BufferIteratorTest, getData_offsetAdjustment) {
-    // Start some distance into second chunk; startOffset adjustment.
-    Buffer::Iterator iter(*twoChunks, 12, 15);
-    EXPECT_EQ(&x[12], iter.getData());
-}
-
-TEST_F(BufferIteratorTest, getLength) {
-    // straight-through, no branches taken
-    EXPECT_EQ(oneIter->getLength(), 10U);
-}
-
-TEST_F(BufferIteratorTest, getLength_startAdjustment) {
-    // adjust due to unused region at front of current
-    Buffer::Iterator iter(*twoChunks, 2, 27);
-    EXPECT_EQ(8U, iter.getLength());
-}
-
-TEST_F(BufferIteratorTest, getLength_endAdjustment) {
-    // adjust due to unused region at end of current
-    Buffer::Iterator iter(*twoChunks, 0, 7);
-    EXPECT_EQ(7U, iter.getLength());
-}
-
-TEST_F(BufferIteratorTest, getTotalLength) {
-    // Runs off the end
-    Buffer::Iterator iter(*twoChunks, 29, 2);
-    EXPECT_EQ(1U, iter.getTotalLength());
-}
-
-TEST_F(BufferIteratorTest, getNumberChunks) {
-    EXPECT_EQ(2U, twoIter->getNumberChunks());
-}
-
-TEST_F(BufferIteratorTest, getNumberChunks_offsetIntoBuffer) {
-    Buffer::Iterator iter(*twoChunks, 11, 10000);
-    EXPECT_TRUE(!iter.numberChunksIsValid);
-    EXPECT_EQ(1U, iter.getNumberChunks());
-    EXPECT_TRUE(iter.numberChunksIsValid);
-}
-
-TEST_F(BufferIteratorTest, getNumberChunks_sanityBeyondTheEnd) {
-    Buffer::Iterator iter(*twoChunks, 100000, 100000);
-    EXPECT_EQ(0U, iter.getNumberChunks());
-}
-
-class BufferAllocatorTest : public ::testing::Test {
-  public:
-      BufferAllocatorTest() {}
-      ~BufferAllocatorTest() {}
-
-    DISALLOW_COPY_AND_ASSIGN(BufferAllocatorTest);
-};
-
-TEST_F(BufferAllocatorTest, new_prepend) {
-    Buffer buf;
-
-    operator new(0, &buf, PREPEND);
-    EXPECT_EQ(0U, buf.getTotalLength());
-
-    *(new(&buf, PREPEND) char) = 'z';
-    char* y = new(&buf, PREPEND) char;
-    *y = 'y';
-    NotARawChunk::prependToBuffer(&buf, y, sizeof(*y));
-    *(new(&buf, PREPEND) char) = 'x';
-    EXPECT_EQ("x | y | yz", TestUtil::bufferToDebugString(&buf));
-}
-
-TEST_F(BufferAllocatorTest, new_append) {
-    Buffer buf;
-
-    operator new(0, &buf, APPEND);
-    EXPECT_EQ(0U, buf.getTotalLength());
-
-    *(new(&buf, APPEND) char) = 'z';
-    char* y = new(&buf, APPEND) char;
-    *y = 'y';
-    NotARawChunk::appendToBuffer(&buf, y, sizeof(*y));
-    *(new(&buf, APPEND) char) = 'x';
-    EXPECT_EQ("zy | y | x", TestUtil::bufferToDebugString(&buf));
-}
-
-TEST_F(BufferAllocatorTest, new_chunk) {
-    // tested enough by Chunk::prependToBuffer, Chunk::appendToBuffer
-}
-
-TEST_F(BufferAllocatorTest, new_misc) {
-    // not sure what to test here...
-    Buffer buf;
-    operator new(0, &buf, MISC);
-    new(&buf, MISC) char[10];
-    EXPECT_EQ(0U, buf.getTotalLength());
-}
-
-// Inline methods in Buffer.h:
-
-TEST_F(BufferTest, appendCopy_block) {
+TEST_F(BufferTest, getNewAllocation) {
+    Buffer::allocationLogThreshold = 4000;
     Buffer buffer;
-    buffer.appendCopy("abc", 3);
-    buffer.appendCopy("defghijklmnop", 5);
-    EXPECT_EQ("abcdefgh", TestUtil::toString(&buffer));
+
+    // First allocation: check proper rounding up of the allocation size.
+    uint32_t actualLength;
+    char* result = buffer.getNewAllocation(193, &actualLength);
+    EXPECT_TRUE(result != NULL);
+    EXPECT_EQ(1200u, actualLength);
+    EXPECT_EQ(1200u, buffer.totalAllocatedBytes);
+    EXPECT_TRUE(buffer.allocations);
+    EXPECT_EQ(1u, buffer.allocations->size());
+    EXPECT_EQ("", TestLog::get());
+
+    // Second allocation: check for log message about threshold.
+    result = buffer.getNewAllocation(600, &actualLength);
+    EXPECT_TRUE(result != NULL);
+    EXPECT_EQ(2800u, actualLength);
+    EXPECT_EQ(4000u, buffer.totalAllocatedBytes);
+    EXPECT_EQ(2u, buffer.allocations->size());
+    EXPECT_EQ("getNewAllocation: buffer has consumed 4000 bytes of "
+            "extra storage, current allocation: 2800 bytes",
+            TestLog::get());
+    EXPECT_EQ(8000u, Buffer::allocationLogThreshold);
+}
+
+TEST_F(BufferTest, getNumberChunks) {
+    Buffer buffer;
+    EXPECT_EQ(0u, buffer.getNumberChunks());
+    buffer.append("abcde", 5);
     EXPECT_EQ(1u, buffer.getNumberChunks());
+    buffer.append("012345678", 8);
+    EXPECT_EQ(2u, buffer.getNumberChunks());
+    buffer.reset();
+    EXPECT_EQ(0u, buffer.getNumberChunks());
 }
 
-struct TestObject{
-    int first;
-    int second;
-    int third;
-};
-TEST_F(BufferTest, appendCopy_object) {
+TEST_F(BufferTest, getRange_basics) {
     Buffer buffer;
-    struct TestObject test;
-    test.first = 11;
-    test.second = 22;
-    test.third = 33;
-    buffer.appendCopy(&test);
-    EXPECT_EQ(12u, buffer.getTotalLength());
+    const char* chunk = "0123456789";
+    buffer.append("abcde", 5);
+    buffer.append(chunk, 10);
+    char* result = static_cast<char*>(buffer.getRange(8, 3));
+    EXPECT_EQ(chunk+3, result);
+    EXPECT_EQ('3', *result);
+    EXPECT_EQ(buffer.firstChunk->next, buffer.cursorChunk);
+    EXPECT_EQ(5u, buffer.cursorOffset);
+}
+TEST_F(BufferTest, getRange_fastPath) {
+    Buffer buffer;
+    const char* chunk = "0123456789";
+    buffer.append("abcde", 5);
+    buffer.append(chunk, 10);
 
-    // To check that the object was really copied, modify the source data.
-    test.first = test.second = test.third = 99;
-    const TestObject* check = buffer.getStart<TestObject>();
-    EXPECT_EQ(11, check->first);
-    EXPECT_EQ(22, check->second);
-    EXPECT_EQ(33, check->third);
+    // This test intentionally puts a bogus value in cursorOffset:
+    // that way the test results will be different if the method
+    // resets cursorChunk rather than using the fast path.
+    buffer.cursorOffset = 4;
+    buffer.cursorChunk = buffer.firstChunk->next;
+    char* result = static_cast<char*>(buffer.getRange(8, 3));
+    EXPECT_EQ(chunk+4, result);
+    EXPECT_EQ('4', *result);
+}
+TEST_F(BufferTest, getRange_emptyBuffer) {
+    Buffer buffer;
+    void* nullPtr = NULL;
+    void* result = buffer.getRange(0, 0);
+    EXPECT_EQ(nullPtr, result);
+}
+TEST_F(BufferTest, getRange_rangeOutsideBuffer) {
+    Buffer buffer;
+    buffer.append("abcde", 5);
+    void* nullPtr = NULL;
+    void* result = buffer.getRange(1, 5);
+    EXPECT_EQ(nullPtr, result);
+}
+TEST_F(BufferTest, getRange_searchFromCurrent) {
+    Buffer buffer;
+    buffer.append("abcde", 5);
+    buffer.append("0123456789", 10);
+    buffer.append("ABCDEF", 6);
+    buffer.append("!@#$%", 5);
+    buffer.cursorOffset = 5;
+    buffer.cursorChunk = buffer.firstChunk->next;
+    char* result = static_cast<char*>(buffer.getRange(22, 4));
+    EXPECT_EQ('@', *result);
+    EXPECT_EQ(buffer.lastChunk, buffer.cursorChunk);
+    EXPECT_EQ(21u, buffer.cursorOffset);
+}
+TEST_F(BufferTest, getRange_makeCopy) {
+    Buffer buffer;
+    buffer.append("abcde", 5);
+    buffer.append("0123456789", 10);
+    char* result = static_cast<char*>(buffer.getRange(2, 8));
+    EXPECT_EQ("cde01234", string(result, 8));
+}
+
+TEST_F(BufferTest, peek_outOfRange) {
+    Buffer buffer;
+    buffer.append("abcde", 5);
+    void* pointer;
+    uint32_t length = buffer.peek(5, &pointer);
+    char* nullPtr = NULL;
+    EXPECT_EQ(nullPtr, pointer);
+    EXPECT_EQ(0u, length);
+}
+TEST_F(BufferTest, peek_fastPath) {
+    Buffer buffer;
+    const char* chunk = "0123456789";
+    buffer.append("abcde", 5);
+    buffer.append(chunk, 10);
+
+    // This test intentionally puts a bogus value in cursorOffset:
+    // that way the test results will be different if the method
+    // resets cursorChunk rather than using the fast path.
+    buffer.cursorOffset = 4;
+    buffer.cursorChunk = buffer.firstChunk->next;
+    char* pointer;
+    uint32_t length = buffer.peek(6, reinterpret_cast<void**>(&pointer));
+    EXPECT_EQ(chunk+2, pointer);
+    EXPECT_EQ(8u, length);
+}
+TEST_F(BufferTest, peek_searchFromStart) {
+    Buffer buffer;
+    buffer.append("abcde", 5);
+    buffer.append("0123456789", 10);
+    buffer.append("ABCDEF", 6);
+    char* pointer;
+    uint32_t length = buffer.peek(17, reinterpret_cast<void**>(&pointer));
+    EXPECT_EQ('C', *pointer);
+    EXPECT_EQ(4u, length);
+    EXPECT_EQ(buffer.lastChunk, buffer.cursorChunk);
+    EXPECT_EQ(15u, buffer.cursorOffset);
+}
+
+TEST_F(BufferTest, prependChunk) {
+    // First chunk in buffer.
+    Buffer buffer;
+    Buffer::Chunk chunk("abcdef", 5);
+    Buffer::Chunk chunk2("01234567", 6);
+    buffer.prependChunk(&chunk);
+    EXPECT_EQ("abcde", showChunks(&buffer));
+    EXPECT_EQ(&chunk, buffer.firstChunk);
+    EXPECT_EQ(&chunk, buffer.lastChunk);
+
+    // Second chunk.
+    buffer.prependChunk(&chunk2);
+    EXPECT_EQ("012345 | abcde", showChunks(&buffer));
+    EXPECT_EQ(&chunk2, buffer.firstChunk);
+    EXPECT_EQ(&chunk, buffer.lastChunk);
+}
+TEST_F(BufferTest, prependChunk_invalidateCursor) {
+    Buffer buffer;
+    buffer.append("abcdef", 5);
+    buffer.getRange(3, 1);
+    EXPECT_EQ(0u, buffer.cursorOffset);
+    Buffer::Chunk chunk("01234567", 6);
+    buffer.prependChunk(&chunk);
+    EXPECT_EQ(~0u, buffer.cursorOffset);
+}
+
+// Reset is tested by the resetInternal tests below.
+
+TEST_F(BufferTest, truncate_alreadyTruncated) {
+    Buffer buffer;
+    buffer.append("abcdef", 6);
+    buffer.truncate(7);
+    EXPECT_EQ("abcdef", showChunks(&buffer));
+}
+TEST_F(BufferTest, truncate_newLengthZero) {
+    Buffer buffer;
+    buffer.appendCopy("abcdef", 6);
+    buffer.truncate(0);
+    EXPECT_EQ("", showChunks(&buffer));
+    EXPECT_EQ(900u, buffer.availableLength);
+    EXPECT_EQ(100u, buffer.firstAvailable
+            - reinterpret_cast<char*>(buffer.internalAllocation));
+}
+TEST_F(BufferTest, truncate_cancelExtraAppendBytes) {
+    Buffer buffer;
+    buffer.appendCopy("abcdefghij", 10);
+    EXPECT_EQ(890u, buffer.extraAppendBytes + sizeof(Buffer::Chunk));
+    EXPECT_EQ(0u, buffer.availableLength);
+    buffer.truncate(5);
+    EXPECT_EQ(0u, buffer.extraAppendBytes);
+    EXPECT_EQ(890u, buffer.availableLength + sizeof(Buffer::Chunk));
+    EXPECT_EQ(110u, buffer.firstAvailable
+            - reinterpret_cast<char*>(buffer.internalAllocation));
+}
+TEST_F(BufferTest, truncate_mustTruncate) {
+    Buffer buffer;
+    buffer.append("XYZ", 3);
+    buffer.append("abcdef", 6);
+    TestChunk chunk("12345", 5);
+    buffer.appendChunk(&chunk);
+    TestChunk chunk2("ABCDEFG", 7);
+    buffer.appendChunk(&chunk2);
+    buffer.truncate(5);
+    EXPECT_EQ("XYZ | ab", showChunks(&buffer));
+    EXPECT_EQ("~TestChunk: Destroyed chunk containing '12345' "
+            "| ~TestChunk: Destroyed chunk containing 'ABCDEFG'",
+            TestLog::get());
+}
+TEST_F(BufferTest, truncate_boundaryAtChunkEdge) {
+    Buffer buffer;
+    buffer.append("abcdef", 6);
+    buffer.append("0123", 4);
+    buffer.append("ABCDEFGHIJ", 10);
+    buffer.truncate(6);
+    EXPECT_EQ("abcdef", showChunks(&buffer));
+}
+TEST_F(BufferTest, truncate_resetCurrentChunk) {
+    Buffer buffer;
+    buffer.append("abcdef", 6);
+    buffer.append("01234", 4);
+    buffer.append("ABCDEFG", 7);
+    buffer.getRange(12, 2);
+    buffer.truncate(14);
+    EXPECT_EQ(10u, buffer.cursorOffset);
+    EXPECT_EQ("abcdef | 0123 | ABCD", showChunks(&buffer));
+    buffer.truncate(9);
+    EXPECT_EQ(~0u, buffer.cursorOffset);
+    EXPECT_EQ("abcdef | 012", showChunks(&buffer));
+}
+
+TEST_F(BufferTest, truncateFront_newLengthZero) {
+    Buffer buffer;
+    buffer.appendCopy("abcdef", 6);
+    buffer.truncateFront(6);
+    EXPECT_EQ("", showChunks(&buffer));
+    EXPECT_EQ(900u, buffer.availableLength);
+    EXPECT_EQ(100u, buffer.firstAvailable
+            - reinterpret_cast<char*>(buffer.internalAllocation));
+}
+TEST_F(BufferTest, truncateFront_resetCursor) {
+    Buffer buffer;
+    buffer.append("abcdef", 6);
+    buffer.append("012345678", 8);
+    buffer.getRange(10, 2);
+    EXPECT_EQ(6u, buffer.cursorOffset);
+    buffer.truncateFront(10);
+    EXPECT_EQ("4567", showChunks(&buffer));
+    EXPECT_EQ(~0u, buffer.cursorOffset);
+    EXPECT_TRUE(buffer.cursorChunk == NULL);
+    EXPECT_EQ('6', *(buffer.getOffset<char>(2)));
+}
+TEST_F(BufferTest, truncateFront_mustTruncate) {
+    Buffer buffer;
+    TestChunk chunk("abcdef", 6);
+    buffer.appendChunk(&chunk);
+    TestChunk chunk2("1234", 4);
+    buffer.appendChunk(&chunk2);
+    buffer.append("ABCDEFGH", 8);
+    buffer.truncateFront(12);
+    EXPECT_EQ("CDEFGH", showChunks(&buffer));
+    EXPECT_EQ("~TestChunk: Destroyed chunk containing 'abcdef' "
+            "| ~TestChunk: Destroyed chunk containing '1234'",
+            TestLog::get());
+    EXPECT_EQ(6u, buffer.totalLength);
+}
+
+TEST_F(BufferTest, write_basics) {
+    Buffer buffer;
+    fillBuffer(&buffer);
+    openFile();
+    EXPECT_EQ(20u, buffer.write(5, 20, f));
+    fflush(f);
+    EXPECT_EQ("FGHIJabcdefghijklmno", TestUtil::readFile(fileName));
+}
+TEST_F(BufferTest, write_offsetTooLarge) {
+    Buffer buffer;
+    fillBuffer(&buffer);
+    openFile();
+    EXPECT_EQ(0u, buffer.write(30, 5, f));
+    fflush(f);
+    EXPECT_EQ("", TestUtil::readFile(fileName));
+}
+TEST_F(BufferTest, write_lengthLongerThanBuffer) {
+    Buffer buffer;
+    fillBuffer(&buffer);
+    openFile();
+    buffer.truncate(buffer.size() -1);
+    EXPECT_EQ(4u, buffer.write(25, 5, f));
+    fflush(f);
+    EXPECT_EQ("pqrs", TestUtil::readFile(fileName));
+}
+TEST_F(BufferTest, write_IoError) {
+    Buffer buffer;
+    fillBuffer(&buffer);
+    MockSyscall sys;
+    Syscall *savedSyscall = Buffer::sys;
+    Buffer::sys = &sys;
+    openFile();
+    sys.fwriteResult = 3;
+    EXPECT_EQ(3u, buffer.write(5, 20, f));
+    Buffer::sys = savedSyscall;
+}
+
+TEST_F(BufferTest, Iterator_constructor_noArgs) {
+    // Empty buffer.
+    Buffer buffer;
+    Buffer::Iterator it1(&buffer);
+    char* nullData = NULL;
+    EXPECT_EQ(nullData, it1.currentData);
+    EXPECT_EQ(0u, it1.currentLength);
+
+    // Contents.
+    const char* data = "abcd";
+    buffer.append(data, 4);
+    buffer.append("012345", 6);
+    Buffer::Iterator it2(&buffer);
+    EXPECT_EQ(buffer.firstChunk, it2.current);
+    EXPECT_EQ(data, it2.currentData);
+    EXPECT_EQ(4u, it2.currentLength);
+    EXPECT_EQ(10u, it2.bytesLeft);
+}
+
+TEST_F(BufferTest, Iterator_constructor_withRange) {
+    Buffer buffer;
+    buffer.append("abcd", 4);
+    buffer.append("012345", 6);
+    buffer.append("ABCDEFG", 7);
+
+    // Iterator range doesn't overlap buffer's range.
+    Buffer::Iterator it1(&buffer, 17, 4);
+    char* nullData = NULL;
+    EXPECT_EQ(nullData, it1.currentData);
+    EXPECT_EQ(0u, it1.currentLength);
+
+    // Clip the length.
+    Buffer::Iterator it2(&buffer, 5, 10);
+    EXPECT_EQ(10u, it2.bytesLeft);
+
+    // Skip chunks, set iterator starting position.
+    Buffer::Iterator it3(&buffer, 7, 6);
+    EXPECT_EQ('0', *it3.current->data);
+    EXPECT_EQ('3', *it3.currentData);
+    EXPECT_EQ(3u, it3.currentLength);
+    EXPECT_EQ(6u, it3.bytesLeft);
+
+    // Truncate currentLength if the iterator ends before the end of
+    // its first chunk.
+    Buffer::Iterator it4(&buffer, 6, 2);
+    EXPECT_EQ(2u, it4.currentLength);
+    EXPECT_EQ(2u, it4.bytesLeft);
+}
+
+TEST_F(BufferTest, Iterator_getNumberChunks_none) {
+    Buffer buffer;
+    Buffer::Iterator it(&buffer);
+    EXPECT_EQ(0u, it.getNumberChunks());
+}
+TEST_F(BufferTest, Iterator_getNumberChunks_oneChunk) {
+    Buffer buffer;
+    buffer.append("abcd", 4);
+    buffer.append("012345", 6);
+    Buffer::Iterator it(&buffer, 6, 4);
+    EXPECT_EQ(1u, it.getNumberChunks());
+}
+TEST_F(BufferTest, Iterator_getNumberChunks_multipleChunks) {
+    Buffer buffer;
+    buffer.append("abcd", 4);
+    buffer.append("012345", 6);
+    buffer.append("ABCDEFG", 7);
+    Buffer::Iterator it(&buffer, 2, 10);
+    EXPECT_EQ(3u, it.getNumberChunks());
+}
+
+TEST_F(BufferTest, Iterator_next) {
+    Buffer buffer;
+    buffer.append("abcd", 4);
+    buffer.append("012345", 6);
+    buffer.append("ABCDEFG", 7);
+
+    // More data left.
+    Buffer::Iterator it(&buffer, 7, 6);
+    it.next();
+    EXPECT_EQ('A', *it.current->data);
+    EXPECT_EQ('A', *it.currentData);
+    EXPECT_EQ(3u, it.currentLength);
+    EXPECT_EQ(3u, it.bytesLeft);
+
+    // No more data left.
+    it.next();
+    char* nullData = NULL;
+    EXPECT_EQ(buffer.lastChunk, it.current);
+    EXPECT_EQ(nullData, it.currentData);
+    EXPECT_EQ(0u, it.currentLength);
+    EXPECT_EQ(0u, it.bytesLeft);
+
+    // Iterator is already at the end.
+    it.next();
+    EXPECT_EQ(buffer.lastChunk, it.current);
+    EXPECT_EQ(nullData, it.currentData);
+    EXPECT_EQ(0u, it.currentLength);
+    EXPECT_EQ(0u, it.bytesLeft);
+}
+
+//---------------------------------------------------
+// Header file methods
+//---------------------------------------------------
+
+TEST_F(BufferTest, allocAux) {
+    Buffer buffer;
+    TestObject *t = buffer.allocAux<TestObject>(10, 20, 'x');
+    EXPECT_EQ(10, t->a);
+    EXPECT_EQ(20, t->b);
+    EXPECT_EQ('x', t->c);
+}
+
+TEST_F(BufferTest, append) {
+    Buffer buffer;
+    buffer.append("abcde", 5);
+    buffer.append("0123", 4);
+    EXPECT_EQ("abcde | 0123", showChunks(&buffer));
+}
+
+TEST_F(BufferTest, appendCopy) {
+    Buffer buffer;
+    buffer.appendCopy("abcde", 5);
+    buffer.appendCopy("0123", 4);
+    EXPECT_EQ("abcde0123", showChunks(&buffer));
+}
+
+TEST_F(BufferTest, appendCopyAndGetStart) {
+    Buffer buffer;
+    TestObject t(10, 20, 'x');
+    buffer.appendCopy(&t);
+    TestObject* t2 = buffer.getStart<TestObject>();
+    EXPECT_EQ(10, t2->a);
+    EXPECT_EQ(20, t2->b);
+    EXPECT_EQ('x', t2->c);
+}
+
+TEST_F(BufferTest, emplaceAppend) {
+    Buffer buffer;
+    buffer.emplaceAppend<TestObject>(10, 20, 'x');
+    buffer.emplaceAppend<TestObject>(30, 40, 'y');
+    TestObject* t1 = buffer.getStart<TestObject>();
+    TestObject* t2 = buffer.getOffset<TestObject>(sizeof(TestObject));
+    EXPECT_EQ(10, t1->a);
+    EXPECT_EQ(20, t1->b);
+    EXPECT_EQ('x', t1->c);
+    EXPECT_EQ(30, t2->a);
+    EXPECT_EQ(40, t2->b);
+    EXPECT_EQ('y', t2->c);
+    EXPECT_EQ(2*sizeof(TestObject), buffer.size());
+}
+
+TEST_F(BufferTest, emplacePrepend) {
+    Buffer buffer;
+    buffer.appendCopy("abcdefg", 6);
+    buffer.emplacePrepend<TestObject>(10, 20, 'x');
+    buffer.emplacePrepend<TestObject>(30, 40, 'y');
+    EXPECT_EQ(1u, buffer.getNumberChunks());
+    EXPECT_EQ(2*sizeof(TestObject) + 6, buffer.size());
+    TestObject* t1 = buffer.getStart<TestObject>();
+    TestObject* t2 = buffer.getOffset<TestObject>(sizeof(TestObject));
+    EXPECT_EQ(30, t1->a);
+    EXPECT_EQ(40, t1->b);
+    EXPECT_EQ('y', t1->c);
+    EXPECT_EQ(10, t2->a);
+    EXPECT_EQ(20, t2->b);
+    EXPECT_EQ('x', t2->c);
+}
+
+TEST_F(BufferTest, getOffset) {
+    Buffer buffer;
+    TestObject t(10, 20, 'x');
+    buffer.appendCopy("abcdefg", 5);
+    buffer.appendCopy(&t);
+    TestObject* t2 = buffer.getOffset<TestObject>(5);
+    EXPECT_EQ(10, t2->a);
+    EXPECT_EQ(20, t2->b);
+    EXPECT_EQ('x', t2->c);
+}
+
+TEST_F(BufferTest, resetInternal_partial) {
+    // Construct a Buffer in a character array; this is needed so that
+    // the Buffer constructor doesn't get called after we do a partial
+    // reset (which leaves the buffer structure inconsistent).
+    char storage[sizeof(Buffer)];
+    Buffer* buffer = new(storage) Buffer;
+    TestChunk chunk("abcdef", 6);
+    TestChunk chunk2("0123", 4);
+    buffer->appendChunk(&chunk);
+    buffer->alloc(1500);
+    buffer->alloc(3000);
+    buffer->appendChunk(&chunk2);
+    EXPECT_EQ(2u, buffer->allocations->size());
+    buffer->cursorChunk = buffer->firstChunk;
+    buffer->cursorOffset = 6;
+    TestLog::reset();
+    buffer->resetInternal(false);
+    EXPECT_EQ("~TestChunk: Destroyed chunk containing 'abcdef' | "
+            "~TestChunk: Destroyed chunk containing '0123'",
+            TestLog::get());
+    EXPECT_EQ(4510u, buffer->totalLength);
+    EXPECT_EQ(2u, buffer->allocations->size());
+}
+
+TEST_F(BufferTest, resetInternal_full) {
+    Buffer buffer;
+    TestChunk chunk("abcdef", 6);
+    TestChunk chunk2("0123", 4);
+    buffer.appendChunk(&chunk);
+    buffer.alloc(1500);
+    buffer.alloc(3000);
+    buffer.appendChunk(&chunk2);
+    EXPECT_EQ(2u, buffer.allocations->size());
+    buffer.cursorChunk = buffer.firstChunk;
+    buffer.cursorOffset = 6;
+    TestLog::reset();
+    buffer.resetInternal(true);
+    EXPECT_EQ("~TestChunk: Destroyed chunk containing 'abcdef' | "
+            "~TestChunk: Destroyed chunk containing '0123'",
+            TestLog::get());
+    Buffer::Chunk* nullChunk = NULL;
+    EXPECT_EQ(0u, buffer.totalLength);
+    EXPECT_EQ(nullChunk, buffer.firstChunk);
+    EXPECT_EQ(nullChunk, buffer.lastChunk);
+    EXPECT_EQ(nullChunk, buffer.cursorChunk);
+    EXPECT_EQ(~0u, buffer.cursorOffset);
+    EXPECT_EQ(0u, buffer.extraAppendBytes);
+    EXPECT_EQ(0u, buffer.allocations->size());
+    EXPECT_EQ(900u, buffer.availableLength);
+    EXPECT_EQ(100u, buffer.firstAvailable - INTERNAL_ALLOC);
+}
+
+TEST_F(BufferTest, Iterator_inlineMethods) {
+    Buffer buffer;
+    buffer.append("012345", 6);
+    buffer.append("ABCDEFG", 7);
+
+    Buffer::Iterator it(&buffer, 2, 6);
+    EXPECT_FALSE(it.isDone());
+    EXPECT_EQ('2', *static_cast<const char*>(it.getData()));
+    EXPECT_EQ(4u, it.getLength());
+
+    // Last chunk.
+    it.next();
+    EXPECT_FALSE(it.isDone());
+    EXPECT_EQ('A', *static_cast<const char*>(it.getData()));
+    EXPECT_EQ(2u, it.getLength());
+
+    // No more data left.
+    it.next();
+    char* nullData = NULL;
+    EXPECT_TRUE(it.isDone());
+    EXPECT_EQ(nullData, static_cast<const char*>(it.getData()));
+    EXPECT_EQ(0u, it.getLength());
 }
 
 }  // namespace RAMCloud
