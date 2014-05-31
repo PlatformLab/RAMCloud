@@ -297,6 +297,8 @@ def indexScalability(name, options, cluster_args, client_args):
     cluster_args['timeout'] = 100000
     cluster_args['backups_per_server'] = 0
     cluster_args['replicas'] = 0
+    if 'num_clients' not in cluster_args:
+        cluster_args['num_clients'] = 10
     cluster.run(client='%s/ClusterPerf %s %s' %
             (obj_path, flatten_args(client_args), name), master_args='-d --masterServiceThreads 2', **cluster_args)
     print(get_client_log(), end='')
@@ -319,12 +321,12 @@ simple_tests = [
     Test("readAllToAll", readAllToAll),
     Test("readNotFound", default),
     Test("writeAsyncSync", default),
-    Test("indexBasic", indexBasic),
-    Test("indexMultiple", indexMultiple),
-    Test("indexScalability", indexScalability),
 ]
 
 graph_tests = [
+    Test("indexBasic", indexBasic),
+    Test("indexMultiple", indexMultiple),
+    Test("indexScalability", indexScalability),
     Test("multiWrite_oneMaster", multiOp),
     Test("multiRead_oneMaster", multiOp),
     Test("multiRead_oneObjectPerMaster", multiOp),
