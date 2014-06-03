@@ -18,17 +18,37 @@
 
 #include "RamCloud.h"
 #define NUM_READ_RPC 10
+#define MAX_NUM_PK 1000
+#define MAX_PKHASHES_PERRPC 256
 
 namespace RAMCloud {
 
+/*
+ * This class implements the client side framework for lookup indexes.
+ * It manages a single LookupIndexKeys RPC and multiple indexedRead
+ * RPCs. The number of concurrent indexedRead RPCs is defined in macros
+ * above. 
+ *
+ * To use IndexLookup, client create a object of this class by providing
+ * all necessary information. After construction of IndexLookup, client
+ * can call getNext() function to move to next available object. If
+ * getNext() returns false, it means we reached the last object. Client
+ * can use getKey/getKeyLength/getValue/getValueLength to get object data
+ * of current object.
+ */
+
 class IndexLookup {
   public:
+    enum RpcFlags : uint32_t {
+        EMPTY = 0,
+        RETURN_IN_ORDER = 1
+    };
     IndexLookup (RamCloud* ramcloud, uint64_t tableId, uint8_t indexId,
                  const void* firstKey, uint16_t firstKeyLength,
                  uint64_t firstAllowedKeyHash,
-                 const void* lastKey, uint16_t lastKeyLength);
+                 const void* lastKey, uint16_t lastKeyLength,
+                 RpcFlags flags = EMPTY);
     ~IndexLookup();
-    bool isReady();
     bool getNext();
     const void* getKey(KeyIndex keyIndex = 0, KeyLength *keyLength = NULL);
     KeyLength getKeyLength(KeyIndex keyIndex = 0);
@@ -36,29 +56,112 @@ class IndexLookup {
     uint32_t getValueLength();
 
   private:
-    enum ReadRpcStatus{
-      AVAILABLE,
-      INPROCESS,
-      FINISHED
+    enum RpcIdx {
+        RPC_IDX_NOTASSIGN = NUM_READ_RPC
     };
-    void issueNextLookup();
+    enum RpcStatus {
+        FREE,
+        LOADING,
+        INPROCESS,
+        AVAILABLE,
+        FINISHED
+    };
+    /// struct for indexedRead RPC.
+    struct ReadRpc {
+        Tub<IndexedReadRpc> rpc;
+        RpcStatus status;
+        Buffer pKHashes;
+        Buffer resp;
+        uint32_t numHashes;
+        uint32_t numUnreadObjects;
+        uint32_t offset;
+        size_t maxIdx;
+        string serviceLocator;
+        ReadRpc()
+        : rpc()
+        , status(FREE)
+        , pKHashes()
+        , resp()
+        , numHashes()
+        , numUnreadObjects()
+        , offset()
+        , maxIdx()
+        , serviceLocator()
+        {}
+    };
+    /// struct for lookupIndexKeys RPC.
+    struct LookupRpc {
+        Tub<LookupIndexKeysRpc> rpc;
+        RpcStatus status;
+        Buffer resp;
+        uint32_t numHashes;
+        uint64_t nextKeyHash;
+        uint32_t offset;
+        LookupRpc()
+        : rpc()
+        , status(FREE)
+        , resp()
+        , numHashes()
+        , nextKeyHash()
+        , offset()
+        {}
+    };
+    bool isReady();
+    void launchReadRpc(uint8_t i);
+
+    /// Overall client state information.
     RamCloud* ramcloud;
-    Tub<LookupIndexKeysRpc> lookupRpc;
-    Tub<IndexedReadRpc> readRpc[NUM_READ_RPC];
-    ReadRpcStatus readRpcStatus[NUM_READ_RPC];
-    Buffer readRpcPKHashes[NUM_READ_RPC];
-    uint32_t readRpcNumHashes[NUM_READ_RPC];
-    uint32_t unreadNumObjects[NUM_READ_RPC];
-    uint32_t readRpcOffset[NUM_READ_RPC];
+
+    /// struct for lookupIndexKeys RPC, we only keep a single
+    /// lookupIndexKeys RPC at a time, since each lookupIndexKeys
+    /// rpc needs the return value of this previous call.
+    LookupRpc lookupRpc;
+    
+    /// struct for indexedRead RPC, we can have up to NUM_READ_RPC
+    /// indexedRead RPC at a time. Each single RPC handles communication
+    /// before client and a single data server
+    ReadRpc readRpc[NUM_READ_RPC];
+
+    /// Table Id we are handling in this IndexLookup class.
     uint64_t tableId;
+
+    /// Index Id we are handling in this IndexLookup class.
     uint8_t indexId;
-    uint16_t firstKeyLength, lastKeyLength;
-    uint64_t nextKeyHash;
-    void *firstKey, *lastKey;
-    Buffer lookupResp;
+    
+    /// Length of first, last, next key
+    uint16_t firstKeyLength, lastKeyLength, nextKeyLength;
+
+    /// first, last, next key
+    void *firstKey, *lastKey, *nextKey;
+
+    /// Buffer stores PKHashes that we should return to users
+    /// in order. The buffer is reused as a cycle.
+    KeyHash pKBuffer[MAX_NUM_PK];
+
+    /// Buffer stores indexedRead RPC indexes on which this PKHashes
+    /// is sent to data server to acquire object data
+    uint8_t rpcIdx[MAX_NUM_PK];
+
+    /// front, tail, nextAssign pointers for the buffer
+    size_t front, tail, nextAssign;
+
+    /// Current object. This is the object returns to user if user
+    /// calls getKey/getKeyLength/getValue/getValueLength
     Tub<Object> curObj;
-    Buffer readResp[NUM_READ_RPC];
-    bool hasIssuedLookupRpc, finishedLookup, isFirstObj;
+
+    /// Current indexedRead RPC index that user is currently reading.
+    /// Need to keep track of this because curObj doesn't copy the object
+    /// from response buffer. Need to make sure the life time of response
+    /// buffer until user switch to next object.
+    uint8_t curIdx;
+
+    /// Boolean indicating if all lookupIndexKeys are finished.
+    bool finishedLookup;
+
+    /// flags
+    RpcFlags flags;
+
+    DISALLOW_COPY_AND_ASSIGN(IndexLookup);
 };
 
 } // end RAMCloud
