@@ -72,7 +72,7 @@ class BackupSelector : public BaseBackupSelector {
   PUBLIC:
 
     explicit BackupSelector(Context* context, const ServerId* serverId,
-                            uint32_t numReplicas);
+                            uint32_t numReplicas, bool allowLocalBackup);
     ServerId selectPrimary(uint32_t numBackups, const ServerId backupIds[]);
     virtual ServerId selectSecondary(uint32_t numBackups,
                                      const ServerId backupIds[]);
@@ -100,6 +100,11 @@ class BackupSelector : public BaseBackupSelector {
      * Number of replicas for each segment.
      */
     uint32_t numReplicas;
+
+    /**
+     * Specifies whether to allow replication to local backup.
+     */
+    bool allowLocalBackup;
 
     /**
      * Maps replication groups to servers. Used for selecting secondary

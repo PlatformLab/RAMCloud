@@ -30,16 +30,22 @@
 namespace RAMCloud {
 
 /**
- * This class is on every index server. It manages and stores the metadata
- * regarding indexlets (index partitions) stored on this server.
+ * This class is on every index server.
+ * 
+ * It manages and stores the metadata regarding indexlets (index partitions)
+ * stored on this server.
+ * The coordinator invokes metadata-related functions to manage the metadata.
+ * 
+ * This class is also provides the interface for storing index entries on this
+ * index server for each indexlet it owns, to the masters owning the
+ * data objects corresponding to those index entries.
+ * This class interfaces with ObjectManager and index tree code to manage
+ * the index entries.
  *
- * The coordinator invokes most of these functions to manage the metadata.
- * It is responsible for storing index entries in an index server for each
- * indexlet it owns. This class interfaces with ObjectManager and index tree
- * code to manage index entries.
- *
- * Note: Every master server is also an index server for some partition
- * of some index (independent from data partition located on that master).
+ * Note: There is no seprate index service
+ * Every server that has the master service also serves as an index server
+ * for some partition of some index (independent from tablet located on
+ * that master).
  */
 class IndexletManager {
   PUBLIC:
@@ -58,23 +64,23 @@ class IndexletManager {
 
         // btree code uses  empty constructor for keys
         KeyAndHash()
-        : key()
-        , keyLength()
-        , pKHash()
+            : key()
+            , keyLength()
+            , pKHash()
         {}
 
         KeyAndHash(const void *key, uint16_t keyLength, uint64_t pKHash)
-        : key()
-        , keyLength(keyLength)
-        , pKHash(pKHash)
+            : key()
+            , keyLength(keyLength)
+            , pKHash(pKHash)
         {
             memcpy(this->key, key, keyLength);
         }
 
         KeyAndHash(const KeyAndHash& keyAndHash)
-        : key()
-        , keyLength(keyAndHash.keyLength)
-        , pKHash(keyAndHash.pKHash)
+            : key()
+            , keyLength(keyAndHash.keyLength)
+            , pKHash(keyAndHash.pKHash)
         {
             memcpy(this->key, keyAndHash.key, keyLength);
         }
@@ -105,7 +111,6 @@ class IndexletManager {
 
 
     // B+ tree holding key: string, value: primary key hash
-    // TODO(ashgup): Do we need to define traits?
     typedef str::btree_multimap<KeyAndHash, uint64_t, KeyAndHashCompare> Btree;
 
     /**
@@ -145,7 +150,7 @@ class IndexletManager {
             if (firstNotOwnedKeyLength != 0){
                 this->firstNotOwnedKey = malloc(firstNotOwnedKeyLength);
                 memcpy(this->firstNotOwnedKey, indexlet.firstNotOwnedKey,
-                                                        firstNotOwnedKeyLength);
+                       firstNotOwnedKeyLength);
             }
 
             this->bt = indexlet.bt;
@@ -208,7 +213,7 @@ class IndexletManager {
                 const void* key, KeyLength keyLength,
                 uint64_t pKHash);
 
-    //////////////// Static function related to indexing info /////////////////
+    //////////////// Static functions related to index keys ///////////////////
 
     static bool isKeyInRange(Object* object, IndexKeyRange* keyRange);
 
@@ -239,8 +244,8 @@ class IndexletManager {
     };
 
     /// This unordered_multimap is used to store and access all indexlet data.
-    typedef std::unordered_multimap< std::pair<uint64_t, uint8_t>,
-                                     Indexlet, tableKeyHash> IndexletMap;
+    typedef std::unordered_multimap<std::pair<uint64_t, uint8_t>,
+                                    Indexlet, tableKeyHash> IndexletMap;
 
     /// Indexlet map instance storing indexlet mapping for this index server.
     IndexletMap indexletMap;

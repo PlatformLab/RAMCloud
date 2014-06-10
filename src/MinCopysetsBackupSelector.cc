@@ -31,10 +31,12 @@ namespace RAMCloud {
  *      and secondary replicas.
  * \param numReplicas
  *      The replication factor of each segment.
+ * \param allowLocalBackup
+ *      Specifies whether to allow replication to the local backup.
  */
 MinCopysetsBackupSelector::MinCopysetsBackupSelector(Context* context,
-    const ServerId* serverId, uint32_t numReplicas)
-    : BackupSelector(context, serverId, numReplicas)
+    const ServerId* serverId, uint32_t numReplicas, bool allowLocalBackup)
+    : BackupSelector(context, serverId, numReplicas, allowLocalBackup)
 {
 }
 

@@ -168,6 +168,8 @@ def run_test(
         client_args['--size'] = options.size
     if options.warmup != None:
         client_args['--warmup'] = options.warmup
+    if options.numIndexlet != None:
+        client_args['--numIndexlet'] = options.numIndexlet
     test.function(test.name, options, cluster_args, client_args)
 
 #-------------------------------------------------------------------
@@ -286,6 +288,33 @@ def recoveryIndexletCheck(name, options, cluster_args, client_args):
             (obj_path, flatten_args(client_args), name), master_args='-d',
             **cluster_args)
     print("Run recoveryIndexletCheck test")
+
+def indexBasic(name, options, cluster_args, client_args):
+    cluster_args['timeout'] = 100
+    cluster_args['num_servers'] = 5
+    # using 20GB for servers so that we don't run out of memory when inserting
+    # 10 million objects/index entries
+    cluster.run(client='%s/ClusterPerf %s %s' %
+            (obj_path, flatten_args(client_args), name), master_args='--masterServiceThreads 1', **cluster_args)
+    print(get_client_log(), end='')
+
+def indexMultiple(name, options, cluster_args, client_args):
+    cluster_args['timeout'] = 100
+    cluster_args['num_servers'] = 15 # for numkeys(1-20) in indexMultiple
+    cluster.run(client='%s/ClusterPerf %s %s' %
+            (obj_path, flatten_args(client_args), name), master_args='--masterServiceThreads 1', **cluster_args)
+    print(get_client_log(), end='')
+
+def indexScalability(name, options, cluster_args, client_args):
+    cluster_args['timeout'] = 100000
+    cluster_args['backups_per_server'] = 0
+    cluster_args['replicas'] = 0
+    if 'num_clients' not in cluster_args:
+        cluster_args['num_clients'] = 10
+    cluster.run(client='%s/ClusterPerf %s %s' %
+            (obj_path, flatten_args(client_args), name), master_args='-d --masterServiceThreads 2', **cluster_args)
+    print(get_client_log(), end='')
+
 #-------------------------------------------------------------------
 #  End of driver functions.
 #-------------------------------------------------------------------
@@ -307,6 +336,9 @@ simple_tests = [
 ]
 
 graph_tests = [
+    Test("indexBasic", indexBasic),
+    Test("indexMultiple", indexMultiple),
+    Test("indexScalability", indexScalability),
     Test("multiWrite_oneMaster", multiOp),
     Test("multiRead_oneMaster", multiOp),
     Test("multiRead_oneObjectPerMaster", multiOp),
@@ -372,6 +404,8 @@ if __name__ == '__main__':
     parser.add_option('-w', '--warmup', type=int,
             help='Number of times to execute operating before '
             'starting measurements')
+    parser.add_option('-i', '--numIndexlet', type=int,
+            help='Number of indexlets for measuring index scalability ')
     (options, args) = parser.parse_args()
 
     # Invoke the requested tests (run all of them if no tests were specified)

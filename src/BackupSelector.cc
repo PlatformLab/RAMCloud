@@ -50,12 +50,15 @@ BackupStats::getExpectedReadMs() {
  *      and secondary replicas.
  * \param numReplicas
  *      The replication factor of each segment.
+ * \param allowLocalBackup
+ *      Specifies whether to allow replication to the local backup.
  */
 BackupSelector::BackupSelector(Context* context, const ServerId* serverId,
-                               uint32_t numReplicas)
+                               uint32_t numReplicas, bool allowLocalBackup)
     : tracker(context)
     , serverId(serverId)
     , numReplicas(numReplicas)
+    , allowLocalBackup(allowLocalBackup)
     , replicationIdMap()
     , okToLogNextProblem(true)
 {
@@ -228,8 +231,11 @@ BackupSelector::conflictWithAny(const ServerId backupId,
     if (!backupId.isValid()) {
         return false;
     }
-    // Finally, check if backup conflicts with the server's own Id.
-    return conflict(backupId, *serverId);
+    if (!allowLocalBackup) {
+        // Check if backup conflicts with the server's own Id.
+        return conflict(backupId, *serverId);
+    }
+    return false;
 }
 
 /**

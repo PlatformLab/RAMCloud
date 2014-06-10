@@ -66,7 +66,8 @@ ObjectManager::ObjectManager(Context* context,
     , allocator(config)
     , replicaManager(context, serverId,
                      config->master.numReplicas,
-                     config->master.useMinCopysets)
+                     config->master.useMinCopysets,
+                     config->master.allowLocalBackup)
     , segmentManager(context, config, serverId,
                      allocator, replicaManager, masterTableMetadata)
     , log(context, config, this, &segmentManager, &replicaManager)
@@ -112,19 +113,12 @@ ObjectManager::initOnceEnlisted()
 /**
  * Read object(s) matching the given parameters, previously written by
  * ObjectManager.
- * 
+ *
  * We'd typically expect one object to match one primary key hash, but it is
  * possible that zero (if that object was removed after client did
  * lookupIndexKeys() preceding this call), one, or multiple (if there are
  * multiple objects with the same primary key hash that also have index
  * keys in the current read range) objects match.
- * 
- * TODO(ankitak): Later: Handle this case too.
- * If multiple objects do match, it is highly unlikely that these objects
- * put together will be too large to fit in a single 8MB response rpc.
- * So, if all objects matched for a key hash don't fit in an rpc, we will not
- * return any of them; Client can retry and the response rpc to the new request
- * will contain all the matched objects for the keyhash.
  * 
  * \param tableId
  *      Id of the table containing the object(s).
@@ -140,7 +134,7 @@ ObjectManager::initOnceEnlisted()
  * \param maxLength
  *      Maximum length of response that can be appended to the response
  *      buffer.
- * 
+ *
  * \param[out] response
  *      Buffer to which response for each object will be appended in the
  *      readNext() method.
@@ -207,15 +201,17 @@ ObjectManager::indexedRead(const uint64_t tableId, uint32_t reqNumHashes,
                 new(response, APPEND) uint64_t(object.getVersion());
                 new(response, APPEND) uint32_t(object.getKeysAndValueLength());
                 object.appendKeysAndValueToBuffer(*response);
+
+                KeyLength pKLength;
+                const void* pKString = object.getKey(1, &pKLength);
+                Key pK(tableId, pKString, pKLength);
+                tabletManager->incrementReadCount(pK);
             }
 
             candidates.next();
         }
 
         partLength = response->getTotalLength() - currentLength;
-
-        // TODO(ankitak): Later: Figure out whether / how to do this.
-        // tabletManager->incrementReadCount(key);
     }
 }
 
@@ -240,7 +236,7 @@ ObjectManager::indexedRead(const uint64_t tableId, uint32_t reqNumHashes,
  * \param rejectRules
  *      Specifies conditions under which the write should be aborted with an
  *      error. May be NULL if no special reject conditions are desired.
- * 
+ *
  * \param[out] outVersion
  *      If non-NULL, the version number of the new object is returned here. If
  *      the operation was successful this will be the new version for the
@@ -489,7 +485,7 @@ ObjectManager::readObject(Key& key,
  * \param rejectRules
  *      If non-NULL, use the specified rules to perform a conditional remove.
  *      See the RejectRules class documentation for more details.
- * 
+ *
  * \param[out] outVersion
  *      If non-NULL, the version of the current object version is returned here.
  *      Unless rejectRules prevented the operation, this object will have been
@@ -1595,7 +1591,7 @@ ObjectManager::getTombstoneTimestamp(Buffer& buffer)
  *      point to that key's entry in the hash table. This is useful when an
  *      object is being updated. The caller may update the hash table's
  *      reference directly, rather than having to first perform another
- *      lookup after the new object is written to the log. 
+ *      lookup after the new object is written to the log.
  * \return
  *      True if an entry is found matching the given key, otherwise false.
  */

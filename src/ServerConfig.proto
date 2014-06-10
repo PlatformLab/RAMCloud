@@ -25,7 +25,7 @@ message ServerConfig {
     required string local_locator = 2;
 
     /// Tag given to replicas stored on this backup. See the ServerConfig class
-    /// documentation for more details. 
+    /// documentation for more details.
     required string cluster_name = 3;
 
     /// Which services this server is running.
@@ -43,7 +43,7 @@ message ServerConfig {
     /// Size of each seglet in bytes.
     required fixed32 seglet_size = 8;
 
-    /// Largest allowable RAMCloud object, in bytes. 
+    /// Largest allowable RAMCloud object, in bytes.
     required fixed32 max_object_data_size = 9;
 
     /// Largest allowable key for a RAMCloud object, in bytes.
@@ -85,8 +85,11 @@ message ServerConfig {
 
         /// Specifies whether to use MinCopysets or random replication.
         required bool use_mincopysets = 11;
+
+        /// If true, allow replication to local backup.
+        required bool use_local_backup = 12;
     }
-    
+
     /// The server's MasterService configuration, if it is running one.
     optional Master master = 11;
 

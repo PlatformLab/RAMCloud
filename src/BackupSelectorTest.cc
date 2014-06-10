@@ -323,4 +323,37 @@ TEST_F(BackupSelectorTest, conflictWithAny) {
     EXPECT_TRUE(selector->conflictWithAny(z, 3, existing));
 }
 
+TEST_F(BackupSelectorTest, conflictWithAny_allowLocalBackup_false) {
+    ServerId ownId = *selector->serverId;
+    EXPECT_TRUE(selector->conflictWithAny(ownId, 0, NULL));
+}
+
+TEST_F(BackupSelectorTest, conflictWithAny_allowLocalBackup_true) {
+    // Reset BackupSelector with allowLocalBackup = true
+    ServerConfig config = ServerConfig::forTesting();
+    config.services = {WireFormat::MASTER_SERVICE,
+                       WireFormat::MEMBERSHIP_SERVICE};
+    config.master.allowLocalBackup = true;
+    Server* server = cluster.addServer(config);
+    ObjectManager* objectManager = &server->master->objectManager;
+    selector = objectManager->replicaManager.backupSelector.get();
+
+    ServerId ownId = *selector->serverId;
+    ServerId w;
+    ServerId x(1);
+    ServerId y(2);
+    ServerId z(3);
+    const ServerId existing[] = {
+        ServerId(1, 0),
+        ServerId(2, 0),
+        ServerId(3, 0)
+    };
+    EXPECT_FALSE(selector->conflictWithAny(ownId, 0, NULL));
+    EXPECT_FALSE(selector->conflictWithAny(w, 0, NULL));
+    EXPECT_FALSE(selector->conflictWithAny(w, 3, existing));
+    EXPECT_TRUE(selector->conflictWithAny(x, 3, existing));
+    EXPECT_TRUE(selector->conflictWithAny(y, 3, existing));
+    EXPECT_TRUE(selector->conflictWithAny(z, 3, existing));
+}
+
 } // namespace RAMCloud

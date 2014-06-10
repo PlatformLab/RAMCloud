@@ -380,8 +380,8 @@ TEST_F(ObjectManagerTest, writeObject_returnRemovedObj) {
     // Check that the object got overwritten correctly.
     EXPECT_EQ("writeObject: object: 36 bytes, version 2 | "
               "writeObject: tombstone: 33 bytes, version 1", TestLog::get());
-    EXPECT_EQ("found=true tableId=1 byteCount=110 recordCount=3"
-              , verifyMetadata(1));
+    EXPECT_EQ("found=true tableId=1 byteCount=110 recordCount=3",
+              verifyMetadata(1));
 
     // Check that the buffer returned corresponds to the object overwritten.
     Object oldObj(removedObjBuffer);

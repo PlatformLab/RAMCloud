@@ -251,7 +251,21 @@ CoordinatorService::dropTable(const WireFormat::DropTable::Request* reqHdr,
 {
     const char* name = getString(rpc->requestPayload, sizeof(*reqHdr),
                                  reqHdr->nameLength);
-    tableManager.dropTable(name);
+    uint64_t tableId = tableManager.getTableId(name);
+    vector<pair<uint8_t, uint8_t>> indexIndexlet = tableManager.dropTable(name);
+
+    // dropping the indexlet tables for all indexes
+    for (auto it = indexIndexlet.begin(); it != indexIndexlet.end(); ++it)
+    {
+        uint8_t indexId = (*it).first;
+        uint8_t numIndexlets = (*it).second;
+        for (uint8_t i = 0; i < numIndexlets; i++){
+            string indexTableName;
+            indexTableName.append(
+                format("__indexTable:%lu:%d:%d", tableId, indexId, i));
+            tableManager.dropTable(indexTableName.c_str());
+        }
+    }
 }
 
 /**
@@ -268,6 +282,7 @@ CoordinatorService::createIndex(const WireFormat::CreateIndex::Request* reqHdr,
     uint8_t indexType = reqHdr->indexType;
     uint8_t numIndexlets = reqHdr->numIndexlets;
 
+    // creating the indexlet tables
     for (uint8_t i = 0; i < numIndexlets; i++){
         string indexTableName;
         indexTableName.append(
@@ -292,6 +307,7 @@ CoordinatorService::dropIndex(const WireFormat::DropIndex::Request* reqHdr,
 
     uint8_t numIndexlets = tableManager.dropIndex(tableId, indexId);
 
+    // dropping the indexlet tables
     for (uint8_t i = 0; i < numIndexlets; i++){
         string indexTableName;
         indexTableName.append(

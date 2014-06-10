@@ -96,7 +96,7 @@ main(int argc, char *argv[])
              "The server should run the master service only (no backup)")
             ("totalMasterMemory,t",
              ProgramOptions::value<string>(&masterTotalMemory)->
-                default_value("10%"),
+                default_value("80%"),
              "Percentage or megabytes of system memory for master log & "
              "hash table")
             ("replicas,r",
@@ -107,6 +107,9 @@ main(int argc, char *argv[])
              ProgramOptions::value<bool>(&config.master.useMinCopysets)->
                 default_value(false),
              "Whether to use MinCopysets or random replication")
+            ("allowLocalBackup",
+             ProgramOptions::bool_switch(&config.master.allowLocalBackup),
+             "Allow replication to local backup")
             ("segmentFrames",
              ProgramOptions::value<uint32_t>(&config.backup.numSegmentFrames)->
                 default_value(512),
