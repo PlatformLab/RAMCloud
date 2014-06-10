@@ -17,9 +17,6 @@
 #define RAMCLOUD_INDEXLOOKUP_H
 
 #include "RamCloud.h"
-#define NUM_READ_RPC 10
-#define MAX_NUM_PK 1000
-#define MAX_PKHASHES_PERRPC 256
 
 namespace RAMCloud {
 
@@ -56,15 +53,25 @@ class IndexLookup {
     uint32_t getValueLength();
 
   private:
-    enum RpcIdx {
-        RPC_IDX_NOTASSIGN = NUM_READ_RPC
+    enum Rpc_Config {
+        NUM_READ_RPC = 10,
+        MAX_PKHASHES_PERRPC = 256,
+        RPC_IDX_NOTASSIGN = NUM_READ_RPC,
+    };
+    enum Buffer_Config {
+    	/// logarithm buffer size. We want to make the size of buffer a power
+    	/// of 2, since we want reuse buffer in a circular way. By enforcing
+        /// the size of buffer a power of 2, we can use bit operations to
+        /// find buffer pos.
+        LG_BUFFER_SIZE = 10,
+        BUFFER_MASK = ((1 << LG_BUFFER_SIZE) - 1),
+        MAX_NUM_PK = (1 << LG_BUFFER_SIZE)
     };
     enum RpcStatus {
         FREE,
-        LOADING,
+        LOADING, /// Loading status only provide for indexedRead RPC
         INPROCESS,
-        AVAILABLE,
-        FINISHED
+        RESULT_READY
     };
     /// struct for indexedRead RPC.
     struct ReadRpc {
@@ -128,22 +135,57 @@ class IndexLookup {
     /// Index Id we are handling in this IndexLookup class.
     uint8_t indexId;
     
-    /// Length of first, last, next key
-    uint16_t firstKeyLength, lastKeyLength, nextKeyLength;
+    /// Key blob marking the start of the indexed key range for this
+    /// query
+    void *firstKey;
 
-    /// first, last, next key
-    void *firstKey, *lastKey, *nextKey;
+    /// Length of first key string
+    uint16_t firstKeyLength;
+
+    /// Key blob marking the start of the indexed key range for next
+    /// lookupIndexKeys
+    void *nextKey;
+
+    /// Length of next key string
+    uint16_t nextKeyLength;
+
+    /// Key blob marking the end of the indexed key range for this
+    /// query
+    void *lastKey;
+
+    /// Length of last key string
+    uint16_t lastKeyLength;
 
     /// Buffer stores PKHashes that we should return to users
     /// in order. The buffer is reused as a cycle.
     KeyHash pKBuffer[MAX_NUM_PK];
 
     /// Buffer stores indexedRead RPC indexes on which this PKHashes
-    /// is sent to data server to acquire object data
+    /// is sent to data server to acquire object data. Stores special
+    /// value RPC_IDX_NOTASSIGN if it is not assigned.
     uint8_t rpcIdx[MAX_NUM_PK];
 
-    /// front, tail, nextAssign pointers for the buffer
-    size_t front, tail, nextAssign;
+    /// +----------------------------------------------------------+
+    /// |   |   PKHashes assigned     |  PKHashes to  |            |
+    /// |   |   to indexRead PRC      |  be assign    |            |
+    /// +----------------------------------------------------------+
+    ///      ^                         ^               ^
+    ///      |                         |               |
+    ///   removePos                 assignPos       insertPos
+    ///
+    /// Note that removePos and assignPos point to occupied entries
+    /// while insertPos points to empty entry
+
+    /// The position if we want to insert the next PKHashes into the
+    /// buffer
+    size_t insertPos;
+
+    /// The position of the next PKHashes to be remove from the buffer
+    /// if user calls get_next()
+    size_t removePos;
+
+    /// The postion of the
+    size_t assignPos;
 
     /// Current object. This is the object returns to user if user
     /// calls getKey/getKeyLength/getValue/getValueLength
