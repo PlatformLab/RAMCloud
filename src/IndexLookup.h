@@ -23,8 +23,13 @@ namespace RAMCloud {
 /*
  * This class implements the client side framework for lookup indexes.
  * It manages a single LookupIndexKeys RPC and multiple indexedRead
- * RPCs. The number of concurrent indexedRead RPCs is defined in macros
- * above. 
+ * RPCs. Client side just includes "IndexLookup.h" in its header to
+ * use IndexLookup class.
+ *
+ * Several parameters can be set in the config below:
+ *   - The number of concurrent indexedRead RPCs
+ *   - The max number of PKHashes a indexedRead RPC can hold at a time
+ *   - The size of the PKHashes buffer
  *
  * To use IndexLookup, client create a object of this class by providing
  * all necessary information. After construction of IndexLookup, client
@@ -46,6 +51,7 @@ class IndexLookup {
                 const void* lastKey, uint16_t lastKeyLength,
                 RpcFlags flags = EMPTY);
     ~IndexLookup();
+    bool isReady();
     bool getNext();
     const void* getKey(KeyIndex keyIndex = 0, KeyLength *keyLength = NULL);
     KeyLength getKeyLength(KeyIndex keyIndex = 0);
@@ -59,18 +65,25 @@ class IndexLookup {
         RPC_IDX_NOTASSIGN = NUM_READ_RPC,
     };
     enum Buffer_Config {
-        /// logarithm buffer size. We want to make the size of buffer a power
-        /// of 2, since we want reuse buffer in a circular way. By enforcing
-        /// the size of buffer a power of 2, we can use bit operations to
-        /// find buffer pos.
+        /// logarithm of buffer size. We want to make the size of buffer
+        /// a power of 2, since we want reuse buffer in a circular way.
+        /// By enforcing the size of buffer a power of 2, we can use bit
+        /// operations to find buffer pos.
         LG_BUFFER_SIZE = 10,
         BUFFER_MASK = ((1 << LG_BUFFER_SIZE) - 1),
         MAX_NUM_PK = (1 << LG_BUFFER_SIZE)
     };
     enum RpcStatus {
+        /// FREE means this RPC is currently available to use/reuse
         FREE,
-        LOADING, /// Loading status only provide for indexedRead RPC
+        /// LOADING means we are adding PKHashes into this indexedRead RPC.
+        /// LOADING status is designed for indexedRead RPC
+        LOADING,
+        /// INPROCESS means this RPC has been sent to server, and is
+        /// currently waiting for response
         INPROCESS,
+        /// RESULT_READY means the response of the RPC has returned,
+        /// and is currently available to read
         RESULT_READY
     };
     /// struct for indexedRead RPC.
@@ -96,6 +109,7 @@ class IndexLookup {
         , serviceLocator()
         {}
     };
+
     /// struct for lookupIndexKeys RPC.
     struct LookupRpc {
         Tub<LookupIndexKeysRpc> rpc;
@@ -113,7 +127,6 @@ class IndexLookup {
         , offset()
         {}
     };
-    bool isReady();
     void launchReadRpc(uint8_t i);
 
     /// Overall client state information.
@@ -157,7 +170,7 @@ class IndexLookup {
     uint16_t lastKeyLength;
 
     /// Buffer stores PKHashes that we should return to users
-    /// in order. The buffer is reused as a cycle.
+    /// in index order. The buffer is reused as a cycle.
     KeyHash pKBuffer[MAX_NUM_PK];
 
     /// Buffer stores indexedRead RPC indexes on which this PKHashes
@@ -180,11 +193,12 @@ class IndexLookup {
     /// buffer
     size_t insertPos;
 
-    /// The position of the next PKHashes to be remove from the buffer
+    /// The position of the next PKHash to be removed from the buffer
     /// if user calls get_next()
     size_t removePos;
 
-    /// The postion of the
+    /// The postion of the next PKHash to be assigned to an indexedRead
+    /// RPC
     size_t assignPos;
 
     /// Current object. This is the object returns to user if user

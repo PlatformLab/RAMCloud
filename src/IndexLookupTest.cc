@@ -283,59 +283,6 @@ TEST_F(IndexLookupTest, getNext_general) {
         }
 }
 
-
-TEST_F(IndexLookupTest, getNext_recovery) {
-    uint32_t serverSpan = 10;
-    //KeyHash startKeyHash = 0;
-    //KeyHash endKeyHash = ~0UL / serverSpan;
-    uint8_t numIndexlets = 26;
-    uint64_t tableId = ramcloud->createTable("table", serverSpan);
-    ramcloud->createIndex(tableId, 1, 0, numIndexlets);
-    ramcloud->createIndex(tableId, 2, 0, numIndexlets);
-    uint8_t numKey = 3;
-    KeyInfo keyList[3];
-    char keyStr[3][20];
-    uint64_t numObjects = 109;
-    for (uint64_t i = 100; i < numObjects; i++)
-        for (char prefix = 'a'; prefix < 'z'; prefix++) {
-            snprintf(keyStr[0], sizeof(keyStr[0]), "%ckeyA%lu", prefix, i);
-            keyList[0].key = keyStr[0];
-            keyList[0].keyLength = 8;
-            snprintf(keyStr[1], sizeof(keyStr[1]), "%ckeyB%lu", prefix, i);
-            keyList[1].key = keyStr[1];
-            keyList[1].keyLength = 8;
-            snprintf(keyStr[2], sizeof(keyStr[2]), "%ckeyC%lu", prefix, i);
-            keyList[2].key = keyStr[2];
-            keyList[2].keyLength = 8;
-            std::string value = "value";
-            ramcloud->write(tableId, numKey, keyList, value.c_str());
-        }
-
-    IndexLookup indexLookup(ramcloud.get(), tableId, 1,
-                            "a", 1, 0, "z", 1);
-    for (char prefix = 'a'; prefix < 'z'; prefix++) {
-        for (uint64_t i = 100; i < numObjects; i++) {
-            snprintf(keyStr[0], sizeof(keyStr[0]), "%ckeyA%lu", prefix, i);
-            keyList[0].key = keyStr[0];
-            keyList[0].keyLength = 8;
-            snprintf(keyStr[1], sizeof(keyStr[1]), "%ckeyB%lu", prefix, i);
-            keyList[1].key = keyStr[1];
-            keyList[1].keyLength = 8;
-            snprintf(keyStr[2], sizeof(keyStr[2]), "%ckeyC%lu", prefix, i);
-            keyList[2].key = keyStr[2];
-            keyList[2].keyLength = 8;
-            EXPECT_TRUE(indexLookup.getNext());
-            const void *retKey;
-            KeyLength retKeyLength;
-            for (KeyIndex idx = 0; idx < 3; idx ++) {
-                retKey = indexLookup.getKey(idx, &retKeyLength);
-                EXPECT_EQ(std::strncmp((const char *)retKey,
-                                       (const char *)keyList[idx].key,
-                                       retKeyLength), 0);
-            }
-        }
-    }
-}
 } // namespace ramcloud
 
 
