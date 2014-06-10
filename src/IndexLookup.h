@@ -40,11 +40,11 @@ class IndexLookup {
         EMPTY = 0,
         RETURN_IN_ORDER = 1
     };
-    IndexLookup (RamCloud* ramcloud, uint64_t tableId, uint8_t indexId,
-                 const void* firstKey, uint16_t firstKeyLength,
-                 uint64_t firstAllowedKeyHash,
-                 const void* lastKey, uint16_t lastKeyLength,
-                 RpcFlags flags = EMPTY);
+    IndexLookup(RamCloud* ramcloud, uint64_t tableId, uint8_t indexId,
+                const void* firstKey, uint16_t firstKeyLength,
+                uint64_t firstAllowedKeyHash,
+                const void* lastKey, uint16_t lastKeyLength,
+                RpcFlags flags = EMPTY);
     ~IndexLookup();
     bool getNext();
     const void* getKey(KeyIndex keyIndex = 0, KeyLength *keyLength = NULL);
@@ -59,8 +59,8 @@ class IndexLookup {
         RPC_IDX_NOTASSIGN = NUM_READ_RPC,
     };
     enum Buffer_Config {
-    	/// logarithm buffer size. We want to make the size of buffer a power
-    	/// of 2, since we want reuse buffer in a circular way. By enforcing
+        /// logarithm buffer size. We want to make the size of buffer a power
+        /// of 2, since we want reuse buffer in a circular way. By enforcing
         /// the size of buffer a power of 2, we can use bit operations to
         /// find buffer pos.
         LG_BUFFER_SIZE = 10,
@@ -123,7 +123,7 @@ class IndexLookup {
     /// lookupIndexKeys RPC at a time, since each lookupIndexKeys
     /// rpc needs the return value of this previous call.
     LookupRpc lookupRpc;
-    
+
     /// struct for indexedRead RPC, we can have up to NUM_READ_RPC
     /// indexedRead RPC at a time. Each single RPC handles communication
     /// before client and a single data server
@@ -134,7 +134,7 @@ class IndexLookup {
 
     /// Index Id we are handling in this IndexLookup class.
     uint8_t indexId;
-    
+
     /// Key blob marking the start of the indexed key range for this
     /// query
     void *firstKey;
