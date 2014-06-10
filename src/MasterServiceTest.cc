@@ -1784,7 +1784,7 @@ TEST_F(MasterServiceTest, recover_basics) {
 TEST_F(MasterServiceTest, recover_basic_indexlet) {
     cluster.coordinator->recoveryManager.start();
     ServerId serverId(123, 0);
-    ReplicaManager mgr(&context, &serverId, 1, false);
+    ReplicaManager mgr(&context, &serverId, 1, false, false);
 
     // Create a segment with objectSafeVersion 23
     writeRecoverableSegment(&context, mgr, serverId, serverId.getId(),
