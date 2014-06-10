@@ -120,11 +120,13 @@ TEST_F(TableManagerTest, createIndex) {
     MasterService* master2 = cluster.addServer(masterConfig)->master.get();
     updateManager->reset();
 
-    EXPECT_FALSE(tableManager->createIndex(1, 0, 0, 0));
+    EXPECT_THROW(tableManager->createIndex(1, 0, 0, 0),
+                                                    TableManager::NoSuchTable);
     EXPECT_EQ(1U, tableManager->createTable("foo", 1));
 
     EXPECT_EQ(2U, tableManager->createTable("__indexTable:1:0:0", 1));
-    EXPECT_FALSE(tableManager->createIndex(3, 0, 0, 1));
+    EXPECT_THROW(tableManager->createIndex(3, 0, 0, 1),
+                                                    TableManager::NoSuchTable);
     EXPECT_TRUE(tableManager->createIndex(1, 0, 0, 1));
     EXPECT_EQ(0U, master1->indexletManager.getCount());
     EXPECT_EQ(1U, master2->indexletManager.getCount());
@@ -259,6 +261,29 @@ TEST_F(TableManagerTest, dropTable_tableDoesntExist) {
     tableManager->dropTable("foo");
     EXPECT_EQ(1U, updateManager->smallestUnfinished);
 }
+
+TEST_F(TableManagerTest, dropTable_index) {
+    MasterService* master1 = cluster.addServer(masterConfig)->master.get();
+    MasterService* master2 = cluster.addServer(masterConfig)->master.get();
+    updateManager->reset();
+
+    EXPECT_EQ(1U, tableManager->createTable("foo", 1));
+
+    EXPECT_EQ(2U, tableManager->createTable("__indexTable:1:0:0", 1));
+    EXPECT_TRUE(tableManager->createIndex(1, 0, 0, 1));
+    EXPECT_EQ(0U, master1->indexletManager.getCount());
+    EXPECT_EQ(1U, master2->indexletManager.getCount());
+
+    EXPECT_EQ(3U, tableManager->createTable("__indexTable:1:1:0", 1));
+    EXPECT_TRUE(tableManager->createIndex(1, 1, 0, 1));
+    EXPECT_EQ(1U, master1->indexletManager.getCount());
+    EXPECT_EQ(1U, master2->indexletManager.getCount());
+
+    tableManager->dropTable("foo");
+    EXPECT_EQ(0U, master1->indexletManager.getCount());
+    EXPECT_EQ(0U, master2->indexletManager.getCount());
+}
+
 
 TEST_F(TableManagerTest, getTableId) {
     cluster.addServer(masterConfig)->master.get();
@@ -629,9 +654,9 @@ TEST_F(TableManagerTest, serializeIndexConfig) {
         EXPECT_EQ(0U, index.index_type());
         foreach (const ProtoBuf::TableConfig::Index::Indexlet& indexlet,
                                                         index.indexlet()) {
-            EXPECT_EQ('!', (uint8_t)*indexlet.start_key().c_str());
+            EXPECT_EQ(0, (uint8_t)*indexlet.start_key().c_str());
             EXPECT_EQ(1U, indexlet.start_key().length());
-            EXPECT_EQ('~', (uint8_t)*indexlet.end_key().c_str());
+            EXPECT_EQ(127, (uint8_t)*indexlet.end_key().c_str());
             EXPECT_EQ(1U, indexlet.end_key().length());
             EXPECT_EQ(1U, indexlet.server_id());
             EXPECT_EQ("mock:host=server0", indexlet.service_locator());

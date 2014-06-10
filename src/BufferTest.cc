@@ -842,4 +842,36 @@ TEST_F(BufferAllocatorTest, new_misc) {
     EXPECT_EQ(0U, buf.getTotalLength());
 }
 
+// Inline methods in Buffer.h:
+
+TEST_F(BufferTest, appendCopy_block) {
+    Buffer buffer;
+    buffer.appendCopy("abc", 3);
+    buffer.appendCopy("defghijklmnop", 5);
+    EXPECT_EQ("abcdefgh", TestUtil::toString(&buffer));
+    EXPECT_EQ(1u, buffer.getNumberChunks());
+}
+
+struct TestObject{
+    int first;
+    int second;
+    int third;
+};
+TEST_F(BufferTest, appendCopy_object) {
+    Buffer buffer;
+    struct TestObject test;
+    test.first = 11;
+    test.second = 22;
+    test.third = 33;
+    buffer.appendCopy(&test);
+    EXPECT_EQ(12u, buffer.getTotalLength());
+
+    // To check that the object was really copied, modify the source data.
+    test.first = test.second = test.third = 99;
+    const TestObject* check = buffer.getStart<TestObject>();
+    EXPECT_EQ(11, check->first);
+    EXPECT_EQ(22, check->second);
+    EXPECT_EQ(33, check->third);
+}
+
 }  // namespace RAMCloud

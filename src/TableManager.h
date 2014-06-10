@@ -67,7 +67,7 @@ class TableManager {
     uint64_t createTable(const char* name, uint32_t serverSpan);
     string debugString(bool shortForm = false);
     uint8_t dropIndex(uint64_t tableId, uint8_t indexId);
-    void dropTable(const char* name);
+    vector<pair<uint8_t, uint8_t>>  dropTable(const char* name);
     uint64_t getTableId(const char* name);
     Tablet getTablet(uint64_t tableId, uint64_t keyHash);
     vector<Tablet> markAllTabletsRecovering(ServerId serverId);
@@ -141,6 +141,8 @@ class TableManager {
         vector<Indexlet*> indexlets;
     };
 
+    typedef std::unordered_map<uint8_t, Index*> IndexMap;
+
     struct Table {
         Table(const char* name, uint64_t id)
             : name(name)
@@ -148,10 +150,10 @@ class TableManager {
             , tablets()
             , indexMap()
         {
-                int i = 0;
-                for (; i < 256; i++) {
-                    indexMap.push_back(NULL);
-                }
+                // int i = 0;
+                // for (; i < 256; i++) {
+                //     indexMap.push_back(NULL);
+                // }
         }
         ~Table();
 
@@ -167,8 +169,8 @@ class TableManager {
 
         /// Information about each of the indexes in the table. The
         /// entries are allocated and freed dynamically.
-        //TODO(ashgup): convert back to map
-        vector<Index*> indexMap;
+        //vector<Index*> indexMap;
+        IndexMap indexMap;
     };
 
     /**

@@ -93,4 +93,13 @@ TEST_F(CyclesTest, fromNanoseconds_givenCyclesPerSec) {
     EXPECT_EQ(160UL, Cycles::fromNanoseconds(80, 2e09));
 }
 
+TEST_F(CyclesTest, sleep) {
+    uint64_t us = 100;
+    uint64_t start = Cycles::rdtsc();
+    Cycles::sleep(us);
+    uint64_t end = Cycles::rdtsc();
+
+    EXPECT_LE(us, Cycles::toMicroseconds(end-start));
+}
+
 }  // namespace RAMCloud

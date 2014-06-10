@@ -67,7 +67,8 @@ class ReplicaManager
     ReplicaManager(Context* context,
                    const ServerId* masterId,
                    uint32_t numReplicas,
-                   bool useMinCopysets);
+                   bool useMinCopysets,
+                   bool allowLocalBackup);
     ~ReplicaManager();
 
     bool isIdle();
@@ -187,6 +188,11 @@ class ReplicaManager
      * Specifies whether to use the MinCopysets replication scheme.
      */
     bool useMinCopysets;
+
+    /**
+     * Specifies whether to allow replication to local backup.
+     */
+    bool allowLocalBackup;
 
   PUBLIC:
     // Only used by BackupFailureMonitor.

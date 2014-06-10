@@ -197,4 +197,21 @@ Cycles::fromNanoseconds(uint64_t ns, double cyclesPerSec)
     return (uint64_t) (static_cast<double>(ns)*cyclesPerSec/1e09 + 0.5);
 }
 
+/**
+ * Busy wait for a given number of microseconds.
+ * Callers should use this method in most reasonable cases as opposed to
+ * usleep for accurate measurements. Calling usleep may put the the processor
+ * in a low power mode/sleep state which reduces the clock frequency.
+ * So, each time the process/thread wakes up from usleep, it takes some time
+ * to ramp up to maximum frequency. Thus meausrements often incur higher
+ * latencies.
+ * \param us
+ *      Number of microseconds.
+ */
+void
+Cycles::sleep(uint64_t us)
+{
+    uint64_t stop = Cycles::rdtsc() + Cycles::fromNanoseconds(1000*us);
+    while (Cycles::rdtsc() < stop);
+}
 } // end RAMCloud

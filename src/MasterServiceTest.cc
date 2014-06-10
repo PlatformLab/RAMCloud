@@ -515,8 +515,7 @@ TEST_F(MasterServiceTest, enumerate_tabletNotOnServer) {
     EnumerateTableRpc rpc(ramcloud.get(), 99, false, 0, iter, objects);
     EXPECT_THROW(rpc.wait(nextIter), TableDoesntExistException);
     EXPECT_EQ("checkStatus: Server mock:host=master "
-              "doesn't store <99, 0x0>; refreshing object map | "
-              "flush: flushing object map",
+              "doesn't store <99, 0x0>; refreshing object map",
               TestLog::get());
 }
 
@@ -662,7 +661,7 @@ TEST_F(MasterServiceTest, migrateTablet_tabletNotOnServer) {
     EXPECT_EQ("migrateTablet: Migration request for tablet this master "
               "does not own: tablet [0x0,0xffffffffffffffff] in tableId 99 | "
               "checkStatus: Server mock:host=master doesn't store "
-              "<99, 0x0>; refreshing object map | flush: flushing object map",
+              "<99, 0x0>; refreshing object map",
               TestLog::get());
 }
 
@@ -1141,8 +1140,7 @@ TEST_F(MasterServiceTest, read_tableNotOnServer) {
     EXPECT_THROW(ramcloud->read(99, "0", 1, &value),
                  TableDoesntExistException);
     EXPECT_EQ("checkStatus: Server mock:host=master doesn't store "
-              "<99, 0xbaf01774b348c879>; refreshing object map | "
-              "flush: flushing object map",
+              "<99, 0xbaf01774b348c879>; refreshing object map",
               TestLog::get());
 }
 
@@ -1257,8 +1255,7 @@ TEST_F(MasterServiceTest, remove_tableNotOnServer) {
     TestLog::Enable _;
     EXPECT_THROW(ramcloud->remove(99, "key0", 4), TableDoesntExistException);
     EXPECT_EQ("checkStatus: Server mock:host=master doesn't store "
-              "<99, 0xb3a4e310e6f49dd8>; refreshing object map | "
-              "flush: flushing object map",
+              "<99, 0xb3a4e310e6f49dd8>; refreshing object map",
               TestLog::get());
 }
 
@@ -1700,7 +1697,7 @@ TEST_F(MasterServiceTest, detectSegmentRecoveryFailure_failure) {
 TEST_F(MasterServiceTest, recover_basics) {
     cluster.coordinator->recoveryManager.start();
     ServerId serverId(123, 0);
-    ReplicaManager mgr(&context, &serverId, 1, false);
+    ReplicaManager mgr(&context, &serverId, 1, false, false);
 
     // Create a segment with objectSafeVersion 23
     writeRecoverableSegment(&context, mgr, serverId, serverId.getId(),
@@ -1798,7 +1795,7 @@ TEST_F(MasterServiceTest, recover_basics) {
 TEST_F(MasterServiceTest, recover) {
     ServerId serverId(123, 0);
 
-    ReplicaManager mgr(&context, &serverId, 1, false);
+    ReplicaManager mgr(&context, &serverId, 1, false, false);
     writeRecoverableSegment(&context, mgr, serverId, serverId.getId(), 88);
 
     ServerConfig backup2Config = backup1Config;
@@ -2065,7 +2062,7 @@ TEST_F(MasterRecoverTest, recover) {
                              WireFormat::MEMBERSHIP_SERVICE},
                             100, ServerStatus::UP});
     ServerId serverId(99, 0);
-    ReplicaManager mgr(&context2, &serverId, 1, false);
+    ReplicaManager mgr(&context2, &serverId, 1, false, false);
     MasterServiceTest::writeRecoverableSegment(&context, mgr, serverId, 99, 87);
     MasterServiceTest::writeRecoverableSegment(&context, mgr, serverId, 99, 88);
 

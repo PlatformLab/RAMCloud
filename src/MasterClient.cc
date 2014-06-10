@@ -50,7 +50,7 @@ MasterClient::dropTabletOwnership(Context* context, ServerId serverId,
         uint64_t tableId, uint64_t firstKeyHash, uint64_t lastKeyHash)
 {
     DropTabletOwnershipRpc rpc(context, serverId, tableId,
-                                            firstKeyHash, lastKeyHash);
+                               firstKeyHash, lastKeyHash);
     rpc.wait();
 }
 
@@ -89,7 +89,7 @@ DropTabletOwnershipRpc::DropTabletOwnershipRpc(Context* context,
 /**
  * Instruct the master that it must no longer serve requests for the indexlet
  * specified. The server may reclaim all memory previously allocated to that
- * tablet.
+ * indexlet.
  *
  * \param context
  *      Overall information about this RAMCloud server or client.
@@ -158,7 +158,6 @@ DropIndexletOwnershipRpc::DropIndexletOwnershipRpc(Context* context,
     reqHdr->indexId = indexId;
     reqHdr->firstKeyLength = firstKeyLength;
     reqHdr->firstNotOwnedKeyLength = firstNotOwnedKeyLength;
-    // TODO(ashgup): allocate new memory maybe
     request.append(firstKey, firstKeyLength);
     request.append(firstNotOwnedKey, firstNotOwnedKeyLength);
     send();
@@ -823,7 +822,6 @@ TakeIndexletOwnershipRpc::TakeIndexletOwnershipRpc(
     reqHdr->indexletTableId = indexletTableId;
     reqHdr->firstKeyLength = firstKeyLength;
     reqHdr->firstNotOwnedKeyLength = firstNotOwnedKeyLength;
-    // TODO(ashgup): allocate new memory maybe
     request.append(firstKey, firstKeyLength);
     request.append(firstNotOwnedKey, firstNotOwnedKeyLength);
     send();

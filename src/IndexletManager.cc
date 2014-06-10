@@ -265,6 +265,10 @@ IndexletManager::getCount()
     return indexletMap.size();
 }
 
+///////////////////////////////////////////////////////////////////////////////
+////////////////////////// Index data related functions ///////////////////////
+///////////////////////////////////////////////////////////////////////////////
+
 /**
  * Insert index entry for an object for a given index id.
  *
@@ -372,8 +376,7 @@ IndexletManager::lookupIndexKeys(uint64_t tableId, uint8_t indexId,
     Lock indexletMapLock(indexletMapMutex);
 
     RAMCLOUD_LOG(DEBUG, "Looking up: tableId %lu, indexId %u.\n"
-                        "first key: %s\n"
-                        "last  key: %s\n",
+                        "first key: %s\n last  key: %s\n",
                         tableId, indexId,
                         Util::hexDump(firstKey, firstKeyLength).c_str(),
                         Util::hexDump(lastKey, lastKeyLength).c_str());
@@ -399,13 +402,10 @@ IndexletManager::lookupIndexKeys(uint64_t tableId, uint8_t indexId,
     // We want to use lower_bound() instead of find() because the firstKey
     // may not correspond to a key in the indexlet.
     auto iter = indexlet->bt->lower_bound(
-                KeyAndHash {firstKey, firstKeyLength, firstAllowedKeyHash});
+                    KeyAndHash {firstKey, firstKeyLength, firstAllowedKeyHash});
+
     auto iterEnd = indexlet->bt->end();
     bool rpcMaxedOut = false;
-
-    // At the end of the below while loop, iterLast will point to
-    // the last valid key in a leaf
-    auto iterLast = iter;
 
     // If the iterator is currently at the end, then it stays at the
     // same point if we try to advance (i.e., increment) the iterator.
@@ -427,11 +427,6 @@ IndexletManager::lookupIndexKeys(uint64_t tableId, uint8_t indexId,
             // as well use the pKHash from key right away.
             new(responseBuffer, APPEND) uint64_t(iter.key().pKHash);
             *numHashes += 1;
-            // save the state of iter before advancing because we need
-            // access to the last valid entry in the b-tree before we reach
-            // the end. This is because iterator::end() effectively points
-            // to an invalid entry
-            iterLast = iter;
             ++iter;
         } else {
             rpcMaxedOut = true;
@@ -439,29 +434,39 @@ IndexletManager::lookupIndexKeys(uint64_t tableId, uint8_t indexId,
     }
 
     if (rpcMaxedOut) {
-
-        // check if the while loop terminated because we reached the end
-        // of the iterator sequence
-        auto currIter = iterLast;
-        if (iter != iterEnd)
-            currIter = iter;
-
-        *nextKeyLength = uint16_t(currIter.key().keyLength);
-        *nextKeyHash = currIter.data();
-        responseBuffer->append(currIter.key().key,
-                               uint32_t(currIter.key().keyLength));
-
+        *nextKeyLength = uint16_t(iter.key().keyLength);
+        *nextKeyHash = iter.data();
+        responseBuffer->append(iter.key().key,
+                               uint32_t(iter.key().keyLength));
     } else if (keyCompare(lastKey, lastKeyLength, indexlet->firstNotOwnedKey,
                           indexlet->firstNotOwnedKeyLength) > 0) {
 
         *nextKeyLength = indexlet->firstNotOwnedKeyLength;
         *nextKeyHash = 0;
         responseBuffer->append(indexlet->firstNotOwnedKey,
-                indexlet->firstNotOwnedKeyLength);
+                               indexlet->firstNotOwnedKeyLength);
+    } else {
+        *nextKeyHash = 0;
+        *nextKeyLength = 0;
     }
 
     return STATUS_OK;
 }
+
+
+//    if (rpcMaxedOut) {
+//        // Check if the while loop terminated because we reached the end
+//        // of the iterator sequence.
+//        auto currIter = iterLast;
+//        if (iter != iterEnd)
+//            currIter = iter;
+//
+//        *nextKeyLength = uint16_t(currIter.key().keyLength);
+//        *nextKeyHash = currIter.data();
+//        responseBuffer->append(currIter.key().key,
+//                               uint32_t(currIter.key().keyLength));
+//
+//    }
 
 /**
  * Remove index entry for an object for a given index id.
@@ -518,6 +523,10 @@ IndexletManager::removeEntry(uint64_t tableId, uint8_t indexId,
 
     return STATUS_OK;
 }
+
+///////////////////////////////////////////////////////////////////////////////
+//////////////////// Static functions related to index keys ///////////////////
+///////////////////////////////////////////////////////////////////////////////
 
 /**
  * Compare the object's key corresponding to index id specified in keyRange

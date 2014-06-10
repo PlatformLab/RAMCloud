@@ -220,6 +220,7 @@ struct ServerConfig {
             , masterServiceThreadCount(1)
             , numReplicas(0)
             , useMinCopysets(false)
+            , allowLocalBackup(false)
         {}
 
         /**
@@ -239,6 +240,7 @@ struct ServerConfig {
             , masterServiceThreadCount()
             , numReplicas()
             , useMinCopysets()
+            , allowLocalBackup()
         {}
 
         /**
@@ -258,6 +260,7 @@ struct ServerConfig {
             config.set_master_service_thread_count(masterServiceThreadCount);
             config.set_num_replicas(numReplicas);
             config.set_use_mincopysets(useMinCopysets);
+            config.set_use_local_backup(allowLocalBackup);
         }
 
         /// Total number bytes to use for the in-memory Log.
@@ -303,6 +306,9 @@ struct ServerConfig {
         /// Specifies whether to use MinCopysets replication or random
         /// replication.
         bool useMinCopysets;
+
+        /// If true, allow replication to local backup.
+        bool allowLocalBackup;
     } master;
 
     /**

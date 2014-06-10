@@ -28,7 +28,6 @@ namespace RAMCloud {
  */
 class Indexlet {
     public:
-    //TODO(ashgup): move allocation to indexlet.cc
     Indexlet(const void *firstKey, uint16_t firstKeyLength,
              const void *firstNotOwnedKey, uint16_t firstNotOwnedKeyLength)
         : firstKey(NULL)
@@ -92,8 +91,6 @@ class Indexlet {
     }
 
     /// Blob for the smallest key that is in this indexlet.
-    //TODO(ashgup): first key can be NULL. add logic in index let manager
-    ///TODO(ashgup): add null test case in coordinator service and tablemanager
     void *firstKey;
 
     /// Length of the firstKey

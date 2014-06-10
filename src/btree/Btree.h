@@ -3928,7 +3928,6 @@ private:
     /// serialization.
     node* restore_node(std::istream &is)
     {
-        // TODO(ashgup): GCC VERSION non-POD type not allowed inside union
         union {
             node        top;
             leaf_node   leaf;
