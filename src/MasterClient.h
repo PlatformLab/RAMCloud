@@ -205,7 +205,7 @@ class RecoverRpc : public ServerIdRpcWrapper {
   public:
     RecoverRpc(Context* context, ServerId serverId, uint64_t recoveryId,
             ServerId crashedServerId, uint64_t partitionId,
-            const ProtoBuf::RecoveryPartition* recoverMsg,
+            const ProtoBuf::RecoveryPartition* recoverPartition,
             const WireFormat::Recover::Replica* replicas,
             uint32_t numReplicas);
     ~RecoverRpc() {}

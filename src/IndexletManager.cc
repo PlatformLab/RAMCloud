@@ -119,15 +119,15 @@ IndexletManager::addIndexlet(ProtoBuf::Indexlets::Indexlet indexlet,
     uint64_t indexletTableId = indexlet.indexlettable_id();
     void *firstKey, *firstNotOwnedKey;
     uint16_t firstKeyLength, firstNotOwnedKeyLength;
-    //TODO(ashgup): while converting string, null delimiter handled
-    if (indexlet.start_key().length() != 0) {
+    if (indexlet.start_key().compare("") != 0) {
         firstKey = const_cast<char *>(indexlet.start_key().c_str());
         firstKeyLength = (uint16_t)indexlet.start_key().length();
     } else {
         firstKey = NULL;
         firstKeyLength = 0;
     }
-    if (indexlet.end_key().length() != 0) {
+
+    if (indexlet.end_key().compare("") != 0) {
         firstNotOwnedKey = const_cast<char *>(indexlet.end_key().c_str());
         firstNotOwnedKeyLength = (uint16_t)indexlet.end_key().length();
     } else {
@@ -214,17 +214,17 @@ IndexletManager::deleteIndexlet(ProtoBuf::Indexlets::Indexlet indexlet)
     uint8_t indexId = (uint8_t) indexlet.index_id();
     void *firstKey, *firstNotOwnedKey;
     uint16_t firstKeyLength, firstNotOwnedKeyLength;
-    //TODO(ashgup): while converting string, null delimiter handled
-    if (indexlet.start_key().length() != 0) {
+    if (indexlet.start_key().compare("") != 0) {
         firstKey = const_cast<char *>(indexlet.start_key().c_str());
         firstKeyLength = (uint16_t)indexlet.start_key().length();
     } else {
         firstKey = NULL;
         firstKeyLength = 0;
     }
-    if (indexlet.end_key().length() != 0) {
+
+    if (indexlet.end_key().compare("") != 0) {
         firstNotOwnedKey = const_cast<char *>(indexlet.end_key().c_str());
-        firstNotOwnedKeyLength = (uint16_t)indexlet.end_key().length();
+        firstNotOwnedKeyLength =(uint16_t)indexlet.end_key().length();
     } else {
         firstNotOwnedKey = NULL;
         firstNotOwnedKeyLength = 0;
@@ -484,6 +484,8 @@ IndexletManager::lookupIndexKeys(uint64_t tableId, uint8_t indexId,
     indexletMapLock.unlock();
 
     // If there are no values in this indexlet's tree, return right away.
+    // TODO(zhihao): consider remove the following check since recovered BTree
+    // cannot pass the following check by only setting nextNodeId in BTree.
     if (indexlet->bt->empty()) {
         //return STATUS_OK;
     }

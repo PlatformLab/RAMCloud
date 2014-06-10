@@ -109,9 +109,6 @@ class TableManager {
   PRIVATE:
     /**
      * The following structure holds information about a indexlet of an index.
-     * TODO(zhihao): currently move Indexlet from private to public, since
-     * Recovery need to see this struct. Need to consider the scope of it
-     * in the future.
      */
     struct Indexlet : public RAMCloud::Indexlet {
         public:

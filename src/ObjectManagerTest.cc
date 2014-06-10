@@ -767,7 +767,10 @@ TEST_F(ObjectManagerTest, replaySegment_highestBTreeIdMap) {
     Log::Reference logTomb2Ref;
     SideLog sl(&objectManager.log);
 
-    Key key0(0, "12345", 5);
+    char keyStr[8];
+    uint64_t *bTreeKey = reinterpret_cast<uint64_t*>(keyStr);
+    *bTreeKey = 12345;
+    Key key0(0, keyStr, 8);
     Segment::Certificate certificate;
     len = buildRecoverySegment(seg, segLen, key0, 1, "newer guy", &certificate);
     Tub<SegmentIterator> it;
@@ -776,7 +779,7 @@ TEST_F(ObjectManagerTest, replaySegment_highestBTreeIdMap) {
     highestBTreeIdMap[0] = 0;
     objectManager.replaySegment(&sl, *it, highestBTreeIdMap);
     EXPECT_EQ(12345U, highestBTreeIdMap[0]);
-    EXPECT_EQ("found=true tableId=0 byteCount=42 recordCount=1"
+    EXPECT_EQ("found=true tableId=0 byteCount=45 recordCount=1"
               , verifyMetadata(0));
 }
 

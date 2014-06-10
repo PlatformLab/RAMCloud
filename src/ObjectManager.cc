@@ -757,13 +757,9 @@ ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it,
             std::unordered_map<uint64_t, uint64_t>::iterator iter
                 = highestBTreeIdMap.find(recoveryObj->tableId);
             if (iter != highestBTreeIdMap.end()) {
-                const char *bTreeKey =
-                    reinterpret_cast<const char*>(primaryKey);
-                uint64_t bTreeId = 0;
-                for (int i = 0; i < primaryKeyLen; i++) {
-                    assert(('0' <= bTreeKey[i]) && (bTreeKey[i] <= '9'));
-                    bTreeId = bTreeId * 10 + bTreeKey[i] - '0';
-                }
+                const uint64_t *bTreeKey =
+                    reinterpret_cast<const uint64_t*>(primaryKey);
+                uint64_t bTreeId = *bTreeKey;
                 if (bTreeId > iter->second)
                     iter->second = bTreeId;
             }
@@ -849,14 +845,9 @@ ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it,
             std::unordered_map<uint64_t, uint64_t>::iterator iter
                 = highestBTreeIdMap.find(key.getTableId());
             if (iter != highestBTreeIdMap.end()) {
-                const char *bTreeKey =
-                    reinterpret_cast<const char*>(key.getStringKey());
-                KeyLength keyLength = key.getStringKeyLength();
-                uint64_t bTreeId = 0;
-                for (int i = 0; i < keyLength; i++) {
-                     assert(('0' <= bTreeKey[i]) && (bTreeKey[i] <= '9'));
-                     bTreeId = bTreeId * 10 + bTreeKey[i] - '0';
-                }
+                const uint64_t *bTreeKey =
+                    reinterpret_cast<const uint64_t*>(key.getStringKey());
+                uint64_t bTreeId = *bTreeKey;
                 if (bTreeId > iter->second)
                     iter->second = bTreeId;
             }
