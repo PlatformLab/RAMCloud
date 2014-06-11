@@ -713,8 +713,7 @@ TEST_F(ObjectTest, checkIntegrity) {
         EXPECT_TRUE(object.checkIntegrity());
 
         // screw up the first byte (in the Header)
-        uint8_t* evil = reinterpret_cast<uint8_t*>(
-            const_cast<void*>(buffer.getRange(0, 1)));
+        uint8_t* evil = reinterpret_cast<uint8_t*>(&object.header);
         uint8_t tmp = *evil;
         *evil = static_cast<uint8_t>(~*evil);
         EXPECT_FALSE(object.checkIntegrity());
@@ -723,8 +722,7 @@ TEST_F(ObjectTest, checkIntegrity) {
         // screw up the first byte - the number of keys
         EXPECT_TRUE(object.checkIntegrity());
         evil = reinterpret_cast<uint8_t*>(
-            const_cast<void*>(buffer.getRange(
-                sizeof(object.header), 1)));
+            const_cast<void*>(buffer.getRange(0, 1)));
         tmp = *evil;
         *evil = static_cast<uint8_t>(~*evil);
         EXPECT_FALSE(object.checkIntegrity());
@@ -733,8 +731,7 @@ TEST_F(ObjectTest, checkIntegrity) {
         // screw up the first byte in the first key
         EXPECT_TRUE(object.checkIntegrity());
         evil = reinterpret_cast<uint8_t*>(
-            const_cast<void*>(buffer.getRange(
-                sizeof(object.header) + 7, 1)));
+            const_cast<void*>(buffer.getRange(7, 1)));
         tmp = *evil;
         *evil = static_cast<uint8_t>(~*evil);
         EXPECT_FALSE(object.checkIntegrity());
