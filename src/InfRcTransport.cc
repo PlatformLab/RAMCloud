@@ -92,6 +92,7 @@
 #include "ServiceManager.h"
 #include "ShortMacros.h"
 #include "PerfCounter.h"
+#include "TimeTrace.h"
 
 #define check_error_null(x, s)                              \
     do {                                                    \
@@ -1049,10 +1050,8 @@ InfRcTransport::ClientRpc::sendZeroCopy(Buffer* request)
 {
     const bool allowZeroCopy = true;
     InfRcTransport* const t = transport;
-    uint32_t numSges = request->getNumberChunks();
-    if (request->getNumberChunks() > MAX_TX_SGE_COUNT)
-        numSges = MAX_TX_SGE_COUNT;
-    ibv_sge isge[numSges];
+    uint32_t lastChunkIndex = request->getNumberChunks() - 1;
+    ibv_sge isge[MAX_TX_SGE_COUNT];
 
     uint32_t currentChunk = 0;
     uint32_t currentSge = 0;
@@ -1060,13 +1059,24 @@ InfRcTransport::ClientRpc::sendZeroCopy(Buffer* request)
     char* unaddedStart = bd->buffer;
     char* unaddedEnd = bd->buffer;
     Buffer::Iterator it(request);
+    t->context->timeTrace->record("Before processing chunks");
     while (!it.isDone()) {
         const uintptr_t addr = reinterpret_cast<const uintptr_t>(it.getData());
+        // See if we can transmit this chunk from its current location
+        // (zero copy) vs. copying it into a transmit buffer:
+        // * The chunk must lie in the range of registered memory that
+        //   the NIC knows about.
+        // * If we run out of sges, then everything has to be copied
+        //   (but save the last sge for the last chunk, since it's the
+        //   one most likely to benefit from zero copying.
+        // * For small chunks, it's cheaper to copy than to send a
+        //   separate descriptor to the NIC.
         if (allowZeroCopy &&
-            (currentChunk == request->getNumberChunks() - 1 ||
-             currentSge < numSges - 1) &&
+            (currentSge < MAX_TX_SGE_COUNT - 1 ||
+             currentChunk == lastChunkIndex) &&
             addr >= t->logMemoryBase &&
-            (addr + it.getLength()) <= (t->logMemoryBase + t->logMemoryBytes))
+            (addr + it.getLength()) <= (t->logMemoryBase + t->logMemoryBytes) &&
+            it.getLength() > 500)
         {
             if (unaddedStart != unaddedEnd) {
                 isge[currentSge] = {
@@ -1102,6 +1112,7 @@ InfRcTransport::ClientRpc::sendZeroCopy(Buffer* request)
         ++currentSge;
         unaddedStart = unaddedEnd;
     }
+    t->context->timeTrace->record("After processing chunks");
 
     ibv_send_wr txWorkRequest;
 
