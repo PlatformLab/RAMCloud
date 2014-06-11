@@ -143,12 +143,12 @@ AbstractServerList::getSession(ServerId id)
             return FailSession::get();
         if (details->session != NULL)
             return details->session;
-        locator = details->serviceLocator.c_str();
+        locator = details->serviceLocator;
     }
 
     // No cached session. Open a new session.
     Transport::SessionRef session =
-            context->transportManager->openSession(locator.c_str());
+            context->transportManager->openSession(locator);
 
     // Verify that the server at the given locator is actually the
     // server we want (it's possible that a different incarnation of

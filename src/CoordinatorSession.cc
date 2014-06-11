@@ -100,7 +100,7 @@ CoordinatorSession::getSession()
         // This is an old-style "direct" locator.
         locator = coordinatorLocator;
     }
-    session = context->transportManager->openSession(locator.c_str());
+    session = context->transportManager->openSession(locator);
     if (session->getServiceLocator() != "fail:") {
         LOG(NOTICE, "Opened session with coordinator at %s", locator.c_str());
     }

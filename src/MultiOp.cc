@@ -15,6 +15,7 @@
 
 #include "MultiOp.h"
 #include "ShortMacros.h"
+#include "TimeTrace.h"
 
 namespace RAMCloud {
 
@@ -473,7 +474,7 @@ MultiOp::PartRpc::handleTransportError()
     // will all be retried when \c finish is called.
     if (session.get() != NULL) {
         ramcloud->clientContext->transportManager->flushSession(
-                session->getServiceLocator().c_str());
+                session->getServiceLocator());
         session = NULL;
     }
     for (uint32_t i = 0; i < reqHdr->count; i++) {

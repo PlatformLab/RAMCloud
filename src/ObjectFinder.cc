@@ -215,7 +215,7 @@ Transport::SessionRef
 ObjectFinder::lookup(uint64_t tableId, KeyHash keyHash)
 {
     return context->transportManager->getSession(
-                lookupTablet(tableId, keyHash)->serviceLocator.c_str());
+                lookupTablet(tableId, keyHash)->serviceLocator);
 }
 
 /**
@@ -244,7 +244,7 @@ ObjectFinder::lookup(uint64_t tableId, uint8_t indexId,
         return Transport::SessionRef();
     }
     return context->transportManager->getSession(
-                        indexlet->serviceLocator.c_str());
+                        indexlet->serviceLocator);
 }
 
 /**
@@ -372,7 +372,7 @@ ObjectFinder::flushSession(uint64_t tableId, KeyHash keyHash)
         const TabletWithLocator* tabletWithLocator = lookupTablet(tableId,
                                                                 keyHash);
         context->transportManager->flushSession(
-                                    tabletWithLocator->serviceLocator.c_str());
+                                    tabletWithLocator->serviceLocator);
     } catch (TableDoesntExistException& e) {
         // We don't even store this tablet anymore, so there's nothing
         // to worry about.
@@ -403,7 +403,7 @@ ObjectFinder::flushSession(uint64_t tableId, uint8_t indexId,
                                               key, keyLength);
     if (indexlet != NULL) {
         context->transportManager->flushSession(
-                        indexlet->serviceLocator.c_str());
+                        indexlet->serviceLocator);
     }
 }
 

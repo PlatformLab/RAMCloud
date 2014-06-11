@@ -47,10 +47,10 @@ class TransportManager {
     explicit TransportManager(Context* context);
     ~TransportManager();
     void initialize(const char* serviceLocator);
-    void flushSession(const char* serviceLocator);
-    Transport::SessionRef getSession(const char* serviceLocator);
+    void flushSession(const string& serviceLocator);
+    Transport::SessionRef getSession(const string& serviceLocator);
     string getListeningLocatorsString();
-    Transport::SessionRef openSession(const char* serviceLocator);
+    Transport::SessionRef openSession(const string& serviceLocator);
     void registerMemory(void* base, size_t bytes);
     void dumpStats();
     void dumpTransportFactories();
@@ -103,7 +103,7 @@ class TransportManager {
 #endif
 
   PRIVATE:
-    Transport::SessionRef openSessionInternal(const char* serviceLocator);
+    Transport::SessionRef openSessionInternal(const string& serviceLocator);
 
     /**
      * Shared RAMCloud information.

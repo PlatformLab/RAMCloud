@@ -199,9 +199,9 @@ TransportManager::initialize(const char* localServiceLocator)
  *      passed to an earlier call to getSession).
  */
 void
-TransportManager::flushSession(const char* serviceLocator)
+TransportManager::flushSession(const string& serviceLocator)
 {
-    TEST_LOG("flushing session for %s", serviceLocator);
+    TEST_LOG("flushing session for %s", serviceLocator.c_str());
     auto it = sessionCache.find(serviceLocator);
     if (it != sessionCache.end())
         sessionCache.erase(it);
@@ -229,7 +229,7 @@ TransportManager::flushSession(const char* serviceLocator)
  *      option is malformed.
  */
 Transport::SessionRef
-TransportManager::getSession(const char* serviceLocator)
+TransportManager::getSession(const string& serviceLocator)
 {
     // If we're running on a server (i.e., multithreaded) must exclude
     // other threads.
@@ -280,7 +280,7 @@ TransportManager::getListeningLocatorsString()
  *      an error message is logged and a FailSession is returned.
  */
 Transport::SessionRef
-TransportManager::openSession(const char* serviceLocator)
+TransportManager::openSession(const string& serviceLocator)
 {
     // If we're running on a server (i.e., multithreaded) must exclude
     // other threads.
@@ -304,7 +304,7 @@ TransportManager::openSession(const char* serviceLocator)
  *      an error message is logged and a FailSession is returned.
  */
 Transport::SessionRef
-TransportManager::openSessionInternal(const char* serviceLocator)
+TransportManager::openSessionInternal(const string& serviceLocator)
 {
     CycleCounter<RawMetric> _(&metrics->transport.sessionOpenTicks);
     // Collects error messages from all the transports that tried to
@@ -364,10 +364,10 @@ TransportManager::openSessionInternal(const char* serviceLocator)
 
     if (messages.empty()) {
         LOG(WARNING, "No supported transport found for locator %s",
-                serviceLocator);
+                serviceLocator.c_str());
     } else {
         LOG(WARNING, "Couldn't open session for locator %s (%s)",
-                serviceLocator, messages.c_str());
+                serviceLocator.c_str(), messages.c_str());
     }
     return FailSession::get();
 }

@@ -272,7 +272,7 @@ ObjectManager::writeObject(Object& newObject,
             TransportManager& transportManager =
                 *context->transportManager;
             foreach(auto& backup, backups.server())
-                transportManager.getSession(backup.service_locator().c_str());
+                transportManager.getSession(backup.service_locator());
         }
     }
 
