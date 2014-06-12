@@ -159,7 +159,7 @@ genRandomString(char* str, const int length) {
 void
 printTime(const char* name, double seconds, const char* description)
 {
-    printf("%-30s ", name);
+    printf("%-20s ", name);
     if (seconds < 1.0e-06) {
         printf("%5.1f ns   ", 1e09*seconds);
     } else if (seconds < 1.0e-03) {
@@ -191,7 +191,7 @@ printBandwidth(const char* name, double bandwidth, const char* description)
     double gb = 1024.0*1024.0*1024.0;
     double mb = 1024.0*1024.0;
     double kb = 1024.0;
-    printf("%-30s ", name);
+    printf("%-20s ", name);
     if (bandwidth > gb) {
         printf("%5.1f GB/s ", bandwidth/gb);
     } else if (bandwidth > mb) {
@@ -630,8 +630,10 @@ fillBuffer(Buffer& buffer, uint32_t size, uint64_t tableId,
  *
  * \param buffer
  *      Buffer whose contents are to be checked.
+ * \param offset
+ *      Check the data starting at this offset in the buffer.
  * \param expectedLength
- *      The buffer should contain this many bytes.
+ *      The buffer should contain this many bytes starting at offset.
  * \param tableId
  *      This table identifier should be reflected in the buffer's data.
  * \param key
@@ -644,19 +646,19 @@ fillBuffer(Buffer& buffer, uint32_t size, uint64_t tableId,
  *      there was an error.
  */
 bool
-checkBuffer(Buffer* buffer, uint32_t expectedLength, uint64_t tableId,
-            const void* key, uint16_t keyLength)
+checkBuffer(Buffer* buffer, uint32_t offset, uint32_t expectedLength,
+        uint64_t tableId, const void* key, uint16_t keyLength)
 {
     uint32_t length = buffer->getTotalLength();
-    if (length != expectedLength) {
+    if (length != (expectedLength + offset)) {
         RAMCLOUD_LOG(ERROR, "corrupted data: expected %u bytes, "
-                "found %u bytes", expectedLength, length);
+                "found %u bytes", expectedLength, length - offset);
         return false;
     }
     Buffer comparison;
     fillBuffer(comparison, expectedLength, tableId, key, keyLength);
     for (uint32_t i = 0; i < expectedLength; i++) {
-        char c1 = *buffer->getOffset<char>(i);
+        char c1 = *buffer->getOffset<char>(offset + i);
         char c2 = *comparison.getOffset<char>(i);
         if (c1 != c2) {
             int start = i - 10;
@@ -675,7 +677,7 @@ checkBuffer(Buffer* buffer, uint32_t expectedLength, uint64_t tableId,
                     "(\"%s%.*s%s\" vs \"%s%.*s%s\")", c2, c1, prefix, length,
                     static_cast<const char*>(comparison.getRange(start,
                     length)), suffix, prefix, length,
-                    static_cast<const char*>(buffer->getRange(start,
+                    static_cast<const char*>(buffer->getRange(offset + start,
                     length)), suffix);
             return false;
         }
@@ -1113,7 +1115,7 @@ basic()
                 input.getRange(0, size), size);
         Buffer output;
         double t = timeRead(dataTable, key, keyLength, 100, output);
-        checkBuffer(&output, size, dataTable, key, keyLength);
+        checkBuffer(&output, 0, size, dataTable, key, keyLength);
 
         snprintf(name, sizeof(name), "basic.read%s", ids[i]);
         snprintf(description, sizeof(description),
@@ -1135,7 +1137,7 @@ basic()
                 input.getRange(0, size), size, 100);
         // Make sure the object was properly written.
         cluster->read(dataTable, key, keyLength, &output);
-        checkBuffer(&output, size, dataTable, key, keyLength);
+        checkBuffer(&output, 0, size, dataTable, key, keyLength);
 
         snprintf(name, sizeof(name), "basic.write%s", ids[i]);
         snprintf(description, sizeof(description),
@@ -1284,8 +1286,10 @@ doMultiRead(int dataLength, uint16_t keyLength,
     // Check that the values read were the same as the values written.
     for (int tableNum = 0; tableNum < numMasters; ++tableNum) {
         for (int i = 0; i < objsPerMaster; i++) {
-            Buffer* output = values[tableNum][i].get();
-            checkBuffer(output, dataLength, tableIds[tableNum],
+            ObjectBuffer* output = values[tableNum][i].get();
+            uint16_t offset;
+            output->getValueOffset(&offset);
+            checkBuffer(output, offset, dataLength, tableIds[tableNum],
                     keys[tableNum][i], keyLength);
         }
     }
@@ -1923,7 +1927,7 @@ multiRead_oneObjectPerMaster()
     for (int numMasters = 1; numMasters <= maxNumMasters; numMasters++) {
         double latency =
             doMultiRead(dataLength, keyLength, numMasters, objsPerMaster);
-        printf("%10d %14d %14d %14.1f %18.1f\n",
+        printf("%10d %14d %14d %14.1f %18.2f\n",
             numMasters*objsPerMaster, numMasters, objsPerMaster,
             1e06*latency, 1e06*latency/numMasters/objsPerMaster);
     }
@@ -1957,7 +1961,7 @@ multiRead_oneMaster()
 
         double latency =
             doMultiRead(dataLength, keyLength, numMasters, objsPerMaster);
-        printf("%10d %14d %14d %14.1f %18.1f\n",
+        printf("%10d %14d %14d %14.1f %18.2f\n",
             numMasters*objsPerMaster, numMasters, objsPerMaster,
             1e06*latency, 1e06*latency/numMasters/objsPerMaster);
     }
@@ -1989,7 +1993,7 @@ multiRead_general()
         int objsPerMaster = totalObjs / numMasters;
         double latency =
             doMultiRead(dataLength, keyLength, numMasters, objsPerMaster);
-        printf("%10d %14d %14d %14.1f %18.1f\n",
+        printf("%10d %14d %14d %14.1f %18.2f\n",
             numMasters*objsPerMaster, numMasters, objsPerMaster,
             1e06*latency, 1e06*latency/numMasters/objsPerMaster);
     }
@@ -2023,7 +2027,7 @@ multiRead_generalRandom()
         int objsPerMaster = totalObjs / numMasters;
         double latency =
             doMultiRead(dataLength, keyLength, numMasters, objsPerMaster, true);
-        printf("%10d %14d %14d %14.1f %18.1f\n",
+        printf("%10d %14d %14d %14.1f %18.2f\n",
             numMasters*objsPerMaster, numMasters, objsPerMaster,
             1e06*latency, 1e06*latency/numMasters/objsPerMaster);
     }
@@ -2056,7 +2060,7 @@ multiWrite_oneMaster()
 
         double latency =
             doMultiWrite(dataLength, keyLength, numMasters, objsPerMaster);
-        printf("%10d %14d %14d %14.1f %18.1f\n",
+        printf("%10d %14d %14d %14.1f %18.2f\n",
             numMasters*objsPerMaster, numMasters, objsPerMaster,
             1e06*latency, 1e06*latency/numMasters/objsPerMaster);
     }
@@ -2230,7 +2234,7 @@ readDist()
     cluster->write(dataTable, key, keyLength,
                 input.getRange(0, objectSize), objectSize);
     cluster->read(dataTable, key, keyLength, &value);
-    checkBuffer(&value, objectSize, dataTable, key, keyLength);
+    checkBuffer(&value, 0, objectSize, dataTable, key, keyLength);
 
     // Warmup, if desired
     for (int i = 0; i < warmupCount; i++) {
@@ -2349,7 +2353,7 @@ readLoaded()
                 input.getRange(0, size), size);
         double t = timeRead(dataTable, key, keyLength, 100, output);
         cluster->write(dataTable, key, keyLength, "");
-        checkBuffer(&output, size, dataTable, key, keyLength);
+        checkBuffer(&output, 0, size, dataTable, key, keyLength);
         printf("%5d     %10.1f          %8.0f\n", numSlaves+1, t*1e06,
                 (numSlaves+1)/(1e03*t));
         sendCommand(NULL, "idle", 1, numSlaves);
@@ -2558,7 +2562,7 @@ readVaryingKeyLength()
         cluster->write(dataTable, key, keyLength,
                 input.getRange(0, dataLength), dataLength);
         double t = timeRead(dataTable, key, keyLength, 100, output);
-        checkBuffer(&output, dataLength, dataTable, key, keyLength);
+        checkBuffer(&output, 0, dataLength, dataTable, key, keyLength);
 
         printf("%12u %16.1f %19.1f\n", keyLength, 1e06*t,
                (keyLength / t)/(1024.0*1024.0));
@@ -2599,7 +2603,7 @@ writeVaryingKeyLength()
                 input.getRange(0, dataLength), dataLength, 100);
         Buffer output;
         cluster->read(dataTable, key, keyLength, &output);
-        checkBuffer(&output, dataLength, dataTable, key, keyLength);
+        checkBuffer(&output, 0, dataLength, dataTable, key, keyLength);
 
         printf("%12u %16.1f %19.1f\n", keyLength, 1e06*t,
                (keyLength / t)/(1024.0*1024.0));
