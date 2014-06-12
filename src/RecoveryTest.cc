@@ -211,6 +211,49 @@ TEST_F(RecoveryTest, splitTablets_multi_tablet) {
     EXPECT_EQ(6u, tablets.size());
 }
 
+TEST_F(RecoveryTest, splitTablets_indexlet) {
+    // Case where there is more than one tablet.
+    Lock lock(mutex);     // To trick TableManager internal calls.
+    Tub<Recovery> recovery;
+    Recovery::Owner* own = static_cast<Recovery::Owner*>(NULL);
+    tableManager.testCreateTable("t1", 1);
+    tableManager.testAddTablet({1,  0,  9, {99, 0}, Tablet::RECOVERING, {}});
+    tableManager.testCreateTable("t2", 2);
+    tableManager.testAddTablet({2,  0,  19, {99, 0}, Tablet::RECOVERING, {}});
+    tableManager.testCreateTable("__indexTable:1:0:0", 3);
+    tableManager.testAddTablet({3,  0,  ~0UL, {99, 0}, Tablet::RECOVERING, {}});
+    tableManager.createIndex(1, 0, 0, 1);
+    recovery.construct(&context, taskQueue, &tableManager, &tracker, own,
+                       ServerId(99), recoveryInfo);
+    auto tablets = tableManager.markAllTabletsRecovering(ServerId(99));
+
+    char buffer[sizeof(TableStats::DigestHeader) +
+                3 * sizeof(TableStats::DigestEntry)];
+    TableStats::Digest* digest = reinterpret_cast<TableStats::Digest*>(buffer);
+    digest->header.entryCount = 3;
+    digest->header.otherByteCount = 0;
+    digest->header.otherRecordCount = 0;
+    digest->entries[0].tableId = 1;
+    digest->entries[0].byteCount = 1 * 600*1024*1024;
+    digest->entries[0].recordCount = 1 * 3000000;
+
+    digest->entries[1].tableId = 2;
+    digest->entries[1].byteCount = 2 * 600*1024*1024;
+    digest->entries[1].recordCount = 2 * 3000000;
+
+    digest->entries[2].tableId = 3;
+    digest->entries[2].byteCount = 3 * 600*1024*1024;
+    digest->entries[2].recordCount = 3 * 3000000;
+
+    TableStats::Estimator e(digest, &tablets);
+
+    EXPECT_TRUE(e.valid);
+
+    EXPECT_EQ(3u, tablets.size());
+    recovery->splitTablets(&tablets, &e);
+    EXPECT_EQ(4u, tablets.size());
+}
+
 TEST_F(RecoveryTest, splitTablets_basic) {
     // Tests that a basic split of a single tablet will execute and update the
     // TableManager tablet information.
@@ -947,21 +990,21 @@ TEST_F(RecoveryTest, startRecoveryMasters) {
         Cb() : callCount() {}
         void masterStartTaskSend(uint64_t recoveryId,
             ServerId crashedServerId, uint32_t partitionId,
-            const ProtoBuf::Tablets& tablets,
+            const ProtoBuf::RecoveryPartition& recoveryPartition,
             const WireFormat::Recover::Replica replicaMap[],
             size_t replicaMapSize)
         {
             if (callCount == 0) {
                 EXPECT_EQ(1lu, recoveryId);
                 EXPECT_EQ(ServerId(99, 0), crashedServerId);
-                ASSERT_EQ(2, tablets.tablet_size());
-                const auto* tablet = &tablets.tablet(0);
+                ASSERT_EQ(2, recoveryPartition.tablet_size());
+                const auto* tablet = &recoveryPartition.tablet(0);
                 EXPECT_EQ(123lu, tablet->table_id());
                 EXPECT_EQ(0lu, tablet->start_key_hash());
                 EXPECT_EQ(9lu, tablet->end_key_hash());
                 EXPECT_EQ(TabletsBuilder::Tablet::RECOVERING, tablet->state());
                 EXPECT_EQ(0lu, tablet->user_data());
-                tablet = &tablets.tablet(1);
+                tablet = &recoveryPartition.tablet(1);
                 EXPECT_EQ(123lu, tablet->table_id());
                 EXPECT_EQ(20lu, tablet->start_key_hash());
                 EXPECT_EQ(29lu, tablet->end_key_hash());
@@ -970,8 +1013,8 @@ TEST_F(RecoveryTest, startRecoveryMasters) {
             } else if (callCount == 1) {
                 EXPECT_EQ(1lu, recoveryId);
                 EXPECT_EQ(ServerId(99, 0), crashedServerId);
-                ASSERT_EQ(1, tablets.tablet_size());
-                const auto* tablet = &tablets.tablet(0);
+                ASSERT_EQ(1, recoveryPartition.tablet_size());
+                const auto* tablet = &recoveryPartition.tablet(0);
                 EXPECT_EQ(123lu, tablet->table_id());
                 EXPECT_EQ(10lu, tablet->start_key_hash());
                 EXPECT_EQ(19lu, tablet->end_key_hash());
@@ -994,8 +1037,8 @@ TEST_F(RecoveryTest, startRecoveryMasters) {
     recovery.partitionTablets(
                 tableManager.markAllTabletsRecovering({99, 0}), NULL);
     // Hack 'tablets' to get the first two tablets on the same server.
-    recovery.tabletsToRecover.mutable_tablet(1)->set_user_data(0);
-    recovery.tabletsToRecover.mutable_tablet(2)->set_user_data(1);
+    recovery.dataToRecover.mutable_tablet(1)->set_user_data(0);
+    recovery.dataToRecover.mutable_tablet(2)->set_user_data(1);
     recovery.numPartitions = 2;
     recovery.testingMasterStartTaskSendCallback = &callback;
     recovery.startRecoveryMasters();
@@ -1019,14 +1062,14 @@ TEST_F(RecoveryTest, startRecoveryMasters_tooFewIdleMasters) {
         Cb() : callCount() {}
         void masterStartTaskSend(uint64_t recoveryId,
             ServerId crashedServerId, uint32_t partitionId,
-            const ProtoBuf::Tablets& tablets,
+            const ProtoBuf::RecoveryPartition& recoveryPartition,
             const WireFormat::Recover::Replica replicaMap[],
             size_t replicaMapSize)
         {
             if (callCount == 0) {
                 EXPECT_EQ(1lu, recoveryId);
                 EXPECT_EQ(ServerId(99, 0), crashedServerId);
-                ASSERT_EQ(2, tablets.tablet_size());
+                ASSERT_EQ(2, recoveryPartition.tablet_size());
             } else {
                 FAIL();
             }
@@ -1045,8 +1088,8 @@ TEST_F(RecoveryTest, startRecoveryMasters_tooFewIdleMasters) {
     recovery.partitionTablets(
                 tableManager.markAllTabletsRecovering({99, 0}), NULL);
     // Hack 'tablets' to get the first two tablets on the same server.
-    recovery.tabletsToRecover.mutable_tablet(1)->set_user_data(0);
-    recovery.tabletsToRecover.mutable_tablet(2)->set_user_data(1);
+    recovery.dataToRecover.mutable_tablet(1)->set_user_data(0);
+    recovery.dataToRecover.mutable_tablet(2)->set_user_data(1);
     recovery.numPartitions = 2;
     recovery.testingMasterStartTaskSendCallback = &callback;
     recovery.startRecoveryMasters();
@@ -1132,6 +1175,26 @@ TEST_F(RecoveryTest, startRecoveryMasters_allFailDuringRecoverRpc) {
     EXPECT_FALSE(recovery.isScheduled()); // NOT scheduled to send broadcast
     EXPECT_FALSE(tracker[ServerId(1, 0)]);
     EXPECT_FALSE(tracker[ServerId(2, 0)]);
+}
+
+TEST_F(RecoveryTest, startRecoveryMasters_indexlet) {
+    Lock lock(mutex);     // To trick TableManager internal calls.
+    addServersToTracker(4, {WireFormat::MASTER_SERVICE});
+    tableManager.testCreateTable("t", 123);
+    tableManager.testAddTablet({123,  0,  9, {99, 0}, Tablet::RECOVERING, {}});
+    tableManager.testAddTablet({123, 20, 29, {99, 0}, Tablet::RECOVERING, {}});
+    tableManager.testAddTablet({123, 10, 19, {99, 0}, Tablet::RECOVERING, {}});
+    tableManager.testCreateTable("__indexTable:123:0:0", 3);
+    tableManager.testAddTablet({3,  0,  ~0UL, {99, 0}, Tablet::RECOVERING, {}});
+    tableManager.createIndex(123, 0, 0, 1);
+    Recovery recovery(&context, taskQueue, &tableManager, &tracker, NULL,
+                      {99, 0}, recoveryInfo);
+    recovery.partitionTablets(
+                tableManager.markAllTabletsRecovering({99, 0}), NULL);
+    recovery.startRecoveryMasters();
+
+    EXPECT_EQ(4u, recovery.numPartitions);
+    EXPECT_EQ(4, recovery.dataToRecover.tablet_size());
 }
 
 TEST_F(RecoveryTest, recoveryMasterFinished) {

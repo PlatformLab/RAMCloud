@@ -44,7 +44,7 @@ class RecoverySegmentBuilder {
     static void build(const void* buffer, uint32_t length,
                       const Segment::Certificate& certificate,
                       int numPartitions,
-                      const ProtoBuf::Tablets& partitions,
+                      const ProtoBuf::RecoveryPartition& partitions,
                       Segment* recoverySegments);
     static bool extractDigest(const void* buffer, uint32_t length,
                               const Segment::Certificate& certificate,
@@ -54,7 +54,7 @@ class RecoverySegmentBuilder {
                              const ProtoBuf::Tablets::Tablet* tablet);
     static const ProtoBuf::Tablets::Tablet*
     whichPartition(uint64_t tableId, KeyHash keyHash,
-                   const ProtoBuf::Tablets& partitions);
+                   const ProtoBuf::RecoveryPartition& partitions);
 
     // Disallow construction.
     RecoverySegmentBuilder() {}

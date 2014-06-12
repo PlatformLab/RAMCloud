@@ -75,7 +75,7 @@ Recovery::Recovery(Context* context,
     , context(context)
     , crashedServerId(crashedServerId)
     , masterRecoveryInfo(recoveryInfo)
-    , tabletsToRecover()
+    , dataToRecover()
     , tableManager(tableManager)
     , tracker(tracker)
     , owner(owner)
@@ -132,6 +132,14 @@ Recovery::splitTablets(vector<Tablet> *tablets,
     size_t size = tablets->size();
     for (size_t i = 0; i < size; ++i) {
         Tablet* tablet = &tablets->at(i);
+
+        // Currently we didn't support split operation for index tablets.
+        // Therefore, if we found a tablet is an index tablet, we just skip
+        // the following operations.
+        // TODO(zhihao): maybe in the future we should consider spliting
+        // large index tablets.
+        if (tableManager->isIndexletTable(tablet->tableId))
+            continue;
 
         TableStats::Estimator::Entry stats = estimator->estimate(tablet);
 
@@ -285,7 +293,7 @@ struct Partition {
  * of bytes and number of records in each partition is limited (to ensure fast
  * crash recovery) and there are as few partitions as possible.
  *
- * Partitions are set by serializing the tablet entry into tabletsToRecover and
+ * Partitions are set by serializing the tablet entry into dataToRecover and
  * setting partitionId in the entry's "user_data".
  *
  * \param tablets
@@ -310,7 +318,7 @@ Recovery::partitionTablets(vector<Tablet> tablets,
         LOG(ERROR,
             "No valid TableStats Estimator; using naive partitioning.");
         foreach (auto& tablet, tablets) {
-            ProtoBuf::Tablets::Tablet& entry = *tabletsToRecover.add_tablet();
+            ProtoBuf::Tablets::Tablet& entry = *dataToRecover.add_tablet();
             tablet.serialize(entry);
             entry.set_user_data(numPartitions++);
         }
@@ -333,7 +341,7 @@ Recovery::partitionTablets(vector<Tablet> tablets,
             if (partition.fits(estimator->estimate(&tablet))) {
                 partition.add(estimator->estimate(&tablet));
                 ProtoBuf::Tablets::Tablet& entry =
-                                            *tabletsToRecover.add_tablet();
+                                            *dataToRecover.add_tablet();
                 tablet.serialize(entry);
                 entry.set_user_data(partition.partitionId);
                 // If the partition is mostly full, remove the partition
@@ -350,7 +358,7 @@ Recovery::partitionTablets(vector<Tablet> tablets,
             // so make a new partition.
             Partition partition(numPartitions++);
             partition.add(estimator->estimate(&tablet));
-            ProtoBuf::Tablets::Tablet& entry = *tabletsToRecover.add_tablet();
+            ProtoBuf::Tablets::Tablet& entry = *dataToRecover.add_tablet();
             tablet.serialize(entry);
             entry.set_user_data(partition.partitionId);
             // If the partition still has room for more tablets, add it to the
@@ -592,7 +600,7 @@ BackupStartPartitionTask::send()
     LOG(DEBUG, "Sending StartPartitioning: %s",
         backupServerId.toString().c_str());
     rpc.construct(recovery->context, backupServerId, recovery->recoveryId,
-                recovery->crashedServerId, &(recovery->tabletsToRecover));
+                recovery->crashedServerId, &(recovery->dataToRecover));
 }
 
 void
@@ -895,7 +903,7 @@ Recovery::startBackups()
     TableStats::Estimator estimator(tableStats, &tablets);
     partitionTablets(tablets, &estimator);
     LOG(NOTICE, "Partition Scheme for Recovery:\n%s",
-                tabletsToRecover.DebugString().c_str());
+                dataToRecover.DebugString().c_str());
 
     parallelRun(backupPartitionTasks.get(), backups.size(),
             maxActiveBackupHosts);
@@ -918,7 +926,7 @@ struct MasterStartTask {
         , serverId(serverId)
         , replicaMap(replicaMap)
         , partitionId(partitionId)
-        , tabletsToRecover()
+        , dataToRecover()
         , rpc()
         , done(false)
         , testingCallback(recovery.testingMasterStartTaskSendCallback)
@@ -937,7 +945,7 @@ struct MasterStartTask {
                           recovery.crashedServerId,
                           recovery.testingFailRecoveryMasters > 0
                               ? ~0u : partitionId,
-                          &tabletsToRecover,
+                          &dataToRecover,
                           replicaMap.data(),
                           downCast<uint32_t>(replicaMap.size()));
             if (recovery.testingFailRecoveryMasters > 0) {
@@ -949,7 +957,7 @@ struct MasterStartTask {
             testingCallback->masterStartTaskSend(recovery.recoveryId,
                                                  recovery.crashedServerId,
                                                  partitionId,
-                                                 tabletsToRecover,
+                                                 dataToRecover,
                                                  replicaMap.data(),
                                                  replicaMap.size());
         }
@@ -979,7 +987,7 @@ struct MasterStartTask {
 
     const vector<WireFormat::Recover::Replica>& replicaMap;
     const uint32_t partitionId;
-    ProtoBuf::Tablets tabletsToRecover;
+    ProtoBuf::RecoveryPartition dataToRecover;
     Tub<RecoverRpc> rpc;
     bool done;
     MasterStartTaskTestingCallback* testingCallback;
@@ -1036,10 +1044,20 @@ Recovery::startRecoveryMasters()
 
     // Hand out each tablet from the will to one of the recovery masters
     // depending on which partition it was in.
-    foreach (auto& tablet, tabletsToRecover.tablet()) {
+    foreach (auto& tablet, dataToRecover.tablet()) {
         auto& task = recoverTasks[tablet.user_data()];
-        if (task)
-            *task->tabletsToRecover.add_tablet() = tablet;
+        if (task) {
+            *task->dataToRecover.add_tablet() = tablet;
+            if (tableManager->isIndexletTable(tablet.table_id())) {
+                ProtoBuf::Indexlets::Indexlet& entry =
+                    *task->dataToRecover.add_indexlet();
+                tableManager->getIndexletInfoByIndexletTableId(
+                                  tablet.table_id(), entry);
+                LOG(NOTICE, "Starting recovery %lu for crashed server %s with "
+                    "index %d", recoveryId, crashedServerId.toString().c_str(),
+                    entry.index_id());
+            }
+        }
     }
 
     // Tell the recovery masters to begin recovery.

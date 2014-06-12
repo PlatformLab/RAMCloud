@@ -40,6 +40,7 @@ TableManager::TableManager(Context* context,
     , tabletMaster()
     , directory()
     , idMap()
+    , indexletTableMap()
 {
     context->tableManager = this;
 }
@@ -250,16 +251,22 @@ TableManager::createIndex(uint64_t tableId, uint8_t indexId, uint8_t indexType,
                 indexlet = new Indexlet(
                             reinterpret_cast<void *>(&firstKey),
                             1, reinterpret_cast<void *>(&firstNotOwnedKey),
-                            1, tabletMaster, indexletTableId);
+                            1, tabletMaster, indexletTableId,
+                            tableId, indexId);
             } else {
                 char firstKey = static_cast<char>('a'+i);
                 char firstNotOwnedKey = static_cast<char>('b'+i);
                 indexlet = new Indexlet(
                             reinterpret_cast<void *>(&firstKey),
                             1, reinterpret_cast<void *>(&firstNotOwnedKey),
-                            1, tabletMaster, indexletTableId);
+                            1, tabletMaster, indexletTableId,
+                            tableId, indexId);
             }
             index->indexlets.push_back(indexlet);
+
+            // Now we add tableIndexId<->indexlet into indexletTableMap
+            indexletTableMap.insert(
+                std::make_pair(indexletTableId, indexlet));
         }
     }
     catch (...) {
@@ -413,6 +420,10 @@ TableManager::dropIndex(uint64_t tableId, uint8_t indexId)
     }
 
     Index* index = table->indexMap[indexId];
+    foreach (Indexlet* indexlet, index->indexlets) {
+        indexletTableMap.erase(indexlet->indexletTableId);
+    }
+
     uint8_t numIndexlets = (uint8_t)index->indexlets.size();
 
     LOG(NOTICE, "Dropping table '%lu' index '%u'", tableId, indexId);
@@ -467,6 +478,126 @@ TableManager::getTablet(uint64_t tableId, uint64_t keyHash)
         throw NoSuchTablet(HERE);
     Table* table = it->second;
     return *findTablet(lock, table, keyHash);
+}
+
+/**
+ * Return information about a indexlet (e.g., its key, tableId, indexId,
+ * ServerId, and indexletTableId), when given a indexletTableId
+ *
+ * \param indexletTableId
+ *      Identifier of the table
+ * \param indexlet
+ *      Indexlet information structure to populate
+ * \return
+ *      True if the querying table is an indexlet table.
+ *      Otherwise, return false.
+ */
+bool
+TableManager::getIndexletInfoByIndexletTableId(uint64_t indexletTableId,
+                  ProtoBuf::Indexlets::Indexlet& indexlet)
+{
+    Lock lock(mutex);
+    IndexletTableMap::iterator it = indexletTableMap.find(indexletTableId);
+    if (it == indexletTableMap.end())
+        return false;
+
+    if (it->second->firstKey != NULL)
+        indexlet.set_start_key(string(reinterpret_cast<char*>(
+                               it->second->firstKey),
+                               it->second->firstKeyLength));
+    else
+        indexlet.set_start_key("");
+
+    if (it->second->firstNotOwnedKey != NULL)
+        indexlet.set_end_key(string(reinterpret_cast<char*>(
+                             it->second->firstNotOwnedKey),
+                             it->second->firstNotOwnedKeyLength));
+    else
+        indexlet.set_end_key("");
+    indexlet.set_table_id(it->second->tableId);
+    indexlet.set_index_id(it->second->indexId);
+    indexlet.set_indexlettable_id(it->second->indexletTableId);
+    indexlet.set_server_id(it->second->serverId.getId());
+    return true;
+}
+
+/**
+ * Invoked by MasterRecoveryManager after recovery for a indexlet has
+ * successfully completed to inform coordinator about the new master
+ * for the indexlet.
+ *
+ * \param tableId
+ *      Id of table containing the tablet.
+ * \param indexId
+ *      Id of the index key for which this indexlet stores some information.
+ * \param firstKey
+ *      Key blob marking the start of the indexed key range for this indexlet.
+ * \param firstKeyLength
+ *      Length of firstKeyStr.
+ * \param firstNotOwnedKey
+ *      Key blob marking the first not owned key of the key space
+ *      for this indexlet.
+ * \param firstNotOwnedKeyLength
+ *      Length of firstNotOwnedKey.
+ * \param serverId
+ *      Indexlet is updated to indicate that it is owned by \a serverId.
+ * \param indexletTableId
+ *      Id of table which store B+tree of this indexlet.
+ */
+void
+TableManager::indexletRecovered(
+        uint64_t tableId, uint8_t indexId, void* firstKey,
+        uint16_t firstKeyLength, void* firstNotOwnedKey,
+        uint16_t firstNotOwnedKeyLength, ServerId serverId,
+        uint64_t indexletTableId)
+{
+    Lock lock(mutex);
+
+    // Find the desired table and indexlet.
+    IdMap::iterator it = idMap.find(tableId);
+    if (it == idMap.end())
+        throw NoSuchTablet(HERE);
+    Table* table = it->second;
+    if (!table->indexMap[indexId]){
+        throw NoSuchIndexlet(HERE);
+    }
+    Index* index = table->indexMap[indexId];
+
+    bool foundIndexlet = 0;
+    foreach (Indexlet* indexlet, index->indexlets) {
+        if ((indexlet->firstKeyLength == firstKeyLength)
+           &&(indexlet->firstNotOwnedKeyLength == firstNotOwnedKeyLength)
+           &&(bcmp(indexlet->firstKey, firstKey, firstKeyLength) == 0)
+           &&(bcmp(indexlet->firstNotOwnedKey, firstNotOwnedKey,
+                   firstNotOwnedKeyLength) == 0))
+        {
+            indexlet->serverId = serverId;
+            indexlet->indexletTableId = indexletTableId;
+            foundIndexlet = 1;
+            LOG(NOTICE, "found indexlet and changed its server id to %s",
+                serverId.toString().c_str());
+        }
+    }
+    if (!foundIndexlet) {
+        LOG(NOTICE, "not found indexlet, which is an error");
+    }
+    // TODO(zhihao): Currently, we didn't record this update in external
+    // storage. Will implement this in the future.
+}
+
+/**
+ * Return if a table is indexlet table or not
+ *
+ * \param tableId
+ *      Identifier of the table
+ * \return
+ *      True if the querying table is an index table. Otherwise, return false.
+ */
+bool
+TableManager::isIndexletTable(uint64_t tableId)
+{
+    Lock lock(mutex);
+    return indexletTableMap.find(tableId) != indexletTableMap.end();
 }
 
 /**

@@ -295,6 +295,35 @@ TEST_F(TableManagerTest, getTableId) {
     EXPECT_THROW(tableManager->getTableId("bar"), TableManager::NoSuchTable);
 }
 
+TEST_F(TableManagerTest, getIndxletInfoByIndexletTableId) {
+    cluster.addServer(masterConfig);
+    cluster.addServer(masterConfig);
+    updateManager->reset();
+
+    EXPECT_EQ(1U, tableManager->createTable("foo", 1));
+    EXPECT_EQ(2U, tableManager->createTable("__indexTable:1:0:0", 1));
+    EXPECT_TRUE(tableManager->createIndex(1, 0, 0, 1));
+    ProtoBuf::Indexlets::Indexlet indexlet;
+    EXPECT_TRUE(tableManager->getIndexletInfoByIndexletTableId(2, indexlet));
+    EXPECT_EQ(1U, indexlet.table_id());
+    EXPECT_EQ(0U, indexlet.index_id());
+    EXPECT_EQ(2U, indexlet.indexlettable_id());
+};
+
+TEST_F(TableManagerTest, isIndexletTable) {
+    cluster.addServer(masterConfig);
+    cluster.addServer(masterConfig);
+    updateManager->reset();
+
+    EXPECT_EQ(1U, tableManager->createTable("foo", 1));
+    EXPECT_EQ(2U, tableManager->createTable("__indexTable:1:0:0", 1));
+    EXPECT_TRUE(tableManager->createIndex(1, 0, 0, 1));
+
+    EXPECT_TRUE(tableManager->isIndexletTable(2));
+    EXPECT_FALSE(tableManager->isIndexletTable(1));
+    EXPECT_FALSE(tableManager->isIndexletTable(3));
+};
+
 TEST_F(TableManagerTest, markAllTabletsRecovering) {
     // Create 2 tables in a cluster with 2 masters. The first has one
     // tablet, and the second has 4 tablets.

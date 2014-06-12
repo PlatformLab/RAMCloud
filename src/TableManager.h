@@ -58,6 +58,14 @@ class TableManager {
         explicit NoSuchTablet(const CodeLocation& where) : Exception(where) {}
     };
 
+    /**
+     * Thrown from methods when the arguments indicate a indexlet that is
+     * not present in the indexlet map.
+     */
+    struct NoSuchIndexlet : public Exception {
+        explicit NoSuchIndexlet(const CodeLocation& where) : Exception(where) {}
+    };
+
     explicit TableManager(Context* context,
             CoordinatorUpdateManager* updateManager);
     ~TableManager();
@@ -70,6 +78,17 @@ class TableManager {
     vector<pair<uint8_t, uint8_t>>  dropTable(const char* name);
     uint64_t getTableId(const char* name);
     Tablet getTablet(uint64_t tableId, uint64_t keyHash);
+    bool getIndexletInfoByIndexletTableId(uint64_t indexletTableId,
+             ProtoBuf::Indexlets::Indexlet& indexletInfo);
+    void indexletRecovered(uint64_t tableId,
+                           uint8_t indexId,
+                           void* firstKey,
+                           uint16_t firstKeyLength,
+                           void* firstNotOwnedKey,
+                           uint16_t firstNotOwnedKeyLength,
+                           ServerId serverId,
+                           uint64_t indexletTableId);
+    bool isIndexletTable(uint64_t tableId);
     vector<Tablet> markAllTabletsRecovering(ServerId serverId);
     void reassignTabletOwnership(ServerId newOwner, uint64_t tableId,
                                  uint64_t startKeyHash, uint64_t endKeyHash,
@@ -95,17 +114,22 @@ class TableManager {
         public:
         Indexlet(const void *firstKey, uint16_t firstKeyLength,
                  const void *firstNotOwnedKey, uint16_t firstNotOwnedKeyLength,
-                 ServerId serverId, uint64_t indexletTableId)
+                 ServerId serverId, uint64_t indexletTableId,
+                 uint64_t tableId, uint8_t indexId)
             : RAMCloud::Indexlet(firstKey, firstKeyLength, firstNotOwnedKey,
                        firstNotOwnedKeyLength)
             , serverId(serverId)
             , indexletTableId(indexletTableId)
+            , tableId(tableId)
+            , indexId(indexId)
         {}
 
         Indexlet(const Indexlet& indexlet)
             : RAMCloud::Indexlet(indexlet)
             , serverId(indexlet.serverId)
             , indexletTableId(indexlet.indexletTableId)
+            , tableId(indexlet.tableId)
+            , indexId(indexlet.indexId)
         {}
 
         /// The server id of the master owning this indexlet.
@@ -113,6 +137,12 @@ class TableManager {
 
         /// The id of the table on serverId holding the index content
         uint64_t indexletTableId;
+
+        /// The id of the owning table
+        uint64_t tableId;
+
+        /// The id of the owning index
+        uint8_t indexId;
     };
 
     /**
@@ -203,6 +233,12 @@ class TableManager {
     /// information is dynamically allocated (and shared with directory).
     typedef std::unordered_map<uint64_t, Table*> IdMap;
     IdMap idMap;
+
+    /// Maps from indexletTable id to indexlet.
+    /// This is a map since every indexletTable can have at most one
+    /// containing indexlet
+    typedef std::unordered_map<uint64_t, Indexlet*> IndexletTableMap;
+    IndexletTableMap indexletTableMap;
 
     Tablet* findTablet(const Lock& lock, Table* table, uint64_t keyHash);
     void notifyCreate(const Lock& lock, Table* table);

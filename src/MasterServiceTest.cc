@@ -297,13 +297,14 @@ class MasterServiceTest : public ::testing::Test {
     }
 
     void
-    appendTablet(ProtoBuf::Tablets& tablets,
-                 uint64_t partitionId,
-                 uint64_t tableId,
-                 uint64_t start, uint64_t end,
-                 uint64_t ctimeHeadSegmentId, uint32_t ctimeHeadSegmentOffset)
+    appendRecoveryPartition(ProtoBuf::RecoveryPartition& recoveryPartition,
+                      uint64_t partitionId,
+                      uint64_t tableId,
+                      uint64_t start, uint64_t end,
+                      uint64_t ctimeHeadSegmentId,
+                      uint32_t ctimeHeadSegmentOffset)
     {
-        ProtoBuf::Tablets::Tablet& tablet(*tablets.add_tablet());
+        ProtoBuf::Tablets::Tablet& tablet(*recoveryPartition.add_tablet());
         tablet.set_table_id(tableId);
         tablet.set_start_key_hash(start);
         tablet.set_end_key_hash(end);
@@ -314,12 +315,12 @@ class MasterServiceTest : public ::testing::Test {
     }
 
     void
-    createTabletList(ProtoBuf::Tablets& tablets)
+    createRecoveryPartition(ProtoBuf::RecoveryPartition& recoveryPartition)
     {
-        appendTablet(tablets, 0, 123, 0, 9, 0, 0);
-        appendTablet(tablets, 0, 123, 10, 19, 0, 0);
-        appendTablet(tablets, 0, 123, 20, 29, 0, 0);
-        appendTablet(tablets, 0, 124, 20, 100, 0, 0);
+        appendRecoveryPartition(recoveryPartition, 0, 123, 0, 9, 0, 0);
+        appendRecoveryPartition(recoveryPartition, 0, 123, 10, 19, 0, 0);
+        appendRecoveryPartition(recoveryPartition, 0, 123, 20, 29, 0, 0);
+        appendRecoveryPartition(recoveryPartition, 0, 124, 20, 100, 0, 0);
     }
 
     DISALLOW_COPY_AND_ASSIGN(MasterServiceTest);
@@ -1703,13 +1704,13 @@ TEST_F(MasterServiceTest, recover_basics) {
     writeRecoverableSegment(&context, mgr, serverId, serverId.getId(),
                             87, 23U);
 
-    ProtoBuf::Tablets tablets;
-    createTabletList(tablets);
+    ProtoBuf::RecoveryPartition recoveryPartition;
+    createRecoveryPartition(recoveryPartition);
     auto result = BackupClient::startReadingData(&context, backup1Id,
                                                  10lu, serverId);
     BackupClient::StartPartitioningReplicas(&context, backup1Id,
                                             10lu, serverId,
-                                            &tablets);
+                                            &recoveryPartition);
     ASSERT_EQ(1lu, result.replicas.size());
     ASSERT_EQ(87lu, result.replicas.at(0).segmentId);
 
@@ -1725,7 +1726,7 @@ TEST_F(MasterServiceTest, recover_basics) {
     TestLog::Enable __("replaySegment", "recover", "recoveryMasterFinished",
                        NULL);
     MasterClient::recover(&context, masterServer->serverId, 10lu,
-                          serverId, 0, &tablets, replicas,
+                          serverId, 0, &recoveryPartition, replicas,
                           arrayLength(replicas));
     // safeVersion Recovered
     EXPECT_EQ(23U, segmentManager->safeVersion);
@@ -1773,7 +1774,102 @@ TEST_F(MasterServiceTest, recover_basics) {
         "recover: set tablet 124 20 100 to locator mock:host=master, "
         "id 2.0 | "
         "recover: Reporting completion of recovery 10 | "
-        "recoveryMasterFinished: Called by masterId 2.0 with 4 tablets | "
+        "recoveryMasterFinished: Called by masterId 2.0 with 4 tablets "
+        "and 0 indexlets | "
+        , TestLog::getUntil(
+            "recoveryMasterFinished: Recovered tablets | "
+            ,  curPos, &curPos));
+}
+
+TEST_F(MasterServiceTest, recover_basic_indexlet) {
+    cluster.coordinator->recoveryManager.start();
+    ServerId serverId(123, 0);
+    ReplicaManager mgr(&context, &serverId, 1, false, false);
+
+    // Create a segment with objectSafeVersion 23
+    writeRecoverableSegment(&context, mgr, serverId, serverId.getId(),
+                            87, 23U);
+
+    ProtoBuf::RecoveryPartition recoveryPartition;
+    createRecoveryPartition(recoveryPartition);
+    ProtoBuf::Indexlets::Indexlet& entry = *recoveryPartition.add_indexlet();
+    entry.set_table_id(123);
+    entry.set_index_id(4);
+    entry.set_indexlettable_id(0);
+    string key0 = "a", key1 = "z";
+    entry.set_start_key(key0);
+    entry.set_end_key(key1);
+    auto result = BackupClient::startReadingData(&context, backup1Id,
+                                                 10lu, serverId);
+    BackupClient::StartPartitioningReplicas(&context, backup1Id,
+                                            10lu, serverId,
+                                            &recoveryPartition);
+    ASSERT_EQ(1lu, result.replicas.size());
+    ASSERT_EQ(87lu, result.replicas.at(0).segmentId);
+
+    SegmentManager* segmentManager = &service->objectManager.segmentManager;
+    segmentManager->safeVersion = 1U; // reset safeVersion
+    EXPECT_EQ(1U, segmentManager->safeVersion); // check safeVersion
+
+    ProtoBuf::ServerList backups;
+    WireFormat::Recover::Replica replicas[] = {
+        {backup1Id.getId(), 87},
+    };
+
+    TestLog::Enable __("replaySegment", "recover", "recoveryMasterFinished",
+                       NULL);
+    MasterClient::recover(&context, masterServer->serverId, 10lu,
+                          serverId, 0, &recoveryPartition, replicas,
+                          arrayLength(replicas));
+    // safeVersion Recovered
+    EXPECT_EQ(23U, segmentManager->safeVersion);
+
+    size_t curPos = 0; // Current Pos: given to getUntil()
+    TestLog::getUntil("recover: Recovering master 123.0"
+                      , curPos, &curPos); // Proceed read pointer
+
+    EXPECT_EQ(
+        "recover: Recovering master 123.0, partition 0, 1 replicas available | "
+        "recover: Starting getRecoveryData from server 1.0 at "
+        "mock:host=backup1 for "
+        "segment 87 on channel 0 (initial round of RPCs) | "
+        "recover: Waiting on recovery data for segment 87 from "
+        "server 1.0 at mock:host=backup1 | "
+        , TestLog::getUntil(
+            "replaySegment: SAFEVERSION 23 recovered"
+            , curPos, &curPos));
+
+    EXPECT_EQ(
+        "replaySegment: SAFEVERSION 23 recovered | "
+        "recover: Segment 87 replay complete | "
+        , TestLog::getUntil(
+            "recover: Checking server 1.0 at mock:host=backup1 "
+            ,  curPos, &curPos));
+
+    EXPECT_EQ(
+        "recover: Checking server 1.0 at mock:host=backup1 "
+        "off the list for 87 | "
+        "recover: Checking server 1.0 at mock:host=backup1 "
+        "off the list for 87 | "
+        , TestLog::getUntil(
+            "recover: Committing the SideLog... | "
+            ,  curPos, &curPos));
+
+    TestLog::getUntil(
+            "recover: set tablet 123 0 9 to "
+            , curPos, &curPos); // Proceed read pointer
+
+                //    EXPECT_TRUE(TestUtil::matchesPosixRegex(
+    EXPECT_EQ(
+        "recover: set tablet 123 0 9 to locator mock:host=master, id 2.0 | "
+        "recover: set tablet 123 10 19 to locator mock:host=master, id 2.0 | "
+        "recover: set tablet 123 20 29 to locator mock:host=master, id 2.0 | "
+        "recover: set tablet 124 20 100 to locator mock:host=master, "
+        "id 2.0 | "
+        "recover: set indexlet 123 to locator mock:host=master, id 2.0 | "
+        "recover: Reporting completion of recovery 10 | "
+        "recoveryMasterFinished: Called by masterId 2.0 with 4 tablets "
+        "and 1 indexlets | "
         , TestLog::getUntil(
             "recoveryMasterFinished: Recovered tablets | "
             ,  curPos, &curPos));
@@ -1802,12 +1898,12 @@ TEST_F(MasterServiceTest, recover) {
     backup2Config.localLocator = "mock:host=backup2";
     ServerId backup2Id = cluster.addServer(backup2Config)->serverId;
 
-    ProtoBuf::Tablets tablets;
-    createTabletList(tablets);
+    ProtoBuf::RecoveryPartition recoveryPartition;
+    createRecoveryPartition(recoveryPartition);
     BackupClient::startReadingData(&context, backup1Id, 456lu, serverId);
 
     BackupClient::StartPartitioningReplicas(&context, backup1Id, 456lu,
-                                   serverId, &tablets);
+                                   serverId, &recoveryPartition);
 
     vector<MasterService::Replica> replicas {
         // Started in initial round of RPCs - eventually fails
@@ -1832,7 +1928,9 @@ TEST_F(MasterServiceTest, recover) {
     };
 
     TestLog::Enable _;
-    EXPECT_THROW(service->recover(456lu, serverId, 0, replicas),
+    std::unordered_map<uint64_t, uint64_t> highestBTreeIdMap;
+    EXPECT_THROW(service->recover(456lu, serverId, 0, replicas,
+                                  highestBTreeIdMap),
                  SegmentRecoveryFailedException);
     // 1,2,3) 87 was requested from the first server list entry.
     EXPECT_TRUE(TestUtil::matchesPosixRegex(
@@ -1918,15 +2016,16 @@ TEST_F(MasterServiceTest, recover_ctimeUpdateIssued) {
     cluster.coordinator->recoveryManager.start();
     TestLog::Enable _("recoveryMasterFinished");
     ramcloud->write(1, "0", 1, "abcdef", 6);
-    ProtoBuf::Tablets tablets;
-    createTabletList(tablets);
+    ProtoBuf::RecoveryPartition recoveryPartition;
+    createRecoveryPartition(recoveryPartition);
     WireFormat::Recover::Replica replicas[] = {};
     MasterClient::recover(&context, masterServer->serverId, 10lu,
-                          ServerId(123), 0, &tablets, replicas, 0);
+                          ServerId(123), 0, &recoveryPartition, replicas, 0);
 
     size_t curPos = 0; // Current Pos: given to getUntil() as 2nd arg, and
     EXPECT_EQ(
-        "recoveryMasterFinished: Called by masterId 2.0 with 4 tablets | "
+        "recoveryMasterFinished: Called by masterId 2.0 with 4 tablets "
+        "and 0 indexlets | "
         "recoveryMasterFinished: Recovered tablets | "
         "recoveryMasterFinished: tablet { "
         "table_id: 123 start_key_hash: 0 end_key_hash: 9 state: RECOVERING "
@@ -1949,21 +2048,21 @@ TEST_F(MasterServiceTest, recover_unsuccessful) {
     cluster.coordinator->recoveryManager.start();
     TestLog::Enable _("recover");
     ramcloud->write(1, "0", 1, "abcdef", 6);
-    ProtoBuf::Tablets tablets;
-    createTabletList(tablets);
+    ProtoBuf::RecoveryPartition recoveryPartition;
+    createRecoveryPartition(recoveryPartition);
     WireFormat::Recover::Replica replicas[] = {
         // Bad ServerId, should cause recovery to fail.
         {1004, 92},
     };
     MasterClient::recover(&context, masterServer->serverId, 10lu, {123, 0},
-                          0, &tablets, replicas, 1);
+                          0, &recoveryPartition, replicas, 1);
 
     string log = TestLog::get();
     log = log.substr(log.rfind("recover:"));
     EXPECT_EQ("recover: Failed to recover partition for recovery 10; "
               "aborting recovery on this recovery master", log);
 
-    foreach (const auto& tablet, tablets.tablet()) {
+    foreach (const auto& tablet, recoveryPartition.tablet()) {
         EXPECT_FALSE(service->tabletManager.getTablet(tablet.table_id(),
                                                       tablet.start_key_hash(),
                                                       tablet.end_key_hash()));
@@ -2022,13 +2121,14 @@ class MasterRecoverTest : public ::testing::Test {
     }
 
     void
-    appendTablet(ProtoBuf::Tablets& tablets,
-                 uint64_t partitionId,
-                 uint64_t tableId,
-                 uint64_t start, uint64_t end,
-                 uint64_t ctimeHeadSegmentId, uint32_t ctimeHeadSegmentOffset)
+    appendRecoveryPartition(ProtoBuf::RecoveryPartition& recoveryPartition,
+                      uint64_t partitionId,
+                      uint64_t tableId,
+                      uint64_t start, uint64_t end,
+                      uint64_t ctimeHeadSegmentId,
+                      uint32_t ctimeHeadSegmentOffset)
     {
-        ProtoBuf::Tablets::Tablet& tablet(*tablets.add_tablet());
+        ProtoBuf::Tablets::Tablet& tablet(*recoveryPartition.add_tablet());
         tablet.set_table_id(tableId);
         tablet.set_start_key_hash(start);
         tablet.set_end_key_hash(end);
@@ -2039,12 +2139,12 @@ class MasterRecoverTest : public ::testing::Test {
     }
 
     void
-    createTabletList(ProtoBuf::Tablets& tablets)
+    createRecoveryPartition(ProtoBuf::RecoveryPartition& recoveryPartition)
     {
-        appendTablet(tablets, 0, 123, 0, 9, 0, 0);
-        appendTablet(tablets, 0, 123, 10, 19, 0, 0);
-        appendTablet(tablets, 0, 123, 20, 29, 0, 0);
-        appendTablet(tablets, 0, 124, 20, 100, 0, 0);
+        appendRecoveryPartition(recoveryPartition, 0, 123, 0, 9, 0, 0);
+        appendRecoveryPartition(recoveryPartition, 0, 123, 10, 19, 0, 0);
+        appendRecoveryPartition(recoveryPartition, 0, 123, 20, 29, 0, 0);
+        appendRecoveryPartition(recoveryPartition, 0, 124, 20, 100, 0, 0);
     }
     DISALLOW_COPY_AND_ASSIGN(MasterRecoverTest);
 };
@@ -2067,19 +2167,19 @@ TEST_F(MasterRecoverTest, recover) {
     MasterServiceTest::writeRecoverableSegment(&context, mgr, serverId, 99, 88);
 
     // Now run recovery, as if the fake server failed.
-    ProtoBuf::Tablets tablets;
-    createTabletList(tablets);
+    ProtoBuf::RecoveryPartition recoveryPartition;
+    createRecoveryPartition(recoveryPartition);
     {
         BackupClient::startReadingData(&context, backup1Id, 456lu,
                                        ServerId(99));
         BackupClient::StartPartitioningReplicas(&context, backup1Id, 456lu,
-                                       ServerId(99), &tablets);
+                                       ServerId(99), &recoveryPartition);
     }
     {
         BackupClient::startReadingData(&context, backup2Id, 456lu,
                                        ServerId(99));
         BackupClient::StartPartitioningReplicas(&context, backup2Id, 456lu,
-                                       ServerId(99), &tablets);
+                                       ServerId(99), &recoveryPartition);
     }
 
     vector<MasterService::Replica> replicas {
@@ -2090,7 +2190,8 @@ TEST_F(MasterRecoverTest, recover) {
 
     MockRandom __(1); // triggers deterministic rand().
     TestLog::Enable _("replaySegment", "recover", NULL);
-    master->recover(456lu, ServerId(99, 0), 0, replicas);
+    std::unordered_map<uint64_t, uint64_t> highestBTreeIdMap;
+    master->recover(456lu, ServerId(99, 0), 0, replicas, highestBTreeIdMap);
     EXPECT_EQ(0U, TestLog::get().find(
         "recover: Recovering master 99.0, partition 0, 3 replicas "
         "available"));
@@ -2103,7 +2204,7 @@ TEST_F(MasterRecoverTest, recover) {
 TEST_F(MasterRecoverTest, failedToRecoverAll) {
     MasterService* master = createMasterService();
 
-    ProtoBuf::Tablets tablets;
+    ProtoBuf::RecoveryPartition recoveryPartition;
     ProtoBuf::ServerList backups;
     vector<MasterService::Replica> replicas {
         { backup1Id.getId(), 87 },
@@ -2112,7 +2213,9 @@ TEST_F(MasterRecoverTest, failedToRecoverAll) {
 
     MockRandom __(1); // triggers deterministic rand().
     TestLog::Enable _("replaySegment", "recover", NULL);
-    EXPECT_THROW(master->recover(456lu, ServerId(99, 0), 0, replicas),
+    std::unordered_map<uint64_t, uint64_t> highestBTreeIdMap;
+    EXPECT_THROW(master->recover(456lu, ServerId(99, 0), 0, replicas,
+                                 highestBTreeIdMap),
                  SegmentRecoveryFailedException);
     string log = TestLog::get();
     EXPECT_TRUE(TestUtil::matchesPosixRegex(

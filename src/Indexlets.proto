@@ -1,0 +1,48 @@
+/* Copyright (c) 2014 Stanford University
+ *
+ * Permission to use, copy, modify, and distribute this software for any
+ * purpose with or without fee is hereby granted, provided that the above
+ * copyright notice and this permission notice appear in all copies.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR(S) DISCLAIM ALL WARRANTIES
+ * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+ * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL AUTHORS BE LIABLE FOR
+ * ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+ * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+ * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+ */
+
+package RAMCloud.ProtoBuf;
+
+// A set of indexlets
+message Indexlets {
+  message Indexlet {
+    ///The id of the containing table
+    required uint64 table_id = 1;
+
+    ///The id of the index
+    required uint32 index_id = 2;
+
+    ///The id of the indexletTable
+    required uint64 indexletTable_id = 3;
+
+    ///The first (smallest) key that is part of this indexlet.
+    optional bytes start_key = 4;
+
+    ///The smallest key greater than all the keys managed by this indexlet.
+    optional bytes end_key = 5;
+
+    /// The ID of the master owning this indexlet.
+    optional fixed64 server_id = 6;
+
+    /// The service locator for the master owning this indexlet.
+    optional string service_locator = 7;
+    
+    /// User data
+    optional fixed64 user_data = 8;
+  }
+
+  /// The indexlets
+  repeated Indexlet indexlet = 1;
+}

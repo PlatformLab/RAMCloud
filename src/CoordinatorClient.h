@@ -18,7 +18,7 @@
 
 #include "MasterRecoveryInfo.pb.h"
 #include "ServerList.pb.h"
-#include "Tablets.pb.h"
+#include "RecoveryPartition.pb.h"
 #include "TableConfig.pb.h"
 
 #include "Common.h"
@@ -54,7 +54,8 @@ class CoordinatorClient {
             uint64_t firstKey, uint64_t lastKey, ServerId newOwnerId,
             uint64_t ctimeSegmentId, uint32_t ctimeSegmentOffset);
     static bool recoveryMasterFinished(Context* context, uint64_t recoveryId,
-            ServerId recoveryMasterId, const ProtoBuf::Tablets* tablets,
+            ServerId recoveryMasterId,
+            const ProtoBuf::RecoveryPartition* recoveryPartition,
             bool successful);
     static void sendServerList(Context* context, ServerId destination);
     static void setMasterRecoveryInfo(Context* context, ServerId serverId,
@@ -149,7 +150,8 @@ class ReassignTabletOwnershipRpc : public CoordinatorRpcWrapper {
 class RecoveryMasterFinishedRpc : public CoordinatorRpcWrapper {
     public:
     RecoveryMasterFinishedRpc(Context* context, uint64_t recoveryId,
-            ServerId recoveryMasterId, const ProtoBuf::Tablets* tablets,
+            ServerId recoveryMasterId,
+            const ProtoBuf::RecoveryPartition* recoveryPartition,
             bool successful);
     ~RecoveryMasterFinishedRpc() {}
     bool wait();

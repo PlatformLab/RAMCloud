@@ -529,7 +529,7 @@ BackupService::startPartitioningReplicas(
         throw PartitionBeforeReadException(HERE);
     }
 
-    ProtoBuf::Tablets partitions;
+    ProtoBuf::RecoveryPartition partitions;
     ProtoBuf::parseFromResponse(rpc->requestPayload, sizeof(*reqHdr),
                                 reqHdr->partitionsLength, &partitions);
     recovery->setPartitionsAndSchedule(partitions);

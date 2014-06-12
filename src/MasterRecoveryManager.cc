@@ -168,7 +168,7 @@ class RecoveryMasterFinishedTask : public Task {
      * \param recoveryMasterId
      *      ServerId of the recovery master which has finished recovering
      *      its portion of the will.
-     * \param recoveredTablets
+     * \param recoveryPartition
      *      Tablets describing the portion of the will that the recovery
      *      master recovered. Only used if \a successful is true.
      *      Recovery masters fill in each of the entries with their own
@@ -177,20 +177,21 @@ class RecoveryMasterFinishedTask : public Task {
      *      If true indicates the recovery master was successful in
      *      recovering its partition of the will and that it is
      *      ready to start serving requests for the data. If false
-     *      then \a recoveredTablets is ignored and the tablets of
+     *      then \a recoveryPartition is ignored and the tablets of
      *      the partition the recovery master was supposed to recover
      *      are left marked RECOVERING.
      */
     RecoveryMasterFinishedTask(MasterRecoveryManager& recoveryManager,
                                uint64_t recoveryId,
                                ServerId recoveryMasterId,
-                               const ProtoBuf::Tablets& recoveredTablets,
+                               const ProtoBuf::RecoveryPartition&
+                                     recoveryPartition,
                                bool successful)
         : Task(recoveryManager.taskQueue)
         , mgr(recoveryManager)
         , recoveryId(recoveryId)
         , recoveryMasterId(recoveryMasterId)
-        , recoveredTablets(recoveredTablets)
+        , recoveryPartition(recoveryPartition)
         , successful(successful)
         , mutex()
         , taskPerformed(false)
@@ -220,13 +221,13 @@ class RecoveryMasterFinishedTask : public Task {
 
         if (successful) {
             // Update tablet map to point to new owner and mark as available.
-            foreach (const auto& tablet, recoveredTablets.tablet()) {
+            foreach (const auto& tablet, recoveryPartition.tablet()) {
                 // TODO(stutsman): Currently won't work with concurrent access
                 // on the tablet map but recovery will soon be revised to
                 // accept only one call into recovery per master instead of
                 // tablet which will fix this.
 
-                // The caller has filled in recoveredTablets with new service
+                // The caller has filled in recoveryPartition with new service
                 // locator and server id of the recovery master, so just copy
                 // it over.  Record the log position of the recovery master at
                 // creation of this new tablet assignment. The value is the
@@ -247,6 +248,49 @@ class RecoveryMasterFinishedTask : public Task {
                     // TODO(stutsman): What should we do here?
                     DIE("Entry wasn't in the list anymore; "
                         "we need to handle this sensibly");
+                }
+            }
+
+            foreach (const auto& indexlet, recoveryPartition.indexlet()) {
+                try{
+                    LOG(NOTICE, "Modifying indexlet map to set recovery master"
+                        "%s as master for %lu, %u, %lu",
+                        ServerId(indexlet.server_id()).toString().c_str(),
+                        indexlet.table_id(), indexlet.index_id(),
+                        indexlet.indexlettable_id());
+                    void* firstKey;
+                    uint16_t firstKeyLength;
+                    void* firstNotOwnedKey;
+                    uint16_t firstNotOwnedKeyLength;
+                    if (indexlet.start_key().compare("") != 0) {
+                        firstKey =
+                            const_cast<char *>(indexlet.start_key().c_str());
+                        firstKeyLength =
+                            (uint16_t)indexlet.start_key().length();
+                    } else {
+                        firstKey = NULL;
+                        firstKeyLength = 0;
+                    }
+
+                    if (indexlet.end_key().compare("") != 0) {
+                        firstNotOwnedKey =
+                            const_cast<char *>(indexlet.end_key().c_str());
+                        firstNotOwnedKeyLength =
+                            (uint16_t)indexlet.end_key().length();
+                    } else {
+                        firstNotOwnedKey = NULL;
+                        firstNotOwnedKeyLength = 0;
+                    }
+                    mgr.tableManager.indexletRecovered(
+                        indexlet.table_id(), (uint8_t) indexlet.index_id(),
+                        firstKey, firstKeyLength,
+                        firstNotOwnedKey, firstNotOwnedKeyLength,
+                        ServerId(indexlet.server_id()),
+                        indexlet.indexlettable_id());
+                } catch (const Exception& e) {
+                    // TODO(zhihao): What should we do here?
+                    DIE("Entry wasn't in the list anymore; "
+                        "we need to handle this sensibly.");
                 }
             }
             LOG(DEBUG, "Coordinator tableManager after recovery master %s "
@@ -288,7 +332,7 @@ class RecoveryMasterFinishedTask : public Task {
     MasterRecoveryManager& mgr;
     uint64_t recoveryId;
     ServerId recoveryMasterId;
-    ProtoBuf::Tablets recoveredTablets;
+    ProtoBuf::RecoveryPartition recoveryPartition;
     bool successful;
 
     /**
@@ -587,7 +631,7 @@ MasterRecoveryManager::recoveryFinished(Recovery* recovery)
  * \param recoveryMasterId
  *      ServerId of the recovery master which has finished recovering
  *      its portion of the will.
- * \param recoveredTablets
+ * \param recoveryPartition
  *      Tablets describing the portion of the will that the recovery
  *      master recovered. Only used if \a successful is true.
  *      Recovery masters fill in each of the entries with their own
@@ -596,7 +640,7 @@ MasterRecoveryManager::recoveryFinished(Recovery* recovery)
  *      If true indicates the recovery master was successful in
  *      recovering its partition of the will and that it is
  *      ready to start serving requests for the data. If false
- *      then \a recoveredTablets is ignored and the tablets of
+ *      then \a recoveryPartition is ignored and the tablets of
  *      the partition the recovery master was supposed to recover
  *      are left marked RECOVERING.
  * \return
@@ -611,19 +655,20 @@ bool
 MasterRecoveryManager::recoveryMasterFinished(
     uint64_t recoveryId,
     ServerId recoveryMasterId,
-    const ProtoBuf::Tablets& recoveredTablets,
+    const ProtoBuf::RecoveryPartition& recoveryPartition,
     bool successful)
 {
-    LOG(NOTICE, "Called by masterId %s with %u tablets",
-        recoveryMasterId.toString().c_str(), recoveredTablets.tablet_size());
+    LOG(NOTICE, "Called by masterId %s with %u tablets and %u indexlets",
+        recoveryMasterId.toString().c_str(), recoveryPartition.tablet_size(),
+        recoveryPartition.indexlet_size());
 
     TEST_LOG("Recovered tablets");
-    TEST_LOG("%s", recoveredTablets.ShortDebugString().c_str());
+    TEST_LOG("%s", recoveryPartition.ShortDebugString().c_str());
 
     // RecoveryMasterFinishedTasks don't delete themselves so we can get the
     // result back via wait().
     RecoveryMasterFinishedTask task(*this, recoveryId, recoveryMasterId,
-                                    recoveredTablets, successful);
+                                    recoveryPartition, successful);
     task.schedule();
     bool shouldAbort = task.wait();
     if (shouldAbort)

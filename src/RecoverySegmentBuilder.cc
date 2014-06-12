@@ -59,7 +59,7 @@ void
 RecoverySegmentBuilder::build(const void* buffer, uint32_t length,
                               const Segment::Certificate& certificate,
                               int numPartitions,
-                              const ProtoBuf::Tablets& partitions,
+                              const ProtoBuf::RecoveryPartition& partitions,
                               Segment* recoverySegments)
 {
     SegmentIterator it(buffer, length, certificate);
@@ -285,7 +285,7 @@ RecoverySegmentBuilder::isEntryAlive(const Log::Position& position,
  */
 const ProtoBuf::Tablets::Tablet*
 RecoverySegmentBuilder::whichPartition(uint64_t tableId, KeyHash keyHash,
-                                       const ProtoBuf::Tablets& partitions)
+                            const ProtoBuf::RecoveryPartition& partitions)
 {
     for (int i = 0; i < partitions.tablet_size(); i++) {
         const ProtoBuf::Tablets::Tablet& tablet(partitions.tablet(i));

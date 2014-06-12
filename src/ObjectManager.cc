@@ -647,6 +647,22 @@ class DelayedIncrementer {
 };
 
 /**
+ * A wrapper function for replaySegment
+ *
+ * \param sideLog
+ *      Pointer to the SideLog in which replayed data will be stored.
+ * \param it
+ *       SegmentIterator which is pointing to the start of the recovery segment
+ *       to be replayed into the log.
+ */
+void
+ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it)
+{
+  std::unordered_map<uint64_t, uint64_t> highestBTreeIdMap;
+  replaySegment(sideLog, it, highestBTreeIdMap);
+}
+
+/**
  * Replay the entries within a segment and store the appropriate objects.
  * This method is used during recovery to replay a portion of a failed
  * master's log. It is also used during tablet migration to receive objects
@@ -670,9 +686,13 @@ class DelayedIncrementer {
  * \param it
  *       SegmentIterator which is pointing to the start of the recovery segment
  *       to be replayed into the log.
+ * \param highestBTreeIdMap
+ *       A unordered map that keeps track of the highest used BTree ID in
+ *       each indexlet table.
  */
 void
-ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it)
+ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it,
+    std::unordered_map<uint64_t, uint64_t>& highestBTreeIdMap)
 {
     uint64_t startReplicationTicks = metrics->master.replicaManagerTicks;
     uint64_t startReplicationPostingWriteRpcTicks =
@@ -731,6 +751,18 @@ ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it)
             const void *primaryKey = replayObj.getKey(0, &primaryKeyLen);
 
             Key key(recoveryObj->tableId, primaryKey, primaryKeyLen);
+
+            // If table is an BTree table,i.e., tableId exists in
+            // highestBTreeIdMap, update highestBTreeId of its table.
+            std::unordered_map<uint64_t, uint64_t>::iterator iter
+                = highestBTreeIdMap.find(recoveryObj->tableId);
+            if (iter != highestBTreeIdMap.end()) {
+                const uint64_t *bTreeKey =
+                    reinterpret_cast<const uint64_t*>(primaryKey);
+                uint64_t bTreeId = *bTreeKey;
+                if (bTreeId > iter->second)
+                    iter->second = bTreeId;
+            }
 
             bool checksumIsValid = ({
                 CycleCounter<uint64_t> c(&verifyChecksumTicks);
@@ -807,6 +839,18 @@ ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it)
             Buffer buffer;
             it.appendToBuffer(buffer);
             Key key(type, buffer);
+
+            // If table is an BTree table,i.e., tableId exists in
+            // highestBTreeIdMap, update highestBTreeId of its table.
+            std::unordered_map<uint64_t, uint64_t>::iterator iter
+                = highestBTreeIdMap.find(key.getTableId());
+            if (iter != highestBTreeIdMap.end()) {
+                const uint64_t *bTreeKey =
+                    reinterpret_cast<const uint64_t*>(key.getStringKey());
+                uint64_t bTreeId = *bTreeKey;
+                if (bTreeId > iter->second)
+                    iter->second = bTreeId;
+            }
 
             ObjectTombstone recoverTomb(buffer);
             bool checksumIsValid = ({

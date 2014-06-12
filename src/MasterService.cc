@@ -1840,6 +1840,9 @@ MasterService::detectSegmentRecoveryFailure(
  *      A list specifying for each segmentId a backup who can provide a
  *      filtered recovery data segment. A particular segment may be listed more
  *      than once if it has multiple viable backups.
+ * \param highestBTreeIdMap
+ *      A unordered map that keeps track of the highest used BTree ID in
+ *      each indexlet table.
  * \throw SegmentRecoveryFailedException
  *      If some segment was not recovered and the recovery master is not
  *      a valid replacement for the crashed master.
@@ -1848,7 +1851,9 @@ void
 MasterService::recover(uint64_t recoveryId,
                        ServerId masterId,
                        uint64_t partitionId,
-                       vector<Replica>& replicas)
+                       vector<Replica>& replicas,
+                       std::unordered_map<uint64_t, uint64_t>&
+                           highestBTreeIdMap)
 {
     /* Overview of the internals of this method and its structures.
      *
@@ -2028,7 +2033,7 @@ MasterService::recover(uint64_t recoveryId,
                             ReplicatedSegment::recoveryStart),
                         task->replica.segmentId, responseLen);
                 }
-                objectManager.replaySegment(&sideLog, it);
+                objectManager.replaySegment(&sideLog, it, highestBTreeIdMap);
                 usefulTime += Cycles::rdtsc() - startUseful;
                 TEST_LOG("Segment %lu replay complete",
                          task->replica.segmentId);
@@ -2197,9 +2202,9 @@ MasterService::recover(const WireFormat::Recover::Request* reqHdr,
     if (partitionId == ~0u)
         DIE("Recovery master %s got super secret partition id; killing self.",
             serverId.toString().c_str());
-    ProtoBuf::Tablets recoveryTablets;
+    ProtoBuf::RecoveryPartition recoveryPartition;
     ProtoBuf::parseFromResponse(rpc->requestPayload, sizeof(*reqHdr),
-                                reqHdr->tabletsLength, &recoveryTablets);
+                                reqHdr->tabletsLength, &recoveryPartition);
 
     uint32_t offset = sizeof32(*reqHdr) + reqHdr->tabletsLength;
     vector<Replica> replicas;
@@ -2217,7 +2222,7 @@ MasterService::recover(const WireFormat::Recover::Request* reqHdr,
         "recovering partition %lu (see user_data) of the following "
         "partitions:\n%s",
         recoveryId, crashedServerId.toString().c_str(), partitionId,
-        recoveryTablets.DebugString().c_str());
+        recoveryPartition.DebugString().c_str());
     rpc->sendReply();
 
     // reqHdr, respHdr, and rpc are off-limits now
@@ -2225,7 +2230,7 @@ MasterService::recover(const WireFormat::Recover::Request* reqHdr,
     // Install tablets we are recovering and mark them as such (we don't
     // own them yet).
     foreach (const ProtoBuf::Tablets::Tablet& newTablet,
-             recoveryTablets.tablet()) {
+             recoveryPartition.tablet()) {
         bool added = tabletManager.addTablet(newTablet.table_id(),
                                              newTablet.start_key_hash(),
                                              newTablet.end_key_hash(),
@@ -2247,7 +2252,26 @@ MasterService::recover(const WireFormat::Recover::Request* reqHdr,
     // Recover Segments, firing ObjectManager::replaySegment for each one.
     bool successful = false;
     try {
-        recover(recoveryId, crashedServerId, partitionId, replicas);
+        // This unordered_map is used to keep track of the highest BTree id
+        // in every indexlet table
+        std::unordered_map<uint64_t, uint64_t> highestBTreeIdMap;
+        foreach (const ProtoBuf::Indexlets::Indexlet& indexlet,
+                 recoveryPartition.indexlet()) {
+            highestBTreeIdMap[indexlet.indexlettable_id()] = 0;
+        }
+        recover(recoveryId, crashedServerId, partitionId, replicas,
+                highestBTreeIdMap);
+        // Install indexlets we are recovering
+        foreach (const ProtoBuf::Indexlets::Indexlet& newIndexlet,
+                 recoveryPartition.indexlet()) {
+            LOG(NOTICE, "Starting recovery %lu for crashed indexlet %d",
+                recoveryId, newIndexlet.index_id());
+            bool added = indexletManager.addIndexlet(newIndexlet,
+                         highestBTreeIdMap[newIndexlet.indexlettable_id()]);
+            if (!added) {
+                throw Exception(HERE, format("Indexlet already exists."));
+            }
+        }
         successful = true;
     } catch (const SegmentRecoveryFailedException& e) {
         // Recovery wasn't successful.
@@ -2265,7 +2289,7 @@ MasterService::recover(const WireFormat::Recover::Request* reqHdr,
     // we'll only be owners if the call succeeds. It could fail if the
     // coordinator decided to recover these tablets elsewhere instead).
     foreach (ProtoBuf::Tablets::Tablet& tablet,
-             *recoveryTablets.mutable_tablet()) {
+             *recoveryPartition.mutable_tablet()) {
         LOG(NOTICE, "set tablet %lu %lu %lu to locator %s, id %s",
                  tablet.table_id(), tablet.start_key_hash(),
                  tablet.end_key_hash(), config->localLocator.c_str(),
@@ -2275,16 +2299,25 @@ MasterService::recover(const WireFormat::Recover::Request* reqHdr,
         tablet.set_ctime_log_head_id(headOfLog.getSegmentId());
         tablet.set_ctime_log_head_offset(headOfLog.getSegmentOffset());
     }
+    foreach (ProtoBuf::Indexlets::Indexlet& indexlet,
+             *recoveryPartition.mutable_indexlet()) {
+        LOG(NOTICE, "set indexlet %lu to locator %s, id %s",
+                 indexlet.table_id(), config->localLocator.c_str(),
+                 serverId.toString().c_str());
+        indexlet.set_service_locator(config->localLocator);
+        indexlet.set_server_id(serverId.getId());
+    }
+
     LOG(NOTICE, "Reporting completion of recovery %lu", reqHdr->recoveryId);
     bool cancelRecovery =
         CoordinatorClient::recoveryMasterFinished(context, recoveryId,
-                                                  serverId, &recoveryTablets,
+                                                  serverId, &recoveryPartition,
                                                   successful);
     if (!cancelRecovery) {
         // Ok - we're expected to be serving now. Mark recovered tablets
         // as normal so we can handle clients.
         foreach (const ProtoBuf::Tablets::Tablet& tablet,
-                     recoveryTablets.tablet()) {
+                     recoveryPartition.tablet()) {
             bool changed = tabletManager.changeState(tablet.table_id(),
                                                      tablet.start_key_hash(),
                                                      tablet.end_key_hash(),
@@ -2304,7 +2337,7 @@ MasterService::recover(const WireFormat::Recover::Request* reqHdr,
         // If recovery failed then clean up all objects written by
         // recovery before starting to serve requests again.
         foreach (const ProtoBuf::Tablets::Tablet& tablet,
-                 recoveryTablets.tablet()) {
+                 recoveryPartition.tablet()) {
             bool deleted = tabletManager.deleteTablet(tablet.table_id(),
                                                       tablet.start_key_hash(),
                                                       tablet.end_key_hash());
@@ -2314,6 +2347,18 @@ MasterService::recover(const WireFormat::Recover::Request* reqHdr,
                         tablet.table_id(),
                         tablet.start_key_hash(),
                         tablet.end_key_hash()));
+            }
+        }
+        foreach (const ProtoBuf::Indexlets::Indexlet& indexlet,
+                 recoveryPartition.indexlet()) {
+            bool deleted = indexletManager.deleteIndexlet(indexlet);
+            if (!deleted) {
+                throw FatalError(HERE, format("Could not delete recovery "
+                    "indexlet (%lu, %u, %s, %s). It disappeared!?",
+                        indexlet.table_id(),
+                        indexlet.index_id(),
+                        indexlet.start_key().c_str(),
+                        indexlet.end_key().c_str()));
             }
         }
         objectManager.removeOrphanedObjects();

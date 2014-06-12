@@ -51,6 +51,11 @@ IndexletManager::IndexletManager(Context* context, ObjectManager* objectManager)
  *      for this indexlet.
  * \param firstNotOwnedKeyLength
  *      Length of firstNotOwnedKey.
+ * \param highestUsedId
+ *      The highest BTree Id that has been used in the indexletTable, which
+ *      is a BTree.
+ *      If highestUsedId equals zero, it means the Btree should be an empty
+ *      new tree.
  * \return
  *      Returns true if successfully added, false if the indexlet cannot be
  *      added because it overlaps with one or more existing indexlets.
@@ -59,7 +64,8 @@ bool
 IndexletManager::addIndexlet(
                  uint64_t tableId, uint8_t indexId, uint64_t indexletTableId,
                  const void *firstKey, uint16_t firstKeyLength,
-                 const void *firstNotOwnedKey, uint16_t firstNotOwnedKeyLength)
+                 const void *firstNotOwnedKey, uint16_t firstNotOwnedKeyLength,
+                 uint64_t highestUsedId)
 {
     Lock indexletMapLock(indexletMapMutex);
 
@@ -68,7 +74,11 @@ IndexletManager::addIndexlet(
         return false;
     }
 
-    Btree* bt = new Btree(indexletTableId, objectManager);
+    Btree *bt;
+    if (highestUsedId == 0)
+        bt = new Btree(indexletTableId, objectManager);
+    else
+        bt = new Btree(indexletTableId, objectManager, highestUsedId);
 
     indexletMap.insert(std::make_pair(std::make_pair(tableId, indexId),
                        Indexlet(firstKey, firstKeyLength, firstNotOwnedKey,
@@ -85,6 +95,49 @@ IndexletManager::addIndexlet(
     }
 
     return true;
+}
+
+/**
+ * Add and initialize an index partition (indexlet) on this index server.
+ *
+ * \param indexlet
+ *      Protocol buffer contains necessary indexlet information to construct
+ *      a new indexlet.
+ * \param highestUsedId
+ *      The highest BTree Id that has been used in the indexletTable, which
+ *      is a BTree.
+ * \return
+ *      Returns true if successfully added, false if the indexlet cannot be
+ *      added because it overlaps with one or more existing indexlets.
+ */
+bool
+IndexletManager::addIndexlet(ProtoBuf::Indexlets::Indexlet indexlet,
+                             uint64_t highestUsedId)
+{
+    uint64_t tableId = indexlet.table_id();
+    uint8_t indexId = (uint8_t) indexlet.index_id();
+    uint64_t indexletTableId = indexlet.indexlettable_id();
+    void *firstKey, *firstNotOwnedKey;
+    uint16_t firstKeyLength, firstNotOwnedKeyLength;
+    if (indexlet.start_key().compare("") != 0) {
+        firstKey = const_cast<char *>(indexlet.start_key().c_str());
+        firstKeyLength = (uint16_t)indexlet.start_key().length();
+    } else {
+        firstKey = NULL;
+        firstKeyLength = 0;
+    }
+
+    if (indexlet.end_key().compare("") != 0) {
+        firstNotOwnedKey = const_cast<char *>(indexlet.end_key().c_str());
+        firstNotOwnedKeyLength = (uint16_t)indexlet.end_key().length();
+    } else {
+        firstNotOwnedKey = NULL;
+        firstNotOwnedKeyLength = 0;
+    }
+    return addIndexlet(tableId, indexId, indexletTableId,
+                       firstKey, firstKeyLength,
+                       firstNotOwnedKey, firstNotOwnedKeyLength,
+                       highestUsedId);
 }
 
 /**
@@ -142,6 +195,42 @@ IndexletManager::deleteIndexlet(
     indexletMap.erase(it);
 
     return true;
+}
+
+/**
+ * Delete entries for an index partition (indexlet) on this index server. We can
+ * have multiple indexlets for a table and an index stored on the same server.
+ *
+ * \param indexlet
+ *      Protocol buffer contains information of an indexlet that is to be
+ *      deleted.
+ * \return
+ *      True if indexlet was deleted. Failed if indexlet did not exist.
+ */
+bool
+IndexletManager::deleteIndexlet(ProtoBuf::Indexlets::Indexlet indexlet)
+{
+    uint64_t tableId = indexlet.table_id();
+    uint8_t indexId = (uint8_t) indexlet.index_id();
+    void *firstKey, *firstNotOwnedKey;
+    uint16_t firstKeyLength, firstNotOwnedKeyLength;
+    if (indexlet.start_key().compare("") != 0) {
+        firstKey = const_cast<char *>(indexlet.start_key().c_str());
+        firstKeyLength = (uint16_t)indexlet.start_key().length();
+    } else {
+        firstKey = NULL;
+        firstKeyLength = 0;
+    }
+
+    if (indexlet.end_key().compare("") != 0) {
+        firstNotOwnedKey = const_cast<char *>(indexlet.end_key().c_str());
+        firstNotOwnedKeyLength =(uint16_t)indexlet.end_key().length();
+    } else {
+        firstNotOwnedKey = NULL;
+        firstNotOwnedKeyLength = 0;
+    }
+    return deleteIndexlet(tableId, indexId, firstKey, firstKeyLength,
+                          firstNotOwnedKey, firstNotOwnedKeyLength);
 }
 
 /**
@@ -395,8 +484,10 @@ IndexletManager::lookupIndexKeys(uint64_t tableId, uint8_t indexId,
     indexletMapLock.unlock();
 
     // If there are no values in this indexlet's tree, return right away.
+    // TODO(zhihao): consider remove the following check since recovered BTree
+    // cannot pass the following check by only setting nextNodeId in BTree.
     if (indexlet->bt->empty()) {
-        return STATUS_OK;
+        //return STATUS_OK;
     }
 
     // We want to use lower_bound() instead of find() because the firstKey
