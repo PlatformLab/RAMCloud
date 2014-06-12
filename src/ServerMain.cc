@@ -96,7 +96,7 @@ main(int argc, char *argv[])
              "The server should run the master service only (no backup)")
             ("totalMasterMemory,t",
              ProgramOptions::value<string>(&masterTotalMemory)->
-                default_value("80%"),
+                default_value("10%"),
              "Percentage or megabytes of system memory for master log & "
              "hash table")
             ("replicas,r",
