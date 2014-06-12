@@ -111,8 +111,11 @@ TEST_F(IndexLookupTest, getNext_simple) {
     ramcloud->write(tableId, numKeys, keyListA, "valueA");
     ramcloud->write(tableId, numKeys, keyListB, "valueB");
 
+    char firstKey[10], lastKey[10];
+    snprintf(firstKey, sizeof(firstKey), "keyA1");
+    snprintf(lastKey, sizeof(lastKey), "keyA1");
     IndexLookup indexLookup(ramcloud.get(), tableId, 1,
-                            "keyA1", 5, 0, "keyA1", 5);
+                            firstKey, 5, lastKey, 5);
     EXPECT_TRUE(indexLookup.getNext());
     EXPECT_EQ(std::strncmp((const char*)keyListA[0].key,
                            (const char*)indexLookup.getKey(0), 5), 0);
@@ -150,7 +153,7 @@ TEST_F(IndexLookupTest, getNext_singleIndexlet) {
     }
 
     IndexLookup indexLookup(ramcloud.get(), tableId, 1,
-                            "key", 3, 0, "keyZ", 4);
+                            "key", 3, "keyZ", 4);
     for (uint64_t i = 100; i < numObjects; i++) {
         snprintf(keyStr[0], sizeof(keyStr[0]), "keyA%lu", i);
         keyList[0].key = keyStr[0];
@@ -179,6 +182,7 @@ TEST_F(IndexLookupTest, getNext_singleIndexlet) {
 /// This is to test (a) if IndexLookup can build correct set of PKHashes among
 /// different indexlets, and (b) if IndexLookup can return objects in the
 /// correct index order.
+/// Change name
 TEST_F(IndexLookupTest, getNext_singleTablet) {
     uint8_t numIndexlets = 26;
     uint64_t tableId = ramcloud->createTable("table");
@@ -187,6 +191,7 @@ TEST_F(IndexLookupTest, getNext_singleTablet) {
     uint8_t numKey = 3;
     KeyInfo keyList[3];
     char keyStr[3][20];
+    /// TODO: change
     uint64_t numObjects = 109;
     for (uint64_t i = 100; i < numObjects; i++)
         for (char prefix = 'a'; prefix < 'z'; prefix++) {
@@ -204,7 +209,7 @@ TEST_F(IndexLookupTest, getNext_singleTablet) {
         }
 
     IndexLookup indexLookup(ramcloud.get(), tableId, 1,
-                            "a", 1, 0, "z", 1);
+                            "a", 1, "z", 1);
     for (char prefix = 'a'; prefix < 'z'; prefix++)
         for (uint64_t i = 100; i < numObjects; i++) {
             snprintf(keyStr[0], sizeof(keyStr[0]), "%ckeyA%lu", prefix, i);
@@ -259,7 +264,7 @@ TEST_F(IndexLookupTest, getNext_general) {
         }
 
     IndexLookup indexLookup(ramcloud.get(), tableId, 1,
-                            "a", 1, 0, "z", 1);
+                            "a", 1, "z", 1);
     for (char prefix = 'a'; prefix < 'z'; prefix++)
         for (uint64_t i = 100; i < numObjects; i++) {
             snprintf(keyStr[0], sizeof(keyStr[0]), "%ckeyA%lu", prefix, i);
