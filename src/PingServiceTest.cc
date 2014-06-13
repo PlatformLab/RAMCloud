@@ -140,9 +140,10 @@ TEST_F(PingServiceTest, ping_basics) {
     EXPECT_EQ("ping: Received ping request from server 1.3", TestLog::get());
     TestLog::reset();
     EXPECT_THROW(PingClient::ping(&context, serverId, ServerId(99)),
-                CallerNotInClusterException);
-    EXPECT_EQ("ping: Received ping request from server 99.0",
-              TestLog::get());
+            CallerNotInClusterException);
+    EXPECT_EQ("ping: Received ping request from server 99.0 | "
+            "ping: Received ping from server not in cluster: 99.0",
+            TestLog::get());
 }
 
 TEST_F(PingServiceTest, ping_wait_timeout) {

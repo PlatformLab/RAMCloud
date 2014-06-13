@@ -93,6 +93,8 @@ PingService::ping(const WireFormat::Ping::Request* reqHdr,
         TEST_LOG("Received ping request from server %s",
                  serverId.toString().c_str());
         if (!context->serverList->isUp(serverId)) {
+            LOG(WARNING, "Received ping from server not in cluster: %s",
+                    serverId.toString().c_str());
             respHdr->common.status = STATUS_CALLER_NOT_IN_CLUSTER;
         }
     }
