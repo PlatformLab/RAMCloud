@@ -515,7 +515,7 @@ TEST_F(RamCloudTest, remove) {
     EXPECT_EQ("STATUS_OBJECT_DOESNT_EXIST", message);
 }
 
-TEST_F(RamCloudTest, serverControl){
+TEST_F(RamCloudTest, objectServerControl){
     ramcloud->write(tableId1, "0", 1, "zfzfzf", 6);
     string serverLocator = ramcloud->objectFinder.lookupTablet(tableId1
                            , Key::getHash(tableId1, "0", 1))->serviceLocator;
@@ -527,16 +527,16 @@ TEST_F(RamCloudTest, serverControl){
     ASSERT_FALSE(targetServer->context->dispatch->profilerFlag);
     uint64_t totalElements = 100000;
     Buffer output;
-    ramcloud->serverControl(tableId1, "0", 1,
+    ramcloud->objectServerControl(tableId1, "0", 1,
                             WireFormat::START_DISPATCH_PROFILER,
                             &totalElements, sizeof32(totalElements), &output);
     ASSERT_TRUE(targetServer->context->dispatch->profilerFlag);
     ASSERT_EQ(totalElements, targetServer->context->dispatch->totalElements);
-    ramcloud->serverControl(tableId1, "0", 1,
+    ramcloud->objectServerControl(tableId1, "0", 1,
                             WireFormat::STOP_DISPATCH_PROFILER,
                             " ", 1, &output);
     ASSERT_FALSE(targetServer->context->dispatch->profilerFlag);
-    ramcloud->serverControl(tableId1, "0", 1,
+    ramcloud->objectServerControl(tableId1, "0", 1,
                             WireFormat::DUMP_DISPATCH_PROFILE,
                             "pollingTimes.txt", 17, &output);
 }

@@ -48,8 +48,8 @@ class MockTableConfigFetcher : public ObjectFinder::TableConfigFetcher {
     *
     * \param tableId
     *      tableId that the server holds
-    * \param locator 
-    *      stringLocator of the server that holds the table  
+    * \param locator
+    *      stringLocator of the server that holds the table
     */
     explicit MockTableConfigFetcher(string locator, uint64_t tableId)
         : locator(locator)
@@ -222,7 +222,7 @@ TEST_F(PingServiceTest, proxyPing_timeout) {
     EXPECT_LE(elapsedMicros, 2000.0);
 }
 
-TEST_F(PingServiceTest, serverControl_DipatchProfilerBasics){
+TEST_F(PingServiceTest, objectServerControl_DipatchProfilerBasics){
     uint64_t tableId = 1;
     string locator = serverList.getLocator(serverId);
 
@@ -239,37 +239,37 @@ TEST_F(PingServiceTest, serverControl_DipatchProfilerBasics){
 
     // Testing basics of operation START_DISPATCH_PROFILER.
     ASSERT_FALSE(pingService.context->dispatch->profilerFlag);
-    ramcloud->serverControl(tableId, "0", 1,
-                            WireFormat::START_DISPATCH_PROFILER,
-                            &totalElements, sizeof32(totalElements),
-                            &output);
+    ramcloud->objectServerControl(tableId, "0", 1,
+                                  WireFormat::START_DISPATCH_PROFILER,
+                                  &totalElements, sizeof32(totalElements),
+                                  &output);
     ASSERT_TRUE(pingService.context->dispatch->profilerFlag);
     ASSERT_EQ(totalElements,
                 pingService.context->dispatch->totalElements);
 
     // Testing basics of operation STOP_DISPATCH_PROFILER.
-    ramcloud->serverControl(tableId, "0", 1,
-                            WireFormat::STOP_DISPATCH_PROFILER,
-                            " ", 1, &output);
+    ramcloud->objectServerControl(tableId, "0", 1,
+                                  WireFormat::STOP_DISPATCH_PROFILER,
+                                  " ", 1, &output);
     ASSERT_FALSE(pingService.context->dispatch->profilerFlag);
 
     // Testing basics of operation STOP_DISPATCH_PROFILER.
-    ramcloud->serverControl(tableId, "0", 1,
-                            WireFormat::DUMP_DISPATCH_PROFILE,
-                            "pollingTimesTestFile.txt", 25, &output);
+    ramcloud->objectServerControl(tableId, "0", 1,
+                                  WireFormat::DUMP_DISPATCH_PROFILE,
+                                  "pollingTimesTestFile.txt", 25, &output);
     std::ifstream stream("pollingTimesTestFile.txt");
     EXPECT_FALSE(stream.fail());
     stream.close();
     remove("pollingTimesTestFile.txt");
 
     // Testing unimplemented ControlOp.
-    EXPECT_THROW(ramcloud->serverControl(tableId, "0", 1,
-                                        WireFormat::ControlOp(0),
-                                        "File.txt", 9, &output)
+    EXPECT_THROW(ramcloud->objectServerControl(tableId, "0", 1,
+                                               WireFormat::ControlOp(0),
+                                               "File.txt", 9, &output)
                  , UnimplementedRequestError);
 }
 
-TEST_F(PingServiceTest, serverControl_DispatchProfilerExceptions) {
+TEST_F(PingServiceTest, objectServerControl_DispatchProfilerExceptions) {
     uint64_t tableId = 2;
     string locator = serverList.getLocator(serverId);
     ramcloud->objectFinder.tableConfigFetcher.reset(
@@ -279,7 +279,7 @@ TEST_F(PingServiceTest, serverControl_DispatchProfilerExceptions) {
 
     // Testing MessageTooShortError for ControlOp
     // WireFormat::START_DISPATCH_PROFILER
-    EXPECT_THROW(ramcloud->serverControl(tableId, "0", 1,
+    EXPECT_THROW(ramcloud->objectServerControl(tableId, "0", 1,
                             WireFormat::START_DISPATCH_PROFILER,
                             &totalElements, sizeof32(totalElements),
                             &output)
@@ -287,17 +287,17 @@ TEST_F(PingServiceTest, serverControl_DispatchProfilerExceptions) {
 
     // Testing RequestFormatError for ControlOp
     // WireFormat::DUMP_DISPATCH_PROFILER
-    EXPECT_THROW(ramcloud->serverControl(tableId, "0", 1,
+    EXPECT_THROW(ramcloud->objectServerControl(tableId, "0", 1,
                             WireFormat::DUMP_DISPATCH_PROFILE,
                             "pollingTimesTestFile.txt", 24, &output)
                 , RequestFormatError);
-    EXPECT_THROW(ramcloud->serverControl(tableId, "0", 1,
+    EXPECT_THROW(ramcloud->objectServerControl(tableId, "0", 1,
                             WireFormat::DUMP_DISPATCH_PROFILE,
                             "FolderNotExisting/File.txt", 27, &output)
                 , RequestFormatError);
 }
 
-TEST_F(PingServiceTest, serverControl_getTimeTrace) {
+TEST_F(PingServiceTest, objectServerControl_getTimeTrace) {
     uint64_t tableId = 2;
     string locator = serverList.getLocator(serverId);
     ramcloud->objectFinder.tableConfigFetcher.reset(
@@ -305,13 +305,13 @@ TEST_F(PingServiceTest, serverControl_getTimeTrace) {
     Buffer output;
 
     context.timeTrace->record("sample");
-    ramcloud->serverControl(tableId, "0", 1, WireFormat::GET_TIME_TRACE,
+    ramcloud->objectServerControl(tableId, "0", 1, WireFormat::GET_TIME_TRACE,
             "abc", 3, &output);
     EXPECT_EQ("     0.0 ns (+   0.0 ns): sample",
             TestUtil::toString(&output));
 }
 
-TEST_F(PingServiceTest, serverControl_logTimeTrace) {
+TEST_F(PingServiceTest, objectServerControl_logTimeTrace) {
     uint64_t tableId = 2;
     string locator = serverList.getLocator(serverId);
     ramcloud->objectFinder.tableConfigFetcher.reset(
@@ -319,7 +319,7 @@ TEST_F(PingServiceTest, serverControl_logTimeTrace) {
     Buffer output;
 
     context.timeTrace->record("sample");
-    ramcloud->serverControl(tableId, "0", 1, WireFormat::LOG_TIME_TRACE,
+    ramcloud->objectServerControl(tableId, "0", 1, WireFormat::LOG_TIME_TRACE,
                 "abc", 3, &output);
     EXPECT_EQ("printInternal:      0.0 ns (+   0.0 ns): sample",
             TestLog::get());

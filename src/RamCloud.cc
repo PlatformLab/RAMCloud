@@ -1083,7 +1083,7 @@ RamCloud::indexedRead(uint64_t tableId, uint32_t numHashes, Buffer* pKHashes,
  * indication that can be used to calculate the next key hash to be fetched.
  * The indication is the number of hashes for which objects are being returned
  * or were not found.
- * 
+ *
  * The next RPC would be initiated by the client by trimming the key hash
  * list according to the previous response.
  * This rpc will get sent to the server owning the new first key hash.
@@ -1340,22 +1340,22 @@ RamCloud::lookupIndexKeys(uint64_t tableId, uint8_t indexId,
  * Constructor for LookupIndexKeysRpc: initiates an RPC in the same way as
  * #RamCloud::LookupIndexKeysRpc, but returns once the RPC has been
  * initiated, without waiting for all to complete.
- * 
+ *
  * An RPC will be sent to a single server S1. S1 returns
  * the primary key hashes for the secondary key range that it can,
  * along with the next secondary key + key hash that has to be fetched.
- * 
+ *
  * The next RPC, if needed, would be initiated by the client by modifying
  * the first key and key hash value according to the previous response.
  * This rpc would get sent to the server owning that first key.
  * This could be S1 in case it couldn't fit all the key hashes in a single RPC
  * the first time it sent the response, or a different server S2 in case S1
  * didn't own the new key range.
- * 
+ *
  * Seen another way,
  * The firstKey in new request = nextKey from previous response, AND
  * firstAllowedKeyHash in new request = (nextKeyHash from previous resp) + 1.
- * 
+ *
  * \param ramcloud
  *      The RAMCloud object that governs this RPC.
  * \param tableId
@@ -1380,7 +1380,7 @@ RamCloud::lookupIndexKeys(uint64_t tableId, uint8_t indexId,
  *      the RPC.
  * \param lastKeyLength
  *      Length in byes of the lastKey.
- * 
+ *
  * \param[out] responseBuffer
  *      Return buffer containing:
  *      1. Actual bytes of the next key to fetch, if any.
@@ -1416,7 +1416,7 @@ LookupIndexKeysRpc::LookupIndexKeysRpc(
 /**
  * Wait for a lookupIndexKeys RPC to complete, and return the same results as
  * #RamCloud::lookupIndexKeys.
- * 
+ *
  * \param[out] numHashes
  *      Return the number of objects that matched the lookup, for which
  *      the primary key hashes are being returned here.
@@ -1907,16 +1907,16 @@ RemoveRpc::wait(uint64_t* version)
  *      control operation on the remote server.
  */
 void
-RamCloud::serverControl(uint64_t tableId, const void* key, uint16_t keyLength,
-            WireFormat::ControlOp controlOp,
+RamCloud::objectServerControl(uint64_t tableId, const void* key,
+            uint16_t keyLength, WireFormat::ControlOp controlOp,
             const void* inputData, uint32_t inputLength, Buffer* outputData){
-    ServerControlRpc rpc(this, tableId, key, keyLength, controlOp,
+    ObjectServerControlRpc rpc(this, tableId, key, keyLength, controlOp,
             inputData, inputLength, outputData);
     rpc.wait();
 }
 
 /**
- * Constructor for ServerControlRpc: initiates an RPC in the same way as
+ * Constructor for ObjectServerControlRpc: initiates an RPC in the same way as
  * #RamCloud::serverControl, but returns once the RPC has been initiated,
  * without waiting for it to complete.
  *
@@ -1945,8 +1945,8 @@ RamCloud::serverControl(uint64_t tableId, const void* key, uint16_t keyLength,
  *      A buffer that contains the return results, if any, from execution of the
  *      control operation on the remote server.
  */
-ServerControlRpc::ServerControlRpc(RamCloud* ramcloud, uint64_t tableId,
-            const void* key, uint16_t keyLength,
+ObjectServerControlRpc::ObjectServerControlRpc(RamCloud* ramcloud,
+            uint64_t tableId, const void* key, uint16_t keyLength,
             WireFormat::ControlOp controlOp,
             const void* inputData, uint32_t inputLength, Buffer* outputData)
     : ObjectRpcWrapper(ramcloud, tableId, key, keyLength,
@@ -1966,7 +1966,7 @@ ServerControlRpc::ServerControlRpc(RamCloud* ramcloud, uint64_t tableId,
  * #RamCloud::serverControl.
  */
 void
-ServerControlRpc::wait()
+ObjectServerControlRpc::wait()
 {
     waitInternal(ramcloud->clientContext->dispatch);
     const WireFormat::ServerControl::Response* respHdr(

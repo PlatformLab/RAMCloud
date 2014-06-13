@@ -105,6 +105,9 @@ class RamCloud {
     void multiRead(MultiReadObject* requests[], uint32_t numRequests);
     void multiRemove(MultiRemoveObject* requests[], uint32_t numRequests);
     void multiWrite(MultiWriteObject* requests[], uint32_t numRequests);
+    void objectServerControl(uint64_t tableId, const void* key,
+            uint16_t keyLength, WireFormat::ControlOp controlOp,
+            const void* inputData, uint32_t inputLength, Buffer* outputData);
     void quiesce();
     void read(uint64_t tableId, const void* key, uint16_t keyLength,
             Buffer* value, const RejectRules* rejectRules = NULL,
@@ -114,9 +117,6 @@ class RamCloud {
             uint64_t* version = NULL);
     void remove(uint64_t tableId, const void* key, uint16_t keyLength,
             const RejectRules* rejectRules = NULL, uint64_t* version = NULL);
-    void serverControl(uint64_t tableId, const void* key, uint16_t keyLength,
-            WireFormat::ControlOp controlOp,
-            const void* inputData, uint32_t inputLength, Buffer* outputData);
     void splitTablet(const char* name, uint64_t splitKeyHash);
     void testingFill(uint64_t tableId, const void* key, uint16_t keyLength,
             uint32_t numObjects, uint32_t objectSize);
@@ -838,18 +838,18 @@ class RemoveRpc : public ObjectRpcWrapper {
 };
 
 /**
- * Encapsulates the state of a RamCloud::serverControl operation,
+ * Encapsulates the state of a RamCloud::objectServerControl operation,
  * allowing it to execute asynchronously.
  */
-class ServerControlRpc : public ObjectRpcWrapper {
+class ObjectServerControlRpc : public ObjectRpcWrapper {
   public:
-    ServerControlRpc(RamCloud* ramcloud, uint64_t tableId,
+    ObjectServerControlRpc(RamCloud* ramcloud, uint64_t tableId,
         const void* key, uint16_t keyLength, WireFormat::ControlOp controlOp,
         const void* inputData, uint32_t inputLength, Buffer* outputData);
-    ~ServerControlRpc() {}
+    ~ObjectServerControlRpc() {}
     void wait();
   PRIVATE:
-    DISALLOW_COPY_AND_ASSIGN(ServerControlRpc);
+    DISALLOW_COPY_AND_ASSIGN(ObjectServerControlRpc);
 };
 
 /**
