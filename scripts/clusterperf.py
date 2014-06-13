@@ -196,7 +196,7 @@ def default(
     it simply invokes ClusterPerf via cluster.run and prints the result.
     """
     cluster.run(client='%s/ClusterPerf %s %s' %
-            (obj_path, flatten_args(client_args), name), master_args='-d', **cluster_args)
+            (obj_path, flatten_args(client_args), name), master_args='-d -t 10%', **cluster_args)
     print(get_client_log(), end='')
 
 def broadcast(name, options, cluster_args, client_args):
@@ -212,7 +212,7 @@ def multiOp(name, options, cluster_args, client_args):
         cluster_args['num_servers'] = len(hosts)
     client_args['--numTables'] = cluster_args['num_servers'];
     cluster.run(client='%s/ClusterPerf %s %s' %
-            (obj_path, flatten_args(client_args), name), master_args='-d', **cluster_args)
+            (obj_path, flatten_args(client_args), name), master_args='-d -t 10%', **cluster_args)
     print(get_client_log(), end='')
 
 
@@ -245,7 +245,7 @@ def readAllToAll(name, options, cluster_args, client_args):
 
 def readDist(name, options, cluster_args, client_args):
     cluster.run(client='%s/ClusterPerf %s %s' %
-            (obj_path, flatten_args(client_args), name), master_args='-d',
+            (obj_path, flatten_args(client_args), name), master_args='-d -t 10%',
             **cluster_args)
     print("# Cumulative distribution of time for a single client to read a\n"
           "# single %d-byte object from a single server.  Each line indicates\n"
@@ -274,33 +274,40 @@ def readRandom(name, options, cluster_args, client_args):
         cluster_args['num_servers'] = 1
     client_args['--numTables'] = cluster_args['num_servers'];
     cluster.run(client='%s/ClusterPerf %s %s' %
-            (obj_path, flatten_args(client_args), name), master_args='--masterServiceThreads 4', **cluster_args)
+            (obj_path, flatten_args(client_args), name), master_args='--masterServiceThreads 4 -t 10%', **cluster_args)
     print(get_client_log(), end='')
 
 def indexBasic(name, options, cluster_args, client_args):
-    cluster_args['timeout'] = 100
-    cluster_args['num_servers'] = 5
+    cluster_args['timeout'] = 1000
+    # Ensure atleast 5 hosts for optimal performance
+    if options.num_servers == None:
+        cluster_args['num_servers'] = len(hosts)
     # using 20GB for servers so that we don't run out of memory when inserting
     # 10 million objects/index entries
     cluster.run(client='%s/ClusterPerf %s %s' %
-            (obj_path, flatten_args(client_args), name), master_args='--masterServiceThreads 1', **cluster_args)
+            (obj_path, flatten_args(client_args), name), master_args='--masterServiceThreads 1 -t 10%', **cluster_args)
     print(get_client_log(), end='')
 
 def indexMultiple(name, options, cluster_args, client_args):
-    cluster_args['timeout'] = 100
-    cluster_args['num_servers'] = 15 # for numkeys(1-20) in indexMultiple
+    cluster_args['timeout'] = 10000
+    # Ensure atleast 15 hosts for optimal performance
+    if options.num_servers == None:
+        cluster_args['num_servers'] = len(hosts)
     cluster.run(client='%s/ClusterPerf %s %s' %
-            (obj_path, flatten_args(client_args), name), master_args='--masterServiceThreads 1', **cluster_args)
+            (obj_path, flatten_args(client_args), name), master_args='--masterServiceThreads 1 -t 10%', **cluster_args)
     print(get_client_log(), end='')
 
 def indexScalability(name, options, cluster_args, client_args):
-    cluster_args['timeout'] = 100000
+    cluster_args['timeout'] = 1000
     cluster_args['backups_per_server'] = 0
     cluster_args['replicas'] = 0
+    # Ensure atleast 15 hosts for optimal performance
+    if options.num_servers == None:
+        cluster_args['num_servers'] = len(hosts)
     if 'num_clients' not in cluster_args:
         cluster_args['num_clients'] = 10
     cluster.run(client='%s/ClusterPerf %s %s' %
-            (obj_path, flatten_args(client_args), name), master_args='-d --masterServiceThreads 2', **cluster_args)
+            (obj_path, flatten_args(client_args), name), master_args='-d --masterServiceThreads 2 -t 10%', **cluster_args)
     print(get_client_log(), end='')
 
 #-------------------------------------------------------------------
