@@ -118,29 +118,18 @@ class ObjectFinderTest : public ::testing::Test {
   public:
     TestLog::Enable logEnabler;
     Context context;
-    MockCluster cluster;
     Tub<ObjectFinder> objectFinder;
     Refresher* refresher;
 
     ObjectFinderTest()
         : logEnabler()
         , context()
-        , cluster(&context)
         , objectFinder()
         , refresher()
     {
+        context.transportManager->registerMock(NULL);
+
         objectFinder.construct(&context);
-
-        ServerConfig config = ServerConfig::forTesting();
-        config.services = {WireFormat::MASTER_SERVICE};
-        cluster.addServer(config);
-        cluster.addServer(config);
-        cluster.addServer(config);
-        cluster.addServer(config);
-        cluster.addServer(config);
-        cluster.addServer(config);
-        cluster.addServer(config);
-
         refresher = new Refresher();
         objectFinder->tableConfigFetcher.reset(refresher);
     }
@@ -222,20 +211,42 @@ TEST_F(ObjectFinderTest, flush) {
     //TODO(ashgup): add tests for flushing indexlets
 }
 
-TEST_F(ObjectFinderTest, flushSession) {
-    KeyHash keyHash = Key::getHash(1, "testKey", 7);
-    objectFinder->lookup(1, keyHash);
-    EXPECT_FALSE(context.transportManager->sessionCache.find(
-            "mock:host=server1")
-            == context.transportManager->sessionCache.end());
-    TestLog::reset();
-    objectFinder->flushSession(1, keyHash);
-    EXPECT_TRUE(context.transportManager->sessionCache.find(
-            "mock:host=server1")
-            == context.transportManager->sessionCache.end());
-    EXPECT_EQ("flushSession: flushing session for mock:host=server1",
-            TestLog::get());
-    objectFinder->flushSession(99, 0);
+TEST_F(ObjectFinderTest, lookup_stringKey) {
+    Transport::SessionRef session = objectFinder->lookup(1, "abc", 3);
+    ASSERT_TRUE(session != NULL);
+    EXPECT_EQ("mock:host=server1", session->getServiceLocator());
+}
+TEST_F(ObjectFinderTest, lookup_stringKey_noSuchTable) {
+    EXPECT_THROW(objectFinder->lookup(99, "abc", 3), TableDoesntExistException);
+}
+
+TEST_F(ObjectFinderTest, lookup_keyHash) {
+    // Make sure that no session was cached initially.
+    EXPECT_TRUE(objectFinder->lookupTablet(1, 9999lu)->session == NULL);
+
+    Transport::SessionRef session = objectFinder->lookup(1, 9999lu);
+    ASSERT_TRUE(session != NULL);
+    EXPECT_EQ("mock:host=server1", session->getServiceLocator());
+
+    // Make sure that the session was cached.
+    EXPECT_EQ(session, objectFinder->lookupTablet(1, 9999lu)->session);
+}
+
+TEST_F(ObjectFinderTest, lookup_index_noSuchIndex) {
+    Transport::SessionRef session = objectFinder->lookup(2, 99, "abc", 3);
+    ASSERT_TRUE(session == NULL);
+}
+TEST_F(ObjectFinderTest, lookup_index_success) {
+    // Make sure that no session was cached initially.
+    EXPECT_TRUE(objectFinder->lookupIndexlet(1, 1, "abc", 3)->session
+            == NULL);
+
+    Transport::SessionRef session = objectFinder->lookup(1, 1, "abc", 3);
+    ASSERT_TRUE(session != NULL);
+    EXPECT_EQ("mock:host=server2", session->getServiceLocator());
+
+    // Make sure that the session was cached.
+    EXPECT_EQ(session, objectFinder->lookupIndexlet(1, 1, "abc", 3)->session);
 }
 
 TEST_F(ObjectFinderTest, lookupIndexlet) {
@@ -376,6 +387,47 @@ TEST_F(ObjectFinderTest, lookupTablet) {
     EXPECT_EQ("mock:host=server6",
             static_cast<BindTransport::BindSession*>(session8.get())->
                     getServiceLocator());
+}
+
+TEST_F(ObjectFinderTest, flushSession_tablet) {
+    KeyHash keyHash = Key::getHash(1, "testKey", 7);
+    objectFinder->lookup(1, keyHash);
+    EXPECT_FALSE(context.transportManager->sessionCache.find(
+            "mock:host=server1")
+            == context.transportManager->sessionCache.end());
+    EXPECT_TRUE(objectFinder->lookupTablet(1, 9999lu)->session != NULL);
+
+    TestLog::reset();
+    objectFinder->flushSession(1, keyHash);
+    // Make sure that the session is no longer cached either in ObjectFinder
+    // or TransportManager.
+    EXPECT_TRUE(objectFinder->lookupTablet(1, keyHash)->session == NULL);
+    EXPECT_TRUE(context.transportManager->sessionCache.find(
+            "mock:host=server1")
+            == context.transportManager->sessionCache.end());
+    EXPECT_EQ("flushSession: flushing session for mock:host=server1",
+            TestLog::get());
+    objectFinder->flushSession(99, 0);
+}
+
+TEST_F(ObjectFinderTest, flushSession_index) {
+    objectFinder->lookup(1, 1, "abc", 3);
+    EXPECT_FALSE(context.transportManager->sessionCache.find(
+            "mock:host=server2")
+            == context.transportManager->sessionCache.end());
+    EXPECT_TRUE(objectFinder->lookupIndexlet(1, 1, "abc", 3)->session != NULL);
+
+    TestLog::reset();
+    objectFinder->flushSession(1, 1, "abc", 3);
+    // Make sure that the session is no longer cached either in ObjectFinder
+    // or TransportManager.
+    EXPECT_TRUE(objectFinder->lookupIndexlet(1, 1, "abc", 3)->session == NULL);
+    EXPECT_TRUE(context.transportManager->sessionCache.find(
+            "mock:host=server2")
+            == context.transportManager->sessionCache.end());
+    EXPECT_EQ("flushSession: flushing session for mock:host=server2",
+            TestLog::get());
+    objectFinder->flushSession(99, 0);
 }
 
 }  // namespace RAMCloud

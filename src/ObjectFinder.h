@@ -46,15 +46,24 @@ struct TabletKey {
 };
 
 /**
- * Structure to extract and store information from Tablet ProtoBuffer.
+ * This structure holds configuration information for a single tablet.
  */
 struct TabletWithLocator {
+    /// Details about the tablet.
     Tablet tablet;
+
+    /// Used to find the server that stores the tablet.
     string serviceLocator;
+
+    /// Session corresponding to serviceLocator. This is a cache to avoid
+    /// repeated calls to TransportManager; NULL means that we haven't
+    /// yet fetched the session from TransportManager.
+    Transport::SessionRef session;
 
     TabletWithLocator(Tablet tablet, string serviceLocator)
         : tablet(tablet)
         , serviceLocator(serviceLocator)
+        , session(NULL)
     {}
 };
 
@@ -76,9 +85,9 @@ class ObjectFinder {
     Transport::SessionRef lookup(uint64_t tableId, uint8_t indexId,
                                  const void* key, uint16_t keyLength);
 
-    const Indexlet* lookupIndexlet(uint64_t tableId, uint8_t indexId,
-                                   const void* key, uint16_t keyLength);
-    const TabletWithLocator* lookupTablet(uint64_t table, KeyHash keyHash);
+    Indexlet* lookupIndexlet(uint64_t tableId, uint8_t indexId,
+                             const void* key, uint16_t keyLength);
+    TabletWithLocator* lookupTablet(uint64_t table, KeyHash keyHash);
 
     void flush(uint64_t tableId);
     void flushSession(uint64_t tableId, KeyHash keyHash);
@@ -103,9 +112,9 @@ class ObjectFinder {
     Context* context;
 
     /**
-     * tableMap provides a fast lookup for the current tablets being used.
-     * It stores the tablets, so they can be fast accessed by having the 
-     * TabletKey value <tableId, start_key_hash>.
+     * The following variable provides a cache of configuration information
+     * about tables that have been used by this client; it is loaded on-demand
+     * from the coordinator on a table-by-table basis.
      */
     std::map<TabletKey, TabletWithLocator> tableMap;
     typedef std::map<TabletKey, TabletWithLocator>::iterator TabletIter;
@@ -143,12 +152,14 @@ class ObjectFinder::Indexlet : public RAMCloud::Indexlet {
                    firstNotOwnedKeyLength)
         , serverId(serverId)
         , serviceLocator(serviceLocator)
+        , session(NULL)
     {}
 
     Indexlet(const Indexlet& indexlet)
         : RAMCloud::Indexlet(indexlet)
         , serverId(indexlet.serverId)
         , serviceLocator(indexlet.serviceLocator)
+        , session(NULL)
     {}
 
     /// The server id of the master owning this indexlet.
@@ -156,6 +167,11 @@ class ObjectFinder::Indexlet : public RAMCloud::Indexlet {
 
     /// The service locator for this indexlet.
     string serviceLocator;
+
+    /// Session corresponding to serviceLocator. This is a cache to avoid
+    /// repeated calls to TransportManager; NULL means that we haven't
+    /// yet fetched the session from TransportManager.
+    Transport::SessionRef session;
 };
 
 /**

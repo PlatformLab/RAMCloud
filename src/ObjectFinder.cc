@@ -128,10 +128,13 @@ ObjectFinder::ObjectFinder(Context* context)
 }
 
 /**
- * The method flush(tableId) removes all the entries in the tableMap
- * that contains tableId.
+ * This method is invoked when the caller has reason to believe that
+ * the configuration information for particular table is out-of-date.
+ * The method deletes all information related to that table; fresh
+ * information will be fetched from the coordinator the next time it
+ * is needed.
  * \param tableId
- *      the id of the table to be flushed.
+ *      The id of the table to be flushed.
  */
 void
 ObjectFinder::flush(uint64_t tableId) {
@@ -150,10 +153,10 @@ ObjectFinder::flush(uint64_t tableId) {
 
 /**
  * Return a string representation of all the table id's presented
- * at the tableMap at any given moment. Used mainly for debugging.
+ * at the tableMap at any given moment. Used mainly for testing.
  *
  * \return 
- *      string
+ *      A human-readable string describing the contents of tableMap.
  */
 string
 ObjectFinder::debugString() const {
@@ -214,8 +217,12 @@ ObjectFinder::lookup(uint64_t tableId, const void* key, uint16_t keyLength) {
 Transport::SessionRef
 ObjectFinder::lookup(uint64_t tableId, KeyHash keyHash)
 {
-    return context->transportManager->getSession(
-                lookupTablet(tableId, keyHash)->serviceLocator);
+    TabletWithLocator* tablet = lookupTablet(tableId, keyHash);
+    if (tablet->session == NULL) {
+        tablet->session = context->transportManager->getSession(
+                tablet->serviceLocator);
+    }
+    return tablet->session;
 }
 
 /**
@@ -238,13 +245,16 @@ Transport::SessionRef
 ObjectFinder::lookup(uint64_t tableId, uint8_t indexId,
                      const void* key, uint16_t keyLength)
 {
-    const Indexlet* indexlet = lookupIndexlet(tableId, indexId, key, keyLength);
+    Indexlet* indexlet = lookupIndexlet(tableId, indexId, key, keyLength);
     // If indexlet doesn't exist, don't throw an exception.
     if (indexlet == NULL) {
         return Transport::SessionRef();
     }
-    return context->transportManager->getSession(
-                        indexlet->serviceLocator);
+    if (indexlet->session == NULL) {
+        indexlet->session = context->transportManager->getSession(
+                indexlet->serviceLocator);
+    }
+    return indexlet->session;
 }
 
 /**
@@ -264,7 +274,7 @@ ObjectFinder::lookup(uint64_t tableId, uint8_t indexId,
  *      the specified key. This reference may be invalidated by any future
  *      calls to the ObjectFinder.
  */
-const ObjectFinder::Indexlet*
+ObjectFinder::Indexlet*
 ObjectFinder::lookupIndexlet(uint64_t tableId, uint8_t indexId,
                              const void* key, uint16_t keyLength)
 {
@@ -321,7 +331,7 @@ ObjectFinder::lookupIndexlet(uint64_t tableId, uint8_t indexId,
  * \throw TableDoesntExistException
  *      The coordinator has no record of the table.
  */
-const TabletWithLocator*
+TabletWithLocator*
 ObjectFinder::lookupTablet(uint64_t tableId, KeyHash keyHash)
 {
     bool haveRefreshed = false;
@@ -330,7 +340,7 @@ ObjectFinder::lookupTablet(uint64_t tableId, KeyHash keyHash)
     while (true) {
         iter = tableMap.upper_bound(key);
         if (!tableMap.empty() && iter != tableMap.begin()) {
-            const TabletWithLocator* tabletWithLocator = &((--iter)->second);
+            TabletWithLocator* tabletWithLocator = &((--iter)->second);
             if (tabletWithLocator->tablet.tableId == tableId &&
               tabletWithLocator->tablet.startKeyHash <= keyHash &&
               keyHash <= tabletWithLocator->tablet.endKeyHash) {
@@ -369,10 +379,11 @@ void
 ObjectFinder::flushSession(uint64_t tableId, KeyHash keyHash)
 {
     try {
-        const TabletWithLocator* tabletWithLocator = lookupTablet(tableId,
+        TabletWithLocator* tabletWithLocator = lookupTablet(tableId,
                                                                 keyHash);
         context->transportManager->flushSession(
                                     tabletWithLocator->serviceLocator);
+        tabletWithLocator->session = NULL;
     } catch (TableDoesntExistException& e) {
         // We don't even store this tablet anymore, so there's nothing
         // to worry about.
@@ -399,11 +410,12 @@ void
 ObjectFinder::flushSession(uint64_t tableId, uint8_t indexId,
                            const void* key, uint16_t keyLength)
 {
-    const Indexlet* indexlet = lookupIndexlet(tableId, indexId,
+    Indexlet* indexlet = lookupIndexlet(tableId, indexId,
                                               key, keyLength);
     if (indexlet != NULL) {
         context->transportManager->flushSession(
                         indexlet->serviceLocator);
+        indexlet->session = NULL;
     }
 }
 
