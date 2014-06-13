@@ -103,6 +103,20 @@ FailureDetector::detectorThreadEntry(FailureDetector* detector,
 {
     LOG(NOTICE, "Failure detector thread started");
 
+    // Wait a while before sending the first probe, so that the coordinator
+    // has had a chance to let the other servers know of our existence.
+    // Without this delay, we may end up probing a server that doesn't
+    // know about us, resulting in extraneous warnings about verifying
+    // cluster membership. The initial wait time used below is a fairly
+    // random guess.
+    struct timespec interval;
+    interval.tv_sec = 1;
+    interval.tv_nsec = 0;
+    nanosleep(&interval, NULL);
+
+    interval.tv_sec = 0;
+    interval.tv_nsec = PROBE_INTERVAL_USECS*1000;
+
     while (1) {
         // Check if we have been requested to exit.
         Fence::lfence();
@@ -119,7 +133,7 @@ FailureDetector::detectorThreadEntry(FailureDetector* detector,
         detector->pingRandomServer();
 
         // Sleep for the specified interval
-        usleep(PROBE_INTERVAL_USECS);
+        nanosleep(&interval, NULL);
     }
 }
 
