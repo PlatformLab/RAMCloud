@@ -21,271 +21,190 @@
 #include "IndexLookup.h"
 
 namespace RAMCloud {
+// This class provides tablet map and indexlet map info to ObjectFinder.
+class IndexLookupRpcRefresher : public ObjectFinder::TableConfigFetcher {
+  public:
+    IndexLookupRpcRefresher() : called(0) {}
+    void getTableConfig(uint64_t tableId,
+                        std::map<TabletKey, TabletWithLocator>* tableMap,
+                        std::multimap<std::pair<uint64_t, uint8_t>,
+                                      ObjectFinder::Indexlet>* tableIndexMap) {
+
+        called++;
+        char buffer[100];
+        uint64_t numTablets = 10;
+        uint8_t numIndexlets = 26;
+
+        tableMap->clear();
+        uint64_t tabletRange = 1 + ~0UL / numTablets;
+        for (uint64_t i = 0; i < numTablets; i++) {
+            uint64_t startKeyHash = i * tabletRange;
+            uint64_t endKeyHash = startKeyHash + tabletRange - 1;
+            snprintf(buffer, sizeof(buffer), "mock:dataserver=%lu", i);
+            if (i == (numTablets - 1))
+                endKeyHash = ~0UL;
+            Tablet rawEntry({10, startKeyHash, endKeyHash, ServerId(),
+                            Tablet::NORMAL, Log::Position()});
+            TabletWithLocator entry(rawEntry, buffer);
+
+            TabletKey key {entry.tablet.tableId, entry.tablet.startKeyHash};
+            tableMap->insert(std::make_pair(key, entry));
+        }
+
+        tableIndexMap->clear();
+        for (uint8_t i = 0; i < numIndexlets; i++) {
+            auto id = std::make_pair(10, 1); // Pair of table id and index id.
+            char firstKey = static_cast<char>('a'+i);
+            char firstNotOwnedKey = static_cast<char>('b'+i);
+            snprintf(buffer, sizeof(buffer), "mock:indexserver=%u", i);
+            ObjectFinder::Indexlet indexlet(
+                reinterpret_cast<void *>(&firstKey), 1,
+                reinterpret_cast<void *>(&firstNotOwnedKey), 1,
+                ServerId(), buffer);
+            tableIndexMap->insert(std::make_pair(id, indexlet));
+        }
+    }
+    uint32_t called;
+};
 
 class IndexLookupTest : public ::testing::Test {
   public:
-    TestLog::Enable logEnabler;
-    Context context;
-    MockCluster cluster;
-    Tub<RamCloud> ramcloud;
+    RamCloud ramcloud;
+    MockTransport transport;
 
-  public:
     IndexLookupTest()
-        : logEnabler()
-        , context()
-        , cluster(&context)
-        , ramcloud()
+        : ramcloud("mock:")
+        , transport(ramcloud.clientContext)
     {
-        Logger::get().setLogLevels(RAMCloud::SILENT_LOG_LEVEL);
+        ramcloud.objectFinder.tableConfigFetcher.reset(
+                new IndexLookupRpcRefresher);
+        ramcloud.clientContext->transportManager->registerMock(&transport);
+    }
 
-        ServerConfig config = ServerConfig::forTesting();
-        config.services = {WireFormat::MASTER_SERVICE,
-                           WireFormat::PING_SERVICE};
-        config.localLocator = "mock:host=master1";
-        cluster.addServer(config);
-        config.services = {WireFormat::MASTER_SERVICE,
-                           WireFormat::BACKUP_SERVICE,
-                           WireFormat::PING_SERVICE};
-        config.localLocator = "mock:host=master2";
-        cluster.addServer(config);
-        config.services = {WireFormat::MASTER_SERVICE,
-                           WireFormat::BACKUP_SERVICE,
-                           WireFormat::PING_SERVICE};
-        config.localLocator = "mock:host=master3";
-        cluster.addServer(config);
-        config.services = {WireFormat::MASTER_SERVICE,
-                           WireFormat::BACKUP_SERVICE,
-                           WireFormat::PING_SERVICE};
-        config.localLocator = "mock:host=master4";
-        cluster.addServer(config);
-        config.services = {WireFormat::MASTER_SERVICE,
-                           WireFormat::BACKUP_SERVICE,
-                           WireFormat::PING_SERVICE};
-        config.localLocator = "mock:host=master5";
-        cluster.addServer(config);
-        config.services = {WireFormat::MASTER_SERVICE,
-                           WireFormat::BACKUP_SERVICE,
-                           WireFormat::PING_SERVICE};
-        config.localLocator = "mock:host=master6";
-        cluster.addServer(config);
-        config.services = {WireFormat::MASTER_SERVICE,
-                           WireFormat::BACKUP_SERVICE,
-                           WireFormat::PING_SERVICE};
-        config.localLocator = "mock:host=master7";
-        cluster.addServer(config);
-        config.services = {WireFormat::PING_SERVICE};
-        config.localLocator = "mock:host=ping1";
-        cluster.addServer(config);
-
-        ramcloud.construct(&context, "mock:host=coordinator");
+    ~IndexLookupTest()
+    {
     }
 
     DISALLOW_COPY_AND_ASSIGN(IndexLookupTest);
 };
 
-/// Simple test: first write two objects, and then
-/// look up one of them, by using IndexLookup class.
-TEST_F(IndexLookupTest, getNext_simple) {
-    uint64_t tableId = ramcloud->createTable("table");
-    ramcloud->createIndex(tableId, 1, 0);
-    ramcloud->createIndex(tableId, 2, 0);
-
-    uint8_t numKeys = 3;
-
-    KeyInfo keyListA[3];
-    keyListA[0].keyLength = 5;
-    keyListA[0].key = "keyA0";
-    keyListA[1].keyLength = 5;
-    keyListA[1].key = "keyA1";
-    keyListA[2].keyLength = 5;
-    keyListA[2].key = "keyA2";
-
-    KeyInfo keyListB[3];
-    keyListB[0].keyLength = 5;
-    keyListB[0].key = "keyB0";
-    keyListB[1].keyLength = 5;
-    keyListB[1].key = "keyB1";
-    keyListB[2].keyLength = 5;
-    keyListB[2].key = "keyB2";
-
-    ramcloud->write(tableId, numKeys, keyListA, "valueA");
-    ramcloud->write(tableId, numKeys, keyListB, "valueB");
-
-    char firstKey[10], lastKey[10];
-    snprintf(firstKey, sizeof(firstKey), "keyA1");
-    snprintf(lastKey, sizeof(lastKey), "keyA1");
-    IndexLookup indexLookup(ramcloud.get(), tableId, 1,
-                            firstKey, 5, lastKey, 5);
-    EXPECT_TRUE(indexLookup.getNext());
-    EXPECT_EQ(std::strncmp((const char*)keyListA[0].key,
-                           (const char*)indexLookup.getKey(0), 5), 0);
-    EXPECT_EQ(std::strncmp((const char*)keyListA[1].key,
-                           (const char*)indexLookup.getKey(1), 5), 0);
-    EXPECT_EQ(std::strncmp((const char*)keyListA[2].key,
-                           (const char*)indexLookup.getKey(2), 5), 0);
+TEST_F(IndexLookupTest, construction) {
+    TestLog::Enable _;
+    IndexLookup indexLookup(&ramcloud, 10, 1, "a", 1, "z", 1);
+    EXPECT_EQ("mock:indexserver=0",
+        indexLookup.lookupRpc.rpc->session->getServiceLocator());
+    EXPECT_EQ(IndexLookup::SENT, indexLookup.lookupRpc.status);
 }
 
-/// Only a single indexlet is going to handle all lookupIndexKeys queries,
-/// while the table is splited into several tablets.
-/// This is to test if IndexLookup can head to the correct data server
-/// to ask for objects.
-TEST_F(IndexLookupTest, getNext_singleIndexlet) {
-    uint32_t serverSpan = 6;
-    uint64_t tableId = ramcloud->createTable("table", serverSpan);
-    ramcloud->createIndex(tableId, 1, 0);
-    ramcloud->createIndex(tableId, 2, 0);
-    uint8_t numKey = 3;
-    KeyInfo keyList[3];
-    char keyStr[3][20];
-    uint64_t numObjects = 199;
-    for (uint64_t i = 100; i < numObjects; i++) {
-        snprintf(keyStr[0], sizeof(keyStr[0]), "keyA%lu", i);
-        keyList[0].key = keyStr[0];
-        keyList[0].keyLength = 7;
-        snprintf(keyStr[1], sizeof(keyStr[1]), "keyB%lu", i);
-        keyList[1].key = keyStr[1];
-        keyList[1].keyLength = 7;
-        snprintf(keyStr[2], sizeof(keyStr[2]), "keyC%lu", i);
-        keyList[2].key = keyStr[2];
-        keyList[2].keyLength = 7;
-        std::string value = "value";
-        ramcloud->write(tableId, numKey, keyList, value.c_str());
+// Rule 1:
+// Handle the completion of a lookIndexKeys RPC.
+TEST_F(IndexLookupTest, isReady_lookupComplete) {
+    TestLog::Enable _;
+    IndexLookup indexLookup(&ramcloud, 10, 1, "a", 1, "z", 1);
+    (new(indexLookup.lookupRpc.rpc->response, APPEND)
+        WireFormat::ResponseCommon)->status = STATUS_OK;
+    new(indexLookup.lookupRpc.rpc->response, APPEND) uint32_t(10);
+    new(indexLookup.lookupRpc.rpc->response, APPEND) uint16_t(0);
+    new(indexLookup.lookupRpc.rpc->response, APPEND) uint64_t(0);
+    for (KeyHash i = 0; i < 10; i++) {
+        new(indexLookup.lookupRpc.rpc->response, APPEND) KeyHash(i);
     }
+    indexLookup.lookupRpc.rpc->completed();
+    EXPECT_EQ(IndexLookup::SENT, indexLookup.lookupRpc.status);
+    indexLookup.isReady();
+    EXPECT_EQ(10U, indexLookup.lookupRpc.numHashes + indexLookup.numInserted);
+    EXPECT_EQ(0U, indexLookup.nextKeyHash);
+}
 
-    IndexLookup indexLookup(ramcloud.get(), tableId, 1,
-                            "key", 3, "keyZ", 4);
-    for (uint64_t i = 100; i < numObjects; i++) {
-        snprintf(keyStr[0], sizeof(keyStr[0]), "keyA%lu", i);
-        keyList[0].key = keyStr[0];
-        keyList[0].keyLength = 7;
-        snprintf(keyStr[1], sizeof(keyStr[1]), "keyB%lu", i);
-        keyList[1].key = keyStr[1];
-        keyList[1].keyLength = 7;
-        snprintf(keyStr[2], sizeof(keyStr[2]), "keyC%lu", i);
-        keyList[2].key = keyStr[2];
-        keyList[2].keyLength = 7;
-        EXPECT_TRUE(indexLookup.getNext());
-        const void *retKey;
-        KeyLength retKeyLength;
-        for (KeyIndex idx = 0; idx < 3; idx ++) {
-            retKey = indexLookup.getKey(idx, &retKeyLength);
-            EXPECT_EQ(std::strncmp((const char *)retKey,
-                                   (const char *)keyList[idx].key,
-                                   retKeyLength), 0);
-        }
+// Rule 2:
+// Copy PKHashes from response buffer of lookup RPC into activeHashes
+TEST_F(IndexLookupTest, isReady_activeHashes) {
+    TestLog::Enable _;
+    IndexLookup indexLookup(&ramcloud, 10, 1, "a", 1, "z", 1);
+    (new(indexLookup.lookupRpc.rpc->response, APPEND)
+        WireFormat::ResponseCommon)->status = STATUS_OK;
+    new(indexLookup.lookupRpc.rpc->response, APPEND) uint32_t(10);
+    new(indexLookup.lookupRpc.rpc->response, APPEND) uint16_t(0);
+    new(indexLookup.lookupRpc.rpc->response, APPEND) uint64_t(0);
+    for (KeyHash i = 0; i < 10; i++) {
+        new(indexLookup.lookupRpc.rpc->response, APPEND) KeyHash(i);
+    }
+    indexLookup.lookupRpc.rpc->completed();
+    EXPECT_EQ(IndexLookup::SENT, indexLookup.lookupRpc.status);
+    indexLookup.isReady();
+    EXPECT_EQ(IndexLookup::FREE, indexLookup.lookupRpc.status);
+    for (KeyHash i = 0; i < 10; i++) {
+        EXPECT_EQ(i, indexLookup.activeHashes[i]);
     }
 }
 
-/// A single tablet is going to handle all indexedRead queires, while
-/// the index is splited into several indexlets, and we generate objects
-/// for each of the indexlets.
-/// This is to test (a) if IndexLookup can build correct set of PKHashes among
-/// different indexlets, and (b) if IndexLookup can return objects in the
-/// correct index order.
-/// Change name
-TEST_F(IndexLookupTest, getNext_singleTablet) {
-    uint8_t numIndexlets = 26;
-    uint64_t tableId = ramcloud->createTable("table");
-    ramcloud->createIndex(tableId, 1, 0, numIndexlets);
-    ramcloud->createIndex(tableId, 2, 0, numIndexlets);
-    uint8_t numKey = 3;
-    KeyInfo keyList[3];
-    char keyStr[3][20];
-    /// TODO: change
-    uint64_t numObjects = 109;
-    for (uint64_t i = 100; i < numObjects; i++)
-        for (char prefix = 'a'; prefix < 'z'; prefix++) {
-            snprintf(keyStr[0], sizeof(keyStr[0]), "%ckeyA%lu", prefix, i);
-            keyList[0].key = keyStr[0];
-            keyList[0].keyLength = 8;
-            snprintf(keyStr[1], sizeof(keyStr[1]), "%ckeyB%lu", prefix, i);
-            keyList[1].key = keyStr[1];
-            keyList[1].keyLength = 8;
-            snprintf(keyStr[2], sizeof(keyStr[2]), "%ckeyC%lu", prefix, i);
-            keyList[2].key = keyStr[2];
-            keyList[2].keyLength = 8;
-            std::string value = "value";
-            ramcloud->write(tableId, numKey, keyList, value.c_str());
-        }
-
-    IndexLookup indexLookup(ramcloud.get(), tableId, 1,
-                            "a", 1, "z", 1);
-    for (char prefix = 'a'; prefix < 'z'; prefix++)
-        for (uint64_t i = 100; i < numObjects; i++) {
-            snprintf(keyStr[0], sizeof(keyStr[0]), "%ckeyA%lu", prefix, i);
-            keyList[0].key = keyStr[0];
-            keyList[0].keyLength = 8;
-            snprintf(keyStr[1], sizeof(keyStr[1]), "%ckeyB%lu", prefix, i);
-            keyList[1].key = keyStr[1];
-            keyList[1].keyLength = 8;
-            snprintf(keyStr[2], sizeof(keyStr[2]), "%ckeyC%lu", prefix, i);
-            keyList[2].key = keyStr[2];
-            keyList[2].keyLength = 8;
-            EXPECT_TRUE(indexLookup.getNext());
-            const void *retKey;
-            KeyLength retKeyLength;
-            for (KeyIndex idx = 0; idx < 3; idx ++) {
-                retKey = indexLookup.getKey(idx, &retKeyLength);
-                EXPECT_EQ(std::strncmp((const char *)retKey,
-                                       (const char *)keyList[idx].key,
-                                       retKeyLength), 0);
-            }
-        }
+// Rule 3(a):
+// Issue next lookup RPC if an RESULT_READY lookupIndexKeys RPC
+// has no unread RPC
+TEST_F(IndexLookupTest, isReady_issueNextLookup) {
+    TestLog::Enable _;
+    IndexLookup indexLookup(&ramcloud, 10, 1, "a", 1, "z", 1);
+    (new(indexLookup.lookupRpc.rpc->response, APPEND)
+        WireFormat::ResponseCommon)->status = STATUS_OK;
+    new(indexLookup.lookupRpc.rpc->response, APPEND) uint32_t(10);
+    new(indexLookup.lookupRpc.rpc->response, APPEND) uint16_t(1);
+    new(indexLookup.lookupRpc.rpc->response, APPEND) uint64_t(0);
+    for (KeyHash i = 0; i < 10; i++) {
+        new(indexLookup.lookupRpc.rpc->response, APPEND) KeyHash(i);
+    }
+    new(indexLookup.lookupRpc.rpc->response, APPEND) char('b');
+    EXPECT_EQ("mock:indexserver=0",
+                indexLookup.lookupRpc.rpc->session->getServiceLocator());
+    indexLookup.lookupRpc.rpc->completed();
+    EXPECT_EQ(IndexLookup::SENT, indexLookup.lookupRpc.status);
+    indexLookup.isReady();
+    EXPECT_EQ(IndexLookup::SENT, indexLookup.lookupRpc.status);
+    EXPECT_EQ("mock:indexserver=1",
+            indexLookup.lookupRpc.rpc->session->getServiceLocator());
 }
 
-/// Comprehensive tests for IndexLookup. We split index and table into
-/// several indexlets and tablets respectively. This is to test: (a) if
-/// IndexLookup can build correct set of PK Hashes; (b) if IndexLookup
-/// can head to correct tablet server to fetch objects; and (c) if IndexLookup
-/// can return objects in index order.
-TEST_F(IndexLookupTest, getNext_general) {
-    uint32_t serverSpan = 10;
-    uint8_t numIndexlets = 26;
-    uint64_t tableId = ramcloud->createTable("table", serverSpan);
-    ramcloud->createIndex(tableId, 1, 0, numIndexlets);
-    ramcloud->createIndex(tableId, 2, 0, numIndexlets);
-    uint8_t numKey = 3;
-    KeyInfo keyList[3];
-    char keyStr[3][20];
-    uint64_t numObjects = 109;
-    for (uint64_t i = 100; i < numObjects; i++)
-        for (char prefix = 'a'; prefix < 'z'; prefix++) {
-            snprintf(keyStr[0], sizeof(keyStr[0]), "%ckeyA%lu", prefix, i);
-            keyList[0].key = keyStr[0];
-            keyList[0].keyLength = 8;
-            snprintf(keyStr[1], sizeof(keyStr[1]), "%ckeyB%lu", prefix, i);
-            keyList[1].key = keyStr[1];
-            keyList[1].keyLength = 8;
-            snprintf(keyStr[2], sizeof(keyStr[2]), "%ckeyC%lu", prefix, i);
-            keyList[2].key = keyStr[2];
-            keyList[2].keyLength = 8;
-            std::string value = "value";
-            ramcloud->write(tableId, numKey, keyList, value.c_str());
-        }
+// Rule 3(b):
+// If all lookup RPCs have completed, mark finishedLookup as true, which
+// indicates no outgoing lookup RPC thereafter.
+TEST_F(IndexLookupTest, isReady_allLookupCompleted) {
+    TestLog::Enable _;
+    IndexLookup indexLookup(&ramcloud, 10, 1, "a", 1, "z", 1);
+    (new(indexLookup.lookupRpc.rpc->response, APPEND)
+        WireFormat::ResponseCommon)->status = STATUS_OK;
+    new(indexLookup.lookupRpc.rpc->response, APPEND) uint32_t(10);
+    new(indexLookup.lookupRpc.rpc->response, APPEND) uint16_t(0);
+    new(indexLookup.lookupRpc.rpc->response, APPEND) uint64_t(0);
+    for (KeyHash i = 0; i < 10; i++) {
+        new(indexLookup.lookupRpc.rpc->response, APPEND) KeyHash(i);
+    }
+    indexLookup.lookupRpc.rpc->completed();
+    EXPECT_EQ(IndexLookup::SENT, indexLookup.lookupRpc.status);
+    indexLookup.isReady();
+    EXPECT_EQ(IndexLookup::FREE, indexLookup.lookupRpc.status);
+    EXPECT_TRUE(indexLookup.finishedLookup);
+}
 
-    IndexLookup indexLookup(ramcloud.get(), tableId, 1,
-                            "a", 1, "z", 1);
-    for (char prefix = 'a'; prefix < 'z'; prefix++)
-        for (uint64_t i = 100; i < numObjects; i++) {
-            snprintf(keyStr[0], sizeof(keyStr[0]), "%ckeyA%lu", prefix, i);
-            keyList[0].key = keyStr[0];
-            keyList[0].keyLength = 8;
-            snprintf(keyStr[1], sizeof(keyStr[1]), "%ckeyB%lu", prefix, i);
-            keyList[1].key = keyStr[1];
-            keyList[1].keyLength = 8;
-            snprintf(keyStr[2], sizeof(keyStr[2]), "%ckeyC%lu", prefix, i);
-            keyList[2].key = keyStr[2];
-            keyList[2].keyLength = 8;
-            EXPECT_TRUE(indexLookup.getNext());
-            const void *retKey;
-            KeyLength retKeyLength;
-            for (KeyIndex idx = 0; idx < 3; idx ++) {
-                retKey = indexLookup.getKey(idx, &retKeyLength);
-                EXPECT_EQ(std::strncmp((const char *)retKey,
-                                       (const char *)keyList[idx].key,
-                                       retKeyLength), 0);
-            }
-        }
+// Rule 5:
+// Try to assign the current key hash to an existing RPC to the same server.
+TEST_F(IndexLookupTest, isReady_assignPKHashesToSameServer) {
+    TestLog::Enable _;
+    IndexLookup indexLookup(&ramcloud, 10, 1, "a", 1, "z", 1);
+    (new(indexLookup.lookupRpc.rpc->response, APPEND)
+        WireFormat::ResponseCommon)->status = STATUS_OK;
+    new(indexLookup.lookupRpc.rpc->response, APPEND) uint32_t(10);
+    new(indexLookup.lookupRpc.rpc->response, APPEND) uint16_t(0);
+    new(indexLookup.lookupRpc.rpc->response, APPEND) uint64_t(0);
+    for (KeyHash i = 0; i < 10; i++) {
+        new(indexLookup.lookupRpc.rpc->response, APPEND) KeyHash(i);
+    }
+    indexLookup.lookupRpc.rpc->completed();
+    EXPECT_EQ(IndexLookup::SENT, indexLookup.lookupRpc.status);
+    indexLookup.isReady();
+    EXPECT_EQ("mock:dataserver=0",
+               indexLookup.readRpc[0].rpc->session->getServiceLocator());
+    EXPECT_EQ(10U, indexLookup.readRpc[0].numHashes);
+    EXPECT_EQ(9U, indexLookup.readRpc[0].maxPos);
+    EXPECT_EQ(IndexLookup::SENT, indexLookup.readRpc[0].status);
 }
 
 } // namespace ramcloud
