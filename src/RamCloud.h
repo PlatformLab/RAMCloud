@@ -107,7 +107,8 @@ class RamCloud {
     void multiWrite(MultiWriteObject* requests[], uint32_t numRequests);
     void objectServerControl(uint64_t tableId, const void* key,
             uint16_t keyLength, WireFormat::ControlOp controlOp,
-            const void* inputData, uint32_t inputLength, Buffer* outputData);
+            const void* inputData = NULL, uint32_t inputLength = 0,
+            Buffer* outputData = NULL);
     void quiesce();
     void read(uint64_t tableId, const void* key, uint16_t keyLength,
             Buffer* value, const RejectRules* rejectRules = NULL,
@@ -845,7 +846,8 @@ class ObjectServerControlRpc : public ObjectRpcWrapper {
   public:
     ObjectServerControlRpc(RamCloud* ramcloud, uint64_t tableId,
         const void* key, uint16_t keyLength, WireFormat::ControlOp controlOp,
-        const void* inputData, uint32_t inputLength, Buffer* outputData);
+        const void* inputData = NULL, uint32_t inputLength = NULL,
+        Buffer* outputData = NULL);
     ~ObjectServerControlRpc() {}
     void wait();
   PRIVATE:

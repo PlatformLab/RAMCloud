@@ -1952,7 +1952,7 @@ ObjectServerControlRpc::ObjectServerControlRpc(RamCloud* ramcloud,
     : ObjectRpcWrapper(ramcloud, tableId, key, keyLength,
             sizeof(WireFormat::ServerControl::Response), outputData)
 {
-    outputData->reset();
+    if (outputData) outputData->reset();
     WireFormat::ServerControl::Request*
                                reqHdr(allocHeader<WireFormat::ServerControl>());
     reqHdr->inputLength = inputLength;
