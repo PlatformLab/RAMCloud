@@ -1059,7 +1059,6 @@ InfRcTransport::ClientRpc::sendZeroCopy(Buffer* request)
     char* unaddedStart = bd->buffer;
     char* unaddedEnd = bd->buffer;
     Buffer::Iterator it(request);
-    t->context->timeTrace->record("Before processing chunks");
     while (!it.isDone()) {
         const uintptr_t addr = reinterpret_cast<const uintptr_t>(it.getData());
         // See if we can transmit this chunk from its current location
@@ -1112,7 +1111,6 @@ InfRcTransport::ClientRpc::sendZeroCopy(Buffer* request)
         ++currentSge;
         unaddedStart = unaddedEnd;
     }
-    t->context->timeTrace->record("After processing chunks");
 
     ibv_send_wr txWorkRequest;
 
