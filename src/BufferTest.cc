@@ -967,6 +967,7 @@ TEST_F(BufferTest, resetInternal_full) {
     EXPECT_EQ(0u, buffer.allocations->size());
     EXPECT_EQ(900u, buffer.availableLength);
     EXPECT_EQ(100u, buffer.firstAvailable - INTERNAL_ALLOC);
+    EXPECT_EQ(0u, buffer.totalAllocatedBytes);
 }
 
 TEST_F(BufferTest, Iterator_inlineMethods) {

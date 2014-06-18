@@ -110,7 +110,7 @@ class Buffer {
     void* allocPrepend(size_t numBytes);
 
     /**
-     * Extend tthe buffer with a block of external data. The data is not
+     * Extend the buffer with a block of external data. The data is not
      * copied; the buffer will refer to the source block, so the caller must
      * ensure that the source data remains intact for the lifetime of the
      * buffer.
@@ -123,6 +123,11 @@ class Buffer {
     inline void
     append(const void* data, uint32_t numBytes)
     {
+        // At one point this method was modified to just copy in the data,
+        // if it is small, rather than creating a new chunk that refers to
+        // external data. In many situations this would improve performance,
+        // but in some situations it is essential that the Buffer refer
+        // to external data (such as data in the log).
         appendChunk(allocAux<Chunk>(data, numBytes));
     }
 
@@ -309,6 +314,7 @@ class Buffer {
             availableLength = sizeof(internalAllocation) - PREPEND_SPACE;
             firstAvailable = reinterpret_cast<char*>(internalAllocation)
                     + PREPEND_SPACE;
+            totalAllocatedBytes = 0;
         }
     }
 
