@@ -280,7 +280,7 @@ def readRandom(name, options, cluster_args, client_args):
     print(get_client_log(), end='')
 
 def indexBasic(name, options, cluster_args, client_args):
-    cluster_args['timeout'] = 1000
+    cluster_args['timeout'] = 200
     # Ensure atleast 5 hosts for optimal performance
     if options.num_servers == None:
         cluster_args['num_servers'] = len(hosts)
@@ -291,7 +291,7 @@ def indexBasic(name, options, cluster_args, client_args):
     print(get_client_log(), end='')
 
 def indexMultiple(name, options, cluster_args, client_args):
-    cluster_args['timeout'] = 10000
+    cluster_args['timeout'] = 200
     # Ensure atleast 15 hosts for optimal performance
     if options.num_servers == None:
         cluster_args['num_servers'] = len(hosts)
@@ -315,7 +315,7 @@ def indexMultiple(name, options, cluster_args, client_args):
     print(get_client_log(), end='')
 
 def indexScalability(name, options, cluster_args, client_args):
-    cluster_args['timeout'] = 1000
+    cluster_args['timeout'] = 100
     cluster_args['backups_per_server'] = 0
     cluster_args['replicas'] = 0
     # Ensure atleast 15 hosts for optimal performance
@@ -343,24 +343,24 @@ simple_tests = [
     Test("broadcast", broadcast),
     Test("netBandwidth", netBandwidth),
     Test("readAllToAll", readAllToAll),
-    Test("readNotFound", default),
-    Test("writeAsyncSync", default),
+    Test("readNotFound", default)
 ]
 
 graph_tests = [
     Test("indexBasic", indexBasic),
     Test("indexMultiple", indexMultiple),
     Test("indexScalability", indexScalability),
+    Test("multiRead_general", multiOp),
+    Test("multiRead_generalRandom", multiOp),
     Test("multiWrite_oneMaster", multiOp),
     Test("multiRead_oneMaster", multiOp),
     Test("multiRead_oneObjectPerMaster", multiOp),
-    Test("multiRead_general", multiOp),
-    Test("multiRead_generalRandom", multiOp),
     Test("readDist", readDist),
-    Test("readVaryingKeyLength", default),
-    Test("writeVaryingKeyLength", default),
     Test("readLoaded", readLoaded),
-    Test("readRandom", readRandom)
+    Test("readRandom", readRandom),
+    Test("readVaryingKeyLength", default),
+    Test("writeAsyncSync", default),
+    Test("writeVaryingKeyLength", default),
 ]
 
 if __name__ == '__main__':
