@@ -85,6 +85,10 @@ static int numTables;
 // to specify the number of indexlets to create.
 static int numIndexlet;
 
+// Value of the "--numIndexes" command-line option: used by some tests
+// to specify the number of indexes/object.
+static int numIndexes;
+
 // Value of the "--warmup" command-line option: in some tests this
 // determines how many times to invoke the operation before starting
 // measurements (e.g. to make sure that caches are loaded).
@@ -1492,7 +1496,8 @@ indexMultiple()
 
     const uint32_t keyLength = 30;
     int numObjects = 1000; // size of the table/index
-    uint8_t maxNumKeys = 11; // includes the primary key
+    // includes the primary key
+    uint8_t maxNumKeys = static_cast<uint8_t>(numIndexes + 1);
 
     printf("# RAMCloud write/overwrite performance for %dth object "
             "insertion with varying number of index keys.\n"
@@ -2740,7 +2745,9 @@ try
                 "Number of times to invoke operation before beginning "
                 "measurements")
         ("numIndexlet", po::value<int>(&numIndexlet)->default_value(1),
-                "number of Indexlets");
+                "number of Indexlets")
+        ("numIndexes", po::value<int>(&numIndexes)->default_value(1),
+                "number of secondary keys per object");
     po::positional_options_description desc2;
     desc2.add("testName", -1);
     po::variables_map vm;

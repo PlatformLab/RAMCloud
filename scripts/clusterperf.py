@@ -170,6 +170,8 @@ def run_test(
         client_args['--warmup'] = options.warmup
     if options.numIndexlet != None:
         client_args['--numIndexlet'] = options.numIndexlet
+    if options.numIndexes != None:
+        client_args['--numIndexes'] = options.numIndexes
     test.function(test.name, options, cluster_args, client_args)
 
 #-------------------------------------------------------------------
@@ -293,6 +295,21 @@ def indexMultiple(name, options, cluster_args, client_args):
     # Ensure atleast 15 hosts for optimal performance
     if options.num_servers == None:
         cluster_args['num_servers'] = len(hosts)
+
+    # use a maximum of 10 secondary keys
+    if len(hosts) <= 10:
+        # TODO(ankitak): hack until synchronization bug in write RPC handler
+        # in MasterService is resolved. This bug prevents us from using more
+        # than 1 MasterSerivice thread. However, we need to use more than 1
+        # service thread, otherwise if a tablet and its corresponding
+        # indexlet end up on the same server, we will have a deadlock.
+        # For now, make sure that we never wrap around the server list
+        # Once the bug is resolved, we should be able to use len(hosts)
+        # for numIndexes
+        client_args['--numIndexes'] = len(hosts) - 1
+    else:
+        client_args['--numIndexes'] = 10
+
     cluster.run(client='%s/ClusterPerf %s %s' %
             (obj_path, flatten_args(client_args), name), master_args='--masterServiceThreads 1 -t 10%', **cluster_args)
     print(get_client_log(), end='')
@@ -399,6 +416,8 @@ if __name__ == '__main__':
             'starting measurements')
     parser.add_option('-i', '--numIndexlet', type=int,
             help='Number of indexlets for measuring index scalability ')
+    parser.add_option('-k', '--numIndexes', type=int,
+            help='Number of secondary keys/object to measure index operations')
     (options, args) = parser.parse_args()
 
     # Invoke the requested tests (run all of them if no tests were specified)
