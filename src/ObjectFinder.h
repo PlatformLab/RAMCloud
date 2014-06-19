@@ -93,6 +93,7 @@ class ObjectFinder {
     void flushSession(uint64_t tableId, KeyHash keyHash);
     void flushSession(uint64_t tableId, uint8_t indexId,
                       const void* key, uint16_t keyLength);
+    void reset();
     void waitForTabletDown(uint64_t tableId);
     void waitForAllTabletsNormal(uint64_t tableId, uint64_t timeoutNs = ~0lu);
 

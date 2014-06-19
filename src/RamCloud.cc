@@ -92,6 +92,9 @@ RamCloud::RamCloud(Context* context, const char* locator,
 
 RamCloud::~RamCloud()
 {
+    // Force ObjectManager to drop all of its cached sessions; otherwise
+    // they won't get destroyed until after their transports have been deleted.
+    objectFinder.reset();
     realClientContext.destroy();
 }
 

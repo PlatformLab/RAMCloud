@@ -128,6 +128,19 @@ ObjectFinder::ObjectFinder(Context* context)
 }
 
 /**
+ * This method deletes all cached information, restoring the object
+ * to its original pristine state. It's used primarily to force cached
+ * Session objects to be released during RAMCloud shutdown to avoid
+ * order-of-destruction problems where a transport could be deleted before
+ * all of its sessions.
+ */
+void ObjectFinder::reset()
+{
+    tableMap.clear();
+    tableIndexMap.clear();
+}
+
+/**
  * This method is invoked when the caller has reason to believe that
  * the configuration information for particular table is out-of-date.
  * The method deletes all information related to that table; fresh
