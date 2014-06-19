@@ -95,8 +95,15 @@ main(int argc, char *argv[])
              ProgramOptions::bool_switch(&masterOnly),
              "The server should run the master service only (no backup)")
             ("totalMasterMemory,t",
+
+             // Note: we have tried changing the default value below to
+             // something that would make sense in production (80%?), but
+             // as of 6/2014 that causes too many problems in test and
+             // development environments (e.g. hooks/pre-commit will take
+             // forever, and if two people do this, rcmaster will run out
+             // of memory).
              ProgramOptions::value<string>(&masterTotalMemory)->
-                default_value("80%"),
+                default_value("500"),
              "Percentage or megabytes of system memory for master log & "
              "hash table")
             ("replicas,r",
