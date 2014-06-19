@@ -67,7 +67,7 @@ MultiRemove::appendRequest(MultiOpObject* request, Buffer* buf)
                 req->keyLength,
                 req->rejectRules ? *req->rejectRules :
                                    defaultRejectRules);
-    buf->append(req->key, req->keyLength);
+    buf->appendCopy(req->key, req->keyLength);
 }
 
 /**

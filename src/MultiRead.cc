@@ -65,7 +65,7 @@ MultiRead::appendRequest(MultiOpObject* request, Buffer* buf)
     new(buf, APPEND)
             WireFormat::MultiOp::Request::ReadPart(
             req->tableId, req->keyLength);
-    buf->append(req->key, req->keyLength);
+    buf->appendCopy(req->key, req->keyLength);
 }
 
 /**
