@@ -385,7 +385,7 @@ TestUtil::fillLargeBuffer(Buffer* buffer, int size)
         if (chunkLength > bytesLeft) {
             chunkLength = bytesLeft;
         }
-        memcpy(new(buffer, APPEND) char[chunkLength], chunk, chunkLength);
+        buffer->appendCopy(chunk, chunkLength);
         bytesLeft -= chunkLength;
         i += 5;
     }

@@ -958,7 +958,7 @@ private:
     /// Allocate and initialize a leaf node
     inline leaf_node* allocate_leaf_buffer(Buffer& buffer)
     {
-        leaf_node *n = new(&buffer, APPEND) leaf_node;
+        leaf_node *n = buffer.emplaceAppend<leaf_node>();
         n->initialize();
         m_stats.leaves++;
         return n;
@@ -968,7 +968,7 @@ private:
     inline inner_node* allocate_inner_buffer(unsigned short level,
                                              Buffer& buffer)
     {
-        inner_node *n = new(&buffer, APPEND) inner_node;
+        inner_node *n = buffer.emplaceAppend<inner_node>();
         n->initialize(level);
         m_stats.innernodes++;
         return n;
@@ -1123,7 +1123,8 @@ private:
      */
     void createMutableLeaf(const leaf_node* leaf, NodeObjectInfo *mutableLeafInfo)
     {
-        mutableLeafInfo->data = new(&mutableLeafInfo->buffer, APPEND) leaf_node;
+        mutableLeafInfo->data = mutableLeafInfo->buffer.emplaceAppend<
+                leaf_node>();
         memcpy(mutableLeafInfo->data, leaf, sizeof(leaf_node));
     }
 
@@ -1140,7 +1141,8 @@ private:
      */
     void createMutableInner(const inner_node* inner, NodeObjectInfo *mutableInnerInfo)
     {
-        mutableInnerInfo->data = new(&mutableInnerInfo->buffer, APPEND) inner_node;
+        mutableInnerInfo->data = mutableInnerInfo->buffer.emplaceAppend<
+                inner_node>();
         memcpy(mutableInnerInfo->data, inner, sizeof(inner_node));
     }   
 

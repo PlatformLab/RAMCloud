@@ -226,7 +226,7 @@ IndexLookup::isReady()
             }
         }
         if (readactiveRpcId != RPC_ID_NOT_ASSIGN) {
-            new(&readRpc[readactiveRpcId].pKHashes, APPEND) KeyHash(pKHash);
+            readRpc[readactiveRpcId].pKHashes.emplaceAppend<KeyHash>(pKHash);
             readRpc[readactiveRpcId].numHashes++;
             readRpc[readactiveRpcId].maxPos = numAssigned;
             activeRpcIds[numAssigned & ARRAY_MASK] = readactiveRpcId;

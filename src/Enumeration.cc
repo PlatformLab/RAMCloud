@@ -146,7 +146,7 @@ appendObjectsToBuffer(Log& log,
             return index;
         }
 
-        new(buffer, APPEND) uint32_t(length);
+        buffer->emplaceAppend<uint32_t>(length);
         Buffer::Iterator it(&objectBuffer, 0, length);
         while (!it.isDone()) {
             buffer->append(it.getData(), it.getLength());

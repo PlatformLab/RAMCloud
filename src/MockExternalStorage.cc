@@ -64,8 +64,8 @@ MockExternalStorage::get(const char* name, Buffer* value)
     if (getResults.empty()) {
         return false;
     }
-    char* dst = new(value, APPEND) char[getResults.front().length()];
-    memcpy(dst, getResults.front().c_str(), getResults.front().length());
+    value->appendCopy(getResults.front().c_str(),
+            downCast<uint32_t>(getResults.front().length()));
     getResults.pop();
     return true;
 }

@@ -44,22 +44,17 @@ TEST_F(TestUtilTest, fillRandom) {
 
 TEST_F(TestUtilTest, toString) {
     Buffer b;
-    int32_t *ip = new(&b, APPEND) int32_t;
-    *ip = -45;
-    ip = new(&b, APPEND) int32_t;
-    *ip = 0x1020304;
-    char *p = new(&b, APPEND) char[10];
-    memcpy(p, "abcdefghi", 10);
-    ip = new(&b, APPEND) int32_t;
-    *ip = 99;
+    b.emplaceAppend<int32_t>(-45);
+    b.emplaceAppend<int32_t>(0x1020304);
+    b.appendCopy("abcdefghi", 10);
+    b.emplaceAppend<int32_t>(99);
     EXPECT_EQ("-45 0x1020304 abcdefghi/0 99",
               TestUtil::toString(&b));
 }
 
 TEST_F(TestUtilTest, toString_stringNotTerminated) {
     Buffer b;
-    char *p = new(&b, APPEND) char[5];
-    memcpy(p, "abcdefghi", 5);
+    b.appendCopy("abcdefghi", 5);
     EXPECT_EQ("abcde", TestUtil::toString(&b));
 }
 
@@ -80,8 +75,7 @@ TEST_F(TestUtilTest, convertChar) {
     Buffer b;
     const char *test = "abc \x17--\x80--\x3--\n--\x7f--\\--\"--";
     uint32_t length = downCast<uint32_t>(strlen(test)) + 1;
-    memcpy(static_cast<char*>(new(&b, APPEND) char[length]),
-            test, length);
+    b.appendCopy(test, length);
     EXPECT_EQ("abc /x17--/x80--/x03--/n--/x7f--/x5c--/x22--/0",
               TestUtil::toString(&b));
 }

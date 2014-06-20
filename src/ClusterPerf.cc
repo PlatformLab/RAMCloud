@@ -406,7 +406,7 @@ timeLookupAndIndexedRead(uint64_t tableId, uint8_t indexId, Key& pk,
                         *responseBuffer.getOffset<uint64_t>(lookupOffset));
 
         Buffer pKHashes;
-        new(&pKHashes, APPEND) uint64_t(pk.getHash());
+        pKHashes.emplaceAppend<uint64_t>(pk.getHash());
         Buffer readResp;
         uint32_t numObjects;
 
@@ -617,7 +617,7 @@ fillBuffer(Buffer& buffer, uint32_t size, uint64_t tableId,
         if (chunkLength > bytesLeft) {
             chunkLength = bytesLeft;
         }
-        memcpy(new(&buffer, APPEND) char[chunkLength], chunk, chunkLength);
+        buffer.appendCopy(chunk, chunkLength);
         bytesLeft -= chunkLength;
         position += chunkLength;
     }
@@ -1737,7 +1737,7 @@ indexScalabilityCommonLookupRead(uint8_t range, int numObjects, char *docString)
             snprintf(secondaryKey[i], sizeof(secondaryKey[i]), "%c:%ds%0*d",
                         firstKey, randObj, 30, 0);
             Key pk(dataTable, primaryKey[i], 30);
-            new(&pKHashes[i], APPEND) uint64_t(pk.getHash());
+            pKHashes[i].emplaceAppend<uint64_t>(pk.getHash());
         }
 
         lookupStart = Cycles::rdtsc();

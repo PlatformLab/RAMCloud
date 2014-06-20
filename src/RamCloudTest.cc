@@ -726,7 +726,7 @@ TEST_F(RamCloudTest, index_endToEnd) {
     // Point read for object, range read for the other two.
     readResp.reset();
     pKHashes.reset();
-    new(&pKHashes, APPEND) uint64_t(primaryKeyA.getHash());
+    pKHashes.emplaceAppend<uint64_t>(primaryKeyA.getHash());
     ramcloud->indexedRead(tableId, 1, &pKHashes, 1, "keyA1", 5, "keyA1", 5,
                           &readResp, &numObjects);
 
@@ -747,8 +747,8 @@ TEST_F(RamCloudTest, index_endToEnd) {
 
     readResp.reset();
     pKHashes.reset();
-    new(&pKHashes, APPEND) uint64_t(primaryKeyB.getHash());
-    new(&pKHashes, APPEND) uint64_t(primaryKeyC.getHash());
+    pKHashes.emplaceAppend<uint64_t>(primaryKeyB.getHash());
+    pKHashes.emplaceAppend<uint64_t>(primaryKeyC.getHash());
     ramcloud->indexedRead(tableId, 2, &pKHashes, 1, "keyB1", 5, "keyC1", 5,
                           &readResp, &numObjects);
 
@@ -782,9 +782,9 @@ TEST_F(RamCloudTest, index_endToEnd) {
     // Indexed read on index id 2. Range read all.
     readResp.reset();
     pKHashes.reset();
-    new(&pKHashes, APPEND) uint64_t(primaryKeyA.getHash());
-    new(&pKHashes, APPEND) uint64_t(primaryKeyB.getHash());
-    new(&pKHashes, APPEND) uint64_t(primaryKeyC.getHash());
+    pKHashes.emplaceAppend<uint64_t>(primaryKeyA.getHash());
+    pKHashes.emplaceAppend<uint64_t>(primaryKeyB.getHash());
+    pKHashes.emplaceAppend<uint64_t>(primaryKeyC.getHash());
     ramcloud->indexedRead(tableId, 3, &pKHashes, 2, "a", 1, "z", 1,
                           &readResp, &numObjects);
 

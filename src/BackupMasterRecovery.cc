@@ -444,11 +444,10 @@ BackupMasterRecovery::populateStartResponse(Buffer* responseBuffer,
     response->replicaCount = 0;
     response->primaryReplicaCount = 0;
     foreach (const auto& replica, replicas) {
-        new(responseBuffer, APPEND)
-            WireFormat::BackupStartReadingData::Replica
-                {replica.metadata->segmentId,
-                 replica.metadata->segmentEpoch,
-                 replica.metadata->closed};
+        responseBuffer->emplaceAppend<
+                WireFormat::BackupStartReadingData::Replica>(
+                replica.metadata->segmentId, replica.metadata->segmentEpoch,
+                replica.metadata->closed);
         ++response->replicaCount;
         if (replica.metadata->primary)
             ++response->primaryReplicaCount;
@@ -466,9 +465,7 @@ BackupMasterRecovery::populateStartResponse(Buffer* responseBuffer,
     response->digestSegmentEpoch = logDigestSegmentEpoch;
     response->digestBytes = logDigest.getTotalLength();
     if (response->digestBytes > 0) {
-        void* out = new(responseBuffer, APPEND) char[response->digestBytes];
-        memcpy(out,
-               logDigest.getRange(0, response->digestBytes),
+        responseBuffer->appendCopy(logDigest.getRange(0, response->digestBytes),
                response->digestBytes);
         LOG(DEBUG, "Sent %u bytes of LogDigest to coordinator",
             response->digestBytes);
@@ -476,11 +473,8 @@ BackupMasterRecovery::populateStartResponse(Buffer* responseBuffer,
 
     response->tableStatsBytes = tableStatsDigest.getTotalLength();
     if (response->tableStatsBytes > 0) {
-        void* out = new(responseBuffer, APPEND)
-                char[response->tableStatsBytes];
-        memcpy(out,
-               tableStatsDigest.getRange(0, response->tableStatsBytes),
-               response->tableStatsBytes);
+        responseBuffer->appendCopy(tableStatsDigest.getRange(0,
+                response->tableStatsBytes), response->tableStatsBytes);
     }
 }
 

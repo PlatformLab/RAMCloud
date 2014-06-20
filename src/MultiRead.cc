@@ -62,8 +62,7 @@ MultiRead::appendRequest(MultiOpObject* request, Buffer* buf)
 
     // Add the current object to the list of those being
     // fetched by this RPC.
-    new(buf, APPEND)
-            WireFormat::MultiOp::Request::ReadPart(
+    buf->emplaceAppend<WireFormat::MultiOp::Request::ReadPart>(
             req->tableId, req->keyLength);
     buf->appendCopy(req->key, req->keyLength);
 }
@@ -112,7 +111,7 @@ MultiRead::readResponse(MultiOpObject* request,
         }
 
         req->value->construct();
-        void* data = new(req->value->get(), APPEND) char[part->length];
+        void* data = req->value->get()->alloc(part->length);
         response->copy(*respOffset, part->length, data);
         req->version = part->version;
         *respOffset += part->length;

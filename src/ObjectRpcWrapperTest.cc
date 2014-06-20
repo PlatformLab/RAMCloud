@@ -73,7 +73,7 @@ TEST_F(ObjectRpcWrapperTest, checkStatus_unknownTablet) {
     wrapper.request.fillFromString("100");
     wrapper.send();
     EXPECT_EQ("mock:refresh=1", wrapper.session->getServiceLocator());
-    (new(wrapper.response, APPEND) WireFormat::ResponseCommon)->status =
+    wrapper.response->emplaceAppend<WireFormat::ResponseCommon>()->status =
             STATUS_UNKNOWN_TABLET;
     wrapper.state = RpcWrapper::RpcState::FINISHED;
     EXPECT_FALSE(wrapper.isReady());
@@ -89,7 +89,7 @@ TEST_F(ObjectRpcWrapperTest, checkStatus_otherError) {
     ObjectRpcWrapper wrapper(&ramcloud, 10, "abc", 3, 4);
     wrapper.request.fillFromString("100");
     wrapper.send();
-    (new(wrapper.response, APPEND) WireFormat::ResponseCommon)->status =
+    wrapper.response->emplaceAppend<WireFormat::ResponseCommon>()->status =
             STATUS_UNIMPLEMENTED_REQUEST;
     wrapper.state = RpcWrapper::RpcState::FINISHED;
     EXPECT_TRUE(wrapper.isReady());

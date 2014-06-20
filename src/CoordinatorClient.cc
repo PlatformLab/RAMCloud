@@ -88,8 +88,7 @@ EnlistServerRpc::EnlistServerRpc(Context* context,
     reqHdr->readSpeed = readSpeed;
     reqHdr->serviceLocatorLength =
         downCast<uint32_t>(localServiceLocator.length() + 1);
-    strncpy(new(&request, APPEND) char[reqHdr->serviceLocatorLength],
-            localServiceLocator.c_str(),
+    request.appendCopy(localServiceLocator.c_str(),
             reqHdr->serviceLocatorLength);
     send();
 }

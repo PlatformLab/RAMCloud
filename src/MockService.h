@@ -55,7 +55,7 @@ class MockService : public Service {
             if (inputValue == 54322) {
                 throw RetryException(HERE, 100, 200, "server overloaded");
             }
-            *(new(rpc->replyPayload, APPEND) int32_t) = inputValue+1;
+            rpc->replyPayload->emplaceAppend<int32_t>(inputValue+1);
         }
         int secondWord = *(rpc->requestPayload->getOffset<int>(4));
 

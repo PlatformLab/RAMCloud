@@ -71,7 +71,7 @@ TEST_F(IndexRpcWrapperTest, checkStatus_unknownIndexlet) {
     wrapper.request.fillFromString("100");
     wrapper.send();
     EXPECT_EQ("mock:refresh=1", wrapper.session->getServiceLocator());
-    (new(wrapper.response, APPEND) WireFormat::ResponseCommon)->status =
+    wrapper.response->emplaceAppend<WireFormat::ResponseCommon>()->status =
             STATUS_UNKNOWN_INDEXLET;
     wrapper.state = RpcWrapper::RpcState::FINISHED;
     EXPECT_FALSE(wrapper.isReady());
@@ -89,7 +89,7 @@ TEST_F(IndexRpcWrapperTest, checkStatus_otherError) {
     IndexRpcWrapper wrapper(&ramcloud, 10, 1, "abc", 3, 4, &responseBuffer);
     wrapper.request.fillFromString("100");
     wrapper.send();
-    (new(wrapper.response, APPEND) WireFormat::ResponseCommon)->status =
+    wrapper.response->emplaceAppend<WireFormat::ResponseCommon>()->status =
             STATUS_UNIMPLEMENTED_REQUEST;
     wrapper.state = RpcWrapper::RpcState::FINISHED;
     EXPECT_TRUE(wrapper.isReady());

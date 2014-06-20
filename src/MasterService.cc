@@ -963,8 +963,8 @@ MasterService::multiRead(const WireFormat::MultiOp::Request* reqHdr,
         Key key(currentReq->tableId, stringKey, currentReq->keyLength);
 
         WireFormat::MultiOp::Response::ReadPart* currentResp =
-                   new(rpc->replyPayload, APPEND)
-                       WireFormat::MultiOp::Response::ReadPart();
+           rpc->replyPayload->emplaceAppend<
+               WireFormat::MultiOp::Response::ReadPart>();
 
         uint32_t initialLength = rpc->replyPayload->getTotalLength();
         currentResp->status = objectManager.readObject(key,
@@ -1037,8 +1037,8 @@ MasterService::multiRemove(const WireFormat::MultiOp::Request* reqHdr,
         Key key(currentReq->tableId, stringKey, currentReq->keyLength);
 
         WireFormat::MultiOp::Response::RemovePart* currentResp =
-            new(rpc->replyPayload, APPEND)
-                WireFormat::MultiOp::Response::RemovePart();
+            rpc->replyPayload->emplaceAppend<
+                WireFormat::MultiOp::Response::RemovePart>();
 
         RejectRules rejectRules = currentReq->rejectRules;
         currentResp->status = objectManager.removeObject(key, &rejectRules,
@@ -1112,8 +1112,8 @@ MasterService::multiWrite(const WireFormat::MultiOp::Request* reqHdr,
             break;
         }
         WireFormat::MultiOp::Response::WritePart* currentResp =
-            new(rpc->replyPayload, APPEND)
-                WireFormat::MultiOp::Response::WritePart();
+            rpc->replyPayload->emplaceAppend<
+                WireFormat::MultiOp::Response::WritePart>();
 
         Object object(currentReq->tableId, 0, 0, *(rpc->requestPayload),
                       reqOffset, currentReq->length);

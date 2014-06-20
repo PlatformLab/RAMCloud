@@ -270,8 +270,8 @@ MockTransport::appendToOutput(Event event, const string& message)
     output.emplace_back();
     auto& pair = output.back();
     pair.first = event;
-    char* dst = new(&pair.second, APPEND) char[message.length() + 1];
-    memcpy(dst, message.c_str(), message.length() + 1);
+    pair.second.appendCopy(message.c_str(),
+            downCast<uint32_t>(message.length() + 1));
 }
 
 /**
@@ -294,7 +294,7 @@ MockTransport::appendToOutput(Event event, Buffer& payload)
     pair.first = event;
     uint32_t length = payload.getTotalLength();
     if (length > 0) {
-        void* chunk = new(&pair.second, APPEND) char[length];
+        void* chunk = pair.second.alloc(length);
         payload.copy(0, payload.getTotalLength(), chunk);
     }
 }

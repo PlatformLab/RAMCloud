@@ -198,8 +198,9 @@ ObjectManager::indexedRead(const uint64_t tableId, uint32_t reqNumHashes,
 
             if (isInRange == true) {
                 *numObjects += 1;
-                new(response, APPEND) uint64_t(object.getVersion());
-                new(response, APPEND) uint32_t(object.getKeysAndValueLength());
+                response->emplaceAppend<uint64_t>(object.getVersion());
+                response->emplaceAppend<uint32_t>(
+                        object.getKeysAndValueLength());
                 object.appendKeysAndValueToBuffer(*response);
 
                 KeyLength pKLength;
@@ -1107,8 +1108,7 @@ ObjectManager::prepareForLog(Object& newObject, Buffer *logBuffer,
     newObject.getValueOffset(&valueOffset);
     objectOffset = lengthBefore + sizeof32(Object::Header) + valueOffset;
 
-    uint8_t *target = new(logBuffer, APPEND)
-                      uint8_t[newObject.getSerializedLength()];
+    void* target = logBuffer->alloc(newObject.getSerializedLength());
     newObject.assembleForLog(target);
 
     // tombstone goes after the new object
@@ -1116,8 +1116,7 @@ ObjectManager::prepareForLog(Object& newObject, Buffer *logBuffer,
         Segment::appendLogHeader(LOG_ENTRY_TYPE_OBJTOMB,
                                  tombstone->getSerializedLength(),
                                  logBuffer);
-        uint8_t *target = new(logBuffer, APPEND)
-                          uint8_t[tombstone->getSerializedLength()];
+        void* target = logBuffer->alloc(tombstone->getSerializedLength());
         tombstone->assembleForLog(target);
         *tombstoneAdded = true;
     }
@@ -1188,8 +1187,7 @@ ObjectManager::writeTombstone(Key& key, Buffer *logBuffer)
     Segment::appendLogHeader(LOG_ENTRY_TYPE_OBJTOMB,
                              tombstone.getSerializedLength(),
                              logBuffer);
-    uint8_t *target = new(logBuffer, APPEND)
-                      uint8_t[tombstone.getSerializedLength()];
+    void* target = logBuffer->alloc(tombstone.getSerializedLength());
     tombstone.assembleForLog(target);
 
 // TODO(arjung):

@@ -110,7 +110,8 @@ serialize(Buffer *buf, MasterTableMetadata *mtm)
      * enforced so that deserialization can expect the same structure.
      */
 
-    DigestHeader* header = new(buf, APPEND) DigestHeader({0, 0, 0});
+    DigestHeader* header = buf->emplaceAppend<DigestHeader>();
+    *header = {0, 0, 0};
 
     MasterTableMetadata::scanner sc = mtm->getScanner();
     while (sc.hasNext()) {
@@ -119,9 +120,9 @@ serialize(Buffer *buf, MasterTableMetadata *mtm)
             Lock guard(entry->stats.lock);
             if (entry->stats.byteCount >= threshold) {
                 header->entryCount++;
-                new(buf, APPEND) DigestEntry({entry->tableId,
-                                              entry->stats.byteCount,
-                                              entry->stats.recordCount});
+                *(buf->emplaceAppend<DigestEntry>()) =
+                        {entry->tableId, entry->stats.byteCount,
+                         entry->stats.recordCount};
 
 
             } else {

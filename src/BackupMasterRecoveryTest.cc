@@ -110,8 +110,7 @@ TEST_F(BackupMasterRecoveryTest, start) {
     mockMetadata(92, false);
     recovery->testingExtractDigest = &mockExtractDigest;
     Buffer buffer;
-    auto response =
-        new(&buffer, APPEND) BackupMasterRecovery::StartResponse;
+    auto response = buffer.emplaceAppend<BackupMasterRecovery::StartResponse>();
     recovery->start(frames, &buffer, response);
     recovery->setPartitionsAndSchedule(partitions);
     ASSERT_EQ(5u, response->replicaCount);
@@ -177,8 +176,7 @@ TEST_F(BackupMasterRecoveryTest, start) {
 
     // Idempotence.
     buffer.reset();
-    response =
-        new(&buffer, APPEND) BackupMasterRecovery::StartResponse;
+    response = buffer.emplaceAppend<BackupMasterRecovery::StartResponse>();
     recovery->start(frames, &buffer, response);
     EXPECT_EQ(5u, response->replicaCount);
     EXPECT_EQ(2u, response->primaryReplicaCount);

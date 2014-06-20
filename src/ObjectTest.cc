@@ -415,8 +415,8 @@ TEST_F(ObjectTest, assembleForLog) {
 TEST_F(ObjectTest, assembleForLog_contigMemory) {
     Object& object = *singleKeyObject;
     Buffer buffer;
-    uint8_t *target = new(&buffer, APPEND)
-                      uint8_t[object.getSerializedLength()];
+    uint8_t* target = static_cast<uint8_t*>(buffer.alloc(
+            object.getSerializedLength()));
 
     object.assembleForLog(target);
     Object::Header* header = reinterpret_cast<Object::Header *>(target);
@@ -875,8 +875,8 @@ TEST_F(ObjectTombstoneTest, assembleForLog_contigMemory) {
     for (uint32_t i = 0; i < arrayLength(tombstones); i++) {
         ObjectTombstone& tombstone = *tombstones[i];
         Buffer buffer;
-        uint8_t *target = new(&buffer, APPEND)
-                          uint8_t[tombstone.getSerializedLength()];
+        uint8_t* target = static_cast<uint8_t*>(buffer.alloc(
+                tombstone.getSerializedLength()));
 
         tombstone.assembleForLog(target);
         ObjectTombstone::Header* header = reinterpret_cast<

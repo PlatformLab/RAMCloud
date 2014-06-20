@@ -98,7 +98,7 @@ class RpcWrapper : public Transport::RpcNotifier {
     {
         assert(request.getTotalLength() == 0);
         typename RpcType::Request* reqHdr =
-                new(&request, APPEND) typename RpcType::Request;
+                request.emplaceAppend<typename RpcType::Request>();
         // Don't allow this method to be used for RPCs that use
         // RequestCommonWithId as the header; use the other form
         // with targetId instead.
@@ -134,7 +134,7 @@ class RpcWrapper : public Transport::RpcNotifier {
     {
         assert(request.getTotalLength() == 0);
         typename RpcType::Request* reqHdr =
-                new(&request, APPEND) typename RpcType::Request;
+                request.emplaceAppend<typename RpcType::Request>();
         memset(reqHdr, 0, sizeof(*reqHdr));
         reqHdr->common.opcode = RpcType::opcode;
         reqHdr->common.service = RpcType::service;

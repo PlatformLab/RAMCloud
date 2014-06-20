@@ -134,7 +134,7 @@ class Service {
             throw MessageTooShortError(HERE);
         checkServerId(&reqHdr->common);
         typename Op::Response* respHdr =
-            new(rpc->replyPayload, APPEND) typename Op::Response;
+            rpc->replyPayload->emplaceAppend<typename Op::Response>();
         /* Clear the response header, so that unused fields are zero;
          * this makes tests more reproducible, and it is also needed
          * to avoid possible security problems where random server

@@ -326,6 +326,11 @@ struct BackupStartReadingData {
                                    ///< closed on the backup. If it was it
                                    ///< is inherently consistent and can be
                                    ///< used without scrutiny during recovery.
+        Replica(uint64_t segmentId, uint64_t segmentEpoch, bool closed)
+            : segmentId(segmentId)
+            , segmentEpoch(segmentEpoch)
+            , closed(closed)
+        {}
         friend bool operator==(const Replica& left, const Replica& right) {
             return left.segmentId == right.segmentId &&
                    left.segmentEpoch == right.segmentEpoch &&

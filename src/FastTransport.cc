@@ -394,8 +394,8 @@ FastTransport::InboundMessage::sendAck()
     header.payloadType = Header::ACK;
     Buffer payloadBuffer;
     AckResponse *ackResponse =
-        new(&payloadBuffer, APPEND) AckResponse(
-                                        downCast<uint16_t>(firstMissingFrag));
+        payloadBuffer.emplaceAppend<AckResponse>(
+                downCast<uint16_t>(firstMissingFrag));
     for (uint32_t i = 0; i < dataStagingWindow.getLength(); i++) {
         std::pair<char*, uint32_t> elt =
             dataStagingWindow[firstMissingFrag + 1 + i];
@@ -1152,7 +1152,7 @@ FastTransport::ServerSession::startSession(
 
     Buffer payload;
     SessionOpenResponse* sessionOpen;
-    sessionOpen = new(&payload, APPEND) SessionOpenResponse;
+    sessionOpen = payload.emplaceAppend<SessionOpenResponse>();
     sessionOpen->numChannels = NUM_CHANNELS_PER_SESSION;
     Buffer::Iterator payloadIter(&payload);
     transport->sendPacket(this->clientAddress.get(), &header, &payloadIter);

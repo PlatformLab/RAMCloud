@@ -101,13 +101,13 @@ TEST_F(IndexLookupTest, construction) {
 TEST_F(IndexLookupTest, isReady_lookupComplete) {
     TestLog::Enable _;
     IndexLookup indexLookup(&ramcloud, 10, 1, "a", 1, "z", 1);
-    (new(indexLookup.lookupRpc.rpc->response, APPEND)
-        WireFormat::ResponseCommon)->status = STATUS_OK;
-    new(indexLookup.lookupRpc.rpc->response, APPEND) uint32_t(10);
-    new(indexLookup.lookupRpc.rpc->response, APPEND) uint16_t(0);
-    new(indexLookup.lookupRpc.rpc->response, APPEND) uint64_t(0);
+    indexLookup.lookupRpc.rpc->response->emplaceAppend<
+        WireFormat::ResponseCommon>()->status = STATUS_OK;
+    indexLookup.lookupRpc.rpc->response->emplaceAppend<uint32_t>(10);
+    indexLookup.lookupRpc.rpc->response->emplaceAppend<uint16_t>(uint16_t(0));
+    indexLookup.lookupRpc.rpc->response->emplaceAppend<uint64_t>(0);
     for (KeyHash i = 0; i < 10; i++) {
-        new(indexLookup.lookupRpc.rpc->response, APPEND) KeyHash(i);
+        indexLookup.lookupRpc.rpc->response->emplaceAppend<KeyHash>(i);
     }
     indexLookup.lookupRpc.rpc->completed();
     EXPECT_EQ(IndexLookup::SENT, indexLookup.lookupRpc.status);
@@ -121,13 +121,13 @@ TEST_F(IndexLookupTest, isReady_lookupComplete) {
 TEST_F(IndexLookupTest, isReady_activeHashes) {
     TestLog::Enable _;
     IndexLookup indexLookup(&ramcloud, 10, 1, "a", 1, "z", 1);
-    (new(indexLookup.lookupRpc.rpc->response, APPEND)
-        WireFormat::ResponseCommon)->status = STATUS_OK;
-    new(indexLookup.lookupRpc.rpc->response, APPEND) uint32_t(10);
-    new(indexLookup.lookupRpc.rpc->response, APPEND) uint16_t(0);
-    new(indexLookup.lookupRpc.rpc->response, APPEND) uint64_t(0);
+    indexLookup.lookupRpc.rpc->response->emplaceAppend<
+        WireFormat::ResponseCommon>()->status = STATUS_OK;
+    indexLookup.lookupRpc.rpc->response->emplaceAppend<uint32_t>(10);
+    indexLookup.lookupRpc.rpc->response->emplaceAppend<uint16_t>(uint16_t(0));
+    indexLookup.lookupRpc.rpc->response->emplaceAppend<uint64_t>(0);
     for (KeyHash i = 0; i < 10; i++) {
-        new(indexLookup.lookupRpc.rpc->response, APPEND) KeyHash(i);
+        indexLookup.lookupRpc.rpc->response->emplaceAppend<KeyHash>(i);
     }
     indexLookup.lookupRpc.rpc->completed();
     EXPECT_EQ(IndexLookup::SENT, indexLookup.lookupRpc.status);
@@ -144,15 +144,15 @@ TEST_F(IndexLookupTest, isReady_activeHashes) {
 TEST_F(IndexLookupTest, isReady_issueNextLookup) {
     TestLog::Enable _;
     IndexLookup indexLookup(&ramcloud, 10, 1, "a", 1, "z", 1);
-    (new(indexLookup.lookupRpc.rpc->response, APPEND)
-        WireFormat::ResponseCommon)->status = STATUS_OK;
-    new(indexLookup.lookupRpc.rpc->response, APPEND) uint32_t(10);
-    new(indexLookup.lookupRpc.rpc->response, APPEND) uint16_t(1);
-    new(indexLookup.lookupRpc.rpc->response, APPEND) uint64_t(0);
+    indexLookup.lookupRpc.rpc->response->emplaceAppend<
+            WireFormat::ResponseCommon>()->status = STATUS_OK;
+    indexLookup.lookupRpc.rpc->response->emplaceAppend<uint32_t>(10);
+    indexLookup.lookupRpc.rpc->response->emplaceAppend<uint16_t>(uint16_t(1));
+    indexLookup.lookupRpc.rpc->response->emplaceAppend<uint64_t>(0);
     for (KeyHash i = 0; i < 10; i++) {
-        new(indexLookup.lookupRpc.rpc->response, APPEND) KeyHash(i);
+        indexLookup.lookupRpc.rpc->response->emplaceAppend<KeyHash>(i);
     }
-    new(indexLookup.lookupRpc.rpc->response, APPEND) char('b');
+    indexLookup.lookupRpc.rpc->response->emplaceAppend<char>('b');
     EXPECT_EQ("mock:indexserver=0",
                 indexLookup.lookupRpc.rpc->session->getServiceLocator());
     indexLookup.lookupRpc.rpc->completed();
@@ -169,13 +169,13 @@ TEST_F(IndexLookupTest, isReady_issueNextLookup) {
 TEST_F(IndexLookupTest, isReady_allLookupCompleted) {
     TestLog::Enable _;
     IndexLookup indexLookup(&ramcloud, 10, 1, "a", 1, "z", 1);
-    (new(indexLookup.lookupRpc.rpc->response, APPEND)
-        WireFormat::ResponseCommon)->status = STATUS_OK;
-    new(indexLookup.lookupRpc.rpc->response, APPEND) uint32_t(10);
-    new(indexLookup.lookupRpc.rpc->response, APPEND) uint16_t(0);
-    new(indexLookup.lookupRpc.rpc->response, APPEND) uint64_t(0);
+    indexLookup.lookupRpc.rpc->response->emplaceAppend<
+            WireFormat::ResponseCommon>()->status = STATUS_OK;
+    indexLookup.lookupRpc.rpc->response->emplaceAppend<uint32_t>(10);
+    indexLookup.lookupRpc.rpc->response->emplaceAppend<uint16_t>(uint16_t(0));
+    indexLookup.lookupRpc.rpc->response->emplaceAppend<uint64_t>(0);
     for (KeyHash i = 0; i < 10; i++) {
-        new(indexLookup.lookupRpc.rpc->response, APPEND) KeyHash(i);
+        indexLookup.lookupRpc.rpc->response->emplaceAppend<KeyHash>(i);
     }
     indexLookup.lookupRpc.rpc->completed();
     EXPECT_EQ(IndexLookup::SENT, indexLookup.lookupRpc.status);
@@ -189,13 +189,13 @@ TEST_F(IndexLookupTest, isReady_allLookupCompleted) {
 TEST_F(IndexLookupTest, isReady_assignPKHashesToSameServer) {
     TestLog::Enable _;
     IndexLookup indexLookup(&ramcloud, 10, 1, "a", 1, "z", 1);
-    (new(indexLookup.lookupRpc.rpc->response, APPEND)
-        WireFormat::ResponseCommon)->status = STATUS_OK;
-    new(indexLookup.lookupRpc.rpc->response, APPEND) uint32_t(10);
-    new(indexLookup.lookupRpc.rpc->response, APPEND) uint16_t(0);
-    new(indexLookup.lookupRpc.rpc->response, APPEND) uint64_t(0);
+    indexLookup.lookupRpc.rpc->response->emplaceAppend<
+        WireFormat::ResponseCommon>()->status = STATUS_OK;
+    indexLookup.lookupRpc.rpc->response->emplaceAppend<uint32_t>(10);
+    indexLookup.lookupRpc.rpc->response->emplaceAppend<uint16_t>(uint16_t(0));
+    indexLookup.lookupRpc.rpc->response->emplaceAppend<uint64_t>(0);
     for (KeyHash i = 0; i < 10; i++) {
-        new(indexLookup.lookupRpc.rpc->response, APPEND) KeyHash(i);
+        indexLookup.lookupRpc.rpc->response->emplaceAppend<KeyHash>(i);
     }
     indexLookup.lookupRpc.rpc->completed();
     EXPECT_EQ(IndexLookup::SENT, indexLookup.lookupRpc.status);

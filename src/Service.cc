@@ -184,7 +184,7 @@ Service::prepareErrorResponse(Buffer* replyPayload, Status status)
     if (responseCommon == NULL) {
         // Response is currently empty; add a header to it.
         responseCommon =
-            new(replyPayload, APPEND) WireFormat::ResponseCommon;
+            replyPayload->emplaceAppend<WireFormat::ResponseCommon>();
     }
     responseCommon->status = status;
 }
@@ -216,15 +216,13 @@ Service::prepareRetryResponse(Buffer* replyPayload, uint32_t minDelayMicros,
 {
     replyPayload->reset();
     WireFormat::RetryResponse* response =
-            new(replyPayload, APPEND) WireFormat::RetryResponse;
+            replyPayload->emplaceAppend<WireFormat::RetryResponse>();
     response->common.status = STATUS_RETRY;
     response->minDelayMicros = minDelayMicros;
     response->maxDelayMicros = maxDelayMicros;
     if (message != NULL) {
         response->messageLength = downCast<uint32_t>(strlen(message) + 1);
-        char* responseMsg = new(replyPayload, APPEND) char[
-                response->messageLength];
-        memcpy(responseMsg, message, response->messageLength);
+        replyPayload->appendCopy(message, response->messageLength);
     } else {
         response->messageLength = 0;
     }

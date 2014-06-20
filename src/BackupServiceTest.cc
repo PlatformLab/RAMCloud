@@ -646,9 +646,8 @@ class GcMockMasterService : public Service {
                 const IsReplicaNeeded::Request* req =
                     rpc->requestPayload->getStart<
                     IsReplicaNeeded::Request>();
-                auto* resp =
-                    new(rpc->replyPayload, APPEND)
-                        IsReplicaNeeded::Response();
+                auto* resp = rpc->replyPayload->emplaceAppend<
+                        IsReplicaNeeded::Response>();
                 resp->needed = req->segmentId % 2;
                 resp->common.status = STATUS_OK;
                 break;

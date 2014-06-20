@@ -74,8 +74,7 @@ void DataBlock::get(Buffer* output)
     if (block == NULL) {
         return;
     }
-    char* buffer = new(output, APPEND) char[length];
-    memcpy(buffer, block, length);
+    output->appendCopy(block, downCast<uint32_t>(length));
 }
 
 } // namespace RAMCloud

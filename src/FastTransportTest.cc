@@ -215,13 +215,13 @@ TEST_F(FastTransportTest, getSession_reuseExpired) {
 
 TEST_F(FastTransportTest, numFrags_fullPacket) {
     Buffer b;
-    new(&b, APPEND) char[transport->dataPerFragment()];
+    b.alloc(transport->dataPerFragment());
     EXPECT_EQ(1U, transport->numFrags(&b));
 }
 
 TEST_F(FastTransportTest, numFrags_oneByteTooBig) {
     Buffer b;
-    new(&b, APPEND) char[transport->dataPerFragment() + 1];
+    b.alloc(transport->dataPerFragment() + 1);
     EXPECT_EQ(2U, transport->numFrags(&b));
 }
 
@@ -822,8 +822,8 @@ class OutboundMessageTest: public ::testing::Test {
 
         const char* testMsg = "abcdefghij";
         size_t testMsgLen = strlen(testMsg);
-        char* payload = new(buffer, APPEND) char[testMsgLen *
-                                                 (messageLen / 10) + 1];
+        char* payload = static_cast<char*>(buffer->alloc(testMsgLen *
+                                                        (messageLen / 10) + 1));
         for (uint32_t i = 0; i < (messageLen / 10); i++)
             memcpy(payload + i * testMsgLen, testMsg, testMsgLen);
         payload[testMsgLen * (messageLen / 10)] = '\0';

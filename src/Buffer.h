@@ -22,34 +22,6 @@
 #include "Syscall.h"
 #include "Tub.h"
 
-// Temporary: eliminate once the old placement-new operations have been removed.
-namespace RAMCloud {
-
-/**
- * A dummy type for distinguishing the different operator new calls the Buffer
- * provides.
- */
-enum PREPEND_T { PREPEND };
-
-/**
- * A dummy type for distinguishing the different operator new calls the Buffer
- * provides.
- */
-enum APPEND_T { APPEND };
-
-class Buffer;
-
-}
-
-void* operator new(size_t numBytes, RAMCloud::Buffer* buffer,
-                   RAMCloud::PREPEND_T prepend);
-void* operator new[](size_t numBytes, RAMCloud::Buffer* buffer,
-                     RAMCloud::PREPEND_T prepend);
-void* operator new(size_t numBytes, RAMCloud::Buffer* buffer,
-                   RAMCloud::APPEND_T append);
-void* operator new[](size_t numBytes, RAMCloud::Buffer* buffer,
-                     RAMCloud::APPEND_T append);
-
 namespace RAMCloud {
 
 /**

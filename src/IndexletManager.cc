@@ -516,7 +516,7 @@ IndexletManager::lookupIndexKeys(uint64_t tableId, uint8_t indexId,
             // Can alternatively use iter.data() instead of iter.key().pKHash,
             // but we might want to make data NULL in the future, so might
             // as well use the pKHash from key right away.
-            new(responseBuffer, APPEND) uint64_t(iter.key().pKHash);
+            responseBuffer->emplaceAppend<uint64_t>(iter.key().pKHash);
             *numHashes += 1;
             ++iter;
         } else {

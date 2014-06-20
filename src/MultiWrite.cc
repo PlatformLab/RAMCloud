@@ -66,8 +66,7 @@ MultiWrite::appendRequest(MultiOpObject* request, Buffer* buf)
 
     uint32_t keysAndValueLength = 0;
     WireFormat::MultiOp::Request::WritePart* writeHdr =
-            new(buf, APPEND)
-                WireFormat::MultiOp::Request::WritePart(
+            buf->emplaceAppend<WireFormat::MultiOp::Request::WritePart>(
                 req->tableId,
                 keysAndValueLength,
                 req->rejectRules ? *req->rejectRules :

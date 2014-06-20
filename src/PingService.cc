@@ -54,8 +54,7 @@ PingService::getMetrics(const WireFormat::GetMetrics::Request* reqHdr,
     string serialized;
     metrics->serialize(serialized);
     respHdr->messageLength = downCast<uint32_t>(serialized.length());
-    memcpy(new(rpc->replyPayload, APPEND) uint8_t[respHdr->messageLength],
-           serialized.c_str(), respHdr->messageLength);
+    rpc->replyPayload->appendCopy(serialized.c_str(), respHdr->messageLength);
 }
 
 /**
@@ -182,10 +181,8 @@ PingService::serverControl(const WireFormat::ServerControl::Request* reqHdr,
         case WireFormat::GET_TIME_TRACE:
         {
             string s = context->timeTrace->getTrace();
-            size_t length = s.length();
-            memcpy(new(rpc->replyPayload, APPEND) char[length], s.c_str(),
-                    length);
-            respHdr->outputLength = downCast<uint32_t>(length);
+            respHdr->outputLength = downCast<uint32_t>(s.length());
+            rpc->replyPayload->appendCopy(s.c_str(), respHdr->outputLength);
             break;
         }
         case WireFormat::LOG_TIME_TRACE:

@@ -45,7 +45,7 @@ TEST_F(WireFormatTest, getStatus) {
     Buffer buffer;
     EXPECT_EQ(STATUS_RESPONSE_FORMAT_ERROR, WireFormat::getStatus(&buffer));
     WireFormat::ResponseCommon* header =
-                new(&buffer, APPEND) WireFormat::ResponseCommon;
+                buffer.emplaceAppend<WireFormat::ResponseCommon>();
     header->status = STATUS_WRONG_VERSION;
     EXPECT_EQ(STATUS_WRONG_VERSION, WireFormat::getStatus(&buffer));
 }
@@ -75,7 +75,7 @@ TEST_F(WireFormatTest, opcodeSymbol_buffer) {
 
     // Now try a buffer with a valid header.
     WireFormat::RequestCommon* header =
-            new(&b, APPEND) WireFormat::RequestCommon;
+                b.emplaceAppend<WireFormat::RequestCommon>();
     header->opcode = WireFormat::PING;
     EXPECT_STREQ("PING", WireFormat::opcodeSymbol(&b));
 }

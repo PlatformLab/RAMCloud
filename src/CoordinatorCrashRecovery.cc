@@ -221,7 +221,7 @@ fillBuffer(Buffer& buffer, uint32_t size, uint64_t tableId,
         if (chunkLength > bytesLeft) {
             chunkLength = bytesLeft;
         }
-        memcpy(new(&buffer, APPEND) char[chunkLength], chunk, chunkLength);
+        buffer.appendCopy(chunk, chunkLength);
         bytesLeft -= chunkLength;
         position += chunkLength;
     }

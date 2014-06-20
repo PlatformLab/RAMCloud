@@ -148,7 +148,7 @@ IndexRpcWrapper::send()
         foundIndex = false;
 
         WireFormat::ResponseCommon* respHdr =
-                new(response, APPEND) WireFormat::ResponseCommon;
+                response->emplaceAppend<WireFormat::ResponseCommon>();
         respHdr->status = STATUS_OK;
 
         completed();

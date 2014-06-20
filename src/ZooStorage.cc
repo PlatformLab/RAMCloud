@@ -107,7 +107,7 @@ ZooStorage::get(const char* name, Buffer* value)
     struct Stat stat;
     while (1) {
         value->reset();
-        char* buffer = new(value, APPEND) char[length];
+        char* buffer = static_cast<char*>(value->alloc(length));
         int status = zoo_get(zoo, fullName, 0, buffer, &length, &stat);
         if (status != ZOK) {
             if (status == ZNONODE) {

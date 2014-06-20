@@ -111,7 +111,8 @@ TEST_F(ServiceTest, handleRpc_messageTooShortForCommon) {
 }
 TEST_F(ServiceTest, handleRpc_undefinedType) {
     metrics->rpc.illegal_rpc_typeCount = 0;
-    auto* header = new(&request, APPEND) WireFormat::RequestCommon;
+    WireFormat::RequestCommon* header =
+            request.emplaceAppend<WireFormat::RequestCommon>();
     header->opcode = WireFormat::ILLEGAL_RPC_TYPE;
     service.handleRpc(&rpc);
     EXPECT_STREQ("STATUS_UNIMPLEMENTED_REQUEST",

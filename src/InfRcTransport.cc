@@ -955,7 +955,7 @@ InfRcTransport::ServerRpc::sendReply()
     }
 
     BufferDescriptor* bd = t->getTransmitBuffer();
-    new(&replyPayload, PREPEND) Header(nonce);
+    replyPayload.emplacePrepend<Header>(nonce);
     {
         CycleCounter<RawMetric> copyTicks(
             &metrics->transport.transmit.copyTicks);
@@ -1168,7 +1168,7 @@ InfRcTransport::ClientRpc::sendOrQueue()
         ++metrics->transport.transmit.messageCount;
         ++metrics->transport.transmit.packetCount;
 
-        new(request, PREPEND) Header(nonce);
+        request->emplacePrepend<Header>(nonce);
         sendZeroCopy(request);
         request->truncateFront(sizeof(Header)); // for politeness
 
@@ -1219,9 +1219,7 @@ InfRcTransport::Poller::poll()
                 if (t->numUsedClientSrqBuffers >=
                         MAX_SHARED_RX_QUEUE_DEPTH / 2) {
                     // clientSrq is low on buffers, better return this one
-                    memcpy(new(rpc.response, APPEND) char[len],
-                           bd->buffer + sizeof(header),
-                           len);
+                    rpc.response->appendCopy(bd->buffer + sizeof(header), len);
                     t->postSrqReceiveAndKickTransmit(t->clientSrq, bd);
                 } else {
                     // rpc will hold one of clientSrq's buffers until
@@ -1297,8 +1295,7 @@ InfRcTransport::Poller::poll()
                 // the buffer immediately.
                 LOG(NOTICE, "Receive buffers running low; copying %u-byte "
                     "request", len);
-                memcpy(new(&r->requestPayload, APPEND) char[len],
-                        bd->buffer + sizeof(header), len);
+                r->requestPayload.appendCopy(bd->buffer + sizeof(header), len);
                 t->postSrqReceiveAndKickTransmit(t->serverSrq, bd);
             } else {
                 // Let the request use the NIC's buffer directly in order

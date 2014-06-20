@@ -85,7 +85,7 @@ class MockWrapper : public Transport::RpcNotifier {
         WireFormat::RequestCommon* header;
         if (request.getTotalLength() < sizeof(WireFormat::RequestCommon)) {
             request.reset();
-            header = new(&request, APPEND) WireFormat::RequestCommon;
+            header = request.emplaceAppend<WireFormat::RequestCommon>();
         } else {
             header = const_cast<WireFormat::RequestCommon*>(
                     request.getStart<WireFormat::RequestCommon>());

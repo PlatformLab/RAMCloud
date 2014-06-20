@@ -536,7 +536,7 @@ TcpTransport::IncomingMessage::readMessage(int fd) {
     if (messageBytesReceived < messageLength) {
         void *dest;
         if (buffer->getTotalLength() == 0) {
-            dest = new(buffer, APPEND) char[messageLength];
+            dest = buffer->alloc(messageLength);
         } else {
             buffer->peek(messageBytesReceived, &dest);
         }

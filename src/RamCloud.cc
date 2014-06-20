@@ -163,7 +163,7 @@ CreateTableRpc::CreateTableRpc(RamCloud* ramcloud,
             allocHeader<WireFormat::CreateTable>());
     reqHdr->nameLength = length;
     reqHdr->serverSpan = serverSpan;
-    memcpy(new(&request, APPEND) char[length], name, length);
+    request.appendCopy(name, length);
     send();
 }
 
@@ -222,7 +222,7 @@ DropTableRpc::DropTableRpc(RamCloud* ramcloud,
     WireFormat::DropTable::Request* reqHdr(
             allocHeader<WireFormat::DropTable>());
     reqHdr->nameLength = length;
-    memcpy(new(&request, APPEND) char[length], name, length);
+    request.appendCopy(name, length);
     send();
 }
 
@@ -460,7 +460,7 @@ EnumerateTableRpc::wait(Buffer& state)
     if (iteratorBytes != 0) {
         response->copy(
                 downCast<uint32_t>(sizeof(*respHdr) + respHdr->payloadBytes),
-                iteratorBytes, new(&state, APPEND) char[iteratorBytes]);
+                iteratorBytes, state.alloc(iteratorBytes));
     }
 
     // Truncate the front and back of the response buffer, leaving just the
@@ -899,7 +899,7 @@ GetTableIdRpc::GetTableIdRpc(RamCloud* ramcloud,
     WireFormat::GetTableId::Request* reqHdr(
             allocHeader<WireFormat::GetTableId>());
     reqHdr->nameLength = length;
-    memcpy(new(&request, APPEND) char[length], name, length);
+    request.appendCopy(name, length);
     send();
 }
 
@@ -2031,7 +2031,7 @@ SplitTabletRpc::SplitTabletRpc(RamCloud* ramcloud,
             allocHeader<WireFormat::SplitTablet>());
     reqHdr->nameLength = length;
     reqHdr->splitKeyHash = splitKeyHash;
-    memcpy(new(&request, APPEND) char[length], name, length);
+    request.appendCopy(name, length);
     send();
 }
 

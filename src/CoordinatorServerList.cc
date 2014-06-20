@@ -1433,8 +1433,8 @@ CoordinatorServerList::UpdateServerListRpc::UpdateServerListRpc(
 {
     allocHeader<WireFormat::UpdateServerList>(serverId);
 
-    auto* part = new(&request, APPEND)
-            WireFormat::UpdateServerList::Request::Part();
+    auto* part = request.emplaceAppend<
+            WireFormat::UpdateServerList::Request::Part>();
 
     part->serverListLength = serializeToRequest(&request, list);
 }
@@ -1461,8 +1461,8 @@ CoordinatorServerList::UpdateServerListRpc::appendServerList(
     assert(this->getState() == NOT_STARTED);
     uint32_t sizeBefore = request.getTotalLength();
 
-    auto* part = new(&request, APPEND)
-            WireFormat::UpdateServerList::Request::Part();
+    auto* part = request.emplaceAppend<
+            WireFormat::UpdateServerList::Request::Part>();
 
     part->serverListLength = serializeToRequest(&request, list);
 

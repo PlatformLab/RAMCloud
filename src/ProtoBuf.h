@@ -46,7 +46,7 @@ serializeToBuffer(Buffer* buffer, M* message)
     string str(ostream.str());
     uint32_t length = downCast<uint32_t>(str.length());
     if (length > 0) {
-        memcpy(new(buffer, APPEND) uint8_t[length], str.c_str(), length);
+        buffer->appendCopy(str.c_str(), length);
     }
     return length;
 }

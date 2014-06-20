@@ -59,8 +59,8 @@ TEST_F(ServerIdRpcWrapperTest, checkStatus_serverUp) {
                 sizeof(WireFormat::BackupFree::Response));
     wrapper.allocHeader<WireFormat::BackupFree>(id);
     wrapper.send();
-    WireFormat::ResponseCommon* responseCommon = new(wrapper.response, APPEND)
-                WireFormat::ResponseCommon;
+    WireFormat::ResponseCommon* responseCommon =
+            wrapper.response->emplaceAppend<WireFormat::ResponseCommon>();
     responseCommon->status = STATUS_WRONG_SERVER;
     wrapper.completed();
     EXPECT_FALSE(wrapper.isReady());
@@ -75,8 +75,8 @@ TEST_F(ServerIdRpcWrapperTest, checkStatus_serverCrashed) {
                 sizeof(WireFormat::BackupFree::Response));
     wrapper.allocHeader<WireFormat::BackupFree>(id);
     wrapper.send();
-    WireFormat::ResponseCommon* responseCommon = new(wrapper.response, APPEND)
-                WireFormat::ResponseCommon;
+    WireFormat::ResponseCommon* responseCommon =
+            wrapper.response->emplaceAppend<WireFormat::ResponseCommon>();
     responseCommon->status = STATUS_WRONG_SERVER;
     wrapper.completed();
     serverList.testingCrashed(id);
@@ -93,8 +93,8 @@ TEST_F(ServerIdRpcWrapperTest, checkStatus_unknownError) {
                 sizeof(WireFormat::BackupFree::Response));
     wrapper.allocHeader<WireFormat::BackupFree>(id);
     wrapper.send();
-    WireFormat::ResponseCommon* responseCommon = new(wrapper.response, APPEND)
-                WireFormat::ResponseCommon;
+    WireFormat::ResponseCommon* responseCommon =
+            wrapper.response->emplaceAppend<WireFormat::ResponseCommon>();
     responseCommon->status = STATUS_UNIMPLEMENTED_REQUEST;
     wrapper.completed();
     EXPECT_TRUE(wrapper.isReady());
@@ -204,7 +204,7 @@ TEST_F(ServerIdRpcWrapperTest, waitAndCheckErrors_success) {
     ServerIdRpcWrapper wrapper(&context, ServerId(4, 0), 4);
     wrapper.request.fillFromString("100");
     wrapper.send();
-    (new(wrapper.response, APPEND) WireFormat::ResponseCommon)->status =
+    wrapper.response->emplaceAppend<WireFormat::ResponseCommon>()->status =
             STATUS_OK;
     wrapper.state = RpcWrapper::RpcState::FINISHED;
     wrapper.waitAndCheckErrors();
@@ -228,7 +228,7 @@ TEST_F(ServerIdRpcWrapperTest, waitAndCheckErrors_errorStatus) {
     ServerIdRpcWrapper wrapper(&context, ServerId(4, 0), 4);
     wrapper.request.fillFromString("100");
     wrapper.send();
-    (new(wrapper.response, APPEND) WireFormat::ResponseCommon)->status =
+    wrapper.response->emplaceAppend<WireFormat::ResponseCommon>()->status =
             STATUS_UNIMPLEMENTED_REQUEST;
     wrapper.state = RpcWrapper::RpcState::FINISHED;
     string message = "no exception";

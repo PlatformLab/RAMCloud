@@ -84,7 +84,7 @@ fillBuffer(Buffer& buffer, uint32_t size, uint64_t tableId,
         if (chunkLength > bytesLeft) {
             chunkLength = bytesLeft;
         }
-        memcpy(new(&buffer, APPEND) char[chunkLength], chunk, chunkLength);
+        buffer.appendCopy(chunk, chunkLength);
         bytesLeft -= chunkLength;
         position += chunkLength;
     }
@@ -212,7 +212,6 @@ try
     if (coordinatorLocator.size() == 0) {
         coordinatorLocator = optionParser.options.getCoordinatorLocator();
     }
-    fprintf(stderr, "Connecting to %s\n", coordinatorLocator.c_str());
     RamCloud client(&context, coordinatorLocator.c_str(),
             optionParser.options.getClusterName().c_str());
 
@@ -284,8 +283,7 @@ try
                     char chunk[objectDataSize];
                     memset(&chunk, 0xcc, objectDataSize);
                     writeVal.reset();
-                    memcpy(new(&writeVal, APPEND) char[objectDataSize],
-                            chunk, objectDataSize);
+                    writeVal.appendCopy(chunk, objectDataSize);
                 }
                 writeRpc.construct(&client,
                                    static_cast<uint32_t>(tables[t]),
@@ -306,8 +304,7 @@ try
         char chunk[objectDataSize];
         memset(&chunk, 0xcc, objectDataSize);
         writeVal.reset();
-        memcpy(new(&writeVal, APPEND) char[objectDataSize],
-                chunk, objectDataSize);
+        writeVal.appendCopy(chunk, objectDataSize);
         client.write(tables[0], key.c_str(), downCast<uint16_t>(key.length()),
                      writeVal.getRange(0, objectDataSize), objectDataSize,
                      static_cast<RejectRules*>(NULL),
