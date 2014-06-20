@@ -484,9 +484,9 @@ ObjectFinder::waitForAllTabletsNormal(uint64_t tableId, uint64_t timeoutNs)
 {
     uint64_t start = Cycles::rdtsc();
     RAMCLOUD_TEST_LOG("flushing object map");
-    flush(tableId);
     while (Cycles::toNanoseconds(Cycles::rdtsc() - start) < timeoutNs) {
         bool allNormal = true;
+        flush(tableId);
         tableConfigFetcher->getTableConfig(tableId, &tableMap, &tableIndexMap);
         TabletKey start {tableId, 0U};
         TabletKey end {tableId, std::numeric_limits<KeyHash>::max()};
@@ -501,7 +501,7 @@ ObjectFinder::waitForAllTabletsNormal(uint64_t tableId, uint64_t timeoutNs)
         }
         if (allNormal && tableMap.size() > 0)
             return;
-        usleep(200);
+        usleep(10000);
     }
 }
 
