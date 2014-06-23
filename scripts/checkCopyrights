@@ -1,0 +1,29 @@
+#!/bin/bash
+
+# Checks one or more files to see if their copyright notices are up-to-date
+# (i.e., they include the current year). If arguments are given, they specify
+# the files to check. Otherwise, all files that are modified in git are
+# checked. Returns 0 if all files are OK; returns 1 and prints error
+# messages of any files are out of date.
+
+year=`date +%Y`
+files=$@
+if [ -z "$files" ]; then
+    files=`git ls-files -m`
+fi
+result=0
+
+checkString1='Copyright.*[ -]'$year" Stanford"
+checkString2='Copyright.*Stanford'
+
+for f in $files; do
+    if ! grep "$checkString1" $f > /dev/null && grep "$checkString2" $f > /dev/null; then
+        echo $f has an out of date copyright notice
+        result=1
+    fi
+done
+
+if [ $result == 1 ]; then
+    echo "Run scripts/fixCopyrights to update the notices."
+fi
+exit $result

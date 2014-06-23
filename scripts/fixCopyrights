@@ -1,0 +1,25 @@
+#!/bin/bash
+
+# Given a set of files containing standard RAMCloud copyright notices,
+# update any out-of-date notices (those that don't cover the current year)
+# so that they now cover the current year. If arguments are given, they specify
+# the files to update. Otherwise, all files that are modified in git are
+# updated.
+
+year=`date +%Y`
+files=$@
+if [ -z $files ]; then
+    files=`git ls-files -m`
+fi
+
+checkString1='Copyright.*[ -]'$year" Stanford"
+checkString2='Copyright.*Stanford'
+yearSpec='[0-9][0-9][0-9][0-9]'
+cmd='s/\(Copyright (c) '$yearSpec'\)\(-'$yearSpec'\)\? Stanford/\1-'$year' Stanford/g'
+
+for f in $files; do
+    if ! grep "$checkString1" $f > /dev/null && grep "$checkString2" $f > /dev/null; then
+        sed -i -e "$cmd" $f
+        echo Updated $f
+    fi
+done
