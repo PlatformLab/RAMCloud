@@ -1,4 +1,4 @@
-/* Copyright (c) 2012 Stanford University
+/* Copyright (c) 2012-2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -65,7 +65,7 @@ TEST_F(KeyTest, constructor_fromLog)
 TEST_F(KeyTest, constructor_fromBuffer)
 {
     Buffer buffer;
-    buffer.append("woops", 6);
+    buffer.appendExternal("woops", 6);
 
     Key key(48, buffer, 0, 6);
     EXPECT_EQ(48U, key.getTableId());

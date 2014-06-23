@@ -527,14 +527,14 @@ IndexletManager::lookupIndexKeys(uint64_t tableId, uint8_t indexId,
     if (rpcMaxedOut) {
         *nextKeyLength = uint16_t(iter.key().keyLength);
         *nextKeyHash = iter.data();
-        responseBuffer->append(iter.key().key,
+        responseBuffer->appendExternal(iter.key().key,
                                uint32_t(iter.key().keyLength));
     } else if (keyCompare(lastKey, lastKeyLength, indexlet->firstNotOwnedKey,
                           indexlet->firstNotOwnedKeyLength) > 0) {
 
         *nextKeyLength = indexlet->firstNotOwnedKeyLength;
         *nextKeyHash = 0;
-        responseBuffer->append(indexlet->firstNotOwnedKey,
+        responseBuffer->appendExternal(indexlet->firstNotOwnedKey,
                                indexlet->firstNotOwnedKeyLength);
     } else {
         *nextKeyHash = 0;
@@ -554,7 +554,7 @@ IndexletManager::lookupIndexKeys(uint64_t tableId, uint8_t indexId,
 //
 //        *nextKeyLength = uint16_t(currIter.key().keyLength);
 //        *nextKeyHash = currIter.data();
-//        responseBuffer->append(currIter.key().key,
+//        responseBuffer->appendExternal(currIter.key().key,
 //                               uint32_t(currIter.key().keyLength));
 //
 //    }

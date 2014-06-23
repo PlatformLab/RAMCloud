@@ -151,7 +151,7 @@ TEST_F(ReplicaManagerTest, writeSegment) {
     Segment s;
 
     SegmentHeader header = { *serverId, 88, segmentSize };
-    buffer.append(&header, sizeof(header));
+    buffer.appendExternal(&header, sizeof(header));
     s.append(LOG_ENTRY_TYPE_SEGHEADER, buffer);
 
     Key key(123, "10", 2);

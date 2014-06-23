@@ -59,10 +59,10 @@ class ObjectTest : public ::testing::Test {
         // write some garbage into the buffer so that the starting
         // offset of keysAndValue in keysAndValueBuffer is != 0. In this
         // case, it will be sizeof(stringKeys[0])
-        buffer.append(&stringKeys[0], sizeof(stringKeys[0]));
+        buffer.appendExternal(&stringKeys[0], sizeof(stringKeys[0]));
 
         // this is the starting of keysAndValue in the keysAndValueBuffer
-        buffer.append(&numKeys, sizeof(numKeys));
+        buffer.appendExternal(&numKeys, sizeof(numKeys));
 
         // lengths of all they keys are 3.
         // store cumulativeKeyLengths in the object
@@ -70,16 +70,17 @@ class ObjectTest : public ::testing::Test {
         cumulativeKeyLengths[0] = 3;
         cumulativeKeyLengths[1] = 6;
         cumulativeKeyLengths[2] = 9;
-        buffer.append(cumulativeKeyLengths, 3 *sizeof(CumulativeKeyLength));
+        buffer.appendExternal(cumulativeKeyLengths,
+                              3 *sizeof(CumulativeKeyLength));
 
         // append keys here.
-        buffer.append(&stringKeys[0], sizeof(stringKeys[0]));
-        buffer.append(&stringKeys[1], sizeof(stringKeys[1]));
-        buffer.append(&stringKeys[2], sizeof(stringKeys[2]));
+        buffer.appendExternal(&stringKeys[0], sizeof(stringKeys[0]));
+        buffer.appendExternal(&stringKeys[1], sizeof(stringKeys[1]));
+        buffer.appendExternal(&stringKeys[2], sizeof(stringKeys[2]));
 
         // append data
-        buffer.append(&dataBlob[0], 2);
-        buffer.append(&dataBlob[2], 2);
+        buffer.appendExternal(&dataBlob[0], 2);
+        buffer.appendExternal(&dataBlob[2], 2);
         objectDataFromBuffer.construct(key.getTableId(), 75, 723, buffer,
                                         sizeof32(stringKeys[0]));
 
@@ -771,10 +772,11 @@ class ObjectTombstoneTest : public ::testing::Test {
 
         Key key(572, stringKey, 5);
 
-        buffer.append(&numKeys, sizeof(numKeys));
-        buffer.append(&cumulativeKeyLength, sizeof(cumulativeKeyLength));
-        buffer.append(stringKey, cumulativeKeyLength + 1);
-        buffer.append(dataBlob, 6);
+        buffer.appendExternal(&numKeys, sizeof(numKeys));
+        buffer.appendExternal(&cumulativeKeyLength,
+                              sizeof(cumulativeKeyLength));
+        buffer.appendExternal(stringKey, cumulativeKeyLength + 1);
+        buffer.appendExternal(dataBlob, 6);
 
         object.construct(key.getTableId(), 58, 723, buffer);
         tombstoneFromObject.construct(*object, 925, 335);

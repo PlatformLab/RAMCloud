@@ -35,21 +35,21 @@ class ObjectBufferTest : public ::testing::Test {
         snprintf(stringKeys[2], sizeof(stringKeys[2]), "ho");
         snprintf(dataBlob, sizeof(dataBlob), "YO!");
 
-        buffer.append(&numKeys, sizeof(numKeys));
+        buffer.appendExternal(&numKeys, sizeof(numKeys));
 
         cumulativeKeyLengths[0] = 3;
         cumulativeKeyLengths[1] = 6;
         cumulativeKeyLengths[2] = 9;
-        buffer.append(cumulativeKeyLengths, 3 *sizeof(KeyLength));
+        buffer.appendExternal(cumulativeKeyLengths, 3 *sizeof(KeyLength));
 
         // append keys here.
-        buffer.append(&stringKeys[0], sizeof(stringKeys[0]));
-        buffer.append(&stringKeys[1], sizeof(stringKeys[1]));
-        buffer.append(&stringKeys[2], sizeof(stringKeys[2]));
+        buffer.appendExternal(&stringKeys[0], sizeof(stringKeys[0]));
+        buffer.appendExternal(&stringKeys[1], sizeof(stringKeys[1]));
+        buffer.appendExternal(&stringKeys[2], sizeof(stringKeys[2]));
 
         // append data
-        buffer.append(&dataBlob[0], 2);
-        buffer.append(&dataBlob[2], 2);
+        buffer.appendExternal(&dataBlob[0], 2);
+        buffer.appendExternal(&dataBlob[2], 2);
     }
 
     ~ObjectBufferTest()

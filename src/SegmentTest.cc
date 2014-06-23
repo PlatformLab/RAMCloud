@@ -172,7 +172,7 @@ TEST_P(SegmentTest, append_fullLogEntry) {
     char data[] = "hi";
 
     Segment::appendLogHeader(LOG_ENTRY_TYPE_OBJ, 2, &dataBuffer);
-    dataBuffer.append(data, 2);
+    dataBuffer.appendExternal(data, 2);
 
     LogEntryType type;
     uint32_t entryDataLength = 0;
@@ -327,7 +327,7 @@ TEST_P(SegmentTest, getEntry_contigMem) {
 
     // Still a 2 byte header only
     Segment::appendLogHeader(LOG_ENTRY_TYPE_OBJ, 21, &dataBuffer);
-    dataBuffer.append(data, 21);
+    dataBuffer.appendExternal(data, 21);
 
     LogEntryType type;
     uint32_t entryDataLength = 0, lengthWithMetadata = 0;
@@ -344,11 +344,11 @@ TEST_P(SegmentTest, getEntry_buffer) {
     Buffer dataBuffer;
     char data[] = "this is only a test!";
     char garbage[] = "garbage";
-    dataBuffer.append(garbage, 7);
+    dataBuffer.appendExternal(garbage, 7);
 
     // Still a 2 byte header only
     Segment::appendLogHeader(LOG_ENTRY_TYPE_OBJ, 21, &dataBuffer);
-    dataBuffer.append(data, 21);
+    dataBuffer.appendExternal(data, 21);
 
     LogEntryType type;
     uint32_t entryDataLength = 0, lengthWithMetadata = 0;
@@ -522,7 +522,7 @@ TEST_P(SegmentTest, copyInFromBuffer) {
 
     char buf[1024];
     Buffer buffer;
-    buffer.append(buf, sizeof(buf));
+    buffer.appendExternal(buf, sizeof(buf));
 
     EXPECT_EQ(0U, s.copyInFromBuffer(segmentSize, buffer, 0, sizeof(buf)));
     EXPECT_EQ(5U, s.copyInFromBuffer(segmentSize - 5, buffer, 0, sizeof(buf)));

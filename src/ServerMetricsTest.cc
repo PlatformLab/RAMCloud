@@ -1,4 +1,4 @@
-/* Copyright (c) 2011 Stanford University
+/* Copyright (c) 2011-2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for
  * any purpose with or without fee is hereby granted, provided that
@@ -44,7 +44,7 @@ TEST_F(ServerMetricsTest, load) {
     string s;
     data.serialize(s);
     Buffer buffer;
-    buffer.append(s.c_str(), downCast<uint32_t>(s.length()));
+    buffer.appendExternal(s.c_str(), downCast<uint32_t>(s.length()));
     ServerMetrics metrics;
     metrics.load(buffer);
     EXPECT_EQ(99U, metrics["master.recoveryTicks"]);
@@ -54,7 +54,7 @@ TEST_F(ServerMetricsTest, load) {
 TEST_F(ServerMetricsTest, load_bogusInput) {
     string s("This string contains bogus data");
     Buffer buffer;
-    buffer.append(s.c_str(), downCast<uint32_t>(s.length()));
+    buffer.appendExternal(s.c_str(), downCast<uint32_t>(s.length()));
     ServerMetrics metrics;
     EXPECT_THROW(metrics.load(buffer), ServerMetrics::FormatError);
 }

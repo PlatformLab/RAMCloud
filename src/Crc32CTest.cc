@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2012 Stanford University
+/* Copyright (c) 2010-2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -115,7 +115,7 @@ TEST_P(Crc32CTest, updateFromBuffer) {
     Crc32C b;
     a.update(buf, sizeof(buf));
     Buffer buffer;
-    buffer.append(buf, sizeof(buf));
+    buffer.appendExternal(buf, sizeof(buf));
     b.update(buffer);
     EXPECT_EQ(a.result, b.result);
 

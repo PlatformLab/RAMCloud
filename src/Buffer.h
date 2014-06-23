@@ -93,7 +93,7 @@ class Buffer {
      *      Number of bytes of data to append.
      */
     inline void
-    append(const void* data, uint32_t numBytes)
+    appendExternal(const void* data, uint32_t numBytes)
     {
         // At one point this method was modified to just copy in the data,
         // if it is small, rather than creating a new chunk that refers to
@@ -103,7 +103,7 @@ class Buffer {
         appendChunk(allocAux<Chunk>(data, numBytes));
     }
 
-    void append(Buffer* src, uint32_t offset = 0, uint32_t length = ~0);
+    void appendExternal(Buffer* src, uint32_t offset = 0, uint32_t length = ~0);
     void appendChunk(Chunk* chunk);
 
     /**

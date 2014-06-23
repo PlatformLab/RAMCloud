@@ -365,7 +365,7 @@ CoordinatorService::getRuntimeOption(
     try {
         std::string value = runtimeOptions.get(option);
         respHdr->valueLength = downCast<uint32_t>(value.size() + 1);
-        rpc->replyPayload->append(value.c_str(), respHdr->valueLength);
+        rpc->replyPayload->appendExternal(value.c_str(), respHdr->valueLength);
     } catch (const std::out_of_range& e) {
         respHdr->common.status = STATUS_OBJECT_DOESNT_EXIST;
         return;

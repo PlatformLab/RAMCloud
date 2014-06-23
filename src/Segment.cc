@@ -387,7 +387,7 @@ Segment::appendToBuffer(Buffer& buffer, uint32_t offset, uint32_t length) const
         if (contigBytes == 0)
             break;
 
-        buffer.append(contigPointer, contigBytes);
+        buffer.appendExternal(contigPointer, contigBytes);
 
         offset += contigBytes;
         length -= contigBytes;
@@ -964,7 +964,7 @@ Segment::Reference::getEntry(SegletAllocator* allocator,
         if (expect_true(offset + fullLength <= segletSize)) {
             // The entry is contiguous.
             if (buffer != NULL) {
-                buffer->append(
+                buffer->appendExternal(
                     reinterpret_cast<void*>(reference + fullHeaderLength),
                     dataLength);
             }

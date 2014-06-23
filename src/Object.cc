@@ -131,7 +131,7 @@ Object::Object(Key& key,
     memcpy(keyInfo + sizeof(KeyCount), &keyLength, sizeof(KeyLength));
     memcpy(keyInfo + KEY_INFO_LENGTH(1), keyString, keyLength);
 
-    buffer.append(value, valueLength);
+    buffer.appendExternal(value, valueLength);
     keysAndValueBuffer = &buffer;
 }
 
@@ -201,7 +201,7 @@ void
 Object::assembleForLog(Buffer& buffer)
 {
     header.checksum = computeChecksum();
-    buffer.append(&header, sizeof32(header));
+    buffer.appendExternal(&header, sizeof32(header));
     appendKeysAndValueToBuffer(buffer);
 }
 
@@ -239,7 +239,7 @@ Object::appendValueToBuffer(Buffer& buffer, uint32_t valueOffset)
 {
     if (keysAndValue) {
         const uint8_t *ptr = reinterpret_cast<const uint8_t *>(keysAndValue);
-        buffer.append(ptr + valueOffset, getValueLength());
+        buffer.appendExternal(ptr + valueOffset, getValueLength());
         return;
     }
 
@@ -248,7 +248,7 @@ Object::appendValueToBuffer(Buffer& buffer, uint32_t valueOffset)
     Buffer::Iterator it(sourceBuffer, keysAndValueOffset + valueOffset,
                         getValueLength());
     while (!it.isDone()) {
-        buffer.append(it.getData(), it.getLength());
+        buffer.appendExternal(it.getData(), it.getLength());
         it.next();
     }
 }
@@ -264,7 +264,7 @@ void
 Object::appendKeysAndValueToBuffer(Buffer& buffer)
 {
     if (keysAndValue) {
-        buffer.append(keysAndValue, keysAndValueLength);
+        buffer.appendExternal(keysAndValue, keysAndValueLength);
         return;
     }
 
@@ -274,7 +274,7 @@ Object::appendKeysAndValueToBuffer(Buffer& buffer)
 
     Buffer::Iterator it(sourceBuffer, keysAndValueOffset, keysAndValueLength);
     while (!it.isDone()) {
-        buffer.append(it.getData(), it.getLength());
+        buffer.appendExternal(it.getData(), it.getLength());
         it.next();
     }
 }
@@ -364,7 +364,7 @@ Object::appendKeysAndValueToBuffer(uint64_t tableId,
             memcpy(dest, keyList[i].key, currentKeyLength);
             dest = dest + currentKeyLength;
         }
-        request.append(value, valueLength);
+        request.appendExternal(value, valueLength);
         if (length)
             *length = KEY_INFO_LENGTH(numKeys) +
                       totalKeyLength + valueLength;
@@ -415,7 +415,7 @@ Object::appendKeysAndValueToBuffer(
     memcpy(keyInfo + sizeof(KeyCount), &keyLength, sizeof(KeyLength));
     memcpy(keyInfo + KEY_INFO_LENGTH(1), keyString, keyLength);
 
-    buffer.append(value, valueLength);
+    buffer.appendExternal(value, valueLength);
 }
 
 /**
@@ -839,7 +839,7 @@ ObjectTombstone::ObjectTombstone(Buffer& buffer, uint32_t offset,
 void
 ObjectTombstone::assembleForLog(Buffer& buffer)
 {
-    buffer.append(&header, sizeof32(header));
+    buffer.appendExternal(&header, sizeof32(header));
     appendKeyToBuffer(buffer);
 }
 
@@ -874,7 +874,7 @@ void
 ObjectTombstone::appendKeyToBuffer(Buffer& buffer)
 {
     if (key) {
-        buffer.append(key, getKeyLength());
+        buffer.appendExternal(key, getKeyLength());
         return;
     }
 
@@ -882,7 +882,7 @@ ObjectTombstone::appendKeyToBuffer(Buffer& buffer)
                         keyOffset,
                         getKeyLength());
     while (!it.isDone()) {
-        buffer.append(it.getData(), it.getLength());
+        buffer.appendExternal(it.getData(), it.getLength());
         it.next();
     }
 }
@@ -1037,7 +1037,7 @@ ObjectSafeVersion::ObjectSafeVersion(Buffer& buffer)
 void
 ObjectSafeVersion::assembleForLog(Buffer& buffer)
 {
-    buffer.append(&header, sizeof32(header));
+    buffer.appendExternal(&header, sizeof32(header));
 }
 
 /**

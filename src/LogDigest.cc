@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2012 Stanford University
+/* Copyright (c) 2009-2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -108,8 +108,8 @@ LogDigest::operator[](size_t index) const
 void
 LogDigest::appendToBuffer(Buffer& buffer) const
 {
-    buffer.append(&header, sizeof(header));
-    buffer.append(&segmentIds.front(),
+    buffer.appendExternal(&header, sizeof(header));
+    buffer.appendExternal(&segmentIds.front(),
         downCast<uint32_t>(sizeof(segmentIds.front()) * segmentIds.size()));
 }
 

@@ -46,7 +46,7 @@ class SingleFileStorageTest : public ::testing::Test {
         , oldUmask(umask(0))
     {
         Logger::get().setLogLevels(SILENT_LOG_LEVEL);
-        testSource.append(test, testLength + 1);
+        testSource.appendExternal(test, testLength + 1);
         storage.construct(segmentSize, segmentFrames, 0, segmentFrames,
                           static_cast<const char*>(NULL), O_DIRECT | O_SYNC);
         Frame::testingSkipRealIo = true;
@@ -235,7 +235,7 @@ TEST_F(SingleFileStorageTest, Frame_appendOrderIndependence) {
     Frame* frame = static_cast<Frame*>(frameRef.get());
     storage->ioQueue.halt();
     Buffer source;
-    source.append("0123456789", 10);
+    source.appendExternal("0123456789", 10);
     frame->append(source, 6, 4, 6, test, testLength + 1);
     frame->append(source, 0, 6, 0, test, testLength + 1);
     EXPECT_EQ(10LU, frame->appendedLength);
@@ -361,7 +361,7 @@ TEST_F(SingleFileStorageTest, Frame_reopen) {
 
     // Make sure we can successfully append to this frame.
     Buffer source;
-    source.append("0123456789", 10);
+    source.appendExternal("0123456789", 10);
     frame->append(source, 4, 6, 50, NULL, 0);
     EXPECT_EQ(56LU, frame->appendedLength);
     EXPECT_EQ(50LU, frame->committedLength);
@@ -450,7 +450,7 @@ TEST_F(SingleFileStorageTest, Frame_performWriteLoadWaiting) {
 TEST_F(SingleFileStorageTest, Frame_performWriteSmokeTestOffsets) {
     testSource.reset();
     char garbage[1024];
-    testSource.append(garbage, sizeof(garbage));
+    testSource.appendExternal(garbage, sizeof(garbage));
 
     storage->ioQueue.halt();
     BackupStorage::FrameRef frameRef = storage->open(false);

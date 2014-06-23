@@ -1,4 +1,4 @@
-/* Copyright (c) 2012 Stanford University
+/* Copyright (c) 2012-2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -72,7 +72,7 @@ TEST_F(LogEntryRelocatorTest, append_nullSegment) {
 TEST_F(LogEntryRelocatorTest, append_tooBig) {
     LogEntryRelocator r(NULL, 1);
     Buffer buffer;
-    buffer.append("!", 2);
+    buffer.appendExternal("!", 2);
     EXPECT_THROW(r.append(LOG_ENTRY_TYPE_OBJ, buffer),
         FatalError);
 }
@@ -89,7 +89,7 @@ TEST_F(LogEntryRelocatorTest, append) {
     LogSegment* s = segmentManager.allocHeadSegment();
     LogEntryRelocator r(s, 50);
     Buffer buffer;
-    buffer.append("!", 2);
+    buffer.appendExternal("!", 2);
     //uint32_t bytesBefore = s->liveBytes; XXXXX
     EXPECT_TRUE(r.append(LOG_ENTRY_TYPE_OBJ, buffer));
     EXPECT_TRUE(r.didAppend);
@@ -109,7 +109,7 @@ TEST_F(LogEntryRelocatorTest, getNewReference) {
     LogSegment* s = segmentManager.allocHeadSegment();
     LogEntryRelocator r(s, 50);
     Buffer buffer;
-    buffer.append("!", 2);
+    buffer.appendExternal("!", 2);
     EXPECT_TRUE(r.append(LOG_ENTRY_TYPE_OBJ, buffer));
     EXPECT_NO_THROW(r.getNewReference());
 }

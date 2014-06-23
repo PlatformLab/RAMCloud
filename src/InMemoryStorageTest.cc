@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2012 Stanford University
+/* Copyright (c) 2010-2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -39,7 +39,7 @@ class InMemoryStorageTest : public ::testing::Test {
         , segmentSize(4 * 1024)
         , storage()
     {
-        testSource.append(test, testLength + 1);
+        testSource.appendExternal(test, testLength + 1);
         storage.construct(segmentSize, segmentFrames, 0);
     }
 

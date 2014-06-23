@@ -215,11 +215,15 @@ Buffer::allocPrepend(size_t numBytes)
 /*
  * Append to this buffer a range of bytes from another buffer. The append
  * is done virtually, in that the chunks of this buffer will refer to the
- * same data as the chunks from the other buffer.
+ * same data as the chunks from the other buffer. Use this method carefully:
+ * it can result in subtle bugs if the source buffer changes after this
+ * method has been invoked
  *
  * \param src
- *      Buffer from which data is to be shared. The data in this buffer
- *      must remain stable for the lifetime of the current buffer.
+ *      Buffer from which data is to be shared. The data referred to by
+ *      this buffer (either internal or external) must remain stable for
+ *      the lifetime of the current buffer. For example, it may not be
+ *      safe to invoke src->reset().
  * \param offset
  *      Index in src of the first byte of data to be added to the current
  *      buffer.
@@ -227,11 +231,11 @@ Buffer::allocPrepend(size_t numBytes)
  *      Total number of bytes of data to append.
  */
 void
-Buffer::append(Buffer* src, uint32_t offset, uint32_t length)
+Buffer::appendExternal(Buffer* src, uint32_t offset, uint32_t length)
 {
     Iterator it(src, offset, length);
     while (!it.isDone()) {
-        append(it.getData(), it.getLength());
+        appendExternal(it.getData(), it.getLength());
         it.next();
     }
 }

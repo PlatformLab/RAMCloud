@@ -1,4 +1,4 @@
-/* Copyright (c) 2010 Stanford University
+/* Copyright (c) 2010-2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -64,9 +64,9 @@ TEST(CoreStringUtilTest, toString_templated) {
 
 TEST_F(TestUtilTest, bufferToDebugString) {
     Buffer b;
-    b.append("abc\nxyz", 7);
-    b.append("0123456789012345678901234567890abcdefg", 37);
-    b.append("xyz", 3);
+    b.appendExternal("abc\nxyz", 7);
+    b.appendExternal("0123456789012345678901234567890abcdefg", 37);
+    b.appendExternal("xyz", 3);
     EXPECT_EQ("abc/nxyz | 01234567890123456789(+17 chars) " "| xyz",
               TestUtil::bufferToDebugString(&b));
 }

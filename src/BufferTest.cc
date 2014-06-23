@@ -55,9 +55,9 @@ class BufferTest: public ::testing::Test {
     void
     fillBuffer(Buffer* buffer)
     {
-        buffer->append("ABCDEFGHIJ", 10);
-        buffer->append("abcdefghij", 10);
-        buffer->append("klmnopqrs\0", 10);
+        buffer->appendExternal("ABCDEFGHIJ", 10);
+        buffer->appendExternal("abcdefghij", 10);
+        buffer->appendExternal("klmnopqrs\0", 10);
     }
 
     /**
@@ -267,7 +267,7 @@ TEST_F(BufferTest, allocPrepend_notEnoughSpaceForFastPath) {
 }
 TEST_F(BufferTest, allocPrepend_createNewChunk) {
     Buffer buffer;
-    buffer.append("abcdef", 6);
+    buffer.appendExternal("abcdef", 6);
     char* p = static_cast<char*>(buffer.allocPrepend(8));
     memcpy(p, "0123456789", 8);
     p = static_cast<char*>(buffer.allocPrepend(4));
@@ -276,7 +276,7 @@ TEST_F(BufferTest, allocPrepend_createNewChunk) {
 }
 TEST_F(BufferTest, allocPrepend_invalidateCursor) {
     Buffer buffer;
-    buffer.append("abcdef", 6);
+    buffer.appendExternal("abcdef", 6);
     buffer.getRange(2, 1);
     EXPECT_EQ(0u, buffer.cursorOffset);
     buffer.allocPrepend(8);
@@ -287,9 +287,9 @@ TEST_F(BufferTest, append_fromOtherBuffer) {
     Buffer buffer;
     buffer.appendCopy("abcdef", 6);
     Buffer buffer2;
-    buffer2.append("01234", 5);
-    buffer2.append("ABCDEFGH", 8);
-    buffer.append(&buffer2, 3, 8);
+    buffer2.appendExternal("01234", 5);
+    buffer2.appendExternal("ABCDEFGH", 8);
+    buffer.appendExternal(&buffer2, 3, 8);
     EXPECT_EQ("abcdef | 34 | ABCDEF", showChunks(&buffer));
 }
 
@@ -348,7 +348,7 @@ TEST_F(BufferTest, appendChunk_saveExtraSpace_tooSmall) {
 TEST_F(BufferTest, copy_outOfRange) {
     Buffer buffer;
     char copy[10];
-    buffer.append("abcde", 5);
+    buffer.appendExternal("abcde", 5);
     copy[0] = 'x';
     EXPECT_EQ(0u, buffer.copy(5, 1, copy));
     EXPECT_EQ('x', copy[0]);
@@ -356,14 +356,14 @@ TEST_F(BufferTest, copy_outOfRange) {
 TEST_F(BufferTest, copy_clipLength) {
     Buffer buffer;
     char copy[10];
-    buffer.append("abcde", 5);
+    buffer.appendExternal("abcde", 5);
     uint32_t length = buffer.copy(1, 5, copy);
     EXPECT_EQ("bcde", string(copy, length));
 }
 TEST_F(BufferTest, copy_zeroLength) {
     Buffer buffer;
     char copy[10];
-    buffer.append("abcde", 5);
+    buffer.appendExternal("abcde", 5);
     copy[0] = 'x';
     EXPECT_EQ(0u, buffer.copy(2, 0, copy));
     EXPECT_EQ('x', copy[0]);
@@ -371,8 +371,8 @@ TEST_F(BufferTest, copy_zeroLength) {
 TEST_F(BufferTest, copy_resetCurrentChunk) {
     Buffer buffer;
     char copy[10];
-    buffer.append("abcde", 5);
-    buffer.append("0123", 4);
+    buffer.appendExternal("abcde", 5);
+    buffer.appendExternal("0123", 4);
     buffer.cursorOffset = 5;
     buffer.cursorChunk = buffer.firstChunk->next;
     uint32_t length = buffer.copy(2, 2, copy);
@@ -381,9 +381,9 @@ TEST_F(BufferTest, copy_resetCurrentChunk) {
 TEST_F(BufferTest, copy_useCurrentChunk) {
     Buffer buffer;
     char copy[10];
-    buffer.append("abcde", 5);
-    buffer.append("0123", 4);
-    buffer.append("ABCDEFG", 7);
+    buffer.appendExternal("abcde", 5);
+    buffer.appendExternal("0123", 4);
+    buffer.appendExternal("ABCDEFG", 7);
 
     // This test intentionally puts a bogus value in cursorOffset:
     // that way the test results will be different if the method
@@ -396,17 +396,17 @@ TEST_F(BufferTest, copy_useCurrentChunk) {
 TEST_F(BufferTest, copy_startAndEndInSameChunk) {
     Buffer buffer;
     char copy[10];
-    buffer.append("abcde", 5);
-    buffer.append("01234567", 8);
+    buffer.appendExternal("abcde", 5);
+    buffer.appendExternal("01234567", 8);
     uint32_t length = buffer.copy(7, 4, copy);
     EXPECT_EQ("2345", string(copy, length));
 }
 TEST_F(BufferTest, copy_blockSpansChunks) {
     Buffer buffer;
     char copy[10];
-    buffer.append("abcde", 5);
-    buffer.append("01234567", 8);
-    buffer.append("ABC", 3);
+    buffer.appendExternal("abcde", 5);
+    buffer.appendExternal("01234567", 8);
+    buffer.appendExternal("ABC", 3);
     uint32_t length = buffer.copy(4, 10, copy);
     EXPECT_EQ("e01234567A", string(copy, length));
     EXPECT_EQ(13u, buffer.cursorOffset);
@@ -415,9 +415,9 @@ TEST_F(BufferTest, copy_blockSpansChunks) {
 TEST_F(BufferTest, copy_entireBuffer) {
     Buffer buffer;
     char copy[20];
-    buffer.append("abcde", 5);
-    buffer.append("01234567", 8);
-    buffer.append("ABC", 3);
+    buffer.appendExternal("abcde", 5);
+    buffer.appendExternal("01234567", 8);
+    buffer.appendExternal("ABC", 3);
     uint32_t length = buffer.copy(0, 16, copy);
     EXPECT_EQ("abcde01234567ABC", string(copy, length));
 }
@@ -469,9 +469,9 @@ TEST_F(BufferTest, getNewAllocation) {
 TEST_F(BufferTest, getNumberChunks) {
     Buffer buffer;
     EXPECT_EQ(0u, buffer.getNumberChunks());
-    buffer.append("abcde", 5);
+    buffer.appendExternal("abcde", 5);
     EXPECT_EQ(1u, buffer.getNumberChunks());
-    buffer.append("012345678", 8);
+    buffer.appendExternal("012345678", 8);
     EXPECT_EQ(2u, buffer.getNumberChunks());
     buffer.reset();
     EXPECT_EQ(0u, buffer.getNumberChunks());
@@ -480,8 +480,8 @@ TEST_F(BufferTest, getNumberChunks) {
 TEST_F(BufferTest, getRange_basics) {
     Buffer buffer;
     const char* chunk = "0123456789";
-    buffer.append("abcde", 5);
-    buffer.append(chunk, 10);
+    buffer.appendExternal("abcde", 5);
+    buffer.appendExternal(chunk, 10);
     char* result = static_cast<char*>(buffer.getRange(8, 3));
     EXPECT_EQ(chunk+3, result);
     EXPECT_EQ('3', *result);
@@ -491,8 +491,8 @@ TEST_F(BufferTest, getRange_basics) {
 TEST_F(BufferTest, getRange_fastPath) {
     Buffer buffer;
     const char* chunk = "0123456789";
-    buffer.append("abcde", 5);
-    buffer.append(chunk, 10);
+    buffer.appendExternal("abcde", 5);
+    buffer.appendExternal(chunk, 10);
 
     // This test intentionally puts a bogus value in cursorOffset:
     // that way the test results will be different if the method
@@ -511,17 +511,17 @@ TEST_F(BufferTest, getRange_emptyBuffer) {
 }
 TEST_F(BufferTest, getRange_rangeOutsideBuffer) {
     Buffer buffer;
-    buffer.append("abcde", 5);
+    buffer.appendExternal("abcde", 5);
     void* nullPtr = NULL;
     void* result = buffer.getRange(1, 5);
     EXPECT_EQ(nullPtr, result);
 }
 TEST_F(BufferTest, getRange_searchFromCurrent) {
     Buffer buffer;
-    buffer.append("abcde", 5);
-    buffer.append("0123456789", 10);
-    buffer.append("ABCDEF", 6);
-    buffer.append("!@#$%", 5);
+    buffer.appendExternal("abcde", 5);
+    buffer.appendExternal("0123456789", 10);
+    buffer.appendExternal("ABCDEF", 6);
+    buffer.appendExternal("!@#$%", 5);
     buffer.cursorOffset = 5;
     buffer.cursorChunk = buffer.firstChunk->next;
     char* result = static_cast<char*>(buffer.getRange(22, 4));
@@ -531,15 +531,15 @@ TEST_F(BufferTest, getRange_searchFromCurrent) {
 }
 TEST_F(BufferTest, getRange_makeCopy) {
     Buffer buffer;
-    buffer.append("abcde", 5);
-    buffer.append("0123456789", 10);
+    buffer.appendExternal("abcde", 5);
+    buffer.appendExternal("0123456789", 10);
     char* result = static_cast<char*>(buffer.getRange(2, 8));
     EXPECT_EQ("cde01234", string(result, 8));
 }
 
 TEST_F(BufferTest, peek_outOfRange) {
     Buffer buffer;
-    buffer.append("abcde", 5);
+    buffer.appendExternal("abcde", 5);
     void* pointer;
     uint32_t length = buffer.peek(5, &pointer);
     char* nullPtr = NULL;
@@ -549,8 +549,8 @@ TEST_F(BufferTest, peek_outOfRange) {
 TEST_F(BufferTest, peek_fastPath) {
     Buffer buffer;
     const char* chunk = "0123456789";
-    buffer.append("abcde", 5);
-    buffer.append(chunk, 10);
+    buffer.appendExternal("abcde", 5);
+    buffer.appendExternal(chunk, 10);
 
     // This test intentionally puts a bogus value in cursorOffset:
     // that way the test results will be different if the method
@@ -564,9 +564,9 @@ TEST_F(BufferTest, peek_fastPath) {
 }
 TEST_F(BufferTest, peek_searchFromStart) {
     Buffer buffer;
-    buffer.append("abcde", 5);
-    buffer.append("0123456789", 10);
-    buffer.append("ABCDEF", 6);
+    buffer.appendExternal("abcde", 5);
+    buffer.appendExternal("0123456789", 10);
+    buffer.appendExternal("ABCDEF", 6);
     char* pointer;
     uint32_t length = buffer.peek(17, reinterpret_cast<void**>(&pointer));
     EXPECT_EQ('C', *pointer);
@@ -593,7 +593,7 @@ TEST_F(BufferTest, prependChunk) {
 }
 TEST_F(BufferTest, prependChunk_invalidateCursor) {
     Buffer buffer;
-    buffer.append("abcdef", 5);
+    buffer.appendExternal("abcdef", 5);
     buffer.getRange(3, 1);
     EXPECT_EQ(0u, buffer.cursorOffset);
     Buffer::Chunk chunk("01234567", 6);
@@ -605,7 +605,7 @@ TEST_F(BufferTest, prependChunk_invalidateCursor) {
 
 TEST_F(BufferTest, truncate_alreadyTruncated) {
     Buffer buffer;
-    buffer.append("abcdef", 6);
+    buffer.appendExternal("abcdef", 6);
     buffer.truncate(7);
     EXPECT_EQ("abcdef", showChunks(&buffer));
 }
@@ -631,8 +631,8 @@ TEST_F(BufferTest, truncate_cancelExtraAppendBytes) {
 }
 TEST_F(BufferTest, truncate_mustTruncate) {
     Buffer buffer;
-    buffer.append("XYZ", 3);
-    buffer.append("abcdef", 6);
+    buffer.appendExternal("XYZ", 3);
+    buffer.appendExternal("abcdef", 6);
     TestChunk chunk("12345", 5);
     buffer.appendChunk(&chunk);
     TestChunk chunk2("ABCDEFG", 7);
@@ -645,17 +645,17 @@ TEST_F(BufferTest, truncate_mustTruncate) {
 }
 TEST_F(BufferTest, truncate_boundaryAtChunkEdge) {
     Buffer buffer;
-    buffer.append("abcdef", 6);
-    buffer.append("0123", 4);
-    buffer.append("ABCDEFGHIJ", 10);
+    buffer.appendExternal("abcdef", 6);
+    buffer.appendExternal("0123", 4);
+    buffer.appendExternal("ABCDEFGHIJ", 10);
     buffer.truncate(6);
     EXPECT_EQ("abcdef", showChunks(&buffer));
 }
 TEST_F(BufferTest, truncate_resetCurrentChunk) {
     Buffer buffer;
-    buffer.append("abcdef", 6);
-    buffer.append("01234", 4);
-    buffer.append("ABCDEFG", 7);
+    buffer.appendExternal("abcdef", 6);
+    buffer.appendExternal("01234", 4);
+    buffer.appendExternal("ABCDEFG", 7);
     buffer.getRange(12, 2);
     buffer.truncate(14);
     EXPECT_EQ(10u, buffer.cursorOffset);
@@ -676,8 +676,8 @@ TEST_F(BufferTest, truncateFront_newLengthZero) {
 }
 TEST_F(BufferTest, truncateFront_resetCursor) {
     Buffer buffer;
-    buffer.append("abcdef", 6);
-    buffer.append("012345678", 8);
+    buffer.appendExternal("abcdef", 6);
+    buffer.appendExternal("012345678", 8);
     buffer.getRange(10, 2);
     EXPECT_EQ(6u, buffer.cursorOffset);
     buffer.truncateFront(10);
@@ -692,7 +692,7 @@ TEST_F(BufferTest, truncateFront_mustTruncate) {
     buffer.appendChunk(&chunk);
     TestChunk chunk2("1234", 4);
     buffer.appendChunk(&chunk2);
-    buffer.append("ABCDEFGH", 8);
+    buffer.appendExternal("ABCDEFGH", 8);
     buffer.truncateFront(12);
     EXPECT_EQ("CDEFGH", showChunks(&buffer));
     EXPECT_EQ("~TestChunk: Destroyed chunk containing 'abcdef' "
@@ -748,8 +748,8 @@ TEST_F(BufferTest, Iterator_constructor_noArgs) {
 
     // Contents.
     const char* data = "abcd";
-    buffer.append(data, 4);
-    buffer.append("012345", 6);
+    buffer.appendExternal(data, 4);
+    buffer.appendExternal("012345", 6);
     Buffer::Iterator it2(&buffer);
     EXPECT_EQ(buffer.firstChunk, it2.current);
     EXPECT_EQ(data, it2.currentData);
@@ -759,9 +759,9 @@ TEST_F(BufferTest, Iterator_constructor_noArgs) {
 
 TEST_F(BufferTest, Iterator_constructor_withRange) {
     Buffer buffer;
-    buffer.append("abcd", 4);
-    buffer.append("012345", 6);
-    buffer.append("ABCDEFG", 7);
+    buffer.appendExternal("abcd", 4);
+    buffer.appendExternal("012345", 6);
+    buffer.appendExternal("ABCDEFG", 7);
 
     // Iterator range doesn't overlap buffer's range.
     Buffer::Iterator it1(&buffer, 17, 4);
@@ -794,25 +794,25 @@ TEST_F(BufferTest, Iterator_getNumberChunks_none) {
 }
 TEST_F(BufferTest, Iterator_getNumberChunks_oneChunk) {
     Buffer buffer;
-    buffer.append("abcd", 4);
-    buffer.append("012345", 6);
+    buffer.appendExternal("abcd", 4);
+    buffer.appendExternal("012345", 6);
     Buffer::Iterator it(&buffer, 6, 4);
     EXPECT_EQ(1u, it.getNumberChunks());
 }
 TEST_F(BufferTest, Iterator_getNumberChunks_multipleChunks) {
     Buffer buffer;
-    buffer.append("abcd", 4);
-    buffer.append("012345", 6);
-    buffer.append("ABCDEFG", 7);
+    buffer.appendExternal("abcd", 4);
+    buffer.appendExternal("012345", 6);
+    buffer.appendExternal("ABCDEFG", 7);
     Buffer::Iterator it(&buffer, 2, 10);
     EXPECT_EQ(3u, it.getNumberChunks());
 }
 
 TEST_F(BufferTest, Iterator_next) {
     Buffer buffer;
-    buffer.append("abcd", 4);
-    buffer.append("012345", 6);
-    buffer.append("ABCDEFG", 7);
+    buffer.appendExternal("abcd", 4);
+    buffer.appendExternal("012345", 6);
+    buffer.appendExternal("ABCDEFG", 7);
 
     // More data left.
     Buffer::Iterator it(&buffer, 7, 6);
@@ -852,8 +852,8 @@ TEST_F(BufferTest, allocAux) {
 
 TEST_F(BufferTest, append) {
     Buffer buffer;
-    buffer.append("abcde", 5);
-    buffer.append("0123", 4);
+    buffer.appendExternal("abcde", 5);
+    buffer.appendExternal("0123", 4);
     EXPECT_EQ("abcde | 0123", showChunks(&buffer));
 }
 
@@ -972,8 +972,8 @@ TEST_F(BufferTest, resetInternal_full) {
 
 TEST_F(BufferTest, Iterator_inlineMethods) {
     Buffer buffer;
-    buffer.append("012345", 6);
-    buffer.append("ABCDEFG", 7);
+    buffer.appendExternal("012345", 6);
+    buffer.appendExternal("ABCDEFG", 7);
 
     Buffer::Iterator it(&buffer, 2, 6);
     EXPECT_FALSE(it.isDone());

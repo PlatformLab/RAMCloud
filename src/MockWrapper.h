@@ -43,7 +43,7 @@ class MockWrapper : public Transport::RpcNotifier {
         , failedCount(0)
     {
         if (requestInfo != NULL) {
-            request.append(requestInfo,
+            request.appendExternal(requestInfo,
                            downCast<uint32_t>(strlen(requestInfo)));
         }
     }

@@ -53,7 +53,7 @@ struct BackupMasterRecoveryTest : public ::testing::Test {
             (1, 11lu, ~0lu, TabletsBuilder::NORMAL, 1lu)  // partition 1
             (2, 0lu, ~0lu, TabletsBuilder::NORMAL, 0lu)  // partition 0
             (3, 0lu, ~0lu, TabletsBuilder::NORMAL, 0lu); // partition 0
-        source.append("test", 5);
+        source.appendExternal("test", 5);
         for (int i = 0; i < tablets.tablet_size(); i++) {
             ProtoBuf::Tablets::Tablet& tablet(*partitions.add_tablet());
             tablet = tablets.tablet(i);
@@ -85,16 +85,16 @@ bool mockExtractDigest(uint64_t segmentId, Buffer* digestBuffer,
                        Buffer* tableStatsBuffer) {
     if (segmentId == 92lu) {
         digestBuffer->reset();
-        digestBuffer->append("digest", 7);
+        digestBuffer->appendExternal("digest", 7);
         tableStatsBuffer->reset();
-        tableStatsBuffer->append("tableStats", 11);
+        tableStatsBuffer->appendExternal("tableStats", 11);
         return true;
     }
     if (segmentId == 93lu) {
         digestBuffer->reset();
-        digestBuffer->append("not digest", 11);
+        digestBuffer->appendExternal("not digest", 11);
         tableStatsBuffer->reset();
-        tableStatsBuffer->append("not tableStats", 15);
+        tableStatsBuffer->appendExternal("not tableStats", 15);
         return true;
     }
     return false;
@@ -266,7 +266,7 @@ TEST_F(BackupMasterRecoveryTest, getRecoverySegment) {
     Status status = recovery->getRecoverySegment(456, 88, 0, NULL, NULL);
     EXPECT_EQ(STATUS_OK, status);
     Buffer buffer;
-    buffer.append("important", 10);
+    buffer.appendExternal("important", 10);
     ASSERT_TRUE(recovery->replicas[1].recoverySegments[0].append(
         LOG_ENTRY_TYPE_OBJ, buffer));
     buffer.reset();

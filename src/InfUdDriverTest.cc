@@ -63,7 +63,7 @@ TEST_F(InfUdDriverTest, basics) {
 
     Buffer message;
     const char *testString = "This is a sample message";
-    message.append(testString, downCast<uint32_t>(strlen(testString)));
+    message.appendExternal(testString, downCast<uint32_t>(strlen(testString)));
     Buffer::Iterator iterator(&message);
     client->sendPacket(serverAddress, "header:", 7, &iterator);
     EXPECT_STREQ("header:This is a sample message",
@@ -71,7 +71,7 @@ TEST_F(InfUdDriverTest, basics) {
 
     // Send a response back in the other direction.
     message.reset();
-    message.append("response", 8);
+    message.appendExternal("response", 8);
     Buffer::Iterator iterator2(&message);
     server->sendPacket(serverTransport.sender, "h:", 2, &iterator2);
     EXPECT_STREQ("h:response", receivePacket(&clientTransport));

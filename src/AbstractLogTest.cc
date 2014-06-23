@@ -132,9 +132,9 @@ TEST_F(AbstractLogTest, append_multiple_basics) {
     char* data = new char[dataLen];
 
     v[0].type = LOG_ENTRY_TYPE_OBJ;
-    v[0].buffer.append(data, dataLen);
+    v[0].buffer.appendExternal(data, dataLen);
     v[1].type = LOG_ENTRY_TYPE_OBJTOMB;
-    v[1].buffer.append(data, dataLen - 1);
+    v[1].buffer.appendExternal(data, dataLen - 1);
 
     int appends = 0;
     while (l.append(v, 2)) {
@@ -161,10 +161,10 @@ TEST_F(AbstractLogTest, append_multipleLogEntries) {
     char* data = new char[dataLen];
 
     Segment::appendLogHeader(LOG_ENTRY_TYPE_OBJ, dataLen, &logBuffer);
-    logBuffer.append(data, dataLen);
+    logBuffer.appendExternal(data, dataLen);
 
     Segment::appendLogHeader(LOG_ENTRY_TYPE_OBJTOMB, dataLen - 1, &logBuffer);
-    logBuffer.append(data, dataLen - 1);
+    logBuffer.appendExternal(data, dataLen - 1);
 
     int appends = 0;
     while (l.append(&logBuffer, references, 2)) {
@@ -189,7 +189,7 @@ TEST_F(AbstractLogTest, free) {
 TEST_F(AbstractLogTest, getEntry) {
     uint64_t data = 0x123456789ABCDEF0UL;
     Buffer sourceBuffer;
-    sourceBuffer.append(&data, sizeof(data));
+    sourceBuffer.appendExternal(&data, sizeof(data));
     Log::Reference ref;
     EXPECT_TRUE(l.append(LOG_ENTRY_TYPE_OBJ, sourceBuffer, &ref));
 
@@ -204,7 +204,7 @@ TEST_F(AbstractLogTest, getEntry) {
 TEST_F(AbstractLogTest, getSegmentId) {
     Buffer buffer;
     char data[1000];
-    buffer.append(data, sizeof(data));
+    buffer.appendExternal(data, sizeof(data));
     Log::Reference reference;
 
     int zero = 0, one = 0, two = 0, other = 0;

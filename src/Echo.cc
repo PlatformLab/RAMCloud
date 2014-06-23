@@ -58,7 +58,7 @@ try
         // TODO(ongaro): This is unsafe if the Transport discards the
         // received buffer before it is done with the response buffer.
         // I can't think of any real RPCs where this will come up.
-        rpc->replyPayload.append(&rpc->requestPayload);
+        rpc->replyPayload.appendExternal(&rpc->requestPayload);
         rpc->sendReply();
     }
     return 0;

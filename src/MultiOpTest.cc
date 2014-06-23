@@ -1,4 +1,4 @@
-/* Copyright (c) 2012 Stanford University
+/* Copyright (c) 2012-2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -171,7 +171,7 @@ class MultiOpTest : public ::testing::Test {
         {
             if (appendSize) {
                 string str(appendSize, '0');
-                buf->append(str.c_str(), appendSize);
+                buf->appendExternal(str.c_str(), appendSize);
             }
             TEST_LOG("append request %u", ++appendCalls);
         }

@@ -476,7 +476,7 @@ TEST_F(MasterServiceTest, enumerate_basics) {
     // First object.
     EXPECT_EQ(34U, *objects.getOffset<uint32_t>(0));            // size
     Buffer buffer1;
-    buffer1.append(objects.getRange(4, objects.size() - 4),
+    buffer1.appendExternal(objects.getRange(4, objects.size() - 4),
                      objects.size() - 4);
     Object object1(buffer1);
     EXPECT_EQ(1U, object1.getTableId());                        // table ID
@@ -490,7 +490,7 @@ TEST_F(MasterServiceTest, enumerate_basics) {
     // Second object.
     EXPECT_EQ(34U, *objects.getOffset<uint32_t>(38));           // size
     Buffer buffer2;
-    buffer2.append(objects.getRange(42, objects.size() - 42),
+    buffer2.appendExternal(objects.getRange(42, objects.size() - 42),
                      objects.size() - 42);
     Object object2(buffer2);
     EXPECT_EQ(1U, object2.getTableId());                        // table ID
@@ -551,7 +551,7 @@ TEST_F(MasterServiceTest, enumerate_mergeTablet) {
     // Object coresponding to key "678910"
     EXPECT_EQ(39U, *objects.getOffset<uint32_t>(0));            // size
     Buffer buffer1;
-    buffer1.append(objects.getRange(4, objects.size() - 4),
+    buffer1.appendExternal(objects.getRange(4, objects.size() - 4),
                      objects.size() - 4);
     Object object1(buffer1);
     EXPECT_EQ(1U, object1.getTableId());                        // table ID
@@ -970,19 +970,19 @@ TEST_F(MasterServiceTest, multiWrite_malformedRequests) {
 
     Buffer requestPayload;
     Buffer replyPayload;
-    requestPayload.append(&reqHdr, sizeof(reqHdr));
-    replyPayload.append(&respHdr, sizeof(respHdr));
+    requestPayload.appendExternal(&reqHdr, sizeof(reqHdr));
+    replyPayload.appendExternal(&respHdr, sizeof(respHdr));
 
     Service::Rpc rpc(NULL, &requestPayload, &replyPayload);
 
     // part field is bogus
-    requestPayload.append(&part, sizeof(part) - 1);
+    requestPayload.appendExternal(&part, sizeof(part) - 1);
     respHdr.common.status = STATUS_OK;
     service->multiWrite(&reqHdr, &respHdr, &rpc);
     EXPECT_EQ(STATUS_REQUEST_FORMAT_ERROR, respHdr.common.status);
 
     requestPayload.truncate(requestPayload.size() - (sizeof32(part) - 1));
-    requestPayload.append(&part, sizeof(part));
+    requestPayload.appendExternal(&part, sizeof(part));
 
     // Malformed requests with both the key and the value length fields
     // as bogus and requests with only the value length field bogus will
@@ -1059,8 +1059,8 @@ TEST_F(MasterServiceTest, indexedRead) {
     // and Key::getHash(tableId, "obj1key0", 8) gives 6912200681653320728.
     uint64_t hashVal0 = 4921604586378860710;
     uint64_t hashVal1 = 6912200681653320728;
-    pKHashes.append(&hashVal0, 8);
-    pKHashes.append(&hashVal1, 8);
+    pKHashes.appendExternal(&hashVal0, 8);
+    pKHashes.appendExternal(&hashVal1, 8);
 
     // indexedRead such that both objects are read.
     Buffer responseBuffer;

@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2012 Stanford University
+/* Copyright (c) 2011-2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -95,27 +95,27 @@ TEST_F(InfRcTransportTest, ClientRpc_sendZeroCopy) {
     void* page = Memory::xmemalign(HERE, getpagesize(), getpagesize());
     client.registerMemory(page, getpagesize());
 
-    rpc1.request.append(page, getpagesize());
+    rpc1.request.appendExternal(page, getpagesize());
     TestLog::reset();
     session->sendRequest(&rpc1.request, &rpc1.response, &rpc1);
     EXPECT_EQ("sendZeroCopy: isge[0]: 10 bytes COPIED | "
               "sendZeroCopy: isge[1]: 4096 bytes ZERO-COPY", TestLog::get());
 
-    rpc1.request.append("other", 5);
+    rpc1.request.appendExternal("other", 5);
     TestLog::reset();
     session->sendRequest(&rpc1.request, &rpc1.response, &rpc1);
     EXPECT_EQ("sendZeroCopy: isge[0]: 10 bytes COPIED | "
               "sendZeroCopy: isge[1]: 4096 bytes ZERO-COPY | "
               "sendZeroCopy: isge[2]: 5 bytes COPIED", TestLog::get());
 
-    rpc1.request.append("more", 5);
+    rpc1.request.appendExternal("more", 5);
     TestLog::reset();
     session->sendRequest(&rpc1.request, &rpc1.response, &rpc1);
     EXPECT_EQ("sendZeroCopy: isge[0]: 10 bytes COPIED | "
               "sendZeroCopy: isge[1]: 4096 bytes ZERO-COPY | "
               "sendZeroCopy: isge[2]: 10 bytes COPIED", TestLog::get());
 
-    rpc1.request.append(page, getpagesize());
+    rpc1.request.appendExternal(page, getpagesize());
     TestLog::reset();
     session->sendRequest(&rpc1.request, &rpc1.response, &rpc1);
     EXPECT_EQ("sendZeroCopy: isge[0]: 10 bytes COPIED | "

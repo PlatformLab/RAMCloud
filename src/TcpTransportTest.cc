@@ -422,9 +422,9 @@ TEST_F(TcpTransportTest, sendMessage_sendPartOfHeader) {
 TEST_F(TcpTransportTest, sendMessage_multipleChunks) {
     int fd = connectToServer(locator);
     Buffer payload;
-    payload.append("abcde", 5);
-    payload.append("xxx", 3);
-    payload.append("12345678", 8);
+    payload.appendExternal("abcde", 5);
+    payload.appendExternal("xxx", 3);
+    payload.appendExternal("12345678", 8);
     TcpTransport::sendMessage(fd, 111, &payload, -1);
 
     Transport::ServerRpc* serverRpc = serviceManager->waitForRpc(1.0);
@@ -440,7 +440,7 @@ TEST_F(TcpTransportTest, sendMessage_multipleChunks) {
 TEST_F(TcpTransportTest, sendMessage_errorOnSend) {
     int fd = connectToServer(locator);
     Buffer payload;
-    payload.append("test message", 5);
+    payload.appendExternal("test message", 5);
 
     sys->sendmsgErrno = EPERM;
     string message("no exception");
@@ -488,7 +488,7 @@ TEST_F(TcpTransportTest, sendMessage_brokenPipe) {
     string message("no exception");
     try {
         Buffer request;
-        request.append("message chunk", 13);
+        request.appendExternal("message chunk", 13);
         TcpTransport::TcpSession* rawSession =
                 reinterpret_cast<TcpTransport::TcpSession*>(session.get());
         for (int i = 0; i < 1000; i++) {

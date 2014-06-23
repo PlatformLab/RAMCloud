@@ -149,7 +149,7 @@ appendObjectsToBuffer(Log& log,
         buffer->emplaceAppend<uint32_t>(length);
         Buffer::Iterator it(&objectBuffer, 0, length);
         while (!it.isDone()) {
-            buffer->append(it.getData(), it.getLength());
+            buffer->appendExternal(it.getData(), it.getLength());
             it.next();
         }
     }
