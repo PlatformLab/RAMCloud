@@ -101,13 +101,13 @@ TEST_F(SegmentTest, constructor_priorSegmentBuffer) {
     Buffer buffer;
     previous.appendToBuffer(buffer);
 
-    const void* p = buffer.getRange(0, buffer.getTotalLength());
-    Segment s(p, buffer.getTotalLength());
+    const void* p = buffer.getRange(0, buffer.size());
+    Segment s(p, buffer.size());
 
     EXPECT_EQ(0U, s.seglets.size());
     EXPECT_EQ(1U, s.segletBlocks.size());
     EXPECT_TRUE(s.closed);
-    EXPECT_EQ(s.head, buffer.getTotalLength());
+    EXPECT_EQ(s.head, buffer.size());
     EXPECT_EQ(p, s.segletBlocks[0]);
     EXPECT_FALSE(s.mustFreeBlocks);
 }
@@ -123,7 +123,7 @@ TEST_P(SegmentTest, append_blackBox) {
 
         Buffer buffer;
         s.getEntry(ref, &buffer);
-        EXPECT_EQ(i, buffer.getTotalLength());
+        EXPECT_EQ(i, buffer.size());
         EXPECT_EQ(0, memcmp(buf, buffer.getRange(0, i), i));
     }
 }
@@ -176,7 +176,7 @@ TEST_P(SegmentTest, append_fullLogEntry) {
 
     LogEntryType type;
     uint32_t entryDataLength = 0;
-    s.append(dataBuffer.getRange(0, dataBuffer.getTotalLength()),
+    s.append(dataBuffer.getRange(0, dataBuffer.size()),
              &entryDataLength, &type, &ref);
 
     EXPECT_EQ(entryDataLength, 2U);
@@ -276,7 +276,7 @@ TEST_P(SegmentTest, appendToBuffer_partial) {
 
     Buffer buffer;
     s.appendToBuffer(buffer, 2, 21);
-    EXPECT_EQ(21U, buffer.getTotalLength());
+    EXPECT_EQ(21U, buffer.size());
     EXPECT_STREQ("this is only a test!",
         reinterpret_cast<const char*>(buffer.getRange(0, 21)));
 }
@@ -287,12 +287,12 @@ TEST_P(SegmentTest, appendToBuffer_all) {
 
     Buffer buffer;
     s.appendToBuffer(buffer);
-    EXPECT_EQ(0U, buffer.getTotalLength());
+    EXPECT_EQ(0U, buffer.size());
 
     buffer.reset();
     s.append(LOG_ENTRY_TYPE_OBJ, "yo!", 3);
     s.appendToBuffer(buffer);
-    EXPECT_EQ(5U, buffer.getTotalLength());
+    EXPECT_EQ(5U, buffer.size());
 }
 
 TEST_P(SegmentTest, getEntry_byOffset) {
@@ -303,7 +303,7 @@ TEST_P(SegmentTest, getEntry_byOffset) {
 
     Buffer buffer;
     EXPECT_EQ(LOG_ENTRY_TYPE_OBJ, s.getEntry(0U, &buffer));
-    EXPECT_EQ(21U, buffer.getTotalLength());
+    EXPECT_EQ(21U, buffer.size());
     EXPECT_STREQ("this is only a test!",
         reinterpret_cast<const char*>(buffer.getRange(0, 21)));
 }
@@ -316,7 +316,7 @@ TEST_P(SegmentTest, getEntry_byReference) {
 
     Buffer buffer;
     EXPECT_EQ(LOG_ENTRY_TYPE_OBJ, s.getEntry(ref, &buffer));
-    EXPECT_EQ(21U, buffer.getTotalLength());
+    EXPECT_EQ(21U, buffer.size());
     EXPECT_STREQ("this is only a test!",
         reinterpret_cast<const char*>(buffer.getRange(0, 21)));
 }
@@ -332,7 +332,7 @@ TEST_P(SegmentTest, getEntry_contigMem) {
     LogEntryType type;
     uint32_t entryDataLength = 0, lengthWithMetadata = 0;
     type = Segment::getEntry(dataBuffer.getRange(0,
-                             dataBuffer.getTotalLength()),
+                             dataBuffer.size()),
                              &entryDataLength, &lengthWithMetadata);
 
     EXPECT_EQ(entryDataLength, 21U);

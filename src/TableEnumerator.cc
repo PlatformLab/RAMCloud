@@ -1,4 +1,4 @@
-/* Copyright (c) 2012 Stanford University
+/* Copyright (c) 2012-2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -146,17 +146,17 @@ TableEnumerator::nextKeyAndData(uint32_t* keyLength, const void** key,
 void
 TableEnumerator::requestMoreObjects()
 {
-    if (done || nextOffset < objects.getTotalLength()) return;
+    if (done || nextOffset < objects.size()) return;
 
     nextOffset = 0;
     while (true) {
         tabletStartHash = ramcloud.enumerateTable(tableId, keysOnly,
                                             tabletStartHash, state, objects);
-        if (objects.getTotalLength() > 0) {
+        if (objects.size() > 0) {
             return;
         }
         // End of table?
-        if (objects.getTotalLength() == 0 && tabletStartHash == 0) {
+        if (objects.size() == 0 && tabletStartHash == 0) {
             done = true;
             return;
         }

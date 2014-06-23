@@ -366,7 +366,7 @@ TcpTransport::sendMessage(int fd, uint64_t nonce, Buffer* payload,
 
     Header header;
     header.nonce = nonce;
-    header.len = payload->getTotalLength();
+    header.len = payload->size();
     int totalLength = downCast<int>(sizeof(header) + header.len);
     if (bytesToSend < 0) {
         bytesToSend = totalLength;
@@ -535,7 +535,7 @@ TcpTransport::IncomingMessage::readMessage(int fd) {
     // calls to this method before we get all of it).
     if (messageBytesReceived < messageLength) {
         void *dest;
-        if (buffer->getTotalLength() == 0) {
+        if (buffer->size() == 0) {
             dest = buffer->alloc(messageLength);
         } else {
             buffer->peek(messageBytesReceived, &dest);

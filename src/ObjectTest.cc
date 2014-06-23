@@ -86,8 +86,8 @@ class ObjectTest : public ::testing::Test {
         objectDataFromBuffer->assembleForLog(buffer2);
 
         objectFromContiguousVoidPointer.construct(
-            buffer2.getRange(0, buffer2.getTotalLength()),
-            buffer2.getTotalLength());
+            buffer2.getRange(0, buffer2.size()),
+            buffer2.size());
 
         // prepend some garbage to buffer2 so that we can test the constructor
         // with a non-zero offset
@@ -95,7 +95,7 @@ class ObjectTest : public ::testing::Test {
                 sizeof(stringKeys[0]));
 
         objectFromBuffer.construct(buffer2, sizeof32(stringKeys[0]),
-                                   buffer2.getTotalLength() -
+                                   buffer2.size() -
                                    sizeof32(stringKeys[0]));
 
         // this object will only contain one key
@@ -337,7 +337,7 @@ TEST_F(ObjectTest, assembleForLog) {
 
         EXPECT_EQ(sizeof(*header) + sizeof(KeyCount) +
                     3 * sizeof(CumulativeKeyLength)
-                    + 9 + 4, buffer.getTotalLength());
+                    + 9 + 4, buffer.size());
 
         EXPECT_EQ(57U, header->tableId);
         EXPECT_EQ(75U, header->version);
@@ -387,7 +387,7 @@ TEST_F(ObjectTest, assembleForLog) {
             buffer.getStart<Object::Header>();
 
     EXPECT_EQ(sizeof(*header) + sizeof(KeyCount) + sizeof(KeyLength)
-                    + 3 + 4, buffer.getTotalLength());
+                    + 3 + 4, buffer.size());
 
     EXPECT_EQ(57U, header->tableId);
     EXPECT_EQ(75U, header->version);
@@ -457,7 +457,7 @@ TEST_F(ObjectTest, appendValueToBuffer) {
         EXPECT_EQ(16U, valueOffset);
 
         object.appendValueToBuffer(buffer, valueOffset);
-        EXPECT_EQ(4U, buffer.getTotalLength());
+        EXPECT_EQ(4U, buffer.size());
         EXPECT_EQ("YO!", string(reinterpret_cast<const char*>(
                         buffer.getRange(0, 4))));
     }
@@ -468,7 +468,7 @@ TEST_F(ObjectTest, appendKeysAndValueToBuffer) {
         Object& object = *objects[i];
         Buffer buffer;
         object.appendKeysAndValueToBuffer(buffer);
-        EXPECT_EQ(20U, buffer.getTotalLength());
+        EXPECT_EQ(20U, buffer.size());
 
         const KeyCount numKeys= *buffer.getOffset<KeyCount>(0);
         EXPECT_EQ(3U, numKeys);
@@ -512,7 +512,7 @@ TEST_F(ObjectTest, appendKeysAndValueToBuffer_writeMultipleKeys) {
 
     Object::appendKeysAndValueToBuffer(57, 3, keyList, "YO!", 4,
                                     buffer);
-    EXPECT_EQ(20U, buffer.getTotalLength());
+    EXPECT_EQ(20U, buffer.size());
 
     const KeyCount numKeys= *buffer.getOffset<KeyCount>(0);
     EXPECT_EQ(3U, numKeys);
@@ -549,7 +549,7 @@ TEST_F(ObjectTest, appendKeysAndValueToBuffer_writeSingleKey) {
 
     Object::appendKeysAndValueToBuffer(key, "YO!", 4,
                                     buffer);
-    EXPECT_EQ(10U, buffer.getTotalLength());
+    EXPECT_EQ(10U, buffer.size());
 
     const KeyCount numKeys= *buffer.getOffset<KeyCount>(0);
     EXPECT_EQ(1U, numKeys);
@@ -740,7 +740,7 @@ TEST_F(ObjectTest, checkIntegrity) {
         // screw up the last byte (in the data blob)
         EXPECT_TRUE(object.checkIntegrity());
         evil = reinterpret_cast<uint8_t*>(
-            const_cast<void*>(buffer.getRange(buffer.getTotalLength() - 1, 1)));
+            const_cast<void*>(buffer.getRange(buffer.size() - 1, 1)));
         tmp = *evil;
         *evil = static_cast<uint8_t>(~*evil);
         EXPECT_FALSE(object.checkIntegrity());
@@ -788,7 +788,7 @@ class ObjectTombstoneTest : public ::testing::Test {
         memcpy(buffer.allocPrepend(sizeof32(stringKey)), stringKey,
                 sizeof32(stringKey));
         tombstoneFromBuffer.construct(buffer, sizeof32(stringKey),
-                                      buffer.getTotalLength() -
+                                      buffer.size() -
                                       sizeof32(stringKey));
 
         tombstones[0] = &*tombstoneFromObject;
@@ -844,7 +844,7 @@ TEST_F(ObjectTombstoneTest, constructor_fromBuffer) {
     EXPECT_FALSE(tombstone.key);
     EXPECT_TRUE(tombstone.tombstoneBuffer);
     EXPECT_EQ(5 + sizeof(ObjectTombstone::Header) + 5,
-        (tombstone.tombstoneBuffer)->getTotalLength());
+        (tombstone.tombstoneBuffer)->size());
     EXPECT_EQ("key!", string(reinterpret_cast<const char*>(
         (tombstone.tombstoneBuffer)->getRange(sizeof(
             ObjectTombstone::Header) + 5, 5))));
@@ -858,7 +858,7 @@ TEST_F(ObjectTombstoneTest, assembleForLog) {
         const ObjectTombstone::Header* header =
             buffer.getStart<ObjectTombstone::Header>();
 
-        EXPECT_EQ(sizeof(*header) + 5, buffer.getTotalLength());
+        EXPECT_EQ(sizeof(*header) + 5, buffer.size());
 
         EXPECT_EQ(572U, header->tableId);
         EXPECT_EQ(925U, header->segmentId);
@@ -900,7 +900,7 @@ TEST_F(ObjectTombstoneTest, appendKeyToBuffer) {
         ObjectTombstone& tombstone = *tombstones[i];
         Buffer buffer;
         tombstone.appendKeyToBuffer(buffer);
-        EXPECT_EQ(5U, buffer.getTotalLength());
+        EXPECT_EQ(5U, buffer.size());
         EXPECT_EQ("key!", string(reinterpret_cast<const char*>(
                           buffer.getRange(0, 5))));
     }
@@ -953,7 +953,7 @@ TEST_F(ObjectTombstoneTest, checkIntegrity) {
 
         EXPECT_TRUE(tombstone.checkIntegrity());
         evil = reinterpret_cast<uint8_t*>(
-            const_cast<void*>(buffer.getRange(buffer.getTotalLength() - 1, 1)));
+            const_cast<void*>(buffer.getRange(buffer.size() - 1, 1)));
         tmp = *evil;
         *evil = static_cast<uint8_t>(~*evil);
         EXPECT_FALSE(tombstone.checkIntegrity());

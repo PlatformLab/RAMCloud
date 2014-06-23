@@ -1,4 +1,4 @@
-/* Copyright (c) 2010 Stanford University
+/* Copyright (c) 2010-2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -35,7 +35,7 @@ TEST_F(ProtoBufTest, serializeAndParse) {
     in.set_foo("bar");
     uint32_t length = serializeToRequest(&buf, &in);
     EXPECT_TRUE(0 < length && length < 1024);
-    EXPECT_EQ(length, buf.getTotalLength());
+    EXPECT_EQ(length, buf.size());
     TestMessage out;
     parseFromRequest(&buf, 0, length, &out);
     EXPECT_EQ(in.foo(), out.foo());

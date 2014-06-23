@@ -1,4 +1,4 @@
-/* Copyright (c) 2012 Stanford University
+/* Copyright (c) 2012-2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -864,7 +864,7 @@ SegmentManager::writeDigest(LogSegment* newHead, LogSegment* prevHead)
     bool success = newHead->append(LOG_ENTRY_TYPE_LOGDIGEST, buffer);
     if (!success) {
         throw FatalError(HERE, format("Could not append log digest of %u bytes "
-            "to segment", buffer.getTotalLength()));
+            "to segment", buffer.size()));
     }
 }
 
@@ -889,7 +889,7 @@ SegmentManager::writeSafeVersion(LogSegment* head)
     if (!success) {
         throw FatalError(HERE,
                  format("Could not append safeVersion of %u bytes "
-                        "to head segment", buffer.getTotalLength()));
+                        "to head segment", buffer.size()));
     }
 }
 
@@ -911,7 +911,7 @@ SegmentManager::writeTableStatsDigest(LogSegment* head)
     if (!success) {
         throw FatalError(HERE,
                  format("Could not append TableStats of %u bytes "
-                        "to head segment", buffer.getTotalLength()));
+                        "to head segment", buffer.size()));
     }
 }
 

@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2012 Stanford University
+/* Copyright (c) 2010-2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -1859,10 +1859,10 @@ TEST_F(ClientSessionTest, sendRequest_clearResponseBuffer) {
     EXPECT_TRUE(session->channelQueue.empty());
     Buffer response;
     response.fillFromString("abcdef");
-    EXPECT_EQ(7U, response.getTotalLength());
+    EXPECT_EQ(7U, response.size());
     MockWrapper rpc("request");
     session->sendRequest(&rpc.request, &response, &rpc);
-    EXPECT_EQ(0U, response.getTotalLength());
+    EXPECT_EQ(0U, response.size());
 }
 
 TEST_F(ClientSessionTest, sendRequest_notConnected) {

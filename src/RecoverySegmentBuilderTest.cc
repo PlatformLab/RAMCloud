@@ -180,14 +180,14 @@ TEST_F(RecoverySegmentBuilderTest, extractDigest) {
     Buffer tableStatsBuffer;
     EXPECT_TRUE(extractDigest(buffer, sizeof32(buffer),
                               certificate, &digestBuffer, &tableStatsBuffer));
-    EXPECT_NE(0u, digestBuffer.getTotalLength());
+    EXPECT_NE(0u, digestBuffer.size());
 
     // Corrupt metadata.
     certificate.checksum = 0;
     EXPECT_FALSE(extractDigest(buffer, sizeof32(buffer),
                               certificate, &digestBuffer, &tableStatsBuffer));
     // Should have left previously found digest in the buffer.
-    EXPECT_NE(0u, digestBuffer.getTotalLength());
+    EXPECT_NE(0u, digestBuffer.size());
 
     Segment emptySegment;
     length = emptySegment.getAppendedLength(&certificate);
@@ -196,11 +196,11 @@ TEST_F(RecoverySegmentBuilderTest, extractDigest) {
     EXPECT_FALSE(extractDigest(buffer, sizeof32(buffer),
                               certificate, &digestBuffer, &tableStatsBuffer));
     // Should have left previously found digest in the buffer.
-    EXPECT_NE(0u, digestBuffer.getTotalLength());
+    EXPECT_NE(0u, digestBuffer.size());
     digestBuffer.reset();
     EXPECT_FALSE(extractDigest(buffer, sizeof32(buffer),
                               certificate, &digestBuffer, &tableStatsBuffer));
-    EXPECT_EQ(0u, digestBuffer.getTotalLength());
+    EXPECT_EQ(0u, digestBuffer.size());
 }
 
 TEST_F(RecoverySegmentBuilderTest, isEntryAlive) {

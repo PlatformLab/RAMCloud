@@ -115,7 +115,7 @@ uint32_t
 FastTransport::numFrags(const Buffer* dataBuffer)
 {
     uint32_t perFragment = dataPerFragment();
-    return (dataBuffer->getTotalLength() + perFragment - 1) /
+    return (dataBuffer->size() + perFragment - 1) /
             perFragment;
 }
 

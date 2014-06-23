@@ -245,7 +245,7 @@ Segment::append(LogEntryType type,
                 Buffer& buffer,
                 Reference* outReference)
 {
-    uint32_t length = buffer.getTotalLength();
+    uint32_t length = buffer.size();
     return append(type, buffer.getRange(0, length), length, outReference);
 }
 

@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2013 Stanford University
+/* Copyright (c) 2012-2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -185,10 +185,10 @@ TEST_F(BackupMasterRecoveryTest, start) {
     EXPECT_EQ(192u, response->digestSegmentEpoch);
     EXPECT_EQ(11u, response->tableStatsBytes);
     EXPECT_STREQ("digest",
-                 buffer.getOffset<char>(buffer.getTotalLength()
+                 buffer.getOffset<char>(buffer.size()
                                         - 11 - 7));
     EXPECT_STREQ("tableStats",
-                 buffer.getOffset<char>(buffer.getTotalLength()
+                 buffer.getOffset<char>(buffer.size()
                                         - 11));
 }
 
@@ -276,7 +276,7 @@ TEST_F(BackupMasterRecoveryTest, getRecoverySegment) {
     EXPECT_EQ(STATUS_OK, status);
     EXPECT_EQ(12lu, certificate.segmentLength);
     EXPECT_STREQ("important",
-                 buffer.getOffset<char>(buffer.getTotalLength() - 10));
+                 buffer.getOffset<char>(buffer.size() - 10));
 }
 
 TEST_F(BackupMasterRecoveryTest, getRecoverySegment_exceptionDuringBuild) {

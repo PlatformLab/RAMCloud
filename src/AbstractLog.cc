@@ -81,7 +81,7 @@ AbstractLog::append(AppendVector* appends, uint32_t numAppends)
 
     uint32_t lengths[numAppends];
     for (uint32_t i = 0; i < numAppends; i++)
-        lengths[i] = appends[i].buffer.getTotalLength();
+        lengths[i] = appends[i].buffer.size();
 
     if (head == NULL || !head->hasSpaceFor(lengths, numAppends)) {
         if (!allocNewWritableHead())
@@ -129,7 +129,7 @@ AbstractLog::append(Buffer *logBuffer, Reference *references,
     Lock lock(appendLock);
     metrics.totalAppendCalls++;
 
-    if (head == NULL || !head->hasSpaceFor(logBuffer->getTotalLength())) {
+    if (head == NULL || !head->hasSpaceFor(logBuffer->size())) {
         if (!allocNewWritableHead())
             return false;
     }
@@ -137,7 +137,7 @@ AbstractLog::append(Buffer *logBuffer, Reference *references,
     if (head->isEmergencyHead)
         return false;
 
-    if (!head->hasSpaceFor(logBuffer->getTotalLength()))
+    if (!head->hasSpaceFor(logBuffer->size()))
         throw FatalError(HERE, "too much data to append to one segment");
 
     LogSegment* headBefore = head;
@@ -146,7 +146,7 @@ AbstractLog::append(Buffer *logBuffer, Reference *references,
     // everything n the buffer has to be written out before this function
     // can return
     const uint8_t* buffer = reinterpret_cast<const uint8_t*>(logBuffer->
-                                getRange(0, logBuffer->getTotalLength()));
+                                getRange(0, logBuffer->size()));
     if (!buffer) {
         throw FatalError(HERE, "Ill-formed log entries in the buffer");
     }
@@ -494,8 +494,8 @@ AbstractLog::append(Lock& appendLock,
 {
     return append(appendLock,
                   type,
-                  buffer.getRange(0, buffer.getTotalLength()),
-                  buffer.getTotalLength(),
+                  buffer.getRange(0, buffer.size()),
+                  buffer.size(),
                   outReference,
                   outTickCounter);
 }

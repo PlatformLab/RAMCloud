@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2013 Stanford University
+/* Copyright (c) 2010-2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -127,7 +127,7 @@ class Service {
                                  Rpc*)>
     void
     callHandler(Rpc* rpc) {
-        assert(rpc->replyPayload->getTotalLength() == 0);
+        assert(rpc->replyPayload->size() == 0);
         const typename Op::Request* reqHdr =
             rpc->requestPayload->getStart<typename Op::Request>();
         if (reqHdr == NULL)

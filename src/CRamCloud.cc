@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2013 Stanford University
+/* Copyright (c) 2010-2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -233,7 +233,7 @@ rc_read(struct rc_client* client, uint64_t tableId,
     try {
         client->client->read(tableId, key, keyLength, &result, rejectRules,
                 version);
-        *actualLength = result.getTotalLength();
+        *actualLength = result.size();
         uint32_t bytesToCopy = *actualLength;
         if (bytesToCopy > maxLength) {
             bytesToCopy = maxLength;

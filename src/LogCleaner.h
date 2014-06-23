@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2013 Stanford University
+/* Copyright (c) 2009-2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -296,7 +296,7 @@ class LogCleaner {
                   T& metrics,
                   uint32_t* outBytesAppended)
     {
-        LogEntryRelocator relocator(survivor, buffer.getTotalLength());
+        LogEntryRelocator relocator(survivor, buffer.size());
         *outBytesAppended = 0;
 
         {

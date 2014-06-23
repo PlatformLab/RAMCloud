@@ -1,4 +1,4 @@
-/* Copyright (c) 2012 Stanford University
+/* Copyright (c) 2012-2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -66,7 +66,7 @@ LogEntryRelocator::append(LogEntryType type, Buffer& buffer)
 {
     CycleCounter<uint64_t> _(&appendTicks);
 
-    if (buffer.getTotalLength() > maximumLength)
+    if (buffer.size() > maximumLength)
         throw FatalError(HERE, "Relocator cannot append larger entry!");
 
     if (didAppend)

@@ -1,4 +1,4 @@
-/* Copyright (c) 2011 Stanford University
+/* Copyright (c) 2011-2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -76,7 +76,7 @@ PcapFile::append(const Buffer& rawPacket)
         LOG(WARNING, "Failed to get time while appending to pcap file: %s",
             strerror(errno));
     }
-    const uint32_t length = rawPacket.getTotalLength();
+    const uint32_t length = rawPacket.size();
     const uint32_t savedLength =
         length < maxSavedLength ? length : maxSavedLength;
     PacketHeader header{static_cast<uint32_t>(timeStamp.tv_sec),

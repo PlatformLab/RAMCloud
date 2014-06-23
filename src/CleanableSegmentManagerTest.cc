@@ -1,4 +1,4 @@
-/* Copyright (c) 2013 Stanford University
+/* Copyright (c) 2013-2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -50,7 +50,7 @@ class TestEntryHandlers : public LogEntryHandlers {
              LogEntryRelocator& relocator)
     {
         RAMCLOUD_TEST_LOG("type %d, size %u",
-            downCast<int>(type), oldBuffer.getTotalLength());
+            downCast<int>(type), oldBuffer.size());
         if (attemptToRelocate)
             relocator.append(type, oldBuffer);
     }

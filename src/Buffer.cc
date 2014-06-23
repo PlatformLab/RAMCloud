@@ -773,7 +773,7 @@ Buffer::Iterator::Iterator(const Buffer* buffer)
  * Construct an iterator that only walks chunks with data corresponding
  * to a byte range in the Buffer.
  *
- * Any calls to getData(), getLength(), getNumberChunks(), or getTotalLength()
+ * Any calls to getData(), getLength(), getNumberChunks(), or size()
  * are appropriately adjusted even when iteration end points don't correspond
  * to chunk boundaries.
  *

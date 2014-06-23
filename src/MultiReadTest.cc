@@ -217,9 +217,9 @@ TEST_F(MultiReadTest, appendRequest) {
     MultiRead request(ramcloud.get(), requests, 0);
     request.wait();
 
-    before = buf.getTotalLength();
+    before = buf.size();
     request.appendRequest(requests[0], &buf);
-    dif = buf.getTotalLength() - before;
+    dif = buf.size() - before;
 
     uint32_t expected_size = sizeof32(WireFormat::MultiOp::Request::ReadPart) +
                     requests[0]->keyLength;

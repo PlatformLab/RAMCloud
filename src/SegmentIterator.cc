@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2012 Stanford University
+/* Copyright (c) 2009-2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -212,7 +212,7 @@ SegmentIterator::appendToBuffer(Buffer& buffer)
                            sizeof32(currentHeader) +
                            currentHeader.getLengthBytes();
     segment->appendToBuffer(buffer, entryOffset, getLength());
-    return buffer.getTotalLength();
+    return buffer.size();
 }
 
 /**

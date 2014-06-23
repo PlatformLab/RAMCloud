@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2012 Stanford University
+/* Copyright (c) 2011-2014 Stanford University
  * Copyright (c) 2011 Facebook
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -649,7 +649,7 @@ bool
 checkBuffer(Buffer* buffer, uint32_t offset, uint32_t expectedLength,
         uint64_t tableId, const void* key, uint16_t keyLength)
 {
-    uint32_t length = buffer->getTotalLength();
+    uint32_t length = buffer->size();
     if (length != (expectedLength + offset)) {
         RAMCLOUD_LOG(ERROR, "corrupted data: expected %u bytes, "
                 "found %u bytes", expectedLength, length - offset);
@@ -739,7 +739,7 @@ readObject(uint64_t tableId, const void* key, uint16_t keyLength,
 {
     Buffer buffer;
     cluster->read(tableId, key, keyLength, &buffer);
-    uint32_t actual = buffer.getTotalLength();
+    uint32_t actual = buffer.size();
     if (size <= actual) {
         actual = size - 1;
     }
@@ -815,7 +815,7 @@ waitForObject(uint64_t tableId, const void* key, uint16_t keyLength,
                 return;
             }
             const char *actual = value.getStart<char>();
-            if ((length == value.getTotalLength()) &&
+            if ((length == value.size()) &&
                     (memcmp(actual, desired, length) == 0)) {
                 return;
             }
@@ -826,7 +826,7 @@ waitForObject(uint64_t tableId, const void* key, uint16_t keyLength,
                         "Object <%lu, %.*s> didn't reach desired state '%s' "
                         "(actual: '%.*s')",
                         tableId, keyLength, reinterpret_cast<const char*>(key),
-                        desired, downCast<int>(value.getTotalLength()),
+                        desired, downCast<int>(value.size()),
                         actual));
                 exit(1);
             }
@@ -2095,12 +2095,12 @@ netBandwidth()
         // Read a value from the table repeatedly, and compute bandwidth.
         Buffer value;
         double latency = timeRead(tableId, key, keyLength, ms, value);
-        double bandwidth = value.getTotalLength()/latency;
+        double bandwidth = value.size()/latency;
         sendMetrics(bandwidth);
         setSlaveState("done");
         RAMCLOUD_LOG(NOTICE,
                 "Bandwidth (%u-byte object with %u-byte key): %.1f MB/sec",
-                value.getTotalLength(), keyLength, bandwidth/(1024*1024));
+                value.size(), keyLength, bandwidth/(1024*1024));
         return;
     }
 
@@ -2117,7 +2117,7 @@ netBandwidth()
     RAMCLOUD_LOG(DEBUG, "Master reading from table %lu", tableIds[0]);
     Buffer value;
     double latency = timeRead(tableIds[0], key, keyLength, 100, value);
-    double bandwidth = value.getTotalLength()/latency;
+    double bandwidth = value.size()/latency;
     sendMetrics(bandwidth);
 
     // Collect statistics.
@@ -2125,7 +2125,7 @@ netBandwidth()
     getMetrics(metrics, numClients);
     RAMCLOUD_LOG(DEBUG,
             "Bandwidth (%u-byte object with %u-byte key): %.1f MB/sec",
-            value.getTotalLength(), keyLength, bandwidth/(1024*1024));
+            value.size(), keyLength, bandwidth/(1024*1024));
 
     printBandwidth("netBandwidth", sum(metrics[0]),
             "many clients reading from different servers");
@@ -2300,7 +2300,7 @@ readLoaded()
                 int size = 0;
                 while (true) {
                     cluster->read(dataTable, key, keyLength, &buffer);
-                    int currentSize = buffer.getTotalLength();
+                    int currentSize = buffer.size();
                     if (currentSize != 0) {
                         if (start == 0) {
                             start = Cycles::rdtsc();

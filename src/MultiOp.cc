@@ -225,9 +225,9 @@ MultiOp::startRpcs()
             if (rpc->session == session) {
                 if ((rpc->reqHdr->count < PartRpc::MAX_OBJECTS_PER_RPC)
                         && (rpc->state == RpcWrapper::RpcState::NOT_STARTED)) {
-                    uint32_t lengthBefore = rpc->request.getTotalLength();
+                    uint32_t lengthBefore = rpc->request.size();
                     appendRequest(request, &(rpc->request));
-                    uint32_t lengthAfter = rpc->request.getTotalLength();
+                    uint32_t lengthAfter = rpc->request.size();
 
                     // Check that request isn't too big in general
                     if (lengthAfter - lengthBefore > maxRequestSize) {
@@ -312,7 +312,7 @@ MultiOp::finishRpc(MultiOp::PartRpc* rpc) {
     // The following variable acts as a cursor in the response as
     // we scan through the results for each request.
     uint32_t respOffset = sizeof32(WireFormat::MultiOp::Response);
-    uint32_t respSize = rpc->response->getTotalLength();
+    uint32_t respSize = rpc->response->size();
 
     // Each iteration extracts one object from the response.  Be careful
     // to handle situations where the response is too short.  This can

@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2013 Stanford University
+/* Copyright (c) 2011-2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -1959,7 +1959,7 @@ try
             } catch (...) {
                 break;
             }
-            totalBytes += buffer.getTotalLength();
+            totalBytes += buffer.size();
             key++;
         }
         fprintf(stderr, "%lu keys with %lu object bytes\n", key, totalBytes);

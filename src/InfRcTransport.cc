@@ -457,12 +457,12 @@ InfRcTransport::InfRcSession::sendRequest(Buffer* request,
 
     LOG(DEBUG, "Sending %s request to %s with %u bytes",
             WireFormat::opcodeSymbol(request), getServiceLocator().c_str(),
-            request->getTotalLength());
-    if (request->getTotalLength() > t->getMaxRpcSize()) {
+            request->size());
+    if (request->size() > t->getMaxRpcSize()) {
         throw TransportException(HERE,
              format("client request exceeds maximum rpc size "
                     "(attempted %u bytes, maximum %u bytes)",
-                    request->getTotalLength(),
+                    request->size(),
                     t->getMaxRpcSize()));
     }
     ClientRpc *rpc = transport->clientRpcPool.construct(transport, this,
@@ -946,11 +946,11 @@ InfRcTransport::ServerRpc::sendReply()
     // "t->serverRpcPool.destroy(this);" on our way out of the method
     ServerRpcPoolGuard<ServerRpc> suicide(t->serverRpcPool, this);
 
-    if (replyPayload.getTotalLength() > t->getMaxRpcSize()) {
+    if (replyPayload.size() > t->getMaxRpcSize()) {
         throw TransportException(HERE,
              format("server response exceeds maximum rpc size "
                     "(attempted %u bytes, maximum %u bytes)",
-                    replyPayload.getTotalLength(),
+                    replyPayload.size(),
                     t->getMaxRpcSize()));
     }
 
@@ -959,14 +959,14 @@ InfRcTransport::ServerRpc::sendReply()
     {
         CycleCounter<RawMetric> copyTicks(
             &metrics->transport.transmit.copyTicks);
-        replyPayload.copy(0, replyPayload.getTotalLength(), bd->buffer);
+        replyPayload.copy(0, replyPayload.size(), bd->buffer);
     }
     metrics->transport.transmit.iovecCount += replyPayload.getNumberChunks();
-    metrics->transport.transmit.byteCount += replyPayload.getTotalLength();
+    metrics->transport.transmit.byteCount += replyPayload.size();
     if (!t->transmitCycleCounter) {
         t->transmitCycleCounter.construct();
     }
-    t->infiniband->postSend(qp, bd, replyPayload.getTotalLength());
+    t->infiniband->postSend(qp, bd, replyPayload.size());
     interval.stop();
 
     replyPayload.truncateFront(sizeof(Header)); // for politeness
@@ -1125,11 +1125,11 @@ InfRcTransport::ClientRpc::sendZeroCopy(Buffer* request)
     // We can get a substantial latency improvement (nearly 2usec less per RTT)
     // by inlining data with the WQE for small messages. The Verbs library
     // automatically takes care of copying from the SGEs to the WQE.
-    if ((request->getTotalLength()) <= Infiniband::MAX_INLINE_DATA)
+    if ((request->size()) <= Infiniband::MAX_INLINE_DATA)
         txWorkRequest.send_flags |= IBV_SEND_INLINE;
 
     metrics->transport.transmit.iovecCount += currentSge;
-    metrics->transport.transmit.byteCount += request->getTotalLength();
+    metrics->transport.transmit.byteCount += request->size();
     if (!t->transmitCycleCounter) {
         t->transmitCycleCounter.construct();
     }
@@ -1231,14 +1231,14 @@ InfRcTransport::Poller::poll()
                 LOG(DEBUG, "Received %s response from %s with %u bytes",
                         WireFormat::opcodeSymbol(rpc.request),
                         rpc.session->getServiceLocator().c_str(),
-                        rpc.response->getTotalLength());
+                        rpc.response->size());
                 rpc.state = ClientRpc::RESPONSE_RECEIVED;
                 ++metrics->transport.receive.messageCount;
                 ++metrics->transport.receive.packetCount;
                 metrics->transport.receive.iovecCount +=
                     rpc.response->getNumberChunks();
                 metrics->transport.receive.byteCount +=
-                    rpc.response->getTotalLength();
+                    rpc.response->size();
                 metrics->transport.receive.ticks += receiveTicks.stop();
                 rpc.notifier->completed();
                 t->clientRpcPool.destroy(&rpc);
@@ -1315,7 +1315,7 @@ InfRcTransport::Poller::poll()
             metrics->transport.receive.iovecCount +=
                 r->requestPayload.getNumberChunks();
             metrics->transport.receive.byteCount +=
-                r->requestPayload.getTotalLength();
+                r->requestPayload.size();
             metrics->transport.receive.ticks += receiveTicks.stop();
         }
     }

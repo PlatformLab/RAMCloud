@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2013 Stanford University
+/* Copyright (c) 2012-2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -182,7 +182,7 @@ RpcWrapper::isReady() {
                         session->getServiceLocator().c_str(),
                         WireFormat::opcodeSymbol(&request),
                         responseHeaderLength,
-                        downCast<int>(response->getTotalLength()));
+                        downCast<int>(response->size()));
                 throw MessageTooShortError(HERE);
             }
         }

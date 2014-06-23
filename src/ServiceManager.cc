@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2012 Stanford University
+/* Copyright (c) 2011-2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -152,7 +152,7 @@ ServiceManager::handleRpc(Transport::ServerRpc* rpc)
 #endif
         if (header == NULL) {
             LOG(WARNING, "Incoming RPC contains no header (message length %d)",
-                    rpc->requestPayload.getTotalLength());
+                    rpc->requestPayload.size());
             Service::prepareErrorResponse(&rpc->replyPayload,
                     STATUS_MESSAGE_TOO_SHORT);
         } else {
@@ -169,7 +169,7 @@ ServiceManager::handleRpc(Transport::ServerRpc* rpc)
     LOG(NOTICE, "Received %s RPC at %lu with %u bytes",
             WireFormat::opcodeSymbol(&rpc->requestPayload),
             reinterpret_cast<uint64_t>(rpc),
-            rpc->requestPayload.getTotalLength());
+            rpc->requestPayload.size());
 #endif
 
     rpc->enqueueThreadToStartWork.start();
@@ -245,7 +245,7 @@ ServiceManager::poll()
             LOG(NOTICE, "Sending reply for %s at %lu with %u bytes",
                     WireFormat::opcodeSymbol(&worker->rpc->requestPayload),
                     reinterpret_cast<uint64_t>(worker->rpc),
-                    worker->rpc->replyPayload.getTotalLength());
+                    worker->rpc->replyPayload.size());
 #endif
             worker->rpc->sendReply();
             worker->rpc = NULL;

@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2013 Stanford University
+/* Copyright (c) 2010-2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -333,11 +333,11 @@ LogCleaner::doMemoryCleaning()
 
             localMetrics.totalEntriesScanned[type]++;
             localMetrics.totalScannedEntryLengths[type] +=
-                buffer.getTotalLength();
+                buffer.size();
             if (expect_true(s == RELOCATED)) {
                 localMetrics.totalLiveEntriesScanned[type]++;
                 localMetrics.totalLiveScannedEntryLengths[type] +=
-                    buffer.getTotalLength();
+                    buffer.size();
                 liveScannedEntryTotalLengths[type] += bytesAppended;
             }
         }
@@ -653,11 +653,11 @@ LogCleaner::relocateLiveEntries(EntryVector& entries,
         }
 
         localMetrics.totalEntriesScanned[type]++;
-        localMetrics.totalScannedEntryLengths[type] += buffer.getTotalLength();
+        localMetrics.totalScannedEntryLengths[type] += buffer.size();
         if (expect_true(s == RELOCATED)) {
             localMetrics.totalLiveEntriesScanned[type]++;
             localMetrics.totalLiveScannedEntryLengths[type] +=
-                buffer.getTotalLength();
+                buffer.size();
             currentLiveEntries[type]++;
             currentLiveEntryLengths[type] += bytesAppended;
         }

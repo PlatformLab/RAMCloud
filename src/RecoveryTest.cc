@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2013 Stanford University
+/* Copyright (c) 2010-2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -104,10 +104,10 @@ populateLogDigest(StartReadingDataRpc::Result& result,
     digest.appendToBuffer(buffer);
     result.logDigestSegmentEpoch = 100;
     result.logDigestSegmentId = segmentId;
-    result.logDigestBytes = buffer.getTotalLength();
+    result.logDigestBytes = buffer.size();
     result.logDigestBuffer =
         std::unique_ptr<char[]>(new char[result.logDigestBytes]);
-    buffer.copy(0, buffer.getTotalLength(), result.logDigestBuffer.get());
+    buffer.copy(0, buffer.size(), result.logDigestBuffer.get());
 }
 } // namespace
 
@@ -900,7 +900,7 @@ TEST_F(RecoveryTest, findLogDigest) {
     result0Digest.appendToBuffer(result0Buffer);
     result1Digest.appendToBuffer(result1Buffer);
 
-    uint32_t bytes = result0Buffer.getTotalLength();
+    uint32_t bytes = result0Buffer.size();
 
     result0.logDigestBytes = bytes;
     result0.logDigestBuffer = std::unique_ptr<char[]>(new char[bytes]);

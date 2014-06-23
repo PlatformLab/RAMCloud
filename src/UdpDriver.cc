@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2012 Stanford University
+/* Copyright (c) 2010-2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -161,7 +161,7 @@ UdpDriver::sendPacket(const Address *addr,
     if (socketFd == -1)
         return;
     uint32_t totalLength = headerLen +
-                           (payload ? payload->getTotalLength() : 0);
+                           (payload ? payload->size() : 0);
     assert(totalLength <= MAX_PAYLOAD_SIZE);
 
     // one for header, the rest for payload

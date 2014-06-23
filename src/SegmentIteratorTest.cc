@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2012 Stanford University
+/* Copyright (c) 2010-2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -76,12 +76,12 @@ TEST_F(SegmentIteratorTest, constructor_fromBuffer) {
 
     Buffer buffer;
     s.appendToBuffer(buffer);
-    buffer.copy(0, buffer.getTotalLength(), buf);
+    buffer.copy(0, buffer.size(), buf);
 
     // The original certificate (prior to the above append) should still
     // work.
     {
-        SegmentIterator it(buf, buffer.getTotalLength(), certificate);
+        SegmentIterator it(buf, buffer.size(), certificate);
         EXPECT_NO_THROW(it.checkMetadataIntegrity());
         EXPECT_TRUE(it.isDone());
     }
@@ -89,7 +89,7 @@ TEST_F(SegmentIteratorTest, constructor_fromBuffer) {
     // The new certificate (including the above append) should also work.
     {
         s.getAppendedLength(&certificate);
-        SegmentIterator it(buf, buffer.getTotalLength(), certificate);
+        SegmentIterator it(buf, buffer.size(), certificate);
         EXPECT_NO_THROW(it.checkMetadataIntegrity());
         EXPECT_FALSE(it.isDone());
         EXPECT_EQ(LOG_ENTRY_TYPE_OBJ, it.getType());
@@ -189,7 +189,7 @@ TEST_F(SegmentIteratorTest, appendToBuffer) {
     SegmentIterator it(s);
     Buffer buffer;
     it.appendToBuffer(buffer);
-    EXPECT_EQ(20U, buffer.getTotalLength());
+    EXPECT_EQ(20U, buffer.size());
     EXPECT_EQ(0, memcmp("this is the content", buffer.getRange(0, 20), 20));
 }
 
@@ -199,7 +199,7 @@ TEST_F(SegmentIteratorTest, setBufferTo) {
     Buffer buffer;
     buffer.append("junk first", 11);
     it.setBufferTo(buffer);
-    EXPECT_EQ(20U, buffer.getTotalLength());
+    EXPECT_EQ(20U, buffer.size());
     EXPECT_EQ(0, memcmp("this is the content", buffer.getRange(0, 20), 20));
 }
 

@@ -136,13 +136,13 @@ appendObjectsToBuffer(Log& log,
         log.getEntry(references[index], objectBuffer);
 
         Object object(objectBuffer);
-        uint32_t length = objectBuffer.getTotalLength();
+        uint32_t length = objectBuffer.size();
         if (keysOnly) {
             uint32_t dataLength = object.getValueLength();
             length -= dataLength;
         }
 
-        if (buffer->getTotalLength() + sizeof(length) + length > maxBytes) {
+        if (buffer->size() + sizeof(length) + length > maxBytes) {
             return index;
         }
 
@@ -289,7 +289,7 @@ Enumeration::complete()
     uint64_t bucketIndex = iter.top().bucketIndex;
     uint64_t numBuckets = objectMap.getNumBuckets();
     uint32_t bucketStart;
-    uint32_t initialPayloadLength = payload.getTotalLength();
+    uint32_t initialPayloadLength = payload.size();
     bool payloadFull = false;
     std::vector<Log::Reference> objectRefs;
     EnumerateBucketArgs args;
@@ -301,7 +301,7 @@ Enumeration::complete()
     void* cookie = static_cast<void*>(&args);
     for (; bucketIndex < numBuckets && !payloadFull; bucketIndex++) {
         objectRefs.clear();
-        bucketStart = payload.getTotalLength();
+        bucketStart = payload.size();
         objectMap.forEachInBucket(enumerateBucket, cookie, bucketIndex);
         int64_t overflow = appendObjectsToBuffer(log, &payload, objectRefs,
                                                  maxPayloadBytes, keysOnly);
@@ -338,7 +338,7 @@ Enumeration::complete()
     // Check end of tablet.
     *nextTabletStartHash = requestedTabletStartHash;
     if (bucketIndex >= numBuckets &&
-            payload.getTotalLength() == initialPayloadLength) {
+            payload.size() == initialPayloadLength) {
         while (iter.size() > 0 &&
                iter.top().tabletEndHash <= actualTabletEndHash) {
             iter.pop();

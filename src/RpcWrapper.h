@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2013 Stanford University
+/* Copyright (c) 2012-2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -96,7 +96,7 @@ class RpcWrapper : public Transport::RpcNotifier {
     typename RpcType::Request*
     allocHeader()
     {
-        assert(request.getTotalLength() == 0);
+        assert(request.size() == 0);
         typename RpcType::Request* reqHdr =
                 request.emplaceAppend<typename RpcType::Request>();
         // Don't allow this method to be used for RPCs that use
@@ -132,7 +132,7 @@ class RpcWrapper : public Transport::RpcNotifier {
     typename RpcType::Request*
     allocHeader(ServerId targetId)
     {
-        assert(request.getTotalLength() == 0);
+        assert(request.size() == 0);
         typename RpcType::Request* reqHdr =
                 request.emplaceAppend<typename RpcType::Request>();
         memset(reqHdr, 0, sizeof(*reqHdr));

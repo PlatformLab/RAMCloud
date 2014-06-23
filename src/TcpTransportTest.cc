@@ -771,7 +771,7 @@ TEST_F(TcpTransportTest, TcpSession_cancelRequest_responsePartiallyReceived) {
     write(serverRpc->fd, "First part", 10);
     int readEvent = Dispatch::FileEvent::READABLE;
     rawSession->clientIoHandler->handleFileEvent(readEvent);
-    EXPECT_EQ(21U, rpc.response.getTotalLength());
+    EXPECT_EQ(21U, rpc.response.size());
     // The second part of the buffer is uninitialized, so store
     // something predictable there to simplify assertion checking.
     void *garbage;
@@ -928,7 +928,7 @@ TEST_F(TcpTransportTest, sendRequest_clearResponse) {
     MockWrapper rpc("request");
     rpc.response.fillFromString("abcdef");
     session->sendRequest(&rpc.request, &rpc.response, &rpc);
-    EXPECT_EQ(0U, rpc.response.getTotalLength());
+    EXPECT_EQ(0U, rpc.response.size());
 }
 
 TEST_F(TcpTransportTest, sendRequest_sessionClosed) {

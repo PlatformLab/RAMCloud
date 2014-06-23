@@ -107,7 +107,7 @@ TEST_F(RpcWrapperTest, isReady_finished) {
     RpcWrapper wrapper(4);
     wrapper.state = RpcWrapper::RpcState::FINISHED;
     setStatus(wrapper.response, Status::STATUS_OK);
-    EXPECT_EQ(4U, wrapper.response->getTotalLength());
+    EXPECT_EQ(4U, wrapper.response->size());
     EXPECT_TRUE(wrapper.isReady());
 }
 

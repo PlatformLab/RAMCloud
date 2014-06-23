@@ -461,8 +461,8 @@ TEST_F(RamCloudTest, read) {
     // test if the value-only return read RPC works fine
     ramcloud->read(tableId1, "0", 1, &value, NULL, &versionValue);
     EXPECT_EQ("abcdef", string(reinterpret_cast<const char*>(
-                        value.getRange(0, value.getTotalLength())),
-                        value.getTotalLength()));
+                        value.getRange(0, value.size())),
+                        value.size()));
 
     // test multikey object
     value.reset();
@@ -495,8 +495,8 @@ TEST_F(RamCloudTest, read) {
     // again test if the value-return only version of read RPC works fine
     ramcloud->read(tableId1, "ha", 2, &value);
     EXPECT_EQ("new value", string(reinterpret_cast<const char*>(
-                        value.getRange(0, value.getTotalLength())),
-                        value.getTotalLength()));
+                        value.getRange(0, value.size())),
+                        value.size()));
 }
 
 TEST_F(RamCloudTest, remove) {
@@ -567,7 +567,7 @@ TEST_F(RamCloudTest, getRuntimeOption){
     Buffer value;
     ramcloud->getRuntimeOption("failRecoveryMasters", &value);
     EXPECT_STREQ("1 2 3", cluster.coordinator->getString(&value, 0,
-                                                   value.getTotalLength()));
+                                                   value.size()));
 }
 
 TEST_F(RamCloudTest, testingKill) {

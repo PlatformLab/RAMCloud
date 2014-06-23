@@ -292,10 +292,10 @@ MockTransport::appendToOutput(Event event, Buffer& payload)
     output.emplace_back();
     auto& pair = output.back();
     pair.first = event;
-    uint32_t length = payload.getTotalLength();
+    uint32_t length = payload.size();
     if (length > 0) {
         void* chunk = pair.second.alloc(length);
-        payload.copy(0, payload.getTotalLength(), chunk);
+        payload.copy(0, payload.size(), chunk);
     }
 }
 

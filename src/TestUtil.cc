@@ -224,7 +224,7 @@ TestUtil::toString(Buffer* buffer, uint32_t offset, uint32_t length)
 string
 TestUtil::toString(Buffer* buffer)
 {
-    return toString(buffer, 0, buffer->getTotalLength());
+    return toString(buffer, 0, buffer->size());
 }
 
 /**
@@ -408,7 +408,7 @@ TestUtil::fillLargeBuffer(Buffer* buffer, int size)
 string
 TestUtil::checkLargeBuffer(Buffer* buffer, int expectedLength)
 {
-    int length = buffer->getTotalLength();
+    int length = buffer->size();
     if (length != expectedLength) {
         return format("expected %d bytes, found %d bytes",
                 expectedLength, length);

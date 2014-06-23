@@ -1,4 +1,4 @@
-/* Copyright (c) 2012 Stanford University
+/* Copyright (c) 2012-2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -105,7 +105,7 @@ MultiRead::readResponse(MultiOpObject* request,
     *respOffset += sizeof32(*part);
 
     if (part->status == STATUS_OK) {
-        if (response->getTotalLength() < *respOffset + part->length) {
+        if (response->size() < *respOffset + part->length) {
             TEST_LOG("missing object data");
             return true;
         }

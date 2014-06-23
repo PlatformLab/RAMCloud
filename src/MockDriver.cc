@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2011 Stanford University
+/* Copyright (c) 2010-2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -95,7 +95,7 @@ MockDriver::sendPacket(const Address *addr,
     if (!payload)
         return;
 
-    uint32_t length = payload->getTotalLength();
+    uint32_t length = payload->size();
     char buf[length];
 
     uint32_t off = 0;

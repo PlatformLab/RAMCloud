@@ -251,7 +251,7 @@ bool
 checkBuffer(Buffer* buffer, uint32_t expectedLength, uint64_t tableId,
             const void* key, uint16_t keyLength)
 {
-    uint32_t length = buffer->getTotalLength();
+    uint32_t length = buffer->size();
     if (length != expectedLength) {
         RAMCLOUD_LOG(ERROR, "corrupted data: expected %u bytes, "
                 "found %u bytes", expectedLength, length);

@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2013 Stanford University
+/* Copyright (c) 2011-2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -218,7 +218,7 @@ class CoordinatorServerListTest : public ::testing::Test {
         string result;
         const WireFormat::UpdateServerList::Request* request =
                 buffer->getStart<WireFormat::UpdateServerList::Request>();
-        uint32_t totalLength = buffer->getTotalLength();
+        uint32_t totalLength = buffer->size();
         if (request == NULL) {
             result.append(format("couldn't read request header; message "
                     "contained only %u bytes, expected %u",

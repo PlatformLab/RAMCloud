@@ -1459,14 +1459,14 @@ CoordinatorServerList::UpdateServerListRpc::appendServerList(
                                         const ProtoBuf::ServerList* list)
 {
     assert(this->getState() == NOT_STARTED);
-    uint32_t sizeBefore = request.getTotalLength();
+    uint32_t sizeBefore = request.size();
 
     auto* part = request.emplaceAppend<
             WireFormat::UpdateServerList::Request::Part>();
 
     part->serverListLength = serializeToRequest(&request, list);
 
-    uint32_t sizeAfter = request.getTotalLength();
+    uint32_t sizeAfter = request.size();
     if (sizeAfter > Transport::MAX_RPC_LEN) {
         request.truncate(sizeBefore);
         return false;

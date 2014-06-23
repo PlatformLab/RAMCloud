@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2013 Stanford University
+/* Copyright (c) 2010-2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -142,7 +142,7 @@ TEST_F(ServiceTest, prepareErrorResponse_bufferNotEmpty) {
 }
 TEST_F(ServiceTest, prepareErrorResponse_bufferEmpty) {
     Service::prepareErrorResponse(&response, STATUS_WRONG_VERSION);
-    EXPECT_EQ(sizeof(WireFormat::ResponseCommon), response.getTotalLength());
+    EXPECT_EQ(sizeof(WireFormat::ResponseCommon), response.size());
     EXPECT_STREQ("STATUS_WRONG_VERSION", TestUtil::getStatus(&response));
 }
 

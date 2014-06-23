@@ -1,4 +1,4 @@
-/* Copyright (c) 2013 Stanford University
+/* Copyright (c) 2013-2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -69,7 +69,7 @@ CoordinatorUpdateManager::init()
         externalFirstAvailable = 1;
     } else {
         ProtoBuf::CoordinatorUpdateInfo info;
-        uint32_t length = externalData.getTotalLength();
+        uint32_t length = externalData.size();
         string str(static_cast<const char*>(externalData.getRange(0, length)),
                 length);
         if (!info.ParseFromString(str)) {

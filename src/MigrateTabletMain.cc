@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2012 Stanford University
+/* Copyright (c) 2011-2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -106,16 +106,16 @@ try
     Buffer buf;
     client.read(0, reinterpret_cast<char*>(&firstKey), sizeof(firstKey), &buf);
     printf("read obj 0: \"%10s\"\n",
-        (const char*)buf.getRange(0, buf.getTotalLength()));
+        (const char*)buf.getRange(0, buf.size()));
 
     printf("Migrating back again!");
     client.migrateTablet(tableId, firstKey, lastKey, ServerId(1, 0));
     client.read(0, reinterpret_cast<char*>(&firstKey), sizeof(firstKey), &buf);
     printf("read obj 0: \"%10s\"\n",
-        (const char*)buf.getRange(0, buf.getTotalLength()));
+        (const char*)buf.getRange(0, buf.size()));
     client.read(0, reinterpret_cast<char*>(&key), sizeof(key), &buf);
     printf("read obj %lu: \"%10s\"\n", key,
-        (const char*)buf.getRange(0, buf.getTotalLength()));
+        (const char*)buf.getRange(0, buf.size()));
 #endif
 
     return 0;

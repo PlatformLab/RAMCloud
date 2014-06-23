@@ -212,7 +212,7 @@ ObjectManager::indexedRead(const uint64_t tableId, uint32_t reqNumHashes,
             candidates.next();
         }
 
-        partLength = response->getTotalLength() - currentLength;
+        partLength = response->size() - currentLength;
     }
 }
 
@@ -378,18 +378,18 @@ ObjectManager::writeObject(Object& newObject,
     tabletManager->incrementWriteCount(key);
 
     TEST_LOG("object: %u bytes, version %lu",
-        appends[0].buffer.getTotalLength(), newObject.getVersion());
+        appends[0].buffer.size(), newObject.getVersion());
 
     if (tombstone) {
         TEST_LOG("tombstone: %u bytes, version %lu",
-            appends[1].buffer.getTotalLength(), tombstone->getObjectVersion());
+            appends[1].buffer.size(), tombstone->getObjectVersion());
     }
 
     {
-        uint64_t byteCount = appends[0].buffer.getTotalLength();
+        uint64_t byteCount = appends[0].buffer.size();
         uint64_t recordCount = 1;
         if (tombstone) {
-            byteCount += appends[1].buffer.getTotalLength();
+            byteCount += appends[1].buffer.size();
             recordCount += 1;
         }
 
@@ -558,7 +558,7 @@ ObjectManager::removeObject(Key& key,
 
     TableStats::increment(masterTableMetadata,
                           tablet.tableId,
-                          tombstoneBuffer.getTotalLength(),
+                          tombstoneBuffer.size(),
                           1);
     segmentManager.raiseSafeVersion(object.getVersion() + 1);
     log.free(reference);
@@ -828,7 +828,7 @@ ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it,
                 // TODO(steve): put tombstones in the HT and have this free them
                 //              as well
                 if (freeCurrentEntry) {
-                    liveObjectBytes -= currentBuffer.getTotalLength();
+                    liveObjectBytes -= currentBuffer.size();
                     sideLog->free(currentReference);
                 } else {
                     liveObjectCount++;
@@ -894,7 +894,7 @@ ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it,
                                     &newTombReference);
                     TableStats::increment(masterTableMetadata,
                                           key.getTableId(),
-                                          buffer.getTotalLength(),
+                                          buffer.size(),
                                           1);
                 }
 
@@ -905,7 +905,7 @@ ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it,
                 // nuke the object, if it existed
                 if (freeCurrentEntry) {
                     liveObjectCount++;
-                    liveObjectBytes -= currentBuffer.getTotalLength();
+                    liveObjectBytes -= currentBuffer.size();
                     sideLog->free(currentReference);
                 }
             } else {
@@ -1102,7 +1102,7 @@ ObjectManager::prepareForLog(Object& newObject, Buffer *logBuffer,
                              logBuffer);
 
     uint32_t objectOffset = 0;
-    uint32_t lengthBefore = logBuffer->getTotalLength();
+    uint32_t lengthBefore = logBuffer->size();
     uint16_t valueOffset = 0;
 
     newObject.getValueOffset(&valueOffset);
@@ -1126,10 +1126,10 @@ ObjectManager::prepareForLog(Object& newObject, Buffer *logBuffer,
     // If later, how would we do it ?
 #if 0
     tabletManager->incrementWriteCount(key);
-    uint64_t byteCount = appends[0].buffer.getTotalLength();
+    uint64_t byteCount = appends[0].buffer.size();
     uint64_t recordCount = 1;
     if (tombstone) {
-        byteCount += appends[1].buffer.getTotalLength();
+        byteCount += appends[1].buffer.size();
         recordCount += 1;
     }
 
@@ -1196,7 +1196,7 @@ ObjectManager::writeTombstone(Key& key, Buffer *logBuffer)
 #if 0
     TableStats::increment(masterTableMetadata,
                           tablet.tableId,
-                          tombstoneBuffer.getTotalLength(),
+                          tombstoneBuffer.size(),
                           1);
 #endif
     return STATUS_OK;
@@ -1470,7 +1470,7 @@ ObjectManager::relocateObject(Buffer& oldBuffer,
     // the stats accordingly.
     TableStats::decrement(masterTableMetadata,
                           key.getTableId(),
-                          oldBuffer.getTotalLength(),
+                          oldBuffer.size(),
                           1);
 }
 
@@ -1530,7 +1530,7 @@ ObjectManager::relocateTombstone(Buffer& oldBuffer,
         // Tombstone will be dropped/"cleaned" so stats should be updated.
         TableStats::decrement(masterTableMetadata,
                               tomb.getTableId(),
-                              oldBuffer.getTotalLength(),
+                              oldBuffer.size(),
                               1);
     }
 }

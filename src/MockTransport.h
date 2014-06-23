@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-20121 Stanford University
+/* Copyright (c) 2010-2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -93,11 +93,11 @@ class MockTransport : public Transport {
                            event, pair.first);
             }
             Buffer& actualBuffer = pair.second;
-            if (actualBuffer.getTotalLength() < sizeof(header)) {
+            if (actualBuffer.size() < sizeof(header)) {
                 return ::testing::AssertionFailure() <<
                     format("Actual output was only %u bytes but header "
                            "header length was %lu",
-                           actualBuffer.getTotalLength(), sizeof(header));
+                           actualBuffer.size(), sizeof(header));
             }
             typedef const char* b;
             auto* actualHeader = actualBuffer.getRange(0, sizeof(T));
@@ -110,7 +110,7 @@ class MockTransport : public Transport {
                            toStringHack(b(&header),
                                         sizeof(header)).c_str());
             }
-            uint32_t actualPayloadBytes = actualBuffer.getTotalLength() -
+            uint32_t actualPayloadBytes = actualBuffer.size() -
                                           uint32_t(sizeof(header));
             auto* actualPayload = actualBuffer.getRange(sizeof(header),
                                                         actualPayloadBytes);

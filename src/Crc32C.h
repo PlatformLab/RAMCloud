@@ -238,7 +238,7 @@ class Crc32C {
     Crc32C&
     update(Buffer& buffer)
     {
-        return update(buffer, 0, buffer.getTotalLength());
+        return update(buffer, 0, buffer.size());
     }
 
     /**

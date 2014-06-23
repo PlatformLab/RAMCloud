@@ -42,7 +42,7 @@ namespace RAMCloud {
  *      Byte offset in the buffer where keysAndValue start
  * \param length
  *      Length of keysAndValue. If 0, then this constructor computes it as
- *      keysAndValueBuffer.getTotalLength() - startDataOffset.
+ *      keysAndValueBuffer.size() - startDataOffset.
  *      This is primarily used by the multiWrite RPC in MasterService.
  */
 Object::Object(uint64_t tableId,
@@ -62,7 +62,7 @@ Object::Object(uint64_t tableId,
 {
     // compute the actual default value
     if (length == 0)
-        length = this->keysAndValueBuffer->getTotalLength() - startDataOffset;
+        length = this->keysAndValueBuffer->size() - startDataOffset;
 
     keysAndValueLength = length;
 }
@@ -110,7 +110,7 @@ Object::Object(Key& key,
       keysAndValueBuffer(),
       // Since we are appending to buffer, the offset where keysAndValue
       // begins wil be the current size of the buffer.
-      keysAndValueOffset(buffer.getTotalLength()),
+      keysAndValueOffset(buffer.size()),
       keyOffsets(NULL)
 {
     uint32_t primaryKeyInfoLength = KEY_INFO_LENGTH(1) +
@@ -161,7 +161,7 @@ Object::Object(Buffer& buffer, uint32_t offset, uint32_t length)
 {
     // If length is not specified, compute the length of keysAndValue
     if (length == 0)
-        keysAndValueLength = buffer.getTotalLength() - offset -
+        keysAndValueLength = buffer.size() - offset -
                              sizeof32(header);
     else
         keysAndValueLength = length - sizeof32(header);
@@ -823,7 +823,7 @@ ObjectTombstone::ObjectTombstone(Buffer& buffer, uint32_t offset,
       keyOffset(sizeof32(header) + offset)
 {
     if (length == 0)
-        keyLength = downCast<uint16_t>(buffer.getTotalLength() -
+        keyLength = downCast<uint16_t>(buffer.size() -
                   offset - sizeof32(Header));
     else
         keyLength = downCast<uint16_t>(length - sizeof32(Header));

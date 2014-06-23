@@ -419,7 +419,7 @@ EnumerateTableRpc::EnumerateTableRpc(RamCloud* ramcloud, uint64_t tableId,
     reqHdr->tableId = tableId;
     reqHdr->keysOnly = keysOnly;
     reqHdr->tabletFirstHash = tabletFirstHash;
-    reqHdr->iteratorBytes = state.getTotalLength();
+    reqHdr->iteratorBytes = state.size();
     for (Buffer::Iterator it(&state); !it.isDone(); it.next())
         request.append(it.getData(), it.getLength());
     send();
@@ -466,7 +466,7 @@ EnumerateTableRpc::wait(Buffer& state)
     // Truncate the front and back of the response buffer, leaving just the
     // objects (the response buffer is the \c objects argument from
     // the constructor).
-    assert(response->getTotalLength() == sizeof(*respHdr) +
+    assert(response->size() == sizeof(*respHdr) +
             respHdr->iteratorBytes + respHdr->payloadBytes);
     response->truncateFront(sizeof(*respHdr));
     response->truncate(response->size() - respHdr->iteratorBytes);
@@ -617,7 +617,7 @@ GetMetricsRpc::wait()
         ClientException::throwException(HERE, respHdr->common.status);
 
     response->truncateFront(sizeof(*respHdr));
-    assert(respHdr->messageLength == response->getTotalLength());
+    assert(respHdr->messageLength == response->size());
     ServerMetrics metrics;
     metrics.load(*response);
     return metrics;
@@ -695,7 +695,7 @@ GetMetricsLocatorRpc::wait()
         ClientException::throwException(HERE, respHdr->common.status);
 
     response->truncateFront(sizeof(*respHdr));
-    assert(respHdr->messageLength == response->getTotalLength());
+    assert(respHdr->messageLength == response->size());
     ServerMetrics metrics;
     metrics.load(*response);
     return metrics;
@@ -1277,7 +1277,7 @@ IndexServerControlRpc::wait()
     // Truncate the response Buffer so that it consists of nothing
     // but the object data.
     response->truncateFront(sizeof(*respHdr));
-    assert(respHdr->outputLength == response->getTotalLength());
+    assert(respHdr->outputLength == response->size());
 
     if (respHdr->common.status != STATUS_OK)
         ClientException::throwException(HERE, respHdr->common.status);
@@ -1722,7 +1722,7 @@ ReadRpc::wait(uint64_t* version)
     // Truncate the response Buffer so that it consists of nothing
     // but the object data.
     response->truncateFront(sizeof(*respHdr));
-    assert(respHdr->length == response->getTotalLength());
+    assert(respHdr->length == response->size());
 
     if (respHdr->common.status != STATUS_OK)
         ClientException::throwException(HERE, respHdr->common.status);
@@ -1788,7 +1788,7 @@ ReadKeysAndValueRpc::wait(uint64_t* version)
     // Truncate the response Buffer so that it consists of nothing
     // but the object data.
     response->truncateFront(sizeof(*respHdr));
-    assert(respHdr->length == response->getTotalLength());
+    assert(respHdr->length == response->size());
 
     if (respHdr->common.status != STATUS_OK)
         ClientException::throwException(HERE, respHdr->common.status);
@@ -1980,7 +1980,7 @@ ObjectServerControlRpc::wait()
     // Truncate the response Buffer so that it consists of nothing
     // but the object data.
     response->truncateFront(sizeof(*respHdr));
-    assert(respHdr->outputLength == response->getTotalLength());
+    assert(respHdr->outputLength == response->size());
 
     if (respHdr->common.status != STATUS_OK)
         ClientException::throwException(HERE, respHdr->common.status);
@@ -2163,7 +2163,7 @@ GetRuntimeOptionRpc::wait()
     const WireFormat::GetRuntimeOption::Response* respHdr(
             getResponseHeader<WireFormat::GetRuntimeOption>());
     response->truncateFront(sizeof(*respHdr));
-    assert(respHdr->valueLength == response->getTotalLength());
+    assert(respHdr->valueLength == response->size());
     if (respHdr->common.status != STATUS_OK)
         ClientException::throwException(HERE, respHdr->common.status);
 }

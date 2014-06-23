@@ -193,8 +193,8 @@ TEST_F(ReplicaManagerTest, writeSegment) {
                                               serverId, 88, 0, &resp);
             ASSERT_NE(0U, resp.totalLength);
 
-            SegmentIterator it(resp.getRange(0, resp.getTotalLength()),
-                               resp.getTotalLength(), certificate);
+            SegmentIterator it(resp.getRange(0, resp.size()),
+                               resp.size(), certificate);
             EXPECT_FALSE(it.isDone());
             EXPECT_EQ(LOG_ENTRY_TYPE_OBJ, it.getType());
 

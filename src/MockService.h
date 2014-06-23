@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2012 Stanford University
+/* Copyright (c) 2011-2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -46,7 +46,7 @@ class MockService : public Service {
 
         // Create a response that increments each of the (integer) values
         // in the request.  Throw errors if certain values appear.
-        for (uint32_t i = 0; i < rpc->requestPayload->getTotalLength()-3;
+        for (uint32_t i = 0; i < rpc->requestPayload->size()-3;
                 i += 4) {
             int32_t inputValue = *(rpc->requestPayload->getOffset<int32_t>(i));
             if (inputValue == 54321) {

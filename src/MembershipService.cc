@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2013 Stanford University
+/* Copyright (c) 2011-2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -95,7 +95,7 @@ MembershipService::updateServerList(
     Rpc* rpc)
 {
     uint32_t reqOffset = sizeof32(*reqHdr);
-    uint32_t reqLen = rpc->requestPayload->getTotalLength();
+    uint32_t reqLen = rpc->requestPayload->size();
 
     // Repeatedly apply the server lists in the RPC while we haven't reached
     // the end of the RPC.

@@ -1,4 +1,4 @@
-/* Copyright (c) 2012 Stanford University
+/* Copyright (c) 2012-2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -83,7 +83,7 @@ class MockWrapper : public Transport::RpcNotifier {
      */
     void setOpcode(WireFormat::Opcode opcode) {
         WireFormat::RequestCommon* header;
-        if (request.getTotalLength() < sizeof(WireFormat::RequestCommon)) {
+        if (request.size() < sizeof(WireFormat::RequestCommon)) {
             request.reset();
             header = request.emplaceAppend<WireFormat::RequestCommon>();
         } else {

@@ -122,8 +122,8 @@ class RecoverSegmentBenchmark {
             s->appendToBuffer(buffer);
             Segment::Certificate certificate;
             s->getAppendedLength(&certificate);
-            const void* contigSeg = buffer.getRange(0, buffer.getTotalLength());
-            SegmentIterator it(contigSeg, buffer.getTotalLength(), certificate);
+            const void* contigSeg = buffer.getRange(0, buffer.size());
+            SegmentIterator it(contigSeg, buffer.size(), certificate);
             service->objectManager.replaySegment(&sideLog, it);
         }
         uint64_t ticks = Cycles::rdtsc() - before;

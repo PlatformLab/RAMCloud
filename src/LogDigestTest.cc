@@ -1,4 +1,4 @@
-/* Copyright (c) 2012 Stanford University
+/* Copyright (c) 2012-2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -47,8 +47,8 @@ TEST_F(LogDigestTest, constructor_fromSerializedDigest_empty)
     Buffer buffer;
     d.appendToBuffer(buffer);
 
-    EXPECT_NO_THROW(LogDigest(buffer.getRange(0, buffer.getTotalLength()),
-        buffer.getTotalLength()));
+    EXPECT_NO_THROW(LogDigest(buffer.getRange(0, buffer.size()),
+        buffer.size()));
 }
 
 TEST_F(LogDigestTest, constructor_fromSerializedDigest_nonempty)
@@ -58,11 +58,11 @@ TEST_F(LogDigestTest, constructor_fromSerializedDigest_nonempty)
     Buffer buffer;
     d.appendToBuffer(buffer);
 
-    EXPECT_NO_THROW(LogDigest(buffer.getRange(0, buffer.getTotalLength()),
-        buffer.getTotalLength()));
+    EXPECT_NO_THROW(LogDigest(buffer.getRange(0, buffer.size()),
+        buffer.size()));
 
-    LogDigest d2(buffer.getRange(0, buffer.getTotalLength()),
-        buffer.getTotalLength());
+    LogDigest d2(buffer.getRange(0, buffer.size()),
+        buffer.size());
     EXPECT_EQ(1U, d2.size());
     EXPECT_EQ(3842U, d2[0]);
 }
@@ -95,8 +95,8 @@ TEST_F(LogDigestTest, construct_fromSerializedDigest_badChecksum)
     Buffer buffer;
     d.appendToBuffer(buffer);
 
-    EXPECT_THROW(LogDigest(buffer.getRange(0, buffer.getTotalLength()),
-        buffer.getTotalLength()), LogDigestException);
+    EXPECT_THROW(LogDigest(buffer.getRange(0, buffer.size()),
+        buffer.size()), LogDigestException);
     EXPECT_EQ("LogDigest: invalid digest checksum (computed 0x8ca6694d, "
         "expect 0xc59a146a", TestLog::get());
 }
@@ -117,25 +117,25 @@ TEST_F(LogDigestTest, appendToBuffer)
     LogDigest d;
     Buffer buffer;
     d.appendToBuffer(buffer);
-    EXPECT_EQ(4U, buffer.getTotalLength());
+    EXPECT_EQ(4U, buffer.size());
 
     LogDigest d2;
     d2.addSegmentId(43);
     d2.addSegmentId(76);
     Buffer buffer2;
     d2.appendToBuffer(buffer2);
-    EXPECT_EQ(20U, buffer2.getTotalLength());
+    EXPECT_EQ(20U, buffer2.size());
     EXPECT_EQ(static_cast<const void*>(&d2.header),
         buffer2.getStart<LogDigest::Header>());
     EXPECT_EQ(static_cast<const void*>(&d2.segmentIds[0]),
-        buffer2.getRange(4, buffer2.getTotalLength() - 4));
+        buffer2.getRange(4, buffer2.size() - 4));
 
     LogDigest d3;
     for (uint32_t i = 0; i < 50; i++) {
         d3.addSegmentId(i);
         Buffer buffer3;
         d3.appendToBuffer(buffer3);
-        EXPECT_EQ(4U + (8 * (i + 1)), buffer3.getTotalLength());
+        EXPECT_EQ(4U + (8 * (i + 1)), buffer3.size());
     }
 }
 

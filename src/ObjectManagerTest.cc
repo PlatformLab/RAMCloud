@@ -86,11 +86,11 @@ class ObjectManagerTest : public ::testing::Test {
 
         Buffer buffer;
         s.appendToBuffer(buffer);
-        EXPECT_GE(segmentCapacity, buffer.getTotalLength());
-        buffer.copy(0, buffer.getTotalLength(), segmentBuf);
+        EXPECT_GE(segmentCapacity, buffer.size());
+        buffer.copy(0, buffer.size(), segmentBuf);
         s.getAppendedLength(outCertificate);
 
-        return buffer.getTotalLength();
+        return buffer.size();
     }
 
     /**
@@ -112,11 +112,11 @@ class ObjectManagerTest : public ::testing::Test {
 
         Buffer buffer;
         s.appendToBuffer(buffer);
-        EXPECT_GE(segmentCapacity, buffer.getTotalLength());
-        buffer.copy(0, buffer.getTotalLength(), segmentBuf);
+        EXPECT_GE(segmentCapacity, buffer.size());
+        buffer.copy(0, buffer.size(), segmentBuf);
         s.getAppendedLength(outCertificate);
 
-        return buffer.getTotalLength();
+        return buffer.size();
     }
 
     /**
@@ -139,11 +139,11 @@ class ObjectManagerTest : public ::testing::Test {
 
         Buffer buffer;
         s.appendToBuffer(buffer);
-        EXPECT_GE(segmentCapacity, buffer.getTotalLength());
-        buffer.copy(0, buffer.getTotalLength(), segmentBuf);
+        EXPECT_GE(segmentCapacity, buffer.size());
+        buffer.copy(0, buffer.size(), segmentBuf);
         s.getAppendedLength(outCertificate);
 
-        return buffer.getTotalLength();
+        return buffer.size();
     }
 
     /**
@@ -166,7 +166,7 @@ class ObjectManagerTest : public ::testing::Test {
         }
         TableStats::increment(&masterTableMetadata,
                               key.getTableId(),
-                              buffer.getTotalLength(),
+                              buffer.size(),
                               1);
         return reference;
     }
@@ -190,7 +190,7 @@ class ObjectManagerTest : public ::testing::Test {
         }
         TableStats::increment(&masterTableMetadata,
                               key.getTableId(),
-                              buffer.getTotalLength(),
+                              buffer.size(),
                               1);
         return reference;
     }
@@ -680,7 +680,7 @@ TEST_F(ObjectManagerTest, flushEntriesToLog) {
 
     // flush all the entries in logBuffer to the log atomically
     EXPECT_TRUE(objectManager.flushEntriesToLog(&logBuffer, numEntries));
-    EXPECT_EQ(0U, logBuffer.getTotalLength());
+    EXPECT_EQ(0U, logBuffer.size());
 
     // now check the hashtable and the log for correctness
 
@@ -1081,11 +1081,11 @@ TEST_F(ObjectManagerTest, replaySegment) {
     Buffer t10Buffer;
     t10.assembleForLog(t10Buffer);
     EXPECT_EQ(string(reinterpret_cast<const char*>(
-                     t10Buffer.getRange(0, t10Buffer.getTotalLength())),
-                     buffer.getTotalLength()),
+                     t10Buffer.getRange(0, t10Buffer.size())),
+                     buffer.size()),
               string(reinterpret_cast<const char*>(
-                     buffer.getRange(0, buffer.getTotalLength())),
-                     buffer.getTotalLength()));
+                     buffer.getRange(0, buffer.size())),
+                     buffer.size()));
     ////////////////////////////////////////////////////////////////////
     //
     //  For safeVersion recovery from OBJECT_SAFEVERSION entry
@@ -1348,7 +1348,7 @@ TEST_F(ObjectManagerTest, tombstoneRelocationCallback_basics) {
     // Update metadata manually due to manual log append.
     TableStats::increment(&masterTableMetadata,
                           tombstone.getTableId(),
-                          tombstoneBuffer.getTotalLength(),
+                          tombstoneBuffer.size(),
                           1);
     EXPECT_EQ("found=true tableId=0 byteCount=72 recordCount=2"
               , verifyMetadata(0));
@@ -1361,7 +1361,7 @@ TEST_F(ObjectManagerTest, tombstoneRelocationCallback_basics) {
     // Update metadata manually due to manual log append.
     TableStats::increment(&masterTableMetadata,
                           tombstone.getTableId(),
-                          tombstoneBuffer.getTotalLength(),
+                          tombstoneBuffer.size(),
                           1);
     EXPECT_EQ("found=true tableId=0 byteCount=108 recordCount=3"
               , verifyMetadata(0));
@@ -1412,7 +1412,7 @@ TEST_F(ObjectManagerTest, tombstoneRelocationCallback_cleanTombstone) {
     // Update metadata manually due to manual log append.
     TableStats::increment(&masterTableMetadata,
                           tombstone.getTableId(),
-                          tombstoneBuffer.getTotalLength(),
+                          tombstoneBuffer.size(),
                           1);
     EXPECT_EQ("found=true tableId=0 byteCount=36 recordCount=1"
               , verifyMetadata(0));

@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2013 Stanford University
+/* Copyright (c) 2009-2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -463,7 +463,7 @@ BackupMasterRecovery::populateStartResponse(Buffer* responseBuffer,
 
     response->digestSegmentId = logDigestSegmentId;
     response->digestSegmentEpoch = logDigestSegmentEpoch;
-    response->digestBytes = logDigest.getTotalLength();
+    response->digestBytes = logDigest.size();
     if (response->digestBytes > 0) {
         responseBuffer->appendCopy(logDigest.getRange(0, response->digestBytes),
                response->digestBytes);
@@ -471,7 +471,7 @@ BackupMasterRecovery::populateStartResponse(Buffer* responseBuffer,
             response->digestBytes);
     }
 
-    response->tableStatsBytes = tableStatsDigest.getTotalLength();
+    response->tableStatsBytes = tableStatsDigest.size();
     if (response->tableStatsBytes > 0) {
         responseBuffer->appendCopy(tableStatsDigest.getRange(0,
                 response->tableStatsBytes), response->tableStatsBytes);

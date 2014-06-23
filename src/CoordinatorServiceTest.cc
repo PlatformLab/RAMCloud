@@ -144,7 +144,7 @@ TEST_F(CoordinatorServiceTest, getRuntimeOption){
     ASSERT_EQ(3u, service->runtimeOptions.failRecoveryMasters.size());
     ramcloud->getRuntimeOption("failRecoveryMasters", &value);
     EXPECT_STREQ("1 2 3", service->getString(&value, 0,
-                                            value.getTotalLength()));
+                                            value.size()));
     EXPECT_THROW(ramcloud->getRuntimeOption("optionNotExisting",
                                             &value),
                  ObjectDoesntExistException);

@@ -1,4 +1,4 @@
-/* Copyright (c) 2012 Stanford University
+/* Copyright (c) 2012-2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -399,8 +399,8 @@ TEST_F(SegmentManagerTest, writeDigest_basics) {
 
         Buffer buffer;
         it.appendToBuffer(buffer);
-        LogDigest digest(buffer.getRange(0, buffer.getTotalLength()),
-                         buffer.getTotalLength());
+        LogDigest digest(buffer.getRange(0, buffer.size()),
+                         buffer.size());
         EXPECT_EQ(1U, digest.size());
         EXPECT_EQ(0UL, digest[0]);
     }
@@ -411,8 +411,8 @@ TEST_F(SegmentManagerTest, writeDigest_basics) {
 
         Buffer buffer;
         it.appendToBuffer(buffer);
-        LogDigest digest(buffer.getRange(0, buffer.getTotalLength()),
-                         buffer.getTotalLength());
+        LogDigest digest(buffer.getRange(0, buffer.size()),
+                         buffer.size());
         EXPECT_EQ(2U, digest.size());
         EXPECT_EQ(0UL, digest[0]);
         EXPECT_EQ(1UL, digest[1]);

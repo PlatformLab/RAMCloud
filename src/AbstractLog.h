@@ -194,8 +194,8 @@ class AbstractLog {
         metrics.totalAppendCalls++;
         return append(lock,
                       type,
-                      buffer.getRange(0, buffer.getTotalLength()),
-                      buffer.getTotalLength(),
+                      buffer.getRange(0, buffer.size()),
+                      buffer.size(),
                       outReference,
                       &metrics.totalAppendTicks);
     }

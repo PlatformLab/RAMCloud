@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2013 Stanford University
+/* Copyright (c) 2009-2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -84,7 +84,7 @@ exerciseCluster(RamCloud* client)
             try {
                 client->read(tableId, "tableName", 9, &value);
                 const char* valueString = static_cast<const char*>(
-                        value.getRange(0, value.getTotalLength()));
+                        value.getRange(0, value.size()));
                 if (strcmp(valueString, tableName) != 0) {
                     printf("Bad value for tableName object in %s; "
                             "expected \"%s\", got \"%s\"\n",
@@ -260,14 +260,14 @@ try
     client.read(table, "43", 2, &buffer);
     LOG(NOTICE, "read took %lu ticks", Cycles::rdtsc() - b);
 
-    length = buffer.getTotalLength();
+    length = buffer.size();
     LOG(NOTICE, "Got back [%s] len %u",
         static_cast<const char*>(buffer.getRange(0, length)),
         length);
 
     client.read(table, "42", 2, &buffer);
     LOG(NOTICE, "read took %lu ticks", Cycles::rdtsc() - b);
-    length = buffer.getTotalLength();
+    length = buffer.size();
     LOG(NOTICE, "Got back [%s] len %u",
         static_cast<const char*>(buffer.getRange(0, length)),
         length);

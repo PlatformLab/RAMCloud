@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2013 Stanford University
+/* Copyright (c) 2010-2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -130,7 +130,7 @@ TEST_F(SingleFileStorageTest, Frame_load) {
     Frame::testingSkipRealIo = false;
     BackupStorage::FrameRef frameRef = storage->open(true);
     Frame* frame = static_cast<Frame*>(frameRef.get());
-    frame->append(testSource, 0, testSource.getTotalLength(),
+    frame->append(testSource, 0, testSource.size(),
                   0, test, testLength + 1);
     frame->close();
     EXPECT_FALSE(frame->buffer);
@@ -154,7 +154,7 @@ TEST_F(SingleFileStorageTest, Frame_loadDirty) {
     // this test causes issues and I'll try to come up with a compromise.
     BackupStorage::FrameRef frameRef = storage->open(false);
     Frame* frame = static_cast<Frame*>(frameRef.get());
-    frame->append(testSource, 0, testSource.getTotalLength(),
+    frame->append(testSource, 0, testSource.size(),
                   0, test, testLength + 1);
     EXPECT_TRUE(frame->buffer);
     char* replica = bytes(frame->load());
@@ -638,7 +638,7 @@ TEST_F(SingleFileStorageTest, quiesce)
     storage->ioQueue.halt();
     BackupStorage::FrameRef frameRef = storage->open(true);
     Frame* frame = static_cast<Frame*>(frameRef.get());
-    frame->append(testSource, 0, testSource.getTotalLength(),
+    frame->append(testSource, 0, testSource.size(),
                   0, test, testLength + 1);
     WaitForQuiesce waitForQuiesce(*storage);
     TestLog::Enable _;

@@ -373,7 +373,7 @@ MasterService::enumerate(const WireFormat::Enumerate::Request* reqHdr,
                             *objectManager.getObjectMap(),
                             *rpc->replyPayload, maxPayloadBytes);
     enumeration.complete();
-    respHdr->payloadBytes = rpc->replyPayload->getTotalLength()
+    respHdr->payloadBytes = rpc->replyPayload->size()
             - downCast<uint32_t>(sizeof(*respHdr));
 
     // Add new iterator to the end of the response.
@@ -819,7 +819,7 @@ MasterService::migrateTablet(const WireFormat::MigrateTablet::Request* reqHdr,
             totalTombstones++;
         }
 
-        totalBytes += buffer.getTotalLength();
+        totalBytes += buffer.size();
 
         if (!transferSeg)
             transferSeg.construct();
@@ -838,7 +838,7 @@ MasterService::migrateTablet(const WireFormat::MigrateTablet::Request* reqHdr,
             if (!transferSeg->append(type, buffer)) {
                 LOG(ERROR, "Tablet migration failed: could not fit object "
                     "into empty segment (obj bytes %u)",
-                    buffer.getTotalLength());
+                    buffer.size());
                 respHdr->common.status = STATUS_INTERNAL_ERROR;
                 return;
             }
@@ -929,7 +929,7 @@ MasterService::multiRead(const WireFormat::MultiOp::Request* reqHdr,
     uint32_t reqOffset = sizeof32(*reqHdr);
 
     respHdr->count = numRequests;
-    uint32_t oldResponseLength = rpc->replyPayload->getTotalLength();
+    uint32_t oldResponseLength = rpc->replyPayload->size();
 
     // Each iteration extracts one request from request rpc, finds the
     // corresponding object, and appends the response to the response rpc.
@@ -937,7 +937,7 @@ MasterService::multiRead(const WireFormat::MultiOp::Request* reqHdr,
         // If the RPC response has exceeded the legal limit, truncate it
         // to the last object that fits below the limit (the client will
         // retry the objects we don't return).
-        uint32_t newLength = rpc->replyPayload->getTotalLength();
+        uint32_t newLength = rpc->replyPayload->size();
         if (newLength > maxResponseRpcLen) {
             rpc->replyPayload->truncate(oldResponseLength);
             respHdr->count = i-1;
@@ -966,7 +966,7 @@ MasterService::multiRead(const WireFormat::MultiOp::Request* reqHdr,
            rpc->replyPayload->emplaceAppend<
                WireFormat::MultiOp::Response::ReadPart>();
 
-        uint32_t initialLength = rpc->replyPayload->getTotalLength();
+        uint32_t initialLength = rpc->replyPayload->size();
         currentResp->status = objectManager.readObject(key,
                                                         rpc->replyPayload,
                                                         NULL,
@@ -975,7 +975,7 @@ MasterService::multiRead(const WireFormat::MultiOp::Request* reqHdr,
         if (currentResp->status != STATUS_OK)
             continue;
 
-        currentResp->length = rpc->replyPayload->getTotalLength() -
+        currentResp->length = rpc->replyPayload->size() -
                                 initialLength;
     }
 }
@@ -1057,7 +1057,7 @@ MasterService::multiRemove(const WireFormat::MultiOp::Request* reqHdr,
 
     // If any of the write parts overwrites, delete old index entries if any.
     for (uint32_t i = 0; i < numRequests; i++) {
-        if (objectBuffers[i].getTotalLength() > 0) {
+        if (objectBuffers[i].size() > 0) {
             requestRemoveIndexEntries(objectBuffers[i]);
         }
     }
@@ -1106,7 +1106,7 @@ MasterService::multiWrite(const WireFormat::MultiOp::Request* reqHdr,
 
         reqOffset += sizeof32(WireFormat::MultiOp::Request::WritePart);
 
-        if (rpc->requestPayload->getTotalLength() <
+        if (rpc->requestPayload->size() <
                 reqOffset + currentReq->length) {
             respHdr->common.status = STATUS_REQUEST_FORMAT_ERROR;
             break;
@@ -1132,7 +1132,7 @@ MasterService::multiWrite(const WireFormat::MultiOp::Request* reqHdr,
 
     // By design, our response will be shorter than the request. This ensures
     // that the response can go back in a single RPC.
-    assert(rpc->replyPayload->getTotalLength() <= Transport::MAX_RPC_LEN);
+    assert(rpc->replyPayload->size() <= Transport::MAX_RPC_LEN);
 
     // All of the individual writes were done asynchronously. Sync the objects
     // now to propagate them in bulk to backups.
@@ -1145,7 +1145,7 @@ MasterService::multiWrite(const WireFormat::MultiOp::Request* reqHdr,
 
     // If any of the write parts overwrites, delete old index entries if any.
     for (uint32_t i = 0; i < numRequests; i++) {
-        if (oldObjectBuffers[i].getTotalLength() > 0) {
+        if (oldObjectBuffers[i].size() > 0) {
             requestRemoveIndexEntries(oldObjectBuffers[i]);
         }
     }
@@ -1236,7 +1236,7 @@ MasterService::read(const WireFormat::Read::Request* reqHdr,
 
     RejectRules rejectRules = reqHdr->rejectRules;
     bool valueOnly = true;
-    uint32_t initialLength = rpc->replyPayload->getTotalLength();
+    uint32_t initialLength = rpc->replyPayload->size();
     respHdr->common.status = objectManager.readObject(key,
                                                        rpc->replyPayload,
                                                        &rejectRules,
@@ -1245,7 +1245,7 @@ MasterService::read(const WireFormat::Read::Request* reqHdr,
     if (respHdr->common.status != STATUS_OK)
         return;
 
-    respHdr->length = rpc->replyPayload->getTotalLength() - initialLength;
+    respHdr->length = rpc->replyPayload->size() - initialLength;
 }
 
 /**
@@ -1277,7 +1277,7 @@ MasterService::readKeysAndValue(
     Key key(reqHdr->tableId, stringKey, reqHdr->keyLength);
 
     RejectRules rejectRules = reqHdr->rejectRules;
-    uint32_t initialLength = rpc->replyPayload->getTotalLength();
+    uint32_t initialLength = rpc->replyPayload->size();
     respHdr->common.status = objectManager.readObject(key,
                                                        rpc->replyPayload,
                                                        &rejectRules,
@@ -1285,7 +1285,7 @@ MasterService::readKeysAndValue(
     if (respHdr->common.status != STATUS_OK)
         return;
 
-    respHdr->length = rpc->replyPayload->getTotalLength() - initialLength;
+    respHdr->length = rpc->replyPayload->size() - initialLength;
 }
 
 /**
@@ -1333,9 +1333,9 @@ MasterService::receiveMigrationData(
 
     Segment::Certificate certificate = reqHdr->certificate;
     rpc->requestPayload->truncateFront(sizeof(*reqHdr));
-    if (rpc->requestPayload->getTotalLength() != segmentBytes) {
+    if (rpc->requestPayload->size() != segmentBytes) {
         LOG(ERROR, "RPC size (%u) does not match advertised length (%u)",
-            rpc->requestPayload->getTotalLength(),
+            rpc->requestPayload->size(),
             segmentBytes);
         respHdr->common.status = STATUS_REQUEST_FORMAT_ERROR;
         return;
@@ -1389,7 +1389,7 @@ MasterService::remove(const WireFormat::Remove::Request* reqHdr,
     // reqHdr, respHdr, and rpc are off-limits now!
 
     // Remove index entries corresponding to old object, if any.
-    if (oldBuffer.getTotalLength() > 0) {
+    if (oldBuffer.size() > 0) {
         requestRemoveIndexEntries(oldBuffer);
     }
 }
@@ -1612,7 +1612,7 @@ MasterService::write(const WireFormat::Write::Request* reqHdr,
     // reqHdr, respHdr, and rpc are off-limits now!
 
     // If this is a overwrite, delete old index entries if any.
-    if (oldObjectBuffer.getTotalLength() > 0) {
+    if (oldObjectBuffer.size() > 0) {
         requestRemoveIndexEntries(oldObjectBuffer);
     }
 }
@@ -2021,7 +2021,7 @@ MasterService::recover(uint64_t recoveryId,
                         &task - &tasks[0]);
                 }
 
-                uint32_t responseLen = task->response.getTotalLength();
+                uint32_t responseLen = task->response.size();
                 metrics->master.segmentReadByteCount += responseLen;
                 uint64_t startUseful = Cycles::rdtsc();
                 SegmentIterator it(task->response.getRange(0, responseLen),

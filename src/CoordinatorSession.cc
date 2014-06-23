@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2013 Stanford University
+/* Copyright (c) 2012-2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -95,7 +95,7 @@ CoordinatorSession::getSession()
                     clusterName.c_str(), coordinatorLocator.c_str());
             return FailSession::get();
         }
-        locator.append(value.getStart<char>(), value.getTotalLength());
+        locator.append(value.getStart<char>(), value.size());
     } else {
         // This is an old-style "direct" locator.
         locator = coordinatorLocator;

@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2012 Stanford University
+/* Copyright (c) 2009-2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -116,7 +116,7 @@ bool
 checkBuffer(Buffer& buffer, uint32_t expectedLength, uint64_t tableId,
             const void* key, uint16_t keyLength)
 {
-    uint32_t length = buffer.getTotalLength();
+    uint32_t length = buffer.size();
     if (length != expectedLength) {
         RAMCLOUD_LOG(ERROR, "corrupted data: expected %u bytes, "
                 "found %u bytes", expectedLength, length);
@@ -370,13 +370,13 @@ try
         } catch (...) {
         }
         auto session = client.objectFinder.lookup(tables[t], "0", 1);
-        if (nb.getTotalLength() == objectDataSize) {
+        if (nb.size() == objectDataSize) {
             LOG(NOTICE, "recovered value read from %s has length %u",
-                session->getServiceLocator().c_str(), nb.getTotalLength());
+                session->getServiceLocator().c_str(), nb.size());
         } else {
             LOG(ERROR, "recovered value read from %s has length %u "
                 "(expected %u)", session->getServiceLocator().c_str(),
-                nb.getTotalLength(), objectDataSize);
+                nb.size(), objectDataSize);
             somethingWentWrong = true;
         }
     }
@@ -407,7 +407,7 @@ try
                         tables[t], keyLength, key.c_str());
                     continue;
                 }
-                uint32_t objBytes = nb.getTotalLength();
+                uint32_t objBytes = nb.size();
 
                 if (objBytes != objectDataSize) {
                     LOG(ERROR, "Bad object size (tbl %lu, obj %.*s)",

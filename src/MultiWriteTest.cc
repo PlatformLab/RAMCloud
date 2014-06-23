@@ -198,9 +198,9 @@ TEST_F(MultiWriteTest, appendRequest) {
     MultiWrite request(ramcloud.get(), requests, 0);
     request.wait();
 
-    before = buf.getTotalLength();
+    before = buf.size();
     request.appendRequest(requests[0], &buf);
-    dif = buf.getTotalLength() - before;
+    dif = buf.size() - before;
 
     uint32_t expected_size = sizeof32(WireFormat::MultiOp::Request::WritePart) +
                     sizeof32(requests[0]->keyLength) +
@@ -218,9 +218,9 @@ TEST_F(MultiWriteTest, appendRequestMultipleKeys) {
     MultiWrite request(ramcloud.get(), requests, 0);
     request.wait();
 
-    before = buf.getTotalLength();
+    before = buf.size();
     request.appendRequest(requests[0], &buf);
-    dif = buf.getTotalLength() - before;
+    dif = buf.size() - before;
 
     uint32_t expected_size = sizeof32(WireFormat::MultiOp::Request::WritePart) +
                     sizeof32(requests[0]->numKeys) +

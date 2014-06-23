@@ -157,11 +157,11 @@ class MasterServiceTest : public ::testing::Test {
 
         Buffer buffer;
         s.appendToBuffer(buffer);
-        EXPECT_GE(segmentCapacity, buffer.getTotalLength());
-        buffer.copy(0, buffer.getTotalLength(), segmentBuf);
+        EXPECT_GE(segmentCapacity, buffer.size());
+        buffer.copy(0, buffer.size(), segmentBuf);
         s.getAppendedLength(outCertificate);
 
-        return buffer.getTotalLength();
+        return buffer.size();
     }
 
     // Build a properly formatted segment containing a single tombstone. This
@@ -180,11 +180,11 @@ class MasterServiceTest : public ::testing::Test {
 
         Buffer buffer;
         s.appendToBuffer(buffer);
-        EXPECT_GE(segmentCapacity, buffer.getTotalLength());
-        buffer.copy(0, buffer.getTotalLength(), segmentBuf);
+        EXPECT_GE(segmentCapacity, buffer.size());
+        buffer.copy(0, buffer.size(), segmentBuf);
         s.getAppendedLength(outCertificate);
 
-        return buffer.getTotalLength();
+        return buffer.size();
     }
 
     // Build a properly formatted segment containing a single safeVersion.
@@ -205,11 +205,11 @@ class MasterServiceTest : public ::testing::Test {
 
         Buffer buffer;
         s.appendToBuffer(buffer);
-        EXPECT_GE(segmentCapacity, buffer.getTotalLength());
-        buffer.copy(0, buffer.getTotalLength(), segmentBuf);
+        EXPECT_GE(segmentCapacity, buffer.size());
+        buffer.copy(0, buffer.size(), segmentBuf);
         s.getAppendedLength(outCertificate);
 
-        return buffer.getTotalLength();
+        return buffer.size();
     }
 
     // Write a segment containing nothing but a header to a backup. This is used
@@ -265,7 +265,7 @@ class MasterServiceTest : public ::testing::Test {
                                        key.getStringKeyLength(),
                                        &value));
         const char *s = reinterpret_cast<const char *>(
-            value.getRange(0, value.getTotalLength()));
+            value.getRange(0, value.size()));
         EXPECT_EQ(0, strcmp(s, contents.c_str()));
     }
 
@@ -471,13 +471,13 @@ TEST_F(MasterServiceTest, enumerate_basics) {
     EnumerateTableRpc rpc(ramcloud.get(), 1, false, 0, iter, objects);
     nextTabletStartHash = rpc.wait(nextIter);
     EXPECT_EQ(0U, nextTabletStartHash);
-    EXPECT_EQ(76U, objects.getTotalLength());
+    EXPECT_EQ(76U, objects.size());
 
     // First object.
     EXPECT_EQ(34U, *objects.getOffset<uint32_t>(0));            // size
     Buffer buffer1;
-    buffer1.append(objects.getRange(4, objects.getTotalLength() - 4),
-                     objects.getTotalLength() - 4);
+    buffer1.append(objects.getRange(4, objects.size() - 4),
+                     objects.size() - 4);
     Object object1(buffer1);
     EXPECT_EQ(1U, object1.getTableId());                        // table ID
     EXPECT_EQ(1U, object1.getKeyLength());                      // key length
@@ -490,8 +490,8 @@ TEST_F(MasterServiceTest, enumerate_basics) {
     // Second object.
     EXPECT_EQ(34U, *objects.getOffset<uint32_t>(38));           // size
     Buffer buffer2;
-    buffer2.append(objects.getRange(42, objects.getTotalLength() - 42),
-                     objects.getTotalLength() - 42);
+    buffer2.append(objects.getRange(42, objects.size() - 42),
+                     objects.size() - 42);
     Object object2(buffer2);
     EXPECT_EQ(1U, object2.getTableId());                        // table ID
     EXPECT_EQ(1U, object2.getKeyLength());                      // key length
@@ -507,7 +507,7 @@ TEST_F(MasterServiceTest, enumerate_basics) {
                             nextIter, objects);
     nextTabletStartHash = rpc2.wait(finalIter);
     EXPECT_EQ(0U, nextTabletStartHash);
-    EXPECT_EQ(0U, objects.getTotalLength());
+    EXPECT_EQ(0U, objects.size());
 }
 
 TEST_F(MasterServiceTest, enumerate_tabletNotOnServer) {
@@ -546,13 +546,13 @@ TEST_F(MasterServiceTest, enumerate_mergeTablet) {
     EnumerateTableRpc rpc(ramcloud.get(), 1, false, 0, iter, objects);
     nextTabletStartHash = rpc.wait(nextIter);
     EXPECT_EQ(0U, nextTabletStartHash);
-    EXPECT_EQ(43U, objects.getTotalLength());
+    EXPECT_EQ(43U, objects.size());
 
     // Object coresponding to key "678910"
     EXPECT_EQ(39U, *objects.getOffset<uint32_t>(0));            // size
     Buffer buffer1;
-    buffer1.append(objects.getRange(4, objects.getTotalLength() - 4),
-                     objects.getTotalLength() - 4);
+    buffer1.append(objects.getRange(4, objects.size() - 4),
+                     objects.size() - 4);
     Object object1(buffer1);
     EXPECT_EQ(1U, object1.getTableId());                        // table ID
     EXPECT_EQ(6U, object1.getKeyLength());                      // key length
@@ -571,7 +571,7 @@ TEST_F(MasterServiceTest, enumerate_mergeTablet) {
     EnumerateTableRpc rpc2(ramcloud.get(), 1, false, 0, nextIter, objects);
     rpc2.wait(finalIter);
     EXPECT_EQ(0U, nextTabletStartHash);
-    EXPECT_EQ(0U, objects.getTotalLength());
+    EXPECT_EQ(0U, objects.size());
 }
 
 TEST_F(MasterServiceTest, getHeadOfLog) {

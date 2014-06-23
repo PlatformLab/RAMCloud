@@ -234,9 +234,6 @@ class Buffer {
     size() const {
         return totalLength;
     }
-    inline uint32_t getTotalLength() const {
-        return totalLength;
-    }
 
     void truncate(uint32_t newLength);
     void truncateFront(uint32_t bytesToDelete);
@@ -457,7 +454,11 @@ class Buffer {
 
         void next();
 
-        uint32_t getTotalLength() {return bytesLeft;}
+        /**
+         * Returns the total number bytes left to iterate, including those
+         * in the current chunk.
+         */
+        uint32_t size() {return bytesLeft;}
 
       PRIVATE:
         /// The current chunk over which we're iterating.  May be NULL.

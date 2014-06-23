@@ -5,6 +5,7 @@
 /*
  * STX B+ Tree Template Classes v0.9
  * Copyright (C) 2008-2013 Timo Bingmann <tb@panthema.net>
+ * Copyright (c) 2014 Stanford University
  *
  * Boost Software License - Version 1.0 - August 17th, 2003
  *
@@ -1049,8 +1050,8 @@ private:
             assert(status == STATUS_OK);
         }
         RAMCLOUD_LOG(DEBUG, "Read object from log, nodeId = %d, size = %d",
-                     nodeId, outBuffer->getTotalLength());
-        return outBuffer->getRange(0, outBuffer->getTotalLength());
+                     nodeId, outBuffer->size());
+        return outBuffer->getRange(0, outBuffer->size());
     }
 
     /**

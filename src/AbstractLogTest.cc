@@ -140,10 +140,10 @@ TEST_F(AbstractLogTest, append_multiple_basics) {
     while (l.append(v, 2)) {
         Buffer buffer;
         EXPECT_EQ(LOG_ENTRY_TYPE_OBJ, l.getEntry(v[0].reference, buffer));
-        EXPECT_EQ(dataLen, buffer.getTotalLength());
+        EXPECT_EQ(dataLen, buffer.size());
         buffer.reset();
         EXPECT_EQ(LOG_ENTRY_TYPE_OBJTOMB, l.getEntry(v[1].reference, buffer));
-        EXPECT_EQ(dataLen - 1, buffer.getTotalLength());
+        EXPECT_EQ(dataLen - 1, buffer.size());
         appends++;
     }
     // This depends on ServerConfig's number of bytes allocated to the log.
@@ -170,10 +170,10 @@ TEST_F(AbstractLogTest, append_multipleLogEntries) {
     while (l.append(&logBuffer, references, 2)) {
         Buffer buffer;
         EXPECT_EQ(LOG_ENTRY_TYPE_OBJ, l.getEntry(references[0], buffer));
-        EXPECT_EQ(dataLen, buffer.getTotalLength());
+        EXPECT_EQ(dataLen, buffer.size());
         buffer.reset();
         EXPECT_EQ(LOG_ENTRY_TYPE_OBJTOMB, l.getEntry(references[1], buffer));
-        EXPECT_EQ(dataLen - 1, buffer.getTotalLength());
+        EXPECT_EQ(dataLen - 1, buffer.size());
         appends++;
     }
     // This depends on ServerConfig's number of bytes allocated to the log.
@@ -197,7 +197,7 @@ TEST_F(AbstractLogTest, getEntry) {
     Buffer buffer;
     type = l.getEntry(ref, buffer);
     EXPECT_EQ(LOG_ENTRY_TYPE_OBJ, type);
-    EXPECT_EQ(sizeof(data), buffer.getTotalLength());
+    EXPECT_EQ(sizeof(data), buffer.size());
     EXPECT_EQ(data, *buffer.getStart<uint64_t>());
 }
 
