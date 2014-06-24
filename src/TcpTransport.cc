@@ -394,6 +394,15 @@ TcpTransport::sendMessage(int fd, uint64_t nonce, Buffer* payload,
         iov[iovecIndex].iov_base = const_cast<void*>(iter.getData());
         iov[iovecIndex].iov_len = iter.getLength();
         ++iovecIndex;
+
+        // There's an upper limit on the permissible number of iovecs in
+        // one outgoing message. Unfortunately, this limit does not appear
+        // to be defined publicly, so we make a guess here. If we hit the
+        // limit, stop accumulating chunks for this message: the remaining
+        // chunks will get tried in a future invocation of this method.
+        if (iovecIndex >= 100) {
+            break;
+        }
         iter.next();
     }
 

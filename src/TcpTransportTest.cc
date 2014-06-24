@@ -437,6 +437,29 @@ TEST_F(TcpTransportTest, sendMessage_multipleChunks) {
     close(fd);
 }
 
+TEST_F(TcpTransportTest, sendMessage_tooManyChunksForOneMessage) {
+    int fd = connectToServer(locator);
+    Buffer payload;
+    for (int i = 0; i < 60; i++) {
+        payload.appendExternal("abcdefghijklmnopqrstuvwxyz" + i/10, 1);
+        payload.appendExternal("0123456789" + i%10, 1);
+    }
+    int bytesLeft = TcpTransport::sendMessage(fd, 111, &payload, -1);
+    EXPECT_EQ(21, bytesLeft);
+    bytesLeft = TcpTransport::sendMessage(fd, 111, &payload, bytesLeft);
+    EXPECT_EQ(0, bytesLeft);
+
+    Transport::ServerRpc* serverRpc = serviceManager->waitForRpc(1.0);
+    EXPECT_TRUE(serverRpc != NULL);
+    EXPECT_EQ("a0a1a2a3a4a5a6a7a8a9b0b1b2b3b4b5b6b7b8b9c0c1c2c3c4c5c6c7c8c9"
+            "d0d1d2d3d4d5d6d7d8d9e0e1e2e3e4e5e6e7e8e9f0f1f2f3f4f5f6f7f8f9",
+            TestUtil::toString(&serverRpc->requestPayload));
+    server.serverRpcPool.destroy(
+        static_cast<TcpTransport::TcpServerRpc*>(serverRpc));
+
+    close(fd);
+}
+
 TEST_F(TcpTransportTest, sendMessage_errorOnSend) {
     int fd = connectToServer(locator);
     Buffer payload;
