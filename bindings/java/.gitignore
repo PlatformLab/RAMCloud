@@ -1,0 +1,4 @@
+bin/
+lib/
+.gradle/
+test-output/

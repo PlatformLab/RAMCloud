@@ -1,0 +1,166 @@
+/**
+ * Gradle build file for the RAMCloud Java bindings.
+ * Build with "./gradlew build"
+ * Run unit tests with "./gradlew test"
+ * Change currentBranch to match your current git branch
+ */
+
+def sourceDir = 'src'
+def buildDir = 'bin'
+def libDir = 'lib'
+def ramcloudPath = '../..'
+def currentBranch = 'master'
+def dependencyPaths = buildDir + ':'
+
+class CompilationError extends GradleException {
+    CompilationError(String message) {
+        super(message);
+    }
+}
+
+class JavaBuildTask extends DefaultTask {
+    def File inputDir
+    def depPaths
+    
+    @InputFiles
+    def FileCollection inputs
+
+    @OutputDirectory
+    def File outputDir
+
+    @TaskAction
+    void execute(IncrementalTaskInputs inputs) {
+        inputs.outOfDate { change ->
+            // Convert to relative path
+            def relativePath = change.file.path.minus(inputDir.path + '/') 
+            ant.javac(srcdir: inputDir.path,
+                      destdir: outputDir.path,
+                      classpath: depPaths,
+                      debug: true,
+                      includeantruntime: false) {
+                include(name: relativePath)
+            }
+            println "Compiled: ${relativePath}"
+        }
+    }
+}
+
+class CppBuildTask extends DefaultTask {
+    def File inputDir
+    def File ramcloudDir
+    def branch
+
+    @InputFiles
+    def FileCollection inputs
+
+    @OutputDirectory
+    def File outputDir
+    
+    @TaskAction
+    void execute(IncrementalTaskInputs inputs) {
+        inputs.outOfDate { change ->
+            // Fully qualified name of class
+            def classPath = change.file.name.minus('.cc').replaceAll('_', '.');
+            ant.javah(class: classPath,
+                      outputFile: "${outputDir.path}/${classPath.replaceAll('\\.','_')}.h",
+                      classpath: inputDir.path)
+            def objPath = ramcloudDir.path + '/obj.' + branch
+            def command = ["g++",
+                           "--std=c++0x",
+                           "-shared",           
+                           "-fPIC",
+                           "-L${objPath}",
+                           "-I${objPath}",
+                           "-I${ramcloudDir.path + '/src'}",
+                           "-I${ramcloudDir.path + '/gtest/include'}",
+                           "-I${outputDir.path}",
+                           "-Iinclude",
+                           "-Wl,-rpath=${objPath}",
+                           "-lramcloud",
+                           "-lramcloudtest",
+                           "-g",
+                           "${change.file.path}",
+                           "-o",
+                           "${outputDir.path + '/lib' + change.file.name.minus('.cc') + '.so'}"]
+            def proc = command.execute();
+            proc.waitFor();
+            if (proc.exitValue() != 0) {
+                throw new CompilationError("\n" + proc.err.text)
+            } else {
+                println "Compiled: ${change.file.name}"
+            }
+        }
+    }
+}
+
+repositories {
+    mavenCentral()
+}
+
+configurations {
+    build
+}
+
+dependencies {
+    build 'org.testng:testng:6.8.8'
+}
+
+task directories << {
+    file(buildDir).mkdirs()
+    file(libDir).mkdirs()
+}
+
+task testbuild {
+    inputs.dir(ramcloudPath + '/obj.' + currentBranch)
+    outputs.file(ramcloudPath + '/obj.' + currentBranch + '/libramcloudtest.so')
+    doLast {
+        def proc = "./buildtest.sh".execute();
+        proc.waitFor();
+        if (proc.exitValue() != 0) {
+            throw new CompilationError("\n" + proc.err.text)
+        } else {
+            println "Linked libramcloudtest.so"
+        }
+    }
+}
+
+task build(type: CppBuildTask, dependsOn: ['javabuild', 'testbuild']) {
+    inputDir = file(buildDir)
+    ramcloudDir = file(ramcloudPath)
+    branch = currentBranch
+    inputs = fileTree(sourceDir).include('**/*.cc')
+    outputDir = file(libDir)
+}
+
+task javabuild(type: JavaBuildTask, dependsOn: 'directories') {
+    inputDir = file(sourceDir)
+    inputs = fileTree(sourceDir).include('**/*.java')
+    outputDir = file(buildDir)
+}
+
+javabuild.doFirst {
+    configurations.build.each {
+        dependencyPaths += it.path + ':'
+    }
+    depPaths = dependencyPaths
+}
+
+task clean(type: Delete) {
+    delete libDir, buildDir
+}
+
+task test << {
+    logging.level = LogLevel.INFO
+    configurations.build.each {
+        dependencyPaths += it.path + ':'
+    }
+    ant.taskdef(name: 'testng',
+                classpath: dependencyPaths,
+                classname: 'org.testng.TestNGAntTask')
+    ant.testng(classpath: dependencyPaths) {
+        sysproperty(key: 'java.library.path', value: libDir)
+        classfileset(dir: buildDir, includes:'edu/stanford/ramcloud/test/*.class')
+    }
+}
+
+test.dependsOn('build')
