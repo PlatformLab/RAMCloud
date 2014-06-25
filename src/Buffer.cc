@@ -501,7 +501,7 @@ Buffer::getRange(uint32_t offset, uint32_t length)
         offsetInChunk = offset;
     }
 
-    if ((totalLength == 0) || ((offset+length) > totalLength)) {
+    if ((offset >= totalLength) || ((offset+length) > totalLength)) {
         return NULL;
     }
 

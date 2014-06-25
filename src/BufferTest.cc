@@ -509,7 +509,14 @@ TEST_F(BufferTest, getRange_emptyBuffer) {
     void* result = buffer.getRange(0, 0);
     EXPECT_EQ(nullPtr, result);
 }
-TEST_F(BufferTest, getRange_rangeOutsideBuffer) {
+TEST_F(BufferTest, getRange_rangeStartsPastBufferEnd) {
+    Buffer buffer;
+    buffer.appendExternal("1", 1);
+    void* result = buffer.getRange(1, 0);
+    void* nullPtr = NULL;
+    EXPECT_EQ(nullPtr, result);
+}
+TEST_F(BufferTest, getRange_rangeExtendsOutsideBuffer) {
     Buffer buffer;
     buffer.appendExternal("abcde", 5);
     void* nullPtr = NULL;
