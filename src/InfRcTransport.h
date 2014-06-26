@@ -131,8 +131,6 @@ class InfRcTransport : public Transport {
             void sendOrQueue();
 
         PRIVATE:
-            void sendZeroCopy(Buffer* buffer);
-
             InfRcTransport*     transport;
             InfRcSession*       session;
 
@@ -283,6 +281,7 @@ class InfRcTransport : public Transport {
     };
 
     // misc helper functions
+    void sendZeroCopy(Buffer* message, QueuePair* qp);
     void setNonBlocking(int fd);
 
     // Extend Infiniband::postSrqReceive by issuing queued up transmissions
