@@ -27,6 +27,14 @@
 namespace RAMCloud {
 namespace Perf{
 
+static __inline __attribute__((always_inline))
+void cpuid() {
+    uint32_t eax, ebx, ecx, edx;
+    __asm volatile("cpuid"
+        : "=a" (eax), "=b" (ebx), "=c" (ecx), "=d" (edx)
+        : "a" (1U));
+}
+
 /**
  * The number of counters to bulk write at once when dumping to disk.
  */

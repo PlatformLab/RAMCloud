@@ -2268,6 +2268,110 @@ readDist()
     printf("\n");
 }
 
+// Read randomly-chosen objects from a large table (so that there will be cache
+// misses on the hash table and the object) and compute a cumulative
+// distribution of read times.
+void
+readDistRandom()
+{
+    #define NUM_KEYS 2000000
+    #define BATCH_SIZE 500
+    if (clientIndex != 0)
+        return;
+
+    const uint16_t keyLength = 30;
+
+    char key[keyLength];
+    Buffer input, value;
+
+    // Initialize keys and values
+    MultiWriteObject** objects = new MultiWriteObject*[BATCH_SIZE];
+    char* keys = new char[BATCH_SIZE * keyLength];
+    memset(keys, 0, BATCH_SIZE * keyLength);
+
+    char* charValues = new char[BATCH_SIZE * objectSize];
+    memset(charValues, 0, BATCH_SIZE * objectSize);
+
+    uint64_t i, j;
+    for (i = 0; i < NUM_KEYS; i++) {
+        j = i % BATCH_SIZE;
+
+        char* key = keys + j * keyLength;
+        char* value = charValues + j * objectSize;
+        *reinterpret_cast<uint64_t*>(key) = i;
+        genRandomString(value, objectSize);
+        objects[j] = new MultiWriteObject(dataTable, key, keyLength, value,
+                objectSize);
+
+        // Do the write and recycle the objects
+        if (j == BATCH_SIZE - 1) {
+            cluster->multiWrite(objects, BATCH_SIZE);
+
+            // Clean up the actual MultiWriteObjects
+            for (int k = 0; k < BATCH_SIZE; k++)
+                delete objects[k];
+
+            memset(keys, 0, BATCH_SIZE * keyLength);
+            memset(charValues, 0, BATCH_SIZE * objectSize);
+        }
+    }
+
+    // Do the last partial batch and clean up, if it exists.
+    j = i % BATCH_SIZE;
+    if (j < BATCH_SIZE - 1) {
+        cluster->multiWrite(objects, static_cast<uint32_t>(j));
+
+        // Clean up the actual MultiWriteObjects
+        for (uint64_t k = 0; k < j; k++)
+            delete objects[k];
+    }
+
+    delete[] keys;
+    delete[] charValues;
+    delete[] objects;
+
+    // Force serialization so that writing interferes less with the read
+    // benchmark.
+    Perf::cpuid();
+
+    // Issue the reads back-to-back, and save the times.
+    std::vector<uint64_t> ticks;
+    ticks.resize(count);
+    for (int i = 0; i < count; i++) {
+        // We generate the random number separately to avoid timing potential
+        // cache misses on the client side.
+        memset(key, 0, keyLength);
+        *reinterpret_cast<uint64_t*>(&key) = generateRandom() % NUM_KEYS;
+
+        // Do the benchmark
+        uint64_t start = Cycles::rdtsc();
+        cluster->read(dataTable, key, keyLength, &value);
+        ticks[i] = Cycles::rdtsc() - start;
+    }
+
+    // Dump cache traces. This amounts to almost a no-op if there are no
+    // traces, and we do not currently expect traces in production code.
+    cluster->objectServerControl(dataTable, key, keyLength,
+            WireFormat::LOG_TIME_TRACE);
+
+    // Output the times (several comma-separated values on each line).
+    int valuesInLine = 0;
+    for (int i = 0; i < count; i++) {
+        if (valuesInLine >= 10) {
+            valuesInLine = 0;
+            printf("\n");
+        }
+        if (valuesInLine != 0) {
+            printf(",");
+        }
+        double micros = Cycles::toSeconds(ticks[i])*1.0e06;
+        printf("%.2f", micros);
+        valuesInLine++;
+    }
+    printf("\n");
+    #undef NUM_KEYS
+}
+
 // This benchmark measures the latency and server throughput for reads
 // when several clients are simultaneously reading the same object.
 void
@@ -2702,6 +2806,7 @@ TestInfo tests[] = {
     {"netBandwidth", netBandwidth},
     {"readAllToAll", readAllToAll},
     {"readDist", readDist},
+    {"readDistRandom", readDistRandom},
     {"readLoaded", readLoaded},
     {"readNotFound", readNotFound},
     {"readRandom", readRandom},
