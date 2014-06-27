@@ -857,10 +857,11 @@ TEST_F(BufferTest, allocAux) {
     EXPECT_EQ('x', t->c);
 }
 
-TEST_F(BufferTest, append) {
+TEST_F(BufferTest, appendExternal) {
     Buffer buffer;
     buffer.appendExternal("abcde", 5);
     buffer.appendExternal("0123", 4);
+    buffer.appendExternal("", 0);
     EXPECT_EQ("abcde | 0123", showChunks(&buffer));
 }
 
@@ -868,6 +869,7 @@ TEST_F(BufferTest, appendCopy) {
     Buffer buffer;
     buffer.appendCopy("abcde", 5);
     buffer.appendCopy("0123", 4);
+    buffer.appendCopy("", 0);
     EXPECT_EQ("abcde0123", showChunks(&buffer));
 }
 

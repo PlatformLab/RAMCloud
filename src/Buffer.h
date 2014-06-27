@@ -95,6 +95,7 @@ class Buffer {
     inline void
     appendExternal(const void* data, uint32_t numBytes)
     {
+        if (expect_false(numBytes == 0)) return;
         // At one point this method was modified to just copy in the data,
         // if it is small, rather than creating a new chunk that refers to
         // external data. In many situations this would improve performance,
@@ -119,6 +120,7 @@ class Buffer {
     inline void
     appendCopy(const void* data, uint32_t numBytes)
     {
+        if (expect_false(numBytes == 0)) return;
         memcpy(alloc(numBytes), data, numBytes);
     }
 
@@ -192,7 +194,7 @@ class Buffer {
      * Returns a pointer to an object of a particular type, stored
      * at a particular location in the buffer. If the object is not
      * currently stored contiguously, is copied to make it contiguous.
-     * 
+     *
      * \param offset
      *      Number of bytes in the buffer preceding the desired object.
      * \return
@@ -248,7 +250,7 @@ class Buffer {
      * For highest performance, the destructor skips parts of this code.
      * Putting this method here as an in-line allows the compiler to
      * optimize out the parts not needed for the destructor.
-     * 
+     *
      * \param isReset
      *      True means implement the full reset functionality; false means
      *      implement only the functionality need for the destructor.
@@ -363,7 +365,7 @@ class Buffer {
     /**
      * A Chunk represents a contiguous subrange of bytes within a Buffer.
      * There are two different kinds of chunks:
-     * 
+     *
      * - Some chunks are allocated by the Buffer to hold the results of
      *   the alloc and emplaceAppend methods.
      * - Some chunks are provided externally (e.g. network packets from a
