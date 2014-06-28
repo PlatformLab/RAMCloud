@@ -1250,17 +1250,36 @@ struct RemoveIndexEntry {
 struct ServerControl {
     static const Opcode opcode = Opcode::SERVER_CONTROL;
     static const ServiceType service = PING_SERVICE;
+
+    /// Distinguishes between the ObjectServerControl, IndexServerControl,
+    /// and ServerControl types.
+    /// Note: Make sure INVALID is always last.
+    enum ServerControlType {
+        OBJECT,                     // ObjectServerControl type.
+        INDEX,                      // IndexServerControl type.
+        SERVER_ID,                  // ServerControl type.
+        INVALID                     // Invalid type used for testing.
+    };
+
     struct Request {
         RequestCommon common;
+        ServerControlType type;     // Defines which arguments the server checks
+                                    // before proceeding.
         ControlOp controlOp;        // The control operation to be initiated
                                     // in a server.
+        uint64_t tableId;           // TableId of owned target object/indexlet.
+        uint8_t indexId;            // IndexId of owned target indexlet.
+        uint16_t keyLength;         // Length of key/secondary key of the
+                                    // owned target object/indexlet.
         uint32_t inputLength;       // Length of the input data for the
                                     // control operation, in bytes.
-                                    // The actual data follow immediately
-                                    // after this header.
+        // Data follows immediately after this header in the following order:
+        // key      (keyLength bytes of key data)
+        // input    (inputLength bytes of input data)
     } __attribute__((packed));
     struct Response {
         ResponseCommon common;
+        uint64_t serverId;          // ServerId of the responding server.
         uint32_t outputLength;      // Length of the output data returning
                                     // from the server, in bytes. The actual
                                     // data follow immediately after the header.

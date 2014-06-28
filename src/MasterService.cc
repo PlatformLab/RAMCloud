@@ -75,11 +75,6 @@ MasterService::MasterService(Context* context,
     : context(context)
     , config(config)
     , objectFinder(context)
-    , disableCount(0)
-    , initCalled(false)
-    , logEverSynced(false)
-    , masterTableMetadata()
-    , maxResponseRpcLen(Transport::MAX_RPC_LEN)
     , objectManager(context,
                     &serverId,
                     config,
@@ -87,6 +82,11 @@ MasterService::MasterService(Context* context,
                     &masterTableMetadata)
     , tabletManager()
     , indexletManager(context, &objectManager)
+    , disableCount(0)
+    , initCalled(false)
+    , logEverSynced(false)
+    , masterTableMetadata()
+    , maxResponseRpcLen(Transport::MAX_RPC_LEN)
 {
 }
 

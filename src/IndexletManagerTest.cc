@@ -187,6 +187,39 @@ TEST_F(IndexletManagerTest, addIndexlet_ProtoBuf) {
     EXPECT_EQ(0, firstNotOwnedKey.compare("k"));
 }
 
+TEST_F(IndexletManagerTest, hasIndexlet) {
+    string key1 = "a";
+    string key2 = "c";
+    string key3 = "f";
+    string key4 = "k";
+    string key5 = "u";
+
+    // check if indexlet exist corresponding to c
+    EXPECT_FALSE(im.hasIndexlet(0, 0, key2.c_str(), (uint16_t)key2.length()));
+
+    // add indexlet exist corresponding to [c, k)
+    im.addIndexlet(0, 0, indexletTableId, key2.c_str(),
+        (uint16_t)key2.length(), key4.c_str(), (uint16_t)key4.length());
+
+    // check if indexlet exist corresponding to c
+    EXPECT_TRUE(im.hasIndexlet(0, 0, key2.c_str(), (uint16_t)key2.length()));
+
+    // different table id
+    EXPECT_FALSE(im.hasIndexlet(1, 0, key2.c_str(), (uint16_t)key2.length()));
+
+    // different index id
+    EXPECT_FALSE(im.hasIndexlet(0, 1, key2.c_str(), (uint16_t)key2.length()));
+
+    // key is within the range of indexlet
+    EXPECT_TRUE(im.hasIndexlet(0, 0, key3.c_str(), (uint16_t)key3.length()));
+
+    // key is before the range of indexlet
+    EXPECT_FALSE(im.hasIndexlet(0, 0, key1.c_str(), (uint16_t)key1.length()));
+
+    // key is after the range of indexlet
+    EXPECT_FALSE(im.hasIndexlet(0, 1, key2.c_str(), (uint16_t)key2.length()));
+}
+
 TEST_F(IndexletManagerTest, getIndexlet) {
     string key1 = "a";
     string key2 = "c";

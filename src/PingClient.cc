@@ -46,7 +46,7 @@ namespace RAMCloud {
  * \throw CallerNotInClusterException
  *      CallerId was specified, but the target server doesn't think
  *      it is part of the cluster anymore.
- */ 
+ */
 void
 PingClient::ping(Context* context, ServerId targetId, ServerId callerId)
 {
@@ -139,7 +139,7 @@ PingRpc::wait(uint64_t timeoutNanoseconds)
  * \throw ServerNotUpException
  *      Generated if \a proxyId is not part of the cluster; if it ever
  *      existed, it has since crashed.
- */ 
+ */
 uint64_t
 PingClient::proxyPing(Context* context, ServerId proxyId, ServerId targetId,
         uint64_t timeoutNanoseconds)
@@ -195,6 +195,104 @@ ProxyPingRpc::wait()
     const WireFormat::ProxyPing::Response* respHdr(
             getResponseHeader<WireFormat::ProxyPing>());
     return respHdr->replyNanoseconds;
+}
+
+
+/**
+ * This RPC is used to invoke a variety of miscellaneous operations on a server,
+ * such as starting and stopping special timing mechanisms, dumping metrics, and
+ * so on. Most of these operations are used only for testing. Each operation is
+ * defined by a specific opcode (controlOp) and an arbitrary chunk of input
+ * data. Not all operations require input data, and different operations use the
+ * input data in different ways. Each operation can also return an optional
+ * result of arbitrary size.
+ *
+ * \param context
+ *      Overall information about this RAMCloud server or client.
+ * \param serverId
+ *      Identifier for the master to be controlled.
+ * \param controlOp
+ *      This defines the specific operation to be performed on the
+ *      remote server.
+ * \param inputData
+ *      Input data, such as additional parameters, specific for the
+ *      particular operation to be performed. Not all operations use
+ *      this information.
+ * \param inputLength
+ *      Size in bytes of the contents for the inputData.
+ * \param[out] outputData
+ *      A buffer that contains the return results, if any, from execution of the
+ *      control operation on the remote server.
+ */
+void
+PingClient::serverControl(Context* context, ServerId serverId,
+        WireFormat::ControlOp controlOp, const void* inputData,
+        uint32_t inputLength, Buffer* outputData)
+{
+    ServerControlRpc rpc(context, serverId, controlOp,
+                         inputData, inputLength,
+                         outputData);
+    rpc.wait();
+}
+
+/**
+ * Constructor for ServerControlRpc: initiates an RPC in the same way as
+ * #PingClient::serverControl, but returns once the RPC has been initiated,
+ * without waiting for it to complete.
+ *
+ * \param context
+ *      Overall information about this RAMCloud server or client.
+ * \param serverId
+ *      Identifier for the master to be controlled.
+ * \param controlOp
+ *      This defines the specific operation to be performed on the
+ *      remote server.
+ * \param inputData
+ *      Input data, such as additional parameters, specific for the
+ *      particular operation to be performed. Not all operations use
+ *      this information.
+ * \param inputLength
+ *      Size in bytes of the contents for the inputData.
+ * \param[out] outputData
+ *      A buffer that contains the return results, if any, from execution of the
+ *      control operation on the remote server.
+ */
+ServerControlRpc::ServerControlRpc(Context* context, ServerId serverId,
+        WireFormat::ControlOp controlOp, const void* inputData,
+        uint32_t inputLength, Buffer* outputData)
+    : ServerIdRpcWrapper(context, serverId,
+        sizeof(WireFormat::ServerControl::Response), outputData)
+{
+    if (outputData) outputData->reset();
+    WireFormat::ServerControl::Request*
+                        reqHdr(allocHeader<WireFormat::ServerControl>());
+
+    reqHdr->type = WireFormat::ServerControl::SERVER_ID;
+    reqHdr->controlOp = controlOp;
+
+    reqHdr->keyLength = 0;
+    reqHdr->inputLength = inputLength;
+    request.appendExternal(inputData, inputLength);
+    send();
+}
+
+/**
+ * Wait for a serverControl RPC to complete.
+ *
+ * \throw ServerNotUpException
+ *      The target server for this RPC is not part of the cluster;
+ *      if it ever existed, it has since crashed.
+ */
+void
+ServerControlRpc::wait()
+{
+    waitAndCheckErrors();
+    const WireFormat::ServerControl::Response* respHdr(
+            getResponseHeader<WireFormat::ServerControl>());
+    // Truncate the response Buffer so that it consists of nothing
+    // but the object data.
+    response->truncateFront(sizeof(*respHdr));
+    assert(respHdr->outputLength == response->size());
 }
 
 /**

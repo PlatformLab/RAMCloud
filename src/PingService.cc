@@ -129,25 +129,93 @@ PingService::proxyPing(const WireFormat::ProxyPing::Request* reqHdr,
  * Top-level service method to handle the SERVER_CONTROL request.
  *
  * Based on the ControlOp field in the RPC header, this method decides
- * a proper control action to be taken. Any new ControlOp and consequent 
- * actions and method calls should be added as a new case item in the 
+ * a proper control action to be taken. Any new ControlOp and consequent
+ * actions and method calls should be added as a new case item in the
  * switch-case statement below.
  *
  * \copydetails Service::ping
  */
 void
 PingService::serverControl(const WireFormat::ServerControl::Request* reqHdr,
-                WireFormat::ServerControl::Response* respHdr,
-                Rpc* rpc)
+                           WireFormat::ServerControl::Response* respHdr,
+                           Rpc* rpc)
 {
-    uint32_t reqOffset = sizeof32(*reqHdr);
-    const void* inputData = rpc->requestPayload->getRange(
-                            reqOffset, reqHdr->inputLength);
+    respHdr->serverId = serverId.getId();
+
+    // Perform necessary checks based on RpcType
+    switch (reqHdr->type) {
+        case WireFormat::ServerControl::OBJECT:
+        {
+            // We should only get this operation if we own a
+            // particular object.
+            // Check if there is actually a Master Service running.
+            if (context->masterService == NULL) {
+                respHdr->common.status = STATUS_UNKNOWN_TABLET;
+                return;
+            }
+
+            // Check if the RPC has reached the server owning the target object.
+            const void* stringKey = rpc->requestPayload->getRange(
+                                        sizeof32(*reqHdr), reqHdr->keyLength);
+            if (stringKey == NULL) {
+                respHdr->common.status = STATUS_REQUEST_FORMAT_ERROR;
+                return;
+            }
+
+            Key key(reqHdr->tableId, stringKey, reqHdr->keyLength);
+            TabletManager::Tablet tablet;
+
+            if (!context->masterService->tabletManager.getTablet(key, &tablet)
+                || tablet.state != TabletManager::NORMAL) {
+                respHdr->common.status = STATUS_UNKNOWN_TABLET;
+                return;
+            }
+            break;
+        }
+        case WireFormat::ServerControl::INDEX:
+        {
+            // We should only get this operation if we own a
+            // particular indexlet.
+            // Check if there is actually a Master Service running.
+            if (context->masterService == NULL) {
+                respHdr->common.status = STATUS_UNKNOWN_INDEXLET;
+                return;
+            }
+
+            // Check if the RPC has reached the server owning the target index.
+            const void* stringKey = rpc->requestPayload->getRange(
+                                        sizeof32(*reqHdr), reqHdr->keyLength);
+            if (stringKey == NULL) {
+                respHdr->common.status = STATUS_REQUEST_FORMAT_ERROR;
+                return;
+            }
+
+            if (!context->masterService->indexletManager.hasIndexlet(
+                                        reqHdr->tableId, reqHdr->indexId,
+                                        stringKey, reqHdr->keyLength)) {
+                respHdr->common.status = STATUS_UNKNOWN_INDEXLET;
+                return;
+            }
+            break;
+        }
+        case WireFormat::ServerControl::SERVER_ID:
+            // No checks are necessary as it is assumed that a ServerId targeted
+            // RPC cannot hit the wrong server.
+            break;
+        default:
+            // Return format error if the RpcType is unknown.
+            respHdr->common.status = STATUS_REQUEST_FORMAT_ERROR;
+            return;
+    }
+
+    uint32_t reqOffset = sizeof32(*reqHdr) + reqHdr->keyLength;
+    const void* inputData = rpc->requestPayload->getRange(reqOffset,
+                                                          reqHdr->inputLength);
+
     switch (reqHdr->controlOp) {
         case WireFormat::START_DISPATCH_PROFILER:
         {
-            if (rpc->requestPayload->getOffset<uint64_t>(reqOffset)
-                == NULL) {
+            if (rpc->requestPayload->getOffset<uint64_t>(reqOffset) == NULL) {
                 respHdr->common.status = STATUS_MESSAGE_TOO_SHORT;
                 return;
             }

@@ -234,6 +234,36 @@ IndexletManager::deleteIndexlet(ProtoBuf::Indexlets::Indexlet indexlet)
 }
 
 /**
+ * Given a secondary key in an indexlet range, find the indexlet.  This is used
+ * to determine whether the indexlet is owned by this IndexletManager.
+ *
+ * \param tableId
+ *      Id of the data table for which this indexlet stores some
+ *      index information.
+ * \param indexId
+ *      Id of the index key for which this indexlet stores some information.
+ * \param key
+ *      Key blob contained to be found in the target indexlet.
+ * \param keyLength
+ *      Length of key blob.
+ * \return
+ *      True if a indexlet was found, otherwise false.
+ */
+bool
+IndexletManager::hasIndexlet(uint64_t tableId, uint8_t indexId,
+                             const void *key, uint16_t keyLength)
+{
+    Lock indexletMapLock(indexletMapMutex);
+
+    IndexletMap::iterator it =
+            lookupIndexlet(tableId, indexId, key, keyLength, indexletMapLock);
+    if (it == indexletMap.end()) {
+        return false;
+    }
+    return true;
+}
+
+/**
  * Given the exact specification of a indexlet's range , obtain the current data
  * associated with that indexlet, if it exists. Note that the data returned is a
  * snapshot. The IndexletManager's data may be modified at any time by other
@@ -343,7 +373,7 @@ IndexletManager::lookupIndexlet(uint64_t tableId, uint8_t indexId,
 
  /**
   * Obtain the total number of indexlets this object is managing.
-  * 
+  *
   * \return
   *     Total number of indexlets this object is managing.
   */
@@ -428,7 +458,7 @@ IndexletManager::insertEntry(uint64_t tableId, uint8_t indexId,
  *      Maximum number of key hashes that can be returned as a response here.
  *      If there are more hashes to be returned than maxNumHashes, then
  *      information about the next key + keyHash to be fetched is also returned.
- * 
+ *
  * \param[out] responseBuffer
  *      Return buffer containing the following:
  *      1. Actual bytes of the next key to fetch (nextKey), if any.

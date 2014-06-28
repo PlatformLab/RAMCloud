@@ -31,11 +31,11 @@ namespace RAMCloud {
 
 /**
  * This class is on every index server.
- * 
+ *
  * It manages and stores the metadata regarding indexlets (index partitions)
  * stored on this server.
  * The coordinator invokes metadata-related functions to manage the metadata.
- * 
+ *
  * This class is also provides the interface for storing index entries on this
  * index server for each indexlet it owns, to the masters owning the
  * data objects corresponding to those index entries.
@@ -192,6 +192,8 @@ class IndexletManager {
                 const void *firstKey, uint16_t firstKeyLength,
                 const void *firstNotOwnedKey, uint16_t firstNotOwnedKeyLength);
     bool deleteIndexlet(ProtoBuf::Indexlets::Indexlet indexlet);
+    bool hasIndexlet(uint64_t tableId, uint8_t indexId,
+                const void *key, uint16_t keyLength);
     struct Indexlet* getIndexlet(uint64_t tableId, uint8_t indexId,
                 const void *firstKey, uint16_t firstKeyLength,
                 const void *firstNotOwnedKey, uint16_t firstNotOwnedKeyLength);

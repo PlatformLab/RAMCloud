@@ -1255,11 +1255,18 @@ IndexServerControlRpc::IndexServerControlRpc(RamCloud* ramcloud,
     : IndexRpcWrapper(ramcloud, tableId, indexId, key, keyLength,
             sizeof(WireFormat::ServerControl::Response), outputData)
 {
-    outputData->reset();
+    if (outputData) outputData->reset();
     WireFormat::ServerControl::Request* reqHdr(
             allocHeader<WireFormat::ServerControl>());
-    reqHdr->inputLength = inputLength;
+
+    reqHdr->type = WireFormat::ServerControl::INDEX;
     reqHdr->controlOp = controlOp;
+
+    reqHdr->tableId = tableId;
+    reqHdr->indexId = indexId;
+    reqHdr->keyLength = keyLength;
+    request.appendExternal(key, keyLength);
+    reqHdr->inputLength = inputLength;
     request.appendExternal(inputData, inputLength);
     send();
 }
@@ -1923,7 +1930,7 @@ RamCloud::objectServerControl(uint64_t tableId, const void* key,
 
 /**
  * Constructor for ObjectServerControlRpc: initiates an RPC in the same way as
- * #RamCloud::serverControl, but returns once the RPC has been initiated,
+ * #RamCloud::objectServerControl, but returns once the RPC has been initiated,
  * without waiting for it to complete.
  *
  * \param ramcloud
@@ -1960,16 +1967,22 @@ ObjectServerControlRpc::ObjectServerControlRpc(RamCloud* ramcloud,
 {
     if (outputData) outputData->reset();
     WireFormat::ServerControl::Request*
-                               reqHdr(allocHeader<WireFormat::ServerControl>());
-    reqHdr->inputLength = inputLength;
+                        reqHdr(allocHeader<WireFormat::ServerControl>());
+
+    reqHdr->type = WireFormat::ServerControl::OBJECT;
     reqHdr->controlOp = controlOp;
+
+    reqHdr->tableId = tableId;
+    reqHdr->keyLength = keyLength;
+    request.appendExternal(key, keyLength);
+    reqHdr->inputLength = inputLength;
     request.appendExternal(inputData, inputLength);
     send();
 }
 
 /**
  * Waits for the RPC to complete, and returns the same results as
- * #RamCloud::serverControl.
+ * #RamCloud::objectServerControl.
  */
 void
 ObjectServerControlRpc::wait()

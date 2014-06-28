@@ -36,24 +36,23 @@ class PingService : public Service {
 
   PRIVATE:
     void getMetrics(const WireFormat::GetMetrics::Request* reqHdr,
-              WireFormat::GetMetrics::Response* respHdr,
-              Rpc* rpc);
+            WireFormat::GetMetrics::Response* respHdr,
+            Rpc* rpc);
     void getServerId(const WireFormat::GetServerId::Request* reqHdr,
-              WireFormat::GetServerId::Response* respHdr,
-              Rpc* rpc);
+            WireFormat::GetServerId::Response* respHdr,
+            Rpc* rpc);
     void ping(const WireFormat::Ping::Request* reqHdr,
-              WireFormat::Ping::Response* respHdr,
-              Rpc* rpc);
+            WireFormat::Ping::Response* respHdr,
+            Rpc* rpc);
     void proxyPing(const WireFormat::ProxyPing::Request* reqHdr,
-              WireFormat::ProxyPing::Response* respHdr,
-              Rpc* rpc);
+            WireFormat::ProxyPing::Response* respHdr,
+            Rpc* rpc);
     void serverControl(const WireFormat::ServerControl::Request* reqHdr,
-              WireFormat::ServerControl::Response* respHdr,
-              Rpc* rpc);
-
+            WireFormat::ServerControl::Response* respHdr,
+            Rpc* rpc);
     void kill(const WireFormat::Kill::Request* reqHdr,
-               WireFormat::Kill::Response* respHdr,
-               Rpc* rpc);
+            WireFormat::Kill::Response* respHdr,
+            Rpc* rpc);
 
     /// Shared RAMCloud information.
     Context* context;

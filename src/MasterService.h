@@ -91,6 +91,23 @@ class MasterService : public Service {
      */
     ObjectFinder objectFinder;
 
+    /**
+     * The ObjectManager class that is responsible for object storage.
+     */
+    ObjectManager objectManager;
+
+    /**
+     * The TabletManager keeps track of ranges of tables that are assigned to
+     * this server by the coordinator. Ranges are contiguous spans of the 64-bit
+     * key hash space.
+     */
+    TabletManager tabletManager;
+
+    /**
+     * The IndexletManger class that is responsible for index storage.
+     */
+    IndexletManager indexletManager;
+
   PRIVATE:
     void dropTabletOwnership(
                 const WireFormat::DropTabletOwnership::Request* reqHdr,
@@ -215,23 +232,6 @@ class MasterService : public Service {
      * to simplify testing.
      */
     uint32_t maxResponseRpcLen;
-
-    /**
-     * The ObjectManager class that is responsible for object storage.
-     */
-    ObjectManager objectManager;
-
-    /**
-     * The TabletManager keeps track of ranges of tables that are assigned to
-     * this server by the coordinator. Ranges are contiguous spans of the 64-bit
-     * key hash space.
-     */
-    TabletManager tabletManager;
-
-    /**
-     * The IndexletManger class that is responsible for index storage.
-     */
-    IndexletManager indexletManager;
 
 ///////////////////////////////////////////////////////////////////////////////
 /////Recovery related code. This should eventually move into its own file./////

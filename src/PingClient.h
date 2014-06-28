@@ -34,6 +34,9 @@ class PingClient {
             ServerId callerId = ServerId());
     static uint64_t proxyPing(Context* context, ServerId proxyId,
             ServerId targetId, uint64_t timeoutNanoseconds);
+    static void serverControl(Context* context, ServerId serverId,
+            WireFormat::ControlOp controlOp, const void* inputData = NULL,
+            uint32_t inputLength = 0, Buffer* outputData = NULL);
     static bool verifyServerId(Context* context, Transport::SessionRef session,
             ServerId expectedId);
 
@@ -90,6 +93,21 @@ class ProxyPingRpc : public ServerIdRpcWrapper {
 
     PRIVATE:
     DISALLOW_COPY_AND_ASSIGN(ProxyPingRpc);
+};
+
+/**
+ * Encapsulates the state of a PingClient::serverControl operation,
+ * allowing it to execute asynchronously.
+ */
+class ServerControlRpc : public ServerIdRpcWrapper {
+  public:
+    ServerControlRpc(Context* context, ServerId serverId,
+            WireFormat::ControlOp controlOp, const void* inputData = NULL,
+            uint32_t inputLength = NULL, Buffer* outputData = NULL);
+    ~ServerControlRpc() {}
+    void wait();
+  PRIVATE:
+    DISALLOW_COPY_AND_ASSIGN(ServerControlRpc);
 };
 
 } // namespace RAMCloud

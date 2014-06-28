@@ -229,7 +229,7 @@ GetHeadOfLogRpc::wait()
 /**
  * This RPC is sent to an index server to request that it insert an index
  * entry in an indexlet it holds.
- * 
+ *
  * \param master
  *      Overall information about this RAMCloud server.
  * \param tableId
@@ -517,7 +517,7 @@ ReceiveMigrationDataRpc::ReceiveMigrationDataRpc(Context* context,
  * \param partitionId
  *      The partition id of #tablets inside the crashed master's will.
  * \param recoveryPartition
- *      A set of tablets and indexlets with key ranges describing which poritions 
+ *      A set of tablets and indexlets with key ranges describing which poritions
  *      of which tables and indexlets the recovery Master should take over for.
  * \param replicas
  *      An array describing where to find replicas of each segment.
