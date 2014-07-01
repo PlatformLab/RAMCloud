@@ -28,6 +28,13 @@
     MetricSet::PerfCounter MetricSet::CounterName(#CounterName)
 
 namespace RAMCloud { namespace Perf {
+
+/**
+ * The number of counters to bulk write at once when dumping to disk.
+ */
+const size_t WRITES_PER_BATCH =  100000;
+
+
 /**
  * serverName and logPath are used together to set the directory for dumping
  * performance counters. In general, the performance counters for a given

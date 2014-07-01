@@ -24,6 +24,7 @@
 #include "PingService.h"
 #include "ServerList.h"
 #include "TimeTrace.h"
+#include "CacheTrace.h"
 
 namespace RAMCloud {
 
@@ -256,6 +257,18 @@ PingService::serverControl(const WireFormat::ServerControl::Request* reqHdr,
         case WireFormat::LOG_TIME_TRACE:
         {
             context->timeTrace->printToLog();
+            break;
+        }
+        case WireFormat::GET_CACHE_TRACE:
+        {
+            string s = context->cacheTrace->getTrace();
+            respHdr->outputLength = downCast<uint32_t>(s.length());
+            rpc->replyPayload->appendCopy(s.c_str(), respHdr->outputLength);
+            break;
+        }
+        case WireFormat::LOG_CACHE_TRACE:
+        {
+            context->cacheTrace->printToLog();
             break;
         }
         default:

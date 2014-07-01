@@ -432,7 +432,10 @@ TEST_F(RamCloudTest, indexServerControl) {
     EXPECT_EQ("createIndex: Creating table '1' index '2'", TestLog::get());
     ramcloud->indexServerControl(tableId1, 2, "0", 1,
             WireFormat::GET_TIME_TRACE, "abc", 3, &output);
-    EXPECT_EQ("No events to print", TestUtil::toString(&output));
+    EXPECT_EQ("No time trace events to print", TestUtil::toString(&output));
+    ramcloud->indexServerControl(tableId1, 2, "0", 1,
+            WireFormat::GET_CACHE_TRACE, "abc", 3, &output);
+    EXPECT_EQ("No cache trace events to print", TestUtil::toString(&output));
 }
 
 TEST_F(RamCloudTest, quiesce) {

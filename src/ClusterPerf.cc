@@ -49,7 +49,7 @@ namespace po = boost::program_options;
 #include "CycleCounter.h"
 #include "Cycles.h"
 #include "KeyUtil.h"
-#include "PerfCounter.h"
+#include "Util.h"
 
 using namespace RAMCloud;
 
@@ -2332,7 +2332,7 @@ readDistRandom()
 
     // Force serialization so that writing interferes less with the read
     // benchmark.
-    Perf::cpuid();
+    Util::serialize();
 
     // Issue the reads back-to-back, and save the times.
     std::vector<uint64_t> ticks;

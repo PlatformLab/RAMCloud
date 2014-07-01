@@ -38,6 +38,7 @@ class SessionAlarmTimer;
 class PortAlarmTimer;
 class TableManager;
 class TimeTrace;
+class CacheTrace;
 class TransportManager;
 
 /**
@@ -85,6 +86,7 @@ class Context {
     PortAlarmTimer*    portAlarmTimer;
     CoordinatorSession* coordinatorSession;
     TimeTrace* timeTrace;
+    CacheTrace* cacheTrace;
 
     // Variables below this point are used only in servers.  They are
     // always NULL on clients.

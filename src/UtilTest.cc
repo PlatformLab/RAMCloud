@@ -44,4 +44,37 @@ TEST(UtilTest, timespecAdd) {
     EXPECT_EQ(26, result.tv_nsec);
 }
 
+TEST(UtilTest, readPmc) {
+    Util::mockPmcValue = 1;
+    EXPECT_EQ(Util::readPmc(0), 1U);
+    Util::mockPmcValue = 0;
+}
+
+TEST(UtilTest, pinThreadToCore) {
+    cpu_set_t oldSet = Util::getCpuAffinity();
+    Util::pinThreadToCore(0);
+    EXPECT_EQ(sched_getcpu(), 0);
+    Util::setCpuAffinity(oldSet);
+}
+
+TEST(UtilTest, getCpuAffinity) {
+    cpu_set_t oldSet = Util::getCpuAffinity();
+    for (int i = 0; i < CPU_COUNT(&oldSet); i++)
+        EXPECT_TRUE(CPU_ISSET(i, &oldSet));
+}
+
+TEST(UtilTest, setCpuAffinity) {
+    cpu_set_t oldSet = Util::getCpuAffinity();
+    Util::pinThreadToCore(0);
+    Util::setCpuAffinity(oldSet);
+    cpu_set_t newSet = Util::getCpuAffinity();
+    EXPECT_TRUE(CPU_EQUAL(&oldSet, &newSet));
+}
+
+
+TEST(UtilTest, serialReadPmc) {
+    Util::mockPmcValue = 1;
+    EXPECT_EQ(Util::serialReadPmc(0), 1U);
+}
+
 }  // namespace RAMCloud

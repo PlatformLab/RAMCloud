@@ -133,6 +133,8 @@ enum ControlOp {
     DUMP_DISPATCH_PROFILE       = 1002,
     GET_TIME_TRACE              = 1003,
     LOG_TIME_TRACE              = 1004,
+    GET_CACHE_TRACE             = 1005,
+    LOG_CACHE_TRACE             = 1006,
 };
 
 /**

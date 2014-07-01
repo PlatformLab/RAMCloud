@@ -82,12 +82,12 @@ TEST_F(TimeTraceTest, printToLog) {
 
 TEST_F(TimeTraceTest, printInternal_emptyTrace_stringVersion) {
     trace.nextIndex = 0;
-    EXPECT_EQ("No events to print", trace.getTrace());
+    EXPECT_EQ("No time trace events to print", trace.getTrace());
 }
 TEST_F(TimeTraceTest, printInternal_emptyTrace_logVersion) {
     trace.nextIndex = 0;
     trace.printInternal(NULL);
-    EXPECT_EQ("printInternal: No events to print", TestLog::get());
+    EXPECT_EQ("printInternal: No time trace events to print", TestLog::get());
 }
 TEST_F(TimeTraceTest, printInternal_startAtBeginning) {
     trace.record("point a", 100);

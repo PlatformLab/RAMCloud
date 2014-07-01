@@ -116,5 +116,11 @@ timespecAdd(const struct timespec& t1, const struct timespec& t2)
     return result;
 }
 
+/** 
+ * Used for testing: if nonzero then this will be returned as the result of the
+ * next call to read_pmc().
+ */
+uint64_t mockPmcValue = 0;
+
 } // namespace Util
 } // namespace RAMCloud

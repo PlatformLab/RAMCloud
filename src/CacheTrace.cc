@@ -13,14 +13,14 @@
  * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "TimeTrace.h"
+#include "CacheTrace.h"
 
 namespace RAMCloud {
 
 /**
- * Construct a TimeTrace.
+ * Construct a CacheTrace.
  */
-TimeTrace::TimeTrace()
+CacheTrace::CacheTrace()
     : events()
     , nextIndex(0)
 {
@@ -31,9 +31,9 @@ TimeTrace::TimeTrace()
 }
 
 /**
- * Destructor for TimeTrace.
+ * Destructor for CacheTrace.
  */
-TimeTrace::~TimeTrace()
+CacheTrace::~CacheTrace()
 {
 }
 
@@ -47,21 +47,22 @@ TimeTrace::~TimeTrace()
  *      in the time trace, so either the string must be static, or the caller
  *      must ensure that its contents will not change over its lifetime
  *      in the trace.
- * \param timestamp
- *      Identifies the time at which the event occurred.
+ * \param lastLevelMissCount
+ *      Identifies the value of the Last Level Cache Miss counter at which
+ *      the event occurred.
  */
-void TimeTrace::record(const char* message, uint64_t timestamp)
+void CacheTrace::record(const char* message, uint64_t lastLevelMissCount)
 {
     int i = nextIndex;
     nextIndex = (i + 1)%BUFFER_SIZE;
-    events[i].timestamp = timestamp;
+    events[i].count = lastLevelMissCount;
     events[i].message = message;
 }
 
 /**
  * Return a string containing a printout of the records in the trace.
  */
-string TimeTrace::getTrace()
+string CacheTrace::getTrace()
 {
     string s;
     printInternal(&s);
@@ -71,7 +72,7 @@ string TimeTrace::getTrace()
 /**
  * Print all existing trace records to the system log.
  */
-void TimeTrace::printToLog()
+void CacheTrace::printToLog()
 {
     printInternal(NULL);
 }
@@ -84,7 +85,7 @@ void TimeTrace::printToLog()
  *      If non-NULL, refers to a string that will hold a printout of the
  *      time trace. If NULL, the trace will be printed on the system log.
  */
-void TimeTrace::printInternal(string* s)
+void CacheTrace::printInternal(string* s)
 {
     // Find the oldest event that we still have (either events[nextIndex],
     // or events[0] if we never completely filled the buffer).
@@ -93,36 +94,36 @@ void TimeTrace::printInternal(string* s)
         i = 0;
         if (events[0].message == NULL) {
             if (s != NULL) {
-                s->append("No time trace events to print");
+                s->append("No cache trace events to print");
             } else {
-                RAMCLOUD_LOG(NOTICE, "No time trace events to print");
+                RAMCLOUD_LOG(NOTICE, "No cache trace events to print");
             }
             return;
         }
     }
 
-    // Retrieve a "starting time" so we can print individual event times
-    // relative to the starting time.
-    uint64_t start = events[i].timestamp;
-    double prevTime = 0.0;
+    // Retrieve a "starting count" for the number of cache misses counted so we
+    // can print individual event counts relative to the starting count.
+    uint64_t start = events[i].count;
+    uint64_t prevCount = 0;
 
     // Each iteration through this loop processes one event from the trace.
     do {
-        double ns = Cycles::toSeconds(events[i].timestamp - start) * 1e09;
+        uint64_t miss = events[i].count - start;
         if (s != NULL) {
             char buffer[200];
             if (s->length() != 0) {
                 s->append("\n");
             }
-            snprintf(buffer, sizeof(buffer), "%8.1f ns (+%6.1f ns): %s",
-                    ns, ns - prevTime, events[i].message);
+            snprintf(buffer, sizeof(buffer), "%lu misses (+%lu misses): %s",
+                    miss, miss - prevCount, events[i].message);
             s->append(buffer);
         } else {
-            RAMCLOUD_LOG(NOTICE, "%8.1f ns (+%6.1f ns): %s", ns, ns - prevTime,
-                    events[i].message);
+            RAMCLOUD_LOG(NOTICE, "%lu misses (+%lu misses): %s", miss,
+                    miss - prevCount, events[i].message);
         }
         i = (i+1)%BUFFER_SIZE;
-        prevTime = ns;
+        prevCount = miss;
     } while ((i != nextIndex) && (events[i].message != NULL));
 }
 
