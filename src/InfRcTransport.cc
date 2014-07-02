@@ -1271,6 +1271,10 @@ InfRcTransport::Poller::poll()
             ReadRequestHandle_MetricSet::Interval interval
                 (&ReadRequestHandle_MetricSet::requestToHandleRpc);
 
+            BufferDescriptor* bd =
+                reinterpret_cast<BufferDescriptor*>(wc.wr_id);
+            if (wc.byte_len < 1000)
+                prefetch(bd->buffer, wc.byte_len);
 
             if (t->serverPortMap.find(wc.qp_num) == t->serverPortMap.end()) {
                 LOG(ERROR, "failed to find qp_num in map");
@@ -1280,8 +1284,6 @@ InfRcTransport::Poller::poll()
             InfRcServerPort *port = t->serverPortMap[wc.qp_num];
             QueuePair *qp = port->qp;
 
-            BufferDescriptor* bd =
-                reinterpret_cast<BufferDescriptor*>(wc.wr_id);
             --t->numFreeServerSrqBuffers;
 
             if (wc.status != IBV_WC_SUCCESS) {

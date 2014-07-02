@@ -964,6 +964,10 @@ Segment::Reference::getEntry(SegletAllocator* allocator,
         if (expect_true(offset + fullLength <= segletSize)) {
             // The entry is contiguous.
             if (buffer != NULL) {
+                if (fullLength < 300)
+                    prefetch(
+                        reinterpret_cast<void*>(reference + fullHeaderLength),
+                            dataLength);
                 buffer->appendExternal(
                     reinterpret_cast<void*>(reference + fullHeaderLength),
                     dataLength);
