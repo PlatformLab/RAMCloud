@@ -1241,6 +1241,9 @@ TEST_F(TcpTransportTest, sessionAlarm) {
     // things get cleaned up well enough that a timeout doesn't occur.
     MockWrapper rpc1("request1");
     session->sendRequest(&rpc1.request, &rpc1.response, &rpc1);
+    // We do not want the session alarm timer firing unless we fire it
+    // explicitly.
+    context.sessionAlarmTimer->stop();
     Transport::ServerRpc* serverRpc = serviceManager->waitForRpc(1.0);
     serverRpc->replyPayload.fillFromString("response1");
     serverRpc->sendReply();
