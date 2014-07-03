@@ -243,4 +243,7 @@ void pinAllMemory() {
     }
 }
 
+// TODO(hq6): Remove this temporary hack.
+Context* globalServerContext;
+
 } // namespace RAMCloud

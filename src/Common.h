@@ -311,5 +311,27 @@ timevalToMicroseconds(struct timeval* tv)
 #define expect_true(expr)   __builtin_expect((expr), true)
 #define expect_false(expr)   __builtin_expect((expr), false)
 
+// TODO(hq6): Remove these temporary hack.
+class Context;
+extern Context *globalServerContext;
+#define TRACE(exp)   if (globalServerContext)\
+    globalServerContext->timeTrace->record(exp)
+#define TRACED(exp, t)   if (globalServerContext)\
+    globalServerContext->timeTrace->record(exp, t)
+
+
+////////////////////////////////////////////////////////////////////////////////
+
+// #define TRACE(exp)
+//     if (globalServerContext) globalServerContext->cacheTrace->record(exp);
+// #define TRACE(exp)
+//     if (globalServerContext)
+//        globalServerContext->cacheTrace->serialRecord(exp);
+// #define TRACED(exp, t)
+//     if (globalServerContext) globalServerContext->cacheTrace->record(exp, t);
+
+// #define TRACE(exp)
+// #define TRACED(exp, t)
+
 } // end RAMCloud
 #endif // RAMCLOUD_COMMON_H

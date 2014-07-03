@@ -2739,6 +2739,8 @@ readDistRandom()
     // traces, and we do not currently expect traces in production code.
     cluster->objectServerControl(dataTable, key, keyLength,
             WireFormat::LOG_TIME_TRACE);
+    cluster->objectServerControl(dataTable, key, keyLength,
+            WireFormat::LOG_CACHE_TRACE);
 
     // Output the times (several comma-separated values on each line).
     int valuesInLine = 0;

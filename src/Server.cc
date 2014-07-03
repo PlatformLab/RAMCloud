@@ -17,6 +17,7 @@
 #include "Server.h"
 #include "ServiceManager.h"
 #include "ShortMacros.h"
+#include "PerfCounter.h"
 
 namespace RAMCloud {
 /**
@@ -110,6 +111,9 @@ Server::run()
     // the entire process for seconds at a time, so we must not be expected
     // to handle RPCs until we're confident such hiccups won't occur.
     enlist(formerServerId);
+
+    // TODO(hq6): Remove this temporary hack to make context global
+    globalServerContext = context;
 
     while (true)
         dispatch.poll();

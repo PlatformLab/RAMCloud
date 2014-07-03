@@ -305,7 +305,8 @@ def readAllToAll(name, options, cluster_args, client_args):
             (obj_path, flatten_args(client_args), name), **cluster_args)
     print(get_client_log(), end='')
 
-def readDist(name, options, cluster_args, client_args):
+def readDist(name, options, cluster_args, client_args, master_args='-d -t 10%'):
+    cluster_args['disjunct'] = True
     cluster.run(client='%s/ClusterPerf %s %s' %
             (obj_path,  flatten_args(client_args), name),
             **cluster_args)
@@ -319,7 +320,9 @@ def readDist(name, options, cluster_args, client_args):
           % options.size)
     print_cdf_from_log()
 
-def readDistRandom(name, options, cluster_args, client_args):
+def readDistRandom(name, options, cluster_args, client_args, master_args='-d -t 10%'):
+    cluster_args['timeout'] = 600
+    cluster_args['disjunct'] = True
     cluster.run(client='%s/ClusterPerf %s %s' %
             (obj_path,  flatten_args(client_args), name),
             **cluster_args)
