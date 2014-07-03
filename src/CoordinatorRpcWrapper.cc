@@ -32,7 +32,8 @@ namespace RAMCloud {
  *      subclasses.
  * \param response
  *      Optional client-supplied buffer to use for the RPC's response;
- *      if NULL then we use a built-in buffer.
+ *      if NULL then we use a built-in buffer. Any existing contents
+ *      of this buffer will be cleared automatically by the transport.
  */
 CoordinatorRpcWrapper::CoordinatorRpcWrapper(Context* context,
         uint32_t responseHeaderLength, Buffer* response)

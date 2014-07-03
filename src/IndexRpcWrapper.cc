@@ -42,10 +42,10 @@ namespace RAMCloud {
  *      contain at least this much data, and a pointer to the header
  *      will be stored in the responseHeader for the use of wrapper
  *      subclasses.
- * 
  * \param responseBuffer
  *      Optional client-supplied buffer to use for the RPC's response;
- *      if NULL then we use a built-in buffer.
+ *      if NULL then we use a built-in buffer. Any existing contents
+ *      of this buffer will be cleared automatically by the transport.
  */
 IndexRpcWrapper::IndexRpcWrapper(
             RamCloud* ramcloud, uint64_t tableId, uint8_t indexId,
