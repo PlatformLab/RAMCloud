@@ -31,6 +31,7 @@
 #include "Tub.h"
 #include "RamCloud.h"
 #include "TimeTrace.h"
+#include "CacheTrace.h"
 
 // Note: this file tests both PingService.cc and PingClient.cc.
 
@@ -562,6 +563,26 @@ TEST_F(PingServiceTest, serverControl_logTimeTrace) {
     PingClient::serverControl(&context, serverId, WireFormat::LOG_TIME_TRACE,
                 "abc", 3, &output);
     EXPECT_EQ("printInternal:      0.0 ns (+   0.0 ns): sample",
+            TestLog::get());
+}
+
+TEST_F(PingServiceTest, serverControl_getCacheTrace) {
+    Buffer output;
+
+    context.cacheTrace->record("sample");
+    PingClient::serverControl(&context, serverId, WireFormat::GET_CACHE_TRACE,
+            "abc", 3, &output);
+    EXPECT_EQ("0 misses (+0 misses): sample",
+            TestUtil::toString(&output));
+}
+
+TEST_F(PingServiceTest, serverControl_logCacheTrace) {
+    Buffer output;
+
+    context.cacheTrace->record("sample");
+    PingClient::serverControl(&context, serverId, WireFormat::LOG_CACHE_TRACE,
+                "abc", 3, &output);
+    EXPECT_EQ("printInternal: 0 misses (+0 misses): sample",
             TestLog::get());
 }
 
