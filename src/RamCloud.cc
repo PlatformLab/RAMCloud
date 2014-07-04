@@ -1255,7 +1255,6 @@ IndexServerControlRpc::IndexServerControlRpc(RamCloud* ramcloud,
     : IndexRpcWrapper(ramcloud, tableId, indexId, key, keyLength,
             sizeof(WireFormat::ServerControl::Response), outputData)
 {
-    if (outputData) outputData->reset();
     WireFormat::ServerControl::Request* reqHdr(
             allocHeader<WireFormat::ServerControl>());
 
@@ -1965,7 +1964,6 @@ ObjectServerControlRpc::ObjectServerControlRpc(RamCloud* ramcloud,
     : ObjectRpcWrapper(ramcloud, tableId, key, keyLength,
             sizeof(WireFormat::ServerControl::Response), outputData)
 {
-    if (outputData) outputData->reset();
     WireFormat::ServerControl::Request*
                         reqHdr(allocHeader<WireFormat::ServerControl>());
 
