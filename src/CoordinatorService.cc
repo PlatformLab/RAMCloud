@@ -15,6 +15,7 @@
 
 #include <memory>
 #include <string>
+#include <list>
 
 #include "BackupClient.h"
 #include "CoordinatorService.h"
@@ -24,7 +25,6 @@
 #include "ShortMacros.h"
 #include "ServerId.h"
 #include "ServiceMask.h"
-#include "PingClient.h"
 
 namespace RAMCloud {
 bool CoordinatorService::forceSynchronousInit = false;
@@ -204,6 +204,10 @@ CoordinatorService::dispatch(WireFormat::Opcode opcode,
         case WireFormat::VerifyMembership::opcode:
             callHandler<WireFormat::VerifyMembership, CoordinatorService,
                         &CoordinatorService::verifyMembership>(rpc);
+            break;
+        case WireFormat::ServerControlAll::opcode:
+            callHandler<WireFormat::ServerControlAll, CoordinatorService,
+                        &CoordinatorService::serverControlAll>(rpc);
             break;
         default:
             throw UnimplementedRequestError(HERE);
@@ -649,6 +653,96 @@ CoordinatorService::verifyMembership(
         respHdr->common.status = STATUS_CALLER_NOT_IN_CLUSTER;
         LOG(WARNING, "Membership verification failed for %s",
             serverList->toString(serverId).c_str());
+    }
+}
+
+/**
+ * Send ServerControl RPCs to all servers in the ServerList.
+ *
+ * \copydetails Service::ping
+ */
+void
+CoordinatorService::serverControlAll(
+    const WireFormat::ServerControlAll::Request* reqHdr,
+    WireFormat::ServerControlAll::Response* respHdr,
+    Rpc* rpc)
+{
+    respHdr->serverCount = 0;
+    respHdr->respCount = 0;
+    respHdr->totalRespLength = 0;
+    uint32_t reqOffset = sizeof32(*reqHdr);
+    const void* inputData = rpc->requestPayload->getRange(reqOffset,
+                                                          reqHdr->inputLength);
+
+    std::list<ServerControlRpcContainer> rpcs;
+    ServerId nextServerId;
+    bool end = false;
+
+    // If all RPCs complete and ServerId list has reached the end, we are done.
+    while (rpcs.size() > 0 || !end) {
+        // Check all outstanding RPCs.
+        checkServerControlRpcs(&rpcs, respHdr, rpc);
+
+        // If there are still servers left, send out 1 RPC
+        if (!end) {
+            nextServerId = serverList->nextServer(nextServerId,
+                                                  {WireFormat::PING_SERVICE},
+                                                  &end,
+                                                  false);
+            if (!end && nextServerId.isValid()) {
+                rpcs.emplace_back(context, nextServerId, reqHdr->controlOp,
+                                  inputData, reqHdr->inputLength);
+            }
+        }
+    }
+    respHdr->common.status = STATUS_OK;
+}
+
+/**
+ * Checks all outstanding ServerControlRpcs in rpcs and appends the results to
+ * the replyPayload of rpc if isReady.  Used in serverControlAll.
+ *
+ * \param rpcs
+ *      List of ServerControlRpcContainers to check and process.
+ * \param respHdr
+ *      Various fields in this header may be updated after the call.
+ * \param rpc
+ *      New response data may be appended to the replyPayload after the call.
+ */
+void
+CoordinatorService::checkServerControlRpcs(
+        std::list<ServerControlRpcContainer>* rpcs,
+        WireFormat::ServerControlAll::Response* respHdr,
+        Rpc* rpc)
+{
+    // Check all outstanding RPCs.
+    std::list<ServerControlRpcContainer>::iterator it = rpcs->begin();
+    while (it != rpcs->end()) {
+        ServerControlRpcContainer* controlRpc = &(*it);
+
+        // Rule 1: Skip to next rpc if not ready.
+        if (!controlRpc->rpc.isReady()) {
+            it++;
+            continue;
+        }
+
+        // Rule 2: Try to wait on the rpc.  If the server responded, we can
+        // process the rpc.
+        if (controlRpc->rpc.waitRaw()) {
+            // if the response RPC fits in the response, append the response.
+            uint32_t bufferSize = controlRpc->buffer.size();
+            if (Transport::MAX_RPC_LEN - rpc->replyPayload->size() >=
+                    bufferSize) {
+                respHdr->respCount++;
+                respHdr->totalRespLength += bufferSize;
+                rpc->replyPayload->appendCopy(
+                        controlRpc->buffer.getRange(0, bufferSize), bufferSize);
+            }
+            respHdr->serverCount++;
+        }
+
+        // Destroy object.
+        it = rpcs->erase(it);
     }
 }
 

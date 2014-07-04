@@ -544,6 +544,26 @@ TEST_F(RamCloudTest, objectServerControl){
                             "pollingTimes.txt", 17, &output);
 }
 
+TEST_F(RamCloudTest, serverControlAll) {
+    Buffer output;
+    ramcloud->serverControlAll(WireFormat::GET_TIME_TRACE, "abc", 3, &output);
+    EXPECT_EQ(151U, output.size());
+    WireFormat::ServerControlAll::Response* respHdr =
+            output.getOffset<WireFormat::ServerControlAll::Response>(0);
+    EXPECT_EQ(3U, respHdr->serverCount);
+    EXPECT_EQ(3U, respHdr->respCount);
+    EXPECT_EQ(135U, respHdr->totalRespLength);
+    const void* outputBuf = output.getRange(sizeof32(*respHdr),
+                                            respHdr->totalRespLength);
+    const WireFormat::ServerControl::Response* entryRespHdr =
+        reinterpret_cast<const WireFormat::ServerControl::Response*>(outputBuf);
+    EXPECT_EQ(29U, entryRespHdr->outputLength);
+    outputBuf = output.getRange(sizeof32(*respHdr) + sizeof32(*entryRespHdr),
+                                entryRespHdr->outputLength);
+    EXPECT_EQ("No time trace events to print",
+              TestUtil::toString(outputBuf, entryRespHdr->outputLength));
+}
+
 TEST_F(RamCloudTest, splitTablet) {
     string message("no exception");
     try {

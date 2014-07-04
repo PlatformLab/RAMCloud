@@ -106,6 +106,7 @@ class ServerControlRpc : public ServerIdRpcWrapper {
             uint32_t inputLength = NULL, Buffer* outputData = NULL);
     ~ServerControlRpc() {}
     void wait();
+    bool waitRaw();
   PRIVATE:
     DISALLOW_COPY_AND_ASSIGN(ServerControlRpc);
 };

@@ -25,6 +25,7 @@
 #include "CoordinatorServerList.h"
 #include "CoordinatorUpdateManager.h"
 #include "MasterRecoveryManager.h"
+#include "PingClient.h"
 #include "RawMetrics.h"
 #include "Recovery.h"
 #include "RuntimeOptions.h"
@@ -106,9 +107,30 @@ class CoordinatorService : public Service {
         const WireFormat::VerifyMembership::Request* reqHdr,
         WireFormat::VerifyMembership::Response* respHdr,
         Rpc* rpc);
+    void serverControlAll(const WireFormat::ServerControlAll::Request* reqHdr,
+                          WireFormat::ServerControlAll::Response* respHdr,
+                          Rpc* rpc);
 
     // - helper methods -
+
+    /// Associates an allocated buffer to a ServerControlRpc.  Used internally
+    /// in serverControlAll and checkServerControlRpcs.
+    struct ServerControlRpcContainer {
+        Buffer buffer;
+        ServerControlRpc rpc;
+
+        ServerControlRpcContainer(Context* context, ServerId serverId,
+                WireFormat::ControlOp controlOp, const void* inputData = NULL,
+                uint32_t inputLength = NULL)
+            : buffer()
+            , rpc(context, serverId, controlOp, inputData, inputLength, &buffer)
+        {}
+    };
+
     static void init(CoordinatorService* service, bool startRecoveryManager);
+    void checkServerControlRpcs(std::list<ServerControlRpcContainer>* rpcs,
+            WireFormat::ServerControlAll::Response* respHdr,
+            Rpc* rpc);
     bool verifyServerFailure(ServerId serverId);
 
     /**

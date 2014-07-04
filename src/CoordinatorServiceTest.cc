@@ -20,6 +20,7 @@
 #include "MasterService.h"
 #include "MembershipService.h"
 #include "MockCluster.h"
+#include "MockTransport.h"
 #include "RamCloud.h"
 #include "Recovery.h"
 #include "TaskQueue.h"
@@ -77,6 +78,24 @@ class CoordinatorServiceTest : public ::testing::Test {
             result += server.service_locator();
         }
         return result;
+    }
+
+    // Populate a list of ServerControlRpc based on the existing serverList.
+    void
+    populateServerControlRpcList(
+            std::list<CoordinatorService::ServerControlRpcContainer>* rpcs,
+            Service::Rpc* rpc, WireFormat::ControlOp controlOp)
+    {
+        ServerId nextServerId;
+        bool end = false;
+        while (!end) {
+            nextServerId = service->serverList->nextServer(nextServerId,
+                    {WireFormat::PING_SERVICE}, &end, false);
+            if (!end && nextServerId.isValid()) {
+                rpcs->emplace_back(service->context, nextServerId, controlOp,
+                                   (const void*)NULL, (uint32_t)0);
+            }
+        }
     }
 
     DISALLOW_COPY_AND_ASSIGN(CoordinatorServiceTest);
@@ -257,6 +276,189 @@ TEST_F(CoordinatorServiceTest, verifyMembership) {
     ServerId bogus(3, 2);
     EXPECT_THROW(CoordinatorClient::verifyMembership(&context, bogus, false),
                  CallerNotInClusterException);
+}
+
+TEST_F(CoordinatorServiceTest, serverControlAll) {
+    Buffer reqBuf;
+    Buffer respBuf;
+    Service::Rpc rpc(NULL, &reqBuf, &respBuf);   // Fake RPC with no worker.
+    WireFormat::ServerControlAll::Request* reqHdr =
+                reqBuf.emplaceAppend<WireFormat::ServerControlAll::Request>();
+    WireFormat::ServerControlAll::Response* respHdr =
+                respBuf.emplaceAppend<WireFormat::ServerControlAll::Response>();
+
+    reqHdr->common.opcode = WireFormat::SERVER_CONTROL_ALL;
+    reqHdr->common.service = WireFormat::COORDINATOR_SERVICE;
+    reqHdr->controlOp = WireFormat::GET_TIME_TRACE;
+
+    service->serverControlAll(reqHdr, respHdr, &rpc);
+    EXPECT_EQ(1U, respHdr->serverCount);
+    EXPECT_EQ(1U, respHdr->respCount);
+    EXPECT_EQ(45U, respHdr->totalRespLength);
+}
+
+TEST_F(CoordinatorServiceTest, serverControlAll_rpcErrors) {
+    Buffer reqBuf;
+    Buffer respBuf;
+    Service::Rpc rpc(NULL, &reqBuf, &respBuf);   // Fake RPC with no worker.
+    WireFormat::ServerControlAll::Request* reqHdr =
+                reqBuf.emplaceAppend<WireFormat::ServerControlAll::Request>();
+    WireFormat::ServerControlAll::Response* respHdr =
+                respBuf.emplaceAppend<WireFormat::ServerControlAll::Response>();
+
+    reqHdr->common.opcode = WireFormat::SERVER_CONTROL_ALL;
+    reqHdr->common.service = WireFormat::COORDINATOR_SERVICE;
+    reqHdr->controlOp = WireFormat::ControlOp(0);
+
+    service->serverControlAll(reqHdr, respHdr, &rpc);
+    EXPECT_EQ(1U, respHdr->serverCount);
+    EXPECT_EQ(1U, respHdr->respCount);
+    EXPECT_EQ(16U, respHdr->totalRespLength);
+}
+
+TEST_F(CoordinatorServiceTest, checkServerControlRpcs_basic) {
+    std::list<CoordinatorService::ServerControlRpcContainer> rpcs;
+
+    Buffer respBuf;
+    Service::Rpc rpc(NULL, NULL, &respBuf);   // Fake RPC with no worker.
+    WireFormat::ServerControlAll::Response* respHdr =
+                respBuf.emplaceAppend<WireFormat::ServerControlAll::Response>();
+
+    populateServerControlRpcList(&rpcs, &rpc, WireFormat::GET_TIME_TRACE);
+
+    service->checkServerControlRpcs(&rpcs, respHdr, &rpc);
+    EXPECT_EQ(1U, respHdr->serverCount);
+    EXPECT_EQ(1U, respHdr->respCount);
+    EXPECT_EQ(45U, respHdr->totalRespLength);
+}
+
+TEST_F(CoordinatorServiceTest, checkServerControlRpcs_ServerNotUpException) {
+    // Use MockTransport so that RPC will not be completed automatically.
+    MockTransport transport(service->context);
+    service->context->transportManager->unregisterMock();
+    service->context->transportManager->registerMock(&transport);
+
+    std::list<CoordinatorService::ServerControlRpcContainer> rpcs;
+
+    Buffer respBuf;
+    Service::Rpc rpc(NULL, NULL, &respBuf);   // Fake RPC with no worker.
+    WireFormat::ServerControlAll::Response* respHdr =
+                respBuf.emplaceAppend<WireFormat::ServerControlAll::Response>();
+
+    ServerConfig master2Config = masterConfig;
+    master2Config.localLocator = "mock:host=master2";
+    master2Config.services = {WireFormat::MASTER_SERVICE,
+                              WireFormat::BACKUP_SERVICE,
+                              WireFormat::PING_SERVICE};
+    Server* crashingServer = cluster.addServer(master2Config);
+
+    populateServerControlRpcList(&rpcs, &rpc, WireFormat::GET_TIME_TRACE);
+    EXPECT_EQ(2U, rpcs.size());
+
+    // One RPC is over BindTransport so it should complete, the other is over
+    // MockTrasport, so it will not yet be ready.
+    service->checkServerControlRpcs(&rpcs, respHdr, &rpc);
+    EXPECT_EQ(1U, respHdr->serverCount);
+    EXPECT_EQ(1U, respHdr->respCount);
+    EXPECT_EQ(45U, respHdr->totalRespLength);
+    EXPECT_EQ(1U, rpcs.size());
+
+    // Crash the remaining server.
+    service->context->serverList->serverCrashed(crashingServer->serverId);
+    EXPECT_FALSE(service->context->serverList->isUp(crashingServer->serverId));
+    rpcs.back().rpc.failed();
+
+    service->checkServerControlRpcs(&rpcs, respHdr, &rpc);
+    EXPECT_EQ(1U, respHdr->serverCount);
+    EXPECT_EQ(1U, respHdr->respCount);
+    EXPECT_EQ(0U, rpcs.size());
+}
+
+TEST_F(CoordinatorServiceTest, checkServerControlRpcs_skipNotReady) {
+    // Use MockTransport so that RPC will not be completed automatically.
+    MockTransport transport(service->context);
+    service->context->transportManager->unregisterMock();
+    service->context->transportManager->registerMock(&transport);
+
+    // Add two additional servers that use the MockTransport.
+    ServerConfig master2Config = masterConfig;
+    master2Config.localLocator = "mock:host=master2";
+    master2Config.services = {WireFormat::MASTER_SERVICE,
+                              WireFormat::BACKUP_SERVICE,
+                              WireFormat::PING_SERVICE};
+    cluster.addServer(master2Config);
+    ServerConfig backupConfig = masterConfig;
+    backupConfig.localLocator = "mock:host=backup1";
+    backupConfig.services = {WireFormat::BACKUP_SERVICE,
+                             WireFormat::PING_SERVICE};
+    cluster.addServer(backupConfig);
+
+    std::list<CoordinatorService::ServerControlRpcContainer> rpcs;
+
+    Buffer respBuf;
+    Service::Rpc rpc(NULL, NULL, &respBuf);   // Fake RPC with no worker.
+    WireFormat::ServerControlAll::Response* respHdr =
+                respBuf.emplaceAppend<WireFormat::ServerControlAll::Response>();
+
+    // We expect to have 4 servers in the cluster and thus 4 RPCs to send.
+    populateServerControlRpcList(&rpcs, &rpc, WireFormat::GET_TIME_TRACE);
+    EXPECT_EQ(3U, rpcs.size());
+
+    // Since two of the RPCs will be sent over MockTransport, with the other one
+    // sent over BindTransport, expect only one of the RPCs to complete.
+    service->checkServerControlRpcs(&rpcs, respHdr, &rpc);
+    EXPECT_EQ(1U, respHdr->serverCount);
+    EXPECT_EQ(1U, respHdr->respCount);
+    EXPECT_EQ(45U, respHdr->totalRespLength);
+
+    // Manually complete one of remaining RPCs and expect it to be processed.
+    EXPECT_EQ(2U, rpcs.size());
+    WireFormat::ServerControl::Response* rpc1RespHdr =
+            rpcs.front().buffer.
+                    emplaceAppend<WireFormat::ServerControl::Response>();
+    rpc1RespHdr->common.status = STATUS_OK;
+    rpcs.front().rpc.completed();
+    service->checkServerControlRpcs(&rpcs, respHdr, &rpc);
+    EXPECT_EQ(2U, respHdr->serverCount);
+    EXPECT_EQ(2U, respHdr->respCount);
+
+    // Manually complete the last remaining RPC and expect it to be processed.
+    EXPECT_EQ(1U, rpcs.size());
+    WireFormat::ServerControl::Response* rpc2RespHdr =
+            rpcs.front().buffer.
+                    emplaceAppend<WireFormat::ServerControl::Response>();
+    rpc2RespHdr->common.status = STATUS_OK;
+    rpcs.front().rpc.completed();
+    service->checkServerControlRpcs(&rpcs, respHdr, &rpc);
+    EXPECT_EQ(3U, respHdr->serverCount);
+    EXPECT_EQ(3U, respHdr->respCount);
+
+    EXPECT_EQ(0U, rpcs.size());
+}
+
+TEST_F(CoordinatorServiceTest, checkServerControlRpcs_truncated) {
+    std::list<CoordinatorService::ServerControlRpcContainer> rpcs;
+
+    ServerConfig master2Config = masterConfig;
+    master2Config.localLocator = "mock:host=master2";
+    master2Config.services = {WireFormat::MASTER_SERVICE,
+                              WireFormat::BACKUP_SERVICE,
+                              WireFormat::PING_SERVICE};
+    cluster.addServer(master2Config);
+
+    Buffer respBuf;
+    Service::Rpc rpc(NULL, NULL, &respBuf);   // Fake RPC with no worker.
+    WireFormat::ServerControlAll::Response* respHdr =
+                respBuf.emplaceAppend<WireFormat::ServerControlAll::Response>();
+
+    respBuf.alloc(Transport::MAX_RPC_LEN - 45 - sizeof32(*respHdr));
+
+    populateServerControlRpcList(&rpcs, &rpc, WireFormat::GET_TIME_TRACE);
+
+    service->checkServerControlRpcs(&rpcs, respHdr, &rpc);
+    EXPECT_EQ(2U, respHdr->serverCount);
+    EXPECT_EQ(1U, respHdr->respCount);
+    EXPECT_EQ(static_cast<uint32_t>(Transport::MAX_RPC_LEN), respBuf.size());
 }
 
 TEST_F(CoordinatorServiceTest, verifyServerFailure) {

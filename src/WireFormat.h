@@ -109,17 +109,18 @@ enum Opcode {
     VERIFY_MEMBERSHIP         = 55,
     GET_RUNTIME_OPTION        = 56,
     SERVER_CONTROL            = 57,
-    GET_SERVER_ID             = 58,
-    READ_KEYS_AND_VALUE       = 59,
-    LOOKUP_INDEX_KEYS         = 60,
-    INDEXED_READ              = 61,
-    INSERT_INDEX_ENTRY        = 62,
-    REMOVE_INDEX_ENTRY        = 63,
-    CREATE_INDEX              = 64,
-    DROP_INDEX                = 65,
-    DROP_INDEXLET_OWNERSHIP   = 66,
-    TAKE_INDEXLET_OWNERSHIP   = 67,
-    ILLEGAL_RPC_TYPE          = 68,  // 1 + the highest legitimate Opcode
+    SERVER_CONTROL_ALL        = 58,
+    GET_SERVER_ID             = 59,
+    READ_KEYS_AND_VALUE       = 60,
+    LOOKUP_INDEX_KEYS         = 61,
+    INDEXED_READ              = 62,
+    INSERT_INDEX_ENTRY        = 63,
+    REMOVE_INDEX_ENTRY        = 64,
+    CREATE_INDEX              = 65,
+    DROP_INDEX                = 66,
+    DROP_INDEXLET_OWNERSHIP   = 67,
+    TAKE_INDEXLET_OWNERSHIP   = 68,
+    ILLEGAL_RPC_TYPE          = 69, // 1 + the highest legitimate Opcode
 };
 
 /**
@@ -1285,6 +1286,41 @@ struct ServerControl {
         uint32_t outputLength;      // Length of the output data returning
                                     // from the server, in bytes. The actual
                                     // data follow immediately after the header.
+    } __attribute__((packed));
+};
+
+struct ServerControlAll {
+    static const Opcode opcode = Opcode::SERVER_CONTROL_ALL;
+    static const ServiceType service = COORDINATOR_SERVICE;
+
+    struct Request {
+        RequestCommon common;
+        ControlOp controlOp;        // The control operation to be initiated
+                                    // in a server.
+        uint32_t inputLength;       // Length of the input data for the
+                                    // control operation, in bytes.
+        // In buffer: Input Data (if any).
+    } __attribute__((packed));
+    struct Response {
+        ResponseCommon common;
+        uint32_t serverCount;       // Number of servers that executed and
+                                    // responded to the control rpc.
+        uint32_t respCount;         // Number of ServerControl responses
+                                    // included in this response. All responses
+                                    // and headers will not in total exceed the
+                                    // MAX_RPC_LEN; responses may be dropped to
+                                    // meet this limit.  If responses are
+                                    // dropped, the respCount will be less than
+                                    // the serverCount.
+        uint32_t totalRespLength;   // Length of all appended ServerControl
+                                    // responses including their headers.
+                                    // 0 or more ServerControl response entries
+                                    // are appended back to back immediately
+                                    // following the header.  Entries consist of
+                                    // a ServerControl::Response header followed
+                                    // by the ServerConrol::Response data; an
+                                    // entry is exactly the contents of a
+                                    // ServerControlRpc's replyPayload.
     } __attribute__((packed));
 };
 

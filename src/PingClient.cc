@@ -296,6 +296,24 @@ ServerControlRpc::wait()
 }
 
 /**
+ * The standard wait method truncates the header from the response buffer.
+ * This waitRaw method won't perform the truncation, leaving the response
+ * buffer unmodified (raw).
+ *
+ * Called by CoordinatorService::serverControlAll.
+ *
+ * \return
+ *      Method will return false if the rpc does not have a response because
+ *      the server has crashed. Returns true, otherwise.
+ */
+bool
+ServerControlRpc::waitRaw()
+{
+    waitInternal(context->dispatch);
+    return !serverCrashed;
+}
+
+/**
  * Verify that a particular session connects to a server with a particular
  * id. This method is used primarily by AbstractServerList when opening a
  * connection to a particular server id; it is intended to detect situations

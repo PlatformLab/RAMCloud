@@ -118,6 +118,9 @@ class RamCloud {
             uint64_t* version = NULL);
     void remove(uint64_t tableId, const void* key, uint16_t keyLength,
             const RejectRules* rejectRules = NULL, uint64_t* version = NULL);
+    void serverControlAll(WireFormat::ControlOp controlOp,
+            const void* inputData = NULL, uint32_t inputLength = 0,
+            Buffer* outputData = NULL);
     void splitTablet(const char* name, uint64_t splitKeyHash);
     void testingFill(uint64_t tableId, const void* key, uint16_t keyLength,
             uint32_t numObjects, uint32_t objectSize);
@@ -852,6 +855,22 @@ class ObjectServerControlRpc : public ObjectRpcWrapper {
     void wait();
   PRIVATE:
     DISALLOW_COPY_AND_ASSIGN(ObjectServerControlRpc);
+};
+
+/**
+ * Encapsulates the state of a RamCloud::serverControlAll operation,
+ * allowing it to execute asynchronously.
+ */
+class ServerControlAllRpc : public CoordinatorRpcWrapper {
+  public:
+    ServerControlAllRpc(RamCloud* ramcloud, WireFormat::ControlOp controlOp,
+        const void* inputData = NULL, uint32_t inputLength = NULL,
+        Buffer* outputData = NULL);
+    ~ServerControlAllRpc() {}
+    /// \copydoc RpcWrapper::docForWait
+    void wait() {simpleWait(context->dispatch);}
+  PRIVATE:
+    DISALLOW_COPY_AND_ASSIGN(ServerControlAllRpc);
 };
 
 /**

@@ -1998,6 +1998,67 @@ ObjectServerControlRpc::wait()
     if (respHdr->common.status != STATUS_OK)
         ClientException::throwException(HERE, respHdr->common.status);
 }
+/**
+ * This RPCs used to invoke ServerControl on every server in the cluster; it
+ * returns all of the responses. For more information on ServerControls, see
+ * the objectServerControl method.
+ *
+ * \param controlOp
+ *      This defines the specific operation to be performed on each server.
+ * \param inputData
+ *      Input data, such as additional parameters, specific for the
+ *      particular operation to be performed. Not all operations use
+ *      this information.
+ * \param inputLength
+ *      Size in bytes of the contents for the inputData.
+ * \param[out] outputData
+ *      A buffer that contains the raw response from the coordinator. See
+ *      WireFormat::ServerControlAll::Response for more details.
+ */
+void
+RamCloud::serverControlAll(WireFormat::ControlOp controlOp,
+        const void* inputData, uint32_t inputLength,
+        Buffer* outputData)
+{
+    ServerControlAllRpc rpc(this, controlOp,
+            inputData, inputLength, outputData);
+    rpc.wait();
+}
+
+/**
+ * Constructor for ServerControlAllRpc: initiates an RPC in the same way as
+ * #RamCloud::serverControlAll, but returns once the RPC has been initiated,
+ * without waiting for it to complete.
+ *
+ * \param ramcloud
+ *      The RAMCloud object that governs this RPC.
+ * \param controlOp
+ *      This defines the specific operation to be performed on the
+ *      remote servers.
+ * \param inputData
+ *      Input data, such as additional parameters, specific for the
+ *      particular operation to be performed. Not all operations use
+ *      this information.
+ * \param inputLength
+ *      Size in bytes of the contents for the inputData.
+ * \param[out] outputData
+ *      A buffer that contains the return results, if any, from execution of the
+ *      control operation on the remote server.
+ */
+ServerControlAllRpc::ServerControlAllRpc(RamCloud* ramcloud,
+            WireFormat::ControlOp controlOp,
+            const void* inputData, uint32_t inputLength, Buffer* outputData)
+    : CoordinatorRpcWrapper(ramcloud->clientContext,
+            sizeof(WireFormat::ServerControlAll::Response), outputData)
+{
+    WireFormat::ServerControlAll::Request*
+                        reqHdr(allocHeader<WireFormat::ServerControlAll>());
+
+    reqHdr->controlOp = controlOp;
+    reqHdr->inputLength = inputLength;
+    request.appendExternal(inputData, inputLength);
+    send();
+}
 
 /**
  * Divide a tablet into two separate tablets.
