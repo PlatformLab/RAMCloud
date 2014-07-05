@@ -31,6 +31,10 @@
 #include "InfUdDriver.h"
 #endif
 
+#ifdef ONLOAD
+#include "SolarFlareDriver.h"
+#endif
+
 namespace RAMCloud {
 
 static struct TcpTransportFactory : public TransportFactory {
@@ -51,6 +55,18 @@ static struct FastUdpTransportFactory : public TransportFactory {
                 new UdpDriver(context, localServiceLocator));
     }
 } fastUdpTransportFactory;
+
+#ifdef ONLOAD
+static struct FastSolarFlareTransportFactory : public TransportFactory {
+    FastSolarFlareTransportFactory()
+        : TransportFactory("fast+solarflare", "fast+sf") {}
+    Transport* createTransport(Context* context,
+            const ServiceLocator* localServiceLocator) {
+        return new FastTransport(context,
+                new SolarFlareDriver(context, localServiceLocator));
+    }
+} fastSolarFlareTransportFactory;
+#endif
 
 #ifdef INFINIBAND
 static struct FastInfUdTransportFactory : public TransportFactory {
@@ -98,6 +114,9 @@ TransportManager::TransportManager(Context* context)
 {
     transportFactories.push_back(&tcpTransportFactory);
     transportFactories.push_back(&fastUdpTransportFactory);
+#ifdef ONLOAD
+    transportFactories.push_back(&fastSolarFlareTransportFactory);
+#endif
 #ifdef INFINIBAND
     transportFactories.push_back(&fastInfUdTransportFactory);
     transportFactories.push_back(&fastInfEthTransportFactory);

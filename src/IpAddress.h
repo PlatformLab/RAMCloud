@@ -57,6 +57,8 @@ class IpAddress : public Driver::Address {
 
     IpAddress() : address() {}
     explicit IpAddress(const ServiceLocator& serviceLocator);
+    explicit IpAddress(const sockaddr *address);
+    explicit IpAddress(const uint32_t ip, const uint16_t port);
     IpAddress(const IpAddress& other)
         : Address(other), address(other.address) {}
     IpAddress* clone() const {

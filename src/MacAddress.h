@@ -49,13 +49,12 @@ struct MacAddress : public Driver::Address {
     explicit MacAddress(const uint8_t raw[6]);
     explicit MacAddress(const char* macStr);
     explicit MacAddress(Random _);
+    MacAddress(const MacAddress& other);
     MacAddress* clone() const;
     string toString() const;
 
     /// The raw bytes of the MAC address.
     uint8_t address[6];
-  private:
-    MacAddress(const MacAddress& other);
 };
 
 } // end RAMCloud

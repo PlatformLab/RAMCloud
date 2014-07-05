@@ -8,6 +8,15 @@ else
 INFINIBAND_SRCFILES :=
 endif
 
+ifeq ($(ONLOAD),yes)
+SOLARFLARE_SRC := \
+	src/SolarFlareDriver.cc \
+	src/SolarFlareAddress.cc \
+	$(NULL)
+else
+SOLARFLARE_SRC :=
+endif
+
 CLIENT_SRCFILES := \
 		   src/AbstractServerList.cc \
 		   src/Buffer.cc \
@@ -25,6 +34,7 @@ CLIENT_SRCFILES := \
 		   src/Cycles.cc \
 		   src/Dispatch.cc \
 		   src/Driver.cc \
+		   src/EthernetUtil.cc \
 		   src/ExternalStorage.cc \
 		   src/FailSession.cc \
 		   src/FastTransport.cc \
@@ -84,6 +94,7 @@ CLIENT_SRCFILES := \
 		   src/WorkerTimer.cc \
 		   src/ZooStorage.cc \
 		   $(INFINIBAND_SRCFILES) \
+		   $(SOLARFLARE_SRC) \
 		   $(OBJDIR)/Histogram.pb.cc \
 		   $(OBJDIR)/LogMetrics.pb.cc \
 		   $(OBJDIR)/MasterRecoveryInfo.pb.cc \

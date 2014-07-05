@@ -83,6 +83,24 @@ IpAddress::IpAddress(const ServiceLocator& serviceLocator)
 }
 
 /**
+ * Construct an IpAddress from the two input arguments ip and port.
+ * This only works for ip4 version.
+ * \param ip
+ *      the ip version 4 address for the host. This must be constructed
+ *      by putting to gether the 4 bytes of the ip in host order.
+ * \param port
+ *      the ip port for the host. This must be constructed
+ *      by putting to gether the 2 bytes of the port in host order.
+ */
+IpAddress::IpAddress(const uint32_t ip, const uint16_t port)
+    :address()
+{
+    sockaddr_in* addr = reinterpret_cast<sockaddr_in*>(&address);
+    addr->sin_family = AF_INET;
+    addr->sin_addr.s_addr = htonl(ip);
+    addr->sin_port = NTOHS(port);
+}
+/**
  * Return a string describing the contents of this IpAddress (host
  * address & port).
  */

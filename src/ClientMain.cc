@@ -285,11 +285,28 @@ try
         client.write(table, keys[j].c_str(),
                      downCast<uint16_t>(keys[j].length()),
                      val, downCast<uint32_t>(strlen(val) + 1));
-    LOG(NOTICE, "%d writes took %lu ticks", count, Cycles::rdtsc() - b);
-    LOG(NOTICE, "avg write took %lu ticks", (Cycles::rdtsc() - b) / count);
-
+    uint64_t bb =  Cycles::rdtsc();
+    LOG(NOTICE, "%d writes took %lu ticks", count, bb - b);
+    LOG(NOTICE, "avg write took %lu ticks, %lu nano seconds"
+        , (bb - b) / count
+        , Cycles::toNanoseconds((bb - b) / count));
     LOG(NOTICE, "Reading one of the objects just inserted");
+    b = Cycles::rdtsc();
     client.read(table, "0", 1, &buffer);
+    bb =  Cycles::rdtsc();
+    LOG(NOTICE, "read took %lu ticks, %lu nano seconds"
+        , bb - b
+        , Cycles::toNanoseconds(bb - b));
+    LOG(NOTICE, "Reading all of the objects just inserted.");
+    b = Cycles::rdtsc();
+    for (int j = 0; j < count; j++)
+         client.read(table, keys[j].c_str(),
+                     downCast<uint16_t>(keys[j].length()),
+                     &buffer);
+    bb =  Cycles::rdtsc();
+    LOG(NOTICE, "avg read took %lu ticks, %lu nano seconds"
+        , (bb - b) / count
+        , Cycles::toNanoseconds((bb - b) / count));
 
     LOG(NOTICE, "Performing %u removals of objects just inserted", removeCount);
     for (int j = 0; j < count && j < removeCount; j++) {

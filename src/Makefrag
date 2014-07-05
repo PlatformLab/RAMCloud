@@ -22,6 +22,16 @@ else
 INFINIBAND_SRCFILES :=
 endif
 
+ifeq ($(ONLOAD),yes)
+SOLARFLARE_SRC := \
+	src/SolarFlareDriver.cc \
+	src/SolarFlareAddress.cc \
+	$(NULL)
+else
+SOLARFLARE_SRC :=
+endif
+
+
 # these files are compiled into everything but clients
 SHARED_SRCFILES := \
 		   src/AbstractLog.cc \
@@ -49,6 +59,7 @@ SHARED_SRCFILES := \
 		   src/ZooStorage.cc \
 		   src/Enumeration.cc \
 		   src/EnumerationIterator.cc \
+		   src/EthernetUtil.cc \
 		   src/ExternalStorage.cc \
 		   src/FailureDetector.cc \
 		   src/FailSession.cc \
@@ -133,6 +144,7 @@ SHARED_SRCFILES := \
 		   src/WorkerSession.cc \
 		   src/WorkerTimer.cc \
 		   $(INFINIBAND_SRCFILES) \
+		   $(SOLARFLARE_SRC) \
 		   $(OBJDIR)/EnumerationIterator.pb.cc \
 		   $(OBJDIR)/Histogram.pb.cc \
 		   $(OBJDIR)/LogMetrics.pb.cc \
@@ -166,5 +178,4 @@ $(OBJDIR)/%.o: $(OBJDIR)/%.cc $(AUTO_GEN_HEADERS)
 # files change (currently only WireFormat.h).
 $(OBJDIR)/RawMetrics.in.cc  $(OBJDIR)/RawMetrics.in.h: $(TOP)/scripts/rawmetrics.py $(TOP)/src/WireFormat.h
 	$(TOP)/scripts/rawmetrics.py
-
 all:
