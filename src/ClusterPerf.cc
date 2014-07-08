@@ -2627,6 +2627,13 @@ readDist()
         cluster->read(dataTable, key, keyLength, &value);
         ticks[i] = Cycles::rdtsc();
     }
+    
+    // Dump both time and cache traces. This amounts to almost a no-op if there
+    // are no traces, and we do not currently expect traces in production code.
+    cluster->objectServerControl(dataTable, key, keyLength,
+            WireFormat::LOG_TIME_TRACE);
+    cluster->objectServerControl(dataTable, key, keyLength,
+            WireFormat::LOG_CACHE_TRACE);
 
     // Output the times (several comma-separated values on each line).
     int valuesInLine = 0;

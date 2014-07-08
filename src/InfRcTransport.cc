@@ -1094,7 +1094,9 @@ InfRcTransport::ServerRpc::sendReply()
     if (!t->transmitCycleCounter) {
         t->transmitCycleCounter.construct();
     }
+    TRACE("InfRcTransport::ServerRpc::sendReply before zeroCopy!");
     t->sendZeroCopy(&replyPayload, qp);
+    TRACE("InfRcTransport::ServerRpc::sendReply after zeroCopy!");
     interval.stop();
 
     replyPayload.truncateFront(sizeof(Header)); // for politeness
@@ -1285,10 +1287,14 @@ InfRcTransport::Poller::poll()
     // Next, check for incoming RPC requests (assuming that we are a server).
     if (t->serverSetupSocket >= 0) {
         CycleCounter<RawMetric> receiveTicks;
+        uint64_t topOfPoll = Cycles::rdtsc();
         int numRequests = t->infiniband->pollCompletionQueue(t->serverRxCq,
                 MAX_COMPLETIONS, wc);
         for (int i = 0; i < numRequests; i++) {
             ibv_wc* request = &wc[i];
+            TRACED("Start of Dispatch", t->context->dispatch->currentTime);
+            TRACED("Start of InfRcPoll", topOfPoll);
+            TRACE("pollCompletionQueue detected a packet.");
             ReadRequestHandle_MetricSet::Interval interval
                 (&ReadRequestHandle_MetricSet::requestToHandleRpc);
 
@@ -1315,6 +1321,7 @@ InfRcTransport::Poller::poll()
             }
             Header& header(*reinterpret_cast<Header*>(bd->buffer));
             ServerRpc *r = t->serverRpcPool.construct(t, qp, header.nonce);
+            TRACE("ServerRpcPool constructed.");
 
             uint32_t len = request->byte_len - sizeof32(header);
             if (t->numFreeServerSrqBuffers < 2) {

@@ -36,6 +36,7 @@
 #include "Transport.h"
 #include "Tub.h"
 #include "WallTime.h"
+#include "TimeTrace.h"
 
 namespace RAMCloud {
 
@@ -1229,6 +1230,7 @@ MasterService::read(const WireFormat::Read::Request* reqHdr,
         WireFormat::Read::Response* respHdr,
         Rpc* rpc)
 {
+    TRACE("Entering MasterService::read!");
     using RAMCloud::Perf::ReadRPC_MetricSet;
     ReadRPC_MetricSet::Interval _(&ReadRPC_MetricSet::readRpcTime);
 

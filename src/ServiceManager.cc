@@ -27,6 +27,7 @@
 #include "TimeTrace.h"
 #include "WireFormat.h"
 #include "PerfCounter.h"
+#include "TimeTrace.h"
 
 // If the following line is uncommented, trace records will be generated that
 // allow service times to be computed for all RPCs.
@@ -164,6 +165,7 @@ ServiceManager::handleRpc(Transport::ServerRpc* rpc)
                     STATUS_SERVICE_NOT_AVAILABLE);
         }
         rpc->sendReply();
+        TRACE("After rpc->sendReply");
         return;
     }
     ServiceInfo* serviceInfo = services[header->service].get();
@@ -185,8 +187,8 @@ ServiceManager::handleRpc(Transport::ServerRpc* rpc)
     if ((header->opcode == WireFormat::READ) &&
             (header->service == WireFormat::MASTER_SERVICE)) {
         rpc->enqueueThreadToStartWork.stop();
-        ReadThreadingCost_MetricSet::Interval  _(
-                &ReadThreadingCost_MetricSet::noThreadWork);
+        Perf::ReadThreadingCost_MetricSet::Interval  _(
+                &Perf::ReadThreadingCost_MetricSet::noThreadWork);
         Service::Rpc serviceRpc(NULL, &rpc->requestPayload, &rpc->replyPayload);
         services[WireFormat::MASTER_SERVICE]->service.handleRpc(&serviceRpc);
         _.stop();
