@@ -2,3 +2,7 @@ bin/
 lib/
 .gradle/
 test-output/
+nbproject/
+logs/
+.project
+manifest.mf

@@ -14,16 +14,12 @@
  */
 
 #include <RamCloud.h>
-#include "edu_stanford_ramcloud_JRamCloud.h"
+#include "edu_stanford_ramcloud_RAMCloud.h"
 
 using namespace RAMCloud;
 
-/// Our JRamCloud java library is packaged under "edu.stanford.ramcloud".
-/// We will need this when using FindClass, etc.
-#define PACKAGE_PATH "edu/stanford/ramcloud/"
-
 // Time C++ blocks
-#define TIME_CPP false
+#define TIME_CPP true
 
 #define check_null(var, msg)                                                \
     if (var == NULL) {                                                      \
@@ -37,63 +33,31 @@ using namespace RAMCloud;
  * ReleaseStringUTFChars dance. 
  */
 class JStringGetter {
-  public:
+public:
+
     JStringGetter(JNIEnv* env, jstring jString)
-        : env(env)
-        , jString(jString)
-        , string(env->GetStringUTFChars(jString, 0))
-    {
+    : env(env)
+    , jString(jString)
+    , string(env->GetStringUTFChars(jString, 0)) {
         check_null(string, "GetStringUTFChars failed");
     }
-    
-    ~JStringGetter()
-    {
+
+    ~JStringGetter() {
         if (string != NULL)
             env->ReleaseStringUTFChars(jString, string);
     }
 
-  private:    
+private:
     JNIEnv* env;
     jstring jString;
 
-  public:
+public:
     const char* const string;
 };
 
 /**
- * This class provide caching of class/method/field IDs to reduce the
- * number of calls to the JVM.
- * 
- * TODO: Check performance and implement if needed
- */
-class JGetter {
-  public:
-    static JGetter& get() {
-        static JGetter instance;
-        return instance;
-    };
-    jclass getClass(JNIEnv* env, const char *name) {
-        try {
-            return jclassMap.at(name);
-        } catch (const std::out_of_range& err) {
-            jclass local = env->FindClass(name);
-            jclass global = (jclass) env->NewGlobalRef(local);
-            jclassMap.insert({{name, global}});
-            env->DeleteLocalRef(local);
-            return global;
-        }
-    };
-  private:
-    JGetter() {
-        
-    };
-    JGetter(JGetter const&);
-    void operator=(JGetter const&);
-    std::unordered_map<std::string, jclass> jclassMap;
-};
-
-/**
- * Create a RejectRules pointer from a Java RejectRules object.
+ * Create a RejectRules pointer from a byte array representation of a Java
+ * RejectRules object.
  *
  * \param env
  *      The current JNI environment.
@@ -102,15 +66,14 @@ class JGetter {
  * \return A RejectRules object from the given byte array.
  */
 static RejectRules
-createRejectRules(JNIEnv* env, jbyteArray jRejectRules)
-{
+createRejectRules(JNIEnv* env, jbyteArray jRejectRules) {
     RejectRules out;
     void* rulesPointer = env->GetPrimitiveArrayCritical(jRejectRules, 0);
-    out.givenVersion = static_cast<uint64_t*>(rulesPointer)[0];
-    out.doesntExist = static_cast<char*>(rulesPointer)[8];
-    out.exists = static_cast<char*>(rulesPointer)[9];
-    out.versionLeGiven = static_cast<char*>(rulesPointer)[10];
-    out.versionNeGiven = static_cast<char*>(rulesPointer)[11];
+    out.givenVersion = static_cast<uint64_t*> (rulesPointer)[0];
+    out.doesntExist = static_cast<char*> (rulesPointer)[8];
+    out.exists = static_cast<char*> (rulesPointer)[9];
+    out.versionLeGiven = static_cast<char*> (rulesPointer)[10];
+    out.versionNeGiven = static_cast<char*> (rulesPointer)[11];
     env->ReleasePrimitiveArrayCritical(jRejectRules, rulesPointer, JNI_ABORT);
     /*
     printf("Created RejectRules:\n\tVersion: %u\n\tDE: %u\n\tE: %u\n\tVLG: %u\n\tVNG: %u\n",
@@ -120,29 +83,6 @@ createRejectRules(JNIEnv* env, jbyteArray jRejectRules)
            out.versionLeGiven,
            out.versionNeGiven); */
     return out;
-}
-
-/**
- * Creates and throws a Java exception from the given name.
- * \param env
- *      The current JNI environment.
- * \param jRamCloud
- *      The calling object
- * \param name
- *      Name of the exception to throw.
- */
-static void
-createException(JNIEnv* env, jobject jRamCloud, const char* name)
-{
-    // Need to specify the full class name, including the package.
-    string fullName = PACKAGE_PATH;
-    fullName += "exception/";
-    fullName += name;
-
-    jclass cls = env->FindClass(fullName.c_str());
-    check_null(cls, "FindClass failed");
-
-    env->ThrowNew(cls, "");
 }
 
 /**
@@ -157,51 +97,61 @@ createException(JNIEnv* env, jobject jRamCloud, const char* name)
  * don't think anything else would make sense, but the JNI docs kind of
  * suck.
  */
-#define EXCEPTION_CATCHER(_returnValue)                                        \
-    catch (TableDoesntExistException& e) {                                     \
-        createException(env, jRamCloud, "TableDoesntExistException");          \
-        return _returnValue;                                                   \
-    } catch (ObjectDoesntExistException& e) {                                  \
-        createException(env, jRamCloud, "ObjectDoesntExistException");         \
-        return _returnValue;                                                   \
-    } catch (ObjectExistsException& e) {                                       \
-        createException(env, jRamCloud, "ObjectExistsException");              \
-        return _returnValue;                                                   \
-    } catch (WrongVersionException& e) {                                       \
-        createException(env, jRamCloud, "WrongVersionException");              \
-        return _returnValue;                                                   \
+#define EXCEPTION_CATCHER(_returnValue)                                 \
+    catch (ClientException& e) {                                        \
+        env->SetIntArrayRegion(status, 0, 1, reinterpret_cast<jint*>(&e.status)); \
+        return _returnValue;                                            \
     }
 
-
 /**
- * Connect to the RAMCloud cluster specified by the given coordinator's
- * service locator string. This causes the JNI code to instantiate the
- * underlying RamCloud C++ object.
- * 
+ * Construct a RamCloud for a particular cluster.
+ *
  * \param env
  *      The current JNI environment.
  * \param jRamCloud
  *      The calling class.
- * \param coordinatorLocator
- *     String that identifies the coordinator server
+ * \param locator
+ *      Describes how to locate the coordinator. It can have either of
+ *      two forms. The preferred form is a locator for external storage
+ *      that contains the cluster configuration information (such as a
+ *      string starting with "zk:", which will be passed to the ZooStorage
+ *      constructor). With this form, sessions can automatically be
+ *      redirected to a new coordinator if the current one crashes.
+ *      Typically the value for this argument will be the same as the
+ *      value of the "-x" command-line option given to the coordinator
+ *      when it started. The second form is deprecated, but is retained
+ *      for testing. In this form, the location is specified as a RAMCloud
+ *      service locator for a specific coordinator. With this form it is
+ *      not possible to roll over to a different coordinator if a given
+ *      one fails; we will have to wait for the specified coordinator to
+ *      restart.
+ * \param clusterName
+ *      Name of the current cluster. Used to allow independent operation
+ *      of several clusters sharing many of the same resources. This is
+ *      typically the same as the value of the "--clusterName" command-line
+ *      option given to the coordinator when it started.
+ * \param status
+ *      Java integer array of length 1 to put the status in if there
+ *      are any exceptions.
  */
-JNIEXPORT jlong 
-JNICALL Java_edu_stanford_ramcloud_JRamCloud_connect(JNIEnv *env,
-                                                     jclass jRamCloud,
-                                                     jstring coordinatorLocator)
-{
-    // TODO: find a more elegant solution to get rid of warning
-    // messages
-    // Logger::get().setLogLevels(1);
-    
-    JStringGetter locator(env, coordinatorLocator);
+JNIEXPORT jlong
+JNICALL Java_edu_stanford_ramcloud_RAMCloud_cppConnect(JNIEnv *env,
+        jclass jRamCloud,
+        jstring locator,
+        jstring clusterName,
+        jintArray status) {
+
+    JStringGetter locatorString(env, locator);
+    JStringGetter name(env, clusterName);
     RamCloud* ramcloud = NULL;
     try {
-        ramcloud = new RamCloud(locator.string);
-        // TODO: Session timeout does nothing yet
-        // ramcloud->clientContext->transportManager->setSessionTimeout(10000);
-    } EXCEPTION_CATCHER(NULL);
-    return reinterpret_cast<jlong>(ramcloud);
+        ramcloud = new RamCloud(locatorString.string, name.string);
+        // Not sure what this does, but Stephen wrote it so I'll keep
+        // it for now
+        ramcloud->clientContext->transportManager->setSessionTimeout(10000);
+    }
+    EXCEPTION_CATCHER(NULL);
+    return reinterpret_cast<jlong> (ramcloud);
 }
 
 /**
@@ -216,11 +166,10 @@ JNICALL Java_edu_stanford_ramcloud_JRamCloud_connect(JNIEnv *env,
  *      A pointer to the C++ RamCloud object.
  */
 JNIEXPORT void
-JNICALL Java_edu_stanford_ramcloud_JRamCloud_disconnect(JNIEnv *env,
-                                  jclass jRamCloud,
-                                  jlong ramcloudObjectPointer)
-{
-    delete reinterpret_cast<RamCloud*>(ramcloudObjectPointer);
+JNICALL Java_edu_stanford_ramcloud_RAMCloud_cppDisconnect(JNIEnv *env,
+        jclass jRamCloud,
+        jlong ramcloudObjectPointer) {
+    delete reinterpret_cast<RamCloud*> (ramcloudObjectPointer);
 }
 
 /**
@@ -240,25 +189,29 @@ JNICALL Java_edu_stanford_ramcloud_JRamCloud_disconnect(JNIEnv *env,
  *      to this number of servers according to their hash. This is a temporary
  *      work-around until tablet migration is complete; until then, we must
  *      place tablets on servers statically.
+ * \param status
+ *      Java integer array of length 1 to put the status in if there
+ *      are any exceptions.
  * \return
  *      The return value is an identifier for the created table; this is
  *      used instead of the table's name for most RAMCloud operations
  *      involving the table.
  */
 JNIEXPORT jlong
-JNICALL Java_edu_stanford_ramcloud_JRamCloud__1createTable(JNIEnv *env,
-                                                           jclass jRamCloud,
-                                                           jlong ramcloudObjectPointer,
-                                                           jstring jTableName,
-                                                           jint jServerSpan)
-{
-    RamCloud* ramcloud = reinterpret_cast<RamCloud*>(ramcloudObjectPointer);
+JNICALL Java_edu_stanford_ramcloud_RAMCloud_cppCreateTable(JNIEnv *env,
+        jclass jRamCloud,
+        jlong ramcloudObjectPointer,
+        jstring jTableName,
+        jint jServerSpan,
+        jintArray status) {
+    RamCloud* ramcloud = reinterpret_cast<RamCloud*> (ramcloudObjectPointer);
     JStringGetter tableName(env, jTableName);
     uint64_t tableId;
     try {
         tableId = ramcloud->createTable(tableName.string, jServerSpan);
-    } EXCEPTION_CATCHER(-1);
-    return static_cast<jlong>(tableId);
+    }
+    EXCEPTION_CATCHER(-1);
+    return static_cast<jlong> (tableId);
 }
 
 /**
@@ -277,18 +230,22 @@ JNICALL Java_edu_stanford_ramcloud_JRamCloud__1createTable(JNIEnv *env,
  *      A pointer to the C++ RamCloud object.
  * \param jTableName
  *      Name of the table to delete.
+ * \param status
+ *      Java integer array of length 1 to put the status in if there
+ *      are any exceptions.
  */
 JNIEXPORT void
-JNICALL Java_edu_stanford_ramcloud_JRamCloud__1dropTable(JNIEnv *env,
-                                                         jclass jRamCloud,
-                                                         jlong ramcloudObjectPointer,
-                                                         jstring jTableName)
-{
-    RamCloud* ramcloud = reinterpret_cast<RamCloud*>(ramcloudObjectPointer);
+JNICALL Java_edu_stanford_ramcloud_RAMCloud_cppDropTable(JNIEnv *env,
+        jclass jRamCloud,
+        jlong ramcloudObjectPointer,
+        jstring jTableName,
+        jintArray status) {
+    RamCloud* ramcloud = reinterpret_cast<RamCloud*> (ramcloudObjectPointer);
     JStringGetter tableName(env, jTableName);
     try {
         ramcloud->dropTable(tableName.string);
-    } EXCEPTION_CATCHER();
+    }
+    EXCEPTION_CATCHER();
 }
 
 /**
@@ -303,23 +260,27 @@ JNICALL Java_edu_stanford_ramcloud_JRamCloud__1dropTable(JNIEnv *env,
  *      A pointer to the C++ RamCloud object.
  * \param jTableName
  *      Name of the desired table.
+ * \param status
+ *      Java integer array of length 1 to put the status in if there
+ *      are any exceptions.
  * \return
  *      The return value is an identifier for the table; this is used
  *      instead of the table's name for most RAMCloud operations
  *      involving the table.
  */
 JNIEXPORT jlong
-JNICALL Java_edu_stanford_ramcloud_JRamCloud__1getTableId(JNIEnv *env,
-                                                          jclass jRamCloud,
-                                                          jlong ramcloudObjectPointer,
-                                                          jstring jTableName)
-{
-    RamCloud* ramcloud = reinterpret_cast<RamCloud*>(ramcloudObjectPointer);
+JNICALL Java_edu_stanford_ramcloud_RAMCloud_cppGetTableId(JNIEnv *env,
+        jclass jRamCloud,
+        jlong ramcloudObjectPointer,
+        jstring jTableName,
+        jintArray status) {
+    RamCloud* ramcloud = reinterpret_cast<RamCloud*> (ramcloudObjectPointer);
     JStringGetter tableName(env, jTableName);
     uint64_t tableId;
     try {
         tableId = ramcloud->getTableId(tableName.string);
-    } EXCEPTION_CATCHER(-1);
+    }
+    EXCEPTION_CATCHER(-1);
     return tableId;
 }
 
@@ -354,18 +315,21 @@ uint64_t test_times[test_num_times];
  * \param versionBuffer
  *      A long array with a single value that will hold the version of the
  *      read object.
+ * \param status
+ *      Java integer array of length 1 to put the status in if there
+ *      are any exceptions.
  * \return A byte array holding the value of the read object
  */
 JNIEXPORT jbyteArray
-JNICALL Java_edu_stanford_ramcloud_JRamCloud__1read(JNIEnv *env,
-                                                    jclass jRamCloud,
-                                                    jlong ramcloudObjectPointer,
-                                                    jlong jTableId,
-                                                    jbyteArray jKey,
-                                                    jbyteArray jRejectRules,
-                                                    jlongArray versionBuffer)
-{
-    RamCloud* ramcloud = reinterpret_cast<RamCloud*>(ramcloudObjectPointer);
+JNICALL Java_edu_stanford_ramcloud_RAMCloud_cppRead(JNIEnv *env,
+        jclass jRamCloud,
+        jlong ramcloudObjectPointer,
+        jlong jTableId,
+        jbyteArray jKey,
+        jbyteArray jRejectRules,
+        jlongArray versionBuffer,
+        jintArray status) {
+    RamCloud* ramcloud = reinterpret_cast<RamCloud*> (ramcloudObjectPointer);
 
     RejectRules* rejectRules = NULL;
     if (jRejectRules != NULL) {
@@ -376,7 +340,7 @@ JNICALL Java_edu_stanford_ramcloud_JRamCloud__1read(JNIEnv *env,
     // Use of critical methods decreases likelihood of an array copy
     jsize keyLength = env->GetArrayLength(jKey);
     void* jKeyPointer = env->GetPrimitiveArrayCritical(jKey, 0);
-    
+
     Buffer buffer;
     uint64_t version;
 #if TIME_CPP
@@ -384,25 +348,25 @@ JNICALL Java_edu_stanford_ramcloud_JRamCloud__1read(JNIEnv *env,
 #endif
     try {
         ramcloud->read(jTableId,
-                       jKeyPointer,
-                       keyLength,
-                       &buffer,
-                       rejectRules,
-                       &version);
-    } EXCEPTION_CATCHER(NULL);
+                jKeyPointer,
+                keyLength,
+                &buffer,
+                rejectRules,
+                &version);
+    }
+    EXCEPTION_CATCHER(NULL);
 #if TIME_CPP
     test_times[test_num_current] = Cycles::rdtsc() - start;
-    
+
     test_num_current++;
     if (test_num_current == test_num_times) {
         std::sort(boost::begin(test_times), boost::end(test_times));
-        printf("Median C++ Read Time: %f\n", Cycles::toSeconds(test_times[test_num_times/2]) * 1000000);
+        printf("Median C++ Read Time: %f\n", Cycles::toSeconds(test_times[test_num_times / 2]) * 1000000);
         test_num_current = 0;
     }
 #endif
-    
-    env->ReleasePrimitiveArrayCritical(jKey, jKeyPointer, JNI_ABORT);
-    env->SetLongArrayRegion(versionBuffer, 0, 1, reinterpret_cast<jlong*>(&version));
+
+    env->SetLongArrayRegion(versionBuffer, 0, 1, reinterpret_cast<jlong*> (&version));
 
     // Copy read value from C++ Buffer to Java byte array
     jbyteArray jValue = env->NewByteArray(buffer.getTotalLength());
@@ -436,18 +400,21 @@ JNICALL Java_edu_stanford_ramcloud_JRamCloud__1read(JNIEnv *env,
  * \param jRejectRules
  *      If non-NULL, specifies conditions under which the remove should be
  *      aborted with an error.
+ * \param status
+ *      Java integer array of length 1 to put the status in if there
+ *      are any exceptions.
  * \return The version number of the object (just before
  *      deletion).
  */
 JNIEXPORT jlong
-JNICALL Java_edu_stanford_ramcloud_JRamCloud__1remove(JNIEnv *env,
-                                                      jclass jRamCloud,
-                                                      jlong ramcloudObjectPointer,
-                                                      jlong jTableId,
-                                                      jbyteArray jKey,
-                                                      jbyteArray jRejectRules)
-{
-    RamCloud* ramcloud = reinterpret_cast<RamCloud*>(ramcloudObjectPointer);
+JNICALL Java_edu_stanford_ramcloud_RAMCloud_cppRemove(JNIEnv *env,
+        jclass jRamCloud,
+        jlong ramcloudObjectPointer,
+        jlong jTableId,
+        jbyteArray jKey,
+        jbyteArray jRejectRules,
+        jintArray status) {
+    RamCloud* ramcloud = reinterpret_cast<RamCloud*> (ramcloudObjectPointer);
     RejectRules* rejectRules = NULL;
     if (jRejectRules != NULL) {
         RejectRules temp = createRejectRules(env, jRejectRules);
@@ -458,9 +425,10 @@ JNICALL Java_edu_stanford_ramcloud_JRamCloud__1remove(JNIEnv *env,
     uint64_t version;
     try {
         ramcloud->remove(jTableId, jKeyPointer, keySize, rejectRules, &version);
-    } EXCEPTION_CATCHER(-1);
+    }
+    EXCEPTION_CATCHER(-1);
     env->ReleasePrimitiveArrayCritical(jKey, jKeyPointer, JNI_ABORT);
-    return static_cast<jlong>(version);
+    return static_cast<jlong> (version);
 }
 
 /**
@@ -487,6 +455,9 @@ JNICALL Java_edu_stanford_ramcloud_JRamCloud__1remove(JNIEnv *env,
  * \param jRejectRules
  *      If non-NULL, specifies conditions under which the write
  *      should be aborted with an error.
+ * \param status
+ *      Java integer array of length 1 to put the status in if there
+ *      are any exceptions.
  * \return The version number of the object is returned.
  *      If the operation was successful this will be the new version for
  *      the object. If the operation failed then the version number returned
@@ -494,15 +465,15 @@ JNICALL Java_edu_stanford_ramcloud_JRamCloud__1remove(JNIEnv *env,
  *      exist.
  */
 JNIEXPORT jlong
-JNICALL Java_edu_stanford_ramcloud_JRamCloud__1write(JNIEnv *env,
-                                                     jclass jRamCloud,
-                                                     jlong ramcloudObjectPointer,
-                                                     jlong jTableId,
-                                                     jbyteArray jKey,
-                                                     jbyteArray jValue,
-                                                     jbyteArray jRejectRules)
-{
-    RamCloud* ramcloud = reinterpret_cast<RamCloud*>(ramcloudObjectPointer);
+JNICALL Java_edu_stanford_ramcloud_RAMCloud_cppWrite(JNIEnv *env,
+        jclass jRamCloud,
+        jlong ramcloudObjectPointer,
+        jlong jTableId,
+        jbyteArray jKey,
+        jbyteArray jValue,
+        jbyteArray jRejectRules,
+        jintArray status) {
+    RamCloud* ramcloud = reinterpret_cast<RamCloud*> (ramcloudObjectPointer);
     RejectRules* rejectRules = NULL;
     if (jRejectRules != NULL) {
         RejectRules temp = createRejectRules(env, jRejectRules);
@@ -520,17 +491,18 @@ JNICALL Java_edu_stanford_ramcloud_JRamCloud__1write(JNIEnv *env,
 #endif
     try {
         ramcloud->write(jTableId,
-                        jKeyPointer, keyLength,
-                        jValuePointer, valueLength,
-                        rejectRules,
-                        &version);
-    } EXCEPTION_CATCHER(-1);
+                jKeyPointer, keyLength,
+                jValuePointer, valueLength,
+                rejectRules,
+                &version);
+    }
+    EXCEPTION_CATCHER(-1);
 #if TIME_CPP
     test_times[test_num_current] = Cycles::rdtsc() - start;
     test_num_current++;
     if (test_num_current == test_num_times) {
         std::sort(boost::begin(test_times), boost::end(test_times));
-        printf("Median C++ Write Time: %f\n", Cycles::toSeconds(test_times[test_num_times/2]) * 1000000);
+        printf("Median C++ Write Time: %f\n", Cycles::toSeconds(test_times[test_num_times / 2]) * 1000000);
         test_num_current = 0;
     }
 #endif
@@ -538,6 +510,5 @@ JNICALL Java_edu_stanford_ramcloud_JRamCloud__1write(JNIEnv *env,
     env->ReleasePrimitiveArrayCritical(jValue, jValuePointer, JNI_ABORT);
     env->ReleasePrimitiveArrayCritical(jKey, jKeyPointer, JNI_ABORT);
 
-    return static_cast<jlong>(version);
+    return static_cast<jlong> (version);
 }
-

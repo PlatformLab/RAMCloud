@@ -1,4 +1,4 @@
-/* Copyright (c) 2013 Stanford University
+/* Copyright (c) 2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -13,13 +13,31 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-package edu.stanford.ramcloud.exception;
+package edu.stanford.ramcloud.test;
+
+import edu.stanford.ramcloud.*;
+
+import org.testng.annotations.*;
 
 /**
- * TODO: Comment
+ * Class that holds methods to create and destroy the test cluster
+ * used for the unit tests.
  */
-public class WrongVersionException extends RuntimeException {
-    public WrongVersionException(String message) {
-        super(message);
+public class ClientTestClusterSetup {
+    public static RAMCloud ramcloud;
+    public static TestCluster cluster;
+    
+    @Test
+    (
+        groups = "UnitTestInit"
+    )
+    public void setupClient() {
+        cluster = new TestCluster();
+        ClientTestClusterSetup.ramcloud = new RAMCloud(cluster.getRamcloudClientPointer());
+    }
+
+    @AfterSuite
+    public void cleanUpClient() {
+        cluster.destroy();
     }
 }

@@ -19,8 +19,19 @@
 
 using namespace RAMCloud;
 
+/**
+ * Creates a mock cluster with one master.
+ *
+ * \param env
+ *      The current JNI environment.
+ * \param clazz
+ *      The calling Java class.
+ * \param pointers
+ *      A java long array to store the resulting pointers of the
+ *      RAMCloud and cluster objects.
+ */
 JNIEXPORT void JNICALL Java_edu_stanford_ramcloud_test_TestCluster_createMockCluster
-(JNIEnv *env, jclass, jlongArray pointers) {
+(JNIEnv *env, jclass clazz, jlongArray pointers) {
     // Disable the verbose C++ log messages
     Logger::get().setLogLevels(1);
     
@@ -43,9 +54,18 @@ JNIEXPORT void JNICALL Java_edu_stanford_ramcloud_test_TestCluster_createMockClu
     env->ReleasePrimitiveArrayCritical(pointers, reinterpret_cast<void*>(pointerPointer), 0);
 }
 
-
+/**
+ * Deletes a mock cluster and RAMCloud object.
+ *
+ * \param env
+ *      The current JNI environment.
+ * \param clazz
+ *      The calling Java class.
+ * \param pointers
+ *      A java long array with the pointers to delete.
+ */
 JNIEXPORT void JNICALL Java_edu_stanford_ramcloud_test_TestCluster_destroy
-(JNIEnv *env, jclass, jlongArray pointers) {
+(JNIEnv *env, jclass clazz, jlongArray pointers) {
     uint64_t* pointerPointer = static_cast<uint64_t*>(env->GetPrimitiveArrayCritical(pointers, 0));
     RamCloud* ramcloud = reinterpret_cast<RamCloud*>(pointerPointer[1]);
     delete ramcloud;
