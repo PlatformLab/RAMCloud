@@ -108,3 +108,129 @@ glitches, the test will wait longer, but it will eventually complete.
 If there is a real problem (e.g. a bug prevents the desired result from
 ever occurring) the loop will eventually terminate and the following
 assertions will fail.
+
+----------------
+Linearizable RPC
+----------------
+A RPC in Ramcloud is not linearizable with respect to re-execution in certain
+circumstances (eg. server crash) because the same RPC could be executed
+multiple times. For example, the problem exists for conditional write; a client
+sends a conditional write RPC request, and the responsible master crashes in
+between processing the conditional write and replying with the result of the
+conditional write. Then the client will retry the conditional write since it
+thinks the original request was lost. A recovery master will have the updated
+value (since the original master had committed the result on the log) and will
+respond to the re-tried conditional write with a failure due to a version
+number mismatch. The correct behavior should be that the recovery master
+understands that the request is being retried and responds with the original
+result "success".
+
+We resolve this problem by saving the results of RPCs on masters. If a master
+is asked to execute the same RPC again, it just returns the old result instead
+of re-executing. To implement this solution, modifications on client, master,
+and logging system were required.
+
+1. Client
+Each client provides a unique ID for each RPC, so that masters can detect
+duplicate RPCs. Also, a client has to tell masters about results it has
+received, so that master can discard saved results that are no longer needed.
+
+1.1 Client ID assignments
+The identification of an RPC has two components: an rpc sequence
+number (shortened to rpc ID) and a client ID. Since the rpc ID is only
+unique within a client, a master needs an ID for the client
+to distinguish duplicate RPCs. When a client starts, it enlists itself with the
+Coordinator and obtains a unique client ID, which is attached to every
+linearizable RPC later.
+
+1.2 Rpc ID & ack ID assignment by RpcTracker
+A client-side data structure, called RpcTracker, keeps the last assigned rpc ID
+and the status of all outstanding RPCs whose results have not yet been received.
+We use RpcTracker to assign new rpc IDs and calculate ack IDs (which indicate
+that responds have been received for all RPCs with rpc ID below the number).
+
+1.3 Maintaining lease on coordinator
+Before sending a linearizable RPC to a master, a client must make sure that the
+lease for its client ID is initiated and active. Enlisting with
+coordinator initiates the lease on coordinator side, and the client should
+maintain the lease by sending renew requests to coordinator before
+expiration as long as it want masters to keep its linearizable states. This
+lease-like mechanism is used to ensure safe garbage collection for client
+states (See section 2.3 for how masters use this lease.)
+
+2. Master
+With the client ID, rpc ID, and ack ID from a client, a master avoids
+re-execution of duplicate RPC by saving the results of RPCs in its internal
+memory (for fast lookup) and in its log (for durability). I will talk about
+the details of logging in section 3, and now focus on the internal memory
+data structure.
+
+2.1 Memory data structure: UnackedRpcResults
+After a master completes an RPC, it records its result in the log. To locate
+the result in the log efficiently, each master keeps a data structure called
+UnackedRpcResults.
+A master records the start and the completion of an RPC execution in
+UnackedRpcResults, so that it can check whether an incoming RPC is a
+duplicate later.
+
+2.2 Garbage collection by ack ID
+The memory data structure, UnackedRpcResults, may grow very quickly as
+we need a separate entry for every linearizable RPCs. We need a way to
+clean up information that is no longer needed. We use the ack IDs attached to
+linearizable RPCs to clean up the stale records safely.
+The difference of rpcId - ackId is bounded by a fixed constant, and a client
+waits for ackId to increase before sending more linearizable RPCs, guaranteeing
+bounded memory use for the client on a master.
+
+2.3 Cleanup for silent client.
+By our scheme of garbage collection by ackId, disconnected (or dead) clients
+always leave the last entry unacknowledged. We garbage collect this by
+implementing a lease-like mechanism. As in section 1.3, a client maintains the
+lease with its client ID on coordinator for the duration of linearizability
+needs. A master keeps track of how much time has elapsed since each client's
+last linearizable RPC request. Periodically, master checks with coordinator for
+liveness of the leases for the clients inactive for a long time. If the
+coordinator's main lease is expired, the master can garbage collects the
+client state safely.
+
+3. Logging
+For durability, we store the result of each linearizable RPC in log (both
+in a master's log-structured memory and backups). For that, we defined
+a new type of log entry and we can recover all necessary information
+from the log entries after a crash.
+
+3.1 Structure of the new type of log entry: rpc log entry
+For each completed linearizable RPC, the new type of log entry is written.
+The log entry has "<Result>" (for replying to duplicate rpcs in future),
+"<TableId, KeyHash>" (for finding the correct recovery master during recovery,
+more details in section 3.2), and "<clientId, rpcId, ackId>" (for
+reconstructing UnackedRpcResults during recovery). I will call this new type
+of log entry an rpc log entry. On each update of an object with linearizable
+RPC, we should write both the new object log entry and the new rpc log entry
+atomically. As we write them atomically, we can guarantee the consistent
+behavior on crash: either an RPC is never executed, or it is executed and
+duplicate RPCs will be detected.
+
+3.2 Distribution of rpc log entries after crash.
+During crash recovery, log entries get split to many recovery masters.
+After crash recovery, a re-tried linearizable RPC will be directed to the new
+recovery master (which received the corresponding log entries), so relevant
+rpc log entries should also migrate to the master.
+We associate an object with each linearizable RPC and refer to the
+<TableId, KeyHash> value in a log entry to decide which recovery master should
+receive the rpc log entry.
+
+3.3 Reconstruction of UnackedRpcResults table during crash recovery.
+On crash recovery, we can reconstruct UnackedRpcResults with the following
+steps. After a recovery master gathers relevant portion of rpc log entries,
+it just replays the rpc log entry by using <clientId, rpcId, ackId> to
+re-construct (or add new info to) UnackedRpcResults on the recovery master.
+
+3.4 Log cleaning for new log entry type.
+The existing log cleaner should be modified to handle cleaning of rpc log
+entries. When it finds an rpc log entry with <clientId, rpcId, ackId>, the log
+cleaner checks the UnackedRpcResults to figure out whether the rpc is already
+acknowledged. If it is, we can clean it up. If not, the log entry is still
+valid and needs to be copied to a new location in the log. After relocating
+the log entry, we should update UnackedRpcResults to have correct pointer
+to the log entry.
