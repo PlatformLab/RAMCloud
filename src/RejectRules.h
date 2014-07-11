@@ -16,6 +16,8 @@
 #ifndef RAMCLOUD_REJECTRULES_H
 #define RAMCLOUD_REJECTRULES_H
 
+#include <inttypes.h>
+
 #ifdef __cplusplus
 namespace RAMCloud {
 #endif

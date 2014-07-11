@@ -33,6 +33,25 @@ struct rc_client {
 };
 
 /**
+ * Stores user-provided information and the the RAMCloud object buffer to
+ * transfer the response of a multi read operation into C managed memory.
+ */
+struct rc_multiReadHelper {
+    rc_multiReadHelper(void *buf, uint32_t maxLength, uint32_t *actualLength)
+        : buf(buf)
+        , maxLength(maxLength)
+        , actualLength(actualLength)
+        , value()
+        { *actualLength = 0; }
+    void *buf;   ///< A user-provided buffer to store the value of an object
+    uint32_t maxLength;   ///< The size of the buffer *buf in bytes
+    uint32_t *actualLength;  ///< The actual size of the value in bytes
+    Tub<ObjectBuffer> value;  ///< The value buffer as required by the C++ API
+
+    DISALLOW_COPY_AND_ASSIGN(rc_multiReadHelper);
+};
+
+/**
  * Create a new client connection to a RAMCloud cluster.
  *
  * \param locator
@@ -300,6 +319,322 @@ rc_write(struct rc_client* client, uint64_t tableId,
     }
 
     return STATUS_OK;
+}
+
+// Multi-op calls require three steps from the C user.  A first bunch of calls
+// constructs the C++ Multi{Read,Write,Remove}Object objects, the second
+// step issues the multi-op RPC, and in a last step a bunch of calls destructs
+// the C++ MultiOpObject objects.  To the C user, the MultiOpObjects are just
+// void pointers.  The size of the objects, which needs to be allocated by the
+// C user, is returned by rc_multiOpSizeOf.
+
+/**
+ * Constructs a MultiReadObject and the necessary additional fields to transfer
+ * the returned ObjectBuffer to a C void buffer.
+ *
+ * \param tableId
+ *      The table containing the desired object (return value from
+ *      a previous call to getTableId).
+ * \param key
+ *      Variable length key that uniquely identifies the object within tableId.
+ *      It does not necessarily have to be null terminated like a string.
+ * \param keyLength
+ *      Size in bytes of the key.
+ * \param[out] buf
+ *      The contents of the desired object are copied to this location.
+ * \param[out] maxLength
+ *      Number of bytes of space available at buf: if the object is
+ *      larger than this that only this many bytes will be copied to
+ *      buf.
+ * \param[out] actualLength
+ *      The total size of the object is stored here; this may be
+ *      larger than maxLength.
+ * \param where
+ *      The memory location for creating the objects. The location needs to
+ *      be large enough to hold at least rc_multiOpSizeOf(MULTI_OP_READ) bytes.
+ */
+void
+rc_multiReadCreate(uint64_t tableId,
+                   const void *key, uint16_t keyLength,
+                   void* buf, uint32_t maxLength, uint32_t *actualLength,
+                   void *where)
+{
+    rc_multiReadHelper *mReadHelper = reinterpret_cast<rc_multiReadHelper *>
+        (reinterpret_cast<char *>(where) + sizeof(MultiReadObject));
+    new(mReadHelper) rc_multiReadHelper(buf, maxLength, actualLength);
+    new(where) MultiReadObject(tableId, key, keyLength, &(mReadHelper->value));
+}
+
+/**
+ * Constructs a MultiRemoveObject.
+ *
+ * \param tableId
+ *      The table containing the desired object (return value from
+ *      a previous call to getTableId).
+ * \param key
+ *      Variable length key that uniquely identifies the object within tableId.
+ *      It does not necessarily have to be null terminated like a string.
+ * \param keyLength
+ *      Size in bytes of the key.
+ * \param rejectRules
+ *      If non-NULL, specifies conditions under which the remove
+ *      should be aborted with an error.
+ * \param where
+ *      The memory location for creating the objects. The location needs to
+ *      be large enough to hold at least rc_multiOpSizeOf(MULTI_OP_REMOVE)
+ *      bytes.
+ */
+void
+rc_multiRemoveCreate(uint64_t tableId,
+                     const void* key, uint16_t keyLength,
+                     const struct RejectRules* rejectRules,
+                     void* where)
+{
+    new(where) MultiRemoveObject(tableId, key, keyLength, rejectRules);
+}
+
+/**
+ * Constructs a MultiWriteObject.
+ *
+ * \param tableId
+ *      The table containing the desired object (return value from
+ *      a previous call to getTableId).
+ * \param key
+ *      Variable length key that uniquely identifies the object within tableId.
+ *      It does not necessarily have to be null terminated like a string.
+ * \param keyLength
+ *      Size in bytes of the key.
+ * \param buf
+ *      Points to the memory location of the value.
+ * \param length
+ *      Size in bytes of the value.
+ * \param rejectRules
+ *      If non-NULL, specifies conditions under which the remove
+ *      should be aborted with an error.
+ * \param where
+ *      The memory location for creating the objects. The location needs to
+ *      be large enough to hold at least rc_multiOpSizeOf(MULTI_OP_REMOVE)
+ *      bytes.
+ */
+void
+rc_multiWriteCreate(uint64_t tableId,
+                    const void* key, uint16_t keyLength,
+                    const void* buf, uint32_t length,
+                    const struct RejectRules* rejectRules,
+                    void *where)
+{
+    new(where) MultiWriteObject(tableId, key, keyLength,
+                                 buf, length, rejectRules);
+}
+
+/**
+ * Frees resources of a multi-op object that have been previously allocated
+ * with rc_multiReadCreate / rc_multiWriteCreate / rc_multiRemoveCreate.  Does
+ * not free the memory itself but only calls the C++ destructors.
+ *
+ * \param multiOpObject
+ *      Points to a memory location that has been previously the where parameter
+ *      in a call to rc_multi{Read,Write,Remove}Create.
+ * \param type
+ *      Type of the multi-op object multiOpObject.
+ */
+void
+rc_multiOpDestroy(void *multiOpObject, MultiOp type) {
+    rc_multiReadHelper *mReadHelper;
+    switch (type) {
+        case MULTI_OP_READ:
+            reinterpret_cast<MultiReadObject *>
+                (multiOpObject)->~MultiReadObject();
+            mReadHelper = reinterpret_cast<rc_multiReadHelper *>(
+                reinterpret_cast<char *>(multiOpObject) +
+                sizeof(MultiReadObject));
+            mReadHelper->~rc_multiReadHelper();
+            break;
+        case MULTI_OP_WRITE:
+            reinterpret_cast<MultiWriteObject *>
+                (multiOpObject)->~MultiWriteObject();
+            break;
+        case MULTI_OP_REMOVE:
+            reinterpret_cast<MultiRemoveObject *>
+                (multiOpObject)->~MultiRemoveObject();
+            break;
+        default:
+            RAMCLOUD_DIE("Destruct unknown multi-op object");
+    }
+}
+
+/**
+ * Get the status of a multi-op object after a call
+ * to rc_multi{Read,Write,Remove}.
+ *
+ * \param multiOpObject
+ *      Points to a memory location that has been previously the where parameter
+ *      in a call to rc_multi{Read,Write,Remove}Create.
+ * \param type
+ *      Type of the multi-op object multiOpObject.
+ */
+Status
+rc_multiOpStatus(const void *multiOpObject, MultiOp type) {
+    return reinterpret_cast<const MultiOpObject *>(multiOpObject)->status;
+}
+
+/**
+ * Returns the size in bytes that the C user must allocate for a call to
+ * rc_multi{Read,Write,Remove}Create.
+ *
+ * \param type
+ *      Type of the desired multi-op object.
+ */
+uint16_t
+rc_multiOpSizeOf(MultiOp type) {
+    switch (type) {
+        case MULTI_OP_READ:
+            return sizeof(MultiReadObject) + sizeof(rc_multiReadHelper);
+        case MULTI_OP_WRITE:
+            return sizeof(MultiWriteObject);
+        case MULTI_OP_REMOVE:
+            return sizeof(MultiRemoveObject);
+        default:
+            RAMCLOUD_DIE("Get size of unknown multi-op object");
+    }
+}
+
+/**
+ * Get the version of a multi-op object after a call
+ * to rc_multi{Read,Write,Remove}.
+ *
+ * \param multiOpObject
+ *      Points to a memory location that has been previously the where parameter
+ *      in a call to rc_multi{Read,Write,Remove}Create.
+ * \param type
+ *      Type of the multi-op object multiOpObject.
+ */
+uint64_t
+rc_multiOpVersion(const void *multiOpObject, MultiOp type) {
+  switch (type) {
+      case MULTI_OP_READ:
+          return reinterpret_cast<const MultiReadObject *>
+                     (multiOpObject)->version;
+          break;
+      case MULTI_OP_WRITE:
+          return reinterpret_cast<const MultiWriteObject *>
+                     (multiOpObject)->version;
+          break;
+      case MULTI_OP_REMOVE:
+          return reinterpret_cast<const MultiRemoveObject *>
+                     (multiOpObject)->version;
+          break;
+      default:
+          RAMCLOUD_DIE("Get version from unknown multi-op object");
+  }
+}
+
+/**
+ * Issues a read on multiple objects.
+ *
+ * \param client
+ *      Handle for the RAMCloud connection.
+ * \param requests
+ *      An array of pointers to memory structures that have been each created
+ *      with rc_multiReadCreate.
+ * \param numRequests
+ *      The size of the requests array.
+ */
+void
+rc_multiRead(struct rc_client* client,
+              void **requests, uint32_t numRequests)
+{
+    MultiReadObject **read_requests =
+        reinterpret_cast<MultiReadObject **>(requests);
+    try {
+        client->client->multiRead(read_requests, numRequests);
+        for (uint32_t i = 0; i < numRequests; ++i) {
+            rc_multiReadHelper *mReadHelper =
+                reinterpret_cast<rc_multiReadHelper *>
+                    (reinterpret_cast<char *>(requests[i]) +
+                    sizeof(MultiReadObject));
+            *(mReadHelper->actualLength) = 0;
+            if (read_requests[i]->status != STATUS_OK) {
+                continue;
+            }
+
+            uint16_t value_offset;
+            bool retval = mReadHelper->value->getValueOffset(&value_offset);
+            if (!retval) {
+                read_requests[i]->status = STATUS_INVALID_OBJECT;
+                continue;
+            }
+            *(mReadHelper->actualLength) =
+                mReadHelper->value->size() - value_offset;
+            uint32_t nBytes = *(mReadHelper->actualLength) ;
+            if (nBytes > mReadHelper->maxLength) {
+                nBytes = mReadHelper->maxLength;
+            }
+            mReadHelper->value->copy(value_offset, nBytes, mReadHelper->buf);
+        }
+    }
+    catch (std::exception& e) {
+        RAMCLOUD_LOG(ERROR, "An unhandled C++ Exception occurred: %s",
+                e.what());
+    } catch (...) {
+        RAMCLOUD_LOG(ERROR, "An unknown, unhandled C++ Exception occurred");
+    }
+}
+
+/**
+ * Issues a write of multiple objects.
+ *
+ * \param client
+ *      Handle for the RAMCloud connection.
+ * \param requests
+ *      An array of pointers to memory structures that have been each created
+ *      with rc_multiWriteCreate.
+ * \param numRequests
+ *      The size of the requests array.
+ */
+void
+rc_multiRemove(struct rc_client* client,
+               void **requests, uint32_t numRequests)
+{
+    MultiRemoveObject **remove_requests =
+        reinterpret_cast<MultiRemoveObject **>(requests);
+    try {
+        client->client->multiRemove(remove_requests, numRequests);
+    }
+    catch (std::exception& e) {
+        RAMCLOUD_LOG(ERROR, "An unhandled C++ Exception occurred: %s",
+                e.what());
+    } catch (...) {
+        RAMCLOUD_LOG(ERROR, "An unknown, unhandled C++ Exception occurred");
+    }
+}
+
+/**
+ * Issues a remove of multiple objects.
+ *
+ * \param client
+ *      Handle for the RAMCloud connection.
+ * \param requests
+ *      An array of pointers to memory structures that have been each created
+ *      with rc_multiRemoveCreate.
+ * \param numRequests
+ *      The size of the requests array.
+ */
+void
+rc_multiWrite(struct rc_client* client,
+              void **requests, uint32_t numRequests)
+{
+    MultiWriteObject **write_requests =
+        reinterpret_cast<MultiWriteObject **>(requests);
+    try {
+        client->client->multiWrite(write_requests, numRequests);
+    }
+    catch (std::exception& e) {
+        RAMCLOUD_LOG(ERROR, "An unhandled C++ Exception occurred: %s",
+                e.what());
+    } catch (...) {
+        RAMCLOUD_LOG(ERROR, "An unknown, unhandled C++ Exception occurred");
+    }
 }
 
 Status

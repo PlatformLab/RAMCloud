@@ -21,6 +21,8 @@
 #ifndef RAMCLOUD_CRAMCLOUD_H
 #define RAMCLOUD_CRAMCLOUD_H
 
+#include <inttypes.h>
+
 #include "RejectRules.h"
 #include "Status.h"
 
@@ -32,6 +34,12 @@ using namespace RAMCloud;
 struct RamCloud;
 struct rc_client;
 #endif
+
+typedef enum MultiOp {
+  MULTI_OP_READ = 0,
+  MULTI_OP_WRITE,
+  MULTI_OP_REMOVE
+} MultiOp;
 
 Status    rc_connect(const char* serverLocator,
                             const char* clusterName,
@@ -63,6 +71,33 @@ Status    rc_write(struct rc_client* client, uint64_t tableId,
                              const void* buf, uint32_t length,
                              const struct RejectRules* rejectRules,
                              uint64_t* version);
+
+void      rc_multiReadCreate(uint64_t tableId,
+                                  const void *key, uint16_t keyLength,
+                                  void* buf, uint32_t maxLength,
+                                  uint32_t* actualLength,
+                                  void *where);
+void      rc_multiWriteCreate(uint64_t tableId,
+                                   const void *key, uint16_t keyLength,
+                                   const void* buf, uint32_t length,
+                                   const struct RejectRules* rejectRules,
+                                   void *where);
+void      rc_multiRemoveCreate(uint64_t tableId,
+                                    const void *key, uint16_t keyLength,
+                                    const struct RejectRules* rejectRules,
+                                    void *where);
+
+uint16_t  rc_multiOpSizeOf(MultiOp type);
+Status    rc_multiOpStatus(const void *multiOpObject, MultiOp type);
+uint64_t  rc_multiOpVersion(const void *multiOpObject, MultiOp type);
+void      rc_multiOpDestroy(void *multiOpObject, MultiOp type);
+
+void      rc_multiRead(struct rc_client* client,
+                             void **requests, uint32_t numRequests);
+void      rc_multiWrite(struct rc_client* client,
+                              void **requests, uint32_t numRequests);
+void      rc_multiRemove(struct rc_client* client,
+                              void **requests, uint32_t numRequests);
 
 Status    rc_testing_kill(struct rc_client* client, uint64_t tableId,
                                     const void* key, uint16_t keyLength);

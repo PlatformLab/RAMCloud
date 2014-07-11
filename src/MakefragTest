@@ -27,6 +27,7 @@ TESTS_SRCFILES := \
 		  src/CleanableSegmentManagerTest.cc \
 		  src/ClientExceptionTest.cc \
 		  src/ClusterMetricsTest.cc \
+		  src/CRamCloudTest.cc \
 		  src/CommonTest.cc \
 		  src/ContextTest.cc \
 		  src/CoordinatorRpcWrapperTest.cc \
