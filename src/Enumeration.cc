@@ -299,13 +299,17 @@ Enumeration::complete()
     args.iter = &iter;
     args.objectReferences = &objectRefs;
     void* cookie = static_cast<void*>(&args);
-    for (; bucketIndex < numBuckets && !payloadFull; bucketIndex++) {
+    while (bucketIndex < numBuckets) {
         objectRefs.clear();
         bucketStart = payload.size();
         objectMap.forEachInBucket(enumerateBucket, cookie, bucketIndex);
         int64_t overflow = appendObjectsToBuffer(log, &payload, objectRefs,
                                                  maxPayloadBytes, keysOnly);
         payloadFull = overflow >= 0;
+        if (payloadFull) {
+            break;
+        }
+        bucketIndex++;
     }
 
     // Clean up if last bucket is incomplete.

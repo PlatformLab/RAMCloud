@@ -135,6 +135,36 @@ TEST_F(TableEnumeratorTest, basics) {
     EXPECT_FALSE(iter.hasNext());
 }
 
+TEST_F(TableEnumeratorTest, largeObjects) {
+    uint32_t dataSize(1024 * 32);
+    char data [dataSize];
+    uint32_t totalObjects(1024);
+    uint64_t version [totalObjects];
+    for (uint32_t i = 0; i < totalObjects; i++) {
+        ramcloud.write(tableId1, &i, 4, data, dataSize, NULL, &version[i]);
+    }
+
+    uint32_t size = 0;
+    const void* buffer = 0;
+    TableEnumerator iter(ramcloud, tableId1, false);
+
+    uint32_t count = 0;
+    while (iter.hasNext()) {
+        iter.next(&size, &buffer);
+        count++;
+        Object object(buffer, size);
+        EXPECT_EQ(tableId1, object.getTableId());
+        EXPECT_EQ(4U, object.getKeyLength());
+        EXPECT_EQ(dataSize, object.getValueLength());
+    }
+
+    EXPECT_EQ(totalObjects, count);
+
+    for (uint32_t i = 0; i < totalObjects; i++) {
+        ramcloud.remove(tableId1, &i, 4);
+    }
+}
+
 TEST_F(TableEnumeratorTest, keysOnly) {
     uint64_t version0, version1, version2, version3, version4;
     ramcloud.write(tableId1, "0", 1, "abcdef", 6, NULL, &version0);
