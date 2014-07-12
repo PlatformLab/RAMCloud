@@ -31,14 +31,17 @@ public class RAMCloudObject {
     /**
      * Constructs a new RAMCloudObject.
      *
-     * @param _key The key of the object, a variable length byte array.
-     * @param _value The value of the object, a variable length byte array.
-     * @param _version The version of the object.
+     * @param key
+     *            The key of the object, a variable length byte array.
+     * @param value
+     *            The value of the object, a variable length byte array.
+     * @param version
+     *            The version of the object.
      */
-    RAMCloudObject(byte[] _key, byte[] _value, long _version) {
-        key = _key;
-        value = _value;
-        version = _version;
+    RAMCloudObject(byte[] key, byte[] value, long version) {
+        this.key = key;
+        this.value = value;
+        this.version = version;
     }
 
     /**

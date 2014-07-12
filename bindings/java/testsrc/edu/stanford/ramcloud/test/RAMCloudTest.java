@@ -46,7 +46,7 @@ public class RAMCloudTest {
         groups = "RAMCloudTest",
         dependsOnGroups = "RAMCloudTestInit"
     )
-    public void getRejectRulesBytesTest() {
+    public void getRejectRulesBytes() {
         for (int i = 0; i <= 2; i++) {
             RejectRules rules = new RejectRules();
             rules.setGivenVersion(i);
@@ -72,7 +72,7 @@ public class RAMCloudTest {
         groups = "RAMCloudTest",
         dependsOnGroups = "RAMCloudTestInit"
     )
-    public void readTest_stringKey() {
+    public void read_stringKey() {
         long version = ramcloud.write(tableId, key, "testValue");
         RAMCloudObject obj = ramcloud.read(tableId, key);
         assertEquals(key, obj.getKey());
@@ -85,7 +85,7 @@ public class RAMCloudTest {
         groups = "RAMCloudTest",
         dependsOnGroups = "RAMCloudTestInit"
     )
-    public void readTest_byteKey() {
+    public void read_byteKey() {
         long version = ramcloud.write(tableId, key, "testValue");
         RAMCloudObject obj = ramcloud.read(tableId, key.getBytes());
         assertEquals(key, obj.getKey());
@@ -98,7 +98,7 @@ public class RAMCloudTest {
         groups = "RAMCloudTest",
         dependsOnGroups = "RAMCloudTestInit"
     )
-    public void readTest_stringKeyWithRejectRules() {
+    public void read_stringKeyWithRejectRules() {
         long version = ramcloud.write(tableId, key, "testValue");
         RejectRules rules = new RejectRules();
         rules.setGivenVersion(version);
@@ -123,7 +123,7 @@ public class RAMCloudTest {
         groups = "RAMCloudTest",
         dependsOnGroups = "RAMCloudTestInit"
     )
-    public void readTest_byteKeyWithRejectRules() {
+    public void read_byteKeyWithRejectRules() {
         long version = ramcloud.write(tableId, key, "testValue");
         RejectRules rules = new RejectRules();
         rules.setGivenVersion(version);
@@ -148,7 +148,7 @@ public class RAMCloudTest {
         groups = "RAMCloudTest",
         dependsOnGroups = "RAMCloudTestInit"
     )
-    public void removeTest_byteKey() {
+    public void remove_byteKey() {
         long version = ramcloud.write(tableId, key, "testValue");
         assertEquals(version, ramcloud.remove(tableId, key.getBytes()));
     }
@@ -158,7 +158,7 @@ public class RAMCloudTest {
         groups = "RAMCloudTest",
         dependsOnGroups = "RAMCloudTestInit"
     )
-    public void removeTest_stringKey() {
+    public void remove_stringKey() {
         long version = ramcloud.write(tableId, key, "testValue");
         assertEquals(version, ramcloud.remove(tableId, key));
     }
@@ -168,7 +168,7 @@ public class RAMCloudTest {
         groups = "RAMCloudTest",
         dependsOnGroups = "RAMCloudTestInit"
     )
-    public void removeTest_stringKeyWithRejectRules() {
+    public void remove_stringKeyWithRejectRules() {
         long version = ramcloud.write(tableId, key, "testValue");
         RejectRules rules = new RejectRules();
         rules.setGivenVersion(version + 1);
@@ -189,7 +189,7 @@ public class RAMCloudTest {
         groups = "RAMCloudTest",
         dependsOnGroups = "RAMCloudTestInit"
     )
-    public void removeTest_byteKeyWithRejectRules() {
+    public void remove_byteKeyWithRejectRules() {
         long version = ramcloud.write(tableId, key, "testValue");
         RejectRules rules = new RejectRules();
         rules.setGivenVersion(version + 1);
@@ -210,7 +210,7 @@ public class RAMCloudTest {
         groups = "RAMCloudTest",
         dependsOnGroups = "RAMCloudTestInit"
     )
-    public void writeTest_stringKeyStringValue() {
+    public void write_stringKeyStringValue() {
         long version = ramcloud.write(tableId, key, "testValue");
         RAMCloudObject obj = ramcloud.read(tableId, key);
         assertEquals(key, obj.getKey());
@@ -223,7 +223,7 @@ public class RAMCloudTest {
         groups = "RAMCloudTest",
         dependsOnGroups = "RAMCloudTestInit"
     )
-    public void writeTest_stringKeyStringValueWithRejectRules() {
+    public void write_stringKeyStringValueWithRejectRules() {
         RejectRules rules = new RejectRules();
         long version = ramcloud.write(tableId, key, "testValue", rules);
         
@@ -247,7 +247,7 @@ public class RAMCloudTest {
         groups = "RAMCloudTest",
         dependsOnGroups = "RAMCloudTestInit"
     )
-    public void writeTest_stringKeyByteValue() {
+    public void write_stringKeyByteValue() {
         long version = ramcloud.write(tableId, key, "testValue".getBytes());
         RAMCloudObject obj = ramcloud.read(tableId, key);
         assertEquals(key, obj.getKey());
@@ -260,7 +260,7 @@ public class RAMCloudTest {
         groups = "RAMCloudTest",
         dependsOnGroups = "RAMCloudTestInit"
     )
-    public void writeTest_stringKeyByteValueWithRejectRules() {
+    public void write_stringKeyByteValueWithRejectRules() {
         RejectRules rules = new RejectRules();
         long version = ramcloud.write(tableId, key, "testValue".getBytes(), rules);
         
@@ -284,7 +284,7 @@ public class RAMCloudTest {
         groups = "RAMCloudTest",
         dependsOnGroups = "RAMCloudTestInit"
     )
-    public void writeTest_byteKeyByteValueWithRejectRules() {
+    public void write_byteKeyByteValueWithRejectRules() {
         RejectRules rules = new RejectRules();
         long version = ramcloud.write(tableId, key.getBytes(), "testValue".getBytes(), rules);
         
@@ -308,7 +308,7 @@ public class RAMCloudTest {
         groups = "RAMCloudTestInit",
         dependsOnGroups = "UnitTestInit"
     )
-    public void createTableTest() {
+    public void createTable() {
         tableId = ramcloud.createTable("testTable", 1);
         long readId = ramcloud.getTableId("testTable");
         assertEquals(tableId, readId);
@@ -319,7 +319,7 @@ public class RAMCloudTest {
         groups = "RAMCloudTest",
         dependsOnGroups = "RAMCloudTestInit"
     )
-    public void createTableTest_defaultServerSpan() {
+    public void createTable_defaultServerSpan() {
         long tableId = ramcloud.createTable("testTable2");
         long readId = ramcloud.getTableId("testTable2");
         assertEquals(tableId, readId);
@@ -331,7 +331,7 @@ public class RAMCloudTest {
         dependsOnGroups = "RAMCloudTest",
         expectedExceptions = TableDoesntExistException.class
     )
-    public void dropTableTest() {
+    public void dropTable() {
         ramcloud.dropTable("testTable");
         ramcloud.getTableId("testTable");
     }

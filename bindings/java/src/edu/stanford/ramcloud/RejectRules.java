@@ -39,7 +39,8 @@ public class RejectRules {
      * Set the version number for versionLeGiven and versionNeGiven to compare
      * to.
      *
-     * @param givenVersion Version number to compare to.
+     * @param givenVersion
+     *            Version number to compare to.
      */
     public void setGivenVersion(long givenVersion) {
         this.givenVersion = givenVersion;

@@ -129,6 +129,13 @@ typedef enum Status {
     // * Add a new exception class to ClientException.h
     // * Add a new "case" to ClientException::throwException to map from
     //   the status value to a status-specific ClientException subclass.
+    // * In the Java bindings, add a static class for the exception to
+    //   ClientException.java
+    // * Add a case for the status of the exception to throw the exception in
+    //   ClientException.java
+    // * Add the exception to the Status enum in ClientException.java, making
+    //   sure the status is in the correct position corresponding to its status
+    //   code.
 } Status;
 
 extern const char* statusToString(Status status);

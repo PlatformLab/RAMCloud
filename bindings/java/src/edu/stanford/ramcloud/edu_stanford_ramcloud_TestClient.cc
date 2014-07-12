@@ -18,25 +18,27 @@
 
 using namespace RAMCloud;
 
+/**
+ * A method for Java to call to test anything in C++.
+ *
+ * \param env
+ *      The calling JNI environment
+ * \param jRamCloud
+ *      The calling class
+ * \param string1
+ *      An argument Java can pass in for C++ to do something with
+ */
 JNIEXPORT void
-JNICALL Java_edu_stanford_ramcloud_RAMCloud_test(JNIEnv *env,
+JNICALL Java_edu_stanford_ramcloud_TestClient_test(JNIEnv *env,
         jclass jRamCloud,
         jstring string1) {
     const char* key = env->GetStringUTFChars(string1, 0);
-    printf("%s\n", key);
     jsize keyLength = env->GetStringUTFLength(string1);
-    uint64_t out[2];
-    MurmurHash3_x64_128(key, keyLength, 1, &out);
-    //printf("%016lx\n", out[0] & 0x0000ffffffffffffUL);
-}
-
-JNIEXPORT void
-JNICALL Java_edu_stanford_ramcloud_RAMCloud_testError(JNIEnv *env,
-        jclass jRamCloud,
-        jintArray array) {
-    // test
-    uint32_t num(32);
-    uint64_t start = Cycles::rdtsc();
-    env->SetIntArrayRegion(array, 0, 1, reinterpret_cast<jint*> (&num));
-    // printf("%f\n", (double) Cycles::toSeconds(Cycles::rdtsc() - start) * 1000000.0);
+    // uint64_t out[2];
+    // MurmurHash3_x64_128(key, keyLength, 1, &out);
+    // printf("%016lx\n", out[0] & 0x0000ffffffffffffUL);
+    Key k(2, reinterpret_cast<const void*>(key), keyLength);
+    uint64_t secondaryHash;
+    uint64_t i = HashTable::findBucketIndex(524288, k.getHash(), &secondaryHash);
+    printf("%s %u\n", key, i);
 }

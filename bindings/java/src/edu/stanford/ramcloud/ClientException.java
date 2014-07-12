@@ -139,7 +139,6 @@ public class ClientException extends RuntimeException {
      */
     public static class InternalError extends ClientException {}
 
-    public static class OkException extends ClientException {}
     public static class UnknownTabletException extends ClientException {}
     public static class TableDoesntExistException extends ClientException {}
     public static class ObjectDoesntExistException extends RejectRulesException {}
