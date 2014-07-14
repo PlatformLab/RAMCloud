@@ -135,7 +135,7 @@ TEST_F(TableEnumeratorTest, basics) {
     EXPECT_FALSE(iter.hasNext());
 }
 
-TEST_F(TableEnumeratorTest, largeObjects) {
+TEST_F(TableEnumeratorTest, rpcOverflow) {
     uint32_t dataSize(1024 * 32);
     char data [dataSize];
     uint32_t totalObjects(1024);
