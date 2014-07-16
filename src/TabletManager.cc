@@ -15,6 +15,7 @@
 
 #include "Common.h"
 #include "TabletManager.h"
+#include "TimeTrace.h"
 
 namespace RAMCloud {
 
@@ -57,6 +58,29 @@ TabletManager::addTablet(uint64_t tableId,
 
     tabletMap.insert(std::make_pair(tableId,
                      Tablet(tableId, startKeyHash, endKeyHash, state)));
+    return true;
+}
+
+/**
+ * Given a key, determine whether a tablet exists for this key and has status
+ * NORMAL.  We simultaneously increments the read count on the tablet. This is
+ * called by ObjectManger::readObject to avoid looking up the Tablet twice, for
+ * verification of state and incrementing the read count.
+ *
+ * \param key
+ *      The Key whose tablet we're looking up.
+ * \return
+ *      True if a tablet was found, otherwise false.
+ */
+bool
+TabletManager::checkAndIncrementReadCount(Key& key) {
+    Lock guard(lock);
+    TabletMap::iterator it = lookup(key.getTableId(), key.getHash(), guard);
+
+    if (it == tabletMap.end() || it->second.state != NORMAL)
+        return false;
+
+    it->second.readCount++;
     return true;
 }
 

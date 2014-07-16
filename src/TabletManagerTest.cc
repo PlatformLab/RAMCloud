@@ -60,6 +60,26 @@ TEST_F(TabletManagerTest, addTablet) {
     EXPECT_EQ(TabletManager::NORMAL, tablet->state);
 }
 
+TEST_F(TabletManagerTest, checkAndIncrementReadCount) {
+    Key key(5, "1", 1);
+    EXPECT_FALSE(tm.checkAndIncrementReadCount(key));
+    {
+        ProtoBuf::ServerStatistics stats;
+        tm.getStatistics(&stats);
+        EXPECT_EQ("", stats.ShortDebugString());
+    }
+    tm.addTablet(5, key.getHash(), key.getHash(), TabletManager::NORMAL);
+    EXPECT_EQ(
+            "{ tableId: 5 startKeyHash: 11082539161020170669 endKeyHash:"
+            " 11082539161020170669 state: 0 reads: 0 writes: 0 }",
+            tm.toString());
+    EXPECT_TRUE(tm.checkAndIncrementReadCount(key));
+    EXPECT_EQ(
+            "{ tableId: 5 startKeyHash: 11082539161020170669 endKeyHash:"
+            " 11082539161020170669 state: 0 reads: 1 writes: 0 }",
+            tm.toString());
+}
+
 TEST_F(TabletManagerTest, getTablet_byKey) {
     Key key(5, "hi", 2);
     EXPECT_FALSE(tm.getTablet(key));

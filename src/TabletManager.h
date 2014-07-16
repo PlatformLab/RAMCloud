@@ -118,6 +118,7 @@ class TabletManager {
                    uint64_t startKeyHash,
                    uint64_t endKeyHash,
                    TabletState state);
+    bool checkAndIncrementReadCount(Key& key);
     bool getTablet(Key& key,
                    Tablet* outTablet = NULL);
     bool getTablet(uint64_t tableId,

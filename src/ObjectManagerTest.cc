@@ -440,7 +440,7 @@ TEST_F(ObjectManagerTest, readObject) {
         "{ tableId: 0 startKeyHash: 0 "
             "endKeyHash: 18446744073709551615 state: 0 reads: 0 writes: 0 }\n"
         "{ tableId: 1 startKeyHash: 0 "
-            "endKeyHash: 18446744073709551615 state: 0 reads: 1 writes: 0 }",
+            "endKeyHash: 18446744073709551615 state: 0 reads: 4 writes: 0 }",
         tabletManager.toString());
 }
 

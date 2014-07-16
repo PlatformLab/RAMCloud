@@ -435,10 +435,7 @@ ObjectManager::readObject(Key& key,
     HashTableBucketLock lock(*this, key);
 
     // If the tablet doesn't exist in the NORMAL state, we must plead ignorance.
-    TabletManager::Tablet tablet;
-    if (!tabletManager->getTablet(key, &tablet))
-        return STATUS_UNKNOWN_TABLET;
-    if (tablet.state != TabletManager::NORMAL)
+    if (!tabletManager->checkAndIncrementReadCount(key))
         return STATUS_UNKNOWN_TABLET;
 
     Buffer buffer;
@@ -466,8 +463,6 @@ ObjectManager::readObject(Key& key,
     } else {
         object.appendKeysAndValueToBuffer(*outBuffer);
     }
-
-    tabletManager->incrementReadCount(key);
 
     return STATUS_OK;
 }
