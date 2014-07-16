@@ -103,7 +103,7 @@ class ServerControlRpc : public ServerIdRpcWrapper {
   public:
     ServerControlRpc(Context* context, ServerId serverId,
             WireFormat::ControlOp controlOp, const void* inputData = NULL,
-            uint32_t inputLength = NULL, Buffer* outputData = NULL);
+            uint32_t inputLength = 0, Buffer* outputData = NULL);
     ~ServerControlRpc() {}
     void wait();
     bool waitRaw();

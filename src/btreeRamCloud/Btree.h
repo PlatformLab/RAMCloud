@@ -1046,10 +1046,10 @@ private:
         Key key(treeTableId, &nodeId, sizeof(NodeId));
         Status status = objMgr->readObject(key, outBuffer, NULL, NULL, true);
         if (status != STATUS_OK) {
-            RAMCLOUD_LOG(ERROR, "Cant read NodeId %u", nodeId);
+            RAMCLOUD_LOG(ERROR, "Cant read NodeId %lu", nodeId);
             assert(status == STATUS_OK);
         }
-        RAMCLOUD_LOG(DEBUG, "Read object from log, nodeId = %d, size = %d",
+        RAMCLOUD_LOG(DEBUG, "Read object from log, nodeId = %lu, size = %d",
                      nodeId, outBuffer->size());
         return outBuffer->getRange(0, outBuffer->size());
     }
@@ -1086,7 +1086,7 @@ private:
 
         Key key(treeTableId, &nodeIdUsed, sizeof(NodeId));
 
-        RAMCLOUD_LOG(DEBUG, "Writing key(nodeId) is %d, size of node = %d",
+        RAMCLOUD_LOG(DEBUG, "Writing key(nodeId) is %lu, size of node = %d",
                      nodeIdUsed, size);
 
         Buffer buffer;
@@ -1913,7 +1913,7 @@ private:
 
                 splitNodeId = nextNodeId++;
 
-                RAMCLOUD_LOG(DEBUG, "newleaf ID = %d, splitNodeId = %d",
+                RAMCLOUD_LOG(DEBUG, "newleaf ID = %lu, splitNodeId = %lu",
                                     newLeafId, splitNodeId);
 
                 // adjust the nextleaf and the prevleaf nodeId values for
@@ -3120,16 +3120,16 @@ private:
         for (unsigned short slot = 0; slot < innernode->slotuse; ++slot)
         {
             RAMCLOUD_LOG(DEBUG,
-                         " ( %d ) %s ", innernode->childid[slot],
+                         " ( %lu ) %s ", innernode->childid[slot],
                          std::string((const char *)&innernode->slotkey[slot], 40).c_str());
         }
-        RAMCLOUD_LOG(DEBUG, "( %d )", innernode->childid[innernode->slotuse]);
+        RAMCLOUD_LOG(DEBUG, "( %lu )", innernode->childid[innernode->slotuse]);
     }
 
     void printLeafNode(const leaf_node *leafnode) const
     {
         RAMCLOUD_LOG(DEBUG, "Printing leaf node");
-        RAMCLOUD_LOG(DEBUG, "%d <- -> %d", leafnode->prevleaf, leafnode->nextleaf);
+        RAMCLOUD_LOG(DEBUG, "%lu <- -> %lu", leafnode->prevleaf, leafnode->nextleaf);
         for (unsigned short slot = 0; slot < leafnode->slotuse; ++slot)
         {
             RAMCLOUD_LOG(ERROR,

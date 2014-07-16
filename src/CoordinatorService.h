@@ -121,7 +121,7 @@ class CoordinatorService : public Service {
 
         ServerControlRpcContainer(Context* context, ServerId serverId,
                 WireFormat::ControlOp controlOp, const void* inputData = NULL,
-                uint32_t inputLength = NULL)
+                uint32_t inputLength = 0)
             : buffer()
             , rpc(context, serverId, controlOp, inputData, inputLength, &buffer)
         {}

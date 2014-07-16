@@ -282,7 +282,7 @@ class Buffer {
             firstChunk = lastChunk = cursorChunk = NULL;
             cursorOffset = ~0;
             extraAppendBytes = 0;
-            availableLength = sizeof(internalAllocation) - PREPEND_SPACE;
+            availableLength = sizeof32(internalAllocation) - PREPEND_SPACE;
             firstAvailable = reinterpret_cast<char*>(internalAllocation)
                     + PREPEND_SPACE;
             totalAllocatedBytes = 0;

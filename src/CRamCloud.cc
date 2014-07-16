@@ -489,7 +489,8 @@ uint16_t
 rc_multiOpSizeOf(MultiOp type) {
     switch (type) {
         case MULTI_OP_READ:
-            return sizeof(MultiReadObject) + sizeof(rc_multiReadHelper);
+            return downCast<uint16_t>(
+                    sizeof(MultiReadObject) + sizeof(rc_multiReadHelper));
         case MULTI_OP_WRITE:
             return sizeof(MultiWriteObject);
         case MULTI_OP_REMOVE:

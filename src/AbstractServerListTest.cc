@@ -74,7 +74,7 @@ class AbstractServerListSubClass : public AbstractServerList {
     ServerId
     add(string locator, ServerStatus status,
             ServiceMask services = ServiceMask{WireFormat::MASTER_SERVICE}) {
-        ServerId id(isize(), 0);
+        ServerId id(downCast<uint32_t>(isize()), 0);
 
         ServerDetails sd;
         sd.serverId = id;

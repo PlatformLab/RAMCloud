@@ -849,7 +849,7 @@ class ObjectServerControlRpc : public ObjectRpcWrapper {
   public:
     ObjectServerControlRpc(RamCloud* ramcloud, uint64_t tableId,
         const void* key, uint16_t keyLength, WireFormat::ControlOp controlOp,
-        const void* inputData = NULL, uint32_t inputLength = NULL,
+        const void* inputData = NULL, uint32_t inputLength = 0,
         Buffer* outputData = NULL);
     ~ObjectServerControlRpc() {}
     void wait();
@@ -864,7 +864,7 @@ class ObjectServerControlRpc : public ObjectRpcWrapper {
 class ServerControlAllRpc : public CoordinatorRpcWrapper {
   public:
     ServerControlAllRpc(RamCloud* ramcloud, WireFormat::ControlOp controlOp,
-        const void* inputData = NULL, uint32_t inputLength = NULL,
+        const void* inputData = NULL, uint32_t inputLength = 0,
         Buffer* outputData = NULL);
     ~ServerControlAllRpc() {}
     /// \copydoc RpcWrapper::docForWait
