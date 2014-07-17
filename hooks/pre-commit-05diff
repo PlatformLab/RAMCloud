@@ -2,7 +2,7 @@
 
 # Skip this check if there is not a valid repository (can happen when
 # cross-debugging with NetBeans, for example).
-git status 2&>1 > /dev/null
+git status 2>&1 > /dev/null
 if [[ "$?" != "0" ]]; then
         exit
 fi
