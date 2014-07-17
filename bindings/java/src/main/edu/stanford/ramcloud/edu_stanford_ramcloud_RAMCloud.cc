@@ -15,15 +15,16 @@
 
 #include <RamCloud.h>
 #include "edu_stanford_ramcloud_RAMCloud.h"
+#include "JavaCommon.h"
 
 using namespace RAMCloud;
 
 // Time C++ blocks
-#define TIME_CPP true
+#define TIME_CPP false
 
 #define check_null(var, msg)                                                \
     if (var == NULL) {                                                      \
-        throw Exception(HERE, "JRamCloud: NULL returned: " msg "\n");       \
+        throw Exception(HERE, "RAMCloud: NULL returned: " msg "\n");       \
     }
 
 /**
@@ -86,24 +87,6 @@ createRejectRules(JNIEnv* env, jbyteArray jRejectRules) {
 }
 
 /**
- * This macro is used to catch C++ exceptions and convert them into Java
- * exceptions. Be sure to wrap the individual RamCloud:: calls in try blocks,
- * rather than the entire methods, since doing so with functions that return
- * non-void is a bad idea with undefined(?) behaviour. 
- *
- * _returnValue is the value that should be returned from the JNI function
- * when an exception is caught and generated in Java. As far as I can tell,
- * the exception fires immediately upon returning from the JNI method. I
- * don't think anything else would make sense, but the JNI docs kind of
- * suck.
- */
-#define EXCEPTION_CATCHER(_returnValue)                                 \
-    catch (ClientException& e) {                                        \
-        env->SetIntArrayRegion(status, 0, 1, reinterpret_cast<jint*>(&e.status)); \
-        return _returnValue;                                            \
-    }
-
-/**
  * Construct a RamCloud for a particular cluster.
  *
  * \param env
@@ -148,9 +131,9 @@ JNICALL Java_edu_stanford_ramcloud_RAMCloud_cppConnect(JNIEnv *env,
         ramcloud = new RamCloud(locatorString.string, name.string);
         // Not sure what this does, but Stephen wrote it so I'll keep
         // it for now
-        ramcloud->clientContext->transportManager->setSessionTimeout(10000);
+        // ramcloud->clientContext->transportManager->setSessionTimeout(10000);
     }
-    EXCEPTION_CATCHER(NULL);
+    EXCEPTION_CATCHER(status, NULL);
     return reinterpret_cast<jlong> (ramcloud);
 }
 
@@ -210,7 +193,7 @@ JNICALL Java_edu_stanford_ramcloud_RAMCloud_cppCreateTable(JNIEnv *env,
     try {
         tableId = ramcloud->createTable(tableName.string, jServerSpan);
     }
-    EXCEPTION_CATCHER(-1);
+    EXCEPTION_CATCHER(status, -1);
     return static_cast<jlong> (tableId);
 }
 
@@ -244,8 +227,7 @@ JNICALL Java_edu_stanford_ramcloud_RAMCloud_cppDropTable(JNIEnv *env,
     JStringGetter tableName(env, jTableName);
     try {
         ramcloud->dropTable(tableName.string);
-    }
-    EXCEPTION_CATCHER();
+    } EXCEPTION_CATCHER(status, );
 }
 
 /**
@@ -280,7 +262,7 @@ JNICALL Java_edu_stanford_ramcloud_RAMCloud_cppGetTableId(JNIEnv *env,
     try {
         tableId = ramcloud->getTableId(tableName.string);
     }
-    EXCEPTION_CATCHER(-1);
+    EXCEPTION_CATCHER(status, -1);
     return tableId;
 }
 
@@ -354,7 +336,7 @@ JNICALL Java_edu_stanford_ramcloud_RAMCloud_cppRead(JNIEnv *env,
                 rejectRules,
                 &version);
     }
-    EXCEPTION_CATCHER(NULL);
+    EXCEPTION_CATCHER(status, NULL);
 #if TIME_CPP
     test_times[test_num_current] = Cycles::rdtsc() - start;
 
@@ -369,10 +351,10 @@ JNICALL Java_edu_stanford_ramcloud_RAMCloud_cppRead(JNIEnv *env,
     env->SetLongArrayRegion(versionBuffer, 0, 1, reinterpret_cast<jlong*> (&version));
 
     // Copy read value from C++ Buffer to Java byte array
-    jbyteArray jValue = env->NewByteArray(buffer.getTotalLength());
+    jbyteArray jValue = env->NewByteArray(buffer.size());
     check_null(jValue, "NewByteArray failed");
     void* jValuePointer = env->GetPrimitiveArrayCritical(jValue, 0);
-    buffer.copy(0, buffer.getTotalLength(), jValuePointer);
+    buffer.copy(0, buffer.size(), jValuePointer);
     env->ReleasePrimitiveArrayCritical(jValue, jValuePointer, 0);
 
     return jValue;
@@ -426,7 +408,7 @@ JNICALL Java_edu_stanford_ramcloud_RAMCloud_cppRemove(JNIEnv *env,
     try {
         ramcloud->remove(jTableId, jKeyPointer, keySize, rejectRules, &version);
     }
-    EXCEPTION_CATCHER(-1);
+    EXCEPTION_CATCHER(status, -1);
     env->ReleasePrimitiveArrayCritical(jKey, jKeyPointer, JNI_ABORT);
     return static_cast<jlong> (version);
 }
@@ -496,7 +478,7 @@ JNICALL Java_edu_stanford_ramcloud_RAMCloud_cppWrite(JNIEnv *env,
                 rejectRules,
                 &version);
     }
-    EXCEPTION_CATCHER(-1);
+    EXCEPTION_CATCHER(status, -1);
 #if TIME_CPP
     test_times[test_num_current] = Cycles::rdtsc() - start;
     test_num_current++;

@@ -31,6 +31,7 @@ class TableEnumerator {
     TableEnumerator(RamCloud& ramCloud, uint64_t tableId, bool keysOnly);
     bool hasNext();
     void next(uint32_t* size, const void** object);
+    void nextObjectBlob(Buffer** buffer);
     void nextKeyAndData(uint32_t* keyLength, const void** key,
                         uint32_t* dataLength, const void** data);
   private:

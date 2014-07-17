@@ -5,13 +5,13 @@
  * Change currentBranch to match your current git branch
  */
 
-def sourceDir = 'src'
+def sourceDir = 'src/main'
 def buildDir = 'bin'
 def libDir = 'lib'
-def testSourceDir = 'testsrc'
+def testSourceDir = 'src/test'
 def ramcloudPath = '../..'
 
-def currentBranch = 'master'
+def currentBranch = 'master';
 def dependencyPaths = buildDir + ':'
 
 /**
@@ -127,16 +127,28 @@ task directories << {
     }
     def proc = "git rev-parse --abbrev-ref HEAD".execute();
     proc.waitFor();
-    currentBranch = proc.in.text;
+    currentBranch = proc.in.text.trim();
+}
+
+task headerCopy << {
+    FileTree files = fileTree(sourceDir).include('**/*.h')
+    files.each {File file ->
+        copy {
+            from file
+            into libDir
+        }
+    }
 }
 
 // C++ build
-task build(type: CppBuildTask, dependsOn: ['javabuild']) {
+task build(type: CppBuildTask, dependsOn: ['javabuild', 'headerCopy']) {
     inputDir = file(buildDir)
     ramcloudDir = file(ramcloudPath)
-    branch = currentBranch
     inputs = fileTree(sourceDir).include('**/*.cc')
     outputDir = file(libDir)
+    doFirst {
+        branch = currentBranch
+    }
 }
 
 // Java build
@@ -160,13 +172,13 @@ task testjavabuild(type: JavaBuildTask, dependsOn: 'build') {
 task testbuild(type: CppBuildTask, dependsOn: ['testjavabuild']) {
     inputDir = file(buildDir)
     ramcloudDir = file(ramcloudPath)
-    branch = currentBranch
     inputs = fileTree(testSourceDir).include('**/*.cc')
     outputDir = file(libDir)
     doFirst {
         if (!file(libDir + '/libramcloudtest.so').exists()) {
             thrown new CompilationError("Please run buildtest.sh first.\n")
         }
+        branch = currentBranch
     }
 }
 
@@ -181,7 +193,7 @@ task test << {
     ant.taskdef(name: 'testng',
                 classpath: dependencyPaths,
                 classname: 'org.testng.TestNGAntTask')
-    ant.testng(classpath: dependencyPaths) {
+    ant.testng(classpath: dependencyPaths, listener: 'edu.stanford.ramcloud.test.DotTestListener') {
         sysproperty(key: 'java.library.path', value: libDir)
         classfileset(dir: buildDir, includes:'edu/stanford/ramcloud/test/*.class')
     }

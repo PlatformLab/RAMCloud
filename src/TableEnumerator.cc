@@ -96,6 +96,26 @@ TableEnumerator::next(uint32_t* size, const void** object)
 }
 
 /**
+ * Returns the next buffer containing enumeration results. Used by the Java 
+ * bindings in order to pass the entire blob to Java and let the processing 
+ * happen there.
+ * 
+ * @param[out] buffer
+ *      After a successful return, this points to the buffer holding the next 
+ *      blob of objects.
+ */
+void
+TableEnumerator::nextObjectBlob(Buffer** buffer)
+{
+    requestMoreObjects();
+    if (done) {
+        return;
+    }
+    nextOffset = objects.size();
+    *buffer = &objects;
+}
+
+/**
  * Returns the next object in the enumeration, if any, with a more
  * convenient interface than hasNext and next. Note: each object that existed
  * throughout the entire lifetime of the enumeration is guaranteed to

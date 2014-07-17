@@ -12,32 +12,36 @@
  * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
-
 package edu.stanford.ramcloud.test;
 
-import edu.stanford.ramcloud.*;
-
-import org.testng.annotations.*;
+import org.testng.*;
 
 /**
- * Class that holds methods to create and destroy the test cluster
- * used for the unit tests.
+ * Provides a simple way to track test runs.
  */
-public class ClientTestClusterSetup {
-    public static RAMCloud ramcloud;
-    public static TestCluster cluster;
-    
-    @Test
-    (
-        groups = "UnitTestInit"
-    )
-    public void setupClient() {
-        cluster = new TestCluster();
-        ClientTestClusterSetup.ramcloud = new RAMCloud(cluster.getRamcloudClientPointer());
+public class DotTestListener extends TestListenerAdapter {
+    private int m_count = 0;
+ 
+    @Override
+    public void onTestFailure(ITestResult tr) {
+        log("F");
     }
-
-    @AfterSuite
-    public void cleanUpClient() {
-        cluster.destroy();
+ 
+    @Override
+    public void onTestSkipped(ITestResult tr) {
+        log("S");
     }
-}
+ 
+    @Override
+    public void onTestSuccess(ITestResult tr) {
+        log(".");
+    }
+ 
+    private void log(String string) {
+        System.out.print(string);
+        System.out.flush();
+        if (++m_count % 40 == 0) {
+            System.out.println();
+        }
+    }
+} 

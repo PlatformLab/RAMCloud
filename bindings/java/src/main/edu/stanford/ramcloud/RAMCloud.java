@@ -387,13 +387,15 @@ public class RAMCloud {
     }
 
     /**
-     * #WIP: - Do not use yet
+     * Returns a new TableIterator for the specified table.
+     *
+     * @param tableId
+     *            The ID of the table to enumerate.
+     * @return An Iterator that will enumerate the specified table's objects.
      */
-    /*
     public TableIterator getTableIterator(long tableId) {
-        return new TableIterator(ramcloudObjectPointer, tableId);
+        return new TableIterator(this, tableId);
     }
-    */
 
     // Documentation for native methods in c++ file
     private static native long cppConnect(String locator, String clusterName,

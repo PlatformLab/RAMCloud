@@ -14,6 +14,7 @@
  */
 
 #include <RamCloud.h>
+#include <TableEnumerator.h>
 #include "edu_stanford_ramcloud_TestClient.h"
 
 using namespace RAMCloud;
@@ -25,20 +26,27 @@ using namespace RAMCloud;
  *      The calling JNI environment
  * \param jRamCloud
  *      The calling class
- * \param string1
+ * \param ramcloudObjectPointer
+ *      A pointer to the C++ RAMCloud object
+ * \param arg
  *      An argument Java can pass in for C++ to do something with
  */
 JNIEXPORT void
 JNICALL Java_edu_stanford_ramcloud_TestClient_test(JNIEnv *env,
-        jclass jRamCloud,
-        jstring string1) {
-    const char* key = env->GetStringUTFChars(string1, 0);
-    jsize keyLength = env->GetStringUTFLength(string1);
-    // uint64_t out[2];
-    // MurmurHash3_x64_128(key, keyLength, 1, &out);
-    // printf("%016lx\n", out[0] & 0x0000ffffffffffffUL);
-    Key k(2, reinterpret_cast<const void*>(key), keyLength);
-    uint64_t secondaryHash;
-    uint64_t i = HashTable::findBucketIndex(524288, k.getHash(), &secondaryHash);
-    printf("%s %u\n", key, i);
+                                                   jclass jRamCloud,
+                                                   jlong ramcloudObjectPointer,
+                                                   jlong arg) {
+    uint32_t count(1000000);
+    RamCloud* ramcloud = reinterpret_cast<RamCloud*>(ramcloudObjectPointer);
+    TableEnumerator enumerator(*ramcloud, arg, 0);
+    uint64_t start = Cycles::rdtsc();
+    uint32_t keyLength;
+    const void* key;
+    uint32_t valueLength;
+    const void* value;
+    for (uint32_t i = 0; i < count; i++) {
+        enumerator.nextKeyAndData(&keyLength, &key, &valueLength, &value);
+    }
+    uint64_t time = Cycles::rdtsc() - start;
+    printf("Time per enumerate in C++: %f\n", Cycles::toSeconds(time));
 }
