@@ -3,6 +3,12 @@ package edu.stanford.ramcloud;
 import java.util.Iterator;
 import java.nio.*;
 
+/**
+ * This class provides the client-side interface for table enumeration;
+ * each instance of this class can be used to enumerate the objects in
+ * a single table. A new instance must be created each time the client
+ * wants to restart the enumeration.
+ */
 public class TableIterator implements Iterator<RAMCloudObject> {
     static {
         // Load JNI library
@@ -13,22 +19,28 @@ public class TableIterator implements Iterator<RAMCloudObject> {
      * Keep a pointer to the C++ TableEnumerator object.
      */
     private long tableEnumeratorPointer;
+    
     /**
      * Table ID that this object is enumerating.
      */
     private long tableId;
+    
     /**
      * RAMCloud object that this object was created from.
      */
     private RAMCloud ramcloud;
+    
     /**
-     * A blob of bytes returned from the C++ enumerate RPC.
+     * A blob of bytes returned from the C++ enumerate RPC. Each blob should
+     * contain a set of objects read from a RAMCloud table.
      */
     private ByteBuffer objectBlob;
+    
     /**
-     * The last object that was enumerated.
+     * The last object that was returned from a call to next().
      */
     private RAMCloudObject last;
+    
     /**
      * Whether or not the enumerator is done with the table.
      */
@@ -42,25 +54,31 @@ public class TableIterator implements Iterator<RAMCloudObject> {
         this.tableId = tableId;
         this.ramcloud = ramcloud;
         tableEnumeratorPointer = TableIterator.createTableEnumerator(
-            ramcloud.ramcloudObjectPointer,
-            tableId);
+                ramcloud.ramcloudObjectPointer,
+                tableId);
     }
-
-    // Documentation in C++ files
-    private static native long createTableEnumerator(long ramcloudObjectPointer,
-                                                     long tableId);
-    private static native ByteBuffer getNextBatch(long tableEnumeratorPointer,
-                                                  int[] status);
 
     /**
      * Retrieve the next blob of objects from the C++ TableEnumerator object.
+     *
+     * @return True if there are objects still to be enumerated, false
+     *         otherwise.
      */
     private boolean retrieveBatch() {
+        if (done) {
+            return false;
+        }
+        if (objectBlob != null && objectBlob.remaining() > 0) {
+            return true;
+        }
         int[] status = new int[1];
         objectBlob = TableIterator.getNextBatch(tableEnumeratorPointer, status);
-        ClientException.checkStatus(status);
+        ClientException.checkStatus(status[0]);
         if (objectBlob == null) {
             done = true;
+            // Since the C++ enumerator will never be used again, delete it now.
+            delete(tableEnumeratorPointer);
+            tableEnumeratorPointer = -1;
             return false;
         }
         // Make sure this is in the right byte order.
@@ -85,10 +103,7 @@ public class TableIterator implements Iterator<RAMCloudObject> {
      */
     @Override
     public boolean hasNext() {
-        if (objectBlob == null) {
-            return retrieveBatch();
-        }
-        return objectBlob.remaining() > 0 || retrieveBatch();
+        return retrieveBatch();
     }
     
     /**
@@ -103,21 +118,21 @@ public class TableIterator implements Iterator<RAMCloudObject> {
      */
     @Override
     public RAMCloudObject next() {
-        if (done) {
+        if (!retrieveBatch()) {
             return null;
         }
-        if (objectBlob == null || objectBlob.remaining() <= 0) {
-            if (!retrieveBatch()) {
-                return null;
-            }
-        }
+        // This code depends on the format of the C++ Object class, defined in
+        // Object.h. If that changes, this will need to change as well.
         int objectSize = objectBlob.getInt();
+        // Skip checksum and timestamp
         objectBlob.position(objectBlob.position() + 8);
         long version = objectBlob.getLong();
+        // Skip table ID and number of indeces
         objectBlob.position(objectBlob.position() + 9);
         short keySize = objectBlob.getShort();
         byte[] key = new byte[keySize];
         objectBlob.get(key);
+        // Remaining bytes are value
         byte[] value = new byte[objectSize - (27 + keySize)];
         objectBlob.get(value);
 
@@ -125,8 +140,9 @@ public class TableIterator implements Iterator<RAMCloudObject> {
         return last;
     }
 
-    // Documentation inherited from java.util.Iterator
-
+    /**
+     * Removes the object last returned from a call to getNext().
+     */
     @Override
     public void remove() {
         if (last == null) {
@@ -135,5 +151,24 @@ public class TableIterator implements Iterator<RAMCloudObject> {
         ramcloud.remove(tableId, last.getKeyBytes());
         last = null;
     }
+    
+    /**
+     * This method is called when this object is being garbage collected. If the
+     * iterator never iterated through the entire table, then clean up the C++
+     * resources now.
+     */
+    @Override
+    public void finalize() {
+        if (tableEnumeratorPointer != -1) {
+            delete(tableEnumeratorPointer);
+        }
+    }
+
+    // Documentation in C++ files
+    private static native long createTableEnumerator(long ramcloudObjectPointer,
+                                                     long tableId);
+    private static native ByteBuffer getNextBatch(long tableEnumeratorPointer,
+                                                  int[] status);
+    private static native void delete(long tableEnumeratorPointer);
 }
 

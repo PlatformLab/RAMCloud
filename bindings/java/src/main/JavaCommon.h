@@ -15,7 +15,7 @@
 
 /**
  * \file
- * A header file that is included everywhe.
+ * A header file that has some useful utilities for the Java bindings.
  */
 
 #ifndef RAMCLOUD_JAVACOMMON_H

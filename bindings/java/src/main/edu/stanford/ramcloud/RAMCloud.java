@@ -62,11 +62,12 @@ public class RAMCloud {
         return out;
     }
 
+    // TODO: Make this private before commit
     /**
      * Pointer to the underlying C++ RAMCloud object associated with this
      * object.
      */
-    long ramcloudObjectPointer = 0;
+    public long ramcloudObjectPointer = 0;
 
     /**
      * Construct a RAMCloud for a particular cluster.
@@ -96,7 +97,7 @@ public class RAMCloud {
     public RAMCloud(String locator, String clusterName) {
         int[] status = new int[1];
         ramcloudObjectPointer = cppConnect(locator, clusterName, status);
-        checkStatus(status);
+        checkStatus(status[0]);
     }
 
     /**
@@ -190,7 +191,7 @@ public class RAMCloud {
         byte[] value = RAMCloud.cppRead(ramcloudObjectPointer, tableId, key,
                 ruleBytes, version, status);
         RAMCloudObject obj = new RAMCloudObject(key, value, version[0]);
-        checkStatus(status);
+        checkStatus(status[0]);
         return obj;
     }
 
@@ -242,7 +243,7 @@ public class RAMCloud {
         int[] status = new int[1];
         long out = RAMCloud.cppRemove(ramcloudObjectPointer, tableId, key,
                 ruleBytes, status);
-        checkStatus(status);
+        checkStatus(status[0]);
         return out;
     }
 
@@ -311,7 +312,7 @@ public class RAMCloud {
         int[] status = new int[1];
         long out = RAMCloud.cppWrite(ramcloudObjectPointer, tableId, key,
                 value, ruleBytes, status);
-        checkStatus(status);
+        checkStatus(status[0]);
         return out;
     }
 
@@ -335,7 +336,7 @@ public class RAMCloud {
         int[] status = new int[1];
         long out = RAMCloud.cppCreateTable(ramcloudObjectPointer, name,
                 serverSpan, status);
-        checkStatus(status);
+        checkStatus(status[0]);
         return out;
     }
 
@@ -366,7 +367,7 @@ public class RAMCloud {
     public void dropTable(String name) {
         int[] status = new int[1];
         RAMCloud.cppDropTable(ramcloudObjectPointer, name, status);
-        checkStatus(status);
+        checkStatus(status[0]);
     }
 
     /**
@@ -382,7 +383,7 @@ public class RAMCloud {
     public long getTableId(String name) {
         int[] status = new int[1];
         long out = RAMCloud.cppGetTableId(ramcloudObjectPointer, name, status);
-        checkStatus(status);
+        checkStatus(status[0]);
         return out;
     }
 

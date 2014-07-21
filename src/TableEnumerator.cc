@@ -98,7 +98,19 @@ TableEnumerator::next(uint32_t* size, const void** object)
 /**
  * Returns the next buffer containing enumeration results. Used by the Java 
  * bindings in order to pass the entire blob to Java and let the processing 
- * happen there.
+ * happen there. 
+ * 
+ * The expected format for the Buffer (defined in Object.h) is:
+ *      4 bytes - Next object size (s)
+ *      4 bytes - Object checksum
+ *      4 bytes - Object timestamp
+ *      8 bytes - Object version
+ *      8 bytes - Object Table ID
+ *      1 byte  - Number of indeces for the object
+ *      2 bytes - Size of key (k)
+ *      k bytes - Object key
+ *      s - (27 + k) bytes - Object value
+ * For each object in the buffer. If Object.h changes, this must change as well.
  * 
  * @param[out] buffer
  *      After a successful return, this points to the buffer holding the next 

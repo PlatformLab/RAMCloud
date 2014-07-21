@@ -38,9 +38,9 @@ JNIEXPORT jlong
 JNICALL Java_edu_stanford_ramcloud_TableIterator_createTableEnumerator
 (JNIEnv *env, jclass tableIterator, jlong ramcloudObjectPointer, jlong tableId) {
     TableEnumerator* enumerator = new TableEnumerator(
-        *reinterpret_cast<RamCloud*>(ramcloudObjectPointer),
-        tableId,
-        0);
+            *reinterpret_cast<RamCloud*>(ramcloudObjectPointer),
+            tableId,
+            0);
     
     return reinterpret_cast<jlong>(enumerator);
 }
@@ -53,7 +53,7 @@ JNICALL Java_edu_stanford_ramcloud_TableIterator_createTableEnumerator
  * \param tableIterator
  *      The calling Java class.
  * \param tableEnumeratorPointer
- *      A pointer to the TableEnumeratorObject to get the blob from.
+ *      A pointer to the TableEnumerator object to get the blob from.
  * \param status
  *      Java integer array of length 1 to put the status in if there
  *      are any exceptions.
@@ -74,5 +74,23 @@ JNICALL Java_edu_stanford_ramcloud_TableIterator_getNextBatch
     }
     jobject out = env->NewDirectByteBuffer(buf->getRange(0, buf->size()), buf->size());
     return out;
+
+}
+
+/**
+ * Deletes the C++ TableEnumerator object.
+ *
+ * \param env
+ *      The calling JNI environment.
+ * \param tableIterator
+ *      The calling Java class.
+ * \param tableEnumeratorPointer
+ *      A pointer to the TableEnumerator object to delete.
+ */
+JNIEXPORT void
+JNICALL Java_edu_stanford_ramcloud_TableIterator_delete
+(JNIEnv *env, jclass tableIterator, jlong tableEnumeratorPointer) {
+    TableEnumerator* enumerator = reinterpret_cast<TableEnumerator*>(tableEnumeratorPointer);
+    delete enumerator;
 }
 

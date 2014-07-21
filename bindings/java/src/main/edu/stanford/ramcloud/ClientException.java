@@ -60,11 +60,10 @@ public class ClientException extends RuntimeException {
     /**
      * Throws any exceptions if the returned status from the function was
      * not SUCCESS.
-     * @param status The status returned from C++.
+     * @param statusCode The status returned from C++.
      */
-    public static void checkStatus(int[] statusCode) {
-        Status status = statuses[statusCode[0]];
-        statusCode[0] = 0;
+    public static void checkStatus(int statusCode) {
+        Status status = statuses[statusCode];
         switch (status) {
             case STATUS_OK:
                 return;

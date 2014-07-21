@@ -15,6 +15,7 @@
 
 package edu.stanford.ramcloud;
 
+import edu.stanford.ramcloud.multiop.*;
 import static edu.stanford.ramcloud.ClientException.*;
 
 import java.util.*;
@@ -23,6 +24,8 @@ import java.util.*;
  * A Java RAMCloud client used for testing. Will contain sample code eventually.
  */
 public class TestClient {
+    private RAMCloud ramcloud;
+    private long tableId;
 
     static {
         // Load C++ shared library for JNI
@@ -33,6 +36,10 @@ public class TestClient {
      * A simple end-to-end test of the java bindings.
      */
     public static void main(String argv[]) {
+        new TestClient().go(argv);
+    }
+
+    private void go(String[] argv) {
         // Include a pause to add gdb if need to debug c++ code
         boolean debug = false;
         if (debug) {
@@ -40,91 +47,51 @@ public class TestClient {
             scn.nextLine();
         }
 
-        int numTimes = 1000000;
-        // Empty call test
-        // *
-        // Do basic read/write/table/delete tests
-        RAMCloud ramcloud = new RAMCloud(argv[0]);
+        ramcloud = new RAMCloud(argv[0]);
         // System.out.println("Created RamCloud object");
-        long tableId = ramcloud.createTable("hi");
-
-        /*
-         * for (int i = 0; i < numTimes; i++) { test(Integer.toString(i)); }
-         * //test("485361", "85034"); if (!debug) { return; }//
-         */
-
-        /*
-        System.out.println("created table, id = " + tableId);
-        long tableId2 = ramcloud.getTableId("hi");
-        System.out.println("getTableId says tableId = " + tableId2);
-
-        System.out.println("wrote obj version = "
-                + ramcloud.write(tableId, "thisIsTheKey", "thisIsTheValue"));
-
-        RAMCloudObject o = ramcloud.read(tableId, "thisIsTheKey");
-        System.out.println("read object: key = [" + o.getKey() + "], value = ["
-                + o.getValue() + "], version = " + o.getVersion());
-                // */
-        //*
-        // Test Table Enumeration
-
-        for (int i = 0; i < numTimes; i++) {
-            ramcloud.write(tableId, "" + i, "" + i);
-        }
-        test(ramcloud.ramcloudObjectPointer, tableId);
-
-        // System.out.println("filled table");
-
-        TableIterator it = ramcloud.getTableIterator(tableId);
-
-        // *
-        RAMCloudObject current = null;
-        int count = 0;
-        long start = System.nanoTime();
-        while (it.hasNext()) {
-            current = it.next();
-            count++;
-        }
-        long time = System.nanoTime() - start;
-        System.out.println("Average enumerate time per object: " + ((double) time / numTimes / 1000.0));
-        System.out.println(count);
+        tableId = ramcloud.createTable("hi");
+        
+        // Run whatever here
+        basicSpeedTest();
 
         ramcloud.dropTable("hi");
+        
+        ramcloud.disconnect();
+    }
 
-        //
+    /*
+    private void basicStreamTest() {
+        int numTimes = 100000;
+        long before, elapsed;
 
-        /*
-        // Do rejectRules test RejectRules rejectRules = new RejectRules();
-        rejectRules.setGivenVersion(o.getVersion() + 1);
-        rejectRules.rejectIfVersionNeGiven(true); //
-        try {
-            ramcloud.read(tableId, "thisIsTheKey", rejectRules);
-            System.out.println("Error: RejectRules Read should not have read properly"); }
-        catch (Exception e) {
-            // OK
+        OperationStream stream = new OperationStream(ramcloud);
+        // Read tests
+        byte[] key = new byte[30];
+        byte[] value = new byte[100];
+        ramcloud.write(tableId, key, value, null);
+        double[] times = new double[numTimes];
+        for (int i = 0; i < numTimes; i++) {
+            before = System.nanoTime();
+            try {
+                stream.read(tableId, key).get();
+            } catch (Exception ex) {
+                ex.printStackTrace();
+            }
+            elapsed = System.nanoTime() - before;
+            times[i] = elapsed / 1000.0;
         }
-          
-        ramcloud.remove(tableId, "thisIsTheKey");
-          
-        try {
-            ramcloud.read(tableId, "thisIsTheKey");
-            System.out.println("Error: shouldn't have read successfully!");
-        }
-        catch (Exception e) {
-            // OK
-        }
-        //*/
-          
-        /*
+        Arrays.sort(times);
+        System.out.printf("Median Java stream read time: %.3f\n", times[numTimes / 2]);
+    } */
+
+    private void basicSpeedTest() {
+        int numTimes = 100000;
         long before, elapsed;
           
         // Read tests
         byte[] key = new byte[30];
         byte[] value = new byte[100];
         ramcloud.write(tableId, key, value, null);
-        for (int i = 0; i < 1000; i++) {
-            ramcloud.read(tableId, key);
-        }
         double[] times = new double[numTimes];
         for (int i = 0; i < numTimes; i++) {
             before = System.nanoTime();
@@ -149,9 +116,46 @@ public class TestClient {
         }
         Arrays.sort(times);
         System.out.printf("Median Java write time: %.3f\n", times[numTimes / 2]);
-        // */
+    }
 
-        ramcloud.disconnect();
+    private void basicTest() {
+        // Do basic read/write/table/delete tests
+        System.out.println("created table, id = " + tableId);
+        long tableId2 = ramcloud.getTableId("hi");
+        System.out.println("getTableId says tableId = " + tableId2);
+
+        System.out.println("wrote obj version = "
+                + ramcloud.write(tableId, "thisIsTheKey", "thisIsTheValue"));
+
+        RAMCloudObject o = ramcloud.read(tableId, "thisIsTheKey");
+        System.out.println("read object: key = [" + o.getKey() + "], value = ["
+                + o.getValue() + "], version = " + o.getVersion());
+    }
+
+    private void enumerationTest() {
+        int numTimes = 1000000;
+        // Test Table Enumeration
+
+        for (int i = 0; i < numTimes; i++) {
+            ramcloud.write(tableId, "" + i, "" + i);
+        }
+        test(ramcloud.ramcloudObjectPointer, tableId);
+
+        // System.out.println("filled table");
+
+        TableIterator it = ramcloud.getTableIterator(tableId);
+
+        // *
+        RAMCloudObject current = null;
+        int count = 0;
+        long start = System.nanoTime();
+        while (it.hasNext()) {
+            current = it.next();
+            count++;
+        }
+        long time = System.nanoTime() - start;
+        System.out.println("Average enumerate time per object: " + ((double) time / numTimes / 1000.0));
+        System.out.println(count);
     }
 
     public static void printBytes(byte[] array) {

@@ -40,7 +40,7 @@ class JavaBuildTask extends DefaultTask {
     void execute(IncrementalTaskInputs inputs) {
         inputs.outOfDate { change ->
             // Convert to relative path
-            def relativePath = change.file.path.minus(inputDir.path + '/') 
+            def relativePath = change.file.path.minus(inputDir.path + '/')
             ant.javac(srcdir: inputDir.path,
                       destdir: outputDir.path,
                       classpath: depPaths,
@@ -115,7 +115,7 @@ configurations {
 
 // TestNG dependency. Gradle will automatically download it.
 dependencies {
-    build 'org.testng:testng:6.8.8'
+    build 'org.testng:testng:6.8.8', 'com.google.guava:guava:17.0'
 }
 
 // Initialize some variables, ensure output directories exist.
@@ -123,9 +123,17 @@ task directories << {
     file(buildDir).mkdirs()
     file(libDir).mkdirs()
     configurations.build.each {
-        dependencyPaths += it.path + ':'
+        def dep = file(it.path)
+        def target = file("${libDir}/${dep.name}")
+        if (dep.lastModified() > target.lastModified()) {
+            copy {
+                from dep
+                into target.parent
+            }
+        }
+        dependencyPaths += target.path + ':'
     }
-    def proc = "git rev-parse --abbrev-ref HEAD".execute();
+    def proc = "git rev-parse --abbrev-ref HEAD".execute(); 
     proc.waitFor();
     currentBranch = proc.in.text.trim();
 }
@@ -156,6 +164,9 @@ task javabuild(type: JavaBuildTask, dependsOn: 'directories') {
     inputDir = file(sourceDir)
     inputs = fileTree(sourceDir).include('**/*.java')
     outputDir = file(buildDir)
+    doFirst {
+        depPaths = dependencyPaths
+    }
 }
 
 // Java build for unit tests
@@ -187,6 +198,13 @@ task clean(type: Delete) {
     delete fileTree(dir: libDir, exclude: "libramcloudtest.so"), buildDir
 }
 
+// Build Javadoc
+task docs << {
+    logging.level = LogLevel.INFO
+    ant.javadoc(sourcepath: sourceDir,
+                destdir: 'docs')
+}
+
 // Run unit tests
 task test << {
     logging.level = LogLevel.INFO
@@ -197,6 +215,11 @@ task test << {
         sysproperty(key: 'java.library.path', value: libDir)
         classfileset(dir: buildDir, includes:'edu/stanford/ramcloud/test/*.class')
     }
+}
+
+// Run TestClient
+task run(type: Exec) {
+    commandLine './run.sh'
 }
 
 test.dependsOn('testbuild')
