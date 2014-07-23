@@ -290,10 +290,12 @@ class Transport {
      */
     class RpcNotifier {
       public:
-        explicit RpcNotifier() {}
+        explicit RpcNotifier() : timeTrace() {}
         virtual ~RpcNotifier() {}
         virtual void completed();
         virtual void failed();
+
+        TimeTrace* timeTrace;
 
         DISALLOW_COPY_AND_ASSIGN(RpcNotifier);
     };

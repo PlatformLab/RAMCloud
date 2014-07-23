@@ -349,6 +349,11 @@ class Cluster(object):
         if master:
             self.masters_started += 1
 
+        if self.verbose:
+            print('Server starting on %s at %s: %s' %
+                  (host[0],
+                   server_locator(self.transport, host, port), command))
+
         # Adding redirection for stdout and stderr.
         stdout = open(log_prefix + '.out', 'w')
         stderr = open(log_prefix + '.err', 'w')
@@ -367,10 +372,6 @@ class Cluster(object):
                                       stdout=stdout,
                                       stderr=stderr)
 
-        if self.verbose:
-            print('Server started on %s at %s: %s' %
-                  (host[0],
-                   server_locator(self.transport, host, port), command))
         return server
 
     def kill_server(self, locator):

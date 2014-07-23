@@ -50,6 +50,7 @@ namespace po = boost::program_options;
 #include "PerfStats.h"
 #include "RamCloud.h"
 #include "Util.h"
+#include "TimeTrace.h"
 
 using namespace RAMCloud;
 
@@ -2634,6 +2635,9 @@ readDist()
             WireFormat::LOG_TIME_TRACE);
     cluster->objectServerControl(dataTable, key, keyLength,
             WireFormat::LOG_CACHE_TRACE);
+
+    // Dump client side time trace
+    cluster->clientContext->timeTrace->printToLog();
 
     // Output the times (several comma-separated values on each line).
     int valuesInLine = 0;

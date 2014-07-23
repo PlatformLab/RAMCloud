@@ -17,6 +17,7 @@
 #include "Logger.h"
 #include "ObjectRpcWrapper.h"
 #include "RamCloud.h"
+#include "TimeTrace.h"
 
 namespace RAMCloud {
 
@@ -120,6 +121,10 @@ ObjectRpcWrapper::send()
 {
     session = ramcloud->objectFinder.lookup(tableId, keyHash);
     state = IN_PROGRESS;
+
+    this->timeTrace = ramcloud->clientContext->timeTrace;
+
+//    ramcloud->clientContext->timeTrace->record("Client about to call session->sendRequest");
     session->sendRequest(&request, response, this);
 }
 

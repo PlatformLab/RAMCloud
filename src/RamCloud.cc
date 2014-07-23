@@ -1812,8 +1812,11 @@ void
 RamCloud::read(uint64_t tableId, const void* key, uint16_t keyLength,
         Buffer* value, const RejectRules* rejectRules, uint64_t* version)
 {
+    clientContext->timeTrace->record("Client is about to start read");
     ReadRpc rpc(this, tableId, key, keyLength, value, rejectRules);
+    clientContext->timeTrace->record("Client is about to start Wait");
     rpc.wait(version);
+    clientContext->timeTrace->record("Client returned from wait!");
 }
 
 /**
@@ -1883,7 +1886,9 @@ ReadRpc::ReadRpc(RamCloud* ramcloud, uint64_t tableId,
     reqHdr->keyLength = keyLength;
     reqHdr->rejectRules = rejectRules ? *rejectRules : defaultRejectRules;
     request.appendExternal(key, keyLength);
+//    ramcloud->clientContext->timeTrace->record("Client about to call send");
     send();
+//    ramcloud->clientContext->timeTrace->record("Client finished call send");
 }
 
 /**
