@@ -214,6 +214,7 @@ task test << {
     ant.testng(classpath: dependencyPaths, listener: 'edu.stanford.ramcloud.test.DotTestListener') {
         sysproperty(key: 'java.library.path', value: libDir)
         classfileset(dir: buildDir, includes:'edu/stanford/ramcloud/test/*.class')
+        jvmarg(line: '-Xmx1024M -Xms1024M')
     }
 }
 

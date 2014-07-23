@@ -21,41 +21,8 @@ package edu.stanford.ramcloud;
  */
 public class ClientException extends RuntimeException {
     /**
-     * C++ status codes.
-     * Please refer to Status.h for documentation.
+     * Avoid calling Status.values() repeatedly
      */
-    public enum Status {
-        STATUS_OK,
-        STATUS_UNKNOWN_TABLET,
-        STATUS_TABLE_DOESNT_EXIST,
-        STATUS_OBJECT_DOESNT_EXIST,
-        STATUS_OBJECT_EXISTS,
-        STATUS_WRONG_VERSION,
-        STATUS_NO_TABLE_SPACE,
-        STATUS_MESSAGE_TOO_SHORT,
-        STATUS_UNIMPLEMENTED_REQUEST,
-        STATUS_REQUEST_FORMAT_ERROR,
-        STATUS_RESPONSE_FORMAT_ERROR,
-        STATUS_COULDNT_CONNECT,
-        STATUS_BACKUP_BAD_SEGMENT_ID,
-        STATUS_BACKUP_OPEN_REJECTED,
-        STATUS_BACKUP_SEGMENT_OVERFLOW,
-        STATUS_BACKUP_MALFORMED_SEGMENT,
-        STATUS_SEGMENT_RECOVERY_FAILED,
-        STATUS_SERVICE_NOT_AVAILABLE,
-        STATUS_TIMEOUT,        
-        STATUS_SERVER_NOT_UP,
-        STATUS_INTERNAL_ERROR,
-        STATUS_INVALID_OBJECT,
-        STATUS_TABLET_DOESNT_EXIST,
-        STATUS_PARTITION_BEFORE_READ,
-        STATUS_WRONG_SERVER,
-        STATUS_CALLER_NOT_IN_CLUSTER,
-        STATUS_REQUEST_TOO_LARGE,
-        STATUS_UNKNOWN_INDEXLET;
-        STATUS_UNKNOWN_INDEX;
-    }
-
     private static Status[] statuses = Status.values();
 
     /**
@@ -64,7 +31,7 @@ public class ClientException extends RuntimeException {
      * @param statusCode The status returned from C++.
      */
     public static void checkStatus(int statusCode) {
-        Status status = statuses[statusCode];
+        Status status = Status.statuses[statusCode];
         switch (status) {
             case STATUS_OK:
                 return;
@@ -100,6 +67,8 @@ public class ClientException extends RuntimeException {
                 throw new BackupMalformedSegmentException();
             case STATUS_SEGMENT_RECOVERY_FAILED:
                 throw new SegmentRecoveryFailedException();
+            case STATUS_RETRY:
+                throw new RetryException();
             case STATUS_SERVICE_NOT_AVAILABLE:
                 throw new ServiceNotAvailableException();
             case STATUS_TIMEOUT:
@@ -157,6 +126,7 @@ public class ClientException extends RuntimeException {
     public static class BackupSegmentOverflowException extends ClientException {}
     public static class BackupMalformedSegmentException extends ClientException {}
     public static class SegmentRecoveryFailedException extends ClientException {}
+    public static class RetryException extends ClientException {}
     public static class ServiceNotAvailableException extends ClientException {}
     public static class TimeoutException extends ClientException {}
     public static class ServerNotUpException extends ClientException {}

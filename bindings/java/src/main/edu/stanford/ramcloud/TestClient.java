@@ -15,8 +15,8 @@
 
 package edu.stanford.ramcloud;
 
-import edu.stanford.ramcloud.multiop.*;
 import static edu.stanford.ramcloud.ClientException.*;
+import edu.stanford.ramcloud.multiop.*;
 
 import java.util.*;
 
@@ -52,37 +52,46 @@ public class TestClient {
         tableId = ramcloud.createTable("hi");
         
         // Run whatever here
-        basicSpeedTest();
+        // basicSpeedTest();
+        multiReadTest();
+        // test();
 
         ramcloud.dropTable("hi");
         
         ramcloud.disconnect();
     }
 
-    /*
-    private void basicStreamTest() {
-        int numTimes = 100000;
-        long before, elapsed;
+    private void multiReadTest() {
+        int numTimes = 5000;
 
-        OperationStream stream = new OperationStream(ramcloud);
-        // Read tests
-        byte[] key = new byte[30];
-        byte[] value = new byte[100];
-        ramcloud.write(tableId, key, value, null);
-        double[] times = new double[numTimes];
+        MultiReadObject[] reads = new MultiReadObject[numTimes];
         for (int i = 0; i < numTimes; i++) {
-            before = System.nanoTime();
-            try {
-                stream.read(tableId, key).get();
-            } catch (Exception ex) {
-                ex.printStackTrace();
+            byte[] key = new byte[30];
+            for (int j = 0; j < 4; j++) {
+                key[j] = (byte) ((i >> (j * 8)) & 0xFF);
             }
-            elapsed = System.nanoTime() - before;
-            times[i] = elapsed / 1000.0;
+            byte[] value = new byte[100];
+            ramcloud.write(tableId, key, value, null);
+            // System.out.println("Wrote:" + i);
+            reads[i] = new MultiReadObject(tableId, key);
         }
-        Arrays.sort(times);
-        System.out.printf("Median Java stream read time: %.3f\n", times[numTimes / 2]);
-    } */
+        // System.out.println("filled table");
+
+        long start = System.nanoTime();
+        ramcloud.read(reads);
+        long time = System.nanoTime() - start;
+        System.out.println("Average multiread time per object: " + ((double) time / numTimes / 1000.0));
+    }
+
+    private void test(){ 
+        int numTimes = 100;
+        long before, elapsed;
+        before = System.nanoTime();
+        for (int i = 0; i < numTimes; i++) {
+        }
+        elapsed = System.nanoTime() - before;
+        System.out.printf("Average create object time: %.3f\n", elapsed / 1000.0 / numTimes);
+    }
 
     private void basicSpeedTest() {
         int numTimes = 100000;

@@ -23,10 +23,9 @@ package edu.stanford.ramcloud;
  * passing in a fixed-length array would be problematic.
  */
 public class RAMCloudObject {
-
-    final private byte[] key;
-    final private byte[] value;
-    final private long version;
+    private byte[] key;
+    private byte[] value;
+    private long version;
 
     /**
      * Constructs a new RAMCloudObject.
@@ -38,7 +37,7 @@ public class RAMCloudObject {
      * @param version
      *            The version of the object.
      */
-    RAMCloudObject(byte[] key, byte[] value, long version) {
+    public RAMCloudObject(byte[] key, byte[] value, long version) {
         this.key = key;
         this.value = value;
         this.version = version;
@@ -54,12 +53,32 @@ public class RAMCloudObject {
     }
 
     /**
+     * Set the key of the object.
+     *
+     * @param key
+     *      The key of the object as a byte array.
+     */
+    public void setKeyBytes(byte[] key) {
+        this.key = key;
+    }
+
+    /**
      * Get the value of the object.
      *
      * @return The value of the object as a byte array.
      */
     public byte[] getValueBytes() {
         return value;
+    }
+
+    /**
+     * Set the value of the object.
+     *
+     * @param value
+     *      The value of the object as a byte array.
+     */
+    public void setValueBytes(byte[] value) {
+        this.value = value;
     }
 
     /**
@@ -72,6 +91,16 @@ public class RAMCloudObject {
     }
 
     /**
+     * Set the key of the object.
+     *
+     * @param key
+     *      The key of the object as a String.
+     */
+    public void setKey(String key) {
+        this.key = key.getBytes();
+    }
+
+    /**
      * Get the value of the object.
      *
      * @return The value of the object as a String.
@@ -81,12 +110,32 @@ public class RAMCloudObject {
     }
 
     /**
+     * Set the value of the object.
+     *
+     * @param value
+     *      The value of the object as a String.
+     */
+    public void setValue(String value) {
+        this.value = value.getBytes();
+    }
+
+    /**
      * Get the version of the object.
      *
      * @return The version number of the object.
      */
     public long getVersion() {
         return version;
+    }
+
+    /**
+     * Set the version of the object.
+     *
+     * @param version
+     *      The version of the object.
+     */
+    public void setVersion(long version) {
+        this.version = version;
     }
 
     @Override

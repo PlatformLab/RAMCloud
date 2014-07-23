@@ -15,6 +15,7 @@
 package edu.stanford.ramcloud;
 
 import static edu.stanford.ramcloud.ClientException.*;
+import edu.stanford.ramcloud.multiop.*;
 
 /**
  * This class provides Java bindings for RAMCloud. Right now it is a rather
@@ -398,6 +399,117 @@ public class RAMCloud {
         return new TableIterator(this, tableId);
     }
 
+    // Multi-ops
+
+    /**
+     * Reads a large number of objects at once. Will result in worse performance
+     * than a single read if used with very large objects (1 MB).
+     *
+     * @param request
+     *      The array of MultiReadObjects to read. The resulting values will be
+     *      stored in the MultiReadObjects, along with the status of each read.
+     */
+    public void read(MultiReadObject[] request) {
+        int totalLength = request.length;
+        // Maximum amount of operations to put in one batch
+        int limit = 10000;
+        for (int start = 0; start < totalLength; start += limit) {
+            int length = Math.min(totalLength - start, limit);
+            long[] tableIds = new long[length];
+            byte[][] objects = new byte[length * 2][];
+            for (int i = 0; i < length; i++) {
+                tableIds[i] = request[i + start].getTableId();
+                objects[i * 2] = request[i + start].getKeyBytes();
+            }
+            int[] statuses = new int[length];
+            RAMCloud.cppMultiRead(ramcloudObjectPointer,
+                                  tableIds,
+                                  objects,
+                                  statuses);
+            // Copy read results into input object array
+            for (int i = 0; i < length; i++) {
+                MultiReadObject object = request[i + start];
+                object.setValueBytes(objects[i * 2 + 1]);
+                object.setStatus(Status.statuses[statuses[i]]);
+            }
+        }
+    }
+    
+    /**
+     * Writes a large number of objects at once.
+     *
+     * @param data
+     *      The array of MultiWriteObjects to write. The resulting versions will
+     *      be stored in the MultiWriteObjects, along with the status of each
+     *      write.
+     */
+    public void write(MultiWriteObject[] data) {
+        int totalLength = data.length;
+        int limit = 10000;
+        for (int start = 0; start < totalLength; start += limit) {
+            int length = Math.min(totalLength - start, limit);
+            long[] tableIds = new long[length];
+            byte[][] objects = new byte[length * 3][];
+            for (int i = 0; i < length; i++) {
+                tableIds[i] = data[i + start].getTableId();
+                objects[i * 3] = data[i + start].getKeyBytes();
+                objects[i * 3 + 1] = data[i + start].getValueBytes();
+                objects[i * 3 + 2] = RAMCloud.getRejectRulesBytes(
+                    data[i + start].getRejectRules());
+            }
+            int[] statuses = new int[length];
+            long[] versions = new long[length];
+            RAMCloud.cppMultiWrite(ramcloudObjectPointer,
+                                   tableIds,
+                                   objects,
+                                   versions,
+                                   statuses);
+        
+            for (int i = 0; i < length; i++) {
+                MultiWriteObject object = data[i + start];
+                object.setVersion(versions[i]);
+                object.setStatus(Status.statuses[statuses[i]]);
+            }
+        }
+    }
+    
+    /**
+     * Deletes a large number of objects at once.
+     *
+     * @param data
+     *      The array of MultiRemoveObjects to write. The versions just before
+     *      removal will be stored in the MultiRemoveObjects, along with the
+     *      status of each remove.
+     */
+    public void remove(MultiRemoveObject[] data) {
+        int totalLength = data.length;
+        int limit = 10000;
+        for (int start = 0; start < totalLength; start += limit) {
+            int length = Math.min(totalLength - start, limit);
+            long[] tableIds = new long[length];
+            byte[][] objects = new byte[length * 2][];
+            for (int i = 0; i < length; i++) {
+                tableIds[i] = data[i + start].getTableId();
+                objects[i * 2] = data[i + start].getKeyBytes();
+                objects[i * 2 + 1] = RAMCloud.getRejectRulesBytes(
+                    data[i + start].getRejectRules());
+            }
+            int[] statuses = new int[length];
+            long[] versions = new long[length];
+            RAMCloud.cppMultiRemove(ramcloudObjectPointer,
+                                   tableIds,
+                                   objects,
+                                   versions,
+                                   statuses);
+        
+            for (int i = 0; i < length; i++) {
+                MultiRemoveObject object = data[i + start];
+                object.setVersion(versions[i]);
+                object.setStatus(Status.statuses[statuses[i]]);
+            }
+        }
+    }
+
     // Documentation for native methods in c++ file
     private static native long cppConnect(String locator, String clusterName,
             int[] status);
@@ -421,4 +533,21 @@ public class RAMCloud {
 
     private static native long cppWrite(long ramcloudObjectPointer,
             long tableId, byte[] key, byte[] value, byte[] rules, int[] status);
+
+    private static native void cppMultiRead(long ramcloudObjectPointer,
+                                            long[] tableIds,
+                                            byte[][] objects,
+                                            int[] statuses);
+
+    private static native void cppMultiWrite(long ramcloudObjectPointer,
+                                             long[] tableIds,
+                                             byte[][] objects,
+                                             long[] versions,
+                                             int[] statuses);
+
+    private static native void cppMultiRemove(long ramcloudObjectPointer,
+                                              long[] tableIds,
+                                              byte[][] objects,
+                                              long[] versions,
+                                              int[] statuses);
 }

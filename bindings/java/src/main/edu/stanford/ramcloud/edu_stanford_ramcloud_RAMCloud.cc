@@ -14,6 +14,9 @@
  */
 
 #include <RamCloud.h>
+#include <MultiRead.h>
+#include <MultiWrite.h>
+#include <MultiRemove.h>
 #include "edu_stanford_ramcloud_RAMCloud.h"
 #include "JavaCommon.h"
 
@@ -348,6 +351,7 @@ JNICALL Java_edu_stanford_ramcloud_RAMCloud_cppRead(JNIEnv *env,
     }
 #endif
 
+    env->ReleasePrimitiveArrayCritical(jKey, NULL, JNI_ABORT);
     env->SetLongArrayRegion(versionBuffer, 0, 1, reinterpret_cast<jlong*> (&version));
 
     // Copy read value from C++ Buffer to Java byte array
@@ -456,10 +460,11 @@ JNICALL Java_edu_stanford_ramcloud_RAMCloud_cppWrite(JNIEnv *env,
         jbyteArray jRejectRules,
         jintArray status) {
     RamCloud* ramcloud = reinterpret_cast<RamCloud*> (ramcloudObjectPointer);
-    RejectRules* rejectRules = NULL;
+    RejectRules rejectRules;
+    RejectRules* rulesPointer = NULL;
     if (jRejectRules != NULL) {
-        RejectRules temp = createRejectRules(env, jRejectRules);
-        rejectRules = &temp;
+        rejectRules = createRejectRules(env, jRejectRules);
+        rulesPointer = &rejectRules;
     }
 
     jsize keyLength = env->GetArrayLength(jKey);
@@ -475,7 +480,7 @@ JNICALL Java_edu_stanford_ramcloud_RAMCloud_cppWrite(JNIEnv *env,
         ramcloud->write(jTableId,
                 jKeyPointer, keyLength,
                 jValuePointer, valueLength,
-                rejectRules,
+                rulesPointer,
                 &version);
     }
     EXCEPTION_CATCHER(status, -1);
@@ -493,4 +498,283 @@ JNICALL Java_edu_stanford_ramcloud_RAMCloud_cppWrite(JNIEnv *env,
     env->ReleasePrimitiveArrayCritical(jKey, jKeyPointer, JNI_ABORT);
 
     return static_cast<jlong> (version);
+}
+
+
+/**
+ * Performs a multi-read operation.
+ *
+ * \param env
+ *      The current JNI environment.
+ * \param jRamCloud
+ *      The calling class.
+ * \param ramcloudObjectPointer
+ *      A pointer to the C++ RamCloud object
+ * \param jTableIds
+ *      An array of the tables containing the desired objects.
+ * \param jObjects
+ *      Holds the keys of the objects to read. After the function returns, it
+ *      will also hold the values of the read objects.
+ * \param jStatuses
+ *      Will hold the status codes for each read operation after the function
+ *      returns.
+ */
+JNIEXPORT void
+JNICALL Java_edu_stanford_ramcloud_RAMCloud_cppMultiRead(JNIEnv *env,
+                                                         jclass jRamCloud,
+                                                         jlong ramcloudObjectPointer,
+                                                         jlongArray jTableIds,
+                                                         jobjectArray jObjects,
+                                                         jintArray jStatuses) {
+    RamCloud* ramcloud = reinterpret_cast<RamCloud*> (ramcloudObjectPointer);
+
+    jsize numObjects = env->GetArrayLength(jTableIds);
+    env->EnsureLocalCapacity(numObjects * 5);
+    // ObjectBuffers that the object values will be read into.
+    Tub<ObjectBuffer> *values = new Tub<ObjectBuffer>[numObjects];
+    // MultiReadObjects that specify information for the multi-read to use.
+    MultiReadObject objects[numObjects];
+    // Pointers to the objects in the above array.
+    MultiReadObject* objectPointers[numObjects];
+    // Array of the Java key arrays, to release later.
+    jbyteArray jKeyArray[numObjects];
+    uint64_t* tableIds = static_cast<uint64_t*>(env->GetPrimitiveArrayCritical(jTableIds, 0));
+    for (int i = 0; i < numObjects; i++) {
+        jKeyArray[i] = reinterpret_cast<jbyteArray>(env->GetObjectArrayElement(jObjects, i * 2));
+        uint16_t keyLength = (uint16_t) env->GetArrayLength(jKeyArray[i]);
+        void* key = env->GetPrimitiveArrayCritical(jKeyArray[i], 0);
+        objects[i] = {
+            tableIds[i],
+            key,
+            keyLength,
+            &values[i]
+        };
+        objectPointers[i] = &objects[i];
+    }
+
+#if TIME_CPP
+    uint64_t start = Cycles::rdtsc();
+#endif
+    MultiRead request(ramcloud, objectPointers, numObjects);
+    request.wait();
+#if TIME_CPP
+    test_times[0] = Cycles::rdtsc() - start;
+    printf("C++ MultiRead Time: %f\n", Cycles::toSeconds(test_times[0]) * 1000000 / numObjects);
+#endif
+
+    // Copy data from the multiread into the Java arrays.
+    env->ReleasePrimitiveArrayCritical(jTableIds, NULL, JNI_ABORT);
+    jint* statuses = static_cast<jint*>(env->GetPrimitiveArrayCritical(jStatuses, 0));
+    for (int i = 0; i < numObjects; i++) {
+        env->ReleasePrimitiveArrayCritical(jKeyArray[i], NULL, JNI_ABORT);
+        ObjectBuffer* object = values[i].get();
+
+        statuses[i] = objects[i].status;
+        if (statuses[i] != STATUS_OK) {
+            continue;
+        }
+        
+        uint32_t valueLength;
+        const void* value = object->getValue(&valueLength);
+        jbyteArray jValue = env->NewByteArray(valueLength);
+        void* jValuePointer = env->GetPrimitiveArrayCritical(jValue, 0);
+        memcpy(jValuePointer, value, valueLength);
+        env->ReleasePrimitiveArrayCritical(jValue, jValuePointer, 0);
+        env->SetObjectArrayElement(jObjects, i * 2 + 1, jValue);
+    }
+    env->ReleasePrimitiveArrayCritical(jStatuses, statuses, 0);
+
+    delete[] values;
+}
+
+
+/**
+ * Performs a multi-write operation.
+ *
+ * \param env
+ *      The current JNI environment.
+ * \param jRamCloud
+ *      The calling class.
+ * \param ramcloudObjectPointer
+ *      A pointer to the C++ RamCloud object
+ * \param jTableIds
+ *      An array of the tables to write the desired objects.
+ * \param jObjects
+ *      Holds the keys, values, and reject rules of the objects to write.
+ * \param jVersions
+ *      Will hold the new versions for each written object after the function
+ *      returns.
+ * \param jStatuses
+ *      Will hold the status codes for each write operation after the function
+ *      returns.
+ */
+JNIEXPORT void
+JNICALL Java_edu_stanford_ramcloud_RAMCloud_cppMultiWrite(JNIEnv *env,
+                                                          jclass jRamCloud,
+                                                          jlong ramcloudObjectPointer,
+                                                          jlongArray jTableIds,
+                                                          jobjectArray jObjects,
+                                                          jlongArray jVersions,
+                                                          jintArray jStatuses) {
+    RamCloud* ramcloud = reinterpret_cast<RamCloud*> (ramcloudObjectPointer);
+
+    jsize numObjects = env->GetArrayLength(jTableIds);
+    env->EnsureLocalCapacity(numObjects * 3);
+    Tub<MultiWriteObject> *objects = new Tub<MultiWriteObject>[numObjects];
+    MultiWriteObject* objectPointers[numObjects];
+    // Array of reject rules to use in the multiwrite
+    RejectRules rules[numObjects];
+    RejectRules* rulePointers[numObjects];
+    // Array of the Java key arrays, to release later.
+    jbyteArray jKeyArray[numObjects];
+    // Array of the Java value arrays, to release later.
+    jbyteArray jValueArray[numObjects];
+    uint64_t* tableIds = static_cast<uint64_t*>(env->GetPrimitiveArrayCritical(jTableIds, 0));
+    for (int i = 0; i < numObjects; i++) {
+        jKeyArray[i] = reinterpret_cast<jbyteArray>(
+            env->GetObjectArrayElement(jObjects, i * 3));
+        jValueArray[i] = reinterpret_cast<jbyteArray>(
+            env->GetObjectArrayElement(jObjects, i * 3 + 1));
+        jbyteArray rejectRules = reinterpret_cast<jbyteArray>(
+            env->GetObjectArrayElement(jObjects, i * 3 + 2));
+
+        if (rejectRules == NULL) {
+            rulePointers[i] = NULL;
+        } else {
+            rules[i] = createRejectRules(env, rejectRules);
+            rulePointers[i] = &rules[i];
+        }
+        
+        uint16_t keyLength = (uint16_t) env->GetArrayLength(jKeyArray[i]);
+        uint32_t valueLength = env->GetArrayLength(jValueArray[i]);
+        void* key = env->GetPrimitiveArrayCritical(jKeyArray[i], 0);
+        void* value = env->GetPrimitiveArrayCritical(jValueArray[i], 0);
+        objects[i].construct(tableIds[i],
+                             key,
+                             keyLength,
+                             value,
+                             valueLength,
+                             rulePointers[i]);
+        objectPointers[i] = objects[i].get();
+    }
+
+#if TIME_CPP
+    uint64_t start = Cycles::rdtsc();
+#endif
+    MultiWrite request(ramcloud, objectPointers, numObjects);
+    request.wait();
+#if TIME_CPP
+    test_times[0] = Cycles::rdtsc() - start;
+    printf("C++ MultiWrite Time: %f\n", Cycles::toSeconds(test_times[0]) * 1000000 / numObjects);
+#endif
+
+    env->ReleasePrimitiveArrayCritical(jTableIds, NULL, JNI_ABORT);
+    jint* statuses = static_cast<jint*>(env->GetPrimitiveArrayCritical(jStatuses, 0));
+    jlong* versions = static_cast<jlong*>(env->GetPrimitiveArrayCritical(jVersions, 0));
+    for (int i = 0; i < numObjects; i++) {
+        env->ReleasePrimitiveArrayCritical(jKeyArray[i], NULL, JNI_ABORT);
+        env->ReleasePrimitiveArrayCritical(jValueArray[i], NULL, JNI_ABORT);
+
+        statuses[i] = objectPointers[i]->status;
+        if (statuses[i] != STATUS_OK) {
+            continue;
+        }
+
+        versions[i] = objectPointers[i]->version;
+    }
+    env->ReleasePrimitiveArrayCritical(jStatuses, statuses, 0);
+    env->ReleasePrimitiveArrayCritical(jVersions, versions, 0);
+
+    delete[] objects;
+}
+
+/**
+ * Performs a multi-remove operation.
+ *
+ * \param env
+ *      The current JNI environment.
+ * \param jRamCloud
+ *      The calling class.
+ * \param ramcloudObjectPointer
+ *      A pointer to the C++ RamCloud object
+ * \param jTableIds
+ *      An array of the tables to remove the desired objects from.
+ * \param jObjects
+ *      Holds the keys and reject rules of the objects to remove.
+ * \param jVersions
+ *      Will hold the versions for each successfully removed object after the
+ *      function returns.
+ * \param jStatuses
+ *      Will hold the status codes for each remove operation after the function
+ *      returns.
+ */
+JNIEXPORT void
+JNICALL Java_edu_stanford_ramcloud_RAMCloud_cppMultiRemove(JNIEnv *env,
+                                                          jclass jRamCloud,
+                                                          jlong ramcloudObjectPointer,
+                                                          jlongArray jTableIds,
+                                                          jobjectArray jObjects,
+                                                          jlongArray jVersions,
+                                                          jintArray jStatuses) {
+    RamCloud* ramcloud = reinterpret_cast<RamCloud*> (ramcloudObjectPointer);
+
+    jsize numObjects = env->GetArrayLength(jTableIds);
+    env->EnsureLocalCapacity(numObjects * 2);
+    Tub<MultiRemoveObject> *objects = new Tub<MultiRemoveObject>[numObjects];
+    MultiRemoveObject* objectPointers[numObjects];
+    // Array of reject rules to use in remove operations
+    RejectRules rules[numObjects];
+    RejectRules* rulePointers[numObjects];
+    // Array of the Java key arrays, to release later.
+    jbyteArray jKeyArray[numObjects];
+    uint64_t* tableIds = static_cast<uint64_t*>(env->GetPrimitiveArrayCritical(jTableIds, 0));
+    for (int i = 0; i < numObjects; i++) {
+        jKeyArray[i] = reinterpret_cast<jbyteArray>(
+            env->GetObjectArrayElement(jObjects, i * 2));
+        jbyteArray rejectRules = reinterpret_cast<jbyteArray>(
+            env->GetObjectArrayElement(jObjects, i * 2 + 1));
+
+        if (rejectRules == NULL) {
+            rulePointers[i] = NULL;
+        } else {
+            rules[i] = createRejectRules(env, rejectRules);
+            rulePointers[i] = &rules[i];
+        }
+        
+        uint16_t keyLength = (uint16_t) env->GetArrayLength(jKeyArray[i]);
+        void* key = env->GetPrimitiveArrayCritical(jKeyArray[i], 0);
+        objects[i].construct(tableIds[i],
+                             key,
+                             keyLength,
+                             rulePointers[i]);
+        objectPointers[i] = objects[i].get();
+    }
+
+#if TIME_CPP
+    uint64_t start = Cycles::rdtsc();
+#endif
+    MultiRemove request(ramcloud, objectPointers, numObjects);
+    request.wait();
+#if TIME_CPP
+    test_times[0] = Cycles::rdtsc() - start;
+    printf("C++ MultiRemove Time: %f\n", Cycles::toSeconds(test_times[0]) * 1000000 / numObjects);
+#endif
+
+    env->ReleasePrimitiveArrayCritical(jTableIds, NULL, JNI_ABORT);
+    jint* statuses = static_cast<jint*>(env->GetPrimitiveArrayCritical(jStatuses, 0));
+    jlong* versions = static_cast<jlong*>(env->GetPrimitiveArrayCritical(jVersions, 0));
+    for (int i = 0; i < numObjects; i++) {
+        env->ReleasePrimitiveArrayCritical(jKeyArray[i], NULL, JNI_ABORT);
+
+        statuses[i] = objectPointers[i]->status;
+        if (statuses[i] != STATUS_OK) {
+            continue;
+        }
+
+        versions[i] = objectPointers[i]->version;
+    }
+    env->ReleasePrimitiveArrayCritical(jStatuses, statuses, 0);
+    env->ReleasePrimitiveArrayCritical(jVersions, versions, 0);
+
+    delete[] objects;
 }

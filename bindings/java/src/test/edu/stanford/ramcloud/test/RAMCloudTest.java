@@ -19,6 +19,7 @@ import java.lang.reflect.Method;
 
 import static edu.stanford.ramcloud.ClientException.*;
 import edu.stanford.ramcloud.*;
+import edu.stanford.ramcloud.multiop.*;
 import static edu.stanford.ramcloud.test.ClientTestClusterSetup.*;
 
 import org.testng.annotations.*;
@@ -134,6 +135,22 @@ public class RAMCloudTest {
     }
 
     @Test
+    (
+        expectedExceptions = ObjectDoesntExistException.class
+    )
+    public void read_missingObject() {
+        ramcloud.read(tableId, key);
+    }
+
+    @Test
+    (
+        expectedExceptions = TableDoesntExistException.class
+    )
+    public void read_missingTable() {
+        ramcloud.read(tableId + 1, key);
+    }
+
+    @Test
     public void remove_byteKey() {
         long version = ramcloud.write(tableId, key, "testValue");
         assertEquals(version, ramcloud.remove(tableId, key.getBytes()));
@@ -177,6 +194,14 @@ public class RAMCloudTest {
         }
         rules.setGivenVersion(version);
         assertEquals(version, ramcloud.remove(tableId, key.getBytes(), rules));
+    }
+
+    @Test
+    (
+        expectedExceptions = TableDoesntExistException.class
+    )
+    public void remove_missingTable() {
+        ramcloud.remove(tableId + 1, key);
     }
 
     @Test
@@ -258,10 +283,19 @@ public class RAMCloudTest {
     }
 
     @Test
+    (
+        expectedExceptions = TableDoesntExistException.class
+    )
+    public void write_missingTable() {
+        ramcloud.write(tableId + 100, key, key + "Value");
+    }
+
+    @Test
     public void createTable() {
         long tableId = ramcloud.createTable(key, 1);
         long readId = ramcloud.getTableId(key);
         assertEquals(tableId, readId);
+        ramcloud.dropTable(key);
     }
     
     @Test
@@ -269,6 +303,7 @@ public class RAMCloudTest {
         long tableId = ramcloud.createTable(key);
         long readId = ramcloud.getTableId(key);
         assertEquals(tableId, readId);
+        ramcloud.dropTable(key);
     }
 
     @Test
@@ -285,11 +320,157 @@ public class RAMCloudTest {
     public void getTableId() {
         long tableId = ramcloud.createTable(key);
         assertEquals(tableId, ramcloud.getTableId(key));
+        ramcloud.dropTable(key);
     }
 
     @Test
     public void getTableIterator() {
         TableIterator it = ramcloud.getTableIterator(tableId);
         assertNotNull(it);
+    }
+
+    @Test
+    public void read_multi() {
+        int count = 10;
+        MultiReadObject[] reads = new MultiReadObject[count];
+        for (int i = 0; i < count; i++) {
+            String key = this.key + i;
+            ramcloud.write(tableId, key, "value" + i);
+            reads[i] = new MultiReadObject(tableId, key.getBytes());
+        }
+        ramcloud.read(reads);
+        for (int i = 0; i < count; i++) {
+            assertEquals("value" + i, reads[i].getValue());
+            ramcloud.remove(tableId, this.key + i);
+        }
+    }
+
+    @Test
+    public void read_multiKeyMissing() {
+        int count = 10;
+        MultiReadObject[] reads = new MultiReadObject[count];
+        for (int i = 0; i < count; i++) {
+            String key = this.key + i;
+            reads[i] = new MultiReadObject(tableId, key.getBytes());
+        }
+        ramcloud.read(reads);
+        for (int i = 0; i < count; i++) {
+            assertEquals(Status.STATUS_OBJECT_DOESNT_EXIST, reads[i].getStatus());
+        }
+    }
+
+    @Test
+    public void read_multiTableMissing() {
+        int count = 10;
+        MultiReadObject[] reads = new MultiReadObject[count];
+        for (int i = 0; i < count; i++) {
+            String key = this.key + i;
+            reads[i] = new MultiReadObject(tableId + 1, key.getBytes());
+        }
+        ramcloud.read(reads);
+        for (int i = 0; i < count; i++) {
+            assertEquals(Status.STATUS_TABLE_DOESNT_EXIST, reads[i].getStatus());
+        }
+    }
+
+    @Test
+    public void write_multi() {
+        int count = 10;
+        MultiWriteObject[] writes = new MultiWriteObject[count];
+        for (int i = 0; i < count; i++) {
+            writes[i] = new MultiWriteObject(tableId, key + i,
+                                            "value" + i);
+        }
+        ramcloud.write(writes);
+        for (int i = 0; i < count; i++) {
+            assertEquals(Status.STATUS_OK, writes[i].getStatus());
+            RAMCloudObject object = ramcloud.read(tableId, this.key + i);
+            assertEquals("value" + i, object.getValue());
+            ramcloud.remove(tableId, this.key + i);
+        }
+    }
+
+    @Test
+    public void write_multiRejectRules() {
+        int count = 10;
+        RejectRules rules = new RejectRules();
+        rules.rejectIfDoesntExist(true);
+        MultiWriteObject[] writes = new MultiWriteObject[count];
+        for (int i = 0; i < count; i++) {
+            writes[i] = new MultiWriteObject(tableId, key + i,
+                                             "value" + i,
+                                             rules);
+        }
+        ramcloud.write(writes);
+        for (int i = 0; i < count; i++) {
+            assertEquals(Status.STATUS_OBJECT_DOESNT_EXIST, writes[i].getStatus());
+        }
+    }
+
+    @Test
+    public void write_multiTableMissing() {
+        int count = 10;
+        MultiWriteObject[] writes = new MultiWriteObject[count];
+        for (int i = 0; i < count; i++) {
+            writes[i] = new MultiWriteObject(tableId + 1, key + i,
+                                             "value" + i);
+        }
+        ramcloud.write(writes);
+        for (int i = 0; i < count; i++) {
+            assertEquals(Status.STATUS_TABLE_DOESNT_EXIST, writes[i].getStatus());
+        }
+    }
+
+    @Test
+    public void remove_multi() {
+        int count = 10;
+        MultiRemoveObject[] removes = new MultiRemoveObject[count];
+        long[] versions = new long[count];
+        for (int i = 0; i < count; i++) {
+            versions[i] = ramcloud.write(tableId, key + i, "value" + i);
+            removes[i] = new MultiRemoveObject(tableId, key + i);
+        }
+        ramcloud.remove(removes);
+        for (int i = 0; i < count; i++) {
+            assertEquals(Status.STATUS_OK, removes[i].getStatus());
+            assertEquals(versions[i], removes[i].getVersion());
+            try {
+                ramcloud.read(tableId, key + i);
+            } catch (ObjectDoesntExistException ex) {
+                // Good
+            }
+        }
+    }
+
+    @Test
+    public void remove_multiRejectRules() {
+        int count = 10;
+        MultiRemoveObject[] removes = new MultiRemoveObject[count];
+        long[] versions = new long[count];
+        for (int i = 0; i < count; i++) {
+            versions[i] = ramcloud.write(tableId, key + i, "value" + i);
+            RejectRules rules = new RejectRules();
+            rules.rejectIfVersionNeGiven(true);
+            rules.setGivenVersion(versions[i] + 1);
+            removes[i] = new MultiRemoveObject(tableId, key + i, rules);
+        }
+        ramcloud.remove(removes);
+        for (int i = 0; i < count; i++) {
+            assertEquals(Status.STATUS_WRONG_VERSION, removes[i].getStatus());
+            ramcloud.read(tableId, key + i);
+        }
+    }
+
+    @Test
+    public void remove_multiTableMissing() {
+        int count = 10;
+        MultiRemoveObject[] removes = new MultiRemoveObject[count];
+        for (int i = 0; i < count; i++) {
+            removes[i] = new MultiRemoveObject(tableId + 1, key + i);
+        }
+        ramcloud.remove(removes);
+        for (int i = 0; i < count; i++) {
+            assertEquals(Status.STATUS_TABLE_DOESNT_EXIST, removes[i].getStatus());
+        }
     }
 }
