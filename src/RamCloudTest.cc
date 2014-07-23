@@ -640,7 +640,7 @@ TEST_F(RamCloudTest, write) {
                         value.getValue()), 10));
 }
 
-TEST_F(RamCloudTest, index_endToEnd) {
+TEST_F(RamCloudTest, indexedRead) {
     uint64_t tableId = ramcloud->createTable("table");
     ramcloud->createIndex(tableId, 1, 0);
     ramcloud->createIndex(tableId, 2, 0);
@@ -690,52 +690,6 @@ TEST_F(RamCloudTest, index_endToEnd) {
     ramcloud->write(tableId, numKeys, keyListC, "valueC");
 
     ////////////////////////////////////////////////////////////////////////
-    //// Lookup for each index keys. Should return hash of primary key. ////
-    ////////////////////////////////////////////////////////////////////////
-
-    Buffer lookupResp;
-    uint32_t numHashes;
-    uint16_t nextKeyLength;
-    uint64_t nextKeyHash;
-    uint32_t lookupOffset;
-
-    // Lookup on index id 1.
-    // Point lookup for one, and partial range lookup for the other two.
-    lookupResp.reset();
-    ramcloud->lookupIndexKeys(tableId, 1, "keyA1", 5, 0, "keyA1", 5,
-                &lookupResp, &numHashes, &nextKeyLength, &nextKeyHash);
-    EXPECT_EQ(1U, numHashes);
-    lookupOffset = sizeof32(WireFormat::LookupIndexKeys::Response);
-    EXPECT_EQ(primaryKeyA.getHash(),
-              *lookupResp.getOffset<uint64_t>(lookupOffset));
-
-    lookupResp.reset();
-    ramcloud->lookupIndexKeys(tableId, 1, "keyB1", 5, 0, "keyC1", 5,
-                &lookupResp, &numHashes, &nextKeyLength, &nextKeyHash);
-    EXPECT_EQ(2U, numHashes);
-    lookupOffset = sizeof32(WireFormat::LookupIndexKeys::Response);
-    EXPECT_EQ(primaryKeyB.getHash(),
-              *lookupResp.getOffset<uint64_t>(lookupOffset));
-    lookupOffset += sizeof32(uint64_t);
-    EXPECT_EQ(primaryKeyC.getHash(),
-              *lookupResp.getOffset<uint64_t>(lookupOffset));
-
-    // Lookup on index id 2. Range lookup to get all.
-    lookupResp.reset();
-    ramcloud->lookupIndexKeys(tableId, 2, "a", 1, 0, "z", 1, &lookupResp,
-                              &numHashes, &nextKeyLength, &nextKeyHash);
-    EXPECT_EQ(3U, numHashes);
-    lookupOffset = sizeof32(WireFormat::LookupIndexKeys::Response);
-    EXPECT_EQ(primaryKeyA.getHash(),
-              *lookupResp.getOffset<uint64_t>(lookupOffset));
-    lookupOffset += sizeof32(uint64_t);
-    EXPECT_EQ(primaryKeyB.getHash(),
-              *lookupResp.getOffset<uint64_t>(lookupOffset));
-    lookupOffset += sizeof32(uint64_t);
-    EXPECT_EQ(primaryKeyC.getHash(),
-              *lookupResp.getOffset<uint64_t>(lookupOffset));
-
-    ////////////////////////////////////////////////////////////////////////
     //// Indexed reads on primary key hash + index key, for each index. ////
     //// Should return entire objects. /////////////////////////////////////
     ////////////////////////////////////////////////////////////////////////
@@ -746,7 +700,7 @@ TEST_F(RamCloudTest, index_endToEnd) {
     uint32_t readOffset;
 
     // Indexed read on index id 1.
-    // Point read for object, range read for the other two.
+    // Point read for first object, range read for the other two.
     readResp.reset();
     pKHashes.reset();
     pKHashes.emplaceAppend<uint64_t>(primaryKeyA.getHash());
@@ -849,6 +803,102 @@ TEST_F(RamCloudTest, index_endToEnd) {
     const void* valueC2 = objC2.getValue(&valueLengthC2);
     EXPECT_EQ("valueC", string(reinterpret_cast<const char*>(valueC2),
                                valueLengthC2));
+}
+
+TEST_F(RamCloudTest, lookupIndexKeys) {
+    uint64_t tableId = ramcloud->createTable("table");
+    ramcloud->createIndex(tableId, 1, 0);
+    ramcloud->createIndex(tableId, 2, 0);
+
+    uint8_t numKeys = 3;
+
+    KeyInfo keyListA[3];
+    keyListA[0].keyLength = 5;
+    keyListA[0].key = "keyA0";
+    keyListA[1].keyLength = 5;
+    keyListA[1].key = "keyA1";
+    keyListA[2].keyLength = 5;
+    keyListA[2].key = "keyA2";
+
+    KeyInfo keyListB[3];
+    keyListB[0].keyLength = 5;
+    keyListB[0].key = "keyB0";
+    keyListB[1].keyLength = 5;
+    keyListB[1].key = "keyB1";
+    keyListB[2].keyLength = 5;
+    keyListB[2].key = "keyB2";
+
+    KeyInfo keyListC[3];
+    keyListC[0].keyLength = 5;
+    keyListC[0].key = "keyC0";
+    keyListC[1].keyLength = 5;
+    keyListC[1].key = "keyC1";
+    keyListC[2].keyLength = 5;
+    keyListC[2].key = "keyC2";
+
+    Key primaryKeyA(tableId, keyListA[0].key, keyListA[0].keyLength);
+    Key primaryKeyB(tableId, keyListB[0].key, keyListB[0].keyLength);
+    Key primaryKeyC(tableId, keyListC[0].key, keyListC[0].keyLength);
+
+    ////////////////////////////////////////////////////////////////////////
+    ////////// Write the objects, which inserts index entries. /////////////
+    ////////////////////////////////////////////////////////////////////////
+
+    // NOTE: Since this write will first involve writing of
+    // the corresponding index entries, the version for this
+    // data object will be 2 and increases then on for every
+    // new object. This is because, indexlets are implemented
+    // using RamCloud objects and when an entry is first added,
+    // it gets allocated a version of 1.
+    ramcloud->write(tableId, numKeys, keyListA, "valueA");
+    ramcloud->write(tableId, numKeys, keyListB, "valueB");
+    ramcloud->write(tableId, numKeys, keyListC, "valueC");
+
+    ////////////////////////////////////////////////////////////////////////
+    //// Lookup for each index keys. Should return hash of primary key. ////
+    ////////////////////////////////////////////////////////////////////////
+
+    Buffer lookupResp;
+    uint32_t numHashes;
+    uint16_t nextKeyLength;
+    uint64_t nextKeyHash;
+    uint32_t lookupOffset;
+
+    // Lookup on index id 1.
+    // Point lookup for one, and partial range lookup for the other two.
+    lookupResp.reset();
+    ramcloud->lookupIndexKeys(tableId, 1, "keyA1", 5, 0, "keyA1", 5,
+                &lookupResp, &numHashes, &nextKeyLength, &nextKeyHash);
+    EXPECT_EQ(1U, numHashes);
+    lookupOffset = sizeof32(WireFormat::LookupIndexKeys::Response);
+    EXPECT_EQ(primaryKeyA.getHash(),
+              *lookupResp.getOffset<uint64_t>(lookupOffset));
+
+    lookupResp.reset();
+    ramcloud->lookupIndexKeys(tableId, 1, "keyB1", 5, 0, "keyC1", 5,
+                &lookupResp, &numHashes, &nextKeyLength, &nextKeyHash);
+    EXPECT_EQ(2U, numHashes);
+    lookupOffset = sizeof32(WireFormat::LookupIndexKeys::Response);
+    EXPECT_EQ(primaryKeyB.getHash(),
+              *lookupResp.getOffset<uint64_t>(lookupOffset));
+    lookupOffset += sizeof32(uint64_t);
+    EXPECT_EQ(primaryKeyC.getHash(),
+              *lookupResp.getOffset<uint64_t>(lookupOffset));
+
+    // Lookup on index id 2. Range lookup to get all.
+    lookupResp.reset();
+    ramcloud->lookupIndexKeys(tableId, 2, "a", 1, 0, "z", 1, &lookupResp,
+                              &numHashes, &nextKeyLength, &nextKeyHash);
+    EXPECT_EQ(3U, numHashes);
+    lookupOffset = sizeof32(WireFormat::LookupIndexKeys::Response);
+    EXPECT_EQ(primaryKeyA.getHash(),
+              *lookupResp.getOffset<uint64_t>(lookupOffset));
+    lookupOffset += sizeof32(uint64_t);
+    EXPECT_EQ(primaryKeyB.getHash(),
+              *lookupResp.getOffset<uint64_t>(lookupOffset));
+    lookupOffset += sizeof32(uint64_t);
+    EXPECT_EQ(primaryKeyC.getHash(),
+              *lookupResp.getOffset<uint64_t>(lookupOffset));
 
     ////////////////////////////////////////////////////////////////////////
     ////////// Remove two objects, which removes their index keys. /////////
