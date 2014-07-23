@@ -102,7 +102,13 @@ class Object {
     void appendKeysAndValueToBuffer(Buffer& buffer);
 
     bool fillKeyOffsets();
-    uint64_t getTableId();
+
+    /**
+     * Obtain the 64-bit table identifier associated with this object.
+     */
+    uint64_t getTableId() {
+        return header.tableId;
+    }
     const void* getKey(KeyIndex keyIndex = 0, KeyLength *keyLength = NULL);
     KeyLength getKeyLength(KeyIndex keyIndex = 0);
     const void* getKeysAndValue();
