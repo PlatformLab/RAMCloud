@@ -24,8 +24,8 @@ message Indexlets {
     ///The id of the index
     required uint32 index_id = 2;
 
-    ///The id of the indexletTable
-    required uint64 indexletTable_id = 3;
+    ///The id of the table that will hold objects for this indexlet.
+    required uint64 indexlet_table_id = 3;
 
     ///The first (smallest) key that is part of this indexlet.
     optional bytes start_key = 4;
@@ -33,7 +33,7 @@ message Indexlets {
     ///The smallest key greater than all the keys managed by this indexlet.
     optional bytes end_key = 5;
 
-    /// The ID of the master owning this indexlet.
+    /// The id of the master owning this indexlet.
     optional fixed64 server_id = 6;
 
     /// The service locator for the master owning this indexlet.

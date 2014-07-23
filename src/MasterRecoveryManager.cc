@@ -257,7 +257,7 @@ class RecoveryMasterFinishedTask : public Task {
                         "%s as master for %lu, %u, %lu",
                         ServerId(indexlet.server_id()).toString().c_str(),
                         indexlet.table_id(), indexlet.index_id(),
-                        indexlet.indexlettable_id());
+                        indexlet.indexlet_table_id());
                     void* firstKey;
                     uint16_t firstKeyLength;
                     void* firstNotOwnedKey;
@@ -286,7 +286,7 @@ class RecoveryMasterFinishedTask : public Task {
                         firstKey, firstKeyLength,
                         firstNotOwnedKey, firstNotOwnedKeyLength,
                         ServerId(indexlet.server_id()),
-                        indexlet.indexlettable_id());
+                        indexlet.indexlet_table_id());
                 } catch (const Exception& e) {
                     // TODO(zhihao): What should we do here?
                     DIE("Entry wasn't in the list anymore; "

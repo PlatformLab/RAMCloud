@@ -125,7 +125,7 @@ TEST_F(IndexletManagerTest, addIndexlet_ProtoBuf) {
     ProtoBuf::Indexlets::Indexlet indexlet;
     indexlet.set_table_id(0);
     indexlet.set_index_id(0);
-    indexlet.set_indexlettable_id(indexletTableId);
+    indexlet.set_indexlet_table_id(indexletTableId);
     indexlet.set_start_key(key2);
     indexlet.set_end_key(key4);
 
@@ -136,7 +136,7 @@ TEST_F(IndexletManagerTest, addIndexlet_ProtoBuf) {
     // of the constructor of IndexletManagerTest
     tabletManager.addTablet(indexletTableId + 1, 0, ~0UL,
                             TabletManager::NORMAL);
-    indexlet.set_indexlettable_id(indexletTableId + 1);
+    indexlet.set_indexlet_table_id(indexletTableId + 1);
     indexlet.set_start_key(key2);
     indexlet.set_end_key(key4);
     EXPECT_FALSE(im.addIndexlet(indexlet));
@@ -147,7 +147,7 @@ TEST_F(IndexletManagerTest, addIndexlet_ProtoBuf) {
     // of the constructor of IndexletManagerTest
     tabletManager.addTablet(indexletTableId + 2, 0, ~0UL,
                             TabletManager::NORMAL);
-    indexlet.set_indexlettable_id(indexletTableId + 2);
+    indexlet.set_indexlet_table_id(indexletTableId + 2);
     indexlet.set_start_key(key1);
     indexlet.set_end_key(key2);
     EXPECT_TRUE(im.addIndexlet(indexlet));
@@ -158,7 +158,7 @@ TEST_F(IndexletManagerTest, addIndexlet_ProtoBuf) {
     // of the constructor of IndexletManagerTest
     tabletManager.addTablet(indexletTableId + 3, 0, ~0UL,
                             TabletManager::NORMAL);
-    indexlet.set_indexlettable_id(indexletTableId + 3);
+    indexlet.set_indexlet_table_id(indexletTableId + 3);
     indexlet.set_start_key(key4);
     indexlet.set_end_key(key5);
     EXPECT_TRUE(im.addIndexlet(indexlet));
@@ -169,7 +169,7 @@ TEST_F(IndexletManagerTest, addIndexlet_ProtoBuf) {
     // of the constructor of IndexletManagerTest
     tabletManager.addTablet(indexletTableId + 4, 0, ~0UL,
                             TabletManager::NORMAL);
-    indexlet.set_indexlettable_id(indexletTableId + 4);
+    indexlet.set_indexlet_table_id(indexletTableId + 4);
     indexlet.set_start_key(key1);
     indexlet.set_end_key(key3);
     EXPECT_FALSE(im.addIndexlet(indexlet));

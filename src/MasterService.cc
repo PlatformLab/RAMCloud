@@ -2236,7 +2236,7 @@ MasterService::recover(const WireFormat::Recover::Request* reqHdr,
         std::unordered_map<uint64_t, uint64_t> highestBTreeIdMap;
         foreach (const ProtoBuf::Indexlets::Indexlet& indexlet,
                  recoveryPartition.indexlet()) {
-            highestBTreeIdMap[indexlet.indexlettable_id()] = 0;
+            highestBTreeIdMap[indexlet.indexlet_table_id()] = 0;
         }
         recover(recoveryId, crashedServerId, partitionId, replicas,
                 highestBTreeIdMap);
@@ -2246,7 +2246,7 @@ MasterService::recover(const WireFormat::Recover::Request* reqHdr,
             LOG(NOTICE, "Starting recovery %lu for crashed indexlet %d",
                 recoveryId, newIndexlet.index_id());
             bool added = indexletManager.addIndexlet(newIndexlet,
-                         highestBTreeIdMap[newIndexlet.indexlettable_id()]);
+                         highestBTreeIdMap[newIndexlet.indexlet_table_id()]);
             if (!added) {
                 throw Exception(HERE, format("Indexlet already exists."));
             }

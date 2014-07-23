@@ -105,7 +105,7 @@ IndexletManager::addIndexlet(ProtoBuf::Indexlets::Indexlet indexlet,
 {
     uint64_t tableId = indexlet.table_id();
     uint8_t indexId = (uint8_t) indexlet.index_id();
-    uint64_t indexletTableId = indexlet.indexlettable_id();
+    uint64_t indexletTableId = indexlet.indexlet_table_id();
 
     void *firstKey, *firstNotOwnedKey;
     uint16_t firstKeyLength, firstNotOwnedKeyLength;

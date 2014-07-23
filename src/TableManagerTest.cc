@@ -307,7 +307,7 @@ TEST_F(TableManagerTest, getIndxletInfoByIndexletTableId) {
     EXPECT_TRUE(tableManager->getIndexletInfoByIndexletTableId(2, indexlet));
     EXPECT_EQ(1U, indexlet.table_id());
     EXPECT_EQ(0U, indexlet.index_id());
-    EXPECT_EQ(2U, indexlet.indexlettable_id());
+    EXPECT_EQ(2U, indexlet.indexlet_table_id());
 };
 
 TEST_F(TableManagerTest, isIndexletTable) {

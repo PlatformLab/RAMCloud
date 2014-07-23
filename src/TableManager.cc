@@ -516,7 +516,7 @@ TableManager::getIndexletInfoByIndexletTableId(uint64_t indexletTableId,
         indexlet.set_end_key("");
     indexlet.set_table_id(it->second->tableId);
     indexlet.set_index_id(it->second->indexId);
-    indexlet.set_indexlettable_id(it->second->indexletTableId);
+    indexlet.set_indexlet_table_id(it->second->indexletTableId);
     indexlet.set_server_id(it->second->serverId.getId());
     return true;
 }
