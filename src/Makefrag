@@ -65,6 +65,7 @@ SHARED_SRCFILES := \
 		   src/FailSession.cc \
 		   src/FastTransport.cc \
 		   src/HashTable.cc \
+		   src/IndexKey.cc \
 		   src/IndexletManager.cc \
 		   src/IndexLookup.cc \
 		   src/IndexRpcWrapper.cc \

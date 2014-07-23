@@ -98,8 +98,8 @@ class IndexletManager {
       public:
         bool operator()(const KeyAndHash x, const KeyAndHash y) const
         {
-            int keyComparison = keyCompare(x.key, x.keyLength,
-                                           y.key, y.keyLength);
+            int keyComparison = IndexKey::keyCompare(x.key, x.keyLength,
+                                                     y.key, y.keyLength);
             if (keyComparison == 0) {
                 return (x.pKHash < y.pKHash);
             }
@@ -213,13 +213,6 @@ class IndexletManager {
     Status removeEntry(uint64_t tableId, uint8_t indexId,
                 const void* key, KeyLength keyLength,
                 uint64_t pKHash);
-
-    //////////////// Static functions related to index keys ///////////////////
-
-    static bool isKeyInRange(Object* object, IndexKeyRange* keyRange);
-
-    static int keyCompare(const void* key1, uint16_t keyLength1,
-                const void* key2, uint16_t keyLength2);
 
 
   PROTECTED:

@@ -97,9 +97,6 @@ class ObjectFinder {
     void waitForTabletDown(uint64_t tableId);
     void waitForAllTabletsNormal(uint64_t tableId, uint64_t timeoutNs = ~0lu);
 
-    static int keyCompare(const void* key1, uint16_t keyLength1,
-                                        const void* key2, uint16_t keyLength2);
-
     /*
      * Used only for debug purposes. This function created a string
      * representation of the tablets stored in tableMap

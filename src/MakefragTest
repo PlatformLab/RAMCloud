@@ -45,6 +45,7 @@ TESTS_SRCFILES := \
 		  src/FastTransportTest.cc \
 		  src/HashTableTest.cc \
 		  src/HistogramTest.cc \
+		  src/IndexKeyTest.cc \
 		  src/IndexletManagerTest.cc \
 		  src/IndexLookupTest.cc \
 		  src/IndexRpcWrapperTest.cc \

@@ -588,7 +588,7 @@ MasterService::indexedRead(
             rpc->requestPayload->getRange(reqOffset, reqHdr->lastKeyLength);
     reqOffset += reqHdr->lastKeyLength;
 
-    IndexKeyRange keyRange = {reqHdr->indexId,
+    IndexKey::IndexKeyRange keyRange = {reqHdr->indexId,
                               firstKeyStr, reqHdr->firstKeyLength,
                               lastKeyStr, reqHdr->lastKeyLength};
 

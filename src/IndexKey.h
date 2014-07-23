@@ -17,8 +17,13 @@
 #define RAMCLOUD_INDEXKEY_H
 
 #include "Common.h"
+#include "Object.h"
 
 namespace RAMCloud {
+
+class IndexKey {
+
+  PUBLIC:
 
     /// Structure used to define a range of keys [first key, last key]
     /// for a particular index id, that can be used to compare a given
@@ -35,6 +40,14 @@ namespace RAMCloud {
         /// Length of lastKey.
         const uint16_t lastKeyLength;
     };
+
+    static int keyCompare(const void* key1, uint16_t keyLength1,
+                          const void* key2, uint16_t keyLength2);
+    static bool isKeyInRange(Object* object, IndexKeyRange* keyRange);
+
+  PRIVATE:
+    DISALLOW_COPY_AND_ASSIGN(IndexKey);
+};
 
 } // namespace RAMCloud
 

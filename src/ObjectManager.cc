@@ -146,7 +146,7 @@ ObjectManager::initOnceEnlisted()
 void
 ObjectManager::indexedRead(const uint64_t tableId, uint32_t reqNumHashes,
             Buffer* pKHashes, uint32_t initialPKHashesOffset,
-            IndexKeyRange* keyRange, uint32_t maxLength,
+            IndexKey::IndexKeyRange* keyRange, uint32_t maxLength,
             Buffer* response, uint32_t* respNumHashes, uint32_t* numObjects)
 {
     // The current length of the response buffer in bytes. This is the
@@ -200,7 +200,7 @@ ObjectManager::indexedRead(const uint64_t tableId, uint32_t reqNumHashes,
                 continue;
 
             Object object(candidateBuffer);
-            bool isInRange = IndexletManager::isKeyInRange(&object, keyRange);
+            bool isInRange = IndexKey::isKeyInRange(&object, keyRange);
 
             if (isInRange == true) {
                 *numObjects += 1;

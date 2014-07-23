@@ -308,19 +308,6 @@ TEST_F(ObjectFinderTest, lookupIndexlet) {
                 getServiceLocator());
 }
 
-TEST_F(ObjectFinderTest, keyCompare)
-{
-    EXPECT_EQ(0, ObjectFinder::keyCompare("abc", 3, "abc", 3));
-    EXPECT_GT(0, ObjectFinder::keyCompare("abb", 3, "abc", 3));
-    EXPECT_LT(0, ObjectFinder::keyCompare("abd", 3, "abc", 3));
-    EXPECT_GT(0, ObjectFinder::keyCompare("ab", 2, "abc", 3));
-    EXPECT_LT(0, ObjectFinder::keyCompare("abcd", 4, "abc", 3));
-    EXPECT_GT(0, ObjectFinder::keyCompare("abbc", 4, "abc", 3));
-    EXPECT_LT(0, ObjectFinder::keyCompare("ac", 2, "abc", 3));
-    EXPECT_GT(0, ObjectFinder::keyCompare("", 0, "abc", 3));
-    EXPECT_LT(0, ObjectFinder::keyCompare("abc", 3, "", 0));
-}
-
 TEST_F(ObjectFinderTest, lookupTablet) {
 
     // expect nothing to be there before refreshing the coordinator
@@ -425,8 +412,10 @@ TEST_F(ObjectFinderTest, flushSession_index) {
     EXPECT_TRUE(context.transportManager->sessionCache.find(
             "mock:host=server2")
             == context.transportManager->sessionCache.end());
-    EXPECT_EQ("flushSession: flushing session for mock:host=server2",
-            TestLog::get());
+    EXPECT_EQ("keyCompare: Comparing keys: abc vs l | "
+            "flushSession: flushing session for mock:host=server2 | "
+            "keyCompare: Comparing keys: abc vs l",
+             TestLog::get());
     objectFinder->flushSession(99, 0);
 }
 

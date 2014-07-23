@@ -174,9 +174,9 @@ IndexletManager::deleteIndexlet(
 
     Indexlet* indexlet = &it->second;
 
-    if (keyCompare(indexlet->firstKey, indexlet->firstKeyLength,
+    if (IndexKey::keyCompare(indexlet->firstKey, indexlet->firstKeyLength,
                    firstKey, firstKeyLength) != 0  ||
-        keyCompare(indexlet->firstNotOwnedKey,
+        IndexKey::keyCompare(indexlet->firstNotOwnedKey,
                    indexlet->firstNotOwnedKeyLength,
                    firstNotOwnedKey, firstNotOwnedKeyLength) != 0) {
         return false;
@@ -298,9 +298,9 @@ IndexletManager::getIndexlet(uint64_t tableId, uint8_t indexId,
 
     Indexlet* indexlet = &it->second;
 
-    if (keyCompare(indexlet->firstKey, indexlet->firstKeyLength,
+    if (IndexKey::keyCompare(indexlet->firstKey, indexlet->firstKeyLength,
                    firstKey, firstKeyLength) != 0  ||
-        keyCompare(indexlet->firstNotOwnedKey,
+        IndexKey::keyCompare(indexlet->firstNotOwnedKey,
                    indexlet->firstNotOwnedKeyLength,
                    firstNotOwnedKey, firstNotOwnedKeyLength) != 0) {
         return NULL;
@@ -343,13 +343,13 @@ IndexletManager::lookupIndexlet(uint64_t tableId, uint8_t indexId,
     for (IndexletMap::iterator it = range.first; it != end; it++) {
 
         Indexlet* indexlet = &it->second;
-        if (keyCompare(key, keyLength,
+        if (IndexKey::keyCompare(key, keyLength,
                        indexlet->firstKey, indexlet->firstKeyLength) < 0) {
             continue;
         }
 
         if (indexlet->firstNotOwnedKey != NULL) {
-            if (keyCompare(key, keyLength,
+            if (IndexKey::keyCompare(key, keyLength,
                            indexlet->firstNotOwnedKey,
                            indexlet->firstNotOwnedKeyLength) >= 0) {
                 continue;
@@ -527,8 +527,8 @@ IndexletManager::lookupIndexKeys(uint64_t tableId, uint8_t indexId,
     // then try to read an object that definitely does not exist.
     // This will cause a crash in the tree module
     while (iter != iterEnd &&
-           keyCompare(lastKey, lastKeyLength,
-                      iter.key().key, iter.key().keyLength) >= 0) {
+           IndexKey::keyCompare(lastKey, lastKeyLength,
+                        iter.key().key, iter.key().keyLength) >= 0) {
 
         if (*numHashes < maxNumHashes) {
             // Can alternatively use iter.data() instead of iter.key().pKHash,
@@ -547,14 +547,15 @@ IndexletManager::lookupIndexKeys(uint64_t tableId, uint8_t indexId,
         *nextKeyLength = uint16_t(iter.key().keyLength);
         *nextKeyHash = iter.data();
         responseBuffer->appendExternal(iter.key().key,
-                               uint32_t(iter.key().keyLength));
-    } else if (keyCompare(lastKey, lastKeyLength, indexlet->firstNotOwnedKey,
-                          indexlet->firstNotOwnedKeyLength) > 0) {
+                        uint32_t(iter.key().keyLength));
+    } else if (IndexKey::keyCompare(
+                        lastKey, lastKeyLength, indexlet->firstNotOwnedKey,
+                        indexlet->firstNotOwnedKeyLength) > 0) {
 
         *nextKeyLength = indexlet->firstNotOwnedKeyLength;
         *nextKeyHash = 0;
         responseBuffer->appendExternal(indexlet->firstNotOwnedKey,
-                               indexlet->firstNotOwnedKeyLength);
+                                       indexlet->firstNotOwnedKeyLength);
     } else {
         *nextKeyHash = 0;
         *nextKeyLength = 0;
@@ -617,75 +618,6 @@ IndexletManager::removeEntry(uint64_t tableId, uint8_t indexId,
                     tableId, indexId, Util::hexDump(key, keyLength).c_str());
 
     return STATUS_OK;
-}
-
-///////////////////////////////////////////////////////////////////////////////
-//////////////////// Static functions related to index keys ///////////////////
-///////////////////////////////////////////////////////////////////////////////
-
-/**
- * Compare the object's key corresponding to index id specified in keyRange
- * with the first and last keys in keyRange to determine if the key falls
- * in the keyRange, including the end points.
- *
- * \param object
- *      Object for which the key is to be compared.
- * \param keyRange
- *      IndexKeyRange specifying the parameters of comparison.
- *
- * \return
- *      Value of true if key corresponding to index id specified in keyRange,
- *      say k, is such that lexicographically it falls in the range
- *      specified by [first key, last key] in keyRange, including end points.
- */
-bool
-IndexletManager::isKeyInRange(Object* object, IndexKeyRange* keyRange)
-{
-    uint16_t keyLength;
-    const void* key = object->getKey(keyRange->indexId, &keyLength);
-
-    if (keyCompare(keyRange->firstKey, keyRange->firstKeyLength,
-                   key, keyLength) <= 0 &&
-        keyCompare(keyRange->lastKey, keyRange->lastKeyLength,
-                   key, keyLength) >= 0) {
-        return true;
-    } else {
-        return false;
-    }
-}
-
-/**
- * Compare the keys and return their comparison.
- *
- * \param key1
- *      Actual bytes of first key to compare.
- * \param keyLength1
- *      Length of key1.
- * \param key2
- *      Actual bytes of second key to compare.
- * \param keyLength2
- *      Length of key2.
- *
- * \return
- *      Value of 0 if the keys are equal,
- *      negative value if key1 is lexicographically < key2,
- *      positive value if key1 is lexicographically > key2.
- */
-int
-IndexletManager::keyCompare(const void* key1, uint16_t keyLength1,
-        const void* key2, uint16_t keyLength2)
-{
-    RAMCLOUD_LOG(DEBUG, "Comparing keys: %s vs %s",
-            string(reinterpret_cast<const char*>(key1), keyLength1).c_str(),
-            string(reinterpret_cast<const char*>(key2), keyLength2).c_str());
-
-    int keyCmp = bcmp(key1, key2, std::min(keyLength1, keyLength2));
-
-    if (keyCmp != 0) {
-        return keyCmp;
-    } else {
-        return keyLength1 - keyLength2;
-    }
 }
 
 } //namespace

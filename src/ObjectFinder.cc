@@ -14,6 +14,7 @@
  */
 
 #include "Cycles.h"
+#include "IndexKey.h"
 #include "ObjectFinder.h"
 #include "ShortMacros.h"
 #include "Key.h"
@@ -303,13 +304,13 @@ ObjectFinder::lookupIndexlet(uint64_t tableId, uint8_t indexId,
 
             Indexlet* indexlet = &iter->second;
             if (indexlet->firstKey != NULL) {
-                if (keyCompare(key, keyLength,
+                if (IndexKey::keyCompare(key, keyLength,
                            indexlet->firstKey, indexlet->firstKeyLength) < 0) {
                     continue;
                 }
             }
             if (indexlet->firstNotOwnedKey != NULL) {
-                if (keyCompare(key, keyLength,
+                if (IndexKey::keyCompare(key, keyLength,
                                indexlet->firstNotOwnedKey,
                                indexlet->firstNotOwnedKeyLength) >= 0) {
                     continue;
@@ -429,19 +430,6 @@ ObjectFinder::flushSession(uint64_t tableId, uint8_t indexId,
         context->transportManager->flushSession(
                         indexlet->serviceLocator);
         indexlet->session = NULL;
-    }
-}
-
-int
-ObjectFinder::keyCompare(const void* key1, uint16_t keyLength1,
-                            const void* key2, uint16_t keyLength2)
-{
-    int keyCmp = bcmp(key1, key2, std::min(keyLength1, keyLength2));
-
-    if (keyCmp != 0) {
-        return keyCmp;
-    } else {
-        return keyLength1 - keyLength2;
     }
 }
 
