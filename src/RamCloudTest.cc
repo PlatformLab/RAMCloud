@@ -518,7 +518,7 @@ TEST_F(RamCloudTest, remove) {
     EXPECT_EQ("STATUS_OBJECT_DOESNT_EXIST", message);
 }
 
-TEST_F(RamCloudTest, objectServerControl){
+TEST_F(RamCloudTest, objectServerControl) {
     ramcloud->write(tableId1, "0", 1, "zfzfzf", 6);
     string serverLocator = ramcloud->objectFinder.lookupTablet(tableId1
                            , Key::getHash(tableId1, "0", 1))->serviceLocator;
@@ -585,7 +585,7 @@ TEST_F(RamCloudTest, testingFill) {
     EXPECT_EQ("0xcccccccc 0xcccccccc /xcc/xcc", TestUtil::toString(&value));
 }
 
-TEST_F(RamCloudTest, getRuntimeOption){
+TEST_F(RamCloudTest, getRuntimeOption) {
     ramcloud->setRuntimeOption("failRecoveryMasters", "1 2 3");
     Buffer value;
     ramcloud->getRuntimeOption("failRecoveryMasters", &value);

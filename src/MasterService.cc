@@ -306,24 +306,25 @@ MasterService::dropIndexletOwnership(
         Rpc* rpc)
 {
     uint32_t reqOffset = sizeof32(*reqHdr);
-    const void* firstKey =
-        rpc->requestPayload->getRange(reqOffset, reqHdr->firstKeyLength);
-    reqOffset+=reqHdr->firstKeyLength;
-    const void* firstNotOwnedKey =
-      rpc->requestPayload->getRange(reqOffset, reqHdr->firstNotOwnedKeyLength);
+    const void* firstKey = rpc->requestPayload->getRange(
+            reqOffset, reqHdr->firstKeyLength);
+    reqOffset += reqHdr->firstKeyLength;
+    const void* firstNotOwnedKey = rpc->requestPayload->getRange(
+            reqOffset, reqHdr->firstNotOwnedKeyLength);
 
     bool deleted = indexletManager.deleteIndexlet(
-                            reqHdr->tableId, reqHdr->indexId,
-                            firstKey, reqHdr->firstKeyLength,
-                            firstNotOwnedKey, reqHdr->firstNotOwnedKeyLength);
+            reqHdr->tableId, reqHdr->indexId,
+            firstKey, reqHdr->firstKeyLength,
+            firstNotOwnedKey, reqHdr->firstNotOwnedKeyLength);
 
     if (deleted) {
         LOG(NOTICE, "Dropped ownership of indexlet in tableId %lu"
             " indexId %u", reqHdr->tableId, reqHdr->indexId);
     } else {
         // to make this operation idempotent, don't return bad status.
-        LOG(WARNING, "Could not drop ownership on unknown indexlet "
-            "for tableId %lu indexId %u!", reqHdr->tableId, reqHdr->indexId);
+        LOG(WARNING, "Ignoring dropIndexletOwnership request for"
+                " tableId %lu, indexId %u: indexlet not stored here",
+                reqHdr->tableId, reqHdr->indexId);
     }
 }
 
@@ -569,18 +570,7 @@ MasterService::increment(const WireFormat::Increment::Request* reqHdr,
 /**
  * Top-level server method to handle the INDEXED_READ request.
  *
- * \param reqHdr
- *      Header from the incoming RPC request; contains all the
- *      parameters for this operation except the keyhashes for objects
- *      and the lookup key or key range.
- * \param[out] respHdr
- *      Header for the response that will be returned to the client.
- *      The caller has pre-allocated the right amount of space in the
- *      response buffer for this type of request, and has zeroed out
- *      its contents (so, for example, status is already zero).
- * \param[out] rpc
- *      Complete information about the remote procedure call.
- *      It contains the keyhashes for objects and the lookup key range.
+ * \copydetails Service::ping
  */
 void
 MasterService::indexedRead(
@@ -592,11 +582,11 @@ MasterService::indexedRead(
 
     const void* firstKeyStr =
             rpc->requestPayload->getRange(reqOffset, reqHdr->firstKeyLength);
-    reqOffset+=reqHdr->firstKeyLength;
+    reqOffset += reqHdr->firstKeyLength;
 
     const void* lastKeyStr =
             rpc->requestPayload->getRange(reqOffset, reqHdr->lastKeyLength);
-    reqOffset+=reqHdr->lastKeyLength;
+    reqOffset += reqHdr->lastKeyLength;
 
     IndexKeyRange keyRange = {reqHdr->indexId,
                               firstKeyStr, reqHdr->firstKeyLength,
@@ -604,7 +594,7 @@ MasterService::indexedRead(
 
     objectManager.indexedRead(reqHdr->tableId, reqHdr->numHashes,
                               rpc->requestPayload, reqOffset, &keyRange,
-                              maxResponseRpcLen - sizeof32(*reqHdr),
+                              maxResponseRpcLen - sizeof32(*respHdr),
                               rpc->replyPayload, &respHdr->numHashes,
                               &respHdr->numObjects);
 }
@@ -668,17 +658,7 @@ MasterService::isReplicaNeeded(
 /**
  * Top-level server method to handle the LOOKUP_INDEX_KEYS request.
  *
- * \param reqHdr
- *      Header from the incoming RPC request; contains all the
- *      parameters for this operation except the lookup key or key range.
- * \param[out] respHdr
- *      Header for the response that will be returned to the client.
- *      The caller has pre-allocated the right amount of space in the
- *      response buffer for this type of request, and has zeroed out
- *      its contents (so, for example, status is already zero).
- * \param[out] rpc
- *      Complete information about the remote procedure call.
- *      It contains the lookup key or key range.
+ * \copydetails Service::ping
  */
 void
 MasterService::lookupIndexKeys(
@@ -690,7 +670,7 @@ MasterService::lookupIndexKeys(
 
     const void* firstKeyStr =
             rpc->requestPayload->getRange(reqOffset, reqHdr->firstKeyLength);
-    reqOffset+=reqHdr->firstKeyLength;
+    reqOffset += reqHdr->firstKeyLength;
 
     const void* lastKeyStr =
             rpc->requestPayload->getRange(reqOffset, reqHdr->lastKeyLength);
@@ -1055,7 +1035,7 @@ MasterService::multiRemove(const WireFormat::MultiOp::Request* reqHdr,
     rpc->sendReply();
     // reqHdr, respHdr, and rpc are off-limits now!
 
-    // If any of the write parts overwrites, delete old index entries if any.
+    // Delete old index entries if any.
     for (uint32_t i = 0; i < numRequests; i++) {
         if (objectBuffers[i].size() > 0) {
             requestRemoveIndexEntries(objectBuffers[i]);
@@ -1143,7 +1123,8 @@ MasterService::multiWrite(const WireFormat::MultiOp::Request* reqHdr,
     rpc->sendReply();
     // reqHdr, respHdr, and rpc are off-limits now!
 
-    // If any of the write parts overwrites, delete old index entries if any.
+    // It is possible that some of the writes overwrote pre-existing values.
+    // So, delete old index entries if any.
     for (uint32_t i = 0; i < numRequests; i++) {
         if (oldObjectBuffers[i].size() > 0) {
             requestRemoveIndexEntries(oldObjectBuffers[i]);
@@ -1396,9 +1377,11 @@ MasterService::remove(const WireFormat::Remove::Request* reqHdr,
 
 /**
  * RPC handler for REMOVE_INDEX_ENTRY;
- * As an index server, this process removes an index entry. The RPC is
- * typically initiated by a data master that was removing data that this index
- * entry corresponds to.
+ * 
+ * This RPC is initiated by a data master to remove an index entry
+ * corresponding to the data it was removing.
+ * 
+ * \copydetails Service::ping
  */
 void
 MasterService::removeIndexEntry(
@@ -1559,10 +1542,10 @@ MasterService::takeIndexletOwnership(
                 reqHdr->tableId, reqHdr->indexId,
                 firstKey, reqHdr->firstKeyLength,
                 firstNotOwnedKey, reqHdr->firstNotOwnedKeyLength) != NULL) {
-            LOG(NOTICE, "Told to take ownership of indexlet "
-                        "in tableId %lu indexId %u, but already own. "
-                        "Returning success.", reqHdr->tableId, reqHdr->indexId);
-            return;
+        LOG(NOTICE, "Told to take ownership of indexlet "
+                    "in tableId %lu indexId %u, but already own. "
+                    "Returning success.", reqHdr->tableId, reqHdr->indexId);
+        return;
     } else {
         LOG(WARNING, "Could not take ownership of indexlet in "
             "tableId %lu indexId %u overlaps with one or more different "
@@ -1618,7 +1601,7 @@ MasterService::write(const WireFormat::Write::Request* reqHdr,
 }
 
 /**
- * Helper function used by write methods in this class to send request
+ * Helper function used by write methods in this class to send requests
  * for inserting index entries (corresponding to the object being written)
  * to the index servers.
  * \param object
@@ -1666,7 +1649,7 @@ MasterService::requestInsertIndexEntries(Object& object)
 }
 
 /**
- * Helper function used by remove methods in this class to send request
+ * Helper function used by remove methods in this class to send requests
  * for removing index entries (corresponding to the object being removed)
  * to the index servers.
  * \param objectBuffer

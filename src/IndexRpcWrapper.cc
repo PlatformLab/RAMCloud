@@ -28,8 +28,9 @@ namespace RAMCloud {
  * \param tableId
  *      The table containing the desired object.
  * \param indexId
- *      Id of the index key for which this RPC is being sent.
+ *      Id of the index to which the indexed key belongs.
  * \param key
+ *      Variable length indexed key corresponding to an object.
  *      The location of key determines which server this rpc will be sent to.
  *      It does not necessarily have to be null terminated. The caller must
  *      ensure that the storage for this key is unchanged through the life of
@@ -70,8 +71,9 @@ IndexRpcWrapper::IndexRpcWrapper(
  * \param tableId
  *      The table containing the desired object.
  * \param indexId
- *      Id of the index key for which this RPC is being sent.
+ *      Id of the index to which the indexed key belongs.
  * \param key
+ *      Variable length indexed key corresponding to an object.
  *      The location of key determines which server this rpc will be sent to.
  *      It does not necessarily have to be null terminated.  The caller must
  *      ensure that the storage for this key is unchanged through the life of

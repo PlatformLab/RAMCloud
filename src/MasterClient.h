@@ -72,13 +72,13 @@ class MasterClient {
     static void takeTabletOwnership(Context* context, ServerId id,
             uint64_t tableId, uint64_t firstKeyHash, uint64_t lastKeyHash);
     static void takeIndexletOwnership(Context* context, ServerId id,
-                uint64_t tableId, uint8_t indexId, uint64_t indexletTableId,
-                const void *firstKey, uint16_t firstKeyLength,
-                const void *firstNotOwnedKey, uint16_t firstNotOwnedKeyLength);
+            uint64_t tableId, uint8_t indexId, uint64_t indexletTableId,
+            const void *firstKey, uint16_t firstKeyLength,
+            const void *firstNotOwnedKey, uint16_t firstNotOwnedKeyLength);
     static void dropIndexletOwnership(Context* context, ServerId id,
-                      uint64_t tableId, uint8_t indexId, const void *firstKey,
-                      uint16_t firstKeyLength, const void *firstNotOwnedKey,
-                      uint16_t firstNotOwnedKeyLength);
+            uint64_t tableId, uint8_t indexId, const void *firstKey,
+            uint16_t firstKeyLength, const void *firstNotOwnedKey,
+            uint16_t firstNotOwnedKeyLength);
 
   private:
     MasterClient();
@@ -91,7 +91,7 @@ class MasterClient {
 class DropTabletOwnershipRpc : public ServerIdRpcWrapper {
   public:
     DropTabletOwnershipRpc(Context* context, ServerId serverId,
-            uint64_t tableId, uint64_t firstKey, uint64_t firstNotOwnedKey);
+            uint64_t tableId, uint64_t firstKey, uint64_t lastKey);
     ~DropTabletOwnershipRpc() {}
     /// \copydoc ServerIdRpcWrapper::waitAndCheckErrors
     void wait() {waitAndCheckErrors();}
@@ -107,9 +107,9 @@ class DropTabletOwnershipRpc : public ServerIdRpcWrapper {
 class DropIndexletOwnershipRpc : public ServerIdRpcWrapper {
   public:
     DropIndexletOwnershipRpc(Context* context, ServerId serverId,
-        uint64_t tableId, uint8_t indexId, const void *firstKey,
-        uint16_t firstKeyLength, const void *firstNotOwnedKey,
-        uint16_t firstNotOwnedKeyLength);
+            uint64_t tableId, uint8_t indexId, const void *firstKey,
+            uint16_t firstKeyLength, const void *firstNotOwnedKey,
+            uint16_t firstNotOwnedKeyLength);
     ~DropIndexletOwnershipRpc() {}
     /// \copydoc ServerIdRpcWrapper::waitAndCheckErrors
     void wait() {waitAndCheckErrors();}
@@ -139,9 +139,9 @@ class GetHeadOfLogRpc : public ServerIdRpcWrapper {
 class InsertIndexEntryRpc : public IndexRpcWrapper {
   public:
     InsertIndexEntryRpc(MasterService* master,
-                        uint64_t tableId, uint8_t indexId,
-                        const void* indexKey, KeyLength indexKeyLength,
-                        uint64_t primaryKeyHash);
+            uint64_t tableId, uint8_t indexId,
+            const void* indexKey, KeyLength indexKeyLength,
+            uint64_t primaryKeyHash);
     ~InsertIndexEntryRpc() {}
     void wait() {simpleWait(context->dispatch);}
 
@@ -223,9 +223,9 @@ class RecoverRpc : public ServerIdRpcWrapper {
 class RemoveIndexEntryRpc : public IndexRpcWrapper {
   public:
     RemoveIndexEntryRpc(MasterService* master,
-                        uint64_t tableId, uint8_t indexId,
-                        const void* indexKey, KeyLength indexKeyLength,
-                        uint64_t primaryKeyHash);
+             uint64_t tableId, uint8_t indexId,
+             const void* indexKey, KeyLength indexKeyLength,
+             uint64_t primaryKeyHash);
     ~RemoveIndexEntryRpc() {}
     void wait() {simpleWait(context->dispatch);}
 
@@ -272,9 +272,9 @@ class TakeTabletOwnershipRpc : public ServerIdRpcWrapper {
 class TakeIndexletOwnershipRpc : public ServerIdRpcWrapper {
   public:
     TakeIndexletOwnershipRpc(Context* context, ServerId id, uint64_t tableId,
-                uint8_t indexId, uint64_t indexletTableId, const void *firstKey,
-                uint16_t firstKeyLength, const void *firstNotOwnedKey,
-                uint16_t firstNotOwnedKeyLength);
+            uint8_t indexId, uint64_t indexletTableId, const void *firstKey,
+            uint16_t firstKeyLength, const void *firstNotOwnedKey,
+            uint16_t firstNotOwnedKeyLength);
     ~TakeIndexletOwnershipRpc() {}
     /// \copydoc ServerIdRpcWrapper::waitAndCheckErrors
     void wait() {waitAndCheckErrors();}

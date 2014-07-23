@@ -103,8 +103,8 @@ TEST_F(IndexletManagerTest, addIndexlet) {
     EXPECT_FALSE(im.addIndexlet(0, 0, indexletTableId + 4, key1.c_str(),
         (uint16_t)key1.length(), key3.c_str(), (uint16_t)key3.length()));
 
-    SpinLock indexletMapMutex;
-    IndexletManager::Lock fakeGuard(indexletMapMutex);
+    SpinLock mutex;
+    IndexletManager::Lock fakeGuard(mutex);
     IndexletManager::Indexlet* indexlet = &im.lookupIndexlet(0, 0, key2.c_str(),
         (uint16_t)key2.length(), fakeGuard)->second;
     string firstKey = StringUtil::binaryToString(
@@ -174,8 +174,8 @@ TEST_F(IndexletManagerTest, addIndexlet_ProtoBuf) {
     indexlet.set_end_key(key3);
     EXPECT_FALSE(im.addIndexlet(indexlet));
 
-    SpinLock indexletMapMutex;
-    IndexletManager::Lock fakeGuard(indexletMapMutex);
+    SpinLock mutex;
+    IndexletManager::Lock fakeGuard(mutex);
     IndexletManager::Indexlet* ind = &im.lookupIndexlet(0, 0, key2.c_str(),
         (uint16_t)key2.length(), fakeGuard)->second;
     string firstKey = StringUtil::binaryToString(

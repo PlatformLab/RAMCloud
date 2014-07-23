@@ -263,7 +263,7 @@ CoordinatorService::dropTable(const WireFormat::DropTable::Request* reqHdr,
     {
         uint8_t indexId = (*it).first;
         uint8_t numIndexlets = (*it).second;
-        for (uint8_t i = 0; i < numIndexlets; i++){
+        for (uint8_t i = 0; i < numIndexlets; i++) {
             string indexTableName;
             indexTableName.append(
                 format("__indexTable:%lu:%d:%d", tableId, indexId, i));
@@ -287,7 +287,7 @@ CoordinatorService::createIndex(const WireFormat::CreateIndex::Request* reqHdr,
     uint8_t numIndexlets = reqHdr->numIndexlets;
 
     // creating the indexlet tables
-    for (uint8_t i = 0; i < numIndexlets; i++){
+    for (uint8_t i = 0; i < numIndexlets; i++) {
         string indexTableName;
         indexTableName.append(
             format("__indexTable:%lu:%d:%d", tableId, indexId, i));
@@ -312,7 +312,7 @@ CoordinatorService::dropIndex(const WireFormat::DropIndex::Request* reqHdr,
     uint8_t numIndexlets = tableManager.dropIndex(tableId, indexId);
 
     // dropping the indexlet tables
-    for (uint8_t i = 0; i < numIndexlets; i++){
+    for (uint8_t i = 0; i < numIndexlets; i++) {
         string indexTableName;
         indexTableName.append(
             format("__indexTable:%lu:%d:%d", tableId, indexId, i));

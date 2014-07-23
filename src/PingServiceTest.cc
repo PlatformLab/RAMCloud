@@ -487,7 +487,7 @@ TEST_F(PingServiceTest, serverControl_Invalid) {
     EXPECT_EQ(STATUS_REQUEST_FORMAT_ERROR, respHdr->common.status);
 }
 
-TEST_F(PingServiceTest, serverControl_DipatchProfilerBasics){
+TEST_F(PingServiceTest, serverControl_DipatchProfilerBasics) {
     Buffer output;
     uint64_t totalElements = 50000000;
 

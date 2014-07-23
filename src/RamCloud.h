@@ -330,7 +330,7 @@ class GetRuntimeOptionRpc : public CoordinatorRpcWrapper{
     public:
         GetRuntimeOptionRpc(RamCloud* ramcloud, const char* option,
                          Buffer* value);
-        ~GetRuntimeOptionRpc(){}
+        ~GetRuntimeOptionRpc() {}
         void wait();
     PRIVATE:
         DISALLOW_COPY_AND_ASSIGN(GetRuntimeOptionRpc);

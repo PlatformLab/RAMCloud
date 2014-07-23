@@ -47,7 +47,7 @@ TEST_F(RuntimeOptionsTest, set) {
     ASSERT_EQ(1u, options.failRecoveryMasters.size());
 }
 
-TEST_F(RuntimeOptionsTest, get){
+TEST_F(RuntimeOptionsTest, get) {
     options.set("failRecoveryMasters", "1 2 3");
     ASSERT_EQ(3u, options.failRecoveryMasters.size());
     ASSERT_STREQ("1 2 3", options.get("failRecoveryMasters").c_str());

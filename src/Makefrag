@@ -68,7 +68,6 @@ SHARED_SRCFILES := \
 		   src/IndexletManager.cc \
 		   src/IndexLookup.cc \
 		   src/IndexRpcWrapper.cc \
-		   src/IndexletManager.cc \
 		   src/IpAddress.cc \
 		   src/Key.cc \
 		   src/LargeBlockOfMemory.cc \

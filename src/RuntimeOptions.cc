@@ -59,7 +59,7 @@ struct Parser<std::queue<T>> : public RuntimeOptions::Parseable {
         optionValue = value;
     }
     std::string
-    getValue(){
+    getValue() {
         return optionValue;
     }
     // terget holds a parsed copy of value for the option.
@@ -175,7 +175,7 @@ RuntimeOptions::set(const char* option, const char* value)
  *      "failRecoveryMasters") and an option name in the coordinator.
  */
 std::string
-RuntimeOptions::get(const char* option){
+RuntimeOptions::get(const char* option) {
     Lock _(mutex);
     std::string value = parsers.at(option)->getValue();
     return value;
