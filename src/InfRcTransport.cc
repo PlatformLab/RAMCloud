@@ -1014,6 +1014,7 @@ InfRcTransport::sendZeroCopy(Buffer* message, QueuePair* qp)
         if (ibv_post_send(qp->qp, &txWorkRequest, &badTxWorkRequest)) {
             throw TransportException(HERE, "ibv_post_send failed");
         }
+        // TODO(hq6): Put the final timer here on the client side.
     } else {
         for (int i = 0; i < txWorkRequest.num_sge; ++i) {
             const ibv_sge& sge = txWorkRequest.sg_list[i];
