@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2013 Stanford University
+/* Copyright (c) 2010-2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -211,7 +211,7 @@ OptionParser::setup(int argc, char* argv[])
             Logger::get().setLogFile(logFile.c_str());
 
             /**
-             * In the code below, we extracts the name of the current server
+             * In the code below, we extract the name of the current server
              * and the log path prefix, and feed them to the Performance
              * framework.
              *

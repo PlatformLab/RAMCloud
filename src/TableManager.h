@@ -71,7 +71,7 @@ class TableManager {
     ~TableManager();
 
     bool createIndex(uint64_t tableId, uint8_t indexId, uint8_t indexType,
-                     uint8_t numIndexlets);
+            uint8_t numIndexlets);
     uint64_t createTable(const char* name, uint32_t serverSpan);
     string debugString(bool shortForm = false);
     uint8_t dropIndex(uint64_t tableId, uint8_t indexId);
@@ -79,32 +79,23 @@ class TableManager {
     uint64_t getTableId(const char* name);
     Tablet getTablet(uint64_t tableId, uint64_t keyHash);
     bool getIndexletInfoByIndexletTableId(uint64_t indexletTableId,
-             ProtoBuf::Indexlets::Indexlet& indexletInfo);
-    void indexletRecovered(uint64_t tableId,
-                           uint8_t indexId,
-                           void* firstKey,
-                           uint16_t firstKeyLength,
-                           void* firstNotOwnedKey,
-                           uint16_t firstNotOwnedKeyLength,
-                           ServerId serverId,
-                           uint64_t indexletTableId);
+            ProtoBuf::Indexlets::Indexlet& indexletInfo);
+    void indexletRecovered(uint64_t tableId, uint8_t indexId,
+            void* firstKey, uint16_t firstKeyLength,
+            void* firstNotOwnedKey, uint16_t firstNotOwnedKeyLength,
+            ServerId serverId, uint64_t indexletTableId);
     bool isIndexletTable(uint64_t tableId);
     vector<Tablet> markAllTabletsRecovering(ServerId serverId);
     void reassignTabletOwnership(ServerId newOwner, uint64_t tableId,
-                                 uint64_t startKeyHash, uint64_t endKeyHash,
-                                 uint64_t ctimeSegmentId,
-                                 uint64_t ctimeSegmentOffset);
+            uint64_t startKeyHash, uint64_t endKeyHash,
+            uint64_t ctimeSegmentId, uint64_t ctimeSegmentOffset);
     void recover(uint64_t lastCompletedUpdate);
     void serializeTableConfig(ProtoBuf::TableConfig* tableConfig,
-                                                    uint64_t tableId);
-    void splitTablet(const char* name,
-                     uint64_t splitKeyHash);
+            uint64_t tableId);
+    void splitTablet(const char* name, uint64_t splitKeyHash);
     void splitRecoveringTablet(uint64_t tableId, uint64_t splitKeyHash);
-    void tabletRecovered(uint64_t tableId,
-                         uint64_t startKeyHash,
-                         uint64_t endKeyHash,
-                         ServerId serverId,
-                         Log::Position ctime);
+    void tabletRecovered(uint64_t tableId, uint64_t startKeyHash,
+            uint64_t endKeyHash, ServerId serverId, Log::Position ctime);
 
   PRIVATE:
     /**
@@ -113,9 +104,9 @@ class TableManager {
     struct Indexlet : public RAMCloud::Indexlet {
         public:
         Indexlet(const void *firstKey, uint16_t firstKeyLength,
-                 const void *firstNotOwnedKey, uint16_t firstNotOwnedKeyLength,
-                 ServerId serverId, uint64_t indexletTableId,
-                 uint64_t tableId, uint8_t indexId)
+                const void *firstNotOwnedKey, uint16_t firstNotOwnedKeyLength,
+                ServerId serverId, uint64_t indexletTableId,
+                uint64_t tableId, uint8_t indexId)
             : RAMCloud::Indexlet(firstKey, firstKeyLength, firstNotOwnedKey,
                        firstNotOwnedKeyLength)
             , serverId(serverId)
@@ -179,12 +170,7 @@ class TableManager {
             , id(id)
             , tablets()
             , indexMap()
-        {
-                // int i = 0;
-                // for (; i < 256; i++) {
-                //     indexMap.push_back(NULL);
-                // }
-        }
+        {}
         ~Table();
 
         /// Human-readable name for the table (unique among all tables).
@@ -249,10 +235,10 @@ class TableManager {
     void notifyReassignTablet(const Lock& lock, ProtoBuf::Table* info);
     Table* recreateTable(const Lock& lock, ProtoBuf::Table* info);
     void serializeTable(const Lock& lock, Table* table,
-                        ProtoBuf::Table* externalInfo);
+            ProtoBuf::Table* externalInfo);
     void sync(const Lock& lock);
     void syncTable(const Lock& lock, Table* table,
-                   ProtoBuf::Table* externalInfo);
+            ProtoBuf::Table* externalInfo);
     void testAddTablet(const Tablet& tablet);
     void testCreateTable(const char* name, uint64_t id);
     Tablet* testFindTablet(uint64_t tableId, uint64_t keyHash);

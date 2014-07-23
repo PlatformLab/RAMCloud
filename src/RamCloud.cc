@@ -65,8 +65,7 @@ RamCloud::RamCloud(const char* locator, const char* clusterName)
     , status(STATUS_OK)
     , objectFinder(clientContext)
 {
-    clientContext->coordinatorSession->setLocation(locator,
-            clusterName);
+    clientContext->coordinatorSession->setLocation(locator, clusterName);
 }
 
 /**
@@ -82,8 +81,7 @@ RamCloud::RamCloud(Context* context, const char* locator,
     , status(STATUS_OK)
     , objectFinder(clientContext)
 {
-    clientContext->coordinatorSession->setLocation(locator,
-            clusterName);
+    clientContext->coordinatorSession->setLocation(locator, clusterName);
 }
 
 /**
@@ -213,8 +211,7 @@ RamCloud::dropTable(const char* name)
  * \param name
  *      Name of the table to delete (NULL-terminated string).
  */
-DropTableRpc::DropTableRpc(RamCloud* ramcloud,
-        const char* name)
+DropTableRpc::DropTableRpc(RamCloud* ramcloud, const char* name)
     : CoordinatorRpcWrapper(ramcloud->clientContext,
             sizeof(WireFormat::DropTable::Response))
 {
@@ -228,11 +225,20 @@ DropTableRpc::DropTableRpc(RamCloud* ramcloud,
 
 /**
  * Create a new index.
- *
+ * 
+ * Creating an index has no impact on the existing objects in the table.
+ * For example, it's possible that some of the objects in the table already
+ * contain secondary keys corresponding to the new index;
+ * these objects will not automatically be indexed.
+ * To make these objects accessible via the index, the application must
+ * rewrite them (for example, by enumerating all of the objects in the table
+ * and rewriting each object with a key for the new index).
+ * 
  * \param tableId
- *      Id of the table to which the index belongs
+ *      Id of the table to which the index belongs.
  * \param indexId
- *      Id of the secondary key on which the index is being built
+ *      Id of the secondary keys corresponding to this index.
+ *      Must be greater than 0. Id 0 is reserved for "primary key".
  * \param indexType
  *      Type of the index. Currently only supporting string type.
  * \param numIndexlets
@@ -242,7 +248,7 @@ DropTableRpc::DropTableRpc(RamCloud* ramcloud,
  */
 void
 RamCloud::createIndex(uint64_t tableId, uint8_t indexId, uint8_t indexType,
-                                                           uint8_t numIndexlets)
+        uint8_t numIndexlets)
 {
     CreateIndexRpc rpc(this, tableId, indexId, indexType, numIndexlets);
     rpc.wait();
@@ -258,7 +264,8 @@ RamCloud::createIndex(uint64_t tableId, uint8_t indexId, uint8_t indexType,
  * \param tableId
  *      Id of the table to which the index belongs
  * \param indexId
- *      Id of the secondary key on which the index is being built
+ *      Id of the secondary keys corresponding to this index.
+ *      Must be greater than 0. Id 0 is reserved for "primary key".
  * \param indexType
  *      Type of the index. Currently only supporting string type.
  * \param numIndexlets
@@ -267,7 +274,7 @@ RamCloud::createIndex(uint64_t tableId, uint8_t indexId, uint8_t indexType,
  *      key span are being developed.
  */
 CreateIndexRpc::CreateIndexRpc(RamCloud* ramcloud, uint64_t tableId,
-                    uint8_t indexId, uint8_t indexType, uint8_t numIndexlets)
+        uint8_t indexId, uint8_t indexType, uint8_t numIndexlets)
     : CoordinatorRpcWrapper(ramcloud->clientContext,
             sizeof(WireFormat::CreateIndex::Response))
 {
@@ -283,15 +290,20 @@ CreateIndexRpc::CreateIndexRpc(RamCloud* ramcloud, uint64_t tableId,
 /**
  * Delete an index.
  *
- * All indexlets in the index are deleted, along with any
- * other information associated with the index.  If the index does
- * not currently exist, then the operation returns successfully without
- * doing anything.
+ * The index is deleted, along with any other information associated
+ * with the index.  If the index does not currently exist,
+ * then the operation returns successfully without doing anything.
  *
+ * Deleting an index does not modify any of the objects in the table.
+ * For example, any secondary keys related to the deleted index will
+ * remain in objects. To eliminate those secondary keys, an application must
+ * enumerate all of the objects in the table and rewrite them without the keys.
+ * 
  * \param tableId
- *      Id of the table to which the index belongs
+ *      Id of the table to which the index belongs.
  * \param indexId
- *      Id of the secondary key on which the index is being built
+ *      Id of the secondary keys corresponding to this index.
+ *      Must be greater than 0. Id 0 is reserved for "primary key".
  */
 void
 RamCloud::dropIndex(uint64_t tableId, uint8_t indexId)
@@ -310,10 +322,11 @@ RamCloud::dropIndex(uint64_t tableId, uint8_t indexId)
  * \param tableId
  *      Id of the table to which the index belongs
  * \param indexId
- *      Id of the secondary key on which the index is being built
+ *      Id of the secondary keys corresponding to this index.
+ *      Must be greater than 0. Id 0 is reserved for "primary key".
  */
-DropIndexRpc::DropIndexRpc(RamCloud* ramcloud,
-                        uint64_t tableId, uint8_t indexId)
+DropIndexRpc::DropIndexRpc(RamCloud* ramcloud, uint64_t tableId,
+        uint8_t indexId)
     : CoordinatorRpcWrapper(ramcloud->clientContext,
             sizeof(WireFormat::DropIndex::Response))
 {
@@ -372,7 +385,7 @@ DropIndexRpc::DropIndexRpc(RamCloud* ramcloud,
  */
 uint64_t
 RamCloud::enumerateTable(uint64_t tableId, bool keysOnly,
-                    uint64_t tabletFirstHash, Buffer& state, Buffer& objects)
+        uint64_t tabletFirstHash, Buffer& state, Buffer& objects)
 {
     EnumerateTableRpc rpc(this, tableId, keysOnly,
                             tabletFirstHash, state, objects);
@@ -488,7 +501,7 @@ EnumerateTableRpc::wait(Buffer& state)
  */
 void
 RamCloud::getLogMetrics(const char* serviceLocator,
-                        ProtoBuf::LogMetrics& logMetrics)
+        ProtoBuf::LogMetrics& logMetrics)
 {
     GetLogMetricsRpc rpc(this, serviceLocator);
     rpc.wait(logMetrics);
@@ -505,7 +518,7 @@ RamCloud::getLogMetrics(const char* serviceLocator,
  *      Selects the server, whose configuration should be retrieved.
  */
 GetLogMetricsRpc::GetLogMetricsRpc(RamCloud* ramcloud,
-                                   const char* serviceLocator)
+        const char* serviceLocator)
     : RpcWrapper(sizeof(WireFormat::GetLogMetrics::Response))
     , ramcloud(ramcloud)
 {
@@ -715,7 +728,7 @@ GetMetricsLocatorRpc::wait()
  */
 void
 RamCloud::getServerConfig(const char* serviceLocator,
-                          ProtoBuf::ServerConfig& serverConfig)
+        ProtoBuf::ServerConfig& serverConfig)
 {
     GetServerConfigRpc rpc(this, serviceLocator);
     rpc.wait(serverConfig);
@@ -732,7 +745,7 @@ RamCloud::getServerConfig(const char* serviceLocator,
  *      Selects the server, whose configuration should be retrieved.
  */
 GetServerConfigRpc::GetServerConfigRpc(RamCloud* ramcloud,
-                                       const char* serviceLocator)
+        const char* serviceLocator)
     : RpcWrapper(sizeof(WireFormat::GetServerConfig::Response))
     , ramcloud(ramcloud)
 {
@@ -1029,6 +1042,20 @@ IncrementRpc::wait(uint64_t* version)
  * index key (index indicated by indexId) to ensure it falls in the allowed
  * range [firstKey to lastKey].
  *
+ * An RPC will be sent to a single server S1. This request RPC will contain
+ * all the key hashes, even though S1 may not be able to service them all.
+ * S1 returns the objects corresponding to the key hashes it can, along with an
+ * indication that can be used to calculate the next key hash to be fetched.
+ * The indication is the number of hashes for which objects are being returned
+ * or were not found.
+ *
+ * The next RPC would be initiated by the client by trimming the key hash
+ * list according to the previous response.
+ * This rpc will get sent to the server owning the new first key hash.
+ * This could be S1 in case it couldn't fit all the objects in a single RPC
+ * the first time it sent the response, or a different server S2 in case S1
+ * didn't own these other objects.
+ *
  * \param tableId
  *      Id of the table in which indexed read is to be done.
  * \param numHashes
@@ -1038,6 +1065,7 @@ IncrementRpc::wait(uint64_t* version)
  *      read is to be done.
  * \param indexId
  *      Id of the index for which keys have to be compared.
+ *      Must be greater than 0. Id 0 is reserved for "primary key".
  * \param firstKey
  *      Starting key for the key range in which keys are to be matched.
  *      The key range includes the firstKey.
@@ -1061,20 +1089,28 @@ IncrementRpc::wait(uint64_t* version)
  *      WireFormat::IndexedRead::Response.
  * \param[out] numObjects
  *      Number of objects that are being returned.
+ *      For each primary key hash in pKHashes, the operation could return:
+ *      (a) One corresponding object, or
+ *      (b) More than one corresponding objects if there are multiple objects
+ *              with the same primary key hash and secondary key in
+ *              the given range, or
+ *      (c) No object if the object isn't on the server (where the query is
+ *              currently being sent), or
+ *      (d) No object if the server has appended enough data (objects) to the
+ *              response rpc that it cannot fit any more objects.
  * \return
  *      Number of key hashes for which corresponding objects are being
  *      returned, or for which no matching objects were found.
  */
 uint32_t
 RamCloud::indexedRead(uint64_t tableId, uint32_t numHashes, Buffer* pKHashes,
-                      uint8_t indexId,
-                      const void* firstKey, uint16_t firstKeyLength,
-                      const void* lastKey, uint16_t lastKeyLength,
-                      Buffer* response, uint32_t* numObjects)
+        uint8_t indexId,
+        const void* firstKey, uint16_t firstKeyLength,
+        const void* lastKey, uint16_t lastKeyLength,
+        Buffer* response, uint32_t* numObjects)
 {
     IndexedReadRpc rpc(this, tableId, numHashes, pKHashes, indexId,
-                       firstKey, firstKeyLength,
-                       lastKey, lastKeyLength, response);
+        firstKey, firstKeyLength, lastKey, lastKeyLength, response);
     return rpc.wait(numObjects);
 }
 
@@ -1082,20 +1118,6 @@ RamCloud::indexedRead(uint64_t tableId, uint32_t numHashes, Buffer* pKHashes,
  * Constructor for IndexedReadRpc: initiates RPC(s) in the same way as
  * #RamCloud::IndexedReadRpc, but returns once first RPC has been initiated,
  * without waiting for any to complete.
- *
- * An RPC will be sent to a single server S1. This request RPC will contain
- * all the key hashes, even though S1 may not be able to service them all.
- * S1 returns the objects corresponding to the key hashes it can, along with an
- * indication that can be used to calculate the next key hash to be fetched.
- * The indication is the number of hashes for which objects are being returned
- * or were not found.
- *
- * The next RPC would be initiated by the client by trimming the key hash
- * list according to the previous response.
- * This rpc will get sent to the server owning the new first key hash.
- * This could be S1 in case it couldn't fit all the objects in a single RPC
- * the first time it sent the response, or a different server S2 in case S1
- * didn't own these other objects.
  *
  * \param ramcloud
  *      The RAMCloud object that governs this RPC.
@@ -1108,6 +1130,7 @@ RamCloud::indexedRead(uint64_t tableId, uint32_t numHashes, Buffer* pKHashes,
  *      read is to be done.
  * \param indexId
  *      Id of the index for which keys have to be compared.
+ *      Must be greater than 0. Id 0 is reserved for "primary key".
  * \param firstKey
  *      Starting key for the key range in which keys are to be matched.
  *      The key range includes the firstKey.
@@ -1131,14 +1154,13 @@ RamCloud::indexedRead(uint64_t tableId, uint32_t numHashes, Buffer* pKHashes,
  *      WireFormat::IndexedRead::Response.
  */
 IndexedReadRpc::IndexedReadRpc(RamCloud* ramcloud, uint64_t tableId,
-                               uint32_t numHashes, Buffer* pKHashes,
-                               uint8_t indexId,
-                               const void* firstKey, uint16_t firstKeyLength,
-                               const void* lastKey, uint16_t lastKeyLength,
-                               Buffer* response)
+        uint32_t numHashes, Buffer* pKHashes, uint8_t indexId,
+        const void* firstKey, uint16_t firstKeyLength,
+        const void* lastKey, uint16_t lastKeyLength,
+        Buffer* response)
     : ObjectRpcWrapper(ramcloud, tableId,
-                       *(pKHashes->getStart<uint64_t>()),
-                       sizeof(WireFormat::IndexedRead::Response), response)
+            *(pKHashes->getStart<uint64_t>()),
+            sizeof(WireFormat::IndexedRead::Response), response)
 {
     WireFormat::IndexedRead::Request* reqHdr(
             allocHeader<WireFormat::IndexedRead>());
@@ -1159,6 +1181,15 @@ IndexedReadRpc::IndexedReadRpc(RamCloud* ramcloud, uint64_t tableId,
  *
  * \param[out] numObjects
  *      Number of objects that are being returned.
+ *      For each primary key hash in pKHashes, the operation could return:
+ *      (a) One corresponding object, or
+ *      (b) More than one corresponding objects if there are multiple objects
+ *              with the same primary key hash and secondary key in
+ *              the given range, or
+ *      (c) No object if the object isn't on the server (where the query is
+ *              currently being sent), or
+ *      (d) No object if the server has appended enough data (objects) to the
+ *              response rpc that it cannot fit any more objects.
  * \return
  *      Number of key hashes for which corresponding objects are being
  *      returned, or for which no matching objects were found.
@@ -1189,6 +1220,7 @@ IndexedReadRpc::wait(uint32_t* numObjects)
  *      server that will handle this operation.
  * \param indexId
  *      Id of an index within tableId.
+ *      Must be greater than 0. Id 0 is reserved for "primary key".
  * \param key
  *      Secondary key within the index given by tableId and indexId. The
  *      request will be sent to the server responsible for this key in the
@@ -1211,7 +1243,8 @@ IndexedReadRpc::wait(uint32_t* numObjects)
 void
 RamCloud::indexServerControl(uint64_t tableId, uint8_t indexId,
         const void* key, uint16_t keyLength, WireFormat::ControlOp controlOp,
-        const void* inputData, uint32_t inputLength, Buffer* outputData){
+        const void* inputData, uint32_t inputLength, Buffer* outputData)
+{
     IndexServerControlRpc rpc(this, tableId, indexId, key, keyLength,
             controlOp, inputData, inputLength, outputData);
     rpc.wait();
@@ -1229,6 +1262,7 @@ RamCloud::indexServerControl(uint64_t tableId, uint8_t indexId,
  *      server that will handle this operation.
  * \param indexId
  *      Id of an index within tableId.
+ *      Must be greater than 0. Id 0 is reserved for "primary key".
  * \param key
  *      Secondary key within the index given by tableId and indexId. The
  *      request will be sent to the server responsible for this key in the
@@ -1291,12 +1325,32 @@ IndexServerControlRpc::wait()
 
 /**
  * Lookup objects with index keys corresponding to indexId in the
- * specified range.
+ * specified range and return primary key hashes for all of the objects
+ * in the given range.
  *
+ * An RPC will be sent to a single server S1. S1 returns
+ * the primary key hashes for the secondary key range that it can,
+ * along with the next secondary key + key hash that has to be fetched.
+ *
+ * The next RPC, if needed, would be initiated by the client by setting
+ * firstKey in new request = nextKey from previous response, AND
+ * firstAllowedKeyHash in new request = (nextKeyHash from previous resp) + 1.
+ * 
+ * This rpc would get sent to the server owning that firstKey.
+ * This could be S1 in case it couldn't fit all the key hashes in a single RPC
+ * the first time it sent the response, or a different server S2 in case S1
+ * didn't own the new key range.
+ * 
+ * The caller can tell that the range is completely enumerated if the response
+ * to an rpc has nextKeyLength = 0 (i.e., returns no nextKey) and
+ * nextKeyHash = 0 (i.e., no nextKeyHash).
+ *
+ * 
  * \param tableId
  *      Id of the table in which lookup is to be done.
  * \param indexId
- *      Id of the index for which keys have to be compared.
+ *      Id of the index to use for lookup.
+ *      Must be greater than 0. Id 0 is reserved for "primary key".
  * \param firstKey
  *      Starting key for the key range in which keys are to be matched.
  *      The key range includes the firstKey.
@@ -1307,6 +1361,9 @@ IndexServerControlRpc::wait()
  *      Length in bytes of the firstKey.
  * \param firstAllowedKeyHash
  *      Smallest primary key hash value allowed for firstKey.
+ *      This is normally 0. It has a non-zero value in second and later requests
+ *      when multiple requests are needed to fetch data (primary key hashes)
+ *      for the same secondary key.
  * \param lastKey
  *      Ending key for the key range in which keys are to be matched.
  *      The key range includes the lastKey.
@@ -1318,12 +1375,12 @@ IndexServerControlRpc::wait()
  *
  * \param[out] responseBuffer
  *      Return buffer containing:
- *      1. Actual bytes of the next key to fetch, if any.
+ *      1. The key hashes of the primary keys of all the objects
+ *      that match the lookup query and can be returned in this response.
+ *      2. Actual bytes of the next key to fetch, if any.
  *      This is the first nextKeyLength bytes of responseBuffer.
  *      (Results starting at nextKey + nextKeyHash couldn't be returned
  *      right now.)
- *      2. The key hashes of the primary keys of all the objects
- *      that match the lookup query and can be returned in this response.
  * \param[out] numHashes
  *      Return the number of objects that matched the lookup, for which
  *      the primary key hashes are being returned here.
@@ -1335,16 +1392,15 @@ IndexServerControlRpc::wait()
  */
 void
 RamCloud::lookupIndexKeys(uint64_t tableId, uint8_t indexId,
-                          const void* firstKey, uint16_t firstKeyLength,
-                          uint64_t firstAllowedKeyHash,
-                          const void* lastKey, uint16_t lastKeyLength,
-                          Buffer* responseBuffer,
-                          uint32_t* numHashes, uint16_t* nextKeyLength,
-                          uint64_t* nextKeyHash)
+        const void* firstKey, uint16_t firstKeyLength,
+        uint64_t firstAllowedKeyHash,
+        const void* lastKey, uint16_t lastKeyLength,
+        Buffer* responseBuffer, uint32_t* numHashes, uint16_t* nextKeyLength,
+        uint64_t* nextKeyHash)
 {
     LookupIndexKeysRpc rpc(this, tableId, indexId,
-                           firstKey, firstKeyLength, firstAllowedKeyHash,
-                           lastKey, lastKeyLength, responseBuffer);
+            firstKey, firstKeyLength, firstAllowedKeyHash,
+            lastKey, lastKeyLength, responseBuffer);
     rpc.wait(numHashes, nextKeyLength, nextKeyHash);
 }
 
@@ -1353,27 +1409,13 @@ RamCloud::lookupIndexKeys(uint64_t tableId, uint8_t indexId,
  * #RamCloud::LookupIndexKeysRpc, but returns once the RPC has been
  * initiated, without waiting for all to complete.
  *
- * An RPC will be sent to a single server S1. S1 returns
- * the primary key hashes for the secondary key range that it can,
- * along with the next secondary key + key hash that has to be fetched.
- *
- * The next RPC, if needed, would be initiated by the client by modifying
- * the first key and key hash value according to the previous response.
- * This rpc would get sent to the server owning that first key.
- * This could be S1 in case it couldn't fit all the key hashes in a single RPC
- * the first time it sent the response, or a different server S2 in case S1
- * didn't own the new key range.
- *
- * Seen another way,
- * The firstKey in new request = nextKey from previous response, AND
- * firstAllowedKeyHash in new request = (nextKeyHash from previous resp) + 1.
- *
  * \param ramcloud
  *      The RAMCloud object that governs this RPC.
  * \param tableId
  *      Id of the table in which lookup is to be done.
  * \param indexId
  *      Id of the index for which keys have to be compared.
+ *      Must be greater than 0. Id 0 is reserved for "primary key".
  * \param firstKey
  *      Starting key for the key range in which keys are to be matched.
  *      The key range includes the firstKey.
@@ -1394,13 +1436,7 @@ RamCloud::lookupIndexKeys(uint64_t tableId, uint8_t indexId,
  *      Length in byes of the lastKey.
  *
  * \param[out] responseBuffer
- *      Return buffer containing:
- *      1. Actual bytes of the next key to fetch, if any.
- *      This is the first nextKeyLength bytes of responseBuffer.
- *      (Results starting at nextKey + nextKeyHash couldn't be returned
- *      right now.)
- *      2. The key hashes of the primary keys of all the objects
- *      that match the lookup query and can be returned in this response.
+ *      Response buffer returned on wait().
  */
 LookupIndexKeysRpc::LookupIndexKeysRpc(
         RamCloud* ramcloud, uint64_t tableId, uint8_t indexId,
@@ -1409,9 +1445,8 @@ LookupIndexKeysRpc::LookupIndexKeysRpc(
         const void* lastKey, uint16_t lastKeyLength,
         Buffer* responseBuffer)
     : IndexRpcWrapper(ramcloud, tableId, indexId,
-                      firstKey, firstKeyLength,
-                      sizeof(WireFormat::LookupIndexKeys::Response),
-                      responseBuffer)
+            firstKey, firstKeyLength,
+            sizeof(WireFormat::LookupIndexKeys::Response), responseBuffer)
 {
     WireFormat::LookupIndexKeys::Request* reqHdr(
             allocHeader<WireFormat::LookupIndexKeys>());
@@ -1440,7 +1475,7 @@ LookupIndexKeysRpc::LookupIndexKeysRpc(
  */
 void
 LookupIndexKeysRpc::wait(uint32_t* numHashes, uint16_t* nextKeyLength,
-                         uint64_t* nextKeyHash)
+        uint64_t* nextKeyHash)
 {
     // TODO(ouster): (By ankitak:) This seems hack-y. Better solution?
     simpleWait(context->dispatch);
@@ -1632,8 +1667,7 @@ QuiesceRpc::QuiesceRpc(RamCloud* ramcloud)
  */
 void
 RamCloud::read(uint64_t tableId, const void* key, uint16_t keyLength,
-                   Buffer* value, const RejectRules* rejectRules,
-                   uint64_t* version)
+        Buffer* value, const RejectRules* rejectRules, uint64_t* version)
 {
     ReadRpc rpc(this, tableId, key, keyLength, value, rejectRules);
     rpc.wait(version);
@@ -1663,8 +1697,8 @@ RamCloud::read(uint64_t tableId, const void* key, uint16_t keyLength,
  */
 void
 RamCloud::readKeysAndValue(uint64_t tableId, const void* key,
-                    uint16_t keyLength, ObjectBuffer* value,
-                    const RejectRules* rejectRules, uint64_t* version)
+        uint16_t keyLength, ObjectBuffer* value,
+        const RejectRules* rejectRules, uint64_t* version)
 {
     ReadKeysAndValueRpc rpc(this, tableId, key, keyLength, value, rejectRules);
     rpc.wait(version);
@@ -1920,8 +1954,9 @@ RemoveRpc::wait(uint64_t* version)
  */
 void
 RamCloud::objectServerControl(uint64_t tableId, const void* key,
-            uint16_t keyLength, WireFormat::ControlOp controlOp,
-            const void* inputData, uint32_t inputLength, Buffer* outputData){
+        uint16_t keyLength, WireFormat::ControlOp controlOp,
+        const void* inputData, uint32_t inputLength, Buffer* outputData)
+{
     ObjectServerControlRpc rpc(this, tableId, key, keyLength, controlOp,
             inputData, inputLength, outputData);
     rpc.wait();
@@ -1958,14 +1993,14 @@ RamCloud::objectServerControl(uint64_t tableId, const void* key,
  *      control operation on the remote server.
  */
 ObjectServerControlRpc::ObjectServerControlRpc(RamCloud* ramcloud,
-            uint64_t tableId, const void* key, uint16_t keyLength,
-            WireFormat::ControlOp controlOp,
-            const void* inputData, uint32_t inputLength, Buffer* outputData)
+        uint64_t tableId, const void* key, uint16_t keyLength,
+        WireFormat::ControlOp controlOp,
+        const void* inputData, uint32_t inputLength, Buffer* outputData)
     : ObjectRpcWrapper(ramcloud, tableId, key, keyLength,
             sizeof(WireFormat::ServerControl::Response), outputData)
 {
     WireFormat::ServerControl::Request*
-                        reqHdr(allocHeader<WireFormat::ServerControl>());
+            reqHdr(allocHeader<WireFormat::ServerControl>());
 
     reqHdr->type = WireFormat::ServerControl::OBJECT;
     reqHdr->controlOp = controlOp;
@@ -2044,13 +2079,13 @@ RamCloud::serverControlAll(WireFormat::ControlOp controlOp,
  *      control operation on the remote server.
  */
 ServerControlAllRpc::ServerControlAllRpc(RamCloud* ramcloud,
-            WireFormat::ControlOp controlOp,
-            const void* inputData, uint32_t inputLength, Buffer* outputData)
+        WireFormat::ControlOp controlOp,
+        const void* inputData, uint32_t inputLength, Buffer* outputData)
     : CoordinatorRpcWrapper(ramcloud->clientContext,
             sizeof(WireFormat::ServerControlAll::Response), outputData)
 {
     WireFormat::ServerControlAll::Request*
-                        reqHdr(allocHeader<WireFormat::ServerControlAll>());
+            reqHdr(allocHeader<WireFormat::ServerControlAll>());
 
     reqHdr->controlOp = controlOp;
     reqHdr->inputLength = inputLength;
@@ -2135,7 +2170,7 @@ SplitTabletRpc::SplitTabletRpc(RamCloud* ramcloud,
  */
 void
 RamCloud::testingFill(uint64_t tableId, const void* key, uint16_t keyLength,
-                      uint32_t numObjects, uint32_t objectSize)
+        uint32_t numObjects, uint32_t objectSize)
 {
     FillWithTestDataRpc rpc(this, tableId, key, keyLength, numObjects,
             objectSize);
@@ -2186,11 +2221,12 @@ FillWithTestDataRpc::FillWithTestDataRpc(RamCloud* ramcloud,
  *      class (e.g. "failRecoveryMasters") whose value should be returned
  *      in value buffer.
  * \param[out] value
- *      After a successful return, this Buffer will hold the value of the desired
- *      option.
+ *      After a successful return, this Buffer will hold the value of the
+ *      desired option.
  */
 void
-RamCloud::getRuntimeOption(const char* option, Buffer* value){
+RamCloud::getRuntimeOption(const char* option, Buffer* value)
+{
     GetRuntimeOptionRpc rpc(this, option, value);
     rpc.wait();
 }
@@ -2211,10 +2247,9 @@ RamCloud::getRuntimeOption(const char* option, Buffer* value){
  *      option.
  */
 GetRuntimeOptionRpc::GetRuntimeOptionRpc(RamCloud* ramcloud, const char* option,
-                                         Buffer* value)
+        Buffer* value)
     : CoordinatorRpcWrapper(ramcloud->clientContext,
-                            sizeof(WireFormat::GetRuntimeOption::Response),
-                            value)
+            sizeof(WireFormat::GetRuntimeOption::Response), value)
 {
     value->reset();
     WireFormat::GetRuntimeOption::Request*
@@ -2250,7 +2285,7 @@ GetRuntimeOptionRpc::wait()
  */
 uint64_t
 RamCloud::testingGetServerId(uint64_t tableId,
-                             const void* key, uint16_t keyLength)
+        const void* key, uint16_t keyLength)
 {
     KeyHash keyHash = Key::getHash(tableId, key, keyLength);
     return objectFinder.lookupTablet(tableId, keyHash)->tablet.serverId.getId();
@@ -2266,7 +2301,7 @@ RamCloud::testingGetServerId(uint64_t tableId,
  */
 string
 RamCloud::testingGetServiceLocator(uint64_t tableId,
-                                   const void* key, uint16_t keyLength)
+        const void* key, uint16_t keyLength)
 {
     KeyHash keyHash = Key::getHash(tableId, key, keyLength);
     return objectFinder.lookupTablet(tableId, keyHash)->serviceLocator;

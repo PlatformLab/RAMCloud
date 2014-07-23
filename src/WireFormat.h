@@ -469,10 +469,11 @@ struct CreateIndex {
     static const ServiceType service = COORDINATOR_SERVICE;
     struct Request {
         RequestCommon common;
-        uint64_t tableId;
-        uint8_t indexType;
-        uint8_t indexId;
-        uint8_t numIndexlets;
+        uint64_t tableId;       // Id of table to which the index belongs.
+        uint8_t indexType;      // Type of index.
+        uint8_t indexId;        // Id of secondary keys in the index.
+        uint8_t numIndexlets;   // Number of indexlets to partition the index
+                                // key space.
     } __attribute__((packed));
     struct Response {
         ResponseCommon common;
@@ -484,8 +485,8 @@ struct DropIndex {
     static const ServiceType service = COORDINATOR_SERVICE;
     struct Request {
         RequestCommon common;
-        uint64_t tableId;
-        uint8_t indexId;
+        uint64_t tableId;       // Id of table to which the index belongs.
+        uint8_t indexId;        // Id of secondary keys in the index.
     } __attribute__((packed));
     struct Response {
         ResponseCommon common;
@@ -497,11 +498,15 @@ struct DropIndexletOwnership {
     static const ServiceType service = MASTER_SERVICE;
     struct Request {
         RequestCommonWithId common;
-        uint64_t tableId;
-        uint8_t indexId;
-        uint16_t firstKeyLength;
-        uint16_t firstNotOwnedKeyLength;
-        // In buffer: The actual first key and last key go here.
+        uint64_t tableId;                   // Id of table to which the index
+                                            // belongs.
+        uint8_t indexId;                    // Id of secondary keys in index.
+        uint16_t firstKeyLength;            // Length of firstKey in bytes.
+        uint16_t firstNotOwnedKeyLength;    // Length of firstNotOwnedKey in
+                                            // bytes.
+        // In buffer: The actual bytes for firstKey and firstNotOwnedKey
+        // go here. [firstKey, firstNotOwnedKey) defines the span of the
+        // indexlet.
     } __attribute__((packed));
     struct Response {
         ResponseCommon common;
@@ -824,10 +829,13 @@ struct InsertIndexEntry {
     static const ServiceType service = MASTER_SERVICE;
     struct Request {
         RequestCommon common;
-        uint64_t tableId;
-        uint8_t indexId;
-        uint16_t indexKeyLength;
-        uint64_t primaryKeyHash;
+        uint64_t tableId;           // Id of the table containing the object
+                                    // for which index entry is being inserted.
+        uint8_t indexId;            // Id of the index for which the entry
+                                    // is being inserted.
+        uint16_t indexKeyLength;    // Length of index key in bytes.
+        uint64_t primaryKeyHash;    // Hash of the primary key of the object for
+                                    // for which index entry is being inserted.
         // In buffer: Actual bytes of the index key goes here.
     } __attribute__((packed));
     struct Response {
@@ -876,8 +884,8 @@ struct LookupIndexKeys {
 
     struct Request {
         RequestCommon common;
-        uint64_t tableId;       // Id of the table containing the objects.
-        uint8_t indexId;        // Id of index in which lookup is to be done.
+        uint64_t tableId;               // Id of the table for the lookup.
+        uint8_t indexId;                // Id of the index for the lookup.
         uint64_t firstAllowedKeyHash;   // Smallest primary key hash value
                                         // allowed for firstKey.
         uint16_t firstKeyLength;        // Length of first key in bytes.
@@ -891,9 +899,9 @@ struct LookupIndexKeys {
         uint16_t nextKeyLength; // Length of next key to fetch.
         uint64_t nextKeyHash;   // Minimum allowed hash corresponding to
                                 // next key to be fetched.
+        // In buffer: Key hashes of primary keys for matching objects go here.
         // In buffer: Actual bytes for the next key for which
         // the client should send another lookup request (if any) goes here.
-        // In buffer: Key hashes of primary keys for matching objects go here.
     } __attribute__((packed));
 };
 
@@ -1413,12 +1421,17 @@ struct TakeIndexletOwnership {
     static const ServiceType service = MASTER_SERVICE;
     struct Request {
         RequestCommonWithId common;
-        uint64_t tableId;
-        uint8_t indexId;
-        uint64_t indexletTableId;
-        uint16_t firstKeyLength;
-        uint16_t firstNotOwnedKeyLength;
-        // In buffer: The actual first key and last key go here.
+        uint64_t tableId;                   // Id of table to which the index
+                                            // belongs.
+        uint8_t indexId;                    // Type of index.
+        uint64_t indexletTableId;           // Id of the table that will hold
+                                            // objects for this indexlet.
+        uint16_t firstKeyLength;            // Length of fistKey in bytes.
+        uint16_t firstNotOwnedKeyLength;    // Length of firstNotOwnedKey in
+                                            // bytes.
+        // In buffer: The actual bytes for firstKey and firstNotOwnedKey
+        // go here. [firstKey, firstNotOwnedKey) defines the span of the
+        // indexlet.
     } __attribute__((packed));
     struct Response {
         ResponseCommon common;

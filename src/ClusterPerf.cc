@@ -1634,7 +1634,7 @@ indexScalabilityCommonLookup(uint8_t range, int numObjects, char *docString)
 
         Tub<LookupIndexKeysRpc> rpcs[numRequests];
 
-        for (int i =0; i < numRequests; i++){
+        for (int i =0; i < numRequests; i++) {
             char firstKey = static_cast<char>(('a') +
                                     static_cast<int>(generateRandom() % range));
             int randObj = static_cast<int>(generateRandom() % numObjects);
@@ -1647,19 +1647,19 @@ indexScalabilityCommonLookup(uint8_t range, int numObjects, char *docString)
         }
 
         lookupStart = Cycles::rdtsc();
-        for (int i =0; i < numRequests; i++){
+        for (int i =0; i < numRequests; i++) {
             rpcs[i].construct(cluster, dataTable, (uint8_t)1, secondaryKey[i],
                     (uint16_t)30, (uint16_t)0,
                     secondaryKey[i], (uint16_t)30, &lookupResp[i]);
         }
 
-        for (int i = 0; i < numRequests; i++){
+        for (int i = 0; i < numRequests; i++) {
             if (rpcs[i])
               rpcs[i]->wait(&numHashes[i], &nextKeyLength[i], &nextKeyHash[i]);
         }
         lookupEnd = Cycles::rdtsc();
 
-        for (int i =0; i < numRequests; i++){
+        for (int i =0; i < numRequests; i++) {
             Key pk(dataTable, primaryKey[i], 30);
             uint32_t lookupOffset;
             lookupOffset = sizeof32(WireFormat::LookupIndexKeys::Response);
@@ -1741,13 +1741,13 @@ indexScalabilityCommonLookupRead(uint8_t range, int numObjects, char *docString)
         }
 
         lookupStart = Cycles::rdtsc();
-        for (int i =0; i < numRequests; i++){
+        for (int i =0; i < numRequests; i++) {
             rpcs[i].construct(cluster, dataTable, (uint8_t)1, secondaryKey[i],
                     (uint16_t)30, (uint16_t)0,
                     secondaryKey[i], (uint16_t)30, &lookupResp[i]);
         }
 
-        for (int i = 0; i < numRequests; i++){
+        for (int i = 0; i < numRequests; i++) {
             if (rpcs[i]) {
               rpcs[i]->wait(&numHashes[i], &nextKeyLength[i], &nextKeyHash[i]);
               readRpcs[i].construct(cluster, dataTable, numHashes[i],
@@ -1756,7 +1756,7 @@ indexScalabilityCommonLookupRead(uint8_t range, int numObjects, char *docString)
             }
         }
 
-        for (int i = 0; i < numRequests; i++){
+        for (int i = 0; i < numRequests; i++) {
             if (readRpcs[i])
                 readRpcs[i]->wait(&readNumObjects[i]);
         }

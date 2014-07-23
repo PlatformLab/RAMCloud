@@ -194,7 +194,7 @@ TableManager::createTable(const char* name, uint32_t serverSpan)
  */
 bool
 TableManager::createIndex(uint64_t tableId, uint8_t indexId, uint8_t indexType,
-                          uint8_t numIndexlets)
+        uint8_t numIndexlets)
 {
     Lock lock(mutex);
 
@@ -210,7 +210,7 @@ TableManager::createIndex(uint64_t tableId, uint8_t indexId, uint8_t indexType,
     IndexMap::iterator iit = table->indexMap.find(indexId);
     if (iit != table->indexMap.end()) {
         RAMCLOUD_LOG(NOTICE, "Index %u already exists for table '%lu'",
-                                                    indexId, tableId);
+                     indexId, tableId);
         return false;
     }
 
@@ -218,7 +218,7 @@ TableManager::createIndex(uint64_t tableId, uint8_t indexId, uint8_t indexType,
     Index* index = new Index(tableId, indexId, indexType);
 
     try{
-        for (uint8_t i = 0; i < numIndexlets; i++){
+        for (uint8_t i = 0; i < numIndexlets; i++) {
             string indexTableName;
             indexTableName.append(
                 format("__indexTable:%lu:%d:%d", tableId, indexId, i));
@@ -245,7 +245,7 @@ TableManager::createIndex(uint64_t tableId, uint8_t indexId, uint8_t indexType,
             }
 
             Indexlet *indexlet;
-            if (numIndexlets == 1){
+            if (numIndexlets == 1) {
                 char firstKey = 0;
                 char firstNotOwnedKey = 127;
                 indexlet = new Indexlet(
@@ -405,7 +405,7 @@ TableManager::dropIndex(uint64_t tableId, uint8_t indexId)
     Lock lock(mutex);
 
     IdMap::iterator it = idMap.find(tableId);
-    if (it == idMap.end()){
+    if (it == idMap.end()) {
         RAMCLOUD_LOG(NOTICE, "Cannot find table '%lu'", tableId);
         return 0;
     }
@@ -494,7 +494,7 @@ TableManager::getTablet(uint64_t tableId, uint64_t keyHash)
  */
 bool
 TableManager::getIndexletInfoByIndexletTableId(uint64_t indexletTableId,
-                  ProtoBuf::Indexlets::Indexlet& indexlet)
+        ProtoBuf::Indexlets::Indexlet& indexlet)
 {
     Lock lock(mutex);
     IndexletTableMap::iterator it = indexletTableMap.find(indexletTableId);
@@ -535,8 +535,8 @@ TableManager::getIndexletInfoByIndexletTableId(uint64_t indexletTableId,
  * \param firstKeyLength
  *      Length of firstKeyStr.
  * \param firstNotOwnedKey
- *      Key blob marking the first not owned key of the key space
- *      for this indexlet.
+ *      Blob of the smallest key in the given index that is after firstKey
+ *      in the index order but not part of this indexlet.
  * \param firstNotOwnedKeyLength
  *      Length of firstNotOwnedKey.
  * \param serverId
@@ -558,7 +558,7 @@ TableManager::indexletRecovered(
     if (it == idMap.end())
         throw NoSuchTablet(HERE);
     Table* table = it->second;
-    if (!table->indexMap[indexId]){
+    if (!table->indexMap[indexId]) {
         throw NoSuchIndexlet(HERE);
     }
     Index* index = table->indexMap[indexId];
@@ -785,7 +785,7 @@ TableManager::recover(uint64_t lastCompletedUpdate)
  */
 void
 TableManager::serializeTableConfig(ProtoBuf::TableConfig* tableConfig,
-                                   uint64_t tableId)
+        uint64_t tableId)
 {
     Lock lock(mutex);
     IdMap::iterator it = idMap.find(tableId);
@@ -810,7 +810,7 @@ TableManager::serializeTableConfig(ProtoBuf::TableConfig* tableConfig,
 
     // filling indexes
     for (IndexMap::const_iterator iit = table->indexMap.begin();
-            iit != table->indexMap.end(); ++iit){
+            iit != table->indexMap.end(); ++iit) {
         Index* index = iit->second;
         if (index == NULL) continue;
         ProtoBuf::TableConfig::Index& index_entry(*tableConfig->add_index());
@@ -821,7 +821,7 @@ TableManager::serializeTableConfig(ProtoBuf::TableConfig* tableConfig,
         foreach (Indexlet* indexlet, index->indexlets) {
             ProtoBuf::TableConfig::Index::Indexlet&
                                         entry(*index_entry.add_indexlet());
-            if (indexlet->firstKey != NULL){
+            if (indexlet->firstKey != NULL) {
                 entry.set_start_key(string(
                                     reinterpret_cast<char*>(indexlet->firstKey),
                                     indexlet->firstKeyLength));
@@ -829,7 +829,7 @@ TableManager::serializeTableConfig(ProtoBuf::TableConfig* tableConfig,
                 entry.set_start_key("");
             }
 
-            if (indexlet->firstNotOwnedKey != NULL){
+            if (indexlet->firstNotOwnedKey != NULL) {
                 entry.set_end_key(string(
                         reinterpret_cast<char*>(indexlet->firstNotOwnedKey),
                         indexlet->firstNotOwnedKeyLength));
@@ -1333,7 +1333,7 @@ TableManager::recreateTable(const Lock& lock, ProtoBuf::Table* info)
  */
 void
 TableManager::serializeTable(const Lock& lock, Table* table,
-                        ProtoBuf::Table* externalInfo)
+        ProtoBuf::Table* externalInfo)
 {
     externalInfo->set_name(table->name);
     externalInfo->set_id(table->id);
@@ -1453,7 +1453,8 @@ TableManager::testCreateTable(const char* name, uint64_t id)
  *      A pointer to the desired tablet.  NULL if no matching tablet found.
  */
 Tablet*
-TableManager::testFindTablet(uint64_t tableId, uint64_t keyHash) {
+TableManager::testFindTablet(uint64_t tableId, uint64_t keyHash)
+{
     Lock lock(mutex);
     IdMap::iterator it = idMap.find(tableId);
     if (it == idMap.end())

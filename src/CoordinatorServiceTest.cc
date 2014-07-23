@@ -157,7 +157,7 @@ TEST_F(CoordinatorServiceTest, getServerList_backups) {
             getLocators(list));
 }
 
-TEST_F(CoordinatorServiceTest, getRuntimeOption){
+TEST_F(CoordinatorServiceTest, getRuntimeOption) {
     Buffer value;
     ramcloud->setRuntimeOption("failRecoveryMasters", "1 2 3");
     ASSERT_EQ(3u, service->runtimeOptions.failRecoveryMasters.size());

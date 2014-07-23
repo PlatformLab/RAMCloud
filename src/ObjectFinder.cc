@@ -244,7 +244,7 @@ ObjectFinder::lookup(uint64_t tableId, KeyHash keyHash)
  * \param tableId
  *      The table containing the desired object.
  * \param indexId
- *      Id of the index for which keys are to be compared.
+ *      Id of a particular index in tableId.
  * \param key
  *      Blob corresponding to the key.
  * \param keyLength
@@ -276,7 +276,7 @@ ObjectFinder::lookup(uint64_t tableId, uint8_t indexId,
  * \param tableId
  *      The table containing the desired object.
  * \param indexId
- *      Id of the index for which keys are to be compared.
+ *      Id of a particular index in tableId.
  * \param key
  *      Blob corresponding to the key.
  * \param keyLength
@@ -299,7 +299,7 @@ ObjectFinder::lookupIndexlet(uint64_t tableId, uint8_t indexId,
         std::pair <IndexletIter, IndexletIter> range;
         range = tableIndexMap.equal_range(indexKey);
 
-        for (iter = range.first; iter != range.second; iter++){
+        for (iter = range.first; iter != range.second; iter++) {
 
             Indexlet* indexlet = &iter->second;
             if (indexlet->firstKey != NULL) {
@@ -318,7 +318,7 @@ ObjectFinder::lookupIndexlet(uint64_t tableId, uint8_t indexId,
             return indexlet;
         }
 
-        if (count == 0){
+        if (count == 0) {
             flush(tableId);
             tableConfigFetcher->getTableConfig(tableId, &tableMap,
                                                             &tableIndexMap);
@@ -413,7 +413,7 @@ ObjectFinder::flushSession(uint64_t tableId, KeyHash keyHash)
  * \param tableId
  *      The table containing the desired object.
  * \param indexId
- *      Id of the index for which keys are to be compared.
+ *      Id of a particular index in tableId.
  * \param key
  *      Blob corresponding to the key.
  * \param keyLength

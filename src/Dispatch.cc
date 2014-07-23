@@ -321,7 +321,7 @@ Dispatch::stopProfiler() {
  *      the dumped data.
  */
 void
-Dispatch::dumpProfile(const char* fileName){
+Dispatch::dumpProfile(const char* fileName) {
     std::ofstream outFile;
     outFile.exceptions(std::ofstream::failbit | std::ofstream::badbit);
     try {
@@ -337,11 +337,11 @@ Dispatch::dumpProfile(const char* fileName){
         // data points. Otherwise, all elemnts in the array
         // are valid.
         if (pollingTimes[totalElements - 1] == 0) {
-            for (uint64_t i = 0; i < nextInd; i++){
+            for (uint64_t i = 0; i < nextInd; i++) {
                 outFile << Cycles::toNanoseconds(pollingTimes[i])<< "\n";
             }
         } else {
-            for (uint64_t i = 0; i < totalElements; i++){
+            for (uint64_t i = 0; i < totalElements; i++) {
                 outFile << Cycles::toNanoseconds(
                         pollingTimes[(nextInd+i) % totalElements]) << "\n";
             }

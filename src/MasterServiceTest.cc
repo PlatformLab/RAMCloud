@@ -401,24 +401,25 @@ TEST_F(MasterServiceTest, dropIndexletOwnership) {
     string key1 = "a";
     string key2 = "c";
     MasterClient::dropIndexletOwnership(&context, masterServer->serverId,
-                            2, 1, reinterpret_cast<const void*>(key1.c_str()),
-                            (uint16_t)key1.length(),
-                            reinterpret_cast<const void*>(key2.c_str()),
-                            (uint16_t)key2.length());
-    EXPECT_EQ("dropIndexletOwnership: Could not drop ownership "
-              "on unknown indexlet for tableId 2 indexId 1!", TestLog::get());
+            2, 1, reinterpret_cast<const void*>(key1.c_str()),
+            (uint16_t)key1.length(),
+            reinterpret_cast<const void*>(key2.c_str()),
+            (uint16_t)key2.length());
+    EXPECT_EQ("dropIndexletOwnership: Ignoring dropIndexletOwnership request "
+              "for tableId 2, indexId 1: indexlet not stored here",
+              TestLog::get());
 
     TestLog::reset();
     MasterClient::takeIndexletOwnership(&context, masterServer->serverId,
-                           2, 1, 0, reinterpret_cast<const void*>(key1.c_str()),
-                           (uint16_t)key1.length(),
-                           reinterpret_cast<const void*>(key2.c_str()),
-                           (uint16_t)key2.length());
+            2, 1, 0, reinterpret_cast<const void*>(key1.c_str()),
+            (uint16_t)key1.length(),
+            reinterpret_cast<const void*>(key2.c_str()),
+            (uint16_t)key2.length());
     MasterClient::dropIndexletOwnership(&context, masterServer->serverId,
-                            2, 1, reinterpret_cast<const void*>(key1.c_str()),
-                            (uint16_t)key1.length(),
-                            reinterpret_cast<const void*>(key2.c_str()),
-                            (uint16_t)key2.length());
+            2, 1, reinterpret_cast<const void*>(key1.c_str()),
+            (uint16_t)key1.length(),
+            reinterpret_cast<const void*>(key2.c_str()),
+            (uint16_t)key2.length());
     EXPECT_EQ("dropIndexletOwnership: Dropped ownership of indexlet "
         "in tableId 2 indexId 1", TestLog::get());
 }
@@ -432,10 +433,10 @@ TEST_F(MasterServiceTest, takeIndexletOwnership) {
     string key2 = "c";
     string key3 = "b";
     MasterClient::takeIndexletOwnership(&context, masterServer->serverId, 2,
-        1, 0, reinterpret_cast<const void *>(key1.c_str()),
-        (uint16_t)key1.length(),
-        reinterpret_cast<const void *>(key2.c_str()),
-        (uint16_t)key2.length());
+            1, 0, reinterpret_cast<const void *>(key1.c_str()),
+            (uint16_t)key1.length(),
+            reinterpret_cast<const void *>(key2.c_str()),
+            (uint16_t)key2.length());
     EXPECT_EQ("takeIndexletOwnership: Took ownership of indexlet "
         "in tableId 2 indexId 1", TestLog::get());
 
@@ -483,9 +484,9 @@ TEST_F(MasterServiceTest, enumerate_basics) {
     EXPECT_EQ(1U, object1.getKeyLength());                      // key length
     EXPECT_EQ(version0, object1.getVersion());                  // version
     EXPECT_EQ("0", string(reinterpret_cast<const char*>(
-                   object1.getKey()), 1));                      // key
+                    object1.getKey()), 1));                     // key
     EXPECT_EQ("abcdef", string(reinterpret_cast<const char*>(
-                        object1.getValue()), 6));
+                    object1.getValue()), 6));
 
     // Second object.
     EXPECT_EQ(34U, *objects.getOffset<uint32_t>(38));           // size

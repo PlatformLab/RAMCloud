@@ -66,7 +66,7 @@ class UnackedRpcResults {
      */
     struct UnackedRpc {
         UnackedRpc(uint64_t rpcId = 0, void* resultPtr = 0)
-            : id(rpcId), result(resultPtr){}
+            : id(rpcId), result(resultPtr) {}
 
         /**
          * Rpc id assigned by a client.

@@ -1,4 +1,4 @@
-/* Copyright (c) 2014 Stanford University
+/* Copyright (c) 2012-2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -149,22 +149,28 @@ ObjectManager::indexedRead(const uint64_t tableId, uint32_t reqNumHashes,
             IndexKeyRange* keyRange, uint32_t maxLength,
             Buffer* response, uint32_t* respNumHashes, uint32_t* numObjects)
 {
+    // The current length of the response buffer in bytes. This is the
+    // cumulative length of all the objects that have been appended to response
+    // till now.
+    // This length should be less than maxLength before returning to the client.
     uint32_t currentLength = 0;
+    // The length for the data corresponding to the object that was just
+    // appended to the response buffer.
     uint32_t partLength = 0;
-    uint32_t pKHashesOffset = initialPKHashesOffset;
+    // The primary key hash being processed (that is, for which the objects
+    // are being looked up) in the current iteration of the loop below.
     uint64_t pKHash;
-    *respNumHashes = 0;
+    // Offset into pKHashes buffer where the next pKHash to be processed
+    // is available.
+    uint32_t pKHashesOffset = initialPKHashesOffset;
+
     *numObjects = 0;
 
-    for (; *respNumHashes < reqNumHashes; *respNumHashes += 1) {
-        if (currentLength > maxLength) {
-            response->truncate(response->size() - partLength);
-            break;
-        }
-        currentLength += partLength;
+    for (*respNumHashes = 0; *respNumHashes < reqNumHashes;
+            *respNumHashes += 1) {
 
         pKHash = *(pKHashes->getOffset<uint64_t>(pKHashesOffset));
-        pKHashesOffset += 8;
+        pKHashesOffset += sizeof32(pKHash);
 
         // Instead of calling a private lookup function as in a "normal" read,
         // doing the work here directly, since the abstraction breaks down
@@ -175,7 +181,7 @@ ObjectManager::indexedRead(const uint64_t tableId, uint32_t reqNumHashes,
 
         // If the tablet doesn't exist in the NORMAL state,
         // we must plead ignorance.
-        // Client can refresh it's tablet information and retry.
+        // Client can refresh its tablet information and retry.
         TabletManager::Tablet tablet;
         if (!tabletManager->getTablet(tableId, pKHash, &tablet))
             return;
@@ -213,6 +219,11 @@ ObjectManager::indexedRead(const uint64_t tableId, uint32_t reqNumHashes,
         }
 
         partLength = response->size() - currentLength;
+        if (currentLength > maxLength) {
+            response->truncate(response->size() - partLength);
+            break;
+        }
+        currentLength += partLength;
     }
 }
 
@@ -1020,7 +1031,13 @@ ObjectManager::removeOrphanedObjects()
  * Adds a log entry header, an object header and the object contents
  * to a buffer. This is preparatory work so that eventually, all the
  * entries in the buffer can be flushed to the log atomically.
- *
+ * 
+ * This method is currently used by the Btree module to prepare a buffer
+ * for the log. The idea is that eventually, each of the log entries in
+ * the buffer can be flushed atomically by the log.
+ * It is general enough to be used by any other module.
+ * 
+ * 
  * \param newObject
  *      The object for which the object header and the log entry
  *      header need to be constructed.
@@ -1142,7 +1159,7 @@ ObjectManager::prepareForLog(Object& newObject, Buffer *logBuffer,
 
 /**
  * Write a tombstone including the corresponding log entry header
- * into a buffer based on the primary key of the object
+ * into a buffer based on the primary key of the object.
  *
  * \param key
  *      Key of the object for which a tombstone needs to be written

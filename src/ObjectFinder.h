@@ -122,7 +122,7 @@ class ObjectFinder {
 
     /**
      * tableIndexMap provides a fast lookup for the current indexes being used.
-     * It stores the indexlets, so they can be fast accessed by having the 
+     * It stores the indexlets, so they can be accessed quickly using a
      * index id and table id.
      */
     std::multimap< std::pair<uint64_t, uint8_t>, Indexlet> tableIndexMap;
@@ -141,8 +141,8 @@ class ObjectFinder {
 };
 
 /**
- * The following class holds information about a single indexlet of a given index
- * on a table.
+ * The following class holds information about a single indexlet of a given
+ * index on a table.
  */
 class ObjectFinder::Indexlet : public RAMCloud::Indexlet {
     public:

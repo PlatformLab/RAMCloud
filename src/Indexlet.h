@@ -22,7 +22,7 @@
 namespace RAMCloud {
 
 /**
- * Each indexlet owned by a master is described by fields in this structure.
+ * Each indexlet owned by a master is described by one object of this type.
  * Indexlets describe contiguous ranges of secondary key space for a
  * particular index for a given table.
  */
@@ -35,14 +35,14 @@ class Indexlet {
         , firstNotOwnedKey(NULL)
         , firstNotOwnedKeyLength(firstNotOwnedKeyLength)
     {
-        if (firstKeyLength != 0){
+        if (firstKeyLength != 0) {
             this->firstKey = malloc(firstKeyLength);
             memcpy(this->firstKey, firstKey, firstKeyLength);
         }
-        if (firstNotOwnedKeyLength != 0){
+        if (firstNotOwnedKeyLength != 0) {
             this->firstNotOwnedKey = malloc(firstNotOwnedKeyLength);
             memcpy(this->firstNotOwnedKey, firstNotOwnedKey,
-                                                firstNotOwnedKeyLength);
+                    firstNotOwnedKeyLength);
         }
     }
 
@@ -52,14 +52,14 @@ class Indexlet {
         , firstNotOwnedKey(NULL)
         , firstNotOwnedKeyLength(indexlet.firstNotOwnedKeyLength)
     {
-        if (firstKeyLength != 0){
+        if (firstKeyLength != 0) {
             this->firstKey = malloc(firstKeyLength);
             memcpy(this->firstKey, indexlet.firstKey, firstKeyLength);
         }
-        if (firstNotOwnedKeyLength != 0){
+        if (firstNotOwnedKeyLength != 0) {
             this->firstNotOwnedKey = malloc(firstNotOwnedKeyLength);
             memcpy(this->firstNotOwnedKey, indexlet.firstNotOwnedKey,
-                                                    firstNotOwnedKeyLength);
+                    firstNotOwnedKeyLength);
         }
     }
 
@@ -70,14 +70,14 @@ class Indexlet {
         this->firstNotOwnedKey = NULL;
         this->firstNotOwnedKeyLength = indexlet.firstNotOwnedKeyLength;
 
-        if (firstKeyLength != 0){
+        if (firstKeyLength != 0) {
             this->firstKey = malloc(firstKeyLength);
             memcpy(this->firstKey, indexlet.firstKey, firstKeyLength);
         }
-        if (firstNotOwnedKeyLength != 0){
+        if (firstNotOwnedKeyLength != 0) {
             this->firstNotOwnedKey = malloc(firstNotOwnedKeyLength);
             memcpy(this->firstNotOwnedKey, indexlet.firstNotOwnedKey,
-                                                        firstNotOwnedKeyLength);
+                    firstNotOwnedKeyLength);
         }
         return *this;
     }
@@ -91,6 +91,8 @@ class Indexlet {
     }
 
     /// Blob for the smallest key that is in this indexlet.
+    /// The storage is malloc-ed and is managed by this class, if the
+    /// firstKeyLength > 0.
     void *firstKey;
 
     /// Length of the firstKey
@@ -98,6 +100,8 @@ class Indexlet {
 
     /// Blob for the smallest key greater than all the keys belonging to
     /// this indexlet.
+    /// The storage is malloc-ed and is managed by this class, if the
+    /// firstNotOwnedKeyLength > 0.
     void *firstNotOwnedKey;
 
     /// Length of the firstNotOwnedKey
