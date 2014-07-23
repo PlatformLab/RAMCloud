@@ -47,7 +47,7 @@ class IndexLookup {
     IndexLookup(RamCloud* ramcloud, uint64_t tableId, uint8_t indexId,
                 const void* firstKey, uint16_t firstKeyLength,
                 const void* lastKey, uint16_t lastKeyLength,
-                Flags flags = DEFAULT);
+                uint32_t maxNumHashes, Flags flags = DEFAULT);
     ~IndexLookup();
     bool isReady();
     bool getNext();
@@ -187,9 +187,13 @@ class IndexLookup {
     /// Flags supplied by client to the constructor.
     Flags flags;
 
-    // The next three variables are used to handle the case where we have
+    // The next four variables are used to handle the case where we have
     // to issue multiple lookupIndexKeys RPC, since indexes span among
     // multiple servers.
+
+    /// Maximum number of hashes that the server is allowed to return
+    /// in a single rpc.
+    uint32_t maxNumHashes;
 
     /// Key blob marking the start of the indexed key range for next
     /// lookupIndexKeys

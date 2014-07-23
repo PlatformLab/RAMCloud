@@ -97,6 +97,7 @@ class RamCloud {
             const void* firstKey, uint16_t firstKeyLength,
             uint64_t firstAllowedKeyHash,
             const void* lastKey, uint16_t lastKeyLength,
+            uint32_t maxNumHashes,
             Buffer* responseBuffer,
             uint32_t* numHashes, uint16_t* nextKeyLength,
             uint64_t* nextKeyHash);
@@ -461,7 +462,7 @@ class LookupIndexKeysRpc : public IndexRpcWrapper {
                        const void* firstKey, uint16_t firstKeyLength,
                        uint64_t firstAllowedKeyHash,
                        const void* lastKey, uint16_t lastKeyLength,
-                       Buffer* responseBuffer);
+                       uint32_t maxNumHashes, Buffer* responseBuffer);
     ~LookupIndexKeysRpc() {}
 
     void wait(uint32_t* numHashes, uint16_t* nextKeyLength,

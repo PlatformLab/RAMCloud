@@ -862,13 +862,15 @@ TEST_F(RamCloudTest, lookupIndexKeys) {
     uint32_t numHashes;
     uint16_t nextKeyLength;
     uint64_t nextKeyHash;
+    uint32_t maxNumHashes = 1000;
     uint32_t lookupOffset;
 
     // Lookup on index id 1.
     // Point lookup for one, and partial range lookup for the other two.
     lookupResp.reset();
     ramcloud->lookupIndexKeys(tableId, 1, "keyA1", 5, 0, "keyA1", 5,
-                &lookupResp, &numHashes, &nextKeyLength, &nextKeyHash);
+                maxNumHashes, &lookupResp, &numHashes,
+                &nextKeyLength, &nextKeyHash);
     EXPECT_EQ(1U, numHashes);
     lookupOffset = sizeof32(WireFormat::LookupIndexKeys::Response);
     EXPECT_EQ(primaryKeyA.getHash(),
@@ -876,7 +878,8 @@ TEST_F(RamCloudTest, lookupIndexKeys) {
 
     lookupResp.reset();
     ramcloud->lookupIndexKeys(tableId, 1, "keyB1", 5, 0, "keyC1", 5,
-                &lookupResp, &numHashes, &nextKeyLength, &nextKeyHash);
+                maxNumHashes, &lookupResp, &numHashes,
+                &nextKeyLength, &nextKeyHash);
     EXPECT_EQ(2U, numHashes);
     lookupOffset = sizeof32(WireFormat::LookupIndexKeys::Response);
     EXPECT_EQ(primaryKeyB.getHash(),
@@ -887,7 +890,8 @@ TEST_F(RamCloudTest, lookupIndexKeys) {
 
     // Lookup on index id 2. Range lookup to get all.
     lookupResp.reset();
-    ramcloud->lookupIndexKeys(tableId, 2, "a", 1, 0, "z", 1, &lookupResp,
+    ramcloud->lookupIndexKeys(tableId, 2, "a", 1, 0, "z", 1,
+                              maxNumHashes, &lookupResp,
                               &numHashes, &nextKeyLength, &nextKeyHash);
     EXPECT_EQ(3U, numHashes);
     lookupOffset = sizeof32(WireFormat::LookupIndexKeys::Response);
@@ -916,7 +920,8 @@ TEST_F(RamCloudTest, lookupIndexKeys) {
 
     // Lookup on index id 1.
     lookupResp.reset();
-    ramcloud->lookupIndexKeys(tableId, 1, "a", 1, 0, "z", 1, &lookupResp,
+    ramcloud->lookupIndexKeys(tableId, 1, "a", 1, 0, "z", 1,
+                              maxNumHashes, &lookupResp,
                               &numHashes, &nextKeyLength, &nextKeyHash);
     EXPECT_EQ(1U, numHashes);
     EXPECT_EQ(primaryKeyB.getHash(),
@@ -924,7 +929,8 @@ TEST_F(RamCloudTest, lookupIndexKeys) {
 
     // Lookup on index id 2.
     lookupResp.reset();
-    ramcloud->lookupIndexKeys(tableId, 2, "a", 1, 0, "z", 1, &lookupResp,
+    ramcloud->lookupIndexKeys(tableId, 2, "a", 1, 0, "z", 1,
+                              maxNumHashes, &lookupResp,
                               &numHashes, &nextKeyLength, &nextKeyHash);
     EXPECT_EQ(1U, numHashes);
     EXPECT_EQ(primaryKeyB.getHash(),
@@ -944,13 +950,15 @@ TEST_F(RamCloudTest, lookupIndexKeys) {
 
     // Lookup on index id 1.
     lookupResp.reset();
-    ramcloud->lookupIndexKeys(tableId, 1, "a", 1, 0, "z", 1, &lookupResp,
+    ramcloud->lookupIndexKeys(tableId, 1, "a", 1, 0, "z", 1,
+                              maxNumHashes, &lookupResp,
                               &numHashes, &nextKeyLength, &nextKeyHash);
     EXPECT_EQ(0U, numHashes);
 
     // Lookup on index id 2.
     lookupResp.reset();
-    ramcloud->lookupIndexKeys(tableId, 2, "a", 1, 0, "z", 1, &lookupResp,
+    ramcloud->lookupIndexKeys(tableId, 2, "a", 1, 0, "z", 1,
+                              maxNumHashes, &lookupResp,
                               &numHashes, &nextKeyLength, &nextKeyHash);
     EXPECT_EQ(0U, numHashes);
 }

@@ -675,16 +675,12 @@ MasterService::lookupIndexKeys(
     const void* lastKeyStr =
             rpc->requestPayload->getRange(reqOffset, reqHdr->lastKeyLength);
 
-    // We're hard-coding a number that we think is this is enough bulk to
-    // amortize all the fixed costs per RPC.
-    uint32_t maxNumHashes = 1000;
-
     respHdr->common.status = indexletManager.lookupIndexKeys(
                     reqHdr->tableId, reqHdr->indexId,
                     firstKeyStr, reqHdr->firstKeyLength,
                     reqHdr->firstAllowedKeyHash,
                     lastKeyStr, reqHdr->lastKeyLength,
-                    maxNumHashes,
+                    reqHdr->maxNumHashes,
                     rpc->replyPayload, &respHdr->numHashes,
                     &respHdr->nextKeyLength, &respHdr->nextKeyHash);
 }

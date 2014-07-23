@@ -1372,6 +1372,9 @@ IndexServerControlRpc::wait()
  *      the RPC.
  * \param lastKeyLength
  *      Length in byes of the lastKey.
+ * \param maxNumHashes
+ *      Maximum number of hashes that the server is allowed to return
+ *      in a single rpc.
  *
  * \param[out] responseBuffer
  *      Return buffer containing:
@@ -1395,12 +1398,13 @@ RamCloud::lookupIndexKeys(uint64_t tableId, uint8_t indexId,
         const void* firstKey, uint16_t firstKeyLength,
         uint64_t firstAllowedKeyHash,
         const void* lastKey, uint16_t lastKeyLength,
+        uint32_t maxNumHashes,
         Buffer* responseBuffer, uint32_t* numHashes, uint16_t* nextKeyLength,
         uint64_t* nextKeyHash)
 {
     LookupIndexKeysRpc rpc(this, tableId, indexId,
             firstKey, firstKeyLength, firstAllowedKeyHash,
-            lastKey, lastKeyLength, responseBuffer);
+            lastKey, lastKeyLength, maxNumHashes, responseBuffer);
     rpc.wait(numHashes, nextKeyLength, nextKeyHash);
 }
 
@@ -1434,6 +1438,9 @@ RamCloud::lookupIndexKeys(uint64_t tableId, uint8_t indexId,
  *      the RPC.
  * \param lastKeyLength
  *      Length in byes of the lastKey.
+ * \param maxNumHashes
+ *      Maximum number of hashes that the server is allowed to return
+ *      in a single rpc.
  *
  * \param[out] responseBuffer
  *      Response buffer returned on wait().
@@ -1443,18 +1450,18 @@ LookupIndexKeysRpc::LookupIndexKeysRpc(
         const void* firstKey, uint16_t firstKeyLength,
         uint64_t firstAllowedKeyHash,
         const void* lastKey, uint16_t lastKeyLength,
-        Buffer* responseBuffer)
-    : IndexRpcWrapper(ramcloud, tableId, indexId,
-            firstKey, firstKeyLength,
+        uint32_t maxNumHashes, Buffer* responseBuffer)
+    : IndexRpcWrapper(ramcloud, tableId, indexId, firstKey, firstKeyLength,
             sizeof(WireFormat::LookupIndexKeys::Response), responseBuffer)
 {
     WireFormat::LookupIndexKeys::Request* reqHdr(
             allocHeader<WireFormat::LookupIndexKeys>());
     reqHdr->tableId = tableId;
     reqHdr->indexId = indexId;
-    reqHdr->firstAllowedKeyHash = firstAllowedKeyHash;
     reqHdr->firstKeyLength = firstKeyLength;
+    reqHdr->firstAllowedKeyHash = firstAllowedKeyHash;
     reqHdr->lastKeyLength = lastKeyLength;
+    reqHdr->maxNumHashes = maxNumHashes;
     request.appendCopy(firstKey, firstKeyLength);
     request.appendCopy(lastKey, lastKeyLength);
     send();

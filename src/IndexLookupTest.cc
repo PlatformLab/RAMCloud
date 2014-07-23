@@ -90,7 +90,7 @@ class IndexLookupTest : public ::testing::Test {
 
 TEST_F(IndexLookupTest, construction) {
     TestLog::Enable _;
-    IndexLookup indexLookup(&ramcloud, 10, 1, "a", 1, "z", 1);
+    IndexLookup indexLookup(&ramcloud, 10, 1, "a", 1, "z", 1, 1000);
     EXPECT_EQ("mock:indexserver=0",
         indexLookup.lookupRpc.rpc->session->getServiceLocator());
     EXPECT_EQ(IndexLookup::SENT, indexLookup.lookupRpc.status);
@@ -100,7 +100,7 @@ TEST_F(IndexLookupTest, construction) {
 // Handle the completion of a lookIndexKeys RPC.
 TEST_F(IndexLookupTest, isReady_lookupComplete) {
     TestLog::Enable _;
-    IndexLookup indexLookup(&ramcloud, 10, 1, "a", 1, "z", 1);
+    IndexLookup indexLookup(&ramcloud, 10, 1, "a", 1, "z", 1, 1000);
     indexLookup.lookupRpc.rpc->response->emplaceAppend<
         WireFormat::ResponseCommon>()->status = STATUS_OK;
     indexLookup.lookupRpc.rpc->response->emplaceAppend<uint32_t>(10);
@@ -120,7 +120,7 @@ TEST_F(IndexLookupTest, isReady_lookupComplete) {
 // Copy PKHashes from response buffer of lookup RPC into activeHashes
 TEST_F(IndexLookupTest, isReady_activeHashes) {
     TestLog::Enable _;
-    IndexLookup indexLookup(&ramcloud, 10, 1, "a", 1, "z", 1);
+    IndexLookup indexLookup(&ramcloud, 10, 1, "a", 1, "z", 1, 1000);
     indexLookup.lookupRpc.rpc->response->emplaceAppend<
         WireFormat::ResponseCommon>()->status = STATUS_OK;
     indexLookup.lookupRpc.rpc->response->emplaceAppend<uint32_t>(10);
@@ -143,7 +143,7 @@ TEST_F(IndexLookupTest, isReady_activeHashes) {
 // has no unread RPC
 TEST_F(IndexLookupTest, isReady_issueNextLookup) {
     TestLog::Enable _;
-    IndexLookup indexLookup(&ramcloud, 10, 1, "a", 1, "z", 1);
+    IndexLookup indexLookup(&ramcloud, 10, 1, "a", 1, "z", 1, 1000);
     indexLookup.lookupRpc.rpc->response->emplaceAppend<
             WireFormat::ResponseCommon>()->status = STATUS_OK;
     indexLookup.lookupRpc.rpc->response->emplaceAppend<uint32_t>(10);
@@ -168,7 +168,7 @@ TEST_F(IndexLookupTest, isReady_issueNextLookup) {
 // indicates no outgoing lookup RPC thereafter.
 TEST_F(IndexLookupTest, isReady_allLookupCompleted) {
     TestLog::Enable _;
-    IndexLookup indexLookup(&ramcloud, 10, 1, "a", 1, "z", 1);
+    IndexLookup indexLookup(&ramcloud, 10, 1, "a", 1, "z", 1, 1000);
     indexLookup.lookupRpc.rpc->response->emplaceAppend<
             WireFormat::ResponseCommon>()->status = STATUS_OK;
     indexLookup.lookupRpc.rpc->response->emplaceAppend<uint32_t>(10);
@@ -188,7 +188,7 @@ TEST_F(IndexLookupTest, isReady_allLookupCompleted) {
 // Try to assign the current key hash to an existing RPC to the same server.
 TEST_F(IndexLookupTest, isReady_assignPKHashesToSameServer) {
     TestLog::Enable _;
-    IndexLookup indexLookup(&ramcloud, 10, 1, "a", 1, "z", 1);
+    IndexLookup indexLookup(&ramcloud, 10, 1, "a", 1, "z", 1, 1000);
     indexLookup.lookupRpc.rpc->response->emplaceAppend<
         WireFormat::ResponseCommon>()->status = STATUS_OK;
     indexLookup.lookupRpc.rpc->response->emplaceAppend<uint32_t>(10);

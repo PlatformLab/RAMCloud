@@ -362,13 +362,19 @@ timeLookupAndIndexedRead(uint64_t tableId, uint8_t indexId, Key& pk,
                          std::vector<double>& lookupTimes,
                          std::vector<double>& lookupReadTimes)
 {
+    // Hard-coding a number that we think is this is enough bulk to
+    // amortize all the fixed costs per RPC.
+    uint32_t maxNumHashes = 1000;
+
+    //warming up
     Buffer responseBufferWarmup;
     uint32_t numHashesWarmup;
     uint16_t nextKeyLengthWarmup;
     uint64_t nextKeyHashWarmup;
-    //warming up
+
     cluster->lookupIndexKeys(tableId, indexId, firstKey, firstKeyLength,
                         firstAllowedKeyHash, lastKey, lastKeyLength,
+                        maxNumHashes,
                         &responseBufferWarmup, &numHashesWarmup,
                         &nextKeyLengthWarmup, &nextKeyHashWarmup);
     // record many measurements for each point and then take
@@ -388,7 +394,7 @@ timeLookupAndIndexedRead(uint64_t tableId, uint8_t indexId, Key& pk,
 
         start = Cycles::rdtsc();
         cluster->lookupIndexKeys(tableId, indexId, firstKey, firstKeyLength,
-                    firstAllowedKeyHash, lastKey, lastKeyLength,
+                    firstAllowedKeyHash, lastKey, lastKeyLength, maxNumHashes,
                     &responseBuffer, &numHashes, &nextKeyLength, &nextKeyHash);
 
         timeTaken = Cycles::rdtsc() - start;
@@ -1566,10 +1572,12 @@ indexMultiple()
                 uint32_t numHashes;
                 uint16_t nextKeyLength;
                 uint64_t nextKeyHash;
+                uint32_t maxNumHashes = 1000;
                 uint32_t lookupOffset;
                 cluster->lookupIndexKeys(indexTable, z, keyList[z].key,
                     keyList[z].keyLength, 0, keyList[z].key,
-                    keyList[z].keyLength, &lookupResp, &numHashes,
+                    keyList[z].keyLength, maxNumHashes,
+                    &lookupResp, &numHashes,
                     &nextKeyLength, &nextKeyHash);
 
                 assert(1 == numHashes);
@@ -1650,7 +1658,8 @@ indexScalabilityCommonLookup(uint8_t range, int numObjects, char *docString)
         for (int i =0; i < numRequests; i++) {
             rpcs[i].construct(cluster, dataTable, (uint8_t)1, secondaryKey[i],
                     (uint16_t)30, (uint16_t)0,
-                    secondaryKey[i], (uint16_t)30, &lookupResp[i]);
+                    secondaryKey[i], (uint16_t)30, (uint32_t)1000,
+                    &lookupResp[i]);
         }
 
         for (int i = 0; i < numRequests; i++) {
@@ -1744,7 +1753,8 @@ indexScalabilityCommonLookupRead(uint8_t range, int numObjects, char *docString)
         for (int i =0; i < numRequests; i++) {
             rpcs[i].construct(cluster, dataTable, (uint8_t)1, secondaryKey[i],
                     (uint16_t)30, (uint16_t)0,
-                    secondaryKey[i], (uint16_t)30, &lookupResp[i]);
+                    secondaryKey[i], (uint16_t)30, (uint32_t)1000,
+                    &lookupResp[i]);
         }
 
         for (int i = 0; i < numRequests; i++) {
@@ -1859,9 +1869,11 @@ indexScalability()
             uint32_t numHashes;
             uint16_t nextKeyLength;
             uint64_t nextKeyHash;
+            uint32_t maxNumHashes = 1000;
             cluster->lookupIndexKeys(dataTable, indexId, keyList[1].key,
                 keyList[1].keyLength, firstAllowedKeyHash, keyList[1].key,
-                keyList[1].keyLength, &lookupResp, &numHashes, &nextKeyLength,
+                keyList[1].keyLength, maxNumHashes,
+                &lookupResp, &numHashes, &nextKeyLength,
                 &nextKeyHash);
 
             //verify

@@ -886,10 +886,12 @@ struct LookupIndexKeys {
         RequestCommon common;
         uint64_t tableId;               // Id of the table for the lookup.
         uint8_t indexId;                // Id of the index for the lookup.
+        uint16_t firstKeyLength;        // Length of first key in bytes.
         uint64_t firstAllowedKeyHash;   // Smallest primary key hash value
                                         // allowed for firstKey.
-        uint16_t firstKeyLength;        // Length of first key in bytes.
         uint16_t lastKeyLength;         // Length of last key in bytes.
+        uint32_t maxNumHashes;          // Max number of primary key hashes
+                                        // to be returned.
         // In buffer: The actual first key and last key go here.
     } __attribute__((packed));
 
