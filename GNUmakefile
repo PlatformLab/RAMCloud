@@ -217,7 +217,7 @@ always:
 
 doc: docs
 # Get the branch name and SHA from git and put that into the doxygen mainpage
-docs: python-docs
+docs:
 	@DOCSID=`git branch --no-color | grep "*" | cut -f2 -d" "` ;\
 	DOCSID=$$DOCSID-`cat ".git/$$( git symbolic-ref HEAD )" | cut -c1-6` ;\
 	(echo "PROJECT_NUMBER = \"Version [$$DOCSID]\""; \
