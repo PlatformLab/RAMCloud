@@ -37,6 +37,7 @@ class ObjectTest : public ::testing::Test {
           buffer4(),
           objectDataFromBuffer(),
           objectFromBuffer(),
+          objectFromContiguousBuffer(),
           objectFromContiguousVoidPointer(),
           objectFromVoidPointer(),
           objects(),
@@ -99,12 +100,24 @@ class ObjectTest : public ::testing::Test {
                                    buffer2.size() -
                                    sizeof32(stringKeys[0]));
 
+        // Construct a contiguous Buffer to test the conversion to void*
+        // optimization
+        Buffer contiguousBuffer;
+        contiguousBuffer.appendExternal(buffer2.getRange(0, buffer2.size()),
+                                        buffer2.size());
+
+        objectFromContiguousBuffer.construct(contiguousBuffer,
+                                             sizeof32(stringKeys[0]),
+                                             buffer2.size() -
+                                             sizeof32(stringKeys[0]));
+
         // this object will only contain one key
         objectFromVoidPointer.construct(key, dataBlob, 4, 75, 723, buffer3);
 
         objects[0] = &*objectDataFromBuffer;
         objects[1] = &*objectFromBuffer;
         objects[2] = &*objectFromContiguousVoidPointer;
+        objects[3] = &*objectFromContiguousBuffer;
         singleKeyObject = &*objectFromVoidPointer;
     }
 
@@ -131,10 +144,11 @@ class ObjectTest : public ::testing::Test {
 
     Tub<Object> objectDataFromBuffer;
     Tub<Object> objectFromBuffer;
+    Tub<Object> objectFromContiguousBuffer;
     Tub<Object> objectFromContiguousVoidPointer;
     Tub<Object> objectFromVoidPointer;
 
-    Object* objects[3];
+    Object* objects[4];
     // Handle this object separately as it only has one key.
     // This kind of object is primarily used by unit
     // tests
@@ -202,6 +216,7 @@ TEST_F(ObjectTest, constructor_entirelyFromBuffer)
     EXPECT_EQ(75U, object.header.version);
     EXPECT_EQ(723U, object.header.timestamp);
     EXPECT_EQ(0xBB68333C, object.header.checksum);
+    EXPECT_EQ(0, object.keysAndValue);
 
     const uint8_t *keysAndValue = reinterpret_cast<const uint8_t *>(
                             object.getKeysAndValue());
@@ -238,6 +253,8 @@ TEST_F(ObjectTest, constructor_entirelyFromBuffer)
 
     EXPECT_EQ("YO!", string(reinterpret_cast<const char*>(
                     keysAndValue + 3 * sizeof(CumulativeKeyLength) + 9)));
+
+    EXPECT_TRUE((*objectFromContiguousBuffer).keysAndValue);
 }
 
 TEST_F(ObjectTest, constructor_fromContiguousVoidPointer)

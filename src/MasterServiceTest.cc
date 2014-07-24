@@ -1105,6 +1105,7 @@ TEST_F(MasterServiceTest, read_basics) {
     ramcloud->read(1, "0", 1, &value, NULL, &version);
     EXPECT_EQ(1U, version);
     EXPECT_EQ("abcdef", TestUtil::toString(&value));
+    EXPECT_EQ(6U, value.size());
 }
 
 TEST_F(MasterServiceTest, readKeysAndValue_basics) {

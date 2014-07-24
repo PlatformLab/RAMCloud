@@ -167,13 +167,8 @@ Object::Object(Buffer& buffer, uint32_t offset, uint32_t length)
         keysAndValueLength = length - sizeof32(header);
 
     void* retPtr;
-    if (length == 0) {
-        if (buffer.peek(offset, &retPtr) == buffer.size() - offset)
-            keysAndValue = static_cast<char*>(retPtr) + sizeof32(header);
-    } else {
-        if (buffer.peek(offset, &retPtr) >= length)
-            keysAndValue = static_cast<char*>(retPtr) + sizeof32(header);
-    }
+    if (buffer.peek(offset + sizeof32(header), &retPtr) >= keysAndValueLength)
+        keysAndValue = static_cast<char*>(retPtr);
 }
 
 /**
