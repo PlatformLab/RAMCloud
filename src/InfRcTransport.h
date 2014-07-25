@@ -288,7 +288,7 @@ class InfRcTransport : public Transport {
     };
 
     // misc helper functions
-    void sendZeroCopy(Buffer* message, QueuePair* qp);
+    void sendZeroCopy(Buffer* message, QueuePair* qp, TimeTrace* tt = NULL);
     void setNonBlocking(int fd);
 
     // Extend Infiniband::postSrqReceive by issuing queued up transmissions

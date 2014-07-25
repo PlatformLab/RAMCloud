@@ -910,7 +910,7 @@ InfRcTransport::getServiceLocator()
  *      Queue pair on which to transmit the message.
  */
 void
-InfRcTransport::sendZeroCopy(Buffer* message, QueuePair* qp)
+InfRcTransport::sendZeroCopy(Buffer* message, QueuePair* qp, TimeTrace* trace)
 {
     const bool allowZeroCopy = true;
     uint32_t lastChunkIndex = message->getNumberChunks() - 1;
@@ -1010,11 +1010,12 @@ InfRcTransport::sendZeroCopy(Buffer* message, QueuePair* qp)
     CycleCounter<RawMetric> _(&metrics->transport.transmit.ticks);
     ibv_send_wr* badTxWorkRequest;
     if (expect_true(!testingDontReallySend)) {
-
+        if (trace) trace->record("Client is about to call ibv_post_send");
         if (ibv_post_send(qp->qp, &txWorkRequest, &badTxWorkRequest)) {
             throw TransportException(HERE, "ibv_post_send failed");
         }
         // TODO(hq6): Put the final timer here on the client side.
+        if (trace) trace->record("Client finished calling ibv_post_send");
     } else {
         for (int i = 0; i < txWorkRequest.num_sge; ++i) {
             const ibv_sge& sge = txWorkRequest.sg_list[i];
@@ -1191,9 +1192,9 @@ InfRcTransport::ClientRpc::sendOrQueue()
 
         request->emplacePrepend<Header>(nonce);
 
-        if (this->notifier->timeTrace) this->notifier->timeTrace->record("Client about to zeroCopySend");
-        t->sendZeroCopy(request, session->qp);
-        if (this->notifier->timeTrace) this->notifier->timeTrace->record("Client finished zeroCopySend");
+//        if (this->notifier->timeTrace) this->notifier->timeTrace->record("Client about to zeroCopySend");
+        t->sendZeroCopy(request, session->qp, this->notifier->timeTrace);
+//        if (this->notifier->timeTrace) this->notifier->timeTrace->record("Client finished zeroCopySend");
         request->truncateFront(sizeof(Header)); // for politeness
 
         t->outstandingRpcs.push_back(*this);
@@ -1277,7 +1278,7 @@ InfRcTransport::Poller::poll()
                 rpc.notifier->completed();
                 if (rpc.notifier->timeTrace) rpc.notifier->timeTrace->record("Client has started polling completion queue!", topOfPoll);
                 if (rpc.notifier->timeTrace) rpc.notifier->timeTrace->record("Client has received a response!", gotResponse);
-//                if (rpc.notifier->timeTrace) rpc.notifier->timeTrace->record("Client notifier->completed() called!");
+                if (rpc.notifier->timeTrace) rpc.notifier->timeTrace->record("Client notifier->completed() called!");
                 t->clientRpcPool.destroy(&rpc);
                 if (t->outstandingRpcs.empty())
                     t->clientRpcsActiveTime.destroy();

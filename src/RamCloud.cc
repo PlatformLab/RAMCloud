@@ -1886,9 +1886,8 @@ ReadRpc::ReadRpc(RamCloud* ramcloud, uint64_t tableId,
     reqHdr->keyLength = keyLength;
     reqHdr->rejectRules = rejectRules ? *rejectRules : defaultRejectRules;
     request.appendExternal(key, keyLength);
-//    ramcloud->clientContext->timeTrace->record("Client about to call send");
+    ramcloud->clientContext->timeTrace->record("Client about to call send");
     send();
-//    ramcloud->clientContext->timeTrace->record("Client finished call send");
 }
 
 /**
