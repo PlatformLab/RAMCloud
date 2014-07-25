@@ -869,8 +869,8 @@ TEST_F(RamCloudTest, lookupIndexKeys) {
     // Point lookup for one, and partial range lookup for the other two.
     lookupResp.reset();
     ramcloud->lookupIndexKeys(tableId, 1, "keyA1", 5, 0, "keyA1", 5,
-                maxNumHashes, &lookupResp, &numHashes,
-                &nextKeyLength, &nextKeyHash);
+                              maxNumHashes, &lookupResp,
+                              &numHashes, &nextKeyLength, &nextKeyHash);
     EXPECT_EQ(1U, numHashes);
     lookupOffset = sizeof32(WireFormat::LookupIndexKeys::Response);
     EXPECT_EQ(primaryKeyA.getHash(),
@@ -961,6 +961,51 @@ TEST_F(RamCloudTest, lookupIndexKeys) {
                               maxNumHashes, &lookupResp,
                               &numHashes, &nextKeyLength, &nextKeyHash);
     EXPECT_EQ(0U, numHashes);
+}
+
+TEST_F(RamCloudTest, lookupIndexKeys_indexNotFound) {
+    uint64_t tableId = ramcloud->createTable("table");
+    ramcloud->createIndex(tableId, 1, 0);
+
+    uint8_t numKeys = 3;
+    KeyInfo keyListA[3];
+    keyListA[0].keyLength = 5;
+    keyListA[0].key = "keyA0";
+    keyListA[1].keyLength = 5;
+    keyListA[1].key = "keyA1";
+    keyListA[2].keyLength = 5;
+    keyListA[2].key = "keyA2";
+
+    Key primaryKeyA(tableId, keyListA[0].key, keyListA[0].keyLength);
+
+    ramcloud->write(tableId, numKeys, keyListA, "valueA");
+
+    Buffer lookupResp;
+    uint32_t numHashes;
+    uint16_t nextKeyLength;
+    uint64_t nextKeyHash;
+    uint32_t maxNumHashes = 1000;
+    uint32_t lookupOffset;
+
+    // Lookup on index id 1 that exists.
+    lookupResp.reset();
+    ramcloud->lookupIndexKeys(tableId, 1, "a", 1, 0, "z", 1,
+                              maxNumHashes, &lookupResp,
+                              &numHashes, &nextKeyLength, &nextKeyHash);
+    EXPECT_EQ(1U, numHashes);
+    lookupOffset = sizeof32(WireFormat::LookupIndexKeys::Response);
+    EXPECT_EQ(primaryKeyA.getHash(),
+              *lookupResp.getOffset<uint64_t>(lookupOffset));
+
+    // Lookup on index id 2 that does not exist.
+    lookupResp.reset();
+    EXPECT_NO_THROW(ramcloud->lookupIndexKeys(
+                        tableId, 2, "a", 1, 0, "z", 1,
+                        maxNumHashes, &lookupResp,
+                        &numHashes, &nextKeyLength, &nextKeyHash));
+    EXPECT_EQ(0U, numHashes);
+    EXPECT_EQ(0U, nextKeyLength);
+    EXPECT_EQ(0U, nextKeyHash);
 }
 
 }  // namespace RAMCloud

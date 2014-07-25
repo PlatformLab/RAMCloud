@@ -280,6 +280,16 @@ InsertIndexEntryRpc::InsertIndexEntryRpc(
 }
 
 /**
+ * Handle the case where the RPC cannot be completed as the containing the index
+ * key was not found.
+ */
+void
+InsertIndexEntryRpc::indexNotFound()
+{
+    response->emplaceAppend<WireFormat::ResponseCommon>()->status = STATUS_OK;
+}
+
+/**
  * Return whether a replica for a segment created by a given master may still
  * be needed for recovery. Backups use this when restarting after a failure
  * to determine if replicas found in persistent storage must be retained.
@@ -630,6 +640,16 @@ RemoveIndexEntryRpc::RemoveIndexEntryRpc(
     reqHdr->primaryKeyHash = primaryKeyHash;
     request.appendExternal(indexKey, indexKeyLength);
     send();
+}
+
+/**
+ * Handle the case where the RPC cannot be completed as the containing the index
+ * key was not found.
+ */
+void
+RemoveIndexEntryRpc::indexNotFound()
+{
+    response->emplaceAppend<WireFormat::ResponseCommon>()->status = STATUS_OK;
 }
 
 /**

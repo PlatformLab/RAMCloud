@@ -60,6 +60,7 @@ class IndexRpcWrapper : public RpcWrapper {
   PROTECTED:
     virtual bool checkStatus();
     virtual bool handleTransportError();
+    virtual void indexNotFound();
     virtual void send();
 
     /// Overall information about the calling process.
@@ -75,9 +76,6 @@ class IndexRpcWrapper : public RpcWrapper {
     uint8_t indexId;
     const void* key;
     uint16_t keyLength;
-
-    // Indicates whether the index to which the key belongs exists.
-    bool foundIndex;
 
     DISALLOW_COPY_AND_ASSIGN(IndexRpcWrapper);
 };

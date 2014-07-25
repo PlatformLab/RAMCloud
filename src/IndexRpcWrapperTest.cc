@@ -98,6 +98,16 @@ TEST_F(IndexRpcWrapperTest, checkStatus_otherError) {
     EXPECT_EQ("mock:refresh=1", wrapper.session->getServiceLocator());
 }
 
+TEST_F(IndexRpcWrapperTest, indexNotFound) {
+    Buffer responseBuffer;
+    IndexRpcWrapper wrapper(&ramcloud, 10, 2, "abc", 3, 4, &responseBuffer);
+    wrapper.request.fillFromString("100");
+    wrapper.send();
+    EXPECT_TRUE(wrapper.isReady());
+    EXPECT_STREQ("unknown index",
+                 statusToString(wrapper.responseHeader->status));
+}
+
 TEST_F(IndexRpcWrapperTest, handleTransportError) {
     TestLog::Enable _;
     Buffer responseBuffer;
@@ -123,5 +133,17 @@ TEST_F(IndexRpcWrapperTest, send) {
     EXPECT_EQ("mock:refresh=1", wrapper.session->getServiceLocator());
 }
 
+TEST_F(IndexRpcWrapperTest, send_noSession) {
+    TestLog::Enable _;
+    Buffer responseBuffer;
+    IndexRpcWrapper wrapper(&ramcloud, 10, 2, "abc", 3, 4, &responseBuffer);
+    wrapper.request.fillFromString("100");
+    wrapper.send();
+    EXPECT_TRUE(wrapper.isReady());
+    EXPECT_STREQ("FINISHED", wrapper.stateString());
+    EXPECT_EQ("", transport.outputLog);
+    EXPECT_EQ("indexNotFound: Index not found for tableId 10, indexId 2",
+                TestLog::get());
+}
 
 }  // namespace RAMCloud

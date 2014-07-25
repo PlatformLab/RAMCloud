@@ -52,6 +52,7 @@ static const char* messages[] = {
                                                  // STATUS_CALLER_NOT_IN_CLUSTER
     "request is too large",                      // STATUS_REQUEST_TOO_LARGE
     "unknown indexlet (may exist elsewhere)",    // STATUS_UNKNOWN_INDEXLET
+    "unknown index",                             // STATUS_UNKNOWN_INDEX
 };
 
 // The following table maps from a Status value to the internal name
@@ -86,6 +87,7 @@ static const char* symbols[] = {
     "STATUS_CALLER_NOT_IN_CLUSTER",
     "STATUS_REQUEST_TOO_LARGE",
     "STATUS_UNKNOWN_INDEXLET",
+    "STATUS_UNKNOWN_INDEX",
 };
 
 /**

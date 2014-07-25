@@ -53,6 +53,7 @@ public class ClientException extends RuntimeException {
         STATUS_CALLER_NOT_IN_CLUSTER,
         STATUS_REQUEST_TOO_LARGE,
         STATUS_UNKNOWN_INDEXLET;
+        STATUS_UNKNOWN_INDEX;
     }
 
     private static Status[] statuses = Status.values();
@@ -121,6 +122,8 @@ public class ClientException extends RuntimeException {
                 throw new RequestTooLargeException();
             case STATUS_UNKNOWN_INDEXLET:
                 throw new UnknownIndexletException();
+            case STATUS_UNKNOWN_INDEX:
+                throw new UnknownIndexException();
             default:
                 throw new UnrecognizedErrorException();
         }
@@ -165,6 +168,7 @@ public class ClientException extends RuntimeException {
     public static class CallerNotInClusterException extends ClientException {}
     public static class RequestTooLargeException extends ClientException {}
     public static class UnknownIndexletException extends ClientException {}
+    public static class UnknownIndexException extends ClientException {}
 
     /**
      * Exception thrown when Java doesn't recognize the status code

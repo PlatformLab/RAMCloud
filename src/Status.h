@@ -118,7 +118,10 @@ typedef enum Status {
     /// for) a given indexlet, but that it may exist elsewhere in the system.
     STATUS_UNKNOWN_INDEXLET             = 28,
 
-    STATUS_MAX_VALUE                    = 28,
+    /// Indicates that an index containing the given index key cannot be found.
+    STATUS_UNKNOWN_INDEX                = 29,
+
+    STATUS_MAX_VALUE                    = 29,
 
     // Note: if you add a new status value you must make the following
     // additional updates:

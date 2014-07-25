@@ -1468,6 +1468,22 @@ LookupIndexKeysRpc::LookupIndexKeysRpc(
 }
 
 /**
+ * Handle the case where the RPC cannot be completed as the containing the index
+ * key was not found.
+ */
+void
+LookupIndexKeysRpc::indexNotFound()
+{
+    response->reset();
+    WireFormat::LookupIndexKeys::Response* respHdr =
+            response->emplaceAppend<WireFormat::LookupIndexKeys::Response>();
+    respHdr->common.status = STATUS_OK;
+    respHdr->numHashes = 0;
+    respHdr->nextKeyLength = 0;
+    respHdr->nextKeyHash = 0;
+}
+
+/**
  * Wait for a lookupIndexKeys RPC to complete, and return the same results as
  * #RamCloud::lookupIndexKeys.
  *
@@ -1484,19 +1500,13 @@ void
 LookupIndexKeysRpc::wait(uint32_t* numHashes, uint16_t* nextKeyLength,
         uint64_t* nextKeyHash)
 {
-    // TODO(ouster): (By ankitak:) This seems hack-y. Better solution?
     simpleWait(context->dispatch);
-    if (foundIndex == true) {
-        const WireFormat::LookupIndexKeys::Response* respHdr(
-                getResponseHeader<WireFormat::LookupIndexKeys>());
-        *numHashes = respHdr->numHashes;
-        *nextKeyLength = respHdr->nextKeyLength;
-        *nextKeyHash = respHdr->nextKeyHash;
-    } else {
-        *numHashes = 0;
-        *nextKeyLength = 0;
-        *nextKeyHash = 0;
-    }
+
+    const WireFormat::LookupIndexKeys::Response* respHdr(
+            getResponseHeader<WireFormat::LookupIndexKeys>());
+    *numHashes = respHdr->numHashes;
+    *nextKeyLength = respHdr->nextKeyLength;
+    *nextKeyHash = respHdr->nextKeyHash;
 }
 
 /**

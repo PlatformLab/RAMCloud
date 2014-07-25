@@ -465,6 +465,7 @@ class LookupIndexKeysRpc : public IndexRpcWrapper {
                        uint32_t maxNumHashes, Buffer* responseBuffer);
     ~LookupIndexKeysRpc() {}
 
+    void indexNotFound();
     void wait(uint32_t* numHashes, uint16_t* nextKeyLength,
               uint64_t* nextKeyHash);
 

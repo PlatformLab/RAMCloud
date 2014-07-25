@@ -143,6 +143,7 @@ class InsertIndexEntryRpc : public IndexRpcWrapper {
             const void* indexKey, KeyLength indexKeyLength,
             uint64_t primaryKeyHash);
     ~InsertIndexEntryRpc() {}
+    void indexNotFound();
     void wait() {simpleWait(context->dispatch);}
 
   PRIVATE:
@@ -227,6 +228,7 @@ class RemoveIndexEntryRpc : public IndexRpcWrapper {
              const void* indexKey, KeyLength indexKeyLength,
              uint64_t primaryKeyHash);
     ~RemoveIndexEntryRpc() {}
+    void indexNotFound();
     void wait() {simpleWait(context->dispatch);}
 
   PRIVATE:
