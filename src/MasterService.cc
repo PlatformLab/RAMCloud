@@ -219,6 +219,7 @@ MasterService::dispatch(WireFormat::Opcode opcode, Rpc* rpc)
             prepareErrorResponse(rpc->replyPayload,
                                  STATUS_UNIMPLEMENTED_REQUEST);
     }
+    TRACE("MasterService::Dispatch just finished");
 }
 
 /**

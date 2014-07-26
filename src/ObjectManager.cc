@@ -304,10 +304,10 @@ ObjectManager::readObject(Key& key, Buffer* outBuffer,
     uint64_t version;
     Log::Reference reference;
     bool found = lookup(lock, key, type, buffer, &version, &reference);
-    TRACE("Log reference has been found inside ObjectManager::readObject!");
     if (!found || type != LOG_ENTRY_TYPE_OBJ)
         return STATUS_OBJECT_DOESNT_EXIST;
 
+    TRACE("Finished looking up the object!");
     if (outVersion != NULL)
         *outVersion = version;
 
@@ -327,7 +327,6 @@ ObjectManager::readObject(Key& key, Buffer* outBuffer,
     }
     ++PerfStats::threadStats.readCount;
 
-    TRACE("ObjectManager::readObject: Finished copying log reference into output buffer!");
     return STATUS_OK;
 }
 
@@ -1537,7 +1536,6 @@ ObjectManager::lookup(HashTableBucketLock& lock, Key& key,
 {
     HashTable::Candidates candidates;
     objectMap.lookup(key.getHash(), candidates);
-    TRACE("Candidates have been retrieved from HashMap!");
     while (!candidates.isDone()) {
         Buffer candidateBuffer;
         Log::Reference candidateRef(candidates.getReference());

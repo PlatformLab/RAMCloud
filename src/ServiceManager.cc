@@ -205,6 +205,7 @@ ServiceManager::handleRpc(Transport::ServerRpc* rpc)
     Worker* worker = idleThreads.back();
     idleThreads.pop_back();
     worker->serviceInfo = serviceInfo;
+    TRACE("About to handoff the Rpc to the worker");
     worker->handoff(rpc);
     worker->busyIndex = downCast<int>(busyThreads.size());
     busyThreads.push_back(worker);
@@ -258,6 +259,7 @@ ServiceManager::poll()
         }
 
         // Now send the response, if any.
+        TRACE("Dispatch thread received Rpc back from Worker thread!");
         if (rpc != NULL) {
 #ifdef LOG_RPCS
             LOG(NOTICE, "Sending reply for %s at %lu with %u bytes",
@@ -370,6 +372,7 @@ ServiceManager::workerMain(Worker* worker)
                 break;
 
             worker->rpc->enqueueThreadToStartWork.stop();
+            TRACE("Worker has received work");
 
             worker->threadWork.start();
             Service::Rpc rpc(worker, &worker->rpc->requestPayload,

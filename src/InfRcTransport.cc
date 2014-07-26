@@ -1011,11 +1011,13 @@ InfRcTransport::sendZeroCopy(Buffer* message, QueuePair* qp, TimeTrace* trace)
     ibv_send_wr* badTxWorkRequest;
     if (expect_true(!testingDontReallySend)) {
         if (trace) trace->record("Client is about to call ibv_post_send");
+        else TRACE("server is about to call ibv_post_send");
         if (ibv_post_send(qp->qp, &txWorkRequest, &badTxWorkRequest)) {
             throw TransportException(HERE, "ibv_post_send failed");
         }
         // TODO(hq6): Put the final timer here on the client side.
         if (trace) trace->record("Client finished calling ibv_post_send");
+        else TRACE("Server finished calling ibv_post_send");
     } else {
         for (int i = 0; i < txWorkRequest.num_sge; ++i) {
             const ibv_sge& sge = txWorkRequest.sg_list[i];
@@ -1101,9 +1103,7 @@ InfRcTransport::ServerRpc::sendReply()
     if (!t->transmitCycleCounter) {
         t->transmitCycleCounter.construct();
     }
-    TRACE("InfRcTransport::ServerRpc::sendReply before zeroCopy!");
     t->sendZeroCopy(&replyPayload, qp);
-    TRACE("InfRcTransport::ServerRpc::sendReply after zeroCopy!");
     interval.stop();
 
     replyPayload.truncateFront(sizeof(Header)); // for politeness
@@ -1336,7 +1336,6 @@ InfRcTransport::Poller::poll()
             }
             Header& header(*reinterpret_cast<Header*>(bd->buffer));
             ServerRpc *r = t->serverRpcPool.construct(t, qp, header.nonce);
-            TRACE("ServerRpcPool constructed.");
 
             uint32_t len = request->byte_len - sizeof32(header);
             if (t->numFreeServerSrqBuffers < 2) {
