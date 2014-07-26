@@ -54,11 +54,10 @@ namespace RAMCloud {
  *      Pointer to the master's MasterTableMetadata instance.  This keeps track
  *      of per table metadata located on this master.
  */
-ObjectManager::ObjectManager(Context* context,
-                             ServerId* serverId,
-                             const ServerConfig* config,
-                             TabletManager* tabletManager,
-                             MasterTableMetadata* masterTableMetadata)
+ObjectManager::ObjectManager(Context* context, ServerId* serverId,
+                const ServerConfig* config,
+                TabletManager* tabletManager,
+                MasterTableMetadata* masterTableMetadata)
     : context(context)
     , config(config)
     , tabletManager(tabletManager)
@@ -228,189 +227,38 @@ ObjectManager::indexedRead(const uint64_t tableId, uint32_t reqNumHashes,
 }
 
 /**
- * Write an object to this ObjectManager, replacing a previous one if necessary.
+ * This method is used by replaySegment() to prefetch the hash table bucket
+ * corresponding to the next entry to be replayed. Doing so avoids a cache
+ * miss for subsequent hash table lookups and significantly speeds up replay.
  *
- * This method will do everything needed to store an object associated with
- * a particular key. This includes allocating or incrementing version numbers,
- * writing a tombstone if a previous version exists, storing to the log,
- * and adding or replacing an entry in the hash table.
- *
- * Note, however, that the write is not be guaranteed to have completed on
- * backups until the syncChanges() method is called. This allows callers to
- * issue multiple object writes and batch backup writes by syncing once per
- * batch, rather than for each object. If this method returns anything other
- * than STATUS_OK, there were no changes made and the caller need not sync.
- *
- * \param newObject
- *      The new object to be written to the log. The object does not have
- *      a valid version and timestamp. So this function will update the version,
- *      timestamp and the checksum of the object before writing to the log.
- * \param rejectRules
- *      Specifies conditions under which the write should be aborted with an
- *      error. May be NULL if no special reject conditions are desired.
- *
- * \param[out] outVersion
- *      If non-NULL, the version number of the new object is returned here. If
- *      the operation was successful this will be the new version for the
- *      object; if this object has ever existed previously the new version is
- *      guaranteed to be greater than any previous version of the object. If the
- *      operation failed then the version number returned is the current version
- *      of the object, or VERSION_NONEXISTENT if the object does not exist.
- * \param[out] removedObjBuffer
- *      If non-NULL, pointer to the buffer in log for the object being removed
- *      is returned.
- * \return
- *      STATUS_OK if the object was written. Otherwise, for example,
- *      STATUS_UKNOWN_TABLE may be returned.
+ * \param it
+ *      SegmentIterator to use for prefetching. Whatever is currently pointed
+ *      to by this iterator will be used to prefetch, if possible. Some entries
+ *      do not contain keys; they are safely ignored.
  */
-Status
-ObjectManager::writeObject(Object& newObject,
-                           RejectRules* rejectRules,
-                           uint64_t* outVersion,
-                           Buffer* removedObjBuffer)
+inline void
+ObjectManager::prefetchHashTableBucket(SegmentIterator* it)
 {
-    if (!anyWrites) {
-        // This is the first write; use this as a trigger to update the
-        // cluster configuration information and open a session with each
-        // backup, so it won't slow down recovery benchmarks.  This is a
-        // temporary hack, and needs to be replaced with a more robust
-        // approach to updating cluster configuration information.
-        anyWrites = true;
+    if (expect_false(it->isDone()))
+        return;
 
-        // Empty coordinator locator means we're in test mode, so skip this.
-        if (!context->coordinatorSession->getLocation().empty()) {
-            ProtoBuf::ServerList backups;
-            CoordinatorClient::getBackupList(context, &backups);
-            TransportManager& transportManager =
-                *context->transportManager;
-            foreach(auto& backup, backups.server())
-                transportManager.getSession(backup.service_locator());
-        }
+    if (expect_true(it->getType() == LOG_ENTRY_TYPE_OBJ)) {
+        const Object::Header* obj =
+            it->getContiguous<Object::Header>(NULL, 0);
+
+        Object prefetchObj(obj, it->getLength());
+        KeyLength primaryKeyLen = 0;
+        const void *primaryKey = prefetchObj.getKey(0, &primaryKeyLen);
+
+        Key key(obj->tableId, primaryKey, primaryKeyLen);
+        objectMap.prefetchBucket(key.getHash());
+    } else if (it->getType() == LOG_ENTRY_TYPE_OBJTOMB) {
+        const ObjectTombstone::Header* tomb =
+            it->getContiguous<ObjectTombstone::Header>(NULL, 0);
+        Key key(tomb->tableId, tomb->key,
+            downCast<uint16_t>(it->getLength() - sizeof32(*tomb)));
+        objectMap.prefetchBucket(key.getHash());
     }
-
-    uint16_t keyLength = 0;
-    const void *keyString = newObject.getKey(0, &keyLength);
-    Key key(newObject.getTableId(), keyString, keyLength);
-
-    objectMap.prefetchBucket(key.getHash());
-    HashTableBucketLock lock(*this, key);
-
-    // If the tablet doesn't exist in the NORMAL state, we must plead ignorance.
-    TabletManager::Tablet tablet;
-    if (!tabletManager->getTablet(key, &tablet))
-        return STATUS_UNKNOWN_TABLET;
-    if (tablet.state != TabletManager::NORMAL)
-        return STATUS_UNKNOWN_TABLET;
-
-    LogEntryType currentType = LOG_ENTRY_TYPE_INVALID;
-    Buffer currentBuffer;
-    Log::Reference currentReference;
-    uint64_t currentVersion = VERSION_NONEXISTENT;
-
-    HashTable::Candidates currentHashTableEntry;
-
-    if (lookup(lock, key, currentType, currentBuffer, 0,
-               &currentReference, &currentHashTableEntry)) {
-        if (currentType == LOG_ENTRY_TYPE_OBJTOMB) {
-            removeIfTombstone(currentReference.toInteger(), this);
-        } else {
-            Object currentObject(currentBuffer);
-            currentVersion = currentObject.getVersion();
-            // Return a pointer to the buffer in log for the object being
-            // overwritten.
-            if (removedObjBuffer != NULL) {
-                removedObjBuffer->appendExternal(&currentBuffer);
-            }
-        }
-    }
-
-    if (rejectRules != NULL) {
-        Status status = rejectOperation(rejectRules, currentVersion);
-        if (status != STATUS_OK) {
-            if (outVersion != NULL)
-                *outVersion = currentVersion;
-            return status;
-        }
-    }
-
-    // Existing objects get a bump in version, new objects start from
-    // the next version allocated in the table.
-    uint64_t newObjectVersion = (currentVersion == VERSION_NONEXISTENT) ?
-            segmentManager.allocateVersion() : currentVersion + 1;
-
-    newObject.setVersion(newObjectVersion);
-    newObject.setTimestamp(WallTime::secondsTimestamp());
-
-    assert(currentVersion == VERSION_NONEXISTENT ||
-           newObject.getVersion() > currentVersion);
-
-    Tub<ObjectTombstone> tombstone;
-    if (currentVersion != VERSION_NONEXISTENT &&
-      currentType == LOG_ENTRY_TYPE_OBJ) {
-        Object object(currentBuffer);
-        tombstone.construct(object,
-                            log.getSegmentId(currentReference),
-                            WallTime::secondsTimestamp());
-    }
-
-    // Create a vector of appends in case we need to write a tombstone and
-    // an object. This is necessary to ensure that both tombstone and object
-    // are written atomically. The log makes no atomicity guarantees across
-    // multiple append calls and we don't want a tombstone going to backups
-    // before the new object, or the new object going out without a tombstone
-    // for the old deleted version. Both cases lead to consistency problems.
-    Log::AppendVector appends[2];
-
-    newObject.assembleForLog(appends[0].buffer);
-    appends[0].type = LOG_ENTRY_TYPE_OBJ;
-
-    if (tombstone) {
-        tombstone->assembleForLog(appends[1].buffer);
-        appends[1].type = LOG_ENTRY_TYPE_OBJTOMB;
-    }
-
-    if (!log.append(appends, tombstone ? 2 : 1)) {
-        // The log is out of space. Tell the client to retry and hope
-        // that either the cleaner makes space soon or we shift load
-        // off of this server.
-        return STATUS_RETRY;
-    }
-
-    if (tombstone) {
-        currentHashTableEntry.setReference(appends[0].reference.toInteger());
-        log.free(currentReference);
-    } else {
-        objectMap.insert(key.getHash(), appends[0].reference.toInteger());
-    }
-
-    if (outVersion != NULL)
-        *outVersion = newObject.getVersion();
-
-    tabletManager->incrementWriteCount(key);
-
-    TEST_LOG("object: %u bytes, version %lu",
-        appends[0].buffer.size(), newObject.getVersion());
-
-    if (tombstone) {
-        TEST_LOG("tombstone: %u bytes, version %lu",
-            appends[1].buffer.size(), tombstone->getObjectVersion());
-    }
-
-    {
-        uint64_t byteCount = appends[0].buffer.size();
-        uint64_t recordCount = 1;
-        if (tombstone) {
-            byteCount += appends[1].buffer.size();
-            recordCount += 1;
-        }
-
-        TableStats::increment(masterTableMetadata,
-                              tablet.tableId,
-                              byteCount,
-                              recordCount);
-    }
-
-    return STATUS_OK;
 }
 
 /**
@@ -436,11 +284,9 @@ ObjectManager::writeObject(Object& newObject,
  *      (object not found, tablet doesn't exist, reject rules applied, etc).
  */
 Status
-ObjectManager::readObject(Key& key,
-                          Buffer* outBuffer,
-                          RejectRules* rejectRules,
-                          uint64_t* outVersion,
-                          bool valueOnly)
+ObjectManager::readObject(Key& key, Buffer* outBuffer,
+                RejectRules* rejectRules, uint64_t* outVersion,
+                bool valueOnly)
 {
     objectMap.prefetchBucket(key.getHash());
     HashTableBucketLock lock(*this, key);
@@ -506,10 +352,8 @@ ObjectManager::readObject(Key& key,
  *      different failures (tablet doesn't exist, reject rules applied, etc).
  */
 Status
-ObjectManager::removeObject(Key& key,
-                            RejectRules* rejectRules,
-                            uint64_t* outVersion,
-                            Buffer* removedObjBuffer)
+ObjectManager::removeObject(Key& key, RejectRules* rejectRules,
+                uint64_t* outVersion, Buffer* removedObjBuffer)
 {
     HashTableBucketLock lock(*this, key);
 
@@ -573,50 +417,17 @@ ObjectManager::removeObject(Key& key,
 }
 
 /**
- * Sync any previous writes or removes. This operation is required after any
- * writeObject() or removeObject() invocation if the caller wants to ensure that
- * the change is committed to stable storage. Prior to invoking this, no
- * guarantees are made about the consistency of backup and master views of the
- * log since the previous syncChanges() operation.
+ * Scan the hashtable and remove all objects that do not belong to a
+ * tablet currently owned by this master. Used to clean up any objects
+ * created as part of an aborted recovery.
  */
 void
-ObjectManager::syncChanges()
+ObjectManager::removeOrphanedObjects()
 {
-    log.sync();
-}
-
-/**
- * This method is used by replaySegment() to prefetch the hash table bucket
- * corresponding to the next entry to be replayed. Doing so avoids a cache
- * miss for subsequent hash table lookups and significantly speeds up replay.
- *
- * \param it
- *      SegmentIterator to use for prefetching. Whatever is currently pointed
- *      to by this iterator will be used to prefetch, if possible. Some entries
- *      do not contain keys; they are safely ignored.
- */
-inline void
-ObjectManager::prefetchHashTableBucket(SegmentIterator* it)
-{
-    if (expect_false(it->isDone()))
-        return;
-
-    if (expect_true(it->getType() == LOG_ENTRY_TYPE_OBJ)) {
-        const Object::Header* obj =
-            it->getContiguous<Object::Header>(NULL, 0);
-
-        Object prefetchObj(obj, it->getLength());
-        KeyLength primaryKeyLen = 0;
-        const void *primaryKey = prefetchObj.getKey(0, &primaryKeyLen);
-
-        Key key(obj->tableId, primaryKey, primaryKeyLen);
-        objectMap.prefetchBucket(key.getHash());
-    } else if (it->getType() == LOG_ENTRY_TYPE_OBJTOMB) {
-        const ObjectTombstone::Header* tomb =
-            it->getContiguous<ObjectTombstone::Header>(NULL, 0);
-        Key key(tomb->tableId, tomb->key,
-            downCast<uint16_t>(it->getLength() - sizeof32(*tomb)));
-        objectMap.prefetchBucket(key.getHash());
+    for (uint64_t i = 0; i < objectMap.getNumBuckets(); i++) {
+        HashTableBucketLock lock(*this, i);
+        CleanupParameters params = { this , &lock };
+        objectMap.forEachInBucket(removeIfOrphanedObject, &params, i);
     }
 }
 
@@ -978,53 +789,318 @@ ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it,
 }
 
 /**
- * Removes an object from the hash table and frees it from the log if
- * it belongs to a tablet that doesn't exist in the master's TabletManager.
- * Used by deleteOrphanedObjects().
- *
- * \param reference
- *      Reference into the log for an object as returned from the master's
- *      objectMap->lookup() or on callback from objectMap->forEachInBucket().
- *      This object is removed from the objectMap and freed from the log if it
- *      doesn't belong to any tablet the master lists among its tablets.
- * \param cookie
- *      Pointer to the MasterService where this object is currently
- *      stored.
+ * Sync any previous writes or removes. This operation is required after any
+ * writeObject() or removeObject() invocation if the caller wants to ensure that
+ * the change is committed to stable storage. Prior to invoking this, no
+ * guarantees are made about the consistency of backup and master views of the
+ * log since the previous syncChanges() operation.
  */
 void
-ObjectManager::removeIfOrphanedObject(uint64_t reference, void *cookie)
+ObjectManager::syncChanges()
 {
-    CleanupParameters* params = reinterpret_cast<CleanupParameters*>(cookie);
-    ObjectManager* objectManager = params->objectManager;
-    LogEntryType type;
-    Buffer buffer;
-
-    type = objectManager->log.getEntry(Log::Reference(reference), buffer);
-    if (type != LOG_ENTRY_TYPE_OBJ)
-        return;
-
-    Key key(type, buffer);
-    if (!objectManager->tabletManager->getTablet(key)) {
-        TEST_LOG("removing orphaned object at ref %lu", reference);
-        bool r = objectManager->remove(*params->lock, key);
-        assert(r);
-        objectManager->log.free(Log::Reference(reference));
-    }
+    log.sync();
 }
 
 /**
- * Scan the hashtable and remove all objects that do not belong to a
- * tablet currently owned by this master. Used to clean up any objects
- * created as part of an aborted recovery.
+ * Write an object to this ObjectManager, replacing a previous one if necessary.
+ *
+ * This method will do everything needed to store an object associated with
+ * a particular key. This includes allocating or incrementing version numbers,
+ * writing a tombstone if a previous version exists, storing to the log,
+ * and adding or replacing an entry in the hash table.
+ *
+ * Note, however, that the write is not be guaranteed to have completed on
+ * backups until the syncChanges() method is called. This allows callers to
+ * issue multiple object writes and batch backup writes by syncing once per
+ * batch, rather than for each object. If this method returns anything other
+ * than STATUS_OK, there were no changes made and the caller need not sync.
+ *
+ * \param newObject
+ *      The new object to be written to the log. The object does not have
+ *      a valid version and timestamp. So this function will update the version,
+ *      timestamp and the checksum of the object before writing to the log.
+ * \param rejectRules
+ *      Specifies conditions under which the write should be aborted with an
+ *      error. May be NULL if no special reject conditions are desired.
+ *
+ * \param[out] outVersion
+ *      If non-NULL, the version number of the new object is returned here. If
+ *      the operation was successful this will be the new version for the
+ *      object; if this object has ever existed previously the new version is
+ *      guaranteed to be greater than any previous version of the object. If the
+ *      operation failed then the version number returned is the current version
+ *      of the object, or VERSION_NONEXISTENT if the object does not exist.
+ * \param[out] removedObjBuffer
+ *      If non-NULL, pointer to the buffer in log for the object being removed
+ *      is returned.
+ * \return
+ *      STATUS_OK if the object was written. Otherwise, for example,
+ *      STATUS_UKNOWN_TABLE may be returned.
  */
-void
-ObjectManager::removeOrphanedObjects()
+Status
+ObjectManager::writeObject(Object& newObject, RejectRules* rejectRules,
+                uint64_t* outVersion, Buffer* removedObjBuffer)
 {
-    for (uint64_t i = 0; i < objectMap.getNumBuckets(); i++) {
-        HashTableBucketLock lock(*this, i);
-        CleanupParameters params = { this , &lock };
-        objectMap.forEachInBucket(removeIfOrphanedObject, &params, i);
+    if (!anyWrites) {
+        // This is the first write; use this as a trigger to update the
+        // cluster configuration information and open a session with each
+        // backup, so it won't slow down recovery benchmarks.  This is a
+        // temporary hack, and needs to be replaced with a more robust
+        // approach to updating cluster configuration information.
+        anyWrites = true;
+
+        // Empty coordinator locator means we're in test mode, so skip this.
+        if (!context->coordinatorSession->getLocation().empty()) {
+            ProtoBuf::ServerList backups;
+            CoordinatorClient::getBackupList(context, &backups);
+            TransportManager& transportManager =
+                *context->transportManager;
+            foreach(auto& backup, backups.server())
+                transportManager.getSession(backup.service_locator());
+        }
     }
+
+    uint16_t keyLength = 0;
+    const void *keyString = newObject.getKey(0, &keyLength);
+    Key key(newObject.getTableId(), keyString, keyLength);
+
+    objectMap.prefetchBucket(key.getHash());
+    HashTableBucketLock lock(*this, key);
+
+    // If the tablet doesn't exist in the NORMAL state, we must plead ignorance.
+    TabletManager::Tablet tablet;
+    if (!tabletManager->getTablet(key, &tablet))
+        return STATUS_UNKNOWN_TABLET;
+    if (tablet.state != TabletManager::NORMAL)
+        return STATUS_UNKNOWN_TABLET;
+
+    LogEntryType currentType = LOG_ENTRY_TYPE_INVALID;
+    Buffer currentBuffer;
+    Log::Reference currentReference;
+    uint64_t currentVersion = VERSION_NONEXISTENT;
+
+    HashTable::Candidates currentHashTableEntry;
+
+    if (lookup(lock, key, currentType, currentBuffer, 0,
+               &currentReference, &currentHashTableEntry)) {
+        if (currentType == LOG_ENTRY_TYPE_OBJTOMB) {
+            removeIfTombstone(currentReference.toInteger(), this);
+        } else {
+            Object currentObject(currentBuffer);
+            currentVersion = currentObject.getVersion();
+            // Return a pointer to the buffer in log for the object being
+            // overwritten.
+            if (removedObjBuffer != NULL) {
+                removedObjBuffer->appendExternal(&currentBuffer);
+            }
+        }
+    }
+
+    if (rejectRules != NULL) {
+        Status status = rejectOperation(rejectRules, currentVersion);
+        if (status != STATUS_OK) {
+            if (outVersion != NULL)
+                *outVersion = currentVersion;
+            return status;
+        }
+    }
+
+    // Existing objects get a bump in version, new objects start from
+    // the next version allocated in the table.
+    uint64_t newObjectVersion = (currentVersion == VERSION_NONEXISTENT) ?
+            segmentManager.allocateVersion() : currentVersion + 1;
+
+    newObject.setVersion(newObjectVersion);
+    newObject.setTimestamp(WallTime::secondsTimestamp());
+
+    assert(currentVersion == VERSION_NONEXISTENT ||
+           newObject.getVersion() > currentVersion);
+
+    Tub<ObjectTombstone> tombstone;
+    if (currentVersion != VERSION_NONEXISTENT &&
+      currentType == LOG_ENTRY_TYPE_OBJ) {
+        Object object(currentBuffer);
+        tombstone.construct(object,
+                            log.getSegmentId(currentReference),
+                            WallTime::secondsTimestamp());
+    }
+
+    // Create a vector of appends in case we need to write a tombstone and
+    // an object. This is necessary to ensure that both tombstone and object
+    // are written atomically. The log makes no atomicity guarantees across
+    // multiple append calls and we don't want a tombstone going to backups
+    // before the new object, or the new object going out without a tombstone
+    // for the old deleted version. Both cases lead to consistency problems.
+    Log::AppendVector appends[2];
+
+    newObject.assembleForLog(appends[0].buffer);
+    appends[0].type = LOG_ENTRY_TYPE_OBJ;
+
+    if (tombstone) {
+        tombstone->assembleForLog(appends[1].buffer);
+        appends[1].type = LOG_ENTRY_TYPE_OBJTOMB;
+    }
+
+    if (!log.append(appends, tombstone ? 2 : 1)) {
+        // The log is out of space. Tell the client to retry and hope
+        // that either the cleaner makes space soon or we shift load
+        // off of this server.
+        return STATUS_RETRY;
+    }
+
+    if (tombstone) {
+        currentHashTableEntry.setReference(appends[0].reference.toInteger());
+        log.free(currentReference);
+    } else {
+        objectMap.insert(key.getHash(), appends[0].reference.toInteger());
+    }
+
+    if (outVersion != NULL)
+        *outVersion = newObject.getVersion();
+
+    tabletManager->incrementWriteCount(key);
+
+    TEST_LOG("object: %u bytes, version %lu",
+        appends[0].buffer.size(), newObject.getVersion());
+
+    if (tombstone) {
+        TEST_LOG("tombstone: %u bytes, version %lu",
+            appends[1].buffer.size(), tombstone->getObjectVersion());
+    }
+
+    {
+        uint64_t byteCount = appends[0].buffer.size();
+        uint64_t recordCount = 1;
+        if (tombstone) {
+            byteCount += appends[1].buffer.size();
+            recordCount += 1;
+        }
+
+        TableStats::increment(masterTableMetadata,
+                              tablet.tableId,
+                              byteCount,
+                              recordCount);
+    }
+
+    return STATUS_OK;
+}
+
+/**
+ * Flushes all the log entries from the given buffer to the log
+ * atomically and updates the hash table with the corresponding
+ * log reference for each entry
+ *
+ * \param logBuffer
+ *      The buffer which contains various log entries
+ * \param numEntries
+ *      Number of log entries in the buffer
+ * \return
+ *      True, if successful, false otherwise.
+ */
+bool
+ObjectManager::flushEntriesToLog(Buffer *logBuffer, uint32_t& numEntries)
+{
+    if (numEntries == 0)
+        return true;
+
+    // This array will hold the references of all the entries
+    // that get written to the log. This will be used
+    // subsequently to update the hash table
+    Log::Reference references[numEntries];
+
+    // atomically flush all the entries to the log
+    if (!log.append(logBuffer, references, numEntries)) {
+        return false;
+        // TODO(arjung): how to propagate this error
+        // into the tree code and then back to the caller
+        // of the tree code ??
+    }
+
+    LogEntryType type;
+
+    // keeps track of the current log entry header in the logBuffer
+    uint32_t offset = 0;
+    uint32_t entryLength = 0;
+    // marks the starting offset of a serialized object in the logBuffer
+    uint32_t objectOffset;
+    uint32_t serializedObjectLength = 0;
+
+    // update hash table for each entry that was written to the log
+    for (uint32_t i = 0; i < numEntries; i++) {
+        serializedObjectLength = 0;
+        // Don't call getRange on logBuffer because we only need the
+        // key for each object/tombstone
+        type = Segment::getEntry(logBuffer, offset,
+                                 &serializedObjectLength, &entryLength);
+        objectOffset = offset + entryLength - serializedObjectLength;
+
+        LogEntryType currentType = LOG_ENTRY_TYPE_INVALID;
+        Buffer currentBuffer;
+        Log::Reference currentReference;
+        uint64_t currentVersion = VERSION_NONEXISTENT;
+
+        HashTable::Candidates currentHashTableEntry;
+
+        if (type == LOG_ENTRY_TYPE_OBJ) {
+
+            Object object(*logBuffer, objectOffset, serializedObjectLength);
+            KeyLength keyLength;
+            const void* keyString = object.getKey(0, &keyLength);
+
+            Key key(object.getTableId(), keyString, keyLength);
+
+            objectMap.prefetchBucket(key.getHash());
+            HashTableBucketLock lock(*this, key);
+
+            if (lookup(lock, key, currentType, currentBuffer, &currentVersion,
+                       &currentReference, &currentHashTableEntry)) {
+
+                if (currentType == LOG_ENTRY_TYPE_OBJTOMB) {
+                    removeIfTombstone(currentReference.toInteger(), this);
+                    objectMap.insert(key.getHash(), references[i].toInteger());
+                }
+
+                if (currentType == LOG_ENTRY_TYPE_OBJ) {
+                    currentHashTableEntry.setReference(
+                                    references[i].toInteger());
+                    log.free(currentReference);
+                }
+            } else {
+                objectMap.insert(key.getHash(), references[i].toInteger());
+            }
+        } else if (type == LOG_ENTRY_TYPE_OBJTOMB) {
+
+            ObjectTombstone tombstone(*logBuffer, objectOffset,
+                                      serializedObjectLength);
+
+            KeyLength keyLength = tombstone.getKeyLength();
+            const void* keyString = tombstone.getKey();
+
+            Key key(tombstone.getTableId(), keyString, keyLength);
+
+            objectMap.prefetchBucket(key.getHash());
+            HashTableBucketLock lock(*this, key);
+
+            uint64_t currentVersion = 0;
+            if (lookup(lock, key, currentType, currentBuffer, &currentVersion,
+                       &currentReference, &currentHashTableEntry)) {
+
+                // this is a tombstone for the most recent version of
+                // the object so far in the log
+                if (currentVersion == tombstone.getObjectVersion()) {
+                    remove(lock, key);
+                    log.free(currentReference);
+                    segmentManager.raiseSafeVersion(currentVersion + 1);
+                }
+            }
+        }
+        offset = offset + entryLength;
+    }
+    // sync to backups
+    syncChanges();
+    logBuffer->reset();
+    numEntries = 0;
+    return true;
 }
 
 /**
@@ -1215,156 +1291,6 @@ ObjectManager::writeTombstone(Key& key, Buffer *logBuffer)
 }
 
 /**
- * Flushes all the log entries from the given buffer to the log
- * atomically and updates the hash table with the corresponding
- * log reference for each entry
- *
- * \param logBuffer
- *      The buffer which contains various log entries
- * \param numEntries
- *      Number of log entries in the buffer
- * \return
- *      True, if successful, false otherwise.
- */
-bool
-ObjectManager::flushEntriesToLog(Buffer *logBuffer, uint32_t& numEntries)
-{
-    if (numEntries == 0)
-        return true;
-
-    // This array will hold the references of all the entries
-    // that get written to the log. This will be used
-    // subsequently to update the hash table
-    Log::Reference references[numEntries];
-
-    // atomically flush all the entries to the log
-    if (!log.append(logBuffer, references, numEntries)) {
-        return false;
-        // TODO(arjung): how to propagate this error
-        // into the tree code and then back to the caller
-        // of the tree code ??
-    }
-
-    LogEntryType type;
-
-    // keeps track of the current log entry header in the logBuffer
-    uint32_t offset = 0;
-    uint32_t entryLength = 0;
-    // marks the starting offset of a serialized object in the logBuffer
-    uint32_t objectOffset;
-    uint32_t serializedObjectLength = 0;
-
-    // update hash table for each entry that was written to the log
-    for (uint32_t i = 0; i < numEntries; i++) {
-        serializedObjectLength = 0;
-        // Don't call getRange on logBuffer because we only need the
-        // key for each object/tombstone
-        type = Segment::getEntry(logBuffer, offset,
-                                 &serializedObjectLength, &entryLength);
-        objectOffset = offset + entryLength - serializedObjectLength;
-
-        LogEntryType currentType = LOG_ENTRY_TYPE_INVALID;
-        Buffer currentBuffer;
-        Log::Reference currentReference;
-        uint64_t currentVersion = VERSION_NONEXISTENT;
-
-        HashTable::Candidates currentHashTableEntry;
-
-        if (type == LOG_ENTRY_TYPE_OBJ) {
-
-            Object object(*logBuffer, objectOffset, serializedObjectLength);
-            KeyLength keyLength;
-            const void* keyString = object.getKey(0, &keyLength);
-
-            Key key(object.getTableId(), keyString, keyLength);
-
-            objectMap.prefetchBucket(key.getHash());
-            HashTableBucketLock lock(*this, key);
-
-            if (lookup(lock, key, currentType, currentBuffer, &currentVersion,
-                       &currentReference, &currentHashTableEntry)) {
-
-                if (currentType == LOG_ENTRY_TYPE_OBJTOMB) {
-                    removeIfTombstone(currentReference.toInteger(), this);
-                    objectMap.insert(key.getHash(), references[i].toInteger());
-                }
-
-                if (currentType == LOG_ENTRY_TYPE_OBJ) {
-                    currentHashTableEntry.setReference(
-                                    references[i].toInteger());
-                    log.free(currentReference);
-                }
-            } else {
-                objectMap.insert(key.getHash(), references[i].toInteger());
-            }
-        } else if (type == LOG_ENTRY_TYPE_OBJTOMB) {
-
-            ObjectTombstone tombstone(*logBuffer, objectOffset,
-                                      serializedObjectLength);
-
-            KeyLength keyLength = tombstone.getKeyLength();
-            const void* keyString = tombstone.getKey();
-
-            Key key(tombstone.getTableId(), keyString, keyLength);
-
-            objectMap.prefetchBucket(key.getHash());
-            HashTableBucketLock lock(*this, key);
-
-            uint64_t currentVersion = 0;
-            if (lookup(lock, key, currentType, currentBuffer, &currentVersion,
-                       &currentReference, &currentHashTableEntry)) {
-
-                // this is a tombstone for the most recent version of
-                // the object so far in the log
-                if (currentVersion == tombstone.getObjectVersion()) {
-                    remove(lock, key);
-                    log.free(currentReference);
-                    segmentManager.raiseSafeVersion(currentVersion + 1);
-                }
-            }
-        }
-        offset = offset + entryLength;
-    }
-    // sync to backups
-    syncChanges();
-    logBuffer->reset();
-    numEntries = 0;
-    return true;
-}
-
-/**
- * Check a set of RejectRules against the current state of an object
- * to decide whether an operation is allowed.
- *
- * \param rejectRules
- *      Specifies conditions under which the operation should fail.
- * \param version
- *      The current version of an object, or VERSION_NONEXISTENT
- *      if the object does not currently exist (used to test rejectRules)
- *
- * \return
- *      The return value is STATUS_OK if none of the reject rules
- *      indicate that the operation should be rejected. Otherwise
- *      the return value indicates the reason for the rejection.
- */
-Status
-ObjectManager::rejectOperation(const RejectRules* rejectRules, uint64_t version)
-{
-    if (version == VERSION_NONEXISTENT) {
-        if (rejectRules->doesntExist)
-            return STATUS_OBJECT_DOESNT_EXIST;
-        return STATUS_OK;
-    }
-    if (rejectRules->exists)
-        return STATUS_OBJECT_EXISTS;
-    if (rejectRules->versionLeGiven && version <= rejectRules->givenVersion)
-        return STATUS_WRONG_VERSION;
-    if (rejectRules->versionNeGiven && version != rejectRules->givenVersion)
-        return STATUS_WRONG_VERSION;
-    return STATUS_OK;
-}
-
-/**
  * Extract the timestamp from an entry written into the log. Used by the log
  * code do more efficient cleaning.
  *
@@ -1405,373 +1331,13 @@ ObjectManager::getTimestamp(LogEntryType type, Buffer& buffer)
  *      needed, the relocator should not be used.
  */
 void
-ObjectManager::relocate(LogEntryType type,
-                        Buffer& oldBuffer,
-                        Log::Reference oldReference,
-                        LogEntryRelocator& relocator)
+ObjectManager::relocate(LogEntryType type, Buffer& oldBuffer,
+                Log::Reference oldReference, LogEntryRelocator& relocator)
 {
     if (type == LOG_ENTRY_TYPE_OBJ)
         relocateObject(oldBuffer, oldReference, relocator);
     else if (type == LOG_ENTRY_TYPE_OBJTOMB)
         relocateTombstone(oldBuffer, relocator);
-}
-
-/**
- * Callback used by the LogCleaner when it's cleaning a Segment and comes
- * across an Object.
- *
- * This callback will decide if the object is still alive. If it is, it must
- * use the relocator to move it to a new location and atomically update the
- * hash table.
- *
- * \param oldBuffer
- *      Buffer pointing to the object's current location, which will soon be
- *      invalidated.
- * \param oldReference
- *      Reference to the old object in the log. This is used to make a fast
- *      liveness check (the hash table points to this iff the object is alive).
- * \param relocator
- *      The relocator may be used to store the object in a new location if it
- *      is still alive. It also provides a reference to the new location and
- *      keeps track of whether this call wanted the object anymore or not.
- *
- *      It is possible that relocation may fail (because more memory needs to
- *      be allocated). In this case, the callback should just return. The
- *      cleaner will note the failure, allocate more memory, and try again.
- */
-void
-ObjectManager::relocateObject(Buffer& oldBuffer,
-                              Log::Reference oldReference,
-                              LogEntryRelocator& relocator)
-{
-    Key key(LOG_ENTRY_TYPE_OBJ, oldBuffer);
-    HashTableBucketLock lock(*this, key);
-
-    // Note that we do not query the TabletManager to see if this object
-    // belongs to a live tablet since that would create considerable
-    // contention for the TabletManager. We can do this safely because
-    // tablet drops synchronously purge the hash table of any objects
-    // corresponding to the tablet. Were we not to purge the objects,
-    // we could migrate a tablet away and back again while maintaining
-    // references to old objects (that could have been deleted on the
-    // intermediate master before migrating back).
-
-    // It's much faster not to use lookup and replace here, but to
-    // scan the hash table bucket ourselves. We already have the
-    // reference, so there's no need for a key comparison, and we
-    // can easily avoid looping over the bucket twice this way for
-    // live objects.
-    HashTable::Candidates candidates;
-    objectMap.lookup(key.getHash(), candidates);
-    while (!candidates.isDone()) {
-        if (candidates.getReference() != oldReference.toInteger()) {
-            candidates.next();
-            continue;
-        }
-
-        // Try to relocate this live object. If we fail, just return. The
-        // cleaner will allocate more memory and retry.
-        if (!relocator.append(LOG_ENTRY_TYPE_OBJ, oldBuffer))
-            return;
-
-        candidates.setReference(relocator.getNewReference().toInteger());
-        return;
-    }
-
-    // No reference was found meaning object will be cleaned.  We should update
-    // the stats accordingly.
-    TableStats::decrement(masterTableMetadata,
-                          key.getTableId(),
-                          oldBuffer.size(),
-                          1);
-}
-
-/**
- * Callback used by the Log to determine the modification timestamp of an
- * Object. Timestamps are stored in the Object itself, rather than in the
- * Log, since not all Log entries need timestamps and other parts of the
- * system (or clients) may care about Object modification times.
- *
- * \param buffer
- *      Buffer pointing to the object the timestamp is to be extracted from.
- * \return
- *      The Object's modification timestamp.
- */
-uint32_t
-ObjectManager::getObjectTimestamp(Buffer& buffer)
-{
-    Object object(buffer);
-    return object.getTimestamp();
-}
-
-/**
- * Callback used by the LogCleaner when it's cleaning a Segment and comes
- * across a Tombstone.
- *
- * This callback will decide if the tombstone is still alive. If it is, it must
- * use the relocator to move it to a new location and atomically update the
- * hash table.
- *
- * \param oldBuffer
- *      Buffer pointing to the tombstone's current location, which will soon be
- *      invalidated.
- * \param relocator
- *      The relocator may be used to store the tombstone in a new location if it
- *      is still alive. It also provides a reference to the new location and
- *      keeps track of whether this call wanted the tombstone anymore or not.
- *
- *      It is possible that relocation may fail (because more memory needs to
- *      be allocated). In this case, the callback should just return. The
- *      cleaner will note the failure, allocate more memory, and try again.
- */
-void
-ObjectManager::relocateTombstone(Buffer& oldBuffer,
-                                 LogEntryRelocator& relocator)
-{
-    ObjectTombstone tomb(oldBuffer);
-
-    // See if the object this tombstone refers to is still in the log.
-    bool keepNewTomb = log.segmentExists(tomb.getSegmentId());
-
-    if (keepNewTomb) {
-        // Try to relocate it. If it fails, just return. The cleaner will
-        // allocate more memory and retry.
-        if (!relocator.append(LOG_ENTRY_TYPE_OBJTOMB, oldBuffer))
-            return;
-    } else {
-        // Tombstone will be dropped/"cleaned" so stats should be updated.
-        TableStats::decrement(masterTableMetadata,
-                              tomb.getTableId(),
-                              oldBuffer.size(),
-                              1);
-    }
-}
-
-/**
- * Callback used by the Log to determine the age of Tombstone.
- *
- * \param buffer
- *      Buffer pointing to the tombstone the timestamp is to be extracted from.
- * \return
- *      The tombstone's creation timestamp.
- */
-uint32_t
-ObjectManager::getTombstoneTimestamp(Buffer& buffer)
-{
-    ObjectTombstone tomb(buffer);
-    return tomb.getTimestamp();
-}
-
-/**
- * Look up an object in the hash table, then extract the entry from the
- * log. Since tombstones are stored in the hash table during recovery,
- * this method may return either an object or a tombstone.
- *
- * \param lock
- *      This method must be invoked with the appropriate hash table bucket
- *      lock already held. This parameter exists to help ensure correct
- *      caller behaviour.
- * \param key
- *      Key of the object being looked up.
- * \param[out] outType
- *      The type of the log entry is returned here.
- * \param[out] buffer
- *      The entry, if found, is appended to this buffer. Note that the data
- *      pointed to by this buffer will be exactly the data in the log. The
- *      cleaner uses this fact to check whether an object in a segment is
- *      alive by comparing the pointer in the hash table (see #relocateObject).
- * \param[out] outVersion
- *      The version of the object or tombstone, when one is found, stored in
- *      this optional parameter.
- * \param[out] outReference
- *      The log reference to the entry, if found, is stored in this optional
- *      parameter.
- * \param[out] outCandidates
- *      If this option parameter is specified and the key being looked up
- *      is found, the HashTable::Candidates object provided will be set to
- *      point to that key's entry in the hash table. This is useful when an
- *      object is being updated. The caller may update the hash table's
- *      reference directly, rather than having to first perform another
- *      lookup after the new object is written to the log.
- * \return
- *      True if an entry is found matching the given key, otherwise false.
- */
-bool
-ObjectManager::lookup(HashTableBucketLock& lock,
-                      Key& key,
-                      LogEntryType& outType,
-                      Buffer& buffer,
-                      uint64_t* outVersion,
-                      Log::Reference* outReference,
-                      HashTable::Candidates* outCandidates)
-{
-    HashTable::Candidates candidates;
-    objectMap.lookup(key.getHash(), candidates);
-    while (!candidates.isDone()) {
-        Buffer candidateBuffer;
-        Log::Reference candidateRef(candidates.getReference());
-        LogEntryType type = log.getEntry(candidateRef, candidateBuffer);
-
-        Key candidateKey(type, candidateBuffer);
-        if (key == candidateKey) {
-            outType = type;
-            buffer.appendExternal(&candidateBuffer);
-            if (outVersion != NULL) {
-                if (type == LOG_ENTRY_TYPE_OBJ) {
-                    Object o(candidateBuffer);
-                    *outVersion = o.getVersion();
-                } else {
-                    ObjectTombstone o(candidateBuffer);
-                    *outVersion = o.getObjectVersion();
-                }
-            }
-            if (outReference != NULL)
-                *outReference = candidateRef;
-            if (outCandidates != NULL)
-                *outCandidates = candidates;
-            return true;
-        }
-
-        candidates.next();
-    }
-
-    return false;
-}
-
-/**
- * Remove an object from the hash table, if it exists in it. Return whether or
- * not it was found and removed.
- *
- * \param lock
- *      This method must be invoked with the appropriate hash table bucket
- *      lock already held. This parameter exists to help ensure correct
- *      caller behaviour.
- * \param key
- *      Key of the object being removed.
- * \return
- *      True if the key was found and the object removed. False if it was not
- *      in the hash table.
- */
-bool
-ObjectManager::remove(HashTableBucketLock& lock, Key& key)
-{
-    HashTable::Candidates candidates;
-    objectMap.lookup(key.getHash(), candidates);
-    while (!candidates.isDone()) {
-        Buffer buffer;
-        Log::Reference candidateRef(candidates.getReference());
-        LogEntryType type = log.getEntry(candidateRef, buffer);
-        Key candidateKey(type, buffer);
-        if (key == candidateKey) {
-            candidates.remove();
-            return true;
-        }
-        candidates.next();
-    }
-    return false;
-}
-
-/**
- * Insert an object reference into the hash table, or replace the object
- * reference currently associated with the key if one already exists in the
- * table.
- *
- * \param lock
- *      This method must be invoked with the appropriate hash table bucket
- *      lock already held. This parameter exists to help ensure correct
- *      caller behaviour.
- * \param key
- *      The key to add to update a reference for.
- * \param reference
- *      The reference to store in the hash table under the given key.
- * \return
- *      Returns true if the key already existed in the hash table and the
- *      reference was updated. False indicates that the key did not already
- *      exist. In either case, the hash table will refer to the given reference.
- */
-bool
-ObjectManager::replace(HashTableBucketLock& lock,
-                       Key& key,
-                       Log::Reference reference)
-{
-    HashTable::Candidates candidates;
-    objectMap.lookup(key.getHash(), candidates);
-    while (!candidates.isDone()) {
-        Buffer buffer;
-        Log::Reference candidateRef(candidates.getReference());
-        LogEntryType type = log.getEntry(candidateRef, buffer);
-        Key candidateKey(type, buffer);
-        if (key == candidateKey) {
-            candidates.setReference(reference.toInteger());
-            return true;
-        }
-        candidates.next();
-    }
-
-    objectMap.insert(key.getHash(), reference.toInteger());
-    return false;
-}
-
-/**
- * This function is a callback used to purge the tombstones from the hash
- * table after a recovery has taken place. It is invoked by HashTable::
- * forEach via the RemoveTombstonePoller class that runs in the dispatch
- * thread.
- *
- * This function must be called with the appropriate HashTableBucketLock
- * held.
- */
-void
-ObjectManager::removeIfTombstone(uint64_t maybeTomb, void *cookie)
-{
-    CleanupParameters* params = reinterpret_cast<CleanupParameters*>(cookie);
-    ObjectManager* objectManager = params->objectManager;
-    LogEntryType type;
-    Buffer buffer;
-
-    type = objectManager->log.getEntry(Log::Reference(maybeTomb), buffer);
-    if (type == LOG_ENTRY_TYPE_OBJTOMB) {
-        Key key(type, buffer);
-
-        // We can remove tombstones so long as they meet one of the two
-        // following criteria:
-        //  1) Tablet is not assigned to us (not in TabletManager, so we don't
-        //     care about it).
-        //  2) Tablet is not in the RECOVERING state (replaySegment won't be
-        //     called for objects in that tablet anymore).
-        bool discard = false;
-
-        TabletManager::Tablet tablet;
-        if (!objectManager->tabletManager->getTablet(key, &tablet) ||
-          tablet.state != TabletManager::RECOVERING) {
-            discard = true;
-        }
-
-        if (discard) {
-            TEST_LOG("discarding");
-            bool r = objectManager->remove(*params->lock, key);
-            assert(r);
-        }
-
-        // Tombstones are not explicitly freed in the log. The cleaner will
-        // figure out that they're dead.
-    }
-}
-
-/**
- * Synchronously remove leftover tombstones in the hash table added during
- * replaySegment calls (for example, as caused by a recovery). This private
- * method exists for testing purposes only, since asynchronous removal raises
- * hell in unit tests.
- */
-void
-ObjectManager::removeTombstones()
-{
-    for (uint64_t i = 0; i < objectMap.getNumBuckets(); i++) {
-        HashTableBucketLock lock(*this, i);
-        CleanupParameters params = { this , &lock };
-        objectMap.forEachInBucket(removeIfTombstone, &params, i);
-    }
 }
 
 /**
@@ -1787,8 +1353,8 @@ ObjectManager::removeTombstones()
  *      The HashTable which will be purged of tombstones.
  */
 ObjectManager::RemoveTombstonePoller::RemoveTombstonePoller(
-                                        ObjectManager* objectManager,
-                                        HashTable* objectMap)
+                ObjectManager* objectManager,
+                HashTable* objectMap)
     : Dispatch::Poller(objectManager->context->dispatch, "TombstoneRemover")
     , currentBucket(0)
     , passes(0)
@@ -1885,6 +1451,427 @@ ObjectManager::dumpSegment(Segment* segment)
         separator = " | ";
     }
     return result;
+}
+
+/**
+ * Callback used by the Log to determine the modification timestamp of an
+ * Object. Timestamps are stored in the Object itself, rather than in the
+ * Log, since not all Log entries need timestamps and other parts of the
+ * system (or clients) may care about Object modification times.
+ *
+ * \param buffer
+ *      Buffer pointing to the object the timestamp is to be extracted from.
+ * \return
+ *      The Object's modification timestamp.
+ */
+uint32_t
+ObjectManager::getObjectTimestamp(Buffer& buffer)
+{
+    Object object(buffer);
+    return object.getTimestamp();
+}
+
+/**
+ * Callback used by the Log to determine the age of Tombstone.
+ *
+ * \param buffer
+ *      Buffer pointing to the tombstone the timestamp is to be extracted from.
+ * \return
+ *      The tombstone's creation timestamp.
+ */
+uint32_t
+ObjectManager::getTombstoneTimestamp(Buffer& buffer)
+{
+    ObjectTombstone tomb(buffer);
+    return tomb.getTimestamp();
+}
+
+/**
+ * Look up an object in the hash table, then extract the entry from the
+ * log. Since tombstones are stored in the hash table during recovery,
+ * this method may return either an object or a tombstone.
+ *
+ * \param lock
+ *      This method must be invoked with the appropriate hash table bucket
+ *      lock already held. This parameter exists to help ensure correct
+ *      caller behaviour.
+ * \param key
+ *      Key of the object being looked up.
+ * \param[out] outType
+ *      The type of the log entry is returned here.
+ * \param[out] buffer
+ *      The entry, if found, is appended to this buffer. Note that the data
+ *      pointed to by this buffer will be exactly the data in the log. The
+ *      cleaner uses this fact to check whether an object in a segment is
+ *      alive by comparing the pointer in the hash table (see #relocateObject).
+ * \param[out] outVersion
+ *      The version of the object or tombstone, when one is found, stored in
+ *      this optional parameter.
+ * \param[out] outReference
+ *      The log reference to the entry, if found, is stored in this optional
+ *      parameter.
+ * \param[out] outCandidates
+ *      If this option parameter is specified and the key being looked up
+ *      is found, the HashTable::Candidates object provided will be set to
+ *      point to that key's entry in the hash table. This is useful when an
+ *      object is being updated. The caller may update the hash table's
+ *      reference directly, rather than having to first perform another
+ *      lookup after the new object is written to the log.
+ * \return
+ *      True if an entry is found matching the given key, otherwise false.
+ */
+bool
+ObjectManager::lookup(HashTableBucketLock& lock, Key& key,
+                LogEntryType& outType, Buffer& buffer,
+                uint64_t* outVersion,
+                Log::Reference* outReference,
+                HashTable::Candidates* outCandidates)
+{
+    HashTable::Candidates candidates;
+    objectMap.lookup(key.getHash(), candidates);
+    while (!candidates.isDone()) {
+        Buffer candidateBuffer;
+        Log::Reference candidateRef(candidates.getReference());
+        LogEntryType type = log.getEntry(candidateRef, candidateBuffer);
+
+        Key candidateKey(type, candidateBuffer);
+        if (key == candidateKey) {
+            outType = type;
+            buffer.appendExternal(&candidateBuffer);
+            if (outVersion != NULL) {
+                if (type == LOG_ENTRY_TYPE_OBJ) {
+                    Object o(candidateBuffer);
+                    *outVersion = o.getVersion();
+                } else {
+                    ObjectTombstone o(candidateBuffer);
+                    *outVersion = o.getObjectVersion();
+                }
+            }
+            if (outReference != NULL)
+                *outReference = candidateRef;
+            if (outCandidates != NULL)
+                *outCandidates = candidates;
+            return true;
+        }
+
+        candidates.next();
+    }
+
+    return false;
+}
+
+/**
+ * Remove an object from the hash table, if it exists in it. Return whether or
+ * not it was found and removed.
+ *
+ * \param lock
+ *      This method must be invoked with the appropriate hash table bucket
+ *      lock already held. This parameter exists to help ensure correct
+ *      caller behaviour.
+ * \param key
+ *      Key of the object being removed.
+ * \return
+ *      True if the key was found and the object removed. False if it was not
+ *      in the hash table.
+ */
+bool
+ObjectManager::remove(HashTableBucketLock& lock, Key& key)
+{
+    HashTable::Candidates candidates;
+    objectMap.lookup(key.getHash(), candidates);
+    while (!candidates.isDone()) {
+        Buffer buffer;
+        Log::Reference candidateRef(candidates.getReference());
+        LogEntryType type = log.getEntry(candidateRef, buffer);
+        Key candidateKey(type, buffer);
+        if (key == candidateKey) {
+            candidates.remove();
+            return true;
+        }
+        candidates.next();
+    }
+    return false;
+}
+
+/**
+ * Removes an object from the hash table and frees it from the log if
+ * it belongs to a tablet that doesn't exist in the master's TabletManager.
+ * Used by deleteOrphanedObjects().
+ *
+ * \param reference
+ *      Reference into the log for an object as returned from the master's
+ *      objectMap->lookup() or on callback from objectMap->forEachInBucket().
+ *      This object is removed from the objectMap and freed from the log if it
+ *      doesn't belong to any tablet the master lists among its tablets.
+ * \param cookie
+ *      Pointer to the MasterService where this object is currently
+ *      stored.
+ */
+void
+ObjectManager::removeIfOrphanedObject(uint64_t reference, void *cookie)
+{
+    CleanupParameters* params = reinterpret_cast<CleanupParameters*>(cookie);
+    ObjectManager* objectManager = params->objectManager;
+    LogEntryType type;
+    Buffer buffer;
+
+    type = objectManager->log.getEntry(Log::Reference(reference), buffer);
+    if (type != LOG_ENTRY_TYPE_OBJ)
+        return;
+
+    Key key(type, buffer);
+    if (!objectManager->tabletManager->getTablet(key)) {
+        TEST_LOG("removing orphaned object at ref %lu", reference);
+        bool r = objectManager->remove(*params->lock, key);
+        assert(r);
+        objectManager->log.free(Log::Reference(reference));
+    }
+}
+
+/**
+ * This function is a callback used to purge the tombstones from the hash
+ * table after a recovery has taken place. It is invoked by HashTable::
+ * forEach via the RemoveTombstonePoller class that runs in the dispatch
+ * thread.
+ *
+ * This function must be called with the appropriate HashTableBucketLock
+ * held.
+ */
+void
+ObjectManager::removeIfTombstone(uint64_t maybeTomb, void *cookie)
+{
+    CleanupParameters* params = reinterpret_cast<CleanupParameters*>(cookie);
+    ObjectManager* objectManager = params->objectManager;
+    LogEntryType type;
+    Buffer buffer;
+
+    type = objectManager->log.getEntry(Log::Reference(maybeTomb), buffer);
+    if (type == LOG_ENTRY_TYPE_OBJTOMB) {
+        Key key(type, buffer);
+
+        // We can remove tombstones so long as they meet one of the two
+        // following criteria:
+        //  1) Tablet is not assigned to us (not in TabletManager, so we don't
+        //     care about it).
+        //  2) Tablet is not in the RECOVERING state (replaySegment won't be
+        //     called for objects in that tablet anymore).
+        bool discard = false;
+
+        TabletManager::Tablet tablet;
+        if (!objectManager->tabletManager->getTablet(key, &tablet) ||
+          tablet.state != TabletManager::RECOVERING) {
+            discard = true;
+        }
+
+        if (discard) {
+            TEST_LOG("discarding");
+            bool r = objectManager->remove(*params->lock, key);
+            assert(r);
+        }
+
+        // Tombstones are not explicitly freed in the log. The cleaner will
+        // figure out that they're dead.
+    }
+}
+
+/**
+ * Synchronously remove leftover tombstones in the hash table added during
+ * replaySegment calls (for example, as caused by a recovery). This private
+ * method exists for testing purposes only, since asynchronous removal raises
+ * hell in unit tests.
+ */
+void
+ObjectManager::removeTombstones()
+{
+    for (uint64_t i = 0; i < objectMap.getNumBuckets(); i++) {
+        HashTableBucketLock lock(*this, i);
+        CleanupParameters params = { this , &lock };
+        objectMap.forEachInBucket(removeIfTombstone, &params, i);
+    }
+}
+
+/**
+ * Check a set of RejectRules against the current state of an object
+ * to decide whether an operation is allowed.
+ *
+ * \param rejectRules
+ *      Specifies conditions under which the operation should fail.
+ * \param version
+ *      The current version of an object, or VERSION_NONEXISTENT
+ *      if the object does not currently exist (used to test rejectRules)
+ *
+ * \return
+ *      The return value is STATUS_OK if none of the reject rules
+ *      indicate that the operation should be rejected. Otherwise
+ *      the return value indicates the reason for the rejection.
+ */
+Status
+ObjectManager::rejectOperation(const RejectRules* rejectRules, uint64_t version)
+{
+    if (version == VERSION_NONEXISTENT) {
+        if (rejectRules->doesntExist)
+            return STATUS_OBJECT_DOESNT_EXIST;
+        return STATUS_OK;
+    }
+    if (rejectRules->exists)
+        return STATUS_OBJECT_EXISTS;
+    if (rejectRules->versionLeGiven && version <= rejectRules->givenVersion)
+        return STATUS_WRONG_VERSION;
+    if (rejectRules->versionNeGiven && version != rejectRules->givenVersion)
+        return STATUS_WRONG_VERSION;
+    return STATUS_OK;
+}
+
+/**
+ * Callback used by the LogCleaner when it's cleaning a Segment and comes
+ * across an Object.
+ *
+ * This callback will decide if the object is still alive. If it is, it must
+ * use the relocator to move it to a new location and atomically update the
+ * hash table.
+ *
+ * \param oldBuffer
+ *      Buffer pointing to the object's current location, which will soon be
+ *      invalidated.
+ * \param oldReference
+ *      Reference to the old object in the log. This is used to make a fast
+ *      liveness check (the hash table points to this iff the object is alive).
+ * \param relocator
+ *      The relocator may be used to store the object in a new location if it
+ *      is still alive. It also provides a reference to the new location and
+ *      keeps track of whether this call wanted the object anymore or not.
+ *
+ *      It is possible that relocation may fail (because more memory needs to
+ *      be allocated). In this case, the callback should just return. The
+ *      cleaner will note the failure, allocate more memory, and try again.
+ */
+void
+ObjectManager::relocateObject(Buffer& oldBuffer, Log::Reference oldReference,
+                LogEntryRelocator& relocator)
+{
+    Key key(LOG_ENTRY_TYPE_OBJ, oldBuffer);
+    HashTableBucketLock lock(*this, key);
+
+    // Note that we do not query the TabletManager to see if this object
+    // belongs to a live tablet since that would create considerable
+    // contention for the TabletManager. We can do this safely because
+    // tablet drops synchronously purge the hash table of any objects
+    // corresponding to the tablet. Were we not to purge the objects,
+    // we could migrate a tablet away and back again while maintaining
+    // references to old objects (that could have been deleted on the
+    // intermediate master before migrating back).
+
+    // It's much faster not to use lookup and replace here, but to
+    // scan the hash table bucket ourselves. We already have the
+    // reference, so there's no need for a key comparison, and we
+    // can easily avoid looping over the bucket twice this way for
+    // live objects.
+    HashTable::Candidates candidates;
+    objectMap.lookup(key.getHash(), candidates);
+    while (!candidates.isDone()) {
+        if (candidates.getReference() != oldReference.toInteger()) {
+            candidates.next();
+            continue;
+        }
+
+        // Try to relocate this live object. If we fail, just return. The
+        // cleaner will allocate more memory and retry.
+        if (!relocator.append(LOG_ENTRY_TYPE_OBJ, oldBuffer))
+            return;
+
+        candidates.setReference(relocator.getNewReference().toInteger());
+        return;
+    }
+
+    // No reference was found meaning object will be cleaned.  We should update
+    // the stats accordingly.
+    TableStats::decrement(masterTableMetadata,
+                          key.getTableId(),
+                          oldBuffer.size(),
+                          1);
+}
+
+/**
+ * Callback used by the LogCleaner when it's cleaning a Segment and comes
+ * across a Tombstone.
+ *
+ * This callback will decide if the tombstone is still alive. If it is, it must
+ * use the relocator to move it to a new location and atomically update the
+ * hash table.
+ *
+ * \param oldBuffer
+ *      Buffer pointing to the tombstone's current location, which will soon be
+ *      invalidated.
+ * \param relocator
+ *      The relocator may be used to store the tombstone in a new location if it
+ *      is still alive. It also provides a reference to the new location and
+ *      keeps track of whether this call wanted the tombstone anymore or not.
+ *
+ *      It is possible that relocation may fail (because more memory needs to
+ *      be allocated). In this case, the callback should just return. The
+ *      cleaner will note the failure, allocate more memory, and try again.
+ */
+void
+ObjectManager::relocateTombstone(Buffer& oldBuffer,
+                LogEntryRelocator& relocator)
+{
+    ObjectTombstone tomb(oldBuffer);
+
+    // See if the object this tombstone refers to is still in the log.
+    bool keepNewTomb = log.segmentExists(tomb.getSegmentId());
+
+    if (keepNewTomb) {
+        // Try to relocate it. If it fails, just return. The cleaner will
+        // allocate more memory and retry.
+        if (!relocator.append(LOG_ENTRY_TYPE_OBJTOMB, oldBuffer))
+            return;
+    } else {
+        // Tombstone will be dropped/"cleaned" so stats should be updated.
+        TableStats::decrement(masterTableMetadata,
+                              tomb.getTableId(),
+                              oldBuffer.size(),
+                              1);
+    }
+}
+
+/**
+ * Insert an object reference into the hash table, or replace the object
+ * reference currently associated with the key if one already exists in the
+ * table.
+ *
+ * \param lock
+ *      This method must be invoked with the appropriate hash table bucket
+ *      lock already held. This parameter exists to help ensure correct
+ *      caller behaviour.
+ * \param key
+ *      The key to add to update a reference for.
+ * \param reference
+ *      The reference to store in the hash table under the given key.
+ * \return
+ *      Returns true if the key already existed in the hash table and the
+ *      reference was updated. False indicates that the key did not already
+ *      exist. In either case, the hash table will refer to the given reference.
+ */
+bool
+ObjectManager::replace(HashTableBucketLock& lock, Key& key,
+                Log::Reference reference)
+{
+    HashTable::Candidates candidates;
+    objectMap.lookup(key.getHash(), candidates);
+    while (!candidates.isDone()) {
+        Buffer buffer;
+        Log::Reference candidateRef(candidates.getReference());
+        LogEntryType type = log.getEntry(candidateRef, buffer);
+        Key candidateKey(type, buffer);
+        if (key == candidateKey) {
+            candidates.setReference(reference.toInteger());
+            return true;
+        }
+        candidates.next();
+    }
+
+    objectMap.insert(key.getHash(), reference.toInteger());
+    return false;
 }
 
 } //enamespace RAMCloud

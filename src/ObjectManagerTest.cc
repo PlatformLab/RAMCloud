@@ -310,91 +310,6 @@ TEST_F(ObjectManagerTest, constructor) {
     EXPECT_EQ(ServerId(5), *objectManager.replicaManager.masterId);
 }
 
-static bool
-writeObjectFilter(string s)
-{
-    return s == "writeObject";
-}
-
-static bool
-antiGetEntryFilter(string s)
-{
-    return s != "getEntry";
-}
-
-TEST_F(ObjectManagerTest, writeObject) {
-    Key key(1, "1", 1);
-    Buffer buffer;
-    // create an object just so that buffer will be populated with the key
-    // and the value. This keeps the abstractions intact
-    Object obj(key, "value", 5, 0, 0, buffer);
-
-    // no tablet, no dice.
-    EXPECT_EQ(STATUS_UNKNOWN_TABLET,
-        objectManager.writeObject(obj, 0, 0));
-    EXPECT_EQ("found=false tableId=1", verifyMetadata(1));
-
-    // non-NORMAL tablet state, no dice.
-    tabletManager.addTablet(1, 0, ~0UL, TabletManager::RECOVERING);
-    EXPECT_EQ(STATUS_UNKNOWN_TABLET,
-        objectManager.writeObject(obj, 0, 0));
-    EXPECT_EQ("found=false tableId=1", verifyMetadata(1));
-
-    TestLog::Enable _(writeObjectFilter);
-
-    // new object (no tombstone needed)
-    tabletManager.changeState(1, 0, ~0UL, TabletManager::RECOVERING,
-                                          TabletManager::NORMAL);
-    EXPECT_EQ(STATUS_OK, objectManager.writeObject(obj, 0, 0));
-    EXPECT_EQ("writeObject: object: 33 bytes, version 1", TestLog::get());
-    EXPECT_EQ("found=true tableId=1 byteCount=33 recordCount=1"
-              , verifyMetadata(1));
-
-    // object overwrite (tombstone needed)
-    TestLog::reset();
-    EXPECT_EQ(STATUS_OK, objectManager.writeObject(obj, 0, 0));
-    EXPECT_EQ("writeObject: object: 33 bytes, version 2 | "
-              "writeObject: tombstone: 33 bytes, version 1", TestLog::get());
-    EXPECT_EQ("found=true tableId=1 byteCount=99 recordCount=3"
-              , verifyMetadata(1));
-}
-
-TEST_F(ObjectManagerTest, writeObject_returnRemovedObj) {
-    tabletManager.addTablet(1, 0, ~0UL, TabletManager::NORMAL);
-    Key key(1, "a", 1);
-
-    // New object.
-    Buffer writeBuffer;
-    Object obj1(key, "originalValue", 13, 0, 0, writeBuffer);
-    EXPECT_EQ(STATUS_OK, objectManager.writeObject(obj1, 0, 0));
-
-    // Object overwrite. This is what we're testing in this unit test.
-    writeBuffer.reset();
-    Object obj2(key, "newValue", 8, 0, 0, writeBuffer);
-
-    TestLog::Enable _(writeObjectFilter);
-    Buffer removedObjBuffer;
-    EXPECT_EQ(STATUS_OK,
-              objectManager.writeObject(obj2, 0, 0, &removedObjBuffer));
-
-    // Check that the object got overwritten correctly.
-    EXPECT_EQ("writeObject: object: 36 bytes, version 2 | "
-              "writeObject: tombstone: 33 bytes, version 1", TestLog::get());
-    EXPECT_EQ("found=true tableId=1 byteCount=110 recordCount=3",
-              verifyMetadata(1));
-
-    // Check that the buffer returned corresponds to the object overwritten.
-    Object oldObj(removedObjBuffer);
-    EXPECT_EQ(1U, oldObj.getKeyCount());
-    KeyLength oldKeyLength;
-    const void* oldKey = oldObj.getKey(0, &oldKeyLength);
-    EXPECT_EQ("a", string(reinterpret_cast<const char*>(oldKey), oldKeyLength));
-    uint32_t oldValueLength;
-    const void* oldValue = oldObj.getValue(&oldValueLength);
-    EXPECT_EQ("originalValue", string(reinterpret_cast<const char*>(oldValue),
-                                      oldValueLength));
-}
-
 TEST_F(ObjectManagerTest, readObject) {
     Buffer buffer;
     Key key(1, "1", 1);
@@ -442,6 +357,12 @@ TEST_F(ObjectManagerTest, readObject) {
         "{ tableId: 1 startKeyHash: 0 "
             "endKeyHash: 18446744073709551615 state: 0 reads: 4 writes: 0 }",
         tabletManager.toString());
+}
+
+static bool
+antiGetEntryFilter(string s)
+{
+    return s != "getEntry";
 }
 
 TEST_F(ObjectManagerTest, removeObject) {
@@ -508,212 +429,6 @@ TEST_F(ObjectManagerTest, removeObject) {
     EXPECT_FALSE(objectManager.lookup(lock, key, type, buffer, 0, 0));
 }
 
-TEST_F(ObjectManagerTest, removeOrphanedObjects) {
-    tabletManager.addTablet(97, 0, ~0UL, TabletManager::NORMAL);
-    Key key(97, "1", 1);
-
-    Buffer value;
-    Object obj(key, "hi", 2, 0, 0, value);
-
-    EXPECT_EQ(STATUS_OK, objectManager.writeObject(obj, NULL, NULL));
-
-    EXPECT_TRUE(tabletManager.getTablet(key, NULL));
-    EXPECT_EQ(STATUS_OK, objectManager.readObject(key, &value, NULL, NULL));
-
-    objectManager.removeOrphanedObjects();
-    EXPECT_EQ(STATUS_OK, objectManager.readObject(key, &value, NULL, NULL));
-
-    tabletManager.deleteTablet(97, 0, ~0UL);
-    EXPECT_FALSE(tabletManager.getTablet(key, NULL));
-
-    value.reset();
-    TestLog::Enable _(antiGetEntryFilter);
-    HashTable::Candidates c;
-    objectManager.objectMap.lookup(key.getHash(), c);
-    uint64_t ref = c.getReference();
-    objectManager.removeOrphanedObjects();
-    EXPECT_EQ(STATUS_UNKNOWN_TABLET,
-        objectManager.readObject(key, &value, NULL, NULL));
-
-    tabletManager.addTablet(97, 0, ~0UL, TabletManager::NORMAL);
-    EXPECT_EQ(STATUS_OBJECT_DOESNT_EXIST,
-        objectManager.readObject(key, &value, NULL, NULL));
-
-    EXPECT_EQ(
-        format("removeIfOrphanedObject: removing orphaned object at ref %lu | "
-               "free: free on reference %lu", ref, ref),
-        TestLog::get());
-}
-
-TEST_F(ObjectManagerTest, prepareForLog) {
-    // nothing worth doing here. The functionality required for
-    // this is anyway tested and has to be tested in the
-    // flushEntriesToLog() test
-}
-
-TEST_F(ObjectManagerTest, writeTombstone) {
-    Buffer logBuffer;
-
-    Key key(1, "1", 1);
-    storeObject(key, "hi", 93);
-    EXPECT_EQ("found=true tableId=1 byteCount=30 recordCount=1"
-              , verifyMetadata(1));
-
-    // no tablet, no dice
-    EXPECT_EQ(STATUS_UNKNOWN_TABLET,
-              objectManager.writeTombstone(key, &logBuffer));
-    EXPECT_EQ("found=true tableId=1 byteCount=30 recordCount=1"
-              , verifyMetadata(1));
-
-    // non-normal tablet, no dice
-    tabletManager.addTablet(1, 0, ~0UL, TabletManager::RECOVERING);
-    EXPECT_EQ(STATUS_UNKNOWN_TABLET,
-              objectManager.writeTombstone(key, &logBuffer));
-    EXPECT_EQ("found=true tableId=1 byteCount=30 recordCount=1"
-              , verifyMetadata(1));
-
-    // (now make the tablet acceptable for handling removes)
-    tabletManager.changeState(1, 0, ~0UL, TabletManager::RECOVERING,
-                                          TabletManager::NORMAL);
-
-    // not found, not an error
-    Key key2(1, "2", 1);
-    EXPECT_EQ(STATUS_OK,
-              objectManager.writeTombstone(key2, &logBuffer));
-    EXPECT_EQ("found=true tableId=1 byteCount=30 recordCount=1"
-              , verifyMetadata(1));
-
-    // non-object, not an error
-    storeTombstone(key2);
-    EXPECT_EQ("found=true tableId=1 byteCount=63 recordCount=2"
-              , verifyMetadata(1));
-    EXPECT_EQ(STATUS_OK,
-              objectManager.writeTombstone(key2, &logBuffer));
-    EXPECT_EQ("found=true tableId=1 byteCount=63 recordCount=2"
-              , verifyMetadata(1));
-
-    // let's finally try a case that should work...
-    // the tombstone is only written to the buffer
-    TestLog::Enable _(antiGetEntryFilter);
-    EXPECT_EQ(STATUS_OK,
-              objectManager.writeTombstone(key, &logBuffer));
-    EXPECT_EQ("found=true tableId=1 byteCount=63 recordCount=2"
-              , verifyMetadata(1));
-}
-
-TEST_F(ObjectManagerTest, flushEntriesToLog) {
-
-    tabletManager.addTablet(1, 0, ~0UL, TabletManager::NORMAL);
-
-    Buffer logBuffer;
-    uint32_t numEntries = 0;
-
-    Key key1(1, "1", 1);
-    Key key2(1, "2", 1);
-    Key key3(1, "3", 1);
-    Key key4(1, "4", 1);
-    Buffer buffer;
-    // create an object just so that buffer will be populated with the key
-    // and the value. This keeps the abstractions intact
-
-    Object obj1(key1, "value", 5, 1, 0, buffer);
-
-    // Case i) new object (no tombstone needed)
-    bool tombstoneAdded = false;
-    EXPECT_EQ(STATUS_OK,
-              objectManager.prepareForLog(obj1, &logBuffer, NULL,
-                                          &tombstoneAdded));
-    EXPECT_FALSE(tombstoneAdded);
-    if (tombstoneAdded)
-        numEntries+= 2;
-    else
-        numEntries+= 1;
-
-    // Case ii) store an object in the log.
-    // Now create a tombstone in logBuffer for that object
-    storeObject(key2, "value", 1);
-    EXPECT_EQ(STATUS_OK,
-              objectManager.writeTombstone(key2, &logBuffer));
-    numEntries++;
-
-    // Case iii) store an object and its tombstone in the log.
-    // Now create a newer version of the object in logBuffer
-    // with the same key
-    storeObject(key3, "value", 1);
-    //storeTombstone(key3, 1);
-    objectManager.removeObject(key3, NULL, NULL);
-
-    tombstoneAdded = false;
-    buffer.reset();
-    // newer object has version = 2
-    Object obj3(key3, "value", 5, 2, 0, buffer);
-    EXPECT_EQ(STATUS_OK,
-              objectManager.prepareForLog(obj3, &logBuffer, NULL,
-                                          &tombstoneAdded));
-    EXPECT_FALSE(tombstoneAdded);
-    if (tombstoneAdded)
-        numEntries+= 2;
-    else
-        numEntries+= 1;
-
-    // Case iv) store an object in the log
-    // Write a newer version of the object in logBuffer
-    storeObject(key4, "value", 1);
-
-    tombstoneAdded = false;
-    buffer.reset();
-    // newer object has version = 2
-    Object obj4(key4, "value", 5, 2, 0, buffer);
-    EXPECT_EQ(STATUS_OK,
-              objectManager.prepareForLog(obj4, &logBuffer, NULL,
-                                          &tombstoneAdded));
-    EXPECT_TRUE(tombstoneAdded);
-    if (tombstoneAdded)
-        numEntries+= 2;
-    else
-        numEntries+= 1;
-
-    EXPECT_EQ(5U, numEntries);
-
-    //TestLog::Enable _(writeObjectFilter);
-    TestLog::Enable _(antiGetEntryFilter);
-
-    // flush all the entries in logBuffer to the log atomically
-    EXPECT_TRUE(objectManager.flushEntriesToLog(&logBuffer, numEntries));
-    EXPECT_EQ(0U, logBuffer.size());
-
-    // now check the hashtable and the log for correctness
-
-    // for key1
-    Buffer readBuffer;
-    uint64_t version;
-    EXPECT_EQ(STATUS_OK, objectManager.readObject(key1, &readBuffer, 0,
-              &version));
-    EXPECT_EQ(1U, version);
-
-    // for key3
-    readBuffer.reset();
-    EXPECT_EQ(STATUS_OK, objectManager.readObject(key3, &readBuffer, 0,
-              &version));
-    EXPECT_EQ(2U, version);
-
-    // for key4
-    readBuffer.reset();
-    EXPECT_EQ(STATUS_OK, objectManager.readObject(key4, &readBuffer, 0,
-              &version));
-    EXPECT_EQ(2U, version);
-
-    // for key2
-    // key2 is checked in the end because the HashTable lock is acquired
-    // and relies on the function going out of scope to be destroyed
-    readBuffer.reset();
-    EXPECT_EQ(STATUS_OBJECT_DOESNT_EXIST,
-        objectManager.readObject(key2, &readBuffer, 0, 0));
-    LogEntryType type;
-    ObjectManager::HashTableBucketLock lock(objectManager, key2);
-    EXPECT_FALSE(objectManager.lookup(lock, key2, type, buffer, 0, 0));
-}
-
 TEST_F(ObjectManagerTest, removeObject_returnRemovedObj) {
     Key key(1, "a", 1);
     storeObject(key, "hi", 93);
@@ -755,6 +470,43 @@ TEST_F(ObjectManagerTest, removeObject_returnRemovedObj) {
     const void* oldValue = oldObj.getValue(&oldValueLength);
     EXPECT_EQ("hi", string(reinterpret_cast<const char*>(oldValue),
                            oldValueLength));
+}
+
+TEST_F(ObjectManagerTest, removeOrphanedObjects) {
+    tabletManager.addTablet(97, 0, ~0UL, TabletManager::NORMAL);
+    Key key(97, "1", 1);
+
+    Buffer value;
+    Object obj(key, "hi", 2, 0, 0, value);
+
+    EXPECT_EQ(STATUS_OK, objectManager.writeObject(obj, NULL, NULL));
+
+    EXPECT_TRUE(tabletManager.getTablet(key, NULL));
+    EXPECT_EQ(STATUS_OK, objectManager.readObject(key, &value, NULL, NULL));
+
+    objectManager.removeOrphanedObjects();
+    EXPECT_EQ(STATUS_OK, objectManager.readObject(key, &value, NULL, NULL));
+
+    tabletManager.deleteTablet(97, 0, ~0UL);
+    EXPECT_FALSE(tabletManager.getTablet(key, NULL));
+
+    value.reset();
+    TestLog::Enable _(antiGetEntryFilter);
+    HashTable::Candidates c;
+    objectManager.objectMap.lookup(key.getHash(), c);
+    uint64_t ref = c.getReference();
+    objectManager.removeOrphanedObjects();
+    EXPECT_EQ(STATUS_UNKNOWN_TABLET,
+        objectManager.readObject(key, &value, NULL, NULL));
+
+    tabletManager.addTablet(97, 0, ~0UL, TabletManager::NORMAL);
+    EXPECT_EQ(STATUS_OBJECT_DOESNT_EXIST,
+        objectManager.readObject(key, &value, NULL, NULL));
+
+    EXPECT_EQ(
+        format("removeIfOrphanedObject: removing orphaned object at ref %lu | "
+               "free: free on reference %lu", ref, ref),
+        TestLog::get());
 }
 
 TEST_F(ObjectManagerTest, replaySegment_highestBTreeIdMap) {
@@ -1114,6 +866,443 @@ TEST_F(ObjectManagerTest, replaySegment) {
     EXPECT_EQ(10UL, objectManager.segmentManager.safeVersion);
 }
 
+static bool
+writeObjectFilter(string s)
+{
+    return s == "writeObject";
+}
+
+TEST_F(ObjectManagerTest, writeObject) {
+    Key key(1, "1", 1);
+    Buffer buffer;
+    // create an object just so that buffer will be populated with the key
+    // and the value. This keeps the abstractions intact
+    Object obj(key, "value", 5, 0, 0, buffer);
+
+    // no tablet, no dice.
+    EXPECT_EQ(STATUS_UNKNOWN_TABLET,
+        objectManager.writeObject(obj, 0, 0));
+    EXPECT_EQ("found=false tableId=1", verifyMetadata(1));
+
+    // non-NORMAL tablet state, no dice.
+    tabletManager.addTablet(1, 0, ~0UL, TabletManager::RECOVERING);
+    EXPECT_EQ(STATUS_UNKNOWN_TABLET,
+        objectManager.writeObject(obj, 0, 0));
+    EXPECT_EQ("found=false tableId=1", verifyMetadata(1));
+
+    TestLog::Enable _(writeObjectFilter);
+
+    // new object (no tombstone needed)
+    tabletManager.changeState(1, 0, ~0UL, TabletManager::RECOVERING,
+                                          TabletManager::NORMAL);
+    EXPECT_EQ(STATUS_OK, objectManager.writeObject(obj, 0, 0));
+    EXPECT_EQ("writeObject: object: 33 bytes, version 1", TestLog::get());
+    EXPECT_EQ("found=true tableId=1 byteCount=33 recordCount=1"
+              , verifyMetadata(1));
+
+    // object overwrite (tombstone needed)
+    TestLog::reset();
+    EXPECT_EQ(STATUS_OK, objectManager.writeObject(obj, 0, 0));
+    EXPECT_EQ("writeObject: object: 33 bytes, version 2 | "
+              "writeObject: tombstone: 33 bytes, version 1", TestLog::get());
+    EXPECT_EQ("found=true tableId=1 byteCount=99 recordCount=3"
+              , verifyMetadata(1));
+}
+
+TEST_F(ObjectManagerTest, writeObject_returnRemovedObj) {
+    tabletManager.addTablet(1, 0, ~0UL, TabletManager::NORMAL);
+    Key key(1, "a", 1);
+
+    // New object.
+    Buffer writeBuffer;
+    Object obj1(key, "originalValue", 13, 0, 0, writeBuffer);
+    EXPECT_EQ(STATUS_OK, objectManager.writeObject(obj1, 0, 0));
+
+    // Object overwrite. This is what we're testing in this unit test.
+    writeBuffer.reset();
+    Object obj2(key, "newValue", 8, 0, 0, writeBuffer);
+
+    TestLog::Enable _(writeObjectFilter);
+    Buffer removedObjBuffer;
+    EXPECT_EQ(STATUS_OK,
+              objectManager.writeObject(obj2, 0, 0, &removedObjBuffer));
+
+    // Check that the object got overwritten correctly.
+    EXPECT_EQ("writeObject: object: 36 bytes, version 2 | "
+              "writeObject: tombstone: 33 bytes, version 1", TestLog::get());
+    EXPECT_EQ("found=true tableId=1 byteCount=110 recordCount=3",
+              verifyMetadata(1));
+
+    // Check that the buffer returned corresponds to the object overwritten.
+    Object oldObj(removedObjBuffer);
+    EXPECT_EQ(1U, oldObj.getKeyCount());
+    KeyLength oldKeyLength;
+    const void* oldKey = oldObj.getKey(0, &oldKeyLength);
+    EXPECT_EQ("a", string(reinterpret_cast<const char*>(oldKey), oldKeyLength));
+    uint32_t oldValueLength;
+    const void* oldValue = oldObj.getValue(&oldValueLength);
+    EXPECT_EQ("originalValue", string(reinterpret_cast<const char*>(oldValue),
+                                      oldValueLength));
+}
+
+TEST_F(ObjectManagerTest, flushEntriesToLog) {
+
+    tabletManager.addTablet(1, 0, ~0UL, TabletManager::NORMAL);
+
+    Buffer logBuffer;
+    uint32_t numEntries = 0;
+
+    Key key1(1, "1", 1);
+    Key key2(1, "2", 1);
+    Key key3(1, "3", 1);
+    Key key4(1, "4", 1);
+    Buffer buffer;
+    // create an object just so that buffer will be populated with the key
+    // and the value. This keeps the abstractions intact
+
+    Object obj1(key1, "value", 5, 1, 0, buffer);
+
+    // Case i) new object (no tombstone needed)
+    bool tombstoneAdded = false;
+    EXPECT_EQ(STATUS_OK,
+              objectManager.prepareForLog(obj1, &logBuffer, NULL,
+                                          &tombstoneAdded));
+    EXPECT_FALSE(tombstoneAdded);
+    if (tombstoneAdded)
+        numEntries+= 2;
+    else
+        numEntries+= 1;
+
+    // Case ii) store an object in the log.
+    // Now create a tombstone in logBuffer for that object
+    storeObject(key2, "value", 1);
+    EXPECT_EQ(STATUS_OK,
+              objectManager.writeTombstone(key2, &logBuffer));
+    numEntries++;
+
+    // Case iii) store an object and its tombstone in the log.
+    // Now create a newer version of the object in logBuffer
+    // with the same key
+    storeObject(key3, "value", 1);
+    //storeTombstone(key3, 1);
+    objectManager.removeObject(key3, NULL, NULL);
+
+    tombstoneAdded = false;
+    buffer.reset();
+    // newer object has version = 2
+    Object obj3(key3, "value", 5, 2, 0, buffer);
+    EXPECT_EQ(STATUS_OK,
+              objectManager.prepareForLog(obj3, &logBuffer, NULL,
+                                          &tombstoneAdded));
+    EXPECT_FALSE(tombstoneAdded);
+    if (tombstoneAdded)
+        numEntries+= 2;
+    else
+        numEntries+= 1;
+
+    // Case iv) store an object in the log
+    // Write a newer version of the object in logBuffer
+    storeObject(key4, "value", 1);
+
+    tombstoneAdded = false;
+    buffer.reset();
+    // newer object has version = 2
+    Object obj4(key4, "value", 5, 2, 0, buffer);
+    EXPECT_EQ(STATUS_OK,
+              objectManager.prepareForLog(obj4, &logBuffer, NULL,
+                                          &tombstoneAdded));
+    EXPECT_TRUE(tombstoneAdded);
+    if (tombstoneAdded)
+        numEntries+= 2;
+    else
+        numEntries+= 1;
+
+    EXPECT_EQ(5U, numEntries);
+
+    //TestLog::Enable _(writeObjectFilter);
+    TestLog::Enable _(antiGetEntryFilter);
+
+    // flush all the entries in logBuffer to the log atomically
+    EXPECT_TRUE(objectManager.flushEntriesToLog(&logBuffer, numEntries));
+    EXPECT_EQ(0U, logBuffer.size());
+
+    // now check the hashtable and the log for correctness
+
+    // for key1
+    Buffer readBuffer;
+    uint64_t version;
+    EXPECT_EQ(STATUS_OK, objectManager.readObject(key1, &readBuffer, 0,
+              &version));
+    EXPECT_EQ(1U, version);
+
+    // for key3
+    readBuffer.reset();
+    EXPECT_EQ(STATUS_OK, objectManager.readObject(key3, &readBuffer, 0,
+              &version));
+    EXPECT_EQ(2U, version);
+
+    // for key4
+    readBuffer.reset();
+    EXPECT_EQ(STATUS_OK, objectManager.readObject(key4, &readBuffer, 0,
+              &version));
+    EXPECT_EQ(2U, version);
+
+    // for key2
+    // key2 is checked in the end because the HashTable lock is acquired
+    // and relies on the function going out of scope to be destroyed
+    readBuffer.reset();
+    EXPECT_EQ(STATUS_OBJECT_DOESNT_EXIST,
+        objectManager.readObject(key2, &readBuffer, 0, 0));
+    LogEntryType type;
+    ObjectManager::HashTableBucketLock lock(objectManager, key2);
+    EXPECT_FALSE(objectManager.lookup(lock, key2, type, buffer, 0, 0));
+}
+
+TEST_F(ObjectManagerTest, prepareForLog) {
+    // nothing worth doing here. The functionality required for
+    // this is anyway tested and has to be tested in the
+    // flushEntriesToLog() test
+}
+
+TEST_F(ObjectManagerTest, writeTombstone) {
+    Buffer logBuffer;
+
+    Key key(1, "1", 1);
+    storeObject(key, "hi", 93);
+    EXPECT_EQ("found=true tableId=1 byteCount=30 recordCount=1"
+              , verifyMetadata(1));
+
+    // no tablet, no dice
+    EXPECT_EQ(STATUS_UNKNOWN_TABLET,
+              objectManager.writeTombstone(key, &logBuffer));
+    EXPECT_EQ("found=true tableId=1 byteCount=30 recordCount=1"
+              , verifyMetadata(1));
+
+    // non-normal tablet, no dice
+    tabletManager.addTablet(1, 0, ~0UL, TabletManager::RECOVERING);
+    EXPECT_EQ(STATUS_UNKNOWN_TABLET,
+              objectManager.writeTombstone(key, &logBuffer));
+    EXPECT_EQ("found=true tableId=1 byteCount=30 recordCount=1"
+              , verifyMetadata(1));
+
+    // (now make the tablet acceptable for handling removes)
+    tabletManager.changeState(1, 0, ~0UL, TabletManager::RECOVERING,
+                                          TabletManager::NORMAL);
+
+    // not found, not an error
+    Key key2(1, "2", 1);
+    EXPECT_EQ(STATUS_OK,
+              objectManager.writeTombstone(key2, &logBuffer));
+    EXPECT_EQ("found=true tableId=1 byteCount=30 recordCount=1"
+              , verifyMetadata(1));
+
+    // non-object, not an error
+    storeTombstone(key2);
+    EXPECT_EQ("found=true tableId=1 byteCount=63 recordCount=2"
+              , verifyMetadata(1));
+    EXPECT_EQ(STATUS_OK,
+              objectManager.writeTombstone(key2, &logBuffer));
+    EXPECT_EQ("found=true tableId=1 byteCount=63 recordCount=2"
+              , verifyMetadata(1));
+
+    // let's finally try a case that should work...
+    // the tombstone is only written to the buffer
+    TestLog::Enable _(antiGetEntryFilter);
+    EXPECT_EQ(STATUS_OK,
+              objectManager.writeTombstone(key, &logBuffer));
+    EXPECT_EQ("found=true tableId=1 byteCount=63 recordCount=2"
+              , verifyMetadata(1));
+}
+
+TEST_F(ObjectManagerTest, RemoveTombstonePoller_poll) {
+    LogEntryType type;
+    Buffer buffer;
+
+    Key key(0, "key!", 4);
+    storeTombstone(key);
+
+    ObjectManager::RemoveTombstonePoller* remover =
+        objectManager.tombstoneRemover.get();
+
+    // poller should do nothing if it doesn't think there's work to do
+    EXPECT_EQ(0U, remover->currentBucket);
+    objectManager.tombstoneRemover->lastReplaySegmentCount =
+        objectManager.replaySegmentReturnCount = 0;
+
+    TestLog::Enable _(antiGetEntryFilter);
+
+    for (uint64_t i = 0; i < 2 * objectManager.objectMap.getNumBuckets(); i++)
+        objectManager.tombstoneRemover->poll();
+    EXPECT_EQ("", TestLog::get());
+    {
+        ObjectManager::HashTableBucketLock lock(objectManager, key);
+        EXPECT_TRUE(objectManager.lookup(lock, key, type, buffer, 0, 0));
+    }
+
+    // now it should scan the whole thing
+    TestLog::reset();
+    EXPECT_EQ(0U, remover->currentBucket);
+    objectManager.replaySegmentReturnCount++;
+    for (uint64_t i = 0; i < objectManager.objectMap.getNumBuckets(); i++)
+        objectManager.tombstoneRemover->poll();
+    EXPECT_EQ("removeIfTombstone: discarding | "
+              "poll: Cleanup of tombstones completed pass 0", TestLog::get());
+    EXPECT_EQ(1U, remover->passes);
+    {
+        ObjectManager::HashTableBucketLock lock(objectManager, key);
+        EXPECT_FALSE(objectManager.lookup(lock, key, type, buffer, 0, 0));
+    }
+
+    // and it shouldn't run anymore...
+    TestLog::reset();
+    for (uint64_t i = 0; i < 2 * objectManager.objectMap.getNumBuckets(); i++)
+        objectManager.tombstoneRemover->poll();
+    EXPECT_EQ("", TestLog::get());
+}
+
+TEST_F(ObjectManagerTest, lookup_object) {
+    Key key(1, "1", 1);
+    Buffer buffer;
+    LogEntryType type;
+
+    {
+        ObjectManager::HashTableBucketLock lock(objectManager, key);
+        EXPECT_FALSE(objectManager.lookup(lock, key, type, buffer, 0, 0));
+    }
+
+    Log::Reference reference = storeObject(key, "value", 15);
+
+    {
+        ObjectManager::HashTableBucketLock lock(objectManager, key);
+        EXPECT_TRUE(objectManager.lookup(lock, key, type, buffer, 0, 0));
+    }
+    Object o(buffer);
+    EXPECT_EQ(LOG_ENTRY_TYPE_OBJ, type);
+    EXPECT_EQ("1", string(reinterpret_cast<const char*>(
+                   o.getKey()), 1));
+    const void *dataBlob = reinterpret_cast<const void *>(
+                            reinterpret_cast<const uint8_t*>(o.getValue()));
+    EXPECT_EQ("value", string(reinterpret_cast<const char*>(
+                   dataBlob), 5));
+
+    uint64_t v;
+    Log::Reference r;
+    ObjectManager::HashTableBucketLock lock(objectManager, key);
+    EXPECT_TRUE(objectManager.lookup(lock, key, type, buffer, &v, &r));
+    EXPECT_EQ(15U, v);
+    EXPECT_EQ(reference, r);
+}
+
+TEST_F(ObjectManagerTest, lookup_tombstone) {
+    Key key(1, "1", 1);
+    Buffer buffer;
+    LogEntryType type;
+
+    Log::Reference reference = storeTombstone(key, 15);
+
+    {
+        ObjectManager::HashTableBucketLock lock(objectManager, key);
+        EXPECT_TRUE(objectManager.lookup(lock, key, type, buffer, 0, 0));
+    }
+    ObjectTombstone t(buffer);
+    EXPECT_EQ(LOG_ENTRY_TYPE_OBJTOMB, type);
+    EXPECT_EQ("1", string(reinterpret_cast<const char*>(
+                   t.getKey()), 1));
+    EXPECT_EQ(15U, t.getObjectVersion());
+
+    uint64_t v;
+    Log::Reference r;
+    ObjectManager::HashTableBucketLock lock(objectManager, key);
+    EXPECT_TRUE(objectManager.lookup(lock, key, type, buffer, &v, &r));
+    EXPECT_EQ(15U, v);
+    EXPECT_EQ(reference, r);
+}
+
+TEST_F(ObjectManagerTest, remove) {
+    Key key(1, "1", 1);
+    Key key2(2, "2", 2);
+
+    {
+        ObjectManager::HashTableBucketLock lock(objectManager, key);
+        EXPECT_FALSE(objectManager.remove(lock, key));
+    }
+
+    storeObject(key, "value1", 15);
+    storeTombstone(key2, 827);
+
+    {
+        ObjectManager::HashTableBucketLock lock(objectManager, key);
+        EXPECT_TRUE(objectManager.remove(lock, key));
+        EXPECT_FALSE(objectManager.remove(lock, key));
+
+        EXPECT_TRUE(objectManager.remove(lock, key2));
+        EXPECT_FALSE(objectManager.remove(lock, key2));
+    }
+}
+
+static bool
+removeIfTombstoneFilter(string s)
+{
+    return s == "removeIfTombstone";
+}
+
+TEST_F(ObjectManagerTest, removeIfTombstone_nonTombstone) {
+    // 1. calling on a non-tombstone does nothing
+    TestLog::Enable _(removeIfTombstoneFilter);
+    Key key(1, "key!", 4);
+    Log::Reference reference = storeObject(key, "value!");
+    tabletManager.addTablet(1, 0, ~0UL, TabletManager::RECOVERING);
+    ObjectManager::CleanupParameters params = { &objectManager, 0 };
+    objectManager.removeIfTombstone(reference.toInteger(), &params);
+    EXPECT_EQ("", TestLog::get());
+}
+
+TEST_F(ObjectManagerTest, removeIfTombstone_recoveringTablet) {
+    // 2. calling on a tombstone with a RECOVERING tablet does nothing
+    TestLog::Enable _(removeIfTombstoneFilter);
+    Key key(1, "key!", 4);
+    Log::Reference reference = storeTombstone(key);
+    tabletManager.addTablet(1, 0, ~0UL, TabletManager::RECOVERING);
+    ObjectManager::CleanupParameters params = { &objectManager, 0 };
+    objectManager.removeIfTombstone(reference.toInteger(), &params);
+    EXPECT_EQ("", TestLog::get());
+}
+
+TEST_F(ObjectManagerTest, removeIfTombstone_nonRecoveringTablet) {
+    // 3. calling on a tombstone with a non-RECOVERING tablet discards
+    TestLog::Enable _(removeIfTombstoneFilter);
+    Key key(1, "key!", 4);
+    Log::Reference reference = storeTombstone(key);
+    tabletManager.addTablet(1, 0, ~0UL, TabletManager::NORMAL);
+    ObjectManager::CleanupParameters params = { &objectManager, 0 };
+    objectManager.removeIfTombstone(reference.toInteger(), &params);
+    EXPECT_EQ("removeIfTombstone: discarding", TestLog::get());
+}
+
+TEST_F(ObjectManagerTest, removeIfTombstone_noTablet) {
+    // 4. calling on a tombstone with no tablet discards
+    TestLog::Enable _(removeIfTombstoneFilter);
+    Key key(1, "key!", 4);
+    Log::Reference reference = storeTombstone(key);
+    ObjectManager::CleanupParameters params = { &objectManager, 0 };
+    objectManager.removeIfTombstone(reference.toInteger(), &params);
+    EXPECT_EQ("removeIfTombstone: discarding", TestLog::get());
+}
+
+TEST_F(ObjectManagerTest, removeTombstones) {
+    Key key(0, "key!", 4);
+    storeTombstone(key);
+
+    objectManager.removeTombstones();
+
+    {
+        ObjectManager::HashTableBucketLock lock(objectManager, key);
+        LogEntryType type;
+        Buffer buffer;
+        EXPECT_FALSE(objectManager.lookup(lock, key, type, buffer, 0, 0));
+    }
+}
+
 TEST_F(ObjectManagerTest, rejectOperation) {
     RejectRules empty, rules;
     memset(&empty, 0, sizeof(empty));
@@ -1434,86 +1623,6 @@ TEST_F(ObjectManagerTest, tombstoneRelocationCallback_cleanTombstone) {
               , verifyMetadata(0));
 }
 
-TEST_F(ObjectManagerTest, lookup_object) {
-    Key key(1, "1", 1);
-    Buffer buffer;
-    LogEntryType type;
-
-    {
-        ObjectManager::HashTableBucketLock lock(objectManager, key);
-        EXPECT_FALSE(objectManager.lookup(lock, key, type, buffer, 0, 0));
-    }
-
-    Log::Reference reference = storeObject(key, "value", 15);
-
-    {
-        ObjectManager::HashTableBucketLock lock(objectManager, key);
-        EXPECT_TRUE(objectManager.lookup(lock, key, type, buffer, 0, 0));
-    }
-    Object o(buffer);
-    EXPECT_EQ(LOG_ENTRY_TYPE_OBJ, type);
-    EXPECT_EQ("1", string(reinterpret_cast<const char*>(
-                   o.getKey()), 1));
-    const void *dataBlob = reinterpret_cast<const void *>(
-                            reinterpret_cast<const uint8_t*>(o.getValue()));
-    EXPECT_EQ("value", string(reinterpret_cast<const char*>(
-                   dataBlob), 5));
-
-    uint64_t v;
-    Log::Reference r;
-    ObjectManager::HashTableBucketLock lock(objectManager, key);
-    EXPECT_TRUE(objectManager.lookup(lock, key, type, buffer, &v, &r));
-    EXPECT_EQ(15U, v);
-    EXPECT_EQ(reference, r);
-}
-
-TEST_F(ObjectManagerTest, lookup_tombstone) {
-    Key key(1, "1", 1);
-    Buffer buffer;
-    LogEntryType type;
-
-    Log::Reference reference = storeTombstone(key, 15);
-
-    {
-        ObjectManager::HashTableBucketLock lock(objectManager, key);
-        EXPECT_TRUE(objectManager.lookup(lock, key, type, buffer, 0, 0));
-    }
-    ObjectTombstone t(buffer);
-    EXPECT_EQ(LOG_ENTRY_TYPE_OBJTOMB, type);
-    EXPECT_EQ("1", string(reinterpret_cast<const char*>(
-                   t.getKey()), 1));
-    EXPECT_EQ(15U, t.getObjectVersion());
-
-    uint64_t v;
-    Log::Reference r;
-    ObjectManager::HashTableBucketLock lock(objectManager, key);
-    EXPECT_TRUE(objectManager.lookup(lock, key, type, buffer, &v, &r));
-    EXPECT_EQ(15U, v);
-    EXPECT_EQ(reference, r);
-}
-
-TEST_F(ObjectManagerTest, remove) {
-    Key key(1, "1", 1);
-    Key key2(2, "2", 2);
-
-    {
-        ObjectManager::HashTableBucketLock lock(objectManager, key);
-        EXPECT_FALSE(objectManager.remove(lock, key));
-    }
-
-    storeObject(key, "value1", 15);
-    storeTombstone(key2, 827);
-
-    {
-        ObjectManager::HashTableBucketLock lock(objectManager, key);
-        EXPECT_TRUE(objectManager.remove(lock, key));
-        EXPECT_FALSE(objectManager.remove(lock, key));
-
-        EXPECT_TRUE(objectManager.remove(lock, key2));
-        EXPECT_FALSE(objectManager.remove(lock, key2));
-    }
-}
-
 TEST_F(ObjectManagerTest, replace_noPriorVersion) {
     Key key(1, "1", 1);
 
@@ -1548,115 +1657,6 @@ TEST_F(ObjectManagerTest, replace_priorVersion) {
     objectManager.objectMap.lookup(key.getHash(), c);
     EXPECT_FALSE(c.isDone());
     EXPECT_EQ(secondRef.toInteger(), c.getReference());
-}
-
-static bool
-removeIfTombstoneFilter(string s)
-{
-    return s == "removeIfTombstone";
-}
-
-TEST_F(ObjectManagerTest, removeIfTombstone_nonTombstone) {
-    // 1. calling on a non-tombstone does nothing
-    TestLog::Enable _(removeIfTombstoneFilter);
-    Key key(1, "key!", 4);
-    Log::Reference reference = storeObject(key, "value!");
-    tabletManager.addTablet(1, 0, ~0UL, TabletManager::RECOVERING);
-    ObjectManager::CleanupParameters params = { &objectManager, 0 };
-    objectManager.removeIfTombstone(reference.toInteger(), &params);
-    EXPECT_EQ("", TestLog::get());
-}
-
-TEST_F(ObjectManagerTest, removeIfTombstone_recoveringTablet) {
-    // 2. calling on a tombstone with a RECOVERING tablet does nothing
-    TestLog::Enable _(removeIfTombstoneFilter);
-    Key key(1, "key!", 4);
-    Log::Reference reference = storeTombstone(key);
-    tabletManager.addTablet(1, 0, ~0UL, TabletManager::RECOVERING);
-    ObjectManager::CleanupParameters params = { &objectManager, 0 };
-    objectManager.removeIfTombstone(reference.toInteger(), &params);
-    EXPECT_EQ("", TestLog::get());
-}
-
-TEST_F(ObjectManagerTest, removeIfTombstone_nonRecoveringTablet) {
-    // 3. calling on a tombstone with a non-RECOVERING tablet discards
-    TestLog::Enable _(removeIfTombstoneFilter);
-    Key key(1, "key!", 4);
-    Log::Reference reference = storeTombstone(key);
-    tabletManager.addTablet(1, 0, ~0UL, TabletManager::NORMAL);
-    ObjectManager::CleanupParameters params = { &objectManager, 0 };
-    objectManager.removeIfTombstone(reference.toInteger(), &params);
-    EXPECT_EQ("removeIfTombstone: discarding", TestLog::get());
-}
-
-TEST_F(ObjectManagerTest, removeIfTombstone_noTablet) {
-    // 4. calling on a tombstone with no tablet discards
-    TestLog::Enable _(removeIfTombstoneFilter);
-    Key key(1, "key!", 4);
-    Log::Reference reference = storeTombstone(key);
-    ObjectManager::CleanupParameters params = { &objectManager, 0 };
-    objectManager.removeIfTombstone(reference.toInteger(), &params);
-    EXPECT_EQ("removeIfTombstone: discarding", TestLog::get());
-}
-
-TEST_F(ObjectManagerTest, removeTombstones) {
-    Key key(0, "key!", 4);
-    storeTombstone(key);
-
-    objectManager.removeTombstones();
-
-    {
-        ObjectManager::HashTableBucketLock lock(objectManager, key);
-        LogEntryType type;
-        Buffer buffer;
-        EXPECT_FALSE(objectManager.lookup(lock, key, type, buffer, 0, 0));
-    }
-}
-
-TEST_F(ObjectManagerTest, RemoveTombstonePoller_poll) {
-    LogEntryType type;
-    Buffer buffer;
-
-    Key key(0, "key!", 4);
-    storeTombstone(key);
-
-    ObjectManager::RemoveTombstonePoller* remover =
-        objectManager.tombstoneRemover.get();
-
-    // poller should do nothing if it doesn't think there's work to do
-    EXPECT_EQ(0U, remover->currentBucket);
-    objectManager.tombstoneRemover->lastReplaySegmentCount =
-        objectManager.replaySegmentReturnCount = 0;
-
-    TestLog::Enable _(antiGetEntryFilter);
-
-    for (uint64_t i = 0; i < 2 * objectManager.objectMap.getNumBuckets(); i++)
-        objectManager.tombstoneRemover->poll();
-    EXPECT_EQ("", TestLog::get());
-    {
-        ObjectManager::HashTableBucketLock lock(objectManager, key);
-        EXPECT_TRUE(objectManager.lookup(lock, key, type, buffer, 0, 0));
-    }
-
-    // now it should scan the whole thing
-    TestLog::reset();
-    EXPECT_EQ(0U, remover->currentBucket);
-    objectManager.replaySegmentReturnCount++;
-    for (uint64_t i = 0; i < objectManager.objectMap.getNumBuckets(); i++)
-        objectManager.tombstoneRemover->poll();
-    EXPECT_EQ("removeIfTombstone: discarding | "
-              "poll: Cleanup of tombstones completed pass 0", TestLog::get());
-    EXPECT_EQ(1U, remover->passes);
-    {
-        ObjectManager::HashTableBucketLock lock(objectManager, key);
-        EXPECT_FALSE(objectManager.lookup(lock, key, type, buffer, 0, 0));
-    }
-
-    // and it shouldn't run anymore...
-    TestLog::reset();
-    for (uint64_t i = 0; i < 2 * objectManager.objectMap.getNumBuckets(); i++)
-        objectManager.tombstoneRemover->poll();
-    EXPECT_EQ("", TestLog::get());
 }
 
 }  // namespace RAMCloud
