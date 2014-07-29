@@ -21,6 +21,10 @@ import edu.stanford.ramcloud.*;
  * RAMCloudObject used for multi-read operations.
  */
 public class MultiRemoveObject extends MultiOpObject {
+    /**
+     * An object that stores data on the conditions under which this operation
+     * should abort.
+     */
     private RejectRules rejectRules;
     
     /**

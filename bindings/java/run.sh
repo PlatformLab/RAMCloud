@@ -6,4 +6,4 @@ if [ $# -ne 0 ]
 then
     STR="$@"
 fi
-java -Xmx1024M -Xms1024M -cp "bin:lib/*" -Djava.library.path=lib edu.stanford.ramcloud.TestClient $STR
+java -Xverify:none -Xmx1024M -Xms1024M -cp "bin:lib/*" -Djava.library.path=lib edu.stanford.ramcloud.TestClient $STR

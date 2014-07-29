@@ -43,6 +43,7 @@ public class TestClient {
         // Include a pause to add gdb if need to debug c++ code
         boolean debug = false;
         if (debug) {
+            System.out.print("Press [Enter] to continue:");
             Scanner scn = new Scanner(System.in);
             scn.nextLine();
         }
@@ -50,10 +51,15 @@ public class TestClient {
         ramcloud = new RAMCloud(argv[0]);
         // System.out.println("Created RamCloud object");
         tableId = ramcloud.createTable("hi");
-        
+
         // Run whatever here
+        // enumerationTest();
         // basicSpeedTest();
-        multiReadTest();
+        // multiReadTest();
+        for (int i = 0; i < 100; i++) {
+            multiWriteTest();
+        }
+        // multiRemoveTest();
         // test();
 
         ramcloud.dropTable("hi");
@@ -80,7 +86,51 @@ public class TestClient {
         long start = System.nanoTime();
         ramcloud.read(reads);
         long time = System.nanoTime() - start;
+
         System.out.println("Average multiread time per object: " + ((double) time / numTimes / 1000.0));
+    }
+
+    private void multiWriteTest() {
+        int numTimes = 5000;
+
+        MultiWriteObject[] writes = new MultiWriteObject[numTimes];
+        for (int i = 0; i < numTimes; i++) {
+            byte[] key = new byte[30];
+            for (int j = 0; j < 4; j++) {
+                key[j] = (byte) ((i >> (j * 8)) & 0xFF);
+            }
+            byte[] value = new byte[100];
+            writes[i] = new MultiWriteObject(tableId, key, value);
+        }
+        // System.out.println("filled table");
+
+        long start = System.nanoTime();
+        ramcloud.write(writes);
+        long time = System.nanoTime() - start;
+        
+        //System.out.printf("%d,%f\n", limit, ((double) time / numTimes / 1000.0));
+        System.out.println("Average multiwrite time per object: " + ((double) time / numTimes / 1000.0));
+    }
+
+    private void multiRemoveTest() {
+        int numTimes = 5000;
+
+        MultiRemoveObject[] removes = new MultiRemoveObject[numTimes];
+        for (int i = 0; i < numTimes; i++) {
+            byte[] key = new byte[30];
+            for (int j = 0; j < 4; j++) {
+                key[j] = (byte) ((i >> (j * 8)) & 0xFF);
+            }
+            byte[] value = new byte[100];
+            removes[i] = new MultiRemoveObject(tableId, key);
+        }
+        // System.out.println("filled table");
+
+        long start = System.nanoTime();
+        ramcloud.remove(removes);
+        long time = System.nanoTime() - start;
+        //System.out.printf("%d,%f\n", limit, ((double) time / numTimes / 1000.0));
+        System.out.println("Average multiremove time per object: " + ((double) time / numTimes / 1000.0));
     }
 
     private void test(){ 
@@ -102,14 +152,16 @@ public class TestClient {
         byte[] value = new byte[100];
         ramcloud.write(tableId, key, value, null);
         double[] times = new double[numTimes];
+        System.out.println("time");
         for (int i = 0; i < numTimes; i++) {
             before = System.nanoTime();
             RAMCloudObject unused = ramcloud.read(tableId, key);
             elapsed = System.nanoTime() - before;
             times[i] = elapsed / 1000.0;
+            // System.out.printf("%d,%f\n", i, times[i]);
         }
         Arrays.sort(times);
-        System.out.printf("Median Java read time: %.3f\n", times[numTimes / 2]);
+        // System.out.printf("Median Java read time: %.3f\n", times[numTimes / 2]);
           
         ramcloud.remove(tableId, key);
           
@@ -124,7 +176,7 @@ public class TestClient {
             ramcloud.remove(tableId, key);
         }
         Arrays.sort(times);
-        System.out.printf("Median Java write time: %.3f\n", times[numTimes / 2]);
+        // System.out.printf("Median Java write time: %.3f\n", times[numTimes / 2]);
     }
 
     private void basicTest() {
@@ -145,10 +197,11 @@ public class TestClient {
         int numTimes = 1000000;
         // Test Table Enumeration
 
+        MultiWriteObject[] writes = new MultiWriteObject[numTimes];
         for (int i = 0; i < numTimes; i++) {
-            ramcloud.write(tableId, "" + i, "" + i);
+            writes[i] = new MultiWriteObject(tableId, "" + i, "" + i);
         }
-        test(ramcloud.ramcloudObjectPointer, tableId);
+        ramcloud.write(writes);
 
         // System.out.println("filled table");
 
@@ -175,6 +228,6 @@ public class TestClient {
         System.out.println(String.format("%02X", array[array.length - 1]) + "]");
     }
 
-    public static native void test(long ramcloudObjectPointer, long arg);
+    public static native void test(long ramcloudClusterHandle, long arg);
 
 }

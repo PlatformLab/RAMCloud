@@ -21,6 +21,10 @@ import edu.stanford.ramcloud.*;
  * RAMCloudObject used for multi-read operations.
  */
 public class MultiWriteObject extends MultiOpObject {
+    /**
+     * An object that stores data on the conditions under which this operation
+     * should abort.
+     */
     private RejectRules rejectRules;
     
     /**
@@ -79,6 +83,15 @@ public class MultiWriteObject extends MultiOpObject {
      */
     public MultiWriteObject(long tableId, String key, byte[] value) {
         this(tableId, key.getBytes(), value, null);
+    }
+
+    /**
+     * Constructor for multi-write requests.
+     *
+     * @see #MultiWriteObject(long, byte[], byte[], edu.stanford.ramcloud.RejectRules)
+     */
+    public MultiWriteObject(long tableId, byte[] key, byte[] value) {
+        this(tableId, key, value, null);
     }
 
     /**

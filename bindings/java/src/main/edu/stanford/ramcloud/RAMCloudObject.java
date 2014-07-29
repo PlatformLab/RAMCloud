@@ -23,8 +23,17 @@ package edu.stanford.ramcloud;
  * passing in a fixed-length array would be problematic.
  */
 public class RAMCloudObject {
+    /**
+     * The key of this object as a byte array.
+     */
     private byte[] key;
+    /**
+     * The value of this object as a byte array.
+     */
     private byte[] value;
+    /**
+     * The version of this object, read from the server.
+     */
     private long version;
 
     /**
@@ -41,6 +50,12 @@ public class RAMCloudObject {
         this.key = key;
         this.value = value;
         this.version = version;
+    }
+
+    /**
+     * RAMCloudObject default contructor.
+     */
+    public RAMCloudObject() {
     }
 
     /**

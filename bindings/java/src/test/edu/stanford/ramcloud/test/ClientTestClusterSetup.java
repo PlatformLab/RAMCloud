@@ -17,6 +17,7 @@ package edu.stanford.ramcloud.test;
 
 import edu.stanford.ramcloud.*;
 
+import java.lang.reflect.*;
 import org.testng.annotations.*;
 
 /**
@@ -36,5 +37,31 @@ public class ClientTestClusterSetup {
     @AfterSuite
     public void cleanUpClient() {
         cluster.destroy();
+    }
+
+    /**
+     * Invoke the specified method on the target object through reflection.
+     *
+     * @param object
+     *      The object to invoke the method on.
+     * @param name
+     *      The name of the method to invoke.
+     * @oaran argClasses
+     *      The classes of the arguments to the method
+     * @param args
+     *      The arguments to invoke with.
+     * @return The result of the invoked method.
+     */
+    public static Object invoke(Object object, String name, Class[] argClasses,
+                                Object... args) {
+        Object out = null;
+        try {
+            Method method = object.getClass().getDeclaredMethod(name, argClasses);
+            method.setAccessible(true);
+            out = method.invoke(object, args);
+        } catch (Exception ex) {
+            ex.printStackTrace();
+        }
+        return out;
     }
 }

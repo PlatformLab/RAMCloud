@@ -50,11 +50,11 @@ public class TableIterator implements Iterator<RAMCloudObject> {
      * Creates a TableIterator for the given table. Meant only to be called
      * internally in the Java bindings.
      */
-    TableIterator(RAMCloud ramcloud, long tableId) {
+    TableIterator(RAMCloud ramcloud, long ramcloudClusterHandle, long tableId) {
         this.tableId = tableId;
         this.ramcloud = ramcloud;
         tableEnumeratorPointer = TableIterator.createTableEnumerator(
-                ramcloud.ramcloudObjectPointer,
+                ramcloudClusterHandle,
                 tableId);
     }
 
@@ -165,7 +165,7 @@ public class TableIterator implements Iterator<RAMCloudObject> {
     }
 
     // Documentation in C++ files
-    private static native long createTableEnumerator(long ramcloudObjectPointer,
+    private static native long createTableEnumerator(long ramcloudClusterHandle,
                                                      long tableId);
     private static native ByteBuffer getNextBatch(long tableEnumeratorPointer,
                                                   int[] status);

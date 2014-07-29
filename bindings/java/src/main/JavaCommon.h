@@ -21,10 +21,10 @@
 #ifndef RAMCLOUD_JAVACOMMON_H
 #define RAMCLOUD_JAVACOMMON_H
 
+#include "ByteBuffer.h"
+
 namespace RAMCloud {
-
-
-
+    
 /**
  * This macro is used to catch C++ exceptions and convert them into Java
  * exceptions. Be sure to wrap the individual RamCloud:: calls in try blocks,
@@ -37,11 +37,22 @@ namespace RAMCloud {
  * don't think anything else would make sense, but the JNI docs kind of
  * suck.
  */
-#define EXCEPTION_CATCHER(statusArray, _returnValue)                    \
+#define EXCEPTION_CATCHER(statusBuffer)                                 \
     catch (ClientException& e) {                                        \
-        env->SetIntArrayRegion(statusArray, 0, 1, reinterpret_cast<jint*>(&e.status)); \
-        return _returnValue;                                            \
+        statusBuffer.write(static_cast<uint32_t>(e.status));            \
+        return;                                                         \
+    }                                                                   \
+    statusBuffer.write<uint32_t>(0);
+
+// Time C++ blocks
+#define TIME_CPP false
+
+#define check_null(var, msg)                                            \
+    if (var == NULL) {                                                  \
+        throw Exception(HERE, "RAMCloud: NULL returned: " msg "\n");    \
     }
+
+#define bufferSize 2097152
     
 }
 

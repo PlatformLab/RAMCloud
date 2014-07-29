@@ -6,3 +6,5 @@ Use ./gradlew test to run the unit tests
 
 Java and C++ sources for the bindings are located in src/
 Java and C++ sources for the unit tests are located in testsrc/
+
+Javadoc is available at: https://ramcloud.stanford.edu/docs/javadoc/

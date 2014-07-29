@@ -17,6 +17,8 @@ package edu.stanford.ramcloud;
 import static edu.stanford.ramcloud.ClientException.*;
 import edu.stanford.ramcloud.multiop.*;
 
+import java.nio.*;
+
 /**
  * This class provides Java bindings for RAMCloud. Right now it is a rather
  * simple subset of what RamCloud.h defines.
@@ -32,11 +34,13 @@ import edu.stanford.ramcloud.multiop.*;
  *
  */
 public class RAMCloud {
-
     static {
         // Load C++ shared library for JNI
         System.loadLibrary("edu_stanford_ramcloud_RAMCloud");
     }
+
+    private static final int bufferCapacity = 1024 * 1024 * 2;
+    private static final byte[] defaultRejectRules = new byte[12];
 
     /**
      * Returns a byte array representing the given RejectRules value.
@@ -48,8 +52,9 @@ public class RAMCloud {
      */
     public static byte[] getRejectRulesBytes(RejectRules rules) {
         if (rules == null) {
-            return null;
+            return defaultRejectRules;
         }
+        
         // 8 bytes for verison number, 1 byte for each condition
         byte[] out = new byte[12];
         long version = rules.getGivenVersion();
@@ -62,13 +67,31 @@ public class RAMCloud {
         out[11] = (byte) (rules.rejectIfVersionNeGiven() ? 1 : 0);
         return out;
     }
-
-    // TODO: Make this private before commit
+    
     /**
      * Pointer to the underlying C++ RAMCloud object associated with this
      * object.
      */
-    public long ramcloudObjectPointer = 0;
+    private long ramcloudClusterHandle;
+    
+    /**
+     * A native ByteBuffer that acts as a shared memory region between Java and
+     * C++. This enables fast passing of arguments and return values for native
+     * calls.
+     */
+    private ByteBuffer byteBuffer;
+    
+    /**
+     * Pointer to the memory location that byteBuffer wraps.
+     */
+    private long byteBufferPointer;
+
+    /**
+     * Reuse existing MultiOpHandler objects to slightly increase performance.
+     */
+    private MultiReadHandler multiReadHandler;
+    private MultiWriteHandler multiWriteHandler;
+    private MultiRemoveHandler multiRemoveHandler;
 
     /**
      * Construct a RAMCloud for a particular cluster.
@@ -96,9 +119,18 @@ public class RAMCloud {
      *            when it started.
      */
     public RAMCloud(String locator, String clusterName) {
-        int[] status = new int[1];
-        ramcloudObjectPointer = cppConnect(locator, clusterName, status);
-        checkStatus(status[0]);
+        byteBuffer = ByteBuffer.allocateDirect(bufferCapacity);
+        byteBuffer.order(ByteOrder.LITTLE_ENDIAN);
+        byteBufferPointer = cppGetByteBufferPointer(byteBuffer);
+        byteBuffer.putInt(locator.length())
+                .put(locator.getBytes())
+                .put((byte) 0)
+                .put(clusterName.getBytes())
+                .put((byte) 0);
+        cppConnect(byteBufferPointer);
+        byteBuffer.rewind();
+        checkStatus(byteBuffer.getInt());
+        ramcloudClusterHandle = byteBuffer.getLong();
     }
 
     /**
@@ -112,10 +144,13 @@ public class RAMCloud {
     }
 
     /**
-     * Constructor for testing.
+     * Constructor for the unit tests.
      */
-    public RAMCloud(long ramcloudObjectPointer) {
-        this.ramcloudObjectPointer = ramcloudObjectPointer;
+    public RAMCloud(long ramcloudClusterHandle) {
+        byteBuffer = ByteBuffer.allocateDirect(bufferCapacity);
+        byteBuffer.order(ByteOrder.LITTLE_ENDIAN);
+        byteBufferPointer = cppGetByteBufferPointer(byteBuffer);
+        this.ramcloudClusterHandle = ramcloudClusterHandle;
     }
 
     /**
@@ -123,9 +158,9 @@ public class RAMCloud {
      * the underlying RAMCloud C++ object.
      */
     public void disconnect() {
-        if (ramcloudObjectPointer != 0) {
-            cppDisconnect(ramcloudObjectPointer);
-            ramcloudObjectPointer = 0;
+        if (ramcloudClusterHandle != 0) {
+            cppDisconnect(ramcloudClusterHandle);
+            ramcloudClusterHandle = 0;
         }
     }
 
@@ -184,16 +219,23 @@ public class RAMCloud {
      *         object.
      */
     public RAMCloudObject read(long tableId, byte[] key, RejectRules rules) {
-        byte[] ruleBytes = RAMCloud.getRejectRulesBytes(rules);
-        // The version number is stored in a long array because Java can't pass
-        // primitives by reference.
-        long[] version = new long[1];
-        int[] status = new int[1];
-        byte[] value = RAMCloud.cppRead(ramcloudObjectPointer, tableId, key,
-                ruleBytes, version, status);
-        RAMCloudObject obj = new RAMCloudObject(key, value, version[0]);
-        checkStatus(status[0]);
-        return obj;
+        byteBuffer.rewind();
+        // long time = System.nanoTime();
+        byteBuffer.putLong(ramcloudClusterHandle)
+                .putLong(tableId)
+                .putInt(key.length)
+                .put(key)
+                .put(getRejectRulesBytes(rules));
+        // long end = System.nanoTime() - time;
+        // System.out.printf("%f\n", ((double) (end) / 1000.0));
+        cppRead(byteBufferPointer);
+        byteBuffer.rewind();
+        ClientException.checkStatus(byteBuffer.getInt());
+        long version = byteBuffer.getLong();
+        int valueLength = byteBuffer.getInt();
+        byte[] value = new byte[valueLength];
+        byteBuffer.get(value);
+        return new RAMCloudObject(key, value, version);
     }
 
     /**
@@ -240,12 +282,18 @@ public class RAMCloud {
      * @return The version number of the object (just before deletion).
      */
     public long remove(long tableId, byte[] key, RejectRules rules) {
-        byte[] ruleBytes = RAMCloud.getRejectRulesBytes(rules);
-        int[] status = new int[1];
-        long out = RAMCloud.cppRemove(ramcloudObjectPointer, tableId, key,
-                ruleBytes, status);
-        checkStatus(status[0]);
-        return out;
+        byteBuffer.rewind();
+        byteBuffer.putLong(ramcloudClusterHandle)
+                .putLong(tableId)
+                .putInt(key.length)
+                .put(key)
+                .put(getRejectRulesBytes(rules));
+        RAMCloud.cppRemove(byteBufferPointer);
+        byteBuffer.rewind();
+        int status = byteBuffer.getInt();
+        checkStatus(status);
+        long version = byteBuffer.getLong();
+        return version;
     }
 
     /**
@@ -309,12 +357,19 @@ public class RAMCloud {
      *         current version of the object, or 0 if the object does not exist.
      */
     public long write(long tableId, byte[] key, byte[] value, RejectRules rules) {
-        byte[] ruleBytes = RAMCloud.getRejectRulesBytes(rules);
-        int[] status = new int[1];
-        long out = RAMCloud.cppWrite(ramcloudObjectPointer, tableId, key,
-                value, ruleBytes, status);
-        checkStatus(status[0]);
-        return out;
+        byteBuffer.rewind();
+        byteBuffer.putLong(ramcloudClusterHandle)
+                .putLong(tableId)
+                .putInt(key.length)
+                .put(key)
+                .putInt(value.length)
+                .put(value)
+                .put(getRejectRulesBytes(rules));
+        cppWrite(byteBufferPointer);
+        byteBuffer.rewind();
+        checkStatus(byteBuffer.getInt());
+        long version = byteBuffer.getLong();
+        return version;
     }
 
     /**
@@ -334,11 +389,16 @@ public class RAMCloud {
      *         involving the table.
      */
     public long createTable(String name, int serverSpan) {
-        int[] status = new int[1];
-        long out = RAMCloud.cppCreateTable(ramcloudObjectPointer, name,
-                serverSpan, status);
-        checkStatus(status[0]);
-        return out;
+        byteBuffer.rewind();
+        byteBuffer.putLong(ramcloudClusterHandle)
+                .putInt(serverSpan)
+                .put(name.getBytes())
+                .put((byte) 0);
+        RAMCloud.cppCreateTable(byteBufferPointer);
+        byteBuffer.rewind();
+        checkStatus(byteBuffer.getInt());
+        long tableId = byteBuffer.getLong();
+        return tableId;
     }
 
     /**
@@ -366,9 +426,13 @@ public class RAMCloud {
      *            Name of the table to delete.
      */
     public void dropTable(String name) {
-        int[] status = new int[1];
-        RAMCloud.cppDropTable(ramcloudObjectPointer, name, status);
-        checkStatus(status[0]);
+        byteBuffer.rewind();
+        byteBuffer.putLong(ramcloudClusterHandle)
+                .put(name.getBytes())
+                .put((byte) 0);
+        RAMCloud.cppDropTable(byteBufferPointer);
+        byteBuffer.rewind();
+        checkStatus(byteBuffer.getInt());
     }
 
     /**
@@ -382,10 +446,15 @@ public class RAMCloud {
      *         involving the table.
      */
     public long getTableId(String name) {
-        int[] status = new int[1];
-        long out = RAMCloud.cppGetTableId(ramcloudObjectPointer, name, status);
-        checkStatus(status[0]);
-        return out;
+        byteBuffer.rewind();
+        byteBuffer.putLong(ramcloudClusterHandle)
+                .put(name.getBytes())
+                .put((byte) 0);
+        RAMCloud.cppGetTableId(byteBufferPointer);
+        byteBuffer.rewind();
+        checkStatus(byteBuffer.getInt());
+        long tableId = byteBuffer.getLong();
+        return tableId;
     }
 
     /**
@@ -396,11 +465,11 @@ public class RAMCloud {
      * @return An Iterator that will enumerate the specified table's objects.
      */
     public TableIterator getTableIterator(long tableId) {
-        return new TableIterator(this, tableId);
+        return new TableIterator(this, ramcloudClusterHandle, tableId);
     }
 
     // Multi-ops
-
+    
     /**
      * Reads a large number of objects at once. Will result in worse performance
      * than a single read if used with very large objects (1 MB).
@@ -410,29 +479,12 @@ public class RAMCloud {
      *      stored in the MultiReadObjects, along with the status of each read.
      */
     public void read(MultiReadObject[] request) {
-        int totalLength = request.length;
-        // Maximum amount of operations to put in one batch
-        int limit = 10000;
-        for (int start = 0; start < totalLength; start += limit) {
-            int length = Math.min(totalLength - start, limit);
-            long[] tableIds = new long[length];
-            byte[][] objects = new byte[length * 2][];
-            for (int i = 0; i < length; i++) {
-                tableIds[i] = request[i + start].getTableId();
-                objects[i * 2] = request[i + start].getKeyBytes();
-            }
-            int[] statuses = new int[length];
-            RAMCloud.cppMultiRead(ramcloudObjectPointer,
-                                  tableIds,
-                                  objects,
-                                  statuses);
-            // Copy read results into input object array
-            for (int i = 0; i < length; i++) {
-                MultiReadObject object = request[i + start];
-                object.setValueBytes(objects[i * 2 + 1]);
-                object.setStatus(Status.statuses[statuses[i]]);
-            }
+        if (multiReadHandler == null) {
+            multiReadHandler = new MultiReadHandler(byteBuffer,
+                                                    byteBufferPointer,
+                                                    ramcloudClusterHandle);
         }
+        multiReadHandler.handle(request);
     }
     
     /**
@@ -444,33 +496,12 @@ public class RAMCloud {
      *      write.
      */
     public void write(MultiWriteObject[] data) {
-        int totalLength = data.length;
-        int limit = 10000;
-        for (int start = 0; start < totalLength; start += limit) {
-            int length = Math.min(totalLength - start, limit);
-            long[] tableIds = new long[length];
-            byte[][] objects = new byte[length * 3][];
-            for (int i = 0; i < length; i++) {
-                tableIds[i] = data[i + start].getTableId();
-                objects[i * 3] = data[i + start].getKeyBytes();
-                objects[i * 3 + 1] = data[i + start].getValueBytes();
-                objects[i * 3 + 2] = RAMCloud.getRejectRulesBytes(
-                    data[i + start].getRejectRules());
-            }
-            int[] statuses = new int[length];
-            long[] versions = new long[length];
-            RAMCloud.cppMultiWrite(ramcloudObjectPointer,
-                                   tableIds,
-                                   objects,
-                                   versions,
-                                   statuses);
-        
-            for (int i = 0; i < length; i++) {
-                MultiWriteObject object = data[i + start];
-                object.setVersion(versions[i]);
-                object.setStatus(Status.statuses[statuses[i]]);
-            }
+        if (multiWriteHandler == null) {
+            multiWriteHandler = new MultiWriteHandler(byteBuffer,
+                                                      byteBufferPointer,
+                                                      ramcloudClusterHandle);
         }
+        multiWriteHandler.handle(data);
     }
     
     /**
@@ -482,70 +513,34 @@ public class RAMCloud {
      *      status of each remove.
      */
     public void remove(MultiRemoveObject[] data) {
-        int totalLength = data.length;
-        int limit = 10000;
-        for (int start = 0; start < totalLength; start += limit) {
-            int length = Math.min(totalLength - start, limit);
-            long[] tableIds = new long[length];
-            byte[][] objects = new byte[length * 2][];
-            for (int i = 0; i < length; i++) {
-                tableIds[i] = data[i + start].getTableId();
-                objects[i * 2] = data[i + start].getKeyBytes();
-                objects[i * 2 + 1] = RAMCloud.getRejectRulesBytes(
-                    data[i + start].getRejectRules());
-            }
-            int[] statuses = new int[length];
-            long[] versions = new long[length];
-            RAMCloud.cppMultiRemove(ramcloudObjectPointer,
-                                   tableIds,
-                                   objects,
-                                   versions,
-                                   statuses);
-        
-            for (int i = 0; i < length; i++) {
-                MultiRemoveObject object = data[i + start];
-                object.setVersion(versions[i]);
-                object.setStatus(Status.statuses[statuses[i]]);
-            }
+        if (multiRemoveHandler == null) {
+            multiRemoveHandler = new MultiRemoveHandler(byteBuffer,
+                                                      byteBufferPointer,
+                                                      ramcloudClusterHandle);
         }
+        multiRemoveHandler.handle(data);
     }
 
-    // Documentation for native methods in c++ file
-    private static native long cppConnect(String locator, String clusterName,
-            int[] status);
+    // Declarations for native methods in c++ file
+    private static native long cppGetByteBufferPointer(ByteBuffer byteBuffer);
+    
+    private static native void cppConnect(long byteBufferPointer);
 
-    private static native void cppDisconnect(long ramcloudObjectPointer);
+    private static native void cppDisconnect(long byteBufferPointer);
 
-    private static native long cppCreateTable(long ramcloudObjectPointer,
-            String name, int serverSpan, int[] status);
+    private static native void cppCreateTable(long byteBufferPointer);
 
-    private static native void cppDropTable(long ramcloudObjectPointer,
-            String name, int[] status);
+    private static native void cppDropTable(long byteBufferPointer);
 
-    private static native long cppGetTableId(long ramcloudObjectPointer,
-            String name, int[] status);
+    private static native void cppGetTableId(long byteBufferPointer);
 
-    private static native byte[] cppRead(long ramcloudObjectPointer,
-            long tableId, byte[] key, byte[] rules, long[] version, int[] status);
+    private static native void cppRead(long byteBufferPointer);
 
-    private static native long cppRemove(long ramcloudObjectPointer,
-            long tableId, byte[] key, byte[] rules, int[] status);
+    private static native void cppRemove(long byteBufferPointer);
 
-    private static native long cppWrite(long ramcloudObjectPointer,
-            long tableId, byte[] key, byte[] value, byte[] rules, int[] status);
+    private static native void cppWrite(long byteBufferPointer);
 
-    private static native void cppMultiRead(long ramcloudObjectPointer,
-                                            long[] tableIds,
-                                            byte[][] objects,
-                                            int[] statuses);
-
-    private static native void cppMultiWrite(long ramcloudObjectPointer,
-                                             long[] tableIds,
-                                             byte[][] objects,
-                                             long[] versions,
-                                             int[] statuses);
-
-    private static native void cppMultiRemove(long ramcloudObjectPointer,
+    private static native void cppMultiRemove(long ramcloudClusterHandle,
                                               long[] tableIds,
                                               byte[][] objects,
                                               long[] versions,

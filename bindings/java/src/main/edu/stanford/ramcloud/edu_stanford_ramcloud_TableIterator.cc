@@ -28,7 +28,7 @@ using namespace RAMCloud;
  *      The calling JNI environment.
  * \param tableIterator
  *      The calling Java class.
- * \param ramcloudObjectPointer
+ * \param ramcloudClusterHandle
  *      A pointer to the RAMCloud object to construct the enumerator with.
  * \param tableId
  *      The ID of the table for the TableEnumerator to enumerate.
@@ -36,9 +36,9 @@ using namespace RAMCloud;
  */
 JNIEXPORT jlong
 JNICALL Java_edu_stanford_ramcloud_TableIterator_createTableEnumerator
-(JNIEnv *env, jclass tableIterator, jlong ramcloudObjectPointer, jlong tableId) {
+(JNIEnv *env, jclass tableIterator, jlong ramcloudClusterHandle, jlong tableId) {
     TableEnumerator* enumerator = new TableEnumerator(
-            *reinterpret_cast<RamCloud*>(ramcloudObjectPointer),
+            *reinterpret_cast<RamCloud*>(ramcloudClusterHandle),
             tableId,
             0);
     
@@ -68,7 +68,9 @@ JNICALL Java_edu_stanford_ramcloud_TableIterator_getNextBatch
     Buffer* buf = NULL;
     try {
         enumerator->nextObjectBlob(&buf);
-    } EXCEPTION_CATCHER(status, NULL)
+    } catch (ClientException &ex) {
+        
+    }
     if (buf == NULL) {
         return NULL;
     }

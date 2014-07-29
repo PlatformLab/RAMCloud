@@ -22,7 +22,13 @@ import edu.stanford.ramcloud.*;
  * the status of this operation.
  */
 public abstract class MultiOpObject extends RAMCloudObject {
+    /**
+     * The ID of the table that this operation should operate on.
+     */
     private long tableId;
+    /**
+     * The returned status code of this operation.
+     */
     private Status status;
 
     /**

@@ -6,3 +6,6 @@ nbproject/
 logs/
 .project
 manifest.mf
+*.class
+docs/
+include/

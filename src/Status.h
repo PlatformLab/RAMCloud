@@ -136,7 +136,7 @@ typedef enum Status {
     //   ClientException.java
     // * Add a case for the status of the exception to throw the exception in
     //   ClientException.java
-    // * Add the exception to the Status enum in ClientException.java, making
+    // * Add the exception to the Status enum in Status.java, making
     //   sure the status is in the correct position corresponding to its status
     //   code.
 } Status;

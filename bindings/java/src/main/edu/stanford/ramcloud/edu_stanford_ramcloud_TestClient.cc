@@ -26,7 +26,7 @@ using namespace RAMCloud;
  *      The calling JNI environment
  * \param jRamCloud
  *      The calling class
- * \param ramcloudObjectPointer
+ * \param ramcloudClusterHandle
  *      A pointer to the C++ RAMCloud object
  * \param arg
  *      An argument Java can pass in for C++ to do something with
@@ -34,10 +34,10 @@ using namespace RAMCloud;
 JNIEXPORT void
 JNICALL Java_edu_stanford_ramcloud_TestClient_test(JNIEnv *env,
                                                    jclass jRamCloud,
-                                                   jlong ramcloudObjectPointer,
+                                                   jlong ramcloudClusterHandle,
                                                    jlong arg) {
     uint32_t count(1000000);
-    RamCloud* ramcloud = reinterpret_cast<RamCloud*>(ramcloudObjectPointer);
+    RamCloud* ramcloud = reinterpret_cast<RamCloud*>(ramcloudClusterHandle);
     TableEnumerator enumerator(*ramcloud, arg, 0);
     uint64_t start = Cycles::rdtsc();
     uint32_t keyLength;
