@@ -174,7 +174,7 @@ def run_test(
         client_args['--numIndexlet'] = options.numIndexlet
     if options.numIndexes != None:
         client_args['--numIndexes'] = options.numIndexes
-    test.function(test.name, options, cluster_args, client_args)
+    test.function(test.name, options, cluster_args, client_args, options.master_args)
 
 #-------------------------------------------------------------------
 # Driver functions follow below.  These functions are responsible for
@@ -194,13 +194,14 @@ def default(
                                    # ClusterPerf (via cluster.run).
                                    # Individual tests can override as
                                    # needed for the test.
+        master_args='-d -t 10%'
         ):
     """
     This function is used as the invocation function for most tests;
     it simply invokes ClusterPerf via cluster.run and prints the result.
     """
     cluster.run(client='%s/ClusterPerf %s %s' %
-            (obj_path, flatten_args(client_args), name), **cluster_args)
+            (obj_path, flatten_args(client_args), name), master_args=master_args, **cluster_args)
     print(get_client_log(), end='')
 
 def broadcast(name, options, cluster_args, client_args):
