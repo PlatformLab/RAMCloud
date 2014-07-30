@@ -89,6 +89,113 @@ TableManager::Index::~Index()
 //////////////////////////////////////////////////////////////////////
 
 /**
+ * Create an index for table, if it doesn't already exist.
+ *
+ * \param tableId
+ *      Id of the table to which the index belongs.
+ * \param indexId
+ *      Id of the secondary key on which the index is being built.
+ * \param indexType
+ *      Type of the index.
+ * \param numIndexlets
+ *      Number of indexlets for the given index.
+ *
+ * \return
+ *      True if the index was successfully created or already existed.
+ *      False if cannot find the table for which the index is to be created.
+ */
+bool
+TableManager::createIndex(uint64_t tableId, uint8_t indexId, uint8_t indexType,
+        uint8_t numIndexlets)
+{
+    Lock lock(mutex);
+
+    IdMap::iterator it = idMap.find(tableId);
+    if (it == idMap.end()) {
+        RAMCLOUD_LOG(NOTICE, "Cannot find table '%lu'", tableId);
+        throw NoSuchTable(HERE);
+    }
+
+    Table* table = it->second;
+
+    // Search if the index already exists for the given table.
+    IndexMap::iterator iit = table->indexMap.find(indexId);
+    if (iit != table->indexMap.end()) {
+        RAMCLOUD_LOG(NOTICE, "Index %u for table '%lu' already exists",
+                     indexId, tableId);
+        return true;
+    }
+
+    LOG(NOTICE, "Creating index '%u' for table '%lu'", indexId, tableId);
+
+    // Create the backing tables for indexlets.
+    for (uint8_t i = 0; i < numIndexlets; i++) {
+        string indexTableName;
+        indexTableName.append(
+            format("__indexTable:%lu:%d:%d", tableId, indexId, i));
+        createTable(lock, indexTableName.c_str(), 1);
+    }
+
+    Index* index = new Index(tableId, indexId, indexType);
+    try {
+        for (uint8_t i = 0; i < numIndexlets; i++) {
+            string indexTableName;
+            indexTableName.append(
+                format("__indexTable:%lu:%d:%d", tableId, indexId, i));
+            Directory::iterator itd = directory.find(indexTableName);
+
+            if (itd == directory.end()) {
+                LOG(NOTICE, "Cannot find index table %s",
+                        indexTableName.c_str());
+                return false;
+            }
+            uint64_t indexletTableId = itd->second->id;
+
+            // Use the indexTable serverId to assign the indexlet.
+            Tablet* indexletTablet = findTablet(lock, itd->second, 0UL);
+
+            if ((indexletTablet->startKeyHash != 0UL)
+                 || (indexletTablet->endKeyHash != ~0UL))
+                throw NoSuchTablet(HERE);
+            tabletMaster = indexletTablet->serverId;
+
+            Indexlet *indexlet;
+            if (numIndexlets == 1) {
+                char firstKey = 0;
+                char firstNotOwnedKey = 127;
+                indexlet = new Indexlet(
+                            reinterpret_cast<void *>(&firstKey),
+                            1, reinterpret_cast<void *>(&firstNotOwnedKey),
+                            1, tabletMaster, indexletTableId,
+                            tableId, indexId);
+            } else {
+                // This case exists only for performance testing purposes, and
+                // it is not intended for actual use.
+                char firstKey = static_cast<char>('a'+i);
+                char firstNotOwnedKey = static_cast<char>('b'+i);
+                indexlet = new Indexlet(
+                            reinterpret_cast<void *>(&firstKey),
+                            1, reinterpret_cast<void *>(&firstNotOwnedKey),
+                            1, tabletMaster, indexletTableId,
+                            tableId, indexId);
+            }
+            index->indexlets.push_back(indexlet);
+
+            // Now we add tableIndexId<->indexlet into indexletTableMap.
+            indexletTableMap.insert(
+                std::make_pair(indexletTableId, indexlet));
+        }
+    } catch (...) {
+        delete index;
+        throw;
+    }
+
+    table->indexMap[indexId] = index;
+    notifyCreateIndex(lock, index);
+    return true;
+}
+
+/**
  * Create a table with the given name, if it doesn't already exist.
  *
  * \param name
@@ -105,178 +212,7 @@ uint64_t
 TableManager::createTable(const char* name, uint32_t serverSpan)
 {
     Lock lock(mutex);
-
-    // See if the desired table already exists.
-    Directory::iterator it = directory.find(name);
-    if (it != directory.end())
-        return it->second->id;
-    uint64_t tableId = nextTableId;
-
-    ++nextTableId;
-    LOG(NOTICE, "Creating table '%s' with id %lu", name, tableId);
-
-    if (serverSpan == 0)
-        serverSpan = 1;
-
-    // Each iteration through the following loop assigns one tablet
-    // for the table to a master.
-    Table* table = new Table(name, tableId);
-    try {
-        uint64_t tabletRange = 1 + ~0UL / serverSpan;
-        for (uint32_t i = 0; i < serverSpan; i++) {
-            uint64_t startKeyHash = i * tabletRange;
-            uint64_t endKeyHash = startKeyHash + tabletRange - 1;
-            if (i == (serverSpan - 1))
-                endKeyHash = ~0UL;
-
-            // Assigned this tablet to the next master in order from the
-            // server list.
-            tabletMaster = context->coordinatorServerList->nextServer(
-                    tabletMaster, {WireFormat::MASTER_SERVICE});
-            if (!tabletMaster.isValid()) {
-                // The server list contains no functioning masters! Ask the
-                // client to retry, and hope that eventually a master joins
-                // the cluster.
-                throw RetryException(HERE, 5000000, 10000000,
-                        "no masters in cluster");
-            }
-
-            // For a new table, set the "creation time" to the beginning of the
-            // log. Technically, this is supposed to be the current log head on
-            // the master, but retrieving that would require an extra RPC and
-            // using (0,0) is safe because we know this is a new table: there
-            // can't be any existing information for this table stored on the
-            // master.
-            Log::Position ctime(0, 0);
-            table->tablets.push_back(new Tablet(tableId, startKeyHash,
-                    endKeyHash, tabletMaster, Tablet::NORMAL, ctime));
-        }
-    }
-    catch (...) {
-        delete table;
-        throw;
-    }
-    directory[name] = table;
-    idMap[tableId] = table;
-
-    // Create a record in external storage.  If we crash, this will be used
-    // by the next coordinator (a) so that it knows about the existence of
-    // the table and (b) so it can finish notifying the masters chosen
-    // for the tablets, if we crash before we do it.
-    ProtoBuf::Table externalInfo;
-    serializeTable(lock, table, &externalInfo);
-    externalInfo.set_sequence_number(updateManager->nextSequenceNumber());
-    externalInfo.set_created(true);
-    syncTable(lock, table, &externalInfo);
-
-    // Now notify all the masters about their new table assignments.
-    notifyCreate(lock, table);
-    updateManager->updateFinished(externalInfo.sequence_number());
-    return table->id;
-}
-
-/**
- * Create an index for table, if it doesn't already exist.
- *
- * \param tableId
- *      Id of the table to which the index belongs
- * \param indexId
- *      Id of the secondary key on which the index is being built
- * \param indexType
- *      Type of the index.
- * \param numIndexlets
- *      Number of indexlets for the given index. Used to retrieve the indexlet
- *      table which are already initialized.
- *
- * \return
- *      True if the index was created.
- *      False if it already exist or cannot find the table.
- */
-bool
-TableManager::createIndex(uint64_t tableId, uint8_t indexId, uint8_t indexType,
-        uint8_t numIndexlets)
-{
-    Lock lock(mutex);
-
-    IdMap::iterator it = idMap.find(tableId);
-    if (it == idMap.end()) {
-        RAMCLOUD_LOG(NOTICE, "Cannot find table '%lu'", tableId);
-        throw NoSuchTable(HERE);
-    }
-
-    Table* table = it->second;
-
-    //search if the index already exists for the table
-    IndexMap::iterator iit = table->indexMap.find(indexId);
-    if (iit != table->indexMap.end()) {
-        RAMCLOUD_LOG(NOTICE, "Index %u already exists for table '%lu'",
-                     indexId, tableId);
-        return false;
-    }
-
-    LOG(NOTICE, "Creating table '%lu' index '%u'", tableId, indexId);
-    Index* index = new Index(tableId, indexId, indexType);
-
-    try{
-        for (uint8_t i = 0; i < numIndexlets; i++) {
-            string indexTableName;
-            indexTableName.append(
-                format("__indexTable:%lu:%d:%d", tableId, indexId, i));
-            Directory::iterator itd = directory.find(indexTableName);
-            assert(itd != directory.end());
-            uint64_t indexletTableId = itd->second->id;
-
-            //use the indexTable serverId to assign the indexlet
-            it = idMap.find(indexletTableId);
-            if (it == idMap.end()) {
-                LOG(NOTICE, "Cannot find index table '%lu'", indexletTableId);
-                return false;
-            }
-
-            Tablet* indexletTablet = findTablet(lock, it->second, 0UL);
-            if ((indexletTablet->startKeyHash != 0UL)
-                 || (indexletTablet->endKeyHash != ~0UL))
-                throw NoSuchTablet(HERE);
-            tabletMaster = indexletTablet->serverId;
-
-            if (!tabletMaster.isValid()) {
-                throw RetryException(HERE, 5000000, 10000000,
-                        "no masters in cluster");
-            }
-
-            Indexlet *indexlet;
-            if (numIndexlets == 1) {
-                char firstKey = 0;
-                char firstNotOwnedKey = 127;
-                indexlet = new Indexlet(
-                            reinterpret_cast<void *>(&firstKey),
-                            1, reinterpret_cast<void *>(&firstNotOwnedKey),
-                            1, tabletMaster, indexletTableId,
-                            tableId, indexId);
-            } else {
-                char firstKey = static_cast<char>('a'+i);
-                char firstNotOwnedKey = static_cast<char>('b'+i);
-                indexlet = new Indexlet(
-                            reinterpret_cast<void *>(&firstKey),
-                            1, reinterpret_cast<void *>(&firstNotOwnedKey),
-                            1, tabletMaster, indexletTableId,
-                            tableId, indexId);
-            }
-            index->indexlets.push_back(indexlet);
-
-            // Now we add tableIndexId<->indexlet into indexletTableMap
-            indexletTableMap.insert(
-                std::make_pair(indexletTableId, indexlet));
-        }
-    }
-    catch (...) {
-        delete index;
-        throw;
-    }
-
-    table->indexMap[indexId] = index;
-    notifyCreateIndex(lock, index);
-    return true;
+    return createTable(lock, name, serverSpan);
 }
 
 /**
@@ -335,56 +271,15 @@ TableManager::debugString(bool shortForm)
  * Delete the table with the given name. All existing data for the table will
  * be deleted, and the table's name will no longer exist in the directory
  * of tables.
- *
+ * 
  * \param name
  *      Name of the table that is to be dropped.
- * \return
- *      Returns pairs of indexlet and number of indexlets
- *      corresponding to the indexid for indexlet table cleanup
  */
-vector<pair<uint8_t, uint8_t>>
+void
 TableManager::dropTable(const char* name)
 {
     Lock lock(mutex);
-    vector<pair<uint8_t, uint8_t>> indexIndexlet;
-
-    // See if the desired table exists.
-    Directory::iterator it = directory.find(name);
-    if (it == directory.end())
-        return indexIndexlet;
-    Table* table = it->second;
-    LOG(NOTICE, "Dropping table '%s' with id %lu", name, table->id);
-
-    // Record our intention to delete this table.
-    ProtoBuf::Table externalInfo;
-    serializeTable(lock, table, &externalInfo);
-    externalInfo.set_sequence_number(updateManager->nextSequenceNumber());
-    externalInfo.set_deleted(true);
-    syncTable(lock, table, &externalInfo);
-
-    //Drop all indexes
-    IndexMap::const_iterator iit = table->indexMap.begin();
-    while (iit != table->indexMap.end()) {
-        Index* index = iit->second;
-        uint8_t numIndexlets = (uint8_t)index->indexlets.size();
-        indexIndexlet.push_back(std::make_pair(
-                        (uint8_t)index->indexId, numIndexlets));
-
-        LOG(NOTICE, "Dropping table '%lu' index '%u'", table->id,
-                                                index->indexId);
-        table->indexMap.erase(iit++);
-        notifyDropIndex(lock, index);
-        delete index;
-    }
-
-    // Delete the table and notify the masters storing its tablets.
-    directory.erase(it);
-    idMap.erase(table->id);
-    delete table;
-    notifyDropTable(lock, &externalInfo);
-    updateManager->updateFinished(externalInfo.sequence_number());
-
-    return indexIndexlet;
+    dropTable(lock, name);
 }
 
 /**
@@ -395,42 +290,12 @@ TableManager::dropTable(const char* name)
  *      Id of the table to which the index belongs
  * \param indexId
  *      Id of the secondary key on which the index is being built
- * \return
- *      Returns the number of indexlets which exist corresponding to the
- *      dropped index. If index or table doesn't exist, return 0.
  */
-uint8_t
+void
 TableManager::dropIndex(uint64_t tableId, uint8_t indexId)
 {
     Lock lock(mutex);
-
-    IdMap::iterator it = idMap.find(tableId);
-    if (it == idMap.end()) {
-        RAMCLOUD_LOG(NOTICE, "Cannot find table '%lu'", tableId);
-        return 0;
-    }
-    Table* table = it->second;
-
-
-    IndexMap::iterator iit = table->indexMap.find(indexId);
-    if (iit == table->indexMap.end()) {
-        RAMCLOUD_LOG(NOTICE, "Cannot find index '%u' for table '%lu'",
-                    indexId, tableId);
-        return 0;
-    }
-
-    Index* index = table->indexMap[indexId];
-    foreach (Indexlet* indexlet, index->indexlets) {
-        indexletTableMap.erase(indexlet->indexletTableId);
-    }
-
-    uint8_t numIndexlets = (uint8_t)index->indexlets.size();
-
-    LOG(NOTICE, "Dropping table '%lu' index '%u'", tableId, indexId);
-    table->indexMap.erase(indexId);
-    notifyDropIndex(lock, index);
-    delete index;
-    return numIndexlets;
+    dropIndex(lock, tableId, indexId);
 }
 
 /**
@@ -812,7 +677,9 @@ TableManager::serializeTableConfig(ProtoBuf::TableConfig* tableConfig,
     for (IndexMap::const_iterator iit = table->indexMap.begin();
             iit != table->indexMap.end(); ++iit) {
         Index* index = iit->second;
-        if (index == NULL) continue;
+        if (index == NULL)
+            continue;
+
         ProtoBuf::TableConfig::Index& index_entry(*tableConfig->add_index());
         index_entry.set_index_id(index->indexId);
         index_entry.set_index_type(index->indexType);
@@ -820,11 +687,11 @@ TableManager::serializeTableConfig(ProtoBuf::TableConfig* tableConfig,
         // filling indexlets
         foreach (Indexlet* indexlet, index->indexlets) {
             ProtoBuf::TableConfig::Index::Indexlet&
-                                        entry(*index_entry.add_indexlet());
+                   entry(*index_entry.add_indexlet());
             if (indexlet->firstKey != NULL) {
                 entry.set_start_key(string(
-                                    reinterpret_cast<char*>(indexlet->firstKey),
-                                    indexlet->firstKeyLength));
+                        reinterpret_cast<char*>(indexlet->firstKey),
+                        indexlet->firstKeyLength));
             } else {
                 entry.set_start_key("");
             }
@@ -843,7 +710,7 @@ TableManager::serializeTableConfig(ProtoBuf::TableConfig* tableConfig,
                         indexlet->serverId);
                 entry.set_service_locator(locator);
             } catch (const ServerListException& e) {
-                RAMCLOUD_LOG(ERROR, "Server id (%s) in index map no longer in "
+                RAMCLOUD_LOG(NOTICE, "Server id (%s) in index map no longer in "
                     "server list; omitting locator for entry",
                     indexlet->serverId.toString().c_str());
             }
@@ -1005,6 +872,203 @@ TableManager::tabletRecovered(
 }
 
 /**
+ * Create a table with the given name, if it doesn't already exist.
+ *
+ * \param lock
+ *      Ensures that the caller holds the monitor lock; not actually used.
+ * \param name
+ *      Name for the table to be created.
+ * \param serverSpan
+ *      Number of servers across which this table should be split during
+ *      creation.
+ *
+ * \return
+ *      Table id of the new table. If a table already exists with the
+ *      given name, then its id is returned.
+ */
+uint64_t
+TableManager::createTable(const Lock& lock, const char* name,
+        uint32_t serverSpan)
+{
+    // See if the desired table already exists.
+    Directory::iterator it = directory.find(name);
+    if (it != directory.end())
+        return it->second->id;
+    uint64_t tableId = nextTableId;
+
+    ++nextTableId;
+    LOG(NOTICE, "Creating table '%s' with id %lu", name, tableId);
+
+    if (serverSpan == 0)
+        serverSpan = 1;
+
+    // Each iteration through the following loop assigns one tablet
+    // for the table to a master.
+    Table* table = new Table(name, tableId);
+    try {
+        uint64_t tabletRange = 1 + ~0UL / serverSpan;
+        for (uint32_t i = 0; i < serverSpan; i++) {
+            uint64_t startKeyHash = i * tabletRange;
+            uint64_t endKeyHash = startKeyHash + tabletRange - 1;
+            if (i == (serverSpan - 1))
+                endKeyHash = ~0UL;
+
+            // Assigned this tablet to the next master in order from the
+            // server list.
+            tabletMaster = context->coordinatorServerList->nextServer(
+                    tabletMaster, {WireFormat::MASTER_SERVICE});
+            if (!tabletMaster.isValid()) {
+                // The server list contains no functioning masters! Ask the
+                // client to retry, and hope that eventually a master joins
+                // the cluster.
+                throw RetryException(HERE, 5000000, 10000000,
+                        "no masters in cluster");
+            }
+
+            // For a new table, set the "creation time" to the beginning of the
+            // log. Technically, this is supposed to be the current log head on
+            // the master, but retrieving that would require an extra RPC and
+            // using (0,0) is safe because we know this is a new table: there
+            // can't be any existing information for this table stored on the
+            // master.
+            Log::Position ctime(0, 0);
+            table->tablets.push_back(new Tablet(tableId, startKeyHash,
+                    endKeyHash, tabletMaster, Tablet::NORMAL, ctime));
+        }
+    }
+    catch (...) {
+        delete table;
+        throw;
+    }
+    directory[name] = table;
+    idMap[tableId] = table;
+
+    // Create a record in external storage.  If we crash, this will be used
+    // by the next coordinator (a) so that it knows about the existence of
+    // the table and (b) so it can finish notifying the masters chosen
+    // for the tablets, if we crash before we do it.
+    ProtoBuf::Table externalInfo;
+    serializeTable(lock, table, &externalInfo);
+    externalInfo.set_sequence_number(updateManager->nextSequenceNumber());
+    externalInfo.set_created(true);
+    syncTable(lock, table, &externalInfo);
+
+    // Now notify all the masters about their new table assignments.
+    notifyCreate(lock, table);
+    updateManager->updateFinished(externalInfo.sequence_number());
+    return table->id;
+}
+
+/**
+ * All existing index data for the index will be deleted, but key values will
+ * remain in objects of the table.
+ *
+ * \param lock
+ *      Ensures that the caller holds the monitor lock; not actually used.
+ * \param tableId
+ *      Id of the table to which the index belongs
+ * \param indexId
+ *      Id of the secondary key on which the index is being built
+ * \return
+ *      Returns the number of indexlets which exist corresponding to the
+ *      dropped index. If index or table doesn't exist, return 0.
+ */
+void
+TableManager::dropIndex(const Lock& lock, uint64_t tableId, uint8_t indexId)
+{
+    IdMap::iterator it = idMap.find(tableId);
+    if (it == idMap.end()) {
+        RAMCLOUD_LOG(NOTICE, "Cannot find table '%lu'", tableId);
+        return;
+    }
+    Table* table = it->second;
+
+    IndexMap::iterator iit = table->indexMap.find(indexId);
+    if (iit == table->indexMap.end()) {
+        RAMCLOUD_LOG(NOTICE, "Cannot find index '%u' for table '%lu'",
+                    indexId, tableId);
+        return;
+    }
+
+    Index* index = table->indexMap[indexId];
+    foreach (Indexlet* indexlet, index->indexlets) {
+        indexletTableMap.erase(indexlet->indexletTableId);
+    }
+
+    uint8_t numIndexlets = (uint8_t)index->indexlets.size();
+
+    LOG(NOTICE, "Dropping index '%u' from table '%lu'", indexId, tableId);
+    table->indexMap.erase(indexId);
+    notifyDropIndex(lock, index);
+    delete index;
+
+    for (uint8_t i = 0; i < numIndexlets; i++) {
+        string indexTableName;
+        indexTableName.append(
+            format("__indexTable:%lu:%d:%d", tableId, indexId, i));
+        dropTable(lock, indexTableName.c_str());
+    }
+}
+
+/**
+ * Delete the table with the given name. All existing data for the table will
+ * be deleted, and the table's name will no longer exist in the directory
+ * of tables.
+ * 
+ * \param lock
+ *      Ensures that the caller holds the monitor lock; not actually used.
+ * \param name
+ *      Name of the table that is to be dropped.
+ */
+void
+TableManager::dropTable(const Lock& lock, const char* name)
+{
+    // See if the desired table exists.
+    Directory::iterator it = directory.find(name);
+    if (it == directory.end())
+        return;
+
+    Table* table = it->second;
+    LOG(NOTICE, "Dropping table '%s' with id %lu", name, table->id);
+
+    // Record our intention to delete this table.
+    ProtoBuf::Table externalInfo;
+    serializeTable(lock, table, &externalInfo);
+    externalInfo.set_sequence_number(updateManager->nextSequenceNumber());
+    externalInfo.set_deleted(true);
+    syncTable(lock, table, &externalInfo);
+
+    // Drop all indexes and the backing tables for all indexlets corresponding
+    // to each index.
+    IndexMap::const_iterator iit = table->indexMap.begin();
+    while (iit != table->indexMap.end()) {
+        Index* index = iit->second;
+        uint8_t numIndexlets = (uint8_t)index->indexlets.size();
+        uint8_t indexId = index->indexId;
+
+        LOG(NOTICE, "Dropping index '%u' from table '%lu' ",
+                indexId, table->id);
+        table->indexMap.erase(iit++);
+        notifyDropIndex(lock, index);
+        delete index;
+
+        for (uint8_t i = 0; i < numIndexlets; i++) {
+            string indexTableName;
+            indexTableName.append(
+                format("__indexTable:%lu:%d:%d", table->id, indexId, i));
+            dropTable(lock, indexTableName.c_str());
+        }
+    }
+
+    // Delete the table and notify the masters storing its tablets.
+    directory.erase(it);
+    idMap.erase(table->id);
+    delete table;
+    notifyDropTable(lock, &externalInfo);
+    updateManager->updateFinished(externalInfo.sequence_number());
+}
+
+/**
  * Find the tablet containing a particular key hash.
  *
  * \param lock
@@ -1089,8 +1153,8 @@ TableManager::notifyCreateIndex(const Lock& lock, Index* index)
                 indexlet->firstKey, indexlet->firstKeyLength,
                 indexlet->firstNotOwnedKey, indexlet->firstNotOwnedKeyLength);
         } catch (ServerNotUpException& e) {
-            LOG(NOTICE, "takeIndexletOwnership skipped for master %s (table %lu"
-            ", index %u) because server isn't running",
+            LOG(NOTICE, "takeIndexletOwnership skipped for master %s "
+                    "(table %lu, index %u) because server isn't running",
                     indexlet->serverId.toString().c_str(),
                     index->tableId, index->indexId);
         }

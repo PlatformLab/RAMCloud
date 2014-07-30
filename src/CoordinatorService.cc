@@ -255,21 +255,7 @@ CoordinatorService::dropTable(const WireFormat::DropTable::Request* reqHdr,
 {
     const char* name = getString(rpc->requestPayload, sizeof(*reqHdr),
                                  reqHdr->nameLength);
-    uint64_t tableId = tableManager.getTableId(name);
-    vector<pair<uint8_t, uint8_t>> indexIndexlet = tableManager.dropTable(name);
-
-    // dropping the indexlet tables for all indexes
-    for (auto it = indexIndexlet.begin(); it != indexIndexlet.end(); ++it)
-    {
-        uint8_t indexId = (*it).first;
-        uint8_t numIndexlets = (*it).second;
-        for (uint8_t i = 0; i < numIndexlets; i++) {
-            string indexTableName;
-            indexTableName.append(
-                format("__indexTable:%lu:%d:%d", tableId, indexId, i));
-            tableManager.dropTable(indexTableName.c_str());
-        }
-    }
+    tableManager.dropTable(name);
 }
 
 /**
@@ -281,20 +267,8 @@ CoordinatorService::createIndex(const WireFormat::CreateIndex::Request* reqHdr,
                                 WireFormat::CreateIndex::Response* respHdr,
                                 Rpc* rpc)
 {
-    uint64_t tableId = reqHdr->tableId;
-    uint8_t indexId = reqHdr->indexId;
-    uint8_t indexType = reqHdr->indexType;
-    uint8_t numIndexlets = reqHdr->numIndexlets;
-
-    // creating the indexlet tables
-    for (uint8_t i = 0; i < numIndexlets; i++) {
-        string indexTableName;
-        indexTableName.append(
-            format("__indexTable:%lu:%d:%d", tableId, indexId, i));
-        tableManager.createTable(indexTableName.c_str(), 1);
-    }
-
-    tableManager.createIndex(tableId, indexId, indexType, numIndexlets);
+    tableManager.createIndex(reqHdr->tableId, reqHdr->indexId,
+            reqHdr->indexType, reqHdr->numIndexlets);
 }
 
 /**
@@ -306,18 +280,7 @@ CoordinatorService::dropIndex(const WireFormat::DropIndex::Request* reqHdr,
                               WireFormat::DropIndex::Response* respHdr,
                               Rpc* rpc)
 {
-    uint64_t tableId = reqHdr->tableId;
-    uint8_t indexId = reqHdr->indexId;
-
-    uint8_t numIndexlets = tableManager.dropIndex(tableId, indexId);
-
-    // dropping the indexlet tables
-    for (uint8_t i = 0; i < numIndexlets; i++) {
-        string indexTableName;
-        indexTableName.append(
-            format("__indexTable:%lu:%d:%d", tableId, indexId, i));
-        tableManager.dropTable(indexTableName.c_str());
-    }
+    tableManager.dropIndex(reqHdr->tableId, reqHdr->indexId);
 }
 
 /**

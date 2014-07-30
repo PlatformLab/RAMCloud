@@ -134,7 +134,7 @@ TEST_F(RamCloudTest, createIndex) {
     EXPECT_EQ("createIndex: Cannot find table '10'", TestLog::get());
     TestLog::reset();
     ramcloud->createIndex(tableId1, 1, 0);
-    EXPECT_EQ("createIndex: Creating table '1' index '1'", TestLog::get());
+    EXPECT_EQ("createIndex: Creating index '1' for table '1'", TestLog::get());
 }
 
 TEST_F(RamCloudTest, dropIndex) {
@@ -147,7 +147,7 @@ TEST_F(RamCloudTest, dropIndex) {
     EXPECT_EQ("dropIndex: Cannot find index '2' for table '1'", TestLog::get());
     TestLog::reset();
     ramcloud->dropIndex(tableId1, 1);
-    EXPECT_EQ("dropIndex: Dropping table '1' index '1'", TestLog::get());
+    EXPECT_EQ("dropIndex: Dropping index '1' from table '1'", TestLog::get());
 }
 
 TEST_F(RamCloudTest, concurrentAsyncRpc) {
@@ -429,7 +429,7 @@ TEST_F(RamCloudTest, indexServerControl) {
     Buffer output;
     TestLog::Enable _("createIndex");
     ramcloud->createIndex(tableId1, 2, 0);
-    EXPECT_EQ("createIndex: Creating table '1' index '2'", TestLog::get());
+    EXPECT_EQ("createIndex: Creating index '2' for table '1'", TestLog::get());
     ramcloud->indexServerControl(tableId1, 2, "0", 1,
             WireFormat::GET_TIME_TRACE, "abc", 3, &output);
     EXPECT_EQ("No time trace events to print", TestUtil::toString(&output));

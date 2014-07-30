@@ -994,7 +994,7 @@ TEST_F(MasterServiceTest, multiWrite_malformedRequests) {
     // sanity check: should work with 10 bytes of key and 10 of value
     Key key(0, "tenchars!!", 10);
     Object::appendKeysAndValueToBuffer(key, "tenmorechars", 10,
-                                       requestPayload);
+                                       &requestPayload);
     respHdr.common.status = STATUS_OK;
     service->multiWrite(&reqHdr, &respHdr, &rpc);
     EXPECT_EQ(STATUS_OK, respHdr.common.status);
@@ -1531,7 +1531,7 @@ TEST_F(MasterServiceTest, requestInsertIndexEntries_basics) {
 
     Buffer keysAndValBuffer;
     Object::appendKeysAndValueToBuffer(tableId, numKeys, keyList,
-                                       "value", 5, keysAndValBuffer);
+                                       "value", 5, &keysAndValBuffer);
     Object obj(tableId, 1, 0, keysAndValBuffer);
     Key key(tableId, keyList[0].key, keyList[0].keyLength);
 
@@ -1576,7 +1576,7 @@ TEST_F(MasterServiceTest, requestRemoveIndexEntries_basics) {
 
     Buffer keysAndValBuffer;
     Object::appendKeysAndValueToBuffer(tableId, numKeys, keyList,
-                                       "value", 5, keysAndValBuffer);
+                                       "value", 5, &keysAndValBuffer);
     Object obj(tableId, 0, 0, keysAndValBuffer);
     Buffer objBuffer;
     obj.assembleForLog(objBuffer);

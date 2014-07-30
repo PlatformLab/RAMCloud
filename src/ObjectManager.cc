@@ -316,7 +316,7 @@ ObjectManager::readObject(Key& key, Buffer* outBuffer,
     if (valueOnly) {
         uint16_t valueOffset = 0;
         object.getValueOffset(&valueOffset);
-        object.appendValueToBuffer(*outBuffer, valueOffset);
+        object.appendValueToBuffer(outBuffer, valueOffset);
     } else {
         object.appendKeysAndValueToBuffer(*outBuffer);
     }
@@ -1238,12 +1238,12 @@ ObjectManager::prepareForLog(Object& newObject, Buffer *logBuffer,
  * into a buffer based on the primary key of the object.
  *
  * \param key
- *      Key of the object for which a tombstone needs to be written
+ *      Key of the object for which a tombstone needs to be written.
  * \param [out] logBuffer
- *      Buffer that will contain the newly written tombstone entry
+ *      Buffer that will contain the newly written tombstone entry.
  * \return
  *      the status of the operation. If the tablet is in the NORMAL
- *      state, it returns STATUS_OK
+ *      state, it returns STATUS_OK.
  */
 Status
 ObjectManager::writeTombstone(Key& key, Buffer *logBuffer)

@@ -262,7 +262,7 @@ RamCloud::createIndex(uint64_t tableId, uint8_t indexId, uint8_t indexType,
  * \param ramcloud
  *      The RAMCloud object that governs this RPC.
  * \param tableId
- *      Id of the table to which the index belongs
+ *      Id of the table to which the index belongs.
  * \param indexId
  *      Id of the secondary keys corresponding to this index.
  *      Must be greater than 0. Id 0 is reserved for "primary key".
@@ -2668,7 +2668,7 @@ WriteRpc::WriteRpc(RamCloud* ramcloud, uint64_t tableId,
 
     Key primaryKey(tableId, key, currentKeyLength);
     Object::appendKeysAndValueToBuffer(primaryKey, buf, length,
-                                       request, &totalLength);
+                                       &request, &totalLength);
 
     reqHdr->rejectRules = rejectRules ? *rejectRules : defaultRejectRules;
     reqHdr->async = async;
@@ -2721,7 +2721,7 @@ WriteRpc::WriteRpc(RamCloud* ramcloud, uint64_t tableId,
     // invoke the Object constructor and append keysAndValue to the
     // request buffer
     Object::appendKeysAndValueToBuffer(tableId, numKeys, keyList,
-                    buf, length, request, &totalLength);
+                    buf, length, &request, &totalLength);
     reqHdr->rejectRules = rejectRules ? *rejectRules : defaultRejectRules;
     reqHdr->async = async;
     reqHdr->length = totalLength;

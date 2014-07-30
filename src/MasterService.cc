@@ -487,7 +487,7 @@ MasterService::fillWithTestData(
                 downCast<uint16_t>(keyString.length()));
 
         Object::appendKeysAndValueToBuffer(key, data, reqHdr->objectSize,
-                                           buffer);
+                                           &buffer);
 
         uint64_t newVersion;
         Object object(tablets[t].tableId, 0, 0, buffer);
@@ -554,7 +554,7 @@ MasterService::increment(const WireFormat::Increment::Request* reqHdr,
 
     // create object to populate newValueBuffer.
     Object::appendKeysAndValueToBuffer(key, &newValue, sizeof(int64_t),
-                                       newValueBuffer);
+                                       &newValueBuffer);
 
     Object newObject(reqHdr->tableId, 0, 0, newValueBuffer);
     *status = objectManager.writeObject(newObject, &rejectRules,

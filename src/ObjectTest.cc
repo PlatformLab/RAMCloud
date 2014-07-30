@@ -450,19 +450,16 @@ TEST_F(ObjectTest, assembleForLog_contigMemory) {
     const KeyCount numKeys= *(target + sizeof32(*header));
     EXPECT_EQ(1U, numKeys);
 
-    const CumulativeKeyLength cumulativeKeyLengthOne = *(target +
-                                                       sizeof(*header) +
-                                                       sizeof(KeyCount));
+    const CumulativeKeyLength cumulativeKeyLengthOne =
+            *(target + sizeof(*header) + sizeof(KeyCount));
 
     EXPECT_EQ(3U, cumulativeKeyLengthOne);
     EXPECT_EQ("ha", string(reinterpret_cast<const char *>(target +
-                                                          sizeof32(*header)
-                                                          + 3)));
+                sizeof32(*header) + 3)));
 
     const void* data = target +sizeof(*header) + sizeof(KeyCount) +
                        sizeof(CumulativeKeyLength) + 3;
-    EXPECT_EQ("YO!", string(reinterpret_cast<const char*>(
-                         data)));
+    EXPECT_EQ("YO!", string(reinterpret_cast<const char*>(data)));
 
 }
 
@@ -474,7 +471,7 @@ TEST_F(ObjectTest, appendValueToBuffer) {
         object.getValueOffset(&valueOffset);
         EXPECT_EQ(16U, valueOffset);
 
-        object.appendValueToBuffer(buffer, valueOffset);
+        object.appendValueToBuffer(&buffer, valueOffset);
         EXPECT_EQ(4U, buffer.size());
         EXPECT_EQ("YO!", string(reinterpret_cast<const char*>(
                         buffer.getRange(0, 4))));
@@ -491,17 +488,14 @@ TEST_F(ObjectTest, appendKeysAndValueToBuffer) {
         const KeyCount numKeys= *buffer.getOffset<KeyCount>(0);
         EXPECT_EQ(3U, numKeys);
 
-        const CumulativeKeyLength cumulativeKeyLengthOne = *buffer.getOffset<
-                                                    CumulativeKeyLength>(
-                                                    sizeof(KeyCount));
-        const CumulativeKeyLength cumulativeKeyLengthTwo = *buffer.getOffset<
-                                                    CumulativeKeyLength>(
-                                                    sizeof(KeyCount) + sizeof(
-                                                    CumulativeKeyLength));
-        const CumulativeKeyLength cumulativeKeyLengthThree = *buffer.getOffset<
-                                                    CumulativeKeyLength>(
-                                                    sizeof(KeyCount) + 2*sizeof(
-                                                    CumulativeKeyLength));
+        const CumulativeKeyLength cumulativeKeyLengthOne =
+                *buffer.getOffset<CumulativeKeyLength>(sizeof(KeyCount));
+        const CumulativeKeyLength cumulativeKeyLengthTwo =
+                *buffer.getOffset<CumulativeKeyLength>(sizeof(KeyCount) +
+                        sizeof(CumulativeKeyLength));
+        const CumulativeKeyLength cumulativeKeyLengthThree =
+                *buffer.getOffset<CumulativeKeyLength>(sizeof(KeyCount) +
+                        2*sizeof(CumulativeKeyLength));
 
         EXPECT_EQ(3, cumulativeKeyLengthOne);
         EXPECT_EQ(6, cumulativeKeyLengthTwo);
@@ -528,24 +522,20 @@ TEST_F(ObjectTest, appendKeysAndValueToBuffer_writeMultipleKeys) {
     keyList[2].key = "ho";
     keyList[2].keyLength = 3;
 
-    Object::appendKeysAndValueToBuffer(57, 3, keyList, "YO!", 4,
-                                    buffer);
+    Object::appendKeysAndValueToBuffer(57, 3, keyList, "YO!", 4, &buffer);
     EXPECT_EQ(20U, buffer.size());
 
     const KeyCount numKeys= *buffer.getOffset<KeyCount>(0);
     EXPECT_EQ(3U, numKeys);
 
-    const CumulativeKeyLength cumulativeKeyLengthOne = *buffer.getOffset<
-                                            CumulativeKeyLength>(
-                                            sizeof(KeyCount));
-    const CumulativeKeyLength cumulativeKeyLengthTwo = *buffer.getOffset<
-                                            CumulativeKeyLength>(
-                                            sizeof(KeyCount) +
-                                            sizeof(CumulativeKeyLength));
-    const CumulativeKeyLength cumulativeKeyLengthThree = *buffer.getOffset<
-                                            CumulativeKeyLength>(
-                                            sizeof(KeyCount) +
-                                            2 * sizeof(CumulativeKeyLength));
+    const CumulativeKeyLength cumulativeKeyLengthOne =
+            *buffer.getOffset<CumulativeKeyLength>(sizeof(KeyCount));
+    const CumulativeKeyLength cumulativeKeyLengthTwo =
+            *buffer.getOffset<CumulativeKeyLength>(sizeof(KeyCount) +
+                        sizeof(CumulativeKeyLength));
+    const CumulativeKeyLength cumulativeKeyLengthThree =
+            *buffer.getOffset<CumulativeKeyLength>(sizeof(KeyCount) +
+                        2 * sizeof(CumulativeKeyLength));
 
     EXPECT_EQ(3, cumulativeKeyLengthOne);
     EXPECT_EQ(6, cumulativeKeyLengthTwo);
@@ -565,16 +555,14 @@ TEST_F(ObjectTest, appendKeysAndValueToBuffer_writeSingleKey) {
     Buffer buffer;
     Key key(57, "ha", 3);
 
-    Object::appendKeysAndValueToBuffer(key, "YO!", 4,
-                                    buffer);
+    Object::appendKeysAndValueToBuffer(key, "YO!", 4, &buffer);
     EXPECT_EQ(10U, buffer.size());
 
     const KeyCount numKeys= *buffer.getOffset<KeyCount>(0);
     EXPECT_EQ(1U, numKeys);
 
-    const CumulativeKeyLength length = *buffer.getOffset<
-                                    CumulativeKeyLength>(
-                                    sizeof(KeyCount));
+    const CumulativeKeyLength length =
+                *buffer.getOffset<CumulativeKeyLength>(sizeof(KeyCount));
 
     EXPECT_EQ(3, length);
 
@@ -645,17 +633,14 @@ TEST_F(ObjectTest, getKeysAndValue) {
 
         keysAndValue = keysAndValue + sizeof(KeyCount);
 
-        const CumulativeKeyLength cumulativeKeyLengthOne = *(reinterpret_cast<
-                                                 const CumulativeKeyLength *>(
-                                                 keysAndValue));
-        const CumulativeKeyLength cumulativeKeyLengthTwo = *(reinterpret_cast<
-                                                 const CumulativeKeyLength *>(
-                                                 keysAndValue +
-                                                 sizeof(CumulativeKeyLength)));
-        const CumulativeKeyLength cumulativeKeyLengthThree = *(reinterpret_cast<
-                                                 const CumulativeKeyLength *>(
-                                                  keysAndValue + 2 * sizeof(
-                                                  CumulativeKeyLength)));
+        const CumulativeKeyLength cumulativeKeyLengthOne =
+                *(reinterpret_cast<const CumulativeKeyLength *>(keysAndValue));
+        const CumulativeKeyLength cumulativeKeyLengthTwo =
+                *(reinterpret_cast<const CumulativeKeyLength *>(keysAndValue +
+                        sizeof(CumulativeKeyLength)));
+        const CumulativeKeyLength cumulativeKeyLengthThree =
+                *(reinterpret_cast<const CumulativeKeyLength *>(keysAndValue +
+                        2 * sizeof(CumulativeKeyLength)));
 
         EXPECT_EQ(3, cumulativeKeyLengthOne);
         EXPECT_EQ(6, cumulativeKeyLengthTwo);

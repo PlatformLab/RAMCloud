@@ -58,7 +58,7 @@ TEST_F(IndexKeyTest, isKeyInRange)
 
     Buffer keysAndValueBuffer;
     Object::appendKeysAndValueToBuffer(tableId, numKeys, keyList,
-                                       value, valueLength, keysAndValueBuffer);
+                                       value, valueLength, &keysAndValueBuffer);
 
     Object obj(tableId, 1, 0, keysAndValueBuffer);
 

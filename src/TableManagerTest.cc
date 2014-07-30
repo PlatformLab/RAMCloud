@@ -121,23 +121,19 @@ TEST_F(TableManagerTest, createIndex) {
     updateManager->reset();
 
     EXPECT_THROW(tableManager->createIndex(1, 0, 0, 0),
-                                                    TableManager::NoSuchTable);
+                 TableManager::NoSuchTable);
     EXPECT_EQ(1U, tableManager->createTable("foo", 1));
-
-    EXPECT_EQ(2U, tableManager->createTable("__indexTable:1:0:0", 1));
-    EXPECT_THROW(tableManager->createIndex(3, 0, 0, 1),
-                                                    TableManager::NoSuchTable);
     EXPECT_TRUE(tableManager->createIndex(1, 0, 0, 1));
+
     EXPECT_EQ(0U, master1->indexletManager.getCount());
     EXPECT_EQ(1U, master2->indexletManager.getCount());
 
-    EXPECT_EQ(3U, tableManager->createTable("__indexTable:1:1:0", 1));
     EXPECT_TRUE(tableManager->createIndex(1, 1, 0, 1));
     EXPECT_EQ(1U, master1->indexletManager.getCount());
     EXPECT_EQ(1U, master2->indexletManager.getCount());
 
     // duplicate index already exists
-    EXPECT_FALSE(tableManager->createIndex(1, 0, 0, 1));
+    EXPECT_TRUE(tableManager->createIndex(1, 0, 0, 1));
 };
 
 TEST_F(TableManagerTest, dropIndex) {
@@ -147,19 +143,23 @@ TEST_F(TableManagerTest, dropIndex) {
 
     EXPECT_EQ(1U, tableManager->createTable("foo", 1));
 
-    EXPECT_EQ(2U, tableManager->createTable("__indexTable:1:0:0", 1));
     EXPECT_TRUE(tableManager->createIndex(1, 0, 0, 1));
     EXPECT_EQ(0U, master1->indexletManager.getCount());
     EXPECT_EQ(1U, master2->indexletManager.getCount());
 
-    EXPECT_EQ(3U, tableManager->createTable("__indexTable:1:1:0", 1));
     EXPECT_TRUE(tableManager->createIndex(1, 1, 0, 1));
     EXPECT_EQ(1U, master1->indexletManager.getCount());
     EXPECT_EQ(1U, master2->indexletManager.getCount());
 
-    EXPECT_FALSE(tableManager->dropIndex(2, 1));
-    EXPECT_FALSE(tableManager->dropIndex(1, 2));
-    EXPECT_TRUE(tableManager->dropIndex(1, 1));
+    TestLog::Enable _("dropIndex");
+    tableManager->dropIndex(2, 1);
+    tableManager->dropIndex(1, 2);
+    tableManager->dropIndex(1, 1);
+    EXPECT_EQ("dropIndex: Cannot find index '1' for table '2' | "
+              "dropIndex: Cannot find index '2' for table '1' | "
+              "dropIndex: Dropping index '1' from table '1'",
+              TestLog::get());
+
     EXPECT_EQ(0U, master1->indexletManager.getCount());
     EXPECT_EQ(1U, master2->indexletManager.getCount());
     //TODO(ashgup): Need tests for notifyCreateIndex and notifyDropIndex.
@@ -269,12 +269,10 @@ TEST_F(TableManagerTest, dropTable_index) {
 
     EXPECT_EQ(1U, tableManager->createTable("foo", 1));
 
-    EXPECT_EQ(2U, tableManager->createTable("__indexTable:1:0:0", 1));
     EXPECT_TRUE(tableManager->createIndex(1, 0, 0, 1));
     EXPECT_EQ(0U, master1->indexletManager.getCount());
     EXPECT_EQ(1U, master2->indexletManager.getCount());
 
-    EXPECT_EQ(3U, tableManager->createTable("__indexTable:1:1:0", 1));
     EXPECT_TRUE(tableManager->createIndex(1, 1, 0, 1));
     EXPECT_EQ(1U, master1->indexletManager.getCount());
     EXPECT_EQ(1U, master2->indexletManager.getCount());
@@ -301,7 +299,6 @@ TEST_F(TableManagerTest, getIndxletInfoByIndexletTableId) {
     updateManager->reset();
 
     EXPECT_EQ(1U, tableManager->createTable("foo", 1));
-    EXPECT_EQ(2U, tableManager->createTable("__indexTable:1:0:0", 1));
     EXPECT_TRUE(tableManager->createIndex(1, 0, 0, 1));
     ProtoBuf::Indexlets::Indexlet indexlet;
     EXPECT_TRUE(tableManager->getIndexletInfoByIndexletTableId(2, indexlet));
@@ -316,7 +313,6 @@ TEST_F(TableManagerTest, isIndexletTable) {
     updateManager->reset();
 
     EXPECT_EQ(1U, tableManager->createTable("foo", 1));
-    EXPECT_EQ(2U, tableManager->createTable("__indexTable:1:0:0", 1));
     EXPECT_TRUE(tableManager->createIndex(1, 0, 0, 1));
 
     EXPECT_TRUE(tableManager->isIndexletTable(2));
@@ -673,7 +669,6 @@ TEST_F(TableManagerTest, serializeIndexConfig) {
     EXPECT_EQ(1U, tableManager->createTable("foo", 1));
     EXPECT_EQ(2U, tableManager->createTable("bar", 1));
 
-    EXPECT_EQ(3U, tableManager->createTable("__indexTable:2:1:0", 1));
     EXPECT_TRUE(tableManager->createIndex(2, 1, 0, 1));
 
     ProtoBuf::TableConfig tableConfig;
