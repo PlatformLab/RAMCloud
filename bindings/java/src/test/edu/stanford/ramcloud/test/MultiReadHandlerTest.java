@@ -65,8 +65,10 @@ public class MultiReadHandlerTest {
     @Test
     public void readResponse() {
         ByteBuffer buffer = ByteBuffer.allocateDirect(50);
+        long version = 3;
         byte[] value = "This is the value".getBytes();
-        buffer.putInt(value.length)
+        buffer.putLong(version)
+                .putInt(value.length)
                 .put(value)
                 .rewind();
         MultiReadObject obj = new MultiReadObject(0, (byte[]) null);
@@ -74,6 +76,7 @@ public class MultiReadHandlerTest {
         invoke(handler, "readResponse",
                new Class[] {ByteBuffer.class, MultiReadObject.class},
                buffer, obj);
+        assertEquals(version, obj.getVersion());
         assertArrayEquals(value, obj.getValueBytes());
     }
 }

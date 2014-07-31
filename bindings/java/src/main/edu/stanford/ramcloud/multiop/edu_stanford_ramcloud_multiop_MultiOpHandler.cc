@@ -80,6 +80,7 @@ void flushBuffer(
  *          For each result:
  *              4 bytes for the status of the operation.
  *              If the status is 0:
+ *                  8 bytes for the version of the read object
  *                  4 bytes for the length of the read value
  *                  byte array for the read value
  */
@@ -143,11 +144,12 @@ JNICALL Java_edu_stanford_ramcloud_multiop_MultiOpHandler_cppMultiRead(
             // If the next result can't fit into the buffer, call Java to read
             // the data currently in the buffer and resume filling it from the
             // beginning.
-            if (buffer.mark + 4 + valueLength >= bufferSize) {
+            if (buffer.mark + 12 + valueLength >= bufferSize) {
                 flushBuffer(env, multiOpHandler, buffer, i - lastFlush, currentIndex);
                 lastFlush = i;
                 buffer.write(status);
             }
+            buffer.write(objects[i].version);
             buffer.write(valueLength);
             memcpy(buffer.getVoidPointer(), value, valueLength);
             buffer.mark += valueLength;

@@ -46,6 +46,8 @@ public class MultiReadHandler extends MultiOpHandler<MultiReadObject> {
 
     @Override
     protected void readResponse(ByteBuffer buffer, MultiReadObject response) {
+        long version = buffer.getLong();
+        response.setVersion(version);
         int valueLength = buffer.getInt();
         byte[] value = new byte[valueLength];
         buffer.get(value);

@@ -85,7 +85,7 @@ public abstract class MultiOpHandler<T extends MultiOpObject> {
     public void handle(T[] request) {
         this.objects = request;
         int totalLength = request.length;
-
+        
         for (int start = 0; start < totalLength; start += batchLimit) {
             int length = Math.min(totalLength - start, batchLimit);
             int sent = 0;
