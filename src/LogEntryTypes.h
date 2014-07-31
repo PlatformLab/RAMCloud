@@ -37,7 +37,7 @@ enum LogEntryType {
     /// See Object.h::ObjectTombstone
     LOG_ENTRY_TYPE_OBJTOMB,
 
-    /// See LogMetadata.h::LogDigest
+    /// See LogDigest
     LOG_ENTRY_TYPE_LOGDIGEST,
 
     /// See Object.h::ObjectSafeVersion
