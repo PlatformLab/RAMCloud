@@ -778,6 +778,14 @@ InfRcTransport::postSrqReceiveAndKickTransmit(ibv_srq* srq,
             ClientRpc& rpc = clientSendQueue.front();
             clientSendQueue.pop_front();
             rpc.sendOrQueue();
+            double waitTime = Cycles::toSeconds(Cycles::rdtsc()
+                    - rpc.waitStart);
+            if (waitTime > 1e-03) {
+                LOG(WARNING, "Outgoing %s RPC delayed for %.2f ms because "
+                        "of insufficient receive buffers",
+                        WireFormat::opcodeSymbol(rpc.request),
+                        waitTime*1e03);
+            }
         }
     } else {
         ++numFreeServerSrqBuffers;
@@ -1147,6 +1155,7 @@ InfRcTransport::ClientRpc::ClientRpc(InfRcTransport* transport,
     , response(response)
     , notifier(notifier)
     , nonce(nonce)
+    , waitStart(0)
     , state(PENDING)
     , queueEntries()
 {
@@ -1181,6 +1190,7 @@ InfRcTransport::ClientRpc::sendOrQueue()
         state = REQUEST_SENT;
     } else {
         // no available receive buffers
+        waitStart = Cycles::rdtsc();
         t->clientSendQueue.push_back(*this);
     }
 }
