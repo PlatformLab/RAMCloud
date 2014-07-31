@@ -438,7 +438,7 @@ Buffer::getNewAllocation(uint32_t bytesNeeded, uint32_t* bytesAllocated)
         RAMCLOUD_LOG(NOTICE, "buffer has consumed %u bytes of extra storage, "
                 "current allocation: %d bytes",
                 totalAllocatedBytes, bytesNeeded);
-        Buffer::allocationLogThreshold = 2*Buffer::allocationLogThreshold;
+        Buffer::allocationLogThreshold = 2*totalAllocatedBytes;
     }
     if (!allocations) {
         allocations.construct();
