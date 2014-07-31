@@ -98,13 +98,11 @@ TableManager::Index::~Index()
  * \param indexType
  *      Type of the index.
  * \param numIndexlets
- *      Number of indexlets for the given index.
- *
- * \return
- *      True if the index was successfully created or already existed.
- *      False if cannot find the table for which the index is to be created.
+ *      Number of indexlets to partition the index key space.
+ *      This is only for performance testing, and value should always be 1 for
+ *      real use.
  */
-bool
+void
 TableManager::createIndex(uint64_t tableId, uint8_t indexId, uint8_t indexType,
         uint8_t numIndexlets)
 {
@@ -123,18 +121,10 @@ TableManager::createIndex(uint64_t tableId, uint8_t indexId, uint8_t indexType,
     if (iit != table->indexMap.end()) {
         RAMCLOUD_LOG(NOTICE, "Index %u for table '%lu' already exists",
                      indexId, tableId);
-        return true;
+        return;
     }
 
     LOG(NOTICE, "Creating index '%u' for table '%lu'", indexId, tableId);
-
-    // Create the backing tables for indexlets.
-    for (uint8_t i = 0; i < numIndexlets; i++) {
-        string indexTableName;
-        indexTableName.append(
-            format("__indexTable:%lu:%d:%d", tableId, indexId, i));
-        createTable(lock, indexTableName.c_str(), 1);
-    }
 
     Index* index = new Index(tableId, indexId, indexType);
     try {
@@ -142,21 +132,20 @@ TableManager::createIndex(uint64_t tableId, uint8_t indexId, uint8_t indexType,
             string indexTableName;
             indexTableName.append(
                 format("__indexTable:%lu:%d:%d", tableId, indexId, i));
-            Directory::iterator itd = directory.find(indexTableName);
+            // Create the backing table for indexlet.
+            uint64_t indexletTableId =
+                    createTable(lock, indexTableName.c_str(), 1);
 
-            if (itd == directory.end()) {
-                LOG(NOTICE, "Cannot find index table %s",
-                        indexTableName.c_str());
-                return false;
-            }
-            uint64_t indexletTableId = itd->second->id;
+            IdMap::iterator itd = idMap.find(indexletTableId);
+            assert(itd != idMap.end());
 
             // Use the indexTable serverId to assign the indexlet.
             Tablet* indexletTablet = findTablet(lock, itd->second, 0UL);
 
             if ((indexletTablet->startKeyHash != 0UL)
-                 || (indexletTablet->endKeyHash != ~0UL))
+                 || (indexletTablet->endKeyHash != ~0UL)) {
                 throw NoSuchTablet(HERE);
+            }
             tabletMaster = indexletTablet->serverId;
 
             Indexlet *indexlet;
@@ -192,7 +181,7 @@ TableManager::createIndex(uint64_t tableId, uint8_t indexId, uint8_t indexType,
 
     table->indexMap[indexId] = index;
     notifyCreateIndex(lock, index);
-    return true;
+    return;
 }
 
 /**

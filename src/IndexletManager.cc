@@ -33,7 +33,7 @@ IndexletManager::IndexletManager(Context* context, ObjectManager* objectManager)
 ///////////////////////////////////////////////////////////////////////////////
 
 /**
- * Add and initialize an index partition (indexlet) on this index server.
+ * Add an index partition (indexlet) on this index server.
  *
  * \param tableId
  *      Id of the data table for which this indexlet stores some
@@ -55,12 +55,12 @@ IndexletManager::IndexletManager(Context* context, ObjectManager* objectManager)
  *      The highest BTree Id that has been used in the indexletTable.
  *      If highestUsedId equals zero, it means the Btree should be an empty
  *      new tree.
- * \return
- *      Returns true if successfully added, or if the indexlet already existed
- *      (and was not added right now); false if the indexlet cannot be
- *      added because it overlaps with one or more existing indexlets.
+ * 
+ * \throw InternalError
+ *      If indexlet cannot be added because it overlaps with one or more
+ *      existing indexlets.
  */
-bool
+void
 IndexletManager::addIndexlet(
         uint64_t tableId, uint8_t indexId, uint64_t indexletTableId,
         const void *firstKey, uint16_t firstKeyLength,
@@ -69,25 +69,43 @@ IndexletManager::addIndexlet(
 {
     Lock indexletMapLock(mutex);
 
-    if (lookupIndexlet(tableId, indexId, firstKey, firstKeyLength,
-                       indexletMapLock) != indexletMap.end()) {
-        return false;
+    IndexletMap::iterator it = lookupIndexlet(tableId, indexId,
+            firstKey, firstKeyLength, indexletMapLock);
+
+    if (it != indexletMap.end()) {
+        Indexlet* indexlet = &it->second;
+
+        if (IndexKey::keyCompare(
+                indexlet->firstNotOwnedKey, indexlet->firstNotOwnedKeyLength,
+                firstNotOwnedKey, firstNotOwnedKeyLength) != 0) {
+            // Another indexlet with overlapping range exists. This should never
+            // happen unless there is a coding error.
+            LOG(ERROR, "Could not add indexlet in tableId %lu indexId %u: "
+                       "overlaps with one or more other ranges.",
+                       tableId, indexId);
+            throw InternalError(HERE, STATUS_INTERNAL_ERROR);
+        } else {
+            // This indexlet already exists.
+            LOG(NOTICE, "Adding indexlet in tableId %lu indexId %u, "
+                        "but already own. Returning success.",
+                        tableId, indexId);
+        }
+    } else {
+        // Add a new indexlet.
+        Btree *bt;
+        if (highestUsedId == 0)
+            bt = new Btree(indexletTableId, objectManager);
+        else
+            bt = new Btree(indexletTableId, objectManager, highestUsedId);
+
+        indexletMap.insert(std::make_pair(std::make_pair(tableId, indexId),
+                           Indexlet(firstKey, firstKeyLength, firstNotOwnedKey,
+                                    firstNotOwnedKeyLength, bt)));
     }
-
-    Btree *bt;
-    if (highestUsedId == 0)
-        bt = new Btree(indexletTableId, objectManager);
-    else
-        bt = new Btree(indexletTableId, objectManager, highestUsedId);
-
-    indexletMap.insert(std::make_pair(std::make_pair(tableId, indexId),
-                       Indexlet(firstKey, firstKeyLength, firstNotOwnedKey,
-                                firstNotOwnedKeyLength, bt)));
-    return true;
 }
 
 /**
- * Add and initialize an index partition (indexlet) on this index server.
+ * Add an index partition (indexlet) on this index server.
  *
  * \param indexlet
  *      Protocol buffer contains necessary indexlet information to construct
@@ -95,11 +113,8 @@ IndexletManager::addIndexlet(
  * \param highestUsedId
  *      The highest BTree Id that has been used in the indexletTable, which
  *      is a BTree.
- * \return
- *      Returns true if successfully added, false if the indexlet cannot be
- *      added because it overlaps with one or more existing indexlets.
  */
-bool
+void
 IndexletManager::addIndexlet(ProtoBuf::Indexlets::Indexlet indexlet,
         uint64_t highestUsedId)
 {
@@ -125,10 +140,10 @@ IndexletManager::addIndexlet(ProtoBuf::Indexlets::Indexlet indexlet,
         firstNotOwnedKey = NULL;
         firstNotOwnedKeyLength = 0;
     }
-    return addIndexlet(tableId, indexId, indexletTableId,
-                       firstKey, firstKeyLength,
-                       firstNotOwnedKey, firstNotOwnedKeyLength,
-                       highestUsedId);
+    addIndexlet(tableId, indexId, indexletTableId,
+                firstKey, firstKeyLength,
+                firstNotOwnedKey, firstNotOwnedKeyLength,
+                highestUsedId);
 }
 
 /**

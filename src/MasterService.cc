@@ -1526,29 +1526,12 @@ MasterService::takeIndexletOwnership(
     const void* firstNotOwnedKey = rpc->requestPayload->getRange(
                 reqOffset, reqHdr->firstNotOwnedKeyLength);
 
-    bool added = indexletManager.addIndexlet(
-                             reqHdr->tableId, reqHdr->indexId,
-                             reqHdr->indexletTableId,
-                             firstKey, reqHdr->firstKeyLength,
-                             firstNotOwnedKey, reqHdr->firstNotOwnedKeyLength);
-    if (added) {
-        LOG(NOTICE, "Took ownership of indexlet in tableId "
-            "%lu indexId %u", reqHdr->tableId, reqHdr->indexId);
-    } else if (indexletManager.getIndexlet(
-                reqHdr->tableId, reqHdr->indexId,
+    indexletManager.addIndexlet(
+                reqHdr->tableId, reqHdr->indexId, reqHdr->indexletTableId,
                 firstKey, reqHdr->firstKeyLength,
-                firstNotOwnedKey, reqHdr->firstNotOwnedKeyLength) != NULL) {
-        LOG(NOTICE, "Told to take ownership of indexlet "
-                    "in tableId %lu indexId %u, but already own. "
-                    "Returning success.", reqHdr->tableId, reqHdr->indexId);
-        return;
-    } else {
-        LOG(WARNING, "Could not take ownership of indexlet in "
-            "tableId %lu indexId %u overlaps with one or more different "
-            "ranges.", reqHdr->tableId, reqHdr->indexId);
-        // TODO(ouster): Do we want a more meaningful error code?
-        respHdr->common.status = STATUS_INTERNAL_ERROR;
-    }
+                firstNotOwnedKey, reqHdr->firstNotOwnedKeyLength);
+    LOG(NOTICE, "Took ownership of indexlet in tableId %lu indexId %u",
+                reqHdr->tableId, reqHdr->indexId);
 }
 
 /**
@@ -2245,11 +2228,8 @@ MasterService::recover(const WireFormat::Recover::Request* reqHdr,
                  recoveryPartition.indexlet()) {
             LOG(NOTICE, "Starting recovery %lu for crashed indexlet %d",
                 recoveryId, newIndexlet.index_id());
-            bool added = indexletManager.addIndexlet(newIndexlet,
-                         highestBTreeIdMap[newIndexlet.indexlet_table_id()]);
-            if (!added) {
-                throw Exception(HERE, format("Indexlet already exists."));
-            }
+            indexletManager.addIndexlet(newIndexlet,
+                        highestBTreeIdMap[newIndexlet.indexlet_table_id()]);
         }
         successful = true;
     } catch (const SegmentRecoveryFailedException& e) {

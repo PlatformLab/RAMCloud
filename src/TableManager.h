@@ -70,7 +70,7 @@ class TableManager {
             CoordinatorUpdateManager* updateManager);
     ~TableManager();
 
-    bool createIndex(uint64_t tableId, uint8_t indexId, uint8_t indexType,
+    void createIndex(uint64_t tableId, uint8_t indexId, uint8_t indexType,
             uint8_t numIndexlets);
     uint64_t createTable(const char* name, uint32_t serverSpan);
     string debugString(bool shortForm = false);
@@ -100,6 +100,12 @@ class TableManager {
   PRIVATE:
     /**
      * The following structure holds information about a indexlet of an index.
+     * 
+     * Each indexlet is stored by a backing RAMCloud table. The name of the
+     * table is synthesized and has the format:
+     * "__indexTable:tableId:indexId:i" where tableId and indexId
+     * identify the index and i refers to the i-th indexlet corresponding
+     * to that index.
      */
     struct Indexlet : public RAMCloud::Indexlet {
         public:
@@ -126,7 +132,8 @@ class TableManager {
         /// The server id of the master owning this indexlet.
         ServerId serverId;
 
-        /// The id of the table on serverId holding the index content
+        /// The id of the backing table for the indexlet that is stored
+        /// on the server with id serverId.
         uint64_t indexletTableId;
 
         /// The id of the owning table

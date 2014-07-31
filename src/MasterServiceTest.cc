@@ -438,7 +438,7 @@ TEST_F(MasterServiceTest, takeIndexletOwnership) {
             reinterpret_cast<const void *>(key2.c_str()),
             (uint16_t)key2.length());
     EXPECT_EQ("takeIndexletOwnership: Took ownership of indexlet "
-        "in tableId 2 indexId 1", TestLog::get());
+            "in tableId 2 indexId 1", TestLog::get());
 
     TestLog::reset();
     MasterClient::takeIndexletOwnership(&context, masterServer->serverId, 2,
@@ -446,9 +446,10 @@ TEST_F(MasterServiceTest, takeIndexletOwnership) {
         (uint16_t)key1.length(),
         reinterpret_cast<const void *>(key2.c_str()),
         (uint16_t)key2.length());
-    EXPECT_EQ("takeIndexletOwnership: Told to take ownership of indexlet "
-        "in tableId 2 indexId 1, but already own. Returning "
-        "success.", TestLog::get());
+    EXPECT_EQ("takeIndexletOwnership: Took ownership of indexlet "
+            "in tableId 2 indexId 1", TestLog::get());
+    // The message about already owning the indexlet gets logged by
+    // IndexletManager and is tested in IndexletManagerTest.
 
     TestLog::reset();
     // Test partially overlapping sanity check.
@@ -458,9 +459,9 @@ TEST_F(MasterServiceTest, takeIndexletOwnership) {
             (uint16_t)key1.length(),
             reinterpret_cast<const void *>(key3.c_str()),
             (uint16_t)key3.length()), ClientException);
-    EXPECT_EQ("takeIndexletOwnership: Could not take ownership of indexlet "
-        "in tableId 2 indexId 1 overlaps with one or more different "
-        "ranges.", TestLog::get());
+    EXPECT_EQ("", TestLog::get());
+    // The message logging overlapping range and throwing the exception
+    // is done by IndexletManager.
 }
 
 TEST_F(MasterServiceTest, enumerate_basics) {

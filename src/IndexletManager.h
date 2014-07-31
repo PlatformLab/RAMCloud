@@ -48,6 +48,45 @@ namespace RAMCloud {
 class IndexletManager {
   PUBLIC:
 
+    // forward declaration
+    class Indexlet;
+
+    /////////////////////////// Meta-data related functions //////////////////
+
+    void addIndexlet(uint64_t tableId, uint8_t indexId,
+                uint64_t indexletTableId, const void *firstKey,
+                uint16_t firstKeyLength, const void *firstNotOwnedKey,
+                uint16_t firstNotOwnedKeyLength,
+                uint64_t highestUsedID = 0);
+    void addIndexlet(ProtoBuf::Indexlets::Indexlet indexlet,
+                     uint64_t highestUsedID = 0);
+    bool deleteIndexlet(uint64_t tableId, uint8_t indexId,
+                const void *firstKey, uint16_t firstKeyLength,
+                const void *firstNotOwnedKey, uint16_t firstNotOwnedKeyLength);
+    bool deleteIndexlet(ProtoBuf::Indexlets::Indexlet indexlet);
+    bool hasIndexlet(uint64_t tableId, uint8_t indexId,
+                const void *key, uint16_t keyLength);
+    struct Indexlet* getIndexlet(uint64_t tableId, uint8_t indexId,
+                const void *firstKey, uint16_t firstKeyLength,
+                const void *firstNotOwnedKey, uint16_t firstNotOwnedKeyLength);
+    size_t getCount();
+
+    /////////////////////////// Index data related functions //////////////////
+
+    Status insertEntry(uint64_t tableId, uint8_t indexId,
+                const void* key, KeyLength keyLength,
+                uint64_t pKHash);
+    Status lookupIndexKeys(uint64_t tableId, uint8_t indexId,
+                const void* firstKey, KeyLength firstKeyLength,
+                uint64_t firstAllowedKeyHash,
+                const void* lastKey, uint16_t lastKeyLength,
+                uint32_t maxNumHashes,
+                Buffer* responseBuffer, uint32_t* numHashes,
+                uint16_t* nextKeyLength, uint64_t* nextKeyHash);
+    Status removeEntry(uint64_t tableId, uint8_t indexId,
+                const void* key, KeyLength keyLength,
+                uint64_t pKHash);
+
     /// Structure used as the key for key-value pairs in the indexlet tree.
     struct KeyAndHash {
         /// Actual bytes of the index key.
@@ -176,44 +215,6 @@ class IndexletManager {
     };
 
     explicit IndexletManager(Context* context, ObjectManager* objectManager);
-
-
-    /////////////////////////// Meta-data related functions //////////////////
-
-    bool addIndexlet(uint64_t tableId, uint8_t indexId,
-                uint64_t indexletTableId, const void *firstKey,
-                uint16_t firstKeyLength, const void *firstNotOwnedKey,
-                uint16_t firstNotOwnedKeyLength,
-                uint64_t highestUsedID = 0);
-    bool addIndexlet(ProtoBuf::Indexlets::Indexlet indexlet,
-                     uint64_t highestUsedID = 0);
-    bool deleteIndexlet(uint64_t tableId, uint8_t indexId,
-                const void *firstKey, uint16_t firstKeyLength,
-                const void *firstNotOwnedKey, uint16_t firstNotOwnedKeyLength);
-    bool deleteIndexlet(ProtoBuf::Indexlets::Indexlet indexlet);
-    bool hasIndexlet(uint64_t tableId, uint8_t indexId,
-                const void *key, uint16_t keyLength);
-    struct Indexlet* getIndexlet(uint64_t tableId, uint8_t indexId,
-                const void *firstKey, uint16_t firstKeyLength,
-                const void *firstNotOwnedKey, uint16_t firstNotOwnedKeyLength);
-    size_t getCount();
-
-    /////////////////////////// Index data related functions //////////////////
-
-    Status insertEntry(uint64_t tableId, uint8_t indexId,
-                const void* key, KeyLength keyLength,
-                uint64_t pKHash);
-    Status lookupIndexKeys(uint64_t tableId, uint8_t indexId,
-                const void* firstKey, KeyLength firstKeyLength,
-                uint64_t firstAllowedKeyHash,
-                const void* lastKey, uint16_t lastKeyLength,
-                uint32_t maxNumHashes,
-                Buffer* responseBuffer, uint32_t* numHashes,
-                uint16_t* nextKeyLength, uint64_t* nextKeyHash);
-    Status removeEntry(uint64_t tableId, uint8_t indexId,
-                const void* key, KeyLength keyLength,
-                uint64_t pKHash);
-
 
   PROTECTED:
     // Note: I'm using unique_lock (instead of lock_guard) with mutex because

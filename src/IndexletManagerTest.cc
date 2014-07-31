@@ -65,43 +65,33 @@ TEST_F(IndexletManagerTest, addIndexlet) {
     string key4 = "k";
     string key5 = "u";
 
-    EXPECT_TRUE(im.addIndexlet(0, 0, indexletTableId, key2.c_str(),
+    TestLog::Enable _("addIndexlet");
+    EXPECT_NO_THROW(im.addIndexlet(0, 0, indexletTableId, key2.c_str(),
         (uint16_t)key2.length(), key4.c_str(), (uint16_t)key4.length()));
+    EXPECT_EQ("", TestLog::get());
 
-    // we need to create the table corresponding to each indexlet
-    // (b-tree). There is one indexlet that is created as part
-    // of the constructor of IndexletManagerTest
-    tabletManager.addTablet(indexletTableId + 1, 0, ~0UL,
-                            TabletManager::NORMAL);
-    EXPECT_FALSE(im.addIndexlet(0, 0, indexletTableId + 1, key2.c_str(),
+
+    EXPECT_NO_THROW(im.addIndexlet(0, 0, indexletTableId + 1, key2.c_str(),
         (uint16_t)key2.length(), key4.c_str(), (uint16_t)key4.length()));
+    EXPECT_EQ("addIndexlet: Adding indexlet in tableId 0 indexId 0, "
+            "but already own. Returning success.", TestLog::get());
+    TestLog::reset();
 
-
-    // we need to create the table corresponding to each indexlet
-    // (b-tree). There is one indexlet that is created as part
-    // of the constructor of IndexletManagerTest
-    tabletManager.addTablet(indexletTableId + 2, 0, ~0UL,
-                            TabletManager::NORMAL);
-    EXPECT_TRUE(im.addIndexlet(0, 0, indexletTableId + 2, key1.c_str(),
+    EXPECT_NO_THROW(im.addIndexlet(0, 0, indexletTableId + 2, key1.c_str(),
         (uint16_t)key1.length(), key2.c_str(), (uint16_t)key2.length()));
+    EXPECT_EQ("", TestLog::get());
 
 
-    // we need to create the table corresponding to each indexlet
-    // (b-tree). There is one indexlet that is created as part
-    // of the constructor of IndexletManagerTest
-    tabletManager.addTablet(indexletTableId + 3, 0, ~0UL,
-                            TabletManager::NORMAL);
-    EXPECT_TRUE(im.addIndexlet(0, 0, indexletTableId + 3, key4.c_str(),
+    EXPECT_NO_THROW(im.addIndexlet(0, 0, indexletTableId + 3, key4.c_str(),
         (uint16_t)key4.length(), key5.c_str(), (uint16_t)key5.length()));
+    EXPECT_EQ("", TestLog::get());
 
 
-    // we need to create the table corresponding to each indexlet
-    // (b-tree). There is one indexlet that is created as part
-    // of the constructor of IndexletManagerTest
-    tabletManager.addTablet(indexletTableId + 4, 0, ~0UL,
-                            TabletManager::NORMAL);
-    EXPECT_FALSE(im.addIndexlet(0, 0, indexletTableId + 4, key1.c_str(),
-        (uint16_t)key1.length(), key3.c_str(), (uint16_t)key3.length()));
+    EXPECT_THROW(im.addIndexlet(0, 0, indexletTableId + 4, key1.c_str(),
+        (uint16_t)key1.length(), key3.c_str(), (uint16_t)key3.length()),
+        InternalError);
+    EXPECT_EQ("addIndexlet: Could not add indexlet in tableId 0 indexId 0: "
+            "overlaps with one or more other ranges.", TestLog::get());
 
     SpinLock mutex;
     IndexletManager::Lock fakeGuard(mutex);
@@ -117,71 +107,24 @@ TEST_F(IndexletManagerTest, addIndexlet) {
 }
 
 TEST_F(IndexletManagerTest, addIndexlet_ProtoBuf) {
-    string key1 = "a";
-    string key2 = "c";
-    string key3 = "f";
-    string key4 = "k";
-    string key5 = "u";
     ProtoBuf::Indexlets::Indexlet indexlet;
     indexlet.set_table_id(0);
     indexlet.set_index_id(0);
     indexlet.set_indexlet_table_id(indexletTableId);
-    indexlet.set_start_key(key2);
-    indexlet.set_end_key(key4);
+    indexlet.set_start_key("c");
+    indexlet.set_end_key("k");
 
-    EXPECT_TRUE(im.addIndexlet(indexlet));
-
-    // we need to create the table corresponding to each indexlet
-    // (b-tree). There is one indexlet that is created as part
-    // of the constructor of IndexletManagerTest
-    tabletManager.addTablet(indexletTableId + 1, 0, ~0UL,
-                            TabletManager::NORMAL);
-    indexlet.set_indexlet_table_id(indexletTableId + 1);
-    indexlet.set_start_key(key2);
-    indexlet.set_end_key(key4);
-    EXPECT_FALSE(im.addIndexlet(indexlet));
-
-
-    // we need to create the table corresponding to each indexlet
-    // (b-tree). There is one indexlet that is created as part
-    // of the constructor of IndexletManagerTest
-    tabletManager.addTablet(indexletTableId + 2, 0, ~0UL,
-                            TabletManager::NORMAL);
-    indexlet.set_indexlet_table_id(indexletTableId + 2);
-    indexlet.set_start_key(key1);
-    indexlet.set_end_key(key2);
-    EXPECT_TRUE(im.addIndexlet(indexlet));
-
-
-    // we need to create the table corresponding to each indexlet
-    // (b-tree). There is one indexlet that is created as part
-    // of the constructor of IndexletManagerTest
-    tabletManager.addTablet(indexletTableId + 3, 0, ~0UL,
-                            TabletManager::NORMAL);
-    indexlet.set_indexlet_table_id(indexletTableId + 3);
-    indexlet.set_start_key(key4);
-    indexlet.set_end_key(key5);
-    EXPECT_TRUE(im.addIndexlet(indexlet));
-
-
-    // we need to create the table corresponding to each indexlet
-    // (b-tree). There is one indexlet that is created as part
-    // of the constructor of IndexletManagerTest
-    tabletManager.addTablet(indexletTableId + 4, 0, ~0UL,
-                            TabletManager::NORMAL);
-    indexlet.set_indexlet_table_id(indexletTableId + 4);
-    indexlet.set_start_key(key1);
-    indexlet.set_end_key(key3);
-    EXPECT_FALSE(im.addIndexlet(indexlet));
+    EXPECT_NO_THROW(im.addIndexlet(indexlet));
 
     SpinLock mutex;
     IndexletManager::Lock fakeGuard(mutex);
-    IndexletManager::Indexlet* ind = &im.lookupIndexlet(0, 0, key2.c_str(),
-        (uint16_t)key2.length(), fakeGuard)->second;
-    string firstKey = StringUtil::binaryToString(
-                        ind->firstKey, ind->firstKeyLength);
-    string firstNotOwnedKey = StringUtil::binaryToString(
-                ind->firstNotOwnedKey, ind->firstNotOwnedKeyLength);
+    IndexletManager::Indexlet* ind =
+            &im.lookupIndexlet(0, 0, "c", 1, fakeGuard)->second;
+    string firstKey =
+            StringUtil::binaryToString(ind->firstKey, ind->firstKeyLength);
+    string firstNotOwnedKey =
+            StringUtil::binaryToString(ind->firstNotOwnedKey,
+                        ind->firstNotOwnedKeyLength);
 
     EXPECT_EQ(0, firstKey.compare("c"));
     EXPECT_EQ(0, firstNotOwnedKey.compare("k"));

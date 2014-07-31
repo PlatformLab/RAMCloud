@@ -41,8 +41,9 @@ namespace RAMCloud {
  * \param startDataOffset
  *      Byte offset in the buffer where keysAndValue start
  * \param length
- *      Length of keysAndValue. If 0, then this constructor computes it as
- *      keysAndValueBuffer.size() - startDataOffset.
+ *      Length of keysAndValue.
+ *      A length of 0 means that the object occupies the entire buffer
+ *      starting at offset.
  *      This is primarily used by the multiWrite RPC in MasterService.
  */
 Object::Object(uint64_t tableId,
@@ -150,6 +151,8 @@ Object::Object(Key& key,
  *      Starting offset in the buffer where the object begins.
  * \param length
  *      Total length of the object in bytes.
+ *      A length of 0 means that the object occupies the entire buffer
+ *      starting at offset.
  */
 Object::Object(Buffer& buffer, uint32_t offset, uint32_t length)
     : header(*buffer.getOffset<Header>(offset)),
@@ -210,20 +213,18 @@ Object::assembleForLog(Buffer& buffer)
 }
 
 /**
- * Copy the full object, including header, keys and value exactly as it
- * should be stored in the log. This is used when the memory for an object
- * needs to be allocated in a buffer as opposed to being logically stored
- * in a buffer.
+ * Copy the full serialized tombstone including the header and the primary key
+ * to a contiguous region of memory memBlock.
  *
- * \param buffer
- *      Destination to copy a serialized version of this object to.
+ * \param memBlock
+ *      Destination to copy a serialized version of this tombstone to.
  *      The caller must ensure that sufficient memory is allocated for the
- *      complete serialized object to be stored
+ *      complete tombstone object to be stored.
  */
 void
-Object::assembleForLog(void* buffer)
+Object::assembleForLog(void* memBlock)
 {
-    uint8_t *dst = reinterpret_cast<uint8_t*>(buffer);
+    uint8_t *dst = reinterpret_cast<uint8_t*>(memBlock);
     header.checksum = computeChecksum();
 
     memcpy(dst, &header, sizeof32(header));
@@ -804,6 +805,8 @@ ObjectTombstone::ObjectTombstone(Object& object, uint64_t segmentId,
  *      Starting offset in the buffer where the tombstone begins.
  * \param length
  *      Total length of the tombstone in bytes.
+ *      A length of 0 means that the tombstone occupies the entire buffer
+ *      starting at offset.
  */
 ObjectTombstone::ObjectTombstone(Buffer& buffer, uint32_t offset,
                                  uint32_t length)

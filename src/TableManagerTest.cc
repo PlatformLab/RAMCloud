@@ -123,17 +123,17 @@ TEST_F(TableManagerTest, createIndex) {
     EXPECT_THROW(tableManager->createIndex(1, 0, 0, 0),
                  TableManager::NoSuchTable);
     EXPECT_EQ(1U, tableManager->createTable("foo", 1));
-    EXPECT_TRUE(tableManager->createIndex(1, 0, 0, 1));
+    EXPECT_NO_THROW(tableManager->createIndex(1, 0, 0, 1));
 
     EXPECT_EQ(0U, master1->indexletManager.getCount());
     EXPECT_EQ(1U, master2->indexletManager.getCount());
 
-    EXPECT_TRUE(tableManager->createIndex(1, 1, 0, 1));
+    EXPECT_NO_THROW(tableManager->createIndex(1, 1, 0, 1));
     EXPECT_EQ(1U, master1->indexletManager.getCount());
     EXPECT_EQ(1U, master2->indexletManager.getCount());
 
     // duplicate index already exists
-    EXPECT_TRUE(tableManager->createIndex(1, 0, 0, 1));
+    EXPECT_NO_THROW(tableManager->createIndex(1, 0, 0, 1));
 };
 
 TEST_F(TableManagerTest, dropIndex) {
@@ -143,11 +143,11 @@ TEST_F(TableManagerTest, dropIndex) {
 
     EXPECT_EQ(1U, tableManager->createTable("foo", 1));
 
-    EXPECT_TRUE(tableManager->createIndex(1, 0, 0, 1));
+    EXPECT_NO_THROW(tableManager->createIndex(1, 0, 0, 1));
     EXPECT_EQ(0U, master1->indexletManager.getCount());
     EXPECT_EQ(1U, master2->indexletManager.getCount());
 
-    EXPECT_TRUE(tableManager->createIndex(1, 1, 0, 1));
+    EXPECT_NO_THROW(tableManager->createIndex(1, 1, 0, 1));
     EXPECT_EQ(1U, master1->indexletManager.getCount());
     EXPECT_EQ(1U, master2->indexletManager.getCount());
 
@@ -269,11 +269,11 @@ TEST_F(TableManagerTest, dropTable_index) {
 
     EXPECT_EQ(1U, tableManager->createTable("foo", 1));
 
-    EXPECT_TRUE(tableManager->createIndex(1, 0, 0, 1));
+    EXPECT_NO_THROW(tableManager->createIndex(1, 0, 0, 1));
     EXPECT_EQ(0U, master1->indexletManager.getCount());
     EXPECT_EQ(1U, master2->indexletManager.getCount());
 
-    EXPECT_TRUE(tableManager->createIndex(1, 1, 0, 1));
+    EXPECT_NO_THROW(tableManager->createIndex(1, 1, 0, 1));
     EXPECT_EQ(1U, master1->indexletManager.getCount());
     EXPECT_EQ(1U, master2->indexletManager.getCount());
 
@@ -299,7 +299,7 @@ TEST_F(TableManagerTest, getIndxletInfoByIndexletTableId) {
     updateManager->reset();
 
     EXPECT_EQ(1U, tableManager->createTable("foo", 1));
-    EXPECT_TRUE(tableManager->createIndex(1, 0, 0, 1));
+    EXPECT_NO_THROW(tableManager->createIndex(1, 0, 0, 1));
     ProtoBuf::Indexlets::Indexlet indexlet;
     EXPECT_TRUE(tableManager->getIndexletInfoByIndexletTableId(2, indexlet));
     EXPECT_EQ(1U, indexlet.table_id());
@@ -313,7 +313,7 @@ TEST_F(TableManagerTest, isIndexletTable) {
     updateManager->reset();
 
     EXPECT_EQ(1U, tableManager->createTable("foo", 1));
-    EXPECT_TRUE(tableManager->createIndex(1, 0, 0, 1));
+    EXPECT_NO_THROW(tableManager->createIndex(1, 0, 0, 1));
 
     EXPECT_TRUE(tableManager->isIndexletTable(2));
     EXPECT_FALSE(tableManager->isIndexletTable(1));
@@ -669,7 +669,7 @@ TEST_F(TableManagerTest, serializeIndexConfig) {
     EXPECT_EQ(1U, tableManager->createTable("foo", 1));
     EXPECT_EQ(2U, tableManager->createTable("bar", 1));
 
-    EXPECT_TRUE(tableManager->createIndex(2, 1, 0, 1));
+    EXPECT_NO_THROW(tableManager->createIndex(2, 1, 0, 1));
 
     ProtoBuf::TableConfig tableConfig;
     tableManager->serializeTableConfig(&tableConfig, 2);
