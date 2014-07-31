@@ -364,16 +364,23 @@ class ReplicatedSegment : public Task {
     friend class ReplicaManager;
 
     /**
-     * Maximum number of simultaenously outstanding write rpcs to backups
+     * Maximum number of simultaneous outstanding write rpcs to backups
      * to allow across all ReplicatedSegments.
      */
     enum { MAX_WRITE_RPCS_IN_FLIGHT = 8 };
+
+    /**
+     * Maximum number of simultaneous outstanding free rpcs to backups
+     * to allow across all ReplicatedSegments.
+     */
+    enum { MAX_FREE_RPCS_IN_FLIGHT = 3 };
 
     ReplicatedSegment(Context* context,
                       TaskQueue& taskQueue,
                       BaseBackupSelector& backupSelector,
                       Deleter& deleter,
                       uint32_t& writeRpcsInFlight,
+                      uint32_t& freeRpcsInFlight,
                       UpdateReplicationEpochTask& replicationEpoch,
                       std::mutex& dataMutex,
                       uint64_t segmentId,
@@ -432,6 +439,15 @@ class ReplicatedSegment : public Task {
      * ReplicatedSegments.  Used to throttle write rpcs.
      */
     uint32_t& writeRpcsInFlight;
+
+    /**
+     * Number of outstanding free rpcs to backups across all
+     * ReplicatedSegments.  Needed because the cleaner can potentially
+     * generate a lot of free segments at once, which could use up
+     * all outgoing RPC resources, causing other activity to come to
+     * a halt.
+     */
+    uint32_t& freeRpcsInFlight;
 
     /**
      * Provides access to the latest replicationEpoch acknowledged by the

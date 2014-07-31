@@ -46,6 +46,9 @@ enum { OBEY_SAFETY_CONSTRAINTS = true };
  * \param writeRpcsInFlight
  *      Number of outstanding write rpcs to backups across all
  *      ReplicatedSegments.  Used to throttle write rpcs.
+ * \param freeRpcsInFlight
+ *      Number of outstanding free rpcs to backups across all
+ *      ReplicatedSegments.  Used to throttle free rpcs.
  * \param replicationEpoch
  *      The ReplicaManager's UpdateReplicationEpochTask which is shared among
  *      ReplicatedSegments to track and update the replicationEpoch value
@@ -81,6 +84,7 @@ ReplicatedSegment::ReplicatedSegment(Context* context,
                                      BaseBackupSelector& backupSelector,
                                      Deleter& deleter,
                                      uint32_t& writeRpcsInFlight,
+                                     uint32_t& freeRpcsInFlight,
                                      UpdateReplicationEpochTask&
                                                             replicationEpoch,
                                      std::mutex& dataMutex,
@@ -97,6 +101,7 @@ ReplicatedSegment::ReplicatedSegment(Context* context,
     , backupSelector(backupSelector)
     , deleter(deleter)
     , writeRpcsInFlight(writeRpcsInFlight)
+    , freeRpcsInFlight(freeRpcsInFlight)
     , replicationEpoch(replicationEpoch)
     , dataMutex(dataMutex)
     , syncMutex()
@@ -301,6 +306,8 @@ ReplicatedSegment::handleBackupFailure(ServerId failedId, bool useMinCopysets)
 
         if (replica.writeRpc)
             --writeRpcsInFlight;
+        if (replica.freeRpc)
+            --freeRpcsInFlight;
         replica.failed();
         schedule();
         ++metrics->master.replicaRecoveries;
@@ -631,6 +638,7 @@ ReplicatedSegment::performFree(Replica& replica)
                 backupSelector.signalFreedPrimary(replica.backupId);
             }
             replica.reset();
+            --freeRpcsInFlight;
             // Free completed, no need to reschedule.
             return;
         } else {
@@ -640,6 +648,10 @@ ReplicatedSegment::performFree(Replica& replica)
         }
     } else {
         // No free rpc is outstanding.
+        if (freeRpcsInFlight == MAX_FREE_RPCS_IN_FLIGHT) {
+            schedule();
+            return;
+        }
         if (replica.writeRpc) {
             // Impossible by construction. See free().
             assert(false);
@@ -647,6 +659,7 @@ ReplicatedSegment::performFree(Replica& replica)
             // Issue a free rpc for this replica, reschedule to wait on it.
             replica.freeRpc.construct(context, replica.backupId,
                                       masterId, segmentId);
+            ++freeRpcsInFlight;
             schedule();
             return;
         }

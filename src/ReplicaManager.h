@@ -163,6 +163,12 @@ class ReplicaManager
     uint32_t writeRpcsInFlight;
 
     /**
+     * Number of collective outstanding free rpcs to all backups.
+     * Used by ReplicatedSegment to throttle rpc creation.
+     */
+    uint32_t freeRpcsInFlight;
+
+    /**
      * Provides access to the latest replicationEpoch acknowledged by the
      * coordinator for this server and allows easy, asynchronous updates
      * to the value stored on the coordinator.

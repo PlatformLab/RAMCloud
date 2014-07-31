@@ -56,6 +56,7 @@ ReplicaManager::ReplicaManager(Context* context,
     , replicatedSegmentList()
     , taskQueue()
     , writeRpcsInFlight(0)
+    , freeRpcsInFlight(0)
     , replicationEpoch()
     , failureMonitor(context, this)
     , replicationCounter()
@@ -415,9 +416,10 @@ ReplicaManager::allocateSegment(const Lock& lock,
     auto* p = replicatedSegmentPool.malloc();
     if (p == NULL)
         DIE("Out of memory");
-    auto* replicatedSegment =
+    ReplicatedSegment* replicatedSegment =
         new(p) ReplicatedSegment(context, taskQueue, *backupSelector, *this,
-                                 writeRpcsInFlight, *replicationEpoch,
+                                 writeRpcsInFlight, freeRpcsInFlight,
+                                 *replicationEpoch,
                                  dataMutex, segmentId, segment,
                                  isLogHead, *masterId, numReplicas,
                                  &replicationCounter);

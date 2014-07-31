@@ -111,6 +111,7 @@ struct ReplicatedSegmentTest : public ::testing::Test {
                                               test->backupSelector,
                                               test->deleter,
                                               test->writeRpcsInFlight,
+                                              test->freeRpcsInFlight,
                                               test->replicationEpoch,
                                               test->dataMutex,
                                               segmentId,
@@ -140,6 +141,7 @@ struct ReplicatedSegmentTest : public ::testing::Test {
     ServerList serverList;
     CountingDeleter deleter;
     uint32_t writeRpcsInFlight;
+    uint32_t freeRpcsInFlight;
     std::mutex dataMutex;
     const ServerId masterId;
     const uint64_t segmentId;
@@ -162,6 +164,7 @@ struct ReplicatedSegmentTest : public ::testing::Test {
         , serverList(&context)
         , deleter()
         , writeRpcsInFlight(0)
+        , freeRpcsInFlight(0)
         , dataMutex()
         , masterId(999, 0)
         , segmentId(888)
@@ -326,11 +329,16 @@ TEST_F(ReplicatedSegmentTest, handleBackupFailureWhileOpen) {
     EXPECT_FALSE(segment->replicas[1].replicateAtomically);
     EXPECT_EQ(1lu, segment->queued.epoch);
 
-    // Failure of the second replica.
+    // Failure of the second replica. This one has a free request
+    // flight.
+    segment->replicas[1].freeRpc.construct(&context, backupId1,
+                                           masterId, segmentId);
+    freeRpcsInFlight = 2;
     segment->handleBackupFailure({1, 0}, false);
     EXPECT_TRUE(segment->replicas[0].replicateAtomically);
     EXPECT_TRUE(segment->replicas[1].replicateAtomically);
     EXPECT_EQ(2lu, segment->queued.epoch);
+    EXPECT_EQ(1u, freeRpcsInFlight);
 
     reset();
 }
@@ -1080,10 +1088,12 @@ TEST_F(ReplicatedSegmentTest, performFreeRpcIsReady) {
     segment->replicas[0].start(backupId1);
     segment->replicas[0].freeRpc.construct(&context, backupId1,
                                            masterId, segmentId);
+    freeRpcsInFlight = 2;
     EXPECT_STREQ("sendRequest: 0x1001c 0 0 999 0 888 0",
                  transport.outputLog.c_str());
     segment->performFree(segment->replicas[0]);
     EXPECT_FALSE(segment->replicas[0].isActive);
+    EXPECT_EQ(1u, freeRpcsInFlight);
 }
 
 TEST_F(ReplicatedSegmentTest, performFreeRpcFailed) {
@@ -1095,6 +1105,7 @@ TEST_F(ReplicatedSegmentTest, performFreeRpcFailed) {
     segment->replicas[0].start({99, 99});
     segment->replicas[0].freeRpc.construct(&context, ServerId(99, 99),
                                            masterId, segmentId);
+    freeRpcsInFlight = 1;
     TestLog::Enable _;
     segment->performFree(segment->replicas[0]);
     EXPECT_EQ("performFree: ServerNotUpException thrown", TestLog::get());
@@ -1102,8 +1113,47 @@ TEST_F(ReplicatedSegmentTest, performFreeRpcFailed) {
     EXPECT_FALSE(segment->isScheduled());
     ASSERT_FALSE(segment->replicas[0].isActive);
     EXPECT_FALSE(segment->replicas[0].freeRpc);
+    EXPECT_EQ(0u, freeRpcsInFlight);
 
     EXPECT_EQ(0u, deleter.count);
+    reset();
+}
+
+TEST_F(ReplicatedSegmentTest, performFreeTooManyInFlight) {
+    transport.clearInput();
+
+    reset();
+    freeRpcsInFlight = ReplicatedSegment::MAX_FREE_RPCS_IN_FLIGHT;
+
+    segment->replicas[0].start({99, 99});
+    segment->freeQueued = true;
+
+    TestLog::Enable _;
+    segment->performFree(segment->replicas[0]);
+    EXPECT_TRUE(segment->freeQueued);
+    EXPECT_TRUE(segment->isScheduled());
+    ASSERT_TRUE(segment->replicas[0].isActive);
+    EXPECT_FALSE(segment->replicas[0].freeRpc);
+    EXPECT_EQ(ReplicatedSegment::MAX_FREE_RPCS_IN_FLIGHT, freeRpcsInFlight);
+    reset();
+}
+
+TEST_F(ReplicatedSegmentTest, performFreeStartRpc) {
+    transport.clearInput();
+
+    reset();
+    freeRpcsInFlight = ReplicatedSegment::MAX_FREE_RPCS_IN_FLIGHT-1;
+
+    segment->replicas[0].start({99, 99});
+    segment->freeQueued = true;
+
+    TestLog::Enable _;
+    segment->performFree(segment->replicas[0]);
+    EXPECT_TRUE(segment->freeQueued);
+    EXPECT_TRUE(segment->isScheduled());
+    ASSERT_TRUE(segment->replicas[0].isActive);
+    EXPECT_TRUE(segment->replicas[0].freeRpc);
+    EXPECT_EQ(ReplicatedSegment::MAX_FREE_RPCS_IN_FLIGHT, freeRpcsInFlight);
     reset();
 }
 
