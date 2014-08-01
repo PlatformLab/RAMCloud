@@ -48,7 +48,6 @@ namespace po = boost::program_options;
 #include "RamCloud.h"
 #include "CycleCounter.h"
 #include "Cycles.h"
-#include "KeyUtil.h"
 #include "Util.h"
 
 using namespace RAMCloud;
@@ -836,18 +835,21 @@ checkBuffer(Buffer* buffer, uint32_t offset, uint32_t expectedLength,
 }
 
 /**
- * Compute the value to be used to construct a key for a particular
- * control value in a particular client.
+ * Compute the key for a particular control value in a particular client.
  *
  * \param client
  *      Index of the desired client.
- * \param id
- *      Control word for the particular client.
+ * \param name
+ *      Name of control value: state (current state of the slave),
+ *      command (command issued by the master for the slave),
+ *      doc (documentation string for use in log messages), or
+ *      metrics (statistics returned from slaves back to the master).
+ *
  */
-MakeKey
-keyVal(int client, Id id)
+string
+keyVal(int client, const char* name)
 {
-    return MakeKey((client << 8) + id);
+    return format("%d:%s", client, name);
 }
 
 /**
@@ -859,8 +861,9 @@ keyVal(int client, Id id)
 void
 setSlaveState(const char* state)
 {
-    MakeKey key(keyVal(clientIndex, STATE));
-    cluster->write(controlTable, key.get(), key.length(), state);
+    string key = keyVal(clientIndex, "state");
+    cluster->write(controlTable, key.c_str(), downCast<uint16_t>(key.length()),
+            state);
 }
 
 /**
@@ -916,12 +919,14 @@ getCommand(char* buffer, uint32_t size)
 {
     while (true) {
         try {
-            MakeKey key(keyVal(clientIndex, COMMAND));
-            readObject(controlTable, key.get(), key.length(), buffer, size);
+            string key = keyVal(clientIndex, "command");
+            readObject(controlTable, key.c_str(),
+                    downCast<uint16_t>(key.length()), buffer, size);
             if (strcmp(buffer, "idle") != 0) {
                 // Delete the command value so we don't process the same
                 // command twice.
-                cluster->remove(controlTable, key.get(), key.length());
+                cluster->remove(controlTable, key.c_str(),
+                        downCast<uint16_t>(key.length()));
                 return buffer;
             }
         }
@@ -1004,8 +1009,9 @@ void
 waitSlave(int slave, const char* state, double timeout = 1.0)
 {
     Buffer value;
-    MakeKey key(keyVal(slave, STATE));
-    waitForObject(controlTable, key.get(), key.length(), state, value, timeout);
+    string key = keyVal(slave, "state");
+    waitForObject(controlTable, key.c_str(), downCast<uint16_t>(key.length()),
+            state, value, timeout);
 }
 
 /**
@@ -1031,8 +1037,9 @@ sendCommand(const char* command, const char* state, int firstSlave,
 {
     if (command != NULL) {
         for (int i = 0; i < numSlaves; i++) {
-            MakeKey key(keyVal(firstSlave+i, COMMAND));
-            cluster->write(controlTable, key.get(), key.length(), command);
+            string key = keyVal(firstSlave+i, "command");
+            cluster->write(controlTable, key.c_str(),
+                    downCast<uint16_t>(key.length()), command);
         }
     }
     if (state != NULL) {
@@ -1115,8 +1122,8 @@ sendMetrics(double m0, double m1 = 0.0, double m2 = 0.0, double m3 = 0.0,
     metrics[5] = m5;
     metrics[6] = m6;
     metrics[7] = m7;
-    MakeKey key(keyVal(clientIndex, METRICS));
-    cluster->write(controlTable, key.get(), key.length(),
+    string key = keyVal(clientIndex, "metrics");
+    cluster->write(controlTable, key.c_str(), downCast<uint16_t>(key.length()),
             metrics, sizeof(metrics));
 }
 
@@ -1148,9 +1155,9 @@ getMetrics(ClientMetrics& metrics, int clientCount)
     // Iterate over all the slaves to fetch metrics from each.
     for (int client = 0; client < clientCount; client++) {
         Buffer metricsBuffer;
-        MakeKey key(keyVal(client, METRICS));
-        waitForObject(controlTable, key.get(), key.length(),
-                NULL, metricsBuffer);
+        string key = keyVal(client, "metrics");
+        waitForObject(controlTable, key.c_str(),
+                downCast<uint16_t>(key.length()), NULL, metricsBuffer);
         const double* clientMetrics = static_cast<const double*>(
                 metricsBuffer.getRange(0,
                 MAX_METRICS*sizeof32(double)));  // NOLINT
@@ -1342,10 +1349,11 @@ broadcast()
             getCommand(command, sizeof(command));
             if (strcmp(command, "read") == 0) {
                 setSlaveState("waiting");
-                // Wait for a non-empty DOC string to appear.
+                // Wait for a non-empty "doc" string to appear.
                 while (true) {
-                    MakeKey key(keyVal(0, DOC));
-                    readObject(controlTable, key.get(), key.length(),
+                    string key = keyVal(0, "doc");
+                    readObject(controlTable, key.c_str(),
+                            downCast<uint16_t>(key.length()),
                             message, sizeof(message));
                     if (message[0] != 0) {
                         break;
@@ -1369,11 +1377,13 @@ broadcast()
     for (int i = 0; i < count; i++) {
         char message[30];
         snprintf(message, sizeof(message), "message %d", i);
-        MakeKey key(keyVal(clientIndex, DOC));
-        cluster->write(controlTable, key.get(), key.length(), "");
+        string key = keyVal(clientIndex, "doc");
+        cluster->write(controlTable, key.c_str(),
+                downCast<uint16_t>(key.length()), "");
         sendCommand("read", "waiting", 1, numClients-1);
         uint64_t start = Cycles::rdtsc();
-        cluster->write(controlTable, key.get(), key.length(), message);
+        cluster->write(controlTable, key.c_str(),
+                downCast<uint16_t>(key.length()), message);
         for (int slave = 1; slave < numClients; slave++) {
             waitSlave(slave, message);
         }
@@ -1987,8 +1997,9 @@ indexScalability()
             char doc[200];
             getCommand(command, sizeof(command));
             if (strcmp(command, "run") == 0) {
-                MakeKey controlKey(keyVal(0, DOC));
-                readObject(controlTable, controlKey.get(), controlKey.length(),
+                string controlKey = keyVal(0, "doc");
+                readObject(controlTable, controlKey.c_str(),
+                        downCast<uint16_t>(controlKey.length()),
                         doc, sizeof(doc));
                 setSlaveState("running");
                 indexScalabilityCommonLookup(numIndexlets,
@@ -2071,8 +2082,9 @@ indexScalability()
     for (int numActive = 1; numActive <= numClients; numActive++) {
         char doc[100];
         snprintf(doc, sizeof(doc), "%d active clients", numActive);
-        MakeKey key(keyVal(0, DOC));
-        cluster->write(controlTable, key.get(), key.length(), doc);
+        string key = keyVal(0, "doc");
+        cluster->write(controlTable, key.c_str(),
+                downCast<uint16_t>(key.length()), doc);
         sendCommand("run", "running", 1, numActive-1);
         indexScalabilityCommonLookup(numIndexlets, numObjectsPerIndexlet, doc);
         sendCommand(NULL, "idle", 1, numActive-1);
@@ -2573,8 +2585,9 @@ readLoaded()
             char doc[200];
             getCommand(command, sizeof(command));
             if (strcmp(command, "run") == 0) {
-                MakeKey controlKey(keyVal(0, DOC));
-                readObject(controlTable, controlKey.get(), controlKey.length(),
+                string controlKey = keyVal(0, "doc");
+                readObject(controlTable, controlKey.c_str(),
+                        downCast<uint16_t>(controlKey.length()),
                         doc, sizeof(doc));
                 setSlaveState("running");
 
@@ -2632,8 +2645,9 @@ readLoaded()
         char message[100];
         Buffer input, output;
         snprintf(message, sizeof(message), "%d active clients", numSlaves+1);
-        MakeKey controlKey(keyVal(0, DOC));
-        cluster->write(controlTable, controlKey.get(), controlKey.length(),
+        string controlKey = keyVal(0, "doc");
+        cluster->write(controlTable, controlKey.c_str(),
+                downCast<uint16_t>(controlKey.length()),
                 message);
         cluster->write(dataTable, key, keyLength, "");
         sendCommand("run", "running", 1, numSlaves);
@@ -2766,9 +2780,10 @@ readRandom()
                         tableIds[i] = cluster->getTableId(tableName);
                     }
                 }
-                MakeKey controlKey(keyVal(0, DOC));
-                readObject(controlTable, controlKey.get(), controlKey.length(),
-                        doc, sizeof(doc));
+                string controlKey = keyVal(0, "doc");
+                readObject(controlTable, controlKey.c_str(),
+                        downCast<uint16_t>(controlKey.length()), doc,
+                        sizeof(doc));
                 setSlaveState("running");
                 readRandomCommon(tableIds, doc);
                 setSlaveState("idle");
@@ -2804,8 +2819,9 @@ readRandom()
     for (int numActive = 1; numActive <= numClients; numActive++) {
         char doc[100];
         snprintf(doc, sizeof(doc), "%d active clients", numActive);
-        MakeKey key(keyVal(0, DOC));
-        cluster->write(controlTable, key.get(), key.length(), doc);
+        string key = keyVal(0, "doc");
+        cluster->write(controlTable, key.c_str(),
+                downCast<uint16_t>(key.length()), doc);
         sendCommand("run", "running", 1, numActive-1);
         readRandomCommon(tableIds, doc);
         sendCommand(NULL, "idle", 1, numActive-1);

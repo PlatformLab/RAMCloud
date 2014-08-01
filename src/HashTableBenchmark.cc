@@ -27,7 +27,6 @@
 #include "LargeBlockOfMemory.h"
 #include "Memory.h"
 #include "OptionParser.h"
-#include "KeyUtil.h"
 
 namespace RAMCloud {
 namespace {

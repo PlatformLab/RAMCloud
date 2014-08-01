@@ -52,7 +52,6 @@
 #include "SpinLock.h"
 #include "ClientException.h"
 #include "PerfHelper.h"
-#include "KeyUtil.h"
 
 using namespace RAMCloud;
 
