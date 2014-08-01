@@ -172,7 +172,8 @@ def run_test(
         client_args['--numIndexlet'] = options.numIndexlet
     if options.numIndexes != None:
         client_args['--numIndexes'] = options.numIndexes
-    test.function(test.name, options, cluster_args, client_args, options.master_args)
+    test.function(test.name, options, cluster_args, client_args,
+            options.master_args)
 
 #-------------------------------------------------------------------
 # Driver functions follow below.  These functions are responsible for
@@ -192,14 +193,15 @@ def default(
                                    # ClusterPerf (via cluster.run).
                                    # Individual tests can override as
                                    # needed for the test.
-        master_args='-d -t 10%'
+        master_args                # Arguments to pass to each master in the
+                                   # cluster. Not used by all tests.
         ):
     """
     This function is used as the invocation function for most tests;
     it simply invokes ClusterPerf via cluster.run and prints the result.
     """
     cluster.run(client='%s/ClusterPerf %s %s' %
-            (obj_path, flatten_args(client_args), name), master_args=master_args, **cluster_args)
+            (obj_path, flatten_args(client_args), name), **cluster_args)
     print(get_client_log(), end='')
 
 def broadcast(name, options, cluster_args, client_args, master_args=''):
@@ -215,7 +217,8 @@ def multiOp(name, options, cluster_args, client_args, master_args='-d -t 10%'):
         cluster_args['num_servers'] = len(hosts)
     client_args['--numTables'] = cluster_args['num_servers'];
     cluster.run(client='%s/ClusterPerf %s %s' %
-            (obj_path, flatten_args(client_args), name), master_args=master_args, **cluster_args)
+            (obj_path, flatten_args(client_args), name),
+            master_args=master_args, **cluster_args)
     print(get_client_log(), end='')
 
 
@@ -248,8 +251,8 @@ def readAllToAll(name, options, cluster_args, client_args, master_args=''):
 
 def readDist(name, options, cluster_args, client_args, master_args='-d -t 10%'):
     cluster.run(client='%s/ClusterPerf %s %s' %
-            (obj_path,  flatten_args(client_args), name), master_args=master_args,
-            **cluster_args)
+            (obj_path,  flatten_args(client_args), name),
+            master_args=master_args, **cluster_args)
     print("# Cumulative distribution of time for a single client to read a\n"
           "# single %d-byte object from a single server.  Each line indicates\n"
           "# that a given fraction of all reads took at most a given time\n"
@@ -260,11 +263,12 @@ def readDist(name, options, cluster_args, client_args, master_args='-d -t 10%'):
           % options.size)
     print_cdf_from_log()
 
-def readDistRandom(name, options, cluster_args, client_args, master_args='-d -t 10%'):
+def readDistRandom(name, options, cluster_args, client_args,
+        master_args='-d -t 10%'):
     cluster_args['timeout'] = 600
     cluster.run(client='%s/ClusterPerf %s %s' %
-            (obj_path,  flatten_args(client_args), name), master_args=master_args,
-            **cluster_args)
+            (obj_path,  flatten_args(client_args), name),
+            master_args=master_args, **cluster_args)
     print("# Cumulative distribution of time for a single client to read a\n"
           "# random %d-byte object from a single server.  Each line indicates\n"
           "# that a given fraction of all reads took at most a given time\n"
@@ -294,7 +298,8 @@ def readRandom(name, options, cluster_args, client_args,
         cluster_args['num_servers'] = 1
     client_args['--numTables'] = cluster_args['num_servers'];
     cluster.run(client='%s/ClusterPerf %s %s' %
-            (obj_path, flatten_args(client_args), name), master_args=master_args, **cluster_args)
+            (obj_path, flatten_args(client_args), name),
+            master_args=master_args, **cluster_args)
     print(get_client_log(), end='')
 
 def indexBasic(name, options, cluster_args, client_args,
@@ -306,10 +311,12 @@ def indexBasic(name, options, cluster_args, client_args,
     # using 20GB for servers so that we don't run out of memory when inserting
     # 10 million objects/index entries
     cluster.run(client='%s/ClusterPerf %s %s' %
-            (obj_path, flatten_args(client_args), name), master_args=master_args, **cluster_args)
+            (obj_path, flatten_args(client_args), name),
+            master_args=master_args, **cluster_args)
     print(get_client_log(), end='')
 
-def indexMultiple(name, options, cluster_args, client_args, master_args='--masterServiceThreads 1 -t 10%'):
+def indexMultiple(name, options, cluster_args, client_args,
+                  master_args='--masterServiceThreads 1 -t 10%'):
     cluster_args['timeout'] = 200
     # Ensure atleast 15 hosts for optimal performance
     if options.num_servers == None:
@@ -345,7 +352,8 @@ def indexScalability(name, options, cluster_args, client_args,
     if 'num_clients' not in cluster_args:
         cluster_args['num_clients'] = 10
     cluster.run(client='%s/ClusterPerf %s %s' %
-            (obj_path, flatten_args(client_args), name), master_args=master_args, **cluster_args)
+            (obj_path, flatten_args(client_args), name),
+            master_args=master_args, **cluster_args)
     print(get_client_log(), end='')
 
 #-------------------------------------------------------------------
@@ -470,6 +478,8 @@ if __name__ == '__main__':
                         print("No clusterperf test named '%s'" % (name))
     finally:
         logInfo = log.scan("%s/latest" % (options.log_dir),
-                ["WARNING", "ERROR"])
+                ["WARNING", "ERROR"],
+                ["starting new cluster from scratch",
+                 "Ping timeout to server"])
         if len(logInfo) > 0:
             print(logInfo)
