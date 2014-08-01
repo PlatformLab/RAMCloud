@@ -132,8 +132,7 @@ class IndexletManager {
     };
 
     // Btree key compare function
-    struct KeyAndHashCompare
-    {
+    struct KeyAndHashCompare {
       public:
         bool operator()(const KeyAndHash x, const KeyAndHash y) const
         {
@@ -145,7 +144,6 @@ class IndexletManager {
             return keyComparison < 0;
         }
     };
-
 
     // B+ tree holding key: string, value: primary key hash
     typedef str::btree_multimap<KeyAndHash, uint64_t, KeyAndHashCompare> Btree;
@@ -229,19 +227,39 @@ class IndexletManager {
     /// Shared RAMCloud information.
     Context* context;
 
-    /// Table/key pair hash struct for unordered_multimap below
-    struct tableKeyHash
-    {
-        size_t operator()(const std::pair<uint64_t, uint8_t> tableKey) const
+    /// Structure used to uniquely identify the index of which this
+    /// indexlet is a partition.
+    struct TableAndIndexId {
+        /// Id of the data table for which this indexlet stores some
+        /// index information.
+        uint64_t tableId;
+        /// Id of the index key for which this indexlet stores some information.
+        uint8_t indexId;
+
+        /// Equality operator used by comparison functions of the struct
+        /// IndexletMap that this struct is a key of.
+        bool operator==(const TableAndIndexId x) const
         {
-            return std::hash<uint64_t>()(tableKey.first)
-                    ^std::hash<uint8_t>()(tableKey.second);
+            if (this->tableId == x.tableId && this->indexId == x.indexId)
+                return true;
+            else
+                return false;
+        }
+    };
+
+    /// Hasher for TableAndIndexId which is the key in the IndexletMap.
+    struct TableAndIndexIdHasher
+    {
+        size_t operator()(const TableAndIndexId tableKey) const
+        {
+            return std::hash<uint64_t>()(tableKey.tableId)
+                    ^std::hash<uint8_t>()(tableKey.indexId);
         }
     };
 
     /// This unordered_multimap is used to store and access all indexlet data.
-    typedef std::unordered_multimap<std::pair<uint64_t, uint8_t>,
-                Indexlet, tableKeyHash> IndexletMap;
+    typedef std::unordered_multimap<
+                TableAndIndexId, Indexlet, TableAndIndexIdHasher> IndexletMap;
 
     /// Indexlet map instance storing indexlet mapping for this index server.
     IndexletMap indexletMap;

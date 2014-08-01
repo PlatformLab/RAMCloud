@@ -98,7 +98,7 @@ IndexletManager::addIndexlet(
         else
             bt = new Btree(indexletTableId, objectManager, highestUsedId);
 
-        indexletMap.insert(std::make_pair(std::make_pair(tableId, indexId),
+        indexletMap.insert(std::make_pair(TableAndIndexId{tableId, indexId},
                            Indexlet(firstKey, firstKeyLength, firstNotOwnedKey,
                                     firstNotOwnedKeyLength, bt)));
     }
@@ -352,7 +352,7 @@ IndexletManager::IndexletMap::iterator
 IndexletManager::lookupIndexlet(uint64_t tableId, uint8_t indexId,
         const void *key, uint16_t keyLength, Lock& mutex)
 {
-    auto range = indexletMap.equal_range(std::make_pair(tableId, indexId));
+    auto range = indexletMap.equal_range(TableAndIndexId {tableId, indexId});
     IndexletMap::iterator end = range.second;
 
     for (IndexletMap::iterator it = range.first; it != end; it++) {
