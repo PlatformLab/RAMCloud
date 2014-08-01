@@ -516,7 +516,8 @@ IndexletManager::lookupIndexKeys(uint64_t tableId, uint8_t indexId,
  * \param pKHash
  *      Hash of the primary key of the object.
  * \return
- *      Returns STATUS_OK if the remove succeeded.
+ *      Returns STATUS_OK if the remove succeeded or if the entry did not
+ *      exist.
  *      Returns STATUS_UNKNOWN_INDEXLET if the server does not own an indexlet
  *      containing this index entry.
  */
@@ -542,18 +543,8 @@ IndexletManager::removeEntry(uint64_t tableId, uint8_t indexId,
 
     // Note that we don't have to explicitly compare the key hash in value
     // since it is also a part of the key that gets compared in the tree
-    // module
-    if (indexlet->bt->erase_one(KeyAndHash {key, keyLength, pKHash})) {
-        RAMCLOUD_LOG(DEBUG, "remove succeed: tableId %lu, indexId %u, key: %s",
-                    tableId, indexId, Util::hexDump(key, keyLength).c_str());
-
-        return STATUS_OK;
-    }
-
-    // code should not reach here ideally but if it does, we ignore it because
-    // we allow for garbage in the indexlet
-    RAMCLOUD_LOG(DEBUG, "remove failed: tableId %lu, indexId %u, key: %s",
-                    tableId, indexId, Util::hexDump(key, keyLength).c_str());
+    // module.
+    indexlet->bt->erase_one(KeyAndHash {key, keyLength, pKHash});
 
     return STATUS_OK;
 }
