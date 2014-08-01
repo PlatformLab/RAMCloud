@@ -2228,8 +2228,15 @@ MasterService::recover(const WireFormat::Recover::Request* reqHdr,
                  recoveryPartition.indexlet()) {
             LOG(NOTICE, "Starting recovery %lu for crashed indexlet %d",
                 recoveryId, newIndexlet.index_id());
-            indexletManager.addIndexlet(newIndexlet,
-                        highestBTreeIdMap[newIndexlet.indexlet_table_id()]);
+            indexletManager.addIndexlet(
+                    newIndexlet.table_id(),
+                    (uint8_t)newIndexlet.index_id(),
+                    newIndexlet.indexlet_table_id(),
+                    newIndexlet.first_key().c_str(),
+                    (uint16_t)newIndexlet.first_key().length(),
+                    newIndexlet.first_not_owned_key().c_str(),
+                    (uint16_t)newIndexlet.first_not_owned_key().length(),
+                    highestBTreeIdMap[newIndexlet.indexlet_table_id()]);
         }
         successful = true;
     } catch (const SegmentRecoveryFailedException& e) {
@@ -2310,14 +2317,20 @@ MasterService::recover(const WireFormat::Recover::Request* reqHdr,
         }
         foreach (const ProtoBuf::Indexlets::Indexlet& indexlet,
                  recoveryPartition.indexlet()) {
-            bool deleted = indexletManager.deleteIndexlet(indexlet);
+            bool deleted = indexletManager.deleteIndexlet(
+                    indexlet.table_id(),
+                    (uint8_t)indexlet.index_id(),
+                    indexlet.first_key().c_str(),
+                    (uint16_t)indexlet.first_key().length(),
+                    indexlet.first_not_owned_key().c_str(),
+                    (uint16_t)indexlet.first_not_owned_key().length());
             if (!deleted) {
                 throw FatalError(HERE, format("Could not delete recovery "
                     "indexlet (%lu, %u, %s, %s). It disappeared!?",
                         indexlet.table_id(),
                         indexlet.index_id(),
-                        indexlet.start_key().c_str(),
-                        indexlet.end_key().c_str()));
+                        indexlet.first_key().c_str(),
+                        indexlet.first_not_owned_key().c_str()));
             }
         }
         objectManager.removeOrphanedObjects();

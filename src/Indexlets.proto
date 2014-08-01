@@ -28,10 +28,10 @@ message Indexlets {
     required uint64 indexlet_table_id = 3;
 
     ///The first (smallest) key that is part of this indexlet.
-    optional bytes start_key = 4;
+    optional bytes first_key = 4;
 
     ///The smallest key greater than all the keys managed by this indexlet.
-    optional bytes end_key = 5;
+    optional bytes first_not_owned_key = 5;
 
     /// The id of the master owning this indexlet.
     optional fixed64 server_id = 6;

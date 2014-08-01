@@ -106,30 +106,6 @@ TEST_F(IndexletManagerTest, addIndexlet) {
     EXPECT_EQ(0, firstNotOwnedKey.compare("k"));
 }
 
-TEST_F(IndexletManagerTest, addIndexlet_ProtoBuf) {
-    ProtoBuf::Indexlets::Indexlet indexlet;
-    indexlet.set_table_id(0);
-    indexlet.set_index_id(0);
-    indexlet.set_indexlet_table_id(indexletTableId);
-    indexlet.set_start_key("c");
-    indexlet.set_end_key("k");
-
-    EXPECT_NO_THROW(im.addIndexlet(indexlet));
-
-    SpinLock mutex;
-    IndexletManager::Lock fakeGuard(mutex);
-    IndexletManager::Indexlet* ind =
-            &im.lookupIndexlet(0, 0, "c", 1, fakeGuard)->second;
-    string firstKey =
-            StringUtil::binaryToString(ind->firstKey, ind->firstKeyLength);
-    string firstNotOwnedKey =
-            StringUtil::binaryToString(ind->firstNotOwnedKey,
-                        ind->firstNotOwnedKeyLength);
-
-    EXPECT_EQ(0, firstKey.compare("c"));
-    EXPECT_EQ(0, firstNotOwnedKey.compare("k"));
-}
-
 TEST_F(IndexletManagerTest, hasIndexlet) {
     string key1 = "a";
     string key2 = "c";
@@ -261,51 +237,6 @@ TEST_F(IndexletManagerTest, deleteIndexlet) {
 
     EXPECT_FALSE(im.deleteIndexlet(0, 0, key1.c_str(),
         (uint16_t)key1.length(), key4.c_str(), (uint16_t)key4.length()));
-}
-
-TEST_F(IndexletManagerTest, deleteIndexlet_ProtoBuf) {
-    string key1 = "a";
-    string key2 = "c";
-    string key3 = "f";
-    string key4 = "k";
-    string key5 = "u";
-    ProtoBuf::Indexlets::Indexlet indexlet;
-    indexlet.set_table_id(0);
-    indexlet.set_index_id(0);
-    indexlet.set_start_key(key2);
-    indexlet.set_end_key(key4);
-
-    EXPECT_FALSE(im.getIndexlet(0, 0, key2.c_str(),
-        (uint16_t)key2.length(), key4.c_str(), (uint16_t)key4.length()));
-
-    im.addIndexlet(0, 0, indexletTableId, key2.c_str(),
-        (uint16_t)key2.length(), key4.c_str(), (uint16_t)key4.length());
-
-    EXPECT_TRUE(im.getIndexlet(0, 0, key2.c_str(),
-        (uint16_t)key2.length(), key4.c_str(), (uint16_t)key4.length()));
-
-    EXPECT_TRUE(im.deleteIndexlet(indexlet));
-
-    EXPECT_FALSE(im.getIndexlet(0, 0, key2.c_str(),
-        (uint16_t)key2.length(), key4.c_str(), (uint16_t)key4.length()));
-
-    EXPECT_FALSE(im.deleteIndexlet(indexlet));
-
-    // we need to create the table corresponding to each indexlet
-    // (b-tree). There is one indexlet that is created as part
-    // of the constructor of IndexletManagerTest
-    tabletManager.addTablet(indexletTableId + 1, 0, ~0UL,
-                            TabletManager::NORMAL);
-    im.addIndexlet(0, 0, indexletTableId, key2.c_str(),
-        (uint16_t)key2.length(), key4.c_str(), (uint16_t)key4.length());
-
-    indexlet.set_start_key(key2);
-    indexlet.set_end_key(key5);
-    EXPECT_FALSE(im.deleteIndexlet(indexlet));
-
-    indexlet.set_start_key(key1);
-    indexlet.set_end_key(key4);
-    EXPECT_FALSE(im.deleteIndexlet(indexlet));
 }
 
 // TODO(ashgup): Add unit tests for functions that currently don't have them:

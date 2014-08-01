@@ -1800,8 +1800,8 @@ TEST_F(MasterServiceTest, recover_basic_indexlet) {
     entry.set_index_id(4);
     entry.set_indexlet_table_id(0);
     string key0 = "a", key1 = "z";
-    entry.set_start_key(key0);
-    entry.set_end_key(key1);
+    entry.set_first_key(key0);
+    entry.set_first_not_owned_key(key1);
     auto result = BackupClient::startReadingData(&context, backup1Id,
                                                  10lu, serverId);
     BackupClient::StartPartitioningReplicas(&context, backup1Id,
@@ -1828,8 +1828,8 @@ TEST_F(MasterServiceTest, recover_basic_indexlet) {
     EXPECT_EQ(23U, segmentManager->safeVersion);
 
     size_t curPos = 0; // Current Pos: given to getUntil()
-    TestLog::getUntil("recover: Recovering master 123.0"
-                      , curPos, &curPos); // Proceed read pointer
+    TestLog::getUntil("recover: Recovering master 123.0",
+                      curPos, &curPos); // Proceed read pointer
 
     EXPECT_EQ(
         "recover: Recovering master 123.0, partition 0, 1 replicas available | "

@@ -356,18 +356,18 @@ TableManager::getIndexletInfoByIndexletTableId(uint64_t indexletTableId,
         return false;
 
     if (it->second->firstKey != NULL)
-        indexlet.set_start_key(string(reinterpret_cast<char*>(
+        indexlet.set_first_key(string(reinterpret_cast<char*>(
                                it->second->firstKey),
                                it->second->firstKeyLength));
     else
-        indexlet.set_start_key("");
+        indexlet.set_first_key("");
 
     if (it->second->firstNotOwnedKey != NULL)
-        indexlet.set_end_key(string(reinterpret_cast<char*>(
+        indexlet.set_first_not_owned_key(string(reinterpret_cast<char*>(
                              it->second->firstNotOwnedKey),
                              it->second->firstNotOwnedKeyLength));
     else
-        indexlet.set_end_key("");
+        indexlet.set_first_not_owned_key("");
     indexlet.set_table_id(it->second->tableId);
     indexlet.set_index_id(it->second->indexId);
     indexlet.set_indexlet_table_id(it->second->indexletTableId);

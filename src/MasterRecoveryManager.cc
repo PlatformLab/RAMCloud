@@ -262,21 +262,22 @@ class RecoveryMasterFinishedTask : public Task {
                     uint16_t firstKeyLength;
                     void* firstNotOwnedKey;
                     uint16_t firstNotOwnedKeyLength;
-                    if (indexlet.start_key().compare("") != 0) {
+                    if (indexlet.first_key().compare("") != 0) {
                         firstKey =
-                            const_cast<char *>(indexlet.start_key().c_str());
+                            const_cast<char *>(indexlet.first_key().c_str());
                         firstKeyLength =
-                            (uint16_t)indexlet.start_key().length();
+                            (uint16_t)indexlet.first_key().length();
                     } else {
                         firstKey = NULL;
                         firstKeyLength = 0;
                     }
 
-                    if (indexlet.end_key().compare("") != 0) {
+                    if (indexlet.first_not_owned_key().compare("") != 0) {
                         firstNotOwnedKey =
-                            const_cast<char *>(indexlet.end_key().c_str());
+                            const_cast<char *>(
+                                indexlet.first_not_owned_key().c_str());
                         firstNotOwnedKeyLength =
-                            (uint16_t)indexlet.end_key().length();
+                            (uint16_t)indexlet.first_not_owned_key().length();
                     } else {
                         firstNotOwnedKey = NULL;
                         firstNotOwnedKeyLength = 0;
