@@ -382,8 +382,8 @@ TEST_F(MasterServiceTest, dropTabletOwnership) {
 
     MasterClient::dropTabletOwnership(&context,
         masterServer-> serverId, 2, 1, 1);
-    EXPECT_EQ("dropTabletOwnership: Could not drop ownership "
-              "on unknown tablet [0x1,0x1] in tableId 2!", TestLog::get());
+    EXPECT_EQ("dropTabletOwnership: Dropped ownership of (or did not own) "
+              "tablet [0x1,0x1] in tableId 2", TestLog::get());
 
     TestLog::reset();
 
@@ -391,8 +391,8 @@ TEST_F(MasterServiceTest, dropTabletOwnership) {
         2, 1, 1);
     MasterClient::dropTabletOwnership(&context, masterServer-> serverId,
         2, 1, 1);
-    EXPECT_EQ("dropTabletOwnership: Dropped ownership of tablet [0x1,0x1] "
-        "in tableId 2", TestLog::get());
+    EXPECT_EQ("dropTabletOwnership: Dropped ownership of (or did not own) "
+              "tablet [0x1,0x1] in tableId 2", TestLog::get());
 }
 
 TEST_F(MasterServiceTest, dropIndexletOwnership) {
@@ -1332,7 +1332,7 @@ TEST_F(MasterServiceTest, takeTabletOwnership_newTablet) {
     TestLog::Enable _("takeTabletOwnership");
 
     // Start empty.
-    EXPECT_TRUE(service->tabletManager.deleteTablet(1, 0, ~0UL));
+    service->tabletManager.deleteTablet(1, 0, ~0UL);
     EXPECT_EQ("", service->tabletManager.toString());
 
     { // set t1 and t2 directly

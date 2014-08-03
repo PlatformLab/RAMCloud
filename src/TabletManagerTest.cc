@@ -153,17 +153,35 @@ TEST_F(TabletManagerTest, getTablets) {
 }
 
 TEST_F(TabletManagerTest, deleteTablet) {
-    EXPECT_FALSE(tm.deleteTablet(1, 1, 1));
+    TestLog::Enable _("deleteTablet");
+    EXPECT_NO_THROW(tm.deleteTablet(1, 1, 1));
+    EXPECT_EQ("deleteTablet: Could not find tablet in tableId 1 with "
+              "startKeyHash 1 and endKeyHash 1", TestLog::get());
+
     tm.addTablet(1, 1, 1, TabletManager::NORMAL);
     EXPECT_TRUE(tm.getTablet(1, 1, 1));
-    EXPECT_TRUE(tm.deleteTablet(1, 1, 1));
+
+    TestLog::reset();
+    EXPECT_NO_THROW(tm.deleteTablet(1, 1, 1));
+    EXPECT_EQ("", TestLog::get());
     EXPECT_FALSE(tm.getTablet(1, 1, 1));
-    EXPECT_FALSE(tm.deleteTablet(1, 1, 1));
+
+    TestLog::reset();
+    EXPECT_NO_THROW(tm.deleteTablet(1, 1, 1));
+    EXPECT_EQ("deleteTablet: Could not find tablet in tableId 1 with "
+              "startKeyHash 1 and endKeyHash 1", TestLog::get());
     EXPECT_EQ(0U, tm.getCount());
 
     tm.addTablet(0, 1, 2, TabletManager::NORMAL);
-    EXPECT_FALSE(tm.deleteTablet(0, 0, 2));
-    EXPECT_FALSE(tm.deleteTablet(0, 1, 1));
+    TestLog::reset();
+    EXPECT_NO_THROW(tm.deleteTablet(0, 0, 2));
+    EXPECT_EQ("deleteTablet: Could not find tablet in tableId 0 with "
+              "startKeyHash 0 and endKeyHash 2", TestLog::get());
+    TestLog::reset();
+    EXPECT_THROW(tm.deleteTablet(0, 1, 1), InternalError);
+    EXPECT_EQ("deleteTablet: Could not find tablet in tableId 0 with "
+              "startKeyHash 1 and endKeyHash 1: "
+              "overlaps with one or more other ranges", TestLog::get());
     EXPECT_EQ(1U, tm.getCount());
 }
 

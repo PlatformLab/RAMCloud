@@ -13,7 +13,6 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "Common.h"
 #include "IndexletManager.h"
 #include "StringUtil.h"
 #include "Util.h"

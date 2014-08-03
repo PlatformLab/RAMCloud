@@ -273,22 +273,17 @@ MasterService::dropTabletOwnership(
         WireFormat::DropTabletOwnership::Response* respHdr,
         Rpc* rpc)
 {
-    bool deleted = tabletManager.deleteTablet(reqHdr->tableId,
-                                              reqHdr->firstKeyHash,
-                                              reqHdr->lastKeyHash);
-    if (deleted) {
-        // Ensure that the ObjectManager never returns objects from this deleted
-        // tablet again.
-        objectManager.removeOrphanedObjects();
-        LOG(NOTICE, "Dropped ownership of tablet [0x%lx,0x%lx] in tableId %lu",
-            reqHdr->firstKeyHash, reqHdr->lastKeyHash, reqHdr->tableId);
-    } else {
-        // to make this operation idempotent, don't return bad status.
+    tabletManager.deleteTablet(reqHdr->tableId,
+                               reqHdr->firstKeyHash,
+                               reqHdr->lastKeyHash);
 
-        LOG(WARNING, "Could not drop ownership on unknown tablet [0x%lx,0x%lx]"
-            " in tableId %lu!", reqHdr->firstKeyHash, reqHdr->lastKeyHash,
-            reqHdr->tableId);
-    }
+    // Ensure that the ObjectManager never returns objects from this deleted
+    // tablet again.
+    objectManager.removeOrphanedObjects();
+
+    LOG(NOTICE, "Dropped ownership of (or did not own) tablet [0x%lx,0x%lx] "
+                "in tableId %lu",
+                reqHdr->firstKeyHash, reqHdr->lastKeyHash, reqHdr->tableId);
 }
 
 /**
@@ -2304,16 +2299,9 @@ MasterService::recover(const WireFormat::Recover::Request* reqHdr,
         // recovery before starting to serve requests again.
         foreach (const ProtoBuf::Tablets::Tablet& tablet,
                  recoveryPartition.tablet()) {
-            bool deleted = tabletManager.deleteTablet(tablet.table_id(),
-                                                      tablet.start_key_hash(),
-                                                      tablet.end_key_hash());
-            if (!deleted) {
-                throw FatalError(HERE, format("Could not delete recovery "
-                    "tablet (%lu range [%lu,%lu]). It disappeared!?",
-                        tablet.table_id(),
-                        tablet.start_key_hash(),
-                        tablet.end_key_hash()));
-            }
+            tabletManager.deleteTablet(tablet.table_id(),
+                                       tablet.start_key_hash(),
+                                       tablet.end_key_hash());
         }
         foreach (const ProtoBuf::Indexlets::Indexlet& indexlet,
                  recoveryPartition.indexlet()) {

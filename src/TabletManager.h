@@ -129,7 +129,7 @@ class TabletManager {
                    uint64_t endKeyHash,
                    Tablet* outTablet = NULL);
     void getTablets(vector<Tablet>* outTablets);
-    bool deleteTablet(uint64_t tableId,
+    void deleteTablet(uint64_t tableId,
                       uint64_t startKeyHash,
                       uint64_t endKeyHash);
     bool splitTablet(uint64_t tableId,

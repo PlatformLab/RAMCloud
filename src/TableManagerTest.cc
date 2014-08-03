@@ -874,8 +874,10 @@ TEST_F(TableManagerTest, notifyDropTable_basics) {
     tableManager->notifyDropTable(lock, &table);
     EXPECT_EQ("notifyDropTable: Requesting master 1.0 to drop "
             "table id 444, key hashes 0x200-0x300 | "
-            "dropTabletOwnership: Could not drop ownership on unknown "
-            "tablet [0x200,0x300] in tableId 444! | "
+            "deleteTablet: Could not find tablet in tableId 444 with "
+            "startKeyHash 512 and endKeyHash 768 | "
+            "dropTabletOwnership: Dropped ownership of (or did not own) "
+            "tablet [0x200,0x300] in tableId 444 | "
             "notifyDropTable: Requesting master 99.0 to drop "
             "table id 444, key hashes 0x800-0x900 | "
             "notifyDropTable: dropTabletOwnership skipped for master 99.0 "

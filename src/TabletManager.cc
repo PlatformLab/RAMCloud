@@ -13,9 +13,10 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "Common.h"
+#include "ClientException.h"
 #include "TabletManager.h"
 #include "TimeTrace.h"
+#include "Util.h"
 
 namespace RAMCloud {
 
@@ -196,6 +197,7 @@ TabletManager::getTablets(vector<Tablet>* outTablets)
 /**
  * Remove a tablet previously created by addTablet() or splitTablet() and delete
  * all data that tracks its existence.
+ * If such a tablet does not exist, ignore and return successfully.
  *
  * \param tableId
  *      The table identifier of the tablet we're deleting.
@@ -203,10 +205,11 @@ TabletManager::getTablets(vector<Tablet>* outTablets)
  *      Key hash value at which the to-be-deleted tablet begins.
  * \param endKeyHash
  *      Key hash value at which the to-be-deleted tablet ends.
- * \return
- *      True if the tablet was deleted. False if no such tablet existed.
+ * \throw
+ *      InternalError if tablet was not found because the range overlaps
+ *      with one or more existing tablets.
  */
-bool
+void
 TabletManager::deleteTablet(uint64_t tableId,
                             uint64_t startKeyHash,
                             uint64_t endKeyHash)
@@ -214,15 +217,24 @@ TabletManager::deleteTablet(uint64_t tableId,
     Lock guard(lock);
 
     TabletMap::iterator it = lookup(tableId, startKeyHash, guard);
-    if (it == tabletMap.end())
-        return false;
+    if (it == tabletMap.end()) {
+        RAMCLOUD_LOG(DEBUG, "Could not find tablet in tableId %lu with "
+                            "startKeyHash %lu and endKeyHash %lu",
+                            tableId, startKeyHash, endKeyHash);
+        return;
+    }
 
     Tablet* t = &it->second;
-    if (t->startKeyHash != startKeyHash || t->endKeyHash != endKeyHash)
-        return false;
+    if (t->startKeyHash != startKeyHash || t->endKeyHash != endKeyHash) {
+        RAMCLOUD_LOG(ERROR, "Could not find tablet in tableId %lu with "
+                            "startKeyHash %lu and endKeyHash %lu: "
+                            "overlaps with one or more other ranges",
+                            tableId, startKeyHash, endKeyHash);
+        throw InternalError(HERE, STATUS_INTERNAL_ERROR);
+    }
 
     tabletMap.erase(it);
-    return true;
+    return;
 }
 
 /**
