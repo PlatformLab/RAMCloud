@@ -405,8 +405,8 @@ TEST_F(MasterServiceTest, dropIndexletOwnership) {
             (uint16_t)key1.length(),
             reinterpret_cast<const void*>(key2.c_str()),
             (uint16_t)key2.length());
-    EXPECT_EQ("dropIndexletOwnership: Ignoring dropIndexletOwnership request "
-              "for tableId 2, indexId 1: indexlet not stored here",
+    EXPECT_EQ("dropIndexletOwnership: Dropped ownership of (or did not own) "
+              "indexlet in tableId 2, indexId 1",
               TestLog::get());
 
     TestLog::reset();
@@ -420,8 +420,8 @@ TEST_F(MasterServiceTest, dropIndexletOwnership) {
             (uint16_t)key1.length(),
             reinterpret_cast<const void*>(key2.c_str()),
             (uint16_t)key2.length());
-    EXPECT_EQ("dropIndexletOwnership: Dropped ownership of indexlet "
-        "in tableId 2 indexId 1", TestLog::get());
+    EXPECT_EQ("dropIndexletOwnership: Dropped ownership of (or did not own) "
+              "indexlet in tableId 2, indexId 1", TestLog::get());
 }
 
 

@@ -122,10 +122,11 @@ IndexletManager::addIndexlet(
  *      in the index order but not part of this indexlet.
  * \param firstNotOwnedKeyLength
  *      Length of firstNotOwnedKey.
- * \return
- *      True if indexlet was deleted. Failed if indexlet did not exist.
+ * \throw InternalError
+ *      If indexlet was not found because the range overlaps
+ *      with one or more existing indexlets.
  */
-bool
+void
 IndexletManager::deleteIndexlet(
         uint64_t tableId, uint8_t indexId,
         const void *firstKey, uint16_t firstKeyLength,
@@ -142,7 +143,9 @@ IndexletManager::deleteIndexlet(
                                               firstKey, firstKeyLength,
                                               indexletMapLock);
     if (it == indexletMap.end()) {
-        return false;
+        RAMCLOUD_LOG(DEBUG, "Unknown indexlet in tableId %lu, indexId %u",
+                            tableId, indexId);
+        return;
     }
 
     Indexlet* indexlet = &it->second;
@@ -152,13 +155,16 @@ IndexletManager::deleteIndexlet(
         IndexKey::keyCompare(indexlet->firstNotOwnedKey,
                    indexlet->firstNotOwnedKeyLength,
                    firstNotOwnedKey, firstNotOwnedKeyLength) != 0) {
-        return false;
+        RAMCLOUD_LOG(ERROR, "Unknown indexlet in tableId %lu, indexId %u: "
+                            "overlaps with one or more other ranges.",
+                            tableId, indexId);
+        throw InternalError(HERE, STATUS_INTERNAL_ERROR);
     }
 
     delete indexlet->bt;
     indexletMap.erase(it);
 
-    return true;
+    return;
 }
 
 /**

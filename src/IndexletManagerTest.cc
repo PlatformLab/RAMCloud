@@ -200,13 +200,15 @@ TEST_F(IndexletManagerTest, getIndexlet) {
 }
 
 TEST_F(IndexletManagerTest, deleteIndexlet) {
+    TestLog::Enable _("deleteIndexlet");
+
     string key1 = "a";
     string key2 = "c";
     string key3 = "f";
     string key4 = "k";
     string key5 = "u";
 
-    EXPECT_FALSE(im.getIndexlet(0, 0, key2.c_str(),
+    EXPECT_NO_THROW(im.getIndexlet(0, 0, key2.c_str(),
         (uint16_t)key2.length(), key4.c_str(), (uint16_t)key4.length()));
 
     im.addIndexlet(0, 0, indexletTableId, key2.c_str(),
@@ -215,14 +217,18 @@ TEST_F(IndexletManagerTest, deleteIndexlet) {
     EXPECT_TRUE(im.getIndexlet(0, 0, key2.c_str(),
         (uint16_t)key2.length(), key4.c_str(), (uint16_t)key4.length()));
 
-    EXPECT_TRUE(im.deleteIndexlet(0, 0, key2.c_str(),
+    EXPECT_NO_THROW(im.deleteIndexlet(0, 0, key2.c_str(),
         (uint16_t)key2.length(), key4.c_str(), (uint16_t)key4.length()));
+    EXPECT_EQ("", TestLog::get());
 
     EXPECT_FALSE(im.getIndexlet(0, 0, key2.c_str(),
         (uint16_t)key2.length(), key4.c_str(), (uint16_t)key4.length()));
 
-    EXPECT_FALSE(im.deleteIndexlet(0, 0, key2.c_str(),
+    EXPECT_NO_THROW(im.deleteIndexlet(0, 0, key2.c_str(),
         (uint16_t)key2.length(), key4.c_str(), (uint16_t)key4.length()));
+    EXPECT_EQ("deleteIndexlet: Unknown indexlet in tableId 0, indexId 0",
+              TestLog::get());
+    TestLog::reset();
 
     // we need to create the table corresponding to each indexlet
     // (b-tree). There is one indexlet that is created as part
@@ -232,11 +238,17 @@ TEST_F(IndexletManagerTest, deleteIndexlet) {
     im.addIndexlet(0, 0, indexletTableId, key2.c_str(),
         (uint16_t)key2.length(), key4.c_str(), (uint16_t)key4.length());
 
-    EXPECT_FALSE(im.deleteIndexlet(0, 0, key2.c_str(),
-        (uint16_t)key2.length(), key5.c_str(), (uint16_t)key5.length()));
+    EXPECT_THROW(im.deleteIndexlet(0, 0, key2.c_str(),
+        (uint16_t)key2.length(), key5.c_str(), (uint16_t)key5.length()),
+        InternalError);
+    EXPECT_EQ("deleteIndexlet: Unknown indexlet in tableId 0, indexId 0: "
+              "overlaps with one or more other ranges.", TestLog::get());
+    TestLog::reset();
 
-    EXPECT_FALSE(im.deleteIndexlet(0, 0, key1.c_str(),
+    EXPECT_NO_THROW(im.deleteIndexlet(0, 0, key1.c_str(),
         (uint16_t)key1.length(), key4.c_str(), (uint16_t)key4.length()));
+    EXPECT_EQ("deleteIndexlet: Unknown indexlet in tableId 0, indexId 0",
+              TestLog::get());
 }
 
 // TODO(ashgup): Add unit tests for functions that currently don't have them:

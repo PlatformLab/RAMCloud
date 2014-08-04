@@ -307,20 +307,13 @@ MasterService::dropIndexletOwnership(
     const void* firstNotOwnedKey = rpc->requestPayload->getRange(
             reqOffset, reqHdr->firstNotOwnedKeyLength);
 
-    bool deleted = indexletManager.deleteIndexlet(
+    indexletManager.deleteIndexlet(
             reqHdr->tableId, reqHdr->indexId,
             firstKey, reqHdr->firstKeyLength,
             firstNotOwnedKey, reqHdr->firstNotOwnedKeyLength);
 
-    if (deleted) {
-        LOG(NOTICE, "Dropped ownership of indexlet in tableId %lu"
-            " indexId %u", reqHdr->tableId, reqHdr->indexId);
-    } else {
-        // to make this operation idempotent, don't return bad status.
-        LOG(WARNING, "Ignoring dropIndexletOwnership request for"
-                " tableId %lu, indexId %u: indexlet not stored here",
-                reqHdr->tableId, reqHdr->indexId);
-    }
+    LOG(NOTICE, "Dropped ownership of (or did not own) indexlet in "
+            "tableId %lu, indexId %u", reqHdr->tableId, reqHdr->indexId);
 }
 
 /**
@@ -2305,21 +2298,13 @@ MasterService::recover(const WireFormat::Recover::Request* reqHdr,
         }
         foreach (const ProtoBuf::Indexlets::Indexlet& indexlet,
                  recoveryPartition.indexlet()) {
-            bool deleted = indexletManager.deleteIndexlet(
+            indexletManager.deleteIndexlet(
                     indexlet.table_id(),
                     (uint8_t)indexlet.index_id(),
                     indexlet.first_key().c_str(),
                     (uint16_t)indexlet.first_key().length(),
                     indexlet.first_not_owned_key().c_str(),
                     (uint16_t)indexlet.first_not_owned_key().length());
-            if (!deleted) {
-                throw FatalError(HERE, format("Could not delete recovery "
-                    "indexlet (%lu, %u, %s, %s). It disappeared!?",
-                        indexlet.table_id(),
-                        indexlet.index_id(),
-                        indexlet.first_key().c_str(),
-                        indexlet.first_not_owned_key().c_str()));
-            }
         }
         objectManager.removeOrphanedObjects();
     }

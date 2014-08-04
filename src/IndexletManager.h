@@ -58,7 +58,7 @@ class IndexletManager {
                 const void *firstKey, uint16_t firstKeyLength,
                 const void *firstNotOwnedKey, uint16_t firstNotOwnedKeyLength,
                 uint64_t highestUsedID = 0);
-    bool deleteIndexlet(uint64_t tableId, uint8_t indexId,
+    void deleteIndexlet(uint64_t tableId, uint8_t indexId,
                 const void *firstKey, uint16_t firstKeyLength,
                 const void *firstNotOwnedKey, uint16_t firstNotOwnedKeyLength);
     bool hasIndexlet(uint64_t tableId, uint8_t indexId,
