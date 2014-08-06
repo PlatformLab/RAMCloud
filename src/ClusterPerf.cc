@@ -2596,6 +2596,70 @@ readAllToAll()
 
     delete[] tableIds;
 }
+
+// Write a single object many times, and compute a cumulative distribution
+// of write times.
+void
+writeDist()
+{
+    if (clientIndex != 0)
+        return;
+
+    // Create an object to read, and verify its contents (this also
+    // loads all caches along the way).
+    const char* key = "123456789012345678901234567890";
+    uint16_t keyLength = downCast<uint16_t>(strlen(key));
+    Buffer input, value;
+    fillBuffer(input, objectSize, dataTable, key, keyLength);
+    cluster->write(dataTable, key, keyLength,
+                input.getRange(0, objectSize), objectSize);
+    cluster->read(dataTable, key, keyLength, &value);
+    checkBuffer(&value, 0, objectSize, dataTable, key, keyLength);
+
+    // Warmup, if desired
+    for (int i = 0; i < warmupCount; i++) {
+        cluster->write(dataTable, key, keyLength,
+                input.getRange(0, objectSize), objectSize);
+    }
+
+    // Issue the reads as quickly as possible, and save the times.
+    std::vector<uint64_t> ticks;
+    ticks.resize(count);
+    uint64_t start = Cycles::rdtsc();
+    for (int i = 0; i < count; i++) {
+        cluster->write(dataTable, key, keyLength,
+                input.getRange(0, objectSize), objectSize);
+        ticks[i] = Cycles::rdtsc();
+    }
+    
+    // Dump both time and cache traces. This amounts to almost a no-op if there
+    // are no traces, and we do not currently expect traces in production code.
+    cluster->objectServerControl(dataTable, key, keyLength,
+            WireFormat::LOG_TIME_TRACE);
+    cluster->objectServerControl(dataTable, key, keyLength,
+            WireFormat::LOG_CACHE_TRACE);
+
+    // Dump client side time trace
+    cluster->clientContext->timeTrace->printToLog();
+
+    // Output the times (several comma-separated values on each line).
+    int valuesInLine = 0;
+    for (int i = 0; i < count; i++) {
+        if (valuesInLine >= 10) {
+            valuesInLine = 0;
+            printf("\n");
+        }
+        if (valuesInLine != 0) {
+            printf(",");
+        }
+        double micros = Cycles::toSeconds(ticks[i] - start)*1.0e06;
+        printf("%.2f", micros);
+        valuesInLine++;
+        start = ticks[i];
+    }
+    printf("\n");
+}
+
 // Read a single object many times, and compute a cumulative distribution
 // of read times.
 void
@@ -3335,6 +3399,7 @@ TestInfo tests[] = {
     {"readVaryingKeyLength", readVaryingKeyLength},
     {"writeVaryingKeyLength", writeVaryingKeyLength},
     {"writeAsyncSync", writeAsyncSync},
+    {"writeDist", writeDist},
 };
 
 int

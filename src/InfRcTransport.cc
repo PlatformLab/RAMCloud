@@ -1011,13 +1011,13 @@ InfRcTransport::sendZeroCopy(Buffer* message, QueuePair* qp, TimeTrace* trace)
     ibv_send_wr* badTxWorkRequest;
     if (expect_true(!testingDontReallySend)) {
         if (trace) trace->record("Client is about to call ibv_post_send");
-        else TRACE("server is about to call ibv_post_send");
+//        else TRACE("server is about to call ibv_post_send");
         if (ibv_post_send(qp->qp, &txWorkRequest, &badTxWorkRequest)) {
             throw TransportException(HERE, "ibv_post_send failed");
         }
         // TODO(hq6): Put the final timer here on the client side.
         if (trace) trace->record("Client finished calling ibv_post_send");
-        else TRACE("Server finished calling ibv_post_send");
+//        else TRACE("Server finished calling ibv_post_send");
     } else {
         for (int i = 0; i < txWorkRequest.num_sge; ++i) {
             const ibv_sge& sge = txWorkRequest.sg_list[i];

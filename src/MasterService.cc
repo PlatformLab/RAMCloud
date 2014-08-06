@@ -1564,7 +1564,7 @@ MasterService::write(const WireFormat::Write::Request* reqHdr,
         Rpc* rpc)
 {
     // This is a temporary object that has an invalid version and timestamp.
-    // An object is created to make here sure the object format does not leak
+    // An object is created here to make sure the object format does not leak
     // outside the object class. ObjectManager will update the version,
     // timestamp and the checksum
     // This is also used to get key information to update indexes as needed.
