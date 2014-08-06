@@ -18,6 +18,7 @@
 
 #include <unordered_map>
 
+#include "btreeRamCloud/BtreeMultimap.h"
 #include "Common.h"
 #include "HashTable.h"
 #include "SpinLock.h"
@@ -25,7 +26,8 @@
 #include "Indexlet.h"
 #include "IndexKey.h"
 #include "ObjectManager.h"
-#include "btreeRamCloud/BtreeMultimap.h"
+#include "Service.h"
+#include "WireFormat.h"
 
 namespace RAMCloud {
 
@@ -73,13 +75,9 @@ class IndexletManager {
     Status insertEntry(uint64_t tableId, uint8_t indexId,
                 const void* key, KeyLength keyLength,
                 uint64_t pKHash);
-    Status lookupIndexKeys(uint64_t tableId, uint8_t indexId,
-                const void* firstKey, KeyLength firstKeyLength,
-                uint64_t firstAllowedKeyHash,
-                const void* lastKey, uint16_t lastKeyLength,
-                uint32_t maxNumHashes,
-                Buffer* responseBuffer, uint32_t* numHashes,
-                uint16_t* nextKeyLength, uint64_t* nextKeyHash);
+    void lookupIndexKeys(const WireFormat::LookupIndexKeys::Request* reqHdr,
+                WireFormat::LookupIndexKeys::Response* respHdr,
+                Service::Rpc* rpc);
     Status removeEntry(uint64_t tableId, uint8_t indexId,
                 const void* key, KeyLength keyLength,
                 uint64_t pKHash);

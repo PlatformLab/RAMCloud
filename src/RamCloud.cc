@@ -243,8 +243,8 @@ DropTableRpc::DropTableRpc(RamCloud* ramcloud, const char* name)
  *      Type of the index. Currently only supporting string type.
  * \param numIndexlets
  *      Number of indexlets to partition the index key space.
- *      This is only for performance testing, and value should always be 1 for
- *      real use.
+ *      This is only for performance testing and unit tests.
+ *      Its value should always be 1 for real use.
  */
 void
 RamCloud::createIndex(uint64_t tableId, uint8_t indexId, uint8_t indexType,

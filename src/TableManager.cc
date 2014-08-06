@@ -158,7 +158,7 @@ TableManager::createIndex(uint64_t tableId, uint8_t indexId, uint8_t indexType,
                             1, tabletMaster, indexletTableId,
                             tableId, indexId);
             } else {
-                // This case exists only for performance testing purposes, and
+                // This case exists only for performance and unit testing, and
                 // it is not intended for actual use.
                 char firstKey = static_cast<char>('a'+i);
                 char firstNotOwnedKey = static_cast<char>('b'+i);

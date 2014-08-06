@@ -654,23 +654,7 @@ MasterService::lookupIndexKeys(
     WireFormat::LookupIndexKeys::Response* respHdr,
     Rpc* rpc)
 {
-    uint32_t reqOffset = sizeof32(*reqHdr);
-
-    const void* firstKeyStr =
-            rpc->requestPayload->getRange(reqOffset, reqHdr->firstKeyLength);
-    reqOffset += reqHdr->firstKeyLength;
-
-    const void* lastKeyStr =
-            rpc->requestPayload->getRange(reqOffset, reqHdr->lastKeyLength);
-
-    respHdr->common.status = indexletManager.lookupIndexKeys(
-                    reqHdr->tableId, reqHdr->indexId,
-                    firstKeyStr, reqHdr->firstKeyLength,
-                    reqHdr->firstAllowedKeyHash,
-                    lastKeyStr, reqHdr->lastKeyLength,
-                    reqHdr->maxNumHashes,
-                    rpc->replyPayload, &respHdr->numHashes,
-                    &respHdr->nextKeyLength, &respHdr->nextKeyHash);
+    indexletManager.lookupIndexKeys(reqHdr, respHdr, rpc);
 }
 
 /**

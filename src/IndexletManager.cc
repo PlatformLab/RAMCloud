@@ -367,80 +367,38 @@ IndexletManager::insertEntry(uint64_t tableId, uint8_t indexId,
 }
 
 /**
- * Lookup objects with index keys corresponding to indexId in the
- * specified range.
- *
- * \param tableId
- *      Id of the table containing the objects corresponding to these
- *      index keys.
- * \param indexId
- *      Id of the index to which these index keys belongs.
- * \param firstKey
- *      Starting key blob for the key range in which keys are to be matched.
- *      The key range includes the firstKey.
- * \param firstKeyLength
- *      Length of firstKey.
- * \param firstAllowedKeyHash
- *      Smallest primary key hash value allowed for firstKey.
- * \param lastKey
- *      Ending key for the key range in which keys are to be matched.
- *      The key range includes the lastKey.
- * \param lastKeyLength
- *      Length of lastKey.
- * \param maxNumHashes
- *      Maximum number of key hashes that can be returned as a response here.
- *      If there are more hashes to be returned than maxNumHashes, then
- *      information about the next key + keyHash to be fetched is also returned.
- *
- * \param[out] responseBuffer
- *      Return buffer containing the following:
- *      1. Actual bytes of the next key to fetch (nextKey), if any.
- *      Indicates that results for index keys starting at nextKey + nextKeyHash
- *      couldn't be returned right now, possibly because we ran out of space
- *      in the response rpc.
- *      Client can send another request to get results starting at nexKey +
- *      nextKeyHash.
- *      This part occupies the first nextKeyLength bytes of responseBuffer.
- *      2. The key hashes of the primary keys of all the objects
- *      that match the lookup query and can be returned in this response.
- *      This part occupies numHashes * sizeof(KeyHash) bytes of responseBuffer.
- * \param[out] numHashes
- *      Return the number of objects that matched the lookup, for which
- *      the primary key hashes are being returned here.
- * \param[out] nextKeyLength
- *      Length of nextKey in bytes.
- * \param[out] nextKeyHash
- *      Results starting at nextKey + nextKeyHash couldn't be returned.
- *      Client can send another request according to this.
- * \return
- *      Returns STATUS_OK if the lookup succeeded. Other status values
- *      indicate different failures.
+ * Handle LOOKUP_INDEX_KEYS request.
+ * 
+ * \copydetails Service::ping
  */
-Status
-IndexletManager::lookupIndexKeys(uint64_t tableId, uint8_t indexId,
-        const void* firstKey, KeyLength firstKeyLength,
-        uint64_t firstAllowedKeyHash,
-        const void* lastKey, uint16_t lastKeyLength,
-        uint32_t maxNumHashes, Buffer* responseBuffer, uint32_t* numHashes,
-        uint16_t* nextKeyLength, uint64_t* nextKeyHash)
+void
+IndexletManager::lookupIndexKeys(
+        const WireFormat::LookupIndexKeys::Request* reqHdr,
+        WireFormat::LookupIndexKeys::Response* respHdr,
+        Service::Rpc* rpc)
 {
     Lock indexletMapLock(mutex);
 
+    uint32_t reqOffset = sizeof32(*reqHdr);
+    const void* firstKey =
+            rpc->requestPayload->getRange(reqOffset, reqHdr->firstKeyLength);
+    reqOffset += reqHdr->firstKeyLength;
+    const void* lastKey =
+            rpc->requestPayload->getRange(reqOffset, reqHdr->lastKeyLength);
+
     RAMCLOUD_LOG(DEBUG, "Looking up: tableId %lu, indexId %u.\n"
                         "first key: %s\n last  key: %s\n",
-                        tableId, indexId,
-                        Util::hexDump(firstKey, firstKeyLength).c_str(),
-                        Util::hexDump(lastKey, lastKeyLength).c_str());
+                        reqHdr->tableId, reqHdr->indexId,
+                        Util::hexDump(firstKey, reqHdr->firstKeyLength).c_str(),
+                        Util::hexDump(lastKey, reqHdr->lastKeyLength).c_str());
 
     IndexletMap::iterator mapIter =
-            lookupIndexlet(tableId, indexId, firstKey, firstKeyLength,
-                           indexletMapLock);
-    if (mapIter == indexletMap.end())
-        return STATUS_UNKNOWN_INDEXLET;
+            lookupIndexlet(reqHdr->tableId, reqHdr->indexId, firstKey,
+                           reqHdr->firstKeyLength, indexletMapLock);
+    if (mapIter == indexletMap.end()) {
+        respHdr->common.status = STATUS_UNKNOWN_INDEXLET;
+    }
     Indexlet* indexlet = &mapIter->second;
-
-    *numHashes = 0;
-    *nextKeyLength = 0;
 
     Lock indexletLock(indexlet->indexletMutex);
     indexletMapLock.unlock();
@@ -454,8 +412,8 @@ IndexletManager::lookupIndexKeys(uint64_t tableId, uint8_t indexId,
 
     // We want to use lower_bound() instead of find() because the firstKey
     // may not correspond to a key in the indexlet.
-    auto iter = indexlet->bt->lower_bound(
-                    KeyAndHash {firstKey, firstKeyLength, firstAllowedKeyHash});
+    auto iter = indexlet->bt->lower_bound(KeyAndHash {
+            firstKey, reqHdr->firstKeyLength, reqHdr->firstAllowedKeyHash});
 
     auto iterEnd = indexlet->bt->end();
     bool rpcMaxedOut = false;
@@ -469,42 +427,51 @@ IndexletManager::lookupIndexKeys(uint64_t tableId, uint8_t indexId,
     // If iter == iterEnd, calling iter.key() is wrong because we will
     // then try to read an object that definitely does not exist.
     // This will cause a crash in the tree module
+
+    respHdr->numHashes = 0;
+
     while (iter != iterEnd &&
-           IndexKey::keyCompare(lastKey, lastKeyLength,
+           IndexKey::keyCompare(lastKey, reqHdr->lastKeyLength,
                         iter.key().key, iter.key().keyLength) >= 0) {
 
-        if (*numHashes < maxNumHashes) {
+        if (respHdr->numHashes < reqHdr->maxNumHashes) {
             // Can alternatively use iter.data() instead of iter.key().pKHash,
             // but we might want to make data NULL in the future, so might
             // as well use the pKHash from key right away.
-            responseBuffer->emplaceAppend<uint64_t>(iter.key().pKHash);
-            *numHashes += 1;
+            rpc->replyPayload->emplaceAppend<uint64_t>(iter.key().pKHash);
+            respHdr->numHashes += 1;
             ++iter;
         } else {
             rpcMaxedOut = true;
             break;
         }
+
     }
 
     if (rpcMaxedOut) {
-        *nextKeyLength = uint16_t(iter.key().keyLength);
-        *nextKeyHash = iter.data();
-        responseBuffer->appendExternal(iter.key().key,
-                        uint32_t(iter.key().keyLength));
-    } else if (IndexKey::keyCompare(
-                        lastKey, lastKeyLength, indexlet->firstNotOwnedKey,
-                        indexlet->firstNotOwnedKeyLength) > 0) {
 
-        *nextKeyLength = indexlet->firstNotOwnedKeyLength;
-        *nextKeyHash = 0;
-        responseBuffer->appendExternal(indexlet->firstNotOwnedKey,
-                                       indexlet->firstNotOwnedKeyLength);
+        respHdr->nextKeyLength = uint16_t(iter.key().keyLength);
+        respHdr->nextKeyHash = iter.data();
+        rpc->replyPayload->appendExternal(iter.key().key,
+                uint32_t(iter.key().keyLength));
+
+    } else if (IndexKey::keyCompare(
+            lastKey, reqHdr->lastKeyLength,
+            indexlet->firstNotOwnedKey, indexlet->firstNotOwnedKeyLength) > 0) {
+
+        respHdr->nextKeyLength = indexlet->firstNotOwnedKeyLength;
+        respHdr->nextKeyHash = 0;
+        rpc->replyPayload->appendExternal(indexlet->firstNotOwnedKey,
+                indexlet->firstNotOwnedKeyLength);
+
     } else {
-        *nextKeyHash = 0;
-        *nextKeyLength = 0;
+
+        respHdr->nextKeyHash = 0;
+        respHdr->nextKeyLength = 0;
+
     }
 
-    return STATUS_OK;
+    respHdr->common.status = STATUS_OK;
 }
 
 /**
