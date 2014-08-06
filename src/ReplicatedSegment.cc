@@ -17,6 +17,7 @@
 #include "ReplicatedSegment.h"
 #include "Segment.h"
 #include "ShortMacros.h"
+#include "TimeTrace.h"
 
 namespace RAMCloud {
 
@@ -402,16 +403,19 @@ ReplicatedSegment::sync(uint32_t offset, Segment::Certificate* certificate)
     // latest one and use that.
     uint32_t appendedBytes = offset;
     Segment::Certificate localCertificate;
+    TRACE("Local certificate constructed inside ReplicatedSegment");
     if (certificate == NULL) {
         appendedBytes = segment->getAppendedLength(&localCertificate);
         certificate = &localCertificate;
     }
+    TRACE("segment->getAppendedLength has been called inside ReplicatedSegment.");
 
     if (appendedBytes > queued.bytes) {
         queued.bytes = appendedBytes;
         queuedCertificate = *certificate;
         schedule();
     }
+    TRACE("schedule() has been called inside ReplicatedSegment");
 
     uint64_t syncStartTicks = Cycles::rdtsc();
     while (true) {
@@ -419,11 +423,15 @@ ReplicatedSegment::sync(uint32_t offset, Segment::Certificate* certificate)
         if (!recoveringFromLostOpenReplicas) {
             if (!normalLogSegment || precedingSegmentCloseCommitted) {
                 if (offset == ~0u) {
-                    if (getCommitted().close)
+                    if (getCommitted().close) {
+                        TRACE("getCommited().close() == TRUE");
                         return;
+                    }
                 } else {
-                    if (getCommitted().bytes >= offset)
+                    if (getCommitted().bytes >= offset) {
+                        TRACE("getCommited().bytes >= offset");
                         return;
+                    }
                 }
             }
         }

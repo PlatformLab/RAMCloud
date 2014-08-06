@@ -1580,16 +1580,20 @@ MasterService::write(const WireFormat::Write::Request* reqHdr,
 
     // Write the object.
     RejectRules rejectRules = reqHdr->rejectRules;
+    TRACE("Before calling objectManager.writeObject");
     respHdr->common.status = objectManager.writeObject(
             object, &rejectRules, &respHdr->version, &oldObjectBuffer);
+    TRACE("After calling objectManager.writeObject");
 
     if (respHdr->common.status == STATUS_OK)
         objectManager.syncChanges();
+    TRACE("Finished calling objectManager.syncChanges();");
 
     // Respond to the client RPC now. Removing old index entries can be
     // done asynchronously while maintaining strong consistency.
     rpc->sendReply();
     // reqHdr, respHdr, and rpc are off-limits now!
+    TRACE("Finished calling rpc->sendReply()");
 
     // If this is a overwrite, delete old index entries if any.
     if (oldObjectBuffer.size() > 0) {
