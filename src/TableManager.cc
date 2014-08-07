@@ -106,6 +106,12 @@ void
 TableManager::createIndex(uint64_t tableId, uint8_t indexId, uint8_t indexType,
         uint8_t numIndexlets)
 {
+    if (indexId == 0) {
+        RAMCLOUD_LOG(NOTICE, "Invalid index id %u. Secondary keys have "
+                             "index id greater than 0.", indexId);
+        throw InvalidParameterException(HERE);
+    }
+
     Lock lock(mutex);
 
     IdMap::iterator it = idMap.find(tableId);

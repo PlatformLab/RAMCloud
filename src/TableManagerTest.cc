@@ -120,20 +120,26 @@ TEST_F(TableManagerTest, createIndex) {
     MasterService* master2 = cluster.addServer(masterConfig)->master.get();
     updateManager->reset();
 
-    EXPECT_THROW(tableManager->createIndex(1, 0, 0, 0),
+    EXPECT_THROW(tableManager->createIndex(1, 1, 0, 0),
                  TableManager::NoSuchTable);
-    EXPECT_EQ(1U, tableManager->createTable("foo", 1));
-    EXPECT_NO_THROW(tableManager->createIndex(1, 0, 0, 1));
 
+    EXPECT_EQ(1U, tableManager->createTable("foo", 1));
+
+    EXPECT_NO_THROW(tableManager->createIndex(1, 1, 0, 1));
     EXPECT_EQ(0U, master1->indexletManager.getCount());
     EXPECT_EQ(1U, master2->indexletManager.getCount());
 
-    EXPECT_NO_THROW(tableManager->createIndex(1, 1, 0, 1));
+    EXPECT_THROW(tableManager->createIndex(1, 0, 0, 1),
+                 InvalidParameterException);
+    EXPECT_EQ(0U, master1->indexletManager.getCount());
+    EXPECT_EQ(1U, master2->indexletManager.getCount());
+
+    EXPECT_NO_THROW(tableManager->createIndex(1, 2, 0, 1));
     EXPECT_EQ(1U, master1->indexletManager.getCount());
     EXPECT_EQ(1U, master2->indexletManager.getCount());
 
     // duplicate index already exists
-    EXPECT_NO_THROW(tableManager->createIndex(1, 0, 0, 1));
+    EXPECT_NO_THROW(tableManager->createIndex(1, 1, 0, 1));
 };
 
 TEST_F(TableManagerTest, dropIndex) {
@@ -143,21 +149,21 @@ TEST_F(TableManagerTest, dropIndex) {
 
     EXPECT_EQ(1U, tableManager->createTable("foo", 1));
 
-    EXPECT_NO_THROW(tableManager->createIndex(1, 0, 0, 1));
+    EXPECT_NO_THROW(tableManager->createIndex(1, 1, 0, 1));
     EXPECT_EQ(0U, master1->indexletManager.getCount());
     EXPECT_EQ(1U, master2->indexletManager.getCount());
 
-    EXPECT_NO_THROW(tableManager->createIndex(1, 1, 0, 1));
+    EXPECT_NO_THROW(tableManager->createIndex(1, 2, 0, 1));
     EXPECT_EQ(1U, master1->indexletManager.getCount());
     EXPECT_EQ(1U, master2->indexletManager.getCount());
 
     TestLog::Enable _("dropIndex");
     tableManager->dropIndex(2, 1);
+    tableManager->dropIndex(1, 3);
     tableManager->dropIndex(1, 2);
-    tableManager->dropIndex(1, 1);
     EXPECT_EQ("dropIndex: Cannot find index '1' for table '2' | "
-              "dropIndex: Cannot find index '2' for table '1' | "
-              "dropIndex: Dropping index '1' from table '1'",
+              "dropIndex: Cannot find index '3' for table '1' | "
+              "dropIndex: Dropping index '2' from table '1'",
               TestLog::get());
 
     EXPECT_EQ(0U, master1->indexletManager.getCount());
@@ -269,11 +275,11 @@ TEST_F(TableManagerTest, dropTable_index) {
 
     EXPECT_EQ(1U, tableManager->createTable("foo", 1));
 
-    EXPECT_NO_THROW(tableManager->createIndex(1, 0, 0, 1));
+    EXPECT_NO_THROW(tableManager->createIndex(1, 1, 0, 1));
     EXPECT_EQ(0U, master1->indexletManager.getCount());
     EXPECT_EQ(1U, master2->indexletManager.getCount());
 
-    EXPECT_NO_THROW(tableManager->createIndex(1, 1, 0, 1));
+    EXPECT_NO_THROW(tableManager->createIndex(1, 2, 0, 1));
     EXPECT_EQ(1U, master1->indexletManager.getCount());
     EXPECT_EQ(1U, master2->indexletManager.getCount());
 
@@ -299,11 +305,11 @@ TEST_F(TableManagerTest, getIndxletInfoByIndexletTableId) {
     updateManager->reset();
 
     EXPECT_EQ(1U, tableManager->createTable("foo", 1));
-    EXPECT_NO_THROW(tableManager->createIndex(1, 0, 0, 1));
+    EXPECT_NO_THROW(tableManager->createIndex(1, 1, 0, 1));
     ProtoBuf::Indexlets::Indexlet indexlet;
     EXPECT_TRUE(tableManager->getIndexletInfoByIndexletTableId(2, indexlet));
     EXPECT_EQ(1U, indexlet.table_id());
-    EXPECT_EQ(0U, indexlet.index_id());
+    EXPECT_EQ(1U, indexlet.index_id());
     EXPECT_EQ(2U, indexlet.indexlet_table_id());
 };
 
@@ -313,7 +319,7 @@ TEST_F(TableManagerTest, isIndexletTable) {
     updateManager->reset();
 
     EXPECT_EQ(1U, tableManager->createTable("foo", 1));
-    EXPECT_NO_THROW(tableManager->createIndex(1, 0, 0, 1));
+    EXPECT_NO_THROW(tableManager->createIndex(1, 1, 0, 1));
 
     EXPECT_TRUE(tableManager->isIndexletTable(2));
     EXPECT_FALSE(tableManager->isIndexletTable(1));
