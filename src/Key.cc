@@ -123,6 +123,61 @@ Key::getHash()
 }
 
 /**
+ * Given a key, returns its hash value.
+ *
+ * \param tableId
+ *      64-bit identifier of the table this key is in.
+ * \param key
+ *      Variable length binary string that uniquely identifies the object
+ *      within tableId. It does not necessarily have to be nul-terminated
+ *      like a C-style string.
+ * \param keyLength
+ *      Size key in bytes.
+ * \return
+ *      Hash value of the Key that these arguments represent.
+ */
+KeyHash
+Key::getHash(uint64_t tableId, const void* key, KeyLength keyLength)
+{
+    // It would be nice if MurmurHash3 took a 64-bit seed so we could cheaply
+    // include the full tableId. For now just cast down to 32-bits and hope for
+    // the best. We used to invoke the hash function multiple times, but that
+    // added too much additional latency to hash table lookups.
+    uint32_t tableIdSeed = static_cast<uint32_t>(tableId);
+    uint64_t out[2];
+    MurmurHash3_x64_128(key, keyLength, tableIdSeed, &out);
+    return out[0];
+}
+
+/**
+ * Return a pointer to the binary string key. It is guaranteed to be contiguous
+ * in memory.
+ */
+const void*
+Key::getStringKey() const
+{
+    return key;
+}
+
+/**
+ * Return the binary string key's length in bytes.
+ */
+KeyLength
+Key::getStringKeyLength() const
+{
+    return keyLength;
+}
+
+/**
+ * Return the 64-bit table identifier.
+ */
+uint64_t
+Key::getTableId() const
+{
+    return tableId;
+}
+
+/**
  * Compare two keys for equality. This method tries to avoid full binary string
  * key comparison by first checking hashes (if available), table identifiers,
  * and binary string key lengths.
@@ -157,34 +212,6 @@ Key::operator!=(const Key& other) const
 }
 
 /**
- * Return the 64-bit table identifier.
- */
-uint64_t
-Key::getTableId() const
-{
-    return tableId;
-}
-
-/**
- * Return a pointer to the binary string key. It is guaranteed to be contiguous
- * in memory.
- */
-const void*
-Key::getStringKey() const
-{
-    return key;
-}
-
-/**
- * Return the binary string key's length in bytes.
- */
-KeyLength
-Key::getStringKeyLength() const
-{
-    return keyLength;
-}
-
-/**
  * Return a string representation of this key, which describes the entire
  * 3-tuple of table identifier, binary string key, and the string key's
  * length.
@@ -202,33 +229,6 @@ Key::toString() const
         "hash: 0x%lx>", tableId, printable.c_str(), keyLength,
         getHash(tableId, key, keyLength));
     return s;
-}
-
-/**
- * Given a key, returns its hash value.
- *
- * \param tableId
- *      64-bit identifier of the table this key is in.
- * \param key
- *      Variable length binary string that uniquely identifies the object
- *      within tableId. It does not necessarily have to be nul-terminated
- *      like a C-style string.
- * \param keyLength
- *      Size key in bytes.
- * \return
- *      Hash value of the Key that these arguments represent.
- */
-KeyHash
-Key::getHash(uint64_t tableId, const void* key, KeyLength keyLength)
-{
-    // It would be nice if MurmurHash3 took a 64-bit seed so we could cheaply
-    // include the full tableId. For now just cast down to 32-bits and hope for
-    // the best. We used to invoke the hash function multiple times, but that
-    // added too much additional latency to hash table lookups.
-    uint32_t tableIdSeed = static_cast<uint32_t>(tableId);
-    uint64_t out[2];
-    MurmurHash3_x64_128(key, keyLength, tableIdSeed, &out);
-    return out[0];
 }
 
 } // end RAMCloud

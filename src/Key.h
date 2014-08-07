@@ -58,16 +58,17 @@ class Key {
     Key(uint64_t tableId, Buffer& buffer,
         uint32_t keyOffset, KeyLength keyLength);
     Key(uint64_t tableId, const void* key, KeyLength keyLength);
+
     KeyHash getHash();
-    bool operator==(const Key& other) const;
-    bool operator!=(const Key& other) const;
-    uint64_t getTableId() const;
-    const void* getStringKey() const;
-    KeyLength getStringKeyLength() const;
-    string toString() const;
     static KeyHash getHash(uint64_t tableId,
                            const void* key,
                            KeyLength keyLength);
+    const void* getStringKey() const;
+    KeyLength getStringKeyLength() const;
+    uint64_t getTableId() const;
+    bool operator==(const Key& other) const;
+    bool operator!=(const Key& other) const;
+    string toString() const;
 
   PRIVATE:
     /// The 64-bit table identifier.

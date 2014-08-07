@@ -124,6 +124,20 @@ TEST_F(KeyTest, getHash_UsesAllBits) {
     EXPECT_EQ(~0UL, observedBits);
 }
 
+TEST_F(KeyTest, getStringKey) {
+    const char *keyString = reinterpret_cast<const char*>(
+                            Key(8274, "hi", 3).getStringKey());
+    EXPECT_EQ("hi", string(keyString));
+}
+
+TEST_F(KeyTest, getStringKeyLength) {
+    EXPECT_EQ(3, Key(8274, "hi", 3).getStringKeyLength());
+}
+
+TEST_F(KeyTest, getTableId) {
+    EXPECT_EQ(8274U, Key(8274, "hi", 3).getTableId());
+}
+
 TEST_F(KeyTest, operatorEquals_and_operatorNotEquals) {
     Key key(82, "fun", 4);
     Key key2(82, "fun", 4);
@@ -137,20 +151,6 @@ TEST_F(KeyTest, operatorEquals_and_operatorNotEquals) {
     EXPECT_NE(key, key4);
     EXPECT_NE(key2, key4);
     EXPECT_NE(key3, key4);
-}
-
-TEST_F(KeyTest, getTableId) {
-    EXPECT_EQ(8274U, Key(8274, "hi", 3).getTableId());
-}
-
-TEST_F(KeyTest, getStringKey) {
-    const char *keyString = reinterpret_cast<const char*>(
-                            Key(8274, "hi", 3).getStringKey());
-    EXPECT_EQ("hi", string(keyString));
-}
-
-TEST_F(KeyTest, getStringKeyLength) {
-    EXPECT_EQ(3, Key(8274, "hi", 3).getStringKeyLength());
 }
 
 TEST_F(KeyTest, toString) {
