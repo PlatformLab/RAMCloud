@@ -105,8 +105,8 @@ IndexletManager::addIndexlet(
 }
 
 /**
- * Delete entries for an index partition (indexlet) on this index server. We can
- * have multiple indexlets for a table and an index stored on the same server.
+ * Delete an indexlet (stored on this server) and the entries stored in
+ * that indexlet.
  *
  * \param tableId
  *      Id of the data table for which this indexlet stores some
@@ -198,7 +198,7 @@ IndexletManager::hasIndexlet(uint64_t tableId, uint8_t indexId,
 }
 
 /**
- * Given the exact specification of a indexlet's range , obtain the current data
+ * Given the exact specification of a indexlet's range, obtain the current data
  * associated with that indexlet, if it exists. Note that the data returned is a
  * snapshot. The IndexletManager's data may be modified at any time by other
  * threads.
@@ -218,7 +218,8 @@ IndexletManager::hasIndexlet(uint64_t tableId, uint8_t indexId,
  * \param firstNotOwnedKeyLength
  *      Length of firstNotOwnedKey.
  * \return
- *      True if a indexlet was found, otherwise false.
+ *      Pointer to an indexlet if the specified indexlet was found,
+ *      otherwise NULL.
  */
 IndexletManager::Indexlet*
 IndexletManager::getIndexlet(uint64_t tableId, uint8_t indexId,
@@ -253,8 +254,8 @@ IndexletManager::getIndexlet(uint64_t tableId, uint8_t indexId,
 }
 
 /**
- * Helper for the public methods that need to look up a indexlet. This method
- * iterates over all candidates in the multimap.
+ * Given an index key, find the indexlet containing that entry.
+ * This is a helper for the public methods that need to look up a indexlet.
  *
  * \param tableId
  *      Id of the data table for which this indexlet stores some
@@ -262,16 +263,17 @@ IndexletManager::getIndexlet(uint64_t tableId, uint8_t indexId,
  * \param indexId
  *      Id of the index key for which this indexlet stores some information.
  * \param key
- *      Key blob marking the start of the indexed key range for this indexlet.
+ *      Key blob that should form the key of the index entry contained in the
+ *      indexlet being looked up.
  * \param keyLength
- *      Length of firstKeyStr.
+ *      Length of key.
  * \param mutex
- *      Lock from parent function to protect the indexletMap
- *      from concurrent access.
+ *      This ensures that the caller holds this lock.
  * \return
- *      A IndexletMap::iterator is returned. If no indexlet was found, it will
- *      be equal to indexletMap.end(). Otherwise, it will refer to the desired
- *      indexlet.
+ *      A IndexletMap::iterator is returned.
+ *      If the desired indexlet was not found, it will be equal to
+ *      indexletMap.end().
+ *      Otherwise, it will refer to the desired indexlet.
  *
  *      An iterator, rather than a Indexlet pointer is returned to facilitate
  *      efficient deletion.
@@ -280,6 +282,7 @@ IndexletManager::IndexletMap::iterator
 IndexletManager::lookupIndexlet(uint64_t tableId, uint8_t indexId,
         const void *key, uint16_t keyLength, Lock& mutex)
 {
+    // Must iterate over all of the local indexlets for the given index.
     auto range = indexletMap.equal_range(TableAndIndexId {tableId, indexId});
     IndexletMap::iterator end = range.second;
 
@@ -351,8 +354,8 @@ IndexletManager::insertEntry(uint64_t tableId, uint8_t indexId,
             lookupIndexlet(tableId, indexId, key, keyLength, indexletMapLock);
     if (it == indexletMap.end()) {
         RAMCLOUD_LOG(DEBUG, "Unknown indexlet: tableId %lu, indexId %u, "
-                        "hash %lu,\nkey: %s", tableId, indexId, pKHash,
-                        Util::hexDump(key, keyLength).c_str());
+                            "hash %lu,\nkey: %s", tableId, indexId, pKHash,
+                            Util::hexDump(key, keyLength).c_str());
         return STATUS_UNKNOWN_INDEXLET;
     }
     Indexlet* indexlet = &it->second;
