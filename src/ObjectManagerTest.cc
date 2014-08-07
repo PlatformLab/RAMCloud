@@ -310,6 +310,197 @@ TEST_F(ObjectManagerTest, constructor) {
     EXPECT_EQ(ServerId(5), *objectManager.replicaManager.masterId);
 }
 
+TEST_F(ObjectManagerTest, indexedRead) {
+    uint64_t tableId = 0;
+    uint8_t numKeys = 2;
+
+    KeyInfo keyList0[2];
+    keyList0[0].keyLength = 8;
+    keyList0[0].key = "obj0key0";
+    keyList0[1].keyLength = 8;
+    keyList0[1].key = "obj0key1";
+
+    const void* value0 = "obj0value";
+    uint32_t valueLength0 = 9;
+
+    Buffer keysAndVal0;
+    Object::appendKeysAndValueToBuffer(tableId, numKeys, keyList0, value0,
+                                       valueLength0, &keysAndVal0);
+
+    Object obj0(tableId, 0, 0, keysAndVal0);
+    Status writeStatus0 = objectManager.writeObject(obj0, NULL, NULL);
+    EXPECT_EQ(STATUS_OK, writeStatus0);
+
+    KeyInfo keyList1[2];
+    keyList1[0].keyLength = 8;
+    keyList1[0].key = "obj1key0";
+    keyList1[1].keyLength = 8;
+    keyList1[1].key = "obj1key1";
+
+    const void* value1 = "obj1value";
+    uint32_t valueLength1 = 9;
+
+    Buffer keysAndVal1;
+    Object::appendKeysAndValueToBuffer(tableId, numKeys, keyList1, value1,
+                                       valueLength1, &keysAndVal1);
+
+    Object obj1(tableId, 0, 0, keysAndVal1);
+    Status writeStatus1 = objectManager.writeObject(obj1, NULL, NULL);
+    EXPECT_EQ(STATUS_OK, writeStatus1);
+
+    Buffer pKHashes;
+    // Key::getHash(tableId, "obj0key0", 8) gives 3072971246352516766.
+    // Key::getHash(tableId, "obj1key0", 8) gives 11535301360022427630.
+    uint64_t hashVal0 = 3072971246352516766U;
+    uint64_t hashVal1 = 11535301360022427630U;
+    pKHashes.appendExternal(&hashVal0, 8);
+    pKHashes.appendExternal(&hashVal1, 8);
+
+    // indexedRead such that both objects are read.
+    IndexKey::IndexKeyRange keyRange = {1, "obj0key1", 8, "obj1key1", 8};
+    Buffer responseBuffer;
+    uint32_t numHashesResponse;
+    uint32_t numObjectsResponse;
+    objectManager.indexedRead(tableId, 2, &pKHashes, 0, &keyRange, 1000,
+                &responseBuffer, &numHashesResponse, &numObjectsResponse);
+
+    // numHashes and numObjects
+    EXPECT_EQ(2U, numHashesResponse);
+    EXPECT_EQ(2U, numObjectsResponse);
+    uint32_t respOffset = 0;
+
+    // version of object0
+    EXPECT_EQ(1U, *responseBuffer.getOffset<uint64_t>(respOffset));
+    respOffset += 8;
+    // value of object0
+    uint32_t obj1Length = *responseBuffer.getOffset<uint32_t>(respOffset);
+    respOffset += 4;
+    Object o1(tableId, 1, 0, responseBuffer, respOffset, obj1Length);
+    respOffset += obj1Length;
+    EXPECT_EQ("obj0value", string(reinterpret_cast<const char*>(o1.getValue()),
+                                  o1.getValueLength()));
+
+    // version of object1
+    EXPECT_EQ(2U, *responseBuffer.getOffset<uint64_t>(respOffset));
+    respOffset += 8;
+    // value of object0
+    uint32_t obj2Length = *responseBuffer.getOffset<uint32_t>(respOffset);
+    respOffset += 4;
+    Object o2(tableId, 1, 0, responseBuffer, respOffset, obj2Length);
+    respOffset += obj2Length;
+    EXPECT_EQ("obj1value", string(reinterpret_cast<const char*>(o2.getValue()),
+                                  o2.getValueLength()));
+}
+
+TEST_F(ObjectManagerTest, indexedRead_wrongHash) {
+    uint64_t tableId = 0;
+    uint8_t numKeys = 2;
+
+    KeyInfo keyList0[2];
+    keyList0[0].keyLength = 8;
+    keyList0[0].key = "obj0key0";
+    keyList0[1].keyLength = 8;
+    keyList0[1].key = "obj0key1";
+
+    const void* value0 = "obj0value";
+    uint32_t valueLength0 = 9;
+
+    Buffer keysAndVal0;
+    Object::appendKeysAndValueToBuffer(tableId, numKeys, keyList0, value0,
+                                       valueLength0, &keysAndVal0);
+
+    Buffer pKHashes;
+    // Key::getHash(tableId, "obj0key0", 8) gives 3072971246352516766.
+    // Instead use a different value.
+    uint64_t hashVal0 = 1072971246352516766U;
+    pKHashes.appendExternal(&hashVal0, 8);
+
+    // indexedRead such that the hash value provided doesn't match the object
+    // but the key range provided contains the secondary key of the object.
+    IndexKey::IndexKeyRange keyRange = {1, "obj0key1", 8, "obj1key1", 8};
+    Buffer responseBuffer;
+    uint32_t numHashesResponse;
+    uint32_t numObjectsResponse;
+    objectManager.indexedRead(tableId, 1, &pKHashes, 0, &keyRange, 1000,
+                &responseBuffer, &numHashesResponse, &numObjectsResponse);
+
+    // numHashes and numObjects
+    EXPECT_EQ(1U, numHashesResponse);
+    EXPECT_EQ(0U, numObjectsResponse);
+}
+
+TEST_F(ObjectManagerTest, indexedRead_wrongRange) {
+    uint64_t tableId = 0;
+    uint8_t numKeys = 2;
+
+    KeyInfo keyList0[2];
+    keyList0[0].keyLength = 8;
+    keyList0[0].key = "obj0key0";
+    keyList0[1].keyLength = 8;
+    keyList0[1].key = "obj0key1";
+
+    const void* value0 = "obj0value";
+    uint32_t valueLength0 = 9;
+
+    Buffer keysAndVal0;
+    Object::appendKeysAndValueToBuffer(tableId, numKeys, keyList0, value0,
+                                       valueLength0, &keysAndVal0);
+
+    Object obj0(tableId, 0, 0, keysAndVal0);
+    Status writeStatus0 = objectManager.writeObject(obj0, NULL, NULL);
+    EXPECT_EQ(STATUS_OK, writeStatus0);
+
+    KeyInfo keyList1[2];
+    keyList1[0].keyLength = 8;
+    keyList1[0].key = "obj1key0";
+    keyList1[1].keyLength = 8;
+    keyList1[1].key = "obj1key1";
+
+    const void* value1 = "obj1value";
+    uint32_t valueLength1 = 9;
+
+    Buffer keysAndVal1;
+    Object::appendKeysAndValueToBuffer(tableId, numKeys, keyList1, value1,
+                                       valueLength1, &keysAndVal1);
+
+    Object obj1(tableId, 0, 0, keysAndVal1);
+    Status writeStatus1 = objectManager.writeObject(obj1, NULL, NULL);
+    EXPECT_EQ(STATUS_OK, writeStatus1);
+
+    Buffer pKHashes;
+    // Key::getHash(tableId, "obj0key0", 8) gives 3072971246352516766.
+    // Key::getHash(tableId, "obj1key0", 8) gives 11535301360022427630.
+    uint64_t hashVal0 = 3072971246352516766U;
+    uint64_t hashVal1 = 11535301360022427630U;
+    pKHashes.appendExternal(&hashVal0, 8);
+    pKHashes.appendExternal(&hashVal1, 8);
+
+    // indexedRead such that correct hashes of both objects is provided
+    // but the key range contains the secondary key of only one object.
+    IndexKey::IndexKeyRange keyRange = {1, "obj0key1", 8, "obj0key1", 8};
+    Buffer responseBuffer;
+    uint32_t numHashesResponse;
+    uint32_t numObjectsResponse;
+    objectManager.indexedRead(tableId, 2, &pKHashes, 0, &keyRange, 1000,
+                &responseBuffer, &numHashesResponse, &numObjectsResponse);
+
+    // numHashes and numObjects
+    EXPECT_EQ(2U, numHashesResponse);
+    EXPECT_EQ(1U, numObjectsResponse);
+    uint32_t respOffset = 0;
+
+    // version of object0
+    EXPECT_EQ(1U, *responseBuffer.getOffset<uint64_t>(respOffset));
+    respOffset += 8;
+    // value of object0
+    uint32_t obj1Length = *responseBuffer.getOffset<uint32_t>(respOffset);
+    respOffset += 4;
+    Object o1(tableId, 1, 0, responseBuffer, respOffset, obj1Length);
+    respOffset += obj1Length;
+    EXPECT_EQ("obj0value", string(reinterpret_cast<const char*>(o1.getValue()),
+                                  o1.getValueLength()));
+}
+
 TEST_F(ObjectManagerTest, readObject) {
     Buffer buffer;
     Key key(1, "1", 1);
