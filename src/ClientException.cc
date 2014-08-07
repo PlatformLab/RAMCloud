@@ -138,6 +138,8 @@ ClientException::throwException(const CodeLocation& where, Status status)
             throw UnknownIndexletException(where);
         case STATUS_UNKNOWN_INDEX:
             throw UnknownIndexException(where);
+        case STATUS_INVALID_PARAMETER:
+            throw InvalidParameterException(where);
         default:
             throw InternalError(where, status);
     }

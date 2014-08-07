@@ -49,7 +49,8 @@ public enum Status {
     STATUS_CALLER_NOT_IN_CLUSTER,
     STATUS_REQUEST_TOO_LARGE,
     STATUS_UNKNOWN_INDEXLET,
-    STATUS_UNKNOWN_INDEX;
+    STATUS_UNKNOWN_INDEX,
+    STATUS_INVALID_PARAMETER;
     
     public static final Status[] statuses = Status.values();
 }

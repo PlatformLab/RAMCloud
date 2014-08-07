@@ -93,6 +93,8 @@ public class ClientException extends RuntimeException {
                 throw new UnknownIndexletException();
             case STATUS_UNKNOWN_INDEX:
                 throw new UnknownIndexException();
+            case STATUS_INVALID_PARAMETER:
+                throw new InvalidParameterException();
             default:
                 throw new UnrecognizedErrorException();
         }
@@ -139,6 +141,7 @@ public class ClientException extends RuntimeException {
     public static class RequestTooLargeException extends ClientException {}
     public static class UnknownIndexletException extends ClientException {}
     public static class UnknownIndexException extends ClientException {}
+    public static class InvalidParameterException extends ClientException {}
 
     /**
      * Exception thrown when Java doesn't recognize the status code

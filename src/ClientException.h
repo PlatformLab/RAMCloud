@@ -230,6 +230,9 @@ DEFINE_EXCEPTION(UnknownIndexletException,
 DEFINE_EXCEPTION(UnknownIndexException,
                  STATUS_UNKNOWN_INDEX,
                  ClientException)
+DEFINE_EXCEPTION(InvalidParameterException,
+                 STATUS_INVALID_PARAMETER,
+                 ClientException)
 
 } // namespace RAMCloud
 

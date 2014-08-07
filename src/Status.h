@@ -121,7 +121,11 @@ typedef enum Status {
     /// Indicates that an index containing the given index key cannot be found.
     STATUS_UNKNOWN_INDEX                = 29,
 
-    STATUS_MAX_VALUE                    = 29,
+    /// Indicates that a parameter provided by the client is invalid (for
+    /// example: it is outside allowed bounds).
+    STATUS_INVALID_PARAMETER            = 30,
+
+    STATUS_MAX_VALUE                    = 30,
 
     // Note: if you add a new status value you must make the following
     // additional updates:
