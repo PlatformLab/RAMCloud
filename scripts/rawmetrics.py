@@ -369,9 +369,6 @@ for i in range(10):
     temp.metric('ticks{0:}'.format(i),'amount of time for some undefined activity')
     temp.metric('count{0:}'.format(i),'number of occurrences of some undefined event')
 
-serviceManager = Group('ServiceManager', 'metrics for the ServiceManager subsystem')
-serviceManager.metric('workerIdleSpinTicks', 'time spent in worker threads spinning waiting for work')
-
 definitions = Group('RawMetrics', 'server metrics')
 definitions.group(coordinator);
 definitions.group(master);
@@ -379,7 +376,6 @@ definitions.group(backup);
 definitions.group(rpc);
 definitions.group(transport);
 definitions.group(temp);
-definitions.group(serviceManager);
 definitions.metric('serverId', 'server id assigned by coordinator')
 definitions.metric('pid', 'process ID on machine')
 definitions.metric('clockFrequency', 'cycles per second for the cpu')

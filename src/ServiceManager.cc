@@ -20,9 +20,11 @@
 #include "Fence.h"
 #include "Initialize.h"
 #include "RawMetrics.h"
+#include "PerfStats.h"
 #include "ShortMacros.h"
 #include "ServerRpcPool.h"
 #include "ServiceManager.h"
+#include "TimeTrace.h"
 #include "WireFormat.h"
 #include "PerfCounter.h"
 
@@ -238,38 +240,44 @@ ServiceManager::poll()
         }
         Fence::enter();
 
-        // The worker is either post-processing or idle; in either case, if
-        // there is an RPC that we haven't yet responded to, respond now.
-        if (worker->rpc != NULL) {
+        // The worker is either post-processing or idle; in either case,
+        // there may be an RPC that we have to respond to. Save the RPC
+        // information for now.
+        Transport::ServerRpc* rpc = worker->rpc;
+        worker->rpc = NULL;
+
+        // Highest priority: if there are pending requests that are waiting
+        // for workers, hand off a new request to this worker ASAP.
+        ServiceInfo* info = worker->serviceInfo;
+        bool moreWork = !info->waitingRpcs.empty();
+        if (moreWork && (state != Worker::POSTPROCESSING)) {
+            worker->handoff(info->waitingRpcs.front());
+            info->waitingRpcs.pop();
+        }
+
+        // Now send the response, if any.
+        if (rpc != NULL) {
 #ifdef LOG_RPCS
             LOG(NOTICE, "Sending reply for %s at %lu with %u bytes",
                     WireFormat::opcodeSymbol(&worker->rpc->requestPayload),
                     reinterpret_cast<uint64_t>(worker->rpc),
                     worker->rpc->replyPayload.size());
 #endif
-            worker->rpc->sendReply();
-            worker->rpc = NULL;
+            rpc->sendReply();
         }
 
-        if (state != Worker::POSTPROCESSING) {
-            // If there is work waiting for this service, start the next RPC.
-            ServiceInfo* info = worker->serviceInfo;
-            if (!info->waitingRpcs.empty()) {
-                worker->handoff(info->waitingRpcs.front());
-                info->waitingRpcs.pop();
-            } else {
-                // This worker is now idle; remove it from busyThreads (fill
-                // its slot with the worker in the last slot).
-                if (worker != busyThreads.back()) {
-                    busyThreads[worker->busyIndex] = busyThreads.back();
-                    busyThreads[worker->busyIndex]->busyIndex =
-                            worker->busyIndex;
-                }
-                busyThreads.pop_back();
-                worker->busyIndex = -1;
-                idleThreads.push_back(worker);
-                info->requestsRunning--;
+        // If the worker is idle, remove it from busyThreads (fill its
+        // slot with the worker in the last slot).
+        if (!moreWork && (state != Worker::POSTPROCESSING)) {
+            if (worker != busyThreads.back()) {
+                busyThreads[worker->busyIndex] = busyThreads.back();
+                busyThreads[worker->busyIndex]->busyIndex =
+                        worker->busyIndex;
             }
+            busyThreads.pop_back();
+            worker->busyIndex = -1;
+            idleThreads.push_back(worker);
+            info->requestsRunning--;
         }
     }
 }
@@ -314,21 +322,21 @@ ServiceManager::waitForRpc(double timeoutSeconds) {
 void
 ServiceManager::workerMain(Worker* worker)
 {
+    PerfStats::registerStats(&PerfStats::threadStats);
     Dispatch* dispatch = worker->context->dispatch;
+
+    // Cycles::rdtsc time that's updated continuously when this thread is idle.
+    // Used to keep track of how much time this thread spends doing useful
+    // work.
+    uint64_t lastIdle = Cycles::rdtsc();
+
     try {
         uint64_t pollCycles = Cycles::fromNanoseconds(1000*pollMicros);
-        Tub<CycleCounter<RawMetric>> idleCounter;
         while (true) {
-            uint64_t stopPollingTime = dispatch->currentTime + pollCycles;
+            uint64_t stopPollingTime = lastIdle + pollCycles;
 
             // Wait for ServiceManager to supply us with some work to do.
             while (worker->state.load() != Worker::WORKING) {
-                // Keep track of how much time our worker threads spend not
-                // actually servicing RPCs.
-                if (!idleCounter) {
-                    idleCounter.construct(
-                        &metrics->serviceManager.workerIdleSpinTicks);
-                }
                 if (dispatch->currentTime >= stopPollingTime) {
                     // It's been a long time since we've had any work to do; go
                     // to sleep so we don't waste any more CPU cycles.  Tricky
@@ -339,9 +347,6 @@ ServiceManager::workerMain(Worker* worker)
                     int expected = Worker::POLLING;
                     if (worker->state.compareExchange(expected,
                                                       Worker::SLEEPING)) {
-                        // Destroy our counter so that we don't tally time spent
-                        // sleeping on the futex.
-                        idleCounter.destroy();
                         if (sys->futexWait(
                                 reinterpret_cast<int*>(&worker->state),
                                 Worker::SLEEPING) == -1) {
@@ -356,8 +361,8 @@ ServiceManager::workerMain(Worker* worker)
                         }
                     }
                 }
+                lastIdle = Cycles::rdtsc();
             }
-            idleCounter.destroy();
             Fence::enter();
             if (worker->rpc == WORKER_EXIT)
                 break;
@@ -383,6 +388,11 @@ ServiceManager::workerMain(Worker* worker)
             // Pass the RPC back to ServiceManager for completion.
             Fence::leave();
             worker->state.store(Worker::POLLING);
+
+            // Update performance statistics.
+            uint64_t current = Cycles::rdtsc();
+            PerfStats::threadStats.activeCycles += (current - lastIdle);
+            lastIdle = current;
         }
         TEST_LOG("exiting");
     } catch (std::exception& e) {
