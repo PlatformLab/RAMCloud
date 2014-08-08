@@ -22,11 +22,13 @@
 #include "LogEntryRelocator.h"
 #include "ObjectManager.h"
 #include "Object.h"
+#include "PerfStats.h"
 #include "ShortMacros.h"
 #include "RawMetrics.h"
 #include "Tub.h"
 #include "ProtoBuf.h"
 #include "Segment.h"
+#include "TimeTrace.h"
 #include "Transport.h"
 #include "WallTime.h"
 
@@ -212,6 +214,7 @@ ObjectManager::indexedRead(const uint64_t tableId, uint32_t reqNumHashes,
                 const void* pKString = object.getKey(1, &pKLength);
                 Key pK(tableId, pKString, pKLength);
                 tabletManager->incrementReadCount(pK);
+                ++PerfStats::threadStats.readCount;
             }
 
             candidates.next();
@@ -320,6 +323,7 @@ ObjectManager::readObject(Key& key, Buffer* outBuffer,
     } else {
         object.appendKeysAndValueToBuffer(*outBuffer);
     }
+    ++PerfStats::threadStats.readCount;
 
     return STATUS_OK;
 }
@@ -959,6 +963,7 @@ ObjectManager::writeObject(Object& newObject, RejectRules* rejectRules,
         *outVersion = newObject.getVersion();
 
     tabletManager->incrementWriteCount(key);
+    ++PerfStats::threadStats.writeCount;
 
     TEST_LOG("object: %u bytes, version %lu",
         appends[0].buffer.size(), newObject.getVersion());
