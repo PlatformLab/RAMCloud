@@ -1036,6 +1036,11 @@ TEST_F(MasterServiceTest, prepForMigration) {
 }
 
 TEST_F(MasterServiceTest, indexedRead) {
+    // Most of the functionality for indexedRead is in ObjectManager,
+    // so we do extensive unit testing there.
+    // Let's just ensure that the strings are parsed fine in the MasterService
+    // class.
+    // This may be overkill, and we may not acually need this test here.
     uint64_t tableId = 1;
     uint8_t numKeys = 2;
 
@@ -1045,35 +1050,24 @@ TEST_F(MasterServiceTest, indexedRead) {
     keyList0[1].keyLength = 8;
     keyList0[1].key = "obj0key1";
 
-    KeyInfo keyList1[2];
-    keyList1[0].keyLength = 8;
-    keyList1[0].key = "obj1key0";
-    keyList1[1].keyLength = 8;
-    keyList1[1].key = "obj1key1";
-
     ramcloud->write(tableId, numKeys, keyList0, "obj0value",
-                    NULL, NULL, false);
-    ramcloud->write(tableId, numKeys, keyList1, "obj1value",
                     NULL, NULL, false);
 
     Buffer pKHashes;
     // Key::getHash(tableId, "obj0key0", 8) gives 4921604586378860710,
-    // and Key::getHash(tableId, "obj1key0", 8) gives 6912200681653320728.
     uint64_t hashVal0 = 4921604586378860710;
-    uint64_t hashVal1 = 6912200681653320728;
     pKHashes.appendExternal(&hashVal0, 8);
-    pKHashes.appendExternal(&hashVal1, 8);
 
     // indexedRead such that both objects are read.
     Buffer responseBuffer;
     uint32_t numObjectsResponse;
     uint32_t numHashesResponse = ramcloud->indexedRead(
-                tableId, 2, &pKHashes, 1, "obj0key1", 8, "obj1key1", 8,
+                tableId, 1, &pKHashes, 1, "obj0key1", 8, "obj1key1", 8,
                 &responseBuffer, &numObjectsResponse);
 
     // numHashes and numObjects
-    EXPECT_EQ(2U, numHashesResponse);
-    EXPECT_EQ(2U, numObjectsResponse);
+    EXPECT_EQ(1U, numHashesResponse);
+    EXPECT_EQ(1U, numObjectsResponse);
     uint32_t respOffset = sizeof32(WireFormat::IndexedRead::Response);
 
     // version of object0
@@ -1086,17 +1080,6 @@ TEST_F(MasterServiceTest, indexedRead) {
     respOffset += obj1Length;
     EXPECT_EQ("obj0value", string(reinterpret_cast<const char*>(o1.getValue()),
                                   o1.getValueLength()));
-
-    // version of object1
-    EXPECT_EQ(2U, *responseBuffer.getOffset<uint64_t>(respOffset));
-    respOffset += 8;
-    // value of object0
-    uint32_t obj2Length = *responseBuffer.getOffset<uint32_t>(respOffset);
-    respOffset += 4;
-    Object o2(tableId, 1, 0, responseBuffer, respOffset, obj2Length);
-    respOffset += obj2Length;
-    EXPECT_EQ("obj1value", string(reinterpret_cast<const char*>(o2.getValue()),
-                                  o2.getValueLength()));
 }
 
 TEST_F(MasterServiceTest, read_basics) {
