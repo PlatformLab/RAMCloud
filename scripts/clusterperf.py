@@ -218,9 +218,8 @@ def multiOp(name, options, cluster_args, client_args, master_args='-d -t 10%'):
     client_args['--numTables'] = cluster_args['num_servers'];
     cluster.run(client='%s/ClusterPerf %s %s' %
             (obj_path, flatten_args(client_args), name),
-            master_args=master_args, **cluster_args)
+            master_args='--masterServiceThreads 3', **cluster_args)
     print(get_client_log(), end='')
-
 
 def netBandwidth(name, options, cluster_args, client_args, master_args):
     if 'num_clients' not in cluster_args:
@@ -300,6 +299,17 @@ def readRandom(name, options, cluster_args, client_args,
     cluster.run(client='%s/ClusterPerf %s %s' %
             (obj_path, flatten_args(client_args), name),
             master_args=master_args, **cluster_args)
+    print(get_client_log(), end='')
+
+# This method is also used for multiReadThroughput
+def readThroughput(name, options, cluster_args, client_args,
+        master_args='-t 2000 --masterServiceThreads 1'):
+    cluster_args['timeout'] = 50
+    if 'num_clients' not in cluster_args:
+        cluster_args['num_clients'] = 10
+    cluster.run(client='%s/ClusterPerf %s %s' %
+            (obj_path, flatten_args(client_args), name),
+            master_args='-t 2000 --masterServiceThreads 3', **cluster_args)
     print(get_client_log(), end='')
 
 def indexBasic(name, options, cluster_args, client_args,
@@ -384,10 +394,12 @@ graph_tests = [
     Test("multiWrite_oneMaster", multiOp),
     Test("multiRead_oneMaster", multiOp),
     Test("multiRead_oneObjectPerMaster", multiOp),
+    Test("multiReadThroughput", readThroughput),
     Test("readDist", readDist),
     Test("readDistRandom", readDistRandom),
     Test("readLoaded", readLoaded),
     Test("readRandom", readRandom),
+    Test("readThroughput", readThroughput),
     Test("readVaryingKeyLength", default),
     Test("writeAsyncSync", default),
     Test("writeVaryingKeyLength", default),
