@@ -147,7 +147,7 @@ main(int argc, char *argv[])
              "stable storage.")
             ("masterServiceThreads",
              ProgramOptions::value<uint32_t>(
-                &config.master.masterServiceThreadCount)->default_value(5),
+                &config.master.masterServiceThreadCount)->default_value(3),
              "The number of threads in MasterService determines the maximum "
              "number of client RPCs that may be processed in parallel. "
              "Increasing this value will use more cores and may improve client "
