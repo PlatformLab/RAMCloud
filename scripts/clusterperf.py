@@ -253,7 +253,7 @@ def indexMultiple(name, options, cluster_args, client_args):
 
 def indexScalability(name, options, cluster_args, client_args):
     if 'master_args' not in cluster_args:
-        cluster_args['master_args'] = '--masterServiceThreads 21'
+        cluster_args['master_args'] = '--masterServiceThreads 2'
     if cluster_args['timeout'] < 100:
         cluster_args['timeout'] = 100
     cluster_args['backups_per_server'] = 0
