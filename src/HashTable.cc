@@ -339,6 +339,7 @@ void
 HashTable::insert(KeyHash keyHash, uint64_t reference)
 {
     uint64_t secondaryHash;
+    int overflowBuckets = 0;
     CacheLine* bucket = findBucket(keyHash, &secondaryHash);
     while (true) {
         Entry* entry = bucket->entries;
@@ -350,10 +351,16 @@ HashTable::insert(KeyHash keyHash, uint64_t reference)
             entry++;
         }
 
+        // No free space in the current bucket; see if there is an
+        // overflow bucket chained onto this one.
+        ++overflowBuckets;
         Entry* last = &bucket->entries[ENTRIES_PER_CACHE_LINE - 1];
         bucket = last->getChainPointer();
         if (bucket == NULL) {
             // no empty space found, allocate a new cache line
+            RAMCLOUD_LOG(NOTICE, "Allocating overflow bucket %d for index %lu",
+                    overflowBuckets,
+                    findBucketIndex(numBuckets, keyHash, &secondaryHash));
             void *buf = Memory::xmemalign(HERE, sizeof(CacheLine),
                                           sizeof(CacheLine));
             bucket = static_cast<CacheLine *>(buf);
