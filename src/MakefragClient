@@ -61,6 +61,7 @@ CLIENT_SRCFILES := \
 		   src/ObjectRpcWrapper.cc \
 		   src/PcapFile.cc \
 		   src/PerfCounter.cc \
+		   src/PerfStats.cc \
 		   src/PingClient.cc \
 		   src/PortAlarm.cc \
 		   src/RamCloud.cc \

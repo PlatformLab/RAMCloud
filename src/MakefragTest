@@ -84,6 +84,7 @@ TESTS_SRCFILES := \
 		  src/ObjectTest.cc \
 		  src/OptionParserTest.cc \
 		  src/PerfCounterTest.cc \
+		  src/PerfStatsTest.cc \
 		  src/PingServiceTest.cc \
 		  src/PortAlarm.cc \
 		  src/PortAlarmTest.cc \

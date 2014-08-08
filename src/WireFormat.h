@@ -136,6 +136,7 @@ enum ControlOp {
     LOG_TIME_TRACE              = 1004,
     GET_CACHE_TRACE             = 1005,
     LOG_CACHE_TRACE             = 1006,
+    GET_PERF_STATS              = 1007,
 };
 
 /**
