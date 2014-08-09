@@ -52,12 +52,10 @@ class RecoveryTask;
  */
 class MasterService : public Service {
   public:
-    MasterService(Context* context,
-                  const ServerConfig* config);
+    MasterService(Context* context, const ServerConfig* config);
     virtual ~MasterService();
 
-    void dispatch(WireFormat::Opcode opcode,
-                  Rpc* rpc);
+    void dispatch(WireFormat::Opcode opcode, Rpc* rpc);
     int maxThreads() { return config->master.masterServiceThreadCount; }
 
     /*
@@ -163,8 +161,8 @@ class MasterService : public Service {
                 WireFormat::MultiOp::Response* respHdr,
                 Rpc* rpc);
     void multiWrite(const WireFormat::MultiOp::Request* reqHdr,
-                   WireFormat::MultiOp::Response* respHdr,
-                   Rpc* rpc);
+                WireFormat::MultiOp::Response* respHdr,
+                Rpc* rpc);
     void prepForMigration(const WireFormat::PrepForMigration::Request* reqHdr,
                 WireFormat::PrepForMigration::Response* respHdr,
                 Rpc* rpc);
@@ -172,8 +170,8 @@ class MasterService : public Service {
                 WireFormat::Read::Response* respHdr,
                 Rpc* rpc);
     void readKeysAndValue(const WireFormat::ReadKeysAndValue::Request* reqHdr,
-              WireFormat::ReadKeysAndValue::Response* respHdr,
-              Rpc* rpc);
+                WireFormat::ReadKeysAndValue::Response* respHdr,
+                Rpc* rpc);
     void receiveMigrationData(
                 const WireFormat::ReceiveMigrationData::Request* reqHdr,
                 WireFormat::ReceiveMigrationData::Response* respHdr,
@@ -287,7 +285,7 @@ class MasterService : public Service {
 
     friend void recoveryCleanup(uint64_t maybeTomb, void *cookie);
     friend void removeObjectIfFromUnknownTablet(uint64_t reference,
-                                                void *cookie);
+                void *cookie);
     friend class RecoverSegmentBenchmark;
     friend class MasterServiceInternal::RecoveryTask;
 
