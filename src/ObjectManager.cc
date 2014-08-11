@@ -879,7 +879,7 @@ ObjectManager::writeObject(Object& newObject, RejectRules* rejectRules,
         return STATUS_UNKNOWN_TABLET;
     if (tablet.state != TabletManager::NORMAL)
         return STATUS_UNKNOWN_TABLET;
-    TRACE("ObjectManager.write() just took finished checking tablet");
+    TRACE("ObjectManager.write() just finished checking tablet");
 
     LogEntryType currentType = LOG_ENTRY_TYPE_INVALID;
     Buffer currentBuffer;
@@ -913,7 +913,7 @@ ObjectManager::writeObject(Object& newObject, RejectRules* rejectRules,
         }
     }
 
-    TRACE("ObjectManager.write() object removal completed!");
+    TRACE("ObjectManager.write() Old object discovery completed!");
     // Existing objects get a bump in version, new objects start from
     // the next version allocated in the table.
     uint64_t newObjectVersion = (currentVersion == VERSION_NONEXISTENT) ?
@@ -949,9 +949,9 @@ ObjectManager::writeObject(Object& newObject, RejectRules* rejectRules,
 
     if (tombstone) {
         tombstone->assembleForLog(appends[1].buffer);
+        TRACE("ObjectManager.write() New tombstone assembleForLog called!");
         appends[1].type = LOG_ENTRY_TYPE_OBJTOMB;
     }
-    TRACE("ObjectManager.write() New object assembleForLog called!");
 
     if (!log.append(appends, tombstone ? 2 : 1)) {
         // The log is out of space. Tell the client to retry and hope

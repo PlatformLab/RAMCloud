@@ -408,7 +408,6 @@ ReplicatedSegment::sync(uint32_t offset, Segment::Certificate* certificate)
         appendedBytes = segment->getAppendedLength(&localCertificate);
         certificate = &localCertificate;
     }
-    TRACE("segment->getAppendedLength has been called inside ReplicatedSegment.");
 
     if (appendedBytes > queued.bytes) {
         queued.bytes = appendedBytes;
@@ -420,6 +419,7 @@ ReplicatedSegment::sync(uint32_t offset, Segment::Certificate* certificate)
     uint64_t syncStartTicks = Cycles::rdtsc();
     while (true) {
         taskQueue.performTask();
+//        TRACE("taskQueue.performTask() has been invoked inside ReplicatedSegment");
         if (!recoveringFromLostOpenReplicas) {
             if (!normalLogSegment || precedingSegmentCloseCommitted) {
                 if (offset == ~0u) {
@@ -685,6 +685,7 @@ void
 ReplicatedSegment::performWrite(Replica& replica)
 {
     assert(!replica.freeRpc);
+//    TRACE("ReplicatedSegment::performwrite is being called!");
 
     if (replica.isActive && replica.committed == queued) {
         // If this replica is synced no further work is needed for now.
@@ -732,9 +733,11 @@ ReplicatedSegment::performWrite(Replica& replica)
     if (replica.writeRpc) {
         // This replica has a write request outstanding to a backup.
         if (replica.writeRpc->isReady()) {
+            TRACE("ReplicatedSegment::performwrite is invoking writeRpc->wait()!");
             // Wait for it to complete if it is ready.
             try {
                 replica.writeRpc->wait();
+                TRACE("ReplicatedSegment::performwrite returned from writeRpc->wait()!");
                 TEST_LOG("Write RPC finished for replica slot %ld",
                          &replica - &replicas[0]);
                 replica.acked = replica.sent;
@@ -893,6 +896,7 @@ ReplicatedSegment::performWrite(Replica& replica)
                 return;
             }
 
+            TRACE("ReplicatedSegment::performwrite is invoking replica.start()!");
             TEST_LOG("Sending write to backup %s",
                      replica.backupId.toString().c_str());
             replica.writeRpc.construct(context, replica.backupId, masterId,
