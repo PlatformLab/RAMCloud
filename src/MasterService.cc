@@ -1010,6 +1010,8 @@ MasterService::multiRemove(const WireFormat::MultiOp::Request* reqHdr,
 
     // Store info about objects being removed so that we can later
     // remove index entries corresponding to them.
+    // This is space inefficient as it occupies numRequests times size of
+    // Buffer on stack.
     Buffer objectBuffers[numRequests];
 
     respHdr->count = numRequests;
@@ -1092,6 +1094,8 @@ MasterService::multiWrite(const WireFormat::MultiOp::Request* reqHdr,
 
     // Store info about objects being removed (overwritten)
     // so that we can later remove index entries corresponding to them.
+    // This is space inefficient as it occupies numRequests times size of
+    // Buffer on stack.
     Buffer oldObjectBuffers[numRequests];
 
     // Each iteration extracts one request from the rpc, writes the object
