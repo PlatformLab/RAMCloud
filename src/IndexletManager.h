@@ -68,7 +68,7 @@ class IndexletManager {
     struct Indexlet* getIndexlet(uint64_t tableId, uint8_t indexId,
                 const void *firstKey, uint16_t firstKeyLength,
                 const void *firstNotOwnedKey, uint16_t firstNotOwnedKeyLength);
-    size_t getCount();
+    size_t getNumIndexlets();
 
     /////////////////////////// Index data related functions //////////////////
 

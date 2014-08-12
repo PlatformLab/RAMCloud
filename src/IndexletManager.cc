@@ -32,15 +32,14 @@ IndexletManager::IndexletManager(Context* context, ObjectManager* objectManager)
 ///////////////////////////////////////////////////////////////////////////////
 
 /**
- * Add an index partition (indexlet) on this index server.
+ * Add an indexlet (index partition) on this server.
  *
  * \param tableId
- *      Id of the data table for which this indexlet stores some
- *      index information.
+ *      Id for a particular table.
  * \param indexId
- *      Id of the index key for which this indexlet stores some information.
+ *      Id for a particular secondary index associated with tableId.
  * \param indexletTableId
- *      Id of the table that will hold objects for this indexlet
+ *      Id of the backing table that will hold objects for this indexlet.
  * \param firstKey
  *      Key blob marking the start of the indexed key range for this indexlet.
  * \param firstKeyLength
@@ -57,7 +56,7 @@ IndexletManager::IndexletManager(Context* context, ObjectManager* objectManager)
  *      Should be 0 for a new indexlet.
  * 
  * \throw InternalError
- *      If indexlet cannot be added because it overlaps with one or more
+ *      If indexlet cannot be added because the range overlaps with one or more
  *      existing indexlets.
  */
 void
@@ -109,10 +108,9 @@ IndexletManager::addIndexlet(
  * that indexlet.
  *
  * \param tableId
- *      Id of the data table for which this indexlet stores some
- *      index information.
+ *      Id for a particular table.
  * \param indexId
- *      Id of the index key for which this indexlet stores some information.
+ *      Id for a particular secondary index associated with tableId.
  * \param firstKey
  *      Key blob marking the start of the indexed key range for this indexlet.
  * \param firstKeyLength
@@ -122,6 +120,7 @@ IndexletManager::addIndexlet(
  *      in the index order but not part of this indexlet.
  * \param firstNotOwnedKeyLength
  *      Length of firstNotOwnedKey.
+ * 
  * \throw InternalError
  *      If indexlet was not found because the range overlaps
  *      with one or more existing indexlets.
@@ -168,18 +167,19 @@ IndexletManager::deleteIndexlet(
 }
 
 /**
- * Given a secondary key in an indexlet range, find the indexlet.  This is used
- * to determine whether the indexlet is owned by this IndexletManager.
+ * Given a secondary key find the indexlet that contains it.
+ * This function is used to determine whether the indexlet is owned by this
+ * instance of IndexletManager.
  *
  * \param tableId
- *      Id of the data table for which this indexlet stores some
- *      index information.
+ *      Id for a particular table.
  * \param indexId
- *      Id of the index key for which this indexlet stores some information.
+ *      Id for a particular secondary index associated with tableId.
  * \param key
- *      Key blob contained to be found in the target indexlet.
+ *      The secondary index key used to find a particular indexlet.
  * \param keyLength
  *      Length of key blob.
+ * 
  * \return
  *      True if a indexlet was found, otherwise false.
  */
@@ -198,16 +198,16 @@ IndexletManager::hasIndexlet(uint64_t tableId, uint8_t indexId,
 }
 
 /**
+ * TODO(ankitak): Improve docs here.
  * Given the exact specification of a indexlet's range, obtain the current data
  * associated with that indexlet, if it exists. Note that the data returned is a
  * snapshot. The IndexletManager's data may be modified at any time by other
  * threads.
  *
  * \param tableId
- *      Id of the data table for which this indexlet stores some
- *      index information.
+ *      Id for a particular table.
  * \param indexId
- *      Id of the index key for which this indexlet stores some information.
+ *      Id for a particular secondary index associated with tableId.
  * \param firstKey
  *      Key blob marking the start of the indexed key range for this indexlet.
  * \param firstKeyLength
@@ -258,22 +258,19 @@ IndexletManager::getIndexlet(uint64_t tableId, uint8_t indexId,
  * This is a helper for the public methods that need to look up a indexlet.
  *
  * \param tableId
- *      Id of the data table for which this indexlet stores some
- *      index information.
+ *      Id for a particular table.
  * \param indexId
- *      Id of the index key for which this indexlet stores some information.
+ *      Id for a particular secondary index associated with tableId.
  * \param key
- *      Key blob that should form the key of the index entry contained in the
- *      indexlet being looked up.
+ *      The secondary index key used to find a particular indexlet.
  * \param keyLength
  *      Length of key.
  * \param mutex
  *      This ensures that the caller holds this lock.
  * \return
- *      A IndexletMap::iterator is returned.
- *      If the desired indexlet was not found, it will be equal to
- *      indexletMap.end().
- *      Otherwise, it will refer to the desired indexlet.
+ *      An iterator to the indexlet for index indexId for table tableId
+ *      that contains key, or indexletMap.end() if no such indexlet could be
+ *      found.
  *
  *      An iterator, rather than a Indexlet pointer is returned to facilitate
  *      efficient deletion.
@@ -313,7 +310,7 @@ IndexletManager::lookupIndexlet(uint64_t tableId, uint8_t indexId,
   *     Total number of indexlets this object is managing.
   */
 size_t
-IndexletManager::getCount()
+IndexletManager::getNumIndexlets()
 {
     Lock indexletMapLock(mutex);
     return indexletMap.size();
@@ -327,9 +324,9 @@ IndexletManager::getCount()
  * Insert index entry for an object for a given index id.
  *
  * \param tableId
- *      Id of the table containing the object corresponding to this index entry.
+ *      Id for a particular table.
  * \param indexId
- *      Id of the index to which this index key belongs.
+ *      Id for a particular secondary index associated with tableId.
  * \param key
  *      Key blob for for the index entry.
  * \param keyLength
@@ -481,9 +478,9 @@ IndexletManager::lookupIndexKeys(
  * Remove index entry for an object for a given index id.
  *
  * \param tableId
- *      Id of the table containing the object corresponding to this index entry.
+ *      Id for a particular table.
  * \param indexId
- *      Id of the index to which this index key belongs.
+ *      Id for a particular secondary index associated with tableId.
  * \param key
  *      Key blob for for the index entry.
  * \param keyLength

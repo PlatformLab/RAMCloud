@@ -383,7 +383,7 @@ TabletManager::getStatistics(ProtoBuf::ServerStatistics* serverStatistics)
  * Obtain the total number of tablets this object is managing.
  */
 size_t
-TabletManager::getCount()
+TabletManager::getNumTablets()
 {
     Lock guard(lock);
     return tabletMap.size();

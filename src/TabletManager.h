@@ -142,7 +142,7 @@ class TabletManager {
     void incrementReadCount(Key& key);
     void incrementWriteCount(Key& key);
     void getStatistics(ProtoBuf::ServerStatistics* serverStatistics);
-    size_t getCount();
+    size_t getNumTablets();
     string toString();
 
   PRIVATE:
