@@ -66,6 +66,10 @@ Object::Object(uint64_t tableId,
         length = this->keysAndValueBuffer->size() - startDataOffset;
 
     keysAndValueLength = length;
+
+    void* retPtr;
+    if (keysAndValueBuffer.peek(startDataOffset, &retPtr) >= keysAndValueLength)
+        keysAndValue = static_cast<char*>(retPtr);
 }
 
 /**
