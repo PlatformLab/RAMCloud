@@ -1215,6 +1215,8 @@ InfRcTransport::Poller::poll()
             CycleCounter<RawMetric> receiveTicks;
             BufferDescriptor *bd =
                         reinterpret_cast<BufferDescriptor *>(wc.wr_id);
+            if (wc.byte_len < 1000)
+                prefetch(bd->buffer, wc.byte_len);
             if (wc.status != IBV_WC_SUCCESS) {
                 LOG(ERROR, "wc.status(%d:%s) != IBV_WC_SUCCESS",
                     wc.status, t->infiniband->wcStatusToString(wc.status));
