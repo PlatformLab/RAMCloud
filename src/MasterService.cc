@@ -219,7 +219,6 @@ MasterService::dispatch(WireFormat::Opcode opcode, Rpc* rpc)
             prepareErrorResponse(rpc->replyPayload,
                                  STATUS_UNIMPLEMENTED_REQUEST);
     }
-    TRACE("MasterService::Dispatch just finished");
 }
 
 /**
@@ -1563,6 +1562,7 @@ MasterService::write(const WireFormat::Write::Request* reqHdr,
         WireFormat::Write::Response* respHdr,
         Rpc* rpc)
 {
+    TRACE("Entering MasterService::write!");
     // This is a temporary object that has an invalid version and timestamp.
     // An object is created here to make sure the object format does not leak
     // outside the object class. ObjectManager will update the version,
@@ -1580,20 +1580,16 @@ MasterService::write(const WireFormat::Write::Request* reqHdr,
 
     // Write the object.
     RejectRules rejectRules = reqHdr->rejectRules;
-    TRACE("Before calling objectManager.writeObject");
     respHdr->common.status = objectManager.writeObject(
             object, &rejectRules, &respHdr->version, &oldObjectBuffer);
-    TRACE("After calling objectManager.writeObject");
-
+    TRACE("Object has been written!");
     if (respHdr->common.status == STATUS_OK)
         objectManager.syncChanges();
-    TRACE("Finished calling objectManager.syncChanges();");
-
+    TRACE("MasterService::write begins handoff back to service thread!");
     // Respond to the client RPC now. Removing old index entries can be
     // done asynchronously while maintaining strong consistency.
     rpc->sendReply();
     // reqHdr, respHdr, and rpc are off-limits now!
-    TRACE("Finished calling rpc->sendReply()");
 
     // If this is a overwrite, delete old index entries if any.
     if (oldObjectBuffer.size() > 0) {

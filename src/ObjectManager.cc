@@ -879,7 +879,6 @@ ObjectManager::writeObject(Object& newObject, RejectRules* rejectRules,
         return STATUS_UNKNOWN_TABLET;
     if (tablet.state != TabletManager::NORMAL)
         return STATUS_UNKNOWN_TABLET;
-    TRACE("ObjectManager.write() just finished checking tablet");
 
     LogEntryType currentType = LOG_ENTRY_TYPE_INVALID;
     Buffer currentBuffer;
@@ -890,7 +889,6 @@ ObjectManager::writeObject(Object& newObject, RejectRules* rejectRules,
 
     if (lookup(lock, key, currentType, currentBuffer, 0,
                &currentReference, &currentHashTableEntry)) {
-        TRACE("ObjectManager.write() just looked up the object");
         if (currentType == LOG_ENTRY_TYPE_OBJTOMB) {
             removeIfTombstone(currentReference.toInteger(), this);
         } else {
@@ -913,7 +911,6 @@ ObjectManager::writeObject(Object& newObject, RejectRules* rejectRules,
         }
     }
 
-    TRACE("ObjectManager.write() Old object discovery completed!");
     // Existing objects get a bump in version, new objects start from
     // the next version allocated in the table.
     uint64_t newObjectVersion = (currentVersion == VERSION_NONEXISTENT) ?
@@ -933,7 +930,6 @@ ObjectManager::writeObject(Object& newObject, RejectRules* rejectRules,
                             log.getSegmentId(currentReference),
                             WallTime::secondsTimestamp());
     }
-    TRACE("ObjectManager.write() New object constructed");
 
     // Create a vector of appends in case we need to write a tombstone and
     // an object. This is necessary to ensure that both tombstone and object
@@ -944,12 +940,10 @@ ObjectManager::writeObject(Object& newObject, RejectRules* rejectRules,
     Log::AppendVector appends[2];
 
     newObject.assembleForLog(appends[0].buffer);
-    TRACE("ObjectManager.write() New object assembleForLog called!");
     appends[0].type = LOG_ENTRY_TYPE_OBJ;
 
     if (tombstone) {
         tombstone->assembleForLog(appends[1].buffer);
-        TRACE("ObjectManager.write() New tombstone assembleForLog called!");
         appends[1].type = LOG_ENTRY_TYPE_OBJTOMB;
     }
 
@@ -959,7 +953,6 @@ ObjectManager::writeObject(Object& newObject, RejectRules* rejectRules,
         // off of this server.
         return STATUS_RETRY;
     }
-    TRACE("ObjectManager.write() Finished appending to log!");
 
     if (tombstone) {
         currentHashTableEntry.setReference(appends[0].reference.toInteger());
@@ -967,7 +960,6 @@ ObjectManager::writeObject(Object& newObject, RejectRules* rejectRules,
     } else {
         objectMap.insert(key.getHash(), appends[0].reference.toInteger());
     }
-    TRACE("ObjectManager.write() Inserted into hashmap!");
 
     if (outVersion != NULL)
         *outVersion = newObject.getVersion();

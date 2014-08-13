@@ -192,7 +192,6 @@ Log::sync()
         // Drop the append lock. We don't want to block other appending threads
         // while we sync.
         lock.destroy();
-        TRACE("Log::sync, immediately before calling replicatedSegment->sync");
 
         originalHead->replicatedSegment->sync(appendedLength, &certificate);
         originalHead->syncedLength = appendedLength;

@@ -96,7 +96,6 @@ AbstractLog::append(AppendVector* appends, uint32_t numAppends)
         throw FatalError(HERE, "too much data to append to one segment");
 
     LogSegment* headBefore = head;
-    TRACE("AbstractLog::append just before calling append append with lock!");
     for (uint32_t i = 0; i < numAppends; i++) {
         bool enoughSpace = append(lock,
                                   appends[i].type,

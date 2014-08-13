@@ -259,8 +259,8 @@ ServiceManager::poll()
         }
 
         // Now send the response, if any.
-        TRACE("Dispatch thread received Rpc back from Worker thread!");
         if (rpc != NULL) {
+            TRACE("Dispatch thread received Rpc back from Worker thread!");
 #ifdef LOG_RPCS
             LOG(NOTICE, "Sending reply for %s at %lu with %u bytes",
                     WireFormat::opcodeSymbol(&worker->rpc->requestPayload),
@@ -268,6 +268,7 @@ ServiceManager::poll()
                     worker->rpc->replyPayload.size());
 #endif
             rpc->sendReply();
+            TRACE("reply has been sent to client.");
         }
 
         // If the worker is idle, remove it from busyThreads (fill its

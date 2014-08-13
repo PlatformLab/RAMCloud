@@ -403,7 +403,6 @@ ReplicatedSegment::sync(uint32_t offset, Segment::Certificate* certificate)
     // latest one and use that.
     uint32_t appendedBytes = offset;
     Segment::Certificate localCertificate;
-    TRACE("Local certificate constructed inside ReplicatedSegment");
     if (certificate == NULL) {
         appendedBytes = segment->getAppendedLength(&localCertificate);
         certificate = &localCertificate;
@@ -414,22 +413,20 @@ ReplicatedSegment::sync(uint32_t offset, Segment::Certificate* certificate)
         queuedCertificate = *certificate;
         schedule();
     }
-    TRACE("schedule() has been called inside ReplicatedSegment");
+    TRACE("Finished marshalling for replicas inside ReplicatedSegment::sync!");
 
     uint64_t syncStartTicks = Cycles::rdtsc();
     while (true) {
         taskQueue.performTask();
-//        TRACE("taskQueue.performTask() has been invoked inside ReplicatedSegment");
         if (!recoveringFromLostOpenReplicas) {
             if (!normalLogSegment || precedingSegmentCloseCommitted) {
                 if (offset == ~0u) {
                     if (getCommitted().close) {
-                        TRACE("getCommited().close() == TRUE");
                         return;
                     }
                 } else {
                     if (getCommitted().bytes >= offset) {
-                        TRACE("getCommited().bytes >= offset");
+                        TRACE("Replication completion detected:: getCommited().bytes >= offset");
                         return;
                     }
                 }
@@ -733,7 +730,7 @@ ReplicatedSegment::performWrite(Replica& replica)
     if (replica.writeRpc) {
         // This replica has a write request outstanding to a backup.
         if (replica.writeRpc->isReady()) {
-            TRACE("ReplicatedSegment::performwrite is invoking writeRpc->wait()!");
+//            TRACE("ReplicatedSegment::performwrite is invoking writeRpc->wait()!");
             // Wait for it to complete if it is ready.
             try {
                 replica.writeRpc->wait();
@@ -896,7 +893,6 @@ ReplicatedSegment::performWrite(Replica& replica)
                 return;
             }
 
-            TRACE("ReplicatedSegment::performwrite is invoking replica.start()!");
             TEST_LOG("Sending write to backup %s",
                      replica.backupId.toString().c_str());
             replica.writeRpc.construct(context, replica.backupId, masterId,
@@ -905,6 +901,7 @@ ReplicatedSegment::performWrite(Replica& replica)
                                        certificateToSend,
                                        false, sendClose,
                                        replicaIsPrimary(replica));
+            TRACE("ReplicatedSegment::performwrite has invoked replica.start()!");
             ++writeRpcsInFlight;
             if (LOG_RECOVERY_REPLICATION_RPC_TIMING && recoveryStart) {
                 LOG(DEBUG, "@%7lu: Replica <%s,%lu,%lu> write -> %7u+%7u "
