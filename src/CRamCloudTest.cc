@@ -40,6 +40,7 @@ class CRamCloudTest : public ::testing::Test {
     std::string value;
     uint16_t keyLength;
     uint16_t valueLength;
+    uint16_t szMultiOpIncrement;
     uint16_t szMultiOpRead;
     uint16_t szMultiOpWrite;
     uint16_t szMultiOpRemove;
@@ -61,6 +62,7 @@ class CRamCloudTest : public ::testing::Test {
         , value("abc")
         , keyLength(3)
         , valueLength(3)
+        , szMultiOpIncrement(rc_multiOpSizeOf(MULTI_OP_INCREMENT))
         , szMultiOpRead(rc_multiOpSizeOf(MULTI_OP_READ))
         , szMultiOpWrite(rc_multiOpSizeOf(MULTI_OP_WRITE))
         , szMultiOpRemove(rc_multiOpSizeOf(MULTI_OP_REMOVE))
@@ -138,6 +140,96 @@ TEST_F(CRamCloudTest, rc_getTableId) {
     status = rc_getTableId(client, "table2", &tableId);
     EXPECT_EQ(STATUS_OK, status);
     EXPECT_EQ(tableId, tableId2);
+}
+
+TEST_F(CRamCloudTest, rc_incrementInt64_basics) {
+    uint64_t version = 0;
+    int64_t newValue = 0;
+    status = rc_incrementInt64(client, tableId1, "iinc", 4, 42, NULL,
+                               &version, &newValue);
+    EXPECT_EQ(status, STATUS_OK);
+    EXPECT_GT(version, uint64_t(0));
+    EXPECT_EQ(newValue, 42);
+
+    status = rc_incrementInt64(client, tableId1, "iinc", 4, -2, NULL,
+                               &version, &newValue);
+    EXPECT_EQ(status, STATUS_OK);
+    EXPECT_GT(version, uint64_t(0));
+    EXPECT_EQ(newValue, 40);
+}
+
+TEST_F(CRamCloudTest, rc_incrementInt64_RejectRules) {
+    RejectRules rrules;
+    memset(&rrules, 0, sizeof(rrules));
+    rrules.doesntExist = 1;
+    status = rc_incrementInt64(client, tableId1, "new", 3, 42, &rrules,
+                               NULL, NULL);
+    EXPECT_EQ(status, STATUS_OBJECT_DOESNT_EXIST);
+}
+
+TEST_F(CRamCloudTest, rc_incrementInt64_noReturnValue) {
+    status = rc_incrementInt64(client, tableId1, "iinc", 4, 42, NULL,
+                               NULL, NULL);
+    EXPECT_EQ(status, STATUS_OK);
+
+    int64_t value;
+    uint32_t actualLength;
+    status = rc_read(client, tableId1, "iinc", 4, NULL, NULL,
+                     &value, sizeof(value), &actualLength);
+    EXPECT_EQ(status, STATUS_OK);
+    EXPECT_EQ(actualLength, sizeof(value));
+    EXPECT_EQ(value, 42);
+}
+
+TEST_F(CRamCloudTest, rc_incrementInt64_TableDoesntExist) {
+    status = rc_incrementInt64(client, 101, "0", 1, 42, NULL,
+                               NULL, NULL);
+    EXPECT_EQ(status, STATUS_TABLE_DOESNT_EXIST);
+}
+
+TEST_F(CRamCloudTest, rc_incrementDouble_basics) {
+    uint64_t version = 0;
+    double newValue = 0;
+    status = rc_incrementDouble(client, tableId1, "finc", 4, 42.0, NULL,
+                                &version, &newValue);
+    EXPECT_EQ(status, STATUS_OK);
+    EXPECT_GT(version, uint64_t(0));
+    EXPECT_DOUBLE_EQ(newValue, 42.0);
+
+    status = rc_incrementDouble(client, tableId1, "finc", 4, -2.0, NULL,
+                                &version, &newValue);
+    EXPECT_EQ(status, STATUS_OK);
+    EXPECT_GT(version, uint64_t(0));
+    EXPECT_DOUBLE_EQ(newValue, 40.0);
+}
+
+TEST_F(CRamCloudTest, rc_incrementDouble_RejectRules) {
+    RejectRules rrules;
+    memset(&rrules, 0, sizeof(rrules));
+    rrules.doesntExist = 1;
+    status = rc_incrementDouble(client, tableId1, "new", 3, 42.0, &rrules,
+                                NULL, NULL);
+    EXPECT_EQ(status, STATUS_OBJECT_DOESNT_EXIST);
+}
+
+TEST_F(CRamCloudTest, rc_incrementDouble_noReturnValue) {
+    status = rc_incrementDouble(client, tableId1, "finc", 4, 42.0, NULL,
+                                NULL, NULL);
+    EXPECT_EQ(status, STATUS_OK);
+
+    double value;
+    uint32_t actualLength;
+    status = rc_read(client, tableId1, "finc", 4, NULL, NULL,
+                     &value, sizeof(value), &actualLength);
+    EXPECT_EQ(status, STATUS_OK);
+    EXPECT_EQ(actualLength, sizeof(value));
+    EXPECT_DOUBLE_EQ(value, 42.0);
+}
+
+TEST_F(CRamCloudTest, rc_incrementDouble_TableDoesntExist) {
+    status = rc_incrementDouble(client, 101, "0", 1, 42, NULL,
+                                NULL, NULL);
+    EXPECT_EQ(status, STATUS_TABLE_DOESNT_EXIST);
 }
 
 TEST_F(CRamCloudTest, rc_read_basic) {
@@ -272,6 +364,37 @@ TEST_F(CRamCloudTest, rc_write_TableDoesntExist) {
     status = rc_write(client, 101, key.data(), keyLength,
                       value.data(), valueLength, NULL, NULL);
     EXPECT_EQ(status, STATUS_TABLE_DOESNT_EXIST);
+}
+
+TEST_F(CRamCloudTest, rc_multiIncrement) {
+    unsigned char *mIncrementObjects = reinterpret_cast<unsigned char *>
+        (malloc(numMultiOps * szMultiOpIncrement));
+    void **pmIncrementObjects = reinterpret_cast<void **>
+        (malloc(numMultiOps * sizeof(pmIncrementObjects[0])));
+    const char *key = "key";
+    uint16_t keyLength = 3;
+    for (unsigned i = 0; i < numMultiOps; ++i) {
+        pmIncrementObjects[i] = mIncrementObjects + (i * szMultiOpIncrement);
+        rc_multiIncrementCreate(tableId3, key, keyLength,
+                                1, 0.0, NULL, pmIncrementObjects[i]);
+    }
+    rc_multiIncrement(client, pmIncrementObjects, numMultiOps);
+    for (unsigned i = 0; i < numMultiOps; ++i) {
+        Status thisStatus =
+            rc_multiOpStatus(pmIncrementObjects[i], MULTI_OP_INCREMENT);
+        EXPECT_EQ(STATUS_OK, thisStatus);
+        rc_multiOpDestroy(pmIncrementObjects[i], MULTI_OP_INCREMENT);
+    }
+    free(pmIncrementObjects);
+    free(mIncrementObjects);
+
+    int64_t value;
+    uint32_t actualLength;
+    status = rc_read(client, tableId3, key, keyLength, NULL, NULL,
+                     &value, sizeof(value), &actualLength);
+    EXPECT_EQ(status, STATUS_OK);
+    EXPECT_EQ(actualLength, sizeof(value));
+    EXPECT_EQ(value, numMultiOps);
 }
 
 TEST_F(CRamCloudTest, rc_multiRead) {

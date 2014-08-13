@@ -406,23 +406,31 @@ TEST_F(RamCloudTest, getTableId) {
     EXPECT_EQ(2UL, id);
 }
 
-TEST_F(RamCloudTest, increment) {
+TEST_F(RamCloudTest, incrementDouble) {
+    double value = 3.14;
+    ramcloud->write(tableId1, "key1", 4, &value, sizeof(value));
+    uint64_t version;
+    EXPECT_DOUBLE_EQ(4.14, ramcloud->incrementDouble(tableId1, "key1", 4, 1.0,
+            NULL, &version));
+    EXPECT_EQ(2U, version);
+    EXPECT_DOUBLE_EQ(2.14, ramcloud->incrementDouble(tableId1,
+            "key1", 4, -2.0));
+    ramcloud->write(tableId1, "key2", 4, &value, sizeof(value)-1);
+    EXPECT_THROW(ramcloud->incrementDouble(tableId1, "key21", 4, 0.0),
+                 InvalidObjectException);
+}
+
+TEST_F(RamCloudTest, incrementInt64) {
     int64_t value = 99;
     ramcloud->write(tableId1, "key1", 4, &value, sizeof(int64_t));
     uint64_t version;
-    EXPECT_EQ(114L, ramcloud->increment(tableId1, "key1", 4, 15L,
+    EXPECT_EQ(114L, ramcloud->incrementInt64(tableId1, "key1", 4, 15L,
             NULL, &version));
     EXPECT_EQ(2U, version);
-    EXPECT_EQ(111L, ramcloud->increment(tableId1, "key1", 4, -3L));
+    EXPECT_EQ(111L, ramcloud->incrementInt64(tableId1, "key1", 4, -3L));
     ramcloud->write(tableId1, "key2", 4, &value, sizeof(int64_t)-1);
-    string message("no exception");
-    try {
-        ramcloud->increment(tableId1, "key21", 4, 15L);
-    }
-    catch (ClientException& e) {
-        message = e.toSymbol();
-    }
-    EXPECT_EQ("STATUS_INVALID_OBJECT", message);
+    EXPECT_THROW(ramcloud->incrementInt64(tableId1, "key21", 4, 1);,
+                 InvalidObjectException);
 }
 
 TEST_F(RamCloudTest, indexServerControl) {
@@ -436,6 +444,20 @@ TEST_F(RamCloudTest, indexServerControl) {
     ramcloud->indexServerControl(tableId1, 2, "0", 1,
             WireFormat::GET_CACHE_TRACE, "abc", 3, &output);
     EXPECT_EQ("No cache trace events to print", TestUtil::toString(&output));
+}
+
+TEST_F(RamCloudTest, multiIncrement) {
+    MultiIncrementObject *requests[3];
+    requests[0] = new MultiIncrementObject(tableId1, "0", 1, 42, 0.0, NULL);
+    requests[1] = new MultiIncrementObject(tableId1, "1", 1, 0, -42.0, NULL);
+    requests[2] = new MultiIncrementObject(101, "2", 1, 0, 42.0, NULL);
+    ramcloud->multiIncrement(requests, 3);
+    EXPECT_EQ(requests[0]->newValue.asInt64, 42);
+    EXPECT_DOUBLE_EQ(requests[1]->newValue.asDouble, -42.0);
+    EXPECT_EQ(requests[2]->status, STATUS_TABLE_DOESNT_EXIST);
+    delete requests[0];
+    delete requests[1];
+    delete requests[2];
 }
 
 TEST_F(RamCloudTest, quiesce) {

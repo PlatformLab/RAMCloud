@@ -209,6 +209,64 @@ rc_getTableId(struct rc_client* client, const char* name,
     return STATUS_OK;
 }
 
+Status
+rc_incrementInt64(struct rc_client* client, uint64_t tableId,
+                  const void* key, uint16_t keyLength,
+                  int64_t incrementValue,
+                  const struct RejectRules* rejectRules,
+                  uint64_t* version, int64_t *newValue)
+{
+    try {
+        int64_t returnValue;
+        returnValue = client->client->incrementInt64(
+                tableId, key, keyLength, incrementValue, rejectRules, version);
+        if (newValue) {
+            *newValue = returnValue;
+        }
+    } catch (ClientException& e) {
+        return e.status;
+    }
+    catch (std::exception& e) {
+        RAMCLOUD_LOG(ERROR, "An unhandled C++ Exception occurred: %s",
+                e.what());
+        return STATUS_INTERNAL_ERROR;
+    } catch (...) {
+        RAMCLOUD_LOG(ERROR, "An unknown, unhandled C++ Exception occurred");
+        return STATUS_INTERNAL_ERROR;
+    }
+
+    return STATUS_OK;
+}
+
+Status
+rc_incrementDouble(struct rc_client* client, uint64_t tableId,
+                   const void* key, uint16_t keyLength,
+                   double incrementValue,
+                   const struct RejectRules* rejectRules,
+                   uint64_t* version, double *newValue)
+{
+    try {
+        double returnValue;
+        returnValue = client->client->incrementDouble(
+                tableId, key, keyLength, incrementValue, rejectRules, version);
+        if (newValue) {
+            *newValue = returnValue;
+        }
+    } catch (ClientException& e) {
+        return e.status;
+    }
+    catch (std::exception& e) {
+        RAMCLOUD_LOG(ERROR, "An unhandled C++ Exception occurred: %s",
+                e.what());
+        return STATUS_INTERNAL_ERROR;
+    } catch (...) {
+        RAMCLOUD_LOG(ERROR, "An unknown, unhandled C++ Exception occurred");
+        return STATUS_INTERNAL_ERROR;
+    }
+
+    return STATUS_OK;
+}
+
 /**
  * Similar to RamCloudClient::read, except copies the return value out to a
  * fixed-length buffer rather than returning a Buffer object.
@@ -329,6 +387,45 @@ rc_write(struct rc_client* client, uint64_t tableId,
 // C user, is returned by rc_multiOpSizeOf.
 
 /**
+ * Constructs a MultiIncrementObject.  Only one of incrementInt64,
+ * incrementDouble should be non-zero, indicating if the request is an integer
+ * increment or a floating point increment.
+ *
+ * \param tableId
+ *      The table containing the desired object (return value from
+ *      a previous call to getTableId).
+ * \param key
+ *      Variable length key that uniquely identifies the object within tableId.
+ *      It does not necessarily have to be null terminated like a string.
+ * \param keyLength
+ *      Size in bytes of the key.
+ * \param[out] incrementInt64
+ *      If non-zero, interpret the value as 8 byte two's complement signed
+ *      integer and perform an integer increment.
+ * \param[out] incrementDouble
+ *      If non-zero, interpret the value as IEEE754 double precision floating
+ *      point value perform a floating point increment.
+ * \param rejectRules
+ *      If non-NULL, specifies conditions under which the increment should be
+ *      aborted with an error.
+ * \param where
+ *      The memory location for creating the objects. The location needs to
+ *      be large enough to hold at least rc_multiOpSizeOf(MULTI_OP_INCREMENT)
+ *      bytes.
+ */
+
+void
+rc_multiIncrementCreate(uint64_t tableId,
+                        const void *key, uint16_t keyLength,
+                        int64_t incrementInt64, double incrementDouble,
+                        const struct RejectRules* rejectRules,
+                        void *where)
+{
+    new(where) MultiIncrementObject(tableId, key, keyLength,
+        incrementInt64, incrementDouble, rejectRules);
+}
+
+/**
  * Constructs a MultiReadObject and the necessary additional fields to transfer
  * the returned ObjectBuffer to a C void buffer.
  *
@@ -442,6 +539,10 @@ void
 rc_multiOpDestroy(void *multiOpObject, MultiOp type) {
     rc_multiReadHelper *mReadHelper;
     switch (type) {
+        case MULTI_OP_INCREMENT:
+            reinterpret_cast<MultiIncrementObject *>
+                (multiOpObject)->~MultiIncrementObject();
+            break;
         case MULTI_OP_READ:
             reinterpret_cast<MultiReadObject *>
                 (multiOpObject)->~MultiReadObject();
@@ -488,6 +589,8 @@ rc_multiOpStatus(const void *multiOpObject, MultiOp type) {
 uint16_t
 rc_multiOpSizeOf(MultiOp type) {
     switch (type) {
+        case MULTI_OP_INCREMENT:
+            return sizeof(MultiIncrementObject);
         case MULTI_OP_READ:
             return downCast<uint16_t>(
                     sizeof(MultiReadObject) + sizeof(rc_multiReadHelper));
@@ -513,6 +616,10 @@ rc_multiOpSizeOf(MultiOp type) {
 uint64_t
 rc_multiOpVersion(const void *multiOpObject, MultiOp type) {
   switch (type) {
+      case MULTI_OP_INCREMENT:
+          return reinterpret_cast<const MultiIncrementObject *>
+                     (multiOpObject)->version;
+          break;
       case MULTI_OP_READ:
           return reinterpret_cast<const MultiReadObject *>
                      (multiOpObject)->version;
@@ -528,6 +635,34 @@ rc_multiOpVersion(const void *multiOpObject, MultiOp type) {
       default:
           RAMCLOUD_DIE("Get version from unknown multi-op object");
   }
+}
+
+/**
+ * Issues an increment of multiple objects.
+ *
+ * \param client
+ *      Handle for the RAMCloud connection.
+ * \param requests
+ *      An array of pointers to memory structures that have been each created
+ *      with rc_multiIncrementCreate.
+ * \param numRequests
+ *      The size of the requests array.
+ */
+void
+rc_multiIncrement(struct rc_client* client,
+                  void **requests, uint32_t numRequests)
+{
+    MultiIncrementObject **increment_requests =
+        reinterpret_cast<MultiIncrementObject **>(requests);
+    try {
+        client->client->multiIncrement(increment_requests, numRequests);
+    }
+    catch (std::exception& e) {
+        RAMCLOUD_LOG(ERROR, "An unhandled C++ Exception occurred: %s",
+                e.what());
+    } catch (...) {
+        RAMCLOUD_LOG(ERROR, "An unknown, unhandled C++ Exception occurred");
+    }
 }
 
 /**

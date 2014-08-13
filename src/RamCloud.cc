@@ -17,6 +17,7 @@
 #include "CoordinatorSession.h"
 #include "FailSession.h"
 #include "MasterClient.h"
+#include "MultiIncrement.h"
 #include "MultiRead.h"
 #include "MultiRemove.h"
 #include "MultiWrite.h"
@@ -938,7 +939,111 @@ GetTableIdRpc::wait()
 
 /**
  * Atomically increment the value of an object whose contents are an
- * 8-byte two's complement, little-endian integer.
+ * IEEE754 double precision 8-byte floating point value.  If the object does
+ * not exist, it is created with an initial value of 0.0 before incrementing.
+ *
+ * \param tableId
+ *      The table containing the desired object (return value from
+ *      a previous call to getTableId).
+ * \param key
+ *      Variable length key that uniquely identifies the object within tableId.
+ *      It does not necessarily have to be null terminated.  The caller must
+ *      ensure that the storage for this key is unchanged through the life of
+ *      the RPC.
+ * \param keyLength
+ *      Size in bytes of the key.
+ * \param incrementValue
+ *      This value is added to the current contents of the object (the value
+ *      can be negative).
+ * \param rejectRules
+ *      If non-NULL, specifies conditions under which the increment
+ *      should be aborted with an error.
+ * \param[out] version
+ *      If non-NULL, the version number of the object is returned here.
+ *
+ * \return
+ *      The new value of the object.
+ *
+ * \exception InvalidObjectException
+ *      The object is not 8 bytes in length.
+ */
+double
+RamCloud::incrementDouble(uint64_t tableId, const void* key, uint16_t keyLength,
+        double incrementValue, const RejectRules* rejectRules,
+        uint64_t* version)
+{
+    IncrementDoubleRpc rpc(this, tableId, key, keyLength, incrementValue,
+            rejectRules);
+    return rpc.wait(version);
+}
+
+/**
+ * Constructor for IncrementDoubleRpc: initiates an RPC in the same way as
+ * #RamCloud::incrementDouble, but returns once the RPC has been initiated, 
+ * without waiting for it to complete.
+ *
+ * \param ramcloud
+ *      The RAMCloud object that governs this RPC.
+ * \param tableId
+ *      The table containing the desired object (return value from
+ *      a previous call to getTableId).
+ * \param key
+ *      Variable length key that uniquely identifies the object within tableId.
+ *      It does not necessarily have to be null terminated.  The caller must
+ *      ensure that the storage for this key is unchanged through the life of
+ *      the RPC.
+ * \param keyLength
+ *      Size in bytes of the key.
+ * \param incrementValue
+ *      This value is added to the current contents of the object (the value
+ *      can be negative).
+ * \param rejectRules
+ *      If non-NULL, specifies conditions under which the increment
+ *      should be aborted with an error.
+ */
+IncrementDoubleRpc::IncrementDoubleRpc(RamCloud* ramcloud, uint64_t tableId,
+        const void* key, uint16_t keyLength, double incrementValue,
+        const RejectRules* rejectRules)
+    : ObjectRpcWrapper(ramcloud, tableId, key, keyLength,
+            sizeof(WireFormat::Increment::Response))
+{
+    WireFormat::Increment::Request* reqHdr(
+            allocHeader<WireFormat::Increment>());
+    reqHdr->tableId = tableId;
+    reqHdr->keyLength = keyLength;
+    reqHdr->incrementInt64 = 0;
+    reqHdr->incrementDouble = incrementValue;
+    reqHdr->rejectRules = rejectRules ? *rejectRules : defaultRejectRules;
+    request.appendExternal(key, keyLength);
+    send();
+}
+
+/**
+ * Wait for an incrementDouble RPC to complete, and return the same results as
+ * #RamCloud::incrementDouble.
+ *
+ * \param[out] version
+ *      If non-NULL, the current version number of the object is
+ *      returned here.
+ */
+double
+IncrementDoubleRpc::wait(uint64_t* version)
+{
+    waitInternal(ramcloud->clientContext->dispatch);
+    const WireFormat::Increment::Response* respHdr(
+            getResponseHeader<WireFormat::Increment>());
+    if (version != NULL)
+        *version = respHdr->version;
+
+    if (respHdr->common.status != STATUS_OK)
+        ClientException::throwException(HERE, respHdr->common.status);
+    return respHdr->newValue.asDouble;
+}
+
+/**
+ * Atomically increment the value of an object whose contents are an
+ * 8-byte two's complement, little-endian integer.  If the object does
+ * not exist, it is created with an initial value of 0 before incrementing.
  *
  * \param tableId
  *      The table containing the desired object (return value from
@@ -966,19 +1071,19 @@ GetTableIdRpc::wait()
  *      The object is not 8 bytes in length.
  */
 int64_t
-RamCloud::increment(uint64_t tableId, const void* key, uint16_t keyLength,
+RamCloud::incrementInt64(uint64_t tableId, const void* key, uint16_t keyLength,
         int64_t incrementValue, const RejectRules* rejectRules,
         uint64_t* version)
 {
-    IncrementRpc rpc(this, tableId, key, keyLength, incrementValue,
+    IncrementInt64Rpc rpc(this, tableId, key, keyLength, incrementValue,
             rejectRules);
     return rpc.wait(version);
 }
 
 /**
- * Constructor for IncrementRpc: initiates an RPC in the same way as
- * #RamCloud::increment, but returns once the RPC has been initiated, without
- * waiting for it to complete.
+ * Constructor for IncrementInt64Rpc: initiates an RPC in the same way as
+ * #RamCloud::incrementInt64, but returns once the RPC has been initiated,
+ * without waiting for it to complete.
  *
  * \param ramcloud
  *      The RAMCloud object that governs this RPC.
@@ -999,7 +1104,7 @@ RamCloud::increment(uint64_t tableId, const void* key, uint16_t keyLength,
  *      If non-NULL, specifies conditions under which the increment
  *      should be aborted with an error.
  */
-IncrementRpc::IncrementRpc(RamCloud* ramcloud, uint64_t tableId,
+IncrementInt64Rpc::IncrementInt64Rpc(RamCloud* ramcloud, uint64_t tableId,
         const void* key, uint16_t keyLength, int64_t incrementValue,
         const RejectRules* rejectRules)
     : ObjectRpcWrapper(ramcloud, tableId, key, keyLength,
@@ -1009,22 +1114,23 @@ IncrementRpc::IncrementRpc(RamCloud* ramcloud, uint64_t tableId,
             allocHeader<WireFormat::Increment>());
     reqHdr->tableId = tableId;
     reqHdr->keyLength = keyLength;
-    reqHdr->incrementValue = incrementValue;
+    reqHdr->incrementInt64 = incrementValue;
+    reqHdr->incrementDouble = 0.0;
     reqHdr->rejectRules = rejectRules ? *rejectRules : defaultRejectRules;
     request.appendExternal(key, keyLength);
     send();
 }
 
 /**
- * Wait for an increment RPC to complete, and return the same results as
- * #RamCloud::increment.
+ * Wait for an incrementInt64 RPC to complete, and return the same results as
+ * #RamCloud::incrementInt64.
  *
  * \param[out] version
  *      If non-NULL, the current version number of the object is
  *      returned here.
  */
 int64_t
-IncrementRpc::wait(uint64_t* version)
+IncrementInt64Rpc::wait(uint64_t* version)
 {
     waitInternal(ramcloud->clientContext->dispatch);
     const WireFormat::Increment::Response* respHdr(
@@ -1034,7 +1140,7 @@ IncrementRpc::wait(uint64_t* version)
 
     if (respHdr->common.status != STATUS_OK)
         ClientException::throwException(HERE, respHdr->common.status);
-    return respHdr->newValue;
+    return respHdr->newValue.asInt64;
 }
 
 /**
@@ -1560,6 +1666,26 @@ MigrateTabletRpc::MigrateTabletRpc(RamCloud* ramcloud, uint64_t tableId,
     reqHdr->lastKeyHash = lastKeyHash;
     reqHdr->newOwnerMasterId = newOwnerMasterId.getId();
     send();
+}
+
+/**
+ * Increment multiple objects. This method has two performance advantages over 
+ * calling RamCloud::increment separately for each object:
+ * - If multiple objects are stored on a single server, this method
+ *   issues a single RPC to increment all of them at once.
+ * - If different objects are stored on different servers, this method
+ *   issues multiple RPCs concurrently.
+ *
+ * \param requests
+ *      Each element in this array describes one object to increment.
+ * \param numRequests
+ *      Number of valid entries in \c requests.
+ */
+void
+RamCloud::multiIncrement(MultiIncrementObject* requests[], uint32_t numRequests)
+{
+    MultiIncrement request(this, requests, numRequests);
+    request.wait();
 }
 
 /**

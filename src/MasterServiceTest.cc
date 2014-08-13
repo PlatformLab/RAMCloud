@@ -17,6 +17,7 @@
 
 #include "BackupStorage.h"
 #include "Buffer.h"
+#include "Cycles.h"
 #include "EnumerationIterator.h"
 #include "LogIterator.h"
 #include "MasterClient.h"
@@ -133,6 +134,17 @@ class MasterServiceTest : public ::testing::Test {
                 new MasterServiceRefresher);
 
         service->tabletManager.addTablet(1, 0, ~0UL, TabletManager::NORMAL);
+    }
+
+    // Adds integer value 1 to the given table and key.  This function is used
+    // in the multi-threading test of increment.
+    void
+    threadfunIncrementOne(uint64_t tblid, std::string key) {
+        RamCloud myRamcloud(&context, "mock:host=coordinator");
+        myRamcloud.objectFinder.tableConfigFetcher.reset(
+                new MasterServiceRefresher);
+        uint16_t keyLen = uint16_t(key.length());
+        myRamcloud.incrementInt64(tblid, key.data(), keyLen, 1, NULL, NULL);
     }
 
     // Build a properly formatted segment containing a single object. This
@@ -599,48 +611,131 @@ TEST_F(MasterServiceTest, getServerStatistics) {
             "spin_lock_stats { locks { name:"));
 }
 
-TEST_F(MasterServiceTest, increment) {
+TEST_F(MasterServiceTest, increment_basic) {
     Buffer buffer;
-    uint64_t version;
-    int64_t oldValue = 16;
-    int32_t oldValue32 = 16;
-    int64_t newValue;
-    int64_t readResult;
+    uint64_t version = 0;
+    int64_t oldInt64 = 1;
+    int64_t newInt64;
+    double oldDouble = 1.0;
+    double newDouble;
 
-    ramcloud->write(1, "key0", 4, &oldValue, 8, NULL, &version);
-    newValue = ramcloud->increment(1, "key0", 4, 5, NULL, &version);
-    ramcloud->increment(1, "key0", 4, 0, NULL, NULL);
+    ramcloud->write(1, "key0", 4, &oldInt64, sizeof(oldInt64), NULL, NULL);
+    newInt64 = ramcloud->incrementInt64(1, "key0", 4, 2, NULL, &version);
     EXPECT_EQ(2U, version);
-    EXPECT_EQ(21, newValue);
+    EXPECT_EQ(3, newInt64);
 
     ramcloud->read(1, "key0", 4, &buffer);
-    buffer.copy(0, sizeof(int64_t), &readResult);
-    EXPECT_EQ(newValue, readResult);
+    buffer.copy(0, sizeof(newInt64), &newInt64);
+    EXPECT_EQ(3, newInt64);
 
-    ramcloud->write(1, "key1", 4, &oldValue, 8, NULL, &version);
-    newValue = ramcloud->increment(1, "key1", 4, -32, NULL, &version);
-    EXPECT_EQ(-16, newValue);
+    ramcloud->write(1, "key1", 4, &oldDouble, sizeof(oldDouble), NULL, NULL);
+    newDouble = ramcloud->incrementDouble(1, "key1", 4, 2.0, NULL, &version);
+    EXPECT_EQ(3U, version);
+    EXPECT_DOUBLE_EQ(3.0, newDouble);
 
+    buffer.reset();
     ramcloud->read(1, "key1", 4, &buffer);
-    buffer.copy(0, sizeof(int64_t), &readResult);
-    EXPECT_EQ(newValue, readResult);
+    buffer.copy(0, sizeof(newDouble), &newDouble);
+    EXPECT_EQ(3.0, newDouble);
+}
 
-    ramcloud->write(1, "key2", 4, &oldValue32, 4, NULL, &version);
-    EXPECT_THROW(ramcloud->increment(1, "key2", 4, 4, NULL, &version),
-            InvalidObjectException);
+TEST_F(MasterServiceTest, increment_create) {
+    uint64_t version = 0;
+    int64_t newInt64;
+    double newDouble;
+
+    newInt64 = ramcloud->incrementInt64(1, "key0", 4, 1, NULL, &version);
+    EXPECT_EQ(1U, version);
+    EXPECT_EQ(1, newInt64);
+
+    newDouble = ramcloud->incrementDouble(1, "key1", 4, 1.0, NULL, &version);
+    EXPECT_EQ(2U, version);
+    EXPECT_DOUBLE_EQ(1.0, newDouble);
+
+    newInt64 = ramcloud->incrementInt64(1, "key2", 4, 0, NULL, &version);
+    EXPECT_EQ(3U, version);
+    EXPECT_EQ(0, newInt64);
+
+    newDouble = ramcloud->incrementDouble(1, "key2", 4, 0.0, NULL, &version);
+    EXPECT_EQ(4U, version);
+    EXPECT_DOUBLE_EQ(0.0, newDouble);
 }
 
 TEST_F(MasterServiceTest, increment_rejectRules) {
-    Buffer buffer;
     RejectRules rules;
+    int64_t value = 0;
+    uint64_t version = 0;
+
+    memset(&rules, 0, sizeof(rules));
+    rules.doesntExist = true;
+    EXPECT_THROW(ramcloud->incrementInt64(1, "key0", 4, 1, &rules, NULL),
+                 ObjectDoesntExistException);
+
     memset(&rules, 0, sizeof(rules));
     rules.exists = true;
-    uint64_t version;
-    int64_t oldValue = 16;
+    ramcloud->write(1, "key1", 4, &value, sizeof(value), NULL, NULL);
+    EXPECT_THROW(ramcloud->incrementInt64(1, "key1", 4, 1, &rules, NULL),
+                 ObjectExistsException);
 
-    ramcloud->write(1, "key0", 4, &oldValue, 8, NULL, &version);
-    EXPECT_THROW(ramcloud->increment(1, "key0", 4, 5, &rules, &version),
-            ObjectExistsException);
+    ramcloud->write(1, "key2", 4, &value, sizeof(value), NULL, &version);
+    ramcloud->incrementInt64(1, "key2", 4, 1, NULL, NULL);
+    memset(&rules, 0, sizeof(rules));
+    rules.givenVersion = version;
+    rules.versionNeGiven = true;
+    EXPECT_THROW(ramcloud->incrementInt64(1, "key2", 4, 1, &rules, NULL),
+                 WrongVersionException);
+}
+
+TEST_F(MasterServiceTest, increment_invalidObject) {
+    int32_t intVal = 0;
+    float floatVal = 0;
+
+    ramcloud->write(1, "key0", 4, &intVal, sizeof(intVal), NULL, NULL);
+    EXPECT_THROW(ramcloud->incrementInt64(1, "key0", 4, 1, NULL, NULL),
+                 InvalidObjectException);
+
+    ramcloud->write(1, "key1", 4, &floatVal, sizeof(floatVal), NULL, NULL);
+    EXPECT_THROW(ramcloud->incrementDouble(1, "key1", 4, 1.0, NULL, NULL),
+                 InvalidObjectException);
+}
+
+TEST_F(MasterServiceTest, increment_parallel) {
+    // Tests concurrent modification of the incremntee on the master service.
+    // Concretely, the master service must verify that the object's version
+    // didn't change during the read-increment-write cycle.
+    // The condition is triggered by a first thread that sets
+    // pauseIncrementObject in the MasterService.  Meanwhile a second thread
+    // finishes an increment operation and clears the pause marker.
+    TestLog::Enable _("incrementObject");
+    std::thread threads[2];
+    MasterService::pauseIncrement = 1;
+    threads[0] =
+      std::thread(&MasterServiceTest::threadfunIncrementOne, this, 1, "key0");
+
+    // Wait for the first thread to reset the pause guard inside
+    // incrementObject.
+    uint64_t deadline = Cycles::rdtsc() + Cycles::fromSeconds(1.);
+    do {
+    } while ((MasterService::pauseIncrement == 1) &&
+             (Cycles::rdtsc() < deadline));
+    EXPECT_EQ(MasterService::pauseIncrement, 0);
+
+    // Increment the same object by another thread without waiting.
+    threads[1] =
+      std::thread(&MasterServiceTest::threadfunIncrementOne, this, 1, "key0");
+    threads[1].join();
+
+    // Let the first thread finish.
+    MasterService::continueIncrement = 1;
+    threads[0].join();
+
+    EXPECT_EQ("incrementObject: retry after version mismatch", TestLog::get());
+
+    int64_t value;
+    Buffer buffer;
+    ramcloud->read(1, "key0", 4, &buffer);
+    buffer.copy(0, sizeof(value), &value);
+    EXPECT_EQ(2, value);
 }
 
 TEST_F(MasterServiceTest, migrateTablet_tabletNotOnServer) {
@@ -730,6 +825,73 @@ TEST_F(MasterServiceTest, migrateTablet_movingData) {
             cluster.coordinator->tableManager.getTablet(tbl, 0).ctime;
     EXPECT_GT(ctimeCoord, master2HeadPositionBefore);
     EXPECT_LT(ctimeCoord, master2HeadPositionAfter);
+}
+
+TEST_F(MasterServiceTest, multiIncrement_basics) {
+    uint64_t tableId1 = ramcloud->createTable("table1");
+
+    MultiIncrementObject request1(tableId1, "0", 1, 1, 0.0);
+    MultiIncrementObject request2(tableId1, "1", 1, 0, 1.0);
+    MultiIncrementObject* requests[] = {&request1, &request2};
+
+    ramcloud->multiIncrement(requests, 2);
+    EXPECT_STREQ("STATUS_OK", statusToSymbol(request1.status));
+    EXPECT_EQ(1U, request1.version);
+    EXPECT_EQ(1, request1.newValue.asInt64);
+    EXPECT_STREQ("STATUS_OK", statusToSymbol(request2.status));
+    EXPECT_EQ(2U, request2.version);
+    EXPECT_DOUBLE_EQ(1.0, request2.newValue.asDouble);
+}
+
+TEST_F(MasterServiceTest, multiIncrement_rejectRules) {
+    RejectRules rules;
+    memset(&rules, 0, sizeof(rules));
+    rules.doesntExist = true;
+    MultiIncrementObject request(1, "key0", 4, 1, 0.0, &rules);
+    MultiIncrementObject* requests[] = {&request};
+    ramcloud->multiIncrement(requests, 1);
+    EXPECT_EQ(STATUS_OBJECT_DOESNT_EXIST, request.status);
+    EXPECT_EQ(VERSION_NONEXISTENT, request.version);
+}
+
+TEST_F(MasterServiceTest, multiIncrement_malformedRequests) {
+    // Fabricate a valid-looking RPC, but truncate the increment payload and
+    // the key in the buffer.
+    WireFormat::MultiOp::Request reqHdr;
+    WireFormat::MultiOp::Response respHdr;
+    WireFormat::MultiOp::Request::IncrementPart part(
+        1, 4, 0, 0.0, RejectRules());  // 4 sets the key length
+
+    reqHdr.common.opcode = downCast<uint16_t>(WireFormat::MULTI_OP);
+    reqHdr.common.service = downCast<uint16_t>(WireFormat::MASTER_SERVICE);
+    reqHdr.count = 1;
+    reqHdr.type = WireFormat::MultiOp::OpType::INCREMENT;
+
+    Buffer requestPayload;
+    Buffer replyPayload;
+    requestPayload.appendExternal(&reqHdr, sizeof(reqHdr));
+    replyPayload.appendExternal(&respHdr, sizeof(respHdr));
+
+    Service::Rpc rpc(NULL, &requestPayload, &replyPayload);
+
+    // Part field is bogus.
+    requestPayload.appendExternal(&part, sizeof(part) - 1);
+    respHdr.common.status = STATUS_OK;
+    service->multiIncrement(&reqHdr, &respHdr, &rpc);
+    EXPECT_EQ(STATUS_REQUEST_FORMAT_ERROR, respHdr.common.status);
+
+    // Key is missing.
+    requestPayload.truncate(requestPayload.size() - (sizeof32(part) - 1));
+    requestPayload.appendExternal(&part, sizeof(part));
+    respHdr.common.status = STATUS_OK;
+    service->multiIncrement(&reqHdr, &respHdr, &rpc);
+    EXPECT_EQ(STATUS_REQUEST_FORMAT_ERROR, respHdr.common.status);
+
+    // Cross-validation: should work with complete 4 byte key.
+    requestPayload.appendCopy("key0", 4);
+    respHdr.common.status = STATUS_OK;
+    service->multiIncrement(&reqHdr, &respHdr, &rpc);
+    EXPECT_EQ(STATUS_OK, respHdr.common.status);
 }
 
 TEST_F(MasterServiceTest, multiRead_basics) {
@@ -875,6 +1037,46 @@ TEST_F(MasterServiceTest, multiRemove_unknownTable) {
     if (part != NULL) {
         EXPECT_EQ(STATUS_UNKNOWN_TABLET, part->status);
     }
+}
+
+TEST_F(MasterServiceTest, multiRemove_malformedRequests) {
+    // Fabricate a valid-looking RPC, but truncate the increment payload and
+    // the key in the buffer.
+    WireFormat::MultiOp::Request reqHdr;
+    WireFormat::MultiOp::Response respHdr;
+    WireFormat::MultiOp::Request::RemovePart part(1, 4, RejectRules());
+    // 4 sets the key length
+
+    reqHdr.common.opcode = downCast<uint16_t>(WireFormat::MULTI_OP);
+    reqHdr.common.service = downCast<uint16_t>(WireFormat::MASTER_SERVICE);
+    reqHdr.count = 1;
+    reqHdr.type = WireFormat::MultiOp::OpType::REMOVE;
+
+    Buffer requestPayload;
+    Buffer replyPayload;
+    requestPayload.appendExternal(&reqHdr, sizeof(reqHdr));
+    replyPayload.appendExternal(&respHdr, sizeof(respHdr));
+
+    Service::Rpc rpc(NULL, &requestPayload, &replyPayload);
+
+    // Part field is bogus.
+    requestPayload.appendExternal(&part, sizeof(part) - 1);
+    respHdr.common.status = STATUS_OK;
+    service->multiRemove(&reqHdr, &respHdr, &rpc);
+    EXPECT_EQ(STATUS_REQUEST_FORMAT_ERROR, respHdr.common.status);
+
+    // Key is missing.
+    requestPayload.truncate(requestPayload.size() - (sizeof32(part) - 1));
+    requestPayload.appendExternal(&part, sizeof(part));
+    respHdr.common.status = STATUS_OK;
+    service->multiRemove(&reqHdr, &respHdr, &rpc);
+    EXPECT_EQ(STATUS_REQUEST_FORMAT_ERROR, respHdr.common.status);
+
+    // Cross-validation: should work with complete 4 byte key.
+    requestPayload.appendCopy("key0", 4);
+    respHdr.common.status = STATUS_OK;
+    service->multiRemove(&reqHdr, &respHdr, &rpc);
+    EXPECT_EQ(STATUS_OK, respHdr.common.status);
 }
 
 TEST_F(MasterServiceTest, multiWrite_basics) {

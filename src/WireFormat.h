@@ -776,14 +776,23 @@ struct Increment {
         uint16_t keyLength;           // Length of the key in bytes.
                                       // The actual bytes of the key follow
                                       // immediately after this header.
-        int64_t incrementValue;       // Value that the object will be
-                                      // incremented by.
+        // If non-zero, the object's value is interpreted as int64_t and
+        // incremented by the given value.
+        int64_t incrementInt64;
+        // If != 0.0, the objects's value is interpreted as double and
+        // incremented by the given value.
+        double incrementDouble;
         RejectRules rejectRules;
     } __attribute__((packed));
     struct Response {
         ResponseCommon common;
         uint64_t version;
-        int64_t newValue;                // The new value of the object.
+        union {
+            // The new value of the object interpreted as integer.
+            int64_t asInt64;
+            // The new value of the object interpreted as floating point.
+            double asDouble;
+        } newValue;
     } __attribute__((packed));
 };
 
@@ -929,12 +938,39 @@ struct MultiOp {
 
     /// Type of Multi Operation
     /// Note: Make sure INVALID is always last.
-    enum OpType { READ, REMOVE, WRITE, INVALID };
+    enum OpType { INCREMENT, READ, REMOVE, WRITE, INVALID };
 
     struct Request {
         RequestCommon common;
         uint32_t count; // Number of Part structures following this.
         OpType type;
+
+        struct IncrementPart {
+            uint64_t tableId;          // Table that contains the object to be
+                                       // incremented.
+            uint16_t keyLength;        // Length of object's key in bytes.
+            int64_t incrementInt64;    // Integer summand (object is
+                                       // interpreted as signed, 8 byte, twos
+                                       // complement integer).
+            double incrementDouble;    // Floating point summand (object is
+                                       // interpreted as IEEE-754 double
+                                       // precision floating point value).
+            RejectRules rejectRules;   // Conditions that must be fulfilled in
+                                       // order for the increment to succeed.
+
+            // In buffer: Key, increment integer and increment floating point
+            // follow immediately after this.
+            IncrementPart(uint64_t tableId, uint16_t keyLength,
+                          int64_t incrementInt64, double incrementDouble,
+                          RejectRules rejectRules)
+                : tableId(tableId)
+                , keyLength(keyLength)
+                , incrementInt64(incrementInt64)
+                , incrementDouble(incrementDouble)
+                , rejectRules(rejectRules)
+            {
+            }
+        } __attribute__((packed));
 
         struct ReadPart {
             uint64_t tableId;
@@ -982,6 +1018,22 @@ struct MultiOp {
         // Included here to fulfill requirements in common code.
         ResponseCommon common;
         uint32_t count; // Number of Part structures following this.
+
+        struct IncrementPart {
+            // Each Response::Part contains the Status for the newly written
+            // incremented object, the version, and the new value.
+
+            Status status;
+
+            /// Version of the object.
+            uint64_t version;
+
+            /// Value of the object after increasing
+            union {
+                int64_t asInt64;
+                double asDouble;
+            } newValue;
+        } __attribute__((packed));
 
         struct ReadPart {
             // In buffer: Status/Part and object data go here. Object data are

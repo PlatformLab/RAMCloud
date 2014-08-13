@@ -106,6 +106,18 @@ class MasterService : public Service {
      */
     IndexletManager indexletManager;
 
+#ifdef TESTING
+    /// Used to pause the read-increment-write cycle in incrementObject
+    /// between the read and the write.  While paused, a second thread can
+    /// run a full read-increment-write cycle forcing the first thread to
+    /// fail on the conditional write and to retry the cycle.
+    static volatile int pauseIncrement;
+
+    /// Used by to indicate to a paused thread that it may finish the
+    /// increment operation.
+    static volatile int continueIncrement;
+#endif
+
   PRIVATE:
     void dropTabletOwnership(
                 const WireFormat::DropTabletOwnership::Request* reqHdr,
@@ -134,6 +146,12 @@ class MasterService : public Service {
     void increment(const WireFormat::Increment::Request* reqHdr,
                 WireFormat::Increment::Response* respHdr,
                 Rpc* rpc);
+    void incrementObject(Key *key,
+                RejectRules rejectRules,
+                int64_t *asInt64,
+                double *asDouble,
+                uint64_t *newVersion,
+                Status *status);
     void indexedRead(
                 const WireFormat::IndexedRead::Request* reqHdr,
                 WireFormat::IndexedRead::Response* respHdr,
@@ -152,6 +170,9 @@ class MasterService : public Service {
                 WireFormat::MigrateTablet::Response* respHdr,
                 Rpc* rpc);
     void multiOp(const WireFormat::MultiOp::Request* reqHdr,
+                WireFormat::MultiOp::Response* respHdr,
+                Rpc* rpc);
+    void multiIncrement(const WireFormat::MultiOp::Request* reqHdr,
                 WireFormat::MultiOp::Response* respHdr,
                 Rpc* rpc);
     void multiRead(const WireFormat::MultiOp::Request* reqHdr,

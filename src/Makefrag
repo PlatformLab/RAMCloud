@@ -88,6 +88,7 @@ SHARED_SRCFILES := \
 		   src/Memory.cc \
 		   src/MinCopysetsBackupSelector.cc \
 		   src/MultiOp.cc \
+		   src/MultiIncrement.cc \
 		   src/MultiRead.cc \
 		   src/MultiRemove.cc \
 		   src/MultiWrite.cc \

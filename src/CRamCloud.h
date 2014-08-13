@@ -36,7 +36,8 @@ struct rc_client;
 #endif
 
 typedef enum MultiOp {
-  MULTI_OP_READ = 0,
+  MULTI_OP_INCREMENT = 0,
+  MULTI_OP_READ,
   MULTI_OP_WRITE,
   MULTI_OP_REMOVE
 } MultiOp;
@@ -57,6 +58,16 @@ Status    rc_getStatus(struct rc_client* client);
 Status    rc_getTableId(struct rc_client* client, const char* name,
                             uint64_t* tableId);
 
+Status    rc_incrementInt64(struct rc_client* client, uint64_t tableId,
+                                  const void* key, uint16_t keyLength,
+                                  int64_t incrementValue,
+                                  const struct RejectRules* rejectRules,
+                                  uint64_t* version, int64_t *newValue);
+Status    rc_incrementDouble(struct rc_client* client, uint64_t tableId,
+                                 const void* key, uint16_t keyLength,
+                                 double incrementValue,
+                                 const struct RejectRules* rejectRules,
+                                 uint64_t* version, double *newValue);
 Status    rc_read(struct rc_client* client, uint64_t tableId,
                             const void* key, uint16_t keyLength,
                             const struct RejectRules* rejectRules,
@@ -72,6 +83,12 @@ Status    rc_write(struct rc_client* client, uint64_t tableId,
                              const struct RejectRules* rejectRules,
                              uint64_t* version);
 
+void      rc_multiIncrementCreate(uint64_t tableId,
+                                  const void *key, uint16_t keyLength,
+                                  int64_t incrementInt64,
+                                  double incrementDouble,
+                                  const struct RejectRules* rejectRules,
+                                  void *where);
 void      rc_multiReadCreate(uint64_t tableId,
                                   const void *key, uint16_t keyLength,
                                   void* buf, uint32_t maxLength,
@@ -92,6 +109,8 @@ Status    rc_multiOpStatus(const void *multiOpObject, MultiOp type);
 uint64_t  rc_multiOpVersion(const void *multiOpObject, MultiOp type);
 void      rc_multiOpDestroy(void *multiOpObject, MultiOp type);
 
+void      rc_multiIncrement(struct rc_client* client,
+                                void **requests, uint32_t numRequests);
 void      rc_multiRead(struct rc_client* client,
                              void **requests, uint32_t numRequests);
 void      rc_multiWrite(struct rc_client* client,

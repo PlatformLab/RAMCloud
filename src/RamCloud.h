@@ -30,6 +30,7 @@
 #include "ServerStatistics.pb.h"
 
 namespace RAMCloud {
+class MultiIncrementObject;
 class MultiReadObject;
 class MultiRemoveObject;
 class MultiWriteObject;
@@ -81,7 +82,12 @@ class RamCloud {
             ProtoBuf::ServerStatistics& serverStats);
     string* getServiceLocator();
     uint64_t getTableId(const char* name);
-    int64_t increment(uint64_t tableId, const void* key, uint16_t keyLength,
+    double incrementDouble(uint64_t tableId,
+            const void* key, uint16_t keyLength,
+            double incrementValue, const RejectRules* rejectRules = NULL,
+            uint64_t* version = NULL);
+    int64_t incrementInt64(uint64_t tableId,
+            const void* key, uint16_t keyLength,
             int64_t incrementValue, const RejectRules* rejectRules = NULL,
             uint64_t* version = NULL);
     uint32_t indexedRead(uint64_t tableId, uint32_t numHashes,
@@ -103,6 +109,7 @@ class RamCloud {
             uint64_t* nextKeyHash);
     void migrateTablet(uint64_t tableId, uint64_t firstKeyHash,
             uint64_t lastKeyHash, ServerId newOwnerMasterId);
+    void multiIncrement(MultiIncrementObject* requests[], uint32_t numRequests);
     void multiRead(MultiReadObject* requests[], uint32_t numRequests);
     void multiRemove(MultiRemoveObject* requests[], uint32_t numRequests);
     void multiWrite(MultiWriteObject* requests[], uint32_t numRequests);
@@ -382,19 +389,35 @@ class GetTableIdRpc : public CoordinatorRpcWrapper {
 };
 
 /**
- * Encapsulates the state of a RamCloud::increment operation,
+ * Encapsulates the state of a RamCloud::incrementDouble operation,
  * allowing it to execute asynchronously.
  */
-class IncrementRpc : public ObjectRpcWrapper {
+class IncrementDoubleRpc : public ObjectRpcWrapper {
   public:
-    IncrementRpc(RamCloud* ramcloud, uint64_t tableId, const void* key,
+    IncrementDoubleRpc(RamCloud* ramcloud, uint64_t tableId, const void* key,
+            uint16_t keyLength, double incrementValue,
+            const RejectRules* rejectRules = NULL);
+    ~IncrementDoubleRpc() {}
+    double wait(uint64_t* version = NULL);
+
+  PRIVATE:
+    DISALLOW_COPY_AND_ASSIGN(IncrementDoubleRpc);
+};
+
+/**
+ * Encapsulates the state of a RamCloud::incrementInt64 operation,
+ * allowing it to execute asynchronously.
+ */
+class IncrementInt64Rpc : public ObjectRpcWrapper {
+  public:
+    IncrementInt64Rpc(RamCloud* ramcloud, uint64_t tableId, const void* key,
             uint16_t keyLength, int64_t incrementValue,
             const RejectRules* rejectRules = NULL);
-    ~IncrementRpc() {}
+    ~IncrementInt64Rpc() {}
     int64_t wait(uint64_t* version = NULL);
 
   PRIVATE:
-    DISALLOW_COPY_AND_ASSIGN(IncrementRpc);
+    DISALLOW_COPY_AND_ASSIGN(IncrementInt64Rpc);
 };
 
 /**
@@ -552,6 +575,78 @@ struct MultiOpObject {
     }
 
     virtual ~MultiOpObject() {};
+};
+
+/**
+ * Objects of this class are used to pass parameters into \c multiIncrement
+ * and for multiIncrement to return the new value and the status values 
+ * for conditional operations (if used).
+ */
+struct MultiIncrementObject : public MultiOpObject {
+    /**
+     * Summand to add to the existing object, which is either interpreted as
+     * an integer or as a floating point value depending on which summand is
+     * non-zero.
+     */
+    int64_t incrementInt64;
+    double incrementDouble;
+
+    /**
+     * The RejectRules specify when conditional increments should be aborted.
+     */
+    const RejectRules* rejectRules;
+
+    /**
+     * The version number of the newly written object is returned here.
+     */
+    uint64_t version;
+
+    /**
+     * Value of the object after increasing
+     */
+    union {
+        int64_t asInt64;
+        double asDouble;
+    } newValue;
+
+    MultiIncrementObject(uint64_t tableId, const void* key, uint16_t keyLength,
+                 int64_t incrementInt64, double incrementDouble,
+                 const RejectRules* rejectRules = NULL)
+        : MultiOpObject(tableId, key, keyLength)
+        , incrementInt64(incrementInt64)
+        , incrementDouble(incrementDouble)
+        , rejectRules(rejectRules)
+        , version()
+        , newValue()
+    {}
+
+    MultiIncrementObject()
+        : MultiOpObject()
+        , incrementInt64()
+        , incrementDouble()
+        , rejectRules()
+        , version()
+        , newValue()
+    {}
+
+    MultiIncrementObject(const MultiIncrementObject& other)
+        : MultiOpObject(other)
+        , incrementInt64(other.incrementInt64)
+        , incrementDouble(other.incrementDouble)
+        , rejectRules(other.rejectRules)
+        , version(other.version)
+        , newValue(other.newValue)
+    {}
+
+    MultiIncrementObject& operator=(const MultiIncrementObject& other) {
+        MultiOpObject::operator =(other);
+        incrementInt64 = other.incrementInt64;
+        incrementDouble = other.incrementDouble;
+        rejectRules = other.rejectRules;
+        version = other.version;
+        newValue = other.newValue;
+        return *this;
+    }
 };
 
 /**

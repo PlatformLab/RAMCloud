@@ -51,6 +51,7 @@ CLIENT_SRCFILES := \
 		   src/MasterClient.cc \
 		   src/Memory.cc \
 		   src/MultiOp.cc \
+		   src/MultiIncrement.cc \
 		   src/MultiRead.cc \
 		   src/MultiRemove.cc \
 		   src/MultiWrite.cc \

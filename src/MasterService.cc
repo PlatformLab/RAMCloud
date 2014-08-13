@@ -256,6 +256,14 @@ MasterService::Disabler::reenable()
     }
 }
 
+#ifdef TESTING
+/// By default requests do _not_ block in incrementObject.
+volatile int MasterService::pauseIncrement = 0;
+/// A requests that waits in incrementObject needs to be explicitly released by
+/// setting this variable to a value != 0.
+volatile int MasterService::continueIncrement = 0;
+#endif
+
 /**
  * Top-level server method to handle the DROP_TABLET_OWNERSHIP request.
  *
@@ -513,41 +521,19 @@ MasterService::increment(const WireFormat::Increment::Request* reqHdr,
     // Read the current value of the object and add the increment value
     Key key(reqHdr->tableId, *rpc->requestPayload, sizeof32(*reqHdr),
             reqHdr->keyLength);
-
     Status *status = &respHdr->common.status;
 
-    ObjectBuffer value;
-    RejectRules rejectRules = reqHdr->rejectRules;
-    *status = objectManager.readObject(key, &value, &rejectRules, NULL);
-    if (*status != STATUS_OK)
-        return;
-
-    uint32_t dataLen;
-    const int64_t oldValue = *value.get<int64_t>(&dataLen);
-
-    if (dataLen != sizeof(int64_t)) {
-        *status = STATUS_INVALID_OBJECT;
-        return;
-    }
-
-    int64_t newValue = oldValue + reqHdr->incrementValue;
-
-    // Write the new value back
-    Buffer newValueBuffer;
-
-    // create object to populate newValueBuffer.
-    Object::appendKeysAndValueToBuffer(key, &newValue, sizeof(int64_t),
-            &newValueBuffer);
-
-    Object newObject(reqHdr->tableId, 0, 0, newValueBuffer);
-    *status = objectManager.writeObject(newObject, &rejectRules,
-            &respHdr->version);
+    int64_t asInt64 = reqHdr->incrementInt64;
+    double asDouble = reqHdr->incrementDouble;
+    incrementObject(&key, reqHdr->rejectRules, &asInt64, &asDouble,
+                    &respHdr->version, status);
     if (*status != STATUS_OK)
         return;
     objectManager.syncChanges();
 
     // Return new value
-    respHdr->newValue = newValue;
+    respHdr->newValue.asInt64 = asInt64;
+    respHdr->newValue.asDouble = asDouble;
 }
 
 /**
@@ -825,6 +811,9 @@ MasterService::multiOp(const WireFormat::MultiOp::Request* reqHdr,
         Rpc* rpc)
 {
     switch (reqHdr->type) {
+        case WireFormat::MultiOp::OpType::INCREMENT:
+            multiIncrement(reqHdr, respHdr, rpc);
+            break;
         case WireFormat::MultiOp::OpType::READ:
             multiRead(reqHdr, respHdr, rpc);
             break;
@@ -841,6 +830,81 @@ MasterService::multiOp(const WireFormat::MultiOp::Request* reqHdr,
                     STATUS_UNIMPLEMENTED_REQUEST);
             break;
     }
+}
+
+/**
+ * Top-level server method to handle the MULTI_INCREMENT request.
+ *
+ * \param reqHdr
+ *      Header from the incoming RPC request; contains the parameters
+ *      for this operation except the tableId, key, keyLength for each
+ *      of the objects to be read.
+ * \param[out] respHdr
+ *      Header for the response that will be returned to the client.
+ *      The caller has pre-allocated the right amount of space in the
+ *      response buffer for this type of request, and has zeroed out
+ *      its contents (so, for example, status is already zero).
+ * \param[out] rpc
+ *      Complete information about the remote procedure call.
+ *      It contains the tableId, key and keyLength for each of the
+ *      objects to be read. It can also be used to read additional
+ *      information beyond the request header and/or append additional
+ *      information to the response buffer.
+ */
+void
+MasterService::multiIncrement(const WireFormat::MultiOp::Request* reqHdr,
+                         WireFormat::MultiOp::Response* respHdr,
+                         Rpc* rpc)
+{
+    uint32_t numRequests = reqHdr->count;
+    uint32_t reqOffset = sizeof32(*reqHdr);
+
+    respHdr->count = numRequests;
+
+    // Each iteration extracts one request from request rpc, increments the
+    // corresponding object, and appends the response to the response rpc.
+    for (uint32_t i = 0; i < numRequests; i++) {
+        const WireFormat::MultiOp::Request::IncrementPart *currentReq =
+            rpc->requestPayload->getOffset<
+                WireFormat::MultiOp::Request::IncrementPart>(reqOffset);
+
+        if (currentReq == NULL) {
+            respHdr->common.status = STATUS_REQUEST_FORMAT_ERROR;
+            break;
+        }
+
+        reqOffset += sizeof32(WireFormat::MultiOp::Request::IncrementPart);
+        const void* stringKey = rpc->requestPayload->getRange(
+            reqOffset, currentReq->keyLength);
+        reqOffset += currentReq->keyLength;
+
+        if (stringKey == NULL) {
+            respHdr->common.status = STATUS_REQUEST_FORMAT_ERROR;
+            break;
+        }
+
+        Key key(currentReq->tableId, stringKey, currentReq->keyLength);
+        int64_t asInt64 = currentReq->incrementInt64;
+        double asDouble = currentReq->incrementDouble;
+
+        WireFormat::MultiOp::Response::IncrementPart* currentResp =
+           rpc->replyPayload->emplaceAppend<
+               WireFormat::MultiOp::Response::IncrementPart>();
+
+        incrementObject(&key, currentReq->rejectRules,
+            &asInt64, &asDouble,
+            &currentResp->version, &currentResp->status);
+        currentResp->newValue.asInt64 = asInt64;
+        currentResp->newValue.asDouble = asDouble;
+    }
+
+    // All of the individual increments were done asynchronously. We must sync
+    // them to backups before returning to the caller.
+    objectManager.syncChanges();
+
+    // Respond to the client RPC now. Removing old index entries can be
+    // done asynchronously while maintaining strong consistency.
+    rpc->sendReply();
 }
 
 /**
@@ -953,7 +1017,7 @@ MasterService::multiRemove(const WireFormat::MultiOp::Request* reqHdr,
     // Each iteration extracts one request from request rpc, deletes the
     // corresponding object if possible, and appends the response to the
     // response rpc.
-    for (uint32_t i = 0; ; i++) {
+    for (uint32_t i = 0; i < numRequests; i++) {
         const WireFormat::MultiOp::Request::RemovePart *currentReq =
                 rpc->requestPayload->getOffset<
                 WireFormat::MultiOp::Request::RemovePart>(reqOffset);
@@ -1326,10 +1390,10 @@ MasterService::remove(const WireFormat::Remove::Request* reqHdr,
 
 /**
  * RPC handler for REMOVE_INDEX_ENTRY;
- * 
+ *
  * This RPC is initiated by a data master to remove an index entry
  * corresponding to the data it was removing.
- * 
+ *
  * \copydetails Service::ping
  */
 void
@@ -1524,6 +1588,122 @@ MasterService::write(const WireFormat::Write::Request* reqHdr,
     if (oldObjectBuffer.size() > 0) {
         requestRemoveIndexEntries(oldObjectBuffer);
     }
+}
+
+/**
+ * Helper function used by increment and multiIncrement to perform the atomic
+ * read, increment, write cycle.  Does _not_ sync changes in order to allow
+ * for batched synchronization.
+ * \param key
+ *      The key of the object.  If the object does not exist, it is created as
+ *      zero before incrementing.
+ * \param rejectRules
+ *      Conditions under which reading (thus incrementing) fails
+ * \param asInt64
+ *      If non-zero, interpret the object as signed, twos-complement, 8 byte
+ *      integer and increase by the given value (which might be negative).
+ *      On success, asInt64 contains the new value of the object.
+ * \param asDouble
+ *      If non-zero, interpret the object as IEEE754 double precision floating
+ *      point value and increase by the given value (which might be negative).
+ *      On success, asDouble contains the new value of the object.
+ * \param newVersion
+ *      The new version of the incremented object on success.
+ * \param status
+ *      returns STATUS_OK or a failure code if not successful.
+ */
+void
+MasterService::incrementObject(Key *key,
+            RejectRules rejectRules,
+            int64_t *asInt64,
+            double *asDouble,
+            uint64_t *newVersion,
+            Status *status)
+{
+    // Read the object and add integer or floating point values in case
+    // the summands are non-zero.  It is possible to do both an integer
+    // addition and a floating point addition.
+    union {
+        // We rely on the fact that both int64_t and double are exactly
+        // 8 byte wide.
+        int64_t asInt64;
+        double asDouble;
+    } oldValue, newValue;
+    const bool mustExist = rejectRules.doesntExist;
+
+    // Atomic read-increment-write cycle.
+    RejectRules updateRejectRules;
+    memset(&updateRejectRules, 0, sizeof(updateRejectRules));
+    while (1) {
+        ObjectBuffer value;
+        uint64_t version = 0;
+        *status =
+            objectManager.readObject(*key, &value, &rejectRules, &version);
+        if (*status == STATUS_OBJECT_DOESNT_EXIST && !mustExist) {
+            // If the object doesn't exist, create it either as int64_t(0) or
+            // as double(0.0).  Both binary representations of zero are
+            // identical.
+            oldValue.asInt64 = 0;
+            *status = STATUS_OK;
+        } else {
+            if (*status != STATUS_OK)
+                return;
+            uint32_t dataLen;
+            oldValue.asInt64 = *value.get<int64_t>(&dataLen);
+
+            if (dataLen != sizeof(oldValue)) {
+                *status = STATUS_INVALID_OBJECT;
+                return;
+            }
+        }
+
+#ifdef TESTING
+        /// Wait for a second client request that completes an increment RPC and
+        /// resets the pauseIncrementObject marker.  Do _not_ wait indefinitely
+        /// for the second client.
+        if (pauseIncrement) {
+            /// Indicate to a second client that we are waiting.  Also make sure
+            /// that the second client runs through without waiting.
+            pauseIncrement = 0;
+            uint64_t deadline = Cycles::rdtsc() + Cycles::fromSeconds(1.);
+            do {
+            } while (!continueIncrement && (Cycles::rdtsc() < deadline));
+            /// Reset the sentinal variable for the next test run.
+            continueIncrement = 0;
+        }
+#endif
+
+        newValue = oldValue;
+        if (*asInt64 != 0) {
+            newValue.asInt64 += *asInt64;
+        }
+        if (*asDouble != 0.0) {
+            newValue.asDouble += *asDouble;
+        }
+
+        // create object to populate newValueBuffer.
+        Buffer newValueBuffer;
+        Object::appendKeysAndValueToBuffer(*key, &newValue, sizeof(newValue),
+                                           &newValueBuffer);
+
+        Object newObject(key->getTableId(), 0, 0, newValueBuffer);
+        updateRejectRules.givenVersion = version;
+        updateRejectRules.versionNeGiven = true;
+        *status = objectManager.writeObject(newObject, &updateRejectRules,
+                                            newVersion);
+        if (*status == STATUS_WRONG_VERSION) {
+            TEST_LOG("retry after version mismatch");
+        } else {
+            break;
+        }
+    }
+
+    if (*status != STATUS_OK)
+        return;
+
+    // Return new value
+    *asInt64 = newValue.asInt64;
+    *asDouble = newValue.asDouble;
 }
 
 /**
