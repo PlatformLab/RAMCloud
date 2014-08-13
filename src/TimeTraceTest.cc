@@ -54,6 +54,16 @@ TEST_F(TimeTraceTest, record_basics) {
             trace.getTrace());
 }
 
+TEST_F(TimeTraceTest, record_readerActive) {
+    trace.readerActive = true;
+    trace.record("point a", 100);
+    trace.record("point b", 200);
+    trace.readerActive = false;
+    trace.record("point c", 350);
+    EXPECT_EQ("     0.0 ns (+   0.0 ns): point c",
+            trace.getTrace());
+}
+
 TEST_F(TimeTraceTest, record_wrapAround) {
     trace.nextIndex = TimeTrace::BUFFER_SIZE - 2;
     trace.record("near the end", 100);

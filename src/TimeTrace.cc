@@ -23,6 +23,7 @@ namespace RAMCloud {
 TimeTrace::TimeTrace()
     : events()
     , nextIndex(0)
+    , readerActive(false)
 {
     // Mark all of the events invalid.
     for (int i = 0; i < BUFFER_SIZE; i++) {
@@ -52,6 +53,9 @@ TimeTrace::~TimeTrace()
  */
 void TimeTrace::record(const char* message, uint64_t timestamp)
 {
+    if (readerActive) {
+        return;
+    }
     int i = nextIndex;
     nextIndex = (i + 1)%BUFFER_SIZE;
     events[i].timestamp = timestamp;
@@ -86,6 +90,8 @@ void TimeTrace::printToLog()
  */
 void TimeTrace::printInternal(string* s)
 {
+    readerActive = true;
+
     // Find the oldest event that we still have (either events[nextIndex],
     // or events[0] if we never completely filled the buffer).
     int i = nextIndex;
@@ -97,6 +103,7 @@ void TimeTrace::printInternal(string* s)
             } else {
                 RAMCLOUD_LOG(NOTICE, "No time trace events to print");
             }
+            readerActive = false;
             return;
         }
     }
@@ -124,6 +131,7 @@ void TimeTrace::printInternal(string* s)
         i = (i+1)%BUFFER_SIZE;
         prevTime = ns;
     } while ((i != nextIndex) && (events[i].message != NULL));
+    readerActive = false;
 }
 
 } // namespace RAMCloud

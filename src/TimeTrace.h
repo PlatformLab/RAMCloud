@@ -64,6 +64,11 @@ class TimeTrace {
     // Index within events of the slot to use for the next call to the
     // record method.
     volatile int nextIndex;
+
+    // True means that printInternal is currently running, so it is not
+    // safe to add more records, since that could result in inconsistent
+    // output from printInternal.
+    volatile bool readerActive;
 };
 
 } // namespace RAMCloud
