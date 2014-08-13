@@ -1005,6 +1005,7 @@ InfRcTransport::sendZeroCopy(Buffer* message, QueuePair* qp)
     CycleCounter<RawMetric> _(&metrics->transport.transmit.ticks);
     ibv_send_wr* badTxWorkRequest;
     if (expect_true(!testingDontReallySend)) {
+
         if (ibv_post_send(qp->qp, &txWorkRequest, &badTxWorkRequest)) {
             throw TransportException(HERE, "ibv_post_send failed");
         }
@@ -1207,21 +1208,26 @@ void
 InfRcTransport::Poller::poll()
 {
     InfRcTransport* t = transport;
-    ibv_wc wc;
+    static const int MAX_COMPLETIONS = 10;
+    ibv_wc wc[MAX_COMPLETIONS];
 
     // First check for responses to requests that we have made.
     if (!t->outstandingRpcs.empty()) {
-        while (t->infiniband->pollCompletionQueue(t->clientRxCq, 1, &wc) > 0) {
+        int numResponses = t->infiniband->pollCompletionQueue(t->clientRxCq,
+                MAX_COMPLETIONS, wc);
+        for (int i = 0; i < numResponses; i++) {
+            ibv_wc* response = &wc[i];
             CycleCounter<RawMetric> receiveTicks;
             BufferDescriptor *bd =
-                        reinterpret_cast<BufferDescriptor *>(wc.wr_id);
-            if (wc.byte_len < 1000)
-                prefetch(bd->buffer, wc.byte_len);
-            if (wc.status != IBV_WC_SUCCESS) {
+                        reinterpret_cast<BufferDescriptor *>(response->wr_id);
+            if (response->byte_len < 1000)
+                prefetch(bd->buffer, response->byte_len);
+            if (response->status != IBV_WC_SUCCESS) {
                 LOG(ERROR, "wc.status(%d:%s) != IBV_WC_SUCCESS",
-                    wc.status, t->infiniband->wcStatusToString(wc.status));
+                    response->status,
+                    t->infiniband->wcStatusToString(response->status));
                 t->postSrqReceiveAndKickTransmit(t->clientSrq, bd);
-                throw TransportException(HERE, wc.status);
+                throw TransportException(HERE, response->status);
             }
 
             Header& header(*reinterpret_cast<Header*>(bd->buffer));
@@ -1230,7 +1236,7 @@ InfRcTransport::Poller::poll()
                     continue;
                 t->outstandingRpcs.erase(t->outstandingRpcs.iterator_to(rpc));
                 rpc.session->sessionAlarm.rpcFinished();
-                uint32_t len = wc.byte_len - sizeof32(header);
+                uint32_t len = response->byte_len - sizeof32(header);
                 if (t->numUsedClientSrqBuffers >=
                         MAX_SHARED_RX_QUEUE_DEPTH / 2) {
                     // clientSrq is low on buffers, better return this one
@@ -1279,26 +1285,30 @@ InfRcTransport::Poller::poll()
     // Next, check for incoming RPC requests (assuming that we are a server).
     if (t->serverSetupSocket >= 0) {
         CycleCounter<RawMetric> receiveTicks;
-        if (t->infiniband->pollCompletionQueue(t->serverRxCq, 1, &wc) >= 1) {
+        int numRequests = t->infiniband->pollCompletionQueue(t->serverRxCq,
+                MAX_COMPLETIONS, wc);
+        for (int i = 0; i < numRequests; i++) {
+            ibv_wc* request = &wc[i];
             ReadRequestHandle_MetricSet::Interval interval
                 (&ReadRequestHandle_MetricSet::requestToHandleRpc);
 
             BufferDescriptor* bd =
-                reinterpret_cast<BufferDescriptor*>(wc.wr_id);
-            if (wc.byte_len < 1000)
-                prefetch(bd->buffer, wc.byte_len);
+                reinterpret_cast<BufferDescriptor*>(request->wr_id);
+            if (request->byte_len < 1000)
+                prefetch(bd->buffer, request->byte_len);
 
-            if (t->serverPortMap.find(wc.qp_num) == t->serverPortMap.end()) {
+            if (t->serverPortMap.find(request->qp_num)
+                    == t->serverPortMap.end()) {
                 LOG(ERROR, "failed to find qp_num in map");
                 goto done;
             }
 
-            InfRcServerPort *port = t->serverPortMap[wc.qp_num];
+            InfRcServerPort *port = t->serverPortMap[request->qp_num];
             QueuePair *qp = port->qp;
 
             --t->numFreeServerSrqBuffers;
 
-            if (wc.status != IBV_WC_SUCCESS) {
+            if (request->status != IBV_WC_SUCCESS) {
                 LOG(ERROR, "failed to receive rpc!");
                 t->postSrqReceiveAndKickTransmit(t->serverSrq, bd);
                 goto done;
@@ -1306,7 +1316,7 @@ InfRcTransport::Poller::poll()
             Header& header(*reinterpret_cast<Header*>(bd->buffer));
             ServerRpc *r = t->serverRpcPool.construct(t, qp, header.nonce);
 
-            uint32_t len = wc.byte_len - sizeof32(header);
+            uint32_t len = request->byte_len - sizeof32(header);
             if (t->numFreeServerSrqBuffers < 2) {
                 // Running low on buffers; copy the data so we can return
                 // the buffer immediately.
@@ -1338,7 +1348,14 @@ InfRcTransport::Poller::poll()
     }
 
   done:
-    t->reapTxBuffers();
+    // Retrieve transmission buffers from the NIC once they have been
+    // sent. It's done here in the hopes that it will happen when we
+    // have nothing else to do, so it's effectively free.  It's much
+    // more efficient if we can reclaim several buffers at once, so wait
+    // until buffers are running low before trying to reclaim.
+    if (t->freeTxBuffers.size() < 3) {
+        t->reapTxBuffers();
+    }
 }
 
 //-------------------------------------
