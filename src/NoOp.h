@@ -42,6 +42,9 @@ struct NoOp {
     operator T() const {
         return T(0);
     }
+    T load() const {
+        return 0;
+    }
     // arithmetic
     NoOp<T>& operator+=(const T&) {
         return *this;
