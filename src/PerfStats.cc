@@ -71,7 +71,6 @@ PerfStats::collectStats(PerfStats* total)
     total->writeCount = 0;
     total->activeCycles = 0;
     foreach (PerfStats* stats, registeredStats) {
-        RAMCLOUD_LOG(NOTICE, "readCount: %lu", stats->readCount);
         total->readCount += stats->readCount;
         total->writeCount += stats->writeCount;
         total->activeCycles += stats->activeCycles;
