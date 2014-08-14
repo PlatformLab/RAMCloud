@@ -65,9 +65,6 @@ class IndexletManager {
                 const void *firstNotOwnedKey, uint16_t firstNotOwnedKeyLength);
     bool hasIndexlet(uint64_t tableId, uint8_t indexId,
                 const void *key, uint16_t keyLength);
-    struct Indexlet* getIndexlet(uint64_t tableId, uint8_t indexId,
-                const void *firstKey, uint16_t firstKeyLength,
-                const void *firstNotOwnedKey, uint16_t firstNotOwnedKeyLength);
     size_t getNumIndexlets();
 
     /////////////////////////// Index data related functions //////////////////
@@ -267,6 +264,11 @@ class IndexletManager {
     /// Object Manager to handle mapping of index as objects
     ObjectManager* objectManager;
 
+    IndexletManager::IndexletMap::iterator getIndexlet(
+                uint64_t tableId, uint8_t indexId,
+                const void *firstKey, uint16_t firstKeyLength,
+                const void *firstNotOwnedKey, uint16_t firstNotOwnedKeyLength,
+                Lock& mutex);
     IndexletMap::iterator lookupIndexlet(uint64_t tableId, uint8_t indexId,
                 const void *key, uint16_t keyLength, Lock& mutex);
 

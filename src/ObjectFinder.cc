@@ -303,18 +303,16 @@ ObjectFinder::lookupIndexlet(uint64_t tableId, uint8_t indexId,
         for (iter = range.first; iter != range.second; iter++) {
 
             Indexlet* indexlet = &iter->second;
-            if (indexlet->firstKey != NULL) {
-                if (IndexKey::keyCompare(key, keyLength,
-                           indexlet->firstKey, indexlet->firstKeyLength) < 0) {
-                    continue;
-                }
+            if (indexlet->firstKey != NULL &&
+                    IndexKey::keyCompare(key, keyLength,
+                            indexlet->firstKey, indexlet->firstKeyLength) < 0) {
+                continue;
             }
-            if (indexlet->firstNotOwnedKey != NULL) {
-                if (IndexKey::keyCompare(key, keyLength,
-                               indexlet->firstNotOwnedKey,
-                               indexlet->firstNotOwnedKeyLength) >= 0) {
-                    continue;
-                }
+            if (indexlet->firstNotOwnedKey != NULL &&
+                    IndexKey::keyCompare(key, keyLength,
+                            indexlet->firstNotOwnedKey,
+                            indexlet->firstNotOwnedKeyLength) >= 0) {
+                continue;
             }
             return indexlet;
         }
@@ -322,7 +320,7 @@ ObjectFinder::lookupIndexlet(uint64_t tableId, uint8_t indexId,
         if (count == 0) {
             flush(tableId);
             tableConfigFetcher->getTableConfig(tableId, &tableMap,
-                                                            &tableIndexMap);
+                    &tableIndexMap);
         }
     }
     return NULL;
