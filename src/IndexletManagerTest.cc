@@ -112,38 +112,41 @@ TEST_F(IndexletManagerTest, addIndexlet) {
     string key5 = "u";
 
     TestLog::Enable _("addIndexlet", "getIndexlet", NULL);
-    EXPECT_NO_THROW(im->addIndexlet(0, 0, indexletTableId, key2.c_str(),
-        (uint16_t)key2.length(), key4.c_str(), (uint16_t)key4.length()));
+    EXPECT_NO_THROW(im->addIndexlet(dataTableId, 1, indexletTableId,
+            key2.c_str(), (uint16_t)key2.length(),
+            key4.c_str(), (uint16_t)key4.length()));
     EXPECT_EQ("", TestLog::get());
 
 
-    EXPECT_NO_THROW(im->addIndexlet(0, 0, indexletTableId + 1, key2.c_str(),
-        (uint16_t)key2.length(), key4.c_str(), (uint16_t)key4.length()));
-    EXPECT_EQ("addIndexlet: Adding indexlet in tableId 0 indexId 0, "
+    EXPECT_NO_THROW(im->addIndexlet(dataTableId, 1,
+            indexletTableId + 1, key2.c_str(),
+            (uint16_t)key2.length(), key4.c_str(), (uint16_t)key4.length()));
+    EXPECT_EQ("addIndexlet: Adding indexlet in tableId 1 indexId 1, "
             "but already own. Returning success.", TestLog::get());
     TestLog::reset();
 
-    EXPECT_NO_THROW(im->addIndexlet(0, 0, indexletTableId + 2, key1.c_str(),
-        (uint16_t)key1.length(), key2.c_str(), (uint16_t)key2.length()));
+    EXPECT_NO_THROW(im->addIndexlet(dataTableId, 1, indexletTableId + 2,
+            key1.c_str(), (uint16_t)key1.length(),
+            key2.c_str(), (uint16_t)key2.length()));
     EXPECT_EQ("", TestLog::get());
 
 
-    EXPECT_NO_THROW(im->addIndexlet(0, 0, indexletTableId + 3, key4.c_str(),
-        (uint16_t)key4.length(), key5.c_str(), (uint16_t)key5.length()));
+    EXPECT_NO_THROW(im->addIndexlet(dataTableId, 1, indexletTableId + 3,
+            key4.c_str(), (uint16_t)key4.length(),
+            key5.c_str(), (uint16_t)key5.length()));
     EXPECT_EQ("", TestLog::get());
 
 
-    EXPECT_THROW(im->addIndexlet(0, 0, indexletTableId + 4, key1.c_str(),
-        (uint16_t)key1.length(), key3.c_str(), (uint16_t)key3.length()),
-        InternalError);
-    EXPECT_EQ("getIndexlet: Given indexlet in tableId 0, indexId 0 "
+    EXPECT_THROW(im->addIndexlet(dataTableId, 1, indexletTableId + 4,
+            key1.c_str(), (uint16_t)key1.length(),
+            key3.c_str(), (uint16_t)key3.length()), InternalError);
+    EXPECT_EQ("getIndexlet: Given indexlet in tableId 1, indexId 1 "
             "overlaps with one or more other ranges.", TestLog::get());
 
     SpinLock mutex;
     IndexletManager::Lock fakeGuard(mutex);
-    IndexletManager::Indexlet* indexlet =
-            &im->lookupIndexlet(0, 0, key2.c_str(), (uint16_t)key2.length(),
-                    fakeGuard)->second;
+    IndexletManager::Indexlet* indexlet = &im->lookupIndexlet(dataTableId, 1,
+            key2.c_str(), (uint16_t)key2.length(), fakeGuard)->second;
     string firstKey = StringUtil::binaryToString(
             indexlet->firstKey, indexlet->firstKeyLength);
     string firstNotOwnedKey = StringUtil::binaryToString(
@@ -161,29 +164,36 @@ TEST_F(IndexletManagerTest, hasIndexlet) {
     string key5 = "u";
 
     // check if indexlet exist corresponding to c
-    EXPECT_FALSE(im->hasIndexlet(0, 0, key2.c_str(), (uint16_t)key2.length()));
+    EXPECT_FALSE(im->hasIndexlet(dataTableId, 1,
+            key2.c_str(), (uint16_t)key2.length()));
 
     // add indexlet exist corresponding to [c, k)
-    im->addIndexlet(0, 0, indexletTableId, key2.c_str(),
-        (uint16_t)key2.length(), key4.c_str(), (uint16_t)key4.length());
+    im->addIndexlet(dataTableId, 1, indexletTableId, key2.c_str(),
+            (uint16_t)key2.length(), key4.c_str(), (uint16_t)key4.length());
 
     // check if indexlet exist corresponding to c
-    EXPECT_TRUE(im->hasIndexlet(0, 0, key2.c_str(), (uint16_t)key2.length()));
+    EXPECT_TRUE(im->hasIndexlet(dataTableId, 1,
+            key2.c_str(), (uint16_t)key2.length()));
 
     // different table id
-    EXPECT_FALSE(im->hasIndexlet(1, 0, key2.c_str(), (uint16_t)key2.length()));
+    EXPECT_FALSE(im->hasIndexlet(dataTableId+100, 1,
+            key2.c_str(), (uint16_t)key2.length()));
 
     // different index id
-    EXPECT_FALSE(im->hasIndexlet(0, 1, key2.c_str(), (uint16_t)key2.length()));
+    EXPECT_FALSE(im->hasIndexlet(dataTableId, 2,
+            key2.c_str(), (uint16_t)key2.length()));
 
     // key is within the range of indexlet
-    EXPECT_TRUE(im->hasIndexlet(0, 0, key3.c_str(), (uint16_t)key3.length()));
+    EXPECT_TRUE(im->hasIndexlet(dataTableId, 1,
+            key3.c_str(), (uint16_t)key3.length()));
 
     // key is before the range of indexlet
-    EXPECT_FALSE(im->hasIndexlet(0, 0, key1.c_str(), (uint16_t)key1.length()));
+    EXPECT_FALSE(im->hasIndexlet(dataTableId, 1,
+            key1.c_str(), (uint16_t)key1.length()));
 
     // key is after the range of indexlet
-    EXPECT_FALSE(im->hasIndexlet(0, 1, key2.c_str(), (uint16_t)key2.length()));
+    EXPECT_FALSE(im->hasIndexlet(dataTableId, 2,
+            key2.c_str(), (uint16_t)key2.length()));
 }
 
 TEST_F(IndexletManagerTest, getIndexlet) {
@@ -194,49 +204,49 @@ TEST_F(IndexletManagerTest, getIndexlet) {
     string key5 = "u";
 
     // check if indexlet exist corresponding to [c, k)
-    EXPECT_FALSE(testGetIndexlet(0, 0, key2.c_str(),
+    EXPECT_FALSE(testGetIndexlet(dataTableId, 1, key2.c_str(),
         (uint16_t)key2.length(), key4.c_str(), (uint16_t)key4.length()));
 
     // add indexlet exist corresponding to [c, k)
-    im->addIndexlet(0, 0, indexletTableId, key2.c_str(),
+    im->addIndexlet(dataTableId, 1, indexletTableId, key2.c_str(),
         (uint16_t)key2.length(), key4.c_str(), (uint16_t)key4.length());
 
     // check if indexlet exist corresponding to [c, k)
-    EXPECT_TRUE(testGetIndexlet(0, 0, key2.c_str(),
+    EXPECT_TRUE(testGetIndexlet(dataTableId, 1, key2.c_str(),
         (uint16_t)key2.length(), key4.c_str(), (uint16_t)key4.length()));
 
     // different table id
-    EXPECT_FALSE(testGetIndexlet(1, 0, key2.c_str(),
+    EXPECT_FALSE(testGetIndexlet(dataTableId+100, 1, key2.c_str(),
         (uint16_t)key2.length(), key4.c_str(), (uint16_t)key4.length()));
 
     // different index id
-    EXPECT_FALSE(testGetIndexlet(0, 1, key2.c_str(),
+    EXPECT_FALSE(testGetIndexlet(dataTableId, 2, key2.c_str(),
         (uint16_t)key2.length(), key4.c_str(), (uint16_t)key4.length()));
 
     // last key is within the range of indexlet
-    EXPECT_THROW(testGetIndexlet(0, 0, key2.c_str(),
+    EXPECT_THROW(testGetIndexlet(dataTableId, 1, key2.c_str(),
         (uint16_t)key2.length(), key3.c_str(), (uint16_t)key3.length()),
         InternalError);
 
     // first key is within the range of indexlet
-    EXPECT_THROW(testGetIndexlet(0, 0, key3.c_str(),
+    EXPECT_THROW(testGetIndexlet(dataTableId, 1, key3.c_str(),
         (uint16_t)key3.length(), key4.c_str(), (uint16_t)key4.length()),
         InternalError);
 
     // first key is before the range of indexlet
-    EXPECT_FALSE(testGetIndexlet(0, 0, key1.c_str(),
+    EXPECT_FALSE(testGetIndexlet(dataTableId, 1, key1.c_str(),
         (uint16_t)key1.length(), key4.c_str(), (uint16_t)key4.length()));
 
     // last key is after the range of indexlet
-    EXPECT_FALSE(testGetIndexlet(0, 1, key2.c_str(),
+    EXPECT_FALSE(testGetIndexlet(dataTableId, 2, key2.c_str(),
         (uint16_t)key2.length(), key5.c_str(), (uint16_t)key5.length()));
 
     // first and last key are beyond the range of indexlet
-    EXPECT_FALSE(testGetIndexlet(0, 1, key1.c_str(),
+    EXPECT_FALSE(testGetIndexlet(dataTableId, 2, key1.c_str(),
         (uint16_t)key1.length(), key5.c_str(), (uint16_t)key5.length()));
 
     IndexletManager::Indexlet* indexlet = testGetIndexlet(
-            0, 0, key2.c_str(), (uint16_t)key2.length(),
+            dataTableId, 1, key2.c_str(), (uint16_t)key2.length(),
             key4.c_str(), (uint16_t)key4.length());
     EXPECT_TRUE(indexlet);
 
@@ -260,25 +270,25 @@ TEST_F(IndexletManagerTest, deleteIndexlet) {
     SpinLock mutex;
     IndexletManager::Lock fakeGuard(mutex);
 
-    EXPECT_NO_THROW(testGetIndexlet(0, 0, key2.c_str(),
+    EXPECT_NO_THROW(testGetIndexlet(dataTableId, 1, key2.c_str(),
         (uint16_t)key2.length(), key4.c_str(), (uint16_t)key4.length()));
 
-    im->addIndexlet(0, 0, indexletTableId, key2.c_str(),
+    im->addIndexlet(dataTableId, 1, indexletTableId, key2.c_str(),
         (uint16_t)key2.length(), key4.c_str(), (uint16_t)key4.length());
 
-    EXPECT_TRUE(testGetIndexlet(0, 0, key2.c_str(),
+    EXPECT_TRUE(testGetIndexlet(dataTableId, 1, key2.c_str(),
         (uint16_t)key2.length(), key4.c_str(), (uint16_t)key4.length()));
 
-    EXPECT_NO_THROW(im->deleteIndexlet(0, 0, key2.c_str(),
+    EXPECT_NO_THROW(im->deleteIndexlet(dataTableId, 1, key2.c_str(),
         (uint16_t)key2.length(), key4.c_str(), (uint16_t)key4.length()));
     EXPECT_EQ("", TestLog::get());
 
-    EXPECT_FALSE(testGetIndexlet(0, 0, key2.c_str(),
+    EXPECT_FALSE(testGetIndexlet(dataTableId, 1, key2.c_str(),
         (uint16_t)key2.length(), key4.c_str(), (uint16_t)key4.length()));
 
-    EXPECT_NO_THROW(im->deleteIndexlet(0, 0, key2.c_str(),
+    EXPECT_NO_THROW(im->deleteIndexlet(dataTableId, 1, key2.c_str(),
         (uint16_t)key2.length(), key4.c_str(), (uint16_t)key4.length()));
-    EXPECT_EQ("deleteIndexlet: Unknown indexlet in tableId 0, indexId 0",
+    EXPECT_EQ("deleteIndexlet: Unknown indexlet in tableId 1, indexId 1",
               TestLog::get());
     TestLog::reset();
 
@@ -287,19 +297,19 @@ TEST_F(IndexletManagerTest, deleteIndexlet) {
     // of the constructor of IndexletManagerTest
     tm->addTablet(indexletTableId + 1, 0, ~0UL,
                             TabletManager::NORMAL);
-    im->addIndexlet(0, 0, indexletTableId, key2.c_str(),
+    im->addIndexlet(dataTableId, 1, indexletTableId, key2.c_str(),
         (uint16_t)key2.length(), key4.c_str(), (uint16_t)key4.length());
 
-    EXPECT_THROW(im->deleteIndexlet(0, 0, key2.c_str(),
+    EXPECT_THROW(im->deleteIndexlet(dataTableId, 1, key2.c_str(),
         (uint16_t)key2.length(), key5.c_str(), (uint16_t)key5.length()),
         InternalError);
-    EXPECT_EQ("getIndexlet: Given indexlet in tableId 0, indexId 0 "
+    EXPECT_EQ("getIndexlet: Given indexlet in tableId 1, indexId 1 "
               "overlaps with one or more other ranges.", TestLog::get());
     TestLog::reset();
 
-    EXPECT_NO_THROW(im->deleteIndexlet(0, 0, key1.c_str(),
+    EXPECT_NO_THROW(im->deleteIndexlet(dataTableId, 1, key1.c_str(),
         (uint16_t)key1.length(), key4.c_str(), (uint16_t)key4.length()));
-    EXPECT_EQ("deleteIndexlet: Unknown indexlet in tableId 0, indexId 0",
+    EXPECT_EQ("deleteIndexlet: Unknown indexlet in tableId 1, indexId 1",
               TestLog::get());
 }
 
@@ -322,25 +332,25 @@ TEST_F(IndexletManagerTest, insertIndexEntry) {
 }
 
 TEST_F(IndexletManagerTest, insertIndexEntry_unknownIndexlet) {
-    im->addIndexlet(0, 0, indexletTableId, "a", 1, "k", 1);
+    im->addIndexlet(dataTableId, 1, indexletTableId, "a", 1, "k", 1);
 
-    Status insertStatus = im->insertEntry(0, 0, "water", 5, 1234);
+    Status insertStatus = im->insertEntry(dataTableId, 1, "water", 5, 1234);
     EXPECT_EQ(STATUS_UNKNOWN_INDEXLET, insertStatus);
 }
 
 TEST_F(IndexletManagerTest, insertIndexEntry_duplicate) {
-    im->addIndexlet(0, 0, indexletTableId, "a", 1, "k", 1);
+    im->addIndexlet(dataTableId, 1, indexletTableId, "a", 1, "k", 1);
 
-    Status insertStatus1 = im->insertEntry(0, 0, "air", 3, 1234);
+    Status insertStatus1 = im->insertEntry(dataTableId, 1, "air", 3, 1234);
     EXPECT_EQ(STATUS_OK, insertStatus1);
-    Status insertStatus2 = im->insertEntry(0, 0, "air", 3, 5678);
+    Status insertStatus2 = im->insertEntry(dataTableId, 1, "air", 3, 5678);
     EXPECT_EQ(STATUS_OK, insertStatus2);
 
     // Lookup for duplicates is tested in lookIndexKeys_duplicate.
 }
 
 TEST_F(IndexletManagerTest, lookupIndexKeys_unknownIndex) {
-    ramcloud->lookupIndexKeys(0, 0, "water", 5, 0, "water", 5,
+    ramcloud->lookupIndexKeys(dataTableId, 1, "water", 5, 0, "water", 5,
                               100, &responseBuffer, &numHashes,
                               &nextKeyLength, &nextKeyHash);
     EXPECT_EQ(STATUS_OK, WireFormat::getStatus(&responseBuffer));
