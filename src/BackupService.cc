@@ -22,6 +22,7 @@
 #include "ShortMacros.h"
 #include "SingleFileStorage.h"
 #include "Status.h"
+#include "TimeTrace.h"
 
 namespace RAMCloud {
 
@@ -224,6 +225,7 @@ BackupService::dispatch(WireFormat::Opcode opcode, Rpc* rpc)
         default:
             throw UnimplementedRequestError(HERE);
     }
+    TRACE("BackupService::dispatch just finished!");
 }
 
 /**
@@ -573,6 +575,7 @@ BackupService::writeSegment(const WireFormat::BackupWrite::Request* reqHdr,
                             WireFormat::BackupWrite::Response* respHdr,
                             Rpc* rpc)
 {
+    TRACE("Entering BackupService::writeSegment!");
     ServerId masterId(reqHdr->masterId);
     uint64_t segmentId = reqHdr->segmentId;
 
@@ -626,6 +629,7 @@ BackupService::writeSegment(const WireFormat::BackupWrite::Request* reqHdr,
         frames[MasterSegmentIdPair(masterId, segmentId)] = frame;
     }
 
+//    TRACE("BackupService::writeSegment finished Open!");
     // Perform write.
     if (!frame) {
         LOG(WARNING, "Tried write to a replica of segment <%s,%lu> but "
@@ -649,6 +653,7 @@ BackupService::writeSegment(const WireFormat::BackupWrite::Request* reqHdr,
         metrics->backup.writeCopyBytes += reqHdr->length;
         bytesWritten += reqHdr->length;
     }
+//    TRACE("BackupService::writeSegment finished write!");
 
     // Perform close, if any.
     if (reqHdr->close) {
