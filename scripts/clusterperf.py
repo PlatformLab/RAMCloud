@@ -360,6 +360,12 @@ def readThroughput(name, options, cluster_args, client_args):
         cluster_args['timeout'] = 250
     if 'num_clients' not in cluster_args:
         cluster_args['num_clients'] = len(hosts) - cluster_args['num_servers']
+    if cluster_args['num_clients'] < 2:
+        print("Not enough machines in the cluster to run the '%s' benchmark"
+                % name)
+        print("Need at least %d machines in this configuration" %
+                (cluster_args['num_servers'] + 2))
+        return
     cluster.run(client='%s/ClusterPerf %s %s' %
             (obj_path, flatten_args(client_args), name), **cluster_args)
     print(get_client_log(), end='')
