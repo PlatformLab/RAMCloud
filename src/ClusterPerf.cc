@@ -2614,6 +2614,14 @@ readDist()
     cluster->read(dataTable, key, keyLength, &value);
     checkBuffer(&value, 0, objectSize, dataTable, key, keyLength);
 
+    // Begin counter collection on the server side.
+    cluster->objectServerControl(dataTable, key, keyLength,
+                            WireFormat::START_PERF_COUNTERS);
+
+    // Force serialization so that writing interferes less with the read
+    // benchmark.
+    Util::serialize();
+
     // Warmup, if desired
     for (int i = 0; i < warmupCount; i++) {
         cluster->read(dataTable, key, keyLength, &value);
@@ -2715,11 +2723,6 @@ readDistRandom()
     delete[] keys;
     delete[] charValues;
     delete[] objects;
-
-    // Begin counter collection on the server side.
-    memset(key, 0, keyLength);
-    cluster->objectServerControl(dataTable, key, keyLength,
-                            WireFormat::START_PERF_COUNTERS);
 
     // Begin counter collection on the server side.
     memset(key, 0, keyLength);
