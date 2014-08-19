@@ -2604,9 +2604,12 @@ RamCloud::write(uint64_t tableId, const void* key, uint16_t keyLength,
         const void* buf, uint32_t length, const RejectRules* rejectRules,
         uint64_t* version, bool async)
 {
+    clientContext->timeTrace->record("Client is about to start write");
     WriteRpc rpc(this, tableId, key, keyLength, buf, length, rejectRules,
             async);
+    clientContext->timeTrace->record("Client is about to start Wait");
     rpc.wait(version);
+    clientContext->timeTrace->record("Client returned from wait!");
 }
 
 /**
@@ -2803,6 +2806,7 @@ WriteRpc::WriteRpc(RamCloud* ramcloud, uint64_t tableId,
     reqHdr->rejectRules = rejectRules ? *rejectRules : defaultRejectRules;
     reqHdr->async = async;
     reqHdr->length = totalLength;
+    ramcloud->clientContext->timeTrace->record("Client about to call send");
     send();
 }
 
