@@ -44,6 +44,7 @@ class PerfCounterTest : public ::testing::Test {
 
         mkdir(perfDir.c_str(), 0700);
         Perf::setNameAndPath("TestServer", cppName + "/");
+        Perf::EnabledCounter::enabled = true;
     }
 
 
@@ -57,6 +58,7 @@ class PerfCounterTest : public ::testing::Test {
 
         // Clean up state
         Perf::setNameAndPath("", "");
+        Perf::EnabledCounter::enabled = false;
     }
 
     DISALLOW_COPY_AND_ASSIGN(PerfCounterTest);

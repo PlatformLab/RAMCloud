@@ -33,6 +33,7 @@ int
 main(int argc, char *argv[])
 {
     using namespace RAMCloud;
+    signal(SIGTERM, Perf::terminationHandler);
     Logger::installCrashBacktraceHandlers();
     Context context(true);
     try {

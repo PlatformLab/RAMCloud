@@ -280,6 +280,16 @@ PingService::serverControl(const WireFormat::ServerControl::Request* reqHdr,
             rpc->replyPayload->appendCopy(&stats, respHdr->outputLength);
             break;
         }
+        case WireFormat::START_PERF_COUNTERS:
+        {
+            Perf::EnabledCounter::enabled = true;
+            break;
+        }
+        case WireFormat::STOP_PERF_COUNTERS:
+        {
+            Perf::EnabledCounter::enabled = false;
+            break;
+        }
         default:
             respHdr->common.status = STATUS_UNIMPLEMENTED_REQUEST;
             return;

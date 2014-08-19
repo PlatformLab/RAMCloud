@@ -2716,6 +2716,16 @@ readDistRandom()
     delete[] charValues;
     delete[] objects;
 
+    // Begin counter collection on the server side.
+    memset(key, 0, keyLength);
+    cluster->objectServerControl(dataTable, key, keyLength,
+                            WireFormat::START_PERF_COUNTERS);
+
+    // Begin counter collection on the server side.
+    memset(key, 0, keyLength);
+    cluster->objectServerControl(dataTable, key, keyLength,
+                            WireFormat::START_PERF_COUNTERS);
+
     // Force serialization so that writing interferes less with the read
     // benchmark.
     Util::serialize();

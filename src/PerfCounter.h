@@ -27,6 +27,10 @@
 namespace RAMCloud {
 namespace Perf{
 
+/**
+ * The number of counters to bulk write at once when dumping to disk.
+ */
+const size_t WRITES_PER_BATCH =  100000;
 
 /**
  * After recording this many intervals, we begin writing to disk.
@@ -42,6 +46,7 @@ const size_t HIGH_THRESHOLD  = 1000000;
 extern std::string serverName;
 extern std::string logPath;
 
+void terminationHandler(int signo);
 void setNameAndPath(std::string serverName, std::string logPath);
 
 /**
@@ -60,17 +65,7 @@ void setNameAndPath(std::string serverName, std::string logPath);
  */
 class EnabledCounter{
    public:
-       explicit EnabledCounter(const string& name)
-           : name(name)
-           , ramQueue()
-           , diskQueue()
-           , mutex()
-           , terminate(false)
-           , countersAccumulated()
-           , diskWriterThread(&EnabledCounter::backgroundWriter, this)
-           , wroteCyclesPerSecond(false)
-       {
-       }
+       explicit EnabledCounter(const string& name);
 
        /**
         * Store the number of CPU ticks required for an operation, and notify
@@ -84,6 +79,7 @@ class EnabledCounter{
         *      The number of CPU ticks to record.
         */
        void recordTime(const uint64_t& interval) {
+           if (!enabled) return;
            std::lock_guard<std::mutex> _(mutex);
            if (ramQueue.size() == HIGH_THRESHOLD) {
                LOG(WARNING, "Counter %s overflowed on server %s, dropping "
@@ -96,12 +92,14 @@ class EnabledCounter{
        }
 
        ~EnabledCounter();
+       void terminateBackgroundThread();
+
+       static bool enabled;
 
    PRIVATE:
 
        void backgroundWriter();
        void writeCyclesPerSecond(FILE* handle);
-       void terminateBackgroundThread();
 
        /**
         * Syntactic sugar to constructing filename that this counter writes to.
@@ -207,6 +205,16 @@ class EnabledInterval {
                 this->start();
         }
 
+        EnabledInterval(EnabledCounter* counter, const uint64_t& startTime)
+            : counter(counter), startTime(0), stopped(true)
+        {
+            /**
+             * The value of the argument  start should be known at compile
+             * time, so we expect the compiler to optimize the branch away.
+             */
+            this->start(startTime);
+        }
+
         /**
          * Ends an interval on destruction, if the interval is not already
          * ended.
@@ -225,6 +233,9 @@ class EnabledInterval {
         /**
          * This starts or restarts an interval, allowing reuse of an Interval
          * object.
+         *
+         * If this method is called twice, the first value will be overwritten
+         * unconditionally.
          */
         void start(const uint64_t& startTime) {
             stopped = false;
@@ -255,6 +266,14 @@ class EnabledInterval {
                 return;
             stopped = true;
             counter->recordTime(stopTime - startTime);
+        }
+
+        /**
+         * Convenience method to avoid repeatedly reading expensive counters multiple times.
+         * The return value should only be fed into another Interval within the same MetricSet.
+         */
+        uint64_t getStartTime() {
+            return startTime;
         }
     PRIVATE:
         /**
@@ -291,6 +310,7 @@ class DisabledInterval {
         void start(const uint64_t& startTime) { }
         void stop() { }
         void stop(const uint64_t& startTime) { }
+        uint64_t getStartTime() { return 0; }
 };
 
 /**

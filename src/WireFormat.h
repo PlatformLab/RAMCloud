@@ -137,6 +137,8 @@ enum ControlOp {
     GET_CACHE_TRACE             = 1005,
     LOG_CACHE_TRACE             = 1006,
     GET_PERF_STATS              = 1007,
+    START_PERF_COUNTERS         = 1008,
+    STOP_PERF_COUNTERS          = 1009,
 };
 
 /**

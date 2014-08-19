@@ -15,6 +15,8 @@
 
 #include "PerfCounter.h"
 
+#include <pthread.h>
+#include <signal.h>
 #include <mutex>
 #include <sstream>
 #include <string>
@@ -28,11 +30,6 @@
     MetricSet::PerfCounter MetricSet::CounterName(#CounterName)
 
 namespace RAMCloud { namespace Perf {
-
-/**
- * The number of counters to bulk write at once when dumping to disk.
- */
-const size_t WRITES_PER_BATCH =  100000;
 
 
 /**
@@ -55,6 +52,24 @@ std::string logPath;
  */
 static std::mutex fileNameLock;
 
+/**
+ * Allow client to  to globally disable counter writing at run time.
+ * This is primarily useful for performance measurements which have a
+ * long warm-up.
+ *
+ */
+bool EnabledCounter::enabled = false;
+
+/**
+ * Counters explicitly register themselves by adding themselves to this queue
+ * in the constructor.  They are then cleaned up in the SIGTERM handler in
+ * ServerMain.cc.
+ */
+std::vector<EnabledCounter*>& enabledCounters() {
+    static std::vector<EnabledCounter*> _;
+    return _;
+}
+
 
 /**
  * This is the relative file path to the directory  where all
@@ -62,6 +77,32 @@ static std::mutex fileNameLock;
  * '/' but it does have a terminating '/'.
  */
 const char* EnabledCounter::PATH_PREFIX = "perfcounters/";
+
+/**
+ * Explicitly call terminateBackgroundThread on all global counters when
+ * SIGTERM is used to terminate.
+ */
+void terminatePerfCounters() {
+    // We make a copy instead of directly using the global structure because we
+    // will deadlock if we try to hold the lock while terminating threads.
+    vector<EnabledCounter*> enabledCounters;
+    {
+        std::unique_lock<std::mutex> ul(Perf::fileNameLock);
+        enabledCounters = Perf::enabledCounters();
+    }
+    for (size_t i = 0; i < enabledCounters.size(); i++)
+        enabledCounters[i]->terminateBackgroundThread();
+    signal(SIGTERM, SIG_DFL);
+    kill(getpid(), SIGTERM);
+}
+
+/**
+  * Start a new thread to do the actual work, so the signal handler can return
+  * and not block an arbitrary thread, which may cause a deadlock.
+ */
+void terminationHandler(int signo) {
+    std::thread(terminatePerfCounters).detach();
+}
 
 /**
  * Stores the name of the server and the log path prefix in the variables
@@ -104,10 +145,8 @@ void EnabledCounter::backgroundWriter() {
                 RAMCLOUD_TEST_LOG("backgroundWriter awakening!");
             }
 
-            if (terminate && ramQueue.empty()) {
-                terminate = false;
+            if (terminate && ramQueue.empty())
                 return;
-            }
             std::swap(ramQueue, diskQueue);
         }
 
@@ -150,12 +189,14 @@ void EnabledCounter::backgroundWriter() {
  * Utility method (for ease of testing) to ensure that the diskWriterThread
  * cleanly terminates before we permit the object to be fully destroyed.
  *
- * This method should only be called by the destructor.
+ * This method is generally called by the destructor, but for global static
+ * counters, it is called by terminatePerfCounters() when a SIGTERM is
+ * received.
  */
 void EnabledCounter::terminateBackgroundThread() {
     {
         std::unique_lock<std::mutex> ul(mutex);
-        if (!diskWriterThread.joinable()) {
+        if (terminate) {
             return;
         }
         terminate = true;
@@ -165,6 +206,19 @@ void EnabledCounter::terminateBackgroundThread() {
     diskWriterThread.join();
 }
 
+EnabledCounter::EnabledCounter(const string& name)
+    : name(name)
+    , ramQueue()
+    , diskQueue()
+    , mutex()
+    , terminate(false)
+    , countersAccumulated()
+    , diskWriterThread(&EnabledCounter::backgroundWriter, this)
+    , wroteCyclesPerSecond(false)
+{
+    std::unique_lock<std::mutex> ul(fileNameLock);
+    enabledCounters().push_back(this);
+}
 /**
  * See documentation for terminateBackgroundThread().
  */
