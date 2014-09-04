@@ -13,6 +13,8 @@
  * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#if ENABLE_ZOOKEEPER
+
 #include <vector>
 #include "TestUtil.h"
 #include "Common.h"
@@ -758,3 +760,5 @@ ZooStorage::LeaseRenewer::handleTimerEvent()
 }
 
 } // namespace RAMCloud
+
+#endif // ENABLE_ZOOKEEPER

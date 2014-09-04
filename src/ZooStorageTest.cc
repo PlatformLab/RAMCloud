@@ -13,6 +13,8 @@
  * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#if ENABLE_ZOOKEEPER
+
 #include "TestUtil.h"
 #include "ZooStorage.h"
 
@@ -644,3 +646,5 @@ TEST_F(ZooStorageTest, ExternalStorage_open) {
 }
 
 }  // namespace RAMCloud
+
+#endif // ENABLE_ZOOKEEPER

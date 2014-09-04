@@ -24,8 +24,14 @@ OBJDIR	:= obj$(OBJSUFFIX)
 
 TOP	:= $(shell echo $${PWD-`pwd`})
 GTEST_DIR ?= $(TOP)/gtest
+ZOOKEEPER ?= yes
+ifeq ($(ZOOKEEPER),yes)
 ZOOKEEPER_LIB ?= /usr/local/lib/libzookeeper_mt.a
 ZOOKEEPER_DIR ?= /usr/local/zookeeper-3.4.5
+else
+ZOOKEEPER_LIB :=
+ZOOKEEPER_DIR :=
+endif
 
 
 ifeq ($(DEBUG),yes)
@@ -46,6 +52,9 @@ COMFLAGS += -march=core2
 endif
 ifeq ($(VALGRIND),yes)
 COMFLAGS += -DVALGRIND
+endif
+ifeq ($(ZOOKEEPER),yes)
+COMFLAGS += -DENABLE_ZOOKEEPER
 endif
 
 COMWARNS := -Wall -Wformat=2 -Wextra \

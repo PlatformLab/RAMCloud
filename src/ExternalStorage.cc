@@ -102,7 +102,12 @@ ExternalStorage::open(string locator, Context* context)
     }
     if (locator.find("zk:") == 0) {
         string zkInfo = locator.substr(3);
+#if ENABLE_ZOOKEEPER
         return new ZooStorage(zkInfo, context->dispatch);
+#else
+        RAMCLOUD_DIE("Could not open connection to ZooKeeper: support for "
+                     "ZooKeeper was disabled at compile time");
+#endif
     }
     return NULL;
 }
