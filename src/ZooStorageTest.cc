@@ -215,7 +215,7 @@ TEST_F(ZooStorageTest, getChildren_mustGrowBuffer) {
     zoo->getChildren("/test", &children);
     sort(&children);
     Buffer result;
-    result.append(children[1].value, children[1].length);
+    result.appendCopy(children[1].value, children[1].length);
     EXPECT_EQ("ok", TestUtil::checkLargeBuffer(&result, 4000));
 }
 TEST_F(ZooStorageTest, getChildren_weirdNodes) {

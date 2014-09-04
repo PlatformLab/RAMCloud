@@ -226,6 +226,7 @@ $(OBJDIR)/zooTest: $(ZOO_TESTS_OBJFILES) $(OBJDIR)/gtest.a
 # The unit tests don't actually call all of these programs, but
 # they are included here to make sure they continue to build.
 test: $(OBJDIR)/test \
+      $(OBJDIR)/zooTest \
       $(OBJDIR)/CleanerCompactionBenchmark \
       $(OBJDIR)/ClusterPerf \
       $(OBJDIR)/CoordinatorCrashRecovery \
