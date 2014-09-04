@@ -56,7 +56,7 @@ class IndexletManager {
     /////////////////////////// Meta-data related functions //////////////////
 
     void addIndexlet(uint64_t tableId, uint8_t indexId,
-                uint64_t indexletTableId,
+                uint64_t backingTableId,
                 const void *firstKey, uint16_t firstKeyLength,
                 const void *firstNotOwnedKey, uint16_t firstNotOwnedKeyLength,
                 uint64_t highestUsedID = 0);

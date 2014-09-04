@@ -1543,7 +1543,7 @@ MasterService::takeIndexletOwnership(
             reqOffset, reqHdr->firstNotOwnedKeyLength);
 
     indexletManager.addIndexlet(
-            reqHdr->tableId, reqHdr->indexId, reqHdr->indexletTableId,
+            reqHdr->tableId, reqHdr->indexId, reqHdr->backingTableId,
             firstKey, reqHdr->firstKeyLength,
             firstNotOwnedKey, reqHdr->firstNotOwnedKeyLength);
     LOG(NOTICE, "Took ownership of indexlet in tableId %lu indexId %u",
@@ -2337,14 +2337,14 @@ MasterService::recover(const WireFormat::Recover::Request* reqHdr,
         // This unordered_map is used to keep track of the highest BTree id
         // in every indexlet table
         std::unordered_map<uint64_t, uint64_t> highestBTreeIdMap;
-        foreach (const ProtoBuf::Indexlets::Indexlet& indexlet,
+        foreach (const ProtoBuf::Indexlet& indexlet,
                 recoveryPartition.indexlet()) {
             highestBTreeIdMap[indexlet.indexlet_table_id()] = 0;
         }
         recover(recoveryId, crashedServerId, partitionId, replicas,
                 highestBTreeIdMap);
         // Install indexlets we are recovering
-        foreach (const ProtoBuf::Indexlets::Indexlet& newIndexlet,
+        foreach (const ProtoBuf::Indexlet& newIndexlet,
                  recoveryPartition.indexlet()) {
             LOG(NOTICE, "Starting recovery %lu for crashed indexlet %d",
                     recoveryId, newIndexlet.index_id());
@@ -2385,7 +2385,7 @@ MasterService::recover(const WireFormat::Recover::Request* reqHdr,
         tablet.set_ctime_log_head_id(headOfLog.getSegmentId());
         tablet.set_ctime_log_head_offset(headOfLog.getSegmentOffset());
     }
-    foreach (ProtoBuf::Indexlets::Indexlet& indexlet,
+    foreach (ProtoBuf::Indexlet& indexlet,
             *recoveryPartition.mutable_indexlet()) {
         LOG(NOTICE, "set indexlet %lu to locator %s, id %s",
                 indexlet.table_id(), config->localLocator.c_str(),
@@ -2423,7 +2423,7 @@ MasterService::recover(const WireFormat::Recover::Request* reqHdr,
             tabletManager.deleteTablet(tablet.table_id(),
                     tablet.start_key_hash(), tablet.end_key_hash());
         }
-        foreach (const ProtoBuf::Indexlets::Indexlet& indexlet,
+        foreach (const ProtoBuf::Indexlet& indexlet,
                 recoveryPartition.indexlet()) {
             indexletManager.deleteIndexlet(
                     indexlet.table_id(),

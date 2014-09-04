@@ -38,7 +38,7 @@ class IndexletManagerTest : public ::testing::Test {
     // Backing table that can be used by a test that wants to individually
     // create and access indexlets (rather than an entire index)
     // using the indexletManager class (rather than ramcloud class).
-    uint64_t indexletTableId;
+    uint64_t backingTableId;
 
     // Declare variables commonly needed by most tests.
     Buffer responseBuffer;
@@ -55,7 +55,7 @@ class IndexletManagerTest : public ::testing::Test {
         , im()
         , tm()
         , dataTableId()
-        , indexletTableId()
+        , backingTableId()
         , responseBuffer()
         , numHashes()
         , nextKeyLength()
@@ -77,7 +77,7 @@ class IndexletManagerTest : public ::testing::Test {
         ramcloud.construct(&context, "mock:host=coordinator");
 
         dataTableId = ramcloud->createTable("dataTable");
-        indexletTableId = ramcloud->createTable("indexletTable");
+        backingTableId = ramcloud->createTable("indexletTable");
     }
 
     IndexletManager::Indexlet*
@@ -112,32 +112,32 @@ TEST_F(IndexletManagerTest, addIndexlet) {
     string key5 = "u";
 
     TestLog::Enable _("addIndexlet", "getIndexlet", NULL);
-    EXPECT_NO_THROW(im->addIndexlet(dataTableId, 1, indexletTableId,
+    EXPECT_NO_THROW(im->addIndexlet(dataTableId, 1, backingTableId,
             key2.c_str(), (uint16_t)key2.length(),
             key4.c_str(), (uint16_t)key4.length()));
     EXPECT_EQ("", TestLog::get());
 
 
     EXPECT_NO_THROW(im->addIndexlet(dataTableId, 1,
-            indexletTableId + 1, key2.c_str(),
+            backingTableId + 1, key2.c_str(),
             (uint16_t)key2.length(), key4.c_str(), (uint16_t)key4.length()));
     EXPECT_EQ("addIndexlet: Adding indexlet in tableId 1 indexId 1, "
             "but already own. Returning success.", TestLog::get());
     TestLog::reset();
 
-    EXPECT_NO_THROW(im->addIndexlet(dataTableId, 1, indexletTableId + 2,
+    EXPECT_NO_THROW(im->addIndexlet(dataTableId, 1, backingTableId + 2,
             key1.c_str(), (uint16_t)key1.length(),
             key2.c_str(), (uint16_t)key2.length()));
     EXPECT_EQ("", TestLog::get());
 
 
-    EXPECT_NO_THROW(im->addIndexlet(dataTableId, 1, indexletTableId + 3,
+    EXPECT_NO_THROW(im->addIndexlet(dataTableId, 1, backingTableId + 3,
             key4.c_str(), (uint16_t)key4.length(),
             key5.c_str(), (uint16_t)key5.length()));
     EXPECT_EQ("", TestLog::get());
 
 
-    EXPECT_THROW(im->addIndexlet(dataTableId, 1, indexletTableId + 4,
+    EXPECT_THROW(im->addIndexlet(dataTableId, 1, backingTableId + 4,
             key1.c_str(), (uint16_t)key1.length(),
             key3.c_str(), (uint16_t)key3.length()), InternalError);
     EXPECT_EQ("getIndexlet: Given indexlet in tableId 1, indexId 1 "
@@ -168,7 +168,7 @@ TEST_F(IndexletManagerTest, hasIndexlet) {
             key2.c_str(), (uint16_t)key2.length()));
 
     // add indexlet exist corresponding to [c, k)
-    im->addIndexlet(dataTableId, 1, indexletTableId, key2.c_str(),
+    im->addIndexlet(dataTableId, 1, backingTableId, key2.c_str(),
             (uint16_t)key2.length(), key4.c_str(), (uint16_t)key4.length());
 
     // check if indexlet exist corresponding to c
@@ -208,7 +208,7 @@ TEST_F(IndexletManagerTest, getIndexlet) {
         (uint16_t)key2.length(), key4.c_str(), (uint16_t)key4.length()));
 
     // add indexlet exist corresponding to [c, k)
-    im->addIndexlet(dataTableId, 1, indexletTableId, key2.c_str(),
+    im->addIndexlet(dataTableId, 1, backingTableId, key2.c_str(),
         (uint16_t)key2.length(), key4.c_str(), (uint16_t)key4.length());
 
     // check if indexlet exist corresponding to [c, k)
@@ -273,7 +273,7 @@ TEST_F(IndexletManagerTest, deleteIndexlet) {
     EXPECT_NO_THROW(testGetIndexlet(dataTableId, 1, key2.c_str(),
         (uint16_t)key2.length(), key4.c_str(), (uint16_t)key4.length()));
 
-    im->addIndexlet(dataTableId, 1, indexletTableId, key2.c_str(),
+    im->addIndexlet(dataTableId, 1, backingTableId, key2.c_str(),
         (uint16_t)key2.length(), key4.c_str(), (uint16_t)key4.length());
 
     EXPECT_TRUE(testGetIndexlet(dataTableId, 1, key2.c_str(),
@@ -295,9 +295,9 @@ TEST_F(IndexletManagerTest, deleteIndexlet) {
     // we need to create the table corresponding to each indexlet
     // (b-tree). There is one indexlet that is created as part
     // of the constructor of IndexletManagerTest
-    tm->addTablet(indexletTableId + 1, 0, ~0UL,
+    tm->addTablet(backingTableId + 1, 0, ~0UL,
                             TabletManager::NORMAL);
-    im->addIndexlet(dataTableId, 1, indexletTableId, key2.c_str(),
+    im->addIndexlet(dataTableId, 1, backingTableId, key2.c_str(),
         (uint16_t)key2.length(), key4.c_str(), (uint16_t)key4.length());
 
     EXPECT_THROW(im->deleteIndexlet(dataTableId, 1, key2.c_str(),
@@ -332,14 +332,14 @@ TEST_F(IndexletManagerTest, insertIndexEntry) {
 }
 
 TEST_F(IndexletManagerTest, insertIndexEntry_unknownIndexlet) {
-    im->addIndexlet(dataTableId, 1, indexletTableId, "a", 1, "k", 1);
+    im->addIndexlet(dataTableId, 1, backingTableId, "a", 1, "k", 1);
 
     Status insertStatus = im->insertEntry(dataTableId, 1, "water", 5, 1234);
     EXPECT_EQ(STATUS_UNKNOWN_INDEXLET, insertStatus);
 }
 
 TEST_F(IndexletManagerTest, insertIndexEntry_duplicate) {
-    im->addIndexlet(dataTableId, 1, indexletTableId, "a", 1, "k", 1);
+    im->addIndexlet(dataTableId, 1, backingTableId, "a", 1, "k", 1);
 
     Status insertStatus1 = im->insertEntry(dataTableId, 1, "air", 3, 1234);
     EXPECT_EQ(STATUS_OK, insertStatus1);

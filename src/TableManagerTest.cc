@@ -299,15 +299,15 @@ TEST_F(TableManagerTest, getTableId) {
     EXPECT_THROW(tableManager->getTableId("bar"), TableManager::NoSuchTable);
 }
 
-TEST_F(TableManagerTest, getIndxletInfoByIndexletTableId) {
+TEST_F(TableManagerTest, getIndxletInfoBybackingTableId) {
     cluster.addServer(masterConfig);
     cluster.addServer(masterConfig);
     updateManager->reset();
 
     EXPECT_EQ(1U, tableManager->createTable("foo", 1));
     EXPECT_NO_THROW(tableManager->createIndex(1, 1, 0, 1));
-    ProtoBuf::Indexlets::Indexlet indexlet;
-    EXPECT_TRUE(tableManager->getIndexletInfoByIndexletTableId(2, indexlet));
+    ProtoBuf::Indexlet indexlet;
+    EXPECT_TRUE(tableManager->getIndexletInfoBybackingTableId(2, indexlet));
     EXPECT_EQ(1U, indexlet.table_id());
     EXPECT_EQ(1U, indexlet.index_id());
     EXPECT_EQ(2U, indexlet.indexlet_table_id());

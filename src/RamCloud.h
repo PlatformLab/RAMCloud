@@ -42,7 +42,7 @@ class MultiWriteObject;
  */
 struct KeyInfo
 {
-    const void *key;        // pimary or secondary key. A NULL value here
+    const void *key;        // primary or secondary key. A NULL value here
                             // indicates absence of a key. Note that this
                             // cannot be true for primary key.
     uint16_t keyLength;     // length of the corresponding key. A 0 value

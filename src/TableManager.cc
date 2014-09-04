@@ -139,10 +139,10 @@ TableManager::createIndex(uint64_t tableId, uint8_t indexId, uint8_t indexType,
             indexTableName.append(
                 format("__indexTable:%lu:%d:%d", tableId, indexId, i));
             // Create the backing table for indexlet.
-            uint64_t indexletTableId =
+            uint64_t backingTableId =
                     createTable(lock, indexTableName.c_str(), 1);
 
-            IdMap::iterator itd = idMap.find(indexletTableId);
+            IdMap::iterator itd = idMap.find(backingTableId);
             assert(itd != idMap.end());
 
             // Use the indexTable serverId to assign the indexlet.
@@ -161,7 +161,7 @@ TableManager::createIndex(uint64_t tableId, uint8_t indexId, uint8_t indexType,
                 indexlet = new Indexlet(
                             reinterpret_cast<void *>(&firstKey),
                             1, reinterpret_cast<void *>(&firstNotOwnedKey),
-                            1, tabletMaster, indexletTableId,
+                            1, tabletMaster, backingTableId,
                             tableId, indexId);
             } else {
                 // This case exists only for performance and unit testing, and
@@ -171,14 +171,14 @@ TableManager::createIndex(uint64_t tableId, uint8_t indexId, uint8_t indexType,
                 indexlet = new Indexlet(
                             reinterpret_cast<void *>(&firstKey),
                             1, reinterpret_cast<void *>(&firstNotOwnedKey),
-                            1, tabletMaster, indexletTableId,
+                            1, tabletMaster, backingTableId,
                             tableId, indexId);
             }
             index->indexlets.push_back(indexlet);
 
             // Now we add tableIndexId<->indexlet into indexletTableMap.
             indexletTableMap.insert(
-                std::make_pair(indexletTableId, indexlet));
+                std::make_pair(backingTableId, indexlet));
         }
     } catch (...) {
         delete index;
@@ -342,9 +342,9 @@ TableManager::getTablet(uint64_t tableId, uint64_t keyHash)
 
 /**
  * Return information about a indexlet (e.g., its key, tableId, indexId,
- * ServerId, and indexletTableId), when given a indexletTableId
+ * ServerId, and backingTableId), when given a backingTableId
  *
- * \param indexletTableId
+ * \param backingTableId
  *      Identifier of the table
  * \param indexlet
  *      Indexlet information structure to populate
@@ -353,11 +353,11 @@ TableManager::getTablet(uint64_t tableId, uint64_t keyHash)
  *      Otherwise, return false.
  */
 bool
-TableManager::getIndexletInfoByIndexletTableId(uint64_t indexletTableId,
-        ProtoBuf::Indexlets::Indexlet& indexlet)
+TableManager::getIndexletInfoBybackingTableId(uint64_t backingTableId,
+        ProtoBuf::Indexlet& indexlet)
 {
     Lock lock(mutex);
-    IndexletTableMap::iterator it = indexletTableMap.find(indexletTableId);
+    IndexletTableMap::iterator it = indexletTableMap.find(backingTableId);
     if (it == indexletTableMap.end())
         return false;
 
@@ -376,7 +376,7 @@ TableManager::getIndexletInfoByIndexletTableId(uint64_t indexletTableId,
         indexlet.set_first_not_owned_key("");
     indexlet.set_table_id(it->second->tableId);
     indexlet.set_index_id(it->second->indexId);
-    indexlet.set_indexlet_table_id(it->second->indexletTableId);
+    indexlet.set_indexlet_table_id(it->second->backingTableId);
     indexlet.set_server_id(it->second->serverId.getId());
     return true;
 }
@@ -401,7 +401,7 @@ TableManager::getIndexletInfoByIndexletTableId(uint64_t indexletTableId,
  *      Length of firstNotOwnedKey.
  * \param serverId
  *      Indexlet is updated to indicate that it is owned by \a serverId.
- * \param indexletTableId
+ * \param backingTableId
  *      Id of table which store B+tree of this indexlet.
  */
 void
@@ -409,7 +409,7 @@ TableManager::indexletRecovered(
         uint64_t tableId, uint8_t indexId, void* firstKey,
         uint16_t firstKeyLength, void* firstNotOwnedKey,
         uint16_t firstNotOwnedKeyLength, ServerId serverId,
-        uint64_t indexletTableId)
+        uint64_t backingTableId)
 {
     Lock lock(mutex);
 
@@ -432,7 +432,7 @@ TableManager::indexletRecovered(
                    firstNotOwnedKeyLength) == 0))
         {
             indexlet->serverId = serverId;
-            indexlet->indexletTableId = indexletTableId;
+            indexlet->backingTableId = backingTableId;
             foundIndexlet = 1;
             LOG(NOTICE, "found indexlet and changed its server id to %s",
                 serverId.toString().c_str());
@@ -987,7 +987,7 @@ TableManager::dropIndex(const Lock& lock, uint64_t tableId, uint8_t indexId)
 
     Index* index = table->indexMap[indexId];
     foreach (Indexlet* indexlet, index->indexlets) {
-        indexletTableMap.erase(indexlet->indexletTableId);
+        indexletTableMap.erase(indexlet->backingTableId);
     }
 
     uint8_t numIndexlets = (uint8_t)index->indexlets.size();
@@ -1144,7 +1144,7 @@ TableManager::notifyCreateIndex(const Lock& lock, Index* index)
                         "to master %s", index->tableId, index->indexId,
                         indexlet->serverId.toString().c_str());
             MasterClient::takeIndexletOwnership(context, indexlet->serverId,
-                index->tableId, index->indexId, indexlet->indexletTableId,
+                index->tableId, index->indexId, indexlet->backingTableId,
                 indexlet->firstKey, indexlet->firstKeyLength,
                 indexlet->firstNotOwnedKey, indexlet->firstNotOwnedKeyLength);
         } catch (ServerNotUpException& e) {

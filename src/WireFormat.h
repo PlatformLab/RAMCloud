@@ -1482,7 +1482,7 @@ struct TakeIndexletOwnership {
         uint64_t tableId;                   // Id of table to which the index
                                             // belongs.
         uint8_t indexId;                    // Type of index.
-        uint64_t indexletTableId;           // Id of the table that will hold
+        uint64_t backingTableId;           // Id of the table that will hold
                                             // objects for this indexlet.
         uint16_t firstKeyLength;            // Length of fistKey in bytes.
         uint16_t firstNotOwnedKeyLength;    // Length of firstNotOwnedKey in

@@ -1989,7 +1989,7 @@ TEST_F(MasterServiceTest, recover_basic_indexlet) {
 
     ProtoBuf::RecoveryPartition recoveryPartition;
     createRecoveryPartition(recoveryPartition);
-    ProtoBuf::Indexlets::Indexlet& entry = *recoveryPartition.add_indexlet();
+    ProtoBuf::Indexlet& entry = *recoveryPartition.add_indexlet();
     entry.set_table_id(123);
     entry.set_index_id(4);
     entry.set_indexlet_table_id(0);

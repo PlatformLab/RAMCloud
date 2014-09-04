@@ -41,75 +41,75 @@ namespace RAMCloud {
 class CoordinatorService : public Service {
   public:
     explicit CoordinatorService(Context* context,
-                                uint32_t deadServerTimeout,
-                                bool startRecoveryManager = true,
-                                uint32_t maxThreads = 1);
+            uint32_t deadServerTimeout,
+            bool startRecoveryManager = true,
+            uint32_t maxThreads = 1);
     ~CoordinatorService();
     void dispatch(WireFormat::Opcode opcode,
-                  Rpc* rpc);
+            Rpc* rpc);
     RuntimeOptions *getRuntimeOptionsFromCoordinator();
     int maxThreads() { return threadLimit; }
 
   PRIVATE:
     // - rpc handlers -
     void createTable(const WireFormat::CreateTable::Request* reqHdr,
-                     WireFormat::CreateTable::Response* respHdr,
-                     Rpc* rpc);
+            WireFormat::CreateTable::Response* respHdr,
+            Rpc* rpc);
     void dropTable(const WireFormat::DropTable::Request* reqHdr,
-                   WireFormat::DropTable::Response* respHdr,
-                   Rpc* rpc);
+            WireFormat::DropTable::Response* respHdr,
+            Rpc* rpc);
     void createIndex(const WireFormat::CreateIndex::Request* reqHdr,
-                     WireFormat::CreateIndex::Response* respHdr,
-                     Rpc* rpc);
+            WireFormat::CreateIndex::Response* respHdr,
+            Rpc* rpc);
     void dropIndex(const WireFormat::DropIndex::Request* reqHdr,
-                   WireFormat::DropIndex::Response* respHdr,
-                   Rpc* rpc);
+            WireFormat::DropIndex::Response* respHdr,
+            Rpc* rpc);
     void splitTablet(const WireFormat::SplitTablet::Request* reqHdr,
-                   WireFormat::SplitTablet::Response* respHdr,
-                   Rpc* rpc);
+            WireFormat::SplitTablet::Response* respHdr,
+            Rpc* rpc);
     void getRuntimeOption(const WireFormat::GetRuntimeOption::Request* reqHdr,
-                    WireFormat::GetRuntimeOption::Response* respHdr,
-                    Rpc* rpc);
+            WireFormat::GetRuntimeOption::Response* respHdr,
+            Rpc* rpc);
     void getTableId(const WireFormat::GetTableId::Request* reqHdr,
-                    WireFormat::GetTableId::Response* respHdr,
-                    Rpc* rpc);
+            WireFormat::GetTableId::Response* respHdr,
+            Rpc* rpc);
     void enlistServer(const WireFormat::EnlistServer::Request* reqHdr,
-                      WireFormat::EnlistServer::Response* respHdr,
-                      Rpc* rpc);
+            WireFormat::EnlistServer::Response* respHdr,
+            Rpc* rpc);
     void getServerList(const WireFormat::GetServerList::Request* reqHdr,
-                       WireFormat::GetServerList::Response* respHdr,
-                       Rpc* rpc);
+            WireFormat::GetServerList::Response* respHdr,
+            Rpc* rpc);
     void getTableConfig(const WireFormat::GetTableConfig::Request* reqHdr,
-                      WireFormat::GetTableConfig::Response* respHdr,
-                      Rpc* rpc);
+            WireFormat::GetTableConfig::Response* respHdr,
+            Rpc* rpc);
     void hintServerCrashed(const WireFormat::HintServerCrashed::Request* reqHdr,
-                        WireFormat::HintServerCrashed::Response* respHdr,
-                        Rpc* rpc);
+            WireFormat::HintServerCrashed::Response* respHdr,
+            Rpc* rpc);
     void recoveryMasterFinished(
             const WireFormat::RecoveryMasterFinished::Request* reqHdr,
             WireFormat::RecoveryMasterFinished::Response* respHdr,
             Rpc* rpc);
     void quiesce(const WireFormat::BackupQuiesce::Request* reqHdr,
-                 WireFormat::BackupQuiesce::Response* respHdr,
-                 Rpc* rpc);
+            WireFormat::BackupQuiesce::Response* respHdr,
+            Rpc* rpc);
     void reassignTabletOwnership(
             const WireFormat::ReassignTabletOwnership::Request* reqHdr,
             WireFormat::ReassignTabletOwnership::Response* respHdr,
             Rpc* rpc);
     void setRuntimeOption(const WireFormat::SetRuntimeOption::Request* reqHdr,
-                          WireFormat::SetRuntimeOption::Response* respHdr,
-                          Rpc* rpc);
+            WireFormat::SetRuntimeOption::Response* respHdr,
+            Rpc* rpc);
     void setMasterRecoveryInfo(
-        const WireFormat::SetMasterRecoveryInfo::Request* reqHdr,
-        WireFormat::SetMasterRecoveryInfo::Response* respHdr,
-        Rpc* rpc);
+            const WireFormat::SetMasterRecoveryInfo::Request* reqHdr,
+            WireFormat::SetMasterRecoveryInfo::Response* respHdr,
+            Rpc* rpc);
     void verifyMembership(
-        const WireFormat::VerifyMembership::Request* reqHdr,
-        WireFormat::VerifyMembership::Response* respHdr,
-        Rpc* rpc);
+            const WireFormat::VerifyMembership::Request* reqHdr,
+            WireFormat::VerifyMembership::Response* respHdr,
+            Rpc* rpc);
     void serverControlAll(const WireFormat::ServerControlAll::Request* reqHdr,
-                          WireFormat::ServerControlAll::Response* respHdr,
-                          Rpc* rpc);
+            WireFormat::ServerControlAll::Response* respHdr,
+            Rpc* rpc);
 
     // - helper methods -
 

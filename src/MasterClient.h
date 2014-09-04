@@ -72,7 +72,7 @@ class MasterClient {
     static void takeTabletOwnership(Context* context, ServerId id,
             uint64_t tableId, uint64_t firstKeyHash, uint64_t lastKeyHash);
     static void takeIndexletOwnership(Context* context, ServerId id,
-            uint64_t tableId, uint8_t indexId, uint64_t indexletTableId,
+            uint64_t tableId, uint8_t indexId, uint64_t backingTableId,
             const void *firstKey, uint16_t firstKeyLength,
             const void *firstNotOwnedKey, uint16_t firstNotOwnedKeyLength);
     static void dropIndexletOwnership(Context* context, ServerId id,
@@ -274,7 +274,7 @@ class TakeTabletOwnershipRpc : public ServerIdRpcWrapper {
 class TakeIndexletOwnershipRpc : public ServerIdRpcWrapper {
   public:
     TakeIndexletOwnershipRpc(Context* context, ServerId id, uint64_t tableId,
-            uint8_t indexId, uint64_t indexletTableId, const void *firstKey,
+            uint8_t indexId, uint64_t backingTableId, const void *firstKey,
             uint16_t firstKeyLength, const void *firstNotOwnedKey,
             uint16_t firstNotOwnedKeyLength);
     ~TakeIndexletOwnershipRpc() {}

@@ -78,12 +78,12 @@ class TableManager {
     void dropTable(const char* name);
     uint64_t getTableId(const char* name);
     Tablet getTablet(uint64_t tableId, uint64_t keyHash);
-    bool getIndexletInfoByIndexletTableId(uint64_t indexletTableId,
-            ProtoBuf::Indexlets::Indexlet& indexletInfo);
+    bool getIndexletInfoBybackingTableId(uint64_t backingTableId,
+            ProtoBuf::Indexlet& indexletInfo);
     void indexletRecovered(uint64_t tableId, uint8_t indexId,
             void* firstKey, uint16_t firstKeyLength,
             void* firstNotOwnedKey, uint16_t firstNotOwnedKeyLength,
-            ServerId serverId, uint64_t indexletTableId);
+            ServerId serverId, uint64_t backingTableId);
     bool isIndexletTable(uint64_t tableId);
     vector<Tablet> markAllTabletsRecovering(ServerId serverId);
     void reassignTabletOwnership(ServerId newOwner, uint64_t tableId,
@@ -111,12 +111,12 @@ class TableManager {
         public:
         Indexlet(const void *firstKey, uint16_t firstKeyLength,
                 const void *firstNotOwnedKey, uint16_t firstNotOwnedKeyLength,
-                ServerId serverId, uint64_t indexletTableId,
+                ServerId serverId, uint64_t backingTableId,
                 uint64_t tableId, uint8_t indexId)
             : RAMCloud::Indexlet(firstKey, firstKeyLength, firstNotOwnedKey,
                        firstNotOwnedKeyLength)
             , serverId(serverId)
-            , indexletTableId(indexletTableId)
+            , backingTableId(backingTableId)
             , tableId(tableId)
             , indexId(indexId)
         {}
@@ -124,7 +124,7 @@ class TableManager {
         Indexlet(const Indexlet& indexlet)
             : RAMCloud::Indexlet(indexlet)
             , serverId(indexlet.serverId)
-            , indexletTableId(indexlet.indexletTableId)
+            , backingTableId(indexlet.backingTableId)
             , tableId(indexlet.tableId)
             , indexId(indexlet.indexId)
         {}
@@ -134,7 +134,7 @@ class TableManager {
 
         /// The id of the backing table for the indexlet that is stored
         /// on the server with id serverId.
-        uint64_t indexletTableId;
+        uint64_t backingTableId;
 
         /// The id of the owning table
         uint64_t tableId;
