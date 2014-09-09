@@ -2634,13 +2634,8 @@ writeDist()
     
     // Dump both time and cache traces. This amounts to almost a no-op if there
     // are no traces, and we do not currently expect traces in production code.
-//    cluster->objectServerControl(dataTable, key, keyLength,
-//            WireFormat::LOG_TIME_TRACE);
-//    cluster->objectServerControl(dataTable, key, keyLength,
-//            WireFormat::LOG_CACHE_TRACE);
     cluster->serverControlAll(WireFormat::LOG_TIME_TRACE);
     cluster->serverControlAll(WireFormat::LOG_CACHE_TRACE);
-
 
     // Dump client side time trace
     cluster->clientContext->timeTrace->printToLog();
@@ -2659,6 +2654,63 @@ writeDist()
         printf("%.2f", micros);
         valuesInLine++;
         start = ticks[i];
+    }
+    printf("\n");
+}
+
+// Write or overwrite randomly-chosen objects from a large table (so that there
+// will be cache misses on the hash table and the object) and compute a
+// cumulative distribution of write times.
+//
+// TODO: Decide whether this should be purely overwrites or whether a mix
+// (current) is okay.
+void
+writeDistRandom()
+{
+    int numKeys = 2000000;
+    if (clientIndex != 0)
+        return;
+
+    const uint16_t keyLength = 30;
+
+    char key[keyLength];
+    char value[objectSize];
+
+    // Issue the writes back-to-back, and save the times.
+    std::vector<uint64_t> ticks;
+    ticks.resize(count);
+    for (int i = 0; i < count; i++) {
+        // We generate the random number separately to avoid timing potential
+        // cache misses on the client side.
+        memset(key, 0, keyLength);
+        *reinterpret_cast<uint64_t*>(&key) = generateRandom() % numKeys;
+        genRandomString(value, objectSize);
+        // Do the benchmark
+        uint64_t start = Cycles::rdtsc();
+        cluster->write(dataTable, key, keyLength, value, objectSize);
+        ticks[i] = Cycles::rdtsc() - start;
+    }
+
+    // Dump cache traces. This amounts to almost a no-op if there are no
+    // traces, and we do not currently expect traces in production code.
+    cluster->objectServerControl(dataTable, key, keyLength,
+            WireFormat::LOG_TIME_TRACE);
+    cluster->objectServerControl(dataTable, key, keyLength,
+            WireFormat::LOG_CACHE_TRACE);
+
+    // Output the times (several comma-separated values on each line).
+    int valuesInLine = 0;
+    for (int i = 0; i < count; i++) {
+        if (valuesInLine >= 10) {
+            valuesInLine = 0;
+            printf("\n");
+        }
+        if (valuesInLine != 0) {
+            printf(",");
+        }
+        double micros = Cycles::toSeconds(ticks[i])*1.0e06;
+        printf("%.2f", micros);
+        valuesInLine++;
     }
     printf("\n");
 }
@@ -3403,6 +3455,7 @@ TestInfo tests[] = {
     {"writeVaryingKeyLength", writeVaryingKeyLength},
     {"writeAsyncSync", writeAsyncSync},
     {"writeDist", writeDist},
+    {"writeDistRandom", writeDistRandom},
 };
 
 int

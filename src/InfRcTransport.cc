@@ -1276,8 +1276,11 @@ InfRcTransport::Poller::poll()
                 metrics->transport.receive.ticks += receiveTicks.stop();
                 rpc.notifier->completed();
                 if (rpc.notifier->timeTrace) rpc.notifier->timeTrace->record("Client has started polling completion queue!", topOfPoll);
+                else TRACED("Server has started polling completion queue for responses!", topOfPoll);
                 if (rpc.notifier->timeTrace) rpc.notifier->timeTrace->record("Client has received a response!", gotResponse);
+                else TRACED("Server has received a response!", gotResponse);
                 if (rpc.notifier->timeTrace) rpc.notifier->timeTrace->record("Client notifier->completed() called!");
+                else TRACE("Server notifier->completed() called!");
                 t->clientRpcPool.destroy(&rpc);
                 if (t->outstandingRpcs.empty())
                     t->clientRpcsActiveTime.destroy();
