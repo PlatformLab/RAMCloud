@@ -229,6 +229,72 @@ genRandomString(char* str, const int length) {
 }
 
 /**
+ * Initialize the dataTable with sequential keys and random values.
+ * 
+ * \param keyLength
+ *      The size of each key in bytes.
+ * \param numKeys
+ *      Pointer to the key count, which can be modified if the filling
+ *      operation takes too long.
+ * */
+void initializeRandomTable(const uint16_t keyLength, int* numKeys) {
+    // Initialize keys and values
+    #define BATCH_SIZE 500
+    MultiWriteObject** objects = new MultiWriteObject*[BATCH_SIZE];
+    char* keys = new char[BATCH_SIZE * keyLength];
+    memset(keys, 0, BATCH_SIZE * keyLength);
+
+    char* charValues = new char[BATCH_SIZE * objectSize];
+    memset(charValues, 0, BATCH_SIZE * objectSize);
+
+    int i, j;
+    uint64_t stopTime = Cycles::rdtsc() + Cycles::fromSeconds(10.0);
+    for (i = 0; i < *numKeys; i++) {
+        if (Cycles::rdtsc() >= stopTime) {
+            // Limit the amount of time we spend filling the table, so the
+            // test doesn't time out.
+            *numKeys = i;
+            LOG(NOTICE, "Limiting object count to %d", *numKeys);
+            break;
+        }
+        j = i % BATCH_SIZE;
+
+        char* key = keys + j * keyLength;
+        char* value = charValues + j * objectSize;
+        *reinterpret_cast<uint64_t*>(key) = i;
+        genRandomString(value, objectSize);
+        objects[j] = new MultiWriteObject(dataTable, key, keyLength, value,
+                objectSize);
+
+        // Do the write and recycle the objects
+        if (j == BATCH_SIZE - 1) {
+            cluster->multiWrite(objects, BATCH_SIZE);
+
+            // Clean up the actual MultiWriteObjects
+            for (int k = 0; k < BATCH_SIZE; k++)
+                delete objects[k];
+
+            memset(keys, 0, BATCH_SIZE * keyLength);
+            memset(charValues, 0, BATCH_SIZE * objectSize);
+        }
+    }
+
+    // Do the last partial batch and clean up, if it exists.
+    j = i % BATCH_SIZE;
+    if (j < BATCH_SIZE - 1) {
+        cluster->multiWrite(objects, static_cast<uint32_t>(j));
+
+        // Clean up the actual MultiWriteObjects
+        for (int k = 0; k < j; k++)
+            delete objects[k];
+    }
+
+    delete[] keys;
+    delete[] charValues;
+    delete[] objects;
+}
+
+/**
  * Print a performance measurement consisting of a time value.
  *
  * \param name
@@ -2661,9 +2727,6 @@ writeDist()
 // Write or overwrite randomly-chosen objects from a large table (so that there
 // will be cache misses on the hash table and the object) and compute a
 // cumulative distribution of write times.
-//
-// TODO: Decide whether this should be purely overwrites or whether a mix
-// (current) is okay.
 void
 writeDistRandom()
 {
@@ -2675,6 +2738,8 @@ writeDistRandom()
 
     char key[keyLength];
     char value[objectSize];
+
+    initializeRandomTable(keyLength, &numKeys);  
 
     // Issue the writes back-to-back, and save the times.
     std::vector<uint64_t> ticks;
@@ -2776,6 +2841,7 @@ readDist()
     printf("\n");
 }
 
+
 // Read randomly-chosen objects from a large table (so that there will be cache
 // misses on the hash table and the object) and compute a cumulative
 // distribution of read times.
@@ -2783,7 +2849,6 @@ void
 readDistRandom()
 {
     int numKeys = 2000000;
-    #define BATCH_SIZE 500
     if (clientIndex != 0)
         return;
 
@@ -2792,60 +2857,9 @@ readDistRandom()
     char key[keyLength];
     Buffer input, value;
 
-    // Initialize keys and values
-    MultiWriteObject** objects = new MultiWriteObject*[BATCH_SIZE];
-    char* keys = new char[BATCH_SIZE * keyLength];
-    memset(keys, 0, BATCH_SIZE * keyLength);
-
-    char* charValues = new char[BATCH_SIZE * objectSize];
-    memset(charValues, 0, BATCH_SIZE * objectSize);
-
-    int i, j;
-    uint64_t stopTime = Cycles::rdtsc() + Cycles::fromSeconds(10.0);
-    for (i = 0; i < numKeys; i++) {
-        if (Cycles::rdtsc() >= stopTime) {
-            // Limit the amount of time we spend filling the table, so the
-            // test doesn't time out.
-            numKeys = i;
-            LOG(NOTICE, "Limiting object count to %d", numKeys);
-            break;
-        }
-        j = i % BATCH_SIZE;
-
-        char* key = keys + j * keyLength;
-        char* value = charValues + j * objectSize;
-        *reinterpret_cast<uint64_t*>(key) = i;
-        genRandomString(value, objectSize);
-        objects[j] = new MultiWriteObject(dataTable, key, keyLength, value,
-                objectSize);
-
-        // Do the write and recycle the objects
-        if (j == BATCH_SIZE - 1) {
-            cluster->multiWrite(objects, BATCH_SIZE);
-
-            // Clean up the actual MultiWriteObjects
-            for (int k = 0; k < BATCH_SIZE; k++)
-                delete objects[k];
-
-            memset(keys, 0, BATCH_SIZE * keyLength);
-            memset(charValues, 0, BATCH_SIZE * objectSize);
-        }
-    }
-
-    // Do the last partial batch and clean up, if it exists.
-    j = i % BATCH_SIZE;
-    if (j < BATCH_SIZE - 1) {
-        cluster->multiWrite(objects, static_cast<uint32_t>(j));
-
-        // Clean up the actual MultiWriteObjects
-        for (int k = 0; k < j; k++)
-            delete objects[k];
-    }
-
-    delete[] keys;
-    delete[] charValues;
-    delete[] objects;
-
+    
+    initializeRandomTable(keyLength, &numKeys);  
+   
     // Force serialization so that writing interferes less with the read
     // benchmark.
     Util::serialize();
