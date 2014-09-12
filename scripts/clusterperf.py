@@ -365,8 +365,8 @@ def readThroughput(name, options, cluster_args, client_args):
     print(get_client_log(), end='')
 
 def writeDist(name, options, cluster_args, client_args):
-    if 'master_args' not in cluster_args:
-        cluster_args['master_args'] = '-t 2000'
+#    if 'master_args' not in cluster_args:
+#        cluster_args['master_args'] = '-t 2000'
     cluster_args['disjunct'] = True
     cluster.run(client='%s/ClusterPerf %s %s' %
             (obj_path,  flatten_args(client_args), name),

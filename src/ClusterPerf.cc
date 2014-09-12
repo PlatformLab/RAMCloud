@@ -268,7 +268,9 @@ void initializeRandomTable(const uint16_t keyLength, int* numKeys) {
 
         // Do the write and recycle the objects
         if (j == BATCH_SIZE - 1) {
+            printf("Issuing a particular multiwrite\n");
             cluster->multiWrite(objects, BATCH_SIZE);
+            printf("Finished a particular multiwrite\n");
 
             // Clean up the actual MultiWriteObjects
             for (int k = 0; k < BATCH_SIZE; k++)
@@ -292,6 +294,7 @@ void initializeRandomTable(const uint16_t keyLength, int* numKeys) {
     delete[] keys;
     delete[] charValues;
     delete[] objects;
+    #undef BATCH_SIZE
 }
 
 /**
@@ -2739,45 +2742,48 @@ writeDistRandom()
     char key[keyLength];
     char value[objectSize];
 
+    printf("About to initialize random table using multiWrite\n");
     initializeRandomTable(keyLength, &numKeys);  
+    printf("Finished initialize random table using multiWrite\n");
 
-    // Issue the writes back-to-back, and save the times.
-    std::vector<uint64_t> ticks;
-    ticks.resize(count);
-    for (int i = 0; i < count; i++) {
-        // We generate the random number separately to avoid timing potential
-        // cache misses on the client side.
-        memset(key, 0, keyLength);
-        *reinterpret_cast<uint64_t*>(&key) = generateRandom() % numKeys;
-        genRandomString(value, objectSize);
-        // Do the benchmark
-        uint64_t start = Cycles::rdtsc();
-        cluster->write(dataTable, key, keyLength, value, objectSize);
-        ticks[i] = Cycles::rdtsc() - start;
-    }
-
-    // Dump cache traces. This amounts to almost a no-op if there are no
-    // traces, and we do not currently expect traces in production code.
-    cluster->objectServerControl(dataTable, key, keyLength,
-            WireFormat::LOG_TIME_TRACE);
-    cluster->objectServerControl(dataTable, key, keyLength,
-            WireFormat::LOG_CACHE_TRACE);
-
-    // Output the times (several comma-separated values on each line).
-    int valuesInLine = 0;
-    for (int i = 0; i < count; i++) {
-        if (valuesInLine >= 10) {
-            valuesInLine = 0;
-            printf("\n");
-        }
-        if (valuesInLine != 0) {
-            printf(",");
-        }
-        double micros = Cycles::toSeconds(ticks[i])*1.0e06;
-        printf("%.2f", micros);
-        valuesInLine++;
-    }
-    printf("\n");
+//    // Issue the writes back-to-back, and save the times.
+//    std::vector<uint64_t> ticks;
+//    ticks.resize(count);
+//    for (int i = 0; i < count; i++) {
+//        // We generate the random number separately to avoid timing potential
+//        // cache misses on the client side.
+//        memset(key, 0, keyLength);
+//        *reinterpret_cast<uint64_t*>(&key) = generateRandom() % numKeys;
+//        genRandomString(value, objectSize);
+//        // Do the benchmark
+//        uint64_t start = Cycles::rdtsc();
+//        cluster->write(dataTable, key, keyLength, value, objectSize);
+//        ticks[i] = Cycles::rdtsc() - start;
+//    }
+//
+//    // Dump both time and cache traces. This amounts to almost a no-op if there
+//    // are no traces, and we do not currently expect traces in production code.
+//    cluster->serverControlAll(WireFormat::LOG_TIME_TRACE);
+//    cluster->serverControlAll(WireFormat::LOG_CACHE_TRACE);
+//    
+//    // Dump client side time trace
+//    cluster->clientContext->timeTrace->printToLog();
+//
+//    // Output the times (several comma-separated values on each line).
+//    int valuesInLine = 0;
+//    for (int i = 0; i < count; i++) {
+//        if (valuesInLine >= 10) {
+//            valuesInLine = 0;
+//            printf("\n");
+//        }
+//        if (valuesInLine != 0) {
+//            printf(",");
+//        }
+//        double micros = Cycles::toSeconds(ticks[i])*1.0e06;
+//        printf("%.2f", micros);
+//        valuesInLine++;
+//    }
+//    printf("\n");
 }
 
 // Read a single object many times, and compute a cumulative distribution

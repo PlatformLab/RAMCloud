@@ -330,8 +330,10 @@ extern Context *globalServerContext;
 // #define TRACED(exp, t)
 //     if (globalServerContext) globalServerContext->cacheTrace->record(exp, t);
 
-// #define TRACE(exp)
-// #define TRACED(exp, t)
+#undef TRACE
+#undef TRACED
+#define TRACE(exp) { ; }
+#define TRACED(exp, t) { ; }
 
 } // end RAMCloud
 #endif // RAMCLOUD_COMMON_H

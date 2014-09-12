@@ -93,6 +93,7 @@
 #include "ShortMacros.h"
 #include "PerfCounter.h"
 #include "TimeTrace.h"
+#include "Util.h"
 
 #define check_error_null(x, s)                              \
     do {                                                    \
@@ -1015,7 +1016,10 @@ InfRcTransport::sendZeroCopy(Buffer* message, QueuePair* qp, TimeTrace* trace, b
         if (ibv_post_send(qp->qp, &txWorkRequest, &badTxWorkRequest)) {
             throw TransportException(HERE, "ibv_post_send failed");
         }
-        if (trace) trace->record("Client finished calling ibv_post_send");
+        if (trace) {
+//            Util::serialize();
+            trace->record("Client finished calling ibv_post_send");
+        }
         else if (isResponseToClient)  TRACE("Server finished calling ibv_post_send");
     } else {
         for (int i = 0; i < txWorkRequest.num_sge; ++i) {
