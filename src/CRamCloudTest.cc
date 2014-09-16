@@ -133,6 +133,107 @@ TEST_F(CRamCloudTest, rc_dropTable) {
     EXPECT_EQ(STATUS_TABLE_DOESNT_EXIST, status);
 }
 
+TEST_F(CRamCloudTest, rc_enumerateTable_basics) {
+    ramcloud->write(tableId1, "0", 1, "0000", 4);
+    ramcloud->write(tableId1, "1", 1, "0001", 4);
+    ramcloud->write(tableId1, "2", 1, "0002", 4);
+    ramcloud->write(tableId1, "3", 1, "0003", 4);
+    ramcloud->write(tableId1, "4", 1, "0004", 4);
+    // Write some objects into other tables to make sure they are not returned.
+    ramcloud->write(tableId2, "5", 1, "0005", 4);
+    ramcloud->write(tableId3, "6", 1, "0006", 4);
+
+    void *enumerationState = NULL;
+    rc_enumerateTablePrepare(client, tableId1, false, &enumerationState);
+    EXPECT_TRUE(enumerationState != NULL);
+
+    uint32_t keyLen, dataLen;
+    const void *key, *data;
+    unsigned nObjects = 0;
+    while (true) {
+        // Reset output variables
+        keyLen = dataLen = 0;
+        key = data = NULL;
+
+        status = rc_enumerateTableNext(client, enumerationState,
+            &keyLen, &key, &dataLen, &data);
+        EXPECT_EQ(status, STATUS_OK);
+        if (key == NULL) {
+            break;
+        }
+        EXPECT_EQ(keyLen, uint32_t(1));
+        EXPECT_EQ(dataLen, uint32_t(4));
+        EXPECT_EQ(reinterpret_cast<const char *>(key)[0],
+                  reinterpret_cast<const char *>(data)[3]);
+        nObjects++;
+    }
+    EXPECT_EQ(nObjects, unsigned(5));
+
+    rc_enumerateTableFinalize(enumerationState);
+}
+
+TEST_F(CRamCloudTest, rc_enumerateTable_empty) {
+    uint64_t tableIdEmpty = ramcloud->createTable("tableEmpty");
+
+    void *enumerationState = NULL;
+    rc_enumerateTablePrepare(client, tableIdEmpty, false, &enumerationState);
+    EXPECT_TRUE(enumerationState != NULL);
+
+    uint32_t keyLen, dataLen;
+    const void *key, *data;
+    status = rc_enumerateTableNext(client, enumerationState,
+        &keyLen, &key, &dataLen, &data);
+    EXPECT_EQ(status, STATUS_OK);
+    EXPECT_TRUE(key == NULL);
+
+    rc_enumerateTableFinalize(enumerationState);
+}
+
+TEST_F(CRamCloudTest, rc_enumerateTable_noop) {
+    void *enumerationState = NULL;
+    rc_enumerateTablePrepare(client, tableId1, false, &enumerationState);
+    EXPECT_TRUE(enumerationState != NULL);
+    rc_enumerateTableFinalize(enumerationState);
+}
+
+TEST_F(CRamCloudTest, rc_enumerateTable_keysOnly) {
+    ramcloud->write(tableId1, "0", 1, "0000", 4);
+
+    void *enumerationState = NULL;
+    rc_enumerateTablePrepare(client, tableId1, true, &enumerationState);
+    EXPECT_TRUE(enumerationState != NULL);
+
+    uint32_t keyLen, dataLen;
+    const void *key, *data;
+    // Initialize object parameters non-zero to ensure it is set to zero by
+    // rc_enumerateTableNext/
+    data = this;
+    dataLen = 1;
+    status = rc_enumerateTableNext(client, enumerationState,
+        &keyLen, &key, &dataLen, &data);
+    EXPECT_EQ(status, STATUS_OK);
+    EXPECT_EQ(keyLen, uint32_t(1));
+    EXPECT_EQ(string(reinterpret_cast<const char *>(key), 1), "0");
+    EXPECT_EQ(dataLen, uint32_t(0));
+    EXPECT_TRUE(data == NULL);
+
+    rc_enumerateTableFinalize(enumerationState);
+}
+
+TEST_F(CRamCloudTest, rc_enumerateTable_tableDoesntExist) {
+    void *enumerationState = NULL;
+    rc_enumerateTablePrepare(client, -1, false, &enumerationState);
+    EXPECT_TRUE(enumerationState != NULL);
+
+    uint32_t keyLen, dataLen;
+    const void *key, *data;
+    status = rc_enumerateTableNext(client, enumerationState,
+        &keyLen, &key, &dataLen, &data);
+    EXPECT_EQ(status, STATUS_TABLE_DOESNT_EXIST);
+
+    rc_enumerateTableFinalize(enumerationState);
+}
+
 TEST_F(CRamCloudTest, rc_getTableId) {
     uint64_t tableId = 0;
     status = rc_getTableId(client, "bogusTable", &tableId);

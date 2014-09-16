@@ -22,6 +22,7 @@
 #include "CRamCloud.h"
 #include "ClientException.h"
 #include "Logger.h"
+#include "TableEnumerator.h"
 
 using namespace RAMCloud;
 
@@ -175,6 +176,103 @@ rc_dropTable(struct rc_client* client, const char* name)
     }
 
     return STATUS_OK;
+}
+
+/**
+ * Initiates an enumeration state that is used subsequently by
+ * rc_enumerationTableNext to list the keys and objects of a table.  The 
+ * enumeration state encapsulates a TableEnumeration object.  The resources
+ * allocated for this state have to be released by a call to 
+ * rc_enumerateTableFinalize.
+ * 
+ * \param client
+ *      Handle for the RAMCloud connection.
+ * \param tableId
+ *      The table that should be enumerated (return value from a previous call
+ *      to getTableId).
+ * \param keysOnly
+ *      When true, objects' data are not transmitted and rc_enumerationTableNext
+ *      returns NULL values for object data.
+ * \param[out] enumerationState
+ *      The enumeration state can be passed to rc_enumerationTableNext and 
+ *      rc_enumerationTableFinalize.
+ */
+void
+rc_enumerateTablePrepare(
+    struct rc_client* client,
+    uint64_t tableId,
+    int keysOnly,
+    void **enumerationState)
+{
+    RAMCloud::TableEnumerator *tableEnumerator =
+        new RAMCloud::TableEnumerator(*client->client, tableId, keysOnly);
+    *enumerationState = tableEnumerator;
+}
+
+/**
+ * Runs one step of table enumeration and returns one more key-value pair, if
+ * any.  This function is typically repeatedly called in a loop.  If the pointer
+ * to the key returns NULL, it indicates that there are no more objects.
+ * 
+ * \param client
+ *      Handle for the RAMCloud connection.
+ * \param enumerationState
+ *      The returned pointer from a call to rc_enumerateTablePrepare.
+ * \param[out] keyLength
+ *      The size in bytes of the next key.
+ * \param[out] key
+ *      Pointer to the variable sized key, or NULL if there are no more objects.
+ *      This pointer should _not_ be freed by the user.  It becomes invalid with
+ *      another call to one of the enumeration functions using the same
+ *      enumerationState.
+ * \param[out] dataLength
+ *      The size in bytes of the next object.  Always 0 if keysOnly has been set
+ *      true in rc_enumerateTablePrepare.
+ * \param[out] data
+ *      Pointer to the variable sized object.  Always NULL if keysOnly has been
+ *      set true in rc_enumerateTablePrepare. This pointer should _not_ be freed
+ *      by the user.  It becomes invalid with another call to one of the 
+ *      enumeration functions using the same enumerationState.
+ * \return
+ *      0 means success, anything else indicates an error.
+ */
+Status
+rc_enumerateTableNext(
+    struct rc_client* client,
+    void *enumerationState,
+    uint32_t* keyLength, const void** key,
+    uint32_t* dataLength, const void** data)
+{
+    RAMCloud::TableEnumerator *tableEnumerator =
+        reinterpret_cast<RAMCloud::TableEnumerator *>(enumerationState);
+    try {
+        tableEnumerator->nextKeyAndData(keyLength, key, dataLength, data);
+    } catch (ClientException& e) {
+        return e.status;
+    }
+    catch (std::exception& e) {
+        RAMCLOUD_LOG(ERROR, "An unhandled C++ Exception occurred: %s",
+                e.what());
+        return STATUS_INTERNAL_ERROR;
+    } catch (...) {
+        RAMCLOUD_LOG(ERROR, "An unknown, unhandled C++ Exception occurred");
+        return STATUS_INTERNAL_ERROR;
+    }
+
+    return STATUS_OK;
+}
+
+/**
+ * Releases the resources acquired by rc_enumerateTablePrepare. 
+ *
+ * \param enumerationState
+ *      The returned pointer returned from rc_enumerateTablePrepare becomes 
+ *      invalid as a result of this call.
+ */
+void rc_enumerateTableFinalize(void *enumerationState) {
+    RAMCloud::TableEnumerator *tableEnumerator =
+        reinterpret_cast<RAMCloud::TableEnumerator *>(enumerationState);
+    delete tableEnumerator;
 }
 
 /**

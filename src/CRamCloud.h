@@ -54,6 +54,18 @@ Status    rc_createTable(struct rc_client* client,
                          const char* name,
                          uint32_t serverSpan);
 Status    rc_dropTable(struct rc_client* client, const char* name);
+
+void      rc_enumerateTablePrepare(struct rc_client* client,
+                                   uint64_t tableId,
+                                   int keysOnly,
+                                   void **enumerationState);
+Status    rc_enumerateTableNext(struct rc_client* client,
+                                void *enumerationState,
+                                uint32_t* keyLength, const void** key,
+                                uint32_t* dataLength, const void** data);
+void      rc_enumerateTableFinalize(void *enumerationState);
+
+
 Status    rc_getStatus(struct rc_client* client);
 Status    rc_getTableId(struct rc_client* client, const char* name,
                             uint64_t* tableId);
