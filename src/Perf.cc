@@ -52,6 +52,7 @@
 #include "SpinLock.h"
 #include "ClientException.h"
 #include "PerfHelper.h"
+#include "Util.h"
 
 using namespace RAMCloud;
 
@@ -868,6 +869,17 @@ double segmentIterator()
     return time;
 }
 
+// Measure the cost of cpuid
+double serialize() {
+    int count = 1000000;
+    uint64_t start = Cycles::rdtsc();
+    for (int i = 0; i < count; i++) {
+        Util::serialize();
+    }
+    uint64_t stop = Cycles::rdtsc();
+    return Cycles::toSeconds(stop - start)/count;
+}
+
 // Measure the cost of incrementing and decrementing the reference count in
 // a SessionRef.
 double sessionRefCount()
@@ -1148,6 +1160,8 @@ TestInfo tests[] = {
     {"sessionRefCount", sessionRefCount,
      "Create/delete SessionRef"},
 #endif
+    {"serialize", serialize,
+     "cpuid instruction for serialize"},
     {"sfence", sfence,
      "Sfence instruction"},
     {"spinLock", spinLock,
