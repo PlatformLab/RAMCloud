@@ -21,6 +21,23 @@ namespace RAMCloud {
 namespace Util {
 
 /**
+ * Generate a random string.
+ *
+ * \param str
+ *      Pointer to location where the string generated will be stored.
+ * \param length
+ *      Length of the string to be generated in bytes.
+ */
+void
+genRandomString(char* str, const int length) {
+    static const char alphanum[] =
+        "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+    for (int i = 0; i < length; ++i) {
+        str[i] = alphanum[generateRandom() % (sizeof(alphanum) - 1)];
+    }
+}
+
+/**
  * Return (potentially multi-line) string hex dump of a binary buffer in
  * 'hexdump -C' style.
  * Note that this exceeds 80 characters due to 64-bit offsets.

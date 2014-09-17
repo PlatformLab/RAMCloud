@@ -211,23 +211,6 @@ void getDist(std::vector<uint64_t>& times, TimeDist* dist)
 }
 
 /**
- * Generate a random string.
- *
- * \param str
- *      Pointer to location where the string generated will be stored.
- * \param length
- *      Length of the string to be generated in bytes.
- */
-void
-genRandomString(char* str, const int length) {
-    static const char alphanum[] =
-        "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
-    for (int i = 0; i < length; ++i) {
-        str[i] = alphanum[generateRandom() % (sizeof(alphanum) - 1)];
-    }
-}
-
-/**
  * Print a performance measurement consisting of a time value.
  *
  * \param name
@@ -1317,7 +1300,7 @@ void fillTable(uint64_t tableId, int numObjects, uint16_t keyLength,
         char* key = &keys[j*keyLength];
         makeKey(i, keyLength, key);
         char* value = &values[j*valueLength];
-        genRandomString(value, valueLength);
+        Util::genRandomString(value, valueLength);
         objects[j] = buffer.emplaceAppend<MultiWriteObject>(tableId,
                 key, keyLength, value, valueLength);
 
@@ -1530,7 +1513,7 @@ doMultiRead(int dataLength, uint16_t keyLength,
 
     for (int tableNum = 0; tableNum < numMasters; tableNum++) {
         for (int i = 0; i < objsPerMaster; i++) {
-            genRandomString(keys[tableNum][i], keyLength);
+            Util::genRandomString(keys[tableNum][i], keyLength);
             fillBuffer(input, dataLength, tableIds[tableNum],
                     keys[tableNum][i], keyLength);
 
@@ -1618,7 +1601,7 @@ doMultiWrite(int dataLength, uint16_t keyLength,
 
     for (int tableNum = 0; tableNum < numMasters; tableNum++) {
         for (int i = 0; i < objsPerMaster; i++) {
-            genRandomString(keys[tableNum][i], keyLength);
+            Util::genRandomString(keys[tableNum][i], keyLength);
             fillBuffer(values[tableNum][i], dataLength,
                     tableIds[tableNum], keys[tableNum][i], keyLength);
 
@@ -2693,7 +2676,7 @@ readDistRandom()
         char* key = keys + j * keyLength;
         char* value = charValues + j * objectSize;
         *reinterpret_cast<uint64_t*>(key) = i;
-        genRandomString(value, objectSize);
+        Util::genRandomString(value, objectSize);
         objects[j] = new MultiWriteObject(dataTable, key, keyLength, value,
                 objectSize);
 
@@ -3180,7 +3163,7 @@ readVaryingKeyLength()
 
     foreach (uint16_t keyLength, keyLengths) {
         char key[keyLength];
-        genRandomString(key, keyLength);
+        Util::genRandomString(key, keyLength);
 
         fillBuffer(input, dataLength, dataTable, key, keyLength);
         cluster->write(dataTable, key, keyLength,
@@ -3218,7 +3201,7 @@ writeVaryingKeyLength()
 
     foreach (uint16_t keyLength, keyLengths) {
         char key[keyLength];
-        genRandomString(key, keyLength);
+        Util::genRandomString(key, keyLength);
 
         fillBuffer(input, dataLength, dataTable, key, keyLength);
         cluster->write(dataTable, key, keyLength,
