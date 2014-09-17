@@ -468,6 +468,18 @@ double functionCall()
     return Cycles::toSeconds(stop - start)/count;
 }
 
+// Measure the cost of generating a 100-byte random string.
+double genRandomString() {
+    int count = 100000;
+    char buffer[100];
+    uint64_t start = Cycles::rdtsc();
+    for (int i = 0; i < count; i++) {
+        Util::genRandomString(buffer, 100);
+    }
+    uint64_t stop = Cycles::rdtsc();
+    return Cycles::toSeconds(stop - start)/count;
+}
+
 // Measure the cost of calling ThreadId::get.
 double getThreadId()
 {
@@ -1122,6 +1134,8 @@ TestInfo tests[] = {
      "64-bit integer division instruction"},
     {"functionCall", functionCall,
      "Call a function that has not been inlined"},
+    {"genRandomString", genRandomString,
+     "Generate a random 100-byte value"},
     {"getThreadId", getThreadId,
      "Retrieve thread id via ThreadId::get"},
     {"hashTableLookup", hashTableLookup,
