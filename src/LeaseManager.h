@@ -27,10 +27,9 @@ class LeaseManager {
   PRIVATE:
     /**
      * The SafeValueUpdater maintains clientId and cluster time values on
-     * external storage that are guaranteed to be greater than value that this
-     * module has ever externalized to anyone, so that in the event of a
-     * coordinator crash, the new coordinator can ensure the uniquness property
-     * of clientIds and monotonic property of cluster time.
+     * external storage so that in the event of a coordinator crash, the new
+     * coordinator can ensure the uniqueness property of clientIds and monotonic
+     * property of cluster time. See largestInvalidClientId & safeClusterTimeMs.
      */
     class SafeValuesUpdater : public WorkerTimer {
       public:
@@ -73,20 +72,16 @@ class LeaseManager {
     /// largest cluster time that is safe to externalize (see "getTime()").
     uint64_t safeClusterTimeMs;
 
-    /// The last clientId stored in externalStorage. Represents the largest
-    /// clientId that is safe to issue.
-    uint64_t safeClientId;
+    /// Represents the largest clientId that was issued from this module.  The
+    /// module guarantees that no clientId will be issued more than once.  The
+    /// next clientId issued should be ++lastClientId.
+    uint64_t lastClientId;
 
-    /// The next client id should always be less that or equal to than the
-    /// safeClientId.  See issueCLientId().
-    uint64_t nextClientId;
-
-    /// The amount by which the safeClientId should be ahead of nextClientId.
-    /// This value should be larger than the number of client requests the
-    /// coordinator should be able to handle in the time it takes to perform an
-    /// external storage write (~10ms).  The value should also be much much
-    /// smaller than the max value.
-    static const uint64_t safeClientIdRange ;
+    /// This value is stored in externalStorage so that in the event of a
+    /// coordinator crash, the lastClientId can be recovered from this value and
+    /// all open leases.  This value must always be at least as large as the
+    /// largest clientId whose lease has expired.
+    uint64_t unsafeClientId;
 
     ///
     SafeValuesUpdater updater;
