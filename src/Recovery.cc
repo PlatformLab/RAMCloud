@@ -28,9 +28,9 @@
 namespace RAMCloud {
 
 /// Defines max number of bytes a tablet partition should accommodate.
-const uint64_t PARTITION_MAX_BYTES = 600*1024*1024;
+const uint64_t PARTITION_MAX_BYTES = 500*1024*1024;
 /// Defines the max number of records a tablet partition should accommodate.
-const uint64_t PARTITION_MAX_RECORDS = 3000000;
+const uint64_t PARTITION_MAX_RECORDS = 2000000;
 
 /**
  * Create a Recovery to manage the recovery of a crashed master.
