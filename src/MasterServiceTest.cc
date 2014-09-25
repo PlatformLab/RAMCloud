@@ -1992,7 +1992,7 @@ TEST_F(MasterServiceTest, recover_basic_indexlet) {
     ProtoBuf::Indexlet& entry = *recoveryPartition.add_indexlet();
     entry.set_table_id(123);
     entry.set_index_id(4);
-    entry.set_indexlet_table_id(0);
+    entry.set_backing_table_id(0);
     string key0 = "a", key1 = "z";
     entry.set_first_key(key0);
     entry.set_first_not_owned_key(key1);

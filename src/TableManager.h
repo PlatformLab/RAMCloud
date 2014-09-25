@@ -78,7 +78,7 @@ class TableManager {
     void dropTable(const char* name);
     uint64_t getTableId(const char* name);
     Tablet getTablet(uint64_t tableId, uint64_t keyHash);
-    bool getIndexletInfoBybackingTableId(uint64_t backingTableId,
+    bool getIndexletInfoByBackingTableId(uint64_t backingTableId,
             ProtoBuf::Indexlet& indexletInfo);
     void indexletRecovered(uint64_t tableId, uint8_t indexId,
             void* firstKey, uint16_t firstKeyLength,
@@ -86,6 +86,12 @@ class TableManager {
             ServerId serverId, uint64_t backingTableId);
     bool isIndexletTable(uint64_t tableId);
     vector<Tablet> markAllTabletsRecovering(ServerId serverId);
+    void reassignIndexletOwnership(
+            ServerId newOwner, uint64_t tableId, uint8_t indexId,
+            uint64_t backingTableId,
+            const void* firstKey, uint16_t firstKeyLength,
+            const void* firstNotOwnedKey, uint16_t firstNotOwnedKeyLength,
+            uint64_t ctimeSegmentId, uint64_t ctimeSegmentOffset);
     void reassignTabletOwnership(ServerId newOwner, uint64_t tableId,
             uint64_t startKeyHash, uint64_t endKeyHash,
             uint64_t ctimeSegmentId, uint64_t ctimeSegmentOffset);
@@ -240,12 +246,16 @@ class TableManager {
             uint32_t serverSpan);
     void dropIndex(const Lock& lock, uint64_t tableId, uint8_t indexId);
     void dropTable(const Lock& lock, const char* name);
+    TableManager::Indexlet* findIndexlet(const Lock& lock, Index* index,
+            const void* firstKey, uint16_t firstKeyLength,
+            const void* firstNotOwnedKey, uint16_t firstNotOwnedKeyLength);
     Tablet* findTablet(const Lock& lock, Table* table, uint64_t keyHash);
     void notifyCreate(const Lock& lock, Table* table);
     void notifyCreateIndex(const Lock& lock, Index* index);
     void notifyDropTable(const Lock& lock, ProtoBuf::Table* info);
     void notifyDropIndex(const Lock& lock, Index* index);
     void notifySplitTablet(const Lock& lock, ProtoBuf::Table* info);
+    void notifyReassignIndexlet(const Lock& lock, ProtoBuf::Table* info);
     void notifyReassignTablet(const Lock& lock, ProtoBuf::Table* info);
     Table* recreateTable(const Lock& lock, ProtoBuf::Table* info);
     void serializeTable(const Lock& lock, Table* table,

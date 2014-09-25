@@ -25,7 +25,7 @@ message Indexlet {
   required uint32 index_id = 2;
 
   ///The id of the table that will hold objects for this indexlet.
-  required uint64 indexlet_table_id = 3;
+  required uint64 backing_table_id = 3;
 
   ///The first (smallest) key that is part of this indexlet.
   optional bytes first_key = 4;

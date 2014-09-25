@@ -2339,7 +2339,7 @@ MasterService::recover(const WireFormat::Recover::Request* reqHdr,
         std::unordered_map<uint64_t, uint64_t> highestBTreeIdMap;
         foreach (const ProtoBuf::Indexlet& indexlet,
                 recoveryPartition.indexlet()) {
-            highestBTreeIdMap[indexlet.indexlet_table_id()] = 0;
+            highestBTreeIdMap[indexlet.backing_table_id()] = 0;
         }
         recover(recoveryId, crashedServerId, partitionId, replicas,
                 highestBTreeIdMap);
@@ -2351,12 +2351,12 @@ MasterService::recover(const WireFormat::Recover::Request* reqHdr,
             indexletManager.addIndexlet(
                     newIndexlet.table_id(),
                     (uint8_t)newIndexlet.index_id(),
-                    newIndexlet.indexlet_table_id(),
+                    newIndexlet.backing_table_id(),
                     newIndexlet.first_key().c_str(),
                     (uint16_t)newIndexlet.first_key().length(),
                     newIndexlet.first_not_owned_key().c_str(),
                     (uint16_t)newIndexlet.first_not_owned_key().length(),
-                    highestBTreeIdMap[newIndexlet.indexlet_table_id()]);
+                    highestBTreeIdMap[newIndexlet.backing_table_id()]);
         }
         successful = true;
     } catch (const SegmentRecoveryFailedException& e) {

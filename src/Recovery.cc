@@ -1049,7 +1049,7 @@ Recovery::startRecoveryMasters()
             if (tableManager->isIndexletTable(tablet.table_id())) {
                 ProtoBuf::Indexlet& entry =
                     *task->dataToRecover.add_indexlet();
-                tableManager->getIndexletInfoBybackingTableId(
+                tableManager->getIndexletInfoByBackingTableId(
                                   tablet.table_id(), entry);
                 LOG(NOTICE, "Starting recovery %lu for crashed server %s with "
                     "index %d", recoveryId, crashedServerId.toString().c_str(),
