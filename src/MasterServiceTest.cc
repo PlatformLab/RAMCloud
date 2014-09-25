@@ -836,11 +836,10 @@ TEST_F(MasterServiceTest, multiIncrement_basics) {
 
     ramcloud->multiIncrement(requests, 2);
     EXPECT_STREQ("STATUS_OK", statusToSymbol(request1.status));
-    EXPECT_EQ(1U, request1.version);
     EXPECT_EQ(1, request1.newValue.asInt64);
     EXPECT_STREQ("STATUS_OK", statusToSymbol(request2.status));
-    EXPECT_EQ(2U, request2.version);
     EXPECT_DOUBLE_EQ(1.0, request2.newValue.asDouble);
+    EXPECT_EQ(3U, request1.version + request2.version);
 }
 
 TEST_F(MasterServiceTest, multiIncrement_rejectRules) {
@@ -931,11 +930,12 @@ TEST_F(MasterServiceTest, multiRead_bufferSizeExceeded) {
     MultiReadObject* requests[] = {&object1, &object2};
     MultiRead request(ramcloud.get(), requests, 2);
 
-    // The first try will return only the first object.
+    // The first try will return only one object.  The multi-op scheduling
+    // reverses the order.
     EXPECT_FALSE(request.isReady());
-    EXPECT_TRUE(value1);
-    EXPECT_EQ(STATUS_OK, object1.status);
-    EXPECT_FALSE(value2);
+    EXPECT_TRUE(value2);
+    EXPECT_EQ(STATUS_OK, object2.status);
+    EXPECT_FALSE(value1);
 
     // When we retry, the second object will be returned.
     EXPECT_TRUE(request.isReady());

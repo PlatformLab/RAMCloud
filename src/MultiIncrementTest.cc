@@ -145,11 +145,10 @@ TEST_F(MultiIncrementTest, basics_end_to_end) {
     };
     ramcloud->multiIncrement(requests, 6);
     EXPECT_EQ(STATUS_OK, objects[0]->status);
-    EXPECT_EQ(1U, objects[0]->version);
     EXPECT_EQ(STATUS_OK, objects[1]->status);
-    EXPECT_EQ(2U, objects[1]->version);
     EXPECT_EQ(STATUS_OK, objects[2]->status);
-    EXPECT_EQ(3U, objects[2]->version);
+    EXPECT_EQ(6U, objects[0]->version + objects[1]->version +
+        objects[2]->version);
     EXPECT_EQ(STATUS_OK, objects[3]->status);
     EXPECT_EQ(1U, objects[3]->version);
     EXPECT_EQ(STATUS_OK, objects[4]->status);
@@ -225,8 +224,7 @@ TEST_F(MultiIncrementTest, readResponse_shortResponses) {
     EXPECT_TRUE(request.isReady());
     EXPECT_EQ(STATUS_OK, objects[0]->status);
     EXPECT_EQ(STATUS_OK, objects[1]->status);
-    EXPECT_EQ(4U, objects[0]->version);
-    EXPECT_EQ(3U, objects[1]->version);
+    EXPECT_EQ(7U, objects[0]->version + objects[1]->version);
 }
 
 }  // namespace RAMCloud

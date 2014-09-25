@@ -13,6 +13,8 @@
  * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include <utility>
+
 #include "MultiOp.h"
 #include "ShortMacros.h"
 #include "TimeTrace.h"
@@ -34,44 +36,27 @@ namespace RAMCloud {
  * operation midway may result in half the MultiOps having executed and the
  * other half unexecuted.
  *
+ * Internally, startRPCs dispatches the request array into sessionQueues, 
+ * each of which buffers requests intended for a particular master (identified 
+ * by its session).  Whenever a session queue reaches MAX_OBJECTS_PER_RPC it is 
+ * packaged into an RPC and sent.  All sesseion queues are drained (sent) once 
+ * all requests are dispatched.  startRPC is typically called multiple times and
+ * it returns to isReady whenever MAX_RPC RPCs are underway or when the MultiOp
+ * is finished.
  *
+ * isReady takes care of the respones by calling finishRpc, which can trigger a 
+ * retry of an RPC if necessary.  The retry re-inserts the RPC into 
+ * sessionQueues, allowing the session queue to grow slightly beyond 
+ * MAX_OBJECTS_PER_RPC.
  *
- * Internally, the MultiOpObjects pointers are managed on a divided work queue.
- * The division point is marked by startIndex. Everything < startIndex is
- * considered junk. Everything after startIndex are all MultiOpObjects are
- * waiting to be schedueld into an RPC. These MultiOpObjects can either be new
- * or rescheduled objects.
- *
- *  ***************************************************************
- *  *    JUNK     *        UNSCHEDULED MULTIOPOBJECTS             *
- *  *    JUNK     *                                               *
- *  ***************************************************************
- *                /\ startIndex
- *
- * Initially startIndex starts at 0. As MultiOpObjects get scheduled into RPCs,
- * the startIndex moves forward. When RPCs return and certain MultiOpObjects
- * need to be retried, they will be put at startIndex and startIndex will be
- * decremented.
- *
- * Each time isReady() is invoked, startRpcs() will also be invoked. At
- * each invocation to startRpcs(), at least a subset of the unscheduled
- * MultiOpObjects would be examined and scheduled into RPCs if possible.
- * There are certain pecularities and heuristics implemented in startRpcs()
- * that determine when RPCs are sent and when scheduling stops. The details
- * of which are detailed within the function itself.
- *
- * isReady() will also invoke finishRpc() on any RPCs that have completed.
- * finishRpc() will look through all the responses of the RPC and reschedule
- * them into the MultiOpObject work queue.
- *
- * The work queue is initially populated by the constructor.
+ * isReady also calls startRPC when there is at least one free RPC.  The list
+ * of free RPCs and RPCs underway is maintained through startIndexIdleRpc and
+ * ptrRpcs.  The rpcs array itself is unordered, so free RPCs and RPCs underway
+ * are interleaved in the array.
  */
 
 /**
- * Constructor for MultiOp Framework: pushes the MultiOp requests onto
- * a work queue but does not start any RPCs.
- *
- * This method is intended to be invoked ONLY by the subclass. If the
+ * The constructor is intended to be invoked ONLY by the subclass. If the
  * subclass's specifications require rpcs to be started, then startRpcs()
  * must be invoked by the subclass's constructor. It cannot be done here
  * since startRpcs() contain callbacks to the subclass (which would not
@@ -93,16 +78,15 @@ MultiOp::MultiOp(RamCloud* ramcloud, WireFormat::MultiOp::OpType type,
     , opType(type)
     , requests(requests)
     , numRequests(numRequests)
+    , numDispatched(0)
     , rpcs()
+    , startIndexIdleRpc(0)
     , canceled(false)
-    , workQueue()
-    , startIndex(0)
+    , sessionQueues()
     , test_ignoreBufferOverflow(false)
 {
-    workQueue.reserve(numRequests);
-
-    for (uint32_t i = 0; i < numRequests; i++) {
-        workQueue.push_back(requests[i]);
+    for (uint32_t i = 0; i < MAX_RPCS; ++i) {
+        ptrRpcs[i] = &rpcs[i];
     }
 }
 
@@ -110,7 +94,6 @@ MultiOp::MultiOp(RamCloud* ramcloud, WireFormat::MultiOp::OpType type,
  * Abort this request if it hasn't already completed.  Once this
  * method returns wait will throw RpcCanceledException if it is invoked.
  */
-
 void
 MultiOp::cancel()
 {
@@ -121,169 +104,51 @@ MultiOp::cancel()
 }
 
 /**
- * Check to see whether the multi-Op operation is complete.  If not,
- * start more RPCs if needed.
+ * Looks up the SessionQueue that matches the request's session and adds the
+ * the request.  Creates a new session buffer if the requests is for a formerly
+ * unseen session.
  *
- * \return
- *      True means that the operation has finished or been canceled; #wait
- *      will not block.  False means that one or more RPCs are still underway.
+ * \param request
+ *      Either the next request from requests array or a request that needs to
+ *      be retried.
+ * \param[out] session
+ *      Session that identifies the master that must service this request 
+ *      (returned by ObjectFinder).  Can be NULL if the request is for a 
+ *      non-existing table.
+ * \param[out] queue
+ *      Points to either a newly created session queue or a previously created
+ *      queue in sessionQueues.  Its last element is request, unless request
+ *      is for a non-existing table.
  */
-bool
-MultiOp::isReady() {
-    // See if any outstanding RPCs have completed (and if so, process their
-    // results).
-    uint32_t finished = 0;
-    uint32_t slotsAvailable = 0;
-    for (uint32_t i = 0; i < MAX_RPCS; i++) {
-        Tub<PartRpc>& rpc = rpcs[i];
-        if (!rpc) {
-            slotsAvailable++;
-            continue;
-        }
-        if (rpc->isReady()) {
-            finished++;
-            finishRpc(rpc.get());
-            rpc.destroy();
-            slotsAvailable++;
-
-        }
-    }
-
-    if ((finished == 0) && (slotsAvailable < MAX_RPCS)) {
-        // Nothing more we can do now except wait for RPCs to
-        // finish.
-        return false;
-    }
-
-    // See if there's more work we can start.
-    return startRpcs();
-}
-
-/**
- * Scan the list of objects and start RPCs if possible. When this method
- * is called, it's possible that some RPCS are already underway (left over
- * from a previous call).
- *
- * \return
- *      True means there is no more work to do: the MultiOp
- *      is done.  False means there are RPCs outstanding.
- */
-bool
-MultiOp::startRpcs()
+void
+MultiOp::dispatchRequest(MultiOpObject* request,
+    Transport::SessionRef *session, SessionQueue **queue)
 {
-    uint32_t scheduled = 0, notScheduled = 0, activeRpcCnt = 0;
+    *queue = NULL;
+    *session = NULL;
 
-    for (uint32_t i = 0; i < MAX_RPCS; i++) {
-        if (rpcs[i])
-            activeRpcCnt++;
+    try {
+       *session = ramcloud->objectFinder.lookup(request->tableId,
+                  request->key, request->keyLength);
+    }
+    catch (TableDoesntExistException &e) {
+        request->status = STATUS_TABLE_DOESNT_EXIST;
+        return;
     }
 
-//     Each iteration through the following loop examines one of the
-//     MultiOp objects (requests) we are supposed to execute and adds
-//     it to an outgoing RPC if possible.  We won't necessarily be
-//     able to execute all of the operations in one shot, due to
-//     limitations on the number of objects we can stuff in one RPC
-//     and the number of outstanding RPCs we can have.
-//
-//     The main loop over all requests below terminates when either:
-//     a) There's no more unscheduled requests (i.e. requests that
-//        are not finished and are not in an active RPC)
-//
-//     b) All rpcs are used (activeRpcCnt = MAX_RPCS)
-//        -- No point in looking for work we can't do.
-//
-//     c) The number of scheduled requests (scheduled) equals the number
-//        of requests that could not be scheduled.
-//        -- Stats show that a 50% miss results in a 10% performance
-//           loss and this grows n**2 with higher misses.
-//
-    for (uint32_t i = startIndex; i < workQueue.size(); i++) {
-        MultiOpObject* request = workQueue[i];
-        Transport::SessionRef session;
-
-        try {
-           session = ramcloud->objectFinder.lookup(request->tableId,
-                    request->key, request->keyLength);
-        }
-        catch (TableDoesntExistException &e) {
-            request->status = STATUS_TABLE_DOESNT_EXIST;
-            removeRequestAt(i);
-            continue;
-        }
-
-        // Scan the list of PartRpcs to see if we can send a request for
-        // this object.
-        for (uint32_t j = 0; j < MAX_RPCS; j++) {
-            Tub<PartRpc>& rpc = rpcs[j];
-            if (!rpc) {
-                // An unused RPC: start a new one.  If we get to an empty
-                // slot then there cannot be any more uninitiated RPCs after
-                // this slot.
-                rpc.construct(ramcloud, session, opType);
-            }
-
-            if (rpc->session == session) {
-                if ((rpc->reqHdr->count < PartRpc::MAX_OBJECTS_PER_RPC)
-                        && (rpc->state == RpcWrapper::RpcState::NOT_STARTED)) {
-                    uint32_t lengthBefore = rpc->request.size();
-                    appendRequest(request, &(rpc->request));
-                    uint32_t lengthAfter = rpc->request.size();
-
-                    // Check that request isn't too big in general
-                    if (lengthAfter - lengthBefore > maxRequestSize) {
-                        rpc->request.truncate(lengthBefore);
-                        request->status = STATUS_REQUEST_TOO_LARGE;
-                        removeRequestAt(i);
-                        break;
-                    }
-
-                    // Check for full rpc, remove + retry
-                    if (lengthAfter > maxRequestSize) {
-                        rpc->request.truncate(lengthBefore);
-                        activeRpcCnt++;
-                        rpc->send();
-                        continue;
-                    }
-
-                    rpc->requests[rpc->reqHdr->count] = request;
-                    rpc->reqHdr->count++;
-                    request->status = UNDERWAY;
-                    removeRequestAt(i);
-
-                    if (rpc->reqHdr->count == PartRpc::MAX_OBJECTS_PER_RPC) {
-                        activeRpcCnt++;
-                        rpc->send();
-                    }
-
-                    break;
-                }
-            }
-        }
-
-        // Keep count of # of requests scheduled in this round
-        if (request->status == UNDERWAY)
-            scheduled++;
-        else
-            notScheduled++;
-
-        // Check Termination conditions (50% scheduled and all RPCs used)
-        if (scheduled == notScheduled || activeRpcCnt == MAX_RPCS)
-            break;
+    auto iter = sessionQueues.find(*session);
+    if (iter == sessionQueues.end()) {
+        *queue = new SessionQueue();
+        (*queue)->reserve(PartRpc::MAX_OBJECTS_PER_RPC);
+        (*queue)->push_back(request);
+        sessionQueues.insert(
+            std::make_pair<Transport::SessionRef,
+                std::shared_ptr<SessionQueue>>(*session,
+                    std::shared_ptr<SessionQueue>(*queue)));
+    } else {
+        *queue = iter->second.get();
+        (*queue)->push_back(request);
     }
-
-    // Now launch all of the new RPCs we have generated that are not yet full
-    bool done = true;
-    for (uint32_t j = 0; j < MAX_RPCS; j++) {
-        Tub<PartRpc>& rpc = rpcs[j];
-        if (!rpc) {
-            continue;
-        }
-        done = false;
-        if (rpc->state == RpcWrapper::RpcState::NOT_STARTED) {
-            rpc->send();
-        }
-    }
-    return done;
 }
 
 /**
@@ -384,6 +249,167 @@ MultiOp::finishRpc(MultiOp::PartRpc* rpc) {
 }
 
 /**
+ * Package up to MAX_OBJECTS_PER_RPC requests from a session buffer into an RPC
+ * and send the RPC.
+ *
+ * \param session
+ *      The session of the requests in queue
+ * \param queue
+ *      An array of requests for session.  The array can be larger than
+ *      MAX_OBJECTS_PER_RPC but at most one RPC is sent.  The size of a non
+ *      empty queue will decrease.
+ */
+void
+MultiOp::flushSessionQueue(Transport::SessionRef session, SessionQueue *queue) {
+    assert(startIndexIdleRpc < MAX_RPCS);
+
+    Tub<PartRpc> *rpc = ptrRpcs[startIndexIdleRpc];
+    rpc->construct(ramcloud, session, opType);
+    startIndexIdleRpc++;
+
+    size_t queueLen = queue->size();
+    size_t residue = (queueLen <= PartRpc::MAX_OBJECTS_PER_RPC) ?
+        0 : queueLen - PartRpc::MAX_OBJECTS_PER_RPC;
+    while (queueLen > residue) {
+        MultiOpObject *request = (*queue)[queueLen-1];
+        uint32_t lengthBefore = (*rpc)->request.size();
+        appendRequest(request, &((*rpc)->request));
+        uint32_t lengthAfter = (*rpc)->request.size();
+
+        // Check for full rpc, remove + retry
+        if (lengthAfter > maxRequestSize) {
+            (*rpc)->request.truncate(lengthBefore);
+
+            // Check that request isn't too big in general
+            if (lengthAfter - lengthBefore > maxRequestSize) {
+                request->status = STATUS_REQUEST_TOO_LARGE;
+                queueLen--;
+                continue;
+            }
+            break;
+        }
+
+        request->status = UNDERWAY;
+        (*rpc)->requests[(*rpc)->reqHdr->count] = request;
+        (*rpc)->reqHdr->count++;
+        queueLen--;
+    }
+    // At this point, queueLen must have been decreased by at least 1
+
+    // Send if there is at least one good request in the RPC
+    if ((*rpc)->reqHdr->count > 0) {
+        (*rpc)->send();
+    } else {
+        rpc->destroy();
+        startIndexIdleRpc--;
+    }
+    // Not sure if vector::resize does this internally anyway
+    (queueLen == 0) ? queue->clear() : queue->resize(queueLen);
+}
+
+/**
+ * Check to see whether the multi-Op operation is complete.  If not,
+ * start more RPCs if needed.
+ *
+ * \return
+ *      True means that the operation has finished or been canceled; #wait
+ *      will not block.  False means that one or more RPCs are still underway.
+ */
+bool
+MultiOp::isReady() {
+    // See if any outstanding RPCs have completed (and if so, process their
+    // results).  Put the returned RPCs in the upper end of free RPCs in
+    // ptrRpcs.
+    for (uint32_t i = 0; i < startIndexIdleRpc; ) {
+        Tub<PartRpc>& rpc = *(ptrRpcs[i]);
+        if (rpc->isReady()) {
+            finishRpc(rpc.get());
+            rpc.destroy();
+            startIndexIdleRpc--;
+            std::swap(ptrRpcs[i], ptrRpcs[startIndexIdleRpc]);
+        } else {
+            ++i;
+        }
+    }
+
+    // See if there's more work we can schedule.
+    return startRpcs();
+}
+
+/**
+ * Scan the list of objects and start RPCs if possible. When this method
+ * is called, it's possible that some RPCS are already underway (left over
+ * from a previous call).
+ *
+ * \return
+ *      True means there is no more work to do: the MultiOp
+ *      is done.  False means there are RPCs outstanding.
+ */
+bool
+MultiOp::startRpcs()
+{
+    if (startIndexIdleRpc == MAX_RPCS) {
+        // Nothing more we can do now except wait for RPCs to finish.
+        return false;
+    }
+
+    // Dispatch remaining RPCs to session queues.  Flush session queues as they
+    // are large enough to fill a multi-op RPC.  Stop when the maximum number
+    // of in-flight RPCs is reached.
+    while (numDispatched < numRequests) {
+        MultiOpObject * const request = requests[numDispatched];
+        SessionQueue* queue;
+        Transport::SessionRef session;
+
+        dispatchRequest(request, &session, &queue);
+        ++numDispatched;
+        // Invalid requests are ignored
+        if (queue == NULL) {
+            continue;
+        }
+        if (queue->size() >= PartRpc::MAX_OBJECTS_PER_RPC) {
+            flushSessionQueue(session, queue);
+        }
+
+        if (startIndexIdleRpc == MAX_RPCS) {
+            // Must wait for outstanding RPCs to return before starting any
+            // more RPCs.
+            return false;
+        }
+    }
+    assert(startIndexIdleRpc < MAX_RPCS);
+
+    // At this point all of the requests have been dispatched to SessionQueues,
+    // but there may be SessionQueues for which RPCs have not yet been sent.
+    // Start up more RPCs if possible.
+
+    std::unordered_map<Transport::SessionRef, std::shared_ptr<SessionQueue>,
+        HashSessionRef>::iterator i;
+    for (i = sessionQueues.begin(); i != sessionQueues.end(); ) {
+        Transport::SessionRef session = i->first;
+        SessionQueue *queue = i->second.get();
+
+        if (queue->size() > 0) {
+            flushSessionQueue(session, queue);
+        }
+
+        // Unless we have to retry an RPC, we don't need empty queues anymore
+        // and we don't want to iterate through them again
+        if (queue->size() == 0) {
+            auto erase_me = i++;
+            sessionQueues.erase(erase_me);
+        }
+
+        if (startIndexIdleRpc == MAX_RPCS) {
+            return false;
+        }
+    }
+
+    // No more work when no new RPCs have been sent
+    return startIndexIdleRpc == 0;
+}
+
+/**
  * Wait for the MultiOp operation to complete.
  */
 void
@@ -406,41 +432,17 @@ MultiOp::wait()
 }
 
 /**
- * Deletes an entry off the request queue.
- *
- * It is the responsibility of the caller to ensure that
- * the index is a valid index in the request queue.
- *
- * \param index
- *      Index of the request in the queue
- */
-inline void
-MultiOp::removeRequestAt(uint32_t index) {
-    assert(index >= startIndex && index < numRequests);
-
-    if (index > startIndex)
-        workQueue[index] = workQueue[startIndex];
-
-    startIndex++;
-}
-
-/**
- * Adds a request back to the request queue.
- *
- * It is the responsibility of the caller to ensure that a
- * request is not retried when it is already in the request
- * queue.
+ * Adds a request back to a session buffer.
  *
  * \param request
  *      Pointer to the request to be read in.
  */
 inline void
 MultiOp::retryRequest(MultiOpObject* request) {
-    assert(startIndex > 0);
-
-    startIndex--;
     request->status = STATUS_RETRY;
-    workQueue[startIndex] = request;
+    Transport::SessionRef session;
+    SessionQueue *queue;
+    dispatchRequest(request, &session, &queue);
 }
 
 /**

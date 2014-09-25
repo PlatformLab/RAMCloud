@@ -16,6 +16,9 @@
 #ifndef RAMCLOUD_MULTIOP_H
 #define RAMCLOUD_MULTIOP_H
 
+#include <memory>
+#include <unordered_map>
+
 #include "RamCloud.h"
 #include "RpcWrapper.h"
 #include "Transport.h"
@@ -66,7 +69,7 @@ class MultiOp {
     MultiOp(RamCloud* ramcloud,  WireFormat::MultiOp::OpType type,
                 MultiOpObject * const requests[], uint32_t numRequests);
 
-  /// Encapsulates the state of a single RPC sent to a single server.
+    /// Encapsulates the state of a single RPC sent to a single server.
     class PartRpc : public RpcWrapper {
         friend class MultiOp;
       public:
@@ -101,12 +104,19 @@ class MultiOp {
         DISALLOW_COPY_AND_ASSIGN(PartRpc);
     };
 
-
     bool startRpcs();
 
   PRIVATE:
+    /// Buffer of requests for the same master.  Buffer is flushed at the
+    /// end or when its size reaches MAX_OBJECTS_PER_RPC.
+    typedef std::vector<MultiOpObject*> SessionQueue;
+
+    void dispatchRequest(MultiOpObject* request,
+                         Transport::SessionRef *session,
+                         SessionQueue **queue);
     void finishRpc(MultiOp::PartRpc* rpc);
-    void removeRequestAt(uint32_t index);
+    void flushSessionQueue(Transport::SessionRef session,
+                           SessionQueue *queue);
     void retryRequest(MultiOpObject* request);
 
     /// A special Status value indicating than an RPC is underway but
@@ -127,10 +137,15 @@ class MultiOp {
 
     /// Copy of constructor argument containing information about
     /// desired objects.
-    MultiOpObject const * const * requests;
+    MultiOpObject * const * requests;
 
     /// Copy constructor argument giving size of \c requests.
     uint32_t numRequests;
+
+    /// Position pointer into requests array.  Request before are already
+    /// assigned to a SessionQueue.  At the end of the operation, numDispatched
+    /// is equal to numRequests.
+    uint32_t numDispatched;
 
     /// An array holding the constituent RPCs that we are managing.
 #ifdef TESTING
@@ -140,16 +155,28 @@ class MultiOp {
 #endif
     Tub<PartRpc> rpcs[MAX_RPCS];
 
+    /// Represents a permutation of rpcs in such a way that all RPCs starting
+    /// at startIndexIdleRpc are currently unused and can be filled and sent,
+    /// whereas all RPCs before startIndexIdleRpc are underway.
+    Tub<PartRpc> *ptrRpcs[MAX_RPCS];
+    uint16_t startIndexIdleRpc;
+
     /// Set by \c cancel.
     bool canceled;
 
-    /// Manipulable array used to shuffle requests around for performance.
-    /// Size should always be MAX_RPCs, but front (before startIndex)
-    /// contains junk and rest contains unfinished rpcs.
-    std::vector<MultiOpObject*> workQueue;
+    /**
+     * Uses the pointer of the reference as a hash key.  Used by sessionQueues.
+     */
+    struct HashSessionRef {
+        size_t operator()(const Transport::SessionRef &session) const {
+            return std::hash<Transport::Session *>()(session.get());
+        }
+    };
 
-    /// Marks the start of unfinished requests in requestIndecies.
-    uint32_t startIndex;
+    /// Maps sessions to buffers of requests for these sessions.  Filled by
+    /// dispatchRequest and packaged into RPCs by flushSessionQueue.
+    std::unordered_map<Transport::SessionRef, std::shared_ptr<SessionQueue>,
+        HashSessionRef> sessionQueues;
 
     /// Used for tests only. True = ignores buffer size checking in finishRpc.
     /// Needed since test responses don't put anything in the response buffer.
