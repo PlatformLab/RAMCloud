@@ -191,16 +191,16 @@ TEST_F(RecoveryTest, splitTablets_multi_tablet) {
     digest->header.otherByteCount = 0;
     digest->header.otherRecordCount = 0;
     digest->entries[0].tableId = 1;
-    digest->entries[0].byteCount = 1 * 500*1024*1024;
-    digest->entries[0].recordCount = 1 * 2000000;
+    digest->entries[0].byteCount = 1 * Recovery::PARTITION_MAX_BYTES;
+    digest->entries[0].recordCount = 1 * Recovery::PARTITION_MAX_RECORDS;
 
     digest->entries[1].tableId = 2;
-    digest->entries[1].byteCount = 2 * 500*1024*1024;
-    digest->entries[1].recordCount = 2 * 2000000;
+    digest->entries[1].byteCount = 2 * Recovery::PARTITION_MAX_BYTES;
+    digest->entries[1].recordCount = 2 * Recovery::PARTITION_MAX_RECORDS;
 
     digest->entries[2].tableId = 3;
-    digest->entries[2].byteCount = 3 * 500*1024*1024;
-    digest->entries[2].recordCount = 3 * 2000000;
+    digest->entries[2].byteCount = 3 * Recovery::PARTITION_MAX_BYTES;
+    digest->entries[2].recordCount = 3 * Recovery::PARTITION_MAX_RECORDS;
 
     TableStats::Estimator e(digest, &tablets);
 
@@ -234,16 +234,16 @@ TEST_F(RecoveryTest, splitTablets_indexlet) {
     digest->header.otherByteCount = 0;
     digest->header.otherRecordCount = 0;
     digest->entries[0].tableId = 1;
-    digest->entries[0].byteCount = 1 * 500*1024*1024;
-    digest->entries[0].recordCount = 1 * 2000000;
+    digest->entries[0].byteCount = 1 * Recovery::PARTITION_MAX_BYTES;
+    digest->entries[0].recordCount = 1 * Recovery::PARTITION_MAX_RECORDS;
 
     digest->entries[1].tableId = 2;
-    digest->entries[1].byteCount = 2 * 500*1024*1024;
-    digest->entries[1].recordCount = 2 * 2000000;
+    digest->entries[1].byteCount = 2 * Recovery::PARTITION_MAX_BYTES;
+    digest->entries[1].recordCount = 2 * Recovery::PARTITION_MAX_RECORDS;
 
     digest->entries[2].tableId = 3;
-    digest->entries[2].byteCount = 3 * 500*1024*1024;
-    digest->entries[2].recordCount = 3 * 2000000;
+    digest->entries[2].byteCount = 3 * Recovery::PARTITION_MAX_BYTES;
+    digest->entries[2].recordCount = 3 * Recovery::PARTITION_MAX_RECORDS;
 
     TableStats::Estimator e(digest, &tablets);
 
@@ -269,8 +269,8 @@ TEST_F(RecoveryTest, splitTablets_basic) {
     char buffer[sizeof(TableStats::DigestHeader)];
     TableStats::Digest* digest = reinterpret_cast<TableStats::Digest*>(buffer);
     digest->header.entryCount = 0;
-    digest->header.otherByteCount = 3 * 500*1024*1024;
-    digest->header.otherRecordCount = 3 * 2000000;
+    digest->header.otherByteCount = 3 * Recovery::PARTITION_MAX_BYTES;
+    digest->header.otherRecordCount = 3 * Recovery::PARTITION_MAX_RECORDS;
 
     TableStats::Estimator e(digest, &tablets);
     EXPECT_TRUE(e.valid);
@@ -325,8 +325,8 @@ TEST_F(RecoveryTest, splitTablets_byte_dominated) {
     char buffer[sizeof(TableStats::DigestHeader)];
     TableStats::Digest* digest = reinterpret_cast<TableStats::Digest*>(buffer);
     digest->header.entryCount = 0;
-    digest->header.otherByteCount = 6l * 500*1024*1024;
-    digest->header.otherRecordCount = 2 * 2000000;
+    digest->header.otherByteCount = 6l * Recovery::PARTITION_MAX_BYTES;
+    digest->header.otherRecordCount = 2 * Recovery::PARTITION_MAX_RECORDS;
 
     TableStats::Estimator e(digest, &tablets);
     EXPECT_TRUE(e.valid);
@@ -352,8 +352,8 @@ TEST_F(RecoveryTest, splitTablets_record_dominated) {
     char buffer[sizeof(TableStats::DigestHeader)];
     TableStats::Digest* digest = reinterpret_cast<TableStats::Digest*>(buffer);
     digest->header.entryCount = 0;
-    digest->header.otherByteCount = 2 * 500*1024*1024;
-    digest->header.otherRecordCount = 6l * 2000000;
+    digest->header.otherByteCount = 2 * Recovery::PARTITION_MAX_BYTES;
+    digest->header.otherRecordCount = 6l * Recovery::PARTITION_MAX_RECORDS;
 
     TableStats::Estimator e(digest, &tablets);
     EXPECT_TRUE(e.valid);
@@ -379,8 +379,8 @@ TEST_F(RecoveryTest, splitTablets_key_limited) {
     char buffer[sizeof(TableStats::DigestHeader)];
     TableStats::Digest* digest = reinterpret_cast<TableStats::Digest*>(buffer);
     digest->header.entryCount = 0;
-    digest->header.otherByteCount = 2 * 500*1024*1024;
-    digest->header.otherRecordCount = 6l * 2000000;
+    digest->header.otherByteCount = 2 * Recovery::PARTITION_MAX_BYTES;
+    digest->header.otherRecordCount = 6l * Recovery::PARTITION_MAX_RECORDS;
 
     TableStats::Estimator e(digest, &tablets);
     EXPECT_TRUE(e.valid);
@@ -407,8 +407,8 @@ TEST_F(RecoveryTest, splitTablets_no_splits) {
                 0 * sizeof(TableStats::DigestEntry)];
     TableStats::Digest* digest = reinterpret_cast<TableStats::Digest*>(buffer);
     digest->header.entryCount = 0;
-    digest->header.otherByteCount = 1 * 500*1024*1024;
-    digest->header.otherRecordCount = 1 * 2000000;
+    digest->header.otherByteCount = 1 * Recovery::PARTITION_MAX_BYTES;
+    digest->header.otherRecordCount = 1 * Recovery::PARTITION_MAX_RECORDS;
 
     TableStats::Estimator e(digest, &tablets);
     EXPECT_TRUE(e.valid);
@@ -436,8 +436,8 @@ TEST_F(RecoveryTest, splitTablets_even_split) {
     char buffer[sizeof(TableStats::DigestHeader)];
     TableStats::Digest* digest = reinterpret_cast<TableStats::Digest*>(buffer);
     digest->header.entryCount = 0;
-    digest->header.otherByteCount = 5l * 500*1024*1024;
-    digest->header.otherRecordCount = 5l * 2000000;
+    digest->header.otherByteCount = 5l * Recovery::PARTITION_MAX_BYTES;
+    digest->header.otherRecordCount = 5l * Recovery::PARTITION_MAX_RECORDS;
 
     TableStats::Estimator e(digest, &tablets);
     EXPECT_TRUE(e.valid);
@@ -467,8 +467,8 @@ TEST_F(RecoveryTest, splitTablets_uneven_split) {
     char buffer[sizeof(TableStats::DigestHeader)];
     TableStats::Digest* digest = reinterpret_cast<TableStats::Digest*>(buffer);
     digest->header.entryCount = 0;
-    digest->header.otherByteCount = 5l * 500*1024*1024;
-    digest->header.otherRecordCount = 5l * 2000000;
+    digest->header.otherByteCount = 5l * Recovery::PARTITION_MAX_BYTES;
+    digest->header.otherRecordCount = 5l * Recovery::PARTITION_MAX_RECORDS;
 
     TableStats::Estimator e(digest, &tablets);
     EXPECT_TRUE(e.valid);
@@ -500,8 +500,8 @@ TEST_F(RecoveryTest, splitTablets_full_table) {
     char buffer[sizeof(TableStats::DigestHeader)];
     TableStats::Digest* digest = reinterpret_cast<TableStats::Digest*>(buffer);
     digest->header.entryCount = 0;
-    digest->header.otherByteCount = 2 * 500*1024*1024;
-    digest->header.otherRecordCount = 2 * 2000000;
+    digest->header.otherByteCount = 2 * Recovery::PARTITION_MAX_BYTES;
+    digest->header.otherRecordCount = 2 * Recovery::PARTITION_MAX_RECORDS;
 
     TableStats::Estimator e(digest, &tablets);
 
@@ -566,11 +566,11 @@ TEST_F(RecoveryTest, partitionTablets_splits) {
     digest->header.otherByteCount = 0;
     digest->header.otherRecordCount = 0;
     digest->entries[0].tableId = 1;
-    digest->entries[0].byteCount = 10l * 500*1024*1024;
-    digest->entries[0].recordCount = 1 * 2000000;
+    digest->entries[0].byteCount = 10l * Recovery::PARTITION_MAX_BYTES;
+    digest->entries[0].recordCount = 1 * Recovery::PARTITION_MAX_RECORDS;
     digest->entries[1].tableId = 2;
-    digest->entries[1].byteCount = 1 * 500*1024*1024;
-    digest->entries[1].recordCount = 10l * 2000000;
+    digest->entries[1].byteCount = 1 * Recovery::PARTITION_MAX_BYTES;
+    digest->entries[1].recordCount = 10l * Recovery::PARTITION_MAX_RECORDS;
 
     TableStats::Estimator e(digest, &tablets);
 

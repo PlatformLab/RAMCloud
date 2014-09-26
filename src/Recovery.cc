@@ -27,11 +27,6 @@
 
 namespace RAMCloud {
 
-/// Defines max number of bytes a tablet partition should accommodate.
-const uint64_t PARTITION_MAX_BYTES = 500*1024*1024;
-/// Defines the max number of records a tablet partition should accommodate.
-const uint64_t PARTITION_MAX_RECORDS = 2000000;
-
 /**
  * Create a Recovery to manage the recovery of a crashed master.
  * No recovery operations are performed until performTask() is called
@@ -151,10 +146,12 @@ Recovery::splitTablets(vector<Tablet> *tablets,
         // byteTCount, recordTCount, tabletCount will all also be << 2^64 - 1.
         // For this reason, we do not code for the case in which these values
         // will overflow.
-        uint64_t byteTCount = (stats.byteCount + PARTITION_MAX_BYTES - 1)
-                              / PARTITION_MAX_BYTES;
-        uint64_t recordTCount = (stats.recordCount + PARTITION_MAX_RECORDS - 1)
-                                / PARTITION_MAX_RECORDS;
+        uint64_t byteTCount =
+                (stats.byteCount + Recovery::PARTITION_MAX_BYTES - 1)
+                / Recovery::PARTITION_MAX_BYTES;
+        uint64_t recordTCount =
+                (stats.recordCount + Recovery::PARTITION_MAX_RECORDS - 1)
+                / Recovery::PARTITION_MAX_RECORDS;
         uint64_t tabletCount = std::max(byteTCount, recordTCount);
 
         // The number of splits should be one less than the number of resulting
@@ -250,11 +247,11 @@ struct Partition {
      */
     double usage() {
         double byte2 = (double(byteCount) * double(byteCount))
-                       / (double(PARTITION_MAX_BYTES)
-                          * double(PARTITION_MAX_BYTES));
+                       / (double(Recovery::PARTITION_MAX_BYTES)
+                          * double(Recovery::PARTITION_MAX_BYTES));
         double record2 = (double(recordCount) * double(recordCount))
-                         / (double(PARTITION_MAX_RECORDS)
-                            * double(PARTITION_MAX_RECORDS));
+                         / (double(Recovery::PARTITION_MAX_RECORDS)
+                            * double(Recovery::PARTITION_MAX_RECORDS));
         return sqrt(byte2 + record2) / sqrt(2);
     }
 
@@ -267,9 +264,10 @@ struct Partition {
      *      determine if said tablet would fit in the partition.
      */
     bool fits(TableStats::Estimator::Entry estimate) {
-        if ((byteCount + estimate.byteCount) > PARTITION_MAX_BYTES)
+        if ((byteCount + estimate.byteCount) > Recovery::PARTITION_MAX_BYTES)
             return false;
-        if ((recordCount + estimate.recordCount) > PARTITION_MAX_RECORDS)
+        if ((recordCount + estimate.recordCount) >
+                Recovery::PARTITION_MAX_RECORDS)
             return false;
         return true;
     }

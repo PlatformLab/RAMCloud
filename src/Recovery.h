@@ -175,6 +175,11 @@ class Recovery : public Task {
      */
     const ProtoBuf::MasterRecoveryInfo masterRecoveryInfo;
 
+    /// Defines max number of bytes a tablet partition should accommodate.
+    static const uint64_t PARTITION_MAX_BYTES = 500*1024*1024;
+    /// Defines the max number of records a tablet partition should accommodate.
+    static const uint64_t PARTITION_MAX_RECORDS = 2000000;
+
   PRIVATE:
     void splitTablets(vector<Tablet> *tablets,
                       TableStats::Estimator* estimator);
