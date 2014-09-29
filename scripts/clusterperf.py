@@ -203,6 +203,15 @@ def default(
             (obj_path, flatten_args(client_args), name), **cluster_args)
     print(get_client_log(), end='')
 
+def basic(name, options, cluster_args, client_args):
+    if 'master_args' not in cluster_args:
+        cluster_args['master_args'] = '-t 4000'
+    if cluster_args['timeout'] < 250:
+        cluster_args['timeout'] = 250
+    cluster.run(client='%s/ClusterPerf %s %s' %
+            (obj_path, flatten_args(client_args), name), **cluster_args)
+    print(get_client_log(), end='')
+
 def broadcast(name, options, cluster_args, client_args):
     if 'num_clients' not in cluster_args:
         cluster_args['num_clients'] = 10
@@ -382,7 +391,7 @@ def readThroughput(name, options, cluster_args, client_args):
 #     output is in gnuplot format with comments describing the data.
 
 simple_tests = [
-    Test("basic", default),
+    Test("basic", basic),
     Test("broadcast", broadcast),
     Test("netBandwidth", netBandwidth),
     Test("readAllToAll", readAllToAll),

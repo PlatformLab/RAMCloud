@@ -207,7 +207,24 @@ void getDist(std::vector<uint64_t>& times, TimeDist* dist)
     } else {
         result.p99999 = 0;
     }
+}
 
+/**
+ * Given an integer value, generate a key of a given length
+ * that corresponds to that value.
+ *
+ * \param value
+ *      Unique value to encapsulate in the key.
+ * \param length
+ *      Total number of bytes in the resulting key. Must be at least 4.
+ * \param dest
+ *      Memory block in which to write the key; must contain at
+ *      least length bytes.
+ */
+void makeKey(int value, uint32_t length, char* dest)
+{
+    memset(dest, 'x', length);
+    *(reinterpret_cast<int*>(dest)) = value;
 }
 
 /**
@@ -630,7 +647,7 @@ timeRead(uint64_t tableId, const void* key, uint16_t keyLength,
  *      Information about how long the reads took.
  */
 TimeDist
-readDist(uint64_t tableId, const void* key, uint16_t keyLength,
+readObject(uint64_t tableId, const void* key, uint16_t keyLength,
          int count, double timeLimit, Buffer& value)
 {
     uint64_t total = 0;
@@ -648,6 +665,59 @@ readDist(uint64_t tableId, const void* key, uint16_t keyLength,
             times.resize(i);
             break;
         }
+        cluster->read(tableId, key, keyLength, &value);
+        uint64_t interval = Cycles::rdtsc() - start;
+        total += interval;
+        times[i] = interval;
+    }
+    TimeDist result;
+    getDist(times, &result);
+    double totalBytes = value.size();
+    totalBytes *= downCast<int>(times.size());
+    result.bandwidth = totalBytes/Cycles::toSeconds(total);
+
+    return result;
+}
+
+/**
+ * Read randomly-chosen objects from a single table and return information about
+ * the distribution of read times.
+ *
+ * \param tableId
+ *      Table containing the object.
+ * \param numObjects
+ *      Total number of objects in the table. Keys must have been generated
+ *      by makeKey(i, keyLength, ...), where 0 <= i < numObjects.
+ * \param keyLength
+ *      Size in bytes of keys.
+ * \param count
+ *      Read the object this many times, unless time runs out.
+ * \param timeLimit
+ *      Maximum time (in seconds) to spend on this test: if this much
+ *      time elapses, then fewer than count iterations will be run.
+ *
+ * \return
+ *      Information about how long the reads took.
+ */
+TimeDist
+readRandomObjects(uint64_t tableId, uint32_t numObjects, uint16_t keyLength,
+         int count, double timeLimit)
+{
+    uint64_t total = 0;
+    std::vector<uint64_t> times;
+    char key[keyLength];
+    Buffer value;
+    times.resize(count);
+    uint64_t stopTime = Cycles::rdtsc() + Cycles::fromSeconds(timeLimit);
+
+    for (int i = 0; i < count; i++) {
+        uint64_t start = Cycles::rdtsc();
+        if (start >= stopTime) {
+            LOG(NOTICE, "time expired after %d iterations", i);
+            times.resize(i);
+            break;
+        }
+        makeKey(downCast<int>(generateRandom()%numObjects), keyLength, key);
         cluster->read(tableId, key, keyLength, &value);
         uint64_t interval = Cycles::rdtsc() - start;
         total += interval;
@@ -686,7 +756,7 @@ readDist(uint64_t tableId, const void* key, uint16_t keyLength,
  *      Information about how long the writes took.
  */
 TimeDist
-writeDist(uint64_t tableId, const void* key, uint16_t keyLength,
+writeObject(uint64_t tableId, const void* key, uint16_t keyLength,
           const void* value, uint32_t length, int count, double timeLimit)
 {
     uint64_t total = 0;
@@ -712,6 +782,63 @@ writeDist(uint64_t tableId, const void* key, uint16_t keyLength,
     TimeDist result;
     getDist(times, &result);
     double totalBytes = length;
+    totalBytes *= downCast<int>(times.size());
+    result.bandwidth = totalBytes/Cycles::toSeconds(total);
+
+    return result;
+}
+
+/**
+ * Write randomly-chosen objects in a single table and return information about
+ * the distribution of write times.
+ *
+ * \param tableId
+ *      Table containing the object.
+ * \param numObjects
+ *      Total number of objects in the table. Keys must have been generated
+ *      by makeKey(i, keyLength, ...), where 0 <= i < numObjects.
+ * \param keyLength
+ *      Size in bytes of each key.
+ * \param valueLength
+ *      Number of bytes of data to write into each object; the actual values
+ *      will be randomly chosen.
+ * \param count
+ *      Write this many objects.
+ * \param timeLimit
+ *      Maximum time (in seconds) to spend on this test: if this much
+ *      time elapses, then less than count iterations will be run.
+ *
+ * \return
+ *      Information about how long the writes took.
+ */
+TimeDist
+writeRandomObjects(uint64_t tableId, uint32_t numObjects, uint16_t keyLength,
+          uint32_t valueLength, int count, double timeLimit)
+{
+    uint64_t total = 0;
+    std::vector<uint64_t> times;
+    char key[keyLength];
+    char value[valueLength];
+    times.resize(count);
+    memset(value, 'x', valueLength);
+    uint64_t stopTime = Cycles::rdtsc() + Cycles::fromSeconds(timeLimit);
+
+    for (int i = 0; i < count; i++) {
+        makeKey(downCast<int>(generateRandom()%numObjects), keyLength, key);
+        uint64_t start = Cycles::rdtsc();
+        if (start >= stopTime) {
+            LOG(NOTICE, "time expired after %d iterations", i);
+            times.resize(i);
+            break;
+        }
+        cluster->write(tableId, key, keyLength, value, valueLength);
+        uint64_t interval = Cycles::rdtsc() - start;
+        total += interval;
+        times[i] = interval;
+    }
+    TimeDist result;
+    getDist(times, &result);
+    double totalBytes = valueLength;
     totalBytes *= downCast<int>(times.size());
     result.bandwidth = totalBytes/Cycles::toSeconds(total);
 
@@ -1248,29 +1375,11 @@ printVector(std::vector<double>& data)
 }
 
 /**
- * Given an integer value, generate a key of a given length
- * that corresponds to that value.
- *
- * \param value
- *      Unique value to encapsulate in the key.
- * \param length
- *      Total number of bytes in the resulting key. Must be at least 4.
- * \param dest
- *      Memory block in which to write the key; must contain at
- *      least length bytes.
- */
-void makeKey(int value, uint32_t length, char* dest)
-{
-    memset(dest, 'x', length);
-    *(reinterpret_cast<int*>(dest)) = value;
-}
-
-/**
  * Fill a table with a given number of objects of a given size.
  * This method uses multi-writes to do it quickly.
  *
  * \param tableId
- *      Identifier for the table in which  the objects should be written.
+ *      Identifier for the table in which the objects should be written.
  * \param numObjects
  *      Number of objects to write in the table. The objects will have keys
  *      generated by passing the values (0..numObjects-1) to makeKey.
@@ -1282,30 +1391,36 @@ void makeKey(int value, uint32_t length, char* dest)
 void fillTable(uint64_t tableId, int numObjects, uint16_t keyLength,
         uint32_t valueLength)
 {
-    #define BATCH_SIZE 500
+    // Compute an appropriate batch size (at most 500, even for small
+    // objects, but smaller if needed to keep request length < 1 MB).
+    int batchSize = 1000000/valueLength;
+    if (batchSize > 500) {
+        batchSize = 500;
+    } else if (batchSize < 1) {
+        batchSize = 1;
+    }
 
-    // The following buffer is used to accumulate  keys and values for
+    // The following buffer is used to accumulate keys and values for
     // a single multi-write operation.
     Buffer buffer;
-    char keys[BATCH_SIZE*keyLength];
-    char values[BATCH_SIZE*valueLength];
-    MultiWriteObject* objects[BATCH_SIZE];
+    char keys[batchSize*keyLength];
+    char value[valueLength];
+    memset(value, 'x', valueLength);
+    MultiWriteObject* objects[batchSize];
 
     // Each iteration through the following loop adds one object to
     // the current multi-write, and invokes the multi-write if needed.
     uint64_t writeTime = 0;
     for (int i = 0; i < numObjects; i++) {
-        int j = i % BATCH_SIZE;
+        int j = i % batchSize;
 
         char* key = &keys[j*keyLength];
         makeKey(i, keyLength, key);
-        char* value = &values[j*valueLength];
-        Util::genRandomString(value, valueLength);
         objects[j] = buffer.emplaceAppend<MultiWriteObject>(tableId,
-                key, keyLength, value, valueLength);
+                key, keyLength, &value[0], valueLength);
 
         // Do the write, if needed.
-        if ((j == (BATCH_SIZE - 1)) || (i == (numObjects-1))) {
+        if ((j == (batchSize - 1)) || (i == (numObjects-1))) {
             uint64_t start = Cycles::rdtsc();
             cluster->multiWrite(objects, j+1);
             writeTime += Cycles::rdtsc() - start;
@@ -1313,101 +1428,104 @@ void fillTable(uint64_t tableId, int numObjects, uint16_t keyLength,
         }
     }
     double rate = numObjects/Cycles::toSeconds(writeTime);
-    RAMCLOUD_LOG(NOTICE, "write rate for objects: %.1f kobjects/sec",
-                rate/1e03);
+    RAMCLOUD_LOG(NOTICE, "write rate for %d-byte objects: %.1f kobjects/sec,"
+            " %.1f MB/sec",
+            valueLength, rate/1e03, rate*(keyLength+valueLength)/1e06);
 }
 
 //----------------------------------------------------------------------
 // Test functions start here
 //----------------------------------------------------------------------
 
-// Basic read and write times for objects of different sizes
+// Random read and write times for objects of different sizes
 void
 basic()
 {
     if (clientIndex != 0)
         return;
     Buffer input, output;
+#define NUM_SIZES 5
     int sizes[] = {100, 1000, 10000, 100000, 1000000};
+    TimeDist readDists[NUM_SIZES], writeDists[NUM_SIZES];
     const char* ids[] = {"100", "1K", "10K", "100K", "1M"};
-    const char* key = "123456789012345678901234567890";
-    uint16_t keyLength = downCast<uint16_t>(strlen(key));
+    uint16_t keyLength = 30;
     char name[50], description[50];
 
-    for (int i = 0; i < 5; i++) {
+    // Each iteration through the following loop measures random reads and
+    // writes of a particular object size. Start with the largest object
+    // size and work down to the smallest (this way, each iteration will
+    // replace all of the objects created by the previous iteration).
+    for (int i = NUM_SIZES-1; i >= 0; i--) {
         int size = sizes[i];
-        fillBuffer(input, size, dataTable, key, keyLength);
-        cluster->write(dataTable, key, keyLength,
-                input.getRange(0, size), size);
-        Buffer output;
-        TimeDist dist = readDist(dataTable, key, keyLength, 100000, 2.0,
-                output);
-        checkBuffer(&output, 0, size, dataTable, key, keyLength);
 
+        // Generate roughly 500MB of data of the current size. The "20"
+        // below accounts for additional overhead per object beyond the
+        // key and value.
+        uint32_t numObjects = 200000000/(size + keyLength + 20);
+        fillTable(dataTable, numObjects, keyLength, size);
+        readDists[i] = readRandomObjects(dataTable, numObjects, keyLength,
+                100000, 2.0);
+        writeDists[i] =  writeRandomObjects(dataTable, numObjects, keyLength,
+                size, 100000, 2.0);
+    }
+
+    // Print out the results (in a different order):
+    for (int i = 0; i < NUM_SIZES; i++) {
+        TimeDist* dist = &readDists[i];
         snprintf(description, sizeof(description),
-                "read single %sB object (%uB key)", ids[i], keyLength);
+                "read random %sB object (%uB key)", ids[i], keyLength);
         snprintf(name, sizeof(name), "basic.read%s", ids[i]);
-        printf("%-20s %s     %s median\n", name, formatTime(dist.p50).c_str(),
+        printf("%-20s %s     %s median\n", name, formatTime(dist->p50).c_str(),
                 description);
         snprintf(name, sizeof(name), "basic.read%s.min", ids[i]);
-        printf("%-20s %s     %s minimum\n", name, formatTime(dist.min).c_str(),
+        printf("%-20s %s     %s minimum\n", name, formatTime(dist->min).c_str(),
                 description);
         snprintf(name, sizeof(name), "basic.read%s.9", ids[i]);
-        printf("%-20s %s     %s 90%%\n", name, formatTime(dist.p90).c_str(),
+        printf("%-20s %s     %s 90%%\n", name, formatTime(dist->p90).c_str(),
                 description);
-        if (dist.p99 != 0) {
+        if (dist->p99 != 0) {
             snprintf(name, sizeof(name), "basic.read%s.99", ids[i]);
-            printf("%-20s %s     %s 99%%\n", name, formatTime(dist.p99).c_str(),
-                    description);
+            printf("%-20s %s     %s 99%%\n", name,
+                    formatTime(dist->p99).c_str(), description);
         }
-        if (dist.p999 != 0) {
+        if (dist->p999 != 0) {
             snprintf(name, sizeof(name), "basic.read%s.999", ids[i]);
             printf("%-20s %s     %s 99.9%%\n", name,
-                    formatTime(dist.p999).c_str(), description);
+                    formatTime(dist->p999).c_str(), description);
         }
         snprintf(name, sizeof(name), "basic.readBw%s", ids[i]);
         snprintf(description, sizeof(description),
-                "bandwidth reading %sB object (%uB key)", ids[i], keyLength);
-        printBandwidth(name, dist.bandwidth, description);
+                "bandwidth reading %sB objects (%uB key)", ids[i], keyLength);
+        printBandwidth(name, dist->bandwidth, description);
     }
 
-    for (int i = 0; i < 5; i++) {
-        int size = sizes[i];
-        fillBuffer(input, size, dataTable, key, keyLength);
-        cluster->write(dataTable, key, keyLength,
-                input.getRange(0, size), size);
-        Buffer output;
-        TimeDist dist = writeDist(dataTable, key, keyLength,
-                input.getRange(0, size), size, 10000, 2.0);
-        // Make sure the object was properly written.
-        cluster->read(dataTable, key, keyLength, &output);
-        checkBuffer(&output, 0, size, dataTable, key, keyLength);
-
+    for (int i = 0; i < NUM_SIZES; i++) {
+        TimeDist* dist = &writeDists[i];
         snprintf(description, sizeof(description),
-                "write single %sB object (%uB key)", ids[i], keyLength);
+                "write random %sB object (%uB key)", ids[i], keyLength);
         snprintf(name, sizeof(name), "basic.write%s", ids[i]);
-        printf("%-20s %s     %s median\n", name, formatTime(dist.p50).c_str(),
+        printf("%-20s %s     %s median\n", name, formatTime(dist->p50).c_str(),
                 description);
         snprintf(name, sizeof(name), "basic.write%s.min", ids[i]);
-        printf("%-20s %s     %s minimum\n", name, formatTime(dist.min).c_str(),
+        printf("%-20s %s     %s minimum\n", name, formatTime(dist->min).c_str(),
                 description);
         snprintf(name, sizeof(name), "basic.write%s.9", ids[i]);
-        printf("%-20s %s     %s 90%%\n", name, formatTime(dist.p90).c_str(),
+        printf("%-20s %s     %s 90%%\n", name, formatTime(dist->p90).c_str(),
                 description);
-        if (dist.p99 != 0) {
+        if (dist->p99 != 0) {
             snprintf(name, sizeof(name), "basic.write%s.99", ids[i]);
-            printf("%-20s %s     %s 99%%\n", name, formatTime(dist.p99).c_str(),
-                    description);
+            printf("%-20s %s     %s 99%%\n", name,
+                    formatTime(dist->p99).c_str(), description);
         }
-        if (dist.p999 != 0) {
+        if (dist->p999 != 0) {
             snprintf(name, sizeof(name), "basic.write%s.999", ids[i]);
             printf("%-20s %s     %s 99.9%%\n", name,
-                    formatTime(dist.p999).c_str(), description);
+                    formatTime(dist->p999).c_str(), description);
         }
         snprintf(name, sizeof(name), "basic.writeBw%s", ids[i]);
         snprintf(description, sizeof(description),
-                "bandwidth writing %sB object (%uB key)", ids[i], keyLength);
-        printBandwidth(name, dist.bandwidth, description);
+                "bandwidth writing %sB objects (%uB key)", ids[i], keyLength);
+        printBandwidth(name, dist->bandwidth, description);
     }
 }
 
@@ -2599,7 +2717,7 @@ readDist()
 
     // Begin counter collection on the server side.
     cluster->objectServerControl(dataTable, key, keyLength,
-                            WireFormat::START_PERF_COUNTERS);
+            WireFormat::START_PERF_COUNTERS);
 
     // Force serialization so that writing interferes less with the read
     // benchmark.
@@ -3168,7 +3286,7 @@ readVaryingKeyLength()
         fillBuffer(input, dataLength, dataTable, key, keyLength);
         cluster->write(dataTable, key, keyLength,
                 input.getRange(0, dataLength), dataLength);
-        double t = readDist(dataTable, key, keyLength, 1000, 1.0, output).p50;
+        double t = readObject(dataTable, key, keyLength, 1000, 1.0, output).p50;
         checkBuffer(&output, 0, dataLength, dataTable, key, keyLength);
 
         printf("%12u %16.1f %19.1f\n", keyLength, 1e06*t,
@@ -3206,7 +3324,7 @@ writeVaryingKeyLength()
         fillBuffer(input, dataLength, dataTable, key, keyLength);
         cluster->write(dataTable, key, keyLength,
                 input.getRange(0, dataLength), dataLength);
-        TimeDist dist = writeDist(dataTable, key, keyLength,
+        TimeDist dist = writeObject(dataTable, key, keyLength,
                 input.getRange(0, dataLength), dataLength, 1000, 1.0);
         Buffer output;
         cluster->read(dataTable, key, keyLength, &output);
