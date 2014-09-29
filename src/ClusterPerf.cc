@@ -169,7 +169,6 @@ void getDist(std::vector<uint64_t>& times, TimeDist* dist)
 {
     int count = downCast<int>(times.size());
     std::sort(times.begin(), times.end());
-    TimeDist result;
     dist->min = Cycles::toSeconds(times[0]);
     int index = count/2;
     if (index < count) {
@@ -205,7 +204,7 @@ void getDist(std::vector<uint64_t>& times, TimeDist* dist)
     if (index < count) {
         dist->p99999 = Cycles::toSeconds(times[index]);
     } else {
-        result.p99999 = 0;
+        dist->p99999 = 0;
     }
 }
 
