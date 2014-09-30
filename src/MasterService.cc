@@ -537,6 +537,122 @@ MasterService::increment(const WireFormat::Increment::Request* reqHdr,
 }
 
 /**
+ * Helper function used by increment and multiIncrement to perform the atomic
+ * read, increment, write cycle.  Does _not_ sync changes in order to allow
+ * for batched synchronization.
+ * \param key
+ *      The key of the object.  If the object does not exist, it is created as
+ *      zero before incrementing.
+ * \param rejectRules
+ *      Conditions under which reading (thus incrementing) fails
+ * \param asInt64
+ *      If non-zero, interpret the object as signed, twos-complement, 8 byte
+ *      integer and increase by the given value (which might be negative).
+ *      On success, asInt64 contains the new value of the object.
+ * \param asDouble
+ *      If non-zero, interpret the object as IEEE754 double precision floating
+ *      point value and increase by the given value (which might be negative).
+ *      On success, asDouble contains the new value of the object.
+ * \param newVersion
+ *      The new version of the incremented object on success.
+ * \param status
+ *      returns STATUS_OK or a failure code if not successful.
+ */
+void
+MasterService::incrementObject(Key *key,
+            RejectRules rejectRules,
+            int64_t *asInt64,
+            double *asDouble,
+            uint64_t *newVersion,
+            Status *status)
+{
+    // Read the object and add integer or floating point values in case
+    // the summands are non-zero.  It is possible to do both an integer
+    // addition and a floating point addition.
+    union {
+        // We rely on the fact that both int64_t and double are exactly
+        // 8 byte wide.
+        int64_t asInt64;
+        double asDouble;
+    } oldValue, newValue;
+    const bool mustExist = rejectRules.doesntExist;
+
+    // Atomic read-increment-write cycle.
+    RejectRules updateRejectRules;
+    memset(&updateRejectRules, 0, sizeof(updateRejectRules));
+    while (1) {
+        ObjectBuffer value;
+        uint64_t version = 0;
+        *status =
+            objectManager.readObject(*key, &value, &rejectRules, &version);
+        if (*status == STATUS_OBJECT_DOESNT_EXIST && !mustExist) {
+            // If the object doesn't exist, create it either as int64_t(0) or
+            // as double(0.0).  Both binary representations of zero are
+            // identical.
+            oldValue.asInt64 = 0;
+            *status = STATUS_OK;
+        } else {
+            if (*status != STATUS_OK)
+                return;
+            uint32_t dataLen;
+            oldValue.asInt64 = *value.get<int64_t>(&dataLen);
+
+            if (dataLen != sizeof(oldValue)) {
+                *status = STATUS_INVALID_OBJECT;
+                return;
+            }
+        }
+
+#ifdef TESTING
+        /// Wait for a second client request that completes an increment RPC and
+        /// resets the pauseIncrementObject marker.  Do _not_ wait indefinitely
+        /// for the second client.
+        if (pauseIncrement) {
+            /// Indicate to a second client that we are waiting.  Also make sure
+            /// that the second client runs through without waiting.
+            pauseIncrement = 0;
+            uint64_t deadline = Cycles::rdtsc() + Cycles::fromSeconds(1.);
+            do {
+            } while (!continueIncrement && (Cycles::rdtsc() < deadline));
+            /// Reset the sentinal variable for the next test run.
+            continueIncrement = 0;
+        }
+#endif
+
+        newValue = oldValue;
+        if (*asInt64 != 0) {
+            newValue.asInt64 += *asInt64;
+        }
+        if (*asDouble != 0.0) {
+            newValue.asDouble += *asDouble;
+        }
+
+        // create object to populate newValueBuffer.
+        Buffer newValueBuffer;
+        Object::appendKeysAndValueToBuffer(*key, &newValue, sizeof(newValue),
+                                           &newValueBuffer);
+
+        Object newObject(key->getTableId(), 0, 0, newValueBuffer);
+        updateRejectRules.givenVersion = version;
+        updateRejectRules.versionNeGiven = true;
+        *status = objectManager.writeObject(newObject, &updateRejectRules,
+                                            newVersion);
+        if (*status == STATUS_WRONG_VERSION) {
+            TEST_LOG("retry after version mismatch");
+        } else {
+            break;
+        }
+    }
+
+    if (*status != STATUS_OK)
+        return;
+
+    // Return new value
+    *asInt64 = newValue.asInt64;
+    *asDouble = newValue.asDouble;
+}
+
+/**
  * Top-level server method to handle the INDEXED_READ request.
  *
  * \copydetails Service::ping
@@ -1415,6 +1531,105 @@ MasterService::removeIndexEntry(
 }
 
 /**
+ * Helper function used by write methods in this class to send requests
+ * for inserting index entries (corresponding to the object being written)
+ * to the index servers.
+ * \param object
+ *      Object for which index entries are to be inserted.
+ */
+void
+MasterService::requestInsertIndexEntries(Object& object)
+{
+    KeyCount keyCount = object.getKeyCount();
+    if (keyCount <= 1)
+        return;
+
+    uint64_t tableId = object.getTableId();
+    KeyLength primaryKeyLength;
+    const void* primaryKey = object.getKey(0, &primaryKeyLength);
+    KeyHash primaryKeyHash =
+            Key(tableId, primaryKey, primaryKeyLength).getHash();
+
+    Tub<InsertIndexEntryRpc> rpcs[keyCount-1];
+
+    // Send rpcs to all index servers involved.
+    for (KeyCount keyIndex = 1; keyIndex <= keyCount - 1; keyIndex++) {
+        KeyLength keyLength;
+        const void* key = object.getKey(keyIndex, &keyLength);
+
+        if (key != NULL && keyLength > 0) {
+            RAMCLOUD_LOG(DEBUG, "Inserting index entry for tableId %lu, "
+                    "keyIndex %u, key %s, primaryKeyHash %lu",
+                    tableId, keyIndex,
+                    string(reinterpret_cast<const char*>(key),
+                            keyLength).c_str(),
+                    primaryKeyHash);
+
+            rpcs[keyIndex-1].construct(this, tableId, keyIndex,
+                    key, keyLength, primaryKeyHash);
+        }
+    }
+
+    // Wait to receive response to all rpcs.
+    for (KeyCount keyIndex = 1; keyIndex <= keyCount - 1; keyIndex++) {
+        if (rpcs[keyIndex-1]) {
+            rpcs[keyIndex-1]->wait();
+        }
+    }
+}
+
+/**
+ * Helper function used by remove methods in this class to send requests
+ * for removing index entries (corresponding to the object being removed)
+ * to the index servers.
+ * \param objectBuffer
+ *      Pointer to the buffer in log for the object for which
+ *      index entries are to be deleted.
+ */
+void
+MasterService::requestRemoveIndexEntries(Buffer& objectBuffer)
+{
+    Object object(objectBuffer);
+
+    KeyCount keyCount = object.getKeyCount();
+    if (keyCount <= 1)
+        return;
+
+    uint64_t tableId = object.getTableId();
+    KeyLength primaryKeyLength;
+    const void* primaryKey = object.getKey(0, &primaryKeyLength);
+    KeyHash primaryKeyHash =
+            Key(tableId, primaryKey, primaryKeyLength).getHash();
+
+    Tub<RemoveIndexEntryRpc> rpcs[keyCount-1];
+
+    // Send rpcs to all index servers involved.
+    for (KeyCount keyIndex = 1; keyIndex <= keyCount - 1; keyIndex++) {
+        KeyLength keyLength;
+        const void* key = object.getKey(keyIndex, &keyLength);
+
+        if (key != NULL && keyLength > 0) {
+            RAMCLOUD_LOG(DEBUG, "Removing index entry for tableId %lu, "
+                    "keyIndex %u, key %s, primaryKeyHash %lu",
+                    tableId, keyIndex,
+                    string(reinterpret_cast<const char*>(key),
+                            keyLength).c_str(),
+                    primaryKeyHash);
+
+            rpcs[keyIndex-1].construct(this, tableId, keyIndex,
+                    key, keyLength, primaryKeyHash);
+        }
+    }
+
+    // Wait to receive response to all rpcs.
+    for (KeyCount keyIndex = 1; keyIndex <= keyCount - 1; keyIndex++) {
+        if (rpcs[keyIndex-1]) {
+            rpcs[keyIndex-1]->wait();
+        }
+    }
+}
+
+/**
  * Top-level server method to handle the SPLIT_MASTER_TABLET_OWNERSHIP request.
  *
  * This RPC is issued by the coordinator when a tablet should be splitted. The
@@ -1591,221 +1806,6 @@ MasterService::write(const WireFormat::Write::Request* reqHdr,
     // If this is a overwrite, delete old index entries if any.
     if (oldObjectBuffer.size() > 0) {
         requestRemoveIndexEntries(oldObjectBuffer);
-    }
-}
-
-/**
- * Helper function used by increment and multiIncrement to perform the atomic
- * read, increment, write cycle.  Does _not_ sync changes in order to allow
- * for batched synchronization.
- * \param key
- *      The key of the object.  If the object does not exist, it is created as
- *      zero before incrementing.
- * \param rejectRules
- *      Conditions under which reading (thus incrementing) fails
- * \param asInt64
- *      If non-zero, interpret the object as signed, twos-complement, 8 byte
- *      integer and increase by the given value (which might be negative).
- *      On success, asInt64 contains the new value of the object.
- * \param asDouble
- *      If non-zero, interpret the object as IEEE754 double precision floating
- *      point value and increase by the given value (which might be negative).
- *      On success, asDouble contains the new value of the object.
- * \param newVersion
- *      The new version of the incremented object on success.
- * \param status
- *      returns STATUS_OK or a failure code if not successful.
- */
-void
-MasterService::incrementObject(Key *key,
-            RejectRules rejectRules,
-            int64_t *asInt64,
-            double *asDouble,
-            uint64_t *newVersion,
-            Status *status)
-{
-    // Read the object and add integer or floating point values in case
-    // the summands are non-zero.  It is possible to do both an integer
-    // addition and a floating point addition.
-    union {
-        // We rely on the fact that both int64_t and double are exactly
-        // 8 byte wide.
-        int64_t asInt64;
-        double asDouble;
-    } oldValue, newValue;
-    const bool mustExist = rejectRules.doesntExist;
-
-    // Atomic read-increment-write cycle.
-    RejectRules updateRejectRules;
-    memset(&updateRejectRules, 0, sizeof(updateRejectRules));
-    while (1) {
-        ObjectBuffer value;
-        uint64_t version = 0;
-        *status =
-            objectManager.readObject(*key, &value, &rejectRules, &version);
-        if (*status == STATUS_OBJECT_DOESNT_EXIST && !mustExist) {
-            // If the object doesn't exist, create it either as int64_t(0) or
-            // as double(0.0).  Both binary representations of zero are
-            // identical.
-            oldValue.asInt64 = 0;
-            *status = STATUS_OK;
-        } else {
-            if (*status != STATUS_OK)
-                return;
-            uint32_t dataLen;
-            oldValue.asInt64 = *value.get<int64_t>(&dataLen);
-
-            if (dataLen != sizeof(oldValue)) {
-                *status = STATUS_INVALID_OBJECT;
-                return;
-            }
-        }
-
-#ifdef TESTING
-        /// Wait for a second client request that completes an increment RPC and
-        /// resets the pauseIncrementObject marker.  Do _not_ wait indefinitely
-        /// for the second client.
-        if (pauseIncrement) {
-            /// Indicate to a second client that we are waiting.  Also make sure
-            /// that the second client runs through without waiting.
-            pauseIncrement = 0;
-            uint64_t deadline = Cycles::rdtsc() + Cycles::fromSeconds(1.);
-            do {
-            } while (!continueIncrement && (Cycles::rdtsc() < deadline));
-            /// Reset the sentinal variable for the next test run.
-            continueIncrement = 0;
-        }
-#endif
-
-        newValue = oldValue;
-        if (*asInt64 != 0) {
-            newValue.asInt64 += *asInt64;
-        }
-        if (*asDouble != 0.0) {
-            newValue.asDouble += *asDouble;
-        }
-
-        // create object to populate newValueBuffer.
-        Buffer newValueBuffer;
-        Object::appendKeysAndValueToBuffer(*key, &newValue, sizeof(newValue),
-                                           &newValueBuffer);
-
-        Object newObject(key->getTableId(), 0, 0, newValueBuffer);
-        updateRejectRules.givenVersion = version;
-        updateRejectRules.versionNeGiven = true;
-        *status = objectManager.writeObject(newObject, &updateRejectRules,
-                                            newVersion);
-        if (*status == STATUS_WRONG_VERSION) {
-            TEST_LOG("retry after version mismatch");
-        } else {
-            break;
-        }
-    }
-
-    if (*status != STATUS_OK)
-        return;
-
-    // Return new value
-    *asInt64 = newValue.asInt64;
-    *asDouble = newValue.asDouble;
-}
-
-/**
- * Helper function used by write methods in this class to send requests
- * for inserting index entries (corresponding to the object being written)
- * to the index servers.
- * \param object
- *      Object for which index entries are to be inserted.
- */
-void
-MasterService::requestInsertIndexEntries(Object& object)
-{
-    KeyCount keyCount = object.getKeyCount();
-    if (keyCount <= 1)
-        return;
-
-    uint64_t tableId = object.getTableId();
-    KeyLength primaryKeyLength;
-    const void* primaryKey = object.getKey(0, &primaryKeyLength);
-    KeyHash primaryKeyHash =
-            Key(tableId, primaryKey, primaryKeyLength).getHash();
-
-    Tub<InsertIndexEntryRpc> rpcs[keyCount-1];
-
-    // Send rpcs to all index servers involved.
-    for (KeyCount keyIndex = 1; keyIndex <= keyCount - 1; keyIndex++) {
-        KeyLength keyLength;
-        const void* key = object.getKey(keyIndex, &keyLength);
-
-        if (key != NULL && keyLength > 0) {
-            RAMCLOUD_LOG(DEBUG, "Inserting index entry for tableId %lu, "
-                    "keyIndex %u, key %s, primaryKeyHash %lu",
-                    tableId, keyIndex,
-                    string(reinterpret_cast<const char*>(key),
-                            keyLength).c_str(),
-                    primaryKeyHash);
-
-            rpcs[keyIndex-1].construct(this, tableId, keyIndex,
-                    key, keyLength, primaryKeyHash);
-        }
-    }
-
-    // Wait to receive response to all rpcs.
-    for (KeyCount keyIndex = 1; keyIndex <= keyCount - 1; keyIndex++) {
-        if (rpcs[keyIndex-1]) {
-            rpcs[keyIndex-1]->wait();
-        }
-    }
-}
-
-/**
- * Helper function used by remove methods in this class to send requests
- * for removing index entries (corresponding to the object being removed)
- * to the index servers.
- * \param objectBuffer
- *      Pointer to the buffer in log for the object for which
- *      index entries are to be deleted.
- */
-void
-MasterService::requestRemoveIndexEntries(Buffer& objectBuffer)
-{
-    Object object(objectBuffer);
-
-    KeyCount keyCount = object.getKeyCount();
-    if (keyCount <= 1)
-        return;
-
-    uint64_t tableId = object.getTableId();
-    KeyLength primaryKeyLength;
-    const void* primaryKey = object.getKey(0, &primaryKeyLength);
-    KeyHash primaryKeyHash =
-            Key(tableId, primaryKey, primaryKeyLength).getHash();
-
-    Tub<RemoveIndexEntryRpc> rpcs[keyCount-1];
-
-    // Send rpcs to all index servers involved.
-    for (KeyCount keyIndex = 1; keyIndex <= keyCount - 1; keyIndex++) {
-        KeyLength keyLength;
-        const void* key = object.getKey(keyIndex, &keyLength);
-
-        if (key != NULL && keyLength > 0) {
-            RAMCLOUD_LOG(DEBUG, "Removing index entry for tableId %lu, "
-                    "keyIndex %u, key %s, primaryKeyHash %lu",
-                    tableId, keyIndex,
-                    string(reinterpret_cast<const char*>(key),
-                            keyLength).c_str(),
-                    primaryKeyHash);
-
-            rpcs[keyIndex-1].construct(this, tableId, keyIndex,
-                    key, keyLength, primaryKeyHash);
-        }
-    }
-
-    // Wait to receive response to all rpcs.
-    for (KeyCount keyIndex = 1; keyIndex <= keyCount - 1; keyIndex++) {
-        if (rpcs[keyIndex-1]) {
-            rpcs[keyIndex-1]->wait();
-        }
     }
 }
 

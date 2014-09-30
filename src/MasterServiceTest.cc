@@ -1499,6 +1499,94 @@ TEST_F(MasterServiceTest, remove_objectAlreadyDeleted) {
     EXPECT_EQ(VERSION_NONEXISTENT, version);
 }
 
+TEST_F(MasterServiceTest, requestInsertIndexEntries_noIndexEntries) {
+    TestLog::Enable _;
+    uint64_t tableId = 1;
+    Key key(tableId, "key0", 4);
+    Buffer objBuffer;
+    Object obj(key, "value", 5, 1, 0, objBuffer);
+    service->requestInsertIndexEntries(obj);
+    EXPECT_EQ("", TestLog::get());
+}
+
+TEST_F(MasterServiceTest, requestInsertIndexEntries_basics) {
+    TestLog::Enable _;
+
+    uint64_t tableId = 1;
+    uint8_t numKeys = 3;
+
+    KeyInfo keyList[3];
+    keyList[0].keyLength = 4;
+    keyList[0].key = "key0";
+    keyList[1].keyLength = 4;
+    keyList[1].key = "key1";
+    keyList[2].keyLength = 4;
+    keyList[2].key = "key2";
+
+    Buffer keysAndValBuffer;
+    Object::appendKeysAndValueToBuffer(tableId, numKeys, keyList,
+                                       "value", 5, &keysAndValBuffer);
+    Object obj(tableId, 1, 0, keysAndValBuffer);
+    Key key(tableId, keyList[0].key, keyList[0].keyLength);
+
+    service->requestInsertIndexEntries(obj);
+    EXPECT_EQ(format("requestInsertIndexEntries: "
+            "Inserting index entry for tableId 1, keyIndex 1, "
+            "key key1, primaryKeyHash %lu | "
+            "requestInsertIndexEntries: "
+            "Inserting index entry for tableId 1, keyIndex 2, "
+            "key key2, primaryKeyHash %lu" ,
+            key.getHash(), key.getHash()),
+            TestLog::get());
+}
+
+TEST_F(MasterServiceTest, requestRemoveIndexEntries_noIndexEntries) {
+    TestLog::Enable _;
+
+    uint64_t tableId = 1;
+    Key key(tableId, "key0", 4);
+    Buffer tempBuffer;
+    Object obj(key, "value", 5, 0, 0, tempBuffer);
+    Buffer objBuffer;
+    obj.assembleForLog(objBuffer);
+
+    service->requestRemoveIndexEntries(objBuffer);
+    EXPECT_EQ("", TestLog::get());
+}
+
+TEST_F(MasterServiceTest, requestRemoveIndexEntries_basics) {
+    TestLog::Enable _;
+
+    uint64_t tableId = 1;
+    uint8_t numKeys = 3;
+
+    KeyInfo keyList[3];
+    keyList[0].keyLength = 4;
+    keyList[0].key = "key0";
+    keyList[1].keyLength = 4;
+    keyList[1].key = "key1";
+    keyList[2].keyLength = 4;
+    keyList[2].key = "key2";
+
+    Buffer keysAndValBuffer;
+    Object::appendKeysAndValueToBuffer(tableId, numKeys, keyList,
+            "value", 5, &keysAndValBuffer);
+    Object obj(tableId, 0, 0, keysAndValBuffer);
+    Buffer objBuffer;
+    obj.assembleForLog(objBuffer);
+    Key key(tableId, keyList[0].key, keyList[0].keyLength);
+    service->requestRemoveIndexEntries(objBuffer);
+
+    EXPECT_EQ(format("requestRemoveIndexEntries: "
+            "Removing index entry for tableId 1, keyIndex 1, "
+            "key key1, primaryKeyHash %lu | "
+            "requestRemoveIndexEntries: "
+            "Removing index entry for tableId 1, keyIndex 2, "
+            "key key2, primaryKeyHash %lu" ,
+            key.getHash(), key.getHash()),
+            TestLog::get());
+}
+
 TEST_F(MasterServiceTest, splitMasterTablet) {
 
     MasterClient::splitMasterTablet(&context, masterServer->serverId, 1,
@@ -1706,94 +1794,6 @@ TEST_F(MasterServiceTest, write_rejectRules) {
     EXPECT_THROW(ramcloud->write(1, "key0", 4, "item0", 5, &rules, &version),
             ObjectDoesntExistException);
     EXPECT_EQ(VERSION_NONEXISTENT, version);
-}
-
-TEST_F(MasterServiceTest, requestInsertIndexEntries_noIndexEntries) {
-    TestLog::Enable _;
-    uint64_t tableId = 1;
-    Key key(tableId, "key0", 4);
-    Buffer objBuffer;
-    Object obj(key, "value", 5, 1, 0, objBuffer);
-    service->requestInsertIndexEntries(obj);
-    EXPECT_EQ("", TestLog::get());
-}
-
-TEST_F(MasterServiceTest, requestInsertIndexEntries_basics) {
-    TestLog::Enable _;
-
-    uint64_t tableId = 1;
-    uint8_t numKeys = 3;
-
-    KeyInfo keyList[3];
-    keyList[0].keyLength = 4;
-    keyList[0].key = "key0";
-    keyList[1].keyLength = 4;
-    keyList[1].key = "key1";
-    keyList[2].keyLength = 4;
-    keyList[2].key = "key2";
-
-    Buffer keysAndValBuffer;
-    Object::appendKeysAndValueToBuffer(tableId, numKeys, keyList,
-                                       "value", 5, &keysAndValBuffer);
-    Object obj(tableId, 1, 0, keysAndValBuffer);
-    Key key(tableId, keyList[0].key, keyList[0].keyLength);
-
-    service->requestInsertIndexEntries(obj);
-    EXPECT_EQ(format("requestInsertIndexEntries: "
-            "Inserting index entry for tableId 1, keyIndex 1, "
-            "key key1, primaryKeyHash %lu | "
-            "requestInsertIndexEntries: "
-            "Inserting index entry for tableId 1, keyIndex 2, "
-            "key key2, primaryKeyHash %lu" ,
-            key.getHash(), key.getHash()),
-            TestLog::get());
-}
-
-TEST_F(MasterServiceTest, requestRemoveIndexEntries_noIndexEntries) {
-    TestLog::Enable _;
-
-    uint64_t tableId = 1;
-    Key key(tableId, "key0", 4);
-    Buffer tempBuffer;
-    Object obj(key, "value", 5, 0, 0, tempBuffer);
-    Buffer objBuffer;
-    obj.assembleForLog(objBuffer);
-
-    service->requestRemoveIndexEntries(objBuffer);
-    EXPECT_EQ("", TestLog::get());
-}
-
-TEST_F(MasterServiceTest, requestRemoveIndexEntries_basics) {
-    TestLog::Enable _;
-
-    uint64_t tableId = 1;
-    uint8_t numKeys = 3;
-
-    KeyInfo keyList[3];
-    keyList[0].keyLength = 4;
-    keyList[0].key = "key0";
-    keyList[1].keyLength = 4;
-    keyList[1].key = "key1";
-    keyList[2].keyLength = 4;
-    keyList[2].key = "key2";
-
-    Buffer keysAndValBuffer;
-    Object::appendKeysAndValueToBuffer(tableId, numKeys, keyList,
-            "value", 5, &keysAndValBuffer);
-    Object obj(tableId, 0, 0, keysAndValBuffer);
-    Buffer objBuffer;
-    obj.assembleForLog(objBuffer);
-    Key key(tableId, keyList[0].key, keyList[0].keyLength);
-    service->requestRemoveIndexEntries(objBuffer);
-
-    EXPECT_EQ(format("requestRemoveIndexEntries: "
-            "Removing index entry for tableId 1, keyIndex 1, "
-            "key key1, primaryKeyHash %lu | "
-            "requestRemoveIndexEntries: "
-            "Removing index entry for tableId 1, keyIndex 2, "
-            "key key2, primaryKeyHash %lu" ,
-            key.getHash(), key.getHash()),
-            TestLog::get());
 }
 
 /**
