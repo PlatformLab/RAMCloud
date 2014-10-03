@@ -64,8 +64,6 @@ class RealTableConfigFetcher : public ObjectFinder::TableConfigFetcher {
                           tablet.start_key_hash()};
             TabletWithLocator tabletWithLocator(rawTablet, serviceLocator);
 
-            std::map<TabletKey, TabletWithLocator>::iterator it
-                                                        = tableMap->find(key);
             tableMap->insert(std::make_pair(key, tabletWithLocator));
         }
 
