@@ -57,15 +57,15 @@ TEST_F(LoggerTest, constructor) {
 TEST_F(LoggerTest, setLogFile_basics) {
     Logger l(NOTICE);
     l.setLogFile("__test.log");
-    l.logMessage(DEFAULT_LOG_MODULE, NOTICE, HERE, "message 1\n");
+    l.logMessage(false, DEFAULT_LOG_MODULE, NOTICE, HERE, "message 1\n");
     EXPECT_TRUE(TestUtil::matchesPosixRegex("message 1",
             TestUtil::readFile("__test.log")));
     l.setLogFile("__test.log", false);
-    l.logMessage(DEFAULT_LOG_MODULE, NOTICE, HERE, "message 2");
+    l.logMessage(false, DEFAULT_LOG_MODULE, NOTICE, HERE, "message 2");
     EXPECT_TRUE(TestUtil::matchesPosixRegex("message 1.*message 2",
             TestUtil::readFile("__test.log")));
     l.setLogFile("__test.log", true);
-    l.logMessage(DEFAULT_LOG_MODULE, NOTICE, HERE, "message 3");
+    l.logMessage(false, DEFAULT_LOG_MODULE, NOTICE, HERE, "message 3");
     EXPECT_TRUE(TestUtil::doesNotMatchPosixRegex("message 1",
             TestUtil::readFile("__test.log")));
     EXPECT_TRUE(TestUtil::matchesPosixRegex("message 3",
@@ -208,36 +208,6 @@ TEST_F(LoggerTest, isLogging) {
     EXPECT_TRUE(!l.isLogging(DEFAULT_LOG_MODULE, NOTICE));
 }
 
-TEST_F(LoggerTest, disableCollapsing_enableCollapsing) {
-    Logger& logger = Logger::get();
-    logger.setLogFile("__test.log");
-    logger.logMessage(RAMCLOUD_CURRENT_LOG_MODULE, ERROR,
-            CodeLocation("file", 99, "func", "pretty"), "first ");
-    logger.disableCollapsing();
-    logger.disableCollapsing();
-    logger.enableCollapsing();
-    EXPECT_EQ(1, logger.collapsingDisableCount);
-
-    // Make sure that collapsing really is disabled.
-    logger.logMessage(RAMCLOUD_CURRENT_LOG_MODULE, ERROR,
-            CodeLocation("file", 99, "func", "pretty"), "first ");
-    const char* timeOrPidPattern = "[0-9]+[.:][0-9]+ ?";
-    string log1 = StringUtil::regsub(TestUtil::readFile("__test.log"),
-            timeOrPidPattern, "");
-
-    // Make sure that collapsing can be re-enabled again.
-    logger.enableCollapsing();
-    EXPECT_EQ(0, logger.collapsingDisableCount);
-    logger.logMessage(RAMCLOUD_CURRENT_LOG_MODULE, ERROR,
-            CodeLocation("file", 99, "func", "pretty"), "first ");
-    string log2 = StringUtil::regsub(TestUtil::readFile("__test.log"),
-            timeOrPidPattern, "");
-    EXPECT_EQ("file:99 in func default ERROR[]: first "
-            "file:99 in func default ERROR[]: first ", log1);
-    EXPECT_EQ("file:99 in func default ERROR[]: first "
-            "file:99 in func default ERROR[]: first ", log2);
-}
-
 TEST_F(LoggerTest, logMessage_basics) { // also tests LOG
     Logger& logger = Logger::get();
     logger.setLogFile("__test.log");
@@ -261,7 +231,7 @@ TEST_F(LoggerTest, logMessage_barelyFitsInBuffer) {
     logger.setLogFile("__test.log");
     logger.testingBufferSize = 30;
 
-    logger.logMessage(RAMCLOUD_CURRENT_LOG_MODULE, ERROR, HERE,
+    logger.logMessage(false, RAMCLOUD_CURRENT_LOG_MODULE, ERROR, HERE,
             "10: abcdef20: abcdef30: abcde");
     EXPECT_EQ(": 10: abcdef20: abcdef30: abcde",
             logSuffix(": 10:"));
@@ -272,7 +242,7 @@ TEST_F(LoggerTest, logMessage_doesntFitInBuffer) {
     logger.setLogFile("__test.log");
     logger.testingBufferSize = 30;
 
-    logger.logMessage(RAMCLOUD_CURRENT_LOG_MODULE, ERROR, HERE,
+    logger.logMessage(false, RAMCLOUD_CURRENT_LOG_MODULE, ERROR, HERE,
             "10: abcdef20: abcdef30: abcdexxx");
     EXPECT_EQ(": 10: abcdef20: abcdef30: abcde... (3 chars truncated)\n",
             logSuffix(": 10:"));
@@ -281,10 +251,9 @@ TEST_F(LoggerTest, logMessage_doesntFitInBuffer) {
 TEST_F(LoggerTest, logMessage_collapsingDisabled) {
     Logger& logger = Logger::get();
     logger.setLogFile("__test.log");
-    logger.disableCollapsing();
 
     for (int i = 0; i < 3; i++) {
-        logger.logMessage(RAMCLOUD_CURRENT_LOG_MODULE, ERROR,
+        logger.logMessage(false, RAMCLOUD_CURRENT_LOG_MODULE, ERROR,
                 CodeLocation("file", 99, "func", "pretty"), "first ");
     }
     const char* timeOrPidPattern = "[0-9]+[.:][0-9]+ ?";
@@ -303,7 +272,7 @@ TEST_F(LoggerTest, logMessage_collapseDuplicates) {
 
     // Log a message several times; only the first should be printed.
     for (int i = 0; i < 5; i++) {
-        logger.logMessage(RAMCLOUD_CURRENT_LOG_MODULE, ERROR,
+        logger.logMessage(true, RAMCLOUD_CURRENT_LOG_MODULE, ERROR,
                 CodeLocation("file", 99, "func", "pretty"), "first ");
     }
 
@@ -314,7 +283,7 @@ TEST_F(LoggerTest, logMessage_collapseDuplicates) {
             timeOrPidPattern, "");
 
     // Log a different message; it should be printed immediately.
-    logger.logMessage(RAMCLOUD_CURRENT_LOG_MODULE, ERROR,
+    logger.logMessage(true, RAMCLOUD_CURRENT_LOG_MODULE, ERROR,
             CodeLocation("file", 99, "func", "pretty"), "second ");
     string output2 = StringUtil::regsub(TestUtil::readFile("__test.log"),
             timeOrPidPattern, "");
@@ -329,7 +298,7 @@ TEST_F(LoggerTest, logMessage_collapseDuplicates) {
     // Wait a while and log the original message; one more copy should appear.
     usleep(3000);
     for (int i = 0; i < 2; i++) {
-        logger.logMessage(RAMCLOUD_CURRENT_LOG_MODULE, ERROR,
+        logger.logMessage(true, RAMCLOUD_CURRENT_LOG_MODULE, ERROR,
                 CodeLocation("file", 99, "func", "pretty"), "first ");
     }
     EXPECT_EQ("file:99 in func default ERROR[]: first ", output1);
@@ -350,7 +319,7 @@ TEST_F(LoggerTest, logMessage_manageCollapseMap) {
 
     // Log a message 3x; only the first should be printed.
     for (int i = 0; i < 3; i++) {
-        logger.logMessage(RAMCLOUD_CURRENT_LOG_MODULE, ERROR,
+        logger.logMessage(true, RAMCLOUD_CURRENT_LOG_MODULE, ERROR,
                 CodeLocation("file", 99, "func", "pretty"), "first ");
     }
     const char* timeOrPidPattern = "[0-9]+[.:][0-9]+ ?";
@@ -360,7 +329,7 @@ TEST_F(LoggerTest, logMessage_manageCollapseMap) {
     // Wait a while and log a different message; the first should get printed
     // again.
     usleep(3000);
-    logger.logMessage(RAMCLOUD_CURRENT_LOG_MODULE, ERROR,
+    logger.logMessage(true, RAMCLOUD_CURRENT_LOG_MODULE, ERROR,
             CodeLocation("file", 99, "func", "pretty"), "second ");
     string output2 = StringUtil::regsub(TestUtil::readFile("__test.log"),
             timeOrPidPattern, "");
@@ -368,7 +337,7 @@ TEST_F(LoggerTest, logMessage_manageCollapseMap) {
     // Wait a while and log a third message; the first and second should get
     // removed from collapseMap.
     usleep(3000);
-    logger.logMessage(RAMCLOUD_CURRENT_LOG_MODULE, ERROR,
+    logger.logMessage(true, RAMCLOUD_CURRENT_LOG_MODULE, ERROR,
             CodeLocation("file", 99, "func", "pretty"), "third ");
     EXPECT_EQ("file:99 in func default ERROR[]: first ", output1);
     EXPECT_EQ("file:99 in func default ERROR[]: first "
@@ -384,16 +353,16 @@ TEST_F(LoggerTest, logMessage_restrictSizeOfCollapseMap) {
     logger.collapseIntervalMs = 2;
     logger.maxCollapseMapSize = 2;
 
-    logger.logMessage(RAMCLOUD_CURRENT_LOG_MODULE, ERROR,
+    logger.logMessage(true, RAMCLOUD_CURRENT_LOG_MODULE, ERROR,
             CodeLocation("file", 99, "func", "pretty"), "first ");
-    logger.logMessage(RAMCLOUD_CURRENT_LOG_MODULE, ERROR,
+    logger.logMessage(true, RAMCLOUD_CURRENT_LOG_MODULE, ERROR,
             CodeLocation("file", 99, "func", "pretty"), "second ");
-    logger.logMessage(RAMCLOUD_CURRENT_LOG_MODULE, ERROR,
+    logger.logMessage(true, RAMCLOUD_CURRENT_LOG_MODULE, ERROR,
             CodeLocation("file", 99, "func", "pretty"), "third ");
     EXPECT_EQ(2U, logger.collapseMap.size());
 
     usleep(3000);
-    logger.logMessage(RAMCLOUD_CURRENT_LOG_MODULE, ERROR,
+    logger.logMessage(true, RAMCLOUD_CURRENT_LOG_MODULE, ERROR,
             CodeLocation("file", 99, "func", "pretty"), "fourth ");
     EXPECT_EQ(1U, logger.collapseMap.size());
 }
@@ -464,7 +433,7 @@ TEST_F(LoggerTest, redirectStderr) {
     ASSERT_TRUE(f != NULL);
     FILE *savedStderr = stderr;
     stderr = f;
-    l.logMessage(DEFAULT_LOG_MODULE, NOTICE, HERE, "message 99\n");
+    l.logMessage(false, DEFAULT_LOG_MODULE, NOTICE, HERE, "message 99\n");
     stderr = savedStderr;
     fclose(f);
     EXPECT_TRUE(TestUtil::matchesPosixRegex("message 99",

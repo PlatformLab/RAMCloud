@@ -65,7 +65,6 @@ Logger::Logger(LogLevel level)
     // confusion than it has save.
     // The default below is now to run the system without log collapsing
     // unless enableCollapsing() is called first.
-    , collapsingDisableCount(1)
     , testingBufferSize(0)
 {
     setLogLevels(level);
@@ -289,31 +288,6 @@ Logger::changeLogLevels(int delta)
 }
 
 /**
- * Turn off the mechanism that normally suppresses duplicate log messages.
- * Calls to this method nest: for each call here, there must be a
- * corresponding call to \c enableCollapsing before collapsing will be
- * enabled again.
- */
-void
-Logger::disableCollapsing()
-{
-    Lock lock(mutex);
-    collapsingDisableCount++;
-}
-
-/**
- * This method cancels the impact of a previous call to \c disableCollapsing.
- * Once there has been one call here for every call to \c disableCollapsing,
- * collapsing will be re-enabled.
- */
-void
-Logger::enableCollapsing()
-{
-    Lock lock(mutex);
-    collapsingDisableCount--;
-}
-
-/**
  * Log a backtrace for the system administrator.
  * This version doesn't provide C++ name demangling so it can be helpful
  * to run the output of the backtrace through c++filt.
@@ -340,15 +314,17 @@ Logger::logBacktrace(LogModule module, LogLevel level,
         return;
     }
 
-    logMessage(module, level, where, "Backtrace:\n");
+    logMessage(false, module, level, where, "Backtrace:\n");
     for (int i = 0; i < frames; ++i)
-        logMessage(module, level, where, "%s\n", symbols[i]);
+        logMessage(false, module, level, where, "%s\n", symbols[i]);
 
     free(symbols);
 }
 
 /**
  * Log a message for the system administrator.
+ * \param[in] collapse
+ *      Collapse log messages when set.
  * \param[in] module
  *      The module to which the message pertains.
  * \param[in] level
@@ -361,7 +337,7 @@ Logger::logBacktrace(LogModule module, LogLevel level,
  *      See #LOG.
  */
 void
-Logger::logMessage(LogModule module, LogLevel level,
+Logger::logMessage(bool collapse, LogModule module, LogLevel level,
                    const CodeLocation& where,
                    const char* fmt, ...)
 {
@@ -393,7 +369,7 @@ Logger::logMessage(LogModule module, LogLevel level,
         message += buffer;
     }
 
-    if (collapsingDisableCount > 0) {
+    if (!collapse > 0) {
         printMessage(now, message.c_str(), 0);
         return;
     }
@@ -537,7 +513,6 @@ Logger::reset()
     collapseMap.clear();
     collapseIntervalMs = DEFAULT_COLLAPSE_INTERVAL;
     maxCollapseMapSize = DEFAULT_COLLAPSE_MAP_LIMIT;
-    collapsingDisableCount = 0;
     testingBufferSize = 0;
 }
 

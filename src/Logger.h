@@ -86,8 +86,6 @@ class Logger {
     void setLogLevels(int level);
     void setLogLevels(string level);
     void changeLogLevels(int delta);
-    void disableCollapsing();
-    void enableCollapsing();
     void assertionError(const char *assertion, const char *file,
                         unsigned int line, const char *function);
 
@@ -101,10 +99,10 @@ class Logger {
 
     void logBacktrace(LogModule module, LogLevel level,
                       const CodeLocation& where);
-    void logMessage(LogModule module, LogLevel level,
+    void logMessage(bool collapse, LogModule module, LogLevel level,
                     const CodeLocation& where,
                     const char* format, ...)
-        __attribute__((format(printf, 5, 6)));
+        __attribute__((format(printf, 6, 7)));
 
     /**
      * Return whether the current logging configuration includes messages of
@@ -216,12 +214,6 @@ class Logger {
     struct timespec nextCleanTime;
 
     /**
-     * Counts the number of active calls to disableCollapsing; >0 means
-     * print every log message.
-     */
-    int collapsingDisableCount;
-
-    /**
      * If non-zero, overrides default value for buffer size in logMessage
      * (used for testing).
      */
@@ -264,7 +256,7 @@ class Logger {
 #define RAMCLOUD_LOG(level, format, ...) do { \
     RAMCloud::Logger& _logger = Logger::get(); \
     if (_logger.isLogging(RAMCLOUD_CURRENT_LOG_MODULE, level)) { \
-        _logger.logMessage(RAMCLOUD_CURRENT_LOG_MODULE, level, HERE, \
+        _logger.logMessage(false, RAMCLOUD_CURRENT_LOG_MODULE, level, HERE, \
                            format "\n", ##__VA_ARGS__); \
     } \
     RAMCLOUD_TEST_LOG(format, ##__VA_ARGS__); \
