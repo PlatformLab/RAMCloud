@@ -342,10 +342,34 @@ Logger::logMessage(bool collapse, LogModule module, LogLevel level,
                    const char* fmt, ...)
 {
     Lock lock(mutex);
+
     static int pid = getpid();
     va_list ap;
     struct timespec now;
     clock_gettime(CLOCK_REALTIME, &now);
+
+    // Check for possibility of collapsing before the message is generated at
+    // all.
+    SkipInfo* skip = NULL;
+    if (collapse) {
+        auto messageId = std::make_pair(where.file, where.line);
+        CollapseMap::iterator iter = collapseMap.find(messageId);
+        if (iter != collapseMap.end()) {
+            // We have printed this message before; if it was recently,
+            // don't print the current message, but keep track of the fact
+            // that we skipped it.
+            skip = &iter->second;
+            if (Util::timespecLess(now, skip->nextPrintTime)) {
+                skip->skipCount++;
+                return;
+            }
+
+            // We've printed this message before, but it was a while ago,
+            // so print the message again.
+        } else {
+            skip = &collapseMap[messageId];
+        }
+    }
 
     // Compute the body of the log message except for the initial timestamp
     // (i.e. process the original format string, and add location/process/thread
@@ -374,28 +398,13 @@ Logger::logMessage(bool collapse, LogModule module, LogLevel level,
         return;
     }
 
-    // Suppress messages that we have printed recently.
-    auto messageId = std::make_pair(where.file, where.line);
-    CollapseMap::iterator iter = collapseMap.find(messageId);
-    SkipInfo* skip = NULL;
-    if (iter != collapseMap.end()) {
-        // We have printed this message before; if it was recently,
-        // don't print the current message, but keep track of the fact
-        // that we skipped it.
-        skip = &iter->second;
-        if (Util::timespecLess(now, skip->nextPrintTime)) {
-            skip->skipCount++;
-            return;
-        }
-
-        // We've printed this message before, but it was a while ago,
-        // so print the message again.
-    } else {
-        // Make a new collapseMap entry so we won't print this message
-        // again for a while.
-        skip = &collapseMap[messageId];
-        skip->message = message;
-    }
+    // If we reach this point of control, then we are collapsing but this is
+    // the first time we have seen this CodeLocation, or this entry was
+    // previously purged.
+    //
+    // Make a new collapseMap entry so we won't print this message again for a
+    // while.
+    skip->message = message;
     skip->nextPrintTime = Util::timespecAdd(now,
             {collapseIntervalMs/1000,
             (collapseIntervalMs%1000)*1000000});
