@@ -145,6 +145,15 @@ enum ControlOp {
 };
 
 /**
+ * Used in linearizable RPCs to check whether or not the RPC can be processed.
+ */
+struct ClientLease {
+    uint64_t leaseId;           /// A cluster unique id for a specific lease.
+    uint64_t leaseTerm;         /// Cluster time after which the lease may have
+                                /// become invalid.
+};
+
+/**
  * Each RPC request starts with this structure.
  */
 struct RequestCommon {

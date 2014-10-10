@@ -17,13 +17,60 @@
 
 namespace RAMCloud {
 
-LeaseManager::LeaseManager() {
+/// Defines the period of time that a lease will be extended upon renewal.
+const uint64_t LEASE_TERM_MS = 300000;      // 5 min = 300,000 ms
+
+LeaseManager::LeaseManager(Context* context)
+    : mutex()
+    , context(context)
+    , clock(context)
+    , lastIssuedLeaseId(0)
+    , maxAllocatedLeaseId(0)
+    , leaseMap()
+    , revLeaseMap()
+{
 }
 
-LeaseManager::LeaseManager(const LeaseManager& orig) {
+WireFormat::ClientLease
+LeaseManager::renewLease(uint64_t leaseId)
+{
+    Lock lock(mutex);
+    WireFormat::ClientLease clientLease;
+
+    LeaseMap::iterator leaseEntry = leaseMap.find(leaseId);
+    if (leaseEntry != leaseMap.end()) {
+        // Simply renew the existing lease
+        clientLease.leaseId = leaseId;
+        revLeaseMap[leaseEntry->second].erase(leaseId);
+    } else {
+        // Must issue a new lease as the old one has expired.
+        // If this id has not been preallocated, allocate it now.
+        // This should only ever execute once if at all.
+        while (maxAllocatedLeaseId <= lastIssuedLeaseId) {
+            allocateNextLease(lock);
+        }
+        clientLease.leaseId = ++lastIssuedLeaseId;
+    }
+
+    clientLease.leaseTerm = clock.getTime() + LEASE_TERM_MS;
+    leaseMap[clientLease.leaseId] = clientLease.leaseTerm;
+    revLeaseMap[clientLease.leaseTerm].insert(clientLease.leaseId);
+
+    return clientLease;
 }
 
-LeaseManager::~LeaseManager() {
+/**
+ * Persist the next avaliable leaseId to external storage=.
+ *
+ * \param lock
+ *      Ensures that caller has acquired mutex; not actually used here.
+ */
+void
+LeaseManager::allocateNextLease(Lock &lock)
+{
+    uint64_t nextLeaseId = maxAllocatedLeaseId + 1;
+    // TODO(cstlee): Persist to External Storage
+    maxAllocatedLeaseId = nextLeaseId;
 }
 
 } // namespace RAMCloud

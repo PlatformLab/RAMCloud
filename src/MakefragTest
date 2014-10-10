@@ -39,6 +39,7 @@ TESTS_SRCFILES := \
 		  src/CRamCloudTest.cc \
 		  src/CommonTest.cc \
 		  src/ContextTest.cc \
+		  src/CoordinatorClusterClock.cc \
 		  src/CoordinatorRpcWrapperTest.cc \
 		  src/CoordinatorServerListTest.cc \
 		  src/CoordinatorServiceTest.cc \
@@ -62,6 +63,7 @@ TESTS_SRCFILES := \
 		  src/InMemoryStorageTest.cc \
 		  src/IpAddressTest.cc \
 		  src/KeyTest.cc \
+		  src/LeaseManagerTest.cc \
 		  src/LogCleanerTest.cc \
 		  src/LogDigestTest.cc \
 		  src/LogEntryRelocatorTest.cc \
