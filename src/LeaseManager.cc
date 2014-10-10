@@ -1,6 +1,6 @@
 /* Copyright (c) 2014 Stanford University
  *
- * Permission to use, copy, modify, and distribute this software for any
+ * Permission to use, coly, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
  * copyright notice and this permission notice appear in all copies.
  *
@@ -13,12 +13,19 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include <string>
+
 #include "LeaseManager.h"
+#include "ExternalStorage.h"
+#include "ShortMacros.h"
 
 namespace RAMCloud {
 
 /// Defines the period of time that a lease will be extended upon renewal.
 const uint64_t LEASE_TERM_MS = 300000;      // 5 min = 300,000 ms
+
+/// Defines the prefix for objects stored in external storage by this module.
+const std::string STORAGE_PREFIX = "leaseManager";
 
 LeaseManager::LeaseManager(Context* context)
     : mutex()
@@ -29,6 +36,7 @@ LeaseManager::LeaseManager(Context* context)
     , leaseMap()
     , revLeaseMap()
 {
+    recover();
 }
 
 WireFormat::ClientLease
@@ -39,7 +47,7 @@ LeaseManager::renewLease(uint64_t leaseId)
 
     LeaseMap::iterator leaseEntry = leaseMap.find(leaseId);
     if (leaseEntry != leaseMap.end()) {
-        // Simply renew the existing lease
+        // Simply renew the existing lease.
         clientLease.leaseId = leaseId;
         revLeaseMap[leaseEntry->second].erase(leaseId);
     } else {
@@ -60,7 +68,7 @@ LeaseManager::renewLease(uint64_t leaseId)
 }
 
 /**
- * Persist the next avaliable leaseId to external storage=.
+ * Persist the next available leaseId to external storage=.
  *
  * \param lock
  *      Ensures that caller has acquired mutex; not actually used here.
@@ -69,8 +77,39 @@ void
 LeaseManager::allocateNextLease(Lock &lock)
 {
     uint64_t nextLeaseId = maxAllocatedLeaseId + 1;
-    // TODO(cstlee): Persist to External Storage
+    std::string leaseObjName = STORAGE_PREFIX + "/"
+            + std::to_string(static_cast<unsigned long long>(nextLeaseId));
+    std::string str;    // TODO(cstlee): Is there a better way set an empty obj?
+    context->externalStorage->set(ExternalStorage::Hint::CREATE,
+                                  leaseObjName.c_str(),
+                                  str.c_str(), 0);
     maxAllocatedLeaseId = nextLeaseId;
+}
+
+/**
+ * Recovery lease information from external storage.  This should only be
+ * called once during the construction of the Lease Manager.
+ */
+void
+LeaseManager::recover()
+{
+    Lock lock(mutex);
+
+    // Fetch all lease information from external storage.
+    vector<ExternalStorage::Object> objects;
+    context->externalStorage->getChildren(STORAGE_PREFIX.c_str(), &objects);
+
+    foreach (ExternalStorage::Object& object, objects) {
+        try {
+            std::string name = object.name;
+            uint64_t leaseId = std::stoull(name);
+            uint64_t leaseTerm = clock.getTime() + LEASE_TERM_MS;
+            leaseMap[leaseId] = leaseTerm;
+            revLeaseMap[leaseTerm].insert(leaseId);
+        } catch (std::invalid_argument& e) {
+            LOG(WARNING, "Unable to recover lease: %s", object.name);
+        }
+    }
 }
 
 } // namespace RAMCloud

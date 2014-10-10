@@ -86,19 +86,20 @@ class LeaseManager {
 
     /// Maps from leaseId to its leaseTerm (the time after which the lease may
     /// expire).  This is used to quickly service requests about a lease's
-    /// liveness.  This structure should be updated whenever a lease is added,
-    /// renewed, or removed.
+    /// liveness.  This structure is updated whenever a lease is added, renewed,
+    /// or removed.
     typedef std::unordered_map<uint64_t, uint64_t> LeaseMap;
     LeaseMap leaseMap;
 
-    /// Maps from a leaseTerm to a set of leaseIds that can be expired.  This is
-    /// used to more efficiently determine what leases should be expired and
-    /// cleaned.  This structure should be updated whenever a lease is added,
+    /// Maps from a leaseTerm to a set of leaseIds with that corresponding term.
+    /// This is used to more efficiently determine what leases should be expired
+    /// and cleaned.  This structure is updated whenever a lease is added,
     /// renewed, or removed.
     typedef std::map<uint64_t, std::unordered_set<uint64_t> > ReverseLeaseMap;
     ReverseLeaseMap revLeaseMap;
 
     void allocateNextLease(Lock &lock);
+    void recover();
 
     DISALLOW_COPY_AND_ASSIGN(LeaseManager);
 };

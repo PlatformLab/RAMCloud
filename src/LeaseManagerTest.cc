@@ -32,6 +32,10 @@ class LeaseManagerTest : public ::testing::Test {
     {
         context.externalStorage = &storage;
         leaseMgr.construct(&context);
+        leaseMgr->clock.updater.stop();
+        while (leaseMgr->clock.updater.isRunning()) {
+            continue;
+        }
     }
 
     DISALLOW_COPY_AND_ASSIGN(LeaseManagerTest);
@@ -63,11 +67,19 @@ TEST_F(LeaseManagerTest, renewLease_new) {
 
     WireFormat::ClientLease clientLease1 = leaseMgr->renewLease(0);
     EXPECT_EQ(1U, clientLease1.leaseId);
+    EXPECT_TRUE(leaseMgr->leaseMap.end() !=
+                leaseMgr->leaseMap.find(1));
+    EXPECT_TRUE(leaseMgr->revLeaseMap[leaseMgr->leaseMap[1]].end() !=
+                leaseMgr->revLeaseMap[leaseMgr->leaseMap[1]].find(1));
     EXPECT_EQ(1U, leaseMgr->lastIssuedLeaseId);
     EXPECT_EQ(1U, leaseMgr->maxAllocatedLeaseId);
 
     WireFormat::ClientLease clientLease2 = leaseMgr->renewLease(0);
     EXPECT_EQ(2U, clientLease2.leaseId);
+    EXPECT_TRUE(leaseMgr->leaseMap.end() !=
+                leaseMgr->leaseMap.find(2));
+    EXPECT_TRUE(leaseMgr->revLeaseMap[leaseMgr->leaseMap[2]].end() !=
+                leaseMgr->revLeaseMap[leaseMgr->leaseMap[2]].find(2));
     EXPECT_EQ(2U, leaseMgr->lastIssuedLeaseId);
     EXPECT_EQ(2U, leaseMgr->maxAllocatedLeaseId);
 
@@ -81,15 +93,58 @@ TEST_F(LeaseManagerTest, renewLease_new) {
 
     WireFormat::ClientLease clientLease3 = leaseMgr->renewLease(0);
     EXPECT_EQ(3U, clientLease3.leaseId);
+    EXPECT_TRUE(leaseMgr->leaseMap.end() !=
+                leaseMgr->leaseMap.find(3));
+    EXPECT_TRUE(leaseMgr->revLeaseMap[leaseMgr->leaseMap[3]].end() !=
+                leaseMgr->revLeaseMap[leaseMgr->leaseMap[3]].find(3));
     EXPECT_EQ(3U, leaseMgr->lastIssuedLeaseId);
     EXPECT_EQ(5U, leaseMgr->maxAllocatedLeaseId);
 }
 
 TEST_F(LeaseManagerTest, allocateNextLease) {
     LeaseManager::Lock lock(leaseMgr->mutex);
+    storage.log.clear();
     EXPECT_EQ(0U, leaseMgr->maxAllocatedLeaseId);
     leaseMgr->allocateNextLease(lock);
+    EXPECT_EQ("set(CREATE, leaseManager/1)", storage.log);
     EXPECT_EQ(1U, leaseMgr->maxAllocatedLeaseId);
+}
+
+TEST_F(LeaseManagerTest, recover) {
+    EXPECT_EQ(0U, leaseMgr->leaseMap.size());
+    EXPECT_EQ(0U, leaseMgr->revLeaseMap.size());
+
+    EXPECT_EQ(0U, leaseMgr->leaseMap.size());
+    EXPECT_EQ(0U, leaseMgr->revLeaseMap.size());
+
+    storage.getChildrenNames.push("1");
+    storage.getChildrenValues.push("");
+    storage.getChildrenNames.push("25");
+    storage.getChildrenValues.push("");
+    storage.getChildrenNames.push("3");
+    storage.getChildrenValues.push("");
+    storage.getChildrenNames.push("700000");
+    storage.getChildrenValues.push("");
+
+    leaseMgr->recover();
+
+    EXPECT_EQ(4U, leaseMgr->leaseMap.size());
+    EXPECT_TRUE(leaseMgr->leaseMap.end() !=
+                leaseMgr->leaseMap.find(1));
+    EXPECT_TRUE(leaseMgr->revLeaseMap[leaseMgr->leaseMap[1]].end() !=
+                leaseMgr->revLeaseMap[leaseMgr->leaseMap[1]].find(1));
+    EXPECT_TRUE(leaseMgr->leaseMap.end() !=
+                leaseMgr->leaseMap.find(25));
+    EXPECT_TRUE(leaseMgr->revLeaseMap[leaseMgr->leaseMap[25]].end() !=
+                leaseMgr->revLeaseMap[leaseMgr->leaseMap[25]].find(25));
+    EXPECT_TRUE(leaseMgr->leaseMap.end() !=
+                leaseMgr->leaseMap.find(3));
+    EXPECT_TRUE(leaseMgr->revLeaseMap[leaseMgr->leaseMap[3]].end() !=
+                leaseMgr->revLeaseMap[leaseMgr->leaseMap[3]].find(3));
+    EXPECT_TRUE(leaseMgr->leaseMap.end() !=
+                leaseMgr->leaseMap.find(700000));
+    EXPECT_TRUE(leaseMgr->revLeaseMap[leaseMgr->leaseMap[700000]].end() !=
+                leaseMgr->revLeaseMap[leaseMgr->leaseMap[700000]].find(700000));
 }
 
 }  // namespace RAMCloud
