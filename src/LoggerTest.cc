@@ -284,7 +284,7 @@ TEST_F(LoggerTest, logMessage_collapseDuplicates) {
 
     // Log a different message; it should be printed immediately.
     logger.logMessage(true, RAMCLOUD_CURRENT_LOG_MODULE, ERROR,
-            CodeLocation("file", 99, "func", "pretty"), "second ");
+            CodeLocation("file", 100, "func", "pretty"), "second ");
     string output2 = StringUtil::regsub(TestUtil::readFile("__test.log"),
             timeOrPidPattern, "");
 
@@ -303,9 +303,9 @@ TEST_F(LoggerTest, logMessage_collapseDuplicates) {
     }
     EXPECT_EQ("file:99 in func default ERROR[]: first ", output1);
     EXPECT_EQ("file:99 in func default ERROR[]: first "
-            "file:99 in func default ERROR[]: second ", output2);
+            "file:100 in func default ERROR[]: second ", output2);
     EXPECT_EQ("file:99 in func default ERROR[]: first "
-            "file:99 in func default ERROR[]: second "
+            "file:100 in func default ERROR[]: second "
             "(4 duplicates of the following message were suppressed)\n"
             "file:99 in func default ERROR[]: first ",
             StringUtil::regsub(TestUtil::readFile("__test.log"),
@@ -330,7 +330,7 @@ TEST_F(LoggerTest, logMessage_manageCollapseMap) {
     // again.
     usleep(3000);
     logger.logMessage(true, RAMCLOUD_CURRENT_LOG_MODULE, ERROR,
-            CodeLocation("file", 99, "func", "pretty"), "second ");
+            CodeLocation("file", 100, "func", "pretty"), "second ");
     string output2 = StringUtil::regsub(TestUtil::readFile("__test.log"),
             timeOrPidPattern, "");
 
@@ -338,12 +338,12 @@ TEST_F(LoggerTest, logMessage_manageCollapseMap) {
     // removed from collapseMap.
     usleep(3000);
     logger.logMessage(true, RAMCLOUD_CURRENT_LOG_MODULE, ERROR,
-            CodeLocation("file", 99, "func", "pretty"), "third ");
+            CodeLocation("file", 101, "func", "pretty"), "third ");
     EXPECT_EQ("file:99 in func default ERROR[]: first ", output1);
     EXPECT_EQ("file:99 in func default ERROR[]: first "
             "(1 duplicates of the following message were suppressed)\n"
             "file:99 in func default ERROR[]: first "
-            "file:99 in func default ERROR[]: second ", output2);
+            "file:100 in func default ERROR[]: second ", output2);
     EXPECT_EQ(1U, logger.collapseMap.size());
 }
 
@@ -354,9 +354,9 @@ TEST_F(LoggerTest, logMessage_restrictSizeOfCollapseMap) {
     logger.maxCollapseMapSize = 2;
 
     logger.logMessage(true, RAMCLOUD_CURRENT_LOG_MODULE, ERROR,
-            CodeLocation("file", 99, "func", "pretty"), "first ");
+            CodeLocation("file", 97, "func", "pretty"), "first ");
     logger.logMessage(true, RAMCLOUD_CURRENT_LOG_MODULE, ERROR,
-            CodeLocation("file", 99, "func", "pretty"), "second ");
+            CodeLocation("file", 98, "func", "pretty"), "second ");
     logger.logMessage(true, RAMCLOUD_CURRENT_LOG_MODULE, ERROR,
             CodeLocation("file", 99, "func", "pretty"), "third ");
     EXPECT_EQ(2U, logger.collapseMap.size());
@@ -370,9 +370,12 @@ TEST_F(LoggerTest, logMessage_restrictSizeOfCollapseMap) {
 TEST_F(LoggerTest, cleanCollapseMap_deleteEntries) {
     Logger& logger = Logger::get();
     logger.setLogFile("__test.log");
-    logger.collapseMap["message1\n"] = Logger::SkipInfo({1, 200000000}, 0);
-    logger.collapseMap["message2\n"] = Logger::SkipInfo({1, 400000000}, 0);
-    logger.collapseMap["message3\n"] = Logger::SkipInfo({1, 600000000}, 0);
+    logger.collapseMap[std::make_pair("LoggerTest.cc", 1)]
+        = Logger::SkipInfo({1, 200000000}, 0, "message1\n");
+    logger.collapseMap[std::make_pair("LoggerTest.cc", 2)]
+        = Logger::SkipInfo({1, 400000000}, 0, "message2\n");
+    logger.collapseMap[std::make_pair("LoggerTest.cc", 3)]
+        = Logger::SkipInfo({1, 600000000}, 0, "message3\n");
     logger.cleanCollapseMap({1, 600000000});
     EXPECT_EQ("", TestUtil::readFile("__test.log"));
     EXPECT_EQ(0U, logger.collapseMap.size());
@@ -381,19 +384,25 @@ TEST_F(LoggerTest, cleanCollapseMap_deleteEntries) {
 }
 
 TEST_F(LoggerTest, cleanCollapseMap_print) {
+    auto pair1 = std::make_pair("LoggerTest.cc", 1);
+    auto pair2 = std::make_pair("LoggerTest.cc", 2);
+    auto pair3 = std::make_pair("LoggerTest.cc", 3);
     Logger& logger = Logger::get();
     logger.setLogFile("__test.log");
-    logger.collapseMap["message1\n"] = Logger::SkipInfo({1, 200000000}, 0);
-    logger.collapseMap["message2\n"] = Logger::SkipInfo({1, 400000000}, 8);
-    logger.collapseMap["message3\n"] = Logger::SkipInfo({1, 600000000}, 0);
+    logger.collapseMap[pair1]
+        = Logger::SkipInfo({1, 200000000}, 0, "message1\n");
+    logger.collapseMap[pair2]
+        = Logger::SkipInfo({1, 400000000}, 8, "message2\n");
+    logger.collapseMap[pair3]
+        = Logger::SkipInfo({1, 600000000}, 0, "message3\n");
     logger.cleanCollapseMap({1, 500000000});
     EXPECT_EQ("0000000001.400000000 (7 duplicates of the following message "
             "were suppressed)\n0000000001.400000000 message2\n",
             TestUtil::readFile("__test.log"));
     EXPECT_EQ(2U, logger.collapseMap.size());
-    EXPECT_EQ(6, logger.collapseMap["message2\n"].nextPrintTime.tv_sec);
+    EXPECT_EQ(6, logger.collapseMap[pair2].nextPrintTime.tv_sec);
     EXPECT_EQ(500000000U,
-            logger.collapseMap["message2\n"].nextPrintTime.tv_nsec);
+            logger.collapseMap[pair2].nextPrintTime.tv_nsec);
     EXPECT_EQ(1U, logger.nextCleanTime.tv_sec);
     EXPECT_EQ(600000000U, logger.nextCleanTime.tv_nsec);
 }

@@ -369,13 +369,14 @@ Logger::logMessage(bool collapse, LogModule module, LogLevel level,
         message += buffer;
     }
 
-    if (!collapse > 0) {
+    if (!collapse) {
         printMessage(now, message.c_str(), 0);
         return;
     }
 
     // Suppress messages that we have printed recently.
-    CollapseMap::iterator iter = collapseMap.find(message);
+    auto messageId = std::make_pair(where.file, where.line);
+    CollapseMap::iterator iter = collapseMap.find(messageId);
     SkipInfo* skip = NULL;
     if (iter != collapseMap.end()) {
         // We have printed this message before; if it was recently,
@@ -392,7 +393,8 @@ Logger::logMessage(bool collapse, LogModule module, LogLevel level,
     } else {
         // Make a new collapseMap entry so we won't print this message
         // again for a while.
-        skip = &collapseMap[message];
+        skip = &collapseMap[messageId];
+        skip->message = message;
     }
     skip->nextPrintTime = Util::timespecAdd(now,
             {collapseIntervalMs/1000,
@@ -435,7 +437,7 @@ Logger::cleanCollapseMap(struct timespec now)
     nextCleanTime = Util::timespecAdd(now, {1000, 0});
     CollapseMap::iterator iter = collapseMap.begin();
     while (iter != collapseMap.end()) {
-        const string* message = &iter->first;
+        auto messageId = &iter->first;
         SkipInfo* skip = &iter->second;
         if (Util::timespecLessEqual(skip->nextPrintTime, now)) {
             // This entry has been around for a while: if there were
@@ -445,14 +447,14 @@ Logger::cleanCollapseMap(struct timespec now)
                 // This entry is old and there haven't been any suppressed
                 // log messages for it; just delete the entry.
                 iter++;
-                collapseMap.erase(*message);
+                collapseMap.erase(*messageId);
                 continue;
             }
 
             // This entry contains suppressed log messages, but it's been
             // a long time since we printed the last one; print another one.
 
-            printMessage(skip->nextPrintTime, message->c_str(),
+            printMessage(skip->nextPrintTime, skip->message.c_str(),
                     skip->skipCount-1);
             skip->skipCount = 0;
             skip->nextPrintTime = Util::timespecAdd(now,

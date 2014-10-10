@@ -21,6 +21,7 @@
 #include <unordered_map>
 #include "Common.h"
 
+
 namespace RAMCloud {
 
 class CodeLocation;
@@ -97,6 +98,14 @@ class Logger {
         std::copy(newLogLevels, newLogLevels + NUM_LOG_MODULES, logLevels);
     }
 
+    class pairHash {
+    public:
+        size_t operator()(const std::pair<const char*, int > &key) const{
+            return reinterpret_cast<size_t>(key.first) ^
+                static_cast<size_t>(key.second);
+        }
+    };
+
     void logBacktrace(LogModule module, LogLevel level,
                       const CodeLocation& where);
     void logMessage(bool collapse, LogModule module, LogLevel level,
@@ -163,11 +172,14 @@ class Logger {
          * because nextPrintTime hadn't yet been reached.
          */
         int skipCount;
+        std::string message;
 
-        SkipInfo(struct timespec nextPrintTime, int skipCount)
-            : nextPrintTime(nextPrintTime), skipCount(skipCount) {}
+        SkipInfo(struct timespec nextPrintTime, int skipCount,
+                std::string message)
+            : nextPrintTime(nextPrintTime), skipCount(skipCount),
+              message(message) {}
         SkipInfo()
-            : nextPrintTime({0, 0}), skipCount(0) {}
+            : nextPrintTime({0, 0}), skipCount(0), message() {}
     };
 
     /**
@@ -178,7 +190,8 @@ class Logger {
      * all of the duplicates. Keys are log messages (everything except the
      * time part).
      */
-    typedef std::unordered_map<std::string, SkipInfo> CollapseMap;
+    typedef std::unordered_map<std::pair<const char*, int>, SkipInfo, pairHash>
+        CollapseMap;
     CollapseMap collapseMap;
 
     /**
