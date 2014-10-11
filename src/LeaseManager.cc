@@ -87,8 +87,45 @@ LeaseManager::allocateNextLease(Lock &lock)
 }
 
 /**
- * Recovery lease information from external storage.  This should only be
- * called once during the construction of the Lease Manager.
+ * Expire the next lease whose term as elapsed and garbage collect its metadata.
+ * If the term of the next lease to be expired has not yet elapsed, this call
+ * has no effect.
+ *
+ * \return
+ *      Return true if a lease was able to be cleaned.  Returning false implies
+ *      there are no more leases that can be cleaned at this moment.
+ */
+bool
+LeaseManager::cleanNextLease()
+{
+    Lock lock(mutex);
+    ReverseLeaseMap::iterator it = revLeaseMap.begin();
+    while (it != revLeaseMap.end()) {
+        if (it->second.empty()) {
+            ReverseLeaseMap::iterator next = it;
+            ++next;
+            revLeaseMap.erase(it);
+            it = next;
+            continue;
+        }
+        if (it->first >= clock.getTime()) {
+            break;
+        }
+
+        uint64_t leaseId = *it->second.begin();
+        std::string leaseObjName = STORAGE_PREFIX + "/"
+                + std::to_string(static_cast<unsigned long long>(leaseId));
+        context->externalStorage->remove(leaseObjName.c_str());
+        it->second.erase(it->second.begin());
+        leaseMap.erase(leaseId);
+        return true;
+    }
+    return false;
+}
+
+/**
+ * Recover lease information from external storage.  This should only be called
+ * once during the construction of the Lease Manager.
  */
 void
 LeaseManager::recover()

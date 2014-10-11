@@ -15,6 +15,7 @@
 
 #include "TestUtil.h"       //Has to be first, compiler complains
 #include "LeaseManager.h"
+#include "CoordinatorClusterClock.pb.h"
 #include "MockExternalStorage.h"
 
 namespace RAMCloud {
@@ -30,10 +31,18 @@ class LeaseManagerTest : public ::testing::Test {
         , storage(true)
         , leaseMgr()
     {
+        // Add data to storage to affect recovered clock time.
+        ProtoBuf::CoordinatorClusterClock info;
+        info.set_next_safe_time(1000);
+        std::string str;
+        info.SerializeToString(&str);
+        storage.getResults.push(str);
+
         context.externalStorage = &storage;
         leaseMgr.construct(&context);
         leaseMgr->clock.updater.stop();
-        while (leaseMgr->clock.updater.isRunning()) {
+        while (leaseMgr->clock.updater.isRunning() ||
+               leaseMgr->clock.updater.handlerRunning) {
             continue;
         }
     }
@@ -108,6 +117,50 @@ TEST_F(LeaseManagerTest, allocateNextLease) {
     leaseMgr->allocateNextLease(lock);
     EXPECT_EQ("set(CREATE, leaseManager/1)", storage.log);
     EXPECT_EQ(1U, leaseMgr->maxAllocatedLeaseId);
+}
+
+TEST_F(LeaseManagerTest, cleanNextLease) {
+    // Time dependent test.
+    leaseMgr->leaseMap[25] = 0;
+    leaseMgr->revLeaseMap[0].insert(25);
+    leaseMgr->leaseMap[52] = 0;
+    leaseMgr->revLeaseMap[0].insert(52);
+    leaseMgr->revLeaseMap[1];
+    leaseMgr->revLeaseMap[2];
+
+    EXPECT_EQ(2U, leaseMgr->leaseMap.size());
+    EXPECT_EQ(3U, leaseMgr->revLeaseMap.size());
+
+    EXPECT_TRUE(leaseMgr->cleanNextLease());
+    EXPECT_EQ(1U, leaseMgr->leaseMap.size());
+    EXPECT_EQ(3U, leaseMgr->revLeaseMap.size());
+
+    EXPECT_TRUE(leaseMgr->cleanNextLease());
+    EXPECT_EQ(0U, leaseMgr->leaseMap.size());
+    EXPECT_EQ(3U, leaseMgr->revLeaseMap.size());
+
+    EXPECT_FALSE(leaseMgr->cleanNextLease());
+    EXPECT_EQ(0U, leaseMgr->leaseMap.size());
+    EXPECT_EQ(0U, leaseMgr->revLeaseMap.size());
+
+    leaseMgr->revLeaseMap[1];
+    leaseMgr->revLeaseMap[2];
+    leaseMgr->leaseMap[88] = 3;
+    leaseMgr->revLeaseMap[3].insert(88);
+    leaseMgr->leaseMap[99] = 60000;
+    leaseMgr->revLeaseMap[60000].insert(99);
+    leaseMgr->revLeaseMap[60001];
+
+    EXPECT_EQ(2U, leaseMgr->leaseMap.size());
+    EXPECT_EQ(5U, leaseMgr->revLeaseMap.size());
+
+    EXPECT_TRUE(leaseMgr->cleanNextLease());
+    EXPECT_EQ(1U, leaseMgr->leaseMap.size());
+    EXPECT_EQ(3U, leaseMgr->revLeaseMap.size());
+
+    EXPECT_FALSE(leaseMgr->cleanNextLease());
+    EXPECT_EQ(1U, leaseMgr->leaseMap.size());
+    EXPECT_EQ(2U, leaseMgr->revLeaseMap.size());
 }
 
 TEST_F(LeaseManagerTest, recover) {

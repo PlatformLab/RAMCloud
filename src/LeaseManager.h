@@ -99,6 +99,7 @@ class LeaseManager {
     ReverseLeaseMap revLeaseMap;
 
     void allocateNextLease(Lock &lock);
+    bool cleanNextLease();
     void recover();
 
     DISALLOW_COPY_AND_ASSIGN(LeaseManager);
