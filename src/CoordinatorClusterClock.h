@@ -96,8 +96,6 @@ class CoordinatorClusterClock {
     /// largest cluster time that is safe to externalize (see "getTime()").
     uint64_t safeClusterTimeMs;
 
-    /// Container for the SafeTimeUpdater to delay its construction until after
-    /// the clock is thread-safe.
     SafeTimeUpdater updater;
 
     uint64_t getInternal(Lock &lock);

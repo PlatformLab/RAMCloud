@@ -44,6 +44,13 @@ class LeaseManager {
         DISALLOW_COPY_AND_ASSIGN(LeasePreallocator);
     };
 
+    /**
+     * The LeaseCleaner periodically wakes up to expire leases.  Every time it
+     * does a cleaning pass, it will attempt to clean as many lease as possible.
+     * The cleaning process only blocks during the cleaning of a single lease;
+     * other operations like lease renewal can safely interleave with cleaning
+     * during a cleaning pass.
+     */
     class LeaseCleaner : public WorkerTimer {
       public:
         explicit LeaseCleaner(Context* context,
@@ -97,6 +104,8 @@ class LeaseManager {
     /// renewed, or removed.
     typedef std::map<uint64_t, std::unordered_set<uint64_t> > ReverseLeaseMap;
     ReverseLeaseMap revLeaseMap;
+
+    LeaseCleaner cleaner;
 
     void allocateNextLease(Lock &lock);
     bool cleanNextLease();

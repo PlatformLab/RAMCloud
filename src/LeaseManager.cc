@@ -35,8 +35,10 @@ LeaseManager::LeaseManager(Context* context)
     , maxAllocatedLeaseId(0)
     , leaseMap()
     , revLeaseMap()
+    , cleaner(context, this)
 {
     recover();
+    cleaner.start(0);
 }
 
 WireFormat::ClientLease
@@ -68,6 +70,33 @@ LeaseManager::renewLease(uint64_t leaseId)
 }
 
 /**
+ * Constructor for the LeaseCleaner.
+ * \param context
+ *      Overall information about the RAMCloud server and provides access to
+ *      the dispatcher.
+ * \param leaseManager
+ *      Provides access to the leaseManager to perform cleaning.
+ */
+LeaseManager::LeaseCleaner::LeaseCleaner(Context* context,
+                                         LeaseManager* leaseManager)
+    : WorkerTimer(context->dispatch)
+    , leaseManager(leaseManager)
+{}
+
+/**
+ * This handler performs a cleaning pass on leaseManager.
+ */
+void
+LeaseManager::LeaseCleaner::handleTimerEvent()
+{
+    bool stillCleaning = true;
+    while (stillCleaning) {
+        stillCleaning = leaseManager->cleanNextLease();
+    }
+    this->start(Cycles::rdtsc() + Cycles::fromSeconds(LEASE_TERM_MS / 1000));
+}
+
+/**
  * Persist the next available leaseId to external storage=.
  *
  * \param lock
@@ -87,9 +116,8 @@ LeaseManager::allocateNextLease(Lock &lock)
 }
 
 /**
- * Expire the next lease whose term as elapsed and garbage collect its metadata.
- * If the term of the next lease to be expired has not yet elapsed, this call
- * has no effect.
+ * Expire the next lease whose term has elapsed. If the term of the next lease
+ * to be expired has not yet elapsed, this call has no effect.
  *
  * \return
  *      Return true if a lease was able to be cleaned.  Returning false implies

@@ -41,8 +41,11 @@ class LeaseManagerTest : public ::testing::Test {
         context.externalStorage = &storage;
         leaseMgr.construct(&context);
         leaseMgr->clock.updater.stop();
+        leaseMgr->cleaner.stop();
         while (leaseMgr->clock.updater.isRunning() ||
-               leaseMgr->clock.updater.handlerRunning) {
+               leaseMgr->clock.updater.handlerRunning ||
+               leaseMgr->cleaner.isRunning() ||
+               leaseMgr->cleaner.handlerRunning) {
             continue;
         }
     }
@@ -108,6 +111,25 @@ TEST_F(LeaseManagerTest, renewLease_new) {
                 leaseMgr->revLeaseMap[leaseMgr->leaseMap[3]].find(3));
     EXPECT_EQ(3U, leaseMgr->lastIssuedLeaseId);
     EXPECT_EQ(5U, leaseMgr->maxAllocatedLeaseId);
+}
+
+TEST_F(LeaseManagerTest, leaseCleaner_handleTimerEvent) {
+    leaseMgr->leaseMap[25] = 0;
+    leaseMgr->revLeaseMap[0].insert(25);
+    leaseMgr->leaseMap[52] = 0;
+    leaseMgr->revLeaseMap[0].insert(52);
+    leaseMgr->revLeaseMap[1];
+    leaseMgr->revLeaseMap[2];
+    leaseMgr->leaseMap[88] = 3;
+    leaseMgr->revLeaseMap[3].insert(88);
+    leaseMgr->leaseMap[99] = 60000;
+    leaseMgr->revLeaseMap[60000].insert(99);
+    leaseMgr->revLeaseMap[60001];
+
+    leaseMgr->cleaner.handleTimerEvent();
+
+    EXPECT_EQ(1U, leaseMgr->leaseMap.size());
+    EXPECT_EQ(2U, leaseMgr->revLeaseMap.size());
 }
 
 TEST_F(LeaseManagerTest, allocateNextLease) {
