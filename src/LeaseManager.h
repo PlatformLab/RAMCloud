@@ -30,8 +30,19 @@ class LeaseManager {
   PUBLIC:
     explicit LeaseManager(Context *context);
     WireFormat::ClientLease renewLease(uint64_t leaseId);
+    void start();
 
   PRIVATE:
+    /**
+     * The LeasePreallocator is periodically invoked to allocated leaseId on
+     * external storage.  The goal is that this preallocator will work ahead
+     * of the issued leases so that a client does not have to wait for an
+     * external storage operations to complete a new lease request.  Every
+     * invocation of the preallocator should ensure that maxAllocatedLeaseId
+     * runs ahead of lastIssuedLeaseId by the PREALLOCATION_LIMIT.  This batch
+     * allocation process only blocks during each individual allocation; other
+     * operations like issuing leases can be safely interleaved.
+     */
     class LeasePreallocator : public WorkerTimer {
       public:
         explicit LeasePreallocator(Context* context,
@@ -105,11 +116,13 @@ class LeaseManager {
     typedef std::map<uint64_t, std::unordered_set<uint64_t> > ReverseLeaseMap;
     ReverseLeaseMap revLeaseMap;
 
+    LeasePreallocator preallocator;
     LeaseCleaner cleaner;
 
     void allocateNextLease(Lock &lock);
     bool cleanNextLease();
     void recover();
+    WireFormat::ClientLease renewLeaseInternal(uint64_t leaseId, Lock &lock);
 
     DISALLOW_COPY_AND_ASSIGN(LeaseManager);
 };

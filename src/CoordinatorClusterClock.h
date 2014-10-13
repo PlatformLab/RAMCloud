@@ -45,6 +45,7 @@ class CoordinatorClusterClock {
   PUBLIC:
     explicit CoordinatorClusterClock(Context *context);
     uint64_t getTime();
+    void startUpdater();
 
   PRIVATE:
     /**

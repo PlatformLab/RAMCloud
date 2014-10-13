@@ -37,8 +37,25 @@ class CoordinatorClusterClockTest : public ::testing::Test {
     DISALLOW_COPY_AND_ASSIGN(CoordinatorClusterClockTest);
 };
 
-TEST_F(CoordinatorClusterClockTest, constructor) {
+TEST_F(CoordinatorClusterClockTest, getTime) {
+    // Time dependent test;
+    // Set large safe time so that the test will not hit it.
+    clock->safeClusterTimeMs = 10000;
+    EXPECT_GT(clock->getTime(), 0U);
+    EXPECT_LT(clock->getTime(), 10000U);
+}
+
+TEST_F(CoordinatorClusterClockTest, getTime_stale) {
+    usleep(1000);
+    EXPECT_EQ(0U, clock->safeClusterTimeMs);
+    EXPECT_EQ(0U, clock->getTime());
+    usleep(1000);
+    EXPECT_EQ(0U, clock->getTime());
+}
+
+TEST_F(CoordinatorClusterClockTest, startUpdater) {
     // Time dependent test.
+    clock->startUpdater();
     EXPECT_TRUE(clock->updater.isRunning());
     for (int i = 0; i < 1000; i++) {
         if (clock->safeClusterTimeMs >= 3000) {
@@ -49,31 +66,8 @@ TEST_F(CoordinatorClusterClockTest, constructor) {
     EXPECT_GE(clock->safeClusterTimeMs, 3000U);
 }
 
-TEST_F(CoordinatorClusterClockTest, getTime) {
-    // Time dependent test;
-    // Stop updater to avoid update time dependency.
-    clock->updater.stop();
-
-    // Set large safe time so that the test will not hit it.
-    clock->safeClusterTimeMs = 10000;
-    EXPECT_GT(clock->getTime(), 0U);
-    EXPECT_LT(clock->getTime(), 10000U);
-}
-
-TEST_F(CoordinatorClusterClockTest, getTime_stale) {
-    // Stop updater to avoid update time dependency.
-    clock->updater.stop();
-    usleep(1000);
-    EXPECT_EQ(0U, clock->safeClusterTimeMs);
-    EXPECT_EQ(0U, clock->getTime());
-    usleep(1000);
-    EXPECT_EQ(0U, clock->getTime());
-}
-
 TEST_F(CoordinatorClusterClockTest, handleTimerEvent) {
     // Covers both the handleTimerEvent and recoverClusterTime methods.
-    clock->updater.stop();
-    EXPECT_FALSE(clock->updater.isRunning());
     EXPECT_EQ(0U, clock->recoverClusterTime(context.externalStorage));
     EXPECT_EQ(0U, clock->safeClusterTimeMs);
     storage.log.clear();
@@ -96,9 +90,6 @@ TEST_F(CoordinatorClusterClockTest, getInternal) {
 
 TEST_F(CoordinatorClusterClockTest, recoverClusterTime_noStoredValue) {
     // Covered by handleTimerEvent test.
-    clock->updater.stop();
-    EXPECT_FALSE(clock->updater.isRunning());
-
     storage.log.clear();
     EXPECT_EQ(0U, clock->recoverClusterTime(context.externalStorage));
     EXPECT_EQ("get(coordinatorClusterClock)", storage.log);
@@ -107,9 +98,6 @@ TEST_F(CoordinatorClusterClockTest, recoverClusterTime_noStoredValue) {
 
 TEST_F(CoordinatorClusterClockTest, recoverClusterTime_recoveredValue) {
     // Covered by handleTimerEvent test.
-    clock->updater.stop();
-    EXPECT_FALSE(clock->updater.isRunning());
-
     clock->updater.handleTimerEvent();
     storage.getResults.push(storage.setData);
 

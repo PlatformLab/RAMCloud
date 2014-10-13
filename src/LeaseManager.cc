@@ -21,6 +21,10 @@
 
 namespace RAMCloud {
 
+/// Defines the number of leases the preallocator should try to keep ahead of
+/// the lastIssuedLeaseId.
+const uint64_t PREALLOCATION_LIMIT = 1000;
+
 /// Defines the period of time that a lease will be extended upon renewal.
 const uint64_t LEASE_TERM_MS = 300000;      // 5 min = 300,000 ms
 
@@ -35,39 +39,81 @@ LeaseManager::LeaseManager(Context* context)
     , maxAllocatedLeaseId(0)
     , leaseMap()
     , revLeaseMap()
+    , preallocator(context, this)
     , cleaner(context, this)
 {
     recover();
-    cleaner.start(0);
 }
 
+/**
+ * Attempts to renew a lease with leaseId. If the requested leaseId is still
+ * live the lease is renewed and its term is extended; if not a new leaseId is
+ * issued and returned.
+ *
+ * \param leaseId
+ *      The leaseId that a client wishes to renew if possible.  Note that
+ *      leaseId = 0 is implicitly invalid and will always cause a new lease to
+ *      be returned.
+ * \return
+ *      leaseId and leaseTerm for the renewed lease or new lease.
+ */
 WireFormat::ClientLease
 LeaseManager::renewLease(uint64_t leaseId)
 {
     Lock lock(mutex);
-    WireFormat::ClientLease clientLease;
+    WireFormat::ClientLease clientLease = renewLeaseInternal(leaseId, lock);
 
-    LeaseMap::iterator leaseEntry = leaseMap.find(leaseId);
-    if (leaseEntry != leaseMap.end()) {
-        // Simply renew the existing lease.
-        clientLease.leaseId = leaseId;
-        revLeaseMap[leaseEntry->second].erase(leaseId);
-    } else {
-        // Must issue a new lease as the old one has expired.
-        // If this id has not been preallocated, allocate it now.
-        // This should only ever execute once if at all.
-        while (maxAllocatedLeaseId <= lastIssuedLeaseId) {
-            allocateNextLease(lock);
-        }
-        clientLease.leaseId = ++lastIssuedLeaseId;
+    // Poke the preallocator if we are getting close to running out of leases.
+    if (maxAllocatedLeaseId - lastIssuedLeaseId < PREALLOCATION_LIMIT / 4) {
+        preallocator.start(0);
     }
-
-    clientLease.leaseTerm = clock.getTime() + LEASE_TERM_MS;
-    leaseMap[clientLease.leaseId] = clientLease.leaseTerm;
-    revLeaseMap[clientLease.leaseTerm].insert(clientLease.leaseId);
 
     return clientLease;
 }
+
+/**
+ * Start background timers to perform perallocation and cleaning and also start
+ * the cluster clock updater.
+ */
+void
+LeaseManager::start()
+{
+    preallocator.start(0);
+    cleaner.start(0);
+    clock.startUpdater();
+}
+
+/**
+ * Constructor for the LeasePreallocator.
+ * \param context
+ *      Overall information about the RAMCloud server and provides access to
+ *      the dispatcher.
+ * \param leaseManager
+ *      Provides access to the leaseManager to perform preallocation.
+ */
+LeaseManager::LeasePreallocator::LeasePreallocator(Context* context,
+                                                  LeaseManager* leaseManager)
+    : WorkerTimer(context->dispatch)
+    , leaseManager(leaseManager)
+{}
+
+/**
+ * The handler performs the lease preallocation.
+ */
+void
+LeaseManager::LeasePreallocator::handleTimerEvent()
+{
+    uint64_t preallocationCount = 0;
+    while (true) {
+        LeaseManager::Lock lock(leaseManager->mutex);
+        preallocationCount = leaseManager->maxAllocatedLeaseId -
+                             leaseManager->lastIssuedLeaseId;
+        if (preallocationCount >= PREALLOCATION_LIMIT)
+            break;
+        leaseManager->allocateNextLease(lock);
+    }
+}
+
 
 /**
  * Constructor for the LeaseCleaner.
@@ -175,6 +221,43 @@ LeaseManager::recover()
             LOG(WARNING, "Unable to recover lease: %s", object.name);
         }
     }
+}
+
+/**
+ * Does most of the work for "renewLease".  Breaks up code for ease of testing.
+ *
+ * \param leaseId
+ *      See "renewLease".
+ * \param lock
+ *      Ensures that caller has acquired mutex; not actually used here.
+ * \return
+ *      See "renewLease".
+ */
+WireFormat::ClientLease
+LeaseManager::renewLeaseInternal(uint64_t leaseId, Lock &lock)
+{
+    WireFormat::ClientLease clientLease;
+
+    LeaseMap::iterator leaseEntry = leaseMap.find(leaseId);
+    if (leaseEntry != leaseMap.end()) {
+        // Simply renew the existing lease.
+        clientLease.leaseId = leaseId;
+        revLeaseMap[leaseEntry->second].erase(leaseId);
+    } else {
+        // Must issue a new lease as the old one has expired.
+        // If this id has not been preallocated, allocate it now.
+        // This should only ever execute once if at all.
+        while (maxAllocatedLeaseId <= lastIssuedLeaseId) {
+            allocateNextLease(lock);
+        }
+        clientLease.leaseId = ++lastIssuedLeaseId;
+    }
+
+    clientLease.leaseTerm = clock.getTime() + LEASE_TERM_MS;
+    leaseMap[clientLease.leaseId] = clientLease.leaseTerm;
+    revLeaseMap[clientLease.leaseTerm].insert(clientLease.leaseId);
+
+    return clientLease;
 }
 
 } // namespace RAMCloud

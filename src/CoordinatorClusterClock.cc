@@ -37,9 +37,7 @@ CoordinatorClusterClock::CoordinatorClusterClock(Context *context)
     , startingClusterTimeMs(recoverClusterTime(context->externalStorage))
     , safeClusterTimeMs(startingClusterTimeMs)
     , updater(context, this)
-{
-    updater.start(0);
-}
+{}
 
 /**
  * Returns the current cluster time.  The cluster time is expected to advance
@@ -59,6 +57,16 @@ CoordinatorClusterClock::getTime()
         return safeClusterTimeMs;
     }
     return time;
+}
+
+/**
+ * Start the SafeTimeUpdater.  Must be called to ensure the clock will advance.
+ * Seperated out mostly for ease of testing.
+ */
+void
+CoordinatorClusterClock::startUpdater()
+{
+    updater.start(0);
 }
 
 /**
