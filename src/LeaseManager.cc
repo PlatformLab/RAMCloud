@@ -46,6 +46,27 @@ LeaseManager::LeaseManager(Context* context)
 }
 
 /**
+ * Check if a given leaseId has not yet expired.  A lease may still be live (not
+ * expired) even after the lease term has elapsed.
+ *
+ * \param leaseId
+ *      Id of the lease whose liveness you wish to check.
+ * \return
+ *      True if the lease is currently still live.  
+ */
+bool
+LeaseManager::isLeaseLive(uint64_t leaseId)
+{
+    Lock lock(mutex);
+    LeaseMap::iterator leaseEntry = leaseMap.find(leaseId);
+    if (leaseEntry != leaseMap.end()) {
+        return true;
+    } else {
+        return false;
+    }
+}
+
+/**
  * Attempts to renew a lease with leaseId. If the requested leaseId is still
  * live the lease is renewed and its term is extended; if not a new leaseId is
  * issued and returned.

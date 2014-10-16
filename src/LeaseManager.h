@@ -29,6 +29,7 @@ namespace RAMCloud {
 class LeaseManager {
   PUBLIC:
     explicit LeaseManager(Context *context);
+    bool isLeaseLive(uint64_t leaseId);
     WireFormat::ClientLease renewLease(uint64_t leaseId);
     void start();
 
