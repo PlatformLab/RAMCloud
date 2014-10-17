@@ -38,11 +38,12 @@ class MultiReadTest : public ::testing::Test {
     uint64_t tableId1;
     uint64_t tableId2;
     uint64_t tableId3;
+    uint64_t tableId4;
     BindTransport::BindSession* session1;
     BindTransport::BindSession* session2;
     BindTransport::BindSession* session3;
-    Tub<ObjectBuffer> values[6];
-    MultiReadObject objects[6];
+    Tub<ObjectBuffer> values[8];
+    MultiReadObject objects[8];
 
   public:
     MultiReadTest()
@@ -53,6 +54,7 @@ class MultiReadTest : public ::testing::Test {
         , tableId1(-1)
         , tableId2(-2)
         , tableId3(-3)
+        , tableId4(-4)
         , session1(NULL)
         , session2(NULL)
         , session3(NULL)
@@ -107,6 +109,10 @@ class MultiReadTest : public ::testing::Test {
         ramcloud->write(tableId3, "object3-1", 9, "value:3-1");
         ramcloud->write(tableId3, "object3-2", 9, "value:3-2");
 
+        tableId4 = ramcloud->createTable("EmptyValues");
+        ramcloud->write(tableId4, "object4-1", 9, "");
+        ramcloud->write(tableId4, "object4-2", 9, NULL);
+
         // Get pointers to the master sessions.
         Transport::SessionRef session =
                 ramcloud->clientContext->transportManager->getSession(
@@ -126,6 +132,8 @@ class MultiReadTest : public ::testing::Test {
         objects[3] = {tableId2, "object2-1", 9, &values[3]};
         objects[4] = {tableId3, "object3-1", 9, &values[4]};
         objects[5] = {tableId3, "bogus", 5, &values[5]};
+        objects[6] = {tableId4, "object4-1", 9, &values[6]};
+        objects[7] = {tableId4, "object4-2", 9, &values[7]};
     }
 
     // Returns a string describing the status of the RPCs for request.
@@ -267,5 +275,32 @@ TEST_F(MultiReadTest, readResponse_shortResponse) {
                            bufferString(values[0])), 9));
     EXPECT_EQ("value:1-2", string(reinterpret_cast<const char*>(
                            bufferString(values[1])), 9));
+}
+
+TEST_F(MultiReadTest, readNullAndEmptyValues) {
+    MultiReadObject* requests[] = {&objects[0], &objects[6], &objects[7]};
+    MultiRead request(ramcloud.get(), requests, 3);
+    request.wait();
+    uint32_t valueLength;
+
+    ASSERT_TRUE(request.isReady());
+
+    EXPECT_STREQ("STATUS_OK", statusToSymbol(objects[0].status));
+    EXPECT_EQ("value:1-1", string(reinterpret_cast<const char*>(
+                           bufferString(values[0])), 9));
+    EXPECT_EQ("object1-1", string(reinterpret_cast<const char*>(
+                           values[0]->getKey()), 9));
+    values[0]->getValue(&valueLength);
+    EXPECT_EQ(9U, valueLength);
+
+    EXPECT_EQ("object4-1", string(reinterpret_cast<const char*>(
+                           values[6].get()->getKey()), 9));
+    values[6]->getValue(&valueLength);
+    EXPECT_EQ(0U, valueLength);
+
+    EXPECT_EQ("object4-2", string(reinterpret_cast<const char*>(
+                           values[7].get()->getKey()), 9));
+    values[7]->getValue(&valueLength);
+    EXPECT_EQ(0U, valueLength);
 }
 }  // namespace RAMCloud

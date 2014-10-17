@@ -1139,6 +1139,49 @@ TEST_F(MasterServiceTest, multiWrite_unknownTable) {
     }
 }
 
+TEST_F(MasterServiceTest, multiWrite_nullAndEmptyValues) {
+    uint32_t valueLength;
+    ObjectBuffer value;
+    uint64_t version;
+    uint64_t tableId1 = ramcloud->createTable("table1");
+    ramcloud->write(tableId1, "1", 1, "originalVal", 12);
+    MultiWriteObject request1(tableId1, "0", 1, "", 0);
+    MultiWriteObject request2(tableId1, "1", 1, (const char*)NULL, 0);
+    MultiWriteObject request3(tableId1, "0", 1, "emptyToSomething", 16);
+    MultiWriteObject request4(tableId1, "1", 1, "nullToSomething", 15);
+    MultiWriteObject* requests[] = {&request1, &request2};
+    ramcloud->multiWrite(requests, 2);
+
+    EXPECT_EQ(STATUS_OK, request1.status);
+    EXPECT_EQ(2U, request1.version);
+    EXPECT_EQ(STATUS_OK, request2.status);
+    EXPECT_EQ(2U, request2.version);
+
+
+    ramcloud->readKeysAndValue(tableId1, "0", 1, &value, NULL, &version);
+    value.getValue(&valueLength);
+    EXPECT_EQ(0U, valueLength);
+
+    ramcloud->readKeysAndValue(tableId1, "1", 1, &value, NULL, &version);
+    value.getValue(&valueLength);
+    EXPECT_EQ(0U, valueLength);
+
+    // See if we can transition back to something non-zero length
+    requests = {&request3, &request4};
+    ramcloud->multiWrite(requests, 2);
+
+    EXPECT_EQ(STATUS_OK, request3.status);
+    EXPECT_EQ(3U, request3.version);
+    EXPECT_EQ(STATUS_OK, request4.status);
+    EXPECT_EQ(3U, request4.version);
+    ramcloud->readKeysAndValue(tableId1, "0", 1, &value, NULL, &version);
+    EXPECT_EQ("emptyToSomething", string(reinterpret_cast<const char*>(
+            value.getValue()), 16));
+    ramcloud->readKeysAndValue(tableId1, "1", 1, &value, NULL, &version);
+    EXPECT_EQ("nullToSomething", string(reinterpret_cast<const char*>(
+            value.getValue()), 15));
+}
+
 TEST_F(MasterServiceTest, multiWrite_malformedRequests) {
     // Fabricate a valid-looking RPC, but make the key and value length
     // fields not match what's in the buffer.
