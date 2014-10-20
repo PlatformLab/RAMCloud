@@ -110,6 +110,7 @@ SHARED_SRCFILES := \
 		   src/ReplicaManager.cc \
 		   src/ReplicatedSegment.cc \
 		   src/RpcWrapper.cc \
+		   src/RpcTracker.cc \
 		   src/Seglet.cc \
 		   src/SegletAllocator.cc \
 		   src/Segment.cc \
