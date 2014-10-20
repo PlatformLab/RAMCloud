@@ -2642,8 +2642,11 @@ RamCloud::write(uint64_t tableId, const void* key, uint16_t keyLength,
         const char* value, const RejectRules* rejectRules, uint64_t* version,
         bool async)
 {
-    WriteRpc rpc(this, tableId, key, keyLength, value,
-            downCast<uint32_t>(strlen(value)), rejectRules, async);
+    uint32_t valueLength =
+            (value == NULL) ? 0 : downCast<uint32_t>(strlen(value));
+
+    WriteRpc rpc(this, tableId, key, keyLength, value, valueLength,
+                    rejectRules, async);
     rpc.wait(version);
 }
 
@@ -2740,8 +2743,10 @@ RamCloud::write(uint64_t tableId, uint8_t numKeys, KeyInfo *keyList,
         const char* value, const RejectRules* rejectRules, uint64_t* version,
         bool async)
 {
+    uint32_t valueLength =
+            (value == NULL) ? 0 : downCast<uint32_t>(strlen(value));
     WriteRpc rpc(this, tableId, numKeys, keyList, value,
-            downCast<uint32_t>(strlen(value)), rejectRules, async);
+            valueLength, rejectRules, async);
     rpc.wait(version);
 }
 

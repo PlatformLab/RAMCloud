@@ -662,6 +662,46 @@ TEST_F(RamCloudTest, write) {
                         value.getValue()), 10));
 }
 
+TEST_F(RamCloudTest, writeEmptyValue) {
+    uint64_t version;
+    ObjectBuffer result;
+
+    ramcloud->write(tableId1, "empty", 5, "", NULL, &version, false);
+    ramcloud->readKeysAndValue(tableId1, "empty", 5, &result);
+
+    // Make sure we get the right result back by checking key
+    EXPECT_EQ(1U, version);
+    ASSERT_EQ(5U, result.getKeyLength());
+    ASSERT_EQ("empty", string(reinterpret_cast<const char*>(
+                        result.getKey()), result.getKeyLength()));
+
+
+    // Check Persistence of empty value
+    uint32_t valueLength;
+    result.getValue(&valueLength);
+    EXPECT_EQ(0U, valueLength);
+}
+
+TEST_F(RamCloudTest, writeNullValue) {
+    uint64_t version;
+    ObjectBuffer result;
+
+    ramcloud->write(tableId1, "nullVal", 7, NULL, NULL, &version, false);
+    ramcloud->readKeysAndValue(tableId1, "nullVal", 7, &result);
+
+     // Make sure we get the right result back by checking key
+    EXPECT_EQ(1U, version);
+    ASSERT_EQ(7U, result.getKeyLength());
+    ASSERT_EQ("nullVal", string(reinterpret_cast<const char*>(
+                        result.getKey()), result.getKeyLength()));
+
+
+    // Check Persistence of zero length object
+    uint32_t valueLength;
+    result.getValue(&valueLength);
+    EXPECT_EQ(0U, valueLength);
+}
+
 TEST_F(RamCloudTest, indexedRead) {
     uint64_t tableId = ramcloud->createTable("table");
     ramcloud->createIndex(tableId, 1, 0);

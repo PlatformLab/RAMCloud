@@ -188,6 +188,32 @@ TEST_F(MultiWriteTest, basics_end_to_end) {
     EXPECT_EQ(4U, multikeyObject.get()->version);
 }
 
+TEST_F(MultiWriteTest, writeNullAndEmptyValue) {
+    uint16_t keyLen9 = 9;
+    Tub<MultiWriteObject> objects[5];
+    objects[0].construct(tableId1, "object1-1", keyLen9, "value:1-1", 9);
+    objects[1].construct(tableId1, "object1-2", keyLen9, "", 1);
+    objects[2].construct(tableId1, "object1-3", keyLen9, "", 0);
+    objects[3].construct(tableId2, "object2-1", keyLen9, (const void*)NULL, 0);
+    objects[4].construct(tableId3, "object3-1", keyLen9, "value:3-1", 9);
+
+    MultiWriteObject* requests[] = {
+        objects[0].get(), objects[1].get(), objects[2].get(),
+        objects[3].get(), objects[4].get(),
+    };
+    ramcloud->multiWrite(requests, 5);
+
+    EXPECT_EQ(STATUS_OK, objects[0]->status);
+    EXPECT_EQ(STATUS_OK, objects[1]->status);
+    EXPECT_EQ(STATUS_OK, objects[2]->status);
+    EXPECT_EQ(6U, objects[0]->version + objects[1]->version +
+        objects[2]->version);
+    EXPECT_EQ(STATUS_OK, objects[3]->status);
+    EXPECT_EQ(1U, objects[3]->version);
+    EXPECT_EQ(STATUS_OK, objects[4]->status);
+    EXPECT_EQ(1U, objects[4]->version);
+}
+
 TEST_F(MultiWriteTest, appendRequest) {
     MultiWriteObject* requests[] = {objects[0].get()};
     uint32_t dif, before;

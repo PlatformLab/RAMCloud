@@ -582,7 +582,7 @@ Object::getValue(uint32_t *valueLength)
         return NULL;
 
     const CumulativeKeyLength *cumLengths = keyOffsets->cumulativeLengths;
-    // To caclulate the starting position of the value, we have to account for
+    // To calculate the starting position of the value, we have to account for
     // the number of keys, all the cumulative length values and total length
     // of all the keys. The total length of all the keys is given by the
     // cumulative length value at the last key position.
