@@ -586,6 +586,17 @@ TEST_F(RamCloudTest, serverControlAll) {
               TestUtil::toString(outputBuf, entryRespHdr->outputLength));
 }
 
+TEST_F(RamCloudTest, logMessageAll) {
+    TestLog::reset();
+    ramcloud->logMessageAll(ERROR,
+            "Test string to write to log %d, %s%c", 42, "extra string", '!');
+
+    EXPECT_EQ("serverControl: Test string to write to log 42, extra string! |"
+            " serverControl: Test string to write to log 42, extra string! |"
+            " serverControl: Test string to write to log 42, extra string!",
+            TestLog::get());
+}
+
 TEST_F(RamCloudTest, splitTablet) {
     string message("no exception");
     try {

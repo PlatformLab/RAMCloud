@@ -129,6 +129,8 @@ class RamCloud {
     void serverControlAll(WireFormat::ControlOp controlOp,
             const void* inputData = NULL, uint32_t inputLength = 0,
             Buffer* outputData = NULL);
+    void logMessageAll(LogLevel level, const char* fmt, ...)
+        __attribute__ ((format (gnu_printf, 3, 4)));
     void splitTablet(const char* name, uint64_t splitKeyHash);
     void testingFill(uint64_t tableId, const void* key, uint16_t keyLength,
             uint32_t numObjects, uint32_t objectSize);

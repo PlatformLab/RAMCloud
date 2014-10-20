@@ -586,4 +586,32 @@ TEST_F(PingServiceTest, serverControl_logCacheTrace) {
             TestLog::get());
 }
 
+TEST_F(PingServiceTest, serverControl_addLogMessage) {
+    PingClient::logMessage(&context, serverId, ERROR,
+            "Test string to write to log %d, %s%c", 42, "extra string", '!');
+
+    EXPECT_EQ("serverControl: Test string to write to log 42, extra string!",
+            TestLog::get());
+}
+
+TEST_F(PingServiceTest, serverControl_addLogMessage_bad) {
+    Buffer output;
+    const char* testStr = "Test string to write to log";
+
+    // making bad serverControls by not using PingClient::logMessage function
+
+    // empty message
+    EXPECT_THROW(PingClient::serverControl(&context, serverId,
+                WireFormat::LOG_MESSAGE, testStr, 0, &output), ClientException);
+
+    // message with only 2 bytes (need at least sizeof(LogLevel) = 4 bytes)
+    EXPECT_THROW(PingClient::serverControl(&context, serverId,
+                WireFormat::LOG_MESSAGE, testStr, 2, &output), ClientException);
+
+    // message with no log level
+    EXPECT_THROW(PingClient::serverControl(&context, serverId,
+                WireFormat::LOG_MESSAGE, testStr, (uint32_t) strlen(testStr),
+                &output), ClientException);
+}
+
 } // namespace RAMCloud

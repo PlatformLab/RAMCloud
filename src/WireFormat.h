@@ -139,6 +139,7 @@ enum ControlOp {
     GET_PERF_STATS              = 1007,
     START_PERF_COUNTERS         = 1008,
     STOP_PERF_COUNTERS          = 1009,
+    LOG_MESSAGE                 = 1010,
 };
 
 /**

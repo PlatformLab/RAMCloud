@@ -37,6 +37,9 @@ class PingClient {
     static void serverControl(Context* context, ServerId serverId,
             WireFormat::ControlOp controlOp, const void* inputData = NULL,
             uint32_t inputLength = 0, Buffer* outputData = NULL);
+    static void logMessage(Context* context, ServerId serverId,
+            LogLevel level, const char* fmt, ...)
+        __attribute__ ((format (gnu_printf, 4, 5)));
     static bool verifyServerId(Context* context, Transport::SessionRef session,
             ServerId expectedId);
 

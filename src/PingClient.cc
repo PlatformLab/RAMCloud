@@ -13,6 +13,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include <stdarg.h>
+
 #include "Common.h"
 #include "ClientException.h"
 #include "Cycles.h"
@@ -311,6 +313,40 @@ ServerControlRpc::waitRaw()
 {
     waitInternal(context->dispatch);
     return !serverCrashed;
+}
+
+/**
+ * Wrapper function to send a LOG_MESSAGE server control with a format string.
+ *
+ * \param context
+ *      Overall information about this RAMCloud server or client.
+ * \param serverId
+ *      Identifier for the master to be controlled.
+ * \param level
+ *      Which LogLevel the message should be added to.
+ * \param[in] fmt
+ *      A printf-style format string for the message.
+ * \param[in] ...
+ *      The arguments to the format string.
+ */
+void
+PingClient::logMessage(Context* context, ServerId serverId,
+        LogLevel level, const char* fmt, ...)
+{
+    Buffer toSend;
+    Buffer outputData;
+
+    va_list args;
+    va_start(args, fmt);
+    string toAdd = vformat(fmt, args);
+    va_end(args);
+
+    toSend.emplaceAppend<LogLevel>(level);
+    toSend.appendCopy(toAdd.data(), (uint32_t) toAdd.size());
+
+    ServerControlRpc rpc(context, serverId, WireFormat::LOG_MESSAGE,
+            toSend.getStart<char>(), toSend.size(), &outputData);
+    rpc.wait();
 }
 
 /**

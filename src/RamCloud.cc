@@ -13,6 +13,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include <stdarg.h>
+
 #include "RamCloud.h"
 #include "CoordinatorSession.h"
 #include "FailSession.h"
@@ -2234,6 +2236,36 @@ ServerControlAllRpc::ServerControlAllRpc(RamCloud* ramcloud,
     reqHdr->inputLength = inputLength;
     request.appendExternal(inputData, inputLength);
     send();
+}
+
+/**
+ * Wrapper used to invoke the LOG_MESSAGE ServerControl on every server in
+ * the cluster
+ *
+ * \param level
+ *      Which LogLevel the message should be added to.
+ * \param[in] fmt
+ *      A printf-style format string for the message.
+ * \param[in] ...
+ *      The arguments to the format string.
+ */
+void
+RamCloud::logMessageAll(LogLevel level, const char* fmt, ...)
+{
+    Buffer toSend;
+    Buffer outputData;
+
+    va_list args;
+    va_start(args, fmt);
+    string toAdd = vformat(fmt, args);
+    va_end(args);
+
+    toSend.emplaceAppend<LogLevel>(level);
+    toSend.appendCopy(toAdd.data(), (uint32_t) toAdd.size());
+
+    ServerControlAllRpc rpc(this, WireFormat::LOG_MESSAGE,
+        toSend.getStart<char>(), toSend.size(), &outputData);
+    rpc.wait();
 }
 
 /**
