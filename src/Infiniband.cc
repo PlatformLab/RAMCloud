@@ -63,7 +63,8 @@ Infiniband::dumpStats()
 /**
  * Create a new QueuePair. This factory should be used in preference to
  * the QueuePair constructor directly, since this lets derivatives of
- * Infiniband, e.g. MockInfiniband, return mocked out QueuePair derivatives.
+ * Infiniband, e.g. MockInfiniband (if it existed),
+ * return mocked out QueuePair derivatives.
  *
  * See QueuePair::QueuePair for parameter documentation.
  */
