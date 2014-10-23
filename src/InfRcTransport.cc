@@ -404,6 +404,13 @@ InfRcTransport::InfRcSession::cancelRequest(
     }
     foreach (ClientRpc& rpc, transport->outstandingRpcs) {
         if (rpc.notifier == notifier) {
+
+            // Wait until NIC completes all ongoing transmits. This will
+            // guarantee that we don't send garbaged rpc if NIC has already
+            // started DMA transmit of data from the rpc that we want to cancel.
+            while (transport->freeTxBuffers.size() != MAX_TX_QUEUE_DEPTH) {
+                transport->reapTxBuffers();
+            }
             erase(transport->outstandingRpcs, rpc);
             transport->clientRpcPool.destroy(&rpc);
             --transport->numUsedClientSrqBuffers;

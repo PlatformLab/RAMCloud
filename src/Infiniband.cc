@@ -449,7 +449,8 @@ Infiniband::createSharedReceiveQueue(uint32_t maxWr, uint32_t maxSge)
  *      Pointer to an array of ``numEntries'' ibv_wc structs.
  *      Completions are returned here.
  * \return
- *      The number of entries obtained. 0 if none, < 0 on error. 
+ *      The number of entries obtained. 0 if none, < 0 on error. Strictly less
+ *      than ``numEntries'' means that ``cq'' has been emptied.
  */
 int
 Infiniband::pollCompletionQueue(ibv_cq *cq, int numEntries, ibv_wc *retWcArray)
