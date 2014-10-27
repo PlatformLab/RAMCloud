@@ -100,6 +100,31 @@ ObjectBuffer::getValueOffset(uint16_t *offset)
 }
 
 /**
+ * Convenience method to obtain the 64-bit version number associated
+ * with the Object.
+ */
+uint64_t
+ObjectBuffer::getVersion() {
+    if (!object)
+        object.construct(1, 0, 0, *this);
+    return object.get()->getVersion();
+}
+
+/**
+ * Obtain a pointer to the Object contained with the ObjectBuffer. The
+ * pointer will remain valid until reset() or the destructor is invoked
+ * on the associated ObjectBuffer.
+ *
+ * /return a pointer to the object.
+ */
+Object*
+ObjectBuffer::getObject() {
+    if (!object)
+        object.construct(1, 0, 0, *this);
+    return object.get();
+}
+
+/**
  * Overrides Buffer::reset(). Frees the object that is encapsulated
  * within this ObjectBuffer.
  */
