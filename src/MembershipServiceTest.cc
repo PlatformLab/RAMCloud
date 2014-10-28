@@ -105,8 +105,8 @@ TEST_F(MembershipServiceTest, updateServerList_multi) {
     context2.externalStorage = &storage;
     ProtoBuf::ServerList fullList, update2, update3;
     CoordinatorServerList source(&context2);
-    source.haltUpdater();
     CoordinatorService coordinatorService(&context2, 1000, false);
+    source.haltUpdater();
 
     // Full List v1
     ServerId id1 = source.enlistServer({WireFormat::MASTER_SERVICE,
