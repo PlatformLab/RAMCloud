@@ -18,6 +18,10 @@
 
 namespace RAMCloud {
 
+// Default RejectRules to use if none are provided by the caller: rejects
+// nothing.
+static RejectRules defaultRejectRules;
+
 /**
  * Constructor for MultiRead objects: initiates one or more RPCs for a
  * multiRead operation, but returns once the RPCs have been initiated,
@@ -63,7 +67,9 @@ MultiRead::appendRequest(MultiOpObject* request, Buffer* buf)
     // Add the current object to the list of those being
     // fetched by this RPC.
     buf->emplaceAppend<WireFormat::MultiOp::Request::ReadPart>(
-            req->tableId, req->keyLength);
+            req->tableId, req->keyLength,
+            req->rejectRules ? *req->rejectRules :
+                               defaultRejectRules);
     buf->appendCopy(req->key, req->keyLength);
 }
 

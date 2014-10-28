@@ -973,8 +973,10 @@ MasterService::multiRead(const WireFormat::MultiOp::Request* reqHdr,
                WireFormat::MultiOp::Response::ReadPart>();
 
         uint32_t initialLength = rpc->replyPayload->size();
+        RejectRules rejectRules = currentReq->rejectRules;
         currentResp->status = objectManager.readObject(
-                key, rpc->replyPayload, NULL, &currentResp->version);
+                key, rpc->replyPayload, &rejectRules,
+                &currentResp->version);
 
         if (currentResp->status != STATUS_OK)
             continue;

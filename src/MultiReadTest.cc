@@ -216,6 +216,37 @@ TEST_F(MultiReadTest, basics_end_to_end) {
                                bufferString(values[5])), 13));
 }
 
+TEST_F(MultiReadTest, rejectRules_end_to_end) {
+    MultiReadObject* requests[] = {&objects[0], &objects[1], &objects[2],
+            &objects[3], &objects[4], &objects[5]};
+    RejectRules r0, r1, r2, r3, r4, r5;
+    r0 = {0, 1, 0, 0, 0}; // reject if does not exist
+    r1 = {0, 0, 1, 0, 0}; // reject if exist
+    r2 = {1000, 0, 0, 1, 0}; // reject if version <=1000
+    r3 = {3, 0, 0, 0, 1}; // reject if version !=3
+    r4 = {1, 0, 0, 0, 1}; // reject if version !=1
+    r5 = r1;
+
+    objects[0].rejectRules = &r0;
+    objects[1].rejectRules = &r1;
+    objects[2].rejectRules = &r2;
+    objects[3].rejectRules = &r3;
+    objects[4].rejectRules = &r4;
+    objects[5].rejectRules = &r5;
+
+    MultiRead request(ramcloud.get(), requests, 6);
+    request.wait();
+    ASSERT_TRUE(request.isReady());
+
+    EXPECT_STREQ("STATUS_OK", statusToSymbol(objects[0].status));
+    EXPECT_STREQ("STATUS_OBJECT_EXISTS", statusToSymbol(objects[1].status));
+    EXPECT_STREQ("STATUS_WRONG_VERSION", statusToSymbol(objects[2].status));
+    EXPECT_STREQ("STATUS_WRONG_VERSION", statusToSymbol(objects[3].status));
+    EXPECT_STREQ("STATUS_OK", statusToSymbol(objects[4].status));
+    EXPECT_STREQ("STATUS_OBJECT_DOESNT_EXIST",
+                    statusToSymbol(objects[5].status));
+}
+
 TEST_F(MultiReadTest, appendRequest) {
     MultiReadObject* requests[] = {&objects[0]};
     uint32_t dif, before;

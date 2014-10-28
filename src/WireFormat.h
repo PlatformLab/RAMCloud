@@ -978,10 +978,17 @@ struct MultiOp {
         struct ReadPart {
             uint64_t tableId;
             uint16_t keyLength;
+            RejectRules rejectRules;
+
             // In buffer: The actual key for this part
             // follows immediately after this.
-            ReadPart(uint64_t tableId, uint16_t keyLength)
-                : tableId(tableId), keyLength(keyLength) {}
+            ReadPart(uint64_t tableId, uint16_t keyLength,
+                    RejectRules rejectRules)
+                : tableId(tableId),
+                  keyLength(keyLength),
+                  rejectRules(rejectRules)
+            {
+            }
         } __attribute__((packed));
 
         struct RemovePart {

@@ -664,31 +664,40 @@ struct MultiReadObject : public MultiOpObject {
     Tub<ObjectBuffer>* value;
 
     /**
+     * The RejectRules specify when conditional reads should be aborted.
+     */
+    const RejectRules* rejectRules;
+
+    /**
      * The version number of the object is returned here.
      */
     uint64_t version;
 
     MultiReadObject(uint64_t tableId, const void* key, uint16_t keyLength,
-            Tub<ObjectBuffer>* value)
+            Tub<ObjectBuffer>* value, const RejectRules* rejectRules = NULL)
         : MultiOpObject(tableId, key, keyLength)
         , value(value)
+        , rejectRules(rejectRules)
         , version()
     {}
 
     MultiReadObject()
         : value()
+        , rejectRules()
         , version()
     {}
 
     MultiReadObject(const MultiReadObject& other)
         : MultiOpObject(other)
         , value(other.value)
+        , rejectRules(other.rejectRules)
         , version(other.version)
     {}
 
     MultiReadObject& operator=(const MultiReadObject& other) {
         MultiOpObject::operator =(other);
         value = other.value;
+        rejectRules = other.rejectRules;
         version = other.version;
         return *this;
     }

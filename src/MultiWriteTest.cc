@@ -188,6 +188,30 @@ TEST_F(MultiWriteTest, basics_end_to_end) {
     EXPECT_EQ(4U, multikeyObject.get()->version);
 }
 
+TEST_F(MultiWriteTest, rejectRules_end_to_end) {
+    MultiWriteObject* requests[] = {
+        objects[0].get(), objects[1].get(), objects[2].get(),
+        objects[3].get(), objects[4].get(), objects[5].get(),
+        multikeyObject.get()
+    };
+    ramcloud->multiWrite(requests, 7);
+
+    RejectRules r0, r1, r2;
+    r0 = {0, 1, 0, 0, 0};       // reject if does not exist
+    r1 = {0, 0, 1, 0, 0};       // reject if exists
+    r2 = {1000, 0, 0, 1, 0};    // reject if version <=1000
+
+    requests[0]->rejectRules = &r0;
+    requests[1]->rejectRules = &r1;
+    requests[2]->rejectRules = &r2;
+
+    ramcloud->multiWrite(requests, 3);
+
+    EXPECT_EQ(STATUS_OK, objects[0]->status);
+    EXPECT_EQ(STATUS_OBJECT_EXISTS, objects[1]->status);
+    EXPECT_EQ(STATUS_WRONG_VERSION, objects[2]->status);
+}
+
 TEST_F(MultiWriteTest, writeNullAndEmptyValue) {
     uint16_t keyLen9 = 9;
     Tub<MultiWriteObject> objects[5];
