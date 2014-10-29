@@ -1098,6 +1098,12 @@ TEST_F(ObjectManagerTest, writeObject) {
               "writeObject: tombstone: 33 bytes, version 1", TestLog::get());
     EXPECT_EQ("found=true tableId=1 byteCount=99 recordCount=3"
               , verifyMetadata(1));
+
+    // Verify RetryException  when overwriting with no space
+    uint64_t original = objectManager.getLog()->totalBytesRemaining;
+    objectManager.getLog()->totalBytesRemaining = 0;
+    EXPECT_THROW(objectManager.writeObject(obj, 0, 0), RetryException);
+    objectManager.getLog()->totalBytesRemaining = original;
 }
 
 TEST_F(ObjectManagerTest, writeObject_returnRemovedObj) {
@@ -1212,6 +1218,12 @@ TEST_F(ObjectManagerTest, flushEntriesToLog) {
 
     //TestLog::Enable _(writeObjectFilter);
     TestLog::Enable _(antiGetEntryFilter);
+
+    // Verify that the flush is rejected when the log's remaining size is small
+    uint64_t original = objectManager.getLog()->totalBytesRemaining;
+    objectManager.getLog()->totalBytesRemaining = 0;
+    EXPECT_FALSE(objectManager.flushEntriesToLog(&logBuffer, numEntries));
+    objectManager.getLog()->totalBytesRemaining = original;
 
     // flush all the entries in logBuffer to the log atomically
     EXPECT_TRUE(objectManager.flushEntriesToLog(&logBuffer, numEntries));
