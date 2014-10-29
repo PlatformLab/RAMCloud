@@ -27,6 +27,7 @@
 #include "ServiceMask.h"
 #include "ServerId.h"
 #include "TransportManager.h"
+#include "ServerConfig.pb.h"
 
 namespace RAMCloud {
 
@@ -41,8 +42,12 @@ class CoordinatorClient {
     static ServerId enlistServer(Context* context, ServerId replacesId,
             ServiceMask serviceMask, string localServiceLocator,
             uint32_t readSpeed);
+    static void getBackupConfig(Context* context,
+            ProtoBuf::ServerConfig_Backup& config);
     static void getBackupList(Context* context,
             ProtoBuf::ServerList* serverList);
+    static void getMasterConfig(Context* context,
+            ProtoBuf::ServerConfig_Master& config);
     static void getMasterList(Context* context,
             ProtoBuf::ServerList* serverList);
     static void getServerList(Context* context,
@@ -81,6 +86,34 @@ class EnlistServerRpc : public CoordinatorRpcWrapper {
 
     PRIVATE:
     DISALLOW_COPY_AND_ASSIGN(EnlistServerRpc);
+};
+
+/**
+ * Encapsulates the state of a CoordinatorClient::getBackupConfig
+ * request, allowing it to execute asynchronously.
+ */
+class GetBackupConfigRpc : public CoordinatorRpcWrapper {
+    public:
+    explicit GetBackupConfigRpc(Context* context);
+    ~GetBackupConfigRpc() {}
+    void wait(ProtoBuf::ServerConfig_Backup& config);
+
+    PRIVATE:
+    DISALLOW_COPY_AND_ASSIGN(GetBackupConfigRpc);
+};
+
+/**
+ * Encapsulates the state of a CoordinatorClient::getMasterConfig
+ * request, allowing it to execute asynchronously.
+ */
+class GetMasterConfigRpc : public CoordinatorRpcWrapper {
+    public:
+    explicit GetMasterConfigRpc(Context* context);
+    ~GetMasterConfigRpc() {}
+    void wait(ProtoBuf::ServerConfig_Master& config);
+
+    PRIVATE:
+    DISALLOW_COPY_AND_ASSIGN(GetMasterConfigRpc);
 };
 
 /**

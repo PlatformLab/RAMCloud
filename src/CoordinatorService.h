@@ -32,6 +32,7 @@
 #include "Service.h"
 #include "TableManager.h"
 #include "TransportManager.h"
+#include "ServerConfig.h"
 
 namespace RAMCloud {
 
@@ -76,6 +77,12 @@ class CoordinatorService : public Service {
     void enlistServer(const WireFormat::EnlistServer::Request* reqHdr,
                       WireFormat::EnlistServer::Response* respHdr,
                       Rpc* rpc);
+    void getBackupConfig(const WireFormat::GetBackupConfig::Request* reqHdr,
+                         WireFormat::GetBackupConfig::Response* respHdr,
+                         Rpc* rpc);
+    void getMasterConfig(const WireFormat::GetMasterConfig::Request* reqHdr,
+                         WireFormat::GetMasterConfig::Response* respHdr,
+                         Rpc* rpc);
     void getServerList(const WireFormat::GetServerList::Request* reqHdr,
                        WireFormat::GetServerList::Response* respHdr,
                        Rpc* rpc);
@@ -199,6 +206,18 @@ class CoordinatorService : public Service {
      * Used by unit tests to force synchronous completion of initialization.
      */
     static bool forceSynchronousInit;
+
+    /**
+     * Default backup configuration that new backups entering the cluster should
+     * adopt.  Used by getBackupConfig.
+     */
+    ServerConfig::Backup backupConfig;
+
+    /**
+     * Default master configuration that new masters entering the cluster should
+     * adopt.  Used by getMasterConfig.
+     */
+    ServerConfig::Master masterConfig;
 
     friend class CoordinatorServiceRecovery;
     friend class CoordinatorServerList;

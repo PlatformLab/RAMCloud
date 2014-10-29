@@ -108,8 +108,7 @@ main(int argc, char *argv[])
              "Percentage or megabytes of system memory for master log & "
              "hash table")
             ("replicas,r",
-             ProgramOptions::value<uint32_t>(&config.master.numReplicas)->
-                default_value(0),
+             ProgramOptions::value<uint32_t>(&config.master.numReplicas),
              "Number of backup copies to make for each segment")
             ("useMinCopysets",
              ProgramOptions::value<bool>(&config.master.useMinCopysets)->
@@ -221,6 +220,23 @@ main(int argc, char *argv[])
         context.coordinatorSession->setLocation(
                 config.coordinatorLocator.c_str(),
                 config.clusterName.c_str());
+
+        // Get Default Backup Configuration from Coordinator.
+        if (config.services.has(WireFormat::BACKUP_SERVICE)) {
+            ProtoBuf::ServerConfig_Backup backupConfig;
+            CoordinatorClient::getBackupConfig(&context, backupConfig);
+            config.backup.deserialize(backupConfig);
+        }
+
+        // Get Default Master Configuration from Coordinator.
+        if (config.services.has(WireFormat::MASTER_SERVICE)) {
+            ProtoBuf::ServerConfig_Master masterConfig;
+            CoordinatorClient::getMasterConfig(&context, masterConfig);
+            config.master.deserialize(masterConfig);
+        }
+
+        // Re-parse the options to override coordinator provided defaults.
+        OptionParser optionReparser(serverOptions, argc, argv);
 
         if (!backupOnly) {
             LOG(NOTICE, "Using %u backups", config.master.numReplicas);
