@@ -155,6 +155,10 @@ TEST_F(BackupMasterRecoveryTest, start) {
     EXPECT_FALSE(recovery->replicas[3].metadata->primary);
     EXPECT_FALSE(recovery->replicas[4].metadata->primary);
 
+    // Primaries are in reverse order.
+    EXPECT_EQ(91lu, recovery->replicas[0].metadata->segmentId);
+    EXPECT_EQ(88lu, recovery->replicas[1].metadata->segmentId);
+
     // All secondaries are there.
     EXPECT_EQ(89lu, recovery->replicas[2].metadata->segmentId);
     EXPECT_EQ(93lu, recovery->replicas[3].metadata->segmentId);
