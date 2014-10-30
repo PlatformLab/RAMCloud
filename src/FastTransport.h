@@ -90,7 +90,9 @@ class FastTransport : public Transport {
     VIRTUAL_FOR_TESTING void handleIncomingPacket(Driver::Received *received);
 
     string getServiceLocator();
-    void registerMemory(void* base, size_t bytes) {}
+    void registerMemory(void* base, size_t bytes) {
+        driver->registerMemory(base, bytes);
+    }
 
     /**
      * Manages an entire request/response cycle from the client perspective.

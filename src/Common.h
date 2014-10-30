@@ -244,6 +244,13 @@ get(const Map& map, const typename Map::key_type& key)
 #define CACHE_LINE_SIZE 64
 
 /**
+ * This macro forces the compiler to align allocated memory to the cash line
+ * size. This is necessary as a performance boost for the data portion of
+ * packet buffers in driver codes like SolarFlareDriver.
+ */
+#define CACHE_ALIGN  __attribute__((aligned(CACHE_LINE_SIZE)))
+
+/**
  * Prefetch the cache lines containing [object, object + numBytes) into the
  * processor's caches.
  * The best docs for this are in the Intel instruction set reference under

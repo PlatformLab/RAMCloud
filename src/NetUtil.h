@@ -14,33 +14,44 @@
  */
 
 #include "Common.h"
+#include "Syscall.h"
 
-#ifndef RAMCLOUD_ETHERNETUTIL_H
-#define RAMCLOUD_ETHERNETUTIL_H
+#ifndef RAMCLOUD_NETUTIL_H
+#define RAMCLOUD_NETUTIL_H
 
 /**
  * \file 
- * This header file contains Header structs that could be potetially shared 
- * between all of the ethernet drivers. The scope of this file is limitted to 
- * EtherUtil because member structs should only be used inside driver software
- * specific to ethernet.
+ *      This header file contains data structure and function definitions that
+ *      could be potetially shared between all of the layer 2 and layer 3
+ *      network drivers.  The scope of this file is limitted to NetUtil because
+ *      member structs should only be used inside driver software specific to
+ *      Ethernet, IP, UDP, etc.
  */
 namespace RAMCloud {
 
-namespace EthernetUtil {
+namespace NetUtil {
 
 // This enum define various ethernet payload types as it must be specified
-// in EthernetHeader field etherType.
-enum EthernetType {
+// in EthernetHeader field `etherType'.
+enum EthPayloadType {
     IP_V4 = 0x0800 // Standard ethernet type when the payload is an ip packet.
 };
+
+// Standard size of an ethernet frame including header.
+static const uint32_t ETHERNET_MAX_DATA_LEN = 1500;
+
+/// The MAC address length in bytes.
+static const int MAC_ADDR_LEN = 6;
+
+/// Definining of MAC address as an array of lenght MAC_ADDR_LEN.
+typedef uint8_t MacAddress[MAC_ADDR_LEN];
 
 /**
  * Standard Ethernet Header structure. 
  */
 struct EthernetHeader {
-    uint8_t destAddress[6]; // Destination MAC address.
-    uint8_t srcAddress[6];  // Source MAC address.
+    MacAddress destAddress; // Destination MAC address.
+    MacAddress srcAddress;  // Source MAC address.
     uint16_t etherType;     // The payload type of the ethernet frame which
                             // follows right after this header.
 }__attribute__((packed));
@@ -79,13 +90,31 @@ struct UdpHeader {
                             // payload.
 }__attribute__((packed));
 
+/**
+ * A helper class that defines a syscall object for doing system calls. It
+ * extends the scope of the sycall object beyond the compilation units and at
+ * the same time limits the scope to the NetUtil namespace. This extended scope
+ * is requiered for unit testsing.
+ */
+class SysCallWrapper {
+  public:
+    SysCallWrapper()
+    {}
+
+    /// Static sys call object that is used to invoke all system calls in
+    /// NetUtil namespace in normal production code. In tests mode, this will
+    /// point to a `MockSyscall' object.
+    static Syscall* sys;
+};
+
 const string getLocalMac(const char* ifName);
 const string getLocalIp(const char* ifName);
 const string ethernetHeaderToStr(const void* ethHeader);
 const string ipHeaderToStr(const void* ipHeader);
 const string udpHeaderToStr(const void* udpHeader);
+const string macToStr(const uint8_t* mac);
 
-} //namespace EthernetUtil
+} //namespace NetUtil
 
 } //namespace RAMCloud
 

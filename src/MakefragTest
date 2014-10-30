@@ -11,10 +11,19 @@ else
 INFINIBAND_SRCFILES :=
 endif
 
+ifeq ($(ONLOAD),yes)
+SOLARFLARE_SRC := \
+	src/SolarFlareDriverTest.cc \
+	$(NULL)
+else
+SOLARFLARE_SRC :=
+endif
+
 TESTS_SRCFILES := \
 		  src/AbstractLogTest.cc \
 		  src/AbstractServerListTest.cc \
 		  src/AtomicTest.cc \
+		  src/ArpCacheTest.cc \
 		  src/BackupFailureMonitorTest.cc \
 		  src/BackupMasterRecoveryTest.cc \
 		  src/BackupSelectorTest.cc \
@@ -77,6 +86,7 @@ TESTS_SRCFILES := \
 		  src/MultiReadTest.cc \
 		  src/MultiRemoveTest.cc \
 		  src/MultiWriteTest.cc \
+		  src/NetUtilTest.cc \
 		  src/ObjectBufferTest.cc \
 		  src/ObjectFinderTest.cc \
 		  src/ObjectManagerTest.cc \
@@ -149,6 +159,7 @@ TESTS_SRCFILES := \
 		  src/WorkerTimerTest.cc \
 		  src/RamCloudTest.cc \
 		  $(INFINIBAND_SRCFILES) \
+		  $(SOLARFLARE_SRC) \
 		  $(OBJDIR)/ProtoBufTest.pb.cc
 
 TESTS_OBJFILES := $(TESTS_SRCFILES)
