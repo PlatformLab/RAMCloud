@@ -145,6 +145,11 @@ CoordinatorClusterClock::recoverClusterTime(ExternalStorage* externalStorage)
     if (externalStorage->getProtoBuf<ProtoBuf::CoordinatorClusterClock>(
             "coordinatorClusterClock", &info)) {
         startingClusterTime = info.next_safe_time();
+    } else {
+        LOG(WARNING, "couldn't find \"coordinatorClusterClock\" object in "
+                "external storage; starting new clock from zero; benign if "
+                "starting new cluster from scratch, may cause linearizability "
+                "failures otherwise");
     }
 
     LOG(NOTICE,

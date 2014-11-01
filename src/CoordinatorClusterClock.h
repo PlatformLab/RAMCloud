@@ -58,7 +58,6 @@ class CoordinatorClusterClock {
       public:
         explicit SafeTimeUpdater(Context* context,
                                  CoordinatorClusterClock* clock);
-        virtual ~SafeTimeUpdater() {}
         virtual void handleTimerEvent();
 
         ExternalStorage* externalStorage;
