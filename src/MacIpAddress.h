@@ -13,8 +13,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#ifndef RAMCLOUD_SOLARFLAREADDRESS_H
-#define RAMCLOUD_SOLARFLAREADDRESS_H
+#ifndef RAMCLOUD_MACIPADDRESS_H
+#define RAMCLOUD_MACIPADDRESS_H
 
 #include "Common.h"
 #include "Driver.h"
@@ -23,30 +23,41 @@
 #include "MacAddress.h"
 
 namespace RAMCloud {
+
 /**
  * This class provides a way for the SolarFlareDriver and transport to deduce
  * the address of the destination or source(local address) of a packet.
  */
-class SolarFlareAddress : public Driver::Address {
+class MacIpAddress : public Driver::Address {
   public:
-    explicit SolarFlareAddress(const ServiceLocator& serviceLocator);
-    explicit SolarFlareAddress(const uint8_t mac[6]
-                               , const uint32_t ip
-                               , const uint16_t port);
-    explicit SolarFlareAddress(const SolarFlareAddress& other)
+    explicit MacIpAddress(const ServiceLocator& serviceLocator);
+    explicit MacIpAddress(const uint32_t ip,
+                               const uint16_t port,
+                               const uint8_t mac[6] = NULL);
+
+
+    explicit MacIpAddress(const MacIpAddress& other)
         : Address()
         , ipAddress(other.ipAddress)
         , macAddress(other.macAddress)
+        , macProvided(other.macProvided)
     {}
-    SolarFlareAddress* clone() const {
-        return new SolarFlareAddress(*this);
+
+    MacIpAddress* clone() const {
+        return new MacIpAddress(*this);
     }
+
     string toString() const;
-    //a RAMCloud::IpAddress object that hold the layer 3 address
-    IpAddress ipAddress;
-    //a RAMCloud::MacAddress object that holds the layer 2 address
-    MacAddress macAddress;
+
+    // A RAMCloud::IpAddress object that hold the layer 3 address
+    Tub<IpAddress> ipAddress;
+
+    // A RAMCloud::MacAddress object that holds the layer 2 address
+    Tub<MacAddress> macAddress;
+
+    // True if MAC address is provided and not equal to 00:00:00:00:00:00
+    bool macProvided;
 };
 
 }// end RAMCloud
-#endif //RAMCLOUD_SOLARFLAREADDRESS_H
+#endif //RAMCLOUD_MACIPADDRESS_H

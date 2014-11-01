@@ -200,7 +200,10 @@ TEST_F(InfRcTransportTest, InfRcSession_cancelRequest_rpcSent) {
     EXPECT_EQ(1U, client.outstandingRpcs.size());
     EXPECT_EQ(1u, client.numUsedClientSrqBuffers);
     EXPECT_EQ(1, rawSession->sessionAlarm.outstandingRpcs);
+    uint32_t totalTxBuffers = InfRcTransport::MAX_TX_QUEUE_DEPTH;
+    EXPECT_EQ(totalTxBuffers - 1, client.freeTxBuffers.size());
     session->cancelRequest(&rpc);
+    EXPECT_EQ(totalTxBuffers, client.freeTxBuffers.size());
     EXPECT_EQ(0U, client.outstandingRpcs.size());
     EXPECT_EQ(0u, client.numUsedClientSrqBuffers);
     EXPECT_EQ(0, rawSession->sessionAlarm.outstandingRpcs);

@@ -105,22 +105,24 @@ enum Opcode {
     GET_SERVER_STATISTICS     = 50,
     SET_RUNTIME_OPTION        = 51,
     GET_SERVER_CONFIG         = 52,
-    GET_LOG_METRICS           = 53,
-    VERIFY_MEMBERSHIP         = 55,
-    GET_RUNTIME_OPTION        = 56,
-    SERVER_CONTROL            = 57,
-    SERVER_CONTROL_ALL        = 58,
-    GET_SERVER_ID             = 59,
-    READ_KEYS_AND_VALUE       = 60,
-    LOOKUP_INDEX_KEYS         = 61,
-    INDEXED_READ              = 62,
-    INSERT_INDEX_ENTRY        = 63,
-    REMOVE_INDEX_ENTRY        = 64,
-    CREATE_INDEX              = 65,
-    DROP_INDEX                = 66,
-    DROP_INDEXLET_OWNERSHIP   = 67,
-    TAKE_INDEXLET_OWNERSHIP   = 68,
-    ILLEGAL_RPC_TYPE          = 69, // 1 + the highest legitimate Opcode
+    GET_BACKUP_CONFIG         = 53,
+    GET_MASTER_CONFIG         = 55,
+    GET_LOG_METRICS           = 56,
+    VERIFY_MEMBERSHIP         = 57,
+    GET_RUNTIME_OPTION        = 58,
+    SERVER_CONTROL            = 59,
+    SERVER_CONTROL_ALL        = 60,
+    GET_SERVER_ID             = 61,
+    READ_KEYS_AND_VALUE       = 62,
+    LOOKUP_INDEX_KEYS         = 63,
+    INDEXED_READ              = 64,
+    INSERT_INDEX_ENTRY        = 65,
+    REMOVE_INDEX_ENTRY        = 66,
+    CREATE_INDEX              = 67,
+    DROP_INDEX                = 68,
+    DROP_INDEXLET_OWNERSHIP   = 69,
+    TAKE_INDEXLET_OWNERSHIP   = 70,
+    ILLEGAL_RPC_TYPE          = 71, // 1 + the highest legitimate Opcode
 };
 
 /**
@@ -603,6 +605,20 @@ struct FillWithTestData {
     } __attribute__((packed));
 };
 
+struct GetBackupConfig {
+    static const Opcode opcode = GET_BACKUP_CONFIG;
+    static const ServiceType service = COORDINATOR_SERVICE;
+    struct Request {
+        RequestCommon common;
+    } __attribute__((packed));
+    struct Response {
+        ResponseCommon common;
+        uint32_t backupConfigLength;   // Number of bytes in the backup config
+                                       // protocol buffer immediately follow-
+                                       // ing this header.
+    } __attribute__((packed));
+};
+
 struct GetHeadOfLog {
     static const Opcode opcode = GET_HEAD_OF_LOG;
     static const ServiceType service = MASTER_SERVICE;
@@ -627,6 +643,20 @@ struct GetLogMetrics {
         uint32_t logMetricsLength; // Number of bytes in the log metrics
                                    // protocol buffer immediately follow-
                                    // ing this header.
+    } __attribute__((packed));
+};
+
+struct GetMasterConfig {
+    static const Opcode opcode = GET_MASTER_CONFIG;
+    static const ServiceType service = COORDINATOR_SERVICE;
+    struct Request {
+        RequestCommon common;
+    } __attribute__((packed));
+    struct Response {
+        ResponseCommon common;
+        uint32_t masterConfigLength;   // Number of bytes in the master config
+                                       // protocol buffer immediately follow-
+                                       // ing this header.
     } __attribute__((packed));
 };
 
@@ -978,10 +1008,17 @@ struct MultiOp {
         struct ReadPart {
             uint64_t tableId;
             uint16_t keyLength;
+            RejectRules rejectRules;
+
             // In buffer: The actual key for this part
             // follows immediately after this.
-            ReadPart(uint64_t tableId, uint16_t keyLength)
-                : tableId(tableId), keyLength(keyLength) {}
+            ReadPart(uint64_t tableId, uint16_t keyLength,
+                    RejectRules rejectRules)
+                : tableId(tableId),
+                  keyLength(keyLength),
+                  rejectRules(rejectRules)
+            {
+            }
         } __attribute__((packed));
 
         struct RemovePart {

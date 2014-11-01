@@ -202,6 +202,21 @@ class Driver {
     virtual Address* newAddress(const ServiceLocator& serviceLocator) = 0;
 
     /**
+     * Associates a contiguous region of memory to a NIC so that the memory 
+     * addresses within that region become direct memory accessible (DMA) for
+     * the NIC. This method must be implemented in the driver code if
+     * the NIC needs to do zero copy transmit of buffers within that region of
+     * memory.
+     * \param base
+     *     pointer to the beginning of the memory region that is to be
+     *     registered to the NIC. 
+     * \param bytes
+     *     The total size in bytes of the memory region starting at \a base
+     *     that is to be registered with the NIC.
+     */
+    virtual void registerMemory(void* base, size_t bytes) {}
+
+    /**
      * Send a single packet out over this Driver. The method doesn't return
      * until header and payload have been read and the packet is "on the wire";
      * the caller can safely discard or reuse the memory associated with payload

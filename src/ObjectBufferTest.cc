@@ -111,6 +111,24 @@ TEST_F(ObjectBufferTest, getValueOffset)
     EXPECT_EQ(16U, valueOffset);
 }
 
+TEST_F(ObjectBufferTest, getVersion) {
+    // These two implicitly construct the object
+    EXPECT_EQ(0U, buffer.getVersion());
+    EXPECT_EQ(0U, buffer.object->getVersion());
+
+
+    buffer.object->setVersion(999);
+    EXPECT_EQ(999U, buffer.getVersion());
+    EXPECT_EQ(999U, buffer.object->getVersion());
+}
+
+TEST_F(ObjectBufferTest, getObject) {
+    EXPECT_FALSE(buffer.object);
+    EXPECT_NE(reinterpret_cast<Object*>(NULL), buffer.getObject());
+    EXPECT_TRUE(buffer.object);
+    EXPECT_EQ(buffer.object.get(), buffer.getObject());
+}
+
 TEST_F(ObjectBufferTest, reset)
 {
     buffer.reset();

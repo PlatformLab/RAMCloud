@@ -149,6 +149,7 @@ class AbstractLog {
     LogEntryType getEntry(Reference reference,
                           Buffer& outBuffer);
     uint64_t getSegmentId(Reference reference);
+    bool hasSpaceFor(uint64_t objectSize);
     bool segmentExists(uint64_t segmentId);
 
     /*
@@ -279,6 +280,10 @@ class AbstractLog {
     /// method also uses this lock to get a consistent view of the head
     /// segment in the presence of multiple appending threads.
     SpinLock appendLock;
+
+    // Track the total amount of bytes we have available for live data before
+    // we must reject future appends to avoid constipation
+    uint64_t totalBytesRemaining;
 
     /// Various event counters and performance measurements taken during log
     /// operation.

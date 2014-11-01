@@ -358,7 +358,7 @@ HashTable::insert(KeyHash keyHash, uint64_t reference)
         bucket = last->getChainPointer();
         if (bucket == NULL) {
             // no empty space found, allocate a new cache line
-            RAMCLOUD_LOG(NOTICE, "Allocating overflow bucket %d for index %lu",
+            RAMCLOUD_CLOG(NOTICE, "Allocating overflow bucket %d for index %lu",
                     overflowBuckets,
                     findBucketIndex(numBuckets, keyHash, &secondaryHash));
             void *buf = Memory::xmemalign(HERE, sizeof(CacheLine),

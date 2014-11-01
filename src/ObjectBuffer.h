@@ -31,8 +31,7 @@ namespace RAMCloud {
  */
 
 class ObjectBuffer : public Buffer {
-  public:
-
+  PUBLIC:
     ObjectBuffer()
     : object()
     {
@@ -47,6 +46,8 @@ class ObjectBuffer : public Buffer {
     const void *getKey(KeyIndex keyIndex = 0);
     KeyLength getKeyLength(KeyIndex keyIndex = 0);
     const void *getValue(uint32_t *dataLength = NULL);
+    uint64_t getVersion();
+    Object *getObject();
 
     /**
      * Convenience for getValue.
@@ -60,6 +61,7 @@ class ObjectBuffer : public Buffer {
     bool getValueOffset(uint16_t *offset);
     void reset();
 
+  PRIVATE:
     Tub<Object> object;
 
     DISALLOW_COPY_AND_ASSIGN(ObjectBuffer);

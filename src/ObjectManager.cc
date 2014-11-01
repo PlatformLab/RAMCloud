@@ -940,6 +940,12 @@ ObjectManager::writeObject(Object& newObject, RejectRules* rejectRules,
     newObject.assembleForLog(appends[0].buffer);
     appends[0].type = LOG_ENTRY_TYPE_OBJ;
 
+    if (!log.hasSpaceFor(appends[0].buffer.size())) {
+        // We must bound the amount of live data to ensure deletes are possible
+        RAMCLOUD_CLOG(NOTICE, "Log is out of space, rejecting object write!");
+        throw RetryException(HERE, 1000, 2000, "Log is out of space!");
+    }
+
     if (tombstone) {
         tombstone->assembleForLog(appends[1].buffer);
         appends[1].type = LOG_ENTRY_TYPE_OBJTOMB;
@@ -1007,6 +1013,11 @@ ObjectManager::flushEntriesToLog(Buffer *logBuffer, uint32_t& numEntries)
 {
     if (numEntries == 0)
         return true;
+
+    if (!log.hasSpaceFor(logBuffer->size())) {
+        // We must bound the amount of live data to ensure deletes are possible
+        return false;
+    }
 
     // This array will hold the references of all the entries
     // that get written to the log. This will be used

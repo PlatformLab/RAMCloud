@@ -255,7 +255,8 @@ class Logger {
 } while (0)
 
 /**
- * Log a message for the system administrator.
+ * Log a message for the system administrator with (CLOG) or without (LOG)
+ * collapsing frequent messages.
  * The #RAMCLOUD_CURRENT_LOG_MODULE macro should be set to the LogModule to
  * which the message pertains.
  * \param[in] level
@@ -270,6 +271,15 @@ class Logger {
     RAMCloud::Logger& _logger = Logger::get(); \
     if (_logger.isLogging(RAMCLOUD_CURRENT_LOG_MODULE, level)) { \
         _logger.logMessage(false, RAMCLOUD_CURRENT_LOG_MODULE, level, HERE, \
+                           format "\n", ##__VA_ARGS__); \
+    } \
+    RAMCLOUD_TEST_LOG(format, ##__VA_ARGS__); \
+} while (0)
+
+#define RAMCLOUD_CLOG(level, format, ...) do { \
+    RAMCloud::Logger& _logger = Logger::get(); \
+    if (_logger.isLogging(RAMCLOUD_CURRENT_LOG_MODULE, level)) { \
+        _logger.logMessage(true, RAMCLOUD_CURRENT_LOG_MODULE, level, HERE, \
                            format "\n", ##__VA_ARGS__); \
     } \
     RAMCLOUD_TEST_LOG(format, ##__VA_ARGS__); \

@@ -49,8 +49,16 @@ AbstractLog::AbstractLog(LogEntryHandlers* entryHandlers,
       segmentSize(segmentSize),
       head(NULL),
       appendLock("AbstractLog::appendLock"),
+      totalBytesRemaining(0),
       metrics()
 {
+    // Steve Rumble suggests that the correct percentage of memory we allow to
+    // be used for live data is 98%, but we are being more conservative because
+    // we expect performance to degrade at even lower utlizations.
+    SegletAllocator& alloc = segmentManager->getAllocator();
+    totalBytesRemaining = static_cast<uint64_t>(alloc.getSegletSize() *
+            static_cast<double>(alloc.getFreeCount(SegletAllocator::DEFAULT)) *
+            0.95);
 }
 
 /**
@@ -190,6 +198,7 @@ AbstractLog::free(Reference reference)
                                            NULL,
                                            &lengthWithMetadata);
     segment->trackDeadEntry(type, lengthWithMetadata);
+    totalBytesRemaining += lengthWithMetadata;
 }
 
 /**
@@ -251,6 +260,18 @@ AbstractLog::getSegmentId(Reference reference)
     return getSegment(reference)->id;
 }
 
+/**
+ * Given a size of a new live object, check whether we have enough space to put
+ * it into the log without risking being unable to clean.
+
+ * \param objectSize 
+ *       The total amount of log space that will be consumed by the object and
+ *       its metadata
+ */
+bool
+AbstractLog::hasSpaceFor(uint64_t objectSize) {
+    return objectSize <= totalBytesRemaining;
+}
 /**
  * Check if a segment is still in the system. This method can be used to
  * determine if data once written to the log is no longer present in the
@@ -360,6 +381,8 @@ AbstractLog::append(Lock& appendLock,
     // Update log statistics so that the cleaner can make intelligent decisions
     // when trying to reclaim memory.
     head->trackNewEntry(type, lengthWithMetadata);
+    if (type == LOG_ENTRY_TYPE_OBJ)
+        totalBytesRemaining -= lengthWithMetadata;
 
     metrics.totalBytesAppended += length;
     metrics.totalMetadataBytesAppended += (lengthWithMetadata - length);
@@ -449,6 +472,8 @@ AbstractLog::append(Lock& appendLock,
     // Update log statistics so that the cleaner can make intelligent decisions
     // when trying to reclaim memory.
     head->trackNewEntry(type, lengthWithMetadata);
+    if (type == LOG_ENTRY_TYPE_OBJ)
+        totalBytesRemaining -= lengthWithMetadata;
 
     metrics.totalBytesAppended += entryDataLength;
     metrics.totalMetadataBytesAppended +=

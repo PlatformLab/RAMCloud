@@ -35,6 +35,7 @@ def recover(num_servers,
             num_partitions,
             object_size,
             num_objects,
+            num_overwrites,
             replicas,
             coordinator_args='',
             master_args='',
@@ -76,6 +77,9 @@ def recover(num_servers,
     @param num_objects: Number of objects to fill old Master with before crash.
     @type  num_objects: C{int}
 
+    @param num_overwrites: Number of writes on same key while filling old Master.
+    @type  num_overwrites: C{int}
+
     @param replicas: Number of times each segment is replicated to different
                      backups in the cluster.
     @type  replicas: C{int}
@@ -95,13 +99,13 @@ def recover(num_servers,
     @param master_ram: Megabytes of space allocated in each of the Masters
                        (except the old Master, see old_master_ram).  If left
                        unspecified same sane default will be attempted based
-                       on num_objects and object_size.
+                       on num_objects, object_size and num_overwrites.
     @type  master_ram: C{int}
 
     @param old_master_ram: Megabytes of space allocated in the old Master that
                            will eventually be crashed.  If left unspecified same
-                           sane default will be attempted based on num_objects
-                           and object_size.
+                           sane default will be attempted based on num_objects,
+                           num_overwrites and object_size.
     @type  old_master_ram: C{int}
 
     @param num_removals: Number of erases to do after inserts.  Allows
@@ -156,7 +160,7 @@ def recover(num_servers,
     if master_ram:
         log_space_per_partition = master_ram
     else:
-        log_space_per_partition = (200 + (1.3 * num_objects / object_size))
+        log_space_per_partition = (200 + (1.3 * num_objects / object_size * num_overwrites))
     # Extra segments are needed because the dummy tablets placed on the
     # masters cause log head rollovers. Without compensating for the
     # space waster by that the recovery masters run out of space.
@@ -165,15 +169,15 @@ def recover(num_servers,
     if master_args:
         args['master_args'] += ' ' + master_args;
     args['client'] = ('%s -f -n %d -r %d -s %d '
-                      '-t %d -k %d -l %s' % (client_binary,
+                      '-t %d -k %d -l %s -o %d' % (client_binary,
                       num_objects, num_removals, object_size,
-                      num_partitions, num_servers, log_level))
+                      num_partitions, num_servers, log_level, num_overwrites))
     args['old_master_host'] = config.old_master_host
     args['client_hosts'] = [config.old_master_host]
     if old_master_ram:
-        args['old_master_args'] = '-t %d' % old_master_ram
+        args['old_master_args'] = '-d -t %d' % old_master_ram
     else:
-        old_master_ram = log_space_per_partition * num_partitions
+        old_master_ram = log_space_per_partition * num_partitions * num_overwrites
         if args['coordinator_host'][0] == 'rcmaster' and old_master_ram > 42000:
             print('Warning: pushing the limits of rcmaster; '
                   'limiting RAM to 42000 MB to avoid knocking it over; '
@@ -252,6 +256,9 @@ if __name__ == '__main__':
     parser.add_option('-n', '--numObjects', type=int,
             metavar='N', dest='num_objects', default=2964750,
             help='Number of objects per partition')
+    parser.add_option('-o', '--numOverwrite', type=int,
+            metavar='N', dest='num_overwrites', default=1,
+            help='Number of writes per key')
     parser.add_option('-t', '--timeout', type=int, default=100,
             metavar='SECS',
             help="Abort if the client application doesn't finish within "
@@ -283,6 +290,7 @@ if __name__ == '__main__':
     args['num_partitions'] = options.num_partitions
     args['object_size'] = options.size
     args['num_objects'] = options.num_objects
+    args['num_overwrites'] = options.num_overwrites
     args['replicas'] = options.replicas
     args['master_ram'] = options.master_ram
     args['old_master_ram'] = options.old_master_ram

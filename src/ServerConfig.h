@@ -263,6 +263,27 @@ struct ServerConfig {
             config.set_use_local_backup(allowLocalBackup);
         }
 
+        /**
+         * Deserialize the provided protocol buffer into this master
+         * configuration.
+         */
+        void
+        deserialize(ProtoBuf::ServerConfig_Master& config)
+        {
+            logBytes = config.log_bytes();
+            hashTableBytes = config.hash_table_bytes();
+            disableLogCleaner = config.disable_log_cleaner();
+            disableInMemoryCleaning = config.disable_in_memory_cleaning();
+            diskExpansionFactor = config.backup_disk_expansion_factor();
+            cleanerBalancer = config.cleaner_balancer();
+            cleanerWriteCostThreshold = config.cleaner_write_cost_threshold();
+            cleanerThreadCount = config.cleaner_thread_count();
+            masterServiceThreadCount = config.master_service_thread_count();
+            numReplicas = config.num_replicas();
+            useMinCopysets = config.use_mincopysets();
+            allowLocalBackup = config.use_local_backup();
+        }
+
         /// Total number bytes to use for the in-memory Log.
         uint64_t logBytes;
 
@@ -364,6 +385,24 @@ struct ServerConfig {
             config.set_strategy(strategy);
             config.set_mock_speed(mockSpeed);
             config.set_write_rate_limit(writeRateLimit);
+        }
+
+        /**
+         * Deserialize the provided protocol buffer into this backup
+         * configuration.
+         */
+        void
+        deserialize(ProtoBuf::ServerConfig_Backup& config)
+        {
+            gc = config.gc();
+            inMemory = config.in_memory();
+            numSegmentFrames = config.num_segment_frames();
+            maxNonVolatileBuffers = config.max_non_volatile_buffers();
+            if (!inMemory)
+                file = config.file();
+            strategy = config.strategy();
+            mockSpeed = config.mock_speed();
+            writeRateLimit = config.write_rate_limit();
         }
 
         /**

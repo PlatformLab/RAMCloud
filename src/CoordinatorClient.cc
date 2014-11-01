@@ -109,6 +109,58 @@ EnlistServerRpc::wait()
 }
 
 /**
+ * Request a default backup configuration from the coordinator.
+ *
+ * \param context
+ *      Overall information about the RAMCloud server or client.
+ * \param[out] config
+ *      This protocol buffer is filled in with the backup configuration.
+ */
+void
+CoordinatorClient::getBackupConfig(Context* context,
+            ProtoBuf::ServerConfig_Backup& config)
+{
+    GetBackupConfigRpc rpc(context);
+    rpc.wait(config);
+}
+
+/**
+ * Constructor for GetBackupConfigRpc: initiates an RPC in the same way as
+ * #CoordinatorClient::getBackupConfig, but returns once the RPC has been
+ * initiated, without waiting for it to complete.
+ *
+ * \param context
+ *      Overall information about the RAMCloud server or client.
+ */
+GetBackupConfigRpc::GetBackupConfigRpc(Context* context)
+    : CoordinatorRpcWrapper(context,
+            sizeof(WireFormat::GetBackupConfig::Response))
+{
+    allocHeader<WireFormat::GetBackupConfig>();
+    send();
+}
+
+/**
+ * Wait for a getBackupConfig RPC to complete, and return the same results as
+ * #RamCloud::getBackupConfig.
+ *
+ * \param[out] config
+ *      This protocol buffer is filled in with the backup's configuration.
+ */
+void
+GetBackupConfigRpc::wait(ProtoBuf::ServerConfig_Backup& config)
+{
+    waitInternal(context->dispatch);
+    const WireFormat::GetBackupConfig::Response* respHdr(
+            getResponseHeader<WireFormat::GetBackupConfig>());
+    if (respHdr->common.status != STATUS_OK)
+        ClientException::throwException(HERE, respHdr->common.status);
+
+    ProtoBuf::parseFromResponse(response, sizeof(*respHdr),
+        respHdr->backupConfigLength, &config);
+}
+
+/**
  * Return information about all backups currently active in the cluster.
  *
  * \param context
@@ -122,6 +174,58 @@ CoordinatorClient::getBackupList(Context* context,
 {
     GetServerListRpc rpc(context, {WireFormat::BACKUP_SERVICE});
     rpc.wait(serverList);
+}
+
+/**
+ * Request a default master configuration from the coordinator.
+ *
+ * \param context
+ *      Overall information about the RAMCloud server or client.
+ * \param[out] config
+ *      This protocol buffer is filled in with the master configuration.
+ */
+void
+CoordinatorClient::getMasterConfig(Context* context,
+            ProtoBuf::ServerConfig_Master& config)
+{
+    GetMasterConfigRpc rpc(context);
+    rpc.wait(config);
+}
+
+/**
+ * Constructor for GetMasterConfigRpc: initiates an RPC in the same way as
+ * #CoordinatorClient::getMasterConfig, but returns once the RPC has been
+ * initiated, without waiting for it to complete.
+ *
+ * \param context
+ *      Overall information about the RAMCloud server or client.
+ */
+GetMasterConfigRpc::GetMasterConfigRpc(Context* context)
+    : CoordinatorRpcWrapper(context,
+            sizeof(WireFormat::GetMasterConfig::Response))
+{
+    allocHeader<WireFormat::GetMasterConfig>();
+    send();
+}
+
+/**
+ * Wait for a getMasterConfig RPC to complete, and return the same results as
+ * #RamCloud::getMasterConfig.
+ *
+ * \param[out] config
+ *      This protocol buffer is filled in with the master's configuration.
+ */
+void
+GetMasterConfigRpc::wait(ProtoBuf::ServerConfig_Master& config)
+{
+    waitInternal(context->dispatch);
+    const WireFormat::GetMasterConfig::Response* respHdr(
+            getResponseHeader<WireFormat::GetMasterConfig>());
+    if (respHdr->common.status != STATUS_OK)
+        ClientException::throwException(HERE, respHdr->common.status);
+
+    ProtoBuf::parseFromResponse(response, sizeof(*respHdr),
+        respHdr->masterConfigLength, &config);
 }
 
 /**
@@ -202,16 +306,16 @@ GetServerListRpc::wait(ProtoBuf::ServerList* serverList)
 
 /**
  * Retrieve tablet configuration information, which indicates the master
- * server that stores each object in the given table. Clients use this to 
+ * server that stores each object in the given table. Clients use this to
  * direct requests to the appropriate server.
  *
  * \param context
  *      Overall information about this RAMCloud server or client.
  * \param tableId
- *      The id of a table.    
+ *      The id of a table.
  * \param[out] tableConfig
- *      Will be filled in with location of every tablet and index in 
- *      the table. If the table does not exist, then the result 
+ *      Will be filled in with location of every tablet and index in
+ *      the table. If the table does not exist, then the result
  *      will contain no tablets and indexes.
  */
 void
@@ -243,7 +347,7 @@ GetTableConfigRpc::GetTableConfigRpc(Context* context, uint64_t tableId)
 }
 
 /**
- * Wait for a getTableConfig RPC to complete, and return the 
+ * Wait for a getTableConfig RPC to complete, and return the
  * same results as #CoordinatorClient::getTableConfig.
  *
  * \param[out] tableConfig
@@ -320,7 +424,7 @@ HintServerCrashedRpc::HintServerCrashedRpc(Context* context,
  * \param[in] newOwnerId
  *      ServerId of the master that we want ownership of the tablet
  *      to be transferred to.
- * \param[in] ctimeSegmentId 
+ * \param[in] ctimeSegmentId
  *      Id of the new owner's head segment immediately before migration begins
  *      and after prepForMigration has completed. This is used to record the
  *      creation time of the migration tablet on the coordinator, which in turn
@@ -355,7 +459,7 @@ CoordinatorClient::reassignTabletOwnership(Context* context, uint64_t tableId,
  * \param[in] newOwnerId
  *      ServerId of the master that we want ownership of the tablet
  *      to be transferred to.
- * \param[in] ctimeSegmentId 
+ * \param[in] ctimeSegmentId
  *      Id of the new owner's head segment immediately before migration begins
  *      and after prepForMigration has completed. This is used to record the
  *      creation time of the migration tablet on the coordinator, which in turn

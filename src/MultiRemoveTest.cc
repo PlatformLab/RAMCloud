@@ -175,6 +175,25 @@ TEST_F(MultiRemoveTest, basics_end_to_end) {
     EXPECT_EQ(0U, objects[5]->version);
 }
 
+TEST_F(MultiRemoveTest, rejectRules_basics_end_to_end) {
+    MultiRemoveObject* requests[] = {
+        objects[0].get(), objects[1].get(), objects[2].get()
+    };
+
+    RejectRules r0, r1;
+    r0 = {1000, 0, 0, 1, 0};    // reject if version <=1000
+    r1 = {3, 0, 0, 0, 2};       // reject if version !=3
+    requests[0]->rejectRules = &r0;
+    requests[1]->rejectRules = &r1;
+    requests[2]->rejectRules = &r1;
+
+    ramcloud->multiRemove(requests, 3);
+
+    EXPECT_EQ(STATUS_WRONG_VERSION, objects[0]->status);
+    EXPECT_EQ(STATUS_WRONG_VERSION, objects[1]->status);
+    EXPECT_EQ(STATUS_OK, objects[2]->status);
+}
+
 TEST_F(MultiRemoveTest, appendRequest) {
     MultiRemoveObject* requests[] = {objects[0].get()};
     uint32_t dif, before;

@@ -158,6 +158,7 @@ try
 {
     int clientIndex;
     int numClients;
+    int numOverwrites;
     int count, removeCount;
     uint32_t objectDataSize;
     uint32_t tableCount;
@@ -201,7 +202,10 @@ try
          "Number of bytes to insert per object during insert phase.")
         ("verify,v",
          ProgramOptions::bool_switch(&verify),
-         "Verify the contents of all objects after recovery completes.");
+         "Verify the contents of all objects after recovery completes.")
+        ("numOverwrites,o",
+         ProgramOptions::value<int>(&numOverwrites),
+         "The number of writes per key during insert phase.");
 
     OptionParser optionParser(clientOptions, argc, argv);
     context.transportManager->setSessionTimeout(
@@ -251,6 +255,12 @@ try
     LOG(NOTICE, "Performing %u inserts of %u byte objects",
         count * tableCount, objectDataSize);
 
+    if (numOverwrites != 1 && fillWithTestData) {
+        fillWithTestData = false;
+        LOG(NOTICE, "Cannot use the fillWithTestData rpc since overwrite "
+            "multiple times on same key is requested.");
+    }
+
     if (fillWithTestData) {
         LOG(NOTICE, "Using the fillWithTestData rpc on the master "
             "with key <1,'0'>");
@@ -266,39 +276,45 @@ try
         Tub<WriteRpc> writeRpcs[8];
         uint64_t b = Cycles::rdtsc();
         int j;
-        for (j = 0; j < count - 1; j++) {
-            string key = format("%d", j);
-            uint16_t keyLength = downCast<uint16_t>(key.length());
-            for (uint32_t t = 0; t < tableCount; t++) {
-                auto& writeRpc = writeRpcs[(j * tableCount + t) %
-                                           arrayLength(writeRpcs)];
-                if (writeRpc) {
-                    writeRpc->wait();
-                }
+        if (numOverwrites < 1)
+            DIE("number of overwrite is less than 1! No data can be written");
+        for (int rep = 0; rep < numOverwrites; rep++) {
+            for (j = 0; j < count - 1; j++) {
+                string key = format("%d", j);
+                uint16_t keyLength = downCast<uint16_t>(key.length());
+                for (uint32_t t = 0; t < tableCount; t++) {
+                    auto& writeRpc = writeRpcs[(j * tableCount + t) %
+                                               arrayLength(writeRpcs)];
+                    if (writeRpc) {
+                        writeRpc->wait();
+                    }
 
-                if (verify) {
-                    fillBuffer(writeVal, objectDataSize, tables[t],
-                               key.c_str(), keyLength);
-                } else {
-                    char chunk[objectDataSize];
-                    memset(&chunk, 0xcc, objectDataSize);
-                    writeVal.reset();
-                    writeVal.appendCopy(chunk, objectDataSize);
+                    if (verify) {
+                        fillBuffer(writeVal, objectDataSize, tables[t],
+                                   key.c_str(), keyLength);
+                    } else {
+                        char chunk[objectDataSize];
+                        memset(&chunk, 0xcc, objectDataSize);
+                        writeVal.reset();
+                        writeVal.appendCopy(chunk, objectDataSize);
+                    }
+                    writeRpc.construct(&client,
+                                       static_cast<uint32_t>(tables[t]),
+                                       key.c_str(),
+                                       keyLength,
+                                       writeVal.getRange(0, objectDataSize),
+                                       objectDataSize,
+                                       static_cast<RejectRules*>(NULL),
+                                       /* async = */ true);
                 }
-                writeRpc.construct(&client,
-                                   static_cast<uint32_t>(tables[t]),
-                                   key.c_str(),
-                                   keyLength,
-                                   writeVal.getRange(0, objectDataSize),
-                                   objectDataSize,
-                                   static_cast<RejectRules*>(NULL),
-                                   /* async = */ true);
             }
         }
         foreach (auto& writeRpc, writeRpcs) {
             if (writeRpc)
                 writeRpc->wait();
         }
+        LOG(NOTICE, "Finished insertions with %d overwrites per key",
+            numOverwrites);
 
         string key = format("%d", j);
         char chunk[objectDataSize];

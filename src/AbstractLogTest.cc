@@ -88,6 +88,7 @@ TEST_F(AbstractLogTest, append_basic) {
     LogSegment* oldHead = l.head;
 
     int appends = 0;
+    uint64_t original = l.totalBytesRemaining;
     while (l.append(LOG_ENTRY_TYPE_OBJ, data, dataLen)) {
         if (appends++ == 0)
             EXPECT_EQ(oldHead, l.head);
@@ -97,6 +98,7 @@ TEST_F(AbstractLogTest, append_basic) {
     }
     // This depends on ServerConfig's number of bytes allocated to the log.
     EXPECT_EQ(303, appends);
+    EXPECT_EQ(19858923U, original - l.totalBytesRemaining);
 
     // getEntry()'s test ensures actual data gets there.
 
@@ -183,7 +185,14 @@ TEST_F(AbstractLogTest, append_multipleLogEntries) {
 }
 
 TEST_F(AbstractLogTest, free) {
-    // Currently nothing to do - it just passes through to SegmentManager
+    uint64_t data = 0x123456789ABCDEF0UL;
+    Buffer sourceBuffer;
+    sourceBuffer.appendExternal(&data, sizeof(data));
+    Log::Reference ref;
+    l.append(LOG_ENTRY_TYPE_OBJ, sourceBuffer, &ref);
+    uint64_t original = l.totalBytesRemaining;
+    l.free(ref);
+    EXPECT_EQ(10U, l.totalBytesRemaining - original);
 }
 
 TEST_F(AbstractLogTest, getEntry) {
@@ -222,6 +231,12 @@ TEST_F(AbstractLogTest, getSegmentId) {
     EXPECT_EQ(130, one);
     EXPECT_EQ(1, two);
     EXPECT_EQ(0, other);
+}
+
+TEST_F(AbstractLogTest, hasSpaceFor) {
+    uint64_t original = l.totalBytesRemaining;
+    EXPECT_TRUE(l.hasSpaceFor(original));
+    EXPECT_FALSE(l.hasSpaceFor(original + 1));
 }
 
 TEST_F(AbstractLogTest, segmentExists) {

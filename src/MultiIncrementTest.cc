@@ -157,6 +157,32 @@ TEST_F(MultiIncrementTest, basics_end_to_end) {
     // object[5].version is undefined when tablet doesn't exist
 }
 
+TEST_F(MultiIncrementTest, rejectRules_end_to_end) {
+    MultiIncrementObject* requests[] = {
+        objects[0].get(), objects[1].get(), objects[2].get(),
+        objects[3].get()
+    };
+
+    // this creates the values we use below
+    ramcloud->multiIncrement(requests, 3);
+
+    RejectRules r0, r1, r3;
+    r0 = {1000, 0, 0, 1, 0};    // reject if version <=1000
+    r1 = {1, 0, 0, 0, 2};       // reject if version !=1
+    r3 = {0, 1, 0, 0, 0};       // reject if doesntExist
+    requests[0]->rejectRules = &r0;
+    requests[1]->rejectRules = &r1;
+    requests[2]->rejectRules = &r1;
+    requests[3]->rejectRules = &r3;
+
+    ramcloud->multiIncrement(requests, 4);
+
+    EXPECT_EQ(STATUS_WRONG_VERSION, objects[0]->status);
+    EXPECT_EQ(STATUS_WRONG_VERSION, objects[1]->status);
+    EXPECT_EQ(STATUS_OK, objects[2]->status);
+    EXPECT_EQ(STATUS_OBJECT_DOESNT_EXIST, objects[3]->status);
+}
+
 TEST_F(MultiIncrementTest, appendRequest) {
     MultiIncrementObject* requests[] = {objects[0].get()};
     uint32_t dif, before;

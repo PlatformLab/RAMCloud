@@ -56,6 +56,8 @@ CoordinatorService::CoordinatorService(Context* context,
     , threadLimit(maxThreads)
     , forceServerDownForTesting(false)
     , initFinished(false)
+    , backupConfig()
+    , masterConfig()
 {
     context->recoveryManager = &recoveryManager;
     context->coordinatorService = this;
@@ -164,6 +166,14 @@ CoordinatorService::dispatch(WireFormat::Opcode opcode,
         case WireFormat::EnlistServer::opcode:
             callHandler<WireFormat::EnlistServer, CoordinatorService,
                         &CoordinatorService::enlistServer>(rpc);
+            break;
+        case WireFormat::GetBackupConfig::opcode:
+            callHandler<WireFormat::GetBackupConfig, CoordinatorService,
+                        &CoordinatorService::getBackupConfig>(rpc);
+            break;
+        case WireFormat::GetMasterConfig::opcode:
+            callHandler<WireFormat::GetMasterConfig, CoordinatorService,
+                        &CoordinatorService::getMasterConfig>(rpc);
             break;
         case WireFormat::GetServerList::opcode:
             callHandler<WireFormat::GetServerList, CoordinatorService,
@@ -393,6 +403,38 @@ CoordinatorService::enlistServer(
                                                     serviceLocator);
 
     respHdr->serverId = newServerId.getId();
+}
+
+/**
+ * Handle the GET_BACKUP_CONFIG RPC.
+ * \copydetails Service::ping
+ */
+void
+CoordinatorService::getBackupConfig(
+        const WireFormat::GetBackupConfig::Request* reqHdr,
+        WireFormat::GetBackupConfig::Response* respHdr,
+        Rpc* rpc)
+{
+    ProtoBuf::ServerConfig_Backup backupConfigBuf;
+    backupConfig.serialize(backupConfigBuf);
+    respHdr->backupConfigLength = ProtoBuf::serializeToResponse(
+            rpc->replyPayload, &backupConfigBuf);
+}
+
+/**
+ * Handle the GET_MASTER_CONFIG RPC.
+ * \copydetails Service::ping
+ */
+void
+CoordinatorService::getMasterConfig(
+        const WireFormat::GetMasterConfig::Request* reqHdr,
+        WireFormat::GetMasterConfig::Response* respHdr,
+        Rpc* rpc)
+{
+    ProtoBuf::ServerConfig_Master masterConfigBuf;
+    masterConfig.serialize(masterConfigBuf);
+    respHdr->masterConfigLength = ProtoBuf::serializeToResponse(
+            rpc->replyPayload, &masterConfigBuf);
 }
 
 /**

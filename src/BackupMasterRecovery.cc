@@ -137,19 +137,17 @@ BackupMasterRecovery::start(const std::vector<BackupStorage::FrameRef>& frames,
         (metadata->primary ? primaries : secondaries).push_back(frame);
     }
 
-    // Shuffle the primary entries, this helps all recovery
-    // masters to stay busy even if the log contains long sequences of
-    // back-to-back replicas that only have objects for a particular
-    // partition. Secondary order is irrelevant.
-    std::random_shuffle(primaries.begin(),
-                        primaries.end(),
-                        randomNumberGenerator);
-
     // Build the deque and the mapping from segment ids to replicas.
     readingDataTicks.construct(&metrics->backup.readingDataTicks);
-    foreach (auto& frame, primaries) {
-        replicas.emplace_back(frame);
-        frame->startLoading();
+
+    // Arrange for replicas to be processed in reverse chronological order
+    // (most recent replicas first). This improves recovery performance by
+    // avoiding situations where old log entries get inserted in a
+    // recovery master's log only to be overridden by newer ones.
+    vector<BackupStorage::FrameRef>::reverse_iterator rit;
+    for (rit = primaries.rbegin(); rit != primaries.rend(); ++rit) {
+        replicas.emplace_back(*rit);
+        (*rit)->startLoading();
         auto& replica = replicas.back();
         segmentIdToReplica[replica.metadata->segmentId] = &replica;
     }
