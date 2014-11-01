@@ -14,7 +14,7 @@
  */
 
 #ifndef RAMCLOUD_LEASEMANAGER_H
-#define	RAMCLOUD_LEASEMANAGER_H
+#define RAMCLOUD_LEASEMANAGER_H
 
 #include <map>
 #include <unordered_set>
@@ -26,12 +26,24 @@
 
 namespace RAMCloud {
 
+/**
+ * The LeaseManager, which resides on the coordinator, manages and acts as the
+ * central authority on the liveness of a client lease.  Client leases are used
+ * to track the liveness of any given client.  When a client holds a valid
+ * lease, it is considered active and various pieces of state (e.g.
+ * linearizability information) must be kept throughout the cluster.
+ *
+ * Clients must ensure they have an valid lease by periodically contacting this
+ * module.  Servers in their part must contact this module to check the validity
+ * of client leases.
+ */
 class LeaseManager {
   PUBLIC:
     explicit LeaseManager(Context *context);
-    bool isLeaseLive(uint64_t leaseId);
+    WireFormat::ClientLease getLeaseInfo(uint64_t leaseId);
+    void recover();
     WireFormat::ClientLease renewLease(uint64_t leaseId);
-    void start();
+    void startUpdaters();
 
   PRIVATE:
     /**
@@ -48,7 +60,6 @@ class LeaseManager {
       public:
         explicit LeasePreallocator(Context* context,
                                    LeaseManager* leaseManager);
-        virtual ~LeasePreallocator() {}
         virtual void handleTimerEvent();
 
         LeaseManager* leaseManager;
@@ -67,7 +78,6 @@ class LeaseManager {
       public:
         explicit LeaseCleaner(Context* context,
                               LeaseManager* leaseManager);
-        virtual ~LeaseCleaner() {}
         virtual void handleTimerEvent();
 
         LeaseManager* leaseManager;
@@ -122,7 +132,6 @@ class LeaseManager {
 
     void allocateNextLease(Lock &lock);
     bool cleanNextLease();
-    void recover();
     WireFormat::ClientLease renewLeaseInternal(uint64_t leaseId, Lock &lock);
 
     DISALLOW_COPY_AND_ASSIGN(LeaseManager);
@@ -130,5 +139,5 @@ class LeaseManager {
 
 } // namespace RAMCloud
 
-#endif	/* RAMCLOUD_LEASEMANAGER_H */
+#endif  /* RAMCLOUD_LEASEMANAGER_H */
 

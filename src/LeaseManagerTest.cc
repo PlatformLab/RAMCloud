@@ -47,16 +47,18 @@ class LeaseManagerTest : public ::testing::Test {
     DISALLOW_COPY_AND_ASSIGN(LeaseManagerTest);
 };
 
-TEST_F(LeaseManagerTest, leasePreallocator_handleTimerEvent) {
-    EXPECT_EQ(0U, leaseMgr->lastIssuedLeaseId);
-    EXPECT_EQ(0U, leaseMgr->maxAllocatedLeaseId);
-    leaseMgr->preallocator.handleTimerEvent();
-    EXPECT_EQ(0U, leaseMgr->lastIssuedLeaseId);
-    EXPECT_EQ(1000U, leaseMgr->maxAllocatedLeaseId);
-    leaseMgr->lastIssuedLeaseId = 5;
-    leaseMgr->preallocator.handleTimerEvent();
-    EXPECT_EQ(5U, leaseMgr->lastIssuedLeaseId);
-    EXPECT_EQ(1005U, leaseMgr->maxAllocatedLeaseId);
+TEST_F(LeaseManagerTest, getLeaseInfo) {
+    WireFormat::ClientLease lease;
+
+    lease = leaseMgr->getLeaseInfo(25);
+    EXPECT_EQ(0U, lease.leaseId);
+    EXPECT_EQ(0U, lease.leaseTerm);
+
+    leaseMgr->leaseMap[25] = 8888;
+
+    lease = leaseMgr->getLeaseInfo(25);
+    EXPECT_EQ(25U, lease.leaseId);
+    EXPECT_EQ(8888U, lease.leaseTerm);
 }
 
 TEST_F(LeaseManagerTest, renewLease) {
@@ -69,14 +71,26 @@ TEST_F(LeaseManagerTest, renewLease) {
     EXPECT_TRUE(leaseMgr->preallocator.isRunning());
 }
 
-TEST_F(LeaseManagerTest, start) {
+TEST_F(LeaseManagerTest, startUpdaters) {
     EXPECT_FALSE(leaseMgr->preallocator.isRunning());
     EXPECT_FALSE(leaseMgr->cleaner.isRunning());
     EXPECT_FALSE(leaseMgr->clock.updater.isRunning());
-    leaseMgr->start();
+    leaseMgr->startUpdaters();
     EXPECT_TRUE(leaseMgr->preallocator.isRunning());
     EXPECT_TRUE(leaseMgr->cleaner.isRunning());
     EXPECT_TRUE(leaseMgr->clock.updater.isRunning());
+}
+
+TEST_F(LeaseManagerTest, leasePreallocator_handleTimerEvent) {
+    EXPECT_EQ(0U, leaseMgr->lastIssuedLeaseId);
+    EXPECT_EQ(0U, leaseMgr->maxAllocatedLeaseId);
+    leaseMgr->preallocator.handleTimerEvent();
+    EXPECT_EQ(0U, leaseMgr->lastIssuedLeaseId);
+    EXPECT_EQ(1000U, leaseMgr->maxAllocatedLeaseId);
+    leaseMgr->lastIssuedLeaseId = 5;
+    leaseMgr->preallocator.handleTimerEvent();
+    EXPECT_EQ(5U, leaseMgr->lastIssuedLeaseId);
+    EXPECT_EQ(1005U, leaseMgr->maxAllocatedLeaseId);
 }
 
 TEST_F(LeaseManagerTest, leaseCleaner_handleTimerEvent) {
@@ -101,29 +115,34 @@ TEST_F(LeaseManagerTest, leaseCleaner_handleTimerEvent) {
 TEST_F(LeaseManagerTest, allocateNextLease) {
     LeaseManager::Lock lock(leaseMgr->mutex);
     storage.log.clear();
-    EXPECT_EQ(0U, leaseMgr->maxAllocatedLeaseId);
+    leaseMgr->maxAllocatedLeaseId = 4294967296;
+    EXPECT_EQ(4294967296U, leaseMgr->maxAllocatedLeaseId);
     leaseMgr->allocateNextLease(lock);
-    EXPECT_EQ("set(CREATE, leaseManager/1)", storage.log);
-    EXPECT_EQ(1U, leaseMgr->maxAllocatedLeaseId);
+    EXPECT_EQ("set(CREATE, leaseManager/4294967297)", storage.log);
+    EXPECT_EQ(4294967297U, leaseMgr->maxAllocatedLeaseId);
 }
 
 TEST_F(LeaseManagerTest, cleanNextLease) {
     // Time dependent test.
     leaseMgr->leaseMap[25] = 0;
     leaseMgr->revLeaseMap[0].insert(25);
-    leaseMgr->leaseMap[52] = 0;
-    leaseMgr->revLeaseMap[0].insert(52);
+    leaseMgr->leaseMap[4294967297] = 0;
+    leaseMgr->revLeaseMap[0].insert(4294967297);
     leaseMgr->revLeaseMap[1];
     leaseMgr->revLeaseMap[2];
 
     EXPECT_EQ(2U, leaseMgr->leaseMap.size());
     EXPECT_EQ(3U, leaseMgr->revLeaseMap.size());
 
+    storage.log.clear();
     EXPECT_TRUE(leaseMgr->cleanNextLease());
+    EXPECT_EQ("remove(leaseManager/25)", storage.log);
     EXPECT_EQ(1U, leaseMgr->leaseMap.size());
     EXPECT_EQ(3U, leaseMgr->revLeaseMap.size());
 
+    storage.log.clear();
     EXPECT_TRUE(leaseMgr->cleanNextLease());
+    EXPECT_EQ("remove(leaseManager/4294967297)", storage.log);
     EXPECT_EQ(0U, leaseMgr->leaseMap.size());
     EXPECT_EQ(3U, leaseMgr->revLeaseMap.size());
 

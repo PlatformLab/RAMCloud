@@ -41,28 +41,63 @@ LeaseManager::LeaseManager(Context* context)
     , revLeaseMap()
     , preallocator(context, this)
     , cleaner(context, this)
-{
-    recover();
-}
+{}
 
 /**
- * Check if a given leaseId has not yet expired.  A lease may still be live (not
- * expired) even after the lease term has elapsed.
+ * Return the lease info for the provided leaseId.  Used by masters to
+ * implicitly check if a lease is still valid.
  *
  * \param leaseId
  *      Id of the lease whose liveness you wish to check.
  * \return
- *      True if the lease is currently still live.  
+ *      If the lease exists, return lease with its current lease term.  If not,
+ *      the returned the lease id will be 0.
  */
-bool
-LeaseManager::isLeaseLive(uint64_t leaseId)
+WireFormat::ClientLease
+LeaseManager::getLeaseInfo(uint64_t leaseId)
 {
     Lock lock(mutex);
+    WireFormat::ClientLease clientLease;
+
+    // Populate the lease information if it is found.
     LeaseMap::iterator leaseEntry = leaseMap.find(leaseId);
     if (leaseEntry != leaseMap.end()) {
-        return true;
+        clientLease.leaseId = leaseId;
+        clientLease.leaseTerm = leaseEntry->second;
     } else {
-        return false;
+        clientLease.leaseId = 0;
+        clientLease.leaseTerm = 0;
+    }
+
+
+    clientLease.timestamp = clock.getTime();
+
+    return clientLease;
+}
+
+/**
+ * Recover lease information from external storage.  This should only be called
+ * once after the construction of the Lease Manager.
+ */
+void
+LeaseManager::recover()
+{
+    Lock lock(mutex);
+
+    // Fetch all lease information from external storage.
+    vector<ExternalStorage::Object> objects;
+    context->externalStorage->getChildren(STORAGE_PREFIX.c_str(), &objects);
+
+    foreach (ExternalStorage::Object& object, objects) {
+        try {
+            std::string name = object.name;
+            uint64_t leaseId = std::stoull(name);
+            uint64_t leaseTerm = clock.getTime() + LEASE_TERM_MS;
+            leaseMap[leaseId] = leaseTerm;
+            revLeaseMap[leaseTerm].insert(leaseId);
+        } catch (std::invalid_argument& e) {
+            LOG(WARNING, "Unable to recover lease: %s", object.name);
+        }
     }
 }
 
@@ -93,11 +128,11 @@ LeaseManager::renewLease(uint64_t leaseId)
 }
 
 /**
- * Start background timers to perform perallocation and cleaning and also start
+ * Start background timers to perform preallocation and cleaning and also start
  * the cluster clock updater.
  */
 void
-LeaseManager::start()
+LeaseManager::startUpdaters()
 {
     preallocator.start(0);
     cleaner.start(0);
@@ -174,7 +209,7 @@ LeaseManager::allocateNextLease(Lock &lock)
 {
     uint64_t nextLeaseId = maxAllocatedLeaseId + 1;
     std::string leaseObjName = STORAGE_PREFIX + "/"
-            + std::to_string(static_cast<unsigned long long>(nextLeaseId));
+            + format("%lu", nextLeaseId);
     std::string str;    // TODO(cstlee): Is there a better way set an empty obj?
     context->externalStorage->set(ExternalStorage::Hint::CREATE,
                                   leaseObjName.c_str(),
@@ -209,39 +244,13 @@ LeaseManager::cleanNextLease()
 
         uint64_t leaseId = *it->second.begin();
         std::string leaseObjName = STORAGE_PREFIX + "/"
-                + std::to_string(static_cast<unsigned long long>(leaseId));
+                + format("%lu", leaseId);
         context->externalStorage->remove(leaseObjName.c_str());
         it->second.erase(it->second.begin());
         leaseMap.erase(leaseId);
         return true;
     }
     return false;
-}
-
-/**
- * Recover lease information from external storage.  This should only be called
- * once during the construction of the Lease Manager.
- */
-void
-LeaseManager::recover()
-{
-    Lock lock(mutex);
-
-    // Fetch all lease information from external storage.
-    vector<ExternalStorage::Object> objects;
-    context->externalStorage->getChildren(STORAGE_PREFIX.c_str(), &objects);
-
-    foreach (ExternalStorage::Object& object, objects) {
-        try {
-            std::string name = object.name;
-            uint64_t leaseId = std::stoull(name);
-            uint64_t leaseTerm = clock.getTime() + LEASE_TERM_MS;
-            leaseMap[leaseId] = leaseTerm;
-            revLeaseMap[leaseTerm].insert(leaseId);
-        } catch (std::invalid_argument& e) {
-            LOG(WARNING, "Unable to recover lease: %s", object.name);
-        }
-    }
 }
 
 /**
@@ -277,6 +286,8 @@ LeaseManager::renewLeaseInternal(uint64_t leaseId, Lock &lock)
     clientLease.leaseTerm = clock.getTime() + LEASE_TERM_MS;
     leaseMap[clientLease.leaseId] = clientLease.leaseTerm;
     revLeaseMap[clientLease.leaseTerm].insert(clientLease.leaseId);
+
+    clientLease.timestamp = clock.getTime();
 
     return clientLease;
 }

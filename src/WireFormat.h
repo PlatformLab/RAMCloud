@@ -151,6 +151,8 @@ struct ClientLease {
     uint64_t leaseId;           /// A cluster unique id for a specific lease.
     uint64_t leaseTerm;         /// Cluster time after which the lease may have
                                 /// become invalid.
+    uint64_t timestamp;         /// Cluster time when this lease information was
+                                /// provided by the coordinator.
 };
 
 /**
