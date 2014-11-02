@@ -74,7 +74,7 @@ TEST_F(MembershipServiceTest, updateServerList_single) {
     context2.externalStorage = &storage;
     CoordinatorServerList source(&context2);
     source.haltUpdater();
-    CoordinatorService coordinatorService(&context2, 1000, false);
+    CoordinatorService coordinatorService(&context2, 1000, true);
     ServerId id1 = source.enlistServer({WireFormat::MASTER_SERVICE,
             WireFormat::PING_SERVICE}, 100, "mock:host=55");
     ServerId id2 = source.enlistServer({WireFormat::MASTER_SERVICE,
@@ -105,7 +105,7 @@ TEST_F(MembershipServiceTest, updateServerList_multi) {
     context2.externalStorage = &storage;
     ProtoBuf::ServerList fullList, update2, update3;
     CoordinatorServerList source(&context2);
-    CoordinatorService coordinatorService(&context2, 1000, false);
+    CoordinatorService coordinatorService(&context2, 1000, true);
     source.haltUpdater();
 
     // Full List v1

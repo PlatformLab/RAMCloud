@@ -153,7 +153,7 @@ TEST_F(ServerIdRpcWrapperTest, handleTransportError_callServerCrashed) {
     context.serverList = &serverList;
     MockExternalStorage storage(false);
     context.externalStorage = &storage;
-    CoordinatorService coordinator(&context, 1000, false);
+    CoordinatorService coordinator(&context, 1000, true);
     coordinator.recoveryManager.doNotStartRecoveries = true;
 
     // Don't let the server list updater run; can cause timing-dependent

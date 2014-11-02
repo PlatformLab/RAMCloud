@@ -24,6 +24,7 @@
 #include "ClientException.h"
 #include "CoordinatorServerList.h"
 #include "CoordinatorUpdateManager.h"
+#include "LeaseManager.h"
 #include "MasterRecoveryManager.h"
 #include "PingClient.h"
 #include "RawMetrics.h"
@@ -43,7 +44,7 @@ class CoordinatorService : public Service {
   public:
     explicit CoordinatorService(Context* context,
                                 uint32_t deadServerTimeout,
-                                bool startRecoveryManager = true,
+                                bool unitTesting = false,
                                 uint32_t maxThreads = 1);
     ~CoordinatorService();
     void dispatch(WireFormat::Opcode opcode,
@@ -134,7 +135,7 @@ class CoordinatorService : public Service {
         {}
     };
 
-    static void init(CoordinatorService* service, bool startRecoveryManager);
+    static void init(CoordinatorService* service, bool unitTesting);
     void checkServerControlRpcs(std::list<ServerControlRpcContainer>* rpcs,
             WireFormat::ServerControlAll::Response* respHdr,
             Rpc* rpc);
@@ -171,6 +172,12 @@ class CoordinatorService : public Service {
      * Manages the tables and constituting tablets information on Coordinator.
      */
     TableManager tableManager;
+
+    /**
+     * Manages all client lease and serves requests for new leases and checks
+     * for lease validity.
+     */
+    LeaseManager leaseManager;
 
   PRIVATE:
     /**
