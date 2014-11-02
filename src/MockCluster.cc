@@ -59,7 +59,7 @@ MockCluster::MockCluster(Context* context, string coordinatorLocator)
             coordinatorLocator.c_str());
     coordinatorContext.externalStorage = &externalStorage;
 
-    coordinator.construct(&coordinatorContext, 1000, false);
+    coordinator.construct(&coordinatorContext, 1000, true);
     transport.addService(*coordinator, coordinatorLocator,
                          WireFormat::COORDINATOR_SERVICE);
 }
