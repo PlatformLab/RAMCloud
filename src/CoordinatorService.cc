@@ -187,6 +187,10 @@ CoordinatorService::dispatch(WireFormat::Opcode opcode,
             callHandler<WireFormat::GetBackupConfig, CoordinatorService,
                         &CoordinatorService::getBackupConfig>(rpc);
             break;
+        case WireFormat::GetLeaseInfo::opcode:
+            callHandler<WireFormat::GetLeaseInfo, CoordinatorService,
+                        &CoordinatorService::getLeaseInfo>(rpc);
+            break;
         case WireFormat::GetMasterConfig::opcode:
             callHandler<WireFormat::GetMasterConfig, CoordinatorService,
                         &CoordinatorService::getMasterConfig>(rpc);
@@ -210,6 +214,10 @@ CoordinatorService::dispatch(WireFormat::Opcode opcode,
         case WireFormat::RecoveryMasterFinished::opcode:
             callHandler<WireFormat::RecoveryMasterFinished, CoordinatorService,
                         &CoordinatorService::recoveryMasterFinished>(rpc);
+            break;
+        case WireFormat::RenewLease::opcode:
+            callHandler<WireFormat::RenewLease, CoordinatorService,
+                        &CoordinatorService::renewLease>(rpc);
             break;
         case WireFormat::ServerControlAll::opcode:
             callHandler<WireFormat::ServerControlAll, CoordinatorService,
@@ -376,6 +384,20 @@ CoordinatorService::getBackupConfig(
     backupConfig.serialize(backupConfigBuf);
     respHdr->backupConfigLength = ProtoBuf::serializeToResponse(
             rpc->replyPayload, &backupConfigBuf);
+}
+
+/**
+ * Handle the GET_LEASE_INFO RPC.
+ *
+ * \copydetails Service::ping
+ */
+void
+CoordinatorService::getLeaseInfo(
+    const WireFormat::GetLeaseInfo::Request* reqHdr,
+    WireFormat::GetLeaseInfo::Response* respHdr,
+    Rpc* rpc)
+{
+    respHdr->lease = leaseManager.getLeaseInfo(reqHdr->leaseId);
 }
 
 /**
@@ -585,6 +607,20 @@ CoordinatorService::recoveryMasterFinished(
                                                serverId,
                                                recoveryPartition,
                                                reqHdr->successful);
+}
+
+/**
+ * Handle the RENEW_LEASE RPC.
+ *
+ * \copydetails Service::ping
+ */
+void
+CoordinatorService::renewLease(
+    const WireFormat::RenewLease::Request* reqHdr,
+    WireFormat::RenewLease::Response* respHdr,
+    Rpc* rpc)
+{
+    respHdr->lease = leaseManager.renewLease(reqHdr->leaseId);
 }
 
 /**

@@ -110,22 +110,24 @@ enum Opcode {
     GET_LOG_METRICS             = 56,
     VERIFY_MEMBERSHIP           = 57,
     GET_RUNTIME_OPTION          = 58,
-    SERVER_CONTROL              = 59,
-    SERVER_CONTROL_ALL          = 60,
-    GET_SERVER_ID               = 61,
-    READ_KEYS_AND_VALUE         = 62,
-    LOOKUP_INDEX_KEYS           = 63,
-    READ_HASHES                 = 64,
-    INSERT_INDEX_ENTRY          = 65,
-    REMOVE_INDEX_ENTRY          = 66,
-    CREATE_INDEX                = 67,
-    DROP_INDEX                  = 68,
-    DROP_INDEXLET_OWNERSHIP     = 69,
-    TAKE_INDEXLET_OWNERSHIP     = 70,
-    PREP_FOR_INDEXLET_MIGRATION = 71,
-    SPLIT_AND_MIGRATE_INDEXLET  = 72,
-    COORD_SPLIT_AND_MIGRATE_INDEXLET = 73,
-    ILLEGAL_RPC_TYPE            = 74, // 1 + the highest legitimate Opcode
+    GET_LEASE_INFO              = 59,
+    RENEW_LEASE                 = 60,
+    SERVER_CONTROL              = 61,
+    SERVER_CONTROL_ALL          = 62,
+    GET_SERVER_ID               = 63,
+    READ_KEYS_AND_VALUE         = 64,
+    LOOKUP_INDEX_KEYS           = 65,
+    READ_HASHES                 = 66,
+    INSERT_INDEX_ENTRY          = 67,
+    REMOVE_INDEX_ENTRY          = 68,
+    CREATE_INDEX                = 69,
+    DROP_INDEX                  = 70,
+    DROP_INDEXLET_OWNERSHIP     = 71,
+    TAKE_INDEXLET_OWNERSHIP     = 72,
+    PREP_FOR_INDEXLET_MIGRATION = 73,
+    SPLIT_AND_MIGRATE_INDEXLET  = 74,
+    COORD_SPLIT_AND_MIGRATE_INDEXLET = 75,
+    ILLEGAL_RPC_TYPE            = 76, // 1 + the highest legitimate Opcode
 };
 
 /**
@@ -667,6 +669,19 @@ struct GetHeadOfLog {
         ResponseCommon common;
         uint64_t headSegmentId;     // ID of head segment in the log.
         uint32_t headSegmentOffset; // Byte offset of head within the segment.
+    } __attribute__((packed));
+};
+
+struct GetLeaseInfo {
+    static const Opcode opcode = GET_LEASE_INFO;
+    static const ServiceType service = COORDINATOR_SERVICE;
+    struct Request {
+        RequestCommon common;
+        uint64_t leaseId;
+    } __attribute__((packed));
+    struct Response {
+        ResponseCommon common;
+        ClientLease lease;
     } __attribute__((packed));
 };
 
@@ -1410,6 +1425,19 @@ struct RemoveIndexEntry {
     } __attribute__((packed));
     struct Response {
         ResponseCommon common;
+    } __attribute__((packed));
+};
+
+struct RenewLease {
+    static const Opcode opcode = RENEW_LEASE;
+    static const ServiceType service = COORDINATOR_SERVICE;
+    struct Request {
+        RequestCommon common;
+        uint64_t leaseId;
+    } __attribute__((packed));
+    struct Response {
+        ResponseCommon common;
+        ClientLease lease;
     } __attribute__((packed));
 };
 

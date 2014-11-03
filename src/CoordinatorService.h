@@ -77,6 +77,9 @@ class CoordinatorService : public Service {
     void getBackupConfig(const WireFormat::GetBackupConfig::Request* reqHdr,
             WireFormat::GetBackupConfig::Response* respHdr,
             Rpc* rpc);
+    void getLeaseInfo(const WireFormat::GetLeaseInfo::Request* reqHdr,
+                      WireFormat::GetLeaseInfo::Response* respHdr,
+                      Rpc* rpc);
     void getMasterConfig(const WireFormat::GetMasterConfig::Request* reqHdr,
             WireFormat::GetMasterConfig::Response* respHdr,
             Rpc* rpc);
@@ -106,6 +109,9 @@ class CoordinatorService : public Service {
             const WireFormat::RecoveryMasterFinished::Request* reqHdr,
             WireFormat::RecoveryMasterFinished::Response* respHdr,
             Rpc* rpc);
+    void renewLease(const WireFormat::RenewLease::Request* reqHdr,
+                    WireFormat::RenewLease::Response* respHdr,
+                    Rpc* rpc);
     void serverControlAll(const WireFormat::ServerControlAll::Request* reqHdr,
             WireFormat::ServerControlAll::Response* respHdr,
             Rpc* rpc);
