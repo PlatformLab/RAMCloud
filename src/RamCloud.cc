@@ -26,7 +26,6 @@
 #include "Object.h"
 #include "ProtoBuf.h"
 #include "ShortMacros.h"
-#include "TimeTrace.h"
 
 namespace RAMCloud {
 

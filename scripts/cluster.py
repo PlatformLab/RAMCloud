@@ -431,9 +431,9 @@ class Cluster(object):
                              (ensure_servers_bin, self.coordinator_locator,
                              numMasters, numBackups, timeout, 
                              self.log_subdir))
-            self.sandbox.rsh(self.coordinator_host[0], ensureCommand)
             if self.verbose:
                 print("ensureServers command: %s" % ensureCommand)
+            self.sandbox.rsh(self.coordinator_host[0], ensureCommand)
         except:
             # prefer exceptions from dead processes to timeout error
             self.sandbox.checkFailures()

@@ -40,6 +40,7 @@ class TableManager;
 class TimeTrace;
 class CacheTrace;
 class TransportManager;
+class DispatchExec;
 
 /**
  * Context is a container for global variables.
@@ -82,6 +83,7 @@ class Context {
     MockContextMember* mockContextMember2; ///< for testing purposes
     TransportManager* transportManager;
     ServiceManager* serviceManager;
+    DispatchExec* dispatchExec;
     SessionAlarmTimer* sessionAlarmTimer;
     PortAlarmTimer*    portAlarmTimer;
     CoordinatorSession* coordinatorSession;

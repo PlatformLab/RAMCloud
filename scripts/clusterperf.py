@@ -432,6 +432,7 @@ graph_tests = [
     Test("readVaryingKeyLength", default),
     Test("writeAsyncSync", default),
     Test("writeVaryingKeyLength", default),
+    Test("writeDist", writeDist),
     Test("writeDistRandom", writeDist),
 ]
 

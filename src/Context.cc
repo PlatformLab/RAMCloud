@@ -26,6 +26,7 @@
 #include "TimeTrace.h"
 #include "CacheTrace.h"
 #include "TransportManager.h"
+#include "DispatchExec.h"
 
 namespace RAMCloud {
 
@@ -69,6 +70,7 @@ Context::Context(bool hasDedicatedDispatchThread)
     , mockContextMember2(NULL)
     , transportManager(NULL)
     , serviceManager(NULL)
+    , dispatchExec(NULL)
     , sessionAlarmTimer(NULL)
     , portAlarmTimer(NULL)
     , coordinatorSession(NULL)
@@ -95,6 +97,7 @@ Context::Context(bool hasDedicatedDispatchThread)
 #endif
         transportManager = new TransportManager(this);
         serviceManager = new ServiceManager(this);
+        dispatchExec = new DispatchExec(dispatch);
         sessionAlarmTimer = new SessionAlarmTimer(this);
         portAlarmTimer = new PortAlarmTimer(this);
 
