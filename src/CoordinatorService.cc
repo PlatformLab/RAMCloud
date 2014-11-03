@@ -208,6 +208,14 @@ CoordinatorService::dispatch(WireFormat::Opcode opcode,
             callHandler<WireFormat::ReassignTabletOwnership, CoordinatorService,
                         &CoordinatorService::reassignTabletOwnership>(rpc);
             break;
+        case WireFormat::GetLeaseInfo::opcode:
+            callHandler<WireFormat::GetLeaseInfo, CoordinatorService,
+                        &CoordinatorService::getLeaseInfo>(rpc);
+            break;
+        case WireFormat::RenewLease::opcode:
+            callHandler<WireFormat::RenewLease, CoordinatorService,
+                        &CoordinatorService::renewLease>(rpc);
+            break;
         case WireFormat::SetMasterRecoveryInfo::opcode:
             callHandler<WireFormat::SetMasterRecoveryInfo, CoordinatorService,
                         &CoordinatorService::setMasterRecoveryInfo>(rpc);
@@ -587,6 +595,34 @@ CoordinatorService::reassignTabletOwnership(
             startKeyHash, endKeyHash, tableId);
         respHdr->common.status = STATUS_TABLE_DOESNT_EXIST;
     }
+}
+
+/**
+ * Handle the GET_LEASE_INFO RPC.
+ *
+ * \copydetails Service::ping
+ */
+void
+CoordinatorService::getLeaseInfo(
+    const WireFormat::GetLeaseInfo::Request* reqHdr,
+    WireFormat::GetLeaseInfo::Response* respHdr,
+    Rpc* rpc)
+{
+    respHdr->lease = leaseManager.getLeaseInfo(reqHdr->leaseId);
+}
+
+/**
+ * Handle the RENEW_LEASE RPC.
+ *
+ * \copydetails Service::ping
+ */
+void
+CoordinatorService::renewLease(
+    const WireFormat::RenewLease::Request* reqHdr,
+    WireFormat::RenewLease::Response* respHdr,
+    Rpc* rpc)
+{
+    respHdr->lease = leaseManager.renewLease(reqHdr->leaseId);
 }
 
 /**

@@ -104,6 +104,12 @@ class CoordinatorService : public Service {
             const WireFormat::ReassignTabletOwnership::Request* reqHdr,
             WireFormat::ReassignTabletOwnership::Response* respHdr,
             Rpc* rpc);
+    void getLeaseInfo(const WireFormat::GetLeaseInfo::Request* reqHdr,
+                      WireFormat::GetLeaseInfo::Response* respHdr,
+                      Rpc* rpc);
+    void renewLease(const WireFormat::RenewLease::Request* reqHdr,
+                    WireFormat::RenewLease::Response* respHdr,
+                    Rpc* rpc);
     void setRuntimeOption(const WireFormat::SetRuntimeOption::Request* reqHdr,
                           WireFormat::SetRuntimeOption::Response* respHdr,
                           Rpc* rpc);

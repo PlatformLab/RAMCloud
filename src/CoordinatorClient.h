@@ -46,6 +46,8 @@ class CoordinatorClient {
             ProtoBuf::ServerConfig_Backup& config);
     static void getBackupList(Context* context,
             ProtoBuf::ServerList* serverList);
+    static WireFormat::ClientLease getLeaseInfo(Context* context,
+            uint64_t leaseId);
     static void getMasterConfig(Context* context,
             ProtoBuf::ServerConfig_Master& config);
     static void getMasterList(Context* context,
@@ -62,6 +64,8 @@ class CoordinatorClient {
             ServerId recoveryMasterId,
             const ProtoBuf::RecoveryPartition* recoveryPartition,
             bool successful);
+    static WireFormat::ClientLease renewLease(Context* context,
+            uint64_t leaseId);
     static void sendServerList(Context* context, ServerId destination);
     static void setMasterRecoveryInfo(Context* context, ServerId serverId,
             const ProtoBuf::MasterRecoveryInfo& recoveryInfo);
@@ -100,6 +104,20 @@ class GetBackupConfigRpc : public CoordinatorRpcWrapper {
 
     PRIVATE:
     DISALLOW_COPY_AND_ASSIGN(GetBackupConfigRpc);
+};
+
+/**
+ * Encapsulates the state of a CoordinatorClient::getLeaseInfo
+ * request, allowing it to execute asynchronously.
+ */
+class GetLeaseInfoRpc : public CoordinatorRpcWrapper {
+    public:
+    GetLeaseInfoRpc(Context* context, uint64_t leaseId);
+    ~GetLeaseInfoRpc() {}
+    WireFormat::ClientLease wait();
+
+    PRIVATE:
+    DISALLOW_COPY_AND_ASSIGN(GetLeaseInfoRpc);
 };
 
 /**
@@ -191,6 +209,20 @@ class RecoveryMasterFinishedRpc : public CoordinatorRpcWrapper {
 
     PRIVATE:
     DISALLOW_COPY_AND_ASSIGN(RecoveryMasterFinishedRpc);
+};
+
+/**
+ * Encapsulates the state of a CoordinatorClient::renewLease
+ * request, allowing it to execute asynchronously.
+ */
+class RenewLeaseRpc : public CoordinatorRpcWrapper {
+    public:
+    RenewLeaseRpc(Context* context, uint64_t leaseId);
+    ~RenewLeaseRpc() {}
+    WireFormat::ClientLease wait();
+
+    PRIVATE:
+    DISALLOW_COPY_AND_ASSIGN(RenewLeaseRpc);
 };
 
 /**
