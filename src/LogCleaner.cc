@@ -75,8 +75,9 @@ LogCleaner::LogCleaner(Context* context,
                                                   SURVIVOR_SEGMENTS_TO_RESERVE))
         throw FatalError(HERE, "Could not reserve survivor segments");
 
-    // TODO(rumble): get rid of this. it doesn't exist anymore other than to
-    // support old scripts where wct = 0 implies single level cleaning
+    // This can probably be gotten rid of.
+    // It doesn't exist anymore other than to support old scripts where wct = 0
+    // implies single level cleaning.
     if (writeCostThreshold == 0)
         disableInMemoryCleaning = true;
 
@@ -556,10 +557,6 @@ LogCleaner::getSortedEntries(LogSegmentVector& segmentsToClean,
 
     sortEntriesByTimestamp(outEntries);
 
-    // TODO(Steve): Push all of this crap into LogCleanerMetrics. It already
-    // knows about the various parts of cleaning, so why not have simple calls
-    // into it at interesting points of cleaning and let it extract the needed
-    // metrics?
     foreach (LogSegment* segment, segmentsToClean) {
         onDiskMetrics.totalMemoryBytesInCleanedSegments +=
             segment->getSegletsAllocated() * segletSize;

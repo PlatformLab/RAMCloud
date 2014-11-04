@@ -36,8 +36,6 @@ struct LogDigestException : public Exception {
  * only find copies of all segments referenced by the head's LogDigest. If it
  * finds them all (and they pass checksums), it knows it has the complete log.
  *
- * TODO(anyone): Should this not just be, or at least serialize to/from, a
- *               protocol buffer?
  */
 class LogDigest {
   public:

@@ -337,7 +337,7 @@ InfRcTransport::InfRcSession::InfRcSession(
     IpAddress address(sl);
 
     // create and set up a new queue pair for this client
-    // TODO(ongaro): This probably doesn't need to allocate memory
+    // This probably doesn't need to allocate memory
     qp = transport->clientTrySetupQueuePair(address);
 }
 
@@ -611,7 +611,8 @@ InfRcTransport::clientTryExchangeQueuePairs(struct sockaddr_in *sin,
         if (timeLeft < 0)
             return false;
 
-        // TODO(ongaro): The following isn't safe, at a minimum because some
+        // JIRA Issue: RAM-668:
+        // The following isn't safe, at a minimum because some
         // other stack frame can start using clientSetupSocket.
         //
         // We need to call the dispatcher in order to let other event handlers
@@ -720,7 +721,9 @@ InfRcTransport::ServerConnectHandler::handleFileEvent(int events)
     // and feed back our lid, qpn, and psn information so they can complete
     // the out-of-band handshake.
 
-    // TODO(Rumble): we should look up the QueuePair first using incomingQpt,
+    // Note: It is possible that we already created a queue pair, but the
+    // response to the client was lost and so we allocated another.
+    // We should probably look up the QueuePair first using incomingQpt,
     // just to be sure, esp. if we use an unreliable means of handshaking, in
     // which case the response to the client request could have been lost.
 
@@ -777,7 +780,7 @@ InfRcTransport::postSrqReceiveAndKickTransmit(ibv_srq* srq,
 {
     infiniband->postSrqReceive(srq, bd);
 
-    // TODO(ongaro): This condition is hacky. One idea is to wrap ibv_srq in an
+    // This condition is hacky. One idea is to wrap ibv_srq in an
     // object and make this a virtual method instead.
     if (srq == clientSrq) {
         --numUsedClientSrqBuffers;
@@ -803,7 +806,7 @@ InfRcTransport::postSrqReceiveAndKickTransmit(ibv_srq* srq,
  * Return a free transmit buffer, wrapped by its corresponding
  * BufferDescriptor. If there are none, block until one is available.
  *
- * TODO(rumble): Any errors from previous transmissions are basically
+ * Any errors from previous transmissions are basically
  *               thrown on the floor, though we do log them. We need
  *               to think a bit more about how this 'fire-and-forget'
  *               behaviour impacts our Transport API.

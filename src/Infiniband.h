@@ -151,7 +151,6 @@ class Infiniband {
         ~ProtectionDomain() {
             int rc = ibv_dealloc_pd(pd);
             if (rc != 0) {
-                // TODO(ongaro): Change to WARNING after closing RAM-195.
                 RAMCLOUD_LOG(DEBUG, "ibv_dealloc_pd failed");
             }
         }
@@ -195,7 +194,6 @@ class Infiniband {
         const string  getSinName() const; // Name of handshakeSin
 
       //private:
-      // TODO(Rumble): move send/recv functionality into the queue pair shit
         Infiniband&  infiniband;     // Infiniband to which this QP belongs
         int          type;           // QP type (IBV_QPT_RC, etc.)
         ibv_context* ctxt;           // device context of the HCA to use
@@ -291,7 +289,7 @@ class Infiniband {
     };
 
     // wrap an RX or TX buffer registered with the HCA
-    // TODO(ongaro): memory management on mr member
+    // Possible memory management issues with mr member?
     struct BufferDescriptor {
         char *          buffer;         // buf of ``bytes'' length
         uint32_t        bytes;          // length of buffer in bytes
@@ -490,7 +488,7 @@ class Infiniband {
                         int numEntries,
                         ibv_wc *retWcArray);
 
-// TODO(Rumble): keep public for 0-copy hack. nothing to see here, move along.
+//  Keep public for 0-copy hack. nothing to see here, move along.
 //  PRIVATE:
     Device device;
     ProtectionDomain pd;

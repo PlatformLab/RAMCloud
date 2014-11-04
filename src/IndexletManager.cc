@@ -201,12 +201,6 @@ IndexletManager::getIndexlet(uint64_t tableId, uint8_t indexId,
         const void *firstNotOwnedKey, uint16_t firstNotOwnedKeyLength,
         Lock& indexletMapLock)
 {
-    // TODO(ashgup): This function seems somewhat inefficient because
-    // lookupIndexlet() does comparisons on first and firstNotOwned keys
-    // and then we do it again here. Instead you can iterate over all the
-    // indexlets and do the comparison directly here instead of calling into
-    // lookupIndexlet().
-
     IndexletMap::iterator it = lookupIndexlet(tableId, indexId,
             firstKey, firstKeyLength, indexletMapLock);
     if (it == indexletMap.end())
@@ -379,8 +373,6 @@ IndexletManager::lookupIndexKeys(
     indexletMapLock.unlock();
 
     // If there are no values in this indexlet's tree, return right away.
-    // TODO(zhihao): consider remove the following check since recovered BTree
-    // cannot pass the following check by only setting nextNodeId in BTree.
     if (indexlet->bt->empty()) {
         //return STATUS_OK;
     }

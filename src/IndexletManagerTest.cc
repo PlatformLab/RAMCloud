@@ -313,9 +313,6 @@ TEST_F(IndexletManagerTest, deleteIndexlet) {
               TestLog::get());
 }
 
-// TODO(ashgup): Add unit tests for functions that currently don't have them:
-// getCount, lookupIndexlet.
-
 TEST_F(IndexletManagerTest, insertIndexEntry) {
     ramcloud->createIndex(dataTableId, 1, 0);
 

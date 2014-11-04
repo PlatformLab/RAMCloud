@@ -55,8 +55,6 @@ typedef enum Status {
     /// say with certainty if an object exists there or not.
     STATUS_OBJECT_DOESNT_EXIST          = 3,
 
-    // TODO(anyone) More documentation below, please.
-
     STATUS_OBJECT_EXISTS                = 4,
     STATUS_WRONG_VERSION                = 5,
     STATUS_NO_TABLE_SPACE               = 6,

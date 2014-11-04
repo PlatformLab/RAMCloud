@@ -100,7 +100,6 @@ SegmentManager::SegmentManager(Context* context,
     for (uint32_t i = emergencyHeadSlotsReserved; i < maxSegments; i++)
         freeSlots.push_back(i);
 
-    // TODO(anyone): Get this hack out of here.
     context->transportManager->registerMemory(
         const_cast<void*>(allocator.getBaseAddress()),
         allocator.getTotalBytes());
@@ -1066,9 +1065,9 @@ SegmentManager::allocSlot(AllocPurpose purpose)
 void
 SegmentManager::freeSlot(SegmentSlot slot, bool wasEmergencyHead)
 {
-    // TODO(Steve): Have the slot # imply whether or not it was an emergency
-    //              head (for example, define the first N slots to always be
-    //              emergency heads)?
+    // Possible idea:
+    // Have the slot # imply whether or not it was an emergency head
+    // (for example, define the first N slots to always be emergency heads)?
     if (wasEmergencyHead)
         freeEmergencyHeadSlots.push_back(slot);
     else if (freeSurvivorSlots.size() < survivorSlotsReserved)

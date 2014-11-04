@@ -296,7 +296,6 @@ HashTable::HashTable(uint64_t numBuckets)
  */
 HashTable::~HashTable()
 {
-    // TODO(ongaro): free chained CacheLines that were allocated in insert()
 }
 
 /**

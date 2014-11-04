@@ -143,7 +143,6 @@ TEST_F(UnackedRpcResultsTest, isRpcAcked) {
     EXPECT_FALSE(results.isRpcAcked(1, 6));
 }
 
-//TODO(seojin): tests for API functions.
 TEST_F(UnackedRpcResultsTest, hasRecord) {
     UnackedRpcResults::Client *client = results.clients[1];
     EXPECT_TRUE(client->hasRecord(10));

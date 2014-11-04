@@ -613,12 +613,4 @@ TEST_P(SegmentTest, reference_constructors) {
     EXPECT_EQ(fromSegment.reference, reinterpret_cast<uint64_t>(p));
 }
 
-TEST_P(SegmentTest, reference_getEntry_contiguous) {
-    // TODO(rumble): ...
-}
-
-TEST_P(SegmentTest, reference_getEntry_discontiguous) {
-    // TODO(rumble): ...
-}
-
 } // namespace RAMCloud

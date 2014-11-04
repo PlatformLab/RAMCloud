@@ -594,7 +594,8 @@ ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it,
             if (expect_false(!checksumIsValid)) {
                 LOG(WARNING, "bad object checksum! key: %s, version: %lu",
                     key.toString().c_str(), recoveryObj->version);
-                // TODO(Stutsman): Should throw and try another segment replica?
+                // JIRA Issue: RAM-673:
+                // Should throw and try another segment replica.
             }
 
             HashTableBucketLock lock(*this, key);
@@ -636,9 +637,10 @@ ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it,
                                           1);
                 }
 
-                // TODO(steve/ryan): what happens if the log is full? won't an
-                //      exception here just cause the master to try another
-                //      backup?
+                // JIRA Issue: RAM-674:
+                // If master runs out of space during recovery, this master
+                // should abort the recovery. Coordinator will then try
+                // another master.
 
                 objectAppendCount++;
                 liveObjectBytes += it.getLength();
@@ -646,8 +648,6 @@ ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it,
                 replace(lock, key, newObjReference);
 
                 // nuke the old object, if it existed
-                // TODO(steve): put tombstones in the HT and have this free them
-                //              as well
                 if (freeCurrentEntry) {
                     liveObjectBytes -= currentBuffer.size();
                     sideLog->free(currentReference);
@@ -682,7 +682,8 @@ ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it,
             if (expect_false(!checksumIsValid)) {
                 LOG(WARNING, "bad tombstone checksum! key: %s, version: %lu",
                     key.toString().c_str(), recoverTomb.getObjectVersion());
-                // TODO(Stutsman): Should throw and try another segment replica?
+                // JIRA Issue: RAM-673:
+                // Should throw and try another segment replica.
             }
 
             HashTableBucketLock lock(*this, key);
@@ -719,7 +720,10 @@ ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it,
                                           1);
                 }
 
-                // TODO(steve/ryan): append could fail here!
+                // JIRA Issue: RAM-674:
+                // If master runs out of space during recovery, this master
+                // should abort the recovery. Coordinator will then try
+                // another master.
 
                 replace(lock, key, newTombReference);
 
@@ -748,7 +752,8 @@ ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it,
             if (expect_false(!checksumIsValid)) {
                 LOG(WARNING, "bad objectSafeVer checksum! version: %lu",
                     safeVersion);
-                // TODO(Stutsman): Should throw and try another segment replica?
+                // JIRA Issue: RAM-673:
+                // Should throw and try another segment replica.
             }
 
             // Copy SafeVerObject to the recovery segment.
@@ -758,6 +763,10 @@ ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it,
                 CycleCounter<uint64_t> _(&segmentAppendTicks);
                 sideLog->append(LOG_ENTRY_TYPE_SAFEVERSION, buffer);
             }
+            // JIRA Issue: RAM-674:
+            // If master runs out of space during recovery, this master
+            // should abort the recovery. Coordinator will then try
+            // another master.
 
             // recover segmentManager.safeVersion (Master safeVersion)
             if (segmentManager.raiseSafeVersion(safeVersion)) {
@@ -1027,9 +1036,10 @@ ObjectManager::flushEntriesToLog(Buffer *logBuffer, uint32_t& numEntries)
     // atomically flush all the entries to the log
     if (!log.append(logBuffer, references, numEntries)) {
         return false;
-        // TODO(arjung): how to propagate this error
+        // JIRA Issue: RAM-675
+        // How to propagate this error
         // into the tree code and then back to the caller
-        // of the tree code ??
+        // of the tree code??
     }
 
     LogEntryType type;
@@ -1063,7 +1073,8 @@ ObjectManager::flushEntriesToLog(Buffer *logBuffer, uint32_t& numEntries)
             KeyLength keyLength;
             const void* keyString = object.getKey(0, &keyLength);
 
-            Key key(object.getTableId(), keyString, keyLength);
+            uint64_t tableId = object.getTableId();
+            Key key(tableId, keyString, keyLength);
 
             objectMap.prefetchBucket(key.getHash());
             HashTableBucketLock lock(*this, key);
@@ -1084,6 +1095,12 @@ ObjectManager::flushEntriesToLog(Buffer *logBuffer, uint32_t& numEntries)
             } else {
                 objectMap.insert(key.getHash(), references[i].toInteger());
             }
+
+            tabletManager->incrementWriteCount(key);
+            TableStats::increment(masterTableMetadata,
+                                  tableId,
+                                  entryLength, 1);
+
         } else if (type == LOG_ENTRY_TYPE_OBJTOMB) {
 
             ObjectTombstone tombstone(*logBuffer, objectOffset,
@@ -1092,7 +1109,8 @@ ObjectManager::flushEntriesToLog(Buffer *logBuffer, uint32_t& numEntries)
             KeyLength keyLength = tombstone.getKeyLength();
             const void* keyString = tombstone.getKey();
 
-            Key key(tombstone.getTableId(), keyString, keyLength);
+            uint64_t tableId = tombstone.getTableId();
+            Key key(tableId, keyString, keyLength);
 
             objectMap.prefetchBucket(key.getHash());
             HashTableBucketLock lock(*this, key);
@@ -1109,7 +1127,14 @@ ObjectManager::flushEntriesToLog(Buffer *logBuffer, uint32_t& numEntries)
                     segmentManager.raiseSafeVersion(currentVersion + 1);
                 }
             }
+
+            tabletManager->incrementWriteCount(key);
+            TableStats::increment(masterTableMetadata,
+                                  tableId,
+                                  entryLength, 1);
+
         }
+
         offset = offset + entryLength;
     }
     // sync to backups
@@ -1225,24 +1250,6 @@ ObjectManager::prepareForLog(Object& newObject, Buffer *logBuffer,
         *tombstoneAdded = true;
     }
 
-    // TODO(arjung):
-    // When do we update this ? Now or later when flushing to the log
-    // If later, how would we do it ?
-#if 0
-    tabletManager->incrementWriteCount(key);
-    uint64_t byteCount = appends[0].buffer.size();
-    uint64_t recordCount = 1;
-    if (tombstone) {
-        byteCount += appends[1].buffer.size();
-        recordCount += 1;
-    }
-
-    TableStats::increment(masterTableMetadata,
-                          tablet.tableId,
-                          byteCount,
-                          recordCount);
-#endif
-
     if (offset)
         *offset = objectOffset;
 
@@ -1294,15 +1301,6 @@ ObjectManager::writeTombstone(Key& key, Buffer *logBuffer)
     void* target = logBuffer->alloc(tombstone.getSerializedLength());
     tombstone.assembleForLog(target);
 
-// TODO(arjung):
-// When do we update this ? Now or later when flushing to the log
-// If later, how would we do it ?
-#if 0
-    TableStats::increment(masterTableMetadata,
-                          tablet.tableId,
-                          tombstoneBuffer.size(),
-                          1);
-#endif
     return STATUS_OK;
 }
 

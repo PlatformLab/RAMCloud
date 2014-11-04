@@ -222,11 +222,6 @@ class RecoveryMasterFinishedTask : public Task {
         if (successful) {
             // Update tablet map to point to new owner and mark as available.
             foreach (const auto& tablet, recoveryPartition.tablet()) {
-                // TODO(stutsman): Currently won't work with concurrent access
-                // on the tablet map but recovery will soon be revised to
-                // accept only one call into recovery per master instead of
-                // tablet which will fix this.
-
                 // The caller has filled in recoveryPartition with new service
                 // locator and server id of the recovery master, so just copy
                 // it over.  Record the log position of the recovery master at
@@ -245,7 +240,7 @@ class RecoveryMasterFinishedTask : public Task {
                         {tablet.ctime_log_head_id(),
                                 tablet.ctime_log_head_offset()});
                 } catch (const Exception& e) {
-                    // TODO(stutsman): What should we do here?
+                    // JIRA Issue: RAM-661: What should we do here?
                     DIE("Entry wasn't in the list anymore; "
                         "we need to handle this sensibly");
                 }
@@ -289,7 +284,7 @@ class RecoveryMasterFinishedTask : public Task {
                         ServerId(indexlet.server_id()),
                         indexlet.backing_table_id());
                 } catch (const Exception& e) {
-                    // TODO(zhihao): What should we do here?
+                    // JIRA Issue: RAM-661: What should we do here?
                     DIE("Entry wasn't in the list anymore; "
                         "we need to handle this sensibly.");
                 }

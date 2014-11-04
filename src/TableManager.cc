@@ -442,8 +442,6 @@ TableManager::indexletRecovered(
     if (!foundIndexlet) {
         LOG(NOTICE, "not found indexlet, which is an error");
     }
-    // TODO(zhihao): Currently, we didn't record this update in external
-    // storage. Will implement this in the future.
 }
 
 /**
@@ -553,6 +551,7 @@ TableManager::reassignIndexletOwnership(
     IndexMap::iterator indexIter = table->indexMap.find(indexId);
     // TODO(ankitak): This probably means that the index was deleted
     // after the reassignment was started. Should we throw exception or ignore?
+    // Need to do clean up on old and new server if something was deleted.
     if (indexIter == table->indexMap.end())
         throw NoSuchIndexlet(HERE);
 
@@ -1436,7 +1435,7 @@ TableManager::notifyDropIndex(const Lock& lock, Index* index)
  * reassigns the backing tablet).
  * This method is intended to be used both during normal indexlet reassignment,
  * and during coordinator crash recovery.
- * TODO(ankitak): Index related functions are not coordinator crash safe yet,
+ * Note: Index related functions are not coordinator crash safe yet,
  * hence this function isn't used during coordinator crash recovery, yet.
  *
  * \param lock

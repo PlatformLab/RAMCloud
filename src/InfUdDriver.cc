@@ -168,7 +168,8 @@ InfUdDriver::~InfUdDriver()
             packetBufsUtilized);
     }
 
-    // TODO(Rumble): cleanup
+    // The constructor creates a bunch of Infiniband resources that may
+    // need to be freed here (but aren't right now).
 
     delete qp;
 }
@@ -211,11 +212,11 @@ InfUdDriver::getMaxPacketSize()
  * Return a free transmit buffer, wrapped by its corresponding
  * BufferDescriptor. If there are none, block until one is available.
  *
- * TODO(rumble): Any errors from previous transmissions are basically
+ * Any errors from previous transmissions are basically
  *               thrown on the floor, though we do log them. We need
  *               to think a bit more about how this 'fire-and-forget'
  *               behaviour impacts our Transport API.
- * TODO(ongaro): This code is copied from InfRcTransport. It should probably
+ * This code is copied from InfRcTransport. It should probably
  *               move in some form to the Infiniband class.
  */
 Infiniband::BufferDescriptor*

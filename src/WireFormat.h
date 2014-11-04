@@ -1081,16 +1081,8 @@ struct MultiOp {
 
             // Each Response::Part contains the minimum object metadata we need
             // returned, followed by the object data itself.
-            //
-            // TODO(Ankita): This was a quick way to get multiRead working such
-            // that it doesn't depend on unrelated Segment internals. A nicer
-            // solution might be to construct segments on the master and send
-            // those in the response. However, that'd currently incur an extra
-            // copy. I doubt the copy would have much impact, but it's worth
-            // considering. Not sending the whole object also means we lose the
-            // checksum, but we weren't using it anyway.
-            /// Status of the request
 
+            /// Status of the request
             Status status;
 
             /// Version of the object.

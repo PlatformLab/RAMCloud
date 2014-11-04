@@ -168,7 +168,6 @@ TEST_F(TableManagerTest, dropIndex) {
 
     EXPECT_EQ(0U, master1->indexletManager.getNumIndexlets());
     EXPECT_EQ(1U, master2->indexletManager.getNumIndexlets());
-    //TODO(ashgup): Need tests for notifyCreateIndex and notifyDropIndex.
 };
 
 TEST_F(TableManagerTest, createTable_basics) {

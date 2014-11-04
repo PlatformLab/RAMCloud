@@ -799,7 +799,7 @@ TEST_F(MasterServiceTest, migrateTablet_movingData) {
     Log::Position master2HeadPositionBefore = Log::Position(
             master2Log->head->id, master2Log->head->getAppendedLength());
 
-    // TODO(syang0) RAM-441 without the syncCoordinatorServerList() call  in
+    // JIRA Issue: RAM-441: Without the syncCoordinatorServerList() call in
     // cluster.addServer(..) above, this crashes since the CoordinatorServerList
     // update is asynchronous and the client calls a migrate before the CSL has
     // been propagated. The recipient servers basically don't know about each

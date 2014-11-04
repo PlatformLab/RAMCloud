@@ -73,7 +73,7 @@ SideLog::~SideLog()
         return;
 
     LOG(DEBUG, "Aborting %lu uncommitted segment(s)", segments.size());
-    // TODO(cstlee): Add commit, remove free.
+    // JIRA Issue: RAM-667: Add commit, remove free.
     segmentManager->freeUnusedSideSegments(segments);
 }
 

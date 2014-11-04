@@ -30,7 +30,7 @@ namespace RAMCloud {
 uint32_t
 BackupStats::getExpectedReadMs() {
     // Careful here - this math will overflow 32-bit arithmetic.
-    // TODO(stutsman): Shouldn't use SEGMENT_SIZE constant here, but
+    // Shouldn't use SEGMENT_SIZE constant here, but
     //                 it doesn't affect correctness.
     return downCast<uint32_t>(
            uint64_t(primaryReplicaCount + 1) * 1000 *
@@ -211,7 +211,6 @@ BackupSelector::conflict(const ServerId backupId,
 {
     if (backupId == otherBackupId)
         return true;
-    // TODO(ongaro): Add other notions of conflicts, such as same rack.
     return false;
 }
 

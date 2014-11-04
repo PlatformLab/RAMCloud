@@ -1501,7 +1501,7 @@ FastTransport::ClientSession::processInboundPacket(Driver::Received* received)
     } else {
         if (header->getPayloadType() == Header::DATA &&
             header->requestAck) {
-            LOG(WARNING, "TODO: fake a full ACK response");
+            LOG(WARNING, "Unexpected request for ack for stale RPC");
         } else {
             LOG(WARNING, "out-of-order packet (got rpcId %d, "
                 "current rpcId %d)", header->rpcId, channel->rpcId);

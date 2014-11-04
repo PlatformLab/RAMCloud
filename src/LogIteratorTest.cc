@@ -293,7 +293,7 @@ TEST_F(LogIteratorTest, next) {
         }
         EXPECT_EQ(3U, lastSegmentId);
 
-#if 0 // TODO(steve): this hangs. something's wrong with what we're doing and
+#if 0 // This hangs. something's wrong with what we're doing and
          RS::free()
         segmentManager.free(cleanerSeg);
 #endif

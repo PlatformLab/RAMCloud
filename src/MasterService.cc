@@ -336,8 +336,9 @@ MasterService::enumerate(const WireFormat::Enumerate::Request* reqHdr,
     bool found = tabletManager.getTablet(reqHdr->tableId,
             reqHdr->tabletFirstHash, &tablet);
     if (!found) {
-        // TODO(Ouster): The code has never handled non-NORMAL table states.
-        // Does this matter at all?
+        // JIRA Issue: RAM-662:
+        // The code has never handled non-NORMAL table states. Does this matter
+        // at all?
         respHdr->common.status = STATUS_UNKNOWN_TABLET;
         return;
     }
@@ -788,11 +789,12 @@ MasterService::migrateTablet(const WireFormat::MigrateTablet::Request* reqHdr,
         return;
     }
 
-    // TODO(rumble/slaughter) what if we end up splitting?!?
+    // The last two arguments to prepForMigration() are to hint at how much data
+    // would be migrated to the new master, giving it the ability to reject if
+    // it didn't have sufficient resources. But at the time of writing this code
+    // there was no way of figuring that out before. Perhaps we can use the
+    // "new" TableStats mechanism.
 
-    // TODO(rumble/slaughter) add method to query for # objs, # bytes in a
-    // range in order for this to really work, we'll need to split on a bucket
-    // boundary. Otherwise we can't tell where bytes are in the chosen range.
     MasterClient::prepForMigration(context, newOwnerMasterId, tableId,
             firstKeyHash, lastKeyHash, 0, 0);
     Log::Position newOwnerLogHead = MasterClient::getHeadOfLog(
@@ -806,7 +808,6 @@ MasterService::migrateTablet(const WireFormat::MigrateTablet::Request* reqHdr,
     // efficiency and convenience.
     Tub<Segment> transferSeg;
 
-    // TODO(rumble/slaughter): These should probably be metrics.
     uint64_t totalObjects = 0;
     uint64_t totalTombstones = 0;
     uint64_t totalBytes = 0;
@@ -853,11 +854,11 @@ MasterService::migrateTablet(const WireFormat::MigrateTablet::Request* reqHdr,
             // could have been deleted more recently. We could be smarter and
             // more selective here, but that'd require keeping extra state to
             // know what we've already sent.
-            //
-            // TODO(rumble/slaughter) Actually, we can do better. The stupid way
-            //      is to track each object or tombstone we've sent. The smarter
-            //      way is to just record the Log::Position when we started
-            //      iterating and only send newer tombstones.
+
+            // Note that we can do better. The stupid way
+            // is to track each object or tombstone we've sent. The smarter
+            // way is to just record the Log::Position when we started
+            // iterating and only send newer tombstones.
 
             totalTombstones++;
         }
@@ -1290,15 +1291,13 @@ MasterService::prepForMigration(
         WireFormat::PrepForMigration::Response* respHdr,
         Rpc* rpc)
 {
-    // TODO(anyone): Decide if we want to decline this request.
+    // Open question: Are there situations where we should decline this request?
 
     // Try to add the tablet. If it fails, there's some overlapping tablet.
     bool added = tabletManager.addTablet(reqHdr->tableId,
             reqHdr->firstKeyHash, reqHdr->lastKeyHash,
             TabletManager::RECOVERING);
     if (added) {
-        // TODO(rumble) would be nice to have a method to get a SL from an Rpc
-        // object.
         LOG(NOTICE, "Ready to receive tablet [0x%lx,0x%lx] in tableId %lu from "
                 "\"??\"", reqHdr->firstKeyHash, reqHdr->lastKeyHash,
                 reqHdr->tableId);
@@ -1427,8 +1426,8 @@ MasterService::receiveMigrationData(
     LOG(NOTICE, "Receiving %u bytes of migration data for tablet [0x%lx,??] "
             "in tableId %lu", segmentBytes, firstKeyHash, tableId);
 
-    // TODO(rumble/slaughter) need to make sure we already have a table
-    // created that was previously prepped for migration.
+    // Make sure we already have a table created that was previously prepped
+    // for migration.
     TabletManager::Tablet tablet;
     bool found = tabletManager.getTablet(tableId, firstKeyHash, &tablet);
 
@@ -1443,7 +1442,6 @@ MasterService::receiveMigrationData(
         LOG(WARNING, "migration data received for tablet not in the "
                 "RECOVERING state (state = %d)!",
                 static_cast<int>(tablet.state));
-        // TODO(rumble/slaughter): better error code here?
         respHdr->common.status = STATUS_INTERNAL_ERROR;
         return;
     }
@@ -1462,15 +1460,6 @@ MasterService::receiveMigrationData(
     SideLog sideLog(objectManager.getLog());
     objectManager.replaySegment(&sideLog, it);
     sideLog.commit();
-
-    // TODO(rumble/slaughter) what about tablet version numbers?
-    //          - need to be made per-server now, no? then take max of two?
-    //            but this needs to happen at the end (after head on orig.
-    //            master is locked)
-    //    - what about autoincremented keys?
-    //    - what if we didn't send a whole tablet, but rather split one?!
-    //      how does this affect autoincr. keys and the version number(s),
-    //      if at all?
 }
 
 /**
@@ -1730,7 +1719,6 @@ MasterService::takeTabletOwnership(
                     "tableId %lu: overlaps with one or more different ranges.",
                     reqHdr->firstKeyHash, reqHdr->lastKeyHash, reqHdr->tableId);
 
-            // TODO(anybody): Do we want a more meaningful error code?
             respHdr->common.status = STATUS_INTERNAL_ERROR;
         }
     }

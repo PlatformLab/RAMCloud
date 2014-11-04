@@ -135,7 +135,6 @@ class Distribution {
     {
         uint32_t metaDataLength = 0;
 
-        // TODO(rumble): Seriously? How lazy is this?
         if (dataLength < 256)
             metaDataLength = 26 + 1 + 1;
         else if (dataLength < 65536)
@@ -869,7 +868,7 @@ class Benchmark {
      * WriteRpc request. Otherwise MultiWrite will be used to send multiple
      * writes at once.
      *
-     * TODO(steve): This class does too much dynamic memory allocation.
+     * Note: This class does too much dynamic memory allocation.
      */
     class OutstandingWrite {
       private:
@@ -1731,9 +1730,9 @@ try
 
     OptionParser optionParser(benchOptions, argc, argv);
 
-    // TODO(steve?): Figure out some way of having this be implicitly set if
-    // the argment is provided to OptionParser. Right now every main() method
-    // has to do this separately (and if they don't, the argument just
+    // We should probably figure out some way of having this be implicitly set
+    // if the argument is provided to OptionParser. Right now every main()
+    // method has to do this separately (and if they don't, the argument just
     // silently has no effect). It gets even more confusing if there are
     // multiple contexts per process.
     context.transportManager->setSessionTimeout(
@@ -1948,8 +1947,6 @@ try
     }
 
     if (verifyObjects) {
-        // TODO(rumble): add something that reads all objects and verifies that
-        // we we stored what we expected (i.e. the contents)
         uint64_t key = 0;
         uint64_t totalBytes = 0;
         while (1) {

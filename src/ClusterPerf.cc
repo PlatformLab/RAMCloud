@@ -1750,9 +1750,6 @@ doMultiWrite(int dataLength, uint16_t keyLength,
 
     double latency = timeMultiWrite(*writeRequests, numMasters*objsPerMaster);
 
-    // TODO(syang0) currently values written are unchecked, someone should do
-    // this with a multiread.
-
     return latency;
 }
 
