@@ -37,7 +37,7 @@ enum EthPayloadType {
     IP_V4 = 0x0800 // Standard ethernet type when the payload is an ip packet.
 };
 
-// Standard size of an ethernet frame including header.
+// Standard size of an Ethernet frame (not including Ethernet header).
 static const uint32_t ETHERNET_MAX_DATA_LEN = 1500;
 
 /// The MAC address length in bytes.

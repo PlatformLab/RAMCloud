@@ -25,6 +25,12 @@
 namespace RAMCloud {
 
 /**
+ * The value of this parameter must be replaced by the SolarFlare NIC name on
+ * the local machine.
+ */
+const char SolarFlareDriver::ifName[] = "eth0";
+
+/**
  * Default object used to make system calls.
  */
 static Syscall defaultSyscall;
@@ -68,7 +74,6 @@ SolarFlareDriver::SolarFlareDriver(Context* context,
     , fd(-1)
     , poller()
 {
-    const string ifName = "eth0";
     if (localServiceLocator == NULL) {
 
         // If localServiceLocator is NULL, we have to make a locatorString for
@@ -76,7 +81,7 @@ SolarFlareDriver::SolarFlareDriver(Context* context,
         // the machine along with a port number that we let the Kernel to choose
         // for us.
         sockaddr sockAddr;
-        string localIpStr =  getLocalIp(ifName.c_str());
+        string localIpStr =  getLocalIp(ifName);
         sockaddr_in *sockInAddr = reinterpret_cast<sockaddr_in*>(&sockAddr);
         sockInAddr->sin_family = AF_INET;
         inet_aton(localIpStr.c_str(), &sockInAddr->sin_addr);
@@ -105,15 +110,14 @@ SolarFlareDriver::SolarFlareDriver(Context* context,
         r = sys->getsockname(fd, &sockAddr, &addrLen);
         if (!NTOHS(sockInAddr->sin_port)) {
             sys->close(fd);
-            string msg =
-                format("Kernel binds SolarFlare socket to port 0."
-                " This port is not acceptable.");
+            string msg = format("Error in binding SolarFlare socket to"
+                    " a Kernel socket port.");
             LOG(WARNING, "%s", msg.c_str());
             throw DriverException(HERE, msg.c_str(), errno);
         }
 
         localStringLocator = format("fast+sf:mac=%s,host=%s,port=%hu",
-            getLocalMac(ifName.c_str()).c_str(),
+            getLocalMac(ifName).c_str(),
             localIpStr.c_str(),
             NTOHS(sockInAddr->sin_port));
         ServiceLocator sl(localStringLocator.c_str());
@@ -125,7 +129,7 @@ SolarFlareDriver::SolarFlareDriver(Context* context,
 
         // Find the mac address of this machine and append it to the service
         // locator;
-        string macString = ",mac=" + getLocalMac(ifName.c_str());
+        string macString = ",mac=" + getLocalMac(ifName);
         localStringLocator = localServiceLocator->getOriginalString();
         ServiceLocator sl(localStringLocator + macString);
         localAddress.construct(sl);
@@ -147,7 +151,7 @@ SolarFlareDriver::SolarFlareDriver(Context* context,
     // for the VI of this driver. N.B. for EF_PD_VF flag to work, you must have
     // SR-IOV enabled on SolarFlare NIC.
     rc = ef_pd_alloc(&protectionDomain, driverHandle,
-            if_nametoindex(ifName.c_str()), EF_PD_VF);
+            if_nametoindex(ifName), EF_PD_VF);
     if (rc < 0) {
         string msg =
         "Failed to allocate a protection domain for SolarFlareDriver.";
@@ -208,7 +212,7 @@ SolarFlareDriver::SolarFlareDriver(Context* context,
     int txBufferSize = ADAPTER_BUFFER_SIZE;
     int numTxBuffers = TX_RING_CAP;
     txBufferPool.construct(txBufferSize, numTxBuffers, this);
-    arpCache.construct(context, localIp, ifName.c_str());
+    arpCache.construct(context, localIp, ifName);
 }
 
 /**

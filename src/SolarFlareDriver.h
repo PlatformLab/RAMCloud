@@ -290,6 +290,10 @@ class SolarFlareDriver : public Driver {
     };
     friend class Poller;
     Tub<Poller> poller;
+
+    /// Name of the physica SolarFlare NIC that will send and receive packets
+    /// for this SolarFlareDriver on the local machine.
+    static const char ifName[];
     static Syscall* sys;
     DISALLOW_COPY_AND_ASSIGN(SolarFlareDriver);
 };

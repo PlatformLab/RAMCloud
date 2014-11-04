@@ -14,8 +14,8 @@
  */
 
 #include "TestUtil.h"
-#include "MockFastTransport.h"
 #include "SolarFlareDriver.h"
+#include "MockSyscall.h"
 
 namespace RAMCloud {
 
@@ -29,13 +29,22 @@ class SolarFlareDriverTest : public::testing::Test {
     SolarFlareDriver* serverDriver;
     SolarFlareDriver* clientDriver;
     Driver::Address* serverAddress;
+    MockSyscall* mockSys;
+    Syscall* savedSys;
+    string exceptionMsg;
 
     SolarFlareDriverTest()
         : context()
         , serverDriver(NULL)
         , clientDriver(NULL)
         , serverAddress(NULL)
+        , mockSys(NULL)
+        , savedSys(NULL)
+        , exceptionMsg()
     {
+        mockSys = new MockSyscall();
+        savedSys = SolarFlareDriver::sys;
+        SolarFlareDriver::sys = mockSys;
         serverDriver = new SolarFlareDriver(&context, NULL);
         ServiceLocator serverLocator(serverDriver->localStringLocator.c_str());
         clientDriver = new SolarFlareDriver(&context, NULL);
@@ -44,6 +53,8 @@ class SolarFlareDriverTest : public::testing::Test {
 
     ~SolarFlareDriverTest()
     {
+        SolarFlareDriver::sys = savedSys;
+        delete mockSys;
         delete serverAddress;
         delete serverDriver;
         delete clientDriver;
@@ -52,6 +63,48 @@ class SolarFlareDriverTest : public::testing::Test {
   private:
     DISALLOW_COPY_AND_ASSIGN(SolarFlareDriverTest);
 };
+
+TEST_F(SolarFlareDriverTest, constructor_NullLocatorErrors) {
+
+    // Socket error test
+    TestLog::Enable _;
+    mockSys->socketErrno = EPERM;
+    try {
+        SolarFlareDriver testDriver(&context, NULL);
+    } catch (DriverException& e){
+        exceptionMsg = e.message;
+    }
+    EXPECT_EQ(exceptionMsg, "Could not create socket for SolarFlareDriver."
+        ": Operation not permitted");
+    mockSys->socketErrno = 0;
+
+    // Bind error test
+    TestLog::reset();
+    mockSys->bindErrno = EADDRINUSE;
+    try {
+        SolarFlareDriver testDriver(&context, NULL);
+    } catch (DriverException& e){
+        exceptionMsg = e.message;
+    }
+    string ipAddr = getLocalIp(SolarFlareDriver::ifName);
+    string errorStr =
+            format("SolarFlareDriver could not bind the socket to %s."
+            ": Address already in use", ipAddr.c_str());
+    EXPECT_EQ(exceptionMsg, errorStr.c_str());
+    mockSys->bindErrno = 0;
+
+    // getsockname error
+    TestLog::reset();
+    mockSys->getsocknameErrno = EBADF;
+    try {
+        SolarFlareDriver testDriver(&context, NULL);
+    } catch(DriverException& e) {
+        exceptionMsg = e.message;
+    }
+    EXPECT_EQ(exceptionMsg, "Error in binding SolarFlare socket to a"
+            " Kernel socket port.: Bad file descriptor");
+    mockSys->getsocknameErrno = 0;
+}
 
 TEST_F(SolarFlareDriverTest, sendPacket_zeroCopyNoPayload) {
 

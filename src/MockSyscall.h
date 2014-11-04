@@ -37,14 +37,14 @@ class MockSyscall : public Syscall {
     MockSyscall() : acceptErrno(0), bindErrno(0), closeErrno(0), closeCount(0),
                     connectErrno(0), epollCreateErrno(0), epollCtlErrno(0),
                     epollWaitCount(-1), epollWaitEvents(NULL),
-                    epollWaitErrno(0), exitCount(0),
-                    fcntlErrno(0), futexWaitErrno(0), futexWakeErrno(0),
-                    fwriteResult(~0LU), ioctlErrno(0), ioctlRetriesToSuccess(0),
-                    listenErrno(0), pipeErrno(0), recvErrno(0), recvEof(false),
-                    recvfromErrno(0), recvfromEof(false),
-                    sendmsgErrno(0), sendmsgReturnCount(-1),
-                    sendtoErrno(0), sendtoReturnCount(-1),
-                    setsockoptErrno(0), socketErrno(0), writeErrno(0) {}
+                    epollWaitErrno(0), exitCount(0), fcntlErrno(0),
+                    futexWaitErrno(0), futexWakeErrno(0), fwriteResult(~0LU),
+                    getsocknameErrno(0), ioctlErrno(0),
+                    ioctlRetriesToSuccess(0), listenErrno(0), pipeErrno(0),
+                    recvErrno(0), recvEof(false), recvfromErrno(0),
+                    recvfromEof(false), sendmsgErrno(0), sendmsgReturnCount(-1),
+                    sendtoErrno(0), sendtoReturnCount(-1), setsockoptErrno(0),
+                    socketErrno(0), writeErrno(0) {}
 
     int acceptErrno;
     int accept(int sockfd, sockaddr *addr, socklen_t *addrlen) {
@@ -167,6 +167,15 @@ class MockSyscall : public Syscall {
         size_t result = fwriteResult;
         fwriteResult = ~0LU;
         return result;
+    }
+
+    int getsocknameErrno;
+    int getsockname(int sockfd, sockaddr* addr, socklen_t* addrlen) {
+        if (getsocknameErrno == 0) {
+            return ::getsockname(sockfd, addr, addrlen);
+        }
+        errno = getsocknameErrno;
+        return -1;
     }
 
     int ioctlErrno;
