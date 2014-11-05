@@ -21,8 +21,15 @@ package RAMCloud.ProtoBuf;
 // used to complete those operations if the current coordinator crashes.
 message Table {
 
-  // Each message of this type holds information about one tablet in the
-  // table.
+  /// The table's name, as specified in the createTable RPC that
+  /// created the table.
+  required string name = 1;
+
+  /// Identifier for the table (used in RPCs such as read and write).
+  required uint64 id = 2;
+
+  /// Each message of this type holds information about one tablet in the
+  /// table.
   message Tablet {
     enum State {
       /// The tablet is available.
@@ -57,13 +64,6 @@ message Table {
     /// cannot contain data belonging to this tablet.
     required uint32 ctime_log_head_offset = 6;
   }
-
-  /// The table's name, as specified in the createTable RPC that
-  /// created the table.
-  required string name = 1;
-
-  /// Identifier for the table (used in RPCs such as read and write).
-  required uint64 id = 2;
 
   /// The tablets.
   repeated Tablet tablet = 3;
@@ -106,4 +106,54 @@ message Table {
     required uint64 end_key_hash = 3;
   }
   optional Reassign reassign = 8;
+
+  /// Each message of this type holds information about an index corresponding
+  /// to this table.
+  message Index {
+    /// ID for the particular secondary index.
+    required uint32 index_id = 1;
+
+    /// Each message of this types holds information about an indexlet
+    /// that is part of this index.
+    message Indexlet {
+      /// Key blob marking the start of the indexed key range for this indexlet.
+      required string first_key = 1;
+
+      /// Blob of the smallest key in the given index that is after firstKey
+      /// in the index order but not part of this indexlet.
+      required string first_not_owned_key = 2;
+
+      /// ID of the backing table that will hold objects for this indexlet.
+      /// This table will have only one tablet that is entirely owned by one
+      /// server. It will never be partitioned into tablets across different
+      /// servers.
+      required uint64 backing_table_id = 3;
+
+      /// ID of the master owning the table with ID backing_table_id.
+      required fixed64 server_id = 4;
+    }
+    repeated Indexlet indexlet = 2;
+  }
+  repeated Index index = 9;
+
+  /// A message of this type is present if the most recent update was
+  /// to reassign an indexlet.
+  message ReassignIndexlet {
+    /// ID of the server to which the indexlet was reassigned.
+    required fixed64 server_id = 1;
+
+    /// ID of the secondary index to which this indexlet belongs.
+    required uint32 index_id = 2;
+
+    /// Key range for this indexlet.
+    required bytes first_key = 3;
+    required bytes first_not_owned_key = 4;
+
+    /// ID of the backing table that will hold objects for this indexlet.
+    /// This table will have only one tablet that is entirely owned by one
+    /// server. It will never be partitioned into tablets across different
+    /// servers.
+    required uint64 backing_table_id = 5;
+  }
+  optional ReassignIndexlet reassign_indexlet = 10;
 }

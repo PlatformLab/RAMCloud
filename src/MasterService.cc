@@ -336,8 +336,9 @@ MasterService::enumerate(const WireFormat::Enumerate::Request* reqHdr,
     bool found = tabletManager.getTablet(reqHdr->tableId,
             reqHdr->tabletFirstHash, &tablet);
     if (!found) {
-        // TODO(Ouster): The code has never handled non-NORMAL table states.
-        // Does this matter at all?
+        // JIRA Issue: RAM-662:
+        // The code has never handled non-NORMAL table states. Does this matter
+        // at all?
         respHdr->common.status = STATUS_UNKNOWN_TABLET;
         return;
     }
@@ -537,6 +538,122 @@ MasterService::increment(const WireFormat::Increment::Request* reqHdr,
 }
 
 /**
+ * Helper function used by increment and multiIncrement to perform the atomic
+ * read, increment, write cycle.  Does _not_ sync changes in order to allow
+ * for batched synchronization.
+ * \param key
+ *      The key of the object.  If the object does not exist, it is created as
+ *      zero before incrementing.
+ * \param rejectRules
+ *      Conditions under which reading (thus incrementing) fails
+ * \param asInt64
+ *      If non-zero, interpret the object as signed, twos-complement, 8 byte
+ *      integer and increase by the given value (which might be negative).
+ *      On success, asInt64 contains the new value of the object.
+ * \param asDouble
+ *      If non-zero, interpret the object as IEEE754 double precision floating
+ *      point value and increase by the given value (which might be negative).
+ *      On success, asDouble contains the new value of the object.
+ * \param newVersion
+ *      The new version of the incremented object on success.
+ * \param status
+ *      returns STATUS_OK or a failure code if not successful.
+ */
+void
+MasterService::incrementObject(Key *key,
+            RejectRules rejectRules,
+            int64_t *asInt64,
+            double *asDouble,
+            uint64_t *newVersion,
+            Status *status)
+{
+    // Read the object and add integer or floating point values in case
+    // the summands are non-zero.  It is possible to do both an integer
+    // addition and a floating point addition.
+    union {
+        // We rely on the fact that both int64_t and double are exactly
+        // 8 byte wide.
+        int64_t asInt64;
+        double asDouble;
+    } oldValue, newValue;
+    const bool mustExist = rejectRules.doesntExist;
+
+    // Atomic read-increment-write cycle.
+    RejectRules updateRejectRules;
+    memset(&updateRejectRules, 0, sizeof(updateRejectRules));
+    while (1) {
+        ObjectBuffer value;
+        uint64_t version = 0;
+        *status =
+            objectManager.readObject(*key, &value, &rejectRules, &version);
+        if (*status == STATUS_OBJECT_DOESNT_EXIST && !mustExist) {
+            // If the object doesn't exist, create it either as int64_t(0) or
+            // as double(0.0).  Both binary representations of zero are
+            // identical.
+            oldValue.asInt64 = 0;
+            *status = STATUS_OK;
+        } else {
+            if (*status != STATUS_OK)
+                return;
+            uint32_t dataLen;
+            oldValue.asInt64 = *value.get<int64_t>(&dataLen);
+
+            if (dataLen != sizeof(oldValue)) {
+                *status = STATUS_INVALID_OBJECT;
+                return;
+            }
+        }
+
+#ifdef TESTING
+        /// Wait for a second client request that completes an increment RPC and
+        /// resets the pauseIncrementObject marker.  Do _not_ wait indefinitely
+        /// for the second client.
+        if (pauseIncrement) {
+            /// Indicate to a second client that we are waiting.  Also make sure
+            /// that the second client runs through without waiting.
+            pauseIncrement = 0;
+            uint64_t deadline = Cycles::rdtsc() + Cycles::fromSeconds(1.);
+            do {
+            } while (!continueIncrement && (Cycles::rdtsc() < deadline));
+            /// Reset the sentinal variable for the next test run.
+            continueIncrement = 0;
+        }
+#endif
+
+        newValue = oldValue;
+        if (*asInt64 != 0) {
+            newValue.asInt64 += *asInt64;
+        }
+        if (*asDouble != 0.0) {
+            newValue.asDouble += *asDouble;
+        }
+
+        // create object to populate newValueBuffer.
+        Buffer newValueBuffer;
+        Object::appendKeysAndValueToBuffer(*key, &newValue, sizeof(newValue),
+                                           &newValueBuffer);
+
+        Object newObject(key->getTableId(), 0, 0, newValueBuffer);
+        updateRejectRules.givenVersion = version;
+        updateRejectRules.versionNeGiven = true;
+        *status = objectManager.writeObject(newObject, &updateRejectRules,
+                                            newVersion);
+        if (*status == STATUS_WRONG_VERSION) {
+            TEST_LOG("retry after version mismatch");
+        } else {
+            break;
+        }
+    }
+
+    if (*status != STATUS_OK)
+        return;
+
+    // Return new value
+    *asInt64 = newValue.asInt64;
+    *asDouble = newValue.asDouble;
+}
+
+/**
  * Top-level server method to handle the INDEXED_READ request.
  *
  * \copydetails Service::ping
@@ -672,11 +789,12 @@ MasterService::migrateTablet(const WireFormat::MigrateTablet::Request* reqHdr,
         return;
     }
 
-    // TODO(rumble/slaughter) what if we end up splitting?!?
+    // The last two arguments to prepForMigration() are to hint at how much data
+    // would be migrated to the new master, giving it the ability to reject if
+    // it didn't have sufficient resources. But at the time of writing this code
+    // there was no way of figuring that out before. Perhaps we can use the
+    // "new" TableStats mechanism.
 
-    // TODO(rumble/slaughter) add method to query for # objs, # bytes in a
-    // range in order for this to really work, we'll need to split on a bucket
-    // boundary. Otherwise we can't tell where bytes are in the chosen range.
     MasterClient::prepForMigration(context, newOwnerMasterId, tableId,
             firstKeyHash, lastKeyHash, 0, 0);
     Log::Position newOwnerLogHead = MasterClient::getHeadOfLog(
@@ -690,7 +808,6 @@ MasterService::migrateTablet(const WireFormat::MigrateTablet::Request* reqHdr,
     // efficiency and convenience.
     Tub<Segment> transferSeg;
 
-    // TODO(rumble/slaughter): These should probably be metrics.
     uint64_t totalObjects = 0;
     uint64_t totalTombstones = 0;
     uint64_t totalBytes = 0;
@@ -737,11 +854,11 @@ MasterService::migrateTablet(const WireFormat::MigrateTablet::Request* reqHdr,
             // could have been deleted more recently. We could be smarter and
             // more selective here, but that'd require keeping extra state to
             // know what we've already sent.
-            //
-            // TODO(rumble/slaughter) Actually, we can do better. The stupid way
-            //      is to track each object or tombstone we've sent. The smarter
-            //      way is to just record the Log::Position when we started
-            //      iterating and only send newer tombstones.
+
+            // Note that we can do better. The stupid way
+            // is to track each object or tombstone we've sent. The smarter
+            // way is to just record the Log::Position when we started
+            // iterating and only send newer tombstones.
 
             totalTombstones++;
         }
@@ -1174,15 +1291,13 @@ MasterService::prepForMigration(
         WireFormat::PrepForMigration::Response* respHdr,
         Rpc* rpc)
 {
-    // TODO(anyone): Decide if we want to decline this request.
+    // Open question: Are there situations where we should decline this request?
 
     // Try to add the tablet. If it fails, there's some overlapping tablet.
     bool added = tabletManager.addTablet(reqHdr->tableId,
             reqHdr->firstKeyHash, reqHdr->lastKeyHash,
             TabletManager::RECOVERING);
     if (added) {
-        // TODO(rumble) would be nice to have a method to get a SL from an Rpc
-        // object.
         LOG(NOTICE, "Ready to receive tablet [0x%lx,0x%lx] in tableId %lu from "
                 "\"??\"", reqHdr->firstKeyHash, reqHdr->lastKeyHash,
                 reqHdr->tableId);
@@ -1311,8 +1426,8 @@ MasterService::receiveMigrationData(
     LOG(NOTICE, "Receiving %u bytes of migration data for tablet [0x%lx,??] "
             "in tableId %lu", segmentBytes, firstKeyHash, tableId);
 
-    // TODO(rumble/slaughter) need to make sure we already have a table
-    // created that was previously prepped for migration.
+    // Make sure we already have a table created that was previously prepped
+    // for migration.
     TabletManager::Tablet tablet;
     bool found = tabletManager.getTablet(tableId, firstKeyHash, &tablet);
 
@@ -1327,7 +1442,6 @@ MasterService::receiveMigrationData(
         LOG(WARNING, "migration data received for tablet not in the "
                 "RECOVERING state (state = %d)!",
                 static_cast<int>(tablet.state));
-        // TODO(rumble/slaughter): better error code here?
         respHdr->common.status = STATUS_INTERNAL_ERROR;
         return;
     }
@@ -1346,15 +1460,6 @@ MasterService::receiveMigrationData(
     SideLog sideLog(objectManager.getLog());
     objectManager.replaySegment(&sideLog, it);
     sideLog.commit();
-
-    // TODO(rumble/slaughter) what about tablet version numbers?
-    //          - need to be made per-server now, no? then take max of two?
-    //            but this needs to happen at the end (after head on orig.
-    //            master is locked)
-    //    - what about autoincremented keys?
-    //    - what if we didn't send a whole tablet, but rather split one?!
-    //      how does this affect autoincr. keys and the version number(s),
-    //      if at all?
 }
 
 /**
@@ -1414,6 +1519,105 @@ MasterService::removeIndexEntry(
     respHdr->common.status = indexletManager.removeEntry(
             reqHdr->tableId, reqHdr->indexId,
             indexKeyStr, reqHdr->indexKeyLength, reqHdr->primaryKeyHash);
+}
+
+/**
+ * Helper function used by write methods in this class to send requests
+ * for inserting index entries (corresponding to the object being written)
+ * to the index servers.
+ * \param object
+ *      Object for which index entries are to be inserted.
+ */
+void
+MasterService::requestInsertIndexEntries(Object& object)
+{
+    KeyCount keyCount = object.getKeyCount();
+    if (keyCount <= 1)
+        return;
+
+    uint64_t tableId = object.getTableId();
+    KeyLength primaryKeyLength;
+    const void* primaryKey = object.getKey(0, &primaryKeyLength);
+    KeyHash primaryKeyHash =
+            Key(tableId, primaryKey, primaryKeyLength).getHash();
+
+    Tub<InsertIndexEntryRpc> rpcs[keyCount-1];
+
+    // Send rpcs to all index servers involved.
+    for (KeyCount keyIndex = 1; keyIndex <= keyCount - 1; keyIndex++) {
+        KeyLength keyLength;
+        const void* key = object.getKey(keyIndex, &keyLength);
+
+        if (key != NULL && keyLength > 0) {
+            RAMCLOUD_LOG(DEBUG, "Inserting index entry for tableId %lu, "
+                    "keyIndex %u, key %s, primaryKeyHash %lu",
+                    tableId, keyIndex,
+                    string(reinterpret_cast<const char*>(key),
+                            keyLength).c_str(),
+                    primaryKeyHash);
+
+            rpcs[keyIndex-1].construct(this, tableId, keyIndex,
+                    key, keyLength, primaryKeyHash);
+        }
+    }
+
+    // Wait to receive response to all rpcs.
+    for (KeyCount keyIndex = 1; keyIndex <= keyCount - 1; keyIndex++) {
+        if (rpcs[keyIndex-1]) {
+            rpcs[keyIndex-1]->wait();
+        }
+    }
+}
+
+/**
+ * Helper function used by remove methods in this class to send requests
+ * for removing index entries (corresponding to the object being removed)
+ * to the index servers.
+ * \param objectBuffer
+ *      Pointer to the buffer in log for the object for which
+ *      index entries are to be deleted.
+ */
+void
+MasterService::requestRemoveIndexEntries(Buffer& objectBuffer)
+{
+    Object object(objectBuffer);
+
+    KeyCount keyCount = object.getKeyCount();
+    if (keyCount <= 1)
+        return;
+
+    uint64_t tableId = object.getTableId();
+    KeyLength primaryKeyLength;
+    const void* primaryKey = object.getKey(0, &primaryKeyLength);
+    KeyHash primaryKeyHash =
+            Key(tableId, primaryKey, primaryKeyLength).getHash();
+
+    Tub<RemoveIndexEntryRpc> rpcs[keyCount-1];
+
+    // Send rpcs to all index servers involved.
+    for (KeyCount keyIndex = 1; keyIndex <= keyCount - 1; keyIndex++) {
+        KeyLength keyLength;
+        const void* key = object.getKey(keyIndex, &keyLength);
+
+        if (key != NULL && keyLength > 0) {
+            RAMCLOUD_LOG(DEBUG, "Removing index entry for tableId %lu, "
+                    "keyIndex %u, key %s, primaryKeyHash %lu",
+                    tableId, keyIndex,
+                    string(reinterpret_cast<const char*>(key),
+                            keyLength).c_str(),
+                    primaryKeyHash);
+
+            rpcs[keyIndex-1].construct(this, tableId, keyIndex,
+                    key, keyLength, primaryKeyHash);
+        }
+    }
+
+    // Wait to receive response to all rpcs.
+    for (KeyCount keyIndex = 1; keyIndex <= keyCount - 1; keyIndex++) {
+        if (rpcs[keyIndex-1]) {
+            rpcs[keyIndex-1]->wait();
+        }
+    }
 }
 
 /**
@@ -1515,7 +1719,6 @@ MasterService::takeTabletOwnership(
                     "tableId %lu: overlaps with one or more different ranges.",
                     reqHdr->firstKeyHash, reqHdr->lastKeyHash, reqHdr->tableId);
 
-            // TODO(anybody): Do we want a more meaningful error code?
             respHdr->common.status = STATUS_INTERNAL_ERROR;
         }
     }
@@ -1545,7 +1748,7 @@ MasterService::takeIndexletOwnership(
             reqOffset, reqHdr->firstNotOwnedKeyLength);
 
     indexletManager.addIndexlet(
-            reqHdr->tableId, reqHdr->indexId, reqHdr->indexletTableId,
+            reqHdr->tableId, reqHdr->indexId, reqHdr->backingTableId,
             firstKey, reqHdr->firstKeyLength,
             firstNotOwnedKey, reqHdr->firstNotOwnedKeyLength);
     LOG(NOTICE, "Took ownership of indexlet in tableId %lu indexId %u",
@@ -1593,221 +1796,6 @@ MasterService::write(const WireFormat::Write::Request* reqHdr,
     // If this is a overwrite, delete old index entries if any.
     if (oldObjectBuffer.size() > 0) {
         requestRemoveIndexEntries(oldObjectBuffer);
-    }
-}
-
-/**
- * Helper function used by increment and multiIncrement to perform the atomic
- * read, increment, write cycle.  Does _not_ sync changes in order to allow
- * for batched synchronization.
- * \param key
- *      The key of the object.  If the object does not exist, it is created as
- *      zero before incrementing.
- * \param rejectRules
- *      Conditions under which reading (thus incrementing) fails
- * \param asInt64
- *      If non-zero, interpret the object as signed, twos-complement, 8 byte
- *      integer and increase by the given value (which might be negative).
- *      On success, asInt64 contains the new value of the object.
- * \param asDouble
- *      If non-zero, interpret the object as IEEE754 double precision floating
- *      point value and increase by the given value (which might be negative).
- *      On success, asDouble contains the new value of the object.
- * \param newVersion
- *      The new version of the incremented object on success.
- * \param status
- *      returns STATUS_OK or a failure code if not successful.
- */
-void
-MasterService::incrementObject(Key *key,
-            RejectRules rejectRules,
-            int64_t *asInt64,
-            double *asDouble,
-            uint64_t *newVersion,
-            Status *status)
-{
-    // Read the object and add integer or floating point values in case
-    // the summands are non-zero.  It is possible to do both an integer
-    // addition and a floating point addition.
-    union {
-        // We rely on the fact that both int64_t and double are exactly
-        // 8 byte wide.
-        int64_t asInt64;
-        double asDouble;
-    } oldValue, newValue;
-    const bool mustExist = rejectRules.doesntExist;
-
-    // Atomic read-increment-write cycle.
-    RejectRules updateRejectRules;
-    memset(&updateRejectRules, 0, sizeof(updateRejectRules));
-    while (1) {
-        ObjectBuffer value;
-        uint64_t version = 0;
-        *status =
-            objectManager.readObject(*key, &value, &rejectRules, &version);
-        if (*status == STATUS_OBJECT_DOESNT_EXIST && !mustExist) {
-            // If the object doesn't exist, create it either as int64_t(0) or
-            // as double(0.0).  Both binary representations of zero are
-            // identical.
-            oldValue.asInt64 = 0;
-            *status = STATUS_OK;
-        } else {
-            if (*status != STATUS_OK)
-                return;
-            uint32_t dataLen;
-            oldValue.asInt64 = *value.get<int64_t>(&dataLen);
-
-            if (dataLen != sizeof(oldValue)) {
-                *status = STATUS_INVALID_OBJECT;
-                return;
-            }
-        }
-
-#ifdef TESTING
-        /// Wait for a second client request that completes an increment RPC and
-        /// resets the pauseIncrementObject marker.  Do _not_ wait indefinitely
-        /// for the second client.
-        if (pauseIncrement) {
-            /// Indicate to a second client that we are waiting.  Also make sure
-            /// that the second client runs through without waiting.
-            pauseIncrement = 0;
-            uint64_t deadline = Cycles::rdtsc() + Cycles::fromSeconds(1.);
-            do {
-            } while (!continueIncrement && (Cycles::rdtsc() < deadline));
-            /// Reset the sentinal variable for the next test run.
-            continueIncrement = 0;
-        }
-#endif
-
-        newValue = oldValue;
-        if (*asInt64 != 0) {
-            newValue.asInt64 += *asInt64;
-        }
-        if (*asDouble != 0.0) {
-            newValue.asDouble += *asDouble;
-        }
-
-        // create object to populate newValueBuffer.
-        Buffer newValueBuffer;
-        Object::appendKeysAndValueToBuffer(*key, &newValue, sizeof(newValue),
-                                           &newValueBuffer);
-
-        Object newObject(key->getTableId(), 0, 0, newValueBuffer);
-        updateRejectRules.givenVersion = version;
-        updateRejectRules.versionNeGiven = true;
-        *status = objectManager.writeObject(newObject, &updateRejectRules,
-                                            newVersion);
-        if (*status == STATUS_WRONG_VERSION) {
-            TEST_LOG("retry after version mismatch");
-        } else {
-            break;
-        }
-    }
-
-    if (*status != STATUS_OK)
-        return;
-
-    // Return new value
-    *asInt64 = newValue.asInt64;
-    *asDouble = newValue.asDouble;
-}
-
-/**
- * Helper function used by write methods in this class to send requests
- * for inserting index entries (corresponding to the object being written)
- * to the index servers.
- * \param object
- *      Object for which index entries are to be inserted.
- */
-void
-MasterService::requestInsertIndexEntries(Object& object)
-{
-    KeyCount keyCount = object.getKeyCount();
-    if (keyCount <= 1)
-        return;
-
-    uint64_t tableId = object.getTableId();
-    KeyLength primaryKeyLength;
-    const void* primaryKey = object.getKey(0, &primaryKeyLength);
-    KeyHash primaryKeyHash =
-            Key(tableId, primaryKey, primaryKeyLength).getHash();
-
-    Tub<InsertIndexEntryRpc> rpcs[keyCount-1];
-
-    // Send rpcs to all index servers involved.
-    for (KeyCount keyIndex = 1; keyIndex <= keyCount - 1; keyIndex++) {
-        KeyLength keyLength;
-        const void* key = object.getKey(keyIndex, &keyLength);
-
-        if (key != NULL && keyLength > 0) {
-            RAMCLOUD_LOG(DEBUG, "Inserting index entry for tableId %lu, "
-                    "keyIndex %u, key %s, primaryKeyHash %lu",
-                    tableId, keyIndex,
-                    string(reinterpret_cast<const char*>(key),
-                            keyLength).c_str(),
-                    primaryKeyHash);
-
-            rpcs[keyIndex-1].construct(this, tableId, keyIndex,
-                    key, keyLength, primaryKeyHash);
-        }
-    }
-
-    // Wait to receive response to all rpcs.
-    for (KeyCount keyIndex = 1; keyIndex <= keyCount - 1; keyIndex++) {
-        if (rpcs[keyIndex-1]) {
-            rpcs[keyIndex-1]->wait();
-        }
-    }
-}
-
-/**
- * Helper function used by remove methods in this class to send requests
- * for removing index entries (corresponding to the object being removed)
- * to the index servers.
- * \param objectBuffer
- *      Pointer to the buffer in log for the object for which
- *      index entries are to be deleted.
- */
-void
-MasterService::requestRemoveIndexEntries(Buffer& objectBuffer)
-{
-    Object object(objectBuffer);
-
-    KeyCount keyCount = object.getKeyCount();
-    if (keyCount <= 1)
-        return;
-
-    uint64_t tableId = object.getTableId();
-    KeyLength primaryKeyLength;
-    const void* primaryKey = object.getKey(0, &primaryKeyLength);
-    KeyHash primaryKeyHash =
-            Key(tableId, primaryKey, primaryKeyLength).getHash();
-
-    Tub<RemoveIndexEntryRpc> rpcs[keyCount-1];
-
-    // Send rpcs to all index servers involved.
-    for (KeyCount keyIndex = 1; keyIndex <= keyCount - 1; keyIndex++) {
-        KeyLength keyLength;
-        const void* key = object.getKey(keyIndex, &keyLength);
-
-        if (key != NULL && keyLength > 0) {
-            RAMCLOUD_LOG(DEBUG, "Removing index entry for tableId %lu, "
-                    "keyIndex %u, key %s, primaryKeyHash %lu",
-                    tableId, keyIndex,
-                    string(reinterpret_cast<const char*>(key),
-                            keyLength).c_str(),
-                    primaryKeyHash);
-
-            rpcs[keyIndex-1].construct(this, tableId, keyIndex,
-                    key, keyLength, primaryKeyHash);
-        }
-    }
-
-    // Wait to receive response to all rpcs.
-    for (KeyCount keyIndex = 1; keyIndex <= keyCount - 1; keyIndex++) {
-        if (rpcs[keyIndex-1]) {
-            rpcs[keyIndex-1]->wait();
-        }
     }
 }
 
@@ -2339,26 +2327,26 @@ MasterService::recover(const WireFormat::Recover::Request* reqHdr,
         // This unordered_map is used to keep track of the highest BTree id
         // in every indexlet table
         std::unordered_map<uint64_t, uint64_t> highestBTreeIdMap;
-        foreach (const ProtoBuf::Indexlets::Indexlet& indexlet,
+        foreach (const ProtoBuf::Indexlet& indexlet,
                 recoveryPartition.indexlet()) {
-            highestBTreeIdMap[indexlet.indexlet_table_id()] = 0;
+            highestBTreeIdMap[indexlet.backing_table_id()] = 0;
         }
         recover(recoveryId, crashedServerId, partitionId, replicas,
                 highestBTreeIdMap);
         // Install indexlets we are recovering
-        foreach (const ProtoBuf::Indexlets::Indexlet& newIndexlet,
+        foreach (const ProtoBuf::Indexlet& newIndexlet,
                  recoveryPartition.indexlet()) {
             LOG(NOTICE, "Starting recovery %lu for crashed indexlet %d",
                     recoveryId, newIndexlet.index_id());
             indexletManager.addIndexlet(
                     newIndexlet.table_id(),
                     (uint8_t)newIndexlet.index_id(),
-                    newIndexlet.indexlet_table_id(),
+                    newIndexlet.backing_table_id(),
                     newIndexlet.first_key().c_str(),
                     (uint16_t)newIndexlet.first_key().length(),
                     newIndexlet.first_not_owned_key().c_str(),
                     (uint16_t)newIndexlet.first_not_owned_key().length(),
-                    highestBTreeIdMap[newIndexlet.indexlet_table_id()]);
+                    highestBTreeIdMap[newIndexlet.backing_table_id()]);
         }
         successful = true;
     } catch (const SegmentRecoveryFailedException& e) {
@@ -2387,7 +2375,7 @@ MasterService::recover(const WireFormat::Recover::Request* reqHdr,
         tablet.set_ctime_log_head_id(headOfLog.getSegmentId());
         tablet.set_ctime_log_head_offset(headOfLog.getSegmentOffset());
     }
-    foreach (ProtoBuf::Indexlets::Indexlet& indexlet,
+    foreach (ProtoBuf::Indexlet& indexlet,
             *recoveryPartition.mutable_indexlet()) {
         LOG(NOTICE, "set indexlet %lu to locator %s, id %s",
                 indexlet.table_id(), config->localLocator.c_str(),
@@ -2425,7 +2413,7 @@ MasterService::recover(const WireFormat::Recover::Request* reqHdr,
             tabletManager.deleteTablet(tablet.table_id(),
                     tablet.start_key_hash(), tablet.end_key_hash());
         }
-        foreach (const ProtoBuf::Indexlets::Indexlet& indexlet,
+        foreach (const ProtoBuf::Indexlet& indexlet,
                 recoveryPartition.indexlet()) {
             indexletManager.deleteIndexlet(
                     indexlet.table_id(),

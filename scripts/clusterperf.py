@@ -244,7 +244,7 @@ def indexMultiple(name, options, cluster_args, client_args):
 
     # use a maximum of 10 secondary keys
     if len(hosts) <= 10:
-        # TODO(ankitak): hack until synchronization bug in write RPC handler
+        # Hack until synchronization bug in write RPC handler
         # in MasterService is resolved. This bug prevents us from using more
         # than 1 MasterSerivice thread. However, we need to use more than 1
         # service thread, otherwise if a tablet and its corresponding

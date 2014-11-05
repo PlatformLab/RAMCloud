@@ -82,7 +82,7 @@ Key::Key(uint64_t tableId, Buffer& buffer,
       keyLength(keyLength),
       hash()
 {
-    // TODO(anyone): We could instead delay calling getRange() until absolutely
+    // Note: We could instead delay calling getRange() until absolutely
     // necessary. This might make things faster since getRange() could allocate
     // and copy memory if the data is not all contiguous. It is unclear how
     // frequently this might happen and whether or not it can adversely affect

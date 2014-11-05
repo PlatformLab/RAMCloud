@@ -207,8 +207,6 @@ TEST_F(ObjectFinderTest, flush) {
     //flush the table in the beginning
     objectFinder->flush(1);
     EXPECT_EQ(objectFinder->debugString(), "");
-
-    //TODO(ashgup): add tests for flushing indexlets
 }
 
 TEST_F(ObjectFinderTest, lookup_stringKey) {

@@ -363,10 +363,6 @@ class SegmentManager {
 
     /// Number of segments currently on backup disks. This is exactly the number
     /// of ReplicatedSegments that exist.
-    //
-    // TODO(rumble): It would probably be cleaner to have a way to query
-    // ReplicaManager for this value. It already maintains a list of existing
-    // ReplicatedSegments.
     uint32_t segmentsOnDisk;
 
     /// Histogram used to track the number of segments present on disk so that

@@ -315,7 +315,7 @@ PingService::serverControl(const WireFormat::ServerControl::Request* reqHdr,
  * There will be no response to the RPC for this message, and the process
  * will exit with status code 0.
  *
- * TODO(Rumble): Should be only for debugging and performance testing.
+ * This should only be used for debugging and performance testing.
  */
 void
 PingService::kill(const WireFormat::Kill::Request* reqHdr,

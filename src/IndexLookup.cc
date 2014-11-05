@@ -136,14 +136,14 @@ IndexLookup::isReady()
             // which will be used as the starting key for the next
             // lookupIndexKeys request.
             // This malloc and memcpy can be expensive, but it is expected
-            // index lookup won't span accross many servers.
+            // index lookup won't span across many servers.
             // TODO(zhihao): if we can make sure that lookupIndexKeys
             // construction doesn't clear the response buffer before copying
             // firstKey into request buffer, we can consider removing this
             // malloc & memcpy.
             nextKey = malloc(nextKeyLength);
             uint32_t off = lookupRpc.offset
-                           + lookupRpc.numHashes * (uint32_t) sizeof(KeyHash);
+                           + (lookupRpc.numHashes * (uint32_t) sizeof(KeyHash));
             memcpy(nextKey, lookupRpc.resp.getOffset<char>(off),
                    nextKeyLength);
             lookupRpc.status = RESULT_READY;

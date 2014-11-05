@@ -92,9 +92,6 @@ class LogCleaner {
     /// fragmentation during cleaning, we'll still have enough space to fit in
     /// MAX_LIVE_SEGMENTS_PER_DISK_PASS of live data before freeing unused
     /// seglets at the ends of survivor segments.
-    ///
-    /// TODO(Steve): This should probably just be dynamically computed using the
-    /// segment size, maximum entry size, and MAX_LIVE_SEGMENTS_PER_DISK_PASS.
     enum { SURVIVOR_SEGMENTS_TO_RESERVE = 15 };
 
     /// The minimum amount of memory utilization we will begin cleaning at using

@@ -44,8 +44,6 @@ bool verify = false;
 bool fillWithTestData = false;
 
 /**
- * TODO(Anyone): This method is duplicated wholesale in ClusterPerf.cc.
- *
  * Fill a buffer with an ASCII value that can be checked later to ensure
  * that no data has been lost or corrupted.  A particular tableId, key and
  * keyLength are incorporated into the value (under the assumption that
@@ -91,8 +89,6 @@ fillBuffer(Buffer& buffer, uint32_t size, uint64_t tableId,
 }
 
 /**
- * TODO(Anyone): This method is duplicated wholesale in ClusterPerf.cc. 
- *
  * Check the contents of a buffer to ensure that it contains the same data
  * generated previously by fillBuffer.  Generate a log message if a
  * problem is found.

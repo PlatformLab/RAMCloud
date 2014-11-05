@@ -13,12 +13,6 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-/*
- * TODO(Rumble): This file is used by both Transports and Drivers, but throws
- *      TransportExceptions. What should we do? Nix the static methods and
- *      Template it on the exception type?
- */
-
 #include "CycleCounter.h"
 #include "Infiniband.h"
 #include "RawMetrics.h"
@@ -63,7 +57,8 @@ Infiniband::dumpStats()
 /**
  * Create a new QueuePair. This factory should be used in preference to
  * the QueuePair constructor directly, since this lets derivatives of
- * Infiniband, e.g. MockInfiniband, return mocked out QueuePair derivatives.
+ * Infiniband, e.g. MockInfiniband (if it existed),
+ * return mocked out QueuePair derivatives.
  *
  * See QueuePair::QueuePair for parameter documentation.
  */
@@ -531,7 +526,6 @@ Infiniband::QueuePair::QueuePair(Infiniband& infiniband, ibv_qp_type type,
     qpia.srq = srq;                    // use the same shared receive queue
     qpia.cap.max_send_wr  = maxSendWr; // max outstanding send requests
     qpia.cap.max_recv_wr  = maxRecvWr; // max outstanding recv requests
-// TODO(ongaro): This can't work...
     qpia.cap.max_send_sge = 1;         // max send scatter-gather elements
     qpia.cap.max_recv_sge = 1;         // max recv scatter-gather elements
     qpia.cap.max_inline_data =         // max bytes of immediate data on send q
@@ -759,7 +753,7 @@ Infiniband::QueuePair::getRemoteQpNumber() const
 
     int r = ibv_query_qp(qp, &qpa, IBV_QP_DEST_QPN, &qpia);
     if (r) {
-        // TODO(Rumble): log?!?
+        // We should probably log something here.
         throw TransportException(HERE, r);
     }
 
@@ -783,7 +777,7 @@ Infiniband::QueuePair::getRemoteLid() const
 
     int r = ibv_query_qp(qp, &qpa, IBV_QP_AV, &qpia);
     if (r) {
-        // TODO(Rumble): log?!?
+        // We should probably log something here.
         throw TransportException(HERE, r);
     }
 
@@ -805,7 +799,7 @@ Infiniband::QueuePair::getState() const
 
     int r = ibv_query_qp(qp, &qpa, IBV_QP_STATE, &qpia);
     if (r) {
-        // TODO(Rumble): log?!?
+        // We should probably log something here.
         throw TransportException(HERE, r);
     }
     return qpa.qp_state;
@@ -826,7 +820,7 @@ Infiniband::QueuePair::isError() const
 
     int r = ibv_query_qp(qp, &qpa, -1, &qpia);
     if (r) {
-        // TODO(Rumble): log?!?
+        // We should probably log something here.
         throw TransportException(HERE, r);
     }
     return qpa.cur_qp_state == IBV_QPS_ERR;

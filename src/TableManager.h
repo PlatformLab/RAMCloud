@@ -78,14 +78,20 @@ class TableManager {
     void dropTable(const char* name);
     uint64_t getTableId(const char* name);
     Tablet getTablet(uint64_t tableId, uint64_t keyHash);
-    bool getIndexletInfoByIndexletTableId(uint64_t indexletTableId,
-            ProtoBuf::Indexlets::Indexlet& indexletInfo);
+    bool getIndexletInfoByBackingTableId(uint64_t backingTableId,
+            ProtoBuf::Indexlet& indexletInfo);
     void indexletRecovered(uint64_t tableId, uint8_t indexId,
             void* firstKey, uint16_t firstKeyLength,
             void* firstNotOwnedKey, uint16_t firstNotOwnedKeyLength,
-            ServerId serverId, uint64_t indexletTableId);
+            ServerId serverId, uint64_t backingTableId);
     bool isIndexletTable(uint64_t tableId);
     vector<Tablet> markAllTabletsRecovering(ServerId serverId);
+    void reassignIndexletOwnership(
+            ServerId newOwner, uint64_t tableId, uint8_t indexId,
+            uint64_t backingTableId,
+            const void* firstKey, uint16_t firstKeyLength,
+            const void* firstNotOwnedKey, uint16_t firstNotOwnedKeyLength,
+            uint64_t ctimeSegmentId, uint64_t ctimeSegmentOffset);
     void reassignTabletOwnership(ServerId newOwner, uint64_t tableId,
             uint64_t startKeyHash, uint64_t endKeyHash,
             uint64_t ctimeSegmentId, uint64_t ctimeSegmentOffset);
@@ -111,12 +117,12 @@ class TableManager {
         public:
         Indexlet(const void *firstKey, uint16_t firstKeyLength,
                 const void *firstNotOwnedKey, uint16_t firstNotOwnedKeyLength,
-                ServerId serverId, uint64_t indexletTableId,
+                ServerId serverId, uint64_t backingTableId,
                 uint64_t tableId, uint8_t indexId)
             : RAMCloud::Indexlet(firstKey, firstKeyLength, firstNotOwnedKey,
                        firstNotOwnedKeyLength)
             , serverId(serverId)
-            , indexletTableId(indexletTableId)
+            , backingTableId(backingTableId)
             , tableId(tableId)
             , indexId(indexId)
         {}
@@ -124,7 +130,7 @@ class TableManager {
         Indexlet(const Indexlet& indexlet)
             : RAMCloud::Indexlet(indexlet)
             , serverId(indexlet.serverId)
-            , indexletTableId(indexlet.indexletTableId)
+            , backingTableId(indexlet.backingTableId)
             , tableId(indexlet.tableId)
             , indexId(indexlet.indexId)
         {}
@@ -134,7 +140,7 @@ class TableManager {
 
         /// The id of the backing table for the indexlet that is stored
         /// on the server with id serverId.
-        uint64_t indexletTableId;
+        uint64_t backingTableId;
 
         /// The id of the owning table
         uint64_t tableId;
@@ -240,12 +246,16 @@ class TableManager {
             uint32_t serverSpan);
     void dropIndex(const Lock& lock, uint64_t tableId, uint8_t indexId);
     void dropTable(const Lock& lock, const char* name);
+    TableManager::Indexlet* findIndexlet(const Lock& lock, Index* index,
+            const void* firstKey, uint16_t firstKeyLength,
+            const void* firstNotOwnedKey, uint16_t firstNotOwnedKeyLength);
     Tablet* findTablet(const Lock& lock, Table* table, uint64_t keyHash);
     void notifyCreate(const Lock& lock, Table* table);
     void notifyCreateIndex(const Lock& lock, Index* index);
     void notifyDropTable(const Lock& lock, ProtoBuf::Table* info);
     void notifyDropIndex(const Lock& lock, Index* index);
     void notifySplitTablet(const Lock& lock, ProtoBuf::Table* info);
+    void notifyReassignIndexlet(const Lock& lock, ProtoBuf::Table* info);
     void notifyReassignTablet(const Lock& lock, ProtoBuf::Table* info);
     Table* recreateTable(const Lock& lock, ProtoBuf::Table* info);
     void serializeTable(const Lock& lock, Table* table,

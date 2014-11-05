@@ -775,7 +775,7 @@ TakeTabletOwnershipRpc::TakeTabletOwnershipRpc(
  *      Identifier for the table containing the indexlet.
  * \param indexId
  *      Identifier for the index for the given table.
- * \param indexletTableId
+ * \param backingTableId
  *      Id of the table that will hold objects for this indexlet.
  * \param firstKey
  *      Blob of the smallest key in the index key space for the index of table
@@ -790,12 +790,12 @@ TakeTabletOwnershipRpc::TakeTabletOwnershipRpc(
  */
 void
 MasterClient::takeIndexletOwnership(Context* context, ServerId serverId,
-        uint64_t tableId, uint8_t indexId, uint64_t indexletTableId,
+        uint64_t tableId, uint8_t indexId, uint64_t backingTableId,
         const void *firstKey, uint16_t firstKeyLength,
         const void *firstNotOwnedKey, uint16_t firstNotOwnedKeyLength)
 {
     TakeIndexletOwnershipRpc rpc(context, serverId, tableId, indexId,
-            indexletTableId, firstKey, firstKeyLength,
+            backingTableId, firstKey, firstKeyLength,
             firstNotOwnedKey, firstNotOwnedKeyLength);
     rpc.wait();
 }
@@ -813,7 +813,7 @@ MasterClient::takeIndexletOwnership(Context* context, ServerId serverId,
  *      Identifier for the table containing the tablet.
  * \param indexId
  *      Identifier for the index for the given table.
- * \param indexletTableId
+ * \param backingTableId
  *      Id of the table that will hold objects for this indexlet
  * \param firstKey
  *      Blob of the smallest key in the index key space for the index of table
@@ -828,7 +828,7 @@ MasterClient::takeIndexletOwnership(Context* context, ServerId serverId,
  */
 TakeIndexletOwnershipRpc::TakeIndexletOwnershipRpc(
         Context* context, ServerId serverId, uint64_t tableId,
-        uint8_t indexId, uint64_t indexletTableId,
+        uint8_t indexId, uint64_t backingTableId,
         const void *firstKey, uint16_t firstKeyLength,
         const void *firstNotOwnedKey, uint16_t firstNotOwnedKeyLength)
     : ServerIdRpcWrapper(context, serverId,
@@ -838,7 +838,7 @@ TakeIndexletOwnershipRpc::TakeIndexletOwnershipRpc(
             allocHeader<WireFormat::TakeIndexletOwnership>(serverId));
     reqHdr->tableId = tableId;
     reqHdr->indexId = indexId;
-    reqHdr->indexletTableId = indexletTableId;
+    reqHdr->backingTableId = backingTableId;
     reqHdr->firstKeyLength = firstKeyLength;
     reqHdr->firstNotOwnedKeyLength = firstNotOwnedKeyLength;
     request.appendExternal(firstKey, firstKeyLength);

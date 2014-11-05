@@ -14,19 +14,31 @@
  */
 
 package RAMCloud.ProtoBuf;
-import "Tablets.proto";
-import "Indexlet.proto";
 
-// Message used by coordinator and recoveryMaster during recovery.
-// At the beginning of a recovery, coordinator send a recoveryPartition
-// to each recoveryMaster. When recoveryMaster finishes its job, it fills
-// in some fields of recoveryPartition, and sends it back to coordinator.
-// Same message goes both directions during a recovery.
-message RecoveryPartition {
+// An indexlet (index partition).
 
-  /// The tablets.
-  repeated Tablets.Tablet tablet = 1;
+message Indexlet {
+  ///The id of the containing table
+  required uint64 table_id = 1;
 
-  /// The indexlets.
-  repeated Indexlet indexlet = 2;
+  ///The id of the index
+  required uint32 index_id = 2;
+
+  ///The id of the table that will hold objects for this indexlet.
+  required uint64 backing_table_id = 3;
+
+  ///The first (smallest) key that is part of this indexlet.
+  optional bytes first_key = 4;
+
+  ///The smallest key greater than all the keys managed by this indexlet.
+  optional bytes first_not_owned_key = 5;
+
+  /// The id of the master owning this indexlet.
+  optional fixed64 server_id = 6;
+
+  /// The service locator for the master owning this indexlet.
+  optional string service_locator = 7;
+
+  /// User data
+  optional fixed64 user_data = 8;
 }

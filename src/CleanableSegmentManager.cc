@@ -220,10 +220,7 @@ CleanableSegmentManager::update(Lock& guard)
 
     // Get new candidates from the SegmentManager and insert them into the
     // trees. Update our aggregate statistics as we go.
-    //
-    // TODO(Steve): It's probably cleaner for SegmentManager to instantiate this
-    // class and push new candidates in. That'd simplify SM a little bit by
-    // removing one of the segment states (NEWLY_CLEANABLE).
+
     LogSegmentVector newCandidates;
     segmentManager.cleanableSegments(newCandidates);
     foreach (LogSegment* segment, newCandidates) {
@@ -294,7 +291,7 @@ CleanableSegmentManager::scanSegmentTombstones(Lock& guard)
         ObjectTombstone tomb(buffer);
         if (!segmentManager.doesIdExist(tomb.getSegmentId())) {
             deadTombstones++;
-            // TODO(rumble): Magic constant indicates the likely full length
+            // Magic constant indicates the likely full length
             // in the log. Should add a static method to Segment that computes
             // this properly.
             deadTombstoneLengths += it.getLength() + 2;

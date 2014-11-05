@@ -131,8 +131,6 @@ Recovery::splitTablets(vector<Tablet> *tablets,
         // Currently we didn't support split operation for index tablets.
         // Therefore, if we found a tablet is an index tablet, we just skip
         // the following operations.
-        // TODO(zhihao): maybe in the future we should consider spliting
-        // large index tablets.
         if (tableManager->isIndexletTable(tablet->tableId))
             continue;
 
@@ -792,8 +790,8 @@ buildReplicaMap(Tub<BackupStartTask> tasks[],
                                       expectedLoadTimeMs};
                 replicasToSort.push_back(r);
             } else {
-                // TODO(stutsman): This logic shouldn't be needed if we've got
-                // the guts for it. Any replicas with higher ids will either
+                // Getting here is not necessarily a sign of a problem.
+                // Any replicas with higher ids will either
                 // be empty or only contain data written async which is ok
                 // to lose.
                 LOG(DEBUG, "Ignoring replica for segment id %lu from backup %s "
@@ -1047,9 +1045,9 @@ Recovery::startRecoveryMasters()
         if (task) {
             *task->dataToRecover.add_tablet() = tablet;
             if (tableManager->isIndexletTable(tablet.table_id())) {
-                ProtoBuf::Indexlets::Indexlet& entry =
+                ProtoBuf::Indexlet& entry =
                     *task->dataToRecover.add_indexlet();
-                tableManager->getIndexletInfoByIndexletTableId(
+                tableManager->getIndexletInfoByBackingTableId(
                                   tablet.table_id(), entry);
                 LOG(NOTICE, "Starting recovery %lu for crashed server %s with "
                     "index %d", recoveryId, crashedServerId.toString().c_str(),

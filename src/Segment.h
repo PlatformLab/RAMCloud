@@ -76,7 +76,7 @@ struct SegmentException : public Exception {
  */
 class Segment {
   public:
-    // TODO(Steve): This doesn't belong here, but rather in SegmentManager.
+    // This doesn't belong here, but rather in SegmentManager.
     enum : uint64_t { INVALID_SEGMENT_ID = -1UL };
 
 #ifdef VALGRIND
@@ -393,12 +393,22 @@ class Segment {
     uint32_t
     peek(uint32_t offset, const void** outAddress) const
     {
-        // TODO(rumble): This method will not work properly if we compile with
+        // Possible issue: This method will not work properly if we compile with
         // -fstrict-aliasing (the default in -O2 and higher). It can lead to
-        // especially surprising behaviour in getEntryHeader. The issue is that
+        // especially surprising behavior in getEntryHeader. The issue is that
         // we return a void* in outAddress and end up casting it to some other
-        // type. GCC's optimiser will happily speed up that invocation by
+        // type. GCC's optimizer will happily speed up that invocation by
         // leaving the pointer's original value alone.
+        // More details:
+        // Steve Rumble came across this when he ported the log to memcached and
+        // ended up using some different compiler flags (including
+        // -fstrict-aliasing). It turned out that Segment::getEntryHeader()
+        // would always try to deref NULL, because the compiler was making some
+        // assumption he didn't fully understand. It was basically optimizing
+        // away the entire call to peek ('header' couldn't possibly point to
+        // the same thing as the second argument to peek() according to strict
+        // aliasing, so it didn't return the address in that second out
+        // argument).
 
         if (expect_false(offset >= (segletSize * segletBlocks.size())))
             return 0;

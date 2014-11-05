@@ -24,12 +24,12 @@ namespace RAMCloud {
  * This class implements the client side framework for range queries on
  * secondary indexes.
  *
- * To use IndexLookup, a client creates a object of this class.
+ * To use IndexLookup, a client creates an object of this class.
  * After construction of IndexLookup, client can call getNext() function
  * to move to next available object. If getNext() returns false, it means
- * we reached the last object. In the case getNext() returns true, client
- * can use getKey/getKeyLength/getValue/getValueLength to get object
- * information about the new object.
+ * we reached the last object. If case getNext() returns true, client
+ * can use getKey/getKeyLength/getValue/getValueLength to get
+ * information about that object.
  */
 
 class IndexLookup {

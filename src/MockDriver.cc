@@ -84,9 +84,6 @@ MockDriver::sendPacket(const Address *addr,
     if (outputLog.length() != 0)
         outputLog.append(" | ");
 
-    // TODO(stutsman) Append target address as well once we settle on
-    // format of addresses in the system?
-
     if (headerToString && header) {
         outputLog += headerToString(header, headerLen);
         outputLog += " ";

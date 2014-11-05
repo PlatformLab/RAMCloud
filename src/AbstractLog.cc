@@ -363,10 +363,6 @@ AbstractLog::append(Lock& appendLock,
 
         bytesUsedBefore = head->getAppendedLength();
         if (!head->append(type, buffer, length, &reference)) {
-            // TODO(Steve): We should probably just permit up to 1/N'th of the
-            // size of a segment in any single append. Say, 1/2th or 1/4th as
-            // a ceiling. Then we could ensure that after opening a new head
-            // we have at least as much space, or else throw a fatal error.
             LOG(ERROR, "Entry too big to append to log: %u bytes of type %d",
                 length, static_cast<int>(type));
             throw FatalError(HERE, "Entry too big to append to log");
@@ -451,10 +447,6 @@ AbstractLog::append(Lock& appendLock,
 
         bytesUsedBefore = head->getAppendedLength();
         if (!head->append(buffer, &entryDataLength, &type, &reference)) {
-            // TODO(Steve): We should probably just permit up to 1/N'th of the
-            // size of a segment in any single append. Say, 1/2th or 1/4th as
-            // a ceiling. Then we could ensure that after opening a new head
-            // we have at least as much space, or else throw a fatal error.
             LOG(ERROR, "Entry too big to append to log: %u bytes of type %d",
                 entryDataLength, static_cast<int>(type));
             throw FatalError(HERE, "Entry too big to append to log");

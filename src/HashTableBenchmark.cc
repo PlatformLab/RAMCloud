@@ -164,7 +164,8 @@ hashTableBenchmark(uint64_t nkeys, uint64_t nlines)
         histogram[depth]++;
     }
 
-    // TODO(ongaro) Dump raw data instead for standard tools or scripts to use.
+    // If we want to use this with standard tools or scripts,
+    // then we should dump raw data instead.
 
     printf("chaining histogram:\n");
     for (i = 0; i < nlines; i++) {

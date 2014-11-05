@@ -490,16 +490,6 @@ ReplicatedSegment::swapSegment(const Segment* newSegment)
     foreach (auto& replica, replicas)
         replica.committed = replica.acked = replica.sent = queued;
 
-    // TODO(stutsman): Does openingWriteCertificate need to be updated?
-    //                 Will, for example, replicateAtomically ever affect this?
-    //
-    //                 Should anything be done about openLen?
-    //
-    //                 Also, why do we send openLen bytes in the open RPC when
-    //                 rereplicating closed segments in performWrite? If no
-    //                 certificate is sent, shouldn't it not matter? Why not
-    //                 send maxBytesPerWriteRpc?
-
     return oldSegment;
 }
 
@@ -752,11 +742,7 @@ ReplicatedSegment::performWrite(Replica& replica)
                 LOG(WARNING, "Couldn't write to backup %s; server is down",
                     replica.backupId.toString().c_str());
             } catch (const BackupOpenRejectedException& e) {
-                // TODO(Stutsman): This message occurs far too frequently to
-                // print when backups are being heavily loaded. Perhaps we want
-                // to differentiate the loaded and existing replica cases, as
-                // the former might be rarer and of greater interest.
-                LOG(DEBUG,
+                RAMCLOUD_CLOG(NOTICE,
                     "Couldn't open replica on backup %s; server may be "
                     "overloaded or may already have a replica for this segment "
                     "which was found on disk after a crash; will choose "

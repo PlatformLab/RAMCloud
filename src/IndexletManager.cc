@@ -38,7 +38,7 @@ IndexletManager::IndexletManager(Context* context, ObjectManager* objectManager)
  *      Id for a particular table.
  * \param indexId
  *      Id for a particular secondary index associated with tableId.
- * \param indexletTableId
+ * \param backingTableId
  *      Id of the backing table that will hold objects for this indexlet.
  * \param firstKey
  *      Key blob marking the start of the indexed key range for this indexlet.
@@ -61,7 +61,7 @@ IndexletManager::IndexletManager(Context* context, ObjectManager* objectManager)
  */
 void
 IndexletManager::addIndexlet(
-        uint64_t tableId, uint8_t indexId, uint64_t indexletTableId,
+        uint64_t tableId, uint8_t indexId, uint64_t backingTableId,
         const void *firstKey, uint16_t firstKeyLength,
         const void *firstNotOwnedKey, uint16_t firstNotOwnedKeyLength,
         uint64_t highestUsedId)
@@ -81,9 +81,9 @@ IndexletManager::addIndexlet(
         // Add a new indexlet.
         Btree *bt;
         if (highestUsedId == 0)
-            bt = new Btree(indexletTableId, objectManager);
+            bt = new Btree(backingTableId, objectManager);
         else
-            bt = new Btree(indexletTableId, objectManager, highestUsedId);
+            bt = new Btree(backingTableId, objectManager, highestUsedId);
 
         indexletMap.insert(std::make_pair(TableAndIndexId{tableId, indexId},
                 Indexlet(firstKey, firstKeyLength, firstNotOwnedKey,
@@ -201,12 +201,6 @@ IndexletManager::getIndexlet(uint64_t tableId, uint8_t indexId,
         const void *firstNotOwnedKey, uint16_t firstNotOwnedKeyLength,
         Lock& indexletMapLock)
 {
-    // TODO(ashgup): This function seems somewhat inefficient because
-    // lookupIndexlet() does comparisons on first and firstNotOwned keys
-    // and then we do it again here. Instead you can iterate over all the
-    // indexlets and do the comparison directly here instead of calling into
-    // lookupIndexlet().
-
     IndexletMap::iterator it = lookupIndexlet(tableId, indexId,
             firstKey, firstKeyLength, indexletMapLock);
     if (it == indexletMap.end())
@@ -379,8 +373,6 @@ IndexletManager::lookupIndexKeys(
     indexletMapLock.unlock();
 
     // If there are no values in this indexlet's tree, return right away.
-    // TODO(zhihao): consider remove the following check since recovered BTree
-    // cannot pass the following check by only setting nextNodeId in BTree.
     if (indexlet->bt->empty()) {
         //return STATUS_OK;
     }

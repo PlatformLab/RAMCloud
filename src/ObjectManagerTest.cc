@@ -210,7 +210,6 @@ class ObjectManagerTest : public ::testing::Test {
 
     /**
      * Verify that the safe version number was correctly recovered.
-     * TODO(Satoshi): Documentation.
      */
     int
     verifyCopiedSafeVer(const ObjectSafeVersion *safeVerSrc)

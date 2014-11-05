@@ -155,7 +155,7 @@ ReplicaManager::isReplicaNeeded(ServerId backupServerId, uint64_t segmentId)
     // replaced by backupServerId it is safe to indicate the replica
     // is no longer needed if the segment seems to be fully replicated.
 
-    // TODO(stutsman): Slow, probably want to add an incrementally
+    // This is slow; we probably want to add an incrementally
     // maintained index to ReplicaManager.
     foreach (auto& segment, replicatedSegmentList) {
         if (segmentId == segment.segmentId)

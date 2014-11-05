@@ -15,6 +15,7 @@
 
 #include "CoordinatorServerList.h"
 #include "CoordinatorService.h"
+#include "IndexKey.h"
 #include "Logger.h"
 #include "MasterClient.h"
 #include "ShortMacros.h"
@@ -139,10 +140,10 @@ TableManager::createIndex(uint64_t tableId, uint8_t indexId, uint8_t indexType,
             indexTableName.append(
                 format("__indexTable:%lu:%d:%d", tableId, indexId, i));
             // Create the backing table for indexlet.
-            uint64_t indexletTableId =
+            uint64_t backingTableId =
                     createTable(lock, indexTableName.c_str(), 1);
 
-            IdMap::iterator itd = idMap.find(indexletTableId);
+            IdMap::iterator itd = idMap.find(backingTableId);
             assert(itd != idMap.end());
 
             // Use the indexTable serverId to assign the indexlet.
@@ -161,7 +162,7 @@ TableManager::createIndex(uint64_t tableId, uint8_t indexId, uint8_t indexType,
                 indexlet = new Indexlet(
                             reinterpret_cast<void *>(&firstKey),
                             1, reinterpret_cast<void *>(&firstNotOwnedKey),
-                            1, tabletMaster, indexletTableId,
+                            1, tabletMaster, backingTableId,
                             tableId, indexId);
             } else {
                 // This case exists only for performance and unit testing, and
@@ -171,14 +172,14 @@ TableManager::createIndex(uint64_t tableId, uint8_t indexId, uint8_t indexType,
                 indexlet = new Indexlet(
                             reinterpret_cast<void *>(&firstKey),
                             1, reinterpret_cast<void *>(&firstNotOwnedKey),
-                            1, tabletMaster, indexletTableId,
+                            1, tabletMaster, backingTableId,
                             tableId, indexId);
             }
             index->indexlets.push_back(indexlet);
 
             // Now we add tableIndexId<->indexlet into indexletTableMap.
             indexletTableMap.insert(
-                std::make_pair(indexletTableId, indexlet));
+                std::make_pair(backingTableId, indexlet));
         }
     } catch (...) {
         delete index;
@@ -342,9 +343,9 @@ TableManager::getTablet(uint64_t tableId, uint64_t keyHash)
 
 /**
  * Return information about a indexlet (e.g., its key, tableId, indexId,
- * ServerId, and indexletTableId), when given a indexletTableId
+ * ServerId, and backingTableId), when given a backingTableId
  *
- * \param indexletTableId
+ * \param backingTableId
  *      Identifier of the table
  * \param indexlet
  *      Indexlet information structure to populate
@@ -353,11 +354,11 @@ TableManager::getTablet(uint64_t tableId, uint64_t keyHash)
  *      Otherwise, return false.
  */
 bool
-TableManager::getIndexletInfoByIndexletTableId(uint64_t indexletTableId,
-        ProtoBuf::Indexlets::Indexlet& indexlet)
+TableManager::getIndexletInfoByBackingTableId(uint64_t backingTableId,
+        ProtoBuf::Indexlet& indexlet)
 {
     Lock lock(mutex);
-    IndexletTableMap::iterator it = indexletTableMap.find(indexletTableId);
+    IndexletTableMap::iterator it = indexletTableMap.find(backingTableId);
     if (it == indexletTableMap.end())
         return false;
 
@@ -376,7 +377,7 @@ TableManager::getIndexletInfoByIndexletTableId(uint64_t indexletTableId,
         indexlet.set_first_not_owned_key("");
     indexlet.set_table_id(it->second->tableId);
     indexlet.set_index_id(it->second->indexId);
-    indexlet.set_indexlet_table_id(it->second->indexletTableId);
+    indexlet.set_backing_table_id(it->second->backingTableId);
     indexlet.set_server_id(it->second->serverId.getId());
     return true;
 }
@@ -401,7 +402,7 @@ TableManager::getIndexletInfoByIndexletTableId(uint64_t indexletTableId,
  *      Length of firstNotOwnedKey.
  * \param serverId
  *      Indexlet is updated to indicate that it is owned by \a serverId.
- * \param indexletTableId
+ * \param backingTableId
  *      Id of table which store B+tree of this indexlet.
  */
 void
@@ -409,7 +410,7 @@ TableManager::indexletRecovered(
         uint64_t tableId, uint8_t indexId, void* firstKey,
         uint16_t firstKeyLength, void* firstNotOwnedKey,
         uint16_t firstNotOwnedKeyLength, ServerId serverId,
-        uint64_t indexletTableId)
+        uint64_t backingTableId)
 {
     Lock lock(mutex);
 
@@ -432,7 +433,7 @@ TableManager::indexletRecovered(
                    firstNotOwnedKeyLength) == 0))
         {
             indexlet->serverId = serverId;
-            indexlet->indexletTableId = indexletTableId;
+            indexlet->backingTableId = backingTableId;
             foundIndexlet = 1;
             LOG(NOTICE, "found indexlet and changed its server id to %s",
                 serverId.toString().c_str());
@@ -441,8 +442,6 @@ TableManager::indexletRecovered(
     if (!foundIndexlet) {
         LOG(NOTICE, "not found indexlet, which is an error");
     }
-    // TODO(zhihao): Currently, we didn't record this update in external
-    // storage. Will implement this in the future.
 }
 
 /**
@@ -487,6 +486,150 @@ TableManager::markAllTabletsRecovering(ServerId serverId)
         }
     }
     return results;
+}
+
+/**
+ * Switch ownership of an indexlet from one master to another and alert the new
+ * master that it should begin servicing requests on that indexlet. This method
+ * does not actually transfer the contents of the indexlet; the caller should
+ * already have taken care of that. This method is used to complete the
+ * migration of an indexlet from one server to another.
+ * This involved reassigning the ownership of the indexlet as well as
+ * of the backing table.
+ *
+ * \param newOwner
+ *      ServerId of the server that will own this indexlet at the end of
+ *      the operation.
+ * \param tableId
+ *      Id for a particular table.
+ * \param indexId
+ *      Id for a particular secondary index associated with tableId.
+ * \param backingTableId
+ *      Id of the backing table that will hold objects for this indexlet.
+ * \param firstKey
+ *      Key blob marking the start of the indexed key range for this indexlet.
+ * \param firstKeyLength
+ *      Number of bytes in firstKey.
+ * \param firstNotOwnedKey
+ *      Blob of the smallest key in the given index that is after firstKey
+ *      in the index order but not part of this indexlet.
+ * \param firstNotOwnedKeyLength
+ *      Length of firstNotOwnedKey.
+ * \param ctimeSegmentId
+ *      ServerId of the log head before migration.
+ * \param ctimeSegmentOffset
+ *      Offset in log head before migration.
+ *
+ * \throw InternalError
+ *      If the backing table corresponding to the indexlet being reassigned
+ *      does not have exactly one tablet (that spans the entire key hash range).
+ * \throw NoSuchTablet
+ *      If the arguments do not identify a backing tablet currently in
+ *      the tablet map.
+ * \throw NoSuchIndexlet
+ *      If the arguments do not identify an indexlet currently in the indexlet
+ *      map corresponding to the table.
+ */
+void
+TableManager::reassignIndexletOwnership(
+        ServerId newOwner, uint64_t tableId, uint8_t indexId,
+        uint64_t backingTableId,
+        const void* firstKey, uint16_t firstKeyLength,
+        const void* firstNotOwnedKey, uint16_t firstNotOwnedKeyLength,
+        uint64_t ctimeSegmentId, uint64_t ctimeSegmentOffset)
+{
+    Lock lock(mutex);
+
+    ///////////////////////////////////////////////////////////////////////////
+    // Get the indexlet to be reassigned.
+    ///////////////////////////////////////////////////////////////////////////
+    IdMap::iterator tableIter = idMap.find(tableId);
+    if (tableIter == idMap.end())
+        throw NoSuchTable(HERE);
+    Table* table = tableIter->second;
+
+    IndexMap::iterator indexIter = table->indexMap.find(indexId);
+    // TODO(ankitak): This probably means that the index was deleted
+    // after the reassignment was started. Should we throw exception or ignore?
+    // Need to do clean up on old and new server if something was deleted.
+    if (indexIter == table->indexMap.end())
+        throw NoSuchIndexlet(HERE);
+
+    Indexlet* indexlet = findIndexlet(lock, indexIter->second,
+            firstKey, firstKeyLength,
+            firstNotOwnedKey, firstNotOwnedKeyLength);
+
+    // TODO(ankitak): This means that the indexlet we're trying to reassign
+    // doesn't exist anymore. Should we throw exception or ignore?
+    if (indexlet == NULL)
+        throw NoSuchIndexlet(HERE);
+
+    ///////////////////////////////////////////////////////////////////////////
+    // Get tablet corresponding to the backing table for the
+    // indexlet to be reassigned. (This table should have only one tablet.)
+    ///////////////////////////////////////////////////////////////////////////
+    IdMap::iterator backingTableIter = idMap.find(backingTableId);
+    if (backingTableIter == idMap.end())
+        throw NoSuchTable(HERE);
+    Table* backingTable = backingTableIter->second;
+
+    uint64_t startKeyHash = 0;
+    uint64_t endKeyHash = ~0UL;
+    Tablet* tablet = findTablet(lock, backingTable, startKeyHash);
+    if ((tablet->startKeyHash != startKeyHash)
+            || (tablet->endKeyHash != endKeyHash))
+        throw InternalError(HERE, STATUS_INTERNAL_ERROR);
+
+    ///////////////////////////////////////////////////////////////////////////
+    // Modify local info indexlet and backing tablet to do the reassignment.
+    ///////////////////////////////////////////////////////////////////////////
+    LOG(NOTICE, "Reassigning an indexlet in index id %u for table id %lu "
+        "from %s to %s",
+        indexId, tableId,
+        context->coordinatorServerList->toString(indexlet->serverId).c_str(),
+        context->coordinatorServerList->toString(newOwner).c_str());
+
+    indexlet->serverId = newOwner;
+
+    LOG(NOTICE, "Reassigning tablet [0x%lx,0x%lx] in tableId %lu "
+        "which is the backing table for an indexlet in "
+        "index id %u for table id %lu from %s to %s",
+        startKeyHash, endKeyHash, backingTableId, indexId, tableId,
+        context->coordinatorServerList->toString(tablet->serverId).c_str(),
+        context->coordinatorServerList->toString(newOwner).c_str());
+
+    // Get current head of log to preclude all previous data in the log
+    // from being considered part of this tablet.
+    Log::Position headOfLogAtCreation(ctimeSegmentId,
+                                      ctimeSegmentOffset);
+    tablet->ctime = headOfLogAtCreation;
+    tablet->serverId = newOwner;
+    tablet->status = Tablet::NORMAL;
+
+    ///////////////////////////////////////////////////////////////////////////
+    // Record information about the new indexlet assignment in external storage,
+    // in case we crash.
+    ///////////////////////////////////////////////////////////////////////////
+    ProtoBuf::Table externalInfo;
+    serializeTable(lock, table, &externalInfo);
+    externalInfo.set_sequence_number(updateManager->nextSequenceNumber());
+
+    ProtoBuf::Table::ReassignIndexlet* reassignIndexlet =
+            externalInfo.mutable_reassign_indexlet();
+    reassignIndexlet->set_server_id(newOwner.getId());
+    reassignIndexlet->set_index_id(indexId);
+    reassignIndexlet->set_first_key(
+            string(reinterpret_cast<const char*>(firstKey), firstKeyLength));
+    reassignIndexlet->set_first_not_owned_key(
+            string(reinterpret_cast<const char*>(firstNotOwnedKey),
+            firstNotOwnedKeyLength));
+    reassignIndexlet->set_backing_table_id(backingTableId);
+
+    syncTable(lock, table, &externalInfo);
+
+    // Finish up by notifying the relevant master.
+    notifyReassignIndexlet(lock, &externalInfo);
+    updateManager->updateFinished(externalInfo.sequence_number());
 }
 
 /**
@@ -987,7 +1130,7 @@ TableManager::dropIndex(const Lock& lock, uint64_t tableId, uint8_t indexId)
 
     Index* index = table->indexMap[indexId];
     foreach (Indexlet* indexlet, index->indexlets) {
-        indexletTableMap.erase(indexlet->indexletTableId);
+        indexletTableMap.erase(indexlet->backingTableId);
     }
 
     uint8_t numIndexlets = (uint8_t)index->indexlets.size();
@@ -1061,6 +1204,46 @@ TableManager::dropTable(const Lock& lock, const char* name)
     delete table;
     notifyDropTable(lock, &externalInfo);
     updateManager->updateFinished(externalInfo.sequence_number());
+}
+
+/**
+ * Find the tablet containing a particular key hash.
+ *
+ * \param lock
+ *      Ensures that the caller holds the monitor lock; not actually used.
+ * \param index
+ *      Index in which to search for indexlet.
+ * \param firstKey
+ *      Key blob marking the start of the indexed key range for this indexlet.
+ * \param firstKeyLength
+ *      Length of firstKeyStr.
+ * \param firstNotOwnedKey
+ *      Blob of the smallest key in the given index that is after firstKey
+ *      in the index order but not part of this indexlet.
+ * \param firstNotOwnedKeyLength
+ *      Length of firstNotOwnedKey.
+ *
+ * \return
+ *      A pointer to the desired indexlet.
+ */
+TableManager::Indexlet*
+TableManager::findIndexlet(const Lock& lock, Index* index,
+        const void* firstKey, uint16_t firstKeyLength,
+        const void* firstNotOwnedKey, uint16_t firstNotOwnedKeyLength)
+{
+    foreach (Indexlet* indexlet, index->indexlets) {
+        if ((IndexKey::keyCompare(firstKey, firstKeyLength,
+                indexlet->firstKey, indexlet->firstKeyLength) == 0) &&
+            (IndexKey::keyCompare(firstNotOwnedKey, firstNotOwnedKeyLength,
+                indexlet->firstNotOwnedKey,
+                indexlet->firstNotOwnedKeyLength) == 0)) {
+            return indexlet;
+        }
+    }
+
+    RAMCLOUD_LOG(NOTICE, "Couldn't find specified indexlet in "
+            "table id %lu, index id %u", index->tableId, index->indexId);
+    return NULL;
 }
 
 /**
@@ -1144,7 +1327,7 @@ TableManager::notifyCreateIndex(const Lock& lock, Index* index)
                         "to master %s", index->tableId, index->indexId,
                         indexlet->serverId.toString().c_str());
             MasterClient::takeIndexletOwnership(context, indexlet->serverId,
-                index->tableId, index->indexId, indexlet->indexletTableId,
+                index->tableId, index->indexId, indexlet->backingTableId,
                 indexlet->firstKey, indexlet->firstKeyLength,
                 indexlet->firstNotOwnedKey, indexlet->firstNotOwnedKeyLength);
         } catch (ServerNotUpException& e) {
@@ -1243,6 +1426,54 @@ TableManager::notifyDropIndex(const Lock& lock, Index* index)
                     indexlet->serverId.toString().c_str(), index->tableId,
                     index->indexId);
         }
+    }
+}
+
+/**
+ * This method is invoked as part of reassigning an indexlet: it sends an RPC
+ * to the new master to start serving requests for the indexlet (and also
+ * reassigns the backing tablet).
+ * This method is intended to be used both during normal indexlet reassignment,
+ * and during coordinator crash recovery.
+ * Note: Index related functions are not coordinator crash safe yet,
+ * hence this function isn't used during coordinator crash recovery, yet.
+ *
+ * \param lock
+ *      Ensures that the caller holds the monitor lock; not actually used.
+ * \param info
+ *      Contains information about all of the tablets in the table. Must
+ *      contain a "reassign" element.
+ */
+void
+TableManager::notifyReassignIndexlet(const Lock& lock, ProtoBuf::Table* info)
+{
+    const ProtoBuf::Table::ReassignIndexlet& reassignIndexlet =
+        info->reassign_indexlet();
+    ServerId serverId(reassignIndexlet.server_id());
+    try {
+        LOG(NOTICE, "Reassigning an indexlet of index id %u for table id %lu "
+                "having backing table id %lu to master %s",
+                reassignIndexlet.index_id(), info->id(),
+                reassignIndexlet.backing_table_id(),
+                serverId.toString().c_str());
+        MasterClient::takeTabletOwnership(context, serverId,
+                reassignIndexlet.backing_table_id(), 0U, ~0UL);
+        MasterClient::takeIndexletOwnership(context, serverId,
+                info->id(), (uint8_t)reassignIndexlet.index_id(),
+                reassignIndexlet.backing_table_id(),
+                reassignIndexlet.first_key().c_str(),
+                (uint16_t)reassignIndexlet.first_key().length(),
+                reassignIndexlet.first_not_owned_key().c_str(),
+                (uint16_t)reassignIndexlet.first_not_owned_key().length());
+    } catch (ServerNotUpException& e) {
+        // The master has apparently crashed. This should be benign (we will
+        // eventually recover the tablet as part of recovering the master),
+        // but log a message anyway.
+        LOG(NOTICE, "takeIndexletOwnership failed during indexlet reassignment "
+                "for master %s (indexlet of index id %u for table id %lu) "
+                "because server isn't running",
+                serverId.toString().c_str(),
+                reassignIndexlet.index_id(), info->id());
     }
 }
 

@@ -16,7 +16,6 @@
 /**
  * \file
  * A header file that is included everywhere.
- * TODO(ongaro): A lot of this stuff should probably move elsewhere.
  */
 
 #ifndef RAMCLOUD_COMMON_H

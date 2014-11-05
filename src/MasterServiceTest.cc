@@ -799,7 +799,7 @@ TEST_F(MasterServiceTest, migrateTablet_movingData) {
     Log::Position master2HeadPositionBefore = Log::Position(
             master2Log->head->id, master2Log->head->getAppendedLength());
 
-    // TODO(syang0) RAM-441 without the syncCoordinatorServerList() call  in
+    // JIRA Issue: RAM-441: Without the syncCoordinatorServerList() call in
     // cluster.addServer(..) above, this crashes since the CoordinatorServerList
     // update is asynchronous and the client calls a migrate before the CSL has
     // been propagated. The recipient servers basically don't know about each
@@ -1499,6 +1499,94 @@ TEST_F(MasterServiceTest, remove_objectAlreadyDeleted) {
     EXPECT_EQ(VERSION_NONEXISTENT, version);
 }
 
+TEST_F(MasterServiceTest, requestInsertIndexEntries_noIndexEntries) {
+    TestLog::Enable _;
+    uint64_t tableId = 1;
+    Key key(tableId, "key0", 4);
+    Buffer objBuffer;
+    Object obj(key, "value", 5, 1, 0, objBuffer);
+    service->requestInsertIndexEntries(obj);
+    EXPECT_EQ("", TestLog::get());
+}
+
+TEST_F(MasterServiceTest, requestInsertIndexEntries_basics) {
+    TestLog::Enable _;
+
+    uint64_t tableId = 1;
+    uint8_t numKeys = 3;
+
+    KeyInfo keyList[3];
+    keyList[0].keyLength = 4;
+    keyList[0].key = "key0";
+    keyList[1].keyLength = 4;
+    keyList[1].key = "key1";
+    keyList[2].keyLength = 4;
+    keyList[2].key = "key2";
+
+    Buffer keysAndValBuffer;
+    Object::appendKeysAndValueToBuffer(tableId, numKeys, keyList,
+                                       "value", 5, &keysAndValBuffer);
+    Object obj(tableId, 1, 0, keysAndValBuffer);
+    Key key(tableId, keyList[0].key, keyList[0].keyLength);
+
+    service->requestInsertIndexEntries(obj);
+    EXPECT_EQ(format("requestInsertIndexEntries: "
+            "Inserting index entry for tableId 1, keyIndex 1, "
+            "key key1, primaryKeyHash %lu | "
+            "requestInsertIndexEntries: "
+            "Inserting index entry for tableId 1, keyIndex 2, "
+            "key key2, primaryKeyHash %lu" ,
+            key.getHash(), key.getHash()),
+            TestLog::get());
+}
+
+TEST_F(MasterServiceTest, requestRemoveIndexEntries_noIndexEntries) {
+    TestLog::Enable _;
+
+    uint64_t tableId = 1;
+    Key key(tableId, "key0", 4);
+    Buffer tempBuffer;
+    Object obj(key, "value", 5, 0, 0, tempBuffer);
+    Buffer objBuffer;
+    obj.assembleForLog(objBuffer);
+
+    service->requestRemoveIndexEntries(objBuffer);
+    EXPECT_EQ("", TestLog::get());
+}
+
+TEST_F(MasterServiceTest, requestRemoveIndexEntries_basics) {
+    TestLog::Enable _;
+
+    uint64_t tableId = 1;
+    uint8_t numKeys = 3;
+
+    KeyInfo keyList[3];
+    keyList[0].keyLength = 4;
+    keyList[0].key = "key0";
+    keyList[1].keyLength = 4;
+    keyList[1].key = "key1";
+    keyList[2].keyLength = 4;
+    keyList[2].key = "key2";
+
+    Buffer keysAndValBuffer;
+    Object::appendKeysAndValueToBuffer(tableId, numKeys, keyList,
+            "value", 5, &keysAndValBuffer);
+    Object obj(tableId, 0, 0, keysAndValBuffer);
+    Buffer objBuffer;
+    obj.assembleForLog(objBuffer);
+    Key key(tableId, keyList[0].key, keyList[0].keyLength);
+    service->requestRemoveIndexEntries(objBuffer);
+
+    EXPECT_EQ(format("requestRemoveIndexEntries: "
+            "Removing index entry for tableId 1, keyIndex 1, "
+            "key key1, primaryKeyHash %lu | "
+            "requestRemoveIndexEntries: "
+            "Removing index entry for tableId 1, keyIndex 2, "
+            "key key2, primaryKeyHash %lu" ,
+            key.getHash(), key.getHash()),
+            TestLog::get());
+}
+
 TEST_F(MasterServiceTest, splitMasterTablet) {
 
     MasterClient::splitMasterTablet(&context, masterServer->serverId, 1,
@@ -1708,94 +1796,6 @@ TEST_F(MasterServiceTest, write_rejectRules) {
     EXPECT_EQ(VERSION_NONEXISTENT, version);
 }
 
-TEST_F(MasterServiceTest, requestInsertIndexEntries_noIndexEntries) {
-    TestLog::Enable _;
-    uint64_t tableId = 1;
-    Key key(tableId, "key0", 4);
-    Buffer objBuffer;
-    Object obj(key, "value", 5, 1, 0, objBuffer);
-    service->requestInsertIndexEntries(obj);
-    EXPECT_EQ("", TestLog::get());
-}
-
-TEST_F(MasterServiceTest, requestInsertIndexEntries_basics) {
-    TestLog::Enable _;
-
-    uint64_t tableId = 1;
-    uint8_t numKeys = 3;
-
-    KeyInfo keyList[3];
-    keyList[0].keyLength = 4;
-    keyList[0].key = "key0";
-    keyList[1].keyLength = 4;
-    keyList[1].key = "key1";
-    keyList[2].keyLength = 4;
-    keyList[2].key = "key2";
-
-    Buffer keysAndValBuffer;
-    Object::appendKeysAndValueToBuffer(tableId, numKeys, keyList,
-                                       "value", 5, &keysAndValBuffer);
-    Object obj(tableId, 1, 0, keysAndValBuffer);
-    Key key(tableId, keyList[0].key, keyList[0].keyLength);
-
-    service->requestInsertIndexEntries(obj);
-    EXPECT_EQ(format("requestInsertIndexEntries: "
-            "Inserting index entry for tableId 1, keyIndex 1, "
-            "key key1, primaryKeyHash %lu | "
-            "requestInsertIndexEntries: "
-            "Inserting index entry for tableId 1, keyIndex 2, "
-            "key key2, primaryKeyHash %lu" ,
-            key.getHash(), key.getHash()),
-            TestLog::get());
-}
-
-TEST_F(MasterServiceTest, requestRemoveIndexEntries_noIndexEntries) {
-    TestLog::Enable _;
-
-    uint64_t tableId = 1;
-    Key key(tableId, "key0", 4);
-    Buffer tempBuffer;
-    Object obj(key, "value", 5, 0, 0, tempBuffer);
-    Buffer objBuffer;
-    obj.assembleForLog(objBuffer);
-
-    service->requestRemoveIndexEntries(objBuffer);
-    EXPECT_EQ("", TestLog::get());
-}
-
-TEST_F(MasterServiceTest, requestRemoveIndexEntries_basics) {
-    TestLog::Enable _;
-
-    uint64_t tableId = 1;
-    uint8_t numKeys = 3;
-
-    KeyInfo keyList[3];
-    keyList[0].keyLength = 4;
-    keyList[0].key = "key0";
-    keyList[1].keyLength = 4;
-    keyList[1].key = "key1";
-    keyList[2].keyLength = 4;
-    keyList[2].key = "key2";
-
-    Buffer keysAndValBuffer;
-    Object::appendKeysAndValueToBuffer(tableId, numKeys, keyList,
-            "value", 5, &keysAndValBuffer);
-    Object obj(tableId, 0, 0, keysAndValBuffer);
-    Buffer objBuffer;
-    obj.assembleForLog(objBuffer);
-    Key key(tableId, keyList[0].key, keyList[0].keyLength);
-    service->requestRemoveIndexEntries(objBuffer);
-
-    EXPECT_EQ(format("requestRemoveIndexEntries: "
-            "Removing index entry for tableId 1, keyIndex 1, "
-            "key key1, primaryKeyHash %lu | "
-            "requestRemoveIndexEntries: "
-            "Removing index entry for tableId 1, keyIndex 2, "
-            "key key2, primaryKeyHash %lu" ,
-            key.getHash(), key.getHash()),
-            TestLog::get());
-}
-
 /**
  * Generate a random string.
  *
@@ -1989,10 +1989,10 @@ TEST_F(MasterServiceTest, recover_basic_indexlet) {
 
     ProtoBuf::RecoveryPartition recoveryPartition;
     createRecoveryPartition(recoveryPartition);
-    ProtoBuf::Indexlets::Indexlet& entry = *recoveryPartition.add_indexlet();
+    ProtoBuf::Indexlet& entry = *recoveryPartition.add_indexlet();
     entry.set_table_id(123);
     entry.set_index_id(4);
-    entry.set_indexlet_table_id(0);
+    entry.set_backing_table_id(0);
     string key0 = "a", key1 = "z";
     entry.set_first_key(key0);
     entry.set_first_not_owned_key(key1);

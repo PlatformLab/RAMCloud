@@ -55,7 +55,7 @@ try
         Transport::ServerRpc* rpc = context.serviceManager->waitForRpc(1);
         if (rpc == NULL)
             continue;
-        // TODO(ongaro): This is unsafe if the Transport discards the
+        // This is unsafe if the Transport discards the
         // received buffer before it is done with the response buffer.
         // I can't think of any real RPCs where this will come up.
         rpc->replyPayload.appendExternal(&rpc->requestPayload);

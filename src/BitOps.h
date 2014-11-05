@@ -65,8 +65,6 @@ class BitOps {
     static int
     countBitsSet(T n)
     {
-        // TODO(anyone): If you want to speed this up, test cpuid for popcnt and
-        // call the faster x86 method.
         return countBitsSet_portable(n);
     }
 
