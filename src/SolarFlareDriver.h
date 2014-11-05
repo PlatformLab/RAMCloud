@@ -41,10 +41,6 @@ namespace RAMCloud {
  * This driver does not provide any reliability guarantees and is intended to be
  * used with higher level transport code (eg. FastTransport).
  * See `Driver' class for more details.
- *
- * Note: This is ZeroCopy version of SolarFlareDriver that requires IO-MMU and
- * SR-IOV enable on your machines and SolarFlare NIC. Refer to Scalable Pakcet
- * Mode in Onload Userguide.
  */
 
 class SolarFlareDriver : public Driver {
@@ -62,39 +58,27 @@ class SolarFlareDriver : public Driver {
                             Buffer::Iterator *payload);
     virtual string getServiceLocator();
     virtual Driver::Address* newAddress(const ServiceLocator& serviceLocator);
-    virtual void registerMemory(void* base, size_t bytes);
-
-    /**
-     * A helper function for finding the maximum possible size (in bytes) of RPC
-     * objects that can be shipped in one single request to a server.
-     * 
-     * \return
-     *      size of the largest possible RPC defined in RAMCloud.
-     */
-    uint32_t getMaxRpcLen() {
-        return Transport::MAX_RPC_LEN;
-    }
 
     /// Defines the total number of buffers that the driver is allowed to pack
-    /// in TX ring. Maximum value for this constant is 4096. Larger values
-    /// increases the latency for small objects.
-    static const uint32_t TX_RING_CAP = 2048;
+    /// in TX ring. Large values increases the latency for small objects.
+    /// Maximum value for this constant is 4096.
+    static const uint32_t TX_RING_CAP = 4096;
 
     /// The size, in bytes, of the packet buffer for both RX and TX ring.
     /// As per SolarFlare recommendation, this should be equal to 2048.
     static const uint32_t ADAPTER_BUFFER_SIZE = 2048;
 
     /// Defines the total number of buffers that the driver is allowed to pack
-    /// into RX ring. Maximum value for this constant is 4096. Larger values
-    /// increases the latency for small objects.
-    static const uint32_t RX_RING_CAP = 2048;
+    /// into RX ring. Larger values increases the latency for small objects.
+    /// Maximum value for this constant is 4096.
+    static const uint32_t RX_RING_CAP = 4096;
 
     /// Size of the event queue on the adapter.
     static const uint32_t EF_VI_EVENT_POLL_NUM_EVS = 128;
 
     /// Due to performance considerations, we refill RX ring in a batch of
     /// size equal to below constant.
-    static const uint32_t RX_REFILL_BATCH_SIZE = 32;
+    static const uint32_t RX_REFILL_BATCH_SIZE = 64;
 
     /// Offset of payload data portion of an Ethernet frame measured from first
     /// byte of Ethernet header. We assume the Ethernet frame contains IP header
@@ -109,13 +93,19 @@ class SolarFlareDriver : public Driver {
      * PacketBuff must be within the region of memory that SolarFlare NIC has
      * DMA access to. As per SolarFlare documentations, the packet buffers
      * better be 2KB sized even though the data part is less than 2KB.
-     * The extra space is used to keep few auxiliary fields for efficient
+     * The extra space is then used to keep few auxiliary fields for efficient
      * handling of the PacketBuffs. 
      */
-     struct PacketBuff {
+    struct PacketBuff {
+        PacketBuff()
+            : dmaBufferAddress()
+            , id(0)
+            , macIpAddress()
+            , dmaBuffer()
+        {}
 
         /// Holds the DMA address of the beginning of the data array
-        /// (dmaBuffer[]) of this buffer.
+        /// (ie. dmaBuffer[]) of this buffer.
         ef_addr dmaBufferAddress;
 
         /// This is the id that we will pass it to the RX/TX ring and the NIC
@@ -127,13 +117,13 @@ class SolarFlareDriver : public Driver {
         /// information and will be passed to the higher level transport code
         /// (eg. FastTransport). This address will be used for sending replies
         /// back.
-        Tub<MacIpAddress> solarFlareAddress;
+        Tub<MacIpAddress> macIpAddress;
 
         /// The packet content starts at this address and it's cache aligned for
         /// performance optimization. N.B. In the receive path, SolarFlare NIC
         /// adds some prefix data at this start and the received Ethernet packet
         /// starts right after the prefix data.
-        uint8_t dmaBuffer[0] CACHE_ALIGN;
+        uint8_t dmaBuffer[NetUtil::ETHERNET_MAX_DATA_LEN] CACHE_ALIGN;
     };
 
     /**
@@ -206,24 +196,6 @@ class SolarFlareDriver : public Driver {
     /// single user interface.
     ef_pd protectionDomain;
 
-    /// A Handle for the RAMCloud's log memory region that is registered to
-    /// SolarFlare NIC. This will contain an array of DMA addresses of each page
-    /// within the registered log memory region. This will be used for finding
-    /// DMA addresses of memory addresses in that region for zero copy
-    /// transmission from that address. It will be filled out by
-    /// SolarFlareDriver::registerMemory function.
-    ef_memreg logMemoryReg;
-
-    /// The address to the beginning of RAMCloud's logMemory that is registered
-    /// to SolarFlare NIC. Along with the regMemoryBytes defines the region of
-    /// logMemory that SolarFlare NIC has DMA access to it and cad do zero copy
-    /// transmission of packets from that region.
-    uintptr_t regMemoryBase;
-
-    /// The length in bytes of the logMemory region that is registered to
-    /// SolarFlare NIC for zero copy transmission of packets.
-    size_t regMemoryBytes;
-
     /// The Solarflare ef_vi API is a layer 2 API that grants an application
     /// direct (kernel bypassed) access to the Solarflare network adapter
     /// data path. ef_vi is the internal API for sending and receiving packets
@@ -239,15 +211,20 @@ class SolarFlareDriver : public Driver {
     Tub<RegisteredBuffs> rxBufferPool;
 
     /// A container that allocates some number of packet buffers that are
-    /// registered to the NIC and will be used for receiving packets.
+    /// registered to the NIC and will be used for transmitting packets.
     Tub<RegisteredBuffs> txBufferPool;
 
+    /// Newly received packets in RX ring buffers will be copied over to a
+    /// buffer from this pool and will be handed off to the higher level
+    /// transport layer code.
+    ObjectPool<PacketBuff> rxCopyPool;
+
     /// Length in bytes of the prefix metadata that SolarFlare NIC adds to the
-    /// beginning of each received packet. This is only used as an offset to
-    /// beginning of the received packet buffer.
+    /// beginning of each received packet right before the Ethernet header.
+    /// This will be used as offset to beginning of the received packet buffer.
     int rxPrefixLen;
 
-    /// Number of  packetBuffs that are allocated from rxBufferPool
+    /// Number of  packetBuffs that are allocated from rxCopyPool
     /// but not yet released by the higher level transport code (eg.
     /// FastTransport). At the end of the life of this driver, all buffers
     /// must have been released and therefore this variable must be zero.

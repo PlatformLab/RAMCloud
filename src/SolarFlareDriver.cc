@@ -62,12 +62,10 @@ SolarFlareDriver::SolarFlareDriver(Context* context,
     , incomingPacketHandler()
     , driverHandle()
     , protectionDomain()
-    , logMemoryReg()
-    , regMemoryBase(0)
-    , regMemoryBytes(0)
     , virtualInterface()
     , rxBufferPool()
     , txBufferPool()
+    , rxCopyPool()
     , rxPrefixLen()
     , buffsNotReleased(0)
     , rxRingFillLevel(0)
@@ -108,10 +106,10 @@ SolarFlareDriver::SolarFlareDriver(Context* context,
         // Read back the port number that Kernel has chosen for us.
         socklen_t addrLen = sizeof(sockAddr);
         r = sys->getsockname(fd, &sockAddr, &addrLen);
-        if (!NTOHS(sockInAddr->sin_port)) {
+        if (r < 0 || !NTOHS(sockInAddr->sin_port)) {
             sys->close(fd);
-            string msg = format("Error in binding SolarFlare socket to"
-                    " a Kernel socket port.");
+            string msg = format("Error in binding SolarFlare socket to a"
+                    " Kernel socket port.");
             LOG(WARNING, "%s", msg.c_str());
             throw DriverException(HERE, msg.c_str(), errno);
         }
@@ -151,7 +149,7 @@ SolarFlareDriver::SolarFlareDriver(Context* context,
     // for the VI of this driver. N.B. for EF_PD_VF flag to work, you must have
     // SR-IOV enabled on SolarFlare NIC.
     rc = ef_pd_alloc(&protectionDomain, driverHandle,
-            if_nametoindex(ifName), EF_PD_VF);
+            if_nametoindex(ifName), EF_PD_DEFAULT);
     if (rc < 0) {
         string msg =
         "Failed to allocate a protection domain for SolarFlareDriver.";
@@ -200,39 +198,13 @@ SolarFlareDriver::SolarFlareDriver(Context* context,
 
     rxPrefixLen = ef_vi_receive_prefix_len(&virtualInterface);
 
-    // Total number of RX packet buffers is 32 times the number of the packet
-    // buffers needed for the largest RPC size in RAMCloud.
-    // This might not be enough if 32 different clients try to read the large
-    // RPCs from a single server.
-    int numRxBuffers = getMaxRpcLen() * 32 / ADAPTER_BUFFER_SIZE;
-    int rxBufferSize = ADAPTER_BUFFER_SIZE;
-    rxBufferPool.construct(rxBufferSize, numRxBuffers, this);
+    int bufferSize = ADAPTER_BUFFER_SIZE;
+    int numRxBuffers = RX_RING_CAP;
+    rxBufferPool.construct(bufferSize, numRxBuffers, this);
     refillRxRing();
-
-    int txBufferSize = ADAPTER_BUFFER_SIZE;
     int numTxBuffers = TX_RING_CAP;
-    txBufferPool.construct(txBufferSize, numTxBuffers, this);
+    txBufferPool.construct(bufferSize, numTxBuffers, this);
     arpCache.construct(context, localIp, ifName);
-}
-
-/**
- * See docs in the ``Driver'' class.
- * If this method is called multiple times, it will over write the values
- * previously assigned to regMemoryBase and regMemoryBytes variables.
- */
-void
-SolarFlareDriver::registerMemory(void* base, size_t bytes) {
-    int rc =
-        ef_memreg_alloc(&logMemoryReg, driverHandle, &protectionDomain,
-        driverHandle, base, downCast<int>(bytes));
-    if (rc < 0) {
-        DIE("Failed to register memory region at %p and size"
-            " %Zd bytes for SolarFlare NIC", base, bytes);
-    }
-    LOG(NOTICE, "Registered memory at %p and size %Zd bytes to"
-        " SolarFlare NIC", base, bytes);
-    regMemoryBase = reinterpret_cast<uintptr_t>(base);
-    regMemoryBytes = bytes;
 }
 
 /**
@@ -255,6 +227,7 @@ SolarFlareDriver::RegisteredBuffs::RegisteredBuffs(int bufferSize,
     , driver(driver)
 {
     int totalBytes = bufferSize * numBuffers;
+
     // Allocates a chunk of memory that is aligned to the page size.
     memoryChunk = static_cast<char*>(Memory::xmemalign(HERE, 4096, totalBytes));
     if (!memoryChunk) {
@@ -339,7 +312,7 @@ SolarFlareDriver::RegisteredBuffs::popFreeBuffer()
 /**
  * A helper method to push back the received packet buffer to the RX
  * descriptor ring. This should be called either in the constructor of the 
- * SolareFlareDriver or after some packets are polled off of the NIC.
+ * SolareFlareDriver or after some packets are polled off of the RX ring.
  */
 void
 SolarFlareDriver::refillRxRing()
@@ -423,17 +396,9 @@ SolarFlareDriver::release(char* payload)
     Dispatch::Lock _(context->dispatch);
     assert(buffsNotReleased > 0);
     buffsNotReleased--;
-    PacketBuff* packetBuff =
-       reinterpret_cast<PacketBuff*>(payload -
-       OFFSET_OF(PacketBuff, dmaBuffer) -
-       ETH_DATA_OFFSET -
-       rxPrefixLen);
-
-    char* pktAddr = reinterpret_cast<char*>(packetBuff);
-    assert(pktAddr >= rxBufferPool->memoryChunk &&
-            pktAddr < (rxBufferPool->memoryChunk +
-            rxBufferPool->bufferSize * rxBufferPool->numBuffers));
-    rxBufferPool->freeBuffersVec.push_back(packetBuff);
+    PacketBuff* packetBuff = reinterpret_cast<PacketBuff*>(payload
+            - OFFSET_OF(PacketBuff, dmaBuffer));
+    rxCopyPool.destroy(packetBuff);
 }
 
 /// See docs in the ``Driver'' class.
@@ -455,19 +420,10 @@ SolarFlareDriver::sendPacket(const Driver::Address* recipient,
     uint16_t udpLen = downCast<uint16_t>(udpPayloadLen + sizeof(UdpHeader));
     uint16_t ipLen = downCast<uint16_t>(udpLen + sizeof(IpHeader));
     assert(udpPayloadLen <= getMaxPacketSize());
+    uint32_t totalLen =  downCast<uint32_t>(sizeof(EthernetHeader) + ipLen);
 
     const MacIpAddress* recipientAddress =
         static_cast<const MacIpAddress*>(recipient);
-
-    // Max number of iovec required. We need at least one for the Eth+IP+UDP
-    // headers. We need one for the header if it happens to be in registered log
-    // memory. And we need number of chunks iovecs if payload is in the
-    // registered log memory region.
-    uint32_t maxIovecs = 2 + (payload ? payload->getNumberChunks() : 0);
-    ef_iovec iovec[maxIovecs];
-
-    // The actual number of the iovecs that we will use.
-    int numIovecs = 0;
 
     // We need one transmit buffer for the Eth+IP+UDP header and possibly the
     // whole message if the payload is not in the log memory.
@@ -520,65 +476,17 @@ SolarFlareDriver::sendPacket(const Driver::Address* recipient,
         reinterpret_cast<uint8_t*>(udpHdr) + sizeof(UdpHeader);
     memcpy(transportHdr, header, headerLen);
 
-    iovec[numIovecs++] = {
-        txRegisteredBuf->dmaBufferAddress,
-        downCast<uint32_t>(sizeof(EthernetHeader) + sizeof(IpHeader) +
-                sizeof(UdpHeader) + headerLen)
-    };
-
     // The address where the next chunk of data must be copied to in
     // txRegisteredBuf.
     uint8_t* nextChunkStart = transportHdr + headerLen;
 
-    // Last byte of the previous chunk that's been copied to txRegisteredBuf and
-    // also added to the iovec.
-    uint8_t* prevAddedChunkEnd = nextChunkStart;
-
-    // Copy and divide the payload into iovecs here.
+    // Copy the payload to the transmit buffer.
     while (payload && !payload->isDone()) {
-        const uintptr_t payloadAddr =
-            reinterpret_cast<const uintptr_t>(payload->getData());
-
-        if (payloadAddr >= regMemoryBase &&
-                (payloadAddr + payload->getLength() <
-                    regMemoryBase + regMemoryBytes)) {
-
-            if (prevAddedChunkEnd != nextChunkStart) {
-                iovec[numIovecs++] = {
-                    txRegisteredBuf->dmaBufferAddress +
-                        (prevAddedChunkEnd - txRegisteredBuf->dmaBuffer),
-                    downCast<unsigned int>(nextChunkStart - prevAddedChunkEnd)
-                };
-                prevAddedChunkEnd = nextChunkStart;
-            }
-
-            iovec[numIovecs++] = {
-                ef_memreg_dma_addr(&logMemoryReg,
-                    downCast<int>(payloadAddr - regMemoryBase)),
-                payload->getLength()
-            };
-        } else {
-            memcpy(nextChunkStart, payload->getData(), payload->getLength());
-            nextChunkStart += payload->getLength();
-        }
+        memcpy(nextChunkStart, payload->getData(), payload->getLength());
+        nextChunkStart += payload->getLength();
         payload->next();
     }
 
-    if (prevAddedChunkEnd != nextChunkStart) {
-        iovec[numIovecs++] = {
-            txRegisteredBuf->dmaBufferAddress +
-                (prevAddedChunkEnd - txRegisteredBuf->dmaBuffer),
-            downCast<unsigned int>(nextChunkStart - prevAddedChunkEnd)
-        };
-        prevAddedChunkEnd = nextChunkStart;
-    }
-#if TESTING
-    TEST_LOG("Total number of IoVecs are %d", numIovecs);
-    for (int i = 0; i < numIovecs; i++) {
-        TEST_LOG("IoVec %d starting at %lu and size %u", i,
-            iovec[i].iov_base, iovec[i].iov_len);
-    }
-#endif
 
     // Resolve recipient mac address, if needed, and send the packet out.
     if (recipientAddress->macProvided ||
@@ -589,8 +497,11 @@ SolarFlareDriver::sendPacket(const Driver::Address* recipient,
         // inform the adapter that the transmit ring is non-empty. Later on
         // in Poller::poll() we fetch notifications off of the event queue
         // that implies which packet transmit is completed.
-        ef_vi_transmitv(&virtualInterface, iovec, numIovecs,
-                txRegisteredBuf->id);
+        ef_vi_transmit(&virtualInterface, txRegisteredBuf->dmaBufferAddress
+                , downCast<int>(totalLen), txRegisteredBuf->id);
+        //LOG(NOTICE, "%s", (ethernetHeaderToStr(ethHdr)).c_str());
+        //LOG(NOTICE, "%s", (ipHeaderToStr(ipHdr)).c_str());
+        //LOG(NOTICE, "%s", (udpHeaderToStr(udpHdr)).c_str())
     }else {
 
             // Could not resolve mac from the local ARP cache nor kernel ARP
@@ -755,27 +666,37 @@ SolarFlareDriver::handleReceived(int packetId, int packetLen)
     //LOG(NOTICE, "%s",ipHeaderToStr(ipHdr).c_str());
     //LOG(NOTICE, "%s",udpHeaderToStr(udpHdr).c_str());
 
-    //find mac, ip and port of the sender
+    // Find mac, ip and port of the sender
     uint8_t* mac = ethHdr->srcAddress;
     uint32_t ip = ntohl(ipHdr->ipSrcAddress);
     uint16_t port = NTOHS(udpHdr->srcPort);
 
+    // Construct a buffer and copy the udp payload of the received packet into
+    // the buffer.
+    PacketBuff* copyBuffer = rxCopyPool.construct();
     Received received;
-    received.payload =  ethPkt + ETH_DATA_OFFSET;
+    received.payload = reinterpret_cast<char*>(copyBuffer->dmaBuffer);
     received.len =
         downCast<uint32_t>(NTOHS(udpHdr->totalLength) -
         downCast<uint16_t>(sizeof(UdpHeader)));
     received.driver = this;
-    received.sender = packetBuff->solarFlareAddress.construct(ip, port, mac);
+    received.sender = copyBuffer->macIpAddress.construct(ip, port, mac);
 
     if (received.len != (totalLen - ETH_DATA_OFFSET)) {
         LOG(WARNING, "total payload bytes received is %u,"
             " but UDP payload length is %u bytes",
             (totalLen - ETH_DATA_OFFSET), received.len);
     }
+    memcpy(copyBuffer->dmaBuffer, ethPkt + ETH_DATA_OFFSET, received.len);
+    buffsNotReleased++;
+
+    // Hand the received packet off to the transport layer.
     (*incomingPacketHandler)(&received);
 
-    buffsNotReleased++;
+    // return original RX ring buffer descriptor to the pool of RX buffer
+    // descriptors.
+    rxBufferPool->freeBuffersVec.push_back(packetBuff);
+
 }
 
 /**
