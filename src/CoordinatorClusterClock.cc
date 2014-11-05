@@ -33,15 +33,15 @@ namespace RAMCloud {
  */
 CoordinatorClusterClock::CoordinatorClusterClock(Context *context)
     : mutex()
-    , startingSysTimeMs(Cycles::toMicroseconds(Cycles::rdtsc()))
-    , startingClusterTimeMs(recoverClusterTime(context->externalStorage))
-    , safeClusterTimeMs(startingClusterTimeMs)
+    , startingSysTimeUs(Cycles::toMicroseconds(Cycles::rdtsc()))
+    , startingClusterTimeUs(recoverClusterTime(context->externalStorage))
+    , safeClusterTimeUs(startingClusterTimeUs)
     , updater(context, this)
 {}
 
 /**
  * Returns the current cluster time.  The cluster time is expected to advance
- * in milliseconds roughly at the same rate as the coordinator system clock.
+ * in microseconds roughly at the same rate as the coordinator system clock.
  * In rare cases (e.g. when updates to externalStorage take a long time), the
  * clock may stall and this get method will return a "stale" time.  This method
  * is thread-safe.
@@ -53,8 +53,8 @@ CoordinatorClusterClock::getTime()
     uint64_t time = getInternal(lock);
     // In the unlikely event that the current time exceeds the safe time,
     // return the safe time so that an unsafe time can never be observed.
-    if (expect_false(time > safeClusterTimeMs)) {// Not sure predictor helps.
-        return safeClusterTimeMs;
+    if (expect_false(time > safeClusterTimeUs)) {// Not sure predictor helps.
+        return safeClusterTimeUs;
     }
     return time;
 }
@@ -95,10 +95,10 @@ void
 CoordinatorClusterClock::SafeTimeUpdater::handleTimerEvent()
 {
     CoordinatorClusterClock::Lock lock(clock->mutex);
-    uint64_t nextSafeTimeMs = clock->getInternal(lock)
-                              + clock->safeTimeIntervalMs;
+    uint64_t nextSafeTimeUs = clock->getInternal(lock)
+                              + clock->safeTimeIntervalUs;
     ProtoBuf::CoordinatorClusterClock info;
-    info.set_next_safe_time(nextSafeTimeMs);
+    info.set_next_safe_time(nextSafeTimeUs);
     std::string str;
     info.SerializeToString(&str);
     externalStorage->set(ExternalStorage::Hint::UPDATE,
@@ -106,7 +106,7 @@ CoordinatorClusterClock::SafeTimeUpdater::handleTimerEvent()
                          str.c_str(),
                          downCast<int>(str.length()));
 
-    clock->safeClusterTimeMs = nextSafeTimeMs;
+    clock->safeClusterTimeUs = nextSafeTimeUs;
     this->start(Cycles::rdtsc() + Cycles::fromSeconds(clock->updateIntervalS));
 }
 
@@ -120,8 +120,8 @@ CoordinatorClusterClock::SafeTimeUpdater::handleTimerEvent()
 uint64_t
 CoordinatorClusterClock::getInternal(Lock &lock)
 {
-    uint64_t currentSysTimeMs = Cycles::toMicroseconds(Cycles::rdtsc());
-    return (currentSysTimeMs - startingSysTimeMs) + startingClusterTimeMs;
+    uint64_t currentSysTimeUs = Cycles::toMicroseconds(Cycles::rdtsc());
+    return (currentSysTimeUs - startingSysTimeUs) + startingClusterTimeUs;
 }
 
 /**

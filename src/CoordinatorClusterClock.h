@@ -72,11 +72,11 @@ class CoordinatorClusterClock {
     SpinLock mutex;
     typedef std::lock_guard<SpinLock> Lock;
 
-    /// Amount of time (in milliseconds) to advance the safeClusterTime stored
+    /// Amount of time (in microseconds) to advance the safeClusterTime stored
     /// in external storage.  This value should be much larger than the time
     /// to perform the external storage write (~10ms) but much much less than
     /// the max value (2^64 - 1).
-    static const uint64_t safeTimeIntervalMs = 3000;
+    static const uint64_t safeTimeIntervalUs = 3 * 1e6; // 3 seconds
 
     /// Amount of time (in seconds) between updates of the safeClusterTime to
     /// externalStorage.  This time should be less than the safeTimeIntervalMs;
@@ -85,16 +85,16 @@ class CoordinatorClusterClock {
 
     /// System time of the coordinator when the clock is initialized.  Used to
     /// calculate current cluster time.
-    const uint64_t startingSysTimeMs;
+    const uint64_t startingSysTimeUs;
 
     /// Recovered safeClusterTime from externalStorage when the clock is
     /// initialize (may be zero if cluster is new).  Used to calculate current
     /// cluster time.
-    const uint64_t startingClusterTimeMs;
+    const uint64_t startingClusterTimeUs;
 
     /// The last cluster time stored in externalStorage.  Represents the
     /// largest cluster time that is safe to externalize (see "getTime()").
-    uint64_t safeClusterTimeMs;
+    uint64_t safeClusterTimeUs;
 
     SafeTimeUpdater updater;
 
