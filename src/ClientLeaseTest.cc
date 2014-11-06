@@ -14,8 +14,8 @@
  */
 
 #include "TestUtil.h"       //Has to be first, compiler complains
-#include "MockCluster.h"
 #include "ClientLease.h"
+#include "MockCluster.h"
 
 
 namespace RAMCloud {
@@ -36,16 +36,11 @@ class ClientLeaseTest : public ::testing::Test {
         , lease(&context)
         , RENEW_THRESHOLD_US(ClientLease::RENEW_THRESHOLD_US)
         , DANGER_THRESHOLD_US(ClientLease::DANGER_THRESHOLD_US)
-    {
-        // Silence the log messages as there are some standard warnings that
-        // the coordinator will spit out.
-        Logger::get().setLogLevels(RAMCloud::SILENT_LOG_LEVEL);
-    }
+    {}
 
     ~ClientLeaseTest()
     {
-        // Set the the logger so that we don't affect later running tests.
-        Logger::get().reset();
+        // Reset mockTsc so that we don't affect later running tests.
         Cycles::mockTscValue = 0;
     }
 

@@ -17,6 +17,8 @@
 #define RAMCLOUD_RAMCLOUD_H
 
 #include "Common.h"
+
+#include "ClientLease.h"
 #include "CoordinatorClient.h"
 #include "IndexRpcWrapper.h"
 #include "LinearizableObjectRpcWrapper.h"
@@ -195,8 +197,8 @@ class RamCloud {
     Status status;
 
   public: // public for now to make administrative calls from clients
+    ClientLease clientLease;
     ObjectFinder objectFinder;
-
     RpcTracker realRpcTracker;
 
   private:

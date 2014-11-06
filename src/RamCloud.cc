@@ -68,6 +68,7 @@ RamCloud::RamCloud(const char* locator, const char* clusterName)
     , realClientContext()
     , clientContext(realClientContext.construct(false))
     , status(STATUS_OK)
+    , clientLease(clientContext)
     , objectFinder(clientContext)
     , realRpcTracker()
 {
@@ -86,6 +87,7 @@ RamCloud::RamCloud(Context* context, const char* locator,
     , realClientContext()
     , clientContext(context)
     , status(STATUS_OK)
+    , clientLease(clientContext)
     , objectFinder(clientContext)
     , realRpcTracker()
 {
@@ -304,7 +306,7 @@ DropTableRpc::DropTableRpc(RamCloud* ramcloud, const char* name)
 
 /**
  * Create a new index.
- * 
+ *
  * Creating an index has no impact on the existing objects in the table.
  * For example, it's possible that some of the objects in the table already
  * contain secondary keys corresponding to the new index;
@@ -312,7 +314,7 @@ DropTableRpc::DropTableRpc(RamCloud* ramcloud, const char* name)
  * To make these objects accessible via the index, the application must
  * rewrite them (for example, by enumerating all of the objects in the table
  * and rewriting each object with a key for the new index).
- * 
+ *
  * \param tableId
  *      Id of the table to which the index belongs.
  * \param indexId
@@ -377,7 +379,7 @@ CreateIndexRpc::CreateIndexRpc(RamCloud* ramcloud, uint64_t tableId,
  * For example, any secondary keys related to the deleted index will
  * remain in objects. To eliminate those secondary keys, an application must
  * enumerate all of the objects in the table and rewrite them without the keys.
- * 
+ *
  * \param tableId
  *      Id of the table to which the index belongs.
  * \param indexId
@@ -1057,7 +1059,7 @@ RamCloud::incrementDouble(uint64_t tableId, const void* key, uint16_t keyLength,
 
 /**
  * Constructor for IncrementDoubleRpc: initiates an RPC in the same way as
- * #RamCloud::incrementDouble, but returns once the RPC has been initiated, 
+ * #RamCloud::incrementDouble, but returns once the RPC has been initiated,
  * without waiting for it to complete.
  *
  * \param ramcloud
@@ -1465,17 +1467,17 @@ IndexServerControlRpc::wait()
  * The next RPC, if needed, would be initiated by the client by setting
  * firstKey in new request = nextKey from previous response, AND
  * firstAllowedKeyHash in new request = (nextKeyHash from previous resp) + 1.
- * 
+ *
  * This rpc would get sent to the server owning that firstKey.
  * This could be S1 in case it couldn't fit all the key hashes in a single RPC
  * the first time it sent the response, or a different server S2 in case S1
  * didn't own the new key range.
- * 
+ *
  * The caller can tell that the range is completely enumerated if the response
  * to an rpc has nextKeyLength = 0 (i.e., returns no nextKey) and
  * nextKeyHash = 0 (i.e., no nextKeyHash).
  *
- * 
+ *
  * \param tableId
  *      Id of the table in which lookup is to be done.
  * \param indexId
@@ -1693,7 +1695,7 @@ MigrateTabletRpc::MigrateTabletRpc(RamCloud* ramcloud, uint64_t tableId,
 }
 
 /**
- * Increment multiple objects. This method has two performance advantages over 
+ * Increment multiple objects. This method has two performance advantages over
  * calling RamCloud::increment separately for each object:
  * - If multiple objects are stored on a single server, this method
  *   issues a single RPC to increment all of them at once.
