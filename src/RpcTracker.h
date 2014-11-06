@@ -43,6 +43,14 @@ class RpcTracker {
     uint64_t newRpcId();
     uint64_t ackId();
 
+    /**
+     * Return true if there is a least one rpc that has started but not yet
+     * finished; false otherwise.
+     */
+    bool hasUnfinishedRpc() {
+        return firstMissing < nextRpcId;
+    }
+
   PRIVATE:
     void resizeRpcs(int increment);
 
@@ -78,7 +86,7 @@ class RpcTracker {
      * False value means still waiting for the result.
      *
      * At a timepoint, a consecutive (maybe looped around once) portion of
-     * array is used. (From <firstMissing % sizeof(rpcs)> to 
+     * array is used. (From <firstMissing % sizeof(rpcs)> to
      *                 <(nextRpcId - 1) % sizeof(rpcs)>)
      * As a rpcFinished is called to record receipt, it checks whether
      * we can advance firstMissing value.
