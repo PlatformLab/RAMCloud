@@ -17,6 +17,8 @@
 #define RAMCLOUD_RAMCLOUD_H
 
 #include "Common.h"
+
+#include "ClientLease.h"
 #include "CoordinatorClient.h"
 #include "IndexRpcWrapper.h"
 #include "LinearizableObjectRpcWrapper.h"
@@ -150,14 +152,16 @@ class RamCloud {
                 bool async = false, bool linearizable = false);
     void write(uint64_t tableId, const void* key, uint16_t keyLength,
             const char* value, const RejectRules* rejectRules = NULL,
-            uint64_t* version = NULL, bool async = false, bool linearizable = false);
+            uint64_t* version = NULL, bool async = false,
+            bool linearizable = false);
     void write(uint64_t tableId, uint8_t numKeys, KeyInfo *keyInfo,
                 const void* buf, uint32_t length,
                 const RejectRules* rejectRules = NULL, uint64_t* version = NULL,
                 bool async = false, bool linearizable = false);
     void write(uint64_t tableId, uint8_t numKeys, KeyInfo *keyInfo,
             const char* value, const RejectRules* rejectRules = NULL,
-            uint64_t* version = NULL, bool async = false, bool linearizable = false);
+            uint64_t* version = NULL, bool async = false,
+            bool linearizable = false);
 
     void poll();
     explicit RamCloud(const char* serviceLocator,
@@ -193,8 +197,8 @@ class RamCloud {
     Status status;
 
   public: // public for now to make administrative calls from clients
+    ClientLease clientLease;
     ObjectFinder objectFinder;
-
     RpcTracker realRpcTracker;
 
   private:
@@ -585,7 +589,7 @@ struct MultiOpObject {
 
 /**
  * Objects of this class are used to pass parameters into \c multiIncrement
- * and for multiIncrement to return the new value and the status values 
+ * and for multiIncrement to return the new value and the status values
  * for conditional operations (if used).
  */
 struct MultiIncrementObject : public MultiOpObject {

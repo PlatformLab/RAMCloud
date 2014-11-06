@@ -15,17 +15,22 @@
 
 #include "TestUtil.h"
 #include "LinearizableObjectRpcWrapper.h"
+#include "MockCluster.h"
 #include "WireFormat.h"
 
 namespace RAMCloud {
 
 class LinearizableObjectRpcWrapperTest : public ::testing::Test {
   public:
+    TestLog::Enable logEnabler;
     RamCloud ramcloud;
+    MockCluster cluster;
     MockTransport transport;
 
     LinearizableObjectRpcWrapperTest()
-        : ramcloud("mock:")
+        : logEnabler()
+        , ramcloud("mock:")
+        , cluster(ramcloud.clientContext)
         , transport(ramcloud.clientContext)
     {
         ramcloud.clientContext->transportManager->registerMock(&transport);
@@ -59,8 +64,10 @@ TEST_F(LinearizableObjectRpcWrapperTest, handleLinearizabilityResp_writeRpc) {
     EXPECT_EQ(0UL, reqHdr.ackId);
 
     {
-        LinearizableObjectRpcWrapper wrapperTmp(&ramcloud, true, 10, "abc", 3, 4);
-        wrapperTmp.fillLinearizabilityHeader<WireFormat::Write::Request>(&reqHdr);
+        LinearizableObjectRpcWrapper wrapperTmp(
+                &ramcloud, true, 10, "abc", 3, 4);
+        wrapperTmp.fillLinearizabilityHeader<WireFormat::Write::Request>(
+                                                                    &reqHdr);
         EXPECT_EQ(2UL, reqHdr.rpcId);
         EXPECT_EQ(0UL, reqHdr.ackId);
     }
@@ -70,9 +77,11 @@ TEST_F(LinearizableObjectRpcWrapperTest, handleLinearizabilityResp_writeRpc) {
     wrapper.handleLinearizabilityResp<WireFormat::Write::Response>(&respHdr);
 
     {
-        LinearizableObjectRpcWrapper wrapperTmp(&ramcloud, true, 10, "abc", 3, 4);
+        LinearizableObjectRpcWrapper wrapperTmp(
+                &ramcloud, true, 10, "abc", 3, 4);
         WireFormat::Write::Request reqHdr;
-        wrapperTmp.fillLinearizabilityHeader<WireFormat::Write::Request>(&reqHdr);
+        wrapperTmp.fillLinearizabilityHeader<WireFormat::Write::Request>(
+                                                                    &reqHdr);
         EXPECT_EQ(3UL, reqHdr.rpcId);
         EXPECT_EQ(1UL, reqHdr.ackId);
     }

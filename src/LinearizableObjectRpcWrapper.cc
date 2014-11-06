@@ -100,8 +100,7 @@ LinearizableObjectRpcWrapper::fillLinearizabilityHeader(RpcRequest* reqHdr)
 {
     if (linearizabilityOn) {
         assignedRpcId = ramcloud->clientContext->rpcTracker->newRpcId();
-        //TODO (collin): make sure client holds a lease.
-        reqHdr->lease = {0, 0, 0}; //TODO (collin): Fill THIS
+        reqHdr->lease = ramcloud->clientLease.getLease();
         reqHdr->rpcId = assignedRpcId;
         reqHdr->ackId = ramcloud->clientContext->rpcTracker->ackId();
     } else {

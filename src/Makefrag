@@ -38,6 +38,7 @@ SHARED_SRCFILES := \
 		   src/ArpCache.cc \
 		   src/CacheTrace.cc \
 		   src/ClientException.cc \
+		   src/ClientLease.cc \
 		   src/Context.cc \
 		   src/CoordinatorClient.cc \
 		   src/CoordinatorRpcWrapper.cc \
