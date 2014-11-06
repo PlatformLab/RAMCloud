@@ -71,6 +71,7 @@ SHARED_SRCFILES := \
 		   src/IpAddress.cc \
 		   src/Key.cc \
 		   src/LargeBlockOfMemory.cc \
+		   src/LinearizableObjectRpcWrapper.cc \
 		   src/Log.cc \
 		   src/LogCleaner.cc \
 		   src/LogDigest.cc \

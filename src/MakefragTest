@@ -65,6 +65,7 @@ TESTS_SRCFILES := \
 		  src/IpAddressTest.cc \
 		  src/KeyTest.cc \
 		  src/LeaseManagerTest.cc \
+		  src/LinearizableObjectRpcWrapperTest.cc \
 		  src/LogCleanerTest.cc \
 		  src/LogDigestTest.cc \
 		  src/LogEntryRelocatorTest.cc \
