@@ -44,6 +44,7 @@ CLIENT_SRCFILES := \
 		   src/IndexRpcWrapper.cc \
 		   src/IpAddress.cc \
 		   src/Key.cc \
+		   src/LinearizableObjectRpcWrapper.cc \
 		   src/LogEntryTypes.cc \
 		   src/Logger.cc \
 		   src/LargeBlockOfMemory.cc \
@@ -70,6 +71,7 @@ CLIENT_SRCFILES := \
 		   src/PortAlarm.cc \
 		   src/RamCloud.cc \
 		   src/RawMetrics.cc \
+		   src/RpcTracker.cc \
 		   src/SegletAllocator.cc \
 		   src/Seglet.cc \
 		   src/Segment.cc \

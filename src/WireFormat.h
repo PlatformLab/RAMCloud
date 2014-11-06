@@ -1686,6 +1686,9 @@ struct Write {
     struct Request {
         RequestCommon common;
         uint64_t tableId;
+        ClientLease lease;
+        uint64_t rpcId;
+        uint64_t ackId;
         uint32_t length;              // Includes the total size of the
                                       // keysAndValue blob in bytes.These
                                       // follow immediately after this header

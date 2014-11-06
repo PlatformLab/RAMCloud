@@ -33,6 +33,7 @@ class Logger;
 class MasterRecoveryManager;
 class MasterService;
 class MockContextMember;
+class RpcTracker;
 class ServiceManager;
 class SessionAlarmTimer;
 class PortAlarmTimer;
@@ -132,6 +133,10 @@ class Context {
     // NULL except on coordinators. Owned elsewhere;
     // not freed by this class.
     MasterRecoveryManager* recoveryManager;
+
+    // Client-side storage for tracking the status of all outstanding RPCs.
+    // See "Linearizable RPC" in designNotes for details.
+    RpcTracker* rpcTracker;
 
   PRIVATE:
     void destroy();
