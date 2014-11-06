@@ -35,6 +35,7 @@ TESTS_SRCFILES := \
 		  src/CacheTraceTest.cc \
 		  src/CleanableSegmentManagerTest.cc \
 		  src/ClientExceptionTest.cc \
+		  src/ClientLeaseTest.cc \
 		  src/ClusterMetricsTest.cc \
 		  src/CRamCloudTest.cc \
 		  src/CommonTest.cc \
