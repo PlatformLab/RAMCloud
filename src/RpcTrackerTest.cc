@@ -88,6 +88,18 @@ TEST_F(RpcTrackerTest, ackId) {
     EXPECT_EQ(tracker.ackId(), 4UL);
 }
 
+TEST_F(RpcTrackerTest, hasUnfinishedRpc) {
+    EXPECT_FALSE(tracker.hasUnfinishedRpc());
+    uint64_t id1 = tracker.newRpcId();
+    EXPECT_TRUE(tracker.hasUnfinishedRpc());
+    uint64_t id2 = tracker.newRpcId();
+    EXPECT_TRUE(tracker.hasUnfinishedRpc());
+    tracker.rpcFinished(id1);
+    EXPECT_TRUE(tracker.hasUnfinishedRpc());
+    tracker.rpcFinished(id2);
+    EXPECT_FALSE(tracker.hasUnfinishedRpc());
+}
+
 TEST_F(RpcTrackerTest, tooManayOutstandingRpcs) {
     uint64_t i;
     for (i = 1; i <= (uint64_t)RpcTracker::windowSize; ++i) {
