@@ -22,21 +22,23 @@
 
 namespace RAMCloud {
 
+class RamCloud;
+
 /**
  * This class allows client rpcs to aquire and maintain valid leases.  These
  * leases are used to represent the lifetime of an active client so that per
  * client state stored on servers (e.g. linearizability data) can be garbage
  * collected when clients fail or become inactive.
  */
-class ClientLease {
+class ClientLease : Dispatch::Poller {
   public:
-    explicit ClientLease(Context* context);
+    explicit ClientLease(RamCloud* ramcloud);
     WireFormat::ClientLease getLease();
-    void poll();
+    virtual void poll();
 
   PRIVATE:
-    /// Shared information about the server.
-    Context* context;
+    /// Overall client state information.
+    RamCloud* ramcloud;
     /// Latest ClientLease received from the coordinator.
     WireFormat::ClientLease lease;
 
@@ -66,6 +68,8 @@ class ClientLease {
     /// the current lease until it as renewed.  This value should be set to a
     /// value much larger than the time to complete a renewal.
     static const uint64_t DANGER_THRESHOLD_US = 500;
+
+    void pollInternal();
 
     DISALLOW_COPY_AND_ASSIGN(ClientLease);
 };

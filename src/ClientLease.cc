@@ -14,14 +14,16 @@
  */
 
 #include "ClientLease.h"
+#include "RamCloud.h"
 
 namespace RAMCloud {
 
 /**
  * Constructor for ClientLease.
  */
-ClientLease::ClientLease(Context* context)
-    : context(context)
+ClientLease::ClientLease(RamCloud* ramcloud)
+    : Dispatch::Poller(ramcloud->clientContext->dispatch, "ClientLease")
+    , ramcloud(ramcloud)
     , lease({0, 0, 0})
     , localTimestampCycles(Cycles::rdtsc())
     , nextTimestampCycles(localTimestampCycles)
@@ -37,32 +39,21 @@ WireFormat::ClientLease
 ClientLease::getLease()
 {
     do {
-        poll();
+        pollInternal();
     } while (leaseTermRemaining() < DANGER_THRESHOLD_US);
 
     return lease;
 }
 
 /**
- * This method implements a rules-based asynchronously algorithm to
- * incrementally make progress to ensure there is a valid lease.  This method is
- * called in getLease and should also be called repeatedly while waiting for a
- * linearizable rpc to complete.
+ * Make incremental progress toward ensuring a valid lease (if there are out
+ * standing RPCs that require it).
  */
 void
 ClientLease::poll()
 {
-    if (renewLeaseRpc){
-        if (renewLeaseRpc->isReady()) {
-            lease = renewLeaseRpc->wait();
-            localTimestampCycles = nextTimestampCycles;
-            renewLeaseRpc.destroy();
-        }
-    } else {
-        if (leaseTermRemaining() < RENEW_THRESHOLD_US) {
-            nextTimestampCycles = Cycles::rdtsc();
-            renewLeaseRpc.construct(context, lease.leaseId);
-        }
+    if (ramcloud->realRpcTracker.hasUnfinishedRpc()) {
+        pollInternal();
     }
 }
 
@@ -90,6 +81,29 @@ ClientLease::leaseTermRemaining()
     }
 
     return termRemainingUs;
+}
+
+/**
+ * This method implements a rules-based asynchronously algorithm to
+ * incrementally make progress to ensure there is a valid lease.  This method is
+ * called in getLease and should also be called repeatedly while waiting for a
+ * linearizable rpc to complete (i.e. in dispatch poll).
+ */
+void
+ClientLease::pollInternal()
+{
+    if (renewLeaseRpc){
+        if (renewLeaseRpc->isReady()) {
+            lease = renewLeaseRpc->wait();
+            localTimestampCycles = nextTimestampCycles;
+            renewLeaseRpc.destroy();
+        }
+    } else {
+        if (leaseTermRemaining() < RENEW_THRESHOLD_US) {
+            nextTimestampCycles = Cycles::rdtsc();
+            renewLeaseRpc.construct(ramcloud->clientContext, lease.leaseId);
+        }
+    }
 }
 
 } // namespace RAMCloud
