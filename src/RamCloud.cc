@@ -68,7 +68,7 @@ RamCloud::RamCloud(const char* locator, const char* clusterName)
     , realClientContext()
     , clientContext(realClientContext.construct(false))
     , status(STATUS_OK)
-    , clientLease(clientContext)
+    , clientLease(this)
     , objectFinder(clientContext)
     , realRpcTracker()
 {
@@ -87,7 +87,7 @@ RamCloud::RamCloud(Context* context, const char* locator,
     , realClientContext()
     , clientContext(context)
     , status(STATUS_OK)
-    , clientLease(clientContext)
+    , clientLease(this)
     , objectFinder(clientContext)
     , realRpcTracker()
 {
