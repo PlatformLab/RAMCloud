@@ -22,11 +22,11 @@ namespace RAMCloud {
  * Constructor for ClientLease.
  */
 ClientLease::ClientLease(RamCloud* ramcloud)
-    : Dispatch::Poller(ramcloud->clientContext->dispatch, "ClientLease")
+    : Dispatch::Timer(ramcloud->clientContext->dispatch)
     , ramcloud(ramcloud)
     , lease({0, 0, 0})
-    , localTimestampCycles(Cycles::rdtsc())
-    , nextTimestampCycles(localTimestampCycles)
+    , localTimestampCycles(0)
+    , leaseTermElapseCycles(0)
     , renewLeaseRpc()
 {}
 
@@ -38,70 +38,61 @@ ClientLease::ClientLease(RamCloud* ramcloud)
 WireFormat::ClientLease
 ClientLease::getLease()
 {
-    do {
-        pollInternal();
-    } while (leaseTermRemaining() < DANGER_THRESHOLD_US);
+    // If the lease renewal timer is not running, schedule it.
+    if (!isRunning()) {
+        start(0);
+    }
+
+    // Block waiting for the lease to become valid.
+    while (Cycles::rdtsc() > leaseTermElapseCycles) {
+        ramcloud->poll();
+    }
 
     return lease;
 }
 
 /**
- * Make incremental progress toward ensuring a valid lease (if there are out
- * standing RPCs that require it).
+ * This method implements a rules-based asynchronously algorithm (a "task") to
+ * incrementally make progress to ensure there is a valid lease (the "goal").
+ * After running, this method will schedule itself to be run again in the future
+ * if additional work needs to be done to reach the goal of having a valid
+ * lease.  This task will sleep (i.e. not reschedule itself) if it detects
+ * that there are no unfinished rpcs that require a valid lease.  This task is
+ * awakened by calls to getLease.
  */
 void
-ClientLease::poll()
+ClientLease::handleTimerEvent()
 {
-    if (ramcloud->realRpcTracker.hasUnfinishedRpc()) {
-        pollInternal();
-    }
-}
-
-/**
- * Internal method to calculate an estimated remaining lease term in us.  This
- * method is used to determine when the lease would be dangerous to use and when
- * a lease should be renewed.
- *
- * \return
- *      The estimated number of microseconds in the leaseTerm remaining.
- */
-uint64_t
-ClientLease::leaseTermRemaining()
-{
-    uint64_t termRemainingUs = 0;
-    uint64_t leaseTermLenUs = 0;
-    uint64_t elapsedTimeUs = Cycles::toMicroseconds(Cycles::rdtsc()
-                                                    - localTimestampCycles);
-
-    if (lease.leaseTerm > lease.timestamp) {
-        leaseTermLenUs = lease.leaseTerm - lease.timestamp;
-    }
-    if (leaseTermLenUs > elapsedTimeUs) {
-        termRemainingUs = leaseTermLenUs - elapsedTimeUs;
-    }
-
-    return termRemainingUs;
-}
-
-/**
- * This method implements a rules-based asynchronously algorithm to
- * incrementally make progress to ensure there is a valid lease.  This method is
- * called in getLease and should also be called repeatedly while waiting for a
- * linearizable rpc to complete (i.e. in dispatch poll).
- */
-void
-ClientLease::pollInternal()
-{
-    if (renewLeaseRpc){
+    if (!renewLeaseRpc) {
+        localTimestampCycles = Cycles::rdtsc();
+        renewLeaseRpc.construct(ramcloud->clientContext, lease.leaseId);
+        start(0);
+    } else {
         if (renewLeaseRpc->isReady()) {
             lease = renewLeaseRpc->wait();
-            localTimestampCycles = nextTimestampCycles;
             renewLeaseRpc.destroy();
-        }
-    } else {
-        if (leaseTermRemaining() < RENEW_THRESHOLD_US) {
-            nextTimestampCycles = Cycles::rdtsc();
-            renewLeaseRpc.construct(ramcloud->clientContext, lease.leaseId);
+            uint64_t leaseTermLenUs = 0;
+            if (lease.leaseTerm > lease.timestamp) {
+                leaseTermLenUs = lease.leaseTerm - lease.timestamp;
+            }
+            leaseTermElapseCycles = localTimestampCycles +
+                                    Cycles::fromMicroseconds(
+                                            leaseTermLenUs -
+                                            DANGER_THRESHOLD_US);
+
+            // Only reschedule for lease renewal if there are
+            // unfinished rpcs.
+            if (ramcloud->realRpcTracker.hasUnfinishedRpc()) {
+                uint64_t renewCycleTime = 0;
+                if (leaseTermLenUs > RENEW_THRESHOLD_US) {
+                    renewCycleTime = Cycles::fromMicroseconds(
+                            leaseTermLenUs - RENEW_THRESHOLD_US);
+                }
+                start(localTimestampCycles + renewCycleTime);
+            }
+        } else {
+            // Wait for rpc to become ready.
+            start(0);
         }
     }
 }
