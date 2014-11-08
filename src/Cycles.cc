@@ -155,6 +155,25 @@ Cycles::toMicroseconds(uint64_t cycles, double cyclesPerSec)
 }
 
 /**
+ * Given a number of microseconds, return an approximate number of
+ * cycles for an equivalent time length.
+ * \param us
+ *      Number of microseconds.
+ * \param cyclesPerSec
+ *      Optional parameter to specify the frequency of the counter that #cycles
+ *      was taken from. Useful when converting a remote machine's tick counter
+ *      to seconds. The default value of 0 will use the local processor's
+ *      computed counter frequency.
+ * \return
+ *      The approximate number of cycles for the same time length.
+ */
+uint64_t
+Cycles::fromMicroseconds(uint64_t us, double cyclesPerSec)
+{
+    return fromNanoseconds(1000 * us, cyclesPerSec);
+}
+
+/**
  * Given an elapsed time measured in cycles, return an integer
  * giving the corresponding time in nanoseconds. Note: toSeconds()
  * is faster than this method.
