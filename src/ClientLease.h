@@ -30,11 +30,11 @@ class RamCloud;
  * client state stored on servers (e.g. linearizability data) can be garbage
  * collected when clients fail or become inactive.
  */
-class ClientLease : Dispatch::Poller {
+class ClientLease : public Dispatch::Timer {
   public:
     explicit ClientLease(RamCloud* ramcloud);
     WireFormat::ClientLease getLease();
-    virtual void poll();
+    virtual void handleTimerEvent();
 
   PRIVATE:
     /// Overall client state information.
@@ -46,16 +46,14 @@ class ClientLease : Dispatch::Poller {
     /// the coordinator.  Used to estimate when the lease term will elapse.
     uint64_t localTimestampCycles;
 
-    /// Used the store the next value of localTimestampCycles so that it can
-    /// represent sent time with out modifying the value before the new lease
-    /// is received.
-    uint64_t nextTimestampCycles;
+    /// If Cycles::rdtsc() returns a value larger than this value, the currently
+    /// held lease may have (or will soon be) expired.  Used to determine
+    /// whether getLease will need to block waiting for a new lease.
+    uint64_t leaseTermElapseCycles;
 
     /// Holds a possibly outstanding RenewLeaseRpc so that this module can
     /// use asynchronous calls to the coordinator to maintain its lease.
     Tub<RenewLeaseRpc> renewLeaseRpc;
-
-    uint64_t leaseTermRemaining();
 
     /// Defines the remaining lease time below which this module should starting
     /// trying to renew.  During this period, the lease has probably not expired
