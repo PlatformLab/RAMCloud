@@ -13,6 +13,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include "RamCloud.h"
 #include "RpcTracker.h"
 
 namespace RAMCloud {
@@ -31,11 +32,12 @@ RpcTracker::~RpcTracker() {
  */
 void
 RpcTracker::rpcFinished(uint64_t rpcId) {
-    assert(!rpcs[rpcId % windowSize]);
-    rpcs[rpcId % windowSize] = true;
+    assert(rpcs[rpcId % windowSize]);
+    //rpcs[rpcId % windowSize] = true;
+    rpcs[rpcId % windowSize] = NULL;
     if (firstMissing == rpcId) {
         firstMissing++;
-        while (rpcs[firstMissing % windowSize] && firstMissing < nextRpcId)
+        while (!rpcs[firstMissing % windowSize] && firstMissing < nextRpcId)
             firstMissing++;
     }
 }
@@ -48,11 +50,14 @@ RpcTracker::rpcFinished(uint64_t rpcId) {
  *      Or 0 if the rpc waiting for response (first Missing) is too far behind.
  */
 uint64_t
-RpcTracker::newRpcId() {
+RpcTracker::newRpcId(LinearizableObjectRpcWrapper* ptr) {
+    assert(ptr != NULL);
     if (firstMissing + windowSize == nextRpcId) {
         return 0;
     }
-    rpcs[nextRpcId % windowSize] = false;
+    assert(firstMissing + windowSize > nextRpcId);
+    //rpcs[nextRpcId % windowSize] = false;
+    rpcs[nextRpcId % windowSize] = ptr;
     return nextRpcId++;
 }
 
@@ -66,6 +71,17 @@ RpcTracker::newRpcId() {
 uint64_t
 RpcTracker::ackId() {
     return firstMissing - 1;
+}
+
+/**
+ * Return the pointer to the oldest outstanding linearizable RPC.
+ * \return
+ *      Pointer to linearizable RPC wrapper with smallest rpdId.
+ */
+LinearizableObjectRpcWrapper*
+RpcTracker::oldestOutstandingRpc() {
+    assert(rpcs[firstMissing % windowSize]);
+    return rpcs[firstMissing % windowSize];
 }
 
 } // namespace RAMCloud
