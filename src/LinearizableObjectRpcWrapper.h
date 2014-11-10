@@ -44,7 +44,8 @@ class LinearizableObjectRpcWrapper : public ObjectRpcWrapper {
     void cancel();
 
     /**
-     * Tells whether we send linearizable RPC instead of regular RPC.
+     * This flag allows user of linearizable RPC to specific whether to send
+     * linearizable RPC or non-linearizable RPC.
      */
     const bool linearizabilityOn;
 
@@ -57,15 +58,11 @@ class LinearizableObjectRpcWrapper : public ObjectRpcWrapper {
     /**
      * If the linearizability feature is on, we save the rpcId assigned in
      * #fillLinearizabilityHeader function.
+     *
+     * Value of 0 means rpcId is not assigned yet, or the rpc is already
+     * finished. (#RpcTracker::rpcFinished() is invoked.)
      */
     uint64_t assignedRpcId;
-
-    /**
-     * Indicates the completion of linearizable RPC is recorded already.
-     * With the flag, we prevent waitInternal() from processing same response
-     * multiple times.
-     */
-    bool responseProcessed;
 
     DISALLOW_COPY_AND_ASSIGN(LinearizableObjectRpcWrapper);
 };

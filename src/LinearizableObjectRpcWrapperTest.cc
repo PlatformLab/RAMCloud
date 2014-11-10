@@ -81,19 +81,19 @@ TEST_F(LinearizableObjectRpcWrapperTest, rpcTracker_window_full_on_create) {
     wrapper.state = RpcWrapper::RpcState::FINISHED;
 
     EXPECT_EQ(0UL, ramcloud.clientContext->rpcTracker->ackId());
-    EXPECT_FALSE(wrapper.responseProcessed);
+    EXPECT_TRUE(wrapper.assignedRpcId);
 
     for (int i = 1; i < RpcTracker::windowSize; ++i) {
         ramcloud.clientContext->rpcTracker->newRpcId(
             reinterpret_cast<LinearizableObjectRpcWrapper*>(1));
     }
-    EXPECT_FALSE(wrapper.responseProcessed);
+    EXPECT_TRUE(wrapper.assignedRpcId);
 
     WireFormat::Write::Request reqHdr2;
     LinearizableObjectRpcWrapper wrapper2(&ramcloud, true, 10, "abc", 3, 4);
     wrapper2.fillLinearizabilityHeader<WireFormat::Write::Request>(&reqHdr2);
 
-    EXPECT_TRUE(wrapper.responseProcessed);
+    EXPECT_FALSE(wrapper.assignedRpcId);
     EXPECT_EQ((uint64_t) (RpcTracker::windowSize + 1), wrapper2.assignedRpcId);
     EXPECT_EQ((uint64_t) (RpcTracker::windowSize + 1), reqHdr2.rpcId);
     EXPECT_EQ(1UL, reqHdr2.ackId);

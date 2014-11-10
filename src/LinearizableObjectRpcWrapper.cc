@@ -52,7 +52,6 @@ LinearizableObjectRpcWrapper::LinearizableObjectRpcWrapper(
                        responseHeaderLength, response)
     , linearizabilityOn(linearizable)
     , assignedRpcId(0)
-    , responseProcessed(false)
 {
 }
 
@@ -85,7 +84,6 @@ LinearizableObjectRpcWrapper::LinearizableObjectRpcWrapper(
                        responseHeaderLength, response)
     , linearizabilityOn(linearizable)
     , assignedRpcId(0)
-    , responseProcessed(false)
 {
 }
 
@@ -94,9 +92,9 @@ LinearizableObjectRpcWrapper::LinearizableObjectRpcWrapper(
  */
 LinearizableObjectRpcWrapper::~LinearizableObjectRpcWrapper()
 {
-    if (linearizabilityOn && !responseProcessed && assignedRpcId) {
+    if (linearizabilityOn && assignedRpcId) {
         ramcloud->clientContext->rpcTracker->rpcFinished(assignedRpcId);
-        responseProcessed = true;
+        assignedRpcId = 0;
     }
 }
 
@@ -107,9 +105,9 @@ void
 LinearizableObjectRpcWrapper::cancel()
 {
     RpcWrapper::cancel();
-    if (linearizabilityOn && !responseProcessed && assignedRpcId) {
+    if (linearizabilityOn && assignedRpcId) {
         ramcloud->clientContext->rpcTracker->rpcFinished(assignedRpcId);
-        responseProcessed = true;
+        assignedRpcId = 0;
     }
 }
 
@@ -168,7 +166,7 @@ LinearizableObjectRpcWrapper::waitInternal(Dispatch* dispatch,
     if (!ObjectRpcWrapper::waitInternal(dispatch, abortTime)) {
         return false; // Aborted by timeout. Shouldn't process RPC's response.
     }
-    if (!linearizabilityOn || responseProcessed) {
+    if (!linearizabilityOn || !assignedRpcId) {
         return true;
     }
 
@@ -178,7 +176,7 @@ LinearizableObjectRpcWrapper::waitInternal(Dispatch* dispatch,
 #endif
 
     ramcloud->clientContext->rpcTracker->rpcFinished(assignedRpcId);
-    responseProcessed = true;
+    assignedRpcId = 0;
     return true;
 }
 
