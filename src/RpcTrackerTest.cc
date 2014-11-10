@@ -21,18 +21,20 @@ namespace RAMCloud {
 class RpcTrackerTest : public ::testing::Test {
   public:
     RpcTracker tracker;
+    LinearizableObjectRpcWrapper* w;
 
-    RpcTrackerTest() : tracker() {
+    RpcTrackerTest() : tracker()
+                     , w(reinterpret_cast<LinearizableObjectRpcWrapper*>(1)) {
     }
 
     DISALLOW_COPY_AND_ASSIGN(RpcTrackerTest);
 };
 
 TEST_F(RpcTrackerTest, rpcFinished) {
-    EXPECT_EQ(1UL, tracker.newRpcId());
-    EXPECT_EQ(2UL, tracker.newRpcId());
-    EXPECT_EQ(3UL, tracker.newRpcId());
-    EXPECT_EQ(4UL, tracker.newRpcId());
+    EXPECT_EQ(1UL, tracker.newRpcId(w));
+    EXPECT_EQ(2UL, tracker.newRpcId(w));
+    EXPECT_EQ(3UL, tracker.newRpcId(w));
+    EXPECT_EQ(4UL, tracker.newRpcId(w));
 
     EXPECT_EQ(tracker.firstMissing, 1UL);
     tracker.rpcFinished(1);
@@ -42,9 +44,9 @@ TEST_F(RpcTrackerTest, rpcFinished) {
     tracker.rpcFinished(2);
     EXPECT_EQ(tracker.firstMissing, 4UL);
 
-    EXPECT_EQ(5UL, tracker.newRpcId());
-    EXPECT_EQ(6UL, tracker.newRpcId());
-    EXPECT_EQ(7UL, tracker.newRpcId());
+    EXPECT_EQ(5UL, tracker.newRpcId(w));
+    EXPECT_EQ(6UL, tracker.newRpcId(w));
+    EXPECT_EQ(7UL, tracker.newRpcId(w));
 
     tracker.rpcFinished(5);
     tracker.rpcFinished(6);
@@ -58,24 +60,24 @@ TEST_F(RpcTrackerTest, rpcFinished) {
 TEST_F(RpcTrackerTest, newRpcId) {
     int i;
     for (i = 1; i <= tracker.windowSize; ++i) {
-        EXPECT_EQ(tracker.newRpcId(), (uint64_t)i);
+        EXPECT_EQ(tracker.newRpcId(w), (uint64_t)i);
     }
     tracker.rpcFinished(3);
-    EXPECT_EQ(tracker.newRpcId(), 0UL);
+    EXPECT_EQ(tracker.newRpcId(w), 0UL);
 
     for (i = 1; i <= tracker.windowSize; ++i) {
         if (i == 3)
             continue;
-        EXPECT_FALSE(tracker.rpcs[i % tracker.windowSize]);
+        EXPECT_FALSE(!tracker.rpcs[i % tracker.windowSize]);
     }
-    EXPECT_TRUE(tracker.rpcs[3]);
+    EXPECT_TRUE(!tracker.rpcs[3]);
 }
 
 TEST_F(RpcTrackerTest, ackId) {
-    EXPECT_EQ(tracker.newRpcId(), 1UL);
-    EXPECT_EQ(tracker.newRpcId(), 2UL);
-    EXPECT_EQ(tracker.newRpcId(), 3UL);
-    EXPECT_EQ(tracker.newRpcId(), 4UL);
+    EXPECT_EQ(tracker.newRpcId(w), 1UL);
+    EXPECT_EQ(tracker.newRpcId(w), 2UL);
+    EXPECT_EQ(tracker.newRpcId(w), 3UL);
+    EXPECT_EQ(tracker.newRpcId(w), 4UL);
 
     EXPECT_EQ(tracker.ackId(), 0UL);
     tracker.rpcFinished(1);
@@ -90,9 +92,9 @@ TEST_F(RpcTrackerTest, ackId) {
 
 TEST_F(RpcTrackerTest, hasUnfinishedRpc) {
     EXPECT_FALSE(tracker.hasUnfinishedRpc());
-    uint64_t id1 = tracker.newRpcId();
+    uint64_t id1 = tracker.newRpcId(w);
     EXPECT_TRUE(tracker.hasUnfinishedRpc());
-    uint64_t id2 = tracker.newRpcId();
+    uint64_t id2 = tracker.newRpcId(w);
     EXPECT_TRUE(tracker.hasUnfinishedRpc());
     tracker.rpcFinished(id1);
     EXPECT_TRUE(tracker.hasUnfinishedRpc());
@@ -103,12 +105,12 @@ TEST_F(RpcTrackerTest, hasUnfinishedRpc) {
 TEST_F(RpcTrackerTest, tooManayOutstandingRpcs) {
     uint64_t i;
     for (i = 1; i <= (uint64_t)RpcTracker::windowSize; ++i) {
-        EXPECT_EQ(tracker.newRpcId(), (uint64_t)i);
+        EXPECT_EQ(tracker.newRpcId(w), (uint64_t)i);
     }
-    EXPECT_EQ(tracker.newRpcId(), 0UL);
+    EXPECT_EQ(tracker.newRpcId(w), 0UL);
     tracker.rpcFinished(1);
-    EXPECT_EQ(tracker.newRpcId(), (uint64_t)i);
-    EXPECT_EQ(tracker.newRpcId(), 0UL);
+    EXPECT_EQ(tracker.newRpcId(w), (uint64_t)i);
+    EXPECT_EQ(tracker.newRpcId(w), 0UL);
 }
 
 }

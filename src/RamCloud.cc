@@ -2938,8 +2938,6 @@ WriteRpc::wait(uint64_t* version)
     const WireFormat::Write::Response* respHdr(
             getResponseHeader<WireFormat::Write>());
 
-    handleLinearizabilityResp<WireFormat::Write::Response>(respHdr);
-
     if (version != NULL)
         *version = respHdr->version;
 

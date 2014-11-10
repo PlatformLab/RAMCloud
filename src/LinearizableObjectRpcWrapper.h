@@ -13,8 +13,10 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include "Common.h"
 #include "RamCloud.h"
 #include "ObjectRpcWrapper.h"
+#include "RpcTracker.h"
 
 #ifndef RAMCLOUD_LINEARIZABLEOBJECTRPCWRAPPER_H
 #define RAMCLOUD_LINEARIZABLEOBJECTRPCWRAPPER_H
@@ -25,6 +27,10 @@ namespace RAMCloud {
  * LinearizableObjectRpcWrapper packages linearizability features for
  * the client side of RPCs that must be sent to the server that stores
  * a particular object.
+ *
+ * To make an RPC linearizable, two things should be done.
+ * 1) Inherit from this wrapper instead of ObjectRpcWrapper.
+ * 2) Invoke #fillLinearizabilityHeader in constructor of the RPC.
  */
 class LinearizableObjectRpcWrapper : public ObjectRpcWrapper {
   public:
@@ -34,11 +40,8 @@ class LinearizableObjectRpcWrapper : public ObjectRpcWrapper {
     explicit LinearizableObjectRpcWrapper(RamCloud* ramcloud, bool linearizable,
             uint64_t tableId, uint64_t keyHash, uint32_t responseHeaderLength,
             Buffer* response = NULL);
-
-    /**
-     * Destructor for LinearizableObjectRpcWrapper.
-     */
-    virtual ~LinearizableObjectRpcWrapper() {}
+    virtual ~LinearizableObjectRpcWrapper();
+    void cancel();
 
     /**
      * Tells whether we send linearizable RPC instead of regular RPC.
@@ -49,14 +52,20 @@ class LinearizableObjectRpcWrapper : public ObjectRpcWrapper {
     template <typename RpcRequest>
     void fillLinearizabilityHeader(RpcRequest* reqHdr);
 
-    template <typename RpcResponse>
-    void handleLinearizabilityResp(const RpcResponse* respHdr);
+    bool waitInternal(Dispatch* dispatch, uint64_t abortTime = ~0UL);
 
     /**
      * If the linearizability feature is on, we save the rpcId assigned in
      * #fillLinearizabilityHeader function.
      */
     uint64_t assignedRpcId;
+
+    /**
+     * Indicates the completion of linearizable RPC is recorded already.
+     * With the flag, we prevent waitInternal() from processing same response
+     * multiple times.
+     */
+    bool responseProcessed;
 
     DISALLOW_COPY_AND_ASSIGN(LinearizableObjectRpcWrapper);
 };

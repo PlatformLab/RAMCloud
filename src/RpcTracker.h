@@ -20,6 +20,9 @@
 
 namespace RAMCloud {
 
+class LinearizableObjectRpcWrapper;
+class RamCloud;
+
 /**
  * A storage for outstanding rpc status whether the result of each rpc is
  * received or not.
@@ -40,8 +43,9 @@ class RpcTracker {
     ~RpcTracker();
 
     void rpcFinished(uint64_t rpcId);
-    uint64_t newRpcId();
+    uint64_t newRpcId(LinearizableObjectRpcWrapper* ptr);
     uint64_t ackId();
+    LinearizableObjectRpcWrapper* oldestOutstandingRpc();
 
     /**
      * Return true if there is a least one rpc that has started but not yet
@@ -79,11 +83,11 @@ class RpcTracker {
     static const int windowSize = 100;
 
     /**
-     * Array keeping RPC status (result received or not) for RPCs whose id is
+     * Array keeping pointers to RPC wrappers for RPCs whose id is
      * between firstMissing and (nextRpcId - 1).
      * The record of RPC with id i is stored at i % sizeof(rpcs).
-     * True value of the entry means the result of the RPC is received.
-     * False value means still waiting for the result.
+     * NULL value of the entry means the result of the RPC is received.
+     * Non-null pointer means still waiting for the result.
      *
      * At a timepoint, a consecutive (maybe looped around once) portion of
      * array is used. (From <firstMissing % sizeof(rpcs)> to
@@ -91,7 +95,7 @@ class RpcTracker {
      * As a rpcFinished is called to record receipt, it checks whether
      * we can advance firstMissing value.
      */
-    bool rpcs[windowSize];
+    LinearizableObjectRpcWrapper* rpcs[windowSize];
 
     DISALLOW_COPY_AND_ASSIGN(RpcTracker);
 };

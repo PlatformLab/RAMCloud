@@ -52,6 +52,7 @@ LinearizableObjectRpcWrapper::LinearizableObjectRpcWrapper(
                        responseHeaderLength, response)
     , linearizabilityOn(linearizable)
     , assignedRpcId(0)
+    , responseProcessed(false)
 {
 }
 
@@ -84,7 +85,32 @@ LinearizableObjectRpcWrapper::LinearizableObjectRpcWrapper(
                        responseHeaderLength, response)
     , linearizabilityOn(linearizable)
     , assignedRpcId(0)
+    , responseProcessed(false)
 {
+}
+
+/**
+ * In addition to regular RPC cleanup, it marks the rpc finished in RpcTracker.
+ */
+LinearizableObjectRpcWrapper::~LinearizableObjectRpcWrapper()
+{
+    if (linearizabilityOn && !responseProcessed && assignedRpcId) {
+        ramcloud->clientContext->rpcTracker->rpcFinished(assignedRpcId);
+        responseProcessed = true;
+    }
+}
+
+/**
+ * In addition to regular RPC cancel, it marks the rpc finished in RpcTracker.
+ */
+void
+LinearizableObjectRpcWrapper::cancel()
+{
+    RpcWrapper::cancel();
+    if (linearizabilityOn && !responseProcessed && assignedRpcId) {
+        ramcloud->clientContext->rpcTracker->rpcFinished(assignedRpcId);
+        responseProcessed = true;
+    }
 }
 
 /**
@@ -99,7 +125,14 @@ void
 LinearizableObjectRpcWrapper::fillLinearizabilityHeader(RpcRequest* reqHdr)
 {
     if (linearizabilityOn) {
-        assignedRpcId = ramcloud->clientContext->rpcTracker->newRpcId();
+        assignedRpcId = ramcloud->clientContext->rpcTracker->newRpcId(this);
+        if (!assignedRpcId) {
+            LinearizableObjectRpcWrapper* oldest =
+                ramcloud->clientContext->rpcTracker->oldestOutstandingRpc();
+            oldest->waitInternal(ramcloud->clientContext->dispatch);
+            assignedRpcId = ramcloud->clientContext->rpcTracker->newRpcId(this);
+        }
+        assert(assignedRpcId);
         reqHdr->lease = ramcloud->clientLease.getLease();
         reqHdr->rpcId = assignedRpcId;
         reqHdr->ackId = ramcloud->clientContext->rpcTracker->ackId();
@@ -110,26 +143,46 @@ LinearizableObjectRpcWrapper::fillLinearizabilityHeader(RpcRequest* reqHdr)
 }
 
 /**
- * Process linearizability information in response header.
- * This funtion should be invoked in the wait() of every linearizable RPCs.
- * \param respHdr
- *      Pointer to response header. Used for checking final RPC status.
+ * Overrides RpcWrapper::waitInternal.
+ * Call #RpcWrapper::waitInternal and process linearizability information.
+ * Marks the current RPC is finished in RpcTracker.
+ *
+ * \param dispatch
+ *      Dispatch to use for polling while waiting.
+ * \param abortTime
+ *      If Cycles::rdtsc() exceeds this time then return even if the
+ *      RPC has not completed. All ones means wait forever.
+ *
+ * \return
+ *      The return value is true if the RPC completed or failed, and false if
+ *      abortTime passed with no response yet.
+ *
+ * \throw RpcCanceledException
+ *      The RPC has previously been canceled, so it doesn't make sense
+ *      to wait for it.
  */
-template <typename RpcResponse>
-void
-LinearizableObjectRpcWrapper::handleLinearizabilityResp(
-        const RpcResponse* respHdr)
+bool
+LinearizableObjectRpcWrapper::waitInternal(Dispatch* dispatch,
+                                           uint64_t abortTime)
 {
-    if (linearizabilityOn) {
-        if (respHdr->common.status == STATUS_OK) {
-           ramcloud->clientContext->rpcTracker->rpcFinished(assignedRpcId);
-        }
+    if (!ObjectRpcWrapper::waitInternal(dispatch, abortTime)) {
+        return false; // Aborted by timeout. Shouldn't process RPC's response.
     }
+    if (!linearizabilityOn || responseProcessed) {
+        return true;
+    }
+
+#ifdef DEBUG_BUILD
+    RpcState state = getState();
+    assert(state == FINISHED || state == CANCELED);
+#endif
+
+    ramcloud->clientContext->rpcTracker->rpcFinished(assignedRpcId);
+    responseProcessed = true;
+    return true;
 }
 
 template void LinearizableObjectRpcWrapper::fillLinearizabilityHeader
     <WireFormat::Write::Request>(WireFormat::Write::Request* reqHdr);
-template void LinearizableObjectRpcWrapper::handleLinearizabilityResp
-    <WireFormat::Write::Response>(const WireFormat::Write::Response* respHdr);
 
 } // namespace RAMCloud
