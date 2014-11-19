@@ -435,6 +435,106 @@ class ObjectSafeVersion {
     DISALLOW_COPY_AND_ASSIGN(ObjectSafeVersion);
 };
 
+///TODO(seojin): documentation.
+class RpcRecord {
+  public:
+    RpcRecord(uint64_t tableId, KeyHash keyHash,
+              uint64_t leaseId, uint64_t rpcId, uint64_t ackId,
+              Buffer& respBuffer, uint32_t respOff = 0, uint32_t respLen = 0);
+    explicit RpcRecord(Buffer& buffer, uint32_t offset = 0,
+                       uint32_t length = 0);
+
+    void assembleForLog(Buffer& buffer);
+    void assembleForLog(void* buffer);
+    void appendRespToBuffer(Buffer& buffer);
+
+    uint64_t getTableId();
+    KeyHash getKeyHash();
+    uint64_t getLeaseId();
+    uint64_t getRpcId();
+    uint64_t getAckId();
+
+    const void* getResp(uint32_t *length = NULL);
+    uint32_t getRespLength();
+
+    bool checkIntegrity();
+    uint32_t getSerializedLength();
+    uint32_t computeChecksum();
+
+    class Header {
+      public:
+        /**
+         * Construct a serialized RpcRecord header.
+         *
+         * \param tableId
+         *      TableId for the object modified by this RPC.
+         * \param keyHash
+         *      KeyHash for the object modified by this RPC.
+         * \param leaseId
+         *      leaseId given for this linearizable RPC.
+         * \param rpcId
+         *      rpcId given for this linearizable RPC.
+         * \param ackId
+         *      ackId given for this linearizable RPC.
+         */
+        Header(uint64_t tableId, KeyHash keyHash,
+               uint64_t leaseId, uint64_t rpcId, uint64_t ackId)
+            : tableId(tableId),
+              keyHash(keyHash),
+              leaseId(leaseId),
+              rpcId(rpcId),
+              ackId(ackId),
+              checksum(0)
+        {
+        }
+
+        /// See "LinearizableRpc" section 3.1 in designNotes.
+        uint64_t tableId;
+
+        /// See "LinearizableRpc" section 3.1 in designNotes.
+        KeyHash keyHash;
+
+        /// See "LinearizableRpc" section 3.1 in designNotes.
+        uint64_t leaseId;
+
+        /// See "LinearizableRpc" section 3.1 in designNotes.
+        uint64_t rpcId;
+
+        /// See "LinearizableRpc" section 3.1 in designNotes.
+        uint64_t ackId;
+
+        /// CRC32C checksum covering everything but this field, including the
+        /// response.
+        uint32_t checksum;
+
+        /// Following this class will be the response.
+        /// This member is only here to denote this.
+        char response[0];
+    } __attribute__((__packed__));
+    static_assert(sizeof(Header) == 44,
+        "Unexpected serialized RpcRecord size");
+
+    /// Copy of the RpcRecord header that is in, or will be written to, the log.
+    Header header;
+
+    /// Length of the response corresponding to this RPC. This isn't stored in
+    /// Header since it can be trivially computed as needed.
+    uint32_t respLength;
+
+    /// If the response for the completed rpc all lies in a single
+    /// contiguous region of memory, this will point there, otherwise this
+    /// will point to NULL.
+    const void* response;
+
+    /// If the response for the completed rpc is stored in a Buffer,
+    /// this will point to that buffer, otherwise this points to NULL.
+    Buffer* respBuffer;
+
+    /// The byte offset in the respBuffer where response start
+    uint32_t respOffset;
+
+    DISALLOW_COPY_AND_ASSIGN(RpcRecord);
+};
 } // namespace RAMCloud
 
 #endif
