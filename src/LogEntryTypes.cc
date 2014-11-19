@@ -40,6 +40,8 @@ toString(LogEntryType type)
         return "Object Safe Version";
     case LOG_ENTRY_TYPE_TABLESTATS:
         return "Table Stats Digest";
+    case LOG_ENTRY_TYPE_RPCRECORD:
+        return "Linearizable Rpc Record";
     default:
         return "<<Unknown>>";
     }
