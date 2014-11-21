@@ -1545,6 +1545,16 @@ ObjectManager::dumpSegment(Segment* segment)
                     "version %lu",
                     separator, it.getOffset(), it.getLength(),
                     safeVersion.getSafeVersion());
+        } else if (type == LOG_ENTRY_TYPE_RPCRECORD) {
+            Buffer buffer;
+            it.appendToBuffer(buffer);
+            RpcRecord rpcRecord(buffer);
+            result += format("%srpcRecord at offest %u, length %u with tableId "
+                    "%lu, keyHash 0x%016" PRIX64 ", leaseId %lu, rpcId %lu",
+                    separator, it.getOffset(), it.getLength(),
+                    rpcRecord.getTableId(), rpcRecord.getKeyHash(),
+                    rpcRecord.getLeaseId(), rpcRecord.getRpcId());
+
         }
         it.next();
         separator = " | ";
