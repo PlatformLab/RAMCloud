@@ -254,6 +254,7 @@ class ObjectManager : public LogEntryHandlers {
                 __attribute__((warn_unused_result));
     void relocateObject(Buffer& oldBuffer, Log::Reference oldReference,
                 LogEntryRelocator& relocator);
+    void relocateRpcRecord(Buffer& oldBuffer, LogEntryRelocator& relocator);
     void relocateTombstone(Buffer& oldBuffer, Log::Reference oldReference,
             LogEntryRelocator& relocator);
     bool replace(HashTableBucketLock& lock, Key& key, Log::Reference reference);

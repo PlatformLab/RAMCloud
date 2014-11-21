@@ -20,6 +20,7 @@
 #include "EnumerationIterator.h"
 #include "IndexletManager.h"
 #include "LogEntryRelocator.h"
+#include "MasterService.h"
 #include "ObjectManager.h"
 #include "Object.h"
 #include "PerfStats.h"
@@ -116,9 +117,16 @@ ObjectManager::initOnceEnlisted()
  * ObjectManager.
  *
  * We'd typically expect one object to match one primary key hash, but it is
+<<<<<<< HEAD
  * possible that zero (if that object was removed after client got the key
  * hash), one, or multiple (if there are multiple objects with the same primary
  * key hash) objects match.
+=======
+ * possible that zero (if that object was removed after client did
+ * lookupIndexKeys() preceding this call), one, or multiple (if there are
+ * multiple objects with the same primary key hash that also have index
+ * keys in the current read range) objects match.
+>>>>>>> Add RpcResult Log Entry Cleaning. No tests yet.
  *
  * \param tableId
  *      Id of the table containing the object(s).
@@ -1400,7 +1408,7 @@ ObjectManager::getTimestamp(LogEntryType type, Buffer& buffer)
 }
 
 /**
- * Relocate and update metadata for an object or tombstone that is being
+ * Relocate and update metadata for an object, tombstone, etc. that is being
  * cleaned. The cleaner invokes this method for every entry it comes across
  * when processing a segment. If the entry is no longer needed, nothing needs
  * to be done. If it is needed, the provided relocator should be used to copy
@@ -1427,6 +1435,8 @@ ObjectManager::relocate(LogEntryType type, Buffer& oldBuffer,
         relocateObject(oldBuffer, oldReference, relocator);
     else if (type == LOG_ENTRY_TYPE_OBJTOMB)
         relocateTombstone(oldBuffer, oldReference, relocator);
+    else if (type == LOG_ENTRY_TYPE_RPCRECORD)
+        relocateRpcRecord(oldBuffer, relocator);
 }
 
 /**
@@ -1906,6 +1916,47 @@ ObjectManager::keyPointsAtReference(Key& key, AbstractLog::Reference reference)
     return false;
 }
 
+
+/**
+ * Callback used by the LogCleaner when it's cleaning a Segment and comes
+ * across an RpcRecord.
+ *
+ * This callback will decide if the RpcRecord is still alive. If it is, it must
+ * use the relocator to move it to a new location and atomically update the
+ * hash table.
+ *
+ * \param oldBuffer
+ *      Buffer pointing to the RpcRecord's current location, which will soon be
+ *      invalidated.
+ * \param relocator
+ *      The relocator may be used to store the RpcRecord in a new location if it
+ *      is still alive. It also provides a reference to the new location and
+ *      keeps track of whether this call wanted the RpcRecord anymore or not.
+ *
+ *      It is possible that relocation may fail (because more memory needs to
+ *      be allocated). In this case, the callback should just return. The
+ *      cleaner will note the failure, allocate more memory, and try again.
+ */
+void
+ObjectManager::relocateRpcRecord(Buffer& oldBuffer,
+        LogEntryRelocator& relocator)
+{
+    RpcRecord rpcRecord(oldBuffer);
+
+    // See if the rpc that this record records is still not acked and thus needs
+    // to be kept.
+    bool keepRpcRecord = !context->masterService->unackedRpcResults.isRpcAcked(
+            rpcRecord.header.leaseId, rpcRecord.header.rpcId);
+
+    if (keepRpcRecord) {
+        // Try to relocate it. If it fails, just return. The cleaner will
+        // allocate more memory and retry.
+        if (!relocator.append(LOG_ENTRY_TYPE_RPCRECORD, oldBuffer))
+            return;
+    }
+
+    //TODO(cstlee) : Should we be keeping track of table stats here?
+}
 
 /**
  * Callback used by the LogCleaner when it's cleaning a Segment and comes

@@ -38,6 +38,7 @@
 #include "TabletManager.h"
 #include "IndexletManager.h"
 #include "WireFormat.h"
+#include "UnackedRpcResults.h"
 
 namespace RAMCloud {
 
@@ -106,6 +107,12 @@ class MasterService : public Service {
      * The IndexletManger class that is responsible for index storage.
      */
     IndexletManager indexletManager;
+
+    /**
+     * The UnackedRpcResults keeps track of those linearizable rpcs that have
+     * not yet been acknowledged by the client.
+     */
+    UnackedRpcResults unackedRpcResults;
 
 #ifdef TESTING
     /// Used to pause the read-increment-write cycle in incrementObject

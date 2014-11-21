@@ -154,6 +154,7 @@ TESTS_SRCFILES := \
 		  src/TransportTest.cc \
 		  src/TubTest.cc \
 		  src/UdpDriverTest.cc \
+		  src/UnackedRpcResultsTest.cc \
 		  src/UpdateReplicationEpochTaskTest.cc \
 		  src/UtilTest.cc \
 		  src/VarLenArrayTest.cc \

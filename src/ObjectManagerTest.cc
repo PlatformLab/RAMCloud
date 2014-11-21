@@ -1675,6 +1675,10 @@ TEST_F(ObjectManagerTest, keyPointsAtReference) {
                 key, reference));
 }
 
+TEST_F(ObjectManagerTest, rpcResultRelocationCallback_basic) {
+    //TODO(cstlee)
+}
+
 static bool
 segmentExists(string s)
 {
