@@ -1697,6 +1697,10 @@ TEST_F(ObjectManagerTest, objectRelocationCallback_objectModified) {
               , verifyMetadata(0));
 }
 
+TEST_F(ObjectManagerTest, rpcResultRelocationCallback_basic) {
+    //TODO(cstlee)
+}
+
 static bool
 segmentExists(string s)
 {
