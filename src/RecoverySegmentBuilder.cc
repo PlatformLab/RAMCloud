@@ -78,7 +78,8 @@ RecoverySegmentBuilder::build(const void* buffer, uint32_t length,
             continue;
         }
         if (type != LOG_ENTRY_TYPE_OBJ && type != LOG_ENTRY_TYPE_OBJTOMB
-            && type != LOG_ENTRY_TYPE_SAFEVERSION)
+            && type != LOG_ENTRY_TYPE_SAFEVERSION
+            && type != LOG_ENTRY_TYPE_RPCRECORD)
             continue;
 
         if (header == NULL) {
@@ -117,6 +118,10 @@ RecoverySegmentBuilder::build(const void* buffer, uint32_t length,
             tableId = tomb.getTableId();
             keyHash = Key::getHash(tableId,
                                    tomb.getKey(), tomb.getKeyLength());
+        } else if (type == LOG_ENTRY_TYPE_RPCRECORD) {
+            RpcRecord rpcRecord(entryBuffer);
+            tableId = rpcRecord.getTableId();
+            keyHash = rpcRecord.getKeyHash();
         } else {
             LOG(WARNING, "Unknown LogEntry (id=%u)", type);
             throw SegmentRecoveryFailedException(HERE);
