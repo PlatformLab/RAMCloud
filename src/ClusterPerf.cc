@@ -360,39 +360,29 @@ timeIndexWrite(uint64_t tableId, uint8_t numKeys, KeyInfo *keyList,
                std::vector<double>& writeTimes,
                std::vector<double>& overWriteTimes)
 {
-    //warming up
+    // Warm up caches
     cluster->write(tableId, numKeys, keyList, buf, length);
     cluster->remove(tableId, keyList[0].key, keyList[0].keyLength);
     Cycles::sleep(100);
 
-    uint64_t timeWrite = 0;
-    uint64_t timeOverwrite = 0;
-    uint64_t timeTaken = 0;
-    // record many measurements for each point and then take
+    // Record many measurements for each point and then take
     // relevant statistics
     int count = 1000;
-
-    // record the individual times as well
     writeTimes.resize(count);
     overWriteTimes.resize(count);
 
     uint64_t start;
+
     for (int i = 0; i < count; i++) {
         start = Cycles::rdtsc();
         cluster->write(tableId, numKeys, keyList, buf, length);
-        timeTaken = Cycles::rdtsc() - start;
-        timeWrite += timeTaken;
-
-        writeTimes[i] = Cycles::toSeconds(timeTaken);
+        writeTimes[i] = Cycles::toSeconds(Cycles::rdtsc() - start);
 
         Cycles::sleep(100);
 
         start = Cycles::rdtsc();
         cluster->write(tableId, numKeys, keyList, buf, length);
-        timeTaken = Cycles::rdtsc() - start;
-        timeOverwrite += timeTaken;
-
-        overWriteTimes[i] = Cycles::toSeconds(timeTaken);
+        overWriteTimes[i] = Cycles::toSeconds(Cycles::rdtsc() - start);
 
         Cycles::sleep(100);
 
@@ -400,7 +390,7 @@ timeIndexWrite(uint64_t tableId, uint8_t numKeys, KeyInfo *keyList,
         Cycles::sleep(100);
     }
 
-    //final write to facilitate lookup afterwords
+    // Final write to facilitate lookup afterwards
     cluster->write(tableId, numKeys, keyList, buf, length);
 }
 
@@ -446,69 +436,62 @@ timeLookupAndIndexedRead(uint64_t tableId, uint8_t indexId, Key& pk,
                          std::vector<double>& lookupTimes,
                          std::vector<double>& lookupReadTimes)
 {
-    // Hard-coding a number that we think is this is enough bulk to
-    // amortize all the fixed costs per RPC.
-    uint32_t maxNumHashes = 1000;
+    // Declare variables needed later for lookupIndexKeys.
+    Buffer responseBuffer;
+    uint32_t maxNumHashes = 1000;     // Hard-coding a number that we think is
+                                      // enough to amortize fixed costs per RPC.
+    uint32_t numHashes;
+    uint16_t nextKeyLength;
+    uint64_t nextKeyHash;
 
-    //warming up
-    Buffer responseBufferWarmup;
-    uint32_t numHashesWarmup;
-    uint16_t nextKeyLengthWarmup;
-    uint64_t nextKeyHashWarmup;
+    // Declare variables needed later for indexedRead.
+    Buffer pKHashes;
+    Buffer readResp;
+    uint32_t numObjects;
+    uint32_t lookupOffset = sizeof32(WireFormat::LookupIndexKeys::Response);
 
+    // Warm up caches
     cluster->lookupIndexKeys(tableId, indexId, firstKey, firstKeyLength,
-                        firstAllowedKeyHash, lastKey, lastKeyLength,
-                        maxNumHashes,
-                        &responseBufferWarmup, &numHashesWarmup,
-                        &nextKeyLengthWarmup, &nextKeyHashWarmup);
-    // record many measurements for each point and then take
+            firstAllowedKeyHash, lastKey, lastKeyLength, maxNumHashes,
+            &responseBuffer, &numHashes, &nextKeyLength, &nextKeyHash);
+    pKHashes.emplaceAppend<uint64_t>(pk.getHash());
+    cluster->indexedRead(tableId, numHashes, &pKHashes, indexId,
+            firstKey, firstKeyLength, lastKey, lastKeyLength,
+            &readResp, &numObjects);
+
+    // Record many measurements for each point and then take
     // relevant statistics
     int count = 1000;
-    uint64_t timeTaken = 0;
     lookupTimes.resize(count);
     lookupReadTimes.resize(count);
 
     uint64_t start;
     for (int i = 0; i < count; i++) {
 
-        Buffer responseBuffer;
-        uint32_t numHashes;
-        uint16_t nextKeyLength;
-        uint64_t nextKeyHash;
+        responseBuffer.reset();
 
         start = Cycles::rdtsc();
         cluster->lookupIndexKeys(tableId, indexId, firstKey, firstKeyLength,
-                    firstAllowedKeyHash, lastKey, lastKeyLength, maxNumHashes,
-                    &responseBuffer, &numHashes, &nextKeyLength, &nextKeyHash);
-
-        timeTaken = Cycles::rdtsc() - start;
-
-        lookupTimes[i] = Cycles::toSeconds(timeTaken);
+                firstAllowedKeyHash, lastKey, lastKeyLength, maxNumHashes,
+                &responseBuffer, &numHashes, &nextKeyLength, &nextKeyHash);
+        lookupTimes[i] = Cycles::toSeconds(Cycles::rdtsc() - start);
 
         // verify
-        uint32_t lookupOffset;
         if (numHashes != 1)
             printf("failed object, secKey:%s numHashes:%d\n",
                    static_cast<const char *>(lastKey), numHashes);
         assert(numHashes > 0);
-        lookupOffset = sizeof32(WireFormat::LookupIndexKeys::Response);
         assert(pk.getHash() ==
-                        *responseBuffer.getOffset<uint64_t>(lookupOffset));
+                *responseBuffer.getOffset<uint64_t>(lookupOffset));
 
-        Buffer pKHashes;
+        pKHashes.reset();
         pKHashes.emplaceAppend<uint64_t>(pk.getHash());
-        Buffer readResp;
-        uint32_t numObjects;
 
         start = Cycles::rdtsc();
-
         cluster->indexedRead(tableId, numHashes, &pKHashes, indexId,
-                    firstKey, firstKeyLength, lastKey, lastKeyLength,
-                    &readResp, &numObjects);
-
-        timeTaken += Cycles::rdtsc() - start;
-
-        lookupReadTimes[i] = Cycles::toSeconds(timeTaken);
+                firstKey, firstKeyLength, lastKey, lastKeyLength,
+                &readResp, &numObjects);
+        lookupReadTimes[i] = Cycles::toSeconds(Cycles::rdtsc() - start);
     }
 }
 
@@ -1755,7 +1738,8 @@ doMultiWrite(int dataLength, uint16_t keyLength,
 }
 
 // Basic index write/overwrite, lookups and indexedRead operation times.
-// All objects have just one secondary key and all keys are 30 bytes long.
+// All objects have a primary key (30B), one secondary key (30B) and value
+// blob (100B).
 void
 indexBasic()
 {
@@ -1802,7 +1786,7 @@ indexBasic()
 
         char secondaryKey[keyLength];
         snprintf(secondaryKey, sizeof(secondaryKey), "b%ds%0*d", i,
-                 keyLength, 0);
+                keyLength, 0);
 
         KeyInfo keyList[2];
         keyList[0].keyLength = keyLength;
@@ -1812,57 +1796,51 @@ indexBasic()
 
         Buffer input;
         fillBuffer(input, size, dataTable,
-                   keyList[0].key, keyList[0].keyLength);
+                keyList[0].key, keyList[0].keyLength);
 
         std::vector<double> timeWrites, timeOverWrites, timeLookups,
-                            timeLookupIndexedReads;
-        bool measureFlag = false;
+                timeLookupIndexedReads;
 
-        // record/measure only points that are in indexSizes[]
-        if ((i + 1) == indexSizes[k]) {
-            timeIndexWrite(dataTable, numKeys, keyList, input.getRange(0, size),
-                           size, timeWrites, timeOverWrites);
-            measureFlag = true;
-        } else {
+        // Write all objects. Measure performance while writing (i+1)th object,
+        // where i is in indexSizes[].
+        if ((i + 1) != indexSizes[k]) {
             cluster->write(dataTable, numKeys, keyList,
-                           input.getRange(0, size), size);
-        }
+                    input.getRange(0, size), size);
+        } else {
+            // Measure the time to write and overwrite.
+            timeIndexWrite(dataTable, numKeys, keyList, input.getRange(0, size),
+                    size, timeWrites, timeOverWrites);
 
-        if (measureFlag) {
-            // measuere both lookup and lookup+indexedRead operations
+            // Measure lookup and lookup+indexedRead operations.
             Key pk(dataTable, keyList[0].key, keyList[0].keyLength);
             timeLookupAndIndexedRead(dataTable, indexId, pk, keyList[1].key,
-                keyList[1].keyLength, firstAllowedKeyHash, keyList[1].key,
-                keyList[1].keyLength, timeLookups, timeLookupIndexedReads);
+                    keyList[1].keyLength, firstAllowedKeyHash, keyList[1].key,
+                    keyList[1].keyLength, timeLookups, timeLookupIndexedReads);
 
-            // measurements for 'i+1'th object (current size of table/index = i)
-
-            std::sort(timeWrites.begin(),
-                      timeWrites.end());
-            std::sort(timeOverWrites.begin(),
-                      timeOverWrites.end());
-            std::sort(timeLookups.begin(),
-                      timeLookups.end());
+            std::sort(timeWrites.begin(), timeWrites.end());
+            std::sort(timeOverWrites.begin(), timeOverWrites.end());
+            std::sort(timeLookups.begin(), timeLookups.end());
             std::sort(timeLookupIndexedReads.begin(),
-                      timeLookupIndexedReads.end());
+                    timeLookupIndexedReads.end());
 
             printf("%9d %9.1f/%6.1f/%6.1f %13.1f/%6.1f/%6.1f ",
-                   indexSizes[k],
-                   timeWrites[timeWrites.size()/10] *1e6,
-                   timeWrites[timeWrites.size()/2] *1e6,
-                   timeWrites[timeWrites.size()*9/10] *1e6,
-                   timeOverWrites[timeOverWrites.size()/10] *1e6,
-                   timeOverWrites[timeOverWrites.size()/2] *1e6,
-                   timeOverWrites[timeOverWrites.size()*9/10] *1e6);
+                    indexSizes[k],
+                    timeWrites[timeWrites.size()/10] *1e6,
+                    timeWrites[timeWrites.size()/2] *1e6,
+                    timeWrites[timeWrites.size()*9/10] *1e6,
+                    timeOverWrites[timeOverWrites.size()/10] *1e6,
+                    timeOverWrites[timeOverWrites.size()/2] *1e6,
+                    timeOverWrites[timeOverWrites.size()*9/10] *1e6);
 
             printf("%10.1f/%6.1f/%6.1f %12.1f/%6.1f/%6.1f\n",
-                   timeLookups[timeLookups.size()/10] *1e6,
-                   timeLookups[timeLookups.size()/2] *1e6,
-                   timeLookups[timeLookups.size()*9/10] *1e6,
-                   timeLookupIndexedReads[timeLookupIndexedReads.size()/10]*1e6,
-                   timeLookupIndexedReads[timeLookupIndexedReads.size()/2]*1e6,
-                   timeLookupIndexedReads[timeLookupIndexedReads.size()*9/10]*
-                    1e6);
+                    timeLookups[timeLookups.size()/10] *1e6,
+                    timeLookups[timeLookups.size()/2] *1e6,
+                    timeLookups[timeLookups.size()*9/10] *1e6,
+                    timeLookupIndexedReads[timeLookupIndexedReads.size()/10] *
+                            1e6,
+                    timeLookupIndexedReads[timeLookupIndexedReads.size()/2]*1e6,
+                    timeLookupIndexedReads[timeLookupIndexedReads.size()*9/10] *
+                            1e6);
             k++;
             printf("\n");
         }
@@ -1870,17 +1848,28 @@ indexBasic()
     cluster->dropIndex(dataTable, indexId);
 }
 
-// Index write and overwrite times for varying number of indexes/object
+// Index write and overwrite times for varying number of objects for
+// varying number of secondary keys (and corresponding indexes) per object.
 void
 indexMultiple()
 {
+    printf("Starting test");
     if (clientIndex != 0)
         return;
 
+    // Declare variables needed later.
+    uint8_t maxNumKeys = static_cast<uint8_t>(numIndexes + 1); // Includes the
+                                                               // primary key.
+    int numObjects = 1000; // Number of objects in table (and correspondingly,
+                           // number of entries in each index).
     const uint32_t keyLength = 30;
-    int numObjects = 1000; // size of the table/index
-    // includes the primary key
-    uint8_t maxNumKeys = static_cast<uint8_t>(numIndexes + 1);
+    uint32_t size = 100; // Length of value.
+    Buffer lookupResp;
+    uint32_t numHashes;
+    uint16_t nextKeyLength;
+    uint64_t nextKeyHash;
+    uint32_t maxNumHashes = 1000;
+    uint32_t lookupOffset = sizeof32(WireFormat::LookupIndexKeys::Response);
 
     printf("# RAMCloud write/overwrite performance for %dth object "
             "insertion with varying number of index keys.\n"
@@ -1889,87 +1878,83 @@ indexMultiple()
             "# are printed as 10 percentile/ median/ 90 percentile\n",
             numObjects, numObjects-1);
     printf("# Generated by 'clusterperf.py indexMultiple'\n#\n"
-           "# Num secondary keys/obj        write latency (us)"
-           "        overwrite latency (us)\n"
-           "#---------------------------------------------------"
-           "------------------------------\n");
+            "# Num secondary keys/obj        write latency (us)"
+            "        overwrite latency (us)\n"
+            "#---------------------------------------------------"
+            "------------------------------\n");
 
-    for (uint8_t numKeys = 0; numKeys < maxNumKeys; numKeys++) {
+    for (uint8_t currentNumIndexes = 0; currentNumIndexes <= maxNumKeys - 1;
+            currentNumIndexes++) {
 
-        // numKeys refers to the number of secondary keys
+        // Create a data table with name tableName and create indexes
+        // corresponding to that table.
         char tableName[20];
-        snprintf(tableName, sizeof(tableName), "table%d", numKeys);
+        snprintf(tableName, sizeof(tableName), "tableWith%dIndexes",
+                currentNumIndexes);
         uint64_t indexTable = cluster->createTable(tableName);
 
-        for (uint8_t z = 1; z <= numKeys; z++)
+        for (uint8_t z = 1; z <= currentNumIndexes; z++)
             cluster->createIndex(indexTable, z, 0);
 
-        // records measurements for one specific value of numKeys
+        // records measurements for one specific value of currentNumIndexes
         std::vector<double> timeWrites, timeOverWrites;
 
         for (int i = 0; i < numObjects; i++) {
 
-            KeyInfo keyList[numKeys+1];
-            char key[numKeys+1][keyLength];
+            KeyInfo keyList[currentNumIndexes + 1];
+            char key[currentNumIndexes + 1][keyLength];
 
-            // primary key
+            // Populate keyList with primary key (at index 0) & secondary keys.
             snprintf(key[0], sizeof(key[0]), "%dp%d%0*d",
-                     numKeys, i, keyLength, 0);
+                     currentNumIndexes, i, keyLength, 0);
             keyList[0].keyLength = keyLength;
             keyList[0].key = key[0];
-            for (int j = 1; j < numKeys + 1; j++) {
+            for (int j = 1; j < currentNumIndexes + 1; j++) {
                 snprintf(key[j], sizeof(key[j]), "b%ds%d%d%0*d",
-                         numKeys, i, j, keyLength, 0);
+                         currentNumIndexes, i, j, keyLength, 0);
                 keyList[j].keyLength = keyLength;
                 keyList[j].key = key[j];
             }
 
-            // Keeping value size constant = 100 bytes
-            uint32_t size = 100;
             char value[size];
             snprintf(value, sizeof(value), "Value %0*d", size, 0);
 
-            // do the measurement only for the last object insertion
-            if (i == numObjects - 1)
-                timeIndexWrite(indexTable, (uint8_t)(numKeys+1), keyList,
-                               value, sizeof32(value), timeWrites,
-                               timeOverWrites);
+            // Write numObjects objects, and take measurements for the last one.
+            if (i < numObjects)
+                cluster->write(indexTable, (uint8_t)(currentNumIndexes + 1),
+                        keyList, value, sizeof32(value));
             else
-                cluster->write(indexTable, (uint8_t)(numKeys+1), keyList,
-                               value, sizeof32(value));
+                timeIndexWrite(indexTable, (uint8_t)(currentNumIndexes + 1),
+                        keyList, value, sizeof32(value), timeWrites,
+                        timeOverWrites);
 
-            // verify
+            // Verify written data.
             Key pkey(indexTable, keyList[0].key, keyList[0].keyLength);
-            for (uint8_t z = 1; z <= numKeys; z++) {
-                Buffer lookupResp;
-                uint32_t numHashes;
-                uint16_t nextKeyLength;
-                uint64_t nextKeyHash;
-                uint32_t maxNumHashes = 1000;
-                uint32_t lookupOffset;
+            for (uint8_t z = 1; z <= currentNumIndexes; z++) {
+                lookupResp.reset();
                 cluster->lookupIndexKeys(indexTable, z, keyList[z].key,
-                    keyList[z].keyLength, 0, keyList[z].key,
-                    keyList[z].keyLength, maxNumHashes,
-                    &lookupResp, &numHashes,
-                    &nextKeyLength, &nextKeyHash);
+                        keyList[z].keyLength, 0, keyList[z].key,
+                        keyList[z].keyLength, maxNumHashes,
+                        &lookupResp, &numHashes,
+                        &nextKeyLength, &nextKeyHash);
 
                 assert(1 == numHashes);
-                lookupOffset = sizeof32(
-                                    WireFormat::LookupIndexKeys::Response);
                 assert(pkey.getHash()==
-                            *lookupResp.getOffset<uint64_t>(lookupOffset));
+                        *lookupResp.getOffset<uint64_t>(lookupOffset));
             }
         }
 
-        for (uint8_t z = 1; z <= numKeys; z++)
+        // Cleanup.
+        for (uint8_t z = 1; z <= currentNumIndexes; z++)
             cluster->dropIndex(indexTable, z);
         cluster->dropTable(tableName);
 
-        // note that this modifies the underlying vector.
+        // Print stats.
+        // Note that sort modifies the underlying vector.
         std::sort(timeWrites.begin(), timeWrites.end());
         std::sort(timeOverWrites.begin(), timeOverWrites.end());
-
-        printf("%24d %11.1f/%6.1f/%6.1f %14.1f/%6.1f/%6.1f\n", numKeys,
+        printf("%24d %11.1f/%6.1f/%6.1f %14.1f/%6.1f/%6.1f\n",
+               currentNumIndexes,
                timeWrites[timeWrites.size()/10] *1e6,
                timeWrites[timeWrites.size()/2] *1e6,
                timeWrites[timeWrites.size()*9/10] *1e6,
@@ -1981,9 +1966,8 @@ indexMultiple()
 
 /**
  * This method contains the core of the "indexScalability" test; it is
- * shared by the master and slaves and measure lookup index operations
- * throughput. Please make sure that the dataTable is also split into multiple
- * tablets to ensure read don't bottleneck.
+ * shared by the master and slaves and measures the throughput for index lookup
+ * operations.
  *
  * \param range
  *      Range of identifiers [1, range] for the indexlets available for
@@ -2017,16 +2001,17 @@ indexScalabilityCommonLookup(uint8_t range, int numObjects, char *docString)
 
         for (int i =0; i < numRequests; i++) {
             char firstKey = static_cast<char>(('a') +
-                                    static_cast<int>(generateRandom() % range));
+                    static_cast<int>(generateRandom() % range));
             int randObj = static_cast<int>(generateRandom() % numObjects);
 
             snprintf(primaryKey[i], sizeof(primaryKey[i]), "%c:%dp%0*d",
-                                                firstKey, randObj, 30, 0);
-
+                    firstKey, randObj, 30, 0);
             snprintf(secondaryKey[i], sizeof(secondaryKey[i]), "%c:%ds%0*d",
-                        firstKey, randObj, 30, 0);
+                    firstKey, randObj, 30, 0);
         }
 
+        // Send async requests and receive responses to numRequests lookup
+        // requests and measure time.
         lookupStart = Cycles::rdtsc();
         for (int i =0; i < numRequests; i++) {
             rpcs[i].construct(cluster, dataTable, (uint8_t)1, secondaryKey[i],
@@ -2041,13 +2026,14 @@ indexScalabilityCommonLookup(uint8_t range, int numObjects, char *docString)
         }
         lookupEnd = Cycles::rdtsc();
 
+        // Verify data.
         for (int i =0; i < numRequests; i++) {
             Key pk(dataTable, primaryKey[i], 30);
             uint32_t lookupOffset;
             lookupOffset = sizeof32(WireFormat::LookupIndexKeys::Response);
             assert(numHashes[i] == 1);
             assert(pk.getHash()==
-                            *lookupResp[i].getOffset<uint64_t>(lookupOffset));
+                    *lookupResp[i].getOffset<uint64_t>(lookupOffset));
         }
 
         uint64_t latency = lookupEnd - lookupStart;
@@ -2057,20 +2043,20 @@ indexScalabilityCommonLookup(uint8_t range, int numObjects, char *docString)
             break;
     }
 
-    double thruput = count/Cycles::toSeconds(elapsed);
-    sendMetrics(thruput);
+    double throughput = count/Cycles::toSeconds(elapsed);
+    sendMetrics(throughput);
     if (clientIndex != 0) {
-        RAMCLOUD_LOG(NOTICE,
-        "Client:%d %s: throughput: %.1f lookups/sec",
-        clientIndex, docString, thruput);
+        RAMCLOUD_LOG(NOTICE, "Client:%d %s: throughput: %.1f lookups/sec",
+                clientIndex, docString, throughput);
     }
 }
 
 /**
  * This method contains the core of the "indexScalability" test; it is
- * shared by the master and slaves and measure lookup and read index operations
- * throughput. Please make sure that the dataTable is also split into multiple
- * tablets to ensure read don't bottleneck.
+ * shared by the master and slaves and measures the throughput of
+ * lookup and read index operations.
+ * Ensure that the dataTable is also split into multiple
+ * tablets to ensure reads don't bottleneck.
  *
  * \param range
  *      Range of identifiers [1, range] for the indexlets available for
@@ -2110,18 +2096,20 @@ indexScalabilityCommonLookupRead(uint8_t range, int numObjects, char *docString)
 
         for (int i = 0; i < numRequests; i++) {
             char firstKey = static_cast<char>(('a') +
-                                    static_cast<int>(generateRandom() % range));
+                    static_cast<int>(generateRandom() % range));
             int randObj = static_cast<int>(generateRandom() % numObjects);
 
             snprintf(primaryKey[i], sizeof(primaryKey[i]), "%c:%dp%0*d",
-                                                firstKey, randObj, 30, 0);
-
+                    firstKey, randObj, 30, 0);
             snprintf(secondaryKey[i], sizeof(secondaryKey[i]), "%c:%ds%0*d",
-                        firstKey, randObj, 30, 0);
+                    firstKey, randObj, 30, 0);
+
             Key pk(dataTable, primaryKey[i], 30);
             pKHashes[i].emplaceAppend<uint64_t>(pk.getHash());
         }
 
+        // Send async requests and receive responses to numRequests lookup
+        // requests then indexed read requests and measure time.
         lookupStart = Cycles::rdtsc();
         for (int i =0; i < numRequests; i++) {
             rpcs[i].construct(cluster, dataTable, (uint8_t)1, secondaryKey[i],
@@ -2134,8 +2122,8 @@ indexScalabilityCommonLookupRead(uint8_t range, int numObjects, char *docString)
             if (rpcs[i]) {
               rpcs[i]->wait(&numHashes[i], &nextKeyLength[i], &nextKeyHash[i]);
               readRpcs[i].construct(cluster, dataTable, numHashes[i],
-                  &pKHashes[i], (uint8_t)1, secondaryKey[i], (uint16_t)30,
-                  secondaryKey[i], (uint16_t)30, &readResp[i]);
+                      &pKHashes[i], (uint8_t)1, secondaryKey[i], (uint16_t)30,
+                      secondaryKey[i], (uint16_t)30, &readResp[i]);
             }
         }
 
@@ -2145,7 +2133,7 @@ indexScalabilityCommonLookupRead(uint8_t range, int numObjects, char *docString)
         }
         readEnd = Cycles::rdtsc();
 
-        //verify
+        // Verify data.
         for (int i = 0; i < numRequests; i++) {
             Key pk(dataTable, primaryKey[i], 30);
             uint32_t lookupOffset;
@@ -2153,7 +2141,7 @@ indexScalabilityCommonLookupRead(uint8_t range, int numObjects, char *docString)
             assert(numHashes[i] == 1);
             assert(readNumObjects[i] == 1);
             assert(pk.getHash() ==
-                            *lookupResp[i].getOffset<uint64_t>(lookupOffset));
+                    *lookupResp[i].getOffset<uint64_t>(lookupOffset));
         }
 
         uint64_t latency = readEnd - lookupStart;
@@ -2163,12 +2151,11 @@ indexScalabilityCommonLookupRead(uint8_t range, int numObjects, char *docString)
             break;
     }
 
-    double thruput = count/Cycles::toSeconds(elapsed);
-    sendMetrics(thruput);
+    double throughput = count/Cycles::toSeconds(elapsed);
+    sendMetrics(throughput);
     if (clientIndex != 0) {
-        RAMCLOUD_LOG(NOTICE,
-        "Client:%d %s: throughput: %.1f lookups/sec",
-                                clientIndex, docString, thruput);
+        RAMCLOUD_LOG(NOTICE, "Client:%d %s: throughput: %.1f lookups/sec",
+                clientIndex, docString, throughput);
     }
 }
 
@@ -2181,6 +2168,8 @@ indexScalability()
     uint8_t numIndexlets = (uint8_t)numIndexlet;
     int numObjectsPerIndexlet = 1000;
 
+    // Gets executed on clients to measure lookup scalability
+    // after the servers have been started up and data written (below).
     if (clientIndex > 0) {
         while (true) {
             char command[20];
@@ -2193,7 +2182,7 @@ indexScalability()
                         doc, sizeof(doc));
                 setSlaveState("running");
                 indexScalabilityCommonLookup(numIndexlets,
-                                            numObjectsPerIndexlet, doc);
+                        numObjectsPerIndexlet, doc);
                 setSlaveState("idle");
             } else if (strcmp(command, "done") == 0) {
                 setSlaveState("done");
@@ -2205,25 +2194,32 @@ indexScalability()
         }
     }
 
-    //dataset parameters
+    // Write data to be looked up / read later.
     uint8_t indexId = 1;
     uint8_t numKeys = 2;
     uint64_t firstAllowedKeyHash = 0;
     int size = 100;
 
-    //insert objects in dataset
+    // Declare variables that will be used in the loop.
+    Buffer lookupResp;
+    uint32_t numHashes;
+    uint16_t nextKeyLength;
+    uint64_t nextKeyHash;
+    uint32_t maxNumHashes = 1000;
+    uint32_t lookupOffset =
+            sizeof32(WireFormat::LookupIndexKeys::Response);
+
     cluster->createIndex(dataTable, indexId, 0, numIndexlets);
     for (int j = 0; j < numIndexlets; j++) {
-
         char firstKey = static_cast<char>('a'+j);
         for (int i = 0; i < numObjectsPerIndexlet; i++) {
+
             char primaryKey[30];
             snprintf(primaryKey, sizeof(primaryKey), "%c:%dp%0*d",
-                                                firstKey, i, 30, 0);
-
+                    firstKey, i, 30, 0);
             char secondaryKey[30];
             snprintf(secondaryKey, sizeof(secondaryKey), "%c:%ds%0*d",
-                                                    firstKey, i, 30, 0);
+                    firstKey, i, 30, 0);
 
             KeyInfo keyList[2];
             keyList[0].keyLength = 30;
@@ -2231,31 +2227,25 @@ indexScalability()
             keyList[1].keyLength = 30;
             keyList[1].key = secondaryKey;
 
-            Buffer input;
-            fillBuffer(input, size, dataTable,
-                       keyList[0].key, keyList[0].keyLength);
+            Buffer value;
+            fillBuffer(value, size, dataTable,
+                    keyList[0].key, keyList[0].keyLength);
 
             cluster->write(dataTable, numKeys, keyList,
-                                            input.getRange(0, size), size);
+                    value.getRange(0, size), size);
 
+            // Verify that data was written correctly.
             Key pk(dataTable, keyList[0].key, keyList[0].keyLength);
-            Buffer lookupResp;
-            uint32_t numHashes;
-            uint16_t nextKeyLength;
-            uint64_t nextKeyHash;
-            uint32_t maxNumHashes = 1000;
+            lookupResp.reset();
             cluster->lookupIndexKeys(dataTable, indexId, keyList[1].key,
-                keyList[1].keyLength, firstAllowedKeyHash, keyList[1].key,
-                keyList[1].keyLength, maxNumHashes,
-                &lookupResp, &numHashes, &nextKeyLength,
-                &nextKeyHash);
+                    keyList[1].keyLength, firstAllowedKeyHash, keyList[1].key,
+                    keyList[1].keyLength, maxNumHashes,
+                    &lookupResp, &numHashes, &nextKeyLength,
+                    &nextKeyHash);
 
-            //verify
-            uint32_t lookupOffset;
             assert(numHashes == 1);
-            lookupOffset = sizeof32(WireFormat::LookupIndexKeys::Response);
             assert(pk.getHash() ==
-                            *lookupResp.getOffset<uint64_t>(lookupOffset));
+                    *lookupResp.getOffset<uint64_t>(lookupOffset));
         }
     }
 
