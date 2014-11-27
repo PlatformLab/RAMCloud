@@ -378,15 +378,15 @@ timeIndexWrite(uint64_t tableId, uint8_t numKeys, KeyInfo *keyList,
         cluster->write(tableId, numKeys, keyList, buf, length);
         writeTimes[i] = Cycles::toSeconds(Cycles::rdtsc() - start);
 
-        Cycles::sleep(100);
-
         start = Cycles::rdtsc();
         cluster->write(tableId, numKeys, keyList, buf, length);
         overWriteTimes[i] = Cycles::toSeconds(Cycles::rdtsc() - start);
 
+        // Allow time for asynchronous removes of index entries to complete.
         Cycles::sleep(100);
 
         cluster->remove(tableId, keyList[0].key, keyList[0].keyLength);
+        // Allow time for asynchronous removes of index entries to complete.
         Cycles::sleep(100);
     }
 
@@ -491,7 +491,8 @@ timeLookupAndIndexedRead(uint64_t tableId, uint8_t indexId, Key& pk,
         cluster->indexedRead(tableId, numHashes, &pKHashes, indexId,
                 firstKey, firstKeyLength, lastKey, lastKeyLength,
                 &readResp, &numObjects);
-        lookupReadTimes[i] = Cycles::toSeconds(Cycles::rdtsc() - start);
+        lookupReadTimes[i] = Cycles::toSeconds(Cycles::rdtsc() - start)
+                + lookupTimes[i];
     }
 }
 
@@ -1969,9 +1970,8 @@ indexMultiple()
  * shared by the master and slaves and measures the throughput for index lookup
  * operations.
  *
- * \param range
- *      Range of identifiers [1, range] for the indexlets available for
- *      the test.
+ * \param numIndexlets
+ *      Number indexlets of an index available for the scalability test.
  * \param numObjects
  *      Total number of objects present in each indexlet.
  * \param docString
@@ -1979,7 +1979,8 @@ indexMultiple()
  *      in log messages.
  */
 void
-indexScalabilityCommonLookup(uint8_t range, int numObjects, char *docString)
+indexScalabilityCommonLookup(
+        uint8_t numIndexlets, int numObjects, char *docString)
 {
     double ms = 1000;
     uint64_t runCycles = Cycles::fromSeconds(ms/1e03);
@@ -1989,7 +1990,7 @@ indexScalabilityCommonLookup(uint8_t range, int numObjects, char *docString)
 
     while (true) {
 
-        int numRequests = range;
+        int numRequests = numIndexlets;
         Buffer lookupResp[numRequests];
         uint32_t numHashes[numRequests];
         uint16_t nextKeyLength[numRequests];
@@ -2001,7 +2002,7 @@ indexScalabilityCommonLookup(uint8_t range, int numObjects, char *docString)
 
         for (int i =0; i < numRequests; i++) {
             char firstKey = static_cast<char>(('a') +
-                    static_cast<int>(generateRandom() % range));
+                    static_cast<int>(generateRandom() % numIndexlets));
             int randObj = static_cast<int>(generateRandom() % numObjects);
 
             snprintf(primaryKey[i], sizeof(primaryKey[i]), "%c:%dp%0*d",
@@ -2057,10 +2058,17 @@ indexScalabilityCommonLookup(uint8_t range, int numObjects, char *docString)
  * lookup and read index operations.
  * Ensure that the dataTable is also split into multiple
  * tablets to ensure reads don't bottleneck.
+ * 
+ * Note that the indexScalability test currently uses the
+ * indexScalabilityCommonLookup rather than this function, because
+ * most commonly we're interested in testing the scalability of the
+ * index itself.
+ * This core method can be used to replace indexScalabilityCommonLookup in
+ * indexScalability if we want to test the scalability of both index and
+ * data tables together.
  *
- * \param range
- *      Range of identifiers [1, range] for the indexlets available for
- *      the test.
+ * \param numIndexlets
+ *      Number indexlets of an index available for the scalability test.
  * \param numObjects
  *      Total number of objects present in each indexlet.
  * \param docString
@@ -2068,7 +2076,8 @@ indexScalabilityCommonLookup(uint8_t range, int numObjects, char *docString)
  *      in log messages.
  */
 void
-indexScalabilityCommonLookupRead(uint8_t range, int numObjects, char *docString)
+indexScalabilityCommonLookupRead(
+        uint8_t numIndexlets, int numObjects, char *docString)
 {
     double ms = 1000;
     uint64_t runCycles = Cycles::fromSeconds(ms/1e03);
@@ -2079,7 +2088,7 @@ indexScalabilityCommonLookupRead(uint8_t range, int numObjects, char *docString)
 
     while (true) {
 
-        int numRequests = range;
+        int numRequests = numIndexlets;
         Buffer lookupResp[numRequests];
         uint32_t numHashes[numRequests];
         uint16_t nextKeyLength[numRequests];
@@ -2096,7 +2105,7 @@ indexScalabilityCommonLookupRead(uint8_t range, int numObjects, char *docString)
 
         for (int i = 0; i < numRequests; i++) {
             char firstKey = static_cast<char>(('a') +
-                    static_cast<int>(generateRandom() % range));
+                    static_cast<int>(generateRandom() % numIndexlets));
             int randObj = static_cast<int>(generateRandom() % numObjects);
 
             snprintf(primaryKey[i], sizeof(primaryKey[i]), "%c:%dp%0*d",
