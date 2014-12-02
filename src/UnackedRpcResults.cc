@@ -183,6 +183,45 @@ UnackedRpcResults::recordCompletion(uint64_t clientId,
 }
 
 /**
+ * TODO(cstlee) : Added code from Seojin. Best that he add the docs as well.
+ *
+ * \param clientId
+ * \param rpcId
+ * \param ackId
+ * \param result
+ */
+void
+UnackedRpcResults::recoverRecord(uint64_t clientId,
+                                 uint64_t rpcId,
+                                 uint64_t ackId,
+                                 void* result)
+{
+    Lock lock(mutex);
+
+    Client* client = clients[clientId];
+    //1. Handle Ack.
+    if (client->maxAckId < ackId)
+        client->maxAckId = ackId;
+
+    //2. Check if the same RPC has been started.
+    //   There are four cases to handle.
+    if (rpcId <= client->maxAckId) {
+        //rpc is already acknowledged. No need to retain record.
+    } else if (client->maxRpcId < rpcId) {
+        //Beyond the window of maxAckId and maxRpcId.
+        client->maxRpcId = rpcId;
+        client->recordNewRpc(rpcId);
+        client->updateResult(rpcId, result);
+    } else if (client->hasRecord(rpcId)) {
+        assert(false); //Cannot happen.
+    } else {
+        //Inside the window new rpc.
+        client->recordNewRpc(rpcId);
+        client->updateResult(rpcId, result);
+    }
+}
+
+/**
  * This method indicates whether the client has acknowledged receiving
  * the result from a given RPC. This should be used by LogCleaner to check
  * whether it should remove a log element or copy to new location.

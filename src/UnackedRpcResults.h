@@ -42,6 +42,10 @@ class UnackedRpcResults {
                         void** result);
     bool shouldRecover(uint64_t clientId, uint64_t rpcId, uint64_t ackId);
     void recordCompletion(uint64_t clientId, uint64_t rpcId, void* result);
+    void recoverRecord(uint64_t clientId,
+                       uint64_t rpcId,
+                       uint64_t ackId,
+                       void* result);
     bool isRpcAcked(uint64_t clientId, uint64_t rpcId);
 
     /// Thrown if already acknowledged rpcId is checked in checkDuplicate().
