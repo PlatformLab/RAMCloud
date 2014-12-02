@@ -114,6 +114,12 @@ class MasterService : public Service {
      */
     UnackedRpcResults unackedRpcResults;
 
+    /**
+     * Largest cluster time that this master service either directly or
+     * indirectly received from the coordinator.
+     */
+    Atomic<uint64_t> clusterTime;
+
 #ifdef TESTING
     /// Used to pause the read-increment-write cycle in incrementObject
     /// between the read and the write.  While paused, a second thread can
