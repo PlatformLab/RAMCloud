@@ -1956,13 +1956,21 @@ ObjectManager::relocateRpcRecord(Buffer& oldBuffer,
     // See if the rpc that this record records is still not acked and thus needs
     // to be kept.
     bool keepRpcRecord = !context->masterService->unackedRpcResults.isRpcAcked(
-            rpcRecord.header.leaseId, rpcRecord.header.rpcId);
+            rpcRecord.getLeaseId(), rpcRecord.getRpcId());
 
     if (keepRpcRecord) {
         // Try to relocate it. If it fails, just return. The cleaner will
         // allocate more memory and retry.
         if (!relocator.append(LOG_ENTRY_TYPE_RPCRECORD, oldBuffer))
             return;
+
+        // TODO(cstlee) : Ask Seojin if there is a problem if the rpc is acked
+        // before this method completes.
+        context->masterService->unackedRpcResults.recordCompletion(
+                rpcRecord.getLeaseId(),
+                rpcRecord.getRpcId(),
+                reinterpret_cast<void*>(
+                        relocator.getNewReference().toInteger()));
     }
 
     //TODO(cstlee) : Should we be keeping track of table stats here?
