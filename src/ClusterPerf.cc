@@ -173,37 +173,37 @@ void getDist(std::vector<uint64_t>& times, TimeDist* dist)
     dist->min = Cycles::toSeconds(times[0]);
     int index = count/2;
     if (index < count) {
-        dist->p50 = Cycles::toSeconds(times[index]);
+        dist->p50 = Cycles::toSeconds(times.at(index));
     } else {
         dist->p50 = 0;
     }
     index = count - (count+5)/10;
     if (index < count) {
-        dist->p90 = Cycles::toSeconds(times[index]);
+        dist->p90 = Cycles::toSeconds(times.at(index));
     } else {
         dist->p90 = 0;
     }
     index = count - (count+50)/100;
     if (index < count) {
-        dist->p99 = Cycles::toSeconds(times[index]);
+        dist->p99 = Cycles::toSeconds(times.at(index));
     } else {
         dist->p99 = 0;
     }
     index = count - (count+500)/1000;
     if (index < count) {
-        dist->p999 = Cycles::toSeconds(times[index]);
+        dist->p999 = Cycles::toSeconds(times.at(index));
     } else {
         dist->p999 = 0;
     }
     index = count - (count+5000)/10000;
     if (index < count) {
-        dist->p9999 = Cycles::toSeconds(times[index]);
+        dist->p9999 = Cycles::toSeconds(times.at(index));
     } else {
         dist->p9999 = 0;
     }
     index = count - (count+50000)/100000;
     if (index < count) {
-        dist->p99999 = Cycles::toSeconds(times[index]);
+        dist->p99999 = Cycles::toSeconds(times.at(index));
     } else {
         dist->p99999 = 0;
     }
@@ -376,11 +376,11 @@ timeIndexWrite(uint64_t tableId, uint8_t numKeys, KeyInfo *keyList,
     for (int i = 0; i < count; i++) {
         start = Cycles::rdtsc();
         cluster->write(tableId, numKeys, keyList, buf, length);
-        writeTimes[i] = Cycles::toSeconds(Cycles::rdtsc() - start);
+        writeTimes.at(i) = Cycles::toSeconds(Cycles::rdtsc() - start);
 
         start = Cycles::rdtsc();
         cluster->write(tableId, numKeys, keyList, buf, length);
-        overWriteTimes[i] = Cycles::toSeconds(Cycles::rdtsc() - start);
+        overWriteTimes.at(i) = Cycles::toSeconds(Cycles::rdtsc() - start);
 
         // Allow time for asynchronous removes of index entries to complete.
         Cycles::sleep(100);
@@ -474,7 +474,7 @@ timeLookupAndIndexedRead(uint64_t tableId, uint8_t indexId, Key& pk,
         cluster->lookupIndexKeys(tableId, indexId, firstKey, firstKeyLength,
                 firstAllowedKeyHash, lastKey, lastKeyLength, maxNumHashes,
                 &responseBuffer, &numHashes, &nextKeyLength, &nextKeyHash);
-        lookupTimes[i] = Cycles::toSeconds(Cycles::rdtsc() - start);
+        lookupTimes.at(i) = Cycles::toSeconds(Cycles::rdtsc() - start);
 
         // verify
         if (numHashes != 1)
@@ -491,8 +491,8 @@ timeLookupAndIndexedRead(uint64_t tableId, uint8_t indexId, Key& pk,
         cluster->indexedRead(tableId, numHashes, &pKHashes, indexId,
                 firstKey, firstKeyLength, lastKey, lastKeyLength,
                 &readResp, &numObjects);
-        lookupReadTimes[i] = Cycles::toSeconds(Cycles::rdtsc() - start)
-                + lookupTimes[i];
+        lookupReadTimes.at(i) = Cycles::toSeconds(Cycles::rdtsc() - start)
+                + lookupTimes.at(i);
     }
 }
 
@@ -635,8 +635,7 @@ readObject(uint64_t tableId, const void* key, uint16_t keyLength,
          int count, double timeLimit, Buffer& value)
 {
     uint64_t total = 0;
-    std::vector<uint64_t> times;
-    times.resize(count);
+    std::vector<uint64_t> times(count);
     uint64_t stopTime = Cycles::rdtsc() + Cycles::fromSeconds(timeLimit);
 
     // Read the value once just to warm up all the caches everywhere.
@@ -652,7 +651,7 @@ readObject(uint64_t tableId, const void* key, uint16_t keyLength,
         cluster->read(tableId, key, keyLength, &value);
         uint64_t interval = Cycles::rdtsc() - start;
         total += interval;
-        times[i] = interval;
+        times.at(i) = interval;
     }
     TimeDist result;
     getDist(times, &result);
@@ -688,10 +687,9 @@ readRandomObjects(uint64_t tableId, uint32_t numObjects, uint16_t keyLength,
          int count, double timeLimit)
 {
     uint64_t total = 0;
-    std::vector<uint64_t> times;
+    std::vector<uint64_t> times(count);
     char key[keyLength];
     Buffer value;
-    times.resize(count);
     uint64_t stopTime = Cycles::rdtsc() + Cycles::fromSeconds(timeLimit);
 
     for (int i = 0; i < count; i++) {
@@ -705,7 +703,7 @@ readRandomObjects(uint64_t tableId, uint32_t numObjects, uint16_t keyLength,
         cluster->read(tableId, key, keyLength, &value);
         uint64_t interval = Cycles::rdtsc() - start;
         total += interval;
-        times[i] = interval;
+        times.at(i) = interval;
     }
     TimeDist result;
     getDist(times, &result);
@@ -744,8 +742,7 @@ writeObject(uint64_t tableId, const void* key, uint16_t keyLength,
           const void* value, uint32_t length, int count, double timeLimit)
 {
     uint64_t total = 0;
-    std::vector<uint64_t> times;
-    times.resize(count);
+    std::vector<uint64_t> times(count);
     uint64_t stopTime = Cycles::rdtsc() + Cycles::fromSeconds(timeLimit);
 
     // Write the value once just to warm up all the caches everywhere.
@@ -761,7 +758,7 @@ writeObject(uint64_t tableId, const void* key, uint16_t keyLength,
         cluster->write(tableId, key, keyLength, value, length);
         uint64_t interval = Cycles::rdtsc() - start;
         total += interval;
-        times[i] = interval;
+        times.at(i) = interval;
     }
     TimeDist result;
     getDist(times, &result);
@@ -800,10 +797,9 @@ writeRandomObjects(uint64_t tableId, uint32_t numObjects, uint16_t keyLength,
           uint32_t valueLength, int count, double timeLimit)
 {
     uint64_t total = 0;
-    std::vector<uint64_t> times;
+    std::vector<uint64_t> times(count);
     char key[keyLength];
     char value[valueLength];
-    times.resize(count);
     memset(value, 'x', valueLength);
     uint64_t stopTime = Cycles::rdtsc() + Cycles::fromSeconds(timeLimit);
 
@@ -818,7 +814,7 @@ writeRandomObjects(uint64_t tableId, uint32_t numObjects, uint16_t keyLength,
         cluster->write(tableId, key, keyLength, value, valueLength);
         uint64_t interval = Cycles::rdtsc() - start;
         total += interval;
-        times[i] = interval;
+        times.at(i) = interval;
     }
     TimeDist result;
     getDist(times, &result);
@@ -1828,22 +1824,23 @@ indexBasic()
 
             printf("%9d %9.1f/%6.1f/%6.1f %13.1f/%6.1f/%6.1f ",
                     indexSizes[k],
-                    timeWrites[timeWrites.size()/10] *1e6,
-                    timeWrites[timeWrites.size()/2] *1e6,
-                    timeWrites[timeWrites.size()*9/10] *1e6,
-                    timeOverWrites[timeOverWrites.size()/10] *1e6,
-                    timeOverWrites[timeOverWrites.size()/2] *1e6,
-                    timeOverWrites[timeOverWrites.size()*9/10] *1e6);
+                    timeWrites.at(timeWrites.size()/10) *1e6,
+                    timeWrites.at(timeWrites.size()/2) *1e6,
+                    timeWrites.at(timeWrites.size()*9/10) *1e6,
+                    timeOverWrites.at(timeOverWrites.size()/10) *1e6,
+                    timeOverWrites.at(timeOverWrites.size()/2) *1e6,
+                    timeOverWrites.at(timeOverWrites.size()*9/10) *1e6);
 
             printf("%10.1f/%6.1f/%6.1f %12.1f/%6.1f/%6.1f\n",
-                    timeLookups[timeLookups.size()/10] *1e6,
-                    timeLookups[timeLookups.size()/2] *1e6,
-                    timeLookups[timeLookups.size()*9/10] *1e6,
-                    timeLookupIndexedReads[timeLookupIndexedReads.size()/10] *
-                            1e6,
-                    timeLookupIndexedReads[timeLookupIndexedReads.size()/2]*1e6,
-                    timeLookupIndexedReads[timeLookupIndexedReads.size()*9/10] *
-                            1e6);
+                    timeLookups.at(timeLookups.size()/10) *1e6,
+                    timeLookups.at(timeLookups.size()/2) *1e6,
+                    timeLookups.at(timeLookups.size()*9/10) *1e6,
+                    timeLookupIndexedReads.at(
+                        timeLookupIndexedReads.size()/10) * 1e6,
+                    timeLookupIndexedReads.at(
+                        timeLookupIndexedReads.size()/2)*1e6,
+                    timeLookupIndexedReads.at(
+                        timeLookupIndexedReads.size()*9/10) * 1e6);
             k++;
             printf("\n");
         }
@@ -1856,7 +1853,6 @@ indexBasic()
 void
 indexMultiple()
 {
-    printf("Starting test");
     if (clientIndex != 0)
         return;
 
@@ -1923,7 +1919,7 @@ indexMultiple()
             snprintf(value, sizeof(value), "Value %0*d", size, 0);
 
             // Write numObjects objects, and take measurements for the last one.
-            if (i < numObjects)
+            if (i != numObjects-1)
                 cluster->write(indexTable, (uint8_t)(currentNumIndexes + 1),
                         keyList, value, sizeof32(value));
             else
@@ -1958,12 +1954,12 @@ indexMultiple()
         std::sort(timeOverWrites.begin(), timeOverWrites.end());
         printf("%24d %11.1f/%6.1f/%6.1f %14.1f/%6.1f/%6.1f\n",
                currentNumIndexes,
-               timeWrites[timeWrites.size()/10] *1e6,
-               timeWrites[timeWrites.size()/2] *1e6,
-               timeWrites[timeWrites.size()*9/10] *1e6,
-               timeOverWrites[timeOverWrites.size()/10] *1e6,
-               timeOverWrites[timeOverWrites.size()/2] *1e6,
-               timeOverWrites[timeOverWrites.size()*9/10] *1e6);
+               timeWrites.at(timeWrites.size()/10) *1e6,
+               timeWrites.at(timeWrites.size()/2) *1e6,
+               timeWrites.at(timeWrites.size()*9/10) *1e6,
+               timeOverWrites.at(timeOverWrites.size()/10) *1e6,
+               timeOverWrites.at(timeOverWrites.size()/2) *1e6,
+               timeOverWrites.at(timeOverWrites.size()*9/10) *1e6);
     }
 }
 
@@ -2727,12 +2723,11 @@ readDist()
     }
 
     // Issue the reads as quickly as possible, and save the times.
-    std::vector<uint64_t> ticks;
-    ticks.resize(count);
+    std::vector<uint64_t> ticks(count);
     uint64_t start = Cycles::rdtsc();
     for (int i = 0; i < count; i++) {
         cluster->read(dataTable, key, keyLength, &value);
-        ticks[i] = Cycles::rdtsc();
+        ticks.at(i) = Cycles::rdtsc();
     }
 
     // Output the times (several comma-separated values on each line).
@@ -2745,10 +2740,10 @@ readDist()
         if (valuesInLine != 0) {
             printf(",");
         }
-        double micros = Cycles::toSeconds(ticks[i] - start)*1.0e06;
+        double micros = Cycles::toSeconds(ticks.at(i) - start)*1.0e06;
         printf("%.2f", micros);
         valuesInLine++;
-        start = ticks[i];
+        start = ticks.at(i);
     }
     printf("\n");
 }
@@ -2781,8 +2776,7 @@ readDistRandom()
     Util::serialize();
 
     // Issue the reads back-to-back, and save the times.
-    std::vector<uint64_t> ticks;
-    ticks.resize(count);
+    std::vector<uint64_t> ticks(count);
     for (int i = 0; i < count; i++) {
         // We generate the random number separately to avoid timing potential
         // cache misses on the client side.
@@ -2791,7 +2785,7 @@ readDistRandom()
         // Do the benchmark
         uint64_t start = Cycles::rdtsc();
         cluster->read(dataTable, key, keyLength, &value);
-        ticks[i] = Cycles::rdtsc() - start;
+        ticks.at(i) = Cycles::rdtsc() - start;
     }
 
     // Dump cache traces. This amounts to almost a no-op if there are no
@@ -2811,7 +2805,7 @@ readDistRandom()
         if (valuesInLine != 0) {
             printf(",");
         }
-        double micros = Cycles::toSeconds(ticks[i])*1.0e06;
+        double micros = Cycles::toSeconds(ticks.at(i))*1.0e06;
         printf("%.2f", micros);
         valuesInLine++;
     }
@@ -3369,8 +3363,7 @@ writeDistRandom()
     fillTable(dataTable, numKeys, keyLength, objectSize);
 
     // Issue the writes back-to-back, and save the times.
-    std::vector<uint64_t> ticks;
-    ticks.resize(count);
+    std::vector<uint64_t> ticks(count);
     for (int i = 0; i < count; i++) {
         // We generate the random number separately to avoid timing potential
         // cache misses on the client side.
@@ -3379,7 +3372,7 @@ writeDistRandom()
         // Do the benchmark
         uint64_t start = Cycles::rdtsc();
         cluster->write(dataTable, key, keyLength, value, objectSize);
-        ticks[i] = Cycles::rdtsc() - start;
+        ticks.at(i) = Cycles::rdtsc() - start;
     }
 
     // Dump both time and cache traces. This amounts to almost a no-op if there
@@ -3400,7 +3393,7 @@ writeDistRandom()
         if (valuesInLine != 0) {
             printf(",");
         }
-        double micros = Cycles::toSeconds(ticks[i])*1.0e06;
+        double micros = Cycles::toSeconds(ticks.at(i))*1.0e06;
         printf("%.2f", micros);
         valuesInLine++;
     }
