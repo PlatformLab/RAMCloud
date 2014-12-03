@@ -56,15 +56,20 @@ namespace RAMCloud {
  * \param masterTableMetadata
  *      Pointer to the master's MasterTableMetadata instance.  This keeps track
  *      of per table metadata located on this master.
+ * \param unackedRpcResults
+ *      Pointer to the master's UnackedRpcResults instance.  This keeps track
+ *      of data stored to ensure client rpcs are linearizable.
  */
 ObjectManager::ObjectManager(Context* context, ServerId* serverId,
                 const ServerConfig* config,
                 TabletManager* tabletManager,
-                MasterTableMetadata* masterTableMetadata)
+                MasterTableMetadata* masterTableMetadata,
+                UnackedRpcResults* unackedRpcResults)
     : context(context)
     , config(config)
     , tabletManager(tabletManager)
     , masterTableMetadata(masterTableMetadata)
+    , unackedRpcResults(unackedRpcResults)
     , allocator(config)
     , replicaManager(context, serverId,
                      config->master.numReplicas,
@@ -1848,7 +1853,7 @@ ObjectManager::relocateRpcRecord(Buffer& oldBuffer,
 
     // See if the rpc that this record records is still not acked and thus needs
     // to be kept.
-    bool keepRpcRecord = !context->masterService->unackedRpcResults.isRpcAcked(
+    bool keepRpcRecord = !unackedRpcResults->isRpcAcked(
             rpcRecord.getLeaseId(), rpcRecord.getRpcId());
 
     if (keepRpcRecord) {
@@ -1859,7 +1864,7 @@ ObjectManager::relocateRpcRecord(Buffer& oldBuffer,
 
         // TODO(cstlee) : Ask Seojin if there is a problem if the rpc is acked
         // before this method completes.
-        context->masterService->unackedRpcResults.recordCompletion(
+        unackedRpcResults->recordCompletion(
                 rpcRecord.getLeaseId(),
                 rpcRecord.getRpcId(),
                 reinterpret_cast<void*>(

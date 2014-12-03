@@ -35,6 +35,7 @@ class CleanerCompactionBenchmark {
     ServerList serverList;
     TabletManager tabletManager;
     MasterTableMetadata masterTableMetadata;
+    UnackedRpcResults unackedRpcResults;
     ServerId serverId;
     ObjectManager* objectManager;
 
@@ -45,6 +46,7 @@ class CleanerCompactionBenchmark {
         , serverList(&context)
         , tabletManager()
         , masterTableMetadata()
+        , unackedRpcResults()
         , serverId(1, 1)
         , objectManager(NULL)
     {
@@ -61,7 +63,8 @@ class CleanerCompactionBenchmark {
                                           &serverId,
                                           &config,
                                           &tabletManager,
-                                          &masterTableMetadata);
+                                          &masterTableMetadata,
+                                          &unackedRpcResults);
     }
 
     ~CleanerCompactionBenchmark()

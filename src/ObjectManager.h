@@ -30,6 +30,7 @@
 #include "SpinLock.h"
 #include "TabletManager.h"
 #include "MasterTableMetadata.h"
+#include "UnackedRpcResults.h"
 
 namespace RAMCloud {
 
@@ -52,7 +53,8 @@ class ObjectManager : public LogEntryHandlers {
     ObjectManager(Context* context, ServerId* serverId,
                 const ServerConfig* config,
                 TabletManager* tabletManager,
-                MasterTableMetadata* masterTableMetadata);
+                MasterTableMetadata* masterTableMetadata,
+                UnackedRpcResults* unackedRpcResults);
     virtual ~ObjectManager();
     void initOnceEnlisted();
 
@@ -283,6 +285,11 @@ class ObjectManager : public LogEntryHandlers {
      * Used to update table statistics.
      */
     MasterTableMetadata* masterTableMetadata;
+
+    /**
+     * Used to managed cleaning and recovery of RpcResult objects.
+     */
+    UnackedRpcResults* unackedRpcResults;
 
     /**
      * Allocator used by the SegmentManager to obtain main memory for log
