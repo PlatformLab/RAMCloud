@@ -1924,6 +1924,9 @@ TEST_F(MasterServiceTest, recover_basics) {
         {backup1Id.getId(), 87},
     };
 
+    EXPECT_EQ(0lu, masterServer->master->clusterTime.load());
+    cluster.coordinator->leaseManager.clock.safeClusterTimeUs = 1000000;
+
     TestLog::Enable __("replaySegment", "recover", "recoveryMasterFinished",
             NULL);
     MasterClient::recover(&context, masterServer->serverId, 10lu,
@@ -1931,6 +1934,7 @@ TEST_F(MasterServiceTest, recover_basics) {
             arrayLength(replicas));
     // safeVersion Recovered
     EXPECT_EQ(23U, segmentManager->safeVersion);
+    EXPECT_LT(0lu, masterServer->master->clusterTime.load());
 
     size_t curPos = 0; // Current Pos: given to getUntil()
     // Proceed read pointer
