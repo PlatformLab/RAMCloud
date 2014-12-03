@@ -157,7 +157,7 @@ string formatTime(double seconds)
 }
 
 /**
- * Given an array of time values, sort it and return information
+ * Given a vector of time values, sort it and return information
  * about various percentiles.
  *
  * \param times
@@ -1160,11 +1160,12 @@ sendCommand(const char* command, const char* state, int firstSlave,
 }
 
 /**
- * Create one or more tables, each on a different master, and create one
- * object in each table.
+ * Create one table for each slot available in tableIds vector, each on a different
+ * master, and create one object in each table.
  *
- * \param numTables
- *      How many tables to create.
+ * \param tableIds
+ *      Vector to fill with table ids for the tables created. The size
+ *      of the vector provided determines how many tables are created.
  * \param objectSize
  *      Number of bytes in the object to create each table.
  * \param key
@@ -1173,11 +1174,11 @@ sendCommand(const char* command, const char* state, int firstSlave,
  *      Size in bytes of the key.
  *
  */
-uint64_t*
-createTables(int numTables, int objectSize, const void* key, uint16_t keyLength)
+void
+createTables(std::vector<uint64_t> &tableIds, int objectSize, const void* key,
+        uint16_t keyLength)
 {
-    uint64_t* tableIds = new uint64_t[numTables];
-
+    assert(static_cast<int>(tableIds.size()) == numTables);
     // Create the tables in backwards order to reduce possible correlations
     // between clients, tables, and servers (if we have 60 clients and 60
     // servers, with clients and servers colocated and client i accessing
@@ -1187,13 +1188,12 @@ createTables(int numTables, int objectSize, const void* key, uint16_t keyLength)
         char tableName[20];
         snprintf(tableName, sizeof(tableName), "table%d", i);
         cluster->createTable(tableName);
-        tableIds[i] = cluster->getTableId(tableName);
+        tableIds.at(i) = cluster->getTableId(tableName);
         Buffer data;
-        fillBuffer(data, objectSize, tableIds[i], key, keyLength);
-        cluster->write(tableIds[i], key, keyLength,
+        fillBuffer(data, objectSize, tableIds.at(i), key, keyLength);
+        cluster->write(tableIds.at(i), key, keyLength,
                 data.getRange(0, objectSize), objectSize);
     }
-    return tableIds;
 }
 
 /**
@@ -1611,22 +1611,23 @@ doMultiRead(int dataLength, uint16_t keyLength,
     Tub<ObjectBuffer> values[numMasters][objsPerMaster];
     char keys[numMasters][objsPerMaster][keyLength];
 
-    uint64_t* tableIds = createTables(numMasters, dataLength, "0", 1);
+    std::vector<uint64_t> tableIds(numMasters);
+    createTables(tableIds, dataLength, "0", 1);
 
     for (int tableNum = 0; tableNum < numMasters; tableNum++) {
         for (int i = 0; i < objsPerMaster; i++) {
             Util::genRandomString(keys[tableNum][i], keyLength);
-            fillBuffer(input, dataLength, tableIds[tableNum],
+            fillBuffer(input, dataLength, tableIds.at(tableNum),
                     keys[tableNum][i], keyLength);
 
             // Write each object to the cluster
-            cluster->write(tableIds[tableNum], keys[tableNum][i], keyLength,
+            cluster->write(tableIds.at(tableNum), keys[tableNum][i], keyLength,
                     input.getRange(0, dataLength), dataLength);
 
             // Create read object corresponding to each object to be
             // used in the multiread request later.
             requestObjects[tableNum][i] =
-                    MultiReadObject(tableIds[tableNum],
+                    MultiReadObject(tableIds.at(tableNum),
                     keys[tableNum][i], keyLength, &values[tableNum][i]);
             requests[tableNum][i] = &requestObjects[tableNum][i];
         }
@@ -1655,7 +1656,7 @@ doMultiRead(int dataLength, uint16_t keyLength,
             ObjectBuffer* output = values[tableNum][i].get();
             uint16_t offset;
             output->getValueOffset(&offset);
-            checkBuffer(output, offset, dataLength, tableIds[tableNum],
+            checkBuffer(output, offset, dataLength, tableIds.at(tableNum),
                     keys[tableNum][i], keyLength);
         }
     }
@@ -1699,18 +1700,19 @@ doMultiWrite(int dataLength, uint16_t keyLength,
     Buffer values[numMasters][objsPerMaster];
     char keys[numMasters][objsPerMaster][keyLength];
 
-    uint64_t* tableIds = createTables(numMasters, dataLength, "0", 1);
+    std::vector<uint64_t> tableIds(numMasters);
+    createTables(tableIds, dataLength, "0", 1);
 
     for (int tableNum = 0; tableNum < numMasters; tableNum++) {
         for (int i = 0; i < objsPerMaster; i++) {
             Util::genRandomString(keys[tableNum][i], keyLength);
             fillBuffer(values[tableNum][i], dataLength,
-                    tableIds[tableNum], keys[tableNum][i], keyLength);
+                    tableIds.at(tableNum), keys[tableNum][i], keyLength);
 
             // Create write object corresponding to each object to be
             // used in the multiWrite request later.
             writeRequestObjects[tableNum][i] =
-                MultiWriteObject(tableIds[tableNum],
+                MultiWriteObject(tableIds.at(tableNum),
                         keys[tableNum][i], keyLength,
                         values[tableNum][i].getRange(0, dataLength),
                         dataLength);
@@ -2585,13 +2587,14 @@ netBandwidth()
     int size = objectSize;
     if (size < 0)
         size = 1024*1024;
-    uint64_t* tableIds = createTables(numClients, objectSize, key, keyLength);
+    std::vector<uint64_t> tableIds(numClients);
+    createTables(tableIds, objectSize, key, keyLength);
 
     // Start all the slaves running, and read our own local object.
     sendCommand("run", "running", 1, numClients-1);
-    RAMCLOUD_LOG(DEBUG, "Master reading from table %lu", tableIds[0]);
+    RAMCLOUD_LOG(DEBUG, "Master reading from table %lu", tableIds.at(0));
     Buffer value;
-    double latency = timeRead(tableIds[0], key, keyLength, 100, value);
+    double latency = timeRead(tableIds.at(0), key, keyLength, 100, value);
     double bandwidth = (keyLength + value.size())/latency;
     sendMetrics(bandwidth);
 
@@ -2665,10 +2668,11 @@ readAllToAll()
     int size = objectSize;
     if (size < 0)
         size = 100;
-    uint64_t* tableIds = createTables(numTables, size, key, keyLength);
+    std::vector<uint64_t> tableIds(numTables);
+    createTables(tableIds, size, key, keyLength);
 
     for (int i = 0; i < numTables; ++i) {
-        uint64_t tableId = tableIds[i];
+        uint64_t tableId = tableIds.at(i);
         Buffer result;
         uint64_t startCycles = Cycles::rdtsc();
         ReadRpc read(cluster, tableId, key, keyLength, &result);
@@ -2689,8 +2693,6 @@ readAllToAll()
         // Give extra time if clients have to contact a lot of masters.
         waitSlave(slaveIndex, "done", 1.0 + 0.1 * numTables);
     }
-
-    delete[] tableIds;
 }
 // Read a single object many times, and compute a cumulative distribution
 // of read times.
@@ -2951,13 +2953,12 @@ readNotFound()
  * shared by the master and slaves.
  *
  * \param tableIds
- *      Array of numTables identifiers for the tables available for
- *      the test.
+ *      Vector of table identifiers available for the test.
  * \param docString
  *      Information provided by the master about this run; used
  *      in log messages.
  */
-void readRandomCommon(uint64_t *tableIds, char *docString)
+void readRandomCommon(std::vector<uint64_t> &tableIds, char *docString)
 {
     // Duration of test.
     double ms = 100;
@@ -2975,7 +2976,7 @@ void readRandomCommon(uint64_t *tableIds, char *docString)
     // Each iteration through this loop issues one read operation to a
     // randomly-selected table.
     while (true) {
-        uint64_t tableId = tableIds[generateRandom() % numTables];
+        uint64_t tableId = tableIds.at(generateRandom() % numTables);
         readStart = Cycles::rdtsc();
         Buffer value;
         cluster->read(tableId, key, keyLength, &value);
@@ -3009,7 +3010,7 @@ void readRandomCommon(uint64_t *tableIds, char *docString)
 void
 readRandom()
 {
-    uint64_t *tableIds = NULL;
+    std::vector<uint64_t> tableIds;
 
     if (clientIndex > 0) {
         // This is a slave: execute commands coming from the master.
@@ -3018,13 +3019,12 @@ readRandom()
             char doc[200];
             getCommand(command, sizeof(command));
             if (strcmp(command, "run") == 0) {
-                if (tableIds == NULL) {
+                if (tableIds.empty()) {
                     // Open all the tables.
-                    tableIds = new uint64_t[numTables];
                     for (int i = 0; i < numTables; i++) {
                         char tableName[20];
                         snprintf(tableName, sizeof(tableName), "table%d", i);
-                        tableIds[i] = cluster->getTableId(tableName);
+                        tableIds.emplace_back(cluster->getTableId(tableName));
                     }
                 }
                 string controlKey = keyVal(0, "doc");
@@ -3050,7 +3050,10 @@ readRandom()
         size = 100;
     const char* key = "123456789012345678901234567890";
     uint16_t keyLength = downCast<uint16_t>(strlen(key));
-    tableIds = createTables(numTables, size, key, keyLength);
+
+    tableIds.clear();
+    tableIds.resize(numTables);
+    createTables(tableIds, size, key, keyLength);
 
     // Vary the number of clients and repeat the test for each number.
     printf("# RAMCloud read performance when 1 or more clients read\n");
@@ -3300,14 +3303,14 @@ writeAsyncSync()
     for (uint32_t j = 0; j < arrayElts; ++j)
         maxSize = std::max(maxSize, asyncObjectSizes[j]);
 
-    char* garbage = new char[maxSize];
+    std::vector<char> blankChars(maxSize);
 
     const char* key = "123456789012345678901234567890";
     uint16_t keyLength = downCast<uint16_t>(strlen(key));
 
     // prime
-    cluster->write(dataTable, key, keyLength, &garbage[0], syncObjectSize);
-    cluster->write(dataTable, key, keyLength, &garbage[0], syncObjectSize);
+    cluster->write(dataTable, key, keyLength, &blankChars[0], syncObjectSize);
+    cluster->write(dataTable, key, keyLength, &blankChars[0], syncObjectSize);
 
     printf("# Gauges impact of asynchronous writes on synchronous writes.\n"
            "# Write two values. The size of the first varies over trials\n"
@@ -3332,12 +3335,12 @@ writeAsyncSync()
             for (uint32_t i = 0; i < count; ++i) {
                 {
                     CycleCounter<> _(&asyncTicks);
-                    cluster->write(dataTable, key, keyLength, &garbage[0],
+                    cluster->write(dataTable, key, keyLength, &blankChars[0],
                                    asyncObjectSize, NULL, NULL, !sync);
                 }
                 {
                     CycleCounter<> _(&syncTicks);
-                    cluster->write(dataTable, key, keyLength, &garbage[0],
+                    cluster->write(dataTable, key, keyLength, &blankChars[0],
                                    syncObjectSize);
                 }
             }
@@ -3346,8 +3349,6 @@ writeAsyncSync()
                    Cycles::toSeconds(syncTicks) * 1e6 / count);
         }
     }
-
-    delete garbage;
 }
 
 // Write or overwrite randomly-chosen objects from a large table (so that there
