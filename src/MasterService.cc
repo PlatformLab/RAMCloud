@@ -2207,6 +2207,48 @@ MasterService::write(const WireFormat::Write::Request* reqHdr,
         WireFormat::Write::Response* respHdr,
         Rpc* rpc)
 {
+    const bool linearizable = reqHdr->rpcId > 0;
+    if (linearizable) {
+        if (reqHdr->lease.timestamp > clusterTime)
+            clusterTime = reqHdr->lease.timestamp;
+
+        // Check lease is expired.
+        if (reqHdr->lease.leaseTerm < clusterTime) {
+            //contact coordinator for lease expiration and clusterTime.
+            WireFormat::ClientLease lease =
+                CoordinatorClient::getLeaseInfo(context,
+                                                reqHdr->lease.leaseId);
+            if (lease.timestamp > clusterTime)
+                clusterTime = lease.timestamp;
+            if (lease.leaseTerm < clusterTime) {
+                //TODO(seojin): add expired lease status.
+                respHdr->common.status = STATUS_STALE_RPC;
+                rpc->sendReply();
+                return;
+            }
+        }
+        try {
+            void* result;
+            if (unackedRpcResults.checkDuplicate(reqHdr->lease.leaseId,
+                                                 reqHdr->rpcId,
+                                                 reqHdr->ackId,
+                                                 &result)) {
+                //Obtain saved result and reply back.
+                Buffer resultBuffer;
+                Log::Reference resultRef((uint64_t)result);
+                objectManager.getLog()->getEntry(resultRef, resultBuffer);
+                RpcRecord savedRec(resultBuffer);
+                *respHdr = *((WireFormat::Write::Response*)savedRec.getResp());
+                rpc->sendReply();
+                return;
+            }
+        } catch (UnackedRpcResults::StaleRpc& e) {
+            respHdr->common.status = STATUS_STALE_RPC;
+            rpc->sendReply();
+            return;
+        }
+    }
+
     // This is a temporary object that has an invalid version and timestamp.
     // An object is created here to make sure the object format does not leak
     // outside the object class. ObjectManager will update the version,
@@ -2225,11 +2267,32 @@ MasterService::write(const WireFormat::Write::Request* reqHdr,
     // Write the object.
     RejectRules rejectRules = reqHdr->rejectRules;
 
-    respHdr->common.status = objectManager.writeObject(
-            object, &rejectRules, &respHdr->version, &oldObjectBuffer);
+    uint64_t rpcRecordPtr;
+    if (linearizable) {
+        KeyLength pKeyLen;
+        const void* pKey = object.getKey(0, &pKeyLen);
+        RpcRecord rpcRecord(
+                reqHdr->tableId, Key::getHash(reqHdr->tableId, pKey, pKeyLen),
+                reqHdr->lease.leaseId, reqHdr->rpcId, reqHdr->ackId,
+                respHdr, sizeof(*respHdr));
+
+        respHdr->common.status = objectManager.writeObject(
+                object, &rejectRules, &respHdr->version, &oldObjectBuffer,
+                &rpcRecord, &rpcRecordPtr);
+    } else {
+        respHdr->common.status = objectManager.writeObject(
+                object, &rejectRules, &respHdr->version, &oldObjectBuffer);
+    }
 
     if (respHdr->common.status == STATUS_OK)
         objectManager.syncChanges();
+
+    if (linearizable) {
+        unackedRpcResults.recordCompletion(reqHdr->lease.leaseId,
+                                    reqHdr->rpcId,
+                                    reinterpret_cast<void*>(rpcRecordPtr));
+    }
+
     // Respond to the client RPC now. Removing old index entries can be
     // done asynchronously while maintaining strong consistency.
     rpc->sendReply();

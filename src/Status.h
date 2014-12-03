@@ -123,7 +123,14 @@ typedef enum Status {
     /// example: it is outside allowed bounds).
     STATUS_INVALID_PARAMETER            = 30,
 
-    STATUS_MAX_VALUE                    = 30,
+    /// Indicates that client already received the result of the rpc.
+    /// It does not make sense to execute the RPC again. Most likely cause
+    /// is a delayed network packet.
+    STATUS_STALE_RPC                    = 31,
+    STATUS_MAX_VALUE                    = 31,
+
+    //TODO(seojin): figure out why compile fails without this..
+    MULTIOP_UNDERWAY                    = 32,
 
     // Note: if you add a new status value you must make the following
     // additional updates:

@@ -199,7 +199,7 @@ CoordinatorClient::getBackupList(Context* context,
  *      ClientLease information for the lease requested.
  */
 WireFormat::ClientLease
-getLeaseInfo(Context* context, uint64_t leaseId)
+CoordinatorClient::getLeaseInfo(Context* context, uint64_t leaseId)
 {
     GetLeaseInfoRpc rpc(context, leaseId);
     return rpc.wait();

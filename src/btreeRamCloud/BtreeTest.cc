@@ -19,6 +19,7 @@
 #include <gtest/gtest.h>
 #include "btreeRamCloud/Btree.h"
 #include "RamCloud.h"
+#include "UnackedRpcResults.h"
 #include "Btree.h"
 
 #include <stdlib.h>

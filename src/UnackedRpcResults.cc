@@ -67,10 +67,6 @@ UnackedRpcResults::addClient(uint64_t clientId)
  *      False if the \a rpcId has never been passed to this method
  *      for this client before.
  *
- * \throw NoClientInfo
- *      We do not have enough information to determine whether there was a
- *      duplicate RPC with same \a rpcId. Usually this happens when client
- *      is timed out in current master, and all status data are cleaned.
  * \throw StaleRpc
  *      The rpc with \a rpcId is already acknowledged by client, so we should
  *      not have received this request in the first place.
@@ -83,12 +79,16 @@ UnackedRpcResults::checkDuplicate(uint64_t clientId,
 {
     Lock lock(mutex);
     *result = NULL;
+    Client* client;
+
     ClientMap::iterator it = clients.find(clientId);
     if (it == clients.end()) {
-        throw NoClientInfo(HERE);
+        client = new Client(default_rpclist_size);
+        clients[clientId] = client;
+    } else {
+        client = it->second;
     }
 
-    Client* client = it->second;
     //1. Handle Ack.
     if (client->maxAckId < ackId)
         client->maxAckId = ackId;

@@ -1163,6 +1163,47 @@ RpcRecord::RpcRecord(uint64_t tableId,
 }
 
 /**
+ * Construct an RpcRecord in preparation for storing it in the log.
+ * This form is used when the header information is available in
+ * individual pieces, and memory for response is already prepared.
+ * (typical use: during linearizable write RPCs).
+ *
+ * \param tableId
+ *      TableId for the object modified by this RPC.
+ * \param keyHash
+ *      KeyHash for the object modified by this RPC.
+ * \param leaseId
+ *      leaseId given for this linearizable RPC.
+ * \param rpcId
+ *      rpcId given for this linearizable RPC.
+ * \param ackId
+ *      ackId given for this linearizable RPC.
+ * \param response
+ *      Buffer containing all chunks that will comprise this RPC's
+ *      response.
+ * \param respLen
+ *      Length of response.
+ */
+RpcRecord::RpcRecord(uint64_t tableId,
+                     KeyHash keyHash,
+                     uint64_t leaseId,
+                     uint64_t rpcId,
+                     uint64_t ackId,
+                     const void* response,
+                     uint32_t respLen)
+    : header(tableId,
+             keyHash,
+             leaseId,
+             rpcId,
+             ackId),
+      respLength(respLen),
+      response(response),
+      respBuffer(),
+      respOffset()
+{
+}
+
+/**
  * Construct a RpcRecord by deserializing an existing RpcRecord. Use
  * this constructor when reading existing RpcRecord from the log or from
  * individual log segments.

@@ -50,7 +50,8 @@ public enum Status {
     STATUS_REQUEST_TOO_LARGE,
     STATUS_UNKNOWN_INDEXLET,
     STATUS_UNKNOWN_INDEX,
-    STATUS_INVALID_PARAMETER;
+    STATUS_INVALID_PARAMETER,
+    STATUS_STALE_RPC;
     
     public static final Status[] statuses = Status.values();
 }

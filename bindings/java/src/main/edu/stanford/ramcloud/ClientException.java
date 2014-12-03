@@ -95,6 +95,8 @@ public class ClientException extends RuntimeException {
                 throw new UnknownIndexException();
             case STATUS_INVALID_PARAMETER:
                 throw new InvalidParameterException();
+            case STATUS_STALE_RPC:
+                throw new StaleRpcException();
             default:
                 throw new UnrecognizedErrorException();
         }
@@ -142,6 +144,7 @@ public class ClientException extends RuntimeException {
     public static class UnknownIndexletException extends ClientException {}
     public static class UnknownIndexException extends ClientException {}
     public static class InvalidParameterException extends ClientException {}
+    public static class StaleRpcException extends ClientException {}
 
     /**
      * Exception thrown when Java doesn't recognize the status code
