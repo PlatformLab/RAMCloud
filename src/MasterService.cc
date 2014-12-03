@@ -2743,6 +2743,11 @@ MasterService::recover(const WireFormat::Recover::Request* reqHdr,
 
     // reqHdr, respHdr, and rpc are off-limits now
 
+    // Start asking the coordinator for the current cluster time.
+    // We should do some other work while we wait of this rpc to return but not
+    // so much that we are needlessly using up the rpc resources.
+    GetLeaseInfoRpc getLeaseInfoRpc(context, 0);
+
     // Install tablets we are recovering and mark them as such (we don't
     // own them yet).
     foreach (const ProtoBuf::Tablets::Tablet& newTablet,
@@ -2758,6 +2763,15 @@ MasterService::recover(const WireFormat::Recover::Request* reqHdr,
                     newTablet.start_key_hash(), newTablet.end_key_hash(),
                     tabletManager.toString().c_str()));
         }
+    }
+
+    // Update the cluster time.  To guarantee the safety of linearizable rpcs,
+    // this update must occur before requests for recovered data are serviced.
+    WireFormat::ClientLease clientLease = getLeaseInfoRpc.wait();
+    uint64_t currentClusterTime = clusterTime;
+    while (currentClusterTime < clientLease.timestamp) {
+        currentClusterTime = clusterTime.compareExchange(currentClusterTime,
+                                                         clientLease.timestamp);
     }
 
     // Record the log position before recovery started.

@@ -150,6 +150,33 @@ class ObjectManagerTest : public ::testing::Test {
     }
 
     /**
+     * Build a properly formatted segment containing a single rpcRecord.
+     * This segment may be passed directly to the ObjectManager::replaySegment()
+     * routine.
+     */
+    uint32_t
+    buildRecoverySegment(char *segmentBuf, uint64_t segmentCapacity,
+                         RpcRecord &rpcRecord,
+                         Segment::Certificate* outCertificate)
+    {
+        Segment s;
+        Buffer newRpcRecBuffer;
+        rpcRecord.assembleForLog(newRpcRecBuffer);
+        bool success = s.append(LOG_ENTRY_TYPE_RPCRECORD,
+                                newRpcRecBuffer);
+        EXPECT_TRUE(success);
+        s.close();
+
+        Buffer buffer;
+        s.appendToBuffer(buffer);
+        EXPECT_GE(segmentCapacity, buffer.size());
+        buffer.copy(0, buffer.size(), segmentBuf);
+        s.getAppendedLength(outCertificate);
+
+        return buffer.size();
+    }
+
+    /**
      * Store an object in the log and hash table, returning its Log::Reference.
      */
     Log::Reference
@@ -1006,6 +1033,54 @@ TEST_F(ObjectManagerTest, replaySegment) {
 
     // recovered from safeVer
     EXPECT_EQ(10UL, objectManager.segmentManager.safeVersion);
+}
+
+TEST_F(ObjectManagerTest, replaySegment_rpcRecord) {
+    uint32_t segLen = 8192;
+    char seg[segLen];
+    uint32_t len; // number of bytes in a recovery segment
+    SideLog sl(&objectManager.log);
+    Tub<SegmentIterator> it;
+
+    uint64_t expectedLeaseId = 8;
+    uint64_t ackId = 5;
+    uint64_t liveRpcId = 10;
+    uint64_t deadRpcId = 3;
+
+    UnackedRpcResults *unackedRpcResults = objectManager.unackedRpcResults;
+    EXPECT_EQ(unackedRpcResults->clients.end(),
+              unackedRpcResults->clients.find(expectedLeaseId));
+
+    {
+        Segment::Certificate certificate;
+        Buffer buf;
+        RpcRecord rpcRecord(0, 1, expectedLeaseId, liveRpcId, ackId, buf);
+        len = buildRecoverySegment(seg, segLen, rpcRecord, &certificate);
+        it.construct(&seg[0], len, certificate);
+    }
+
+    objectManager.replaySegment(&sl, *it);
+
+    EXPECT_NE(unackedRpcResults->clients.end(),
+              unackedRpcResults->clients.find(expectedLeaseId));
+    EXPECT_EQ(1U, unackedRpcResults->clients.size());
+
+    // Test noop case.
+
+    {
+        Segment::Certificate certificate;
+        Buffer buf;
+        RpcRecord rpcRecord(0, 1, expectedLeaseId, deadRpcId, 0, buf);
+        len = buildRecoverySegment(seg, segLen, rpcRecord, &certificate);
+        it.construct(&seg[0], len, certificate);
+    }
+
+    objectManager.replaySegment(&sl, *it);
+
+    EXPECT_NE(unackedRpcResults->clients.end(),
+              unackedRpcResults->clients.find(expectedLeaseId));
+    EXPECT_EQ(1U, unackedRpcResults->clients.size());
+
 }
 
 static bool

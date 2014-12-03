@@ -853,6 +853,32 @@ ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it,
                 safeVersionNonRecoveryCount++;
                 LOG(DEBUG, "SAFEVERSION %lu discarded", safeVersion);
             }
+        } else if (type == LOG_ENTRY_TYPE_RPCRECORD) {
+            Buffer buffer;
+            it.appendToBuffer(buffer);
+
+            RpcRecord rpcRecord(buffer);
+
+            if (unackedRpcResults->shouldRecover(
+                    rpcRecord.getLeaseId(),
+                    rpcRecord.getRpcId(),
+                    rpcRecord.getAckId())) {
+                Log::Reference newRpcRecordReference;
+                {
+                    CycleCounter<uint64_t> _(&segmentAppendTicks);
+                    sideLog->append(LOG_ENTRY_TYPE_RPCRECORD,
+                                    buffer,
+                                    &newRpcRecordReference);
+                    // TODO(cstlee) : need to update table stats?
+                }
+
+                unackedRpcResults->recoverRecord(
+                        rpcRecord.getLeaseId(),
+                        rpcRecord.getRpcId(),
+                        rpcRecord.getAckId(),
+                        reinterpret_cast<void*>(
+                                newRpcRecordReference.toInteger()));
+            }
         }
 
     }
