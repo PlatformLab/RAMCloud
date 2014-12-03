@@ -1708,6 +1708,45 @@ TEST_F(MasterServiceTest, write_rejectRules) {
     EXPECT_EQ(VERSION_NONEXISTENT, version);
 }
 
+TEST_F(MasterServiceTest, write_linearizable) {
+    // Duplicate conditional write.
+    ObjectBuffer value;
+    uint64_t version;
+    TestLog::Enable _;
+    ramcloud->write(1, "key0", 4, "item0", 5, NULL, &version);
+    EXPECT_EQ(1U, version);
+
+    RejectRules rules;
+    memset(&rules, 0, sizeof(rules));
+    rules.givenVersion = version;
+    rules.versionNeGiven = true;
+
+    WriteRpc writeRpc(ramcloud.get(), 1, "key0", 4, "item1", 5,
+                      &rules, false, true);
+    WireFormat::Write::Request* reqHdr =
+        writeRpc.request.getStart<WireFormat::Write::Request>();
+    writeRpc.wait(&version);
+    EXPECT_EQ(2U, version);
+
+    WireFormat::Write::Response respHdr;
+    Service::Rpc rpc(NULL, NULL, NULL);
+    service->write(reqHdr, &respHdr, &rpc);
+    EXPECT_EQ(2U, respHdr.version);
+    EXPECT_EQ(STATUS_OK, respHdr.common.status);
+
+    //TODO(seojin): test lease timed out.
+    // Lease may expired. Contacts coordinator.
+    reqHdr->lease.leaseTerm = reqHdr->lease.timestamp - 1;
+    service->write(reqHdr, &respHdr, &rpc);
+    EXPECT_EQ(2U, respHdr.version);
+    EXPECT_EQ(STATUS_OK, respHdr.common.status);
+
+    // StaleRpc exception test.
+    ramcloud->write(1, "key0", 4, "item2", 5, NULL, NULL, false, true);
+    service->write(reqHdr, &respHdr, &rpc);
+    EXPECT_EQ(STATUS_STALE_RPC, respHdr.common.status);
+}
+
 TEST_F(MasterServiceTest, requestInsertIndexEntries_noIndexEntries) {
     TestLog::Enable _;
     uint64_t tableId = 1;

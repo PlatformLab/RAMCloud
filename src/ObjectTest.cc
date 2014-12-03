@@ -1034,6 +1034,7 @@ class RpcRecordTest : public ::testing::Test {
 
     Tub<RpcRecord> rpcRecordFromResponse;
     Tub<RpcRecord> rpcRecordFromBuffer;
+    //TODO(seojin): Test for constructor with response with contiguous memory.
 
     RpcRecord* records[2];
 

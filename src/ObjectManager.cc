@@ -869,13 +869,19 @@ ObjectManager::syncChanges()
  * \param[out] removedObjBuffer
  *      If non-NULL, pointer to the buffer in log for the object being removed
  *      is returned.
+ * \param rpcRecord
+ *      If non-NULL, objectManager writes rpcRecord for linearizable RPCs
+ *      on log atomically with object.
+ * \param[out] rpcRecordPtr
+ *      If non-NULL, pointer to the RpcRecord in log is returned.
  * \return
  *      STATUS_OK if the object was written. Otherwise, for example,
  *      STATUS_UKNOWN_TABLE may be returned.
  */
 Status
 ObjectManager::writeObject(Object& newObject, RejectRules* rejectRules,
-                uint64_t* outVersion, Buffer* removedObjBuffer)
+                uint64_t* outVersion, Buffer* removedObjBuffer,
+                RpcRecord* rpcRecord, uint64_t* rpcRecordPtr)
 {
     if (!anyWrites) {
         // This is the first write; use this as a trigger to update the
@@ -967,7 +973,7 @@ ObjectManager::writeObject(Object& newObject, RejectRules* rejectRules,
     // multiple append calls and we don't want a tombstone going to backups
     // before the new object, or the new object going out without a tombstone
     // for the old deleted version. Both cases lead to consistency problems.
-    Log::AppendVector appends[2];
+    Log::AppendVector appends[2 + (rpcRecord ? 1 : 0)];
 
     newObject.assembleForLog(appends[0].buffer);
     appends[0].type = LOG_ENTRY_TYPE_OBJ;
@@ -983,7 +989,17 @@ ObjectManager::writeObject(Object& newObject, RejectRules* rejectRules,
         appends[1].type = LOG_ENTRY_TYPE_OBJTOMB;
     }
 
-    if (!log.append(appends, tombstone ? 2 : 1)) {
+    if (outVersion != NULL)
+        *outVersion = newObject.getVersion();
+
+    int rpcRecordIndex = 1 + (tombstone ? 1 : 0);
+    if (rpcRecord) {
+        ((WireFormat::ResponseCommon*)rpcRecord->getResp())->status = STATUS_OK;
+        rpcRecord->assembleForLog(appends[rpcRecordIndex].buffer);
+        appends[rpcRecordIndex].type = LOG_ENTRY_TYPE_RPCRECORD;
+    }
+
+    if (!log.append(appends, (tombstone ? 2 : 1) + (rpcRecord ? 1 : 0))) {
         // The log is out of space. Tell the client to retry and hope
         // that either the cleaner makes space soon or we shift load
         // off of this server.
@@ -997,8 +1013,8 @@ ObjectManager::writeObject(Object& newObject, RejectRules* rejectRules,
         objectMap.insert(key.getHash(), appends[0].reference.toInteger());
     }
 
-    if (outVersion != NULL)
-        *outVersion = newObject.getVersion();
+    if (rpcRecord && rpcRecordPtr)
+        *rpcRecordPtr = appends[rpcRecordIndex].reference.toInteger();
 
     tabletManager->incrementWriteCount(key);
     ++PerfStats::threadStats.writeCount;
@@ -1010,12 +1026,20 @@ ObjectManager::writeObject(Object& newObject, RejectRules* rejectRules,
         TEST_LOG("tombstone: %u bytes, version %lu",
             appends[1].buffer.size(), tombstone->getObjectVersion());
     }
+    if (rpcRecord) {
+        TEST_LOG("rpcRecord: %u bytes",
+            appends[rpcRecordIndex].buffer.size());
+    }
 
     {
         uint64_t byteCount = appends[0].buffer.size();
         uint64_t recordCount = 1;
         if (tombstone) {
             byteCount += appends[1].buffer.size();
+            recordCount += 1;
+        }
+        if (rpcRecord) {
+            byteCount += appends[rpcRecordIndex].buffer.size();
             recordCount += 1;
         }
 

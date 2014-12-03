@@ -54,6 +54,8 @@ static const char* messages[] = {
     "unknown indexlet (may exist elsewhere)",    // STATUS_UNKNOWN_INDEXLET
     "unknown index",                             // STATUS_UNKNOWN_INDEX
     "invalid parameter",                         // STATUS_INVALID_PARAMETER
+    "stale RPC: client already acknowledged receiving result",
+                                                 // STATUS_STALE_RPC
 };
 
 // The following table maps from a Status value to the internal name
@@ -90,6 +92,7 @@ static const char* symbols[] = {
     "STATUS_UNKNOWN_INDEXLET",
     "STATUS_UNKNOWN_INDEX",
     "STATUS_INVALID_PARAMETER",
+    "STATUS_STALE_RPC",
 };
 
 /**

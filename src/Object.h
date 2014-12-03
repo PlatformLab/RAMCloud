@@ -436,6 +436,9 @@ class RpcRecord {
     RpcRecord(uint64_t tableId, KeyHash keyHash,
               uint64_t leaseId, uint64_t rpcId, uint64_t ackId,
               Buffer& respBuffer, uint32_t respOff = 0, uint32_t respLen = 0);
+    RpcRecord(uint64_t tableId, KeyHash keyHash,
+              uint64_t leaseId, uint64_t rpcId, uint64_t ackId,
+              const void* response, uint32_t respLen);
     explicit RpcRecord(Buffer& buffer, uint32_t offset = 0,
                        uint32_t length = 0);
 

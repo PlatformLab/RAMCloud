@@ -46,9 +46,8 @@ TEST_F(UnackedRpcResultsTest, addClient) {
 TEST_F(UnackedRpcResultsTest, checkDuplicate) {
     void* result;
 
-    //1. No client info
-    EXPECT_THROW(results.checkDuplicate(2, 1, 0, &result),
-                 UnackedRpcResults::NoClientInfo);
+    //1. New client
+    EXPECT_FALSE(results.checkDuplicate(2, 1, 0, &result));
 
     //2. Stale Rpc.
     EXPECT_THROW(results.checkDuplicate(1, 4, 3, &result),

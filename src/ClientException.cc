@@ -140,6 +140,8 @@ ClientException::throwException(const CodeLocation& where, Status status)
             throw UnknownIndexException(where);
         case STATUS_INVALID_PARAMETER:
             throw InvalidParameterException(where);
+        case STATUS_STALE_RPC:
+            throw StaleRpcException(where);
         default:
             throw InternalError(where, status);
     }

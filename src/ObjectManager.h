@@ -75,7 +75,8 @@ class ObjectManager : public LogEntryHandlers {
     void replaySegment(SideLog* sideLog, SegmentIterator& it);
     void syncChanges();
     Status writeObject(Object& newObject, RejectRules* rejectRules,
-                uint64_t* outVersion, Buffer* removedObjBuffer = NULL);
+                uint64_t* outVersion, Buffer* removedObjBuffer = NULL,
+                RpcRecord* rpcRecord = NULL, uint64_t* rpcRecordPtr = NULL);
 
     /**
      * The following three methods are used when multiple log entries

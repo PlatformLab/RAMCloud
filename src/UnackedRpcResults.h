@@ -53,13 +53,6 @@ class UnackedRpcResults {
         explicit StaleRpc(const CodeLocation& where) : Exception(where) {}
     };
 
-    /// Thrown if checkDuplicate finds that it doesn't have enough information
-    /// to decide whether the RPC already has been executed. (eg. Client forgot
-    ///  to register, or the information is thrown away due to a timeout.)
-    struct NoClientInfo : public Exception {
-        explicit NoClientInfo(const CodeLocation& where) : Exception(where) {}
-    };
-
   PRIVATE:
     void resizeRpcList(uint64_t clientId, int size);
     void cleanByTimeout();
