@@ -30,7 +30,7 @@
 #include <iostream>
 
 namespace RAMCloud {
-  
+
 class BtreeTest: public ::testing::Test {
   public:
     Context context;
@@ -38,6 +38,7 @@ class BtreeTest: public ::testing::Test {
     ServerList serverList;
     ServerConfig masterConfig;
     MasterTableMetadata masterTableMetadata;
+    UnackedRpcResults unackedRpcResults;
     TabletManager tabletManager;
     ObjectManager objectManager;
     uint64_t tableId;
@@ -48,12 +49,14 @@ class BtreeTest: public ::testing::Test {
         , serverList(&context)
         , masterConfig(ServerConfig::forTesting())
         , masterTableMetadata()
+        , unackedRpcResults()
         , tabletManager()
         , objectManager(&context,
                         &serverId,
                         &masterConfig,
                         &tabletManager,
-                        &masterTableMetadata)
+                        &masterTableMetadata,
+                        &unackedRpcResults)
         , tableId(1)
     {
         objectManager.initOnceEnlisted();
@@ -305,7 +308,7 @@ TEST_F(BtreeTest, serializedLength) {
     outBuffer.reset();
     inner->serializeAppendToBuffer(&outBuffer);
     EXPECT_EQ(outBuffer.size(), inner->serializedLength());
-    
+
     outBuffer.reset();
     leaf->serializeAppendToBuffer(&outBuffer);
     EXPECT_EQ(outBuffer.size(), leaf->serializedLength());
@@ -321,7 +324,7 @@ TEST_F(BtreeTest, node_toString_printToLog) {
 
     for (uint16_t i = 0; i < IndexBtree::innerslotmax/2; ++i)
         n->insertAt(i, entries[i]);
-    
+
     EXPECT_STREQ("Printing leaf node\r\n"
                     "1 <- prev | next -> 1\r\n"
                     " ( pKHash: 0 keyLength: 1 key: 0 )\r\n"
@@ -875,7 +878,7 @@ TEST_F(BtreeTest, innerNode_eraseAt) {
         EXPECT_STREQ(keys[i].c_str(),
                  string((const char*)toVerify.key, toVerify.keyLength).c_str());
     }
-    
+
     // Erase AT end and check that last child is properly updated;
     n->eraseAt(n->slotuse);
     EXPECT_EQ(uint16_t(16), n->getChildAt(n->slotuse));
@@ -890,7 +893,7 @@ TEST_F(BtreeTest, writeReadFreeNode) {
   fillNodeSorted(n);
   bt.writeNode(n, 1000);
   bt.flush();
-  
+
   const void *ptr = bt.readNode(1000, &buffer_out);
   checkNodeEquals(n, (IndexBtree::LeafNode*) ptr);
 
@@ -925,7 +928,7 @@ TEST_F (BtreeTest, writeReadInnerNode) {
     EXPECT_EQ(eTest.keyLength, query.keyLength);
     EXPECT_STREQ((const char*) eTest.key,
             string((const char*) query.key, query.keyLength).c_str());
-   
+
     EXPECT_EQ(e0, rn->getAt(0));
     EXPECT_EQ(e1, rn->getAt(1));
 }
@@ -1121,7 +1124,7 @@ TEST_F(BtreeTest, InnerNode_serializeAppendToBuffer) {
     EXPECT_EQ(e0.keyLength, query.keyLength);
     EXPECT_STREQ((const char*) e0.key,
             string((const char*) query.key, query.keyLength).c_str());
-    
+
     query = rn->getAt(1);
     EXPECT_EQ(e1.pKHash, query.pKHash);
     EXPECT_EQ(e1.keyLength, query.keyLength);
@@ -1283,7 +1286,7 @@ TEST_F(BtreeTest, InnerNode_toString_printToLog) {
 TEST_F(BtreeTest, isGreaterOrEqual_nodeOnly) {
     IndexBtree bt(tableId, &objectManager);
     Buffer buffer;
-    IndexBtree::InnerNode *in = 
+    IndexBtree::InnerNode *in =
             buffer.emplaceAppend<IndexBtree::InnerNode>(&buffer, uint16_t(10));
     IndexBtree::LeafNode *ln =
             buffer.emplaceAppend<IndexBtree::LeafNode>(&buffer);
@@ -1309,7 +1312,7 @@ TEST_F(BtreeTest, isGreaterOrEqual_nodeOnly) {
     NodeId inId = 200, lnId = 300;
     Key inKey(bt.treeTableId, &inId, sizeof(NodeId));
     Key lnKey(bt.treeTableId, &lnId, sizeof(NodeId));
-    
+
     bt.writeNode(in, inId);
     bt.writeNode(ln, lnId);
     bt.flush();
@@ -1337,9 +1340,9 @@ TEST_F(BtreeTest, clear) {
     for (uint32_t i = 0; i < numEntries; i++)
         bt.insert(entries[i]);
 
-    NodeId highestUsed = bt.getNextNodeId();    
+    NodeId highestUsed = bt.getNextNodeId();
     bt.clear();
-    
+
     EXPECT_EQ(0U, bt.m_stats.itemcount);
     EXPECT_EQ(0U, bt.m_stats.innernodes);
     EXPECT_EQ(0U, bt.m_stats.leaves);
@@ -1369,7 +1372,7 @@ TEST_F(BtreeTest, begin_end_size_exists_find_empty) {
         EXPECT_FALSE(bt.exists(entries[i]));
         EXPECT_EQ(bt.end(), bt.find(entries[i]));
         EXPECT_EQ(i, bt.size());
-        
+
         bt.insert(entries[i]);
 
         EXPECT_EQ(i + 1, bt.size());
@@ -1636,7 +1639,7 @@ TEST_F(BtreeTest, insert_random) {
 
 TEST_F(BtreeTest, key_all) {
     IndexBtree bt(tableId, &objectManager);
-    
+
     BtreeEntry i0 = {"AHello", 2};
     BtreeEntry i1 = {"Hello1", 1};
     BtreeEntry i2 = {"Hello2", 2};
@@ -1764,7 +1767,7 @@ TEST_F(BtreeTest, erase_one_rootOnly) {
     BtreeEntry modPk = entries[0];
     modPk.pKHash = 100;
     EXPECT_FALSE(bt.erase(modPk));
-    
+
     // erase one at either ends, and then in the middle
     EXPECT_TRUE(bt.erase(entries[0]));
     EXPECT_EQ((uint64_t)(IndexBtree::innerslotmax - 1), bt.size());
@@ -1874,7 +1877,7 @@ TEST_F(BtreeTest, erase_one_alot) {
         bt.insert(entries[i]);
         ASSERT_EQ("", bt.verify());
     }
-    
+
     srand(0);
     while (entries.size() > 0) {
         uint32_t index = (uint32_t)(rand() %  entries.size());
@@ -1974,7 +1977,7 @@ static NodeId createAndWriteNode(IndexBtree &bt, uint16_t numEntries,
 
 void handleUnderflowAndWrite_Helper(IndexBtree &bt, Buffer &buff,
                                 IndexBtree::Node **few, NodeId *fewId,
-                                IndexBtree::Node **many, NodeId *manyId, 
+                                IndexBtree::Node **many, NodeId *manyId,
                                 IndexBtree::Node **most, NodeId *mostId,
                                 IndexBtree::Node **curr, NodeId *currId,
                                 IndexBtree::Node **parent)
@@ -2052,7 +2055,7 @@ TEST_F(BtreeTest, handleUnderflowAndWrite) {
     parent->insertAt(0, fakeEntry, currId, manyId);
     bt.handleUnderflowAndWrite(curr, currId, parent, 0, &info);
     EXPECT_EQ(IndexBtree::EraseUpdateInfo::setCurr, info.op);
-    
+
     ///////// Case 2 ////////
     // Right doesn't exist and left is few
     info.clearOp();
@@ -2092,7 +2095,7 @@ TEST_F(BtreeTest, handleUnderflowAndWrite) {
     parent->insertAt(1, fakeEntry, currId, mostId);
     bt.handleUnderflowAndWrite(curr, currId, parent, 1, &info);
     EXPECT_EQ(IndexBtree::EraseUpdateInfo::setCurr, info.op);
-    
+
     // Left has most and right has many
     info.clearOp();
     handleUnderflowAndWrite_Helper(bt, buff, &few, &fewId, &many, &manyId, &most, &mostId, &curr, &currId, parentReset);

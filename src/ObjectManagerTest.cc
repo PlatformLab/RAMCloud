@@ -41,6 +41,7 @@ class ObjectManagerTest : public ::testing::Test {
     ServerList serverList;
     ServerConfig masterConfig;
     MasterTableMetadata masterTableMetadata;
+    UnackedRpcResults unackedRpcResults;
     TabletManager tabletManager;
     ObjectManager objectManager;
 
@@ -50,12 +51,14 @@ class ObjectManagerTest : public ::testing::Test {
         , serverList(&context)
         , masterConfig(ServerConfig::forTesting())
         , masterTableMetadata()
+        , unackedRpcResults()
         , tabletManager()
         , objectManager(&context,
                         &serverId,
                         &masterConfig,
                         &tabletManager,
-                        &masterTableMetadata)
+                        &masterTableMetadata,
+                        &unackedRpcResults)
     {
         objectManager.initOnceEnlisted();
         tabletManager.addTablet(0, 0, ~0UL, TabletManager::NORMAL);

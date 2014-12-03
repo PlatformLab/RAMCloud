@@ -79,7 +79,8 @@ MasterService::MasterService(Context* context, const ServerConfig* config)
                     &serverId,
                     config,
                     &tabletManager,
-                    &masterTableMetadata)
+                    &masterTableMetadata,
+                    &unackedRpcResults)
     , tabletManager()
     , indexletManager(context, &objectManager)
     , unackedRpcResults()
