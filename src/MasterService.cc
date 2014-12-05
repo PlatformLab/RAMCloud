@@ -1454,7 +1454,7 @@ MasterService::receiveMigrationData(
         respHdr->common.status = STATUS_REQUEST_FORMAT_ERROR;
         return;
     }
-    const void* segmentMemory = rpc->requestPayload->getStart<const void*>();
+    const void* segmentMemory = rpc->requestPayload->getRange(0, segmentBytes);
     SegmentIterator it(segmentMemory, segmentBytes, certificate);
     it.checkMetadataIntegrity();
     SideLog sideLog(objectManager.getLog());
