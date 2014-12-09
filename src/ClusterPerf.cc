@@ -2248,7 +2248,7 @@ indexScalabilityCommonLookup(
  * lookup and read index operations.
  * Ensure that the dataTable is also split into multiple
  * tablets to ensure reads don't bottleneck.
- * 
+ *
  * Note that the indexScalability test currently uses the
  * indexScalabilityCommonLookup rather than this function, because
  * most commonly we're interested in testing the scalability of the
@@ -3553,7 +3553,8 @@ writeDistRandom()
     fillTable(dataTable, numKeys, keyLength, objectSize);
 
     // Issue the writes back-to-back, and save the times.
-    std::vector<uint64_t> ticks(count);
+    std::vector<uint64_t> ticks;
+    ticks.resize(count);
     for (int i = 0; i < count; i++) {
         // We generate the random number separately to avoid timing potential
         // cache misses on the client side.
@@ -3567,7 +3568,11 @@ writeDistRandom()
 
     // Dump both time and cache traces. This amounts to almost a no-op if there
     // are no traces, and we do not currently expect traces in production code.
+    cluster->serverControlAll(WireFormat::LOG_TIME_TRACE);
     cluster->serverControlAll(WireFormat::LOG_CACHE_TRACE);
+
+    // Dump client side time trace
+    cluster->clientContext->timeTrace->printToLog();
 
     // Output the times (several comma-separated values on each line).
     int valuesInLine = 0;
@@ -3584,6 +3589,124 @@ writeDistRandom()
         valuesInLine++;
     }
     printf("\n");
+}
+
+// Write or overwrite randomly-chosen objects from a large table (so that there
+// will be cache misses on the hash table and the object) and compute a
+// cumulative distribution of write times.
+void
+linearizableWriteDistRandom()
+{
+    int numKeys = 2000000;
+    if (clientIndex != 0)
+        return;
+
+    const uint16_t keyLength = 30;
+
+    char key[keyLength];
+    char value[objectSize];
+
+    fillTable(dataTable, numKeys, keyLength, objectSize);
+
+    // Issue the writes back-to-back, and save the times.
+    std::vector<uint64_t> ticks;
+    ticks.resize(count);
+    for (int i = 0; i < count; i++) {
+        // We generate the random number separately to avoid timing potential
+        // cache misses on the client side.
+        makeKey(downCast<int>(generateRandom() % numKeys), keyLength, key);
+        Util::genRandomString(value, objectSize);
+        // Do the benchmark
+        uint64_t start = Cycles::rdtsc();
+        cluster->write(dataTable, key, keyLength, value, objectSize,
+                       NULL, NULL, false, true);
+        ticks[i] = Cycles::rdtsc() - start;
+    }
+
+    // Dump both time and cache traces. This amounts to almost a no-op if there
+    // are no traces, and we do not currently expect traces in production code.
+    cluster->serverControlAll(WireFormat::LOG_TIME_TRACE);
+    cluster->serverControlAll(WireFormat::LOG_CACHE_TRACE);
+
+    // Dump client side time trace
+    cluster->clientContext->timeTrace->printToLog();
+
+    // Output the times (several comma-separated values on each line).
+    int valuesInLine = 0;
+    for (int i = 0; i < count; i++) {
+        if (valuesInLine >= 10) {
+            valuesInLine = 0;
+            printf("\n");
+        }
+        if (valuesInLine != 0) {
+            printf(",");
+        }
+        double micros = Cycles::toSeconds(ticks[i])*1.0e06;
+        printf("%.2f", micros);
+        valuesInLine++;
+    }
+    printf("\n");
+}
+
+// Random read and write times for objects of different sizes
+void
+linearizableRpc()
+{
+    if (clientIndex != 0)
+        return;
+    Buffer input, output;
+#define NUM_SIZES 5
+    int sizes[] = {100, 1000, 10000, 100000, 1000000};
+    TimeDist writeDists[NUM_SIZES];
+    const char* ids[] = {"100", "1K", "10K", "100K", "1M"};
+    uint16_t keyLength = 30;
+    char name[50], description[50];
+
+    // Each iteration through the following loop measures random reads and
+    // writes of a particular object size. Start with the largest object
+    // size and work down to the smallest (this way, each iteration will
+    // replace all of the objects created by the previous iteration).
+    for (int i = NUM_SIZES-1; i >= 0; i--) {
+        int size = sizes[i];
+
+        // Generate roughly 500MB of data of the current size. The "20"
+        // below accounts for additional overhead per object beyond the
+        // key and value.
+        uint32_t numObjects = 200000000/(size + keyLength + 20);
+        fillTable(dataTable, numObjects, keyLength, size);
+        writeDists[i] =  writeRandomObjects(dataTable, numObjects, keyLength,
+                size, 100000, 2.0);
+    }
+
+    // Print out the results (in a different order):
+    for (int i = 0; i < NUM_SIZES; i++) {
+        TimeDist* dist = &writeDists[i];
+        snprintf(description, sizeof(description),
+                "write random %sB object (%uB key)", ids[i], keyLength);
+        snprintf(name, sizeof(name), "basic.write%s", ids[i]);
+        printf("%-20s %s     %s median\n", name, formatTime(dist->p50).c_str(),
+                description);
+        snprintf(name, sizeof(name), "basic.write%s.min", ids[i]);
+        printf("%-20s %s     %s minimum\n", name, formatTime(dist->min).c_str(),
+                description);
+        snprintf(name, sizeof(name), "basic.write%s.9", ids[i]);
+        printf("%-20s %s     %s 90%%\n", name, formatTime(dist->p90).c_str(),
+                description);
+        if (dist->p99 != 0) {
+            snprintf(name, sizeof(name), "basic.write%s.99", ids[i]);
+            printf("%-20s %s     %s 99%%\n", name,
+                    formatTime(dist->p99).c_str(), description);
+        }
+        if (dist->p999 != 0) {
+            snprintf(name, sizeof(name), "basic.write%s.999", ids[i]);
+            printf("%-20s %s     %s 99.9%%\n", name,
+                    formatTime(dist->p999).c_str(), description);
+        }
+        snprintf(name, sizeof(name), "basic.writeBw%s", ids[i]);
+        snprintf(description, sizeof(description),
+                "bandwidth writing %sB objects (%uB key)", ids[i], keyLength);
+        printBandwidth(name, dist->bandwidth, description);
+    }
 }
 
 // The following struct and table define each performance test in terms of
@@ -3620,6 +3743,8 @@ TestInfo tests[] = {
     {"writeVaryingKeyLength", writeVaryingKeyLength},
     {"writeAsyncSync", writeAsyncSync},
     {"writeDistRandom", writeDistRandom},
+    {"linearizableWriteDistRandom", linearizableWriteDistRandom},
+    {"linearizableRpc", linearizableRpc},
 };
 
 int

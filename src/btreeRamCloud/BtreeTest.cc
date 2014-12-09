@@ -50,7 +50,7 @@ class BtreeTest: public ::testing::Test {
         , serverList(&context)
         , masterConfig(ServerConfig::forTesting())
         , masterTableMetadata()
-        , unackedRpcResults()
+        , unackedRpcResults(&context)
         , tabletManager()
         , objectManager(&context,
                         &serverId,

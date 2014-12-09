@@ -83,8 +83,9 @@ MasterService::MasterService(Context* context, const ServerConfig* config)
                     &unackedRpcResults)
     , tabletManager()
     , indexletManager(context, &objectManager)
-    , unackedRpcResults()
-    , clusterTime()
+    , unackedRpcResults(context)
+    , clusterTime(0)
+    , mutex_updateClusterTime()
     , disableCount(0)
     , initCalled(false)
     , logEverSynced(false)
@@ -699,6 +700,8 @@ MasterService::initOnceEnlisted()
     LOG(NOTICE, "My server ID is %s", serverId.toString().c_str());
     metrics->serverId = serverId.getId();
     objectManager.initOnceEnlisted();
+
+    unackedRpcResults.startCleaner();
 
     initCalled = true;
 }
@@ -2209,8 +2212,7 @@ MasterService::write(const WireFormat::Write::Request* reqHdr,
 {
     const bool linearizable = reqHdr->rpcId > 0;
     if (linearizable) {
-        if (reqHdr->lease.timestamp > clusterTime)
-            clusterTime = reqHdr->lease.timestamp;
+        updateClusterTime(reqHdr->lease.timestamp);
 
         // Check lease is expired.
         if (reqHdr->lease.leaseTerm < clusterTime) {
@@ -2218,8 +2220,7 @@ MasterService::write(const WireFormat::Write::Request* reqHdr,
             WireFormat::ClientLease lease =
                 CoordinatorClient::getLeaseInfo(context,
                                                 reqHdr->lease.leaseId);
-            if (lease.timestamp > clusterTime)
-                clusterTime = lease.timestamp;
+            updateClusterTime(lease.timestamp);
             if (lease.leaseTerm < clusterTime) {
                 //TODO(seojin): add expired lease status.
                 respHdr->common.status = STATUS_STALE_RPC;
@@ -2232,6 +2233,7 @@ MasterService::write(const WireFormat::Write::Request* reqHdr,
             if (unackedRpcResults.checkDuplicate(reqHdr->lease.leaseId,
                                                  reqHdr->rpcId,
                                                  reqHdr->ackId,
+                                                 reqHdr->lease.leaseTerm,
                                                  &result)) {
                 //Obtain saved result and reply back.
                 Buffer resultBuffer;

@@ -120,6 +120,22 @@ class MasterService : public Service {
      */
     Atomic<uint64_t> clusterTime;
 
+    /**
+     * Protecting concurrent updates on clusterTime.
+     */
+    std::mutex mutex_updateClusterTime;
+
+    /**
+     * Advances clusterTime if provided value is larger than current.
+     * \param newVal
+     *      A observed value of clusterTime.
+     */
+    void updateClusterTime(uint64_t newVal) {
+        std::lock_guard<std::mutex> lock(mutex_updateClusterTime);
+        if (clusterTime < newVal)
+            clusterTime = newVal;
+    }
+
 #ifdef TESTING
     /// Used to pause the read-increment-write cycle in incrementObject
     /// between the read and the write.  While paused, a second thread can

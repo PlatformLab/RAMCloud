@@ -420,7 +420,8 @@ simple_tests = [
     Test("broadcast", broadcast),
     Test("netBandwidth", netBandwidth),
     Test("readAllToAll", readAllToAll),
-    Test("readNotFound", default)
+    Test("readNotFound", default),
+    Test("linearizableRpc", basic)
 ]
 
 graph_tests = [
@@ -444,6 +445,7 @@ graph_tests = [
     Test("writeVaryingKeyLength", default),
     Test("writeDist", writeDist),
     Test("writeDistRandom", writeDist),
+    Test("linearizableWriteDistRandom", writeDist),
 ]
 
 if __name__ == '__main__':
