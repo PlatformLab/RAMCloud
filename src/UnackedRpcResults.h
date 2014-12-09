@@ -16,9 +16,11 @@
 #ifndef RAMCLOUD_UNACKEDRPCRESULTS_H
 #define RAMCLOUD_UNACKEDRPCRESULTS_H
 
+#include <condition_variable>
 #include <unordered_map>
 #include "Common.h"
 #include "SpinLock.h"
+#include "WorkerTimer.h"
 
 namespace RAMCloud {
 
@@ -32,13 +34,14 @@ namespace RAMCloud {
  */
 class UnackedRpcResults {
   PUBLIC:
-    UnackedRpcResults() : clients(20), mutex(), default_rpclist_size(5) {}
+    explicit UnackedRpcResults(Context* context);
     ~UnackedRpcResults();
 
-    void addClient(uint64_t clientId);
+    void startCleaner();
     bool checkDuplicate(uint64_t clientId,
                         uint64_t rpcId,
                         uint64_t ackId,
+                        uint64_t leaseTerm,
                         void** result);
     bool shouldRecover(uint64_t clientId, uint64_t rpcId, uint64_t ackId);
     void recordCompletion(uint64_t clientId, uint64_t rpcId, void* result);
@@ -55,7 +58,7 @@ class UnackedRpcResults {
 
   PRIVATE:
     void resizeRpcList(uint64_t clientId, int size);
-    void cleanByTimeout();
+    void cleanByTimeout(Context* context);
 
     /**
      * Holds info about outstanding RPCs, which is needed to avoid re-doing
@@ -78,6 +81,26 @@ class UnackedRpcResults {
     };
 
     /**
+     * The Cleaner periodically wakes up to clean up expired leases.
+     * The cleaning process only blocks during the initial fetch of iterator,
+     * and the actual removal of an expired lease;
+     */
+    class Cleaner : public WorkerTimer {
+      public:
+        explicit Cleaner(Context* context,
+                         UnackedRpcResults* unackedRpcResults);
+        virtual void handleTimerEvent();
+
+        Context* context;
+        UnackedRpcResults* unackedRpcResults;
+        //TODO(seojin): do this optimization later
+        // const int maxIterPerPeriod = 10000;
+        static const uint32_t maxCheckPerPeriod = 100;
+      private:
+        DISALLOW_COPY_AND_ASSIGN(Cleaner);
+    };
+
+    /**
      * Stores unacknowledged rpc's id and pointer to result from a client
      * with some additional useful information for performance.
      */
@@ -91,7 +114,7 @@ class UnackedRpcResults {
          */
         explicit Client(int size) : maxRpcId(0),
                                     maxAckId(0),
-                                    lastUpdateTime(0),
+                                    leaseTerm(0),
                                     rpcs(new UnackedRpc[size]()),
                                     len(size) {
         }
@@ -117,9 +140,9 @@ class UnackedRpcResults {
         uint64_t maxAckId;
 
         /**
-         * Used for cleaning inactive client's data on timeout.
+         * The lastest cache of leaseTerm value. Used in Cleaner for GC.
          */
-        time_t lastUpdateTime;
+        uint64_t leaseTerm;
 
       PRIVATE:
         void resizeRpcs(int increment);
@@ -162,6 +185,20 @@ class UnackedRpcResults {
      */
     std::mutex mutex;
     typedef std::lock_guard<std::mutex> Lock;
+
+    Cleaner cleaner;
+
+    /**
+     * True if garbage collection by timeout is sweeping #clients.
+     * Used to protect #clients from rehashing.
+     */
+    bool clientsSweepingInProgress;
+
+    /**
+     * Conditional variable to synchronize rehasing of #clients doesn't
+     * overlap with cleaning code.
+     */
+    std::condition_variable cv_clients;
 
     /**
      * This value is used as initial array size of each Client instance.

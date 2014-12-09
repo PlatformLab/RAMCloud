@@ -44,7 +44,7 @@ class ObjectManagerBenchmark {
         , serverList(&context)
         , tabletManager()
         , masterTableMetadata()
-        , unackedRpcResults()
+        , unackedRpcResults(&context)
         , serverId(1, 1)
         , objectManager(NULL)
     {
