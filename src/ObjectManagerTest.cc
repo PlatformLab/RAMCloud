@@ -1775,8 +1775,127 @@ TEST_F(ObjectManagerTest, objectRelocationCallback_objectModified) {
               , verifyMetadata(0));
 }
 
-TEST_F(ObjectManagerTest, rpcResultRelocationCallback_basic) {
-    //TODO(cstlee)
+TEST_F(ObjectManagerTest, rpcResultRelocationCallback_relocateRecord) {
+    uint64_t leaseId = 1;
+    uint64_t rpcId = 10;
+    uint64_t ackId = 1;
+    uint64_t leaseTerm = 1000;
+
+    void* result;
+    unackedRpcResults.checkDuplicate(leaseId, rpcId, ackId, leaseTerm, &result);
+    Buffer respBuff;
+    RpcRecord rpcRecord(
+            1,
+            Key::getHash(1, "test", 4),
+            leaseId,
+            rpcId,
+            ackId,
+            respBuff);
+    Buffer rpcRecordBuffer;
+    rpcRecord.assembleForLog(rpcRecordBuffer);
+
+    Log::Reference oldRpcRecordReference;
+    bool success = false;
+    success = objectManager.log.append(
+        LOG_ENTRY_TYPE_RPCRECORD, rpcRecordBuffer, &oldRpcRecordReference);
+    objectManager.log.sync();
+    EXPECT_TRUE(success);
+
+    uint64_t rpcRecordPtr = oldRpcRecordReference.toInteger();
+    unackedRpcResults.recordCompletion(leaseId,
+                                       rpcId,
+                                       reinterpret_cast<void*>(rpcRecordPtr));
+
+    unackedRpcResults.checkDuplicate(leaseId, rpcId, ackId, leaseTerm, &result);
+
+    EXPECT_EQ(rpcRecordPtr, reinterpret_cast<uint64_t>(result));
+
+    LogEntryType oldTypeInLog;
+    Buffer oldBufferInLog;
+    oldTypeInLog = objectManager.log.getEntry(oldRpcRecordReference,
+                                          oldBufferInLog);
+
+    EXPECT_EQ(LOG_ENTRY_TYPE_RPCRECORD, oldTypeInLog);
+
+    LogEntryRelocator relocator(
+        objectManager.segmentManager.getHeadSegment(), 1000);
+
+    EXPECT_FALSE(unackedRpcResults.isRpcAcked(leaseId, rpcId));
+
+    bool keepRpcRecord = !unackedRpcResults.isRpcAcked(
+            rpcRecord.getLeaseId(), rpcRecord.getRpcId());
+    EXPECT_TRUE(keepRpcRecord);
+    objectManager.relocate(LOG_ENTRY_TYPE_RPCRECORD,
+                           oldBufferInLog,
+                           oldRpcRecordReference,
+                           relocator);
+    EXPECT_TRUE(relocator.didAppend);
+
+    unackedRpcResults.checkDuplicate(leaseId, rpcId, ackId, leaseTerm, &result);
+
+    EXPECT_NE(rpcRecordPtr, reinterpret_cast<uint64_t>(result));
+    EXPECT_EQ(relocator.getNewReference().toInteger(),
+              reinterpret_cast<uint64_t>(result));
+}
+
+TEST_F(ObjectManagerTest, rpcResultRelocationCallback_cleanRecord) {
+    uint64_t leaseId = 1;
+    uint64_t rpcId = 10;
+    uint64_t ackId = 1;
+    uint64_t leaseTerm = 1000;
+
+    void* result;
+    unackedRpcResults.checkDuplicate(leaseId, rpcId, ackId, leaseTerm, &result);
+    Buffer respBuff;
+    RpcRecord rpcRecord(
+            1,
+            Key::getHash(1, "test", 4),
+            leaseId,
+            rpcId,
+            ackId,
+            respBuff);
+    Buffer rpcRecordBuffer;
+    rpcRecord.assembleForLog(rpcRecordBuffer);
+
+    Log::Reference oldRpcRecordReference;
+    bool success = false;
+    success = objectManager.log.append(
+        LOG_ENTRY_TYPE_RPCRECORD, rpcRecordBuffer, &oldRpcRecordReference);
+    objectManager.log.sync();
+    EXPECT_TRUE(success);
+
+    uint64_t rpcRecordPtr = oldRpcRecordReference.toInteger();
+    unackedRpcResults.recordCompletion(leaseId,
+                                       rpcId,
+                                       reinterpret_cast<void*>(rpcRecordPtr));
+
+    unackedRpcResults.checkDuplicate(leaseId, rpcId, ackId, leaseTerm, &result);
+
+    EXPECT_EQ(rpcRecordPtr, reinterpret_cast<uint64_t>(result));
+
+    LogEntryType oldTypeInLog;
+    Buffer oldBufferInLog;
+    oldTypeInLog = objectManager.log.getEntry(oldRpcRecordReference,
+                                          oldBufferInLog);
+
+    EXPECT_EQ(LOG_ENTRY_TYPE_RPCRECORD, oldTypeInLog);
+
+    LogEntryRelocator relocator(
+        objectManager.segmentManager.getHeadSegment(), 1000);
+
+    EXPECT_FALSE(unackedRpcResults.isRpcAcked(leaseId, rpcId));
+    // Ack the rpc to make it available for cleaning.
+    unackedRpcResults.checkDuplicate(leaseId, rpcId + 1, rpcId, 1000, &result);
+    EXPECT_TRUE(unackedRpcResults.isRpcAcked(leaseId, rpcId));
+
+    bool keepRpcRecord = !unackedRpcResults.isRpcAcked(
+            rpcRecord.getLeaseId(), rpcRecord.getRpcId());
+    EXPECT_FALSE(keepRpcRecord);
+    objectManager.relocate(LOG_ENTRY_TYPE_RPCRECORD,
+                           oldBufferInLog,
+                           oldRpcRecordReference,
+                           relocator);
+    EXPECT_FALSE(relocator.didAppend);
 }
 
 static bool
