@@ -257,7 +257,7 @@ UnackedRpcResults::recoverRecord(uint64_t clientId,
         client->recordNewRpc(rpcId);
         client->updateResult(rpcId, result);
     } else if (client->hasRecord(rpcId)) {
-        assert(false); //Cannot happen.
+        LOG(WARNING, "Duplicate RpcRecord found during recovery.");
     } else {
         //Inside the window new rpc.
         client->recordNewRpc(rpcId);

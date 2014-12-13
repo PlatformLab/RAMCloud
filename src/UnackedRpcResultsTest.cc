@@ -176,6 +176,51 @@ TEST_F(UnackedRpcResultsTest, recordCompletion) {
     EXPECT_EQ(1017UL, (uint64_t)result);
 }
 
+TEST_F(UnackedRpcResultsTest, recoverRecord) {
+    TestLog::Enable _("recoverRecord");
+    void* result;
+    uint64_t leaseId = 10;
+
+    UnackedRpcResults::ClientMap::iterator it = results.clients.find(leaseId);
+    EXPECT_TRUE(it == results.clients.end());
+
+    // New Record w/ rpcId or ackId updates.
+
+    results.recoverRecord(leaseId, 20, 10, &result);
+
+    it = results.clients.find(leaseId);
+    EXPECT_FALSE(it == results.clients.end());
+    EXPECT_EQ(10U, it->second->maxAckId);
+    EXPECT_EQ(20U, it->second->maxRpcId);
+    EXPECT_TRUE(it->second->hasRecord(20));
+
+    // New Record w/o rpcId or ackId updates.
+    EXPECT_FALSE(it->second->hasRecord(15));
+
+    results.recoverRecord(leaseId, 15, 5, &result);
+
+    it = results.clients.find(leaseId);
+    EXPECT_FALSE(it == results.clients.end());
+    EXPECT_EQ(10U, it->second->maxAckId);
+    EXPECT_EQ(20U, it->second->maxRpcId);
+    EXPECT_TRUE(it->second->hasRecord(15));
+
+    // Unnecessary record.
+    EXPECT_FALSE(it->second->hasRecord(5));
+
+    results.recoverRecord(leaseId, 5, 1, &result);
+
+    it = results.clients.find(leaseId);
+    EXPECT_FALSE(it == results.clients.end());
+    EXPECT_FALSE(it->second->hasRecord(5));
+
+    // Duplicate record.
+//    TestLog::reset();
+    results.recoverRecord(leaseId, 15, 5, &result);
+    EXPECT_EQ("recoverRecord: Duplicate RpcRecord found during recovery.",
+            TestLog::get());
+}
+
 TEST_F(UnackedRpcResultsTest, isRpcAcked) {
     //1. Cleaned up client.
     EXPECT_TRUE(results.isRpcAcked(2, 1));
