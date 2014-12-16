@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2013 Stanford University
+/* Copyright (c) 2011-2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -76,11 +76,11 @@ TEST_F(MembershipServiceTest, updateServerList_single) {
     source.haltUpdater();
     CoordinatorService coordinatorService(&context2, 1000, false);
     ServerId id1 = source.enlistServer({WireFormat::MASTER_SERVICE,
-            WireFormat::PING_SERVICE}, 100, "mock:host=55");
+            WireFormat::PING_SERVICE}, 0, 100, "mock:host=55");
     ServerId id2 = source.enlistServer({WireFormat::MASTER_SERVICE,
-            WireFormat::PING_SERVICE}, 100, "mock:host=56");
+            WireFormat::PING_SERVICE}, 0, 100, "mock:host=56");
     ServerId id3 = source.enlistServer({WireFormat::MASTER_SERVICE,
-            WireFormat::PING_SERVICE}, 100, "mock:host=57");
+            WireFormat::PING_SERVICE}, 0, 100, "mock:host=57");
     ProtoBuf::ServerList fullList;
     source.serialize(&fullList, {WireFormat::MASTER_SERVICE,
             WireFormat::BACKUP_SERVICE});
@@ -110,17 +110,17 @@ TEST_F(MembershipServiceTest, updateServerList_multi) {
 
     // Full List v1
     ServerId id1 = source.enlistServer({WireFormat::MASTER_SERVICE,
-            WireFormat::PING_SERVICE}, 100, "mock:host=55");
+            WireFormat::PING_SERVICE}, 0, 100, "mock:host=55");
     source.serialize(&fullList, {WireFormat::MASTER_SERVICE,
             WireFormat::BACKUP_SERVICE});
     // Update v2
     ServerId id2 = source.enlistServer({WireFormat::MASTER_SERVICE,
-            WireFormat::PING_SERVICE}, 100, "mock:host=56");
+            WireFormat::PING_SERVICE}, 0, 100, "mock:host=56");
     EXPECT_EQ(2U, source.updates.size());
     update2 = source.updates.back().incremental;
     // Update v3
     ServerId id3 = source.enlistServer({WireFormat::MASTER_SERVICE,
-            WireFormat::PING_SERVICE}, 100, "mock:host=57");
+            WireFormat::PING_SERVICE}, 0, 100, "mock:host=57");
     update3 = source.updates.back().incremental;
 
 

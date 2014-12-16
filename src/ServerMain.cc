@@ -129,6 +129,12 @@ main(int argc, char *argv[])
              "0 value (default) is special: it tells the server to set the "
              "limit equal to the \"segmentFrames\" value, effectively making "
              "buffering unlimited.")
+            ("preferredIndex",
+             ProgramOptions::value<uint32_t>(
+                &config.preferredIndex)->default_value(0),
+             "Use this value as the index number for this server's server id, "
+             "if that number isn't already in use. Can be used to ensure "
+             "a reproducible assignment of server ids.")
             ("replicas,r",
              ProgramOptions::value<uint32_t>(&config.master.numReplicas),
              "Number of backup copies to make for each segment")

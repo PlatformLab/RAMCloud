@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2012 Stanford University
+/* Copyright (c) 2009-2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -93,7 +93,7 @@ struct BackgroundEnlistBackup {
         std::this_thread::yield();
         usleep(1 * 1000);
         // See if enlisting a server unblocks the call.
-        CoordinatorClient::enlistServer(context, {},
+        CoordinatorClient::enlistServer(context, 0, {},
                                         {WireFormat::BACKUP_SERVICE},
                                         "mock:host=backup10", 10);
     }

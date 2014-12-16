@@ -58,7 +58,7 @@ struct ReplicaManagerTest : public ::testing::Test {
 
         // Get the ServerId _before_ it's used. We don't pass by reference
         // anymore.
-        serverId = CoordinatorClient::enlistServer(&context, {},
+        serverId = CoordinatorClient::enlistServer(&context, 0, {},
             {WireFormat::MASTER_SERVICE}, "", 0);
         mgr.construct(&context, &serverId, 2, false, false);
         cluster.coordinatorContext.coordinatorServerList->sync();

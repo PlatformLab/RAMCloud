@@ -399,9 +399,10 @@ CoordinatorService::enlistServer(
         serverList->serverCrashed(replacesId);
     }
 
-    ServerId newServerId = serverList->enlistServer(serviceMask, readSpeed,
+    ServerId newServerId = serverList->enlistServer(serviceMask,
+                                                    reqHdr->preferredIndex,
+                                                    readSpeed,
                                                     serviceLocator);
-
     respHdr->serverId = newServerId.getId();
 }
 

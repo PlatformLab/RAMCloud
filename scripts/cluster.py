@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-# Copyright (c) 2010-2011 Stanford University
+# Copyright (c) 2010-2014 Stanford University
 #
 # Permission to use, copy, modify, and distribute this software for any
 # purpose with or without fee is hereby granted, provided that the above
@@ -191,8 +191,8 @@ class Cluster(object):
             print ('Cluster name is %s' % (self.cluster_name))
 
         self.coordinator = None
-        self.next_server_id = 0
-        self.next_client_id = 0
+        self.next_server_id = 1
+        self.next_client_id = 1
         self.masters_started = 0
         self.backups_started = 0
 
@@ -321,13 +321,15 @@ class Cluster(object):
                       self.log_subdir, self.next_server_id, host[0])
                      
         command = ('%s %s -C %s -L %s -r %d -l %s --clusterName __unnamed__ '
-                   '--logFile %s.log %s' %
+                   '--logFile %s.log --preferredIndex %d %s' %
                    (valgrind_command,
                     server_binary, self.coordinator_locator,
                     server_locator(self.transport, host, port),
                     self.replicas,
                     self.log_level, 
-                    log_prefix, args))
+                    log_prefix,
+                    self.next_server_id,
+                    args))
 
         self.next_server_id += 1
         if master and backup:

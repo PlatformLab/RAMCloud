@@ -101,6 +101,10 @@ CoordinatorServerList::backupCount() const
  *
  * \param serviceMask
  *      Services supported by the enlisting server.
+ * \param preferredIndex
+ *      If nonzero, indicates a particular index number to use for the new
+ *      server, if available. This allows tests to ensure a particular
+ *      allocation of server ids, for maximum test reproducibility.
  * \param readSpeed
  *      Read speed of the enlisting server.
  * \param serviceLocator
@@ -111,12 +115,23 @@ CoordinatorServerList::backupCount() const
  */
 ServerId
 CoordinatorServerList::enlistServer(ServiceMask serviceMask,
+                                    uint32_t preferredIndex,
                                     const uint32_t readSpeed,
                                     const char* serviceLocator)
 {
     Lock lock(mutex);
 
-    uint32_t index = firstFreeIndex(lock);
+    // Choose the index number for the new server.
+    uint32_t index;
+    if (preferredIndex >= serverList.size()) {
+        serverList.resize(preferredIndex + 1);
+    }
+    if ((preferredIndex != 0) && (!serverList[preferredIndex].entry)) {
+        index = preferredIndex;
+    } else {
+        index = firstFreeIndex(lock);
+    }
+
     GenerationNumberEntryPair* pair = &serverList[index];
     ServerId id(index, pair->nextGenerationNumber);
     pair->nextGenerationNumber++;

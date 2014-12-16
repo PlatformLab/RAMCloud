@@ -39,9 +39,9 @@ namespace RAMCloud {
  */
 class CoordinatorClient {
   public:
-    static ServerId enlistServer(Context* context, ServerId replacesId,
-            ServiceMask serviceMask, string localServiceLocator,
-            uint32_t readSpeed);
+    static ServerId enlistServer(Context* context, uint32_t preferredIndex,
+            ServerId replacesId, ServiceMask serviceMask,
+            string localServiceLocator, uint32_t readSpeed);
     static void getBackupConfig(Context* context,
             ProtoBuf::ServerConfig_Backup& config);
     static void getBackupList(Context* context,
@@ -78,9 +78,9 @@ class CoordinatorClient {
  */
 class EnlistServerRpc : public CoordinatorRpcWrapper {
     public:
-    EnlistServerRpc(Context* context, ServerId replacesId,
-            ServiceMask serviceMask, string localServiceLocator,
-            uint32_t readSpeed);
+    EnlistServerRpc(Context* context, uint32_t preferredIndex,
+            ServerId replacesId, ServiceMask serviceMask,
+            string localServiceLocator, uint32_t readSpeed);
     ~EnlistServerRpc() {}
     ServerId wait();
 

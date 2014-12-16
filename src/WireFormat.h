@@ -538,6 +538,10 @@ struct EnlistServer {
     static const ServiceType service = COORDINATOR_SERVICE;
     struct Request {
         RequestCommon common;
+        /// If nonzero, indicates a particular index number to use for this
+        /// server's id, if it is available.  Zero means no preference.
+        uint32_t preferredIndex;
+
         /// Server id this server used to operate at; the coordinator must
         /// make sure this server is removed from the cluster before
         /// enlisting the calling server.
