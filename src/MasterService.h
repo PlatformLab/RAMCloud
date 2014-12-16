@@ -276,6 +276,64 @@ class MasterService : public Service {
                 Rpc* rpc);
 
     /**
+     * Helper function for handling linearizable RPCs. Checks whether we should
+     * not execute this RPC request and fills response header appropriately.
+     *
+     * \param reqHdr
+     *      Header from the incoming RPC request; contains all the
+     *      parameters for this operation except the key of the object.
+     * \param[out] respHdr
+     *      Header for the response that will be returned to the client.
+     *      The caller has pre-allocated the right amount of space in the
+     *      response buffer for this type of request, and has zeroed out
+     *      its contents (so, for example, status is already zero).
+     *
+     * \return
+     *      True if the RPC request is a duplicate request or has expired lease.
+     *      False if the RPC is normal and should be executed.
+     */
+    template <typename LinearizableRpcType>
+    bool shouldReplyEarly(const typename LinearizableRpcType::Request* reqHdr,
+                          typename LinearizableRpcType::Response* respHdr) {
+        assert(reqHdr->rpcId > 0);
+        updateClusterTime(reqHdr->lease.timestamp);
+
+        // Check lease is expired.
+        if (reqHdr->lease.leaseTerm < clusterTime) {
+            //contact coordinator for lease expiration and clusterTime.
+            WireFormat::ClientLease lease =
+                CoordinatorClient::getLeaseInfo(context,
+                                                reqHdr->lease.leaseId);
+            updateClusterTime(lease.timestamp);
+            if (lease.leaseTerm < clusterTime) {
+                //TODO(seojin): add expired lease status.
+                respHdr->common.status = STATUS_STALE_RPC;
+                return true;
+            }
+        }
+        try {
+            void* result;
+            if (unackedRpcResults.checkDuplicate(reqHdr->lease.leaseId,
+                                                 reqHdr->rpcId,
+                                                 reqHdr->ackId,
+                                                 reqHdr->lease.leaseTerm,
+                                                 &result)) {
+                //Obtain saved result and reply back.
+                Buffer resultBuffer;
+                Log::Reference resultRef((uint64_t)result);
+                objectManager.getLog()->getEntry(resultRef, resultBuffer);
+                RpcRecord savedRec(resultBuffer);
+                *respHdr = *((WireFormat::Write::Response*)savedRec.getResp());
+                return true;
+            }
+        } catch (UnackedRpcResults::StaleRpc& e) {
+            respHdr->common.status = STATUS_STALE_RPC;
+            return true;
+        }
+        return false;
+    }
+
+    /**
      * Counts the number of times disable has been called, minus the number
      * of times enable has been called; a value > 0 means that the service
      * is disabled and should return STATUS_RETRY for all requests. This
