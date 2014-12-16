@@ -1569,44 +1569,9 @@ MasterService::write(const WireFormat::Write::Request* reqHdr,
         Rpc* rpc)
 {
     const bool linearizable = reqHdr->rpcId > 0;
-    if (linearizable) {
-        updateClusterTime(reqHdr->lease.timestamp);
-
-        // Check lease is expired.
-        if (reqHdr->lease.leaseTerm < clusterTime) {
-            //contact coordinator for lease expiration and clusterTime.
-            WireFormat::ClientLease lease =
-                CoordinatorClient::getLeaseInfo(context,
-                                                reqHdr->lease.leaseId);
-            updateClusterTime(lease.timestamp);
-            if (lease.leaseTerm < clusterTime) {
-                //TODO(seojin): add expired lease status.
-                respHdr->common.status = STATUS_STALE_RPC;
-                rpc->sendReply();
-                return;
-            }
-        }
-        try {
-            void* result;
-            if (unackedRpcResults.checkDuplicate(reqHdr->lease.leaseId,
-                                                 reqHdr->rpcId,
-                                                 reqHdr->ackId,
-                                                 reqHdr->lease.leaseTerm,
-                                                 &result)) {
-                //Obtain saved result and reply back.
-                Buffer resultBuffer;
-                Log::Reference resultRef((uint64_t)result);
-                objectManager.getLog()->getEntry(resultRef, resultBuffer);
-                RpcRecord savedRec(resultBuffer);
-                *respHdr = *((WireFormat::Write::Response*)savedRec.getResp());
-                rpc->sendReply();
-                return;
-            }
-        } catch (UnackedRpcResults::StaleRpc& e) {
-            respHdr->common.status = STATUS_STALE_RPC;
-            rpc->sendReply();
-            return;
-        }
+    if (linearizable && shouldReplyEarly<WireFormat::Write>(reqHdr, respHdr)) {
+        rpc->sendReply();
+        return;
     }
 
     // This is a temporary object that has an invalid version and timestamp.
