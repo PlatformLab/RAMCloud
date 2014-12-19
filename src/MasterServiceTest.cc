@@ -1258,53 +1258,6 @@ TEST_F(MasterServiceTest, prepForMigration) {
             "in tableId 5 from \"??\"", TestLog::get());
 }
 
-TEST_F(MasterServiceTest, indexedRead) {
-    // Most of the functionality for indexedRead is in ObjectManager,
-    // so we do extensive unit testing there.
-    // Let's just ensure that the strings are parsed fine in the MasterService
-    // class.
-    // This may be overkill, and we may not acually need this test here.
-    uint64_t tableId = 1;
-    uint8_t numKeys = 2;
-
-    KeyInfo keyList0[2];
-    keyList0[0].keyLength = 8;
-    keyList0[0].key = "obj0key0";
-    keyList0[1].keyLength = 8;
-    keyList0[1].key = "obj0key1";
-
-    ramcloud->write(tableId, numKeys, keyList0, "obj0value",
-            NULL, NULL, false);
-
-    Buffer pKHashes;
-    // Key::getHash(tableId, "obj0key0", 8) gives 4921604586378860710,
-    uint64_t hashVal0 = 4921604586378860710;
-    pKHashes.appendExternal(&hashVal0, 8);
-
-    // indexedRead such that both objects are read.
-    Buffer responseBuffer;
-    uint32_t numObjectsResponse;
-    uint32_t numHashesResponse = ramcloud->indexedRead(
-            tableId, 1, &pKHashes, 1, "obj0key1", 8, "obj1key1", 8,
-            &responseBuffer, &numObjectsResponse);
-
-    // numHashes and numObjects
-    EXPECT_EQ(1U, numHashesResponse);
-    EXPECT_EQ(1U, numObjectsResponse);
-    uint32_t respOffset = sizeof32(WireFormat::IndexedRead::Response);
-
-    // version of object0
-    EXPECT_EQ(1U, *responseBuffer.getOffset<uint64_t>(respOffset));
-    respOffset += 8;
-    // value of object0
-    uint32_t obj1Length = *responseBuffer.getOffset<uint32_t>(respOffset);
-    respOffset += 4;
-    Object o1(tableId, 1, 0, responseBuffer, respOffset, obj1Length);
-    respOffset += obj1Length;
-    EXPECT_EQ("obj0value", string(reinterpret_cast<const char*>(o1.getValue()),
-            o1.getValueLength()));
-}
-
 TEST_F(MasterServiceTest, read_basics) {
     ramcloud->write(1, "0", 1, "abcdef", 6);
     Buffer value;

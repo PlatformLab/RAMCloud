@@ -115,7 +115,7 @@ enum Opcode {
     GET_SERVER_ID             = 61,
     READ_KEYS_AND_VALUE       = 62,
     LOOKUP_INDEX_KEYS         = 63,
-    INDEXED_READ              = 64,
+    READ_HASHES               = 64,
     INSERT_INDEX_ENTRY        = 65,
     REMOVE_INDEX_ENTRY        = 66,
     CREATE_INDEX              = 67,
@@ -834,22 +834,17 @@ struct Increment {
 };
 
 /**
- * Used by a client to request objects from a master for which the
- * primary key hash matching one of the key hashes
- * and specified index key is in the range [first key, last key].
+ * Used by a client to request objects by primary key hash from a master.
  */
-struct IndexedRead {
-    static const Opcode opcode = INDEXED_READ;
+struct ReadHashes {
+    static const Opcode opcode = READ_HASHES;
     static const ServiceType service = MASTER_SERVICE;
 
     struct Request {
         RequestCommon common;
         uint64_t tableId;               // Id of the table for the lookup.
-        uint8_t indexId;                // Id of the index for the lookup.
-        uint16_t firstKeyLength;        // Length of first key in bytes.
-        uint16_t lastKeyLength;         // Length of last key in bytes.
-        uint32_t numHashes;             // Number of key hashes to be looked up.
-        // In buffer: The actual first key and last key go here.
+        uint32_t numHashes;             // Number of key hashes in following
+                                        // buffer to be looked up.
         // In buffer: Key hashes for primary key for objects to be read go here.
     } __attribute__((packed));
 

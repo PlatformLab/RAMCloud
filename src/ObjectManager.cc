@@ -112,14 +112,13 @@ ObjectManager::initOnceEnlisted()
 }
 
 /**
- * Read object(s) matching the given parameters, previously written by
+ * Read object(s) with the given primary key hashes, previously written by
  * ObjectManager.
  *
  * We'd typically expect one object to match one primary key hash, but it is
- * possible that zero (if that object was removed after client did
- * lookupIndexKeys() preceding this call), one, or multiple (if there are
- * multiple objects with the same primary key hash that also have index
- * keys in the current read range) objects match.
+ * possible that zero (if that object was removed after client got the key
+ * hash), one, or multiple (if there are multiple objects with the same primary
+ * key hash) objects match.
  * 
  * \param tableId
  *      Id of the table containing the object(s).
@@ -129,26 +128,21 @@ ObjectManager::initOnceEnlisted()
  *      Key hashes of the primary keys of the object(s).
  * \param initialPKHashesOffset
  *      Offset indicating location of first key hash in the pKHashes buffer.
- * \param keyRange
- *      IndexKeyRange that will be used to compare the object's index key
- *      to determine whether it is a match.
  * \param maxLength
- *      Maximum length of response that can be appended to the response
- *      buffer.
+ *      Maximum length of response that can be put in the response buffer.
  *
  * \param[out] response
- *      Buffer to which response for each object will be appended in the
- *      readNext() method.
+ *      Buffer of objects whose primary key hashes match those requested.
  * \param[out] respNumHashes
- *      Num of hashes corresponding to which objects are being returned.
+ *      Number of hashes corresponding to objects being returned.
  * \param[out] numObjects
- *      Num of objects being returned.
+ *      Number of objects being returned.
  */
 void
-ObjectManager::indexedRead(const uint64_t tableId, uint32_t reqNumHashes,
+ObjectManager::readHashes(const uint64_t tableId, uint32_t reqNumHashes,
             Buffer* pKHashes, uint32_t initialPKHashesOffset,
-            IndexKey::IndexKeyRange* keyRange, uint32_t maxLength,
-            Buffer* response, uint32_t* respNumHashes, uint32_t* numObjects)
+            uint32_t maxLength, Buffer* response, uint32_t* respNumHashes,
+            uint32_t* numObjects)
 {
     // The current length of the response buffer in bytes. This is the
     // cumulative length of all the objects that have been appended to response
@@ -178,7 +172,7 @@ ObjectManager::indexedRead(const uint64_t tableId, uint32_t reqNumHashes,
         // as multiple objects having the same primary key hash may match
         // the index key range.
         objectMap.prefetchBucket(pKHash);
-        HashTableBucketLock lock(*this, pKHash);
+        HashTableBucketLock lock(*this, pKHash); // unlocks self on destruct
 
         // If the tablet doesn't exist in the NORMAL state,
         // we must plead ignorance.
@@ -191,8 +185,7 @@ ObjectManager::indexedRead(const uint64_t tableId, uint32_t reqNumHashes,
 
         HashTable::Candidates candidates;
         objectMap.lookup(pKHash, candidates);
-
-        while (!candidates.isDone()) {
+        for (; !candidates.isDone(); candidates.next()) {
             Buffer candidateBuffer;
             Log::Reference candidateRef(candidates.getReference());
             LogEntryType type = log.getEntry(candidateRef, candidateBuffer);
@@ -201,23 +194,19 @@ ObjectManager::indexedRead(const uint64_t tableId, uint32_t reqNumHashes,
                 continue;
 
             Object object(candidateBuffer);
-            bool isInRange = IndexKey::isKeyInRange(&object, keyRange);
 
-            if (isInRange == true) {
+            // Candidate may have only partially matching primary key hash.
+            if (object.getPKHash() == pKHash) {
                 *numObjects += 1;
                 response->emplaceAppend<uint64_t>(object.getVersion());
                 response->emplaceAppend<uint32_t>(
                         object.getKeysAndValueLength());
                 object.appendKeysAndValueToBuffer(*response);
 
-                KeyLength pKLength;
-                const void* pKString = object.getKey(1, &pKLength);
-                Key pK(tableId, pKString, pKLength);
-                tabletManager->incrementReadCount(pK);
+                tabletManager->incrementReadCount(object.getTableId(),
+                        object.getPKHash());
                 ++PerfStats::threadStats.readCount;
             }
-
-            candidates.next();
         }
 
         partLength = response->size() - currentLength;

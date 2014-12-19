@@ -161,9 +161,9 @@ MasterService::dispatch(WireFormat::Opcode opcode, Rpc* rpc)
             callHandler<WireFormat::MigrateTablet, MasterService,
                         &MasterService::migrateTablet>(rpc);
             break;
-        case WireFormat::IndexedRead::opcode:
-            callHandler<WireFormat::IndexedRead, MasterService,
-                        &MasterService::indexedRead>(rpc);
+        case WireFormat::ReadHashes::opcode:
+            callHandler<WireFormat::ReadHashes, MasterService,
+                        &MasterService::readHashes>(rpc);
             break;
         case WireFormat::MultiOp::opcode:
             callHandler<WireFormat::MultiOp, MasterService,
@@ -654,32 +654,20 @@ MasterService::incrementObject(Key *key,
 }
 
 /**
- * Top-level server method to handle the INDEXED_READ request.
+ * Top-level server method to handle the READ_HASHES request.
  *
  * \copydetails Service::ping
  */
 void
-MasterService::indexedRead(
-        const WireFormat::IndexedRead::Request* reqHdr,
-        WireFormat::IndexedRead::Response* respHdr,
+MasterService::readHashes(
+        const WireFormat::ReadHashes::Request* reqHdr,
+        WireFormat::ReadHashes::Response* respHdr,
         Rpc* rpc)
 {
     uint32_t reqOffset = sizeof32(*reqHdr);
 
-    const void* firstKeyStr =
-            rpc->requestPayload->getRange(reqOffset, reqHdr->firstKeyLength);
-    reqOffset += reqHdr->firstKeyLength;
-
-    const void* lastKeyStr =
-            rpc->requestPayload->getRange(reqOffset, reqHdr->lastKeyLength);
-    reqOffset += reqHdr->lastKeyLength;
-
-    IndexKey::IndexKeyRange keyRange = {reqHdr->indexId,
-            firstKeyStr, reqHdr->firstKeyLength,
-            lastKeyStr, reqHdr->lastKeyLength};
-
-    objectManager.indexedRead(reqHdr->tableId, reqHdr->numHashes,
-            rpc->requestPayload, reqOffset, &keyRange,
+    objectManager.readHashes(reqHdr->tableId, reqHdr->numHashes,
+            rpc->requestPayload, reqOffset,
             maxResponseRpcLen - sizeof32(*respHdr),
             rpc->replyPayload, &respHdr->numHashes, &respHdr->numObjects);
 }

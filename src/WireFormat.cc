@@ -103,7 +103,7 @@ opcodeSymbol(uint32_t opcode)
         case GET_SERVER_ID:              return "GET_SERVER_ID";
         case READ_KEYS_AND_VALUE:        return "READ_KEYS_AND_VALUE";
         case LOOKUP_INDEX_KEYS:          return "LOOKUP_INDEX_KEYS";
-        case INDEXED_READ:               return "INDEXED_READ";
+        case READ_HASHES:                return "READ_HASHES";
         case ILLEGAL_RPC_TYPE:           return "ILLEGAL_RPC_TYPE";
         case INSERT_INDEX_ENTRY:         return "INSERT_INDEX_ENTRY";
         case REMOVE_INDEX_ENTRY:         return "REMOVE_INDEX_ENTRY";

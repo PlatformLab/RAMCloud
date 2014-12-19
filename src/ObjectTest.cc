@@ -31,6 +31,7 @@ class ObjectTest : public ::testing::Test {
           numKeys(3),
           cumulativeKeyLengths(),
           keyList(),
+          keyHash(),
           buffer(),
           buffer2(),
           buffer3(),
@@ -49,6 +50,7 @@ class ObjectTest : public ::testing::Test {
         snprintf(dataBlob, sizeof(dataBlob), "YO!");
 
         Key key(57, stringKeys[0], sizeof(stringKeys[0]));
+        keyHash = key.getHash();
 
         keyList[0].key = stringKeys[0];
         keyList[0].keyLength = 3;
@@ -136,6 +138,7 @@ class ObjectTest : public ::testing::Test {
     // scope after the constructor completes execution
     CumulativeKeyLength cumulativeKeyLengths[3];
     KeyInfo keyList[3];
+    KeyHash keyHash;
 
     Buffer buffer;
     Buffer buffer2;
@@ -616,6 +619,12 @@ TEST_F(ObjectTest, getKeyLength) {
         EXPECT_EQ(3U, objects[i]->getKeyLength(2));
         // invalid key index
         EXPECT_EQ(0U, objects[i]->getKeyLength(3));
+    }
+}
+
+TEST_F(ObjectTest, getPKHash) {
+    for (uint32_t i = 0; i < arrayLength(objects); i++) {
+        EXPECT_EQ(keyHash, objects[i]->getPKHash());
     }
 }
 

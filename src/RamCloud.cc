@@ -1145,9 +1145,7 @@ IncrementInt64Rpc::wait(uint64_t* version)
 }
 
 /**
- * Read objects in a table with given primary key hashes, and check
- * index key (index indicated by indexId) to ensure it falls in the allowed
- * range [firstKey to lastKey].
+ * Read objects in a table with given primary key hashes.
  *
  * An RPC will be sent to a single server S1. This request RPC will contain
  * all the key hashes, even though S1 may not be able to service them all.
@@ -1164,43 +1162,22 @@ IncrementInt64Rpc::wait(uint64_t* version)
  * didn't own these other objects.
  *
  * \param tableId
- *      Id of the table in which indexed read is to be done.
+ *      Id of the table to read from.
  * \param numHashes
- *      Number of primary key hashes being provided for the indexed read.
+ *      Number of primary key hashes in the following buffer.
  * \param pKHashes
- *      Buffer containing all the primary key hashes for which an indexed
- *      read is to be done.
- * \param indexId
- *      Id of the index for which keys have to be compared.
- *      Must be greater than 0. Id 0 is reserved for "primary key".
- * \param firstKey
- *      Starting key for the key range in which keys are to be matched.
- *      The key range includes the firstKey.
- *      It does not necessarily have to be null terminated.  The caller must
- *      ensure that the storage for this key is unchanged through the life of
- *      the RPC.
- * \param firstKeyLength
- *      Length in bytes of the firstKey.
- * \param lastKey
- *      Ending key for the key range in which keys are to be matched.
- *      The key range includes the lastKey.
- *      It does not necessarily have to be null terminated.  The caller must
- *      ensure that the storage for this key is unchanged through the life of
- *      the RPC.
- * \param lastKeyLength
- *      Length in byes of the lastKey.
+ *      Buffer of primary key hashes of objects desired in this request.
  *
  * \param[out] response
- *      Return all the objects matching the index lookup (range or point)
+ *      Return all the objects matching the given primary key hashes
  *      along with their versions, in the format specified by
- *      WireFormat::IndexedRead::Response.
+ *      WireFormat::ReadHashes::Response.
  * \param[out] numObjects
  *      Number of objects that are being returned.
  *      For each primary key hash in pKHashes, the operation could return:
  *      (a) One corresponding object, or
  *      (b) More than one corresponding objects if there are multiple objects
- *              with the same primary key hash and secondary key in
- *              the given range, or
+ *              with the same primary key hash and secondary key, or
  *      (c) No object if the object isn't on the server (where the query is
  *              currently being sent), or
  *      (d) No object if the server has appended enough data (objects) to the
@@ -1208,91 +1185,60 @@ IncrementInt64Rpc::wait(uint64_t* version)
  * \return
  *      Number of key hashes for which corresponding objects are being
  *      returned, or for which no matching objects were found.
+ *      If this number is less than the total number of hashes in the
+ *      original request, that means not all of those hashes were used.
  */
 uint32_t
-RamCloud::indexedRead(uint64_t tableId, uint32_t numHashes, Buffer* pKHashes,
-        uint8_t indexId,
-        const void* firstKey, uint16_t firstKeyLength,
-        const void* lastKey, uint16_t lastKeyLength,
+RamCloud::readHashes(uint64_t tableId, uint32_t numHashes, Buffer* pKHashes,
         Buffer* response, uint32_t* numObjects)
 {
-    IndexedReadRpc rpc(this, tableId, numHashes, pKHashes, indexId,
-        firstKey, firstKeyLength, lastKey, lastKeyLength, response);
+    ReadHashesRpc rpc(this, tableId, numHashes, pKHashes, response);
     return rpc.wait(numObjects);
 }
 
 /**
- * Constructor for IndexedReadRpc: initiates RPC(s) in the same way as
- * #RamCloud::IndexedReadRpc, but returns once first RPC has been initiated,
+ * Constructor for ReadHashesRpc: initiates RPC(s) in the same way as
+ * #RamCloud::ReadHashesRpc, but returns once first RPC has been initiated,
  * without waiting for any to complete.
  *
  * \param ramcloud
  *      The RAMCloud object that governs this RPC.
  * \param tableId
- *      Id of the table in which indexed read is to be done.
+ *      Id of the table to read from.
  * \param numHashes
- *      Number of primary key hashes being provided for the indexed read.
+ *      Number of primary key hashes in the following buffer.
  * \param pKHashes
- *      Buffer containing all the primary key hashes for which an indexed
- *      read is to be done.
- * \param indexId
- *      Id of the index for which keys have to be compared.
- *      Must be greater than 0. Id 0 is reserved for "primary key".
- * \param firstKey
- *      Starting key for the key range in which keys are to be matched.
- *      The key range includes the firstKey.
- *      It does not necessarily have to be null terminated.  The caller must
- *      ensure that the storage for this key is unchanged through the life of
- *      the RPC.
- * \param firstKeyLength
- *      Length in bytes of the firstKey.
- * \param lastKey
- *      Ending key for the key range in which keys are to be matched.
- *      The key range includes the lastKey.
- *      It does not necessarily have to be null terminated.  The caller must
- *      ensure that the storage for this key is unchanged through the life of
- *      the RPC.
- * \param lastKeyLength
- *      Length in byes of the lastKey.
+ *      Buffer of primary key hashes of objects desired in this request.
  *
  * \param[out] response
- *      Return all the objects matching the index lookup (range or point)
+ *      Return all the objects matching the given primary key hashes
  *      along with their versions, in the format specified by
- *      WireFormat::IndexedRead::Response.
+ *      WireFormat::ReadHashes::Response.
  */
-IndexedReadRpc::IndexedReadRpc(RamCloud* ramcloud, uint64_t tableId,
-        uint32_t numHashes, Buffer* pKHashes, uint8_t indexId,
-        const void* firstKey, uint16_t firstKeyLength,
-        const void* lastKey, uint16_t lastKeyLength,
-        Buffer* response)
+ReadHashesRpc::ReadHashesRpc(RamCloud* ramcloud, uint64_t tableId,
+        uint32_t numHashes, Buffer* pKHashes, Buffer* response)
     : ObjectRpcWrapper(ramcloud, tableId,
             *(pKHashes->getStart<uint64_t>()),
-            sizeof(WireFormat::IndexedRead::Response), response)
+            sizeof(WireFormat::ReadHashes::Response), response)
 {
-    WireFormat::IndexedRead::Request* reqHdr(
-            allocHeader<WireFormat::IndexedRead>());
+    WireFormat::ReadHashes::Request* reqHdr(
+            allocHeader<WireFormat::ReadHashes>());
     reqHdr->tableId = tableId;
-    reqHdr->indexId = indexId;
-    reqHdr->firstKeyLength = firstKeyLength;
-    reqHdr->lastKeyLength = lastKeyLength;
     reqHdr->numHashes = numHashes;
-    request.appendCopy(firstKey, firstKeyLength);
-    request.appendCopy(lastKey, lastKeyLength);
     request.appendExternal(pKHashes, 0, pKHashes->size());
     send();
 }
 
 /**
  * Wait for the RPCs to complete, and return the same results as
- * #RamCloud::IndexedReadRpc.
+ * #RamCloud::ReadHashesRpc.
  *
  * \param[out] numObjects
  *      Number of objects that are being returned.
  *      For each primary key hash in pKHashes, the operation could return:
  *      (a) One corresponding object, or
  *      (b) More than one corresponding objects if there are multiple objects
- *              with the same primary key hash and secondary key in
- *              the given range, or
+ *              with the same primary key hash and secondary key, or
  *      (c) No object if the object isn't on the server (where the query is
  *              currently being sent), or
  *      (d) No object if the server has appended enough data (objects) to the
@@ -1302,11 +1248,11 @@ IndexedReadRpc::IndexedReadRpc(RamCloud* ramcloud, uint64_t tableId,
  *      returned, or for which no matching objects were found.
  */
 uint32_t
-IndexedReadRpc::wait(uint32_t* numObjects)
+ReadHashesRpc::wait(uint32_t* numObjects)
 {
     simpleWait(ramcloud->clientContext->dispatch);
-    const WireFormat::IndexedRead::Response* respHdr(
-            getResponseHeader<WireFormat::IndexedRead>());
+    const WireFormat::ReadHashes::Response* respHdr(
+            getResponseHeader<WireFormat::ReadHashes>());
     *numObjects = respHdr->numObjects;
     return respHdr->numHashes;
 }

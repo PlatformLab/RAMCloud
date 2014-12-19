@@ -233,6 +233,20 @@ def indexBasic(name, options, cluster_args, client_args):
             (obj_path, flatten_args(client_args), name), **cluster_args)
     print(get_client_log(), end='')
 
+def indexRange(name, options, cluster_args, client_args):
+    if 'master_args' not in cluster_args:
+        cluster_args['master_args'] = '--masterServiceThreads 1'
+    if cluster_args['timeout'] < 200:
+        cluster_args['timeout'] = 200
+    # Ensure at least 5 hosts for optimal performance
+    if options.num_servers == None:
+        cluster_args['num_servers'] = len(hosts)
+    # using 20GB for servers so that we don't run out of memory when inserting
+    # 10 million objects/index entries
+    cluster.run(client='%s/ClusterPerf %s %s' %
+            (obj_path, flatten_args(client_args), name), **cluster_args)
+    print(get_client_log(), end='')
+
 def indexMultiple(name, options, cluster_args, client_args):
     if 'master_args' not in cluster_args:
         cluster_args['master_args'] = '--masterServiceThreads 1'
@@ -416,6 +430,7 @@ simple_tests = [
 
 graph_tests = [
     Test("indexBasic", indexBasic),
+    Test("indexRange", indexRange),
     Test("indexMultiple", indexMultiple),
     Test("indexScalability", indexScalability),
     Test("multiRead_general", multiOp),

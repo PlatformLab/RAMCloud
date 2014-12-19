@@ -56,10 +56,9 @@ class ObjectManager : public LogEntryHandlers {
     virtual ~ObjectManager();
     void initOnceEnlisted();
 
-    void indexedRead(const uint64_t tableId, uint32_t reqNumHashes,
+    void readHashes(const uint64_t tableId, uint32_t reqNumHashes,
                 Buffer* pKHashes, uint32_t initialPKHashesOffset,
-                IndexKey::IndexKeyRange* keyRange, uint32_t maxLength,
-                Buffer* response, uint32_t* respNumHashes,
+                uint32_t maxLength, Buffer* response, uint32_t* respNumHashes,
                 uint32_t* numObjects);
     void prefetchHashTableBucket(SegmentIterator* it);
     Status readObject(Key& key, Buffer* outBuffer,

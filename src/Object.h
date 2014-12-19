@@ -111,6 +111,7 @@ class Object {
     }
     const void* getKey(KeyIndex keyIndex = 0, KeyLength *keyLength = NULL);
     KeyLength getKeyLength(KeyIndex keyIndex = 0);
+    KeyHash getPKHash();
     const void* getKeysAndValue();
     KeyCount getKeyCount();
     const void* getValue(uint32_t *valueLength = NULL);

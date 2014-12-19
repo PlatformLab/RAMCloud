@@ -534,6 +534,15 @@ Object::getKeyLength(KeyIndex keyIndex)
 }
 
 /**
+ * Gets the primary key hash of the object. This is currently not cached.
+ */
+KeyHash
+Object::getPKHash()
+{
+    return Key::getHash(getTableId(), getKey(), getKeyLength());
+}
+
+/**
  * Obtain a pointer to a contiguous copy of this object's value.
  * If the value is not already contiguous, it will be copied.
  * This will include the number of keys, the key lengths and the keys

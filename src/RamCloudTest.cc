@@ -713,169 +713,76 @@ TEST_F(RamCloudTest, writeNullValue) {
     EXPECT_EQ(0U, valueLength);
 }
 
-TEST_F(RamCloudTest, indexedRead) {
+TEST_F(RamCloudTest, readHashes) {
     uint64_t tableId = ramcloud->createTable("table");
     ramcloud->createIndex(tableId, 1, 0);
-    ramcloud->createIndex(tableId, 2, 0);
 
-    uint8_t numKeys = 3;
+    uint8_t numKeys = 2;
 
-    KeyInfo keyListA[3];
+    KeyInfo keyListA[2];
     keyListA[0].keyLength = 5;
     keyListA[0].key = "keyA0";
     keyListA[1].keyLength = 5;
     keyListA[1].key = "keyA1";
-    keyListA[2].keyLength = 5;
-    keyListA[2].key = "keyA2";
 
-    KeyInfo keyListB[3];
+    KeyInfo keyListB[2];
     keyListB[0].keyLength = 5;
     keyListB[0].key = "keyB0";
     keyListB[1].keyLength = 5;
     keyListB[1].key = "keyB1";
-    keyListB[2].keyLength = 5;
-    keyListB[2].key = "keyB2";
 
-    KeyInfo keyListC[3];
+    KeyInfo keyListC[2];
     keyListC[0].keyLength = 5;
     keyListC[0].key = "keyC0";
     keyListC[1].keyLength = 5;
     keyListC[1].key = "keyC1";
-    keyListC[2].keyLength = 5;
-    keyListC[2].key = "keyC2";
 
     Key primaryKeyA(tableId, keyListA[0].key, keyListA[0].keyLength);
     Key primaryKeyB(tableId, keyListB[0].key, keyListB[0].keyLength);
     Key primaryKeyC(tableId, keyListC[0].key, keyListC[0].keyLength);
 
-    ////////////////////////////////////////////////////////////////////////
-    ////////// Write the objects, which inserts index entries. /////////////
-    ////////////////////////////////////////////////////////////////////////
+    // Write three objects
 
-    // NOTE: Since this write will first involve writing of
-    // the corresponding index entries, the version for this
-    // data object will be 2 and increases then on for every
-    // new object. This is because, indexlets are implemented
-    // using RamCloud objects and when an entry is first added,
-    // it gets allocated a version of 1.
     ramcloud->write(tableId, numKeys, keyListA, "valueA");
     ramcloud->write(tableId, numKeys, keyListB, "valueB");
     ramcloud->write(tableId, numKeys, keyListC, "valueC");
 
-    ////////////////////////////////////////////////////////////////////////
-    //// Indexed reads on primary key hash + index key, for each index. ////
-    //// Should return entire objects. /////////////////////////////////////
-    ////////////////////////////////////////////////////////////////////////
-
+    // ReadHashes based on primary keys for these three objects
     Buffer pKHashes;
     Buffer readResp;
     uint32_t numObjects;
     uint32_t readOffset;
 
-    // Indexed read on index id 1.
-    // Point read for first object, range read for the other two.
-    readResp.reset();
-    pKHashes.reset();
-    pKHashes.emplaceAppend<uint64_t>(primaryKeyA.getHash());
-    ramcloud->indexedRead(tableId, 1, &pKHashes, 1, "keyA1", 5, "keyA1", 5,
-                          &readResp, &numObjects);
-
-    EXPECT_EQ(1U, numObjects);
-    readOffset = sizeof32(WireFormat::IndexedRead::Response);
-
-    uint64_t versionA1 = *readResp.getOffset<uint64_t>(readOffset);
-    EXPECT_EQ(2U, versionA1);
-    readOffset += sizeof32(uint64_t);
-    uint32_t lengthA1 = *readResp.getOffset<uint32_t>(readOffset);
-    readOffset += sizeof32(uint32_t);
-    Object objA1(tableId, versionA1, 0, readResp, readOffset, lengthA1);
-    readOffset += lengthA1;
-    uint32_t valueLengthA1;
-    const void* valueA1 = objA1.getValue(&valueLengthA1);
-    EXPECT_EQ("valueA", string(reinterpret_cast<const char*>(valueA1),
-                               valueLengthA1));
-
-    readResp.reset();
-    pKHashes.reset();
-    pKHashes.emplaceAppend<uint64_t>(primaryKeyB.getHash());
-    pKHashes.emplaceAppend<uint64_t>(primaryKeyC.getHash());
-    ramcloud->indexedRead(tableId, 2, &pKHashes, 1, "keyB1", 5, "keyC1", 5,
-                          &readResp, &numObjects);
-
-    EXPECT_EQ(2U, numObjects);
-    readOffset = sizeof32(WireFormat::IndexedRead::Response);
-
-    uint64_t versionB1 = *readResp.getOffset<uint64_t>(readOffset);
-    EXPECT_EQ(3U, versionB1);
-    readOffset += sizeof32(uint64_t);
-    uint32_t lengthB1 = *readResp.getOffset<uint32_t>(readOffset);
-    readOffset += sizeof32(uint32_t);
-    Object objB1(tableId, versionB1, 0, readResp, readOffset, lengthB1);
-    readOffset += lengthB1;
-    uint32_t valueLengthB1;
-    const void* valueB1 = objB1.getValue(&valueLengthB1);
-    EXPECT_EQ("valueB", string(reinterpret_cast<const char*>(valueB1),
-                               valueLengthB1));
-
-    uint64_t versionC1 = *readResp.getOffset<uint64_t>(readOffset);
-    EXPECT_EQ(4U, versionC1);
-    readOffset += sizeof32(uint64_t);
-    uint32_t lengthC1 = *readResp.getOffset<uint32_t>(readOffset);
-    readOffset += sizeof32(uint32_t);
-    Object objC1(tableId, versionB1, 0, readResp, readOffset, lengthC1);
-    readOffset += lengthC1;
-    uint32_t valueLengthC1;
-    const void* valueC1 = objC1.getValue(&valueLengthC1);
-    EXPECT_EQ("valueC", string(reinterpret_cast<const char*>(valueC1),
-                               valueLengthC1));
-
-    // Indexed read on index id 2. Range read all.
-    readResp.reset();
-    pKHashes.reset();
     pKHashes.emplaceAppend<uint64_t>(primaryKeyA.getHash());
     pKHashes.emplaceAppend<uint64_t>(primaryKeyB.getHash());
     pKHashes.emplaceAppend<uint64_t>(primaryKeyC.getHash());
-    ramcloud->indexedRead(tableId, 3, &pKHashes, 2, "a", 1, "z", 1,
-                          &readResp, &numObjects);
-
+    ramcloud->readHashes(tableId, 3, &pKHashes, &readResp, &numObjects);
     EXPECT_EQ(3U, numObjects);
-    readOffset = sizeof32(WireFormat::IndexedRead::Response);
 
-    uint64_t versionA2 = *readResp.getOffset<uint64_t>(readOffset);
-    EXPECT_EQ(2U, versionA2);
-    readOffset += sizeof32(uint64_t);
-    uint32_t lengthA2 = *readResp.getOffset<uint32_t>(readOffset);
-    readOffset += sizeof32(uint32_t);
-    Object objA2(tableId, versionA2, 0, readResp, readOffset, lengthA2);
-    readOffset += lengthA2;
-    uint32_t valueLengthA2;
-    const void* valueA2 = objA2.getValue(&valueLengthA2);
-    EXPECT_EQ("valueA", string(reinterpret_cast<const char*>(valueA2),
-                               valueLengthA2));
+    readOffset = sizeof32(WireFormat::ReadHashes::Response);
 
-    uint64_t versionB2 = *readResp.getOffset<uint64_t>(readOffset);
-    EXPECT_EQ(3U, versionB2);
-    readOffset += sizeof32(uint64_t);
-    uint32_t lengthB2 = *readResp.getOffset<uint32_t>(readOffset);
-    readOffset += sizeof32(uint32_t);
-    Object objB2(tableId, versionB2, 0, readResp, readOffset, lengthB2);
-    readOffset += lengthB2;
-    uint32_t valueLengthB2;
-    const void* valueB2 = objB2.getValue(&valueLengthB2);
-    EXPECT_EQ("valueB", string(reinterpret_cast<const char*>(valueB2),
-                               valueLengthB2));
+    readOffset += sizeof32(uint64_t); // version
+    uint32_t lengthA1 = *readResp.getOffset<uint32_t>(readOffset);
+    readOffset += sizeof32(uint32_t); // length
+    Object objA1(tableId, 1, 0, readResp, readOffset, lengthA1);
+    EXPECT_EQ("valueA", string(reinterpret_cast<const char*>(objA1.getValue()),
+                objA1.getValueLength()));
+    readOffset += lengthA1;
 
-    uint64_t versionC2 = *readResp.getOffset<uint64_t>(readOffset);
-    EXPECT_EQ(4U, versionC2);
-    readOffset += sizeof32(uint64_t);
-    uint32_t lengthC2 = *readResp.getOffset<uint32_t>(readOffset);
-    readOffset += sizeof32(uint32_t);
-    Object objC2(tableId, versionB1, 0, readResp, readOffset, lengthC2);
-    readOffset += lengthC2;
-    uint32_t valueLengthC2;
-    const void* valueC2 = objC2.getValue(&valueLengthC2);
-    EXPECT_EQ("valueC", string(reinterpret_cast<const char*>(valueC2),
-                               valueLengthC2));
+    readOffset += sizeof32(uint64_t); // version
+    uint32_t lengthB1 = *readResp.getOffset<uint32_t>(readOffset);
+    readOffset += sizeof32(uint32_t); // length
+    Object objB1(tableId, 1, 0, readResp, readOffset, lengthB1);
+    EXPECT_EQ("valueB", string(reinterpret_cast<const char*>(objB1.getValue()),
+                objB1.getValueLength()));
+    readOffset += lengthB1;
+
+    readOffset += sizeof32(uint64_t); // version
+    uint32_t lengthC1 = *readResp.getOffset<uint32_t>(readOffset);
+    readOffset += sizeof32(uint32_t); // length
+    Object objC1(tableId, 1, 0, readResp, readOffset, lengthC1);
+    EXPECT_EQ("valueC", string(reinterpret_cast<const char*>(objC1.getValue()),
+                objC1.getValueLength()));
 }
 
 TEST_F(RamCloudTest, lookupIndexKeys) {
