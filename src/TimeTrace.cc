@@ -56,10 +56,26 @@ void TimeTrace::record(const char* message, uint64_t timestamp)
     if (readerActive) {
         return;
     }
-    int i = nextIndex;
-    nextIndex = (i + 1)%BUFFER_SIZE;
-    events[i].timestamp = timestamp;
-    events[i].message = message;
+    int current;
+
+    // This loop allocates a slot for the new event and handles
+    // synchronization between threads; if there is a race, it may
+    // execute multiple times.
+    while (1) {
+        current = nextIndex;
+
+        // Don't use % to increment current with wraparound: it's too slow.
+        int newNext = current + 1;
+        if (newNext == BUFFER_SIZE) {
+            newNext = 0;
+        }
+        if (nextIndex.compareExchange(current, newNext) == current) {
+            break;
+        }
+    }
+
+    events[current].timestamp = timestamp;
+    events[current].message = message;
 }
 
 /**

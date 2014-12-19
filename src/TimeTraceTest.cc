@@ -69,7 +69,7 @@ TEST_F(TimeTraceTest, record_wrapAround) {
     trace.record("near the end", 100);
     trace.record("at the end", 200);
     trace.record("beginning", 350);
-    EXPECT_EQ(1, trace.nextIndex);
+    EXPECT_EQ(1, trace.nextIndex.load());
     trace.nextIndex = TimeTrace::BUFFER_SIZE - 2;
     EXPECT_EQ("     0.0 ns (+   0.0 ns): near the end\n"
             "    50.0 ns (+  50.0 ns): at the end\n"
