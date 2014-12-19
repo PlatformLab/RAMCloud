@@ -73,7 +73,7 @@ def flatten_args(args):
             for name, value in args.iteritems()])
 
 def get_client_log(
-        index = 1                 # Client index (1 for first client,
+        index = 0                 # Client index (1 for first client,
                                   # which is usually the one that's wanted)
         ):
     """

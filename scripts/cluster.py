@@ -192,7 +192,7 @@ class Cluster(object):
 
         self.coordinator = None
         self.next_server_id = 1
-        self.next_client_id = 1
+        self.next_client_id = 0
         self.masters_started = 0
         self.backups_started = 0
 
