@@ -857,12 +857,21 @@ TEST_F(BufferTest, allocAux) {
     EXPECT_EQ('x', t->c);
 }
 
-TEST_F(BufferTest, appendExternal) {
+TEST_F(BufferTest, append) {
     Buffer buffer;
-    buffer.appendExternal("abcde", 5);
-    buffer.appendExternal("0123", 4);
-    buffer.appendExternal("", 0);
-    EXPECT_EQ("abcde | 0123", showChunks(&buffer));
+    buffer.append("abcde", 5);
+    buffer.append("0123", 4);
+    buffer.append("", 0);
+    EXPECT_EQ("abcde0123", showChunks(&buffer));
+    EXPECT_EQ(1u, buffer.getNumberChunks());
+    char large[600];
+    for (uint32_t i = 0; i < sizeof(large); i++) {
+        large[i] = "qrstuvw"[i%6];
+    }
+    buffer.append(large, sizeof(large));
+    EXPECT_EQ(2u, buffer.getNumberChunks());
+    string extract(reinterpret_cast<const char*>(buffer.getRange(9, 10)), 10);
+    EXPECT_EQ("qrstuvqrst", extract);
 }
 
 TEST_F(BufferTest, appendCopy) {
@@ -871,6 +880,14 @@ TEST_F(BufferTest, appendCopy) {
     buffer.appendCopy("0123", 4);
     buffer.appendCopy("", 0);
     EXPECT_EQ("abcde0123", showChunks(&buffer));
+}
+
+TEST_F(BufferTest, appendExternal) {
+    Buffer buffer;
+    buffer.appendExternal("abcde", 5);
+    buffer.appendExternal("0123", 4);
+    buffer.appendExternal("", 0);
+    EXPECT_EQ("abcde | 0123", showChunks(&buffer));
 }
 
 TEST_F(BufferTest, appendCopyAndGetStart) {

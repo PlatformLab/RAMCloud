@@ -82,26 +82,37 @@ class Buffer {
     void* allocPrepend(size_t numBytes);
 
     /**
-     * Extend the buffer with a block of external data. The data is not
-     * copied; the buffer will refer to the source block, so the caller must
-     * ensure that the source data remains intact for the lifetime of the
-     * buffer.
+     * Extend the buffer with a block of data. If the block is small,
+     * it is copied into the buffer, which is more efficient, especially
+     * if the buffer is going to be used for an outgoing RPC request
+     * or response (copying typically results in fewer chunks in the
+     * buffer, which means less overhead later to process separate
+     * chunks). If the block is large, it is appended virtually, with
+     * a separate chunk pointing to the original data.
      *
      * \param data
-     *      Address of first byte of data to append to the buffer.
+     *      Address of first byte of data to append to the buffer. Since this
+     *      data may be appended virtually, the caller  must ensure that it
+     *      remains intact for the lifetime of the buffer. If the data is
+     *      volatile, call appendCopy instead.
      * \param numBytes
      *      Number of bytes of data to append.
      */
     inline void
-    appendExternal(const void* data, uint32_t numBytes)
+    append(const void* data, uint32_t numBytes)
     {
-        if (expect_false(numBytes == 0)) return;
-        // At one point this method was modified to just copy in the data,
-        // if it is small, rather than creating a new chunk that refers to
-        // external data. In many situations this would improve performance,
-        // but in some situations it is essential that the Buffer refer
-        // to external data (such as data in the log).
-        appendChunk(allocAux<Chunk>(data, numBytes));
+        // The constant below  was chosen heuristically, considering
+        // (a) the cost of copying that many bytes, (b) the cost of
+        // creating a new chunk in the buffer if we don't copy, and
+        // (c) the cost of processing additional chunks later in the
+        // common case where the buffer is used for RPC messages.
+        if (numBytes <= 500) {
+            if (expect_true(numBytes != 0)) {
+                memcpy(alloc(numBytes), data, numBytes);
+            }
+        } else {
+            appendChunk(allocAux<Chunk>(data, numBytes));
+        }
     }
 
     void appendExternal(Buffer* src, uint32_t offset = 0, uint32_t length = ~0);
@@ -137,6 +148,29 @@ class Buffer {
     appendCopy(const T* object)
     {
         memcpy(alloc(sizeof(T)), object, sizeof(T));
+    }
+
+    /**
+     * Extend the buffer with a block of external data. The data is not
+     * copied; the buffer will refer to the source block, so the caller must
+     * ensure that the source data remains intact for the lifetime of the
+     * buffer.
+     *
+     * \param data
+     *      Address of first byte of data to append to the buffer.
+     * \param numBytes
+     *      Number of bytes of data to append.
+     */
+    inline void
+    appendExternal(const void* data, uint32_t numBytes)
+    {
+        if (expect_false(numBytes == 0)) return;
+        // At one point this method was modified to just copy in the data,
+        // if it is small, as in append, rather than creating a new chunk
+        // that refers to external data. In many situations this would
+        // improve performance, but in some situations it is essential
+        // that the Buffer refer to external data (such as data in the log).
+        appendChunk(allocAux<Chunk>(data, numBytes));
     }
 
     uint32_t copy(uint32_t offset, uint32_t length, void* dest); // NOLINT
@@ -433,7 +467,7 @@ class Buffer {
          * current position (and part of the iterator's range), or zero if
          * the iteration is complete.
          */
-        uint32_t
+        inline uint32_t
         getLength() const
         {
             return currentLength;
