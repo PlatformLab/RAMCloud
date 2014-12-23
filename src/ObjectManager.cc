@@ -381,7 +381,7 @@ ObjectManager::removeObject(Key& key, RejectRules* rejectRules,
 
     // Return a pointer to the buffer in log for the object being removed.
     if (removedObjBuffer != NULL) {
-        removedObjBuffer->appendExternal(&buffer);
+        removedObjBuffer->append(&buffer);
     }
 
     ObjectTombstone tombstone(object,
@@ -893,7 +893,7 @@ ObjectManager::writeObject(Object& newObject, RejectRules* rejectRules,
             // Return a pointer to the buffer in log for the object being
             // overwritten.
             if (removedObjBuffer != NULL) {
-                removedObjBuffer->appendExternal(&currentBuffer);
+                removedObjBuffer->append(&currentBuffer);
             }
         }
     }
@@ -1540,7 +1540,7 @@ ObjectManager::lookup(HashTableBucketLock& lock, Key& key,
         Key candidateKey(type, candidateBuffer);
         if (key == candidateKey) {
             outType = type;
-            buffer.appendExternal(&candidateBuffer);
+            buffer.append(&candidateBuffer);
             if (outVersion != NULL) {
                 if (type == LOG_ENTRY_TYPE_OBJ) {
                     Object o(candidateBuffer);

@@ -424,7 +424,7 @@ IndexletManager::lookupIndexKeys(
 
         respHdr->nextKeyLength = uint16_t(iter.key().keyLength);
         respHdr->nextKeyHash = iter.data();
-        rpc->replyPayload->appendExternal(iter.key().key,
+        rpc->replyPayload->append(iter.key().key,
                 uint32_t(iter.key().keyLength));
 
     } else if (IndexKey::keyCompare(
@@ -433,7 +433,7 @@ IndexletManager::lookupIndexKeys(
 
         respHdr->nextKeyLength = indexlet->firstNotOwnedKeyLength;
         respHdr->nextKeyHash = 0;
-        rpc->replyPayload->appendExternal(indexlet->firstNotOwnedKey,
+        rpc->replyPayload->append(indexlet->firstNotOwnedKey,
                 indexlet->firstNotOwnedKeyLength);
 
     } else {

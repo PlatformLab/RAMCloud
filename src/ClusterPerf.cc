@@ -3705,6 +3705,9 @@ try
             }
         }
     }
+
+    cluster->serverControlAll(WireFormat::LOG_TIME_TRACE);
+    cluster->clientContext->timeTrace->printToLog();
 }
 catch (std::exception& e) {
     RAMCLOUD_LOG(ERROR, "%s", e.what());

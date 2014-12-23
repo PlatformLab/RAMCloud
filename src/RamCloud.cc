@@ -26,6 +26,7 @@
 #include "Object.h"
 #include "ProtoBuf.h"
 #include "ShortMacros.h"
+#include "TimeTrace.h"
 
 namespace RAMCloud {
 
@@ -163,7 +164,7 @@ CreateTableRpc::CreateTableRpc(RamCloud* ramcloud,
             allocHeader<WireFormat::CreateTable>());
     reqHdr->nameLength = length;
     reqHdr->serverSpan = serverSpan;
-    request.appendCopy(name, length);
+    request.append(name, length);
     send();
 }
 
@@ -221,7 +222,7 @@ DropTableRpc::DropTableRpc(RamCloud* ramcloud, const char* name)
     WireFormat::DropTable::Request* reqHdr(
             allocHeader<WireFormat::DropTable>());
     reqHdr->nameLength = length;
-    request.appendCopy(name, length);
+    request.append(name, length);
     send();
 }
 
@@ -436,7 +437,7 @@ EnumerateTableRpc::EnumerateTableRpc(RamCloud* ramcloud, uint64_t tableId,
     reqHdr->tabletFirstHash = tabletFirstHash;
     reqHdr->iteratorBytes = state.size();
     for (Buffer::Iterator it(&state); !it.isDone(); it.next())
-        request.appendExternal(it.getData(), it.getLength());
+        request.append(it.getData(), it.getLength());
     send();
 }
 
@@ -914,7 +915,7 @@ GetTableIdRpc::GetTableIdRpc(RamCloud* ramcloud,
     WireFormat::GetTableId::Request* reqHdr(
             allocHeader<WireFormat::GetTableId>());
     reqHdr->nameLength = length;
-    request.appendCopy(name, length);
+    request.append(name, length);
     send();
 }
 
@@ -1015,7 +1016,7 @@ IncrementDoubleRpc::IncrementDoubleRpc(RamCloud* ramcloud, uint64_t tableId,
     reqHdr->incrementInt64 = 0;
     reqHdr->incrementDouble = incrementValue;
     reqHdr->rejectRules = rejectRules ? *rejectRules : defaultRejectRules;
-    request.appendExternal(key, keyLength);
+    request.append(key, keyLength);
     send();
 }
 
@@ -1118,7 +1119,7 @@ IncrementInt64Rpc::IncrementInt64Rpc(RamCloud* ramcloud, uint64_t tableId,
     reqHdr->incrementInt64 = incrementValue;
     reqHdr->incrementDouble = 0.0;
     reqHdr->rejectRules = rejectRules ? *rejectRules : defaultRejectRules;
-    request.appendExternal(key, keyLength);
+    request.append(key, keyLength);
     send();
 }
 
@@ -1225,7 +1226,7 @@ ReadHashesRpc::ReadHashesRpc(RamCloud* ramcloud, uint64_t tableId,
             allocHeader<WireFormat::ReadHashes>());
     reqHdr->tableId = tableId;
     reqHdr->numHashes = numHashes;
-    request.appendExternal(pKHashes, 0, pKHashes->size());
+    request.append(pKHashes, 0, pKHashes->size());
     send();
 }
 
@@ -1351,9 +1352,9 @@ IndexServerControlRpc::IndexServerControlRpc(RamCloud* ramcloud,
     reqHdr->tableId = tableId;
     reqHdr->indexId = indexId;
     reqHdr->keyLength = keyLength;
-    request.appendExternal(key, keyLength);
+    request.append(key, keyLength);
     reqHdr->inputLength = inputLength;
-    request.appendExternal(inputData, inputLength);
+    request.append(inputData, inputLength);
     send();
 }
 
@@ -1515,8 +1516,8 @@ LookupIndexKeysRpc::LookupIndexKeysRpc(
     reqHdr->firstAllowedKeyHash = firstAllowedKeyHash;
     reqHdr->lastKeyLength = lastKeyLength;
     reqHdr->maxNumHashes = maxNumHashes;
-    request.appendCopy(firstKey, firstKeyLength);
-    request.appendCopy(lastKey, lastKeyLength);
+    request.append(firstKey, firstKeyLength);
+    request.append(lastKey, lastKeyLength);
     send();
 }
 
@@ -1829,7 +1830,7 @@ ReadRpc::ReadRpc(RamCloud* ramcloud, uint64_t tableId,
     reqHdr->tableId = tableId;
     reqHdr->keyLength = keyLength;
     reqHdr->rejectRules = rejectRules ? *rejectRules : defaultRejectRules;
-    request.appendExternal(key, keyLength);
+    request.append(key, keyLength);
     send();
 }
 
@@ -1895,7 +1896,7 @@ ReadKeysAndValueRpc::ReadKeysAndValueRpc(RamCloud* ramcloud, uint64_t tableId,
     reqHdr->tableId = tableId;
     reqHdr->keyLength = keyLength;
     reqHdr->rejectRules = rejectRules ? *rejectRules : defaultRejectRules;
-    request.appendExternal(key, keyLength);
+    request.append(key, keyLength);
     send();
 }
 
@@ -1984,7 +1985,7 @@ RemoveRpc::RemoveRpc(RamCloud* ramcloud, uint64_t tableId,
     reqHdr->tableId = tableId;
     reqHdr->keyLength = keyLength;
     reqHdr->rejectRules = rejectRules ? *rejectRules : defaultRejectRules;
-    request.appendExternal(key, keyLength);
+    request.append(key, keyLength);
     send();
 }
 
@@ -2097,9 +2098,9 @@ ObjectServerControlRpc::ObjectServerControlRpc(RamCloud* ramcloud,
 
     reqHdr->tableId = tableId;
     reqHdr->keyLength = keyLength;
-    request.appendExternal(key, keyLength);
+    request.append(key, keyLength);
     reqHdr->inputLength = inputLength;
-    request.appendExternal(inputData, inputLength);
+    request.append(inputData, inputLength);
     send();
 }
 
@@ -2179,7 +2180,7 @@ ServerControlAllRpc::ServerControlAllRpc(RamCloud* ramcloud,
 
     reqHdr->controlOp = controlOp;
     reqHdr->inputLength = inputLength;
-    request.appendExternal(inputData, inputLength);
+    request.append(inputData, inputLength);
     send();
 }
 
@@ -2206,7 +2207,7 @@ RamCloud::logMessageAll(LogLevel level, const char* fmt, ...)
     va_end(args);
 
     toSend.emplaceAppend<LogLevel>(level);
-    toSend.appendCopy(toAdd.data(), (uint32_t) toAdd.size());
+    toSend.append(toAdd.data(), (uint32_t) toAdd.size());
 
     ServerControlAllRpc rpc(this, WireFormat::LOG_MESSAGE,
         toSend.getStart<char>(), toSend.size(), &outputData);
@@ -2258,7 +2259,7 @@ SplitTabletRpc::SplitTabletRpc(RamCloud* ramcloud,
             allocHeader<WireFormat::SplitTablet>());
     reqHdr->nameLength = length;
     reqHdr->splitKeyHash = splitKeyHash;
-    request.appendCopy(name, length);
+    request.append(name, length);
     send();
 }
 
@@ -2375,7 +2376,7 @@ GetRuntimeOptionRpc::GetRuntimeOptionRpc(RamCloud* ramcloud, const char* option,
     WireFormat::GetRuntimeOption::Request*
             reqHdr(allocHeader<WireFormat::GetRuntimeOption>());
     reqHdr->optionLength = downCast<uint32_t> (strlen(option) + 1);
-    request.appendExternal(option, reqHdr->optionLength);
+    request.append(option, reqHdr->optionLength);
     send();
 }
 
@@ -2523,8 +2524,8 @@ SetRuntimeOptionRpc::SetRuntimeOptionRpc(RamCloud* ramcloud,
             allocHeader<WireFormat::SetRuntimeOption>());
     reqHdr->optionLength = downCast<uint32_t>(strlen(option) + 1);
     reqHdr->valueLength = downCast<uint32_t>(strlen(value) + 1);
-    request.appendExternal(option, reqHdr->optionLength);
-    request.appendExternal(value, reqHdr->valueLength);
+    request.append(option, reqHdr->optionLength);
+    request.append(value, reqHdr->valueLength);
     send();
 }
 
