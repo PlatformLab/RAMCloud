@@ -82,8 +82,7 @@ def get_client_log(
     ignoring RAMCloud log messages (what's left should be a
     summary of the results from a test.
     """
-
-    globResult = glob.glob('%s/latest/client%d*.log' %
+    globResult = glob.glob('%s/latest/client%d.*.log' %
             (options.log_dir, index))
     if len(globResult) == 0:
         raise Exception("couldn't find log file for client %d" % (index))
@@ -94,7 +93,7 @@ def get_client_log(
     return result
 
 def print_cdf_from_log(
-        index = 0                 # Client index (0 for first client,
+        index = 1                 # Client index (0 for first client,
                                   # which is usually the one that's wanted)
         ):
     """
