@@ -114,6 +114,7 @@ Buffer::alloc(size_t numBytes)
     allocatedLength -= sizeof32(Buffer::Chunk);
     Buffer::Chunk *chunk = new(firstByte + allocatedLength) Buffer::Chunk(
             firstByte, numBytes32);
+    chunk->internal = 1;
     extraAppendBytes = allocatedLength - numBytes32;
     if (lastChunk != NULL) {
         // Not the first chunk in the Buffer.
@@ -210,6 +211,43 @@ Buffer::allocPrepend(size_t numBytes)
     chunk->next = firstChunk;
     firstChunk = chunk;
     return data;
+}
+
+/*
+ * Append to this buffer a range of bytes from another buffer. The append
+ * is done so that this buffer will not refer to any internally stored
+ * data from src (it will copy that data into this buffer); however, this
+ * buffer may still refer to data from src that was stored externally (i.e.,
+ * it will not necessarily copy external data).
+ *
+ * \param src
+ *      Buffer from which data is to be shared. External data referred to by
+ *      this buffer must remain stable for the lifetime of the current
+ *      buffer. For example, it may not be safe to invoke src->reset().
+ * \param offset
+ *      Index in src of the first byte of data to be added to the current
+ *      buffer.
+ * \param length
+ *      Total number of bytes of data to append.
+ */
+void
+Buffer::append(Buffer* src, uint32_t offset, uint32_t length)
+{
+    Iterator it(src, offset, length);
+    while (!it.isDone()) {
+        if (it.current->internal) {
+            // Forcing a copy is necessary to handle cases where information
+            // is assembled in an intermediate buffer that is a local
+            // variable of the method, then appended from that buffer
+            // to another buffer, and the method returns, which destroys
+            // the intermediate buffer. For example, this happens in
+            // ObjectManager::readObject as of 12/2014.
+            appendCopy(it.getData(), it.getLength());
+        } else {
+            append(it.getData(), it.getLength());
+        }
+        it.next();
+    }
 }
 
 /*

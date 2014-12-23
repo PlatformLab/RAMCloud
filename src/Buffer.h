@@ -115,6 +115,7 @@ class Buffer {
         }
     }
 
+    void append(Buffer* src, uint32_t offset = 0, uint32_t length = ~0);
     void appendExternal(Buffer* src, uint32_t offset = 0, uint32_t length = ~0);
     void appendChunk(Chunk* chunk);
 
@@ -414,12 +415,16 @@ class Buffer {
     class Chunk {
       public:
         Chunk(const void* data, uint32_t length)
-            : data(const_cast<char*>(static_cast<const char*>(data)))
+            : next(NULL)
+            , data(const_cast<char*>(static_cast<const char*>(data)))
             , length(length)
-            , next(NULL)
+            , internal(0)
         { }
 
         virtual ~Chunk() {}
+
+        /// Next Chunk in Buffer, or NULL if this is the last Chunk.
+        Chunk* next;
 
         /// First byte of valid data in this Chunk.
         char* data;
@@ -427,8 +432,9 @@ class Buffer {
         /// The number of valid bytes currently stored in the Chunk.
         uint32_t length;
 
-        /// Next Chunk in Buffer, or NULL if this is the last Chunk.
-        Chunk* next;
+        /// Nonzero means this chunk refers to data that is stored
+        /// internally in this Buffer. Zero means the data is external.
+        uint8_t internal;
 
       PRIVATE:
         DISALLOW_COPY_AND_ASSIGN(Chunk);
@@ -511,6 +517,8 @@ class Buffer {
         /// The number of bytes left to iterate, including those at the
         /// current iterator position.
         uint32_t bytesLeft;
+
+        friend class Buffer;
     };
 
     static Syscall* sys;
