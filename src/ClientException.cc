@@ -142,6 +142,8 @@ ClientException::throwException(const CodeLocation& where, Status status)
             throw InvalidParameterException(where);
         case STATUS_STALE_RPC:
             throw StaleRpcException(where);
+        case STATUS_EXPIRED_LEASE:
+            throw ExpiredLeaseException(where);
         default:
             throw InternalError(where, status);
     }

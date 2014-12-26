@@ -132,10 +132,6 @@ class Context {
     // not freed by this class.
     MasterRecoveryManager* recoveryManager;
 
-    // Client-side storage for tracking the status of all outstanding RPCs.
-    // See "Linearizable RPC" in designNotes for details.
-    RpcTracker* rpcTracker;
-
   PRIVATE:
     void destroy();
     DISALLOW_COPY_AND_ASSIGN(Context);

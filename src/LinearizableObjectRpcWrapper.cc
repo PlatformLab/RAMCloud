@@ -93,28 +93,30 @@ LinearizableObjectRpcWrapper::LinearizableObjectRpcWrapper(
 LinearizableObjectRpcWrapper::~LinearizableObjectRpcWrapper()
 {
     if (linearizabilityOn && assignedRpcId) {
-        ramcloud->clientContext->rpcTracker->rpcFinished(assignedRpcId);
+        ramcloud->rpcTracker.rpcFinished(assignedRpcId);
         assignedRpcId = 0;
     }
 }
 
 /**
  * In addition to regular RPC cancel, it marks the rpc finished in RpcTracker.
+ * Once an RPC is cancelled, it will not be retried nor be finished with wait().
+ * So we should acknowledge the RPC regardless of receipt of its response.
  */
 void
 LinearizableObjectRpcWrapper::cancel()
 {
     RpcWrapper::cancel();
     if (linearizabilityOn && assignedRpcId) {
-        ramcloud->clientContext->rpcTracker->rpcFinished(assignedRpcId);
+        ramcloud->rpcTracker.rpcFinished(assignedRpcId);
         assignedRpcId = 0;
     }
 }
 
 /**
- * Fills request header with linearizability informations.
+ * Fills request header with linearizability information.
  * This function should be invoked in the constructor of every linearizable
- * RPCs.
+ * RPC.
  * \param reqHdr
  *      Pointer to request header to be filled with linearizability info.
  */
@@ -123,17 +125,17 @@ void
 LinearizableObjectRpcWrapper::fillLinearizabilityHeader(RpcRequest* reqHdr)
 {
     if (linearizabilityOn) {
-        assignedRpcId = ramcloud->clientContext->rpcTracker->newRpcId(this);
+        assignedRpcId = ramcloud->rpcTracker.newRpcId(this);
         if (!assignedRpcId) {
             LinearizableObjectRpcWrapper* oldest =
-                ramcloud->clientContext->rpcTracker->oldestOutstandingRpc();
+                ramcloud->rpcTracker.oldestOutstandingRpc();
             oldest->waitInternal(ramcloud->clientContext->dispatch);
-            assignedRpcId = ramcloud->clientContext->rpcTracker->newRpcId(this);
+            assignedRpcId = ramcloud->rpcTracker.newRpcId(this);
         }
         assert(assignedRpcId);
         reqHdr->lease = ramcloud->clientLease.getLease();
         reqHdr->rpcId = assignedRpcId;
-        reqHdr->ackId = ramcloud->clientContext->rpcTracker->ackId();
+        reqHdr->ackId = ramcloud->rpcTracker.ackId();
     } else {
         reqHdr->rpcId = 0; // rpcId starts from 1. 0 means non-linearizable
         reqHdr->ackId = 0;
@@ -143,7 +145,7 @@ LinearizableObjectRpcWrapper::fillLinearizabilityHeader(RpcRequest* reqHdr)
 /**
  * Overrides RpcWrapper::waitInternal.
  * Call #RpcWrapper::waitInternal and process linearizability information.
- * Marks the current RPC is finished in RpcTracker.
+ * Marks the current RPC as finished in RpcTracker.
  *
  * \param dispatch
  *      Dispatch to use for polling while waiting.
@@ -175,7 +177,7 @@ LinearizableObjectRpcWrapper::waitInternal(Dispatch* dispatch,
     assert(state == FINISHED || state == CANCELED);
 #endif
 
-    ramcloud->clientContext->rpcTracker->rpcFinished(assignedRpcId);
+    ramcloud->rpcTracker.rpcFinished(assignedRpcId);
     assignedRpcId = 0;
     return true;
 }

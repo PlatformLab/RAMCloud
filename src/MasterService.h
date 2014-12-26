@@ -279,29 +279,27 @@ class MasterService : public Service {
                 CoordinatorClient::getLeaseInfo(context,
                                                 reqHdr->lease.leaseId);
             updateClusterTime(lease.timestamp);
-            if (lease.leaseTerm < clusterTime) {
-                //TODO(seojin): add expired lease status.
-                respHdr->common.status = STATUS_STALE_RPC;
+            if (lease.leaseId == 0) {
+                respHdr->common.status = STATUS_EXPIRED_LEASE;
                 return true;
             }
         }
-        try {
-            void* result;
-            if (unackedRpcResults.checkDuplicate(reqHdr->lease.leaseId,
-                                                 reqHdr->rpcId,
-                                                 reqHdr->ackId,
-                                                 reqHdr->lease.leaseTerm,
-                                                 &result)) {
-                //Obtain saved result and reply back.
-                Buffer resultBuffer;
-                Log::Reference resultRef((uint64_t)result);
-                objectManager.getLog()->getEntry(resultRef, resultBuffer);
-                RpcRecord savedRec(resultBuffer);
-                *respHdr = *((WireFormat::Write::Response*)savedRec.getResp());
-                return true;
+        void* result;
+        if (unackedRpcResults.checkDuplicate(reqHdr->lease.leaseId,
+                                             reqHdr->rpcId,
+                                             reqHdr->ackId,
+                                             reqHdr->lease.leaseTerm,
+                                             &result)) {
+            if (!result) {
+                throw RetryException(HERE, 50, 50,
+                        "Duplicate RPC is in progress.");
             }
-        } catch (UnackedRpcResults::StaleRpc& e) {
-            respHdr->common.status = STATUS_STALE_RPC;
+            //Obtain saved result and reply back.
+            Buffer resultBuffer;
+            Log::Reference resultRef((uint64_t)result);
+            objectManager.getLog()->getEntry(resultRef, resultBuffer);
+            RpcRecord savedRec(resultBuffer);
+            *respHdr = *((WireFormat::Write::Response*)savedRec.getResp());
             return true;
         }
         return false;

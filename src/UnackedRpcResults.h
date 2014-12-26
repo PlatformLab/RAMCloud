@@ -51,11 +51,6 @@ class UnackedRpcResults {
                        void* result);
     bool isRpcAcked(uint64_t clientId, uint64_t rpcId);
 
-    /// Thrown if already acknowledged rpcId is checked in checkDuplicate().
-    struct StaleRpc : public Exception {
-        explicit StaleRpc(const CodeLocation& where) : Exception(where) {}
-    };
-
   PRIVATE:
     void resizeRpcList(uint64_t clientId, int size);
     void cleanByTimeout(Context* context);

@@ -77,10 +77,19 @@ class RpcTracker {
      * to keep records of all outstanding rpcs.
      *
      * Assuming slow RPC takes 4 times more than average, we can have
-     * at least 25 concurrent outstanding linearizable RPCs with the maximum
-     * distance value 100.
+     * at least 32 concurrent outstanding linearizable RPCs with the maximum
+     * distance value 128. Relatively small value was chosen to limit the effect
+     * of bad clients on master's storage burden.
+     *
+     * For fast indexing in window (using ANDing), the size should be always
+     * a power of two.
      */
-    static const int windowSize = 100;
+    static const int windowSize = 128;
+
+    /**
+     * Bitmask to calculate index in rpcs array from rpcId.
+     */
+    static const int indexMask = windowSize - 1;
 
     /**
      * Array keeping pointers to RPC wrappers for RPCs whose id is

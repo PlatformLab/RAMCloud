@@ -870,8 +870,9 @@ ObjectManager::syncChanges()
  *      If non-NULL, pointer to the buffer in log for the object being removed
  *      is returned.
  * \param rpcRecord
- *      If non-NULL, objectManager writes rpcRecord for linearizable RPCs
- *      on log atomically with object.
+ *      If non-NULL, this method appends rpcRecord to the log atomically with
+ *      the other record(s) for the write. The extra record is used to ensure
+ *      linearizability.
  * \param[out] rpcRecordPtr
  *      If non-NULL, pointer to the RpcRecord in log is returned.
  * \return
@@ -967,12 +968,15 @@ ObjectManager::writeObject(Object& newObject, RejectRules* rejectRules,
                             WallTime::secondsTimestamp());
     }
 
-    // Create a vector of appends in case we need to write a tombstone and
-    // an object. This is necessary to ensure that both tombstone and object
+    // Create a vector of appends in case we need to write multiple log entries
+    // including a tombstone, an object and a linearizability record.
+    // This is necessary to ensure that both tombstone, object and rpcRecord
     // are written atomically. The log makes no atomicity guarantees across
     // multiple append calls and we don't want a tombstone going to backups
     // before the new object, or the new object going out without a tombstone
     // for the old deleted version. Both cases lead to consistency problems.
+    // The same argument holds for linearizability records; the linearizability
+    // record should exist if and only if new object is written.
     Log::AppendVector appends[2 + (rpcRecord ? 1 : 0)];
 
     newObject.assembleForLog(appends[0].buffer);
@@ -994,7 +998,6 @@ ObjectManager::writeObject(Object& newObject, RejectRules* rejectRules,
 
     int rpcRecordIndex = 1 + (tombstone ? 1 : 0);
     if (rpcRecord) {
-        ((WireFormat::ResponseCommon*)rpcRecord->getResp())->status = STATUS_OK;
         rpcRecord->assembleForLog(appends[rpcRecordIndex].buffer);
         appends[rpcRecordIndex].type = LOG_ENTRY_TYPE_RPCRECORD;
     }
@@ -1184,7 +1187,6 @@ ObjectManager::flushEntriesToLog(Buffer *logBuffer, uint32_t& numEntries)
  * for the log. The idea is that eventually, each of the log entries in
  * the buffer can be flushed atomically by the log.
  * It is general enough to be used by any other module.
- *
  *
  * \param newObject
  *      The object for which the object header and the log entry

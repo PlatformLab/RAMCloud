@@ -70,10 +70,9 @@ RamCloud::RamCloud(const char* locator, const char* clusterName)
     , status(STATUS_OK)
     , clientLease(this)
     , objectFinder(clientContext)
-    , realRpcTracker()
+    , rpcTracker()
 {
     clientContext->coordinatorSession->setLocation(locator, clusterName);
-    clientContext->rpcTracker = &realRpcTracker;
 }
 
 /**
@@ -89,10 +88,9 @@ RamCloud::RamCloud(Context* context, const char* locator,
     , status(STATUS_OK)
     , clientLease(this)
     , objectFinder(clientContext)
-    , realRpcTracker()
+    , rpcTracker()
 {
     clientContext->coordinatorSession->setLocation(locator, clusterName);
-    clientContext->rpcTracker = &realRpcTracker;
 }
 
 /**

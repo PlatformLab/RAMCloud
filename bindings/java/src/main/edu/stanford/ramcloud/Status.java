@@ -51,7 +51,8 @@ public enum Status {
     STATUS_UNKNOWN_INDEXLET,
     STATUS_UNKNOWN_INDEX,
     STATUS_INVALID_PARAMETER,
-    STATUS_STALE_RPC;
+    STATUS_STALE_RPC,
+    STATUS_EXPIRED_LEASE;
     
     public static final Status[] statuses = Status.values();
 }

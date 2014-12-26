@@ -82,7 +82,7 @@ ClientLease::handleTimerEvent()
 
             // Only reschedule for lease renewal if there are
             // unfinished rpcs.
-            if (ramcloud->realRpcTracker.hasUnfinishedRpc()) {
+            if (ramcloud->rpcTracker.hasUnfinishedRpc()) {
                 uint64_t renewCycleTime = 0;
                 if (leaseTermLenUs > RENEW_THRESHOLD_US) {
                     renewCycleTime = Cycles::fromMicroseconds(
